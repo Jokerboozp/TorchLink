@@ -10,7 +10,7 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 | **在线部署** | 全部运行在 Docker | 一键生成配置、下载/构建镜像并启动 | `http://服务器IP:8080` |
 | **离线部署** | 全部运行在 Docker | 有网机器打包，离线服务器一键导入并启动 | `http://服务器IP:8080` |
 
-以下命令均在 **`platform` 目录**执行。三种方案都需要已安装并启动 Docker（Linux 容器）及 Docker Compose v2；本地运行另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。脚本检查运行环境，不负责安装 Docker、Go 或 Node.js。
+以下命令均在**本仓库根目录**执行。三种方案都需要已安装并启动 Docker（Linux 容器）及 Docker Compose v2；本地运行另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。脚本检查运行环境，不负责安装 Docker、Go 或 Node.js。
 
 默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务，以及 Ollama/Weaviate 知识库依赖和 `nomic-embed-text` 嵌入模型。对话模型和 DeepSeek Harness 按需开启，基础设备与告警功能不要求云端 AI 密钥。
 
@@ -49,11 +49,11 @@ npm run dev
 
 Windows PowerShell 若提示 npm 脚本执行策略错误，改用 `npm.cmd run dev`。访问 **http://localhost:5173**，前端自动代理到本机 API `8081` 端口。
 
-GoLand / VS Code 调试时，工作目录设为 `platform`、程序设为 `cmd/iot-platform`，程序参数填 `--env-file .env.local`，无需手工复制数据库地址。已有进程环境变量优先于配置文件；旧 IDE 配置中的硬编码密码或地址应先移除。
+GoLand / VS Code 调试时，工作目录设为仓库根目录、程序设为 `cmd/iot-platform`，程序参数填 `--env-file .env.local`，无需手工复制数据库地址。已有进程环境变量优先于配置文件；旧 IDE 配置中的硬编码密码或地址应先移除。
 
 ## 2. 在线部署
 
-把源码放到有网络的目标服务器，在 `platform` 下执行：
+把本仓库源码放到有网络的目标服务器，在仓库根目录执行：
 
 Windows PowerShell：
 
@@ -131,5 +131,6 @@ AI 可选参数、端口、日志、停止与升级命令见 [部署配置与维
 | [AI 工作流](docs/AI_PLUGIN_HARNESS.md) | Harness、Agent 和知识库 |
 | [GB/T 26875](docs/GB26875_DAHUA_V103.md) | 国标网关接入 |
 | [ThingsPanel 集成](docs/THINGSPANEL_INTEGRATION.md) | 可选上游集成 |
+| [上游版本](docs/UPSTREAM_VERSIONS.md) | ThingsPanel 参考仓库的锁定版本与许可证 |
 
-开发检查：在 `platform` 执行 `go test ./...`；在 `iot_front` 执行 `npm test` 和 `npm run build`。摄像头模块仅管理元数据和设备关联，视频流由外部视频平台提供。
+开发检查：在仓库根目录执行 `go test ./...`；在 `iot_front` 执行 `npm test` 和 `npm run build`。摄像头模块仅管理元数据和设备关联，视频流由外部视频平台提供。
