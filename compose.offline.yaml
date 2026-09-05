@@ -4,22 +4,22 @@ name: iot-platform
 # 部署脚本仍会强制使用 --no-build --pull never。
 services:
   platform-api:
-    image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:offline}
+    image: iot-platform-api:offline
 
   platform-web:
-    image: ${IOT_PLATFORM_WEB_IMAGE:-iot-platform-web:offline}
+    image: iot-platform-web:offline
 
   gb26875-gateway:
-    image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:offline}
+    image: iot-platform-api:offline
 
   deepseek-harness:
-    image: ${IOT_DEEPSEEK_HARNESS_IMAGE:-iot-deepseek-harness:offline}
+    image: iot-deepseek-harness:offline
 
   backup-service:
-    image: ${IOT_BACKUP_IMAGE:-iot-platform-backup:offline}
+    image: iot-platform-backup:offline
 
   backend:
-    image: ${IOT_THINGSPANEL_BACKEND_IMAGE:-iot-thingspanel-backend:offline}
+    image: iot-thingspanel-backend:offline
 
   thingspanel:
-    image: ${IOT_THINGSPANEL_WEB_IMAGE:-iot-thingspanel-web:offline}
+    image: iot-thingspanel-web:offline

@@ -1,13 +1,17 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [object[]]$Arguments
+    [string]$OutputDir = "offline-bundles",
+    [string]$EnvFile = "",
+    [switch]$Full,
+    [switch]$IncludeAi,
+    [switch]$IncludeHarness,
+    [switch]$IncludeThingsPanel,
+    [switch]$IncludeGb26875,
+    [string]$OllamaModel = "qwen3:8b",
+    [string]$OllamaEmbeddingModel = "nomic-embed-text",
+    [switch]$SkipOllamaModel
 )
 
-if ($env:OS -ne "Windows_NT") {
-    throw "此脚本只能在 Windows PowerShell 上运行。"
-}
-
-$target = Join-Path $PSScriptRoot "package-offline.ps1"
-& $target @Arguments
-exit $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($env:OS -ne "Windows_NT") { throw "此脚本只能在 Windows 上运行。" }
+& (Join-Path $PSScriptRoot "package-offline.ps1") @PSBoundParameters

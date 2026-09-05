@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -159,10 +160,12 @@ const maxProtocolPackageV2 = int64(64 << 20)
 const maxProtocolPackageExpandedV2 = int64(128 << 20)
 
 func (s *Server) uploadProtocolPackageV2(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxProtocolPackageV2+(1<<20))
 	if err := r.ParseMultipartForm(maxProtocolPackageV2 + 1<<20); err != nil {
 		problem(w, 400, "invalid protocol package upload")
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	file, header, err := r.FormFile("package")
 	if err != nil {
 		file, header, err = r.FormFile("file")
@@ -205,6 +208,12 @@ func (s *Server) uploadProtocolPackageV2(w http.ResponseWriter, r *http.Request)
 		problem(w, 422, err.Error())
 		return
 	}
+	s.installProtocolPackageV2(w, r, data, entries, manifest, header.Filename, nil)
+}
+
+// Source and prebuilt uploads share validation, immutable storage and binding.
+func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request, data []byte, entries map[string][]byte, manifest protocolPackageManifestV2, filename string, buildInfo map[string]any) {
+	protocolID := manifest.ID
 	publish, err := formBoolStrict(r, "publish", true)
 	if err != nil {
 		problem(w, 422, err.Error())
@@ -269,10 +278,13 @@ func (s *Server) uploadProtocolPackageV2(w http.ResponseWriter, r *http.Request)
 	if old, getErr := s.engine.Repo.GetProtocolDefinition(r.Context(), tenant, protocolID); getErr == nil {
 		definition.CreatedAt = old.CreatedAt
 	}
-	artifact := map[string]any{"path": filepath.ToSlash(relativeWorker), "packagePath": filepath.ToSlash(relativePackage), "filename": header.Filename, "sha256": hex.EncodeToString(workerDigest[:]), "packageSha256": hex.EncodeToString(packageDigest[:]), "size": len(worker), "runtime": manifest.Runtime, "platform": targetPlatform, "uploadedAt": now}
+	artifact := map[string]any{"path": filepath.ToSlash(relativeWorker), "packagePath": filepath.ToSlash(relativePackage), "filename": filename, "sha256": hex.EncodeToString(workerDigest[:]), "packageSha256": hex.EncodeToString(packageDigest[:]), "size": len(worker), "runtime": manifest.Runtime, "platform": targetPlatform, "uploadedAt": now}
+	if buildInfo != nil {
+		artifact["build"] = buildInfo
+	}
 	// Every custom release carries executable regression cases, even when it
 	// is uploaded as VALIDATED and published in a later operation.
-	testCount, testErr := validateProtocolPackageCasesV2(root, artifact, entries, manifest, true)
+	testCount, testErr := validateProtocolPackageCasesContextV2(r.Context(), root, artifact, entries, manifest, true)
 	if testErr != nil {
 		_ = os.Remove(workerPath)
 		_ = os.Remove(packagePath)
@@ -311,6 +323,12 @@ type protocolPackageCaseV2 struct {
 }
 
 func validateProtocolPackageCasesV2(root string, artifact map[string]any, entries map[string][]byte, manifest protocolPackageManifestV2, required bool) (int, error) {
+	return validateProtocolPackageCasesContextV2(context.Background(), root, artifact, entries, manifest, required)
+}
+
+func validateProtocolPackageCasesContextV2(parent context.Context, root string, artifact map[string]any, entries map[string][]byte, manifest protocolPackageManifestV2, required bool) (int, error) {
+	ctx, cancel := context.WithTimeout(parent, time.Minute)
+	defer cancel()
 	data := entries["samples/cases.json"]
 	if len(data) == 0 {
 		if required {
@@ -327,6 +345,9 @@ func validateProtocolPackageCasesV2(root string, artifact map[string]any, entrie
 	// validation therefore gets a wider bound than the steady-state parser.
 	config := map[string]any{"artifact": artifact, "timeoutMs": 10000}
 	for index, testCase := range cases {
+		if err := ctx.Err(); err != nil {
+			return index, fmt.Errorf("protocol sample validation canceled or exceeded 60 seconds: %w", err)
+		}
 		if testCase.Input.MessageID == "" {
 			testCase.Input.MessageID = fmt.Sprintf("raw_package_test_%d", index+1)
 		}
@@ -348,7 +369,7 @@ func validateProtocolPackageCasesV2(root string, artifact map[string]any, entrie
 		if testCase.Input.PayloadFormat == "" {
 			testCase.Input.PayloadFormat = manifest.PayloadFormat
 		}
-		message, err := runner.ParseWithConfig(testCase.Input, config)
+		message, err := runner.ParseWithContext(ctx, testCase.Input, config)
 		if err != nil {
 			return index, fmt.Errorf("protocol package case %q failed: %w", firstNonBlank(testCase.Name, strconv.Itoa(index+1)), err)
 		}
@@ -356,7 +377,8 @@ func validateProtocolPackageCasesV2(root string, artifact map[string]any, entrie
 			return index, fmt.Errorf("protocol package case %q returned messageType %s, want %s", firstNonBlank(testCase.Name, strconv.Itoa(index+1)), message.MessageType, testCase.ExpectedMessageType)
 		}
 		for key, expected := range testCase.ExpectedProperties {
-			if fmt.Sprint(message.Properties[key]) != fmt.Sprint(expected) {
+			actual, exists := message.Properties[key]
+			if !exists || !reflect.DeepEqual(actual, expected) {
 				return index, fmt.Errorf("protocol package case %q property %s=%v, want %v", firstNonBlank(testCase.Name, strconv.Itoa(index+1)), key, message.Properties[key], expected)
 			}
 		}
@@ -505,7 +527,7 @@ func (s *Server) rollbackProductProtocolV2(w http.ResponseWriter, r *http.Reques
 		problem(w, 409, "there is no previous protocol release to roll back to")
 		return
 	}
-	binding, err := s.bindProtocolRelease(r, current.ProtocolID, current.PreviousVersion, productID)
+	binding, err := s.bindProtocolRelease(r, firstNonBlank(current.PreviousProtocolID, current.ProtocolID), current.PreviousVersion, productID)
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -526,14 +548,15 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	if err != nil {
 		return model.ProductProtocolBinding{}, errors.New("product not found")
 	}
-	previous := ""
+	previous, previousProtocol := "", ""
 	if old, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); getErr == nil {
+		if old.ProtocolID == protocolID && old.Version == version {
+			return old, nil
+		}
 		previous = old.Version
+		previousProtocol = old.ProtocolID
 	}
-	binding := model.ProductProtocolBinding{TenantID: tenant, ProductID: productID, ProtocolID: protocolID, Version: version, PreviousVersion: previous, UpdatedAt: time.Now().UnixMilli()}
-	if err = s.engine.Repo.SaveProductProtocolBinding(r.Context(), binding); err != nil {
-		return binding, err
-	}
+	binding := model.ProductProtocolBinding{TenantID: tenant, ProductID: productID, ProtocolID: protocolID, Version: version, PreviousVersion: previous, PreviousProtocolID: previousProtocol, UpdatedAt: time.Now().UnixMilli()}
 	shim := legacyProtocolShim(release)
 	if err = s.engine.Repo.SaveProtocolPackage(r.Context(), shim); err != nil {
 		return binding, err
@@ -543,6 +566,9 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	product.PayloadFormat = release.PayloadFormat
 	product.UpdatedAt = binding.UpdatedAt
 	if err = s.engine.Repo.SaveProduct(r.Context(), product); err != nil {
+		return binding, err
+	}
+	if err = s.engine.Repo.SaveProductProtocolBinding(r.Context(), binding); err != nil {
 		return binding, err
 	}
 	s.audit(r, "protocol.v2.binding.switch", "product", productID, map[string]any{"protocolId": protocolID, "version": version, "previousVersion": previous})

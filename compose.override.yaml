@@ -1,4 +1,6 @@
-# VS Code 本地调试覆盖层。
+# 旧版 VS Code 本地调试覆盖层，保留以兼容已有环境。
+# 新本地运行入口使用 scripts/setup-local 和独立 compose.local.yaml。
+# 在线/离线一键脚本显式指定 -f，不会自动加载本文件。
 # 从宿主机启动 Go 服务时，使用这些端口访问 Docker 内的依赖服务。
 services:
   postgres:

@@ -1,0 +1,54 @@
+// 修改 Decode 中的解析逻辑，然后直接上传本文件。无需手工编译。
+package main
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+)
+
+type RawMessage struct {
+	Payload json.RawMessage `json:"payload"`
+	PayloadFormat string `json:"payloadFormat"`
+	DeviceID string `json:"deviceId"`
+	Metadata map[string]any `json:"metadata"`
+}
+
+type Message struct {
+	MessageType string `json:"messageType"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Event map[string]any `json:"event,omitempty"`
+}
+
+// Decode 使用普通 Go 语法和标准库；可自由拆成多个函数或项目内的包。
+// 示例报文 AA 01 2A：第三个字节表示温度，输出 temperature=42。
+func Decode(raw RawMessage) (Message, error) {
+	var text string
+	if err := json.Unmarshal(raw.Payload, &text); err != nil {
+		return Message{}, fmt.Errorf("报文应为十六进制字符串: %w", err)
+	}
+	data, err := hex.DecodeString(strings.Join(strings.Fields(text), ""))
+	if err != nil { return Message{}, err }
+	if len(data) != 3 || data[0] != 0xAA || data[1] != 0x01 {
+		return Message{}, errors.New("报文须为 AA 01 加一个温度字节")
+	}
+	return Message{MessageType:"PROPERTY_REPORT", Properties:map[string]any{
+		"temperature": int(data[2]),
+	}}, nil
+}
+
+// main 是平台调用入口。标准输出只写解析结果，调试日志请写 os.Stderr。
+func main() {
+	var raw RawMessage
+	err := json.NewDecoder(os.Stdin).Decode(&raw)
+	var message Message
+	if err == nil { message, err = Decode(raw) }
+	if err != nil {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error":err.Error()})
+		return
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(message)
+}

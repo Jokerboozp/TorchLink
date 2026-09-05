@@ -1,13 +1,10 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [object[]]$Arguments
+    [string]$BundleDir = "",
+    [switch]$SkipHashCheck,
+    [switch]$SkipHealthCheck
 )
 
-if ($env:OS -ne "Windows_NT") {
-    throw "此脚本只能在 Windows PowerShell 上运行。"
-}
-
-$target = Join-Path $PSScriptRoot "deploy-offline.ps1"
-& $target @Arguments
-exit $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($env:OS -ne "Windows_NT") { throw "此脚本只能在 Windows 上运行。" }
+& (Join-Path $PSScriptRoot "deploy-offline.ps1") @PSBoundParameters

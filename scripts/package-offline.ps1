@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$OutputDir = "offline-bundles",
     [string]$EnvFile = "",
@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
+. (Join-Path $scriptDir 'lib/deployment.ps1')
 
 if ($Full) {
     $IncludeAi = $true
@@ -48,7 +49,7 @@ function Invoke-Captured {
 function Write-Utf8NoBom {
     param(
         [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string[]]$Lines
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Lines
     )
 
     $encoding = New-Object System.Text.UTF8Encoding($false)
@@ -88,7 +89,7 @@ function Get-EnvEntries {
 
 function Set-OrAdd-EnvLine {
     param(
-        [Parameter(Mandatory)][string[]]$Lines,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Lines,
         [Parameter(Mandatory)][string]$Key,
         [Parameter(Mandatory)][string]$Value
     )
@@ -107,7 +108,7 @@ function Set-OrAdd-EnvLine {
     if (-not $replaced) {
         [void]$result.Add("$Key=$Value")
     }
-    return ,$result.ToArray()
+    return $result.ToArray()
 }
 
 function New-OfflineEnv {
@@ -136,6 +137,8 @@ function New-OfflineEnv {
             "EMQX_DASHBOARD_USER", "EMQX_DASHBOARD_PASSWORD",
             "GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"
         )
+        if ($UseThingsPanel) { $required += "THINGSPANEL_POSTGRES_PASSWORD" }
+        if ($UseHarness) { $required += "IOT_AI_HARNESS_TOKEN" }
         foreach ($key in $required) {
             if (-not $entries.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$entries[$key])) {
                 throw "EnvFile 缺少必填安全配置：$key。请不要直接使用 .env.example 的默认值。"
@@ -160,10 +163,11 @@ function New-OfflineEnv {
         $backupToken = New-RandomHex -Bytes 32
         $emqxPassword = "Emqx-" + (New-RandomHex -Bytes 12)
         $grafanaPassword = "Grafana-" + (New-RandomHex -Bytes 12)
+        $thingsPanelPassword = "tp-" + (New-RandomHex -Bytes 18)
 
         $ollamaUrl = if ($UseAi) { "http://ollama:11434" } else { "" }
         $aiProvider = if ($UseAi) { "ollama" } else { "" }
-        $weaviateUrl = if ($UseAi) { "http://weaviate:8080" } else { "" }
+        $weaviateUrl = "http://weaviate:8080"
         $harnessUrl = if ($UseHarness) { "http://deepseek-harness:8091" } else { "" }
 
         $lines = @(
@@ -210,7 +214,8 @@ function New-OfflineEnv {
             "EMQX_DASHBOARD_USER=admin",
             "EMQX_DASHBOARD_PASSWORD=$emqxPassword",
             "GRAFANA_ADMIN_USER=admin",
-            "GRAFANA_ADMIN_PASSWORD=$grafanaPassword"
+            "GRAFANA_ADMIN_PASSWORD=$grafanaPassword",
+            "THINGSPANEL_POSTGRES_PASSWORD=$thingsPanelPassword"
         )
 
         [void]$credentialLines.Add("平台管理员：admin")
@@ -223,6 +228,7 @@ function New-OfflineEnv {
         [void]$credentialLines.Add("ClickHouse 密码：$clickhousePassword")
         [void]$credentialLines.Add("MinIO 主密码：$minioPassword")
         [void]$credentialLines.Add("MinIO 灾备密码：$minioDrPassword")
+        if ($UseThingsPanel) { [void]$credentialLines.Add("ThingsPanel PostgreSQL 密码：$thingsPanelPassword") }
     }
 
     $imageValues = [ordered]@{
@@ -252,36 +258,11 @@ function New-OfflineEnv {
     }
 }
 
-function Get-ImageIdForComposeService {
-    param(
-        [Parameter(Mandatory)][string]$Service,
-        [Parameter(Mandatory)][string[]]$ProfileArguments
-    )
-
-    $composeArguments = @("compose") + $ProfileArguments + @("images", "-q", $Service)
-    $ids = @(& docker @composeArguments 2>$null | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
-    if ($LASTEXITCODE -eq 0 -and $ids.Count -gt 0) {
-        return $ids[0]
-    }
-
-    $labelArguments = @(
-        "image", "ls",
-        "--filter", "label=com.docker.compose.project=iot-platform",
-        "--filter", "label=com.docker.compose.service=$Service",
-        "--format", "{{.ID}}"
-    )
-    $ids = @(& docker @labelArguments 2>$null | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
-    if ($LASTEXITCODE -eq 0 -and $ids.Count -gt 0) {
-        return $ids[0]
-    }
-
-    $expected = "iot-platform-$Service"
-    $ids = @(& docker image inspect $expected --format "{{.Id}}" 2>$null | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
-    if ($LASTEXITCODE -eq 0 -and $ids.Count -gt 0) {
-        return $ids[0]
-    }
-
-    throw "无法找到 ThingsPanel 服务 $Service 构建出的镜像。请检查 docker compose build 输出。"
+if ($OllamaEmbeddingModel -ne "nomic-embed-text") {
+    throw "当前知识库使用 nomic-embed-text，OllamaEmbeddingModel 必须与其一致。"
+}
+if ($IncludeAi -and $OllamaModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') {
+    throw "OllamaModel 不是有效的模型名称。"
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -295,23 +276,30 @@ if ($LASTEXITCODE -ne 0) {
 $parentPath = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path $projectRoot $OutputDir }
 $parentPath = [System.IO.Path]::GetFullPath($parentPath)
 New-Item -ItemType Directory -Force -Path $parentPath | Out-Null
-$bundleName = "iot-platform-offline-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+$bundleName = "iot-platform-offline-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$([guid]::NewGuid().ToString('N').Substring(0, 6))"
 $bundleRoot = Join-Path $parentPath $bundleName
 New-Item -ItemType Directory -Force -Path $bundleRoot | Out-Null
 
-$forcedImages = [ordered]@{
-    "IOT_PLATFORM_API_IMAGE" = "iot-platform-api:offline"
-    "IOT_PLATFORM_WEB_IMAGE" = "iot-platform-web:offline"
-    "IOT_BACKUP_IMAGE" = "iot-platform-backup:offline"
-    "IOT_DEEPSEEK_HARNESS_IMAGE" = "iot-deepseek-harness:offline"
+$sourceEnv = $EnvFile
+if (-not [string]::IsNullOrWhiteSpace($sourceEnv) -and -not [System.IO.Path]::IsPathRooted($sourceEnv)) {
+    $sourceEnv = Join-Path $projectRoot $sourceEnv
 }
-$savedEnvironment = @{}
-foreach ($item in $forcedImages.GetEnumerator()) {
-    $savedEnvironment[$item.Key] = [Environment]::GetEnvironmentVariable($item.Key, "Process")
-    Set-Item -Path "Env:$($item.Key)" -Value $item.Value
+$envPath = Join-Path $bundleRoot ".env.offline"
+$envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv -UseAi:$IncludeAi -UseHarness:$IncludeHarness -UseThingsPanel:$IncludeThingsPanel
+$runtimeProvider = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_PROVIDER'
+if ($runtimeProvider -eq 'ollama' -or (-not $runtimeProvider -and (Get-DeploymentEnvValue -Path $envPath -Key 'IOT_OLLAMA_URL'))) {
+    $IncludeAi = $true
+    $configuredModel = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_MODEL'
+    if (-not $configuredModel) { $configuredModel = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_OLLAMA_MODEL' }
+    if ($configuredModel) { $OllamaModel = $configuredModel }
 }
-$savedProjectName = [Environment]::GetEnvironmentVariable("COMPOSE_PROJECT_NAME", "Process")
-Set-Item -Path "Env:COMPOSE_PROJECT_NAME" -Value "iot-platform"
+if ($IncludeAi -and $OllamaModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw '配置中的 Ollama 模型名称无效。' }
+$composeBase = @(
+    "compose", "--project-name", "iot-platform-offline-build",
+    "--env-file", $envPath,
+    "-f", (Join-Path $projectRoot "compose.yaml"),
+    "-f", (Join-Path $projectRoot "compose.offline.yaml")
+)
 
 $profiles = New-Object 'System.Collections.Generic.List[string]'
 if ($IncludeHarness) { [void]$profiles.Add("harness") }
@@ -325,70 +313,56 @@ foreach ($profile in $profiles) {
 
 $ollamaArchive = $null
 $ollamaVolumeName = $null
-$thingsPanelImages = New-Object 'System.Collections.Generic.List[string]'
+$ollamaStarted = $false
 
 try {
+    Invoke-Checked -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--quiet"))
     $pullServices = @(
         "postgres", "postgres-wal-init", "redis", "minio", "minio-dr",
         "redpanda", "redpanda-init", "clickhouse", "emqx", "prometheus",
-        "grafana", "loki"
+        "grafana", "loki", "ollama", "weaviate"
     )
-    Invoke-Checked -Arguments (@("compose", "pull") + $pullServices)
-    Invoke-Checked -Arguments @("compose", "build", "--pull", "platform-api", "platform-web", "backup-service")
+    Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
+    Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service"))
 
-    if ($IncludeAi) {
-        Invoke-Checked -Arguments @("compose", "pull", "ollama", "weaviate")
-        if (-not $SkipOllamaModel) {
-            Invoke-Checked -Arguments @("compose", "up", "-d", "ollama")
-            $ollamaReady = $false
-            for ($i = 0; $i -lt 30; $i++) {
-                & docker compose exec -T ollama ollama list *> $null
-                if ($LASTEXITCODE -eq 0) {
-                    $ollamaReady = $true
-                    break
-                }
-                Start-Sleep -Seconds 2
-            }
-            if (-not $ollamaReady) {
-                throw "Ollama 容器未在规定时间内就绪。"
-            }
-            Invoke-Checked -Arguments @("compose", "exec", "-T", "ollama", "ollama", "pull", $OllamaModel)
-            if ($OllamaEmbeddingModel -and $OllamaEmbeddingModel -ne $OllamaModel) {
-                Invoke-Checked -Arguments @("compose", "exec", "-T", "ollama", "ollama", "pull", $OllamaEmbeddingModel)
-            }
-            $ollamaVolumes = @(& docker volume ls --filter "label=com.docker.compose.volume=ollama-data" --format "{{.Name}}" 2>$null | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ })
-            $ollamaVolume = if ($ollamaVolumes.Count -gt 0) { $ollamaVolumes[0] } else { "iot-platform_ollama-data" }
-            $ollamaVolumeName = $ollamaVolume
-            Invoke-Checked -Arguments @(
-                "run", "--rm",
-                "--mount", "type=volume,source=$ollamaVolume,target=/src,readonly",
-                "--mount", "type=bind,source=$bundleRoot,target=/backup",
-                "alpine:3.22", "sh", "-ec", "tar -czf /backup/ollama-data.tgz -C /src ."
-            )
-            $ollamaArchive = "ollama-data.tgz"
+    # 知识库始终需要嵌入模型；IncludeAi 额外包含对话模型。
+    if (-not $SkipOllamaModel) {
+        $ollamaStarted = $true
+        Invoke-Checked -Arguments ($composeBase + @("up", "-d", "--no-deps", "ollama"))
+        $ollamaReady = $false
+        for ($i = 0; $i -lt 30; $i++) {
+            & docker @($composeBase + @("exec", "-T", "ollama", "ollama", "list")) *> $null
+            if ($LASTEXITCODE -eq 0) { $ollamaReady = $true; break }
+            Start-Sleep -Seconds 2
         }
+        if (-not $ollamaReady) { throw "Ollama 容器未在规定时间内就绪。" }
+        Invoke-Checked -Arguments ($composeBase + @("exec", "-T", "ollama", "ollama", "pull", $OllamaEmbeddingModel))
+        if ($IncludeAi -and $OllamaModel -ne $OllamaEmbeddingModel) {
+            Invoke-Checked -Arguments ($composeBase + @("exec", "-T", "ollama", "ollama", "pull", $OllamaModel))
+        }
+        $ollamaSourceVolume = "iot-platform-offline-build_ollama-data"
+        $ollamaVolumeName = "iot-platform_ollama-data"
+        Invoke-Checked -Arguments @(
+            "run", "--rm", "--pull", "never",
+            "--mount", "type=volume,source=$ollamaSourceVolume,target=/src,readonly",
+            "--mount", "type=bind,source=$bundleRoot,target=/backup",
+            "alpine:3.22", "sh", "-ec", "tar -czf /backup/ollama-data.tgz -C /src models"
+        )
+        $ollamaArchive = "ollama-data.tgz"
+        $modelHash = (Get-FileHash -LiteralPath (Join-Path $bundleRoot $ollamaArchive) -Algorithm SHA256).Hash.ToLowerInvariant()
+        Write-Utf8NoBom -Path (Join-Path $bundleRoot "ollama-data.tgz.sha256") -Lines @("$modelHash  $ollamaArchive")
+    } else {
+        Write-Warning "已跳过模型打包：目标机必须预先具有 nomic-embed-text；否则知识库不可用。"
     }
 
     if ($IncludeHarness) {
-        Invoke-Checked -Arguments @("compose", "--profile", "harness", "build", "--pull", "deepseek-harness")
+        Ensure-HarnessSource -ProjectRoot $projectRoot
+        Invoke-Checked -Arguments ($composeBase + @("--profile", "harness", "build", "--pull", "deepseek-harness"))
     }
-
     if ($IncludeThingsPanel) {
-        Invoke-Checked -Arguments @("compose", "--profile", "thingspanel", "pull", "thingspanel-postgres", "thingspanel-db-init")
-        Invoke-Checked -Arguments @("compose", "--profile", "thingspanel", "build", "--pull", "backend", "thingspanel")
-        $backendId = Get-ImageIdForComposeService -Service "backend" -ProfileArguments @("--profile", "thingspanel")
-        $webId = Get-ImageIdForComposeService -Service "thingspanel" -ProfileArguments @("--profile", "thingspanel")
-        Invoke-Checked -Arguments @("tag", $backendId, "iot-thingspanel-backend:offline")
-        Invoke-Checked -Arguments @("tag", $webId, "iot-thingspanel-web:offline")
-        [void]$thingsPanelImages.Add("iot-thingspanel-backend:offline")
-        [void]$thingsPanelImages.Add("iot-thingspanel-web:offline")
+        Invoke-Checked -Arguments ($composeBase + @("--profile", "thingspanel", "pull", "thingspanel-postgres", "thingspanel-db-init"))
+        Invoke-Checked -Arguments ($composeBase + @("--profile", "thingspanel", "build", "--pull", "backend", "thingspanel"))
     }
-
-    $sourceEnv = $EnvFile
-    if (-not [string]::IsNullOrWhiteSpace($sourceEnv) -and -not [System.IO.Path]::IsPathRooted($sourceEnv)) {
-        $sourceEnv = Join-Path $projectRoot $sourceEnv
-    }
-    $envResult = New-OfflineEnv -Destination (Join-Path $bundleRoot ".env.offline") -Source $sourceEnv -UseAi:$IncludeAi -UseHarness:$IncludeHarness -UseThingsPanel:$IncludeThingsPanel
 
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.offline.yaml") -Destination $bundleRoot
@@ -405,15 +379,8 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot "docs\OFFLINE_DEPLOYMENT.md") -Destination (Join-Path $bundleRoot "OFFLINE_DEPLOYMENT.md")
 
-    $resolvedImages = @(Invoke-Captured -Arguments ((@("compose") + $profileArguments.ToArray()) + @("config", "--images")))
-    $offlineImages = @(
-        "iot-platform-api:offline",
-        "iot-platform-web:offline",
-        "iot-platform-backup:offline"
-    )
-    if ($IncludeHarness) { $offlineImages += "iot-deepseek-harness:offline" }
-    $offlineImages += $thingsPanelImages.ToArray()
-    $images = @($resolvedImages + $offlineImages | Where-Object { $_ } | Sort-Object -Unique)
+    $images = @(Invoke-Captured -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--images")) | Sort-Object -Unique)
+    if ($images.Count -eq 0) { throw "没有解析出可导出的镜像。" }
     foreach ($image in $images) {
         & docker image inspect $image *> $null
         if ($LASTEXITCODE -ne 0) {
@@ -430,8 +397,11 @@ try {
         Write-Utf8NoBom -Path (Join-Path $bundleRoot "ollama-volume.txt") -Lines @($ollamaVolumeName)
     }
 
-    $commit = (& git -C $projectRoot rev-parse HEAD 2>$null | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0) { $commit = "unknown" }
+    $commit = "unknown"
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $commit = (& git -C $projectRoot rev-parse HEAD 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -ne 0) { $commit = "unknown" }
+    }
     $manifest = [ordered]@{
         format = 1
         project = "iot-platform"
@@ -443,7 +413,7 @@ try {
         imageArchiveSha256 = $hash
         envFile = ".env.offline"
         composeFiles = @("compose.yaml", "compose.offline.yaml")
-        ollamaModel = if ($ollamaArchive) { $OllamaModel } else { $null }
+        ollamaModel = if ($ollamaArchive -and $IncludeAi) { $OllamaModel } else { $null }
         ollamaEmbeddingModel = if ($ollamaArchive) { $OllamaEmbeddingModel } else { $null }
         ollamaArchive = $ollamaArchive
         ollamaVolume = $ollamaVolumeName
@@ -460,17 +430,8 @@ try {
         Write-Host "自动生成的凭据：$($envResult.CredentialPath)" -ForegroundColor Yellow
     }
 } finally {
-    foreach ($item in $forcedImages.GetEnumerator()) {
-        $oldValue = $savedEnvironment[$item.Key]
-        if ($null -eq $oldValue) {
-            Remove-Item -Path "Env:$($item.Key)" -ErrorAction SilentlyContinue
-        } else {
-            Set-Item -Path "Env:$($item.Key)" -Value $oldValue
-        }
-    }
-    if ($null -eq $savedProjectName) {
-        Remove-Item -Path "Env:COMPOSE_PROJECT_NAME" -ErrorAction SilentlyContinue
-    } else {
-        Set-Item -Path "Env:COMPOSE_PROJECT_NAME" -Value $savedProjectName
+    if ($ollamaStarted) {
+        & docker @($composeBase + @("stop", "ollama")) *> $null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "打包用 Ollama 未能停止，请检查 iot-platform-offline-build 项目。" }
     }
 }

@@ -180,13 +180,37 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .el-button--primary.is-text:hover, .el-button--primary.is-link:hover { border-color: #93c5fd !important; background: #dbeafe !important; color: #1e40af !important; }
 .el-button.is-disabled, .el-button:disabled { cursor: not-allowed; }
 
+/* Keep controls consistent even when a lazy-loaded page adds component CSS. */
+:is(.app-shell, .el-overlay, .el-message-box) .el-button {
+  min-height: 32px; height: auto; padding: 7px 12px; gap: 6px;
+  border: 1px solid var(--el-button-border-color, var(--border));
+  border-radius: 7px; font-size: 12px; line-height: 1.25; font-weight: 600;
+  background-color: var(--el-button-bg-color, #fff);
+  color: var(--el-button-text-color, #334155);
+}
+:is(.app-shell, .el-overlay, .el-message-box) .el-button:not(.is-disabled):hover {
+  background-color: var(--el-button-hover-bg-color, #eff6ff);
+  border-color: var(--el-button-hover-border-color, #93c5fd);
+  color: var(--el-button-hover-text-color, #1d4ed8);
+}
+:is(.app-shell, .el-overlay, .el-message-box) .el-button.is-disabled {
+  opacity: .5; box-shadow: none; transform: none;
+}
+:is(.app-shell, .el-overlay) .el-button svg { width: 14px; height: 14px; flex-shrink: 0; }
+:is(.app-shell, .el-overlay) .el-button > span { gap: 6px; }
+.el-button.is-plain.el-button--primary { --el-button-bg-color: #eff6ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #1d4ed8; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; }
+.el-button.is-plain.el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; }
+.el-button.is-plain.el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; }
+.el-button.is-plain.el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; }
+button:focus-visible, [role="tab"]:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+
 input[type="file"] { width: 100%; min-height: 32px; padding: 4px 6px; color: var(--muted-foreground); background: var(--card); border: 1px solid var(--input); border-radius: .5rem; font-size: 12px; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; }
 input[type="file"]::file-selector-button { min-height: 26px; margin-right: 9px; padding: 0 10px; color: #334155; background: #fff; border: 1px solid var(--border); border-radius: .375rem; font: 600 11px var(--el-font-family); cursor: pointer; transition: color .16s ease, background-color .16s ease, border-color .16s ease; }
 input[type="file"]::file-selector-button:hover { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; }
 input[type="file"]:hover { border-color: #94a3b8; }
 input[type="file"]:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; }
 input[type="file"]:disabled { opacity: .6; cursor: not-allowed; }
-.table-actions { display: flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.table-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; white-space: normal; }
 .table-actions .el-button, .el-table .el-button { min-height: 28px; height: 28px; padding: 0 10px; border-width: 1px; border-style: solid; border-radius: .5rem; font-size: 11px; font-weight: 600; box-shadow: 0 1px 1px rgba(15,23,42,.04); }
 .table-actions .el-button--default, .el-table .el-button--default { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #475569; --el-button-hover-bg-color: var(--muted); --el-button-hover-border-color: #cbd5e1; --el-button-hover-text-color: var(--foreground); }
 .table-actions .el-button--primary, .el-table .el-button--primary { --el-button-bg-color: #eff6ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #1d4ed8; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; }
@@ -331,3 +355,94 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; }
   .global-alert-popups { width: calc(100vw - 24px); right: 12px; bottom: 78px; }.global-alert-popup { padding: 13px; }.alert-setting-row:not(.alert-setting-row-stack) { align-items: flex-start; flex-direction: column; gap: 10px; }.alert-quiet-times .el-time-editor { min-width: 0; flex: 1; }.alert-sound-setting { width: 100%; justify-content: space-between; }
 }
 @media (max-width: 390px) { .stats-grid { grid-template-columns: 1fr; }.stat-card, .stat-card > .el-card__body { min-height: 105px; height: 105px; } }
+
+/* Shared task navigation and clear action surfaces. */
+.launcher-trigger { min-height: 34px; padding: 7px 11px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: #334155; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.launcher-trigger svg { width: 16px; height: 16px; }
+.launcher-trigger:hover { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+.page-context { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+.page-context-copy { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.page-context-icon { width: 42px; height: 42px; flex: none; display: grid; place-items: center; background: #eaf1ff; border: 1px solid #dbeafe; border-radius: 11px; color: #2563eb; }
+.page-context-icon svg { width: 21px; height: 21px; }
+.page-context-copy strong { font-size: 20px; letter-spacing: -.025em; }
+.page-context-copy p { margin: 4px 0 0; font-size: 12px; color: #64748b; line-height: 1.6; }
+.related-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.related-actions > span { margin-right: 2px; color: #64748b; font-size: 11px; }
+.related-actions .el-button + .el-button, .page-toolbar .el-button + .el-button { margin-left: 0; }
+.app-shell .menu-item { border: 1px solid transparent; }
+.app-shell .menu-item:hover { border-color: #dbeafe; }
+.app-shell .menu-item.active { border-color: #bfdbfe; }
+.app-shell .page-toolbar { padding: 14px 16px; background: #fff; border: 1px solid var(--border); border-radius: 10px; gap: 10px; }
+.app-shell .page-toolbar > span:not(.el-tag) { flex: 1 1 220px; line-height: 1.6; }
+.app-shell .page-toolbar > .el-button { flex-shrink: 0; }
+.el-table .el-table__cell { padding-block: 11px; }
+.el-table .el-table-fixed-column--right { border-left: 1px solid #e2e8f0; }
+.el-dialog .el-dialog__footer { padding-top: 14px; border-top: 1px solid var(--border); background: #f8fafc; }
+.el-dialog__footer .el-button { margin-top: 4px; }
+:is(.app-shell, .el-overlay) .el-tabs__nav-wrap::after, :is(.app-shell, .el-overlay) .el-tabs__active-bar { display: none; }
+:is(.app-shell, .el-overlay) .el-tabs__nav { gap: 7px; padding: 4px; border: 0; }
+:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item { height: 36px; margin: 0; padding: 0 14px !important; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: #475569; font-weight: 600; }
+:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item:hover { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }
+:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item.is-active { border-color: #2563eb; color: #fff; background: #2563eb; }
+:is(.app-shell, .el-overlay) .el-input__wrapper, :is(.app-shell, .el-overlay) .el-select__wrapper { min-height: 32px; }
+.app-shell .el-tabs--border-card { border-radius: 10px; overflow: hidden; box-shadow: none; border-color: var(--border); }
+.app-shell .el-tabs--border-card > .el-tabs__header { padding: 8px; background: #f8fafc; }
+.launcher-group h3 { margin: 20px 0 9px; color: #64748b; font-size: 12px; font-weight: 600; }
+.launcher-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.launcher-item { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding: 14px; text-align: left; background: #fff; border: 1px solid #e2e8f0; border-radius: 9px; cursor: pointer; }
+.launcher-item > svg { width: 20px; height: 20px; flex: none; color: #2563eb; margin-top: 2px; }
+.launcher-item span { display: grid; gap: 5px; }
+.launcher-item strong { font-size: 13px; color: #334155; }
+.launcher-item small { font-size: 11px; line-height: 1.6; color: #64748b; }
+.launcher-item:hover, .launcher-item.active { border-color: #93c5fd; background: #eff6ff; }
+.dashboard-shortcuts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.shortcut-button { min-width: 0; display: flex; align-items: center; gap: 11px; padding: 17px 14px; border: 1px solid #dbe3ee; border-radius: 10px; background: #fff; text-align: left; cursor: pointer; transition: border-color .16s, background .16s; }
+.shortcut-button:hover { border-color: #93c5fd; background: #eff6ff; }
+.shortcut-button > span:nth-child(2) { min-width: 0; flex: 1; display: grid; gap: 5px; }
+.shortcut-button strong { color: #1e293b; font-size: 14px; }
+.shortcut-button small { color: #64748b; font-size: 11px; line-height: 1.6; }
+.shortcut-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 9px; background: #eff6ff; color: #2563eb; }
+.shortcut-icon svg { width: 19px; height: 19px; }
+.shortcut-icon.danger { color: #dc2626; background: #fef2f2; }
+.shortcut-icon.success { color: #15803d; background: #f0fdf4; }
+.shortcut-arrow { width: 15px; height: 15px; flex: none; color: #94a3b8; }
+.section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.section-toolbar > strong { font-size: 14px; }
+@media (max-width: 1200px) { .dashboard-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  .app-shell .menu-item { min-height: 50px; height: auto; display: grid; gap: 3px; justify-items: center; padding: 6px 2px; }
+  .app-shell .menu-item span { display: block !important; font-size: 9px; }
+  .app-shell .app-aside { width: 76px !important; }
+}
+@media (max-width: 640px) {
+  .app-shell .app-aside { width: 100% !important; }
+  .app-shell .menu-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+  .menu-scroll-inner { width: max-content; }
+  .app-shell .menu-item { min-height: 44px; margin: 0 2px; }
+  .main-content { padding-top: 16px; }
+  .topbar { height: 68px; flex-basis: 68px; }
+  .top-actions { gap: 6px; }
+  .title-area h2 { font-size: 16px; }
+  .title-area > div > span { font-size: 9px; }
+  .launcher-trigger { padding: 7px 8px; font-size: 11px; }
+  .launcher-trigger svg { display: none; }
+  .page-context-copy strong { font-size: 18px; }
+  .page-context { gap: 12px; margin-bottom: 14px; }
+  .related-actions > span { display: none; }
+  .app-shell .page-toolbar { padding: 12px; }
+  .app-shell .page-toolbar > span:not(.el-tag) { flex-basis: 100%; }
+  .el-table .el-table__cell.el-table-fixed-column--right { position: static !important; }
+  .dashboard-shortcuts { gap: 9px; margin-bottom: 18px; }
+  .shortcut-button { align-items: flex-start; padding: 12px; gap: 8px; }
+  .shortcut-icon { width: 28px; height: 28px; }
+  .shortcut-arrow { display: none; }
+  .shortcut-button strong { font-size: 13px; }
+  .shortcut-button small { font-size: 10px; }
+  .alarm-row { grid-template-columns: 8px minmax(0, 1fr) auto; }
+  .alarm-row > .el-button { display: inline-flex; grid-column: 2 / -1; justify-self: end; margin-bottom: 10px; }
+  .card-header { flex-wrap: wrap; }
+  .launcher-grid { grid-template-columns: 1fr; }
+  .list-pagination { padding: 12px 8px; }
+  .list-pagination .el-pagination { gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }

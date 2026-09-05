@@ -9,6 +9,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/iot-platform ./cmd
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
+# Source uploads are compiled locally with CGO disabled and vendored dependencies.
+COPY --from=build /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 COPY --from=build /out/iot-platform /app/iot-platform
 COPY --from=build /out/gb26875-gateway /app/gb26875-gateway
 COPY --from=build /out/gb26875-virtual-device /app/gb26875-virtual-device

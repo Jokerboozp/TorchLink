@@ -94,7 +94,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page-toolbar"><el-input v-model="query" clearable placeholder="设备 ID" @keyup.enter="search" /><el-button type="primary" @click="search">查询</el-button><el-button :disabled="!selectedIds.length" @click="downloadBatch">批量下载（{{ selectedIds.length }}）</el-button><span>共 {{ total }} 条原始报文，保留证据链，详情同时展示标准解析结果</span></div>
+  <div class="page-toolbar"><el-input v-model="query" clearable placeholder="设备 ID" @keyup.enter="search" /><el-button type="primary" :loading="loading" @click="search">查询报文</el-button><el-button :disabled="!query" @click="query = ''; search()">重置筛选</el-button><el-button :disabled="!selectedIds.length" @click="downloadBatch">批量下载（{{ selectedIds.length }}）</el-button><span>共 {{ total }} 条原始报文，保留证据链，详情同时展示标准解析结果</span></div>
   <el-card shadow="never" class="surface-card table-card">
     <el-table v-loading="loading" :data="items" stripe @selection-change="selection = $event">
       <el-table-column type="selection" width="48" /><el-table-column label="接收时间" min-width="170"><template #default="{ row }">{{ formatTime(row.receivedAt) }}</template></el-table-column><el-table-column prop="messageId" label="消息 ID" min-width="220" /><el-table-column prop="productId" label="产品" min-width="150" /><el-table-column prop="deviceId" label="设备" min-width="170" /><el-table-column prop="protocol" label="协议" width="100" />

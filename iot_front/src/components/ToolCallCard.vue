@@ -34,7 +34,7 @@ function safeSummary(value) {
     <div class="tool-meta">
       <span v-if="tool.toolCallId">ID · {{ tool.toolCallId }}</span>
       <span v-if="tool.durationMs != null">{{ tool.durationMs }} ms</span>
-      <el-button v-if="hasDetails" text size="small" @click="expanded=!expanded">{{ expanded ? '收起详情' : '查看详情' }}</el-button>
+      <el-button v-if="hasDetails" plain size="small" @click="expanded=!expanded">{{ expanded ? '收起详情' : '查看详情' }}</el-button>
     </div>
     <div v-if="expanded" class="tool-details">
       <section v-if="tool.inputSummary"><strong>输入摘要</strong><pre>{{ safeSummary(tool.inputSummary) }}</pre></section>

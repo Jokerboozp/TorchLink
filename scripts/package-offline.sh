@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+umask 077
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
 
@@ -23,13 +24,13 @@ usage() {
 选项：
   --output-dir DIR       输出父目录，默认 offline-bundles
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
-  --include-ai           打包 Ollama + Weaviate
+  --include-ai           额外打包并启用本地 Ollama 对话模型
   --include-harness      打包 DeepSeek Harness
   --include-thingspanel  打包 ThingsPanel
   --include-gb26875      部署时同时启动 GB/T 26875 网关
   --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:8b
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
-  --skip-ollama-model    只打包 AI 镜像，不打包模型卷
+  --skip-ollama-model    跳过全部模型；仅用于目标机已准备模型的情况
   --full                 启用全部可选组件
   -h, --help             显示帮助
 EOF
@@ -67,7 +68,15 @@ sha256_file() {
 env_value() {
   local key="$1"
   local file="$2"
-  sed -n "s/^${key}=//p" "$file" | tail -n 1 | tr -d '\r'
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      sub("^[[:space:]]*" key "[[:space:]]*=[[:space:]]*", "")
+      sub(/\r$/, ""); sub(/[[:space:]]+$/, "")
+      if (($0 ~ /^".*"$/) || ($0 ~ /^\047.*\047$/)) $0=substr($0,2,length($0)-2)
+      value=$0
+    }
+    END { print value }
+  ' "$file"
 }
 
 set_env_value() {
@@ -99,6 +108,8 @@ validate_env() {
     EMQX_DASHBOARD_USER EMQX_DASHBOARD_PASSWORD
     GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
   )
+  (( include_thingspanel )) && required_keys+=(THINGSPANEL_POSTGRES_PASSWORD)
+  (( include_harness )) && required_keys+=(IOT_AI_HARNESS_TOKEN)
   for key in "${required_keys[@]}"; do
     value="$(env_value "$key" "$file")"
     [[ -n "${value//[[:space:]]/}" ]] || die "EnvFile 缺少必填安全配置：$key"
@@ -128,9 +139,10 @@ write_env() {
     local backup_token="$(random_hex 32)"
     local emqx_password="Emqx-$(random_hex 12)"
     local grafana_password="Grafana-$(random_hex 12)"
+    local thingspanel_password="tp-$(random_hex 18)"
     local ollama_url=""
     local ai_provider=""
-    local weaviate_url=""
+    local weaviate_url="http://weaviate:8080"
     local harness_url=""
     if (( include_ai )); then
       ollama_url="http://ollama:11434"
@@ -185,6 +197,7 @@ EMQX_DASHBOARD_USER=admin
 EMQX_DASHBOARD_PASSWORD=$emqx_password
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=$grafana_password
+THINGSPANEL_POSTGRES_PASSWORD=$thingspanel_password
 EOF
     cat > "$(dirname -- "$destination")/OFFLINE-CREDENTIALS.txt" <<EOF
 # 离线部署凭据
@@ -199,6 +212,7 @@ Redis 密码：$redis_password
 ClickHouse 密码：$clickhouse_password
 MinIO 主密码：$minio_password
 MinIO 灾备密码：$minio_dr_password
+ThingsPanel PostgreSQL 密码：$thingspanel_password
 EOF
   fi
 
@@ -217,23 +231,6 @@ EOF
   fi
   validate_env "$destination"
   printf '%s\n' "$generated"
-}
-
-get_image_id_for_service() {
-  local service="$1"
-  local id
-  id="$(docker compose --profile thingspanel images -q "$service" 2>/dev/null | head -n 1 || true)"
-  if [[ -z "$id" ]]; then
-    id="$(docker image ls \
-      --filter label=com.docker.compose.project=iot-platform \
-      --filter label=com.docker.compose.service="$service" \
-      --format '{{.ID}}' 2>/dev/null | head -n 1 || true)"
-  fi
-  if [[ -z "$id" ]]; then
-    id="$(docker image inspect "iot-platform-$service" --format '{{.Id}}' 2>/dev/null || true)"
-  fi
-  [[ -n "$id" ]] || die "无法找到 ThingsPanel 服务 $service 构建出的镜像"
-  printf '%s\n' "$id"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -260,9 +257,12 @@ if (( full )); then
   include_gb26875=1
 fi
 
+[[ "$ollama_embedding_model" == nomic-embed-text ]] || die "当前知识库使用 nomic-embed-text，嵌入模型必须与其一致"
+if (( include_ai )); then
+  [[ "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "Ollama 模型名称无效"
+fi
 command -v docker >/dev/null 2>&1 || die "找不到 docker 命令"
 docker info >/dev/null || die "Docker Engine 不可用，请先启动 Docker"
-command -v git >/dev/null 2>&1 || die "找不到 git 命令"
 
 if [[ -n "$env_file" && "$env_file" != /* ]]; then
   env_file="$project_root/$env_file"
@@ -273,14 +273,32 @@ else
   output_parent="$project_root/$output_dir"
 fi
 mkdir -p "$output_parent"
-bundle_root="$output_parent/iot-platform-offline-$(date +%Y%m%d-%H%M%S)"
+bundle_root="$output_parent/iot-platform-offline-$(date +%Y%m%d-%H%M%S)-$(random_hex 3)"
 mkdir -p "$bundle_root"
 
-export COMPOSE_PROJECT_NAME=iot-platform
-export IOT_PLATFORM_API_IMAGE=iot-platform-api:offline
-export IOT_PLATFORM_WEB_IMAGE=iot-platform-web:offline
-export IOT_BACKUP_IMAGE=iot-platform-backup:offline
-export IOT_DEEPSEEK_HARNESS_IMAGE=iot-deepseek-harness:offline
+generated_credentials="$(write_env "$bundle_root/.env.offline")"
+runtime_provider="$(env_value IOT_AI_PROVIDER "$bundle_root/.env.offline")"
+runtime_ollama_url="$(env_value IOT_OLLAMA_URL "$bundle_root/.env.offline")"
+if [[ "$runtime_provider" == ollama || ( -z "$runtime_provider" && -n "$runtime_ollama_url" ) ]]; then
+  include_ai=1
+  configured_model="$(env_value IOT_AI_MODEL "$bundle_root/.env.offline")"
+  if [[ -z "$configured_model" ]]; then configured_model="$(env_value IOT_OLLAMA_MODEL "$bundle_root/.env.offline")"; fi
+  ollama_model="${configured_model:-$ollama_model}"
+fi
+if (( include_ai )); then [[ "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "配置中的 Ollama 模型名称无效"; fi
+compose=(docker compose --project-name iot-platform-offline-build --env-file "$bundle_root/.env.offline"
+  -f "$project_root/compose.yaml" -f "$project_root/compose.offline.yaml")
+run_compose() {
+  echo "> docker compose $*" >&2
+  "${compose[@]}" "$@"
+}
+ollama_started=0
+cleanup() {
+  if (( ollama_started )); then
+    "${compose[@]}" stop ollama >/dev/null 2>&1 || echo "打包用 Ollama 未能停止，请检查 iot-platform-offline-build 项目。" >&2
+  fi
+}
+trap cleanup EXIT
 
 profiles=()
 compose_profile_args=()
@@ -292,59 +310,55 @@ add_profile() {
 (( include_thingspanel )) && add_profile thingspanel
 (( include_gb26875 )) && add_profile gb26875
 
+run_compose "${compose_profile_args[@]}" config --quiet
 pull_services=(
   postgres postgres-wal-init redis minio minio-dr redpanda redpanda-init
-  clickhouse emqx prometheus grafana loki
+  clickhouse emqx prometheus grafana loki ollama weaviate
 )
-run_docker compose pull "${pull_services[@]}"
-run_docker compose build --pull platform-api platform-web backup-service
+run_compose pull "${pull_services[@]}"
+run_compose build --pull platform-api platform-web backup-service
 
 ollama_archive=""
 ollama_volume_name=""
-if (( include_ai )); then
-  run_docker compose pull ollama weaviate
-  if (( ! skip_ollama_model )); then
-    run_docker compose up -d ollama
-    ollama_ready=0
-    for _ in $(seq 1 30); do
-      if docker compose exec -T ollama ollama list >/dev/null 2>&1; then
-        ollama_ready=1
-        break
-      fi
-      sleep 2
-    done
-    (( ollama_ready )) || die "Ollama 容器未在规定时间内就绪"
-    run_docker compose exec -T ollama ollama pull "$ollama_model"
-    if [[ -n "$ollama_embedding_model" && "$ollama_embedding_model" != "$ollama_model" ]]; then
-      run_docker compose exec -T ollama ollama pull "$ollama_embedding_model"
+if (( ! skip_ollama_model )); then
+  ollama_started=1
+  run_compose up -d --no-deps ollama
+  ollama_ready=0
+  for _ in $(seq 1 30); do
+    if "${compose[@]}" exec -T ollama ollama list >/dev/null 2>&1; then
+      ollama_ready=1
+      break
     fi
-    ollama_volume_name="$(docker volume ls --filter label=com.docker.compose.volume=ollama-data --format '{{.Name}}' | head -n 1)"
-    ollama_volume_name="${ollama_volume_name:-iot-platform_ollama-data}"
-    run_docker run --rm \
-      --mount "type=volume,source=$ollama_volume_name,target=/src,readonly" \
-      --mount "type=bind,source=$bundle_root,target=/backup" \
-      alpine:3.22 sh -ec 'tar -czf /backup/ollama-data.tgz -C /src .'
-    ollama_archive="ollama-data.tgz"
+    sleep 2
+  done
+  (( ollama_ready )) || die "Ollama 容器未在规定时间内就绪"
+  run_compose exec -T ollama ollama pull "$ollama_embedding_model"
+  if (( include_ai )) && [[ "$ollama_model" != "$ollama_embedding_model" ]]; then
+    run_compose exec -T ollama ollama pull "$ollama_model"
   fi
+  ollama_volume_name="iot-platform_ollama-data"
+  run_docker run --rm --pull never \
+    --mount "type=volume,source=iot-platform-offline-build_ollama-data,target=/src,readonly" \
+    --mount "type=bind,source=$bundle_root,target=/backup" \
+    alpine:3.22 sh -ec 'tar -czf /backup/ollama-data.tgz -C /src models'
+  ollama_archive="ollama-data.tgz"
+  model_hash="$(sha256_file "$bundle_root/$ollama_archive")"
+  printf '%s  %s\n' "$model_hash" "$ollama_archive" > "$bundle_root/ollama-data.tgz.sha256"
+else
+  echo "已跳过模型打包：目标机必须预先具有 nomic-embed-text；否则知识库不可用。" >&2
 fi
 
 if (( include_harness )); then
-  run_docker compose --profile harness build --pull deepseek-harness
+  command -v git >/dev/null 2>&1 || die "--include-harness 需要 Git"
+  sh "$script_dir/fetch-deepseek-harness.sh"
+  run_compose --profile harness build --pull deepseek-harness
 fi
-
-thingspanel_images=()
 if (( include_thingspanel )); then
-  run_docker compose --profile thingspanel pull thingspanel-postgres thingspanel-db-init
-  run_docker compose --profile thingspanel build --pull backend thingspanel
-  backend_id="$(get_image_id_for_service backend)"
-  thingspanel_web_id="$(get_image_id_for_service thingspanel)"
-  run_docker tag "$backend_id" iot-thingspanel-backend:offline
-  run_docker tag "$thingspanel_web_id" iot-thingspanel-web:offline
-  thingspanel_images+=(iot-thingspanel-backend:offline iot-thingspanel-web:offline)
+  run_compose --profile thingspanel pull thingspanel-postgres thingspanel-db-init
+  run_compose --profile thingspanel build --pull backend thingspanel
 fi
 
 mkdir -p "$bundle_root/scripts"
-generated_credentials="$(write_env "$bundle_root/.env.offline")"
 cp "$project_root/compose.yaml" "$bundle_root/"
 cp "$project_root/compose.offline.yaml" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
@@ -356,11 +370,7 @@ if [[ -n "$ollama_volume_name" ]]; then
   printf '%s\n' "$ollama_volume_name" > "$bundle_root/ollama-volume.txt"
 fi
 
-resolved_images_text="$(docker compose "${compose_profile_args[@]}" config --images)"
-offline_images=(iot-platform-api:offline iot-platform-web:offline iot-platform-backup:offline)
-(( include_harness )) && offline_images+=(iot-deepseek-harness:offline)
-offline_images+=("${thingspanel_images[@]}")
-all_images_text="$(printf '%s\n' "$resolved_images_text" "${offline_images[@]}" | awk 'NF && !seen[$0]++' | sort -u)"
+all_images_text="$("${compose[@]}" "${compose_profile_args[@]}" config --images | awk 'NF && !seen[$0]++' | sort -u)"
 images=()
 while IFS= read -r image; do
   [[ -n "$image" ]] && images+=("$image")
@@ -393,7 +403,7 @@ ollama_model_json="null"
 ollama_archive_json="null"
 ollama_volume_json="null"
 if [[ -n "$ollama_archive" ]]; then
-  ollama_model_json="\"$ollama_model\""
+  if (( include_ai )); then ollama_model_json="\"$ollama_model\""; fi
   ollama_archive_json="\"$ollama_archive\""
   ollama_volume_json="\"$ollama_volume_name\""
 fi

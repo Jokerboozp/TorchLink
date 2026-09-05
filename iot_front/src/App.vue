@@ -19,6 +19,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings2,
+  Search,
   Upload,
   Video
 } from '@lucide/vue'
@@ -48,6 +49,9 @@ const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue')
 const authenticated = ref(Boolean(session.token))
 const active = ref('dashboard')
 const collapsed = ref(false)
+const launcherVisible = ref(false)
+const pageSearch = ref('')
+const contentArea = ref(null)
 const pageKey = ref(0)
 const loginLoading = ref(false)
 const globalAlertPopup = ref(null)
@@ -61,7 +65,7 @@ const pages = {
   dashboard: { title: '运行总览', sub: '城市级消防感知与告警态势', icon: LayoutDashboard, component: DashboardView },
   devices: { title: '设备管理', sub: '注册、启停、凭证和实时状态统一管理', icon: Cpu, component: DevicesView },
   products: { title: '产品管理', sub: '产品模型与协议包绑定', icon: Boxes, component: ProductsView },
-  protocols: { title: '设备接入', sub: '点表直连、协议版本与采集实例', icon: Network, component: ProtocolsView },
+  protocols: { title: '设备接入', sub: 'Go 源码上传、点表直连与协议热更新', icon: Network, component: ProtocolsView },
   integration: { title:'接入指南', sub: '真实设备 HTTP / MQTT 参数与数据联调', icon: Upload, component: IntegrationView },
   testDevice: { title:'测试设备', sub: '模板化发送数据、事件、报警和恢复报文', icon: FlaskConical, component: TestDeviceView },
   cameras: { title: '摄像头映射', sub: '视频平台摄像头、空间位置与物联设备关联', icon: Video, component: CameraMappingsView },
@@ -76,9 +80,29 @@ const pages = {
 const current = computed(() => pages[active.value])
 const menuGroups = [
   { label: '控制中心', items: ['dashboard'] },
-  { label:'设备与数据', items: ['devices', 'products', 'protocols', 'integration', 'testDevice', 'cameras'] },
-  { label: '运行中心', items: ['alarms', 'inspection', 'raw', 'rules', 'knowledge', 'ai', 'backups'] }
+  { label: '设备接入', items: ['products', 'protocols', 'devices', 'integration', 'testDevice', 'cameras'] },
+  { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] },
+  { label: '智能助手', items: ['ai', 'knowledge'] },
+  { label: '系统维护', items: ['backups'] }
 ]
+const relatedPages = {
+  dashboard: ['devices', 'alarms', 'inspection'],
+  products: ['protocols', 'devices'], protocols: ['products', 'integration'],
+  devices: ['integration', 'raw'], integration: ['testDevice', 'raw'],
+  testDevice: ['raw', 'alarms'], cameras: ['devices'],
+  alarms: ['rules', 'inspection'], inspection: ['devices', 'alarms'],
+  raw: ['protocols', 'devices'], rules: ['alarms', 'ai'],
+  knowledge: ['ai'], ai: ['knowledge', 'rules'], backups: ['raw']
+}
+const filteredGroups = computed(() => menuGroups.map(group => ({
+  ...group,
+  items: group.items.filter(name => `${group.label} ${pages[name].title} ${pages[name].sub}`.toLowerCase().includes(pageSearch.value.trim().toLowerCase()))
+})).filter(group => group.items.length))
+
+function openLauncher() {
+  pageSearch.value = ''
+  launcherVisible.value = true
+}
 
 async function login() {
   loginLoading.value = true
@@ -108,9 +132,14 @@ function handleAccountCommand(command) {
 }
 
 function openPage(name, detail) {
+  if (!pages[name]) return
+  launcherVisible.value = false
+  if (active.value === name && !detail) return
+  sessionStorage.removeItem('iot:navigation-detail')
   active.value = name
   pageKey.value++
   if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail))
+  contentArea.value?.scrollTo({ top: 0 })
 }
 
 function openAlertSettings() {
@@ -203,7 +232,7 @@ onBeforeUnmount(() => {
           <div class="menu-scroll-inner">
             <template v-for="group in menuGroups" :key="group.label">
               <div v-show="!collapsed" class="menu-group">{{ group.label }}</div>
-              <button v-for="name in group.items" :key="name" class="menu-item" :class="{ active: active === name }" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)">
+              <button v-for="name in group.items" :key="name" type="button" class="menu-item" :class="{ active: active === name }" :aria-label="pages[name].title" :title="pages[name].title" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)">
                 <component :is="pages[name].icon" />
                 <span v-show="!collapsed">{{ pages[name].title }}</span>
               </button>
@@ -215,12 +244,12 @@ onBeforeUnmount(() => {
       <main class="app-main">
         <header class="topbar">
           <div class="title-area">
-            <button class="collapse-button" aria-label="折叠菜单" @click="collapsed = !collapsed"><component :is="collapsed ? PanelLeftOpen : PanelLeftClose" /></button>
+            <button class="collapse-button" :aria-label="collapsed ? '展开菜单' : '折叠菜单'" :aria-expanded="!collapsed" @click="collapsed = !collapsed"><component :is="collapsed ? PanelLeftOpen : PanelLeftClose" /></button>
             <div><span>首页 / {{ current.title }}</span><h2>{{ current.title }}</h2><p>{{ current.sub }}</p></div>
           </div>
           <div class="top-actions">
+            <button class="launcher-trigger" type="button" @click="openLauncher"><Search /><span>全部功能</span></button>
             <button class="alert-settings-trigger" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
-            <div class="health"><i />服务正常</div>
             <span class="tenant-pill">{{ currentTenant }}</span>
             <el-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">
@@ -237,9 +266,23 @@ onBeforeUnmount(() => {
             </el-dropdown>
           </div>
         </header>
-        <section class="main-content"><component :is="current.component" :key="`${active}-${pageKey}`" @navigate="openPage" /></section>
+        <section ref="contentArea" class="main-content">
+          <div class="page-context">
+            <div class="page-context-copy"><span class="page-context-icon"><component :is="current.icon" /></span><div><strong>{{ current.title }}</strong><p>{{ current.sub }}</p></div></div>
+            <div class="related-actions" aria-label="相关功能"><span>相关功能</span><el-button v-for="name in relatedPages[active]" :key="name" plain @click="openPage(name)"><component :is="pages[name].icon" />{{ pages[name].title }}</el-button></div>
+          </div>
+          <component :is="current.component" :key="`${active}-${pageKey}`" @navigate="openPage" />
+        </section>
       </main>
     </div>
+    <el-dialog v-if="authenticated" v-model="launcherVisible" title="全部功能" width="min(820px, 94vw)" class="function-launcher">
+      <el-input v-model="pageSearch" clearable placeholder="搜索功能，例如：设备、告警、备份" aria-label="搜索系统功能"><template #prefix><Search :size="16" /></template></el-input>
+      <div v-for="group in filteredGroups" :key="group.label" class="launcher-group"><h3>{{ group.label }}</h3><div class="launcher-grid">
+        <button v-for="name in group.items" :key="name" type="button" class="launcher-item" :class="{ active: active === name }" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)"><component :is="pages[name].icon" /><span><strong>{{ pages[name].title }}</strong><small>{{ pages[name].sub }}</small></span></button>
+      </div></div>
+      <el-empty v-if="!filteredGroups.length" description="没有匹配的功能，请尝试其他关键词" :image-size="64" />
+      <template #footer><el-button @click="launcherVisible = false">关闭</el-button></template>
+    </el-dialog>
     <GlobalAlertPopup v-if="authenticated" ref="globalAlertPopup" @navigate="openPage" />
   </el-config-provider>
 </template>

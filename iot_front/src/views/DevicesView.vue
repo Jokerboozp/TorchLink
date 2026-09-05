@@ -100,7 +100,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
 </script>
 
 <template>
-  <div class="page-toolbar"><el-button type="primary" @click="open()">注册设备</el-button><el-button @click="load">刷新</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
+  <div class="page-toolbar"><el-button type="primary" @click="open()">注册设备</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
   <el-card shadow="never" class="surface-card table-card">
     <el-table v-loading="loading" :data="registry" stripe>
       <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></el-table-column>

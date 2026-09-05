@@ -100,6 +100,8 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/protocol-packages/:id/artifact", s.authorize("operator"), s.endpoint(s.uploadProtocolArtifact, "id"))
 	s.router.POST("/api/v1/protocol-packages/:id/test", s.authorize("operator"), s.endpoint(s.testProtocolPackage, "id"))
 	s.router.GET("/api/v2/protocols", s.authorize("viewer"), s.endpoint(s.protocolDefinitionsV2))
+	s.router.GET("/api/v2/protocol-source-template", s.authorize("viewer"), s.endpoint(s.protocolSourceTemplate))
+	s.router.POST("/api/v2/protocols/:id/source-releases", s.authorize("operator"), s.endpoint(s.uploadProtocolSource, "id"))
 	s.router.POST("/api/v2/protocols", s.authorize("operator"), s.endpoint(s.saveProtocolDefinitionV2))
 	s.router.GET("/api/v2/protocols/:id/releases", s.authorize("viewer"), s.endpoint(s.protocolReleasesV2, "id"))
 	s.router.POST("/api/v2/protocols/:id/releases", s.authorize("operator"), s.endpoint(s.createProtocolReleaseV2, "id"))

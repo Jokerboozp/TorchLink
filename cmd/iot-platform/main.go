@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,8 +36,13 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	envFile := flag.String("env-file", "", "load a KEY=VALUE configuration file (existing environment variables take precedence)")
+	flag.Parse()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if *envFile != "" {
+		fatal(log, "load environment file", config.LoadEnvFile(*envFile))
+	}
+	cfg := config.Load()
 	fatal(log, "validate configuration", cfg.Validate())
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

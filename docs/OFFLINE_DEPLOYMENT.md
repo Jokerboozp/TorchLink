@@ -1,194 +1,78 @@
-# 一键离线部署
+# 离线部署
 
-本项目的离线部署采用“两阶段”方式：
+离线部署分两步：有网机器一键打包，目标机器一键导入并启动。目标机器不需要 Go、Node.js 或源码依赖；打包机和目标机都需预装并启动 Docker Engine / Docker Desktop（Linux 容器）及 Docker Compose 2.24.4+。Linux/macOS 的部署健康检查还需要 curl。
 
-1. 在有网且已启动 Docker Engine 的打包机执行对应操作系统的打包脚本。
-2. 把生成的 `iot-platform-offline-*` 目录整体传到服务器。
-3. 服务器执行对应操作系统的部署脚本。
+打包机与目标机应使用相同 CPU 架构（例如均为 linux/amd64）；Apple Silicon 默认生成的 ARM64 镜像不能直接作为 x86 服务器离线包。离线服务器安装 Docker 所需的软件包也必须提前准备，本项目离线包不包含 Docker 安装程序。
 
-服务器端不会执行 `go mod download`、`npm ci`、`pnpm install`，也不会拉取镜像。部署脚本固定使用 `--no-build --pull never`。
+## 1. 有网机器打包
 
-## 打包机
-
-Windows：
+在 `platform` 目录执行：
 
 ```powershell
-cd D:\iot\platform
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline-windows.ps1
+# Windows
+powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 ```
-
-macOS：
 
 ```bash
-cd /path/to/iot/platform
-bash ./scripts/package-offline-macos.sh
+# Linux / macOS
+bash ./scripts/package-offline.sh
 ```
 
-Linux：
+默认打包平台、存储、消息、备份、监控、Ollama、Weaviate，以及知识库必需的 `nomic-embed-text` 嵌入模型。无须预先创建 `.env`；脚本先生成独立的 `.env.offline` 和随机凭据，再构建镜像。
 
-```bash
-cd /path/to/iot/platform
-bash ./scripts/package-offline-linux.sh
-```
+生成目录：`platform/offline-bundles/iot-platform-offline-时间戳/`。将整个目录复制到目标机器，包括隐藏文件 `.env.offline`。镜像、模型文件、配置和部署脚本必须一起传输。
 
-已有正式密钥和配置时，三种系统都可以增加对应的 `--env-file` 或 `-EnvFile` 参数：
+常用选项：
+
+| 用途 | PowerShell | Bash |
+| --- | --- | --- |
+| 使用已有配置 | `-EnvFile .\.env.production` | `--env-file ./.env.production` |
+| 额外启用本地对话模型 | `-IncludeAi` | `--include-ai` |
+| 选择对话模型（默认 `qwen3:8b`） | `-IncludeAi -OllamaModel qwen3:8b` | `--include-ai --ollama-model qwen3:8b` |
+| GB/T 26875 网关 | `-IncludeGb26875` | `--include-gb26875` |
+| ThingsPanel | `-IncludeThingsPanel` | `--include-thingspanel` |
+| DeepSeek Harness | `-IncludeHarness` | `--include-harness` |
+| 全部可选组件 | `-Full` | `--full` |
+| 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
+
+已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`）。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。ThingsPanel 需要 `THINGSPANEL_POSTGRES_PASSWORD`，Harness 需要 `IOT_AI_HARNESS_TOKEN` 和可达的 `DEEPSEEK_BASE_URL`（默认官方地址）。示例密码和空的必需密钥会被拒绝。
+
+`-Full` 不会把 DeepSeek 变成离线模型服务；Harness 仍需要可达的模型接口。完全断网的对话能力请使用 `-IncludeAi` 和本地 Ollama。`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机已经安装所需模型的情况，部署默认会检查模型是否存在。当前知识库固定使用 `nomic-embed-text`，不能随意替换嵌入模型。
+
+打包时模型缓存保存在 `iot-platform-offline-build_ollama-data` 卷，完成后停止打包用 Ollama；不操作已有 `iot-platform` 部署。模型归档仅包含模型文件，不包含 Ollama 身份密钥。重复打包可复用缓存；曾下载的其他模型也可能保留在归档中。
+
+## 2. 目标机器一键部署
+
+进入复制后的离线包目录：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline-windows.ps1 `
-  -EnvFile .\.env.production
+# Windows
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 ```
 
 ```bash
-bash ./scripts/package-offline-linux.sh --env-file ./.env.production
+# Linux / macOS
+bash ./scripts/deploy-offline.sh
 ```
 
-加入本地 Ollama + Weaviate，并把指定模型一起打包：
+脚本依次校验镜像和模型的 SHA-256、检查 Compose 配置、导入镜像、检查所需镜像、恢复模型、启动服务并检查平台及模型。启动固定使用 `--no-build --pull never`；模型恢复容器也禁止拉取镜像。
 
-Weaviate 使用 `nomic-embed-text` 建立本地向量索引；离线包需要同时带上该嵌入模型和对话模型。
+默认 Web 地址是 `http://服务器IP:8080`。管理员凭据见 `OFFLINE-CREDENTIALS.txt`；使用外部配置打包时，凭据仍以该配置为准。若需改端口，请先编辑包内 `.env.offline` 的 `IOT_WEB_PORT` 和 `IOT_API_PORT`。整个离线包包含密码，请限制访问和传输范围。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline-windows.ps1 `
-  -IncludeAi `
-  -OllamaModel qwen3:8b `
-  -OllamaEmbeddingModel nomic-embed-text
-```
+同一个包可以重复执行部署命令：配置与数据卷保持原值，模型恢复只补齐缺失文件。模型解压会临时额外占用一份模型大小的磁盘空间。不要用重新生成随机凭据的新包直接替换已有数据库部署；升级时应沿用原来的 `.env.offline` 作为打包配置。
 
-macOS：
+离线部署项目名固定为 `iot-platform`，本地运行和在线部署使用各自的项目名；同一台机器运行多套系统时仍需调整重叠的宿主机端口。
 
-```bash
-bash ./scripts/package-offline-macos.sh --include-ai --ollama-model qwen3:8b --ollama-embedding-model nomic-embed-text
-```
+## 查看状态与排错
 
-Linux：
-
-```bash
-bash ./scripts/package-offline-linux.sh --include-ai --ollama-model qwen3:8b --ollama-embedding-model nomic-embed-text
-```
-
-加入 Harness 或 ThingsPanel：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline-windows.ps1 `
-  -IncludeHarness `
-  -IncludeThingsPanel
-```
-
-macOS：
-
-```bash
-bash ./scripts/package-offline-macos.sh --include-harness --include-thingspanel
-```
-
-Linux：
-
-```bash
-bash ./scripts/package-offline-linux.sh --include-harness --include-thingspanel
-```
-
-如果需要同时启动 GB/T 26875 网关，增加 `-IncludeGb26875`：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline-windows.ps1 -IncludeGb26875
-```
-
-macOS：
-
-```bash
-bash ./scripts/package-offline-macos.sh --include-gb26875
-```
-
-Linux：
-
-```bash
-bash ./scripts/package-offline-linux.sh --include-gb26875
-```
-
-所有可选组件：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline-windows.ps1 -Full
-```
-
-macOS：
-
-```bash
-bash ./scripts/package-offline-macos.sh --full
-```
-
-Linux：
-
-```bash
-bash ./scripts/package-offline-linux.sh --full
-```
-
-`-Full` 只表示镜像和文件全部打包。DeepSeek Harness 运行时仍需要可访问的模型服务；真正完全无外网时，应使用 `-IncludeAi` 的本地 Ollama，并且提前打包模型卷。
-
-如果不传 `-EnvFile`，脚本会生成随机数据库密码、JWT 密钥、管理员密码、EMQX/Grafana 密码和备份 Token，写入 `.env.offline`，并把查看凭据写入 `OFFLINE-CREDENTIALS.txt`。离线包包含密钥，必须通过受控介质传输并限制文件权限。平台不负责直播流获取；外部视频平台仍需独立配置并向平台发送视频告警。
-
-脚本会为运行镜像固定以下离线标签：
+在离线包目录执行（Windows / Linux / macOS 通用）：
 
 ```text
-iot-platform-api:offline
-iot-platform-web:offline
-iot-platform-backup:offline
-iot-deepseek-harness:offline
-iot-thingspanel-backend:offline
-iot-thingspanel-web:offline
+docker compose --project-name iot-platform --env-file .env.offline -f compose.yaml -f compose.offline.yaml ps
+docker compose --project-name iot-platform --env-file .env.offline -f compose.yaml -f compose.offline.yaml logs --tail=100 platform-api
 ```
 
-## 服务器
-
-Windows：
-
-```powershell
-cd D:\path\to\iot-platform-offline-YYYYMMDD-HHMMSS
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline-windows.ps1
-```
-
-macOS：
-
-```bash
-cd /opt/iot-platform-offline-YYYYMMDD-HHMMSS
-chmod +x scripts/deploy-offline-macos.sh
-./scripts/deploy-offline-macos.sh
-```
-
-Linux：
-
-```bash
-cd /opt/iot-platform-offline-YYYYMMDD-HHMMSS
-chmod +x scripts/deploy-offline-linux.sh
-./scripts/deploy-offline-linux.sh
-```
-
-部署脚本会依次完成：
-
-- 校验 `images.tar` 的 SHA-256；
-- `docker load` 导入全部镜像；
-- 如果存在 `ollama-data.tgz`，在目标机新建空的 `iot-platform_ollama-data` 卷并恢复模型；
-- 校验 Compose 配置；
-- 使用 `--no-build --pull never` 启动服务；
-- 等待 `/health/live` 返回成功。
-
-如果目标机已经存在同名 Ollama 数据卷，脚本会跳过模型恢复，不覆盖现有数据。
-
-离线部署会随主系统一起启动 `backup-service`，默认每天按 `IOT_BACKUP_TIME` 和 `IOT_BACKUP_TIMEZONE` 备份前一天的原始日志。若需要单独重新拉起备份服务，在离线包目录执行：
-
-```powershell
-docker compose --env-file .\.env.offline -f .\compose.yaml -f .\compose.offline.yaml up -d --no-build --pull never backup-service
-```
-
-停止备份服务：
-
-```powershell
-docker compose --env-file .\.env.offline -f .\compose.yaml -f .\compose.offline.yaml stop backup-service
-```
-
-启用或停止服务不会自动删除 `backup-staging` 数据卷；如需回收历史备份空间，请先确认数据保留要求后单独处理。
-
-## 数据迁移和安全边界
-
-- 全新部署会创建新的数据库、对象存储和消息队列卷。
-- 已有系统迁移时，应先使用项目备份能力或数据库/对象存储逻辑备份，不要直接复制 Docker/WSL 虚拟磁盘。
-- 生产环境不要使用 Compose 默认密码；使用 `-EnvFile` 时，打包脚本会拒绝包含示例密码的配置。
-- 设备、视频平台、ThingsPanel 或 DeepSeek 的运行时地址仍必须在目标内网可达；“镜像离线”不等于所有外部业务自动变成本地服务。
+- 缺少镜像或 SHA-256 不匹配：在有网机器重新打包并完整复制，不要在离线目标机执行拉取。
+- 缺少 `nomic-embed-text` 或对话模型：重新携带模型打包，再部署到原目录/配置；无需删除已有模型卷。
+- 需要自行诊断：可显式使用 `-SkipHealthCheck` / `--skip-health-check`；只在确认传输完整性后使用 `-SkipHashCheck` / `--skip-hash-check`。跳过检查不代表部署验收通过。
+- 已有业务数据迁移：使用项目备份及数据库、对象存储恢复流程；离线安装包只包含程序、配置和模型，不包含业务数据。

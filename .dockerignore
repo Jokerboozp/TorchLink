@@ -1,5 +1,10 @@
 .git
 .env
+.env.*
+!.env.example
+offline-bundles
+.e2e
+.vscode
 data
 *.log
 bin

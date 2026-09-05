@@ -50,6 +50,12 @@ func (p ExternalParser) Parse(raw model.RawMessage) (*model.StandardMessage, err
 }
 
 func (p ExternalParser) ParseWithConfig(raw model.RawMessage, config map[string]any) (*model.StandardMessage, error) {
+	return p.ParseWithContext(context.Background(), raw, config)
+}
+
+// ParseWithContext lets publication cancel a sample worker when its request or
+// the overall validation budget expires.
+func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMessage, config map[string]any) (*model.StandardMessage, error) {
 	artifact, err := externalArtifact(config)
 	if err != nil {
 		return nil, err
@@ -63,9 +69,10 @@ func (p ExternalParser) ParseWithConfig(raw model.RawMessage, config map[string]
 	}
 
 	timeout := externalTimeout(config)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path)
+	cmd.WaitDelay = time.Second
 	cmd.Dir = filepath.Dir(path)
 	cmd.Env = externalEnvironment()
 
@@ -96,6 +103,11 @@ func (p ExternalParser) ParseWithConfig(raw model.RawMessage, config map[string]
 	message, err := decodeExternalMessage(stdout.Bytes())
 	if err != nil {
 		return nil, err
+	}
+	switch message.MessageType {
+	case model.PropertyReport, model.EventReport, model.StateChange, model.AlarmReport, model.CommandReply, model.LogReport:
+	default:
+		return nil, fmt.Errorf("unsupported external parser messageType %q", message.MessageType)
 	}
 	if message.MessageID == "" {
 		message.MessageID = "msg_" + strings.TrimPrefix(raw.MessageID, "raw_")

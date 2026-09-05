@@ -285,7 +285,7 @@ test('protocol v2 point-table, package release and device collection flows are v
   for (const route of ['/api/v2/protocols', '/api/v2/modbus-tcp/import', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/')))
   assert.match(protocols, /FC01\/02\/03\/04/)
   assert.match(protocols, /manifest\.yaml/)
-  assert.match(app, /label:'设备与数据'/)
+  assert.match(app, /label: '设备接入'/)
   assert.match(app, /title:'接入指南'/)
   assert.match(integration, /设备连接指南/)
   assert.match(raw, /standardMessage/)

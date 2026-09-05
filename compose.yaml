@@ -1,7 +1,7 @@
 name: iot-platform
 
-# 单文件部署入口：
-#   docker compose up -d --build
+# 在线部署入口：scripts/deploy-online.ps1 / scripts/deploy-online.sh。
+# 本地源码调试使用独立 compose.local.yaml，离线使用 compose.offline.yaml 覆盖层。
 # 本地知识库：默认启动持久化 Weaviate + Ollama（数据保存在命名卷）。
 # 所有 ${VAR:-default} 均可由 shell 环境变量或可选 .env 覆盖。
 
@@ -124,7 +124,7 @@ services:
       IOT_HARNESS_RUN_TIMEOUT_MS: ${IOT_HARNESS_RUN_TIMEOUT_MS:-85000}
       IOT_HARNESS_RPC_TIMEOUT_MS: ${IOT_HARNESS_RPC_TIMEOUT_MS:-80000}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      DEEPSEEK_BASE_URL: ${IOT_AI_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
     ports: ["127.0.0.1:${IOT_AI_HARNESS_PORT:-8091}:8091"]
     volumes: ["deepseek-harness-data:/data"]
     depends_on:

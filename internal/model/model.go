@@ -284,12 +284,13 @@ type ProtocolRelease struct {
 }
 
 type ProductProtocolBinding struct {
-	TenantID        string `json:"tenantId"`
-	ProductID       string `json:"productId"`
-	ProtocolID      string `json:"protocolId"`
-	Version         string `json:"version"`
-	PreviousVersion string `json:"previousVersion,omitempty"`
-	UpdatedAt       int64  `json:"updatedAt"`
+	TenantID           string `json:"tenantId"`
+	ProductID          string `json:"productId"`
+	ProtocolID         string `json:"protocolId"`
+	Version            string `json:"version"`
+	PreviousVersion    string `json:"previousVersion,omitempty"`
+	PreviousProtocolID string `json:"previousProtocolId,omitempty"`
+	UpdatedAt          int64  `json:"updatedAt"`
 }
 
 type DeviceAccessProfile struct {
