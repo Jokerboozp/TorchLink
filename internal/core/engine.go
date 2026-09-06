@@ -29,7 +29,6 @@ type Engine struct {
 	AIPlugins                 ports.AIPluginRegistry
 	AIWorkflows               ports.AIWorkflowRuntime
 	KB                        ports.KnowledgeBase
-	Catalog                   ports.PlatformCatalog
 	Parsers                   *parser.Registry
 	Clock                     ports.Clock
 	Log                       *slog.Logger

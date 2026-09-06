@@ -10,7 +10,7 @@ export TEST_CALLS="$test_root/calls.log" TEST_HTTP="$test_root/http.log"
 export TEST_FAIL_BUILD=0 TEST_MISSING_IMAGE=0
 : > "$TEST_CALLS"; : > "$TEST_HTTP"
 while IFS= read -r key; do
-  case "$key" in IOT_*|COMPOSE_*|POSTGRES_*|REDIS_*|CLICKHOUSE_*|MINIO_*|EMQX_*|GRAFANA_*|DEEPSEEK_*|THINGSPANEL_*) unset "$key";; esac
+  case "$key" in IOT_*|COMPOSE_*|POSTGRES_*|REDIS_*|CLICKHOUSE_*|MINIO_*|EMQX_*|GRAFANA_*|DEEPSEEK_*) unset "$key";; esac
 done < <(compgen -e)
 
 docker() {

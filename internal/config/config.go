@@ -65,10 +65,6 @@ type Config struct {
 	HikvisionVideoAPIURL        string
 	HikvisionAppKey             string
 	HikvisionAppSecret          string
-	ThingsPanelURL              string
-	ThingsPanelUser             string
-	ThingsPanelPassword         string
-	ThingsPanelSync             time.Duration
 	OfflineScan                 time.Duration
 	ModbusAllowedCIDRs          []string
 	DevMode                     bool
@@ -138,10 +134,6 @@ func Load() Config {
 		HikvisionVideoAPIURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_VIDEO_HIKVISION_API_URL")), "/"),
 		HikvisionAppKey:             strings.TrimSpace(os.Getenv("IOT_VIDEO_HIKVISION_APP_KEY")),
 		HikvisionAppSecret:          strings.TrimSpace(os.Getenv("IOT_VIDEO_HIKVISION_APP_SECRET")),
-		ThingsPanelURL:              strings.TrimRight(os.Getenv("IOT_THINGSPANEL_URL"), "/"),
-		ThingsPanelUser:             os.Getenv("IOT_THINGSPANEL_USER"),
-		ThingsPanelPassword:         os.Getenv("IOT_THINGSPANEL_PASSWORD"),
-		ThingsPanelSync:             duration("IOT_THINGSPANEL_SYNC_INTERVAL", 5*time.Minute),
 		OfflineScan:                 duration("IOT_OFFLINE_SCAN_INTERVAL", 30*time.Second),
 		ModbusAllowedCIDRs:          split(get("IOT_MODBUS_ALLOWED_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128")),
 		DevMode:                     devMode,

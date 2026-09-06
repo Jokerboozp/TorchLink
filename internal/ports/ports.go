@@ -346,12 +346,6 @@ type InspectableKnowledgeBase interface {
 	ListKnowledgeChunks(context.Context, string, string) ([]model.KnowledgeChunk, error)
 }
 
-type PlatformCatalog interface {
-	Authenticate(context.Context, string, string) (model.ExternalAuth, error)
-	Sync(context.Context, string) (model.CatalogSyncResult, error)
-	Health(context.Context) error
-}
-
 type Clock interface{ Now() time.Time }
 type RealClock struct{}
 

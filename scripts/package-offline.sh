@@ -9,7 +9,6 @@ output_dir="offline-bundles"
 env_file=""
 include_ai=0
 include_harness=0
-include_thingspanel=0
 include_gb26875=0
 full=0
 ollama_model="qwen3:8b"
@@ -26,7 +25,6 @@ usage() {
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
   --include-ai           额外打包并启用本地 Ollama 对话模型
   --include-harness      打包 DeepSeek Harness
-  --include-thingspanel  打包 ThingsPanel
   --include-gb26875      部署时同时启动 GB/T 26875 网关
   --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:8b
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
@@ -108,7 +106,6 @@ validate_env() {
     EMQX_DASHBOARD_USER EMQX_DASHBOARD_PASSWORD
     GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
   )
-  (( include_thingspanel )) && required_keys+=(THINGSPANEL_POSTGRES_PASSWORD)
   (( include_harness )) && required_keys+=(IOT_AI_HARNESS_TOKEN)
   for key in "${required_keys[@]}"; do
     value="$(env_value "$key" "$file")"
@@ -139,7 +136,6 @@ write_env() {
     local backup_token="$(random_hex 32)"
     local emqx_password="Emqx-$(random_hex 12)"
     local grafana_password="Grafana-$(random_hex 12)"
-    local thingspanel_password="tp-$(random_hex 18)"
     local ollama_url=""
     local ai_provider=""
     local weaviate_url="http://weaviate:8080"
@@ -187,9 +183,6 @@ IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC=60
 IOT_BACKUP_TIME=00:05
 IOT_BACKUP_TIMEZONE=Asia/Shanghai
 IOT_MQTT_WEBSOCKET_PUBLIC_URL=
-IOT_THINGSPANEL_URL=
-IOT_THINGSPANEL_USER=
-IOT_THINGSPANEL_PASSWORD=
 IOT_WEB_PORT=8080
 IOT_API_PORT=8081
 IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
@@ -197,7 +190,6 @@ EMQX_DASHBOARD_USER=admin
 EMQX_DASHBOARD_PASSWORD=$emqx_password
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=$grafana_password
-THINGSPANEL_POSTGRES_PASSWORD=$thingspanel_password
 EOF
     cat > "$(dirname -- "$destination")/OFFLINE-CREDENTIALS.txt" <<EOF
 # 离线部署凭据
@@ -212,7 +204,6 @@ Redis 密码：$redis_password
 ClickHouse 密码：$clickhouse_password
 MinIO 主密码：$minio_password
 MinIO 灾备密码：$minio_dr_password
-ThingsPanel PostgreSQL 密码：$thingspanel_password
 EOF
   fi
 
@@ -220,8 +211,6 @@ EOF
   set_env_value "$destination" IOT_PLATFORM_WEB_IMAGE iot-platform-web:offline
   set_env_value "$destination" IOT_BACKUP_IMAGE iot-platform-backup:offline
   set_env_value "$destination" IOT_DEEPSEEK_HARNESS_IMAGE iot-deepseek-harness:offline
-  set_env_value "$destination" IOT_THINGSPANEL_BACKEND_IMAGE iot-thingspanel-backend:offline
-  set_env_value "$destination" IOT_THINGSPANEL_WEB_IMAGE iot-thingspanel-web:offline
 
   if (( ! generated )); then
     cat > "$(dirname -- "$destination")/OFFLINE-CREDENTIALS.txt" <<EOF
@@ -239,7 +228,6 @@ while [[ $# -gt 0 ]]; do
     --env-file) env_file="${2:-}"; shift 2 ;;
     --include-ai) include_ai=1; shift ;;
     --include-harness) include_harness=1; shift ;;
-    --include-thingspanel) include_thingspanel=1; shift ;;
     --include-gb26875) include_gb26875=1; shift ;;
     --ollama-model) ollama_model="${2:-}"; shift 2 ;;
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
@@ -253,7 +241,6 @@ done
 if (( full )); then
   include_ai=1
   include_harness=1
-  include_thingspanel=1
   include_gb26875=1
 fi
 
@@ -307,7 +294,6 @@ add_profile() {
   compose_profile_args+=(--profile "$1")
 }
 (( include_harness )) && add_profile harness
-(( include_thingspanel )) && add_profile thingspanel
 (( include_gb26875 )) && add_profile gb26875
 
 run_compose "${compose_profile_args[@]}" config --quiet
@@ -352,10 +338,6 @@ if (( include_harness )); then
   command -v git >/dev/null 2>&1 || die "--include-harness 需要 Git"
   sh "$script_dir/fetch-deepseek-harness.sh"
   run_compose --profile harness build --pull deepseek-harness
-fi
-if (( include_thingspanel )); then
-  run_compose --profile thingspanel pull thingspanel-postgres thingspanel-db-init
-  run_compose --profile thingspanel build --pull backend thingspanel
 fi
 
 mkdir -p "$bundle_root/scripts"

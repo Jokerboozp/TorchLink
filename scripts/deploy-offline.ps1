@@ -84,7 +84,7 @@ $composeArguments = @(
 )
 if (Test-Path -LiteralPath $profilesPath -PathType Leaf) {
     foreach ($profile in @(Get-Content -LiteralPath $profilesPath -Encoding UTF8 | Where-Object { $_.Trim() })) {
-        if ($profile.Trim() -notin @("harness", "thingspanel", "gb26875")) { throw "离线包包含未知 profile：$profile" }
+        if ($profile.Trim() -notin @("harness", "gb26875")) { throw "离线包包含未知 profile：$profile" }
         $composeArguments += @("--profile", $profile.Trim())
     }
 }

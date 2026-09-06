@@ -5,7 +5,6 @@ param(
     [switch]$Full,
     [switch]$IncludeAi,
     [switch]$IncludeHarness,
-    [switch]$IncludeThingsPanel,
     [switch]$IncludeGb26875,
     [string]$OllamaModel = "qwen3:8b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
@@ -22,7 +21,6 @@ $projectRoot = Split-Path -Parent $scriptDir
 if ($Full) {
     $IncludeAi = $true
     $IncludeHarness = $true
-    $IncludeThingsPanel = $true
     $IncludeGb26875 = $true
 }
 
@@ -116,8 +114,7 @@ function New-OfflineEnv {
         [Parameter(Mandatory)][string]$Destination,
         [string]$Source,
         [switch]$UseAi,
-        [switch]$UseHarness,
-        [switch]$UseThingsPanel
+        [switch]$UseHarness
     )
 
     $generated = [string]::IsNullOrWhiteSpace($Source)
@@ -137,7 +134,6 @@ function New-OfflineEnv {
             "EMQX_DASHBOARD_USER", "EMQX_DASHBOARD_PASSWORD",
             "GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"
         )
-        if ($UseThingsPanel) { $required += "THINGSPANEL_POSTGRES_PASSWORD" }
         if ($UseHarness) { $required += "IOT_AI_HARNESS_TOKEN" }
         foreach ($key in $required) {
             if (-not $entries.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$entries[$key])) {
@@ -163,7 +159,6 @@ function New-OfflineEnv {
         $backupToken = New-RandomHex -Bytes 32
         $emqxPassword = "Emqx-" + (New-RandomHex -Bytes 12)
         $grafanaPassword = "Grafana-" + (New-RandomHex -Bytes 12)
-        $thingsPanelPassword = "tp-" + (New-RandomHex -Bytes 18)
 
         $ollamaUrl = if ($UseAi) { "http://ollama:11434" } else { "" }
         $aiProvider = if ($UseAi) { "ollama" } else { "" }
@@ -205,17 +200,13 @@ function New-OfflineEnv {
             "IOT_BACKUP_TIME=00:05",
             "IOT_BACKUP_TIMEZONE=Asia/Shanghai",
             "IOT_MQTT_WEBSOCKET_PUBLIC_URL=",
-            "IOT_THINGSPANEL_URL=",
-            "IOT_THINGSPANEL_USER=",
-            "IOT_THINGSPANEL_PASSWORD=",
             "IOT_WEB_PORT=8080",
             "IOT_API_PORT=8081",
             "IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080",
             "EMQX_DASHBOARD_USER=admin",
             "EMQX_DASHBOARD_PASSWORD=$emqxPassword",
             "GRAFANA_ADMIN_USER=admin",
-            "GRAFANA_ADMIN_PASSWORD=$grafanaPassword",
-            "THINGSPANEL_POSTGRES_PASSWORD=$thingsPanelPassword"
+            "GRAFANA_ADMIN_PASSWORD=$grafanaPassword"
         )
 
         [void]$credentialLines.Add("平台管理员：admin")
@@ -228,7 +219,6 @@ function New-OfflineEnv {
         [void]$credentialLines.Add("ClickHouse 密码：$clickhousePassword")
         [void]$credentialLines.Add("MinIO 主密码：$minioPassword")
         [void]$credentialLines.Add("MinIO 灾备密码：$minioDrPassword")
-        if ($UseThingsPanel) { [void]$credentialLines.Add("ThingsPanel PostgreSQL 密码：$thingsPanelPassword") }
     }
 
     $imageValues = [ordered]@{
@@ -236,8 +226,6 @@ function New-OfflineEnv {
         "IOT_PLATFORM_WEB_IMAGE" = "iot-platform-web:offline"
         "IOT_BACKUP_IMAGE" = "iot-platform-backup:offline"
         "IOT_DEEPSEEK_HARNESS_IMAGE" = "iot-deepseek-harness:offline"
-        "IOT_THINGSPANEL_BACKEND_IMAGE" = "iot-thingspanel-backend:offline"
-        "IOT_THINGSPANEL_WEB_IMAGE" = "iot-thingspanel-web:offline"
     }
     foreach ($item in $imageValues.GetEnumerator()) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $item.Key -Value $item.Value)
@@ -285,7 +273,7 @@ if (-not [string]::IsNullOrWhiteSpace($sourceEnv) -and -not [System.IO.Path]::Is
     $sourceEnv = Join-Path $projectRoot $sourceEnv
 }
 $envPath = Join-Path $bundleRoot ".env.offline"
-$envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv -UseAi:$IncludeAi -UseHarness:$IncludeHarness -UseThingsPanel:$IncludeThingsPanel
+$envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv -UseAi:$IncludeAi -UseHarness:$IncludeHarness
 $runtimeProvider = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_PROVIDER'
 if ($runtimeProvider -eq 'ollama' -or (-not $runtimeProvider -and (Get-DeploymentEnvValue -Path $envPath -Key 'IOT_OLLAMA_URL'))) {
     $IncludeAi = $true
@@ -303,7 +291,6 @@ $composeBase = @(
 
 $profiles = New-Object 'System.Collections.Generic.List[string]'
 if ($IncludeHarness) { [void]$profiles.Add("harness") }
-if ($IncludeThingsPanel) { [void]$profiles.Add("thingspanel") }
 if ($IncludeGb26875) { [void]$profiles.Add("gb26875") }
 $profileArguments = New-Object 'System.Collections.Generic.List[string]'
 foreach ($profile in $profiles) {
@@ -358,10 +345,6 @@ try {
     if ($IncludeHarness) {
         Ensure-HarnessSource -ProjectRoot $projectRoot
         Invoke-Checked -Arguments ($composeBase + @("--profile", "harness", "build", "--pull", "deepseek-harness"))
-    }
-    if ($IncludeThingsPanel) {
-        Invoke-Checked -Arguments ($composeBase + @("--profile", "thingspanel", "pull", "thingspanel-postgres", "thingspanel-db-init"))
-        Invoke-Checked -Arguments ($composeBase + @("--profile", "thingspanel", "build", "--pull", "backend", "thingspanel"))
     }
 
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.yaml") -Destination $bundleRoot

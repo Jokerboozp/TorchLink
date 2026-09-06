@@ -687,19 +687,6 @@ type AIToolCallLog struct {
 	CreatedAt int64          `json:"createdAt"`
 }
 
-type ExternalAuth struct {
-	Username      string `json:"username"`
-	TenantID      string `json:"tenantId"`
-	Role          string `json:"role"`
-	UpstreamToken string `json:"-"`
-}
-type CatalogSyncResult struct {
-	Products int      `json:"products"`
-	Devices  int      `json:"devices"`
-	SyncedAt int64    `json:"syncedAt"`
-	Errors   []string `json:"errors,omitempty"`
-}
-
 type AuditLog struct {
 	ID         string         `json:"id"`
 	TenantID   string         `json:"tenantId"`

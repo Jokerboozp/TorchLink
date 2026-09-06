@@ -30,12 +30,11 @@ bash ./scripts/package-offline.sh
 | 额外启用本地对话模型 | `-IncludeAi` | `--include-ai` |
 | 选择对话模型（默认 `qwen3:8b`） | `-IncludeAi -OllamaModel qwen3:8b` | `--include-ai --ollama-model qwen3:8b` |
 | GB/T 26875 网关 | `-IncludeGb26875` | `--include-gb26875` |
-| ThingsPanel | `-IncludeThingsPanel` | `--include-thingspanel` |
 | DeepSeek Harness | `-IncludeHarness` | `--include-harness` |
 | 全部可选组件 | `-Full` | `--full` |
 | 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
 
-已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`）。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。ThingsPanel 需要 `THINGSPANEL_POSTGRES_PASSWORD`，Harness 需要 `IOT_AI_HARNESS_TOKEN` 和可达的 `DEEPSEEK_BASE_URL`（默认官方地址）。示例密码和空的必需密钥会被拒绝。
+已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`）。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。Harness 需要 `IOT_AI_HARNESS_TOKEN` 和可达的 `DEEPSEEK_BASE_URL`（默认官方地址）。示例密码和空的必需密钥会被拒绝。
 
 `-Full` 不会把 DeepSeek 变成离线模型服务；Harness 仍需要可达的模型接口。完全断网的对话能力请使用 `-IncludeAi` 和本地 Ollama。`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机已经安装所需模型的情况，部署默认会检查模型是否存在。当前知识库固定使用 `nomic-embed-text`，不能随意替换嵌入模型。
 

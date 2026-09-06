@@ -5,7 +5,6 @@ JetLinks 协议包改造（原文第 6 章）按用户要求排除。其余章�
 | 文档范围 | 实现位置 | 状态 |
 |---|---|---|
 | Go 平台二开与主链路 | `internal/core`、`internal/ports`、`cmd/iot-platform` | 已实现 |
-| ThingsPanel 底座 | `internal/adapters/thingspanel`、登录回退、目录同步、Compose profile | 已实现实际 API 集成；上游工作树保持只读 |
 | EMQX + Kafka/Redpanda | JWT/ACL、浏览器 MQTT WS、微批 Kafka Writer、解析成功后的 Kafka/MQTT 双通道输出、Compose | 已实现；解析成功的标准消息同时进入类型化 Kafka Topic 和租户 MQTT Topic，失败报文不外发 |
 | Topic、幂等、Retry/DLQ | Raw outbox 状态、重试扫描、Kafka consumer retry 和独立 DLQ | 已实现 |
 | Parser/Normalizer | `internal/parser` | 已实现插件注册表及 JSON/烟感/Modbus 示例 |

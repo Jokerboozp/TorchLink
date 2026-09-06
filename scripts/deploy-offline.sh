@@ -60,7 +60,7 @@ if [[ -f "$profiles_file" ]]; then
   while IFS= read -r profile || [[ -n "$profile" ]]; do
     profile="${profile%$'\r'}"
     [[ -n "$profile" ]] || continue
-    case "$profile" in harness|thingspanel|gb26875) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
+    case "$profile" in harness|gb26875) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
   done < "$profiles_file"
 fi
 "${compose[@]}" config --quiet

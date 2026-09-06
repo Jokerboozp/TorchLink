@@ -172,7 +172,6 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/mqtt/token", s.authorize("viewer"), s.endpoint(s.mqttToken))
 	s.router.POST("/api/v1/mqtt/load-token", s.authorize("admin"), s.endpoint(s.mqttLoadToken))
 	s.router.POST("/api/v1/device-mqtt/token", s.endpoint(s.deviceMQTTToken))
-	s.router.POST("/api/v1/integrations/thingspanel/sync", s.authorize("admin"), s.endpoint(s.thingsPanelSync))
 	mcpHandler := gin.WrapH(mcpserver.New(s.engine))
 	s.router.GET("/mcp", s.authorize("viewer"), mcpHandler)
 	s.router.POST("/mcp", s.authorize("viewer"), mcpHandler)
@@ -191,31 +190,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil {
 		return
 	}
-	builtinAdmin := in.Username == s.cfg.AdminUser && in.Password == s.cfg.AdminPassword
-	role := "admin"
-	if !builtinAdmin {
-		if s.engine.Catalog == nil {
-			problem(w, 401, "invalid credentials")
-			return
-		}
-		external, err := s.engine.Catalog.Authenticate(r.Context(), in.Username, in.Password)
-		if err != nil {
-			problem(w, 401, "invalid credentials")
-			return
-		}
-		in.TenantID = external.TenantID
-		role = external.Role
+	if in.Username != s.cfg.AdminUser || in.Password != s.cfg.AdminPassword {
+		problem(w, 401, "invalid credentials")
+		return
 	}
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	if in.TenantID == "" {
 		in.TenantID = "tenant_001"
 	}
-	if builtinAdmin && !adminTenantAllowed(s.cfg.AdminTenants, in.TenantID) {
+	if !adminTenantAllowed(s.cfg.AdminTenants, in.TenantID) {
 		problem(w, http.StatusForbidden, "admin tenant is not allowed")
 		return
 	}
-	token, _ := s.auth.Issue(in.Username, in.TenantID, role, nil, 8*time.Hour)
-	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": role})
+	token, _ := s.auth.Issue(in.Username, in.TenantID, "admin", nil, 8*time.Hour)
+	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin"})
 }
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -2195,19 +2183,6 @@ func (s *Server) mqttWebSocketURL(r *http.Request) string {
 	}
 	host := strings.Split(r.Host, ":")[0]
 	return fmt.Sprintf("%s://%s:8083/mqtt", scheme, host)
-}
-func (s *Server) thingsPanelSync(w http.ResponseWriter, r *http.Request) {
-	if s.engine.Catalog == nil {
-		problem(w, 503, "ThingsPanel integration is disabled")
-		return
-	}
-	result, err := s.engine.Catalog.Sync(r.Context(), claims(r).TenantID)
-	if err != nil {
-		problem(w, 502, err.Error())
-		return
-	}
-	s.audit(r, "thingspanel.sync", "catalog", claims(r).TenantID, map[string]any{"devices": result.Devices, "products": result.Products})
-	write(w, 200, result)
 }
 func (s *Server) videoWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))

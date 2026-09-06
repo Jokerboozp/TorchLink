@@ -23,7 +23,6 @@ import (
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/adapters/rawstore"
 	redisadapter "iot-platform/internal/adapters/redis"
-	thingspaneladapter "iot-platform/internal/adapters/thingspanel"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -162,23 +161,6 @@ func main() {
 		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL)
 	} else {
 		engine.KB = knowledge.NewLocal()
-	}
-	if cfg.ThingsPanelURL != "" {
-		engine.Catalog = thingspaneladapter.New(cfg.ThingsPanelURL, cfg.ThingsPanelUser, cfg.ThingsPanelPassword, repo)
-		go func() {
-			ticker := time.NewTicker(cfg.ThingsPanelSync)
-			defer ticker.Stop()
-			for {
-				if _, err := engine.Catalog.Sync(ctx, ""); err != nil {
-					log.Warn("ThingsPanel catalog sync failed", "error", err)
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		}()
 	}
 	fatal(log, "start engine", engine.Start(ctx))
 	protocolRuntime := protocolruntime.New(repo, func(c context.Context, raw model.RawMessage) error {

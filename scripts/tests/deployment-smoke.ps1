@@ -45,7 +45,7 @@ function Contains-Call([string]$Pattern) { return @($global:IotTest_calls | Wher
 # Avoid inherited configuration changing these isolated scenarios.
 $savedEnv = @{}
 foreach ($item in Get-ChildItem Env:) {
-    if ($item.Name -match '^(IOT_|COMPOSE_|POSTGRES_|REDIS_|CLICKHOUSE_|MINIO_|EMQX_|GRAFANA_|DEEPSEEK_|THINGSPANEL_)') {
+    if ($item.Name -match '^(IOT_|COMPOSE_|POSTGRES_|REDIS_|CLICKHOUSE_|MINIO_|EMQX_|GRAFANA_|DEEPSEEK_)') {
         $savedEnv[$item.Name] = $item.Value
         [Environment]::SetEnvironmentVariable($item.Name, $null, 'Process')
     }

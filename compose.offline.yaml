@@ -1,6 +1,6 @@
 name: iot-platform
 
-# 离线部署覆盖层：固定运行镜像标签，并为 ThingsPanel 的 build-only 服务补充 image。
+# 离线部署覆盖层：固定应用运行镜像标签。
 # 部署脚本仍会强制使用 --no-build --pull never。
 services:
   platform-api:
@@ -17,9 +17,3 @@ services:
 
   backup-service:
     image: iot-platform-backup:offline
-
-  backend:
-    image: iot-thingspanel-backend:offline
-
-  thingspanel:
-    image: iot-thingspanel-web:offline

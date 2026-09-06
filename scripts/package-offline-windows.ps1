@@ -5,7 +5,6 @@ param(
     [switch]$Full,
     [switch]$IncludeAi,
     [switch]$IncludeHarness,
-    [switch]$IncludeThingsPanel,
     [switch]$IncludeGb26875,
     [string]$OllamaModel = "qwen3:8b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
