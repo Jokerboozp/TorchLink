@@ -1,0 +1,48 @@
+[
+  {
+    "name": "fragment",
+    "request": {
+      "operation": "ingress",
+      "data": "404001000103153014240826",
+      "now": 1787553015000
+    },
+    "expected": {
+      "needMore": true
+    }
+  },
+  {
+    "name": "alarm-and-ack",
+    "request": {
+      "operation": "ingress",
+      "data": "404001000103153014240826123456789012ffffffffffff30000202018001170200070002006d616e75616c2063616c6c20706f696e740000000000000000000000000000153014240826672323",
+      "now": 1787553015000
+    },
+    "expected": {
+      "consumed": 78,
+      "deviceId": "gb26875_123456789012",
+      "reply": "404001000103153014240826FFFFFFFFFFFF123456789012000003632323"
+    }
+  },
+  {
+    "name": "time-sync",
+    "request": {
+      "operation": "encode",
+      "state": {
+        "source": "123456789012",
+        "sequence": 1
+      },
+      "command": {
+        "type": "time-sync"
+      },
+      "now": 1787553015000
+    },
+    "expected": {
+      "correlationId": "2",
+      "state": {
+        "source": "123456789012",
+        "sequence": 2
+      },
+      "reply": "404002000103153014240826FFFFFFFFFFFF1234567890120800015A01153014240826702323"
+    }
+  }
+]

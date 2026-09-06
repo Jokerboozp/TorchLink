@@ -60,7 +60,7 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 		return
 	}
 	for _, profile := range profiles {
-		if !profile.Enabled {
+		if !profile.Enabled || profile.Mode == "listener" {
 			continue
 		}
 		release, err := r.repo.GetProtocolRelease(ctx, profile.TenantID, profile.ProtocolID, profile.ProtocolVersion)

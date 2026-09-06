@@ -99,12 +99,12 @@ async function publish() {
   rebuild()
   publishing.value = true
   try {
-    const body = { id: form.id, version: form.version, status: draft.value.parserType === 'go_protocol_parser' ? 'DRAFT' : 'PUBLISHED', draft: { ...draft.value, fields: fields.value, config: mappingConfig() }, payloadFormat: form.payloadFormat }
+    const body = { id: form.id, version: form.version, status: 'DRAFT', draft: { ...draft.value, fields: fields.value, config: mappingConfig() }, payloadFormat: form.payloadFormat }
     if (form.samplePayload.trim()) body.payload = sampleValue()
     const result = await api('/api/v1/ai/protocol-assistant/publish', { method: 'POST', body: JSON.stringify(body) })
     published.value = result.package
     preview.value = result.standardMessage || preview.value
-    ElMessage.success(result.package.status === 'PUBLISHED' ? 'Go 协议包已发布，可到产品管理绑定产品' : 'Go 协议包草稿已保存，请到协议开发上传编译后的 Worker')
+    ElMessage.success(result.package.status === 'PUBLISHED' ? 'Go 协议包已发布，可到产品管理绑定产品' : 'Go 协议包草稿已保存，请到协议开发上传Go 源码包')
   } catch (error) {
     notifyError(error)
   } finally {
@@ -115,7 +115,7 @@ async function publish() {
 
 <template>
   <div class="protocol-assistant-page">
-    <el-alert title="协议接入助手" description="上传 Excel 点表后由 Go 代码生成地址映射；不会生成或执行 JavaScript。Modbus 点表可直接生成 Go 内置映射，复杂协议请上传符合 JSON Lines 契约的已编译 Go Worker。" type="info" :closable="false" show-icon />
+    <el-alert title="协议接入助手" description="上传 Excel 点表后由 Go 代码生成地址映射；不会生成或执行 JavaScript。点表用于生成与预览映射草稿；所有专用协议均通过上传 Go 源码包发布。" type="info" :closable="false" show-icon />
     <div class="assistant-grid top-gap">
       <el-card shadow="never" class="surface-card">
         <template #header><div class="card-header"><strong>1. 提供协议资料</strong><el-tag type="warning" round>人工确认后发布</el-tag></div></template>
@@ -152,9 +152,9 @@ async function publish() {
               <el-table-column label="操作" width="88"><template #default="{ $index }"><el-button plain type="danger" @click="removeField($index)">删除</el-button></template></el-table-column>
             </el-table>
             <div class="table-actions top-gap"><el-button plain @click="addField">新增字段</el-button><el-button plain @click="rebuild">保存映射修改</el-button></div>
-            <el-alert v-if="draft.parserType === 'go_protocol_parser'" class="top-gap" title="此草稿需要编译后的 Go Worker" description="先保存草稿，再到“协议开发”选择 Go 协议 Worker 上传对应平台架构的二进制文件；平台不会编译或执行源码。" type="warning" :closable="false" />
+            <el-alert v-if="draft.parserType === 'go_protocol_parser'" class="top-gap" title="此草稿需要Go 源码包" description="保存映射草稿后，在“设备接入 → Go 源码接入”上传 .go 或项目 ZIP，平台自动编译、验证样例并发布。" type="warning" :closable="false" />
             <div class="form-grid top-gap"><el-form-item label="协议包 ID"><el-input v-model="form.id" placeholder="留空自动生成" /></el-form-item><el-form-item label="版本"><el-input v-model="form.version" /></el-form-item></div>
-            <div class="table-actions"><el-button :loading="testing" @click="runPreview">运行解析预览</el-button><el-button type="primary" :loading="publishing" @click="publish">保存并发布 Go 协议包</el-button></div>
+            <div class="table-actions"><el-button :loading="testing" @click="runPreview">运行解析预览</el-button><el-button type="primary" :loading="publishing" @click="publish">保存协议映射草稿</el-button></div>
           </el-form>
         </template>
       </el-card>
@@ -168,7 +168,7 @@ async function publish() {
         <el-descriptions class="top-gap" :column="2" border><el-descriptions-item label="消息类型">{{ typeInfo(preview.messageType).label }}（{{ preview.messageType }}）</el-descriptions-item><el-descriptions-item label="解析器">{{ parsers[preview.parser] || preview.parser }}</el-descriptions-item></el-descriptions>
         <el-tabs class="top-gap"><el-tab-pane label="标准消息"><pre>{{ pretty(preview) }}</pre></el-tab-pane><el-tab-pane label="属性字段"><el-descriptions :column="2" border><el-descriptions-item v-for="(value, key) in preview.properties || {}" :key="key" :label="key">{{ value }}</el-descriptions-item></el-descriptions></el-tab-pane></el-tabs>
       </template>
-      <el-alert v-if="published" class="top-gap" type="success" :closable="false" :title="`已保存：${published.name} · ${published.id}`" :description="published.status === 'PUBLISHED' ? '下一步到产品管理把协议包绑定到对应产品。' : '当前为草稿，请到协议开发上传编译后的 Go Worker 后再发布。'" />
+      <el-alert v-if="published" class="top-gap" type="success" :closable="false" :title="`已保存：${published.name} · ${published.id}`" :description="published.status === 'PUBLISHED' ? '下一步到产品管理把协议包绑定到对应产品。' : '当前为草稿，请到协议开发上传Go 源码包 后再发布。'" />
     </el-card>
   </div>
 </template>

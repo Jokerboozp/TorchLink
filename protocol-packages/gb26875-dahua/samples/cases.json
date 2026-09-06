@@ -1,0 +1,254 @@
+[
+  {
+    "name": "manual-alarm",
+    "input": {
+      "messageId": "raw_manual-alarm",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404001000103153014240826123456789012FFFFFFFFFFFF30000202018001170200070002006D616E75616C2063616C6C20706F696E740000000000000000000000000000153014240826672323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "ALARM_REPORT",
+    "expectedProperties": {
+      "fireAlarm": true,
+      "fault": false,
+      "componentType": 23,
+      "componentTypeName": "手动火灾报警按钮",
+      "circuitAddress": 2,
+      "nodeAddress": 7
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "manual-normal",
+    "input": {
+      "messageId": "raw_manual-normal",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404002000103153014240826123456789012FFFFFFFFFFFF30000202018001170200070000006D616E75616C206E6F726D616C000000000000000000000000000000000000153014240826092323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "STATE_CHANGE",
+    "expectedProperties": {
+      "fireAlarm": false,
+      "fault": false
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "smoke-alarm",
+    "input": {
+      "messageId": "raw_smoke-alarm",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404003000103153014240826123456789012FFFFFFFFFFFF3000020201800128020007000200736D6F6B6520616C61726D0000000000000000000000000000000000000000153014240826422323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "ALARM_REPORT",
+    "expectedProperties": {
+      "fireAlarm": true,
+      "componentTypeName": "感烟火灾探测器"
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "temperature-fault",
+    "input": {
+      "messageId": "raw_temperature-fault",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404004000103153014240826123456789012FFFFFFFFFFFF300002020180011E02000700040074656D7065726174757265206661756C740000000000000000000000000000153014240826D92323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "ALARM_REPORT",
+    "expectedProperties": {
+      "fireAlarm": false,
+      "fault": true,
+      "componentTypeName": "感温火灾探测器"
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "sound-light-start",
+    "input": {
+      "messageId": "raw_sound-light-start",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404005000103153014240826123456789012FFFFFFFFFFFF3000020201800189020007006000736F756E64206C6967687420737461727465640000000000000000000000001530142408262F2323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "STATE_CHANGE",
+    "expectedProperties": {
+      "started": true,
+      "feedback": true,
+      "componentTypeName": "声光报警器"
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "registration",
+    "input": {
+      "messageId": "raw_registration",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404006000103153014240826123456789012FFFFFFFFFFFF700000000101030000000000000000000000000000313233343536373839303132000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004A2323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "STATE_CHANGE",
+    "expectedProperties": {
+      "registered": true,
+      "registrationObjectLength": 110
+    },
+    "expectedEventType": "REGISTER",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "keepalive",
+    "input": {
+      "messageId": "raw_keepalive",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404007000103153014240826123456789012FFFFFFFFFFFF0000076D2323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "PROPERTY_REPORT",
+    "expectedProperties": {},
+    "expectedEventType": "KEEPALIVE",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "ack",
+    "input": {
+      "messageId": "raw_ack",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404008000103153014240826FFFFFFFFFFFF1234567890120000036A2323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "COMMAND_REPLY",
+    "expectedProperties": {},
+    "expectedEventType": "ACK",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "time-sync-request",
+    "input": {
+      "messageId": "raw_time-sync-request",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "404009000103153014240826123456789012FFFFFFFFFFFF0800015A01153014240826772323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "EVENT_REPORT",
+    "expectedProperties": {
+      "requestedAt": 1787553015000
+    },
+    "expectedEventType": "TIME_SYNC_REQUEST",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "time-sync-response",
+    "input": {
+      "messageId": "raw_time-sync-response",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "40400A000103153014240826FFFFFFFFFFFF1234567890120800015A01153014240826782323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "COMMAND_REPLY",
+    "expectedProperties": {
+      "requestedAt": 1787553015000
+    },
+    "expectedEventType": "TIME_SYNC",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "multiple-components",
+    "input": {
+      "messageId": "raw_multiple-components",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "40400B000103153014240826123456789012FFFFFFFFFFFF5E000202028001170200070000006E6F726D616C20666972737400000000000000000000000000000000000000153014240826800128020007000200616C61726D207365636F6E6400000000000000000000000000000000000000153014240826F32323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "ALARM_REPORT",
+    "expectedProperties": {
+      "fireAlarm": true,
+      "fault": false,
+      "componentType": 23
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  },
+  {
+    "name": "power-fault",
+    "input": {
+      "messageId": "raw_power-fault",
+      "tenantId": "tenant_test",
+      "productId": "product_test",
+      "deviceId": "gb26875_123456789012",
+      "protocol": "gb26875-dahua-v1.03",
+      "transport": "TCP",
+      "payloadFormat": "hex",
+      "payload": "40400C000103153014240826123456789012FFFFFFFFFFFF3000020201800189020007000001706F776572206661756C740000000000000000000000000000000000000000153014240826C82323",
+      "receivedAt": 1787553015000
+    },
+    "expectedMessageType": "ALARM_REPORT",
+    "expectedProperties": {
+      "fireAlarm": false,
+      "fault": true,
+      "powerFault": true
+    },
+    "expectedEventType": "COMPONENT_STATUS",
+    "expectedTimestamp": 1787553015000
+  }
+]

@@ -20,10 +20,10 @@ import (
 	"strings"
 	"time"
 
-	"iot-platform/internal/core"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/protocolruntime"
+	"iot-platform/internal/protocolworker"
 
 	"gopkg.in/yaml.v3"
 )
@@ -113,7 +113,7 @@ func (s *Server) createProtocolReleaseV2(w http.ResponseWriter, r *http.Request)
 		problem(w, 422, "custom Go releases must be uploaded as a versioned ZIP package")
 		return
 	}
-	if v.ParserType != parser.ModbusTCPParserName && v.ParserType != "configurable_json_parser" && v.ParserType != "configurable_hex_parser" {
+	if v.ParserType != "configurable_json_parser" && v.ParserType != "configurable_hex_parser" {
 		problem(w, 422, "unsupported protocol v2 parserType")
 		return
 	}
@@ -383,7 +383,8 @@ func validateProtocolPackageCasesContextV2(parent context.Context, root string, 
 			}
 		}
 	}
-	return len(cases), nil
+	operationCount, err := validateProtocolOperationCases(ctx, root, artifact, entries, manifest)
+	return len(cases) + operationCount, err
 }
 
 func inspectProtocolPackageV2(reader *zip.Reader) (map[string][]byte, error) {
@@ -435,8 +436,24 @@ func validateProtocolManifestV2(protocolID string, manifest protocolPackageManif
 	if !protocolSegmentV2.MatchString(manifest.Version) {
 		return errors.New("manifest version is required")
 	}
-	if manifest.Runtime != "go-json-lines-v1" {
-		return errors.New("manifest runtime must be go-json-lines-v1")
+	if manifest.Runtime != "go-json-lines-v1" && manifest.Runtime != protocolworker.Runtime {
+		return errors.New("manifest runtime must be go-json-lines-v1 or go-protocol-v2")
+	}
+	seen := map[string]bool{}
+	for _, capability := range manifest.Capabilities {
+		if seen[capability] || (capability != "decode" && capability != "ingress" && capability != "encode") {
+			return fmt.Errorf("unsupported or repeated protocol capability %q", capability)
+		}
+		if capability != "decode" && manifest.Runtime != protocolworker.Runtime {
+			return errors.New("ingress/encode require go-protocol-v2")
+		}
+		seen[capability] = true
+	}
+	if manifest.Runtime == protocolworker.Runtime && !seen["decode"] {
+		return errors.New("go-protocol-v2 requires decode capability")
+	}
+	if seen["ingress"] && strings.ToLower(manifest.PayloadFormat) != "hex" {
+		return errors.New("ingress requires hex payloadFormat")
 	}
 	if len(manifest.Entrypoints) == 0 {
 		return errors.New("manifest entrypoints are required")
@@ -548,6 +565,15 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	if err != nil {
 		return model.ProductProtocolBinding{}, errors.New("product not found")
 	}
+	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
+	if err != nil {
+		return model.ProductProtocolBinding{}, err
+	}
+	for _, profile := range profiles {
+		if profile.Enabled && profile.Mode == "listener" && profile.ProductID == productID && !listenerSupports(release, profile.Network) {
+			return model.ProductProtocolBinding{}, errors.New("新版本不支持该产品已启用的 TCP/UDP 接入实例")
+		}
+	}
 	previous, previousProtocol := "", ""
 	if old, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); getErr == nil {
 		if old.ProtocolID == protocolID && old.Version == version {
@@ -575,163 +601,9 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	return binding, nil
 }
 
-const maxPointTableV2 = int64(10 << 20)
-
+// Existing Modbus releases remain readable; new specialized protocols use Go packages.
 func (s *Server) importModbusTCPV2(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(maxPointTableV2 + 1<<20); err != nil {
-		problem(w, 400, "invalid point table upload")
-		return
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		problem(w, 422, "file is required")
-		return
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxPointTableV2+1))
-	if err != nil || len(data) == 0 || int64(len(data)) > maxPointTableV2 {
-		problem(w, 422, "point table must be between 1 byte and 10 MiB")
-		return
-	}
-	protocolID := strings.TrimSpace(r.FormValue("protocolId"))
-	version := strings.TrimSpace(r.FormValue("version"))
-	name := strings.TrimSpace(r.FormValue("name"))
-	if !protocolSegmentV2.MatchString(protocolID) || !protocolSegmentV2.MatchString(version) || name == "" {
-		problem(w, 422, "protocolId, version and name are required")
-		return
-	}
-	defaultPoll, err := formIntStrict(r, "pollIntervalSec", 10)
-	if err != nil || defaultPoll <= 0 {
-		problem(w, 422, "pollIntervalSec must be a positive integer")
-		return
-	}
-	table, warnings, err := core.ParseModbusPointTable(header.Filename, data, defaultPoll)
-	if err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	blocks, err := core.CompileModbusReadBlocks(table.Points)
-	if err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	tenant, now := claims(r).TenantID, time.Now().UnixMilli()
-	productID, deviceID := strings.TrimSpace(r.FormValue("productId")), strings.TrimSpace(r.FormValue("deviceId"))
-	port, portErr := formIntStrict(r, "port", 502)
-	unitID, unitErr := formIntStrict(r, "unitId", 1)
-	timeoutMs, timeoutErr := formIntStrict(r, "timeoutMs", 3000)
-	retries, retriesErr := formIntStrict(r, "retries", 1)
-	enabled, enabledErr := formBoolStrict(r, "enabled", true)
-	if portErr != nil || unitErr != nil || timeoutErr != nil || retriesErr != nil || enabledErr != nil {
-		problem(w, 422, "port, unitId, timeoutMs, retries or enabled has an invalid value")
-		return
-	}
-	if productID != "" || deviceID != "" {
-		if productID == "" || deviceID == "" {
-			problem(w, 422, "productId and deviceId must be provided together")
-			return
-		}
-		if strings.TrimSpace(r.FormValue("host")) == "" {
-			problem(w, 422, "host is required when creating a device access profile")
-			return
-		}
-		candidate := model.DeviceAccessProfile{ID: firstNonBlank(r.FormValue("profileId"), "access_"+deviceID), DeviceID: deviceID, ProductID: productID, ProtocolID: protocolID, ProtocolVersion: version, Host: strings.TrimSpace(r.FormValue("host")), Port: port, UnitID: unitID, TimeoutMs: timeoutMs, Retries: retries}
-		if validationErr := validateAccessProfile(candidate); validationErr != nil {
-			problem(w, 422, validationErr.Error())
-			return
-		}
-	}
-	if _, getErr := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version); getErr == nil {
-		problem(w, 409, "protocol release already exists")
-		return
-	}
-	if _, getErr := s.engine.Repo.GetPointTableRelease(r.Context(), tenant, protocolID, version); getErr == nil {
-		problem(w, 409, "point table version already exists")
-		return
-	}
-	definition := model.ProtocolDefinition{ID: protocolID, TenantID: tenant, Name: name, Vendor: strings.TrimSpace(r.FormValue("vendor")), Description: "Modbus TCP 点表快速接入", CreatedAt: now, UpdatedAt: now}
-	if old, getErr := s.engine.Repo.GetProtocolDefinition(r.Context(), tenant, protocolID); getErr == nil {
-		definition.CreatedAt = old.CreatedAt
-	}
-	table.TenantID = tenant
-	table.ProtocolID = protocolID
-	table.Version = version
-	table.CreatedAt = now
-	config := map[string]any{"points": jsonValue(table.Points), "blocks": jsonValue(blocks)}
-	release := model.ProtocolRelease{TenantID: tenant, ProtocolID: protocolID, Version: version, Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", PointTableVersion: version, Capabilities: []string{"decode", "poll"}, Config: config, CreatedAt: now, PublishedAt: now}
-	if err = s.engine.Repo.SaveProtocolDefinition(r.Context(), definition); err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	if err = s.engine.Repo.CreatePointTableRelease(r.Context(), table); err != nil {
-		problem(w, 409, "point table version already exists")
-		return
-	}
-	if err = s.engine.Repo.CreateProtocolRelease(r.Context(), release); err != nil {
-		problem(w, 409, "protocol release already exists")
-		return
-	}
-	result := map[string]any{"definition": definition, "release": release, "pointTable": table, "blocks": blocks, "warnings": warnings}
-	if productID != "" {
-		host := strings.TrimSpace(r.FormValue("host"))
-		productName := strings.TrimSpace(r.FormValue("productName"))
-		if productName == "" {
-			productName = name
-		}
-		shim := legacyProtocolShim(release)
-		if err = s.engine.Repo.SaveProtocolPackage(r.Context(), shim); err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		product := model.Product{ID: productID, TenantID: tenant, Name: productName, Category: "modbus", ProtocolPackageID: shim.ID, Transport: "MODBUS_TCP", PayloadFormat: "hex", Status: "ENABLED", Description: "由 Modbus TCP 点表快速接入创建", CreatedAt: now, UpdatedAt: now}
-		if old, getErr := s.engine.Repo.GetProduct(r.Context(), tenant, productID); getErr == nil {
-			product.CreatedAt = old.CreatedAt
-		}
-		if err = s.engine.Repo.SaveProduct(r.Context(), product); err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		binding := model.ProductProtocolBinding{TenantID: tenant, ProductID: productID, ProtocolID: protocolID, Version: version, UpdatedAt: now}
-		if old, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); getErr == nil {
-			binding.PreviousVersion = old.Version
-		}
-		if err = s.engine.Repo.SaveProductProtocolBinding(r.Context(), binding); err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		credential := newDeviceCredential()
-		deviceName := strings.TrimSpace(r.FormValue("deviceName"))
-		if deviceName == "" {
-			deviceName = deviceID
-		}
-		device := model.ManagedDevice{ID: deviceID, TenantID: tenant, ProductID: productID, Name: deviceName, Status: "ENABLED", DeviceRole: "DIRECT", RegistrationSource: "MODBUS_POINT_TABLE", AccessKey: credential.AccessKey, SecretHash: secretHash(credential.Secret), SecretHint: credential.Secret[len(credential.Secret)-6:], CreatedAt: now, UpdatedAt: now}
-		if old, getErr := s.engine.Repo.GetManagedDevice(r.Context(), tenant, deviceID); getErr == nil {
-			device.AccessKey, device.SecretHash, device.SecretHint, device.CreatedAt = old.AccessKey, old.SecretHash, old.SecretHint, old.CreatedAt
-			credential = model.DeviceCredential{}
-		}
-		if err = s.engine.Repo.SaveManagedDevice(r.Context(), device); err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		profileID := strings.TrimSpace(r.FormValue("profileId"))
-		if profileID == "" {
-			profileID = "access_" + deviceID
-		}
-		profile := model.DeviceAccessProfile{ID: profileID, TenantID: tenant, DeviceID: deviceID, ProductID: productID, ProtocolID: protocolID, ProtocolVersion: version, PointTableVersion: version, CollectorID: firstNonBlank(r.FormValue("collectorId"), "central"), Host: host, Port: port, UnitID: unitID, TimeoutMs: timeoutMs, Retries: retries, Enabled: enabled, RuntimeStatus: "PENDING", CreatedAt: now, UpdatedAt: now}
-		if old, getErr := s.engine.Repo.GetDeviceAccessProfile(r.Context(), tenant, profileID); getErr == nil {
-			profile.CreatedAt = old.CreatedAt
-		}
-		if err = s.engine.Repo.SaveDeviceAccessProfile(r.Context(), profile); err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		result["product"], result["binding"], result["device"], result["profile"] = product, binding, device, profile
-		if credential.Secret != "" {
-			result["credential"] = credential
-		}
-	}
-	s.audit(r, "protocol.v2.modbus.import", "protocolRelease", protocolID+"@"+version, map[string]any{"points": len(table.Points), "blocks": len(blocks), "deviceId": deviceID})
-	write(w, 201, result)
+	problem(w, 422, "新增 Modbus 协议请将点表和解析逻辑放入 Go 源码包上传；旧采集实例继续运行")
 }
 
 func (s *Server) deviceAccessProfilesV2(w http.ResponseWriter, r *http.Request) {
@@ -739,6 +611,21 @@ func (s *Server) deviceAccessProfilesV2(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
+	}
+	for i := range items {
+		if items[i].Mode == "listener" {
+			if !items[i].Enabled {
+				items[i].RuntimeStatus = "DISABLED"
+				items[i].LastError = ""
+			} else if runtime, ok := s.protocolListeners.(interface {
+				Status(string, string) (string, string, int64)
+			}); ok {
+				items[i].RuntimeStatus, items[i].LastError, items[i].LastSuccessAt = runtime.Status(items[i].TenantID, items[i].ID)
+			}
+			if binding, err := s.engine.Repo.GetProductProtocolBinding(r.Context(), items[i].TenantID, items[i].ProductID); err == nil {
+				items[i].ProtocolID, items[i].ProtocolVersion = binding.ProtocolID, binding.Version
+			}
+		}
 	}
 	write(w, 200, map[string]any{"items": items, "count": len(items)})
 }
@@ -748,6 +635,8 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	v.TenantID = claims(r).TenantID
+	v.Mode = strings.ToLower(strings.TrimSpace(v.Mode))
+	v.Network = strings.ToLower(strings.TrimSpace(v.Network))
 	if id := r.PathValue("id"); id != "" {
 		v.ID = id
 	}
@@ -765,10 +654,29 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		problem(w, 422, "product not found")
 		return
 	}
-	device, err := s.engine.Repo.GetManagedDevice(r.Context(), v.TenantID, v.DeviceID)
-	if err != nil || device.ProductID != product.ID {
-		problem(w, 422, "device not found or does not belong to product")
-		return
+	if v.Mode == "listener" {
+		if !listenerSupports(release, v.Network) {
+			problem(w, 422, "请选择支持该 TCP/UDP 网络与 ingress 能力的完整 Go 协议包")
+			return
+		}
+		v.DeviceID = ""
+		profiles, listErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), "")
+		if listErr != nil {
+			problem(w, 500, "读取接入实例失败")
+			return
+		}
+		for _, other := range profiles {
+			if v.Enabled && other.Enabled && other.Mode == "listener" && other.Network == v.Network && other.Port == v.Port && (other.TenantID != v.TenantID || other.ID != v.ID) {
+				problem(w, 409, "该监听端口已由另一个接入实例占用")
+				return
+			}
+		}
+	} else {
+		device, err := s.engine.Repo.GetManagedDevice(r.Context(), v.TenantID, v.DeviceID)
+		if err != nil || device.ProductID != product.ID {
+			problem(w, 422, "device not found or does not belong to product")
+			return
+		}
 	}
 	binding, err := s.engine.Repo.GetProductProtocolBinding(r.Context(), v.TenantID, v.ProductID)
 	if err != nil || binding.ProtocolID != v.ProtocolID || binding.Version != v.ProtocolVersion {
@@ -783,8 +691,9 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		v.CreatedAt = now
 	}
 	v.UpdatedAt = now
-	if v.RuntimeStatus == "" {
-		v.RuntimeStatus = "PENDING"
+	v.RuntimeStatus, v.LastError = "PENDING", ""
+	if !v.Enabled {
+		v.RuntimeStatus = "DISABLED"
 	}
 	if err = s.engine.Repo.SaveDeviceAccessProfile(r.Context(), v); err != nil {
 		problem(w, 500, err.Error())
@@ -797,6 +706,10 @@ func (s *Server) testDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 	profile, err := s.engine.Repo.GetDeviceAccessProfile(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
 		problem(w, 404, "device access profile not found")
+		return
+	}
+	if profile.Mode == "listener" {
+		problem(w, 422, "TCP/UDP 监听请使用设备或协议模拟器发送报文验证")
 		return
 	}
 	release, err := s.engine.Repo.GetProtocolRelease(r.Context(), profile.TenantID, profile.ProtocolID, profile.ProtocolVersion)
@@ -828,6 +741,12 @@ func legacyProtocolShim(release model.ProtocolRelease) model.ProtocolPackage {
 	return model.ProtocolPackage{ID: release.ProtocolID + "@" + release.Version, TenantID: release.TenantID, Name: release.ProtocolID + " " + release.Version, Version: release.Version, Protocol: release.ProtocolID, Transport: release.Transport, PayloadFormat: release.PayloadFormat, ParserType: release.ParserType, Status: "PUBLISHED", Description: "Protocol v2 compatibility binding", Config: release.Config, CreatedAt: release.CreatedAt, UpdatedAt: release.PublishedAt}
 }
 func validateAccessProfile(v model.DeviceAccessProfile) error {
+	if v.Mode == "listener" {
+		return validateListenerProfile(v)
+	}
+	if v.Mode != "" && v.Mode != "poll" {
+		return errors.New("不支持的设备接入模式")
+	}
 	if v.ID == "" || v.DeviceID == "" || v.ProductID == "" || v.ProtocolID == "" || v.ProtocolVersion == "" || v.Host == "" {
 		return errors.New("id, deviceId, productId, protocolId, protocolVersion and host are required")
 	}

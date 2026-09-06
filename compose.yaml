@@ -57,7 +57,7 @@ services:
       IOT_WEAVIATE_URL: ${IOT_WEAVIATE_URL:-http://weaviate:8080}
       IOT_BACKUP_URL: ${IOT_BACKUP_URL:-http://backup-service:8090}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
-    ports: ["${IOT_API_PORT:-8081}:8080"]
+    ports: ["${IOT_API_PORT:-8081}:8080", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/tcp", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"]
     volumes: ["platform-data:/app/data"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -76,24 +76,6 @@ services:
       context: ./iot_front
       dockerfile: Dockerfile
     ports: ["${IOT_WEB_PORT:-8080}:8080"]
-    depends_on:
-      platform-api: {condition: service_started}
-
-  gb26875-gateway:
-    <<: *service-defaults
-    profiles: [gb26875]
-    image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
-    entrypoint: ["/app/gb26875-gateway"]
-    environment:
-      GB26875_LISTEN: :26875
-      GB26875_UDP_LISTEN: :26875
-      GB26875_PLATFORM_URL: http://platform-api:8080
-      GB26875_TENANT: ${GB26875_TENANT:-tenant_001}
-      GB26875_USERNAME: ${IOT_ADMIN_USER:-admin}
-      GB26875_PASSWORD: ${IOT_ADMIN_PASSWORD:?IOT_ADMIN_PASSWORD must be set}
-      GB26875_CONTROL_LISTEN: ${GB26875_CONTROL_LISTEN:-}
-      GB26875_CONTROL_TOKEN: ${GB26875_CONTROL_TOKEN:-}
-    ports: ["${GB26875_PORT:-26875}:26875/tcp", "${GB26875_PORT:-26875}:26875/udp", "127.0.0.1:${GB26875_CONTROL_PORT:-26876}:26876"]
     depends_on:
       platform-api: {condition: service_started}
 

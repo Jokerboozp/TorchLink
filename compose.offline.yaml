@@ -9,9 +9,6 @@ services:
   platform-web:
     image: iot-platform-web:offline
 
-  gb26875-gateway:
-    image: iot-platform-api:offline
-
   deepseek-harness:
     image: iot-deepseek-harness:offline
 

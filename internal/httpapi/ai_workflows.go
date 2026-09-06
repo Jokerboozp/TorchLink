@@ -198,15 +198,19 @@ func (s *Server) publishProtocolAssistant(w http.ResponseWriter, r *http.Request
 	}
 	status := strings.ToUpper(strings.TrimSpace(in.Status))
 	if status == "" {
-		status = "PUBLISHED"
+		status = "DRAFT"
 	}
 	if status != "DRAFT" && status != "PUBLISHED" {
 		problem(w, http.StatusUnprocessableEntity, "status must be DRAFT or PUBLISHED")
 		return
 	}
+	if status == "PUBLISHED" {
+		problem(w, 422, "专用协议请到 Go 源码接入上传、测试并发布；协议助手只保存映射草稿")
+		return
+	}
 	parserType := strings.TrimSpace(draft.ParserType)
 	if parserType != parser.ModbusCoilParserName && parserType != parser.GoProtocolParserName {
-		problem(w, http.StatusUnprocessableEntity, "协议助手只支持 Go 解析映射或已编译 Go Worker")
+		problem(w, http.StatusUnprocessableEntity, "协议助手只支持 Go 协议映射草稿")
 		return
 	}
 	if draft.Config == nil {
@@ -221,12 +225,8 @@ func (s *Server) publishProtocolAssistant(w http.ResponseWriter, r *http.Request
 			problem(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-	} else if status == "PUBLISHED" {
-		if _, ok := draft.Config["artifact"]; !ok {
-			problem(w, http.StatusUnprocessableEntity, "发布 Go 协议包前请先上传已编译的 Worker；可先保存草稿")
-			return
-		}
 	}
+
 	var message *model.StandardMessage
 	var err error
 	if len(in.Payload) > 0 && string(in.Payload) != "null" {

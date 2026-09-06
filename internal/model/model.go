@@ -294,6 +294,9 @@ type ProductProtocolBinding struct {
 }
 
 type DeviceAccessProfile struct {
+	Mode              string `json:"mode,omitempty"`
+	Network           string `json:"network,omitempty"`
+	AutoRegister      bool   `json:"autoRegister,omitempty"`
 	ID                string `json:"id"`
 	TenantID          string `json:"tenantId"`
 	DeviceID          string `json:"deviceId"`

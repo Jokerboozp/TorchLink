@@ -281,10 +281,10 @@ test('protocol v2 point-table, package release and device collection flows are v
   const devices = await readFile(new URL('src/views/DevicesView.vue', root), 'utf8')
   const app = await readFile(new URL('src/App.vue', root), 'utf8')
   const integration = await readFile(new URL('src/views/IntegrationView.vue', root), 'utf8')
-  for (const label of ['点表快速接入', '上传自定义协议包', '不可变版本', '设备采集实例', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`)
-  for (const route of ['/api/v2/protocols', '/api/v2/modbus-tcp/import', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/')))
-  assert.match(protocols, /FC01\/02\/03\/04/)
-  assert.match(protocols, /manifest\.yaml/)
+  for (const label of ['TCP / UDP 接入', 'Go 源码接入', '不可变版本', '设备接入实例', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`)
+  for (const route of ['/api/v2/protocols', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/')))
+  assert.match(protocols, /go-protocol-v2/)
+  assert.match(protocols, /protocol\.json/)
   assert.match(app, /label: '设备接入'/)
   assert.match(app, /title:'接入指南'/)
   assert.match(integration, /设备连接指南/)
@@ -345,7 +345,7 @@ test('device access and health inspection pages expose the new runtime workflow'
   const protocol = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8')
   const inspection = await readFile(new URL('src/views/HealthInspectionView.vue', root), 'utf8')
   const app = await readFile(new URL('src/App.vue', root), 'utf8')
-  for (const label of ['上传点表即可连接 Modbus TCP 设备', '校验、发布并启用', '协议与版本', '设备采集实例']) {
+  for (const label of ['上传完整 Go 协议包后，在这里启用设备监听端口', '保存接入实例', '协议与版本', '设备接入实例']) {
     assert.match(protocol, new RegExp(label), `missing protocol v2 label: ${label}`)
   }
   for (const label of ['设备健康巡检', '立即巡检', '状态正常', '活动告警', 'AI 巡检建议']) {

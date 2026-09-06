@@ -1,0 +1,10 @@
+{
+  "id": "gb26875-dahua",
+  "name": "GB26875 大华消防终端",
+  "version": "1.0.0",
+  "runtime": "go-protocol-v2",
+  "transport": "TCP_UDP",
+  "payloadFormat": "hex",
+  "capabilities": ["decode", "ingress", "encode"],
+  "entrypoint": "."
+}

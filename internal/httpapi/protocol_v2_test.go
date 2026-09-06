@@ -20,7 +20,7 @@ import (
 	"iot-platform/internal/parser"
 )
 
-func TestImportModbusTCPV2CreatesImmutableRelease(t *testing.T) {
+func TestImportModbusTCPV2RequiresGoPackage(t *testing.T) {
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(t.TempDir())
 	if err != nil {
@@ -63,31 +63,13 @@ func TestImportModbusTCPV2CreatesImmutableRelease(t *testing.T) {
 		defer response.Body.Close()
 		return response.StatusCode
 	}
-	if status := doImport(); status != http.StatusCreated {
-		t.Fatalf("first import status=%d", status)
+	if status := doImport(); status != http.StatusUnprocessableEntity {
+		t.Fatalf("new builtin import status=%d", status)
 	}
-	if status := doImport(); status != http.StatusConflict {
-		t.Fatalf("immutable duplicate status=%d", status)
+	if _, err := repo.GetProtocolRelease(context.Background(), "tenant_001", "pump-modbus", "1.0.0"); err == nil {
+		t.Fatal("legacy release unexpectedly created")
 	}
-	release, err := repo.GetProtocolRelease(context.Background(), "tenant_001", "pump-modbus", "1.0.0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if release.Status != "PUBLISHED" || release.ParserType != parser.ModbusTCPParserName {
-		t.Fatalf("unexpected release: %+v", release)
-	}
-	table, err := repo.GetPointTableRelease(context.Background(), "tenant_001", "pump-modbus", "1.0.0")
-	if err != nil || len(table.Points) != 1 || table.Points[0].Address != 0 {
-		t.Fatalf("unexpected point table: %+v err=%v", table, err)
-	}
-	binding, err := repo.GetProductProtocolBinding(context.Background(), "tenant_001", "pump-product")
-	if err != nil || binding.Version != "1.0.0" {
-		t.Fatalf("unexpected binding: %+v err=%v", binding, err)
-	}
-	profile, err := repo.GetDeviceAccessProfile(context.Background(), "tenant_001", "access_pump-01")
-	if err != nil || !profile.Enabled || profile.Port != 502 {
-		t.Fatalf("unexpected access profile: %+v err=%v", profile, err)
-	}
+
 }
 
 func TestProtocolPackageV2RejectsTraversal(t *testing.T) {

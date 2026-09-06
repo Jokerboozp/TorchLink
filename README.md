@@ -129,6 +129,6 @@ AI 可选参数、端口、日志、停止与升级命令见 [部署配置与维
 | [Go 源码协议](docs/GO_PROTOCOL_PACKAGES.md) | 源码上传、编译、发布与回滚 |
 | [协议 V2 设计](docs/DEVICE_PROTOCOL_ACCESS_DESIGN.md) | 点表、版本与 Worker 契约 |
 | [AI 工作流](docs/AI_PLUGIN_HARNESS.md) | Harness、Agent 和知识库 |
-| [GB/T 26875](docs/GB26875_DAHUA_V103.md) | 国标网关接入 |
+| [GB/T 26875](docs/GB26875_DAHUA_V103.md) | GB26875 独立 Go 协议包及通用 TCP/UDP 接入 |
 
 开发检查：在仓库根目录执行 `go test ./...`；在 `iot_front` 执行 `npm test` 和 `npm run build`。摄像头模块仅管理元数据和设备关联，视频流由外部视频平台提供。

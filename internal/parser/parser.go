@@ -26,10 +26,34 @@ type ConfigurableParser interface {
 	ParseWithConfig(model.RawMessage, map[string]any) (*model.StandardMessage, error)
 }
 
-type Registry struct{ parsers []Parser }
+type Registry struct{ parsers, automatic []Parser }
 
-func NewRegistry(parsers ...Parser) *Registry { return &Registry{parsers: parsers} }
-func (r *Registry) Register(p Parser)         { r.parsers = append(r.parsers, p) }
+func NewRegistry(parsers ...Parser) *Registry { return &Registry{parsers: parsers, automatic: parsers} }
+func (r *Registry) Register(p Parser) {
+	r.parsers = append(r.parsers, p)
+	r.automatic = append(r.automatic, p)
+}
+
+// NewPlatformRegistry admits new protocols through configurable formats or Go
+// artifacts. Older named parsers remain callable only by an explicit binding
+// or historical replay, so existing devices can migrate without losing history.
+func NewPlatformRegistry(root string) *Registry {
+	r := NewRegistry(ConfigurableJSONParser{}, ConfigurableHexParser{}, ExternalParser{Root: root}, JSONParser{})
+	r.parsers = append(r.parsers, GB26875Parser{}, ModbusTCPParser{}, ModbusCoilParser{}, JavaScriptParser{}, FireSmokeHexParser{}, ModbusParser{})
+	return r
+}
+
+func ManagedParserTypes() []string {
+	return []string{"custom_json_parser", "configurable_json_parser", "configurable_hex_parser", GoProtocolParserName}
+}
+func ManagedParserType(name string) bool {
+	for _, candidate := range ManagedParserTypes() {
+		if name == candidate {
+			return true
+		}
+	}
+	return false
+}
 func (r *Registry) ParseWith(name string, raw model.RawMessage) (*model.StandardMessage, error) {
 	return r.ParseVersionWithConfig(name, "", nil, raw)
 }
@@ -65,7 +89,7 @@ func (r *Registry) ParseVersionWithConfig(name, version string, config map[strin
 }
 func (r *Registry) Parse(raw model.RawMessage) (*model.StandardMessage, error) {
 	meta := Meta{raw.TenantID, raw.ProductID, raw.DeviceID, raw.Protocol, raw.PayloadFormat}
-	for _, p := range r.parsers {
+	for _, p := range r.automatic {
 		if p.Match(meta) {
 			m, err := p.Parse(raw)
 			if err != nil {

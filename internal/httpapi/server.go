@@ -49,6 +49,7 @@ type Server struct {
 	router                *gin.Engine
 	healthInspectionMu    sync.RWMutex
 	healthInspectionCache map[string]healthInspectionSnapshot
+	protocolListeners     protocolCommander
 }
 
 type healthInspectionSnapshot struct {
@@ -104,6 +105,8 @@ func (s *Server) routes() {
 	s.router.POST("/api/v2/protocols/:id/source-releases", s.authorize("operator"), s.endpoint(s.uploadProtocolSource, "id"))
 	s.router.POST("/api/v2/protocols", s.authorize("operator"), s.endpoint(s.saveProtocolDefinitionV2))
 	s.router.GET("/api/v2/protocols/:id/releases", s.authorize("viewer"), s.endpoint(s.protocolReleasesV2, "id"))
+	s.router.GET("/api/v2/protocols/:id/releases/:version/source", s.authorize("operator"), s.endpoint(s.downloadProtocolSourceV2, "id", "version"))
+	s.router.GET("/api/v2/protocols/:id/releases/:version/package", s.authorize("operator"), s.endpoint(s.downloadProtocolPackageV2, "id", "version"))
 	s.router.POST("/api/v2/protocols/:id/releases", s.authorize("operator"), s.endpoint(s.createProtocolReleaseV2, "id"))
 	s.router.POST("/api/v2/protocols/:id/package-releases", s.authorize("operator"), s.endpoint(s.uploadProtocolPackageV2, "id"))
 	s.router.POST("/api/v2/protocols/:id/releases/:version/publish", s.authorize("operator"), s.endpoint(s.publishProtocolReleaseV2, "id", "version"))
@@ -114,6 +117,7 @@ func (s *Server) routes() {
 	s.router.POST("/api/v2/device-access-profiles", s.authorize("operator"), s.endpoint(s.saveDeviceAccessProfileV2))
 	s.router.PUT("/api/v2/device-access-profiles/:id", s.authorize("operator"), s.endpoint(s.saveDeviceAccessProfileV2, "id"))
 	s.router.POST("/api/v2/device-access-profiles/:id/test", s.authorize("operator"), s.endpoint(s.testDeviceAccessProfileV2, "id"))
+	s.router.POST("/api/v2/device-access-profiles/:id/devices/:deviceId/commands", s.authorize("operator"), s.endpoint(s.protocolDeviceCommand, "id", "deviceId"))
 	s.router.GET("/api/v1/device-registry", s.authorize("viewer"), s.endpoint(s.deviceRegistry))
 	s.router.POST("/api/v1/device-registry", s.authorize("operator"), s.endpoint(s.saveManagedDevice))
 	s.router.PUT("/api/v1/device-registry/:id", s.authorize("operator"), s.endpoint(s.saveManagedDevice, "id"))
@@ -286,7 +290,7 @@ func (s *Server) protocolPackages(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
-	writeList(w, 200, items, total, pagination, map[string]any{"parserTypes": []string{"custom_json_parser", "configurable_json_parser", "configurable_hex_parser", parser.ModbusCoilParserName, "javascript_sandbox_parser", parser.GoProtocolParserName, "gb26875_dahua_parser", "fire_smoke_parser", "modbus_parser"}})
+	writeList(w, 200, items, total, pagination, map[string]any{"parserTypes": parser.ManagedParserTypes()})
 }
 func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 	var v model.ProtocolPackage
@@ -305,22 +309,9 @@ func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "name and parserType are required")
 		return
 	}
-	allowed := map[string]bool{"custom_json_parser": true, "configurable_json_parser": true, "configurable_hex_parser": true, parser.ModbusCoilParserName: true, "javascript_sandbox_parser": true, parser.GoProtocolParserName: true, "gb26875_dahua_parser": true, "fire_smoke_parser": true, "modbus_parser": true}
-	if !allowed[v.ParserType] {
-		problem(w, 422, "unsupported parserType")
+	if !parser.ManagedParserType(v.ParserType) {
+		problem(w, 422, "专用解析器仅供已有绑定及历史回放；新增或更新协议请上传 Go 源码包")
 		return
-	}
-	if v.ParserType == parser.JavaScriptParserName {
-		if _, err := parser.JavaScriptSource(v.Config); err != nil {
-			problem(w, 422, err.Error())
-			return
-		}
-	}
-	if v.ParserType == parser.ModbusCoilParserName {
-		if err := parser.ValidateModbusCoilConfig(v.Config); err != nil {
-			problem(w, 422, err.Error())
-			return
-		}
 	}
 	if v.Version == "" {
 		v.Version = "1.0.0"

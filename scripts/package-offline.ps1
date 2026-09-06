@@ -5,7 +5,6 @@ param(
     [switch]$Full,
     [switch]$IncludeAi,
     [switch]$IncludeHarness,
-    [switch]$IncludeGb26875,
     [string]$OllamaModel = "qwen3:8b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel
@@ -21,7 +20,6 @@ $projectRoot = Split-Path -Parent $scriptDir
 if ($Full) {
     $IncludeAi = $true
     $IncludeHarness = $true
-    $IncludeGb26875 = $true
 }
 
 function Invoke-Checked {
@@ -291,7 +289,6 @@ $composeBase = @(
 
 $profiles = New-Object 'System.Collections.Generic.List[string]'
 if ($IncludeHarness) { [void]$profiles.Add("harness") }
-if ($IncludeGb26875) { [void]$profiles.Add("gb26875") }
 $profileArguments = New-Object 'System.Collections.Generic.List[string]'
 foreach ($profile in $profiles) {
     [void]$profileArguments.Add("--profile")

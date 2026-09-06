@@ -98,16 +98,12 @@ func main() {
 	}
 	check(c.do(ctx, http.MethodPost, "/api/v1/auth/login", map[string]any{"username": *username, "password": *password, "tenantId": *tenant}, &login))
 	c.token = login.AccessToken
-	check(c.do(ctx, http.MethodPost, "/api/v1/protocol-packages", map[string]any{
-		"id": "protocol_gb26875_dahua_v103", "name": "国标消防终端协议（大华 v1.03）", "version": "1.0.0",
-		"protocol": "gb26875-dahua-v1.03", "transport": "TCP_UDP_BRIDGE", "payloadFormat": "hex",
-		"parserType": "gb26875_dahua_parser", "status": "PUBLISHED", "description": "GB/T 26875.3-2011 TCP/UDP 帧及大华消防终端 v1.03 补充协议",
-	}, nil))
-	check(c.do(ctx, http.MethodPost, "/api/v1/products", map[string]any{
-		"id": "product_gb26875_lora_fire", "name": "LoRa 声光与手报", "category": "fire-alarm",
-		"protocolPackageId": "protocol_gb26875_dahua_v103", "status": "ENABLED",
-		"description": "GB26875 虚拟/真实 LoRa 消防部件",
-	}, nil))
+	// Keep the operator's published Go release and product binding intact.
+	var product model.Product
+	check(c.do(ctx, http.MethodGet, "/api/v1/products/product_gb26875_lora_fire", nil, &product))
+	if product.ProtocolPackageID == "" {
+		check(fmt.Errorf("请先上传 Go 协议包并绑定产品，或使用 --gateway 连接通用监听器"))
+	}
 	check(c.do(ctx, http.MethodPost, "/api/v1/device-registry", map[string]any{
 		"id": *deviceID, "productId": "product_gb26875_lora_fire", "name": "GB26875 虚拟消防设备", "status": "ENABLED",
 		"deviceRole": "DIRECT", "registrationSource": "VIRTUAL_DEVICE", "tags": map[string]string{"sourceAddress": strings.ToUpper(*source), "protocol": "GB26875"},

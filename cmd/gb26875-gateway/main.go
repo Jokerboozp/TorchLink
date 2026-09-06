@@ -410,11 +410,17 @@ func (c *platformClient) login(ctx context.Context, username, password string) e
 	return nil
 }
 
+// Deprecated gateway: use a go-protocol-v2 package and generic listener for new devices.
+// Startup must never overwrite an operator's protocol or product binding.
 func (c *platformClient) setup(ctx context.Context) error {
-	if err := c.do(ctx, http.MethodPost, "/api/v1/protocol-packages", map[string]any{"id": "protocol_gb26875_dahua_v103", "name": "国标消防终端协议（大华 v1.03）", "version": "1.0.0", "protocol": "gb26875-dahua-v1.03", "transport": "TCP", "payloadFormat": "hex", "parserType": "gb26875_dahua_parser", "status": "PUBLISHED"}, nil); err != nil {
-		return err
+	var product model.Product
+	if err := c.do(ctx, http.MethodGet, "/api/v1/products/product_gb26875_lora_fire", nil, &product); err != nil {
+		return fmt.Errorf("已有 GB 产品未配置；请使用 Go 协议包及通用监听器: %w", err)
 	}
-	return c.do(ctx, http.MethodPost, "/api/v1/products", map[string]any{"id": "product_gb26875_lora_fire", "name": "LoRa 声光与手报", "category": "fire-alarm", "protocolPackageId": "protocol_gb26875_dahua_v103", "transport": "TCP", "payloadFormat": "hex", "status": "ENABLED"}, nil)
+	if product.ProtocolPackageID == "" {
+		return errors.New("GB 产品未绑定协议，请先在平台配置")
+	}
+	return nil
 }
 
 func (c *platformClient) forward(ctx context.Context, raw model.RawMessage, source string) error {

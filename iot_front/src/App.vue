@@ -65,7 +65,7 @@ const pages = {
   dashboard: { title: '运行总览', sub: '城市级消防感知与告警态势', icon: LayoutDashboard, component: DashboardView },
   devices: { title: '设备管理', sub: '注册、启停、凭证和实时状态统一管理', icon: Cpu, component: DevicesView },
   products: { title: '产品管理', sub: '产品模型与协议包绑定', icon: Boxes, component: ProductsView },
-  protocols: { title: '设备接入', sub: 'Go 源码上传、点表直连与协议热更新', icon: Network, component: ProtocolsView },
+  protocols: { title: '设备接入', sub: 'Go 协议包、TCP/UDP 接入与版本热更新', icon: Network, component: ProtocolsView },
   integration: { title:'接入指南', sub: '真实设备 HTTP / MQTT 参数与数据联调', icon: Upload, component: IntegrationView },
   testDevice: { title:'测试设备', sub: '模板化发送数据、事件、报警和恢复报文', icon: FlaskConical, component: TestDeviceView },
   cameras: { title: '摄像头映射', sub: '视频平台摄像头、空间位置与物联设备关联', icon: Video, component: CameraMappingsView },

@@ -47,6 +47,25 @@ func main(){_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"messageType":"
 	}
 }
 
+func TestExternalV2DecodeUsesArchivedSessionState(t *testing.T) {
+	root := t.TempDir()
+	worker := buildExternalTestWorker(t, root, `package main
+import("encoding/json";"os")
+func main(){var in map[string]any;if json.NewDecoder(os.Stdin).Decode(&in)!=nil{os.Exit(2)};if in["operation"]!="decode" || in["version"]!=float64(2){os.Exit(3)};_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"standardMessage":map[string]any{"messageType":"PROPERTY_REPORT","properties":in["state"]}})}`)
+	config := map[string]any{"artifact": map[string]any{"path": filepath.Base(worker), "sha256": fileDigest(t, worker), "runtime": "go-protocol-v2"}}
+	raw := model.RawMessage{MessageID: "raw_state", Metadata: map[string]any{"protocolState": map[string]any{"sequence": float64(17)}}}
+	// The persisted JSON representation must reproduce the same context.
+	archived, _ := json.Marshal(raw)
+	var replay model.RawMessage
+	_ = json.Unmarshal(archived, &replay)
+	for _, input := range []model.RawMessage{raw, replay} {
+		message, err := (ExternalParser{Root: root}).ParseWithConfig(input, config)
+		if err != nil || message.Properties["sequence"] != float64(17) {
+			t.Fatalf("state decode %+v %v", message, err)
+		}
+	}
+}
+
 func buildExternalTestWorker(t *testing.T, root, source string) string {
 	t.Helper()
 	sourcePath := filepath.Join(root, "worker.go")

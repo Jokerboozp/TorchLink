@@ -122,7 +122,7 @@ func (ConfigurableJSONParser) ParseWithConfig(raw model.RawMessage, config map[s
 // ConfigurableHexParser handles fixed-offset hex protocols. It is useful for
 // simple sensors and lets a protocol package describe framing, checksum and
 // scalar fields without compiling a new parser. Variable-length/TLV protocols
-// should use a reviewed built-in parser instead.
+// use uploaded Go protocol packages.
 type ConfigurableHexParser struct{}
 
 func (ConfigurableHexParser) Name() string    { return "configurable_hex_parser" }

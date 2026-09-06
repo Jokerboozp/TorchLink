@@ -29,7 +29,6 @@ bash ./scripts/package-offline.sh
 | 使用已有配置 | `-EnvFile .\.env.production` | `--env-file ./.env.production` |
 | 额外启用本地对话模型 | `-IncludeAi` | `--include-ai` |
 | 选择对话模型（默认 `qwen3:8b`） | `-IncludeAi -OllamaModel qwen3:8b` | `--include-ai --ollama-model qwen3:8b` |
-| GB/T 26875 网关 | `-IncludeGb26875` | `--include-gb26875` |
 | DeepSeek Harness | `-IncludeHarness` | `--include-harness` |
 | 全部可选组件 | `-Full` | `--full` |
 | 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
@@ -75,3 +74,5 @@ docker compose --project-name iot-platform --env-file .env.offline -f compose.ya
 - 缺少 `nomic-embed-text` 或对话模型：重新携带模型打包，再部署到原目录/配置；无需删除已有模型卷。
 - 需要自行诊断：可显式使用 `-SkipHealthCheck` / `--skip-health-check`；只在确认传输完整性后使用 `-SkipHashCheck` / `--skip-hash-check`。跳过检查不代表部署验收通过。
 - 已有业务数据迁移：使用项目备份及数据库、对象存储恢复流程；离线安装包只包含程序、配置和模型，不包含业务数据。
+
+GB26875 等协议统一上传 Go 源码包，并在平台启用通用 TCP/UDP 监听实例；新离线包不再打包专用 GB 网关。默认映射 26875，可用 IOT_PROTOCOL_PORTS 预留同号端口范围。

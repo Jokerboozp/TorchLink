@@ -9,7 +9,6 @@ output_dir="offline-bundles"
 env_file=""
 include_ai=0
 include_harness=0
-include_gb26875=0
 full=0
 ollama_model="qwen3:8b"
 ollama_embedding_model="nomic-embed-text"
@@ -25,7 +24,6 @@ usage() {
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
   --include-ai           额外打包并启用本地 Ollama 对话模型
   --include-harness      打包 DeepSeek Harness
-  --include-gb26875      部署时同时启动 GB/T 26875 网关
   --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:8b
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过全部模型；仅用于目标机已准备模型的情况
@@ -228,7 +226,6 @@ while [[ $# -gt 0 ]]; do
     --env-file) env_file="${2:-}"; shift 2 ;;
     --include-ai) include_ai=1; shift ;;
     --include-harness) include_harness=1; shift ;;
-    --include-gb26875) include_gb26875=1; shift ;;
     --ollama-model) ollama_model="${2:-}"; shift 2 ;;
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
     --skip-ollama-model) skip_ollama_model=1; shift ;;
@@ -241,7 +238,6 @@ done
 if (( full )); then
   include_ai=1
   include_harness=1
-  include_gb26875=1
 fi
 
 [[ "$ollama_embedding_model" == nomic-embed-text ]] || die "当前知识库使用 nomic-embed-text，嵌入模型必须与其一致"
@@ -294,7 +290,6 @@ add_profile() {
   compose_profile_args+=(--profile "$1")
 }
 (( include_harness )) && add_profile harness
-(( include_gb26875 )) && add_profile gb26875
 
 run_compose "${compose_profile_args[@]}" config --quiet
 pull_services=(

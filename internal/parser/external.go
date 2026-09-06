@@ -56,6 +56,46 @@ func (p ExternalParser) ParseWithConfig(raw model.RawMessage, config map[string]
 // ParseWithContext lets publication cancel a sample worker when its request or
 // the overall validation budget expires.
 func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMessage, config map[string]any) (*model.StandardMessage, error) {
+	var input any = raw
+	if artifact, ok := config["artifact"].(map[string]any); ok && artifact["runtime"] == "go-protocol-v2" {
+		input = map[string]any{"version": 2, "operation": "decode", "raw": raw, "state": raw.Metadata["protocolState"], "now": raw.ReceivedAt}
+	}
+	output, err := p.Invoke(parent, config, input)
+	if err != nil {
+		return nil, err
+	}
+	message, err := decodeExternalMessage(output)
+	if err != nil {
+		return nil, err
+	}
+	switch message.MessageType {
+	case model.PropertyReport, model.EventReport, model.StateChange, model.AlarmReport, model.CommandReply, model.LogReport:
+	default:
+		return nil, fmt.Errorf("unsupported external parser messageType %q", message.MessageType)
+	}
+	if message.MessageID == "" {
+		message.MessageID = "msg_" + strings.TrimPrefix(raw.MessageID, "raw_")
+	}
+	message.RawMessageID = raw.MessageID
+	message.TenantID, message.ProductID, message.DeviceID = raw.TenantID, raw.ProductID, raw.DeviceID
+	if message.Timestamp == 0 {
+		message.Timestamp = raw.ReceivedAt
+	}
+	if message.Properties == nil {
+		message.Properties = map[string]any{}
+	}
+	if message.Event == nil {
+		message.Event = map[string]any{}
+	}
+	if message.Tags == nil {
+		message.Tags = map[string]string{}
+	}
+	return &message, nil
+}
+
+// Invoke executes one protocol operation using the release's verified artifact.
+// All operations share the same process, timeout, environment and output limits.
+func (p ExternalParser) Invoke(parent context.Context, config map[string]any, request any) ([]byte, error) {
 	artifact, err := externalArtifact(config)
 	if err != nil {
 		return nil, err
@@ -76,7 +116,7 @@ func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMe
 	cmd.Dir = filepath.Dir(path)
 	cmd.Env = externalEnvironment()
 
-	input, err := json.Marshal(raw)
+	input, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal external parser input: %w", err)
 	}
@@ -100,39 +140,7 @@ func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMe
 	if stdout.truncated {
 		return nil, fmt.Errorf("external parser output exceeds %d bytes", maxExternalOutput)
 	}
-	message, err := decodeExternalMessage(stdout.Bytes())
-	if err != nil {
-		return nil, err
-	}
-	switch message.MessageType {
-	case model.PropertyReport, model.EventReport, model.StateChange, model.AlarmReport, model.CommandReply, model.LogReport:
-	default:
-		return nil, fmt.Errorf("unsupported external parser messageType %q", message.MessageType)
-	}
-	if message.MessageID == "" {
-		message.MessageID = "msg_" + strings.TrimPrefix(raw.MessageID, "raw_")
-	}
-	if message.RawMessageID == "" {
-		message.RawMessageID = raw.MessageID
-	}
-	// The worker may only transform the payload. Tenant/device identity comes
-	// from the authenticated ingest envelope and cannot be reassigned by it.
-	message.TenantID = raw.TenantID
-	message.ProductID = raw.ProductID
-	message.DeviceID = raw.DeviceID
-	if message.Timestamp == 0 {
-		message.Timestamp = raw.ReceivedAt
-	}
-	if message.Properties == nil {
-		message.Properties = map[string]any{}
-	}
-	if message.Event == nil {
-		message.Event = map[string]any{}
-	}
-	if message.Tags == nil {
-		message.Tags = map[string]string{}
-	}
-	return &message, nil
+	return stdout.Bytes(), nil
 }
 
 func externalArtifact(config map[string]any) (map[string]any, error) {

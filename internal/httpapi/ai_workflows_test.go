@@ -211,9 +211,10 @@ func TestProtocolAssistantEndpoints(t *testing.T) {
 	if preview["success"] != true || preview["standardMessage"].(map[string]any)["properties"].(map[string]any)["smoke_alarm"] != true {
 		t.Fatalf("unexpected preview %#v", preview)
 	}
-	published := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/publish", token, map[string]any{"draft": draft, "payload": "00 01 00 00 00 04 01 01 01 01", "payloadFormat": "hex", "status": "PUBLISHED"}, http.StatusCreated)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/publish", token, map[string]any{"draft": draft, "status": "PUBLISHED"}, http.StatusUnprocessableEntity)
+	published := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/publish", token, map[string]any{"draft": draft, "payload": "00 01 00 00 00 04 01 01 01 01", "payloadFormat": "hex", "status": "DRAFT"}, http.StatusCreated)
 	pkg := published["package"].(map[string]any)
-	if pkg["parserType"] != parser.ModbusCoilParserName || pkg["status"] != "PUBLISHED" {
+	if pkg["parserType"] != parser.ModbusCoilParserName || pkg["status"] != "DRAFT" {
 		t.Fatalf("unexpected published package %#v", pkg)
 	}
 	if _, ok := pkg["config"].(map[string]any)["fields"]; !ok {

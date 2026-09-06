@@ -115,7 +115,7 @@ func main() {
 		registry.Set("mqtt_subscription_count", 4)
 		log.Info("realtime enabled", "adapter", "mqtt")
 	}
-	parsers := parser.NewRegistry(parser.GB26875Parser{}, parser.ConfigurableJSONParser{}, parser.ConfigurableHexParser{}, parser.ModbusTCPParser{}, parser.ModbusCoilParser{}, parser.JavaScriptParser{}, parser.ExternalParser{Root: cfg.DataDir}, parser.FireSmokeHexParser{}, parser.ModbusParser{}, parser.JSONParser{})
+	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(repo, archivePort, bus, realtime, parsers, log)
 	var legacyRaw ports.RawMessageReader
 	if reader, ok := archivePort.(ports.RawMessageReader); ok {
@@ -168,7 +168,12 @@ func main() {
 		return err
 	}, log, cfg.ModbusAllowedCIDRs...)
 	protocolRuntime.Start(ctx)
-	log.Info("active protocol runtime enabled", "transports", []string{"MODBUS_TCP"})
+	protocolListeners := protocolruntime.NewListeners(repo, cfg.DataDir, func(c context.Context, raw model.RawMessage) error {
+		_, _, err := engine.IngestRaw(c, raw)
+		return err
+	}, log)
+	protocolListeners.Start(ctx)
+	log.Info("active protocol runtime enabled", "transports", []string{"TCP", "UDP", "MODBUS_TCP (legacy)"})
 	if mqttClient != nil {
 		fatal(log, "subscribe raw mqtt", mqttClient.SubscribeRaw(func(c context.Context, v model.RawMessage) error { _, _, err := engine.IngestRaw(c, v); return err }))
 		fatal(log, "subscribe device state mqtt", mqttClient.SubscribeDeviceState(engine.UpdateDeviceState))
@@ -178,6 +183,7 @@ func main() {
 		}))
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	api.SetProtocolListeners(protocolListeners)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute}
 	go func() {
 		ticker := time.NewTicker(cfg.OfflineScan)

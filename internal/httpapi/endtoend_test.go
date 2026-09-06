@@ -139,11 +139,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	if protocolTest["success"] != true {
 		t.Fatalf("protocol test failed: %#v", protocolTest)
 	}
-	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/protocol-packages", token, map[string]any{"id": "protocol_javascript", "name": "JavaScript 解析协议", "version": "1.0.0", "protocol": "javascript", "transport": "HTTP", "payloadFormat": "hex", "parserType": parser.JavaScriptParserName, "status": "PUBLISHED", "config": map[string]any{"source": "function parse(raw) { const b = hexToBytes(raw.payload); return {properties: {temperature: b[0] / 10}} }"}}, 201)
-	javascriptTest := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/protocol-packages/protocol_javascript/test", token, map[string]any{"payload": "2A"}, 200)
-	if javascriptTest["success"] != true || javascriptTest["standardMessage"].(map[string]any)["parser"] != parser.JavaScriptParserName || javascriptTest["standardMessage"].(map[string]any)["properties"].(map[string]any)["temperature"] != 4.2 {
-		t.Fatalf("unexpected javascript protocol test %#v", javascriptTest)
-	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/protocol-packages", token, map[string]any{"id": "protocol_javascript", "name": "JavaScript 解析协议", "version": "1.0.0", "protocol": "javascript", "transport": "HTTP", "payloadFormat": "hex", "parserType": parser.JavaScriptParserName, "status": "PUBLISHED", "config": map[string]any{"source": "function parse(raw) { const b = hexToBytes(raw.payload); return {properties: {temperature: b[0] / 10}} }"}}, 422)
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/products", token, map[string]any{"id": "product_json", "name": "JSON 传感器", "category": "sensor", "protocolPackageId": "protocol_json", "status": "ENABLED"}, 201)
 	managed := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/device-registry", token, map[string]any{"id": "device_managed", "name": "受管测试设备", "productId": "product_json", "status": "ENABLED"}, 201)
 	credential := managed["credential"].(map[string]any)
