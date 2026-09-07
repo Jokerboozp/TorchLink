@@ -126,7 +126,10 @@ if [ "$include_ai" = true ]; then
   esac
 fi
 if [ "$include_deepseek" = true ]; then
-  [ -n "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ] || { echo '--include-deepseek 需要先在环境文件中设置 DEEPSEEK_API_KEY（不要把密钥写进命令行）。' >&2; exit 1; }
+  deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"
+  if [ -z "$deepseek_key" ]; then deepseek_key="$(get_deployment_env_value "$env_file" IOT_AI_API_KEY)"; fi
+  [ -n "$deepseek_key" ] || { echo '--include-deepseek 需要先在环境文件中设置 DEEPSEEK_API_KEY 或 IOT_AI_API_KEY（不要把密钥写进命令行）。' >&2; exit 1; }
+  if [ -z "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ]; then set_local_env_value DEEPSEEK_API_KEY "$deepseek_key" true; fi
   deepseek_base_url="$(get_deployment_env_value "$env_file" DEEPSEEK_BASE_URL)"
   deepseek_base_url="${deepseek_base_url:-https://api.deepseek.com}"
   set_local_env_value IOT_AI_PROVIDER deepseek true
@@ -134,7 +137,7 @@ if [ "$include_deepseek" = true ]; then
   set_local_env_value IOT_AI_MODEL "$deepseek_model" true
 fi
 if [ "$include_harness" = true ]; then
-  [ -n "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ] || { echo '--include-harness 需要先在环境文件中设置 DEEPSEEK_API_KEY（不要把密钥写进命令行）。' >&2; exit 1; }
+  [ -n "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ] || { echo '--include-harness 需要先在环境文件中设置 DEEPSEEK_API_KEY 或 IOT_AI_API_KEY（不要把密钥写进命令行）。' >&2; exit 1; }
   bash "$script_dir/fetch-deepseek-harness.sh"
   set_local_env_value IOT_AI_HARNESS_URL "http://${dependency_host}:8091" true
   set_local_env_value IOT_AI_HARNESS_MCP_URL "http://${api_host}:8081/mcp/harness" true

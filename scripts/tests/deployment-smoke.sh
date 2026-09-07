@@ -67,11 +67,12 @@ echo 'PASS local remote-host: published dependencies and advertised addresses'
 
 deepseek_env="$test_root/.env.deepseek"
 cp "$test_root/.env.remote" "$deepseek_env"
-printf "DEEPSEEK_API_KEY='smoke-test-key'\n" >> "$deepseek_env"
+printf "IOT_AI_API_KEY='smoke-test-key'\n" >> "$deepseek_env"
 bash "$scripts/setup-local.sh" --env-file "$deepseek_env" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1 --include-deepseek
 grep -q "^IOT_AI_PROVIDER='deepseek'$" "$deepseek_env"
 grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$deepseek_env"
 grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$deepseek_env"
+grep -q "^DEEPSEEK_API_KEY='smoke-test-key'$" "$deepseek_env"
 if tail -n 12 "$TEST_CALLS" | grep -q 'ollama pull qwen3:8b'; then echo 'DeepSeek setup attempted an Ollama chat model download' >&2; exit 1; fi
 echo 'PASS local deepseek: provider enabled without local chat model download'
 

@@ -76,11 +76,12 @@ try {
 
     $deepSeekEnv = Join-Path $testRoot '.env.deepseek'
     Copy-Item -LiteralPath $localEnv -Destination $deepSeekEnv
-    Add-Content -LiteralPath $deepSeekEnv -Value "DEEPSEEK_API_KEY='smoke-test-key'"
+    Add-Content -LiteralPath $deepSeekEnv -Value "IOT_AI_API_KEY='smoke-test-key'"
     & (Join-Path $scripts 'setup-local.ps1') -EnvFile $deepSeekEnv -SkipCodeDeps -IncludeDeepSeek
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'DeepSeek provider was not enabled'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'DeepSeek base URL was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-v4-flash') 'DeepSeek model was not configured'
+    Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'DEEPSEEK_API_KEY') -eq 'smoke-test-key') 'DeepSeek key was not copied for Harness'
     Assert (-not (Contains-Call 'ollama pull qwen3:8b')) 'DeepSeek setup attempted an Ollama chat model download'
     Write-Host 'PASS local deepseek: provider enabled without local chat model download'
 
