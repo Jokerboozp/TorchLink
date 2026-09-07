@@ -59,6 +59,7 @@ remote_compose="$test_root/remote-compose.yaml"
 grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 grep -q 'external://192.168.24.133:19092' "$remote_compose"
 grep -q 'image: postgres:17-alpine3.22' "$remote_compose"
+grep -A80 '^  backup-service:' "$remote_compose" | grep -A2 'redpanda-init:' | grep -q 'condition: service_completed_successfully'
 echo 'PASS local remote-host: published dependencies and advertised addresses'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"

@@ -61,6 +61,7 @@ try {
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-web') 'Local setup starts Web container'
     Assert ($localModel.services.postgres.image -eq 'postgres:17-alpine3.22') 'Local PostgreSQL image is not pinned to the CentOS 7 compatible Alpine release'
+    Assert ($localModel.services.'backup-service'.depends_on.'redpanda-init'.condition -eq 'service_completed_successfully') 'Local backup service does not consume the successful Redpanda initialization job'
     Assert (($localModel.services.redpanda.command -join ' ') -match 'external://127.0.0.1:19092') 'Kafka advertises unreachable address'
     foreach ($service in $localModel.services.PSObject.Properties.Value) {
         if ($service.PSObject.Properties.Name -contains 'ports') {
