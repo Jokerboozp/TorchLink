@@ -8,7 +8,9 @@ param(
     [switch]$IncludeGb26875,
     [string]$OllamaModel = "qwen3:1.7b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
-    [switch]$SkipOllamaModel
+    [switch]$SkipOllamaModel,
+    [switch]$SkipDockerRuntime,
+    [string]$DockerPackagesDir = ""
 )
 
 $ErrorActionPreference = "Stop"

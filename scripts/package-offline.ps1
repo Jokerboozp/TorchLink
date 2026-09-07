@@ -7,7 +7,9 @@ param(
     [switch]$IncludeHarness = $true,
     [string]$OllamaModel = "qwen3:1.7b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
-    [switch]$SkipOllamaModel
+    [switch]$SkipOllamaModel,
+    [switch]$SkipDockerRuntime,
+    [string]$DockerPackagesDir = ""
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +18,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 . (Join-Path $scriptDir 'lib/deployment.ps1')
+. (Join-Path $scriptDir 'lib/docker-runtime.ps1')
 
 if ($Full) {
     $IncludeAi = $true
@@ -381,6 +384,21 @@ try {
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.offline.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $bundleRoot -Recurse
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null
+    Copy-Item -LiteralPath (Join-Path $scriptDir "lib/docker-bootstrap.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
+    if (-not $SkipDockerRuntime) {
+        $runtimeArch = (& docker info --format '{{.Architecture}}').Trim()
+        if ($LASTEXITCODE -ne 0) { throw '无法获取打包用 Docker 架构。' }
+        Save-LinuxDockerRuntime -Directory (Join-Path $bundleRoot 'docker-runtime') -Architecture $runtimeArch
+        if ($DockerPackagesDir) {
+            if (-not (Test-Path -LiteralPath $DockerPackagesDir -PathType Container)) { throw 'DockerPackagesDir 不存在。' }
+            Copy-Item -LiteralPath $DockerPackagesDir -Destination (Join-Path $bundleRoot 'docker-runtime/packages') -Recurse
+            Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'docker-runtime/packages') -File |
+                Where-Object { $_.Extension -in @('.rpm', '.deb') } | ForEach-Object {
+                    [IO.File]::WriteAllText(($_.FullName + '.sha256'), (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
+                }
+        }
+    }
     foreach ($runtimeScript in @(
         "deploy-offline.ps1",
         "deploy-offline-windows.ps1",

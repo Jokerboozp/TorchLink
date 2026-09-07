@@ -16,7 +16,11 @@ done < <(compgen -e)
 
 docker() {
   printf '%s\n' "$*" >> "$TEST_CALLS"
-  if [ "$1" = compose ] && [[ " $* " == *' config '* ]]; then
+  if [ "$1" = info ] && [[ " $* " == *' --format '* ]]; then
+    printf x86_64
+  elif [ "$1" = compose ] && [ "${2:-}" = version ]; then
+    printf '2.27.3\n'
+  elif [ "$1" = compose ] && [[ " $* " == *' config '* ]]; then
     "$TEST_COMPOSE" "${@:2}"
   elif [ "$TEST_FAIL_BUILD" = 1 ] && [[ " $* " == *' build '* ]]; then
     return 42
@@ -34,7 +38,15 @@ docker() {
     done
   fi
 }
-curl() { printf '%s\n' "$*" >> "$TEST_HTTP"; if [[ " $* " == *' --write-out '* ]]; then printf 200; fi; return 0; }
+curl() {
+  printf '%s\n' "$*" >> "$TEST_HTTP"
+  if [[ " $* " == *' --write-out '* ]]; then printf 200; fi
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --output ]; then printf 'mock runtime' > "$2"; break; fi
+    shift
+  done
+  return 0
+}
 go() { printf 'go %s\n' "$*" >> "$TEST_CALLS"; }
 npm() { printf 'npm %s\n' "$*" >> "$TEST_CALLS"; }
 export -f docker curl go npm
@@ -140,6 +152,10 @@ bundles=("$test_root"/bundles/iot-platform-offline-*)
 bundle="${bundles[0]}"
 assert_commented_env "$bundle/.env.offline"
 [ -s "$bundle/ollama-data.tgz.sha256" ]
+[ -s "$bundle/docker-runtime/docker-24.0.9.tgz.sha256" ]
+[ -s "$bundle/docker-runtime/docker-28.5.2.tgz.sha256" ]
+[ -s "$bundle/docker-runtime/docker-compose.sha256" ]
+[ -f "$bundle/scripts/lib/docker-bootstrap.sh" ]
 grep -q 'ollama/ollama:' "$bundle/manifest.json"
 grep -q 'weaviate:' "$bundle/manifest.json"
 assert_call 'exec -T ollama ollama pull nomic-embed-text'

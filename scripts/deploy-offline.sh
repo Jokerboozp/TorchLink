@@ -30,8 +30,8 @@ ollama_volume_file="$bundle_dir/ollama-volume.txt"
 for file in "$env_file" "$compose_file" "$offline_compose_file" "$archive_file" "$hash_file"; do
   [[ -f "$file" ]] || die "离线包缺少文件：$file"
 done
-command -v docker >/dev/null 2>&1 || die "找不到 docker 命令，请先安装 Docker Engine/Desktop"
-docker info >/dev/null || die "Docker Engine 不可用，请先启动 Docker"
+source "$script_dir/lib/docker-bootstrap.sh"
+ensure_deployment_docker offline "$bundle_dir/docker-runtime"
 if (( ! skip_health_check )); then
   command -v curl >/dev/null 2>&1 || die "健康检查需要 curl；请先安装，或显式使用 --skip-health-check"
 fi

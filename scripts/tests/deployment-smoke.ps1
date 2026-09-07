@@ -19,7 +19,9 @@ function global:docker {
     $callArgs = @($args | ForEach-Object { $_ })
     $global:IotTest_calls.Add($callArgs)
     $global:LASTEXITCODE = 0
-    if ($callArgs[0] -eq 'compose' -and $callArgs -contains 'config') {
+    if ($callArgs[0] -eq 'info' -and $callArgs -contains '--format') {
+        return 'x86_64'
+    } elseif ($callArgs[0] -eq 'compose' -and $callArgs -contains 'config') {
         & $global:IotTest_composeParser @($callArgs | Select-Object -Skip 1)
         $global:LASTEXITCODE = $LASTEXITCODE
     } elseif ($global:IotTest_failBuild -and $callArgs -contains 'build') {
@@ -35,8 +37,9 @@ function global:docker {
     }
 }
 function global:Invoke-WebRequest {
-    param($Uri, $TimeoutSec, [switch]$UseBasicParsing)
+    param($Uri, $TimeoutSec, [switch]$UseBasicParsing, $OutFile)
     $global:IotTest_httpCalls.Add([string]$Uri)
+    if ($OutFile) { [IO.File]::WriteAllText($OutFile, 'mock runtime'); return }
     return [pscustomobject]@{StatusCode=200}
 }
 function global:go { $global:IotTest_calls.Add(@('go') + $args); $global:LASTEXITCODE = 0 }
@@ -170,6 +173,10 @@ try {
     Assert ($manifest.ollamaModel -eq 'qwen3:1.7b') 'Default bundle omitted compact Qwen model'
     Assert ($manifest.profiles -contains 'harness') 'Default bundle omitted Harness'
     Assert (Test-Path (Join-Path $bundle 'ollama-data.tgz.sha256')) 'Model checksum omitted'
+    foreach ($file in @('docker-24.0.9.tgz', 'docker-28.5.2.tgz', 'docker-compose', 'docker-buildx')) {
+        Assert (Test-Path (Join-Path $bundle "docker-runtime/$file.sha256")) "Docker runtime checksum omitted: $file"
+    }
+    Assert (Test-Path (Join-Path $bundle 'scripts/lib/docker-bootstrap.sh')) 'Docker bootstrap helper omitted'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_PROVIDER') -eq 'ollama') 'Offline default AI provider is not Ollama'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_MODEL') -eq 'qwen3:1.7b') 'Offline compact Qwen model is missing'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'ollama') 'Offline Harness does not use Ollama'

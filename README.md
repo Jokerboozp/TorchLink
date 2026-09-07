@@ -10,7 +10,7 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 | **在线部署** | 全部运行在 Docker | 一键生成配置、下载/构建镜像并启动 | `http://服务器IP:8080` |
 | **离线部署** | 全部运行在 Docker | 有网机器打包，离线服务器一键导入并启动 | `http://服务器IP:8080` |
 
-以下命令均在**本仓库根目录**执行。三种方案都需要已安装并启动 Docker（Linux 容器）及 Docker Compose v2；本地运行另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。脚本检查运行环境，不负责安装 Docker、Go 或 Node.js。
+以下命令均在**本仓库根目录**执行。Linux 在线、离线部署会检测 Docker 和 Compose，缺少时自动安装；首次安装请用 root 或 sudo 执行。Windows/macOS 及有网打包机仍需先安装并启动 Docker Desktop（Linux 容器）。本地运行需准备 Docker 依赖环境，源码机另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。Go 和 Node.js 仍需自行安装。
 
 在线与离线部署默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate、`nomic-embed-text` 嵌入模型和 AI 工作流 Harness。本地运行会启动基础依赖和 Harness，备份服务默认作为源码进程单独调试。在线与离线部署还会自动准备 `qwen3:1.7b`；告警研判、规则辅助和 AI 工作流统一使用该本地模型，不需要 API Key。这个模型下载约 1.4 GB，适合 8 GB 内存的整套虚拟机环境。
 
@@ -93,7 +93,7 @@ bash ./scripts/deploy-online.sh
 
 ## 3. 离线部署
 
-离线部署分为“有网打包”和“无网安装”两个步骤。打包机与服务器的 Docker CPU 架构必须一致，目标服务器须提前安装好 Docker Engine、Compose v2 和 curl。CentOS 7.9 x86_64 可以直接运行 linux/amd64 离线包；系统无需 Go、Node.js、Git 和外网，但 Docker 及 Compose 安装包不包含在离线包内。
+离线部署分为“有网打包”和“无网安装”两个步骤。打包机与服务器的 Docker CPU 架构必须一致。新离线包默认包含 Linux Docker 与 Compose 安装文件；CentOS 7.9 x86_64 可使用 linux/amd64 包，部署时自动检测并安装缺失组件。目标机无需 Go、Node.js、Git 和外网；系统基础依赖及首次安装权限见 [离线部署说明](docs/OFFLINE_DEPLOYMENT.md#docker-自动安装)。
 
 ### 有网机器：一键打包
 

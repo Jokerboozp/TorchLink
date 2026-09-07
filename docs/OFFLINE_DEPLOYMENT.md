@@ -1,8 +1,8 @@
 # 离线部署
 
-离线部署分两步：有网机器一键打包，目标机器一键导入并启动。目标机器不需要 Go、Node.js 或源码依赖；打包机和目标机都需预装并启动 Docker Engine / Docker Desktop（Linux 容器）及 Docker Compose 2.24.4+。Linux/macOS 的部署健康检查还需要 curl。
+离线部署分两步：有网机器一键打包，目标机器一键导入并启动。目标机器不需要 Go、Node.js 或源码依赖；打包机需预装并启动 Docker Engine / Docker Desktop（Linux 容器）及 Docker Compose 2.24.4+；Linux 目标机缺少 Docker 时会自动从离线包安装。Windows/macOS 目标机仍需预装 Docker Desktop。Linux/macOS 的部署健康检查还需要 curl。
 
-打包机与目标机应使用相同 CPU 架构（例如均为 linux/amd64）；Apple Silicon 默认生成的 ARM64 镜像不能直接作为 x86 服务器离线包。CentOS 7.9 x86_64 可运行 linux/amd64 包，前提是已安装并启动 Docker Engine、Docker Compose v2，并有 curl。离线服务器安装 Docker 所需的软件包必须提前准备，本项目离线包不包含 Docker 安装程序。
+打包机与目标机应使用相同 CPU 架构（例如均为 linux/amd64）；Apple Silicon 默认生成的 ARM64 镜像不能直接作为 x86 服务器离线包。CentOS 7.9 x86_64 使用 linux/amd64 包；新包默认携带 Linux Docker、Compose 和 Buildx 的安装文件与 SHA-256 校验值，首次安装请用 root 或 sudo 执行。
 
 ## 1. 有网机器打包
 
@@ -74,3 +74,26 @@ docker compose --project-name iot-platform --env-file .env.offline -f compose.ya
 - 已有业务数据迁移：使用项目备份及数据库、对象存储恢复流程；离线安装包只包含程序、配置和模型，不包含业务数据。
 
 GB26875 等协议统一上传 Go 源码包，并在平台启用通用 TCP/UDP 监听实例；新离线包不再打包专用 GB 网关。默认映射 26875，可用 IOT_PROTOCOL_PORTS 预留同号端口范围。
+
+
+## Docker 自动安装
+
+Linux 在线部署与离线部署共用检测逻辑：已有可用 Docker 和 Compose 2.24.4+ 时直接复用；仅缺 Compose 时只补插件；Docker 服务未启动时尝试启动。在线构建还会检测 Buildx。脚本不删除数据卷、不更改现有 daemon.json，也不会自动升级或降级已有 Docker Engine。
+
+- 在线：从 Docker / docker GitHub 官方地址下载缺失文件，安装后继续部署。
+- 离线：仅读取包内 `docker-runtime/`，校验架构和 SHA-256 后安装，不会访问下载地址或软件源。旧包若没有安装文件且目标机缺少 Docker，需在有网机器重新打包。
+- 首次安装使用 Linux 静态二进制和 systemd；amd64 / arm64 均支持。3.x / 4.x 内核选择 Docker 24.0.9 兼容分支，其余选择 28.5.2；Compose 2.27.3，Buildx 0.14.1。旧内核兼容分支不代表 CentOS 7 仍受 Docker 官方维护。静态安装方式见 [Docker 官方说明](https://docs.docker.com/engine/install/binaries/)。
+- Linux 系统需已有 systemd、tar、iptables、xz 和 ps；健康检查需 curl。在线安装会通过系统包管理器补充 iptables/xz/procps，CentOS 7 使用临时 Vault 源，不覆盖已有 yum 配置。
+- 精简离线系统若缺少这些基础包，打包时使用 `--docker-packages-dir /path/to/packages` 或 `-DockerPackagesDir C:\\packages` 加入与目标发行版、版本和架构匹配的 RPM/DEB 及全部依赖。安装使用本地 rpm/dpkg，不联网解决依赖、不跳过依赖检查。
+- 已有 Docker 的服务器可通过打包参数 `--skip-docker-runtime` / `-SkipDockerRuntime` 减小包体。该参数不适用于尚未安装 Docker 的目标机。
+
+Linux 首次部署示例：
+
+```bash
+# 在线：在仓库根目录执行
+sudo bash ./scripts/deploy-online.sh
+# 离线：在新离线包根目录执行
+sudo bash ./scripts/deploy-offline-linux.sh
+```
+
+Windows/macOS 的 Docker Desktop 安装与虚拟化设置不在此 Linux 自动安装流程内；PowerShell 打包脚本仍会准备 Linux 安装文件，方便在 Windows 打包后拷贝到 CentOS。

@@ -29,7 +29,7 @@ while [ "$#" -gt 0 ]; do
   --no-harness          不启动 AI 工作流 Harness，并将配置开关设为 false
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
 默认拉取运行镜像、构建应用、启动全部服务，并下载 qwen3:1.7b 与 nomic-embed-text。
-需要 Docker Engine/Desktop、Compose v2、Git 和 curl。自动研判与工作流默认共用本地 qwen3:1.7b。
+Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
       exit 0;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1;;
@@ -38,6 +38,8 @@ done
 [[ "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo '项目名只能包含小写字母、数字、下划线和短横线，且以字母或数字开头。' >&2; exit 1; }
 [[ "$health_timeout" =~ ^[1-9][0-9]*$ ]] || { echo '健康检查超时必须是正整数。' >&2; exit 1; }
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
+source "$script_dir/lib/docker-bootstrap.sh"
+ensure_deployment_docker online
 assert_docker_available
 command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; exit 1; }
 ensure_deployment_env "$env_file"

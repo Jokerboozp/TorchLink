@@ -5,6 +5,7 @@ umask 077
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
 source "$script_dir/lib/env-comments.sh"
+source "$script_dir/lib/docker-bootstrap.sh"
 
 output_dir="offline-bundles"
 env_file=""
@@ -14,6 +15,8 @@ full=0
 ollama_model="qwen3:1.7b"
 ollama_embedding_model="nomic-embed-text"
 skip_ollama_model=0
+skip_docker_runtime=0
+docker_packages_dir=""
 
 usage() {
   cat <<'EOF'
@@ -28,6 +31,8 @@ usage() {
   --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:1.7b
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过全部模型；仅用于目标机已准备模型的情况
+  --skip-docker-runtime 不携带 Docker 安装文件（目标机须已有 Docker 和 Compose）
+  --docker-packages-dir DIR  可选：精简 Linux 系统缺少的 iptables/xz/procps 及依赖 RPM/DEB 目录
   --full                 兼容参数；AI 与 Harness 已默认启用
   -h, --help             显示帮助
 EOF
@@ -257,6 +262,8 @@ while [[ $# -gt 0 ]]; do
     --ollama-model) ollama_model="${2:-}"; shift 2 ;;
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
     --skip-ollama-model) skip_ollama_model=1; shift ;;
+    --skip-docker-runtime) skip_docker_runtime=1; shift ;;
+    --docker-packages-dir) docker_packages_dir="${2:?缺少系统依赖包目录}"; shift 2 ;;
     --full) full=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "未知参数：$1；使用 --help 查看帮助" ;;
@@ -366,6 +373,20 @@ if (( include_harness )); then
 fi
 
 mkdir -p "$bundle_root/scripts"
+mkdir -p "$bundle_root/scripts/lib"
+cp "$script_dir/lib/docker-bootstrap.sh" "$bundle_root/scripts/lib/"
+if (( ! skip_docker_runtime )); then
+  runtime_arch="$(docker info --format '{{.Architecture}}')"
+  prepare_docker_runtime "$bundle_root/docker-runtime" "$runtime_arch"
+  if [ -n "$docker_packages_dir" ]; then
+    [ -d "$docker_packages_dir" ] || die "系统依赖包目录不存在：$docker_packages_dir"
+    cp -R "$docker_packages_dir" "$bundle_root/docker-runtime/packages"
+    for package in "$bundle_root/docker-runtime/packages/"*.rpm "$bundle_root/docker-runtime/packages/"*.deb; do
+      [ -f "$package" ] || continue
+      docker_runtime_hash "$package" > "$package.sha256"
+    done
+  fi
+fi
 cp "$project_root/compose.yaml" "$bundle_root/"
 cp "$project_root/compose.offline.yaml" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
