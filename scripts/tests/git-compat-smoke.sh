@@ -24,8 +24,18 @@ if [ "${1:-}" = "-C" ]; then
   exit 129
 fi
 case "${1:-} ${2:-}" in
-  "status --porcelain") exit 0 ;;
+  "status --porcelain")
+    if [ -n "${FAKE_GIT_DIRTY_FLAG:-}" ] && [ -f "$FAKE_GIT_DIRTY_FLAG" ]; then
+      rm -f "$FAKE_GIT_DIRTY_FLAG"
+      printf ' M package.json\n'
+    fi
+    exit 0 ;;
   "rev-parse HEAD") printf '%s\n' "$EXPECTED_REVISION" ;;
+  "-c http.version=HTTP/1.1")
+    destination=''
+    for argument in "$@"; do destination="$argument"; done
+    mkdir -p "$destination/.git"
+    exit 0 ;;
   *) echo "Unexpected git invocation: $*" >&2; exit 2 ;;
 esac
 EOF
@@ -36,6 +46,14 @@ PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" \
 
 grep -qx "$expected_revision" "$fixture/upstream/deepseek-harness.revision"
 grep -q "DeepSeek Harness ready: $expected_revision" "$test_root/output.log"
+
+touch "$test_root/dirty.flag"
+PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" FAKE_GIT_DIRTY_FLAG="$test_root/dirty.flag" \
+  sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/dirty-output.log"
+backup_count="$(find "$fixture/upstream" -maxdepth 1 -type d -name 'deepseek-harness.backup-*' | wc -l | tr -d ' ')"
+[ "$backup_count" = 1 ]
+[ -d "$fixture/upstream/deepseek-harness/.git" ]
+grep -q '源码目录存在修改，已备份到：' "$test_root/dirty-output.log"
 
 if grep -En 'git[[:space:]]+-C' \
   "$project_root/scripts/fetch-deepseek-harness.sh" \

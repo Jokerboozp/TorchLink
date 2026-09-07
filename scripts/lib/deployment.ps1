@@ -143,7 +143,19 @@ function Ensure-HarnessSource {
     }
     $changes = @(& git -C $target status --porcelain)
     if ($LASTEXITCODE -ne 0) { throw '无法检查 Harness 源码状态。' }
-    if ($changes.Count -gt 0) { throw "Harness 源码存在未提交修改，停止更新：$target" }
+    if ($changes.Count -gt 0) {
+        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $backup = "$target.backup-$timestamp"
+        $suffix = 0
+        while (Test-Path -LiteralPath $backup) {
+            $suffix++
+            $backup = "$target.backup-$timestamp-$suffix"
+        }
+        Move-Item -LiteralPath $target -Destination $backup
+        Write-Host "DeepSeek Harness 源码目录存在修改，已备份到：$backup"
+        & git -c http.version=HTTP/1.1 clone --depth 1 'https://github.com/deepseek-ai/deepseek-harness.git' $target
+        if ($LASTEXITCODE -ne 0) { throw "Harness 源码重新下载失败，原目录保存在：$backup" }
+    }
     $current = & git -C $target rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw '无法读取 Harness 提交。' }
     if ($current.Trim() -ne $revision) {

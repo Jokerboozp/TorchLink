@@ -14,6 +14,11 @@ target_git() {
   (CDPATH= cd -- "$target" && git "$@")
 }
 
+clone_target() {
+  mkdir -p "$project_root/upstream"
+  git -c http.version=HTTP/1.1 clone --depth 1 "$repository" "$target"
+}
+
 case "$revision" in
   *[!0-9a-f]*|'') echo "无效的 DeepSeek Harness 提交：$revision_file" >&2; exit 1 ;;
 esac
@@ -23,13 +28,19 @@ if [ "${#revision}" -ne 40 ]; then
 fi
 
 if [ ! -d "$target/.git" ]; then
-  mkdir -p "$project_root/upstream"
-  git -c http.version=HTTP/1.1 clone --depth 1 "$repository" "$target"
+  clone_target
 fi
 
 if [ -n "$(target_git status --porcelain)" ]; then
-  echo "DeepSeek Harness 源码目录存在未提交修改，已停止更新：$target" >&2
-  exit 1
+  backup="${target}.backup-$(date +%Y%m%d-%H%M%S)"
+  suffix=0
+  while [ -e "$backup" ]; do
+    suffix=$((suffix + 1))
+    backup="${target}.backup-$(date +%Y%m%d-%H%M%S)-${suffix}"
+  done
+  mv -- "$target" "$backup"
+  echo "DeepSeek Harness 源码目录存在修改，已备份到：$backup"
+  clone_target
 fi
 
 current_revision="$(target_git rev-parse HEAD)"
