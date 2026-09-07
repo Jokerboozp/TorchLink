@@ -19,6 +19,12 @@ test('management controls and Chinese labels remain available', async () => {
   for (const label of ['查看详情', '批量下载', '未注册设备', '一键注册', '摄像头映射', '保存规则', '火灾风险', '紧急', '活动中', '告警中', '疑似离线']) {
     assert.match(source, new RegExp(label), `missing label: ${label}`)
   }
+  const labels = await import('../src/labels.js')
+  assert.equal(labels.alarmLevel('CRITICAL'), '紧急')
+  assert.equal(labels.alarmLevel('high'), '高')
+  assert.equal(labels.alarmLevel(''), '未设置')
+  const alarmsView = await readFile(new URL('src/views/AlarmsView.vue', root), 'utf8')
+  assert.match(alarmsView, /alarmLevel\(analysis\.riskLevel\)/)
 })
 
 test('account logout is available from the top-right avatar menu', async () => {

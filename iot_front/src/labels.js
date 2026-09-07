@@ -21,8 +21,10 @@ export const messageTypes = {
 }
 export const messageTypeLabel = value => messageTypes[String(value ?? '')]?.label || value || '未知消息'
 export const label = (map, value, fallback = '未知') => map[String(value ?? '')] || fallback
+export const alarmLevel = value => label(alarmLevels, String(value ?? '').trim().toUpperCase(), '未设置')
 export const alarmType = value => label(alarmTypes, value, '其他告警类型')
 export function tagType(value) {
+  value = String(value ?? '').trim().toUpperCase()
   if (['ONLINE','ENABLED','PUBLISHED','RECOVERED'].includes(value)) return 'success'
   if (['ACTIVE','MEDIUM','ACKED'].includes(value)) return 'warning'
   if (['ALARM','HIGH','CRITICAL'].includes(value)) return 'danger'
