@@ -362,7 +362,7 @@ test('backup center exposes history, artifact downloads and restore drills', asy
   const app = await readFile(new URL('src/App.vue', root), 'utf8')
   const view = await readFile(new URL('src/views/BackupsView.vue', root), 'utf8')
   const labels = await readFile(new URL('src/labels.js', root), 'utf8')
-  for (const marker of ['备份中心', '立即全量备份', '立即增量备份', '立即备份原始日志', '详情 / 文件', '恢复演练', '下载 manifest.json', '备份文件']) {
+  for (const marker of ['备份中心', '立即备份设备数据', '备份昨日数据', '详情 / 文件', '文件校验', '下载 manifest.json', '备份文件']) {
     assert.match(`${app}\n${view}`, new RegExp(marker), `missing backup center marker: ${marker}`)
   }
   assert.match(labels, /backupTypes/)

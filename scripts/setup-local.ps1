@@ -59,11 +59,6 @@ $defaults = [ordered]@{
     IOT_MINIO_ENDPOINT = '127.0.0.1:19000'
     IOT_MINIO_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_ROOT_USER')
     IOT_MINIO_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_ROOT_PASSWORD')
-    IOT_MINIO_DR_ENDPOINT = '127.0.0.1:19001'
-    IOT_MINIO_DR_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_USER')
-    IOT_MINIO_DR_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_PASSWORD')
-    IOT_REDPANDA_ADMIN_URL = 'http://127.0.0.1:19644'
-    IOT_BACKUP_CONFIG_PATHS = './compose.local.yaml,./deploy'
     IOT_KAFKA_BROKERS = '127.0.0.1:19092'
     IOT_MQTT_BROKER = 'tcp://127.0.0.1:1883'
     IOT_MQTT_WEBSOCKET_PUBLIC_URL = 'ws://127.0.0.1:8083/mqtt'
@@ -75,7 +70,6 @@ $defaults = [ordered]@{
     IOT_WEAVIATE_URL = 'http://127.0.0.1:18080'
     IOT_BACKUP_URL = 'http://127.0.0.1:8092'
     IOT_BACKUP_HTTP_ADDR = ':8092'
-    IOT_BACKUP_TOOL_MODE = 'docker'
     IOT_AI_HARNESS_ENABLED = 'true'
     IOT_AI_HARNESS_URL = 'http://127.0.0.1:8091'
     IOT_AI_HARNESS_MCP_URL = 'http://host.docker.internal:8081/mcp/harness'
@@ -87,7 +81,6 @@ foreach ($key in $defaults.Keys) { Set-LocalEnvValue -Key $key -Value $defaults[
 # worker endpoint local even when middleware containers are remote.
 Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace
 Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
-Set-LocalEnvValue -Key 'IOT_BACKUP_TOOL_MODE' -Value 'docker'
 if ($IncludeAi) {
     $provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
     if ($provider -eq 'ollama') {

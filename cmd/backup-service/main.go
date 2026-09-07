@@ -34,8 +34,7 @@ func main() {
 	service, err := backup.New(ctx, backup.Config{
 		PostgresDSN: os.Getenv("IOT_POSTGRES_DSN"), BackupDir: env("IOT_BACKUP_DIR", "./data/backups"), BackupBucket: env("IOT_BACKUP_BUCKET", "iot-backups"),
 		MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"), MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: boolean("IOT_MINIO_USE_TLS"),
-		MinIODREndpoint: os.Getenv("IOT_MINIO_DR_ENDPOINT"), MinIODRAccessKey: os.Getenv("IOT_MINIO_DR_ACCESS_KEY"), MinIODRSecretKey: os.Getenv("IOT_MINIO_DR_SECRET_KEY"), MinIODRUseTLS: boolean("IOT_MINIO_DR_USE_TLS"),
-		ClickHouseURL: os.Getenv("IOT_CLICKHOUSE_URL"), RedisAddr: os.Getenv("IOT_REDIS_ADDR"), RedisPassword: os.Getenv("IOT_REDIS_PASSWORD"), RedpandaAdminURL: os.Getenv("IOT_REDPANDA_ADMIN_URL"), WeaviateURL: os.Getenv("IOT_WEAVIATE_URL"), ConfigPaths: os.Getenv("IOT_BACKUP_CONFIG_PATHS"),
+		ClickHouseURL:  os.Getenv("IOT_CLICKHOUSE_URL"),
 		BackupTimezone: env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"),
 	})
 	if err != nil {
@@ -124,14 +123,16 @@ func main() {
 			cancel()
 		}
 	}()
-	go dailyRawLogsScheduler(ctx, service, log, env("IOT_BACKUP_TIME", "00:05"), env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"))
+	if !strings.EqualFold(env("IOT_BACKUP_ENABLED", "true"), "false") {
+		go dailyDeviceDataScheduler(ctx, service, log, env("IOT_BACKUP_TIME", "00:05"), env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"))
+	}
 	<-ctx.Done()
 	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()
 	_ = server.Shutdown(shutdown)
 }
 
-func dailyRawLogsScheduler(ctx context.Context, service *backup.Service, log *slog.Logger, clock, timezone string) {
+func dailyDeviceDataScheduler(ctx context.Context, service *backup.Service, log *slog.Logger, clock, timezone string) {
 	location, err := time.LoadLocation(strings.TrimSpace(timezone))
 	if err != nil {
 		log.Warn("invalid backup timezone; using UTC", "timezone", timezone, "error", err)
@@ -140,8 +141,8 @@ func dailyRawLogsScheduler(ctx context.Context, service *backup.Service, log *sl
 	for {
 		next, parseErr := nextDailyRun(time.Now().In(location), clock, location)
 		if parseErr != nil {
-			log.Error("invalid daily raw-log backup time", "time", clock, "error", parseErr)
-			clock = "23:59"
+			log.Error("invalid daily device-data backup time", "time", clock, "error", parseErr)
+			clock = "00:05"
 			continue
 		}
 		timer := time.NewTimer(time.Until(next))
@@ -156,11 +157,11 @@ func dailyRawLogsScheduler(ctx context.Context, service *backup.Service, log *sl
 			return
 		case <-timer.C:
 			backupDay := next.AddDate(0, 0, -1)
-			result, runErr := service.RunRawLogs(ctx, backupDay)
+			result, runErr := service.RunDaily(ctx, backupDay)
 			if runErr != nil {
-				log.Error("scheduled raw-log backup failed", "type", "RAW_LOGS", "date", backupDay.Format("2006-01-02"), "error", runErr)
+				log.Error("scheduled device-data backup failed", "type", "DEVICE_DAILY", "date", backupDay.Format("2006-01-02"), "error", runErr)
 			} else {
-				log.Info("scheduled raw-log backup completed", "type", "RAW_LOGS", "date", backupDay.Format("2006-01-02"), "id", result.ID)
+				log.Info("scheduled device-data backup completed", "type", "DEVICE_DAILY", "date", backupDay.Format("2006-01-02"), "id", result.ID)
 			}
 		}
 	}

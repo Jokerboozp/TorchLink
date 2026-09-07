@@ -267,7 +267,7 @@ func validateSegment(value, label string) error {
 }
 
 func validBackupType(value string) bool {
-	return value == "FULL" || value == "INCREMENTAL" || value == "RAW_LOGS" || value == "RESTORE_DRILL"
+	return value == "DEVICE_DAILY" || value == "FULL" || value == "INCREMENTAL" || value == "RAW_LOGS" || value == "RESTORE_DRILL"
 }
 
 func validBackupStatus(value string) bool {

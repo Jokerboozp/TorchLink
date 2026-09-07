@@ -77,7 +77,7 @@ const pages = {
   knowledge: { title: 'Agent 知识库', sub: '文档直接归属 Agent，并使用持久化向量索引', icon: Library, component: KnowledgeView },
   aiProviders: { title: 'AI 模型管理', sub: '模型服务、接口密钥和 AI 业务统一管理', icon: Cpu, component: AiProvidersView },
   ai: { title: 'AI 工作流', sub: '受控工具与知识库问答', icon: MessageCircle, component: AiView },
-  backups: { title: '备份中心', sub: '备份记录、文件校验与恢复演练', icon: Database, component: BackupsView }
+  backups: { title: '备份中心', sub: '设备原始数据与解析数据的每日备份', icon: Database, component: BackupsView }
 }
 const current = computed(() => pages[active.value])
 const menuGroups = [

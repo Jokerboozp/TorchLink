@@ -78,6 +78,7 @@ function Ensure-DeploymentEnv {
         IOT_AI_HARNESS_CONTEXT_WINDOW = '8192'
         IOT_AI_HARNESS_MODEL = 'qwen3:1.7b'
         IOT_BACKUP_TIME = '00:05'
+        IOT_BACKUP_ENABLED = 'true'
         IOT_BACKUP_TIMEZONE = 'Asia/Shanghai'
     }
     foreach ($key in $Defaults.Keys) {

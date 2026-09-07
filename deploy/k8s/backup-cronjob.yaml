@@ -17,16 +17,7 @@ spec:
               image: your-registry/iot-backup-service:1.0.0
               env:
                 - {name: IOT_BACKUP_ONCE, value: "true"}
-                - {name: IOT_BACKUP_TYPE, value: "FULL"}
-                - {name: IOT_BACKUP_CONFIG_PATHS, value: "/sources/config,/sources/emqx"}
+                - {name: IOT_BACKUP_TYPE, value: "DEVICE_DAILY"}
               envFrom: [{configMapRef: {name: iot-platform}}, {secretRef: {name: iot-platform}}]
               resources: {requests: {cpu: "250m", memory: "256Mi"}, limits: {cpu: "1", memory: "1Gi"}}
               securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
-              volumeMounts:
-                - {name: postgres-wal, mountPath: /sources/postgres-wal, readOnly: true}
-                - {name: emqx-config, mountPath: /sources/emqx, readOnly: true}
-                - {name: platform-config, mountPath: /sources/config, readOnly: true}
-          volumes:
-            - {name: postgres-wal, persistentVolumeClaim: {claimName: postgres-wal}}
-            - {name: emqx-config, persistentVolumeClaim: {claimName: emqx-data}}
-            - {name: platform-config, configMap: {name: iot-platform-deployment-config}}

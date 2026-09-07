@@ -98,11 +98,6 @@ defaults=(
   "IOT_MINIO_ENDPOINT=${dependency_host}:19000"
   "IOT_MINIO_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_ROOT_USER)"
   "IOT_MINIO_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_ROOT_PASSWORD)"
-  "IOT_MINIO_DR_ENDPOINT=${dependency_host}:19001"
-  "IOT_MINIO_DR_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_USER)"
-  "IOT_MINIO_DR_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_PASSWORD)"
-  "IOT_REDPANDA_ADMIN_URL=http://${dependency_host}:19644"
-  'IOT_BACKUP_CONFIG_PATHS=./compose.local.yaml,./deploy'
   "IOT_KAFKA_BROKERS=${dependency_host}:19092"
   "IOT_MQTT_BROKER=tcp://${dependency_host}:1883"
   "IOT_MQTT_WEBSOCKET_PUBLIC_URL=ws://${dependency_host}:8083/mqtt"
@@ -114,7 +109,6 @@ defaults=(
   "IOT_WEAVIATE_URL=http://${dependency_host}:18080"
   'IOT_BACKUP_URL=http://127.0.0.1:8092'
   'IOT_BACKUP_HTTP_ADDR=:8092'
-  'IOT_BACKUP_TOOL_MODE=docker'
   'IOT_AI_HARNESS_ENABLED=true'
   "IOT_AI_HARNESS_URL=http://${dependency_host}:8091"
   "IOT_AI_HARNESS_MCP_URL=http://${api_host}:8081/mcp/harness"
@@ -126,7 +120,6 @@ for entry in "${defaults[@]}"; do
   key="${entry%%=*}"
   replace="$new_env"
   if [ "$dependency_host_set" = true ]; then
-    case "$key" in IOT_MINIO_DR_ENDPOINT|IOT_REDPANDA_ADMIN_URL) replace=true;; esac
     case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_OLLAMA_URL|IOT_AI_OLLAMA_URL|IOT_WEAVIATE_URL|IOT_BACKUP_URL|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
   fi
   set_local_env_value "$key" "${entry#*=}" "$replace"
@@ -135,7 +128,6 @@ done
 # worker endpoint local even when middleware containers are remote.
 set_local_env_value IOT_BACKUP_URL 'http://127.0.0.1:8092' true
 set_local_env_value IOT_BACKUP_HTTP_ADDR ':8092'
-set_local_env_value IOT_BACKUP_TOOL_MODE docker
 if [ "$include_backup" = true ]; then set_local_env_value IOT_BACKUP_URL "http://${dependency_host}:8092" true; fi
 if [ "$include_ai" = true ]; then
   if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = ollama ]; then

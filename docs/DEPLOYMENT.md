@@ -122,7 +122,7 @@ bash ./scripts/deploy-online.sh --include-harness
 }
 ```
 
-备份服务的源码调试配置使用同一个 `.env.local`，监听 `8092`，并默认通过 Docker 工具容器调用 `pg_dump` 和 `redis-cli`：
+备份服务的源码调试配置使用同一个 `.env.local`，监听 `8092`，通过 Go 直接读取设备数据，无需本机 Docker 或数据库命令行工具：
 
 ```json
 {
@@ -138,11 +138,11 @@ bash ./scripts/deploy-online.sh --include-harness
 
 选择 `IoT Platform (API + Web + Backup)` 可同时调试 API、前端和备份服务。备份服务与 API 共用 `.env.local`，在其中设置 `IOT_BACKUP_URL=http://127.0.0.1:8092` 和 `IOT_BACKUP_HTTP_ADDR=:8092`。Windows 前端命令为 `npm.cmd run dev`，Linux/macOS 为 `npm run dev`。CentOS 只运行依赖、Windows 运行源码时，PostgreSQL、Kafka、MQTT 等地址指向 CentOS。
 
-`IOT_BACKUP_TOOL_MODE=docker` 要求**源码机**安装 Docker CLI 并运行本机 Docker Engine/Desktop（Linux 容器），首次导出会使用 `postgres:17-alpine3.22` 和 `redis:7.4-alpine` 镜像。仅在 CentOS 安装 Docker 不足以让 Windows 执行工具容器。若源码机不用 Docker，可设置 `IOT_BACKUP_TOOL_MODE=native`，安装 PostgreSQL 17 客户端和支持 `--rdb` 的 Redis 客户端，并通过 `PG_DUMP_BIN` / `REDIS_CLI_BIN` 指定路径。调试器会读取配置文件，不覆盖你选择的工具模式。
 
-本地源码备份可连接远程数据库和 MinIO；配置归档来自源码机的 `IOT_BACKUP_CONFIG_PATHS`。CentOS 容器内的 WAL 和 EMQX 数据目录不会自动映射到 Windows，需在容器版备份中归档这些目录。
 
-升级旧本地环境：在 CentOS 更新源码后重跑原 `setup-local.sh` 命令，脚本会停止旧备份容器并保留其数据卷；将更新后的 `.env.local` 复制到 Windows，再启动上述 VS Code 组合。可以访问 `http://127.0.0.1:8092/health/ready` 检查数据库、对象存储和备份工具。此次全量备份修复了 Weaviate 不接受旧备份 ID 中大写字母和小数点的问题；失败详情会随 API 返回。
+
+
+升级旧本地环境：在 CentOS 更新源码后重跑原 `setup-local.sh` 命令，脚本会停止旧备份容器并保留其数据卷；将更新后的 `.env.local` 复制到 Windows，再启动上述 VS Code 组合。可以访问 `http://127.0.0.1:8092/health/ready` 检查数据库和对象存储连接。旧配置中的工具模式、Redis、Weaviate 及配置归档参数不再被备份服务使用。
 
 在线/离线默认提供 HTTP 服务。需要公网域名与 HTTPS 时，由现有 Nginx/网关终结 TLS 并转发到 Web 端口；部署脚本不管理域名和证书。
 
@@ -168,7 +168,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用 Harness 时，在子命令 `ps` / `logs` / `down` 前加 `--profile harness`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
 
-`down` 保留命名数据卷；`down -v` 会删除它们。日常代码更新重跑对应部署脚本即可。备份页面调用独立 `backup-service`，默认每天上海时间 `00:05` 汇总前一天原始日志，可由 `IOT_BACKUP_TIME`、`IOT_BACKUP_TIMEZONE` 调整；这是业务数据备份，不替代环境配置文件的保管。
+`down` 保留命名数据卷；`down -v` 会删除它们。日常代码更新重跑对应部署脚本即可。备份页面调用独立 `backup-service`，默认每天上海时间 `00:05` 汇总前一天设备原始报文与解析数据，可由 `IOT_BACKUP_TIME`、`IOT_BACKUP_TIMEZONE` 调整；这是业务数据备份，不替代环境配置文件的保管。
 
 ## 排查入口
 
@@ -180,9 +180,32 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | 本地 Kafka 无法连接 | 是否运行 `compose.local.yaml`，API 是否读取 `.env.local` |
 | API 启动后前端无法访问 | `8081` 端口、Vite 代理、旧 IDE 环境变量覆盖 |
 | 知识库索引失败 | Ollama 模型下载是否完成，Weaviate 与 Ollama 日志 |
-| “立即全量备份”返回 502 | 先看平台 API 返回的具体备份错误；源码调试时确认 `Backup Service` 已启动、`IOT_BACKUP_URL=http://127.0.0.1:8092` 和 `IOT_BACKUP_TOOL_MODE` 可用 |
+| “立即备份设备数据”返回 502 | 先看平台 API 返回的具体备份错误；源码调试时确认 `Backup Service` 已启动、`IOT_BACKUP_URL=http://127.0.0.1:8092`，并确认数据库及 MinIO 地址可达 |
 | 工作流失败但 Harness 健康 | API Key、模型可达性和 MCP 回调地址 |
 
 API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储、消息和知识库依赖。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。
 
 维护部署脚本时，可运行 `scripts/tests/deployment-smoke.ps1 -ComposeExe <独立Compose程序路径>` 或 `bash scripts/tests/deployment-smoke.sh <独立Compose程序路径>`。它们使用真实 Compose 解析配置，模拟 Docker 和 HTTP 操作，检查一键流程与失败分支，不会启动服务。
+
+
+## 设备数据备份
+
+备份范围仅包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。不会备份数据库结构、账号、Redis、消息队列、知识库、配置文件或整个 MinIO。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+
+- **立即备份设备数据**：导出当前保存的设备数据。
+- **备份昨日数据**：按配置时区导出前一个自然日的数据。
+- **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
+- 每个备份包含原始数据、解析数据两个 gzip JSONL 文件及清单，保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
+
+```dotenv
+# 是否开启每日自动备份；关闭后仍可手动备份
+IOT_BACKUP_ENABLED=true
+# 每日执行时间，备份前一个自然日
+IOT_BACKUP_TIME=00:05
+# 日期与执行时间使用的时区
+IOT_BACKUP_TIMEZONE=Asia/Shanghai
+# 压缩文件暂存目录
+IOT_BACKUP_DIR=./data/backups
+```
+
+Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 CentOS。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。

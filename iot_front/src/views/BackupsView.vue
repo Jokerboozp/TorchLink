@@ -21,7 +21,7 @@ const pageSize = ref(20)
 
 const isAdmin = computed(() => session.role === 'admin')
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length)
-const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['FULL', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type)))
+const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type)))
 
 function statusType(value) {
   if (value === 'COMPLETED') return 'success'
@@ -85,7 +85,7 @@ async function showDetail(row) {
   manifestTotal.value = 0
   try {
     detail.value = await api(`/api/v1/backups/${idPath(row.id)}`)
-    if (row.status === 'COMPLETED' && ['FULL', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)) {
+    if (row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)) {
       await loadManifest(row.id)
     }
   } catch (error) {
@@ -127,14 +127,14 @@ async function runBackup(type) {
 
 async function restoreDrill(row) {
   try {
-    await ElMessageBox.confirm(`将校验“${row.id}”中的备份文件，是否继续？`, '恢复演练', { type: 'warning', confirmButtonText: '开始校验', cancelButtonText: '取消' })
+    await ElMessageBox.confirm(`将校验“${row.id}”中的备份文件，是否继续？`, '文件校验', { type: 'warning', confirmButtonText: '开始校验', cancelButtonText: '取消' })
   } catch {
     return
   }
   actionLoading.value = `drill:${row.id}`
   try {
     const result = await api(`/api/v1/backups/${idPath(row.id)}/restore-drill`, { method: 'POST' })
-    ElMessage.success(`恢复演练完成，已校验 ${result.artifactsChecked || 0} 个文件`)
+    ElMessage.success(`文件校验完成，已校验 ${result.artifactsChecked || 0} 个文件`)
     await load()
   } catch (error) {
     notifyError(error)
@@ -168,17 +168,16 @@ onMounted(load)
       <el-option v-for="(text, value) in backupStatuses" :key="value" :label="text" :value="value" />
     </el-select>
     <el-button :loading="loading" @click="load()">刷新记录</el-button><el-button :disabled="!filters.type && !filters.status" @click="filters.type = ''; filters.status = ''; load(true)">重置筛选</el-button>
-    <span class="toolbar-hint">系统备份记录来自 backup-service，文件从备份对象存储按清单下载</span>
-    <span v-if="!isAdmin" class="toolbar-hint">查看权限：当前账号不能手动触发备份或恢复演练</span>
+    <span class="toolbar-hint">仅备份设备原始报文与解析数据；每日自动备份昨日数据</span>
+    <span v-if="!isAdmin" class="toolbar-hint">查看权限：当前账号不能手动触发备份或文件校验</span>
     <template v-if="isAdmin">
-      <el-button type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即全量备份</el-button>
-      <el-button type="success" :loading="actionLoading === 'run:INCREMENTAL'" @click="runBackup('INCREMENTAL')">立即增量备份</el-button>
-      <el-button type="warning" :loading="actionLoading === 'run:RAW_LOGS'" @click="runBackup('RAW_LOGS')">立即备份原始日志</el-button>
+      <el-button type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</el-button>
+      <el-button type="warning" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</el-button>
     </template>
   </div>
 
   <div class="backup-stat-grid">
-    <el-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>包含全量、增量、原始日志和恢复演练</small></el-card>
+    <el-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></el-card>
     <el-card shadow="never" class="surface-card"><span>当前执行中</span><strong>{{ runningCount }}</strong><small>备份任务正在进行时不可重复触发</small></el-card>
     <el-card shadow="never" class="surface-card"><span>最近完成</span><strong>{{ latestCompleted ? label(backupTypes, latestCompleted.type) : '暂无' }}</strong><small>{{ latestCompleted ? formatDate(latestCompleted.completedAt) : '等待首个成功任务' }}</small></el-card>
   </div>
@@ -191,7 +190,7 @@ onMounted(load)
       <el-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></el-table-column>
       <el-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></el-table-column>
       <el-table-column label="清单校验摘要" min-width="170"><template #default="{ row }"><el-tooltip v-if="row.checksum" :content="row.checksum"><code>{{ row.checksum.slice(0, 12) }}…</code></el-tooltip><span v-else>—</span></template></el-table-column>
-      <el-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDetail(row)">详情 / 文件</el-button><el-button v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">恢复演练</el-button></div></template></el-table-column>
+      <el-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDetail(row)">详情 / 文件</el-button><el-button v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</el-button></div></template></el-table-column>
     </el-table>
     <el-empty v-if="!loading && !records.length" description="还没有备份记录；定时任务执行后会自动出现在这里" />
     <div class="list-pagination">
@@ -212,7 +211,7 @@ onMounted(load)
       </el-descriptions>
       <el-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon />
       <template v-if="manifest">
-        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和恢复演练仅管理员可用</span></div><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载 manifest.json</el-button></div>
+        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载 manifest.json</el-button></div>
         <el-table :data="manifest.artifacts" stripe>
           <el-table-column prop="component" label="组件" width="160" />
           <el-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></el-table-column>

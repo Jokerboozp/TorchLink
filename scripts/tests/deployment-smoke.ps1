@@ -69,7 +69,6 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'Local Harness is not enabled by default'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://127.0.0.1:8091') 'Local Harness URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_BACKUP_URL') -eq 'http://127.0.0.1:8092') 'Local backup URL is not pointed at the source host'
-    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_BACKUP_TOOL_MODE') -eq 'docker') 'Local backup tool mode is not Docker'
     Assert-CommentedEnv $localEnv
     Assert (Contains-Call '--profile harness up -d --build --wait') 'Local setup did not start the default Harness profile'
     Assert (-not (Contains-Call ' up .*backup-service')) 'Local setup unexpectedly started backup-service'
@@ -84,7 +83,8 @@ try {
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'backup-service') 'Local default Compose includes backup-service'
     $localBackupModel = & $global:IotTest_composeParser --project-name iot-platform-local --env-file $localEnv -f (Join-Path $scripts '../compose.local.yaml') --profile backup config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Local backup Compose model failed'
-    Assert ($localBackupModel.services.'backup-service'.depends_on.'redpanda-init'.condition -eq 'service_completed_successfully') 'Local backup service does not consume the successful Redpanda initialization job'
+    Assert ($localBackupModel.services.'backup-service'.environment.IOT_CLICKHOUSE_URL) 'Local backup service has no device-data source'
+    Assert (-not $localBackupModel.services.'backup-service'.environment.IOT_BACKUP_TOOL_MODE) 'Backup service still configures external tools'
     Assert (($localModel.services.redpanda.command -join ' ') -match 'external://127.0.0.1:19092') 'Kafka advertises unreachable address'
     foreach ($service in $localModel.services.PSObject.Properties.Value) {
         if ($service.PSObject.Properties.Name -contains 'ports') {

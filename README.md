@@ -61,7 +61,7 @@ npm run dev
 go run ./cmd/backup-service --env-file .env.local
 ```
 
-本地配置默认 `IOT_BACKUP_TOOL_MODE=docker`，要求源码机运行 Docker Engine/Desktop；备份服务会用 PostgreSQL/Redis 工具容器完成 `pg_dump` 和 RDB 导出。仅在虚拟机安装 Docker 时，Windows 仍需准备 Docker 或本机客户端。已有 PostgreSQL 17 和 Redis 客户端时，可改为 `native` 并配置 `PG_DUMP_BIN`、`REDIS_CLI_BIN`，详见 [备份调试准备](docs/DEPLOYMENT.md#vs-code-调试配置)。
+备份服务只导出设备原始报文和解析数据，通过 Go 直接连接 PostgreSQL、ClickHouse 和 MinIO；源码机不需要 Docker、`pg_dump` 或 `redis-cli`。支持手动备份与每日自动备份，详见 [设备数据备份](docs/DEPLOYMENT.md#设备数据备份)。
 
 Windows PowerShell 若提示 npm 脚本执行策略错误，改用 `npm.cmd run dev`。访问 **http://localhost:5173**，前端自动代理到本机 API `8081` 端口。
 
