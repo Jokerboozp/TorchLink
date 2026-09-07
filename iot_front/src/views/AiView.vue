@@ -81,9 +81,9 @@ const workflowManagePageSize = ref(20)
 const workflowManageTotal = ref(0)
 let workflowManageRequestSequence = 0
 const providerOptions = [
-  { id:'ollama', label:'本地 Ollama', description:'使用 CentOS 或本机部署的 Ollama，不需要 API Key。' },
-  { id:'deepseek', label:'DeepSeek API', description:'使用 DeepSeek 的 OpenAI 兼容接口和 API Key。' },
-  { id:'openai-compatible', label:'OpenAI 兼容 API', description:'连接其他实现 Chat Completions 的模型服务。' }
+  { id:'ollama', label:'本地模型（Ollama）', description:'使用 CentOS 或本机部署的 Ollama，不需要接口密钥。' },
+  { id:'deepseek', label:'DeepSeek 云端模型', description:'使用 DeepSeek 云端模型和接口密钥。' },
+  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容 Chat Completions 接口的模型服务。' }
 ]
 const agentFieldDocs = [
   { name:'schemaVersion', type:'整数', note:'清单格式版本，当前固定填写 1。' },
@@ -93,7 +93,7 @@ const agentFieldDocs = [
   { name:'version', type:'字符串', note:'Agent 版本号，必填，最长 64 字符，建议使用 1.0.0 格式。' },
   { name:'enabled', type:'布尔值', note:'是否立即启用；填写 true 后创建完成即可被选择和运行。' },
   { name:'persona', type:'字符串', note:'系统提示词，定义角色、回答原则和工具调用规则，必填，最长 16384 字符。' },
-  { name:'defaultModel', type:'字符串', note:'默认模型标识，必填；实际运行会跟随当前 Provider 的活动模型。' },
+  { name:'defaultModel', type:'字符串', note:'默认模型标识，必填；实际运行会跟随当前模型服务的活动模型。' },
   { name:'maxTokens', type:'整数', note:'单次最大输出 Token 数，平台允许 1–8192。' },
   { name:'capabilities', type:'字符串数组', note:'展示给用户的能力名称，填写 1–32 项，每项 1–64 字符且不可重复。' },
   { name:'allowedTools', type:'字符串数组', note:'Agent 可以调用的受控工具，至少 1 项、最多 6 项，只能从下方白名单选择且不可重复；规则工具只能保存禁用草稿。' }
@@ -118,7 +118,7 @@ const selectedWorkflow = computed(() => workflowItems.value.find(item => workflo
 const selectedRun = computed(() => runs.value.find(run => run.id === selectedRunKey.value) || null)
 const activeHealthy = computed(() => Boolean(workflows.value.healthy))
 const activeTone = computed(() => !workflowItems.value.length ? 'info' : activeHealthy.value ? 'success' : 'danger')
-const healthMessage = computed(() => workflows.value.healthMessage || 'Harness 工作流状态未知')
+const healthMessage = computed(() => workflows.value.healthMessage || '工作流服务状态未知')
 const isAdmin = computed(() => session.role === 'admin')
 const selectedCapabilities = computed(() => {
   const value = selectedWorkflow.value?.capabilities || selectedWorkflow.value?.tools || []
@@ -543,8 +543,8 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading">
-    <div><span class="section-kicker">AI PROVIDER / HARNESS</span><strong>AI 工作流</strong><small>聊天 Agent 与受控工具解耦；每次运行都有可审计的 Harness 轨迹。</small></div>
-    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? 'Harness 工作流' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button size="small" @click="openAgentManagement">Agent 管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div>
+    <div><span class="section-kicker">AI 工作流</span><strong>AI 工作流</strong><small>聊天 Agent 与受控工具解耦；每次运行都有可审计的运行轨迹。</small></div>
+    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button size="small" @click="openAgentManagement">Agent 管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div>
   </div>
 
   <div class="ai-workbench">
@@ -552,10 +552,10 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
       <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流并设置必要参数</small></div><el-tag effect="plain">RUN</el-tag></div></template>
       <div class="control-scroll">
         <el-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><el-button plain size="small" @click="loadRuntime">重新加载</el-button></el-alert>
-        <div class="control-section-label"><span>01</span>AI Provider</div>
+        <div class="control-section-label"><span>01</span>模型服务</div>
         <div class="provider-summary">
-          <span>当前 AI Provider</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.apiKeyConfigured ? 'API Key 已配置' : '无需 API Key' }}</small>
-          <el-button type="primary" plain @click="emit('navigate', 'aiProviders')">管理 AI Provider</el-button>
+          <span>当前模型服务</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small>
+          <el-button type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</el-button>
         </div>
         <div class="control-section-label"><span>02</span>选择工作流</div>
         <el-form label-position="top"><el-form-item label="工作流插件"><el-select v-model="selectedWorkflowId" placeholder="选择 AI 工作流" :disabled="sending || !workflowItems.length"><el-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></el-select></el-form-item></el-form>

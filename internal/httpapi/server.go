@@ -1307,7 +1307,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	provider := strings.ToLower(strings.TrimSpace(in.Provider))
 	if provider != "ollama" && provider != "deepseek" && provider != "openai-compatible" {
-		problem(w, http.StatusUnprocessableEntity, "provider must be ollama, deepseek or openai-compatible")
+		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 ollama、deepseek 或 openai-compatible")
 		return
 	}
 	current := s.aiProviderRuntime.CurrentConfig()
@@ -1359,14 +1359,14 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 		apiKey = current.APIKey
 	}
 	if provider != "ollama" && apiKey == "" {
-		problem(w, http.StatusUnprocessableEntity, "API Provider 必须填写 API Key")
+		problem(w, http.StatusUnprocessableEntity, "云端或兼容接口模型必须填写接口密钥")
 		return
 	}
 	candidate := ports.AIPluginConfig{Provider: provider, BaseURL: baseURL, Model: modelName, APIKey: apiKey}
 	configureCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	if err := s.aiProviderRuntime.Configure(configureCtx, candidate); err != nil {
-		problem(w, http.StatusBadGateway, "AI Provider 连接测试失败，请检查地址、模型和凭据")
+		problem(w, http.StatusBadGateway, "模型服务健康检查失败，请检查地址、模型和接口密钥")
 		return
 	}
 	if s.aiWorkflowProvider != nil {
@@ -1388,7 +1388,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 			if s.log != nil {
 				s.log.Error("persist AI provider config", "provider", provider, "model", modelName, "error", err)
 			}
-			problem(w, http.StatusInternalServerError, "Provider 已生效，但配置保存失败")
+			problem(w, http.StatusInternalServerError, "模型服务已生效，但配置保存失败")
 			return
 		}
 	}
@@ -1440,6 +1440,22 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "AI plugin registry is unavailable")
 		return
 	}
+	provider := strings.ToLower(strings.TrimSpace(in.Provider))
+	if provider != "ollama" && provider != "deepseek" && provider != "openai-compatible" {
+		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 ollama、deepseek 或 openai-compatible")
+		return
+	}
+	in.Provider = provider
+	current := ports.AIPluginConfig{}
+	if s.aiProviderRuntime != nil {
+		current = s.aiProviderRuntime.CurrentConfig()
+	}
+	// The key is intentionally redacted from GET responses. When an
+	// administrator tests the already active API provider with a blank key,
+	// reuse the server-side key instead of forcing it to be entered again.
+	if strings.TrimSpace(in.APIKey) == "" && provider == strings.ToLower(strings.TrimSpace(current.Provider)) {
+		in.APIKey = current.APIKey
+	}
 	if strings.TrimSpace(in.Question) == "" {
 		in.Question = "请用一句话说明你已经连接到消防物联网 AI 测试台。"
 	}
@@ -1449,10 +1465,22 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	baseURL := strings.TrimSpace(in.BaseURL)
 	if baseURL == "" {
-		baseURL = map[string]string{"deepseek": "https://api.deepseek.com", "ollama": s.cfg.AITestOllamaURL}[strings.ToLower(in.Provider)]
+		if provider == strings.ToLower(strings.TrimSpace(current.Provider)) {
+			baseURL = strings.TrimSpace(current.BaseURL)
+		}
+		if baseURL == "" {
+			baseURL = map[string]string{"deepseek": "https://api.deepseek.com", "ollama": s.cfg.AITestOllamaURL}[provider]
+		}
+	}
+	if provider == "ollama" {
+		if parsed, parseErr := url.Parse(baseURL); parseErr == nil && parsed.Path == "/v1" {
+			parsed.Path = ""
+			parsed.RawPath = ""
+			baseURL = strings.TrimRight(parsed.String(), "/")
+		}
 	}
 	if !originAllowed(baseURL, s.cfg.AITestOrigins) {
-		problem(w, 422, "AI provider origin is not allowed for online testing")
+		problem(w, 422, "模型服务地址不在允许测试的范围内")
 		return
 	}
 	in.BaseURL = baseURL
@@ -1466,7 +1494,7 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 		info = provider.ProviderInfo()
 	}
 	if !info.Enabled {
-		problem(w, 422, "select an enabled AI provider plugin")
+		problem(w, 422, "请选择已启用的模型服务")
 		return
 	}
 	traceID := "ai_trace_" + randomHex(10)
@@ -1499,12 +1527,12 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 }
 func safeProviderTestError(err error) (string, string) {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "AI_PROVIDER_TIMEOUT", "AI provider 请求超时，请检查服务状态后重试"
+		return "AI_PROVIDER_TIMEOUT", "模型服务请求超时，请检查服务状态后重试"
 	}
 	if errors.Is(err, context.Canceled) {
-		return "AI_PROVIDER_CANCELED", "AI provider 请求已取消"
+		return "AI_PROVIDER_CANCELED", "模型服务请求已取消"
 	}
-	return "AI_PROVIDER_REQUEST_FAILED", "AI provider 请求失败，请检查地址、凭据、模型和服务状态"
+	return "AI_PROVIDER_REQUEST_FAILED", "模型服务请求失败，请检查地址、接口密钥、模型和服务状态"
 }
 func normalizedOrigin(rawURL string) (string, bool) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))

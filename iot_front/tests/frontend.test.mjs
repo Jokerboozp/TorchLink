@@ -111,9 +111,9 @@ test('long dialogs keep the viewport fixed and scroll within the dialog body', a
   assert.match(dialogBodyStyle, /overscroll-behavior:\s*contain/)
 })
 
-test('camera metadata and AI provider playground remain available', async () => {
+test('camera metadata and AI workflow playground remain available', async () => {
   const source = await sourceText()
-  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', 'AI PROVIDER / HARNESS', 'AI 工作流', '运行轨迹', '工具调用']) {
+  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', 'AI 工作流', '运行轨迹', '工具调用']) {
     assert.match(source, new RegExp(label), `missing feature label: ${label}`)
   }
   const cameraView = await readFile(new URL('src/views/CameraMappingsView.vue', root), 'utf8')
@@ -269,26 +269,34 @@ test('health inspection report survives menu-driven view recreation and stays te
   assert.equal(values.has(healthInspectionStorageKey(session)), false)
 })
 
-test('AI Provider administration has its own menu and business overview', async () => {
+test('AI model administration has its own menu and business overview', async () => {
   const app = await readFile(new URL('src/App.vue', root), 'utf8')
   const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
   const providerView = await readFile(new URL('src/views/AiProvidersView.vue', root), 'utf8')
   const knowledgeView = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
   assert.match(app, /knowledge: \{ title: 'Agent 知识库'/)
-  assert.match(app, /aiProviders: \{ title: 'AI Provider'/)
+  assert.match(app, /aiProviders: \{ title: 'AI 模型管理'/)
   assert.match(app, /items: \['aiProviders', 'ai', 'knowledge'\]/)
   assert.match(app, /allowedPages = new Set\(\[[^\]]*'aiProviders'/s)
   assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑 Agent' : '新建 Agent'"/)
   assert.match(aiView, /function cancelAgentEditor\(\)/)
   assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/)
-  assert.match(aiView, /管理 AI Provider/)
+  assert.match(aiView, /管理模型服务/)
   assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/)
   assert.doesNotMatch(aiView, /<el-menu-item index="knowledge"|<el-menu-item index="provider"/)
-  for (const label of ['统一管理 AI Provider 与业务能力', 'Provider 配置', 'AI 业务能力', '可用 Provider', '测试并应用', 'AI 告警研判', '智能巡检']) {
+  for (const label of ['统一管理 AI 模型与业务能力', '模型服务配置', 'AI 业务能力', '可用模型服务', '测试配置', '应用配置', 'AI 告警研判', '智能巡检']) {
     assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`)
   }
+  for (const label of ['AI Provider', 'Provider 配置', '可用 Provider', '测试并应用']) {
+    assert.doesNotMatch(providerView, new RegExp(label), `English Provider wording should not be visible: ${label}`)
+  }
   assert.match(providerView, /\/api\/v1\/ai\/providers\?page=1&pageSize=100/)
+  assert.match(providerView, /\/api\/v1\/ai\/providers\/test/)
   assert.match(providerView, /\/api\/v1\/ai\/providers\/config/)
+  assert.match(providerView, /function testProviderConfig\(\)/)
+  assert.match(providerView, /function applyProviderConfig\(\)/)
+  assert.match(providerView, /:disabled="!canApply"/)
+  assert.match(providerView, /当前填写内容未生效/)
   assert.match(providerView, /所有 AI 功能立即生效/)
   assert.match(knowledgeView, /Agent 知识库策略/)
 })

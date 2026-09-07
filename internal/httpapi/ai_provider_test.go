@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -134,6 +135,52 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 		"baseUrl":  "http://localhost:11434",
 		"model":    "qwen3:1.7b",
 	}, 403)
+}
+
+func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer active-secret" {
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"测试成功"}}]}`)
+	}))
+	defer providerServer.Close()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := ports.AIPluginConfig{Provider: "deepseek", BaseURL: providerServer.URL, Model: "active-model", APIKey: "active-secret"}
+	runtime := &providerConfigTestRuntime{config: active}
+	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	engine.AIPlugins = aiadapter.NewProviderRegistry()
+	api := New(config.Config{DevMode: true, AITestOrigins: []string{providerServer.URL}}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{
+		"provider": "deepseek",
+		"baseUrl":  providerServer.URL,
+		"model":    "active-model",
+		"question": "连接测试",
+	}, http.StatusOK)
+	if result["success"] != true || result["answer"] != "测试成功" {
+		t.Fatalf("unexpected provider test response: %#v", result)
+	}
+	if got := runtime.CurrentConfig(); got != active {
+		t.Fatalf("testing changed active provider: got %#v want %#v", got, active)
+	}
 }
 
 func newTestHTTPServer(api *Server) *httptest.Server {

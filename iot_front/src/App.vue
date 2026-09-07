@@ -75,7 +75,7 @@ const pages = {
   raw: { title: '原始报文', sub: '证据链检索、审计与回放', icon: FileText, component: RawView },
   rules: { title: '告警规则', sub: '可审计的动态规则与 AI 草稿', icon: Settings2, component: RulesView },
   knowledge: { title: 'Agent 知识库', sub: '文档直接归属 Agent，并使用持久化向量索引', icon: Library, component: KnowledgeView },
-  aiProviders: { title: 'AI Provider', sub: '模型服务、密钥和 AI 业务统一管理', icon: Cpu, component: AiProvidersView },
+  aiProviders: { title: 'AI 模型管理', sub: '模型服务、接口密钥和 AI 业务统一管理', icon: Cpu, component: AiProvidersView },
   ai: { title: 'AI 工作流', sub: '受控工具与知识库问答', icon: MessageCircle, component: AiView },
   backups: { title: '备份中心', sub: '备份记录、文件校验与恢复演练', icon: Database, component: BackupsView }
 }

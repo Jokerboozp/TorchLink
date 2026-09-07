@@ -13,7 +13,7 @@ Web AI 工作台
 
 Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可追踪、可选插件的交互式工作流。在线和离线部署默认把两条链路都指向 Ollama 的 `qwen3:1.7b`，因此所有 AI 功能共用同一个本地模型。
 
-管理员可以在 Web 的“AI Provider”菜单切换 Provider。平台先通过 Eino 检查新地址，再调用 Harness 的 `PUT /v1/provider` 同步 Provider、地址、模型和 API Key；两条链路成功后才返回“已应用”。因此告警研判、聊天、规则草稿、报告和 Harness 工作流使用同一份活动配置。API Key 不会在响应中返回，重启时从 PostgreSQL 的 `ai_model_config` 活动记录恢复。
+管理员可以在 Web 的“AI 模型管理”菜单切换模型服务。平台先通过独立的“测试配置”接口向候选服务发送测试请求；测试不会修改活动配置。用户确认后点击“应用配置”，平台再通过 Eino 检查新地址，并调用 Harness 的 `PUT /v1/provider` 同步模型服务、地址、模型和接口密钥；两条链路成功后才切换活动配置。因此告警研判、聊天、规则草稿、报告和 Harness 工作流使用同一份活动配置。接口密钥不会在响应中返回，重启时从 PostgreSQL 的 `ai_model_config` 活动记录恢复。
 
 ## 源码版本
 
@@ -64,8 +64,9 @@ Go API 暴露：
 - `DELETE /api/v1/ai/workflows/{id}`：管理员删除动态 Agent。
 - `POST /api/v1/ai/chat`：兼容的非流式调用；未配置 Harness 时回退到原有本地助手。
 - `POST /api/v1/ai/chat/stream`：SSE 流式运行插件。
-- `GET /api/v1/ai/providers/config`：读取当前 Provider（管理员可看到地址和脱敏 Key 提示）。
-- `PUT /api/v1/ai/providers/config`：管理员测试并立即应用 Provider；支持 `ollama`、`deepseek` 和 `openai-compatible`。
+- `GET /api/v1/ai/providers/config`：读取当前模型服务（管理员可看到地址和脱敏接口密钥提示）。
+- `POST /api/v1/ai/providers/test`：管理员测试候选模型服务；只发送测试请求，不修改活动配置。
+- `PUT /api/v1/ai/providers/config`：管理员应用已测试的模型服务；支持 `ollama`、`deepseek` 和 `openai-compatible`。
 - `POST /api/v1/ai/alarm-analysis/{alarmId}/run`：创建告警研判任务并立即返回任务进度。
 - `GET /api/v1/ai/alarm-analysis/{alarmId}/progress`：按告警读取当前或最近一次研判任务，重新打开详情时无需保存 job ID。
 - `GET /api/v1/ai/alarm-analysis/{alarmId}/progress/{jobId}`：读取进度、阶段、预计剩余时间和完成后的分析结果。
@@ -114,4 +115,4 @@ docker compose --profile harness up -d --build platform-api deepseek-harness pla
 docker compose logs -f deepseek-harness platform-api
 ```
 
-没有配置 `IOT_AI_HARNESS_URL` 时，平台不会连接侧车，原有 AI Provider 和非 Harness 功能仍可使用。
+没有配置 `IOT_AI_HARNESS_URL` 时，平台不会连接侧车，原有模型服务和非 Harness 功能仍可使用。
