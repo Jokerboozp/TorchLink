@@ -12,6 +12,7 @@ $global:IotTest_httpCalls = [Collections.Generic.List[string]]::new()
 $global:IotTest_failBuild = $false
 $global:IotTest_missingImage = $false
 $global:LASTEXITCODE = 0
+. (Join-Path $scripts 'lib/deployment.ps1')
 
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 function global:docker {
@@ -73,6 +74,16 @@ try {
     Assert ((Get-FileHash $localEnv).Hash -eq $localHash) 'Local rerun changed configuration'
     Write-Host 'PASS local: code dependencies, isolated services, Kafka listener, stable credentials'
 
+    $deepSeekEnv = Join-Path $testRoot '.env.deepseek'
+    Copy-Item -LiteralPath $localEnv -Destination $deepSeekEnv
+    Add-Content -LiteralPath $deepSeekEnv -Value "DEEPSEEK_API_KEY='smoke-test-key'"
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $deepSeekEnv -SkipCodeDeps -IncludeDeepSeek
+    Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'DeepSeek provider was not enabled'
+    Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'DeepSeek base URL was not configured'
+    Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-v4-flash') 'DeepSeek model was not configured'
+    Assert (-not (Contains-Call 'ollama pull qwen3:8b')) 'DeepSeek setup attempted an Ollama chat model download'
+    Write-Host 'PASS local deepseek: provider enabled without local chat model download'
+
     $onlineEnv = Join-Path $testRoot '.env.online'
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
     $onlineHash = (Get-FileHash $onlineEnv).Hash
@@ -86,7 +97,6 @@ try {
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8081/health/ready') 'API readiness was not checked'
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8080/') 'Web was not checked'
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8092/health/live') 'Backup was not checked'
-    . (Join-Path $scripts 'lib/deployment.ps1')
     $originalPassword = Get-DeploymentEnvValue -Path $onlineEnv -Key IOT_ADMIN_PASSWORD
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv -IncludeAi
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key IOT_AI_PROVIDER) -eq 'ollama') 'Explicit AI flag failed to enable Ollama'

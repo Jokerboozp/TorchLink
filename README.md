@@ -40,6 +40,14 @@ bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP>
 
 该参数会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama、Weaviate 和备份服务使用虚拟机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，然后按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
 
+如果不使用本地大模型，而是使用 DeepSeek 和 AI 工作流，先在 `.env.local` 填写 `DEEPSEEK_API_KEY`，再执行：
+
+```bash
+bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP> --api-host <Windows在虚拟机网段的IP> --include-deepseek --include-harness
+```
+
+`--api-host` 供 Harness 容器回调 Windows 上的 API；VMware NAT 环境通常是对应虚拟网卡的主机地址。只需要告警研判等 Ollama 能力时省略 `--api-host` 和 `--include-harness`，只保留 `--include-ai`。
+
 ### 日常运行代码
 
 终端一，启动后端：

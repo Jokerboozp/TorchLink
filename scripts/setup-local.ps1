@@ -3,8 +3,10 @@ param(
     [string]$EnvFile = '.env.local',
     [switch]$SkipCodeDeps,
     [switch]$IncludeAi,
+    [switch]$IncludeDeepSeek,
     [switch]$IncludeHarness,
-    [string]$OllamaModel = 'qwen3:8b'
+    [string]$OllamaModel = 'qwen3:8b',
+    [string]$DeepSeekModel = 'deepseek-v4-flash'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +33,8 @@ function Set-LocalEnvValue {
 
 Assert-DockerAvailable
 if ($OllamaModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'OllamaModel 不是有效的模型名称。' }
+if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeekModel 不是有效的模型名称。' }
+if ($IncludeAi -and $IncludeDeepSeek) { throw 'IncludeAi 与 IncludeDeepSeek 只能二选一。' }
 $npmCommand = if ($env:OS -eq 'Windows_NT') { 'npm.cmd' } else { 'npm' }
 if (-not $SkipCodeDeps) {
     foreach ($command in @('go', $npmCommand)) {
@@ -73,7 +77,16 @@ if ($IncludeAi) {
         Set-LocalEnvValue 'IOT_AI_BASE_URL' 'http://127.0.0.1:11434' -Replace
     }
 }
+if ($IncludeDeepSeek) {
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'))) { throw 'IncludeDeepSeek 需要先在环境文件中设置 DEEPSEEK_API_KEY（不要把密钥写进命令行）。' }
+    $baseUrl = Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_BASE_URL'
+    if (-not $baseUrl) { $baseUrl = 'https://api.deepseek.com' }
+    Set-LocalEnvValue 'IOT_AI_PROVIDER' 'deepseek' -Replace
+    Set-LocalEnvValue 'IOT_AI_BASE_URL' $baseUrl -Replace
+    Set-LocalEnvValue 'IOT_AI_MODEL' $DeepSeekModel -Replace
+}
 if ($IncludeHarness) {
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'))) { throw 'IncludeHarness 需要先在环境文件中设置 DEEPSEEK_API_KEY（不要把密钥写进命令行）。' }
     Ensure-HarnessSource -ProjectRoot $projectRoot
     Set-LocalEnvValue 'IOT_AI_HARNESS_URL' 'http://127.0.0.1:8091' -Replace
     Set-LocalEnvValue 'IOT_AI_HARNESS_MCP_URL' 'http://host.docker.internal:8081/mcp/harness' -Replace

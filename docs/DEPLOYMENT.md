@@ -30,7 +30,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### 本地 Ollama 对话模型
 
-三个准备入口 `setup-local`、`deploy-online`、`package-offline` 均支持 `-IncludeAi` / `--include-ai`。
+三个准备入口 `setup-local`、`deploy-online`、`package-offline` 均支持 `-IncludeAi` / `--include-ai`，用于下载本地 Ollama 对话模型。
 
 以在线部署为例：
 
@@ -45,6 +45,8 @@ bash ./scripts/deploy-online.sh --include-ai
 默认额外下载 `qwen3:8b`。本地/在线脚本在 Provider 未启用或已为 Ollama 时启用本地模型；已配置远程 Provider 时保留它。在线环境可用 `IOT_OLLAMA_MODEL`（已有 Ollama 配置优先用 `IOT_AI_MODEL`）选择模型；本地与离线打包可用 `-OllamaModel` / `--ollama-model`。模型运行所需内存取决于所选模型。
 
 知识库嵌入模型 `nomic-embed-text` 始终准备，不需要 `IncludeAi`。Ollama Provider 用于告警研判等后端能力；“AI 工作流”页面的 Agent 对话另走 Harness。
+
+如果使用 DeepSeek，不需要下载本地对话模型。先在环境文件中填写 `DEEPSEEK_API_KEY`，本地 Linux 依赖机可执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <依赖机IP> --api-host <源码机IP> --include-deepseek --include-harness`；脚本会将普通 AI Provider 设为 DeepSeek，并启动 Harness。`--include-deepseek` 与 `--include-ai` 只能二选一。
 
 ### DeepSeek Harness 工作流
 
@@ -89,7 +91,7 @@ IOT_AI_MODEL=deepseek-v4-flash
 
 本地 API 默认参数写在 `.env.local`；修改 API 端口时同步修改前端 `VITE_API_PROXY_TARGET`，使用 Harness 时还需同步其 MCP 回调和允许的 Origin。`--env-file` 读取字面的 `KEY=VALUE`，支持注释和单/双引号，不展开 `${变量}` 或执行 shell；已有进程环境变量优先。
 
-依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址及宿主机源码所需的依赖地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。远程 Harness 还需要单独配置容器回调 Windows API 的地址，基础本地运行不受影响。
+依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址及宿主机源码所需的依赖地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。启用远程 Harness 时再传 `--api-host <依赖容器可访问的源码机地址> --include-harness`，脚本会同时配置 Windows 到 Harness 和 Harness 回调 Windows API 的两个方向。
 
 ## VS Code 调试配置
 

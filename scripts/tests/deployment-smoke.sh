@@ -49,18 +49,31 @@ bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local" --skip-code-de
 cmp "$test_root/local-original" "$test_root/.env.local"
 echo 'PASS local: dependency preparation and unchanged configuration on rerun'
 
-bash "$scripts/setup-local.sh" --env-file "$test_root/.env.remote" --skip-code-deps --dependency-host 192.168.24.133
+bash "$scripts/setup-local.sh" --env-file "$test_root/.env.remote" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1
 grep -q "^IOT_LOCAL_BIND_ADDRESS='0.0.0.0'$" "$test_root/.env.remote"
 grep -q "^IOT_LOCAL_ADVERTISED_HOST='192.168.24.133'$" "$test_root/.env.remote"
 grep -q "^IOT_POSTGRES_DSN='postgres://.*@192.168.24.133:15432/iot?sslmode=disable'$" "$test_root/.env.remote"
 grep -q "^IOT_KAFKA_BROKERS='192.168.24.133:19092'$" "$test_root/.env.remote"
+grep -q "^IOT_AI_HARNESS_MCP_URL='http://192.168.24.1:8081/mcp/harness'$" "$test_root/.env.remote"
+grep -q "^IOT_HARNESS_MCP_ALLOWED_ORIGINS='http://192.168.24.1:8081'$" "$test_root/.env.remote"
 remote_compose="$test_root/remote-compose.yaml"
-"$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" config > "$remote_compose"
+"$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" --profile harness config > "$remote_compose"
 grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 grep -q 'external://192.168.24.133:19092' "$remote_compose"
 grep -q 'image: postgres:17-alpine3.22' "$remote_compose"
+grep -q 'IOT_HARNESS_MCP_ALLOWED_ORIGINS: http://192.168.24.1:8081' "$remote_compose"
 grep -A80 '^  backup-service:' "$remote_compose" | grep -A2 'redpanda-init:' | grep -q 'condition: service_completed_successfully'
 echo 'PASS local remote-host: published dependencies and advertised addresses'
+
+deepseek_env="$test_root/.env.deepseek"
+cp "$test_root/.env.remote" "$deepseek_env"
+printf "DEEPSEEK_API_KEY='smoke-test-key'\n" >> "$deepseek_env"
+bash "$scripts/setup-local.sh" --env-file "$deepseek_env" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1 --include-deepseek
+grep -q "^IOT_AI_PROVIDER='deepseek'$" "$deepseek_env"
+grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$deepseek_env"
+grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$deepseek_env"
+if tail -n 12 "$TEST_CALLS" | grep -q 'ollama pull qwen3:8b'; then echo 'DeepSeek setup attempted an Ollama chat model download' >&2; exit 1; fi
+echo 'PASS local deepseek: provider enabled without local chat model download'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cp "$test_root/.env.online" "$test_root/online-original"
