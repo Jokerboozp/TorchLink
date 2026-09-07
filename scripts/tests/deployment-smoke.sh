@@ -49,6 +49,17 @@ bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local" --skip-code-de
 cmp "$test_root/local-original" "$test_root/.env.local"
 echo 'PASS local: dependency preparation and unchanged configuration on rerun'
 
+bash "$scripts/setup-local.sh" --env-file "$test_root/.env.remote" --skip-code-deps --dependency-host 192.168.24.133
+grep -q "^IOT_LOCAL_BIND_ADDRESS='0.0.0.0'$" "$test_root/.env.remote"
+grep -q "^IOT_LOCAL_ADVERTISED_HOST='192.168.24.133'$" "$test_root/.env.remote"
+grep -q "^IOT_POSTGRES_DSN='postgres://.*@192.168.24.133:15432/iot?sslmode=disable'$" "$test_root/.env.remote"
+grep -q "^IOT_KAFKA_BROKERS='192.168.24.133:19092'$" "$test_root/.env.remote"
+remote_compose="$test_root/remote-compose.yaml"
+"$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" config > "$remote_compose"
+grep -q 'host_ip: 0.0.0.0' "$remote_compose"
+grep -q 'external://192.168.24.133:19092' "$remote_compose"
+echo 'PASS local remote-host: published dependencies and advertised addresses'
+
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cp "$test_root/.env.online" "$test_root/online-original"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"

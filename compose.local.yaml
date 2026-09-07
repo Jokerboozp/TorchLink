@@ -10,7 +10,7 @@ services:
   deepseek-harness:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:8091:8091"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:8091:8091"
     profiles: [harness]
     image: ${IOT_DEEPSEEK_HARNESS_IMAGE:-iot-deepseek-harness:local}
     build:
@@ -45,7 +45,7 @@ services:
   postgres:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:15432:5432"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:15432:5432"
     image: postgres:17-alpine
     command: ["postgres", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
     environment:
@@ -71,7 +71,7 @@ services:
   redis:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:16379:6379"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:16379:6379"
     image: redis:7.4-alpine
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-local-iot-redis-change-me}"]
     volumes: ["redis-data:/data"]
@@ -84,8 +84,8 @@ services:
   minio:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:19000:9000"
-      - "127.0.0.1:19002:9001"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19000:9000"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19002:9001"
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address :9001
     environment:
@@ -101,7 +101,7 @@ services:
   minio-dr:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:19001:9000"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19001:9000"
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data
     environment:
@@ -117,9 +117,9 @@ services:
   redpanda:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:19092:19092"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19092:19092"
     image: redpandadata/redpanda:v25.2.11
-    command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://127.0.0.1:19092"]
+    command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://${IOT_LOCAL_ADVERTISED_HOST:-127.0.0.1}:19092"]
     volumes: ["redpanda-data:/var/lib/redpanda/data"]
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -q Healthy"]
@@ -142,7 +142,7 @@ services:
   clickhouse:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:18123:8123"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18123:8123"
     image: clickhouse/clickhouse-server:25.7-alpine
     environment:
       CLICKHOUSE_DB: iot
@@ -159,9 +159,9 @@ services:
   emqx:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:1883:1883"
-      - "127.0.0.1:8083:8083"
-      - "127.0.0.1:18083:18083"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:1883:1883"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:8083:8083"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18083:18083"
     image: emqx/emqx:5.8.8
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -188,7 +188,7 @@ services:
   backup-service:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:8092:8090"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:8092:8090"
     restart: unless-stopped
     image: ${IOT_BACKUP_IMAGE:-iot-platform-backup:local}
     build:
@@ -239,14 +239,14 @@ services:
   ollama:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:11434:11434"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:11434:11434"
     image: ollama/ollama:0.11.4
     volumes: ["ollama-data:/root/.ollama"]
 
   weaviate:
     <<: *service-defaults
     ports:
-      - "127.0.0.1:18080:8080"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18080:8080"
     image: cr.weaviate.io/semitechnologies/weaviate:1.32.8
     environment:
       QUERY_DEFAULTS_LIMIT: "25"

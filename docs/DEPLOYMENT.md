@@ -85,9 +85,11 @@ IOT_AI_MODEL=deepseek-v4-flash
 | Ollama / Weaviate | `11434` / `18080` | 仅容器网络 |
 | 备份服务 / Harness | `8092` / `8091` | `8092` / `8091`，仅宿主机 |
 
-本地依赖端口只绑定 `127.0.0.1`，供本机代码和模拟设备使用。局域网真实设备接入需要按需修改 `compose.local.yaml` 中的 MQTT 监听绑定；API 设备上报使用运行 Go 的主机地址。Kafka 通过独立 external listener 向本机返回 `127.0.0.1:19092`，容器间仍使用 `redpanda:9092`。
+本地依赖端口默认只绑定 `127.0.0.1`，供本机代码和模拟设备使用；传入 `--dependency-host` 时才开放到依赖机网络。API 设备上报使用运行 Go 的主机地址。Kafka 通过独立 external listener 返回源码机可访问的地址，容器间仍使用 `redpanda:9092`。
 
 本地 API 默认参数写在 `.env.local`；修改 API 端口时同步修改前端 `VITE_API_PROXY_TARGET`，使用 Harness 时还需同步其 MCP 回调和允许的 Origin。`--env-file` 读取字面的 `KEY=VALUE`，支持注释和单/双引号，不展开 `${变量}` 或执行 shell；已有进程环境变量优先。
+
+依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址及宿主机源码所需的依赖地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。远程 Harness 还需要单独配置容器回调 Windows API 的地址，基础本地运行不受影响。
 
 在线/离线默认提供 HTTP 服务。需要公网域名与 HTTPS 时，由现有 Nginx/网关终结 TLS 并转发到 Web 端口；部署脚本不管理域名和证书。
 

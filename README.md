@@ -32,6 +32,14 @@ bash ./scripts/setup-local.sh
 
 脚本生成 `.env.local`，启动依赖容器、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。API 和前端由你在本机运行。再次执行会复用配置和数据；若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。
 
+如果依赖容器运行在 Linux 虚拟机、源码运行在 Windows，Linux 使用 Windows 可访问的虚拟机地址启动：
+
+```bash
+bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP>
+```
+
+该参数会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama、Weaviate 和备份服务使用虚拟机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，然后按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
+
 ### 日常运行代码
 
 终端一，启动后端：
