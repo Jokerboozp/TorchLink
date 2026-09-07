@@ -16,7 +16,11 @@ target_git() {
 
 clone_target() {
   mkdir -p "$project_root/upstream"
-  git -c http.version=HTTP/1.1 clone --depth 1 "$repository" "$target"
+  git -c http.version=HTTP/1.1 -c core.autocrlf=false -c core.fileMode=false clone --depth 1 "$repository" "$target"
+  target_git config core.autocrlf false
+  target_git config core.fileMode false
+  target_git reset --hard HEAD >/dev/null
+  target_git clean -fd >/dev/null
 }
 
 case "$revision" in

@@ -25,16 +25,23 @@ if [ "${1:-}" = "-C" ]; then
 fi
 case "${1:-} ${2:-}" in
   "status --porcelain")
+    if [ -f .fresh-clone-dirty ]; then
+      printf ' M package.json\n'
+      exit 0
+    fi
     if [ -n "${FAKE_GIT_DIRTY_FLAG:-}" ] && [ -f "$FAKE_GIT_DIRTY_FLAG" ]; then
       rm -f "$FAKE_GIT_DIRTY_FLAG"
       printf ' M package.json\n'
     fi
     exit 0 ;;
   "rev-parse HEAD") printf '%s\n' "$EXPECTED_REVISION" ;;
+  "config core.autocrlf"|"config core.fileMode"|"clean -fd") exit 0 ;;
+  "reset --hard") rm -f .fresh-clone-dirty; exit 0 ;;
   "-c http.version=HTTP/1.1")
     destination=''
     for argument in "$@"; do destination="$argument"; done
     mkdir -p "$destination/.git"
+    touch "$destination/.fresh-clone-dirty"
     exit 0 ;;
   *) echo "Unexpected git invocation: $*" >&2; exit 2 ;;
 esac
@@ -53,6 +60,7 @@ PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" FAKE_GIT_DIRT
 backup_count="$(find "$fixture/upstream" -maxdepth 1 -type d -name 'deepseek-harness.backup-*' | wc -l | tr -d ' ')"
 [ "$backup_count" = 1 ]
 [ -d "$fixture/upstream/deepseek-harness/.git" ]
+[ ! -e "$fixture/upstream/deepseek-harness/.fresh-clone-dirty" ]
 grep -q '源码目录存在修改，已备份到：' "$test_root/dirty-output.log"
 
 if grep -En 'git[[:space:]]+-C' \

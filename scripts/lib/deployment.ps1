@@ -140,6 +140,10 @@ function Ensure-HarnessSource {
         [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
         & git -c http.version=HTTP/1.1 clone --depth 1 'https://github.com/deepseek-ai/deepseek-harness.git' $target
         if ($LASTEXITCODE -ne 0) { throw 'Harness 源码下载失败。' }
+        & git -C $target config core.autocrlf false
+        & git -C $target config core.fileMode false
+        & git -C $target reset --hard HEAD *> $null
+        & git -C $target clean -fd *> $null
     }
     $changes = @(& git -C $target status --porcelain)
     if ($LASTEXITCODE -ne 0) { throw '无法检查 Harness 源码状态。' }
@@ -155,6 +159,10 @@ function Ensure-HarnessSource {
         Write-Host "DeepSeek Harness 源码目录存在修改，已备份到：$backup"
         & git -c http.version=HTTP/1.1 clone --depth 1 'https://github.com/deepseek-ai/deepseek-harness.git' $target
         if ($LASTEXITCODE -ne 0) { throw "Harness 源码重新下载失败，原目录保存在：$backup" }
+        & git -C $target config core.autocrlf false
+        & git -C $target config core.fileMode false
+        & git -C $target reset --hard HEAD *> $null
+        & git -C $target clean -fd *> $null
     }
     $current = & git -C $target rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw '无法读取 Harness 提交。' }
