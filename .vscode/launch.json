@@ -1,0 +1,79 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "IoT Platform API",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/iot-platform",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "args": [
+        "--env-file",
+        "${workspaceFolder}/.env.local"
+      ]
+    },
+    {
+      "name": "IoT Platform Web",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/iot_front",
+      "windows": {
+        "command": "npm.cmd run dev"
+      }
+    },
+    {
+      "name": "GB26875 Gateway",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/gb26875-gateway",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "GB26875_LISTEN": ":26875",
+        "GB26875_UDP_LISTEN": ":26875",
+        "GB26875_PLATFORM_URL": "http://localhost:8081",
+        "GB26875_TENANT": "tenant_001"
+      }
+    },
+    {
+      "name": "GB26875 Virtual Device",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/gb26875-virtual-device",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "args": [
+        "--gateway",
+        "127.0.0.1:26875",
+        "--network",
+        "tcp",
+        "--scenario",
+        "manual-alarm"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "IoT Platform (API + Web)",
+      "configurations": [
+        "IoT Platform API",
+        "IoT Platform Web"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "IoT Platform + GB26875 Gateway",
+      "configurations": [
+        "IoT Platform API",
+        "IoT Platform Web",
+        "GB26875 Gateway"
+      ],
+      "stopAll": true
+    }
+  ]
+}

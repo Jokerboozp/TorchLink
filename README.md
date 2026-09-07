@@ -57,7 +57,11 @@ npm run dev
 
 Windows PowerShell 若提示 npm 脚本执行策略错误，改用 `npm.cmd run dev`。访问 **http://localhost:5173**，前端自动代理到本机 API `8081` 端口。
 
-GoLand / VS Code 调试时，工作目录设为仓库根目录、程序设为 `cmd/iot-platform`，程序参数填 `--env-file .env.local`，无需手工复制数据库地址。已有进程环境变量优先于配置文件；旧 IDE 配置中的硬编码密码或地址应先移除。
+GoLand 调试时，工作目录设为仓库根目录、程序设为 `cmd/iot-platform`，程序参数填 `--env-file .env.local`，无需手工复制数据库地址。已有进程环境变量优先于配置文件；旧 IDE 配置中的硬编码密码或地址应先移除。
+
+### VS Code 一键启动
+
+仓库已提供 [`.vscode/launch.json`](.vscode/launch.json)。安装 VS Code Go 扩展并确保 `.env.local` 已生成或已从依赖机复制后，打开“运行和调试”，选择 **IoT Platform (API + Web)**，按 `F5` 即可同时启动 Go API 和 Vue 前端。需要国标网关时选择 **IoT Platform + GB26875 Gateway**。配置文件只引用 `.env.local`，不包含密码；Windows 使用 `npm.cmd`，Linux/macOS 使用 `npm`。
 
 ## 2. 在线部署
 

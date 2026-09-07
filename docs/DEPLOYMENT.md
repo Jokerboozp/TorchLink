@@ -91,6 +91,24 @@ IOT_AI_MODEL=deepseek-v4-flash
 
 依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址及宿主机源码所需的依赖地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。远程 Harness 还需要单独配置容器回调 Windows API 的地址，基础本地运行不受影响。
 
+## VS Code 调试配置
+
+仓库内置 `.vscode/launch.json`，配置本身不保存环境密码。使用前完成两项准备：运行一次 `setup-local` 或从依赖机复制 `.env.local` 到仓库根目录，并在 `iot_front` 安装 npm 依赖。随后在 VS Code“运行和调试”中选择 `IoT Platform (API + Web)` 并按 `F5`。核心配置如下：
+
+```json
+{
+  "name": "IoT Platform API",
+  "type": "go",
+  "request": "launch",
+  "mode": "debug",
+  "program": "${workspaceFolder}/cmd/iot-platform",
+  "cwd": "${workspaceFolder}",
+  "args": ["--env-file", "${workspaceFolder}/.env.local"]
+}
+```
+
+完整配置还提供 `IoT Platform Web`、`GB26875 Gateway`、`GB26875 Virtual Device`，以及 API + Web 和 API + Web + 网关两个组合启动项。Windows 前端命令为 `npm.cmd run dev`，Linux/macOS 为 `npm run dev`。CentOS 只运行依赖、Windows 运行源码时，VS Code 仍在 Windows 打开项目；`.env.local` 中的 PostgreSQL、Kafka、MQTT 等地址应指向 CentOS。
+
 在线/离线默认提供 HTTP 服务。需要公网域名与 HTTPS 时，由现有 Nginx/网关终结 TLS 并转发到 Web 端口；部署脚本不管理域名和证书。
 
 ## 查看状态、日志与停止
