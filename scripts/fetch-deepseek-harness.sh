@@ -10,6 +10,10 @@ repository="https://github.com/deepseek-ai/deepseek-harness.git"
 target="$project_root/upstream/deepseek-harness"
 revision_marker="$project_root/upstream/deepseek-harness.revision"
 
+target_git() {
+  (CDPATH= cd -- "$target" && git "$@")
+}
+
 case "$revision" in
   *[!0-9a-f]*|'') echo "无效的 DeepSeek Harness 提交：$revision_file" >&2; exit 1 ;;
 esac
@@ -23,18 +27,18 @@ if [ ! -d "$target/.git" ]; then
   git -c http.version=HTTP/1.1 clone --depth 1 "$repository" "$target"
 fi
 
-if [ -n "$(git -C "$target" status --porcelain)" ]; then
+if [ -n "$(target_git status --porcelain)" ]; then
   echo "DeepSeek Harness 源码目录存在未提交修改，已停止更新：$target" >&2
   exit 1
 fi
 
-current_revision="$(git -C "$target" rev-parse HEAD)"
+current_revision="$(target_git rev-parse HEAD)"
 if [ "$current_revision" != "$revision" ]; then
-  git -C "$target" -c http.version=HTTP/1.1 fetch --depth 1 origin "$revision"
-  git -C "$target" checkout --detach "$revision"
+  target_git -c http.version=HTTP/1.1 fetch --depth 1 origin "$revision"
+  target_git checkout --detach "$revision"
 fi
 
-actual_revision="$(git -C "$target" rev-parse HEAD)"
+actual_revision="$(target_git rev-parse HEAD)"
 if [ "$actual_revision" != "$revision" ]; then
   echo "DeepSeek Harness 提交校验失败：期望 $revision，实际 $actual_revision" >&2
   exit 1

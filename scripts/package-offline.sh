@@ -373,7 +373,7 @@ json_array() {
   printf ']'
 }
 
-commit="$(git -C "$project_root" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+commit="$(cd "$project_root" && git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 profiles_json="$(json_array "${profiles[@]}")"
 images_json="$(json_array "${images[@]}")"
 ollama_model_json="null"
