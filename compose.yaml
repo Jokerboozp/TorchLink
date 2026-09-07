@@ -41,7 +41,7 @@ services:
       IOT_MQTT_BROKER: tcp://emqx:1883
       IOT_MQTT_WEBSOCKET_PUBLIC_URL: ${IOT_MQTT_WEBSOCKET_PUBLIC_URL:-}
       IOT_OLLAMA_URL: ${IOT_OLLAMA_URL:-}
-      IOT_OLLAMA_MODEL: ${IOT_OLLAMA_MODEL:-qwen3:8b}
+      IOT_OLLAMA_MODEL: ${IOT_OLLAMA_MODEL:-qwen3:1.7b}
       IOT_AI_PROVIDER: ${IOT_AI_PROVIDER:-}
       IOT_AI_BASE_URL: ${IOT_AI_BASE_URL:-}
       IOT_AI_MODEL: ${IOT_AI_MODEL:-}
@@ -52,7 +52,7 @@ services:
       IOT_AI_HARNESS_URL: ${IOT_AI_HARNESS_URL:-}
       IOT_AI_HARNESS_TOKEN: ${IOT_AI_HARNESS_TOKEN:-local-harness-gateway-token-change-me-now}
       IOT_AI_HARNESS_MCP_URL: ${IOT_AI_HARNESS_MCP_URL:-http://platform-api:8080/mcp/harness}
-      IOT_AI_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-deepseek-v4-flash}
+      IOT_AI_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-qwen3:1.7b}
       IOT_AI_HARNESS_TIMEOUT: ${IOT_AI_HARNESS_TIMEOUT:-90s}
       IOT_WEAVIATE_URL: ${IOT_WEAVIATE_URL:-http://weaviate:8080}
       IOT_BACKUP_URL: ${IOT_BACKUP_URL:-http://backup-service:8090}
@@ -78,6 +78,7 @@ services:
     ports: ["${IOT_WEB_PORT:-8080}:8080"]
     depends_on:
       platform-api: {condition: service_started}
+      ollama: {condition: service_started}
 
   deepseek-harness:
     <<: *service-defaults
@@ -96,17 +97,23 @@ services:
       IOT_HARNESS_PLUGIN_DIR: /data/plugins
       IOT_HARNESS_PLUGIN_SEED_DIR: /harness/examples/iot-ops-agent/plugins
       IOT_HARNESS_MCP_ALLOWED_ORIGINS: http://platform-api:8080
-      IOT_HARNESS_MAX_CONCURRENCY: ${IOT_HARNESS_MAX_CONCURRENCY:-4}
-      IOT_HARNESS_MAX_CACHED_CONVERSATIONS: ${IOT_HARNESS_MAX_CACHED_CONVERSATIONS:-8}
+      IOT_HARNESS_MAX_CONCURRENCY: ${IOT_HARNESS_MAX_CONCURRENCY:-1}
+      IOT_HARNESS_MAX_CACHED_CONVERSATIONS: ${IOT_HARNESS_MAX_CACHED_CONVERSATIONS:-4}
       IOT_HARNESS_CONVERSATION_TTL_MS: ${IOT_HARNESS_CONVERSATION_TTL_MS:-600000}
       IOT_HARNESS_RUN_TIMEOUT_MS: ${IOT_HARNESS_RUN_TIMEOUT_MS:-85000}
       IOT_HARNESS_RPC_TIMEOUT_MS: ${IOT_HARNESS_RPC_TIMEOUT_MS:-80000}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      IOT_HARNESS_PROVIDER: ${IOT_AI_HARNESS_PROVIDER:-ollama}
+      IOT_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-qwen3:1.7b}
+      IOT_HARNESS_OLLAMA_BASE_URL: ${IOT_AI_HARNESS_OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      IOT_HARNESS_OLLAMA_API_KEY: ollama
+      IOT_HARNESS_CONTEXT_WINDOW: ${IOT_AI_HARNESS_CONTEXT_WINDOW:-8192}
     ports: ["127.0.0.1:${IOT_AI_HARNESS_PORT:-8091}:8091"]
     volumes: ["deepseek-harness-data:/data"]
     depends_on:
       platform-api: {condition: service_started}
+      ollama: {condition: service_started}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
@@ -326,6 +333,10 @@ services:
   ollama:
     <<: *service-defaults
     image: ollama/ollama:0.11.4
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "5m"
     volumes: ["ollama-data:/root/.ollama"]
 
   weaviate:

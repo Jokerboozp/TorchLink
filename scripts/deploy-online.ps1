@@ -5,11 +5,11 @@ Build and deploy the platform with internet access (Docker + Compose v2 required
 Creates .env.online once with random credentials, pulls dependency images,
 builds the application, downloads the knowledge embedding model, and checks HTTP readiness.
 .PARAMETER IncludeAi
-Also download the chat model. A newly generated environment enables Ollama.
+Force an older environment to use the bundled local Ollama model.
 .PARAMETER IncludeHarness
-Explicitly enable the DeepSeek Harness, which is enabled by default.
+Explicitly enable the AI workflow Harness, which is enabled by default.
 .PARAMETER NoHarness
-Disable the DeepSeek Harness and persist that choice in the environment file.
+Disable the AI workflow Harness and persist that choice in the environment file.
 .PARAMETER EnvFile
 Environment file, relative to platform/. Credentials are never replaced.
 #>
@@ -33,23 +33,26 @@ if ($IncludeHarness -and $NoHarness) { throw 'IncludeHarness 与 NoHarness 不�
 if (-not [IO.Path]::IsPathRooted($EnvFile)) { $EnvFile = Join-Path $projectRoot $EnvFile }
 $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 Assert-DockerAvailable
-$defaults = @{}
-if ($IncludeAi) {
-    $defaults.IOT_AI_PROVIDER = 'ollama'
-    $defaults.IOT_OLLAMA_URL = 'http://ollama:11434'
-    $defaults.IOT_AI_BASE_URL = 'http://ollama:11434'
-    $defaults.IOT_AI_MODEL = 'qwen3:8b'
-}
-Ensure-DeploymentEnv -Path $EnvFile -Defaults $defaults
-if ($IncludeAi) {
-    $provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
-    $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OLLAMA_MODEL'
-    if (-not $model) { $model = 'qwen3:8b' }
-    if ($provider -eq 'ollama') {
-        $configuredModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
-        if ($configuredModel) { $model = $configuredModel }
+Ensure-DeploymentEnv -Path $EnvFile
+$provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
+$configuredModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
+if ($IncludeAi -or -not $provider -or $provider -eq 'disabled' -or ($provider -eq 'deepseek' -and $configuredModel -eq 'deepseek-v4-flash') -or ($provider -eq 'ollama' -and $configuredModel -eq 'qwen3:8b')) {
+    if ($provider -eq 'ollama') { $model = $configuredModel } else { $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OLLAMA_MODEL' }
+    if (-not $model -or $model -in @('qwen3:8b', 'deepseek-v4-flash')) { $model = 'qwen3:1.7b' }
+    foreach ($setting in @{'IOT_AI_PROVIDER'='ollama'; 'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_OLLAMA_MODEL'=$model; 'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model}.GetEnumerator()) {
+        Set-DeploymentEnvValue -Path $EnvFile -Key $setting.Key -Value $setting.Value
     }
-    foreach ($setting in @{'IOT_AI_PROVIDER'='ollama'; 'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model}.GetEnumerator()) {
+}
+$provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
+if ($provider -eq 'ollama') {
+    $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
+    if (-not $model) { $model = 'qwen3:1.7b' }
+    foreach ($setting in @{
+        'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_OLLAMA_MODEL'=$model;
+        'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model;
+        'IOT_AI_HARNESS_PROVIDER'='ollama'; 'IOT_AI_HARNESS_OLLAMA_BASE_URL'='http://ollama:11434/v1';
+        'IOT_AI_HARNESS_CONTEXT_WINDOW'='8192'; 'IOT_AI_HARNESS_MODEL'=$model
+    }.GetEnumerator()) {
         Set-DeploymentEnvValue -Path $EnvFile -Key $setting.Key -Value $setting.Value
     }
 }
@@ -98,16 +101,10 @@ Write-Host '启动服务……'
 Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-build', '--pull', 'never'))
 Write-Host '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时间）……'
 Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
-if ($IncludeAi) {
-    $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
-    if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -ne 'ollama' -or -not $model) {
-        $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OLLAMA_MODEL'
-    }
-    if (-not $model) { $model = 'qwen3:8b' }
+if ($provider -eq 'ollama') {
+    if (-not $model) { $model = 'qwen3:1.7b' }
+    Write-Host "下载统一 AI 模型 $model（告警研判与工作流共用）……"
     Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', $model))
-    if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -ne 'ollama') {
-        Write-Host "模型已下载；已有 AI Provider 保持不变。要启用 Ollama，请在 $EnvFile 设置 IOT_AI_PROVIDER=ollama、IOT_OLLAMA_URL=http://ollama:11434 后重跑。"
-    }
 }
 $apiPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_API_PORT'
 $webPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_WEB_PORT'
@@ -123,7 +120,8 @@ if ($useHarness) {
     $harnessPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_PORT'
     if (-not $harnessPort) { $harnessPort = '8091' }
     Wait-DeploymentHttp -Url "http://127.0.0.1:$harnessPort/health" -TimeoutSeconds $HealthTimeoutSeconds
-    Write-Host "Harness 已启动；自动研判和工作流使用 $EnvFile 中的 DEEPSEEK_API_KEY。"
+    $harnessModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MODEL'
+    Write-Host "Harness 已启动；工作流模型为 $harnessModel。"
 }
 Invoke-DockerChecked -Arguments ($compose + @('ps'))
 Write-Host "在线部署完成：http://127.0.0.1:$webPort/；登录账号和密码查看 $EnvFile 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。"

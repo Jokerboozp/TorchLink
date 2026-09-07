@@ -10,7 +10,7 @@ skip_code_deps=false
 include_ai=false
 include_deepseek=false
 include_harness=auto
-ollama_model=qwen3:8b
+ollama_model=qwen3:1.7b
 deepseek_model=deepseek-v4-flash
 dependency_host=127.0.0.1
 dependency_host_set=false
@@ -109,6 +109,8 @@ defaults=(
   'IOT_AI_HARNESS_ENABLED=true'
   "IOT_AI_HARNESS_URL=http://${dependency_host}:8091"
   "IOT_AI_HARNESS_MCP_URL=http://${api_host}:8081/mcp/harness"
+  'IOT_AI_HARNESS_PROVIDER=deepseek-official'
+  "IOT_AI_HARNESS_MODEL=$deepseek_model"
   "IOT_HARNESS_MCP_ALLOWED_ORIGINS=http://${api_host}:8081"
 )
 for entry in "${defaults[@]}"; do
@@ -128,11 +130,17 @@ if [ "$include_ai" = true ]; then
   set_local_env_value IOT_OLLAMA_MODEL "$ollama_model" true
   set_local_env_value IOT_AI_MODEL "$ollama_model" true
   set_local_env_value IOT_AI_BASE_URL "http://${dependency_host}:11434" true
+  set_local_env_value IOT_AI_HARNESS_PROVIDER ollama true
+  set_local_env_value IOT_AI_HARNESS_OLLAMA_BASE_URL 'http://ollama:11434/v1' true
+  set_local_env_value IOT_AI_HARNESS_CONTEXT_WINDOW 8192 true
+  set_local_env_value IOT_AI_HARNESS_MODEL "$ollama_model" true
 fi
 if [ "$include_deepseek" = true ]; then
   set_local_env_value IOT_AI_PROVIDER deepseek true
   set_local_env_value IOT_AI_BASE_URL "https://api.deepseek.com" true
   set_local_env_value IOT_AI_MODEL "$deepseek_model" true
+  set_local_env_value IOT_AI_HARNESS_PROVIDER deepseek-official true
+  set_local_env_value IOT_AI_HARNESS_MODEL "$deepseek_model" true
 fi
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; then
   deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"

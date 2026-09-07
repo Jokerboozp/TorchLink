@@ -6,7 +6,7 @@ param(
     [switch]$IncludeDeepSeek,
     [switch]$IncludeHarness,
     [switch]$NoHarness,
-    [string]$OllamaModel = 'qwen3:8b',
+    [string]$OllamaModel = 'qwen3:1.7b',
     [string]$DeepSeekModel = 'deepseek-v4-flash'
 )
 
@@ -71,6 +71,8 @@ $defaults = [ordered]@{
     IOT_AI_HARNESS_ENABLED = 'true'
     IOT_AI_HARNESS_URL = 'http://127.0.0.1:8091'
     IOT_AI_HARNESS_MCP_URL = 'http://host.docker.internal:8081/mcp/harness'
+    IOT_AI_HARNESS_PROVIDER = 'deepseek-official'
+    IOT_AI_HARNESS_MODEL = $DeepSeekModel
 }
 foreach ($key in $defaults.Keys) { Set-LocalEnvValue -Key $key -Value $defaults[$key] -Replace:$newEnv }
 if ($IncludeAi) {
@@ -83,11 +85,17 @@ if ($IncludeAi) {
     Set-LocalEnvValue 'IOT_OLLAMA_MODEL' $OllamaModel -Replace
     Set-LocalEnvValue 'IOT_AI_MODEL' $OllamaModel -Replace
     Set-LocalEnvValue 'IOT_AI_BASE_URL' 'http://127.0.0.1:11434' -Replace
+    Set-LocalEnvValue 'IOT_AI_HARNESS_PROVIDER' 'ollama' -Replace
+    Set-LocalEnvValue 'IOT_AI_HARNESS_OLLAMA_BASE_URL' 'http://ollama:11434/v1' -Replace
+    Set-LocalEnvValue 'IOT_AI_HARNESS_CONTEXT_WINDOW' '8192' -Replace
+    Set-LocalEnvValue 'IOT_AI_HARNESS_MODEL' $OllamaModel -Replace
 }
 if ($IncludeDeepSeek) {
     Set-LocalEnvValue 'IOT_AI_PROVIDER' 'deepseek' -Replace
     Set-LocalEnvValue 'IOT_AI_BASE_URL' 'https://api.deepseek.com' -Replace
     Set-LocalEnvValue 'IOT_AI_MODEL' $DeepSeekModel -Replace
+    Set-LocalEnvValue 'IOT_AI_HARNESS_PROVIDER' 'deepseek-official' -Replace
+    Set-LocalEnvValue 'IOT_AI_HARNESS_MODEL' $DeepSeekModel -Replace
 }
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -eq 'deepseek') {
     $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'

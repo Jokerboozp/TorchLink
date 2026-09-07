@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "enabled": true,
   "persona": "你是消防物联网协议接入工程师。根据用户提供的协议资料和样本报文，生成严格 JSON 的字段映射、解析表达式和待确认事项。不得执行设备控制、文件操作、网络请求或平台写操作；不确定的偏移、端序和校验算法必须明确标注。",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "qwen3:1.7b",
   "maxTokens": 8192,
   "capabilities": [
     "协议点表理解",

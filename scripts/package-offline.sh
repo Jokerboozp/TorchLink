@@ -8,10 +8,10 @@ source "$script_dir/lib/env-comments.sh"
 
 output_dir="offline-bundles"
 env_file=""
-include_ai=0
-include_harness=0
+include_ai=1
+include_harness=1
 full=0
-ollama_model="qwen3:8b"
+ollama_model="qwen3:1.7b"
 ollama_embedding_model="nomic-embed-text"
 skip_ollama_model=0
 
@@ -23,12 +23,12 @@ usage() {
 选项：
   --output-dir DIR       输出父目录，默认 offline-bundles
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
-  --include-ai           额外打包并启用本地 Ollama 对话模型
-  --include-harness      打包 DeepSeek Harness
-  --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:8b
+  --include-ai           兼容参数；默认已经打包并启用本地对话模型
+  --include-harness      兼容参数；默认已经打包 AI 工作流 Harness
+  --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:1.7b
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过全部模型；仅用于目标机已准备模型的情况
-  --full                 启用全部可选组件
+  --full                 兼容参数；AI 与 Harness 已默认启用
   -h, --help             显示帮助
 EOF
 }
@@ -135,11 +135,11 @@ write_env() {
     local backup_token="$(random_hex 32)"
     local emqx_password="Emqx-$(random_hex 12)"
     local grafana_password="Grafana-$(random_hex 12)"
-    local ollama_url=""
-    local ai_provider=""
+    local ollama_url="http://ollama:11434"
+    local ai_provider="ollama"
     local weaviate_url="http://weaviate:8080"
-    local harness_url=""
-    local harness_enabled="false"
+    local harness_url="http://deepseek-harness:8091"
+    local harness_enabled="true"
     if (( include_ai )); then
       ollama_url="http://ollama:11434"
       ai_provider="ollama"
@@ -167,8 +167,8 @@ IOT_VIDEO_MEDIA_ALLOWED_HOSTS=
 IOT_OLLAMA_URL=$ollama_url
 IOT_OLLAMA_MODEL=$ollama_model
 IOT_AI_PROVIDER=$ai_provider
-IOT_AI_BASE_URL=
-IOT_AI_MODEL=
+IOT_AI_BASE_URL=http://ollama:11434
+IOT_AI_MODEL=$ollama_model
 IOT_AI_API_KEY=
 IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS=http://ollama:11434
 IOT_AI_OLLAMA_URL=http://ollama:11434
@@ -177,7 +177,10 @@ IOT_AI_HARNESS_ENABLED=$harness_enabled
 IOT_AI_HARNESS_URL=$harness_url
 IOT_AI_HARNESS_TOKEN=$harness_token
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
-IOT_AI_HARNESS_MODEL=deepseek-v4-flash
+IOT_AI_HARNESS_PROVIDER=ollama
+IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
+IOT_AI_HARNESS_CONTEXT_WINDOW=8192
+IOT_AI_HARNESS_MODEL=$ollama_model
 IOT_AI_HARNESS_TIMEOUT=90s
 IOT_WEAVIATE_URL=$weaviate_url
 IOT_BACKUP_ADMIN_TOKEN=$backup_token
@@ -217,6 +220,21 @@ EOF
     set_env_value "$destination" IOT_AI_HARNESS_ENABLED true
   elif [[ -z "$(env_value IOT_AI_HARNESS_ENABLED "$destination")" ]]; then
     set_env_value "$destination" IOT_AI_HARNESS_ENABLED false
+  fi
+  if [[ "$(env_value IOT_AI_PROVIDER "$destination")" == ollama ]]; then
+    local selected_model
+    selected_model="$(env_value IOT_AI_MODEL "$destination")"
+    [[ -n "$selected_model" ]] || selected_model="$(env_value IOT_OLLAMA_MODEL "$destination")"
+    selected_model="${selected_model:-$ollama_model}"
+    [[ "$selected_model" != qwen3:8b || "$ollama_model" == qwen3:8b ]] || selected_model="$ollama_model"
+    set_env_value "$destination" IOT_OLLAMA_URL http://ollama:11434
+    set_env_value "$destination" IOT_OLLAMA_MODEL "$selected_model"
+    set_env_value "$destination" IOT_AI_BASE_URL http://ollama:11434
+    set_env_value "$destination" IOT_AI_MODEL "$selected_model"
+    set_env_value "$destination" IOT_AI_HARNESS_PROVIDER ollama
+    set_env_value "$destination" IOT_AI_HARNESS_OLLAMA_BASE_URL http://ollama:11434/v1
+    set_env_value "$destination" IOT_AI_HARNESS_CONTEXT_WINDOW 8192
+    set_env_value "$destination" IOT_AI_HARNESS_MODEL "$selected_model"
   fi
   annotate_deployment_env_file "$destination"
 

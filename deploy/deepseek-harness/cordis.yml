@@ -8,6 +8,30 @@
     defaultContextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 1000000)
     streamIdleTimeoutMs: 300000
 
+- insert:
+    - id: llm-ollama
+      name: '@deepseek-ai/dsh-llm-pi-ai'
+      config:
+        providers:
+          ollama:
+            displayName: Ollama
+            apiKeyEnv: IOT_HARNESS_OLLAMA_API_KEY
+            api: openai-completions
+            baseURL: !!js process.env.IOT_HARNESS_OLLAMA_BASE_URL ?? 'http://ollama:11434/v1'
+            defaultContextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 8192)
+            defaultMaxTokens: 2048
+            models:
+              - id: !!js process.env.IOT_HARNESS_MODEL ?? 'qwen3:1.7b'
+                contextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 8192)
+                maxTokens: 2048
+                input: [text]
+                reasoningEfforts: false
+            compat:
+              supportsStore: false
+              supportsDeveloperRole: false
+              supportsReasoningEffort: false
+              maxTokensField: max_tokens
+
 - id: sandbox
   disabled: true
 

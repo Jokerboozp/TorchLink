@@ -107,18 +107,22 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'DeepSeek base URL was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-v4-flash') 'DeepSeek model was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'DEEPSEEK_API_KEY') -eq 'smoke-test-key') 'DeepSeek key was not copied for Harness'
-    Assert (-not (Contains-Call 'ollama pull qwen3:8b')) 'DeepSeek setup attempted an Ollama chat model download'
+    Assert (-not (Contains-Call 'ollama pull qwen3:1.7b')) 'DeepSeek setup attempted an Ollama chat model download'
     Write-Host 'PASS local deepseek: provider enabled without local chat model download'
 
     $onlineEnv = Join-Path $testRoot '.env.online'
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'Online default AI provider is not DeepSeek'
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'Online default DeepSeek URL is missing'
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-v4-flash') 'Online default DeepSeek model is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_PROVIDER') -eq 'ollama') 'Online default AI provider is not Ollama'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_BASE_URL') -eq 'http://ollama:11434') 'Online Ollama URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_MODEL') -eq 'qwen3:1.7b') 'Online compact Qwen model is missing'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'Online Harness is not enabled by default'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://deepseek-harness:8091') 'Online Harness URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'ollama') 'Online Harness does not use Ollama'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_MODEL') -eq 'qwen3:1.7b') 'Online Harness does not share the compact Qwen model'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_OLLAMA_BASE_URL') -eq 'http://ollama:11434/v1') 'Online Harness Ollama endpoint is missing'
     Assert-CommentedEnv $onlineEnv
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service deepseek-harness') 'Online omitted the default Harness image build'
+    Assert (Contains-Call 'exec -T ollama ollama pull qwen3:1.7b') 'Online omitted the compact Qwen model'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
     Assert ((Get-FileHash $onlineEnv).Hash -eq $onlineHash) 'Online rerun changed configuration'
@@ -157,7 +161,12 @@ try {
     Assert ($manifest.images -contains 'cr.weaviate.io/semitechnologies/weaviate:1.32.8') 'Default bundle omitted Weaviate'
     Assert ($manifest.images -contains 'iot-platform-backup:offline') 'Default bundle omitted backup image'
     Assert ($manifest.ollamaEmbeddingModel -eq 'nomic-embed-text') 'Default bundle omitted embedding model'
+    Assert ($manifest.ollamaModel -eq 'qwen3:1.7b') 'Default bundle omitted compact Qwen model'
+    Assert ($manifest.profiles -contains 'harness') 'Default bundle omitted Harness'
     Assert (Test-Path (Join-Path $bundle 'ollama-data.tgz.sha256')) 'Model checksum omitted'
+    Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_PROVIDER') -eq 'ollama') 'Offline default AI provider is not Ollama'
+    Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_MODEL') -eq 'qwen3:1.7b') 'Offline compact Qwen model is missing'
+    Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'ollama') 'Offline Harness does not use Ollama'
     $bundleHash = (Get-FileHash (Join-Path $bundle '.env.offline')).Hash
     $global:IotTest_calls.Clear()
     & (Join-Path $scripts 'deploy-offline-windows.ps1') -BundleDir $bundle

@@ -3,9 +3,9 @@ param(
     [string]$OutputDir = "offline-bundles",
     [string]$EnvFile = "",
     [switch]$Full,
-    [switch]$IncludeAi,
-    [switch]$IncludeHarness,
-    [string]$OllamaModel = "qwen3:8b",
+    [switch]$IncludeAi = $true,
+    [switch]$IncludeHarness = $true,
+    [string]$OllamaModel = "qwen3:1.7b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel
 )
@@ -158,11 +158,11 @@ function New-OfflineEnv {
         $emqxPassword = "Emqx-" + (New-RandomHex -Bytes 12)
         $grafanaPassword = "Grafana-" + (New-RandomHex -Bytes 12)
 
-        $ollamaUrl = if ($UseAi) { "http://ollama:11434" } else { "" }
-        $aiProvider = if ($UseAi) { "ollama" } else { "" }
+        $ollamaUrl = "http://ollama:11434"
+        $aiProvider = "ollama"
         $weaviateUrl = "http://weaviate:8080"
-        $harnessUrl = if ($UseHarness) { "http://deepseek-harness:8091" } else { "" }
-        $harnessEnabled = if ($UseHarness) { "true" } else { "false" }
+        $harnessUrl = "http://deepseek-harness:8091"
+        $harnessEnabled = "true"
 
         $lines = @(
             "# 自动生成的离线部署配置，请限制此文件权限。",
@@ -182,8 +182,8 @@ function New-OfflineEnv {
             "IOT_OLLAMA_URL=$ollamaUrl",
             "IOT_OLLAMA_MODEL=$OllamaModel",
             "IOT_AI_PROVIDER=$aiProvider",
-            "IOT_AI_BASE_URL=",
-            "IOT_AI_MODEL=",
+            "IOT_AI_BASE_URL=http://ollama:11434",
+            "IOT_AI_MODEL=$OllamaModel",
             "IOT_AI_API_KEY=",
             "IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS=http://ollama:11434",
             "IOT_AI_OLLAMA_URL=http://ollama:11434",
@@ -192,7 +192,10 @@ function New-OfflineEnv {
             "IOT_AI_HARNESS_URL=$harnessUrl",
             "IOT_AI_HARNESS_TOKEN=$harnessToken",
             "IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness",
-            "IOT_AI_HARNESS_MODEL=deepseek-v4-flash",
+            "IOT_AI_HARNESS_PROVIDER=ollama",
+            "IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1",
+            "IOT_AI_HARNESS_CONTEXT_WINDOW=8192",
+            "IOT_AI_HARNESS_MODEL=$OllamaModel",
             "IOT_AI_HARNESS_TIMEOUT=90s",
             "IOT_WEAVIATE_URL=$weaviateUrl",
             "IOT_BACKUP_ADMIN_TOKEN=$backupToken",
@@ -234,6 +237,26 @@ function New-OfflineEnv {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
     } elseif (-not ($lines -match '^\s*IOT_AI_HARNESS_ENABLED\s*=')) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false')
+    }
+    $entries = @{}
+    foreach ($line in $lines) {
+        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
+            $entries[$matches[1]] = $matches[2].Trim().Trim("'`"")
+        }
+    }
+    if ([string]$entries['IOT_AI_PROVIDER'] -eq 'ollama') {
+        $selectedModel = [string]$entries['IOT_AI_MODEL']
+        if ([string]::IsNullOrWhiteSpace($selectedModel)) { $selectedModel = [string]$entries['IOT_OLLAMA_MODEL'] }
+        if ([string]::IsNullOrWhiteSpace($selectedModel)) { $selectedModel = $OllamaModel }
+        if ($selectedModel -eq 'qwen3:8b' -and $OllamaModel -ne 'qwen3:8b') { $selectedModel = $OllamaModel }
+        foreach ($setting in ([ordered]@{
+            IOT_OLLAMA_URL='http://ollama:11434'; IOT_OLLAMA_MODEL=$selectedModel;
+            IOT_AI_BASE_URL='http://ollama:11434'; IOT_AI_MODEL=$selectedModel;
+            IOT_AI_HARNESS_PROVIDER='ollama'; IOT_AI_HARNESS_OLLAMA_BASE_URL='http://ollama:11434/v1';
+            IOT_AI_HARNESS_CONTEXT_WINDOW='8192'; IOT_AI_HARNESS_MODEL=$selectedModel
+        }).GetEnumerator()) {
+            $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $setting.Key -Value ([string]$setting.Value))
+        }
     }
 
     Write-Utf8NoBom -Path $Destination -Lines $lines
@@ -319,7 +342,7 @@ try {
     Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service"))
 
-    # 知识库始终需要嵌入模型；IncludeAi 额外包含对话模型。
+    # 知识库和默认本地 AI 都随离线包准备；SkipOllamaModel 才会跳过模型归档。
     if (-not $SkipOllamaModel) {
         $ollamaStarted = $true
         Invoke-Checked -Arguments ($composeBase + @("up", "-d", "--no-deps", "ollama"))

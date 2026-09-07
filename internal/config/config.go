@@ -105,7 +105,7 @@ func Load() Config {
 		MQTTPassword:                os.Getenv("IOT_MQTT_PASSWORD"),
 		MQTTWebSocketURL:            os.Getenv("IOT_MQTT_WEBSOCKET_PUBLIC_URL"),
 		OllamaURL:                   get("IOT_OLLAMA_URL", "http://localhost:11434"),
-		OllamaModel:                 get("IOT_OLLAMA_MODEL", "qwen3:8b"),
+		OllamaModel:                 get("IOT_OLLAMA_MODEL", "qwen3:1.7b"),
 		AIProvider:                  aiProvider,
 		AIBaseURL:                   strings.TrimRight(os.Getenv("IOT_AI_BASE_URL"), "/"),
 		AIModel:                     strings.TrimSpace(os.Getenv("IOT_AI_MODEL")),

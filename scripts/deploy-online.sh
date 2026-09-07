@@ -24,12 +24,12 @@ while [ "$#" -gt 0 ]; do
 用法：bash scripts/deploy-online.sh [选项]
   --env-file PATH       配置文件（默认 platform/.env.online；已有凭据保留）
   --project-name NAME   Docker Compose 项目（默认 iot-platform-online）
-  --include-ai          额外下载对话模型；新配置自动启用 Ollama
-  --include-harness     显式启用默认启动的 DeepSeek Harness
-  --no-harness          不启动 DeepSeek Harness，并将配置开关设为 false
+  --include-ai          强制改用本地 Ollama（兼容旧配置）
+  --include-harness     显式启用默认启动的 AI 工作流 Harness
+  --no-harness          不启动 AI 工作流 Harness，并将配置开关设为 false
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
-默认拉取运行镜像、构建应用、启动全部常规服务、下载 nomic-embed-text 并验证 API/前端。
-需要 Docker Engine/Desktop、Compose v2、Git 和 curl。自动研判与工作流默认共用 DEEPSEEK_API_KEY。
+默认拉取运行镜像、构建应用、启动全部服务，并下载 qwen3:1.7b 与 nomic-embed-text。
+需要 Docker Engine/Desktop、Compose v2、Git 和 curl。自动研判与工作流默认共用本地 qwen3:1.7b。
 EOF
       exit 0;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1;;
@@ -40,22 +40,29 @@ done
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
 assert_docker_available
 command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; exit 1; }
-defaults=()
-if [ "$include_ai" -eq 1 ]; then
-  defaults+=('IOT_AI_PROVIDER=ollama' 'IOT_OLLAMA_URL=http://ollama:11434' 'IOT_AI_BASE_URL=http://ollama:11434' 'IOT_AI_MODEL=qwen3:8b')
-fi
-ensure_deployment_env "$env_file" "${defaults[@]}"
-if [ "$include_ai" -eq 1 ]; then
-  provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
-  model="$(get_deployment_env_value "$env_file" IOT_OLLAMA_MODEL)"; model="${model:-qwen3:8b}"
-  if [ "$provider" = ollama ]; then
-    configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
-    model="${configured_model:-$model}"
-  fi
+ensure_deployment_env "$env_file"
+provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
+configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
+if [ "$include_ai" -eq 1 ] || [ -z "$provider" ] || [ "$provider" = disabled ] || { [ "$provider" = deepseek ] && [ "$configured_model" = deepseek-v4-flash ]; } || { [ "$provider" = ollama ] && [ "$configured_model" = qwen3:8b ]; }; then
+  if [ "$provider" = ollama ]; then model="$configured_model"; else model="$(get_deployment_env_value "$env_file" IOT_OLLAMA_MODEL)"; fi
+  case "$model" in ''|qwen3:8b|deepseek-v4-flash) model=qwen3:1.7b;; esac
   set_deployment_env_value "$env_file" IOT_AI_PROVIDER ollama
   set_deployment_env_value "$env_file" IOT_OLLAMA_URL http://ollama:11434
+  set_deployment_env_value "$env_file" IOT_OLLAMA_MODEL "$model"
   set_deployment_env_value "$env_file" IOT_AI_BASE_URL http://ollama:11434
   set_deployment_env_value "$env_file" IOT_AI_MODEL "$model"
+fi
+provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
+if [ "$provider" = ollama ]; then
+  model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"; model="${model:-qwen3:1.7b}"
+  set_deployment_env_value "$env_file" IOT_OLLAMA_URL http://ollama:11434
+  set_deployment_env_value "$env_file" IOT_OLLAMA_MODEL "$model"
+  set_deployment_env_value "$env_file" IOT_AI_BASE_URL http://ollama:11434
+  set_deployment_env_value "$env_file" IOT_AI_MODEL "$model"
+  set_deployment_env_value "$env_file" IOT_AI_HARNESS_PROVIDER ollama
+  set_deployment_env_value "$env_file" IOT_AI_HARNESS_OLLAMA_BASE_URL http://ollama:11434/v1
+  set_deployment_env_value "$env_file" IOT_AI_HARNESS_CONTEXT_WINDOW 8192
+  set_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL "$model"
 fi
 case "$include_harness" in
   1) set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true;;
@@ -102,14 +109,10 @@ echo '启动服务……'
 run_docker "${compose[@]}" up -d --no-build --pull never
 echo '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时间）……'
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
-if [ "$include_ai" -eq 1 ]; then
-  provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
+if [ "$provider" = ollama ]; then
   model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
-  if [ "$provider" != ollama ] || [ -z "$model" ]; then model="$(get_deployment_env_value "$env_file" IOT_OLLAMA_MODEL)"; fi
-  run_docker "${compose[@]}" exec -T ollama ollama pull "${model:-qwen3:8b}"
-  if [ "$provider" != ollama ]; then
-    printf '模型已下载；已有 AI Provider 保持不变。要启用 Ollama，请在 %s 设置 IOT_AI_PROVIDER=ollama、IOT_OLLAMA_URL=http://ollama:11434 后重跑。\n' "$env_file"
-  fi
+  echo "下载统一 AI 模型 ${model:-qwen3:1.7b}（告警研判与工作流共用）……"
+  run_docker "${compose[@]}" exec -T ollama ollama pull "${model:-qwen3:1.7b}"
 fi
 api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api_port:-8081}"
 web_port="$(get_deployment_env_value "$env_file" IOT_WEB_PORT)"; web_port="${web_port:-8080}"
@@ -121,7 +124,7 @@ wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/live" "$healt
 if [ "$include_harness" = true ]; then
   harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
   wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"
-  printf 'Harness 已启动；自动研判和工作流使用 %s 中的 DEEPSEEK_API_KEY。\n' "$env_file"
+  printf 'Harness 已启动；自动研判和工作流共用模型 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
 fi
 run_docker "${compose[@]}" ps
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"

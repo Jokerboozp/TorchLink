@@ -118,7 +118,7 @@ if (( ! skip_health_check )); then
   if [[ "$(env_value IOT_AI_PROVIDER)" == ollama ]]; then
     chat_model="$(env_value IOT_AI_MODEL)"
     if [[ -z "$chat_model" ]]; then chat_model="$(env_value IOT_OLLAMA_MODEL)"; fi
-    "${compose[@]}" exec -T ollama ollama show "${chat_model:-qwen3:8b}"
+    "${compose[@]}" exec -T ollama ollama show "${chat_model:-qwen3:1.7b}"
   fi
   echo "平台健康检查与本地模型检查通过：$health_url"
   check_web_port="$(env_value IOT_WEB_PORT)"

@@ -92,7 +92,7 @@ curl --no-buffer http://127.0.0.1:8091/v1/chat/stream \
     "workflowId":"ops-assistant",
     "question":"当前有哪些高等级活动告警？",
     "mcpUrl":"http://platform-api:8080/mcp/harness",
-    "model":"deepseek-v4-flash",
+    "model":"qwen3:1.7b",
     "maxTokens":1200
   }'
 ```
@@ -134,7 +134,7 @@ this shape:
   "version": "1.0.0",
   "enabled": true,
   "persona": "System persona",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "qwen3:1.7b",
   "maxTokens": 4096,
   "capabilities": ["用户可读能力名称"],
   "allowedTools": ["mcp__iot__query_alarm_list"]

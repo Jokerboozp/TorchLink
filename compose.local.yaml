@@ -26,14 +26,21 @@ services:
       IOT_HARNESS_PLUGIN_DIR: /data/plugins
       IOT_HARNESS_PLUGIN_SEED_DIR: /harness/examples/iot-ops-agent/plugins
       IOT_HARNESS_MCP_ALLOWED_ORIGINS: ${IOT_HARNESS_MCP_ALLOWED_ORIGINS:-http://host.docker.internal:8081}
-      IOT_HARNESS_MAX_CONCURRENCY: ${IOT_HARNESS_MAX_CONCURRENCY:-4}
-      IOT_HARNESS_MAX_CACHED_CONVERSATIONS: ${IOT_HARNESS_MAX_CACHED_CONVERSATIONS:-8}
+      IOT_HARNESS_MAX_CONCURRENCY: ${IOT_HARNESS_MAX_CONCURRENCY:-1}
+      IOT_HARNESS_MAX_CACHED_CONVERSATIONS: ${IOT_HARNESS_MAX_CACHED_CONVERSATIONS:-4}
       IOT_HARNESS_CONVERSATION_TTL_MS: ${IOT_HARNESS_CONVERSATION_TTL_MS:-600000}
       IOT_HARNESS_RUN_TIMEOUT_MS: ${IOT_HARNESS_RUN_TIMEOUT_MS:-85000}
       IOT_HARNESS_RPC_TIMEOUT_MS: ${IOT_HARNESS_RPC_TIMEOUT_MS:-80000}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      IOT_HARNESS_PROVIDER: ${IOT_AI_HARNESS_PROVIDER:-deepseek-official}
+      IOT_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-deepseek-v4-flash}
+      IOT_HARNESS_OLLAMA_BASE_URL: ${IOT_AI_HARNESS_OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      IOT_HARNESS_OLLAMA_API_KEY: ollama
+      IOT_HARNESS_CONTEXT_WINDOW: ${IOT_AI_HARNESS_CONTEXT_WINDOW:-8192}
     volumes: ["deepseek-harness-data:/data"]
+    depends_on:
+      ollama: {condition: service_started}
     extra_hosts: ["host.docker.internal:host-gateway"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8091/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
@@ -241,6 +248,10 @@ services:
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:11434:11434"
     image: ollama/ollama:0.11.4
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: "5m"
     volumes: ["ollama-data:/root/.ollama"]
 
   weaviate:

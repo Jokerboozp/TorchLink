@@ -2,7 +2,7 @@
 
 离线部署分两步：有网机器一键打包，目标机器一键导入并启动。目标机器不需要 Go、Node.js 或源码依赖；打包机和目标机都需预装并启动 Docker Engine / Docker Desktop（Linux 容器）及 Docker Compose 2.24.4+。Linux/macOS 的部署健康检查还需要 curl。
 
-打包机与目标机应使用相同 CPU 架构（例如均为 linux/amd64）；Apple Silicon 默认生成的 ARM64 镜像不能直接作为 x86 服务器离线包。离线服务器安装 Docker 所需的软件包也必须提前准备，本项目离线包不包含 Docker 安装程序。
+打包机与目标机应使用相同 CPU 架构（例如均为 linux/amd64）；Apple Silicon 默认生成的 ARM64 镜像不能直接作为 x86 服务器离线包。CentOS 7.9 x86_64 可运行 linux/amd64 包，前提是已安装并启动 Docker Engine、Docker Compose v2，并有 curl。离线服务器安装 Docker 所需的软件包必须提前准备，本项目离线包不包含 Docker 安装程序。
 
 ## 1. 有网机器打包
 
@@ -18,7 +18,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 bash ./scripts/package-offline.sh
 ```
 
-默认打包平台、存储、消息、备份、监控、Ollama、Weaviate，以及知识库必需的 `nomic-embed-text` 嵌入模型。无须预先创建 `.env`；脚本先生成独立的 `.env.offline` 和随机凭据，再构建镜像。
+默认打包平台、存储、消息、备份、监控、Ollama、Weaviate、AI 工作流 Harness、`qwen3:1.7b` 对话模型，以及知识库必需的 `nomic-embed-text` 嵌入模型。无须预先创建 `.env`；脚本先生成独立的 `.env.offline` 和随机凭据，再构建镜像。告警研判和 AI 工作流默认共用 `qwen3:1.7b`，整个运行过程不访问外网。
 
 生成目录：`platform/offline-bundles/iot-platform-offline-时间戳/`。将整个目录复制到目标机器，包括隐藏文件 `.env.offline`。镜像、模型文件、配置和部署脚本必须一起传输。
 
@@ -27,15 +27,13 @@ bash ./scripts/package-offline.sh
 | 用途 | PowerShell | Bash |
 | --- | --- | --- |
 | 使用已有配置 | `-EnvFile .\.env.production` | `--env-file ./.env.production` |
-| 额外启用本地对话模型 | `-IncludeAi` | `--include-ai` |
-| 选择对话模型（默认 `qwen3:8b`） | `-IncludeAi -OllamaModel qwen3:8b` | `--include-ai --ollama-model qwen3:8b` |
-| DeepSeek Harness | `-IncludeHarness` | `--include-harness` |
-| 全部可选组件 | `-Full` | `--full` |
+| 选择对话模型（默认 `qwen3:1.7b`） | `-OllamaModel qwen3:4b` | `--ollama-model qwen3:4b` |
+| 跳过模型归档（目标机已有模型时） | `-SkipOllamaModel` | `--skip-ollama-model` |
 | 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
 
-已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`）。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。Harness 需要 `IOT_AI_HARNESS_TOKEN` 和可达的 `DEEPSEEK_BASE_URL`（默认官方地址）。示例密码和空的必需密钥会被拒绝。
+已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`），并让 Harness 使用同一模型。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。示例密码和空的必需密钥会被拒绝。
 
-`-Full` 不会把 DeepSeek 变成离线模型服务；Harness 仍需要可达的模型接口。完全断网的对话能力请使用 `-IncludeAi` 和本地 Ollama。`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机已经安装所需模型的情况，部署默认会检查模型是否存在。当前知识库固定使用 `nomic-embed-text`，不能随意替换嵌入模型。
+`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机的 `iot-platform_ollama-data` 卷已经包含所需模型；部署默认会检查模型是否存在。当前知识库固定使用 `nomic-embed-text`，不能随意替换嵌入模型。8 GB 环境建议保留 `qwen3:1.7b`；更换更大模型前应先评估其内存占用。
 
 打包时模型缓存保存在 `iot-platform-offline-build_ollama-data` 卷，完成后停止打包用 Ollama；不操作已有 `iot-platform` 部署。模型归档仅包含模型文件，不包含 Ollama 身份密钥。重复打包可复用缓存；曾下载的其他模型也可能保留在归档中。
 

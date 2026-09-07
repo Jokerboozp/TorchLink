@@ -98,17 +98,21 @@ grep -q "^IOT_AI_PROVIDER='deepseek'$" "$deepseek_env"
 grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$deepseek_env"
 grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$deepseek_env"
 grep -q "^DEEPSEEK_API_KEY='smoke-test-key'$" "$deepseek_env"
-if tail -n 12 "$TEST_CALLS" | grep -q 'ollama pull qwen3:8b'; then echo 'DeepSeek setup attempted an Ollama chat model download' >&2; exit 1; fi
+if tail -n 12 "$TEST_CALLS" | grep -q 'ollama pull qwen3:1.7b'; then echo 'DeepSeek setup attempted an Ollama chat model download' >&2; exit 1; fi
 echo 'PASS local deepseek: provider enabled without local chat model download'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
-grep -q '^IOT_AI_PROVIDER=deepseek$' "$test_root/.env.online"
-grep -q '^IOT_AI_BASE_URL=https://api.deepseek.com$' "$test_root/.env.online"
-grep -q '^IOT_AI_MODEL=deepseek-v4-flash$' "$test_root/.env.online"
+grep -q '^IOT_AI_PROVIDER=ollama$' "$test_root/.env.online"
+grep -q '^IOT_AI_BASE_URL=http://ollama:11434$' "$test_root/.env.online"
+grep -q '^IOT_AI_MODEL=qwen3:1.7b$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_ENABLED=true$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_URL=http://deepseek-harness:8091$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_PROVIDER=ollama$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_MODEL=qwen3:1.7b$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1$' "$test_root/.env.online"
 assert_commented_env "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service deepseek-harness'
+assert_call 'exec -T ollama ollama pull qwen3:1.7b'
 cp "$test_root/.env.online" "$test_root/online-original"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cmp "$test_root/online-original" "$test_root/.env.online"
@@ -134,6 +138,11 @@ assert_commented_env "$bundle/.env.offline"
 grep -q 'ollama/ollama:' "$bundle/manifest.json"
 grep -q 'weaviate:' "$bundle/manifest.json"
 assert_call 'exec -T ollama ollama pull nomic-embed-text'
+assert_call 'exec -T ollama ollama pull qwen3:1.7b'
+grep -q '^IOT_AI_PROVIDER=ollama$' "$bundle/.env.offline"
+grep -q '^IOT_AI_MODEL=qwen3:1.7b$' "$bundle/.env.offline"
+grep -q '^IOT_AI_HARNESS_PROVIDER=ollama$' "$bundle/.env.offline"
+grep -qx 'harness' "$bundle/profiles.txt"
 cp "$bundle/.env.offline" "$test_root/offline-original"
 : > "$TEST_CALLS"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"

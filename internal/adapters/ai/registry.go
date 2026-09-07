@@ -33,9 +33,9 @@ func NewProviderRegistry() *ProviderRegistry {
 		},
 	})
 	r.register(providerFactory{
-		info: ports.AIPluginInfo{ID: "ollama", Name: "Ollama", Description: "连接本地或私有网络中的 Ollama 模型服务。", DefaultBaseURL: "http://localhost:11434", DefaultModel: "qwen3:8b", Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output", "local-model"}},
+		info: ports.AIPluginInfo{ID: "ollama", Name: "Ollama", Description: "连接本地或私有网络中的 Ollama 模型服务。", DefaultBaseURL: "http://localhost:11434", DefaultModel: "qwen3:1.7b", Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output", "local-model"}},
 		build: func(cfg ports.AIPluginConfig) (ports.AIClient, error) {
-			return NewOllama(valueOr(cfg.BaseURL, "http://localhost:11434"), valueOr(cfg.Model, "qwen3:8b"))
+			return NewOllama(valueOr(cfg.BaseURL, "http://localhost:11434"), valueOr(cfg.Model, "qwen3:1.7b"))
 		},
 	})
 	r.register(providerFactory{

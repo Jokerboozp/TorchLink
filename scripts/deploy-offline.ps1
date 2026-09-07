@@ -143,7 +143,7 @@ if (-not $SkipHealthCheck) {
     if ($aiProvider -eq "ollama") {
         $chatModel = Get-EnvValue -Path $envPath -Key "IOT_AI_MODEL"
         if ([string]::IsNullOrWhiteSpace($chatModel)) { $chatModel = Get-EnvValue -Path $envPath -Key "IOT_OLLAMA_MODEL" }
-        if ([string]::IsNullOrWhiteSpace($chatModel)) { $chatModel = "qwen3:8b" }
+        if ([string]::IsNullOrWhiteSpace($chatModel)) { $chatModel = "qwen3:1.7b" }
         Invoke-Checked -Arguments ($composeArguments + @("exec", "-T", "ollama", "ollama", "show", $chatModel))
     }
     Write-Host "平台健康检查与本地模型检查通过：$healthUrl" -ForegroundColor Green

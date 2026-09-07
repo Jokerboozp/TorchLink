@@ -30,7 +30,7 @@ COPY deploy/deepseek-harness/ /harness/examples/iot-ops-agent/
 RUN sed -i 's/\r$//' /harness/examples/iot-ops-agent/*.sh
 RUN test "$(tr -d '\r\n' < /harness/examples/iot-ops-agent/REVISION)" = "$DSH_REVISION"
 RUN node --test /harness/examples/iot-ops-agent/gateway.test.mjs
-RUN node --input-type=module -e "await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-sdk-minimal/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-tools/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js')"
+RUN node --input-type=module -e "await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-sdk-minimal/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-tools/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js')"
 RUN node /harness/examples/iot-ops-agent/runtime-smoke.mjs
 
 FROM node:24-bookworm-slim AS runtime

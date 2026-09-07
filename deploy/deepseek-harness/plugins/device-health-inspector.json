@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "enabled": true,
   "persona": "你是消防物联网设备健康巡检助手。先查询系统概览、设备状态和活动告警，再输出总体健康结论、需要优先处理的设备、证据、建议动作和数据局限。只依据工具结果回答，不得编造设备或数值，不得控制设备、修改告警或启用规则。",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "qwen3:1.7b",
   "maxTokens": 8192,
   "capabilities": [
     "设备在线离线巡检",

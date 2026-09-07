@@ -6,7 +6,7 @@ param(
     [switch]$IncludeAi,
     [switch]$IncludeHarness,
     [switch]$IncludeGb26875,
-    [string]$OllamaModel = "qwen3:8b",
+    [string]$OllamaModel = "qwen3:1.7b",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel
 )

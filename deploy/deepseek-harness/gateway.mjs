@@ -281,7 +281,7 @@ async function readJson(request, maxBytes) {
   }
 }
 
-function validatedBody(raw, plugins, allowedOrigins) {
+function validatedBody(raw, plugins, allowedOrigins, modelOverride) {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new HttpError(422, 'INVALID_REQUEST', 'request body must be an object')
   }
@@ -293,9 +293,10 @@ function validatedBody(raw, plugins, allowedOrigins) {
   const question = text(raw.question, 'question', 20000)
   const plugin = plugins.find(candidate => candidate.id === workflowId && candidate.enabled)
   if (plugin === undefined) throw new HttpError(404, 'WORKFLOW_NOT_FOUND', 'workflow plugin is not available')
-  const model = raw.model === undefined || raw.model === ''
+  const requestedModel = raw.model === undefined || raw.model === ''
     ? plugin.defaultModel
     : text(raw.model, 'model', 128, MODEL_PATTERN)
+  const model = modelOverride ?? requestedModel
   const maxTokens = raw.maxTokens === undefined || raw.maxTokens === null
     ? plugin.maxTokens
     : raw.maxTokens
@@ -490,6 +491,10 @@ function childEnvironment(spec) {
   const inherited = [
     'DEEPSEEK_API_KEY',
     'DEEPSEEK_BASE_URL',
+    'IOT_HARNESS_MODEL',
+    'IOT_HARNESS_OLLAMA_BASE_URL',
+    'IOT_HARNESS_OLLAMA_API_KEY',
+    'IOT_HARNESS_CONTEXT_WINDOW',
     'HTTP_PROXY',
     'HTTPS_PROXY',
     'NO_PROXY',
@@ -521,7 +526,7 @@ async function officialHarnessFactory(spec) {
     processCwd: spec.runtimeCwd,
     env: childEnvironment(spec),
     cwd: spec.workspace,
-    provider: 'deepseek-official',
+    provider: spec.provider,
     model: spec.model,
     maxTokens: spec.maxTokens,
     requestTimeoutMs: spec.requestTimeoutMs,
@@ -577,6 +582,17 @@ export function createGateway(options = {}) {
   const allowedOrigins = configuredOrigins(
     options.allowedMcpOrigins ?? process.env.IOT_HARNESS_MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ORIGINS,
   )
+  const modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'ollama'
+  if (!['deepseek-official', 'ollama'].includes(modelProvider)) {
+    throw new Error('IOT_HARNESS_PROVIDER must be deepseek-official or ollama')
+  }
+  const configuredModel = options.model
+    ?? process.env.IOT_HARNESS_MODEL
+    ?? process.env.IOT_AI_HARNESS_MODEL
+    ?? 'qwen3:1.7b'
+  if (typeof configuredModel !== 'string' || !MODEL_PATTERN.test(configuredModel)) {
+    throw new Error('IOT_HARNESS_MODEL must contain a valid model name')
+  }
   const maximumBodyBytes = integerOption(options.maximumBodyBytes, 32768, 'maximumBodyBytes', 1024, 1048576)
   const maxConcurrency = integerOption(
     options.maxConcurrency ?? process.env.IOT_HARNESS_MAX_CONCURRENCY,
@@ -716,6 +732,7 @@ export function createGateway(options = {}) {
       try {
         harness = await harnessFactory({
           ...run,
+          provider: modelProvider,
           runtimeBin,
           sdkClientModule,
           patchFile,
@@ -783,6 +800,8 @@ export function createGateway(options = {}) {
         activeRuns: activeRuns.size,
         cachedConversations: conversations.size,
         mcpProxy: proxyServer.listening ? 'ready' : 'not-ready',
+        modelProvider,
+        model: configuredModel,
         deepseekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),
       })
     } catch {
@@ -853,7 +872,12 @@ export function createGateway(options = {}) {
     const mcpToken = bearerToken(request.headers.authorization)
     if (mcpToken === undefined) throw new HttpError(401, 'MCP_TOKEN_INVALID', 'Authorization Bearer token is required')
     const plugins = await loadPluginCatalog(pluginDir)
-    const run = validatedBody(await readJson(request, maximumBodyBytes), plugins, allowedOrigins)
+    const run = validatedBody(
+      await readJson(request, maximumBodyBytes),
+      plugins,
+      allowedOrigins,
+      modelProvider === 'ollama' ? configuredModel : undefined,
+    )
     const cacheKey = run.conversationId
     if (reservedRunIds.has(run.runId)) throw new HttpError(409, 'RUN_ALREADY_ACTIVE', 'runId is already active')
     reservedRunIds.add(run.runId)

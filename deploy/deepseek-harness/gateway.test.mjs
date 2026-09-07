@@ -54,7 +54,7 @@ function requestBody(overrides = {}) {
     workflowId: 'ops-assistant',
     question: '检查当前高等级告警',
     mcpUrl: 'http://platform-api:8080/mcp/harness',
-    model: 'deepseek-v4-flash',
+    model: 'qwen3:1.7b',
     maxTokens: 1200,
     ...overrides,
   }
@@ -157,6 +157,13 @@ test('gateway refuses internal tokens shorter than 32 characters', () => {
   )
 })
 
+test('gateway rejects an unsupported model provider', () => {
+  assert.throws(
+    () => createGateway({ gatewayToken, modelProvider: 'unsupported' }),
+    /IOT_HARNESS_PROVIDER/,
+  )
+})
+
 test('manifest security ceiling rejects a write-capable tool', async () => {
   const root = await mkdtemp(join(tmpdir(), 'iot-harness-manifest-'))
   temporaryDirectories.push(root)
@@ -209,7 +216,7 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
       async close() {},
     }
   })
-  const response = await chat(baseUrl, requestBody())
+  const response = await chat(baseUrl, requestBody({ model: 'legacy-model' }))
   assert.equal(response.status, 200)
   const { payload, events } = await ndjson(response)
   assert.deepEqual(events.map(event => event.type), [
@@ -231,6 +238,8 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
   assert.doesNotMatch(payload, /SECRET_REASONING|SECRET_TOOL_RESULT|SECRET_LEGACY_RESULT|arguments/)
   assert.doesNotMatch(payload, /MUST_NOT_LEAK/)
   assert.equal(factorySpec.mcpToken, undefined)
+  assert.equal(factorySpec.provider, 'ollama')
+  assert.equal(factorySpec.model, 'qwen3:1.7b')
   assert.match(factorySpec.proxyMcpUrl, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   assert.equal(factorySpec.runtimeAccessKey.length, 43)
   assert.ok(factorySpec.plugin.persona.includes('AI 运维助手'))

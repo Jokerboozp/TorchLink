@@ -28,39 +28,42 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ## AI 与工作流
 
-本地和在线方案默认使用 DeepSeek：自动研判和 AI 工作流共用 `DEEPSEEK_API_KEY`，Harness 默认启动。首次生成配置后填写该 Key，再重跑部署脚本，使容器读取新值。可在配置文件中修改以下项目：
+在线和离线方案默认使用本地 Ollama `qwen3:1.7b`，Harness 默认启动。告警自动研判、规则辅助和 AI 工作流使用同一模型，不需要 API Key。默认配置为：
 
 ```dotenv
-IOT_AI_PROVIDER=deepseek
-IOT_AI_BASE_URL=https://api.deepseek.com
-IOT_AI_MODEL=deepseek-v4-flash
-DEEPSEEK_API_KEY=
+IOT_OLLAMA_URL=http://ollama:11434
+IOT_OLLAMA_MODEL=qwen3:1.7b
+IOT_AI_PROVIDER=ollama
+IOT_AI_BASE_URL=http://ollama:11434
+IOT_AI_MODEL=qwen3:1.7b
 IOT_AI_HARNESS_ENABLED=true
+IOT_AI_HARNESS_PROVIDER=ollama
+IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
+IOT_AI_HARNESS_CONTEXT_WINDOW=8192
+IOT_AI_HARNESS_MODEL=qwen3:1.7b
 ```
 
-`IOT_AI_API_KEY` 留空时，自动研判使用 `DEEPSEEK_API_KEY`；填写后只覆盖自动研判的密钥。将 `IOT_AI_HARNESS_ENABLED` 设为 `false` 并重跑脚本可关闭 Harness。命令行也保留 `--include-harness` / `-IncludeHarness` 和 `--no-harness` / `-NoHarness` 用于显式切换。
+自动研判使用 Ollama 原生地址，所以 `IOT_AI_BASE_URL` 不带 `/v1`；Harness 使用 OpenAI 兼容接口，所以 `IOT_AI_HARNESS_OLLAMA_BASE_URL` 必须带 `/v1`。修改模型时应同步 `IOT_OLLAMA_MODEL`、`IOT_AI_MODEL` 和 `IOT_AI_HARNESS_MODEL`。将 `IOT_AI_HARNESS_ENABLED` 设为 `false` 并重跑脚本可关闭 Harness。
 
 ### 本地 Ollama 对话模型
 
-三个准备入口 `setup-local`、`deploy-online`、`package-offline` 均支持 `-IncludeAi` / `--include-ai`，用于下载本地 Ollama 对话模型。
-
-以在线部署为例：
+在线脚本默认下载对话模型；离线打包脚本默认把模型数据写入离线包。本地源码调试若要从 DeepSeek 切换到本地 Ollama，仍可使用 `-IncludeAi` / `--include-ai`：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -IncludeAi
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1 -IncludeAi
 ```
 
 ```bash
-bash ./scripts/deploy-online.sh --include-ai
+bash ./scripts/setup-local.sh --include-ai
 ```
 
-默认额外下载 `qwen3:8b`。本地/在线脚本在 Provider 未启用或已为 Ollama 时启用本地模型；已配置远程 Provider 时保留它。在线环境可用 `IOT_OLLAMA_MODEL`（已有 Ollama 配置优先用 `IOT_AI_MODEL`）选择模型；本地与离线打包可用 `-OllamaModel` / `--ollama-model`。模型运行所需内存取决于所选模型。
+默认模型 `qwen3:1.7b` 的 Ollama 下载大小约 1.4 GB，在整套平台、数据库和消息组件同时运行的 8 GB 虚拟机上比 4B/8B 模型更稳妥。`qwen3:0.6b` 更小，但告警结构化输出和多步工具调用能力更弱。需要更强效果且内存充足时，可在配置或离线打包参数中改用更大模型。
 
-知识库嵌入模型 `nomic-embed-text` 始终准备，不需要 `IncludeAi`。Ollama Provider 用于告警研判等后端能力；“AI 工作流”页面的 Agent 对话另走 Harness。
+知识库嵌入模型 `nomic-embed-text` 始终准备。Ollama Provider 与 Harness 是两条调用链，但默认连接同一个 Ollama 服务和模型。
 
-需要改用本地 Ollama 对话模型时，使用 `-IncludeAi` / `--include-ai`；建议同时在配置中把 `IOT_AI_HARNESS_ENABLED` 改为 `false`。`--include-deepseek` 与 `--include-ai` 只能二选一。
+本地开发的 `--include-deepseek` 与 `--include-ai` 只能二选一。在线脚本上的 `IncludeAi` 参数仅用于把旧配置强制切回本地 Ollama，新配置无须传该参数。
 
-### DeepSeek Harness 工作流
+### AI 工作流 Harness
 
 在线和本地默认获取锁定的 Harness 源码并构建侧车，需要 Git 和网络。以下参数可用于把旧配置显式切回启用状态：
 
@@ -72,11 +75,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -IncludeHar
 bash ./scripts/deploy-online.sh --include-harness
 ```
 
-在对应环境文件设置 `DEEPSEEK_API_KEY`，再用相同命令运行脚本使配置生效。内部 Token、侧车 URL 和 MCP 回调地址由脚本准备。Harness 健康只说明运行时就绪；实际工作流仍需要可达的模型服务和有效 API Key。
-
-Harness 的模型地址使用独立变量 `DEEPSEEK_BASE_URL`，默认 `https://api.deepseek.com`。旧环境若通过 `IOT_AI_BASE_URL` 指定了 Harness 私有代理，请将该地址补到 `DEEPSEEK_BASE_URL`；`IOT_AI_BASE_URL` 继续用于后端告警 Provider。
-
-完全断网环境优先使用离线包内的 Ollama；带入 Harness 镜像不会让云端 DeepSeek API 离线可用。更多说明见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
+内部 Token、侧车 URL、Ollama 地址和 MCP 回调地址由脚本准备。Harness 健康表示运行时已就绪；部署脚本还会确认本地模型存在。完全断网时，模型调用只发生在 Compose 内部网络。更多说明见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
 
 ## 端口与地址
 

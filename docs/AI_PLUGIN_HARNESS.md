@@ -11,7 +11,7 @@ Web AI 工作台
           -> 租户绑定的只读 MCP 工具
 ```
 
-现有的 Eino/Provider 链路继续用于告警自动分析和规则草稿；Harness 工作流用于可追踪、可选插件的交互式助手。两者互不耦合，Provider 连接参数由服务端配置管理。
+Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可追踪、可选插件的交互式工作流。在线和离线部署默认把两条链路都指向 Ollama 的 `qwen3:1.7b`，因此所有 AI 功能共用同一个本地模型。
 
 ## 源码版本
 
@@ -43,7 +43,7 @@ Harness 源码不会复制进本仓库。`deploy/deepseek-harness/REVISION` 固�
   "version": "1.0.0",
   "enabled": true,
   "persona": "严格限定业务角色和禁止事项的系统提示",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "qwen3:1.7b",
   "maxTokens": 4096,
   "allowedTools": ["mcp__iot__query_device_latest"]
 }
@@ -89,11 +89,13 @@ Harness 的 reasoning 分片不会发给浏览器；工具事件只包含工具�
 在 `.env` 中配置：
 
 ```text
-DEEPSEEK_API_KEY=<your-api-key>
 IOT_AI_HARNESS_URL=http://deepseek-harness:8091
 IOT_AI_HARNESS_TOKEN=<至少 32 字节随机内部密钥>
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
-IOT_AI_HARNESS_MODEL=deepseek-v4-flash
+IOT_AI_HARNESS_PROVIDER=ollama
+IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
+IOT_AI_HARNESS_CONTEXT_WINDOW=8192
+IOT_AI_HARNESS_MODEL=qwen3:1.7b
 IOT_AI_HARNESS_TIMEOUT=90s
 ```
 
