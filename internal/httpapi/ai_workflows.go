@@ -18,13 +18,8 @@ import (
 )
 
 func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) {
-	analysis, err := s.engine.AnalyzeAlarm(r.Context(), claims(r).TenantID, r.PathValue("alarmId"))
-	if err != nil {
-		problem(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	s.audit(r, "ai.alarm-analysis.run", "alarm", analysis.AlarmID, map[string]any{"manual": true})
-	write(w, http.StatusOK, analysis)
+	job := s.startAIAnalysisJob(claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username)
+	write(w, http.StatusAccepted, aiAnalysisJobView(job))
 }
 
 func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) {

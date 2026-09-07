@@ -26,6 +26,13 @@ func NewOllama(baseURL, model string) (*Ollama, error) {
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, fmt.Errorf("Ollama base URL must be an absolute HTTP(S) URL")
 	}
+	if u.Path == "/v1" {
+		// Ollama's native API lives at /api; users often copy an OpenAI
+		// compatible /v1 base URL, so accept and normalize that suffix.
+		u.Path = ""
+		u.RawPath = ""
+		baseURL = strings.TrimRight(u.String(), "/")
+	}
 	if strings.TrimSpace(model) == "" {
 		return nil, fmt.Errorf("Ollama model is required")
 	}

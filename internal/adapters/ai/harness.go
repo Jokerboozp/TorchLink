@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"iot-platform/internal/ports"
@@ -22,11 +23,14 @@ const (
 )
 
 type HarnessClient struct {
-	baseURL string
-	token   string
-	mcpURL  string
-	model   string
-	client  *http.Client
+	mu          sync.RWMutex
+	configureMu sync.Mutex
+	baseURL     string
+	token       string
+	mcpURL      string
+	model       string
+	config      ports.AIPluginConfig
+	client      *http.Client
 }
 
 func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*HarnessClient, error) {
@@ -52,8 +56,103 @@ func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*H
 		token:   token,
 		mcpURL:  strings.TrimSpace(mcpURL),
 		model:   strings.TrimSpace(model),
+		config:  ports.AIPluginConfig{Provider: "ollama", Model: strings.TrimSpace(model)},
 		client:  &http.Client{Timeout: timeout},
 	}, nil
+}
+
+// ConfigureProvider updates the sidecar for subsequent workflow runs. The
+// gateway maps non-Ollama providers to its OpenAI-compatible DeepSeek runtime,
+// which also supports custom API-compatible endpoints through baseUrl.
+func (h *HarnessClient) ConfigureProvider(ctx context.Context, config ports.AIPluginConfig) error {
+	h.configureMu.Lock()
+	defer h.configureMu.Unlock()
+	provider := strings.ToLower(strings.TrimSpace(config.Provider))
+	switch provider {
+	case "ollama", "deepseek", "openai-compatible":
+	default:
+		return errors.New("AI workflow provider must be ollama, deepseek or openai-compatible")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
+	if err := validateHTTPURL(baseURL); err != nil {
+		return fmt.Errorf("invalid AI workflow provider URL: %w", err)
+	}
+	parsedBaseURL, err := url.Parse(baseURL)
+	if err != nil || parsedBaseURL.RawQuery != "" || parsedBaseURL.Fragment != "" {
+		return errors.New("AI workflow provider URL must not contain query parameters or fragments")
+	}
+	if provider == "ollama" && parsedBaseURL.Path == "/v1" {
+		// The direct Ollama adapter uses the native /api endpoints. Accept the
+		// common OpenAI-compatible suffix in the UI and normalize it before
+		// retaining the selected configuration.
+		parsedBaseURL.Path = ""
+		parsedBaseURL.RawPath = ""
+		baseURL = strings.TrimRight(parsedBaseURL.String(), "/")
+	}
+	model := strings.TrimSpace(config.Model)
+	if model == "" {
+		return errors.New("AI workflow model is required")
+	}
+	sidecarProvider := "ollama"
+	apiKey := strings.TrimSpace(config.APIKey)
+	if provider != "ollama" {
+		sidecarProvider = "deepseek-official"
+		if apiKey == "" {
+			return errors.New("AI workflow API key is required")
+		}
+	}
+	config.Provider = provider
+	config.BaseURL = baseURL
+	config.Model = model
+	config.APIKey = apiKey
+	// Harness uses the OpenAI-compatible endpoint while the direct Ollama
+	// client uses its native API. Keep the user-selected endpoint in h.config
+	// and add the compatibility path only for the sidecar request.
+	sidecarBaseURL := baseURL
+	if provider == "ollama" {
+		parsedHost := ""
+		if parsed, parseErr := url.Parse(baseURL); parseErr == nil {
+			parsedHost = strings.ToLower(parsed.Hostname())
+		}
+		// A loopback URL points at the API host from the user's perspective;
+		// inside Compose the equivalent service is named ollama. Users who run
+		// Ollama on another host can enter that host explicitly.
+		if parsedHost == "localhost" || parsedHost == "127.0.0.1" || parsedHost == "::1" {
+			sidecarBaseURL = "http://ollama:11434/v1"
+		} else if !strings.HasSuffix(sidecarBaseURL, "/v1") {
+			sidecarBaseURL += "/v1"
+		}
+	}
+	payload, err := json.Marshal(map[string]string{"provider": sidecarProvider, "baseUrl": sidecarBaseURL, "model": model, "apiKey": apiKey})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, h.baseURL+"/v1/provider", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	h.authorizeService(req)
+	res, err := h.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("configure AI workflow provider: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return fmt.Errorf("configure AI workflow provider: status %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
+	}
+	h.mu.Lock()
+	h.model = model
+	h.config = config
+	h.mu.Unlock()
+	return nil
+}
+
+func (h *HarnessClient) CurrentConfig() ports.AIPluginConfig {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.config
 }
 
 func validateHTTPURL(raw string) error {
@@ -212,8 +311,15 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	if in.ConversationID == "" {
 		in.ConversationID = in.RunID
 	}
-	if in.Model == "" {
-		in.Model = h.model
+	h.mu.RLock()
+	configuredModel := h.model
+	h.mu.RUnlock()
+	if configuredModel != "" {
+		// The provider selected in the platform settings is authoritative for
+		// every workflow; ignore stale per-run model overrides from the UI.
+		in.Model = configuredModel
+	} else if in.Model == "" {
+		in.Model = configuredModel
 	}
 	if in.MCPURL == "" {
 		in.MCPURL = h.mcpURL
@@ -334,3 +440,4 @@ func AllowedWorkflowEvent(eventType string) bool {
 var _ ports.AIWorkflowRuntime = (*HarnessClient)(nil)
 var _ ports.AIWorkflowManager = (*HarnessClient)(nil)
 var _ ports.AIWorkflowAdminManager = (*HarnessClient)(nil)
+var _ ports.AIWorkflowProviderRuntime = (*HarnessClient)(nil)

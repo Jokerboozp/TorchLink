@@ -49,6 +49,7 @@ const BODY_KEYS = new Set([
   'model',
   'maxTokens',
 ])
+const PROVIDER_KEYS = new Set(['provider', 'baseUrl', 'model', 'apiKey'])
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/
 const CAPABILITY_PATTERN = /^[^\u0000-\u001f\u007f]{1,64}$/u
@@ -353,6 +354,40 @@ function toolResultFailed(data) {
   return Array.isArray(content) && content.some(item => item !== null && typeof item === 'object' && item.isError === true)
 }
 
+function validatedProviderConfig(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new HttpError(422, 'INVALID_REQUEST', 'provider configuration must be an object')
+  }
+  const unknown = Object.keys(raw).filter(key => !PROVIDER_KEYS.has(key))
+  if (unknown.length > 0) throw new HttpError(422, 'INVALID_REQUEST', `unknown field(s): ${unknown.join(', ')}`)
+  const provider = text(raw.provider, 'provider', 64).trim().toLowerCase()
+  if (!['ollama', 'deepseek-official'].includes(provider)) {
+    throw new HttpError(422, 'PROVIDER_INVALID', 'provider must be ollama or deepseek-official')
+  }
+  const model = text(raw.model, 'model', 128).trim()
+  if (!MODEL_PATTERN.test(model)) throw new HttpError(422, 'INVALID_REQUEST', 'model has an invalid format')
+  const baseUrl = text(raw.baseUrl, 'baseUrl', 2048).trim()
+  let parsed
+  try { parsed = new URL(baseUrl) } catch { throw new HttpError(422, 'BASE_URL_INVALID', 'baseUrl must be an absolute HTTP(S) URL') }
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
+    throw new HttpError(422, 'BASE_URL_INVALID', 'baseUrl must be an HTTP(S) URL without credentials or query parameters')
+  }
+  const apiKey = typeof raw.apiKey === 'string' ? raw.apiKey.trim() : ''
+  if (provider === 'deepseek-official' && apiKey === '') {
+    throw new HttpError(422, 'API_KEY_REQUIRED', 'apiKey is required for API providers')
+  }
+  return { provider, baseUrl: parsed.href.replace(/\/$/, ''), model, apiKey }
+}
+
+function publicProviderConfig(provider, baseUrl, model, apiKey) {
+  return {
+    provider,
+    baseUrl,
+    model,
+    apiKeyConfigured: provider !== 'ollama' && typeof apiKey === 'string' && apiKey.trim() !== '',
+  }
+}
+
 function toolResultText(data) {
   if (typeof data?.result === 'string') return data.result
   if (data?.result !== null && typeof data?.result === 'object') return JSON.stringify(data.result)
@@ -513,6 +548,14 @@ function childEnvironment(spec) {
   environment.IOT_HARNESS_SESSION_ROOT = spec.sessionRoot
   environment.IOT_OPS_PERSONA = spec.plugin.persona
   environment.IOT_ALLOWED_TOOLS_JSON = JSON.stringify(spec.plugin.allowedTools)
+  if (spec.provider === 'ollama') {
+    environment.IOT_HARNESS_OLLAMA_BASE_URL = spec.baseUrl
+    environment.IOT_HARNESS_OLLAMA_API_KEY = spec.apiKey || 'ollama'
+  } else {
+    environment.DEEPSEEK_BASE_URL = spec.baseUrl
+    environment.DEEPSEEK_API_KEY = spec.apiKey
+  }
+  environment.IOT_HARNESS_MODEL = spec.model
   return environment
 }
 
@@ -582,17 +625,30 @@ export function createGateway(options = {}) {
   const allowedOrigins = configuredOrigins(
     options.allowedMcpOrigins ?? process.env.IOT_HARNESS_MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ORIGINS,
   )
-  const modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'ollama'
+  let modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'ollama'
   if (!['deepseek-official', 'ollama'].includes(modelProvider)) {
     throw new Error('IOT_HARNESS_PROVIDER must be deepseek-official or ollama')
   }
-  const configuredModel = options.model
+  let configuredModel = options.model
     ?? process.env.IOT_HARNESS_MODEL
     ?? process.env.IOT_AI_HARNESS_MODEL
     ?? 'qwen3:1.7b'
-  if (typeof configuredModel !== 'string' || !MODEL_PATTERN.test(configuredModel)) {
+  if (typeof configuredModel !== 'string' || !MODEL_PATTERN.test(configuredModel.trim())) {
     throw new Error('IOT_HARNESS_MODEL must contain a valid model name')
   }
+  configuredModel = configuredModel.trim()
+  let configuredBaseURL = options.baseURL
+    ?? (modelProvider === 'ollama'
+      ? process.env.IOT_HARNESS_OLLAMA_BASE_URL
+      : process.env.DEEPSEEK_BASE_URL)
+    ?? (modelProvider === 'ollama' ? 'http://ollama:11434/v1' : 'https://api.deepseek.com')
+  let configuredAPIKey = options.apiKey
+    ?? (modelProvider === 'ollama'
+      ? process.env.IOT_HARNESS_OLLAMA_API_KEY
+      : process.env.DEEPSEEK_API_KEY)
+    ?? (modelProvider === 'ollama' ? 'ollama' : '')
+  configuredBaseURL = typeof configuredBaseURL === 'string' ? configuredBaseURL.trim().replace(/\/$/, '') : configuredBaseURL
+  configuredAPIKey = typeof configuredAPIKey === 'string' ? configuredAPIKey.trim() : ''
   const maximumBodyBytes = integerOption(options.maximumBodyBytes, 32768, 'maximumBodyBytes', 1024, 1048576)
   const maxConcurrency = integerOption(
     options.maxConcurrency ?? process.env.IOT_HARNESS_MAX_CONCURRENCY,
@@ -733,6 +789,8 @@ export function createGateway(options = {}) {
         harness = await harnessFactory({
           ...run,
           provider: modelProvider,
+          baseUrl: configuredBaseURL,
+          apiKey: configuredAPIKey,
           runtimeBin,
           sdkClientModule,
           patchFile,
@@ -802,11 +860,28 @@ export function createGateway(options = {}) {
         mcpProxy: proxyServer.listening ? 'ready' : 'not-ready',
         modelProvider,
         model: configuredModel,
-        deepseekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),
+        deepseekConfigured: modelProvider === 'deepseek-official' && Boolean(configuredAPIKey),
       })
     } catch {
       json(response, 503, { status: 'not-ready' })
     }
+  }
+
+  const handleProviderConfig = async (request, response) => {
+    requireGatewayToken(request)
+    if (request.method === 'GET') {
+      json(response, 200, publicProviderConfig(modelProvider, configuredBaseURL, configuredModel, configuredAPIKey))
+      return
+    }
+    if (request.method !== 'PUT') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'method is not allowed')
+    if (activeRuns.size > 0) throw new HttpError(409, 'RUNS_ACTIVE', 'wait for active workflow runs to finish before changing the provider')
+    const candidate = validatedProviderConfig(await readJson(request, maximumBodyBytes))
+    modelProvider = candidate.provider
+    configuredBaseURL = candidate.baseUrl
+    configuredModel = candidate.model
+    configuredAPIKey = candidate.apiKey
+    await Promise.all([...conversations.entries()].map(([key, entry]) => closeEntry(key, entry)))
+    json(response, 200, publicProviderConfig(modelProvider, configuredBaseURL, configuredModel, configuredAPIKey))
   }
 
   const handlePlugins = async (request, response) => {
@@ -876,7 +951,7 @@ export function createGateway(options = {}) {
       await readJson(request, maximumBodyBytes),
       plugins,
       allowedOrigins,
-      modelProvider === 'ollama' ? configuredModel : undefined,
+      configuredModel,
     )
     const cacheKey = run.conversationId
     if (reservedRunIds.has(run.runId)) throw new HttpError(409, 'RUN_ALREADY_ACTIVE', 'runId is already active')
@@ -996,6 +1071,7 @@ export function createGateway(options = {}) {
     const url = new URL(request.url ?? '/', 'http://gateway.invalid')
     if (url.search !== '') throw new HttpError(400, 'QUERY_NOT_ALLOWED', 'query parameters are not supported')
     if (request.method === 'GET' && url.pathname === '/health') return handleHealth(response)
+    if (['GET', 'PUT', 'POST', 'DELETE'].includes(request.method) && url.pathname === '/v1/provider') return handleProviderConfig(request, response)
     if (request.method === 'GET' && url.pathname === '/v1/plugins/admin') return handleAdminPlugins(request, response)
     if (request.method === 'GET' && url.pathname === '/v1/plugins') return handlePlugins(request, response)
     if (request.method === 'POST' && url.pathname === '/v1/plugins') return handleSavePlugin(request, response)

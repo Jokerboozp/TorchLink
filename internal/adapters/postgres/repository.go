@@ -1303,6 +1303,36 @@ func (r *Repository) SaveAIToolCall(ctx context.Context, v model.AIToolCallLog) 
 	_, err := r.pool.Exec(ctx, `INSERT INTO ai_tool_call_log(tenant_id,actor,tool,trace_id,input,output,success,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,to_timestamp($8::double precision/1000))`, v.TenantID, v.Actor, v.Tool, v.ID, in, out, v.Success, v.CreatedAt)
 	return err
 }
+func (r *Repository) LoadAIProviderConfig(ctx context.Context) (ports.AIPluginConfig, bool, error) {
+	var provider, modelName string
+	var raw []byte
+	err := r.pool.QueryRow(ctx, `SELECT provider,model,config FROM ai_model_config WHERE id='__active__' AND enabled=true`).Scan(&provider, &modelName, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.AIPluginConfig{}, false, nil
+	}
+	if err != nil {
+		return ports.AIPluginConfig{}, false, err
+	}
+	var values struct {
+		BaseURL string `json:"baseUrl"`
+		APIKey  string `json:"apiKey"`
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &values); err != nil {
+			return ports.AIPluginConfig{}, false, err
+		}
+	}
+	return ports.AIPluginConfig{Provider: provider, BaseURL: values.BaseURL, Model: modelName, APIKey: values.APIKey}, true, nil
+}
+func (r *Repository) SaveAIProviderConfig(ctx context.Context, v ports.AIPluginConfig) error {
+	raw, _ := json.Marshal(map[string]string{"baseUrl": v.BaseURL, "apiKey": v.APIKey})
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO ai_model_config(id,tenant_id,provider,model,config,enabled,updated_at)
+		VALUES('__active__','__global__',$1,$2,$3,true,now())
+		ON CONFLICT(id) DO UPDATE SET tenant_id=EXCLUDED.tenant_id,provider=EXCLUDED.provider,model=EXCLUDED.model,config=EXCLUDED.config,enabled=true,updated_at=now()
+	`, v.Provider, v.Model, raw)
+	return err
+}
 func (r *Repository) Health(ctx context.Context) error { return r.pool.Ping(ctx) }
 func (r *Repository) Close() error                     { r.pool.Close(); return nil }
 

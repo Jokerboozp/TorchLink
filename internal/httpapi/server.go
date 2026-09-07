@@ -47,8 +47,15 @@ type Server struct {
 	metrics               *metrics.Registry
 	log                   *slog.Logger
 	router                *gin.Engine
+	aiProviderRuntime     ports.AIProviderRuntime
+	aiProviderStore       ports.AIProviderConfigStore
+	aiWorkflowProvider    ports.AIWorkflowProviderRuntime
+	aiProviderUpdateMu    sync.Mutex
 	healthInspectionMu    sync.RWMutex
 	healthInspectionCache map[string]healthInspectionSnapshot
+	aiAnalysisMu          sync.RWMutex
+	aiAnalysisJobs        map[string]*aiAnalysisJob
+	aiAnalysisEstimateMs  int64
 	protocolListeners     protocolCommander
 }
 
@@ -72,12 +79,27 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		log:                   log,
 		router:                router,
 		healthInspectionCache: make(map[string]healthInspectionSnapshot),
+		aiAnalysisJobs:        make(map[string]*aiAnalysisJob),
+		aiAnalysisEstimateMs:  45000,
 	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()
 	return s
 }
 func (s *Server) Handler() http.Handler { return s.router }
+
+func (s *Server) SetAIProviderRuntime(runtime ports.AIProviderRuntime) {
+	s.aiProviderRuntime = runtime
+}
+
+func (s *Server) SetAIProviderStore(store ports.AIProviderConfigStore) {
+	s.aiProviderStore = store
+}
+
+func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) {
+	s.aiWorkflowProvider = runtime
+}
+
 func (s *Server) routes() {
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))
 	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) }))
@@ -152,12 +174,15 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/backups", s.authorize("admin"), s.endpoint(s.runBackup))
 	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId", s.authorize("viewer"), s.endpoint(s.aiAnalysis, "alarmId"))
 	s.router.POST("/api/v1/ai/alarm-analysis/:alarmId/run", s.authorize("operator"), s.endpoint(s.runAIAlarmAnalysis, "alarmId"))
+	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress/:jobId", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId", "jobId"))
 	s.router.POST("/api/v1/ai/health-inspection", s.authorize("viewer"), s.endpoint(s.healthInspection))
 	s.router.POST("/api/v1/ai/health-inspection/pdf", s.authorize("viewer"), s.endpoint(s.healthInspectionPDF))
 	s.router.POST("/api/v1/ai/protocol-assistant/generate", s.authorize("operator"), s.endpoint(s.generateProtocolAssistant))
 	s.router.POST("/api/v1/ai/protocol-assistant/preview", s.authorize("operator"), s.endpoint(s.previewProtocolAssistant))
 	s.router.POST("/api/v1/ai/protocol-assistant/publish", s.authorize("operator"), s.endpoint(s.publishProtocolAssistant))
 	s.router.GET("/api/v1/ai/providers", s.authorize("viewer"), s.endpoint(s.aiProviders))
+	s.router.GET("/api/v1/ai/providers/config", s.authorize("viewer"), s.endpoint(s.aiProviderConfig))
+	s.router.PUT("/api/v1/ai/providers/config", s.authorize("admin"), s.endpoint(s.updateAIProviderConfig))
 	s.router.POST("/api/v1/ai/providers/test", s.authorize("admin"), s.endpoint(s.testAIProvider))
 	s.router.GET("/api/v1/ai/workflows", s.authorize("viewer"), s.endpoint(s.aiWorkflows))
 	s.router.GET("/api/v1/ai/workflows/admin", s.authorize("admin"), s.endpoint(s.aiWorkflowManifests))
@@ -1229,8 +1254,179 @@ func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) {
 	}
 	active.DefaultBaseURL = ""
 	items, total := pageItems(items, pagination)
-	writeList(w, 200, items, total, pagination, map[string]any{"active": active, "healthy": healthy, "healthMessage": healthMessage, "mode": "plugin-harness"})
+	meta := map[string]any{"active": active, "healthy": healthy, "healthMessage": healthMessage, "mode": "plugin-harness"}
+	if s.aiProviderRuntime != nil {
+		meta["config"] = s.aiProviderConfigView(r, s.aiProviderRuntime.CurrentConfig(), active)
+	}
+	writeList(w, 200, items, total, pagination, meta)
 }
+
+func (s *Server) aiProviderConfigView(r *http.Request, config ports.AIPluginConfig, info ports.AIPluginInfo) map[string]any {
+	key := strings.TrimSpace(config.APIKey)
+	view := map[string]any{
+		"provider":         config.Provider,
+		"providerName":     info.Name,
+		"model":            config.Model,
+		"apiKeyConfigured": key != "",
+		"active":           info.Enabled,
+	}
+	if claims(r).Role == "admin" {
+		view["baseUrl"] = config.BaseURL
+		if key != "" {
+			view["apiKeyHint"] = key[:minInt(len(key), 4)] + "***"
+		}
+	}
+	return view
+}
+
+func (s *Server) aiProviderConfig(w http.ResponseWriter, r *http.Request) {
+	if s.aiProviderRuntime == nil {
+		problem(w, http.StatusServiceUnavailable, "AI provider runtime is unavailable")
+		return
+	}
+	info := s.aiProviderRuntime.ProviderInfo()
+	write(w, http.StatusOK, s.aiProviderConfigView(r, s.aiProviderRuntime.CurrentConfig(), info))
+}
+
+func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) {
+	if s.aiProviderRuntime == nil {
+		problem(w, http.StatusServiceUnavailable, "AI provider runtime is unavailable")
+		return
+	}
+	s.aiProviderUpdateMu.Lock()
+	defer s.aiProviderUpdateMu.Unlock()
+	var in struct {
+		Provider string  `json:"provider"`
+		BaseURL  string  `json:"baseUrl"`
+		Model    string  `json:"model"`
+		APIKey   *string `json:"apiKey"`
+	}
+	if decode(w, r, &in) != nil {
+		return
+	}
+	provider := strings.ToLower(strings.TrimSpace(in.Provider))
+	if provider != "ollama" && provider != "deepseek" && provider != "openai-compatible" {
+		problem(w, http.StatusUnprocessableEntity, "provider must be ollama, deepseek or openai-compatible")
+		return
+	}
+	current := s.aiProviderRuntime.CurrentConfig()
+	baseURL := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/")
+	if baseURL == "" {
+		if provider == "ollama" {
+			baseURL = strings.TrimRight(strings.TrimSpace(s.cfg.AITestOllamaURL), "/")
+		} else if provider == "deepseek" {
+			baseURL = "https://api.deepseek.com"
+		}
+	}
+	if err := validateAIProviderURL(baseURL); err != nil {
+		problem(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if len([]rune(baseURL)) > 2048 {
+		problem(w, http.StatusUnprocessableEntity, "baseUrl 不能超过 2048 个字符")
+		return
+	}
+	if provider == "ollama" {
+		if parsed, parseErr := url.Parse(baseURL); parseErr == nil && parsed.Path == "/v1" {
+			parsed.Path = ""
+			parsed.RawPath = ""
+			baseURL = strings.TrimRight(parsed.String(), "/")
+		}
+	}
+	modelName := strings.TrimSpace(in.Model)
+	if modelName == "" {
+		if provider == current.Provider {
+			modelName = current.Model
+		}
+		if modelName == "" && s.engine.AIPlugins != nil {
+			for _, item := range s.engine.AIPlugins.List() {
+				if item.ID == provider {
+					modelName = item.DefaultModel
+					break
+				}
+			}
+		}
+	}
+	if !validAIModelName(modelName) {
+		problem(w, http.StatusUnprocessableEntity, "model 名称只能以字母或数字开头，并包含字母、数字、点、冒号、斜线、下划线或短横线")
+		return
+	}
+	apiKey := ""
+	if in.APIKey != nil {
+		apiKey = strings.TrimSpace(*in.APIKey)
+	} else if provider == current.Provider {
+		apiKey = current.APIKey
+	}
+	if provider != "ollama" && apiKey == "" {
+		problem(w, http.StatusUnprocessableEntity, "API Provider 必须填写 API Key")
+		return
+	}
+	candidate := ports.AIPluginConfig{Provider: provider, BaseURL: baseURL, Model: modelName, APIKey: apiKey}
+	configureCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	if err := s.aiProviderRuntime.Configure(configureCtx, candidate); err != nil {
+		problem(w, http.StatusBadGateway, "AI Provider 连接测试失败，请检查地址、模型和凭据")
+		return
+	}
+	if s.aiWorkflowProvider != nil {
+		if err := s.aiWorkflowProvider.ConfigureProvider(configureCtx, candidate); err != nil {
+			// Restore the previous direct provider when the workflow sidecar
+			// rejects the same configuration, keeping both AI paths aligned.
+			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 20*time.Second)
+			_ = s.aiProviderRuntime.Configure(rollbackCtx, current)
+			rollbackCancel()
+			problem(w, http.StatusBadGateway, "AI Workflow Harness 更新失败，Provider 未切换")
+			return
+		}
+	}
+	if s.aiProviderStore != nil {
+		persistCtx, persistCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		err := s.aiProviderStore.SaveAIProviderConfig(persistCtx, candidate)
+		persistCancel()
+		if err != nil {
+			if s.log != nil {
+				s.log.Error("persist AI provider config", "provider", provider, "model", modelName, "error", err)
+			}
+			problem(w, http.StatusInternalServerError, "Provider 已生效，但配置保存失败")
+			return
+		}
+	}
+	s.audit(r, "ai.provider.update", "ai-provider", provider, map[string]any{"model": modelName, "apiKeyConfigured": apiKey != ""})
+	info := s.aiProviderRuntime.ProviderInfo()
+	write(w, http.StatusOK, s.aiProviderConfigView(r, candidate, info))
+}
+
+func validateAIProviderURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return errors.New("baseUrl 必须是没有凭据、查询参数或片段的 HTTP(S) 地址")
+	}
+	return nil
+}
+
+func minInt(left, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func validAIModelName(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len([]rune(value)) > 128 {
+		return false
+	}
+	for index, char := range value {
+		if index == 0 && !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9')) {
+			return false
+		}
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("._:/-", char)) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ports.AIPluginConfig
@@ -1718,6 +1914,13 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	}
 	if len(question) > 8000 {
 		return ports.AIWorkflowResult{}, errors.New("question exceeds 8000 bytes")
+	}
+	if s.aiProviderRuntime != nil {
+		// The selected Provider owns the model for every AI surface. Keep the
+		// browser's run form from sending a stale per-workflow model override.
+		if configuredModel := strings.TrimSpace(s.aiProviderRuntime.CurrentConfig().Model); configuredModel != "" {
+			modelName = configuredModel
+		}
 	}
 	knowledgeQuestion := question
 	runID := "ai_run_" + randomHex(10)

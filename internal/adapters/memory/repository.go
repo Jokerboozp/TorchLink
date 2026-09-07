@@ -35,6 +35,7 @@ type Repository struct {
 	replays             map[string]model.ReplayRequest
 	audits              []model.AuditLog
 	aiToolCalls         []model.AIToolCallLog
+	aiProviderConfig    *ports.AIPluginConfig
 	products            map[string]model.Product
 	protocols           map[string]model.ProtocolPackage
 	protocolDefinitions map[string]model.ProtocolDefinition
@@ -986,6 +987,21 @@ func (r *Repository) SaveAIToolCall(_ context.Context, v model.AIToolCallLog) er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.aiToolCalls = append(r.aiToolCalls, clone(v))
+	return nil
+}
+func (r *Repository) LoadAIProviderConfig(_ context.Context) (ports.AIPluginConfig, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.aiProviderConfig == nil {
+		return ports.AIPluginConfig{}, false, nil
+	}
+	return *r.aiProviderConfig, true, nil
+}
+func (r *Repository) SaveAIProviderConfig(_ context.Context, v ports.AIPluginConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	copy := v
+	r.aiProviderConfig = &copy
 	return nil
 }
 func (r *Repository) Health(context.Context) error { return nil }

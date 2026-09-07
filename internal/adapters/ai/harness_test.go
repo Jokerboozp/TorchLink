@@ -119,3 +119,49 @@ func TestHarnessClientRejectsWeakServiceToken(t *testing.T) {
 		t.Fatal("weak harness service token was accepted")
 	}
 }
+
+func TestHarnessClientConfiguresSelectedProvider(t *testing.T) {
+	const serviceToken = "0123456789abcdef0123456789abcdef"
+	var payload map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/v1/provider" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("X-IOT-Harness-Token") != serviceToken {
+			t.Errorf("missing service credential: %q", r.Header.Get("X-IOT-Harness-Token"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"provider": payload["provider"], "baseUrl": payload["baseUrl"], "model": payload["model"]})
+	}))
+	defer server.Close()
+	client, err := NewHarness(server.URL, serviceToken, "https://api.example/mcp/harness", "qwen3:1.7b", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://192.168.24.133:11434", Model: "qwen3:1.7b"}
+	if err := client.ConfigureProvider(context.Background(), selected); err != nil {
+		t.Fatal(err)
+	}
+	if payload["provider"] != "ollama" || payload["baseUrl"] != "http://192.168.24.133:11434/v1" || payload["model"] != selected.Model {
+		t.Fatalf("unexpected sidecar provider payload: %#v", payload)
+	}
+	if got := client.CurrentConfig(); got != selected {
+		t.Fatalf("selected provider was not retained: %#v", got)
+	}
+	withV1 := ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://192.168.24.133:11434/v1", Model: "qwen3:1.7b"}
+	if err := client.ConfigureProvider(context.Background(), withV1); err != nil {
+		t.Fatal(err)
+	}
+	if payload["baseUrl"] != "http://192.168.24.133:11434/v1" || client.CurrentConfig().BaseURL != "http://192.168.24.133:11434" {
+		t.Fatalf("Ollama /v1 suffix was not normalized: payload=%#v config=%#v", payload, client.CurrentConfig())
+	}
+	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", APIKey: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if payload["provider"] != "deepseek-official" || payload["baseUrl"] != "https://api.deepseek.com" || payload["apiKey"] != "secret" {
+		t.Fatalf("unexpected DeepSeek sidecar provider payload: %#v", payload)
+	}
+}

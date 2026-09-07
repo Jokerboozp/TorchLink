@@ -203,6 +203,32 @@ type AIPluginRegistry interface {
 	Create(AIPluginConfig) (AIClient, error)
 }
 
+// AIProviderRuntime is the live provider selected for all Eino based AI
+// operations.  The implementation swaps the client atomically so a provider
+// change made by an administrator applies to new requests without restarting
+// the API process.
+type AIProviderRuntime interface {
+	AIClient
+	AIInspectable
+	CurrentConfig() AIPluginConfig
+	Configure(context.Context, AIPluginConfig) error
+}
+
+// AIWorkflowProviderRuntime keeps the Harness sidecar's model provider in
+// sync with the platform provider.  Implementations may reject a change while
+// an active workflow is still using the sidecar.
+type AIWorkflowProviderRuntime interface {
+	ConfigureProvider(context.Context, AIPluginConfig) error
+}
+
+// AIProviderConfigStore persists the selected provider independently from the
+// process environment.  The store is deliberately small because the active
+// provider is a single platform-wide setting; API responses redact API keys.
+type AIProviderConfigStore interface {
+	LoadAIProviderConfig(context.Context) (AIPluginConfig, bool, error)
+	SaveAIProviderConfig(context.Context, AIPluginConfig) error
+}
+
 // AIWorkflowPlugin describes a business workflow exposed by an external AI
 // runtime. Provider plugins and workflow plugins deliberately use separate
 // contracts: providers generate text, workflows may orchestrate read-only MCP

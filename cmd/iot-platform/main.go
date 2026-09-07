@@ -46,6 +46,10 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	var repo ports.Repository = memory.NewRepository()
+	var aiProviderStore ports.AIProviderConfigStore
+	if store, ok := repo.(ports.AIProviderConfigStore); ok {
+		aiProviderStore = store
+	}
 	var postgresRaw, clickHouseRaw ports.RawMessageDatabase
 	if raw, ok := repo.(ports.RawMessageDatabase); ok {
 		postgresRaw = raw
@@ -54,6 +58,9 @@ func main() {
 		r, err := postgres.New(ctx, cfg.PostgresDSN)
 		fatal(log, "initialize postgres", err)
 		repo = r
+		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
+			aiProviderStore = store
+		}
 		postgresRaw = r
 		log.Info("repository enabled", "adapter", "postgres")
 	}
@@ -146,16 +153,68 @@ func main() {
 			providerConfig.Model = cfg.OllamaModel
 		}
 	}
-	baseAI, providerErr := aiPlugins.Create(providerConfig)
+	if aiProviderStore != nil {
+		if persisted, found, err := aiProviderStore.LoadAIProviderConfig(ctx); err != nil {
+			log.Warn("load persisted AI provider config", "error", err)
+		} else if found {
+			providerConfig = persisted
+			log.Info("restored persisted AI provider", "provider", providerConfig.Provider, "model", providerConfig.Model)
+		}
+	}
+	// Older installations may have an activity row without the newer baseUrl
+	// field. Fill only missing defaults so a persisted selection remains usable.
+	if providerConfig.Provider == "ollama" {
+		if providerConfig.BaseURL == "" {
+			providerConfig.BaseURL = cfg.OllamaURL
+		}
+		if providerConfig.Model == "" {
+			providerConfig.Model = cfg.OllamaModel
+		}
+	} else if providerConfig.Provider == "deepseek" {
+		if providerConfig.BaseURL == "" {
+			providerConfig.BaseURL = cfg.AIBaseURL
+			if providerConfig.BaseURL == "" {
+				providerConfig.BaseURL = "https://api.deepseek.com"
+			}
+		}
+		if providerConfig.Model == "" {
+			for _, item := range aiPlugins.List() {
+				if item.ID == "deepseek" {
+					providerConfig.Model = item.DefaultModel
+					break
+				}
+			}
+		}
+		if providerConfig.APIKey == "" {
+			providerConfig.APIKey = cfg.AIAPIKey
+		}
+	}
+	runtimeAI, providerErr := aiadapter.NewRuntimeProvider(aiPlugins, providerConfig)
 	fatal(log, "initialize AI provider plugin", providerErr)
-	einoAI, einoErr := aiadapter.NewEino(ctx, baseAI)
+	einoAI, einoErr := aiadapter.NewEino(ctx, runtimeAI)
 	fatal(log, "initialize Eino AI workflows", einoErr)
 	engine.AI = einoAI
+	var harness *aiadapter.HarnessClient
 	if cfg.AIHarnessURL != "" {
-		harness, harnessErr := aiadapter.NewHarness(cfg.AIHarnessURL, cfg.AIHarnessToken, cfg.AIHarnessMCPURL, cfg.AIHarnessModel, cfg.AIHarnessTimeout)
+		harnessModel := cfg.AIHarnessModel
+		if providerConfig.Model != "" {
+			harnessModel = providerConfig.Model
+		}
+		var harnessErr error
+		harness, harnessErr = aiadapter.NewHarness(cfg.AIHarnessURL, cfg.AIHarnessToken, cfg.AIHarnessMCPURL, harnessModel, cfg.AIHarnessTimeout)
 		fatal(log, "initialize AI workflow harness", harnessErr)
+		configureCtx, configureCancel := context.WithTimeout(ctx, 20*time.Second)
+		harnessErr = harness.ConfigureProvider(configureCtx, providerConfig)
+		configureCancel()
+		if harnessErr != nil {
+			// Compose starts the Harness sidecar after the API so it can call the
+			// platform MCP endpoint. Do not make API startup depend on that
+			// ordering; retry in the background until the sidecar is ready.
+			log.Warn("AI workflow provider synchronization deferred", "error", harnessErr)
+			go retryHarnessProvider(ctx, runtimeAI, harness, log)
+		}
 		engine.AIWorkflows = harness
-		log.Info("AI workflow harness enabled", "url", cfg.AIHarnessURL, "model", cfg.AIHarnessModel)
+		log.Info("AI workflow harness enabled", "url", cfg.AIHarnessURL, "model", providerConfig.Model)
 	}
 	if cfg.WeaviateURL != "" {
 		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL)
@@ -183,6 +242,11 @@ func main() {
 		}))
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	api.SetAIProviderRuntime(runtimeAI)
+	api.SetAIProviderStore(aiProviderStore)
+	if harness != nil {
+		api.SetAIWorkflowProvider(harness)
+	}
 	api.SetProtocolListeners(protocolListeners)
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute}
 	go func() {
@@ -221,6 +285,33 @@ func fatal(log *slog.Logger, msg string, err error) {
 		os.Exit(1)
 	}
 }
+
+func retryHarnessProvider(ctx context.Context, runtimeAI ports.AIProviderRuntime, harness *aiadapter.HarnessClient, log *slog.Logger) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			target := runtimeAI.CurrentConfig()
+			configureCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			err := harness.ConfigureProvider(configureCtx, target)
+			cancel()
+			if err == nil {
+				// A UI update may have arrived while the sidecar request was in
+				// flight. Reconcile the newest selection before returning so an
+				// older retry can never leave the Harness on stale settings.
+				if runtimeAI.CurrentConfig() != target {
+					continue
+				}
+				log.Info("AI workflow provider synchronized", "provider", target.Provider, "model", target.Model)
+				return
+			}
+		}
+	}
+}
+
 func hostname() string {
 	v, err := os.Hostname()
 	if err != nil {

@@ -164,6 +164,43 @@ test('gateway rejects an unsupported model provider', () => {
   )
 })
 
+test('provider endpoint switches the resident runtime and redacts API keys', async () => {
+  let factorySpec
+  const { baseUrl } = await startGateway(async spec => {
+    factorySpec = spec
+    return { run: async () => result('provider switched'), close: async () => {} }
+  })
+  const initial = await fetch(`${baseUrl}/v1/provider`, { headers: { 'x-iot-harness-token': gatewayToken } })
+  assert.equal(initial.status, 200)
+  assert.deepEqual(await initial.json(), {
+    provider: 'ollama',
+    baseUrl: 'http://ollama:11434/v1',
+    model: 'qwen3:1.7b',
+    apiKeyConfigured: false,
+  })
+  const updated = await fetch(`${baseUrl}/v1/provider`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-iot-harness-token': gatewayToken },
+    body: JSON.stringify({ provider: 'deepseek-official', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: 'provider-test-key' }),
+  })
+  assert.equal(updated.status, 200)
+  const updatedBody = await updated.json()
+  assert.deepEqual(updatedBody, {
+    provider: 'deepseek-official',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    apiKeyConfigured: true,
+  })
+  assert.equal(updatedBody.apiKey, undefined)
+  const response = await chat(baseUrl, requestBody({ runId: 'provider-switched', model: 'legacy-model' }))
+  assert.equal(response.status, 200)
+  await response.text()
+  assert.equal(factorySpec.provider, 'deepseek-official')
+  assert.equal(factorySpec.baseUrl, 'https://api.deepseek.com')
+  assert.equal(factorySpec.model, 'deepseek-chat')
+  assert.equal(factorySpec.apiKey, 'provider-test-key')
+})
+
 test('manifest security ceiling rejects a write-capable tool', async () => {
   const root = await mkdtemp(join(tmpdir(), 'iot-harness-manifest-'))
   temporaryDirectories.push(root)

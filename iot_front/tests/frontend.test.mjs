@@ -113,7 +113,7 @@ test('long dialogs keep the viewport fixed and scroll within the dialog body', a
 
 test('camera metadata and AI provider playground remain available', async () => {
   const source = await sourceText()
-  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', 'DEEPSEEK HARNESS', 'AI 工作流', '运行轨迹', '工具调用']) {
+  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', 'AI PROVIDER / HARNESS', 'AI 工作流', '运行轨迹', '工具调用']) {
     assert.match(source, new RegExp(label), `missing feature label: ${label}`)
   }
   const cameraView = await readFile(new URL('src/views/CameraMappingsView.vue', root), 'utf8')
@@ -269,7 +269,7 @@ test('health inspection report survives menu-driven view recreation and stays te
   assert.equal(values.has(healthInspectionStorageKey(session)), false)
 })
 
-test('Agent management is standalone and Provider testing is removed from the AI workbench', async () => {
+test('Agent management and the active Provider editor are standalone AI controls', async () => {
   const app = await readFile(new URL('src/App.vue', root), 'utf8')
   const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
   const knowledgeView = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
@@ -277,6 +277,9 @@ test('Agent management is standalone and Provider testing is removed from the AI
   assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑 Agent' : '新建 Agent'"/)
   assert.match(aiView, /function cancelAgentEditor\(\)/)
   assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/)
+  assert.match(aiView, /\/api\/v1\/ai\/providers\/config/)
+  assert.match(aiView, /providerForm/)
+  assert.match(aiView, /测试并应用/)
   assert.doesNotMatch(aiView, /<el-menu-item index="knowledge"|<el-menu-item index="provider"/)
   assert.match(knowledgeView, /Agent 知识库策略/)
 })
@@ -331,6 +334,9 @@ test('alarm acknowledgement action is unavailable after the alarm is acknowledge
   assert.match(alarms, /canCloseAlarm\(row\.status\)/)
   assert.match(alarms, /actionPending\[row\.alarmId\]/)
   assert.match(alarms, /await load\(\)/)
+  assert.match(alarms, /analysisProgress/)
+  assert.match(alarms, /estimatedRemainingMs/)
+  assert.match(alarms, /progress\/\$\{encodeURIComponent\(jobId\)\}/)
 })
 
 test('backup center exposes history, artifact downloads and restore drills', async () => {

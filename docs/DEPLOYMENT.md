@@ -63,6 +63,14 @@ bash ./scripts/setup-local.sh --include-ai
 
 本地开发的 `--include-deepseek` 与 `--include-ai` 只能二选一。在线脚本上的 `IncludeAi` 参数仅用于把旧配置强制切回本地 Ollama，新配置无须传该参数。
 
+### 在界面切换 AI Provider
+
+管理员打开“AI 工作流”页面后，可以在左侧 **AI Provider** 区域选择“本地 Ollama”“DeepSeek API”或“OpenAI 兼容 API”，填写服务地址和模型名称，点击“测试并应用”。平台会先检查模型服务，再同时更新告警研判、AI 对话、规则草稿、报告和 Harness 工作流；正在运行的工作流结束后即可使用新配置，无需重启 API。Ollama 地址填写模型服务的根地址（例如 `http://192.168.24.133:11434`），若误填 `/v1` 平台会自动归一化；API Provider 填写兼容 Chat Completions 的根地址。
+
+API Key 只在提交和服务端调用时使用，页面只显示是否已配置及脱敏提示。保存后配置会写入 PostgreSQL 的活动 Provider 记录，重启服务仍会沿用；没有 PostgreSQL 时仅保留在当前进程。切回同一个 API Provider 时，API Key 输入框留空即可沿用已保存密钥。
+
+告警详情中的“立即研判”现在会立即返回任务并显示进度条。进度包含准备上下文、调用模型和完成状态，并根据最近一次研判耗时估算剩余时间；浏览器关闭详情不会取消后台任务，重新打开告警可查看已保存的结果。
+
 ### AI 工作流 Harness
 
 在线和本地默认获取锁定的 Harness 源码并构建侧车，需要 Git 和网络。以下参数可用于把旧配置显式切回启用状态：
