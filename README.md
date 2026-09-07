@@ -12,7 +12,7 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 
 以下命令均在**本仓库根目录**执行。三种方案都需要已安装并启动 Docker（Linux 容器）及 Docker Compose v2；本地运行另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。脚本检查运行环境，不负责安装 Docker、Go 或 Node.js。
 
-默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate、`nomic-embed-text` 嵌入模型和 AI 工作流 Harness。在线与离线部署还会自动准备 `qwen3:1.7b`；告警研判、规则辅助和 AI 工作流统一使用该本地模型，不需要 API Key。这个模型下载约 1.4 GB，适合 8 GB 内存的整套虚拟机环境。
+在线与离线部署默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate、`nomic-embed-text` 嵌入模型和 AI 工作流 Harness。本地运行会启动基础依赖和 Harness，备份服务默认作为源码进程单独调试。在线与离线部署还会自动准备 `qwen3:1.7b`；告警研判、规则辅助和 AI 工作流统一使用该本地模型，不需要 API Key。这个模型下载约 1.4 GB，适合 8 GB 内存的整套虚拟机环境。
 
 ## 1. 本地运行
 
@@ -30,7 +30,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成带逐项中文说明的 `.env.local`，启动依赖容器、AI 工作流 Harness、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。本地源码方案默认使用 DeepSeek API；把 Key 填入 `DEEPSEEK_API_KEY` 后重跑一次脚本，使 Harness 容器加载密钥。需要改用本地模型时可传 `-IncludeAi` / `--include-ai`，或启动后在“AI 模型管理”菜单切换；再次执行会复用其他配置和数据。若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。
+脚本生成带逐项中文说明的 `.env.local`，启动基础依赖、AI 工作流 Harness、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。备份服务不会随依赖容器启动，默认由 VS Code 源码配置单独启动。源码方案默认使用 DeepSeek API；把 Key 填入 `DEEPSEEK_API_KEY` 后重跑一次脚本，使 Harness 容器加载密钥。需要改用本地模型时可传 `-IncludeAi` / `--include-ai`，或启动后在“AI 模型管理”菜单切换；再次执行会复用其他配置和数据。若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。只有需要临时验证容器版备份服务时才传 `--include-backup` / `-IncludeBackup`。
 
 如果依赖容器运行在 Linux 虚拟机、源码运行在 Windows，Linux 使用 Windows 可访问的虚拟机地址启动：
 
@@ -38,7 +38,7 @@ bash ./scripts/setup-local.sh
 bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP> --api-host <Windows在虚拟机网段的IP>
 ```
 
-`--dependency-host` 会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama、Weaviate、备份服务和 Harness 使用虚拟机地址；`--api-host` 供 Harness 容器回调 Windows 上的 API，VMware NAT 环境通常填写对应虚拟网卡的主机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，确认 `DEEPSEEK_API_KEY` 已填写，再按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
+`--dependency-host` 会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama 和 Weaviate 使用虚拟机地址；Harness 仍使用虚拟机容器，备份服务使用源码机端口 `8092`，API 使用 `8081`。`--api-host` 供 Harness 容器回调 Windows 上的 API，VMware NAT 环境通常填写对应虚拟网卡的主机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，确认 `DEEPSEEK_API_KEY` 已填写，再按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
 
 ### 日常运行代码
 
@@ -55,13 +55,21 @@ cd iot_front
 npm run dev
 ```
 
+终端三，调试备份服务（也可以在 VS Code 使用组合配置）：
+
+```bash
+go run ./cmd/backup-service --env-file .env.local
+```
+
+本地配置默认 `IOT_BACKUP_TOOL_MODE=docker`，要求源码机运行 Docker Engine/Desktop；备份服务会用 PostgreSQL/Redis 工具容器完成 `pg_dump` 和 RDB 导出。仅在虚拟机安装 Docker 时，Windows 仍需准备 Docker 或本机客户端。已有 PostgreSQL 17 和 Redis 客户端时，可改为 `native` 并配置 `PG_DUMP_BIN`、`REDIS_CLI_BIN`，详见 [备份调试准备](docs/DEPLOYMENT.md#vs-code-调试配置)。
+
 Windows PowerShell 若提示 npm 脚本执行策略错误，改用 `npm.cmd run dev`。访问 **http://localhost:5173**，前端自动代理到本机 API `8081` 端口。
 
 GoLand 调试时，工作目录设为仓库根目录、程序设为 `cmd/iot-platform`，程序参数填 `--env-file .env.local`，无需手工复制数据库地址。已有进程环境变量优先于配置文件；旧 IDE 配置中的硬编码密码或地址应先移除。
 
 ### VS Code 一键启动
 
-仓库已提供 [`.vscode/launch.json`](.vscode/launch.json)。安装 VS Code Go 扩展并确保 `.env.local` 已生成或已从依赖机复制后，打开“运行和调试”，选择 **IoT Platform (API + Web)**，按 `F5` 即可同时启动 Go API 和 Vue 前端。需要国标网关时选择 **IoT Platform + GB26875 Gateway**。配置文件只引用 `.env.local`，不包含密码；Windows 使用 `npm.cmd`，Linux/macOS 使用 `npm`。
+仓库已提供 [`.vscode/launch.json`](.vscode/launch.json)。安装 VS Code Go 扩展并确保 `.env.local` 已生成或已从依赖机复制后，打开“运行和调试”，选择 **IoT Platform (API + Web)**，按 `F5` 启动 Go API 和 Vue 前端；需要调试备份服务时选择 **IoT Platform (API + Web + Backup)**。需要国标网关时选择 **IoT Platform + GB26875 Gateway**。配置文件只引用 `.env.local`，不包含密码；Windows 使用 `npm.cmd`，Linux/macOS 使用 `npm`。
 
 ## 2. 在线部署
 

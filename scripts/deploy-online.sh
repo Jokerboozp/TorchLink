@@ -120,7 +120,7 @@ wait_deployment_http "http://127.0.0.1:$api_port/health/ready" "$health_timeout"
 wait_deployment_http "http://127.0.0.1:$web_port/" "$health_timeout"
 wait_deployment_http "http://127.0.0.1:$web_port/health/ready" "$health_timeout"
 backup_port="$(get_deployment_env_value "$env_file" IOT_BACKUP_HTTP_PORT)"
-wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/live" "$health_timeout"
+wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/ready" "$health_timeout"
 if [ "$include_harness" = true ]; then
   harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
   wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"

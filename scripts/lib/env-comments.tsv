@@ -71,6 +71,18 @@ IOT_AI_HARNESS_TIMEOUT	AI 工作流请求超时时间
 IOT_WEAVIATE_URL	Weaviate 知识库地址
 IOT_BACKUP_URL	Go API 访问备份服务的地址
 IOT_BACKUP_HTTP_PORT	备份服务对外管理端口
+IOT_BACKUP_HTTP_ADDR	备份服务源码调试时的监听地址
+IOT_BACKUP_DIR	备份临时文件目录，源码运行默认 ./data/backups
+IOT_BACKUP_CONFIG_PATHS	全量备份包含的本机配置路径，多个用逗号分隔
+IOT_MINIO_DR_ENDPOINT	备份服务访问灾备 MinIO 的地址
+IOT_MINIO_DR_ACCESS_KEY	灾备 MinIO 用户名
+IOT_MINIO_DR_SECRET_KEY	灾备 MinIO 密码
+IOT_REDPANDA_ADMIN_URL	备份服务读取 Redpanda 分区清单的管理地址
+PG_DUMP_BIN	本机模式使用的 pg_dump 可执行文件路径，客户端版本不低于 PostgreSQL 服务端
+REDIS_CLI_BIN	本机模式使用的 redis-cli 可执行文件路径
+IOT_BACKUP_TOOL_MODE	备份服务外部工具模式；native 使用本机工具，docker 使用工具容器
+IOT_BACKUP_PG_IMAGE	备份服务 docker 工具模式使用的 PostgreSQL 镜像
+IOT_BACKUP_REDIS_IMAGE	备份服务 docker 工具模式使用的 Redis 镜像
 IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC	高频设备判断阈值，单位为秒
 IOT_MODBUS_ALLOWED_CIDRS	允许主动 Modbus 采集访问的网段
 IOT_BACKUP_TIME	每日备份执行时间

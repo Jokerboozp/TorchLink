@@ -111,6 +111,35 @@ func TestBackupEndpointsProxyRecordsFilesAndAdminActions(t *testing.T) {
 	}
 }
 
+func TestBackupEndpointSurfacesUpstreamFailureDetail(t *testing.T) {
+	backupServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer internal-backup-token" {
+			http.Error(w, "missing internal authorization", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "postgres: pg_dump exited with status 1"})
+	}))
+	defer backupServer.Close()
+
+	cfg := config.Config{BackupURL: backupServer.URL, BackupToken: "internal-backup-token", JWTSecret: "test-backup-secret-at-least-32-characters", CORSAllowedOrigins: []string{}}
+	engine := &core.Engine{Repo: memory.NewRepository()}
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	adminToken, err := api.auth.Issue("admin", "tenant_001", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := backupJSONRequest(t, server.Client(), http.MethodPost, server.URL+"/api/v1/backups", adminToken, map[string]any{"type": "FULL"}, http.StatusBadGateway)
+	detail, _ := result["detail"].(string)
+	if !bytes.Contains([]byte(detail), []byte("pg_dump exited with status 1")) {
+		t.Fatalf("backup upstream detail was lost: %q", detail)
+	}
+}
+
 func backupJSONRequest(t *testing.T, client *http.Client, method, endpoint, token string, body any, wantStatus int) map[string]any {
 	t.Helper()
 	var reader io.Reader

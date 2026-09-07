@@ -125,6 +125,7 @@ services:
     <<: *service-defaults
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19092:19092"
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19644:9644"
     image: redpandadata/redpanda:v25.2.11
     command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://${IOT_LOCAL_ADVERTISED_HOST:-127.0.0.1}:19092"]
     volumes: ["redpanda-data:/var/lib/redpanda/data"]
@@ -194,6 +195,9 @@ services:
 
   backup-service:
     <<: *service-defaults
+    # 本地默认不启动备份容器；源码调试请在 VS Code 启动 backup-service。
+    # 需要临时用容器运行时再显式加 --profile backup。
+    profiles: [backup]
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:8092:8090"
     restart: unless-stopped
@@ -212,6 +216,9 @@ services:
         COPY --from=build /out/backup-service /usr/local/bin/backup-service
         ENTRYPOINT ["backup-service"]
     environment:
+      IOT_BACKUP_HTTP_ADDR: :8090
+      IOT_BACKUP_DIR: /app/data/backups
+      IOT_BACKUP_TOOL_MODE: native
       IOT_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-local-iot-postgres-change-me}@postgres:5432/iot?sslmode=disable
       IOT_MINIO_ENDPOINT: minio:9000
       IOT_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-iotadmin}
@@ -242,6 +249,12 @@ services:
       redpanda-init: {condition: service_completed_successfully}
       weaviate: {condition: service_healthy}
       minio-dr: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8090/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 10s
 
   ollama:
     <<: *service-defaults

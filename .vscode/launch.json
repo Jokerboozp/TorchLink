@@ -31,6 +31,22 @@
       }
     },
     {
+      "name": "Backup Service",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/backup-service",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "presentation": {
+        "hidden": true
+      },
+      "args": [
+        "--env-file",
+        "${workspaceFolder}/.env.local"
+      ]
+    },
+    {
       "name": "GB26875 Gateway",
       "type": "go",
       "request": "launch",
@@ -68,6 +84,19 @@
         "IoT Platform API",
         "IoT Platform Web",
         "GB26875 Gateway"
+      ],
+      "presentation": {
+        "group": "iot-platform",
+        "order": 3
+      },
+      "stopAll": true
+    },
+    {
+      "name": "IoT Platform (API + Web + Backup)",
+      "configurations": [
+        "IoT Platform API",
+        "IoT Platform Web",
+        "Backup Service"
       ],
       "presentation": {
         "group": "iot-platform",

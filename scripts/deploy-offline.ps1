@@ -151,7 +151,7 @@ if (-not $SkipHealthCheck) {
     if (-not $checkWebPort) { $checkWebPort = '8080' }
     $checkBackupPort = Get-EnvValue -Path $envPath -Key "IOT_BACKUP_HTTP_PORT"
     if (-not $checkBackupPort) { $checkBackupPort = '8092' }
-    foreach ($url in @("http://127.0.0.1:$checkWebPort/", "http://127.0.0.1:$checkWebPort/health/ready", "http://127.0.0.1:$checkBackupPort/health/live")) {
+    foreach ($url in @("http://127.0.0.1:$checkWebPort/", "http://127.0.0.1:$checkWebPort/health/ready", "http://127.0.0.1:$checkBackupPort/health/ready")) {
         $ready = $false
         for ($i = 0; $i -lt 60; $i++) {
             try {

@@ -92,3 +92,27 @@ func TestBackupServiceFollowsComposeLifecycle(t *testing.T) {
 		t.Fatalf("backup-service must follow the main system restart policy, got %q", backup.Restart)
 	}
 }
+
+func TestLocalComposeKeepsBackupServiceInExplicitProfile(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	content, err := os.ReadFile(filepath.Join(root, "compose.local.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Services map[string]struct {
+			Profiles []string `yaml:"profiles"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+	backup, ok := document.Services["backup-service"]
+	if !ok {
+		t.Fatal("compose.local.yaml must define backup-service")
+	}
+	if len(backup.Profiles) != 1 || backup.Profiles[0] != "backup" {
+		t.Fatalf("local backup-service must require the backup profile, got %v", backup.Profiles)
+	}
+}

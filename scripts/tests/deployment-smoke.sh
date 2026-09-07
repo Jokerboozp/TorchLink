@@ -55,8 +55,11 @@ grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$test_root/.env.local"
 grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$test_root/.env.local"
 grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$test_root/.env.local"
 grep -q "^IOT_AI_HARNESS_URL='http://127.0.0.1:8091'$" "$test_root/.env.local"
+grep -q "^IOT_BACKUP_URL='http://127.0.0.1:8092'$" "$test_root/.env.local"
+grep -q "^IOT_BACKUP_TOOL_MODE='docker'$" "$test_root/.env.local"
 assert_commented_env "$test_root/.env.local"
 assert_call '--profile harness up -d --build --wait'
+if grep -Eq ' up .*backup-service' "$TEST_CALLS"; then echo 'Local setup unexpectedly started backup-service' >&2; exit 1; fi
 assert_call 'go mod download'
 assert_call 'npm ci'
 assert_call 'exec -T ollama ollama pull nomic-embed-text'
@@ -87,7 +90,10 @@ grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 grep -q 'external://192.168.24.133:19092' "$remote_compose"
 grep -q 'image: postgres:17-alpine3.22' "$remote_compose"
 grep -q 'IOT_HARNESS_MCP_ALLOWED_ORIGINS: http://192.168.24.1:8081' "$remote_compose"
-grep -A80 '^  backup-service:' "$remote_compose" | grep -A2 'redpanda-init:' | grep -q 'condition: service_completed_successfully'
+if grep -q '^  backup-service:' "$remote_compose"; then echo 'Local default Compose unexpectedly includes backup-service' >&2; exit 1; fi
+backup_compose="$test_root/remote-backup-compose.yaml"
+"$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" --profile backup config > "$backup_compose"
+grep -A80 '^  backup-service:' "$backup_compose" | grep -A2 'redpanda-init:' | grep -q 'condition: service_completed_successfully'
 echo 'PASS local remote-host: published dependencies and advertised addresses'
 
 deepseek_env="$test_root/.env.deepseek"
@@ -118,7 +124,7 @@ bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cmp "$test_root/online-original" "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service'
 grep -q '8081/health/ready' "$TEST_HTTP"
-grep -q '8092/health/live' "$TEST_HTTP"
+grep -q '8092/health/ready' "$TEST_HTTP"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online" --include-ai
 grep -q '^IOT_AI_PROVIDER=ollama$' "$test_root/.env.online"
 cmp <(grep '^IOT_ADMIN_PASSWORD=' "$test_root/online-original") <(grep '^IOT_ADMIN_PASSWORD=' "$test_root/.env.online")

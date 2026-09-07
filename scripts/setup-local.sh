@@ -10,6 +10,7 @@ skip_code_deps=false
 include_ai=false
 include_deepseek=false
 include_harness=auto
+include_backup=false
 ollama_model=qwen3:1.7b
 deepseek_model=deepseek-v4-flash
 dependency_host=127.0.0.1
@@ -23,11 +24,12 @@ while [ "$#" -gt 0 ]; do
     --include-deepseek) include_deepseek=true; shift ;;
     --include-harness) include_harness=true; shift ;;
     --no-harness) include_harness=false; shift ;;
+    --include-backup|--include-backup-service) include_backup=true; shift ;;
     --dependency-host) [ "$#" -ge 2 ] || { echo '--dependency-host 需要 Windows 可访问的主机名或 IPv4 地址。' >&2; exit 1; }; dependency_host="$2"; dependency_host_set=true; shift 2 ;;
     --api-host) [ "$#" -ge 2 ] || { echo '--api-host 需要依赖容器可访问的源码机主机名或 IPv4 地址。' >&2; exit 1; }; api_host="$2"; shift 2 ;;
     --ollama-model) [ "$#" -ge 2 ] || { echo '--ollama-model 需要模型名。' >&2; exit 1; }; ollama_model="$2"; shift 2 ;;
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
-    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness|--no-harness]'; exit 0 ;;
+    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness|--no-harness] [--include-backup]'; exit 0 ;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -96,6 +98,11 @@ defaults=(
   "IOT_MINIO_ENDPOINT=${dependency_host}:19000"
   "IOT_MINIO_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_ROOT_USER)"
   "IOT_MINIO_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_ROOT_PASSWORD)"
+  "IOT_MINIO_DR_ENDPOINT=${dependency_host}:19001"
+  "IOT_MINIO_DR_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_USER)"
+  "IOT_MINIO_DR_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_PASSWORD)"
+  "IOT_REDPANDA_ADMIN_URL=http://${dependency_host}:19644"
+  'IOT_BACKUP_CONFIG_PATHS=./compose.local.yaml,./deploy'
   "IOT_KAFKA_BROKERS=${dependency_host}:19092"
   "IOT_MQTT_BROKER=tcp://${dependency_host}:1883"
   "IOT_MQTT_WEBSOCKET_PUBLIC_URL=ws://${dependency_host}:8083/mqtt"
@@ -105,7 +112,9 @@ defaults=(
   'IOT_AI_BASE_URL=https://api.deepseek.com'
   "IOT_AI_MODEL=$deepseek_model"
   "IOT_WEAVIATE_URL=http://${dependency_host}:18080"
-  "IOT_BACKUP_URL=http://${dependency_host}:8092"
+  'IOT_BACKUP_URL=http://127.0.0.1:8092'
+  'IOT_BACKUP_HTTP_ADDR=:8092'
+  'IOT_BACKUP_TOOL_MODE=docker'
   'IOT_AI_HARNESS_ENABLED=true'
   "IOT_AI_HARNESS_URL=http://${dependency_host}:8091"
   "IOT_AI_HARNESS_MCP_URL=http://${api_host}:8081/mcp/harness"
@@ -117,10 +126,17 @@ for entry in "${defaults[@]}"; do
   key="${entry%%=*}"
   replace="$new_env"
   if [ "$dependency_host_set" = true ]; then
+    case "$key" in IOT_MINIO_DR_ENDPOINT|IOT_REDPANDA_ADMIN_URL) replace=true;; esac
     case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_OLLAMA_URL|IOT_AI_OLLAMA_URL|IOT_WEAVIATE_URL|IOT_BACKUP_URL|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
   fi
   set_local_env_value "$key" "${entry#*=}" "$replace"
 done
+# The source-debugged API and backup worker run on the same host. Keep the
+# worker endpoint local even when middleware containers are remote.
+set_local_env_value IOT_BACKUP_URL 'http://127.0.0.1:8092' true
+set_local_env_value IOT_BACKUP_HTTP_ADDR ':8092'
+set_local_env_value IOT_BACKUP_TOOL_MODE docker
+if [ "$include_backup" = true ]; then set_local_env_value IOT_BACKUP_URL "http://${dependency_host}:8092" true; fi
 if [ "$include_ai" = true ]; then
   if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = ollama ]; then
     configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
@@ -179,16 +195,24 @@ if [ "$skip_code_deps" = false ]; then
 fi
 compose=(compose --project-name iot-platform-local --env-file "$env_file" -f compose.local.yaml)
 if [ "$include_harness" = true ]; then compose+=(--profile harness); fi
+if [ "$include_backup" = true ]; then compose+=(--profile backup); fi
+if [ "$include_backup" = false ]; then
+  # Stop an older worker; preserve the container and all backup data.
+  backup_compose=(compose --project-name iot-platform-local --env-file "$env_file" -f compose.local.yaml --profile backup)
+  run_docker "${backup_compose[@]}" stop backup-service
+fi
 run_docker "${compose[@]}" config --quiet
 run_docker "${compose[@]}" up -d --build --wait --wait-timeout 300
 wait_deployment_http http://127.0.0.1:11434/api/tags 180
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
 if [ "$include_ai" = true ]; then run_docker "${compose[@]}" exec -T ollama ollama pull "$ollama_model"; fi
-wait_deployment_http http://127.0.0.1:8092/health/live 180
+if [ "$include_backup" = true ]; then wait_deployment_http http://127.0.0.1:8092/health/ready 180; fi
 if [ "$include_harness" = true ]; then wait_deployment_http http://127.0.0.1:8091/health 180; fi
 printf '本地依赖已就绪。配置和管理员账号保存在：%s（凭据不输出）。\n' "$env_file"
 printf '在 platform 目录启动后端：go run ./cmd/iot-platform --env-file %q\n' "$env_file"
 echo '在 platform/iot_front 目录启动前端：npm run dev'
+echo '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API + Web + Backup)”进行源码调试。'
+if [ "$include_backup" = true ]; then echo '已按 --include-backup 启动备份容器；停止后可改用 VS Code 源码调试。'; fi
 echo '前端：http://localhost:5173；后端：http://localhost:8081'
 if [ "$bind_address" = 0.0.0.0 ]; then
   printf '依赖已开放给远程源码环境：%s。请把 %s 复制到源码机器后使用。\n' "$dependency_host" "$env_file"

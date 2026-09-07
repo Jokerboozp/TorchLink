@@ -10,11 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -84,6 +86,10 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("postgres: %w", err)
+	}
 	store, err := minio.New(cfg.MinIOEndpoint, &minio.Options{Creds: credentials.NewStaticV4(cfg.MinIOAccessKey, cfg.MinIOSecretKey, ""), Secure: cfg.MinIOUseTLS})
 	if err != nil {
 		pool.Close()
@@ -111,6 +117,25 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 
 func (s *Service) Close() { s.pool.Close() }
 
+// Ready checks the catalog created by the platform API and the backup stores.
+func (s *Service) Ready(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, "SELECT 1 FROM backup_task LIMIT 0"); err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	if _, err := s.store.ListBuckets(ctx); err != nil {
+		return fmt.Errorf("minio: %w", err)
+	}
+	if s.dr != nil {
+		if _, err := s.dr.ListBuckets(ctx); err != nil {
+			return fmt.Errorf("minio DR: %w", err)
+		}
+	}
+	if err := backupToolAvailability(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) Run(ctx context.Context, backupType string) (manifest Manifest, err error) {
 	if !s.mu.TryLock() {
 		return manifest, fmt.Errorf("a backup is already running")
@@ -123,7 +148,7 @@ func (s *Service) Run(ctx context.Context, backupType string) (manifest Manifest
 	if backupType == "RAW_LOGS" {
 		return s.runRawLogsLocked(ctx, time.Now().In(s.rawBackupLocation()).AddDate(0, 0, -1))
 	}
-	id := "backup_" + strings.ToLower(backupType) + "_" + time.Now().UTC().Format("20060102T150405.000Z")
+	id := newBackupID(backupType, time.Now())
 	manifest = Manifest{ID: id, Type: backupType, CreatedAt: time.Now().UTC(), Components: map[string]any{}}
 	_, _ = s.pool.Exec(ctx, `INSERT INTO backup_task(id,backup_type,status,started_at) VALUES($1,$2,'RUNNING',now()) ON CONFLICT DO NOTHING`, id, backupType)
 	defer func() {
@@ -491,7 +516,7 @@ func (s *Service) postgresDump(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, env("PG_DUMP_BIN", "pg_dump"), "--format=custom", "--no-owner", "--dbname", s.cfg.PostgresDSN)
+	cmd := pgDumpCommand(ctx, s.cfg.PostgresDSN)
 	cmd.Stdout, cmd.Stderr = f, os.Stderr
 	runErr := cmd.Run()
 	closeErr := f.Close()
@@ -508,9 +533,107 @@ func (s *Service) redisSnapshot(ctx context.Context, path string) error {
 		args = append(args, "-a", s.cfg.RedisPassword, "--no-auth-warning")
 	}
 	args = append(args, "--rdb", path)
-	cmd := exec.CommandContext(ctx, env("REDIS_CLI_BIN", "redis-cli"), args...)
+	cmd := redisCLICommand(ctx, host, port, args)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+func pgDumpCommand(ctx context.Context, dsn string) *exec.Cmd {
+	args := []string{"--format=custom", "--no-owner", "--dbname", dsn}
+	if backupToolMode() != "docker" {
+		return exec.CommandContext(ctx, env("PG_DUMP_BIN", "pg_dump"), args...)
+	}
+	if runtime.GOOS != "linux" {
+		args[3] = dockerizeLocalURL(dsn)
+	}
+	dockerArgs := append(dockerToolArgs(), env("IOT_BACKUP_PG_IMAGE", "postgres:17-alpine3.22"), "pg_dump")
+	return exec.CommandContext(ctx, "docker", append(dockerArgs, args...)...)
+}
+
+func redisCLICommand(ctx context.Context, host, port string, args []string) *exec.Cmd {
+	if backupToolMode() != "docker" {
+		return exec.CommandContext(ctx, env("REDIS_CLI_BIN", "redis-cli"), args...)
+	}
+	containerArgs := append([]string(nil), args...)
+	if runtime.GOOS != "linux" {
+		containerArgs[1] = dockerizeHost(host)
+	}
+	dockerArgs := dockerToolArgs()
+	if rdbIndex := indexOf(containerArgs, "--rdb"); rdbIndex >= 0 && rdbIndex+1 < len(containerArgs) {
+		hostPath, err := filepath.Abs(containerArgs[rdbIndex+1])
+		if err == nil {
+			dockerArgs = append(dockerArgs, "--volume", filepath.Dir(hostPath)+":/backup")
+			containerArgs[rdbIndex+1] = "/backup/" + filepath.Base(hostPath)
+		}
+	}
+	dockerArgs = append(dockerArgs, env("IOT_BACKUP_REDIS_IMAGE", "redis:7.4-alpine"), "redis-cli")
+	return exec.CommandContext(ctx, "docker", append(dockerArgs, containerArgs...)...)
+}
+
+func indexOf(values []string, target string) int {
+	for index, value := range values {
+		if value == target {
+			return index
+		}
+	}
+	return -1
+}
+
+func dockerToolArgs() []string {
+	if runtime.GOOS == "linux" {
+		return []string{"run", "--rm", "--network", "host"}
+	}
+	return []string{"run", "--rm", "--add-host", "host.docker.internal:host-gateway"}
+}
+
+func backupToolMode() string {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("IOT_BACKUP_TOOL_MODE")))
+}
+
+func backupToolAvailability() error {
+	if mode := backupToolMode(); mode != "" && mode != "native" && mode != "docker" {
+		return fmt.Errorf("IOT_BACKUP_TOOL_MODE must be native or docker")
+	}
+	if backupToolMode() == "docker" {
+		if _, err := exec.LookPath("docker"); err != nil {
+			return fmt.Errorf("docker is required when IOT_BACKUP_TOOL_MODE=docker")
+		}
+		return nil
+	}
+	for _, item := range []struct{ name, envName, fallback string }{
+		{name: "PostgreSQL dump tool", envName: "PG_DUMP_BIN", fallback: "pg_dump"},
+		{name: "Redis snapshot tool", envName: "REDIS_CLI_BIN", fallback: "redis-cli"},
+	} {
+		if _, err := exec.LookPath(env(item.envName, item.fallback)); err != nil {
+			return fmt.Errorf("%s is unavailable: %w", item.name, err)
+		}
+	}
+	return nil
+}
+
+func dockerizeLocalURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return raw
+	}
+	port := parsed.Port()
+	parsed.Host = dockerizeHost(parsed.Hostname())
+	if port != "" {
+		parsed.Host = net.JoinHostPort(parsed.Host, port)
+	} else if strings.Contains(parsed.Host, ":") {
+		parsed.Host = "[" + parsed.Host + "]"
+	}
+	return parsed.String()
+}
+
+func dockerizeHost(host string) string {
+	host = strings.TrimSpace(host)
+	switch strings.ToLower(host) {
+	case "127.0.0.1", "localhost", "::1":
+		return "host.docker.internal"
+	default:
+		return host
+	}
 }
 
 func (s *Service) clickHouseExport(ctx context.Context, dir string) (int, error) {
@@ -620,6 +743,11 @@ func (s *Service) replicateMinIO(ctx context.Context) (map[string]int64, error) 
 		}
 	}
 	return map[string]int64{"copied": copied, "unchanged": skipped}, nil
+}
+
+func newBackupID(kind string, now time.Time) string {
+	// Weaviate permits only lowercase letters, digits, underscores and hyphens.
+	return fmt.Sprintf("backup_%s_%s_%09d", strings.ToLower(kind), now.UTC().Format("20060102t150405z"), now.Nanosecond())
 }
 
 func (s *Service) weaviateBackup(ctx context.Context, id string) error {

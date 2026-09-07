@@ -98,13 +98,13 @@ bash ./scripts/deploy-online.sh --include-harness
 | MinIO 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` |
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
 | Ollama / Weaviate | `11434` / `18080` | 仅容器网络 |
-| 备份服务 / Harness | `8092` / `8091` | `8092` / `8091`，仅宿主机 |
+| 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
 
 本地依赖端口默认只绑定 `127.0.0.1`，供本机代码和模拟设备使用；传入 `--dependency-host` 时才开放到依赖机网络。API 设备上报使用运行 Go 的主机地址。Kafka 通过独立 external listener 返回源码机可访问的地址，容器间仍使用 `redpanda:9092`。
 
 本地 API 默认参数写在 `.env.local`；修改 API 端口时同步修改前端 `VITE_API_PROXY_TARGET`，使用 Harness 时还需同步其 MCP 回调和允许的 Origin。`--env-file` 读取字面的 `KEY=VALUE`，支持注释和单/双引号，不展开 `${变量}` 或执行 shell；已有进程环境变量优先。
 
-依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址> --api-host <依赖容器可访问的源码机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址、Harness 地址及回调地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。
+依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址> --api-host <依赖容器可访问的源码机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址、Harness 地址及回调地址写入 `.env.local`；备份服务地址固定为源码机本地 `8092`，不会在依赖机启动。把该文件复制到源码机后启动 Go API、前端和备份服务；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。
 
 ## VS Code 调试配置
 
@@ -122,7 +122,27 @@ bash ./scripts/deploy-online.sh --include-harness
 }
 ```
 
-下拉列表只展示 `IoT Platform (API + Web)` 和 `IoT Platform + GB26875 Gateway` 两个常用入口；API、Web 和网关的内部配置被隐藏，由组合配置自动调用。Windows 前端命令为 `npm.cmd run dev`，Linux/macOS 为 `npm run dev`。CentOS 只运行依赖、Windows 运行源码时，VS Code 仍在 Windows 打开项目；`.env.local` 中的 PostgreSQL、Kafka、MQTT 等地址应指向 CentOS。
+备份服务的源码调试配置使用同一个 `.env.local`，监听 `8092`，并默认通过 Docker 工具容器调用 `pg_dump` 和 `redis-cli`：
+
+```json
+{
+  "name": "Backup Service",
+  "type": "go",
+  "request": "launch",
+  "mode": "debug",
+  "program": "${workspaceFolder}/cmd/backup-service",
+  "cwd": "${workspaceFolder}",
+  "args": ["--env-file", "${workspaceFolder}/.env.local"]
+}
+```
+
+选择 `IoT Platform (API + Web + Backup)` 可同时调试 API、前端和备份服务。备份服务与 API 共用 `.env.local`，在其中设置 `IOT_BACKUP_URL=http://127.0.0.1:8092` 和 `IOT_BACKUP_HTTP_ADDR=:8092`。Windows 前端命令为 `npm.cmd run dev`，Linux/macOS 为 `npm run dev`。CentOS 只运行依赖、Windows 运行源码时，PostgreSQL、Kafka、MQTT 等地址指向 CentOS。
+
+`IOT_BACKUP_TOOL_MODE=docker` 要求**源码机**安装 Docker CLI 并运行本机 Docker Engine/Desktop（Linux 容器），首次导出会使用 `postgres:17-alpine3.22` 和 `redis:7.4-alpine` 镜像。仅在 CentOS 安装 Docker 不足以让 Windows 执行工具容器。若源码机不用 Docker，可设置 `IOT_BACKUP_TOOL_MODE=native`，安装 PostgreSQL 17 客户端和支持 `--rdb` 的 Redis 客户端，并通过 `PG_DUMP_BIN` / `REDIS_CLI_BIN` 指定路径。调试器会读取配置文件，不覆盖你选择的工具模式。
+
+本地源码备份可连接远程数据库和 MinIO；配置归档来自源码机的 `IOT_BACKUP_CONFIG_PATHS`。CentOS 容器内的 WAL 和 EMQX 数据目录不会自动映射到 Windows，需在容器版备份中归档这些目录。
+
+升级旧本地环境：在 CentOS 更新源码后重跑原 `setup-local.sh` 命令，脚本会停止旧备份容器并保留其数据卷；将更新后的 `.env.local` 复制到 Windows，再启动上述 VS Code 组合。可以访问 `http://127.0.0.1:8092/health/ready` 检查数据库、对象存储和备份工具。此次全量备份修复了 Weaviate 不接受旧备份 ID 中大写字母和小数点的问题；失败详情会随 API 返回。
 
 在线/离线默认提供 HTTP 服务。需要公网域名与 HTTPS 时，由现有 Nginx/网关终结 TLS 并转发到 Web 端口；部署脚本不管理域名和证书。
 
@@ -136,6 +156,8 @@ docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml
 docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml down
 ```
 
+源码备份服务的日志在 VS Code 的 `Backup Service` 调试终端；临时容器版则在上述命令前加 `--profile backup`，例如 `docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml --profile backup logs -f backup-service`。
+
 在线部署：
 
 ```bash
@@ -144,7 +166,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml log
 docker compose -p iot-platform-online --env-file .env.online -f compose.yaml down
 ```
 
-启用 Harness 时，在子命令 `ps` / `logs` / `down` 前加 `--profile harness`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
+本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用 Harness 时，在子命令 `ps` / `logs` / `down` 前加 `--profile harness`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
 
 `down` 保留命名数据卷；`down -v` 会删除它们。日常代码更新重跑对应部署脚本即可。备份页面调用独立 `backup-service`，默认每天上海时间 `00:05` 汇总前一天原始日志，可由 `IOT_BACKUP_TIME`、`IOT_BACKUP_TIMEZONE` 调整；这是业务数据备份，不替代环境配置文件的保管。
 
@@ -158,6 +180,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | 本地 Kafka 无法连接 | 是否运行 `compose.local.yaml`，API 是否读取 `.env.local` |
 | API 启动后前端无法访问 | `8081` 端口、Vite 代理、旧 IDE 环境变量覆盖 |
 | 知识库索引失败 | Ollama 模型下载是否完成，Weaviate 与 Ollama 日志 |
+| “立即全量备份”返回 502 | 先看平台 API 返回的具体备份错误；源码调试时确认 `Backup Service` 已启动、`IOT_BACKUP_URL=http://127.0.0.1:8092` 和 `IOT_BACKUP_TOOL_MODE` 可用 |
 | 工作流失败但 Harness 健康 | API Key、模型可达性和 MCP 回调地址 |
 
 API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储、消息和知识库依赖。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。

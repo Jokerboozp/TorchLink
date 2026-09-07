@@ -115,7 +115,7 @@ Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/" -TimeoutSeconds $HealthTim
 Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/health/ready" -TimeoutSeconds $HealthTimeoutSeconds
 $backupPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_BACKUP_HTTP_PORT'
 if (-not $backupPort) { $backupPort = '8092' }
-Wait-DeploymentHttp -Url "http://127.0.0.1:$backupPort/health/live" -TimeoutSeconds $HealthTimeoutSeconds
+Wait-DeploymentHttp -Url "http://127.0.0.1:$backupPort/health/ready" -TimeoutSeconds $HealthTimeoutSeconds
 if ($useHarness) {
     $harnessPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_PORT'
     if (-not $harnessPort) { $harnessPort = '8091' }

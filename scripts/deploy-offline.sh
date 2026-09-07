@@ -123,7 +123,7 @@ if (( ! skip_health_check )); then
   echo "平台健康检查与本地模型检查通过：$health_url"
   check_web_port="$(env_value IOT_WEB_PORT)"
   check_backup_port="$(env_value IOT_BACKUP_HTTP_PORT)"
-  for url in "http://127.0.0.1:${check_web_port:-8080}/" "http://127.0.0.1:${check_web_port:-8080}/health/ready" "http://127.0.0.1:${check_backup_port:-8092}/health/live"; do
+  for url in "http://127.0.0.1:${check_web_port:-8080}/" "http://127.0.0.1:${check_web_port:-8080}/health/ready" "http://127.0.0.1:${check_backup_port:-8092}/health/ready"; do
     ready=0
     for _ in $(seq 1 60); do
       if curl --fail --silent --show-error --max-time 3 "$url" >/dev/null 2>&1; then ready=1; break; fi

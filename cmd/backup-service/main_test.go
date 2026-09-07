@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,3 +47,22 @@ func TestScheduledRawLogBackupTargetsPreviousDay(t *testing.T) {
 		t.Fatalf("backup day = %s, want %s", backupDay, want)
 	}
 }
+
+func TestRespondUsesServerErrorForBackupExecutionFailure(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	respond(recorder, nil, errTestBackupFailure{})
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("response status = %d, want %d", recorder.Code, http.StatusInternalServerError)
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload["error"], "backup failed") {
+		t.Fatalf("unexpected response body: %s", recorder.Body.String())
+	}
+}
+
+type errTestBackupFailure struct{}
+
+func (errTestBackupFailure) Error() string { return "backup failed" }

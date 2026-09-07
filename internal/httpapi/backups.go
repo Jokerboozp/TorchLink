@@ -7,10 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var backupCredentialPattern = regexp.MustCompile(`(?i)(://[^/\s:@]+:)[^@\s/]+(@)`)
 
 func (s *Server) listBackups(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
@@ -186,9 +189,35 @@ func (s *Server) callBackup(w http.ResponseWriter, r *http.Request, method, path
 }
 
 func (s *Server) backupUpstreamProblem(w http.ResponseWriter, response *http.Response) {
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
-	problem(w, http.StatusBadGateway, fmt.Sprintf("backup service returned HTTP %d", response.StatusCode))
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
+	detail := strings.TrimSpace(string(data))
+	var payload struct {
+		Error   string `json:"error"`
+		Detail  string `json:"detail"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(data, &payload) == nil {
+		for _, candidate := range []string{payload.Error, payload.Detail, payload.Message} {
+			if strings.TrimSpace(candidate) != "" {
+				detail = strings.TrimSpace(candidate)
+				break
+			}
+		}
+	}
+	detail = sanitizeBackupErrorDetail(detail)
+	if detail == "" {
+		detail = "upstream service did not provide an error detail"
+	}
+	problem(w, http.StatusBadGateway, fmt.Sprintf("backup service returned HTTP %d: %s", response.StatusCode, detail))
+}
+
+func sanitizeBackupErrorDetail(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	value = backupCredentialPattern.ReplaceAllString(value, `${1}***${2}`)
+	if len(value) > 512 {
+		value = value[:512] + "…"
+	}
+	return value
 }
 
 func backupPathSegment(value, label string) (string, error) {

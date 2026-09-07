@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,14 +16,23 @@ import (
 	"time"
 
 	"iot-platform/internal/backup"
+	"iot-platform/internal/config"
 )
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	envFile := flag.String("env-file", "", "load a KEY=VALUE configuration file (existing environment variables take precedence)")
+	flag.Parse()
+	if *envFile != "" {
+		if err := config.LoadEnvFile(*envFile); err != nil {
+			log.Error("load environment file", "error", err)
+			os.Exit(1)
+		}
+	}
 	service, err := backup.New(ctx, backup.Config{
-		PostgresDSN: os.Getenv("IOT_POSTGRES_DSN"), BackupDir: env("IOT_BACKUP_DIR", "/app/data/backups"), BackupBucket: env("IOT_BACKUP_BUCKET", "iot-backups"),
+		PostgresDSN: os.Getenv("IOT_POSTGRES_DSN"), BackupDir: env("IOT_BACKUP_DIR", "./data/backups"), BackupBucket: env("IOT_BACKUP_BUCKET", "iot-backups"),
 		MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"), MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: boolean("IOT_MINIO_USE_TLS"),
 		MinIODREndpoint: os.Getenv("IOT_MINIO_DR_ENDPOINT"), MinIODRAccessKey: os.Getenv("IOT_MINIO_DR_ACCESS_KEY"), MinIODRSecretKey: os.Getenv("IOT_MINIO_DR_SECRET_KEY"), MinIODRUseTLS: boolean("IOT_MINIO_DR_USE_TLS"),
 		ClickHouseURL: os.Getenv("IOT_CLICKHOUSE_URL"), RedisAddr: os.Getenv("IOT_REDIS_ADDR"), RedisPassword: os.Getenv("IOT_REDIS_PASSWORD"), RedpandaAdminURL: os.Getenv("IOT_REDPANDA_ADMIN_URL"), WeaviateURL: os.Getenv("IOT_WEAVIATE_URL"), ConfigPaths: os.Getenv("IOT_BACKUP_CONFIG_PATHS"),
@@ -47,6 +57,17 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+	})
+	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
+		readyCtx, readyCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer readyCancel()
+		if readyErr := service.Ready(readyCtx); readyErr != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "DOWN", "error": readyErr.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
 	})
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -168,7 +189,7 @@ func protected(token string, next http.HandlerFunc) http.HandlerFunc {
 func respond(w http.ResponseWriter, value any, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
-		w.WriteHeader(http.StatusBadGateway)
+		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}

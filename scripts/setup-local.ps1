@@ -6,6 +6,7 @@ param(
     [switch]$IncludeDeepSeek,
     [switch]$IncludeHarness,
     [switch]$NoHarness,
+    [switch]$IncludeBackup,
     [string]$OllamaModel = 'qwen3:1.7b',
     [string]$DeepSeekModel = 'deepseek-v4-flash'
 )
@@ -58,6 +59,11 @@ $defaults = [ordered]@{
     IOT_MINIO_ENDPOINT = '127.0.0.1:19000'
     IOT_MINIO_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_ROOT_USER')
     IOT_MINIO_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_ROOT_PASSWORD')
+    IOT_MINIO_DR_ENDPOINT = '127.0.0.1:19001'
+    IOT_MINIO_DR_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_USER')
+    IOT_MINIO_DR_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_PASSWORD')
+    IOT_REDPANDA_ADMIN_URL = 'http://127.0.0.1:19644'
+    IOT_BACKUP_CONFIG_PATHS = './compose.local.yaml,./deploy'
     IOT_KAFKA_BROKERS = '127.0.0.1:19092'
     IOT_MQTT_BROKER = 'tcp://127.0.0.1:1883'
     IOT_MQTT_WEBSOCKET_PUBLIC_URL = 'ws://127.0.0.1:8083/mqtt'
@@ -68,6 +74,8 @@ $defaults = [ordered]@{
     IOT_AI_MODEL = $DeepSeekModel
     IOT_WEAVIATE_URL = 'http://127.0.0.1:18080'
     IOT_BACKUP_URL = 'http://127.0.0.1:8092'
+    IOT_BACKUP_HTTP_ADDR = ':8092'
+    IOT_BACKUP_TOOL_MODE = 'docker'
     IOT_AI_HARNESS_ENABLED = 'true'
     IOT_AI_HARNESS_URL = 'http://127.0.0.1:8091'
     IOT_AI_HARNESS_MCP_URL = 'http://host.docker.internal:8081/mcp/harness'
@@ -75,6 +83,11 @@ $defaults = [ordered]@{
     IOT_AI_HARNESS_MODEL = $DeepSeekModel
 }
 foreach ($key in $defaults.Keys) { Set-LocalEnvValue -Key $key -Value $defaults[$key] -Replace:$newEnv }
+# The source-debugged API and backup worker run on the same host. Keep the
+# worker endpoint local even when middleware containers are remote.
+Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace
+Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
+Set-LocalEnvValue -Key 'IOT_BACKUP_TOOL_MODE' -Value 'docker'
 if ($IncludeAi) {
     $provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
     if ($provider -eq 'ollama') {
@@ -136,15 +149,22 @@ try {
     }
     $compose = @('compose', '--project-name', 'iot-platform-local', '--env-file', $EnvFile, '-f', 'compose.local.yaml')
     if ($useHarness) { $compose += @('--profile', 'harness') }
+    if ($IncludeBackup) { $compose += @('--profile', 'backup') }
+    if (-not $IncludeBackup) {
+        $backupCompose = @('compose', '--project-name', 'iot-platform-local', '--env-file', $EnvFile, '-f', 'compose.local.yaml', '--profile', 'backup')
+        Invoke-DockerChecked -Arguments ($backupCompose + @('stop', 'backup-service'))
+    }
     Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
     Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--build', '--wait', '--wait-timeout', '300'))
     Wait-DeploymentHttp -Url 'http://127.0.0.1:11434/api/tags' -TimeoutSeconds 180
     Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
     if ($IncludeAi) { Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', $OllamaModel)) }
-    Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/live' -TimeoutSeconds 180
+    if ($IncludeBackup) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/ready' -TimeoutSeconds 180 }
     if ($useHarness) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8091/health' -TimeoutSeconds 180 }
     Write-Host "本地依赖已就绪。配置和管理员账号保存在：$EnvFile（凭据不输出）。"
     Write-Host "在 platform 目录启动后端：go run ./cmd/iot-platform --env-file `"$EnvFile`""
     Write-Host '在 platform/iot_front 目录启动前端：npm run dev'
+    Write-Host '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API + Web + Backup)”进行源码调试。'
+    if ($IncludeBackup) { Write-Host '已按 -IncludeBackup 启动备份容器；停止后可改用 VS Code 源码调试。' }
     Write-Host '前端：http://localhost:5173；后端：http://localhost:8081'
 } finally { Pop-Location }
