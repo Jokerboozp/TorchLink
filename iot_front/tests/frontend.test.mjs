@@ -269,18 +269,27 @@ test('health inspection report survives menu-driven view recreation and stays te
   assert.equal(values.has(healthInspectionStorageKey(session)), false)
 })
 
-test('Agent management and the active Provider editor are standalone AI controls', async () => {
+test('AI Provider administration has its own menu and business overview', async () => {
   const app = await readFile(new URL('src/App.vue', root), 'utf8')
   const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
+  const providerView = await readFile(new URL('src/views/AiProvidersView.vue', root), 'utf8')
   const knowledgeView = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
   assert.match(app, /knowledge: \{ title: 'Agent 知识库'/)
+  assert.match(app, /aiProviders: \{ title: 'AI Provider'/)
+  assert.match(app, /items: \['aiProviders', 'ai', 'knowledge'\]/)
+  assert.match(app, /allowedPages = new Set\(\[[^\]]*'aiProviders'/s)
   assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑 Agent' : '新建 Agent'"/)
   assert.match(aiView, /function cancelAgentEditor\(\)/)
   assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/)
-  assert.match(aiView, /\/api\/v1\/ai\/providers\/config/)
-  assert.match(aiView, /providerForm/)
-  assert.match(aiView, /测试并应用/)
+  assert.match(aiView, /管理 AI Provider/)
+  assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/)
   assert.doesNotMatch(aiView, /<el-menu-item index="knowledge"|<el-menu-item index="provider"/)
+  for (const label of ['统一管理 AI Provider 与业务能力', 'Provider 配置', 'AI 业务能力', '可用 Provider', '测试并应用', 'AI 告警研判', '智能巡检']) {
+    assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`)
+  }
+  assert.match(providerView, /\/api\/v1\/ai\/providers\?page=1&pageSize=100/)
+  assert.match(providerView, /\/api\/v1\/ai\/providers\/config/)
+  assert.match(providerView, /所有 AI 功能立即生效/)
   assert.match(knowledgeView, /Agent 知识库策略/)
 })
 
@@ -337,6 +346,8 @@ test('alarm acknowledgement action is unavailable after the alarm is acknowledge
   assert.match(alarms, /analysisProgress/)
   assert.match(alarms, /estimatedRemainingMs/)
   assert.match(alarms, /progress\/\$\{encodeURIComponent\(jobId\)\}/)
+  assert.match(alarms, /progress`\)/)
+  assert.match(alarms, /function handleDetailClosed\(\)/)
 })
 
 test('backup center exposes history, artifact downloads and restore drills', async () => {

@@ -13,7 +13,7 @@ Web AI 工作台
 
 Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可追踪、可选插件的交互式工作流。在线和离线部署默认把两条链路都指向 Ollama 的 `qwen3:1.7b`，因此所有 AI 功能共用同一个本地模型。
 
-管理员可以在 Web 的“AI 工作流”页面切换 Provider。平台先通过 Eino 检查新地址，再调用 Harness 的 `PUT /v1/provider` 同步 Provider、地址、模型和 API Key；两条链路成功后才返回“已应用”。因此告警研判、聊天、规则草稿、报告和 Harness 工作流使用同一份活动配置。API Key 不会在响应中返回，重启时从 PostgreSQL 的 `ai_model_config` 活动记录恢复。
+管理员可以在 Web 的“AI Provider”菜单切换 Provider。平台先通过 Eino 检查新地址，再调用 Harness 的 `PUT /v1/provider` 同步 Provider、地址、模型和 API Key；两条链路成功后才返回“已应用”。因此告警研判、聊天、规则草稿、报告和 Harness 工作流使用同一份活动配置。API Key 不会在响应中返回，重启时从 PostgreSQL 的 `ai_model_config` 活动记录恢复。
 
 ## 源码版本
 
@@ -67,6 +67,7 @@ Go API 暴露：
 - `GET /api/v1/ai/providers/config`：读取当前 Provider（管理员可看到地址和脱敏 Key 提示）。
 - `PUT /api/v1/ai/providers/config`：管理员测试并立即应用 Provider；支持 `ollama`、`deepseek` 和 `openai-compatible`。
 - `POST /api/v1/ai/alarm-analysis/{alarmId}/run`：创建告警研判任务并立即返回任务进度。
+- `GET /api/v1/ai/alarm-analysis/{alarmId}/progress`：按告警读取当前或最近一次研判任务，重新打开详情时无需保存 job ID。
 - `GET /api/v1/ai/alarm-analysis/{alarmId}/progress/{jobId}`：读取进度、阶段、预计剩余时间和完成后的分析结果。
 
 浏览器只提交 `workflowId`、`conversationId`、`question` 和可选的 `maxTokens`。每次运行由 Go API 生成 Run ID，并签发有效期两分钟、绑定租户、用户、Run ID、Audience 和只读 scopes 的 MCP JWT。浏览器拿不到该令牌。

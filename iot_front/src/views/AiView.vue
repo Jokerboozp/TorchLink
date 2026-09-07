@@ -80,9 +80,6 @@ const workflowManagePage = ref(1)
 const workflowManagePageSize = ref(20)
 const workflowManageTotal = ref(0)
 let workflowManageRequestSequence = 0
-const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'' })
-const providerSaving = ref(false)
-const providerError = ref('')
 const providerOptions = [
   { id:'ollama', label:'本地 Ollama', description:'使用 CentOS 或本机部署的 Ollama，不需要 API Key。' },
   { id:'deepseek', label:'DeepSeek API', description:'使用 DeepSeek 的 OpenAI 兼容接口和 API Key。' },
@@ -123,7 +120,6 @@ const activeHealthy = computed(() => Boolean(workflows.value.healthy))
 const activeTone = computed(() => !workflowItems.value.length ? 'info' : activeHealthy.value ? 'success' : 'danger')
 const healthMessage = computed(() => workflows.value.healthMessage || 'Harness 工作流状态未知')
 const isAdmin = computed(() => session.role === 'admin')
-const selectedProviderOption = computed(() => providerOptions.find(item => item.id === providerForm.provider) || providerOptions[0])
 const selectedCapabilities = computed(() => {
   const value = selectedWorkflow.value?.capabilities || selectedWorkflow.value?.tools || []
   return Array.isArray(value) ? value : []
@@ -177,54 +173,6 @@ function scheduleScroll() {
 
 function providerLabel(provider) {
   return providerOptions.find(item => item.id === provider)?.label || provider || '未配置'
-}
-
-function syncProviderForm(value) {
-  const config = value?.config
-  if (!config) return
-  if (providerOptions.some(item => item.id === config.provider)) providerForm.provider = config.provider
-  providerForm.baseUrl = config.baseUrl || providerForm.baseUrl
-  providerForm.model = config.model || providerForm.model
-  providerForm.apiKey = ''
-}
-
-function providerChanged(provider) {
-  if (provider === 'ollama') {
-    if (!providerForm.baseUrl || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = 'http://localhost:11434'
-    if (!providerForm.model || providerForm.model.startsWith('deepseek')) providerForm.model = 'qwen3:1.7b'
-  } else {
-    if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434')) providerForm.baseUrl = provider === 'deepseek' ? 'https://api.deepseek.com' : ''
-    if (!providerForm.model || providerForm.model.startsWith('qwen')) providerForm.model = provider === 'deepseek' ? 'deepseek-v4-flash' : ''
-  }
-}
-
-async function saveProviderConfig() {
-  if (!isAdmin.value || providerSaving.value) return
-  providerError.value = ''
-  const provider = providerForm.provider.trim()
-  const baseUrl = providerForm.baseUrl.trim()
-  const model = providerForm.model.trim()
-  if (!provider || !baseUrl || !model) {
-    providerError.value = '请填写 Provider、服务地址和模型名称'
-    return
-  }
-  if (provider !== 'ollama' && !providerForm.apiKey.trim() && runtime.value.config?.provider !== provider) {
-    providerError.value = '切换到 API Provider 时必须填写 API Key'
-    return
-  }
-  providerSaving.value = true
-  try {
-    const body = { provider, baseUrl, model }
-    if (providerForm.apiKey.trim()) body.apiKey = providerForm.apiKey.trim()
-    const result = await api('/api/v1/ai/providers/config', { method:'PUT', body:JSON.stringify(body) })
-    syncProviderForm({ config:result })
-    await loadRuntime()
-    ElMessage.success(`已切换到 ${providerLabel(provider)}，后续 AI 请求立即生效`)
-  } catch (error) {
-    providerError.value = error.message || 'Provider 更新失败'
-  } finally {
-    providerSaving.value = false
-  }
 }
 
 function queueAssistantText(assistant, delta) {
@@ -282,7 +230,6 @@ async function loadRuntime() {
     if (requestSequence !== runtimeRequestSequence) return
     if (providerResult.status === 'fulfilled') {
       runtime.value = providerResult.value
-      syncProviderForm(providerResult.value)
     } else {
       runtimeError.value = providerResult.reason?.message || '模型服务状态读取失败'
     }
@@ -606,20 +553,9 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
       <div class="control-scroll">
         <el-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><el-button plain size="small" @click="loadRuntime">重新加载</el-button></el-alert>
         <div class="control-section-label"><span>01</span>AI Provider</div>
-        <div v-if="isAdmin" class="provider-editor">
-          <el-form label-position="top" :model="providerForm" :disabled="providerSaving">
-            <el-form-item label="模型来源"><el-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><el-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item>
-            <p class="provider-description">{{ selectedProviderOption.description }}</p>
-            <el-form-item label="服务地址"><el-input v-model="providerForm.baseUrl" placeholder="例如 http://192.168.24.133:11434 或 https://api.deepseek.com" /></el-form-item>
-            <el-form-item label="模型名称"><el-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></el-form-item>
-            <el-form-item v-if="providerForm.provider !== 'ollama'" label="API Key"><el-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="留空表示沿用当前密钥" /></el-form-item>
-            <el-button class="provider-apply" type="primary" :loading="providerSaving" @click="saveProviderConfig">测试并应用</el-button>
-          </el-form>
-          <el-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon />
-          <small v-if="runtime.config?.apiKeyConfigured && providerForm.provider !== 'ollama'" class="provider-key-hint">当前已保存 API Key：{{ runtime.config.apiKeyHint || '已配置' }}；留空提交会继续使用它。</small>
-        </div>
-        <div v-else class="provider-summary">
+        <div class="provider-summary">
           <span>当前 AI Provider</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.apiKeyConfigured ? 'API Key 已配置' : '无需 API Key' }}</small>
+          <el-button type="primary" plain @click="emit('navigate', 'aiProviders')">管理 AI Provider</el-button>
         </div>
         <div class="control-section-label"><span>02</span>选择工作流</div>
         <el-form label-position="top"><el-form-item label="工作流插件"><el-select v-model="selectedWorkflowId" placeholder="选择 AI 工作流" :disabled="sending || !workflowItems.length"><el-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></el-select></el-form-item></el-form>
@@ -695,7 +631,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 <style scoped>
 .provider-select-row { width:100%; min-width:0; }
 .ai-runtime { min-height:74px; margin-bottom:16px; padding:15px 18px; display:flex; align-items:center; justify-content:space-between; gap:20px; background:#fff; border:1px solid #e8e8e8; border-left:3px solid #1677ff; border-radius:4px; }.ai-runtime>div:first-child { display:grid; gap:3px; }.section-kicker { color:#1677ff; font-size:9px; font-weight:700; letter-spacing:.14em; }.ai-runtime strong { font-size:16px; }.ai-runtime small { color:var(--muted); }.runtime-actions { display:flex; align-items:center; gap:12px; }.runtime-status { display:flex; align-items:center; gap:8px; color:#646c73; font-size:12px; white-space:nowrap; }.runtime-status i { width:7px; height:7px; background:#ff4d4f; border-radius:50%; }.runtime-status i.online { background:#52c41a; }
-.ai-workbench { display:grid; grid-template-columns:minmax(280px,320px) minmax(0,1fr); gap:16px; align-items:stretch; }.control-card,.ai-chat-card { height:clamp(580px,calc(100vh - 190px),780px); min-height:0; }.card-header>div { display:grid; gap:3px; }.card-header small { display:block; }.control-card :deep(.el-card__body) { height:calc(100% - 57px); padding:0; }.control-scroll { height:100%; padding:16px; overflow:auto; }.control-scroll>.el-alert { margin-bottom:14px; }.workflow-description { margin:-3px 0 14px; padding:12px; background:#f5f9ff; border:1px solid #d6e8ff; border-radius:4px; }.workflow-description>div:first-child { display:flex; align-items:center; gap:9px; }.workflow-description>div:first-child>div { display:grid; gap:2px; }.workflow-description strong { color:#1554ad; font-size:12px; }.workflow-description small { color:#8c8c8c; font-size:10px; }.workflow-description p { margin:9px 0; color:#646c73; font-size:11px; line-height:1.6; }.workflow-icon { width:30px; height:30px; display:grid; place-items:center; color:#fff; background:#1677ff; border-radius:4px; font-size:9px; font-weight:800; }.capability-list { display:flex; flex-wrap:wrap; gap:5px; }.run-config { margin-bottom:2px; }.run-config>div { display:grid; grid-template-columns:minmax(0,1fr) 112px; gap:9px; }.run-config :deep(.el-input-number) { width:100%; }.provider-editor { margin:-3px 0 14px; padding:11px; background:#f5f9ff; border:1px solid #d6e8ff; border-radius:5px; }.provider-editor :deep(.el-form-item) { margin-bottom:10px; }.provider-editor :deep(.el-select) { width:100%; }.provider-description { margin:-3px 0 10px; color:#64748b; font-size:10px; line-height:1.5; }.provider-apply { width:100%; margin-top:2px; }.provider-error { margin-top:10px; }.provider-key-hint { display:block; margin-top:9px; color:#64748b; font-size:10px; line-height:1.5; }.provider-summary { margin:0 0 14px; padding:11px; display:grid; gap:4px; background:#fafafa; border:1px solid #ededed; border-radius:4px; }.provider-summary>span { color:#8c8c8c; font-size:10px; }.provider-summary strong { font-size:12px; }.provider-summary small { color:#646c73; }.provider-summary .el-alert { margin-top:7px; }.sandbox-collapse { border-top:1px solid #ededed; }.collapse-title { width:100%; padding-right:8px; display:flex; align-items:center; justify-content:space-between; }.collapse-title>div { display:grid; gap:2px; }.collapse-title strong { font-size:12px; }.collapse-title small { color:#8c8c8c; font-size:10px; }.plugin-description { margin:-4px 0 15px; display:grid; gap:4px; }.plugin-description strong { color:#1554ad; font-size:11px; }.plugin-description span { color:#646c73; font-size:10px; line-height:1.5; }.provider-select-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; }.provider-select-row :deep(.el-select) { width:100%; }.provider-profile-toolbar { margin:-5px 0 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }.provider-profile-toolbar small { color:#86909c; font-size:10px; line-height:1.5; }.provider-profile-toolbar>div { display:flex; gap:5px; flex:none; }.provider-profile-editor { margin:0 0 13px; padding:11px; background:#f9f0ff; border:1px solid #d3adf7; border-radius:5px; }.provider-profile-editor :deep(.el-form-item) { margin-bottom:10px; }.provider-profile-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:10px; }.admin-notice { margin-bottom:14px; }.test-button { width:100%; margin-top:12px; }.test-result { margin-top:14px; padding:11px; border:1px solid; border-radius:4px; }.test-result.success { background:#f6ffed; border-color:#b7eb8f; }.test-result.failed { background:#fff2f0; border-color:#ffccc7; }.test-result>div { display:flex; justify-content:space-between; align-items:center; }.test-result p { margin:8px 0; color:#3d3d3d; font-size:11px; line-height:1.6; white-space:pre-wrap; }.test-result small { color:#8c8c8c; word-break:break-all; }
+.ai-workbench { display:grid; grid-template-columns:minmax(280px,320px) minmax(0,1fr); gap:16px; align-items:stretch; }.control-card,.ai-chat-card { height:clamp(580px,calc(100vh - 190px),780px); min-height:0; }.card-header>div { display:grid; gap:3px; }.card-header small { display:block; }.control-card :deep(.el-card__body) { height:calc(100% - 57px); padding:0; }.control-scroll { height:100%; padding:16px; overflow:auto; }.control-scroll>.el-alert { margin-bottom:14px; }.workflow-description { margin:-3px 0 14px; padding:12px; background:#f5f9ff; border:1px solid #d6e8ff; border-radius:4px; }.workflow-description>div:first-child { display:flex; align-items:center; gap:9px; }.workflow-description>div:first-child>div { display:grid; gap:2px; }.workflow-description strong { color:#1554ad; font-size:12px; }.workflow-description small { color:#8c8c8c; font-size:10px; }.workflow-description p { margin:9px 0; color:#646c73; font-size:11px; line-height:1.6; }.workflow-icon { width:30px; height:30px; display:grid; place-items:center; color:#fff; background:#1677ff; border-radius:4px; font-size:9px; font-weight:800; }.capability-list { display:flex; flex-wrap:wrap; gap:5px; }.run-config { margin-bottom:2px; }.run-config>div { display:grid; grid-template-columns:minmax(0,1fr) 112px; gap:9px; }.run-config :deep(.el-input-number) { width:100%; }.provider-summary { margin:0 0 14px; padding:11px; display:grid; gap:7px; background:#fafafa; border:1px solid #ededed; border-radius:4px; }.provider-summary>span { color:#8c8c8c; font-size:10px; }.provider-summary strong { font-size:12px; }.provider-summary small { color:#646c73; }.sandbox-collapse { border-top:1px solid #ededed; }.collapse-title { width:100%; padding-right:8px; display:flex; align-items:center; justify-content:space-between; }.collapse-title>div { display:grid; gap:2px; }.collapse-title strong { font-size:12px; }.collapse-title small { color:#8c8c8c; font-size:10px; }.plugin-description { margin:-4px 0 15px; display:grid; gap:4px; }.plugin-description strong { color:#1554ad; font-size:11px; }.plugin-description span { color:#646c73; font-size:10px; line-height:1.5; }.provider-select-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; }.provider-select-row :deep(.el-select) { width:100%; }.provider-profile-toolbar { margin:-5px 0 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }.provider-profile-toolbar small { color:#86909c; font-size:10px; line-height:1.5; }.provider-profile-toolbar>div { display:flex; gap:5px; flex:none; }.provider-profile-editor { margin:0 0 13px; padding:11px; background:#f9f0ff; border:1px solid #d3adf7; border-radius:5px; }.provider-profile-editor :deep(.el-form-item) { margin-bottom:10px; }.provider-profile-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:10px; }.admin-notice { margin-bottom:14px; }.test-button { width:100%; margin-top:12px; }.test-result { margin-top:14px; padding:11px; border:1px solid; border-radius:4px; }.test-result.success { background:#f6ffed; border-color:#b7eb8f; }.test-result.failed { background:#fff2f0; border-color:#ffccc7; }.test-result>div { display:flex; justify-content:space-between; align-items:center; }.test-result p { margin:8px 0; color:#3d3d3d; font-size:11px; line-height:1.6; white-space:pre-wrap; }.test-result small { color:#8c8c8c; word-break:break-all; }
 .knowledge-summary { margin:0 0 14px; padding:11px; display:grid; gap:5px; background:#f6ffed; border:1px solid #d9f7be; border-radius:4px; }.knowledge-summary>div { display:flex; align-items:center; justify-content:space-between; }.knowledge-summary span,.knowledge-summary small { color:#5b6b59; font-size:10px; }.knowledge-summary strong { color:#237804; font-size:11px; }.binding-numbers { display:grid; grid-template-columns:1fr 1fr; gap:9px; }.binding-numbers :deep(.el-input-number),.sandbox-collapse :deep(.el-select),.sandbox-collapse :deep(.el-radio-group) { width:100%; }.sandbox-collapse :deep(.el-radio-button) { flex:1; }.sandbox-collapse :deep(.el-radio-button__inner) { width:100%; padding-left:7px; padding-right:7px; }
 .agent-json-editor :deep(textarea) { font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:10px; line-height:1.55; }.agent-actions { margin-top:12px; display:flex; justify-content:flex-end; gap:8px; }
 .agent-preview-summary { margin-top:14px; padding:12px; display:grid; gap:5px; background:#f6faff; border:1px solid #d6e8ff; border-radius:5px; }.agent-preview-summary>div { display:flex; align-items:center; gap:7px; }.agent-preview-summary strong { color:#1f2329; font-size:13px; }.agent-preview-summary small { color:#697386; font-size:10px; }.agent-preview-summary p { margin:0; color:#4e5969; font-size:11px; line-height:1.6; }.agent-manifest-preview { max-height:min(58vh,560px); margin:12px 0 0; padding:14px; overflow:auto; color:#1f2329; background:#fbfcfe; border:1px solid #d6e4ff; border-radius:5px; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:11px; line-height:1.65; white-space:pre-wrap; word-break:break-word; }

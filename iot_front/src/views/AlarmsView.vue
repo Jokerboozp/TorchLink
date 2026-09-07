@@ -18,6 +18,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 let analysisPollTimer = 0
+let analysisViewToken = 0
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
 const progressStatus = computed(() => analysisProgress.value?.status === 'failed' ? 'exception' : analysisProgress.value?.status === 'succeeded' ? 'success' : undefined)
@@ -45,6 +46,13 @@ function stopAnalysisPolling() {
   analysisPollTimer = 0
 }
 
+function handleDetailClosed() {
+  analysisViewToken += 1
+  stopAnalysisPolling()
+  analysisLoading.value = false
+  analysisProgress.value = null
+}
+
 function formatRemaining(ms) {
   const seconds = Math.ceil(Number(ms || 0) / 1000)
   if (seconds <= 0) return '即将完成'
@@ -52,9 +60,11 @@ function formatRemaining(ms) {
   return `预计还需约 ${Math.ceil(seconds / 60)} 分钟`
 }
 
-async function pollAnalysis(jobId, alarmId) {
+async function pollAnalysis(jobId, alarmId, viewToken = analysisViewToken) {
+  if (viewToken !== analysisViewToken || !detailVisible.value) return
   try {
     const progress = await api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(alarmId)}/progress/${encodeURIComponent(jobId)}`)
+    if (viewToken !== analysisViewToken || !detailVisible.value) return
     analysisProgress.value = progress
     if (progress.status === 'succeeded') {
       analysis.value = progress.analysis || null
@@ -67,8 +77,9 @@ async function pollAnalysis(jobId, alarmId) {
       notifyError(progress.error || 'AI 研判失败')
       return
     }
-    analysisPollTimer = window.setTimeout(() => { void pollAnalysis(jobId, alarmId) }, 800)
+    analysisPollTimer = window.setTimeout(() => { void pollAnalysis(jobId, alarmId, viewToken) }, 800)
   } catch (error) {
+    if (viewToken !== analysisViewToken || !detailVisible.value) return
     analysisLoading.value = false
     stopAnalysisPolling()
     notifyError(error)
@@ -76,6 +87,7 @@ async function pollAnalysis(jobId, alarmId) {
 }
 
 async function show(id) {
+  const viewToken = ++analysisViewToken
   stopAnalysisPolling()
   analysisLoading.value = false
   analysisProgress.value = null
@@ -83,7 +95,23 @@ async function show(id) {
     detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
     analysis.value = null
     detailVisible.value = true
-    try { analysis.value = await api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(id)}`) } catch { analysis.value = null }
+    const [savedResult, progressResult] = await Promise.allSettled([
+      api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(id)}`),
+      api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(id)}/progress`)
+    ])
+    if (viewToken !== analysisViewToken || !detailVisible.value) return
+    analysis.value = savedResult.status === 'fulfilled' ? savedResult.value : null
+    if (progressResult.status !== 'fulfilled') return
+    analysisProgress.value = progressResult.value
+    if (progressResult.value.status === 'running') {
+      analysisLoading.value = true
+      void pollAnalysis(progressResult.value.jobId, id, viewToken)
+    } else if (progressResult.value.status === 'succeeded') {
+      analysis.value = progressResult.value.analysis || analysis.value
+      analysisLoading.value = false
+    } else {
+      analysisLoading.value = false
+    }
   } catch (e) {
     notifyError(e)
   }
@@ -91,11 +119,13 @@ async function show(id) {
 
 async function runAnalysis() {
   if (!detail.value || analysisLoading.value) return
+  const viewToken = analysisViewToken
   stopAnalysisPolling()
   analysisLoading.value = true
   analysisProgress.value = { status:'running', stage:'preparing', message:'正在准备告警上下文', progress:5, estimatedRemainingMs:45000 }
   try {
     const job = await api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(detail.value.alarmId)}/run`, { method:'POST', body:'{}' })
+    if (viewToken !== analysisViewToken || !detailVisible.value) return
     analysisProgress.value = job
     if (job.status === 'succeeded') {
       analysis.value = job.analysis || null
@@ -103,8 +133,9 @@ async function runAnalysis() {
       ElMessage.success('AI 研判已完成')
       return
     }
-    await pollAnalysis(job.jobId, detail.value.alarmId)
+    await pollAnalysis(job.jobId, detail.value.alarmId, viewToken)
   } catch (e) {
+    if (viewToken !== analysisViewToken || !detailVisible.value) return
     analysisLoading.value = false
     notifyError(e)
   }
@@ -144,6 +175,7 @@ onMounted(async () => {
   await consumeNavigationAction()
 })
 onBeforeUnmount(() => {
+  analysisViewToken += 1
   stopAnalysisPolling()
   window.removeEventListener('iot:realtime', realtime)
 })
@@ -170,7 +202,7 @@ onBeforeUnmount(() => {
     <div class="list-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div>
   </el-card>
 
-  <el-dialog v-model="detailVisible" title="告警详情" width="min(760px, 94vw)" @closed="stopAnalysisPolling">
+  <el-dialog v-model="detailVisible" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed">
     <el-descriptions v-if="detail" :column="1" border>
       <el-descriptions-item label="告警编号">{{detail.alarmId}}</el-descriptions-item><el-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</el-descriptions-item><el-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</el-descriptions-item><el-descriptions-item label="等级 / 状态"><el-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</el-tag> {{label(alarmStatuses,detail.status)}}</el-descriptions-item><el-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</el-descriptions-item><el-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</el-descriptions-item><el-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</el-descriptions-item><el-descriptions-item label="触发次数">{{detail.triggerCount}}</el-descriptions-item>
     </el-descriptions>

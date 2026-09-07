@@ -211,10 +211,11 @@ func (s *Server) updateAIAnalysisEstimate(elapsed int64) {
 
 func (s *Server) aiAlarmAnalysisProgress(w http.ResponseWriter, r *http.Request) {
 	key := alarmJobKey(claims(r).TenantID, r.PathValue("alarmId"))
+	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))
 	s.aiAnalysisMu.RLock()
 	job := cloneAIAnalysisJob(s.aiAnalysisJobs[key])
 	s.aiAnalysisMu.RUnlock()
-	if job == nil || job.ID != r.PathValue("jobId") {
+	if job == nil || requestedJobID != "" && job.ID != requestedJobID {
 		problem(w, http.StatusNotFound, "AI 研判任务不存在或已过期")
 		return
 	}

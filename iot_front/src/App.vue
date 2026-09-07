@@ -44,6 +44,7 @@ const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
 const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
+const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
 const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue'))
 
 const authenticated = ref(Boolean(session.token))
@@ -74,7 +75,8 @@ const pages = {
   raw: { title: '原始报文', sub: '证据链检索、审计与回放', icon: FileText, component: RawView },
   rules: { title: '告警规则', sub: '可审计的动态规则与 AI 草稿', icon: Settings2, component: RulesView },
   knowledge: { title: 'Agent 知识库', sub: '文档直接归属 Agent，并使用持久化向量索引', icon: Library, component: KnowledgeView },
-  ai: { title: 'AI 工作流', sub: 'DeepSeek Harness 插件、受控工具与知识库问答', icon: MessageCircle, component: AiView },
+  aiProviders: { title: 'AI Provider', sub: '模型服务、密钥和 AI 业务统一管理', icon: Cpu, component: AiProvidersView },
+  ai: { title: 'AI 工作流', sub: '受控工具与知识库问答', icon: MessageCircle, component: AiView },
   backups: { title: '备份中心', sub: '备份记录、文件校验与恢复演练', icon: Database, component: BackupsView }
 }
 const current = computed(() => pages[active.value])
@@ -82,7 +84,7 @@ const menuGroups = [
   { label: '控制中心', items: ['dashboard'] },
   { label: '设备接入', items: ['products', 'protocols', 'devices', 'integration', 'testDevice', 'cameras'] },
   { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] },
-  { label: '智能助手', items: ['ai', 'knowledge'] },
+  { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] },
   { label: '系统维护', items: ['backups'] }
 ]
 const relatedPages = {
@@ -92,7 +94,7 @@ const relatedPages = {
   testDevice: ['raw', 'alarms'], cameras: ['devices'],
   alarms: ['rules', 'inspection'], inspection: ['devices', 'alarms'],
   raw: ['protocols', 'devices'], rules: ['alarms', 'ai'],
-  knowledge: ['ai'], ai: ['knowledge', 'rules'], backups: ['raw']
+  knowledge: ['ai', 'aiProviders'], aiProviders: ['ai', 'knowledge'], ai: ['aiProviders', 'knowledge', 'rules'], backups: ['raw']
 }
 const filteredGroups = computed(() => menuGroups.map(group => ({
   ...group,
@@ -155,7 +157,7 @@ function handleUIAction(payload) {
       ElMessage.info(`规则联动：已定位摄像头信息 ${action.cameraId}`)
       return
     }
-    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'ai', 'backups'])
+    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
     if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
       openPage(action.page)
       ElMessage.warning('规则联动：已打开相关业务页面')

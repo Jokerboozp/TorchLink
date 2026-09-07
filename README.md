@@ -30,7 +30,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成带逐项中文说明的 `.env.local`，启动依赖容器、AI 工作流 Harness、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。本地源码方案默认使用 DeepSeek API；把 Key 填入 `DEEPSEEK_API_KEY` 后重跑一次脚本，使 Harness 容器加载密钥。需要改用本地模型时可传 `-IncludeAi` / `--include-ai`，或启动后在“AI 工作流”的 Provider 区域切换；再次执行会复用其他配置和数据。若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。
+脚本生成带逐项中文说明的 `.env.local`，启动依赖容器、AI 工作流 Harness、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。本地源码方案默认使用 DeepSeek API；把 Key 填入 `DEEPSEEK_API_KEY` 后重跑一次脚本，使 Harness 容器加载密钥。需要改用本地模型时可传 `-IncludeAi` / `--include-ai`，或启动后在“AI Provider”菜单切换；再次执行会复用其他配置和数据。若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。
 
 如果依赖容器运行在 Linux 虚拟机、源码运行在 Windows，Linux 使用 Windows 可访问的虚拟机地址启动：
 
@@ -128,7 +128,7 @@ bash ./scripts/deploy-offline.sh
 - 不同方案使用独立 Compose 项目和数据卷；默认端口有重叠，同一台机器上不要同时启动多套默认配置。
 - 配置文件应随数据库备份妥善保管。已有数据库卷时，直接改文件中的数据库密码不会同步修改库内账号。
 - `IOT_AI_MODEL` 和 `IOT_OLLAMA_MODEL` 用于切换本地模型；`IOT_AI_HARNESS_MODEL` 应保持相同。`IOT_AI_HARNESS_ENABLED=false` 可关闭 Harness。
-- 管理员可在“AI 工作流”页面的 **AI Provider** 区域切换本地 Ollama、DeepSeek API 或 OpenAI 兼容 API。点击“测试并应用”后，告警研判、AI 对话、规则草稿、报告和工作流会统一使用新 Provider；API Key 会脱敏显示，并在使用 PostgreSQL 时保存到活动配置。
+- 管理员可在独立的“AI Provider”菜单切换本地 Ollama、DeepSeek API 或 OpenAI 兼容 API。点击“测试并应用”后，告警研判、AI 对话、规则草稿、报告和工作流会统一使用新 Provider；API Key 会脱敏显示，并在使用 PostgreSQL 时保存到活动配置。
 - 告警详情中的“立即研判”会显示实时进度和预计剩余时间，任务完成后自动展示研判结果。
 
 AI 可选参数、端口、日志、停止与升级命令见 [部署配置与维护](docs/DEPLOYMENT.md)。

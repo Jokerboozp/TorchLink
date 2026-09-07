@@ -68,3 +68,31 @@ func TestAIAnalysisJobReportsProgressAndPersistsResult(t *testing.T) {
 	}
 	t.Fatal("AI analysis job did not complete")
 }
+
+func TestAIAnalysisProgressCanBeLoadedWithoutJobID(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = progressTestAI{release: release}
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress-resume", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := api.startAIAnalysisJob("tenant-a", "alarm-progress-resume", "operator")
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	defer close(release)
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/alarm-analysis/alarm-progress-resume/progress", viewerToken, nil, 200)
+	if progress["jobId"] != job.ID || progress["status"] != "running" {
+		t.Fatalf("unexpected resumable progress: %#v", progress)
+	}
+}

@@ -174,6 +174,7 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/backups", s.authorize("admin"), s.endpoint(s.runBackup))
 	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId", s.authorize("viewer"), s.endpoint(s.aiAnalysis, "alarmId"))
 	s.router.POST("/api/v1/ai/alarm-analysis/:alarmId/run", s.authorize("operator"), s.endpoint(s.runAIAlarmAnalysis, "alarmId"))
+	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId"))
 	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress/:jobId", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId", "jobId"))
 	s.router.POST("/api/v1/ai/health-inspection", s.authorize("viewer"), s.endpoint(s.healthInspection))
 	s.router.POST("/api/v1/ai/health-inspection/pdf", s.authorize("viewer"), s.endpoint(s.healthInspectionPDF))
