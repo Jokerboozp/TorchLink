@@ -130,6 +130,7 @@ bash ./scripts/deploy-offline.sh
 - `IOT_AI_MODEL` 和 `IOT_OLLAMA_MODEL` 用于切换本地模型；`IOT_AI_HARNESS_MODEL` 应保持相同。`IOT_AI_HARNESS_ENABLED=false` 可关闭 Harness。
 - 管理员可在独立的“AI 模型管理”菜单切换本地 Ollama、DeepSeek 云端模型或兼容接口模型。先点击“测试配置”确认地址、模型和接口密钥可用，再点击“应用配置”；应用后告警研判、AI 对话、规则草稿、报告和工作流会统一使用新模型服务。接口密钥会脱敏显示，并在使用 PostgreSQL 时保存到活动配置。
 - 告警详情中的“立即研判”会显示实时进度和预计剩余时间，任务完成后自动展示研判结果。
+- “智能巡检”同样以后台任务运行，显示阶段、进度和预计剩余时间；切换页面后会自动恢复任务进度，完成后保留巡检报告。
 
 AI 可选参数、端口、日志、停止与升级命令见 [部署配置与维护](docs/DEPLOYMENT.md)。
 

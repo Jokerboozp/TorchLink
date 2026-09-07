@@ -41,22 +41,25 @@ type ctxKey string
 const claimsKey ctxKey = "claims"
 
 type Server struct {
-	cfg                   config.Config
-	engine                *core.Engine
-	auth                  *auth.Manager
-	metrics               *metrics.Registry
-	log                   *slog.Logger
-	router                *gin.Engine
-	aiProviderRuntime     ports.AIProviderRuntime
-	aiProviderStore       ports.AIProviderConfigStore
-	aiWorkflowProvider    ports.AIWorkflowProviderRuntime
-	aiProviderUpdateMu    sync.Mutex
-	healthInspectionMu    sync.RWMutex
-	healthInspectionCache map[string]healthInspectionSnapshot
-	aiAnalysisMu          sync.RWMutex
-	aiAnalysisJobs        map[string]*aiAnalysisJob
-	aiAnalysisEstimateMs  int64
-	protocolListeners     protocolCommander
+	cfg                        config.Config
+	engine                     *core.Engine
+	auth                       *auth.Manager
+	metrics                    *metrics.Registry
+	log                        *slog.Logger
+	router                     *gin.Engine
+	aiProviderRuntime          ports.AIProviderRuntime
+	aiProviderStore            ports.AIProviderConfigStore
+	aiWorkflowProvider         ports.AIWorkflowProviderRuntime
+	aiProviderUpdateMu         sync.Mutex
+	healthInspectionMu         sync.RWMutex
+	healthInspectionCache      map[string]healthInspectionSnapshot
+	healthInspectionJobsMu     sync.RWMutex
+	healthInspectionJobs       map[string]*healthInspectionJob
+	healthInspectionEstimateMs int64
+	aiAnalysisMu               sync.RWMutex
+	aiAnalysisJobs             map[string]*aiAnalysisJob
+	aiAnalysisEstimateMs       int64
+	protocolListeners          protocolCommander
 }
 
 type healthInspectionSnapshot struct {
@@ -72,15 +75,17 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	router.HandleMethodNotAllowed = true
 	router.RedirectTrailingSlash = false
 	s := &Server{
-		cfg:                   cfg,
-		engine:                engine,
-		auth:                  auth.New(cfg.JWTSecret),
-		metrics:               m,
-		log:                   log,
-		router:                router,
-		healthInspectionCache: make(map[string]healthInspectionSnapshot),
-		aiAnalysisJobs:        make(map[string]*aiAnalysisJob),
-		aiAnalysisEstimateMs:  45000,
+		cfg:                        cfg,
+		engine:                     engine,
+		auth:                       auth.New(cfg.JWTSecret),
+		metrics:                    m,
+		log:                        log,
+		router:                     router,
+		healthInspectionCache:      make(map[string]healthInspectionSnapshot),
+		healthInspectionJobs:       make(map[string]*healthInspectionJob),
+		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),
+		aiAnalysisJobs:             make(map[string]*aiAnalysisJob),
+		aiAnalysisEstimateMs:       45000,
 	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()
@@ -177,6 +182,9 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId"))
 	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress/:jobId", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId", "jobId"))
 	s.router.POST("/api/v1/ai/health-inspection", s.authorize("viewer"), s.endpoint(s.healthInspection))
+	s.router.POST("/api/v1/ai/health-inspection/run", s.authorize("viewer"), s.endpoint(s.runHealthInspection))
+	s.router.GET("/api/v1/ai/health-inspection/progress", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress))
+	s.router.GET("/api/v1/ai/health-inspection/progress/:jobId", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress, "jobId"))
 	s.router.POST("/api/v1/ai/health-inspection/pdf", s.authorize("viewer"), s.endpoint(s.healthInspectionPDF))
 	s.router.POST("/api/v1/ai/protocol-assistant/generate", s.authorize("operator"), s.endpoint(s.generateProtocolAssistant))
 	s.router.POST("/api/v1/ai/protocol-assistant/preview", s.authorize("operator"), s.endpoint(s.previewProtocolAssistant))

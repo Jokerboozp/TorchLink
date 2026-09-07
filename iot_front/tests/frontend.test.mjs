@@ -382,10 +382,15 @@ test('device access and health inspection pages expose the new runtime workflow'
   for (const label of ['设备健康巡检', '立即巡检', '状态正常', '活动告警', 'AI 巡检建议']) {
     assert.match(inspection, new RegExp(label), `missing inspection label: ${label}`)
   }
-  assert.match(inspection, /api\('\/api\/v1\/ai\/health-inspection'/)
+  assert.match(inspection, /api\('\/api\/v1\/ai\/health-inspection\/run'/)
+  assert.match(inspection, /api\('\/api\/v1\/ai\/health-inspection\/progress'/)
   assert.match(inspection, /loadHealthInspection/)
   assert.match(inspection, /saveHealthInspection/)
   assert.match(inspection, /sessionStorage/)
+  assert.match(inspection, /function pollProgress\(/)
+  assert.match(inspection, /任务在后台继续执行，切换页面后会自动恢复/)
+  assert.match(inspection, /estimatedRemainingMs/)
+  assert.match(inspection, /onBeforeUnmount/)
   assert.doesNotMatch(inspection, /onMounted\(run\)/)
   assert.match(inspection, /点击“立即巡检”开始检查/)
   assert.match(app, /title: '设备接入'/)

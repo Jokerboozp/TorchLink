@@ -40,6 +40,10 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
 	tenantID := claims(r).TenantID
 	report, ok := s.recentHealthInspection(tenantID)
 	if !ok {
+		if job := s.currentHealthInspectionJob(tenantID); job != nil && job.Status == "running" {
+			problem(w, http.StatusConflict, "智能巡检仍在进行，请等待任务完成后再下载报告")
+			return
+		}
 		var err error
 		report, err = s.engine.InspectDeviceHealth(ctx, tenantID)
 		if err != nil {
