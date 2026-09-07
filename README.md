@@ -12,7 +12,7 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 
 以下命令均在**本仓库根目录**执行。三种方案都需要已安装并启动 Docker（Linux 容器）及 Docker Compose v2；本地运行另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。脚本检查运行环境，不负责安装 Docker、Go 或 Node.js。
 
-默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务，以及 Ollama/Weaviate 知识库依赖和 `nomic-embed-text` 嵌入模型。对话模型和 DeepSeek Harness 按需开启，基础设备与告警功能不要求云端 AI 密钥。
+默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate 知识库依赖、`nomic-embed-text` 嵌入模型和 DeepSeek Harness。自动研判与 AI 工作流默认共用配置文件中的 `DEEPSEEK_API_KEY`；需要其他模型时可直接修改配置。
 
 ## 1. 本地运行
 
@@ -30,23 +30,15 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成 `.env.local`，启动依赖容器、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。API 和前端由你在本机运行。再次执行会复用配置和数据；若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。
+脚本生成带逐项中文说明的 `.env.local`，启动依赖容器、DeepSeek Harness、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。API 和前端由你在本机运行。把 DeepSeek Key 填入 `DEEPSEEK_API_KEY` 后重跑一次脚本，使 Harness 容器加载密钥；再次执行会复用其他配置和数据。若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。
 
 如果依赖容器运行在 Linux 虚拟机、源码运行在 Windows，Linux 使用 Windows 可访问的虚拟机地址启动：
 
 ```bash
-bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP>
+bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP> --api-host <Windows在虚拟机网段的IP>
 ```
 
-该参数会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama、Weaviate 和备份服务使用虚拟机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，然后按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
-
-如果不使用本地大模型，而是使用 DeepSeek 和 AI 工作流，先在 `.env.local` 填写 `DEEPSEEK_API_KEY`，再执行：
-
-```bash
-bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP> --api-host <Windows在虚拟机网段的IP> --include-deepseek --include-harness
-```
-
-`--api-host` 供 Harness 容器回调 Windows 上的 API；VMware NAT 环境通常是对应虚拟网卡的主机地址。只需要告警研判等 Ollama 能力时省略 `--api-host` 和 `--include-harness`，只保留 `--include-ai`。
+`--dependency-host` 会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama、Weaviate、备份服务和 Harness 使用虚拟机地址；`--api-host` 供 Harness 容器回调 Windows 上的 API，VMware NAT 环境通常填写对应虚拟网卡的主机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，确认 `DEEPSEEK_API_KEY` 已填写，再按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
 
 ### 日常运行代码
 
@@ -87,7 +79,7 @@ Linux / macOS：
 bash ./scripts/deploy-online.sh
 ```
 
-脚本首次生成 `.env.online`，拉取基础镜像、构建 API/Web/备份服务、准备知识库模型、启动服务并检查 API 与网页。完成后访问 **http://服务器IP:8080**。服务器无需安装 Go 或 Node.js；首次构建需要访问镜像仓库、Go/npm 依赖源和 Ollama 模型源。
+脚本首次生成带逐项中文说明的 `.env.online`，拉取基础镜像、构建 API/Web/备份服务和 DeepSeek Harness、准备知识库模型、启动服务并检查 API 与网页。把 DeepSeek Key 填入 `DEEPSEEK_API_KEY` 后重跑同一命令。完成后访问 **http://服务器IP:8080**。服务器无需安装 Go 或 Node.js；首次构建需要访问镜像仓库、Go/npm 依赖源、Harness 源码和 Ollama 模型源。
 
 更新源码后重新执行同一命令即可构建并更新服务。已有凭据保持不变，数据库数据保存在 Docker 命名卷中。
 
@@ -135,6 +127,7 @@ bash ./scripts/deploy-offline.sh
 - 密码为对应环境文件中的 `IOT_ADMIN_PASSWORD`：本地 `.env.local`，在线 `.env.online`，离线包 `.env.offline`。首次脚本会生成随机凭据。
 - 不同方案使用独立 Compose 项目和数据卷；默认端口有重叠，同一台机器上不要同时启动多套默认配置。
 - 配置文件应随数据库备份妥善保管。已有数据库卷时，直接改文件中的数据库密码不会同步修改库内账号。
+- `IOT_AI_PROVIDER`、`IOT_AI_BASE_URL`、`IOT_AI_MODEL` 可切换自动研判模型；`IOT_AI_HARNESS_ENABLED=false` 可关闭默认 Harness。
 
 AI 可选参数、端口、日志、停止与升级命令见 [部署配置与维护](docs/DEPLOYMENT.md)。
 

@@ -4,6 +4,7 @@ set -Eeuo pipefail
 umask 077
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
+source "$script_dir/lib/env-comments.sh"
 
 output_dir="offline-bundles"
 env_file=""
@@ -138,6 +139,7 @@ write_env() {
     local ai_provider=""
     local weaviate_url="http://weaviate:8080"
     local harness_url=""
+    local harness_enabled="false"
     if (( include_ai )); then
       ollama_url="http://ollama:11434"
       ai_provider="ollama"
@@ -145,6 +147,7 @@ write_env() {
     fi
     if (( include_harness )); then
       harness_url="http://deepseek-harness:8091"
+      harness_enabled="true"
     fi
     cat > "$destination" <<EOF
 # 自动生成的离线部署配置，请限制此文件权限。
@@ -170,6 +173,7 @@ IOT_AI_API_KEY=
 IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS=http://ollama:11434
 IOT_AI_OLLAMA_URL=http://ollama:11434
 DEEPSEEK_API_KEY=
+IOT_AI_HARNESS_ENABLED=$harness_enabled
 IOT_AI_HARNESS_URL=$harness_url
 IOT_AI_HARNESS_TOKEN=$harness_token
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
@@ -209,6 +213,12 @@ EOF
   set_env_value "$destination" IOT_PLATFORM_WEB_IMAGE iot-platform-web:offline
   set_env_value "$destination" IOT_BACKUP_IMAGE iot-platform-backup:offline
   set_env_value "$destination" IOT_DEEPSEEK_HARNESS_IMAGE iot-deepseek-harness:offline
+  if (( include_harness )); then
+    set_env_value "$destination" IOT_AI_HARNESS_ENABLED true
+  elif [[ -z "$(env_value IOT_AI_HARNESS_ENABLED "$destination")" ]]; then
+    set_env_value "$destination" IOT_AI_HARNESS_ENABLED false
+  fi
+  annotate_deployment_env_file "$destination"
 
   if (( ! generated )); then
     cat > "$(dirname -- "$destination")/OFFLINE-CREDENTIALS.txt" <<EOF
@@ -262,6 +272,8 @@ mkdir -p "$bundle_root"
 generated_credentials="$(write_env "$bundle_root/.env.offline")"
 runtime_provider="$(env_value IOT_AI_PROVIDER "$bundle_root/.env.offline")"
 runtime_ollama_url="$(env_value IOT_OLLAMA_URL "$bundle_root/.env.offline")"
+runtime_harness_enabled="$(env_value IOT_AI_HARNESS_ENABLED "$bundle_root/.env.offline")"
+[[ "$runtime_harness_enabled" != true ]] || include_harness=1
 if [[ "$runtime_provider" == ollama || ( -z "$runtime_provider" && -n "$runtime_ollama_url" ) ]]; then
   include_ai=1
   configured_model="$(env_value IOT_AI_MODEL "$bundle_root/.env.offline")"

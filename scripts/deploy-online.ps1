@@ -7,8 +7,9 @@ builds the application, downloads the knowledge embedding model, and checks HTTP
 .PARAMETER IncludeAi
 Also download the chat model. A newly generated environment enables Ollama.
 .PARAMETER IncludeHarness
-Fetch the pinned Harness source and build its sidecar. Git is required.
-Set DEEPSEEK_API_KEY in the environment file before using cloud AI.
+Explicitly enable the DeepSeek Harness, which is enabled by default.
+.PARAMETER NoHarness
+Disable the DeepSeek Harness and persist that choice in the environment file.
 .PARAMETER EnvFile
 Environment file, relative to platform/. Credentials are never replaced.
 #>
@@ -18,6 +19,7 @@ param(
     [string]$ProjectName = 'iot-platform-online',
     [switch]$IncludeAi,
     [switch]$IncludeHarness,
+    [switch]$NoHarness,
     [int]$HealthTimeoutSeconds = 180
 )
 Set-StrictMode -Version Latest
@@ -27,6 +29,7 @@ $projectRoot = Split-Path -Parent $scriptDir
 . (Join-Path $scriptDir 'lib/deployment.ps1')
 if ($ProjectName -notmatch '^[a-z0-9][a-z0-9_-]*$') { throw 'ProjectName 必须以小写字母或数字开头，且仅包含小写字母、数字、下划线或短横线。' }
 if ($HealthTimeoutSeconds -lt 1) { throw 'HealthTimeoutSeconds 必须大于 0。' }
+if ($IncludeHarness -and $NoHarness) { throw 'IncludeHarness 与 NoHarness 不能同时使用。' }
 if (-not [IO.Path]::IsPathRooted($EnvFile)) { $EnvFile = Join-Path $projectRoot $EnvFile }
 $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 Assert-DockerAvailable
@@ -37,29 +40,48 @@ if ($IncludeAi) {
     $defaults.IOT_AI_BASE_URL = 'http://ollama:11434'
     $defaults.IOT_AI_MODEL = 'qwen3:8b'
 }
-if ($IncludeHarness) { $defaults.IOT_AI_HARNESS_URL = 'http://deepseek-harness:8091' }
 Ensure-DeploymentEnv -Path $EnvFile -Defaults $defaults
 if ($IncludeAi) {
     $provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
-    if ($provider -in @('', 'disabled', 'ollama')) {
-        $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OLLAMA_MODEL'
-        if (-not $model) { $model = 'qwen3:8b' }
-        if ($provider -eq 'ollama') {
-            $configuredModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
-            if ($configuredModel) { $model = $configuredModel }
-        }
-        foreach ($setting in @{'IOT_AI_PROVIDER'='ollama'; 'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model}.GetEnumerator()) {
-            Set-DeploymentEnvValue -Path $EnvFile -Key $setting.Key -Value $setting.Value
-        }
-    } else { Write-Host '保留已有远程 AI Provider；仅下载本地对话模型。' }
+    $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OLLAMA_MODEL'
+    if (-not $model) { $model = 'qwen3:8b' }
+    if ($provider -eq 'ollama') {
+        $configuredModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
+        if ($configuredModel) { $model = $configuredModel }
+    }
+    foreach ($setting in @{'IOT_AI_PROVIDER'='ollama'; 'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model}.GetEnumerator()) {
+        Set-DeploymentEnvValue -Path $EnvFile -Key $setting.Key -Value $setting.Value
+    }
 }
-if ($IncludeHarness) {
-    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value 'http://deepseek-harness:8091'
-    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL' -Value 'http://platform-api:8080/mcp/harness'
+if ($IncludeHarness) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true' }
+if ($NoHarness) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false' }
+$useHarnessText = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED'
+if (-not $useHarnessText) {
+    $useHarnessText = 'true'
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value $useHarnessText
 }
+if ($useHarnessText -notin @('true', 'false')) { throw 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' }
+$useHarness = $useHarnessText -eq 'true'
+if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -eq 'deepseek') {
+    $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'
+    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_API_KEY' }
+    if (-not [string]::IsNullOrWhiteSpace($deepSeekKey) -and [string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'))) {
+        Set-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY' -Value $deepSeekKey
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_BASE_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_BASE_URL' -Value 'https://api.deepseek.com' }
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL' -Value 'deepseek-v4-flash' }
+    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { Write-Warning '请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' }
+}
+if ($useHarness) {
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value 'http://deepseek-harness:8091' }
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL' -Value 'http://platform-api:8080/mcp/harness' }
+} else {
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value ''
+}
+Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
 $buildServices = @('platform-api', 'platform-web', 'backup-service')
-if ($IncludeHarness) {
+if ($useHarness) {
     $compose += @('--profile', 'harness')
     $buildServices += 'deepseek-harness'
     Ensure-HarnessSource -ProjectRoot $projectRoot
@@ -97,11 +119,11 @@ Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/health/ready" -TimeoutSecond
 $backupPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_BACKUP_HTTP_PORT'
 if (-not $backupPort) { $backupPort = '8092' }
 Wait-DeploymentHttp -Url "http://127.0.0.1:$backupPort/health/live" -TimeoutSeconds $HealthTimeoutSeconds
-if ($IncludeHarness) {
+if ($useHarness) {
     $harnessPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_PORT'
     if (-not $harnessPort) { $harnessPort = '8091' }
     Wait-DeploymentHttp -Url "http://127.0.0.1:$harnessPort/health" -TimeoutSeconds $HealthTimeoutSeconds
-    Write-Host "Harness 已启动；使用前在 $EnvFile 配置 DEEPSEEK_API_KEY 和 IOT_AI_HARNESS_URL=http://deepseek-harness:8091 后重跑。"
+    Write-Host "Harness 已启动；自动研判和工作流使用 $EnvFile 中的 DEEPSEEK_API_KEY。"
 }
 Invoke-DockerChecked -Arguments ($compose + @('ps'))
 Write-Host "在线部署完成：http://127.0.0.1:$webPort/；登录账号和密码查看 $EnvFile 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。"

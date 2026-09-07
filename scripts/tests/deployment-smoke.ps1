@@ -42,6 +42,15 @@ function global:Invoke-WebRequest {
 function global:go { $global:IotTest_calls.Add(@('go') + $args); $global:LASTEXITCODE = 0 }
 function global:npm.cmd { $global:IotTest_calls.Add(@('npm') + $args); $global:LASTEXITCODE = 0 }
 function Contains-Call([string]$Pattern) { return @($global:IotTest_calls | Where-Object { ($_ -join ' ') -match $Pattern }).Count -gt 0 }
+function Assert-CommentedEnv([string]$Path) {
+    $previous = ''
+    foreach ($line in [IO.File]::ReadAllLines($Path)) {
+        if ($line -match '^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=') {
+            Assert ($previous.StartsWith('# 配置说明：')) "Configuration assignment is missing a Chinese comment: $line"
+        }
+        $previous = $line
+    }
+}
 
 # Avoid inherited configuration changing these isolated scenarios.
 $savedEnv = @{}
@@ -54,6 +63,13 @@ foreach ($item in Get-ChildItem Env:) {
 try {
     $localEnv = Join-Path $testRoot '.env.local'
     & (Join-Path $scripts 'setup-local.ps1') -EnvFile $localEnv
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'Local default AI provider is not DeepSeek'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'Local default DeepSeek URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-v4-flash') 'Local default DeepSeek model is missing'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'Local Harness is not enabled by default'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://127.0.0.1:8091') 'Local Harness URL is missing'
+    Assert-CommentedEnv $localEnv
+    Assert (Contains-Call '--profile harness up -d --build --wait') 'Local setup did not start the default Harness profile'
     Assert (Contains-Call 'go mod download') 'Local setup omitted Go dependencies'
     Assert (Contains-Call 'npm ci') 'Local setup omitted npm dependencies'
     Assert (Contains-Call 'exec -T ollama ollama pull nomic-embed-text') 'Embedding model omitted'
@@ -74,6 +90,15 @@ try {
     Assert ((Get-FileHash $localEnv).Hash -eq $localHash) 'Local rerun changed configuration'
     Write-Host 'PASS local: code dependencies, isolated services, Kafka listener, stable credentials'
 
+    $noHarnessEnv = Join-Path $testRoot '.env.no-harness'
+    Copy-Item -LiteralPath $localEnv -Destination $noHarnessEnv
+    Set-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false'
+    $global:IotTest_calls.Clear()
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $noHarnessEnv -SkipCodeDeps
+    Assert ((Get-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_URL') -eq '') 'Disabled Harness retained an active URL'
+    Assert (-not (Contains-Call '--profile harness')) 'Environment file did not disable the Harness profile'
+    Write-Host 'PASS local configuration: Harness can be disabled in the environment file'
+
     $deepSeekEnv = Join-Path $testRoot '.env.deepseek'
     Copy-Item -LiteralPath $localEnv -Destination $deepSeekEnv
     Add-Content -LiteralPath $deepSeekEnv -Value "IOT_AI_API_KEY='smoke-test-key'"
@@ -87,6 +112,13 @@ try {
 
     $onlineEnv = Join-Path $testRoot '.env.online'
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'Online default AI provider is not DeepSeek'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'Online default DeepSeek URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-v4-flash') 'Online default DeepSeek model is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'Online Harness is not enabled by default'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://deepseek-harness:8091') 'Online Harness URL is missing'
+    Assert-CommentedEnv $onlineEnv
+    Assert (Contains-Call 'build --pull platform-api platform-web backup-service deepseek-harness') 'Online omitted the default Harness image build'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
     Assert ((Get-FileHash $onlineEnv).Hash -eq $onlineHash) 'Online rerun changed configuration'
@@ -119,6 +151,7 @@ try {
     $bundleParent = Join-Path $testRoot 'bundles'
     & (Join-Path $scripts 'package-offline-windows.ps1') -OutputDir $bundleParent
     $bundle = @(Get-ChildItem -LiteralPath $bundleParent -Directory)[0].FullName
+    Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($manifest.images -contains 'ollama/ollama:0.11.4') 'Default bundle omitted Ollama'
     Assert ($manifest.images -contains 'cr.weaviate.io/semitechnologies/weaviate:1.32.8') 'Default bundle omitted Weaviate'

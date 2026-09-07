@@ -162,6 +162,7 @@ function New-OfflineEnv {
         $aiProvider = if ($UseAi) { "ollama" } else { "" }
         $weaviateUrl = "http://weaviate:8080"
         $harnessUrl = if ($UseHarness) { "http://deepseek-harness:8091" } else { "" }
+        $harnessEnabled = if ($UseHarness) { "true" } else { "false" }
 
         $lines = @(
             "# 自动生成的离线部署配置，请限制此文件权限。",
@@ -187,6 +188,7 @@ function New-OfflineEnv {
             "IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS=http://ollama:11434",
             "IOT_AI_OLLAMA_URL=http://ollama:11434",
             "DEEPSEEK_API_KEY=",
+            "IOT_AI_HARNESS_ENABLED=$harnessEnabled",
             "IOT_AI_HARNESS_URL=$harnessUrl",
             "IOT_AI_HARNESS_TOKEN=$harnessToken",
             "IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness",
@@ -228,8 +230,14 @@ function New-OfflineEnv {
     foreach ($item in $imageValues.GetEnumerator()) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $item.Key -Value $item.Value)
     }
+    if ($UseHarness) {
+        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
+    } elseif (-not ($lines -match '^\s*IOT_AI_HARNESS_ENABLED\s*=')) {
+        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false')
+    }
 
     Write-Utf8NoBom -Path $Destination -Lines $lines
+    Add-DeploymentEnvComments -Path $Destination
     $credentialPath = Join-Path (Split-Path -Parent $Destination) "OFFLINE-CREDENTIALS.txt"
     $credentialFileLines = @(
         "# 离线部署凭据",
@@ -272,6 +280,8 @@ if (-not [string]::IsNullOrWhiteSpace($sourceEnv) -and -not [System.IO.Path]::Is
 }
 $envPath = Join-Path $bundleRoot ".env.offline"
 $envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv -UseAi:$IncludeAi -UseHarness:$IncludeHarness
+$runtimeHarnessEnabled = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_HARNESS_ENABLED'
+if ($runtimeHarnessEnabled -eq 'true') { $IncludeHarness = $true }
 $runtimeProvider = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_PROVIDER'
 if ($runtimeProvider -eq 'ollama' -or (-not $runtimeProvider -and (Get-DeploymentEnvValue -Path $envPath -Key 'IOT_OLLAMA_URL'))) {
     $IncludeAi = $true

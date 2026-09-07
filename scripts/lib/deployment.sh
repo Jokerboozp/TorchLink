@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Shared helpers. Do not source dotenv: user values are data, never shell code.
+deployment_lib_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "$deployment_lib_dir/env-comments.sh"
+unset deployment_lib_dir
 
 deployment_secret() {
   # od is provided by both GNU coreutils and macOS. No OpenSSL dependency.
@@ -39,12 +42,14 @@ IOT_WEB_PORT=8080
 IOT_API_PORT=8081
 IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
 IOT_OLLAMA_MODEL=qwen3:8b
-IOT_AI_PROVIDER=disabled
-IOT_AI_BASE_URL=
-IOT_AI_MODEL=
+IOT_AI_PROVIDER=deepseek
+IOT_AI_BASE_URL=https://api.deepseek.com
+IOT_AI_MODEL=deepseek-v4-flash
 IOT_AI_API_KEY=
 DEEPSEEK_API_KEY=
-IOT_AI_HARNESS_URL=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+IOT_AI_HARNESS_ENABLED=true
+IOT_AI_HARNESS_URL=http://deepseek-harness:8091
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
 IOT_AI_HARNESS_MODEL=deepseek-v4-flash
 IOT_BACKUP_TIME=00:05
@@ -62,8 +67,8 @@ EOF
   mkdir -p -- "$(dirname -- "$env_path")"
   # noclobber protects existing files, including concurrent script invocations.
   (umask 077; set -o noclobber; {
-    printf '# Generated once. Credentials are never rotated by deployment scripts.\n'
-    printf '# Credentials are stored here; do not commit or share this file.\n'
+    printf '# 此配置只在首次部署时生成，后续运行不会轮换凭据。\n'
+    printf '# 文件包含敏感凭据，请勿提交到 Git 或公开分享。\n'
     printf '%s\n' "$defaults"
   } > "$env_path") || return 1
   printf '已生成配置：%s（随机凭据仅保存在文件中）。\n' "$env_path"

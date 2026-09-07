@@ -1,4 +1,29 @@
 ﻿# Shared by local, online and offline entry points. Never dot-source a dotenv file.
+$script:IotDeploymentEnvCommentsPath = Join-Path $PSScriptRoot 'env-comments.tsv'
+
+function Get-DeploymentEnvComment {
+    param([Parameter(Mandatory)][string]$Key)
+    foreach ($line in [IO.File]::ReadAllLines($script:IotDeploymentEnvCommentsPath)) {
+        $parts = $line.Split(@("`t"), 2, [StringSplitOptions]::None)
+        if ($parts.Count -eq 2 -and $parts[0] -eq $Key) { return $parts[1] }
+    }
+    return "自定义配置项 $Key"
+}
+
+function Add-DeploymentEnvComments {
+    param([Parameter(Mandatory)][string]$Path)
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $result = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($line in [IO.File]::ReadAllLines($fullPath)) {
+        if ($line.StartsWith('# 配置说明：')) { continue }
+        if ($line -match '^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=') {
+            [void]$result.Add('# 配置说明：' + (Get-DeploymentEnvComment -Key $matches[1]))
+        }
+        [void]$result.Add($line.TrimEnd("`r"))
+    }
+    [IO.File]::WriteAllText($fullPath, ($result -join "`n") + "`n", (New-Object Text.UTF8Encoding($false)))
+}
+
 function New-DeploymentSecret {
     $bytes = New-Object byte[] 32
     $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -39,12 +64,14 @@ function Ensure-DeploymentEnv {
         IOT_API_PORT = '8081'
         IOT_CORS_ALLOWED_ORIGINS = 'http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173'
         IOT_OLLAMA_MODEL = 'qwen3:8b'
-        IOT_AI_PROVIDER = 'disabled'
-        IOT_AI_BASE_URL = ''
-        IOT_AI_MODEL = ''
+        IOT_AI_PROVIDER = 'deepseek'
+        IOT_AI_BASE_URL = 'https://api.deepseek.com'
+        IOT_AI_MODEL = 'deepseek-v4-flash'
         IOT_AI_API_KEY = ''
         DEEPSEEK_API_KEY = ''
-        IOT_AI_HARNESS_URL = ''
+        DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+        IOT_AI_HARNESS_ENABLED = 'true'
+        IOT_AI_HARNESS_URL = 'http://deepseek-harness:8091'
         IOT_AI_HARNESS_MCP_URL = 'http://platform-api:8080/mcp/harness'
         IOT_AI_HARNESS_MODEL = 'deepseek-v4-flash'
         IOT_BACKUP_TIME = '00:05'
@@ -58,7 +85,7 @@ function Ensure-DeploymentEnv {
     }
     $fullPath = [IO.Path]::GetFullPath($Path)
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($fullPath)) | Out-Null
-    $lines = @('# Generated once. Credentials are never rotated by deployment scripts.', '# Credentials are stored here; do not commit or share this file.')
+    $lines = @('# 此配置只在首次部署时生成，后续运行不会轮换凭据。', '# 文件包含敏感凭据，请勿提交到 Git 或公开分享。')
     foreach ($entry in $values.GetEnumerator()) { $lines += "$($entry.Key)=$($entry.Value)" }
     # CreateNew fails safely if another invocation created the file meanwhile.
     $stream = New-Object IO.FileStream($fullPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)

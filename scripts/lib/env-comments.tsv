@@ -1,0 +1,79 @@
+POSTGRES_PASSWORD	PostgreSQL 数据库密码，首次部署自动生成
+REDIS_PASSWORD	Redis 密码，首次部署自动生成
+CLICKHOUSE_PASSWORD	ClickHouse 数据库密码，首次部署自动生成
+MINIO_ROOT_USER	MinIO 主存储管理员用户名
+MINIO_ROOT_PASSWORD	MinIO 主存储管理员密码，首次部署自动生成
+MINIO_DR_ROOT_USER	MinIO 灾备存储管理员用户名
+MINIO_DR_ROOT_PASSWORD	MinIO 灾备存储管理员密码，首次部署自动生成
+EMQX_DASHBOARD_USER	EMQX 管理页面用户名
+EMQX_DASHBOARD_PASSWORD	EMQX 管理页面密码，首次部署自动生成
+GRAFANA_ADMIN_USER	Grafana 管理员用户名
+GRAFANA_ADMIN_PASSWORD	Grafana 管理员密码，首次部署自动生成
+IOT_JWT_SECRET	平台登录令牌签名密钥，首次部署自动生成
+IOT_ADMIN_USER	平台内置管理员用户名
+IOT_ADMIN_PASSWORD	平台内置管理员密码，首次部署自动生成
+IOT_ADMIN_TENANTS	内置管理员可访问的租户，多个值用逗号分隔
+IOT_VIDEO_PLATFORM_SECRETS	外部视频平台及其签名密钥，格式为平台名:密钥
+IOT_VIDEO_MEDIA_ALLOWED_HOSTS	允许访问的视频媒体和厂商接口主机，多个值用逗号分隔
+IOT_VIDEO_PREVIEW_ALLOWED_ORIGINS	允许浏览器预览视频的来源地址，多个值用逗号分隔
+IOT_VIDEO_PREVIEW_CSP_SOURCES	视频预览 CSP 来源，多个值用空格分隔
+IOT_VIDEO_ZLM_API_URL	ZLMediaKit API 地址
+IOT_VIDEO_ZLM_PLAYBACK_BASE_URL	浏览器可访问的 ZLMediaKit 播放地址
+IOT_VIDEO_ZLM_SECRET	ZLMediaKit API 密钥
+IOT_VIDEO_ZLM_VHOST	ZLMediaKit 虚拟主机名
+IOT_VIDEO_ZLM_APP	ZLMediaKit 应用名
+IOT_VIDEO_DAHUA_SDK_URL	大华视频适配器地址
+IOT_VIDEO_DAHUA_SDK_TOKEN	大华视频适配器访问令牌
+IOT_VIDEO_HIKVISION_API_URL	海康威视 Artemis API 地址
+IOT_VIDEO_HIKVISION_APP_KEY	海康威视 Artemis AppKey
+IOT_VIDEO_HIKVISION_APP_SECRET	海康威视 Artemis AppSecret
+IOT_AI_HARNESS_TOKEN	平台与 DeepSeek Harness 之间的内部令牌
+IOT_BACKUP_ADMIN_TOKEN	备份服务管理令牌
+GB26875_CONTROL_TOKEN	GB/T 26875 网关控制令牌
+IOT_HTTP_ADDR	Go API 监听地址和端口
+IOT_WEB_PORT	Docker 部署时 Web 对外端口
+IOT_API_PORT	Docker 部署时 API 对外端口
+IOT_CORS_ALLOWED_ORIGINS	允许访问 API 的浏览器来源，多个值用逗号分隔
+IOT_DEV_MODE	开发模式开关，生产环境应设为 false
+IOT_DATA_DIR	本地运行数据目录
+IOT_POSTGRES_DSN	Go API 访问 PostgreSQL 的连接地址
+IOT_REDIS_ADDR	Go API 访问 Redis 的地址
+IOT_REDIS_PASSWORD	Go API 访问 Redis 的密码
+IOT_CLICKHOUSE_URL	Go API 访问 ClickHouse 的地址
+IOT_MINIO_ENDPOINT	Go API 访问 MinIO 的地址
+IOT_MINIO_ACCESS_KEY	Go API 访问 MinIO 的用户名
+IOT_MINIO_SECRET_KEY	Go API 访问 MinIO 的密码
+IOT_KAFKA_BROKERS	Go API 访问 Kafka 的地址，多个值用逗号分隔
+IOT_MQTT_BROKER	Go API 访问 MQTT 的 TCP 地址
+IOT_MQTT_WEBSOCKET_PUBLIC_URL	浏览器访问 MQTT WebSocket 的公开地址
+IOT_LOCAL_BIND_ADDRESS	本地依赖容器绑定地址，跨机器使用时为 0.0.0.0
+IOT_LOCAL_ADVERTISED_HOST	Kafka 等依赖向源码机公布的地址
+IOT_OLLAMA_URL	Ollama 服务地址，知识库嵌入仍会使用
+IOT_OLLAMA_MODEL	启用本地对话模型时使用的 Ollama 模型
+IOT_AI_PROVIDER	自动研判模型提供方，本地和在线默认 deepseek
+IOT_AI_BASE_URL	自动研判模型 API 地址，本地和在线默认 DeepSeek 官方地址
+IOT_AI_MODEL	自动研判使用的模型，本地和在线默认 deepseek-v4-flash
+IOT_AI_API_KEY	自动研判专用密钥；留空时 DeepSeek 使用 DEEPSEEK_API_KEY
+IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS	允许在管理页面测试的模型 API 来源
+IOT_AI_OLLAMA_URL	AI 页面访问 Ollama 沙箱的地址
+DEEPSEEK_API_KEY	DeepSeek API Key，自动研判和工作流默认共用此项
+DEEPSEEK_BASE_URL	DeepSeek Harness 调用的模型 API 地址
+IOT_AI_HARNESS_ENABLED	是否由部署脚本启动 DeepSeek Harness
+IOT_AI_HARNESS_URL	Go API 访问 DeepSeek Harness 的地址
+IOT_AI_HARNESS_MCP_URL	DeepSeek Harness 回调平台 MCP 接口的地址
+IOT_AI_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
+IOT_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
+IOT_AI_HARNESS_MODEL	AI 工作流默认使用的 DeepSeek 模型
+IOT_AI_HARNESS_TIMEOUT	AI 工作流请求超时时间
+IOT_WEAVIATE_URL	Weaviate 知识库地址
+IOT_BACKUP_URL	Go API 访问备份服务的地址
+IOT_BACKUP_HTTP_PORT	备份服务对外管理端口
+IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC	高频设备判断阈值，单位为秒
+IOT_MODBUS_ALLOWED_CIDRS	允许主动 Modbus 采集访问的网段
+IOT_BACKUP_TIME	每日备份执行时间
+IOT_BACKUP_TIMEZONE	每日备份使用的时区
+IOT_PROTOCOL_PORTS	通用 TCP/UDP 协议监听端口或端口范围
+IOT_PLATFORM_API_IMAGE	离线部署使用的平台 API 镜像
+IOT_PLATFORM_WEB_IMAGE	离线部署使用的平台 Web 镜像
+IOT_BACKUP_IMAGE	离线部署使用的备份服务镜像
+IOT_DEEPSEEK_HARNESS_IMAGE	离线部署使用的 DeepSeek Harness 镜像

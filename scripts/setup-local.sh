@@ -9,7 +9,7 @@ env_file="$project_root/.env.local"
 skip_code_deps=false
 include_ai=false
 include_deepseek=false
-include_harness=false
+include_harness=auto
 ollama_model=qwen3:8b
 deepseek_model=deepseek-v4-flash
 dependency_host=127.0.0.1
@@ -22,11 +22,12 @@ while [ "$#" -gt 0 ]; do
     --include-ai) include_ai=true; shift ;;
     --include-deepseek) include_deepseek=true; shift ;;
     --include-harness) include_harness=true; shift ;;
+    --no-harness) include_harness=false; shift ;;
     --dependency-host) [ "$#" -ge 2 ] || { echo '--dependency-host 需要 Windows 可访问的主机名或 IPv4 地址。' >&2; exit 1; }; dependency_host="$2"; dependency_host_set=true; shift 2 ;;
     --api-host) [ "$#" -ge 2 ] || { echo '--api-host 需要依赖容器可访问的源码机主机名或 IPv4 地址。' >&2; exit 1; }; api_host="$2"; shift 2 ;;
     --ollama-model) [ "$#" -ge 2 ] || { echo '--ollama-model 需要模型名。' >&2; exit 1; }; ollama_model="$2"; shift 2 ;;
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
-    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness]'; exit 0 ;;
+    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness|--no-harness]'; exit 0 ;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -100,10 +101,13 @@ defaults=(
   "IOT_MQTT_WEBSOCKET_PUBLIC_URL=ws://${dependency_host}:8083/mqtt"
   "IOT_OLLAMA_URL=http://${dependency_host}:11434"
   "IOT_AI_OLLAMA_URL=http://${dependency_host}:11434"
-  'IOT_AI_PROVIDER=disabled'
+  'IOT_AI_PROVIDER=deepseek'
+  'IOT_AI_BASE_URL=https://api.deepseek.com'
+  "IOT_AI_MODEL=$deepseek_model"
   "IOT_WEAVIATE_URL=http://${dependency_host}:18080"
   "IOT_BACKUP_URL=http://${dependency_host}:8092"
-  'IOT_AI_HARNESS_URL='
+  'IOT_AI_HARNESS_ENABLED=true'
+  "IOT_AI_HARNESS_URL=http://${dependency_host}:8091"
   "IOT_AI_HARNESS_MCP_URL=http://${api_host}:8081/mcp/harness"
   "IOT_HARNESS_MCP_ALLOWED_ORIGINS=http://${api_host}:8081"
 )
@@ -116,33 +120,47 @@ for entry in "${defaults[@]}"; do
   set_local_env_value "$key" "${entry#*=}" "$replace"
 done
 if [ "$include_ai" = true ]; then
-  case "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" in
-    ''|disabled|ollama)
-      set_local_env_value IOT_AI_PROVIDER ollama true
-      set_local_env_value IOT_OLLAMA_MODEL "$ollama_model" true
-      set_local_env_value IOT_AI_MODEL "$ollama_model" true
-      set_local_env_value IOT_AI_BASE_URL "http://${dependency_host}:11434" true
-      ;;
-  esac
+  if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = ollama ]; then
+    configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
+    ollama_model="${configured_model:-$ollama_model}"
+  fi
+  set_local_env_value IOT_AI_PROVIDER ollama true
+  set_local_env_value IOT_OLLAMA_MODEL "$ollama_model" true
+  set_local_env_value IOT_AI_MODEL "$ollama_model" true
+  set_local_env_value IOT_AI_BASE_URL "http://${dependency_host}:11434" true
 fi
 if [ "$include_deepseek" = true ]; then
-  deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"
-  if [ -z "$deepseek_key" ]; then deepseek_key="$(get_deployment_env_value "$env_file" IOT_AI_API_KEY)"; fi
-  [ -n "$deepseek_key" ] || { echo '--include-deepseek 需要先在环境文件中设置 DEEPSEEK_API_KEY 或 IOT_AI_API_KEY（不要把密钥写进命令行）。' >&2; exit 1; }
-  if [ -z "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ]; then set_local_env_value DEEPSEEK_API_KEY "$deepseek_key" true; fi
-  deepseek_base_url="$(get_deployment_env_value "$env_file" DEEPSEEK_BASE_URL)"
-  deepseek_base_url="${deepseek_base_url:-https://api.deepseek.com}"
   set_local_env_value IOT_AI_PROVIDER deepseek true
-  set_local_env_value IOT_AI_BASE_URL "$deepseek_base_url" true
+  set_local_env_value IOT_AI_BASE_URL "https://api.deepseek.com" true
   set_local_env_value IOT_AI_MODEL "$deepseek_model" true
 fi
+if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; then
+  deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"
+  if [ -z "$deepseek_key" ]; then deepseek_key="$(get_deployment_env_value "$env_file" IOT_AI_API_KEY)"; fi
+  if [ -n "$deepseek_key" ] && [ -z "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ]; then set_local_env_value DEEPSEEK_API_KEY "$deepseek_key" true; fi
+  deepseek_base_url="$(get_deployment_env_value "$env_file" DEEPSEEK_BASE_URL)"
+  deepseek_base_url="${deepseek_base_url:-https://api.deepseek.com}"
+  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_BASE_URL)" ] || set_local_env_value IOT_AI_BASE_URL "$deepseek_base_url" true
+  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_MODEL)" ] || set_local_env_value IOT_AI_MODEL "$deepseek_model" true
+  if [ -z "$deepseek_key" ]; then echo '提示：请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' >&2; fi
+fi
+case "$include_harness" in
+  true) set_local_env_value IOT_AI_HARNESS_ENABLED true true;;
+  false) set_local_env_value IOT_AI_HARNESS_ENABLED false true;;
+esac
+include_harness="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)"
+case "$include_harness" in true|false) ;; *) echo 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' >&2; exit 1;; esac
 if [ "$include_harness" = true ]; then
-  [ -n "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ] || { echo '--include-harness 需要先在环境文件中设置 DEEPSEEK_API_KEY 或 IOT_AI_API_KEY（不要把密钥写进命令行）。' >&2; exit 1; }
   bash "$script_dir/fetch-deepseek-harness.sh"
-  set_local_env_value IOT_AI_HARNESS_URL "http://${dependency_host}:8091" true
+  harness_url="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)"
+  if [ -z "$harness_url" ] || [ "$dependency_host_set" = true ]; then set_local_env_value IOT_AI_HARNESS_URL "http://${dependency_host}:8091" true; fi
   set_local_env_value IOT_AI_HARNESS_MCP_URL "http://${api_host}:8081/mcp/harness" true
   set_local_env_value IOT_HARNESS_MCP_ALLOWED_ORIGINS "http://${api_host}:8081" true
+else
+  set_local_env_value IOT_AI_HARNESS_URL '' true
 fi
+
+annotate_deployment_env_file "$env_file"
 
 cd -- "$project_root"
 if [ "$skip_code_deps" = false ]; then

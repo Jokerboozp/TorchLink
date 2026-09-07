@@ -12,7 +12,7 @@
 
 脚本显式选择配置和 Compose 文件，在线/离线部署不会自动加载用于旧版本地调试的 `compose.override.yaml`。
 
-首次执行生成随机凭据，重复执行保留已有凭据；显式指定 AI 开关时只调整对应功能配置。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
+首次执行生成随机凭据，并在每个配置项前写入中文说明；重复执行保留已有值并补齐说明。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
 
 **已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
 
@@ -26,7 +26,19 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 已有自定义 Compose 覆盖文件、外部数据卷或外部数据库时，先核对原部署参数；上述命令只使用 `compose.yaml`。
 
-## 可选 AI
+## AI 与工作流
+
+本地和在线方案默认使用 DeepSeek：自动研判和 AI 工作流共用 `DEEPSEEK_API_KEY`，Harness 默认启动。首次生成配置后填写该 Key，再重跑部署脚本，使容器读取新值。可在配置文件中修改以下项目：
+
+```dotenv
+IOT_AI_PROVIDER=deepseek
+IOT_AI_BASE_URL=https://api.deepseek.com
+IOT_AI_MODEL=deepseek-v4-flash
+DEEPSEEK_API_KEY=
+IOT_AI_HARNESS_ENABLED=true
+```
+
+`IOT_AI_API_KEY` 留空时，自动研判使用 `DEEPSEEK_API_KEY`；填写后只覆盖自动研判的密钥。将 `IOT_AI_HARNESS_ENABLED` 设为 `false` 并重跑脚本可关闭 Harness。命令行也保留 `--include-harness` / `-IncludeHarness` 和 `--no-harness` / `-NoHarness` 用于显式切换。
 
 ### 本地 Ollama 对话模型
 
@@ -46,11 +58,11 @@ bash ./scripts/deploy-online.sh --include-ai
 
 知识库嵌入模型 `nomic-embed-text` 始终准备，不需要 `IncludeAi`。Ollama Provider 用于告警研判等后端能力；“AI 工作流”页面的 Agent 对话另走 Harness。
 
-如果使用 DeepSeek，不需要下载本地对话模型。先在环境文件中填写 `DEEPSEEK_API_KEY`，本地 Linux 依赖机可执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <依赖机IP> --api-host <源码机IP> --include-deepseek --include-harness`；脚本会将普通 AI Provider 设为 DeepSeek，并启动 Harness。`--include-deepseek` 与 `--include-ai` 只能二选一。
+需要改用本地 Ollama 对话模型时，使用 `-IncludeAi` / `--include-ai`；建议同时在配置中把 `IOT_AI_HARNESS_ENABLED` 改为 `false`。`--include-deepseek` 与 `--include-ai` 只能二选一。
 
 ### DeepSeek Harness 工作流
 
-三个准备入口也支持 `-IncludeHarness` / `--include-harness`。在线和本地会获取锁定的 Harness 源码并构建侧车，需要 Git 和网络：
+在线和本地默认获取锁定的 Harness 源码并构建侧车，需要 Git 和网络。以下参数可用于把旧配置显式切回启用状态：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -IncludeHarness
@@ -60,17 +72,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -IncludeHar
 bash ./scripts/deploy-online.sh --include-harness
 ```
 
-在对应环境文件设置 `DEEPSEEK_API_KEY`，再用相同参数运行脚本使配置生效。内部 Token、侧车 URL 和 MCP 回调地址由脚本准备。Harness 健康只说明运行时就绪；实际工作流仍需要可达的模型服务和有效 API Key。
+在对应环境文件设置 `DEEPSEEK_API_KEY`，再用相同命令运行脚本使配置生效。内部 Token、侧车 URL 和 MCP 回调地址由脚本准备。Harness 健康只说明运行时就绪；实际工作流仍需要可达的模型服务和有效 API Key。
 
 Harness 的模型地址使用独立变量 `DEEPSEEK_BASE_URL`，默认 `https://api.deepseek.com`。旧环境若通过 `IOT_AI_BASE_URL` 指定了 Harness 私有代理，请将该地址补到 `DEEPSEEK_BASE_URL`；`IOT_AI_BASE_URL` 继续用于后端告警 Provider。
-
-若告警研判也要走 DeepSeek，在环境文件另外设置：
-
-```dotenv
-IOT_AI_PROVIDER=deepseek
-IOT_AI_BASE_URL=https://api.deepseek.com
-IOT_AI_MODEL=deepseek-v4-flash
-```
 
 完全断网环境优先使用离线包内的 Ollama；带入 Harness 镜像不会让云端 DeepSeek API 离线可用。更多说明见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
 
@@ -91,7 +95,7 @@ IOT_AI_MODEL=deepseek-v4-flash
 
 本地 API 默认参数写在 `.env.local`；修改 API 端口时同步修改前端 `VITE_API_PROXY_TARGET`，使用 Harness 时还需同步其 MCP 回调和允许的 Origin。`--env-file` 读取字面的 `KEY=VALUE`，支持注释和单/双引号，不展开 `${变量}` 或执行 shell；已有进程环境变量优先。
 
-依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址及宿主机源码所需的依赖地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。启用远程 Harness 时再传 `--api-host <依赖容器可访问的源码机地址> --include-harness`，脚本会同时配置 Windows 到 Harness 和 Harness 回调 Windows API 的两个方向。
+依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址> --api-host <依赖容器可访问的源码机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址、Harness 地址及回调地址写入 `.env.local`。把该文件复制到源码机后启动 Go；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。
 
 ## VS Code 调试配置
 

@@ -40,8 +40,23 @@ npm() { printf 'npm %s\n' "$*" >> "$TEST_CALLS"; }
 export -f docker curl go npm
 assert_call() { grep -Eq -- "$1" "$TEST_CALLS" || { printf 'Missing expected call: %s\n' "$1" >&2; exit 1; }; }
 assert_no_call() { if grep -Eq -- "$1" "$TEST_CALLS"; then printf 'Unexpected call: %s\n' "$1" >&2; exit 1; fi; }
+assert_commented_env() {
+  awk '
+    /^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/ {
+      if (previous !~ /^# 配置说明：/) exit 1
+    }
+    { previous=$0 }
+  ' "$1" || { printf 'Configuration assignment is missing a Chinese comment: %s\n' "$1" >&2; exit 1; }
+}
 
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local"
+grep -q "^IOT_AI_PROVIDER='deepseek'$" "$test_root/.env.local"
+grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$test_root/.env.local"
+grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$test_root/.env.local"
+grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$test_root/.env.local"
+grep -q "^IOT_AI_HARNESS_URL='http://127.0.0.1:8091'$" "$test_root/.env.local"
+assert_commented_env "$test_root/.env.local"
+assert_call '--profile harness up -d --build --wait'
 assert_call 'go mod download'
 assert_call 'npm ci'
 assert_call 'exec -T ollama ollama pull nomic-embed-text'
@@ -49,6 +64,15 @@ cp "$test_root/.env.local" "$test_root/local-original"
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local" --skip-code-deps
 cmp "$test_root/local-original" "$test_root/.env.local"
 echo 'PASS local: dependency preparation and unchanged configuration on rerun'
+
+no_harness_env="$test_root/.env.no-harness"
+cp "$test_root/.env.local" "$no_harness_env"
+sed -i "s/^IOT_AI_HARNESS_ENABLED=.*/IOT_AI_HARNESS_ENABLED='false'/" "$no_harness_env"
+: > "$TEST_CALLS"
+bash "$scripts/setup-local.sh" --env-file "$no_harness_env" --skip-code-deps
+grep -q "^IOT_AI_HARNESS_URL=''$" "$no_harness_env"
+assert_no_call '--profile harness'
+echo 'PASS local configuration: Harness can be disabled in the environment file'
 
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.remote" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1
 grep -q "^IOT_LOCAL_BIND_ADDRESS='0.0.0.0'$" "$test_root/.env.remote"
@@ -78,6 +102,13 @@ if tail -n 12 "$TEST_CALLS" | grep -q 'ollama pull qwen3:8b'; then echo 'DeepSee
 echo 'PASS local deepseek: provider enabled without local chat model download'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
+grep -q '^IOT_AI_PROVIDER=deepseek$' "$test_root/.env.online"
+grep -q '^IOT_AI_BASE_URL=https://api.deepseek.com$' "$test_root/.env.online"
+grep -q '^IOT_AI_MODEL=deepseek-v4-flash$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_ENABLED=true$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_URL=http://deepseek-harness:8091$' "$test_root/.env.online"
+assert_commented_env "$test_root/.env.online"
+assert_call 'build --pull platform-api platform-web backup-service deepseek-harness'
 cp "$test_root/.env.online" "$test_root/online-original"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cmp "$test_root/online-original" "$test_root/.env.online"
@@ -98,6 +129,7 @@ echo 'PASS online: build, health checks, AI, repeatability and failure handling'
 bash "$scripts/package-offline.sh" --output-dir "$test_root/bundles"
 bundles=("$test_root"/bundles/iot-platform-offline-*)
 bundle="${bundles[0]}"
+assert_commented_env "$bundle/.env.offline"
 [ -s "$bundle/ollama-data.tgz.sha256" ]
 grep -q 'ollama/ollama:' "$bundle/manifest.json"
 grep -q 'weaviate:' "$bundle/manifest.json"
