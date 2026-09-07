@@ -10,7 +10,7 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 | **在线部署** | 全部运行在 Docker | 一键生成配置、下载/构建镜像并启动 | `http://服务器IP:8080` |
 | **离线部署** | 全部运行在 Docker | 有网机器打包，离线服务器一键导入并启动 | `http://服务器IP:8080` |
 
-以下命令均在**本仓库根目录**执行。Linux 在线、离线部署会检测 Docker 和 Compose，缺少时自动安装；首次安装请用 root 或 sudo 执行。Windows/macOS 及有网打包机仍需先安装并启动 Docker Desktop（Linux 容器）。本地运行需准备 Docker 依赖环境，源码机另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。Go 和 Node.js 仍需自行安装。
+以下命令均在**本仓库根目录**执行。Ubuntu、CentOS 等 Linux 的在线、离线部署会检测 Docker 和 Compose，缺少时自动安装；首次安装请用 root 或 sudo 执行。Windows/macOS 及有网打包机仍需先安装并启动 Docker Desktop（Linux 容器）。本地运行需准备 Docker 依赖环境，源码机另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。Go 和 Node.js 仍需自行安装。
 
 在线与离线部署默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate、`nomic-embed-text` 嵌入模型和 AI 工作流 Harness。本地运行会启动基础依赖和 Harness，备份服务默认作为源码进程单独调试。在线与离线部署还会自动准备 `qwen3:1.7b`；告警研判、规则辅助和 AI 工作流统一使用该本地模型，不需要 API Key。这个模型下载约 1.4 GB，适合 8 GB 内存的整套虚拟机环境。
 

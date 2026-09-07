@@ -78,7 +78,7 @@ GB26875 等协议统一上传 Go 源码包，并在平台启用通用 TCP/UDP �
 
 ## Docker 自动安装
 
-Linux 在线部署与离线部署共用检测逻辑：已有可用 Docker 和 Compose 2.24.4+ 时直接复用；仅缺 Compose 时只补插件；Docker 服务未启动时尝试启动。在线构建还会检测 Buildx。脚本不删除数据卷、不更改现有 daemon.json，也不会自动升级或降级已有 Docker Engine。
+Ubuntu、CentOS 等使用 systemd 的 Linux 在线部署与离线部署共用检测逻辑：已有可用 Docker 和 Compose 2.24.4+ 时直接复用；仅缺 Compose 时只补插件；Docker 服务未启动时尝试启动。在线构建还会检测 Buildx。脚本不删除数据卷、不更改现有 daemon.json，也不会自动升级或降级已有 Docker Engine。
 
 - 在线：从 Docker / docker GitHub 官方地址下载缺失文件，安装后继续部署。
 - 离线：仅读取包内 `docker-runtime/`，校验架构和 SHA-256 后安装，不会访问下载地址或软件源。旧包若没有安装文件且目标机缺少 Docker，需在有网机器重新打包。
@@ -97,3 +97,11 @@ sudo bash ./scripts/deploy-offline-linux.sh
 ```
 
 Windows/macOS 的 Docker Desktop 安装与虚拟化设置不在此 Linux 自动安装流程内；PowerShell 打包脚本仍会准备 Linux 安装文件，方便在 Windows 打包后拷贝到 CentOS。
+
+### Ubuntu 部署
+
+Ubuntu 使用相同的一键命令，无需切换脚本或另外准备 Docker 软件源。在线缺少基础依赖时，使用 APT 无人值守安装 iptables、xz-utils、procps、curl 和 ca-certificates；精简系统若连 curl/wget 都没有，会先通过 APT 安装下载工具。
+
+离线安装 Docker 本体仍使用包内的 Linux 静态文件；若 Ubuntu 缺少基础依赖，使用打包参数 `--docker-packages-dir` / `-DockerPackagesDir` 携带同一 Ubuntu 版本和 CPU 架构的 DEB 及全部依赖。部署时校验后用 dpkg 安装，不调用 APT 联网补依赖。Ubuntu 不会误用同时携带的 CentOS RPM。
+
+Ubuntu 5.15 / 6.8 内核的安装分支、APT 和离线 DEB 分支已有模拟测试；这不代表已在全新 Ubuntu 虚拟机上完成安装验收。

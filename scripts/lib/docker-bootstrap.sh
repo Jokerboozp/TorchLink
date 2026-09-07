@@ -30,6 +30,11 @@ docker_runtime_download() {
     curl --fail --location --retry 3 --connect-timeout 20 --output "$path" "$url"
   elif command -v wget >/dev/null 2>&1; then
     wget -O "$path" "$url"
+  elif command -v apt-get >/dev/null 2>&1; then
+    # Minimal Ubuntu images may have neither curl nor wget.
+    docker_runtime_root apt-get update || return 1
+    docker_runtime_root env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates || return 1
+    curl --fail --location --retry 3 --connect-timeout 20 --output "$path" "$url"
   else
     echo '下载 Docker 需要 curl 或 wget。' >&2; return 1
   fi
@@ -76,19 +81,19 @@ docker_runtime_prerequisites() {
   if command -v iptables >/dev/null 2>&1 && command -v xz >/dev/null 2>&1 && command -v ps >/dev/null 2>&1; then return; fi
   if [ "$mode" = offline ]; then
     # Optional distro packages must be supplied for stripped-down Linux images.
-    if compgen -G "$directory/packages/*.rpm" >/dev/null; then
-      for package in "$directory"/packages/*.rpm; do verify_docker_runtime_file "$package" || return 1; done
-      docker_runtime_root rpm -Uvh "$directory"/packages/*.rpm || return 1
-    elif compgen -G "$directory/packages/*.deb" >/dev/null; then
+    if command -v dpkg >/dev/null 2>&1 && compgen -G "$directory/packages/*.deb" >/dev/null; then
       for package in "$directory"/packages/*.deb; do verify_docker_runtime_file "$package" || return 1; done
       docker_runtime_root dpkg -i "$directory"/packages/*.deb || return 1
+    elif ! command -v dpkg >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && compgen -G "$directory/packages/*.rpm" >/dev/null; then
+      for package in "$directory"/packages/*.rpm; do verify_docker_runtime_file "$package" || return 1; done
+      docker_runtime_root rpm -Uvh "$directory"/packages/*.rpm || return 1
     else
       echo '系统缺少 iptables、xz 或 ps。请在打包时通过 --docker-packages-dir / -DockerPackagesDir 加入匹配目标系统的依赖包；离线部署不会访问软件源。' >&2
       return 1
     fi
   elif command -v apt-get >/dev/null 2>&1; then
     docker_runtime_root apt-get update || return 1
-    docker_runtime_root apt-get install -y iptables xz-utils procps || return 1
+    docker_runtime_root env DEBIAN_FRONTEND=noninteractive apt-get install -y iptables xz-utils procps curl ca-certificates || return 1
   elif command -v yum >/dev/null 2>&1; then
     if [ -f /etc/centos-release ] && grep -q 'release 7\.' /etc/centos-release; then
       repo="$(mktemp -d)"

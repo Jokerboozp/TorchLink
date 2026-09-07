@@ -10,11 +10,13 @@ for name in docker dockerd containerd containerd-shim-runc-v2 ctr runc docker-in
   printf 'test binary' > "$test_root/source/docker/$name"
 done
 tar -czf "$test_root/runtime/docker-24.0.9.tgz" -C "$test_root/source" docker
+cp "$test_root/runtime/docker-24.0.9.tgz" "$test_root/runtime/docker-28.5.2.tgz"
 printf 'test compose' > "$test_root/runtime/docker-compose"
 printf x86_64 > "$test_root/runtime/architecture"
 for file in "$test_root/runtime/"docker-*; do docker_runtime_hash "$file" > "$file.sha256"; done
 calls="$test_root/calls"
 cli=0; daemon=0; compose_version=''; downloads=0
+kernel=3.10.0
 command() {
   if [ "${1:-}" = -v ] && [ "${2:-}" = docker ]; then [ "$cli" = 1 ]; return; fi
   if [ "${1:-}" = -v ] && [ "${2:-}" = systemctl ]; then return 0; fi
@@ -22,7 +24,7 @@ command() {
   builtin command "$@"
 }
 uname() {
-  case "$1" in -s) echo Linux;; -m) echo x86_64;; -r) echo 3.10.0;; esac
+  case "$1" in -s) echo Linux;; -m) echo x86_64;; -r) echo "$kernel";; esac
 }
 docker() {
   case "$1" in
@@ -98,4 +100,12 @@ ensure_deployment_docker online
 [ "$downloads" = 3 ] && [ "$cli" = 1 ] && [ "$daemon" = 1 ]
 grep -q 'cli-plugins/docker-buildx' "$calls"
 echo 'PASS online installation: downloads engine, Compose and Buildx then starts Docker'
+printf 'test compose' > "$test_root/runtime/docker-compose"
+docker_runtime_hash "$test_root/runtime/docker-compose" > "$test_root/runtime/docker-compose.sha256"
+for kernel in 5.15.0-generic 6.8.0-generic; do
+  reset_case
+  ensure_deployment_docker offline "$test_root/runtime"
+  [ "$cli" = 1 ] && [ "$daemon" = 1 ] && [ "$downloads" = 0 ]
+done
+echo 'PASS Ubuntu kernels: offline engine and Compose installation without downloads'
 echo 'Docker bootstrap smoke tests PASS (host writes mocked).'
