@@ -58,6 +58,7 @@ remote_compose="$test_root/remote-compose.yaml"
 "$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" config > "$remote_compose"
 grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 grep -q 'external://192.168.24.133:19092' "$remote_compose"
+grep -q 'image: postgres:17-alpine3.22' "$remote_compose"
 echo 'PASS local remote-host: published dependencies and advertised addresses'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"

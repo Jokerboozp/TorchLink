@@ -116,7 +116,7 @@ services:
 
   postgres:
     <<: *service-defaults
-    image: postgres:17-alpine
+    image: postgres:17-alpine3.22
     command: ["postgres", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
     environment:
       POSTGRES_DB: iot
@@ -291,7 +291,7 @@ services:
         RUN go mod download
         COPY . .
         RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/backup-service ./cmd/backup-service
-        FROM postgres:17-alpine
+        FROM postgres:17-alpine3.22
         RUN apk add --no-cache redis tzdata
         COPY --from=build /out/backup-service /usr/local/bin/backup-service
         ENTRYPOINT ["backup-service"]

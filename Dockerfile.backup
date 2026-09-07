@@ -4,6 +4,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/backup-service ./cmd/backup-service
-FROM postgres:17-alpine
+FROM postgres:17-alpine3.22
 COPY --from=build /out/backup-service /usr/local/bin/backup-service
 ENTRYPOINT ["backup-service"]

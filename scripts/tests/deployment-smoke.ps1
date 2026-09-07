@@ -60,6 +60,7 @@ try {
     Assert ($LASTEXITCODE -eq 0) 'Local Compose model failed'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-web') 'Local setup starts Web container'
+    Assert ($localModel.services.postgres.image -eq 'postgres:17-alpine3.22') 'Local PostgreSQL image is not pinned to the CentOS 7 compatible Alpine release'
     Assert (($localModel.services.redpanda.command -join ' ') -match 'external://127.0.0.1:19092') 'Kafka advertises unreachable address'
     foreach ($service in $localModel.services.PSObject.Properties.Value) {
         if ($service.PSObject.Properties.Name -contains 'ports') {
@@ -78,6 +79,7 @@ try {
     Assert ((Get-FileHash $onlineEnv).Hash -eq $onlineHash) 'Online rerun changed configuration'
     $onlineModel = & $global:IotTest_composeParser --env-file $onlineEnv -f (Join-Path $scripts '../compose.yaml') config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Online Compose model failed'
+    Assert ($onlineModel.services.postgres.image -eq 'postgres:17-alpine3.22') 'Online PostgreSQL image is not pinned to the compatible Alpine release'
     Assert ($onlineModel.services.postgres.PSObject.Properties.Name -notcontains 'ports') 'Online loaded the local override'
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service') 'Online omitted application image build'
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8081/health/ready') 'API readiness was not checked'
