@@ -107,7 +107,7 @@ IOT_AI_MODEL=deepseek-v4-flash
 }
 ```
 
-完整配置还提供 `IoT Platform Web`、`GB26875 Gateway`、`GB26875 Virtual Device`，以及 API + Web 和 API + Web + 网关两个组合启动项。Windows 前端命令为 `npm.cmd run dev`，Linux/macOS 为 `npm run dev`。CentOS 只运行依赖、Windows 运行源码时，VS Code 仍在 Windows 打开项目；`.env.local` 中的 PostgreSQL、Kafka、MQTT 等地址应指向 CentOS。
+下拉列表只展示 `IoT Platform (API + Web)` 和 `IoT Platform + GB26875 Gateway` 两个常用入口；API、Web 和网关的内部配置被隐藏，由组合配置自动调用。Windows 前端命令为 `npm.cmd run dev`，Linux/macOS 为 `npm run dev`。CentOS 只运行依赖、Windows 运行源码时，VS Code 仍在 Windows 打开项目；`.env.local` 中的 PostgreSQL、Kafka、MQTT 等地址应指向 CentOS。
 
 在线/离线默认提供 HTTP 服务。需要公网域名与 HTTPS 时，由现有 Nginx/网关终结 TLS 并转发到 Web 端口；部署脚本不管理域名和证书。
 
