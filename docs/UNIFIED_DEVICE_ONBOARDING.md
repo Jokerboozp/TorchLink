@@ -164,10 +164,10 @@ HTTP 标准上报也接受 command-reply。回执仍先归档 Raw，再经标准
 
 凭据变更和撤销意图在同一事务内保存。适配器先以旧 AccessKey（MQTT username）创建永久封禁，再仅查询该 username 的会话并逐个断开；拒绝重定向和不匹配身份。完成后才标记 REVOKED，失败任务每 30 秒重试，重启后从持久化仓库恢复。多副本可重复执行同一撤销，操作保持幂等。封禁项不会自动删除；轮换使用新的随机 AccessKey，不会重新使用被封禁的旧用户名。
 
-参考 [EMQX 管理 API 认证](https://docs.emqx.com/en/emqx/latest/admin/api.html)、[封禁名单 API](https://docs.emqx.com/en/cloud/latest/api/dedicated.html) 和 [客户端断开 API](https://docs.emqx.com/en/cloud/latest/api/clients_v5.html)。测试使用本地 HTTP 模拟服务器验证封禁顺序、失败恢复、身份限制及重定向拒绝；真实 EMQX 的 API 权限、版本行为和设备重连仍需部署环境验收。
+参考 [EMQX 管理 API 认证](https://docs.emqx.com/en/emqx/latest/admin/api.html)、[封禁名单 API](https://docs.emqx.com/en/cloud/latest/api/dedicated.html) 和 [客户端断开 API](https://docs.emqx.com/en/cloud/latest/api/clients_v5.html)。本地 HTTP 模拟服务器覆盖封禁顺序、失败恢复、身份限制及重定向拒绝；2026-09-09 已在用户虚拟机上的真实 EMQX 完成凭据轮换/禁用、主动断连、旧 JWT 重连拒绝与新凭据上报验证，详见下文。
 
 
-2026-09-09 续验：前轮 Go 全量、GB26875 独立 module、前端 45 项测试/构建及真实 Edge 浏览器均通过。本轮使用现有本地依赖配置，已在真实 PostgreSQL 的独立临时 schema 中通过新增表的重复迁移、凭据冲突事务回滚、命令去重、跨设备回执隔离、终态保护和历史查询；测试结束删除自身 schema。真实 MQTT Broker 验证设备向导、JWT 换取、属性 Raw 归档、MQTT 下行命令和 Raw 回执关联通过。没有部署业务服务，也未验收真实厂商设备。EMQX 管理 API Key 尚未配置，主动封禁/断连仍仅有模拟 HTTP 测试证据。
+2026-09-09 续验：前轮 Go 全量、GB26875 独立 module、前端 45 项测试/构建及真实 Edge 浏览器均通过。本轮使用现有本地依赖配置，已在真实 PostgreSQL 的独立临时 schema 中通过新增表的重复迁移、凭据冲突事务回滚、命令去重、跨设备回执隔离、终态保护和历史查询；测试结束删除自身 schema。真实 MQTT Broker 验证设备向导、JWT 换取、属性 Raw 归档、MQTT 下行命令和 Raw 回执关联通过。没有部署业务服务，也未验收真实厂商设备。随后使用短时临时管理 API Key 完成真实 Broker 主动撤销验证；测试 Key 已删除，未将其配置为业务服务长期凭据。
 
 可重复执行：
 
@@ -179,3 +179,17 @@ HTTP 标准上报也接受 command-reply。回执仍先归档 Raw，再经标准
 ```
 
 MQTT 集成测试使用随机临时租户、独立内存业务库、临时 Raw 目录、clean session 和非保留消息；结束后关闭客户端。测试需要与 Broker 一致的 JWT 签名密钥，用环境变量注入，勿写入代码或命令历史。未配置时显式跳过。Broker 管理验收需要另外配置 `IOT_EMQX_API_URL/IOT_EMQX_API_KEY/IOT_EMQX_API_SECRET`，不能用 MQTT JWT 替代管理 API Key。
+
+### 真实 Broker 撤销验收（2026-09-09）
+
+使用现有本地配置访问用户虚拟机上的 EMQX 管理 API，创建有效期 20 分钟的专用临时 API Key，执行 `TestStandardMQTTLiveBroker/CredentialRevocation`。实际通过：
+
+- 平台轮换设备凭据后，撤销任务状态为 REVOKED，原 MQTT 会话断开。
+- 旧 Secret 无法再次换取设备 JWT；尚未过期的旧 JWT 重连收到 Broker CONNACK 5（未授权），不是用网络超时作为拒绝证据。
+- 新凭据可换取 JWT、建立连接并上报属性，经 Raw 链路归档解析。
+- 禁用新凭据后，新会话同样断开，其 JWT 重连被 Broker 拒绝。
+- 重复撤销同一旧 username 成功，非目标的平台连接保持健康。
+
+测试结束删除自身创建的封禁记录与 API Key，客户端关闭，无业务服务部署或 Broker 认证规则更改。长期业务服务仍需配置自己的管理 API Key；临时测试成功不表示已替业务进程启用该配置。
+
+复测除 MQTT 测试变量外，提供 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`、`IOT_TEST_EMQX_API_SECRET`。子测试仅封禁该次测试随机生成的设备用户名，并注册清理；不要把真实设备凭据代入测试。
