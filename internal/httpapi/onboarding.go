@@ -72,17 +72,14 @@ func (s *Server) standardDeviceIngest(w http.ResponseWriter, r *http.Request) {
 	write(w, 202, map[string]any{"messageId": idx.MessageID, "created": created, "status": "ACCEPTED"})
 }
 func (s *Server) disableDeviceCredential(w http.ResponseWriter, r *http.Request) {
-	d, err := s.engine.Repo.GetManagedDevice(r.Context(), claims(r).TenantID, r.PathValue("id"))
-	if err != nil {
-		problem(w, 404, "device not found")
+	if !s.operationDevice(w, r) {
 		return
 	}
-	d.SecretHash = ""
-	d.SecretHint = ""
-	if err = s.engine.Repo.SaveManagedDevice(r.Context(), d); err != nil {
-		problem(w, 500, err.Error())
+	_, v, e := s.onboarding.ChangeCredential(r.Context(), claims(r).TenantID, r.PathValue("id"), false)
+	if e != nil {
+		problem(w, 500, e.Error())
 		return
 	}
-	s.audit(r, "device.credential.disable", "device", d.ID, nil)
-	write(w, 200, map[string]bool{"disabled": true})
+	s.audit(r, "device.credential.disable", "device", r.PathValue("id"), nil)
+	write(w, 200, map[string]any{"disabled": true, "revocation": v})
 }

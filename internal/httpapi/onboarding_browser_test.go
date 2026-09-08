@@ -63,4 +63,8 @@ func TestOnboardingBrowser(t *testing.T) {
 	if err != nil || len(devices) != 1 || devices[0].Status != "ENABLED" {
 		t.Fatalf("browser did not persist enabled device: %+v %v", devices, err)
 	}
+	nodes, err := repo.ListEdgeNodes(ctx, "tenant")
+	if err != nil || len(nodes) != 1 || nodes[0].ID != "browser-edge" {
+		t.Fatalf("browser did not persist edge registration: %+v %v", nodes, err)
+	}
 }

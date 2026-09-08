@@ -233,6 +233,7 @@ func main() {
 		_, _, err := engine.IngestRaw(c, raw)
 		return err
 	}, log)
+	protocolListeners.SetConnectionReporter(engine.ReportConnection)
 	protocolListeners.Start(ctx)
 	log.Info("active protocol runtime enabled", "transports", []string{"TCP", "UDP", "MODBUS_TCP (legacy)"})
 	if mqttClient != nil {
@@ -253,6 +254,17 @@ func main() {
 		}))
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	var publishCommand func(context.Context, string, []byte, byte, bool) error
+	if mqttClient != nil {
+		publishCommand = mqttClient.Publish
+	}
+	var revokeUsername func(context.Context, string) error
+	if cfg.EMQXAPIURL != "" && cfg.EMQXAPIKey != "" && cfg.EMQXAPISecret != "" {
+		admin := &mqttadapter.Admin{URL: cfg.EMQXAPIURL, Key: cfg.EMQXAPIKey, Secret: cfg.EMQXAPISecret}
+		revokeUsername = admin.RevokeUsername
+	}
+	api.SetDeviceOperations(publishCommand, revokeUsername)
+	go api.RunCredentialRevocations(ctx)
 	if mqttClient != nil {
 		api.SetMQTTHealth(mqttClient.Health)
 	}

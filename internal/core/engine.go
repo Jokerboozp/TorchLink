@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"iot-platform/internal/model"
@@ -20,6 +21,7 @@ import (
 const directAlarmRulePrefix = "device-report:"
 
 type Engine struct {
+	stateLocks                [64]sync.Mutex
 	Repo                      ports.Repository
 	Archive                   ports.Archive
 	RawStore                  ports.RawMessageStore
@@ -307,6 +309,13 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if !shouldProcess {
 		return nil
 	}
+	if msg.MessageType == model.CommandReply && msg.Parser == parser.StandardParserName {
+		if id, ok := msg.Event["commandId"].(string); ok {
+			if err := e.Repo.CompleteDeviceCommand(ctx, msg.TenantID, msg.DeviceID, id, msg.Event, e.Clock.Now().UnixMilli()); err != nil {
+				return err
+			}
+		}
+	}
 	if err := e.touchState(ctx, msg); err != nil {
 		return err
 	}
@@ -377,11 +386,14 @@ func (e *Engine) durationSatisfied(ctx context.Context, rule model.AlarmRule, ms
 	return now-since >= rule.DurationSeconds, nil
 }
 func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) error {
+	unlock := e.lockDeviceState(msg.TenantID, msg.DeviceID)
+	defer unlock()
 	state, err := e.Repo.GetDeviceState(ctx, msg.TenantID, msg.DeviceID)
 	if err != nil {
 		state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
 	}
 	old := state.BusinessStatus
+	oldConnection := state.ConnectionStatus
 	state.DataStatus = "ACTIVE"
 	if msg.MessageType == model.AlarmReport || strings.EqualFold(old, "ALARM") {
 		state.BusinessStatus = "ALARM"
@@ -404,7 +416,7 @@ func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) erro
 	if err := e.Repo.UpsertDeviceState(ctx, state); err != nil {
 		return err
 	}
-	if old != state.BusinessStatus {
+	if old != state.BusinessStatus || oldConnection != state.ConnectionStatus {
 		_ = e.Repo.SaveDeviceStateEvent(ctx, state)
 		payload, _ := json.Marshal(state)
 		_ = e.Realtime.Publish(ctx, fmt.Sprintf("/iot/device/state/%s/%s/%s", state.TenantID, state.ProductID, state.DeviceID), payload, 1, true)
@@ -787,6 +799,11 @@ func (e *Engine) handleState(ctx context.Context, b []byte) error {
 	return e.touchState(ctx, msg)
 }
 func (e *Engine) UpdateDeviceState(ctx context.Context, state model.DeviceState) error {
+	unlock := e.lockDeviceState(state.TenantID, state.DeviceID)
+	defer unlock()
+	return e.updateDeviceState(ctx, state)
+}
+func (e *Engine) updateDeviceState(ctx context.Context, state model.DeviceState) error {
 	old, _ := e.Repo.GetDeviceState(ctx, state.TenantID, state.DeviceID)
 	if state.LastSeenAt == 0 {
 		state.LastSeenAt = old.LastSeenAt
@@ -794,7 +811,7 @@ func (e *Engine) UpdateDeviceState(ctx context.Context, state model.DeviceState)
 	if err := e.Repo.UpsertDeviceState(ctx, state); err != nil {
 		return err
 	}
-	if old.BusinessStatus != state.BusinessStatus {
+	if old.BusinessStatus != state.BusinessStatus || old.ConnectionStatus != state.ConnectionStatus {
 		_ = e.Repo.SaveDeviceStateEvent(ctx, state)
 		b, _ := json.Marshal(state)
 		return e.Realtime.Publish(ctx, fmt.Sprintf("/iot/device/state/%s/%s/%s", state.TenantID, state.ProductID, state.DeviceID), b, 1, true)

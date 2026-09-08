@@ -636,6 +636,13 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 	}
 	v.TenantID = claims(r).TenantID
 	v.Mode = strings.ToLower(strings.TrimSpace(v.Mode))
+	if v.EdgeNodeID != "" {
+		edge, e := s.engine.Repo.GetEdgeNode(r.Context(), v.TenantID, v.EdgeNodeID)
+		if e != nil || edge.Status != "ENABLED" {
+			problem(w, 422, "Edge node not found or disabled")
+			return
+		}
+	}
 	v.Network = strings.ToLower(strings.TrimSpace(v.Network))
 	if id := r.PathValue("id"); id != "" {
 		v.ID = id

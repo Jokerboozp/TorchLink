@@ -1,14 +1,18 @@
 <script setup>
+import EdgeNodes from './EdgeNodes.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, apiAll, notifyError, pretty } from '../api'
 const props = defineProps({ products: { type: Array, default: () => [] } })
 const emit = defineEmits(['close', 'created', 'navigate'])
 const step = ref(0), busy = ref(false), preview = ref(null), result = ref(null), advanced = ref(false)
 const protocols = ref([])
+const edgeNodes=ref([]),edgeDialog=ref(false)
+async function loadEdges(){try{edgeNodes.value=(await api('/api/v1/edge-nodes')).items||[]}catch(e){notifyError(e)}}
+onMounted(loadEdges)
 const profiles = ref([]), newProduct = ref(false), productName = ref('')
 const existingProfileId = ref('')
 const availableProfiles = computed(() => profiles.value.filter(x=>x.profile && x.type===form.type && x.profile.productId===form.productId && x.profile.enabled))
-const form = reactive({ productId:'', deviceId:'', name:'', type:'MQTT', protocolId:'', protocolVersion:'', messageKind:'property', profile:{host:'0.0.0.0',port:26875,unitId:1,timeoutMs:3000,retries:0,autoRegister:false,collectorId:''} })
+const form = reactive({ productId:'', deviceId:'', name:'', type:'MQTT', protocolId:'', protocolVersion:'', messageKind:'property', profile:{host:'0.0.0.0',port:26875,unitId:1,timeoutMs:3000,retries:0,autoRegister:false,collectorId:'',edgeNodeId:''} })
 const sample = ref(pretty({ id:'msg-001', timestamp:Date.now(), data:{temperature:26.5, smoke:0, battery:87} }))
 const csv = ref(''), point = reactive({identifier:'temperature',address:0,functionCode:3,dataType:'uint16',scale:1})
 const standard = computed(() => ['MQTT','HTTP'].includes(form.type))
@@ -35,6 +39,7 @@ async function copy(){await navigator.clipboard.writeText(pretty(result.value));
 </script>
 
 <template>
+  <EdgeNodes v-if="edgeDialog" @close="edgeDialog=false" @changed="loadEdges"/>
   <el-dialog :model-value="true" title="添加设备" width="min(960px, 96vw)" :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy" @close="emit('close')">
     <el-steps :active="step" finish-status="success" align-center><el-step v-for="name in ['选择产品','接入方式','参数配置','接入测试','数据预览','完成']" :key="name" :title="name" /></el-steps>
     <div class="onboarding-body" v-loading="busy">
@@ -47,7 +52,7 @@ async function copy(){await navigator.clipboard.writeText(pretty(result.value));
         <template v-if="standard"><el-form-item label="上报类型"><el-select v-model="form.messageKind"><el-option label="属性" value="property"/><el-option label="事件" value="event"/><el-option label="状态" value="state"/></el-select></el-form-item><el-form-item label="测试 JSON"><el-input v-model="sample" type="textarea" :rows="8" /></el-form-item></template>
         <el-form-item v-if="listener" label="一帧完整 HEX 样例"><el-input v-model="sample" type="textarea" :rows="5" placeholder="填写真实报文，用于检查设备识别与解析"/></el-form-item>
         <el-switch v-if="!standard" v-model="advanced" active-text="高级设置" />
-        <div v-if="advanced&&!standard"><el-form-item label="协议（默认使用产品现有绑定）"><el-select v-model="selected" clearable filterable><el-option v-for="r in published" :key="r.protocolId+'@'+r.version" :value="r.protocolId+'@'+r.version" :label="`${r.name} · ${r.version}`" /></el-select></el-form-item><el-form-item label="超时（毫秒）"><el-input-number v-model="form.profile.timeoutMs" :min="1" :max="10000" /></el-form-item><el-form-item label="Collector"><el-input v-model="form.profile.collectorId" /></el-form-item><el-form-item v-if="listener" label="自动注册后续设备"><el-switch v-model="form.profile.autoRegister" /></el-form-item></div>
+        <div v-if="advanced&&!standard"><el-form-item label="协议（默认使用产品现有绑定）"><el-select v-model="selected" clearable filterable><el-option v-for="r in published" :key="r.protocolId+'@'+r.version" :value="r.protocolId+'@'+r.version" :label="`${r.name} · ${r.version}`" /></el-select></el-form-item><el-form-item label="超时（毫秒）"><el-input-number v-model="form.profile.timeoutMs" :min="1" :max="10000" /></el-form-item><el-form-item label="Edge 节点（归属登记）"><el-select v-model="form.profile.edgeNodeId" clearable :disabled="!!existingProfileId"><el-option v-for="edge in edgeNodes.filter(e=>e.status==='ENABLED')" :key="edge.id" :value="edge.id" :label="edge.name"/></el-select><el-button link @click="edgeDialog=true">管理节点</el-button></el-form-item><el-form-item label="Collector"><el-input v-model="form.profile.collectorId" /></el-form-item><el-form-item v-if="listener" label="自动注册后续设备"><el-switch v-model="form.profile.autoRegister" /></el-form-item></div>
       </el-form>
       <div v-if="step===3"><p>{{form.type==='MODBUS_TCP'?'平台将连接设备，执行一次点表读取。':listener?'检查本机监听端口和样例完整帧，设备实际连通情况请在启用后确认。':'校验标准上报格式并预览解析结果；设备凭据在完成时生成。'}}</p><el-button type="primary" :loading="busy" @click="test">运行接入测试</el-button><el-alert v-if="preview" :type="preview.success?'success':'error'" :closable="false" :title="preview.message" :description="`${preview.stage} · ${preview.errorCode} · ${preview.latencyMs||0} ms`" /><pre v-if="preview&&!preview.success&&(preview.rawRequest||preview.rawResponse)">{{pretty({requestHex:preview.rawRequest,responseHex:preview.rawResponse,exceptionCode:preview.exceptionCode})}}</pre></div>
       <div v-if="step===4&&preview"><el-alert :closable="false" type="info" :title="preview.message"/><el-descriptions :column="2" border><el-descriptions-item label="Protocol ID">{{preview.protocolId}}</el-descriptions-item><el-descriptions-item label="Protocol Version">{{preview.protocolVersion}}</el-descriptions-item><el-descriptions-item label="Parser">{{preview.parser}}</el-descriptions-item></el-descriptions><h4>Raw</h4><pre>{{pretty(preview.raw)}}</pre><template v-if="preview.rawRequest"><h4>Request HEX / Response HEX</h4><pre>{{preview.rawRequest}}

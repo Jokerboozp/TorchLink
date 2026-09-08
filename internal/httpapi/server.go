@@ -110,6 +110,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 
 func (s *Server) routes() {
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
+	s.deviceOperationsRoutes()
 	s.router.GET("/api/v1/device-registry/:id/connection", s.authorize("viewer"), s.endpoint(s.deviceConnection, "id"))
 	s.router.POST("/api/v1/onboarding/test", s.authorize("admin"), s.endpoint(s.onboardingTest))
 	s.router.POST("/api/v1/onboarding", s.authorize("admin"), s.endpoint(s.onboardingCreate))
@@ -295,6 +296,10 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	if v.Name == "" || v.ProtocolPackageID == "" {
 		problem(w, 422, "name and protocolPackageId are required")
+		return
+	}
+	if err := onboarding.ValidateThingModel(v.ThingModel); err != nil {
+		problem(w, 422, err.Error())
 		return
 	}
 	pkg, err := s.engine.Repo.GetProtocolPackage(r.Context(), c.TenantID, v.ProtocolPackageID)
@@ -695,23 +700,16 @@ func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request
 	write(w, 201, map[string]any{"device": device, "credential": credential})
 }
 func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) {
-	c := claims(r)
-	v, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, r.PathValue("id"))
-	if err != nil {
-		problem(w, 404, "device not found")
+	if !s.operationDevice(w, r) {
 		return
 	}
-	credential := newDeviceCredential()
-	v.AccessKey = credential.AccessKey
-	v.SecretHash = secretHash(credential.Secret)
-	v.SecretHint = credential.Secret[len(credential.Secret)-6:]
-	v.UpdatedAt = time.Now().UnixMilli()
-	if err = s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+	c, v, e := s.onboarding.ChangeCredential(r.Context(), claims(r).TenantID, r.PathValue("id"), true)
+	if e != nil {
+		problem(w, 500, e.Error())
 		return
 	}
-	s.audit(r, "device.credential.rotate", "device", v.ID, nil)
-	write(w, 200, map[string]any{"deviceId": v.ID, "credential": credential})
+	s.audit(r, "device.credential.rotate", "device", r.PathValue("id"), nil)
+	write(w, 200, map[string]any{"deviceId": r.PathValue("id"), "credential": c, "revocation": v})
 }
 func (s *Server) deviceConnectionGuide(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
@@ -2388,7 +2386,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 		ttl = 5 * time.Minute
 		topic = fmt.Sprintf("/iot/up/%s/%s/%s/property", v.TenantID, v.ProductID, v.ID)
 	}
-	for _, kind := range []string{"property", "event", "state"} {
+	for _, kind := range []string{"property", "event", "state", "command-reply"} {
 		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "publish", Topic: fmt.Sprintf("/iot/up/%s/%s/%s/%s", v.TenantID, v.ProductID, v.ID, kind)})
 	}
 	acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/down/%s/%s/%s/command", v.TenantID, v.ProductID, v.ID)})

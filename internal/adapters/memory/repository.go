@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -16,6 +17,9 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Repository struct {
+	edgeNodes           map[string]model.EdgeNode
+	revocations         map[string]model.CredentialRevocation
+	commands            map[string]model.DeviceCommand
 	mu                  sync.RWMutex
 	raw                 map[string]model.RawArchiveIndex
 	rawMessages         map[string]model.RawMessage
@@ -23,7 +27,7 @@ type Repository struct {
 	standardProcessed   map[string]bool
 	rulePending         map[string]int64
 	states              map[string]model.DeviceState
-	stateEvents         []model.DeviceState
+	stateEvents         []model.DeviceStateEvent
 	rules               map[string]model.AlarmRule
 	alarms              map[string]model.Alarm
 	video               map[string]model.VideoAlarmEvent
@@ -627,7 +631,7 @@ func (r *Repository) CountDeviceStates(_ context.Context, tenant string, unregis
 func (r *Repository) SaveDeviceStateEvent(_ context.Context, v model.DeviceState) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.stateEvents = append(r.stateEvents, v)
+	r.stateEvents = append(r.stateEvents, model.DeviceStateEvent{State: clone(v), RecordedAt: time.Now().UnixMilli()})
 	return nil
 }
 func (r *Repository) SaveRule(_ context.Context, v model.AlarmRule) error {

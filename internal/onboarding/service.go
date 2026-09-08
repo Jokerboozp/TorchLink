@@ -56,6 +56,8 @@ type bucket struct {
 	Count int
 }
 type Service struct {
+	RevokeUsername func(context.Context, string) error
+	PublishCommand func(context.Context, string, []byte, byte, bool) error
 	Repo           ports.Repository
 	Parsers        *parser.Registry
 	Root           string
@@ -175,6 +177,12 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 	}
 	if !segment.MatchString(tenant) || !segment.MatchString(q.DeviceID) || strings.TrimSpace(q.Name) == "" || len(q.Name) > 256 {
 		return fail("请填写有效设备标识和名称")
+	}
+	if q.Profile.EdgeNodeID != "" {
+		edge, e := s.Repo.GetEdgeNode(ctx, tenant, q.Profile.EdgeNodeID)
+		if e != nil || edge.Status != "ENABLED" {
+			return fail("Edge 节点不存在或已停用")
+		}
 	}
 	product, err := s.Repo.GetProduct(ctx, tenant, q.ProductID)
 	if q.ProductName != "" {

@@ -64,6 +64,11 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	p, _ := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID)
 	state, _ := s.engine.Repo.GetDeviceState(r.Context(), tenant, d.ID)
 	latest, _ := s.engine.Repo.GetLatestMessage(r.Context(), tenant, d.ID)
+	properties, _, err := s.engine.Repo.ListDeviceMessages(r.Context(), tenant, d.ID, model.PropertyReport, 1, 0)
+	if err != nil {
+		problem(w, 500, err.Error())
+		return
+	}
 	var profile *model.DeviceAccessProfile
 	if id := d.Tags["connectorProfileId"]; id != "" {
 		if v, e := s.engine.Repo.GetDeviceAccessProfile(r.Context(), tenant, id); e == nil {
@@ -87,6 +92,17 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	} else if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" {
 		protocolID, version = parser.StandardProtocolID, "1.0.0"
 	}
+	revocations, err := s.engine.Repo.ListCredentialRevocations(r.Context(), tenant, d.ID, false)
+	if err != nil {
+		problem(w, 500, err.Error())
+		return
+	}
+	var edge *model.EdgeNode
+	if profile != nil && profile.EdgeNodeID != "" {
+		if v, e := s.engine.Repo.GetEdgeNode(r.Context(), tenant, profile.EdgeNodeID); e == nil {
+			edge = &v
+		}
+	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	write(w, 200, map[string]any{"device": d, "product": p, "connector": d.Tags["connector"], "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "connection": state, "sessions": sessions, "latest": latest, "credentialEnabled": d.SecretHash != ""})
+	write(w, 200, map[string]any{"revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": d.Tags["connector"], "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
 }

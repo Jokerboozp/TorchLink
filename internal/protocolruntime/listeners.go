@@ -34,17 +34,20 @@ type listenerCall func(context.Context, string, model.ProtocolRelease, protocolw
 // session state and wire encoding; the host owns tenant/product identity and
 // only acknowledges an incoming frame after the ingest callback succeeds.
 type Listeners struct {
-	repo       ports.Repository
-	root       string
-	ingest     IngestFunc
-	log        *slog.Logger
-	call       listenerCall
-	workers    chan struct{}
-	mu         sync.Mutex
-	hosts      map[string]*protocolListener
-	failures   map[string]string
-	registerMu sync.Mutex
-	once       sync.Once
+	connectionMu       sync.Mutex
+	connectionCounts   map[string]int
+	connectionReporter func(context.Context, string, string, string, bool, int64) error
+	repo               ports.Repository
+	root               string
+	ingest             IngestFunc
+	log                *slog.Logger
+	call               listenerCall
+	workers            chan struct{}
+	mu                 sync.Mutex
+	hosts              map[string]*protocolListener
+	failures           map[string]string
+	registerMu         sync.Mutex
+	once               sync.Once
 }
 
 type protocolListener struct {
@@ -310,6 +313,7 @@ func (s *listenerSession) close() {
 		}
 		s.mu.Lock()
 		s.closed = true
+		deviceID := s.deviceID
 		for id, ch := range s.pending {
 			ch <- commandResult{err: errors.New("device session closed")}
 			delete(s.pending, id)
@@ -320,6 +324,9 @@ func (s *listenerSession) close() {
 			delete(s.host.sessions, s.remote)
 		}
 		s.host.mu.Unlock()
+		if deviceID != "" {
+			s.host.owner.reportConnection(s.host.snapshot(), deviceID, false)
+		}
 	})
 }
 
@@ -544,6 +551,9 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 		return 0, false, fmt.Errorf("ingest protocol frame: %w", err)
 	}
 	s.partial = false
+	if s.deviceID == "" {
+		s.host.owner.reportConnection(p, device.ID, true)
+	}
 	s.deviceID = device.ID
 	s.lastSeen = time.Now()
 	s.state = append(json.RawMessage(nil), response.State...)

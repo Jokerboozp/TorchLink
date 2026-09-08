@@ -15,6 +15,22 @@ CREATE TABLE IF NOT EXISTS device_registry (
 );
 CREATE INDEX IF NOT EXISTS device_registry_product_idx ON device_registry(tenant_id, product_id);
 
+-- Additive control-plane extensions; old device/product JSON remains valid.
+CREATE TABLE IF NOT EXISTS edge_node (
+ tenant_id text NOT NULL,id text NOT NULL,body jsonb NOT NULL,
+ PRIMARY KEY(tenant_id,id)
+);
+CREATE TABLE IF NOT EXISTS device_credential_revocation (
+ tenant_id text NOT NULL,id text NOT NULL,device_id text NOT NULL,status text NOT NULL,
+ body jsonb NOT NULL,PRIMARY KEY(tenant_id,id)
+);
+CREATE INDEX IF NOT EXISTS device_credential_revocation_pending_idx ON device_credential_revocation(status);
+CREATE TABLE IF NOT EXISTS device_command (
+ tenant_id text NOT NULL,id text NOT NULL,device_id text NOT NULL,status text NOT NULL,
+ created_at bigint NOT NULL,body jsonb NOT NULL,PRIMARY KEY(tenant_id,id)
+);
+CREATE INDEX IF NOT EXISTS device_command_device_idx ON device_command(tenant_id,device_id,created_at DESC);
+
 CREATE TABLE IF NOT EXISTS raw_archive_index (
   tenant_id text NOT NULL, product_id text NOT NULL, device_id text NOT NULL,
   message_id text NOT NULL, protocol text, payload_format text,
@@ -263,3 +279,5 @@ CREATE TABLE IF NOT EXISTS audit_log (
   target_type text NOT NULL, target_id text NOT NULL, details jsonb NOT NULL DEFAULT '{}',
   created_at bigint NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS device_state_event_device_idx ON device_state_event(tenant_id,device_id,id DESC);

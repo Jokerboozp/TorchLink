@@ -21,6 +21,18 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	SaveEdgeNode(context.Context, model.EdgeNode) error
+	GetEdgeNode(context.Context, string, string) (model.EdgeNode, error)
+	ListEdgeNodes(context.Context, string) ([]model.EdgeNode, error)
+	ListDeviceStateEvents(context.Context, string, string, int, int) ([]model.DeviceStateEvent, int, error)
+	ListDeviceMessages(context.Context, string, string, model.MessageType, int, int) ([]model.StandardMessage, int, error)
+	ChangeDeviceCredential(context.Context, string, string, string, string, int64) (model.ManagedDevice, model.CredentialRevocation, error)
+	ListCredentialRevocations(context.Context, string, string, bool) ([]model.CredentialRevocation, error)
+	UpdateCredentialRevocation(context.Context, model.CredentialRevocation) error
+	CreateDeviceCommand(context.Context, model.DeviceCommand) (model.DeviceCommand, bool, error)
+	UpdateDeviceCommandDispatch(context.Context, string, string, string, string, int64) error
+	CompleteDeviceCommand(context.Context, string, string, string, map[string]any, int64) error
+	ListDeviceCommands(context.Context, string, string, int, int) ([]model.DeviceCommand, int, error)
 	// Keep atomic onboarding in the repository contract so telemetry/cache
 	// decorators forward it to durable storage rather than hiding the capability.
 	SaveOnboarding(context.Context, model.OnboardingBundle) error

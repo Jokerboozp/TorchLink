@@ -178,6 +178,7 @@ type DeviceState struct {
 // Product describes a managed device product and the protocol package used to
 // turn its raw payloads into standard platform messages.
 type Product struct {
+	ThingModel        *ThingModel    `json:"thingModel,omitempty"`
 	ID                string         `json:"id"`
 	TenantID          string         `json:"tenantId"`
 	Name              string         `json:"name"`
@@ -294,6 +295,7 @@ type ProductProtocolBinding struct {
 }
 
 type DeviceAccessProfile struct {
+	EdgeNodeID        string `json:"edgeNodeId,omitempty"`
 	Mode              string `json:"mode,omitempty"`
 	Network           string `json:"network,omitempty"`
 	AutoRegister      bool   `json:"autoRegister,omitempty"`

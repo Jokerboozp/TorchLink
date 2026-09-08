@@ -33,6 +33,16 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 	case "property":
 		m.MessageType = model.PropertyReport
 		m.Properties = body.Data
+	case "command-reply":
+		id, ok := body.Data["commandId"].(string)
+		if !ok || id == "" || len(id) > 128 {
+			return nil, errors.New("commandId is required")
+		}
+		if _, ok := body.Data["success"].(bool); !ok {
+			return nil, errors.New("success must be boolean")
+		}
+		m.MessageType = model.CommandReply
+		m.Event = body.Data
 	case "event":
 		m.MessageType = model.EventReport
 		m.Event = body.Data

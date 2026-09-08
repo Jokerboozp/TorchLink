@@ -31,6 +31,9 @@ type Config struct {
 	MinIOSecretKey              string
 	MinIOUseTLS                 bool
 	KafkaBrokers                []string
+	EMQXAPIURL                  string
+	EMQXAPIKey                  string
+	EMQXAPISecret               string
 	MQTTBroker                  string
 	MQTTUsername                string
 	MQTTPassword                string
@@ -100,6 +103,9 @@ func Load() Config {
 		MinIOSecretKey:              os.Getenv("IOT_MINIO_SECRET_KEY"),
 		MinIOUseTLS:                 boolValue("IOT_MINIO_USE_TLS", false),
 		KafkaBrokers:                split(os.Getenv("IOT_KAFKA_BROKERS")),
+		EMQXAPIURL:                  os.Getenv("IOT_EMQX_API_URL"),
+		EMQXAPIKey:                  os.Getenv("IOT_EMQX_API_KEY"),
+		EMQXAPISecret:               os.Getenv("IOT_EMQX_API_SECRET"),
 		MQTTBroker:                  os.Getenv("IOT_MQTT_BROKER"),
 		MQTTUsername:                os.Getenv("IOT_MQTT_USERNAME"),
 		MQTTPassword:                os.Getenv("IOT_MQTT_PASSWORD"),
