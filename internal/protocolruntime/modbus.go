@@ -21,6 +21,20 @@ import (
 
 type IngestFunc func(context.Context, model.RawMessage) error
 
+// ModbusReadError preserves wire evidence for connection tests without changing
+// the runtime's retry and collection behavior.
+type ModbusReadError struct {
+	Request, Response []byte
+	Cause             error
+}
+
+func (e *ModbusReadError) Error() string { return e.Cause.Error() }
+func (e *ModbusReadError) Unwrap() error { return e.Cause }
+
+type ModbusException struct{ Code byte }
+
+func (e *ModbusException) Error() string { return fmt.Sprintf("Modbus exception code 0x%02X", e.Code) }
+
 // Runtime executes active protocol collection plans. It deliberately depends
 // on the repository and an ingest callback rather than the HTTP or core
 // packages, keeping the active transport layer separate from parsing.
@@ -213,7 +227,7 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 			conn = nil
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read block %s: %w", block.ID, err)
+			return nil, &ModbusReadError{Request: request, Response: response, Cause: fmt.Errorf("read block %s: %w", block.ID, err)}
 		}
 		payload, _ := json.Marshal(strings.ToUpper(hex.EncodeToString(response)))
 		now := time.Now()
@@ -303,7 +317,7 @@ func readResponse(conn net.Conn, transaction uint16, unit, function byte) ([]byt
 		return nil, errors.New("Modbus response PDU is incomplete")
 	}
 	if rest[0]&0x80 != 0 {
-		return nil, fmt.Errorf("Modbus exception code 0x%02X", rest[1])
+		return append(header, rest...), &ModbusException{Code: rest[1]}
 	}
 	if rest[0] != function {
 		return nil, errors.New("Modbus function code mismatch")

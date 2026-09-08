@@ -3,6 +3,10 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, apiAll, formatTime, notifyError, parseJSON, pretty } from '../api'
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels'
+import DeviceOnboarding from '../components/DeviceOnboarding.vue'
+import DeviceConnection from '../components/DeviceConnection.vue'
+const connectionDevice = ref('')
+const onboardingOpen = ref(false)
 
 const emit = defineEmits(['navigate'])
 const products = ref([])
@@ -106,7 +110,9 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
 </script>
 
 <template>
-  <div class="page-toolbar"><el-button type="primary" @click="open()">注册设备</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
+  <DeviceOnboarding v-if="onboardingOpen" :products="products" @close="onboardingOpen=false" @created="load" @navigate="(page)=>{onboardingOpen=false;emit('navigate',page)}" />
+  <DeviceConnection v-if="connectionDevice" :device-id="connectionDevice" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" />
+  <div class="page-toolbar"><el-button type="primary" @click="onboardingOpen=true">添加设备</el-button><el-button @click="open()">高级注册</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
   <el-card shadow="never" class="surface-card table-card">
     <el-table v-loading="loading" :data="registry" stripe>
       <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></el-table-column>
@@ -117,7 +123,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
       <el-table-column label="运行状态" width="105"><template #default="{ row }"><el-tag :type="tagType(row.runtimeState?.businessStatus)" round>{{ label(businessStatuses, row.runtimeState?.businessStatus || 'NEVER_SEEN') }}</el-tag></template></el-table-column>
       <el-table-column label="接入密钥" min-width="190"><template #default="{ row }"><code>{{ row.device.accessKey }}</code><small class="subline">设备密钥 ···{{ row.device.secretHint }}</small></template></el-table-column>
       <el-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></el-table-column>
-      <el-table-column label="操作" fixed="right" width="350" align="center"><template #default="{ row }"><div class="table-actions"><el-button v-if="!hasReported(row)" plain type="primary" @click="guide(row.device.id)">配置接入</el-button><el-button v-else plain type="success" @click="openRaw(row.device.id)">查看数据</el-button><el-button plain type="primary" @click="open(row.device)">编辑</el-button><el-button plain type="warning" @click="rotate(row.device.id)">轮换凭证</el-button></div></template></el-table-column>
+      <el-table-column label="操作" fixed="right" width="410" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain @click="connectionDevice=row.device.id">连接详情</el-button><el-button v-if="!hasReported(row)" plain type="primary" @click="guide(row.device.id)">配置接入</el-button><el-button v-else plain type="success" @click="openRaw(row.device.id)">查看数据</el-button><el-button plain type="primary" @click="open(row.device)">编辑</el-button><el-button plain type="warning" @click="rotate(row.device.id)">轮换凭证</el-button></div></template></el-table-column>
       <template #empty><el-empty description="还没有注册设备，请先创建协议包和产品" /></template>
     </el-table>
     <div class="list-pagination"><el-pagination v-model:current-page="registryPage" v-model:page-size="registryPageSize" :total="registryTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeRegistryPage" @size-change="changeRegistryPageSize" /></div>

@@ -17,7 +17,14 @@ type protocolCommander interface {
 	Command(context.Context, string, string, string, map[string]any) (map[string]any, error)
 }
 
-func (s *Server) SetProtocolListeners(listeners protocolCommander) { s.protocolListeners = listeners }
+func (s *Server) SetProtocolListeners(listeners protocolCommander) {
+	s.protocolListeners = listeners
+	if status, ok := listeners.(interface {
+		Status(string, string) (string, string, int64)
+	}); ok {
+		s.onboarding.ListenerStatus = status.Status
+	}
+}
 
 func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 	if s.protocolListeners == nil {

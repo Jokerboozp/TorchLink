@@ -30,6 +30,7 @@ import (
 	"iot-platform/internal/mcpserver"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 
@@ -60,6 +61,7 @@ type Server struct {
 	aiAnalysisJobs             map[string]*aiAnalysisJob
 	aiAnalysisEstimateMs       int64
 	protocolListeners          protocolCommander
+	onboarding                 *onboarding.Service
 }
 
 type healthInspectionSnapshot struct {
@@ -77,6 +79,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s := &Server{
 		cfg:                        cfg,
 		engine:                     engine,
+		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs, cfg.JWTSecret),
 		auth:                       auth.New(cfg.JWTSecret),
 		metrics:                    m,
 		log:                        log,
@@ -106,6 +109,12 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 }
 
 func (s *Server) routes() {
+	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
+	s.router.GET("/api/v1/device-registry/:id/connection", s.authorize("viewer"), s.endpoint(s.deviceConnection, "id"))
+	s.router.POST("/api/v1/onboarding/test", s.authorize("admin"), s.endpoint(s.onboardingTest))
+	s.router.POST("/api/v1/onboarding", s.authorize("admin"), s.endpoint(s.onboardingCreate))
+	s.router.POST("/api/v1/device-ingest/standard/:tenantId/:productId/:deviceId/:kind", s.endpoint(s.standardDeviceIngest, "tenantId", "productId", "deviceId", "kind"))
+	s.router.DELETE("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.disableDeviceCredential, "id"))
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))
 	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) }))
 	s.router.GET("/health/ready", s.endpoint(s.ready))
@@ -2373,12 +2382,22 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 	}
 	topic := fmt.Sprintf("/external/raw/%s/%s/%s", v.TenantID, v.ProductID, v.ID)
 	acl := []auth.ACLRule{{Permission: "allow", Action: "publish", Topic: topic}, {Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/device/command/%s/%s", v.TenantID, v.ID)}}
-	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, 24*time.Hour)
+	ttl := 24 * time.Hour
+	if v.Tags["connector"] == "MQTT" || v.Tags["connector"] == "HTTP" {
+		acl = nil
+		ttl = 5 * time.Minute
+		topic = fmt.Sprintf("/iot/up/%s/%s/%s/property", v.TenantID, v.ProductID, v.ID)
+	}
+	for _, kind := range []string{"property", "event", "state"} {
+		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "publish", Topic: fmt.Sprintf("/iot/up/%s/%s/%s/%s", v.TenantID, v.ProductID, v.ID, kind)})
+	}
+	acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/down/%s/%s/%s/command", v.TenantID, v.ProductID, v.ID)})
+	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, ttl)
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
-	write(w, 200, map[string]any{"username": v.AccessKey, "token": token, "expiresIn": 86400, "publishTopic": topic, "websocketUrl": s.mqttWebSocketURL(r)})
+	write(w, 200, map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "websocketUrl": s.mqttWebSocketURL(r)})
 }
 
 func (s *Server) mqttLoadToken(w http.ResponseWriter, r *http.Request) {

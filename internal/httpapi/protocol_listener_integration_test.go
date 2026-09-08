@@ -23,9 +23,11 @@ import (
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/config"
+	"iot-platform/internal/connector"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/protocolbuild"
 	"iot-platform/internal/protocolruntime"
@@ -143,6 +145,12 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 	port := free.Addr().(*net.TCPAddr).Port
 	_ = free.Close()
 	profile := model.DeviceAccessProfile{ID: "gb-tcp", ProductID: "gb-product", ProtocolID: "gb26875-dahua", ProtocolVersion: "1.0.0", Mode: "listener", Network: "tcp", Host: "127.0.0.1", Port: port, TimeoutMs: 2000, Enabled: true, AutoRegister: true}
+	for _, kind := range []connector.Type{connector.TCP, connector.UDP} {
+		preview, err := api.onboarding.Test(ctx, "tenant_001", onboarding.Request{ProductID: "gb-product", DeviceID: "gb26875_123456789012", Name: "GB preview", Type: kind, Profile: profile, Payload: samples[0].Input.Payload})
+		if err != nil || !preview.Success || len(preview.StandardMessages) != 1 || preview.TestToken == "" {
+			t.Fatalf("%s onboarding preview: %+v %v", kind, preview, err)
+		}
+	}
 	requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/device-access-profiles", token, profile, 201)
 	udpFree, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -169,6 +177,21 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	// Add a managed device through the unified service while reusing the live
+	// listener. The existing runtime below must accept it without re-registration.
+	onboardRequest := onboarding.Request{ProductID: "gb-product", DeviceID: "gb26875_123456789012", Name: "GB onboarded", Type: connector.TCP, Profile: profile, ExistingProfileID: profile.ID, Payload: samples[0].Input.Payload}
+	onboardPreview, onboardErr := api.onboarding.Test(ctx, "tenant_001", onboardRequest)
+	if onboardErr != nil || !onboardPreview.Success {
+		t.Fatalf("reuse listener preview: %+v %v", onboardPreview, onboardErr)
+	}
+	onboardRequest.TestToken = onboardPreview.TestToken
+	if _, err = api.onboarding.Create(ctx, "tenant_001", onboardRequest); err != nil {
+		t.Fatal("reuse listener onboarding", err)
+	}
+	profilesAfter, _ := repo.ListDeviceAccessProfiles(ctx, "tenant_001")
+	if len(profilesAfter) != 2 {
+		t.Fatal("onboarding duplicated the existing listener")
+	}
 	readFrame := func(c net.Conn) []byte {
 		t.Helper()
 		_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))

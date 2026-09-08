@@ -594,6 +594,7 @@ func (r *Listeners) device(ctx context.Context, p model.DeviceAccessProfile, id,
 	}
 	now := time.Now().UnixMilli()
 	device = model.ManagedDevice{ID: id, TenantID: p.TenantID, ProductID: p.ProductID, Name: name, Status: "ENABLED", DeviceRole: "DIRECT", RegistrationSource: "PROTOCOL_AUTO", AutoRegistered: true, CreatedAt: now, UpdatedAt: now}
+	device.Tags = map[string]string{"connector": strings.ToUpper(p.Network), "connectorProfileId": p.ID}
 	return device, r.repo.SaveManagedDevice(ctx, device)
 }
 

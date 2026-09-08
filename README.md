@@ -1,5 +1,7 @@
 # 消防 IoT 平台
 
+设备接入新增统一向导：**设备管理 → 添加设备**。支持 MQTT / HTTP 标准上报、Modbus TCP 和现有 TCP/UDP 协议，详见 [统一设备接入与 API](docs/UNIFIED_DEVICE_ONBOARDING.md)。
+
 Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本切换、Modbus 点表采集、告警、原始报文查询与回放、知识库和 AI 辅助运维。
 
 ## 选择方案

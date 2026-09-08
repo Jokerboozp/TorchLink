@@ -391,6 +391,16 @@ func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) erro
 	state.LastSeenAt = msg.Timestamp
 	state.LastMessageID = msg.MessageID
 	state.StatusSource = "RAW_MESSAGE"
+	if msg.MessageType == model.StateChange && msg.Parser == parser.StandardParserName {
+		if status, ok := msg.Properties["connectionStatus"].(string); ok && (status == "CONNECTED" || status == "DISCONNECTED" || status == "UNKNOWN") {
+			state.ConnectionStatus = status
+			if status == "CONNECTED" {
+				state.LastConnectAt = msg.Timestamp
+			} else if status == "DISCONNECTED" {
+				state.LastDisconnectAt = msg.Timestamp
+			}
+		}
+	}
 	if err := e.Repo.UpsertDeviceState(ctx, state); err != nil {
 		return err
 	}

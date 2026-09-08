@@ -21,6 +21,9 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	// Keep atomic onboarding in the repository contract so telemetry/cache
+	// decorators forward it to durable storage rather than hiding the capability.
+	SaveOnboarding(context.Context, model.OnboardingBundle) error
 	SaveProduct(context.Context, model.Product) error
 	GetProduct(context.Context, string, string) (model.Product, error)
 	ListProducts(context.Context, string) ([]model.Product, error)

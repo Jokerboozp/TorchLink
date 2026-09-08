@@ -29,6 +29,7 @@ import (
 	"iot-platform/internal/httpapi"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolruntime"
@@ -100,6 +101,7 @@ func main() {
 		if cfg.MQTTPassword == "" {
 			manager := auth.New(cfg.JWTSecret)
 			acl := []auth.ACLRule{
+				{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"},
 				{Permission: "allow", Action: "subscribe", Topic: "/external/raw/#"},
 				{Permission: "allow", Action: "subscribe", Topic: "/jetlinks/raw/#"},
 				{Permission: "allow", Action: "subscribe", Topic: "/external/video/alarm/#"},
@@ -234,6 +236,15 @@ func main() {
 	protocolListeners.Start(ctx)
 	log.Info("active protocol runtime enabled", "transports", []string{"TCP", "UDP", "MODBUS_TCP (legacy)"})
 	if mqttClient != nil {
+		standardIngress := onboarding.New(repo, parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs)
+		fatal(log, "subscribe standard mqtt", mqttClient.SubscribeStandard(func(c context.Context, tenant, product, device, kind string, payload []byte) error {
+			raw, err := standardIngress.PrepareStandard(c, tenant, product, device, kind, "MQTT", payload)
+			if err != nil {
+				return err
+			}
+			_, _, err = engine.IngestRaw(c, raw)
+			return err
+		}))
 		fatal(log, "subscribe raw mqtt", mqttClient.SubscribeRaw(func(c context.Context, v model.RawMessage) error { _, _, err := engine.IngestRaw(c, v); return err }))
 		fatal(log, "subscribe device state mqtt", mqttClient.SubscribeDeviceState(engine.UpdateDeviceState))
 		fatal(log, "subscribe video mqtt", mqttClient.SubscribeVideo(func(c context.Context, v model.VideoAlarmEvent) error {
@@ -242,6 +253,9 @@ func main() {
 		}))
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	if mqttClient != nil {
+		api.SetMQTTHealth(mqttClient.Health)
+	}
 	api.SetAIProviderRuntime(runtimeAI)
 	api.SetAIProviderStore(aiProviderStore)
 	if harness != nil {

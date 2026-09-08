@@ -38,7 +38,7 @@ func (r *Registry) Register(p Parser) {
 // artifacts. Older named parsers remain callable only by an explicit binding
 // or historical replay, so existing devices can migrate without losing history.
 func NewPlatformRegistry(root string) *Registry {
-	r := NewRegistry(ConfigurableJSONParser{}, ConfigurableHexParser{}, ExternalParser{Root: root}, JSONParser{})
+	r := NewRegistry(StandardParser{}, ConfigurableJSONParser{}, ConfigurableHexParser{}, ExternalParser{Root: root}, JSONParser{})
 	r.parsers = append(r.parsers, GB26875Parser{}, ModbusTCPParser{}, ModbusCoilParser{}, JavaScriptParser{}, FireSmokeHexParser{}, ModbusParser{})
 	return r
 }
