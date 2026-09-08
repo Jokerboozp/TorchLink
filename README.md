@@ -7,10 +7,20 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 | 方案 | 前后端运行位置 | 依赖准备 | 访问地址 |
 |---|---|---|---|
 | **本地运行** | 本机运行源码，可用 IDE 调试 | 一键启动依赖容器、下载 Go/npm 依赖 | `http://localhost:5173` |
-| **在线部署** | 全部运行在 Docker | 一键生成配置、下载/构建镜像并启动 | `http://服务器IP:8080` |
-| **离线部署** | 全部运行在 Docker | 有网机器打包，离线服务器一键导入并启动 | `http://服务器IP:8080` |
+| **在线部署** | 全部运行在 Docker | Linux 自动准备 Docker，再构建并启动服务 | `http://服务器IP:8080` |
+| **离线部署** | 全部运行在 Docker | 有网打包，离线安装 Docker 并导入服务 | `http://服务器IP:8080` |
 
-以下命令均在**本仓库根目录**执行。Ubuntu、CentOS 等 Linux 的在线、离线部署会检测 Docker 和 Compose，缺少时自动安装；首次安装请用 root 或 sudo 执行。Windows/macOS 及有网打包机仍需先安装并启动 Docker Desktop（Linux 容器）。本地运行需准备 Docker 依赖环境，源码机另需 **Go ≥ 1.25.5** 和 **Node.js 22 ≥ 22.12**（也兼容 Node.js 20 ≥ 20.19）。Go 和 Node.js 仍需自行安装。
+源码相关命令在**本仓库根目录**执行；离线安装命令在**生成的离线包根目录**执行。
+
+| 运行环境 | 需要提前准备 |
+|---|---|
+| Ubuntu / CentOS 在线部署 | systemd、root 或 sudo 权限；脚本检测并安装缺失的 Docker、Compose 和 Buildx |
+| Ubuntu / CentOS 离线部署 | 完整离线包、系统基础依赖、root 或 sudo 权限；Docker 和 Compose 从包内安装 |
+| Windows / macOS 部署 | 已安装并启动 Docker Desktop，使用 Linux 容器 |
+| 有网打包机 | 已启动 Docker Engine 或 Docker Desktop，以及 Compose 2.24.4+ |
+| 本地源码调试 | 依赖机预装 Docker 和 Compose；源码机安装 Go ≥ 1.25.5、Node.js ≥ 22.12（也兼容 20.19+ 的 Node.js 20） |
+
+已有可用 Docker 时直接复用。自动安装适用于使用 systemd 的 Linux amd64 / arm64；系统包要求见 [Docker 自动安装](docs/OFFLINE_DEPLOYMENT.md#docker-自动安装)。依赖运行在虚拟机时，Windows 源码机无需安装 Docker。
 
 在线与离线部署默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate、`nomic-embed-text` 嵌入模型和 AI 工作流 Harness。本地运行会启动基础依赖和 Harness，备份服务默认作为源码进程单独调试。在线与离线部署还会自动准备 `qwen3:1.7b`；告警研判、规则辅助和 AI 工作流统一使用该本地模型，不需要 API Key。这个模型下载约 1.4 GB，适合 8 GB 内存的整套虚拟机环境。
 
@@ -73,7 +83,13 @@ GoLand 调试时，工作目录设为仓库根目录、程序设为 `cmd/iot-pla
 
 ## 2. 在线部署
 
-把本仓库源码放到有网络的目标服务器，在仓库根目录执行：
+把本仓库源码放到有网络的目标服务器，在仓库根目录执行。Ubuntu 与 CentOS 使用同一入口：
+
+```bash
+sudo bash ./scripts/deploy-online.sh
+```
+
+已使用 root 登录时可省略 `sudo`。缺少 Docker 时自动安装并启动；缺少 Compose 或 Buildx 时补装插件。Ubuntu 通过 APT 安装缺失的基础依赖；CentOS 7 必要时使用临时 Vault 源，不覆盖已有 yum 配置。
 
 Windows PowerShell：
 
@@ -81,7 +97,7 @@ Windows PowerShell：
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 ```
 
-Linux / macOS：
+macOS（先启动 Docker Desktop）：
 
 ```bash
 bash ./scripts/deploy-online.sh
@@ -93,7 +109,7 @@ bash ./scripts/deploy-online.sh
 
 ## 3. 离线部署
 
-离线部署分为“有网打包”和“无网安装”两个步骤。打包机与服务器的 Docker CPU 架构必须一致。新离线包默认包含 Linux Docker 与 Compose 安装文件；CentOS 7.9 x86_64 可使用 linux/amd64 包，部署时自动检测并安装缺失组件。目标机无需 Go、Node.js、Git 和外网；系统基础依赖及首次安装权限见 [离线部署说明](docs/OFFLINE_DEPLOYMENT.md#docker-自动安装)。
+离线部署分为“有网打包”和“无网安装”两个步骤。Ubuntu 和 CentOS 均使用同一套 Linux 部署脚本。打包机与服务器的 Docker CPU 架构必须一致，例如 x86_64 服务器使用 linux/amd64 包；ARM64 包不能直接用于 x86_64 服务器。
 
 ### 有网机器：一键打包
 
@@ -109,20 +125,30 @@ Linux / macOS：
 bash ./scripts/package-offline.sh
 ```
 
-输出位于 `offline-bundles/iot-platform-offline-*`，包括全部运行镜像、`qwen3:1.7b`、知识库模型、Harness、校验文件、配置和部署脚本。将**整个生成目录**复制到离线服务器。
+输出位于 `offline-bundles/iot-platform-offline-*`，包括运行镜像、对话和知识库模型、Harness、Linux Docker/Compose/Buildx 安装文件、校验文件、配置和部署脚本。将**整个生成目录**复制到离线服务器，包括隐藏文件 `.env.offline`。
+
+精简 Linux 系统若缺少 iptables、xz、ps 等基础依赖，打包时通过 `--docker-packages-dir <目录>` / `-DockerPackagesDir <目录>` 加入匹配目标系统版本与架构的软件包及全部依赖：Ubuntu 使用 DEB，CentOS 使用 RPM。离线脚本不会联网补包。目标机已有 Docker 时，可用 `--skip-docker-runtime` / `-SkipDockerRuntime` 减小包体。
 
 ### 离线服务器：一键安装
 
-进入复制后的离线包目录，Windows PowerShell 执行：
+进入复制后的离线包目录，Ubuntu / CentOS 执行：
+
+```bash
+sudo bash ./scripts/deploy-offline-linux.sh
+```
+
+脚本检测 Docker 与 Compose，缺失时校验并使用包内文件安装；已有可用安装则直接复用。旧离线包未携带 Docker 安装文件时，需要重新打包。
+
+Windows PowerShell（先启动 Docker Desktop）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 ```
 
-Linux / macOS 执行：
+macOS（先启动 Docker Desktop）：
 
 ```bash
-bash ./scripts/deploy-offline.sh
+bash ./scripts/deploy-offline-macos.sh
 ```
 
 脚本校验并导入镜像和模型，使用 `--no-build --pull never` 启动，随后检查服务。完成后访问 **http://服务器IP:8080**。目标服务器不需要源码、Go、Node.js 或网络。
@@ -134,7 +160,7 @@ bash ./scripts/deploy-offline.sh
 - 默认租户：`tenant_001`；用户名：`admin`。
 - 密码为对应环境文件中的 `IOT_ADMIN_PASSWORD`：本地 `.env.local`，在线 `.env.online`，离线包 `.env.offline`。首次脚本会生成随机凭据。
 - 不同方案使用独立 Compose 项目和数据卷；默认端口有重叠，同一台机器上不要同时启动多套默认配置。
-- 配置文件应随数据库备份妥善保管。已有数据库卷时，直接改文件中的数据库密码不会同步修改库内账号。
+- 配置文件需单独妥善保管；设备数据备份不包含配置和账号。已有数据库卷时，直接改文件中的数据库密码不会同步修改库内账号。
 - `IOT_AI_MODEL` 和 `IOT_OLLAMA_MODEL` 用于切换本地模型；`IOT_AI_HARNESS_MODEL` 应保持相同。`IOT_AI_HARNESS_ENABLED=false` 可关闭 Harness。
 - 管理员可在独立的“AI 模型管理”菜单切换本地 Ollama、DeepSeek 云端模型或兼容接口模型。先点击“测试配置”确认地址、模型和接口密钥可用，再点击“应用配置”；应用后告警研判、AI 对话、规则草稿、报告和工作流会统一使用新模型服务。接口密钥会脱敏显示，并在使用 PostgreSQL 时保存到活动配置。
 - 告警详情中的“立即研判”会显示实时进度和预计剩余时间，任务完成后自动展示研判结果。
