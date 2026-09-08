@@ -154,6 +154,8 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .main-content::-webkit-scrollbar, .menu-scroll::-webkit-scrollbar { width: 8px; }
 .main-content::-webkit-scrollbar-thumb, .menu-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border: 2px solid var(--background); border-radius: 999px; }
 .main-content::-webkit-scrollbar-track, .menu-scroll::-webkit-scrollbar-track { background: transparent; }
+.main-content--ai { display: flex; flex-direction: column; overflow: hidden; }
+.main-content--ai > .page-context { flex: none; }
 
 /* Element Plus compatibility surfaces, following shadcn tokens */
 .surface-card, .el-card { border: 1px solid var(--border) !important; border-radius: var(--radius) !important; box-shadow: 0 1px 2px rgba(15,23,42,.035) !important; }

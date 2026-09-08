@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
             </el-dropdown>
           </div>
         </header>
-        <section ref="contentArea" class="main-content">
+        <section ref="contentArea" class="main-content" :class="{ 'main-content--ai': active === 'ai' }">
           <div class="page-context">
             <div class="page-context-copy"><span class="page-context-icon"><component :is="current.icon" /></span><div><strong>{{ current.title }}</strong><p>{{ current.sub }}</p></div></div>
             <div class="related-actions" aria-label="相关功能"><span>相关功能</span><el-button v-for="name in relatedPages[active]" :key="name" plain @click="openPage(name)"><component :is="pages[name].icon" />{{ pages[name].title }}</el-button></div>
