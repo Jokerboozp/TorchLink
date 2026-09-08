@@ -1,6 +1,7 @@
 import { ElMessage } from 'element-plus'
 
 import { consumeSSE } from './sse'
+import { loadAllPages } from './listPagination.js'
 
 export const session = {
   get token() { return localStorage.getItem('iot_token') || '' },
@@ -61,6 +62,10 @@ export async function api(path, options = {}) {
   const response = await fetch(path, request)
   if (!response.ok) throw await responseError(path, response)
   return response.json().catch(() => ({}))
+}
+
+export function apiAll(path, options = {}) {
+  return loadAllPages(api, path, options)
 }
 
 export async function apiStream(path, options = {}, onEvent = () => {}) {

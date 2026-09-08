@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, formatTime, notifyError, parseJSON, pretty } from '../api'
+import { api, apiAll, formatTime, notifyError, parseJSON, pretty } from '../api'
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels'
 
 const emit = defineEmits(['navigate'])
 const products = ref([])
 const registry = ref([])
+const registryOptions = ref([])
 const unregistered = ref([])
 const loading = ref(false)
 const dialog = ref(false)
@@ -21,13 +22,13 @@ const unregisteredTotal = ref(0)
 
 const blank = () => ({ id:'', code:'', name:'', productId:'', deviceRole:'DIRECT', gatewayId:'', status:'ENABLED', tags:pretty({ buildingId:'A', deviceType:'smoke' }), description:'' })
 const form = reactive(blank())
-const gateways = computed(() => registry.value.filter(item => roleOf(item.device) === 'GATEWAY'))
+const gateways = computed(() => registryOptions.value.filter(item => roleOf(item.device) === 'GATEWAY'))
 
 function roleOf(device) {
   return device.deviceRole || (products.value.find(item => item.id === device.productId)?.category === 'gateway' ? 'GATEWAY' : 'DIRECT')
 }
 function productName(id) { return products.value.find(item => item.id === id)?.name || id }
-function deviceName(id) { return registry.value.find(item => item.device.id === id)?.device.name || id || '未设置' }
+function deviceName(id) { return registryOptions.value.find(item => item.device.id === id)?.device.name || id || '未设置' }
 function relation(row) {
   const role = roleOf(row.device)
   if (role === 'GATEWAY') return `${row.childCount || 0} 个子设备`
@@ -35,23 +36,28 @@ function relation(row) {
   return '独立接入'
 }
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
   loading.value = true
   try {
-    const [productData, runtimeData, managedData] = await Promise.all([
-      api('/api/v1/products?page=1&pageSize=100'),
+    const [productData, runtimeData, managedData, optionData] = await Promise.all([
+      apiAll('/api/v1/products'),
       api(`/api/v1/devices?unregistered=true&page=${unregisteredPage.value}&pageSize=${unregisteredPageSize.value}`),
-      api(`/api/v1/device-registry?page=${registryPage.value}&pageSize=${registryPageSize.value}`)
+      api(`/api/v1/device-registry?page=${registryPage.value}&pageSize=${registryPageSize.value}`),
+      apiAll('/api/v1/device-registry')
     ])
+    if (version !== loadVersion) return
     products.value = productData.items || []
+    registryOptions.value = optionData.items || []
     registry.value = managedData.items || []
     registryTotal.value = Number(managedData.total ?? managedData.count ?? registry.value.length)
     unregistered.value = runtimeData.items || []
     unregisteredTotal.value = Number(runtimeData.total ?? runtimeData.count ?? unregistered.value.length)
   } catch (error) {
-    notifyError(error)
+    if (version === loadVersion) notifyError(error)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 function changeRegistryPage(value) { registryPage.value = value; load() }

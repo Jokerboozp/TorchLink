@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, notifyError, parseJSON, pretty } from '../api'
+import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
 
 const rules = ref([])
@@ -44,20 +44,23 @@ const fieldDescriptions = [
 const blank = () => ({ id:'', name:'', description:'', alarmType:'FIRE_RISK', level:'HIGH', productId:'', match:'all', expression:'', genginePlaceholder:'', conditions:pretty([{ field:'temperature', operator:'>', value:80 }]), recovery:'[]', actions:'[]', durationSeconds:0, enabled:true })
 const form = reactive(blank())
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
   loading.value = true
   try {
     const [rulesData, productData] = await Promise.all([
       api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`),
-      api('/api/v1/products?page=1&pageSize=100')
+      apiAll('/api/v1/products')
     ])
+    if (version !== loadVersion) return
     rules.value = rulesData.items || []
     total.value = Number(rulesData.total ?? rulesData.count ?? rules.value.length)
     products.value = productData.items || []
   } catch (error) {
-    notifyError(error)
+    if (version === loadVersion) notifyError(error)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 

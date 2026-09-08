@@ -174,6 +174,7 @@ AI 可选参数、端口、日志、停止与升级命令见 [部署配置与维
 |---|---|
 | `cmd/iot-platform`、`internal/` | API、业务逻辑、存储和协议运行时 |
 | `iot_front/` | Vue 管理端 |
+| [列表分页与关联选择](docs/LIST_PAGINATION.md) | 分页边界、完整选项和请求顺序回归 |
 | `scripts/`、`compose*.yaml`、`deploy/` | 部署入口和运行配置 |
 | [设备接入流程](docs/设备协议接入流程.md) | 产品、设备与协议接入操作 |
 | [Go 源码协议](docs/GO_PROTOCOL_PACKAGES.md) | 源码上传、编译、发布与回滚 |

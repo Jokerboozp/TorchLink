@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, notifyError } from '../api'
+import { api, apiAll, notifyError } from '../api'
 import { categories, enabledStatuses, label, tagType } from '../labels'
 
 const products = ref([])
@@ -17,20 +17,23 @@ const productTotal = ref(0)
 const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackageId:'', transport:'MQTT', payloadFormat:'json', status:'ENABLED', description:'' })
 const form = reactive(blank())
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
   loading.value = true
   try {
     const [p, pk] = await Promise.all([
       api(`/api/v1/products?page=${productPage.value}&pageSize=${productPageSize.value}`),
-      api('/api/v1/protocol-packages?page=1&pageSize=100')
+      apiAll('/api/v1/protocol-packages')
     ])
+    if (version !== loadVersion) return
     products.value = p.items || []
     productTotal.value = Number(p.total ?? p.count ?? products.value.length)
     protocols.value = pk.items || []
   } catch (error) {
-    notifyError(error)
+    if (version === loadVersion) notifyError(error)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 

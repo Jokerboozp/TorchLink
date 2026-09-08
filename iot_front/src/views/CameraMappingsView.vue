@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, notifyError } from '../api'
+import { api, apiAll, notifyError } from '../api'
 
 const cameras = ref([])
 const devices = ref([])
@@ -15,20 +15,23 @@ const total = ref(0)
 const blank = () => ({ cameraId:'', brand:'', cameraName:'', cameraPoint:'', building:'', floor:'', room:'', deviceId:'', enabled:true })
 const camera = reactive(blank())
 
+let loadVersion = 0
 async function load() {
+  const version = ++loadVersion
   loading.value = true
   try {
     const [data, deviceData] = await Promise.all([
       api(`/api/v1/integrations/video/cameras?page=${page.value}&pageSize=${pageSize.value}`),
-      api('/api/v1/device-registry?page=1&pageSize=100')
+      apiAll('/api/v1/device-registry')
     ])
+    if (version !== loadVersion) return
     cameras.value = data.items || []
     devices.value = (deviceData.items || []).map(item => item.device || item).filter(item => item.id)
     total.value = Number(data.total ?? data.count ?? cameras.value.length)
   } catch (error) {
-    notifyError(error)
+    if (version === loadVersion) notifyError(error)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 

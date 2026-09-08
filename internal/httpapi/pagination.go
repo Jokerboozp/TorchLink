@@ -1,6 +1,11 @@
 package httpapi
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+)
 
 const (
 	defaultPageSize = 20
@@ -29,17 +34,38 @@ func parseListPagination(r *http.Request) listPagination {
 	if pageSize > maxPageSize {
 		pageSize = maxPageSize
 	}
+	// Leave room for offset + pageSize and offset/pageSize + 1. Oversized
+	// pages remain out-of-range pages instead of wrapping back to the start.
+	maxOffset := int(^uint(0)>>1) - pageSize
 
-	pageNumber := intval(query.Get("page"), 0)
+	pageNumber := paginationNumber(query.Get("page"))
 	if pageNumber > 0 {
+		if maxPage := maxOffset/pageSize + 1; pageNumber > maxPage {
+			pageNumber = maxPage
+		}
 		return listPagination{Page: pageNumber, PageSize: pageSize, Offset: (pageNumber - 1) * pageSize}
 	}
 
-	offset := intval(query.Get("offset"), 0)
+	offset := paginationNumber(query.Get("offset"))
 	if offset < 0 {
 		offset = 0
 	}
+	if offset > maxOffset {
+		offset = maxOffset
+	}
 	return listPagination{Page: offset/pageSize + 1, PageSize: pageSize, Offset: offset}
+}
+
+func paginationNumber(value string) int {
+	value = strings.TrimSpace(value)
+	number, err := strconv.Atoi(value)
+	if errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(value, "-") {
+		return int(^uint(0) >> 1)
+	}
+	if err != nil {
+		return 0
+	}
+	return number
 }
 
 func writeList(w http.ResponseWriter, status int, items any, total int, pagination listPagination, extra map[string]any) {
@@ -65,12 +91,12 @@ func writeList(w http.ResponseWriter, status int, items any, total int, paginati
 
 func pageItems[T any](items []T, pagination listPagination) ([]T, int) {
 	total := len(items)
-	if pagination.Offset >= total {
+	if pagination.Offset < 0 || pagination.Offset >= total || pagination.PageSize <= 0 {
 		return []T{}, total
 	}
-	end := pagination.Offset + pagination.PageSize
-	if end > total {
-		end = total
+	end := total
+	if pagination.PageSize < total-pagination.Offset {
+		end = pagination.Offset + pagination.PageSize
 	}
 	return items[pagination.Offset:end], total
 }
