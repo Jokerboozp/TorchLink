@@ -167,4 +167,15 @@ HTTP 标准上报也接受 command-reply。回执仍先归档 Raw，再经标准
 参考 [EMQX 管理 API 认证](https://docs.emqx.com/en/emqx/latest/admin/api.html)、[封禁名单 API](https://docs.emqx.com/en/cloud/latest/api/dedicated.html) 和 [客户端断开 API](https://docs.emqx.com/en/cloud/latest/api/clients_v5.html)。测试使用本地 HTTP 模拟服务器验证封禁顺序、失败恢复、身份限制及重定向拒绝；真实 EMQX 的 API 权限、版本行为和设备重连仍需部署环境验收。
 
 
-本次 Windows 本机验证：Go 全量测试、GB26875 独立 module 测试、前端 45 项测试及构建通过；真实 Edge 浏览器验证节点登记、向导、新产品、预览、启用、连接历史与移动端抽屉。PostgreSQL 新增事务/迁移测试因未配置 IOT_TEST_POSTGRES_DSN 跳过；未进行真实 Broker、真实设备或生产部署验收。可用测试库就绪后执行 go test ./internal/adapters/postgres -run TestDeviceOperationsMigrationAndAtomicity -count=1 -v。
+2026-09-09 续验：前轮 Go 全量、GB26875 独立 module、前端 45 项测试/构建及真实 Edge 浏览器均通过。本轮使用现有本地依赖配置，已在真实 PostgreSQL 的独立临时 schema 中通过新增表的重复迁移、凭据冲突事务回滚、命令去重、跨设备回执隔离、终态保护和历史查询；测试结束删除自身 schema。真实 MQTT Broker 验证设备向导、JWT 换取、属性 Raw 归档、MQTT 下行命令和 Raw 回执关联通过。没有部署业务服务，也未验收真实厂商设备。EMQX 管理 API Key 尚未配置，主动封禁/断连仍仅有模拟 HTTP 测试证据。
+
+可重复执行：
+
+```text
+# 配置 IOT_TEST_POSTGRES_DSN 后；仅在该数据库创建并清理临时 schema
+ go test ./internal/adapters/postgres -run TestDeviceOperationsMigrationAndAtomicity -count=1 -v
+# 配置 IOT_TEST_MQTT_BROKER 和 IOT_TEST_MQTT_JWT_SECRET 后
+ go test ./internal/httpapi -run TestStandardMQTTLiveBroker -count=1 -v
+```
+
+MQTT 集成测试使用随机临时租户、独立内存业务库、临时 Raw 目录、clean session 和非保留消息；结束后关闭客户端。测试需要与 Broker 一致的 JWT 签名密钥，用环境变量注入，勿写入代码或命令历史。未配置时显式跳过。Broker 管理验收需要另外配置 `IOT_EMQX_API_URL/IOT_EMQX_API_KEY/IOT_EMQX_API_SECRET`，不能用 MQTT JWT 替代管理 API Key。
