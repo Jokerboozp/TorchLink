@@ -18,6 +18,7 @@ func listenerFixture(t *testing.T, ingest IngestFunc) (*Listeners, *memory.Repos
 	t.Helper()
 	ctx := context.Background()
 	repo := memory.NewRepository()
+	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED"})
 	release := model.ProtocolRelease{TenantID: "tenant", ProtocolID: "package", Version: "1", Transport: "TCP_UDP", ParserType: parser.GoProtocolParserName, Status: "PUBLISHED", Artifact: map[string]any{"runtime": protocolworker.Runtime}, Capabilities: []string{"decode", "ingress", "encode"}}
 	_ = repo.CreateProtocolRelease(ctx, release)
 	release.Version = "2"

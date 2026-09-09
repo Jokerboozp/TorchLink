@@ -20,3 +20,5 @@ func TestEdgeCommands(t *testing.T) { repositorytest.EdgeCommands(t, NewReposito
 func TestTwinTopology(t *testing.T) { repositorytest.TwinTopology(t, NewRepository()) }
 
 func TestEdgeProgram(t *testing.T) { repositorytest.EdgeProgram(t, NewRepository()) }
+
+func TestProtocolRegistration(t *testing.T) { repositorytest.ProtocolRegistration(t, NewRepository()) }

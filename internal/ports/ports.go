@@ -21,6 +21,7 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
 	GetEdgeProgram(context.Context, string, string) (model.EdgeProgram, error)
 	SetEdgeProgram(context.Context, string, string, int64, string) (model.EdgeProgram, error)
 	ReportEdgeProgram(context.Context, string, string, model.EdgeProgramStatus) error

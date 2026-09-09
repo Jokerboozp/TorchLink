@@ -63,6 +63,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	repositorytest.TwinTopology(t, r)
 	repositorytest.DeviceShadow(t, r)
 	repositorytest.NamedShadows(t, r)
+	repositorytest.ProtocolRegistration(t, r)
 	repositorytest.CatalogCamera(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}
 	if e = r.SaveManagedDevice(ctx, d); e != nil {

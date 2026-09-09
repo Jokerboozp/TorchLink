@@ -23,6 +23,7 @@ import (
 )
 
 type Options struct {
+	AllowAutoRegister                      bool
 	AllowCommands                          bool
 	CredentialFile                         string
 	AllowGoWorkers                         bool
@@ -203,6 +204,10 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 		if device.TenantID != cfg.TenantID {
 			return errors.New("foreign device")
 		}
+		// Public node configuration intentionally omits credentials. Assign a
+		// unique local inventory key so multiple public devices do not collide;
+		// the empty secret still cannot authenticate any device.
+		device.AccessKey = model.ProtocolDeviceAccessKey(device.TenantID, device.ID)
 		if err := repo.SaveManagedDevice(ctx, device); err != nil {
 			return err
 		}
@@ -279,6 +284,7 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 		runtime.SetCollector(a.collector.Read)
 		runtime.Start(runtimeCtx)
 		a.listeners = protocolruntime.NewListeners(repo, a.options.DataDir, ingest, a.log)
+		a.listeners.SetDeviceRegistrar(a.registerProtocolDevice)
 		a.listeners.Start(runtimeCtx)
 	}
 	return nil
@@ -320,6 +326,9 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	h := model.EdgeHeartbeat{Version: Version, ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
 	if a.options.AllowGoWorkers {
 		h.Capabilities = append(h.Capabilities, "GO_PROTOCOL_V2")
+		if a.options.AllowAutoRegister {
+			h.Capabilities = append(h.Capabilities, "PROTOCOL_AUTO_REGISTER")
+		}
 	}
 	if a.options.AllowCommands && a.options.AllowGoWorkers {
 		h.Capabilities = append(h.Capabilities, "PROTOCOL_COMMANDS")

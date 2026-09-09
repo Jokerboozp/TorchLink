@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
-	"unicode"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
@@ -115,14 +113,4 @@ func validateResponse(operation string, dataLength int, result Response) error {
 	return nil
 }
 
-func ValidDeviceID(id string) bool {
-	if len(id) == 0 || len(id) > 128 || strings.TrimSpace(id) != id {
-		return false
-	}
-	for _, c := range id {
-		if unicode.IsSpace(c) || unicode.IsControl(c) || c == '/' || c == '\\' {
-			return false
-		}
-	}
-	return true
-}
+func ValidDeviceID(id string) bool { return model.ValidProtocolDeviceID(id) }

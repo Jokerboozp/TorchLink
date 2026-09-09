@@ -34,6 +34,7 @@ type listenerCall func(context.Context, string, model.ProtocolRelease, protocolw
 // session state and wire encoding; the host owns tenant/product identity and
 // only acknowledges an incoming frame after the ingest callback succeeds.
 type Listeners struct {
+	registerDevice     func(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, error)
 	coordinator        *Coordinator
 	connectionMu       sync.Mutex
 	connectionCounts   map[string]int
@@ -605,24 +606,19 @@ func (r *Listeners) device(ctx context.Context, p model.DeviceAccessProfile, id,
 	if !p.AutoRegister {
 		return device, fmt.Errorf("protocol device is not registered: %w", err)
 	}
-	// Repository does not define a shared not-found sentinel. Confirm absence
-	// through a successful inventory read before writing a new device record.
-	devices, err := r.repo.ListManagedDevices(ctx, p.TenantID)
-	if err != nil {
-		return device, err
-	}
-	for _, existing := range devices {
-		if existing.ID == id {
-			return device, errors.New("device lookup failed for existing device")
+	if r.registerDevice != nil {
+		registered, err := r.registerDevice(ctx, p, id, name)
+		if err != nil {
+			return device, err
 		}
+		if registered.ID != id || model.RegisteredProtocolDevice(registered, p) != nil {
+			return device, model.ErrProtocolRegistration
+		}
+		name = registered.Name
 	}
-	if name == "" {
-		name = id
-	}
-	now := time.Now().UnixMilli()
-	device = model.ManagedDevice{ID: id, TenantID: p.TenantID, ProductID: p.ProductID, Name: name, Status: "ENABLED", DeviceRole: "DIRECT", RegistrationSource: "PROTOCOL_AUTO", AutoRegistered: true, CreatedAt: now, UpdatedAt: now}
-	device.Tags = map[string]string{"connector": strings.ToUpper(p.Network), "connectorProfileId": p.ID}
-	return device, r.repo.SaveManagedDevice(ctx, device)
+	device, _, err = r.repo.RegisterProtocolDevice(ctx, p, id, name)
+	return device, err
+
 }
 
 // write is serialized by the session lock with ingress and command encoding.
@@ -746,4 +742,10 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 		}
 	}
 	return nil, errors.New("device has no online protocol session")
+}
+
+// SetDeviceRegistrar is configured before Start. Edge nodes must obtain real
+// platform registration before acknowledging an unknown protocol identity.
+func (r *Listeners) SetDeviceRegistrar(register func(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, error)) {
+	r.registerDevice = register
 }

@@ -31,11 +31,13 @@ func TestWorkerPolicyAndDownloadIntegrity(t *testing.T) {
 	makeTask := func() model.EdgeTask {
 		return model.EdgeTask{Profile: model.DeviceAccessProfile{Host: "127.0.0.1"}, Release: model.ProtocolRelease{ProtocolID: "worker", Version: "1", Artifact: map[string]any{"sha256": hex.EncodeToString(digest[:]), "platform": runtime.GOOS + "/" + runtime.GOARCH}}}
 	}
-	for _, test := range []string{"disabled", "bind", "platform", "hash", "corrupt"} {
+	for _, test := range []string{"disabled", "registration", "bind", "platform", "hash", "corrupt"} {
 		t.Run(test, func(t *testing.T) {
 			task := makeTask()
 			a.options.AllowGoWorkers = true
 			switch test {
+			case "registration":
+				task.Profile.AutoRegister = true
 			case "disabled":
 				a.options.AllowGoWorkers = false
 			case "bind":

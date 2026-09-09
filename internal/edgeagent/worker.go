@@ -26,8 +26,8 @@ func (a *Agent) prepareWorker(ctx context.Context, task *model.EdgeTask) error {
 	if !a.options.AllowGoWorkers {
 		return errors.New("Go worker execution requires the node's allow-go-workers setting")
 	}
-	if task.Profile.AutoRegister {
-		return errors.New("edge listeners currently require pre-registered devices")
+	if task.Profile.AutoRegister && !a.options.AllowAutoRegister {
+		return errors.New("edge automatic registration requires the local allow-auto-register setting")
 	}
 	allowed := false
 	for _, address := range a.options.AllowedListenAddresses {

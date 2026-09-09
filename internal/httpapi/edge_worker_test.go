@@ -28,6 +28,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -50,7 +51,12 @@ func TestEdgeWorkerDownloadTCPUDPAndVersionSwitch(t *testing.T) {
 	cfg.DataDir = root
 	api := New(cfg, engine, metrics.New(), log)
 	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
+	var registrationBlocked atomic.Bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if registrationBlocked.Load() && strings.HasSuffix(r.URL.Path, "/devices/register") {
+			w.WriteHeader(503)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			api.Handler().ServeHTTP(w, r)
 		} else {
@@ -61,7 +67,7 @@ func TestEdgeWorkerDownloadTCPUDPAndVersionSwitch(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "worker.go")
 	code := `package main
 import("os";"encoding/json";"encoding/hex")
-func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decode(&q); out:=map[string]any{}; if q.Operation=="ingress" {b,_:=hex.DecodeString(q.Data); if len(b)<2{out["needMore"]=true}else{out["consumed"]=2;out["deviceId"]="device";out["reply"]="AC"; if b[0]==0xB0 {out["correlationId"]="fixture-command"}}}else if q.Operation=="encode" {out["reply"]="CAFE";out["correlationId"]="fixture-command"}else{out["standardMessage"]=map[string]any{"messageType":"PROPERTY_REPORT","properties":map[string]any{"temperature":42}}};json.NewEncoder(os.Stdout).Encode(out)}
+func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decode(&q); out:=map[string]any{}; if q.Operation=="ingress" {b,_:=hex.DecodeString(q.Data); if len(b)<2{out["needMore"]=true}else{out["consumed"]=2;out["deviceId"]="device";if b[0]==0xD0 {out["deviceId"]="new-device"};if b[0]==0xD1 {out["deviceId"]="new-udp"};out["reply"]="AC"; if b[0]==0xB0 {out["correlationId"]="fixture-command"}}}else if q.Operation=="encode" {out["reply"]="CAFE";out["correlationId"]="fixture-command"}else{out["standardMessage"]=map[string]any{"messageType":"PROPERTY_REPORT","properties":map[string]any{"temperature":42}}};json.NewEncoder(os.Stdout).Encode(out)}
 `
 	if err := os.WriteFile(source, []byte(code), 0600); err != nil {
 		t.Fatal(err)
@@ -96,7 +102,7 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 			t.Fatal(err)
 		}
 	}
-	for _, err := range []error{repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED"}), repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ProductID: "product", ID: "device", Status: "ENABLED"}), repo.SaveEdgeNode(ctx, model.EdgeNode{TenantID: "tenant", ID: "edge", Status: "ENABLED"}), repo.SetEdgeCredential(ctx, "tenant", "edge", onboarding.Hash("test-node-secret")), repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant", ProductID: "product", ProtocolID: "worker", Version: "1.0.0"})} {
+	for _, err := range []error{repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Name: "现场协议产品", Status: "ENABLED"}), repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ProductID: "product", ID: "device", Status: "ENABLED"}), repo.SaveEdgeNode(ctx, model.EdgeNode{TenantID: "tenant", ID: "edge", Name: "现场节点", Status: "ENABLED"}), repo.SetEdgeCredential(ctx, "tenant", "edge", onboarding.Hash("test-node-secret")), repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant", ProductID: "product", ProtocolID: "worker", Version: "1.0.0"})} {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +124,7 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 			ports[network] = l.LocalAddr().(*net.UDPAddr).Port
 			l.Close()
 		}
-		if err := repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: network, ProductID: "product", ProtocolID: "worker", ProtocolVersion: "1.0.0", Mode: "listener", Network: network, Host: "127.0.0.1", Port: ports[network], Enabled: true, EdgeNodeID: "edge", TimeoutMs: 2000}); err != nil {
+		if err := repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: network, ProductID: "product", ProtocolID: "worker", ProtocolVersion: "1.0.0", Mode: "listener", Network: network, Host: "127.0.0.1", Port: ports[network], Enabled: true, AutoRegister: true, EdgeNodeID: "edge", TimeoutMs: 2000}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -156,7 +162,7 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 	if err := os.WriteFile(firstPath, data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := edgeagent.New(edgeagent.Options{URL: upstream.URL, TenantID: "tenant", NodeID: "edge", Secret: "test-node-secret", DataDir: t.TempDir(), AllowedCIDRs: []string{"127.0.0.0/8"}, AllowInsecureHTTP: true, AllowGoWorkers: true, AllowCommands: true, AllowedListenAddresses: []string{"127.0.0.1"}}, log)
+	agent, err := edgeagent.New(edgeagent.Options{URL: upstream.URL, TenantID: "tenant", NodeID: "edge", Secret: "test-node-secret", DataDir: t.TempDir(), AllowedCIDRs: []string{"127.0.0.0/8"}, AllowInsecureHTTP: true, AllowGoWorkers: true, AllowAutoRegister: true, AllowCommands: true, AllowedListenAddresses: []string{"127.0.0.1"}}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,6 +199,76 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 	if n, err := udp.Read(ack); err != nil || n != 1 || ack[0] != 0xac {
 		t.Fatalf("UDP: %x %v", ack, err)
 	}
+
+	t.Run("automatic-registration", func(t *testing.T) {
+		registrationBlocked.Store(true)
+		first, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["tcp"])), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first.SetDeadline(time.Now().Add(time.Second))
+		first.Write([]byte{0xD0, 2})
+		reply := make([]byte, 1)
+		if n, err := first.Read(reply); err == nil || n != 0 {
+			t.Fatal("unconfirmed registration acknowledged", n, err)
+		}
+		first.Close()
+		if _, err := repo.GetManagedDevice(ctx, "tenant", "new-device"); err == nil {
+			t.Fatal("registration succeeded during platform failure")
+		}
+		registrationBlocked.Store(false)
+		second, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["tcp"])), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer second.Close()
+		second.SetDeadline(time.Now().Add(3 * time.Second))
+		second.Write([]byte{0xD0, 2})
+		if _, err := io.ReadFull(second, reply); err != nil || reply[0] != 0xac {
+			t.Fatal("confirmed automatic registration reply", reply, err)
+		}
+		registered, err := repo.GetManagedDevice(ctx, "tenant", "new-device")
+		if err != nil || !registered.AutoRegistered || registered.ProductID != "product" || registered.SecretHash != "" || registered.AccessKey == "" {
+			t.Fatal("registered inventory", registered, err)
+		}
+		third, err := net.Dial("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["udp"])))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer third.Close()
+		third.SetDeadline(time.Now().Add(3 * time.Second))
+		third.Write([]byte{0xD1, 2})
+		if _, err := third.Read(reply); err != nil || reply[0] != 0xac {
+			t.Fatal("second auto device", reply, err)
+		}
+		for _, id := range []string{"new-device", "new-udp"} {
+			for {
+				m, e := repo.GetLatestMessage(ctx, "tenant", id)
+				if e == nil && m.Properties["temperature"] == float64(42) {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					t.Fatal("auto-registered raw/standard missing")
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+		}
+		// Registration authority is bound to node identity and the current profile.
+		for _, tc := range []struct {
+			node, secret, hash string
+			status             int
+		}{{"edge", "wrong", model.CommandProfileHash(profile), 401}, {"other", "test-node-secret", model.CommandProfileHash(profile), 401}, {"edge", "test-node-secret", "stale", 403}} {
+			data, _ := json.Marshal(map[string]any{"profileId": "tcp", "deviceId": "forbidden", "configurationHash": tc.hash})
+			req := httptest.NewRequest("POST", "/api/v1/edge/tenant/"+tc.node+"/devices/register", bytes.NewReader(data))
+			req.Header.Set("X-Edge-Secret", tc.secret)
+			w := httptest.NewRecorder()
+			api.Handler().ServeHTTP(w, req)
+			if w.Code != tc.status {
+				t.Fatal("registration authorization", w.Code, w.Body.String())
+			}
+		}
+	})
 	callCommand := func(role, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest("POST", "/api/v2/device-access-profiles/tcp/devices/device/commands", strings.NewReader(body))

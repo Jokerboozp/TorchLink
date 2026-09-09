@@ -194,9 +194,6 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		if s.RemoteRead == nil || (q.Type != connector.ModbusTCP && q.Type != connector.ModbusRTU && q.Type != connector.OPCUA && q.Type != connector.SNMP && q.Type != connector.BACnet && q.Type != connector.TCP && q.Type != connector.UDP) {
 			return fail("该 Edge 接入类型尚无可用的现场读取执行器")
 		}
-		if (q.Type == connector.TCP || q.Type == connector.UDP) && q.Profile.AutoRegister {
-			return fail("现场监听需要预先登记设备，请关闭自动登记")
-		}
 	}
 	product, err := s.Repo.GetProduct(ctx, tenant, q.ProductID)
 	if q.ProductName != "" {
