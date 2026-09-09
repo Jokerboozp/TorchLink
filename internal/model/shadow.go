@@ -4,16 +4,33 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"regexp"
 )
 
 var ErrShadowConflict = errors.New("device shadow desired version conflict")
 var ErrShadowLimit = errors.New("shadow exceeds 256 properties or 128 KiB")
+var ErrShadowCount = errors.New("device already has 16 named shadows")
+var shadowNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
+
+func ShadowName(names ...string) (string, error) {
+	if len(names) > 1 {
+		return "", errors.New("only one shadow name is allowed")
+	}
+	if len(names) == 0 || names[0] == "" {
+		return "", nil
+	}
+	if !shadowNamePattern.MatchString(names[0]) {
+		return "", errors.New("shadow name must contain 1 to 64 letters, digits, dots, underscores or hyphens")
+	}
+	return names[0], nil
+}
 
 type ShadowStamp struct {
 	Timestamp int64  `json:"timestamp"`
 	MessageID string `json:"messageId"`
 }
 type DeviceShadow struct {
+	Name           string                 `json:"name,omitempty"`
 	LastError      string                 `json:"lastError,omitempty"`
 	ErrorMessageID string                 `json:"errorMessageId,omitempty"`
 	TenantID       string                 `json:"tenantId"`
@@ -27,6 +44,7 @@ type DeviceShadow struct {
 	UpdatedAt      int64                  `json:"updatedAt"`
 }
 type ShadowUpdate struct {
+	Name                                 string
 	ProjectionError                      string
 	TenantID, DeviceID, Actor, MessageID string
 	ExpectedVersion, Timestamp           int64
@@ -57,13 +75,16 @@ func shadowEqual(a, b any) bool {
 // ApplyShadow is shared by transactional repositories. Report clocks are per
 // property, so a delayed partial report cannot revert a newer property value.
 func ApplyShadow(s *DeviceShadow, u ShadowUpdate) (bool, error) {
+	if _, err := ShadowName(u.Name); err != nil {
+		return false, err
+	}
 	if u.TenantID == "" || u.DeviceID == "" || u.Timestamp <= 0 || (u.ProjectionError == "" && ((u.Desired == nil) == (u.Reported == nil))) {
 		return false, errors.New("invalid shadow update")
 	}
 	if u.Reported != nil && u.MessageID == "" {
 		return false, errors.New("reported shadow requires message identity")
 	}
-	if s.TenantID != "" && (s.TenantID != u.TenantID || s.DeviceID != u.DeviceID) {
+	if s.TenantID != "" && (s.TenantID != u.TenantID || s.DeviceID != u.DeviceID || s.Name != u.Name) {
 		return false, errors.New("shadow identity mismatch")
 	}
 	if u.Desired != nil && u.ExpectedVersion != s.DesiredVersion {
@@ -82,7 +103,7 @@ func ApplyShadow(s *DeviceShadow, u ShadowUpdate) (bool, error) {
 		if len(u.ProjectionError) > 256 || u.MessageID == "" {
 			return false, errors.New("invalid shadow projection error")
 		}
-		s.TenantID, s.DeviceID = u.TenantID, u.DeviceID
+		s.TenantID, s.DeviceID, s.Name = u.TenantID, u.DeviceID, u.Name
 		if s.ErrorMessageID == u.MessageID {
 			return false, nil
 		}
@@ -126,7 +147,7 @@ func ApplyShadow(s *DeviceShadow, u ShadowUpdate) (bool, error) {
 		}
 		s.UpdatedAt = max(s.UpdatedAt, u.Timestamp)
 	}
-	s.TenantID, s.DeviceID = u.TenantID, u.DeviceID
+	s.TenantID, s.DeviceID, s.Name = u.TenantID, u.DeviceID, u.Name
 	s.ComputeDelta()
 	data, err := json.Marshal(s)
 	if err != nil {

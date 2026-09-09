@@ -27,9 +27,10 @@ type Repository interface {
 	GetTwinNodes(context.Context, string, []string) ([]model.TwinNode, error)
 	GetTwinTopology(context.Context, string) (model.TwinTopology, error)
 	UpdateTwinTopology(context.Context, model.TwinUpdate) (model.TwinTopology, error)
-	GetDeviceShadow(context.Context, string, string) (model.DeviceShadow, error)
+	GetDeviceShadow(context.Context, string, string, ...string) (model.DeviceShadow, error)
+	ListDeviceShadowNames(context.Context, string, string) ([]string, error)
 	UpdateDeviceShadow(context.Context, model.ShadowUpdate) (model.DeviceShadow, error)
-	ListShadowChanges(context.Context, string, string, int, int) ([]model.ShadowChange, error)
+	ListShadowChanges(context.Context, string, string, int, int, ...string) ([]model.ShadowChange, error)
 	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, error)
 	SetEdgeCredential(context.Context, string, string, string) error
 	GetEdgeCredential(context.Context, string, string) (string, error)

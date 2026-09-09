@@ -11,8 +11,12 @@ import (
 
 // SetShadowDesired records operator intent. Devices retrieve and reconcile it
 // explicitly; this does not silently issue transport commands.
-func (e *Engine) SetShadowDesired(ctx context.Context, tenant, device, actor string, version int64, patch map[string]any) (model.DeviceShadow, error) {
+func (e *Engine) SetShadowDesired(ctx context.Context, tenant, device, actor string, version int64, patch map[string]any, names ...string) (model.DeviceShadow, error) {
 	var empty model.DeviceShadow
+	name, err := model.ShadowName(names...)
+	if err != nil {
+		return empty, err
+	}
 	d, err := e.Repo.GetManagedDevice(ctx, tenant, device)
 	if err != nil || d.Status != "ENABLED" {
 		return empty, errors.New("device is unavailable or disabled")
@@ -58,5 +62,5 @@ func (e *Engine) SetShadowDesired(ctx context.Context, tenant, device, actor str
 			return empty, fmt.Errorf("property %s does not match %s", key, field.DataType)
 		}
 	}
-	return e.Repo.UpdateDeviceShadow(ctx, model.ShadowUpdate{TenantID: tenant, DeviceID: device, Actor: actor, ExpectedVersion: version, Desired: patch, Timestamp: time.Now().UnixMilli()})
+	return e.Repo.UpdateDeviceShadow(ctx, model.ShadowUpdate{Name: name, TenantID: tenant, DeviceID: device, Actor: actor, ExpectedVersion: version, Desired: patch, Timestamp: time.Now().UnixMilli()})
 }

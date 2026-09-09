@@ -27,6 +27,7 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 		return nil, err
 	}
 	var body struct {
+		Shadow    string         `json:"shadow"`
 		Version   string         `json:"version"`
 		Event     string         `json:"event"`
 		Online    *bool          `json:"online"`
@@ -41,6 +42,12 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 	}
 	if body.Version != "" && body.Version != "1.0" {
 		return nil, errors.New("unsupported standard message version")
+	}
+	if _, err := model.ShadowName(body.Shadow); err != nil {
+		return nil, err
+	}
+	if body.Shadow != "" && raw.Headers["messageKind"] != "property" {
+		return nil, errors.New("named shadow is only valid on a property report")
 	}
 	if body.ID == "" || len(body.ID) > 128 || body.Timestamp <= 0 || body.Timestamp > 253402300799999 {
 		return nil, errors.New("id and valid positive millisecond timestamp are required")
@@ -90,6 +97,7 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 	m := &model.StandardMessage{MessageID: "msg_" + raw.MessageID, RawMessageID: raw.MessageID, TenantID: raw.TenantID, ProductID: raw.ProductID, DeviceID: raw.DeviceID, Timestamp: body.Timestamp, Parser: StandardParserName, ParserVersion: "1.0.0"}
 	switch raw.Headers["messageKind"] {
 	case "property":
+		m.ShadowName = body.Shadow
 		m.MessageType = model.PropertyReport
 		m.Properties = body.Data
 	case "command-reply":

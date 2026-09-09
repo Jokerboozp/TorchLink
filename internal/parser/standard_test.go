@@ -13,6 +13,9 @@ func TestStandardVersionOneAndLegacy(t *testing.T) {
 		valid         bool
 	}{
 		{"property", `{"id":"1","version":"1.0","timestamp":1000,"data":{"temperature":26.5}}`, true},
+		{"property", `{"id":"1","shadow":"control","timestamp":1000,"data":{"temperature":26.5}}`, true},
+		{"property", `{"id":"1","shadow":"../other","timestamp":1000,"data":{"temperature":26.5}}`, false},
+		{"state", `{"id":"1","shadow":"control","timestamp":1000,"online":true}`, false},
 		{"event", `{"id":"1","version":"1.0","timestamp":1000,"event":"fire_alarm","data":{"zone":3}}`, true},
 		{"state", `{"id":"1","version":"1.0","timestamp":1000,"online":true}`, true},
 		{"command-reply", `{"id":"1","version":"1.0","timestamp":1000,"commandId":"c","success":false,"data":{}}`, true},

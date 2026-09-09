@@ -316,6 +316,20 @@ CREATE TABLE IF NOT EXISTS edge_read_job (
 CREATE INDEX IF NOT EXISTS edge_read_job_pending_idx ON edge_read_job(tenant_id,node_id,status,expires_at);
 CREATE TABLE IF NOT EXISTS device_shadow (tenant_id text NOT NULL, device_id text NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id));
 CREATE TABLE IF NOT EXISTS device_shadow_change (tenant_id text NOT NULL, device_id text NOT NULL, version bigint NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id,version));
+-- Existing unnamed shadows remain under the empty name with their versions/history.
+ALTER TABLE device_shadow ADD COLUMN IF NOT EXISTS name text NOT NULL DEFAULT '';
+ALTER TABLE device_shadow_change ADD COLUMN IF NOT EXISTS name text NOT NULL DEFAULT '';
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='device_shadow'::regclass AND contype='p' AND cardinality(conkey)=2) THEN
+  ALTER TABLE device_shadow DROP CONSTRAINT device_shadow_pkey;
+  ALTER TABLE device_shadow ADD PRIMARY KEY(tenant_id,device_id,name);
+ END IF;
+ IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='device_shadow_change'::regclass AND contype='p' AND cardinality(conkey)=3) THEN
+  ALTER TABLE device_shadow_change DROP CONSTRAINT device_shadow_change_pkey;
+  ALTER TABLE device_shadow_change ADD PRIMARY KEY(tenant_id,device_id,name,version);
+ END IF;
+END $$;
+
 
 CREATE INDEX IF NOT EXISTS device_command_edge_pending_idx ON device_command(tenant_id,(body->'execution'->>'nodeId'),created_at) WHERE status='QUEUED';
 

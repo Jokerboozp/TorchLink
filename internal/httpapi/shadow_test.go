@@ -145,6 +145,52 @@ func TestDeviceShadowAuthenticatedReconciliation(t *testing.T) {
 	wait(func(s model.DeviceShadow) bool {
 		return s.Reported["target"] == float64(42) && s.Reported["battery"] == float64(80) && len(s.Delta) == 0
 	})
+	t.Run("named", func(t *testing.T) {
+		patch := map[string]any{"expectedDesiredVersion": 0, "confirmed": true, "desired": map[string]any{"target": float64(7)}}
+		if w := call("PATCH", path+"?name=control", "tenant", "operator", patch, ""); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		if w := call("PATCH", path+"?name=control", "tenant", "operator", patch, ""); w.Code != 409 {
+			t.Fatal("named version conflict", w.Code)
+		}
+		if w := call("GET", path+"?name=control", "other", "admin", nil, ""); w.Code != 404 {
+			t.Fatal("foreign named shadow", w.Code)
+		}
+		if w := call("GET", path+"?name=one&name=two", "tenant", "admin", nil, ""); w.Code != 422 {
+			t.Fatal("ambiguous name", w.Code)
+		}
+		if w := call("GET", "/api/v1/device-shadow?name=control", "", "", nil, "wrong"); w.Code != 401 {
+			t.Fatal("named auth", w.Code)
+		}
+		report := map[string]any{"id": "named-report", "shadow": "control", "timestamp": now, "data": map[string]any{"target": float64(7)}}
+		if w := call("POST", ingest, "", "", report, created.Credential.Secret); w.Code != 202 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		for {
+			w := call("GET", "/api/v1/device-shadow?name=control", "", "", nil, created.Credential.Secret)
+			var v model.DeviceShadow
+			if w.Code == 200 && json.Unmarshal(w.Body.Bytes(), &v) == nil && v.Name == "control" && v.Reported["target"] == float64(7) && len(v.Delta) == 0 {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatal("named shadow did not reconcile")
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		w := call("GET", path+"/history?name=control", "tenant", "viewer", nil, "")
+		if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"target":7`)) || bytes.Contains(w.Body.Bytes(), []byte(`"target":42`)) {
+			t.Fatal("mixed history", w.Body.String())
+		}
+		w = call("GET", "/api/v1/device-registry/device/shadows", "tenant", "viewer", nil, "")
+		if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"control"`)) {
+			t.Fatal("named list", w.Body.String())
+		}
+		v, _ := repo.GetDeviceShadow(ctx, "tenant", "device")
+		if v.Reported["target"] != float64(42) || v.DesiredVersion != 1 {
+			t.Fatal("named report changed default", v)
+		}
+	})
 	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "twin-peer", Name: "孪生邻居", ProductID: "product", Status: "ENABLED", AccessKey: "private-twin-peer-key"}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +237,19 @@ func TestDeviceShadowAuthenticatedReconciliation(t *testing.T) {
 			t.Fatalf("browser: %v %s", err, output)
 		}
 		t.Log(string(output))
+	})
+	t.Run("named-shadow-browser", func(t *testing.T) {
+		if os.Getenv("IOT_TEST_BROWSER") == "" {
+			t.Skip("IOT_TEST_BROWSER is not configured")
+		}
+		token, _ := api.auth.Issue("browser-test", "tenant", "admin", nil, time.Minute)
+		command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "named-shadow-check.mjs"))
+		command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+upstream.URL, "IOT_TEST_TOKEN="+token)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("browser: %v %s", err, output)
+		} else {
+			t.Log(string(output))
+		}
 	})
 
 	if _, _, err := repo.ChangeDeviceCredential(ctx, "tenant", "device", "", "", time.Now().UnixMilli()); err != nil {

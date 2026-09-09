@@ -45,6 +45,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	}
 	defer pool.Close()
 	r := &Repository{pool: pool}
+	seedLegacyShadow(t, r)
 	if e = r.Migrate(ctx); e != nil {
 		t.Fatal(e)
 	}
@@ -52,6 +53,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 		t.Fatal("migration is not repeatable", e)
 	}
 	verifyOnboardingAndParseMigration(t, r)
+	verifyLegacyShadow(t, r)
 	repositorytest.AccessStatus(t, r)
 	repositorytest.ExecutionLease(t, r)
 	repositorytest.RawReservation(t, r)
@@ -60,6 +62,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	repositorytest.EdgeProgram(t, r)
 	repositorytest.TwinTopology(t, r)
 	repositorytest.DeviceShadow(t, r)
+	repositorytest.NamedShadows(t, r)
 	repositorytest.CatalogCamera(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}
 	if e = r.SaveManagedDevice(ctx, d); e != nil {

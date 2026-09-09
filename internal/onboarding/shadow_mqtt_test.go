@@ -40,6 +40,16 @@ func TestMQTTShadowIdentityAndReadOnlyResponse(t *testing.T) {
 			t.Fatal("invalid shadow query accepted", args)
 		}
 	}
+	if _, err := repo.UpdateDeviceShadow(ctx, model.ShadowUpdate{TenantID: "t", DeviceID: "d", Name: "control", Timestamp: time.Now().UnixMilli(), MessageID: "named", Reported: map[string]any{"temperature": 21}}); err != nil {
+		t.Fatal(err)
+	}
+	_, data, err = service.MQTTShadowReply(ctx, "t", "p", "d", []byte(`{"id":"named","name":"control"}`))
+	if err != nil || json.Unmarshal(data, &reply) != nil || reply.Shadow.Name != "control" || reply.Shadow.Reported["temperature"] != float64(21) {
+		t.Fatal("named reply", string(data), err)
+	}
+	if _, _, err := service.MQTTShadowReply(ctx, "t", "p", "d", []byte(`{"id":"bad","name":"../other"}`)); err == nil {
+		t.Fatal("invalid named request")
+	}
 	device.SecretHash = ""
 	repo.SaveManagedDevice(ctx, device)
 	if _, _, err := service.MQTTShadowReply(ctx, "t", "p", "d", []byte(`{"id":"after-revoke"}`)); err == nil {

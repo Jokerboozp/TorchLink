@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/model"
 )
 
 // MQTTShadowReply relies on authenticated Broker publisher identity and exact
@@ -27,7 +28,8 @@ func (s *Service) MQTTShadowReply(ctx context.Context, tenant, product, device s
 		return "", nil, ErrAuth
 	}
 	var request struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
@@ -38,7 +40,10 @@ func (s *Service) MQTTShadowReply(ctx context.Context, tenant, product, device s
 	if decoder.Decode(&extra) != io.EOF {
 		return "", nil, errors.New("trailing shadow query JSON")
 	}
-	shadow, err := s.Repo.GetDeviceShadow(ctx, tenant, device)
+	if _, err := model.ShadowName(request.Name); err != nil {
+		return "", nil, err
+	}
+	shadow, err := s.Repo.GetDeviceShadow(ctx, tenant, device, request.Name)
 	response := map[string]any{"id": request.ID, "status": "ok", "shadow": shadow}
 	if err != nil {
 		response = map[string]any{"id": request.ID, "status": "error", "error": "device shadow is unavailable"}

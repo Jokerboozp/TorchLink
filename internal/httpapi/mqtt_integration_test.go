@@ -170,7 +170,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 			Status string             `json:"status"`
 			Shadow model.DeviceShadow `json:"shadow"`
 		}
-		if json.Unmarshal(m.Payload(), &reply) == nil && reply.ID == "shadow-live-1" && reply.Status == "ok" {
+		if json.Unmarshal(m.Payload(), &reply) == nil && (reply.ID == "shadow-live-1" || reply.ID == "shadow-named") && reply.Status == "ok" {
 			select {
 			case shadowReplies <- reply.Shadow:
 			default:
@@ -188,6 +188,26 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 	}
 
 	t.Log("live MQTT: authenticated shadow query returned actual reported state with matching request ID")
+	namedProperty := []byte(fmt.Sprintf(`{"id":"named-property-1","shadow":"control","timestamp":%d,"data":{"temperature":21}}`, time.Now().UnixMilli()))
+	wait(t, device.Publish(prefix+"property", 1, false, namedProperty))
+	until(t, func() bool {
+		v, e := repo.GetDeviceShadow(ctx, tenant, "device", "control")
+		return e == nil && v.Reported["temperature"] == float64(21)
+	})
+	wait(t, device.Publish(prefix+"shadow-get", 1, false, `{"id":"shadow-named","name":"control"}`))
+	select {
+	case shadow := <-shadowReplies:
+		if shadow.Name != "control" || shadow.Reported["temperature"] != float64(21) {
+			t.Fatal("named MQTT shadow", shadow)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("named MQTT shadow reply missing")
+	}
+	unnamed, err := repo.GetDeviceShadow(ctx, tenant, "device")
+	if err != nil || unnamed.Reported["temperature"] != 26.5 {
+		t.Fatal("named report modified default shadow", unnamed, err)
+	}
+	t.Log("live MQTT: named property archived and projected independently; authenticated named query returned matching state")
 
 	adminToken, _ := srv.auth.Issue("test", tenant, "admin", nil, time.Minute)
 	r = httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", bytes.NewBufferString(`{"confirmed":true,"id":"command-1","type":"test","data":{}}`))
