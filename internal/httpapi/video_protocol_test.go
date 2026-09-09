@@ -18,15 +18,19 @@ import (
 	"iot-platform/internal/testonvif"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestEdgeONVIFMetadataWithAuthentication(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	camera := testonvif.Start(t, true, false)
 	repo := memory.NewRepository()
@@ -40,7 +44,14 @@ func TestEdgeONVIFMetadataWithAuthentication(t *testing.T) {
 	cfg := config.Load()
 	cfg.DataDir = root
 	server := New(cfg, engine, metrics.New(), log)
-	upstream := httptest.NewServer(server.Handler())
+	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			server.Handler().ServeHTTP(w, r)
+		} else {
+			assets.ServeHTTP(w, r)
+		}
+	}))
 	defer upstream.Close()
 	if err := repo.SaveEdgeNode(ctx, model.EdgeNode{TenantID: "t", ID: "edge", Status: "ENABLED"}); err != nil {
 		t.Fatal(err)
@@ -112,4 +123,20 @@ func TestEdgeONVIFMetadataWithAuthentication(t *testing.T) {
 	if _, err := repo.GetManagedDevice(ctx, "t", "onvif-preview"); err == nil {
 		t.Fatal("preview created device")
 	}
+	t.Run("browser", func(t *testing.T) {
+		if os.Getenv("IOT_TEST_BROWSER") == "" {
+			t.Skip("IOT_TEST_BROWSER is not configured")
+		}
+		token, err := server.auth.Issue("browser-test", "t", "admin", nil, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "onvif-check.mjs"))
+		command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+upstream.URL, "IOT_TEST_TOKEN="+token, "IOT_TEST_ONVIF_PORT="+strconv.Itoa(p.Port))
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("browser: %v %s", err, output)
+		}
+		t.Log(string(output))
+	})
 }

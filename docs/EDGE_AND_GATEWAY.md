@@ -94,6 +94,8 @@ go test ./internal/httpapi -run 'Test(SplitGatewayHTTPFlow|ExecutionRouteUsesTen
 
 此入口只读取基础信息；WS-Discovery、ONVIF 事件订阅、GB28181 SIP 注册/目录尚未实现，视频流继续由外部视频平台提供。
 
+2026-09-10 浏览器验收：实际 Chrome→平台→Edge→TLS/Digest/WSSE 摄像头模拟器，读取并保存元数据、缺失凭据拒绝和窄屏通过。分布式调度另外通过两个独立采集进程、真实 PostgreSQL 租约与强制进程终止后的接管测试；尚未进行多物理主机/网络分区压力验收。
+
 ## Edge Go 协议与远程版本更新
 
 现场节点可执行已发布的 `go-protocol-v2` TCP/UDP ingress Worker。节点本地显式设置 `IOT_EDGE_ALLOW_GO_WORKERS=true`，并以 `IOT_EDGE_LISTEN_ADDRESSES` 指定允许绑定的 IP；平台不能通过分配配置扩大本地监听范围。先登记设备，再通过向导或节点管理分配监听配置，自动登记暂不支持。

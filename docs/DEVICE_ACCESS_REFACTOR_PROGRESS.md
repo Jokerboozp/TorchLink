@@ -127,6 +127,9 @@
 
 ### 后续实测与实现
 
+- 2026-09-10 增量验收：`TestDistributedCollectionProcessFailover` 在实际 PostgreSQL 临时 schema 和两个独立采集子进程上通过（14.34 秒）。当前所有者运行期间另一进程不重复读取；强制终止后等待真实租约到期接管，旧令牌无法释放后继者。测试只清理自身 schema/子进程，不操作业务设备。初次用例使用了错误的 ModbusReadBlock 字段，修正后实测通过。
+- ONVIF 新页面浏览器验收通过：`TestEdgeONVIFMetadataWithAuthentication/browser`（3.51 秒，整个用例 5.64 秒），真实 Chrome、现场 Agent、TLS + Digest + WSSE 模拟摄像头，覆盖节点选择、缺失凭据拒绝、读取填表、窄屏及显式保存。首次浏览器脚本菜单名写错而超时，修正为当前“摄像头映射”后通过；厂商真机仍未执行。
+
 - Git：Edge Worker 中文提交 `a61d7e0` 已成功推送至 `origin/main`。用户要求提交全部内容，本次也保留并纳入工作区新增的 `项目介绍.md`，未改写该文件。
 - 设备影子基础链路：新增持久化 desired/reported/delta、独立期望版本、逐属性时间/消息顺序、可写物模型校验、人工确认与变更历史、设备凭据读取、详情页。真实 PostgreSQL 临时 schema（`TestDeviceOperationsMigrationAndAtomicity`，1.59 秒）及 Memory 16 并发条件更新/属性合并通过；认证 HTTP→标准上报→解析→影子差异收敛通过（0.02 秒，`-race`）。首次测试缺少 messageKind，已补为 property 并通过，未跳过认证。
 - 影子超限错误可见且不阻断既有告警规则，相关竞态回归通过。前端 56 项测试/构建通过，真实 Chrome + Broker `TestOnboardingBrowser` 8.92 秒通过，新增影子编辑/人工确认/版本/差异检查。说明见 `DEVICE_SHADOW.md`；孪生拓扑、命名影子、MQTT 原生影子 RPC 等仍待实现，未称完整体系完成。
