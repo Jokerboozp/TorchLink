@@ -1,8 +1,10 @@
 <script setup>
+// 页面统一接收父级导航事件，避免多根节点透传监听器警告。
+defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, download, notifyError, pretty, session } from '../api'
-import { backupStatuses, backupTypes, label } from '../labels'
+import { backupStatuses, backupTypes, backupComponents, label } from '../labels'
 
 const filters = reactive({ type: '', status: '' })
 const records = ref([])
@@ -213,7 +215,7 @@ onMounted(load)
       <template v-if="manifest">
         <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</el-button></div>
         <el-table :data="manifest.artifacts" stripe>
-          <el-table-column prop="component" label="组件" width="160" />
+          <el-table-column label="组件" width="160"><template #default="{row}">{{ label(backupComponents, row.component, '其他组件') }}</template></el-table-column>
           <el-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></el-table-column>
           <el-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></el-table-column>
           <el-table-column label="完整性校验摘要" min-width="190"><template #default="{ row }"><el-tooltip :content="row.sha256"><code>{{ row.sha256?.slice(0, 12) }}…</code></el-tooltip></template></el-table-column>

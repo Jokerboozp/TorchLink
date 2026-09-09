@@ -6,6 +6,7 @@ data/
 *.exe
 *.log
 coverage.out
+__debug_bin*
 iot_front/node_modules/
 iot_front/dist/
 upstream/deepseek-harness/

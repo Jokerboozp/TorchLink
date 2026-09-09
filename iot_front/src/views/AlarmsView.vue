@@ -1,11 +1,14 @@
 <script setup>
+// 页面统一接收父级导航事件，避免多根节点透传监听器警告。
+defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, formatTime, notifyError, pretty } from '../api'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
+import { alarmNavigation, alarmQuery } from '../alarmNavigation'
 import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, label, tagType } from '../labels'
 
-const filters = reactive({ status:'', level:'' })
+const filters = reactive({ status:'', level:'', deviceId:'' })
 const items = ref([])
 const loading = ref(false)
 const detail = ref(null)
@@ -27,7 +30,7 @@ async function load(resetPage = false) {
   if (resetPage) page.value = 1
   loading.value = true
   try {
-    const q = new URLSearchParams({ status:filters.status, level:filters.level, page:String(page.value), pageSize:String(pageSize.value) })
+    const q = alarmQuery(filters, page.value, pageSize.value)
     const d = await api('/api/v1/alarms?' + q)
     items.value = d.items || []
     total.value = Number(d.total ?? d.count ?? items.value.length)
@@ -157,22 +160,14 @@ async function action(id, value) {
   }
 }
 
-async function consumeNavigationAction() {
-  const raw = sessionStorage.getItem('iot:navigation-detail')
-  if (!raw) return
-  try {
-    const navigation = JSON.parse(raw)
-    if (!navigation.alarmId) return
-    sessionStorage.removeItem('iot:navigation-detail')
-    await show(navigation.alarmId)
-  } catch { /* ignore invalid navigation detail */ }
-}
-
 const realtime = () => load()
 onMounted(async () => {
+  const navigation = alarmNavigation(sessionStorage.getItem('iot:navigation-detail'))
+  sessionStorage.removeItem('iot:navigation-detail')
+  filters.deviceId = navigation.deviceId
   window.addEventListener('iot:realtime', realtime)
   await load()
-  await consumeNavigationAction()
+  if (navigation.alarmId) await show(navigation.alarmId)
 })
 onBeforeUnmount(() => {
   analysisViewToken += 1
@@ -183,10 +178,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page-toolbar">
+    <el-input v-model="filters.deviceId" clearable placeholder="按设备标识筛选" aria-label="设备标识筛选" @keyup.enter="load(true)" @clear="load(true)" />
     <el-select v-model="filters.status" clearable placeholder="全部状态" @change="load(true)"><el-option v-for="(text,key) in alarmStatuses" :key="key" :label="text" :value="key" /></el-select>
     <el-select v-model="filters.level" clearable placeholder="全部等级" @change="load(true)"><el-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></el-select>
     <el-button type="primary" :loading="loading" @click="load()">刷新告警</el-button>
-    <el-button :disabled="!filters.status && !filters.level" @click="filters.status = ''; filters.level = ''; load(true)">重置筛选</el-button>
+    <el-button :disabled="!filters.status && !filters.level && !filters.deviceId" @click="filters.status = ''; filters.level = ''; filters.deviceId = ''; load(true)">重置筛选</el-button>
     <span>共 {{total}} 条告警</span>
   </div>
 

@@ -1,4 +1,6 @@
 <script setup>
+// 页面统一接收父级导航事件，避免多根节点透传监听器警告。
+defineEmits(['navigate'])
 import FilePicker from '../components/FilePicker.vue'
 import { transportLabel } from '../presentation'
 import { reactive, ref } from 'vue'

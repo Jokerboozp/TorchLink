@@ -93,6 +93,16 @@ GoLand 调试时，工作目录设为仓库根目录、程序设为 `cmd/iot-pla
 
 仓库已提供 [`.vscode/launch.json`](../.vscode/launch.json)。安装 VS Code Go 扩展并确保 `.env.local` 已生成或已从依赖机复制后，打开“运行和调试”，选择 **IoT Platform (API + Web)**，按 `F5` 启动 Go API 和 Vue 前端；需要调试备份服务时选择 **IoT Platform (API + Web + Backup)**。需要国标网关时选择 **IoT Platform + GB26875 Gateway**。配置文件只引用 `.env.local`，不包含密码；Windows 使用 `npm.cmd`，Linux/macOS 使用 `npm`。
 
+macOS 首次调试需安装 Delve（`go install github.com/go-delve/delve/cmd/dlv@latest`），并由使用者完成系统弹出的“开发者工具访问”认证。调试会话显示“正在运行”不代表服务已启动；应同时检查 `http://localhost:8081/health/ready`。若终端停在 `debugserver` 且业务端口未监听，先检查系统授权窗口。调试器产生的 `__debug_bin*` 文件已加入忽略规则。
+
+前后端和备份服务启动后，可从仓库根目录运行 `node scripts/tests/local-business-smoke.mjs`。脚本读取 `.env.local`，通过本机 `5173` 的前端代理验证登录、页面数据接口、产品与设备接入、上报归档解析、幂等冲突、在线状态、时序查询、规则告警处置及试运行回放。它只创建名称带“本地联调”的唯一数据，结束后停用本次规则及设备凭据，保留记录供页面复查，不删除已有数据。可用 `IOT_TEST_ENV_FILE` 指定配置文件、`IOT_TEST_ORIGIN` 指定本机代理地址；脚本不输出凭据。依赖单独验证入口为 `go run scripts/tests/local-runtime-smoke.go --env-file .env.local`。
+
+2026-09-10 本地验证：macOS arm64 上通过 VS Code 组合配置运行前端、Go API 和备份服务，依赖复用 OrbStack 的 `develop` Ubuntu arm64 虚拟机。上述依赖检查 8 项及业务冒烟通过；浏览器产品查询命中 `internal/httpapi/server.go` 的产品列表断点，单步查询无错误，继续执行后页面显示同样的数据。浏览器复现并修复了设备详情跳转告警时遗漏设备筛选、连接历史显示英文状态码的问题；修复后的设备筛选与重置、历史中文状态已回归。`npm test` 61 项、`npm run build` 和 `go test ./internal/core ./internal/httpapi` 通过；构建仍有主包超过 500 kB 的体积提示。
+
+本次模型验证需单独区分：嵌入推理通过，`qwen3:1.7b` 的 8 个生成词元短请求约 6 秒完成，但页面“测试配置”在 90 秒后超时，不能据模型列表健康声称智能业务已验收。未进行真实消防设备、现场协议硬件和数据库恢复验收。
+
+同次浏览器备份验证：创建的设备数据备份与文件校验任务均完成；经前端代理下载原始报文、解析数据和清单 3 个制品，字节摘要与清单逐项一致。组件名称补齐中文；各页面显式声明统一导航事件，消除开发模式下多根节点的监听器透传警告。文件校验通过不代表已执行数据库恢复。
+
 ## 3. 在线部署
 
 把本仓库源码放到有网络的目标服务器，在仓库根目录执行。Ubuntu 与 CentOS 使用同一入口：
