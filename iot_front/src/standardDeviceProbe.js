@@ -16,10 +16,15 @@ export class StandardDeviceProbe {
     Object.assign(this, { token, connect, onState, onCommand, schedule, cancel })
     this.generation = 0
     this.attempt = 0
+    this.pending = new Set()
+  }
+  cancelPublishes(code, message) {
+    for (const finish of [...this.pending]) finish(Object.assign(new Error(message), { code }))
   }
   stop() {
     this.generation++
     this.cancel(this.timer)
+    this.cancelPublishes('CANCELED', '联调已停止；未确认的消息可在重新连接后手动重发')
     this.client?.end(true)
     this.client = null
     this.onState('DISCONNECTED')
@@ -37,6 +42,7 @@ export class StandardDeviceProbe {
   retry(generation, error) {
     if (generation !== this.generation) return
     this.cancel(this.timer)
+    this.cancelPublishes('CONNECTION_LOST', '连接已断开，发送结果未确认；恢复连接后可重发同一条消息')
     this.client?.end(true)
     this.client = null
     // Revoked credentials need user action, not an infinite authentication loop.
@@ -79,6 +85,7 @@ export class StandardDeviceProbe {
         this.timer = this.schedule(() => {
           if (!current()) return
           finished = true
+          this.cancelPublishes('CONNECTION_LOST', '正在更新连接凭据，发送结果未确认；恢复连接后可重发同一条消息')
           client.end(true)
           this.client = null
           this.open(generation)
@@ -88,13 +95,23 @@ export class StandardDeviceProbe {
   }
   async publish(topic, body) {
     const client = this.client
-    if (!client?.connected) throw new Error('设备未连接；恢复连接后可重发同一条消息')
+    if (!client?.connected) throw Object.assign(new Error('设备未连接；恢复连接后可重发同一条消息'), { code: 'NOT_CONNECTED' })
     await new Promise((resolve, reject) => {
-      const timer = this.schedule(() => reject(new Error('发布确认超时；可重发同一条消息验证幂等')), 8000)
-      client.publish(topic, body, { qos: 1, retain: false }, error => {
+      let settled = false
+      const finish = error => {
+        if (settled) return
+        settled = true
         this.cancel(timer)
+        this.pending.delete(finish)
         error ? reject(error) : resolve()
-      })
+      }
+      const timer = this.schedule(() => {
+        finish(Object.assign(new Error('发布确认超时，结果未确认；恢复连接后可重发同一条消息'), { code: 'PUBLISH_TIMEOUT' }))
+        // Discard this client's outstanding packet state before reconnecting.
+        if (this.client === client) client.stream?.destroy()
+      }, 8000)
+      this.pending.add(finish)
+      try { client.publish(topic, body, { qos: 1, retain: false }, finish) } catch (error) { finish(error) }
     })
   }
 }

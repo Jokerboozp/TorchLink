@@ -92,6 +92,11 @@ try {
   assert.ok(await evaluate(`document.querySelector('.standard-commissioning pre').textContent.includes('temperature')`))
   if(process.env.IOT_TEST_MQTT_WEBSOCKET) {
     await evaluate(`([...document.querySelectorAll('.standard-commissioning .el-radio')].find(e=>e.textContent.trim()==='MQTT')).click()`)
+    await fill('设备 Secret','invalid-mqtt-secret')
+    await click('连接 / 重新认证')
+    await until(()=>evaluate(`document.querySelector('.standard-commissioning')?.textContent.includes('认证拒绝，请检查或重新生成凭据')`))
+    assert.ok(await evaluate(`!!localStorage.getItem('iot_token')`))
+    await fill('设备 Secret',deviceCredential[3])
     await click('连接 / 重新认证')
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('Secret'))`));throw e})
     await click('发送新消息')
@@ -101,7 +106,7 @@ try {
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('Secret'))`));throw e})
     await click('重发同一条消息')
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning .el-table__row')].filter(e=>e.textContent.includes('已解析')).length===2)`))
-    console.log('PASS: live Broker WebSocket authentication, Raw parsing, injected transport loss, automatic reconnect and retransmission')
+    console.log('PASS: live Broker WebSocket credential rejection without operator logout, authentication, Raw parsing, injected transport loss, automatic reconnect and retransmission')
   }
   await evaluate(`(()=>{const original=URL.createObjectURL;URL.createObjectURL=function(blob){window.__commissioningReport=blob.text();return original.call(URL,blob)}})()`)
   await click('导出验收记录')

@@ -9,7 +9,7 @@ function fixture(tokenOverride) {
   let tokenCalls = 0, next = 0
   const auth = { username: 'device-key', token: 'short-lived-token', websocketUrl: 'ws://broker/mqtt', expiresIn: 300, publishTopic: '/iot/up/t/p/d/property' }
   const probe = new StandardDeviceProbe({
-    token: async () => { tokenCalls++; return tokenOverride ? tokenOverride() : auth },
+    token: async () => { tokenCalls++; return tokenOverride ? tokenOverride(auth) : auth },
     onState: (...args) => states.push(args),
     schedule: (fn, delay) => { timers.set(++next, { fn, delay }); return next },
     cancel: id => timers.delete(id),
@@ -88,5 +88,66 @@ test('repeated network failures back off to 30 seconds and stop cleanly', async 
   for (const delay of [1000, 2000, 4000, 8000, 16000, 30000, 30000]) {
     assert.equal(await f.tick(), delay)
   }
+  f.probe.stop(); assert.equal(f.timers.size, 0)
+})
+
+test('publish confirmation timeout discards old client and ignores a late acknowledgment', async () => {
+  const f = fixture(); await f.probe.start(); const first = f.connected()
+  let acknowledge
+  first.publish = (_topic, _body, _options, callback) => { acknowledge = callback }
+  const sending = f.probe.publish('/topic', '{"id":"unchanged"}')
+  const failed = assert.rejects(sending, e => e.code === 'PUBLISH_TIMEOUT')
+  const [id, timer] = [...f.timers.entries()].find(([, value]) => value.delay === 8000)
+  f.timers.delete(id); timer.fn(); await failed
+  assert.equal(f.probe.pending.size, 0)
+  assert.ok(first.ended)
+  assert.equal(f.states.at(-1)[0], 'RETRYING')
+  acknowledge(); assert.equal(f.probe.pending.size, 0)
+  await f.tick(); const second = f.connected()
+  assert.equal(second.messages.length, 0, 'unconfirmed telemetry must not automatically replay')
+  f.probe.stop()
+})
+
+test('disconnect and manual stop immediately cancel pending publishes without waiting for timeout', async () => {
+  for (const action of ['dropConnection', 'stop']) {
+    const f = fixture(); await f.probe.start(); const client = f.connected()
+    let acknowledge
+    client.publish = (_topic, _body, _options, callback) => { acknowledge = callback }
+    const failed = assert.rejects(f.probe.publish('/topic', '{}'), e => e.code === (action === 'stop' ? 'CANCELED' : 'CONNECTION_LOST'))
+    f.probe[action](); await failed
+    assert.equal(f.probe.pending.size, 0)
+    assert.ok([...f.timers.values()].every(timer => timer.delay !== 8000))
+    acknowledge()
+    f.probe.stop(); assert.equal(f.timers.size, 0)
+  }
+})
+
+test('token renewal cancels in-flight publishes and subscription rejection stops retries', async () => {
+  const f = fixture(); await f.probe.start(); const first = f.connected()
+  first.publish = () => {}
+  const failed = assert.rejects(f.probe.publish('/topic', '{}'), e => e.code === 'CONNECTION_LOST')
+  await f.tick(); await failed
+  const next = f.clients.at(-1)
+  next.subscribe = (_topic, _options, callback) => callback(null, [{ qos: 128 }])
+  f.connected()
+  assert.equal(f.states.at(-1)[0], 'AUTH_FAILED')
+  assert.equal(f.timers.size, 0)
+})
+
+test('24 hours of virtual offline time keeps one retry timer and recovers without replay', async () => {
+  let offline = true
+  const f = fixture(auth => { if (offline) throw new TypeError('offline'); return auth })
+  await f.probe.start()
+  let elapsed = 0
+  while (elapsed < 24 * 60 * 60 * 1000) {
+    assert.equal(f.timers.size, 1)
+    assert.equal(f.probe.pending.size, 0)
+    elapsed += await f.tick()
+  }
+  offline = false; await f.tick(); const recovered = f.connected()
+  assert.equal(f.states.at(-1)[0], 'CONNECTED')
+  assert.equal(recovered.messages.length, 0)
+  await f.probe.publish('/topic', '{"id":"manual-retry"}')
+  assert.equal(recovered.messages.length, 1)
   f.probe.stop(); assert.equal(f.timers.size, 0)
 })
