@@ -15,6 +15,7 @@ const (
 )
 
 type Config struct {
+	ProtocolCatalogPolicy       string
 	AccessCoordination          bool
 	AccessNodeURL               string
 	ProcessRole                 string
@@ -93,6 +94,7 @@ func Load() Config {
 		aiAPIKey = deepSeekAPIKey
 	}
 	return Config{
+		ProtocolCatalogPolicy:       os.Getenv("IOT_PROTOCOL_CATALOG_POLICY"),
 		AccessCoordination:          boolValue("IOT_ACCESS_COORDINATION", false),
 		AccessNodeURL:               strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
 		ProcessRole:                 strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),

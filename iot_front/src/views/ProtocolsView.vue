@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import ProtocolCatalog from '../components/ProtocolCatalog.vue'
 import { ElMessage } from 'element-plus'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 
@@ -239,6 +240,7 @@ onMounted(load)
         <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
       </el-table>
     </el-tab-pane>
+    <el-tab-pane label="协议目录" lazy><ProtocolCatalog :protocols="protocols" @installed="load"/></el-tab-pane>
   </el-tabs>
 
   <el-card v-if="result" shadow="never" class="surface-card top-gap">

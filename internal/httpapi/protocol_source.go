@@ -145,7 +145,7 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "源码与编译结果打包后超过 64 MiB")
 		return
 	}
-	s.installProtocolPackageV2(w, r, archive.Bytes(), entries, manifest, header.Filename, map[string]any{"kind": "go-source", "sourceSha256": hex.EncodeToString(digest[:]), "durationMs": time.Since(started).Milliseconds(), "log": buildLog})
+	s.installProtocolPackageV2(w, r, archive.Bytes(), entries, manifest, header.Filename, map[string]any{"kind": "go-source", "sourceSha256": hex.EncodeToString(digest[:]), "durationMs": time.Since(started).Milliseconds(), "log": buildLog, "catalog": sourceCatalogProvenance(r.Context())})
 }
 
 func sourceProtocolManifest(r *http.Request, id string, files map[string][]byte) (protocolPackageManifestV2, string, error) {
