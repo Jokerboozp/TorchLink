@@ -339,3 +339,15 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - 过载联调发现并修复：Paho 主动 Disconnect/Connect 存在异步关闭重叠；直接关闭 socket 的读错误又被库忽略，连接可能停留在假在线。现在对传输设置立即读超时，让库进入正常连接丢失和自动重连流程。真实 Broker 在队列满不 ACK 后重投成功，两条报文均有 Raw 归档及已发布索引；未通过调大测试等待时间掩盖问题。健康检查使用实际连接状态，隔离记录通过独立指标可见，不让一条已隔离坏报文阻断整个服务就绪。
 - PostgreSQL 最终重测通过：部件事务/水位测试 0.26 秒、既有 schema 迁移兼容测试 0.12 秒。真实源码发布/TCP 热切换最终竞态测试 7.48 秒。隔离 Broker 和 PostgreSQL 测试容器及其测试数据已清理；未操作现有业务数据。
 - 当前两项约定的代码与验证工作已完成，无代码实施阻塞。待部署启用：更新平台并发布/绑定新的 GB26875 协议版本，保留实例持久接收目录。未执行：真实消防设备、物理断电或实际磁盘耗尽、Windows 实际运行、生产 EMQX JWT/磁盘/多主机故障验收。持久接收不等于端到端绝不丢失，未到平台的消息仍依赖设备和 Broker 策略；队列目录必须持久挂载。详细决定与运行边界见 `DEVICE_RECEIVE_RELIABILITY.md`。
+
+### 现有本地部署更新与 GB26875 发布（2026-09-10）
+
+- 用户授权提交、推送、更新现有部署和发布协议。实现提交为 `cc3580184e203a3e212fcc3d88f7feca3a09e3cd`（完善部件级告警恢复与 MQTT 持久接收），已推送 `origin/main` 并核对远端 SHA；没有切换分支或重新克隆。
+- 实际目标为 Mac ARM64 原生 API/Vite，依赖沿用 OrbStack `develop` 的 `iot-platform-local` 容器、`.env.local` 和已有数据卷。编译并运行上述提交的 API，`go version -m` 确认为对应 SHA、`vcs.modified=false`。原 IDE API 调试会话已停止，当前 API 在后台运行，Vite 保持原服务；依赖容器无需替换。
+- API 程序及上一版备份位于 `data/runtime-releases/cc35801/`，当前 PID 文件为 `api.pid`，运行日志为 `api.log`。这些本地运行文件及环境凭据不提交。切回 IDE 调试前，在仓库根目录执行 `kill "$(cat data/runtime-releases/cc35801/api.pid)"`，等待 API 退出并释放 8081，再启动原 IDE 配置，继续使用 `.env.local`；停止等待应涵盖服务的 15 秒优雅关闭期限。
+- 实际 PostgreSQL 已创建 `component_alarm_state`；MQTT 持久目录为 `data/mqtt-inbox/combined/`。重启前后 `client-id` 保持一致，最终 pending/rejected/corrupt 三项指标均为 0。更新后及重启后 `/health/ready` 的 repository、archive、eventBus、realtime、knowledge 五项均为 `ok`。
+- 通过实际管理员登录与源码上传接口发布 `gb26875-dahua@1.0.1`，状态为 `PUBLISHED`。上传 ZIP 来自本次独立协议源码，ZIP 内 `protocol.json` 使用新版本；仓库教学包的默认版本不原地替换任何已发布制品。发布端 Darwin ARM64 实际执行 12 条解析样例和 3 条操作样例，共 15 条通过；Linux ARM64/AMD64 两个目标编译成功，本次未执行其制品。
+- 已发布源码 SHA-256：`b6d770503cd1f51cdb90413a42272e3410875d0626b2a8789f85bcc8246627ac`；Darwin ARM64 Worker SHA-256：`58a2cd5778b54013f7d0c55326762394fe7339b0726fff382b6f0d97e8915603`。通过认证下载源码和完整制品并核对各自记录哈希；直接执行发布后的 Worker，验证多部件样例分别输出正常部件和火警部件的独立 ID、位置及 FIRE 状态。
+- `go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 实际八项通过：PostgreSQL、Redis、ClickHouse、MinIO 读写，Kafka 生产消费，本地模型嵌入，现有 EMQX JWT 认证及发布订阅，Weaviate 就绪。脚本的独立临时资源按原流程清理。该 MQTT 冒烟不代替完整 ACL 负向矩阵或现有 EMQX 故障重投验收。
+- 重启后经 Vite 代理实际登录并读取协议，确认新版本持久化；原有 4 个标准协议联调产品及其绑定保留。当前租户没有 GB26875 产品或接入实例，因此本次完成协议发布，没有改绑不相关产品或创建测试设备。后续有实际 GB26875 产品时再绑定 `1.0.1` 并配置监听；这是启用设备接入所需前置条件，不代表本次已完成真机接入。
+- 本次没有进一步修改业务代码，完整单测、竞态和前端测试沿用上节紧邻实现结果，没有重复宣称重新执行。部署及发布无阻塞；未执行真实消防设备、物理断电/磁盘耗尽、Windows 运行、远程生产部署或完整浏览器交互验收。
