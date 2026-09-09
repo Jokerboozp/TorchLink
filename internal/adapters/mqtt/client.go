@@ -13,8 +13,10 @@ import (
 )
 
 type Client struct {
-	client mqtt.Client
-	log    *slog.Logger
+	broker      string
+	credentials mqtt.CredentialsProvider
+	client      mqtt.Client
+	log         *slog.Logger
 }
 
 func (c *Client) logger() *slog.Logger {
@@ -38,7 +40,7 @@ func NewWithCredentials(broker, clientID string, credentials mqtt.CredentialsPro
 	if token.Error() != nil {
 		return nil, token.Error()
 	}
-	return &Client{client: c, log: slog.Default()}, nil
+	return &Client{client: c, log: slog.Default(), broker: broker, credentials: credentials}, nil
 }
 func (c *Client) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
 	token := c.client.Publish(topic, qos, retained, payload)

@@ -17,7 +17,7 @@ func (s *Server) onboardingTest(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.onboarding.Test(r.Context(), claims(r).TenantID, q)
 	if err != nil {
-		problem(w, 422, err.Error())
+		write(w, 422, result)
 		return
 	}
 	write(w, 200, result)

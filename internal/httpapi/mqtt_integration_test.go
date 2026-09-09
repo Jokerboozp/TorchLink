@@ -65,7 +65,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 	cfg.JWTSecret = secret
 	cfg.DataDir = root
 	srv := New(cfg, engine, metrics.New(), log)
-	srv.SetMQTTHealth(platform.Health)
+	srv.SetMQTTHealth(platform.Probe)
 	srv.SetDeviceOperations(platform.Publish, nil)
 	request := onboarding.Request{ProductID: "product", ProductName: "temporary MQTT test", DeviceID: "device", Name: "test device", Type: connector.MQTT, MessageKind: "property", Payload: json.RawMessage(`{"id":"preview","timestamp":1788850000000,"data":{"temperature":20}}`)}
 	preview, e := srv.onboarding.Test(ctx, tenant, request)

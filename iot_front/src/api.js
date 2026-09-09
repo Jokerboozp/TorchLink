@@ -24,7 +24,8 @@ export class ApiError extends Error {
     super(message)
     this.name = 'ApiError'
     this.status = details.status || 0
-    this.code = details.code || ''
+    this.code = details.code || details.errorCode || ''
+    this.testResult = details.success === false && details.errorCode ? details : null
     this.traceId = details.traceId || ''
     this.runId = details.runId || ''
     this.stage = details.stage || ''

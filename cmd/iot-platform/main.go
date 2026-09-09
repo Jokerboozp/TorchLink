@@ -266,7 +266,7 @@ func main() {
 	api.SetDeviceOperations(publishCommand, revokeUsername)
 	go api.RunCredentialRevocations(ctx)
 	if mqttClient != nil {
-		api.SetMQTTHealth(mqttClient.Health)
+		api.SetMQTTHealth(mqttClient.Probe)
 	}
 	api.SetAIProviderRuntime(runtimeAI)
 	api.SetAIProviderStore(aiProviderStore)

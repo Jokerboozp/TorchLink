@@ -6,12 +6,43 @@ import (
 	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolworker"
 	"net/http"
+	"sort"
 	"strings"
 )
 
 type listenerSnapshot interface {
 	Status(string, string) (string, string, int64)
 	Sessions(string, string) []map[string]any
+}
+
+// Match only explicit configuration or an identified session, never product alone.
+func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessions []map[string]any) bool {
+	if d.TenantID != p.TenantID || d.ProductID != p.ProductID {
+		return false
+	}
+	if d.Tags["connectorProfileId"] == p.ID || p.DeviceID == d.ID {
+		return true
+	}
+	for _, session := range sessions {
+		if session["deviceId"] == d.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) profileSnapshot(tenant string, p model.DeviceAccessProfile) (model.DeviceAccessProfile, []map[string]any) {
+	sessions := []map[string]any{}
+	if p.Mode == "listener" {
+		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
+			p.RuntimeStatus, p.LastError, p.LastSuccessAt = runtime.Status(tenant, p.ID)
+			sessions = runtime.Sessions(tenant, p.ID)
+		}
+	}
+	if !p.Enabled {
+		p.RuntimeStatus = "DISABLED"
+	}
+	return p, sessions
 }
 
 func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
@@ -27,22 +58,21 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
+	sort.SliceStable(devices, func(i, j int) bool {
+		if devices[i].CreatedAt == devices[j].CreatedAt {
+			return devices[i].ID < devices[j].ID
+		}
+		return devices[i].CreatedAt > devices[j].CreatedAt
+	})
 	for _, p := range profiles {
+		p, sessions := s.profileSnapshot(tenant, p)
 		kind := "MODBUS_TCP"
-		sessions := []map[string]any{}
 		if p.Mode == "listener" {
 			kind = strings.ToUpper(p.Network)
-			if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
-				p.RuntimeStatus, p.LastError, p.LastSuccessAt = runtime.Status(tenant, p.ID)
-				sessions = runtime.Sessions(tenant, p.ID)
-			}
-		}
-		if !p.Enabled {
-			p.RuntimeStatus = "DISABLED"
 		}
 		recent := []map[string]any{}
 		for _, d := range devices {
-			if d.Tags["connectorProfileId"] == p.ID && len(recent) < 20 {
+			if deviceUsesProfile(d, p, sessions) && len(recent) < 20 {
 				recent = append(recent, map[string]any{"deviceId": d.ID, "name": d.Name, "createdAt": d.CreatedAt})
 			}
 		}
@@ -71,20 +101,61 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var profile *model.DeviceAccessProfile
-	if id := d.Tags["connectorProfileId"]; id != "" {
-		if v, e := s.engine.Repo.GetDeviceAccessProfile(r.Context(), tenant, id); e == nil {
-			profile = &v
+	all, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
+	if err != nil {
+		problem(w, 500, err.Error())
+		return
+	}
+	candidates := []model.DeviceAccessProfile{}
+	byProfile := map[string][]map[string]any{}
+	for _, candidate := range all {
+		candidate, live := s.profileSnapshot(tenant, candidate)
+		if !deviceUsesProfile(d, candidate, live) {
+			continue
+		}
+		candidates = append(candidates, candidate)
+		for _, session := range live {
+			if session["deviceId"] != d.ID {
+				continue
+			}
+			copy := map[string]any{"profileId": candidate.ID}
+			for key, value := range session {
+				copy[key] = value
+			}
+			byProfile[candidate.ID] = append(byProfile[candidate.ID], copy)
 		}
 	}
-	sessions := []map[string]any{}
-	if profile != nil && profile.Mode == "listener" {
-		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
-			profile.RuntimeStatus, profile.LastError, profile.LastSuccessAt = runtime.Status(tenant, profile.ID)
-			for _, session := range runtime.Sessions(tenant, profile.ID) {
-				if session["deviceId"] == d.ID {
-					sessions = append(sessions, session)
-				}
+	selected := r.URL.Query().Get("profileId")
+	if selected == "" {
+		for _, candidate := range candidates {
+			if candidate.ID == d.Tags["connectorProfileId"] {
+				selected = candidate.ID
+				break
 			}
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate.ID == selected || (selected == "" && len(candidates) == 1) {
+			v := candidate
+			profile = &v
+			break
+		}
+	}
+	if r.URL.Query().Get("profileId") != "" && profile == nil {
+		problem(w, 422, "接入实例不属于该设备")
+		return
+	}
+	sessions := []map[string]any{}
+	for _, candidate := range candidates {
+		if profile == nil || profile.ID == candidate.ID {
+			sessions = append(sessions, byProfile[candidate.ID]...)
+		}
+	}
+	kind := d.Tags["connector"]
+	if kind == "" && profile != nil {
+		kind = "MODBUS_TCP"
+		if profile.Mode == "listener" {
+			kind = strings.ToUpper(profile.Network)
 		}
 	}
 	protocolID, version := "", ""
@@ -112,5 +183,5 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	write(w, 200, map[string]any{"recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": d.Tags["connector"], "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+	write(w, 200, map[string]any{"recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
 }

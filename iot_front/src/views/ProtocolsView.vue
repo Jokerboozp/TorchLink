@@ -5,6 +5,8 @@ import { api, download, formatTime, notifyError, pretty } from '../api'
 
 const protocols = ref([])
 const profiles = ref([])
+const snapshots = ref({})
+const snapshot = (id) => snapshots.value[id] || { sessions: [], recentDevices: [] }
 const loading = ref(false)
 const testingId = ref('')
 const result = ref(null)
@@ -37,9 +39,10 @@ async function loadProducts() {
 async function load() {
   loading.value = true
   try {
-    const [catalog, access, productList, template] = await Promise.all([api('/api/v2/protocols'), api('/api/v2/device-access-profiles'), loadProducts(), api('/api/v2/protocol-source-template')])
+    const [catalog, access, productList, template, connectors] = await Promise.all([api('/api/v2/protocols'), api('/api/v2/device-access-profiles'), loadProducts(), api('/api/v2/protocol-source-template'), api('/api/v1/connectors')])
     protocols.value = catalog.items || []
-    profiles.value = access.items || []
+    snapshots.value = Object.fromEntries((connectors.items || []).filter(x => x.profile).map(x => [x.profile.id, x]))
+    profiles.value = (access.items || []).map(p => snapshot(p.id).profile || p)
     products.value = productList
     sourceTemplate.value = template
   } catch (error) { notifyError(error) } finally { loading.value = false }
@@ -220,7 +223,13 @@ onMounted(load)
     </el-tab-pane>
 
     <el-tab-pane label="设备接入实例">
-      <el-table v-loading="loading" :data="profiles" stripe>
+      <el-table v-loading="loading" :data="profiles" stripe row-key="id">
+        <el-table-column type="expand"><template #default="{row}">
+          <div class="instance-details"><h4>当前在线会话</h4>
+          <el-table :data="snapshot(row.id).sessions" empty-text="暂无在线会话"><el-table-column label="设备"><template #default="{row:session}">{{session.deviceId || '尚未识别设备'}}</template></el-table-column><el-table-column prop="remoteAddress" label="远端地址"/><el-table-column prop="protocolId" label="协议"/><el-table-column prop="protocolVersion" label="版本"/><el-table-column label="最后有效报文"><template #default="{row:session}">{{formatTime(session.lastSeenAt)}}</template></el-table-column></el-table>
+          <h4>最近接入设备（按创建时间，最多 20 台）</h4><el-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><el-table-column prop="deviceId" label="设备 ID"/><el-table-column prop="name" label="名称"/><el-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></el-table-column></el-table></div>
+        </template></el-table-column>
+        <el-table-column label="在线会话" width="100"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></el-table-column>
         <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.mode === 'listener' ? row.id : row.deviceId }}</b><small class="subline">{{ row.productId }}</small></template></el-table-column>
         <el-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></el-table-column>
         <el-table-column label="连接" min-width="170"><template #default="{ row }">{{ row.host }}:{{ row.port }} · {{ row.mode === 'listener' ? row.network?.toUpperCase() : `Unit ${row.unitId}` }}</template></el-table-column>
@@ -239,5 +248,6 @@ onMounted(load)
 </template>
 
 <style scoped>
+.instance-details { padding: 12px 24px; }
 .source-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; }
 </style>

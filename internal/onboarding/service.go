@@ -321,20 +321,40 @@ func (s *Service) Create(ctx context.Context, tenant string, q Request) (Result,
 	}
 	return Result{Device: b.Device, Credential: credential, ClientID: "device-" + credential.AccessKey, Username: credential.AccessKey, Connector: connector.Instance{Type: q.Type, DeviceID: q.DeviceID, Profile: b.Profile}}, nil
 }
-func (s *Service) Test(ctx context.Context, tenant string, q Request) (*connector.Result, error) {
+func (s *Service) Test(ctx context.Context, tenant string, q Request) (result *connector.Result, resultErr error) {
+	started := time.Now()
+	defer func() {
+		if result == nil {
+			result = &connector.Result{Stage: "validate", Message: "接入配置校验失败", ErrorCode: "PROTOCOL_ERROR"}
+			if resultErr != nil {
+				result.Message = resultErr.Error()
+				result.ErrorCode = connector.ErrorCode(resultErr, "PROTOCOL_ERROR")
+			}
+		}
+		result.LatencyMs = time.Since(started).Milliseconds()
+		if result.DeviceID == "" {
+			result.DeviceID = q.DeviceID
+		}
+		if result.ProtocolID == "" {
+			result.ProtocolID = q.ProtocolID
+		}
+		if result.ProtocolVersion == "" {
+			result.ProtocolVersion = q.ProtocolVersion
+		}
+	}()
 	b, rel, err := s.plan(ctx, tenant, q)
 	if err != nil {
 		return nil, err
 	}
 	if q.Type == connector.MQTT {
 		if s.MQTTHealth == nil {
-			return &connector.Result{Stage: "broker", ErrorCode: "NETWORK_ERROR", Message: "平台 MQTT 连接未启动，可先使用 HTTP 接入"}, nil
+			return &connector.Result{Stage: "broker", ErrorCode: "NETWORK_ERROR", Message: "平台 MQTT 连接未启动，可先使用 HTTP 接入", ProtocolID: rel.ProtocolID, ProtocolVersion: rel.Version, Parser: rel.ParserType}, nil
 		}
 		healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		err := s.MQTTHealth(healthCtx)
 		cancel()
 		if err != nil {
-			return &connector.Result{Stage: "broker", ErrorCode: "NETWORK_ERROR", Message: err.Error()}, nil
+			return &connector.Result{Stage: "broker", ErrorCode: connector.ErrorCode(err, "NETWORK_ERROR"), Message: err.Error(), ProtocolID: rel.ProtocolID, ProtocolVersion: rel.Version, Parser: rel.ParserType}, nil
 		}
 	}
 	r := connector.Request{Type: q.Type, Release: rel, Reuse: b.ReuseProfile}
@@ -346,11 +366,11 @@ func (s *Service) Test(ctx context.Context, tenant string, q Request) (*connecto
 	if q.Type == connector.MQTT || q.Type == connector.HTTP {
 		r.Raw, err = StandardRaw(tenant, q.ProductID, q.DeviceID, q.MessageKind, string(q.Type), q.Payload)
 		if err != nil {
-			return &connector.Result{Stage: "parse", ErrorCode: "PARSE_FAILED", Message: err.Error()}, nil
+			return &connector.Result{Stage: "parse", ErrorCode: "PARSE_FAILED", Message: err.Error(), Raw: []model.RawMessage{r.Raw}, ProtocolID: rel.ProtocolID, ProtocolVersion: rel.Version, Parser: rel.ParserType}, nil
 		}
 	}
 	a := connector.Adapter{Kind: q.Type, Probe: s.probe}
-	result, err := a.Test(ctx, r)
+	result, err = a.Test(ctx, r)
 	if err == nil && result.Success {
 		expiry := strconv.FormatInt(time.Now().Add(10*time.Minute).Unix(), 10)
 		result.TestToken = expiry + "." + s.proof(tenant, q, rel, b.Profile, expiry)
@@ -367,10 +387,7 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 		r.ErrorCode = code
 		if err != nil {
 			r.Message = err.Error()
-			var n net.Error
-			if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &n) && n.Timeout()) {
-				r.ErrorCode = "TIMEOUT"
-			}
+			r.ErrorCode = connector.ErrorCode(err, code)
 		}
 		return r, nil
 	}

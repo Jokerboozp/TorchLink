@@ -8,6 +8,7 @@ import (
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
+	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"log/slog"
 	"net/http"
@@ -42,6 +43,18 @@ func TestOnboardingBrowser(t *testing.T) {
 	cfg.JWTSecret = "browser-isolated-test-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}
 	api := New(cfg, engine, metrics.New(), log)
+	api.SetProtocolListeners(browserConnectionSnapshot{})
+	if err := repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "legacy-product", Name: "历史产品", Status: "ENABLED"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "legacy", AccessKey: "legacy-key", ProductID: "legacy-product", Name: "历史设备", Status: "ENABLED"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"listener-a", "listener-b"} {
+		if err := repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: id, ProductID: "legacy-product", Mode: "listener", Network: "tcp", Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	token, _ := api.auth.Issue("browser-test", "tenant", "admin", nil, time.Hour)
 	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,11 +73,21 @@ func TestOnboardingBrowser(t *testing.T) {
 	}
 	t.Log(string(output))
 	devices, err := repo.ListManagedDevices(ctx, "tenant")
-	if err != nil || len(devices) != 1 || devices[0].Status != "ENABLED" {
+	if err != nil || len(devices) != 2 || devices[0].Status != "ENABLED" {
 		t.Fatalf("browser did not persist enabled device: %+v %v", devices, err)
 	}
 	nodes, err := repo.ListEdgeNodes(ctx, "tenant")
 	if err != nil || len(nodes) != 1 || nodes[0].ID != "browser-edge" {
 		t.Fatalf("browser did not persist edge registration: %+v %v", nodes, err)
 	}
+}
+
+// The browser uses a runtime snapshot; no physical listener or device is required.
+type browserConnectionSnapshot struct{ connectionSnapshot }
+
+func (browserConnectionSnapshot) Sessions(tenant, id string) []map[string]any {
+	if tenant == "tenant" {
+		return (connectionSnapshot{}).Sessions("t", id)
+	}
+	return nil
 }
