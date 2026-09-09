@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -55,6 +56,7 @@ type Policy struct {
 	URL        string            `json:"url"`
 	PublicKeys map[string]string `json:"publicKeys"`
 	CAFile     string            `json:"caFile,omitempty"`
+	TokenFile  string            `json:"tokenFile,omitempty"`
 }
 type Catalog struct {
 	Payload
@@ -62,6 +64,7 @@ type Catalog struct {
 	KeyID  string `json:"keyId"`
 }
 type Client struct {
+	bearer  string
 	policy  Policy
 	address *url.URL
 	http    *http.Client
@@ -111,6 +114,23 @@ func New(p Policy) (*Client, error) {
 			return nil, errors.New("invalid catalog public key")
 		}
 	}
+	bearer := ""
+	if p.TokenFile != "" {
+		f, err := os.Open(p.TokenFile)
+		if err != nil {
+			return nil, errors.New("read catalog credential failed")
+		}
+		info, statErr := f.Stat()
+		data, readErr := io.ReadAll(io.LimitReader(f, 4097))
+		f.Close()
+		if statErr != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) || readErr != nil || len(data) > 4096 {
+			return nil, errors.New("catalog credential requires a private regular file")
+		}
+		bearer = strings.TrimSpace(string(data))
+		if len(bearer) < 32 || strings.ContainsAny(bearer, "\r\n \t") {
+			return nil, errors.New("invalid catalog credential")
+		}
+	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.MaxConnsPerHost = 4
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
@@ -128,7 +148,7 @@ func New(p Policy) (*Client, error) {
 		}
 		transport.TLSClientConfig.RootCAs = roots
 	}
-	return &Client{policy: p, address: u, http: &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	return &Client{bearer: bearer, policy: p, address: u, http: &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 func (c *Client) Close() { c.http.CloseIdleConnections() }
 func (c *Client) download(ctx context.Context, raw string, max int64) ([]byte, error) {
@@ -139,6 +159,9 @@ func (c *Client) download(ctx context.Context, raw string, max int64) ([]byte, e
 	req, err := http.NewRequestWithContext(ctx, "GET", raw, nil)
 	if err != nil {
 		return nil, err
+	}
+	if c.bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+c.bearer)
 	}
 	res, err := c.http.Do(req)
 	if err != nil {

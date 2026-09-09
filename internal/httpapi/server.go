@@ -142,6 +142,7 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/protocol-packages/:id/test", s.authorize("operator"), s.endpoint(s.testProtocolPackage, "id"))
 	s.router.GET("/api/v2/protocols", s.authorize("viewer"), s.endpoint(s.protocolDefinitionsV2))
 	s.router.GET("/api/v2/protocol-source-template", s.authorize("viewer"), s.endpoint(s.protocolSourceTemplate))
+	s.marketRoutes()
 	s.router.GET("/api/v2/protocol-catalog", s.authorize("viewer"), s.endpoint(s.protocolCatalog))
 	s.router.POST("/api/v2/protocol-catalog/install", s.authorize("admin"), s.endpoint(s.installCatalogProtocol))
 	s.router.POST("/api/v2/protocols/:id/source-releases", s.authorize("operator"), s.endpoint(s.uploadProtocolSource, "id"))

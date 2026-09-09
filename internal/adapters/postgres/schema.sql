@@ -336,3 +336,11 @@ CREATE INDEX IF NOT EXISTS device_command_edge_pending_idx ON device_command(ten
 CREATE TABLE IF NOT EXISTS device_twin_topology (tenant_id text PRIMARY KEY,body jsonb NOT NULL);
 
 CREATE TABLE IF NOT EXISTS edge_program (tenant_id text NOT NULL,node_id text NOT NULL,generation bigint NOT NULL DEFAULT 0,target_version text NOT NULL DEFAULT '',updated_at bigint NOT NULL DEFAULT 0,status jsonb NOT NULL DEFAULT '{}',PRIMARY KEY(tenant_id,node_id));
+
+CREATE TABLE IF NOT EXISTS protocol_market_entry (
+ tenant_id text NOT NULL,
+ protocol_id text NOT NULL,
+ version text NOT NULL,
+ body jsonb NOT NULL,
+ PRIMARY KEY (tenant_id,protocol_id,version)
+);

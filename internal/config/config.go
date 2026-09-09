@@ -16,6 +16,7 @@ const (
 
 type Config struct {
 	ProtocolCatalogPolicy       string
+	ProtocolMarketPolicy        string
 	AccessCoordination          bool
 	AccessNodeURL               string
 	ProcessRole                 string
@@ -95,6 +96,7 @@ func Load() Config {
 	}
 	return Config{
 		ProtocolCatalogPolicy:       os.Getenv("IOT_PROTOCOL_CATALOG_POLICY"),
+		ProtocolMarketPolicy:        os.Getenv("IOT_PROTOCOL_MARKET_POLICY"),
 		AccessCoordination:          boolValue("IOT_ACCESS_COORDINATION", false),
 		AccessNodeURL:               strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
 		ProcessRole:                 strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),

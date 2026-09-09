@@ -17,6 +17,7 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Repository struct {
+	protocolMarket      map[string]model.ProtocolMarketEntry
 	edgePrograms        map[string]model.EdgeProgram
 	twins               map[string]model.TwinTopology
 	edgeReadJobs        map[string]model.EdgeReadJob

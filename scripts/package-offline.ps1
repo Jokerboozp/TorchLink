@@ -210,6 +210,7 @@ function New-OfflineEnv {
             "IOT_DEVICE_MQTT_PUBLIC_URL=",
             "IOT_PROCESS_ROLE=combined",
             "IOT_PROTOCOL_CATALOG_POLICY=",
+            "IOT_PROTOCOL_MARKET_POLICY=",
             "IOT_ACCESS_GATEWAY_URL=",
             "IOT_ACCESS_COORDINATION=false",
             "IOT_ACCESS_NODE_URL=",

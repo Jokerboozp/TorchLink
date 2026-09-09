@@ -55,6 +55,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	verifyOnboardingAndParseMigration(t, r)
 	verifyLegacyShadow(t, r)
 	repositorytest.AccessStatus(t, r)
+	repositorytest.ProtocolMarket(t, r)
 	repositorytest.ExecutionLease(t, r)
 	repositorytest.RawReservation(t, r)
 	repositorytest.EdgeReadJobs(t, r)
