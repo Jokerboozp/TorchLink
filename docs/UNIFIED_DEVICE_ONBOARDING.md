@@ -2,6 +2,24 @@
 
 本入口位于 **设备管理 → 添加设备**。流程为：选择或新建产品 → MQTT / HTTP / Modbus TCP / TCP / UDP → 参数配置 → 接入测试 → 数据预览 → 完成并启用。原有高级注册、协议发布/回滚、采集实例和报文回放仍然保留。视频设备跳转原摄像头管理；Edge Agent 暂不开放。
 
+## 标准设备现场联调
+
+进入 **测试设备 → 标准设备联调（MQTT / HTTP）**，填写统一向导创建的设备标识、接入密钥和 Secret。无需再新建测试产品或切换协议。下方原测试烟感工具继续兼容原流程。
+
+1. HTTP 选择上报类型并填写 `data JSON`，点击“发送新消息”。请求使用设备凭据，经过标准 Ingest 和 Raw 链路，不使用管理端 debug 接口。错误凭据不会登出操作员。
+2. MQTT 点击“连接 / 重新认证”，通过设备令牌接口获取短期 JWT，再连接服务端配置的 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。需要浏览器可达的 WebSocket 地址；HTTP 和 MQTT 均使用当前平台的 API。页面会显示连接状态、成功连接次数和收到的下行命令，不自动执行设备命令。
+3. 点击“模拟断链并重连”只销毁当前联调客户端的网络连接，触发正常自动恢复流程，不停止 Broker 或平台服务。网络失败按 1、2、4、8、16、30 秒退避，每次重连重新取令牌；正常连接在令牌到期前 30 秒重新认证。认证拒绝停止自动重试，修正凭据后手动连接。“手动断开”和离开页面会取消重试。
+4. “重发同一条消息”保持原消息 ID、时间戳、类型和正文；“发送新消息”生成新 ID。离线不缓存、不自动重放业务报文，恢复后由操作员明确重发。HTTP 可显示平台返回的去重结果；MQTT QoS 1 确认只表示 Broker 接收，面板另行查询 Raw 归档和 StandardMessage，超时仍可“刷新解析结果”。
+5. 联调发送的数据会进入所选设备的正常存储、规则和告警链路。Secret 仅保存在组件内存，离开页面清除。导出验收记录仅包括设备标识、消息 ID、时间、通信方式、动作和处理状态，不包括凭据、JWT 或原始业务报文。
+
+代码入口：`iot_front/src/components/StandardDeviceCommissioning.vue`、`iot_front/src/standardDeviceProbe.js`。复用现有设备凭据、标准 Ingest、设备令牌和 Raw 查询接口；本阶段没有新增 API、数据库表或 migration。
+
+2026-09-09 验证：前端 52 项测试通过，覆盖网络退避、令牌续期、认证拒绝、晚到请求取消及离线发送拒绝。真实 Edge 浏览器 + 虚拟机 EMQX WebSocket 跑通认证、Raw 解析、主动断链后的自动重连和同消息重发；隔离内存仓库核对重发未重复新增属性消息。HTTP 浏览器验证错误凭据、正确上报、幂等、无凭据导出和离页清理。
+
+浏览器复测先构建前端，设置 `IOT_TEST_BROWSER` 为 Chromium/Edge 可执行文件，然后运行 `go test ./internal/httpapi -run '^TestOnboardingBrowser$' -count=1 -v`。真实 MQTT 分支额外需要 `IOT_TEST_MQTT_BROKER`、`IOT_TEST_MQTT_JWT_SECRET`、`IOT_TEST_MQTT_WEBSOCKET`；变量通过本地配置安全注入，不把密钥写进命令或测试文件。测试使用独立内存业务库、临时 Raw 目录、临时 clean-session 客户端和非保留消息，不部署业务服务。
+
+上述是联调工具与受控故障验证，不代表已完成厂商真机、长时断网或设备固件补传验收；现场缓存和离线自动补传仍属于后续 Edge Agent 范围。
+
 ## 实现与资源边界
 
 - `internal/connector`：通信控制面的 `Type`、`Connector.Test`、统一测试结果和 `Instance` 投影。不统一强制各 Runtime 的 Start/Stop。

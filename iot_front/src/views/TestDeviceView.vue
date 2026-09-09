@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import StandardDeviceCommissioning from '../components/StandardDeviceCommissioning.vue'
 import { api, formatTime, notifyError, parseJSON, pretty, session } from '../api'
 import { alarmType, label, messageTypeLabel, tagType } from '../labels'
 
@@ -157,6 +158,7 @@ onMounted(() => prepare())
 
 <template>
   <div class="test-device-view">
+    <StandardDeviceCommissioning />
     <div class="page-toolbar">
       <el-button type="primary" :loading="loading" @click="prepare(false)">准备测试设备</el-button>
       <el-button plain type="warning" :loading="loading" @click="resetLocalTemplates">恢复默认配置</el-button>
