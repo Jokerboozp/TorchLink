@@ -3,7 +3,7 @@
 本次任务依据：`DEVICE_ACCESS_REFACTOR.md`（完整 1637 行，保持原文）。
 日期：2026-09-09；环境：当前 macOS 本地工作区。根目录已核实为 `/Users/peterson/Developer/iot-platform`，适用根目录 AGENTS.md，未发现子目录规则。
 
-当前执行范围以 2026-09-09 后续授权为准：全部内容使用中文提交并推送，继续 P0/P1 及扩大的 P2 八类能力。下方“初始状态”为历史记录，后续模块记录按实际实现更新；原任务说明保持不变。
+当前执行范围按用户最新确认收敛为日常接入能力：Go 协议开发、接入诊断、认证、断线恢复、补传和升级回退。三维仿真、公共插件市场、大规模分批升级不再是当前必交付项；厂商协议扩展有实际设备需求时再做。下方八类 P2 和初始状态均为历史范围与能力边界，已实现模块保留；原任务说明保持不变。
 
 ## 范围与初始状态
 
@@ -310,3 +310,16 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - 实际集成：`IOT_TEST_BROWSER=... go test -race ./internal/httpapi -run 'TestGoFunctionsUploadAndListener|TestCrossPlatformSourceEdgeActualExecution' -count=1 -v` 通过，整体 38.076 秒。新函数模块 17.95 秒，覆盖真实 Go 编译/描述/样例、无 JSON 单文件上传、自动版本、viewer 拒绝、错误版本不切换、完整模板 ZIP 与独立 Go 项目、真实 TCP 半帧/粘包/归档/标准消息、真实下行与匹配 ACK、错误校验拒绝；Chrome 子测试 5.92 秒，通过实际页面上传、空版本、错误提示和 390px 窄屏。旧源码/Edge 缓存链路及旧高级区 Windows ARM64 选择回归通过，旧模板 Chrome 7.85 秒。
 - 未执行：本轮 Linux ARM64 独立进程子测试因未配置相应 runner 明确跳过；Windows 运行、真实厂商设备和生产部署未执行，不将交叉编译或教学 TCP 协议当作真机验收。当前企业市场仍要求带 protocol.json 的完整源包，新简化模板本轮支持本地上传发布，未扩展市场分发格式。
 - 当前简化上传模块无阻塞；现有服务需要更新后端及前端后才会展示新入口。此前 P2 核实表中的未完成能力继续保留，不因本模块完成而关闭。开发说明更新在 `docs/GO_PROTOCOL_PACKAGES.md`。
+
+### 日常接入收敛：本地预检、补传恢复与升级重试（2026-09-10）
+
+- 最新范围：用户确认继续完善 Go 协议开发、诊断、认证、断线恢复、补传与升级回退。三维/物理仿真、公共市场、大规模分批升级退出本轮必做范围；BACnet/ONVIF/GB28181 等扩展按实际设备需要推进。历史八类能力表保留为边界记录，不作为当前交付欠账。根目录及 AGENTS.md 已重新核实，开始时工作区干净，直接在当前分支增量修改。
+- 已完成 Go 本地预检：下载的两种模板新增 `zz_platform_test.go`，`go test ./...` 实际编译并运行 Go Samples/Operations、核对字段及必要的完整操作覆盖；每次调用限制 5 秒和 1 MiB 输出。原来模板的本地 Go 命令仅能编译、没有样例测试，本轮已补齐。上传端继续独立运行现有完整校验，不执行用户 `_test.go`；平台适配源码不变，已有模板仍可上传。
+- 已完成补传恢复：损坏 JSON、超大记录和身份摘要不匹配记录隔离为 `.json.corrupt`，原始文件保留、计入容量、禁止同 ID 静默覆盖；后续正常记录继续补传。重试服务端拒收不会重新发送损坏记录。确认删除增加目录刷新，关闭队列后禁止修改。新增心跳 `corruptDepth` 及节点运行页面的隔离数量和处理提示；沿用心跳 JSON 存储，无新建业务表。
+- 已完成诊断修复：中心 Listener 状态只覆盖本机监听实例，不能抹去 Edge 实例持久化的成功时间。错误/待启动状态也不能用错误时间替代成功时间，历史证据保留。
+- 已完成升级下载恢复：连接/响应中断、HTTP 408/429/5xx 区分为可重试故障，保留当前程序、同一目标自动指数退避，最长 5 分钟；次数及下次尝试时间持久化。每次重试仍获取真实授权目标并检查签名/摘要。TLS 不可信、权限、摘要及格式错误保留永久失败策略；候选身份/版本就绪失败继续回退，不以缓存配置冒充认证成功。
+- 模块实测：`TestDownloadedTemplatesRunRealSamplesLocally` 两种模板的真实本地 Go 测试通过，故意将解析值改为 99 后均实际失败，整体 4.97 秒。队列损坏/重启/容量/原文保留/显式重试及 Edge 成功时间针对性 `-race` 通过。下载分类实测覆盖真实 TLS、HTTP 408/429/5xx、401/403/404/302、截断响应、超限、错误证书、连接中断与取消。
+- 最终相关 `-race`：`go test -race ./internal/protocolbuild ./internal/protocolcatalog ./internal/edgeagent ./internal/edgeupgrade` 通过（22.756 / 1.441 / 1.476 / 1.531 秒）。前端 61 项测试及构建通过，保留已有大 chunk 提示。
+- 真实集成与 Chrome：`IOT_TEST_BROWSER=... go test -race ./internal/httpapi -run 'TestEdgeAgentDurableModbusChain|TestEdgeProgramAuthenticatedProcessUpgradeAndRollback|TestGoFunctionsUploadAndListener|TestEdgeListenerHeartbeatProjectsActualObservation' -count=1 -v` 通过，HTTP 包整体 44.369 秒。实际 Modbus Socket→认证节点→断网缓存→重启→隔离损坏文件→正常 Raw/Standard→真实心跳与页面，13.33 秒（Chrome 2.25 秒）；实际签名下载 503→同一请求恢复→独立 Agent 升级→版本不匹配回退→重启/篡改检查与页面，10.20 秒（Chrome 2.29 秒）；Go 上传/模板本地测试/TCP 上下行/错误拒绝与页面，18.96 秒（Chrome 5.75 秒）。三组浏览器均覆盖窄屏。
+- 全量检查：根目录 `go test ./...` 已通过（完整命令退出码 0，未配置环境的可选集成测试仍会跳过）；`git diff --check` 已通过。当前工具链为 Go 1.27.0、macOS ARM64；日志中 Sonic 已有兼容提示并回退到 encoding/json，未升级依赖。
+- 待完成/未执行：本轮不操作现有业务服务、数据库或真实设备；厂商真机、物理 RS485、Windows 实际进程、断电及生产部署未执行。没有提供当前待接设备的协议文档、连接参数和隔离测试环境，因此不能宣称真机联调完成。现有基础认证回归继续通过，本轮未重新部署业务 EMQX 或执行真实 Broker 全套联调。代码层本轮已定位模块无阻塞，其余设备特有兼容问题按实际联调结果处理。

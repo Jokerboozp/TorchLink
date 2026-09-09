@@ -68,7 +68,14 @@ func TestEdgeProgramAuthenticatedProcessUpgradeAndRollback(t *testing.T) {
 	public, private, _ := ed25519.GenerateKey(rand.Reader)
 	var signed []byte
 	var tampered atomic.Bool
+	var downloadDown atomic.Bool
+	var interruptedDownloads atomic.Int32
 	catalog := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/agent" && downloadDown.Load() {
+			interruptedDownloads.Add(1)
+			w.WriteHeader(503)
+			return
+		}
 		if r.URL.Path == "/catalog.json" {
 			w.Write(signed)
 			return
@@ -250,10 +257,25 @@ func TestEdgeProgramAuthenticatedProcessUpgradeAndRollback(t *testing.T) {
 		t.Fatal("stale update accepted", w.Code)
 	}
 	tampered.Store(false)
+	downloadDown.Store(true)
 	input["expectedGeneration"] = 1
 	if w := call("t", "admin", input); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	deadline := time.Now().Add(5 * time.Second)
+	for interruptedDownloads.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if interruptedDownloads.Load() == 0 {
+		t.Fatal("network interruption not exercised")
+	}
+	wait("STAGING", "v1", 2)
+	current, _ := repo.GetEdgeHeartbeat(ctx, "t", "node")
+	if current.Version != "v1" {
+		t.Fatal("working agent stopped during download failure")
+	}
+	downloadDown.Store(false)
+	// Same target generation must recover automatically, without reissuing it.
 	wait("RUNNING", "v2", 2)
 	heartbeat, err = repo.GetEdgeHeartbeat(ctx, "t", "node")
 	if err != nil || heartbeat.Version != "v2" || heartbeat.QueueDepth != 1 {

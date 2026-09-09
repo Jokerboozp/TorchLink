@@ -3,6 +3,9 @@ package protocolbuild
 import (
 	"bytes"
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -48,5 +51,44 @@ func TestFunctionDescriptionLimits(t *testing.T) {
 	}
 	if time.Since(started) > 3*time.Second {
 		t.Fatal("description ignored cancellation")
+	}
+}
+
+func TestDownloadedTemplatesRunRealSamplesLocally(t *testing.T) {
+	for _, kind := range []string{"", "tcp"} {
+		t.Run("template-"+kind, func(t *testing.T) {
+			data, err := FunctionTemplateZIP(kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files, err := Sources("template.zip", data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			root := t.TempDir()
+			for name, data := range files {
+				if err := os.WriteFile(filepath.Join(root, name), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run := func(wantPass bool) {
+				t.Helper()
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, "go", "test", "-count=1", "./...")
+				cmd.Dir = root
+				output, err := cmd.CombinedOutput()
+				if (err == nil) != wantPass || ctx.Err() != nil {
+					t.Fatalf("want pass=%v: %v %s", wantPass, err, output)
+				}
+			}
+			run(true)
+			code := strings.Replace(string(files["protocol.go"]), "int(data[2])", "99", 1)
+			if kind == "tcp" {
+				code = strings.Replace(string(files["protocol.go"]), "int(data[3])", "99", 1)
+			}
+			os.WriteFile(filepath.Join(root, "protocol.go"), []byte(code), 0600)
+			run(false)
+		})
 	}
 }

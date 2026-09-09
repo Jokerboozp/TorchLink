@@ -168,7 +168,7 @@ func (s *Server) edgeHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &h) != nil {
 		return
 	}
-	if len(h.Profiles) > 256 || len(h.LastError) > 512 || h.QueueDepth < 0 || h.QueueDepth > 10000 || h.RejectedDepth < 0 || h.RejectedDepth > 10000 || len(h.Version) > 64 || len(h.Capabilities) > 16 {
+	if len(h.Profiles) > 256 || len(h.LastError) > 512 || h.QueueDepth < 0 || h.QueueDepth > 10000 || h.RejectedDepth < 0 || h.RejectedDepth > 10000 || h.CorruptDepth < 0 || h.CorruptDepth > 10000 || len(h.Version) > 64 || len(h.Capabilities) > 16 {
 		problem(w, 422, "invalid heartbeat limits")
 		return
 	}

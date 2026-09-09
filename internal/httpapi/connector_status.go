@@ -35,9 +35,13 @@ func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessi
 
 func (s *Server) profileSnapshot(ctx context.Context, tenant string, p model.DeviceAccessProfile) (model.DeviceAccessProfile, []map[string]any) {
 	sessions := []map[string]any{}
-	if p.Mode == "listener" {
+	if p.Mode == "listener" && p.EdgeNodeID == "" {
 		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
-			p.RuntimeStatus, p.LastError, p.LastSuccessAt = runtime.Status(tenant, p.ID)
+			status, message, last := runtime.Status(tenant, p.ID)
+			p.RuntimeStatus, p.LastError = status, message
+			if status == "LISTENING" {
+				p.LastSuccessAt = max(p.LastSuccessAt, last)
+			}
 			sessions = runtime.Sessions(tenant, p.ID)
 		}
 	}

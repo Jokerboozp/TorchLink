@@ -17,14 +17,17 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
 func TestEdgeAgentDurableModbusChain(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	sim, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -86,12 +89,17 @@ func TestEdgeAgentDurableModbusChain(t *testing.T) {
 	server := New(cfg, engine, metrics.New(), log)
 	blocked := atomic.Bool{}
 	blocked.Store(true)
+	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/edge/tenant/node/raw" && blocked.Load() {
 			w.WriteHeader(503)
 			return
 		}
-		server.Handler().ServeHTTP(w, r)
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			server.Handler().ServeHTTP(w, r)
+		} else {
+			assets.ServeHTTP(w, r)
+		}
 	}))
 	defer upstream.Close()
 	for _, path := range []string{"/api/v1/edge/tenant/node/config", "/api/v1/edge/other/node/config"} {
@@ -136,6 +144,11 @@ func TestEdgeAgentDurableModbusChain(t *testing.T) {
 		t.Fatal("pending raw lost after restart", err)
 	}
 	disk.Close()
+	// A corrupt record sorts first, but must not starve the valid persisted raw.
+	corrupt := filepath.Join(options.DataDir, "outbox", strings.Repeat("0", 64)+".json")
+	if err := os.WriteFile(corrupt, []byte("{damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = repo.GetRawIndex(ctx, "tenant", pending.MessageID); err == nil {
 		t.Fatal("failed delivery was reported as archived")
 	}
@@ -158,6 +171,27 @@ func TestEdgeAgentDurableModbusChain(t *testing.T) {
 		t.Fatal("recovered raw was not parsed", err)
 	}
 	wait(func() bool { return restarted.Pending() == 0 })
+	wait(func() bool {
+		h, err := repo.GetEdgeHeartbeat(ctx, "tenant", "node")
+		return err == nil && h.CorruptDepth == 1
+	})
+	if data, err := os.ReadFile(corrupt + ".corrupt"); err != nil || string(data) != "{damaged" {
+		t.Fatal("corrupt evidence lost", err)
+	}
+
+	t.Run("browser", func(t *testing.T) {
+		if os.Getenv("IOT_TEST_BROWSER") == "" {
+			t.Skip("Chrome not configured")
+		}
+		token, _ := server.auth.Issue("browser-test", "tenant", "admin", nil, time.Minute)
+		command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "edge-recovery-check.mjs"))
+		command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+upstream.URL, "IOT_TEST_TOKEN="+token)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("browser: %v %s", err, output)
+		} else {
+			t.Log(string(output))
+		}
+	})
 	// Explicit credential revocation is checked on every subsequent request.
 	if err = repo.SetEdgeCredential(ctx, "tenant", "node", ""); err != nil {
 		t.Fatal(err)

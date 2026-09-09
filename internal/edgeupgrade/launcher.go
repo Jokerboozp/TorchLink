@@ -147,6 +147,13 @@ func (l *Launcher) reconcile(ctx context.Context, target model.EdgeProgram) erro
 	if target.Generation <= 0 {
 		return errors.New("invalid program target generation")
 	}
+	if l.state.RetryGeneration == target.Generation && l.state.RetryAt > time.Now().UnixMilli() {
+		err := l.report(ctx, "STAGING", target.TargetVersion, target.Generation, l.state.LastError)
+		if errors.Is(err, ErrUnauthorized) {
+			return err
+		}
+		return nil
+	}
 	if err := l.report(ctx, "STAGING", target.TargetVersion, target.Generation, ""); err != nil {
 		if errors.Is(err, ErrUnauthorized) {
 			return err
@@ -155,6 +162,30 @@ func (l *Launcher) reconcile(ctx context.Context, target model.EdgeProgram) erro
 	}
 	path, hash, err := l.stage(ctx, target.TargetVersion)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if protocolcatalog.RetryableDownload(err) {
+			if l.state.RetryGeneration != target.Generation {
+				l.state.RetryCount = 0
+			}
+			l.state.RetryGeneration = target.Generation
+			l.state.RetryCount = min(max(l.state.RetryCount, 0)+1, 10)
+			base := min(max(l.options.PollInterval, time.Second), 5*time.Minute)
+			delay := min(base*time.Duration(1<<uint(l.state.RetryCount-1)), 5*time.Minute)
+			l.state.RetryAt = time.Now().Add(delay).UnixMilli()
+			l.state.LastPhase = "STAGING"
+			l.state.LastError = fmt.Sprintf("下载暂时失败，%s 后重试；当前程序继续运行：%s", delay, err)
+			if err := l.save(); err != nil {
+				return err
+			}
+			err = l.report(ctx, "STAGING", target.TargetVersion, target.Generation, l.state.LastError)
+			if errors.Is(err, ErrUnauthorized) {
+				return err
+			}
+			return nil
+		}
+		l.state.RetryGeneration, l.state.RetryCount, l.state.RetryAt = 0, 0, 0
 		l.state.FailedGeneration, l.state.LastError, l.state.LastPhase = target.Generation, err.Error(), "FAILED"
 		if err := l.save(); err != nil {
 			return err
@@ -177,6 +208,7 @@ func (l *Launcher) reconcile(ctx context.Context, target model.EdgeProgram) erro
 	if latest.Generation != target.Generation || latest.TargetVersion != target.TargetVersion {
 		return nil
 	}
+	l.state.RetryGeneration, l.state.RetryCount, l.state.RetryAt = 0, 0, 0
 	old := l.state
 	// Persist the attempt before stopping the old process. A power loss at any
 	// point before the successful final journal write restarts the old program

@@ -34,6 +34,9 @@ type Launcher struct {
 	child   *childProcess
 }
 type journal struct {
+	RetryGeneration   int64  `json:"retryGeneration,omitempty"`
+	RetryCount        int    `json:"retryCount,omitempty"`
+	RetryAt           int64  `json:"retryAt,omitempty"`
 	CurrentPath       string `json:"currentPath"`
 	CurrentVersion    string `json:"currentVersion"`
 	CurrentSHA256     string `json:"currentSha256"`

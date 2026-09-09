@@ -30,6 +30,9 @@ var FunctionTemplate string
 //go:embed functiontemplates/tcp.go.txt
 var FunctionTCPTemplate string
 
+//go:embed functiontemplates/platform_test.go.txt
+var FunctionTestTemplate string
+
 // PrepareFunctions recognizes the explicit Go entry point. Existing main-based
 // packages continue through the original build path without rewriting source.
 func PrepareFunctions(files map[string][]byte) (bool, error) {
@@ -104,7 +107,7 @@ func FunctionTemplateZIP(kind ...string) ([]byte, error) {
 	}
 	var data bytes.Buffer
 	z := zip.NewWriter(&data)
-	for _, file := range []struct{ name, content string }{{"go.mod", "module device-protocol\n\ngo 1.25.0\n"}, {"protocol.go", source}, {"zz_platform.go", FunctionAdapter}} {
+	for _, file := range []struct{ name, content string }{{"go.mod", "module device-protocol\n\ngo 1.25.0\n"}, {"protocol.go", source}, {"zz_platform.go", FunctionAdapter}, {"zz_platform_test.go", FunctionTestTemplate}} {
 		w, err := z.Create(file.name)
 		if err != nil {
 			return nil, err

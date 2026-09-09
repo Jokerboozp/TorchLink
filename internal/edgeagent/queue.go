@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iot-platform/internal/model"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 	"sync"
 )
 
-var ErrQuarantined = errors.New("raw is retained in the rejected queue; operator review is required")
+var ErrQuarantined = errors.New("raw is quarantined; operator review is required")
 
 var ErrQueueFull = errors.New("edge queue is full; data was not acknowledged")
 
@@ -46,7 +47,7 @@ func OpenQueue(root string, maxBytes int64, maxItems int) (*Queue, error) {
 		return nil, err
 	}
 	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), ".rejected") {
+		if !queueEntry(entry.Name()) {
 			continue
 		}
 		info, err := entry.Info()
@@ -88,10 +89,12 @@ func (q *Queue) Put(raw model.RawMessage) error {
 	if q.closed {
 		return os.ErrClosed
 	}
-	if _, err := os.Stat(target + ".rejected"); err == nil {
-		return ErrQuarantined
-	} else if !os.IsNotExist(err) {
-		return err
+	for _, suffix := range []string{".rejected", ".corrupt"} {
+		if _, err := os.Lstat(target + suffix); err == nil {
+			return ErrQuarantined
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 	if old, err := os.ReadFile(target); err == nil {
 		if !bytes.Equal(old, b) {
@@ -107,7 +110,7 @@ func (q *Queue) Put(raw model.RawMessage) error {
 	}
 	items := 0
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), ".rejected") {
+		if queueEntry(entry.Name()) {
 			items++
 		}
 	}
@@ -145,21 +148,58 @@ func (q *Queue) Next() (model.RawMessage, bool, error) {
 	if err != nil || len(entries) == 0 {
 		return raw, false, err
 	}
-	b, err := os.ReadFile(filepath.Join(q.root, entries[0]))
+	path := filepath.Join(q.root, entries[0])
+	info, err := os.Lstat(path)
 	if err != nil {
 		return raw, false, err
 	}
-	if err = json.Unmarshal(b, &raw); err != nil {
-		return raw, false, fmt.Errorf("corrupt queue entry %s: %w", entries[0], err)
+	if !info.Mode().IsRegular() {
+		return raw, false, errors.New("queue entry is not a regular file")
 	}
-	if queueName(raw) != entries[0] {
-		return raw, false, errors.New("queue identity checksum mismatch")
+	f, err := os.Open(path)
+	if err != nil {
+		return raw, false, err
+	}
+	b, readErr := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	closeErr := f.Close()
+	if readErr != nil {
+		return raw, false, readErr
+	}
+	if closeErr != nil {
+		return raw, false, closeErr
+	}
+	reason := ""
+	if len(b) > 1<<20 {
+		reason = "entry exceeds 1 MiB"
+	} else if json.Unmarshal(b, &raw) != nil {
+		reason = "invalid JSON"
+	} else if raw.TenantID == "" || raw.MessageID == "" || queueName(raw) != entries[0] {
+		reason = "identity checksum mismatch"
+	}
+	if reason != "" {
+		// Retain the exact bytes in a separate quarantine. Operator retry of
+		// server rejections must never requeue unreadable or mismatched data.
+		if _, err := os.Lstat(path + ".corrupt"); err == nil {
+			return raw, false, errors.New("corrupt quarantine already exists")
+		} else if !os.IsNotExist(err) {
+			return raw, false, err
+		}
+		if err := os.Rename(path, path+".corrupt"); err != nil {
+			return raw, false, err
+		}
+		if err := syncDirectory(q.root); err != nil {
+			return raw, false, err
+		}
+		return model.RawMessage{}, false, fmt.Errorf("queue entry %s quarantined: %s", entries[0], reason)
 	}
 	return raw, true, nil
 }
 func (q *Queue) Ack(raw model.RawMessage) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if q.closed {
+		return os.ErrClosed
+	}
 	path := filepath.Join(q.root, queueName(raw))
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
@@ -172,7 +212,7 @@ func (q *Queue) Ack(raw model.RawMessage) error {
 		return err
 	}
 	q.used -= info.Size()
-	return nil
+	return syncDirectory(q.root)
 }
 func (q *Queue) Depth() int { q.mu.Lock(); defer q.mu.Unlock(); v, _ := q.entries(); return len(v) }
 func atomicFile(path string, b []byte) error {
@@ -204,6 +244,9 @@ func atomicFile(path string, b []byte) error {
 func (q *Queue) Reject(raw model.RawMessage) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if q.closed {
+		return os.ErrClosed
+	}
 	path := filepath.Join(q.root, queueName(raw))
 	if err := os.Rename(path, path+".rejected"); err != nil {
 		return err
@@ -227,6 +270,9 @@ func (q *Queue) Rejected() int {
 func (q *Queue) RetryRejected() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if q.closed {
+		return os.ErrClosed
+	}
 	entries, err := os.ReadDir(q.root)
 	if err != nil {
 		return err
@@ -244,4 +290,20 @@ func (q *Queue) RetryRejected() error {
 		}
 	}
 	return syncDirectory(q.root)
+}
+
+func queueEntry(name string) bool {
+	return strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".rejected") || strings.HasSuffix(name, ".corrupt")
+}
+func (q *Queue) Corrupt() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	entries, _ := os.ReadDir(q.root)
+	count := 0
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".corrupt") {
+			count++
+		}
+	}
+	return count
 }

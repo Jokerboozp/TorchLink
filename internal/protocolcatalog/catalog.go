@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -165,18 +166,39 @@ func (c *Client) download(ctx context.Context, raw string, max int64) ([]byte, e
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		var cert *tls.CertificateVerificationError
+		var unknown x509.UnknownAuthorityError
+		var hostname x509.HostnameError
+		var invalid x509.CertificateInvalidError
+		if errors.As(err, &cert) || errors.As(err, &unknown) || errors.As(err, &hostname) || errors.As(err, &invalid) {
+			return nil, errors.New("catalog TLS certificate verification failed")
+		}
+		var network *net.OpError
+		var timeout net.Error
+		if errors.As(err, &network) || (errors.As(err, &timeout) && timeout.Timeout()) || errors.Is(err, io.EOF) {
+			return nil, &downloadFailure{message: "catalog network request interrupted", retryable: true}
+		}
 		return nil, errors.New("catalog HTTPS request failed")
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("catalog HTTP %d", res.StatusCode)
+		return nil, &downloadFailure{message: fmt.Sprintf("catalog HTTP %d", res.StatusCode), retryable: res.StatusCode == 408 || res.StatusCode == 429 || res.StatusCode >= 500}
 	}
 	if res.ContentLength > max {
 		return nil, errors.New("catalog download exceeds limit")
 	}
 	data, err := io.ReadAll(io.LimitReader(res.Body, max+1))
-	if err != nil || int64(len(data)) > max {
-		return nil, errors.New("catalog download incomplete or exceeds limit")
+	if int64(len(data)) > max {
+		return nil, errors.New("catalog download exceeds limit")
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, &downloadFailure{message: "catalog download interrupted", retryable: true}
 	}
 	return data, nil
 }
@@ -269,3 +291,17 @@ func (c *Client) Source(ctx context.Context, e Entry) ([]byte, error) {
 	}
 	return data, nil
 }
+
+// RetryableDownload distinguishes transport failures from trust/format failures.
+// Error text deliberately omits remote bodies, credentials and URLs.
+func RetryableDownload(err error) bool {
+	var failure *downloadFailure
+	return errors.As(err, &failure) && failure.retryable
+}
+
+type downloadFailure struct {
+	message   string
+	retryable bool
+}
+
+func (e *downloadFailure) Error() string { return e.message }

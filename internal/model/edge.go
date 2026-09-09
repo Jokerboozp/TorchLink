@@ -28,6 +28,7 @@ type EdgeConfiguration struct {
 	Products  []Product       `json:"products"`
 }
 type EdgeHeartbeat struct {
+	CorruptDepth   int                   `json:"corruptDepth"`
 	VideoCatalog   []EdgeVideoDevice     `json:"videoCatalog,omitempty"`
 	RejectedDepth  int                   `json:"rejectedDepth"`
 	LastSeenAt     int64                 `json:"lastSeenAt"`
