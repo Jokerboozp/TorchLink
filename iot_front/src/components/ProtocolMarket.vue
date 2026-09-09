@@ -40,7 +40,7 @@ onMounted(load)
    <el-collapse v-if="session.role!=='viewer'">
     <el-collapse-item title="提交协议版本" name="submit">
      <el-form label-position="top"><div class="market-grid">
-      <el-form-item label="待提交版本"><el-select v-model="form.release" filterable placeholder="已实际校验的完整 Go ZIP"><el-option v-for="r in available" :key="r.key" :label="r.key" :value="r.key"/></el-select></el-form-item>
+      <el-form-item label="待提交版本"><el-select v-model="form.release" filterable placeholder="已实际校验的完整协议压缩包"><el-option v-for="r in available" :key="r.key" :label="r.key" :value="r.key"/></el-select></el-form-item>
       <el-form-item label="目录名称"><el-input v-model="form.name" maxlength="256"/></el-form-item>
       <el-form-item label="组织许可"><el-input v-model="form.license" maxlength="128"/></el-form-item>
       <el-form-item label="标签"><el-input v-model="form.tags" placeholder="多个标签用逗号分隔"/></el-form-item>
@@ -49,7 +49,7 @@ onMounted(load)
     </el-collapse-item>
    </el-collapse>
    <el-table :data="filtered" :row-key="row=>row.protocolId+'@'+row.version" empty-text="暂无组织发布记录">
-    <el-table-column type="expand"><template #default="{row}"><div class="market-detail"><p>{{row.description}}</p><p>源码 SHA-256：{{row.sourceSha256}}</p><p>制品 SHA-256：{{row.packageSha256}}</p><p v-for="(review,index) in row.reviews" :key="index">{{formatTime(review.at)}} · {{review.actor}} · {{status(review.decision)}}：{{review.reason}}</p></div></template></el-table-column>
+    <el-table-column type="expand"><template #default="{row}"><div class="market-detail"><p>{{row.description}}</p><p>源码校验摘要：{{row.sourceSha256}}</p><p>制品校验摘要：{{row.packageSha256}}</p><p v-for="(review,index) in row.reviews" :key="index">{{formatTime(review.at)}} · {{review.actor}} · {{status(review.decision)}}：{{review.reason}}</p></div></template></el-table-column>
     <el-table-column label="协议版本" min-width="190"><template #default="{row}"><b>{{row.name}}</b><div>{{row.protocolId}} · {{row.version}}</div></template></el-table-column>
     <el-table-column label="提交者" min-width="130"><template #default="{row}">{{row.submittedBy}}<div class="muted-text">{{formatTime(row.submittedAt)}}</div></template></el-table-column>
     <el-table-column prop="license" label="许可" min-width="100"/>

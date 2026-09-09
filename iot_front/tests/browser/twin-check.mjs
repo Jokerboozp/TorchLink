@@ -39,7 +39,7 @@ try {
   }
   await choose('目标设备','Shadow device')
   await click('添加关系')
-  await until(()=>evaluate(`document.querySelector('.device-twin .el-alert')?.textContent.includes('cycle')`))
+  await until(()=>evaluate(`document.querySelector('.device-twin .el-alert')?.textContent.includes('循环')`))
   assert.equal(await evaluate(`document.querySelector('.device-twin')?.textContent.includes('拓扑版本 1')`),true)
   await choose('关系类型','监测')
   await click('添加关系')

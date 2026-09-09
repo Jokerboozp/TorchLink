@@ -10,7 +10,7 @@ export const dataStatuses = { ACTIVE:'数据活跃', SILENT:'数据静默', UNKN
 export const backupTypes = { FULL:'设备数据备份', DEVICE_DAILY:'设备数据日备份', INCREMENTAL:'增量备份', RAW_LOGS:'原始日志日备份', RESTORE_DRILL:'文件校验' }
 export const backupStatuses = { RUNNING:'执行中', COMPLETED:'已完成', FAILED:'失败' }
 export const categories = { smoke:'烟雾探测器', fire:'火灾探测器', water_pressure:'水压传感器', camera:'摄像机', gateway:'边缘网关', sensor:'通用传感器', video_ai:'视频智能分析设备', other:'其他设备' }
-export const parsers = { custom_json_parser:'通用结构化数据', configurable_json_parser:'配置驱动 JSON 映射', configurable_hex_parser:'配置驱动十六进制字段', modbus_coil_parser:'Modbus 线圈点表（Go）', javascript_sandbox_parser:'受限 JavaScript 解析器', go_protocol_parser:'可上传 Go 协议 Worker', gb26875_dahua_parser:'国标消防终端（大华 v1.03）', fire_smoke_parser:'烟感十六进制', modbus_parser:'工业总线寄存器' }
+export const parsers = { custom_json_parser:'通用结构化数据', configurable_json_parser:'配置驱动结构化数据映射', configurable_hex_parser:'配置驱动十六进制字段', modbus_coil_parser:'工业总线线圈点表', javascript_sandbox_parser:'受限脚本解析器', go_protocol_parser:'可上传的协议程序', gb26875_dahua_parser:'国标消防终端（大华第一版）', fire_smoke_parser:'烟感十六进制', modbus_parser:'工业总线寄存器' }
 export const messageTypes = {
   PROPERTY_REPORT: { label:'属性上报', description:'设备测点、开关量和当前状态值' },
   EVENT_REPORT: { label:'事件上报', description:'一次性发生的事件，例如复位、心跳或测试' },
@@ -19,7 +19,7 @@ export const messageTypes = {
   COMMAND_REPLY: { label:'指令应答', description:'设备对平台下发指令的响应' },
   LOG_REPORT: { label:'日志上报', description:'设备运行日志或诊断信息' }
 }
-export const messageTypeLabel = value => messageTypes[String(value ?? '')]?.label || value || '未知消息'
+export const messageTypeLabel = value => messageTypes[String(value ?? '')]?.label || '其他消息'
 export const label = (map, value, fallback = '未知') => map[String(value ?? '')] || fallback
 export const alarmLevel = value => label(alarmLevels, String(value ?? '').trim().toUpperCase(), '未设置')
 export const alarmType = value => label(alarmTypes, value, '其他告警类型')

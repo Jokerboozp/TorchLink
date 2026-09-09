@@ -4,6 +4,8 @@ import { ElMessage } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
   Bell,
+  CircleHelp,
+  Flame,
   Boxes,
   ChartNoAxesCombined,
   ChevronDown,
@@ -29,6 +31,7 @@ import Input from './components/ui/Input.vue'
 import Label from './components/ui/Label.vue'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
 import { api, notifyError, session } from './api'
+import { pageGuide } from './pageGuide'
 import { startRealtime, stopRealtime } from './realtime'
 
 const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
@@ -52,6 +55,7 @@ const active = ref('dashboard')
 const collapsed = ref(false)
 const launcherVisible = ref(false)
 const pageSearch = ref('')
+const guideVisible = ref(false)
 const contentArea = ref(null)
 const pageKey = ref(0)
 const loginLoading = ref(false)
@@ -60,24 +64,24 @@ const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' 
 const identity = ref({ tenant: session.tenant, user: session.user, role: session.role })
 const currentTenant = computed(() => identity.value.tenant || loginForm.value.tenantId || '—')
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
-const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || identity.value.role || '平台用户'))
+const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || '平台用户'))
 
 const pages = {
-  dashboard: { title: '运行总览', sub: '城市级消防感知与告警态势', icon: LayoutDashboard, component: DashboardView },
-  devices: { title: '设备管理', sub: '注册、启停、凭证和实时状态统一管理', icon: Cpu, component: DevicesView },
-  products: { title: '产品管理', sub: '产品模型与协议包绑定', icon: Boxes, component: ProductsView },
-  protocols: { title: '设备接入', sub: 'Go 协议包、TCP/UDP 接入与版本热更新', icon: Network, component: ProtocolsView },
-  integration: { title:'接入指南', sub: '真实设备 HTTP / MQTT 参数与数据联调', icon: Upload, component: IntegrationView },
-  testDevice: { title:'测试设备', sub: '模板化发送数据、事件、报警和恢复报文', icon: FlaskConical, component: TestDeviceView },
-  cameras: { title: '摄像头映射', sub: '视频平台摄像头、空间位置与物联设备关联', icon: Video, component: CameraMappingsView },
-  alarms: { title: '告警中心', sub: '告警确认、恢复与闭环处置', icon: Bell, component: AlarmsView },
-  inspection: { title:'智能巡检', sub: '设备健康、数据新鲜度与活动告警分析', icon: ChartNoAxesCombined, component: HealthInspectionView },
-  raw: { title: '原始报文', sub: '证据链检索、审计与回放', icon: FileText, component: RawView },
-  rules: { title: '告警规则', sub: '可审计的动态规则与 AI 草稿', icon: Settings2, component: RulesView },
-  knowledge: { title: 'Agent 知识库', sub: '文档直接归属 Agent，并使用持久化向量索引', icon: Library, component: KnowledgeView },
-  aiProviders: { title: 'AI 模型管理', sub: '模型服务、接口密钥和 AI 业务统一管理', icon: Cpu, component: AiProvidersView },
-  ai: { title: 'AI 工作流', sub: '受控工具与知识库问答', icon: MessageCircle, component: AiView },
-  backups: { title: '备份中心', sub: '设备原始数据与解析数据的每日备份', icon: Database, component: BackupsView }
+  dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView },
+  devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
+  products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
+  protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView },
+  integration: { ...pageGuide.integration, icon: Upload, component: IntegrationView },
+  testDevice: { ...pageGuide.testDevice, icon: FlaskConical, component: TestDeviceView },
+  cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView },
+  alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
+  inspection: { ...pageGuide.inspection, icon: ChartNoAxesCombined, component: HealthInspectionView },
+  raw: { ...pageGuide.raw, icon: FileText, component: RawView },
+  rules: { ...pageGuide.rules, icon: Settings2, component: RulesView },
+  knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView },
+  aiProviders: { ...pageGuide.aiProviders, icon: Cpu, component: AiProvidersView },
+  ai: { ...pageGuide.ai, icon: MessageCircle, component: AiView },
+  backups: { ...pageGuide.backups, icon: Database, component: BackupsView }
 }
 const current = computed(() => pages[active.value])
 const menuGroups = [
@@ -87,6 +91,7 @@ const menuGroups = [
   { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] },
   { label: '系统维护', items: ['backups'] }
 ]
+const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '工作台')
 const relatedPages = {
   dashboard: ['devices', 'alarms', 'inspection'],
   products: ['protocols', 'devices'], protocols: ['products', 'integration'],
@@ -138,6 +143,7 @@ function openPage(name, detail) {
   launcherVisible.value = false
   if (active.value === name && !detail) return
   sessionStorage.removeItem('iot:navigation-detail')
+  guideVisible.value = false
   active.value = name
   pageKey.value++
   if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail))
@@ -194,13 +200,13 @@ onBeforeUnmount(() => {
   <el-config-provider :locale="zhCn" size="small">
     <div v-if="!authenticated" class="login-page">
       <section class="login-hero">
-        <div class="hero-brand"><span>IoT</span><strong>消防智联平台</strong></div>
+        <div class="hero-brand"><span><Flame :size="23" aria-hidden="true" /></span><strong>消防智联平台</strong></div>
         <div>
-          <span class="eyebrow">FIRE SAFETY · IOT PLATFORM</span>
+          <span class="eyebrow">消防安全 · 智慧物联</span>
           <h1>连接设备，洞察现场，<br />驱动消防业务。</h1>
           <p>统一管理产品、设备、规则与视频资源，让城市消防物联数据在一个平台内完成接入、监控和智能研判。</p>
         </div>
-        <div class="hero-tags"><span>统一设备模型</span><span>实时规则引擎</span><span>AI 辅助研判</span></div>
+        <div class="hero-tags"><span>统一设备模型</span><span>实时规则引擎</span><span>智能辅助研判</span></div>
       </section>
 
       <section class="login-panel">
@@ -229,8 +235,8 @@ onBeforeUnmount(() => {
 
     <div v-else class="app-shell">
       <aside class="app-aside" :class="{ 'is-collapsed': collapsed }">
-        <div class="brand"><span>IoT</span><div v-show="!collapsed"><strong>消防智联</strong><small>物联网管理平台</small></div></div>
-        <div class="menu-scroll">
+        <div class="brand"><span><Flame :size="23" aria-hidden="true" /></span><div v-show="!collapsed"><strong>消防智联</strong><small>物联网管理平台</small></div></div>
+        <nav class="menu-scroll" aria-label="主导航">
           <div class="menu-scroll-inner">
             <template v-for="group in menuGroups" :key="group.label">
               <div v-show="!collapsed" class="menu-group">{{ group.label }}</div>
@@ -240,28 +246,29 @@ onBeforeUnmount(() => {
               </button>
             </template>
           </div>
-        </div>
+        </nav>
+        <div v-show="!collapsed" class="aside-footer"><Flame :size="15" /><span>消防感知 · 智慧运维</span></div>
       </aside>
 
       <main class="app-main">
         <header class="topbar">
           <div class="title-area">
             <button class="collapse-button" :aria-label="collapsed ? '展开菜单' : '折叠菜单'" :aria-expanded="!collapsed" @click="collapsed = !collapsed"><component :is="collapsed ? PanelLeftOpen : PanelLeftClose" /></button>
-            <div><span>首页 / {{ current.title }}</span><h2>{{ current.title }}</h2><p>{{ current.sub }}</p></div>
+            <nav class="breadcrumb" aria-label="当前位置"><button type="button" @click="openPage('dashboard')">工作台</button><span>/</span><span>{{ currentGroup }}</span><span>/</span><strong>{{ current.title }}</strong></nav>
           </div>
           <div class="top-actions">
             <button class="launcher-trigger" type="button" @click="openLauncher"><Search /><span>全部功能</span></button>
             <button class="alert-settings-trigger" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
-            <span class="tenant-pill">{{ currentTenant }}</span>
+            <span class="tenant-pill" :title="`租户标识：${currentTenant}`">租户：{{ currentTenant }}</span>
             <el-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">
-                <Avatar>{{ currentUser.slice(0, 1) }}</Avatar>
-                <span class="account-copy"><strong>{{ currentUser }}</strong><small>{{ currentRole }}</small></span>
+                <Avatar>{{ currentRole.slice(0, 1) }}</Avatar>
+                <span class="account-copy"><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong><small>{{ currentRole }}</small></span>
                 <ChevronDown class="account-chevron" />
               </button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item disabled>{{ currentTenant }}</el-dropdown-item>
+                  <el-dropdown-item disabled>账户：{{ currentUser }} · 租户：{{ currentTenant }}</el-dropdown-item>
                   <el-dropdown-item divided command="logout"><LogOut />退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -270,9 +277,10 @@ onBeforeUnmount(() => {
         </header>
         <section ref="contentArea" class="main-content" :class="{ 'main-content--ai': active === 'ai' }">
           <div class="page-context">
-            <div class="page-context-copy"><span class="page-context-icon"><component :is="current.icon" /></span><div><strong>{{ current.title }}</strong><p>{{ current.sub }}</p></div></div>
-            <div class="related-actions" aria-label="相关功能"><span>相关功能</span><el-button v-for="name in relatedPages[active]" :key="name" plain @click="openPage(name)"><component :is="pages[name].icon" />{{ pages[name].title }}</el-button></div>
+            <div class="page-context-copy"><span class="page-context-icon"><component :is="current.icon" /></span><div><h1>{{ current.title }}</h1><p>{{ current.sub }}</p></div></div>
+            <div class="related-actions" aria-label="相关功能"><button class="guide-trigger" type="button" :aria-expanded="guideVisible" aria-controls="page-guide" @click="guideVisible = !guideVisible"><CircleHelp :size="16" />使用说明</button><span>相关功能</span><el-button v-for="name in relatedPages[active]" :key="name" plain @click="openPage(name)"><component :is="pages[name].icon" />{{ pages[name].title }}</el-button></div>
           </div>
+          <section v-if="guideVisible" id="page-guide" class="page-guide" aria-label="使用说明"><strong>如何使用{{ current.title }}</strong><ol><li v-for="step in current.steps" :key="step">{{ step }}</li></ol></section>
           <component :is="current.component" :key="`${active}-${pageKey}`" @navigate="openPage" />
         </section>
       </main>

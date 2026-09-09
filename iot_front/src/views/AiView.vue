@@ -1,4 +1,5 @@
 <script setup>
+import { capabilityName } from '../presentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, apiStream, session } from '../api'
@@ -18,7 +19,7 @@ let scrollQueued = false
 let historyTimer = 0
 const pendingTextStates = new Map()
 const makeId = prefix => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${++sequence}`}`
-const welcomeMessage = () => ({ id:'welcome', role:'assistant', status:'succeeded', text:'你好，我是消防物联网 AI 运维助手。选择一个工作流后，可以直接查询设备、告警和趋势；所有工具执行都会显示在运行轨迹中。', tools:[] })
+const welcomeMessage = () => ({ id:'welcome', role:'assistant', status:'succeeded', text:'你好，我是消防物联网智能运维助手。选择一个工作流后，可以直接查询设备、告警和趋势；所有工具执行都会显示在运行轨迹中。', tools:[] })
 
 const messages = ref([welcomeMessage()])
 const runs = ref([])
@@ -82,22 +83,22 @@ const workflowManagePageSize = ref(20)
 const workflowManageTotal = ref(0)
 let workflowManageRequestSequence = 0
 const providerOptions = [
-  { id:'ollama', label:'本地模型（Ollama）', description:'使用 CentOS 或本机部署的 Ollama，不需要接口密钥。' },
-  { id:'deepseek', label:'DeepSeek 云端模型', description:'使用 DeepSeek 云端模型和接口密钥。' },
-  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容 Chat Completions 接口的模型服务。' }
+  { id:'ollama', label:'本地部署模型', description:'使用服务器或本机部署的本地模型服务，不需要接口密钥。' },
+  { id:'deepseek', label:'深度求索云端模型', description:'使用深度求索云端模型和接口密钥。' },
+  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容聊天补全接口的模型服务。' }
 ]
 const agentFieldDocs = [
   { name:'schemaVersion', type:'整数', note:'清单格式版本，当前固定填写 1。' },
-  { name:'id', type:'字符串', note:'Agent 唯一标识，最长 128 字符；可使用字母、数字、点、下划线、冒号和连字符，不能覆盖内置 Agent。' },
+  { name:'id', type:'字符串', note:'智能体唯一标识，最长 128 字符；可使用字母、数字、点、下划线、冒号和连字符，不能覆盖内置智能体。' },
   { name:'name', type:'字符串', note:'界面显示名称，必填，最长 128 字符。' },
-  { name:'description', type:'字符串', note:'说明 Agent 的用途和适用场景，必填，最长 1024 字符。' },
-  { name:'version', type:'字符串', note:'Agent 版本号，必填，最长 64 字符，建议使用 1.0.0 格式。' },
+  { name:'description', type:'字符串', note:'说明智能体的用途和适用场景，必填，最长 1024 字符。' },
+  { name:'version', type:'字符串', note:'智能体版本号，必填，最长 64 字符，建议使用 1.0.0 格式。' },
   { name:'enabled', type:'布尔值', note:'是否立即启用；填写 true 后创建完成即可被选择和运行。' },
   { name:'persona', type:'字符串', note:'系统提示词，定义角色、回答原则和工具调用规则，必填，最长 16384 字符。' },
   { name:'defaultModel', type:'字符串', note:'默认模型标识，必填；实际运行会跟随当前模型服务的活动模型。' },
-  { name:'maxTokens', type:'整数', note:'单次最大输出 Token 数，平台允许 1–8192。' },
+  { name:'maxTokens', type:'整数', note:'单次最大输出令牌数，平台允许 1–8192。' },
   { name:'capabilities', type:'字符串数组', note:'展示给用户的能力名称，填写 1–32 项，每项 1–64 字符且不可重复。' },
-  { name:'allowedTools', type:'字符串数组', note:'Agent 可以调用的受控工具，至少 1 项、最多 6 项，只能从下方白名单选择且不可重复；规则工具只能保存禁用草稿。' }
+  { name:'allowedTools', type:'字符串数组', note:'智能体可以调用的受控工具，至少 1 项、最多 6 项，只能从下方白名单选择且不可重复；规则工具只能保存禁用草稿。' }
 ]
 const agentToolDocs = [
   { name:'mcp__iot__query_system_overview', label:'系统状态与数量统计' },
@@ -129,7 +130,7 @@ const agentPreviewJson = computed(() => agentPreview.value ? JSON.stringify(agen
 
 function workflowKey(item) { return item?.id || item?.workflowId || '' }
 function workflowName(item) { return item?.name || item?.label || workflowKey(item) || '未命名工作流' }
-function capabilityLabel(item) { return typeof item === 'string' ? item : item?.name || item?.id || '工具' }
+function capabilityLabel(item) { return capabilityName(typeof item === 'string' ? item : item?.name || item?.id) }
 function timestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value)
@@ -143,7 +144,7 @@ function safeText(value, fallback = '') {
   return text.length > 1200 ? `${text.slice(0, 1200)}…` : text
 }
 
-function normalizeError(value, fallback = 'AI 运行失败') {
+function normalizeError(value, fallback = '智能运行失败') {
   const error = typeof value === 'string' ? { message:value } : value || {}
   return {
     message:safeText(error.message || error.detail || error.text, fallback),
@@ -267,7 +268,7 @@ function startCreateAgent() {
   resetAgentJson()
   agentEditorVisible.value = true
   focusAgentEditor()
-  ElMessage.info('已打开新建 Agent，请填写 Manifest JSON')
+  ElMessage.info('已打开新建智能体，请填写配置清单结构化数据')
 }
 
 async function loadWorkflowManagement(force = false) {
@@ -326,9 +327,9 @@ async function saveAgent() {
   if (!isAdmin.value || creatingAgent.value) return
   let manifest
   try { manifest = JSON.parse(agentJson.value) }
-  catch { ElMessage.error('Agent JSON 格式不正确'); return }
+  catch { ElMessage.error('智能体结构化数据格式不正确'); return }
   if (editingAgentId.value && manifest?.id !== editingAgentId.value) {
-    ElMessage.error('编辑时不能修改 Agent 的唯一标识；如需新插件请先新建')
+    ElMessage.error('编辑时不能修改智能体的唯一标识；如需新插件请先新建')
     return
   }
   const editing = Boolean(editingAgentId.value)
@@ -343,8 +344,8 @@ async function saveAgent() {
     editingAgentId.value = ''
     agentJson.value = JSON.stringify(agentTemplate, null, 2)
     agentEditorVisible.value = false
-    ElMessage.success(`${editing ? 'Agent 已更新' : 'Agent 已创建'}：${workflowName(saved)}`)
-  } catch (error) { workflowManageError.value = error.message || (editing ? 'Agent 更新失败' : 'Agent 创建失败') }
+    ElMessage.success(`${editing ? '智能体已更新' : '智能体已创建'}：${workflowName(saved)}`)
+  } catch (error) { workflowManageError.value = error.message || (editing ? '智能体更新失败' : '智能体创建失败') }
   finally { creatingAgent.value = false }
 }
 
@@ -421,7 +422,7 @@ function applyStreamEvent(raw, assistant, run) {
       run.provider = event.provider || run.provider
       run.model = event.model || run.model
       run.startedAt = timestamp(event.startedAt || event.createdAt)
-      addRunEvent(run, event, 'Harness 开始运行', 'running', [run.provider,run.model].filter(Boolean).join(' / '))
+      addRunEvent(run, event, '工作流服务开始运行', 'running', [run.provider,run.model].filter(Boolean).join(' / '))
       break
     case 'text.delta': {
       const delta = event.delta ?? event.text ?? event.content ?? ''
@@ -460,11 +461,11 @@ function applyStreamEvent(raw, assistant, run) {
       run.usage = event.usage || null
       run.durationMs = assistant.durationMs
       run.finishedAt = timestamp(event.completedAt || event.createdAt)
-      addRunEvent(run, event, 'Harness 运行完成', 'success', run.durationMs != null ? `${run.durationMs} ms` : '')
+      addRunEvent(run, event, '工作流服务运行完成', 'success', run.durationMs != null ? `${run.durationMs} 毫秒` : '')
       break
     case 'run.failed': {
       flushAssistantText(assistant)
-      const failure = normalizeError(event.error || event, 'AI 运行失败')
+      const failure = normalizeError(event.error || event, '智能运行失败')
       assistant.status = 'failed'
       assistant.error = failure
       assistant.text ||= '运行未能完成。'
@@ -473,7 +474,7 @@ function applyStreamEvent(raw, assistant, run) {
       run.durationMs = event.durationMs ?? Math.max(0, Date.now() - run.startedAt)
       run.finishedAt = timestamp(event.failedAt || event.createdAt)
       for (const tool of run.tools.filter(item => item.status === 'running')) tool.status = 'failed'
-      addRunEvent(run, event, 'Harness 运行失败', 'danger', failure.message)
+      addRunEvent(run, event, '工作流服务运行失败', 'danger', failure.message)
       break
     }
   }
@@ -502,7 +503,7 @@ async function send(textValue) {
   try {
     await apiStream('/api/v1/ai/chat/stream', { method:'POST', body:JSON.stringify(body), signal:controller.signal }, event => applyStreamEvent(event, assistant, run))
     if (assistant.status === 'streaming') {
-      const failure = normalizeError({ code:'AI_STREAM_INCOMPLETE', retryable:true }, 'AI 流意外结束，请重试。')
+      const failure = normalizeError({ code:'AI_STREAM_INCOMPLETE', retryable:true }, '智能流意外结束，请重试。')
       assistant.status = 'failed'; assistant.error = failure; assistant.text ||= '响应流未完整结束。'
       run.status = 'failed'; run.error = failure; run.durationMs = Math.max(0, Date.now() - run.startedAt)
       addRunEvent(run, { type:'run.failed' }, '响应流意外结束', 'danger', failure.message)
@@ -544,13 +545,13 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading">
-    <div><span class="section-kicker">AI 工作流</span><strong>AI 工作流</strong><small>聊天 Agent 与受控工具解耦；每次运行都有可审计的运行轨迹。</small></div>
-    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</el-button><el-button size="small" @click="openAgentManagement">Agent 管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div>
+    <div><span class="section-kicker">智能助手</span><strong>智能助手</strong><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small></div>
+    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</el-button><el-button size="small" @click="openAgentManagement">智能体管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div>
   </div>
 
   <div class="ai-workbench" :class="{ 'is-controls-open': controlsExpanded }">
     <el-card shadow="never" class="surface-card control-card">
-      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流并设置必要参数</small></div><el-tag effect="plain">RUN</el-tag></div></template>
+      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流并设置必要参数</small></div><el-tag effect="plain">执行</el-tag></div></template>
       <div class="control-scroll">
         <el-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><el-button plain size="small" @click="loadRuntime">重新加载</el-button></el-alert>
         <div class="control-section-label"><span>01</span>模型服务</div>
@@ -559,9 +560,9 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
           <el-button type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</el-button>
         </div>
         <div class="control-section-label"><span>02</span>选择工作流</div>
-        <el-form label-position="top"><el-form-item label="工作流插件"><el-select v-model="selectedWorkflowId" placeholder="选择 AI 工作流" :disabled="sending || !workflowItems.length"><el-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></el-select></el-form-item></el-form>
+        <el-form label-position="top"><el-form-item label="工作流插件"><el-select v-model="selectedWorkflowId" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><el-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></el-select></el-form-item></el-form>
         <el-empty v-if="!runtimeLoading && !workflowItems.length" description="暂无可用工作流" :image-size="62" />
-        <div v-if="selectedWorkflow" class="workflow-description"><div><span class="workflow-icon">WF</span><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ selectedWorkflow.version ? `v${selectedWorkflow.version}` : '服务端托管' }}</small></div></div><p>{{ selectedWorkflow.description || '该工作流会按服务端策略调用受控工具。' }}</p><div v-if="selectedCapabilities.length" class="capability-list"><el-tag v-for="item in selectedCapabilities" :key="capabilityLabel(item)" size="small" effect="plain">{{ capabilityLabel(item) }}</el-tag></div></div>
+        <div v-if="selectedWorkflow" class="workflow-description"><div><span class="workflow-icon">流程</span><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ selectedWorkflow.version ? `v${selectedWorkflow.version}` : '服务端托管' }}</small></div></div><p>{{ selectedWorkflow.description || '该工作流会按服务端策略调用受控工具。' }}</p><div v-if="selectedCapabilities.length" class="capability-list"><el-tag v-for="item in selectedCapabilities" :key="capabilityLabel(item)" size="small" effect="plain">{{ capabilityLabel(item) }}</el-tag></div></div>
         <div class="control-section-label"><span>03</span>运行参数</div>
         <el-form class="run-config" label-position="top" :model="runConfig" :disabled="sending"><div><el-form-item label="运行模型"><el-input v-model="runConfig.model" readonly placeholder="使用活动模型" /></el-form-item><el-form-item label="最大输出"><el-input-number v-model="runConfig.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></el-form-item></div></el-form>
         <div class="control-section-label"><span>04</span>运行环境</div>
@@ -577,19 +578,19 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
       <div class="quick-prompts"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div>
       <div ref="log" class="chat-log" aria-live="polite">
         <div v-for="message in messages" :key="message.id" class="message-row" :class="message.role">
-          <span class="message-avatar">{{ message.role === 'assistant' ? 'AI' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><el-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</el-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><el-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</el-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">Trace · {{ message.traceId || message.error.traceId }}</small><el-button v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</el-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} ms</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} tokens</span><el-button plain size="small" @click="openTrace(message)">查看轨迹</el-button></div></div>
+          <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><el-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</el-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><el-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</el-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small><el-button v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</el-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} 词元</span><el-button plain size="small" @click="openTrace(message)">查看轨迹</el-button></div></div>
         </div>
       </div>
-      <div class="chat-compose"><el-input v-model="question" type="textarea" :autosize="{ minRows:1,maxRows:4 }" maxlength="4000" resize="none" placeholder="询问设备、告警、趋势或处置知识；Shift + Enter 换行" :disabled="sending || !workflowItems.length" @keydown.enter.exact.prevent="send()" /><el-button v-if="sending" type="danger" plain @click="stop">停止</el-button><el-button v-else type="primary" :disabled="!question.trim() || !workflowItems.length" @click="send()">发送</el-button></div><small class="chat-notice">AI 输出仅供辅助判断，不会自动执行设备控制或启用规则。</small>
+      <div class="chat-compose"><el-input v-model="question" type="textarea" :autosize="{ minRows:1,maxRows:4 }" maxlength="4000" resize="none" placeholder="询问设备、告警、趋势或处置知识；上档键与回车键换行" :disabled="sending || !workflowItems.length" @keydown.enter.exact.prevent="send()" /><el-button v-if="sending" type="danger" plain @click="stop">停止</el-button><el-button v-else type="primary" :disabled="!question.trim() || !workflowItems.length" @click="send()">发送</el-button></div><small class="chat-notice">智能输出仅供辅助判断，不会自动执行设备控制或启用规则。</small>
     </el-card>
   </div>
 
-  <el-drawer v-model="managementVisible" title="Agent 管理" size="min(760px, 94vw)" class="workflow-manager" append-to-body>
+  <el-drawer v-model="managementVisible" title="智能体管理" size="min(760px, 94vw)" class="workflow-manager" append-to-body>
     <section class="manager-panel panel-agent">
-        <div class="manager-intro"><span>AGENT MANAGEMENT</span><div><h3>Agent 插件管理</h3><el-tag size="small" type="primary" effect="plain">ADMIN</el-tag></div><p>内置 Agent 仅可查看；动态 Agent 可编辑、启用/禁用或删除。点击“新建 Agent”即可在弹窗中提交新的 Manifest，保存后 Agent 会立即进入工作流列表。</p></div>
+        <div class="manager-intro"><span>智能体管理</span><div><h3>智能体插件管理</h3><el-tag size="small" type="primary" effect="plain">管理员</el-tag></div><p>内置智能体仅可查看；动态智能体可编辑、启用/禁用或删除。点击“新建智能体”即可在弹窗中提交新的配置清单，保存后智能体会立即进入工作流列表。</p></div>
         <el-alert v-if="!isAdmin" title="工作流插件管理仅限管理员。" type="warning" :closable="false" show-icon />
         <div v-else class="workflow-admin-panel">
-          <div class="workflow-admin-toolbar"><div><strong>已配置的工作流插件</strong><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天 Agent 只读；告警研判、设备巡检和协议接入由业务页面调用</small></div><div><el-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</el-button><el-button size="small" type="primary" plain @click="startCreateAgent">新建 Agent</el-button></div></div>
+          <div class="workflow-admin-toolbar"><div><strong>已配置的工作流插件</strong><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天智能体只读；告警研判、设备巡检和协议接入由业务页面调用</small></div><div><el-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</el-button><el-button size="small" type="primary" plain @click="startCreateAgent">新建智能体</el-button></div></div>
           <el-alert v-if="workflowManageError" :title="workflowManageError" type="error" :closable="false" show-icon />
           <el-skeleton v-if="workflowManageLoading && !workflowManageItems.length" :rows="4" animated />
           <el-empty v-else-if="!workflowManageItems.length" description="暂无工作流插件" :image-size="56" />
@@ -605,23 +606,23 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
         </div>
       </section>
   </el-drawer>
-  <el-dialog v-model="agentEditorVisible" :title="editingAgentId ? '编辑 Agent' : '新建 Agent'" width="min(820px, 94vw)" class="agent-editor-dialog" append-to-body destroy-on-close>
-    <el-alert title="JSON 标准不支持注释。内置 Agent 仅可查看，动态 Agent 可在管理清单中编辑、启用或删除。" type="info" :closable="false" show-icon />
+  <el-dialog v-model="agentEditorVisible" :title="editingAgentId ? '编辑智能体' : '新建智能体'" width="min(820px, 94vw)" class="agent-editor-dialog" append-to-body destroy-on-close>
+    <el-alert title="结构化数据标准不支持注释。内置智能体仅可查看，动态智能体可在管理清单中编辑、启用或删除。" type="info" :closable="false" show-icon />
     <el-form class="drawer-form" label-position="top" :disabled="!isAdmin || creatingAgent">
-      <el-form-item label="Agent Manifest JSON"><el-input ref="agentEditorRef" v-model="agentJson" class="agent-json-editor" type="textarea" :rows="18" resize="vertical" spellcheck="false" /></el-form-item>
+      <el-form-item label="智能体配置清单"><el-input ref="agentEditorRef" v-model="agentJson" class="agent-json-editor" type="textarea" :rows="18" resize="vertical" spellcheck="false" /></el-form-item>
       <div class="manifest-guide">
         <div class="manifest-guide-title"><div><strong>字段说明</strong><small>所有字段均为必填，请参考下方说明填写。</small></div><el-tag size="small" effect="plain">11 个字段</el-tag></div>
         <div class="manifest-field-list">
           <div v-for="field in agentFieldDocs" :key="field.name" class="manifest-field"><code>{{ field.name }}</code><span>{{ field.type }}</span><p>{{ field.note }}</p></div>
         </div>
-        <div class="tool-whitelist"><strong>allowedTools 可用工具</strong><div><span v-for="tool in agentToolDocs" :key="tool.name"><code>{{ tool.name }}</code><small>{{ tool.label }}</small></span></div></div>
+        <div class="tool-whitelist"><strong>允许使用的工具</strong><div><span v-for="tool in agentToolDocs" :key="tool.name"><code>{{ tool.name }}</code><small>{{ tool.label }}</small></span></div></div>
       </div>
-      <el-alert title="只允许受控查询工具与“仅生成、不保存”的规则草稿工具；内置 Agent 不能覆盖，Agent 不能直接启用规则。" type="info" :closable="false" show-icon />
+      <el-alert title="只允许受控查询工具与“仅生成、不保存”的规则草稿工具；内置智能体不能覆盖，智能体不能直接启用规则。" type="info" :closable="false" show-icon />
     </el-form>
-    <template #footer><el-button @click="cancelAgentEditor">取消</el-button><el-button type="primary" :loading="creatingAgent" @click="saveAgent">{{ editingAgentId ? '校验并保存修改' : '校验并创建 Agent' }}</el-button></template>
+    <template #footer><el-button @click="cancelAgentEditor">取消</el-button><el-button type="primary" :loading="creatingAgent" @click="saveAgent">{{ editingAgentId ? '校验并保存修改' : '校验并创建智能体' }}</el-button></template>
   </el-dialog>
-  <el-dialog v-model="agentPreviewVisible" title="查看内置 Agent Manifest（只读）" width="min(760px, 92vw)" append-to-body>
-    <el-alert title="内置 Agent 仅供查看，不能编辑、启用/禁用或删除。" type="info" :closable="false" show-icon />
+  <el-dialog v-model="agentPreviewVisible" title="查看内置智能体配置清单（只读）" width="min(760px, 92vw)" append-to-body>
+    <el-alert title="内置智能体仅供查看，不能编辑、启用/禁用或删除。" type="info" :closable="false" show-icon />
     <div v-if="agentPreview" class="agent-preview-summary"><div><strong>{{ workflowName(agentPreview) }}</strong><el-tag size="small" effect="plain">内置只读</el-tag></div><small>{{ workflowKey(agentPreview) }} · {{ agentPreview.version ? `v${agentPreview.version}` : '无版本' }} · {{ agentPreview.defaultModel || '未设置模型' }}</small><p>{{ agentPreview.description || '未填写插件说明' }}</p></div>
     <pre class="agent-manifest-preview">{{ agentPreviewJson }}</pre>
     <template #footer><el-button @click="agentPreviewVisible = false">关闭</el-button></template>

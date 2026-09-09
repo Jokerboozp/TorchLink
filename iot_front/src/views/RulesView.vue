@@ -20,8 +20,8 @@ const pageSize = ref(20)
 const total = ref(0)
 const fieldDescriptions = [
   { field:'name', meaning:'规则名称，只用于识别和审计。', example:'高温烟雾复合告警' },
-  { field:'description', meaning:'用中文解释这条规则为什么存在、命中后意味着什么。JSON 不使用注释字段。', example:'温度过高且烟雾信号同时出现' },
-  { field:'productId', meaning:'可选的物模型产品 ID；填写后只对该产品的设备计算。', example:'smoke-detector-v1' },
+  { field:'description', meaning:'用中文解释这条规则为什么存在、命中后意味着什么。结构化数据不使用注释字段。', example:'温度过高且烟雾信号同时出现' },
+  { field:'productId', meaning:'可选的物模型产品标识；填写后只对该产品的设备计算。', example:'smoke-detector-v1' },
   { field:'alarmType', meaning:'命中后生成的告警类型。', example:'FIRE_RISK' },
   { field:'level', meaning:'告警等级：CRITICAL / HIGH / MEDIUM / LOW / INFO。', example:'HIGH' },
   { field:'match', meaning:'all=全部条件满足；any=任一条件满足。', example:'all' },
@@ -36,10 +36,10 @@ const fieldDescriptions = [
   { field:'recovery[].value', meaning:'恢复判断的目标值，类型应与设备上报值一致。', example:'70' },
   { field:'actions', meaning:'告警后的前端联动数组，只允许打开已登记摄像头或平台页面。', example:'[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' },
   { field:'actions[].type', meaning:'联动类型：OPEN_CAMERA 或 OPEN_PAGE。', example:'OPEN_CAMERA' },
-  { field:'actions[].cameraId', meaning:'OPEN_CAMERA 要打开的摄像头 ID，服务端会校验租户归属。', example:'camera-001' },
+  { field:'actions[].cameraId', meaning:'OPEN_CAMERA 要打开的摄像头标识，服务端会校验租户归属。', example:'camera-001' },
   { field:'actions[].page', meaning:'OPEN_PAGE 要打开的平台页面代码，不能填写外部 URL。', example:'alarms' },
-  { field:'expression', meaning:'可选 Gengine 表达式；填写后运行时优先使用它，AI 草稿默认不启用。', example:'Properties["temperature"] > 80' },
-  { field:'enabled', meaning:'是否参与实时告警计算；AI 生成的规则默认关闭。', example:'false' }
+  { field:'expression', meaning:'可选规则引擎表达式；填写后运行时优先使用它，智能草稿默认不启用。', example:'Properties["temperature"] > 80' },
+  { field:'enabled', meaning:'是否参与实时告警计算；智能生成的规则默认关闭。', example:'false' }
 ]
 const blank = () => ({ id:'', name:'', description:'', alarmType:'FIRE_RISK', level:'HIGH', productId:'', match:'all', expression:'', genginePlaceholder:'', conditions:pretty([{ field:'temperature', operator:'>', value:80 }]), recovery:'[]', actions:'[]', durationSeconds:0, enabled:true })
 const form = reactive(blank())
@@ -93,8 +93,8 @@ function startEdit() {
 async function save() {
   try {
     const value = { ...form, expression:form.expression.trim(), conditions:parseJSON(form.conditions || '[]', '触发条件'), recovery:parseJSON(form.recovery || '[]', '恢复条件'), actions:parseJSON(form.actions || '[]', '联动动作'), durationSeconds:Number(form.durationSeconds) || 0 }
-    if (!Array.isArray(value.conditions) || !Array.isArray(value.recovery) || !Array.isArray(value.actions)) throw new Error('条件、恢复条件和联动动作必须是 JSON 数组')
-    if (!value.expression && !value.conditions.length) throw new Error('Gengine 表达式与条件 JSON 至少填写一种')
+    if (!Array.isArray(value.conditions) || !Array.isArray(value.recovery) || !Array.isArray(value.actions)) throw new Error('条件、恢复条件和联动动作必须是结构化数据数组')
+    if (!value.expression && !value.conditions.length) throw new Error('规则引擎表达式与条件结构化数据至少填写一种')
     const id = value.id
     delete value.id
     delete value.genginePlaceholder
@@ -179,7 +179,7 @@ onMounted(async () => {
 <template>
   <div class="page-toolbar">
     <el-button type="primary" @click="open()">手动添加规则</el-button>
-    <el-button @click="openDraft">AI 生成规则草稿</el-button>
+    <el-button @click="openDraft">智能生成规则草稿</el-button>
     <el-button :loading="loading" @click="load">刷新</el-button>
     <span>共 {{ total }} 条规则，详情、编辑和删除操作位于列表右侧。</span>
   </div>
@@ -197,29 +197,29 @@ onMounted(async () => {
       <el-table-column label="操作" width="280" fixed="right" align="center">
         <template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="view(row)">详情</el-button><el-button plain type="primary" @click="open(row)">编辑</el-button><el-button plain type="danger" @click="remove(row.id)">删除</el-button></div></template>
       </el-table-column>
-      <template #empty><el-empty description="暂无规则，可手动添加或使用 AI 生成草稿" /></template>
+      <template #empty><el-empty description="暂无规则，可手动添加或使用智能生成草稿" /></template>
     </el-table>
     <div class="list-pagination">
       <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" />
     </div>
   </el-card>
 
-  <el-dialog v-model="draftDialog" title="AI 规则草稿" width="min(720px, 94vw)">
-    <el-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：A 区烟感温度超过 80 度且烟雾为 true，触发高级别火警。" />
+  <el-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)">
+    <el-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" />
     <el-button class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</el-button>
     <el-alert v-if="draftError" class="top-gap" type="error" :closable="false" show-icon title="规则草稿生成失败" :description="draftError" />
     <el-card v-if="draft" shadow="never" class="inner-card top-gap">
       <el-descriptions :column="1">
         <el-descriptions-item label="规则名称">{{ draft.name || '未命名' }}</el-descriptions-item>
-        <el-descriptions-item label="规则含义">{{ draft.description || 'AI 未提供说明，请在编辑页补充。' }}</el-descriptions-item>
+        <el-descriptions-item label="规则含义">{{ draft.description || '智能未提供说明，请在编辑页补充。' }}</el-descriptions-item>
         <el-descriptions-item label="告警类型">{{ alarmType(draft.alarmType) }}</el-descriptions-item>
         <el-descriptions-item label="告警等级">{{ label(alarmLevels, draft.level, '未设置') }}</el-descriptions-item>
         <el-descriptions-item label="启用状态">待人工确认</el-descriptions-item>
       </el-descriptions>
-      <el-alert class="top-gap" title="JSON 不支持标准注释" description="可执行 JSON 保持纯净；字段含义、条件运算符和 Gengine 替代写法在下面单独展示，避免把说明误当成运行字段。" type="info" :closable="false" show-icon />
+      <el-alert class="top-gap" title="结构化数据不支持标准注释" description="可执行结构化数据保持纯净；字段含义、条件运算符和规则引擎替代写法在下面单独展示，避免把说明误当成运行字段。" type="info" :closable="false" show-icon />
       <el-form label-position="top" class="top-gap">
-        <el-form-item label="AI 生成的 JSON 规则"><el-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly /></el-form-item>
-        <el-form-item label="可选 Gengine 表达式（默认注释展示，不会自动启用）"><el-input :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'" type="textarea" :rows="5" readonly /></el-form-item>
+        <el-form-item label="智能生成的规则配置"><el-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly /></el-form-item>
+        <el-form-item label="可选规则引擎表达式（默认注释展示，不会自动启用）"><el-input :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'" type="textarea" :rows="5" readonly /></el-form-item>
       </el-form>
       <div class="rule-help-title">字段说明</div>
       <el-table :data="draftPresentation?.fieldDescriptions || fieldDescriptions" size="small" border class="top-gap">
@@ -242,11 +242,11 @@ onMounted(async () => {
         <el-form-item label="所属产品（可选）"><el-select v-model="form.productId" clearable><el-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></el-select></el-form-item>
         <el-form-item label="条件关系"><el-select v-model="form.match"><el-option label="全部满足" value="all" /><el-option label="任一满足" value="any" /></el-select></el-form-item>
       </div>
-      <el-alert title="当前默认使用 JSON 条件" description="AI 草稿会同时生成 Gengine，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行 Gengine。" type="info" :closable="false" show-icon class="rule-help-alert" />
-      <el-form-item label="Gengine 表达式（可选，填入后优先执行）"><el-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></el-form-item>
-      <el-form-item label="触发条件 JSON"><el-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></el-form-item>
-      <el-form-item label="恢复条件 JSON"><el-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></el-form-item>
-      <el-form-item label="联动动作 JSON"><el-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>仅支持 OPEN_CAMERA（已登记摄像头）和 OPEN_PAGE（平台页面），保存前会由服务端校验。</small></el-form-item>
+      <el-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" />
+      <el-form-item label="规则引擎表达式（可选，填入后优先执行）"><el-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></el-form-item>
+      <el-form-item label="触发条件结构化数据"><el-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></el-form-item>
+      <el-form-item label="恢复条件结构化数据"><el-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></el-form-item>
+      <el-form-item label="联动动作结构化数据"><el-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></el-form-item>
       <div class="form-grid"><el-form-item label="持续秒数"><el-input-number v-model="form.durationSeconds" :min="0" /></el-form-item><el-form-item label="保存后状态"><el-switch v-model="form.enabled" active-text="立即启用" inactive-text="保存为草稿" /></el-form-item></div>
       <div class="rule-help-title">字段说明</div>
       <el-table :data="fieldDescriptions" size="small" border class="top-gap">

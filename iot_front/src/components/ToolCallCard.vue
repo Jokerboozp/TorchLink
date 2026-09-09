@@ -1,4 +1,5 @@
 <script setup>
+import { toolName } from '../presentation'
 import { computed, ref } from 'vue'
 
 const props = defineProps({
@@ -24,16 +25,16 @@ function safeSummary(value) {
 <template>
   <article class="tool-card" :class="`is-${tool.status || 'pending'}`">
     <header>
-      <span class="tool-icon">T</span>
+      <span class="tool-icon">工具</span>
       <div class="tool-title">
         <small>工具调用</small>
-        <strong>{{ tool.name || '未命名工具' }}</strong>
+        <strong>{{ toolName(tool.name) }}</strong>
       </div>
       <el-tag :type="statusMeta.type" size="small" effect="light">{{ statusMeta.label }}</el-tag>
     </header>
     <div class="tool-meta">
-      <span v-if="tool.toolCallId">ID · {{ tool.toolCallId }}</span>
-      <span v-if="tool.durationMs != null">{{ tool.durationMs }} ms</span>
+      <span v-if="tool.toolCallId">标识 · {{ tool.toolCallId }}</span>
+      <span v-if="tool.durationMs != null">{{ tool.durationMs }} 毫秒</span>
       <el-button v-if="hasDetails" plain size="small" @click="expanded=!expanded">{{ expanded ? '收起详情' : '查看详情' }}</el-button>
     </div>
     <div v-if="expanded" class="tool-details">

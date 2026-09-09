@@ -1,4 +1,5 @@
 <script setup>
+import { statusLabel } from '../presentation'
 import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, formatTime, notifyError, parseJSON, pretty } from '../api'
@@ -125,7 +126,7 @@ onMounted(async () => {
       <el-table-column label="设备" min-width="230"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></el-table-column>
       <el-table-column label="产品" min-width="170"><template #default="{ row }">{{ row.device.productId || '未绑定产品' }}</template></el-table-column>
       <el-table-column label="接入密钥" min-width="190"><template #default="{ row }"><code>{{ row.device.accessKey }}</code><small class="subline">设备密钥 ···{{ row.device.secretHint }}</small></template></el-table-column>
-      <el-table-column label="运行状态" width="120"><template #default="{ row }">{{ row.runtimeState?.businessStatus || '未上报' }}</template></el-table-column>
+      <el-table-column label="运行状态" width="120"><template #default="{ row }">{{ statusLabel(row.runtimeState?.businessStatus || 'NEVER_SEEN') }}</template></el-table-column>
       <el-table-column label="最后活跃" min-width="170"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></el-table-column>
       <el-table-column label="操作" width="250" fixed="right" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="openGuide(row.device.id)">连接指南</el-button><el-button plain type="primary" @click="openDebug(row.device.id)">数据联调</el-button></div></template></el-table-column>
       <template #empty><el-empty description="还没有注册设备，请先到设备管理创建" /></template>
@@ -139,10 +140,10 @@ onMounted(async () => {
     <el-empty v-if="!guide" description="正在加载接入指南" />
     <div v-else class="guide-stack">
       <el-alert title="接入配置已保存" description="设备、产品和协议关系已保存，按下面步骤配置真实设备即可。" type="success" :closable="false" show-icon />
-      <el-steps direction="vertical" :active="3"><el-step title="保存设备凭证" :description="`接入密钥：${guide.accessKey}。设备密钥只在注册或轮换时显示。`" /><el-step title="选择 HTTP 或 MQTT 接入" description="将下面地址、主题和报文模板配置到设备或网关。" /><el-step title="发送数据并验证" description="真实设备发送后可到“原始报文”查看证据链。" /></el-steps>
-      <el-card v-if="guide.gateway" shadow="never" class="inner-card"><strong>网关自动注册子设备</strong><p>网关使用自己的凭证上报，报文中的 deviceId 和 productId 指向子设备。</p><pre>{{ pretty(guide.gateway.childPayloadTemplate) }}</pre><el-button @click="copy('child')">复制子设备模板</el-button></el-card>
-      <el-card shadow="never" class="inner-card"><strong>HTTP 接入</strong><code>{{ guide.http.method }} {{ endpointURL(guide.http.url) }}</code><small>X-Device-Key: {{ guide.accessKey }}</small><el-button @click="copy('http')">复制 HTTP 示例</el-button></el-card>
-      <el-card shadow="never" class="inner-card"><strong>MQTT 接入</strong><code>{{ guide.mqtt.broker }}</code><code>{{ guide.mqtt.topic }}</code><el-button @click="copy('mqtt')">复制 MQTT 参数</el-button></el-card>
+      <el-steps direction="vertical" :active="3"><el-step title="保存设备凭证" :description="`接入密钥：${guide.accessKey}。设备密钥只在注册或轮换时显示。`" /><el-step title="选择接口或消息订阅接入" description="将下面地址、主题和报文模板配置到设备或网关。" /><el-step title="发送数据并验证" description="真实设备发送后可到“原始报文”查看证据链。" /></el-steps>
+      <el-card v-if="guide.gateway" shadow="never" class="inner-card"><strong>网关自动注册子设备</strong><p>网关使用自己的凭证上报，报文中的设备标识和产品标识应指向子设备。</p><pre>{{ pretty(guide.gateway.childPayloadTemplate) }}</pre><el-button @click="copy('child')">复制子设备模板</el-button></el-card>
+      <el-card shadow="never" class="inner-card"><strong>接口接入</strong><code>{{ guide.http.method }} {{ endpointURL(guide.http.url) }}</code><small>X-Device-Key: {{ guide.accessKey }}</small><el-button @click="copy('http')">复制接口示例</el-button></el-card>
+      <el-card shadow="never" class="inner-card"><strong>消息订阅接入</strong><code>{{ guide.mqtt.broker }}</code><code>{{ guide.mqtt.topic }}</code><el-button @click="copy('mqtt')">复制消息订阅参数</el-button></el-card>
       <el-card shadow="never" class="inner-card"><strong>报文模板</strong><pre>{{ pretty(guide.payloadTemplate) }}</pre><el-button @click="copy('payload')">复制报文模板</el-button></el-card>
     </div>
     <template #footer><el-button @click="guideDialog=false">关闭</el-button></template>

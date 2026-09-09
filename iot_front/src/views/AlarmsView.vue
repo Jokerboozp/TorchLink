@@ -69,12 +69,12 @@ async function pollAnalysis(jobId, alarmId, viewToken = analysisViewToken) {
     if (progress.status === 'succeeded') {
       analysis.value = progress.analysis || null
       analysisLoading.value = false
-      ElMessage.success('AI 研判已完成')
+      ElMessage.success('智能研判已完成')
       return
     }
     if (progress.status === 'failed') {
       analysisLoading.value = false
-      notifyError(progress.error || 'AI 研判失败')
+      notifyError(progress.error || '智能研判失败')
       return
     }
     analysisPollTimer = window.setTimeout(() => { void pollAnalysis(jobId, alarmId, viewToken) }, 800)
@@ -130,7 +130,7 @@ async function runAnalysis() {
     if (job.status === 'succeeded') {
       analysis.value = job.analysis || null
       analysisLoading.value = false
-      ElMessage.success('AI 研判已完成')
+      ElMessage.success('智能研判已完成')
       return
     }
     await pollAnalysis(job.jobId, detail.value.alarmId, viewToken)
@@ -207,15 +207,15 @@ onBeforeUnmount(() => {
       <el-descriptions-item label="告警编号">{{detail.alarmId}}</el-descriptions-item><el-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</el-descriptions-item><el-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</el-descriptions-item><el-descriptions-item label="等级 / 状态"><el-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</el-tag> {{label(alarmStatuses,detail.status)}}</el-descriptions-item><el-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</el-descriptions-item><el-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</el-descriptions-item><el-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</el-descriptions-item><el-descriptions-item label="触发次数">{{detail.triggerCount}}</el-descriptions-item>
     </el-descriptions>
     <el-card shadow="never" class="top-gap">
-      <template #header><div class="card-header"><strong>AI 自动研判</strong><el-button size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '立即研判'}}</el-button></div></template>
+      <template #header><div class="card-header"><strong>智能自动研判</strong><el-button size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '立即研判'}}</el-button></div></template>
       <div v-if="analysisProgress" class="analysis-progress" aria-live="polite">
-        <div class="analysis-progress-heading"><strong>{{analysisProgress.message || 'AI 正在处理'}}</strong><span>{{progressPercent}}%</span></div>
+        <div class="analysis-progress-heading"><strong>{{analysisProgress.message || '智能正在处理'}}</strong><span>{{progressPercent}}%</span></div>
         <el-progress :percentage="progressPercent" :status="progressStatus" :stroke-width="10" />
         <small v-if="analysisProgress.status === 'running'">{{formatRemaining(analysisProgress.estimatedRemainingMs)}}</small>
         <small v-else>{{analysisProgress.status === 'succeeded' ? '处理完成' : analysisProgress.error || '处理失败'}}</small>
       </div>
       <el-empty v-if="!analysis && !analysisLoading" description="该告警暂无研判结果，可点击立即研判" :image-size="52" />
-      <div v-if="analysis" class="analysis-grid"><el-alert :title="analysis.summary||'AI 未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div>
+      <div v-if="analysis" class="analysis-grid"><el-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div>
     </el-card>
     <pre>{{pretty(detail)}}</pre>
     <template #footer><el-button @click="detailVisible = false">关闭详情</el-button></template>

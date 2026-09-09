@@ -33,15 +33,15 @@ function statusType(value) {
 function formatDate(value) {
   if (!value) return '—'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12:false })
 }
 
 function formatBytes(value) {
   const size = Number(value || 0)
-  if (size < 1024) return `${size} B`
-  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`
-  if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`
-  return `${(size / 1024 ** 3).toFixed(2)} GB`
+  if (size < 1024) return `${size} 字节`
+  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} 千字节`
+  if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} 兆字节`
+  return `${(size / 1024 ** 3).toFixed(2)} 吉字节`
 }
 
 function idPath(value) {
@@ -185,7 +185,7 @@ onMounted(load)
   <el-card shadow="never" class="surface-card table-card backup-table-card">
     <el-table v-loading="loading" :data="records" stripe>
       <el-table-column label="类型" width="130"><template #default="{ row }"><el-tag :type="row.type === 'FULL' ? 'primary' : row.type === 'INCREMENTAL' ? 'success' : 'info'" round>{{ label(backupTypes, row.type) }}</el-tag></template></el-table-column>
-      <el-table-column label="任务 ID" min-width="270"><template #default="{ row }"><code>{{ row.id }}</code></template></el-table-column>
+      <el-table-column label="任务标识" min-width="270"><template #default="{ row }"><code>{{ row.id }}</code></template></el-table-column>
       <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)" round>{{ label(backupStatuses, row.status) }}</el-tag></template></el-table-column>
       <el-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></el-table-column>
       <el-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></el-table-column>
@@ -202,27 +202,27 @@ onMounted(load)
     <el-skeleton v-if="detailLoading" :rows="6" animated />
     <template v-else-if="detail">
       <el-descriptions :column="2" border>
-        <el-descriptions-item label="任务 ID">{{ detail.id }}</el-descriptions-item>
+        <el-descriptions-item label="任务标识">{{ detail.id }}</el-descriptions-item>
         <el-descriptions-item label="状态"><el-tag :type="statusType(detail.status)" round>{{ label(backupStatuses, detail.status) }}</el-tag></el-descriptions-item>
         <el-descriptions-item label="开始时间">{{ formatDate(detail.startedAt) }}</el-descriptions-item>
         <el-descriptions-item label="完成时间">{{ formatDate(detail.completedAt) }}</el-descriptions-item>
         <el-descriptions-item label="对象存储清单" :span="2"><code class="break-all">{{ detail.objectKey || '—' }}</code></el-descriptions-item>
-        <el-descriptions-item label="清单 SHA-256" :span="2"><code class="break-all">{{ detail.checksum || '—' }}</code></el-descriptions-item>
+        <el-descriptions-item label="清单完整性校验摘要" :span="2"><code class="break-all">{{ detail.checksum || '—' }}</code></el-descriptions-item>
       </el-descriptions>
       <el-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon />
       <template v-if="manifest">
-        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载 manifest.json</el-button></div>
+        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</el-button></div>
         <el-table :data="manifest.artifacts" stripe>
           <el-table-column prop="component" label="组件" width="160" />
           <el-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></el-table-column>
           <el-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></el-table-column>
-          <el-table-column label="SHA-256" min-width="190"><template #default="{ row }"><el-tooltip :content="row.sha256"><code>{{ row.sha256?.slice(0, 12) }}…</code></el-tooltip></template></el-table-column>
+          <el-table-column label="完整性校验摘要" min-width="190"><template #default="{ row }"><el-tooltip :content="row.sha256"><code>{{ row.sha256?.slice(0, 12) }}…</code></el-tooltip></template></el-table-column>
           <el-table-column label="操作" width="100" align="center"><template #default="{ row }"><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</el-button><span v-else class="muted-text">管理员可下载</span></template></el-table-column>
         </el-table>
         <div class="list-pagination">
           <el-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" />
         </div>
-        <div class="section-heading top-gap"><div><strong>组件说明</strong><span>由备份任务写入 manifest，用于确认本次备份覆盖范围</span></div></div>
+        <div class="section-heading top-gap"><div><strong>组件说明</strong><span>由备份任务写入文件清单，用于确认本次备份覆盖范围</span></div></div>
         <pre>{{ pretty(manifest.components) }}</pre>
       </template>
       <el-tabs v-if="detail.details && !manifest" class="top-gap"><el-tab-pane label="任务详情"><pre>{{ pretty(detail.details) }}</pre></el-tab-pane></el-tabs>

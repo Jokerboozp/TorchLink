@@ -36,7 +36,7 @@ try {
   }
   await selectName('control')
   await until(()=>evaluate(`document.querySelector('.el-collapse-item.is-active')?.textContent.includes('"target": 7')`))
-  await evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='修改期望属性（JSON）');const input=item.querySelector('textarea');input.value='{"target":9}';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='修改期望属性（结构化数据）');const input=item.querySelector('textarea');input.value='{"target":9}';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await click('保存期望状态')
   await until(()=>evaluate(`document.querySelector('.el-message-box')?.textContent.includes('确认修改该设备的期望状态')`))
   await evaluate(`document.querySelector('.el-message-box__btns .el-button--primary').click()`)

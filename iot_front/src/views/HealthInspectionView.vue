@@ -112,7 +112,7 @@ async function downloadPDF() {
   try {
     const stamp = new Date(Number(report.value.generatedAt || Date.now())).toISOString().replace(/[:.]/g, '-')
     await download('/api/v1/ai/health-inspection/pdf', `智能巡检结果_${stamp}.pdf`, { method:'POST', body:'{}' })
-    ElMessage.success('巡检结果 PDF 已下载')
+    ElMessage.success('巡检结果文档已下载')
   } catch (exception) {
     notifyError(exception)
   } finally {
@@ -130,14 +130,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="inspection-page">
     <div class="page-toolbar">
-      <div><strong>设备健康巡检</strong><small class="subline">核对设备在线状态、数据新鲜度和活动告警，再生成 AI 处置建议；进入页面不会自动执行</small></div>
-      <div class="table-actions"><el-button v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载 PDF</el-button><el-button type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</el-button></div>
+      <div><strong>设备健康巡检</strong><small class="subline">核对设备在线状态、数据新鲜度和活动告警，再生成智能处置建议；进入页面不会自动执行</small></div>
+      <div class="table-actions"><el-button v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</el-button><el-button type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</el-button></div>
     </div>
 
     <el-alert v-if="error" class="top-gap" :title="error" type="error" :closable="false" show-icon />
 
     <el-card v-if="progress" shadow="never" class="surface-card inspection-progress top-gap">
-      <div class="inspection-progress-heading"><div><strong>{{ progress.message }}</strong><small v-if="progress.status === 'running'">任务在后台继续执行，切换页面后会自动恢复</small><small v-else-if="progress.status === 'succeeded'">本次巡检结果已保存，可下载 PDF</small></div><strong>{{ progressPercentage }}%</strong></div>
+      <div class="inspection-progress-heading"><div><strong>{{ progress.message }}</strong><small v-if="progress.status === 'running'">任务在后台继续执行，切换页面后会自动恢复</small><small v-else-if="progress.status === 'succeeded'">本次巡检结果已保存，可下载文档</small></div><strong>{{ progressPercentage }}%</strong></div>
       <el-progress :percentage="progressPercentage" :status="progressStatus" :stroke-width="10" :show-text="false" />
       <div class="inspection-progress-meta"><span v-if="progress.status === 'running'">预计剩余 {{ formatRemaining(progress.estimatedRemainingMs) }}</span><span v-else-if="progress.status === 'failed'">请检查模型服务和设备数据后重试</span><span v-else>已完成</span><span v-if="progress.updatedAt">更新时间：{{ formatTime(progress.updatedAt) }}</span></div>
     </el-card>
@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
       <template v-else-if="report">
         <el-alert :title="report.summary" type="info" :closable="false" show-icon />
         <div class="inspection-counts top-gap"><div><span>设备总数</span><strong>{{ counts.total || 0 }}</strong></div><div class="healthy"><span>状态正常</span><strong>{{ counts.healthy || 0 }}</strong></div><div class="attention"><span>需关注</span><strong>{{ counts.attention || 0 }}</strong></div><div class="critical"><span>高风险</span><strong>{{ counts.critical || 0 }}</strong></div><div class="offline"><span>离线/疑似离线</span><strong>{{ counts.offline || 0 }}</strong></div><div><span>活动告警</span><strong>{{ counts.activeAlarms || 0 }}</strong></div></div>
-        <el-card v-if="report.aiAdvice" shadow="never" class="inner-card top-gap"><template #header><strong>AI 巡检建议</strong></template><MarkdownContent class="report-text" :source="report.aiAdvice" /></el-card>
+        <el-card v-if="report.aiAdvice" shadow="never" class="inner-card top-gap"><template #header><strong>智能巡检建议</strong></template><MarkdownContent class="report-text" :source="report.aiAdvice" /></el-card>
         <el-alert v-for="warning in report.warnings || []" :key="warning" class="top-gap" :title="warning" type="warning" :closable="false" />
         <el-table class="top-gap" :data="report.items || []" stripe><el-table-column label="设备" min-width="190"><template #default="{row}"><b>{{ row.deviceName || row.deviceId }}</b><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template></el-table-column><el-table-column label="业务状态" width="130"><template #default="{row}"><el-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus, row.businessStatus) }}</el-tag></template></el-table-column><el-table-column label="最近上报" min-width="170"><template #default="{row}">{{ formatTime(row.lastSeenAt) }}</template></el-table-column><el-table-column label="活动告警" width="100"><template #default="{row}">{{ row.activeAlarmCount }}</template></el-table-column><el-table-column label="巡检结论" min-width="280"><template #default="{row}"><el-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</el-tag><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template></el-table-column></el-table>
       </template>

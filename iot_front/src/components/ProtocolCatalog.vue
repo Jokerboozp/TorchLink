@@ -15,7 +15,7 @@ async function load(){
 }
 async function install(entry){
  const digest=catalog.value?.digest
- try{await ElMessageBox.confirm(`安装 ${entry.name} ${entry.version} 将在服务进程权限下执行 Go 样例校验。签名来源：${entry.publisher||'未填写发布者'}。请确认信任此来源。`,'安装协议',{confirmButtonText:'安装并校验',cancelButtonText:'取消',type:'warning'})}
+ try{await ElMessageBox.confirm(`安装 ${entry.name} ${entry.version} 将在服务进程权限下执行协议样例校验。签名来源：${entry.publisher||'未填写发布者'}。请确认信任此来源。`,'安装协议',{confirmButtonText:'安装并校验',cancelButtonText:'取消',type:'warning'})}
  catch{return}
  installing.value=entry.id+'@'+entry.version;error.value=''
  try{

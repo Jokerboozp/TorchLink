@@ -25,7 +25,7 @@ async function save() {
   busy.value = true
   try {
     const desired = JSON.parse(patch.value)
-    if (!desired || Array.isArray(desired) || typeof desired !== 'object') throw new Error('请填写 JSON 对象')
+    if (!desired || Array.isArray(desired) || typeof desired !== 'object') throw new Error('请填写结构化数据对象')
     await ElMessageBox.confirm('确认修改该设备的期望状态？兼容设备读取后可能执行调整，只有实际上报一致才表示状态已达成。','确认期望状态')
     if(props.deviceId!==targetDevice || name.value!==targetName)throw new Error('设备或影子已切换，请重新核对期望状态')
     const updated=await api(targetURL, {method:'PATCH', body:JSON.stringify({expectedDesiredVersion:desiredVersion, desired, confirmed:true})})
@@ -52,8 +52,8 @@ onBeforeUnmount(()=>{request++})
       <h4>已上报</h4><pre>{{pretty(shadow.reported)}}</pre>
       <h4>期望状态</h4><pre>{{pretty(shadow.desired)}}</pre>
       <h4>尚未一致的属性</h4><pre>{{pretty(shadow.delta)}}</pre>
-      <el-form label-position="top"><el-form-item label="修改期望属性（JSON）"><el-input v-model="patch" type="textarea" :rows="4" placeholder='{"targetTemperature":24}' /></el-form-item></el-form>
-      <p>仅产品物模型中标记 writable 的属性可设置。null 清除对应期望属性；版本冲突时先刷新再核对修改。</p>
+      <el-form label-position="top"><el-form-item label="修改期望属性（结构化数据）"><el-input v-model="patch" type="textarea" :rows="4" placeholder='{"targetTemperature":24}' /></el-form-item></el-form>
+      <p>仅可设置产品数据模型中允许写入的属性。将属性值设为空值可清除期望状态；版本冲突时请先刷新再核对修改。</p>
       <el-button :loading="busy" @click="save">保存期望状态</el-button>
       <h4>最近期望状态变更</h4><el-table :data="history" empty-text="暂无变更"><el-table-column prop="version" label="版本" width="80"/><el-table-column prop="actor" label="操作人"/><el-table-column label="时间"><template #default="{row}">{{formatTime(row.timestamp)}}</template></el-table-column><el-table-column label="期望状态"><template #default="{row}">{{pretty(row.desired)}}</template></el-table-column></el-table>
     </template>

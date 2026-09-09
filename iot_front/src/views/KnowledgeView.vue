@@ -1,4 +1,5 @@
 <script setup>
+import { statusLabel } from '../presentation'
 import { computed, onMounted, ref } from 'vue'
 import { Collection, UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -41,17 +42,17 @@ const selectedAgent = computed(() => agents.value.find(item => (item.id || item.
 const selectedBindingAgent = computed(() => agents.value.find(item => agentKey(item) === bindingWorkflowId.value))
 
 function agentKey(item) { return item?.id || item?.workflowId || '' }
-function agentName(item) { return item?.name || item?.label || agentKey(item) || '未命名 Agent' }
+function agentName(item) { return item?.name || item?.label || agentKey(item) || '未命名智能体' }
 function agentLabel(id) {
-  if (!id) return '未关联 Agent'
+  if (!id) return '未关联智能体'
   const agent = agents.value.find(item => agentKey(item) === id)
   return agent ? agentName(agent) : id
 }
 function formatBytes(value) {
   const size = Number(value || 0)
-  if (size < 1024) return `${size} B`
-  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / 1024 ** 2).toFixed(1)} MB`
+  if (size < 1024) return `${size} 字节`
+  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} 千字节`
+  return `${(size / 1024 ** 2).toFixed(1)} 兆字节`
 }
 
 async function load() {
@@ -71,7 +72,7 @@ async function load() {
       throw documentResult.reason
     }
     if (agentResult.status === 'fulfilled') agents.value = Array.isArray(agentResult.value.items) ? agentResult.value.items.filter(item => item.enabled !== false) : []
-    else agentError.value = agentResult.reason?.message || 'Agent 列表读取失败'
+    else agentError.value = agentResult.reason?.message || '智能体列表读取失败'
     if (!workflowId.value && agents.value.length) workflowId.value = agentKey(agents.value[0])
     if (!bindingWorkflowId.value && agents.value.length) bindingWorkflowId.value = agentKey(agents.value[0])
     if (bindingWorkflowId.value) void loadBinding()
@@ -127,7 +128,7 @@ function chooseFile(file) {
   if (Number(file.size || file.raw?.size || 0) > 32 * 1024 * 1024) {
     selectedFile.value = null
     uploadRef.value?.clearFiles()
-    ElMessage.error('知识库文件不能超过 32 MiB')
+    ElMessage.error('知识库文件不能超过 32 兆字节')
     return
   }
   selectedFile.value = file.raw || null
@@ -152,7 +153,7 @@ async function showDocument(document) {
 }
 
 async function upload() {
-  if (!workflowId.value) return ElMessage.warning('请选择要关联的 Agent')
+  if (!workflowId.value) return ElMessage.warning('请选择要关联的智能体')
   if (!selectedFile.value) return ElMessage.warning('请先选择知识库文件')
   uploading.value = true
   try {
@@ -181,39 +182,39 @@ onMounted(load)
 
 <template>
   <section class="knowledge-hero">
-    <div><span>AGENT KNOWLEDGE</span><h3>Agent 知识库</h3><p>每份文档直接绑定一个 Agent；Agent 只能检索自己的文档，避免再配置一层复杂的产品/分类筛选。</p></div>
-    <div class="hero-actions"><el-tag :type="runtime.persistentIndex ? 'success' : 'warning'" effect="dark">{{ runtime.persistentIndex ? 'WEAVIATE 持久索引' : '本地内存索引' }}</el-tag><el-button type="primary" plain @click="emit('navigate','ai')">打开 AI 工作流</el-button></div>
+    <div><span>专属知识管理</span><h3>知识库</h3><p>上传设备手册、维护记录和处置规范。每份文档归属于一个智能体，用于回答与该业务相关的问题。</p></div>
+    <div class="hero-actions"><el-tag :type="runtime.persistentIndex ? 'success' : 'warning'" effect="dark">{{ runtime.persistentIndex ? '持久化索引' : '本地内存索引' }}</el-tag><el-button type="primary" plain @click="emit('navigate','ai')">打开智能助手</el-button></div>
   </section>
 
   <el-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
-  <el-alert v-if="!runtime.persistentIndex" title="当前索引不是持久化向量库；文档记录会保存，但重启后检索索引需要重新建立。请启动本地 Weaviate。" type="warning" :closable="false" show-icon />
+  <el-alert v-if="!runtime.persistentIndex" title="当前索引不是持久化向量库；文档记录会保存，但重启后检索索引需要重新建立。请启动本地向量数据库。" type="warning" :closable="false" show-icon />
 
-  <div class="knowledge-stats"><el-card shadow="never" class="surface-card"><span>知识文档</span><strong>{{ total }}</strong><small>当前租户</small></el-card><el-card shadow="never" class="surface-card"><span>已完成索引</span><strong>{{ indexedCount }}</strong><small>可供 Agent 检索</small></el-card><el-card shadow="never" class="surface-card"><span>内容分片</span><strong>{{ totalChunks }}</strong><small>{{ formatBytes(totalSize) }}</small></el-card></div>
+  <div class="knowledge-stats"><el-card shadow="never" class="surface-card"><span>知识文档</span><strong>{{ total }}</strong><small>当前租户</small></el-card><el-card shadow="never" class="surface-card"><span>已完成索引</span><strong>{{ indexedCount }}</strong><small>可供智能体检索</small></el-card><el-card shadow="never" class="surface-card"><span>内容分片</span><strong>{{ totalChunks }}</strong><small>{{ formatBytes(totalSize) }}</small></el-card></div>
 
-  <div class="page-toolbar knowledge-toolbar"><el-button type="primary" :disabled="!canUpload" @click="openUpload">上传并绑定 Agent</el-button><el-button :loading="loading" @click="load">刷新</el-button><span>共 {{ total }} 份文档，上传时必须选择或输入一个 Agent ID。</span></div>
+  <div class="page-toolbar knowledge-toolbar"><el-button type="primary" :disabled="!canUpload" @click="openUpload">上传并绑定智能体</el-button><el-button :loading="loading" @click="load">刷新</el-button><span>共 {{ total }} 份文档，上传时必须选择或输入一个智能体标识。</span></div>
 
   <el-card v-if="agents.length" shadow="never" class="surface-card knowledge-policy-card">
-    <template #header><div class="card-header"><div><strong>Agent 知识库策略</strong><small>文档、绑定和检索策略统一在本页面维护</small></div><el-button size="small" :loading="bindingLoading" @click="loadBinding">刷新策略</el-button></div></template>
+    <template #header><div class="card-header"><div><strong>知识库策略</strong><small>文档、绑定和检索策略统一在本页面维护</small></div><el-button size="small" :loading="bindingLoading" @click="loadBinding">刷新策略</el-button></div></template>
     <el-alert v-if="bindingError" :title="bindingError" type="warning" :closable="false" show-icon />
     <el-form label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving">
       <div class="knowledge-policy-grid">
-        <el-form-item label="当前 Agent"><el-select v-model="bindingWorkflowId" filterable placeholder="选择 Agent" @change="loadBinding"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select></el-form-item>
+        <el-form-item label="当前智能体"><el-select v-model="bindingWorkflowId" filterable placeholder="选择智能体" @change="loadBinding"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select></el-form-item>
         <el-form-item label="检索模式"><el-radio-group v-model="knowledgeBinding.retrievalMode"><el-radio-button value="auto">按需检索</el-radio-button><el-radio-button value="always">每次强制检索</el-radio-button><el-radio-button value="disabled">禁用</el-radio-button></el-radio-group></el-form-item>
       </div>
-      <el-alert :title="`${documents.filter(item => item.workflowId === bindingWorkflowId).length} 份文档已直接绑定当前 Agent`" type="success" :closable="false" show-icon />
+      <el-alert :title="`${documents.filter(item => item.workflowId === bindingWorkflowId).length} 份文档已直接绑定当前智能体`" type="success" :closable="false" show-icon />
       <div class="binding-numbers"><el-form-item label="召回数量"><el-input-number v-model="knowledgeBinding.topK" :min="1" :max="20" controls-position="right" /></el-form-item><el-form-item label="最低相似度"><el-input-number v-model="knowledgeBinding.minScore" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></el-form-item></div>
       <el-form-item label="无匹配知识时"><el-select v-model="knowledgeBinding.noMatchPolicy"><el-option label="允许模型回答，但必须说明证据不足" value="allow-model" /><el-option label="阻止回答，必须先补充知识" value="require-evidence" /></el-select></el-form-item>
-      <el-alert title="Agent ID 会写入短期 Harness Token；模型无法通过修改工具参数扩大检索范围。" type="info" :closable="false" show-icon />
+      <el-alert title="每个智能体只能检索自己的文档，关联范围由服务端校验。" type="info" :closable="false" show-icon />
       <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><el-button type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</el-button></div>
     </el-form>
   </el-card>
 
   <el-card shadow="never" class="surface-card table-card documents-card">
-    <template #header><div class="card-header"><div><strong>已上传文档</strong><small>文档和 Agent 归属持久化保存</small></div><el-tag effect="plain">{{ runtime.indexMode || 'INDEX' }}</el-tag></div></template>
+    <template #header><div class="card-header"><div><strong>已上传文档</strong><small>文档和智能体归属持久化保存</small></div><el-tag effect="plain">{{ runtime.persistentIndex ? '持久化索引' : '内存索引' }}</el-tag></div></template>
     <el-table v-loading="loading" :data="documents" stripe>
       <el-table-column label="文档" min-width="240"><template #default="{ row }"><div class="document-name"><el-icon><Collection /></el-icon><span><b>{{ row.filename }}</b><small>{{ row.id }}</small></span></div></template></el-table-column>
-      <el-table-column label="关联 Agent" min-width="190"><template #default="{ row }"><b>{{ agentLabel(row.workflowId) }}</b><small class="subline">{{ row.workflowId || '未关联' }}</small></template></el-table-column>
-      <el-table-column label="索引" width="105" align="center"><template #default="{ row }"><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'">{{ row.status }}</el-tag></template></el-table-column>
+      <el-table-column label="关联智能体" min-width="190"><template #default="{ row }"><b>{{ agentLabel(row.workflowId) }}</b><small class="subline">{{ row.workflowId || '未关联' }}</small></template></el-table-column>
+      <el-table-column label="索引" width="105" align="center"><template #default="{ row }"><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
       <el-table-column label="分片 / 大小" width="120" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}<small class="subline">{{ formatBytes(row.metadata?.size) }}</small></template></el-table-column>
       <el-table-column label="上传时间" min-width="160"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></el-table-column>
       <el-table-column label="操作" width="110" fixed="right" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDocument(row)">详情</el-button></div></template></el-table-column>
@@ -222,11 +223,11 @@ onMounted(load)
     <div class="list-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div>
   </el-card>
 
-  <el-dialog v-model="uploadDialog" title="上传知识文档并绑定 Agent" width="min(650px, 94vw)">
-    <el-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><el-icon class="upload-icon"><UploadFilled /></el-icon><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、Office、OpenDocument、HTML/XML 和 UTF-8 文本；扫描版 PDF 需要先完成 OCR。</div></template></el-upload>
+  <el-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(650px, 94vw)">
+    <el-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><el-icon class="upload-icon"><UploadFilled /></el-icon><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持文档、办公文档、开放文档、网页或标记文档和通用字符编码文本；扫描版文档需要先完成文字识别。</div></template></el-upload>
     <el-form label-position="top" class="top-gap">
-      <el-form-item label="关联 Agent（必选）"><el-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入 Agent ID"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select><small class="field-tip">上传后检索服务端会强制使用这个 Agent ID，不会跨 Agent 检索；未启动 Harness 时也可以先输入计划使用的 Agent ID。</small></el-form-item>
-      <div class="metadata-grid"><el-form-item label="知识分类（可选）"><el-select v-model="category" :disabled="uploading"><el-option label="设备手册" value="manual" /><el-option label="告警处置 SOP" value="alarm-sop" /><el-option label="运维维修" value="maintenance" /><el-option label="消防规范" value="regulation" /><el-option label="常见问题" value="faq" /></el-select></el-form-item><el-form-item label="知识标签（可选）"><el-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></el-form-item></div>
+      <el-form-item label="关联智能体（必选）"><el-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select><small class="field-tip">上传后检索服务端会强制使用这个智能体标识，不会跨智能体检索；未启动工作流服务时也可以先输入计划使用的智能体标识。</small></el-form-item>
+      <div class="metadata-grid"><el-form-item label="知识分类（可选）"><el-select v-model="category" :disabled="uploading"><el-option label="设备手册" value="manual" /><el-option label="告警处置操作规程" value="alarm-sop" /><el-option label="运维维修" value="maintenance" /><el-option label="消防规范" value="regulation" /><el-option label="常见问题" value="faq" /></el-select></el-form-item><el-form-item label="知识标签（可选）"><el-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></el-form-item></div>
     </el-form>
     <template #footer><el-button @click="uploadDialog=false">取消</el-button><el-button type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</el-button></template>
   </el-dialog>
@@ -236,9 +237,9 @@ onMounted(load)
     <div v-loading="detailLoading" class="detail-body">
       <el-descriptions v-if="selectedDocument" :column="2" border>
         <el-descriptions-item label="文件名">{{ selectedDocument.filename }}</el-descriptions-item>
-        <el-descriptions-item label="文档 ID">{{ selectedDocument.id }}</el-descriptions-item>
-        <el-descriptions-item label="关联 Agent">{{ agentLabel(selectedDocument.workflowId) }}（{{ selectedDocument.workflowId || '未关联' }}）</el-descriptions-item>
-        <el-descriptions-item label="索引状态">{{ selectedDocument.status }}</el-descriptions-item>
+        <el-descriptions-item label="文档标识">{{ selectedDocument.id }}</el-descriptions-item>
+        <el-descriptions-item label="关联智能体">{{ agentLabel(selectedDocument.workflowId) }}（{{ selectedDocument.workflowId || '未关联' }}）</el-descriptions-item>
+        <el-descriptions-item label="索引状态">{{ statusLabel(selectedDocument.status) }}</el-descriptions-item>
         <el-descriptions-item label="知识分类">{{ selectedDocument.category || '未分类' }}</el-descriptions-item>
         <el-descriptions-item label="内容统计">{{ selectedDocument.metadata?.chunks || 0 }} 个分片 / {{ formatBytes(selectedDocument.metadata?.size) }}</el-descriptions-item>
         <el-descriptions-item label="标签">{{ (selectedDocument.tags || []).join('、') || '无' }}</el-descriptions-item>
@@ -247,7 +248,7 @@ onMounted(load)
       <div v-if="selectedDetail?.index" class="chunk-policy">
         <div class="chunk-policy-title"><strong>索引与切片规则</strong><el-tag size="small" type="success" effect="plain">{{ selectedDetail.index.mode }}</el-tag><el-tag size="small" effect="plain">{{ selectedDetail.index.vectorizer }}</el-tag><el-tag v-if="selectedDetail.index.embeddingModel" size="small" type="success" effect="plain">{{ selectedDetail.index.embeddingModel }}</el-tag></div>
         <div class="chunk-policy-grid"><span>切片策略<strong>{{ selectedDetail.index.chunking?.strategy === 'fixed-window-overlap' ? '固定窗口 + 重叠' : selectedDetail.index.chunking?.strategy }}</strong></span><span>窗口<strong>{{ selectedDetail.index.chunking?.size }} 字符</strong></span><span>重叠<strong>{{ selectedDetail.index.chunking?.overlap }} 字符</strong></span><span>提取文本<strong>{{ selectedDetail.index.extractedChars || 0 }} 字符</strong></span><span>实际分片<strong>{{ selectedDetail.index.chunkCount }}</strong></span></div>
-        <small>{{ selectedDetail.index.chunking?.normalization || '先提取并清洗文本，再进行固定窗口切片。' }}；字符范围采用左闭右开：StartChar 包含，EndChar 不包含。页面不展示高维向量本身，只展示切片文本和向量化状态。</small>
+        <small>{{ selectedDetail.index.chunking?.normalization || '先提取并清洗文本，再进行固定窗口切片。' }}；字符范围采用左闭右开：包含起始位置，不包含结束位置。页面不展示高维向量本身，只展示切片文本和向量化状态。</small>
       </div>
       <el-table v-if="selectedDetail" :data="selectedDetail.chunks || []" stripe border class="chunk-table">
         <el-table-column label="#" prop="index" width="58" align="center" />

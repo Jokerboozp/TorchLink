@@ -1,9 +1,10 @@
 <script setup>
+import { statusLabel } from '../presentation'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import StandardDeviceCommissioning from '../components/StandardDeviceCommissioning.vue'
 import { api, formatTime, notifyError, parseJSON, pretty, session } from '../api'
-import { alarmType, label, messageTypeLabel, tagType } from '../labels'
+import { alarmType, label, messageTypeLabel, tagType, parsers } from '../labels'
 
 const emit = defineEmits(['navigate'])
 
@@ -109,7 +110,7 @@ async function sendTemplate(kind) {
   let body
   try {
     body = parseJSON(templates[kind], `${templateNames[kind]}模板`)
-    if (!body || Array.isArray(body) || typeof body !== 'object') throw new Error('报文必须是 JSON 对象')
+    if (!body || Array.isArray(body) || typeof body !== 'object') throw new Error('报文必须是结构化数据对象')
     if (!body.payload || typeof body.payload !== 'object') throw new Error('报文必须包含 payload 对象')
     if (!body.messageId || String(body.messageId).includes('<unique>')) body.messageId = uniqueMessageId(kind)
   } catch (error) {
@@ -181,17 +182,17 @@ onMounted(() => prepare())
           </template>
           <div class="test-device-summary">
             <div><span>设备名称</span><strong>{{ device.name }}</strong><small>{{ device.id }}</small></div>
-            <div><span>产品 / 协议</span><strong>{{ product?.name }}</strong><small>{{ protocolPackage?.parserType }} · {{ protocolPackage?.version }}</small></div>
-            <div><span>告警处理</span><strong>直接告警 + 可选规则</strong><small>ALARM_REPORT 无需规则；规则可补充联动</small></div>
+            <div><span>产品 / 协议</span><strong>{{ product?.name }}</strong><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }} · {{ protocolPackage?.version }}</small></div>
+            <div><span>告警处理</span><strong>直接告警 + 可选规则</strong><small>设备主动告警无需规则，规则可补充联动</small></div>
           </div>
           <el-descriptions :column="1" border>
             <el-descriptions-item label="设备标识"><code>{{ device.id }}</code></el-descriptions-item>
             <el-descriptions-item label="接入密钥"><code>{{ device.accessKey }}</code></el-descriptions-item>
-            <el-descriptions-item label="设备状态"><el-tag :type="tagType(device.status)" round>{{ device.status === 'ENABLED' ? '已启用' : device.status }}</el-tag></el-descriptions-item>
+            <el-descriptions-item label="设备状态"><el-tag :type="tagType(device.status)" round>{{ statusLabel(device.status) }}</el-tag></el-descriptions-item>
             <el-descriptions-item label="报警模板条件">temperature &gt; 80 且 smoke = true</el-descriptions-item>
           </el-descriptions>
-          <el-alert v-if="credential" class="top-gap" title="设备凭证已生成" description="Secret 只在本次准备时返回，请仅在本地测试环境保存；页面内发送数据不需要手动填写凭证。" type="info" :closable="false" show-icon />
-          <div v-if="credential" class="credential-box top-gap"><span>Device Secret</span><code>{{ credential.secret }}</code></div>
+          <el-alert v-if="credential" class="top-gap" title="设备凭证已生成" description="密钥只在本次准备时返回，请仅在本地测试环境保存；页面内发送数据不需要手动填写凭证。" type="info" :closable="false" show-icon />
+          <div v-if="credential" class="credential-box top-gap"><span>设备密钥</span><code>{{ credential.secret }}</code></div>
         </el-card>
 
         <el-card shadow="never" class="surface-card template-card">
@@ -204,7 +205,7 @@ onMounted(() => prepare())
           <el-input v-model="currentTemplate" class="template-editor" type="textarea" :rows="18" spellcheck="false" aria-label="可编辑报文模板" />
           <div class="template-actions">
             <el-button type="primary" :loading="sending === activeTemplate" @click="sendTemplate(activeTemplate)">发送{{ currentTemplateName }}</el-button>
-            <span>支持直接修改 JSON；带 <code>&lt;unique&gt;</code> 的 messageId 会在发送时自动替换。</span>
+            <span>支持直接修改报文内容；带 <code>&lt;unique&gt;</code> 的消息标识会在发送时自动替换。</span>
           </div>
         </el-card>
 
@@ -245,7 +246,7 @@ onMounted(() => prepare())
           <template v-else>
             <el-descriptions :column="1" border>
               <el-descriptions-item label="消息编号"><code>{{ result.messageId }}</code></el-descriptions-item>
-              <el-descriptions-item label="解析状态">{{ result.rawDetail?.parseStatus || '已提交' }}</el-descriptions-item>
+              <el-descriptions-item label="解析状态">{{ result.rawDetail?.parseStatus ? statusLabel(result.rawDetail.parseStatus) : '已提交' }}</el-descriptions-item>
               <el-descriptions-item label="标准消息">{{ result.rawDetail?.standardMessage ? `${messageTypeLabel(result.rawDetail.standardMessage.messageType)}（${result.rawDetail.standardMessage.messageType}）` : '等待处理' }}</el-descriptions-item>
               <el-descriptions-item label="关联告警">{{ result.alarms?.length ? `${result.alarms.length} 条 · ${alarmLabel(result.alarms[0].alarmType)}` : '暂无' }}</el-descriptions-item>
             </el-descriptions>

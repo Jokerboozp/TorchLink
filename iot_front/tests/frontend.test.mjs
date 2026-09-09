@@ -5,6 +5,10 @@ import test from 'node:test'
 
 const root = new URL('..', import.meta.url)
 
+async function appSource() {
+  return (await Promise.all(['src/App.vue', 'src/pageGuide.js'].map(path => readFile(new URL(path, root), 'utf8')))).join('\n')
+}
+
 async function sourceText(directory = new URL('src/', root)) {
   const entries = await readdir(directory, { withFileTypes: true })
   const contents = await Promise.all(entries.map(async entry => {
@@ -28,7 +32,7 @@ test('management controls and Chinese labels remain available', async () => {
 })
 
 test('account logout is available from the top-right avatar menu', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   assert.match(app, /<el-dropdown class="account-dropdown"/)
   assert.match(app, /aria-label="打开用户菜单"/)
   assert.match(app, /command="logout"/)
@@ -37,7 +41,7 @@ test('account logout is available from the top-right avatar menu', async () => {
 })
 
 test('login form never exposes a built-in password', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   assert.match(app, /loginForm = ref\(\{ tenantId: 'tenant_001', username: 'admin', password: '' \}\)/)
   assert.doesNotMatch(app, /password:\s*'admin123'/)
 })
@@ -49,11 +53,11 @@ test('shared controls keep file pickers and text actions visibly shaped', async 
   assert.match(styles, /\.el-button\.is-text, \.el-button\.is-link \{[^}]*border: 1px solid var\(--border\)/)
   assert.match(styles, /input\[type="file"\]::file-selector-button/)
   assert.match(styles, /\.el-button--small \{[^}]*min-height: 28px/)
-  assert.match(`${assistant}\n${protocols}`, /<input type="file"/)
+  assert.match(`${assistant}\n${protocols}`, /<FilePicker/)
 })
 
 test('global alarm popup handles raised alarms, fault events and tenant-scoped settings', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const popup = await readFile(new URL('src/components/GlobalAlertPopup.vue', root), 'utf8')
   const alerts = await import('../src/globalAlert.js')
 
@@ -113,7 +117,7 @@ test('long dialogs keep the viewport fixed and scroll within the dialog body', a
 
 test('camera metadata and AI workflow playground remain available', async () => {
   const source = await sourceText()
-  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', 'AI 工作流', '运行轨迹', '工具调用']) {
+  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', '智能助手', '运行轨迹', '工具调用']) {
     assert.match(source, new RegExp(label), `missing feature label: ${label}`)
   }
   const cameraView = await readFile(new URL('src/views/CameraMappingsView.vue', root), 'utf8')
@@ -122,9 +126,9 @@ test('camera metadata and AI workflow playground remain available', async () => 
 })
 
 test('knowledge management uploads files and lists tenant documents', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const view = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
-  for (const label of ['Agent 知识库', '上传知识文档', '上传并建立索引', '已上传文档', '打开 AI 工作流', '知识文档详情与切片', '索引与切片规则', '字符范围', '切片内容', '向量化', 'Agent 知识库策略', '每次强制检索', '最低相似度', '无匹配知识时', '保存知识库策略']) {
+  for (const label of ['知识库', '上传知识文档', '上传并建立索引', '已上传文档', '打开智能助手', '知识文档详情与切片', '索引与切片规则', '字符范围', '切片内容', '向量化', '知识库策略', '每次强制检索', '最低相似度', '无匹配知识时', '保存知识库策略']) {
     assert.match(`${app}\n${view}`, new RegExp(label), `missing knowledge UI label: ${label}`)
   }
   assert.match(view, /api\((?:'|`)[^'`]*\/api\/v1\/knowledge\/documents(?:\?|['`])/)
@@ -142,7 +146,7 @@ test('knowledge management uploads files and lists tenant documents', async () =
   assert.match(view, /knowledge-binding/)
   assert.match(view, /function loadBinding\(\)/)
   assert.match(view, /function saveBinding\(\)/)
-  for (const label of ['知识分类', '知识标签', '告警处置 SOP']) assert.match(view, new RegExp(label), `missing knowledge metadata UI: ${label}`)
+  for (const label of ['知识分类', '知识标签', '告警处置操作规程']) assert.match(view, new RegExp(label), `missing knowledge metadata UI: ${label}`)
 })
 
 test('knowledge statistic cards use readable foreground colors', async () => {
@@ -172,12 +176,12 @@ test('AI workbench uses cancellable SSE workflows and stable message keys', asyn
   assert.doesNotMatch(aiView, /conversationId\.value\s*=\s*event\.conversationId/)
   assert.doesNotMatch(aiView, /model:[^\n]*runtime\.value\.active/)
   assert.match(aiView, /conversationId\.value\s*=\s*makeId\('conversation'\)/)
-  for (const label of ['Agent 插件管理', '新建 Agent', 'Agent Manifest JSON', '校验并创建 Agent', '保存后 Agent 会立即进入工作流列表']) assert.match(aiView, new RegExp(label), `missing dynamic Agent UI: ${label}`)
+  for (const label of ['智能体插件管理', '新建智能体', '智能体配置清单', '校验并创建智能体', '保存后智能体会立即进入工作流列表']) assert.match(aiView, new RegExp(label), `missing dynamic Agent UI: ${label}`)
   for (const field of ['schemaVersion','id','name','description','version','enabled','persona','defaultModel','maxTokens','capabilities','allowedTools']) assert.match(aiView, new RegExp(`name:'${field}'`), `missing Agent field documentation: ${field}`)
-  assert.match(aiView, /JSON 标准不支持注释/)
-  assert.match(aiView, /allowedTools 可用工具/)
-  for (const label of ['本次运行', '选择工作流', '运行参数', '运行环境', 'Agent 管理']) assert.match(aiView, new RegExp(label), `missing workflow hierarchy label: ${label}`)
-  assert.match(aiView, /<el-drawer v-model="managementVisible" title="Agent 管理"/)
+  assert.match(aiView, /结构化数据标准不支持注释/)
+  assert.match(aiView, /允许使用的工具/)
+  for (const label of ['本次运行', '选择工作流', '运行参数', '运行环境', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow hierarchy label: ${label}`)
+  assert.match(aiView, /<el-drawer v-model="managementVisible" title="智能体管理"/)
   assert.doesNotMatch(aiView, /<el-menu/)
   assert.doesNotMatch(aiView, /Provider 测试/)
   assert.doesNotMatch(aiView, /panel-knowledge|panel-provider/)
@@ -187,7 +191,7 @@ test('AI workbench uses cancellable SSE workflows and stable message keys', asyn
   for (const marker of ['/api/v1/ai/workflows/admin', "method:'DELETE'", '工作流插件管理', '已配置的工作流插件', '内置只读', '启用', '禁用', '删除']) {
     assert.match(aiView, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing workflow management marker: ${marker}`)
   }
-  for (const marker of ['agentPreviewVisible', 'agentPreviewJson', 'viewAgent', '查看内置 Agent', '内置 Agent Manifest（只读）']) {
+  for (const marker of ['agentPreviewVisible', 'agentPreviewJson', 'viewAgent', '查看内置智能体', '内置智能体配置清单（只读）']) {
     assert.match(aiView, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing built-in Agent preview marker: ${marker}`)
   }
   for (const workflowId of ['alarm-handler', 'device-health-inspector', 'protocol-assistant']) {
@@ -270,21 +274,21 @@ test('health inspection report survives menu-driven view recreation and stays te
 })
 
 test('AI model administration has its own menu and business overview', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
   const providerView = await readFile(new URL('src/views/AiProvidersView.vue', root), 'utf8')
   const knowledgeView = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
-  assert.match(app, /knowledge: \{ title: 'Agent 知识库'/)
-  assert.match(app, /aiProviders: \{ title: 'AI 模型管理'/)
+  assert.match(app, /knowledge: \{ \.\.\.pageGuide.knowledge/)
+  assert.match(app, /aiProviders: \{ \.\.\.pageGuide.aiProviders/)
   assert.match(app, /items: \['aiProviders', 'ai', 'knowledge'\]/)
   assert.match(app, /allowedPages = new Set\(\[[^\]]*'aiProviders'/s)
-  assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑 Agent' : '新建 Agent'"/)
+  assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑智能体' : '新建智能体'"/)
   assert.match(aiView, /function cancelAgentEditor\(\)/)
   assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/)
   assert.match(aiView, /管理模型服务/)
   assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/)
   assert.doesNotMatch(aiView, /<el-menu-item index="knowledge"|<el-menu-item index="provider"/)
-  for (const label of ['统一管理 AI 模型与业务能力', '模型服务配置', 'AI 业务能力', '可用模型服务', '测试配置', '应用配置', 'AI 告警研判', '智能巡检']) {
+  for (const label of ['统一管理智能模型与业务能力', '模型服务配置', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) {
     assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`)
   }
   for (const label of ['AI Provider', 'Provider 配置', '可用 Provider', '测试并应用']) {
@@ -297,22 +301,22 @@ test('AI model administration has its own menu and business overview', async () 
   assert.match(providerView, /function applyProviderConfig\(\)/)
   assert.match(providerView, /:disabled="!canApply"/)
   assert.match(providerView, /当前填写内容未生效/)
-  assert.match(providerView, /所有 AI 功能立即生效/)
-  assert.match(knowledgeView, /Agent 知识库策略/)
+  assert.match(providerView, /所有智能功能立即生效/)
+  assert.match(knowledgeView, /知识库策略/)
 })
 
 test('protocol v2 point-table, package release and device collection flows are visible', async () => {
   const protocols = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8')
   const raw = await readFile(new URL('src/views/RawView.vue', root), 'utf8')
   const devices = await readFile(new URL('src/views/DevicesView.vue', root), 'utf8')
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const integration = await readFile(new URL('src/views/IntegrationView.vue', root), 'utf8')
-  for (const label of ['TCP / UDP 接入', 'Go 源码接入', '不可变版本', '设备接入实例', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`)
+  for (const label of ['网络监听', '源码接入', '不可变版本', '接入实例', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`)
   for (const route of ['/api/v2/protocols', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/')))
   assert.match(protocols, /go-protocol-v2/)
   assert.match(protocols, /protocol\.json/)
   assert.match(app, /label: '设备接入'/)
-  assert.match(app, /title:'接入指南'/)
+  assert.match(app, /integration: \{ \.\.\.pageGuide.integration/)
   assert.match(integration, /设备连接指南/)
   assert.match(raw, /standardMessage/)
     assert.match(devices, /hasReported\(row\)/)
@@ -321,7 +325,7 @@ test('protocol v2 point-table, package release and device collection flows are v
 })
 
 test('test device workbench provisions a fixture and sends editable data and alarm templates', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const view = await readFile(new URL('src/views/TestDeviceView.vue', root), 'utf8')
   for (const label of ['测试设备', '发送正常数据', '发送报警数据', '发送恢复数据', '报文模板', '建议测试顺序']) {
     assert.match(`${app}\n${view}`, new RegExp(label), `missing test device label: ${label}`)
@@ -359,10 +363,10 @@ test('alarm acknowledgement action is unavailable after the alarm is acknowledge
 })
 
 test('backup center exposes history, artifact downloads and restore drills', async () => {
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const view = await readFile(new URL('src/views/BackupsView.vue', root), 'utf8')
   const labels = await readFile(new URL('src/labels.js', root), 'utf8')
-  for (const marker of ['备份中心', '立即备份设备数据', '备份昨日数据', '详情 / 文件', '文件校验', '下载 manifest.json', '备份文件']) {
+  for (const marker of ['备份中心', '立即备份设备数据', '备份昨日数据', '详情 / 文件', '文件校验', '下载文件清单', '备份文件']) {
     assert.match(`${app}\n${view}`, new RegExp(marker), `missing backup center marker: ${marker}`)
   }
   assert.match(labels, /backupTypes/)
@@ -375,11 +379,11 @@ test('backup center exposes history, artifact downloads and restore drills', asy
 test('device access and health inspection pages expose the new runtime workflow', async () => {
   const protocol = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8')
   const inspection = await readFile(new URL('src/views/HealthInspectionView.vue', root), 'utf8')
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
-  for (const label of ['上传完整 Go 协议包后，在这里启用设备监听端口', '保存接入实例', '协议与版本', '设备接入实例']) {
+  const app = await appSource()
+  for (const label of ['上传完整设备协议包后，在这里启用设备监听端口', '保存接入实例', '协议与版本', '接入实例']) {
     assert.match(protocol, new RegExp(label), `missing protocol v2 label: ${label}`)
   }
-  for (const label of ['设备健康巡检', '立即巡检', '状态正常', '活动告警', 'AI 巡检建议']) {
+  for (const label of ['设备健康巡检', '立即巡检', '状态正常', '活动告警', '智能巡检建议']) {
     assert.match(inspection, new RegExp(label), `missing inspection label: ${label}`)
   }
   assert.match(inspection, /api\('\/api\/v1\/ai\/health-inspection\/run'/)
@@ -393,7 +397,7 @@ test('device access and health inspection pages expose the new runtime workflow'
   assert.match(inspection, /onBeforeUnmount/)
   assert.doesNotMatch(inspection, /onMounted\(run\)/)
   assert.match(inspection, /点击“立即巡检”开始检查/)
-  assert.match(app, /title: '设备接入'/)
+  assert.match(app, /title:\s*'设备接入'/)
   assert.match(app, /title:'智能巡检'/)
   assert.doesNotMatch(app, /protocolAssistant/)
   assert.match(app, /inspection/)
@@ -409,7 +413,7 @@ test('AI rule drafts keep failures visible in the page', async () => {
 test('Agent automation drafts and allowlisted UI actions remain wired end to end', async () => {
   const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
   const rulesView = await readFile(new URL('src/views/RulesView.vue', root), 'utf8')
-  const app = await readFile(new URL('src/App.vue', root), 'utf8')
+  const app = await appSource()
   const cameras = await readFile(new URL('src/views/CameraMappingsView.vue', root), 'utf8')
   assert.match(aiView, /RULE_DRAFT_READY/)
   assert.match(aiView, /clientAction\.persisted/)
@@ -417,7 +421,7 @@ test('Agent automation drafts and allowlisted UI actions remain wired end to end
   assert.match(aiView, /restoreConversation\(\)/)
   assert.match(aiView, /persistConversation\(\)/)
   assert.match(aiView, /mcp__iot__create_rule_draft/)
-  assert.match(rulesView, /联动动作 JSON/)
+  assert.match(rulesView, /联动动作结构化数据/)
   assert.match(rulesView, /detail\.ruleDraft/)
   assert.match(rulesView, /detail\.persisted/)
   assert.match(app, /\/ui-action\//)

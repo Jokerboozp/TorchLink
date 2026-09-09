@@ -1,4 +1,5 @@
 <script setup>
+import { transportLabel, formatLabel } from '../presentation'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, apiAll, notifyError } from '../api'
@@ -123,12 +124,12 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="协议 / 格式" min-width="180">
         <template #default="{ row }">
-          <b>{{ row.transport || '-' }}</b>
-          <small class="subline">{{ row.payloadFormat || '-' }}</small>
+          <b>{{ transportLabel(row.transport) }}</b>
+          <small class="subline">{{ formatLabel(row.payloadFormat) }}</small>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="110" align="center">
-        <template #default="{ row }"><el-tag :type="tagType(row.status)" round>{{ label(enabledStatuses, row.status, row.status) }}</el-tag></template>
+        <template #default="{ row }"><el-tag :type="tagType(row.status)" round>{{ label(enabledStatuses, row.status) }}</el-tag></template>
       </el-table-column>
       <el-table-column label="说明" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ row.description || '-' }}</template>
@@ -155,12 +156,12 @@ onMounted(load)
       <div class="form-grid">
         <el-form-item label="设备分类"><el-select v-model="form.category"><el-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></el-select></el-form-item>
         <el-form-item label="协议包"><el-select v-model="form.protocolPackageId" filterable clearable><el-option v-for="item in protocols" :key="item.id" :label="`${item.name} · ${item.id}`" :value="item.id" /></el-select></el-form-item>
-        <el-form-item label="传输协议"><el-select v-model="form.transport"><el-option v-for="x in ['MQTT','HTTP','TCP','MODBUS_TCP']" :key="x" :label="x" :value="x" /></el-select></el-form-item>
+        <el-form-item label="传输协议"><el-select v-model="form.transport"><el-option v-for="x in ['MQTT','HTTP','TCP','MODBUS_TCP']" :key="x" :label="transportLabel(x)" :value="x" /></el-select></el-form-item>
         <el-form-item label="数据格式"><el-select v-model="form.payloadFormat"><el-option label="结构化文本" value="json" /><el-option label="十六进制" value="hex" /><el-option label="二进制" value="binary" /></el-select></el-form-item>
       </div>
       <el-form-item label="产品状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /><el-option label="草稿" value="DRAFT" /></el-select></el-form-item>
       <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
-      <el-collapse><el-collapse-item title="物模型基础（高级）" name="thing-model"><p>定义属性、事件和命令。此定义用于描述数据及校验命令；属性设置 writable:true 后才允许写入设备影子期望状态。</p><el-input v-model="thingModelText" type="textarea" :rows="12" placeholder='{"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[]}' /></el-collapse-item></el-collapse>
+      <el-collapse><el-collapse-item title="物模型基础（高级）" name="thing-model"><p>定义属性、事件和命令。此定义用于描述数据及校验命令；属性标记为可写后，才允许设置设备的期望状态。</p><el-input v-model="thingModelText" type="textarea" :rows="12" placeholder='{"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[]}' /></el-collapse-item></el-collapse>
     </el-form>
     <template #footer>
       <el-button v-if="readonly" type="primary" @click="startEdit">编辑</el-button>

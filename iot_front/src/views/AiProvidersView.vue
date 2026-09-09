@@ -15,9 +15,9 @@ const testResult = ref(null)
 const testedFingerprint = ref('')
 const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'' })
 const providerOptions = [
-  { id:'ollama', label:'本地模型（Ollama）', description:'使用 CentOS 或本机部署的 Ollama，不需要接口密钥。' },
-  { id:'deepseek', label:'DeepSeek 云端模型', description:'使用 DeepSeek 云端模型和接口密钥。' },
-  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容 Chat Completions 接口的模型服务。' }
+  { id:'ollama', label:'本地部署模型', description:'使用服务器或本机部署的本地模型服务，不需要接口密钥。' },
+  { id:'deepseek', label:'深度求索云端模型', description:'使用深度求索云端模型和接口密钥。' },
+  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容聊天补全接口的模型服务。' }
 ]
 const capabilityLabels = {
   chat:'对话',
@@ -28,8 +28,8 @@ const capabilityLabels = {
   fallback:'降级响应'
 }
 const capabilities = [
-  { title:'AI 告警研判', description:'告警详情中的风险分析、原因判断和人工处置建议。', page:'alarms', label:'告警中心' },
-  { title:'AI 工作流对话', description:'通过受控工具查询设备、告警、趋势和运维知识。', page:'ai', label:'工作流' },
+  { title:'智能告警研判', description:'告警详情中的风险分析、原因判断和人工处置建议。', page:'alarms', label:'告警中心' },
+  { title:'智能助手对话', description:'通过受控工具查询设备、告警、趋势和运维知识。', page:'ai', label:'工作流' },
   { title:'智能巡检', description:'生成设备健康巡检结论，并标记数据局限和优先处理设备。', page:'inspection', label:'智能巡检' },
   { title:'告警规则草稿', description:'根据自然语言生成待人工复核的自动化规则草稿。', page:'rules', label:'告警规则' },
   { title:'协议助手与运维报告', description:'协议配置辅助、结构化输出和平台运维报告共用当前模型服务。', page:'protocols', label:'设备接入' }
@@ -55,7 +55,7 @@ function providerDescription(item) {
 }
 
 function capabilityLabel(value) {
-  return capabilityLabels[value] || value
+  return capabilityLabels[value] || '扩展能力'
 }
 
 function syncProviderForm(value) {
@@ -154,7 +154,7 @@ async function applyProviderConfig() {
     await loadRuntime()
     testResult.value = null
     testedFingerprint.value = ''
-    ElMessage.success(`已应用${providerLabel(candidate.body.provider)}，所有 AI 功能立即生效`)
+    ElMessage.success(`已应用${providerLabel(candidate.body.provider)}，所有智能功能立即生效`)
   } catch (error) {
     providerError.value = error.message || '模型服务应用失败'
   } finally {
@@ -176,7 +176,7 @@ onMounted(loadRuntime)
   <div class="ai-management-page">
     <el-card shadow="never" class="surface-card ai-management-hero" v-loading="loading">
       <div class="ai-management-hero-grid">
-        <div class="ai-management-hero-copy"><span class="section-kicker">AI 模型管理</span><h3>统一管理 AI 模型与业务能力</h3><p>在这里选择模型服务和活动模型。应用后，告警研判、工作流、巡检、规则草稿及协议助手会共用新配置。</p></div>
+        <div class="ai-management-hero-copy"><span class="section-kicker">智能模型管理</span><h3>统一管理智能模型与业务能力</h3><p>在这里选择模型服务和活动模型。应用后，告警研判、工作流、巡检、规则草稿及协议助手会共用新配置。</p></div>
         <div class="ai-active-provider"><div class="ai-active-provider-heading"><span>当前活动模型服务</span><el-tag :type="activeStatusType" effect="light">{{ activeStatusLabel }}</el-tag></div><strong>{{ activeProviderName }}</strong><small>{{ activeModel }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small><small v-if="runtime.config?.baseUrl">{{ runtime.config.baseUrl }}</small></div>
       </div>
     </el-card>
@@ -185,7 +185,7 @@ onMounted(loadRuntime)
 
     <div class="ai-management-grid">
       <el-card shadow="never" class="surface-card ai-provider-config">
-        <template #header><div class="card-header"><div><strong>模型服务配置</strong><small>先测试当前填写内容，再选择是否应用到全部 AI 功能</small></div><el-tag effect="plain">管理员</el-tag></div></template>
+        <template #header><div class="card-header"><div><strong>模型服务配置</strong><small>先测试当前填写内容，再选择是否应用到全部智能功能</small></div><el-tag effect="plain">管理员</el-tag></div></template>
         <template v-if="isAdmin">
           <el-form label-position="top" :model="providerForm" :disabled="busy">
             <el-form-item label="模型来源"><el-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><el-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item>
@@ -196,14 +196,14 @@ onMounted(loadRuntime)
             <div class="provider-actions"><el-button plain :loading="testing" @click="testProviderConfig">测试配置</el-button><el-button type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</el-button></div>
           </el-form>
           <el-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon />
-          <div v-if="testResult" class="provider-test-result" :class="{ success:testResult.success, failed:!testResult.success }"><div><strong>{{ testResult.success ? '配置测试通过' : '配置测试失败' }}</strong><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} ms</span></div><p v-if="testResult.answer">{{ testResult.answer }}</p><small v-if="testResult.success">当前填写内容未生效；确认无误后点击“应用配置”。</small></div>
+          <div v-if="testResult" class="provider-test-result" :class="{ success:testResult.success, failed:!testResult.success }"><div><strong>{{ testResult.success ? '配置测试通过' : '配置测试失败' }}</strong><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} 毫秒</span></div><p v-if="testResult.answer">{{ testResult.answer }}</p><small v-if="testResult.success">当前填写内容未生效；确认无误后点击“应用配置”。</small></div>
           <small v-if="runtime.config?.apiKeyConfigured && providerForm.provider !== 'ollama'" class="provider-key-hint">当前已保存接口密钥：{{ runtime.config.apiKeyHint || '已配置' }}；留空测试或应用会继续使用它。</small>
         </template>
         <div v-else class="provider-viewer-summary"><el-alert title="模型服务配置仅限管理员修改。" type="info" :closable="false" show-icon /><strong>{{ activeProviderName }}</strong><span>{{ activeModel }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</span></div>
       </el-card>
 
       <el-card shadow="never" class="surface-card ai-capability-card">
-        <template #header><div class="card-header"><div><strong>AI 业务能力</strong><small>所有能力跟随当前活动模型服务</small></div><el-tag type="success" effect="plain">{{ runtime.healthy ? '可用' : '待检查' }}</el-tag></div></template>
+        <template #header><div class="card-header"><div><strong>智能业务能力</strong><small>所有能力跟随当前活动模型服务</small></div><el-tag type="success" effect="plain">{{ runtime.healthy ? '可用' : '待检查' }}</el-tag></div></template>
         <div class="ai-capability-list">
           <div v-for="item in capabilities" :key="item.title" class="ai-capability-item"><span class="ai-capability-dot" :class="{ online:runtime.healthy }" /><div><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div><el-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</el-button></div>
         </div>
@@ -220,7 +220,7 @@ onMounted(loadRuntime)
       </el-table>
     </el-card>
 
-    <el-alert class="ai-management-note" title="配置说明" type="info" :closable="false" show-icon>本地模型地址填写 Ollama 服务根地址，例如 http://192.168.24.133:11434；误填 /v1 时平台会自动归一化。接口密钥只在测试、应用和服务端调用时使用，页面不会显示完整密钥。</el-alert>
+    <el-alert class="ai-management-note" title="配置说明" type="info" :closable="false" show-icon>本地模型地址填写模型服务根地址，例如 http://192.168.24.133:11434；误填 /v1 时平台会自动归一化。接口密钥只在测试、应用和服务端调用时使用，页面不会显示完整密钥。</el-alert>
   </div>
 </template>
 

@@ -1,6 +1,8 @@
 <script setup>
+import FilePicker from '../components/FilePicker.vue'
+import { transportLabel, formatLabel, statusLabel, platformLabel } from '../presentation'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { commandStatuses, label } from '../labels'
+import { commandStatuses, label, parsers } from '../labels'
 import ProtocolCatalog from '../components/ProtocolCatalog.vue'
 import ProtocolMarket from '../components/ProtocolMarket.vue'
 import EdgeNodes from '../components/EdgeNodes.vue'
@@ -65,11 +67,11 @@ function downloadSourceTemplate() {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 async function uploadSource() {
-  if (!sourceFile.value || !source.protocolId) return ElMessage.warning('请选择 Go 源码并填写协议标识；版本可由 protocol.json 提供')
-  if (sourceFile.value.size > 32 * 1024 * 1024) return ElMessage.warning('源码文件不能超过 32 MiB')
+  if (!sourceFile.value || !source.protocolId) return ElMessage.warning('请选择协议源码并填写协议标识；版本可由 protocol.json 提供')
+  if (sourceFile.value.size > 32 * 1024 * 1024) return ElMessage.warning('源码文件不能超过 32 兆字节')
   if (source.cases.trim()) {
     try { const cases = JSON.parse(source.cases); if (!Array.isArray(cases) || !cases.length) throw new Error() }
-    catch { return ElMessage.warning('样例测试须为非空 JSON 数组') }
+    catch { return ElMessage.warning('样例测试须为非空结构化数据数组') }
   }
   compiling.value = true
   sourceError.value = ''
@@ -103,7 +105,7 @@ async function publishRelease(protocolId, version) {
   } catch (error) { notifyError(error) } finally { switching.value = false }
 }
 async function saveListener() {
-  if (!listener.id || !listener.productId || !listener.protocolId || !listener.protocolVersion) return ElMessage.warning('请填写实例标识、产品及其当前绑定的 Go 协议版本')
+  if (!listener.id || !listener.productId || !listener.protocolId || !listener.protocolVersion) return ElMessage.warning('请填写实例标识、产品及其当前绑定的设备协议版本')
   savingListener.value = true
   try {
     result.value = await api('/api/v2/device-access-profiles', { method:'POST', body:JSON.stringify(listener) })
@@ -125,7 +127,7 @@ async function sendCommand() {
   if (!command.profileId || !command.deviceId) return ElMessage.warning('请选择接入实例并填写在线设备标识')
   let body
   try { body = JSON.parse(command.body); if (!body || typeof body.type !== 'string' || !body.type.trim()) throw new Error() }
-  catch { return ElMessage.warning('命令须为包含 type 的 JSON 对象') }
+  catch { return ElMessage.warning('命令须为包含 type 的结构化数据对象') }
   try { await ElMessageBox.confirm('确认向此设备发送协议命令？请核对参数，结果未知时不要另建命令重发。','人工确认命令') } catch { return }
   const signature = JSON.stringify([command.profileId,command.deviceId,body])
   if (!pendingProtocolCommand.value || pendingProtocolCommand.value.signature !== signature) pendingProtocolCommand.value={signature,id:crypto.randomUUID()}
@@ -150,7 +152,7 @@ async function testProfile(profile) {
 }
 
 function newestRelease(item) { return item.releases?.[0] || {} }
-function statusText(value) { return ({ LISTENING:'监听中', DISABLED:'已停用', DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销', PENDING:'待启动', ONLINE:'在线采集', ERROR:'采集异常' })[value] || value || '—' }
+function statusText(value) { return ({ LISTENING:'监听中', DISABLED:'已停用', DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销', PENDING:'待启动', ONLINE:'在线采集', ERROR:'采集异常' })[value] || statusLabel(value) }
 function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ERROR:'danger', REVOKED:'danger', VALIDATED:'warning', PENDING:'info' })[value] || 'info' }
 
 onMounted(load)
@@ -160,41 +162,41 @@ onMounted(load)
   <EdgeNodes v-if="edgeNodesOpen" @close="edgeNodesOpen=false" @changed="load" />
   <div class="page-toolbar">
     <el-button :loading="loading" @click="load">刷新</el-button>
-    <el-button @click="edgeNodesOpen=true">Edge 节点</el-button>
-    <el-tag type="success" round>协议运行时 v2</el-tag>
-    <span>{{ protocols.length }} 个协议，{{ releaseCount }} 个不可变版本，{{ profiles.length }} 个设备接入实例</span>
+    <el-button @click="edgeNodesOpen=true">边缘节点</el-button>
+    <el-tag type="success" round>协议版本管理</el-tag>
+    <span>{{ protocols.length }} 个协议，{{ releaseCount }} 个不可变版本，{{ profiles.length }} 个接入实例</span>
   </div>
 
   <el-tabs type="border-card">
-    <el-tab-pane label="Go 源码接入">
-      <el-alert title="上传 Go 源码，接入自定义协议" description="平台自动编译并试跑样例；通过后发布，绑定产品的新报文立即使用，无需重启。支持单个 .go 文件和完整 Go 项目 ZIP。" type="info" :closable="false" show-icon />
-      <el-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务尚未安装 Go 编译器，请先部署包含源码编译功能的 API 镜像。" type="warning" :closable="false" />
+    <el-tab-pane label="源码接入">
+      <el-alert title="上传协议源码，接入自定义协议" description="平台自动编译并试跑样例；通过后发布，绑定产品的新报文立即使用，无需重启。支持单个 .go 文件和完整协议项目压缩包。" type="info" :closable="false" show-icon />
+      <el-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务缺少源码编译环境，请联系管理员部署支持编译的后端服务。" type="warning" :closable="false" />
       <el-form :model="source" label-position="top" class="top-gap">
         <div class="form-grid">
           <el-form-item label="协议标识"><el-input v-model="source.protocolId" placeholder="例如 vendor-fire" /></el-form-item>
-          <el-form-item label="协议名称"><el-input v-model="source.name" placeholder="例如 消防设备协议" /></el-form-item>
+          <el-form-item label="协议名称"><el-input v-model="source.name" placeholder="例如消防设备协议" /></el-form-item>
           <el-form-item label="版本"><el-input v-model="source.version" placeholder="留空读取 protocol.json，更新时使用新版本号" /></el-form-item>
           <el-form-item label="绑定产品（可选）"><el-select v-model="source.productId" filterable clearable :disabled="!source.publish" placeholder="选择后，发布成功立即切换"><el-option v-for="p in products" :key="p.id" :label="`${p.name} · ${p.id}`" :value="p.id" /></el-select></el-form-item>
-          <el-form-item label="设备上报通道"><el-select v-model="source.transport" clearable placeholder="留空读取协议包"><el-option v-for="value in ['MQTT','HTTP','TCP','UDP','TCP_UDP']" :key="value" :label="value" :value="value" /></el-select></el-form-item>
-          <el-form-item label="报文格式"><el-select v-model="source.payloadFormat" clearable placeholder="留空读取协议包"><el-option v-for="value in ['hex','json','text','base64']" :key="value" :label="value" :value="value" /></el-select></el-form-item>
+          <el-form-item label="设备上报通道"><el-select v-model="source.transport" clearable placeholder="留空读取协议包"><el-option v-for="value in ['MQTT','HTTP','TCP','UDP','TCP_UDP']" :key="value" :label="transportLabel(value)" :value="value" /></el-select></el-form-item>
+          <el-form-item label="报文格式"><el-select v-model="source.payloadFormat" clearable placeholder="留空读取协议包"><el-option v-for="value in ['hex','json','text','base64']" :key="value" :label="formatLabel(value)" :value="value" /></el-select></el-form-item>
         </div>
         <div class="form-grid">
-          <el-form-item label="协议能力"><el-select v-model="source.runtime" clearable placeholder="留空读取协议包"><el-option label="报文解析（v1）" value="go-json-lines-v1" /><el-option label="完整接入（v2）" value="go-protocol-v2" /></el-select></el-form-item>
+          <el-form-item label="协议能力"><el-select v-model="source.runtime" clearable placeholder="留空读取协议包"><el-option label="报文解析（第一版）" value="go-json-lines-v1" /><el-option label="完整接入（第二版）" value="go-protocol-v2" /></el-select></el-form-item>
           <el-form-item label="操作能力（可留空读取协议包）"><el-input v-model="source.capabilities" placeholder='["decode","ingress","encode"]' /></el-form-item>
         </div>
         <el-form-item label="现场节点平台（可选）">
-          <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台；留空可读取 protocol.json"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platform" :value="platform" /></el-select>
-          <small class="subline">始终构建并试跑发布端样例；其他平台编译后，由对应 Edge 节点实际试跑成功才启用。旧版本保持不变。</small>
+          <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台；留空可读取 protocol.json"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></el-select>
+          <small class="subline">始终构建并试跑发布端样例；其他平台编译后，由对应边缘节点实际试跑成功才启用。旧版本保持不变。</small>
         </el-form-item>
-        <el-form-item label="Go 源码文件或项目 ZIP">
-          <input type="file" accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
-          <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate">下载完整 Go 模板</el-button>
-          <small class="subline">修改模板里的 Decode 即可。使用普通 Go 语法、标准库及项目内的包；第三方依赖请先 go mod vendor 后随项目上传。最大 32 MiB。</small>
+        <el-form-item label="源码文件或项目压缩包">
+          <FilePicker accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
+          <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate">下载完整协议模板</el-button>
+          <small class="subline">修改模板中的解析函数即可。第三方依赖须随源码一同打包上传，文件最大为三十二兆字节。具体开发要求请参考源码模板说明。</small>
         </el-form-item>
-        <el-form-item label="项目编译入口"><el-input v-model="source.entrypoint" placeholder="默认为 .，多目录项目可填 cmd/worker" /><small class="subline">ZIP 根目录放 go.mod、protocol.json 和源码；未填写的字段自动读取包内元数据。单文件默认入口为 .。</small></el-form-item>
+        <el-form-item label="项目编译入口"><el-input v-model="source.entrypoint" placeholder="默认为 .，多目录项目可填 cmd/worker" /><small class="subline">请保留模板的模块文件、协议配置和源码目录。未填写的字段自动读取包内配置；单文件可使用默认入口。</small></el-form-item>
         <el-form-item label="样例报文与预期解析结果">
           <el-input v-model="source.cases" type="textarea" :rows="7" spellcheck="false" />
-          <small class="subline">请改成该协议的实际样例。支持多条测试；ZIP 内含 samples/cases.json 时可以清空此处。任何一条失败都会阻止发布。</small>
+          <small class="subline">请填写该协议的实际样例。若已在源码包内提供样例文件，此处可留空。任意一条样例失败都会阻止发布。</small>
         </el-form-item>
         <el-switch v-model="source.publish" active-text="测试通过后立即发布" inactive-text="仅保存已校验版本" />
         <div class="dialog-actions"><el-button type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</el-button></div>
@@ -202,16 +204,16 @@ onMounted(load)
         <el-alert v-if="sourceError" class="top-gap" title="操作未完成，请查看原因" type="error" :closable="false"><pre class="source-error">{{ sourceError }}</pre></el-alert>
       </el-form>
     </el-tab-pane>
-    <el-tab-pane label="TCP / UDP 接入">
-      <el-alert title="上传完整 Go 协议包后，在这里启用设备监听端口" description="先在“协议与版本”绑定产品。Go 包负责分帧、识别设备、解析和应答；切换产品版本后，连接在完整帧及待应答命令结束后使用新版本。容器部署请使用已映射的端口。" type="info" :closable="false" show-icon />
+    <el-tab-pane label="网络监听">
+      <el-alert title="上传完整设备协议包后，在这里启用设备监听端口" description="先在“协议与版本”绑定产品。协议包负责分帧、识别设备、解析和应答；切换产品版本后，连接在完整帧及待应答命令结束后使用新版本。容器部署请使用已映射的端口。" type="info" :closable="false" show-icon />
       <el-form label-position="top" class="top-gap">
         <div class="form-grid">
           <el-form-item label="接入实例标识"><el-input v-model="listener.id" placeholder="例如 dahua-tcp" /></el-form-item>
           <el-form-item label="产品"><el-select v-model="listener.productId" filterable><el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
           <el-form-item label="协议"><el-select v-model="listener.protocolId" filterable @change="listener.protocolVersion = ''"><el-option v-for="p in protocols" :key="p.definition.id" :label="p.definition.name" :value="p.definition.id" /></el-select></el-form-item>
           <el-form-item label="产品当前绑定版本"><el-select v-model="listener.protocolVersion"><el-option v-for="release in listenerReleases" :key="release.version" :label="release.version" :value="release.version" /></el-select></el-form-item>
-          <el-form-item label="网络"><el-select v-model="listener.network"><el-option label="TCP" value="tcp" /><el-option label="UDP" value="udp" /></el-select></el-form-item>
-          <el-form-item label="本机监听 IP"><el-input v-model="listener.host" /></el-form-item>
+          <el-form-item label="网络"><el-select v-model="listener.network"><el-option label="长连接" value="tcp" /><el-option label="数据报" value="udp" /></el-select></el-form-item>
+          <el-form-item label="本机监听地址"><el-input v-model="listener.host" /></el-form-item>
           <el-form-item label="端口"><el-input-number v-model="listener.port" :min="1" :max="65535" /></el-form-item>
           <el-form-item label="操作超时（毫秒）"><el-input-number v-model="listener.timeoutMs" :min="1" :max="30000" /></el-form-item>
         </div>
@@ -222,8 +224,8 @@ onMounted(load)
       <el-divider content-position="left">设备下行命令</el-divider>
       <el-form label-position="top"><div class="form-grid">
         <el-form-item label="接入实例"><el-select v-model="command.profileId"><el-option v-for="p in profiles.filter(p => p.mode === 'listener' && p.enabled)" :key="p.id" :label="p.id" :value="p.id" /></el-select></el-form-item>
-        <el-form-item label="在线设备标识"><el-input v-model="command.deviceId" placeholder="由协议包识别的设备 ID" /></el-form-item>
-      </div><el-form-item label="协议包支持的命令 JSON"><el-input v-model="command.body" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="在线设备标识"><el-input v-model="command.deviceId" placeholder="由协议包识别的设备标识" /></el-form-item>
+      </div><el-form-item label="协议包支持的命令结构化数据"><el-input v-model="command.body" type="textarea" :rows="3" /></el-form-item>
       <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令</el-button><el-button v-if="pendingProtocolCommand && profiles.find(p=>p.id===command.profileId)?.edgeNodeId" @click="refreshProtocolCommand">查询命令结果</el-button><el-button v-if="pendingProtocolCommand" @click="pendingProtocolCommand=null">开始一条新命令</el-button></el-form>
     </el-tab-pane>
 
@@ -239,23 +241,23 @@ onMounted(load)
       <el-table v-loading="loading" :data="protocols" stripe>
         <el-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></el-table-column>
         <el-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></el-table-column>
-        <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ newestRelease(row).transport || '—' }} · {{ newestRelease(row).parserType || '—' }}</template></el-table-column>
+        <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column>
-        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ release.artifact.platform }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platform }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
+        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
       </el-table>
     </el-tab-pane>
 
-    <el-tab-pane label="设备接入实例">
+    <el-tab-pane label="接入实例">
       <el-table v-loading="loading" :data="profiles" stripe row-key="id">
         <el-table-column type="expand"><template #default="{row}">
           <div class="instance-details"><h4>当前在线会话</h4>
           <el-table :data="snapshot(row.id).sessions" empty-text="暂无在线会话"><el-table-column label="设备"><template #default="{row:session}">{{session.deviceId || '尚未识别设备'}}</template></el-table-column><el-table-column prop="remoteAddress" label="远端地址"/><el-table-column prop="protocolId" label="协议"/><el-table-column prop="protocolVersion" label="版本"/><el-table-column label="最后有效报文"><template #default="{row:session}">{{formatTime(session.lastSeenAt)}}</template></el-table-column></el-table>
-          <h4>最近接入设备（按创建时间，最多 20 台）</h4><el-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><el-table-column prop="deviceId" label="设备 ID"/><el-table-column prop="name" label="名称"/><el-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></el-table-column></el-table></div>
+          <h4>最近接入设备（按创建时间，最多 20 台）</h4><el-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><el-table-column prop="deviceId" label="设备标识"/><el-table-column prop="name" label="名称"/><el-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></el-table-column></el-table></div>
         </template></el-table-column>
         <el-table-column label="在线会话" width="100"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></el-table-column>
         <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.mode === 'listener' ? row.id : row.deviceId }}</b><small class="subline">{{ row.productId }}</small></template></el-table-column>
         <el-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></el-table-column>
-        <el-table-column label="连接" min-width="170"><template #default="{ row }">{{ row.host }}:{{ row.port }} · {{ row.mode === 'listener' ? row.network?.toUpperCase() : `Unit ${row.unitId}` }}</template></el-table-column>
+        <el-table-column label="连接" min-width="170"><template #default="{ row }">{{ row.host }}:{{ row.port }} · {{ row.mode === 'listener' ? transportLabel(row.network) : `单元 ${row.unitId}` }}</template></el-table-column>
         <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</el-tag></template></el-table-column>
         <el-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></el-table-column>
         <el-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></el-table-column>

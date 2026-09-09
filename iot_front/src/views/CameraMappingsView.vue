@@ -153,7 +153,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
 <template>
   <div class="page-toolbar">
     <el-button type="primary" @click="open()">新增摄像头</el-button>
-    <el-button @click="openCatalog">GB28181 目录</el-button>
+    <el-button @click="openCatalog">国标视频目录</el-button>
     <el-button @click="load">刷新</el-button>
     <span>共 {{ total }} 个摄像头；一个摄像头最多关联一个设备，一个设备可以关联多个摄像头</span>
   </div>
@@ -175,15 +175,15 @@ onMounted(async () => { await load(); consumeNavigationAction() })
 
   <el-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)">
     <el-collapse>
-      <el-collapse-item title="从 ONVIF 摄像头读取基础信息" name="onvif">
+      <el-collapse-item title="从网络视频标准摄像头读取基础信息" name="onvif">
         <el-form label-position="top">
           <div class="form-grid">
             <el-form-item label="现场节点"><el-select v-model="onvif.edgeNodeId" placeholder="选择已启用节点" :disabled="discoveryBusy || onvifBusy" @change="discoveryResult=null"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id" /></el-select></el-form-item>
-            <el-form-item label="发现网卡 IPv4（节点本地白名单）"><el-input v-model="discoveryInterface" placeholder="现场节点的网卡地址" :disabled="discoveryBusy" /></el-form-item>
-            <el-form-item label="摄像头地址"><el-input v-model="onvif.host" placeholder="IP 或主机名" /></el-form-item>
+            <el-form-item label="发现网卡网络地址（节点本地白名单）"><el-input v-model="discoveryInterface" placeholder="现场节点的网卡地址" :disabled="discoveryBusy" /></el-form-item>
+            <el-form-item label="摄像头地址"><el-input v-model="onvif.host" placeholder="地址或主机名" /></el-form-item>
             <el-form-item label="端口"><el-input-number v-model="onvif.port" :min="1" :max="65535" /></el-form-item>
             <el-form-item label="现场凭据引用"><el-input v-model="onvif.credentialRef" placeholder="节点本地已配置的凭据名称" /></el-form-item>
-            <el-form-item label="ONVIF 服务路径"><el-input v-model="onvif.endpointPath" /></el-form-item>
+            <el-form-item label="网络视频标准服务路径"><el-input v-model="onvif.endpointPath" /></el-form-item>
           </div>
           <el-button :loading="discoveryBusy" :disabled="onvifBusy || !onvif.edgeNodeId || !discoveryInterface" @click="discoverONVIF">发现候选设备</el-button>
           <el-button :loading="onvifBusy" :disabled="discoveryBusy || !onvif.edgeNodeId || !onvif.host || !onvif.credentialRef" @click="readONVIF">读取信息</el-button>
@@ -193,7 +193,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
     </el-collapse>
     <el-form :model="camera" label-position="top">
       <div class="form-grid">
-        <el-form-item label="摄像头 ID"><el-input v-model="camera.cameraId" :disabled="!!editing" placeholder="外部视频平台摄像头 ID" /></el-form-item>
+        <el-form-item label="摄像头标识"><el-input v-model="camera.cameraId" :disabled="!!editing" placeholder="外部视频平台摄像头标识" /></el-form-item>
         <el-form-item label="品牌"><el-input v-model="camera.brand" placeholder="例如：海康、大华" /></el-form-item>
         <el-form-item label="摄像头名称"><el-input v-model="camera.cameraName" placeholder="例如：一层大厅东侧" /></el-form-item>
         <el-form-item label="摄像头点位"><el-input v-model="camera.cameraPoint" placeholder="例如：东侧入口" /></el-form-item>
@@ -202,13 +202,13 @@ onMounted(async () => { await load(); consumeNavigationAction() })
         <el-form-item label="房间"><el-input v-model="camera.room" /></el-form-item>
         <el-form-item label="关联设备（可选）"><el-select v-model="camera.deviceId" clearable filterable placeholder="选择一个设备"><el-option v-for="item in devices" :key="item.id" :label="`${item.name || item.id} · ${item.id}`" :value="item.id" /></el-select></el-form-item>
       </div>
-      <el-alert title="保存后只能保留一个设备关联；同一设备可以在多个摄像头记录中出现。直播地址、SDK、ZLMediaKit 均不在此配置。" type="info" :closable="false" show-icon />
+      <el-alert title="保存后只能保留一个设备关联；同一设备可以在多个摄像头记录中出现。直播地址、开发工具包、流媒体服务均不在此配置。" type="info" :closable="false" show-icon />
       <el-form-item><el-switch v-model="camera.enabled" active-text="启用该摄像头" /></el-form-item>
     </el-form>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" @click="save">保存</el-button></template>
   </el-dialog>
-  <el-dialog v-model="catalogVisible" title="GB28181 摄像头目录" width="min(900px, 94vw)">
-    <p>选择运行 GB28181 元数据服务的独立现场节点。目录来自已认证注册设备，添加后可编辑位置和设备关联。</p>
+  <el-dialog v-model="catalogVisible" title="国标视频摄像头目录" width="min(900px, 94vw)">
+    <p>选择运行国标视频元数据服务的独立现场节点。目录来自已认证注册设备，添加后可编辑位置和设备关联。</p>
     <el-select v-model="catalogNode" placeholder="选择视频节点" :disabled="catalogBusy" @change="loadCatalog"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id"/></el-select>
     <el-button :disabled="!catalogNode" :loading="catalogBusy" @click="loadCatalog">刷新目录</el-button>
     <el-alert v-if="catalogError" :title="catalogError" type="error" :closable="false"/>

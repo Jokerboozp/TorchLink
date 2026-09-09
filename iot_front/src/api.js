@@ -1,3 +1,4 @@
+import { errorMessage } from './presentation'
 import { ElMessage } from 'element-plus'
 
 import { consumeSSE } from './sse'
@@ -26,6 +27,7 @@ export class ApiError extends Error {
     this.status = details.status || 0
     this.code = details.code || details.errorCode || ''
     this.testResult = details.success === false && details.errorCode ? details : null
+    this.originalMessage = details.detail || details.message || ''
     this.traceId = details.traceId || ''
     this.runId = details.runId || ''
     this.stage = details.stage || ''
@@ -50,7 +52,7 @@ function dispatchUnauthorized(path, status) {
 async function responseError(path, response) {
   const data = await response.json().catch(() => ({}))
   dispatchUnauthorized(path, response.status)
-  return new ApiError(data.detail || data.message || `HTTP ${response.status}`, { ...data, status:response.status })
+  return new ApiError(errorMessage({ message:data.detail || data.message || '', status:response.status }), { ...data, status:response.status })
 }
 
 export async function api(path, options = {}) {
@@ -75,15 +77,15 @@ export async function apiStream(path, options = {}, onEvent = () => {}) {
     response = await fetch(path, { ...options, headers:headersFor(options, 'text/event-stream') })
   } catch (error) {
     if (error?.name === 'AbortError') throw error
-    throw new ApiError('无法连接 AI 流服务，请检查网络后重试', { code:'AI_STREAM_NETWORK_ERROR', retryable:true })
+    throw new ApiError('无法连接智能流服务，请检查网络后重试', { code:'AI_STREAM_NETWORK_ERROR', retryable:true })
   }
   if (!response.ok) throw await responseError(path, response)
-  if (!response.body) throw new ApiError('AI 流响应不可用', { status:response.status, code:'AI_STREAM_UNAVAILABLE', retryable:true })
+  if (!response.body) throw new ApiError('智能流响应不可用', { status:response.status, code:'AI_STREAM_UNAVAILABLE', retryable:true })
   try {
     await consumeSSE(response.body, onEvent)
   } catch (error) {
     if (error?.name === 'AbortError' || error instanceof ApiError) throw error
-    throw new ApiError(error?.message || 'AI 流解析失败', { code:error?.code || 'AI_STREAM_PARSE_ERROR', retryable:true })
+    throw new ApiError(error?.message || '智能流解析失败', { code:error?.code || 'AI_STREAM_PARSE_ERROR', retryable:true })
   }
 }
 
@@ -99,9 +101,9 @@ export async function download(path, filename, options = {}) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function notifyError(error) { ElMessage.error(error?.message || String(error)) }
-export const formatTime = value => value ? new Date(Number(value)).toLocaleString() : '—'
+export function notifyError(error) { ElMessage.error(errorMessage(error)) }
+export const formatTime = value => value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12:false }) : '—'
 export const pretty = value => JSON.stringify(value, null, 2)
-export function parseJSON(value, label = 'JSON') {
+export function parseJSON(value, label = '结构化数据') {
   try { return JSON.parse(value || '{}') } catch { throw new Error(`${label} 格式不正确`) }
 }

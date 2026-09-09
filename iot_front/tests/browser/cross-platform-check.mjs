@@ -34,7 +34,7 @@ try {
   // protocol.json identity is checked by the server; use the existing identity.
   await fill('协议标识','cross')
   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='现场节点平台（可选）')?.querySelector('.el-select__wrapper');if(!e)return false;e.click();return true})()`))
-  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='windows-arm64'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`))
+  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='微软系统 · 精简指令六十四位'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`))
   await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
   await call('DOM.enable')
   const tree=await call('DOM.getDocument')
@@ -43,7 +43,7 @@ try {
   await click('上传、编译并发布')
   await until(()=>evaluate(`document.body.textContent.includes('协议已发布，可绑定产品使用')`))
   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('[role=tab]')].find(e=>e.textContent.trim()==='协议与版本');if(!e)return false;e.click();return true})()`))
-  await until(()=>evaluate(`document.body.textContent.includes('windows-arm64 · 已编译，待节点试跑') && document.body.textContent.includes('2.0.0')`))
+  await until(()=>evaluate(`document.body.textContent.includes('微软系统 · 精简指令六十四位 · 已编译，待节点试跑') && document.body.textContent.includes('2.0.0')`))
   assert.equal(await evaluate(`document.body.textContent.includes('发布端样例 2 项')`),true)
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
   assert.equal(await evaluate(`document.querySelector('.el-table__body-wrapper')!==null`),true)

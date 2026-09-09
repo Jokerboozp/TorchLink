@@ -28,7 +28,7 @@ try {
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`))
   const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await click('设备接入')
-  await click('Edge 节点')
+  await click('边缘节点')
   await click('程序升级')
   await until(()=>evaluate(`document.body.textContent.includes('实际版本：v1') && document.body.textContent.includes('已回退')`))
   await fill('目标程序版本','v2')

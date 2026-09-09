@@ -28,7 +28,7 @@ try {
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`))
   const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
   await click('摄像头映射')
-  await click('GB28181 目录')
+  await click('国标视频目录')
   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-dialog .el-select__wrapper')].find(e=>e.getClientRects().length);if(!e)return false;e.click();return true})()`))
   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='video-node'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`))
   await until(()=>evaluate(`document.querySelector('.el-dialog .el-table')?.textContent.includes('Test camera')`))

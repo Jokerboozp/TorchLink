@@ -18,7 +18,7 @@ const statusMeta = computed(() => ({
 function formatClock(value) {
   if (!value) return '—'
   const date = new Date(Number(value))
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString()
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('zh-CN', { hour12:false })
 }
 </script>
 
@@ -26,7 +26,7 @@ function formatClock(value) {
   <el-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue',$event)">
     <template #header>
       <div class="drawer-heading">
-        <span class="section-kicker">HARNESS TRACE</span>
+        <span class="section-kicker">执行过程</span>
         <strong>运行轨迹</strong>
         <small>只展示服务端返回的摘要，不呈现工具原始敏感载荷。</small>
       </div>
@@ -37,12 +37,12 @@ function formatClock(value) {
         <div><small>状态</small><el-tag :type="statusMeta.type" effect="light">{{ statusMeta.label }}</el-tag></div>
         <div><small>工作流</small><strong>{{ run.workflowName || run.workflowId || '默认工作流' }}</strong></div>
         <div><small>模型</small><strong>{{ [run.provider,run.model].filter(Boolean).join(' / ') || '由服务端选择' }}</strong></div>
-        <div><small>耗时</small><strong>{{ run.durationMs != null ? `${run.durationMs} ms` : '—' }}</strong></div>
+        <div><small>耗时</small><strong>{{ run.durationMs != null ? `${run.durationMs} 毫秒` : '—' }}</strong></div>
       </section>
 
       <div class="trace-identifiers">
-        <span v-if="run.runId">Run · {{ run.runId }}</span>
-        <span v-if="run.traceId">Trace · {{ run.traceId }}</span>
+        <span v-if="run.runId">执行编号 · {{ run.runId }}</span>
+        <span v-if="run.traceId">追踪编号 · {{ run.traceId }}</span>
       </div>
 
       <el-alert v-if="run.error" class="run-error" :title="run.error.message || '运行失败'" :description="[run.error.code,run.error.stage].filter(Boolean).join(' · ')" type="error" :closable="false" show-icon />
@@ -63,7 +63,7 @@ function formatClock(value) {
         <ToolCallCard v-for="tool in run.tools" :key="tool.id || tool.toolCallId" :tool="tool" />
       </section>
     </div>
-    <el-empty v-else description="选择一条 AI 消息查看运行轨迹" />
+    <el-empty v-else description="选择一条智能消息查看运行轨迹" />
   </el-drawer>
 </template>
 

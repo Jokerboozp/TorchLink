@@ -1,4 +1,6 @@
 <script setup>
+import FilePicker from '../components/FilePicker.vue'
+import { transportLabel } from '../presentation'
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, notifyError, parseJSON, pretty } from '../api'
@@ -49,7 +51,7 @@ function removeField(index) {
 }
 
 function sampleValue() {
-  return form.payloadFormat === 'hex' ? form.samplePayload.trim() : parseJSON(form.samplePayload, '样本 JSON')
+  return form.payloadFormat === 'hex' ? form.samplePayload.trim() : parseJSON(form.samplePayload, '样本结构化数据')
 }
 
 async function generate() {
@@ -65,7 +67,7 @@ async function generate() {
     fields.value = (result.fields || []).map(item => ({ ...item }))
     Object.assign(form, { name: result.name || form.name, protocol: result.protocol || form.protocol, transport: result.transport || form.transport, payloadFormat: result.payloadFormat || form.payloadFormat })
     preview.value = result.preview || null
-    ElMessage.success('Go 协议映射草稿已生成')
+    ElMessage.success('设备协议映射草稿已生成')
   } catch (error) {
     notifyError(error)
   } finally {
@@ -104,7 +106,7 @@ async function publish() {
     const result = await api('/api/v1/ai/protocol-assistant/publish', { method: 'POST', body: JSON.stringify(body) })
     published.value = result.package
     preview.value = result.standardMessage || preview.value
-    ElMessage.success(result.package.status === 'PUBLISHED' ? 'Go 协议包已发布，可到产品管理绑定产品' : 'Go 协议包草稿已保存，请到协议开发上传Go 源码包')
+    ElMessage.success(result.package.status === 'PUBLISHED' ? '设备协议包已发布，可到产品管理绑定产品' : '设备协议包草稿已保存，请到协议开发上传协议源码包')
   } catch (error) {
     notifyError(error)
   } finally {
@@ -115,21 +117,21 @@ async function publish() {
 
 <template>
   <div class="protocol-assistant-page">
-    <el-alert title="协议接入助手" description="上传 Excel 点表后由 Go 代码生成地址映射；不会生成或执行 JavaScript。点表用于生成与预览映射草稿；所有专用协议均通过上传 Go 源码包发布。" type="info" :closable="false" show-icon />
+    <el-alert title="协议接入助手" description="上传电子表格点表后由协议代码生成地址映射；不会生成或执行脚本。点表用于生成与预览映射草稿；所有专用协议均通过上传协议源码包发布。" type="info" :closable="false" show-icon />
     <div class="assistant-grid top-gap">
       <el-card shadow="never" class="surface-card">
         <template #header><div class="card-header"><strong>1. 提供协议资料</strong><el-tag type="warning" round>人工确认后发布</el-tag></div></template>
         <el-form :model="form" label-position="top">
-          <el-form-item label="协议文件"><input type="file" accept=".xlsx,.pdf,.docx,.pptx,.odt,.odp,.ods,.csv,.txt,.md,.json,.html,.htm,.xml" @change="chooseFile" /><small class="subline">{{ file?.name || '支持 Excel、PDF、Word、CSV 和文本，最大 32 MiB' }}</small></el-form-item>
+          <el-form-item label="协议文件"><FilePicker accept=".xlsx,.pdf,.docx,.pptx,.odt,.odp,.ods,.csv,.txt,.md,.json,.html,.htm,.xml" @change="chooseFile" /><small class="subline">{{ file?.name || '支持电子表格、办公文档、逗号分隔表格和文本，最大 32 兆字节' }}</small></el-form-item>
           <el-form-item label="点表 / 协议片段"><el-input v-model="form.pointTable" type="textarea" :rows="8" placeholder="可直接粘贴变量名、线圈/寄存器地址、类型、正常值、报警值、说明" /></el-form-item>
           <div class="form-grid">
             <el-form-item label="协议名称"><el-input v-model="form.name" placeholder="例如：库卡火花探测器" /></el-form-item>
             <el-form-item label="协议标识"><el-input v-model="form.protocol" placeholder="例如：vendor-modbus-v1" /></el-form-item>
-            <el-form-item label="传输方式"><el-select v-model="form.transport"><el-option v-for="item in transports" :key="item" :label="item" :value="item" /></el-select></el-form-item>
-            <el-form-item label="载荷格式"><el-select v-model="form.payloadFormat"><el-option label="十六进制" value="hex" /><el-option label="JSON" value="json" /></el-select></el-form-item>
+            <el-form-item label="传输方式"><el-select v-model="form.transport"><el-option v-for="item in transports" :key="item" :label="transportLabel(item)" :value="item" /></el-select></el-form-item>
+            <el-form-item label="载荷格式"><el-select v-model="form.payloadFormat"><el-option label="十六进制" value="hex" /><el-option label="结构化数据" value="json" /></el-select></el-form-item>
           </div>
-          <el-form-item label="样本报文"><el-input v-model="form.samplePayload" type="textarea" :rows="6" :placeholder="form.payloadFormat === 'hex' ? '例如：00 01 00 00 00 05 01 01 02 03 01' : '例如：{&quot;temperature&quot;:25.5}'" /><small class="subline">Excel 只有地址表时可以先不填，但必须在协议调试中用真实响应验证。</small></el-form-item>
-          <el-button type="primary" :loading="generating" @click="generate">生成 Go 协议映射</el-button>
+          <el-form-item label="样本报文"><el-input v-model="form.samplePayload" type="textarea" :rows="6" :placeholder="form.payloadFormat === 'hex' ? '例如：00 01 00 00 00 05 01 01 02 03 01' : '例如：{&quot;temperature&quot;:25.5}'" /><small class="subline">电子表格只有地址表时可以先不填，但必须在协议调试中用真实响应验证。</small></el-form-item>
+          <el-button type="primary" :loading="generating" @click="generate">生成设备协议映射</el-button>
         </el-form>
       </el-card>
 
@@ -140,7 +142,7 @@ async function publish() {
           <el-form label-position="top">
             <div class="form-grid">
               <el-form-item label="草稿名称"><el-input v-model="draft.name" /></el-form-item>
-              <el-form-item label="消息类型"><el-select v-model="draft.messageType" @change="rebuild"><el-option v-for="(item, key) in messageTypes" :key="key" :label="`${item.label}（${key}）`" :value="key" /></el-select><small class="subline">{{ typeInfo(draft.messageType).description }} 内部代码：{{ draft.messageType }}</small></el-form-item>
+              <el-form-item label="消息类型"><el-select v-model="draft.messageType" @change="rebuild"><el-option v-for="(item, key) in messageTypes" :key="key" :label="item.label" :value="key" /></el-select><small class="subline">{{ typeInfo(draft.messageType).description }} 内部代码：{{ draft.messageType }}</small></el-form-item>
             </div>
             <el-table :data="fields" border size="small">
               <el-table-column label="字段名" min-width="150"><template #default="{ row }"><el-input v-model="row.name" @change="rebuild" /></template></el-table-column>
@@ -152,8 +154,8 @@ async function publish() {
               <el-table-column label="操作" width="88"><template #default="{ $index }"><el-button plain type="danger" @click="removeField($index)">删除</el-button></template></el-table-column>
             </el-table>
             <div class="table-actions top-gap"><el-button plain @click="addField">新增字段</el-button><el-button plain @click="rebuild">保存映射修改</el-button></div>
-            <el-alert v-if="draft.parserType === 'go_protocol_parser'" class="top-gap" title="此草稿需要Go 源码包" description="保存映射草稿后，在“设备接入 → Go 源码接入”上传 .go 或项目 ZIP，平台自动编译、验证样例并发布。" type="warning" :closable="false" />
-            <div class="form-grid top-gap"><el-form-item label="协议包 ID"><el-input v-model="form.id" placeholder="留空自动生成" /></el-form-item><el-form-item label="版本"><el-input v-model="form.version" /></el-form-item></div>
+            <el-alert v-if="draft.parserType === 'go_protocol_parser'" class="top-gap" title="此草稿需要协议源码包" description="保存映射草稿后，在“设备接入 → 源码接入”上传 .go 或项目压缩包，平台自动编译、验证样例并发布。" type="warning" :closable="false" />
+            <div class="form-grid top-gap"><el-form-item label="协议包标识"><el-input v-model="form.id" placeholder="留空自动生成" /></el-form-item><el-form-item label="版本"><el-input v-model="form.version" /></el-form-item></div>
             <div class="table-actions"><el-button :loading="testing" @click="runPreview">运行解析预览</el-button><el-button type="primary" :loading="publishing" @click="publish">保存协议映射草稿</el-button></div>
           </el-form>
         </template>
@@ -168,7 +170,7 @@ async function publish() {
         <el-descriptions class="top-gap" :column="2" border><el-descriptions-item label="消息类型">{{ typeInfo(preview.messageType).label }}（{{ preview.messageType }}）</el-descriptions-item><el-descriptions-item label="解析器">{{ parsers[preview.parser] || preview.parser }}</el-descriptions-item></el-descriptions>
         <el-tabs class="top-gap"><el-tab-pane label="标准消息"><pre>{{ pretty(preview) }}</pre></el-tab-pane><el-tab-pane label="属性字段"><el-descriptions :column="2" border><el-descriptions-item v-for="(value, key) in preview.properties || {}" :key="key" :label="key">{{ value }}</el-descriptions-item></el-descriptions></el-tab-pane></el-tabs>
       </template>
-      <el-alert v-if="published" class="top-gap" type="success" :closable="false" :title="`已保存：${published.name} · ${published.id}`" :description="published.status === 'PUBLISHED' ? '下一步到产品管理把协议包绑定到对应产品。' : '当前为草稿，请到协议开发上传Go 源码包 后再发布。'" />
+      <el-alert v-if="published" class="top-gap" type="success" :closable="false" :title="`已保存：${published.name} · ${published.id}`" :description="published.status === 'PUBLISHED' ? '下一步到产品管理把协议包绑定到对应产品。' : '当前为草稿，请到协议开发上传协议源码包后再发布。'" />
     </el-card>
   </div>
 </template>
