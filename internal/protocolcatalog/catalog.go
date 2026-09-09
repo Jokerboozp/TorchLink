@@ -28,6 +28,8 @@ const MaxSource = 32 << 20
 var segment = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
 
 type Entry struct {
+	Kind        string   `json:"kind,omitempty"`
+	Platform    string   `json:"platform,omitempty"`
 	ID          string   `json:"id"`
 	Version     string   `json:"version"`
 	Name        string   `json:"name"`
@@ -162,7 +164,21 @@ func Validate(p Payload, now time.Time) error {
 	}
 	seen := map[string]bool{}
 	for _, e := range p.Entries {
-		key := e.ID + "/" + e.Version
+		if e.Kind != "" && e.Kind != "protocol-source" && e.Kind != "edge-agent" {
+			return errors.New("unsupported catalog artifact kind")
+		}
+		if e.Kind == "edge-agent" && (e.ID != "iot-edge-agent" || (e.Platform != "linux/amd64" && e.Platform != "linux/arm64" && e.Platform != "windows/amd64" && e.Platform != "windows/arm64" && e.Platform != "darwin/arm64" && e.Platform != "darwin/amd64")) {
+			return errors.New("invalid edge program platform")
+		}
+
+		kind := e.Kind
+		if kind == "" {
+			kind = "protocol-source"
+		}
+		if kind == "protocol-source" && e.Platform != "" {
+			return errors.New("protocol source entry does not select a binary platform")
+		}
+		key := e.ID + "/" + e.Version + "/" + kind + "/" + e.Platform
 		hash, err := hex.DecodeString(e.SHA256)
 		if !segment.MatchString(e.ID) || !segment.MatchString(e.Version) || seen[key] || e.Name == "" || len(e.Name) > 256 || len(e.Description) > 4096 || len(e.Publisher) > 256 || len(e.License) > 128 || len(e.Tags) > 16 || err != nil || len(hash) != 32 || e.SHA256 != strings.ToLower(e.SHA256) || e.Size < 1 || e.Size > MaxSource {
 			return errors.New("invalid catalog entry or duplicate version")

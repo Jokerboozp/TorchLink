@@ -15,6 +15,7 @@ import (
 )
 
 func (s *Server) edgeRoutes() {
+	s.edgeProgramRoutes()
 	s.onboarding.RemoteRead = s.edgeRead
 	s.router.GET("/api/v1/edge/:tenant/:node/commands", s.endpoint(s.edgeCommand, "tenant", "node"))
 	s.router.POST("/api/v1/edge/:tenant/:node/commands/:command", s.endpoint(s.edgeCommand, "tenant", "node", "command"))

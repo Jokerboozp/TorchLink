@@ -33,19 +33,20 @@ type Options struct {
 	AllowInsecureHTTP                      bool
 }
 type Agent struct {
-	syncMu    sync.Mutex
-	listeners *protocolruntime.Listeners
-	collector *fieldprotocol.Collector
-	options   Options
-	client    *http.Client
-	queue     *Queue
-	log       *slog.Logger
-	mu        sync.Mutex
-	config    model.EdgeConfiguration
-	repo      *memory.Repository
-	cancel    context.CancelFunc
-	lastError string
-	errors    map[string]string
+	syncMu              sync.Mutex
+	listeners           *protocolruntime.Listeners
+	collector           *fieldprotocol.Collector
+	options             Options
+	client              *http.Client
+	queue               *Queue
+	log                 *slog.Logger
+	mu                  sync.Mutex
+	config              model.EdgeConfiguration
+	repo                *memory.Repository
+	cancel              context.CancelFunc
+	lastError           string
+	authenticatedConfig bool
+	errors              map[string]string
 }
 
 func New(options Options, log *slog.Logger) (*Agent, error) {
@@ -294,6 +295,7 @@ func (a *Agent) sync(ctx context.Context) error {
 				a.cancel()
 			}
 			a.repo = nil
+			a.authenticatedConfig = false
 			a.mu.Unlock()
 		}
 		return err
@@ -305,11 +307,17 @@ func (a *Agent) sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return atomicFile(filepath.Join(a.options.DataDir, "configuration.json"), b)
+	if err := atomicFile(filepath.Join(a.options.DataDir, "configuration.json"), b); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.authenticatedConfig = true
+	a.mu.Unlock()
+	return nil
 }
 func (a *Agent) heartbeat(ctx context.Context) error {
 	a.mu.Lock()
-	h := model.EdgeHeartbeat{Version: "edge-agent-v1", ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
+	h := model.EdgeHeartbeat{Version: Version, ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
 	if a.options.AllowGoWorkers {
 		h.Capabilities = append(h.Capabilities, "GO_PROTOCOL_V2")
 	}
@@ -365,8 +373,16 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.record("configuration", a.apply(ctx, cfg))
 		}
 	}
-	a.record("configuration", a.sync(ctx))
-	a.record("heartbeat", a.heartbeat(ctx))
+	initialSync := a.sync(ctx)
+	a.record("configuration", initialSync)
+	initialHeartbeat := a.heartbeat(ctx)
+	a.record("heartbeat", initialHeartbeat)
+	ready := false
+	if initialSync == nil && initialHeartbeat == nil {
+		err := a.writeReady()
+		a.record("readiness", err)
+		ready = err == nil
+	}
 	jobsCtx, jobsCancel := context.WithCancel(ctx)
 	defer jobsCancel()
 	jobsDone := make(chan struct{})
@@ -395,7 +411,16 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 			a.mu.Unlock()
 		case <-heartTick.C:
-			a.record("heartbeat", a.heartbeat(ctx))
+			heartbeatErr := a.heartbeat(ctx)
+			a.record("heartbeat", heartbeatErr)
+			a.mu.Lock()
+			configured := a.authenticatedConfig && a.repo != nil && a.config.ExpiresAt > time.Now().UnixMilli()
+			a.mu.Unlock()
+			if !ready && heartbeatErr == nil && configured {
+				err := a.writeReady()
+				a.record("readiness", err)
+				ready = err == nil
+			}
 		case <-sendTimer.C:
 			err := a.flush(ctx)
 			a.record("upload", err)

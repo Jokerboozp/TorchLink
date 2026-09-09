@@ -21,6 +21,9 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	GetEdgeProgram(context.Context, string, string) (model.EdgeProgram, error)
+	SetEdgeProgram(context.Context, string, string, int64, string) (model.EdgeProgram, error)
+	ReportEdgeProgram(context.Context, string, string, model.EdgeProgramStatus) error
 	GetTwinNodes(context.Context, string, []string) ([]model.TwinNode, error)
 	GetTwinTopology(context.Context, string) (model.TwinTopology, error)
 	UpdateTwinTopology(context.Context, model.TwinUpdate) (model.TwinTopology, error)

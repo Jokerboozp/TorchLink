@@ -2,10 +2,12 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { commandStatuses, label } from '../labels'
 import ProtocolCatalog from '../components/ProtocolCatalog.vue'
+import EdgeNodes from '../components/EdgeNodes.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 
 const protocols = ref([])
+const edgeNodesOpen = ref(false)
 const profiles = ref([])
 const snapshots = ref({})
 const snapshot = (id) => snapshots.value[id] || { sessions: [], recentDevices: [] }
@@ -152,8 +154,10 @@ onMounted(load)
 </script>
 
 <template>
+  <EdgeNodes v-if="edgeNodesOpen" @close="edgeNodesOpen=false" @changed="load" />
   <div class="page-toolbar">
     <el-button :loading="loading" @click="load">刷新</el-button>
+    <el-button @click="edgeNodesOpen=true">Edge 节点</el-button>
     <el-tag type="success" round>协议运行时 v2</el-tag>
     <span>{{ protocols.length }} 个协议，{{ releaseCount }} 个不可变版本，{{ profiles.length }} 个设备接入实例</span>
   </div>

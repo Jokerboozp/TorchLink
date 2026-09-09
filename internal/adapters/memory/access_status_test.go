@@ -18,3 +18,5 @@ func TestEdgeReadJobOwnership(t *testing.T) { repositorytest.EdgeReadJobs(t, New
 func TestEdgeCommands(t *testing.T) { repositorytest.EdgeCommands(t, NewRepository()) }
 
 func TestTwinTopology(t *testing.T) { repositorytest.TwinTopology(t, NewRepository()) }
+
+func TestEdgeProgram(t *testing.T) { repositorytest.EdgeProgram(t, NewRepository()) }

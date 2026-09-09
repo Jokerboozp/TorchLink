@@ -320,3 +320,5 @@ CREATE TABLE IF NOT EXISTS device_shadow_change (tenant_id text NOT NULL, device
 CREATE INDEX IF NOT EXISTS device_command_edge_pending_idx ON device_command(tenant_id,(body->'execution'->>'nodeId'),created_at) WHERE status='QUEUED';
 
 CREATE TABLE IF NOT EXISTS device_twin_topology (tenant_id text PRIMARY KEY,body jsonb NOT NULL);
+
+CREATE TABLE IF NOT EXISTS edge_program (tenant_id text NOT NULL,node_id text NOT NULL,generation bigint NOT NULL DEFAULT 0,target_version text NOT NULL DEFAULT '',updated_at bigint NOT NULL DEFAULT 0,status jsonb NOT NULL DEFAULT '{}',PRIMARY KEY(tenant_id,node_id));

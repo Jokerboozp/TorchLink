@@ -47,6 +47,13 @@ func (s *Server) protocolCatalog(w http.ResponseWriter, r *http.Request) {
 		problem(w, 502, err.Error())
 		return
 	}
+	entries := []protocolcatalog.Entry{}
+	for _, entry := range catalog.Entries {
+		if entry.Kind == "" || entry.Kind == "protocol-source" {
+			entries = append(entries, entry)
+		}
+	}
+	catalog.Entries = entries
 	write(w, 200, map[string]any{"enabled": true, "catalog": catalog})
 }
 func (s *Server) installCatalogProtocol(w http.ResponseWriter, r *http.Request) {
@@ -90,7 +97,7 @@ func (s *Server) installCatalogProtocol(w http.ResponseWriter, r *http.Request) 
 	var entry *protocolcatalog.Entry
 	for i := range catalog.Entries {
 		v := &catalog.Entries[i]
-		if v.ID == request.ID && v.Version == request.Version {
+		if v.ID == request.ID && v.Version == request.Version && (v.Kind == "" || v.Kind == "protocol-source") {
 			entry = v
 			break
 		}

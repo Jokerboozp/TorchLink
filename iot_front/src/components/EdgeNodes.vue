@@ -2,6 +2,8 @@
 import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { api, notifyError, formatTime } from '../api'
+import EdgeProgram from './EdgeProgram.vue'
+const programNode = ref(null)
 const emit=defineEmits(['close','changed'])
 const items=ref([]),busy=ref(false),editing=ref(false),credential=ref(null),runtime=ref(null),profiles=ref([]),selectedProfile=ref(''),targetNode=ref('')
 const blank=()=>({id:'',name:'',status:'ENABLED',description:''})
@@ -24,7 +26,7 @@ onMounted(load)
 <template>
 <el-dialog :model-value="true" title="Edge 节点登记" width="min(720px,96vw)" append-to-body @close="emit('close')">
 <p>登记节点后生成一次性凭据，在现场启动 Agent。Agent 支持现场协议采集及已发布 Go 协议的 TCP/UDP 接入；配置分配后请检查心跳和首条数据。</p>
-<el-table :data="items"><el-table-column prop="id" label="标识"/><el-table-column prop="name" label="名称"/><el-table-column prop="status" label="状态"/><el-table-column><template #default="{row}"><el-button link @click="edit(row)">编辑</el-button><el-button link @click="rotate(row)">凭据</el-button><el-button link @click="inspect(row)">运行与分配</el-button></template></el-table-column></el-table>
+<el-table :data="items"><el-table-column prop="id" label="标识"/><el-table-column prop="name" label="名称"/><el-table-column prop="status" label="状态"/><el-table-column><template #default="{row}"><el-button link @click="edit(row)">编辑</el-button><el-button link @click="rotate(row)">凭据</el-button><el-button link @click="inspect(row)">运行与分配</el-button><el-button link @click="programNode=row">程序升级</el-button></template></el-table-column></el-table>
 <el-alert v-if="credential" title="节点 Secret 仅本次显示，请立即保存" type="warning" :closable="false"/><pre v-if="credential">节点：{{credential.nodeId}}
 租户：{{credential.tenantId}}
 Secret：{{credential.secret}}</pre>
@@ -32,4 +34,5 @@ Secret：{{credential.secret}}</pre>
 <el-form label-position="top"><el-form-item label="节点标识"><el-input v-model="form.id" :disabled="editing" maxlength="128"/></el-form-item><el-form-item label="名称"><el-input v-model="form.name" maxlength="256"/></el-form-item><el-form-item label="状态"><el-select v-model="form.status"><el-option value="ENABLED" label="允许关联"/><el-option value="DISABLED" label="停用"/></el-select></el-form-item><el-form-item label="说明"><el-input v-model="form.description" type="textarea" maxlength="4096"/></el-form-item></el-form>
 <template #footer><el-button @click="edit()">新增节点</el-button><el-button type="primary" :loading="busy" @click="save">保存登记</el-button></template>
 </el-dialog>
+<EdgeProgram v-if="programNode" :node="programNode" @close="programNode=null" />
 </template>
