@@ -93,3 +93,11 @@ go test ./internal/httpapi -run 'Test(SplitGatewayHTTPFlow|ExecutionRouteUsesTen
 节点本地凭据文件增加例如 `{"camera":{"username":"现场用户名","password":"现场密码","tlsCaFile":"/etc/iot-edge/camera-ca.pem"}}`；平台只接收引用名称。默认 HTTPS，校验主机名和证书，支持 WS-Security UsernameToken PasswordDigest 及 HTTP Digest（MD5 / SHA-256，auth）。旧设备仅在本地明确配置 `allowInsecureHttp:true` 时使用 HTTP。摄像头时钟须同步。SOAP Fault、认证失败和无效响应返回错误，不填写成功数据。
 
 此入口只读取基础信息；WS-Discovery、ONVIF 事件订阅、GB28181 SIP 注册/目录尚未实现，视频流继续由外部视频平台提供。
+
+## Edge Go 协议与远程版本更新
+
+现场节点可执行已发布的 `go-protocol-v2` TCP/UDP ingress Worker。节点本地显式设置 `IOT_EDGE_ALLOW_GO_WORKERS=true`，并以 `IOT_EDGE_LISTEN_ADDRESSES` 指定允许绑定的 IP；平台不能通过分配配置扩大本地监听范围。先登记设备，再通过向导或节点管理分配监听配置，自动登记暂不支持。
+
+节点使用自身凭据下载当前分配版本，平台检查节点/租户/产品绑定，双方验证 SHA-256，节点验证 `GOOS/GOARCH`。单个制品最大 64 MiB，本地缓存约 1 GiB 上限；不足时更新失败并保留当前运行配置，不自动删除历史版本。协议源码当前按平台主机架构构建，跨架构节点需对应架构已发布制品；不能把版本标签当成可执行平台已兼容。
+
+节点每 5 秒同步配置，下载及校验完成后才更新本地绑定。复用现有 Listener 的完整帧/待应答边界切换，保存帧前会话状态和实际版本。收帧写入持久化补传队列后才发协议应答；该应答证明节点接收，不代表中心已解析。停用设备会在下一次配置同步时阻止后续帧。执行权限与现有 Worker 一致，不是强隔离沙箱。远端命令队列、节点程序自更新及跨架构自动构建仍待实现。

@@ -7,6 +7,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/protocolworker"
 	"net/http"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 func (s *Server) edgeRoutes() {
 	s.onboarding.RemoteRead = s.edgeRead
+	s.router.GET("/api/v1/edge/:tenant/:node/protocols/:id/:version/artifact", s.endpoint(s.edgeArtifact, "tenant", "node", "id", "version"))
 	s.router.GET("/api/v1/edge/:tenant/:node/read-jobs", s.endpoint(s.edgeReadJobs, "tenant", "node"))
 	s.router.POST("/api/v1/edge/:tenant/:node/read-jobs/:job", s.endpoint(s.edgeReadJobs, "tenant", "node", "job"))
 	s.router.POST("/api/v1/edge-nodes/:id/credentials", s.authorize("admin"), s.endpoint(s.edgeCredential, "id"))
@@ -107,9 +109,8 @@ func (s *Server) edgeConfig(w http.ResponseWriter, r *http.Request) {
 			problem(w, 409, "assigned protocol is unavailable")
 			return
 		}
-		// External workers need an explicitly downloaded, verified artifact before
-		// they can run remotely. Keep unsupported tasks visible as errors meanwhile.
-		if !edgeReadRelease(release) {
+		// Only implemented readers and published ingress workers are synchronized.
+		if !edgeReadRelease(release) && !(p.Mode == "listener" && edgeWorkerRelease(release)) {
 			problem(w, 422, "this edge build does not support the configured protocol reader")
 			return
 		}
@@ -130,7 +131,7 @@ func (s *Server) edgeConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, d := range devices {
 		for _, task := range out.Tasks {
-			if d.ID == task.Profile.DeviceID && d.ProductID == task.Profile.ProductID && d.Status == "ENABLED" {
+			if (d.ID == task.Profile.DeviceID || (task.Profile.Mode == "listener" && task.Profile.DeviceID == "")) && d.ProductID == task.Profile.ProductID && d.Status == "ENABLED" {
 				d.AccessKey = ""
 				out.Devices = append(out.Devices, d)
 				break
@@ -206,7 +207,7 @@ func (s *Server) edgeRaw(w http.ResponseWriter, r *http.Request) {
 	profileID, _ := raw.Metadata["profileId"].(string)
 	tenant, node := r.PathValue("tenant"), r.PathValue("node")
 	p, err := s.engine.Repo.GetDeviceAccessProfile(r.Context(), tenant, profileID)
-	if err != nil || !p.Enabled || p.EdgeNodeID != node || raw.TenantID != tenant || raw.ProductID != p.ProductID || raw.DeviceID != p.DeviceID {
+	if err != nil || !p.Enabled || p.EdgeNodeID != node || raw.TenantID != tenant || raw.ProductID != p.ProductID || (p.DeviceID != "" && raw.DeviceID != p.DeviceID) {
 		problem(w, 403, "raw does not belong to assigned edge profile")
 		return
 	}
@@ -220,12 +221,19 @@ func (s *Server) edgeRaw(w http.ResponseWriter, r *http.Request) {
 		problem(w, 403, "product is disabled or unavailable")
 		return
 	}
-	if raw.ProtocolID != p.ProtocolID || raw.ProtocolVersion == "" || len(raw.MessageID) > 128 || strings.TrimSpace(raw.MessageID) == "" {
+	if (p.Mode != "listener" && raw.ProtocolID != p.ProtocolID) || raw.ProtocolVersion == "" || len(raw.MessageID) > 128 || strings.TrimSpace(raw.MessageID) == "" {
 		problem(w, 422, "invalid raw protocol or message id")
 		return
 	}
+	if p.Mode == "listener" && raw.ProtocolID != p.ProtocolID {
+		binding, err := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, p.ProductID)
+		if err != nil || (raw.ProtocolID != binding.ProtocolID && raw.ProtocolID != binding.PreviousProtocolID) {
+			problem(w, 403, "protocol does not belong to assigned listener")
+			return
+		}
+	}
 	release, err := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, raw.ProtocolID, raw.ProtocolVersion)
-	if err != nil || release.Status != "PUBLISHED" || !edgeReadRelease(release) {
+	if err != nil || release.Status != "PUBLISHED" || (!edgeReadRelease(release) && !(p.Mode == "listener" && edgeWorkerRelease(release))) {
 		problem(w, 422, "unsupported edge protocol snapshot")
 		return
 	}
@@ -234,6 +242,9 @@ func (s *Server) edgeRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw.Protocol, raw.Source, raw.Transport, raw.PayloadFormat, raw.CollectorID = release.ProtocolID, "edge-agent", release.Transport, release.PayloadFormat, node
+	if p.Mode == "listener" {
+		raw.Transport = strings.ToUpper(p.Network)
+	}
 	raw.PointTableVersion = release.PointTableVersion
 	raw.Headers = nil
 	index, created, err := s.engine.IngestRaw(r.Context(), raw)
@@ -250,4 +261,8 @@ func (s *Server) edgeRaw(w http.ResponseWriter, r *http.Request) {
 
 func edgeReadRelease(r model.ProtocolRelease) bool {
 	return r.ParserType == parser.ModbusTCPParserName || r.ParserType == parser.ModbusRTUParserName || (r.ParserType == parser.PollResponseParserName && (r.Transport == "OPC_UA" || (r.Transport == "SNMP" || r.Transport == "BACNET")))
+}
+
+func edgeWorkerRelease(r model.ProtocolRelease) bool {
+	return r.ParserType == parser.GoProtocolParserName && r.Artifact["runtime"] == protocolworker.Runtime && protocolworker.HasCapability(r, "ingress") && (r.Transport == "TCP" || r.Transport == "UDP" || r.Transport == "TCP_UDP")
 }

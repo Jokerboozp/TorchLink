@@ -24,12 +24,15 @@ import (
 
 type Options struct {
 	CredentialFile                         string
+	AllowGoWorkers                         bool
+	AllowedListenAddresses                 []string
 	URL, TenantID, NodeID, Secret, DataDir string
 	AllowedCIDRs                           []string
 	AllowedSerialPorts                     []string
 	AllowInsecureHTTP                      bool
 }
 type Agent struct {
+	listeners *protocolruntime.Listeners
 	collector *fieldprotocol.Collector
 	options   Options
 	client    *http.Client
@@ -148,8 +151,30 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 		return errors.New("invalid or expired edge configuration")
 	}
 	for _, task := range cfg.Tasks {
-		if task.Profile.TenantID != cfg.TenantID || task.Profile.EdgeNodeID != cfg.NodeID || !task.Profile.Enabled || !supportsRead(task.Release.Transport) {
+		if task.Profile.TenantID != cfg.TenantID || task.Profile.EdgeNodeID != cfg.NodeID || !task.Profile.Enabled || !(supportsRead(task.Release.Transport) || (task.Profile.Mode == "listener" && workerRelease(task.Release))) {
 			return errors.New("unsupported or foreign edge task")
+		}
+	}
+	for _, product := range cfg.Products {
+		if product.TenantID != cfg.TenantID {
+			return errors.New("foreign product")
+		}
+	}
+	for _, device := range cfg.Devices {
+		if device.TenantID != cfg.TenantID {
+			return errors.New("foreign device")
+		}
+	}
+	for _, task := range cfg.Tasks {
+		if task.Release.TenantID != cfg.TenantID {
+			return errors.New("foreign protocol")
+		}
+	}
+	for i := range cfg.Tasks {
+		if workerRelease(cfg.Tasks[i].Release) {
+			if err := a.prepareWorker(ctx, &cfg.Tasks[i]); err != nil {
+				return err
+			}
 		}
 	}
 	a.mu.Lock()
@@ -158,7 +183,11 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 		a.config.ExpiresAt = cfg.ExpiresAt
 		return nil
 	}
-	repo := memory.NewRepository()
+	repo := a.repo
+	fresh := repo == nil
+	if fresh {
+		repo = memory.NewRepository()
+	}
 	for _, product := range cfg.Products {
 		if product.TenantID != cfg.TenantID {
 			return errors.New("foreign product")
@@ -175,6 +204,22 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 			return err
 		}
 	}
+	deviceIDs := map[string]bool{}
+	for _, device := range cfg.Devices {
+		deviceIDs[device.ID] = true
+	}
+	previousDevices, err := repo.ListManagedDevices(ctx, cfg.TenantID)
+	if err != nil {
+		return err
+	}
+	for _, device := range previousDevices {
+		if !deviceIDs[device.ID] {
+			device.Status = "DISABLED"
+			if err := repo.SaveManagedDevice(ctx, device); err != nil {
+				return err
+			}
+		}
+	}
 	releases := map[string]bool{}
 	for _, task := range cfg.Tasks {
 		release := task.Release
@@ -182,7 +227,7 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 			return errors.New("foreign protocol")
 		}
 		releaseKey := release.ProtocolID + "\x00" + release.Version
-		if !releases[releaseKey] {
+		if _, err := repo.GetProtocolRelease(ctx, release.TenantID, release.ProtocolID, release.Version); err != nil && !releases[releaseKey] {
 			if err := repo.CreateProtocolRelease(ctx, release); err != nil {
 				return err
 			}
@@ -197,21 +242,42 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 			return err
 		}
 	}
-	if a.cancel != nil {
-		a.cancel()
+	// Keep existing listener sessions across protocol binding changes. The
+	// runtime switches versions at complete-frame and pending-command boundaries.
+	wanted := map[string]bool{}
+	for _, task := range cfg.Tasks {
+		wanted[task.Profile.ID] = true
 	}
-	runtimeCtx, cancel := context.WithCancel(ctx)
-	a.cancel, a.repo, a.config = cancel, repo, cfg
-	runtime := protocolruntime.New(repo, func(ctx context.Context, raw model.RawMessage) error {
-		if err := ctx.Err(); err != nil {
-			return err
+	profiles, err := repo.ListDeviceAccessProfiles(ctx, cfg.TenantID)
+	if err != nil {
+		return err
+	}
+	for _, p := range profiles {
+		if !wanted[p.ID] {
+			p.Enabled = false
+			if err := repo.SaveDeviceAccessProfile(ctx, p); err != nil {
+				return err
+			}
 		}
-		raw.CollectorID = a.options.NodeID
-		return a.queue.Put(raw)
-	}, a.log, a.options.AllowedCIDRs...)
-	runtime.SetSerialPorts(a.options.AllowedSerialPorts)
-	runtime.SetCollector(a.collector.Read)
-	runtime.Start(runtimeCtx)
+	}
+	a.config, a.repo = cfg, repo
+	if fresh {
+		runtimeCtx, cancel := context.WithCancel(ctx)
+		a.cancel = cancel
+		ingest := func(ctx context.Context, raw model.RawMessage) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			raw.CollectorID = a.options.NodeID
+			return a.queue.Put(raw)
+		}
+		runtime := protocolruntime.New(repo, ingest, a.log, a.options.AllowedCIDRs...)
+		runtime.SetSerialPorts(a.options.AllowedSerialPorts)
+		runtime.SetCollector(a.collector.Read)
+		runtime.Start(runtimeCtx)
+		a.listeners = protocolruntime.NewListeners(repo, a.options.DataDir, ingest, a.log)
+		a.listeners.Start(runtimeCtx)
+	}
 	return nil
 }
 func (a *Agent) sync(ctx context.Context) error {
@@ -240,7 +306,10 @@ func (a *Agent) sync(ctx context.Context) error {
 func (a *Agent) heartbeat(ctx context.Context) error {
 	a.mu.Lock()
 	h := model.EdgeHeartbeat{Version: "edge-agent-v1", ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
-	repo := a.repo
+	if a.options.AllowGoWorkers {
+		h.Capabilities = append(h.Capabilities, "GO_PROTOCOL_V2")
+	}
+	repo, listeners := a.repo, a.listeners
 	a.mu.Unlock()
 	if repo != nil {
 		profiles, err := repo.ListDeviceAccessProfiles(ctx, a.options.TenantID)
@@ -249,6 +318,10 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		}
 		for i := range profiles {
 			profiles[i].EdgeNodeID = a.options.NodeID
+			if profiles[i].Mode == "listener" && listeners != nil {
+				status, message, last := listeners.Status(profiles[i].TenantID, profiles[i].ID)
+				profiles[i].RuntimeStatus, profiles[i].LastError, profiles[i].LastSuccessAt = status, message, last
+			}
 		}
 		h.Profiles = profiles
 	}

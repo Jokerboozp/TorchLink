@@ -191,8 +191,11 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		if e != nil || edge.Status != "ENABLED" {
 			return fail("Edge 节点不存在或已停用")
 		}
-		if s.RemoteRead == nil || (q.Type != connector.ModbusTCP && q.Type != connector.ModbusRTU && q.Type != connector.OPCUA && q.Type != connector.SNMP && q.Type != connector.BACnet) {
+		if s.RemoteRead == nil || (q.Type != connector.ModbusTCP && q.Type != connector.ModbusRTU && q.Type != connector.OPCUA && q.Type != connector.SNMP && q.Type != connector.BACnet && q.Type != connector.TCP && q.Type != connector.UDP) {
 			return fail("该 Edge 接入类型尚无可用的现场读取执行器")
+		}
+		if (q.Type == connector.TCP || q.Type == connector.UDP) && q.Profile.AutoRegister {
+			return fail("现场监听需要预先登记设备，请关闭自动登记")
 		}
 	}
 	product, err := s.Repo.GetProduct(ctx, tenant, q.ProductID)
@@ -533,7 +536,11 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 		addr := net.JoinHostPort(q.Profile.Host, fmt.Sprint(q.Profile.Port))
 		var closer interface{ Close() error }
 		var err error
-		if q.Reuse {
+		if q.Profile.EdgeNodeID != "" {
+			// This step validates the sample only. Node bind/worker checks are
+			// reported through the runtime heartbeat after saving the profile.
+			r.Stage = "edge-listener-sample"
+		} else if q.Reuse {
 			if s.ListenerStatus == nil {
 				return finish(errors.New("监听运行时未启动"), "NETWORK_ERROR")
 			}
@@ -602,6 +609,9 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	}
 	if q.Type == connector.TCP || q.Type == connector.UDP {
 		r.Message = "本机端口可绑定，完整帧识别及解析通过；尚未验证设备到平台的网络"
+		if q.Profile.EdgeNodeID != "" {
+			r.Message = "完整帧样例识别及解析通过；现场监听启动、制品平台和设备连通情况须在保存后确认"
+		}
 	}
 	return finish(nil, "SUCCESS")
 }

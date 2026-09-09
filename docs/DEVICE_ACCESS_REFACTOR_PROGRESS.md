@@ -127,6 +127,10 @@
 
 ### 后续实测与实现
 
+- Git 更新：本批 95 个文件已以中文提交 `597d6ae`（“实现独立接入网关、边缘采集及现场协议认证链路”），`git push origin main` 成功，输出 `1d76571..597d6ae main -> main`。此前认证阻塞已解除。
+- Edge Go Worker：节点凭据与当前分配版本检查、制品下载双端 SHA-256、平台匹配、本地显式执行/监听白名单、TCP/UDP Listener、配置更新保留会话、设备停用同步。`TestEdgeWorkerDownloadTCPUDPAndVersionSwitch` 使用实际 Go 子进程/HTTP/TCP/UDP，认证拒绝、未分配版本拒绝、损坏制品拒绝、半帧/粘包应答、Raw/Standard 及同连接版本切换通过（首次 6.48 秒，`-race`）。源码构建/发布沿用既有链路；物理网关、跨架构制品构建、远端命令和节点程序升级尚未验收/实施。
+- Worker 后续验证：Edge/向导相关 `-race` 回归通过（HTTP API 包 17.723 秒）；新增节点本地执行开关、监听地址、平台、哈希与损坏下载拒绝测试通过。`go test ./...`、前端 56 项测试和构建通过；未配置的可选中间件测试保持明确跳过。
+
 - ONVIF 基础信息：新增现场节点只读任务、operator/租户检查和摄像头表单读取入口，保持元数据管理范围。`TestONVIFAuthenticatedMetadata`（TLS Socket 模拟摄像头）实际验证 WSSE、HTTP Digest、错误密码/无凭据/不可信证书拒绝以及 HTTP 200 SOAP Fault 失败，`-race` 通过；`TestEdgeONVIFMetadataWithAuthentication` 的管理 API→节点认证→TLS 摄像头认证→元数据预览通过，预览不创建设备。Digest 畸形挑战 fuzz 3 秒执行 81,304 次通过。首次 API 编译因误用 ProtocolRelease 字段失败，已修正并复测通过。前端 56 项测试及构建通过；新摄像头入口浏览器验收尚未执行，真机未执行。
 - Gateway 去除 AI/知识库依赖后再次运行两个真实进程、临时 PostgreSQL/Redpanda 恢复测试，30.73 秒通过。
 
