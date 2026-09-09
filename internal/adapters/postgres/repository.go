@@ -55,8 +55,18 @@ func New(ctx context.Context, dsn string) (*Repository, error) {
 	return r, nil
 }
 func (r *Repository) Migrate(ctx context.Context) error {
-	_, err := r.pool.Exec(ctx, schema)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(728194602)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, schema); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 func (r *Repository) SaveProduct(ctx context.Context, v model.Product) error {
 	b, _ := json.Marshal(v)
@@ -469,7 +479,17 @@ func (r *Repository) SaveRawMessage(ctx context.Context, v model.RawMessage) err
 	if err != nil {
 		return err
 	}
-	_, err = r.pool.Exec(ctx, `INSERT INTO raw_message_log(tenant_id,message_id,product_id,device_id,protocol,payload_format,payload_hash,payload_size,received_at,stored_at,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.ProductID, v.DeviceID, v.Protocol, v.PayloadFormat, v.PayloadHash(), len(v.Payload), v.ReceivedAt, time.Now().UnixMilli(), body)
+	tag, err := r.pool.Exec(ctx, `INSERT INTO raw_message_log(tenant_id,message_id,product_id,device_id,protocol,payload_format,payload_hash,payload_size,received_at,stored_at,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.ProductID, v.DeviceID, v.Protocol, v.PayloadFormat, v.PayloadHash(), len(v.Payload), v.ReceivedAt, time.Now().UnixMilli(), body)
+	if err == nil && tag.RowsAffected() == 0 {
+		existing, getErr := r.GetRawMessage(ctx, v.TenantID, v.MessageID)
+		if getErr != nil {
+			return getErr
+		}
+		if existing.PayloadHash() != v.PayloadHash() || existing.DeviceID != v.DeviceID || existing.ProductID != v.ProductID {
+			return model.ErrRawConflict
+		}
+	}
+
 	return err
 }
 
@@ -1342,4 +1362,23 @@ var _ = strings.Builder{}
 func (r *Repository) MarkRawParseResult(ctx context.Context, tenant, id string, at int64, message string) error {
 	_, err := r.pool.Exec(ctx, `UPDATE raw_archive_index SET parse_attempted_at=$3,parse_error=$4 WHERE tenant_id=$1 AND message_id=$2`, tenant, id, at, message)
 	return err
+}
+
+func (r *Repository) UpdateDeviceAccessStatus(ctx context.Context, expected model.DeviceAccessProfile, status, message string, at int64) (bool, error) {
+	snapshot, err := json.Marshal(expected)
+	if err != nil {
+		return false, err
+	}
+	patch := map[string]any{"runtimeStatus": status, "lastError": message}
+	if status == "ONLINE" {
+		patch["lastSuccessAt"] = at
+	} else {
+		patch["lastErrorAt"] = at
+	}
+	change, err := json.Marshal(patch)
+	if err != nil {
+		return false, err
+	}
+	result, err := r.pool.Exec(ctx, `UPDATE device_access_profile SET body=body || $4::jsonb WHERE tenant_id=$1 AND id=$2 AND (body - ARRAY['runtimeStatus','lastError','lastSuccessAt','lastErrorAt']) = ($3::jsonb - ARRAY['runtimeStatus','lastError','lastSuccessAt','lastErrorAt'])`, expected.TenantID, expected.ID, snapshot, change)
+	return result.RowsAffected() == 1, err
 }

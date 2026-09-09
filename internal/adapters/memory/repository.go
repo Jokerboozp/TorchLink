@@ -17,6 +17,11 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Repository struct {
+	edgeReadJobs        map[string]model.EdgeReadJob
+	rawReservations     map[string]rawReservation
+	edgeSecrets         map[string]string
+	edgeHeartbeats      map[string]model.EdgeHeartbeat
+	leases              map[string]model.ExecutionLease
 	edgeNodes           map[string]model.EdgeNode
 	revocations         map[string]model.CredentialRevocation
 	commands            map[string]model.DeviceCommand
@@ -347,7 +352,11 @@ func (r *Repository) SaveRawMessage(_ context.Context, v model.RawMessage) error
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	key := key(v.TenantID, v.MessageID)
-	if _, exists := r.rawMessages[key]; !exists {
+	if old, exists := r.rawMessages[key]; exists {
+		if old.PayloadHash() != v.PayloadHash() || old.DeviceID != v.DeviceID || old.ProductID != v.ProductID {
+			return model.ErrRawConflict
+		}
+	} else {
 		r.rawMessages[key] = clone(v)
 	}
 	return nil
@@ -1071,4 +1080,23 @@ func (r *Repository) MarkRawParseResult(_ context.Context, tenant, id string, at
 	v.ParseError = message
 	r.raw[k] = v
 	return nil
+}
+
+// UpdateDeviceAccessStatus never writes back a stale configuration snapshot.
+func (r *Repository) UpdateDeviceAccessStatus(_ context.Context, expected model.DeviceAccessProfile, status, message string, at int64) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := key(expected.TenantID, expected.ID)
+	current, ok := r.accessProfiles[k]
+	if !ok || current.Configuration() != expected.Configuration() {
+		return false, nil
+	}
+	current.RuntimeStatus, current.LastError = status, message
+	if status == "ONLINE" {
+		current.LastSuccessAt = at
+	} else {
+		current.LastErrorAt = at
+	}
+	r.accessProfiles[k] = current
+	return true, nil
 }

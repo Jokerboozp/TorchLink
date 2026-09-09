@@ -107,6 +107,11 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		}
 		return existing, false, nil
 	}
+	var reserveErr error
+	raw, reserveErr = e.Repo.ReserveRawMessage(ctx, raw)
+	if reserveErr != nil {
+		return model.RawArchiveIndex{}, false, reserveErr
+	}
 	if e.RawStore == nil {
 		return model.RawArchiveIndex{}, false, errors.New("raw message store is not configured")
 	}

@@ -31,6 +31,7 @@ var ErrRate = errors.New("device rate limit exceeded")
 var testSlots = make(chan struct{}, 8)
 
 type Request struct {
+	ReadPoints        []model.PollPoint         `json:"readPoints,omitempty"`
 	ExistingProfileID string                    `json:"existingProfileId,omitempty"`
 	ProductName       string                    `json:"productName,omitempty"`
 	TestToken         string                    `json:"testToken,omitempty"`
@@ -60,6 +61,7 @@ type bucket struct {
 	Count int
 }
 type Service struct {
+	RemoteRead     func(context.Context, model.DeviceAccessProfile, model.ProtocolRelease) ([]model.RawMessage, error)
 	RevokeUsername func(context.Context, string) error
 	PublishCommand func(context.Context, string, []byte, byte, bool) error
 	Repo           ports.Repository
@@ -189,7 +191,9 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		if e != nil || edge.Status != "ENABLED" {
 			return fail("Edge 节点不存在或已停用")
 		}
-		return fail("Edge Agent 尚未实现，无法在远端执行接入测试或启用采集")
+		if s.RemoteRead == nil || (q.Type != connector.ModbusTCP && q.Type != connector.ModbusRTU && q.Type != connector.OPCUA && q.Type != connector.SNMP && q.Type != connector.BACnet) {
+			return fail("该 Edge 接入类型尚无可用的现场读取执行器")
+		}
 	}
 	product, err := s.Repo.GetProduct(ctx, tenant, q.ProductID)
 	if q.ProductName != "" {
@@ -209,7 +213,7 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: parser.StandardProtocolID, Version: "1.0.0", Transport: "MQTT_HTTP", PayloadFormat: "json", ParserType: parser.StandardParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now}
 		// The standard ingress pins its release explicitly without changing a
 		// product's existing custom protocol binding.
-	case connector.ModbusTCP, connector.TCP, connector.UDP:
+	case connector.ModbusTCP, connector.ModbusRTU, connector.OPCUA, connector.SNMP, connector.BACnet, connector.TCP, connector.UDP:
 		if bindErr == nil {
 			if q.ProtocolID != "" && (q.ProtocolID != binding.ProtocolID || q.ProtocolVersion != binding.Version) {
 				return fail("所选协议与产品现有绑定不一致，请在协议管理中变更绑定")
@@ -221,7 +225,21 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 			if err != nil || rel.Status != "PUBLISHED" {
 				return fail("请选择已发布且兼容的协议")
 			}
-		} else if q.Type == connector.ModbusTCP {
+		} else if q.Type == connector.OPCUA || (q.Type == connector.SNMP || q.Type == connector.BACnet) {
+			interval := q.PollIntervalSec
+			if interval == 0 {
+				interval = 10
+			}
+			if interval < 1 || interval > 3600 {
+				return fail("采集周期须为 1 至 3600 秒")
+			}
+			config := map[string]any{"reads": q.ReadPoints, "pollIntervalSec": interval}
+			if _, e := parser.PollPoints(config); e != nil {
+				return b, rel, e
+			}
+			encoded, _ := json.Marshal(config)
+			rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: "onboard-" + Hash(tenant + "/" + q.ProductID)[:20], Version: Hash(string(q.Type) + string(encoded))[:16], Transport: string(q.Type), PayloadFormat: "json", ParserType: parser.PollResponseParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now, Config: config}
+		} else if q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTU {
 			interval := q.PollIntervalSec
 			if interval == 0 {
 				interval = 10
@@ -239,6 +257,9 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 			}
 			rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: "onboard-" + Hash(tenant + "/" + q.ProductID)[:20], Version: Hash(fmt.Sprintf("%d\x00%s", interval, q.PointTableCSV))[:16], Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now, Config: map[string]any{"points": table.Points, "blocks": blocks}}
 			rel.PointTableVersion = rel.Version
+			if q.Type == connector.ModbusRTU {
+				rel.Transport, rel.ParserType = "MODBUS_RTU", parser.ModbusRTUParserName
+			}
 			table.TenantID, table.ProtocolID, table.Version, table.CreatedAt = tenant, rel.ProtocolID, rel.Version, now
 			b.PointTable = &table
 		} else {
@@ -257,10 +278,23 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		if p.TimeoutMs == 0 {
 			p.TimeoutMs = 3000
 		}
-		if p.TimeoutMs < 1 || p.TimeoutMs > 10000 || p.Retries < 0 || p.Retries > 3 || p.Port < 1 || p.Port > 65535 {
+		if p.TimeoutMs < 1 || p.TimeoutMs > 10000 || p.Retries < 0 || p.Retries > 3 || (q.Type != connector.ModbusRTU && (p.Port < 1 || p.Port > 65535)) {
 			return fail("端口、超时或重试参数无效")
 		}
-		if q.Type == connector.ModbusTCP {
+		if q.Type == connector.OPCUA || (q.Type == connector.SNMP || q.Type == connector.BACnet) {
+			p.Mode, p.Network = "poll", strings.ToLower(string(q.Type))
+			if p.EdgeNodeID == "" || p.Host == "" || !segment.MatchString(p.CredentialRef) || rel.Transport != string(q.Type) || rel.ParserType != parser.PollResponseParserName {
+				return fail("请选择现场节点、设备地址、本地凭据引用及兼容读取协议")
+			}
+		} else if q.Type == connector.ModbusRTU {
+			p.Mode, p.Network = "poll", "serial"
+			if p.EdgeNodeID == "" || rel.Transport != "MODBUS_RTU" {
+				return fail("RTU 需要选择现场 Edge 节点和兼容协议")
+			}
+			if err := protocolruntime.ValidateSerialProfile(p); err != nil {
+				return b, rel, err
+			}
+		} else if q.Type == connector.ModbusTCP {
 			p.Mode = "poll"
 			p.Network = "tcp"
 			if p.Host == "" || p.UnitID < 0 || p.UnitID > 255 || rel.Transport != "MODBUS_TCP" {
@@ -277,7 +311,7 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		b.Profile = &p
 		if q.ExistingProfileID != "" {
 			old, e := s.Repo.GetDeviceAccessProfile(ctx, tenant, q.ExistingProfileID)
-			if e != nil || !old.Enabled || old.Mode != "listener" || old.Network != p.Network || old.ProductID != q.ProductID || q.Type == connector.ModbusTCP {
+			if e != nil || !old.Enabled || old.Mode != "listener" || old.Network != p.Network || old.ProductID != q.ProductID || q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTU {
 				return fail("已有监听实例不可用或不属于当前产品")
 			}
 			old.ProtocolID, old.ProtocolVersion = rel.ProtocolID, rel.Version
@@ -456,16 +490,21 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	}
 	raws := []model.RawMessage{q.Raw}
 	switch q.Type {
-	case connector.ModbusTCP:
+	case connector.ModbusTCP, connector.ModbusRTU, connector.OPCUA, connector.SNMP, connector.BACnet:
 		r.Stage = "read"
 		r.Source = "network-read"
 		var blocks []model.ModbusReadBlock
 		data, _ := json.Marshal(q.Release.Config["blocks"])
-		if err := json.Unmarshal(data, &blocks); err != nil || len(blocks) == 0 {
+		if err := json.Unmarshal(data, &blocks); (err != nil || len(blocks) == 0) && (q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTU) {
 			return finish(errors.New("协议没有读取计划"), "PROTOCOL_ERROR")
 		}
 		var err error
-		raws, err = protocolruntime.ReadModbusTCPWithPolicy(ctx, q.Profile, q.Release, blocks, s.AllowedCIDRs)
+		if q.Profile.EdgeNodeID != "" && s.RemoteRead != nil {
+			r.Source = "edge-read"
+			raws, err = s.RemoteRead(ctx, q.Profile, q.Release)
+		} else {
+			raws, err = protocolruntime.ReadModbusTCPWithPolicy(ctx, q.Profile, q.Release, blocks, s.AllowedCIDRs)
+		}
 		if err != nil {
 			var wire *protocolruntime.ModbusReadError
 			code := "NETWORK_ERROR"
@@ -558,7 +597,7 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	if q.Type == connector.MQTT {
 		r.Message = "平台 MQTT 连接健康，样例解析通过；尚未验证设备到 Broker 的网络和认证"
 	}
-	if q.Type == connector.ModbusTCP {
+	if q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTU || q.Type == connector.OPCUA || (q.Type == connector.SNMP || q.Type == connector.BACnet) {
 		r.Message = "目标设备读取与解析通过（设备或模拟器取决于配置）；测试数据未写入业务链路"
 	}
 	if q.Type == connector.TCP || q.Type == connector.UDP {

@@ -10,6 +10,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/repositorytest"
 	"os"
 	"testing"
 	"time"
@@ -51,6 +52,10 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 		t.Fatal("migration is not repeatable", e)
 	}
 	verifyOnboardingAndParseMigration(t, r)
+	repositorytest.AccessStatus(t, r)
+	repositorytest.ExecutionLease(t, r)
+	repositorytest.RawReservation(t, r)
+	repositorytest.EdgeReadJobs(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}
 	if e = r.SaveManagedDevice(ctx, d); e != nil {
 		t.Fatal(e)

@@ -123,3 +123,32 @@ func TestExplicitConfigValueCanBeValidatedWithoutEnvironmentProvenance(t *testin
 		t.Fatalf("explicit configuration values were rejected: %v", err)
 	}
 }
+
+func TestSplitRolesRequireSharedDependencies(t *testing.T) {
+	cfg := Config{DevMode: true, ProcessRole: "api"}
+	if cfg.Validate() == nil {
+		t.Fatal("split mode accepted process-local storage")
+	}
+	cfg.PostgresDSN = "test-dsn"
+	cfg.KafkaBrokers = []string{"broker:9092"}
+	if cfg.Validate() == nil {
+		t.Fatal("API accepted missing gateway")
+	}
+	cfg.AccessGatewayURL = "http://gateway:8080"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.AccessGatewayURL = "http://user:password@gateway:8080"
+	if cfg.Validate() == nil {
+		t.Fatal("gateway URL accepted inline credentials")
+	}
+	cfg.AccessGatewayURL = ""
+	cfg.ProcessRole = "gateway"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ProcessRole = "other"
+	if cfg.Validate() == nil {
+		t.Fatal("unknown role accepted")
+	}
+}

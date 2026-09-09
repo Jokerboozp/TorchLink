@@ -14,6 +14,10 @@ const pageSize = ref(20)
 const total = ref(0)
 const blank = () => ({ cameraId:'', brand:'', cameraName:'', cameraPoint:'', building:'', floor:'', room:'', deviceId:'', enabled:true })
 const camera = reactive(blank())
+const edgeNodes = ref([])
+const onvifBusy = ref(false)
+const onvif = reactive({ edgeNodeId:'', host:'', port:443, credentialRef:'', endpointPath:'/onvif/device_service' })
+let editVersion = 0
 
 let loadVersion = 0
 async function load() {
@@ -36,9 +40,26 @@ async function load() {
 }
 
 function open(value) {
+	editVersion++
   Object.assign(camera, blank(), value ? { ...value, deviceId:value.deviceId || value.relatedDeviceIds?.[0] || '' } : {})
   editing.value = value?.cameraId || ''
   dialogVisible.value = true
+  api('/api/v1/edge-nodes').then(data => { edgeNodes.value = (data.items || []).filter(node => node.status === 'ENABLED') }).catch(notifyError)
+}
+
+async function readONVIF() {
+  const version = editVersion
+  onvifBusy.value = true
+  try {
+    const result = await api('/api/v1/integrations/video/onvif/test', { method:'POST', body:JSON.stringify(onvif) })
+    if (version !== editVersion || !dialogVisible.value) return
+    const info = result.metadata || {}
+    if (!editing.value && !camera.cameraId) camera.cameraId = info.serialNumber || ''
+    if (!camera.brand) camera.brand = info.manufacturer || ''
+    if (!camera.cameraName) camera.cameraName = info.model || ''
+    ElMessage.success('已读取摄像头信息，请核对后保存')
+  } catch (error) { notifyError(error) }
+  finally { onvifBusy.value = false }
 }
 
 async function save() {
@@ -103,6 +124,20 @@ onMounted(async () => { await load(); consumeNavigationAction() })
   </el-card>
 
   <el-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)">
+    <el-collapse>
+      <el-collapse-item title="从 ONVIF 摄像头读取基础信息" name="onvif">
+        <el-form label-position="top">
+          <div class="form-grid">
+            <el-form-item label="现场节点"><el-select v-model="onvif.edgeNodeId" placeholder="选择已启用节点"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id" /></el-select></el-form-item>
+            <el-form-item label="摄像头地址"><el-input v-model="onvif.host" placeholder="IP 或主机名" /></el-form-item>
+            <el-form-item label="端口"><el-input-number v-model="onvif.port" :min="1" :max="65535" /></el-form-item>
+            <el-form-item label="现场凭据引用"><el-input v-model="onvif.credentialRef" placeholder="节点本地已配置的凭据名称" /></el-form-item>
+            <el-form-item label="ONVIF 服务路径"><el-input v-model="onvif.endpointPath" /></el-form-item>
+          </div>
+          <el-button :loading="onvifBusy" :disabled="!onvif.edgeNodeId || !onvif.host || !onvif.credentialRef" @click="readONVIF">读取信息</el-button>
+        </el-form>
+      </el-collapse-item>
+    </el-collapse>
     <el-form :model="camera" label-position="top">
       <div class="form-grid">
         <el-form-item label="摄像头 ID"><el-input v-model="camera.cameraId" :disabled="!!editing" placeholder="外部视频平台摄像头 ID" /></el-form-item>

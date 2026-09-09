@@ -21,6 +21,18 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, error)
+	SetEdgeCredential(context.Context, string, string, string) error
+	GetEdgeCredential(context.Context, string, string) (string, error)
+	SaveEdgeHeartbeat(context.Context, string, string, model.EdgeHeartbeat) error
+	GetEdgeHeartbeat(context.Context, string, string) (model.EdgeHeartbeat, error)
+	CreateEdgeReadJob(context.Context, model.EdgeReadJob) error
+	GetEdgeReadJob(context.Context, string, string) (model.EdgeReadJob, error)
+	ClaimEdgeReadJob(context.Context, string, string, string) (model.EdgeReadJob, error)
+	FinishEdgeReadJob(context.Context, model.EdgeReadJob) error
+	AcquireExecutionLease(context.Context, string, string, string, string, time.Duration) (model.ExecutionLease, bool, error)
+	GetExecutionLease(context.Context, string, string) (model.ExecutionLease, error)
+	ReleaseExecutionLease(context.Context, model.ExecutionLease) error
 	SaveEdgeNode(context.Context, model.EdgeNode) error
 	GetEdgeNode(context.Context, string, string) (model.EdgeNode, error)
 	ListEdgeNodes(context.Context, string) ([]model.EdgeNode, error)
@@ -56,6 +68,7 @@ type Repository interface {
 	SaveProductProtocolBinding(context.Context, model.ProductProtocolBinding) error
 	GetProductProtocolBinding(context.Context, string, string) (model.ProductProtocolBinding, error)
 	SaveDeviceAccessProfile(context.Context, model.DeviceAccessProfile) error
+	UpdateDeviceAccessStatus(context.Context, model.DeviceAccessProfile, string, string, int64) (bool, error)
 	GetDeviceAccessProfile(context.Context, string, string) (model.DeviceAccessProfile, error)
 	ListDeviceAccessProfiles(context.Context, string) ([]model.DeviceAccessProfile, error)
 	SaveManagedDevice(context.Context, model.ManagedDevice) error

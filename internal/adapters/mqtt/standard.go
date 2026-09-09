@@ -20,7 +20,7 @@ func StandardTopic(topic string) (tenant, product, device, kind string, err erro
 // Broker authentication/ACL establishes publisher identity. The handler also
 // checks the current inventory status and never accepts identity in the body.
 func (c *Client) SubscribeStandard(handler func(context.Context, string, string, string, string, []byte) error) error {
-	token := c.client.Subscribe("/iot/up/+/+/+/+", 1, func(_ mqtt.Client, m mqtt.Message) {
+	token := c.client.Subscribe(c.subscription("/iot/up/+/+/+/+"), 1, func(_ mqtt.Client, m mqtt.Message) {
 		tenant, product, device, kind, err := StandardTopic(m.Topic())
 		if err != nil || len(m.Payload()) > 64<<10 || m.Retained() {
 			return

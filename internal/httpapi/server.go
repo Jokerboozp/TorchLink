@@ -94,7 +94,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s.routes()
 	return s
 }
-func (s *Server) Handler() http.Handler { return s.router }
+func (s *Server) Handler() http.Handler { return s.roleHandler() }
 
 func (s *Server) SetAIProviderRuntime(runtime ports.AIProviderRuntime) {
 	s.aiProviderRuntime = runtime
@@ -128,6 +128,7 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/integrations/video/cameras", s.authorize("viewer"), s.endpoint(s.videoCameras))
 	s.router.GET("/api/v1/integrations/video/relations", s.authorize("viewer"), s.endpoint(s.videoRelations))
 	s.router.POST("/api/v1/integrations/video/cameras", s.authorize("operator"), s.endpoint(s.saveVideoCamera))
+	s.router.POST("/api/v1/integrations/video/onvif/test", s.authorize("operator"), s.endpoint(s.onvifMetadata))
 	s.router.PUT("/api/v1/integrations/video/cameras/:id", s.authorize("operator"), s.endpoint(s.saveVideoCamera, "id"))
 	s.router.POST("/api/v1/device-ingest/:deviceId", s.endpoint(s.deviceIngest, "deviceId"))
 	s.router.GET("/api/v1/products", s.authorize("viewer"), s.endpoint(s.products))

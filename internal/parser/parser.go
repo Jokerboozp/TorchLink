@@ -39,7 +39,7 @@ func (r *Registry) Register(p Parser) {
 // or historical replay, so existing devices can migrate without losing history.
 func NewPlatformRegistry(root string) *Registry {
 	r := NewRegistry(StandardParser{}, ConfigurableJSONParser{}, ConfigurableHexParser{}, ExternalParser{Root: root}, JSONParser{})
-	r.parsers = append(r.parsers, GB26875Parser{}, ModbusTCPParser{}, ModbusCoilParser{}, JavaScriptParser{}, FireSmokeHexParser{}, ModbusParser{})
+	r.parsers = append(r.parsers, PollResponseParser{}, GB26875Parser{}, ModbusTCPParser{}, ModbusRTUParser{}, ModbusCoilParser{}, JavaScriptParser{}, FireSmokeHexParser{}, ModbusParser{})
 	return r
 }
 

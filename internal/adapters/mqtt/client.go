@@ -14,6 +14,7 @@ import (
 )
 
 type Client struct {
+	sharedGroup string
 	broker      string
 	credentials mqtt.CredentialsProvider
 	client      mqtt.Client
@@ -59,7 +60,7 @@ func (c *Client) Publish(ctx context.Context, topic string, payload []byte, qos 
 	}
 }
 func (c *Client) SubscribeRaw(handler func(context.Context, model.RawMessage) error) error {
-	token := c.client.SubscribeMultiple(map[string]byte{"/external/raw/#": 1, "/jetlinks/raw/#": 1}, func(_ mqtt.Client, m mqtt.Message) {
+	token := c.client.SubscribeMultiple(map[string]byte{c.subscription("/external/raw/#"): 1, c.subscription("/jetlinks/raw/#"): 1}, func(_ mqtt.Client, m mqtt.Message) {
 		var raw model.RawMessage
 		if err := json.Unmarshal(m.Payload(), &raw); err != nil {
 			c.logger().Warn("mqtt raw payload rejected", "topic", m.Topic(), "error", err)
@@ -78,7 +79,7 @@ func (c *Client) SubscribeRaw(handler func(context.Context, model.RawMessage) er
 	return token.Error()
 }
 func (c *Client) SubscribeDeviceState(handler func(context.Context, model.DeviceState) error) error {
-	token := c.client.Subscribe("/iot/device/state/#", 1, func(_ mqtt.Client, m mqtt.Message) {
+	token := c.client.Subscribe(c.subscription("/iot/device/state/#"), 1, func(_ mqtt.Client, m mqtt.Message) {
 		var state model.DeviceState
 		if err := json.Unmarshal(m.Payload(), &state); err != nil {
 			c.logger().Warn("mqtt device state payload rejected", "topic", m.Topic(), "error", err)
@@ -94,7 +95,7 @@ func (c *Client) SubscribeDeviceState(handler func(context.Context, model.Device
 	return token.Error()
 }
 func (c *Client) SubscribeVideo(handler func(context.Context, model.VideoAlarmEvent) error) error {
-	token := c.client.Subscribe("/external/video/alarm/#", 1, func(_ mqtt.Client, m mqtt.Message) {
+	token := c.client.Subscribe(c.subscription("/external/video/alarm/#"), 1, func(_ mqtt.Client, m mqtt.Message) {
 		var v model.VideoAlarmEvent
 		if err := json.Unmarshal(m.Payload(), &v); err != nil {
 			c.logger().Warn("mqtt video payload rejected", "topic", m.Topic(), "error", err)
@@ -204,4 +205,19 @@ func (c *Client) enqueue(topic string, job func()) bool {
 		c.logger().Error("MQTT ingress rejected: queue capacity exceeded; publisher must verify Raw receipt and retry same message id", "topic", topic)
 		return false
 	}
+}
+
+// ConfigureSharedSubscriptions is called before registering subscriptions.
+func (c *Client) ConfigureSharedSubscriptions(group string) error {
+	if group == "" || len(group) > 64 || strings.ContainsAny(group, "/+#\x00") {
+		return fmt.Errorf("invalid MQTT shared subscription group")
+	}
+	c.sharedGroup = group
+	return nil
+}
+func (c *Client) subscription(topic string) string {
+	if c.sharedGroup == "" {
+		return topic
+	}
+	return "$share/" + c.sharedGroup + "/" + topic
 }

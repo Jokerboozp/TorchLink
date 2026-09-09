@@ -208,6 +208,10 @@ function New-OfflineEnv {
             "IOT_MQTT_WEBSOCKET_PUBLIC_URL=",
             "IOT_DEVICE_HTTP_PUBLIC_URL=",
             "IOT_DEVICE_MQTT_PUBLIC_URL=",
+            "IOT_PROCESS_ROLE=combined",
+            "IOT_ACCESS_GATEWAY_URL=",
+            "IOT_ACCESS_COORDINATION=false",
+            "IOT_ACCESS_NODE_URL=",
             "IOT_WEB_PORT=8080",
             "IOT_API_PORT=8081",
             "IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080",
@@ -384,6 +388,8 @@ try {
 
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.offline.yaml") -Destination $bundleRoot
+    Copy-Item -LiteralPath (Join-Path $projectRoot "compose.access.yaml") -Destination $bundleRoot
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs/EDGE_AND_GATEWAY.md") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $bundleRoot -Recurse
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null

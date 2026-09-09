@@ -283,3 +283,34 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS device_state_event_device_idx ON device_state_event(tenant_id,device_id,id DESC);
+
+CREATE TABLE IF NOT EXISTS execution_lease (
+ tenant_id text NOT NULL,
+ resource text NOT NULL,
+ owner text NOT NULL,
+ endpoint text NOT NULL DEFAULT '',
+ token bigint NOT NULL DEFAULT 1,
+ expires_at timestamptz NOT NULL,
+ PRIMARY KEY(tenant_id,resource)
+);
+
+ALTER TABLE edge_node ADD COLUMN IF NOT EXISTS secret_hash text NOT NULL DEFAULT '';
+ALTER TABLE edge_node ADD COLUMN IF NOT EXISTS heartbeat jsonb NOT NULL DEFAULT '{}';
+
+CREATE TABLE IF NOT EXISTS raw_ingest_reservation (
+ tenant_id text NOT NULL,
+ message_id text NOT NULL,
+ payload_hash text NOT NULL,
+ metadata jsonb NOT NULL,
+ PRIMARY KEY(tenant_id,message_id)
+);
+CREATE TABLE IF NOT EXISTS edge_read_job (
+  tenant_id text NOT NULL,
+  id text NOT NULL,
+  node_id text NOT NULL,
+  expires_at bigint NOT NULL,
+  status text NOT NULL,
+  body jsonb NOT NULL,
+  PRIMARY KEY (tenant_id,id)
+);
+CREATE INDEX IF NOT EXISTS edge_read_job_pending_idx ON edge_read_job(tenant_id,node_id,status,expires_at);

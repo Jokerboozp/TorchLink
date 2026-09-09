@@ -679,6 +679,10 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	} else {
+		if (v.Network == "serial") != (release.Transport == "MODBUS_RTU") {
+			problem(w, 422, "serial profile and release transport must match")
+			return
+		}
 		device, err := s.engine.Repo.GetManagedDevice(r.Context(), v.TenantID, v.DeviceID)
 		if err != nil || device.ProductID != product.ID {
 			problem(w, 422, "device not found or does not belong to product")
@@ -724,19 +728,27 @@ func (s *Server) testDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		problem(w, 422, "protocol release not found")
 		return
 	}
-	blocks, err := releaseBlocksForAPI(release)
-	if err != nil {
-		problem(w, 422, err.Error())
-		return
+	var blocks []model.ModbusReadBlock
+	if profile.EdgeNodeID == "" {
+		blocks, err = releaseBlocksForAPI(release)
+		if err != nil {
+			problem(w, 422, err.Error())
+			return
+		}
 	}
 	ctx, cancel := contextWithMaximum(r, 10*time.Second)
 	defer cancel()
-	raws, err := protocolruntime.ReadModbusTCPWithPolicy(ctx, profile, release, blocks[:1], s.cfg.ModbusAllowedCIDRs)
+	var raws []model.RawMessage
+	if profile.EdgeNodeID != "" {
+		raws, err = s.edgeRead(ctx, profile, release)
+	} else {
+		raws, err = protocolruntime.ReadModbusTCPWithPolicy(ctx, profile, release, blocks[:1], s.cfg.ModbusAllowedCIDRs)
+	}
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
 	}
-	message, err := (parser.ModbusTCPParser{}).ParseWithConfig(raws[0], release.Config)
+	message, err := s.engine.Parsers.ParseWithConfig(release.ParserType, release.Config, raws[0])
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -753,6 +765,15 @@ func validateAccessProfile(v model.DeviceAccessProfile) error {
 	}
 	if v.Mode != "" && v.Mode != "poll" {
 		return errors.New("不支持的设备接入模式")
+	}
+	if v.Network == "serial" {
+		if v.ID == "" || v.DeviceID == "" || v.ProductID == "" || v.ProtocolID == "" || v.ProtocolVersion == "" || v.EdgeNodeID == "" {
+			return errors.New("RTU requires an assigned Edge node and complete device/protocol identity")
+		}
+		return protocolruntime.ValidateSerialProfile(v)
+	}
+	if (v.Network == "opc_ua" || v.Network == "snmp" || v.Network == "bacnet") && (v.EdgeNodeID == "" || v.CredentialRef == "") {
+		return errors.New("field protocol requires an Edge node and local credential reference")
 	}
 	if v.ID == "" || v.DeviceID == "" || v.ProductID == "" || v.ProtocolID == "" || v.ProtocolVersion == "" || v.Host == "" {
 		return errors.New("id, deviceId, productId, protocolId, protocolVersion and host are required")
@@ -790,7 +811,10 @@ func validateProtocolReleaseV2(release model.ProtocolRelease) error {
 		return errors.New("transport and payloadFormat are required")
 	}
 	switch release.ParserType {
-	case parser.ModbusTCPParserName:
+	case parser.PollResponseParserName:
+		_, err := parser.PollPoints(release.Config)
+		return err
+	case parser.ModbusTCPParserName, parser.ModbusRTUParserName:
 		_, err := releaseBlocksForAPI(release)
 		return err
 	case parser.GoProtocolParserName:

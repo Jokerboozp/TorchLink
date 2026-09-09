@@ -34,6 +34,7 @@ type listenerCall func(context.Context, string, model.ProtocolRelease, protocolw
 // session state and wire encoding; the host owns tenant/product identity and
 // only acknowledges an incoming frame after the ingest callback succeeds.
 type Listeners struct {
+	coordinator        *Coordinator
 	connectionMu       sync.Mutex
 	connectionCounts   map[string]int
 	connectionReporter func(context.Context, string, string, string, bool, int64) error
@@ -88,6 +89,8 @@ type commandResult struct {
 func NewListeners(repo ports.Repository, root string, ingest IngestFunc, log *slog.Logger) *Listeners {
 	return &Listeners{repo: repo, root: root, ingest: ingest, log: log, call: protocolworker.Call, workers: make(chan struct{}, 32), hosts: make(map[string]*protocolListener), failures: make(map[string]string)}
 }
+
+func (r *Listeners) SetCoordinator(c *Coordinator) { r.coordinator = c }
 
 func (r *Listeners) Start(ctx context.Context) {
 	r.once.Do(func() {
@@ -157,13 +160,21 @@ func (r *Listeners) reconcile(ctx context.Context) {
 		if !p.Enabled || p.EdgeNodeID != "" || !strings.EqualFold(p.Mode, "listener") {
 			continue
 		}
+		executionCtx := ctx
+		if r.coordinator != nil {
+			var owned bool
+			executionCtx, owned = r.coordinator.Claim(ctx, p)
+			if !owned {
+				continue
+			}
+		}
 		p.Network = strings.ToLower(strings.TrimSpace(p.Network))
 		key := listenerKey(p.TenantID, p.ID)
 		wanted[key] = true
 		if current := r.hosts[key]; current != nil {
 			current.mu.Lock()
 			old := current.profile
-			unchanged := old.Host == p.Host && old.Port == p.Port && old.Network == p.Network && old.ProductID == p.ProductID && old.DeviceID == p.DeviceID
+			unchanged := current.ctx.Err() == nil && old.Host == p.Host && old.Port == p.Port && old.Network == p.Network && old.ProductID == p.ProductID && old.DeviceID == p.DeviceID
 			if unchanged {
 				current.profile = p
 			}
@@ -183,7 +194,7 @@ func (r *Listeners) reconcile(ctx context.Context) {
 			r.warn("protocol listener binding", err)
 			continue
 		}
-		hostCtx, cancel := context.WithCancel(ctx)
+		hostCtx, cancel := context.WithCancel(executionCtx)
 		h := &protocolListener{owner: r, ctx: hostCtx, cancel: cancel, profile: p, sessions: make(map[string]*listenerSession)}
 		address := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
 		if p.Network == "tcp" {
@@ -197,6 +208,7 @@ func (r *Listeners) reconcile(ctx context.Context) {
 			r.warn("open protocol listener", fmt.Errorf("profile %s: %w", p.ID, err))
 			continue
 		}
+		context.AfterFunc(hostCtx, h.stop)
 		r.hosts[key] = h
 		delete(r.failures, key)
 		if h.tcp != nil {
@@ -547,6 +559,11 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 	}
 	raw.ReceivedAt = receivedAt
 	raw.Normalize(time.Now())
+	if c := s.host.owner.coordinator; c != nil {
+		if err := c.Validate(s.host.ctx, s.host.snapshot()); err != nil {
+			return 0, false, err
+		}
+	}
 	if err := s.host.owner.ingest(s.host.ctx, raw); err != nil {
 		return 0, false, fmt.Errorf("ingest protocol frame: %w", err)
 	}

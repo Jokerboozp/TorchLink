@@ -1,0 +1,20 @@
+# 可选拆分覆盖层，要求 Docker Compose >= 2.24.4。
+# docker compose --env-file .env.online -f compose.yaml -f compose.access.yaml config
+services:
+  platform-api:
+    environment:
+      IOT_PROCESS_ROLE: api
+      IOT_ACCESS_GATEWAY_URL: http://access-gateway:8080
+      IOT_ACCESS_COORDINATION: "false"
+    ports: !override ["${IOT_API_PORT:-8081}:8080"]
+  access-gateway:
+    extends:
+      file: compose.yaml
+      service: platform-api
+    entrypoint: ["/app/iot-access-gateway"]
+    environment:
+      IOT_PROCESS_ROLE: gateway
+      IOT_ACCESS_COORDINATION: "true"
+      IOT_ACCESS_NODE_URL: http://access-gateway:8080
+      IOT_AI_HARNESS_URL: ""
+    ports: !override ["${IOT_GATEWAY_HTTP_PORT:-8082}:8080", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/tcp", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"]

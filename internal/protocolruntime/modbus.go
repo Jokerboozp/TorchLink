@@ -41,6 +41,8 @@ func (e *ModbusException) Error() string { return fmt.Sprintf("Modbus exception 
 // on the repository and an ingest callback rather than the HTTP or core
 // packages, keeping the active transport layer separate from parsing.
 type Runtime struct {
+	readOther    func(context.Context, model.DeviceAccessProfile, model.ProtocolRelease) ([]model.RawMessage, error)
+	coordinator  *Coordinator
 	repo         ports.Repository
 	ingest       IngestFunc
 	log          *slog.Logger
@@ -48,11 +50,18 @@ type Runtime struct {
 	last         map[string]time.Time
 	running      map[string]bool
 	allowedCIDRs []string
+	serialPorts  []string
 }
 
 func New(repo ports.Repository, ingest IngestFunc, log *slog.Logger, allowedCIDRs ...string) *Runtime {
 	return &Runtime{repo: repo, ingest: ingest, log: log, last: map[string]time.Time{}, running: map[string]bool{}, allowedCIDRs: append([]string(nil), allowedCIDRs...)}
 }
+
+func (r *Runtime) SetCoordinator(c *Coordinator) { r.coordinator = c }
+func (r *Runtime) SetCollector(read func(context.Context, model.DeviceAccessProfile, model.ProtocolRelease) ([]model.RawMessage, error)) {
+	r.readOther = read
+}
+func (r *Runtime) SetSerialPorts(ports []string) { r.serialPorts = append([]string(nil), ports...) }
 
 func (r *Runtime) Start(ctx context.Context) {
 	go func() {
@@ -78,6 +87,14 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 	for _, profile := range profiles {
 		if !profile.Enabled || profile.Mode == "listener" || profile.EdgeNodeID != "" {
 			continue
+		}
+		executionCtx := ctx
+		if r.coordinator != nil {
+			var owned bool
+			executionCtx, owned = r.coordinator.Claim(ctx, profile)
+			if !owned {
+				continue
+			}
 		}
 		release, err := r.repo.GetProtocolRelease(ctx, profile.TenantID, profile.ProtocolID, profile.ProtocolVersion)
 		if err != nil || release.Status != "PUBLISHED" {
@@ -113,42 +130,64 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 		if len(due) == 0 {
 			continue
 		}
-		go r.collect(ctx, profile, release, due, profileKey)
+		go r.collect(executionCtx, profile, release, due, profileKey)
 	}
 }
 
 func (r *Runtime) collect(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock, key string) {
 	defer func() { r.mu.Lock(); delete(r.running, key); r.mu.Unlock() }()
-	raws, err := ReadModbusTCPWithPolicy(ctx, profile, release, blocks, r.allowedCIDRs)
+	var raws []model.RawMessage
+	var err error
+	if r.readOther != nil && (release.Transport == "OPC_UA" || (release.Transport == "SNMP" || release.Transport == "BACNET")) {
+		raws, err = r.readOther(ctx, profile, release)
+	} else if release.Transport == "MODBUS_RTU" {
+		raws, err = ReadModbusRTU(ctx, profile, release, blocks, r.serialPorts)
+	} else {
+		raws, err = ReadModbusTCPWithPolicy(ctx, profile, release, blocks, r.allowedCIDRs)
+	}
 	if err != nil {
 		r.updateFailure(ctx, profile, err)
 		return
 	}
 	for _, raw := range raws {
+		if r.coordinator != nil {
+			if err = r.coordinator.Validate(ctx, profile); err != nil {
+				r.updateFailure(ctx, profile, err)
+				return
+			}
+		}
 		if err = r.ingest(ctx, raw); err != nil {
 			r.updateFailure(ctx, profile, err)
 			return
 		}
 	}
-	profile.RuntimeStatus = "ONLINE"
-	profile.LastSuccessAt = time.Now().UnixMilli()
-	profile.LastError = ""
-	profile.UpdatedAt = profile.LastSuccessAt
-	_ = r.repo.SaveDeviceAccessProfile(ctx, profile)
+	_, err = r.repo.UpdateDeviceAccessStatus(ctx, profile, "ONLINE", "", time.Now().UnixMilli())
+	if err != nil && r.log != nil {
+		r.log.Warn("save collection status", "profileId", profile.ID, "error", err)
+	}
 }
 
 func (r *Runtime) updateFailure(ctx context.Context, profile model.DeviceAccessProfile, err error) {
-	profile.RuntimeStatus = "ERROR"
-	profile.LastErrorAt = time.Now().UnixMilli()
-	profile.LastError = limitError(err.Error(), 512)
-	profile.UpdatedAt = profile.LastErrorAt
-	_ = r.repo.SaveDeviceAccessProfile(ctx, profile)
+	_, saveErr := r.repo.UpdateDeviceAccessStatus(ctx, profile, "ERROR", limitError(err.Error(), 512), time.Now().UnixMilli())
 	if r.log != nil {
 		r.log.Warn("active protocol collection failed", "profileId", profile.ID, "deviceId", profile.DeviceID, "error", err)
+		if saveErr != nil {
+			r.log.Warn("save collection status", "profileId", profile.ID, "error", saveErr)
+		}
 	}
 }
 
 func releaseBlocks(release model.ProtocolRelease) ([]model.ModbusReadBlock, error) {
+	if release.Transport == "OPC_UA" || (release.Transport == "SNMP" || release.Transport == "BACNET") {
+		interval := 10
+		if b, err := json.Marshal(release.Config["pollIntervalSec"]); err == nil {
+			_ = json.Unmarshal(b, &interval)
+		}
+		if interval < 1 || interval > 3600 {
+			return nil, errors.New("invalid protocol poll interval")
+		}
+		return []model.ModbusReadBlock{{ID: "protocol-read", PollIntervalSec: interval}}, nil
+	}
 	var blocks []model.ModbusReadBlock
 	b, err := json.Marshal(release.Config["blocks"])
 	if err != nil {
@@ -295,6 +334,11 @@ func resolveAllowedTarget(ctx context.Context, host string, allowedCIDRs []strin
 		}
 	}
 	return "", fmt.Errorf("Modbus host %q is outside IOT_MODBUS_ALLOWED_CIDRS", host)
+}
+
+// ResolveAllowedTarget pins a resolved address before protocol libraries connect.
+func ResolveAllowedTarget(ctx context.Context, host string, allowedCIDRs []string) (string, error) {
+	return resolveAllowedTarget(ctx, host, allowedCIDRs)
 }
 
 func buildReadRequest(transaction uint16, unit byte, block model.ModbusReadBlock) ([]byte, error) {

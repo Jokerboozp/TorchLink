@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 type listenerSnapshot interface {
@@ -31,7 +33,7 @@ func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessi
 	return false
 }
 
-func (s *Server) profileSnapshot(tenant string, p model.DeviceAccessProfile) (model.DeviceAccessProfile, []map[string]any) {
+func (s *Server) profileSnapshot(ctx context.Context, tenant string, p model.DeviceAccessProfile) (model.DeviceAccessProfile, []map[string]any) {
 	sessions := []map[string]any{}
 	if p.Mode == "listener" {
 		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
@@ -41,7 +43,21 @@ func (s *Server) profileSnapshot(tenant string, p model.DeviceAccessProfile) (mo
 	}
 	if p.EdgeNodeID != "" {
 		p.RuntimeStatus = "UNSUPPORTED"
-		p.LastError = "Edge Agent 尚未实现，中心运行时不会执行该任务"
+		p.LastError = "尚无可用 Edge Agent 心跳，中心不会执行该任务"
+		if h, err := s.engine.Repo.GetEdgeHeartbeat(ctx, tenant, p.EdgeNodeID); err == nil && h.LastSeenAt > 0 {
+			p.RuntimeStatus = "OFFLINE"
+			p.LastError = "Edge 节点心跳已过期"
+			if time.Now().UnixMilli()-h.LastSeenAt < 30000 {
+				p.RuntimeStatus = "PENDING"
+				p.LastError = h.LastError
+				for _, observed := range h.Profiles {
+					if observed.ID == p.ID && observed.Configuration() == p.Configuration() {
+						p.RuntimeStatus, p.LastError = observed.RuntimeStatus, observed.LastError
+						break
+					}
+				}
+			}
+		}
 		sessions = []map[string]any{}
 	}
 	if !p.Enabled {
@@ -70,8 +86,8 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
 		return devices[i].CreatedAt > devices[j].CreatedAt
 	})
 	for _, p := range profiles {
-		p, sessions := s.profileSnapshot(tenant, p)
-		kind := "MODBUS_TCP"
+		p, sessions := s.profileSnapshot(r.Context(), tenant, p)
+		kind := profileTransport(p)
 		if p.Mode == "listener" {
 			kind = strings.ToUpper(p.Network)
 		}
@@ -114,7 +130,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	candidates := []model.DeviceAccessProfile{}
 	byProfile := map[string][]map[string]any{}
 	for _, candidate := range all {
-		candidate, live := s.profileSnapshot(tenant, candidate)
+		candidate, live := s.profileSnapshot(r.Context(), tenant, candidate)
 		if !deviceUsesProfile(d, candidate, live) {
 			continue
 		}
@@ -158,7 +174,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := d.Tags["connector"]
 	if kind == "" && profile != nil {
-		kind = "MODBUS_TCP"
+		kind = profileTransport(*profile)
 		if profile.Mode == "listener" {
 			kind = strings.ToUpper(profile.Network)
 		}
@@ -212,4 +228,21 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
 	write(w, 200, map[string]any{"accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+}
+
+func profileTransport(p model.DeviceAccessProfile) string {
+	if p.Mode == "listener" {
+		return strings.ToUpper(p.Network)
+	}
+	switch p.Network {
+	case "serial":
+		return "MODBUS_RTU"
+	case "opc_ua":
+		return "OPC_UA"
+	case "snmp":
+		return "SNMP"
+	case "bacnet":
+		return "BACNET"
+	}
+	return "MODBUS_TCP"
 }

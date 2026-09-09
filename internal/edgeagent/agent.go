@@ -1,0 +1,336 @@
+package edgeagent
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/fieldprotocol"
+	"iot-platform/internal/model"
+	"iot-platform/internal/protocolruntime"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+type Options struct {
+	CredentialFile                         string
+	URL, TenantID, NodeID, Secret, DataDir string
+	AllowedCIDRs                           []string
+	AllowedSerialPorts                     []string
+	AllowInsecureHTTP                      bool
+}
+type Agent struct {
+	collector *fieldprotocol.Collector
+	options   Options
+	client    *http.Client
+	queue     *Queue
+	log       *slog.Logger
+	mu        sync.Mutex
+	config    model.EdgeConfiguration
+	repo      *memory.Repository
+	cancel    context.CancelFunc
+	lastError string
+	errors    map[string]string
+}
+
+func New(options Options, log *slog.Logger) (*Agent, error) {
+	u, err := url.Parse(options.URL)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, errors.New("edge platform URL must be an HTTP(S) origin")
+	}
+	if u.Scheme != "https" && !(options.AllowInsecureHTTP && u.Scheme == "http") {
+		return nil, errors.New("edge transport requires HTTPS; HTTP is only allowed explicitly for isolated tests")
+	}
+	for _, id := range []string{options.TenantID, options.NodeID} {
+		if id == "" || strings.ContainsAny(id, "/\\?#\x00") || len(id) > 128 {
+			return nil, errors.New("invalid edge identity")
+		}
+	}
+	if options.Secret == "" || options.DataDir == "" || len(options.AllowedCIDRs) == 0 {
+		return nil, errors.New("edge credential, data directory and allowed networks are required")
+	}
+	queue, err := OpenQueue(filepath.Join(options.DataDir, "outbox"), 64<<20, 10000)
+	if err != nil {
+		return nil, err
+	}
+	options.URL = strings.TrimRight(options.URL, "/")
+	if log == nil {
+		log = slog.Default()
+	}
+	credentials, err := fieldprotocol.LoadCredentials(options.CredentialFile)
+	if err != nil {
+		_ = queue.Close()
+		return nil, err
+	}
+	return &Agent{collector: &fieldprotocol.Collector{AllowedCIDRs: options.AllowedCIDRs, Credentials: credentials}, options: options, queue: queue, client: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, log: log}, nil
+}
+func (a *Agent) Close() error {
+	a.mu.Lock()
+	if a.cancel != nil {
+		a.cancel()
+	}
+	a.mu.Unlock()
+	return a.queue.Close()
+}
+func (a *Agent) request(ctx context.Context, method, suffix string, body, output any) error {
+	var encoded []byte
+	var err error
+	if body != nil {
+		encoded, err = json.Marshal(body)
+		if err != nil {
+			return err
+		}
+	}
+	address := a.options.URL + "/api/v1/edge/" + url.PathEscape(a.options.TenantID) + "/" + url.PathEscape(a.options.NodeID) + suffix
+	r, err := http.NewRequestWithContext(ctx, method, address, bytes.NewReader(encoded))
+	if err != nil {
+		return err
+	}
+	r.Header.Set("X-Edge-Secret", a.options.Secret)
+	r.Header.Set("Content-Type", "application/json")
+	response, err := a.client.Do(r)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return &HTTPError{Status: response.StatusCode}
+	}
+	if output == nil {
+		_, err = io.Copy(io.Discard, io.LimitReader(response.Body, 8<<20))
+		return err
+	}
+	return json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(output)
+}
+
+type HTTPError struct{ Status int }
+
+func (e *HTTPError) Error() string { return fmt.Sprintf("edge platform returned HTTP %d", e.Status) }
+func (a *Agent) record(operation string, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.errors == nil {
+		a.errors = map[string]string{}
+	}
+	if err == nil {
+		delete(a.errors, operation)
+	} else {
+		message := err.Error()
+		if len(message) > 512 {
+			message = message[:512]
+		}
+		a.errors[operation] = message
+		a.log.Warn("edge operation failed", "operation", operation, "error", message)
+	}
+	messages := []string{}
+	for key, message := range a.errors {
+		messages = append(messages, key+": "+message)
+	}
+	sort.Strings(messages)
+	a.lastError = strings.Join(messages, "; ")
+	if len(a.lastError) > 512 {
+		a.lastError = a.lastError[:512]
+	}
+
+}
+func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
+	if cfg.TenantID != a.options.TenantID || cfg.NodeID != a.options.NodeID || len(cfg.Tasks) > 256 || cfg.ExpiresAt <= time.Now().UnixMilli() {
+		return errors.New("invalid or expired edge configuration")
+	}
+	for _, task := range cfg.Tasks {
+		if task.Profile.TenantID != cfg.TenantID || task.Profile.EdgeNodeID != cfg.NodeID || !task.Profile.Enabled || !supportsRead(task.Release.Transport) {
+			return errors.New("unsupported or foreign edge task")
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.config.Revision == cfg.Revision && a.repo != nil {
+		a.config.ExpiresAt = cfg.ExpiresAt
+		return nil
+	}
+	repo := memory.NewRepository()
+	for _, product := range cfg.Products {
+		if product.TenantID != cfg.TenantID {
+			return errors.New("foreign product")
+		}
+		if err := repo.SaveProduct(ctx, product); err != nil {
+			return err
+		}
+	}
+	for _, device := range cfg.Devices {
+		if device.TenantID != cfg.TenantID {
+			return errors.New("foreign device")
+		}
+		if err := repo.SaveManagedDevice(ctx, device); err != nil {
+			return err
+		}
+	}
+	releases := map[string]bool{}
+	for _, task := range cfg.Tasks {
+		release := task.Release
+		if release.TenantID != cfg.TenantID {
+			return errors.New("foreign protocol")
+		}
+		releaseKey := release.ProtocolID + "\x00" + release.Version
+		if !releases[releaseKey] {
+			if err := repo.CreateProtocolRelease(ctx, release); err != nil {
+				return err
+			}
+			releases[releaseKey] = true
+		}
+		p := task.Profile
+		p.EdgeNodeID = ""
+		if err := repo.SaveDeviceAccessProfile(ctx, p); err != nil {
+			return err
+		}
+		if err := repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: p.TenantID, ProductID: p.ProductID, ProtocolID: release.ProtocolID, Version: release.Version}); err != nil {
+			return err
+		}
+	}
+	if a.cancel != nil {
+		a.cancel()
+	}
+	runtimeCtx, cancel := context.WithCancel(ctx)
+	a.cancel, a.repo, a.config = cancel, repo, cfg
+	runtime := protocolruntime.New(repo, func(ctx context.Context, raw model.RawMessage) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		raw.CollectorID = a.options.NodeID
+		return a.queue.Put(raw)
+	}, a.log, a.options.AllowedCIDRs...)
+	runtime.SetSerialPorts(a.options.AllowedSerialPorts)
+	runtime.SetCollector(a.collector.Read)
+	runtime.Start(runtimeCtx)
+	return nil
+}
+func (a *Agent) sync(ctx context.Context) error {
+	var cfg model.EdgeConfiguration
+	if err := a.request(ctx, "GET", "/config", nil, &cfg); err != nil {
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && (httpErr.Status == 401 || httpErr.Status == 403) {
+			a.mu.Lock()
+			if a.cancel != nil {
+				a.cancel()
+			}
+			a.repo = nil
+			a.mu.Unlock()
+		}
+		return err
+	}
+	if err := a.apply(ctx, cfg); err != nil {
+		return err
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return atomicFile(filepath.Join(a.options.DataDir, "configuration.json"), b)
+}
+func (a *Agent) heartbeat(ctx context.Context) error {
+	a.mu.Lock()
+	h := model.EdgeHeartbeat{Version: "edge-agent-v1", ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
+	repo := a.repo
+	a.mu.Unlock()
+	if repo != nil {
+		profiles, err := repo.ListDeviceAccessProfiles(ctx, a.options.TenantID)
+		if err != nil {
+			return err
+		}
+		for i := range profiles {
+			profiles[i].EdgeNodeID = a.options.NodeID
+		}
+		h.Profiles = profiles
+	}
+	return a.request(ctx, "POST", "/heartbeat", h, nil)
+}
+func (a *Agent) flush(ctx context.Context) error {
+	raw, ok, err := a.queue.Next()
+	if err != nil || !ok {
+		return err
+	}
+	var receipt struct {
+		MessageID string `json:"messageId"`
+	}
+	if err = a.request(ctx, "POST", "/raw", raw, &receipt); err != nil {
+		var rejected *HTTPError
+		if errors.As(err, &rejected) && (rejected.Status == 400 || rejected.Status == 403 || rejected.Status == 404 || rejected.Status == 409 || rejected.Status == 413 || rejected.Status == 422) {
+			if retainErr := a.queue.Reject(raw); retainErr != nil {
+				return retainErr
+			}
+		}
+		return err
+	}
+	if receipt.MessageID != raw.MessageID {
+		return errors.New("platform did not confirm expected raw message id")
+	}
+	return a.queue.Ack(raw)
+}
+func (a *Agent) Run(ctx context.Context) error {
+	// A previously authenticated configuration may collect offline until its
+	// bounded expiry; disk data contains no node credential or device secrets.
+	if b, err := os.ReadFile(filepath.Join(a.options.DataDir, "configuration.json")); err == nil {
+		var cfg model.EdgeConfiguration
+		if json.Unmarshal(b, &cfg) == nil {
+			a.record("configuration", a.apply(ctx, cfg))
+		}
+	}
+	a.record("configuration", a.sync(ctx))
+	a.record("heartbeat", a.heartbeat(ctx))
+	jobsCtx, jobsCancel := context.WithCancel(ctx)
+	defer jobsCancel()
+	jobsDone := make(chan struct{})
+	go func() { defer close(jobsDone); a.readJobs(jobsCtx) }()
+	defer func() { jobsCancel(); <-jobsDone }()
+	syncTick := time.NewTicker(5 * time.Second)
+	defer syncTick.Stop()
+	heartTick := time.NewTicker(10 * time.Second)
+	defer heartTick.Stop()
+	sendTimer := time.NewTimer(0)
+	defer sendTimer.Stop()
+	backoff := time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-syncTick.C:
+			a.record("configuration", a.sync(ctx))
+			a.mu.Lock()
+			if a.config.ExpiresAt <= time.Now().UnixMilli() && a.cancel != nil {
+				a.cancel()
+				a.repo = nil
+			}
+			a.mu.Unlock()
+		case <-heartTick.C:
+			a.record("heartbeat", a.heartbeat(ctx))
+		case <-sendTimer.C:
+			err := a.flush(ctx)
+			a.record("upload", err)
+			if err != nil {
+				sendTimer.Reset(backoff)
+				backoff *= 2
+				if backoff > 30*time.Second {
+					backoff = 30 * time.Second
+				}
+			} else {
+				backoff = time.Second
+				sendTimer.Reset(100 * time.Millisecond)
+			}
+		}
+	}
+}
+
+// Pending returns only the count; credentials and raw payloads are not exposed.
+func (a *Agent) Pending() int { return a.queue.Depth() }
+
+func (a *Agent) RetryRejected() error { return a.queue.RetryRejected() }

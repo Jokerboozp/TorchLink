@@ -195,6 +195,10 @@ IOT_BACKUP_TIMEZONE=Asia/Shanghai
 IOT_MQTT_WEBSOCKET_PUBLIC_URL=
 IOT_DEVICE_HTTP_PUBLIC_URL=
 IOT_DEVICE_MQTT_PUBLIC_URL=
+IOT_PROCESS_ROLE=combined
+IOT_ACCESS_GATEWAY_URL=
+IOT_ACCESS_COORDINATION=false
+IOT_ACCESS_NODE_URL=
 IOT_WEB_PORT=8080
 IOT_API_PORT=8081
 IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
@@ -391,6 +395,8 @@ if (( ! skip_docker_runtime )); then
 fi
 cp "$project_root/compose.yaml" "$bundle_root/"
 cp "$project_root/compose.offline.yaml" "$bundle_root/"
+cp "$project_root/compose.access.yaml" "$bundle_root/"
+cp "$project_root/docs/EDGE_AND_GATEWAY.md" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
 cp "$project_root/docs/OFFLINE_DEPLOYMENT.md" "$bundle_root/"
 for script_name in deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do

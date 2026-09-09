@@ -85,3 +85,7 @@ IOT_BACKUP_IMAGE	离线部署使用的备份服务镜像
 IOT_DEEPSEEK_HARNESS_IMAGE	离线部署使用的 DeepSeek Harness 镜像
 IOT_DEVICE_HTTP_PUBLIC_URL	设备可访问的 HTTP/HTTPS 对外地址，留空使用相对路径
 IOT_DEVICE_MQTT_PUBLIC_URL	设备可访问的 MQTT/TLS 对外地址，留空显示未配置
+IOT_PROCESS_ROLE	进程职责：combined、api 或 gateway
+IOT_ACCESS_GATEWAY_URL	独立接入网关的 HTTP(S) 内网地址
+IOT_ACCESS_COORDINATION	使用共享数据库协调多接入实例
+IOT_ACCESS_NODE_URL	其他实例可直达当前实例的固定 HTTP(S) 地址

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,10 @@ const (
 )
 
 type Config struct {
+	AccessCoordination          bool
+	AccessNodeURL               string
+	ProcessRole                 string
+	AccessGatewayURL            string
 	HTTPAddr                    string
 	CORSAllowedOrigins          []string
 	DataDir                     string
@@ -88,6 +93,10 @@ func Load() Config {
 		aiAPIKey = deepSeekAPIKey
 	}
 	return Config{
+		AccessCoordination:          boolValue("IOT_ACCESS_COORDINATION", false),
+		AccessNodeURL:               strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
+		ProcessRole:                 strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),
+		AccessGatewayURL:            strings.TrimRight(os.Getenv("IOT_ACCESS_GATEWAY_URL"), "/"),
 		HTTPAddr:                    get("IOT_HTTP_ADDR", ":8080"),
 		CORSAllowedOrigins:          split(os.Getenv("IOT_CORS_ALLOWED_ORIGINS")),
 		DataDir:                     get("IOT_DATA_DIR", "./data"),
@@ -154,6 +163,30 @@ func Load() Config {
 func (c Config) Validate() error {
 	if c.loadErr != nil {
 		return c.loadErr
+	}
+	if c.AccessCoordination && (c.PostgresDSN == "" || c.AccessNodeURL == "") {
+		return fmt.Errorf("access coordination requires PostgreSQL and IOT_ACCESS_NODE_URL")
+	}
+	switch c.ProcessRole {
+	case "", "combined":
+	case "api", "gateway":
+		if c.PostgresDSN == "" || len(c.KafkaBrokers) == 0 {
+			return fmt.Errorf("split process roles require shared IOT_POSTGRES_DSN and IOT_KAFKA_BROKERS")
+		}
+		if c.ProcessRole == "api" && c.AccessGatewayURL == "" {
+			return fmt.Errorf("api role requires IOT_ACCESS_GATEWAY_URL")
+		}
+	default:
+		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api or gateway")
+	}
+	for _, origin := range []string{c.AccessGatewayURL, c.AccessNodeURL} {
+		if origin == "" {
+			continue
+		}
+		u, err := url.Parse(origin)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			return fmt.Errorf("gateway/node URL must be an HTTP(S) origin without credentials")
+		}
 	}
 	if c.DevMode {
 		return nil

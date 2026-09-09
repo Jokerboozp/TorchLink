@@ -17,6 +17,10 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
+      IOT_PROCESS_ROLE: ${IOT_PROCESS_ROLE:-combined}
+      IOT_ACCESS_GATEWAY_URL: ${IOT_ACCESS_GATEWAY_URL:-}
+      IOT_ACCESS_COORDINATION: ${IOT_ACCESS_COORDINATION:-false}
+      IOT_ACCESS_NODE_URL: ${IOT_ACCESS_NODE_URL:-}
       IOT_HTTP_ADDR: :8080
       IOT_CORS_ALLOWED_ORIGINS: ${IOT_CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173}
       IOT_DEV_MODE: "false"

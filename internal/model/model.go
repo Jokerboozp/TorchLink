@@ -300,6 +300,12 @@ type ProductProtocolBinding struct {
 }
 
 type DeviceAccessProfile struct {
+	CredentialRef     string `json:"credentialRef,omitempty"`
+	EndpointPath      string `json:"endpointPath,omitempty"`
+	SerialPort        string `json:"serialPort,omitempty"`
+	BaudRate          int    `json:"baudRate,omitempty"`
+	Parity            string `json:"parity,omitempty"`
+	StopBits          int    `json:"stopBits,omitempty"`
 	EdgeNodeID        string `json:"edgeNodeId,omitempty"`
 	Mode              string `json:"mode,omitempty"`
 	Network           string `json:"network,omitempty"`
@@ -324,6 +330,13 @@ type DeviceAccessProfile struct {
 	LastError         string `json:"lastError,omitempty"`
 	CreatedAt         int64  `json:"createdAt"`
 	UpdatedAt         int64  `json:"updatedAt"`
+}
+
+// Configuration clears only runtime observations; UpdatedAt remains the configuration revision.
+func (p DeviceAccessProfile) Configuration() DeviceAccessProfile {
+	p.RuntimeStatus, p.LastError = "", ""
+	p.LastSuccessAt, p.LastErrorAt = 0, 0
+	return p
 }
 
 // ProtocolAssistantField is the editable address/mapping contract between the
