@@ -153,3 +153,46 @@ func TestListenerCommandTimeoutClearsPending(t *testing.T) {
 		}
 	}
 }
+
+func TestListenerStatusRetainsAcceptedFrameAfterDisconnect(t *testing.T) {
+	r, _, connection, p := listenerFixture(t, func(context.Context, model.RawMessage) error { return nil })
+	status, _, last := r.Status(p.TenantID, p.ID)
+	if status != "LISTENING" || last != 0 {
+		t.Fatal("empty listener reported data", status, last)
+	}
+	connection.SetDeadline(time.Now().Add(2 * time.Second))
+	connection.Write([]byte{0xaa, 0xbb})
+	reply := make([]byte, 1)
+	if _, err := io.ReadFull(connection, reply); err != nil {
+		t.Fatal(err)
+	}
+	connection.Close()
+	deadline := time.Now().Add(time.Second)
+	for {
+		r.mu.Lock()
+		h := r.hosts[listenerKey(p.TenantID, p.ID)]
+		r.mu.Unlock()
+		h.mu.Lock()
+		closed := len(h.sessions) == 0
+		h.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("session did not close")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	status, _, last = r.Status(p.TenantID, p.ID)
+	if status != "LISTENING" || last <= 0 {
+		t.Fatal("disconnected successful frame lost", status, last)
+	}
+	rejected, _, conn, q := listenerFixture(t, func(context.Context, model.RawMessage) error { return errors.New("archive unavailable") })
+	conn.SetDeadline(time.Now().Add(time.Second))
+	conn.Write([]byte{0xaa, 0xbb})
+	conn.Read(reply)
+	_, _, last = rejected.Status(q.TenantID, q.ID)
+	if last != 0 {
+		t.Fatal("rejected frame reported success", last)
+	}
+}

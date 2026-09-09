@@ -1096,9 +1096,9 @@ func (r *Repository) UpdateDeviceAccessStatus(_ context.Context, expected model.
 		return false, nil
 	}
 	current.RuntimeStatus, current.LastError = status, message
-	if status == "ONLINE" {
+	if status == "ONLINE" || (status == "LISTENING" && at > 0) {
 		current.LastSuccessAt = at
-	} else {
+	} else if status == "ERROR" {
 		current.LastErrorAt = at
 	}
 	r.accessProfiles[k] = current

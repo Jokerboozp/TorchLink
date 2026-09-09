@@ -39,6 +39,8 @@ try {
   await until(()=>evaluate(`document.body.textContent.includes('命令已记录')`))
   await until(async()=>{await click('查询命令结果');return evaluate(`document.body.textContent.includes('已收到协议应答')`)})
   assert.equal(await evaluate(`document.querySelector('.surface-card pre')?.textContent.includes('"token"')||false`),false)
+  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('[role=tab]')].find(e=>e.textContent.trim()==='设备接入实例');if(!e)return false;e.click();return true})()`))
+  await until(()=>evaluate(`[...document.querySelectorAll('.el-table__row')].some(e=>e.textContent.includes('tcp') && e.textContent.includes('监听中'))`))
   await click('设备管理')
   await until(()=>evaluate(`document.body.textContent.includes('new-device') && document.body.textContent.includes('new-udp')`))
   await click('添加设备')
@@ -57,6 +59,7 @@ try {
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
   assert.equal(await evaluate(`document.body.textContent.includes('Edge Agent（后续开放）')`),false)
   console.log('PASS: remote protocol command form, actual manual confirmation, queue and query, authenticated Edge TCP dispatch and real correlated reply')
+  console.log('PASS: actual Edge LISTENING heartbeat displayed in access profiles')
   console.log('PASS: actual auto-registered TCP/UDP inventory, Edge onboarding automatic-registration switch and narrow screen')
 } finally {
   if(socket)socket.close()

@@ -329,6 +329,18 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 		t.Fatal("completed command was automatically sent again")
 	}
 
+	// Wait for the actual Agent heartbeat rather than synthesizing LISTENING.
+	statusDeadline := time.Now().Add(12 * time.Second)
+	for {
+		observed, _ := repo.GetDeviceAccessProfile(ctx, "tenant", "tcp")
+		if observed.RuntimeStatus == "LISTENING" && observed.LastSuccessAt > 0 {
+			break
+		}
+		if time.Now().After(statusDeadline) {
+			t.Fatalf("actual listener heartbeat not projected: %+v", observed)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	t.Run("command-browser", func(t *testing.T) {
 		if os.Getenv("IOT_TEST_BROWSER") == "" {
 			t.Skip("IOT_TEST_BROWSER is not configured")

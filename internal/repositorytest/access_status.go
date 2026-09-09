@@ -22,11 +22,25 @@ func AccessStatus(t *testing.T, repo ports.Repository) {
 	if err != nil || current.LastSuccessAt != 20 || current.UpdatedAt != 10 {
 		t.Fatal("status changed configuration revision", err)
 	}
+	for _, sample := range []struct {
+		status               string
+		at, success, failure int64
+	}{
+		{"LISTENING", 0, 20, 0}, {"LISTENING", 25, 25, 0}, {"ERROR", 26, 25, 26}, {"LISTENING", 0, 25, 26}, {"PENDING", 0, 25, 26},
+	} {
+		if ok, err := repo.UpdateDeviceAccessStatus(ctx, original, sample.status, "", sample.at); err != nil || !ok {
+			t.Fatal("listener status update", err)
+		}
+		current, err = repo.GetDeviceAccessProfile(ctx, original.TenantID, original.ID)
+		if err != nil || current.RuntimeStatus != sample.status || current.LastSuccessAt != sample.success || current.LastErrorAt != sample.failure {
+			t.Fatalf("listener status timestamps: %+v %v", current, err)
+		}
+	}
 	current.Enabled, current.Host, current.EdgeNodeID, current.UpdatedAt = false, "192.0.2.1", "remote", 30
 	if err := repo.SaveDeviceAccessProfile(ctx, current); err != nil {
 		t.Fatal(err)
 	}
-	for _, status := range []string{"ONLINE", "ERROR"} {
+	for _, status := range []string{"ONLINE", "ERROR", "LISTENING", "PENDING"} {
 		if ok, err := repo.UpdateDeviceAccessStatus(ctx, original, status, "late observation", 40); err != nil || ok {
 			t.Fatal("stale status accepted", status, err)
 		}

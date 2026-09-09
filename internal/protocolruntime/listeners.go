@@ -53,14 +53,15 @@ type Listeners struct {
 }
 
 type protocolListener struct {
-	owner    *Listeners
-	ctx      context.Context
-	cancel   context.CancelFunc
-	mu       sync.Mutex
-	profile  model.DeviceAccessProfile
-	tcp      net.Listener
-	udp      net.PacketConn
-	sessions map[string]*listenerSession
+	lastAcceptedAt int64
+	owner          *Listeners
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.Mutex
+	profile        model.DeviceAccessProfile
+	tcp            net.Listener
+	udp            net.PacketConn
+	sessions       map[string]*listenerSession
 }
 
 type listenerSession struct {
@@ -132,19 +133,8 @@ func (r *Listeners) Status(tenant, profile string) (string, string, int64) {
 		return "ERROR", err.Error(), 0
 	}
 	h.mu.Lock()
-	sessions := make([]*listenerSession, 0, len(h.sessions))
-	for _, s := range h.sessions {
-		sessions = append(sessions, s)
-	}
+	last := h.lastAcceptedAt
 	h.mu.Unlock()
-	var last int64
-	for _, s := range sessions {
-		s.mu.Lock()
-		if s.deviceID != "" && s.lastSeen.UnixMilli() > last {
-			last = s.lastSeen.UnixMilli()
-		}
-		s.mu.Unlock()
-	}
 	return "LISTENING", "", last
 }
 
@@ -574,6 +564,9 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 	}
 	s.deviceID = device.ID
 	s.lastSeen = time.Now()
+	s.host.mu.Lock()
+	s.host.lastAcceptedAt = max(s.host.lastAcceptedAt, s.lastSeen.UnixMilli())
+	s.host.mu.Unlock()
 	s.state = append(json.RawMessage(nil), response.State...)
 	if len(reply) > 0 {
 		if err := s.write(reply); err != nil {

@@ -189,13 +189,17 @@ func (s *Server) edgeHeartbeat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, p := range h.Profiles {
-		if p.RuntimeStatus != "ONLINE" && p.RuntimeStatus != "ERROR" {
+		if p.RuntimeStatus != "ONLINE" && p.RuntimeStatus != "ERROR" && p.RuntimeStatus != "LISTENING" && p.RuntimeStatus != "PENDING" {
 			continue
 		}
 		if len(p.LastError) > 512 {
 			p.LastError = p.LastError[:512]
 		}
-		if _, err := s.engine.Repo.UpdateDeviceAccessStatus(r.Context(), p, p.RuntimeStatus, p.LastError, min(h.LastSeenAt, max(p.LastSuccessAt, p.LastErrorAt))); err != nil {
+		at := p.LastSuccessAt
+		if p.RuntimeStatus == "ERROR" {
+			at = p.LastErrorAt
+		}
+		if _, err := s.engine.Repo.UpdateDeviceAccessStatus(r.Context(), p, p.RuntimeStatus, p.LastError, min(h.LastSeenAt, max(at, int64(0)))); err != nil {
 			problem(w, 503, "save edge profile status")
 			return
 		}

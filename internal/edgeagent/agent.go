@@ -353,7 +353,13 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 			profiles[i].EdgeNodeID = a.options.NodeID
 			if profiles[i].Mode == "listener" && listeners != nil {
 				status, message, last := listeners.Status(profiles[i].TenantID, profiles[i].ID)
-				profiles[i].RuntimeStatus, profiles[i].LastError, profiles[i].LastSuccessAt = status, message, last
+				profiles[i].RuntimeStatus, profiles[i].LastError = status, message
+				if status == "LISTENING" {
+					profiles[i].LastSuccessAt = max(profiles[i].LastSuccessAt, last)
+				}
+				if status == "ERROR" {
+					profiles[i].LastErrorAt = time.Now().UnixMilli()
+				}
 			}
 		}
 		h.Profiles = profiles

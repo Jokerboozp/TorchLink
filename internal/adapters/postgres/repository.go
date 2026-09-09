@@ -1370,9 +1370,9 @@ func (r *Repository) UpdateDeviceAccessStatus(ctx context.Context, expected mode
 		return false, err
 	}
 	patch := map[string]any{"runtimeStatus": status, "lastError": message}
-	if status == "ONLINE" {
+	if status == "ONLINE" || (status == "LISTENING" && at > 0) {
 		patch["lastSuccessAt"] = at
-	} else {
+	} else if status == "ERROR" {
 		patch["lastErrorAt"] = at
 	}
 	change, err := json.Marshal(patch)
