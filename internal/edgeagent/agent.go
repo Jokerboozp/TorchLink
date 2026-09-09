@@ -36,6 +36,7 @@ type Options struct {
 	AllowInsecureHTTP                      bool
 }
 type Agent struct {
+	validatedWorkers    map[string]bool
 	syncMu              sync.Mutex
 	listeners           *protocolruntime.Listeners
 	collector           *fieldprotocol.Collector

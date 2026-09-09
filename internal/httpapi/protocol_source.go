@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"iot-platform/internal/model"
 	"iot-platform/internal/protocolbuild"
 	"iot-platform/internal/protocolworker"
 )
@@ -21,7 +22,7 @@ import (
 const protocolSourceCases = `[{"name":"温度上报","input":{"payloadFormat":"hex","payload":"AA 01 2A"},"expectedMessageType":"PROPERTY_REPORT","expectedProperties":{"temperature":42}}]`
 
 func (s *Server) protocolSourceTemplate(w http.ResponseWriter, r *http.Request) {
-	write(w, 200, map[string]any{"filename": "protocol.go", "source": protocolbuild.Template, "cases": json.RawMessage(protocolSourceCases), "compilerAvailable": protocolbuild.Available(), "platform": runtime.GOOS + "-" + runtime.GOARCH})
+	write(w, 200, map[string]any{"filename": "protocol.go", "source": protocolbuild.Template, "cases": json.RawMessage(protocolSourceCases), "compilerAvailable": protocolbuild.Available(), "platform": runtime.GOOS + "-" + runtime.GOARCH, "targetPlatforms": model.ProtocolPlatforms()})
 }
 
 func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +81,11 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, err.Error())
 		return
 	}
+	targets, err := sourceTargetPlatforms(r, files)
+	if err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
 	if _, err := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, id, manifest.Version); err == nil {
 		problem(w, 409, "该协议版本已存在，请使用新版本号")
 		return
@@ -108,15 +114,24 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started := time.Now()
-	worker, buildLog, err := protocolbuild.Build(r.Context(), s.cfg.DataDir, files, entrypoint)
-	if err != nil {
-		write(w, 422, map[string]any{"detail": err.Error() + "\n" + buildLog, "stage": "compile", "buildLog": buildLog})
-		return
+	entries := map[string][]byte{"samples/cases.json": casesData, "source/upload.go": data}
+	buildLogs := map[string]string{}
+	buildStates := map[string]string{}
+	for _, target := range targets {
+		worker, buildLog, buildErr := protocolbuild.BuildForPlatform(r.Context(), s.cfg.DataDir, files, entrypoint, target)
+		if buildErr != nil {
+			write(w, 422, map[string]any{"detail": target + ": " + buildErr.Error() + "\n" + buildLog, "stage": "compile", "platform": target, "buildLog": buildLog})
+			return
+		}
+		name := "bin/worker-" + target
+		entries[name] = worker
+		manifest.Entrypoints[target] = name
+		buildLogs[target] = buildLog
+		buildStates[target] = "COMPILED"
 	}
 	digest := sha256.Sum256(data)
 	manifestData, _ := yaml.Marshal(manifest)
-	// Keep the exact uploaded source beside the generated binary and manifest.
-	entries := map[string][]byte{"manifest.yaml": manifestData, "bin/worker": worker, "samples/cases.json": casesData, "source/upload.go": data}
+	entries["manifest.yaml"] = manifestData
 	if operations := files["samples/operations.json"]; len(operations) > 0 {
 		entries["samples/operations.json"] = operations
 	}
@@ -145,7 +160,7 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "源码与编译结果打包后超过 64 MiB")
 		return
 	}
-	s.installProtocolPackageV2(w, r, archive.Bytes(), entries, manifest, header.Filename, map[string]any{"kind": "go-source", "sourceSha256": hex.EncodeToString(digest[:]), "durationMs": time.Since(started).Milliseconds(), "log": buildLog, "catalog": sourceCatalogProvenance(r.Context())})
+	s.installProtocolPackageV2(w, r, archive.Bytes(), entries, manifest, header.Filename, map[string]any{"kind": "go-source", "sourceSha256": hex.EncodeToString(digest[:]), "durationMs": time.Since(started).Milliseconds(), "log": buildLogs[runtime.GOOS+"-"+runtime.GOARCH], "logs": buildLogs, "targets": buildStates, "entrypoint": entrypoint, "catalog": sourceCatalogProvenance(r.Context())})
 }
 
 func sourceProtocolManifest(r *http.Request, id string, files map[string][]byte) (protocolPackageManifestV2, string, error) {
@@ -191,4 +206,37 @@ func sourceProtocolManifest(r *http.Request, id string, files map[string][]byte)
 		return manifest, "", errors.New("完整协议包的原始帧格式必须为 hex")
 	}
 	return manifest, firstNonBlank(r.FormValue("entrypoint"), metadata.Entrypoint, "."), nil
+}
+
+// A source package may request additional targets; native validation is mandatory.
+func sourceTargetPlatforms(r *http.Request, files map[string][]byte) ([]string, error) {
+	var metadata struct {
+		Targets []string `json:"targetPlatforms"`
+	}
+	if data := files["protocol.json"]; len(data) > 0 {
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			return nil, err
+		}
+	}
+	if input := strings.TrimSpace(r.FormValue("targetPlatforms")); input != "" {
+		if len(input) > 1024 || json.Unmarshal([]byte(input), &metadata.Targets) != nil {
+			return nil, errors.New("targetPlatforms must be a JSON platform array")
+		}
+	}
+	if len(metadata.Targets) > 6 {
+		return nil, errors.New("at most six protocol platforms are supported")
+	}
+	native := runtime.GOOS + "-" + runtime.GOARCH
+	targets, seen := []string{native}, map[string]bool{native: true}
+	for _, target := range metadata.Targets {
+		normalized := model.ProtocolPlatform(target)
+		if normalized == "" {
+			return nil, errors.New("unsupported protocol target platform: " + target)
+		}
+		if !seen[normalized] {
+			targets = append(targets, normalized)
+			seen[normalized] = true
+		}
+	}
+	return targets, nil
 }

@@ -4,6 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"debug/elf"
+	"debug/macho"
+	"debug/pe"
+	"iot-platform/internal/model"
 	"os"
 	"strings"
 	"testing"
@@ -58,5 +62,65 @@ func TestBuildRejectsOutsideReplacementAndCancellation(t *testing.T) {
 	cancel()
 	if _, _, err := Build(ctx, t.TempDir(), map[string][]byte{"main.go": []byte(Template)}, "."); err == nil {
 		t.Fatal("canceled build succeeded")
+	}
+}
+
+func TestCrossPlatformCompilerProducesActualTargets(t *testing.T) {
+	if !Available() {
+		t.Skip("Go compiler unavailable")
+	}
+	root := t.TempDir()
+	source := map[string][]byte{"main.go": []byte("package main\nfunc main() {}")}
+	for _, target := range model.ProtocolPlatforms() {
+		t.Run(target, func(t *testing.T) {
+			data, log, err := BuildForPlatform(context.Background(), root, source, ".", target)
+			if err != nil {
+				t.Fatalf("%v %s", err, log)
+			}
+			switch {
+			case strings.HasPrefix(target, "linux"):
+				binary, err := elf.NewFile(bytes.NewReader(data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer binary.Close()
+				want := elf.EM_X86_64
+				if strings.HasSuffix(target, "arm64") {
+					want = elf.EM_AARCH64
+				}
+				if binary.Machine != want {
+					t.Fatal(binary.Machine)
+				}
+			case strings.HasPrefix(target, "windows"):
+				binary, err := pe.NewFile(bytes.NewReader(data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer binary.Close()
+				want := uint16(pe.IMAGE_FILE_MACHINE_AMD64)
+				if strings.HasSuffix(target, "arm64") {
+					want = pe.IMAGE_FILE_MACHINE_ARM64
+				}
+				if binary.Machine != want {
+					t.Fatal(binary.Machine)
+				}
+			case strings.HasPrefix(target, "darwin"):
+				binary, err := macho.NewFile(bytes.NewReader(data))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer binary.Close()
+				want := macho.CpuAmd64
+				if strings.HasSuffix(target, "arm64") {
+					want = macho.CpuArm64
+				}
+				if binary.Cpu != want {
+					t.Fatal(binary.Cpu)
+				}
+			}
+		})
+	}
+	if _, _, err := BuildForPlatform(context.Background(), root, source, ".", "linux/arm64;echo invalid"); err == nil {
+		t.Fatal("invalid target accepted")
 	}
 }

@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -292,6 +291,27 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 		return
 	}
 	artifact["testCases"] = testCount
+	if buildInfo != nil {
+		if targets, ok := buildInfo["targets"].(map[string]string); ok {
+			targets[targetPlatform] = "PASSED"
+		}
+	}
+	created, variantErr := storeProtocolVariants(root, directory, artifact, entries, manifest)
+	if variantErr != nil {
+		_ = os.Remove(workerPath)
+		_ = os.Remove(packagePath)
+		problem(w, 422, variantErr.Error())
+		return
+	}
+	retained := false
+	defer func() {
+		if !retained {
+			for _, path := range created {
+				_ = os.Remove(path)
+			}
+		}
+	}()
+
 	release := model.ProtocolRelease{TenantID: tenant, ProtocolID: protocolID, Version: manifest.Version, Transport: strings.ToUpper(manifest.Transport), PayloadFormat: strings.ToLower(manifest.PayloadFormat), ParserType: parser.GoProtocolParserName, Status: status, Capabilities: manifest.Capabilities, Config: map[string]any{"artifact": artifact, "timeoutMs": 5000}, Artifact: artifact, CreatedAt: now, PublishedAt: publishedAt}
 	if err = s.engine.Repo.SaveProtocolDefinition(r.Context(), definition); err == nil {
 		err = s.engine.Repo.CreateProtocolRelease(r.Context(), release)
@@ -302,6 +322,7 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 		problem(w, 500, err.Error())
 		return
 	}
+	retained = true
 	var binding any
 	if productID != "" {
 		bound, bindErr := s.bindProtocolRelease(r, protocolID, manifest.Version, productID)
@@ -315,76 +336,13 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 	write(w, 201, map[string]any{"definition": definition, "release": release, "manifest": manifest, "binding": binding, "testCases": testCount})
 }
 
-type protocolPackageCaseV2 struct {
-	Name                string            `json:"name"`
-	Input               model.RawMessage  `json:"input"`
-	ExpectedMessageType model.MessageType `json:"expectedMessageType"`
-	ExpectedProperties  map[string]any    `json:"expectedProperties,omitempty"`
-}
+type protocolPackageCaseV2 = protocolworker.SampleCase
 
 func validateProtocolPackageCasesV2(root string, artifact map[string]any, entries map[string][]byte, manifest protocolPackageManifestV2, required bool) (int, error) {
 	return validateProtocolPackageCasesContextV2(context.Background(), root, artifact, entries, manifest, required)
 }
-
 func validateProtocolPackageCasesContextV2(parent context.Context, root string, artifact map[string]any, entries map[string][]byte, manifest protocolPackageManifestV2, required bool) (int, error) {
-	ctx, cancel := context.WithTimeout(parent, time.Minute)
-	defer cancel()
-	data := entries["samples/cases.json"]
-	if len(data) == 0 {
-		if required {
-			return 0, errors.New("samples/cases.json with at least one passing case is required for immediate publication")
-		}
-		return 0, nil
-	}
-	var cases []protocolPackageCaseV2
-	if err := json.Unmarshal(data, &cases); err != nil || len(cases) == 0 || len(cases) > 100 {
-		return 0, errors.New("samples/cases.json must contain 1 to 100 valid test cases")
-	}
-	runner := parser.ExternalParser{Root: root}
-	// First execution can include OS signature/antivirus checks. Publication
-	// validation therefore gets a wider bound than the steady-state parser.
-	config := map[string]any{"artifact": artifact, "timeoutMs": 10000}
-	for index, testCase := range cases {
-		if err := ctx.Err(); err != nil {
-			return index, fmt.Errorf("protocol sample validation canceled or exceeded 60 seconds: %w", err)
-		}
-		if testCase.Input.MessageID == "" {
-			testCase.Input.MessageID = fmt.Sprintf("raw_package_test_%d", index+1)
-		}
-		if testCase.Input.TenantID == "" {
-			testCase.Input.TenantID = "package-test"
-		}
-		if testCase.Input.ProductID == "" {
-			testCase.Input.ProductID = "package-test"
-		}
-		if testCase.Input.DeviceID == "" {
-			testCase.Input.DeviceID = "package-test"
-		}
-		if testCase.Input.Protocol == "" {
-			testCase.Input.Protocol = manifest.ID
-		}
-		if testCase.Input.Transport == "" {
-			testCase.Input.Transport = manifest.Transport
-		}
-		if testCase.Input.PayloadFormat == "" {
-			testCase.Input.PayloadFormat = manifest.PayloadFormat
-		}
-		message, err := runner.ParseWithContext(ctx, testCase.Input, config)
-		if err != nil {
-			return index, fmt.Errorf("protocol package case %q failed: %w", firstNonBlank(testCase.Name, strconv.Itoa(index+1)), err)
-		}
-		if testCase.ExpectedMessageType != "" && message.MessageType != testCase.ExpectedMessageType {
-			return index, fmt.Errorf("protocol package case %q returned messageType %s, want %s", firstNonBlank(testCase.Name, strconv.Itoa(index+1)), message.MessageType, testCase.ExpectedMessageType)
-		}
-		for key, expected := range testCase.ExpectedProperties {
-			actual, exists := message.Properties[key]
-			if !exists || !reflect.DeepEqual(actual, expected) {
-				return index, fmt.Errorf("protocol package case %q property %s=%v, want %v", firstNonBlank(testCase.Name, strconv.Itoa(index+1)), key, message.Properties[key], expected)
-			}
-		}
-	}
-	operationCount, err := validateProtocolOperationCases(ctx, root, artifact, entries, manifest)
-	return len(cases) + operationCount, err
+	return protocolworker.ValidateSamples(parent, root, artifact, entries, protocolworker.SampleManifest{ID: manifest.ID, Runtime: manifest.Runtime, Transport: manifest.Transport, PayloadFormat: manifest.PayloadFormat, Capabilities: manifest.Capabilities}, required)
 }
 
 func inspectProtocolPackageV2(reader *zip.Reader) (map[string][]byte, error) {

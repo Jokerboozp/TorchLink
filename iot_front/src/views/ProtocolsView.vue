@@ -15,6 +15,7 @@ const loading = ref(false)
 const testingId = ref('')
 const result = ref(null)
 const sourceFile = ref(null)
+const targetPlatforms = ref([])
 const compiling = ref(false)
 const sourceError = ref('')
 const sourceTemplate = ref(null)
@@ -75,6 +76,7 @@ async function uploadSource() {
   try {
     const body = new FormData()
     body.append('file', sourceFile.value)
+    if (targetPlatforms.value.length) body.append('targetPlatforms', JSON.stringify(targetPlatforms.value))
     for (const [key, value] of Object.entries(source)) body.append(key, key === 'productId' && !source.publish ? '' : String(value))
     result.value = await api(`/api/v2/protocols/${encodeURIComponent(source.protocolId)}/source-releases`, { method:'POST', body })
     ElMessage.success(result.value.binding ? '编译与样例测试通过，产品已切换到新版本' : source.publish ? '编译与样例测试通过，协议已发布，可绑定产品使用' : '编译与样例测试通过，已保存校验版本')
@@ -179,6 +181,10 @@ onMounted(load)
           <el-form-item label="协议能力"><el-select v-model="source.runtime" clearable placeholder="留空读取协议包"><el-option label="报文解析（v1）" value="go-json-lines-v1" /><el-option label="完整接入（v2）" value="go-protocol-v2" /></el-select></el-form-item>
           <el-form-item label="操作能力（可留空读取协议包）"><el-input v-model="source.capabilities" placeholder='["decode","ingress","encode"]' /></el-form-item>
         </div>
+        <el-form-item label="现场节点平台（可选）">
+          <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台；留空可读取 protocol.json"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platform" :value="platform" /></el-select>
+          <small class="subline">始终构建并试跑发布端样例；其他平台编译后，由对应 Edge 节点实际试跑成功才启用。旧版本保持不变。</small>
+        </el-form-item>
         <el-form-item label="Go 源码文件或项目 ZIP">
           <input type="file" accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
           <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate">下载完整 Go 模板</el-button>
@@ -191,7 +197,7 @@ onMounted(load)
         </el-form-item>
         <el-switch v-model="source.publish" active-text="测试通过后立即发布" inactive-text="仅保存已校验版本" />
         <div class="dialog-actions"><el-button type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</el-button></div>
-        <small v-if="compiling" class="subline">首次编译可能较慢，请保持页面打开。编译最长 120 秒，随后运行样例测试。</small>
+        <small v-if="compiling" class="subline">首次编译可能较慢，请保持页面打开。每个平台编译最长 120 秒，随后运行样例测试。</small>
         <el-alert v-if="sourceError" class="top-gap" title="操作未完成，请查看原因" type="error" :closable="false"><pre class="source-error">{{ sourceError }}</pre></el-alert>
       </el-form>
     </el-tab-pane>
@@ -234,7 +240,7 @@ onMounted(load)
         <el-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></el-table-column>
         <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ newestRelease(row).transport || '—' }} · {{ newestRelease(row).parserType || '—' }}</template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column>
-        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button></span></template></el-table-column>
+        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ release.artifact.platform }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platform }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
       </el-table>
     </el-tab-pane>
 

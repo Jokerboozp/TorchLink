@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+	"iot-platform/internal/model"
 )
 
 //go:embed template.go.txt
@@ -100,6 +101,17 @@ func localPath(name string) bool {
 // Build uses an isolated source directory and a minimal environment. This is
 // process separation, not an OS sandbox; uploads are trusted operator code.
 func Build(ctx context.Context, dataDir string, files map[string][]byte, entry string) ([]byte, string, error) {
+	return BuildForPlatform(ctx, dataDir, files, entry, runtime.GOOS+"-"+runtime.GOARCH)
+}
+
+// BuildForPlatform cross-compiles only explicitly supported CGO-free targets.
+// A foreign binary still requires sample execution on its destination node.
+func BuildForPlatform(ctx context.Context, dataDir string, files map[string][]byte, entry, platform string) ([]byte, string, error) {
+	platform = model.ProtocolPlatform(platform)
+	if platform == "" {
+		return nil, "", errors.New("unsupported protocol target platform")
+	}
+	target := strings.Split(platform, "-")
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		return nil, "", errors.New("服务器缺少 Go 编译器，请部署包含 Go 工具链的 API 镜像")
@@ -170,14 +182,14 @@ func Build(ctx context.Context, dataDir string, files map[string][]byte, entry s
 		}
 	}
 	output := filepath.Join(work, "worker")
-	if runtime.GOOS == "windows" {
+	if target[0] == "windows" {
 		output += ".exe"
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, goBin, "build", "-mod=vendor", "-buildvcs=false", "-trimpath", "-p=2", "-ldflags=-s -w", "-o", output, "./"+entry)
 	cmd.Dir = sourceDir
-	cmd.Env = []string{"GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "CGO_ENABLED=0", "GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOCACHE=" + cache, "GOMODCACHE=" + filepath.Join(work, "modcache"), "GOTMPDIR=" + filepath.Join(work, "tmp"), "HOME=" + work, "USERPROFILE=" + work, "GOMAXPROCS=2"}
+	cmd.Env = []string{"GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "CGO_ENABLED=0", "GOOS=" + target[0], "GOARCH=" + target[1], "GOCACHE=" + cache, "GOMODCACHE=" + filepath.Join(work, "modcache"), "GOTMPDIR=" + filepath.Join(work, "tmp"), "HOME=" + work, "USERPROFILE=" + work, "GOMAXPROCS=2"}
 	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"} {
 		if value := os.Getenv(name); value != "" {
 			cmd.Env = append(cmd.Env, name+"="+value)

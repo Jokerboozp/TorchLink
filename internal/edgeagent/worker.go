@@ -38,10 +38,11 @@ func (a *Agent) prepareWorker(ctx context.Context, task *model.EdgeTask) error {
 	if !allowed {
 		return errors.New("listener bind address is not in the node's explicit allowlist")
 	}
-	if task.Release.Artifact["platform"] != runtime.GOOS+"/"+runtime.GOARCH {
-		return errors.New("published worker platform does not match this node")
+	selected, err := model.SelectProtocolArtifact(task.Release.Artifact, runtime.GOOS+"-"+runtime.GOARCH)
+	if err != nil {
+		return err
 	}
-	expected, _ := task.Release.Artifact["sha256"].(string)
+	expected, _ := selected["sha256"].(string)
 	if b, err := hex.DecodeString(expected); err != nil || len(b) != sha256.Size || strings.ToLower(expected) != expected {
 		return errors.New("invalid worker SHA-256")
 	}
@@ -60,22 +61,10 @@ func (a *Agent) prepareWorker(ctx context.Context, task *model.EdgeTask) error {
 	}
 	data, err := os.ReadFile(filename)
 	if err != nil || !valid(data) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
+		if err := a.checkWorkerCache(64 << 20); err != nil {
 			return err
 		}
-		var used int64
-		for _, entry := range entries {
-			info, err := entry.Info()
-			if err != nil || !info.Mode().IsRegular() {
-				return errors.New("invalid worker cache entry")
-			}
-			used += info.Size()
-		}
-		if used > (1<<30)-(64<<20) {
-			return errors.New("worker cache limit reached; archive unused workers before updating")
-		}
-		request, err := http.NewRequestWithContext(ctx, "GET", a.options.URL+"/api/v1/edge/"+url.PathEscape(a.options.TenantID)+"/"+url.PathEscape(a.options.NodeID)+"/protocols/"+url.PathEscape(task.Release.ProtocolID)+"/"+url.PathEscape(task.Release.Version)+"/artifact", nil)
+		request, err := http.NewRequestWithContext(ctx, "GET", a.options.URL+"/api/v1/edge/"+url.PathEscape(a.options.TenantID)+"/"+url.PathEscape(a.options.NodeID)+"/protocols/"+url.PathEscape(task.Release.ProtocolID)+"/"+url.PathEscape(task.Release.Version)+"/artifact?platform="+url.QueryEscape(runtime.GOOS+"-"+runtime.GOARCH), nil)
 		if err != nil {
 			return err
 		}
@@ -100,7 +89,7 @@ func (a *Agent) prepareWorker(ctx context.Context, task *model.EdgeTask) error {
 		return err
 	}
 	artifact := map[string]any{}
-	for key, value := range task.Release.Artifact {
+	for key, value := range selected {
 		artifact[key] = value
 	}
 	artifact["path"] = filepath.ToSlash(filepath.Join("workers", name))
@@ -110,7 +99,29 @@ func (a *Agent) prepareWorker(ctx context.Context, task *model.EdgeTask) error {
 	}
 	config["artifact"] = artifact
 	task.Release.Config = config
+	if err := a.validateWorkerSamples(ctx, task.Release, artifact); err != nil {
+		return err
+	}
 	// Preserve server artifact metadata in the immutable release; only execution
 	// config uses a node-relative path. The archive retains protocol ID/version.
+	return nil
+}
+
+func (a *Agent) checkWorkerCache(reserved int64) error {
+	entries, err := os.ReadDir(filepath.Join(a.options.DataDir, "workers"))
+	if err != nil {
+		return err
+	}
+	var used int64
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return errors.New("invalid worker cache entry")
+		}
+		used += info.Size()
+	}
+	if used > (1<<30)-reserved {
+		return errors.New("worker cache limit reached; archive unused workers before updating")
+	}
 	return nil
 }

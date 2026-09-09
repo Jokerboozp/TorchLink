@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"io"
+	"iot-platform/internal/model"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,7 +45,27 @@ func (s *Server) edgeArtifact(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "published worker unavailable")
 		return
 	}
-	relative, _ := release.Artifact["path"].(string)
+	artifact := release.Artifact
+	if platform := r.URL.Query().Get("platform"); platform != "" {
+		if len(r.URL.Query()["platform"]) != 1 {
+			problem(w, 422, "ambiguous worker platform")
+			return
+		}
+		artifact, err = model.SelectProtocolArtifact(artifact, platform)
+		if err != nil {
+			problem(w, 409, err.Error())
+			return
+		}
+	}
+	relative, _ := artifact["path"].(string)
+	expected, _ := artifact["sha256"].(string)
+	limit := int64(64 << 20)
+	if strings.HasSuffix(r.URL.Path, "/samples") {
+		relative, _ = release.Artifact["samplesPath"].(string)
+		expected, _ = release.Artifact["samplesSha256"].(string)
+		limit = (2 << 20) + 1024
+	}
+
 	prefix := filepath.ToSlash(filepath.Join("protocol-releases", tenant, id, version)) + "/"
 	if !strings.HasPrefix(filepath.ToSlash(relative), prefix) || filepath.ToSlash(filepath.Clean(relative)) != relative {
 		problem(w, 409, "invalid worker path")
@@ -63,13 +84,12 @@ func (s *Server) edgeArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > 64<<20 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > limit {
 		problem(w, 409, "invalid worker file")
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(file, (64<<20)+1))
-	expected, _ := release.Artifact["sha256"].(string)
-	if err != nil || len(data) > 64<<20 || !protocolDownloadHashMatchesV2(data, expected) {
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(data)) > limit || !protocolDownloadHashMatchesV2(data, expected) {
 		problem(w, 409, "worker checksum verification failed")
 		return
 	}

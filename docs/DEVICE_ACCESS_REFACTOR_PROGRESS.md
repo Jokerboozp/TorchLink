@@ -3,6 +3,8 @@
 本次任务依据：`DEVICE_ACCESS_REFACTOR.md`（完整 1637 行，保持原文）。
 日期：2026-09-09；环境：当前 macOS 本地工作区。根目录已核实为 `/Users/peterson/Developer/iot-platform`，适用根目录 AGENTS.md，未发现子目录规则。
 
+当前执行范围以 2026-09-09 后续授权为准：全部内容使用中文提交并推送，继续 P0/P1 及扩大的 P2 八类能力。下方“初始状态”为历史记录，后续模块记录按实际实现更新；原任务说明保持不变。
+
 ## 范围与初始状态
 
 - 保留用户原有 `.gitignore` 修改及未跟踪任务说明；不切分支、不克隆、不提交、不推送。
@@ -249,3 +251,14 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - `TestONVIFDiscoveryUDPBoundaries` 真实 UDP 模拟器通过（0.31 秒）：错误关联、外部 URL、重复响应、未授权网卡、空结果与取消。XML 畸形/DTD/命名空间/长度及 URL 测试通过；`FuzzONVIFProbeMatch` 三秒 1,132 次通过。`TestONVIFDiscoveryLoopbackMulticast` 实际加入回环 IPv4 组播并收到默认目的地 Probe，通过（0.50 秒），本次没有跳过，也没有扫描现场网卡。
 - `TestEdgeONVIFMetadataWithAuthentication -race` 整体 14.74 秒通过，发现 API 子用例 5.01 秒，真实 Chrome 子用例 7.57 秒，涵盖实际发现→未认证候选→错误密码拒绝→认证读取→窄屏→显式保存。viewer、跨租户、节点本地禁止接口均拒绝，发现前后库存不变。
 - 根目录 `go test ./...`、前端 56 项测试与构建通过；构建只有已有大 chunk 提示。当前模块无阻塞；只支持单网卡 IPv4 主动发现，IPv6/发现代理/常驻 Hello/Bye、ONVIF 事件和厂商真机验收未实现/未执行。后续继续推进跨架构协议制品等 P2 剩余工作。
+
+### 多平台协议构建与目标节点实际试跑（2026-09-10）
+
+- ONVIF 发现提交 `9c73f8e` 已成功推送。修复 P1/Edge 遗漏：源码发布的 `GOOS-GOARCH` 与早期节点要求的 `GOOS/GOARCH` 不一致，同架构源码制品可能被拒绝；现在兼容两者，测试使用实际源码发布结果，不再只使用手工拼装的制品。
+- 源码上传、`protocol.json` 和页面支持选择六种 OS/CPU 目标，始终构建并实际试跑发布端；任何所选目标编译失败不创建新版本、不替换绑定。独立制品哈希、样例哈希、原始源码及不可变版本沿用原存储；历史版本不原地补二进制。目录安装同样读取源码内目标列表。
+- 发布端为 PASSED；其他源码制品为 COMPILED，外部预编译制品为 UNTESTED，版本页不把它们展示成已在目标机试跑。Edge 经节点认证选取本机目标、校验制品和样例哈希，复用发布端同一套真实 decode/ingress/encode 样例后才应用配置。目标运行失败保留旧 Worker 与 Raw 协议快照。缓存包含样例并保持 1 GiB 上限；重启重跑本地样例，下载不可用时仍可使用未过期的既有缓存。
+- `TestCrossPlatformCompilerProducesActualTargets -race` 六个平台实际编译并检查 ELF/PE/Mach-O 与 CPU 类型，通过（11.86 秒）；这不是六个平台实际运行验收。Windows 两架构及 macOS amd64 本轮只编译，未在对应系统运行。
+- 最终 `TestCrossPlatformSourceEdgeActualExecution -race` 整体 27.96 秒通过：本机真实上传/样例/TCP/Raw/Standard（0.31 秒）、禁止下载后的缓存重启（0.16 秒）、OrbStack Linux ARM64 独立 Agent（11.44 秒）、真实 Chrome 上传及目标选择（7.16 秒）。Linux 中实际模拟设备经回环 TCP 上报，Agent 真实认证访问 macOS API；构造仅 Linux 返回 99 的新版本，在 macOS 样例通过但 Linux 样例失败，节点报告错误并继续用 1.0.0 接收/归档，实际 Raw 版本保持 1.0.0。
+- 测试同时覆盖不支持目标、Linux 专属编译错误不改变当前绑定、错误节点凭据、重复平台参数、样例文件篡改拒绝、实际源包及其他平台制品下载。初次测试误从 RawIndex 读取协议版本，编译失败后改为读取实际归档 Raw；首次 Mac→VM 临时端口测试超时，改为在目标 VM 内运行真实设备 Socket，最终链路通过，没有放宽节点认证或伪造应答。
+- 根目录 `go test ./...` 通过（HTTP 包 66.306 秒）；相关源码发布/Worker/Edge 竞态回归通过，前端 56 项测试及构建通过。文档同步于 `GO_PROTOCOL_PACKAGES.md`、`EDGE_AND_GATEWAY.md`、`PROTOCOL_CATALOG.md`。未运行厂商真机、生产升级和其他 Windows/macOS 目标；不自动重建异构中心 API/Gateway 运行环境。
+- 本模块无阻塞。核实心跳时发现另一个 P1 遗漏：Edge Listener 实际报告 LISTENING，但平台状态投影只处理 ONLINE/ERROR，可能停留在待启动；下一步修复并验证。ONVIF 事件、复杂现场协议兼容、多主机验收及大型市场剩余能力继续待办。

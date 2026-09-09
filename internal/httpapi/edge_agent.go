@@ -23,6 +23,7 @@ func (s *Server) edgeRoutes() {
 	s.router.GET("/api/v1/device-registry/:id/commands/:command", s.authorize("viewer"), s.endpoint(s.deviceCommandStatus, "id", "command"))
 	s.router.POST("/api/v1/edge-nodes/:id/video-catalog/import", s.authorize("operator"), s.endpoint(s.importVideoCatalog, "id"))
 	s.router.GET("/api/v1/edge/:tenant/:node/protocols/:id/:version/artifact", s.endpoint(s.edgeArtifact, "tenant", "node", "id", "version"))
+	s.router.GET("/api/v1/edge/:tenant/:node/protocols/:id/:version/samples", s.endpoint(s.edgeArtifact, "tenant", "node", "id", "version"))
 	s.router.GET("/api/v1/edge/:tenant/:node/read-jobs", s.endpoint(s.edgeReadJobs, "tenant", "node"))
 	s.router.POST("/api/v1/edge/:tenant/:node/read-jobs/:job", s.endpoint(s.edgeReadJobs, "tenant", "node", "job"))
 	s.router.POST("/api/v1/edge-nodes/:id/credentials", s.authorize("admin"), s.endpoint(s.edgeCredential, "id"))
