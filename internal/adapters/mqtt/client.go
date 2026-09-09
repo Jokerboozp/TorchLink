@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -14,14 +16,23 @@ import (
 )
 
 type Client struct {
-	sharedGroup string
-	broker      string
-	credentials mqtt.CredentialsProvider
-	client      mqtt.Client
-	log         *slog.Logger
-	jobs        chan func()
-	stop        chan struct{}
-	stopOnce    sync.Once
+	conn         net.Conn
+	connMu       sync.Mutex
+	inbox        *durableInbox
+	ctx          context.Context
+	cancel       context.CancelFunc
+	routeMu      sync.RWMutex
+	routes       map[string]ingressHandler
+	filters      map[string]byte
+	reconnecting atomic.Bool
+	sharedGroup  string
+	broker       string
+	credentials  mqtt.CredentialsProvider
+	client       mqtt.Client
+	log          *slog.Logger
+	jobs         chan func()
+	stop         chan struct{}
+	stopOnce     sync.Once
 }
 
 func (c *Client) logger() *slog.Logger {
@@ -36,17 +47,33 @@ func New(broker, user, password, clientID string) (*Client, error) {
 }
 
 func NewWithCredentials(broker, clientID string, credentials mqtt.CredentialsProvider) (*Client, error) {
-	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(clientID).SetCredentialsProvider(credentials).SetConnectRetry(true).SetConnectRetryInterval(3 * time.Second).SetAutoReconnect(true).SetOrderMatters(true)
-	c := mqtt.NewClient(opts)
-	token := c.Connect()
+	return newClient(broker, clientID, credentials, nil)
+}
+func newClient(broker, clientID string, credentials mqtt.CredentialsProvider, inbox *durableInbox) (*Client, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	adapter := &Client{log: slog.Default(), broker: broker, credentials: credentials, inbox: inbox, ctx: ctx, cancel: cancel, routes: map[string]ingressHandler{}, filters: map[string]byte{}}
+	if inbox == nil {
+		adapter.startDispatch()
+	} else {
+		adapter.stop = make(chan struct{})
+	}
+	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(clientID).SetCredentialsProvider(credentials).SetConnectRetry(false).SetAutoReconnect(true).SetMaxReconnectInterval(5 * time.Second).SetOrderMatters(true).SetCleanSession(inbox == nil).SetAutoAckDisabled(inbox != nil)
+	opts.SetCustomOpenConnectionFn(adapter.openConnection)
+	opts.SetDefaultPublishHandler(func(_ mqtt.Client, m mqtt.Message) { adapter.receive(m) })
+	opts.SetOnConnectHandler(func(client mqtt.Client) { adapter.resubscribe(client) })
+	adapter.client = mqtt.NewClient(opts)
+	token := adapter.client.Connect()
 	if !token.WaitTimeout(10 * time.Second) {
+		adapter.Close()
 		return nil, fmt.Errorf("mqtt connect timeout")
 	}
 	if token.Error() != nil {
+		adapter.Close()
 		return nil, token.Error()
 	}
-	adapter := &Client{client: c, log: slog.Default(), broker: broker, credentials: credentials}
-	adapter.startDispatch()
+	if inbox != nil {
+		inbox.start(adapter)
+	}
 	return adapter, nil
 }
 func (c *Client) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
@@ -60,76 +87,50 @@ func (c *Client) Publish(ctx context.Context, topic string, payload []byte, qos 
 	}
 }
 func (c *Client) SubscribeRaw(handler func(context.Context, model.RawMessage) error) error {
-	token := c.client.SubscribeMultiple(map[string]byte{c.subscription("/external/raw/#"): 1, c.subscription("/jetlinks/raw/#"): 1}, func(_ mqtt.Client, m mqtt.Message) {
+	return c.register("raw", []string{"/external/raw/#", "/jetlinks/raw/#"}, func(ctx context.Context, topic string, payload []byte) error {
 		var raw model.RawMessage
-		if err := json.Unmarshal(m.Payload(), &raw); err != nil {
-			c.logger().Warn("mqtt raw payload rejected", "topic", m.Topic(), "error", err)
-			return
+		if err := json.Unmarshal(payload, &raw); err != nil {
+			return Reject(err)
 		}
-		if err := applyRawTopicIdentity(m.Topic(), &raw); err != nil {
-			c.logger().Warn("mqtt raw topic rejected", "topic", m.Topic(), "error", err)
-			return
+		if err := applyRawTopicIdentity(topic, &raw); err != nil {
+			return Reject(err)
 		}
 		if raw.Source == "" {
 			raw.Source = "external-mqtt"
 		}
-		c.enqueue(m.Topic(), func() { c.dispatchRaw(handler, m.Topic(), raw) })
+		if err := raw.Validate(); err != nil {
+			return Reject(err)
+		}
+		raw.ReceivedAt = ReceivedAt(ctx)
+		return handler(ctx, raw)
 	})
-	token.Wait()
-	return token.Error()
 }
 func (c *Client) SubscribeDeviceState(handler func(context.Context, model.DeviceState) error) error {
-	token := c.client.Subscribe(c.subscription("/iot/device/state/#"), 1, func(_ mqtt.Client, m mqtt.Message) {
+	return c.register("state", []string{"/iot/device/state/#"}, func(ctx context.Context, topic string, payload []byte) error {
 		var state model.DeviceState
-		if err := json.Unmarshal(m.Payload(), &state); err != nil {
-			c.logger().Warn("mqtt device state payload rejected", "topic", m.Topic(), "error", err)
-			return
+		if err := json.Unmarshal(payload, &state); err != nil {
+			return Reject(err)
 		}
-		if err := applyStateTopicIdentity(m.Topic(), &state); err != nil {
-			c.logger().Warn("mqtt device state topic rejected", "topic", m.Topic(), "error", err)
-			return
+		if err := applyStateTopicIdentity(topic, &state); err != nil {
+			return Reject(err)
 		}
-		c.enqueue(m.Topic(), func() { c.dispatchState(handler, m.Topic(), state) })
+		return handler(ctx, state)
 	})
-	token.Wait()
-	return token.Error()
 }
 func (c *Client) SubscribeVideo(handler func(context.Context, model.VideoAlarmEvent) error) error {
-	token := c.client.Subscribe(c.subscription("/external/video/alarm/#"), 1, func(_ mqtt.Client, m mqtt.Message) {
+	return c.register("video", []string{"/external/video/alarm/#"}, func(ctx context.Context, topic string, payload []byte) error {
 		var v model.VideoAlarmEvent
-		if err := json.Unmarshal(m.Payload(), &v); err != nil {
-			c.logger().Warn("mqtt video payload rejected", "topic", m.Topic(), "error", err)
-			return
+		if err := json.Unmarshal(payload, &v); err != nil {
+			return Reject(err)
 		}
-		if err := applyVideoTopicIdentity(m.Topic(), &v); err != nil {
-			c.logger().Warn("mqtt video topic rejected", "topic", m.Topic(), "error", err)
-			return
+		if err := applyVideoTopicIdentity(topic, &v); err != nil {
+			return Reject(err)
 		}
-		c.enqueue(m.Topic(), func() { c.dispatchVideo(handler, m.Topic(), v) })
+		if v.EventID == "" {
+			return Reject(fmt.Errorf("video eventId is required for reliable MQTT receive"))
+		}
+		return handler(ctx, v)
 	})
-	token.Wait()
-	return token.Error()
-}
-func (c *Client) dispatchRaw(handler func(context.Context, model.RawMessage) error, topic string, raw model.RawMessage) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := handler(ctx, raw); err != nil {
-		c.logger().Error("mqtt raw handler failed", "topic", topic, "messageId", raw.MessageID, "error", err)
-	}
-}
-func (c *Client) dispatchState(handler func(context.Context, model.DeviceState) error, topic string, state model.DeviceState) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := handler(ctx, state); err != nil {
-		c.logger().Error("mqtt device state handler failed", "topic", topic, "deviceId", state.DeviceID, "error", err)
-	}
-}
-func (c *Client) dispatchVideo(handler func(context.Context, model.VideoAlarmEvent) error, topic string, v model.VideoAlarmEvent) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := handler(ctx, v); err != nil {
-		c.logger().Error("mqtt video handler failed", "topic", topic, "eventId", v.EventID, "error", err)
-	}
 }
 func topicParts(topic string) []string {
 	return strings.Split(strings.Trim(topic, "/"), "/")
@@ -159,23 +160,36 @@ func applyVideoTopicIdentity(topic string, v *model.VideoAlarmEvent) error {
 	return nil
 }
 func (c *Client) Health(context.Context) error {
-	if !c.client.IsConnected() {
+	if c.inbox != nil {
+		if err := c.inbox.health(); err != nil {
+			return err
+		}
+	}
+	if !c.client.IsConnectionOpen() {
 		return fmt.Errorf("mqtt disconnected")
 	}
 	return nil
 }
 func (c *Client) Close() error {
-	c.client.Disconnect(250)
 	c.stopOnce.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
 		if c.stop != nil {
 			close(c.stop)
+		}
+		if c.client != nil {
+			c.client.Disconnect(250)
+		}
+		if c.inbox != nil {
+			c.inbox.close()
 		}
 	})
 	return nil
 }
 
-// Paho runs ordered callbacks synchronously. They only enqueue bounded work;
-// network/durable ingest happens in a fixed worker pool, never a goroutine per message.
+// Legacy embedded constructor only. Production uses the durable inbox and its
+// fixed workers; neither path starts an application goroutine per message.
 func (c *Client) startDispatch() {
 	c.jobs = make(chan func(), 128)
 	c.stop = make(chan struct{})
@@ -202,7 +216,7 @@ func (c *Client) enqueue(topic string, job func()) bool {
 	case c.jobs <- job:
 		return true
 	default:
-		c.logger().Error("MQTT ingress rejected: queue capacity exceeded; publisher must verify Raw receipt and retry same message id", "topic", topic)
+		c.logger().Error("MQTT ingress busy: leaving delivery unacknowledged for session redelivery", "topic", topic)
 		return false
 	}
 }

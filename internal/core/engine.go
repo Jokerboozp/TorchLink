@@ -284,6 +284,9 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	if msg == nil && err == nil {
 		msg, err = e.Parsers.Parse(raw)
 	}
+	if err == nil && msg != nil {
+		_, err = model.MessageComponents(*msg)
+	}
 	parseError := ""
 	if err != nil {
 		parseError = err.Error()
@@ -333,6 +336,10 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	var msg model.StandardMessage
 	if err := json.Unmarshal(b, &msg); err != nil {
+		return err
+	}
+	components, err := model.MessageComponents(msg)
+	if err != nil {
 		return err
 	}
 	shouldProcess, _, err := e.Repo.ClaimStandardMessage(ctx, msg)
@@ -404,12 +411,17 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	// An ALARM_REPORT is already an assertion made by the device. Rules can
 	// classify it and trigger actions when they match, but a missing rule must
 	// never discard a device-originated alarm.
-	if msg.MessageType == model.AlarmReport && !ruleAlarmHandled {
+	if len(components) > 0 {
+		if err := e.applyComponentAlarms(ctx, msg, components); err != nil {
+			return err
+		}
+	}
+	if len(components) == 0 && msg.MessageType == model.AlarmReport && !ruleAlarmHandled {
 		if _, _, err := e.raiseDirectAlarm(ctx, msg); err != nil {
 			return err
 		}
 	}
-	if msg.MessageType != model.AlarmReport && directAlarmCleared(msg) {
+	if len(components) == 0 && msg.MessageType != model.AlarmReport && directAlarmCleared(msg) {
 		if err := e.recoverDirectAlarms(ctx, msg); err != nil {
 			return err
 		}
@@ -682,10 +694,14 @@ func directAlarmMetadata(msg model.StandardMessage) (string, string) {
 }
 
 func directAlarmCleared(msg model.StandardMessage) bool {
-	if msg.MessageType == model.StateChange {
-		return true
+	// Old immutable protocol releases expose aggregate objects without a safe
+	// component identity contract. Never guess a whole-controller recovery.
+	if msg.Event["type"] == "COMPONENT_STATUS" {
+		if _, exists := msg.Event["objects"]; exists {
+			return false
+		}
 	}
-	if msg.MessageType != model.PropertyReport {
+	if msg.MessageType != model.PropertyReport && msg.MessageType != model.StateChange {
 		return false
 	}
 	found := false
@@ -709,7 +725,7 @@ func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMess
 			return err
 		}
 		for _, alarm := range alarms {
-			if !strings.HasPrefix(alarm.RuleID, directAlarmRulePrefix) {
+			if alarm.ComponentID != "" || !strings.HasPrefix(alarm.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, alarm.AlarmType) {
 				continue
 			}
 			alarm.Status = "RECOVERED"

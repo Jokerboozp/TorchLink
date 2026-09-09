@@ -477,31 +477,34 @@ type UIActionEvent struct {
 }
 
 type Alarm struct {
-	ID               string          `json:"alarmId"`
-	TenantID         string          `json:"tenantId"`
-	RuleID           string          `json:"ruleId"`
-	TriggerID        string          `json:"triggerId,omitempty"`
-	DeviceID         string          `json:"deviceId"`
-	DeviceName       string          `json:"deviceName,omitempty"`
-	AlarmType        string          `json:"alarmType"`
-	AlarmLevel       string          `json:"alarmLevel"`
-	Status           string          `json:"status"`
-	Source           string          `json:"source"`
-	CityCode         string          `json:"cityCode"`
-	DistrictCode     string          `json:"districtCode"`
-	BuildingID       string          `json:"buildingId"`
-	DeviceType       string          `json:"deviceType"`
-	AreaID           string          `json:"areaId,omitempty"`
-	FirstTriggeredAt int64           `json:"firstTriggeredAt"`
-	LastTriggeredAt  int64           `json:"lastTriggeredAt"`
-	TriggerCount     int             `json:"triggerCount"`
-	RecoveredAt      int64           `json:"recoveredAt,omitempty"`
-	AckedAt          int64           `json:"ackedAt,omitempty"`
-	ClosedAt         int64           `json:"closedAt,omitempty"`
-	Confidence       float64         `json:"confidence,omitempty"`
-	MultiSource      bool            `json:"multiSource"`
-	Cameras          []CameraSummary `json:"cameras,omitempty"`
-	Details          map[string]any  `json:"details,omitempty"`
+	ComponentID       string          `json:"componentId,omitempty"`
+	ComponentName     string          `json:"componentName,omitempty"`
+	ComponentLocation string          `json:"componentLocation,omitempty"`
+	ID                string          `json:"alarmId"`
+	TenantID          string          `json:"tenantId"`
+	RuleID            string          `json:"ruleId"`
+	TriggerID         string          `json:"triggerId,omitempty"`
+	DeviceID          string          `json:"deviceId"`
+	DeviceName        string          `json:"deviceName,omitempty"`
+	AlarmType         string          `json:"alarmType"`
+	AlarmLevel        string          `json:"alarmLevel"`
+	Status            string          `json:"status"`
+	Source            string          `json:"source"`
+	CityCode          string          `json:"cityCode"`
+	DistrictCode      string          `json:"districtCode"`
+	BuildingID        string          `json:"buildingId"`
+	DeviceType        string          `json:"deviceType"`
+	AreaID            string          `json:"areaId,omitempty"`
+	FirstTriggeredAt  int64           `json:"firstTriggeredAt"`
+	LastTriggeredAt   int64           `json:"lastTriggeredAt"`
+	TriggerCount      int             `json:"triggerCount"`
+	RecoveredAt       int64           `json:"recoveredAt,omitempty"`
+	AckedAt           int64           `json:"ackedAt,omitempty"`
+	ClosedAt          int64           `json:"closedAt,omitempty"`
+	Confidence        float64         `json:"confidence,omitempty"`
+	MultiSource       bool            `json:"multiSource"`
+	Cameras           []CameraSummary `json:"cameras,omitempty"`
+	Details           map[string]any  `json:"details,omitempty"`
 }
 
 func (a Alarm) MQTTTopic(eventType string) string {

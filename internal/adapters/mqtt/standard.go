@@ -3,9 +3,7 @@ package mqttadapter
 import (
 	"context"
 	"errors"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"strings"
-	"time"
 )
 
 func StandardTopic(topic string) (tenant, product, device, kind string, err error) {
@@ -20,22 +18,11 @@ func StandardTopic(topic string) (tenant, product, device, kind string, err erro
 // Broker authentication/ACL establishes publisher identity. The handler also
 // checks the current inventory status and never accepts identity in the body.
 func (c *Client) SubscribeStandard(handler func(context.Context, string, string, string, string, []byte) error) error {
-	token := c.client.Subscribe(c.subscription("/iot/up/+/+/+/+"), 1, func(_ mqtt.Client, m mqtt.Message) {
-		tenant, product, device, kind, err := StandardTopic(m.Topic())
-		if err != nil || len(m.Payload()) > 64<<10 || m.Retained() {
-			return
+	return c.register("standard", []string{"/iot/up/+/+/+/+"}, func(ctx context.Context, topic string, payload []byte) error {
+		tenant, product, device, kind, err := StandardTopic(topic)
+		if err != nil || len(payload) > 64<<10 {
+			return Reject(errors.New("invalid standard topic or payload"))
 		}
-		payload := append([]byte(nil), m.Payload()...)
-		c.enqueue(m.Topic(), func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err = handler(ctx, tenant, product, device, kind, payload); err != nil {
-				c.logger().Warn("standard MQTT rejected", "topic", m.Topic(), "error", err)
-			}
-		})
+		return handler(ctx, tenant, product, device, kind, payload)
 	})
-	if !token.WaitTimeout(10 * time.Second) {
-		return errors.New("subscribe standard MQTT timeout")
-	}
-	return token.Error()
 }

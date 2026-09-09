@@ -323,3 +323,19 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - 真实集成与 Chrome：`IOT_TEST_BROWSER=... go test -race ./internal/httpapi -run 'TestEdgeAgentDurableModbusChain|TestEdgeProgramAuthenticatedProcessUpgradeAndRollback|TestGoFunctionsUploadAndListener|TestEdgeListenerHeartbeatProjectsActualObservation' -count=1 -v` 通过，HTTP 包整体 44.369 秒。实际 Modbus Socket→认证节点→断网缓存→重启→隔离损坏文件→正常 Raw/Standard→真实心跳与页面，13.33 秒（Chrome 2.25 秒）；实际签名下载 503→同一请求恢复→独立 Agent 升级→版本不匹配回退→重启/篡改检查与页面，10.20 秒（Chrome 2.29 秒）；Go 上传/模板本地测试/TCP 上下行/错误拒绝与页面，18.96 秒（Chrome 5.75 秒）。三组浏览器均覆盖窄屏。
 - 全量检查：根目录 `go test ./...` 已通过（完整命令退出码 0，未配置环境的可选集成测试仍会跳过）；`git diff --check` 已通过。当前工具链为 Go 1.27.0、macOS ARM64；日志中 Sonic 已有兼容提示并回退到 encoding/json，未升级依赖。
 - 待完成/未执行：本轮不操作现有业务服务、数据库或真实设备；厂商真机、物理 RS485、Windows 实际进程、断电及生产部署未执行。没有提供当前待接设备的协议文档、连接参数和隔离测试环境，因此不能宣称真机联调完成。现有基础认证回归继续通过，本轮未重新部署业务 EMQX 或执行真实 Broker 全套联调。代码层本轮已定位模块无阻塞，其余设备特有兼容问题按实际联调结果处理。
+
+### 部件级告警与 MQTT 可靠接收（2026-09-10）
+
+- 本轮范围由用户明确收敛为“部件级告警与恢复 → MQTT 可靠接收”。开始时根目录 `/Users/peterson/Developer/iot-platform`、根 AGENTS.md 和 Git 状态已核实，工作区干净；直接在当前分支实施，不操作业务服务、真实设备或历史发布制品。
+- 已完成部件模块：新增通用 `event.components` 契约、部件/告警类型独立生命周期、明确 false 恢复、遗漏项保留、时间水位和重放保护。`component_alarm_state` 与告警记录在 PostgreSQL 同事务提交，内存实现行为一致。连接/注册等普通 STATE_CHANGE 不再自动清除直接告警；旧无部件标识 COMPONENT_STATUS 不猜测全设备恢复。
+- 已完成协议与页面：独立 GB26875 包输出稳定部件标识和各自位置，移除多对象顶层第一地址歧义；既有 objects 仍完整保留。告警列表、详情和全局弹窗显示部件，部件弹窗按告警 ID 去重，避免同报文多告警被合并。控制器级自定义规则保留，不能抑制部件来源告警；旧发布版本须另行发布升级，旧告警不自动拆分。
+- 部件实测：针对性核心测试通过（跨部件/类型隔离、普通状态不恢复、乱序/同时间冲突、重复报文、ACKED 恢复及 160 部件恢复）。独立 module 样例/操作测试、源码上传实际编译与真实 TCP 监听测试通过。隔离 PostgreSQL 17 的 `TestComponentAlarmAtomicWatermarkAndRestart -race` 通过（0.37 秒），覆盖幂等迁移、并发重复、重连仓库后的水位、租户隔离和取消事务；未使用业务数据库。
+- 已完成 MQTT 接收：复用 Edge 文件队列实现 8 分片持久接收，落盘后手动 ACK；固定客户端 ID、持久会话、重连订阅、写入失败不 ACK 并请求重投。第一接收时间和原始字节保留，后台实际认证/状态检查、归档与消息发布失败重试，明确拒收及损坏分别隔离；新增队列指标。数据库查询失败不再误判为永久认证失败。
+- MQTT 实测：落盘确认、进程内存丢失后恢复、暂时故障重试、队列满不确认、文件损坏保留及健康可见性测试通过。隔离真实 Mosquitto 2.1.2 的密码认证、主题 ACL、Broker/客户端重启、离线会话投递通过，扩展到真实 Raw/Parser/部件告警/恢复链路后通过（2.67 秒，`-race`）。接收和解析使用实际处理函数，没有将 handler 成功计数当作业务验收。此测试以本地临时业务库/归档验证，不等于本轮重新验收 EMQX JWT 配置。
+- 浏览器实测：`TestComponentAlarmAPIAndBrowser` 通过（2.63 秒，Chrome 子测试 2.61 秒），实际鉴权 API、部件详情、正确位置、正常部件不产生告警和 390px 窄屏；跨租户详情读取拒绝。最终增加同报文火警/故障独立弹窗检查后再次通过（模块 2.50 秒，Chrome 2.48 秒）；弹窗使用实际 API 告警结果注入页面事件，本项不冒充生产 WebSocket 联调。
+- 过程问题已修复：真实 Broker 初次验收使用动态映射端口，容器重启后端口改变导致重连失败，改为隔离测试固定端口；新增完整链路测试初次缺少标准协议发布记录，按真实前置条件补齐后通过，没有放宽运行时校验。纯 Go 编译期间一处测试参数类型错误已修正。
+- 最终全量：`go test ./...` 通过（HTTP 106.420 秒，平台装配 0.815 秒）；未配置环境的可选集成测试仍明确跳过。独立 GB26875 module `go test ./...` 通过（0.481 秒）。前端 `npm test` 62 项通过、`npm run build` 通过（1.03 秒，只有既有大 chunk 提示）；`git diff --check` 通过。
+- 最终专项：`IOT_TEST_MQTT_DOCKER=1 go test -race ./internal/adapters/mqtt ./internal/edgeagent ./internal/onboarding ./internal/core ./internal/parser` 通过（7.854 / 1.932 / 2.008 / 2.342 / 3.331 秒）。追加读目录不可达/恢复、首个接收时间与原始字节、重复收据目录刷新及容量记账补强后，MQTT/Edge 全包竞态与真实 Broker 重投再次通过（8.221 / 2.007 秒），固定身份重复打开专项通过（2.326 秒）。TLS/WSS 未信任证书拒绝、可信证书握手、握手超时和取消均实测通过。
+- 过载联调发现并修复：Paho 主动 Disconnect/Connect 存在异步关闭重叠；直接关闭 socket 的读错误又被库忽略，连接可能停留在假在线。现在对传输设置立即读超时，让库进入正常连接丢失和自动重连流程。真实 Broker 在队列满不 ACK 后重投成功，两条报文均有 Raw 归档及已发布索引；未通过调大测试等待时间掩盖问题。健康检查使用实际连接状态，隔离记录通过独立指标可见，不让一条已隔离坏报文阻断整个服务就绪。
+- PostgreSQL 最终重测通过：部件事务/水位测试 0.26 秒、既有 schema 迁移兼容测试 0.12 秒。真实源码发布/TCP 热切换最终竞态测试 7.48 秒。隔离 Broker 和 PostgreSQL 测试容器及其测试数据已清理；未操作现有业务数据。
+- 当前两项约定的代码与验证工作已完成，无代码实施阻塞。待部署启用：更新平台并发布/绑定新的 GB26875 协议版本，保留实例持久接收目录。未执行：真实消防设备、物理断电或实际磁盘耗尽、Windows 实际运行、生产 EMQX JWT/磁盘/多主机故障验收。持久接收不等于端到端绝不丢失，未到平台的消息仍依赖设备和 Broker 策略；队列目录必须持久挂载。详细决定与运行边界见 `DEVICE_RECEIVE_RELIABILITY.md`。

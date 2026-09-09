@@ -148,6 +148,7 @@ function hasFaultEvent(data) {
 }
 
 function detailText(data, kind) {
+  if (data.componentId) return [data.componentName || data.componentId, data.componentLocation, alarmType(data.alarmType)].filter(Boolean).join(' · ')
   const event = asObject(data.event)
   const details = asObject(data.details)
   const nested = nestedMessage(data)
@@ -185,6 +186,7 @@ function normalizeAlert(data, kind, topic) {
     tenantId: firstText(data.tenantId),
     productId: firstText(data.productId),
     deviceId,
+    componentId: firstText(data.componentId),
     deviceName: firstText(data.deviceName, data.device_name, data.cameraName, nested?.deviceName, nested?.device_name),
     alarmType: alarmTypeValue,
     alarmTypeLabel: alarmType(alarmTypeValue),
@@ -206,6 +208,8 @@ export function parseRealtimeAlert(topic, payload) {
 
   if (/\/iot\/alarm\/raised(?:\/|$)/.test(value)) return normalizeAlert(data, 'alarm', value)
   if (!value.includes('/iot/parsed/')) return null
+  // The server emits separate authoritative alarms for component observations.
+  if (Array.isArray(data.event?.components)) return null
 
   const messageType = upper(data.messageType || data.type)
   if (messageType === 'ALARM_REPORT' || messageType === 'ALARM') return normalizeAlert(data, 'alarm', value)
@@ -215,6 +219,7 @@ export function parseRealtimeAlert(topic, payload) {
 }
 
 export function alertKeys(alert) {
+  if (alert?.componentId && alert?.alarmId) return [String(alert.alarmId)]
   return [...new Set([alert?.alarmId, alert?.triggerId, alert?.messageId, alert?.rawMessageId, alert?.standardMessageId, alert?.id].filter(Boolean).map(String))]
 }
 

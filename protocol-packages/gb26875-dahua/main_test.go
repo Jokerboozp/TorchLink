@@ -79,3 +79,38 @@ func TestSamplesAndWireOperations(t *testing.T) {
 		t.Fatalf("v1 compatibility: %v %s", err, output.String())
 	}
 }
+
+func TestMultipleComponentsPreserveSeparateAlarmLocations(t *testing.T) {
+	b, err := os.ReadFile("samples/cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name  string
+		Input gb26875.RawMessage
+	}
+	if err = json.Unmarshal(b, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		if c.Name != "multiple-components" {
+			continue
+		}
+		msg, err := gb26875.Decode(c.Input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := msg.Properties["nodeAddress"]; exists {
+			t.Fatal("aggregate carries first object's address")
+		}
+		components := msg.Event["components"].([]map[string]any)
+		if len(components) != 2 || components[0]["id"] == components[1]["id"] {
+			t.Fatal(components)
+		}
+		if components[0]["alarms"].(map[string]bool)["FIRE"] || !components[1]["alarms"].(map[string]bool)["FIRE"] || components[1]["location"] != "alarm second" {
+			t.Fatal(components)
+		}
+		return
+	}
+	t.Fatal("fixture missing")
+}

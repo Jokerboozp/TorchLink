@@ -344,3 +344,10 @@ CREATE TABLE IF NOT EXISTS protocol_market_entry (
  body jsonb NOT NULL,
  PRIMARY KEY (tenant_id,protocol_id,version)
 );
+
+-- Per component/type watermark and lifecycle, committed with alarm_record.
+CREATE TABLE IF NOT EXISTS component_alarm_state (
+  tenant_id text NOT NULL, device_id text NOT NULL, rule_id text NOT NULL,
+  body jsonb NOT NULL,
+  PRIMARY KEY (tenant_id, device_id, rule_id)
+);

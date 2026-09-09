@@ -126,6 +126,9 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 		return nil, err
 	}
 	m.Tags = map[string]string{"protocolId": raw.ProtocolID, "protocolVersion": raw.ProtocolVersion}
+	if _, err := model.MessageComponents(*m); err != nil {
+		return nil, err
+	}
 	return m, nil
 }
 

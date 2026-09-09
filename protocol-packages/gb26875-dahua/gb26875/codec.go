@@ -163,6 +163,7 @@ func applyGB26875ComponentStatus(msg *StandardMessage, data []byte, count int) e
 	}
 	objects := make([]map[string]any, 0, count)
 	anyAlarm, anyFault := false, false
+	components := make([]map[string]any, 0, count)
 	for i := 0; i < count; i++ {
 		v := data[i*objectLength : (i+1)*objectLength]
 		status := binary.LittleEndian.Uint16(v[7:9])
@@ -185,6 +186,13 @@ func applyGB26875ComponentStatus(msg *StandardMessage, data []byte, count int) e
 			"offline": status&(1<<9) != 0, "openCircuit": status&(1<<10) != 0, "shortCircuit": status&(1<<11) != 0,
 			"removed": status&(1<<12) != 0, "sensorFault": status&(1<<14) != 0, "upgradeFault": status&(1<<15) != 0,
 		}
+		componentID := fmt.Sprintf("system-%d-%d/type-%d/circuit-%d/node-%d", v[0], v[1], v[2], binary.LittleEndian.Uint16(v[3:5]), binary.LittleEndian.Uint16(v[5:7]))
+		at := decodeGB26875Time(v[40:46])
+		if at <= 0 {
+			at = msg.Timestamp
+		}
+		components = append(components, map[string]any{"id": componentID, "name": gb26875ComponentName(v[2]), "location": description, "timestamp": at,
+			"alarms": map[string]bool{"FIRE": status&(1<<1) != 0, "DEVICE_FAULT": status&(1<<2|1<<8|1<<9|1<<10|1<<11|1<<12|1<<14|1<<15) != 0}})
 		objects = append(objects, object)
 		anyAlarm = anyAlarm || status&(1<<1) != 0
 		anyFault = anyFault || status&(1<<2|1<<8|1<<9|1<<10|1<<11|1<<12|1<<14|1<<15) != 0
@@ -199,7 +207,12 @@ func applyGB26875ComponentStatus(msg *StandardMessage, data []byte, count int) e
 		"shortCircuit": first["shortCircuit"], "removed": first["removed"], "sensorFault": first["sensorFault"],
 		"objects": objects,
 	}
-	msg.Event = map[string]any{"type": "COMPONENT_STATUS", "alarm": anyAlarm, "fault": anyFault, "objects": objects}
+	// Top-level location/status represents a single object only. Multi-object
+	// frames retain aggregate flags and complete objects without a false address.
+	if count > 1 {
+		msg.Properties = map[string]any{"fireAlarm": anyAlarm, "fault": anyFault, "objects": objects}
+	}
+	msg.Event = map[string]any{"type": "COMPONENT_STATUS", "alarm": anyAlarm, "fault": anyFault, "objects": objects, "components": components}
 	if anyAlarm || anyFault {
 		msg.MessageType = AlarmReport
 	} else {

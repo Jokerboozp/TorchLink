@@ -144,11 +144,11 @@ func (s *Service) Allow(key string) bool {
 func StandardRaw(tenant, product, device, kind, transport string, payload []byte) (model.RawMessage, error) {
 	r := model.RawMessage{TenantID: tenant, ProductID: product, DeviceID: device, Protocol: parser.StandardProtocolID, ProtocolID: parser.StandardProtocolID, ProtocolVersion: "1.0.0", Transport: transport, Source: "standard-" + strings.ToLower(transport), PayloadFormat: "json", Payload: append(json.RawMessage(nil), payload...), Headers: map[string]string{"messageKind": kind}}
 	if !segment.MatchString(tenant) || !segment.MatchString(product) || !segment.MatchString(device) || len(payload) > 64<<10 {
-		return r, errors.New("invalid identity or payload exceeds 64 KiB")
+		return r, fmt.Errorf("%w: invalid identity or payload exceeds 64 KiB", model.ErrInvalidIngress)
 	}
 	r.Normalize(time.Now())
 	if _, err := (parser.StandardParser{}).Parse(r); err != nil {
-		return r, err
+		return r, fmt.Errorf("%w: %v", model.ErrInvalidIngress, err)
 	}
 	var body struct {
 		ID        string `json:"id"`
@@ -161,6 +161,9 @@ func StandardRaw(tenant, product, device, kind, transport string, payload []byte
 }
 func (s *Service) PrepareStandard(ctx context.Context, tenant, product, device, kind, transport string, payload []byte) (model.RawMessage, error) {
 	d, err := s.Repo.GetManagedDevice(ctx, tenant, device)
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return model.RawMessage{}, err
+	}
 	if err != nil || d.Status != "ENABLED" || d.SecretHash == "" || d.ProductID != product {
 		return model.RawMessage{}, ErrAuth
 	}
@@ -168,6 +171,9 @@ func (s *Service) PrepareStandard(ctx context.Context, tenant, product, device, 
 		return model.RawMessage{}, ErrAuth
 	}
 	p, err := s.Repo.GetProduct(ctx, tenant, product)
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return model.RawMessage{}, err
+	}
 	if err != nil || p.Status != "ENABLED" {
 		return model.RawMessage{}, ErrAuth
 	}

@@ -260,3 +260,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
 设备向导的 `IOT_DEVICE_HTTP_PUBLIC_URL`、`IOT_DEVICE_MQTT_PUBLIC_URL` 分别配置设备可达的 HTTPS 根地址和 MQTT TLS Broker；留空时 HTTP 使用相对路径，MQTT 明确未配置，不使用容器名或固定 localhost 冒充外部地址。WebSocket 沿用 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。本地 `.env.local`、在线 `.env.online`、离线 `.env.offline` 分别设置，不能互相替代。监听端口仍需实际容器映射与网络连通。
 
 当前接入 Runtime 按单执行实例部署，中心不会执行 edgeNodeId 非空的任务；尚无分布式采集调度与会话路由。EMQX 新增 username claim 匹配及到期断连，已有动态认证器配置需核实实际生效；不要将本地修改当成已部署。迁移、设备认证与验证命令见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。
+
+### MQTT 接收目录
+
+平台接收 MQTT 报文后先写 `IOT_DATA_DIR/mqtt-inbox/<processRole>/`，再确认投递。该目录及其中的 `client-id` 必须随实例持久保存；多个活跃副本不可共用或复制同一份客户端身份。扩容、迁移及队列隔离处理边界见 [部件告警与 MQTT 持久接收](DEVICE_RECEIVE_RELIABILITY.md)。

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 var ErrQuarantined = errors.New("raw is quarantined; operator review is required")
@@ -72,9 +73,33 @@ func queueName(raw model.RawMessage) string {
 	h := sha256.Sum256([]byte(raw.TenantID + "\x00" + raw.MessageID))
 	return hex.EncodeToString(h[:]) + ".json"
 }
-func (q *Queue) Put(raw model.RawMessage) error {
+func (q *Queue) Put(raw model.RawMessage) error { return q.put(raw, false) }
+
+// PutReceived stamps the first transport reception and preserves it on an
+// identical retransmission. All other fields must still match byte-for-byte.
+func (q *Queue) PutReceived(raw model.RawMessage) error { return q.put(raw, true) }
+func (q *Queue) put(raw model.RawMessage, stamp bool) error {
 	if raw.TenantID == "" || raw.MessageID == "" {
 		return errors.New("raw identity is required")
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	target := filepath.Join(q.root, queueName(raw))
+	if q.closed {
+		return os.ErrClosed
+	}
+	if stamp {
+		if old, err := os.ReadFile(target); err == nil {
+			var saved model.RawMessage
+			if json.Unmarshal(old, &saved) != nil {
+				return ErrQuarantined
+			}
+			raw.ReceivedAt = saved.ReceivedAt
+		} else if os.IsNotExist(err) {
+			raw.ReceivedAt = time.Now().UnixMilli()
+		} else {
+			return err
+		}
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
@@ -82,12 +107,6 @@ func (q *Queue) Put(raw model.RawMessage) error {
 	}
 	if len(b) > 1<<20 {
 		return errors.New("raw exceeds 1 MiB")
-	}
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	target := filepath.Join(q.root, queueName(raw))
-	if q.closed {
-		return os.ErrClosed
 	}
 	for _, suffix := range []string{".rejected", ".corrupt"} {
 		if _, err := os.Lstat(target + suffix); err == nil {
@@ -100,7 +119,9 @@ func (q *Queue) Put(raw model.RawMessage) error {
 		if !bytes.Equal(old, b) {
 			return model.ErrRawConflict
 		}
-		return nil
+		// A prior write may have renamed successfully but failed its directory
+		// flush. Retrying the receipt must complete that flush before success.
+		return syncDirectory(q.root)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -118,6 +139,10 @@ func (q *Queue) Put(raw model.RawMessage) error {
 		return ErrQueueFull
 	}
 	if err := atomicFile(target, b); err != nil {
+		// Keep capacity accounting correct after a post-rename flush failure.
+		if info, statErr := os.Stat(target); statErr == nil {
+			q.used += info.Size()
+		}
 		return err
 	}
 	q.used += int64(len(b))

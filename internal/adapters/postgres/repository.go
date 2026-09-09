@@ -19,7 +19,7 @@ import (
 //go:embed schema.sql
 var schema string
 
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = model.ErrNotFound
 
 type Repository struct{ pool *pgxpool.Pool }
 

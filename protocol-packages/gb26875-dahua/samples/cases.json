@@ -223,8 +223,7 @@
     "expectedMessageType": "ALARM_REPORT",
     "expectedProperties": {
       "fireAlarm": true,
-      "fault": false,
-      "componentType": 23
+      "fault": false
     },
     "expectedEventType": "COMPONENT_STATUS",
     "expectedTimestamp": 1787553015000

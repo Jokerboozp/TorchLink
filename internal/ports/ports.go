@@ -126,6 +126,7 @@ type Repository interface {
 	GetRulePending(context.Context, string, string, string) (int64, bool, error)
 	DeleteRulePending(context.Context, string, string, string) error
 	DeleteRulePendings(context.Context, string, string) error
+	ApplyComponentAlarm(context.Context, model.Alarm, model.ComponentAlarmState) (model.Alarm, string, error)
 	UpsertAlarm(context.Context, model.Alarm) (model.Alarm, bool, error)
 	GetAlarm(context.Context, string, string) (model.Alarm, error)
 	ListAlarms(context.Context, AlarmFilter) ([]model.Alarm, error)

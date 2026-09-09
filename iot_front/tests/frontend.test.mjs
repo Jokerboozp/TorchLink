@@ -486,3 +486,15 @@ test('frontend rejects Node versions unsupported by the build toolchain', async 
   assert.equal(packageLock.packages?.['']?.engines?.node, supportedNodeVersions)
   assert.match(npmrc, /^engine-strict=true\s*$/m)
 })
+
+test('component alarm popup identifies the actual part and location', async () => {
+  const { parseRealtimeAlert, alertKeys } = await import('../src/globalAlert.js')
+  const alert = parseRealtimeAlert('/iot/alarm/raised/c/d/b/fire/controller', {
+    alarmId:'component-alarm', triggerId:'shared-report', deviceId:'controller', deviceName:'消防控制器',
+    alarmType:'FIRE', componentId:'loop-1/node-7', componentName:'烟感探测器', componentLocation:'二楼走廊'
+  })
+  assert.equal(alert.deviceName, '消防控制器')
+  assert.equal(alert.detail, '烟感探测器 · 二楼走廊 · 火灾告警')
+  assert.deepEqual(alertKeys(alert), ['component-alarm'])
+  assert.equal(parseRealtimeAlert('/iot/parsed/t/p/d/ALARM_REPORT', { messageType:'ALARM_REPORT', event:{components:[{id:'a'},{id:'b'}]} }), null)
+})

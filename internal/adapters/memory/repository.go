@@ -14,9 +14,10 @@ import (
 	"iot-platform/internal/ports"
 )
 
-var ErrNotFound = errors.New("not found")
+var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	componentAlarms     map[string]model.ComponentAlarmState
 	protocolMarket      map[string]model.ProtocolMarketEntry
 	edgePrograms        map[string]model.EdgeProgram
 	twins               map[string]model.TwinTopology

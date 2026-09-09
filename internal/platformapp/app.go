@@ -122,9 +122,24 @@ func Run(forcedRole string) {
 				return "iot-platform", token
 			}
 		}
-		mqttConnection, err := mqttadapter.NewWithCredentials(cfg.MQTTBroker, "iot-"+cfg.ProcessRole+"-"+hostname()+"-"+strconv.Itoa(os.Getpid()), credentials)
+		mqttConnection, err := mqttadapter.NewDurableWithCredentials(cfg.MQTTBroker, filepath.Join(cfg.DataDir, "mqtt-inbox", cfg.ProcessRole), credentials)
 		fatal(log, "connect mqtt", err)
 		mqttClient = mqttConnection
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					pending, rejected, corrupt := mqttConnection.InboxCounts()
+					registry.Set("mqtt_inbox_pending", float64(pending))
+					registry.Set("mqtt_inbox_rejected", float64(rejected))
+					registry.Set("mqtt_inbox_corrupt", float64(corrupt))
+				}
+			}
+		}()
 		if cfg.AccessCoordination {
 			fatal(log, "configure shared MQTT ingestion", mqttClient.ConfigureSharedSubscriptions("iot-access"))
 		}
@@ -278,8 +293,12 @@ func Run(forcedRole string) {
 			}
 			raw, err := standardIngress.PrepareStandard(c, tenant, product, device, kind, "MQTT", payload)
 			if err != nil {
+				if errors.Is(err, onboarding.ErrAuth) || errors.Is(err, model.ErrInvalidIngress) {
+					return mqttadapter.Reject(err)
+				}
 				return err
 			}
+			raw.ReceivedAt = mqttadapter.ReceivedAt(c)
 			_, _, err = engine.IngestRaw(c, raw)
 			return err
 		}))

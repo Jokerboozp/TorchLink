@@ -224,3 +224,7 @@ go build -trimpath -ldflags="-s -w" -o protocol-worker ./examples/go-protocol-wo
 ## 可信远程目录
 
 设备接入页新增“协议目录”：从部署管理员配置的 HTTPS 签名目录安装 Go 源码，复用本文件所述源码编译、样例试跑、不可变版本和发布回滚流程。安装仅产生校验版本，管理员明确确认代码执行后才进行。配置、签名发布工具、认证与错误语义见 `PROTOCOL_CATALOG.md`。
+
+### 部件级火警、故障与恢复
+
+一台控制器上报多个部件时，使用 `event.components` 明确每个部件的稳定 ID、名称、位置、发生时间及各告警类型的布尔状态。平台按部件和类型独立生成与恢复告警，未上报项不变化。完整 Go 示例、乱序策略及旧版本迁移边界见 [部件告警与 MQTT 持久接收](DEVICE_RECEIVE_RELIABILITY.md)。无需维护额外 JSON 配置文件。

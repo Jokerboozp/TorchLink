@@ -90,6 +90,9 @@ func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMe
 	if message.Tags == nil {
 		message.Tags = map[string]string{}
 	}
+	if _, err := model.MessageComponents(message); err != nil {
+		return nil, err
+	}
 	return &message, nil
 }
 
