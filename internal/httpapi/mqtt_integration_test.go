@@ -27,6 +27,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 )
 
 // Opt-in live broker check. All business storage is temporary, clients use clean
@@ -171,6 +172,37 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 	if _, e = repo.GetRawIndex(ctx, tenant, raw.MessageID); e != nil {
 		t.Fatal("live property was not archived", e)
 	}
+	// A clean-session reconnect must still accept the device JWT and resume
+	// ingress. Exercise rule activation/recovery after the transport reconnect.
+	device.Disconnect(100)
+	wait(t, device.Connect())
+	if e = repo.SaveRule(ctx, model.AlarmRule{TenantID: tenant, ID: "temperature-rule", ProductID: "product", Name: "temporary threshold", Enabled: true, AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Recovery: []model.RuleCondition{{Field: "temperature", Operator: "<", Value: 70}}}); e != nil {
+		t.Fatal(e)
+	}
+	raise := fmt.Sprintf(`{"id":"alarm-property","timestamp":%d,"data":{"temperature":85}}`, time.Now().UnixMilli())
+	wait(t, device.Publish(prefix+"property", 1, false, raise))
+	until(t, func() bool {
+		items, e := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: "device", Status: "ACTIVE", Limit: 10})
+		return e == nil && len(items) == 1 && items[0].RuleID == "temperature-rule"
+	})
+	// Retransmit the same application message id before recovery.
+	wait(t, device.Publish(prefix+"property", 1, false, raise))
+	recoverBody := fmt.Sprintf(`{"id":"recovery-property","timestamp":%d,"data":{"temperature":25}}`, time.Now().UnixMilli())
+	wait(t, device.Publish(prefix+"property", 1, false, recoverBody))
+	until(t, func() bool {
+		items, e := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: "device", Status: "RECOVERED", Limit: 10})
+		return e == nil && len(items) == 1 && items[0].TriggerCount == 1
+	})
+	for _, body := range []string{raise, recoverBody} {
+		record, e := onboarding.StandardRaw(tenant, "product", "device", "property", "MQTT", []byte(body))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = repo.GetRawIndex(ctx, tenant, record.MessageID); e != nil {
+			t.Fatal("rule input bypassed archive", e)
+		}
+	}
+	t.Log("live MQTT: clean-session reconnect, alarm activation, duplicate message deduplication and recovery passed")
 	t.Log("live MQTT: onboarding, device JWT, property archive, command dispatch and Raw command reply passed")
 	t.Run("CredentialRevocation", func(t *testing.T) {
 		base, key, apiSecret := os.Getenv("IOT_TEST_EMQX_API_URL"), os.Getenv("IOT_TEST_EMQX_API_KEY"), os.Getenv("IOT_TEST_EMQX_API_SECRET")
