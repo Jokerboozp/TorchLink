@@ -164,3 +164,12 @@
 - Gateway/调度增量：新增 `execution_lease` 启动迁移；并发唯一拥有者、续租、过期接管、旧 token 不可释放新租约通过 memory/真实 PostgreSQL 共享契约测试。`TestCoordinatorLossCancelsOldExecution` 与 `TestExecutionRouteUsesTenantLeaseAndPreservesAuth` 的竞态检查通过，覆盖所有权丢失取消、配置禁用和租户/转发上限。
 - Edge 第一条链路：新增 `cmd/iot-edge-agent`，节点凭据仅保存摘要，认证后的配置同步、24 小时离线缓存上限、心跳、Modbus TCP 采集、64 MiB/10,000 项磁盘队列、受限退避补传。`TestQueueRestartRetryAndCapacity` 与 `TestEdgeAgentDurableModbusChain` 通过竞态检查；后者使用本地真实 Socket/HTTP 和模拟 503，重启后同 ID 数据进入 Raw/Standard。首个节点版本之后已补 RTU、OPC UA 和 SNMP；Go Worker 与升级等仍待实施，未标记“完整 Edge Agent”完成。
 - 新增 `compose.access.yaml` 可选拆分层、节点管理中的凭据/心跳/分配入口，启动方式与限制见 `EDGE_AND_GATEWAY.md`。本次只渲染 Compose，不启动/升级原有业务容器。
+
+### GB28181 元数据完整链路（2026-09-10）
+
+- 新增独立 Go module `protocol-packages/gb28181-metadata`：真实 TCP/UDP SIP Digest 注册、nonce 消费与重传缓存、保活、独立关联的 Catalog/DeviceInfo 查询、分批完整目录、超时保留旧目录、受限 worker/Socket/报文容量；密码仅保留现场私有配置。
+- 专用平台节点认证、HTTPS 目录上报、本地原子快照与断网上报失败保留、凭据撤销停止。摄像头映射新增节点目录选择与显式导入；仅最近有效目录允许导入，目录分组不当摄像头，跨租户/低权限拒绝。Memory/PostgreSQL 原子插入防止并发覆盖，重复导入保留操作员编辑、来源和单设备关联。
+- 实测：独立 module `go test -race ./... -count=1` 通过（3.446 秒），实际 TCP/UDP、独立 Digest 客户端计算、错误密码、nonce 重放、重复请求、来源/CSeq/传输检查、分批目录/冲突/超时；XML fuzz 188,753 次、SIP 分帧 fuzz 219,147 次通过。Windows amd64 交叉构建通过，未在 Windows 运行。
+- `TestGB28181AuthenticatedCatalogImport` 实际 SIP→平台节点认证→目录→权限→导入及编辑保留通过（4.10 秒，`-race`）；其中真实 Chrome 子用例 2.56 秒通过，覆盖节点选择、目录查看、窄屏和重复导入。第一次测试假定查询顺序，第二次误用摄像头 POST 的预期状态码，均已修正并重新实测通过。
+- 真实 PostgreSQL 临时 schema：`TestDeviceOperationsMigrationAndAtomicity` 1.47 秒通过，新增 16 并发目录导入、仅一个创建、既有名称和设备关联保留、租户隔离。前端 56 项测试与构建通过；启动说明见 module `README.md`。
+- 实现范围为注册与元数据子集，不宣称 GB/T 28181 全项符合性；厂商真机、现场网络、2022 完整安全扩展未执行/未实现。依项目摄像头元数据约束，不恢复视频流、云台或设备配置。ONVIF 发现/事件等仍待实施。

@@ -119,6 +119,7 @@ type Repository interface {
 	UpdateVideoEvent(context.Context, model.VideoAlarmEvent) error
 	ListPendingVideoEvents(context.Context, int) ([]model.VideoAlarmEvent, error)
 	SaveVideoCameraMapping(context.Context, model.VideoCameraMapping) error
+	CreateCatalogCamera(context.Context, model.VideoCameraMapping) (bool, error)
 	GetVideoCameraMapping(context.Context, string, string) (model.VideoCameraMapping, error)
 	ListVideoCameraMappings(context.Context, string) ([]model.VideoCameraMapping, error)
 	ListVideoCameraMappingsPage(context.Context, string, int, int) ([]model.VideoCameraMapping, int, error)

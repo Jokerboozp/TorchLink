@@ -16,6 +16,7 @@ import (
 
 func (s *Server) edgeRoutes() {
 	s.onboarding.RemoteRead = s.edgeRead
+	s.router.POST("/api/v1/edge-nodes/:id/video-catalog/import", s.authorize("operator"), s.endpoint(s.importVideoCatalog, "id"))
 	s.router.GET("/api/v1/edge/:tenant/:node/protocols/:id/:version/artifact", s.endpoint(s.edgeArtifact, "tenant", "node", "id", "version"))
 	s.router.GET("/api/v1/edge/:tenant/:node/read-jobs", s.endpoint(s.edgeReadJobs, "tenant", "node"))
 	s.router.POST("/api/v1/edge/:tenant/:node/read-jobs/:job", s.endpoint(s.edgeReadJobs, "tenant", "node", "job"))
@@ -156,7 +157,7 @@ func (s *Server) edgeHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticateEdge(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 	var h model.EdgeHeartbeat
 	if decode(w, r, &h) != nil {
 		return
@@ -166,6 +167,10 @@ func (s *Server) edgeHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.LastSeenAt = time.Now().UnixMilli()
+	if err := validateVideoCatalog(h.VideoCatalog, h.LastSeenAt); err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
 	for _, p := range h.Profiles {
 		if p.TenantID != r.PathValue("tenant") || p.EdgeNodeID != r.PathValue("node") {
 			problem(w, 403, "foreign profile")

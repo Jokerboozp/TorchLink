@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, apiAll, notifyError } from '../api'
+import { api, apiAll, notifyError, formatTime } from '../api'
 
 const cameras = ref([])
 const devices = ref([])
@@ -18,6 +18,35 @@ const edgeNodes = ref([])
 const onvifBusy = ref(false)
 const onvif = reactive({ edgeNodeId:'', host:'', port:443, credentialRef:'', endpointPath:'/onvif/device_service' })
 let editVersion = 0
+const catalogVisible = ref(false), catalogNode = ref(''), catalogRows = ref([]), catalogBusy = ref(false), catalogError = ref('')
+let catalogVersion = 0
+async function openCatalog() {
+  catalogVisible.value = true
+  try { edgeNodes.value = (await api('/api/v1/edge-nodes')).items.filter(node => node.status === 'ENABLED') }
+  catch(error) { notifyError(error) }
+}
+async function loadCatalog() {
+  const version = ++catalogVersion
+  catalogRows.value = []; catalogError.value = ''
+  if (!catalogNode.value) return
+  catalogBusy.value = true
+  try {
+    const value = await api(`/api/v1/edge-nodes/${encodeURIComponent(catalogNode.value)}/runtime`)
+    if (version !== catalogVersion) return
+    catalogRows.value = (value.heartbeat?.videoCatalog || []).flatMap(device => (device.channels || []).filter(channel => !channel.parental).map(channel => ({ ...channel, recorderId:device.deviceId, recorderName:device.name || device.deviceId, catalogAt:device.catalogAt, available:value.status === 'ONLINE' && device.registered && Date.now()-device.catalogAt <= 120000 })))
+    catalogError.value = [value.heartbeat?.lastError, ...(value.heartbeat?.videoCatalog || []).map(device => device.lastError)].filter(Boolean).join('；')
+  } catch(error) { if (version === catalogVersion) catalogError.value = error.message }
+  finally { if (version === catalogVersion) catalogBusy.value = false }
+}
+async function importCatalog(row) {
+  catalogBusy.value = true
+  try {
+    const value = await api(`/api/v1/edge-nodes/${encodeURIComponent(catalogNode.value)}/video-catalog/import`, {method:'POST', body:JSON.stringify({deviceId:row.recorderId,cameraId:row.deviceId})})
+    ElMessage.success(value.created ? '摄像头信息已添加，可在列表中编辑位置和设备关联' : '该来源已添加，保留现有编辑信息')
+    await load()
+  } catch(error) { notifyError(error) }
+  finally { catalogBusy.value = false }
+}
 
 let loadVersion = 0
 async function load() {
@@ -104,6 +133,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
 <template>
   <div class="page-toolbar">
     <el-button type="primary" @click="open()">新增摄像头</el-button>
+    <el-button @click="openCatalog">GB28181 目录</el-button>
     <el-button @click="load">刷新</el-button>
     <span>共 {{ total }} 个摄像头；一个摄像头最多关联一个设备，一个设备可以关联多个摄像头</span>
   </div>
@@ -153,6 +183,19 @@ onMounted(async () => { await load(); consumeNavigationAction() })
       <el-form-item><el-switch v-model="camera.enabled" active-text="启用该摄像头" /></el-form-item>
     </el-form>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" @click="save">保存</el-button></template>
+  </el-dialog>
+  <el-dialog v-model="catalogVisible" title="GB28181 摄像头目录" width="min(900px, 94vw)">
+    <p>选择运行 GB28181 元数据服务的独立现场节点。目录来自已认证注册设备，添加后可编辑位置和设备关联。</p>
+    <el-select v-model="catalogNode" placeholder="选择视频节点" :disabled="catalogBusy" @change="loadCatalog"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id"/></el-select>
+    <el-button :disabled="!catalogNode" :loading="catalogBusy" @click="loadCatalog">刷新目录</el-button>
+    <el-alert v-if="catalogError" :title="catalogError" type="error" :closable="false"/>
+    <el-table :data="catalogRows" v-loading="catalogBusy" empty-text="暂无目录，请检查节点心跳和设备 SIP 注册">
+      <el-table-column label="摄像头" min-width="180"><template #default="{row}">{{row.name || row.deviceId}}<small class="subline">{{row.deviceId}}</small></template></el-table-column>
+      <el-table-column prop="recorderName" label="注册设备" min-width="160"/>
+      <el-table-column prop="manufacturer" label="厂商" width="110"/>
+      <el-table-column label="目录时间" min-width="170"><template #default="{row}">{{formatTime(row.catalogAt)}}</template></el-table-column>
+      <el-table-column label="操作" width="110" fixed="right"><template #default="{row}"><el-button :disabled="!row.available || catalogBusy" @click="importCatalog(row)">添加</el-button></template></el-table-column>
+    </el-table>
   </el-dialog>
 </template>
 

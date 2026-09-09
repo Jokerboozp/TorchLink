@@ -2610,6 +2610,9 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 	v.DistrictCode = ""
 	v.AreaID = ""
 	v.VideoPlatformID = ""
+	if previous, err := s.engine.Repo.GetVideoCameraMapping(r.Context(), c.TenantID, v.CameraID); err == nil && strings.HasPrefix(previous.VideoPlatformID, "gb28181/") {
+		v.VideoPlatformID = previous.VideoPlatformID
+	}
 	v.StreamURL = ""
 	v.StreamType = ""
 	v.SDKEndpoint = ""
