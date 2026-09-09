@@ -1,6 +1,6 @@
 # 部署配置与维护
 
-首次运行命令见 [README](../README.md)。本文用于选择可选组件、修改配置和维护已有环境。
+首次运行命令见 [技术详情](TECHNICAL_DETAILS.md)，项目功能见 [README](../README.md)。本文用于选择可选组件、修改配置和维护已有环境。
 
 ## 配置与数据归属
 
@@ -124,7 +124,7 @@ Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命�
 
 需要其他源码机直接访问虚拟机时，可把 `--dependency-host` 换成 `orb -m develop hostname -I` 返回的 IPv4 或 `<机器名>.orb.local`，并确保 VPN/路由允许直连。该模式会开放依赖端口；虚拟机 IP 改变后重跑完整命令更新地址，凭据和数据保留。
 
-随后在 Mac 的三个终端分别运行 README 中的 Go API、Vite、备份服务命令。若 Homebrew 安装了 `node@22`，当前终端先执行 `export PATH="$(brew --prefix node@22)/bin:$PATH"`，IDE 也选择该 Node 解释器；系统中旧的 Node 18 不能运行当前前端。
+随后在 Mac 的三个终端分别运行[技术详情](TECHNICAL_DETAILS.md#日常运行代码)中的 Go API、Vite、备份服务命令。若 Homebrew 安装了 `node@22`，当前终端先执行 `export PATH="$(brew --prefix node@22)/bin:$PATH"`，IDE 也选择该 Node 解释器；系统中旧的 Node 18 不能运行当前前端。
 
 可在 Mac 验证真实依赖读写和嵌入推理：
 

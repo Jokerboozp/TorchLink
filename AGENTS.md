@@ -83,7 +83,7 @@ npm run dev
 - GoLand 后端工作目录设为仓库根目录，运行 `cmd/iot-platform`，程序参数设为 `--env-file .env.local`；WebStorm 前端工作目录设为 `iot_front`，运行 npm 的 `dev` 脚本。
 - 进程环境变量优先于环境文件；排查配置时注意 IDE 遗留变量。不给用户复制硬编码凭据到 IDE 的配置方案。
 - 宿主机连接依赖须使用宿主机可达地址及已发布端口；Compose 服务名供容器内部使用。Linux 虚拟机依赖 / Windows 源码模式通过准备脚本的 `--dependency-host` 和 `--api-host` 指定地址，不固定某台机器的 IP。
-- 启动、停止、升级及远程依赖细节查 README 和 `docs/DEPLOYMENT.md`；在线部署入口为 `scripts/deploy-online.*`，离线打包与部署入口为 `scripts/package-offline.*`、`scripts/deploy-offline.*`。
+- 项目介绍和功能范围查 README；启动、停止、升级及远程依赖细节查 `docs/TECHNICAL_DETAILS.md` 和 `docs/DEPLOYMENT.md`。在线部署入口为 `scripts/deploy-online.*`，离线打包与部署入口为 `scripts/package-offline.*`、`scripts/deploy-offline.*`。
 
 ## 5. 后端、接口与数据约束
 
@@ -162,7 +162,8 @@ npm run dev
 
 ## 11. 仓库内参考文档
 
-- [README](README.md)：本地 / 在线 / 离线入口与日常运行。
+- [README](README.md)：炬联项目介绍、功能、架构和平台对比。
+- [技术详情](docs/TECHNICAL_DETAILS.md)：环境准备、本地 / 在线 / 离线入口、扩展模块及开发检查。
 - [部署配置与维护](docs/DEPLOYMENT.md)：配置、端口和维护操作。
 - [离线部署](docs/OFFLINE_DEPLOYMENT.md)：离线包、模型、校验和更新。
 - [设备协议接入流程](docs/设备协议接入流程.md)：设备与产品接入。
