@@ -20,9 +20,9 @@ Go API + Vue 3 管理端，提供设备接入、Go 协议源码上传与版本�
 | Ubuntu / CentOS 离线部署 | 完整离线包、系统基础依赖、root 或 sudo 权限；Docker 和 Compose 从包内安装 |
 | Windows / macOS 部署 | 已安装并启动 Docker Desktop，使用 Linux 容器 |
 | 有网打包机 | 已启动 Docker Engine 或 Docker Desktop，以及 Compose 2.24.4+ |
-| 本地源码调试 | 依赖机预装 Docker 和 Compose；源码机安装 Go ≥ 1.25.5、Node.js ≥ 22.12（也兼容 20.19+ 的 Node.js 20） |
+| 本地源码调试 | Linux 依赖机需要 systemd、root/sudo，脚本自动准备 Docker/Compose/Buildx 和 Harness 所需 Git；源码机 Go 版本见 `go.mod`，Node.js 要求见 `iot_front/package.json` |
 
-已有可用 Docker 时直接复用。自动安装适用于使用 systemd 的 Linux amd64 / arm64；系统包要求见 [Docker 自动安装](docs/OFFLINE_DEPLOYMENT.md#docker-自动安装)。依赖运行在虚拟机时，Windows 源码机无需安装 Docker。
+已有可用 Docker 时直接复用。自动安装适用于使用 systemd 的 Linux amd64 / arm64；系统包要求见 [Docker 自动安装](docs/OFFLINE_DEPLOYMENT.md#docker-自动安装)。依赖运行在虚拟机时，Windows/macOS 源码机无需安装 Docker。macOS 直接运行依赖容器时也可以使用 OrbStack。
 
 在线与离线部署默认包含 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO、备份服务、Ollama/Weaviate、`nomic-embed-text` 嵌入模型和 AI 工作流 Harness。本地运行会启动基础依赖和 Harness，备份服务默认作为源码进程单独调试。在线与离线部署还会自动准备 `qwen3:1.7b`；告警研判、规则辅助和 AI 工作流统一使用该本地模型，不需要 API Key。这个模型下载约 1.4 GB，适合 8 GB 内存的整套虚拟机环境。
 
@@ -44,13 +44,13 @@ bash ./scripts/setup-local.sh
 
 脚本生成带逐项中文说明的 `.env.local`，启动基础依赖、AI 工作流 Harness、初始化消息主题与知识库模型，并执行 `go mod download` 和 `npm ci`。备份服务不会随依赖容器启动，默认由 VS Code 源码配置单独启动。源码方案默认使用 DeepSeek API；把 Key 填入 `DEEPSEEK_API_KEY` 后重跑一次脚本，使 Harness 容器加载密钥。需要改用本地模型时可传 `-IncludeAi` / `--include-ai`，或启动后在“AI 模型管理”菜单切换；再次执行会复用其他配置和数据。若只需启动依赖，可加 `-SkipCodeDeps` / `--skip-code-deps`。只有需要临时验证容器版备份服务时才传 `--include-backup` / `-IncludeBackup`。
 
-如果依赖容器运行在 Linux 虚拟机、源码运行在 Windows，Linux 使用 Windows 可访问的虚拟机地址启动：
+如果依赖容器运行在 Linux 虚拟机、源码运行在 Windows/macOS，Linux 使用源码机可访问的虚拟机地址启动（已有 Docker socket 权限或使用 root 时可省略 `sudo`）：
 
 ```bash
-bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP> --api-host <Windows在虚拟机网段的IP>
+sudo bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <虚拟机IP> --api-host <源码机在虚拟机网段的IP或主机名>
 ```
 
-`--dependency-host` 会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama 和 Weaviate 使用虚拟机地址；Harness 仍使用虚拟机容器，备份服务使用源码机端口 `8092`，API 使用 `8081`。`--api-host` 供 Harness 容器回调 Windows 上的 API，VMware NAT 环境通常填写对应虚拟网卡的主机地址。将 Linux 生成的 `.env.local` 安全复制到 Windows 仓库根目录，确认 `DEEPSEEK_API_KEY` 已填写，再按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。
+`--dependency-host` 会开放依赖端口，并让 PostgreSQL、Kafka、MQTT、MinIO、ClickHouse、Ollama 和 Weaviate 使用虚拟机地址；Harness 仍使用虚拟机容器，备份服务使用源码机端口 `8092`，API 使用 `8081`。`--api-host` 供 Harness 容器回调源码机上的 API，VMware NAT 环境通常填写对应虚拟网卡的主机地址。将 Linux 生成的 `.env.local` 安全复制到源码机仓库根目录，确认 `DEEPSEEK_API_KEY` 已填写，再按下面的日常命令运行源码。只应在可信的主机专用或局域网中使用此模式。OrbStack 的共享目录、命令和连通性验证见 [OrbStack 虚拟机本地调试](docs/DEPLOYMENT.md#orbstack-虚拟机本地调试)。
 
 ### 日常运行代码
 

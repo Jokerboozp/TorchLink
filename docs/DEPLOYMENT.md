@@ -104,7 +104,51 @@ bash ./scripts/deploy-online.sh --include-harness
 
 本地 API 默认参数写在 `.env.local`；修改 API 端口时同步修改前端 `VITE_API_PROXY_TARGET`，使用 Harness 时还需同步其 MCP 回调和允许的 Origin。`--env-file` 读取字面的 `KEY=VALUE`，支持注释和单/双引号，不展开 `${变量}` 或执行 shell；已有进程环境变量优先。
 
-依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <Windows 可访问的依赖机地址> --api-host <依赖容器可访问的源码机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址、Harness 地址及回调地址写入 `.env.local`；备份服务地址固定为源码机本地 `8092`，不会在依赖机启动。把该文件复制到源码机后启动 Go API、前端和备份服务；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。
+依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `sudo bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <源码机可访问的依赖机地址> --api-host <依赖容器可访问的源码机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址、Harness 地址及回调地址写入 `.env.local`；备份服务地址固定为源码机本地 `8092`，不会在依赖机启动。把该文件复制到源码机后启动 Go API、前端和备份服务；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。
+
+### OrbStack 虚拟机本地调试
+
+依赖使用 Ubuntu 虚拟机自己的 Docker Engine。Mac 安装 Go 和符合 `iot_front/package.json` 的 Node.js，使用共享的仓库目录编辑、运行和调试源码。以下命令均在 **Mac 仓库根目录**运行，`develop` 替换为 `orb list` 中的虚拟机名称：
+
+```bash
+orb list
+orb -m develop sudo bash scripts/setup-local.sh --skip-code-deps --include-ai \
+  --dependency-host 127.0.0.1 --api-host host.orb.internal
+go mod download
+(cd iot_front && npm ci)
+```
+
+Linux 初次运行会按架构安装缺失的 Docker、Compose、Buildx 和 Git；后续复用已有安装、随机凭据及数据卷。Ubuntu 首次启动可能等待系统网络就绪约两分钟；镜像、Harness 依赖和模型下载时间取决于网络。`--skip-code-deps` 使虚拟机无需安装 Go/Node；`--include-ai` 下载并配置 `qwen3:1.7b`，让 API 和 Harness 无需 DeepSeek Key 即可启动。如果使用已有 DeepSeek Key，可省略 `--include-ai` 并在配置中填写密钥；默认 DeepSeek 模式缺少 Key 时 API 会拒绝启动。OrbStack 共享目录中的 `.env.local` 可由 Mac 直接使用，无需再复制；不要同时在两台虚拟机使用同一配置文件初始化不同的依赖环境，验证用第二台机器应指定独立 `--env-file`。
+
+Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命令不依赖虚拟机 IP 或 VPN 对内网 IP 的路由。确保 Mac 和其他虚拟机没有占用相同端口；同时测试两套依赖时先停掉其中一套，避免连接到错误的环境。`host.orb.internal` 是 OrbStack 提供的 Mac 回调地址；`host.docker.internal` 在虚拟机内安装的 Docker 中指向虚拟机，不能用于此处的 Mac API 回调。地址机制参见 [OrbStack 网络文档](https://docs.orbstack.dev/machines/network)。
+
+需要其他源码机直接访问虚拟机时，可把 `--dependency-host` 换成 `orb -m develop hostname -I` 返回的 IPv4 或 `<机器名>.orb.local`，并确保 VPN/路由允许直连。该模式会开放依赖端口；虚拟机 IP 改变后重跑完整命令更新地址，凭据和数据保留。
+
+随后在 Mac 的三个终端分别运行 README 中的 Go API、Vite、备份服务命令。若 Homebrew 安装了 `node@22`，当前终端先执行 `export PATH="$(brew --prefix node@22)/bin:$PATH"`，IDE 也选择该 Node 解释器；系统中旧的 Node 18 不能运行当前前端。
+
+可在 Mac 验证真实依赖读写和嵌入推理：
+
+```bash
+go run scripts/tests/local-runtime-smoke.go --env-file .env.local
+curl --fail http://localhost:8081/health/ready
+```
+
+实机检查会创建独立临时表、Redis 键、MinIO 桶和 Kafka 主题并清理；不要在生产环境执行。API 就绪检查还覆盖 MQTT 连接和知识库。Harness 健康与 DeepSeek API 可用性分别验证；没有配置 API Key 时不能据此宣称 AI 对话或自动研判可用。
+
+查看、停止依赖仍在 Mac 仓库根目录执行，停止不会删除卷：
+
+```bash
+orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml --profile harness ps
+orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml --profile harness stop
+```
+
+### ARM64 与 x86_64
+
+Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不包含 32 位 ARM/x86。Compose 不固定 `platform`，基础镜像自动选择 Docker Engine 的原生架构，应用及 Harness 在目标架构构建。离线包仍须按目标架构分别打包，不能在两种架构间混用。修改镜像版本后，应重新检查镜像清单包含 `linux/arm64` 和 `linux/amd64`，并各自执行部署和实机检查；镜像清单与交叉编译通过不等同于目标系统部署验收。
+
+在 ARM Mac 上通过 OrbStack 模拟 x86 Ubuntu 时，EMQX 的 Erlang JIT 默认双重内存映射可能导致 QUIC 模块报 `nif_library_not_loaded`。仅对此类模拟环境，在对应环境文件加入 `IOT_EMQX_ERL_FLAGS="+JMsingle true"` 后重跑部署命令。该参数保留 QUIC 功能，改用单一可读写执行的内存映射；原生 ARM64 和 x86_64 不需要设置，默认保持 Erlang 的内存保护行为。参数语义见 [Erlang JIT 文档](https://erlang.org/documentation/doc-14/erts-14.0/doc/html/erl.html)。
+
+2026-09-09 的环境、实测命令及验收边界见 [Ubuntu 虚拟机本地运行验证](LOCAL_RUNTIME_VALIDATION.md)。
 
 ## VS Code 调试配置
 

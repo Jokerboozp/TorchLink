@@ -32,6 +32,12 @@ inject a protocol-compatible fake:
 node --test deploy/deepseek-harness/gateway.test.mjs
 ```
 
+Dependencies are installed explicitly with `--frozen-lockfile`. In the build
+context, `verifyDepsBeforeRun` is disabled so pnpm does not repeat installation
+of optional CLI binaries before each workspace script. The complete upstream
+build then runs with Docker networking disabled; runtime deployment still
+resolves its required production dependencies and runs the startup checks.
+
 ## Run
 
 `IOT_HARNESS_GATEWAY_TOKEN` is an internal service credential and must contain

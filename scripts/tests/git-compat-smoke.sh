@@ -54,6 +54,16 @@ PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" \
 grep -qx "$expected_revision" "$fixture/upstream/deepseek-harness.revision"
 grep -q "DeepSeek Harness ready: $expected_revision" "$test_root/output.log"
 
+# Re-running setup must not rewrite an unchanged Docker COPY input.
+touch -t 200001010000 "$fixture/upstream/deepseek-harness.revision"
+touch -t 200001010001 "$test_root/marker-cutoff"
+PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" \
+  sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/rerun-output.log"
+if [ "$fixture/upstream/deepseek-harness.revision" -nt "$test_root/marker-cutoff" ]; then
+  echo 'Unchanged Harness revision marker was rewritten' >&2
+  exit 1
+fi
+
 touch "$test_root/dirty.flag"
 PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" FAKE_GIT_DIRTY_FLAG="$test_root/dirty.flag" \
   sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/dirty-output.log"

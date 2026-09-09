@@ -166,6 +166,10 @@ services:
 
   emqx:
     <<: *service-defaults
+    # MQTT ingress is ready only after its downstream Kafka topics exist.
+    # A completion dependency also lets Compose --wait accept the init job's exit.
+    depends_on:
+      redpanda-init: {condition: service_completed_successfully}
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:1883:1883"
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:8083:8083"
@@ -181,6 +185,8 @@ services:
         exec /usr/bin/docker-entrypoint.sh /opt/emqx/bin/emqx foreground
     environment:
       EMQX_NAME: iot-emqx
+      # Optional Erlang JIT compatibility flags for x86 emulation; native hosts use defaults.
+      ERL_FLAGS: ${IOT_EMQX_ERL_FLAGS:-}
       IOT_JWT_SECRET: ${IOT_JWT_SECRET:?IOT_JWT_SECRET must be set}
       EMQX_AUTHORIZATION__NO_MATCH: deny
       EMQX_AUTHORIZATION__DENY_ACTION: ignore

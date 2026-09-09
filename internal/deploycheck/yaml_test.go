@@ -12,6 +12,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestLocalOneShotServicesHaveCompletionDependencies(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	content, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "compose.local.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Services map[string]struct {
+			Restart   string `yaml:"restart"`
+			DependsOn map[string]struct {
+				Condition string `yaml:"condition"`
+			} `yaml:"depends_on"`
+		} `yaml:"services"`
+	}
+	if err = yaml.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	completed := map[string]bool{}
+	for _, service := range doc.Services {
+		for name, dependency := range service.DependsOn {
+			if dependency.Condition == "service_completed_successfully" {
+				completed[name] = true
+			}
+		}
+	}
+	for name, service := range doc.Services {
+		if service.Restart == "no" && !completed[name] {
+			t.Errorf("%s needs a completion dependency: Compose --wait otherwise treats its successful exit as a failed service", name)
+		}
+	}
+}
+
 func TestDeploymentYAMLParses(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))

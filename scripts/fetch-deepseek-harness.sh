@@ -58,6 +58,9 @@ if [ "$actual_revision" != "$revision" ]; then
   echo "DeepSeek Harness 提交校验失败：期望 $revision，实际 $actual_revision" >&2
   exit 1
 fi
-printf '%s\n' "$actual_revision" > "$revision_marker"
+# This file is a Docker COPY input; leave an unchanged marker untouched.
+if [ ! -f "$revision_marker" ] || ! printf '%s\n' "$actual_revision" | cmp -s - "$revision_marker"; then
+  printf '%s\n' "$actual_revision" > "$revision_marker"
+fi
 
 echo "DeepSeek Harness ready: $actual_revision"

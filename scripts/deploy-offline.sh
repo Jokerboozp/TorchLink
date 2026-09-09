@@ -68,7 +68,7 @@ docker load -i "$archive_file"
 images="$("${compose[@]}" config --images | sort -u)"
 [[ -n "$images" ]] || die "无法解析离线镜像清单"
 while IFS= read -r image; do
-  docker image inspect "$image" >/dev/null 2>&1 || die "离线包缺少镜像：$image。请在有网机器重新打包。"
+  docker image inspect "$image" >/dev/null 2>&1 || die "离线包缺少镜像：${image}。请在有网机器重新打包。"
 done <<< "$images"
 
 ollama_volume="iot-platform_ollama-data"

@@ -10,10 +10,14 @@ COPY upstream/deepseek-harness/ /harness/
 COPY upstream/deepseek-harness.revision /tmp/deepseek-harness.revision
 RUN test "$(tr -d '\r\n' < /tmp/deepseek-harness.revision)" = "$DSH_REVISION"
 RUN CI=1 pnpm install --frozen-lockfile
+# Dependencies were installed explicitly above. pnpm 11 otherwise reinstalls
+# optional CLI binaries before every run, including nested workspace builds.
+RUN printf '\nverifyDepsBeforeRun: false\n' >> pnpm-workspace.yaml \
+    && test "$(pnpm config get verifyDepsBeforeRun)" = false
 # The Docker context intentionally excludes the upstream .git directory. The
 # full build accepts this explicit revision for its embedded client metadata.
 ENV DSH_CLIENT_COMMIT_HASH=$DSH_REVISION
-RUN pnpm run build
+RUN --network=none pnpm run build
 COPY deploy/deepseek-harness/prepare-runtime-manifest.mjs /tmp/prepare-runtime-manifest.mjs
 COPY deploy/deepseek-harness/prepare-runtime-carrier.mjs /tmp/prepare-runtime-carrier.mjs
 RUN node /tmp/prepare-runtime-manifest.mjs /harness/python/sdk-runtime/package.json

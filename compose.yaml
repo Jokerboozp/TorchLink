@@ -239,6 +239,8 @@ services:
         exec /usr/bin/docker-entrypoint.sh /opt/emqx/bin/emqx foreground
     environment:
       EMQX_NAME: iot-emqx
+      # Optional Erlang JIT compatibility flags for x86 emulation; native hosts use defaults.
+      ERL_FLAGS: ${IOT_EMQX_ERL_FLAGS:-}
       IOT_JWT_SECRET: ${IOT_JWT_SECRET:?IOT_JWT_SECRET must be set}
       EMQX_AUTHORIZATION__NO_MATCH: deny
       EMQX_AUTHORIZATION__DENY_ACTION: ignore

@@ -17,6 +17,7 @@ for file in "$test_root/runtime/"docker-*; do docker_runtime_hash "$file" > "$fi
 calls="$test_root/calls"
 cli=0; daemon=0; compose_version=''; downloads=0
 kernel=3.10.0
+machine_arch=x86_64
 command() {
   if [ "${1:-}" = -v ] && [ "${2:-}" = docker ]; then [ "$cli" = 1 ]; return; fi
   if [ "${1:-}" = -v ] && [ "${2:-}" = systemctl ]; then return 0; fi
@@ -24,7 +25,7 @@ command() {
   builtin command "$@"
 }
 uname() {
-  case "$1" in -s) echo Linux;; -m) echo x86_64;; -r) echo "$kernel";; esac
+  case "$1" in -s) echo Linux;; -m) echo "$machine_arch";; -r) echo "$kernel";; esac
 }
 docker() {
   case "$1" in
@@ -91,6 +92,7 @@ echo 'PASS failed download: no partial host installation'
 reset_case
 docker_runtime_download() {
   downloads=$((downloads+1))
+  printf 'download %s\n' "$1" >> "$calls"
   case "$1" in
     *.tgz) cp "$test_root/runtime/docker-24.0.9.tgz" "$2";;
     *) printf 'mock plugin' > "$2";;
@@ -108,4 +110,14 @@ for kernel in 5.15.0-generic 6.8.0-generic; do
   [ "$cli" = 1 ] && [ "$daemon" = 1 ] && [ "$downloads" = 0 ]
 done
 echo 'PASS Ubuntu kernels: offline engine and Compose installation without downloads'
+for machine_arch in x86_64 aarch64; do
+  reset_case
+  ensure_deployment_docker online
+  [ "$downloads" = 3 ] && [ "$cli" = 1 ] && [ "$daemon" = 1 ]
+  grep -q "static/stable/$machine_arch/docker-28.5.2.tgz" "$calls"
+  grep -q "docker-compose-linux-$machine_arch" "$calls"
+  build_arch=amd64; [ "$machine_arch" != aarch64 ] || build_arch=arm64
+  grep -q "buildx-v0.14.1.linux-$build_arch" "$calls"
+done
+echo 'PASS amd64 and arm64: native engine, Compose and Buildx download selection'
 echo 'Docker bootstrap smoke tests PASS (host writes mocked).'

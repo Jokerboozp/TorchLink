@@ -25,7 +25,7 @@ while [ "$#" -gt 0 ]; do
     --include-harness) include_harness=true; shift ;;
     --no-harness) include_harness=false; shift ;;
     --include-backup|--include-backup-service) include_backup=true; shift ;;
-    --dependency-host) [ "$#" -ge 2 ] || { echo '--dependency-host 需要 Windows 可访问的主机名或 IPv4 地址。' >&2; exit 1; }; dependency_host="$2"; dependency_host_set=true; shift 2 ;;
+    --dependency-host) [ "$#" -ge 2 ] || { echo '--dependency-host 需要源码机可访问的主机名或 IPv4 地址。' >&2; exit 1; }; dependency_host="$2"; dependency_host_set=true; shift 2 ;;
     --api-host) [ "$#" -ge 2 ] || { echo '--api-host 需要依赖容器可访问的源码机主机名或 IPv4 地址。' >&2; exit 1; }; api_host="$2"; shift 2 ;;
     --ollama-model) [ "$#" -ge 2 ] || { echo '--ollama-model 需要模型名。' >&2; exit 1; }; ollama_model="$2"; shift 2 ;;
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
@@ -66,6 +66,8 @@ urlencode() {
   done
 }
 
+source "$script_dir/lib/docker-bootstrap.sh"
+ensure_deployment_docker online
 assert_docker_available
 [[ "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || { echo 'Ollama 模型名称无效。' >&2; exit 1; }
 [[ "$deepseek_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || { echo 'DeepSeek 模型名称无效。' >&2; exit 1; }
@@ -167,6 +169,7 @@ esac
 include_harness="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)"
 case "$include_harness" in true|false) ;; *) echo 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' >&2; exit 1;; esac
 if [ "$include_harness" = true ]; then
+  ensure_deployment_git
   bash "$script_dir/fetch-deepseek-harness.sh"
   harness_url="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)"
   if [ -z "$harness_url" ] || [ "$dependency_host_set" = true ]; then set_local_env_value IOT_AI_HARNESS_URL "http://${dependency_host}:8091" true; fi

@@ -7,12 +7,13 @@ test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 mkdir -p "$test_root/packages"
 calls="$test_root/calls"
-ready=0; fail_install=0; downloader_ready=1
+ready=0; fail_install=0; downloader_ready=1; git_ready=0
 command() {
   if [ "${1:-}" = -v ]; then
     case "${2:-}" in
       iptables|xz|ps) [ "$ready" = 1 ]; return;;
       curl|wget) [ "$downloader_ready" = 1 ]; return;;
+      git) [ "$git_ready" = 1 ]; return;;
       apt-get|dpkg|rpm) return 0;;
     esac
   fi
@@ -23,7 +24,7 @@ docker_runtime_root() {
   case "$*" in
     *'apt-get install'*|'dpkg -i '*)
       [ "$fail_install" = 0 ] || return 42
-      ready=1; downloader_ready=1;;
+      ready=1; downloader_ready=1; git_ready=1;;
   esac
 }
 : > "$calls"
@@ -71,4 +72,14 @@ docker_runtime_download 'https://example.invalid/docker.tgz' "$test_root/downloa
 grep -q '^env DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates$' "$calls"
 [ -s "$test_root/download" ]
 echo 'PASS minimal Ubuntu: bootstrap downloader before fetching Docker'
+git_ready=0; : > "$calls"
+ensure_deployment_git
+grep -q '^env DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates$' "$calls"
+[ "$git_ready" = 1 ]
+: > "$calls"
+ensure_deployment_git
+[ ! -s "$calls" ]
+git_ready=0; fail_install=1
+if ensure_deployment_git; then echo 'Git install failure ignored'; exit 1; fi
+echo 'PASS Git prerequisite: install only when missing, propagate installation failure'
 echo 'Ubuntu Docker prerequisite smoke tests PASS (package manager mocked).'

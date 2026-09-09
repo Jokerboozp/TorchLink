@@ -6,6 +6,7 @@ test_root="$(cd "$test_root" && pwd)"
 trap 'rm -rf -- "$test_root"' EXIT
 scripts="$(cd "$(dirname "$0")/.." && pwd)"
 bash "$scripts/tests/git-compat-smoke.sh"
+bash "$scripts/tests/local-bootstrap-smoke.sh"
 export TEST_COMPOSE="${1:?Pass the standalone docker-compose executable path}"
 export TEST_CALLS="$test_root/calls.log" TEST_HTTP="$test_root/http.log"
 export TEST_FAIL_BUILD=0 TEST_MISSING_IMAGE=0
@@ -81,7 +82,8 @@ echo 'PASS local: dependency preparation and unchanged configuration on rerun'
 
 no_harness_env="$test_root/.env.no-harness"
 cp "$test_root/.env.local" "$no_harness_env"
-sed -i "s/^IOT_AI_HARNESS_ENABLED=.*/IOT_AI_HARNESS_ENABLED='false'/" "$no_harness_env"
+sed "s/^IOT_AI_HARNESS_ENABLED=.*/IOT_AI_HARNESS_ENABLED='false'/" "$no_harness_env" > "$test_root/no-harness.tmp"
+mv "$test_root/no-harness.tmp" "$no_harness_env"
 : > "$TEST_CALLS"
 bash "$scripts/setup-local.sh" --env-file "$no_harness_env" --skip-code-deps
 grep -q "^IOT_AI_HARNESS_URL=''$" "$no_harness_env"
@@ -174,7 +176,9 @@ assert_call '^run --rm --pull never'
 assert_no_call ' build |ollama pull| compose .* pull '
 TEST_MISSING_IMAGE=1
 : > "$TEST_CALLS"
-if bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"; then echo 'Missing image ignored' >&2; exit 1; fi
+if bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle" > "$test_root/missing-image.log" 2>&1; then echo 'Missing image ignored' >&2; exit 1; fi
+grep -q '离线包缺少镜像：' "$test_root/missing-image.log"
+if grep -q 'unbound variable' "$test_root/missing-image.log"; then echo 'Missing image diagnostic failed'; exit 1; fi
 assert_no_call ' up '
 TEST_MISSING_IMAGE=0
 printf 'corruption' >> "$bundle/images.tar"

@@ -64,7 +64,7 @@ prepare_docker_runtime() {
 
 verify_docker_runtime_file() {
   local file="$1" expected actual
-  [ -s "$file" ] && [ -f "$file.sha256" ] || { echo "离线包缺少 Docker 安装文件或校验值：$file。请重新打包。" >&2; return 1; }
+  [ -s "$file" ] && [ -f "$file.sha256" ] || { echo "离线包缺少 Docker 安装文件或校验值：${file}。请重新打包。" >&2; return 1; }
   expected="$(awk 'NR==1 {print tolower($1)}' "$file.sha256" | tr -d '\r')"
   actual="$(docker_runtime_hash "$file")"
   [ "$expected" = "$actual" ] || { echo "Docker 安装文件 SHA256 校验失败：$file" >&2; return 1; }
@@ -74,6 +74,19 @@ docker_runtime_root() {
   if [ "$(id -u)" -eq 0 ]; then "$@"
   elif command -v sudo >/dev/null 2>&1; then sudo "$@"
   else echo '安装或启动 Docker 需要 root 权限，请以 root 重新执行部署脚本。' >&2; return 1; fi
+}
+
+ensure_deployment_git() {
+  command -v git >/dev/null 2>&1 && return 0
+  if command -v apt-get >/dev/null 2>&1; then
+    docker_runtime_root apt-get update || return 1
+    docker_runtime_root env DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates || return 1
+  elif command -v yum >/dev/null 2>&1; then
+    docker_runtime_root yum install -y git ca-certificates || return 1
+  else
+    echo '准备 Harness 源码需要 Git，请安装 Git 后重新运行。' >&2; return 1
+  fi
+  command -v git >/dev/null 2>&1
 }
 
 docker_runtime_prerequisites() {
