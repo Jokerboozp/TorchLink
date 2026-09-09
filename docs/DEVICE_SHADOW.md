@@ -26,3 +26,9 @@
 Chrome `TestOnboardingBrowser` 8.92 秒通过，含影子编辑、人工确认、版本和差异显示，以及原有真实 Broker WebSocket 接入回归。测试未控制物理设备；实际固件读取/执行和生产迁移未执行。
 
 设备关系和统一状态查看入口见 `DEVICE_TWINS.md`。拓扑版本与影子版本独立，关系编辑不触发期望状态写入或设备控制。
+
+## MQTT 读取默认影子
+
+标准设备使用现有凭据换取 MQTT JWT。令牌接口现在为标准设备返回 `shadowRequestTopic` 与 `shadowResponseTopic`，分别是本设备的 `/iot/up/{tenant}/{product}/{device}/shadow-get` 与 `/iot/down/{tenant}/{product}/{device}/shadow`。先订阅应答主题，再以 QoS 1、非 retained 发送 `{"id":"shadow-query-1"}`。正常应答为 `{"id":"shadow-query-1","status":"ok","shadow":{...}}`，用 id 关联请求；仓储读取失败返回真实 `status:error`，没有应答时可重新查询。
+
+此请求不支持修改 desired，不接受租户、设备身份或任意回调主题；Broker 校验真实 JWT 与精确 ACL，平台另检查当前启用设备、产品和凭据状态。错误凭据、跨设备/跨租户主题均不授权；共享订阅的 Gateway 实例也可处理。请求最多 1 KiB、每设备每秒 20 次，并沿用受限 MQTT worker/队列；读取不会进入 Raw/Parser 或伪造属性上报。应答不 retained，设备不能把 Broker PUBACK 当作已经取得影子；旧 JWT 需重新获取才能使用新增主题授权。
