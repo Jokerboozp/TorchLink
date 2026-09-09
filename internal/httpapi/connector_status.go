@@ -39,6 +39,11 @@ func (s *Server) profileSnapshot(tenant string, p model.DeviceAccessProfile) (mo
 			sessions = runtime.Sessions(tenant, p.ID)
 		}
 	}
+	if p.EdgeNodeID != "" {
+		p.RuntimeStatus = "UNSUPPORTED"
+		p.LastError = "Edge Agent 尚未实现，中心运行时不会执行该任务"
+		sessions = []map[string]any{}
+	}
 	if !p.Enabled {
 		p.RuntimeStatus = "DISABLED"
 	}
@@ -182,6 +187,29 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 			edge = &v
 		}
 	}
+	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Limit: 1})
+	if err != nil {
+		problem(w, 500, err.Error())
+		return
+	}
+	ingest := map[string]any{"configurationSaved": true, "rawReceived": false, "parsed": false, "stage": "WAITING_FOR_DATA"}
+	if len(indexes) > 0 {
+		idx := indexes[0]
+		ingest["rawReceived"] = true
+		ingest["rawMessageId"] = idx.MessageID
+		ingest["receivedAt"] = idx.ReceivedAt
+		ingest["stage"] = "RAW_RECEIVED"
+		ingest["parseError"] = idx.ParseError
+		ingest["parseAttemptedAt"] = idx.ParseAttemptedAt
+		if idx.ParseError != "" {
+			ingest["stage"] = "PARSE_FAILED"
+		}
+		if standard, e := s.engine.Repo.GetStandardMessageByRaw(r.Context(), tenant, idx.MessageID); e == nil {
+			ingest["parsed"] = true
+			ingest["stage"] = "PARSED"
+			ingest["standardMessage"] = standard
+		}
+	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	write(w, 200, map[string]any{"recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+	write(w, 200, map[string]any{"accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
 }

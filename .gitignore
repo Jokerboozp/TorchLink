@@ -14,3 +14,4 @@ offline-bundles/
 .vscode/
 iot_front/.idea/
 .gitignore
+.DS_Store

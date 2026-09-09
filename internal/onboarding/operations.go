@@ -138,6 +138,9 @@ func (s *Service) RetryRevocations(ctx context.Context) {
 }
 
 func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCommand) (model.DeviceCommand, error) {
+	if !q.Confirmed {
+		return q, errors.New("manual command confirmation is required")
+	}
 	if !segment.MatchString(q.ID) || !segment.MatchString(q.Type) || q.Data == nil {
 		return q, errors.New("valid command id, type and data object are required")
 	}
@@ -193,7 +196,7 @@ func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCo
 	}
 	now := time.Now().UnixMilli()
 	q = model.DeviceCommand{ID: q.ID, TenantID: t, DeviceID: d, ProductID: device.ProductID, Type: q.Type, Data: q.Data, Status: "DISPATCHING", CreatedAt: now, UpdatedAt: now}
-	payload, e := json.Marshal(map[string]any{"id": q.ID, "timestamp": now, "type": q.Type, "data": q.Data})
+	payload, e := json.Marshal(map[string]any{"id": q.ID, "version": "1.0", "timestamp": now, "command": q.Type, "params": q.Data, "type": q.Type, "data": q.Data})
 	if e != nil || len(payload) > 64<<10 {
 		return q, errors.New("command exceeds 64 KiB or contains invalid JSON")
 	}
@@ -205,7 +208,7 @@ func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCo
 		if saved.DeviceID != d || saved.Type != q.Type || !reflect.DeepEqual(saved.Data, q.Data) {
 			return model.DeviceCommand{}, errors.New("command id is already used by a different request")
 		}
-		return saved, nil
+		return saved.ObservedOutcome(time.Now().UnixMilli()), nil
 	}
 	limited, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

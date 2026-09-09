@@ -14,6 +14,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,8 +110,27 @@ func TestOnboardingBrowser(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	modbus, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer modbus.Close()
+	go func() {
+		for {
+			conn, err := modbus.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+			request := make([]byte, 12)
+			if _, err := io.ReadFull(conn, request); err == nil {
+				_, _ = conn.Write([]byte{request[0], request[1], 0, 0, 0, 5, request[6], 3, 2, 0, 42})
+			}
+			_ = conn.Close()
+		}
+	}()
 	command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "onboarding-check.mjs"))
-	command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+server.URL, "IOT_TEST_TOKEN="+token)
+	command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+server.URL, "IOT_TEST_TOKEN="+token, "IOT_TEST_MODBUS_PORT="+strconv.Itoa(modbus.Addr().(*net.TCPAddr).Port))
 	var output bytes.Buffer
 	writer := io.MultiWriter(&output, os.Stdout)
 	command.Stdout, command.Stderr = writer, writer

@@ -5,6 +5,7 @@ import (
 	"iot-platform/internal/model"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 func (s *Server) SetDeviceOperations(publish func(context.Context, string, []byte, byte, bool) error, revoke func(context.Context, string) error) {
@@ -96,6 +97,9 @@ func (s *Server) listDeviceCommands(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		problem(w, 500, e.Error())
 		return
+	}
+	for i := range items {
+		items[i] = items[i].ObservedOutcome(time.Now().UnixMilli())
 	}
 	write(w, 200, map[string]any{"items": items, "total": total})
 }

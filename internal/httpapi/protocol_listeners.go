@@ -39,6 +39,11 @@ func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "请填写协议包支持的命令 type")
 		return
 	}
+	if command["confirmed"] != true {
+		problem(w, 422, "请人工确认设备命令")
+		return
+	}
+	delete(command, "confirmed")
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	result, err := s.protocolListeners.Command(ctx, claims(r).TenantID, r.PathValue("id"), r.PathValue("deviceId"), command)

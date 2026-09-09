@@ -30,6 +30,9 @@ const (
 	TopicReplayRequest   = "iot.replay.request"
 )
 
+// ErrRawConflict indicates reuse of a message identity with different content.
+var ErrRawConflict = errors.New("message id already exists with different content")
+
 type RawMessage struct {
 	MessageID         string            `json:"messageId"`
 	Source            string            `json:"source"`
@@ -108,6 +111,8 @@ type RawArchiveIndex struct {
 	PublishedAt      int64  `json:"publishedAt,omitempty"`
 	PublishAttempts  int    `json:"publishAttempts,omitempty"`
 	LastPublishError string `json:"lastPublishError,omitempty"`
+	ParseAttemptedAt int64  `json:"parseAttemptedAt,omitempty"`
+	ParseError       string `json:"parseError,omitempty"`
 	// Parsed and parsedMessageType are response metadata populated by the API;
 	// they are not persisted in the archive index table.
 	Parsed            bool   `json:"parsed,omitempty"`

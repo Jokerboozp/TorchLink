@@ -52,11 +52,14 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) {
 		srv.Handler().ServeHTTP(w, r)
 		return w
 	}
-	if w := call("POST", "/api/v1/device-registry/d/commands", `{"id":"c1","type":"set","data":{"value":1}}`, "t", "viewer"); w.Code != 403 {
+	if w := call("POST", "/api/v1/device-registry/d/commands", `{"confirmed":true,"id":"c1","type":"set","data":{"value":1}}`, "t", "viewer"); w.Code != 403 {
 		t.Fatal(w.Code, w.Body.String())
 	}
+	if w := call("POST", "/api/v1/device-registry/d/commands", `{"id":"unconfirmed","type":"reset","data":{}}`, "t", "operator"); w.Code != 422 || sent != 0 {
+		t.Fatal("unconfirmed command dispatched", w.Code)
+	}
 	for i := 0; i < 2; i++ {
-		if w := call("POST", "/api/v1/device-registry/d/commands", `{"id":"c1","type":"set","data":{"value":1}}`, "t", "operator"); w.Code != 202 {
+		if w := call("POST", "/api/v1/device-registry/d/commands", `{"confirmed":true,"id":"c1","type":"set","data":{"value":1}}`, "t", "operator"); w.Code != 202 {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}

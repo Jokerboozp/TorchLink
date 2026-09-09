@@ -1,5 +1,51 @@
 # 统一设备接入
 
+## 当前接入契约补齐（2026-09-09，本次工作区）
+
+本次核实、改动与实测见 [实施进度](DEVICE_ACCESS_REFACTOR_PROGRESS.md)。下方既有分日期记录属于历史验收；以本节、当前源码及本次进度表为准。
+
+- 添加设备 → 选择/新建产品 → 选择通信方式 → 配置 → 测试与预览 → 完成并启用。完成页分别展示“配置已保存、运行时状态、原文接收、解析成功”；保存不能证明设备在线。被动设备获得凭据后再发送首条数据；页面每 2 秒查询，最多等待 2 分钟，可刷新继续。保存 Secret 后点击“进入设备详情”。
+- `GET /api/v1/connectors/types` 返回通信能力。HTTP 只上报；MQTT 命令还需 publisher；TCP/UDP 命令还需已发布协议 encode 和有效会话。EDGE 明确 unsupported，视频仍走摄像头元数据流程。
+- `POST /api/v1/onboarding` 使用租户 + Device ID 作为幂等键，并存储请求摘要。首次成功 201，相同请求重试 200 / `reused:true`；配置不同 409。恢复不重复生成产品、设备、凭据或 Listener，且不再次返回 Secret。上次响应丢失时在设备详情轮换凭据。该行为适用于本次改造后保存的向导记录；历史设备没有摘要，仍返回冲突。
+- `GET /api/v1/device-registry/{id}/connection` 新增 `accessInfo`、`ingest`，包含原文 ID、平台接收时间、解析尝试时间、解析错误及实际 StandardMessage。原文详情也返回 `parseError`。解析失败不构造业务数据。
+- `IOT_DEVICE_HTTP_PUBLIC_URL` 为设备可达的 HTTP/HTTPS 根地址，留空时返回相对 API 路径；`IOT_DEVICE_MQTT_PUBLIC_URL` 为设备可达的 MQTT/TLS Broker，留空明确显示未配置。绝不从容器内部 Broker 地址推断对外地址，不显示带用户密码/查询参数的配置 URL。WebSocket 沿用 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。
+- 标准 v1 envelope 为 `version:"1.0"`、唯一 `id`、正数毫秒 `timestamp`。property 的 `data` 必须为非空对象；event 支持顶层 `event`；state 支持顶层 `online`；command-reply 支持顶层 `commandId`、`success`。不带 version 的旧 `data.connectionStatus` / `data.commandId` / `data.success` 格式继续支持。Topic/API 仍使用 `command-reply`（连字符）。event 名称不会自动转为设备来源告警。
+- 限制 64 KiB、16 层嵌套、重复 JSON 键、未知 version；设备时间超过平台接收时间 5 分钟拒收。历史时间保留用于补传；晚到数据不会回退当前 Last Seen 或连接状态。Raw 元数据记录客户端消息 ID 与设备时间，身份/协议由宿主确定。标准凭据不能绕到旧 HTTP RawMessage 接口提交自选 Parser/协议。
+- 同一标准消息 ID 的重试必须保持正文逐字节一致；不同正文返回 `409 MESSAGE_CONFLICT`，不覆盖原文。同一消息通过 HTTP/MQTT 重传仍使用同一 rawMessageId。当前单进程按消息加锁；不声称已解决跨多个接入实例的全部写入/调度竞争。
+- 接入测试最多并发 8；Modbus 只读最多并发 32，Socket 等待支持取消。单设备不重叠采集。新点表可设置默认周期（1–3600 秒）、重试、字节序、字序、倍率和单位；CSV 可逐点设置周期，已绑定产品继续使用原点表。向导不更改已有产品协议绑定。
+- MQTT 接收使用 8 个固定 worker 和 128 项队列。排满/处理失败明确记录拒收，未归档时设备需查询接收结果并用原消息 ID 重试；不提供无限内存排队或把 PUBACK 解释为可靠落库。已归档后的队列发布失败继续由现有 pending-raw 重试处理。进程崩溃前的内存队列不是持久化队列。
+- EMQX 5.8.8 配置必须验证 JWT `username` 与连接 username 一致，并启用 `disconnect_after_expire`。Compose 已加入这两项；已有 Broker 若通过 Dashboard/集群动态配置修改过认证链，须核对实际生效配置，不能仅凭 base.hocon 文件认定生效。规则参考 [EMQX JWT 认证](https://docs.emqx.com/en/emqx/latest/access-control/authn/jwt.html)。未配置管理 API 时标准 JWT 最多 300 秒后失效；配置管理适配器才执行即时封禁/断连。
+- MQTT 与 TCP/UDP 命令 API 要求 `confirmed:true`，详情页先人工确认；未确认返回 422。MQTT 下行同时提供 v1 `command/params` 和兼容的 `type/data`，QoS 1、非 retained。30 秒内无结果，查询显示 UNKNOWN，不自动重发；迟到的真实回执仍可确定最终结果。
+- Edge 节点仅有库存登记。`edgeNodeId` 非空的 Profile 不在中心运行，已有 Listener 改为远端归属后会关闭；UI 显示 unsupported。CollectorID 继续表示来源，不是完整调度或路由能力。本阶段支持一个接入执行实例；多 API 副本不能无差别运行同一采集/监听任务。
+
+### 本次迁移与部署
+
+启动迁移只给 `raw_archive_index` 增加 `parse_attempted_at bigint default 0` 和 `parse_error text default ''`，保留所有历史行、协议和不可变版本。memory 与 PostgreSQL 的存储接口同步；向导摘要使用既有 Device JSONB 标签，无新连接配置表。已有无解析记录的历史原文显示未确认，不补造历史成功时间。
+
+本次未部署业务服务或修改现有 Broker。在线 Compose 透传对外地址，离线打包的 Bash/PowerShell 模板增加空默认值；本地使用 `.env.local` 单独设置。生产配置设备 TLS 地址及证书；明文测试只在隔离网络，不自动修改主机防火墙。
+
+### 可重复验证
+
+```bash
+# 仓库根目录
+go test ./...
+go test -race ./internal/onboarding ./internal/protocolruntime ./internal/adapters/mqtt
+# 使用本地模拟 Socket、实际 Go 协议包及临时业务仓库
+go test ./internal/httpapi -run TestGoProtocolListenerSourceHotSwitch -count=1 -v
+go test ./internal/onboarding -run TestModbusPreviewAndException -count=1 -v
+# 向导保存后持续采集、归档、解析及设备断开诊断
+go test ./internal/httpapi -run TestModbusOnboardingRuntimeChain -count=1 -v
+```
+
+前端在 `iot_front` 执行 `npm test`、`npm run build`；独立协议在 `protocol-packages/gb26875-dahua` 执行 `go test ./...`。
+
+真实数据库：安全注入 `IOT_TEST_POSTGRES_DSN` 后运行 `go test ./internal/adapters/postgres -run TestDeviceOperationsMigrationAndAtomicity -count=1 -v`，只创建/清理自己的临时 schema。
+
+真实 Broker：注入 `IOT_TEST_MQTT_BROKER`、`IOT_TEST_MQTT_JWT_SECRET`，新配置设 `IOT_TEST_MQTT_STRICT_IDENTITY=true`；撤销测试另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`、`IOT_TEST_EMQX_API_SECRET`。执行 `go test ./internal/httpapi -run TestStandardMQTTLiveBroker -count=1 -v`。测试使用随机租户、临时内存业务库、非 retained 消息，只封禁自身随机用户名并清理。不要代入真实设备凭据。
+
+浏览器：先构建，设置 `IOT_TEST_BROWSER` 为 Chrome/Edge 可执行文件，执行 `go test ./internal/httpapi -run TestOnboardingBrowser -count=1 -v`；真实 WebSocket 分支另需 MQTT 测试变量和 `IOT_TEST_MQTT_WEBSOCKET`。没有配置时对应集成测试明确跳过。
+
+
 本入口位于 **设备管理 → 添加设备**。流程为：选择或新建产品 → MQTT / HTTP / Modbus TCP / TCP / UDP → 参数配置 → 接入测试 → 数据预览 → 完成并启用。原有高级注册、协议发布/回滚、采集实例和报文回放仍然保留。视频设备跳转原摄像头管理；Edge Agent 暂不开放。
 
 ## 标准设备现场联调
@@ -61,6 +107,7 @@ go test ./internal/httpapi -run '^TestOnboardingBrowser$' -count=1 -v -timeout=1
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
+| GET | `/api/v1/connectors/types` | 通信类型、支持情况和能力描述 |
 | POST | `/api/v1/onboarding/test` | 不落业务数据的接入测试和解析预览 |
 | POST | `/api/v1/onboarding` | 原子创建设备及关联资源并启用 |
 | GET | `/api/v1/connectors` | 已有采集/监听 Profile、健康状态、在线会话 |
@@ -120,7 +167,7 @@ MQTT 设备先带上述两个凭据请求头调用 `POST /api/v1/device-mqtt/tok
 
 JWT ACL 精确到设备的四个上行主题与一个下行主题；新标准设备不授予旧 raw topic 发布权限。平台服务令牌加入 `/iot/up/#` 订阅权限。Broker 必须沿用部署中的 JWT 校验和拒绝未授权访问配置；自定义服务账号须自行授予订阅权限。标准订阅拒绝 retained 消息，并再次校验当前设备/产品及凭据启用状态。
 
-链路始终为：**传输 → 保留原始 JSON 的 RawMessage → 原始归档 / 幂等索引 → 内部队列 → StandardParser → StandardMessage → 原有存储 / 规则 / 告警 / AI**。设备正文不能指定租户、Parser、协议版本或跳过归档。标准下行 topic 已预留 ACL；本次不新增 MQTT Command 编码服务。
+链路始终为：**传输 → 保留原始 JSON 的 RawMessage → 原始归档 / 幂等索引 → 内部队列 → StandardParser → StandardMessage → 原有存储 / 规则 / 告警 / AI**。设备正文不能指定租户、Parser、协议版本或跳过归档。标准下行复用现有 MQTT Command 服务和设备命令回执，不引入另一套编码服务。
 
 ## 凭据边界
 
@@ -177,7 +224,7 @@ Product 的可选 `thingModel` 保存 properties/events/commands，属性和命�
 {"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[{"identifier":"setThreshold","name":"设置阈值","fields":[{"identifier":"value","dataType":"number","required":true}]}]}
 ```
 
-EdgeNode 只有租户、标识、名称、ENABLED/DISABLED、描述、创建/修改时间。向导高级设置可登记及关联 `profile.edgeNodeId`，现有 CollectorID 保留。该关联仅说明归属，不部署 Agent、不改变任务运行位置，不假造心跳或远程在线状态。
+EdgeNode 只有租户、标识、名称、ENABLED/DISABLED、描述、创建/修改时间。向导高级设置可登记及关联 `profile.edgeNodeId`，现有 CollectorID 保留。该关联不部署 Agent、不假造心跳或远程在线状态；本次补齐后中心运行时不执行已指定 edgeNodeId 的任务。
 
 持久化只新增 `edge_node`、`device_command`、`device_credential_revocation` 三张表及索引，状态历史复用 `device_state_event`。Product/DeviceAccessProfile 的新增字段使用现有 JSONB，无历史数据删除。启动时沿用现有幂等 schema migration；memory 和 PostgreSQL 都实现对应接口，ClickHouse/Redis 装饰器继续转发到业务仓库。
 

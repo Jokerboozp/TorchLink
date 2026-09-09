@@ -83,3 +83,5 @@ IOT_PLATFORM_API_IMAGE	离线部署使用的平台 API 镜像
 IOT_PLATFORM_WEB_IMAGE	离线部署使用的平台 Web 镜像
 IOT_BACKUP_IMAGE	离线部署使用的备份服务镜像
 IOT_DEEPSEEK_HARNESS_IMAGE	离线部署使用的 DeepSeek Harness 镜像
+IOT_DEVICE_HTTP_PUBLIC_URL	设备可访问的 HTTP/HTTPS 对外地址，留空使用相对路径
+IOT_DEVICE_MQTT_PUBLIC_URL	设备可访问的 MQTT/TLS 对外地址，留空显示未配置

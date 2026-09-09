@@ -180,7 +180,7 @@ services:
       - |
         umask 077
         jwt_secret_b64="$$(printf '%s' "$$IOT_JWT_SECRET" | base64 | tr -d '\n')"
-        printf 'authentication = [{mechanism = jwt, from = password, algorithm = "hmac-based", use_jwks = false, secret = "%s", secret_base64_encoded = true, acl_claim_name = "acl"}]\n' "$$jwt_secret_b64" > /opt/emqx/etc/base.hocon
+        printf 'authentication = [{mechanism = jwt, from = password, algorithm = "hmac-based", use_jwks = false, secret = "%s", secret_base64_encoded = true, acl_claim_name = "acl", verify_claims = [{name = "username", value = "$${username}"}], disconnect_after_expire = true}]\n' "$$jwt_secret_b64" > /opt/emqx/etc/base.hocon
         sed -i 's/{allow, all}\./{deny, all}./' /opt/emqx/etc/acl.conf
         exec /usr/bin/docker-entrypoint.sh /opt/emqx/bin/emqx foreground
     environment:

@@ -92,6 +92,10 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if _, _, err = e.IngestRaw(ctx, failure); err != nil {
 		t.Fatal(err)
 	}
+	idx, indexErr := repo.GetRawIndex(ctx, failure.TenantID, failure.MessageID)
+	if indexErr != nil || idx.ParseError == "" || idx.ParseAttemptedAt == 0 {
+		t.Fatal("parse failure not persisted", idx, indexErr)
+	}
 	if len(realtime.Messages) != before || hasTopic(bus.topics, model.TopicParseFailed) {
 		t.Fatalf("parse failure was forwarded: topics=%#v realtime=%#v", bus.topics, realtime.Messages)
 	}
@@ -304,5 +308,23 @@ func TestAlarmCannotBeAcknowledgedTwice(t *testing.T) {
 	state, err = repo.GetDeviceState(ctx, "t1", "device_1")
 	if err != nil || state.BusinessStatus != "ONLINE" {
 		t.Fatalf("closed alarm did not return device to ONLINE state: state=%#v err=%v", state, err)
+	}
+}
+
+func TestLateMessageCannotRollBackDeviceConnectivity(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	state := model.DeviceState{TenantID: "t", DeviceID: "d", ProductID: "p", LastSeenAt: 2000, ConnectionStatus: "CONNECTED", BusinessStatus: "ONLINE"}
+	if err := repo.UpsertDeviceState(ctx, state); err != nil {
+		t.Fatal(err)
+	}
+	e := New(repo, nil, local.NewBus(), local.NewRealtime(), nil, nil)
+	late := model.StandardMessage{TenantID: "t", DeviceID: "d", ProductID: "p", Timestamp: 1000, Parser: parser.StandardParserName, MessageType: model.StateChange, Properties: map[string]any{"connectionStatus": "DISCONNECTED"}}
+	if err := e.touchState(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	actual, _ := repo.GetDeviceState(ctx, "t", "d")
+	if actual.LastSeenAt != 2000 || actual.ConnectionStatus != "CONNECTED" {
+		t.Fatal("late message rolled back status", actual)
 	}
 }

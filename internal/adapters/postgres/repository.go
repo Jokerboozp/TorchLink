@@ -494,7 +494,7 @@ func (r *Repository) ListPendingRawIndexes(ctx context.Context, limit int) ([]mo
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.pool.Query(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error FROM raw_archive_index WHERE published_at=0 ORDER BY archived_at LIMIT $1`, limit)
+	rows, err := r.pool.Query(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE published_at=0 ORDER BY archived_at LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -513,18 +513,18 @@ func (r *Repository) ListPendingRawIndexes(ctx context.Context, limit int) ([]mo
 type rowScanner interface{ Scan(...any) error }
 
 func scanRawIndex(row rowScanner, v *model.RawArchiveIndex) error {
-	return row.Scan(&v.MessageID, &v.TenantID, &v.ProductID, &v.DeviceID, &v.Protocol, &v.PayloadFormat, &v.ObjectBucket, &v.ObjectKey, &v.ObjectOffset, &v.PayloadHash, &v.PayloadSize, &v.ReceivedAt, &v.ArchivedAt, &v.PublishedAt, &v.PublishAttempts, &v.LastPublishError)
+	return row.Scan(&v.MessageID, &v.TenantID, &v.ProductID, &v.DeviceID, &v.Protocol, &v.PayloadFormat, &v.ObjectBucket, &v.ObjectKey, &v.ObjectOffset, &v.PayloadHash, &v.PayloadSize, &v.ReceivedAt, &v.ArchivedAt, &v.PublishedAt, &v.PublishAttempts, &v.LastPublishError, &v.ParseAttemptedAt, &v.ParseError)
 }
 func (r *Repository) GetRawIndex(ctx context.Context, tenant, messageID string) (model.RawArchiveIndex, error) {
 	var v model.RawArchiveIndex
-	err := scanRawIndex(r.pool.QueryRow(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error FROM raw_archive_index WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID), &v)
+	err := scanRawIndex(r.pool.QueryRow(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID), &v)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, ErrNotFound
 	}
 	return v, err
 }
 func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]model.RawArchiveIndex, error) {
-	q := `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error FROM raw_archive_index WHERE ($1='' OR tenant_id=$1) AND ($2='' OR product_id=$2) AND ($3='' OR device_id=$3) AND ($4::bigint=0 OR received_at >= $4) AND ($5::bigint=0 OR received_at <= $5) ORDER BY received_at DESC LIMIT $6 OFFSET $7`
+	q := `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE ($1='' OR tenant_id=$1) AND ($2='' OR product_id=$2) AND ($3='' OR device_id=$3) AND ($4::bigint=0 OR received_at >= $4) AND ($5::bigint=0 OR received_at <= $5) ORDER BY received_at DESC LIMIT $6 OFFSET $7`
 	limit := f.Limit
 	if limit <= 0 {
 		limit = 100
@@ -1338,3 +1338,8 @@ func (r *Repository) Close() error                     { r.pool.Close(); return 
 
 var _ = fmt.Sprintf
 var _ = strings.Builder{}
+
+func (r *Repository) MarkRawParseResult(ctx context.Context, tenant, id string, at int64, message string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE raw_archive_index SET parse_attempted_at=$3,parse_error=$4 WHERE tenant_id=$1 AND message_id=$2`, tenant, id, at, message)
+	return err
+}

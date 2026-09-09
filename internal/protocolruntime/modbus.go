@@ -19,6 +19,8 @@ import (
 	"iot-platform/internal/ports"
 )
 
+var modbusReadSlots = make(chan struct{}, 32)
+
 type IngestFunc func(context.Context, model.RawMessage) error
 
 // ModbusReadError preserves wire evidence for connection tests without changing
@@ -74,7 +76,7 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 		return
 	}
 	for _, profile := range profiles {
-		if !profile.Enabled || profile.Mode == "listener" {
+		if !profile.Enabled || profile.Mode == "listener" || profile.EdgeNodeID != "" {
 			continue
 		}
 		release, err := r.repo.GetProtocolRelease(ctx, profile.TenantID, profile.ProtocolID, profile.ProtocolVersion)
@@ -95,13 +97,15 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 				interval = 10 * time.Second
 			}
 			if last := r.last[key]; last.IsZero() || now.Sub(last) >= interval {
-				r.last[key] = now
 				due = append(due, block)
 			}
 		}
 		profileKey := profile.TenantID + "\x00" + profile.ID
-		if len(due) > 0 && !r.running[profileKey] {
+		if len(due) > 0 && !r.running[profileKey] && len(r.running) < 32 {
 			r.running[profileKey] = true
+			for _, block := range due {
+				r.last[profileKey+"\x00"+block.ID] = now
+			}
 		} else {
 			due = nil
 		}
@@ -164,6 +168,19 @@ func ReadModbusTCP(ctx context.Context, profile model.DeviceAccessProfile, relea
 }
 
 func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock, allowedCIDRs []string) ([]model.RawMessage, error) {
+	if profile.EdgeNodeID != "" {
+		return nil, errors.New("remote Edge execution is not supported by the central runtime")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	select {
+	case modbusReadSlots <- struct{}{}:
+		defer func() { <-modbusReadSlots }()
+	default:
+		return nil, errors.New("Modbus read concurrency limit reached")
+	}
+
 	if !strings.EqualFold(release.Transport, "MODBUS_TCP") {
 		return nil, fmt.Errorf("transport %q is not MODBUS_TCP", release.Transport)
 	}
@@ -206,6 +223,9 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 			attempts = 1
 		}
 		for attempt := 0; attempt < attempts; attempt++ {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			if conn == nil {
 				conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(targetHost, strconv.Itoa(profile.Port)))
 				if err != nil {
@@ -217,8 +237,14 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 				conn = nil
 				continue
 			}
+			active := conn
+			stopCancel := context.AfterFunc(ctx, func() { _ = active.Close() })
 			if _, err = conn.Write(request); err == nil {
 				response, err = readResponse(conn, transaction, byte(profile.UnitID), byte(block.FunctionCode))
+			}
+			stopCancel()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
 			}
 			if err == nil {
 				break

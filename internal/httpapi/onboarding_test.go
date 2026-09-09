@@ -39,6 +39,8 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	cfg := config.Load()
 	cfg.JWTSecret = "onboarding-test-signing-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}
+	cfg.DeviceHTTPPublicURL = "https://devices.example.test"
+	cfg.MQTTPublicURL = "mqtts://devices.example.test:8883"
 	srv := New(cfg, engine, metrics.New(), log)
 	token, _ := srv.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
 	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED"})
@@ -74,9 +76,31 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	}
 	var created onboarding.Result
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
+	guide := call("GET", "/api/v1/device-registry/device/connection-guide", nil, model.DeviceCredential{}, true)
+	var guideData struct {
+		HTTP            struct{ Method, URL string }
+		MQTT            struct{ Broker, Topic string }
+		PayloadTemplate map[string]any
+	}
+	if err := json.Unmarshal(guide.Body.Bytes(), &guideData); err != nil || guide.Code != 200 || guideData.HTTP.Method != "POST" || guideData.HTTP.URL != "https://devices.example.test/api/v1/device-ingest/standard/tenant/product/device/property" || guideData.MQTT.Topic != "/iot/up/tenant/product/device/property" || guideData.MQTT.Broker != cfg.MQTTPublicURL || guideData.PayloadTemplate["version"] != "1.0" {
+		t.Fatal("standard connection guide contract", guide.Code, err)
+	}
+	connection := call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)
+	if connection.Code != 200 || !strings.Contains(connection.Body.String(), "WAITING_FOR_DATA") {
+		t.Fatal("configuration falsely reported receipt", connection.Code)
+	}
+	if replay := call("POST", "/api/v1/onboarding", data, model.DeviceCredential{}, true); replay.Code != 200 || !strings.Contains(replay.Body.String(), `"reused":true`) || strings.Contains(replay.Body.String(), created.Credential.Secret) {
+		t.Fatal("lost response retry failed or leaked secret", replay.Code)
+	}
+	if legacy := call("POST", "/api/v1/device-ingest/device", []byte(`{"protocolId":"untrusted","payload":{"properties":{"x":1}}}`), created.Credential, false); legacy.Code != 422 {
+		t.Fatal("standard device bypassed standard ingress", legacy.Code)
+	}
 	path := "/api/v1/device-ingest/standard/tenant/product/device/property"
 	if w = call("POST", path, payload, model.DeviceCredential{}, false); w.Code != 401 {
 		t.Fatal("anonymous", w.Code)
+	}
+	if w = call("POST", strings.Replace(path, "/device/", "/other-device/", 1), payload, created.Credential, false); w.Code != 401 {
+		t.Fatal("device boundary", w.Code)
 	}
 	if w = call("POST", strings.Replace(path, "/tenant/", "/other/", 1), payload, created.Credential, false); w.Code != 401 {
 		t.Fatal("tenant boundary", w.Code)
@@ -105,6 +129,18 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	}
 	if w = call("POST", path, payload, created.Credential, false); w.Code != 202 || !strings.Contains(w.Body.String(), `"created":false`) {
 		t.Fatal("duplicate", w.Code, w.Body.String())
+	}
+	conflict := bytes.Replace(payload, []byte("26.5"), []byte("99.9"), 1)
+	if w = call("POST", path, conflict, created.Credential, false); w.Code != 409 || !strings.Contains(w.Body.String(), "MESSAGE_CONFLICT") {
+		t.Fatal("conflicting duplicate", w.Code, w.Body.String())
+	}
+	preserved, err := engine.GetRaw(ctx, idx)
+	if err != nil || !bytes.Equal(preserved.Payload, payload) {
+		t.Fatal("conflict overwrote archived raw", err)
+	}
+	connection = call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)
+	if connection.Code != 200 || !strings.Contains(connection.Body.String(), `"stage":"PARSED"`) || !strings.Contains(connection.Body.String(), idx.MessageID) {
+		t.Fatal("parsed receipt missing", connection.Code)
 	}
 	// State still traverses raw archival and parsing before updating connectivity.
 	statePayload := []byte(`{"id":"state-1","timestamp":1788850000001,"data":{"connectionStatus":"CONNECTED"}}`)

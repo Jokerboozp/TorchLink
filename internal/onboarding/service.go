@@ -28,6 +28,7 @@ import (
 var segment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 var ErrAuth = errors.New("invalid or disabled device credential")
 var ErrRate = errors.New("device rate limit exceeded")
+var testSlots = make(chan struct{}, 8)
 
 type Request struct {
 	ExistingProfileID string                    `json:"existingProfileId,omitempty"`
@@ -40,11 +41,14 @@ type Request struct {
 	Profile           model.DeviceAccessProfile `json:"profile"`
 	ProtocolID        string                    `json:"protocolId,omitempty"`
 	ProtocolVersion   string                    `json:"protocolVersion,omitempty"`
+	PollIntervalSec   int                       `json:"pollIntervalSec,omitempty"`
 	PointTableCSV     string                    `json:"pointTableCsv,omitempty"`
 	Payload           json.RawMessage           `json:"payload"`
 	MessageKind       string                    `json:"messageKind"`
 }
 type Result struct {
+	AccessInfo map[string]any         `json:"accessInfo,omitempty"`
+	Reused     bool                   `json:"reused"`
 	Device     model.ManagedDevice    `json:"device"`
 	Credential model.DeviceCredential `json:"credential"`
 	ClientID   string                 `json:"clientId"`
@@ -145,9 +149,11 @@ func StandardRaw(tenant, product, device, kind, transport string, payload []byte
 		return r, err
 	}
 	var body struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		Timestamp int64  `json:"timestamp"`
 	}
 	_ = json.Unmarshal(payload, &body)
+	r.Metadata = map[string]any{"clientMessageId": body.ID, "deviceTimestamp": body.Timestamp}
 	r.MessageID = "raw_std_" + Hash(tenant + "\x00" + product + "\x00" + device + "\x00" + kind + "\x00" + body.ID)[:32]
 	return r, nil
 }
@@ -183,6 +189,7 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		if e != nil || edge.Status != "ENABLED" {
 			return fail("Edge 节点不存在或已停用")
 		}
+		return fail("Edge Agent 尚未实现，无法在远端执行接入测试或启用采集")
 	}
 	product, err := s.Repo.GetProduct(ctx, tenant, q.ProductID)
 	if q.ProductName != "" {
@@ -215,7 +222,14 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 				return fail("请选择已发布且兼容的协议")
 			}
 		} else if q.Type == connector.ModbusTCP {
-			table, _, e := core.ParseModbusPointTable("points.csv", []byte(q.PointTableCSV), 10)
+			interval := q.PollIntervalSec
+			if interval == 0 {
+				interval = 10
+			}
+			if interval < 1 || interval > 3600 {
+				return fail("采集周期须为 1 至 3600 秒")
+			}
+			table, _, e := core.ParseModbusPointTable("points.csv", []byte(q.PointTableCSV), interval)
 			if e != nil {
 				return b, rel, e
 			}
@@ -223,7 +237,7 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 			if e != nil {
 				return b, rel, e
 			}
-			rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: "onboard-" + Hash(tenant + "/" + q.ProductID)[:20], Version: Hash(q.PointTableCSV)[:16], Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now, Config: map[string]any{"points": table.Points, "blocks": blocks}}
+			rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: "onboard-" + Hash(tenant + "/" + q.ProductID)[:20], Version: Hash(fmt.Sprintf("%d\x00%s", interval, q.PointTableCSV))[:16], Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now, Config: map[string]any{"points": table.Points, "blocks": blocks}}
 			rel.PointTableVersion = rel.Version
 			table.TenantID, table.ProtocolID, table.Version, table.CreatedAt = tenant, rel.ProtocolID, rel.Version, now
 			b.PointTable = &table
@@ -298,6 +312,36 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 	return b, rel, nil
 }
 func (s *Service) Create(ctx context.Context, tenant string, q Request) (Result, error) {
+	// Device ID is the tenant-scoped idempotency key. The digest excludes the
+	// expiring preview proof, allowing recovery after a lost HTTP response.
+	request := q
+	request.TestToken = ""
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return Result{}, err
+	}
+	digest := Hash(string(encoded))
+	recover := func() (Result, error) {
+		d, err := s.Repo.GetManagedDevice(ctx, tenant, q.DeviceID)
+		if err != nil {
+			return Result{}, err
+		}
+		if d.Tags["onboardingRequestHash"] != digest {
+			return Result{}, errors.New("设备标识已存在且接入请求不同")
+		}
+		instance := connector.Instance{Type: connector.Type(d.Tags["connector"]), DeviceID: d.ID}
+		if id := d.Tags["connectorProfileId"]; id != "" {
+			p, err := s.Repo.GetDeviceAccessProfile(ctx, tenant, id)
+			if err != nil {
+				return Result{}, err
+			}
+			instance.Profile = &p
+		}
+		return Result{Reused: true, Device: d, ClientID: "device-" + d.AccessKey, Username: d.AccessKey, Connector: instance}, nil
+	}
+	if _, err := s.Repo.GetManagedDevice(ctx, tenant, q.DeviceID); err == nil {
+		return recover()
+	}
 	b, rel, err := s.plan(ctx, tenant, q)
 	if err != nil {
 		return Result{}, err
@@ -316,7 +360,12 @@ func (s *Service) Create(ctx context.Context, tenant string, q Request) (Result,
 	}
 	b.Device.AccessKey = credential.AccessKey
 	b.Device.SecretHash = Hash(credential.Secret)
+	b.Device.Tags["onboardingRequestHash"] = digest
 	if err = s.Repo.SaveOnboarding(ctx, b); err != nil {
+		// A competing request may have committed while this request was planning.
+		if recovered, retryErr := recover(); retryErr == nil {
+			return recovered, nil
+		}
 		return Result{}, err
 	}
 	return Result{Device: b.Device, Credential: credential, ClientID: "device-" + credential.AccessKey, Username: credential.AccessKey, Connector: connector.Instance{Type: q.Type, DeviceID: q.DeviceID, Profile: b.Profile}}, nil
@@ -342,6 +391,20 @@ func (s *Service) Test(ctx context.Context, tenant string, q Request) (result *c
 			result.ProtocolVersion = q.ProtocolVersion
 		}
 	}()
+	if !connector.Describe(q.Type).Supported {
+		return &connector.Result{Stage: "unsupported", ErrorCode: "UNSUPPORTED", Message: "接入方式尚未实现"}, connector.ErrUnsupported
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	select {
+	case testSlots <- struct{}{}:
+		defer func() { <-testSlots }()
+	default:
+		return &connector.Result{Stage: "busy", ErrorCode: "BUSY", Message: "接入测试并发已达上限，请稍后重试"}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	b, rel, err := s.plan(ctx, tenant, q)
 	if err != nil {
 		return nil, err
@@ -381,7 +444,7 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	r := &connector.Result{Stage: "sample", ProtocolID: q.Release.ProtocolID, ProtocolVersion: q.Release.Version, Parser: q.Release.ParserType, PointTable: q.Release.Config["points"]}
+	r := &connector.Result{Source: "sample", Stage: "sample", ProtocolID: q.Release.ProtocolID, ProtocolVersion: q.Release.Version, Parser: q.Release.ParserType, PointTable: q.Release.Config["points"]}
 	finish := func(err error, code string) (*connector.Result, error) {
 		r.LatencyMs = time.Since(start).Milliseconds()
 		r.ErrorCode = code
@@ -395,6 +458,7 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	switch q.Type {
 	case connector.ModbusTCP:
 		r.Stage = "read"
+		r.Source = "network-read"
 		var blocks []model.ModbusReadBlock
 		data, _ := json.Marshal(q.Release.Config["blocks"])
 		if err := json.Unmarshal(data, &blocks); err != nil || len(blocks) == 0 {
@@ -495,7 +559,7 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 		r.Message = "平台 MQTT 连接健康，样例解析通过；尚未验证设备到 Broker 的网络和认证"
 	}
 	if q.Type == connector.ModbusTCP {
-		r.Message = "真实设备读取与解析通过；测试数据未写入业务链路"
+		r.Message = "目标设备读取与解析通过（设备或模拟器取决于配置）；测试数据未写入业务链路"
 	}
 	if q.Type == connector.TCP || q.Type == connector.UDP {
 		r.Message = "本机端口可绑定，完整帧识别及解析通过；尚未验证设备到平台的网络"

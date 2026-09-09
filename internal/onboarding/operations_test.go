@@ -39,7 +39,7 @@ func TestCommandConcurrencyAndEarlyReply(t *testing.T) {
 		}
 		return s.Repo.CompleteDeviceCommand(ctx, "t", "d", "cmd1", map[string]any{"success": true}, 2)
 	}
-	q := model.DeviceCommand{ID: "cmd1", Type: "reboot", Data: map[string]any{}}
+	q := model.DeviceCommand{Confirmed: true, ID: "cmd1", Type: "reboot", Data: map[string]any{}}
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
@@ -70,7 +70,7 @@ func TestCommandUnknownIsNotRetried(t *testing.T) {
 	s := operationService(t)
 	n := 0
 	s.PublishCommand = func(context.Context, string, []byte, byte, bool) error { n++; return errors.New("connection lost") }
-	q := model.DeviceCommand{ID: "cmd1", Type: "open", Data: map[string]any{}}
+	q := model.DeviceCommand{Confirmed: true, ID: "cmd1", Type: "open", Data: map[string]any{}}
 	for i := 0; i < 2; i++ {
 		v, e := s.SendCommand(context.Background(), "t", "d", q)
 		if e != nil || v.Status != "UNKNOWN" {
@@ -135,7 +135,7 @@ func TestThingModelAndEdgeTenantValidation(t *testing.T) {
 	m.Properties = nil
 	s.Repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Status: "ENABLED", ThingModel: m})
 	s.PublishCommand = func(context.Context, string, []byte, byte, bool) error { return nil }
-	if _, e := s.SendCommand(ctx, "t", "d", model.DeviceCommand{ID: "c", Type: "set", Data: map[string]any{"value": 1.2}}); e == nil {
+	if _, e := s.SendCommand(ctx, "t", "d", model.DeviceCommand{Confirmed: true, ID: "c", Type: "set", Data: map[string]any{"value": 1.2}}); e == nil {
 		t.Fatal("invalid integer accepted")
 	}
 	if _, e := s.SaveEdge(ctx, "other", model.EdgeNode{ID: "edge", Name: "edge"}); e != nil {
@@ -144,5 +144,16 @@ func TestThingModelAndEdgeTenantValidation(t *testing.T) {
 	_, _, e := s.plan(ctx, "t", Request{ProductID: "p", DeviceID: "new", Name: "new", Profile: model.DeviceAccessProfile{EdgeNodeID: "edge"}})
 	if e == nil {
 		t.Fatal("cross tenant edge accepted")
+	}
+}
+
+func TestCommandRequiresManualConfirmation(t *testing.T) {
+	s := operationService(t)
+	s.PublishCommand = func(context.Context, string, []byte, byte, bool) error {
+		t.Fatal("unconfirmed command was dispatched")
+		return nil
+	}
+	if _, e := s.SendCommand(context.Background(), "t", "d", model.DeviceCommand{ID: "unconfirmed", Type: "reset", Data: map[string]any{}}); e == nil {
+		t.Fatal("unconfirmed command accepted")
 	}
 }

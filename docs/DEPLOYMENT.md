@@ -253,3 +253,10 @@ IOT_BACKUP_DIR=./data/backups
 ```
 
 Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 CentOS。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
+
+
+### 设备接入对外地址与执行边界
+
+设备向导的 `IOT_DEVICE_HTTP_PUBLIC_URL`、`IOT_DEVICE_MQTT_PUBLIC_URL` 分别配置设备可达的 HTTPS 根地址和 MQTT TLS Broker；留空时 HTTP 使用相对路径，MQTT 明确未配置，不使用容器名或固定 localhost 冒充外部地址。WebSocket 沿用 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。本地 `.env.local`、在线 `.env.online`、离线 `.env.offline` 分别设置，不能互相替代。监听端口仍需实际容器映射与网络连通。
+
+当前接入 Runtime 按单执行实例部署，中心不会执行 edgeNodeId 非空的任务；尚无分布式采集调度与会话路由。EMQX 新增 username claim 匹配及到期断连，已有动态认证器配置需核实实际生效；不要将本地修改当成已部署。迁移、设备认证与验证命令见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。

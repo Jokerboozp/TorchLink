@@ -109,6 +109,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 }
 
 func (s *Server) routes() {
+	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
 	s.deviceOperationsRoutes()
 	s.router.GET("/api/v1/device-registry/:id/connection", s.authorize("viewer"), s.endpoint(s.deviceConnection, "id"))
@@ -608,6 +609,15 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	credential := model.DeviceCredential{}
 	if old, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.ID); err == nil {
 		v.AccessKey, v.SecretHash, v.SecretHint, v.CreatedAt = old.AccessKey, old.SecretHash, old.SecretHint, old.CreatedAt
+		if v.Tags == nil {
+			v.Tags = map[string]string{}
+		}
+		for _, key := range []string{"onboardingRequestHash", "connector", "connectorProfileId"} {
+			delete(v.Tags, key)
+			if value := old.Tags[key]; value != "" {
+				v.Tags[key] = value
+			}
+		}
 		if v.RegistrationSource == "" {
 			v.RegistrationSource = old.RegistrationSource
 		}
@@ -723,8 +733,17 @@ func (s *Server) deviceConnectionGuide(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "product not found")
 		return
 	}
+	if info := s.deviceAccessInfo(v); info != nil {
+		write(w, 200, map[string]any{
+			"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "accessKey": v.AccessKey, "secretHint": v.SecretHint,
+			"http":            map[string]any{"method": "POST", "url": info["httpUrl"], "headers": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>", "Content-Type": "application/json"}},
+			"mqtt":            map[string]any{"broker": info["mqttBroker"], "topic": info["upTopic"], "downTopic": info["downTopic"], "clientId": info["clientId"], "username": info["username"], "tokenEndpoint": info["tokenEndpoint"]},
+			"payloadTemplate": info["sample"],
+		})
+		return
+	}
 	pkg, _ := s.engine.Repo.GetProtocolPackage(r.Context(), c.TenantID, p.ProtocolPackageID)
-	result := map[string]any{"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "gatewayId": v.GatewayID, "accessKey": v.AccessKey, "secretHint": v.SecretHint, "http": map[string]any{"method": "POST", "url": "/api/v1/device-ingest/" + v.ID, "headers": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>", "Content-Type": "application/json"}}, "mqtt": map[string]any{"broker": "mqtt://localhost:1883", "topic": fmt.Sprintf("/external/raw/%s/%s/%s", c.TenantID, p.ID, v.ID), "tokenEndpoint": "/api/v1/device-mqtt/token", "tokenHeaders": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>"}}, "payloadTemplate": map[string]any{"messageId": "raw_<unique>", "tenantId": c.TenantID, "productId": p.ID, "deviceId": v.ID, "protocol": pkg.Protocol, "transport": pkg.Transport, "payloadFormat": pkg.PayloadFormat, "payload": map[string]any{"properties": map[string]any{"temperature": 25.5}}}}
+	result := map[string]any{"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "gatewayId": v.GatewayID, "accessKey": v.AccessKey, "secretHint": v.SecretHint, "http": map[string]any{"method": "POST", "url": "/api/v1/device-ingest/" + v.ID, "headers": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>", "Content-Type": "application/json"}}, "mqtt": map[string]any{"broker": publicEndpoint(s.cfg.MQTTPublicURL), "topic": fmt.Sprintf("/external/raw/%s/%s/%s", c.TenantID, p.ID, v.ID), "tokenEndpoint": "/api/v1/device-mqtt/token", "tokenHeaders": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>"}}, "payloadTemplate": map[string]any{"messageId": "raw_<unique>", "tenantId": c.TenantID, "productId": p.ID, "deviceId": v.ID, "protocol": pkg.Protocol, "transport": pkg.Transport, "payloadFormat": pkg.PayloadFormat, "payload": map[string]any{"properties": map[string]any{"temperature": 25.5}}}}
 	if v.DeviceRole == "GATEWAY" || p.Category == "gateway" {
 		result["gateway"] = map[string]any{"autoRegisterChildren": true, "description": "网关上报一个尚未注册的子设备时，平台自动注册并建立关联", "childPayloadTemplate": map[string]any{"messageId": "raw_<unique>", "deviceId": "child_device_001", "deviceName": "一号子设备", "productId": "<child_product_id>", "payload": map[string]any{"properties": map[string]any{"temperature": 25.5}}}}
 	}
@@ -780,6 +799,9 @@ func (s *Server) deviceIngest(w http.ResponseWriter, r *http.Request) {
 	write(w, map[bool]int{true: 201, false: 200}[created], map[string]any{"created": created, "messageId": idx.MessageID, "receivedAt": idx.ReceivedAt})
 }
 func (s *Server) prepareManagedRaw(ctx context.Context, raw *model.RawMessage, device model.ManagedDevice) error {
+	if device.Tags["connector"] == "HTTP" || device.Tags["connector"] == "MQTT" {
+		return fmt.Errorf("standard devices must use the authenticated standard ingress endpoint")
+	}
 	targetProductID := device.ProductID
 	if raw.DeviceID != "" && raw.DeviceID != device.ID {
 		if raw.ProductID == "" {
@@ -858,7 +880,10 @@ func (s *Server) rawDetail(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, "raw archive could not be read")
 		return
 	}
-	result := map[string]any{"archive": idx, "message": raw, "parseStatus": "UNPARSED"}
+	result := map[string]any{"archive": idx, "message": raw, "parseStatus": "UNPARSED", "parseError": idx.ParseError}
+	if idx.ParseError != "" {
+		result["parseStatus"] = "FAILED"
+	}
 	if standard, parseErr := s.engine.Repo.GetStandardMessageByRaw(r.Context(), claims(r).TenantID, idx.MessageID); parseErr == nil {
 		result["parseStatus"] = "PARSED"
 		result["standardMessage"] = standard
@@ -2378,6 +2403,12 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 		problem(w, 401, "invalid device credentials")
 		return
 	}
+	product, productErr := s.engine.Repo.GetProduct(r.Context(), v.TenantID, v.ProductID)
+	if productErr != nil || product.Status != "ENABLED" {
+		problem(w, 401, "device product is disabled")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	topic := fmt.Sprintf("/external/raw/%s/%s/%s", v.TenantID, v.ProductID, v.ID)
 	acl := []auth.ACLRule{{Permission: "allow", Action: "publish", Topic: topic}, {Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/device/command/%s/%s", v.TenantID, v.ID)}}
 	ttl := 24 * time.Hour

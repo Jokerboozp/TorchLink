@@ -154,7 +154,7 @@ func (r *Listeners) reconcile(ctx context.Context) {
 	defer r.mu.Unlock()
 	wanted := make(map[string]bool)
 	for _, p := range profiles {
-		if !p.Enabled || !strings.EqualFold(p.Mode, "listener") {
+		if !p.Enabled || p.EdgeNodeID != "" || !strings.EqualFold(p.Mode, "listener") {
 			continue
 		}
 		p.Network = strings.ToLower(strings.TrimSpace(p.Network))

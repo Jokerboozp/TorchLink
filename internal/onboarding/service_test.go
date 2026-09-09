@@ -66,8 +66,8 @@ func TestCredentialAndAtomicCreation(t *testing.T) {
 	if _, err = s.Authenticate(ctx, r.Credential.AccessKey, "wrong"); err == nil {
 		t.Fatal("bad password accepted")
 	}
-	if _, err = s.Create(ctx, "tenant", q); err == nil {
-		t.Fatal("duplicate overwritten")
+	if retry, err := s.Create(ctx, "tenant", q); err != nil || !retry.Reused || retry.Credential.Secret != "" {
+		t.Fatalf("retry must recover without a secret: %v", err)
 	}
 	after, _ := repo.GetManagedDevice(ctx, "tenant", "device")
 	if after.SecretHash != d.SecretHash {
@@ -224,5 +224,32 @@ func TestModbusPreviewAndException(t *testing.T) {
 				t.Fatal("runtime profile missing")
 			}
 		})
+	}
+}
+
+func TestModbusPollIntervalHasDistinctReleaseVersion(t *testing.T) {
+	s, _, q := fixture(t)
+	q.Type = connector.ModbusTCP
+	q.Profile = model.DeviceAccessProfile{Host: "127.0.0.1", Port: 502, UnitID: 1}
+	q.PointTableCSV = "name,functionCode,address,addressNotation,dataType,scale\ntemperature,3,0,zero_based,uint16,1\n"
+	_, first, err := s.plan(context.Background(), "tenant", q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.PollIntervalSec = 10
+	_, equivalent, err := s.plan(context.Background(), "tenant", q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Version != equivalent.Version {
+		t.Fatal("default interval produced a different version")
+	}
+	q.PollIntervalSec = 20
+	_, changed, err := s.plan(context.Background(), "tenant", q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Version == changed.Version {
+		t.Fatal("different polling configuration reused an immutable release")
 	}
 }

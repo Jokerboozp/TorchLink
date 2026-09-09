@@ -2,10 +2,14 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"iot-platform/internal/connector"
 	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
+	"iot-platform/internal/parser"
 	"os"
 	"testing"
 	"time"
@@ -46,6 +50,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	if e = r.Migrate(ctx); e != nil {
 		t.Fatal("migration is not repeatable", e)
 	}
+	verifyOnboardingAndParseMigration(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}
 	if e = r.SaveManagedDevice(ctx, d); e != nil {
 		t.Fatal(e)
@@ -119,5 +124,50 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	nodes, e := r.ListEdgeNodes(ctx, "other")
 	if e != nil || len(nodes) != 0 {
 		t.Fatal(nodes, e)
+	}
+}
+
+func verifyOnboardingAndParseMigration(t *testing.T, r *Repository) {
+	t.Helper()
+	ctx := context.Background()
+	idx := model.RawArchiveIndex{TenantID: "t", MessageID: "raw-parse", ProductID: "p", DeviceID: "d", ArchivedAt: 1}
+	if _, e := r.SaveRawIndex(ctx, idx); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.MarkRawParseResult(ctx, "t", idx.MessageID, 123, "invalid frame"); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	saved, e := r.GetRawIndex(ctx, "t", idx.MessageID)
+	if e != nil || saved.ParseError != "invalid frame" || saved.ParseAttemptedAt != 123 {
+		t.Fatal("parse migration lost evidence", saved, e)
+	}
+	if e := r.MarkRawParseResult(ctx, "other", idx.MessageID, 456, ""); e != nil {
+		t.Fatal(e)
+	}
+	saved, _ = r.GetRawIndex(ctx, "t", idx.MessageID)
+	if saved.ParseError == "" {
+		t.Fatal("cross tenant update")
+	}
+	svc := onboarding.New(r, parser.NewPlatformRegistry(t.TempDir()), t.TempDir(), nil)
+	q := onboarding.Request{ProductID: "new-product", ProductName: "test product", DeviceID: "new-device", Name: "test", Type: connector.HTTP, MessageKind: "property", Payload: json.RawMessage(`{"id":"1","timestamp":1000,"data":{"x":1}}`)}
+	preview, e := svc.Test(ctx, "t", q)
+	if e != nil || !preview.Success {
+		t.Fatal(e)
+	}
+	q.TestToken = preview.TestToken
+	first, e := svc.Create(ctx, "t", q)
+	if e != nil || first.Reused {
+		t.Fatal(e)
+	}
+	again, e := svc.Create(ctx, "t", q)
+	if e != nil || !again.Reused || again.Credential.Secret != "" {
+		t.Fatal("persistent idempotency failed", e)
+	}
+	q.Name = "changed"
+	if _, e := svc.Create(ctx, "t", q); e == nil {
+		t.Fatal("different request accepted")
 	}
 }

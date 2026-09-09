@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { api, formatTime, notifyError, parseJSON, pretty } from '../api'
 
 const emit = defineEmits(['navigate'])
-const origin = location.origin
+const endpointURL = path => new URL(path, location.origin).href
 const registry = ref([])
 const selected = ref('')
 const guide = ref(null)
@@ -96,7 +96,7 @@ async function copy(kind) {
   if (!guide.value) return
   const data = guide.value
   let text = pretty(data.payloadTemplate)
-  if (kind === 'http') text = `curl -X ${data.http.method} "${location.origin + data.http.url}" -H "Content-Type: application/json" -H "X-Device-Key: ${data.accessKey}" -H "X-Device-Secret: <DEVICE_SECRET>" --data '${JSON.stringify(data.payloadTemplate)}'`
+  if (kind === 'http') text = `curl -X ${data.http.method} "${endpointURL(data.http.url)}" -H "Content-Type: application/json" -H "X-Device-Key: ${data.accessKey}" -H "X-Device-Secret: <DEVICE_SECRET>" --data '${JSON.stringify(data.payloadTemplate)}'`
   if (kind === 'mqtt') text = `Broker: ${data.mqtt.broker}\nTopic: ${data.mqtt.topic}\nToken: POST ${location.origin}${data.mqtt.tokenEndpoint}\nX-Device-Key: ${data.accessKey}`
   if (kind === 'child') text = pretty(data.gateway.childPayloadTemplate)
   await navigator.clipboard.writeText(text)
@@ -141,7 +141,7 @@ onMounted(async () => {
       <el-alert title="接入配置已保存" description="设备、产品和协议关系已保存，按下面步骤配置真实设备即可。" type="success" :closable="false" show-icon />
       <el-steps direction="vertical" :active="3"><el-step title="保存设备凭证" :description="`接入密钥：${guide.accessKey}。设备密钥只在注册或轮换时显示。`" /><el-step title="选择 HTTP 或 MQTT 接入" description="将下面地址、主题和报文模板配置到设备或网关。" /><el-step title="发送数据并验证" description="真实设备发送后可到“原始报文”查看证据链。" /></el-steps>
       <el-card v-if="guide.gateway" shadow="never" class="inner-card"><strong>网关自动注册子设备</strong><p>网关使用自己的凭证上报，报文中的 deviceId 和 productId 指向子设备。</p><pre>{{ pretty(guide.gateway.childPayloadTemplate) }}</pre><el-button @click="copy('child')">复制子设备模板</el-button></el-card>
-      <el-card shadow="never" class="inner-card"><strong>HTTP 接入</strong><code>{{ guide.http.method }} {{ origin + guide.http.url }}</code><small>X-Device-Key: {{ guide.accessKey }}</small><el-button @click="copy('http')">复制 HTTP 示例</el-button></el-card>
+      <el-card shadow="never" class="inner-card"><strong>HTTP 接入</strong><code>{{ guide.http.method }} {{ endpointURL(guide.http.url) }}</code><small>X-Device-Key: {{ guide.accessKey }}</small><el-button @click="copy('http')">复制 HTTP 示例</el-button></el-card>
       <el-card shadow="never" class="inner-card"><strong>MQTT 接入</strong><code>{{ guide.mqtt.broker }}</code><code>{{ guide.mqtt.topic }}</code><el-button @click="copy('mqtt')">复制 MQTT 参数</el-button></el-card>
       <el-card shadow="never" class="inner-card"><strong>报文模板</strong><pre>{{ pretty(guide.payloadTemplate) }}</pre><el-button @click="copy('payload')">复制报文模板</el-button></el-card>
     </div>

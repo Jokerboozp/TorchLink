@@ -153,7 +153,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 		return e == nil && m.MessageType == model.PropertyReport && m.Properties["temperature"] == 26.5
 	})
 	adminToken, _ := srv.auth.Issue("test", tenant, "admin", nil, time.Minute)
-	r = httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", bytes.NewBufferString(`{"id":"command-1","type":"test","data":{}}`))
+	r = httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", bytes.NewBufferString(`{"confirmed":true,"id":"command-1","type":"test","data":{}}`))
 	r.Header.Set("Authorization", "Bearer "+adminToken)
 	r.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
@@ -204,6 +204,68 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 	}
 	t.Log("live MQTT: clean-session reconnect, alarm activation, duplicate message deduplication and recovery passed")
 	t.Log("live MQTT: onboarding, device JWT, property archive, command dispatch and Raw command reply passed")
+	t.Run("AuthenticationAndACL", func(t *testing.T) {
+		reject := func(user, password string) {
+			client := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-deny-" + randomHex(4)).SetUsername(user).SetPassword(password).SetAutoReconnect(false).SetConnectRetry(false))
+			defer client.Disconnect(100)
+			attempt := client.Connect()
+			if !attempt.WaitTimeout(5 * time.Second) {
+				t.Fatal("authentication rejection timed out")
+			}
+			code := attempt.(*mqtt.ConnectToken).ReturnCode()
+			if attempt.Error() == nil || (code != 4 && code != 5) {
+				t.Fatalf("authentication rejection was not confirmed: CONNACK %d", code)
+			}
+		}
+		reject(credentials.Username, "invalid-jwt")
+		if os.Getenv("IOT_TEST_MQTT_STRICT_IDENTITY") == "true" {
+			reject(username, credentials.Token)
+		} else {
+			t.Log("username binding check not executed: set IOT_TEST_MQTT_STRICT_IDENTITY=true against updated isolated Broker")
+		}
+		for _, topic := range []string{"/iot/down/" + tenant + "/product/other/command", "/iot/down/other-" + tenant + "/product/device/command", "/iot/up/#"} {
+			op := device.Subscribe(topic, 1, func(mqtt.Client, mqtt.Message) {})
+			if !op.WaitTimeout(5 * time.Second) {
+				t.Fatal("ACL subscription result timed out")
+			}
+			if op.(*mqtt.SubscribeToken).Result()[topic] != 128 {
+				t.Fatal("unauthorized subscription not rejected", topic)
+			}
+		}
+		forbidden := []string{"/iot/up/" + tenant + "/product/other/property", "/iot/up/other-" + tenant + "/product/device/property", "/external/raw/" + tenant + "/product/device"}
+		acl := []auth.ACLRule{}
+		for _, topic := range append(forbidden, prefix+"property") {
+			acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: topic})
+		}
+		observerName := tenant + "-observer"
+		jwt, _ := srv.auth.IssueWithACL(observerName, tenant, "service", nil, acl, time.Minute)
+		observer := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(observerName).SetUsername(observerName).SetPassword(jwt).SetAutoReconnect(false))
+		wait(t, observer.Connect())
+		defer observer.Disconnect(100)
+		received := make(chan string, 8)
+		for _, topic := range append(forbidden, prefix+"property") {
+			wait(t, observer.Subscribe(topic, 1, func(_ mqtt.Client, m mqtt.Message) { received <- m.Topic() }))
+		}
+		for _, topic := range forbidden {
+			wait(t, device.Publish(topic, 1, false, `{"id":"acl-denied","timestamp":1000,"data":{"x":1}}`))
+		}
+		// A valid canary proves the observer and publication path are functioning.
+		wait(t, device.Publish(prefix+"property", 1, false, `{"id":"acl-canary","timestamp":1000,"data":{"x":1}}`))
+		select {
+		case topic := <-received:
+			if topic != prefix+"property" {
+				t.Fatal("unauthorized publication delivered", topic)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("allowed canary was not received")
+		}
+		select {
+		case topic := <-received:
+			t.Fatal("unexpected forbidden publication", topic)
+		case <-time.After(300 * time.Millisecond):
+		}
+		t.Log("bad credentials and forbidden subscriptions rejected; cross-device/cross-tenant/raw-topic publications blocked; valid canary received")
+	})
 	t.Run("CredentialRevocation", func(t *testing.T) {
 		base, key, apiSecret := os.Getenv("IOT_TEST_EMQX_API_URL"), os.Getenv("IOT_TEST_EMQX_API_KEY"), os.Getenv("IOT_TEST_EMQX_API_SECRET")
 		if base == "" || key == "" || apiSecret == "" {

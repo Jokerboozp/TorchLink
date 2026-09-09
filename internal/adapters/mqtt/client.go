@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -17,6 +18,9 @@ type Client struct {
 	credentials mqtt.CredentialsProvider
 	client      mqtt.Client
 	log         *slog.Logger
+	jobs        chan func()
+	stop        chan struct{}
+	stopOnce    sync.Once
 }
 
 func (c *Client) logger() *slog.Logger {
@@ -31,7 +35,7 @@ func New(broker, user, password, clientID string) (*Client, error) {
 }
 
 func NewWithCredentials(broker, clientID string, credentials mqtt.CredentialsProvider) (*Client, error) {
-	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(clientID).SetCredentialsProvider(credentials).SetConnectRetry(true).SetConnectRetryInterval(3 * time.Second).SetAutoReconnect(true).SetOrderMatters(false)
+	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(clientID).SetCredentialsProvider(credentials).SetConnectRetry(true).SetConnectRetryInterval(3 * time.Second).SetAutoReconnect(true).SetOrderMatters(true)
 	c := mqtt.NewClient(opts)
 	token := c.Connect()
 	if !token.WaitTimeout(10 * time.Second) {
@@ -40,12 +44,13 @@ func NewWithCredentials(broker, clientID string, credentials mqtt.CredentialsPro
 	if token.Error() != nil {
 		return nil, token.Error()
 	}
-	return &Client{client: c, log: slog.Default(), broker: broker, credentials: credentials}, nil
+	adapter := &Client{client: c, log: slog.Default(), broker: broker, credentials: credentials}
+	adapter.startDispatch()
+	return adapter, nil
 }
 func (c *Client) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
 	token := c.client.Publish(topic, qos, retained, payload)
-	done := make(chan struct{})
-	go func() { token.Wait(); close(done) }()
+	done := token.Done()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -67,7 +72,7 @@ func (c *Client) SubscribeRaw(handler func(context.Context, model.RawMessage) er
 		if raw.Source == "" {
 			raw.Source = "external-mqtt"
 		}
-		go c.dispatchRaw(handler, m.Topic(), raw)
+		c.enqueue(m.Topic(), func() { c.dispatchRaw(handler, m.Topic(), raw) })
 	})
 	token.Wait()
 	return token.Error()
@@ -83,7 +88,7 @@ func (c *Client) SubscribeDeviceState(handler func(context.Context, model.Device
 			c.logger().Warn("mqtt device state topic rejected", "topic", m.Topic(), "error", err)
 			return
 		}
-		go c.dispatchState(handler, m.Topic(), state)
+		c.enqueue(m.Topic(), func() { c.dispatchState(handler, m.Topic(), state) })
 	})
 	token.Wait()
 	return token.Error()
@@ -99,23 +104,29 @@ func (c *Client) SubscribeVideo(handler func(context.Context, model.VideoAlarmEv
 			c.logger().Warn("mqtt video topic rejected", "topic", m.Topic(), "error", err)
 			return
 		}
-		go c.dispatchVideo(handler, m.Topic(), v)
+		c.enqueue(m.Topic(), func() { c.dispatchVideo(handler, m.Topic(), v) })
 	})
 	token.Wait()
 	return token.Error()
 }
 func (c *Client) dispatchRaw(handler func(context.Context, model.RawMessage) error, topic string, raw model.RawMessage) {
-	if err := handler(context.Background(), raw); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := handler(ctx, raw); err != nil {
 		c.logger().Error("mqtt raw handler failed", "topic", topic, "messageId", raw.MessageID, "error", err)
 	}
 }
 func (c *Client) dispatchState(handler func(context.Context, model.DeviceState) error, topic string, state model.DeviceState) {
-	if err := handler(context.Background(), state); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := handler(ctx, state); err != nil {
 		c.logger().Error("mqtt device state handler failed", "topic", topic, "deviceId", state.DeviceID, "error", err)
 	}
 }
 func (c *Client) dispatchVideo(handler func(context.Context, model.VideoAlarmEvent) error, topic string, v model.VideoAlarmEvent) {
-	if err := handler(context.Background(), v); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := handler(ctx, v); err != nil {
 		c.logger().Error("mqtt video handler failed", "topic", topic, "eventId", v.EventID, "error", err)
 	}
 }
@@ -152,4 +163,45 @@ func (c *Client) Health(context.Context) error {
 	}
 	return nil
 }
-func (c *Client) Close() error { c.client.Disconnect(250); return nil }
+func (c *Client) Close() error {
+	c.client.Disconnect(250)
+	c.stopOnce.Do(func() {
+		if c.stop != nil {
+			close(c.stop)
+		}
+	})
+	return nil
+}
+
+// Paho runs ordered callbacks synchronously. They only enqueue bounded work;
+// network/durable ingest happens in a fixed worker pool, never a goroutine per message.
+func (c *Client) startDispatch() {
+	c.jobs = make(chan func(), 128)
+	c.stop = make(chan struct{})
+	for i := 0; i < 8; i++ {
+		go func() {
+			for {
+				select {
+				case <-c.stop:
+					return
+				case job := <-c.jobs:
+					job()
+				}
+			}
+		}()
+	}
+}
+func (c *Client) enqueue(topic string, job func()) bool {
+	select {
+	case <-c.stop:
+		return false
+	default:
+	}
+	select {
+	case c.jobs <- job:
+		return true
+	default:
+		c.logger().Error("MQTT ingress rejected: queue capacity exceeded; publisher must verify Raw receipt and retry same message id", "topic", topic)
+		return false
+	}
+}

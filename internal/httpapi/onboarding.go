@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"iot-platform/internal/connector"
+	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 func (s *Server) SetMQTTHealth(health func(context.Context) error) { s.onboarding.MQTTHealth = health }
@@ -30,6 +35,12 @@ func (s *Server) onboardingCreate(w http.ResponseWriter, r *http.Request) {
 	result, err := s.onboarding.Create(r.Context(), claims(r).TenantID, q)
 	if err != nil {
 		problem(w, 409, err.Error())
+		return
+	}
+	result.AccessInfo = s.deviceAccessInfo(result.Device)
+	w.Header().Set("Cache-Control", "no-store")
+	if result.Reused {
+		write(w, 200, result)
 		return
 	}
 	s.audit(r, "device.onboarding", "device", result.Device.ID, map[string]any{"connector": q.Type})
@@ -66,6 +77,10 @@ func (s *Server) standardDeviceIngest(w http.ResponseWriter, r *http.Request) {
 	raw.RemoteAddress = r.RemoteAddr
 	idx, created, err := s.engine.IngestRaw(r.Context(), raw)
 	if err != nil {
+		if errors.Is(err, model.ErrRawConflict) {
+			fail(409, "MESSAGE_CONFLICT", err.Error())
+			return
+		}
 		fail(503, "INGEST_FAILED", err.Error())
 		return
 	}
@@ -82,4 +97,33 @@ func (s *Server) disableDeviceCredential(w http.ResponseWriter, r *http.Request)
 	}
 	s.audit(r, "device.credential.disable", "device", r.PathValue("id"), nil)
 	write(w, 200, map[string]any{"disabled": true, "revocation": v})
+}
+
+func (s *Server) connectorTypes(w http.ResponseWriter, r *http.Request) {
+	write(w, 200, map[string]any{"items": connector.Types()})
+}
+
+func publicEndpoint(value string) string {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	switch u.Scheme {
+	case "http", "https", "mqtt", "mqtts", "tcp", "ssl", "ws", "wss":
+		return strings.TrimRight(u.String(), "/")
+	}
+	return ""
+}
+func (s *Server) deviceAccessInfo(d model.ManagedDevice) map[string]any {
+	if d.Tags["connector"] != "HTTP" && d.Tags["connector"] != "MQTT" {
+		return nil
+	}
+	identity := d.TenantID + "/" + d.ProductID + "/" + d.ID
+	return map[string]any{
+		"httpUrl":    publicEndpoint(s.cfg.DeviceHTTPPublicURL) + "/api/v1/device-ingest/standard/" + identity + "/property",
+		"mqttBroker": publicEndpoint(s.cfg.MQTTPublicURL), "mqttWebSocket": publicEndpoint(s.cfg.MQTTWebSocketURL),
+		"clientId": "device-" + d.AccessKey, "username": d.AccessKey, "tokenEndpoint": "/api/v1/device-mqtt/token",
+		"upTopic": "/iot/up/" + identity + "/property", "downTopic": "/iot/down/" + identity + "/command",
+		"sample": map[string]any{"version": "1.0", "id": "replace-with-unique-message-id", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"temperature": 26.5}},
+	}
 }

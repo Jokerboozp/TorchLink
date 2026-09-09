@@ -105,3 +105,8 @@ Ubuntu 使用相同的一键命令，无需切换脚本或另外准备 Docker �
 离线安装 Docker 本体仍使用包内的 Linux 静态文件；若 Ubuntu 缺少基础依赖，使用打包参数 `--docker-packages-dir` / `-DockerPackagesDir` 携带同一 Ubuntu 版本和 CPU 架构的 DEB 及全部依赖。部署时校验后用 dpkg 安装，不调用 APT 联网补依赖。Ubuntu 不会误用同时携带的 CentOS RPM。
 
 Ubuntu 5.15 / 6.8 内核的安装分支、APT 和离线 DEB 分支已有模拟测试；这不代表已在全新 Ubuntu 虚拟机上完成安装验收。
+
+
+### 设备接入配置补充
+
+离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级保留旧数据，仅自动追加原文解析诊断列。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。

@@ -38,6 +38,8 @@ type Config struct {
 	MQTTUsername                string
 	MQTTPassword                string
 	MQTTWebSocketURL            string
+	MQTTPublicURL               string
+	DeviceHTTPPublicURL         string
 	OllamaURL                   string
 	OllamaModel                 string
 	AIProvider                  string
@@ -110,6 +112,8 @@ func Load() Config {
 		MQTTUsername:                os.Getenv("IOT_MQTT_USERNAME"),
 		MQTTPassword:                os.Getenv("IOT_MQTT_PASSWORD"),
 		MQTTWebSocketURL:            os.Getenv("IOT_MQTT_WEBSOCKET_PUBLIC_URL"),
+		MQTTPublicURL:               os.Getenv("IOT_DEVICE_MQTT_PUBLIC_URL"),
+		DeviceHTTPPublicURL:         os.Getenv("IOT_DEVICE_HTTP_PUBLIC_URL"),
 		OllamaURL:                   get("IOT_OLLAMA_URL", "http://localhost:11434"),
 		OllamaModel:                 get("IOT_OLLAMA_MODEL", "qwen3:1.7b"),
 		AIProvider:                  aiProvider,

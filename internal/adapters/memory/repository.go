@@ -1058,3 +1058,17 @@ func cloneManaged(v model.ManagedDevice) model.ManagedDevice {
 }
 
 var _ = fmt.Sprintf
+
+func (r *Repository) MarkRawParseResult(_ context.Context, tenant, id string, at int64, message string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := key(tenant, id)
+	v, ok := r.raw[k]
+	if !ok {
+		return nil
+	}
+	v.ParseAttemptedAt = at
+	v.ParseError = message
+	r.raw[k] = v
+	return nil
+}

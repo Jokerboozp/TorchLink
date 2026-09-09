@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS raw_archive_index (
 ALTER TABLE raw_archive_index ADD COLUMN IF NOT EXISTS published_at bigint NOT NULL DEFAULT 0;
 ALTER TABLE raw_archive_index ADD COLUMN IF NOT EXISTS publish_attempts integer NOT NULL DEFAULT 0;
 ALTER TABLE raw_archive_index ADD COLUMN IF NOT EXISTS last_publish_error text NOT NULL DEFAULT '';
+ALTER TABLE raw_archive_index ADD COLUMN IF NOT EXISTS parse_attempted_at bigint NOT NULL DEFAULT 0;
+ALTER TABLE raw_archive_index ADD COLUMN IF NOT EXISTS parse_error text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS raw_archive_device_time_idx ON raw_archive_index(tenant_id, device_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS raw_archive_product_time_idx ON raw_archive_index(tenant_id, product_id, received_at DESC);
 

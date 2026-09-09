@@ -22,6 +22,7 @@ const directAlarmRulePrefix = "device-report:"
 
 type Engine struct {
 	stateLocks                [64]sync.Mutex
+	ingestLocks               [256]sync.Mutex
 	Repo                      ports.Repository
 	Archive                   ports.Archive
 	RawStore                  ports.RawMessageStore
@@ -70,6 +71,10 @@ func (e *Engine) Start(ctx context.Context) error {
 }
 func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.RawArchiveIndex, bool, error) {
 	raw.Normalize(e.Clock.Now())
+	digest := sha256.Sum256([]byte(raw.TenantID + "\x00" + raw.MessageID))
+	lock := &e.ingestLocks[digest[0]]
+	lock.Lock()
+	defer lock.Unlock()
 	if raw.ProtocolID == "" || raw.ProtocolVersion == "" {
 		if binding, err := e.Repo.GetProductProtocolBinding(ctx, raw.TenantID, raw.ProductID); err == nil {
 			raw.ProtocolID, raw.ProtocolVersion = binding.ProtocolID, binding.Version
@@ -85,6 +90,12 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		return model.RawArchiveIndex{}, false, err
 	}
 	if existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID); err == nil {
+		if existing.PayloadHash != raw.PayloadHash() || existing.DeviceID != raw.DeviceID || existing.ProductID != raw.ProductID {
+			if e.Log != nil {
+				e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
+			}
+			return existing, false, model.ErrRawConflict
+		}
 		if existing.PublishedAt == 0 {
 			stored, readErr := e.GetRaw(ctx, existing)
 			if readErr != nil {
@@ -111,7 +122,14 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		return idx, false, fmt.Errorf("index raw: %w", err)
 	}
 	if !created {
-		return idx, false, nil
+		existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID)
+		if err != nil {
+			return idx, false, err
+		}
+		if existing.PayloadHash != raw.PayloadHash() || existing.DeviceID != raw.DeviceID || existing.ProductID != raw.ProductID {
+			return existing, false, model.ErrRawConflict
+		}
+		return existing, false, nil
 	}
 	if e.Metrics != nil {
 		e.Metrics.Inc("mqtt_ingest_qps")
@@ -261,6 +279,16 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	if msg == nil && err == nil {
 		msg, err = e.Parsers.Parse(raw)
 	}
+	parseError := ""
+	if err != nil {
+		parseError = err.Error()
+		if len(parseError) > 512 {
+			parseError = parseError[:512]
+		}
+	}
+	if storeErr := e.Repo.MarkRawParseResult(ctx, raw.TenantID, raw.MessageID, e.Clock.Now().UnixMilli(), parseError); storeErr != nil {
+		return storeErr
+	}
 	if err != nil {
 		if e.Metrics != nil {
 			e.Metrics.Inc("parse_failed_total")
@@ -391,6 +419,10 @@ func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) erro
 	state, err := e.Repo.GetDeviceState(ctx, msg.TenantID, msg.DeviceID)
 	if err != nil {
 		state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
+	}
+	// Late retransmissions remain archived but must not roll back current state.
+	if msg.Timestamp < state.LastSeenAt {
+		return nil
 	}
 	old := state.BusinessStatus
 	oldConnection := state.ConnectionStatus

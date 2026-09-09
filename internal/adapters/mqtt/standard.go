@@ -25,11 +25,14 @@ func (c *Client) SubscribeStandard(handler func(context.Context, string, string,
 		if err != nil || len(m.Payload()) > 64<<10 || m.Retained() {
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err = handler(ctx, tenant, product, device, kind, m.Payload()); err != nil {
-			c.logger().Warn("standard MQTT rejected", "topic", m.Topic(), "error", err)
-		}
+		payload := append([]byte(nil), m.Payload()...)
+		c.enqueue(m.Topic(), func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err = handler(ctx, tenant, product, device, kind, payload); err != nil {
+				c.logger().Warn("standard MQTT rejected", "topic", m.Topic(), "error", err)
+			}
+		})
 	})
 	if !token.WaitTimeout(10 * time.Second) {
 		return errors.New("subscribe standard MQTT timeout")
