@@ -57,6 +57,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	repositorytest.RawReservation(t, r)
 	repositorytest.EdgeReadJobs(t, r)
 	repositorytest.EdgeCommands(t, r)
+	repositorytest.TwinTopology(t, r)
 	repositorytest.DeviceShadow(t, r)
 	repositorytest.CatalogCamera(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}

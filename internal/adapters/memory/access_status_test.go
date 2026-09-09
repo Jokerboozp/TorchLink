@@ -16,3 +16,5 @@ func TestRawReservationBeforeArchive(t *testing.T) { repositorytest.RawReservati
 func TestEdgeReadJobOwnership(t *testing.T) { repositorytest.EdgeReadJobs(t, NewRepository()) }
 
 func TestEdgeCommands(t *testing.T) { repositorytest.EdgeCommands(t, NewRepository()) }
+
+func TestTwinTopology(t *testing.T) { repositorytest.TwinTopology(t, NewRepository()) }

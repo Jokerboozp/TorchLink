@@ -16,6 +16,7 @@ func (s *Server) RunCredentialRevocations(ctx context.Context) { s.onboarding.Re
 func (s *Server) deviceOperationsRoutes() {
 	s.edgeRoutes()
 	s.shadowRoutes()
+	s.twinRoutes()
 	s.router.GET("/api/v1/edge-nodes", s.authorize("viewer"), s.endpoint(s.listEdgeNodes))
 	s.router.POST("/api/v1/edge-nodes", s.authorize("admin"), s.endpoint(s.saveEdgeNode))
 	s.router.PUT("/api/v1/edge-nodes/:id", s.authorize("admin"), s.endpoint(s.saveEdgeNode, "id"))
@@ -78,10 +79,12 @@ func (s *Server) deviceHistory(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Query().Get("kind") {
 	case "connection", "":
 		items, total, e = s.engine.Repo.ListDeviceStateEvents(r.Context(), t, d, limit, offset)
+	case "property":
+		items, total, e = s.engine.Repo.ListDeviceMessages(r.Context(), t, d, model.PropertyReport, limit, offset)
 	case "event":
 		items, total, e = s.engine.Repo.ListDeviceMessages(r.Context(), t, d, model.EventReport, limit, offset)
 	default:
-		problem(w, 422, "kind must be connection or event")
+		problem(w, 422, "kind must be connection, event or property")
 		return
 	}
 	if e != nil {

@@ -24,3 +24,5 @@
 `TestDeviceShadow` 共享仓储契约在 Memory 与真实 PostgreSQL 临时 schema 通过：16 并发写者同一期望版本只有一个成功，16 个不同属性并发上报均保留，迟到/重复/删除/差异收敛和租户隔离通过。`TestDeviceShadowAuthenticatedReconciliation` 使用真实 HTTP handler、设备凭据和标准上报解析链路，通过角色/确认/可写属性/类型/版本冲突/凭据撤销检查。`TestShadowProjectionLimitDoesNotBlockMessageProcessing` 验证影子超限不抑制原告警规则。
 
 Chrome `TestOnboardingBrowser` 8.92 秒通过，含影子编辑、人工确认、版本和差异显示，以及原有真实 Broker WebSocket 接入回归。测试未控制物理设备；实际固件读取/执行和生产迁移未执行。
+
+设备关系和统一状态查看入口见 `DEVICE_TWINS.md`。拓扑版本与影子版本独立，关系编辑不触发期望状态写入或设备控制。

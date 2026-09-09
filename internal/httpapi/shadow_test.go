@@ -15,13 +15,18 @@ import (
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestDeviceShadowAuthenticatedReconciliation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	repo := memory.NewRepository()
@@ -37,6 +42,15 @@ func TestDeviceShadowAuthenticatedReconciliation(t *testing.T) {
 	cfg := config.Load()
 	cfg.DataDir = root
 	api := New(cfg, engine, metrics.New(), log)
+	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			api.Handler().ServeHTTP(w, r)
+		} else {
+			assets.ServeHTTP(w, r)
+		}
+	}))
+	defer upstream.Close()
 	product := model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED", ThingModel: &model.ThingModel{Properties: []model.ThingField{{Identifier: "target", DataType: "number", Writable: true}, {Identifier: "battery", DataType: "number"}}}}
 	if err := repo.SaveProduct(ctx, product); err != nil {
 		t.Fatal(err)
@@ -131,6 +145,54 @@ func TestDeviceShadowAuthenticatedReconciliation(t *testing.T) {
 	wait(func(s model.DeviceShadow) bool {
 		return s.Reported["target"] == float64(42) && s.Reported["battery"] == float64(80) && len(s.Delta) == 0
 	})
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "twin-peer", Name: "孪生邻居", ProductID: "product", Status: "ENABLED", AccessKey: "private-twin-peer-key"}); err != nil {
+		t.Fatal(err)
+	}
+	update := map[string]any{"expectedVersion": 0, "add": []model.TwinRelation{{Source: "device", Target: "twin-peer", Kind: "contains"}}}
+	if w := call("PATCH", "/api/v1/device-twin-topology", "tenant", "viewer", update, ""); w.Code != 403 {
+		t.Fatal("viewer topology write", w.Code)
+	}
+	if w := call("PATCH", "/api/v1/device-twin-topology", "tenant", "operator", update, ""); w.Code != 200 {
+		t.Fatal("create topology", w.Code, w.Body.String())
+	}
+	if w := call("PATCH", "/api/v1/device-twin-topology", "tenant", "operator", update, ""); w.Code != 409 {
+		t.Fatal("stale topology edit", w.Code)
+	}
+	if w := call("GET", "/api/v1/device-twins/device", "other", "admin", nil, ""); w.Code != 404 {
+		t.Fatal("foreign twin", w.Code)
+	}
+	w = call("GET", "/api/v1/device-twins/device", "tenant", "viewer", nil, "")
+	var twin struct {
+		Nodes     []model.TwinNode     `json:"nodes"`
+		Relations []model.TwinRelation `json:"relations"`
+		Shadow    model.DeviceShadow   `json:"shadow"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &twin) != nil || len(twin.Nodes) != 2 || len(twin.Relations) != 1 || twin.Shadow.Reported["target"] != float64(42) || len(twin.Shadow.Delta) != 0 {
+		t.Fatal("actual twin projection", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("private-twin-peer-key")) || bytes.Contains(w.Body.Bytes(), []byte(created.Credential.Secret)) {
+		t.Fatal("twin exposed credentials")
+	}
+	if w := call("GET", "/api/v1/device-twins/device?depth=1000", "tenant", "viewer", nil, ""); w.Code != 422 {
+		t.Fatal("unbounded graph traversal", w.Code)
+	}
+	if w := call("GET", "/api/v1/device-registry/device/history?kind=property", "tenant", "viewer", nil, ""); w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"target":42`)) {
+		t.Fatal("actual property history", w.Code, w.Body.String())
+	}
+	t.Run("twin-browser", func(t *testing.T) {
+		if os.Getenv("IOT_TEST_BROWSER") == "" {
+			t.Skip("IOT_TEST_BROWSER is not configured")
+		}
+		token, _ := api.auth.Issue("browser-test", "tenant", "admin", nil, time.Minute)
+		command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "twin-check.mjs"))
+		command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+upstream.URL, "IOT_TEST_TOKEN="+token)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("browser: %v %s", err, output)
+		}
+		t.Log(string(output))
+	})
+
 	if _, _, err := repo.ChangeDeviceCredential(ctx, "tenant", "device", "", "", time.Now().UnixMilli()); err != nil {
 		t.Fatal(err)
 	}

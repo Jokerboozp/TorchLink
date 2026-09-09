@@ -21,6 +21,9 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	GetTwinNodes(context.Context, string, []string) ([]model.TwinNode, error)
+	GetTwinTopology(context.Context, string) (model.TwinTopology, error)
+	UpdateTwinTopology(context.Context, model.TwinUpdate) (model.TwinTopology, error)
 	GetDeviceShadow(context.Context, string, string) (model.DeviceShadow, error)
 	UpdateDeviceShadow(context.Context, model.ShadowUpdate) (model.DeviceShadow, error)
 	ListShadowChanges(context.Context, string, string, int, int) ([]model.ShadowChange, error)

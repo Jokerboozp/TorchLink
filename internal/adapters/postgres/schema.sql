@@ -318,3 +318,5 @@ CREATE TABLE IF NOT EXISTS device_shadow (tenant_id text NOT NULL, device_id tex
 CREATE TABLE IF NOT EXISTS device_shadow_change (tenant_id text NOT NULL, device_id text NOT NULL, version bigint NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id,version));
 
 CREATE INDEX IF NOT EXISTS device_command_edge_pending_idx ON device_command(tenant_id,(body->'execution'->>'nodeId'),created_at) WHERE status='QUEUED';
+
+CREATE TABLE IF NOT EXISTS device_twin_topology (tenant_id text PRIMARY KEY,body jsonb NOT NULL);
