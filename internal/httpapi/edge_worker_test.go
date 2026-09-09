@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
@@ -32,7 +33,7 @@ import (
 )
 
 func TestEdgeWorkerDownloadTCPUDPAndVersionSwitch(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	repo := memory.NewRepository()
@@ -48,12 +49,19 @@ func TestEdgeWorkerDownloadTCPUDPAndVersionSwitch(t *testing.T) {
 	cfg := config.Load()
 	cfg.DataDir = root
 	api := New(cfg, engine, metrics.New(), log)
-	upstream := httptest.NewServer(api.Handler())
+	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			api.Handler().ServeHTTP(w, r)
+		} else {
+			assets.ServeHTTP(w, r)
+		}
+	}))
 	defer upstream.Close()
 	source := filepath.Join(t.TempDir(), "worker.go")
 	code := `package main
 import("os";"encoding/json";"encoding/hex")
-func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decode(&q); out:=map[string]any{}; if q.Operation=="ingress" {b,_:=hex.DecodeString(q.Data); if len(b)<2{out["needMore"]=true}else{out["consumed"]=2;out["deviceId"]="device";out["reply"]="AC"}}else{out["standardMessage"]=map[string]any{"messageType":"PROPERTY_REPORT","properties":map[string]any{"temperature":42}}};json.NewEncoder(os.Stdout).Encode(out)}
+func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decode(&q); out:=map[string]any{}; if q.Operation=="ingress" {b,_:=hex.DecodeString(q.Data); if len(b)<2{out["needMore"]=true}else{out["consumed"]=2;out["deviceId"]="device";out["reply"]="AC"; if b[0]==0xB0 {out["correlationId"]="fixture-command"}}}else if q.Operation=="encode" {out["reply"]="CAFE";out["correlationId"]="fixture-command"}else{out["standardMessage"]=map[string]any{"messageType":"PROPERTY_REPORT","properties":map[string]any{"temperature":42}}};json.NewEncoder(os.Stdout).Encode(out)}
 `
 	if err := os.WriteFile(source, []byte(code), 0600); err != nil {
 		t.Fatal(err)
@@ -84,7 +92,7 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 			t.Fatal(err)
 		}
 		artifact := map[string]any{"path": relative, "sha256": hex.EncodeToString(sum[:]), "platform": runtime.GOOS + "/" + runtime.GOARCH, "runtime": "go-protocol-v2"}
-		if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "worker", Version: version, Status: "PUBLISHED", Transport: "TCP_UDP", PayloadFormat: "hex", ParserType: parser.GoProtocolParserName, Capabilities: []string{"ingress", "decode"}, Artifact: artifact, Config: map[string]any{"artifact": artifact}}); err != nil {
+		if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "worker", Version: version, Status: "PUBLISHED", Transport: "TCP_UDP", PayloadFormat: "hex", ParserType: parser.GoProtocolParserName, Capabilities: []string{"ingress", "decode", "encode"}, Artifact: artifact, Config: map[string]any{"artifact": artifact}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -148,7 +156,7 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 	if err := os.WriteFile(firstPath, data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := edgeagent.New(edgeagent.Options{URL: upstream.URL, TenantID: "tenant", NodeID: "edge", Secret: "test-node-secret", DataDir: t.TempDir(), AllowedCIDRs: []string{"127.0.0.0/8"}, AllowInsecureHTTP: true, AllowGoWorkers: true, AllowedListenAddresses: []string{"127.0.0.1"}}, log)
+	agent, err := edgeagent.New(edgeagent.Options{URL: upstream.URL, TenantID: "tenant", NodeID: "edge", Secret: "test-node-secret", DataDir: t.TempDir(), AllowedCIDRs: []string{"127.0.0.0/8"}, AllowInsecureHTTP: true, AllowGoWorkers: true, AllowCommands: true, AllowedListenAddresses: []string{"127.0.0.1"}}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +193,107 @@ func main(){var q struct{Operation,Data string}; json.NewDecoder(os.Stdin).Decod
 	if n, err := udp.Read(ack); err != nil || n != 1 || ack[0] != 0xac {
 		t.Fatalf("UDP: %x %v", ack, err)
 	}
+	callCommand := func(role, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest("POST", "/api/v2/device-access-profiles/tcp/devices/device/commands", strings.NewReader(body))
+		token, err := api.auth.Issue("command-test", "tenant", role, nil, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		api.Handler().ServeHTTP(w, r)
+		return w
+	}
+	commandBody := `{"type":"test","requestId":"edge-real-command","confirmed":true}`
+	if w := callCommand("viewer", commandBody); w.Code != 403 {
+		t.Fatal("viewer command", w.Code)
+	}
+	if w := callCommand("operator", `{"type":"test","requestId":"unconfirmed"}`); w.Code != 422 {
+		t.Fatal("missing confirmation", w.Code)
+	}
+	if w := callCommand("operator", commandBody); w.Code != 202 {
+		t.Fatalf("queue command: %d %s", w.Code, w.Body.String())
+	}
+	tcp.SetDeadline(time.Now().Add(5 * time.Second))
+	wire := make([]byte, 2)
+	if _, err := io.ReadFull(tcp, wire); err != nil || !bytes.Equal(wire, []byte{0xca, 0xfe}) {
+		t.Fatalf("actual edge command bytes: %x %v", wire, err)
+	}
+	before, _ := repo.GetDeviceCommand(ctx, "tenant", "edge-real-command")
+	if before.Status != "DISPATCHING" {
+		t.Fatal("claim reported device acknowledgment before actual reply", before.Status)
+	}
+	tcp.Write([]byte{0xb0, 0x01})
+	if _, err := io.ReadFull(tcp, ack[:1]); err != nil || ack[0] != 0xac {
+		t.Fatal("command reply ingress", err)
+	}
+	for {
+		finished, err := repo.GetDeviceCommand(ctx, "tenant", "edge-real-command")
+		if err == nil && finished.Status == "ACKNOWLEDGED" {
+			if finished.Reply["rawMessageId"] == "" || finished.Reply["correlationId"] != "fixture-command" {
+				t.Fatal("missing real acknowledgment evidence")
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("command result missing", finished, err)
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if w := callCommand("operator", commandBody); w.Code != 200 || bytes.Contains(w.Body.Bytes(), []byte(`"token"`)) {
+		t.Fatal("retry or public token", w.Code, w.Body.String())
+	}
+	if w := callCommand("operator", `{"type":"other","requestId":"edge-real-command","confirmed":true}`); w.Code != 409 {
+		t.Fatal("conflicting request ID", w.Code)
+	}
+	tcp.SetReadDeadline(time.Now().Add(1200 * time.Millisecond))
+	if _, err := tcp.Read(wire); err == nil {
+		t.Fatal("completed command was automatically sent again")
+	}
+
+	t.Run("command-browser", func(t *testing.T) {
+		if os.Getenv("IOT_TEST_BROWSER") == "" {
+			t.Skip("IOT_TEST_BROWSER is not configured")
+		}
+		token, err := api.auth.Issue("browser-test", "tenant", "admin", nil, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deviceDone := make(chan error, 1)
+		go func() {
+			tcp.SetDeadline(time.Now().Add(20 * time.Second))
+			frame := make([]byte, 2)
+			if _, err := io.ReadFull(tcp, frame); err != nil {
+				deviceDone <- err
+				return
+			}
+			if !bytes.Equal(frame, []byte{0xca, 0xfe}) {
+				deviceDone <- fmt.Errorf("unexpected command: %x", frame)
+				return
+			}
+			if _, err := tcp.Write([]byte{0xb0, 0x02}); err != nil {
+				deviceDone <- err
+				return
+			}
+			_, err := io.ReadFull(tcp, frame[:1])
+			deviceDone <- err
+		}()
+		command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "edge-command-check.mjs"))
+		command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+upstream.URL, "IOT_TEST_TOKEN="+token)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			tcp.SetReadDeadline(time.Now())
+			<-deviceDone
+			t.Fatalf("browser: %v %s", err, output)
+		}
+		if err := <-deviceDone; err != nil {
+			t.Fatal("real device response", err)
+		}
+		t.Log(string(output))
+	})
+
 	if err := repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant", ProductID: "product", ProtocolID: "worker", Version: "1.1.0", PreviousVersion: "1.0.0"}); err != nil {
 		t.Fatal(err)
 	}

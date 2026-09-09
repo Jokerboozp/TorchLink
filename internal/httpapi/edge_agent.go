@@ -16,6 +16,9 @@ import (
 
 func (s *Server) edgeRoutes() {
 	s.onboarding.RemoteRead = s.edgeRead
+	s.router.GET("/api/v1/edge/:tenant/:node/commands", s.endpoint(s.edgeCommand, "tenant", "node"))
+	s.router.POST("/api/v1/edge/:tenant/:node/commands/:command", s.endpoint(s.edgeCommand, "tenant", "node", "command"))
+	s.router.GET("/api/v1/device-registry/:id/commands/:command", s.authorize("viewer"), s.endpoint(s.deviceCommandStatus, "id", "command"))
 	s.router.POST("/api/v1/edge-nodes/:id/video-catalog/import", s.authorize("operator"), s.endpoint(s.importVideoCatalog, "id"))
 	s.router.GET("/api/v1/edge/:tenant/:node/protocols/:id/:version/artifact", s.endpoint(s.edgeArtifact, "tenant", "node", "id", "version"))
 	s.router.GET("/api/v1/edge/:tenant/:node/read-jobs", s.endpoint(s.edgeReadJobs, "tenant", "node"))

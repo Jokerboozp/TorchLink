@@ -205,7 +205,7 @@ func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCo
 		return q, e
 	}
 	if !created {
-		if saved.DeviceID != d || saved.Type != q.Type || !reflect.DeepEqual(saved.Data, q.Data) {
+		if saved.Execution != nil || saved.DeviceID != d || saved.Type != q.Type || !reflect.DeepEqual(saved.Data, q.Data) {
 			return model.DeviceCommand{}, errors.New("command id is already used by a different request")
 		}
 		return saved.ObservedOutcome(time.Now().UnixMilli()), nil

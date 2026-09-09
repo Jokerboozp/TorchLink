@@ -101,7 +101,7 @@ func (s *Server) listDeviceCommands(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i := range items {
-		items[i] = items[i].ObservedOutcome(time.Now().UnixMilli())
+		items[i] = items[i].ObservedOutcome(time.Now().UnixMilli()).Public()
 	}
 	write(w, 200, map[string]any{"items": items, "total": total})
 }
@@ -120,5 +120,5 @@ func (s *Server) sendDeviceCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "device.command", "device", v.DeviceID, map[string]any{"commandId": v.ID, "status": v.Status})
-	write(w, 202, v)
+	write(w, 202, v.Public())
 }

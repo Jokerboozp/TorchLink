@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { commandStatuses, label } from '../labels'
 import ProtocolCatalog from '../components/ProtocolCatalog.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 
 const protocols = ref([])
@@ -26,6 +27,7 @@ const savingListener = ref(false)
 const listenerReleases = computed(() => protocols.value.find(item => item.definition.id === listener.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED' && item.artifact?.runtime === 'go-protocol-v2' && item.capabilities?.includes('ingress')) || [])
 const command = reactive({ profileId:'', deviceId:'', body:'{"type":"time-sync"}' })
 const sendingCommand = ref(false)
+const pendingProtocolCommand = ref(null)
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0))
 
 async function loadProducts() {
@@ -119,9 +121,18 @@ async function sendCommand() {
   let body
   try { body = JSON.parse(command.body); if (!body || typeof body.type !== 'string' || !body.type.trim()) throw new Error() }
   catch { return ElMessage.warning('命令须为包含 type 的 JSON 对象') }
+  try { await ElMessageBox.confirm('确认向此设备发送协议命令？请核对参数，结果未知时不要另建命令重发。','人工确认命令') } catch { return }
+  const signature = JSON.stringify([command.profileId,command.deviceId,body])
+  if (!pendingProtocolCommand.value || pendingProtocolCommand.value.signature !== signature) pendingProtocolCommand.value={signature,id:crypto.randomUUID()}
+  body={...body,requestId:pendingProtocolCommand.value.id,confirmed:true}
   sendingCommand.value = true
-  try { result.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(command.profileId)}/devices/${encodeURIComponent(command.deviceId)}/commands`, { method:'POST', body:JSON.stringify(body) }); ElMessage.success(result.value.status === 'acknowledged' ? '设备已应答' : '命令已发送') }
+  try { result.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(command.profileId)}/devices/${encodeURIComponent(command.deviceId)}/commands`, { method:'POST', body:JSON.stringify(body) }); ElMessage.success(result.value.execution ? '命令已记录，请查询实际结果' : result.value.status === 'acknowledged' ? '设备已应答' : '命令已发送') }
   catch (error) { notifyError(error) } finally { sendingCommand.value = false }
+}
+
+async function refreshProtocolCommand(){
+ if(!pendingProtocolCommand.value)return
+ try{result.value=await api(`/api/v1/device-registry/${encodeURIComponent(command.deviceId)}/commands/${encodeURIComponent(pendingProtocolCommand.value.id)}`)}catch(error){notifyError(error)}
 }
 
 async function testProfile(profile) {
@@ -202,7 +213,7 @@ onMounted(load)
         <el-form-item label="接入实例"><el-select v-model="command.profileId"><el-option v-for="p in profiles.filter(p => p.mode === 'listener' && p.enabled)" :key="p.id" :label="p.id" :value="p.id" /></el-select></el-form-item>
         <el-form-item label="在线设备标识"><el-input v-model="command.deviceId" placeholder="由协议包识别的设备 ID" /></el-form-item>
       </div><el-form-item label="协议包支持的命令 JSON"><el-input v-model="command.body" type="textarea" :rows="3" /></el-form-item>
-      <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令并等待应答</el-button></el-form>
+      <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令</el-button><el-button v-if="pendingProtocolCommand && profiles.find(p=>p.id===command.profileId)?.edgeNodeId" @click="refreshProtocolCommand">查询命令结果</el-button><el-button v-if="pendingProtocolCommand" @click="pendingProtocolCommand=null">开始一条新命令</el-button></el-form>
     </el-tab-pane>
 
     <el-tab-pane label="协议与版本">
@@ -245,7 +256,7 @@ onMounted(load)
 
   <el-card v-if="result" shadow="never" class="surface-card top-gap">
     <template #header><strong>最近一次操作结果</strong></template>
-    <pre>{{ pretty(result) }}</pre>
+    <p v-if="result.execution">{{label(commandStatuses,result.status)}} · {{result.lastError||''}}</p><pre>{{ pretty(result) }}</pre>
   </el-card>
 </template>
 

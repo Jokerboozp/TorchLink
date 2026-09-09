@@ -27,10 +27,7 @@ func (s *Server) SetProtocolListeners(listeners protocolCommander) {
 }
 
 func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
-	if s.protocolListeners == nil {
-		problem(w, 503, "通用协议接入服务未启动")
-		return
-	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	var command map[string]any
 	if decode(w, r, &command) != nil {
 		return
@@ -44,6 +41,20 @@ func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(command, "confirmed")
+	p, err := s.engine.Repo.GetDeviceAccessProfile(r.Context(), claims(r).TenantID, r.PathValue("id"))
+	if err != nil {
+		problem(w, 404, "接入实例不存在")
+		return
+	}
+	if p.EdgeNodeID != "" {
+		s.enqueueEdgeCommand(w, r, p, command)
+		return
+	}
+	if s.protocolListeners == nil {
+		problem(w, 503, "通用协议接入服务未启动")
+		return
+	}
+	delete(command, "requestId")
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	result, err := s.protocolListeners.Command(ctx, claims(r).TenantID, r.PathValue("id"), r.PathValue("deviceId"), command)

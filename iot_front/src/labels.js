@@ -30,3 +30,5 @@ export function tagType(value) {
   if (['ALARM','HIGH','CRITICAL'].includes(value)) return 'danger'
   return 'info'
 }
+
+export const commandStatuses = { QUEUED:'已排队，等待节点领取', DISPATCHING:'已领取，正在发送或等待应答', SENT:'已发送，执行结果未确认', ACKNOWLEDGED:'已收到协议应答', SUCCEEDED:'执行成功', FAILED:'执行失败', REJECTED:'执行前已拒绝', EXPIRED:'领取前已过期', UNKNOWN:'执行结果未知，不自动重发' }

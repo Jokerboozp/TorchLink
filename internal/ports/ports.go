@@ -44,6 +44,10 @@ type Repository interface {
 	ChangeDeviceCredential(context.Context, string, string, string, string, int64) (model.ManagedDevice, model.CredentialRevocation, error)
 	ListCredentialRevocations(context.Context, string, string, bool) ([]model.CredentialRevocation, error)
 	UpdateCredentialRevocation(context.Context, model.CredentialRevocation) error
+	CreateEdgeCommand(context.Context, model.DeviceCommand) (model.DeviceCommand, bool, error)
+	GetDeviceCommand(context.Context, string, string) (model.DeviceCommand, error)
+	ClaimEdgeCommand(context.Context, string, string, string) (model.DeviceCommand, error)
+	FinishEdgeCommand(context.Context, model.DeviceCommand) error
 	CreateDeviceCommand(context.Context, model.DeviceCommand) (model.DeviceCommand, bool, error)
 	UpdateDeviceCommandDispatch(context.Context, string, string, string, string, int64) error
 	CompleteDeviceCommand(context.Context, string, string, string, map[string]any, int64) error

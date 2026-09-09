@@ -107,3 +107,23 @@ go test ./internal/httpapi -run 'Test(SplitGatewayHTTPFlow|ExecutionRouteUsesTen
 ## GB28181 专用视频目录节点
 
 独立元数据服务位于 `protocol-packages/gb28181-metadata`，不作为平台内置厂商 Parser，也不与普通 Edge Agent 共用节点凭据。它使用本机 SIP 密码完成注册认证，以平台节点凭据同步元数据；摄像头目录经操作员显式导入，保留已编辑信息和设备关联。部署配置、容量及错误状态见该目录 `README.md`。它不提供视频流、云台或设备配置操作。
+
+## 现场协议命令
+
+现场节点默认不接收控制命令。部署者须同时启用 `IOT_EDGE_ALLOW_GO_WORKERS=true` 和 `IOT_EDGE_ALLOW_COMMANDS=true`；已有监听地址白名单继续有效。节点心跳只有在本机开启这两个选项时才报告 `PROTOCOL_COMMANDS`。平台仍要求 operator 角色及每次人工确认。
+
+沿用协议命令入口 `POST /api/v2/device-access-profiles/{profile}/devices/{device}/commands`。现场实例必须提供 `requestId`（同一次操作的重试复用该值）、`type`、协议参数和 `confirmed:true`。设备/产品/节点必须启用，实例归属、当前发布协议的 encode 能力、近期心跳均经服务端检查；排队前不存在“已发送”或“执行成功”。命令复用 `device_command` 与设备命令历史，不新建第二套业务命令库。查询入口为 `GET /api/v1/device-registry/{device}/commands/{requestId}`。
+
+- `QUEUED`：已记录，等待节点领取；每个节点最多 8 条活动命令，30 秒领取窗口。
+- `DISPATCHING`：数据库已唯一领取；尚不能据此推断实际写出。
+- `SENT`：协议没有关联应答，Socket 写出已返回；不证明设备执行成功。
+- `ACKNOWLEDGED`：实际 Listener ingress 收到关联应答并将原文保存在节点持久化队列，返回 `rawMessageId`。该原文到达中心前可能暂不可查；协议应答不等于设备业务操作成功。
+- `REJECTED`：节点执行前的配置、版本、截止时间或认证刷新检查失败，没有调用命令执行。
+- `EXPIRED`：领取前已到期，不下发。
+- `UNKNOWN`：节点在领取后中断、发送/等待失败或超过结果窗口，结果未知，不自动重发；仍可接受持有原领取令牌的迟到结果。
+
+节点执行前重新同步认证配置，对照排队时的 Profile 摘要与协议版本，保持已检查配置直到原 Listener 完成 encode/写出/应答。配置同步串行化，使用常驻进程上下文，避免短期命令退出导致采集停止。版本切换仍尊重完整帧和待应答边界。
+
+领取只发生一次，服务端不会把 RUNNING/已领取任务重新分发。节点在实际执行前以 `0600` 原子保存 `command-result.json` 的 UNKNOWN 记录；执行结束再替换实际结果。重启仅补传此结果，不重放命令。补传未确认前不领取下一条命令，平台成功确认 ID 后才删除本地记录。服务端允许一天内补传；过期/失去归属的结果改存本机 `command-result.json.rejected`（最近一条），中心历史保留未知状态。本地节点凭据不写入记录，领取令牌不暴露给浏览器或命令列表。
+
+页面重试保留相同 requestId，另有“开始一条新命令”供用户明确发起新操作。结果未知时应核实设备状态，不以创建新 ID 代替重试。未实现 Modbus 写功能或任意 shell 命令，此入口只调用已发布 Go 协议的 encode 契约。

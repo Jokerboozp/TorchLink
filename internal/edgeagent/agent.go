@@ -23,6 +23,7 @@ import (
 )
 
 type Options struct {
+	AllowCommands                          bool
 	CredentialFile                         string
 	AllowGoWorkers                         bool
 	AllowedListenAddresses                 []string
@@ -32,6 +33,7 @@ type Options struct {
 	AllowInsecureHTTP                      bool
 }
 type Agent struct {
+	syncMu    sync.Mutex
 	listeners *protocolruntime.Listeners
 	collector *fieldprotocol.Collector
 	options   Options
@@ -281,6 +283,8 @@ func (a *Agent) apply(ctx context.Context, cfg model.EdgeConfiguration) error {
 	return nil
 }
 func (a *Agent) sync(ctx context.Context) error {
+	a.syncMu.Lock()
+	defer a.syncMu.Unlock()
 	var cfg model.EdgeConfiguration
 	if err := a.request(ctx, "GET", "/config", nil, &cfg); err != nil {
 		var httpErr *HTTPError
@@ -308,6 +312,9 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	h := model.EdgeHeartbeat{Version: "edge-agent-v1", ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
 	if a.options.AllowGoWorkers {
 		h.Capabilities = append(h.Capabilities, "GO_PROTOCOL_V2")
+	}
+	if a.options.AllowCommands && a.options.AllowGoWorkers {
+		h.Capabilities = append(h.Capabilities, "PROTOCOL_COMMANDS")
 	}
 	repo, listeners := a.repo, a.listeners
 	a.mu.Unlock()
@@ -365,6 +372,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	jobsDone := make(chan struct{})
 	go func() { defer close(jobsDone); a.readJobs(jobsCtx) }()
 	defer func() { jobsCancel(); <-jobsDone }()
+	commandDone := make(chan struct{})
+	go func() { defer close(commandDone); a.commandJobs(jobsCtx) }()
+	defer func() { jobsCancel(); <-commandDone }()
 	syncTick := time.NewTicker(5 * time.Second)
 	defer syncTick.Stop()
 	heartTick := time.NewTicker(10 * time.Second)
