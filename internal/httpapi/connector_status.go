@@ -3,6 +3,7 @@ package httpapi
 import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolworker"
 	"net/http"
 	"strings"
@@ -87,10 +88,17 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	protocolID, version := "", ""
-	if profile != nil {
-		protocolID, version = profile.ProtocolID, profile.ProtocolVersion
-	} else if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" {
+	if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" {
 		protocolID, version = parser.StandardProtocolID, "1.0.0"
+	} else if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil {
+		protocolID, version = binding.ProtocolID, binding.Version
+	} else if profile != nil {
+		protocolID, version = profile.ProtocolID, profile.ProtocolVersion
+	}
+	alarms, err := s.engine.Repo.ListAlarms(r.Context(), ports.AlarmFilter{TenantID: tenant, DeviceID: d.ID, Limit: 5})
+	if err != nil {
+		problem(w, 500, err.Error())
+		return
 	}
 	revocations, err := s.engine.Repo.ListCredentialRevocations(r.Context(), tenant, d.ID, false)
 	if err != nil {
@@ -104,5 +112,5 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	write(w, 200, map[string]any{"revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": d.Tags["connector"], "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+	write(w, 200, map[string]any{"recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": d.Tags["connector"], "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
 }

@@ -1,7 +1,7 @@
 <script setup>
 import EdgeNodes from './EdgeNodes.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, apiAll, notifyError, pretty } from '../api'
+import { api, notifyError, pretty } from '../api'
 const props = defineProps({ products: { type: Array, default: () => [] } })
 const emit = defineEmits(['close', 'created', 'navigate'])
 const step = ref(0), busy = ref(false), preview = ref(null), result = ref(null), advanced = ref(false)
@@ -26,7 +26,7 @@ watch(newProduct,value=>{form.productId=value?`product-${crypto.randomUUID().sli
 watch([()=>form.type,()=>form.productId],()=>{existingProfileId.value=''})
 watch([existingProfileId,newProduct,productName],()=>{preview.value=null})
 watch(()=>form.messageKind,kind=>{if(standard.value)sample.value=pretty({id:'msg-001',timestamp:Date.now(),data:kind==='state'?{connectionStatus:'CONNECTED'}:kind==='event'?{type:'deviceStarted',message:'设备启动'}:{temperature:26.5}})})
-watch(()=>form.type, value=>{form.profile.host=value==='MODBUS_TCP'?'':'0.0.0.0';form.profile.port=value==='MODBUS_TCP'?502:26875;form.protocolId='';form.protocolVersion='';sample.value=['TCP','UDP'].includes(value)?'':pretty({id:'msg-001',timestamp:Date.now(),data:{temperature:26.5}})})
+watch(()=>form.type, value=>{form.profile.host=value==='MODBUS_TCP'?'':'0.0.0.0';form.profile.port=value==='MODBUS_TCP'?502:26875;form.protocolId='';form.protocolVersion='';sample.value=['TCP','UDP'].includes(value)?'':pretty({id:'msg-001',timestamp:Date.now(),data:form.messageKind==='state'?{connectionStatus:'CONNECTED'}:form.messageKind==='event'?{type:'deviceStarted',message:'设备启动'}:{temperature:26.5}})})
 watch([form,sample,csv,point],()=>{preview.value=null},{deep:true})
 function request() { return {...form, productName:newProduct.value?productName.value:undefined, existingProfileId:existingProfileId.value, profile:{...form.profile}, payload:standard.value ? JSON.parse(sample.value) : listener.value ? sample.value.replace(/\s/g,'') : null, pointTableCsv:csv.value || `name,functionCode,address,addressNotation,dataType,scale\n${point.identifier},${point.functionCode},${point.address},zero_based,${point.dataType},${point.scale}\n`} }
 async function test(){busy.value=true;preview.value=null;try{preview.value=await api('/api/v1/onboarding/test',{method:'POST',body:JSON.stringify(request())})}catch(e){notifyError(e)}finally{busy.value=false}}
@@ -60,7 +60,8 @@ async function copy(){await navigator.clipboard.writeText(pretty(result.value));
       <div v-if="step===5&&result"><el-alert type="success" title="设备已创建并启用" :closable="false"/><p>请立即保存设备 Secret；关闭后无法再次查询，可在设备列表重新生成或禁用。</p><el-descriptions :column="1" border><el-descriptions-item label="Device ID">{{result.device.id}}</el-descriptions-item><el-descriptions-item label="Client ID">{{result.clientId}}</el-descriptions-item><el-descriptions-item label="Username / X-Device-Key">{{result.username}}</el-descriptions-item><el-descriptions-item label="Device Secret">{{result.credential.secret}}</el-descriptions-item></el-descriptions><el-button @click="copy">复制接入结果</el-button><template v-if="standard"><p>HTTP：POST {{ingestURL}}，使用 X-Device-Key / X-Device-Secret 请求头，上报正文与测试 JSON 相同。event / state 替换末尾 property。</p><p>MQTT：先 POST /api/v1/device-mqtt/token，使用同一设备请求头换取 token，将 token 作为 MQTT password。使用返回的 username 和本页 Client ID。</p><pre>/iot/up/{{identity}}/property
 /iot/up/{{identity}}/event
 /iot/up/{{identity}}/state
-/iot/down/{{identity}}/command</pre></template><p v-else>运行时将自动加载接入配置。实际在线状态与接收数据请在设备列表和原始报文中查看。</p></div>
+/iot/up/{{identity}}/command-reply
+/iot/down/{{identity}}/command</pre><p>命令回执的 data 包含 commandId 和 success（布尔值）。设备收到命令后应按 id 去重执行，再上报回执。</p></template><p v-else>运行时将自动加载接入配置。实际在线状态与接收数据请在设备列表和原始报文中查看。</p></div>
     </div>
     <template #footer><el-button :disabled="busy" @click="emit('close')">{{step===5?'关闭':'取消'}}</el-button><el-button v-if="step>0&&step<5" :disabled="busy" @click="step--">上一步</el-button><el-button v-if="step<4" type="primary" :disabled="nextDisabled" @click="step++">下一步</el-button><el-button v-if="step===4" type="primary" :disabled="busy||!preview?.success" :loading="busy" @click="finish">完成并启用</el-button></template>
   </el-dialog>

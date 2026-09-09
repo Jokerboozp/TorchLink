@@ -121,4 +121,24 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) {
 	if w.Code != 401 {
 		t.Fatal("disabled token accepted", w.Code)
 	}
+	// Details follow the current binding even while a profile still records the
+	// original release, and the alarm preview must remain device/tenant scoped.
+	d, _ := repo.GetManagedDevice(ctx, "t", "d")
+	d.Tags = map[string]string{"connector": "TCP", "connectorProfileId": "profile"}
+	repo.SaveManagedDevice(ctx, d)
+	repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "t", ID: "profile", ProductID: "p", ProtocolID: "old", ProtocolVersion: "1"})
+	repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "t", ProtocolID: "current", Version: "2", Status: "PUBLISHED", Capabilities: []string{"encode"}})
+	repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "t", ProductID: "p", ProtocolID: "current", Version: "2"})
+	repo.UpsertAlarm(ctx, model.Alarm{TenantID: "t", DeviceID: "d", ID: "own", RuleID: "r", AlarmType: "FIRE", LastTriggeredAt: 1})
+	repo.UpsertAlarm(ctx, model.Alarm{TenantID: "other", DeviceID: "d", ID: "foreign", RuleID: "r", AlarmType: "FIRE", LastTriggeredAt: 2})
+	w = call("GET", "/api/v1/device-registry/d/connection", "", "t", "viewer")
+	var detail struct {
+		ProtocolID string        `json:"protocolId"`
+		Version    string        `json:"protocolVersion"`
+		CanCommand bool          `json:"canCommand"`
+		Alarms     []model.Alarm `json:"recentAlarms"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &detail) != nil || detail.ProtocolID != "current" || detail.Version != "2" || !detail.CanCommand || len(detail.Alarms) != 1 || detail.Alarms[0].ID != "own" {
+		t.Fatal(w.Code, w.Body.String())
+	}
 }
