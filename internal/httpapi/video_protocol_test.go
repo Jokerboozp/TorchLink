@@ -33,6 +33,7 @@ func TestEdgeONVIFMetadataWithAuthentication(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	camera := testonvif.Start(t, true, false)
+	discovery := testonvif.StartDiscovery(t, camera.Server.URL+"/onvif/device_service")
 	repo := memory.NewRepository()
 	root := t.TempDir()
 	archive, err := local.NewArchive(root)
@@ -64,7 +65,7 @@ func TestEdgeONVIFMetadataWithAuthentication(t *testing.T) {
 	if err := os.WriteFile(credentialPath, b, 0600); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := edgeagent.New(edgeagent.Options{URL: upstream.URL, TenantID: "t", NodeID: "edge", Secret: "test-node-secret", DataDir: t.TempDir(), CredentialFile: credentialPath, AllowedCIDRs: []string{"127.0.0.0/8"}, AllowInsecureHTTP: true}, log)
+	agent, err := edgeagent.New(edgeagent.Options{DiscoveryInterfaces: []string{"127.0.0.1"}, DiscoveryProbeAddress: discovery.Address, URL: upstream.URL, TenantID: "t", NodeID: "edge", Secret: "test-node-secret", DataDir: t.TempDir(), CredentialFile: credentialPath, AllowedCIDRs: []string{"127.0.0.0/8"}, AllowInsecureHTTP: true}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +83,38 @@ func TestEdgeONVIFMetadataWithAuthentication(t *testing.T) {
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
+
+	t.Run("discovery", func(t *testing.T) {
+		call := func(tenant, role, address string) *httptest.ResponseRecorder {
+			token, _ := server.auth.Issue("discovery", tenant, role, nil, time.Minute)
+			data, _ := json.Marshal(map[string]string{"edgeNodeId": "edge", "interfaceAddress": address})
+			r := httptest.NewRequest("POST", "/api/v1/integrations/video/onvif/discover", bytes.NewReader(data))
+			r.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			server.Handler().ServeHTTP(w, r)
+			return w
+		}
+		if w := call("t", "viewer", "127.0.0.1"); w.Code != 403 {
+			t.Fatal("viewer discovery", w.Code)
+		}
+		if w := call("other", "operator", "127.0.0.1"); w.Code != 404 {
+			t.Fatal("foreign node", w.Code)
+		}
+		if w := call("t", "operator", "127.0.0.2"); w.Code != 422 {
+			t.Fatal("unlisted interface", w.Code)
+		}
+		w := call("t", "operator", "127.0.0.1")
+		var result struct {
+			Authenticated bool                 `json:"authenticated"`
+			Result        model.ONVIFDiscovery `json:"result"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || result.Authenticated || result.Result.Authenticated || len(result.Result.Items) != 1 || len(result.Result.Items[0].XAddrs) != 1 || result.Result.Items[0].XAddrs[0] != camera.Server.URL+"/onvif/device_service" {
+			t.Fatal("discovery chain", w.Code, w.Body.String())
+		}
+		if _, err := repo.GetManagedDevice(ctx, "t", "onvif-discovery"); err == nil {
+			t.Fatal("discovery created inventory")
+		}
+	})
 	p := model.DeviceAccessProfile{EdgeNodeID: "edge", Host: "127.0.0.1", Port: camera.Server.Listener.Addr().(*net.TCPAddr).Port, CredentialRef: "camera"}
 	call := func(tenant, role string, profile model.DeviceAccessProfile) *httptest.ResponseRecorder {
 		token, err := server.auth.Issue("tester", tenant, role, nil, time.Minute)

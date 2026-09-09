@@ -53,6 +53,8 @@ func (a *Agent) readJob(ctx context.Context) error {
 	p.EdgeNodeID = ""
 	if err == nil {
 		switch j.Task.Release.Transport {
+		case "ONVIF_DISCOVERY":
+			j.Raw, err = a.discoverONVIF(jobCtx, p, j.Task.Release)
 		case "OPC_UA", "SNMP", "BACNET", "ONVIF":
 			j.Raw, err = a.collector.Read(jobCtx, p, j.Task.Release)
 		case "MODBUS_TCP":

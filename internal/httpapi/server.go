@@ -129,6 +129,7 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/integrations/video/relations", s.authorize("viewer"), s.endpoint(s.videoRelations))
 	s.router.POST("/api/v1/integrations/video/cameras", s.authorize("operator"), s.endpoint(s.saveVideoCamera))
 	s.router.POST("/api/v1/integrations/video/onvif/test", s.authorize("operator"), s.endpoint(s.onvifMetadata))
+	s.router.POST("/api/v1/integrations/video/onvif/discover", s.authorize("operator"), s.endpoint(s.onvifDiscover))
 	s.router.PUT("/api/v1/integrations/video/cameras/:id", s.authorize("operator"), s.endpoint(s.saveVideoCamera, "id"))
 	s.router.POST("/api/v1/device-ingest/:deviceId", s.endpoint(s.deviceIngest, "deviceId"))
 	s.router.GET("/api/v1/products", s.authorize("viewer"), s.endpoint(s.products))

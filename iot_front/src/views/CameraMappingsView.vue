@@ -16,6 +16,7 @@ const blank = () => ({ cameraId:'', brand:'', cameraName:'', cameraPoint:'', bui
 const camera = reactive(blank())
 const edgeNodes = ref([])
 const onvifBusy = ref(false)
+const discoveryBusy = ref(false), discoveryInterface = ref(''), discoveryResult = ref(null)
 const onvif = reactive({ edgeNodeId:'', host:'', port:443, credentialRef:'', endpointPath:'/onvif/device_service' })
 let editVersion = 0
 const catalogVisible = ref(false), catalogNode = ref(''), catalogRows = ref([]), catalogBusy = ref(false), catalogError = ref('')
@@ -70,6 +71,7 @@ async function load() {
 
 function open(value) {
 	editVersion++
+	discoveryResult.value=null
   Object.assign(camera, blank(), value ? { ...value, deviceId:value.deviceId || value.relatedDeviceIds?.[0] || '' } : {})
   editing.value = value?.cameraId || ''
   dialogVisible.value = true
@@ -89,6 +91,24 @@ async function readONVIF() {
     ElMessage.success('已读取摄像头信息，请核对后保存')
   } catch (error) { notifyError(error) }
   finally { onvifBusy.value = false }
+}
+
+async function discoverONVIF() {
+  const version=editVersion, node=onvif.edgeNodeId
+  discoveryBusy.value=true;discoveryResult.value=null
+  try {
+    const response=await api('/api/v1/integrations/video/onvif/discover',{method:'POST',body:JSON.stringify({edgeNodeId:node,interfaceAddress:discoveryInterface.value})})
+    if(version!==editVersion || !dialogVisible.value || node!==onvif.edgeNodeId)return
+    discoveryResult.value=response.result
+  } catch(error){notifyError(error)} finally{discoveryBusy.value=false}
+}
+function selectDiscovered(row) {
+  try {
+    const address=new URL(row.xAddrs.find(value=>value.startsWith('https://'))||row.xAddrs[0])
+    if(!['https:','http:'].includes(address.protocol)||address.username||address.password)throw new Error('发现地址无效')
+    onvif.host=address.hostname;onvif.port=Number(address.port||(address.protocol==='https:'?443:80));onvif.endpointPath=address.pathname
+    ElMessage.info('已选择候选地址，请填写现场凭据并执行认证读取')
+  }catch(error){notifyError(error)}
 }
 
 async function save() {
@@ -158,13 +178,16 @@ onMounted(async () => { await load(); consumeNavigationAction() })
       <el-collapse-item title="从 ONVIF 摄像头读取基础信息" name="onvif">
         <el-form label-position="top">
           <div class="form-grid">
-            <el-form-item label="现场节点"><el-select v-model="onvif.edgeNodeId" placeholder="选择已启用节点"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id" /></el-select></el-form-item>
+            <el-form-item label="现场节点"><el-select v-model="onvif.edgeNodeId" placeholder="选择已启用节点" :disabled="discoveryBusy || onvifBusy" @change="discoveryResult=null"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id" /></el-select></el-form-item>
+            <el-form-item label="发现网卡 IPv4（节点本地白名单）"><el-input v-model="discoveryInterface" placeholder="现场节点的网卡地址" :disabled="discoveryBusy" /></el-form-item>
             <el-form-item label="摄像头地址"><el-input v-model="onvif.host" placeholder="IP 或主机名" /></el-form-item>
             <el-form-item label="端口"><el-input-number v-model="onvif.port" :min="1" :max="65535" /></el-form-item>
             <el-form-item label="现场凭据引用"><el-input v-model="onvif.credentialRef" placeholder="节点本地已配置的凭据名称" /></el-form-item>
             <el-form-item label="ONVIF 服务路径"><el-input v-model="onvif.endpointPath" /></el-form-item>
           </div>
-          <el-button :loading="onvifBusy" :disabled="!onvif.edgeNodeId || !onvif.host || !onvif.credentialRef" @click="readONVIF">读取信息</el-button>
+          <el-button :loading="discoveryBusy" :disabled="onvifBusy || !onvif.edgeNodeId || !discoveryInterface" @click="discoverONVIF">发现候选设备</el-button>
+          <el-button :loading="onvifBusy" :disabled="discoveryBusy || !onvif.edgeNodeId || !onvif.host || !onvif.credentialRef" @click="readONVIF">读取信息</el-button>
+          <template v-if="discoveryResult"><p>发现结果尚未认证，选择地址不会自动登记。{{discoveryResult.truncated?'结果达到上限，请缩小现场范围。':''}}</p><el-table :data="discoveryResult.items||[]" empty-text="未收到符合策略的候选响应"><el-table-column prop="sourceIp" label="响应地址"/><el-table-column label="服务地址"><template #default="{row}"><span style="overflow-wrap:anywhere">{{row.xAddrs.join('、')}}</span></template></el-table-column><el-table-column label="操作" width="86"><template #default="{row}"><el-button link :disabled="onvifBusy || discoveryBusy" @click="selectDiscovered(row)">选择地址</el-button></template></el-table-column></el-table></template>
         </el-form>
       </el-collapse-item>
     </el-collapse>

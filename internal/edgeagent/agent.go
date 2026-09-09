@@ -23,6 +23,8 @@ import (
 )
 
 type Options struct {
+	DiscoveryInterfaces                    []string
+	DiscoveryProbeAddress                  string
 	AllowAutoRegister                      bool
 	AllowCommands                          bool
 	CredentialFile                         string
@@ -324,6 +326,12 @@ func (a *Agent) sync(ctx context.Context) error {
 func (a *Agent) heartbeat(ctx context.Context) error {
 	a.mu.Lock()
 	h := model.EdgeHeartbeat{Version: Version, ConfigRevision: a.config.Revision, QueueDepth: a.queue.Depth(), RejectedDepth: a.queue.Rejected(), LastError: a.lastError, Capabilities: []string{"MODBUS_TCP", "MODBUS_RTU", "OPC_UA", "SNMP", "BACNET", "ONVIF_READ", "HTTPS_OUTBOX", "READ_DIAGNOSTIC"}}
+	for _, address := range a.options.DiscoveryInterfaces {
+		if strings.TrimSpace(address) != "" {
+			h.Capabilities = append(h.Capabilities, "ONVIF_DISCOVERY")
+			break
+		}
+	}
 	if a.options.AllowGoWorkers {
 		h.Capabilities = append(h.Capabilities, "GO_PROTOCOL_V2")
 		if a.options.AllowAutoRegister {

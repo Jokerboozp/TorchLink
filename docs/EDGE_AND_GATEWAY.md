@@ -1,6 +1,6 @@
 # 独立接入进程与现场节点
 
-本文件记录扩大 P2 后实际已接上的能力；完整待办及本轮测试见 `DEVICE_ACCESS_REFACTOR_PROGRESS.md`。当前 Edge 支持 Modbus TCP、Modbus RTU、OPC UA、SNMP 和 HTTPS 补传；Go Worker 同步和其他协议仍在继续实现。
+本文件记录扩大 P2 后实际已接上的能力；完整待办及本轮测试见 `DEVICE_ACCESS_REFACTOR_PROGRESS.md`。当前 Edge 支持 Modbus TCP/RTU、OPC UA、SNMP、BACnet/IP 读取、ONVIF 发现与元数据、Go Worker、远程命令及 HTTPS 持久化补传；程序升级见独立启动器说明。
 
 ## 进程职责
 
@@ -92,7 +92,13 @@ go test ./internal/httpapi -run 'Test(SplitGatewayHTTPFlow|ExecutionRouteUsesTen
 
 节点本地凭据文件增加例如 `{"camera":{"username":"现场用户名","password":"现场密码","tlsCaFile":"/etc/iot-edge/camera-ca.pem"}}`；平台只接收引用名称。默认 HTTPS，校验主机名和证书，支持 WS-Security UsernameToken PasswordDigest 及 HTTP Digest（MD5 / SHA-256，auth）。旧设备仅在本地明确配置 `allowInsecureHttp:true` 时使用 HTTP。摄像头时钟须同步。SOAP Fault、认证失败和无效响应返回错误，不填写成功数据。
 
-此入口只读取基础信息；WS-Discovery、ONVIF 事件订阅尚未实现。GB28181 SIP 注册/目录由下文独立元数据节点提供，视频流继续由外部视频平台提供。
+同一表单支持通过现场节点发现候选地址。节点本地设置 `IOT_EDGE_DISCOVERY_INTERFACES` 为允许发现的 IPv4 网卡地址（多项逗号分隔），响应来源还须属于 `IOT_EDGE_ALLOWED_CIDRS`。操作员选择节点、填写网卡地址并点击发现；平台无法扩大本地许可范围。接口 `POST /api/v1/integrations/video/onvif/discover` 接受 `edgeNodeId` 和 `interfaceAddress`，检查 operator 权限与节点租户归属，使用现有认证任务队列执行。
+
+发现向所选网卡发送 WS-Discovery Probe，默认 IPv4 `239.255.255.250:3702`、TTL 1，三秒内受限重试，最多接收 256 个报文、保留 128 个候选与 256 KiB 数据。校验 SOAP 命名空间、请求关联、UUID、XML 大小/深度；只保留与 UDP 响应源 IP 相同的 HTTP(S) 地址，不解析设备提供的 DNS 名称、不跟随外部地址。重复候选合并；空结果和截断均明确展示。节点本地可用 `IOT_EDGE_DISCOVERY_TARGET` 指定隔离模拟器目标，管理 API 不接受此配置。
+
+WS-Discovery 没有设备认证，响应始终标记 `authenticated:false`。点击候选仅填入连接地址；还须指定现场凭据引用、实际执行上述 TLS/WSSE/Digest 读取，最后显式保存摄像头。发现不会自动建档、写入业务消息或证明设备可信。实现参考 [ONVIF Core 23.12 第 7 节](https://www.onvif.org/specs/2312/ONVIF-Core-Spec-v2312.pdf) 与 [WS-Discovery 2005/04](https://specs.xmlsoap.org/ws/2005/04/discovery/ws-discovery.pdf)，当前为单网卡 IPv4 主动发现子集；IPv6、发现代理、Hello/Bye 常驻缓存和 ONVIF 事件订阅尚未实现，不宣称完整 ONVIF 符合性。GB28181 SIP 注册/目录由下文独立元数据节点提供，视频流继续由外部视频平台提供。
+
+2026-09-10 新增验证：`go test -race ./internal/fieldprotocol -run 'TestONVIF(Discovery|Probe)' -count=1 -v` 的真实 UDP 和回环网卡组播通过；`TestEdgeONVIFMetadataWithAuthentication` 的真实 Chrome 完整发现→候选→错误密码拒绝→认证读取→显式保存通过。组播只在本机回环网卡执行，未扫描现场网络、未验收厂商真机。
 
 2026-09-10 浏览器验收：实际 Chrome→平台→Edge→TLS/Digest/WSSE 摄像头模拟器，读取并保存元数据、缺失凭据拒绝和窄屏通过。分布式调度另外通过两个独立采集进程、真实 PostgreSQL 租约与强制进程终止后的接管测试；尚未进行多物理主机/网络分区压力验收。
 
