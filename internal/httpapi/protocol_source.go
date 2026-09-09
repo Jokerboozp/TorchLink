@@ -22,6 +22,17 @@ import (
 const protocolSourceCases = `[{"name":"温度上报","input":{"payloadFormat":"hex","payload":"AA 01 2A"},"expectedMessageType":"PROPERTY_REPORT","expectedProperties":{"temperature":42}}]`
 
 func (s *Server) protocolSourceTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("format") == "go-functions" {
+		data, err := protocolbuild.FunctionTemplateZIP(r.URL.Query().Get("kind"))
+		if err != nil {
+			problem(w, 500, "生成 Go 模板失败")
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", `attachment; filename="go-protocol.zip"`)
+		_, _ = w.Write(data)
+		return
+	}
 	write(w, 200, map[string]any{"filename": "protocol.go", "source": protocolbuild.Template, "cases": json.RawMessage(protocolSourceCases), "compilerAvailable": protocolbuild.Available(), "platform": runtime.GOOS + "-" + runtime.GOARCH, "targetPlatforms": model.ProtocolPlatforms()})
 }
 
@@ -76,6 +87,61 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, err.Error())
 		return
 	}
+	// Hold the existing compiler slot through discovery, compilation and validation.
+	select {
+	case protocolbuild.Slots <- struct{}{}:
+		defer func() { <-protocolbuild.Slots }()
+	default:
+		w.Header().Set("Retry-After", "5")
+		problem(w, 429, "另一个协议正在编译或试跑，请稍后重试")
+		return
+	}
+	started := time.Now()
+	functions, err := protocolbuild.PrepareFunctions(files)
+	if err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
+	var nativeWorker []byte
+	var nativeLog string
+	if functions {
+		if entry := strings.TrimSpace(r.FormValue("entrypoint")); entry != "" && entry != "." {
+			problem(w, 422, "Go 函数模式使用项目根目录，请清空高级编译入口")
+			return
+		}
+		nativeWorker, nativeLog, err = protocolbuild.Build(r.Context(), s.cfg.DataDir, files, ".")
+		if err != nil {
+			write(w, 422, map[string]any{"detail": err.Error() + "\n" + nativeLog, "stage": "compile", "buildLog": nativeLog})
+			return
+		}
+		description, err := protocolbuild.DescribeFunctions(r.Context(), nativeWorker)
+		if err != nil {
+			problem(w, 422, err.Error())
+			return
+		}
+		var metadata map[string]any
+		if json.Unmarshal(description["metadata"], &metadata) != nil || metadata == nil {
+			problem(w, 422, "Go 协议配置无效")
+			return
+		}
+		if version, _ := metadata["version"].(string); strings.TrimSpace(version) == "" {
+			metadata["version"] = "auto-" + time.Now().UTC().Format("20060102-150405.000000000")
+		}
+		// The runtime and capabilities come from actual registered Go functions.
+		for _, field := range []string{"runtime", "capabilities"} {
+			if strings.TrimSpace(r.FormValue(field)) != "" {
+				problem(w, 422, "Go 函数模式自动识别协议能力，请清空高级运行时和能力设置")
+				return
+			}
+		}
+		files["protocol.json"], _ = json.Marshal(metadata)
+		if len(files["samples/cases.json"]) == 0 {
+			files["samples/cases.json"] = description["cases"]
+		}
+		if ops := description["operations"]; len(ops) > 0 && string(ops) != "[]" && string(ops) != "null" {
+			files["samples/operations.json"] = ops
+		}
+	}
 	manifest, entrypoint, err := sourceProtocolManifest(r, id, files)
 	if err != nil {
 		problem(w, 422, err.Error())
@@ -96,7 +162,7 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 	}
 	var cases []protocolPackageCaseV2
 	if len(casesData) > 1<<20 || json.Unmarshal(casesData, &cases) != nil || len(cases) == 0 || len(cases) > 100 {
-		problem(w, 422, "请提供 1 至 100 条样例报文及预期解析结果（页面填写或 ZIP 中 samples/cases.json）")
+		problem(w, 422, "请提供 1 至 100 条样例报文及预期结果：Go 函数模式在 Protocol 中填写 Samples，旧协议可用页面或 samples/cases.json")
 		return
 	}
 	for _, c := range cases {
@@ -105,20 +171,14 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	select {
-	case protocolbuild.Slots <- struct{}{}:
-		defer func() { <-protocolbuild.Slots }()
-	default:
-		w.Header().Set("Retry-After", "5")
-		problem(w, 429, "另一个协议正在编译或试跑，请稍后重试")
-		return
-	}
-	started := time.Now()
 	entries := map[string][]byte{"samples/cases.json": casesData, "source/upload.go": data}
 	buildLogs := map[string]string{}
 	buildStates := map[string]string{}
 	for _, target := range targets {
-		worker, buildLog, buildErr := protocolbuild.BuildForPlatform(r.Context(), s.cfg.DataDir, files, entrypoint, target)
+		worker, buildLog, buildErr := nativeWorker, nativeLog, error(nil)
+		if worker == nil || target != runtime.GOOS+"-"+runtime.GOARCH {
+			worker, buildLog, buildErr = protocolbuild.BuildForPlatform(r.Context(), s.cfg.DataDir, files, entrypoint, target)
+		}
 		if buildErr != nil {
 			write(w, 422, map[string]any{"detail": target + ": " + buildErr.Error() + "\n" + buildLog, "stage": "compile", "platform": target, "buildLog": buildLog})
 			return

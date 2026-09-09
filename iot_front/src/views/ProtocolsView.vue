@@ -60,16 +60,12 @@ async function load() {
 }
 
 function chooseSourceFile(event) { sourceFile.value = event.target.files?.[0] || null; sourceError.value = '' }
-function downloadSourceTemplate() {
-  if (!sourceTemplate.value) return
-  if (!source.cases.trim()) source.cases = JSON.stringify(sourceTemplate.value.cases, null, 2)
-  if (!source.version) source.version = '1.0.0'
-  const url = URL.createObjectURL(new Blob([sourceTemplate.value.source], { type:'text/plain;charset=utf-8' }))
-  const anchor = document.createElement('a'); anchor.href = url; anchor.download = sourceTemplate.value.filename; anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+async function downloadSourceTemplate(kind = '') {
+  try { await download(`/api/v2/protocol-source-template?format=go-functions&kind=${kind}`, kind === 'tcp' ? 'go-tcp-protocol.zip' : 'go-protocol.zip') }
+  catch (error) { notifyError(error) }
 }
 async function uploadSource() {
-  if (!sourceFile.value || !source.protocolId) return ElMessage.warning('请选择协议源码并填写协议标识；版本可由 protocol.json 提供')
+  if (!sourceFile.value || !source.protocolId) return ElMessage.warning('请选择 Go 源码并填写协议标识')
   if (sourceFile.value.size > 32 * 1024 * 1024) return ElMessage.warning('源码文件不能超过 32 兆字节')
   if (source.cases.trim()) {
     try { const cases = JSON.parse(source.cases); if (!Array.isArray(cases) || !cases.length) throw new Error() }
@@ -171,35 +167,41 @@ onMounted(load)
 
   <el-tabs type="border-card">
     <el-tab-pane label="源码接入">
-      <el-alert title="上传协议源码，接入自定义协议" description="平台自动编译并试跑样例；通过后发布，绑定产品的新报文立即使用，无需重启。支持单个 .go 文件和完整协议项目压缩包。" type="info" :closable="false" show-icon />
+      <el-alert title="上传协议源码，接入自定义协议" description="下载模板，只修改 Go 函数和 Go 样例，然后上传文件或 ZIP。平台自动识别能力、生成版本、编译并核对结果；选择产品后可直接发布绑定。" type="info" :closable="false" show-icon />
       <el-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务缺少源码编译环境，请联系管理员部署支持编译的后端服务。" type="warning" :closable="false" />
       <el-form :model="source" label-position="top" class="top-gap">
         <div class="form-grid">
           <el-form-item label="协议标识"><el-input v-model="source.protocolId" placeholder="例如 vendor-fire" /></el-form-item>
           <el-form-item label="协议名称"><el-input v-model="source.name" placeholder="例如消防设备协议" /></el-form-item>
-          <el-form-item label="版本"><el-input v-model="source.version" placeholder="留空读取 protocol.json，更新时使用新版本号" /></el-form-item>
+          <el-form-item label="版本"><el-input v-model="source.version" placeholder="Go 函数模式留空自动生成新版本" /></el-form-item>
           <el-form-item label="绑定产品（可选）"><el-select v-model="source.productId" filterable clearable :disabled="!source.publish" placeholder="选择后，发布成功立即切换"><el-option v-for="p in products" :key="p.id" :label="`${p.name} · ${p.id}`" :value="p.id" /></el-select></el-form-item>
-          <el-form-item label="设备上报通道"><el-select v-model="source.transport" clearable placeholder="留空读取协议包"><el-option v-for="value in ['MQTT','HTTP','TCP','UDP','TCP_UDP']" :key="value" :label="transportLabel(value)" :value="value" /></el-select></el-form-item>
-          <el-form-item label="报文格式"><el-select v-model="source.payloadFormat" clearable placeholder="留空读取协议包"><el-option v-for="value in ['hex','json','text','base64']" :key="value" :label="formatLabel(value)" :value="value" /></el-select></el-form-item>
+          <el-form-item label="设备上报通道"><el-select v-model="source.transport" clearable placeholder="自动识别，可手动选择"><el-option v-for="value in ['MQTT','HTTP','TCP','UDP','TCP_UDP']" :key="value" :label="transportLabel(value)" :value="value" /></el-select></el-form-item>
         </div>
-        <div class="form-grid">
-          <el-form-item label="协议能力"><el-select v-model="source.runtime" clearable placeholder="留空读取协议包"><el-option label="报文解析（第一版）" value="go-json-lines-v1" /><el-option label="完整接入（第二版）" value="go-protocol-v2" /></el-select></el-form-item>
-          <el-form-item label="操作能力（可留空读取协议包）"><el-input v-model="source.capabilities" placeholder='["decode","ingress","encode"]' /></el-form-item>
-        </div>
-        <el-form-item label="现场节点平台（可选）">
-          <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台；留空可读取 protocol.json"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></el-select>
-          <small class="subline">始终构建并试跑发布端样例；其他平台编译后，由对应边缘节点实际试跑成功才启用。旧版本保持不变。</small>
-        </el-form-item>
         <el-form-item label="源码文件或项目压缩包">
           <FilePicker accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
-          <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate">下载完整协议模板</el-button>
-          <small class="subline">修改模板中的解析函数即可。第三方依赖须随源码一同打包上传，文件最大为三十二兆字节。具体开发要求请参考源码模板说明。</small>
+          <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate()">下载解析模板</el-button>
+          <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate('tcp')">下载 TCP / UDP 模板</el-button>
+          <small class="subline">只修改 protocol.go。直接上传这个文件，或将整个项目打成 ZIP；无需编写 JSON、main 或调用入口。样例也使用 Go 编写，预期结果不符会阻止发布。</small>
         </el-form-item>
-        <el-form-item label="项目编译入口"><el-input v-model="source.entrypoint" placeholder="默认为 .，多目录项目可填 cmd/worker" /><small class="subline">请保留模板的模块文件、协议配置和源码目录。未填写的字段自动读取包内配置；单文件可使用默认入口。</small></el-form-item>
-        <el-form-item label="样例报文与预期解析结果">
-          <el-input v-model="source.cases" type="textarea" :rows="7" spellcheck="false" />
-          <small class="subline">请填写该协议的实际样例。若已在源码包内提供样例文件，此处可留空。任意一条样例失败都会阻止发布。</small>
-        </el-form-item>
+        <el-collapse>
+          <el-collapse-item title="高级设置与旧协议包兼容" name="advanced">
+            <small class="subline">旧协议包仍可使用 protocol.json 和样例 JSON；未填写的字段读取包内配置。</small>
+            <div class="form-grid">
+              <el-form-item label="报文格式"><el-select v-model="source.payloadFormat" clearable placeholder="Go 函数模式使用字节报文"><el-option v-for="value in ['hex','json','text','base64']" :key="value" :label="formatLabel(value)" :value="value" /></el-select></el-form-item>
+              <el-form-item label="运行时（旧协议包）"><el-select v-model="source.runtime" clearable placeholder="Go 函数模式请留空"><el-option label="报文解析（第一版）" value="go-json-lines-v1" /><el-option label="完整接入（第二版）" value="go-protocol-v2" /></el-select></el-form-item>
+              <el-form-item label="操作能力（旧协议包）"><el-input v-model="source.capabilities" placeholder='Go 函数模式请留空；旧包例如 ["decode"]' /></el-form-item>
+            </div>
+            <el-form-item label="现场节点平台（可选）">
+              <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></el-select>
+              <small class="subline">其他平台编译后，由对应边缘节点实际试跑成功才启用。</small>
+            </el-form-item>
+            <el-form-item label="项目编译入口（旧协议包）"><el-input v-model="source.entrypoint" placeholder="默认为 .，Go 函数模式请留空" /></el-form-item>
+            <el-form-item label="覆盖样例（旧协议包）">
+              <el-input v-model="source.cases" type="textarea" :rows="7" spellcheck="false" />
+              <small class="subline">Go 函数模式在 Protocol 中填写 Samples。此处填写 JSON 会覆盖源码样例，仅用于兼容已有协议包。</small>
+            </el-form-item>
+          </el-collapse-item>
+        </el-collapse>
         <el-switch v-model="source.publish" active-text="测试通过后立即发布" inactive-text="仅保存已校验版本" />
         <div class="dialog-actions"><el-button type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</el-button></div>
         <small v-if="compiling" class="subline">首次编译可能较慢，请保持页面打开。每个平台编译最长 120 秒，随后运行样例测试。</small>

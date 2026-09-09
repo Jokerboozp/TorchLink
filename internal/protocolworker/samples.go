@@ -35,6 +35,10 @@ type SampleCase struct {
 	Input               model.RawMessage  `json:"input"`
 	ExpectedMessageType model.MessageType `json:"expectedMessageType"`
 	ExpectedProperties  map[string]any    `json:"expectedProperties,omitempty"`
+	ExpectedEvent       map[string]any    `json:"expectedEvent,omitempty"`
+	ExpectedTags        map[string]string `json:"expectedTags,omitempty"`
+	ExpectedEventType   string            `json:"expectedEventType,omitempty"`
+	ExpectedTimestamp   int64             `json:"expectedTimestamp,omitempty"`
 }
 
 func ValidateSamples(parent context.Context, root string, artifact map[string]any, entries map[string][]byte, manifest SampleManifest, required bool) (int, error) {
@@ -86,6 +90,23 @@ func ValidateSamples(parent context.Context, root string, artifact map[string]an
 		}
 		if testCase.ExpectedMessageType != "" && message.MessageType != testCase.ExpectedMessageType {
 			return index, fmt.Errorf("protocol package case %q returned messageType %s, want %s", sampleName(testCase.Name, strconv.Itoa(index+1)), message.MessageType, testCase.ExpectedMessageType)
+		}
+		if testCase.ExpectedTimestamp != 0 && message.Timestamp != testCase.ExpectedTimestamp {
+			return index, fmt.Errorf("protocol package case %q timestamp mismatch", testCase.Name)
+		}
+		if testCase.ExpectedEventType != "" && message.Event["type"] != testCase.ExpectedEventType {
+			return index, fmt.Errorf("protocol package case %q event type mismatch", testCase.Name)
+		}
+		for key, expected := range testCase.ExpectedEvent {
+			actual, exists := message.Event[key]
+			if !exists || !reflect.DeepEqual(actual, expected) {
+				return index, fmt.Errorf("protocol package case %q event %s mismatch", testCase.Name, key)
+			}
+		}
+		for key, expected := range testCase.ExpectedTags {
+			if actual, exists := message.Tags[key]; !exists || actual != expected {
+				return index, fmt.Errorf("protocol package case %q tag %s mismatch", testCase.Name, key)
+			}
 		}
 		for key, expected := range testCase.ExpectedProperties {
 			actual, exists := message.Properties[key]

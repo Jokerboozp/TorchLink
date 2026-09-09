@@ -1,0 +1,23 @@
+package main
+
+import "fmt"
+
+// 只需修改解析函数与真实样例。平台自动生成调用入口、编译并核对样例。
+func Protocol() Definition {
+	return Definition{
+		Decode: decode,
+		Samples: []Sample{{
+			Name: "温度上报",
+			Data: []byte{0xAA, 0x01, 0x2A},
+			Want: properties(map[string]any{"temperature": 42}),
+		}},
+	}
+}
+
+// 教学报文 AA 01 2A：前两字节为报文标志，第三字节表示温度。
+func decode(data []byte, ctx Context) (Message, error) {
+	if len(data) != 3 || data[0] != 0xAA || data[1] != 0x01 {
+		return Message{}, fmt.Errorf("报文须为 AA 01 加一个温度字节")
+	}
+	return properties(map[string]any{"temperature": int(data[2])}), nil
+}

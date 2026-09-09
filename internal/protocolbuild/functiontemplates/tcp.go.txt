@@ -1,0 +1,84 @@
+package main
+
+import (
+	"fmt"
+	"strconv"
+)
+
+// 教学协议：AA 类型 设备号 数值 校验和。类型 1=上报、2=应答、3=探测命令。
+// 校验和为前四个字节之和（低 8 位）。请按厂家实际协议修改。
+func Protocol() Definition {
+	return Definition{
+		Transport: "TCP_UDP",
+		Decode:    decode,
+		Ingress:   ingress,
+		Encode:    encode,
+		Samples: []Sample{
+			{Name: "温度上报", Data: packet(1, 7, 42), Want: properties(map[string]any{"temperature": 42})},
+			{Name: "命令应答", Data: packet(2, 7, 1), Want: Message{MessageType: "COMMAND_REPLY", Event: map[string]any{"type": "ACK"}}},
+		},
+		Operations: []OperationSample{
+			{Name: "半帧", Operation: "ingress", Data: []byte{0xAA, 1}, Want: Frame{NeedMore: true}},
+			{Name: "完整上报与应答", Operation: "ingress", Data: packet(1, 7, 42), Want: Frame{Consumed: 5, DeviceID: "7", Reply: packet(2, 7, 42), State: map[string]any{"device": 7, "sequence": 0}}},
+			{Name: "探测命令", Operation: "encode", Command: Command{Type: "ping"}, Context: Context{State: map[string]any{"device": 7, "sequence": 0}}, Want: Frame{Reply: packet(3, 7, 1), CorrelationID: "1", State: map[string]any{"device": 7, "sequence": 1}}},
+			{Name: "命令应答关联", Operation: "ingress", Data: packet(2, 7, 1), Context: Context{State: map[string]any{"device": 7, "sequence": 1}}, Want: Frame{Consumed: 5, DeviceID: "7", CorrelationID: "1", State: map[string]any{"device": 7, "sequence": 1}}},
+		},
+	}
+}
+
+func packet(kind, device, value byte) []byte {
+	return []byte{0xAA, kind, device, value, byte(0xAA + kind + device + value)}
+}
+
+func check(data []byte) error {
+	if len(data) != 5 || data[0] != 0xAA || (data[1] != 1 && data[1] != 2) || data[2] == 0 {
+		return fmt.Errorf("报文长度、类型或设备号无效")
+	}
+	if data[4] != byte(data[0]+data[1]+data[2]+data[3]) {
+		return fmt.Errorf("校验和错误")
+	}
+	return nil
+}
+
+func decode(data []byte, ctx Context) (Message, error) {
+	if err := check(data); err != nil {
+		return Message{}, err
+	}
+	if data[1] == 2 {
+		return Message{MessageType: "COMMAND_REPLY", Event: map[string]any{"type": "ACK"}}, nil
+	}
+	return properties(map[string]any{"temperature": int(data[3])}), nil
+}
+
+func ingress(data []byte, ctx Context) (Frame, error) {
+	if len(data) > 0 && data[0] != 0xAA {
+		return Frame{}, fmt.Errorf("帧头错误")
+	}
+	if len(data) < 5 {
+		return Frame{NeedMore: true}, nil
+	}
+	if err := check(data[:5]); err != nil {
+		return Frame{}, err
+	}
+	sequence, _ := ctx.State["sequence"].(float64)
+	result := Frame{Consumed: 5, DeviceID: strconv.Itoa(int(data[2])), State: map[string]any{"device": int(data[2]), "sequence": sequence}}
+	if data[1] == 2 {
+		result.CorrelationID = strconv.Itoa(int(data[3]))
+	} else {
+		result.Reply = packet(2, data[2], data[3])
+	}
+	return result, nil
+}
+
+func encode(command Command, ctx Context) (Frame, error) {
+	if command.Type != "ping" {
+		return Frame{}, fmt.Errorf("不支持命令 %s", command.Type)
+	}
+	device, _ := ctx.State["device"].(float64)
+	if device < 1 || device > 255 {
+		return Frame{}, fmt.Errorf("请等待设备上报以取得地址")
+	}
+	previous, _ := ctx.State["sequence"].(float64)
+	sequence := int(previous)%255 + 1
+	return Frame{Reply: packet(3, byte(device), byte(sequence)), CorrelationID: strconv.Itoa(sequence), State: map[string]any{"device": device, "sequence": sequence}}, nil
+}

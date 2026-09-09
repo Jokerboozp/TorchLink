@@ -1,5 +1,54 @@
 # Go 协议包接入
 
+## 推荐：只编写 Go 函数
+
+在“设备接入 → 源码接入”下载“解析模板”或“TCP / UDP 模板”。解压后只修改 `protocol.go`，然后直接上传这个 `.go` 文件，或者将整个项目打成 ZIP 上传。ZIP 可以带一层项目目录。模板包含 Go 模块和平台适配代码，可在项目目录运行 `go test ./...`；不需要编写 `protocol.json`、样例 JSON、stdin/stdout 或 `main`。
+
+最小业务代码如下（`Definition`、`Message` 等类型由模板中的 `zz_platform.go` 提供；单文件上传时平台自动补齐）：
+
+```go
+package main
+
+import "fmt"
+
+func Protocol() Definition {
+    return Definition{
+        Decode: decode,
+        Samples: []Sample{{
+            Name: "温度上报",
+            Data: []byte{0xAA, 0x01, 0x2A},
+            Want: properties(map[string]any{"temperature": 42}),
+        }},
+    }
+}
+
+func decode(data []byte, ctx Context) (Message, error) {
+    if len(data) != 3 || data[0] != 0xAA || data[1] != 0x01 {
+        return Message{}, fmt.Errorf("报文须为 AA 01 加一个温度字节")
+    }
+    return properties(map[string]any{"temperature": int(data[2])}), nil
+}
+```
+
+这里的 `AA 01 2A` 是教学报文，需替换为厂家真实报文。`Samples` 中独立填写输入和期望值，不能用 `Decode` 的返回结果生成期望值。平台实际执行解析后核对消息类型、属性，以及填写的事件、标签、时间；错误、缺失样例或编译失败均阻止发布，保留现有产品版本。上传不会自动执行任意 `_test.go` 或构建脚本。
+
+上传页填写协议标识，可选择绑定产品；版本留空时平台生成唯一时间版本，也可在页面或 `Definition.Version` 中设置。`Definition.Name`、`Transport` 可选；无 `Ingress` 默认 MQTT，有 `Ingress` 默认 TCP。字节函数模式使用 HEX 作为平台内部报文封装，业务函数收到的是解码后的 `[]byte`。旧格式参数放在“高级设置与旧协议包兼容”中；Go 函数模式请清空运行时、能力和编译入口，平台根据实际注册函数生成配置。
+
+| Go 字段 / 函数 | 用途 |
+| --- | --- |
+| `Decode func([]byte, Context) (Message, error)` | 完整帧转属性、告警、事件等；必填 |
+| `Ingress func([]byte, Context) (Frame, error)` | TCP/UDP 分帧、校验、设备识别和应答；可选 |
+| `Encode func(Command, Context) (Frame, error)` | 命令转下行字节；可选 |
+| `Samples []Sample` | Go 编写的输入、期望消息和可选上下文 |
+| `Operations []OperationSample` | Go 编写的分帧/下行样例；每项注册能力必须覆盖完整成功结果 |
+
+完整接入模板已包含上述三种函数和实际试跑样例。半帧返回 `Frame{NeedMore:true}`，完整帧返回 `Consumed` 字节数和从报文识别的 `DeviceID`，应答使用 `Reply: []byte{...}`；错误返回 Go `error`。设备注册和认证策略仍由原接入链路执行，协议自身的校验/认证须在函数中真实完成，不能仅识别一个 ID 就假定设备通过认证。下行通过 `CorrelationID` 与设备应答关联。`Context.State`/`Frame.State` 用于传递会话状态，进程不是常驻服务；状态数值经序列化后按 `float64` 读取，模板有示例。
+
+选择绑定产品并发布后，新报文使用新版本；TCP/UDP 仍需配置监听实例，设备需要连接到实际端口。这项简化不猜测设备地址、凭据、监听端口或厂家协议含义。
+
+以下章节保留已有完整协议包和底层调用契约，使用 Go 函数模板时无需手工编写这些配置。
+
+
 平台支持直接上传完整 Go 源码：在“设备接入 → Go 源码接入”上传 `.go` 文件或 Go 项目 ZIP，平台自动编译、试跑样例、发布并绑定产品，后续报文立即使用新代码。Go 源码就是自定义协议的唯一页面上传入口，支持单文件和多文件源码 ZIP；编译制品由平台自动生成。
 
 ## 源码上传
