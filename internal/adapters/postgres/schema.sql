@@ -314,3 +314,5 @@ CREATE TABLE IF NOT EXISTS edge_read_job (
   PRIMARY KEY (tenant_id,id)
 );
 CREATE INDEX IF NOT EXISTS edge_read_job_pending_idx ON edge_read_job(tenant_id,node_id,status,expires_at);
+CREATE TABLE IF NOT EXISTS device_shadow (tenant_id text NOT NULL, device_id text NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id));
+CREATE TABLE IF NOT EXISTS device_shadow_change (tenant_id text NOT NULL, device_id text NOT NULL, version bigint NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id,version));

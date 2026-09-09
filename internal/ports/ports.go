@@ -21,6 +21,9 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	GetDeviceShadow(context.Context, string, string) (model.DeviceShadow, error)
+	UpdateDeviceShadow(context.Context, model.ShadowUpdate) (model.DeviceShadow, error)
+	ListShadowChanges(context.Context, string, string, int, int) ([]model.ShadowChange, error)
 	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, error)
 	SetEdgeCredential(context.Context, string, string, string) error
 	GetEdgeCredential(context.Context, string, string) (string, error)

@@ -1,6 +1,7 @@
 package model
 
 type ThingField struct {
+	Writable   bool   `json:"writable,omitempty"`
 	Identifier string `json:"identifier"`
 	Name       string `json:"name"`
 	DataType   string `json:"dataType"`

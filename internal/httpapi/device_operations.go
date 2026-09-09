@@ -15,6 +15,7 @@ func (s *Server) SetDeviceOperations(publish func(context.Context, string, []byt
 func (s *Server) RunCredentialRevocations(ctx context.Context) { s.onboarding.RetryRevocations(ctx) }
 func (s *Server) deviceOperationsRoutes() {
 	s.edgeRoutes()
+	s.shadowRoutes()
 	s.router.GET("/api/v1/edge-nodes", s.authorize("viewer"), s.endpoint(s.listEdgeNodes))
 	s.router.POST("/api/v1/edge-nodes", s.authorize("admin"), s.endpoint(s.saveEdgeNode))
 	s.router.PUT("/api/v1/edge-nodes/:id", s.authorize("admin"), s.endpoint(s.saveEdgeNode, "id"))

@@ -127,6 +127,11 @@
 
 ### 后续实测与实现
 
+- Git：Edge Worker 中文提交 `a61d7e0` 已成功推送至 `origin/main`。用户要求提交全部内容，本次也保留并纳入工作区新增的 `项目介绍.md`，未改写该文件。
+- 设备影子基础链路：新增持久化 desired/reported/delta、独立期望版本、逐属性时间/消息顺序、可写物模型校验、人工确认与变更历史、设备凭据读取、详情页。真实 PostgreSQL 临时 schema（`TestDeviceOperationsMigrationAndAtomicity`，1.59 秒）及 Memory 16 并发条件更新/属性合并通过；认证 HTTP→标准上报→解析→影子差异收敛通过（0.02 秒，`-race`）。首次测试缺少 messageKind，已补为 property 并通过，未跳过认证。
+- 影子超限错误可见且不阻断既有告警规则，相关竞态回归通过。前端 56 项测试/构建通过，真实 Chrome + Broker `TestOnboardingBrowser` 8.92 秒通过，新增影子编辑/人工确认/版本/差异检查。说明见 `DEVICE_SHADOW.md`；孪生拓扑、命名影子、MQTT 原生影子 RPC 等仍待实现，未称完整体系完成。
+- 影子模块最终 `go test ./...` 通过；可选真实中间件测试未提供参数时依旧跳过，数据库与浏览器单独实测结果以上述记录为准。
+
 - Git 更新：本批 95 个文件已以中文提交 `597d6ae`（“实现独立接入网关、边缘采集及现场协议认证链路”），`git push origin main` 成功，输出 `1d76571..597d6ae main -> main`。此前认证阻塞已解除。
 - Edge Go Worker：节点凭据与当前分配版本检查、制品下载双端 SHA-256、平台匹配、本地显式执行/监听白名单、TCP/UDP Listener、配置更新保留会话、设备停用同步。`TestEdgeWorkerDownloadTCPUDPAndVersionSwitch` 使用实际 Go 子进程/HTTP/TCP/UDP，认证拒绝、未分配版本拒绝、损坏制品拒绝、半帧/粘包应答、Raw/Standard 及同连接版本切换通过（首次 6.48 秒，`-race`）。源码构建/发布沿用既有链路；物理网关、跨架构制品构建、远端命令和节点程序升级尚未验收/实施。
 - Worker 后续验证：Edge/向导相关 `-race` 回归通过（HTTP API 包 17.723 秒）；新增节点本地执行开关、监听地址、平台、哈希与损坏下载拒绝测试通过。`go test ./...`、前端 56 项测试和构建通过；未配置的可选中间件测试保持明确跳过。

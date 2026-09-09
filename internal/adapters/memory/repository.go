@@ -26,6 +26,8 @@ type Repository struct {
 	revocations         map[string]model.CredentialRevocation
 	commands            map[string]model.DeviceCommand
 	mu                  sync.RWMutex
+	shadows             map[string]model.DeviceShadow
+	shadowChanges       map[string][]model.ShadowChange
 	raw                 map[string]model.RawArchiveIndex
 	rawMessages         map[string]model.RawMessage
 	standard            map[string]model.StandardMessage

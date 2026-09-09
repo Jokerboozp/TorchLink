@@ -160,7 +160,7 @@ onMounted(load)
       </div>
       <el-form-item label="产品状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /><el-option label="草稿" value="DRAFT" /></el-select></el-form-item>
       <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
-      <el-collapse><el-collapse-item title="物模型基础（高级）" name="thing-model"><p>定义属性、事件和命令。此定义用于描述数据及校验标准 MQTT 命令，不改变现有协议解析。</p><el-input v-model="thingModelText" type="textarea" :rows="12" placeholder='{"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[]}' /></el-collapse-item></el-collapse>
+      <el-collapse><el-collapse-item title="物模型基础（高级）" name="thing-model"><p>定义属性、事件和命令。此定义用于描述数据及校验命令；属性设置 writable:true 后才允许写入设备影子期望状态。</p><el-input v-model="thingModelText" type="textarea" :rows="12" placeholder='{"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[]}' /></el-collapse-item></el-collapse>
     </el-form>
     <template #footer>
       <el-button v-if="readonly" type="primary" @click="startEdit">编辑</el-button>

@@ -342,6 +342,18 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if !shouldProcess {
 		return nil
 	}
+	if msg.MessageType == model.PropertyReport && len(msg.Properties) > 0 {
+		if _, err := e.Repo.UpdateDeviceShadow(ctx, model.ShadowUpdate{TenantID: msg.TenantID, DeviceID: msg.DeviceID, MessageID: msg.MessageID, Timestamp: msg.Timestamp, Reported: msg.Properties}); err != nil {
+			if !errors.Is(err, model.ErrShadowLimit) {
+				return err
+			}
+			// An optional projection limit must not suppress existing rules or
+			// alarms. Keep its failure visible and retain the full raw/message.
+			if _, err := e.Repo.UpdateDeviceShadow(ctx, model.ShadowUpdate{TenantID: msg.TenantID, DeviceID: msg.DeviceID, MessageID: msg.MessageID, Timestamp: msg.Timestamp, ProjectionError: model.ErrShadowLimit.Error()}); err != nil {
+				return err
+			}
+		}
+	}
 	if msg.MessageType == model.CommandReply && msg.Parser == parser.StandardParserName {
 		if id, ok := msg.Event["commandId"].(string); ok {
 			if err := e.Repo.CompleteDeviceCommand(ctx, msg.TenantID, msg.DeviceID, id, msg.Event, e.Clock.Now().UnixMilli()); err != nil {
