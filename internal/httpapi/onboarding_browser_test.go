@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"iot-platform/internal/adapters/local"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +29,15 @@ func TestOnboardingBrowser(t *testing.T) {
 	if os.Getenv("IOT_TEST_BROWSER") == "" {
 		t.Skip("set IOT_TEST_BROWSER to Chromium executable after frontend build")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	outageSeconds := 0
+	if value := os.Getenv("IOT_TEST_BROWSER_OUTAGE_SECONDS"); value != "" {
+		var err error
+		outageSeconds, err = strconv.Atoi(value)
+		if err != nil || outageSeconds < 1 || outageSeconds > 600 || os.Getenv("IOT_TEST_MQTT_WEBSOCKET") == "" {
+			t.Fatal("outage test requires MQTT WebSocket configuration and a duration from 1 to 600 seconds")
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(outageSeconds+120)*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	repo := memory.NewRepository()
@@ -55,7 +65,7 @@ func TestOnboardingBrowser(t *testing.T) {
 	api := New(cfg, engine, metrics.New(), log)
 	if cfg.MQTTWebSocketURL != "" && os.Getenv("IOT_TEST_MQTT_WEBSOCKET") != "" {
 		username := "browser-probe-" + randomHex(8)
-		jwt, e := auth.New(cfg.JWTSecret).IssueWithACL(username, "tenant", "service", nil, []auth.ACLRule{{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"}}, 2*time.Minute)
+		jwt, e := auth.New(cfg.JWTSecret).IssueWithACL(username, "tenant", "service", nil, []auth.ACLRule{{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"}}, time.Duration(outageSeconds+120)*time.Second)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -101,11 +111,14 @@ func TestOnboardingBrowser(t *testing.T) {
 	defer server.Close()
 	command := exec.CommandContext(ctx, "node", filepath.Join("..", "..", "iot_front", "tests", "browser", "onboarding-check.mjs"))
 	command.Env = append(os.Environ(), "IOT_TEST_ORIGIN="+server.URL, "IOT_TEST_TOKEN="+token)
-	output, err := command.CombinedOutput()
+	var output bytes.Buffer
+	writer := io.MultiWriter(&output, os.Stdout)
+	command.Stdout, command.Stderr = writer, writer
+	err = command.Run()
 	if err != nil {
-		t.Fatalf("browser: %v\n%s", err, output)
+		t.Fatalf("browser: %v\n%s", err, output.String())
 	}
-	t.Log(string(output))
+
 	devices, err := repo.ListManagedDevices(ctx, "tenant")
 	if err != nil || len(devices) != 3 || devices[0].Status != "ENABLED" {
 		t.Fatalf("browser did not persist enabled device: %+v %v", devices, err)

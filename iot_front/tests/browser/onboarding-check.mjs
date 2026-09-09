@@ -15,7 +15,11 @@ try {
   socket=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl)
   await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject})
   let id=0;const pending=new Map()
-  socket.onmessage=event=>{const value=JSON.parse(event.data);if(value.id){const entry=pending.get(value.id);pending.delete(value.id);value.error?entry.reject(new Error(value.error.message)):entry.resolve(value.result)}}
+  let blockDeviceToken = false, blockedTokenRequests = 0
+  socket.onmessage=event=>{const value=JSON.parse(event.data);if(value.id){const entry=pending.get(value.id);pending.delete(value.id);value.error?entry.reject(new Error(value.error.message)):entry.resolve(value.result)}else if(value.method==='Fetch.requestPaused'){
+    if(blockDeviceToken){blockedTokenRequests++;call('Fetch.failRequest',{requestId:value.params.requestId,errorReason:'InternetDisconnected'}).catch(()=>{})}
+    else call('Fetch.continueRequest',{requestId:value.params.requestId}).catch(()=>{})
+  }}
   const call=(method,params={})=>new Promise((resolve,reject)=>{const next=++id;pending.set(next,{resolve,reject});socket.send(JSON.stringify({id:next,method,params}))})
   const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.text+' '+JSON.stringify(r.exceptionDetails.exception));return r.result.value}
   await call('Page.enable')
@@ -101,7 +105,33 @@ try {
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('Secret'))`));throw e})
     await click('发送新消息')
     await until(()=>evaluate(`document.querySelector('.standard-commissioning .el-table')?.textContent.includes('已解析')`))
+    const outageSeconds = Number(process.env.IOT_TEST_BROWSER_OUTAGE_SECONDS || 0)
+    if(outageSeconds) {
+      blockDeviceToken = true
+      await call('Fetch.enable',{patterns:[{urlPattern:'*/api/v1/device-mqtt/token',requestStage:'Request'}]})
+    }
     await click('模拟断链并重连')
+    if(outageSeconds) {
+      await until(()=>evaluate(`document.querySelector('.standard-commissioning')?.textContent.includes('等待重连')`))
+      const outageStarted = Date.now()
+      let nextProgress = 30000
+      while(Date.now()-outageStarted < outageSeconds*1000) {
+        await delay(Math.min(1000, outageSeconds*1000-(Date.now()-outageStarted)))
+        if(Date.now()-outageStarted>=nextProgress){console.log(`OUTAGE: ${Math.floor((Date.now()-outageStarted)/1000)}/${outageSeconds}s, ${blockedTokenRequests} failed token requests`);nextProgress+=30000}
+        assert.ok(await evaluate(`Number(document.querySelector('[data-testid=mqtt-connect-count]')?.textContent)===1`))
+        assert.ok(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning button')).find(e=>e.textContent.trim()==='发送新消息').disabled`))
+      }
+      assert.ok(blockedTokenRequests>=1)
+      blockDeviceToken = false
+      await call('Fetch.disable')
+      // Automatic backoff is capped at 30 seconds. Do not click reconnect.
+      for(let attempt=0;attempt<40;attempt++) {
+        if(await evaluate(`Number(document.querySelector('[data-testid=mqtt-connect-count]')?.textContent)>=2`))break
+        await delay(1000)
+      }
+      assert.ok(await evaluate(`Number(document.querySelector('[data-testid=mqtt-connect-count]')?.textContent)>=2`))
+      console.log(`PASS: ${outageSeconds}s real elapsed device-token network outage, ${blockedTokenRequests} failed requests, automatic recovery`)
+    }
     await until(()=>evaluate(`Number(document.querySelector('[data-testid=mqtt-connect-count]')?.textContent)>=2`))
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('Secret'))`));throw e})
     await click('重发同一条消息')
