@@ -17,6 +17,7 @@ import (
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
+	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 )
 
@@ -109,5 +110,27 @@ func TestProtocolPackageV2RejectsDuplicateNormalizedEntry(t *testing.T) {
 	}
 	if _, err = inspectProtocolPackageV2(reader); err == nil {
 		t.Fatal("expected duplicate normalized entry to be rejected")
+	}
+}
+
+func TestRemovedFieldProfilesCannotRunOnCentre(t *testing.T) {
+	base := model.DeviceAccessProfile{ID: "p", TenantID: "t", DeviceID: "d", ProductID: "product", ProtocolID: "protocol", ProtocolVersion: "1", Host: "127.0.0.1", Port: 502, UnitID: 1, TimeoutMs: 1000, Mode: "poll", Network: "tcp"}
+	if err := validateAccessProfile(base); err != nil {
+		t.Fatal(err)
+	}
+	for _, network := range []string{"serial", "opc_ua", "snmp", "bacnet", "onvif"} {
+		p := base
+		p.Network = network
+		if err := validateAccessProfile(p); err == nil {
+			t.Fatalf("removed network %s accepted", network)
+		}
+	}
+	for _, mode := range []string{"poll", "listener"} {
+		p := base
+		p.Mode = mode
+		p.EdgeNodeID = "legacy-node"
+		if err := validateAccessProfile(p); err == nil {
+			t.Fatalf("legacy %s assignment accepted", mode)
+		}
 	}
 }

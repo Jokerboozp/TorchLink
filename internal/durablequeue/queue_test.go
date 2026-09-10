@@ -1,4 +1,4 @@
-package edgeagent
+package durablequeue
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ func TestQueueRestartRetryAndCapacity(t *testing.T) {
 	}
 	if other, err := OpenQueue(root, 1<<20, 1); err == nil {
 		other.Close()
-		t.Fatal("two agents opened one queue")
+		t.Fatal("two clients opened one queue")
 	}
 	raw := model.RawMessage{TenantID: "tenant", MessageID: "first", Payload: json.RawMessage(`{"x":1}`)}
 	if err = q.Put(raw); err != nil {

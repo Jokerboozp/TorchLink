@@ -41,7 +41,6 @@ func (e *ModbusException) Error() string { return fmt.Sprintf("Modbus exception 
 // on the repository and an ingest callback rather than the HTTP or core
 // packages, keeping the active transport layer separate from parsing.
 type Runtime struct {
-	readOther    func(context.Context, model.DeviceAccessProfile, model.ProtocolRelease) ([]model.RawMessage, error)
 	coordinator  *Coordinator
 	repo         ports.Repository
 	ingest       IngestFunc
@@ -50,7 +49,6 @@ type Runtime struct {
 	last         map[string]time.Time
 	running      map[string]bool
 	allowedCIDRs []string
-	serialPorts  []string
 }
 
 func New(repo ports.Repository, ingest IngestFunc, log *slog.Logger, allowedCIDRs ...string) *Runtime {
@@ -58,10 +56,6 @@ func New(repo ports.Repository, ingest IngestFunc, log *slog.Logger, allowedCIDR
 }
 
 func (r *Runtime) SetCoordinator(c *Coordinator) { r.coordinator = c }
-func (r *Runtime) SetCollector(read func(context.Context, model.DeviceAccessProfile, model.ProtocolRelease) ([]model.RawMessage, error)) {
-	r.readOther = read
-}
-func (r *Runtime) SetSerialPorts(ports []string) { r.serialPorts = append([]string(nil), ports...) }
 
 func (r *Runtime) Start(ctx context.Context) {
 	go func() {
@@ -136,15 +130,7 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 
 func (r *Runtime) collect(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock, key string) {
 	defer func() { r.mu.Lock(); delete(r.running, key); r.mu.Unlock() }()
-	var raws []model.RawMessage
-	var err error
-	if r.readOther != nil && (release.Transport == "OPC_UA" || (release.Transport == "SNMP" || release.Transport == "BACNET")) {
-		raws, err = r.readOther(ctx, profile, release)
-	} else if release.Transport == "MODBUS_RTU" {
-		raws, err = ReadModbusRTU(ctx, profile, release, blocks, r.serialPorts)
-	} else {
-		raws, err = ReadModbusTCPWithPolicy(ctx, profile, release, blocks, r.allowedCIDRs)
-	}
+	raws, err := ReadModbusTCPWithPolicy(ctx, profile, release, blocks, r.allowedCIDRs)
 	if err != nil {
 		r.updateFailure(ctx, profile, err)
 		return
@@ -178,15 +164,8 @@ func (r *Runtime) updateFailure(ctx context.Context, profile model.DeviceAccessP
 }
 
 func releaseBlocks(release model.ProtocolRelease) ([]model.ModbusReadBlock, error) {
-	if release.Transport == "OPC_UA" || (release.Transport == "SNMP" || release.Transport == "BACNET") {
-		interval := 10
-		if b, err := json.Marshal(release.Config["pollIntervalSec"]); err == nil {
-			_ = json.Unmarshal(b, &interval)
-		}
-		if interval < 1 || interval > 3600 {
-			return nil, errors.New("invalid protocol poll interval")
-		}
-		return []model.ModbusReadBlock{{ID: "protocol-read", PollIntervalSec: interval}}, nil
+	if release.Transport != "MODBUS_TCP" {
+		return nil, errors.New("中心轮询仅支持 Modbus TCP")
 	}
 	var blocks []model.ModbusReadBlock
 	b, err := json.Marshal(release.Config["blocks"])
@@ -207,7 +186,7 @@ func ReadModbusTCP(ctx context.Context, profile model.DeviceAccessProfile, relea
 }
 
 func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock, allowedCIDRs []string) ([]model.RawMessage, error) {
-	if profile.EdgeNodeID != "" {
+	if profile.EdgeNodeID != "" || (profile.Network != "" && profile.Network != "tcp") {
 		return nil, errors.New("remote Edge execution is not supported by the central runtime")
 	}
 	if err := ctx.Err(); err != nil {

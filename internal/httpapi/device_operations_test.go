@@ -109,12 +109,12 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) {
 	if e != nil || len(events) < 2 || events[0].State.ConnectionStatus != "DISCONNECTED" || events[1].State.ConnectionStatus != "CONNECTED" {
 		t.Fatal(events, e)
 	}
-	if w = call("POST", "/api/v1/edge-nodes", `{"id":"edge","name":"现场节点"}`, "t", "admin"); w.Code != 200 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	w = call("GET", "/api/v1/edge-nodes", "", "other", "viewer")
-	if w.Code != 200 || bytes.Contains(w.Body.Bytes(), []byte("现场节点")) {
-		t.Fatal(w.Code, w.Body.String())
+	for _, path := range []string{"/api/v1/edge-nodes", "/api/v1/edge-nodes/old/credentials", "/api/v1/edge-nodes/old/runtime", "/api/v1/edge-nodes/old/program", "/api/v1/edge/t/old/config", "/api/v1/edge/t/old/raw", "/api/v1/edge/t/old/heartbeat", "/api/v1/integrations/video/onvif/test", "/api/v1/integrations/video/onvif/discover"} {
+		for _, method := range []string{"GET", "POST"} {
+			if w = call(method, path, `{}`, "t", "admin"); w.Code != 404 {
+				t.Fatal("removed node route is still exposed", path, w.Code)
+			}
+		}
 	}
 	w = call("DELETE", "/api/v1/device-registry/d/credentials", "", "t", "admin")
 	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte("PENDING")) {

@@ -6,42 +6,6 @@ import (
 	"iot-platform/internal/model"
 )
 
-func (r *Repository) SaveEdgeNode(ctx context.Context, v model.EdgeNode) error {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return e
-	}
-	_, e = r.pool.Exec(ctx, `INSERT INTO edge_node(tenant_id,id,body) VALUES($1,$2,$3) ON CONFLICT(tenant_id,id) DO UPDATE SET body=excluded.body`, v.TenantID, v.ID, b)
-	return e
-}
-func (r *Repository) GetEdgeNode(ctx context.Context, t, id string) (v model.EdgeNode, e error) {
-	var b []byte
-	e = r.pool.QueryRow(ctx, `SELECT body FROM edge_node WHERE tenant_id=$1 AND id=$2`, t, id).Scan(&b)
-	if e == nil {
-		e = json.Unmarshal(b, &v)
-	}
-	return
-}
-func (r *Repository) ListEdgeNodes(ctx context.Context, t string) ([]model.EdgeNode, error) {
-	rows, e := r.pool.Query(ctx, `SELECT body FROM edge_node WHERE tenant_id=$1 ORDER BY id`, t)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	out := []model.EdgeNode{}
-	for rows.Next() {
-		var v model.EdgeNode
-		var b []byte
-		if e = rows.Scan(&b); e != nil {
-			return nil, e
-		}
-		if e = json.Unmarshal(b, &v); e != nil {
-			return nil, e
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
-}
 func (r *Repository) ListDeviceStateEvents(ctx context.Context, t, d string, limit, offset int) ([]model.DeviceStateEvent, int, error) {
 	var total int
 	e := r.pool.QueryRow(ctx, `SELECT count(*) FROM device_state_event WHERE tenant_id=$1 AND device_id=$2`, t, d).Scan(&total)
@@ -229,4 +193,14 @@ func (r *Repository) ListDeviceCommands(ctx context.Context, t, d string, limit,
 		out = append(out, v)
 	}
 	return out, total, rows.Err()
+}
+
+func (r *Repository) GetDeviceCommand(ctx context.Context, tenant, id string) (model.DeviceCommand, error) {
+	var c model.DeviceCommand
+	var b []byte
+	err := r.pool.QueryRow(ctx, `SELECT body FROM device_command WHERE tenant_id=$1 AND id=$2`, tenant, id).Scan(&b)
+	if err == nil {
+		err = json.Unmarshal(b, &c)
+	}
+	return c, err
 }

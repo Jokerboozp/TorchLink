@@ -19,14 +19,9 @@ var ErrNotFound = model.ErrNotFound
 type Repository struct {
 	componentAlarms     map[string]model.ComponentAlarmState
 	protocolMarket      map[string]model.ProtocolMarketEntry
-	edgePrograms        map[string]model.EdgeProgram
 	twins               map[string]model.TwinTopology
-	edgeReadJobs        map[string]model.EdgeReadJob
 	rawReservations     map[string]rawReservation
-	edgeSecrets         map[string]string
-	edgeHeartbeats      map[string]model.EdgeHeartbeat
 	leases              map[string]model.ExecutionLease
-	edgeNodes           map[string]model.EdgeNode
 	revocations         map[string]model.CredentialRevocation
 	commands            map[string]model.DeviceCommand
 	mu                  sync.RWMutex

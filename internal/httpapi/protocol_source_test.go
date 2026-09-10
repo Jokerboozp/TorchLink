@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,9 @@ func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) {
 		for k, v := range map[string]string{"version": version, "productId": "source-product", "publish": "true", "transport": "MQTT", "payloadFormat": "hex", "cases": cases} {
 			_ = form.WriteField(k, v)
 		}
+		if version == "1.0.0" {
+			_ = form.WriteField("targetPlatforms", `["linux-amd64","windows-amd64"]`)
+		}
 		_ = form.Close()
 		req, _ := http.NewRequest("POST", server.URL+"/api/v2/protocols/source-demo/source-releases", &body)
 		req.Header.Set("Authorization", "Bearer "+auth)
@@ -111,6 +115,23 @@ func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) {
 	first := upload(token, "1.0.0", "protocol.go", []byte(protocolbuild.Template), protocolSourceCases, 201)
 	if first["binding"] == nil {
 		t.Fatal("upload did not bind product")
+	}
+	artifact := first["release"].(map[string]any)["artifact"].(map[string]any)
+	if artifact["validation"] != "PASSED" {
+		t.Fatal("native samples were not executed", artifact)
+	}
+	variants := artifact["variants"].(map[string]any)
+	for _, platform := range []string{"linux-amd64", "windows-amd64"} {
+		if platform == runtime.GOOS+"-"+runtime.GOARCH {
+			continue
+		}
+		v := variants[platform].(map[string]any)
+		if v["validation"] != "COMPILED" || v["testCases"] != float64(0) {
+			t.Fatal("foreign compile was misreported as execution", v)
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(v["path"].(string)))); err != nil {
+			t.Fatal("compiled target not persisted", err)
+		}
 	}
 	check("raw_source_v1", "1.0.0", 42, false)
 	upload(token, "1.0.0", "protocol.go", []byte(protocolbuild.Template), protocolSourceCases, 409)

@@ -301,12 +301,13 @@ type ProductProtocolBinding struct {
 }
 
 type DeviceAccessProfile struct {
-	CredentialRef     string `json:"credentialRef,omitempty"`
-	EndpointPath      string `json:"endpointPath,omitempty"`
-	SerialPort        string `json:"serialPort,omitempty"`
-	BaudRate          int    `json:"baudRate,omitempty"`
-	Parity            string `json:"parity,omitempty"`
-	StopBits          int    `json:"stopBits,omitempty"`
+	CredentialRef string `json:"credentialRef,omitempty"`
+	EndpointPath  string `json:"endpointPath,omitempty"`
+	SerialPort    string `json:"serialPort,omitempty"`
+	BaudRate      int    `json:"baudRate,omitempty"`
+	Parity        string `json:"parity,omitempty"`
+	StopBits      int    `json:"stopBits,omitempty"`
+	// EdgeNodeID is retained only to reject legacy remote assignments.
 	EdgeNodeID        string `json:"edgeNodeId,omitempty"`
 	Mode              string `json:"mode,omitempty"`
 	Network           string `json:"network,omitempty"`

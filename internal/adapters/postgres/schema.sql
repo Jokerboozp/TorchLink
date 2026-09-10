@@ -16,10 +16,6 @@ CREATE TABLE IF NOT EXISTS device_registry (
 CREATE INDEX IF NOT EXISTS device_registry_product_idx ON device_registry(tenant_id, product_id);
 
 -- Additive control-plane extensions; old device/product JSON remains valid.
-CREATE TABLE IF NOT EXISTS edge_node (
- tenant_id text NOT NULL,id text NOT NULL,body jsonb NOT NULL,
- PRIMARY KEY(tenant_id,id)
-);
 CREATE TABLE IF NOT EXISTS device_credential_revocation (
  tenant_id text NOT NULL,id text NOT NULL,device_id text NOT NULL,status text NOT NULL,
  body jsonb NOT NULL,PRIMARY KEY(tenant_id,id)
@@ -294,8 +290,6 @@ CREATE TABLE IF NOT EXISTS execution_lease (
  PRIMARY KEY(tenant_id,resource)
 );
 
-ALTER TABLE edge_node ADD COLUMN IF NOT EXISTS secret_hash text NOT NULL DEFAULT '';
-ALTER TABLE edge_node ADD COLUMN IF NOT EXISTS heartbeat jsonb NOT NULL DEFAULT '{}';
 
 CREATE TABLE IF NOT EXISTS raw_ingest_reservation (
  tenant_id text NOT NULL,
@@ -304,16 +298,6 @@ CREATE TABLE IF NOT EXISTS raw_ingest_reservation (
  metadata jsonb NOT NULL,
  PRIMARY KEY(tenant_id,message_id)
 );
-CREATE TABLE IF NOT EXISTS edge_read_job (
-  tenant_id text NOT NULL,
-  id text NOT NULL,
-  node_id text NOT NULL,
-  expires_at bigint NOT NULL,
-  status text NOT NULL,
-  body jsonb NOT NULL,
-  PRIMARY KEY (tenant_id,id)
-);
-CREATE INDEX IF NOT EXISTS edge_read_job_pending_idx ON edge_read_job(tenant_id,node_id,status,expires_at);
 CREATE TABLE IF NOT EXISTS device_shadow (tenant_id text NOT NULL, device_id text NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id));
 CREATE TABLE IF NOT EXISTS device_shadow_change (tenant_id text NOT NULL, device_id text NOT NULL, version bigint NOT NULL, body jsonb NOT NULL, PRIMARY KEY(tenant_id,device_id,version));
 -- Existing unnamed shadows remain under the empty name with their versions/history.
@@ -331,11 +315,9 @@ DO $$ BEGIN
 END $$;
 
 
-CREATE INDEX IF NOT EXISTS device_command_edge_pending_idx ON device_command(tenant_id,(body->'execution'->>'nodeId'),created_at) WHERE status='QUEUED';
 
 CREATE TABLE IF NOT EXISTS device_twin_topology (tenant_id text PRIMARY KEY,body jsonb NOT NULL);
 
-CREATE TABLE IF NOT EXISTS edge_program (tenant_id text NOT NULL,node_id text NOT NULL,generation bigint NOT NULL DEFAULT 0,target_version text NOT NULL DEFAULT '',updated_at bigint NOT NULL DEFAULT 0,status jsonb NOT NULL DEFAULT '{}',PRIMARY KEY(tenant_id,node_id));
 
 CREATE TABLE IF NOT EXISTS protocol_market_entry (
  tenant_id text NOT NULL,

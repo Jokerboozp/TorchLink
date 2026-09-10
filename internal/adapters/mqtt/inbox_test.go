@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"iot-platform/internal/edgeagent"
+	"iot-platform/internal/durablequeue"
 )
 
 type receivedMessage struct {
@@ -143,7 +143,7 @@ func TestDurableReceiveFullAndCorruptionDoNotClaimSuccess(t *testing.T) {
 	if !one.acked.Load() || two.acked.Load() {
 		t.Fatal("capacity failure incorrectly acknowledged")
 	}
-	if !errors.Is(d.health(), edgeagent.ErrQueueFull) {
+	if !errors.Is(d.health(), durablequeue.ErrQueueFull) {
 		t.Fatal(d.health())
 	}
 	c.cancel()

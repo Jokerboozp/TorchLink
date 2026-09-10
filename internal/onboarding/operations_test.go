@@ -121,7 +121,7 @@ func TestCredentialOutboxAndRecovery(t *testing.T) {
 		t.Fatal(items)
 	}
 }
-func TestThingModelAndEdgeTenantValidation(t *testing.T) {
+func TestThingModelAndRemovedEdgeValidation(t *testing.T) {
 	s := operationService(t)
 	ctx := context.Background()
 	m := &model.ThingModel{Commands: []model.ThingOperation{{Identifier: "set", Fields: []model.ThingField{{Identifier: "value", DataType: "integer", Required: true}}}}}
@@ -138,12 +138,9 @@ func TestThingModelAndEdgeTenantValidation(t *testing.T) {
 	if _, e := s.SendCommand(ctx, "t", "d", model.DeviceCommand{Confirmed: true, ID: "c", Type: "set", Data: map[string]any{"value": 1.2}}); e == nil {
 		t.Fatal("invalid integer accepted")
 	}
-	if _, e := s.SaveEdge(ctx, "other", model.EdgeNode{ID: "edge", Name: "edge"}); e != nil {
-		t.Fatal(e)
-	}
 	_, _, e := s.plan(ctx, "t", Request{ProductID: "p", DeviceID: "new", Name: "new", Profile: model.DeviceAccessProfile{EdgeNodeID: "edge"}})
 	if e == nil {
-		t.Fatal("cross tenant edge accepted")
+		t.Fatal("removed edge assignment accepted")
 	}
 }
 

@@ -7,36 +7,6 @@ import (
 	"sort"
 )
 
-func (r *Repository) SaveEdgeNode(_ context.Context, v model.EdgeNode) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.edgeNodes == nil {
-		r.edgeNodes = map[string]model.EdgeNode{}
-	}
-	r.edgeNodes[key(v.TenantID, v.ID)] = clone(v)
-	return nil
-}
-func (r *Repository) GetEdgeNode(_ context.Context, t, id string) (model.EdgeNode, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	v, ok := r.edgeNodes[key(t, id)]
-	if !ok {
-		return v, ErrNotFound
-	}
-	return clone(v), nil
-}
-func (r *Repository) ListEdgeNodes(_ context.Context, t string) ([]model.EdgeNode, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := []model.EdgeNode{}
-	for _, v := range r.edgeNodes {
-		if v.TenantID == t {
-			out = append(out, clone(v))
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
-}
 func (r *Repository) ListDeviceStateEvents(_ context.Context, t, d string, limit, offset int) ([]model.DeviceStateEvent, int, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -189,4 +159,14 @@ func (r *Repository) ListDeviceCommands(_ context.Context, t, d string, limit, o
 		return out[i].CreatedAt > out[j].CreatedAt
 	})
 	return page(out, offset, limit), len(out), nil
+}
+
+func (r *Repository) GetDeviceCommand(_ context.Context, tenant, id string) (model.DeviceCommand, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	c, ok := r.commands[key(tenant, id)]
+	if !ok {
+		return c, ErrNotFound
+	}
+	return clone(c), nil
 }

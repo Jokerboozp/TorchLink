@@ -34,13 +34,7 @@ func (r *Repository) RegisterProtocolDevice(ctx context.Context, expected model.
 		return empty, false, err
 	}
 	if current.EdgeNodeID != "" {
-		if err = tx.QueryRow(ctx, `SELECT body FROM edge_node WHERE tenant_id=$1 AND id=$2 FOR SHARE`, current.TenantID, current.EdgeNodeID).Scan(&body); err != nil {
-			return empty, false, err
-		}
-		var node model.EdgeNode
-		if json.Unmarshal(body, &node) != nil || node.Status != "ENABLED" {
-			return empty, false, model.ErrProtocolRegistration
-		}
+		return model.ManagedDevice{}, false, model.ErrProtocolRegistration
 	}
 	body, err = json.Marshal(d)
 	if err != nil {

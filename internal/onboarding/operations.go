@@ -54,24 +54,6 @@ func ValidateThingModel(m *model.ThingModel) error {
 	}
 	return nil
 }
-func (s *Service) SaveEdge(ctx context.Context, t string, v model.EdgeNode) (model.EdgeNode, error) {
-	if !segment.MatchString(v.ID) || v.Name == "" || len(v.Name) > 256 || len(v.Description) > 4096 {
-		return v, errors.New("valid id and name are required")
-	}
-	if v.Status == "" {
-		v.Status = "ENABLED"
-	}
-	if v.Status != "ENABLED" && v.Status != "DISABLED" {
-		return v, errors.New("status must be ENABLED or DISABLED")
-	}
-	v.TenantID = t
-	v.CreatedAt = time.Now().UnixMilli()
-	if old, e := s.Repo.GetEdgeNode(ctx, t, v.ID); e == nil {
-		v.CreatedAt = old.CreatedAt
-	}
-	v.UpdatedAt = time.Now().UnixMilli()
-	return v, s.Repo.SaveEdgeNode(ctx, v)
-}
 
 func (s *Service) ChangeCredential(ctx context.Context, t, id string, rotate bool) (model.DeviceCredential, model.CredentialRevocation, error) {
 	c := model.DeviceCredential{}
@@ -205,7 +187,7 @@ func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCo
 		return q, e
 	}
 	if !created {
-		if saved.Execution != nil || saved.DeviceID != d || saved.Type != q.Type || !reflect.DeepEqual(saved.Data, q.Data) {
+		if saved.Status == "QUEUED" || saved.DeviceID != d || saved.Type != q.Type || !reflect.DeepEqual(saved.Data, q.Data) {
 			return model.DeviceCommand{}, errors.New("command id is already used by a different request")
 		}
 		return saved.ObservedOutcome(time.Now().UnixMilli()), nil

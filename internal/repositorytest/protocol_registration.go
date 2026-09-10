@@ -15,9 +15,8 @@ func ProtocolRegistration(t *testing.T, r ports.Repository) {
 	ctx := context.Background()
 	const tenant = "protocol-registration-tenant"
 	product := model.Product{TenantID: tenant, ID: "product", Status: "ENABLED"}
-	node := model.EdgeNode{TenantID: tenant, ID: "node", Status: "ENABLED"}
-	p := model.DeviceAccessProfile{TenantID: tenant, ID: "profile", ProductID: product.ID, EdgeNodeID: node.ID, Mode: "listener", Network: "tcp", AutoRegister: true, Enabled: true}
-	for _, err := range []error{r.SaveProduct(ctx, product), r.SaveEdgeNode(ctx, node), r.SaveDeviceAccessProfile(ctx, p)} {
+	p := model.DeviceAccessProfile{TenantID: tenant, ID: "profile", ProductID: product.ID, Mode: "listener", Network: "tcp", AutoRegister: true, Enabled: true}
+	for _, err := range []error{r.SaveProduct(ctx, product), r.SaveDeviceAccessProfile(ctx, p)} {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,11 +85,12 @@ func ProtocolRegistration(t *testing.T, r ports.Repository) {
 	if err = r.SaveDeviceAccessProfile(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	node.Status = "DISABLED"
-	if err = r.SaveEdgeNode(ctx, node); err != nil {
+	p.EdgeNodeID = "removed-node"
+	if err = r.SaveDeviceAccessProfile(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = r.RegisterProtocolDevice(ctx, p, "disabled-node", ""); !errors.Is(err, model.ErrProtocolRegistration) {
-		t.Fatal("disabled node registered device", err)
+	if _, _, err = r.RegisterProtocolDevice(ctx, p, "legacy-node", ""); !errors.Is(err, model.ErrProtocolRegistration) {
+		t.Fatal("legacy edge assignment registered device", err)
 	}
+
 }

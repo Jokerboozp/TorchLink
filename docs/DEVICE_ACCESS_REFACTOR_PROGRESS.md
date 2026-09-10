@@ -351,3 +351,20 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - `go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 实际八项通过：PostgreSQL、Redis、ClickHouse、MinIO 读写，Kafka 生产消费，本地模型嵌入，现有 EMQX JWT 认证及发布订阅，Weaviate 就绪。脚本的独立临时资源按原流程清理。该 MQTT 冒烟不代替完整 ACL 负向矩阵或现有 EMQX 故障重投验收。
 - 重启后经 Vite 代理实际登录并读取协议，确认新版本持久化；原有 4 个标准协议联调产品及其绑定保留。当前租户没有 GB26875 产品或接入实例，因此本次完成协议发布，没有改绑不相关产品或创建测试设备。后续有实际 GB26875 产品时再绑定 `1.0.1` 并配置监听；这是启用设备接入所需前置条件，不代表本次已完成真机接入。
 - 本次没有进一步修改业务代码，完整单测、竞态和前端测试沿用上节紧邻实现结果，没有重复宣称重新执行。部署及发布无阻塞；未执行真实消防设备、物理断电/磁盘耗尽、Windows 运行、远程生产部署或完整浏览器交互验收。
+
+### 移除边缘节点与现场 Agent（2026-09-10）
+
+- 用户确认收敛为中心直接接入。开始时核对当前 Git 根目录、根 AGENTS.md 和 Git 状态，工作区干净；在当前分支实施。历史任务说明及阶段记录保留，当前范围以本节和 `EDGE_REMOVAL.md` 为准。
+- 已完成公共队列提取：迁移为 `internal/durablequeue`，保留文件格式、锁、原子写入、容量、首次接收时间与隔离机制；MQTT 不再依赖 Agent 包。`go test -race ./internal/durablequeue ./internal/adapters/mqtt` 已通过（1.762 / 3.829 秒）；此次命令未启用可选真实 Broker 测试。
+- 已移除现场 Agent、启动器、节点管理/认证/心跳/任务/命令/升级 API、相关仓储实现、页面、构建目标及环境示例。同步移除依赖现场执行的 RTU/OPC UA/SNMP/BACnet 向导入口、ONVIF 现场发现/读取和节点视频目录导入。中央 Modbus TCP、MQTT/HTTP、Go TCP/UDP、协议源码发布、独立 Gateway、部件告警与回放保留。
+- 关键兼容决定：保留旧 `edgeNodeId` 的拒绝执行保护，不将旧现场任务静默转为中心执行；新库不再创建边缘表，旧库迁移不删除已有表或业务记录；旧协议解析器保留历史原文回放用途。已保留队列全部回归测试，并将自动注册的共享测试调整到中心监听，保留并发去重、身份冲突和旧配置拒绝覆盖。
+- 前端初轮 `npm test` 62 项通过（0.757 秒），`npm run build` 通过（1.20 秒），仅已有大 chunk 提示。后端编译检查已通过，但 `-run '^$'` 只证明编译，不计为业务测试通过。
+- 额外依赖已清理：移除独立 GB28181 元数据节点（依赖同一边缘认证/心跳接口）、现场协议模拟器、视频目录专用仓储和模型，以及 OPC UA/SNMP/串口依赖。MQTT 所需 websocket、网络及文件锁依赖继续保留，未升级依赖版本。旧排队现场命令查询投影为 UNKNOWN，明确不自动重发，不泄露旧执行令牌。
+- 后端首轮 `go test -race ./internal/onboarding ./internal/connector ./internal/protocolruntime ./internal/adapters/memory ./internal/adapters/postgres ./internal/protocolcatalog` 通过；其中未配置 PostgreSQL 的可选测试跳过。兼容逻辑补齐后 `go test -race ./internal/model ./internal/onboarding ./internal/protocolruntime ./internal/connector` 通过（1.570 / 1.748 / 2.701 / 1.361 秒）。最终根目录 `go test ./...` 退出码 0（HTTP 包 56.061 秒），包含实际源码构建、样例失败拒绝、绑定/回滚与历史版本回放；仍未配置环境的可选集成明确跳过。独立 GB26875 module `go test ./...` 通过，命中既有测试缓存，源码未修改。
+- 真实队列回归：`IOT_TEST_MQTT_DOCKER=1 go test -race ./internal/adapters/mqtt ./internal/durablequeue -count=1 -v` 通过（8.453 / 1.623 秒）。隔离 Mosquitto 的认证、权限、重启/离线投递和满队列不 ACK 后重投测试 4.47 秒通过，包含 Raw→Parser→部件告警与恢复；只清理自身测试容器，不操作已有业务 Broker。
+- 真实 PostgreSQL：使用现有本地依赖的独立临时 schema，`go test -race ./internal/adapters/postgres -run 'TestDeviceOperationsMigrationAndAtomicity|TestComponentAlarmAtomicWatermarkAndRestart' -count=1 -v` 通过（包 3.854 秒，两个用例 1.85 / 0.46 秒）。环境 DSN 私下传入，不记录凭据；验证新 schema 无边缘表、模拟历史 edge_node 数据在重复迁移后原样保留，以及中心自动注册、状态、租约、部件告警事务等行为。测试清理自身 schema，未删除业务表。
+- HTTP 专项确认旧节点/程序/上报/ONVIF 路由为 404，旧节点归属及 serial/opc_ua/snmp/bacnet/onvif Profile 被拒绝；中心设备命令鉴权和摄像头单设备关联回归通过。真实 TCP 源码发布/热切换 `TestGoProtocolListenerSourceHotSwitch -race` 7.76 秒通过。源码上传测试新增额外 Linux/Windows 目标制品存在性及 COMPILED/PASSED 区分校验，替代已移除的 Edge 专属跨平台执行测试，不宣称外部平台制品实跑。
+- 浏览器最终：`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestOnboardingBrowser$' -count=1 -v` 通过（Chrome 流程 3.65 秒，HTTP 包 6.673 秒）。真实 Vue 构建产物与隔离 API 覆盖中心 Modbus TCP 读取、产品/设备向导、节点按钮移除、详情与窄屏、影子、HTTP 错误凭据拒绝/正确上报/幂等、验收导出不含密钥、凭据清理及摄像头人工登记。MQTT WebSocket 分支本次未启用，不与真实 Broker 后端测试混为一项。
+- 前端最终 `npm --prefix iot_front test` 62 项通过（0.208 秒），`npm --prefix iot_front run build` 通过（1.10 秒），仅既有大 chunk 提示。初轮浏览器沿用旧协议展示文案，后续新增摄像头导航也曾使用错误标签；按当前页面准确修正测试定位后全流程通过。新增后端测试初次缺少 model 导入已修复，没有通过跳过相关功能测试掩盖失败。
+- 打包同步附带 `EDGE_REMOVAL.md`；`bash scripts/tests/deployment-smoke.sh /usr/local/bin/docker-compose` 最终通过，使用真实 Compose 配置解析，Docker/HTTP 部署操作模拟。PowerShell 未安装，未实际执行对应脚本；仅同步核对其文件复制改动。文档本地链接和 `git diff --check` 通过，最终依赖检查确认平台不再引入 Agent、升级器、OPC UA、SNMP 或串口库。
+- 本轮约定范围已完成，无实施阻塞。未提交、推送或重启现有 API，运行中的旧 API 需部署新代码后才移除旧接口；持久接收目录、既有产品、协议制品、业务表和数据保持原样。未执行真实消防设备、Windows 运行、物理断电/磁盘耗尽或生产部署。

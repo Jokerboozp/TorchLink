@@ -392,6 +392,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.offline.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.access.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "docs/EDGE_AND_GATEWAY.md") -Destination $bundleRoot
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs/EDGE_REMOVAL.md") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $bundleRoot -Recurse
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null

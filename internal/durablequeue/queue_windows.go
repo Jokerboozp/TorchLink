@@ -1,4 +1,4 @@
-package edgeagent
+package durablequeue
 
 import (
 	"golang.org/x/sys/windows"

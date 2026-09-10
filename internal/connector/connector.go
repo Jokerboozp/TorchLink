@@ -93,13 +93,8 @@ func Types() []Description {
 		{MQTT, "MQTT 标准设备", true, Capabilities{Preview: true, DeviceCredential: true, Command: true}},
 		{HTTP, "HTTP 标准上报", true, Capabilities{Preview: true, DeviceCredential: true}},
 		{ModbusTCP, "Modbus TCP", true, Capabilities{Preview: true, ReadOnce: true}},
-		{ModbusRTU, "Modbus RTU / RS485（现场节点）", true, Capabilities{Preview: true, ReadOnce: true}},
-		{OPCUA, "OPC UA", true, Capabilities{Preview: true, ReadOnce: true}},
-		{SNMP, "SNMP", true, Capabilities{Preview: true, ReadOnce: true}},
-		{BACnet, "BACnet/IP", true, Capabilities{Preview: true, ReadOnce: true}},
 		{TCP, "TCP 设备", true, Capabilities{Preview: true, Listener: true, Command: true}},
 		{UDP, "UDP 设备", true, Capabilities{Preview: true, Listener: true, Command: true}},
-		{Edge, "Edge Agent（规划中）", false, Capabilities{}},
 	}
 }
 

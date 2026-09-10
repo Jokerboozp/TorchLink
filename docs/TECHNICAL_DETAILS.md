@@ -8,9 +8,9 @@
 
 [环境要求](#1-环境与方案选择) · [本地运行](#2-本地运行) · [在线部署](#3-在线部署) · [离线部署](#4-离线部署) · [扩展模块](#6-接入进程与扩展模块) · [开发检查](#按改动范围执行检查)
 
-设备接入统一入口为 **设备管理 → 添加设备**。支持 MQTT / HTTP 标准上报、Modbus TCP、Go TCP/UDP 协议和经现场节点执行的 RTU、OPC UA、SNMP、BACnet/IP 读取；具体子集和本地许可见 [统一设备接入与 API](UNIFIED_DEVICE_ONBOARDING.md)。
+设备接入统一入口为 **设备管理 → 添加设备**。支持 MQTT / HTTP 标准上报、Modbus TCP、Go TCP/UDP 协议；具体子集和本地许可见 [统一设备接入与 API](UNIFIED_DEVICE_ONBOARDING.md)。
 
-Go API + Vue 3 管理端，包含协议版本与可信分发、原始报文与告警、默认/命名影子、设备拓扑、知识库和 AI 辅助运维。独立 Gateway、Edge Agent、启动器和 GB28181 元数据服务按需配置。项目定位、功能和平台对比见 [README](../README.md)。
+Go API + Vue 3 管理端，包含协议版本与可信分发、原始报文与告警、默认/命名影子、设备拓扑、知识库和 AI 辅助运维。独立 Access Gateway 按需配置；现场 Agent 与节点升级已移除。项目定位、功能和平台对比见 [README](../README.md)。
 
 ## 1. 环境与方案选择
 
@@ -220,25 +220,11 @@ docker compose --env-file .env.online -f compose.yaml -f compose.access.yaml up 
 
 覆盖层要求 Compose 2.24.4+，将接入监听端口移到 Gateway。启用 `IOT_ACCESS_COORDINATION=true` 时，`IOT_ACCESS_NODE_URL` 必须精确指向本实例，不能填写随机负载均衡地址。租约可管理接管与请求路由，但不迁移既有 TCP 连接。完整参数见 [独立接入进程](EDGE_AND_GATEWAY.md)。
 
-### 现场节点与签名升级
+### 中心接入与历史现场配置
 
-在平台登记节点并生成凭据后，为现场节点准备私有 `.env.edge`，包括平台地址、租户、节点、凭据、数据目录及本地允许的网络、串口和凭据引用。运行：
+现场节点、Agent 和签名升级已移除。中心支持 MQTT/HTTP、Modbus TCP 和 Go TCP/UDP，MQTT 队列保留；旧节点归属不会静默转为中心执行。详见 [移除说明](EDGE_REMOVAL.md)。
 
-```bash
-go run ./cmd/iot-edge-agent --env-file .env.edge
-```
-
-这是直接运行 Agent 的方式；需要受控程序升级时，改由 `iot-edge-launcher` 管理同一节点，不同时运行两个使用相同数据目录的 Agent。启动器构建、签名目录、就绪检查和失败回退见 [Edge 程序升级](EDGE_PROGRAM_UPGRADES.md)。
-
-| 配置或能力 | 默认与作用 | 详细入口 |
-| --- | --- | --- |
-| 网络 / 串口 / 现场凭据 | 由节点部署者本地配置，平台不能扩大许可范围 | [现场 Agent](EDGE_AND_GATEWAY.md#现场-agent) |
-| `IOT_EDGE_ALLOW_GO_WORKERS` | 显式开启后允许已分配的 Go 协议执行；仍检查监听地址与制品 | [Go 协议与版本更新](EDGE_AND_GATEWAY.md#edge-go-协议与远程版本更新) |
-| `IOT_EDGE_ALLOW_AUTO_REGISTER` | 默认关闭；还需平台监听实例允许自动登记 | [协议自动登记](EDGE_AND_GATEWAY.md#edge-协议自动登记) |
-| `IOT_EDGE_ALLOW_COMMANDS` | 默认关闭；须结合 Worker 许可、角色、确认和当前配置检查 | [现场协议命令](EDGE_AND_GATEWAY.md#现场协议命令) |
-| 异构协议制品 | 上传时选择目标平台，节点实际运行样例后启用 | [异构 Edge 制品](GO_PROTOCOL_PACKAGES.md#异构-edge-制品) |
-
-### 状态、视频目录与组织协议分发
+### 设备状态与组织协议分发
 
 以下模块复用当前平台接口，按需准备相关外部服务或本地策略：
 
@@ -246,8 +232,6 @@ go run ./cmd/iot-edge-agent --env-file .env.edge
 | --- | --- | --- |
 | 默认 / 命名影子 | [设备影子](DEVICE_SHADOW.md)：物模型可写属性、版本检查、HTTP/MQTT 读取 | 保存 desired 不自动控制设备；reported 来自成功解析的上报 |
 | 设备拓扑 | [设备孪生与拓扑](DEVICE_TWINS.md)：同租户关系与版本约束 | 不提供三维、物理仿真或关系驱动控制 |
-| ONVIF | [发现与认证读取](EDGE_AND_GATEWAY.md#onvif-摄像头元数据读取)：网卡许可与现场认证 | 发现候选须认证读取后显式保存，不自动信任 |
-| GB28181 | [独立元数据节点](../protocol-packages/gb28181-metadata/README.md)：专用节点身份、SIP 与目录配置 | 独立 module 单独构建；不提供视频流或云台 |
 | 可信目录 | `IOT_PROTOCOL_CATALOG_POLICY`，见 [协议目录](PROTOCOL_CATALOG.md) | 默认留空关闭；HTTPS 与签名验证后仍在消费方编译、试跑 |
 | 企业私有市场 | `IOT_PROTOCOL_MARKET_POLICY`，见 [组织发布与审核](PRIVATE_PROTOCOL_MARKET.md) | 独立管理员审核；机器读取令牌不使用浏览器 JWT |
 
@@ -258,7 +242,7 @@ go run ./cmd/iot-edge-agent --env-file .env.edge
 | 目录 / 文档 | 内容 |
 |---|---|
 | `cmd/iot-platform`、`internal/` | API、业务逻辑、存储和协议运行时 |
-| `cmd/iot-access-gateway`、`cmd/iot-edge-agent`、`cmd/iot-edge-launcher` | 独立接入、现场节点与受控程序升级 |
+| `cmd/iot-access-gateway` | 独立中心接入进程 |
 | `cmd/iot-protocol-catalog` | 可信目录签名与密钥工具 |
 | `iot_front/` | Vue 管理端 |
 | [列表分页与关联选择](LIST_PAGINATION.md) | 分页边界、完整选项和请求顺序回归 |
@@ -275,7 +259,6 @@ go run ./cmd/iot-edge-agent --env-file .env.edge
 | --- | --- | --- |
 | 仓库根目录 | `go test ./...` | 根 Go module 测试；不包含独立协议 module |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立消防协议示例 |
-| `protocol-packages/gb28181-metadata` | `go test ./...` | 独立视频目录服务 |
 | `iot_front` | `npm test` | 前端现有测试 |
 | `iot_front` | `npm run build` | 前端构建 |
 | 仓库根目录 | `git diff --check` | 文档和代码的空白检查 |

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 )
 
 type listenerSnapshot interface {
@@ -46,22 +45,7 @@ func (s *Server) profileSnapshot(ctx context.Context, tenant string, p model.Dev
 		}
 	}
 	if p.EdgeNodeID != "" {
-		p.RuntimeStatus = "UNSUPPORTED"
-		p.LastError = "尚无可用 Edge Agent 心跳，中心不会执行该任务"
-		if h, err := s.engine.Repo.GetEdgeHeartbeat(ctx, tenant, p.EdgeNodeID); err == nil && h.LastSeenAt > 0 {
-			p.RuntimeStatus = "OFFLINE"
-			p.LastError = "Edge 节点心跳已过期"
-			if time.Now().UnixMilli()-h.LastSeenAt < 30000 {
-				p.RuntimeStatus = "PENDING"
-				p.LastError = h.LastError
-				for _, observed := range h.Profiles {
-					if observed.ID == p.ID && observed.Configuration() == p.Configuration() {
-						p.RuntimeStatus, p.LastError = observed.RuntimeStatus, observed.LastError
-						break
-					}
-				}
-			}
-		}
+		p.RuntimeStatus, p.LastError = "UNSUPPORTED", "边缘节点功能已移除，旧现场任务不会在中心执行"
 		sessions = []map[string]any{}
 	}
 	if !p.Enabled {
@@ -201,12 +185,6 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
-	var edge *model.EdgeNode
-	if profile != nil && profile.EdgeNodeID != "" {
-		if v, e := s.engine.Repo.GetEdgeNode(r.Context(), tenant, profile.EdgeNodeID); e == nil {
-			edge = &v
-		}
-	}
 	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Limit: 1})
 	if err != nil {
 		problem(w, 500, err.Error())
@@ -231,7 +209,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	write(w, 200, map[string]any{"accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "edgeNode": edge, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode"), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+	write(w, 200, map[string]any{"accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode") && (profile == nil || profile.EdgeNodeID == ""), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
 }
 
 func profileTransport(p model.DeviceAccessProfile) string {

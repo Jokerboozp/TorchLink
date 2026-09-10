@@ -399,6 +399,7 @@ cp "$project_root/compose.yaml" "$bundle_root/"
 cp "$project_root/compose.offline.yaml" "$bundle_root/"
 cp "$project_root/compose.access.yaml" "$bundle_root/"
 cp "$project_root/docs/EDGE_AND_GATEWAY.md" "$bundle_root/"
+cp "$project_root/docs/EDGE_REMOVAL.md" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
 cp "$project_root/docs/OFFLINE_DEPLOYMENT.md" "$bundle_root/"
 for script_name in deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do

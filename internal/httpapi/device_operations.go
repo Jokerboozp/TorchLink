@@ -14,39 +14,11 @@ func (s *Server) SetDeviceOperations(publish func(context.Context, string, []byt
 }
 func (s *Server) RunCredentialRevocations(ctx context.Context) { s.onboarding.RetryRevocations(ctx) }
 func (s *Server) deviceOperationsRoutes() {
-	s.edgeRoutes()
 	s.shadowRoutes()
 	s.twinRoutes()
-	s.router.GET("/api/v1/edge-nodes", s.authorize("viewer"), s.endpoint(s.listEdgeNodes))
-	s.router.POST("/api/v1/edge-nodes", s.authorize("admin"), s.endpoint(s.saveEdgeNode))
-	s.router.PUT("/api/v1/edge-nodes/:id", s.authorize("admin"), s.endpoint(s.saveEdgeNode, "id"))
 	s.router.GET("/api/v1/device-registry/:id/history", s.authorize("viewer"), s.endpoint(s.deviceHistory, "id"))
 	s.router.GET("/api/v1/device-registry/:id/commands", s.authorize("viewer"), s.endpoint(s.listDeviceCommands, "id"))
 	s.router.POST("/api/v1/device-registry/:id/commands", s.authorize("operator"), s.endpoint(s.sendDeviceCommand, "id"))
-}
-func (s *Server) listEdgeNodes(w http.ResponseWriter, r *http.Request) {
-	v, e := s.engine.Repo.ListEdgeNodes(r.Context(), claims(r).TenantID)
-	if e != nil {
-		problem(w, 500, e.Error())
-		return
-	}
-	write(w, 200, map[string]any{"items": v})
-}
-func (s *Server) saveEdgeNode(w http.ResponseWriter, r *http.Request) {
-	var v model.EdgeNode
-	if decode(w, r, &v) != nil {
-		return
-	}
-	if id := r.PathValue("id"); id != "" {
-		v.ID = id
-	}
-	v, e := s.onboarding.SaveEdge(r.Context(), claims(r).TenantID, v)
-	if e != nil {
-		problem(w, 422, e.Error())
-		return
-	}
-	s.audit(r, "edge.save", "edge", v.ID, nil)
-	write(w, 200, v)
 }
 func operationPage(r *http.Request) (int, int) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))

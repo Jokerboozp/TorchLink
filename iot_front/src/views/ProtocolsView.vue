@@ -4,15 +4,13 @@ defineEmits(['navigate'])
 import FilePicker from '../components/FilePicker.vue'
 import { transportLabel, formatLabel, statusLabel, platformLabel } from '../presentation'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { commandStatuses, label, parsers } from '../labels'
+import { label, parsers } from '../labels'
 import ProtocolCatalog from '../components/ProtocolCatalog.vue'
 import ProtocolMarket from '../components/ProtocolMarket.vue'
-import EdgeNodes from '../components/EdgeNodes.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 
 const protocols = ref([])
-const edgeNodesOpen = ref(false)
 const profiles = ref([])
 const snapshots = ref({})
 const snapshot = (id) => snapshots.value[id] || { sessions: [], recentDevices: [] }
@@ -131,14 +129,10 @@ async function sendCommand() {
   if (!pendingProtocolCommand.value || pendingProtocolCommand.value.signature !== signature) pendingProtocolCommand.value={signature,id:crypto.randomUUID()}
   body={...body,requestId:pendingProtocolCommand.value.id,confirmed:true}
   sendingCommand.value = true
-  try { result.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(command.profileId)}/devices/${encodeURIComponent(command.deviceId)}/commands`, { method:'POST', body:JSON.stringify(body) }); ElMessage.success(result.value.execution ? '命令已记录，请查询实际结果' : result.value.status === 'acknowledged' ? '设备已应答' : '命令已发送') }
+  try { result.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(command.profileId)}/devices/${encodeURIComponent(command.deviceId)}/commands`, { method:'POST', body:JSON.stringify(body) }); ElMessage.success(result.value.status === 'acknowledged' ? '设备已应答' : '命令已发送') }
   catch (error) { notifyError(error) } finally { sendingCommand.value = false }
 }
 
-async function refreshProtocolCommand(){
- if(!pendingProtocolCommand.value)return
- try{result.value=await api(`/api/v1/device-registry/${encodeURIComponent(command.deviceId)}/commands/${encodeURIComponent(pendingProtocolCommand.value.id)}`)}catch(error){notifyError(error)}
-}
 
 async function testProfile(profile) {
   testingId.value = profile.id
@@ -157,10 +151,8 @@ onMounted(load)
 </script>
 
 <template>
-  <EdgeNodes v-if="edgeNodesOpen" @close="edgeNodesOpen=false" @changed="load" />
   <div class="page-toolbar">
     <el-button :loading="loading" @click="load">刷新</el-button>
-    <el-button @click="edgeNodesOpen=true">边缘节点</el-button>
     <el-tag type="success" round>协议版本管理</el-tag>
     <span>{{ protocols.length }} 个协议，{{ releaseCount }} 个不可变版本，{{ profiles.length }} 个接入实例</span>
   </div>
@@ -191,9 +183,9 @@ onMounted(load)
               <el-form-item label="运行时（旧协议包）"><el-select v-model="source.runtime" clearable placeholder="Go 函数模式请留空"><el-option label="报文解析（第一版）" value="go-json-lines-v1" /><el-option label="完整接入（第二版）" value="go-protocol-v2" /></el-select></el-form-item>
               <el-form-item label="操作能力（旧协议包）"><el-input v-model="source.capabilities" placeholder='Go 函数模式请留空；旧包例如 ["decode"]' /></el-form-item>
             </div>
-            <el-form-item label="现场节点平台（可选）">
+            <el-form-item label="额外编译目标（可选）">
               <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></el-select>
-              <small class="subline">其他平台编译后，由对应边缘节点实际试跑成功才启用。</small>
+              <small class="subline">其他平台仅生成编译制品；在对应平台实际试跑前不能视为验收通过。</small>
             </el-form-item>
             <el-form-item label="项目编译入口（旧协议包）"><el-input v-model="source.entrypoint" placeholder="默认为 .，Go 函数模式请留空" /></el-form-item>
             <el-form-item label="覆盖样例（旧协议包）">
@@ -230,7 +222,7 @@ onMounted(load)
         <el-form-item label="接入实例"><el-select v-model="command.profileId"><el-option v-for="p in profiles.filter(p => p.mode === 'listener' && p.enabled)" :key="p.id" :label="p.id" :value="p.id" /></el-select></el-form-item>
         <el-form-item label="在线设备标识"><el-input v-model="command.deviceId" placeholder="由协议包识别的设备标识" /></el-form-item>
       </div><el-form-item label="协议包支持的命令结构化数据"><el-input v-model="command.body" type="textarea" :rows="3" /></el-form-item>
-      <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令</el-button><el-button v-if="pendingProtocolCommand && profiles.find(p=>p.id===command.profileId)?.edgeNodeId" @click="refreshProtocolCommand">查询命令结果</el-button><el-button v-if="pendingProtocolCommand" @click="pendingProtocolCommand=null">开始一条新命令</el-button></el-form>
+      <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令</el-button><el-button v-if="pendingProtocolCommand" @click="pendingProtocolCommand=null">开始一条新命令</el-button></el-form>
     </el-tab-pane>
 
     <el-tab-pane label="协议与版本">
@@ -274,7 +266,7 @@ onMounted(load)
 
   <el-card v-if="result" shadow="never" class="surface-card top-gap">
     <template #header><strong>最近一次操作结果</strong></template>
-    <p v-if="result.execution">{{label(commandStatuses,result.status)}} · {{result.lastError||''}}</p><pre>{{ pretty(result) }}</pre>
+    <pre>{{ pretty(result) }}</pre>
   </el-card>
 </template>
 

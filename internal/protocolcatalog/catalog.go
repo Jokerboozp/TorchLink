@@ -209,11 +209,8 @@ func Validate(p Payload, now time.Time) error {
 	}
 	seen := map[string]bool{}
 	for _, e := range p.Entries {
-		if e.Kind != "" && e.Kind != "protocol-source" && e.Kind != "edge-agent" {
+		if e.Kind != "" && e.Kind != "protocol-source" {
 			return errors.New("unsupported catalog artifact kind")
-		}
-		if e.Kind == "edge-agent" && (e.ID != "iot-edge-agent" || (e.Platform != "linux/amd64" && e.Platform != "linux/arm64" && e.Platform != "windows/amd64" && e.Platform != "windows/arm64" && e.Platform != "darwin/arm64" && e.Platform != "darwin/amd64")) {
-			return errors.New("invalid edge program platform")
 		}
 
 		kind := e.Kind

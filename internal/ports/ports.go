@@ -26,9 +26,6 @@ type Repository interface {
 	SubmitProtocolMarket(context.Context, model.ProtocolMarketEntry) error
 	ReviewProtocolMarket(context.Context, string, string, string, string, string, string, int64) (model.ProtocolMarketEntry, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
-	GetEdgeProgram(context.Context, string, string) (model.EdgeProgram, error)
-	SetEdgeProgram(context.Context, string, string, int64, string) (model.EdgeProgram, error)
-	ReportEdgeProgram(context.Context, string, string, model.EdgeProgramStatus) error
 	GetTwinNodes(context.Context, string, []string) ([]model.TwinNode, error)
 	GetTwinTopology(context.Context, string) (model.TwinTopology, error)
 	UpdateTwinTopology(context.Context, model.TwinUpdate) (model.TwinTopology, error)
@@ -37,29 +34,15 @@ type Repository interface {
 	UpdateDeviceShadow(context.Context, model.ShadowUpdate) (model.DeviceShadow, error)
 	ListShadowChanges(context.Context, string, string, int, int, ...string) ([]model.ShadowChange, error)
 	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, error)
-	SetEdgeCredential(context.Context, string, string, string) error
-	GetEdgeCredential(context.Context, string, string) (string, error)
-	SaveEdgeHeartbeat(context.Context, string, string, model.EdgeHeartbeat) error
-	GetEdgeHeartbeat(context.Context, string, string) (model.EdgeHeartbeat, error)
-	CreateEdgeReadJob(context.Context, model.EdgeReadJob) error
-	GetEdgeReadJob(context.Context, string, string) (model.EdgeReadJob, error)
-	ClaimEdgeReadJob(context.Context, string, string, string) (model.EdgeReadJob, error)
-	FinishEdgeReadJob(context.Context, model.EdgeReadJob) error
 	AcquireExecutionLease(context.Context, string, string, string, string, time.Duration) (model.ExecutionLease, bool, error)
 	GetExecutionLease(context.Context, string, string) (model.ExecutionLease, error)
 	ReleaseExecutionLease(context.Context, model.ExecutionLease) error
-	SaveEdgeNode(context.Context, model.EdgeNode) error
-	GetEdgeNode(context.Context, string, string) (model.EdgeNode, error)
-	ListEdgeNodes(context.Context, string) ([]model.EdgeNode, error)
 	ListDeviceStateEvents(context.Context, string, string, int, int) ([]model.DeviceStateEvent, int, error)
 	ListDeviceMessages(context.Context, string, string, model.MessageType, int, int) ([]model.StandardMessage, int, error)
 	ChangeDeviceCredential(context.Context, string, string, string, string, int64) (model.ManagedDevice, model.CredentialRevocation, error)
 	ListCredentialRevocations(context.Context, string, string, bool) ([]model.CredentialRevocation, error)
 	UpdateCredentialRevocation(context.Context, model.CredentialRevocation) error
-	CreateEdgeCommand(context.Context, model.DeviceCommand) (model.DeviceCommand, bool, error)
 	GetDeviceCommand(context.Context, string, string) (model.DeviceCommand, error)
-	ClaimEdgeCommand(context.Context, string, string, string) (model.DeviceCommand, error)
-	FinishEdgeCommand(context.Context, model.DeviceCommand) error
 	CreateDeviceCommand(context.Context, model.DeviceCommand) (model.DeviceCommand, bool, error)
 	UpdateDeviceCommandDispatch(context.Context, string, string, string, string, int64) error
 	CompleteDeviceCommand(context.Context, string, string, string, map[string]any, int64) error
@@ -136,7 +119,6 @@ type Repository interface {
 	UpdateVideoEvent(context.Context, model.VideoAlarmEvent) error
 	ListPendingVideoEvents(context.Context, int) ([]model.VideoAlarmEvent, error)
 	SaveVideoCameraMapping(context.Context, model.VideoCameraMapping) error
-	CreateCatalogCamera(context.Context, model.VideoCameraMapping) (bool, error)
 	GetVideoCameraMapping(context.Context, string, string) (model.VideoCameraMapping, error)
 	ListVideoCameraMappings(context.Context, string) ([]model.VideoCameraMapping, error)
 	ListVideoCameraMappingsPage(context.Context, string, int, int) ([]model.VideoCameraMapping, int, error)

@@ -10,7 +10,7 @@ import (
 // Access routes execute on the process which owns transport sessions. Authentication
 // is preserved and evaluated by the same API handlers at the destination.
 func accessRoute(path string) bool {
-	if strings.HasPrefix(path, "/api/v1/edge/") || strings.HasPrefix(path, "/api/v1/device-ingest/") || path == "/api/v1/device-mqtt/token" || path == "/api/v1/connectors" || path == "/api/v1/onboarding" || path == "/api/v1/onboarding/test" {
+	if strings.HasPrefix(path, "/api/v1/device-ingest/") || path == "/api/v1/device-mqtt/token" || path == "/api/v1/connectors" || path == "/api/v1/onboarding" || path == "/api/v1/onboarding/test" {
 		return true
 	}
 	if strings.HasPrefix(path, "/api/v1/device-registry/") && (strings.HasSuffix(path, "/connection") || strings.HasSuffix(path, "/commands")) {

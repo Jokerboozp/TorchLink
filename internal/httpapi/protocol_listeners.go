@@ -47,7 +47,7 @@ func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.EdgeNodeID != "" {
-		s.enqueueEdgeCommand(w, r, p, command)
+		problem(w, 422, "边缘节点功能已移除，不能执行旧现场命令")
 		return
 	}
 	if s.protocolListeners == nil {

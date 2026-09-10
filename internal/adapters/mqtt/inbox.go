@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"iot-platform/internal/edgeagent"
+	"iot-platform/internal/durablequeue"
 	"iot-platform/internal/model"
 	"os"
 	"path/filepath"
@@ -18,11 +18,11 @@ import (
 	"time"
 )
 
-// Reuse the fsynced queue/lock/quarantine implementation already used by Edge.
+// Reuse the fsynced queue/lock/quarantine implementation shared by durable receivers.
 // These RawMessage values are private transport envelopes, never parsed or
 // inserted into business storage directly.
 type durableInbox struct {
-	queues    []*edgeagent.Queue
+	queues    []*durablequeue.Queue
 	wg        sync.WaitGroup
 	mu        sync.Mutex
 	lastError error
@@ -48,7 +48,7 @@ func NewDurableWithCredentials(broker, root string, credentials mqtt.Credentials
 func openInbox(root string, maxBytes int64, maxItems int) (*durableInbox, error) {
 	d := &durableInbox{pending: map[int]error{}}
 	for i := 0; i < 8; i++ {
-		q, err := edgeagent.OpenQueue(filepath.Join(root, fmt.Sprint(i)), maxBytes/8, maxItems/8)
+		q, err := durablequeue.OpenQueue(filepath.Join(root, fmt.Sprint(i)), maxBytes/8, maxItems/8)
 		if err != nil {
 			d.close()
 			return nil, err
@@ -136,7 +136,7 @@ func (d *durableInbox) health() error {
 func (d *durableInbox) start(c *Client) {
 	for index, queue := range d.queues {
 		d.wg.Add(1)
-		go func(index int, q *edgeagent.Queue) {
+		go func(index int, q *durablequeue.Queue) {
 			defer d.wg.Done()
 			for c.ctx.Err() == nil {
 				raw, found, err := q.Next()

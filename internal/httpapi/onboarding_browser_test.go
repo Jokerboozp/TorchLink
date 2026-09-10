@@ -151,10 +151,6 @@ func TestOnboardingBrowser(t *testing.T) {
 	if err != nil || propertyCount != expectedCount {
 		t.Fatalf("retransmission was not deduplicated: count=%d expected=%d error=%v", propertyCount, expectedCount, err)
 	}
-	nodes, err := repo.ListEdgeNodes(ctx, "tenant")
-	if err != nil || len(nodes) != 1 || nodes[0].ID != "browser-edge" {
-		t.Fatalf("browser did not persist edge registration: %+v %v", nodes, err)
-	}
 }
 
 // The browser uses a runtime snapshot; no physical listener or device is required.

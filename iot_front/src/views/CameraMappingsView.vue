@@ -3,7 +3,7 @@
 defineEmits(['navigate'])
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api, apiAll, notifyError, formatTime } from '../api'
+import { api, apiAll, notifyError } from '../api'
 
 const cameras = ref([])
 const devices = ref([])
@@ -16,41 +16,6 @@ const pageSize = ref(20)
 const total = ref(0)
 const blank = () => ({ cameraId:'', brand:'', cameraName:'', cameraPoint:'', building:'', floor:'', room:'', deviceId:'', enabled:true })
 const camera = reactive(blank())
-const edgeNodes = ref([])
-const onvifBusy = ref(false)
-const discoveryBusy = ref(false), discoveryInterface = ref(''), discoveryResult = ref(null)
-const onvif = reactive({ edgeNodeId:'', host:'', port:443, credentialRef:'', endpointPath:'/onvif/device_service' })
-let editVersion = 0
-const catalogVisible = ref(false), catalogNode = ref(''), catalogRows = ref([]), catalogBusy = ref(false), catalogError = ref('')
-let catalogVersion = 0
-async function openCatalog() {
-  catalogVisible.value = true
-  try { edgeNodes.value = (await api('/api/v1/edge-nodes')).items.filter(node => node.status === 'ENABLED') }
-  catch(error) { notifyError(error) }
-}
-async function loadCatalog() {
-  const version = ++catalogVersion
-  catalogRows.value = []; catalogError.value = ''
-  if (!catalogNode.value) return
-  catalogBusy.value = true
-  try {
-    const value = await api(`/api/v1/edge-nodes/${encodeURIComponent(catalogNode.value)}/runtime`)
-    if (version !== catalogVersion) return
-    catalogRows.value = (value.heartbeat?.videoCatalog || []).flatMap(device => (device.channels || []).filter(channel => !channel.parental).map(channel => ({ ...channel, recorderId:device.deviceId, recorderName:device.name || device.deviceId, catalogAt:device.catalogAt, available:value.status === 'ONLINE' && device.registered && Date.now()-device.catalogAt <= 120000 })))
-    catalogError.value = [value.heartbeat?.lastError, ...(value.heartbeat?.videoCatalog || []).map(device => device.lastError)].filter(Boolean).join('；')
-  } catch(error) { if (version === catalogVersion) catalogError.value = error.message }
-  finally { if (version === catalogVersion) catalogBusy.value = false }
-}
-async function importCatalog(row) {
-  catalogBusy.value = true
-  try {
-    const value = await api(`/api/v1/edge-nodes/${encodeURIComponent(catalogNode.value)}/video-catalog/import`, {method:'POST', body:JSON.stringify({deviceId:row.recorderId,cameraId:row.deviceId})})
-    ElMessage.success(value.created ? '摄像头信息已添加，可在列表中编辑位置和设备关联' : '该来源已添加，保留现有编辑信息')
-    await load()
-  } catch(error) { notifyError(error) }
-  finally { catalogBusy.value = false }
-}
-
 let loadVersion = 0
 async function load() {
   const version = ++loadVersion
@@ -72,45 +37,9 @@ async function load() {
 }
 
 function open(value) {
-	editVersion++
-	discoveryResult.value=null
   Object.assign(camera, blank(), value ? { ...value, deviceId:value.deviceId || value.relatedDeviceIds?.[0] || '' } : {})
   editing.value = value?.cameraId || ''
   dialogVisible.value = true
-  api('/api/v1/edge-nodes').then(data => { edgeNodes.value = (data.items || []).filter(node => node.status === 'ENABLED') }).catch(notifyError)
-}
-
-async function readONVIF() {
-  const version = editVersion
-  onvifBusy.value = true
-  try {
-    const result = await api('/api/v1/integrations/video/onvif/test', { method:'POST', body:JSON.stringify(onvif) })
-    if (version !== editVersion || !dialogVisible.value) return
-    const info = result.metadata || {}
-    if (!editing.value && !camera.cameraId) camera.cameraId = info.serialNumber || ''
-    if (!camera.brand) camera.brand = info.manufacturer || ''
-    if (!camera.cameraName) camera.cameraName = info.model || ''
-    ElMessage.success('已读取摄像头信息，请核对后保存')
-  } catch (error) { notifyError(error) }
-  finally { onvifBusy.value = false }
-}
-
-async function discoverONVIF() {
-  const version=editVersion, node=onvif.edgeNodeId
-  discoveryBusy.value=true;discoveryResult.value=null
-  try {
-    const response=await api('/api/v1/integrations/video/onvif/discover',{method:'POST',body:JSON.stringify({edgeNodeId:node,interfaceAddress:discoveryInterface.value})})
-    if(version!==editVersion || !dialogVisible.value || node!==onvif.edgeNodeId)return
-    discoveryResult.value=response.result
-  } catch(error){notifyError(error)} finally{discoveryBusy.value=false}
-}
-function selectDiscovered(row) {
-  try {
-    const address=new URL(row.xAddrs.find(value=>value.startsWith('https://'))||row.xAddrs[0])
-    if(!['https:','http:'].includes(address.protocol)||address.username||address.password)throw new Error('发现地址无效')
-    onvif.host=address.hostname;onvif.port=Number(address.port||(address.protocol==='https:'?443:80));onvif.endpointPath=address.pathname
-    ElMessage.info('已选择候选地址，请填写现场凭据并执行认证读取')
-  }catch(error){notifyError(error)}
 }
 
 async function save() {
@@ -155,7 +84,6 @@ onMounted(async () => { await load(); consumeNavigationAction() })
 <template>
   <div class="page-toolbar">
     <el-button type="primary" @click="open()">新增摄像头</el-button>
-    <el-button @click="openCatalog">国标视频目录</el-button>
     <el-button @click="load">刷新</el-button>
     <span>共 {{ total }} 个摄像头；一个摄像头最多关联一个设备，一个设备可以关联多个摄像头</span>
   </div>
@@ -176,23 +104,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
   </el-card>
 
   <el-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)">
-    <el-collapse>
-      <el-collapse-item title="从网络视频标准摄像头读取基础信息" name="onvif">
-        <el-form label-position="top">
-          <div class="form-grid">
-            <el-form-item label="现场节点"><el-select v-model="onvif.edgeNodeId" placeholder="选择已启用节点" :disabled="discoveryBusy || onvifBusy" @change="discoveryResult=null"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id" /></el-select></el-form-item>
-            <el-form-item label="发现网卡网络地址（节点本地白名单）"><el-input v-model="discoveryInterface" placeholder="现场节点的网卡地址" :disabled="discoveryBusy" /></el-form-item>
-            <el-form-item label="摄像头地址"><el-input v-model="onvif.host" placeholder="地址或主机名" /></el-form-item>
-            <el-form-item label="端口"><el-input-number v-model="onvif.port" :min="1" :max="65535" /></el-form-item>
-            <el-form-item label="现场凭据引用"><el-input v-model="onvif.credentialRef" placeholder="节点本地已配置的凭据名称" /></el-form-item>
-            <el-form-item label="网络视频标准服务路径"><el-input v-model="onvif.endpointPath" /></el-form-item>
-          </div>
-          <el-button :loading="discoveryBusy" :disabled="onvifBusy || !onvif.edgeNodeId || !discoveryInterface" @click="discoverONVIF">发现候选设备</el-button>
-          <el-button :loading="onvifBusy" :disabled="discoveryBusy || !onvif.edgeNodeId || !onvif.host || !onvif.credentialRef" @click="readONVIF">读取信息</el-button>
-          <template v-if="discoveryResult"><p>发现结果尚未认证，选择地址不会自动登记。{{discoveryResult.truncated?'结果达到上限，请缩小现场范围。':''}}</p><el-table :data="discoveryResult.items||[]" empty-text="未收到符合策略的候选响应"><el-table-column prop="sourceIp" label="响应地址"/><el-table-column label="服务地址"><template #default="{row}"><span style="overflow-wrap:anywhere">{{row.xAddrs.join('、')}}</span></template></el-table-column><el-table-column label="操作" width="86"><template #default="{row}"><el-button link :disabled="onvifBusy || discoveryBusy" @click="selectDiscovered(row)">选择地址</el-button></template></el-table-column></el-table></template>
-        </el-form>
-      </el-collapse-item>
-    </el-collapse>
+
     <el-form :model="camera" label-position="top">
       <div class="form-grid">
         <el-form-item label="摄像头标识"><el-input v-model="camera.cameraId" :disabled="!!editing" placeholder="外部视频平台摄像头标识" /></el-form-item>
@@ -208,19 +120,6 @@ onMounted(async () => { await load(); consumeNavigationAction() })
       <el-form-item><el-switch v-model="camera.enabled" active-text="启用该摄像头" /></el-form-item>
     </el-form>
     <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" @click="save">保存</el-button></template>
-  </el-dialog>
-  <el-dialog v-model="catalogVisible" title="国标视频摄像头目录" width="min(900px, 94vw)">
-    <p>选择运行国标视频元数据服务的独立现场节点。目录来自已认证注册设备，添加后可编辑位置和设备关联。</p>
-    <el-select v-model="catalogNode" placeholder="选择视频节点" :disabled="catalogBusy" @change="loadCatalog"><el-option v-for="node in edgeNodes" :key="node.id" :label="node.name || node.id" :value="node.id"/></el-select>
-    <el-button :disabled="!catalogNode" :loading="catalogBusy" @click="loadCatalog">刷新目录</el-button>
-    <el-alert v-if="catalogError" :title="catalogError" type="error" :closable="false"/>
-    <el-table :data="catalogRows" v-loading="catalogBusy" empty-text="暂无目录，请检查节点心跳和设备 SIP 注册">
-      <el-table-column label="摄像头" min-width="180"><template #default="{row}">{{row.name || row.deviceId}}<small class="subline">{{row.deviceId}}</small></template></el-table-column>
-      <el-table-column prop="recorderName" label="注册设备" min-width="160"/>
-      <el-table-column prop="manufacturer" label="厂商" width="110"/>
-      <el-table-column label="目录时间" min-width="170"><template #default="{row}">{{formatTime(row.catalogAt)}}</template></el-table-column>
-      <el-table-column label="操作" width="110" fixed="right"><template #default="{row}"><el-button :disabled="!row.available || catalogBusy" @click="importCatalog(row)">添加</el-button></template></el-table-column>
-    </el-table>
   </el-dialog>
 </template>
 

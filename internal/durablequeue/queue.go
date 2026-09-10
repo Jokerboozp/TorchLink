@@ -1,4 +1,4 @@
-package edgeagent
+package durablequeue
 
 import (
 	"bytes"
@@ -19,7 +19,7 @@ import (
 
 var ErrQuarantined = errors.New("raw is quarantined; operator review is required")
 
-var ErrQueueFull = errors.New("edge queue is full; data was not acknowledged")
+var ErrQueueFull = errors.New("durable queue is full; data was not acknowledged")
 
 type Queue struct {
 	mu             sync.Mutex

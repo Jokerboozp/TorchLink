@@ -17,7 +17,7 @@ func (r *Repository) RegisterProtocolDevice(ctx context.Context, expected model.
 	if err != nil {
 		return d, false, err
 	}
-	if current.EdgeNodeID != "" && r.edgeNodes[key(current.TenantID, current.EdgeNodeID)].Status != "ENABLED" {
+	if current.EdgeNodeID != "" {
 		return d, false, model.ErrProtocolRegistration
 	}
 	if existing, ok := r.devices[key(current.TenantID, id)]; ok {

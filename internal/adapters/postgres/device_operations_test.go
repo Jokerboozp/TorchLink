@@ -52,20 +52,31 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	if e = r.Migrate(ctx); e != nil {
 		t.Fatal("migration is not repeatable", e)
 	}
+	var created bool
+	if e = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN ('edge_node','edge_read_job','edge_program'))`).Scan(&created); e != nil || created {
+		t.Fatal("fresh schema still creates edge tables", e)
+	}
+	// Upgrading existing installations must leave historical node records intact.
+	if _, e = r.pool.Exec(ctx, `CREATE TABLE edge_node(tenant_id text,id text,body jsonb); INSERT INTO edge_node VALUES ('legacy','node','{"status":"DISABLED"}')`); e != nil {
+		t.Fatal(e)
+	}
+	if e = r.Migrate(ctx); e != nil {
+		t.Fatal(e)
+	}
+	var preserved int
+	if e = r.pool.QueryRow(ctx, `SELECT count(*) FROM edge_node WHERE tenant_id='legacy' AND id='node'`).Scan(&preserved); e != nil || preserved != 1 {
+		t.Fatal("historical node data was changed", e)
+	}
 	verifyOnboardingAndParseMigration(t, r)
 	verifyLegacyShadow(t, r)
 	repositorytest.AccessStatus(t, r)
 	repositorytest.ProtocolMarket(t, r)
 	repositorytest.ExecutionLease(t, r)
 	repositorytest.RawReservation(t, r)
-	repositorytest.EdgeReadJobs(t, r)
-	repositorytest.EdgeCommands(t, r)
-	repositorytest.EdgeProgram(t, r)
 	repositorytest.TwinTopology(t, r)
 	repositorytest.DeviceShadow(t, r)
 	repositorytest.NamedShadows(t, r)
 	repositorytest.ProtocolRegistration(t, r)
-	repositorytest.CatalogCamera(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}
 	if e = r.SaveManagedDevice(ctx, d); e != nil {
 		t.Fatal(e)
@@ -133,13 +144,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	if e != nil || total != 1 || len(messages) != 1 {
 		t.Fatal(messages, total, e)
 	}
-	if e = r.SaveEdgeNode(ctx, model.EdgeNode{TenantID: "t", ID: "edge", Name: "edge"}); e != nil {
-		t.Fatal(e)
-	}
-	nodes, e := r.ListEdgeNodes(ctx, "other")
-	if e != nil || len(nodes) != 0 {
-		t.Fatal(nodes, e)
-	}
+
 }
 
 func verifyOnboardingAndParseMigration(t *testing.T, r *Repository) {

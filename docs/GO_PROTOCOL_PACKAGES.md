@@ -56,7 +56,7 @@ func decode(data []byte, ctx Context) (Message, error) {
 1. 下载页面中的完整 Go 模板，修改 `Decode(raw RawMessage) (Message, error)`，保留 `main` 的输入输出入口。模板是独立、可编译的普通 Go 程序；允许自由定义函数、类型、导入标准库和项目内包，不使用解释器语法子集。
 2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在 ZIP 根目录；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可填写 `cmd/worker` 等项目内目录。
 3. 填写协议标识；新版本号、传输方式、报文格式等可在项目根目录的 `protocol.json` 中维护，页面未填写时自动读取。样例可在页面填写，或放在 ZIP 的 `samples/cases.json` 中并清空页面样例框。页面样例优先。
-4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择现场节点平台；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“协议与版本”页绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
+4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“协议与版本”页绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
 5. 更新代码时更换版本号。语法错误会在页面保留编译日志；样例失败、panic、超时均阻止发布。同一已保存版本不能覆盖。在“协议与版本”页可切换或回滚，历史原始报文保留实际使用版本。
 
 源码入口：`POST /api/v2/protocols/{id}/source-releases`，multipart 字段为 `file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`（均为 JSON 数组）、`cases`、`publish`、`productId`。`publish` 默认 true，`productId` 可选。模板及编译器可用状态：`GET /api/v2/protocol-source-template`。写入需要 operator/admin 权限。
@@ -65,17 +65,15 @@ func decode(data []byte, ctx Context) (Message, error) {
 
 构建只执行 `go build`，不运行脚本、`go generate` 或 `go test`；关闭在线依赖下载、工作区和自动工具链下载，使用纯 Go（`CGO_ENABLED=0`）。因此需 CGO 的库、项目根目录外的本地 replace、任意 shell 构建流程不在这条上传路径支持范围内。Go 模块目录要求见 [Go 官方模块文档](https://go.dev/ref/mod)。
 
-### 异构 Edge 制品
+### 多平台协议制品
 
-“现场节点平台”可选 Linux、Windows、macOS 的 amd64/arm64，共六种组合，平台代码为 `linux-amd64` 等。也可在 `protocol.json` 设置 `"targetPlatforms":["linux-amd64","linux-arm64"]`；页面或 multipart 明确指定时覆盖该数组，留空沿用包内值。无配置时只构建发布端，发布端平台始终包含且必须实际通过样例。沿用 CGO 关闭、vendor、禁止在线下载/构建脚本、最小环境和构建并发限制。任何所选目标编译失败都会拒绝整个新版本，并保留已有版本及产品绑定。
+“额外编译目标”可选 Linux、Windows、macOS 的 amd64/arm64，共六种组合，平台代码为 `linux-amd64` 等。也可在 `protocol.json` 设置 `"targetPlatforms":["linux-amd64","linux-arm64"]`；页面或 multipart 明确指定时覆盖该数组，留空沿用包内值。无配置时只构建发布端，发布端平台始终包含且必须实际通过样例。沿用 CGO 关闭、vendor、禁止在线下载/构建脚本、最小环境和构建并发限制。任何所选目标编译失败都会拒绝整个新版本，并保留已有版本及产品绑定。
 
 不可变包为每个平台保存独立 Worker 路径、SHA-256、大小及统一样例包哈希。单 Worker 至多 64 MiB、全部 Worker 至多 128 MiB，最终 ZIP 仍至多 64 MiB；超限须减少目标或源码依赖。原始上传字节保留，源码/制品下载照常验证。历史版本不原地补入新平台，新增目标须使用新版本号。
 
-发布端制品标记 `PASSED` 并记录实跑数量；其他源码目标为 `COMPILED`，预编译包中的其他目标为 `UNTESTED`，均不宣称已在目标系统执行。版本页分别展示这些状态。现场 Agent 按本机平台选择制品，经真实节点认证下载并校验哈希，再复用发布端同一套 decode/ingress/encode 样例校验。样例通过后才应用配置和切换 Listener；样例不是网络设备操作，不进入 Raw 业务链路。失败保留旧配置并在节点心跳显示实际错误，不能用“编译成功”替代目标平台试跑。
+发布端制品标记 `PASSED` 并记录实跑数量；其他源码目标为 `COMPILED`，预编译包中的其他目标为 `UNTESTED`，均不宣称已在目标系统执行。版本页分别展示这些状态。当前已移除现场 Agent 的制品分发与试跑流程，中心解析和回放仍使用发布端制品；多平台构建不会自动改造异构 API/Gateway 的共享运行环境。
 
-节点的制品与样例缓存共同计入 1 GiB 上限；进程重启重新跑本地已校验样例，不依赖再次下载，配置缓存仍受原有认证及 24 小时上限约束。历史单平台版本沿用原发布校验记录，兼容早期 `GOOS/GOARCH` 表示法；它们没有自动变成跨平台版本。多平台运行仍是有节点账户权限的 Worker 子进程，并非强隔离沙箱。中心解析/回放使用原有发布端制品；本功能针对异构 Edge，不自动重建异构 API/Gateway 的共享运行环境。
-
-验证入口：`go test -race ./internal/protocolbuild -run '^TestCrossPlatformCompilerProducesActualTargets$' -count=1 -v` 检查六平台实际编译结果的 ELF/PE/Mach-O 与 CPU 类型。`TestCrossPlatformSourceEdgeActualExecution` 默认运行真实上传、编译、发布端样例、同机 Edge TCP/补传/解析和缓存重启；显式设置测试进程 runner 与共享目录才运行 Linux ARM64 子进程，配置 Chrome 才运行浏览器。缺失环境的子用例明确跳过，不能当作已执行。实际环境与结果见进度文档。
+验证入口：`go test -race ./internal/protocolbuild -run '^TestCrossPlatformCompilerProducesActualTargets$' -count=1 -v` 检查六平台实际编译结果的 ELF/PE/Mach-O 与 CPU 类型。源码上传、发布端样例和版本切换由 `internal/httpapi` 中的源码发布测试覆盖。历史 Edge 测试见进度记录，当前移除范围见 [说明](EDGE_REMOVAL.md)。
 
 **部署范围**：本次平台功能升级需要部署一次新的 API 和前端。新的 Dockerfile 在 API 镜像中带入 Go 工具链；宿主机运行时须让 `go` 在 API 的 PATH 中可用。能力部署后，协议上传、版本切换和回滚均无需重启系统。当前仍是具有服务进程操作系统权限的子进程，最小环境变量与超时不是强隔离沙箱；应由可信的协议开发者上传代码。
 

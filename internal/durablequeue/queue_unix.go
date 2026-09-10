@@ -1,6 +1,6 @@
 //go:build !windows
 
-package edgeagent
+package durablequeue
 
 import (
 	"golang.org/x/sys/unix"

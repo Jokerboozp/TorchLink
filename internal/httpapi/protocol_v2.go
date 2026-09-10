@@ -594,13 +594,6 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 	}
 	v.TenantID = claims(r).TenantID
 	v.Mode = strings.ToLower(strings.TrimSpace(v.Mode))
-	if v.EdgeNodeID != "" {
-		edge, e := s.engine.Repo.GetEdgeNode(r.Context(), v.TenantID, v.EdgeNodeID)
-		if e != nil || edge.Status != "ENABLED" {
-			problem(w, 422, "Edge node not found or disabled")
-			return
-		}
-	}
 	v.Network = strings.ToLower(strings.TrimSpace(v.Network))
 	if id := r.PathValue("id"); id != "" {
 		v.ID = id
@@ -686,22 +679,18 @@ func (s *Server) testDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		problem(w, 422, "protocol release not found")
 		return
 	}
-	var blocks []model.ModbusReadBlock
-	if profile.EdgeNodeID == "" {
-		blocks, err = releaseBlocksForAPI(release)
-		if err != nil {
-			problem(w, 422, err.Error())
-			return
-		}
+	if err := validateAccessProfile(profile); err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
+	blocks, err := releaseBlocksForAPI(release)
+	if err != nil {
+		problem(w, 422, err.Error())
+		return
 	}
 	ctx, cancel := contextWithMaximum(r, 10*time.Second)
 	defer cancel()
-	var raws []model.RawMessage
-	if profile.EdgeNodeID != "" {
-		raws, err = s.edgeRead(ctx, profile, release)
-	} else {
-		raws, err = protocolruntime.ReadModbusTCPWithPolicy(ctx, profile, release, blocks[:1], s.cfg.ModbusAllowedCIDRs)
-	}
+	raws, err := protocolruntime.ReadModbusTCPWithPolicy(ctx, profile, release, blocks[:1], s.cfg.ModbusAllowedCIDRs)
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -718,20 +707,17 @@ func legacyProtocolShim(release model.ProtocolRelease) model.ProtocolPackage {
 	return model.ProtocolPackage{ID: release.ProtocolID + "@" + release.Version, TenantID: release.TenantID, Name: release.ProtocolID + " " + release.Version, Version: release.Version, Protocol: release.ProtocolID, Transport: release.Transport, PayloadFormat: release.PayloadFormat, ParserType: release.ParserType, Status: "PUBLISHED", Description: "Protocol v2 compatibility binding", Config: release.Config, CreatedAt: release.CreatedAt, UpdatedAt: release.PublishedAt}
 }
 func validateAccessProfile(v model.DeviceAccessProfile) error {
+	if v.EdgeNodeID != "" {
+		return errors.New("边缘节点功能已移除，请使用中心直接接入")
+	}
 	if v.Mode == "listener" {
 		return validateListenerProfile(v)
 	}
 	if v.Mode != "" && v.Mode != "poll" {
 		return errors.New("不支持的设备接入模式")
 	}
-	if v.Network == "serial" {
-		if v.ID == "" || v.DeviceID == "" || v.ProductID == "" || v.ProtocolID == "" || v.ProtocolVersion == "" || v.EdgeNodeID == "" {
-			return errors.New("RTU requires an assigned Edge node and complete device/protocol identity")
-		}
-		return protocolruntime.ValidateSerialProfile(v)
-	}
-	if (v.Network == "opc_ua" || v.Network == "snmp" || v.Network == "bacnet") && (v.EdgeNodeID == "" || v.CredentialRef == "") {
-		return errors.New("field protocol requires an Edge node and local credential reference")
+	if v.Network != "" && v.Network != "tcp" {
+		return errors.New("中心轮询仅支持 Modbus TCP")
 	}
 	if v.ID == "" || v.DeviceID == "" || v.ProductID == "" || v.ProtocolID == "" || v.ProtocolVersion == "" || v.Host == "" {
 		return errors.New("id, deviceId, productId, protocolId, protocolVersion and host are required")
