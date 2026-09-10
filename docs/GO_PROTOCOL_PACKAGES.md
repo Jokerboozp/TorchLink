@@ -48,15 +48,12 @@ func decode(data []byte, ctx Context) (Message, error) {
 
 以下章节说明完整 Go 项目和当前底层调用契约，使用 Go 函数模板时无需手工编写这些配置。
 
-
-平台支持直接上传完整 Go 源码：在“设备接入 → Go 源码接入”上传 `.go` 文件或 Go 项目 ZIP，平台自动编译、试跑样例、发布并绑定产品，后续报文立即使用新代码。Go 源码就是自定义协议的唯一页面上传入口，支持单文件和多文件源码 ZIP；编译制品由平台自动生成。
-
 ## 完整 Go 项目上传
 
 日常开发优先使用前述 Go 函数模板。需要自行维护调用入口的完整项目也必须遵守同一 `go-protocol-v2` 契约，例如 GB26875 独立 module。
 
 1. 实现 `version=2`、`operation=decode/ingress/encode` 请求及对应响应；解析结果必须放在 `standardMessage` 字段中。允许自由定义函数、类型、导入标准库和项目内包。
-2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在 ZIP 根目录；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可在 `protocol.json` 指定 `cmd/worker` 等项目内目录。
+2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在项目根目录（ZIP 可带一层外部目录）；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可在 `protocol.json` 指定 `cmd/worker` 等项目内目录。
 3. 填写协议标识；新版本号、传输方式、报文格式等可在项目根目录的 `protocol.json` 中维护，页面未填写时自动读取。完整项目样例放在 ZIP 的 `samples/cases.json` 中；函数模板的样例仍直接写在 Go 代码中。
 4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“协议与版本”页绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
 5. 更新代码时更换版本号。语法错误会在页面保留编译日志；样例失败、panic、超时均阻止发布。同一已保存版本不能覆盖。在“协议与版本”页可切换或回滚，历史原始报文保留实际使用版本。
@@ -73,11 +70,11 @@ func decode(data []byte, ctx Context) (Message, error) {
 
 不可变包为每个平台保存独立 Worker 路径、SHA-256、大小及统一样例包哈希。单 Worker 至多 64 MiB、全部 Worker 至多 128 MiB，最终 ZIP 仍至多 64 MiB；超限须减少目标或源码依赖。原始上传字节保留，源码/制品下载照常验证。历史版本不原地补入新平台，新增目标须使用新版本号。
 
-发布端制品标记 `PASSED` 并记录实跑数量；其他源码目标为 `COMPILED`，预编译包中的其他目标为 `UNTESTED`，均不宣称已在目标系统执行。版本页分别展示这些状态。当前已移除现场 Agent 的制品分发与试跑流程，中心解析和回放仍使用发布端制品；多平台构建不会自动改造异构 API/Gateway 的共享运行环境。
+发布端制品标记 `PASSED` 并记录实跑数量；其他源码目标为 `COMPILED`，未实跑的预编译目标为 `UNTESTED`，均不宣称已在目标系统执行。版本页分别展示这些状态。当前已移除现场 Agent 的制品分发与试跑流程，中心解析和回放仍使用发布端制品；多平台构建不会自动改造异构 API/Gateway 的共享运行环境。
 
-验证入口：`go test -race ./internal/protocolbuild -run '^TestCrossPlatformCompilerProducesActualTargets$' -count=1 -v` 检查六平台实际编译结果的 ELF/PE/Mach-O 与 CPU 类型。源码上传、发布端样例和版本切换由 `internal/httpapi` 中的源码发布测试覆盖。历史 Edge 测试见进度记录，当前移除范围见 [说明](EDGE_REMOVAL.md)。
+验证入口：`go test -race ./internal/protocolbuild -run '^TestCrossPlatformCompilerProducesActualTargets$' -count=1 -v` 检查六平台实际编译结果的 ELF/PE/Mach-O 与 CPU 类型。源码上传、发布端样例和版本切换由 `internal/httpapi` 中的源码发布测试覆盖。
 
-**部署范围**：本次平台功能升级需要部署一次新的 API 和前端。新的 Dockerfile 在 API 镜像中带入 Go 工具链；宿主机运行时须让 `go` 在 API 的 PATH 中可用。能力部署后，协议上传、版本切换和回滚均无需重启系统。当前仍是具有服务进程操作系统权限的子进程，最小环境变量与超时不是强隔离沙箱；应由可信的协议开发者上传代码。
+**运行环境**：API 镜像包含 Go 工具链；宿主机运行时须让 `go` 在 API 的 PATH 中可用。能力部署后，协议上传、版本切换和回滚均无需重启系统。当前仍是具有服务进程操作系统权限的子进程，最小环境变量与超时不是强隔离沙箱；应由可信的协议开发者上传代码。
 
 **接入范围**：统一使用 `go-protocol-v2`，按需声明 `decode`、`ingress`、`encode`，支持标准消息解析以及 TCP/UDP 入站分帧、设备识别、会话状态、应答和在线下行。平台提供通用监听器，协议包不需要依赖平台源码或内置解析器。中心运行时支持配置 TCP 主动连接及按命令类型定时查询，复用 ingress/encode；尚无通用连接事件回调。主子设备和具体配置见 [TCP 主子设备接入](TCP_CHILD_DEVICE_ACCESS.md)。
 
@@ -102,12 +99,14 @@ samples/operations.json
 
 上传时表单非空值覆盖元数据；`id` 必须与 URL 协议标识一致。`TCP` / `UDP` 只支持对应网络，`TCP_UDP` 支持两种网络实例。每个实例固定一个租户和产品；同一网络监听端口只允许一个启用实例，TCP 主动连接不占用监听端口。新增版本须继续支持产品上所有已启用实例的网络。
 
+平台仅接受明确声明的 `go-protocol-v2`；不接受旧版本请求、裸标准消息返回或未声明运行时的制品。租户、产品和设备归属由原文确定，Worker 返回值不能更改。
+
 Worker 每次启动接收一个 JSON 请求，向 stdout 输出一个 JSON 结果并退出；日志写 stderr。`version` 固定为 2，操作如下：
 
 | operation | 输入 | 输出 |
 |---|---|---|
 | `decode` | `raw`：完整 RawMessage；`state`：归档的帧前状态；`now`：receivedAt | `standardMessage`：标准消息 |
-| `ingress` | `data`：当前缓冲区 HEX；`state`：前次状态；`now`：当前 Unix 毫秒 | `consumed`：本次完整帧字节数；`deviceId`；可选 `deviceName`、`reply`、`state`、`correlationId` |
+| `ingress` | `data`：当前缓冲区 HEX；`state`：前次状态；`now`：当前 Unix 毫秒 | `consumed`：本次完整帧字节数；`deviceId`；可选 `deviceName`、`reply`、`state`、`correlationId`、`children` |
 | `encode` | `command`：包含 `type` 的协议自定义对象；`state`；`now` | `reply`：下行 HEX；可选 `state`、`correlationId` |
 
 帧尚未完整时仅返回 `{"needMore":true}`，不得消耗数据、登记设备或发送应答。完整帧必须从缓冲起点开始，`consumed` 为正且不超过输入字节数。TCP 会继续处理剩余缓冲；UDP 一个数据报必须恰好是一帧，不能返回 needMore。错误返回 `{"error":"原因"}`：TCP 断开连接，UDP 丢弃该报文，不发送应答。
@@ -141,33 +140,25 @@ UDP 使用另一个 id 及 `network:"udp"`。通过 `PUT /api/v2/device-access-p
 POST /api/v2/device-access-profiles/dahua-tcp/devices/gb26875_123456789012/commands
 Content-Type: application/json
 
-{"type":"time-sync"}
+{"type":"time-sync","confirmed":true}
 ```
 
 监听管理、命令及下载需要 operator/admin 权限。下载 API：
 
 - `GET /api/v2/protocols/{id}/releases/{version}/source`：精确返回当时上传的 .go 或 ZIP；仅源码构建版本支持。
-- `GET /api/v2/protocols/{id}/releases/{version}/package`：含当前服务器架构的 Worker、manifest、样例与原始源码的 ZIP。跨 OS/CPU 迁移应重新上传源码编译。
+- `GET /api/v2/protocols/{id}/releases/{version}/package`：包含版本 Worker、manifest、样例与原始源码的 ZIP；多平台版本包含其已构建目标。跨 OS/CPU 迁移须核实目标制品并实际试跑。
 
 两种下载均检查租户归属和 SHA-256，可用于把平台版本归档回外部协议仓库。平台没有自动拉取远程仓库；可由外部 CI 调用源码上传 API。
-
-## 统一 Worker 契约
-
-平台只接受 `go-protocol-v2`。请求为 `{"version":2,"operation":"decode","raw":{...},"state":{...},"now":...}`，解析响应为 `{"standardMessage":{"messageType":"PROPERTY_REPORT","properties":{"temperature":42}}}`。`raw` 为原始报文；协议错误返回 `{"error":"..."}`。TCP/UDP 的 ingress、encode 结构见上文。Go 函数模板自动处理输入输出，不需要业务开发者编写 JSON。
-
-租户、产品和设备 ID 始终由原始报文确定，Worker 不能通过返回值更改归属。直接返回裸标准消息、第一版运行时以及没有运行时声明的制品都会被拒绝，不做自动推断或回退。旧 `/api/v1/protocol-packages/{id}/artifact` 二进制上传接口已移除，普通协议草稿 API 也不再接受 Go Worker；使用源码编译与版本发布链路。
-
-底层示例 `examples/go-protocol-worker` 同样使用上述契约；完整项目示例优先参考 `protocol-packages/gb26875-dahua`。路径、制品哈希、超时、输出大小及最小环境变量校验继续执行。
 
 ## 版本与回滚
 
 每个协议包版本独立保存 artifact 和摘要。不要覆盖已经发布版本；上传新版本后先用样本验证，再把产品切换到新版本。旧版本文件保留在数据卷中，可通过重新绑定产品回滚。真实设备联调仍需验证设备端重发、网络隔离、CPU/内存限制和请求/应答超时，代码测试不能替代现场验收。
 
-通用监听会话属于当前 API 进程；Compose 的单 API 实例可直接使用。仓库 K8s 多副本示例未增加 TCP/UDP 服务暴露和跨副本命令路由；使用它时需让设备接入与命令请求到同一个持有连接的实例，不能把多副本 HTTP 负载均衡视为自动完成了会话路由。
+连接保存在实际执行接入任务的进程中。拆分 API/Gateway 或启用 Profile 执行协调时，按 [独立接入进程](EDGE_AND_GATEWAY.md) 配置共享存储及目标地址；普通 HTTP 负载均衡不会自动迁移 TCP 会话。
 
 ## 可信远程目录
 
-设备接入页新增“协议目录”：从部署管理员配置的 HTTPS 签名目录安装 Go 源码，复用本文件所述源码编译、样例试跑、不可变版本和发布回滚流程。安装仅产生校验版本，管理员明确确认代码执行后才进行。配置、签名发布工具、认证与错误语义见 `PROTOCOL_CATALOG.md`。
+设备接入页的“协议目录”：从部署管理员配置的 HTTPS 签名目录安装 Go 源码，复用本文件所述源码编译、样例试跑、不可变版本和发布回滚流程。安装仅产生校验版本，管理员明确确认代码执行后才进行。配置、签名发布工具、认证与错误语义见 [可信协议目录](PROTOCOL_CATALOG.md)。
 
 ### 部件级火警、故障与恢复
 

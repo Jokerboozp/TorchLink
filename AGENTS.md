@@ -169,10 +169,10 @@ npm run dev
 - [技术详情](docs/TECHNICAL_DETAILS.md)：环境准备、本地 / 在线 / 离线入口、扩展模块及开发检查。
 - [部署配置与维护](docs/DEPLOYMENT.md)：配置、端口和维护操作。
 - [离线部署](docs/OFFLINE_DEPLOYMENT.md)：离线包、模型、校验和更新。
-- [设备协议接入流程](docs/设备协议接入流程.md)：设备与产品接入。
+- [统一设备接入](docs/UNIFIED_DEVICE_ONBOARDING.md)：设备与产品接入、凭据和标准报文。
 - [Go 协议包](docs/GO_PROTOCOL_PACKAGES.md)：当前源码上传、运行时、发布和回滚契约。
 - [GB26875 协议](docs/GB26875_DAHUA_V103.md)：独立协议及 TCP / UDP 接入。
 - [AI 工作流](docs/AI_PLUGIN_HARNESS.md)：Harness、Agent、MCP 及安全边界。
-- [协议 V2 设计](docs/DEVICE_PROTOCOL_ACCESS_DESIGN.md)：设计背景，使用前核对当前实现。
+- [TCP 与主子设备接入](docs/TCP_CHILD_DEVICE_ACCESS.md)：连接方向、查询调度与子设备协议。
 
 文档缺失或不一致时，按当前需求与源码推进并修正文档；不得退回要求个人知识库存在才能继续的工作方式。

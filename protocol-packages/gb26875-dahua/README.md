@@ -8,4 +8,4 @@
 - 接口为 `go-protocol-v2`，能力为 decode、ingress、encode，网络 TCP_UDP。stdin 一个 JSON 请求，stdout 一个 JSON 结果，每次调用后退出。
 - `encode` 当前支持 `{"type":"time-sync"}`，可选 timestamp 为 Unix 毫秒。BCD 时间按 UTC+08:00。
 
-完整使用步骤见平台 `docs/GB26875_DAHUA_V103.md`；这里的源码与模拟器本身不依赖该文档或平台目录。
+完整使用步骤见平台 [GB26875 接入文档](../../docs/GB26875_DAHUA_V103.md)；这里的源码与模拟器本身不依赖该文档或平台目录。

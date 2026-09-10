@@ -1,4 +1,4 @@
-# DeepSeek Harness 业务插件运行时
+# AI 工作流与知识库
 
 平台把“模型 Provider”和“业务 AI 插件”拆成两层：Provider 只负责模型调用，业务插件负责角色提示、可见工具和执行边界。因此 AI 运维助手、AI 告警研判等能力可以独立增加、停用或切换，不需要修改告警核心逻辑。
 
@@ -13,7 +13,11 @@ Web AI 工作台
 
 Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可追踪、可选插件的交互式工作流。在线和离线部署默认把两条链路都指向 Ollama 的 `qwen3:1.7b`，因此所有 AI 功能共用同一个本地模型。
 
-管理员可以在 Web 的“AI 模型管理”菜单切换模型服务。平台先通过独立的“测试配置”接口向候选服务发送测试请求；测试不会修改活动配置。用户确认后点击“应用配置”，平台再通过 Eino 检查新地址，并调用 Harness 的 `PUT /v1/provider` 同步模型服务、地址、模型和接口密钥；两条链路成功后才切换活动配置。因此告警研判、聊天、规则草稿、报告和 Harness 工作流使用同一份活动配置。接口密钥不会在响应中返回，重启时从 PostgreSQL 的 `ai_model_config` 活动记录恢复。
+模型测试、切换及持久化配置见 [部署维护](DEPLOYMENT.md#在界面切换-ai-模型服务)。Harness 健康与模型 Provider 可用性需分别核对。
+
+## 知识检索
+
+知识文档在知识库页面上传与管理，保留租户及 Agent / `workflowId` 归属。业务工作流按授权范围检索；无法执行范围隔离时拒绝检索，不回退到全库。嵌入模型与向量存储配置见部署文档。
 
 ## 源码版本
 
@@ -95,27 +99,8 @@ Harness 的 reasoning 分片不会发给浏览器；工具事件只包含工具�
 - 每个浏览器会话 ID 都由后端结合租户和用户派生为内部 Session ID，防止跨租户会话碰撞。
 - 工具查询有条数上限；所有工具调用写入平台审计仓储。
 
-## Docker 启动
+## 部署与维护
 
-在 `.env` 中配置：
+本地、在线和离线分别使用 `.env.local`、`.env.online`、离线包内 `.env.offline`；由对应准备/部署脚本配置并启动 Harness，见 [技术详情](TECHNICAL_DETAILS.md)。不要省略环境文件而误用另一套 Compose 项目。
 
-```text
-IOT_AI_HARNESS_URL=http://deepseek-harness:8091
-IOT_AI_HARNESS_TOKEN=<至少 32 字节随机内部密钥>
-IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
-IOT_AI_HARNESS_PROVIDER=ollama
-IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
-IOT_AI_HARNESS_CONTEXT_WINDOW=8192
-IOT_AI_HARNESS_MODEL=qwen3:1.7b
-IOT_AI_HARNESS_TIMEOUT=90s
-```
-
-然后运行：
-
-```bash
-./scripts/fetch-deepseek-harness.sh
-docker compose --profile harness up -d --build platform-api deepseek-harness platform-web
-docker compose logs -f deepseek-harness platform-api
-```
-
-没有配置 `IOT_AI_HARNESS_URL` 时，平台不会连接侧车，原有模型服务和非 Harness 功能仍可使用。
+关键配置为 `IOT_AI_HARNESS_URL`、内部 `IOT_AI_HARNESS_TOKEN`、MCP 回调 `IOT_AI_HARNESS_MCP_URL` 和模型 Provider。容器回调必须能到达 API；无 Harness URL 时不连接侧车。源码版本锁定、独立镜像构建、内部接口及会话持久性见 [侧车开发说明](../deploy/deepseek-harness/README.md)。

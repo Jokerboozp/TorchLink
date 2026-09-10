@@ -1,6 +1,6 @@
 # 配置驱动协议
 
-协议开发页面现在提供三种不需要新增 Go 代码的解析方式：
+通用 JSON 可使用 `custom_json_parser`；字段名称或字节布局不同的报文可使用以下两种配置映射。变长、会话或厂商专用协议使用 [Go 源码包](GO_PROTOCOL_PACKAGES.md)。
 
 ## JSON 路径映射
 
@@ -76,36 +76,8 @@
 | 指令应答 | `COMMAND_REPLY` | 设备对平台指令的响应 |
 | 日志上报 | `LOG_REPORT` | 运行日志或诊断信息 |
 
-Excel 点表中的文本仅作为协议资料；平台不会执行其中的脚本、URL 或其他指令。发布仍需要 `operator` 权限，Modbus 映射可先保存再用真实样本校验，专用协议必须上传 Go 源码包并通过样例验证后发布。
+Excel 点表中的文本仅作为协议资料；平台不会执行其中的脚本、URL 或其他指令。保存映射草稿仍需要 `operator` 权限，Modbus 映射可先保存再用真实样本校验，专用协议必须上传 Go 源码包并通过样例验证后发布。
 
-## 历史兼容：受限 JavaScript 解析器
+## 已有协议
 
-以下仅供已有绑定和历史回放参考；新建/更新入口已关闭，请改用 Go 源码包。
-
-对于无法用 JSON 路径或固定字节字段描述的设备，选择
-`javascript_sandbox_parser`，在协议开发页面直接编写或载入 `.js` 文件。脚本只
-允许定义一个纯函数 `parse(raw)`，不能访问文件、网络、环境变量、数据库或平台
-服务；单个脚本最大 64 KiB，执行超时会被终止。保存并发布协议包后，脚本内容随
-协议包配置存储，设备报文会在运行中的解析器中立即使用，不需要重新构建或部署
-API 镜像。
-
-```javascript
-function parse(raw) {
-  const bytes = hexToBytes(raw.payload)
-  const smoke = (bytes[0] & 1) === 1
-  return {
-    messageType: smoke ? 'ALARM_REPORT' : 'PROPERTY_REPORT',
-    properties: {
-      smoke,
-      temperature: bytes[1] / 10,
-      battery: bytes[2]
-    },
-    tags: { deviceType: 'smoke' }
-  }
-}
-```
-
-解析函数接收完整原始报文对象，返回 `messageType`、`properties`、`event`、
-`tags`、`timestamp` 中需要的字段。可以使用内置的 `hexToBytes(text)` 和
-`toInt(text)` 辅助函数。这个扩展点适合平台管理员维护的纯转换脚本；如果要让
-不受信任的租户上传代码，建议把脚本执行器拆成独立、无网络、限资源的 worker。
+旧 JavaScript、厂商及 Modbus 解析器保留用于显式绑定和历史回放。JavaScript 新建/更新入口已关闭，新专用协议使用 Go 源码；Modbus 点表接入按 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) 配置。

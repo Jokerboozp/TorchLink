@@ -1,19 +1,19 @@
-# 消防 IoT 平台前端
+# 炬联 TorchLink 管理端
 
-这是独立的 Vue 3 + Vite 前端项目，后端 API 位于仓库根目录的 Go 服务。前端开发不需要进入后端 Go 模块：
+Vue 3 + Vite 前端；完整环境准备见 [技术详情](../docs/TECHNICAL_DETAILS.md)。以下命令在 `iot_front` 目录执行，Node.js 版本要求见 [package.json](package.json)。
 
-```powershell
-npm.cmd ci
-npm.cmd run dev
+```bash
+npm ci
+npm run dev
 ```
 
-开发服务器默认运行在 `http://localhost:5173`，`vite.config.js` 会把 `/api`、`/health` 和 `/mcp` 代理到 `http://localhost:8081`。生产镜像由本目录的 `Dockerfile` 构建，根目录 `compose.yaml` 的 `platform-web` 服务也以 `iot_front` 为构建上下文。
+Windows PowerShell 遇到执行策略限制时改用 `npm.cmd`。开发地址为 `http://localhost:5173`；[vite.config.js](vite.config.js) 将 `/api`、`/health`、`/mcp` 代理到 `http://localhost:8081`，可设置 `VITE_API_PROXY_TARGET` 修改。生产镜像以本目录为构建上下文。
 
-界面使用 shadcn-vue 的 CSS 变量和基础组件模式（Tailwind CSS v4 + Lucide），业务复杂控件暂时保留 Element Plus 以维持既有交互契约；新增界面组件放在 `src/components/ui`。
+页面通过 `src/api.js` 使用同源接口。样式使用 Tailwind CSS v4、Lucide 图标及 `src/components/ui` 基础组件，复杂业务控件沿用 Element Plus；复用既有交互和样式。缓存按租户与用户隔离，分页和异步列表约定见 [列表分页](../docs/LIST_PAGINATION.md)。
 
-```powershell
-npm.cmd test
-npm.cmd run build
+```bash
+npm test
+npm run build
 ```
 
-页面通过 `src/api.js` 使用同源 REST/MCP 接口；不要在前端保存管理员密码或跨租户 Token。协议开发页面上传 Go 源码时使用 `FormData` 调用 `/api/v2/protocols/{id}/source-releases`，平台编译并实际验证样例。
+测试使用 Node test runner；构建检查不等于浏览器交互验收。接口调用不保存管理员密码，协议上传沿用后端源码校验与发布流程。

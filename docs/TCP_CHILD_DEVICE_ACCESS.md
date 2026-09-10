@@ -35,7 +35,7 @@ TCP 建立成功不等于协议注册或认证成功。协议必须真实校验�
 
 子设备通过产品继承协议版本，不逐台复制协议。修改子设备产品绑定会影响该产品下的子设备；正在等待应答的子设备命令仍使用发送时的子协议版本解析回复，后续新报文使用当前绑定。已有子设备地址映射到不同类型/产品会被拒绝，不自动迁移原记录。
 
-Go 函数模板增加 `Child` 和 `Frame.Children`，业务代码无需维护内部 JSON：
+Go 函数模板通过 `Child` 和 `Frame.Children`，业务代码无需维护内部 JSON：
 
 ```go
 return Frame{
@@ -75,4 +75,4 @@ return Frame{
 
 `go test -race ./internal/protocolruntime ./internal/onboarding ./internal/adapters/memory` 覆盖 Socket 主动连接/重连、查询互斥、RTU CRC 与点表、并发注册及归属。`TestTCPParentChildSourceChain` 实际上传两份 Go 源码、编译发布，并通过两种方向的 TCP、正常业务归档/解析和 API 验证分层链路；配置 `IOT_TEST_BROWSER` 时验证真实 Chrome 页面。PostgreSQL 契约测试在 `TestDeviceOperationsMigrationAndAtomicity` 的隔离 schema 中运行，需要 `IOT_TEST_POSTGRES_DSN`。
 
-这些是协议模拟器和测试环境验证，不能代替厂商真实协议、设备或生产网络验收。实际执行结果见 [进度记录](DEVICE_ACCESS_REFACTOR_PROGRESS.md)。
+这些是协议模拟器和测试环境验证，不能代替厂商真实协议、设备或生产网络验收。

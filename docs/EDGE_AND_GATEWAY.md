@@ -1,6 +1,6 @@
 # 独立接入进程
 
-当前保留中心 API 与独立 Access Gateway。2026-09-10 按用户要求移除现场 Agent、边缘节点管理和程序升级；范围与旧配置处理见 [移除说明](EDGE_REMOVAL.md)。
+当前保留中心 API 与独立 Access Gateway。旧现场节点配置的迁移见 [旧版本迁移](EDGE_REMOVAL.md)。
 
 ## 进程职责
 
@@ -17,7 +17,7 @@ go run ./cmd/iot-platform --env-file .env.api
 go run ./cmd/iot-access-gateway --env-file .env.gateway
 ```
 
-可选容器拆分：`docker compose --env-file .env.online -f compose.yaml -f compose.access.yaml config` 先检查渲染结果；实际启动再运行相同参数的 `up -d --build`。覆盖层将 TCP/UDP 端口从 API 移到 Gateway，默认 Gateway HTTP 端口为 8082。覆盖层使用 `!override`，要求 Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/)。本次未替用户部署已有业务服务。
+可选容器拆分：`docker compose --env-file .env.online -f compose.yaml -f compose.access.yaml config --quiet` 先检查渲染结果；实际启动再运行相同参数的 `up -d --build`。覆盖层将 TCP/UDP 端口从 API 移到 Gateway，默认 Gateway HTTP 端口为 8082。覆盖层使用 `!override`，要求 Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/)。
 
 ## 执行所有权
 
@@ -25,8 +25,8 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 
 共享 PostgreSQL 的 `execution_lease` 以租户和 Profile 为资源键。租约 10 秒，节点本地取消期限短于数据库期限，续租失败即取消旧执行；接管提升 fencing token。运行时在归档前检查所有权和当前配置。配置停止被扫描时释放租约。
 
-设备或 Profile 的会话命令通过租约中的节点地址转发，保留原用户授权并限制转发次数。该实现提供互斥执行与接管，不宣称已有按负载最优调度、跨节点迁移现有 TCP 会话或数据库之外的强制 OS 隔离。
+可确定 Profile 的请求按租约中的节点地址转发，保留原用户授权并限制转发次数。设备级路由依赖明确的实例标签或唯一的设备配置关联，不能据此推断所有历史设备、子设备及任意多副本部署均可自动路由。该实现提供互斥执行与接管，不宣称已有按负载最优调度、跨节点迁移现有 TCP 会话或数据库之外的强制 OS 隔离。
 
 ## 验证入口
 
-`go test ./internal/platformapp ./internal/httpapi ./internal/protocolruntime` 覆盖进程职责、认证转发与执行协调；环境相关集成测试的实际执行条件见各测试。历史边缘验证记录保留在 `DEVICE_ACCESS_REFACTOR_PROGRESS.md`，不代表当前仍提供这些入口。
+`go test ./internal/platformapp ./internal/httpapi ./internal/protocolruntime` 覆盖进程职责、认证转发与执行协调；环境相关集成测试的实际执行条件见各测试。源码入口为 `internal/httpapi/process_role.go`、`internal/httpapi/execution_route.go` 和 `internal/protocolruntime/coordinator.go`。

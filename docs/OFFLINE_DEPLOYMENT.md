@@ -6,7 +6,7 @@
 
 ## 1. 有网机器打包
 
-在 `platform` 目录执行：
+在仓库根目录执行：
 
 ```powershell
 # Windows
@@ -20,7 +20,7 @@ bash ./scripts/package-offline.sh
 
 默认打包平台、存储、消息、备份、监控、Ollama、Weaviate、AI 工作流 Harness、`qwen3:1.7b` 对话模型，以及知识库必需的 `nomic-embed-text` 嵌入模型。无须预先创建 `.env`；脚本先生成独立的 `.env.offline` 和随机凭据，再构建镜像。告警研判和 AI 工作流默认共用 `qwen3:1.7b`，整个运行过程不访问外网。
 
-生成目录：`platform/offline-bundles/iot-platform-offline-时间戳/`。将整个目录复制到目标机器，包括隐藏文件 `.env.offline`。镜像、模型文件、配置和部署脚本必须一起传输。
+生成目录：`offline-bundles/iot-platform-offline-时间戳/`。将整个目录复制到目标机器，包括隐藏文件 `.env.offline`。镜像、模型文件、配置和部署脚本必须一起传输。
 
 常用选项：
 
@@ -33,7 +33,7 @@ bash ./scripts/package-offline.sh
 
 已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`），并让 Harness 使用同一模型。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。示例密码和空的必需密钥会被拒绝。
 
-`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机的 `iot-platform_ollama-data` 卷已经包含所需模型；部署默认会检查模型是否存在。当前知识库固定使用 `nomic-embed-text`，不能随意替换嵌入模型。8 GB 环境建议保留 `qwen3:1.7b`；更换更大模型前应先评估其内存占用。
+`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机的 `iot-platform_ollama-data` 卷已经包含所需模型；部署默认会检查模型是否存在。当前知识库使用 `nomic-embed-text`，替换嵌入模型需同时考虑向量维度与重新索引；更换对话模型前评估目标环境内存与响应时间。
 
 打包时模型缓存保存在 `iot-platform-offline-build_ollama-data` 卷，完成后停止打包用 Ollama；不操作已有 `iot-platform` 部署。模型归档仅包含模型文件，不包含 Ollama 身份密钥。重复打包可复用缓存；曾下载的其他模型也可能保留在归档中。
 
@@ -47,8 +47,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 ```
 
 ```bash
-# Linux / macOS
-bash ./scripts/deploy-offline.sh
+# Linux
+sudo bash ./scripts/deploy-offline-linux.sh
+# macOS 已启动 Docker Desktop 时
+bash ./scripts/deploy-offline-macos.sh
 ```
 
 脚本依次校验镜像和模型的 SHA-256、检查 Compose 配置、导入镜像、检查所需镜像、恢复模型、启动服务并检查平台及模型。启动固定使用 `--no-build --pull never`；模型恢复容器也禁止拉取镜像。
@@ -74,7 +76,6 @@ docker compose --project-name iot-platform --env-file .env.offline -f compose.ya
 - 已有业务数据迁移：使用项目备份及数据库、对象存储恢复流程；离线安装包只包含程序、配置和模型，不包含业务数据。
 
 GB26875 等协议统一上传 Go 源码包，并在平台启用通用 TCP/UDP 监听实例；新离线包不再打包专用 GB 网关。默认映射 26875，可用 IOT_PROTOCOL_PORTS 预留同号端口范围。
-
 
 ## Docker 自动安装
 
@@ -104,9 +105,8 @@ Ubuntu 使用相同的一键命令，无需切换脚本或另外准备 Docker �
 
 离线安装 Docker 本体仍使用包内的 Linux 静态文件；若 Ubuntu 缺少基础依赖，使用打包参数 `--docker-packages-dir` / `-DockerPackagesDir` 携带同一 Ubuntu 版本和 CPU 架构的 DEB 及全部依赖。部署时校验后用 dpkg 安装，不调用 APT 联网补依赖。Ubuntu 不会误用同时携带的 CentOS RPM。
 
-Ubuntu 5.15 / 6.8 内核的安装分支、APT 和离线 DEB 分支已有模拟测试；这不代表已在全新 Ubuntu 虚拟机上完成安装验收。
-
+部署脚本检查入口为 `scripts/tests/docker-bootstrap-smoke.sh`、`scripts/tests/docker-ubuntu-smoke.sh`；它们验证模拟安装分支，实际安装仍需在目标系统确认。
 
 ### 设备接入配置补充
 
-离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级保留旧数据，仅自动追加原文解析诊断列。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。
+离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级沿用当前幂等 schema 迁移，保留历史数据。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。

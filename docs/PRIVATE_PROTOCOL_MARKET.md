@@ -2,7 +2,7 @@
 
 设备接入页的“组织发布”提供完整 Go 源码版本的提交、独立审核、上架、撤回和审核记录。消费平台继续使用“协议目录”安装，实际完成 HTTPS 认证、签名/源码哈希校验、关闭在线依赖的编译及样例试跑，再保存为 VALIDATED。发布者的审核不能代替消费方执行校验，也不自动切换消费方产品。
 
-本次按企业私有市场实施；公共社区账号、评论、付费交易、第三方市场接入没有实现。分发源可为组织内网服务，每组织最多 1000 个不可变版本；不将这个容量边界描述为无限规模的商业市场。
+分发源可为组织内网服务，每组织最多 1000 个不可变版本。当前范围为组织内协议审核与分发，不提供公共社区账号、评论或交易。
 
 ## 管理流程
 
@@ -31,7 +31,7 @@ API 设置 `IOT_PROTOCOL_MARKET_POLICY=/private/path/market-policy.json`，留�
 }
 ```
 
-`publicOrigin` 必须是 HTTPS origin，不接受用户名、路径、查询参数或从请求 Host 推导。API 可位于组织现有 HTTPS 反向代理后；本次没有自动部署域名、证书或反向代理。Compose 与离线包模板已传入该变量，配置和私钥路径须在容器现有挂载范围内。
+`publicOrigin` 必须是 HTTPS origin，不接受用户名、路径、查询参数或从请求 Host 推导。API 可位于组织现有 HTTPS 反向代理后；平台不自动部署域名、证书或反向代理。Compose 与离线包模板已传入该变量，配置和私钥路径须在容器现有挂载范围内。
 
 签名密钥使用现有 `iot-protocol-catalog --generate-key --key /private/path/catalog.key` 创建，构建和公钥配置见 [可信协议目录](PROTOCOL_CATALOG.md)。私钥为 Base64 Ed25519 完整私钥，Unix 文件权限须为 0600，Windows 由部署者配置专有 ACL。私钥、原始读取令牌和真实环境文件均不得提交 Git。组织读取令牌应以密码学随机数生成并单独交付消费方；服务端仅保存其 SHA-256，每组织可配置 1–64 个摘要供轮换。
 
@@ -70,4 +70,4 @@ go test -race ./internal/protocolmarket ./internal/protocolcatalog ./internal/ad
 go test -race ./internal/httpapi -run '^TestPrivateProtocolMarketReviewAndRemoteInstall$' -count=1 -v
 ```
 
-API 集成测试启动真实 TLS 分发服务和独立消费平台，完成原始 ZIP 上传/编译/样例、双用户审核、独立令牌、签名下载、消费方再次编译/样例，检查错误凭据、跨组织、错误证书、重复审核、撤回和读取凭据轮换。配置 `IOT_TEST_BROWSER` 后实际跑 Chrome 的提交、作者不可自审、切换到另一认证账号审核及窄屏。PostgreSQL 用例入口为 `TestDeviceOperationsMigrationAndAtomicity`，须显式配置临时测试数据库。未配置的外部环境明确跳过，真实执行结果见进度文档。
+API 集成测试启动真实 TLS 分发服务和独立消费平台，完成原始 ZIP 上传/编译/样例、双用户审核、独立令牌、签名下载、消费方再次编译/样例，检查错误凭据、跨组织、错误证书、重复审核、撤回和读取凭据轮换。配置 `IOT_TEST_BROWSER` 后实际跑 Chrome 的提交、作者不可自审、切换到另一认证账号审核及窄屏。PostgreSQL 用例入口为 `TestDeviceOperationsMigrationAndAtomicity`，须显式配置临时测试数据库。未配置的外部环境明确跳过。

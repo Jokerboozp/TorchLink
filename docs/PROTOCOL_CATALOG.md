@@ -4,7 +4,7 @@
 
 设备接入页面的“协议目录”展示经过签名验证的协议版本，支持按名称、发布者和标签筛选。管理员明确确认后，从配置的 HTTPS 源下载 Go 项目 ZIP；源码校验、关闭在线下载的编译、实际样例试跑和不可变制品保存继续使用现有源码发布链路。安装结果为 `VALIDATED`，操作员随后在版本列表发布、绑定或回滚；安装不会直接切换产品。
 
-这是平台的可信私有协议分发目录。组织内发布、独立审核、读取认证和签名分发已接通，见 [企业私有协议市场](PRIVATE_PROTOCOL_MARKET.md)。未连接第三方公共市场；支付、评论和公共账号仍未实现。签名证明来源与内容一致性，不保证代码安全；Worker 是具有 API 服务账户权限的子进程，管理员须信任签名发布方。
+组织内发布、独立审核、读取认证和签名分发见 [企业私有协议市场](PRIVATE_PROTOCOL_MARKET.md)。签名证明来源与内容一致性，不保证代码安全；Worker 是具有 API 服务账户权限的子进程，管理员须信任签名发布方。
 
 ## 信任配置
 
@@ -33,7 +33,7 @@ go build -o /tmp/iot-protocol-catalog ./cmd/iot-protocol-catalog
 
 工具只输出公钥；私钥文件以 `0600` 创建，不覆盖现有密钥。Windows 须由部署者设置账户专有 ACL。将公钥加入消费平台的信任配置。私钥不得上传静态站点或提交 Git。
 
-准备项目 ZIP，根目录须有 `protocol.json`（至少 ID、版本与协议元数据）、完整 Go 源码，以及 `samples/cases.json`；第三方依赖随 `vendor` 提供。结构及样例契约见 `GO_PROTOCOL_PACKAGES.md`。然后准备目录 payload JSON：
+准备项目 ZIP，根目录须有 `protocol.json`（至少 ID、版本与协议元数据）、完整 Go 源码，以及 `samples/cases.json`；第三方依赖随 `vendor` 提供。结构及样例契约见 [Go 协议包](GO_PROTOCOL_PACKAGES.md)。然后准备目录 payload JSON：
 
 ```json
 {
@@ -69,7 +69,7 @@ go build -o /tmp/iot-protocol-catalog ./cmd/iot-protocol-catalog
 - 校验通过保存现有 `ProtocolRelease`，构建信息增加已验证的目录摘要、签名 key ID、发布者与源码哈希。源包与版本仍遵守原有哈希、历史保留和回滚规则；签名身份由信任配置确定，条目里的发布者名称仅为签名元数据。
 - 单目录最多 1000 项、原始 envelope 8 MiB；单源码 ZIP 32 MiB。请求限时 20 秒、同时最多 4 个目录操作；源码展开、编译和样例另受既有容量/超时约束。过载 429，不返回虚假安装成功。
 
-消费平台不自动在后台安装更新，公共商业市场未实现。组织内审核发布与组织之间的授权分发见企业私有协议市场说明。目录源码可在 `protocol.json` 中声明 `targetPlatforms`，安装复用源码多平台编译；发布端实际跑样例，其他平台须另行执行验证，不能把编译状态当作样例通过。目录签名不能替代这些执行校验，详见 [Go 协议包](GO_PROTOCOL_PACKAGES.md#多平台协议制品)。
+消费平台不会自动安装更新。目录源码可在 `protocol.json` 中声明 `targetPlatforms`，安装复用源码多平台编译；发布端实际跑样例，其他平台须另行执行验证，不能把编译状态当作样例通过。目录签名不能替代这些执行校验，详见 [Go 协议包](GO_PROTOCOL_PACKAGES.md#多平台协议制品)。
 
 ## 验证入口
 
