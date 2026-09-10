@@ -16,9 +16,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -136,7 +133,6 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/protocol-packages", s.authorize("viewer"), s.endpoint(s.protocolPackages))
 	s.router.POST("/api/v1/protocol-packages", s.authorize("operator"), s.endpoint(s.saveProtocolPackage))
 	s.router.PUT("/api/v1/protocol-packages/:id", s.authorize("operator"), s.endpoint(s.saveProtocolPackage, "id"))
-	s.router.POST("/api/v1/protocol-packages/:id/artifact", s.authorize("operator"), s.endpoint(s.uploadProtocolArtifact, "id"))
 	s.router.POST("/api/v1/protocol-packages/:id/test", s.authorize("operator"), s.endpoint(s.testProtocolPackage, "id"))
 	s.router.GET("/api/v2/protocols", s.authorize("viewer"), s.endpoint(s.protocolDefinitionsV2))
 	s.router.GET("/api/v2/protocol-source-template", s.authorize("viewer"), s.endpoint(s.protocolSourceTemplate))
@@ -363,6 +359,10 @@ func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "name and parserType are required")
 		return
 	}
+	if v.ParserType == parser.GoProtocolParserName {
+		problem(w, 422, "Go 协议请通过源码编译、样例验证和版本发布接口管理")
+		return
+	}
 	if !parser.ManagedParserType(v.ParserType) {
 		problem(w, 422, "专用解析器仅供已有绑定及历史回放；新增或更新协议请上传 Go 源码包")
 		return
@@ -410,125 +410,6 @@ func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, v)
 }
 
-const maxProtocolArtifactUpload = int64(64 << 20)
-
-// uploadProtocolArtifact stores a compiled Go worker next to the platform
-// data directory and records only its relative path and digest in the protocol
-// package. Source code is deliberately not compiled in the API process: build
-// it in a controlled CI/worker environment, then upload the resulting binary.
-func (s *Server) uploadProtocolArtifact(w http.ResponseWriter, r *http.Request) {
-	tenant := claims(r).TenantID
-	packageID := r.PathValue("id")
-	pkg, err := s.engine.Repo.GetProtocolPackage(r.Context(), tenant, packageID)
-	if err != nil {
-		problem(w, http.StatusNotFound, "protocol package not found")
-		return
-	}
-	if pkg.ParserType != parser.GoProtocolParserName {
-		problem(w, http.StatusUnprocessableEntity, "protocol package parserType must be go_protocol_parser")
-		return
-	}
-	if err := r.ParseMultipartForm(maxProtocolArtifactUpload + (1 << 20)); err != nil {
-		problem(w, http.StatusBadRequest, "invalid multipart artifact upload")
-		return
-	}
-	file, header, err := r.FormFile("artifact")
-	if err != nil {
-		file, header, err = r.FormFile("file")
-	}
-	if err != nil {
-		problem(w, http.StatusUnprocessableEntity, "artifact file is required")
-		return
-	}
-	defer file.Close()
-	if header == nil || strings.TrimSpace(header.Filename) == "" || strings.ContainsAny(header.Filename, `/\\`) {
-		problem(w, http.StatusUnprocessableEntity, "artifact filename is invalid")
-		return
-	}
-	if pkg.Version == "" {
-		pkg.Version = "1.0.0"
-	}
-	for _, segment := range []string{tenant, packageID, pkg.Version} {
-		if !safeArtifactSegment(segment) {
-			problem(w, http.StatusUnprocessableEntity, "protocol package path segment is invalid")
-			return
-		}
-	}
-	root, err := filepath.Abs(s.cfg.DataDir)
-	if err != nil {
-		problem(w, http.StatusInternalServerError, "resolve protocol artifact directory")
-		return
-	}
-	directory := filepath.Join(root, "protocol-packages", tenant, packageID, pkg.Version)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		problem(w, http.StatusInternalServerError, "create protocol artifact directory")
-		return
-	}
-	temporary, err := os.CreateTemp(directory, ".artifact-*")
-	if err != nil {
-		problem(w, http.StatusInternalServerError, "create protocol artifact")
-		return
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	hash := sha256.New()
-	writer := io.MultiWriter(temporary, hash)
-	written, copyErr := io.Copy(writer, io.LimitReader(file, maxProtocolArtifactUpload+1))
-	if closeErr := temporary.Close(); copyErr == nil {
-		copyErr = closeErr
-	}
-	if copyErr != nil {
-		problem(w, http.StatusBadRequest, "read protocol artifact")
-		return
-	}
-	if written <= 0 || written > maxProtocolArtifactUpload {
-		problem(w, http.StatusRequestEntityTooLarge, "protocol artifact must be between 1 and 64 MiB")
-		return
-	}
-	artifactName := "artifact"
-	if runtime.GOOS == "windows" {
-		artifactName += ".exe"
-	}
-	target := filepath.Join(directory, artifactName)
-	if err := os.Chmod(temporaryPath, 0o700); err != nil {
-		problem(w, http.StatusInternalServerError, "set protocol artifact permissions")
-		return
-	}
-	if runtime.GOOS == "windows" {
-		if removeErr := os.Remove(target); removeErr != nil && !os.IsNotExist(removeErr) {
-			problem(w, http.StatusInternalServerError, "replace protocol artifact")
-			return
-		}
-	}
-	if err := os.Rename(temporaryPath, target); err != nil {
-		problem(w, http.StatusInternalServerError, "activate protocol artifact")
-		return
-	}
-	relative, err := filepath.Rel(root, target)
-	if err != nil {
-		problem(w, http.StatusInternalServerError, "store protocol artifact path")
-		return
-	}
-	if pkg.Config == nil {
-		pkg.Config = map[string]any{}
-	}
-	pkg.Config["artifact"] = map[string]any{
-		"path": filepath.ToSlash(relative), "filename": header.Filename,
-		"sha256": hex.EncodeToString(hash.Sum(nil)), "size": written,
-		"protocol": "json-lines-v1", "uploadedAt": time.Now().UnixMilli(),
-	}
-	pkg.UpdatedAt = time.Now().UnixMilli()
-	if err := s.engine.Repo.SaveProtocolPackage(r.Context(), pkg); err != nil {
-		problem(w, http.StatusInternalServerError, "save protocol artifact metadata")
-		return
-	}
-	s.audit(r, "protocol.artifact.upload", "protocolPackage", pkg.ID, map[string]any{"sha256": pkg.Config["artifact"].(map[string]any)["sha256"], "size": written})
-	write(w, http.StatusCreated, pkg)
-}
-
-func safeArtifactSegment(value string) bool {
-	return value != "" && value != "." && value != ".." && !strings.ContainsAny(value, `/\\`) && !strings.Contains(value, "..")
-}
 func (s *Server) testProtocolPackage(w http.ResponseWriter, r *http.Request) {
 	pkg, err := s.engine.Repo.GetProtocolPackage(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {

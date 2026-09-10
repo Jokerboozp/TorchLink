@@ -105,7 +105,7 @@ func TestPrivateProtocolMarketReviewAndRemoteInstall(t *testing.T) {
 		t.Helper()
 		var project bytes.Buffer
 		z := zip.NewWriter(&project)
-		metadata, _ := json.Marshal(map[string]any{"id": "market-demo", "version": version, "name": "市场示例", "transport": "MQTT", "payloadFormat": "hex", "runtime": "go-json-lines-v1"})
+		metadata, _ := json.Marshal(map[string]any{"id": "market-demo", "version": version, "name": "市场示例", "transport": "MQTT", "payloadFormat": "hex", "runtime": "go-protocol-v2"})
 		for name, data := range map[string][]byte{"main.go": []byte(protocolbuild.Template), "protocol.json": metadata, "samples/cases.json": []byte(protocolSourceCases)} {
 			f, _ := z.Create(name)
 			f.Write(data)

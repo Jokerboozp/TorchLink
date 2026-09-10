@@ -395,20 +395,17 @@ func validateProtocolManifestV2(protocolID string, manifest protocolPackageManif
 	if !protocolSegmentV2.MatchString(manifest.Version) {
 		return errors.New("manifest version is required")
 	}
-	if manifest.Runtime != "go-json-lines-v1" && manifest.Runtime != protocolworker.Runtime {
-		return errors.New("manifest runtime must be go-json-lines-v1 or go-protocol-v2")
+	if manifest.Runtime != protocolworker.Runtime {
+		return errors.New("manifest runtime must be go-protocol-v2")
 	}
 	seen := map[string]bool{}
 	for _, capability := range manifest.Capabilities {
 		if seen[capability] || (capability != "decode" && capability != "ingress" && capability != "encode") {
 			return fmt.Errorf("unsupported or repeated protocol capability %q", capability)
 		}
-		if capability != "decode" && manifest.Runtime != protocolworker.Runtime {
-			return errors.New("ingress/encode require go-protocol-v2")
-		}
 		seen[capability] = true
 	}
-	if manifest.Runtime == protocolworker.Runtime && !seen["decode"] {
+	if !seen["decode"] {
 		return errors.New("go-protocol-v2 requires decode capability")
 	}
 	if seen["ingress"] && strings.ToLower(manifest.PayloadFormat) != "hex" {
@@ -789,6 +786,9 @@ func validateProtocolReleaseV2(release model.ProtocolRelease) error {
 		artifact, ok := release.Config["artifact"].(map[string]any)
 		if !ok || strings.TrimSpace(fmt.Sprint(artifact["path"])) == "" {
 			return errors.New("custom protocol release artifact is missing")
+		}
+		if artifact["runtime"] != protocolworker.Runtime {
+			return errors.New("protocol runtime must be go-protocol-v2")
 		}
 	case "configurable_json_parser", "configurable_hex_parser":
 		if len(release.Config) == 0 {

@@ -56,10 +56,14 @@ func (p ExternalParser) ParseWithConfig(raw model.RawMessage, config map[string]
 // ParseWithContext lets publication cancel a sample worker when its request or
 // the overall validation budget expires.
 func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMessage, config map[string]any) (*model.StandardMessage, error) {
-	var input any = raw
-	if artifact, ok := config["artifact"].(map[string]any); ok && artifact["runtime"] == "go-protocol-v2" {
-		input = map[string]any{"version": 2, "operation": "decode", "raw": raw, "state": raw.Metadata["protocolState"], "now": raw.ReceivedAt}
+	artifact, err := externalArtifact(config)
+	if err != nil {
+		return nil, err
 	}
+	if artifact["runtime"] != "go-protocol-v2" {
+		return nil, errors.New("protocol runtime must be go-protocol-v2")
+	}
+	input := map[string]any{"version": 2, "operation": "decode", "raw": raw, "state": raw.Metadata["protocolState"], "now": raw.ReceivedAt}
 	output, err := p.Invoke(parent, config, input)
 	if err != nil {
 		return nil, err
@@ -262,14 +266,7 @@ func decodeExternalMessage(output []byte) (model.StandardMessage, error) {
 		}
 		return *envelope.StandardMessage, nil
 	}
-	var message model.StandardMessage
-	if err := json.Unmarshal(bytes.TrimSpace(output), &message); err != nil {
-		return model.StandardMessage{}, fmt.Errorf("decode external standard message: %w", err)
-	}
-	if message.MessageType == "" {
-		return model.StandardMessage{}, errors.New("external parser output messageType is required")
-	}
-	return message, nil
+	return model.StandardMessage{}, errors.New("external parser output standardMessage is required")
 }
 
 func externalEnvironment() []string {

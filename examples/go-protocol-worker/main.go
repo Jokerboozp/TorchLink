@@ -21,14 +21,23 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 1024), 2<<20)
 	if !scanner.Scan() {
-		writeError("a RawMessage JSON line is required")
+		writeError("a go-protocol-v2 request is required")
 		return
 	}
-	var raw rawMessage
-	if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
-		writeError("invalid RawMessage: " + err.Error())
+	var request struct {
+		Version   int        `json:"version"`
+		Operation string     `json:"operation"`
+		Raw       rawMessage `json:"raw"`
+	}
+	if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+		writeError("invalid request: " + err.Error())
 		return
 	}
+	if request.Version != 2 || request.Operation != "decode" {
+		writeError("expected go-protocol-v2 decode request")
+		return
+	}
+	raw := request.Raw
 	properties := map[string]any{}
 	if strings.EqualFold(raw.PayloadFormat, "hex") {
 		text := strings.Trim(strings.TrimSpace(string(raw.Payload)), `"`)
@@ -57,11 +66,11 @@ func main() {
 		}
 		properties["body"] = body
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"standardMessage": map[string]any{
 		"messageType": "PROPERTY_REPORT",
 		"properties":  properties,
 		"tags":        map[string]string{"worker": "go-example"},
-	})
+	}})
 }
 
 func writeError(message string) {

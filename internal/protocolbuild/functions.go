@@ -37,7 +37,7 @@ var FunctionTestTemplate string
 // packages continue through the original build path without rewriting source.
 func PrepareFunctions(files map[string][]byte) (bool, error) {
 	// ZIP tools commonly include one enclosing folder. Flatten only a recognized
-	// function project; legacy project entrypoint semantics stay unchanged.
+	// function project; complete Go projects keep their configured entrypoint.
 	candidate := files
 	prefix := ""
 	for name := range files {

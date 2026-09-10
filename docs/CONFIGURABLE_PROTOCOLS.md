@@ -45,7 +45,7 @@
 
 ## Go 源码协议包
 
-配置不足以描述的协议，上传 `.go` 或独立项目 ZIP。平台自动编译并验证样例，再发布不可变版本。纯解析使用 `go-json-lines-v1`；含 TCP/UDP 分帧、设备识别、应答和在线下行的完整接入使用 `go-protocol-v2`。契约见 [Go 协议包接入](GO_PROTOCOL_PACKAGES.md)。
+配置不足以描述的协议，上传 `.go` 或独立项目 ZIP。平台自动编译并验证样例，再发布不可变版本。统一使用 `go-protocol-v2`：纯解析声明 decode，TCP/UDP 完整接入按需增加 ingress 和 encode，不保留旧 Worker 契约。契约见 [Go 协议包接入](GO_PROTOCOL_PACKAGES.md)。
 
 ## AI 协议接入助手
 

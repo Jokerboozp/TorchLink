@@ -314,7 +314,7 @@ test('protocol v2 point-table, package release and device collection flows are v
   for (const label of ['网络接入', '源码接入', '不可变版本', '接入实例', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`)
   for (const route of ['/api/v2/protocols', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/')))
   assert.match(protocols, /go-protocol-v2/)
-  assert.match(protocols, /protocol\.json/)
+  assert.doesNotMatch(protocols, /go-json-lines-v1|source\.cases|旧协议包/)
   assert.match(app, /label: '设备接入'/)
   assert.match(app, /integration: \{ \.\.\.pageGuide.integration/)
   assert.match(integration, /设备连接指南/)

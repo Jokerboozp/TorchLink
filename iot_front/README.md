@@ -16,4 +16,4 @@ npm.cmd test
 npm.cmd run build
 ```
 
-页面通过 `src/api.js` 使用同源 REST/MCP 接口；不要在前端保存管理员密码或跨租户 Token。协议开发页面上传 Go Worker 时使用 `FormData` 调用 `/api/v1/protocol-packages/{id}/artifact`。
+页面通过 `src/api.js` 使用同源 REST/MCP 接口；不要在前端保存管理员密码或跨租户 Token。协议开发页面上传 Go 源码时使用 `FormData` 调用 `/api/v2/protocols/{id}/source-releases`，平台编译并实际验证样例。

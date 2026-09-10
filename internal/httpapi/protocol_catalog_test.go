@@ -42,7 +42,7 @@ func TestAuthenticatedCatalogSourceInstall(t *testing.T) {
 	zw := zip.NewWriter(&source)
 	for name, body := range map[string]string{
 		"main.go":            protocolbuild.Template,
-		"protocol.json":      `{"id":"catalog-demo","name":"目录示例","version":"1.0.0","transport":"MQTT","payloadFormat":"hex","runtime":"go-json-lines-v1"}`,
+		"protocol.json":      `{"id":"catalog-demo","name":"目录示例","version":"1.0.0","transport":"MQTT","payloadFormat":"hex","runtime":"go-protocol-v2"}`,
 		"samples/cases.json": protocolSourceCases,
 	} {
 		f, _ := zw.Create(name)
@@ -176,7 +176,7 @@ func TestAuthenticatedCatalogSourceInstall(t *testing.T) {
 	badZip := zip.NewWriter(&broken)
 	for name, body := range map[string]string{
 		"main.go":            protocolbuild.Template,
-		"protocol.json":      `{"id":"catalog-demo","version":"1.1.0","transport":"MQTT","payloadFormat":"hex","runtime":"go-json-lines-v1"}`,
+		"protocol.json":      `{"id":"catalog-demo","version":"1.1.0","transport":"MQTT","payloadFormat":"hex","runtime":"go-protocol-v2"}`,
 		"samples/cases.json": strings.ReplaceAll(protocolSourceCases, `"temperature":42`, `"temperature":999`),
 	} {
 		f, _ := badZip.Create(name)

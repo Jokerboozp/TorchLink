@@ -5,7 +5,7 @@ version: 1.0.0
 description: 自定义消防设备报文示例
 transport: TCP
 payloadFormat: hex
-runtime: go-json-lines-v1
+runtime: go-protocol-v2
 entrypoints:
   windows-amd64: bin/windows-amd64/protocol-worker.exe
   linux-amd64: bin/linux-amd64/protocol-worker

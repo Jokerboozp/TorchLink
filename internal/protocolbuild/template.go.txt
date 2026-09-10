@@ -42,13 +42,14 @@ func Decode(raw RawMessage) (Message, error) {
 
 // main 是平台调用入口。标准输出只写解析结果，调试日志请写 os.Stderr。
 func main() {
-	var raw RawMessage
-	err := json.NewDecoder(os.Stdin).Decode(&raw)
+	var request struct { Version int `json:"version"`; Operation string `json:"operation"`; Raw RawMessage `json:"raw"` }
+	err := json.NewDecoder(os.Stdin).Decode(&request)
+	if err == nil && (request.Version != 2 || request.Operation != "decode") { err = errors.New("expected go-protocol-v2 decode request") }
 	var message Message
-	if err == nil { message, err = Decode(raw) }
+	if err == nil { message, err = Decode(request.Raw) }
 	if err != nil {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error":err.Error()})
 		return
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(message)
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"standardMessage": message})
 }

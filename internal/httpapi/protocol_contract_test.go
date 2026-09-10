@@ -26,4 +26,14 @@ func TestSourceManifestUsesPackageMetadataAndExplicitOverrides(t *testing.T) {
 	if _, _, err = sourceProtocolManifest(req, "package", files); err == nil {
 		t.Fatal("v1 accepted ingress/encode")
 	}
+	req.Form.Set("capabilities", `["decode"]`)
+	if _, _, err = sourceProtocolManifest(req, "package", files); err == nil {
+		t.Fatal("decode-only v1 accepted")
+	}
+	req.Form = url.Values{"version": {"1.0.0"}}
+	m, _, err = sourceProtocolManifest(req, "package", nil)
+	if err != nil || m.Runtime != protocolworker.Runtime {
+		t.Fatalf("current runtime default: %+v %v", m, err)
+	}
+
 }

@@ -387,3 +387,25 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - 待完成/未执行：尚未部署或对接真实厂商设备，缺少协议文档、真实报文和测试目标。Windows 实际运行、生产环境、物理断电/总线与本轮真实 MQTT Broker 联调未执行。内置 RTU 点表向导目前采用平台主动连接；客户端模式串口服务器可通过 Go TCP 入站与查询代码接入。同一物理 Modbus 总线不提供跨进程共享调度，子设备独立会话状态由主协议维护；这些边界见详细说明。本轮没有提交、推送或更新现有部署。
 
 - 最终增量回归：`go test -race ./internal/model ./internal/protocolruntime ./internal/onboarding ./internal/adapters/memory ./internal/protocolworker -count=1` 全部通过（1.576 / 4.030 / 1.779 / 2.671 / 1.425 秒）。`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestTCPParentChildSourceChain$|^TestOnboardingBrowser$' -count=1 -v` 通过（包 18.385 秒，旧向导 4.26 秒，主子源码链路 12.07 秒，其中主子浏览器 2.55 秒），包含实例编辑回填及实际保存。`npm --prefix iot_front test` 62/62 通过、0 跳过；`npm --prefix iot_front run build` 2.11 秒通过，仅既有大 chunk 提示。最终 `git diff --check` 通过。本轮本地实现无代码阻塞，真实设备联调和部署仍按上项标记未执行。
+
+### 统一当前 Go 协议契约（2026-09-10）
+
+- 用户明确项目从零开发，不需要兼容旧协议包。开始时工作区干净，沿用当前 main；范围为 Go Worker 契约和旧上传入口，不扩展为删除业务数据库或本次无关功能。
+- 已移除第一版运行时接收、裸标准消息响应回退、V1 二进制 artifact 上传路由及实现；普通协议草稿写入不再接收 Go Worker，Go 源码上传默认并强制使用 `go-protocol-v2`，版本校验与运行时解析同样检查。Go 函数模板和 GB26875 完整项目遵守同一契约；无需开发者维护兼容分支。
+- 页面移除旧运行时、能力、编译入口、报文格式和 JSON 样例覆盖表单，仅保留业务配置及可选多平台编译。移除表单后同步删除 `source.cases` 的提交前读取，防止上传按钮报错。同步当前文档、独立 Worker 示例和协议目录/市场测试制品，原始改造任务说明保留。
+- 首轮 `go test ./internal/parser ./internal/httpapi ./internal/protocolbuild ./internal/protocolworker` 通过（2.432 / 66.602 / 23.368 秒，Worker 命中缓存）。增加旧运行时、无运行时、裸响应和旧接口拒绝回归，保留实际编译、身份覆盖、哈希校验、发布失败及版本回滚测试。
+- 前端首轮 61/62：旧源码检查仍要求兼容区域中的 `protocol.json` 文案；改为验证旧入口和失效字段已移除。最终 `npm --prefix iot_front test` 62/62 通过、0 跳过（0.246 秒），`npm --prefix iot_front run build` 通过（1.23 秒），仅既有大 chunk 提示。独立 GB26875 module `go test ./...` 通过，命中缓存，源码未修改。
+- 最终 `go test ./...` 退出码 0，未配置的可选外部集成跳过；部分未变更包命中缓存。`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestGoFunctionsUploadAndListener$|^TestTCPParentChildSourceChain$' -count=1 -v` 通过（包 34.122 秒）。Chrome 实际下载模板、无 JSON/版本/运行时上传单 Go 文件、执行编译和样例、展示失败及窄屏检查通过（函数用例 20.23 秒，其中浏览器 6.89 秒）；主子设备源码链路 12.07 秒，其中浏览器 2.65 秒。该测试使用隔离鉴权 API 和模拟设备。
+- 最终 `git diff --check` 通过，本轮无代码阻塞。未更新部署或重发已有协议版本，真实厂商设备、Windows 运行、真实 PostgreSQL/MQTT 联调及生产验收本轮未执行；没有提交或推送本轮改动。
+
+### 设备连接与数据页面修复（2026-09-10）
+
+- 用户反馈设备 `local-check-1788991005167` 的详情背景与内容难以区分，打开提示“未找到请求的记录”，部分信息未进入表格。开始时保留上一轮统一 Go 契约的未提交修改，本轮只改设备详情组件并新增针对性浏览器回归。
+- 实际复现：通过当前 localhost:5173 / 8081 完成管理员认证，只读检查现有 5 台设备；connection/history/commands 返回 200，子设备接口均为 404。真实 Chrome 打开指定设备出现相同错误提示。原因是运行中的后端尚未包含前轮子设备接口，而普通 HTTP 设备也被无条件请求 children；影子/拓扑在收起状态同样提前加载。没有通过吞掉主设备子接口错误或返回虚假空列表兼容旧后端。
+- 已修复按需请求：仅主设备或配置子产品映射的设备加载 children；MQTT 才加载消息命令记录，影子/拓扑展开后才挂载。主信息失败明确展示加载错误，历史/事件/子设备/命令各区块独立展示失败，不把旧列表当作刷新成功。请求取消与序号避免切换设备、刷新或翻页的迟到响应覆盖当前内容。
+- 已修复样式：抽屉灰底、白色卡片、明确边框及深色文字；接入地址/密钥/状态使用有边框字段表，仅展示对应连接方式的信息；最新属性、事件和命令回执进入表格，完整标准消息按需展开。窄屏单列字段，长值换行，宽表在自身容器内滚动。HTTP 设备不再显示无意义的空 TCP 会话表。
+- 操作检查：命令参数先验证对象与类型再确认，下发与加载状态分离；凭据变更仅向有权限的标准直连设备显示，子设备不提供独立凭据操作；保留确认、请求幂等、主子设备跳转、原文与告警导航。
+- 回归先红后绿：`IOT_TEST_BROWSER=<Chrome路径> go test ./internal/httpapi -run '^TestDeviceConnectionBrowser$' -count=1 -v` 修改前 2.24 秒失败，断言普通设备 children 请求应为 0，实测 1。修复后实际浏览器覆盖字段表、长属性、390px 布局、明确背景色、无关请求不触发、503 历史失败后的独立显示与恢复，以及 viewer 无凭据修改按钮。
+- 本轮 `npm --prefix iot_front test` 62/62 通过（0.207 秒）；`npm --prefix iot_front run build` 通过，仅既有大 chunk 提示。`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestDeviceConnectionBrowser$|^TestOnboardingBrowser$|^TestTCPParentChildSourceChain$' -count=1 -v` 通过（包 20.526 秒，详情 3.06 / 向导 3.66 / 主子设备 11.95 秒）。覆盖实际鉴权、源码/TCP 主子链路和原有影子编辑、接入向导、凭据清理及窄屏；后续加强背景色断言后详情竞态回归再次通过（3.25 秒，包 5.139 秒）。
+- 指定真实设备最终只读复查：Chrome 桌面打开错误提示为 0，接入信息和 temperature=26.5 等最新属性位于各自表格；桌面内容宽 900/容器宽 900，移动内容宽 390/容器宽 390，无抽屉横向溢出，已检查实际截图。使用现有 Vite 即可看到改动，未重启 API、未修改该设备配置或凭据，也未发送设备命令。
+- 未执行：本轮无后端业务实现改动，不重复运行 Go 全量；真实设备控制、物理设备联调和生产部署未执行。暂未提交或推送。最终 `git diff --check` 和新增浏览器脚本 `node --check` 通过。

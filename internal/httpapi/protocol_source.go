@@ -162,7 +162,7 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 	}
 	var cases []protocolPackageCaseV2
 	if len(casesData) > 1<<20 || json.Unmarshal(casesData, &cases) != nil || len(cases) == 0 || len(cases) > 100 {
-		problem(w, 422, "请提供 1 至 100 条样例报文及预期结果：Go 函数模式在 Protocol 中填写 Samples，旧协议可用页面或 samples/cases.json")
+		problem(w, 422, "请提供 1 至 100 条样例报文及预期结果：Go 函数模式在 Protocol 中填写 Samples，完整 Go 项目可用 samples/cases.json")
 		return
 	}
 	for _, c := range cases {
@@ -254,7 +254,7 @@ func sourceProtocolManifest(r *http.Request, id string, files map[string][]byte)
 	}
 	manifest := protocolPackageManifestV2{SchemaVersion: 1, ID: id,
 		Name: firstNonBlank(r.FormValue("name"), metadata.Name, id), Version: firstNonBlank(r.FormValue("version"), metadata.Version),
-		Runtime:       firstNonBlank(r.FormValue("runtime"), metadata.Runtime, "go-json-lines-v1"),
+		Runtime:       firstNonBlank(r.FormValue("runtime"), metadata.Runtime, protocolworker.Runtime),
 		Transport:     strings.ToUpper(firstNonBlank(r.FormValue("transport"), metadata.Transport, "MQTT")),
 		PayloadFormat: strings.ToLower(firstNonBlank(r.FormValue("payloadFormat"), metadata.PayloadFormat, "hex")),
 		Description:   metadata.Description, Capabilities: capabilities,

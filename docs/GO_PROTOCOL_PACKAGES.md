@@ -32,7 +32,7 @@ func decode(data []byte, ctx Context) (Message, error) {
 
 这里的 `AA 01 2A` 是教学报文，需替换为厂家真实报文。`Samples` 中独立填写输入和期望值，不能用 `Decode` 的返回结果生成期望值。平台实际执行解析后核对消息类型、属性，以及填写的事件、标签、时间；错误、缺失样例或编译失败均阻止发布，保留现有产品版本。上传不会自动执行任意 `_test.go` 或构建脚本。模板中的 `zz_platform_test.go` 仅用于你主动执行的本地预检，每次协议调用限制 5 秒和 1 MiB 输出；上传仍由平台独立执行完整校验，不能以本地预检代替发布校验。
 
-上传页填写协议标识，可选择绑定产品；版本留空时平台生成唯一时间版本，也可在页面或 `Definition.Version` 中设置。`Definition.Name`、`Transport` 可选；无 `Ingress` 默认 MQTT，有 `Ingress` 默认 TCP。字节函数模式使用 HEX 作为平台内部报文封装，业务函数收到的是解码后的 `[]byte`。旧格式参数放在“高级设置与旧协议包兼容”中；Go 函数模式请清空运行时、能力和编译入口，平台根据实际注册函数生成配置。
+上传页填写协议标识，可选择绑定产品；版本留空时平台生成唯一时间版本，也可在页面或 `Definition.Version` 中设置。`Definition.Name`、`Transport` 可选；无 `Ingress` 默认 MQTT，有 `Ingress` 默认 TCP。字节函数模式使用 HEX 作为平台内部报文封装，业务函数收到的是解码后的 `[]byte`。平台根据实际注册函数生成配置，页面无需填写运行时、能力、编译入口或样例 JSON。所有 Go 协议统一使用 `go-protocol-v2`，不兼容第一版 Worker 契约。
 
 | Go 字段 / 函数 | 用途 |
 | --- | --- |
@@ -46,20 +46,22 @@ func decode(data []byte, ctx Context) (Message, error) {
 
 选择绑定产品并发布后，新报文使用新版本；TCP/UDP 仍需配置接入实例。TCP 可选择设备连接平台或平台连接设备，UDP 使用监听端口；按所选方向配置实际地址和端口。这项简化不猜测设备地址、凭据、端口或厂家协议含义。
 
-以下章节保留已有完整协议包和底层调用契约，使用 Go 函数模板时无需手工编写这些配置。
+以下章节说明完整 Go 项目和当前底层调用契约，使用 Go 函数模板时无需手工编写这些配置。
 
 
 平台支持直接上传完整 Go 源码：在“设备接入 → Go 源码接入”上传 `.go` 文件或 Go 项目 ZIP，平台自动编译、试跑样例、发布并绑定产品，后续报文立即使用新代码。Go 源码就是自定义协议的唯一页面上传入口，支持单文件和多文件源码 ZIP；编译制品由平台自动生成。
 
-## 源码上传
+## 完整 Go 项目上传
 
-1. 下载页面中的完整 Go 模板，修改 `Decode(raw RawMessage) (Message, error)`，保留 `main` 的输入输出入口。模板是独立、可编译的普通 Go 程序；允许自由定义函数、类型、导入标准库和项目内包，不使用解释器语法子集。
-2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在 ZIP 根目录；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可填写 `cmd/worker` 等项目内目录。
-3. 填写协议标识；新版本号、传输方式、报文格式等可在项目根目录的 `protocol.json` 中维护，页面未填写时自动读取。样例可在页面填写，或放在 ZIP 的 `samples/cases.json` 中并清空页面样例框。页面样例优先。
+日常开发优先使用前述 Go 函数模板。需要自行维护调用入口的完整项目也必须遵守同一 `go-protocol-v2` 契约，例如 GB26875 独立 module。
+
+1. 实现 `version=2`、`operation=decode/ingress/encode` 请求及对应响应；解析结果必须放在 `standardMessage` 字段中。允许自由定义函数、类型、导入标准库和项目内包。
+2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在 ZIP 根目录；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可在 `protocol.json` 指定 `cmd/worker` 等项目内目录。
+3. 填写协议标识；新版本号、传输方式、报文格式等可在项目根目录的 `protocol.json` 中维护，页面未填写时自动读取。完整项目样例放在 ZIP 的 `samples/cases.json` 中；函数模板的样例仍直接写在 Go 代码中。
 4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“协议与版本”页绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
 5. 更新代码时更换版本号。语法错误会在页面保留编译日志；样例失败、panic、超时均阻止发布。同一已保存版本不能覆盖。在“协议与版本”页可切换或回滚，历史原始报文保留实际使用版本。
 
-源码入口：`POST /api/v2/protocols/{id}/source-releases`，multipart 字段为 `file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`（均为 JSON 数组）、`cases`、`publish`、`productId`。`publish` 默认 true，`productId` 可选。模板及编译器可用状态：`GET /api/v2/protocol-source-template`。写入需要 operator/admin 权限。
+源码入口：`POST /api/v2/protocols/{id}/source-releases`，multipart 字段为 `file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`（仅 `capabilities` 和 `targetPlatforms` 为 JSON 数组）、`cases`、`publish`、`productId`。`publish` 默认 true，`productId` 可选。模板及编译器可用状态：`GET /api/v2/protocol-source-template`。写入需要 operator/admin 权限。
 
 平台自动生成 manifest 和版本制品，并保留原始源码、源文件 SHA-256、Worker SHA-256 及测试数量，无需用户手工打包二进制。源码上限 32 MiB，ZIP 最多 4096 条目、展开不超过 128 MiB；每个平台编译超时 120 秒，同一 API 进程同时运行一个上传构建/试跑任务；样例 1–100 条、总预算 60 秒，单例最多 10 秒。运行时仍逐报文启动 Worker，默认最多 5 秒、输出最多 1 MiB。
 
@@ -77,7 +79,7 @@ func decode(data []byte, ctx Context) (Message, error) {
 
 **部署范围**：本次平台功能升级需要部署一次新的 API 和前端。新的 Dockerfile 在 API 镜像中带入 Go 工具链；宿主机运行时须让 `go` 在 API 的 PATH 中可用。能力部署后，协议上传、版本切换和回滚均无需重启系统。当前仍是具有服务进程操作系统权限的子进程，最小环境变量与超时不是强隔离沙箱；应由可信的协议开发者上传代码。
 
-**接入范围**：`go-json-lines-v1` 扩展 `RawMessage → StandardMessage` 解析；`go-protocol-v2` 另支持 TCP/UDP 入站分帧、设备识别、会话状态、应答和在线下行。平台提供通用监听器，协议包不需要依赖平台源码或内置解析器。中心运行时支持配置 TCP 主动连接及按命令类型定时查询，复用 ingress/encode；尚无通用连接事件回调。主子设备和具体配置见 [TCP 主子设备接入](TCP_CHILD_DEVICE_ACCESS.md)。
+**接入范围**：统一使用 `go-protocol-v2`，按需声明 `decode`、`ingress`、`encode`，支持标准消息解析以及 TCP/UDP 入站分帧、设备识别、会话状态、应答和在线下行。平台提供通用监听器，协议包不需要依赖平台源码或内置解析器。中心运行时支持配置 TCP 主动连接及按命令类型定时查询，复用 ingress/encode；尚无通用连接事件回调。主子设备和具体配置见 [TCP 主子设备接入](TCP_CHILD_DEVICE_ACCESS.md)。
 
 ## 完整协议包（go-protocol-v2）
 
@@ -149,69 +151,13 @@ Content-Type: application/json
 
 两种下载均检查租户归属和 SHA-256，可用于把平台版本归档回外部协议仓库。平台没有自动拉取远程仓库；可由外部 CI 调用源码上传 API。
 
-## 历史兼容 API（不提供页面入口）
+## 统一 Worker 契约
 
-以下仅记录旧集成的二进制上传 API；新接入统一使用上方 Go 源码入口，页面不再提供单独的“上传自定义协议包”。
+平台只接受 `go-protocol-v2`。请求为 `{"version":2,"operation":"decode","raw":{...},"state":{...},"now":...}`，解析响应为 `{"standardMessage":{"messageType":"PROPERTY_REPORT","properties":{"temperature":42}}}`。`raw` 为原始报文；协议错误返回 `{"error":"..."}`。TCP/UDP 的 ingress、encode 结构见上文。Go 函数模板自动处理输入输出，不需要业务开发者编写 JSON。
 
-1. 旧集成使用已有的 `go_protocol_parser` 协议草稿。
-2. 上传匹配部署操作系统和 CPU 架构的可执行文件：
+租户、产品和设备 ID 始终由原始报文确定，Worker 不能通过返回值更改归属。直接返回裸标准消息、第一版运行时以及没有运行时声明的制品都会被拒绝，不做自动推断或回退。旧 `/api/v1/protocol-packages/{id}/artifact` 二进制上传接口已移除，普通协议草稿 API 也不再接受 Go Worker；使用源码编译与版本发布链路。
 
-   ```http
-   POST /api/v1/protocol-packages/{id}/artifact
-   Content-Type: multipart/form-data
-   field: artifact
-   ```
-
-3. 平台把文件保存到 `IOT_DATA_DIR/protocol-packages/{tenant}/{package}/{version}/`，记录 SHA-256，不接受客户端直接提交的绝对路径。
-4. 先用“解析调试”运行样本，再把协议包发布并绑定到产品。运行时每条原始报文都会启动受限时长的独立 worker 进程；修改文件、超时、输出过大或返回非法标准消息都会导致本次解析失败，不会拖死 API 进程。
-
-此旧接口接收二进制，源码请使用上方 V2 源码入口。执行器限制路径、文件大小（64 MiB）、单次运行时间（默认 5 秒，最多 10 秒）、标准输出大小（1 MiB），并且不向 Worker 传递数据库密码、JWT 密钥等应用环境变量。
-
-## Worker 契约
-
-worker 从标准输入读取一行 JSON，内容就是平台的 `RawMessage`：
-
-```json
-{
-  "messageId": "raw_1",
-  "tenantId": "tenant_001",
-  "productId": "product_fire",
-  "deviceId": "device_1",
-  "protocol": "vendor-v2",
-  "transport": "TCP",
-  "payloadFormat": "hex",
-  "payload": "AA 01 2A",
-  "receivedAt": 1710000000000
-}
-```
-
-worker 输出一行标准消息（也可以包在 `standardMessage` 字段中）：
-
-```json
-{
-  "messageType": "PROPERTY_REPORT",
-  "timestamp": 1710000000000,
-  "properties": {"temperature": 42},
-  "event": {},
-  "tags": {"vendor": "example"}
-}
-```
-
-`messageType` 必须是平台支持的标准消息类型。租户、产品和设备 ID 由平台原始报文覆盖，worker 不能借此把数据写入其他租户。发生业务解析错误时输出 `{"error":"..."}` 并以非零状态退出。
-
-示例 worker 位于 `examples/go-protocol-worker`，可以直接编译：
-
-```powershell
-go build -trimpath -ldflags="-s -w" -o protocol-worker.exe ./examples/go-protocol-worker
-```
-
-Docker Linux 部署要编译 Linux 二进制，例如：
-
-```powershell
-$env:GOOS = "linux"
-$env:GOARCH = "amd64"
-go build -trimpath -ldflags="-s -w" -o protocol-worker ./examples/go-protocol-worker
-```
+底层示例 `examples/go-protocol-worker` 同样使用上述契约；完整项目示例优先参考 `protocol-packages/gb26875-dahua`。路径、制品哈希、超时、输出大小及最小环境变量校验继续执行。
 
 ## 版本与回滚
 

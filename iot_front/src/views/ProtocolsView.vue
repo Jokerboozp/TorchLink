@@ -25,7 +25,7 @@ const sourceError = ref('')
 const sourceTemplate = ref(null)
 const products = ref([])
 const switching = ref(false)
-const source = reactive({ protocolId:'', name:'', version:'', productId:'', runtime:'', capabilities:'', transport:'', payloadFormat:'', entrypoint:'', publish:true, cases:'' })
+const source = reactive({ protocolId:'', name:'', version:'', productId:'', transport:'', publish:true })
 const binding = reactive({ productId:'', protocolId:'', version:'' })
 const publishedReleases = computed(() => protocols.value.find(item => item.definition.id === binding.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED') || [])
 
@@ -69,10 +69,6 @@ async function downloadSourceTemplate(kind = '') {
 async function uploadSource() {
   if (!sourceFile.value || !source.protocolId) return ElMessage.warning('请选择 Go 源码并填写协议标识')
   if (sourceFile.value.size > 32 * 1024 * 1024) return ElMessage.warning('源码文件不能超过 32 兆字节')
-  if (source.cases.trim()) {
-    try { const cases = JSON.parse(source.cases); if (!Array.isArray(cases) || !cases.length) throw new Error() }
-    catch { return ElMessage.warning('样例测试须为非空结构化数据数组') }
-  }
   compiling.value = true
   sourceError.value = ''
   result.value = null
@@ -180,21 +176,10 @@ onMounted(load)
           <small class="subline">只修改 protocol.go。直接上传这个文件，或将整个项目打成 ZIP；无需编写 JSON、main 或调用入口。样例也使用 Go 编写，预期结果不符会阻止发布。</small>
         </el-form-item>
         <el-collapse>
-          <el-collapse-item title="高级设置与旧协议包兼容" name="advanced">
-            <small class="subline">旧协议包仍可使用 protocol.json 和样例 JSON；未填写的字段读取包内配置。</small>
-            <div class="form-grid">
-              <el-form-item label="报文格式"><el-select v-model="source.payloadFormat" clearable placeholder="Go 函数模式使用字节报文"><el-option v-for="value in ['hex','json','text','base64']" :key="value" :label="formatLabel(value)" :value="value" /></el-select></el-form-item>
-              <el-form-item label="运行时（旧协议包）"><el-select v-model="source.runtime" clearable placeholder="Go 函数模式请留空"><el-option label="报文解析（第一版）" value="go-json-lines-v1" /><el-option label="完整接入（第二版）" value="go-protocol-v2" /></el-select></el-form-item>
-              <el-form-item label="操作能力（旧协议包）"><el-input v-model="source.capabilities" placeholder='Go 函数模式请留空；旧包例如 ["decode"]' /></el-form-item>
-            </div>
+          <el-collapse-item title="编译选项" name="advanced">
             <el-form-item label="额外编译目标（可选）">
               <el-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台"><el-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></el-select>
               <small class="subline">其他平台仅生成编译制品；在对应平台实际试跑前不能视为验收通过。</small>
-            </el-form-item>
-            <el-form-item label="项目编译入口（旧协议包）"><el-input v-model="source.entrypoint" placeholder="默认为 .，Go 函数模式请留空" /></el-form-item>
-            <el-form-item label="覆盖样例（旧协议包）">
-              <el-input v-model="source.cases" type="textarea" :rows="7" spellcheck="false" />
-              <small class="subline">Go 函数模式在 Protocol 中填写 Samples。此处填写 JSON 会覆盖源码样例，仅用于兼容已有协议包。</small>
             </el-form-item>
           </el-collapse-item>
         </el-collapse>
