@@ -86,6 +86,21 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) {
 	if created.Code != 201 {
 		t.Fatal("save", created.Code, created.Body.String())
 	}
+	recovered := call("POST", "/api/v1/onboarding", q)
+	if recovered.Code != 200 || !bytes.Contains(recovered.Body.Bytes(), []byte(`"reused":true`)) {
+		t.Fatal("Modbus onboarding recovery failed", recovered.Code)
+	}
+	for _, response := range []*httptest.ResponseRecorder{created, recovered} {
+		for _, field := range []string{`"credential"`, `"accessKey"`, `"clientId"`, `"username"`} {
+			if bytes.Contains(response.Body.Bytes(), []byte(field)) {
+				t.Fatalf("Modbus onboarding returned %s", field)
+			}
+		}
+	}
+	stored, err := repo.GetManagedDevice(ctx, "tenant", q.DeviceID)
+	if err != nil || stored.SecretHash != "" || stored.AccessKey == "" {
+		t.Fatal("Modbus must persist an internal identity without a secret", err)
+	}
 	connection := func() map[string]any {
 		result := call("GET", "/api/v1/device-registry/modbus-device/connection", nil)
 		var data map[string]any

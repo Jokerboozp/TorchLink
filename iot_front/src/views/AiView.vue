@@ -1,5 +1,5 @@
 <script setup>
-import { capabilityName } from '../presentation'
+import { aiProviderOptions as providerOptions, capabilityName } from '../presentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, apiStream, session } from '../api'
@@ -82,11 +82,7 @@ const workflowManagePage = ref(1)
 const workflowManagePageSize = ref(20)
 const workflowManageTotal = ref(0)
 let workflowManageRequestSequence = 0
-const providerOptions = [
-  { id:'ollama', label:'本地部署模型', description:'使用服务器或本机部署的本地模型服务，不需要接口密钥。' },
-  { id:'deepseek', label:'深度求索云端模型', description:'使用深度求索云端模型和接口密钥。' },
-  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容聊天补全接口的模型服务。' }
-]
+
 const agentFieldDocs = [
   { name:'schemaVersion', type:'整数', note:'清单格式版本，当前固定填写 1。' },
   { name:'id', type:'字符串', note:'智能体唯一标识，最长 128 字符；可使用字母、数字、点、下划线、冒号和连字符，不能覆盖内置智能体。' },

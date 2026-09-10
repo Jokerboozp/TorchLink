@@ -5,17 +5,17 @@ import { pageGuide } from '../src/pageGuide.js'
 
 test('display names handle canonical and lowercase wire values without mutating data', () => {
   const data = { transport:'MQTT', format:'json', status:'INDEXED' }
-  assert.equal(transportLabel(data.transport), '消息订阅')
+  assert.equal(transportLabel(data.transport), 'MQTT')
   assert.equal(transportLabel('iot-standard'), '标准设备接入')
-  assert.equal(transportLabel('tcp'), '网络长连接')
-  assert.equal(formatLabel(data.format), '结构化文本')
+  assert.equal(transportLabel('tcp'), 'TCP')
+  assert.equal(formatLabel(data.format), 'JSON')
   assert.equal(statusLabel(data.status), '已建立索引')
   assert.equal(statusLabel('indexed'), '已建立索引')
   assert.equal(statusLabel('new-backend-status'), '未知状态')
   assert.equal(statusLabel(null), '未知状态')
   assert.equal(statusLabel('待人工复核'), '待人工复核')
   assert.deepEqual(data, { transport:'MQTT', format:'json', status:'INDEXED' })
-  assert.doesNotMatch(platformLabel('windows-arm64'), /[a-z]/i)
+  assert.equal(platformLabel('windows-arm64'), 'Windows · arm64')
   assert.equal(toolName('mcp__iot__query_alarm_list'), '查询告警')
 })
 

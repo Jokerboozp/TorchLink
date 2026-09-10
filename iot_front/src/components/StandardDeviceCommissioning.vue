@@ -31,7 +31,7 @@ async function identify() {
   if (!form.deviceId || !form.key || !form.secret) throw new Error('请填写设备标识和设备凭据')
   const x = await api(`/api/v1/device-registry/${encodeURIComponent(form.deviceId)}/connection`, {signal:AbortSignal.timeout(5000)})
   if (expected !== generation || !active) throw new Error('配置已变化，请重新操作')
-  if (!['HTTP', 'MQTT'].includes(x.connector)) throw new Error('请选择通过统一向导创建的消息订阅 / 接口标准设备')
+  if (!['HTTP', 'MQTT'].includes(x.connector)) throw new Error('请选择通过统一向导创建的 MQTT / HTTP 标准设备')
   if (x.device.accessKey !== form.key) throw new Error('接入密钥与所选设备不匹配')
   identity.value = x.device
   return x.device
@@ -95,13 +95,13 @@ onBeforeUnmount(() => { active = false; generation++; probe.stop(); form.secret 
 </script>
 <template>
   <el-card class="standard-commissioning" shadow="never">
-    <template #header><strong>标准设备联调（消息订阅 / 接口）</strong></template>
+    <template #header><strong>标准设备联调（MQTT / HTTP）</strong></template>
     <p>使用“添加设备”向导生成的设备凭据，按真实设备认证路径发送数据。密钥仅保留在当前页面；离开后清除。测试数据会进入当前设备的存储和已有规则。</p>
     <el-form label-width="110px" :disabled="busy">
       <el-form-item label="标准设备标识"><el-input v-model="form.deviceId" autocomplete="off"/></el-form-item>
       <el-form-item label="接入密钥"><el-input v-model="form.key" autocomplete="off"/></el-form-item>
       <el-form-item label="设备密钥"><el-input v-model="form.secret" type="password" show-password autocomplete="new-password"/></el-form-item>
-      <el-form-item label="通信方式"><el-radio-group v-model="form.transport"><el-radio value="HTTP">接口</el-radio><el-radio value="MQTT">消息订阅</el-radio></el-radio-group></el-form-item>
+      <el-form-item label="通信方式"><el-radio-group v-model="form.transport"><el-radio value="HTTP">HTTP</el-radio><el-radio value="MQTT">MQTT</el-radio></el-radio-group></el-form-item>
       <el-form-item label="上报类型"><el-select v-model="form.kind"><el-option label="属性" value="property"/><el-option label="事件" value="event"/><el-option label="状态" value="state"/><el-option label="命令回执" value="command-reply"/></el-select></el-form-item>
       <el-form-item label="上报数据"><el-input v-model="sample" type="textarea" :rows="5"/></el-form-item>
     </el-form>
@@ -111,7 +111,7 @@ onBeforeUnmount(() => { active = false; generation++; probe.stop(); form.secret 
     <el-button :disabled="busy||!last||(form.transport==='MQTT'&&state!=='CONNECTED')" @click="send(true)">重发同一条消息</el-button>
     <el-button :disabled="busy||!records.length" @click="refresh">刷新解析结果</el-button><el-button :disabled="!records.length" @click="exportReport">导出验收记录</el-button>
     <el-alert v-if="error" class="top-gap" :title="error" type="error" :closable="false"/>
-    <p>新消息生成新标识；重发保持原标识、时间戳和内容，用于验证幂等。消息订阅发布成功只表示消息服务确认，以平台原始报文和解析结果为准。</p>
+    <p>新消息生成新标识；重发保持原标识、时间戳和内容，用于验证幂等。MQTT 发布成功只表示消息服务确认，以平台原始报文和解析结果为准。</p>
     <el-table :data="records" empty-text="暂无联调记录"><el-table-column label="时间"><template #default="{row}">{{formatTime(row.at)}}</template></el-table-column><el-table-column prop="id" label="消息标识"/><el-table-column label="通信"><template #default="{row}">{{transportLabel(row.transport)}}</template></el-table-column><el-table-column label="动作"><template #default="{row}">{{row.repeat?'同一消息重发':'新消息'}}{{row.duplicate?' · 平台已去重':''}}</template></el-table-column><el-table-column label="平台处理"><template #default="{row}">{{statusLabel(row.status)}}</template></el-table-column></el-table>
     <template v-if="last"><h4>最近发送的原始结构化数据</h4><pre>{{last.body}}</pre></template>
     <template v-if="result"><h4>原始报文 → 解析结果 → 标准消息</h4><pre>{{pretty(result)}}</pre></template>

@@ -140,8 +140,12 @@ func TestOnboardingBrowser(t *testing.T) {
 	}
 
 	devices, err := repo.ListManagedDevices(ctx, "tenant")
-	if err != nil || len(devices) != 3 || devices[0].Status != "ENABLED" {
+	if err != nil || len(devices) != 4 || devices[0].Status != "ENABLED" {
 		t.Fatalf("browser did not persist enabled device: %+v %v", devices, err)
+	}
+	modbusDevice, err := repo.GetManagedDevice(ctx, "tenant", "browser-modbus-preview")
+	if err != nil || modbusDevice.SecretHash != "" {
+		t.Fatal("browser Modbus onboarding generated a secret", err)
 	}
 	_, propertyCount, err := repo.ListDeviceMessages(ctx, "tenant", "browser-device", model.PropertyReport, 20, 0)
 	expectedCount := 1

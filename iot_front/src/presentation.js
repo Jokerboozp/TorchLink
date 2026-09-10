@@ -1,10 +1,15 @@
-// 中文显示名称与协议原值分离，不能用于构造请求或改写原始报文。
+// 专业名称保留通用写法，状态和操作说明使用中文；显示名称不用于构造请求或改写原始报文。
 export const transportNames = {
-  MQTT:'消息订阅', HTTP:'接口上报', TCP:'网络长连接', UDP:'网络数据报', TCP_UDP:'长连接与数据报',
-  MODBUS_RTU_TCP:'Modbus RTU 串口透传 TCP', TCP_CHILD:'通过主设备接入', MODBUS_TCP:'工业总线网络采集', MODBUS_RTU:'工业总线串口采集', OPC_UA:'工业统一架构', SNMP:'网络管理协议', BACNET:'楼宇自动控制',
-  'iot-standard':'标准设备接入', STANDARD_HTTP:'标准接口上报', STANDARD_MQTT:'标准消息订阅', LISTENER:'网络监听', POLLER:'定时采集'
+  MQTT:'MQTT', HTTP:'HTTP', TCP:'TCP', UDP:'UDP', TCP_UDP:'TCP / UDP',
+  MODBUS_RTU_TCP:'Modbus RTU over TCP（串口透传）', TCP_CHILD:'通过主设备接入', MODBUS_TCP:'Modbus TCP', MODBUS_RTU:'Modbus RTU', OPC_UA:'OPC UA', SNMP:'SNMP', BACNET:'BACnet',
+  'iot-standard':'标准设备接入', STANDARD_HTTP:'标准 HTTP', STANDARD_MQTT:'标准 MQTT', LISTENER:'网络监听', POLLER:'定时采集'
 }
-export const formatNames = { JSON:'结构化文本', HEX:'十六进制', BINARY:'二进制', TEXT:'纯文本', BASE64:'编码文本' }
+export const formatNames = { JSON:'JSON', HEX:'HEX（十六进制）', BINARY:'Binary（二进制）', TEXT:'Text（纯文本）', BASE64:'Base64' }
+export const aiProviderOptions = [
+  { id:'ollama', label:'Ollama', description:'连接部署在服务器或本机的 Ollama 模型服务，不需要 API Key。' },
+  { id:'deepseek', label:'DeepSeek', description:'使用 DeepSeek 云端模型和 API Key。' },
+  { id:'openai-compatible', label:'OpenAI 兼容 API', description:'连接兼容 OpenAI Chat Completions API 的模型服务。' }
+]
 export const statusNames = {
   INDEXED:'已建立索引', INDEXING:'索引建立中', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
   ENABLED:'已启用', DISABLED:'已停用', ONLINE:'在线', OFFLINE:'离线', WAITING:'等待心跳', LISTENING:'监听中',
@@ -18,12 +23,12 @@ export function displayName(map, value, fallback = '未设置') {
   const text = String(value ?? '').trim()
   return map[text.toUpperCase()] || map[text] || map[text.toLowerCase()] || (/\p{Script=Han}/u.test(text) ? text : fallback)
 }
-export const transportLabel = value => displayName(transportNames, value, '其他接入方式')
-export const formatLabel = value => displayName(formatNames, value, '其他格式')
+export const transportLabel = value => displayName(transportNames, value, String(value ?? '').trim() || '未设置')
+export const formatLabel = value => displayName(formatNames, value, String(value ?? '').trim() || '未设置')
 export const statusLabel = value => displayName(statusNames, value, '未知状态')
 export function platformLabel(value) {
   const [os, arch] = String(value || '').split('-')
-  return `${({linux:'开源系统',windows:'微软系统',darwin:'苹果系统'})[os] || '其他系统'} · ${({amd64:'六十四位',arm64:'精简指令六十四位',arm:'精简指令三十二位','386':'三十二位'})[arch] || '其他架构'}`
+  return `${({linux:'Linux',windows:'Windows',darwin:'macOS'})[os] || os || '未设置系统'} · ${arch || '未设置架构'}`
 }
 export function errorMessage(error) {
   const raw = String(error?.message || error || '')
@@ -37,7 +42,7 @@ export function errorMessage(error) {
   return ({400:'提交内容不正确，请检查填写的参数',401:'身份验证失败，请检查账户信息或重新登录',403:'当前账户没有操作权限',404:'未找到请求的记录',409:'数据已变更，请刷新后重试',413:'文件过大，请缩小文件后重试',429:'请求过于频繁，请稍后重试'})[status] || (status >= 500 ? '服务暂时不可用，请稍后重试' : '操作未完成，请检查配置后重试')
 }
 
-const capabilityNames = { chat:'对话问答', 'alarm-analysis':'告警研判', 'rule-draft':'规则草稿', 'json-output':'结构化输出', 'local-model':'本地模型', fallback:'备用响应', 'tool-call':'工具调用', 'tool-calling':'工具调用', knowledge:'知识检索', 'knowledge-retrieval':'知识检索', 'device-query':'设备查询' }
+const capabilityNames = { chat:'对话问答', 'alarm-analysis':'告警研判', 'rule-draft':'规则草稿', 'json-output':'JSON 输出', 'local-model':'本地模型', fallback:'备用响应', 'tool-call':'工具调用', 'tool-calling':'工具调用', knowledge:'知识检索', 'knowledge-retrieval':'知识检索', 'device-query':'设备查询' }
 export const capabilityName = value => displayName(capabilityNames, value, '扩展能力')
 const toolNames = { query_system_overview:'查询系统概况', query_device_latest:'查询设备最新状态', query_alarm_list:'查询告警', query_property_history:'查询属性历史', query_similar_alarms:'查询相似告警', query_knowledge_base:'检索知识库', create_rule_draft:'生成规则草稿' }
 export const toolName = value => displayName(toolNames, String(value || '').replace(/^mcp__iot__/, ''), '业务查询工具')

@@ -423,3 +423,23 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - 前端 `npm --prefix iot_front test` 62/62、0 跳过（0.232 秒），`npm --prefix iot_front run build` 1.27 秒通过，仅既有大 chunk 提示。`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestDeviceConnectionBrowser$|^TestOnboardingBrowser$|^TestTCPParentChildSourceChain$' -count=1 -v` 通过（包 27.130 秒，详情 6.32 / 向导 4.53 / 主子链路 14.61 秒），确认移除按钮和请求，保留主子设备详情、真实源码/TCP、鉴权和凭据、窄屏与数据表格流程。
 - 最终根目录 `go test ./...` 退出码 0，部分包命中缓存，未配置的可选外部测试跳过；独立 GB26875 module `go test ./...` 通过并命中缓存，源码未修改。没有测试失败或实施阻塞。
 - 本轮移除尚未再次提交、推送或部署；现有 API 未重启，移除后的接口需部署新代码才生效。真实消防设备、Windows 实际运行和生产验收未执行。最终 `git diff --check` 通过，README、技术详情及 AGENTS.md 的本地文档链接均有效。
+
+### 按接入方式精简设备凭据（2026-09-10）
+
+- 用户确认 TCP/Modbus 不需要平台密钥，HTTP/MQTT 保留认证。开始时确认根目录 `/Users/peterson/Developer/iot-platform`、读取 AGENTS.md，工作区干净；沿用 main，没有切换分支。
+- 已完成：向导仅为 HTTP/MQTT 生成凭据；TCP、UDP、Modbus TCP、RTU over TCP 完成页展示连接参数，创建和幂等恢复不返回凭据字段，响应丢失后重试显示配置恢复，不再误报需要轮换密钥。人工登记、发现后注册同时按设备接入方式或产品传输方式判断，不为协议设备生成 Secret。
+- 已完成：设备管理和接入指南去掉常驻密钥列；协议设备没有轮换入口，配置接入/连接指南进入实际连接详情。修正接入指南自动监听所选设备导致数据联调误开连接详情的问题，保留 HTTP/MQTT 指南和凭据操作。
+- 服务端统一判断：显式 Connector 优先于产品传输方式；主设备关联的子设备不提供独立凭据；没有指定传输方式的人工库存保留现有受管 HTTP 入口。协议设备凭据变更返回 422，跨租户 404、viewer 403，拒绝时不修改记录或产生撤销任务。HTTP 上报和 MQTT 令牌换取复用实际认证检查，旧协议设备留存的密钥不能用于这些入口；保留 HTTP/MQTT 的密钥、令牌和租户边界。
+- 数据决定：复用既有确定性内部索引满足仓储唯一约束，新协议设备 Secret Hash 为空；不迁移表结构，不删除历史数据或改写已有凭据，不把内部索引展示为用户需要配置的密钥。协议注册、应答、主子设备关联及 Modbus 采集机制保持原有实现。当前说明同步至 `docs/UNIFIED_DEVICE_ONBOARDING.md`，原任务说明保持不变。
+- 实际后端检查：首轮专项通过；新增协议凭据 HTTP 回归覆盖 TCP、UDP、TCP_UDP、Modbus TCP、RTU over TCP 的人工/发现注册、列表/详情/指南、凭据操作拒绝、权限及旧密钥不能上报/换令牌。Modbus 实际本机 Socket 模拟器验证无密钥保存、重复请求恢复、持续采集、归档解析及连接故障；RTU over TCP 回归保留实际 CRC 报文验证。最终 `go test -race ./internal/model ./internal/onboarding -count=1` 通过（1.357 / 1.602 秒）。
+- 完整根 module `go test ./...` 退出码 0（HTTP 包 67.993 秒），部分包命中缓存，未配置的可选外部集成跳过。随后增加标准消息子设备限制与针对性回归，执行最终 `IOT_TEST_BROWSER=<实际 Chrome 路径> go test -race ./internal/httpapi -run '^TestOnboardingBrowser$|^TestProtocolDevicesHaveNoPlatformCredentials$|^TestStandardOnboardingHTTPChain$|^TestModbusOnboardingRuntimeChain$' -count=1 -v` 通过（包 9.291 秒），不是再次运行全量。
+- 实际浏览器：Chrome + Vue 构建产物 + 隔离鉴权 API。完整详情/向导/主子链路回归通过（包 26.449 秒；详情 4.15、向导 7.07、主子设备 13.41 秒）。主子链路实际编译协议源码、运行 TCP 模拟设备，错误协议注册被拒绝、主子注册及命令流程通过。最终向导增量 4.22 秒，额外覆盖保存成功但响应丢失后的重试恢复、不显示密钥/警告、无轮换菜单、Modbus 指南进入详情及数据联调不误开详情；原 HTTP 错误密钥拒绝、正确密钥上报与去重继续通过。
+- 前端 `npm --prefix iot_front test` 最终 62/62，通过、0 跳过（0.207 秒）；`npm --prefix iot_front run build` 通过，仅既有大 chunk 提示。`git diff --check` 通过。
+- 待完成/未执行：本轮没有提交、推送或部署，现有 API 未重启。真实 PostgreSQL、真实 MQTT Broker/EMQX 网络认证、物理消防设备、Windows 和生产环境验收未执行；独立 GB26875 module 未修改，本轮未重复运行其测试。没有本地代码或测试阻塞。
+
+### 专业名称显示精简（2026-09-10）
+
+- 保留上一轮凭据精简的全部未提交修改。本轮按用户要求只调整显示名称和项目协作规范：接入方式保留 MQTT、HTTP、TCP、UDP、Modbus TCP、Modbus RTU over TCP 等专业名称；模型来源使用 Ollama、DeepSeek、OpenAI 兼容 API，并统一模型管理与 AI 页的名称来源。
+- 同步 JSON、HEX、Base64、Go、JavaScript、GB26875、操作系统及 CPU 架构等显示；未知协议/格式保留原名称，不以“其他”掩盖。状态、按钮及业务说明继续使用中文，请求字段和协议代码值保持不变。AGENTS.md 已记录此命名规则。
+- 实测：`npm --prefix iot_front test` 62/62 通过、0 跳过（0.263 秒）；前端构建通过，仅既有大 chunk 提示。实际 Chrome + 隔离鉴权 API 执行 `go test ./internal/httpapi -run '^TestOnboardingBrowser$|^TestDeviceConnectionBrowser$' -count=1 -v`（设置 IOT_TEST_BROWSER）通过，包 6.672 秒：详情 2.64 秒、向导 3.17 秒；确认 Modbus/TCP/HTTP 选项可操作、前轮无凭据流程正常、模型来源下拉框明确显示三种专业名称。
+- 未执行：本轮没有后端业务改动，不重复运行 Go 全量、真实设备或 Broker 联调；模型页面只读取状态和展开下拉框，没有测试或应用模型配置。未提交、推送或部署，无实施阻塞。`git diff --check` 通过。

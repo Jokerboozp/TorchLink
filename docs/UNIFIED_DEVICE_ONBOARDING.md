@@ -2,13 +2,21 @@
 
 > 当前范围（2026-09-10）：保留中心 MQTT/HTTP、Modbus TCP、Go TCP/UDP 接入；边缘节点、RTU/OPC UA/SNMP/BACnet 现场入口及节点视频发现已移除。下文相关 P0/P1/P2 节点说明和接口表是历史阶段记录，不再代表当前可用接口。请以 [移除说明](EDGE_REMOVAL.md) 与当前源码为准。
 
+## 平台凭据按接入方式提供（2026-09-10）
+
+- TCP、UDP、Modbus TCP、Modbus RTU over TCP 及通过主设备接入的子设备，不生成平台设备密钥。添加设备完成页只展示设备标识、连接地址、站号等适用参数；设备列表不再常驻显示密钥列，协议设备不提供凭据轮换操作，连接指南进入实际连接详情。
+- HTTP、MQTT 设备继续使用平台凭据认证，保留首次显示、轮换、禁用和设备令牌授权。显式配置的设备接入方式优先于产品默认传输方式；没有指定传输方式的人工库存仍沿用受管 HTTP 上报入口。
+- TCP/UDP 的协议注册、设备身份识别、应答及主子设备关联保持原有流程。Modbus 使用目标地址、端口和站号，不把平台密钥加入协议报文。
+- 创建及幂等恢复协议设备时，响应省略 `credential`、`clientId`、`username` 和设备的 `accessKey`；列表和连接详情提供 `credentialSupported`。协议设备调用凭据轮换/禁用接口返回 422，租户与角色校验仍先执行。标准设备的 Secret 仍只在首次创建或轮换时返回。
+- 数据库继续使用唯一的内部设备索引，不改变表结构或重写历史记录。新协议设备没有 Secret Hash；旧协议设备即使留存曾生成的密钥，也不能据此通过 HTTP/MQTT 设备认证。移除的是无用的平台凭据流程，不绕过协议自身的认证。
+
 ## 当前接入契约补齐（2026-09-09，本次工作区）
 
 本次核实、改动与实测见 [实施进度](DEVICE_ACCESS_REFACTOR_PROGRESS.md)。下方既有分日期记录属于历史验收；以本节、当前源码及本次进度表为准。
 
-- 添加设备 → 选择/新建产品 → 选择通信方式 → 配置 → 测试与预览 → 完成并启用。完成页分别展示“配置已保存、运行时状态、原文接收、解析成功”；保存不能证明设备在线。被动设备获得凭据后再发送首条数据；页面每 2 秒查询，最多等待 2 分钟，可刷新继续。保存 Secret 后点击“进入设备详情”。
+- 添加设备 → 选择/新建产品 → 选择通信方式 → 配置 → 测试与预览 → 完成并启用。完成页分别展示“配置已保存、运行时状态、原文接收、解析成功”；保存不能证明设备在线。HTTP/MQTT 设备获得凭据后再发送首条数据；TCP/UDP 按协议连接并上报；页面每 2 秒查询，最多等待 2 分钟，可刷新继续。HTTP/MQTT 保存 Secret 后点击“进入设备详情”，其他接入方式直接进入详情。
 - `GET /api/v1/connectors/types` 返回通信能力。HTTP 只上报；MQTT 命令还需 publisher；TCP/UDP 命令还需已发布协议 encode 和有效会话。EDGE 明确 unsupported，视频仍走摄像头元数据流程。
-- `POST /api/v1/onboarding` 使用租户 + Device ID 作为幂等键，并存储请求摘要。首次成功 201，相同请求重试 200 / `reused:true`；配置不同 409。恢复不重复生成产品、设备、凭据或 Listener，且不再次返回 Secret。上次响应丢失时在设备详情轮换凭据。该行为适用于本次改造后保存的向导记录；历史设备没有摘要，仍返回冲突。
+- `POST /api/v1/onboarding` 使用租户 + Device ID 作为幂等键，并存储请求摘要。首次成功 201，相同请求重试 200 / `reused:true`；配置不同 409。恢复不重复生成产品、设备、凭据或 Listener，且不再次返回 Secret。HTTP/MQTT 上次响应丢失时在设备详情轮换凭据，协议设备重试直接恢复接入配置。该行为适用于本次改造后保存的向导记录；历史设备没有摘要，仍返回冲突。
 - `GET /api/v1/device-registry/{id}/connection` 新增 `accessInfo`、`ingest`，包含原文 ID、平台接收时间、解析尝试时间、解析错误及实际 StandardMessage。原文详情也返回 `parseError`。解析失败不构造业务数据。
 - `IOT_DEVICE_HTTP_PUBLIC_URL` 为设备可达的 HTTP/HTTPS 根地址，留空时返回相对 API 路径；`IOT_DEVICE_MQTT_PUBLIC_URL` 为设备可达的 MQTT/TLS Broker，留空明确显示未配置。绝不从容器内部 Broker 地址推断对外地址，不显示带用户密码/查询参数的配置 URL。WebSocket 沿用 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。
 - 标准 v1 envelope 为 `version:"1.0"`、唯一 `id`、正数毫秒 `timestamp`。property 的 `data` 必须为非空对象；event 支持顶层 `event`；state 支持顶层 `online`；command-reply 支持顶层 `commandId`、`success`。不带 version 的旧 `data.connectionStatus` / `data.commandId` / `data.success` 格式继续支持。Topic/API 仍使用 `command-reply`（连字符）。event 名称不会自动转为设备来源告警。

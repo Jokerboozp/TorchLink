@@ -55,7 +55,20 @@ func ValidateThingModel(m *model.ThingModel) error {
 	return nil
 }
 
+var ErrCredentialUnsupported = errors.New("该设备通过协议连接或主设备接入，无需平台凭据")
+
 func (s *Service) ChangeCredential(ctx context.Context, t, id string, rotate bool) (model.DeviceCredential, model.CredentialRevocation, error) {
+	d, err := s.Repo.GetManagedDevice(ctx, t, id)
+	if err != nil {
+		return model.DeviceCredential{}, model.CredentialRevocation{}, err
+	}
+	p, err := s.Repo.GetProduct(ctx, t, d.ProductID)
+	if err != nil {
+		return model.DeviceCredential{}, model.CredentialRevocation{}, err
+	}
+	if !d.UsesPlatformCredentials(p) {
+		return model.DeviceCredential{}, model.CredentialRevocation{}, ErrCredentialUnsupported
+	}
 	c := model.DeviceCredential{}
 	hash := ""
 	if rotate {

@@ -1,4 +1,5 @@
 <script setup>
+import { aiProviderOptions as providerOptions } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { api, session } from '../api'
@@ -14,16 +15,12 @@ const providerError = ref('')
 const testResult = ref(null)
 const testedFingerprint = ref('')
 const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'' })
-const providerOptions = [
-  { id:'ollama', label:'本地部署模型', description:'使用服务器或本机部署的本地模型服务，不需要接口密钥。' },
-  { id:'deepseek', label:'深度求索云端模型', description:'使用深度求索云端模型和接口密钥。' },
-  { id:'openai-compatible', label:'兼容接口模型', description:'连接其他兼容聊天补全接口的模型服务。' }
-]
+
 const capabilityLabels = {
   chat:'对话',
   'alarm-analysis':'告警研判',
   'rule-draft':'规则草稿',
-  'json-output':'结构化输出',
+  'json-output':'JSON 输出',
   'local-model':'本地模型',
   fallback:'降级响应'
 }

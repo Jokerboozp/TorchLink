@@ -419,7 +419,7 @@ type ManagedDevice struct {
 	GatewayID          string            `json:"gatewayId,omitempty"`
 	RegistrationSource string            `json:"registrationSource,omitempty"`
 	AutoRegistered     bool              `json:"autoRegistered,omitempty"`
-	AccessKey          string            `json:"accessKey"`
+	AccessKey          string            `json:"accessKey,omitempty"`
 	SecretHash         string            `json:"-"`
 	SecretHint         string            `json:"secretHint,omitempty"`
 	Description        string            `json:"description,omitempty"`

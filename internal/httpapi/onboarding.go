@@ -92,7 +92,11 @@ func (s *Server) disableDeviceCredential(w http.ResponseWriter, r *http.Request)
 	}
 	_, v, e := s.onboarding.ChangeCredential(r.Context(), claims(r).TenantID, r.PathValue("id"), false)
 	if e != nil {
-		problem(w, 500, e.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(e, onboarding.ErrCredentialUnsupported) {
+			status = http.StatusUnprocessableEntity
+		}
+		problem(w, status, e.Error())
 		return
 	}
 	s.audit(r, "device.credential.disable", "device", r.PathValue("id"), nil)
@@ -115,7 +119,7 @@ func publicEndpoint(value string) string {
 	return ""
 }
 func (s *Server) deviceAccessInfo(d model.ManagedDevice) map[string]any {
-	if d.Tags["connector"] != "HTTP" && d.Tags["connector"] != "MQTT" {
+	if !d.UsesPlatformCredentials(model.Product{}) || (d.Tags["connector"] != "HTTP" && d.Tags["connector"] != "MQTT") {
 		return nil
 	}
 	identity := d.TenantID + "/" + d.ProductID + "/" + d.ID

@@ -80,7 +80,7 @@ async function rotate() {
 }
 async function disable() {
   await action(async () => {
-    await ElMessageBox.confirm('禁用后设备不能使用此凭据上报或换取消息订阅令牌。','禁用设备凭据')
+    await ElMessageBox.confirm('禁用后设备不能使用此凭据上报或换取MQTT 令牌。','禁用设备凭据')
     await api(`${base()}/credentials`,{method:'DELETE'})
     credential.value = null; ElMessage.success('凭据已禁用'); await load()
   })

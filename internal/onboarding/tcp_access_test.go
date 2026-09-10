@@ -54,6 +54,10 @@ func TestRTUOverTCPOnboardingUsesOriginalFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stored, err := repo.GetManagedDevice(context.Background(), "tenant", q.DeviceID)
+	if err != nil || stored.SecretHash != "" || result.Credential.Secret != "" || result.Device.AccessKey != "" || result.Username != "" || result.ClientID != "" {
+		t.Fatal("RTU over TCP should not generate platform credentials", err)
+	}
 	if result.Connector.Profile.WireFormat != "rtu_over_tcp" {
 		t.Fatal(result)
 	}

@@ -51,9 +51,9 @@ type Result struct {
 	AccessInfo map[string]any         `json:"accessInfo,omitempty"`
 	Reused     bool                   `json:"reused"`
 	Device     model.ManagedDevice    `json:"device"`
-	Credential model.DeviceCredential `json:"credential"`
-	ClientID   string                 `json:"clientId"`
-	Username   string                 `json:"username"`
+	Credential model.DeviceCredential `json:"credential,omitzero"`
+	ClientID   string                 `json:"clientId,omitempty"`
+	Username   string                 `json:"username,omitempty"`
 	Connector  connector.Instance     `json:"connector"`
 }
 type bucket struct {
@@ -109,6 +109,10 @@ func Credential() (model.DeviceCredential, error) {
 func (s *Service) Authenticate(ctx context.Context, key, secret string) (model.ManagedDevice, error) {
 	d, err := s.Repo.GetManagedDeviceByAccessKey(ctx, key)
 	if err != nil || secret == "" || d.Status != "ENABLED" || !hmac.Equal([]byte(d.SecretHash), []byte(Hash(secret))) {
+		return model.ManagedDevice{}, ErrAuth
+	}
+	p, err := s.Repo.GetProduct(ctx, d.TenantID, d.ProductID)
+	if err != nil || !d.UsesPlatformCredentials(p) {
 		return model.ManagedDevice{}, ErrAuth
 	}
 	return d, nil
@@ -173,7 +177,7 @@ func (s *Service) PrepareStandard(ctx context.Context, tenant, product, device, 
 	if err != nil && !errors.Is(err, model.ErrNotFound) {
 		return model.RawMessage{}, err
 	}
-	if err != nil || p.Status != "ENABLED" {
+	if err != nil || p.Status != "ENABLED" || !d.UsesPlatformCredentials(p) {
 		return model.RawMessage{}, ErrAuth
 	}
 	if !s.Allow(tenant + "\x00" + device) {
@@ -358,7 +362,11 @@ func (s *Service) Create(ctx context.Context, tenant string, q Request) (Result,
 			}
 			instance.Profile = &p
 		}
-		return Result{Reused: true, Device: d, ClientID: "device-" + d.AccessKey, Username: d.AccessKey, Connector: instance}, nil
+		result := Result{Reused: true, Device: d.Public(model.Product{}), Connector: instance}
+		if d.UsesPlatformCredentials(model.Product{}) {
+			result.ClientID, result.Username = "device-"+d.AccessKey, d.AccessKey
+		}
+		return result, nil
 	}
 	if _, err := s.Repo.GetManagedDevice(ctx, tenant, q.DeviceID); err == nil {
 		return recover()
@@ -375,12 +383,17 @@ func (s *Service) Create(ctx context.Context, tenant string, q Request) (Result,
 	if e != nil || expiry < time.Now().Unix() || !hmac.Equal([]byte(parts[1]), []byte(s.proof(tenant, q, rel, b.Profile, parts[0]))) {
 		return Result{}, errors.New("接入配置已变化或测试过期，请重新测试")
 	}
-	credential, err := Credential()
-	if err != nil {
-		return Result{}, err
+	credential := model.DeviceCredential{}
+	if b.Device.UsesPlatformCredentials(model.Product{}) {
+		credential, err = Credential()
+		if err != nil {
+			return Result{}, err
+		}
+		b.Device.AccessKey = credential.AccessKey
+		b.Device.SecretHash = Hash(credential.Secret)
+	} else {
+		b.Device.AccessKey = model.ProtocolDeviceAccessKey(tenant, q.DeviceID)
 	}
-	b.Device.AccessKey = credential.AccessKey
-	b.Device.SecretHash = Hash(credential.Secret)
 	b.Device.Tags["onboardingRequestHash"] = digest
 	if err = s.Repo.SaveOnboarding(ctx, b); err != nil {
 		// A competing request may have committed while this request was planning.
@@ -389,7 +402,11 @@ func (s *Service) Create(ctx context.Context, tenant string, q Request) (Result,
 		}
 		return Result{}, err
 	}
-	return Result{Device: b.Device, Credential: credential, ClientID: "device-" + credential.AccessKey, Username: credential.AccessKey, Connector: connector.Instance{Type: q.Type, DeviceID: q.DeviceID, Profile: b.Profile}}, nil
+	result := Result{Device: b.Device.Public(model.Product{}), Credential: credential, Connector: connector.Instance{Type: q.Type, DeviceID: q.DeviceID, Profile: b.Profile}}
+	if credential.AccessKey != "" {
+		result.ClientID, result.Username = "device-"+credential.AccessKey, credential.AccessKey
+	}
+	return result, nil
 }
 func (s *Service) Test(ctx context.Context, tenant string, q Request) (result *connector.Result, resultErr error) {
 	started := time.Now()

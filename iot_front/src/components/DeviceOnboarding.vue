@@ -98,7 +98,27 @@ async function copy(){await navigator.clipboard.writeText(pretty(result.value));
       <div v-if="step===3"><p>{{activeRead?'平台将连接设备，执行一次点表读取。':listener?(form.profile.connectionMode==='dial'?'连接目标端口并检查样例解析；协议握手与定时查询在启用后验证。':'检查本机监听端口和样例完整帧，设备实际连通情况请在启用后确认。'):'校验标准上报格式并预览解析结果；设备凭据在完成时生成。'}}</p><el-button type="primary" :loading="busy" @click="test">运行接入测试</el-button><el-alert v-if="preview" :type="preview.success?'success':'error'" :closable="false" :title="preview.message" :description="`${preview.stage} · ${preview.errorCode} · ${preview.latencyMs||0} 毫秒`" /><pre v-if="preview&&!preview.success&&(preview.rawRequest||preview.rawResponse)">{{pretty({requestHex:preview.rawRequest,responseHex:preview.rawResponse,exceptionCode:preview.exceptionCode})}}</pre></div>
       <div v-if="step===4&&preview"><el-alert :closable="false" type="info" :title="preview.message"/><el-descriptions :column="2" border><el-descriptions-item label="协议标识">{{preview.protocolId}}</el-descriptions-item><el-descriptions-item label="协议版本">{{preview.protocolVersion}}</el-descriptions-item><el-descriptions-item label="数据来源">{{preview.source==='network-read'?'目标设备/模拟器读取':'样例预览'}}</el-descriptions-item><el-descriptions-item label="解析器">{{preview.parser}}</el-descriptions-item></el-descriptions><h4>原始报文</h4><pre>{{pretty(preview.raw)}}</pre><template v-if="preview.rawRequest"><h4>请求报文 / 响应报文</h4><pre>{{preview.rawRequest}}
 {{preview.rawResponse}}</pre></template><h4>解析结果</h4><pre>{{pretty(preview.parsed)}}</pre><h4>标准消息</h4><pre>{{pretty(preview.standardMessages)}}</pre><h4>属性 / 事件 / 告警映射</h4><pre>{{pretty(preview.mapping)}}</pre><template v-if="preview.pointTable"><h4>点表</h4><pre>{{pretty(preview.pointTable)}}</pre></template></div>
-      <div v-if="step===5&&result"><el-alert type="success" title="接入配置已保存，设备已启用" :closable="false"/><p v-if="result.credential?.secret">请立即保存设备密钥；关闭后无法再次查询，可在设备详情重新生成或禁用。</p><el-alert v-else type="warning" :closable="false" title="已恢复上次保存结果，未重复生成凭据" description="原密钥仅首次返回。如上次响应丢失，请进入设备详情重新生成凭据。"/><el-descriptions :column="1" border><el-descriptions-item label="设备标识">{{result.device.id}}</el-descriptions-item><el-descriptions-item label="客户端标识">{{result.clientId}}</el-descriptions-item><el-descriptions-item label="认证用户名 / 接入密钥">{{result.username}}</el-descriptions-item><el-descriptions-item label="设备密钥">{{result.credential?.secret||'本次不返回；需要时在详情轮换'}}</el-descriptions-item></el-descriptions><el-button @click="copy">复制接入结果</el-button><template v-if="standard"><p>接口：POST {{ingestURL}}，使用 X-Device-Key / X-Device-Secret 请求头，上报正文与测试结构化数据相同。event / state 替换末尾 property。</p><p>消息订阅消息服务：{{result.accessInfo?.mqttBroker||'未配置对外地址，请联系管理员'}}。先 POST /api/v1/device-mqtt/token，使用同一设备请求头换取 token，将 token 作为消息订阅 password。使用返回的 username 和本页客户端标识。</p><pre>/iot/up/{{identity}}/property
+      <div v-if="step===5&&result">
+        <el-alert type="success" title="接入配置已保存，设备已启用" :closable="false"/>
+        <template v-if="standard">
+          <p v-if="result.credential?.secret">请立即保存设备密钥；关闭后无法再次查询，可在设备详情重新生成或禁用。</p>
+          <el-alert v-else type="warning" :closable="false" title="已恢复上次保存结果，未重复生成凭据" description="原密钥仅首次返回。如上次响应丢失，请进入设备详情重新生成凭据。"/>
+        </template>
+        <p v-else-if="result.reused">已恢复上次保存的接入配置。</p>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="设备标识">{{result.device.id}}</el-descriptions-item>
+          <template v-if="standard">
+            <el-descriptions-item label="客户端标识">{{result.clientId}}</el-descriptions-item>
+            <el-descriptions-item label="认证用户名 / 接入密钥">{{result.username}}</el-descriptions-item>
+            <el-descriptions-item label="设备密钥">{{result.credential?.secret||'本次不返回；需要时在详情轮换'}}</el-descriptions-item>
+          </template>
+          <template v-else>
+            <el-descriptions-item label="接入方式">{{transportLabel(result.connector.type)}}</el-descriptions-item>
+            <el-descriptions-item v-if="result.connector.profile" :label="listener&&result.connector.profile.connectionMode!=='dial'?'平台监听地址':'设备地址'">{{result.connector.profile.host}}:{{result.connector.profile.port}}</el-descriptions-item>
+            <el-descriptions-item v-if="modbus" label="站号">{{result.connector.profile?.unitId}}</el-descriptions-item>
+          </template>
+        </el-descriptions>
+        <el-button @click="copy">复制接入结果</el-button><template v-if="standard"><p>HTTP：POST {{ingestURL}}，使用 X-Device-Key / X-Device-Secret 请求头，上报正文与测试结构化数据相同。event / state 替换末尾 property。</p><p>MQTT Broker：{{result.accessInfo?.mqttBroker||'未配置对外地址，请联系管理员'}}。先 POST /api/v1/device-mqtt/token，使用同一设备请求头换取 token，将 token 作为 MQTT password。使用返回的 username 和本页客户端标识。</p><pre>/iot/up/{{identity}}/property
 /iot/up/{{identity}}/event
 /iot/up/{{identity}}/state
 /iot/up/{{identity}}/command-reply

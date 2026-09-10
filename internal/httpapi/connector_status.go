@@ -232,7 +232,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	write(w, 200, map[string]any{"parent": parent, "accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+	write(w, 200, map[string]any{"parent": parent, "accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""})
 }
 
 func profileTransport(p model.DeviceAccessProfile) string {

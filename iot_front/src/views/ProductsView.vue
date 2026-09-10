@@ -159,7 +159,7 @@ onMounted(load)
         <el-form-item label="设备分类"><el-select v-model="form.category"><el-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></el-select></el-form-item>
         <el-form-item label="协议包"><el-select v-model="form.protocolPackageId" filterable clearable><el-option v-for="item in protocols" :key="item.id" :label="`${item.name} · ${item.id}`" :value="item.id" /></el-select></el-form-item>
         <el-form-item label="传输协议"><el-select v-model="form.transport"><el-option v-for="x in ['MQTT','HTTP','TCP','MODBUS_TCP']" :key="x" :label="transportLabel(x)" :value="x" /></el-select></el-form-item>
-        <el-form-item label="数据格式"><el-select v-model="form.payloadFormat"><el-option label="结构化文本" value="json" /><el-option label="十六进制" value="hex" /><el-option label="二进制" value="binary" /></el-select></el-form-item>
+        <el-form-item label="数据格式"><el-select v-model="form.payloadFormat"><el-option label="JSON" value="json" /><el-option label="HEX（十六进制）" value="hex" /><el-option label="Binary（二进制）" value="binary" /></el-select></el-form-item>
       </div>
       <el-form-item label="产品状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /><el-option label="草稿" value="DRAFT" /></el-select></el-form-item>
       <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>

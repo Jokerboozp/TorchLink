@@ -461,7 +461,8 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, v := range items {
-		row := map[string]any{"device": v, "childCount": childCounts[v.ID]}
+		product, _ := s.engine.Repo.GetProduct(r.Context(), tenantID, v.ProductID)
+		row := map[string]any{"device": v.Public(product), "childCount": childCounts[v.ID], "credentialSupported": v.UsesPlatformCredentials(product)}
 		if state, stateErr := s.engine.Repo.GetDeviceState(r.Context(), tenantID, v.ID); stateErr == nil {
 			row["runtimeState"] = state
 		}
@@ -493,6 +494,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UnixMilli()
 	credential := model.DeviceCredential{}
+	created := false
 	if old, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.ID); err == nil {
 		if old.RegistrationSource == "PROTOCOL_CHILD_AUTO" {
 			if v.ProductID != old.ProductID || v.GatewayID != old.GatewayID || v.DeviceRole != "CHILD" {
@@ -517,10 +519,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 			v.AutoRegistered = true
 		}
 	} else {
-		credential = newDeviceCredential()
-		v.AccessKey = credential.AccessKey
-		v.SecretHash = secretHash(credential.Secret)
-		v.SecretHint = credential.Secret[len(credential.Secret)-6:]
+		created = true
 		v.CreatedAt = now
 	}
 	if v.Status == "" {
@@ -558,13 +557,23 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	} else {
 		v.GatewayID = ""
 	}
+	if created {
+		v.AccessKey = model.ProtocolDeviceAccessKey(v.TenantID, v.ID)
+		v.SecretHash, v.SecretHint = "", ""
+		if v.UsesPlatformCredentials(product) {
+			credential = newDeviceCredential()
+			v.AccessKey = credential.AccessKey
+			v.SecretHash = secretHash(credential.Secret)
+			v.SecretHint = credential.Secret[len(credential.Secret)-6:]
+		}
+	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
 	s.audit(r, "device.save", "device", v.ID, map[string]any{"productId": v.ProductID, "status": v.Status})
-	result := map[string]any{"device": v}
+	result := map[string]any{"device": v.Public(product)}
 	if credential.Secret != "" {
 		result["credential"] = credential
 	}
@@ -587,19 +596,29 @@ func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request
 		problem(w, 422, "register its product before registering this device")
 		return
 	}
-	credential := newDeviceCredential()
+	credential := model.DeviceCredential{}
 	now := time.Now().UnixMilli()
 	role := "DIRECT"
 	if product.Category == "gateway" {
 		role = "GATEWAY"
 	}
-	device := model.ManagedDevice{ID: id, TenantID: c.TenantID, ProductID: state.ProductID, Name: "发现设备 " + id, Status: "ENABLED", DeviceRole: role, RegistrationSource: "DISCOVERY", AccessKey: credential.AccessKey, SecretHash: secretHash(credential.Secret), SecretHint: credential.Secret[len(credential.Secret)-6:], CreatedAt: now, UpdatedAt: now}
+	device := model.ManagedDevice{ID: id, TenantID: c.TenantID, ProductID: state.ProductID, Name: "发现设备 " + id, Status: "ENABLED", DeviceRole: role, RegistrationSource: "DISCOVERY", AccessKey: model.ProtocolDeviceAccessKey(c.TenantID, id), CreatedAt: now, UpdatedAt: now}
+	if device.UsesPlatformCredentials(product) {
+		credential = newDeviceCredential()
+		device.AccessKey = credential.AccessKey
+		device.SecretHash = secretHash(credential.Secret)
+		device.SecretHint = credential.Secret[len(credential.Secret)-6:]
+	}
 	if err = s.engine.Repo.SaveManagedDevice(r.Context(), device); err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
 	s.audit(r, "device.discovery.register", "device", id, map[string]any{"productId": state.ProductID})
-	write(w, 201, map[string]any{"device": device, "credential": credential})
+	result := map[string]any{"device": device.Public(product)}
+	if credential.Secret != "" {
+		result["credential"] = credential
+	}
+	write(w, 201, result)
 }
 func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) {
 	if !s.operationDevice(w, r) {
@@ -607,7 +626,11 @@ func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) 
 	}
 	c, v, e := s.onboarding.ChangeCredential(r.Context(), claims(r).TenantID, r.PathValue("id"), true)
 	if e != nil {
-		problem(w, 500, e.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(e, onboarding.ErrCredentialUnsupported) {
+			status = http.StatusUnprocessableEntity
+		}
+		problem(w, status, e.Error())
 		return
 	}
 	s.audit(r, "device.credential.rotate", "device", r.PathValue("id"), nil)
@@ -623,6 +646,14 @@ func (s *Server) deviceConnectionGuide(w http.ResponseWriter, r *http.Request) {
 	p, err := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ProductID)
 	if err != nil {
 		problem(w, 404, "product not found")
+		return
+	}
+	if !v.UsesPlatformCredentials(p) {
+		transport := v.Tags["connector"]
+		if transport == "" {
+			transport = p.Transport
+		}
+		write(w, 200, map[string]any{"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "gatewayId": v.GatewayID, "connector": transport, "credentialSupported": false, "connectionUrl": "/api/v1/device-registry/" + url.PathEscape(v.ID) + "/connection"})
 		return
 	}
 	if info := s.deviceAccessInfo(v); info != nil {
@@ -666,8 +697,8 @@ func (s *Server) debugDeviceIngest(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) deviceIngest(w http.ResponseWriter, r *http.Request) {
 	accessKey, secret := r.Header.Get("X-Device-Key"), r.Header.Get("X-Device-Secret")
-	v, err := s.engine.Repo.GetManagedDeviceByAccessKey(r.Context(), accessKey)
-	if err != nil || v.ID != r.PathValue("deviceId") || v.Status != "ENABLED" || !hmac.Equal([]byte(v.SecretHash), []byte(secretHash(secret))) {
+	v, err := s.onboarding.Authenticate(r.Context(), accessKey, secret)
+	if err != nil || v.ID != r.PathValue("deviceId") {
 		problem(w, 401, "invalid or disabled device credential")
 		return
 	}
@@ -2290,8 +2321,8 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 	accessKey, secret := r.Header.Get("X-Device-Key"), r.Header.Get("X-Device-Secret")
-	v, err := s.engine.Repo.GetManagedDeviceByAccessKey(r.Context(), accessKey)
-	if err != nil || v.Status != "ENABLED" || !hmac.Equal([]byte(v.SecretHash), []byte(secretHash(secret))) {
+	v, err := s.onboarding.Authenticate(r.Context(), accessKey, secret)
+	if err != nil {
 		problem(w, 401, "invalid device credentials")
 		return
 	}
