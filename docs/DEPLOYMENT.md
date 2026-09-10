@@ -47,45 +47,21 @@ IOT_AI_HARNESS_MODEL=qwen3:1.7b
 
 ### 本地 Ollama 对话模型
 
-在线脚本默认下载对话模型；离线打包脚本默认把模型数据写入离线包。本地源码调试若要从 DeepSeek 切换到本地 Ollama，仍可使用 `-IncludeAi` / `--include-ai`：
+本地源码运行使用 `setup-local.sh --include-ai` 或 `setup-local.ps1 -IncludeAi` 准备 Ollama；完整命令见 [首次准备](TECHNICAL_DETAILS.md#首次准备)。`--include-deepseek` 与 `--include-ai` 只能二选一。在线脚本的 `IncludeAi` 参数用于把已有配置切回本地模型，新配置默认启用。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1 -IncludeAi
-```
-
-```bash
-bash ./scripts/setup-local.sh --include-ai
-```
-
-默认对话模型为 `qwen3:1.7b`。更换模型前，使用目标环境测试结构化输出、工具调用、响应时间与内存占用；模型存在或健康检查通过不代表业务效果合格。
-
-知识库嵌入模型 `nomic-embed-text` 始终准备。Ollama Provider 与 Harness 是两条调用链，但默认连接同一个 Ollama 服务和模型。
-
-本地开发的 `--include-deepseek` 与 `--include-ai` 只能二选一。在线脚本上的 `IncludeAi` 参数仅用于把旧配置强制切回本地 Ollama，新配置无须传该参数。
+知识库使用 `nomic-embed-text`，与对话模型分开。更换对话模型时测试结构化输出、工具调用、响应时间和内存占用；更换嵌入模型需考虑向量维度与重新索引。
 
 ### 在界面切换 AI 模型服务
 
-管理员打开独立的“AI 模型管理”菜单后，可以选择“本地模型（Ollama）”“DeepSeek 云端模型”或“兼容接口模型”，填写服务地址和模型名称。先点击“测试配置”，平台会向候选模型发送一条测试请求并显示响应和耗时；测试只验证配置，不会改变当前生效模型。确认结果后，再点击“应用配置”，平台会健康检查并同时更新告警研判、AI 对话、规则草稿、报告和 Harness 工作流；正在运行的工作流结束后即可使用新配置，无需重启 API。修改地址、模型或接口密钥后需要重新测试。Ollama 地址填写模型服务的根地址（例如 `http://ollama-host:11434`），若误填 `/v1` 平台会自动归一化；兼容接口模型填写兼容 Chat Completions 的根地址。AI 模型管理页面还会列出所有共用当前模型服务的 AI 业务入口。
+管理员打开“AI 模型管理”，选择 Ollama、DeepSeek 或兼容接口，填写地址与模型。先“测试配置”，成功后“应用配置”；地址、模型或密钥改变后重新测试。Ollama 使用服务根地址，例如 `http://ollama-host:11434`；兼容接口须支持 Chat Completions。
 
-接口密钥只在测试、应用和服务端调用时使用，页面只显示是否已配置及脱敏提示。应用后配置会写入 PostgreSQL 的活动模型服务记录，重启服务仍会沿用；没有 PostgreSQL 时仅保留在当前进程。切回同一个云端模型服务时，接口密钥输入框留空即可沿用已保存密钥。
-
-告警详情中的“立即研判”返回后台任务并显示进度。进度包含准备上下文、调用模型和完成状态，并根据最近一次研判耗时估算剩余时间；浏览器关闭详情不会取消后台任务，重新打开同一告警会自动恢复当前任务进度或显示已保存的结果。
-
-“智能巡检”的“立即巡检”也会立即返回后台任务，页面显示准备快照、生成 AI 建议等阶段和预计剩余时间。切换到其他菜单后，重新打开“智能巡检”会按当前租户自动恢复任务；任务完成后报告会保存到浏览器会话和服务端巡检缓存，仍可下载 PDF。
+应用会同步 Provider 与 Harness，无需重启 API；正在运行的工作流结束后使用新配置。PostgreSQL 保存活动配置，内存模式仅当前进程有效。页面不返回明文接口密钥，同一服务留空可复用已存密钥。业务工作流和后台任务见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
 
 ### AI 工作流 Harness
 
-在线和本地默认获取锁定的 Harness 源码并构建侧车，需要 Git 和网络。以下参数可用于把旧配置显式切回启用状态：
+本地和在线脚本获取锁定的上游源码并构建侧车，需要 Git 和网络；离线包携带已构建镜像。已有配置需重新启用时，可向部署脚本传 `--include-harness` / `-IncludeHarness`。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -IncludeHarness
-```
-
-```bash
-bash ./scripts/deploy-online.sh --include-harness
-```
-
-内部 Token、侧车 URL、Ollama 地址和 MCP 回调地址由脚本准备。Harness 健康表示运行时已就绪；部署脚本还会确认本地模型存在。完全断网时，模型调用只发生在 Compose 内部网络。更多说明见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
+脚本准备内部令牌、侧车 URL 和 MCP 回调。Harness 健康只证明运行时就绪，模型实际调用与 MCP 回调需分别确认；源码版本与内部接口见 [侧车开发说明](../deploy/deepseek-harness/README.md)。
 
 ## 端口与地址
 
@@ -118,22 +94,13 @@ go mod download
 (cd iot_front && npm ci)
 ```
 
-Linux 初次运行会按架构安装缺失的 Docker、Compose、Buildx 和 Git；后续复用已有安装、随机凭据及数据卷。Ubuntu 首次启动可能等待系统网络就绪约两分钟；镜像、Harness 依赖和模型下载时间取决于网络。`--skip-code-deps` 使虚拟机无需安装 Go/Node；`--include-ai` 下载并配置 `qwen3:1.7b`，让 API 和 Harness 无需 DeepSeek Key 即可启动。如果使用已有 DeepSeek Key，可省略 `--include-ai` 并在配置中填写密钥；默认 DeepSeek 模式缺少 Key 时 API 会拒绝启动。OrbStack 共享目录中的 `.env.local` 可由 Mac 直接使用，无需再复制；不要同时在两台虚拟机使用同一配置文件初始化不同的依赖环境，验证用第二台机器应指定独立 `--env-file`。
+`--skip-code-deps` 使虚拟机无需安装 Go/Node，`--include-ai` 配置本地对话模型。Mac 可直接使用共享目录中的 `.env.local`；第二套依赖环境应指定独立 `--env-file`，并避免同时占用相同转发端口。
 
 Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命令不依赖虚拟机 IP 或 VPN 对内网 IP 的路由。确保 Mac 和其他虚拟机没有占用相同端口；同时测试两套依赖时先停掉其中一套，避免连接到错误的环境。`host.orb.internal` 是 OrbStack 提供的 Mac 回调地址；`host.docker.internal` 在虚拟机内安装的 Docker 中指向虚拟机，不能用于此处的 Mac API 回调。地址机制参见 [OrbStack 网络文档](https://docs.orbstack.dev/machines/network)。
 
 需要其他源码机直接访问虚拟机时，可把 `--dependency-host` 换成 `orb -m develop hostname -I` 返回的 IPv4 或 `<机器名>.orb.local`，并确保 VPN/路由允许直连。该模式会开放依赖端口；虚拟机 IP 改变后重跑完整命令更新地址，凭据和数据保留。
 
-随后在 Mac 的三个终端分别运行[技术详情](TECHNICAL_DETAILS.md#日常运行代码)中的 Go API、Vite、备份服务命令。若 Homebrew 安装了 `node@22`，当前终端先执行 `export PATH="$(brew --prefix node@22)/bin:$PATH"`，IDE 也选择该 Node 解释器；系统中旧的 Node 18 不能运行当前前端。
-
-可在 Mac 验证真实依赖读写和嵌入推理：
-
-```bash
-go run scripts/tests/local-runtime-smoke.go --env-file .env.local
-curl --fail http://localhost:8081/health/ready
-```
-
-实机检查会创建独立临时表、Redis 键、MinIO 桶和 Kafka 主题并清理；不要在生产环境执行。API 就绪检查还覆盖 MQTT 连接和知识库。Harness 健康与 DeepSeek API 可用性分别验证；没有配置 API Key 时不能据此宣称 AI 对话或自动研判可用。
+随后在 Mac 启动 API、Vite 和备份服务，命令及依赖检查入口见 [技术详情](TECHNICAL_DETAILS.md#日常运行代码)。IDE 与终端均须选择符合 `iot_front/package.json` 的 Node.js。
 
 查看、停止依赖仍在 Mac 仓库根目录执行，停止不会删除卷：
 
@@ -172,7 +139,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用 Harness 时，在子命令 `ps` / `logs` / `down` 前加 `--profile harness`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
 
-`down` 保留命名数据卷；`down -v` 会删除它们。日常代码更新重跑对应部署脚本即可。备份页面调用独立 `backup-service`，默认每天上海时间 `00:05` 汇总前一天设备原始报文与解析数据，可由 `IOT_BACKUP_TIME`、`IOT_BACKUP_TIMEZONE` 调整；这是业务数据备份，不替代环境配置文件的保管。
+`down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
 ## 排查入口
 

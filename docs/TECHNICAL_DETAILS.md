@@ -33,7 +33,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成 `.env.local` 和随机凭据，启动依赖与 Harness，准备知识库模型，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据。
+脚本生成 `.env.local`，设置管理员默认值并随机生成其他服务凭据，启动依赖与 Harness，准备知识库模型，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
 
 | 需求 | PowerShell 参数 | Bash 参数 |
 | --- | --- | --- |
@@ -104,24 +104,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 
 ## 离线部署
 
-有网机器在仓库根目录执行 `bash ./scripts/package-offline.sh`，Windows 使用 `powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1`。
-
-将 `offline-bundles/iot-platform-offline-*` **整个生成目录**复制到目标机，包括 `.env.offline`。在离线包根目录执行：
-
-```bash
-# Linux
-sudo bash ./scripts/deploy-offline-linux.sh
-# macOS；先启动 Docker Desktop
-bash ./scripts/deploy-offline-macos.sh
-```
-
-Windows 使用 `powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1`。架构、基础依赖、模型选项、校验与更新步骤统一见 [离线部署](OFFLINE_DEPLOYMENT.md)。
+在有网机器使用 `scripts/package-offline.sh` / `.ps1` 打包，再把 `offline-bundles/iot-platform-offline-*` 整个目录复制到目标机，包括 `.env.offline`。后续命令在生成的离线包目录执行，打包和安装参数统一见 [离线部署](OFFLINE_DEPLOYMENT.md)。
 
 ## 登录与专题入口
 
 默认租户 `tenant_001`、用户名 `admin`、密码 `admin123`。可在相应环境文件中修改 `IOT_ADMIN_PASSWORD`，无长度或复杂度限制；修改后重启 API 生效。已有配置保留原密码。本地、在线、离线配置相互独立，不能混用凭据和数据卷。
 
-“接入与测试”统一提供两个页内标签：“设备接入”查看已登记设备的连接参数和报文示例；“测试设备”提供测试设备准备、报文模板、快捷发送和结果查看。原接入指南中的内部报文联调弹窗已移除，模拟发送集中在“测试设备”。真实设备按连接指南配置，在设备详情和原始报文中查看连接及解析结果。切换标签保留本次测试状态。原 `testDevice` 导航目标会打开“接入与测试”的“测试设备”标签。
+设备连接指南与模拟发送入口见 [接入指南与测试设备](UNIFIED_DEVICE_ONBOARDING.md#接入指南与测试设备)。
 
 | 任务 | 文档 |
 | --- | --- |
@@ -154,4 +143,4 @@ Windows 使用 `powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offlin
 
 本地集成入口：`go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 检查依赖读写；前端、API 和备份启动后，`node scripts/tests/local-business-smoke.mjs` 检查登录、接入、归档、规则及回放。业务冒烟会创建唯一测试数据，结束停用本次规则与凭据并保留记录；仅在测试环境运行。
 
-真实 PostgreSQL、MQTT 与浏览器用例的环境变量见 [接入验证](UNIFIED_DEVICE_ONBOARDING.md#验证入口)。部署脚本检查见 [部署排查入口](DEPLOYMENT.md#排查入口)。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。
+真实 PostgreSQL、MQTT 用例及浏览器检查说明见 [接入验证](UNIFIED_DEVICE_ONBOARDING.md#验证入口)。部署脚本检查见 [部署排查入口](DEPLOYMENT.md#排查入口)。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。

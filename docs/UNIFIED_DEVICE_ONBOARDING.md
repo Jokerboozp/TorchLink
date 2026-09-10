@@ -134,11 +134,14 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 请求结构见 [onboarding/service.go](../internal/onboarding/service.go)，分页约定见 [列表分页](LIST_PAGINATION.md)。产品可选 `thingModel` 描述 properties/events/commands 及参数类型，它提供描述与命令校验，不替代协议解析器。
 
-## 标准设备联调
+## 接入指南与测试设备
 
-在 **测试设备 → 标准设备联调（MQTT / HTTP）** 输入向导创建的设备凭据，可发送新消息、保持原字节重发、查看解析结果或模拟客户端断链。MQTT 网络失败采用退避重连，每次重新取令牌；认证拒绝后须修正凭据再手动连接。离线不自动缓存或重放业务数据，收到下行命令也不会自动执行。
+**接入与测试** 包含两个标签：
 
-联调数据进入所选设备的正常存储、规则和告警链路，请使用测试设备。Secret 只在组件内存保存，离页清除；导出记录不含凭据或原始业务报文。发送超时、断链和取消均表示结果未确认，可查询原文并以相同 ID 重试。
+- **设备接入**：选择已登记设备，查看连接参数和报文示例；协议设备进入实际连接详情。按指南配置真实设备后，在原始报文中核对接收与解析。
+- **测试设备**：准备测试设备及关联产品/协议，选择报文模板或快捷发送，查看结果并跳转告警。测试告警进入正常业务链路，不自动创建规则。
+
+切换标签保留页面测试状态。新设备仍通过“设备管理 → 添加设备”创建；标准 HTTP/MQTT 真机联调使用本文的凭据与上报接口。
 
 ## 验证入口
 
@@ -153,8 +156,9 @@ go test -race ./internal/protocolruntime ./internal/adapters/mqtt
 | --- | --- | --- |
 | PostgreSQL 临时 schema | `IOT_TEST_POSTGRES_DSN` | `go test ./internal/adapters/postgres -run TestDeviceOperationsMigrationAndAtomicity -count=1 -v` |
 | MQTT Broker | `IOT_TEST_MQTT_BROKER`、`IOT_TEST_MQTT_JWT_SECRET`；严格身份另设 `IOT_TEST_MQTT_STRICT_IDENTITY=true` | `go test ./internal/httpapi -run TestStandardMQTTLiveBroker -count=1 -v` |
-| Chrome / Edge | 构建前端后设置 `IOT_TEST_BROWSER` 为浏览器可执行文件 | `go test ./internal/httpapi -run '^TestOnboardingBrowser$' -count=1 -v` |
 
-Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`、`IOT_TEST_EMQX_API_SECRET`。浏览器真实 MQTT 分支另需 MQTT 测试变量和 `IOT_TEST_MQTT_WEBSOCKET`；`IOT_TEST_BROWSER_OUTAGE_SECONDS=330` 可检查跨令牌有效期的实际故障恢复，命令加 `-timeout=15m`。
+Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`、`IOT_TEST_EMQX_API_SECRET`。
+
+浏览器检查按当前“添加设备 → 接入与测试 → 原始报文 / 告警”路径执行。仓库现有 `TestOnboardingBrowser` 仍引用已移除的联调面板，脚本更新前不能用于当前页面验收。
 
 测试使用隔离业务仓库或临时 schema、随机身份和非 retained 消息；凭据通过环境变量安全注入。缺少环境的集成分支会跳过。模拟器与受控故障测试不能代替厂商真机、固件补传或生产网络验收。

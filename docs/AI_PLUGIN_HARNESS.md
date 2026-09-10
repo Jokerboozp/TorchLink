@@ -19,43 +19,18 @@ Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可�
 
 知识文档在知识库页面上传与管理，保留租户及 Agent / `workflowId` 归属。业务工作流按授权范围检索；无法执行范围隔离时拒绝检索，不回退到全库。嵌入模型与向量存储配置见部署文档。
 
-## 源码版本
+## 工作流与任务
 
-Harness 源码不会复制进本仓库。`deploy/deepseek-harness/REVISION` 固定了经过适配的上游提交，脚本会将该提交拉到被 Git 忽略的 `upstream/deepseek-harness`：
+| 工作流 | 入口与用途 |
+| --- | --- |
+| `ops-assistant` | 聊天工作台：设备、告警、趋势与知识辅助排障 |
+| `alarm-handler` | 告警业务：核验事实、判断影响并给出处置建议 |
+| `device-health-inspector` | 智能巡检：设备健康与异常分析 |
+| `protocol-assistant` | 协议助手：解释资料与点表，保存映射草稿 |
 
-```bash
-./scripts/fetch-deepseek-harness.sh
-```
+只有交互式聊天 Agent 出现在聊天工作台。告警研判与智能巡检返回后台任务，重新打开页面可读取进度和结果；预计剩余时间是估算值。协议草稿仍须通过源码校验与发布。
 
-脚本不会覆盖有本地修改的上游目录。升级时先验证新提交，再更新 `REVISION` 并重新生成 `upstream/deepseek-harness.revision`。
-
-当前锁定的是上游 `dsh-v0.1.2-rc.1`（`a66e4702047846cdaa10c66c9d3df3951f5ea70d`）。侧车使用统一 `@deepseek-ai/dsh/lib/bin.js` 和 `sdk-minimal` profile，再通过 `cordis.yml` overlay 配置拆分后的 `system-prompt`、`agent-loop`、`tools`，并注入 IoT MCP 和只读策略。Docker 构建会按上游 `python/sdk-runtime` 的依赖清单生成独立 Node carrier，并执行真实 SDK、Cordis 与模拟 MCP 的启动握手；源码工作区的开发用软链接不会直接作为生产运行时。
-
-## 业务插件
-
-插件清单位于 `deploy/deepseek-harness/plugins/*.json`。网关启动时校验全部清单，并通过 `GET /v1/plugins` 提供启用插件的公开元数据。管理员管理使用 `GET /v1/plugins/admin` 读取完整清单（含禁用插件、persona 和工具白名单），通过 `POST /v1/plugins` 保存新建或修改，通过 `DELETE /v1/plugins/{id}` 删除自定义插件。内置插件始终只读。平台的聊天工作台和“已配置的工作流插件”清单只展示交互式聊天 Agent；`alarm-handler`、`device-health-inspector`、`protocol-assistant` 由告警、设备巡检和协议接入业务页面调用，不在上述两个界面中显示。
-
-- `ops-assistant`：设备、告警、属性趋势、相似告警和知识库辅助排障（聊天工作台可选）。
-- `alarm-handler`：聚焦告警事实核验、影响判断和人工处置建议（告警业务专用，不出现在聊天工作台）。
-
-新增插件时复制一份清单并修改以下字段：
-
-```json
-{
-  "schemaVersion": 1,
-  "id": "my-workflow",
-  "name": "我的 AI 插件",
-  "description": "面向用户的说明",
-  "version": "1.0.0",
-  "enabled": true,
-  "persona": "严格限定业务角色和禁止事项的系统提示",
-  "defaultModel": "qwen3:1.7b",
-  "maxTokens": 4096,
-  "allowedTools": ["mcp__iot__query_device_latest"]
-}
-```
-
-`id` 必须唯一。`allowedTools` 只能是部署代码内定义的只读上限集合；即使清单被误改，Harness 的全局单调拒绝 guard 也会拒绝 shell、文件、子 Agent、设备控制和写操作。修改清单后重新构建或重启侧车即可，不需要修改网关代码。
+内置 Manifest 只读，自定义聊天 Agent 通过管理员接口创建、编辑或停用，知识范围统一在知识库设置。新增 Agent 的工具白名单只能选取平台允许的只读工具，不能扩大权限。Manifest 格式、上游版本和内部接口集中在 [侧车开发说明](../deploy/deepseek-harness/README.md)。
 
 ## 请求与事件协议
 
@@ -80,16 +55,7 @@ Go API 暴露：
 
 浏览器只提交 `workflowId`、`conversationId`、`question` 和可选的 `maxTokens`。每次运行由 Go API 生成 Run ID，并签发有效期两分钟、绑定租户、用户、Run ID、Audience 和只读 scopes 的 MCP JWT。浏览器拿不到该令牌。
 
-流式事件固定为：
-
-- `run.started`
-- `text.delta`
-- `tool.started`
-- `tool.completed`
-- `run.completed`
-- `run.failed`
-
-Harness 的 reasoning 分片不会发给浏览器；工具事件只包含工具名、调用 ID、状态和安全摘要，不返回完整参数、原始结果或凭据。
+流式事件为 `run.started`、`text.delta`、`tool.started`、`tool.completed`、`run.completed` 和 `run.failed`。reasoning 分片不会发给浏览器，工具事件仅提供名称、调用 ID、状态和安全摘要，不返回完整参数、原始结果或凭据。
 
 ## 安全边界
 
