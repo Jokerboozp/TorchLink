@@ -11,7 +11,7 @@ GRAFANA_ADMIN_USER	Grafana 管理员用户名
 GRAFANA_ADMIN_PASSWORD	Grafana 管理员密码，首次部署自动生成
 IOT_JWT_SECRET	平台登录令牌签名密钥，首次部署自动生成
 IOT_ADMIN_USER	平台内置管理员用户名
-IOT_ADMIN_PASSWORD	平台内置管理员密码，首次部署自动生成
+IOT_ADMIN_PASSWORD	平台内置管理员密码，默认 admin123，可自定义，无长度或复杂度限制
 IOT_ADMIN_TENANTS	内置管理员可访问的租户，多个值用逗号分隔
 IOT_VIDEO_PLATFORM_SECRETS	外部视频平台及其签名密钥，格式为平台名:密钥
 IOT_VIDEO_MEDIA_ALLOWED_HOSTS	允许访问的视频媒体和厂商接口主机，多个值用逗号分隔

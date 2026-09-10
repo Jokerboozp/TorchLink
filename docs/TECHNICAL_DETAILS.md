@@ -119,7 +119,7 @@ Windows 使用 `powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offlin
 
 ## 登录与专题入口
 
-默认租户 `tenant_001`、用户名 `admin`，密码读取相应环境文件中的 `IOT_ADMIN_PASSWORD`。本地、在线、离线配置相互独立，不能混用凭据和数据卷。
+默认租户 `tenant_001`、用户名 `admin`、密码 `admin123`。可在相应环境文件中修改 `IOT_ADMIN_PASSWORD`，无长度或复杂度限制；修改后重启 API 生效。已有配置保留原密码。本地、在线、离线配置相互独立，不能混用凭据和数据卷。
 
 | 任务 | 文档 |
 | --- | --- |

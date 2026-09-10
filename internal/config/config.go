@@ -199,8 +199,8 @@ func (c Config) Validate() error {
 	if c.JWTSecret == defaultJWTSecret || len(c.JWTSecret) < 32 || insecurePlaceholder(c.JWTSecret) {
 		invalid = append(invalid, "IOT_JWT_SECRET must be explicitly set to at least 32 characters and must not be a placeholder")
 	}
-	if c.AdminPassword == defaultAdminPassword || len(c.AdminPassword) < 12 || insecurePlaceholder(c.AdminPassword) {
-		invalid = append(invalid, "IOT_ADMIN_PASSWORD must be explicitly set to at least 12 characters and must not be a placeholder")
+	if c.AdminPassword == "" {
+		invalid = append(invalid, "IOT_ADMIN_PASSWORD must not be empty")
 	}
 	if len(invalid) > 0 {
 		return fmt.Errorf("invalid production security configuration: %s", strings.Join(invalid, "; "))

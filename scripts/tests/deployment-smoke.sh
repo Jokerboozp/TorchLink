@@ -130,6 +130,7 @@ grep -q '^IOT_AI_HARNESS_PROVIDER=ollama$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_MODEL=qwen3:1.7b$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1$' "$test_root/.env.online"
 assert_commented_env "$test_root/.env.online"
+grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service deepseek-harness'
 assert_call 'exec -T ollama ollama pull qwen3:1.7b'
 cp "$test_root/.env.online" "$test_root/online-original"
@@ -153,6 +154,7 @@ bash "$scripts/package-offline.sh" --output-dir "$test_root/bundles"
 bundles=("$test_root"/bundles/iot-platform-offline-*)
 bundle="${bundles[0]}"
 assert_commented_env "$bundle/.env.offline"
+grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$bundle/.env.offline"
 [ -s "$bundle/ollama-data.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-24.0.9.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-28.5.2.tgz.sha256" ]

@@ -53,7 +53,7 @@ function Ensure-DeploymentEnv {
         GRAFANA_ADMIN_PASSWORD = (New-DeploymentSecret)
         IOT_JWT_SECRET = (New-DeploymentSecret)
         IOT_ADMIN_USER = 'admin'
-        IOT_ADMIN_PASSWORD = (New-DeploymentSecret)
+        IOT_ADMIN_PASSWORD = 'admin123'
         IOT_ADMIN_TENANTS = 'tenant_001'
         IOT_VIDEO_PLATFORM_SECRETS = ('video-platform-1:' + (New-DeploymentSecret))
         IOT_AI_HARNESS_TOKEN = (New-DeploymentSecret)

@@ -141,7 +141,7 @@ function New-OfflineEnv {
                 throw "EnvFile 缺少必填安全配置：$key。请不要直接使用 .env.example 的默认值。"
             }
         }
-        $unsafe = @($lines | Where-Object { $_ -match '(change-this|local-iot-|admin123|public-change-me|change-me)' })
+        $unsafe = @($lines | Where-Object { $_ -notmatch '^\s*IOT_ADMIN_PASSWORD\s*=' -and $_ -match '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|admin123|public-change-me|change-me)' })
         if ($unsafe.Count -gt 0) {
             throw "EnvFile 仍包含示例密码或默认密钥，请先替换后再打包。"
         }
@@ -154,7 +154,7 @@ function New-OfflineEnv {
         $minioPassword = "minio-" + (New-RandomHex -Bytes 18)
         $minioDrPassword = "minio-dr-" + (New-RandomHex -Bytes 18)
         $jwtSecret = New-RandomHex -Bytes 32
-        $adminPassword = "Admin-" + (New-RandomHex -Bytes 12)
+        $adminPassword = 'admin123'
         $videoSecret = New-RandomHex -Bytes 24
         $harnessToken = New-RandomHex -Bytes 32
         $backupToken = New-RandomHex -Bytes 32

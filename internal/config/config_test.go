@@ -77,7 +77,7 @@ func TestAdminTenantAllowlist(t *testing.T) {
 	}
 }
 
-func TestProductionConfigRequiresExplicitStrongAuthenticationSecrets(t *testing.T) {
+func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) {
 	t.Setenv("IOT_DEV_MODE", "false")
 	t.Setenv("IOT_JWT_SECRET", "")
 	t.Setenv("IOT_ADMIN_PASSWORD", "")
@@ -150,5 +150,31 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) {
 	cfg.ProcessRole = "other"
 	if cfg.Validate() == nil {
 		t.Fatal("unknown role accepted")
+	}
+}
+
+func TestProductionConfigAllowsCustomAdminPasswords(t *testing.T) {
+	t.Setenv("IOT_DEV_MODE", "false")
+	t.Setenv("IOT_JWT_SECRET", strings.Repeat("j", 48))
+	for _, password := range []string{"", "admin123", "1", "自定义密码", "a $!#'", "change-this-password"} {
+		t.Run(password, func(t *testing.T) {
+			t.Setenv("IOT_ADMIN_PASSWORD", password)
+			cfg := Load()
+			expected := password
+			if expected == "" {
+				expected = "admin123"
+			}
+			if cfg.AdminPassword != expected {
+				t.Fatal("admin password was not preserved or defaulted correctly")
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("custom admin password rejected: %v", err)
+			}
+		})
+	}
+	cfg := Load()
+	cfg.AdminPassword = ""
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("explicit empty admin password accepted")
 	}
 }

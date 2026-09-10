@@ -129,6 +129,7 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'ollama') 'Online Harness does not use Ollama'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_MODEL') -eq 'qwen3:1.7b') 'Online Harness does not share the compact Qwen model'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_OLLAMA_BASE_URL') -eq 'http://ollama:11434/v1') 'Online Harness Ollama endpoint is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Online default admin password is incorrect'
     Assert-CommentedEnv $onlineEnv
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service deepseek-harness') 'Online omitted the default Harness image build'
     Assert (Contains-Call 'exec -T ollama ollama pull qwen3:1.7b') 'Online omitted the compact Qwen model'
@@ -164,6 +165,7 @@ try {
     $bundleParent = Join-Path $testRoot 'bundles'
     & (Join-Path $scripts 'package-offline-windows.ps1') -OutputDir $bundleParent
     $bundle = @(Get-ChildItem -LiteralPath $bundleParent -Directory)[0].FullName
+    Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($manifest.images -contains 'ollama/ollama:0.11.4') 'Default bundle omitted Ollama'

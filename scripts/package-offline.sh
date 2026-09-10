@@ -115,7 +115,7 @@ validate_env() {
     value="$(env_value "$key" "$file")"
     [[ -n "${value//[[:space:]]/}" ]] || die "EnvFile 缺少必填安全配置：$key"
   done
-  if grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|admin123|public-change-me|change-me)' "$file"; then
+  if awk -F= '$1 != "IOT_ADMIN_PASSWORD"' "$file" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|admin123|public-change-me|change-me)'; then
     die "EnvFile 仍包含示例密码或默认密钥，请先替换后再打包"
   fi
 }
@@ -134,7 +134,7 @@ write_env() {
     local minio_password="minio-$(random_hex 18)"
     local minio_dr_password="minio-dr-$(random_hex 18)"
     local jwt_secret="$(random_hex 32)"
-    local admin_password="Admin-$(random_hex 12)"
+    local admin_password="admin123"
     local video_secret="$(random_hex 24)"
     local harness_token="$(random_hex 32)"
     local backup_token="$(random_hex 32)"
