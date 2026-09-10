@@ -111,7 +111,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
 
 <template>
   <DeviceOnboarding v-if="onboardingOpen" :products="products" @close="onboardingOpen=false" @created="load" @detail="id=>{onboardingOpen=false;connectionDevice=id}" @navigate="(page,query)=>{onboardingOpen=false;emit('navigate',page,query)}" />
-  <DeviceConnection v-if="connectionDevice" :device-id="connectionDevice" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" />
+  <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id=>connectionDevice=id" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" />
   <div class="page-toolbar"><el-button type="primary" @click="onboardingOpen=true">添加设备</el-button><el-button @click="open()">高级注册</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
   <el-card shadow="never" class="surface-card table-card">
     <el-table v-loading="loading" :data="registry" stripe>

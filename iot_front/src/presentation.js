@@ -1,14 +1,14 @@
 // 中文显示名称与协议原值分离，不能用于构造请求或改写原始报文。
 export const transportNames = {
   MQTT:'消息订阅', HTTP:'接口上报', TCP:'网络长连接', UDP:'网络数据报', TCP_UDP:'长连接与数据报',
-  MODBUS_TCP:'工业总线网络采集', MODBUS_RTU:'工业总线串口采集', OPC_UA:'工业统一架构', SNMP:'网络管理协议', BACNET:'楼宇自动控制',
+  MODBUS_RTU_TCP:'Modbus RTU 串口透传 TCP', TCP_CHILD:'通过主设备接入', MODBUS_TCP:'工业总线网络采集', MODBUS_RTU:'工业总线串口采集', OPC_UA:'工业统一架构', SNMP:'网络管理协议', BACNET:'楼宇自动控制',
   'iot-standard':'标准设备接入', STANDARD_HTTP:'标准接口上报', STANDARD_MQTT:'标准消息订阅', LISTENER:'网络监听', POLLER:'定时采集'
 }
 export const formatNames = { JSON:'结构化文本', HEX:'十六进制', BINARY:'二进制', TEXT:'纯文本', BASE64:'编码文本' }
 export const statusNames = {
   INDEXED:'已建立索引', INDEXING:'索引建立中', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
   ENABLED:'已启用', DISABLED:'已停用', ONLINE:'在线', OFFLINE:'离线', WAITING:'等待心跳', LISTENING:'监听中',
-  CONNECTED:'已连接', DISCONNECTED:'未连接', ACTIVE:'活跃', NEVER_SEEN:'尚未上报', ALARM:'告警中', SUSPECTED_OFFLINE:'疑似离线',
+  CONNECTING:'连接中', CONNECTED:'已连接', DISCONNECTED:'未连接', ACTIVE:'活跃', NEVER_SEEN:'尚未上报', ALARM:'告警中', SUSPECTED_OFFLINE:'疑似离线',
   DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销',
   COMPILED:'已编译', UPLOADED:'已上传', RUNNING:'执行中', COMPLETED:'已完成', SUCCESS:'成功', SUCCEEDED:'执行成功',
   ACCEPTED:'已接收', RECEIVED:'已接收', QUEUED:'已排队', SENT:'已发送', ACKNOWLEDGED:'已应答', REJECTED:'已拒绝',

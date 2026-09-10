@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS device_registry (
   updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id, id)
 );
 CREATE INDEX IF NOT EXISTS device_registry_product_idx ON device_registry(tenant_id, product_id);
+CREATE INDEX IF NOT EXISTS device_registry_parent_idx ON device_registry(tenant_id, (body->>'gatewayId'), id) WHERE body->>'gatewayId' IS NOT NULL;
 
 -- Additive control-plane extensions; old device/product JSON remains valid.
 CREATE TABLE IF NOT EXISTS device_credential_revocation (

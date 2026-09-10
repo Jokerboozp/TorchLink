@@ -140,18 +140,22 @@ func TestListenerCommandTimeoutClearsPending(t *testing.T) {
 	var b [1]byte
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, _ = io.ReadFull(conn, b[:])
-	for i := 0; i < 2; i++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-		_, err := r.Command(ctx, "tenant", "access", "device", map[string]any{"type": "test"})
-		cancel()
-		if err == nil || !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("timeout %d: %v", i, err)
-		}
-		_, _ = io.ReadFull(conn, b[:])
-		if b[0] != 0x22 {
-			t.Fatalf("no command sent: %x", b)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := r.Command(ctx, "tenant", "access", "device", map[string]any{"type": "test"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout: %v", err)
 	}
+	if _, err = io.ReadFull(conn, b[:]); err != nil || b[0] != 0x22 {
+		t.Fatal("query was not sent", err)
+	}
+	if _, err = conn.Read(b[:]); err == nil {
+		t.Fatal("timed out connection must close to isolate late responses")
+	}
+	if _, err = r.Command(context.Background(), "tenant", "access", "device", map[string]any{"type": "test"}); err == nil {
+		t.Fatal("reused timed out session")
+	}
+
 }
 
 func TestListenerStatusRetainsAcceptedFrameAfterDisconnect(t *testing.T) {

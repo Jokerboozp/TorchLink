@@ -5,6 +5,7 @@ import (
 	"context"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"reflect"
 	"testing"
 )
 
@@ -46,7 +47,7 @@ func AccessStatus(t *testing.T, repo ports.Repository) {
 		}
 	}
 	actual, err := repo.GetDeviceAccessProfile(ctx, current.TenantID, current.ID)
-	if err != nil || actual != current {
+	if err != nil || !reflect.DeepEqual(actual, current) {
 		t.Fatal("stale observation replaced user edit", err)
 	}
 	other := current

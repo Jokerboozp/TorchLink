@@ -34,6 +34,7 @@ type listenerCall func(context.Context, string, model.ProtocolRelease, protocolw
 // session state and wire encoding; the host owns tenant/product identity and
 // only acknowledges an incoming frame after the ingest callback succeeds.
 type Listeners struct {
+	allowedCIDRs       []string
 	registerDevice     func(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, error)
 	coordinator        *Coordinator
 	connectionMu       sync.Mutex
@@ -54,6 +55,7 @@ type Listeners struct {
 
 type protocolListener struct {
 	lastAcceptedAt int64
+	lastError      string
 	owner          *Listeners
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -62,9 +64,12 @@ type protocolListener struct {
 	tcp            net.Listener
 	udp            net.PacketConn
 	sessions       map[string]*listenerSession
+	identified     map[string]*listenerSession
 }
 
 type listenerSession struct {
+	commandChild *model.ManagedDevice
+	childRelease model.ProtocolRelease
 	host         *protocolListener
 	remote       string
 	conn         net.Conn
@@ -81,6 +86,7 @@ type listenerSession struct {
 	frameStarted time.Time
 	lastSeen     time.Time
 	pending      map[string]chan commandResult
+	commandBusy  bool
 }
 
 type commandResult struct {
@@ -133,9 +139,18 @@ func (r *Listeners) Status(tenant, profile string) (string, string, int64) {
 		return "ERROR", err.Error(), 0
 	}
 	h.mu.Lock()
-	last := h.lastAcceptedAt
+	last, lastError := h.lastAcceptedAt, h.lastError
 	h.mu.Unlock()
-	return "LISTENING", "", last
+	if p.ConnectionMode == "dial" {
+		h.mu.Lock()
+		count, message := len(h.sessions), h.lastError
+		h.mu.Unlock()
+		if count == 0 {
+			return "CONNECTING", message, last
+		}
+		return "CONNECTED", "", last
+	}
+	return "LISTENING", lastError, last
 }
 
 func (r *Listeners) reconcile(ctx context.Context) {
@@ -165,7 +180,7 @@ func (r *Listeners) reconcile(ctx context.Context) {
 		if current := r.hosts[key]; current != nil {
 			current.mu.Lock()
 			old := current.profile
-			unchanged := current.ctx.Err() == nil && old.Host == p.Host && old.Port == p.Port && old.Network == p.Network && old.ProductID == p.ProductID && old.DeviceID == p.DeviceID
+			unchanged := current.ctx.Err() == nil && old.ConnectionMode == p.ConnectionMode && old.Host == p.Host && old.Port == p.Port && old.Network == p.Network && old.ProductID == p.ProductID && old.DeviceID == p.DeviceID
 			if unchanged {
 				current.profile = p
 			}
@@ -176,7 +191,7 @@ func (r *Listeners) reconcile(ctx context.Context) {
 			current.stop()
 			delete(r.hosts, key)
 		}
-		if p.TenantID == "" || p.ProductID == "" || p.Port < 1 || p.Port > 65535 || (p.Network != "tcp" && p.Network != "udp") {
+		if model.ValidateProtocolAccess(p) != nil || p.TenantID == "" || p.ProductID == "" || p.Port < 1 || p.Port > 65535 || (p.Network != "tcp" && p.Network != "udp") {
 			r.warn("invalid protocol listener profile", fmt.Errorf("profile %s", p.ID))
 			continue
 		}
@@ -186,9 +201,11 @@ func (r *Listeners) reconcile(ctx context.Context) {
 			continue
 		}
 		hostCtx, cancel := context.WithCancel(executionCtx)
-		h := &protocolListener{owner: r, ctx: hostCtx, cancel: cancel, profile: p, sessions: make(map[string]*listenerSession)}
+		h := &protocolListener{owner: r, ctx: hostCtx, cancel: cancel, profile: p, sessions: make(map[string]*listenerSession), identified: make(map[string]*listenerSession)}
 		address := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
-		if p.Network == "tcp" {
+		if p.ConnectionMode == "dial" {
+			err = nil
+		} else if p.Network == "tcp" {
 			h.tcp, err = net.Listen("tcp", address)
 		} else {
 			h.udp, err = net.ListenPacket("udp", address)
@@ -202,7 +219,9 @@ func (r *Listeners) reconcile(ctx context.Context) {
 		context.AfterFunc(hostCtx, h.stop)
 		r.hosts[key] = h
 		delete(r.failures, key)
-		if h.tcp != nil {
+		if p.ConnectionMode == "dial" {
+			go h.dial()
+		} else if h.tcp != nil {
 			go h.accept()
 		} else {
 			go h.receiveUDP()
@@ -305,6 +324,7 @@ func (h *protocolListener) accept() {
 		h.sessions[s.remote] = s
 		h.mu.Unlock()
 		go s.receiveTCP()
+		go s.poll()
 	}
 }
 
@@ -323,6 +343,9 @@ func (s *listenerSession) close() {
 		}
 		s.mu.Unlock()
 		s.host.mu.Lock()
+		if s.host.identified[deviceID] == s {
+			delete(s.host.identified, deviceID)
+		}
 		if s.host.sessions[s.remote] == s {
 			delete(s.host.sessions, s.remote)
 		}
@@ -339,7 +362,11 @@ func (s *listenerSession) receiveTCP() {
 	chunk := make([]byte, 16384)
 	for {
 		s.mu.Lock()
-		deadline := time.Now().Add(listenerIdle)
+		idle := listenerIdle
+		for _, q := range s.host.snapshot().Queries {
+			idle = max(idle, time.Duration(q.IntervalSec)*time.Second+listenerIdle)
+		}
+		deadline := time.Now().Add(idle)
 		if s.partial {
 			deadline = s.frameStarted.Add(listenerFrameTimeout)
 		}
@@ -354,6 +381,9 @@ func (s *listenerSession) receiveTCP() {
 			for len(buffer) > 0 {
 				consumed, needMore, frameErr := s.frame(buffer, false)
 				if frameErr != nil {
+					s.host.mu.Lock()
+					s.host.lastError = limitError(frameErr.Error(), 512)
+					s.host.mu.Unlock()
 					s.host.owner.warn("protocol TCP frame rejected", frameErr)
 					return
 				}
@@ -475,6 +505,12 @@ func (s *listenerSession) invoke(ctx context.Context, p model.DeviceAccessProfil
 	}
 	defer func() { <-r.workers }()
 	request.Version = 2
+	if request.DeviceID == "" {
+		request.DeviceID = s.deviceID
+	}
+	if request.DeviceID == "" {
+		request.DeviceID = p.DeviceID
+	}
 	request.State = append(json.RawMessage(nil), s.state...)
 	if request.Now == 0 {
 		request.Now = time.Now().UnixMilli()
@@ -502,6 +538,14 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 		return 0, false, errors.New("listener stopped")
 	}
 	p := s.host.snapshot()
+	if s.deviceID != "" {
+		s.host.mu.Lock()
+		current := s.host.identified[s.deviceID]
+		s.host.mu.Unlock()
+		if current != s {
+			return 0, false, errors.New("device reconnected on another session")
+		}
+	}
 	if err := s.selectRelease(s.host.ctx, p); err != nil {
 		return 0, false, err
 	}
@@ -537,6 +581,9 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 	if s.deviceID != "" && deviceID != s.deviceID {
 		return 0, false, errors.New("protocol session device identity changed")
 	}
+	if len(response.Children) > 0 && s.deviceID == "" {
+		return 0, false, errors.New("主设备注册完成后才能上报子设备")
+	}
 	device, err := s.host.owner.device(s.host.ctx, p, deviceID, response.DeviceName)
 	if err != nil {
 		return 0, false, err
@@ -548,6 +595,9 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 	if len(s.state) > 0 {
 		raw.Metadata["protocolState"] = append(json.RawMessage(nil), s.state...)
 	}
+	if len(response.Children) > 0 {
+		raw.Metadata["children"] = response.Children
+	}
 	raw.ReceivedAt = receivedAt
 	raw.Normalize(time.Now())
 	if c := s.host.owner.coordinator; c != nil {
@@ -558,6 +608,9 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 	if err := s.host.owner.ingest(s.host.ctx, raw); err != nil {
 		return 0, false, fmt.Errorf("ingest protocol frame: %w", err)
 	}
+	if err := s.ingestChildren(p, device, raw, response.Children); err != nil {
+		return 0, false, err
+	}
 	s.partial = false
 	if s.deviceID == "" {
 		s.host.owner.reportConnection(p, device.ID, true)
@@ -565,8 +618,14 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 	s.deviceID = device.ID
 	s.lastSeen = time.Now()
 	s.host.mu.Lock()
+	previous := s.host.identified[device.ID]
+	s.host.identified[device.ID] = s
+	s.host.lastError = ""
 	s.host.lastAcceptedAt = max(s.host.lastAcceptedAt, s.lastSeen.UnixMilli())
 	s.host.mu.Unlock()
+	if previous != nil && previous != s {
+		go previous.close()
+	}
 	s.state = append(json.RawMessage(nil), response.State...)
 	if len(reply) > 0 {
 		if err := s.write(reply); err != nil {
@@ -574,6 +633,17 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 		}
 	}
 	if ch := s.pending[response.CorrelationID]; response.CorrelationID != "" && ch != nil {
+		if s.commandChild != nil {
+			matched := false
+			for _, c := range response.Children {
+				if c.Address == s.commandChild.Tags["childAddress"] && c.Type == s.commandChild.Tags["childType"] {
+					matched = true
+				}
+			}
+			if !matched {
+				return response.Consumed, false, nil
+			}
+		}
 		delete(s.pending, response.CorrelationID)
 		ch <- commandResult{value: map[string]any{"status": "acknowledged", "correlationId": response.CorrelationID, "rawMessageId": raw.MessageID, "protocolId": s.release.ProtocolID, "protocolVersion": s.release.Version}}
 	}
@@ -587,11 +657,19 @@ func (r *Listeners) device(ctx context.Context, p model.DeviceAccessProfile, id,
 	if p.DeviceID != "" && p.DeviceID != id {
 		return model.ManagedDevice{}, errors.New("protocol device does not match access profile")
 	}
+	current, e := r.repo.GetDeviceAccessProfile(ctx, p.TenantID, p.ID)
+	if e != nil || !current.Enabled || current.Configuration() != p.Configuration() {
+		return model.ManagedDevice{}, errors.New("protocol access profile is disabled or changed")
+	}
+	product, err := r.repo.GetProduct(ctx, p.TenantID, p.ProductID)
+	if err != nil || product.Status != "ENABLED" {
+		return model.ManagedDevice{}, errors.New("protocol product is disabled or unavailable")
+	}
 	r.registerMu.Lock()
 	defer r.registerMu.Unlock()
 	device, err := r.repo.GetManagedDevice(ctx, p.TenantID, id)
 	if err == nil {
-		if device.TenantID != p.TenantID || device.ProductID != p.ProductID || strings.EqualFold(device.Status, "DISABLED") {
+		if device.GatewayID != "" || device.TenantID != p.TenantID || device.ProductID != p.ProductID || strings.EqualFold(device.Status, "DISABLED") {
 			return device, errors.New("protocol device is disabled or belongs to another product")
 		}
 		return device, nil
@@ -647,15 +725,25 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 	if h == nil {
 		return nil, errors.New("protocol listener is not running")
 	}
+	requestedDevice := deviceID
+	var child *model.ManagedDevice
+	if d, e := r.repo.GetManagedDevice(ctx, tenant, deviceID); e == nil && d.GatewayID != "" {
+		child = &d
+		deviceID = d.GatewayID
+	}
 	h.mu.Lock()
 	sessions := make([]*listenerSession, 0, len(h.sessions))
-	for _, s := range h.sessions {
-		sessions = append(sessions, s)
+	if active := h.identified[deviceID]; active != nil {
+		sessions = append(sessions, active)
+	} else {
+		for _, s := range h.sessions {
+			sessions = append(sessions, s)
+		}
 	}
 	h.mu.Unlock()
 	for _, s := range sessions {
 		s.mu.Lock()
-		if s.closed || s.deviceID != deviceID || deviceID == "" {
+		if s.closed || (s.deviceID != deviceID && !(s.deviceID == "" && h.snapshot().ConnectionMode == "dial" && h.snapshot().DeviceID == deviceID)) || deviceID == "" {
 			s.mu.Unlock()
 			continue
 		}
@@ -672,11 +760,25 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 			s.mu.Unlock()
 			return nil, err
 		}
-		if len(s.pending) >= 16 {
+		if s.commandBusy || len(s.pending) > 0 {
 			s.mu.Unlock()
-			return nil, errors.New("too many pending device commands")
+			return nil, errors.New("device query is in progress; wait for its response")
 		}
-		response, err := s.invoke(ctx, p, protocolworker.Request{Operation: "encode", Command: command})
+		if c := r.coordinator; c != nil {
+			if err := c.Validate(ctx, p); err != nil {
+				s.mu.Unlock()
+				return nil, err
+			}
+		}
+		s.commandBusy = true
+		defer func() {
+			s.mu.Lock()
+			s.commandBusy = false
+			s.commandChild = nil
+			s.childRelease = model.ProtocolRelease{}
+			s.mu.Unlock()
+		}()
+		response, err := s.encodeCommand(ctx, p, child, command)
 		if err != nil {
 			s.mu.Unlock()
 			return nil, err
@@ -687,6 +789,10 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 			return nil, errors.New("protocol command bytes are empty or invalid")
 		}
 		id := response.CorrelationID
+		if command["_scheduled"] == true && id == "" {
+			s.mu.Unlock()
+			return nil, errors.New("scheduled query requires response correlation")
+		}
 		if len(id) > 256 {
 			s.mu.Unlock()
 			return nil, errors.New("protocol command correlation id is too long")
@@ -709,7 +815,7 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 		version, protocolID := s.release.Version, s.release.ProtocolID
 		s.mu.Unlock()
 		if id == "" {
-			return map[string]any{"status": "sent", "protocolId": protocolID, "protocolVersion": version}, nil
+			return map[string]any{"status": "sent", "protocolId": protocolID, "protocolVersion": version, "deviceId": requestedDevice}, nil
 		}
 		timeout := time.Duration(p.TimeoutMs) * time.Millisecond
 		if timeout <= 0 {
@@ -731,6 +837,7 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 		case result := <-ch:
 			return result.value, result.err
 		case <-waitCtx.Done():
+			s.close() // Late responses must never satisfy a later query on this connection.
 			return nil, fmt.Errorf("wait protocol command reply: %w", waitCtx.Err())
 		}
 	}

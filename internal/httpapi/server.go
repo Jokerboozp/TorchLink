@@ -151,6 +151,8 @@ func (s *Server) routes() {
 	s.router.POST("/api/v2/protocols/:id/releases", s.authorize("operator"), s.endpoint(s.createProtocolReleaseV2, "id"))
 	s.router.POST("/api/v2/protocols/:id/package-releases", s.authorize("operator"), s.endpoint(s.uploadProtocolPackageV2, "id"))
 	s.router.POST("/api/v2/protocols/:id/releases/:version/publish", s.authorize("operator"), s.endpoint(s.publishProtocolReleaseV2, "id", "version"))
+	s.router.GET("/api/v2/products/:id/protocol-binding", s.authorize("viewer"), s.endpoint(s.getProductProtocolBinding, "id"))
+	s.router.GET("/api/v1/device-registry/:id/children", s.authorize("viewer"), s.endpoint(s.deviceChildren, "id"))
 	s.router.POST("/api/v2/products/:id/protocol-binding", s.authorize("operator"), s.endpoint(s.bindProductProtocolV2, "id"))
 	s.router.POST("/api/v2/products/:id/protocol-binding/rollback", s.authorize("operator"), s.endpoint(s.rollbackProductProtocolV2, "id"))
 	s.router.POST("/api/v2/modbus-tcp/import", s.authorize("operator"), s.endpoint(s.importModbusTCPV2))
@@ -611,11 +613,17 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UnixMilli()
 	credential := model.DeviceCredential{}
 	if old, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.ID); err == nil {
+		if old.RegistrationSource == "PROTOCOL_CHILD_AUTO" {
+			if v.ProductID != old.ProductID || v.GatewayID != old.GatewayID || v.DeviceRole != "CHILD" {
+				problem(w, 422, "自动注册子设备的产品与主设备归属不可直接改写")
+				return
+			}
+		}
 		v.AccessKey, v.SecretHash, v.SecretHint, v.CreatedAt = old.AccessKey, old.SecretHash, old.SecretHint, old.CreatedAt
 		if v.Tags == nil {
 			v.Tags = map[string]string{}
 		}
-		for _, key := range []string{"onboardingRequestHash", "connector", "connectorProfileId"} {
+		for _, key := range []string{"onboardingRequestHash", "connector", "connectorProfileId", "childAddress", "childType"} {
 			delete(v.Tags, key)
 			if value := old.Tags[key]; value != "" {
 				v.Tags[key] = value

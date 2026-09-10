@@ -18,6 +18,9 @@ type listenerSnapshot interface {
 
 // Match only explicit configuration or an identified session, never product alone.
 func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessions []map[string]any) bool {
+	if d.TenantID == p.TenantID && d.GatewayID != "" && d.Tags["connectorProfileId"] == p.ID {
+		return true
+	}
 	if d.TenantID != p.TenantID || d.ProductID != p.ProductID {
 		return false
 	}
@@ -38,7 +41,7 @@ func (s *Server) profileSnapshot(ctx context.Context, tenant string, p model.Dev
 		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
 			status, message, last := runtime.Status(tenant, p.ID)
 			p.RuntimeStatus, p.LastError = status, message
-			if status == "LISTENING" {
+			if status == "LISTENING" || status == "CONNECTED" {
 				p.LastSuccessAt = max(p.LastSuccessAt, last)
 			}
 			sessions = runtime.Sessions(tenant, p.ID)
@@ -124,7 +127,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 		candidates = append(candidates, candidate)
 		for _, session := range live {
-			if session["deviceId"] != d.ID {
+			if session["deviceId"] != d.ID && (d.GatewayID == "" || session["deviceId"] != d.GatewayID) {
 				continue
 			}
 			copy := map[string]any{"profileId": candidate.ID}
@@ -208,11 +211,34 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 			ingest["standardMessage"] = standard
 		}
 	}
+	var parent any
+	if d.GatewayID != "" {
+		if gateway, e := s.engine.Repo.GetManagedDevice(r.Context(), tenant, d.GatewayID); e == nil {
+			parent = map[string]any{"id": gateway.ID, "name": gateway.Name}
+		}
+	}
 	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	write(w, 200, map[string]any{"accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": protocolworker.HasCapability(release, "encode") && (profile == nil || profile.EdgeNodeID == ""), "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
+	canCommand := protocolworker.HasCapability(release, "encode") && (profile == nil || profile.EdgeNodeID == "")
+	if d.GatewayID != "" {
+		canCommand = canCommand && profile != nil
+		if profile != nil {
+			binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, profile.ProductID)
+			if e != nil {
+				canCommand = false
+			} else {
+				outer, e := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, binding.ProtocolID, binding.Version)
+				canCommand = canCommand && e == nil && protocolworker.HasCapability(outer, "encode")
+			}
+		}
+	}
+
+	write(w, 200, map[string]any{"parent": parent, "accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d, "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialEnabled": d.SecretHash != ""})
 }
 
 func profileTransport(p model.DeviceAccessProfile) string {
+	if p.WireFormat == "rtu_over_tcp" {
+		return "MODBUS_RTU_TCP"
+	}
 	if p.Mode == "listener" {
 		return strings.ToUpper(p.Network)
 	}

@@ -273,6 +273,7 @@ func Run(forcedRole string) {
 		_, _, err := engine.IngestRaw(c, raw)
 		return err
 	}, log)
+	protocolListeners.SetAllowedCIDRs(cfg.ModbusAllowedCIDRs)
 	protocolListeners.SetConnectionReporter(engine.ReportConnection)
 	protocolListeners.SetCoordinator(coordinator)
 	if cfg.ProcessRole != "api" {

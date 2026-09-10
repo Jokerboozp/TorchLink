@@ -212,7 +212,7 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: parser.StandardProtocolID, Version: "1.0.0", Transport: "MQTT_HTTP", PayloadFormat: "json", ParserType: parser.StandardParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now}
 		// The standard ingress pins its release explicitly without changing a
 		// product's existing custom protocol binding.
-	case connector.ModbusTCP, connector.TCP, connector.UDP:
+	case connector.ModbusTCP, connector.ModbusRTUTCP, connector.TCP, connector.UDP:
 		if bindErr == nil {
 			if q.ProtocolID != "" && (q.ProtocolID != binding.ProtocolID || q.ProtocolVersion != binding.Version) {
 				return fail("所选协议与产品现有绑定不一致，请在协议管理中变更绑定")
@@ -224,7 +224,7 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 			if err != nil || rel.Status != "PUBLISHED" {
 				return fail("请选择已发布且兼容的协议")
 			}
-		} else if q.Type == connector.ModbusTCP {
+		} else if q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTUTCP {
 			interval := q.PollIntervalSec
 			if interval == 0 {
 				interval = 10
@@ -241,6 +241,11 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 				return b, rel, e
 			}
 			rel = model.ProtocolRelease{TenantID: tenant, ProtocolID: "onboard-" + Hash(tenant + "/" + q.ProductID)[:20], Version: Hash(fmt.Sprintf("%d\x00%s", interval, q.PointTableCSV))[:16], Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now, Config: map[string]any{"points": table.Points, "blocks": blocks}}
+			if q.Type == connector.ModbusRTUTCP {
+				rel.Transport = "MODBUS_RTU"
+				rel.ParserType = parser.ModbusRTUParserName
+				rel.Version = "rtu-" + rel.Version
+			}
 			rel.PointTableVersion = rel.Version
 			table.TenantID, table.ProtocolID, table.Version, table.CreatedAt = tenant, rel.ProtocolID, rel.Version, now
 			b.PointTable = &table
@@ -263,24 +268,37 @@ func (s *Service) plan(ctx context.Context, tenant string, q Request) (model.Onb
 		if p.TimeoutMs < 1 || p.TimeoutMs > 10000 || p.Retries < 0 || p.Retries > 3 || (p.Port < 1 || p.Port > 65535) {
 			return fail("端口、超时或重试参数无效")
 		}
-		if q.Type == connector.ModbusTCP {
+		if q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTUTCP {
 			p.Mode = "poll"
 			p.Network = "tcp"
-			if p.Host == "" || p.UnitID < 0 || p.UnitID > 255 || rel.Transport != "MODBUS_TCP" {
+			expectedTransport := "MODBUS_TCP"
+			if q.Type == connector.ModbusRTUTCP {
+				p.WireFormat = "rtu_over_tcp"
+				expectedTransport = "MODBUS_RTU"
+			}
+			if p.Host == "" || p.UnitID < 0 || p.UnitID > 255 || rel.Transport != expectedTransport {
 				return fail("Modbus 地址、站号或协议无效")
 			}
 		} else {
 			p.Mode = "listener"
 			p.Network = strings.ToLower(string(q.Type))
-			p.DeviceID = ""
-			if net.ParseIP(p.Host) == nil || rel.ParserType != parser.GoProtocolParserName || rel.Artifact["runtime"] != protocolworker.Runtime || !protocolworker.HasCapability(rel, "ingress") || (rel.Transport != string(q.Type) && rel.Transport != "TCP_UDP") {
+			if p.ConnectionMode != "dial" {
+				p.DeviceID = ""
+			}
+			if (p.ConnectionMode != "dial" && net.ParseIP(p.Host) == nil) || rel.ParserType != parser.GoProtocolParserName || rel.Artifact["runtime"] != protocolworker.Runtime || !protocolworker.HasCapability(rel, "ingress") || (rel.Transport != string(q.Type) && rel.Transport != "TCP_UDP") {
 				return fail("监听地址或协议不兼容，需要支持 ingress 的 TCP/UDP 协议")
 			}
+		}
+		if err := model.ValidateProtocolAccess(p); err != nil {
+			return fail(err.Error())
+		}
+		if err := ValidateChildProducts(ctx, s.Repo, p, rel); err != nil {
+			return fail(err.Error())
 		}
 		b.Profile = &p
 		if q.ExistingProfileID != "" {
 			old, e := s.Repo.GetDeviceAccessProfile(ctx, tenant, q.ExistingProfileID)
-			if e != nil || !old.Enabled || old.EdgeNodeID != "" || old.Mode != "listener" || old.Network != p.Network || old.ProductID != q.ProductID || q.Type == connector.ModbusTCP {
+			if e != nil || !old.Enabled || old.ConnectionMode == "dial" || old.EdgeNodeID != "" || old.Mode != "listener" || old.Network != p.Network || old.ProductID != q.ProductID || (q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTUTCP) || p.ConnectionMode == "dial" {
 				return fail("已有监听实例不可用或不属于当前产品")
 			}
 			old.ProtocolID, old.ProtocolVersion = rel.ProtocolID, rel.Version
@@ -459,12 +477,12 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	}
 	raws := []model.RawMessage{q.Raw}
 	switch q.Type {
-	case connector.ModbusTCP:
+	case connector.ModbusTCP, connector.ModbusRTUTCP:
 		r.Stage = "read"
 		r.Source = "network-read"
 		var blocks []model.ModbusReadBlock
 		data, _ := json.Marshal(q.Release.Config["blocks"])
-		if err := json.Unmarshal(data, &blocks); (err != nil || len(blocks) == 0) && (q.Type == connector.ModbusTCP) {
+		if err := json.Unmarshal(data, &blocks); (err != nil || len(blocks) == 0) && (q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTUTCP) {
 			return finish(errors.New("协议没有读取计划"), "PROTOCOL_ERROR")
 		}
 		var err error
@@ -497,7 +515,14 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 		addr := net.JoinHostPort(q.Profile.Host, fmt.Sprint(q.Profile.Port))
 		var closer interface{ Close() error }
 		var err error
-		if q.Reuse {
+		if q.Profile.ConnectionMode == "dial" {
+			r.Stage = "tcp-connect"
+			target, e := protocolruntime.ResolveAllowedTarget(ctx, q.Profile.Host, s.AllowedCIDRs)
+			if e != nil {
+				return finish(e, "NETWORK_ERROR")
+			}
+			closer, err = (&net.Dialer{Timeout: time.Duration(q.Profile.TimeoutMs) * time.Millisecond}).DialContext(ctx, "tcp", net.JoinHostPort(target, fmt.Sprint(q.Profile.Port)))
+		} else if q.Reuse {
 			if s.ListenerStatus == nil {
 				return finish(errors.New("监听运行时未启动"), "NETWORK_ERROR")
 			}
@@ -561,11 +586,14 @@ func (s *Service) probe(ctx context.Context, q connector.Request) (*connector.Re
 	if q.Type == connector.MQTT {
 		r.Message = "平台 MQTT 连接健康，样例解析通过；尚未验证设备到 Broker 的网络和认证"
 	}
-	if q.Type == connector.ModbusTCP {
+	if q.Type == connector.ModbusTCP || q.Type == connector.ModbusRTUTCP {
 		r.Message = "目标设备读取与解析通过（设备或模拟器取决于配置）；测试数据未写入业务链路"
 	}
 	if q.Type == connector.TCP || q.Type == connector.UDP {
 		r.Message = "本机端口可绑定，完整帧识别及解析通过；尚未验证设备到平台的网络"
+		if q.Profile.ConnectionMode == "dial" {
+			r.Message = "目标 TCP 端口连接及样例解析通过；真实协议握手与定时查询需在启用后验证"
+		}
 	}
 	return finish(nil, "SUCCESS")
 }

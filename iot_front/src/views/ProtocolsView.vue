@@ -1,9 +1,10 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
+import ProtocolAccessSettings from '../components/ProtocolAccessSettings.vue'
 import FilePicker from '../components/FilePicker.vue'
 import { transportLabel, formatLabel, statusLabel, platformLabel } from '../presentation'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { label, parsers } from '../labels'
 import ProtocolCatalog from '../components/ProtocolCatalog.vue'
 import ProtocolMarket from '../components/ProtocolMarket.vue'
@@ -28,7 +29,10 @@ const source = reactive({ protocolId:'', name:'', version:'', productId:'', runt
 const binding = reactive({ productId:'', protocolId:'', version:'' })
 const publishedReleases = computed(() => protocols.value.find(item => item.definition.id === binding.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED') || [])
 
-const listener = reactive({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true })
+const activeTab=ref('0')
+const listener = reactive({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[] })
+watch(()=>listener.network,value=>{if(value!=='tcp'){listener.connectionMode='listen';listener.deviceId='';listener.queries=[]}})
+function editProfile(profile){Object.assign(listener,{connectionMode:'listen',deviceId:'',queries:[],childProducts:[]},JSON.parse(JSON.stringify(profile)));activeTab.value='network'}
 const savingListener = ref(false)
 const listenerReleases = computed(() => protocols.value.find(item => item.definition.id === listener.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED' && item.artifact?.runtime === 'go-protocol-v2' && item.capabilities?.includes('ingress')) || [])
 const command = reactive({ profileId:'', deviceId:'', body:'{"type":"time-sync"}' })
@@ -105,7 +109,7 @@ async function saveListener() {
   savingListener.value = true
   try {
     result.value = await api('/api/v2/device-access-profiles', { method:'POST', body:JSON.stringify(listener) })
-    ElMessage.success('接入实例已保存，启用后约一秒内开始监听')
+    ElMessage.success(listener.connectionMode==='dial'?'接入实例已保存，将开始连接设备':'接入实例已保存，将开始监听')
     await load()
   } catch (error) { notifyError(error) } finally { savingListener.value = false }
 }
@@ -157,7 +161,7 @@ onMounted(load)
     <span>{{ protocols.length }} 个协议，{{ releaseCount }} 个不可变版本，{{ profiles.length }} 个接入实例</span>
   </div>
 
-  <el-tabs type="border-card">
+  <el-tabs v-model="activeTab" type="border-card">
     <el-tab-pane label="源码接入">
       <el-alert title="上传协议源码，接入自定义协议" description="下载模板，只修改 Go 函数和 Go 样例，然后上传文件或 ZIP。平台自动识别能力、生成版本、编译并核对结果；选择产品后可直接发布绑定。" type="info" :closable="false" show-icon />
       <el-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务缺少源码编译环境，请联系管理员部署支持编译的后端服务。" type="warning" :closable="false" />
@@ -200,8 +204,8 @@ onMounted(load)
         <el-alert v-if="sourceError" class="top-gap" title="操作未完成，请查看原因" type="error" :closable="false"><pre class="source-error">{{ sourceError }}</pre></el-alert>
       </el-form>
     </el-tab-pane>
-    <el-tab-pane label="网络监听">
-      <el-alert title="上传完整设备协议包后，在这里启用设备监听端口" description="先在“协议与版本”绑定产品。协议包负责分帧、识别设备、解析和应答；切换产品版本后，连接在完整帧及待应答命令结束后使用新版本。容器部署请使用已映射的端口。" type="info" :closable="false" show-icon />
+    <el-tab-pane label="网络接入" name="network">
+      <el-alert title="配置设备连接平台或平台连接设备" description="先绑定主设备和子设备产品的协议。设备连接平台时配置本机监听端口；平台连接设备时配置设备地址，并按需添加定时查询。协议包负责握手、分帧、解析和应答。" type="info" :closable="false" show-icon />
       <el-form label-position="top" class="top-gap">
         <div class="form-grid">
           <el-form-item label="接入实例标识"><el-input v-model="listener.id" placeholder="例如 dahua-tcp" /></el-form-item>
@@ -209,13 +213,15 @@ onMounted(load)
           <el-form-item label="协议"><el-select v-model="listener.protocolId" filterable @change="listener.protocolVersion = ''"><el-option v-for="p in protocols" :key="p.definition.id" :label="p.definition.name" :value="p.definition.id" /></el-select></el-form-item>
           <el-form-item label="产品当前绑定版本"><el-select v-model="listener.protocolVersion"><el-option v-for="release in listenerReleases" :key="release.version" :label="release.version" :value="release.version" /></el-select></el-form-item>
           <el-form-item label="网络"><el-select v-model="listener.network"><el-option label="长连接" value="tcp" /><el-option label="数据报" value="udp" /></el-select></el-form-item>
-          <el-form-item label="本机监听地址"><el-input v-model="listener.host" /></el-form-item>
+          <el-form-item v-if="listener.network==='tcp'" label="连接方向"><el-select v-model="listener.connectionMode"><el-option value="listen" label="设备连接平台"/><el-option value="dial" label="平台连接设备"/></el-select></el-form-item>
+<el-form-item v-if="listener.connectionMode==='dial'" label="已配置的设备标识"><el-input v-model="listener.deviceId" /></el-form-item>
+<el-form-item :label="listener.connectionMode==='dial'?'设备地址 / 主机名':'本机监听地址'"><el-input v-model="listener.host" /></el-form-item>
           <el-form-item label="端口"><el-input-number v-model="listener.port" :min="1" :max="65535" /></el-form-item>
           <el-form-item label="操作超时（毫秒）"><el-input-number v-model="listener.timeoutMs" :min="1" :max="30000" /></el-form-item>
         </div>
         <el-switch v-model="listener.autoRegister" active-text="自动登记协议识别的新设备" /><small class="subline">关闭时，只接收该产品下已登记且启用的设备。</small>
-        <el-switch v-model="listener.enabled" active-text="启用监听" />
-        <div class="dialog-actions"><el-button type="primary" :loading="savingListener" @click="saveListener">保存接入实例</el-button></div>
+        <el-switch v-model="listener.enabled" active-text="启用接入" />
+        <ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/><div class="dialog-actions"><el-button type="primary" :loading="savingListener" @click="saveListener">保存接入实例</el-button></div>
       </el-form>
       <el-divider content-position="left">设备下行命令</el-divider>
       <el-form label-position="top"><div class="form-grid">
@@ -257,7 +263,7 @@ onMounted(load)
         <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</el-tag></template></el-table-column>
         <el-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></el-table-column>
         <el-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
+        <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button v-if="row.mode==='listener'" @click="editProfile(row)">编辑接入</el-button><el-button @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
       </el-table>
     </el-tab-pane>
     <el-tab-pane label="组织发布" lazy><ProtocolMarket :protocols="protocols"/></el-tab-pane>

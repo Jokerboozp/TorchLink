@@ -50,7 +50,7 @@ func (r *Repository) SaveOnboarding(_ context.Context, b model.OnboardingBundle)
 			return errors.New("product binding changed; test again")
 		}
 		for _, p := range r.accessProfiles {
-			if !b.ReuseProfile && p.Enabled && p.Mode == "listener" && v.Mode == "listener" && p.Network == v.Network && p.Port == v.Port {
+			if v.ConnectionMode != "dial" && p.ConnectionMode != "dial" && !b.ReuseProfile && p.Enabled && p.Mode == "listener" && v.Mode == "listener" && p.Network == v.Network && p.Port == v.Port {
 				return errors.New("listener port is already reserved")
 			}
 		}

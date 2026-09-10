@@ -77,6 +77,7 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	repositorytest.DeviceShadow(t, r)
 	repositorytest.NamedShadows(t, r)
 	repositorytest.ProtocolRegistration(t, r)
+	repositorytest.ProtocolChildren(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}
 	if e = r.SaveManagedDevice(ctx, d); e != nil {
 		t.Fatal(e)

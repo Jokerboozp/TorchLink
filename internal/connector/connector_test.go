@@ -7,7 +7,7 @@ import (
 )
 
 func TestCapabilitiesAndUnsupported(t *testing.T) {
-	if len(Types()) != 5 || !Describe(ModbusTCP).Capabilities.ReadOnce || Describe(HTTP).Capabilities.Command || Describe(Edge).Supported {
+	if len(Types()) != 6 || !Describe(ModbusTCP).Capabilities.ReadOnce || Describe(HTTP).Capabilities.Command || Describe(Edge).Supported {
 		t.Fatal("incorrect capabilities")
 	}
 	a := Adapter{Kind: Edge, Probe: func(context.Context, Request) (*Result, error) { t.Fatal("unsupported probe called"); return nil, nil }}

@@ -46,6 +46,10 @@ func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "接入实例不存在")
 		return
 	}
+	if !p.Enabled {
+		problem(w, 422, "接入实例已停用")
+		return
+	}
 	if p.EdgeNodeID != "" {
 		problem(w, 422, "边缘节点功能已移除，不能执行旧现场命令")
 		return
@@ -55,6 +59,7 @@ func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	delete(command, "requestId")
+	delete(command, "_scheduled")
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	result, err := s.protocolListeners.Command(ctx, claims(r).TenantID, r.PathValue("id"), r.PathValue("deviceId"), command)
@@ -75,7 +80,7 @@ func validateListenerProfile(v model.DeviceAccessProfile) error {
 	if v.Network != "tcp" && v.Network != "udp" {
 		return errors.New("监听网络须为 tcp 或 udp")
 	}
-	if net.ParseIP(v.Host) == nil {
+	if v.ConnectionMode != "dial" && net.ParseIP(v.Host) == nil {
 		return errors.New("监听地址须为本机 IP，例如 0.0.0.0 或 127.0.0.1")
 	}
 	if v.Port < 1 || v.Port > 65535 {

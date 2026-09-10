@@ -10,16 +10,17 @@ import (
 type Type string
 
 const (
-	MQTT      Type = "MQTT"
-	HTTP      Type = "HTTP"
-	TCP       Type = "TCP"
-	UDP       Type = "UDP"
-	ModbusTCP Type = "MODBUS_TCP"
-	ModbusRTU Type = "MODBUS_RTU"
-	OPCUA     Type = "OPC_UA"
-	SNMP      Type = "SNMP"
-	BACnet    Type = "BACNET"
-	Edge      Type = "EDGE"
+	MQTT         Type = "MQTT"
+	HTTP         Type = "HTTP"
+	TCP          Type = "TCP"
+	UDP          Type = "UDP"
+	ModbusTCP    Type = "MODBUS_TCP"
+	ModbusRTUTCP Type = "MODBUS_RTU_TCP"
+	ModbusRTU    Type = "MODBUS_RTU"
+	OPCUA        Type = "OPC_UA"
+	SNMP         Type = "SNMP"
+	BACnet       Type = "BACNET"
+	Edge         Type = "EDGE"
 )
 
 type Request struct {
@@ -93,6 +94,7 @@ func Types() []Description {
 		{MQTT, "MQTT 标准设备", true, Capabilities{Preview: true, DeviceCredential: true, Command: true}},
 		{HTTP, "HTTP 标准上报", true, Capabilities{Preview: true, DeviceCredential: true}},
 		{ModbusTCP, "Modbus TCP", true, Capabilities{Preview: true, ReadOnce: true}},
+		{ModbusRTUTCP, "Modbus RTU 串口透传 TCP", true, Capabilities{Preview: true, ReadOnce: true}},
 		{TCP, "TCP 设备", true, Capabilities{Preview: true, Listener: true, Command: true}},
 		{UDP, "UDP 设备", true, Capabilities{Preview: true, Listener: true, Command: true}},
 	}

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"iot-platform/internal/modbusframe"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
@@ -164,7 +165,7 @@ func (r *Runtime) updateFailure(ctx context.Context, profile model.DeviceAccessP
 }
 
 func releaseBlocks(release model.ProtocolRelease) ([]model.ModbusReadBlock, error) {
-	if release.Transport != "MODBUS_TCP" {
+	if release.Transport != "MODBUS_TCP" && release.Transport != "MODBUS_RTU" {
 		return nil, errors.New("中心轮询仅支持 Modbus TCP")
 	}
 	var blocks []model.ModbusReadBlock
@@ -199,7 +200,8 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 		return nil, errors.New("Modbus read concurrency limit reached")
 	}
 
-	if !strings.EqualFold(release.Transport, "MODBUS_TCP") {
+	rtu := profile.WireFormat == "rtu_over_tcp"
+	if (!rtu && !strings.EqualFold(release.Transport, "MODBUS_TCP")) || (rtu && !strings.EqualFold(release.Transport, "MODBUS_RTU")) {
 		return nil, fmt.Errorf("transport %q is not MODBUS_TCP", release.Transport)
 	}
 	if strings.TrimSpace(profile.Host) == "" {
@@ -220,6 +222,11 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 	if err != nil {
 		return nil, err
 	}
+	unlock, err := lockModbusBus(ctx, net.JoinHostPort(targetHost, strconv.Itoa(profile.Port)))
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	var conn net.Conn
 	defer func() {
 		if conn != nil {
@@ -234,6 +241,9 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 		request, buildErr := buildReadRequest(transaction, byte(profile.UnitID), block)
 		if buildErr != nil {
 			return nil, buildErr
+		}
+		if rtu {
+			request = modbusframe.AppendCRC(append([]byte(nil), request[6:]...))
 		}
 		startedAt := time.Now()
 		attempts := profile.Retries + 1
@@ -258,7 +268,11 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 			active := conn
 			stopCancel := context.AfterFunc(ctx, func() { _ = active.Close() })
 			if _, err = conn.Write(request); err == nil {
-				response, err = readResponse(conn, transaction, byte(profile.UnitID), byte(block.FunctionCode))
+				if rtu {
+					response, err = readRTUResponse(conn, byte(profile.UnitID), byte(block.FunctionCode))
+				} else {
+					response, err = readResponse(conn, transaction, byte(profile.UnitID), byte(block.FunctionCode))
+				}
 			}
 			stopCancel()
 			if ctx.Err() != nil {
@@ -273,9 +287,16 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 		if err != nil {
 			return nil, &ModbusReadError{Request: request, Response: response, Cause: fmt.Errorf("read block %s: %w", block.ID, err)}
 		}
+		if err = validateReadByteCount(response, block, rtu); err != nil {
+			return nil, &ModbusReadError{Request: request, Response: response, Cause: err}
+		}
 		payload, _ := json.Marshal(strings.ToUpper(hex.EncodeToString(response)))
 		now := time.Now()
-		raws = append(raws, model.RawMessage{MessageID: fmt.Sprintf("raw_modbus_%d_%d", now.UnixNano(), transaction), Source: "modbus-tcp-collector", TenantID: profile.TenantID, ProductID: profile.ProductID, DeviceID: profile.DeviceID, Protocol: "modbus-tcp", Transport: "MODBUS_TCP", ReceivedAt: now.UnixMilli(), PayloadFormat: "hex", Payload: payload, RemoteAddress: net.JoinHostPort(profile.Host, strconv.Itoa(profile.Port)), ProtocolID: release.ProtocolID, ProtocolVersion: release.Version, PointTableVersion: release.PointTableVersion, CollectorID: profile.CollectorID, Metadata: map[string]any{"profileId": profile.ID, "blockId": block.ID, "functionCode": block.FunctionCode, "startAddress": block.StartAddress, "quantity": block.Quantity, "transactionId": transaction, "requestHex": strings.ToUpper(hex.EncodeToString(request)), "latencyMs": time.Since(startedAt).Milliseconds()}})
+		transport := "MODBUS_TCP"
+		if rtu {
+			transport = "MODBUS_RTU_TCP"
+		}
+		raws = append(raws, model.RawMessage{MessageID: fmt.Sprintf("raw_modbus_%d_%d", now.UnixNano(), transaction), Source: "modbus-tcp-collector", TenantID: profile.TenantID, ProductID: profile.ProductID, DeviceID: profile.DeviceID, Protocol: "modbus-tcp", Transport: transport, ReceivedAt: now.UnixMilli(), PayloadFormat: "hex", Payload: payload, RemoteAddress: net.JoinHostPort(profile.Host, strconv.Itoa(profile.Port)), ProtocolID: release.ProtocolID, ProtocolVersion: release.Version, PointTableVersion: release.PointTableVersion, CollectorID: profile.CollectorID, Metadata: map[string]any{"profileId": profile.ID, "blockId": block.ID, "functionCode": block.FunctionCode, "startAddress": block.StartAddress, "quantity": block.Quantity, "transactionId": transaction, "requestHex": strings.ToUpper(hex.EncodeToString(request)), "latencyMs": time.Since(startedAt).Milliseconds(), "wireFormat": profile.WireFormat}})
 	}
 	return raws, nil
 }

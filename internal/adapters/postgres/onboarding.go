@@ -87,9 +87,9 @@ func (r *Repository) SaveOnboarding(ctx context.Context, b model.OnboardingBundl
 				return errors.New("listener changed; test again")
 			}
 		}
-		if v.Mode == "listener" && !b.ReuseProfile {
+		if v.ConnectionMode != "dial" && v.Mode == "listener" && !b.ReuseProfile {
 			var used bool
-			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_access_profile WHERE enabled AND body->>'mode'='listener' AND body->>'network'=$1 AND (body->>'port')::int=$2)`, v.Network, v.Port).Scan(&used); err != nil {
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_access_profile WHERE enabled AND COALESCE(body->>'connectionMode','')!='dial' AND body->>'mode'='listener' AND body->>'network'=$1 AND (body->>'port')::int=$2)`, v.Network, v.Port).Scan(&used); err != nil {
 				return err
 			}
 			if used {

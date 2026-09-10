@@ -17,6 +17,7 @@ const MaxFrameBytes = 64 << 10
 const MaxStateBytes = 64 << 10
 
 type Request struct {
+	DeviceID  string            `json:"deviceId,omitempty"`
 	Version   int               `json:"version"`
 	Operation string            `json:"operation"`
 	Raw       *model.RawMessage `json:"raw,omitempty"`
@@ -26,7 +27,13 @@ type Request struct {
 	Now       int64             `json:"now,omitempty"`
 }
 
+type ChildFrame struct {
+	model.ChildIdentity
+	Payload string `json:"payload,omitempty"`
+}
+
 type Response struct {
+	Children        []ChildFrame           `json:"children,omitempty"`
 	Error           string                 `json:"error,omitempty"`
 	Consumed        int                    `json:"consumed,omitempty"`
 	NeedMore        bool                   `json:"needMore,omitempty"`
@@ -88,6 +95,18 @@ func validateResponse(operation string, dataLength int, result Response) error {
 		reply, decodeErr := hex.DecodeString(result.Reply)
 		if decodeErr != nil || len(reply) > MaxFrameBytes {
 			return errors.New("协议应答必须是至多 64 KiB 的十六进制数据")
+		}
+	}
+	if len(result.Children) > 256 {
+		return errors.New("too many child observations")
+	}
+	for _, child := range result.Children {
+		if operation != "ingress" || result.NeedMore || !model.ValidProtocolDeviceID(child.Address) || !model.ValidProtocolDeviceID(child.Type) || len(child.Name) > 256 {
+			return errors.New("invalid child observation")
+		}
+		data, err := hex.DecodeString(child.Payload)
+		if err != nil || len(data) > MaxFrameBytes {
+			return errors.New("invalid child payload")
 		}
 	}
 	switch operation {

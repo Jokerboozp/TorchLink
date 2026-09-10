@@ -301,6 +301,11 @@ type ProductProtocolBinding struct {
 }
 
 type DeviceAccessProfile struct {
+	ConnectionMode string                `json:"connectionMode,omitempty"` // listen (default) or dial
+	WireFormat     string                `json:"wireFormat,omitempty"`     // modbus_tcp (default) or rtu_over_tcp
+	Queries        []ProtocolQuery       `json:"queries,omitempty"`
+	ChildProducts  []ChildProductBinding `json:"childProducts,omitempty"`
+
 	CredentialRef string `json:"credentialRef,omitempty"`
 	EndpointPath  string `json:"endpointPath,omitempty"`
 	SerialPort    string `json:"serialPort,omitempty"`
@@ -335,10 +340,14 @@ type DeviceAccessProfile struct {
 }
 
 // Configuration clears only runtime observations; UpdatedAt remains the configuration revision.
-func (p DeviceAccessProfile) Configuration() DeviceAccessProfile {
+func (p DeviceAccessProfile) Configuration() string {
 	p.RuntimeStatus, p.LastError = "", ""
 	p.LastSuccessAt, p.LastErrorAt = 0, 0
-	return p
+	b, err := json.Marshal(p)
+	if err != nil {
+		return "invalid"
+	}
+	return string(b)
 }
 
 // ProtocolAssistantField is the editable address/mapping contract between the

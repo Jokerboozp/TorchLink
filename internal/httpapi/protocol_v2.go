@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/protocolruntime"
 	"iot-platform/internal/protocolworker"
@@ -528,6 +529,14 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 		return model.ProductProtocolBinding{}, err
 	}
 	for _, profile := range profiles {
+		if profile.Enabled && profile.ProductID == productID && len(profile.Queries) > 0 && !protocolworker.HasCapability(release, "encode") {
+			return model.ProductProtocolBinding{}, errors.New("该产品已有定时查询，新版本必须保留 encode 能力")
+		}
+		for _, mapping := range profile.ChildProducts {
+			if profile.Enabled && mapping.ProductID == productID && release.PayloadFormat != "hex" {
+				return model.ProductProtocolBinding{}, errors.New("子设备接入映射要求 HEX 解析协议")
+			}
+		}
 		if profile.Enabled && profile.Mode == "listener" && profile.ProductID == productID && !listenerSupports(release, profile.Network) {
 			return model.ProductProtocolBinding{}, errors.New("新版本不支持该产品已启用的 TCP/UDP 接入实例")
 		}
@@ -617,20 +626,28 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 			problem(w, 422, "请选择支持该 TCP/UDP 网络与 ingress 能力的完整 Go 协议包")
 			return
 		}
-		v.DeviceID = ""
+		if v.ConnectionMode != "dial" {
+			v.DeviceID = ""
+		} else {
+			device, e := s.engine.Repo.GetManagedDevice(r.Context(), v.TenantID, v.DeviceID)
+			if e != nil || device.ProductID != v.ProductID || device.GatewayID != "" {
+				problem(w, 422, "主动连接需要已配置的主设备")
+				return
+			}
+		}
 		profiles, listErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), "")
 		if listErr != nil {
 			problem(w, 500, "读取接入实例失败")
 			return
 		}
 		for _, other := range profiles {
-			if v.Enabled && other.Enabled && other.Mode == "listener" && other.Network == v.Network && other.Port == v.Port && (other.TenantID != v.TenantID || other.ID != v.ID) {
+			if v.ConnectionMode != "dial" && other.ConnectionMode != "dial" && v.Enabled && other.Enabled && other.Mode == "listener" && other.Network == v.Network && other.Port == v.Port && (other.TenantID != v.TenantID || other.ID != v.ID) {
 				problem(w, 409, "该监听端口已由另一个接入实例占用")
 				return
 			}
 		}
 	} else {
-		if (v.Network == "serial") != (release.Transport == "MODBUS_RTU") {
+		if (v.WireFormat == "rtu_over_tcp") != (release.Transport == "MODBUS_RTU") {
 			problem(w, 422, "serial profile and release transport must match")
 			return
 		}
@@ -639,6 +656,10 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 			problem(w, 422, "device not found or does not belong to product")
 			return
 		}
+	}
+	if err := onboarding.ValidateChildProducts(r.Context(), s.engine.Repo, v, release); err != nil {
+		problem(w, 422, err.Error())
+		return
 	}
 	binding, err := s.engine.Repo.GetProductProtocolBinding(r.Context(), v.TenantID, v.ProductID)
 	if err != nil || binding.ProtocolID != v.ProtocolID || binding.Version != v.ProtocolVersion {
@@ -707,6 +728,9 @@ func legacyProtocolShim(release model.ProtocolRelease) model.ProtocolPackage {
 	return model.ProtocolPackage{ID: release.ProtocolID + "@" + release.Version, TenantID: release.TenantID, Name: release.ProtocolID + " " + release.Version, Version: release.Version, Protocol: release.ProtocolID, Transport: release.Transport, PayloadFormat: release.PayloadFormat, ParserType: release.ParserType, Status: "PUBLISHED", Description: "Protocol v2 compatibility binding", Config: release.Config, CreatedAt: release.CreatedAt, UpdatedAt: release.PublishedAt}
 }
 func validateAccessProfile(v model.DeviceAccessProfile) error {
+	if err := model.ValidateProtocolAccess(v); err != nil {
+		return err
+	}
 	if v.EdgeNodeID != "" {
 		return errors.New("边缘节点功能已移除，请使用中心直接接入")
 	}

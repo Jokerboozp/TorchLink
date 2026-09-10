@@ -26,6 +26,8 @@ type Repository interface {
 	SubmitProtocolMarket(context.Context, model.ProtocolMarketEntry) error
 	ReviewProtocolMarket(context.Context, string, string, string, string, string, string, int64) (model.ProtocolMarketEntry, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
+	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)
+	ListManagedDeviceChildren(context.Context, string, string, int, int) ([]model.ManagedDevice, int, error)
 	GetTwinNodes(context.Context, string, []string) ([]model.TwinNode, error)
 	GetTwinTopology(context.Context, string) (model.TwinTopology, error)
 	UpdateTwinTopology(context.Context, model.TwinUpdate) (model.TwinTopology, error)
