@@ -45,7 +45,6 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	}
 	defer pool.Close()
 	r := &Repository{pool: pool}
-	seedLegacyShadow(t, r)
 	if e = r.Migrate(ctx); e != nil {
 		t.Fatal(e)
 	}
@@ -67,15 +66,12 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	if e = r.pool.QueryRow(ctx, `SELECT count(*) FROM edge_node WHERE tenant_id='legacy' AND id='node'`).Scan(&preserved); e != nil || preserved != 1 {
 		t.Fatal("historical node data was changed", e)
 	}
+	verifyRetiredDeviceTablesUntouched(t, r)
 	verifyOnboardingAndParseMigration(t, r)
-	verifyLegacyShadow(t, r)
 	repositorytest.AccessStatus(t, r)
 	repositorytest.ProtocolMarket(t, r)
 	repositorytest.ExecutionLease(t, r)
 	repositorytest.RawReservation(t, r)
-	repositorytest.TwinTopology(t, r)
-	repositorytest.DeviceShadow(t, r)
-	repositorytest.NamedShadows(t, r)
 	repositorytest.ProtocolRegistration(t, r)
 	repositorytest.ProtocolChildren(t, r)
 	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: "hash"}

@@ -409,3 +409,17 @@ P0/P1 已有链路和新增一致性修复均已实测；发现缺陷继续修�
 - 本轮 `npm --prefix iot_front test` 62/62 通过（0.207 秒）；`npm --prefix iot_front run build` 通过，仅既有大 chunk 提示。`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestDeviceConnectionBrowser$|^TestOnboardingBrowser$|^TestTCPParentChildSourceChain$' -count=1 -v` 通过（包 20.526 秒，详情 3.06 / 向导 3.66 / 主子设备 11.95 秒）。覆盖实际鉴权、源码/TCP 主子链路和原有影子编辑、接入向导、凭据清理及窄屏；后续加强背景色断言后详情竞态回归再次通过（3.25 秒，包 5.139 秒）。
 - 指定真实设备最终只读复查：Chrome 桌面打开错误提示为 0，接入信息和 temperature=26.5 等最新属性位于各自表格；桌面内容宽 900/容器宽 900，移动内容宽 390/容器宽 390，无抽屉横向溢出，已检查实际截图。使用现有 Vite 即可看到改动，未重启 API、未修改该设备配置或凭据，也未发送设备命令。
 - 未执行：本轮无后端业务实现改动，不重复运行 Go 全量；真实设备控制、物理设备联调和生产部署未执行。暂未提交或推送。最终 `git diff --check` 和新增浏览器脚本 `node --check` 通过。
+
+### 移除孪生拓扑与设备影子（2026-09-10）
+
+- 按用户要求先提交并推送此前全部改动：`9ecde8297261496875a50b9c86c227dbcd5107c9`，中文提交“统一 Go 协议契约并修复设备连接详情”。`origin/main` 与本地 SHA 已核对一致，推送后工作区干净，随后在原 main 实施本轮移除。
+- 已移除设备详情的孪生/影子组件、HTTP 路由、影子 MQTT 查询/应答与主题授权、标准消息命名影子字段及解析、属性报文影子投影、领域模型和内存/PostgreSQL 仓储实现。不影响主子设备自动登记及关联、最新属性、状态历史、原始报文、规则告警和命令回执。
+- 数据决定：新 schema 不再建影子及拓扑表；现有表不自动删除或改写，运行时代码不再访问。删除过时专题文档并同步 README/技术说明，保留历史阶段记录和原任务说明；不通过恢复旧影子行为兼容历史协议数据。
+- 测试调整保留实际业务覆盖：大型属性报文仍能完成处理及触发规则告警；标准 MQTT 仍验证真实属性上报与命令回执，旧影子主题改为拒绝断言；原接入向导去掉已移除的影子编辑步骤，增加入口不存在检查，其余认证、凭据、Modbus、详情、主子设备流程保留。
+- 首轮核心、Parser、Onboarding、内存及 MQTT 包通过（1.112 / 2.582 / 1.017 / 1.929 / 2.782 秒），未配置真实中间件的可选测试跳过。同轮 HTTP 包 68.508 秒、PostgreSQL 包 0.505 秒通过（后者未配置的可选实库测试跳过）。
+- 旧路由/主题专项：`go test -race ./internal/httpapi ./internal/adapters/mqtt ./internal/core -run 'TestRetiredDeviceFeatures|TestStandardTopicIdentity|TestLargePropertyReport|TestOnboarding' -count=1` 通过（1.987 / 1.721 / 1.620 秒）。已核对 7 个 HTTP 路由返回 404、设备详情仍为 200、签发的设备 JWT 和响应不再包含影子主题、MQTT 主题解析拒绝旧入口。
+- PostgreSQL 实库：使用现有本地依赖的独立临时 schema，`go test -race ./internal/adapters/postgres -run '^TestDeviceOperationsMigrationAndAtomicity$' -count=1 -v` 通过（用例 4.80 秒，包 6.437 秒）。验证新 schema 无影子/拓扑表，模拟同名历史表及 JSON 数据在重复迁移后保持原样；原接入、主子设备并发登记、凭据、命令和状态/消息历史事务测试继续通过。仅清理自身 schema，未修改业务库数据。
+- MQTT 实际 Broker：`IOT_TEST_MQTT_DOCKER=1 go test -race ./internal/adapters/mqtt ./internal/durablequeue -count=1 -v` 通过（12.192 / 1.925 秒）。隔离 Mosquitto 的认证、重启、离线投递和持久队列用例 8.28 秒通过，保留部件告警及恢复处理。此次未重跑 EMQX JWT 完整网络 ACL 矩阵；影子授权移除由上述实际签发令牌断言验证，不与 Broker 联调混为一项。
+- 前端 `npm --prefix iot_front test` 62/62、0 跳过（0.232 秒），`npm --prefix iot_front run build` 1.27 秒通过，仅既有大 chunk 提示。`IOT_TEST_BROWSER=<Chrome路径> go test -race ./internal/httpapi -run '^TestDeviceConnectionBrowser$|^TestOnboardingBrowser$|^TestTCPParentChildSourceChain$' -count=1 -v` 通过（包 27.130 秒，详情 6.32 / 向导 4.53 / 主子链路 14.61 秒），确认移除按钮和请求，保留主子设备详情、真实源码/TCP、鉴权和凭据、窄屏与数据表格流程。
+- 最终根目录 `go test ./...` 退出码 0，部分包命中缓存，未配置的可选外部测试跳过；独立 GB26875 module `go test ./...` 通过并命中缓存，源码未修改。没有测试失败或实施阻塞。
+- 本轮移除尚未再次提交、推送或部署；现有 API 未重启，移除后的接口需部署新代码才生效。真实消防设备、Windows 实际运行和生产验收未执行。最终 `git diff --check` 通过，README、技术详情及 AGENTS.md 的本地文档链接均有效。

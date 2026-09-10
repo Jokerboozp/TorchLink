@@ -8,8 +8,8 @@ import (
 
 func StandardTopic(topic string) (tenant, product, device, kind string, err error) {
 	p := strings.Split(topic, "/")
-	if len(p) != 7 || p[0] != "" || p[1] != "iot" || p[2] != "up" || (p[6] != "property" && p[6] != "event" && p[6] != "state" && p[6] != "command-reply" && p[6] != "shadow-get") {
-		err = errors.New("expected /iot/up/{tenant}/{product}/{device}/{property|event|state|command-reply|shadow-get}")
+	if len(p) != 7 || p[0] != "" || p[1] != "iot" || p[2] != "up" || (p[6] != "property" && p[6] != "event" && p[6] != "state" && p[6] != "command-reply") {
+		err = errors.New("expected /iot/up/{tenant}/{product}/{device}/{property|event|state|command-reply}")
 		return
 	}
 	return p[3], p[4], p[5], p[6], nil

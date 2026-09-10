@@ -14,8 +14,6 @@ func (s *Server) SetDeviceOperations(publish func(context.Context, string, []byt
 }
 func (s *Server) RunCredentialRevocations(ctx context.Context) { s.onboarding.RetryRevocations(ctx) }
 func (s *Server) deviceOperationsRoutes() {
-	s.shadowRoutes()
-	s.twinRoutes()
 	s.router.GET("/api/v1/device-registry/:id/history", s.authorize("viewer"), s.endpoint(s.deviceHistory, "id"))
 	s.router.GET("/api/v1/device-registry/:id/commands", s.authorize("viewer"), s.endpoint(s.listDeviceCommands, "id"))
 	s.router.POST("/api/v1/device-registry/:id/commands", s.authorize("operator"), s.endpoint(s.sendDeviceCommand, "id"))

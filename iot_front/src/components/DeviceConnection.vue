@@ -1,8 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import DeviceTwin from './DeviceTwin.vue'
-import DeviceShadow from './DeviceShadow.vue'
 import { api, formatTime, notifyError, pretty, session } from '../api'
 import { transportLabel, statusLabel } from '../presentation'
 import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatuses, dataStatuses, businessStatuses, stateSources, messageTypeLabel, label } from '../labels'
@@ -10,7 +8,7 @@ import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatus
 const props = defineProps({ deviceId:String })
 const emit = defineEmits(['close','navigate','device'])
 const data = ref(null), loading = ref(false), actionBusy = ref(false), error = ref(''), selectedProfile = ref('')
-const expanded = ref([]), credential = ref(null), commandResult = ref(null)
+const credential = ref(null), commandResult = ref(null)
 const commandType = ref(''), commandData = ref('{}'), command = ref('{"type":""}')
 const pendingCommand = ref(null), pendingProtocol = ref(null)
 const lists = reactive(Object.fromEntries(['history','events','commands','children'].map(key => [key,{items:[],total:0,page:1,loading:false,error:''}])))
@@ -110,7 +108,7 @@ async function send() {
   })
 }
 watch(() => props.deviceId,() => {
-  data.value = null; selectedProfile.value = ''; credential.value = null; expanded.value = []; newCommand()
+  data.value = null; selectedProfile.value = ''; credential.value = null; newCommand()
   for (const section of Object.values(lists)) Object.assign(section,{items:[],total:0,page:1,error:'',loading:false})
   load()
 },{immediate:true})
@@ -270,10 +268,6 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           <div class="section-actions"><el-button :disabled="loading || actionBusy || !data.credentialEnabled" @click="disable">禁用凭据</el-button><el-button :disabled="loading || actionBusy" @click="rotate">重新生成凭据</el-button></div>
           <pre v-if="credential">仅本次显示，请妥善保存：{{pretty(credential)}}</pre>
           <p v-for="revocation in data.revocations" :key="revocation.id">旧凭据消息服务撤销：{{revocation.status==='REVOKED' ? '已完成' : '待完成（平台已停用旧凭据）'}}</p>
-        </section>
-
-        <section class="connection-section device-advanced">
-          <el-collapse v-model="expanded"><el-collapse-item title="设备孪生与拓扑" name="twin"><DeviceTwin v-if="expanded.includes('twin')" :device-id="props.deviceId" /></el-collapse-item><el-collapse-item title="设备影子" name="shadow"><DeviceShadow v-if="expanded.includes('shadow')" :device-id="props.deviceId" /></el-collapse-item></el-collapse>
         </section>
       </template>
     </div>

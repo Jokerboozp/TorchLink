@@ -82,13 +82,6 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 		if tnt != tenant {
 			return nil
 		}
-		if kind == "shadow-get" {
-			topic, data, e := srv.onboarding.MQTTShadowReply(c, tnt, p, d, payload)
-			if e != nil {
-				return e
-			}
-			return platform.Publish(c, topic, data, 1, false)
-		}
 		raw, e := srv.onboarding.PrepareStandard(c, tnt, p, d, kind, "MQTT", payload)
 		if e == nil {
 			_, _, e = engine.IngestRaw(c, raw)
@@ -159,56 +152,6 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 		m, e := repo.GetLatestMessage(ctx, tenant, "device")
 		return e == nil && m.MessageType == model.PropertyReport && m.Properties["temperature"] == 26.5
 	})
-	until(t, func() bool {
-		v, e := repo.GetDeviceShadow(ctx, tenant, "device")
-		return e == nil && v.Reported["temperature"] == 26.5
-	})
-	shadowReplies := make(chan model.DeviceShadow, 4)
-	wait(t, device.Subscribe(fmt.Sprintf("/iot/down/%s/product/device/shadow", tenant), 1, func(_ mqtt.Client, m mqtt.Message) {
-		var reply struct {
-			ID     string             `json:"id"`
-			Status string             `json:"status"`
-			Shadow model.DeviceShadow `json:"shadow"`
-		}
-		if json.Unmarshal(m.Payload(), &reply) == nil && (reply.ID == "shadow-live-1" || reply.ID == "shadow-named") && reply.Status == "ok" {
-			select {
-			case shadowReplies <- reply.Shadow:
-			default:
-			}
-		}
-	}))
-	wait(t, device.Publish(prefix+"shadow-get", 1, false, `{"id":"shadow-live-1"}`))
-	select {
-	case shadow := <-shadowReplies:
-		if shadow.TenantID != tenant || shadow.DeviceID != "device" || shadow.Reported["temperature"] != 26.5 {
-			t.Fatal("authenticated MQTT shadow", shadow)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("MQTT shadow reply missing")
-	}
-
-	t.Log("live MQTT: authenticated shadow query returned actual reported state with matching request ID")
-	namedProperty := []byte(fmt.Sprintf(`{"id":"named-property-1","shadow":"control","timestamp":%d,"data":{"temperature":21}}`, time.Now().UnixMilli()))
-	wait(t, device.Publish(prefix+"property", 1, false, namedProperty))
-	until(t, func() bool {
-		v, e := repo.GetDeviceShadow(ctx, tenant, "device", "control")
-		return e == nil && v.Reported["temperature"] == float64(21)
-	})
-	wait(t, device.Publish(prefix+"shadow-get", 1, false, `{"id":"shadow-named","name":"control"}`))
-	select {
-	case shadow := <-shadowReplies:
-		if shadow.Name != "control" || shadow.Reported["temperature"] != float64(21) {
-			t.Fatal("named MQTT shadow", shadow)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("named MQTT shadow reply missing")
-	}
-	unnamed, err := repo.GetDeviceShadow(ctx, tenant, "device")
-	if err != nil || unnamed.Reported["temperature"] != 26.5 {
-		t.Fatal("named report modified default shadow", unnamed, err)
-	}
-	t.Log("live MQTT: named property archived and projected independently; authenticated named query returned matching state")
-
 	adminToken, _ := srv.auth.Issue("test", tenant, "admin", nil, time.Minute)
 	r = httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", bytes.NewBufferString(`{"confirmed":true,"id":"command-1","type":"test","data":{}}`))
 	r.Header.Set("Authorization", "Bearer "+adminToken)
@@ -280,7 +223,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 		} else {
 			t.Log("username binding check not executed: set IOT_TEST_MQTT_STRICT_IDENTITY=true against updated isolated Broker")
 		}
-		for _, topic := range []string{"/iot/down/" + tenant + "/product/other/command", "/iot/down/other-" + tenant + "/product/device/command", "/iot/up/#", "/iot/down/" + tenant + "/product/other/shadow", "/iot/down/other-" + tenant + "/product/device/shadow"} {
+		for _, topic := range []string{"/iot/down/" + tenant + "/product/device/shadow", "/iot/down/" + tenant + "/product/other/command", "/iot/down/other-" + tenant + "/product/device/command", "/iot/up/#", "/iot/down/" + tenant + "/product/other/shadow", "/iot/down/other-" + tenant + "/product/device/shadow"} {
 			op := device.Subscribe(topic, 1, func(mqtt.Client, mqtt.Message) {})
 			if !op.WaitTimeout(5 * time.Second) {
 				t.Fatal("ACL subscription result timed out")
@@ -289,7 +232,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 				t.Fatal("unauthorized subscription not rejected", topic)
 			}
 		}
-		forbidden := []string{"/iot/up/" + tenant + "/product/other/property", "/iot/up/other-" + tenant + "/product/device/property", "/external/raw/" + tenant + "/product/device", "/iot/up/" + tenant + "/product/other/shadow-get", "/iot/up/other-" + tenant + "/product/device/shadow-get"}
+		forbidden := []string{"/iot/up/" + tenant + "/product/device/shadow-get", "/iot/up/" + tenant + "/product/other/property", "/iot/up/other-" + tenant + "/product/device/property", "/external/raw/" + tenant + "/product/device", "/iot/up/" + tenant + "/product/other/shadow-get", "/iot/up/other-" + tenant + "/product/device/shadow-get"}
 		acl := []auth.ACLRule{}
 		for _, topic := range append(forbidden, prefix+"property") {
 			acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: topic})

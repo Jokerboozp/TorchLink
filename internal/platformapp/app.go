@@ -285,13 +285,6 @@ func Run(forcedRole string) {
 	if cfg.ProcessRole != "api" && mqttClient != nil {
 		standardIngress := onboarding.New(repo, parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs)
 		fatal(log, "subscribe standard mqtt", mqttClient.SubscribeStandard(func(c context.Context, tenant, product, device, kind string, payload []byte) error {
-			if kind == "shadow-get" {
-				topic, data, err := standardIngress.MQTTShadowReply(c, tenant, product, device, payload)
-				if err != nil {
-					return err
-				}
-				return mqttClient.Publish(c, topic, data, 1, false)
-			}
 			raw, err := standardIngress.PrepareStandard(c, tenant, product, device, kind, "MQTT", payload)
 			if err != nil {
 				if errors.Is(err, onboarding.ErrAuth) || errors.Is(err, model.ErrInvalidIngress) {

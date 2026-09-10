@@ -2313,9 +2313,6 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "publish", Topic: fmt.Sprintf("/iot/up/%s/%s/%s/%s", v.TenantID, v.ProductID, v.ID, kind)})
 	}
 	acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/down/%s/%s/%s/command", v.TenantID, v.ProductID, v.ID)})
-	if v.Tags["connector"] == "MQTT" || v.Tags["connector"] == "HTTP" {
-		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "publish", Topic: fmt.Sprintf("/iot/up/%s/%s/%s/shadow-get", v.TenantID, v.ProductID, v.ID)}, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/down/%s/%s/%s/shadow", v.TenantID, v.ProductID, v.ID)})
-	}
 
 	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, ttl)
 	if err != nil {
@@ -2323,10 +2320,6 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "websocketUrl": s.mqttWebSocketURL(r)}
-	if v.Tags["connector"] == "MQTT" || v.Tags["connector"] == "HTTP" {
-		response["shadowRequestTopic"] = fmt.Sprintf("/iot/up/%s/%s/%s/shadow-get", v.TenantID, v.ProductID, v.ID)
-		response["shadowResponseTopic"] = fmt.Sprintf("/iot/down/%s/%s/%s/shadow", v.TenantID, v.ProductID, v.ID)
-	}
 	write(w, 200, response)
 }
 

@@ -132,7 +132,6 @@ const (
 )
 
 type StandardMessage struct {
-	ShadowName    string            `json:"shadowName,omitempty"`
 	MessageID     string            `json:"messageId"`
 	RawMessageID  string            `json:"rawMessageId"`
 	TenantID      string            `json:"tenantId"`

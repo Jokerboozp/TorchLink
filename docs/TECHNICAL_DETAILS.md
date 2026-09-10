@@ -10,7 +10,7 @@
 
 设备接入统一入口为 **设备管理 → 添加设备**。支持 MQTT / HTTP 标准上报、Modbus TCP、Go TCP/UDP 协议；具体子集和本地许可见 [统一设备接入与 API](UNIFIED_DEVICE_ONBOARDING.md)。
 
-Go API + Vue 3 管理端，包含协议版本与可信分发、原始报文与告警、默认/命名影子、设备拓扑、知识库和 AI 辅助运维。独立 Access Gateway 按需配置；现场 Agent 与节点升级已移除。项目定位、功能和平台对比见 [README](../README.md)。
+Go API + Vue 3 管理端，包含协议版本与可信分发、原始报文与告警、知识库和 AI 辅助运维。独立 Access Gateway 按需配置；现场 Agent 与节点升级已移除。项目定位、功能和平台对比见 [README](../README.md)。
 
 ## 1. 环境与方案选择
 
@@ -230,8 +230,6 @@ docker compose --env-file .env.online -f compose.yaml -f compose.access.yaml up 
 
 | 模块 | 配置与操作入口 | 边界 |
 | --- | --- | --- |
-| 默认 / 命名影子 | [设备影子](DEVICE_SHADOW.md)：物模型可写属性、版本检查、HTTP/MQTT 读取 | 保存 desired 不自动控制设备；reported 来自成功解析的上报 |
-| 设备拓扑 | [设备孪生与拓扑](DEVICE_TWINS.md)：同租户关系与版本约束 | 不提供三维、物理仿真或关系驱动控制 |
 | 可信目录 | `IOT_PROTOCOL_CATALOG_POLICY`，见 [协议目录](PROTOCOL_CATALOG.md) | 默认留空关闭；HTTPS 与签名验证后仍在消费方编译、试跑 |
 | 企业私有市场 | `IOT_PROTOCOL_MARKET_POLICY`，见 [组织发布与审核](PRIVATE_PROTOCOL_MARKET.md) | 独立管理员审核；机器读取令牌不使用浏览器 JWT |
 
@@ -289,3 +287,9 @@ docker compose --env-file .env.online -f compose.yaml -f compose.access.yaml up 
 界面独立验收：在 `iot_front` 执行 `npm test` 与 `npm run build`，随后执行 `node tests/browser/ui-preview.mjs`，访问终端显示的本机地址。该工具只展示合成数据；登录按钮进入模拟账户，其余写操作返回不可用。它不连接业务后端，不证明真实设备接入、模型调用或备份恢复成功。
 
 本次界面验证（2026-09-10，本机）：前端测试 59 项通过，构建通过，保留主入口超过五百千字节的体积提示；浏览器使用合成数据走查全部 15 个主页面，并在 390 × 844 窄屏核对页面宽度，检查功能搜索、设备向导、设备操作菜单、中文确认框和弹窗独立滚动。未执行真实业务后端、现场设备、模型服务及备份恢复验收。需要真实后端的既有浏览器脚本已同步可见文案，本次仅检查这些脚本的语法。
+
+### 设备状态功能范围
+
+设备管理保留主子设备关联、最新属性、状态历史、原始报文、告警和命令回执。设备孪生关系图、默认/命名设备影子及其 HTTP/MQTT 接口已移除；平台不再生成或查询 desired/reported/delta 投影。具体设备控制继续由协议命令及实际回执完成。
+
+新建数据库不再创建 `device_shadow`、`device_shadow_change` 或 `device_twin_topology`。升级迁移不会删除已有同名表或历史记录，但当前运行代码不再读写它们；不需要为本次更新清空数据库。历史实施记录保留，当前范围以本节及 [实施进度](DEVICE_ACCESS_REFACTOR_PROGRESS.md) 的移除记录为准。

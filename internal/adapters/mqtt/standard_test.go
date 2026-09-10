@@ -7,7 +7,7 @@ func TestStandardTopicIdentity(t *testing.T) {
 	if err != nil || tenant != "t" || product != "p" || device != "d" || kind != "property" {
 		t.Fatal(tenant, product, device, kind, err)
 	}
-	for _, topic := range []string{"/iot/up/t/p/d/command", "iot/up/t/p/d/property", "/iot/up/t/p/d/property/extra", "/external/raw/t/p/d"} {
+	for _, topic := range []string{"/iot/up/t/p/d/shadow-get", "/iot/down/t/p/d/shadow", "/iot/up/t/p/d/command", "iot/up/t/p/d/property", "/iot/up/t/p/d/property/extra", "/external/raw/t/p/d"} {
 		if _, _, _, _, err := StandardTopic(topic); err == nil {
 			t.Fatalf("accepted %q", topic)
 		}

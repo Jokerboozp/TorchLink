@@ -13,6 +13,4 @@ func TestExecutionLeaseOwnership(t *testing.T) { repositorytest.ExecutionLease(t
 
 func TestRawReservationBeforeArchive(t *testing.T) { repositorytest.RawReservation(t, NewRepository()) }
 
-func TestTwinTopology(t *testing.T) { repositorytest.TwinTopology(t, NewRepository()) }
-
 func TestProtocolRegistration(t *testing.T) { repositorytest.ProtocolRegistration(t, NewRepository()) }

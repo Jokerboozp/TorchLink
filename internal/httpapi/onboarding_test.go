@@ -165,7 +165,13 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	if e != nil || mqttToken.ExpiresIn != 300 {
 		t.Fatal("invalid device MQTT token", e)
 	}
+	if strings.Contains(w.Body.String(), "shadow") {
+		t.Fatal("device token response still advertises shadow topics")
+	}
 	claimsJSON, _ := json.Marshal(mqttClaims)
+	if strings.Contains(string(claimsJSON), "shadow") {
+		t.Fatal("device token still authorizes shadow topics")
+	}
 	if strings.Contains(string(claimsJSON), "/external/raw/") || !strings.Contains(string(claimsJSON), "/iot/up/tenant/product/device/property") {
 		t.Fatal("standard device ACL includes raw bypass or misses topic")
 	}
