@@ -31,7 +31,7 @@ test('errors give actionable Chinese feedback for network, permission and format
 })
 
 test('each existing navigation target has Chinese task guidance', () => {
-  assert.equal(Object.keys(pageGuide).length, 15)
+  assert.equal(Object.keys(pageGuide).length, 14)
   for (const guide of Object.values(pageGuide)) {
     assert.equal(guide.steps.length, 3)
     assert.doesNotMatch([guide.title, guide.sub, ...guide.steps].join(''), /[a-z]/i)

@@ -12,7 +12,6 @@ import {
   Cpu,
   Database,
   FileText,
-  FlaskConical,
   LayoutDashboard,
   Library,
   LogOut,
@@ -38,8 +37,7 @@ const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.v
 const DevicesView = defineAsyncComponent(() => import('./views/DevicesView.vue'))
 const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue'))
 const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue'))
-const IntegrationView = defineAsyncComponent(() => import('./views/IntegrationView.vue'))
-const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue'))
+const DeviceAccessView = defineAsyncComponent(() => import('./views/DeviceAccessView.vue'))
 const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
 const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
@@ -71,8 +69,7 @@ const pages = {
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
   products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
   protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView },
-  integration: { ...pageGuide.integration, icon: Upload, component: IntegrationView },
-  testDevice: { ...pageGuide.testDevice, icon: FlaskConical, component: TestDeviceView },
+  integration: { ...pageGuide.integration, icon: Upload, component: DeviceAccessView },
   cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView },
   alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
   inspection: { ...pageGuide.inspection, icon: ChartNoAxesCombined, component: HealthInspectionView },
@@ -86,7 +83,7 @@ const pages = {
 const current = computed(() => pages[active.value])
 const menuGroups = [
   { label: '控制中心', items: ['dashboard'] },
-  { label: '设备接入', items: ['products', 'protocols', 'devices', 'integration', 'testDevice', 'cameras'] },
+  { label: '设备接入', items: ['products', 'protocols', 'devices', 'integration', 'cameras'] },
   { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] },
   { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] },
   { label: '系统维护', items: ['backups'] }
@@ -95,8 +92,8 @@ const currentGroup = computed(() => menuGroups.find(group => group.items.include
 const relatedPages = {
   dashboard: ['devices', 'alarms', 'inspection'],
   products: ['protocols', 'devices'], protocols: ['products', 'integration'],
-  devices: ['integration', 'raw'], integration: ['testDevice', 'raw'],
-  testDevice: ['raw', 'alarms'], cameras: ['devices'],
+  devices: ['integration', 'raw'], integration: ['raw', 'alarms'],
+  cameras: ['devices'],
   alarms: ['rules', 'inspection'], inspection: ['devices', 'alarms'],
   raw: ['protocols', 'devices'], rules: ['alarms', 'ai'],
   knowledge: ['ai', 'aiProviders'], aiProviders: ['ai', 'knowledge'], ai: ['aiProviders', 'knowledge', 'rules'], backups: ['raw']
@@ -139,6 +136,10 @@ function handleAccountCommand(command) {
 }
 
 function openPage(name, detail) {
+  if (name === 'testDevice') {
+    name = 'integration'
+    detail = { ...detail, tab: 'testDevice' }
+  }
   if (!pages[name]) return
   launcherVisible.value = false
   if (active.value === name && !detail) return
