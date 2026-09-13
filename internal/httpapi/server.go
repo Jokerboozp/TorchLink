@@ -172,6 +172,7 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/raw-messages/:id/download", s.authorize("viewer"), s.endpoint(s.downloadRaw, "id"))
 	s.router.POST("/api/v1/raw-messages/replay", s.authorize("admin"), s.endpoint(s.startReplay))
 	s.router.GET("/api/v1/replays/:id", s.authorize("viewer"), s.endpoint(s.getReplay, "id"))
+	s.router.GET("/api/v1/dashboard", s.authorize("viewer"), s.endpoint(s.dashboard))
 	s.router.GET("/api/v1/devices", s.authorize("viewer"), s.endpoint(s.devices))
 	s.router.GET("/api/v1/devices/:deviceId/latest", s.authorize("viewer"), s.endpoint(s.deviceLatest, "deviceId"))
 	s.router.GET("/api/v1/devices/:deviceId/properties/history", s.authorize("viewer"), s.endpoint(s.history, "deviceId"))

@@ -121,6 +121,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | 跨平台分发源码 | [协议目录](PROTOCOL_CATALOG.md) · [组织审核](PRIVATE_PROTOCOL_MARKET.md) |
 | 升级旧节点、拓扑和影子配置 | [旧版本迁移](EDGE_REMOVAL.md) |
 
+## 首页统计
+
+首页通过 `GET /api/v1/dashboard?days=7&offset=480` 读取当前租户聚合数据，要求 viewer 或更高角色。`days` 支持 7、30，`offset` 为相对 UTC 的分钟偏移（默认 480；页面使用浏览器当前偏移）。日期范围包含今天，按固定时区的自然日划分。
+
+- 设备总数、状态与产品分布只统计已登记设备；`ONLINE`、`ALARM` 归为在线，未产生运行状态的设备归为待连接。
+- 活动告警及其等级只统计 `ACTIVE`，高等级为 `HIGH` 和 `CRITICAL`，不受告警列表分页影响。
+- 趋势按 `firstTriggeredAt` 统计每日新增告警记录，包含已确认、恢复或关闭的记录；重复触发次数不作为新增条数，缺失日期补零。
+- 产品图展示数量最多的五项，其余合并为“其他产品”。实时通知合并刷新，失败保留上次成功数据。
+
+PostgreSQL 使用单条聚合查询；内存实现保持相同口径。入口为 `internal/httpapi/dashboard.go`，回归测试 `TestDashboard` 同时支持内存与 `IOT_TEST_POSTGRES_DSN` 指定的独立临时数据库 schema。
+
 ## 源码与开发检查
 
 | 入口 | 职责 |

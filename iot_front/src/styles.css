@@ -441,3 +441,54 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
   .page-context h1 { font-size: 24px; }
   .workspace-label { font-size: 11px; }
 }
+
+.dashboard-page { min-width: 0; }
+.dashboard-toolbar { min-height: 32px; margin-bottom: 18px; font-size: 12px; }
+.dashboard-charts { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 18px; margin-bottom: 18px; }
+.dashboard-distributions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
+.dashboard-page .surface-card { min-width: 0; }
+.dashboard-page .card-header { min-height: 30px; gap: 12px; }
+.dashboard-page .card-header > strong { flex-shrink: 0; }
+.dashboard-page .surface-card > .el-card__header { padding-block: 15px; }
+.chart-meta, .trend-caption > span { font-size: 11px; color: var(--muted-foreground); }
+.trend-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.trend-caption > strong { font-size: 26px; letter-spacing: -.04em; font-weight: 600; }
+.trend-caption small { font-size: 11px; font-weight: 400; letter-spacing: 0; color: var(--muted-foreground); }
+.trend-plot svg { display: block; width: 100%; min-height: 200px; overflow: visible; }
+.trend-plot text { fill: var(--muted-foreground); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
+.trend-plot circle[tabindex]:focus { outline: none; stroke: #0071e3; stroke-width: 1.5; }
+.device-chart { min-height: 256px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
+.device-ring { position: relative; width: 174px; height: 174px; flex-shrink: 0; }
+.device-ring svg { width: 100%; height: 100%; }
+.device-ring > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.device-ring strong { font-size: 32px; font-weight: 600; letter-spacing: -.04em; }
+.device-ring small { font-size: 16px; margin-left: 2px; }
+.device-ring span { font-size: 11px; color: var(--muted-foreground); margin-top: 4px; }
+.chart-legend { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 20px; }
+.chart-legend > div { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.chart-legend i { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.chart-legend span { color: var(--muted-foreground); }
+.chart-legend b { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
+.horizontal-chart { min-height: 238px; display: flex; flex-direction: column; gap: 16px; }
+.bar-row > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; margin-bottom: 8px; }
+.bar-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-row b { font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bar-row small { color: var(--muted-foreground); font-size: 10px; font-weight: 400; }
+.bar-track { height: 6px; background: #f1f2f4; border-radius: 3px; overflow: hidden; }
+.bar-track i { display: block; height: 100%; border-radius: inherit; }
+.dashboard-page .alarm-row > div { min-width: 0; overflow-wrap: anywhere; }
+@media (min-width: 1440px) { .device-chart { flex-direction: row; gap: 24px; }.chart-legend { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .dashboard-charts { grid-template-columns: minmax(0,1fr); }.device-chart { flex-direction: row; gap: 40px; min-height: 210px; }.chart-legend { max-width: 320px; } }
+@media (max-width: 600px) {
+  .dashboard-distributions { grid-template-columns: minmax(0,1fr); }
+  .dashboard-page .stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .dashboard-page .stat-card i { display: none; }
+  .dashboard-page .stat-card small { font-size: 10px; }
+  .dashboard-page .stat-card strong { font-size: 28px; }
+  .trend-caption { flex-wrap: wrap; gap: 6px; }.trend-caption > span { font-size: 10px; }
+  .trend-plot svg { min-height: 150px; }
+  .trend-plot text { font-size: 22px; }
+  .device-chart { flex-direction: column; gap: 20px; }
+  .horizontal-chart { min-height: 0; }
+  .dashboard-page .card-header { flex-wrap: wrap; }
+}
