@@ -26,15 +26,17 @@ const sourceTemplate = ref(null)
 const products = ref([])
 const switching = ref(false)
 const source = reactive({ protocolId:'', name:'', version:'', productId:'', transport:'', publish:true })
-const binding = reactive({ productId:'', protocolId:'', version:'' })
-const publishedReleases = computed(() => protocols.value.find(item => item.definition.id === binding.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED') || [])
-
-const activeTab=ref('0')
-const listener = reactive({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[] })
+const props = defineProps({ section: { type: String, default: 'protocols' } })
+const sourceOpen = ref(false), profileOpen = ref(false), commandOpen = ref(false), catalogOpen = ref(false), marketOpen = ref(false)
+const editingProfile = ref(false)
+const blankListener = () => ({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[], unitId:1, intervalMs:10000, retries:0, wireFormat:'' })
+const listener = reactive(blankListener())
+function resetListener(value = {}) { for (const key of Object.keys(listener)) delete listener[key]; Object.assign(listener, blankListener(), value) }
+function createProfile() { bindingRevision++; resetListener(); editingProfile.value=false; profileOpen.value=true }
 watch(()=>listener.network,value=>{if(value!=='tcp'){listener.connectionMode='listen';listener.deviceId='';listener.queries=[]}})
-function editProfile(profile){Object.assign(listener,{connectionMode:'listen',deviceId:'',queries:[],childProducts:[]},JSON.parse(JSON.stringify(profile)));activeTab.value='network'}
+function editProfile(profile){bindingRevision++;resetListener({...JSON.parse(JSON.stringify(profile)),mode:profile.mode || 'poll',network:profile.network || 'tcp',connectionMode:profile.mode === 'listener' ? profile.connectionMode || 'listen' : ''});editingProfile.value=true;profileOpen.value=true}
 const savingListener = ref(false)
-const listenerReleases = computed(() => protocols.value.find(item => item.definition.id === listener.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED' && item.artifact?.runtime === 'go-protocol-v2' && item.capabilities?.includes('ingress')) || [])
+const listenerReleases = computed(() => protocols.value.find(item => item.definition.id === listener.protocolId)?.releases?.filter(item => item.status === 'PUBLISHED' && (listener.mode === 'poll' ? ['MODBUS_TCP', 'MODBUS_RTU'].includes(item.transport) : item.artifact?.runtime === 'go-protocol-v2' && item.capabilities?.includes('ingress'))) || [])
 const command = reactive({ profileId:'', deviceId:'', body:'{"type":"time-sync"}' })
 const sendingCommand = ref(false)
 const pendingProtocolCommand = ref(null)
@@ -52,7 +54,7 @@ async function loadProducts() {
 async function load() {
   loading.value = true
   try {
-    const [catalog, access, productList, template, connectors] = await Promise.all([api('/api/v2/protocols'), api('/api/v2/device-access-profiles'), loadProducts(), api('/api/v2/protocol-source-template'), api('/api/v1/connectors')])
+    const [catalog, access, productList, template, connectors] = await Promise.all([api('/api/v2/protocols'), props.section === 'profiles' ? api('/api/v2/device-access-profiles') : {}, loadProducts(), props.section === 'protocols' ? api('/api/v2/protocol-source-template') : null, props.section === 'profiles' ? api('/api/v1/connectors') : {}])
     protocols.value = catalog.items || []
     snapshots.value = Object.fromEntries((connectors.items || []).filter(x => x.profile).map(x => [x.profile.id, x]))
     profiles.value = (access.items || []).map(p => snapshot(p.id).profile || p)
@@ -79,18 +81,10 @@ async function uploadSource() {
     for (const [key, value] of Object.entries(source)) body.append(key, key === 'productId' && !source.publish ? '' : String(value))
     result.value = await api(`/api/v2/protocols/${encodeURIComponent(source.protocolId)}/source-releases`, { method:'POST', body })
     ElMessage.success(result.value.binding ? '编译与样例测试通过，产品已切换到新版本' : source.publish ? '编译与样例测试通过，协议已发布，可绑定产品使用' : '编译与样例测试通过，已保存校验版本')
+    sourceOpen.value = false
     await load()
   } catch (error) { sourceError.value = error?.message || String(error) }
   finally { compiling.value = false }
-}
-async function switchBinding(rollback = false) {
-  if (!binding.productId || (!rollback && (!binding.protocolId || !binding.version))) return ElMessage.warning('请选择产品及已发布的协议版本')
-  switching.value = true
-  try {
-    result.value = await api(`/api/v2/products/${encodeURIComponent(binding.productId)}/protocol-binding${rollback ? '/rollback' : ''}`, { method:'POST', body:JSON.stringify(rollback ? {} : { protocolId:binding.protocolId, version:binding.version }) })
-    ElMessage.success(rollback ? '产品已回滚到上一版本' : '产品已切换协议版本，新报文立即使用')
-    await load()
-  } catch (error) { notifyError(error) } finally { switching.value = false }
 }
 async function publishRelease(protocolId, version) {
   switching.value = true
@@ -101,11 +95,14 @@ async function publishRelease(protocolId, version) {
   } catch (error) { notifyError(error) } finally { switching.value = false }
 }
 async function saveListener() {
+  if (savingListener.value) return
   if (!listener.id || !listener.productId || !listener.protocolId || !listener.protocolVersion) return ElMessage.warning('请填写实例标识、产品及其当前绑定的设备协议版本')
+  if (!editingProfile.value && profiles.value.some(p => p.id === listener.id)) return ElMessage.warning('实例标识已存在，请在列表中编辑')
   savingListener.value = true
   try {
-    result.value = await api('/api/v2/device-access-profiles', { method:'POST', body:JSON.stringify(listener) })
-    ElMessage.success(listener.connectionMode==='dial'?'接入实例已保存，将开始连接设备':'接入实例已保存，将开始监听')
+    result.value = await api(editingProfile.value ? `/api/v2/device-access-profiles/${encodeURIComponent(listener.id)}` : '/api/v2/device-access-profiles', { method:editingProfile.value ? 'PUT' : 'POST', body:JSON.stringify(listener) })
+    ElMessage.success('接入实例已保存')
+    profileOpen.value = false
     await load()
   } catch (error) { notifyError(error) } finally { savingListener.value = false }
 }
@@ -143,6 +140,17 @@ async function testProfile(profile) {
   } catch (error) { notifyError(error) } finally { testingId.value = '' }
 }
 
+let bindingRevision = 0
+async function selectProduct(id) {
+  const revision = ++bindingRevision
+  listener.protocolId = ''; listener.protocolVersion = ''
+  if (!id) return
+  try {
+    const current = await api(`/api/v2/products/${encodeURIComponent(id)}/protocol-binding`)
+    if (revision !== bindingRevision) return
+    listener.protocolId = current.protocolId || ''; listener.protocolVersion = current.version || ''
+  } catch (error) { if (revision === bindingRevision) notifyError(error) }
+}
 function newestRelease(item) { return item.releases?.[0] || {} }
 function statusText(value) { return ({ LISTENING:'监听中', DISABLED:'已停用', DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销', PENDING:'待启动', ONLINE:'在线采集', ERROR:'采集异常' })[value] || statusLabel(value) }
 function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ERROR:'danger', REVOKED:'danger', VALIDATED:'warning', PENDING:'info' })[value] || 'info' }
@@ -152,16 +160,56 @@ onMounted(load)
 
 <template>
   <div class="page-toolbar">
+    <template v-if="props.section === 'protocols'">
+      <el-button type="primary" @click="sourceOpen=true">上传源码</el-button>
+      <el-dropdown trigger="click"><el-button>更多</el-button><template #dropdown><el-dropdown-menu>
+        <el-dropdown-item @click="catalogOpen=true">协议目录</el-dropdown-item>
+        <el-dropdown-item @click="marketOpen=true">组织发布</el-dropdown-item>
+      </el-dropdown-menu></template></el-dropdown>
+      <span>{{ protocols.length }} 个协议 · {{ releaseCount }} 个版本</span>
+    </template>
+    <template v-else>
+      <el-button type="primary" @click="createProfile">新建实例</el-button>
+      <el-button @click="commandOpen=true">下行命令</el-button>
+      <span>{{ profiles.length }} 个实例</span>
+    </template>
     <el-button :loading="loading" @click="load">刷新</el-button>
-    <el-tag type="success" round>协议版本管理</el-tag>
-    <span>{{ protocols.length }} 个协议，{{ releaseCount }} 个不可变版本，{{ profiles.length }} 个接入实例</span>
   </div>
+  <el-card shadow="never" class="surface-card table-card">
+    <template v-if="props.section === 'protocols'">
+      <el-table v-loading="loading" :data="protocols" stripe>
+        <el-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></el-table-column>
+        <el-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></el-table-column>
+        <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column>
+        <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column>
+        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
+      </el-table>
 
-  <el-tabs v-model="activeTab" type="border-card">
-    <el-tab-pane label="源码接入">
-      <el-alert title="上传协议源码，接入自定义协议" description="下载模板，只修改 Go 函数和 Go 样例，然后上传文件或 ZIP。平台自动识别能力、生成版本、编译并核对结果；选择产品后可直接发布绑定。" type="info" :closable="false" show-icon />
+    </template>
+    <template v-else>
+
+      <el-table v-loading="loading" :data="profiles" stripe row-key="id">
+        <el-table-column type="expand"><template #default="{row}">
+          <div class="instance-details"><h4>当前在线会话</h4>
+          <el-table :data="snapshot(row.id).sessions" empty-text="暂无在线会话"><el-table-column label="设备"><template #default="{row:session}">{{session.deviceId || '尚未识别设备'}}</template></el-table-column><el-table-column prop="remoteAddress" label="远端地址"/><el-table-column prop="protocolId" label="协议"/><el-table-column prop="protocolVersion" label="版本"/><el-table-column label="最后有效报文"><template #default="{row:session}">{{formatTime(session.lastSeenAt)}}</template></el-table-column></el-table>
+          <h4>最近接入设备（按创建时间，最多 20 台）</h4><el-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><el-table-column prop="deviceId" label="设备标识"/><el-table-column prop="name" label="名称"/><el-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></el-table-column></el-table></div>
+        </template></el-table-column>
+        <el-table-column label="在线会话" width="100"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></el-table-column>
+        <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.mode === 'listener' ? row.id : row.deviceId }}</b><small class="subline">{{ row.productId }}</small></template></el-table-column>
+        <el-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></el-table-column>
+        <el-table-column label="连接" min-width="170"><template #default="{ row }">{{ row.host }}:{{ row.port }} · {{ row.mode === 'listener' ? transportLabel(row.network) : `单元 ${row.unitId}` }}</template></el-table-column>
+        <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</el-tag></template></el-table-column>
+        <el-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></el-table-column>
+        <el-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></el-table-column>
+        <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button @click="editProfile(row)">编辑</el-button><el-button @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
+      </el-table>
+
+    </template>
+  </el-card>
+  <el-dialog v-model="sourceOpen" title="上传协议源码" width="min(720px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!compiling" :show-close="!compiling">
+
       <el-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务缺少源码编译环境，请联系管理员部署支持编译的后端服务。" type="warning" :closable="false" />
-      <el-form :model="source" label-position="top" class="top-gap">
+      <el-form :disabled="compiling" :model="source" label-position="top" class="top-gap">
         <div class="form-grid">
           <el-form-item label="协议标识"><el-input v-model="source.protocolId" placeholder="例如 vendor-fire" /></el-form-item>
           <el-form-item label="协议名称"><el-input v-model="source.name" placeholder="例如消防设备协议" /></el-form-item>
@@ -173,7 +221,7 @@ onMounted(load)
           <FilePicker accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
           <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate()">下载解析模板</el-button>
           <el-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate('tcp')">下载 TCP / UDP 模板</el-button>
-          <small class="subline">只修改 protocol.go。直接上传这个文件，或将整个项目打成 ZIP；无需编写 JSON、main 或调用入口。样例也使用 Go 编写，预期结果不符会阻止发布。</small>
+          <small class="subline">支持 .go 或完整项目 ZIP，样例通过后才可发布。</small>
         </el-form-item>
         <el-collapse>
           <el-collapse-item title="编译选项" name="advanced">
@@ -188,80 +236,48 @@ onMounted(load)
         <small v-if="compiling" class="subline">首次编译可能较慢，请保持页面打开。每个平台编译最长 120 秒，随后运行样例测试。</small>
         <el-alert v-if="sourceError" class="top-gap" title="操作未完成，请查看原因" type="error" :closable="false"><pre class="source-error">{{ sourceError }}</pre></el-alert>
       </el-form>
-    </el-tab-pane>
-    <el-tab-pane label="网络接入" name="network">
-      <el-alert title="配置设备连接平台或平台连接设备" description="先绑定主设备和子设备产品的协议。设备连接平台时配置本机监听端口；平台连接设备时配置设备地址，并按需添加定时查询。协议包负责握手、分帧、解析和应答。" type="info" :closable="false" show-icon />
-      <el-form label-position="top" class="top-gap">
+
+  </el-dialog>
+  <el-dialog v-model="profileOpen" :title="editingProfile ? '编辑接入实例' : '新建接入实例'" width="min(760px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener">
+
+      <el-form :disabled="savingListener" label-position="top" class="top-gap">
         <div class="form-grid">
-          <el-form-item label="接入实例标识"><el-input v-model="listener.id" placeholder="例如 dahua-tcp" /></el-form-item>
-          <el-form-item label="产品"><el-select v-model="listener.productId" filterable><el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
+          <el-form-item label="接入实例标识"><el-input v-model="listener.id" :disabled="editingProfile" placeholder="例如 dahua-tcp" /></el-form-item>
+          <el-form-item label="产品"><el-select v-model="listener.productId" filterable @change="selectProduct"><el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></el-select></el-form-item>
           <el-form-item label="协议"><el-select v-model="listener.protocolId" filterable @change="listener.protocolVersion = ''"><el-option v-for="p in protocols" :key="p.definition.id" :label="p.definition.name" :value="p.definition.id" /></el-select></el-form-item>
           <el-form-item label="产品当前绑定版本"><el-select v-model="listener.protocolVersion"><el-option v-for="release in listenerReleases" :key="release.version" :label="release.version" :value="release.version" /></el-select></el-form-item>
-          <el-form-item label="网络"><el-select v-model="listener.network"><el-option label="长连接" value="tcp" /><el-option label="数据报" value="udp" /></el-select></el-form-item>
-          <el-form-item v-if="listener.network==='tcp'" label="连接方向"><el-select v-model="listener.connectionMode"><el-option value="listen" label="设备连接平台"/><el-option value="dial" label="平台连接设备"/></el-select></el-form-item>
-<el-form-item v-if="listener.connectionMode==='dial'" label="已配置的设备标识"><el-input v-model="listener.deviceId" /></el-form-item>
-<el-form-item :label="listener.connectionMode==='dial'?'设备地址 / 主机名':'本机监听地址'"><el-input v-model="listener.host" /></el-form-item>
+          <el-form-item v-if="listener.mode==='listener'" label="网络"><el-select v-model="listener.network"><el-option label="TCP" value="tcp" /><el-option label="UDP" value="udp" /></el-select></el-form-item>
+          <el-form-item v-if="listener.mode==='listener' && listener.network==='tcp'" label="连接方向"><el-select v-model="listener.connectionMode"><el-option value="listen" label="设备连接平台"/><el-option value="dial" label="平台连接设备"/></el-select></el-form-item>
+<el-form-item v-if="listener.connectionMode==='dial' || listener.mode==='poll'" label="已配置的设备标识"><el-input v-model="listener.deviceId" /></el-form-item>
+<el-form-item :label="listener.connectionMode==='dial' || listener.mode==='poll'?'设备地址 / 主机名':'本机监听地址'"><el-input v-model="listener.host" /></el-form-item>
           <el-form-item label="端口"><el-input-number v-model="listener.port" :min="1" :max="65535" /></el-form-item>
           <el-form-item label="操作超时（毫秒）"><el-input-number v-model="listener.timeoutMs" :min="1" :max="30000" /></el-form-item>
         </div>
-        <el-switch v-model="listener.autoRegister" active-text="自动登记协议识别的新设备" /><small class="subline">关闭时，只接收该产品下已登记且启用的设备。</small>
+        <el-switch v-if="listener.mode==='listener'" v-model="listener.autoRegister" active-text="自动登记协议识别的新设备" />
+        <div v-if="listener.mode==='poll'" class="form-grid">
+          <el-form-item label="站号"><el-input-number v-model="listener.unitId" :min="0" :max="255" /></el-form-item>
+          <el-form-item label="采集周期（毫秒）"><el-input-number v-model="listener.intervalMs" :min="1000" /></el-form-item>
+          <el-form-item label="重试次数"><el-input-number v-model="listener.retries" :min="0" :max="3" /></el-form-item>
+        </div>
         <el-switch v-model="listener.enabled" active-text="启用接入" />
-        <ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/><div class="dialog-actions"><el-button type="primary" :loading="savingListener" @click="saveListener">保存接入实例</el-button></div>
+        <el-collapse v-if="listener.mode==='listener'"><el-collapse-item title="定时查询与子设备" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></el-collapse-item></el-collapse><div class="dialog-actions"><el-button type="primary" :loading="savingListener" @click="saveListener">保存接入实例</el-button></div>
       </el-form>
-      <el-divider content-position="left">设备下行命令</el-divider>
+
+  </el-dialog>
+  <el-dialog v-model="commandOpen" title="设备下行命令" width="min(620px, 94vw)" :close-on-click-modal="false">
+
       <el-form label-position="top"><div class="form-grid">
         <el-form-item label="接入实例"><el-select v-model="command.profileId"><el-option v-for="p in profiles.filter(p => p.mode === 'listener' && p.enabled)" :key="p.id" :label="p.id" :value="p.id" /></el-select></el-form-item>
         <el-form-item label="在线设备标识"><el-input v-model="command.deviceId" placeholder="由协议包识别的设备标识" /></el-form-item>
       </div><el-form-item label="协议包支持的命令结构化数据"><el-input v-model="command.body" type="textarea" :rows="3" /></el-form-item>
       <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令</el-button><el-button v-if="pendingProtocolCommand" @click="pendingProtocolCommand=null">开始一条新命令</el-button></el-form>
-    </el-tab-pane>
 
-    <el-tab-pane label="协议与版本">
-      <el-form :model="binding" label-position="top">
-        <div class="form-grid">
-          <el-form-item label="产品"><el-select v-model="binding.productId" filterable placeholder="选择要切换的产品"><el-option v-for="p in products" :key="p.id" :label="`${p.name} · ${p.id}`" :value="p.id" /></el-select></el-form-item>
-          <el-form-item label="协议"><el-select v-model="binding.protocolId" filterable @change="binding.version = ''"><el-option v-for="p in protocols" :key="p.definition.id" :label="p.definition.name" :value="p.definition.id" /></el-select></el-form-item>
-          <el-form-item label="已发布版本"><el-select v-model="binding.version"><el-option v-for="release in publishedReleases" :key="release.version" :label="release.version" :value="release.version" /></el-select></el-form-item>
-        </div>
-        <div class="dialog-actions"><el-button :loading="switching" @click="switchBinding(true)">回滚产品至上一版本</el-button><el-button type="primary" :loading="switching" @click="switchBinding(false)">切换版本并立即生效</el-button></div>
-      </el-form>
-      <el-table v-loading="loading" :data="protocols" stripe>
-        <el-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></el-table-column>
-        <el-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></el-table-column>
-        <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column>
-        <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column>
-        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
-      </el-table>
-    </el-tab-pane>
-
-    <el-tab-pane label="接入实例">
-      <el-table v-loading="loading" :data="profiles" stripe row-key="id">
-        <el-table-column type="expand"><template #default="{row}">
-          <div class="instance-details"><h4>当前在线会话</h4>
-          <el-table :data="snapshot(row.id).sessions" empty-text="暂无在线会话"><el-table-column label="设备"><template #default="{row:session}">{{session.deviceId || '尚未识别设备'}}</template></el-table-column><el-table-column prop="remoteAddress" label="远端地址"/><el-table-column prop="protocolId" label="协议"/><el-table-column prop="protocolVersion" label="版本"/><el-table-column label="最后有效报文"><template #default="{row:session}">{{formatTime(session.lastSeenAt)}}</template></el-table-column></el-table>
-          <h4>最近接入设备（按创建时间，最多 20 台）</h4><el-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><el-table-column prop="deviceId" label="设备标识"/><el-table-column prop="name" label="名称"/><el-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></el-table-column></el-table></div>
-        </template></el-table-column>
-        <el-table-column label="在线会话" width="100"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></el-table-column>
-        <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.mode === 'listener' ? row.id : row.deviceId }}</b><small class="subline">{{ row.productId }}</small></template></el-table-column>
-        <el-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></el-table-column>
-        <el-table-column label="连接" min-width="170"><template #default="{ row }">{{ row.host }}:{{ row.port }} · {{ row.mode === 'listener' ? transportLabel(row.network) : `单元 ${row.unitId}` }}</template></el-table-column>
-        <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</el-tag></template></el-table-column>
-        <el-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></el-table-column>
-        <el-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button v-if="row.mode==='listener'" @click="editProfile(row)">编辑接入</el-button><el-button @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
-      </el-table>
-    </el-tab-pane>
-    <el-tab-pane label="组织发布" lazy><ProtocolMarket :protocols="protocols"/></el-tab-pane>
-    <el-tab-pane label="协议目录" lazy><ProtocolCatalog :protocols="protocols" @installed="load"/></el-tab-pane>
-  </el-tabs>
-
-  <el-card v-if="result" shadow="never" class="surface-card top-gap">
-    <template #header><strong>最近一次操作结果</strong></template>
-    <pre>{{ pretty(result) }}</pre>
-  </el-card>
+  </el-dialog>
+  <el-dialog v-model="catalogOpen" title="协议目录" width="min(1000px, 94vw)"><ProtocolCatalog v-if="catalogOpen" :protocols="protocols" @installed="load" /></el-dialog>
+  <el-dialog v-model="marketOpen" title="组织发布" width="min(1000px, 94vw)"><ProtocolMarket v-if="marketOpen" :protocols="protocols" /></el-dialog>
+  <details v-if="result" class="technical-details"><summary>最近操作结果</summary><pre>{{ pretty(result) }}</pre></details>
 </template>
-
 <style scoped>
-.instance-details { padding: 12px 24px; }
+.instance-details { padding: 16px 24px; }
 .source-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; }
 </style>

@@ -304,9 +304,9 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, err.Error())
 		return
 	}
-	pkg, err := s.engine.Repo.GetProtocolPackage(r.Context(), c.TenantID, v.ProtocolPackageID)
+	pkg, err := s.productProtocol(r.Context(), c.TenantID, v.ProtocolPackageID)
 	if err != nil {
-		problem(w, 422, "protocol package not found")
+		problem(w, 422, "协议不可用，请选择内置标准上报或已发布的协议版本")
 		return
 	}
 	if v.Transport == "" {
@@ -319,8 +319,14 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		v.Status = "ENABLED"
 	}
 	now := time.Now().UnixMilli()
+	newProduct := false
 	if old, getErr := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID); getErr == nil {
 		v.CreatedAt = old.CreatedAt
+	} else if errors.Is(getErr, model.ErrNotFound) {
+		newProduct = true
+	} else {
+		problem(w, 500, getErr.Error())
+		return
 	}
 	if v.CreatedAt == 0 {
 		v.CreatedAt = now
@@ -329,6 +335,17 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
 		problem(w, 500, err.Error())
 		return
+	}
+	if newProduct && pkg.ParserType == parser.GoProtocolParserName {
+		if _, err := s.bindProtocolRelease(r, pkg.Protocol, pkg.Version, v.ID); err != nil {
+			problem(w, 422, err.Error())
+			return
+		}
+		v, err = s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID)
+		if err != nil {
+			problem(w, 500, err.Error())
+			return
+		}
 	}
 	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status})
 	write(w, 201, v)
@@ -558,6 +575,15 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		v.GatewayID = ""
 	}
 	if created {
+		if product.ProtocolPackageID == parser.StandardProtocolID+"@1.0.0" {
+			if v.Tags == nil {
+				v.Tags = map[string]string{}
+			}
+			v.Tags["connector"] = "MQTT"
+			if product.Transport == "HTTP" {
+				v.Tags["connector"] = "HTTP"
+			}
+		}
 		v.AccessKey = model.ProtocolDeviceAccessKey(v.TenantID, v.ID)
 		v.SecretHash, v.SecretHint = "", ""
 		if v.UsesPlatformCredentials(product) {

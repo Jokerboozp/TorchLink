@@ -2,7 +2,7 @@
 
 ## 推荐：只编写 Go 函数
 
-在“设备接入 → 源码接入”下载“解析模板”或“TCP / UDP 模板”。解压后只修改 `protocol.go`，然后直接上传这个 `.go` 文件，或者将整个项目打成 ZIP 上传。ZIP 可以带一层项目目录。模板包含 Go 模块、平台适配代码和本地样例预检。在项目目录运行 `go test ./...` 会实际编译并执行 Samples/Operations，错误结果会导致测试失败；不需要编写 `protocol.json`、样例 JSON、stdin/stdout 或 `main`。
+在“协议管理 → 上传源码”下载“解析模板”或“TCP / UDP 模板”。解压后只修改 `protocol.go`，然后直接上传这个 `.go` 文件，或者将整个项目打成 ZIP 上传。ZIP 可以带一层项目目录。模板包含 Go 模块、平台适配代码和本地样例预检。在项目目录运行 `go test ./...` 会实际编译并执行 Samples/Operations，错误结果会导致测试失败；不需要编写 `protocol.json`、样例 JSON、stdin/stdout 或 `main`。
 
 最小业务代码如下（`Definition`、`Message` 等类型由模板中的 `zz_platform.go` 提供；单文件上传时平台自动补齐）：
 

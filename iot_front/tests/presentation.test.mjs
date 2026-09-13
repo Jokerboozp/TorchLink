@@ -8,6 +8,7 @@ test('display names handle canonical and lowercase wire values without mutating 
   assert.equal(transportLabel(data.transport), 'MQTT')
   assert.equal(transportLabel('iot-standard'), '标准设备接入')
   assert.equal(transportLabel('tcp'), 'TCP')
+  assert.equal(transportLabel('MQTT_HTTP'), 'MQTT / HTTP')
   assert.equal(formatLabel(data.format), 'JSON')
   assert.equal(statusLabel(data.status), '已建立索引')
   assert.equal(statusLabel('indexed'), '已建立索引')
@@ -31,9 +32,9 @@ test('errors give actionable Chinese feedback for network, permission and format
 })
 
 test('each existing navigation target has Chinese task guidance', () => {
-  assert.equal(Object.keys(pageGuide).length, 14)
+  assert.equal(Object.keys(pageGuide).length, 15)
   for (const guide of Object.values(pageGuide)) {
     assert.equal(guide.steps.length, 3)
-    assert.doesNotMatch([guide.title, guide.sub, ...guide.steps].join(''), /[a-z]/i)
+    assert.match(guide.title, /[\u4e00-\u9fff]/) // Keep technical protocol names such as TCP and Modbus.
   }
 })

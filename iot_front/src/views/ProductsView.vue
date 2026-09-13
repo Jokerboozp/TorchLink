@@ -1,6 +1,7 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
+import ProductProtocolBinding from '../components/ProductProtocolBinding.vue'
 import { transportLabel, formatLabel } from '../presentation'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -8,6 +9,7 @@ import { api, apiAll, notifyError } from '../api'
 import { categories, enabledStatuses, label, tagType } from '../labels'
 
 const thingModelText = ref('')
+const bindingProduct = ref(null)
 const products = ref([])
 const protocols = ref([])
 const saving = ref(false)
@@ -18,7 +20,7 @@ const productPage = ref(1)
 const productPageSize = ref(20)
 const productTotal = ref(0)
 
-const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackageId:'', transport:'MQTT', payloadFormat:'json', status:'ENABLED', description:'', thingModel:null })
+const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackageId:'iot-standard@1.0.0', transport:'MQTT', payloadFormat:'json', status:'ENABLED', description:'', thingModel:null })
 const form = reactive(blank())
 
 let loadVersion = 0
@@ -28,12 +30,12 @@ async function load() {
   try {
     const [p, pk] = await Promise.all([
       api(`/api/v1/products?page=${productPage.value}&pageSize=${productPageSize.value}`),
-      apiAll('/api/v1/protocol-packages')
+      Promise.all([apiAll('/api/v1/protocol-packages'), api('/api/v2/protocols')])
     ])
     if (version !== loadVersion) return
     products.value = p.items || []
     productTotal.value = Number(p.total ?? p.count ?? products.value.length)
-    protocols.value = pk.items || []
+    protocols.value = [...new Map([{ id:'iot-standard@1.0.0', name:'标准设备上报', transport:'MQTT', payloadFormat:'json' }, ...(pk[0].items || []), ...(pk[1].items || []).flatMap(p => (p.releases || []).filter(r => r.status === 'PUBLISHED').map(r => ({ id:`${p.definition.id}@${r.version}`, name:`${p.definition.name} · ${r.version}`, transport:r.transport, payloadFormat:r.payloadFormat })))].map(p => [p.id, p])).values()]
   } catch (error) {
     if (version === loadVersion) notifyError(error)
   } finally {
@@ -82,12 +84,15 @@ function startEdit() {
 }
 
 async function save() {
+  if (saving.value) return
+  if (!form.name.trim() || !form.protocolPackageId) return ElMessage.warning('请填写产品名称并选择协议包')
   saving.value = true
   try {
+    if (!form.id && !form.code) form.code = `product_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
     const value = { ...form, id:form.id || form.code }
     value.thingModel=thingModelText.value.trim()?JSON.parse(thingModelText.value):null
  delete value.code
-    const editing = Boolean(value.id)
+    const editing = Boolean(form.id)
     await api(editing ? `/api/v1/products/${encodeURIComponent(value.id)}` : '/api/v1/products', {
       method: editing ? 'PUT' : 'POST',
       body: JSON.stringify(value)
@@ -107,10 +112,11 @@ onMounted(load)
 </script>
 
 <template>
+  <ProductProtocolBinding v-if="bindingProduct" :key="bindingProduct.id" :product="bindingProduct" @close="bindingProduct=null" @saved="load" />
   <div class="page-toolbar">
     <el-button type="primary" @click="openCreate">新建产品</el-button>
     <el-button :loading="loading" @click="load">刷新</el-button>
-    <span>共 {{ productTotal }} 个产品，详情和编辑操作位于列表右侧。</span>
+    <span>{{ productTotal }} 个产品</span>
   </div>
 
   <el-card shadow="never" class="surface-card table-card">
@@ -136,11 +142,11 @@ onMounted(load)
       <el-table-column label="说明" min-width="220" show-overflow-tooltip>
         <template #default="{ row }">{{ row.description || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right" align="center">
+      <el-table-column label="操作" width="240" fixed="right" align="center">
         <template #default="{ row }">
           <div class="table-actions">
             <el-button plain type="primary" @click="view(row)">详情</el-button>
-            <el-button plain type="primary" @click="edit(row)">编辑</el-button>
+            <el-button plain @click="bindingProduct=row">协议版本</el-button><el-button plain type="primary" @click="edit(row)">编辑</el-button>
           </div>
         </template>
       </el-table-column>
@@ -157,8 +163,8 @@ onMounted(load)
       <el-form-item label="产品标识"><el-input v-model="form.code" :disabled="readonly || !!form.id" placeholder="留空自动生成" /></el-form-item>
       <div class="form-grid">
         <el-form-item label="设备分类"><el-select v-model="form.category"><el-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></el-select></el-form-item>
-        <el-form-item label="协议包"><el-select v-model="form.protocolPackageId" filterable clearable><el-option v-for="item in protocols" :key="item.id" :label="`${item.name} · ${item.id}`" :value="item.id" /></el-select></el-form-item>
-        <el-form-item label="传输协议"><el-select v-model="form.transport"><el-option v-for="x in ['MQTT','HTTP','TCP','MODBUS_TCP']" :key="x" :label="transportLabel(x)" :value="x" /></el-select></el-form-item>
+        <el-form-item label="协议包"><el-select v-model="form.protocolPackageId" :disabled="!!form.id" filterable @change="id => { const p = protocols.find(p => p.id === id); if (p) { form.transport = p.transport === 'MQTT_HTTP' ? 'MQTT' : p.transport; form.payloadFormat = p.payloadFormat } }"><el-option v-for="item in protocols" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item>
+        <el-form-item label="传输协议"><el-select v-model="form.transport"><el-option v-for="x in ['MQTT','HTTP','MQTT_HTTP','TCP','UDP','TCP_UDP','MODBUS_TCP','MODBUS_RTU']" :key="x" :label="transportLabel(x)" :value="x" /></el-select></el-form-item>
         <el-form-item label="数据格式"><el-select v-model="form.payloadFormat"><el-option label="JSON" value="json" /><el-option label="HEX（十六进制）" value="hex" /><el-option label="Binary（二进制）" value="binary" /></el-select></el-form-item>
       </div>
       <el-form-item label="产品状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /><el-option label="草稿" value="DRAFT" /></el-select></el-form-item>

@@ -1,6 +1,6 @@
 // 专业名称保留通用写法，状态和操作说明使用中文；显示名称不用于构造请求或改写原始报文。
 export const transportNames = {
-  MQTT:'MQTT', HTTP:'HTTP', TCP:'TCP', UDP:'UDP', TCP_UDP:'TCP / UDP',
+  MQTT:'MQTT', HTTP:'HTTP', MQTT_HTTP:'MQTT / HTTP', TCP:'TCP', UDP:'UDP', TCP_UDP:'TCP / UDP',
   MODBUS_RTU_TCP:'Modbus RTU over TCP（串口透传）', TCP_CHILD:'通过主设备接入', MODBUS_TCP:'Modbus TCP', MODBUS_RTU:'Modbus RTU', OPC_UA:'OPC UA', SNMP:'SNMP', BACNET:'BACnet',
   'iot-standard':'标准设备接入', STANDARD_HTTP:'标准 HTTP', STANDARD_MQTT:'标准 MQTT', LISTENER:'网络监听', POLLER:'定时采集'
 }

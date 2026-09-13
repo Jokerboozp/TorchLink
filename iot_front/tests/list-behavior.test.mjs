@@ -5,13 +5,13 @@ import test from 'node:test'
 import { createRequire } from 'node:module'
 import { loadAllPages } from '../src/listPagination.js'
 const require = createRequire(import.meta.url)
-const { ref, reactive, computed } = require('vue')
+const { ref, reactive, computed, watch } = require('vue')
 const root = new URL('../src/views/', import.meta.url)
 // Execute the real setup code with Vue reactivity; replace external I/O and
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(file, api, exports, notifyError = e => { throw e }) {
   const source = fs.readFileSync(new URL(file, root), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
-  const context = vm.createContext({ref, reactive, computed, api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, notifyError, ElMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams})
+  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto, notifyError, ElMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams})
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
@@ -164,4 +164,76 @@ test('association pagination propagates a later-page failure instead of returnin
     if (new URL(path,'http://audit.invalid').searchParams.get('page')==='2') throw new Error('catalog unavailable')
     return paginated(path)
   }, '/catalog'), /catalog unavailable/)
+})
+
+test('device save suppresses duplicate submission and preserves fields after failure', async()=>{
+  let rejectSave, writes=0
+  const errors=[]
+  const c=component('DevicesView.vue', async (path,options)=>{
+    if (options?.method === 'POST') { writes++; return new Promise((_,reject)=>{rejectSave=reject}) }
+    return {items:[],total:0}
+  }, 'save,form,saving,dialog', e=>errors.push(e))
+  Object.assign(c.form,{name:'烟感',code:'device-fixed',productId:'product-1'})
+  c.dialog.value=true
+  const first=c.save()
+  await c.save()
+  assert.equal(writes,1)
+  assert.equal(c.saving.value,true)
+  rejectSave(new Error('offline')); await first
+  assert.equal(c.saving.value,false)
+  assert.equal(c.dialog.value,true)
+  assert.equal(c.form.code,'device-fixed')
+  assert.equal(errors.length,1)
+})
+
+test('device registration clears stale gateway links when the role changes', async()=>{
+  let saved
+  const c=component('DevicesView.vue', async(path,options)=>{
+    if (options?.method === 'POST') { saved=JSON.parse(options.body); return {} }
+    return {items:[],total:0}
+  }, 'save,form')
+  Object.assign(c.form,{name:'烟感',code:'new-device',productId:'product-1',deviceRole:'DIRECT',gatewayId:'old-gateway'})
+  await c.save()
+  assert.equal(saved.gatewayId,'')
+  assert.equal(saved.deviceRole,'DIRECT')
+})
+
+test('new device form cannot overwrite an existing identifier', async()=>{
+  let writes=0
+  const c=component('DevicesView.vue',async()=>{writes++;return {}},'save,form,registryOptions')
+  Object.assign(c.form,{name:'新名称',code:'existing',productId:'product-1'})
+  c.registryOptions.value=[{device:{id:'existing'}}]
+  await c.save()
+  assert.equal(writes,0)
+})
+
+test('product creation offers a published Go version before a legacy package exists', async()=>{
+  const c=component('ProductsView.vue',async path=>path==='/api/v2/protocols' ? {items:[{definition:{id:'fire',name:'消防协议'},releases:[{version:'1',status:'PUBLISHED',transport:'TCP',payloadFormat:'hex'},{version:'2',status:'VALIDATED'}]}]} : {items:[],total:0},'load,protocols')
+  await c.load()
+  assert.ok(c.protocols.value.some(p=>p.id==='iot-standard@1.0.0'))
+  assert.ok(c.protocols.value.some(p=>p.id==='fire@1'))
+  assert.ok(!c.protocols.value.some(p=>p.id==='fire@2'))
+})
+
+test('instance editor clears previous instance data when creating a new connection',()=>{
+  const c=component('ProtocolsView.vue',async()=>({}),'editProfile,createProfile,listener')
+  c.editProfile({id:'old',mode:'poll',network:'tcp',wireFormat:'rtu_over_tcp',deviceId:'old-device',collectorId:'old-collector',connectionMode:''})
+  assert.equal(c.listener.mode,'poll')
+  c.createProfile()
+  assert.equal(c.listener.mode,'listener')
+  assert.equal(c.listener.id,'')
+  assert.equal(c.listener.deviceId,'')
+  assert.equal(c.listener.wireFormat,'')
+  assert.equal(c.listener.collectorId,undefined)
+})
+
+test('late product binding response cannot change a different instance being edited',async()=>{
+  let finish
+  const c=component('ProtocolsView.vue',()=>new Promise(resolve=>{finish=resolve}),'selectProduct,editProfile,listener')
+  const pending=c.selectProduct('old-product')
+  c.editProfile({id:'current',mode:'listener',productId:'new-product',protocolId:'new-protocol',protocolVersion:'2'})
+  finish({protocolId:'stale-protocol',version:'1'})
+  await pending
+  assert.equal(c.listener.protocolId,'new-protocol')
+  assert.equal(c.listener.protocolVersion,'2')
 })

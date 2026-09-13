@@ -18,7 +18,7 @@ try {
 
 <template>
   <el-tabs v-model="activeTab" class="device-access-tabs">
-    <el-tab-pane label="设备接入" name="integration" lazy>
+    <el-tab-pane label="连接指南" name="integration" lazy>
       <IntegrationView @navigate="(page, detail) => emit('navigate', page, detail)" />
     </el-tab-pane>
     <el-tab-pane label="测试设备" name="testDevice" lazy>

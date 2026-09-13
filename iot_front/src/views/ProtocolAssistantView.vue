@@ -156,7 +156,7 @@ async function publish() {
               <el-table-column label="操作" width="88"><template #default="{ $index }"><el-button plain type="danger" @click="removeField($index)">删除</el-button></template></el-table-column>
             </el-table>
             <div class="table-actions top-gap"><el-button plain @click="addField">新增字段</el-button><el-button plain @click="rebuild">保存映射修改</el-button></div>
-            <el-alert v-if="draft.parserType === 'go_protocol_parser'" class="top-gap" title="此草稿需要协议源码包" description="保存映射草稿后，在“设备接入 → 源码接入”上传 .go 或项目压缩包，平台自动编译、验证样例并发布。" type="warning" :closable="false" />
+            <el-alert v-if="draft.parserType === 'go_protocol_parser'" class="top-gap" title="此草稿需要协议源码包" description="保存映射草稿后，在“协议管理 → 上传源码”上传 .go 或项目压缩包，平台自动编译、验证样例并发布。" type="warning" :closable="false" />
             <div class="form-grid top-gap"><el-form-item label="协议包标识"><el-input v-model="form.id" placeholder="留空自动生成" /></el-form-item><el-form-item label="版本"><el-input v-model="form.version" /></el-form-item></div>
             <div class="table-actions"><el-button :loading="testing" @click="runPreview">运行解析预览</el-button><el-button type="primary" :loading="publishing" @click="publish">保存协议映射草稿</el-button></div>
           </el-form>

@@ -3,10 +3,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, apiAll, formatTime, notifyError, parseJSON, pretty } from '../api'
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels'
-import DeviceOnboarding from '../components/DeviceOnboarding.vue'
 import DeviceConnection from '../components/DeviceConnection.vue'
 const connectionDevice = ref('')
-const onboardingOpen = ref(false)
 
 const emit = defineEmits(['navigate'])
 const products = ref([])
@@ -15,6 +13,7 @@ const registryOptions = ref([])
 const unregistered = ref([])
 const loading = ref(false)
 const dialog = ref(false)
+const saving = ref(false)
 const credentialDialog = ref(false)
 const credential = ref({})
 const registryPage = ref(1)
@@ -24,7 +23,7 @@ const unregisteredPage = ref(1)
 const unregisteredPageSize = ref(20)
 const unregisteredTotal = ref(0)
 
-const blank = () => ({ id:'', code:'', name:'', productId:'', deviceRole:'DIRECT', gatewayId:'', status:'ENABLED', tags:pretty({ buildingId:'A', deviceType:'smoke' }), description:'' })
+const blank = () => ({ id:'', code:'', name:'', productId:'', deviceRole:'DIRECT', gatewayId:'', status:'ENABLED', tags:pretty({}), description:'' })
 const form = reactive(blank())
 const gateways = computed(() => registryOptions.value.filter(item => roleOf(item.device) === 'GATEWAY'))
 
@@ -71,16 +70,23 @@ function changeUnregisteredPageSize(value) { unregisteredPageSize.value = value;
 function open(device) { Object.assign(form, blank(), device ? { ...device, code:device.id, tags:pretty(device.tags || {}) } : {}); dialog.value = true }
 
 async function save() {
+  if (saving.value) return
+  if (!form.name.trim() || !form.productId) return ElMessage.warning('请填写设备名称并选择产品')
+  if (form.deviceRole === 'CHILD' && !form.gatewayId) return ElMessage.warning('请选择所属网关')
+  saving.value = true
   try {
+    if (!form.id && form.code && registryOptions.value.some(item => item.device.id === form.code)) return ElMessage.warning('设备标识已存在，请在列表中编辑')
+    if (!form.id && !form.code) form.code = `device_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
     const value = { ...form, id:form.id || form.code, tags:parseJSON(form.tags, '标签结构化数据') }
     delete value.code
-    const editing = registry.value.some(item => item.device.id === value.id)
+    const editing = Boolean(form.id)
+    if (value.deviceRole !== 'CHILD') value.gatewayId = ''
     const result = await api(editing ? `/api/v1/device-registry/${encodeURIComponent(value.id)}` : '/api/v1/device-registry', { method:editing ? 'PUT' : 'POST', body:JSON.stringify(value) })
     dialog.value = false
     if (result.credential) showCredential(result.credential)
     ElMessage.success('设备已保存')
     await load()
-  } catch (error) { notifyError(error) }
+  } catch (error) { notifyError(error) } finally { saving.value = false }
 }
 async function register(id) {
   try {
@@ -110,9 +116,8 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
 </script>
 
 <template>
-  <DeviceOnboarding v-if="onboardingOpen" :products="products" @close="onboardingOpen=false" @created="load" @detail="id=>{onboardingOpen=false;connectionDevice=id}" @navigate="(page,query)=>{onboardingOpen=false;emit('navigate',page,query)}" />
   <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id=>connectionDevice=id" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" />
-  <div class="page-toolbar"><el-button type="primary" @click="onboardingOpen=true">添加设备</el-button><el-button @click="open()">高级注册</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
+  <div class="page-toolbar"><el-button type="primary" @click="open()">添加设备</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
   <el-card shadow="never" class="surface-card table-card">
     <el-table v-loading="loading" :data="registry" stripe>
       <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></el-table-column>
@@ -123,13 +128,13 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
       <el-table-column label="所属关系" min-width="150"><template #default="{ row }">{{ relation(row) }}</template></el-table-column>
       <el-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></el-table-column>
       <el-table-column label="操作" fixed="right" width="270" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain @click="connectionDevice=row.device.id">连接详情</el-button><el-button v-if="!hasReported(row)" plain type="primary" @click="row.credentialSupported ? guide(row.device.id) : connectionDevice=row.device.id">配置接入</el-button><el-button v-else plain type="success" @click="openRaw(row.device.id)">查看数据</el-button><el-dropdown trigger="click"><el-button plain aria-label="更多设备操作">更多操作</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item @click="open(row.device)">编辑设备</el-dropdown-item><el-dropdown-item v-if="row.credentialSupported" @click="rotate(row.device.id)">轮换凭证</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></template></el-table-column>
-      <template #empty><el-empty description="还没有注册设备，请先创建协议包和产品" /></template>
+      <template #empty><el-empty description="暂无设备" /></template>
     </el-table>
     <div class="list-pagination"><el-pagination v-model:current-page="registryPage" v-model:page-size="registryPageSize" :total="registryTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeRegistryPage" @size-change="changeRegistryPageSize" /></div>
   </el-card>
 
-  <el-card shadow="never" class="surface-card table-card top-gap">
-    <template #header><div class="card-header"><strong>未注册设备</strong><small>共 {{ unregisteredTotal }} 台，仅显示已经上报过数据、但尚未纳入正式设备管理的设备</small></div></template>
+  <el-card v-if="unregisteredTotal" shadow="never" class="surface-card table-card top-gap">
+    <template #header><div class="card-header"><strong>未注册设备</strong><small>{{ unregisteredTotal }} 台</small></div></template>
     <el-table :data="unregistered" stripe>
       <el-table-column prop="deviceId" label="设备标识" min-width="190" /><el-table-column label="产品" min-width="150"><template #default="{ row }">{{ productName(row.productId) }}</template></el-table-column><el-table-column label="业务状态" width="105"><template #default="{ row }"><el-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus) }}</el-tag></template></el-table-column><el-table-column label="连接状态" width="110"><template #default="{ row }">{{ label(connectionStatuses, row.connectionStatus) }}</template></el-table-column><el-table-column label="数据状态" width="110"><template #default="{ row }">{{ label(dataStatuses, row.dataStatus) }}</template></el-table-column><el-table-column label="最后活跃" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></el-table-column><el-table-column label="操作" fixed="right" width="120" align="center"><template #default="{ row }"><div class="table-actions"><el-button type="primary" plain @click="register(row.deviceId)">一键注册</el-button></div></template></el-table-column>
       <template #empty><el-empty description="当前没有未注册设备" /></template>
@@ -137,10 +142,24 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
     <div class="list-pagination"><el-pagination v-model:current-page="unregisteredPage" v-model:page-size="unregisteredPageSize" :total="unregisteredTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeUnregisteredPage" @size-change="changeUnregisteredPageSize" /></div>
   </el-card>
 
-  <el-dialog v-model="dialog" :title="form.id ? '编辑设备' : '注册设备'" width="min(640px, 94vw)">
-    <el-form :model="form" label-position="top"><el-form-item label="设备名称"><el-input v-model="form.name" /></el-form-item><el-form-item label="设备标识"><el-input v-model="form.code" :disabled="!!form.id" placeholder="留空自动生成" /></el-form-item><el-form-item label="所属产品"><el-select v-model="form.productId" filterable @change="id => { if (!form.id && products.find(item => item.id === id)?.category === 'gateway') form.deviceRole = 'GATEWAY' }"><el-option v-for="item in products" :key="item.id" :label="`${item.name} · ${label(categories, item.category)}`" :value="item.id" /></el-select></el-form-item><div class="form-grid"><el-form-item label="设备角色"><el-select v-model="form.deviceRole"><el-option v-for="(text, key) in deviceRoles" :key="key" :label="text" :value="key" /></el-select></el-form-item><el-form-item label="所属网关"><el-select v-model="form.gatewayId" :disabled="form.deviceRole !== 'CHILD'"><el-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></el-select></el-form-item></div><el-form-item label="设备状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /></el-select></el-form-item><el-form-item label="标签结构化数据"><el-input v-model="form.tags" type="textarea" :rows="4" /></el-form-item><el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item></el-form>
-    <template #footer><el-button @click="dialog = false">取消</el-button><el-button type="primary" @click="save">保存设备</el-button></template>
+  <el-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
+    <el-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
+      <el-form-item label="所属产品" required>
+        <el-select v-model="form.productId" filterable placeholder="选择产品" @change="id => { if (!form.id) form.deviceRole = products.find(item => item.id === id)?.category === 'gateway' ? 'GATEWAY' : 'DIRECT' }"><el-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></el-select>
+        <el-button v-if="!products.length" link @click="dialog=false;emit('navigate','products')">新建产品</el-button>
+      </el-form-item>
+      <el-form-item label="设备名称" required><el-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></el-form-item>
+      <el-form-item label="设备标识"><el-input v-model="form.code" :disabled="!!form.id" placeholder="与设备上报标识一致；留空自动生成" /></el-form-item>
+      <el-form-item label="设备角色"><el-radio-group v-model="form.deviceRole"><el-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</el-radio-button></el-radio-group></el-form-item>
+      <el-form-item v-if="form.deviceRole === 'CHILD'" label="所属网关" required><el-select v-model="form.gatewayId" filterable><el-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></el-select></el-form-item>
+      <el-collapse><el-collapse-item title="更多设置" name="advanced">
+        <el-form-item label="启用设备"><el-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" /></el-form-item>
+        <el-form-item label="标签（JSON）"><el-input v-model="form.tags" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
+      </el-collapse-item></el-collapse>
+    </el-form>
+    <template #footer><el-button :disabled="saving" @click="dialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="save">保存设备</el-button></template>
   </el-dialog>
 
-  <el-dialog v-model="credentialDialog" title="设备凭证" width="min(520px, 92vw)"><el-alert title="密钥只显示这一次，请立即复制并安全保存。" type="warning" :closable="false" /><el-descriptions class="top-gap" :column="1" border><el-descriptions-item label="接入密钥"><code>{{ credential.accessKey }}</code></el-descriptions-item><el-descriptions-item label="设备密钥"><code class="break-all">{{ credential.secret }}</code></el-descriptions-item></el-descriptions><template #footer><el-button @click="credentialDialog = false">关闭</el-button><el-button type="primary" @click="copyCredential">复制凭证</el-button></template></el-dialog>
+  <el-dialog v-model="credentialDialog" title="设备凭证" @closed="credential={}" width="min(520px, 92vw)"><el-alert title="密钥只显示这一次，请立即复制并安全保存。" type="warning" :closable="false" /><el-descriptions class="top-gap" :column="1" border><el-descriptions-item label="接入密钥"><code>{{ credential.accessKey }}</code></el-descriptions-item><el-descriptions-item label="设备密钥"><code class="break-all">{{ credential.secret }}</code></el-descriptions-item></el-descriptions><template #footer><el-button @click="credentialDialog = false">关闭</el-button><el-button type="primary" @click="copyCredential">复制凭证</el-button></template></el-dialog>
 </template>
