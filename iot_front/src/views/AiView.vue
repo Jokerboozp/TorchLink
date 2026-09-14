@@ -1,4 +1,5 @@
 <script setup>
+import { can } from '../permissions'
 import { aiProviderOptions as providerOptions, capabilityName } from '../presentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -117,7 +118,7 @@ const selectedRun = computed(() => runs.value.find(run => run.id === selectedRun
 const activeHealthy = computed(() => Boolean(workflows.value.healthy))
 const activeTone = computed(() => !workflowItems.value.length ? 'info' : activeHealthy.value ? 'success' : 'danger')
 const healthMessage = computed(() => workflows.value.healthMessage || '工作流服务状态未知')
-const isAdmin = computed(() => session.role === 'admin')
+const isAdmin = computed(() => can('GET /api/v1/ai/workflows/admin'))
 const selectedCapabilities = computed(() => {
   const value = selectedWorkflow.value?.capabilities || selectedWorkflow.value?.tools || []
   return Array.isArray(value) ? value : []
@@ -542,7 +543,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading">
     <div><span class="section-kicker">智能助手</span><strong>智能助手</strong><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small></div>
-    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</el-button><el-button size="small" @click="openAgentManagement">智能体管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div>
+    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</el-button><el-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div>
   </div>
 
   <div class="ai-workbench" :class="{ 'is-controls-open': controlsExpanded }">
@@ -553,7 +554,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
         <div class="control-section-label"><span>01</span>模型服务</div>
         <div class="provider-summary">
           <span>当前模型服务</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small>
-          <el-button type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</el-button>
+          <el-button v-permission="'menu:aiProviders'" type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</el-button>
         </div>
         <div class="control-section-label"><span>02</span>选择工作流</div>
         <el-form label-position="top"><el-form-item label="工作流插件"><el-select v-model="selectedWorkflowId" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><el-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></el-select></el-form-item></el-form>
@@ -574,10 +575,10 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
       <div class="quick-prompts"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div>
       <div ref="log" class="chat-log" aria-live="polite">
         <div v-for="message in messages" :key="message.id" class="message-row" :class="message.role">
-          <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><el-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</el-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><el-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</el-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small><el-button v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</el-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} 词元</span><el-button plain size="small" @click="openTrace(message)">查看轨迹</el-button></div></div>
+          <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><el-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</el-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><el-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</el-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small><el-button v-permission="'POST /api/v1/ai/chat/stream'" v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</el-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} 词元</span><el-button plain size="small" @click="openTrace(message)">查看轨迹</el-button></div></div>
         </div>
       </div>
-      <div class="chat-compose"><el-input v-model="question" type="textarea" :autosize="{ minRows:1,maxRows:4 }" maxlength="4000" resize="none" placeholder="询问设备、告警、趋势或处置知识；上档键与回车键换行" :disabled="sending || !workflowItems.length" @keydown.enter.exact.prevent="send()" /><el-button v-if="sending" type="danger" plain @click="stop">停止</el-button><el-button v-else type="primary" :disabled="!question.trim() || !workflowItems.length" @click="send()">发送</el-button></div><small class="chat-notice">智能输出仅供辅助判断，不会自动执行设备控制或启用规则。</small>
+      <div class="chat-compose"><el-input v-model="question" type="textarea" :autosize="{ minRows:1,maxRows:4 }" maxlength="4000" resize="none" placeholder="询问设备、告警、趋势或处置知识；上档键与回车键换行" :disabled="sending || !workflowItems.length" @keydown.enter.exact.prevent="send()" /><el-button v-if="sending" type="danger" plain @click="stop">停止</el-button><el-button v-permission="'POST /api/v1/ai/chat/stream'" v-else type="primary" :disabled="!question.trim() || !workflowItems.length" @click="send()">发送</el-button></div><small class="chat-notice">智能输出仅供辅助判断，不会自动执行设备控制或启用规则。</small>
     </el-card>
   </div>
 
@@ -586,14 +587,14 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
         <div class="manager-intro"><span>智能体管理</span><div><h3>智能体插件管理</h3><el-tag size="small" type="primary" effect="plain">管理员</el-tag></div><p>内置智能体仅可查看；动态智能体可编辑、启用/禁用或删除。点击“新建智能体”即可在弹窗中提交新的配置清单，保存后智能体会立即进入工作流列表。</p></div>
         <el-alert v-if="!isAdmin" title="工作流插件管理仅限管理员。" type="warning" :closable="false" show-icon />
         <div v-else class="workflow-admin-panel">
-          <div class="workflow-admin-toolbar"><div><strong>已配置的工作流插件</strong><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天智能体只读；告警研判、设备巡检和协议接入由业务页面调用</small></div><div><el-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</el-button><el-button size="small" type="primary" plain @click="startCreateAgent">新建智能体</el-button></div></div>
+          <div class="workflow-admin-toolbar"><div><strong>已配置的工作流插件</strong><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天智能体只读；告警研判、设备巡检和协议接入由业务页面调用</small></div><div><el-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</el-button><el-button v-permission="'POST /api/v1/ai/workflows'" size="small" type="primary" plain @click="startCreateAgent">新建智能体</el-button></div></div>
           <el-alert v-if="workflowManageError" :title="workflowManageError" type="error" :closable="false" show-icon />
           <el-skeleton v-if="workflowManageLoading && !workflowManageItems.length" :rows="4" animated />
           <el-empty v-else-if="!workflowManageItems.length" description="暂无工作流插件" :image-size="56" />
           <div v-else class="workflow-admin-list">
             <div v-for="item in workflowManageItems" :key="workflowKey(item)" class="workflow-admin-item">
               <div class="workflow-admin-main"><div><strong>{{ workflowName(item) }}</strong><el-tag size="small" :type="item.enabled === false ? 'info' : 'success'" effect="plain">{{ item.enabled === false ? '已禁用' : '已启用' }}</el-tag><el-tag v-if="isBuiltinWorkflow(item)" size="small" effect="plain">内置只读</el-tag></div><small>{{ workflowKey(item) }} · {{ item.version ? `v${item.version}` : '无版本' }}</small><p>{{ item.description || '未填写插件说明' }}</p></div>
-              <div class="workflow-admin-actions"><template v-if="isBuiltinWorkflow(item)"><el-button size="small" type="primary" plain @click="viewAgent(item)">查看</el-button></template><template v-else><el-button size="small" @click="editAgent(item)">编辑</el-button><el-button size="small" @click="toggleWorkflow(item)">{{ item.enabled === false ? '启用' : '禁用' }}</el-button><el-button size="small" type="danger" plain @click="deleteWorkflow(item)">删除</el-button></template></div>
+              <div class="workflow-admin-actions"><template v-if="isBuiltinWorkflow(item)"><el-button size="small" type="primary" plain @click="viewAgent(item)">查看</el-button></template><template v-else><el-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="editAgent(item)">编辑</el-button><el-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="toggleWorkflow(item)">{{ item.enabled === false ? '启用' : '禁用' }}</el-button><el-button v-permission="'DELETE /api/v1/ai/workflows/:id'" size="small" type="danger" plain @click="deleteWorkflow(item)">删除</el-button></template></div>
             </div>
           </div>
           <div v-if="workflowManageTotal" class="list-pagination">
@@ -615,7 +616,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
       </div>
       <el-alert title="只允许受控查询工具与“仅生成、不保存”的规则草稿工具；内置智能体不能覆盖，智能体不能直接启用规则。" type="info" :closable="false" show-icon />
     </el-form>
-    <template #footer><el-button @click="cancelAgentEditor">取消</el-button><el-button type="primary" :loading="creatingAgent" @click="saveAgent">{{ editingAgentId ? '校验并保存修改' : '校验并创建智能体' }}</el-button></template>
+    <template #footer><el-button @click="cancelAgentEditor">取消</el-button><el-button v-permission="['POST /api/v1/ai/workflows','PUT /api/v1/ai/workflows/:id']" type="primary" :loading="creatingAgent" @click="saveAgent">{{ editingAgentId ? '校验并保存修改' : '校验并创建智能体' }}</el-button></template>
   </el-dialog>
   <el-dialog v-model="agentPreviewVisible" title="查看内置智能体配置清单（只读）" width="min(760px, 92vw)" append-to-body>
     <el-alert title="内置智能体仅供查看，不能编辑、启用/禁用或删除。" type="info" :closable="false" show-icon />

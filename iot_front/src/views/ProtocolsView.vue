@@ -11,6 +11,9 @@ import { ElMessage } from 'element-plus'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 
 const protocols = ref([])
+const protocolPage = ref(1), protocolPageSize = ref(20)
+const pagedProtocols = computed(() => protocols.value.slice((protocolPage.value - 1) * protocolPageSize.value, protocolPage.value * protocolPageSize.value))
+watch(() => protocols.value.length, total => { protocolPage.value = Math.min(protocolPage.value, Math.max(1, Math.ceil(total / protocolPageSize.value))) })
 const profiles = ref([])
 const snapshots = ref({})
 const snapshot = (id) => snapshots.value[id] || { sessions: [], recentDevices: [] }
@@ -144,19 +147,19 @@ onMounted(load)
 <template>
   <div class="page-toolbar">
     <template v-if="props.section === 'protocols'">
-      <el-button type="primary" @click="sourceOpen=true">上传源码</el-button>
-      <el-button title="通过报文或 Excel / CSV 点表生成协议" @click="openAssistant()">协议生成</el-button>
+      <el-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" @click="sourceOpen=true">上传源码</el-button>
+      <el-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" title="通过报文或 Excel / CSV 点表生成协议" @click="openAssistant()">协议生成</el-button>
       <span>{{ protocols.length }} 个协议 · {{ releaseCount }} 个版本</span>
     </template>
     <template v-else>
-      <el-button type="primary" @click="createProfile">新建网关</el-button>
+      <el-button v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="createProfile">新建网关</el-button>
       <span>{{ profiles.length }} 个接入网关</span>
     </template>
     <el-button :loading="loading" @click="load">刷新</el-button>
   </div>
   <el-card shadow="never" class="surface-card table-card">
     <template v-if="props.section === 'protocols'">
-      <el-table v-loading="loading" :data="protocols" stripe>
+      <el-table v-loading="loading" :data="pagedProtocols" stripe>
         <el-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></el-table-column>
         <el-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></el-table-column>
         <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column>
@@ -165,15 +168,15 @@ onMounted(load)
         <el-table-column label="操作" fixed="right" width="350"><template #default="{ row }">
           <div v-for="release in (row.releases?.length ? row.releases : [{}])" :key="release.version || 'empty'" class="release-actions">
             <div class="release-buttons">
-              <el-tooltip :disabled="!!release.artifact?.generatedMapping" content="此协议无字段映射测试配置，请在接入测试中验证" placement="top"><span><el-button :disabled="!release.artifact?.generatedMapping" size="small" plain type="primary" @click="openAssistant(release, row.definition.name)">解析测试</el-button></span></el-tooltip>
-              <el-tooltip :disabled="release.artifact?.build?.kind === 'go-source'" content="此版本没有可下载的 Go 源码" placement="top"><span><el-button :disabled="release.artifact?.build?.kind !== 'go-source'" size="small" plain @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button></span></el-tooltip>
-              <el-tooltip :disabled="!!release.artifact?.packagePath" content="此版本没有可下载的协议制品" placement="top"><span><el-button :disabled="!release.artifact?.packagePath" size="small" plain @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button></span></el-tooltip>
-              <el-tooltip :disabled="release.status === 'VALIDATED'" :content="release.status === 'PUBLISHED' ? '此版本已发布' : '版本通过校验后才能发布'" placement="top"><span><el-button :disabled="release.status !== 'VALIDATED'" size="small" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button></span></el-tooltip>
+              <el-tooltip :disabled="!!release.artifact?.generatedMapping" content="此协议无字段映射测试配置，请在接入测试中验证" placement="top"><span><el-button v-permission="'POST /api/v2/protocols/:id/releases/:version/preview'" :disabled="!release.artifact?.generatedMapping" size="small" plain type="primary" @click="openAssistant(release, row.definition.name)">解析测试</el-button></span></el-tooltip>
+              <el-tooltip :disabled="release.artifact?.build?.kind === 'go-source'" content="此版本没有可下载的 Go 源码" placement="top"><span><el-button v-permission="'GET /api/v2/protocols/:id/releases/:version/source'" :disabled="release.artifact?.build?.kind !== 'go-source'" size="small" plain @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button></span></el-tooltip>
+              <el-tooltip :disabled="!!release.artifact?.packagePath" content="此版本没有可下载的协议制品" placement="top"><span><el-button v-permission="'GET /api/v2/protocols/:id/releases/:version/package'" :disabled="!release.artifact?.packagePath" size="small" plain @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button></span></el-tooltip>
+              <el-tooltip :disabled="release.status === 'VALIDATED'" :content="release.status === 'PUBLISHED' ? '此版本已发布' : '版本通过校验后才能发布'" placement="top"><span><el-button v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" :disabled="release.status !== 'VALIDATED'" size="small" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button></span></el-tooltip>
             </div>
           </div>
         </template></el-table-column>
       </el-table>
-
+      <div class="list-pagination"><el-pagination v-model:current-page="protocolPage" v-model:page-size="protocolPageSize" :total="protocols.length" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" @size-change="protocolPage=1" /></div>
     </template>
     <template v-else>
 
@@ -191,7 +194,7 @@ onMounted(load)
         <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</el-tag></template></el-table-column>
         <el-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></el-table-column>
         <el-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></el-table-column>
-        <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button @click="editProfile(row)">编辑</el-button><el-button @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
+        <el-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><el-button v-permission="'POST /api/v2/device-access-profiles/:id/test'" v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</el-button><el-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="editProfile(row)">编辑</el-button><el-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</el-button></template></el-table-column>
       </el-table>
 
     </template>
@@ -223,7 +226,7 @@ onMounted(load)
           </el-collapse-item>
         </el-collapse>
         <el-switch v-model="source.publish" active-text="测试通过后立即发布" inactive-text="仅保存已校验版本" />
-        <div class="dialog-actions"><el-button type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</el-button></div>
+        <div class="dialog-actions"><el-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</el-button></div>
         <small v-if="compiling" class="subline">首次编译可能较慢，请保持页面打开。每个平台编译最长 120 秒，随后运行样例测试。</small>
         <el-alert v-if="sourceError" class="top-gap" title="操作未完成，请查看原因" type="error" :closable="false"><pre class="source-error">{{ sourceError }}</pre></el-alert>
       </el-form>
@@ -251,7 +254,7 @@ onMounted(load)
           <el-form-item label="重试次数"><el-input-number v-model="listener.retries" :min="0" :max="3" /></el-form-item>
         </div>
         <el-switch v-model="listener.enabled" active-text="启用接入" />
-        <el-collapse v-if="listener.mode==='listener'"><el-collapse-item title="定时查询与子设备" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></el-collapse-item></el-collapse><div class="dialog-actions"><el-button type="primary" :loading="savingListener" @click="saveListener">保存接入网关</el-button></div>
+        <el-collapse v-if="listener.mode==='listener'"><el-collapse-item title="定时查询与子设备" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></el-collapse-item></el-collapse><div class="dialog-actions"><el-button v-permission="['POST /api/v2/device-access-profiles','PUT /api/v2/device-access-profiles/:id']" type="primary" :loading="savingListener" @click="saveListener">保存接入网关</el-button></div>
       </el-form>
 
   </el-dialog>

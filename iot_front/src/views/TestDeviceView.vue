@@ -159,10 +159,10 @@ onMounted(() => prepare())
 <template>
   <div class="test-device-view">
     <div class="page-toolbar">
-      <el-button type="primary" :loading="loading" @click="prepare(false)">准备测试设备</el-button>
+      <el-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :loading="loading" @click="prepare(false)">准备测试设备</el-button>
       <el-button plain type="warning" :loading="loading" @click="resetLocalTemplates">恢复默认配置</el-button>
-      <el-button @click="emit('navigate', 'devices')">查看设备管理</el-button>
-      <el-button @click="emit('navigate', 'alarms')">打开告警中心</el-button>
+      <el-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</el-button>
+      <el-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</el-button>
       <span>系统会为当前租户生成一台可重复使用的测试烟感设备。</span>
     </div>
 
@@ -202,7 +202,7 @@ onMounted(() => prepare())
           </div>
           <el-input v-model="currentTemplate" class="template-editor" type="textarea" :rows="18" spellcheck="false" aria-label="可编辑报文模板" />
           <div class="template-actions">
-            <el-button type="primary" :loading="sending === activeTemplate" @click="sendTemplate(activeTemplate)">发送{{ currentTemplateName }}</el-button>
+            <el-button v-permission="'POST /api/v1/device-registry/:id/debug'" type="primary" :loading="sending === activeTemplate" @click="sendTemplate(activeTemplate)">发送{{ currentTemplateName }}</el-button>
             <span>支持直接修改报文内容；带 <code>&lt;unique&gt;</code> 的消息标识会在发送时自动替换。</span>
           </div>
         </el-card>

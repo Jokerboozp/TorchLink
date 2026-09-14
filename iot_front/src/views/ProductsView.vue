@@ -114,7 +114,7 @@ onMounted(load)
 <template>
   <ProductProtocolBinding v-if="bindingProduct" :key="bindingProduct.id" :product="bindingProduct" @close="bindingProduct=null" @saved="load" />
   <div class="page-toolbar">
-    <el-button type="primary" @click="openCreate">新建产品</el-button>
+    <el-button v-permission="'POST /api/v1/products'" type="primary" @click="openCreate">新建产品</el-button>
     <el-button :loading="loading" @click="load">刷新</el-button>
     <span>{{ productTotal }} 个产品</span>
   </div>
@@ -146,7 +146,7 @@ onMounted(load)
         <template #default="{ row }">
           <div class="table-actions">
             <el-button plain type="primary" @click="view(row)">详情</el-button>
-            <el-button plain @click="bindingProduct=row">协议版本</el-button><el-button plain type="primary" @click="edit(row)">编辑</el-button>
+            <el-button plain @click="bindingProduct=row">协议版本</el-button><el-button v-permission="'PUT /api/v1/products/:id'" plain type="primary" @click="edit(row)">编辑</el-button>
           </div>
         </template>
       </el-table-column>
@@ -172,9 +172,9 @@ onMounted(load)
       <el-collapse><el-collapse-item title="物模型基础（高级）" name="thing-model"><p>定义属性、事件和命令。此定义用于描述数据及校验命令；属性标记为可写后，才允许设置设备的期望状态。</p><el-input v-model="thingModelText" type="textarea" :rows="12" placeholder='{"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[]}' /></el-collapse-item></el-collapse>
     </el-form>
     <template #footer>
-      <el-button v-if="readonly" type="primary" @click="startEdit">编辑</el-button>
+      <el-button v-permission="'PUT /api/v1/products/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</el-button>
       <el-button @click="dialog=false">关闭</el-button>
-      <el-button v-if="!readonly" type="primary" :loading="saving" @click="save">保存产品</el-button>
+      <el-button v-permission="['POST /api/v1/products','PUT /api/v1/products/:id']" v-if="!readonly" type="primary" :loading="saving" @click="save">保存产品</el-button>
     </template>
   </el-dialog>
 </template>

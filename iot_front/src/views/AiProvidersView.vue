@@ -1,4 +1,5 @@
 <script setup>
+import { can } from '../permissions'
 import { aiProviderOptions as providerOptions } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -32,7 +33,7 @@ const capabilities = [
   { title:'协议助手与运维报告', description:'协议配置辅助、结构化输出和平台运维报告共用当前模型服务。', page:'protocols', label:'设备接入' }
 ]
 
-const isAdmin = computed(() => session.role === 'admin')
+const isAdmin = computed(() => can(['PUT /api/v1/ai/providers/config','POST /api/v1/ai/providers/test']))
 const selectedProviderOption = computed(() => providerOptions.find(item => item.id === providerForm.provider) || providerOptions[0])
 const activeProvider = computed(() => runtime.value.config?.provider || runtime.value.active?.id || 'disabled')
 const activeProviderName = computed(() => providerOptions.find(item => item.id === activeProvider.value)?.label || runtime.value.active?.name || '未配置')
@@ -190,7 +191,7 @@ onMounted(loadRuntime)
             <el-form-item label="服务地址"><el-input v-model="providerForm.baseUrl" placeholder="例如 http://192.168.24.133:11434 或 https://api.deepseek.com" /></el-form-item>
             <el-form-item label="模型名称"><el-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></el-form-item>
             <el-form-item v-if="providerForm.provider !== 'ollama'" label="接口密钥"><el-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="留空表示沿用当前密钥" /></el-form-item>
-            <div class="provider-actions"><el-button plain :loading="testing" @click="testProviderConfig">测试配置</el-button><el-button type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</el-button></div>
+            <div class="provider-actions"><el-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</el-button><el-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</el-button></div>
           </el-form>
           <el-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon />
           <div v-if="testResult" class="provider-test-result" :class="{ success:testResult.success, failed:!testResult.success }"><div><strong>{{ testResult.success ? '配置测试通过' : '配置测试失败' }}</strong><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} 毫秒</span></div><p v-if="testResult.answer">{{ testResult.answer }}</p><small v-if="testResult.success">当前填写内容未生效；确认无误后点击“应用配置”。</small></div>

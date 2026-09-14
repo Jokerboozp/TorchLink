@@ -107,7 +107,7 @@ onMounted(async () => {
 <template>
   <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" debug-commands @close="connectionDevice=''" @device="connectionDevice=$event" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}"/>
   <div class="page-toolbar">
-    <el-button plain type="primary" @click="emit('navigate','devices')">管理设备</el-button>
+    <el-button v-permission="'menu:devices'" plain type="primary" @click="emit('navigate','devices')">管理设备</el-button>
     <el-button :loading="loading" @click="load">刷新</el-button>
     <span>共 {{ total }} 台已注册设备，选择设备查看连接参数和报文示例。</span>
   </div>

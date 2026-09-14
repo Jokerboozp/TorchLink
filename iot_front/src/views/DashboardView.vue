@@ -65,7 +65,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
       <el-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><el-radio-group v-model="days" size="small" aria-label="告警统计时段" @change="load"><el-radio-button :value="7">近 7 天</el-radio-button><el-radio-button :value="30">近 30 天</el-radio-button></el-radio-group></div></template>
         <DashboardTrend v-if="data" :items="data.trend" /><el-skeleton v-else :rows="5" :loading="loading" animated><el-empty description="尚未获取趋势数据" :image-size="76" /></el-skeleton>
       </el-card>
-      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><el-button text @click="emit('navigate','devices')">管理设备</el-button></div></template>
+      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><el-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</el-button></div></template>
         <div v-if="data && stats.devices" class="device-chart">
           <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="#f0f0f2" stroke-width="15" /><circle v-for="item in states.filter(item => item.count)" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="15" pathLength="100" :stroke-dasharray="`${item.percent} ${100-item.percent}`" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div>
           <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }}</b></div></div>
@@ -74,7 +74,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
       </el-card>
     </div>
     <div class="dashboard-distributions">
-      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>产品设备分布</strong><el-button text @click="emit('navigate','products')">管理产品</el-button></div></template>
+      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>产品设备分布</strong><el-button v-permission="'menu:products'" text @click="emit('navigate','products')">管理产品</el-button></div></template>
         <div v-if="products.length" class="horizontal-chart"><div v-for="item in products" :key="item.key" class="bar-row"><div><span :title="item.name">{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>台</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / productMax * 100}%`, background:item.color }" /></div></div></div>
         <el-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" />
       </el-card>
@@ -83,10 +83,10 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
         <el-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" />
       </el-card>
     </div>
-    <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>最新活动告警</strong><el-button text @click="emit('navigate','alarms')">查看全部</el-button></div></template>
+    <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>最新活动告警</strong><el-button v-permission="'menu:alarms'" text @click="emit('navigate','alarms')">查看全部</el-button></div></template>
       <el-empty v-if="!alarms.length" :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" />
       <div v-for="alarm in alarms" :key="alarm.alarmId" class="alarm-row"><i /><div><strong>{{ alarm.deviceName || alarm.deviceId }} · {{ alarmType(alarm.alarmType) }}</strong><small>{{ alarm.details?.description || alarm.details?.message || alarmType(alarm.alarmType) }} · {{ formatTime(alarm.lastTriggeredAt) }}</small></div><el-tag :type="tagType(alarm.alarmLevel)" effect="light" round>{{ label(alarmLevels,alarm.alarmLevel,'未设置') }}</el-tag><el-button text @click="showDetail(alarm.alarmId)">详情</el-button></div>
     </el-card>
-  <el-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"><el-descriptions v-if="detail" :column="1" border><el-descriptions-item label="告警编号">{{ detail.alarmId }}</el-descriptions-item><el-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</el-descriptions-item><el-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</el-descriptions-item><el-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</el-descriptions-item></el-descriptions><details class="technical-details"><summary>查看原始记录</summary><pre>{{ JSON.stringify(detail,null,2) }}</pre></details><template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button type="primary" @click="emit('navigate', 'alarms', { alarmId: detail?.alarmId })">前往告警处置</el-button></template></el-dialog>
+  <el-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"><el-descriptions v-if="detail" :column="1" border><el-descriptions-item label="告警编号">{{ detail.alarmId }}</el-descriptions-item><el-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</el-descriptions-item><el-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</el-descriptions-item><el-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</el-descriptions-item></el-descriptions><details class="technical-details"><summary>查看原始记录</summary><pre>{{ JSON.stringify(detail,null,2) }}</pre></details><template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-permission="'menu:alarms'" type="primary" @click="emit('navigate', 'alarms', { alarmId: detail?.alarmId })">前往告警处置</el-button></template></el-dialog>
   </div>
 </template>

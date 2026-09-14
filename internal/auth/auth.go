@@ -39,14 +39,15 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) {
 }
 
 type Claims struct {
-	Username  string          `json:"username"`
-	TenantID  string          `json:"tenantId"`
-	Role      string          `json:"role"`
-	Scopes    []string        `json:"scopes,omitempty"`
-	ACL       []ACLRule       `json:"acl,omitempty"`
-	TokenUse  string          `json:"tokenUse,omitempty"`
-	RunID     string          `json:"runId,omitempty"`
-	Knowledge *KnowledgeScope `json:"knowledge,omitempty"`
+	Username       string          `json:"username"`
+	TenantID       string          `json:"tenantId"`
+	Role           string          `json:"role"`
+	Scopes         []string        `json:"scopes,omitempty"`
+	ACL            []ACLRule       `json:"acl,omitempty"`
+	TokenUse       string          `json:"tokenUse,omitempty"`
+	SessionVersion int64           `json:"sessionVersion,omitempty"`
+	RunID          string          `json:"runId,omitempty"`
+	Knowledge      *KnowledgeScope `json:"knowledge,omitempty"`
 	jwt.RegisteredClaims
 }
 type KnowledgeScope struct {
@@ -78,8 +79,24 @@ func (m *Manager) IssueWithACL(user, tenant, role string, scopes []string, acl [
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
 }
 
+func (m *Manager) IssueBrowserMQTT(user, tenant string, scopes []string, ttl time.Duration) (string, error) {
+	now := time.Now()
+	acl := []ACLRule{}
+	for _, scope := range scopes {
+		acl = append(acl, ACLRule{Permission: "allow", Action: "subscribe", Topic: scope})
+	}
+	c := Claims{Username: user, TenantID: tenant, Role: "viewer", TokenUse: "browser-mqtt", Scopes: scopes, ACL: acl, RegisteredClaims: jwt.RegisteredClaims{Issuer: m.issuer, Subject: user, IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(ttl))}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(m.secret)
+}
+
 func (m *Manager) IssueHarness(user, tenant, runID string, scopes []string, ttl time.Duration) (string, error) {
 	return m.IssueHarnessWithKnowledge(user, tenant, runID, scopes, nil, ttl)
+}
+
+func (m *Manager) IssueUser(user, tenant string, version int64, ttl time.Duration) (string, error) {
+	now := time.Now()
+	claims := Claims{Username: user, TenantID: tenant, Role: "operator", TokenUse: "user", SessionVersion: version, RegisteredClaims: jwt.RegisteredClaims{Issuer: m.issuer, Subject: user, IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(ttl))}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
 }
 func (m *Manager) IssueHarnessWithKnowledge(user, tenant, runID string, scopes []string, knowledge *KnowledgeScope, ttl time.Duration) (string, error) {
 	if user == "" || tenant == "" || runID == "" || ttl <= 0 {

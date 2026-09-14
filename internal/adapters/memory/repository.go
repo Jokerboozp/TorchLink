@@ -17,6 +17,7 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	accessStates map[string][]byte
 	componentAlarms     map[string]model.ComponentAlarmState
 	rawReservations     map[string]rawReservation
 	leases              map[string]model.ExecutionLease

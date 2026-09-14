@@ -226,7 +226,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           </el-descriptions>
           <el-empty v-else description="暂无已解析报文" :image-size="48" />
           <el-collapse v-if="data.latest?.messageId" class="message-detail"><el-collapse-item title="查看完整标准消息" name="message"><pre>{{pretty(data.latest)}}</pre></el-collapse-item></el-collapse>
-          <div class="section-actions"><el-button @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</el-button><el-button @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</el-button></div>
+          <div class="section-actions"><el-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</el-button><el-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</el-button></div>
         </section>
 
         <section class="connection-section device-history" v-loading="lists.history.loading">
@@ -279,8 +279,8 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             </el-form>
             <el-alert v-else title="当前产品尚未定义可用命令" description="请在产品物模型中定义命令和参数；原始命令调试统一在接入测试中进行。" type="info" :closable="false" />
             <template v-if="debugCommands || operations.length">
-              <el-button v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || (!debugCommands && !selectedOperation)" :loading="actionBusy" @click="sendMQTT">{{debugCommands ? '发送调试命令' : '执行命令'}}</el-button>
-              <el-button v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || (!debugCommands && !selectedOperation)" @click="send">{{debugCommands ? '发送调试命令' : '执行命令'}}</el-button>
+              <el-button v-permission="'POST /api/v1/device-registry/:id/commands'" v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || (!debugCommands && !selectedOperation)" :loading="actionBusy" @click="sendMQTT">{{debugCommands ? '发送调试命令' : '执行命令'}}</el-button>
+              <el-button v-permission="'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'" v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || (!debugCommands && !selectedOperation)" @click="send">{{debugCommands ? '发送调试命令' : '执行命令'}}</el-button>
               <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前无可用连接或接入网关已停用，暂时不能下发命令。</p>
             </template>
             <el-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand">开始一条新命令</el-button>
@@ -300,7 +300,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         <el-alert v-if="debugCommands && data.connector!=='MQTT' && !(data.profile && data.canCommand)" title="当前设备连接不支持命令下发" type="info" :closable="false" />
         <section v-if="standardAccess && canEdit" class="connection-section device-credentials">
           <h3>设备凭据</h3><p>重新生成后旧凭据立即停用，新密钥仅显示一次。</p>
-          <div class="section-actions"><el-button :disabled="loading || actionBusy || !data.credentialEnabled" @click="disable">禁用凭据</el-button><el-button :disabled="loading || actionBusy" @click="rotate">重新生成凭据</el-button></div>
+          <div class="section-actions"><el-button v-permission="'DELETE /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy || !data.credentialEnabled" @click="disable">禁用凭据</el-button><el-button v-permission="'POST /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy" @click="rotate">重新生成凭据</el-button></div>
           <pre v-if="credential">仅本次显示，请妥善保存：{{pretty(credential)}}</pre>
           <p v-for="revocation in data.revocations" :key="revocation.id">旧凭据消息服务撤销：{{revocation.status==='REVOKED' ? '已完成' : '待完成（平台已停用旧凭据）'}}</p>
         </section>

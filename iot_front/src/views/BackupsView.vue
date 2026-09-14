@@ -1,4 +1,5 @@
 <script setup>
+import { can } from '../permissions'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -21,7 +22,7 @@ const manifestTotal = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 
-const isAdmin = computed(() => session.role === 'admin')
+const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','GET /api/v1/backups/:id/files/:filename']))
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length)
 const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type)))
 
@@ -173,8 +174,8 @@ onMounted(load)
     <span class="toolbar-hint">仅备份设备原始报文与解析数据；每日自动备份昨日数据</span>
     <span v-if="!isAdmin" class="toolbar-hint">查看权限：当前账号不能手动触发备份或文件校验</span>
     <template v-if="isAdmin">
-      <el-button type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</el-button>
-      <el-button type="warning" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</el-button>
+      <el-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</el-button>
+      <el-button v-permission="'POST /api/v1/backups'" type="warning" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</el-button>
     </template>
   </div>
 
@@ -192,7 +193,7 @@ onMounted(load)
       <el-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></el-table-column>
       <el-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></el-table-column>
       <el-table-column label="清单校验摘要" min-width="170"><template #default="{ row }"><el-tooltip v-if="row.checksum" :content="row.checksum"><code>{{ row.checksum.slice(0, 12) }}…</code></el-tooltip><span v-else>—</span></template></el-table-column>
-      <el-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDetail(row)">详情 / 文件</el-button><el-button v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</el-button></div></template></el-table-column>
+      <el-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDetail(row)">详情 / 文件</el-button><el-button v-permission="'POST /api/v1/backups/:id/restore-drill'" v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</el-button></div></template></el-table-column>
     </el-table>
     <el-empty v-if="!loading && !records.length" description="还没有备份记录；定时任务执行后会自动出现在这里" />
     <div class="list-pagination">
@@ -213,13 +214,13 @@ onMounted(load)
       </el-descriptions>
       <el-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon />
       <template v-if="manifest">
-        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</el-button></div>
+        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</el-button></div>
         <el-table :data="manifest.artifacts" stripe>
           <el-table-column label="组件" width="160"><template #default="{row}">{{ label(backupComponents, row.component, '其他组件') }}</template></el-table-column>
           <el-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></el-table-column>
           <el-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></el-table-column>
           <el-table-column label="完整性校验摘要" min-width="190"><template #default="{ row }"><el-tooltip :content="row.sha256"><code>{{ row.sha256?.slice(0, 12) }}…</code></el-tooltip></template></el-table-column>
-          <el-table-column label="操作" width="100" align="center"><template #default="{ row }"><el-button v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</el-button><span v-else class="muted-text">管理员可下载</span></template></el-table-column>
+          <el-table-column label="操作" width="100" align="center"><template #default="{ row }"><el-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</el-button><span v-else class="muted-text">管理员可下载</span></template></el-table-column>
         </el-table>
         <div class="list-pagination">
           <el-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" />

@@ -14,9 +14,10 @@ export const session = {
     localStorage.setItem('iot_tenant', data.tenantId || '')
     localStorage.setItem('iot_user', username)
     localStorage.setItem('iot_role', data.role || '')
+    localStorage.setItem('iot_permissions', JSON.stringify(data.permissions || (data.role === 'admin' ? ['*'] : [])))
   },
   clear() {
-    for (const key of ['iot_token', 'iot_tenant', 'iot_user', 'iot_role']) localStorage.removeItem(key)
+    for (const key of ['iot_token', 'iot_tenant', 'iot_user', 'iot_role', 'iot_permissions']) localStorage.removeItem(key)
   }
 }
 

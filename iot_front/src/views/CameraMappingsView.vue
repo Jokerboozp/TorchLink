@@ -83,7 +83,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
 
 <template>
   <div class="page-toolbar">
-    <el-button type="primary" @click="open()">新增摄像头</el-button>
+    <el-button v-permission="'POST /api/v1/integrations/video/cameras'" type="primary" @click="open()">新增摄像头</el-button>
     <el-button @click="load">刷新</el-button>
     <span>共 {{ total }} 个摄像头；一个摄像头最多关联一个设备，一个设备可以关联多个摄像头</span>
   </div>
@@ -97,7 +97,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
       <el-table-column label="位置" min-width="210"><template #default="{ row }">{{ [row.building, row.floor, row.room].filter(Boolean).join(' / ') || '—' }}</template></el-table-column>
       <el-table-column label="关联设备" min-width="180"><template #default="{ row }">{{ row.deviceId || '未关联' }}</template></el-table-column>
       <el-table-column label="状态" width="100" align="center"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '已停用' }}</el-tag></template></el-table-column>
-      <el-table-column label="操作" width="100" align="center" fixed="right"><template #default="{ row }"><el-button plain type="primary" @click="open(row)">编辑</el-button></template></el-table-column>
+      <el-table-column label="操作" width="100" align="center" fixed="right"><template #default="{ row }"><el-button v-permission="'PUT /api/v1/integrations/video/cameras/:id'" plain type="primary" @click="open(row)">编辑</el-button></template></el-table-column>
       <template #empty><el-empty description="暂无摄像头信息" /></template>
     </el-table>
     <div class="list-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div>
@@ -119,7 +119,7 @@ onMounted(async () => { await load(); consumeNavigationAction() })
       <el-alert title="保存后只能保留一个设备关联；同一设备可以在多个摄像头记录中出现。直播地址、开发工具包、流媒体服务均不在此配置。" type="info" :closable="false" show-icon />
       <el-form-item><el-switch v-model="camera.enabled" active-text="启用该摄像头" /></el-form-item>
     </el-form>
-    <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button type="primary" @click="save">保存</el-button></template>
+    <template #footer><el-button @click="dialogVisible=false">取消</el-button><el-button v-permission="['POST /api/v1/integrations/video/cameras','PUT /api/v1/integrations/video/cameras/:id']" type="primary" @click="save">保存</el-button></template>
   </el-dialog>
 </template>
 

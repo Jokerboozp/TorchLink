@@ -91,3 +91,7 @@ JetLinks 信息依据 [社区仓库](https://github.com/jetlinks/jetlinks-commun
 | AI 工作流和外部视频事件 | [AI 与知识库](docs/AI_PLUGIN_HARNESS.md) · [视频集成](docs/VIDEO_SDK_ADAPTER.md) |
 
 协作与开发约束见 [AGENTS.md](AGENTS.md)。
+
+## 用户与权限
+
+「系统维护 → 用户与权限」支持创建用户名密码账户、角色以及独立菜单和操作授权，详见 [用户权限管理](docs/USER_ACCESS_CONTROL.md)。菜单支持整体及分组折叠；协议列表支持分页。

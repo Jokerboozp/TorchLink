@@ -180,8 +180,8 @@ onMounted(async () => {
 
 <template>
   <div class="page-toolbar">
-    <el-button type="primary" @click="open()">手动添加规则</el-button>
-    <el-button @click="openDraft">智能生成规则草稿</el-button>
+    <el-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()">手动添加规则</el-button>
+    <el-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft">智能生成规则草稿</el-button>
     <el-button :loading="loading" @click="load">刷新</el-button>
     <span>共 {{ total }} 条规则，详情、编辑和删除操作位于列表右侧。</span>
   </div>
@@ -197,7 +197,7 @@ onMounted(async () => {
       <el-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></el-table-column>
       <el-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></el-table-column>
       <el-table-column label="操作" width="280" fixed="right" align="center">
-        <template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="view(row)">详情</el-button><el-button plain type="primary" @click="open(row)">编辑</el-button><el-button plain type="danger" @click="remove(row.id)">删除</el-button></div></template>
+        <template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="view(row)">详情</el-button><el-button v-permission="'PUT /api/v1/rules/:id'" plain type="primary" @click="open(row)">编辑</el-button><el-button v-permission="'DELETE /api/v1/rules/:id'" plain type="danger" @click="remove(row.id)">删除</el-button></div></template>
       </el-table-column>
       <template #empty><el-empty description="暂无规则，可手动添加或使用智能生成草稿" /></template>
     </el-table>
@@ -208,7 +208,7 @@ onMounted(async () => {
 
   <el-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)">
     <el-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" />
-    <el-button class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</el-button>
+    <el-button v-permission="'POST /api/v1/ai/rule-draft'" class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</el-button>
     <el-alert v-if="draftError" class="top-gap" type="error" :closable="false" show-icon title="规则草稿生成失败" :description="draftError" />
     <el-card v-if="draft" shadow="never" class="inner-card top-gap">
       <el-descriptions :column="1">
@@ -257,7 +257,7 @@ onMounted(async () => {
         <el-table-column prop="example" label="示例" min-width="180" />
       </el-table>
     </el-form>
-    <template #footer><el-button v-if="readonly" type="primary" @click="startEdit">编辑</el-button><el-button @click="dialog=false">关闭</el-button><el-button v-if="!readonly" type="primary" @click="save">保存规则</el-button></template>
+    <template #footer><el-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</el-button><el-button @click="dialog=false">关闭</el-button><el-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</el-button></template>
   </el-dialog>
 </template>
 

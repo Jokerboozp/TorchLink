@@ -34,6 +34,6 @@ async function switchBinding(rollback = false) {
       <el-form-item label="协议"><el-select v-model="binding.protocolId" filterable @change="binding.version = ''"><el-option v-for="p in protocols" :key="p.definition.id" :label="p.definition.name" :value="p.definition.id" /></el-select></el-form-item>
       <el-form-item label="已发布版本"><el-select v-model="binding.version"><el-option v-for="release in publishedReleases" :key="release.version" :label="release.version" :value="release.version" /></el-select></el-form-item>
     </el-form>
-    <template #footer><el-button :disabled="loading || switching || !canRollback" @click="switchBinding(true)">回滚上一版本</el-button><el-button type="primary" :disabled="loading" :loading="switching" @click="switchBinding(false)">绑定协议</el-button></template>
+    <template #footer><el-button v-permission="'POST /api/v2/products/:id/protocol-binding/rollback'" :disabled="loading || switching || !canRollback" @click="switchBinding(true)">回滚上一版本</el-button><el-button v-permission="'POST /api/v2/products/:id/protocol-binding'" type="primary" :disabled="loading" :loading="switching" @click="switchBinding(false)">绑定协议</el-button></template>
   </el-dialog>
 </template>

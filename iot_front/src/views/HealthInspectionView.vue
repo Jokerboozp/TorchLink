@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
   <div class="inspection-page">
     <div class="page-toolbar">
       <div><strong>设备健康巡检</strong><small class="subline">核对设备在线状态、数据新鲜度和活动告警，再生成智能处置建议；进入页面不会自动执行</small></div>
-      <div class="table-actions"><el-button v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</el-button><el-button type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</el-button></div>
+      <div class="table-actions"><el-button v-permission="'POST /api/v1/ai/health-inspection/pdf'" v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</el-button><el-button v-permission="'POST /api/v1/ai/health-inspection/run'" type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</el-button></div>
     </div>
 
     <el-alert v-if="error" class="top-gap" :title="error" type="error" :closable="false" show-icon />

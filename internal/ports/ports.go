@@ -21,6 +21,7 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	AccessStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
 	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)

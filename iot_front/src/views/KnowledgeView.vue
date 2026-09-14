@@ -1,4 +1,5 @@
 <script setup>
+import {can} from '../permissions'
 import { statusLabel } from '../presentation'
 import { computed, onMounted, ref } from 'vue'
 import { Collection, UploadFilled } from '@element-plus/icons-vue'
@@ -33,8 +34,8 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 
-const canUpload = computed(() => session.role === 'admin' || session.role === 'operator')
-const canManageBinding = computed(() => session.role === 'admin' || session.role === 'operator')
+const canUpload = computed(() => can('POST /api/v1/knowledge/documents'))
+const canManageBinding = computed(() => can('PUT /api/v1/ai/workflows/:id/knowledge-binding'))
 const indexedCount = computed(() => documents.value.filter(item => item.status === 'INDEXED').length)
 const totalChunks = computed(() => documents.value.reduce((sum, item) => sum + Number(item.metadata?.chunks || 0), 0))
 const totalSize = computed(() => documents.value.reduce((sum, item) => sum + Number(item.metadata?.size || 0), 0))
@@ -183,7 +184,7 @@ onMounted(load)
 <template>
   <section class="knowledge-hero">
     <div><span>专属知识管理</span><h3>知识库</h3><p>上传设备手册、维护记录和处置规范。每份文档归属于一个智能体，用于回答与该业务相关的问题。</p></div>
-    <div class="hero-actions"><el-tag :type="runtime.persistentIndex ? 'success' : 'warning'" effect="dark">{{ runtime.persistentIndex ? '持久化索引' : '本地内存索引' }}</el-tag><el-button type="primary" plain @click="emit('navigate','ai')">打开智能助手</el-button></div>
+    <div class="hero-actions"><el-tag :type="runtime.persistentIndex ? 'success' : 'warning'" effect="dark">{{ runtime.persistentIndex ? '持久化索引' : '本地内存索引' }}</el-tag><el-button v-permission="'menu:ai'" type="primary" plain @click="emit('navigate','ai')">打开智能助手</el-button></div>
   </section>
 
   <el-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
@@ -191,7 +192,7 @@ onMounted(load)
 
   <div class="knowledge-stats"><el-card shadow="never" class="surface-card"><span>知识文档</span><strong>{{ total }}</strong><small>当前租户</small></el-card><el-card shadow="never" class="surface-card"><span>已完成索引</span><strong>{{ indexedCount }}</strong><small>可供智能体检索</small></el-card><el-card shadow="never" class="surface-card"><span>内容分片</span><strong>{{ totalChunks }}</strong><small>{{ formatBytes(totalSize) }}</small></el-card></div>
 
-  <div class="page-toolbar knowledge-toolbar"><el-button type="primary" :disabled="!canUpload" @click="openUpload">上传并绑定智能体</el-button><el-button :loading="loading" @click="load">刷新</el-button><span>共 {{ total }} 份文档，上传时必须选择或输入一个智能体标识。</span></div>
+  <div class="page-toolbar knowledge-toolbar"><el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :disabled="!canUpload" @click="openUpload">上传并绑定智能体</el-button><el-button :loading="loading" @click="load">刷新</el-button><span>共 {{ total }} 份文档，上传时必须选择或输入一个智能体标识。</span></div>
 
   <el-card v-if="agents.length" shadow="never" class="surface-card knowledge-policy-card">
     <template #header><div class="card-header"><div><strong>知识库策略</strong><small>文档、绑定和检索策略统一在本页面维护</small></div><el-button size="small" :loading="bindingLoading" @click="loadBinding">刷新策略</el-button></div></template>
@@ -205,7 +206,7 @@ onMounted(load)
       <div class="binding-numbers"><el-form-item label="召回数量"><el-input-number v-model="knowledgeBinding.topK" :min="1" :max="20" controls-position="right" /></el-form-item><el-form-item label="最低相似度"><el-input-number v-model="knowledgeBinding.minScore" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></el-form-item></div>
       <el-form-item label="无匹配知识时"><el-select v-model="knowledgeBinding.noMatchPolicy"><el-option label="允许模型回答，但必须说明证据不足" value="allow-model" /><el-option label="阻止回答，必须先补充知识" value="require-evidence" /></el-select></el-form-item>
       <el-alert title="每个智能体只能检索自己的文档，关联范围由服务端校验。" type="info" :closable="false" show-icon />
-      <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><el-button type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</el-button></div>
+      <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><el-button v-permission="'PUT /api/v1/ai/workflows/:id/knowledge-binding'" type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</el-button></div>
     </el-form>
   </el-card>
 
@@ -229,7 +230,7 @@ onMounted(load)
       <el-form-item label="关联智能体（必选）"><el-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select><small class="field-tip">上传后检索服务端会强制使用这个智能体标识，不会跨智能体检索；未启动工作流服务时也可以先输入计划使用的智能体标识。</small></el-form-item>
       <div class="metadata-grid"><el-form-item label="知识分类（可选）"><el-select v-model="category" :disabled="uploading"><el-option label="设备手册" value="manual" /><el-option label="告警处置操作规程" value="alarm-sop" /><el-option label="运维维修" value="maintenance" /><el-option label="消防规范" value="regulation" /><el-option label="常见问题" value="faq" /></el-select></el-form-item><el-form-item label="知识标签（可选）"><el-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></el-form-item></div>
     </el-form>
-    <template #footer><el-button @click="uploadDialog=false">取消</el-button><el-button type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</el-button></template>
+    <template #footer><el-button @click="uploadDialog=false">取消</el-button><el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</el-button></template>
   </el-dialog>
 
   <el-dialog v-model="detailDialog" title="知识文档详情与切片" width="min(1080px, 96vw)">

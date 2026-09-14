@@ -306,3 +306,8 @@ CREATE TABLE IF NOT EXISTS component_alarm_state (
   body jsonb NOT NULL,
   PRIMARY KEY (tenant_id, device_id, rule_id)
 );
+CREATE TABLE IF NOT EXISTS platform_access (
+ tenant_id text PRIMARY KEY,
+ revision bigint NOT NULL DEFAULT 1,
+ body jsonb NOT NULL
+);

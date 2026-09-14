@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
@@ -29,6 +29,7 @@ import Label from './components/ui/Label.vue'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
+import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
 import { startRealtime, stopRealtime } from './realtime'
 
 const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
@@ -45,10 +46,14 @@ const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.v
 const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
 const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
 const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue'))
+const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue'))
 
 const authenticated = ref(Boolean(session.token))
 const active = ref('dashboard')
-const collapsed = ref(false)
+const collapsed = ref(localStorage.getItem('iot:sidebar-collapsed') === 'true')
+watch(collapsed, value => localStorage.setItem('iot:sidebar-collapsed', String(value)))
+const closedGroups = ref([])
+function toggleGroup(name) { closedGroups.value = closedGroups.value.includes(name) ? closedGroups.value.filter(item => item !== name) : [...closedGroups.value, name] }
 const contentArea = ref(null)
 const pageKey = ref(0)
 const loginLoading = ref(false)
@@ -76,14 +81,20 @@ const pages = {
   ai: { ...pageGuide.ai, icon: MessageCircle, component: AiView },
   backups: { ...pageGuide.backups, icon: Database, component: BackupsView }
 }
-const current = computed(() => pages[active.value])
+const current = computed(() => pages[active.value] || {title:'暂无可用功能'})
 const menuGroups = [
   { label: '控制中心', items: ['dashboard'] },
   { label: '设备接入', items: ['protocols', 'products', 'devices', 'profiles', 'integration', 'cameras'] },
   { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] },
   { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] },
-  { label: '系统维护', items: ['backups'] }
+  { label: '系统维护', items: ['backups','access'] }
 ]
+pages.access = {title:'用户与权限',icon:Settings2,component:AccessView}
+const visibleGroups = computed(() => menuGroups.map(group=>({...group,items:group.items.filter(name=>can('menu:'+name))})).filter(group=>group.items.length))
+async function syncIdentity(){
+ if(!authenticated.value)return
+ try{await refreshPermissions();if(!can('menu:'+active.value))active.value=visibleGroups.value[0]?.items[0]||''}catch(error){notifyError(error)}
+}
 const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '工作台')
 async function login() {
   loginLoading.value = true
@@ -92,8 +103,10 @@ async function login() {
     session.save(data, loginForm.value.username)
     identity.value = { tenant: data.tenantId || '', user: loginForm.value.username, role: data.role || '' }
     authenticated.value = true
-    active.value = 'dashboard'
-    connect()
+    permissionState.items=data.permissions || [];permissionState.ready=true
+    active.value = visibleGroups.value[0]?.items[0] || ''
+    loginForm.value.password=''
+    if(can(['menu:devices','menu:alarms','menu:dashboard','menu:raw']))connect()
   } catch (error) {
     notifyError(error)
   } finally {
@@ -104,6 +117,7 @@ async function login() {
 function logout() {
   stopRealtime()
   session.clear()
+  resetPermissions()
   identity.value = { tenant: '', user: '', role: '' }
   authenticated.value = false
 }
@@ -117,7 +131,7 @@ function openPage(name, detail) {
     name = 'integration'
     detail = { ...detail, tab: 'testDevice' }
   }
-  if (!pages[name]) return
+  if (!pages[name] || !can('menu:'+name)) return
   if (active.value === name && !detail) return
   sessionStorage.removeItem('iot:navigation-detail')
   active.value = name
@@ -161,13 +175,16 @@ function unauthorized() {
   ElMessage.error('登录已过期，请重新登录')
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('iot:unauthorized', unauthorized)
-  if (authenticated.value) connect()
+  window.addEventListener('focus',syncIdentity)
+  await syncIdentity()
+  if (authenticated.value && can(['menu:devices','menu:alarms','menu:dashboard','menu:raw'])) connect()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('iot:unauthorized', unauthorized)
+  window.removeEventListener('focus',syncIdentity)
   stopRealtime()
 })
 </script>
@@ -175,11 +192,12 @@ onBeforeUnmount(() => {
 <template>
   <el-config-provider :locale="zhCn" size="small">
     <div v-if="!authenticated" class="login-page">
+      <section class="login-intro"><div class="login-brand"><Flame :size="30" />炬联 <span>TORCHLINK</span></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section>
       <section class="login-panel">
         <form class="login-form" @submit.prevent="login">
           <span class="login-mark"><Flame :size="32" /></span>
-          <h2>登录炬联</h2>
-          <p>消防物联网管理平台</p>
+          <h2>欢迎回来</h2>
+          <p>登录你的账户，进入炬联工作台</p>
           <div class="login-fields">
             <div class="login-field">
               <Label for="tenant-id">租户</Label>
@@ -187,14 +205,15 @@ onBeforeUnmount(() => {
             </div>
             <div class="login-field">
               <Label for="username">用户名</Label>
-              <Input id="username" v-model="loginForm.username" autocomplete="username" />
+              <Input id="username" v-model="loginForm.username" autocomplete="username" placeholder="请输入用户名" required />
             </div>
             <div class="login-field">
               <Label for="password">密码</Label>
-              <Input id="password" v-model="loginForm.password" type="password" autocomplete="current-password" />
+              <Input id="password" v-model="loginForm.password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
             </div>
           </div>
           <Button type="submit" class="login-submit" :loading="loginLoading">进入平台</Button>
+          <p class="login-help">账户由管理员分配 · 按授权访问设备和功能</p>
         </form>
       </section>
     </div>
@@ -204,9 +223,9 @@ onBeforeUnmount(() => {
         <div class="brand"><span><Flame :size="23" aria-hidden="true" /></span><div v-show="!collapsed"><strong>炬联</strong></div></div>
         <nav class="menu-scroll" aria-label="主导航">
           <div class="menu-scroll-inner">
-            <template v-for="group in menuGroups" :key="group.label">
-              <div v-show="!collapsed" class="menu-group">{{ group.label }}</div>
-              <button v-for="name in group.items" :key="name" type="button" class="menu-item" :class="{ active: active === name }" :aria-label="pages[name].title" :title="pages[name].title" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)">
+            <template v-for="group in visibleGroups" :key="group.label">
+              <button v-show="!collapsed" class="menu-group menu-group-toggle" :aria-expanded="!closedGroups.includes(group.label)" @click="toggleGroup(group.label)">{{ group.label }}<ChevronDown :class="{closed:closedGroups.includes(group.label)}" /></button>
+              <button v-for="name in group.items" v-show="collapsed || !closedGroups.includes(group.label)" :key="name" type="button" class="menu-item" :class="{ active: active === name }" :aria-label="pages[name].title" :title="pages[name].title" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)">
                 <component :is="pages[name].icon" />
                 <span v-show="!collapsed">{{ pages[name].title }}</span>
               </button>
@@ -222,7 +241,7 @@ onBeforeUnmount(() => {
             <span class="workspace-label">{{ currentGroup }}</span>
           </div>
           <div class="top-actions">
-            <button class="alert-settings-trigger" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
+            <button v-if="can('menu:alarms')" class="alert-settings-trigger" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
             <el-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">
                 <Avatar>{{ currentRole.slice(0, 1) }}</Avatar>
@@ -231,8 +250,7 @@ onBeforeUnmount(() => {
               </button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item disabled>账户：{{ currentUser }} · 租户：{{ currentTenant }}</el-dropdown-item>
-                  <el-dropdown-item divided command="logout"><LogOut />退出登录</el-dropdown-item>
+                  <el-dropdown-item command="logout"><LogOut />退出登录</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -240,10 +258,11 @@ onBeforeUnmount(() => {
         </header>
         <section ref="contentArea" class="main-content" :class="{ 'main-content--ai': active === 'ai' }">
           <div class="page-context"><h1>{{ current.title }}</h1></div>
-          <component :is="current.component" :key="`${active}-${pageKey}`" v-bind="current.props || {}" @navigate="openPage" />
+          <component v-if="permissionState.ready && current.component" :is="current.component" :key="`${active}-${pageKey}`" v-bind="current.props || {}" @navigate="openPage" />
+          <el-empty v-else-if="permissionState.ready" description="尚未分配菜单权限，请联系管理员" />
         </section>
       </main>
     </div>
-    <GlobalAlertPopup v-if="authenticated" ref="globalAlertPopup" @navigate="openPage" />
+    <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="openPage" />
   </el-config-provider>
 </template>

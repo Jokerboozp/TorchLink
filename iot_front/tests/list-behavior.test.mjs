@@ -15,6 +15,15 @@ function component(file, api, exports, notifyError = e => { throw e }) {
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
+test('协议列表分页覆盖所有记录并在列表缩小时修正当前页',async()=>{
+ const c=component('ProtocolsView.vue',async()=>({items:[]}),'protocols,protocolPage,protocolPageSize,pagedProtocols')
+ c.protocols.value=Array.from({length:45},(_,i)=>({definition:{id:`protocol-${i+1}`},releases:[]}))
+ assert.equal(c.pagedProtocols.value.length,20)
+ c.protocolPage.value=2;assert.equal(c.pagedProtocols.value[0].definition.id,'protocol-21')
+ c.protocolPage.value=3;assert.equal(c.pagedProtocols.value.length,5)
+ c.protocols.value=c.protocols.value.slice(0,3);await Promise.resolve();assert.equal(c.protocolPage.value,1)
+ assert.equal(c.pagedProtocols.value.length,3)
+})
 function paginated(path) {
   const url = new URL(path, 'http://audit.invalid')
   const size = Math.min(100, Number(url.searchParams.get('pageSize') || 20))

@@ -106,6 +106,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 }
 
 func (s *Server) routes() {
+	s.accessRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
 	s.deviceOperationsRoutes()
@@ -239,20 +240,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil {
 		return
 	}
-	if in.Username != s.cfg.AdminUser || in.Password != s.cfg.AdminPassword {
-		problem(w, 401, "invalid credentials")
-		return
-	}
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	if in.TenantID == "" {
 		in.TenantID = "tenant_001"
+	}
+	if in.Username != s.cfg.AdminUser {
+		s.loginManaged(w, r, in.Username, in.Password, in.TenantID)
+		return
+	}
+	if in.Password != s.cfg.AdminPassword {
+		problem(w, 401, "invalid credentials")
+		return
 	}
 	if !adminTenantAllowed(s.cfg.AdminTenants, in.TenantID) {
 		problem(w, http.StatusForbidden, "admin tenant is not allowed")
 		return
 	}
 	token, _ := s.auth.Issue(in.Username, in.TenantID, "admin", nil, 8*time.Hour)
-	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin"})
+	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}})
 }
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -1216,7 +1221,7 @@ func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) {
 		items = s.engine.AIPlugins.List()
 	}
 	for index := range items {
-		if claims(r).Role != "admin" {
+		if !s.canConfigureAI(r) {
 			items[index].DefaultBaseURL = ""
 		} else if items[index].ID == "ollama" {
 			items[index].DefaultBaseURL = s.cfg.AITestOllamaURL
@@ -1259,7 +1264,7 @@ func (s *Server) aiProviderConfigView(r *http.Request, config ports.AIPluginConf
 		"apiKeyConfigured": key != "",
 		"active":           info.Enabled,
 	}
-	if claims(r).Role == "admin" {
+	if s.canConfigureAI(r) {
 		view["baseUrl"] = config.BaseURL
 		if key != "" {
 			view["apiKeyHint"] = key[:minInt(len(key), 4)] + "***"
@@ -2332,6 +2337,27 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	scope := []string{fmt.Sprintf("/iot/parsed/%s/#", c.TenantID), fmt.Sprintf("/iot/alarm/%s/#", c.TenantID), fmt.Sprintf("/iot/device/state/%s/#", c.TenantID), fmt.Sprintf("/iot/ui-action/%s", c.TenantID)}
+	if c.TokenUse == "user" {
+		_, p, err := s.managedIdentity(r, c)
+		if err != nil {
+			problem(w, 401, "会话已失效")
+			return
+		}
+		scope = []string{}
+		if p["menu:raw"] || p["menu:devices"] {
+			scope = append(scope, fmt.Sprintf("/iot/parsed/%s/#", c.TenantID), fmt.Sprintf("/iot/device/state/%s/#", c.TenantID))
+		}
+		if p["menu:alarms"] || p["menu:dashboard"] {
+			scope = append(scope, fmt.Sprintf("/iot/alarm/%s/#", c.TenantID))
+		}
+		token, err := s.auth.IssueBrowserMQTT(c.Username, c.TenantID, scope, 15*time.Minute)
+		if err != nil {
+			problem(w, 500, "创建消息令牌失败")
+			return
+		}
+		write(w, 200, map[string]any{"username": c.Username, "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
+		return
+	}
 	acl := make([]auth.ACLRule, 0, len(scope))
 	for _, topic := range scope {
 		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: topic})
@@ -2623,12 +2649,21 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if claimsValue.TokenUse == "harness" {
+		if claimsValue.TokenUse != "" && claimsValue.TokenUse != "user" {
 			ginProblem(c, http.StatusForbidden, "harness tokens are restricted to the MCP harness endpoint")
 			c.Abort()
 			return
 		}
 		allowed := claimsValue.Role == "admin" || claimsValue.Role == role || role == "viewer" && (claimsValue.Role == "operator" || claimsValue.Role == "viewer")
+		if claimsValue.TokenUse == "user" {
+			_, permissions, err := s.managedIdentity(c.Request, claimsValue)
+			if err != nil {
+				ginProblem(c, 401, "账户已停用或会话已失效，请重新登录")
+				c.Abort()
+				return
+			}
+			allowed = allowsRoute(permissions, c.Request.Method, c.FullPath())
+		}
 		if !allowed {
 			ginProblem(c, http.StatusForbidden, "insufficient role")
 			c.Abort()
