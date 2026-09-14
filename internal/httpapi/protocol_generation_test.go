@@ -96,6 +96,14 @@ func TestUploadedProtocolLifecycle(t *testing.T) {
 	if excel.ParserType != parser.ModbusTCPParserName || len(excel.Fields) != 2 {
 		t.Fatal(excel)
 	}
+	unchecked := model.ProtocolAssistantDraft{Name: "CRC mapping", ParserType: "configurable_hex_parser", Transport: "MQTT", PayloadFormat: "hex", Config: map[string]any{"checksum": "crc16", "fields": []any{map[string]any{"name": "value", "offset": 0, "length": 1, "type": "uint8"}}}}
+	uncheckedBody := map[string]any{"id": "unchecked-crc", "version": "1.0.0", "draft": unchecked, "payload": "01 02 03"}
+	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/ai/protocol-assistant/publish", token, uncheckedBody, 422)
+	delete(uncheckedBody, "payload")
+	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/ai/protocol-assistant/publish", token, uncheckedBody, 201)
+	uncheckedPath := server.URL + "/api/v2/protocols/unchecked-crc/releases/1.0.0"
+	requestJSON(t, server.Client(), "POST", uncheckedPath+"/preview", token, map[string]any{"payload": "01 02 03"}, 422)
+	requestJSON(t, server.Client(), "POST", uncheckedPath+"/publish", token, map[string]any{}, 422)
 	for _, path := range []string{"/api/v2/protocol-catalog", "/api/v2/protocol-market", "/api/v2/market-distribution/tenant/catalog"} {
 		req, _ := http.NewRequest("GET", server.URL+path, nil)
 		req.Header.Set("Authorization", "Bearer "+token)

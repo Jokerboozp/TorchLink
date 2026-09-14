@@ -165,7 +165,7 @@ func decodeModbusRegisterValue(data []byte, p model.ModbusPoint) (any, error) {
 	case "bool":
 		value = binary.BigEndian.Uint16(ordered[:2]) != 0
 	case "bits":
-		value = binary.BigEndian.Uint16(ordered[:2])
+		value = uint64(binary.BigEndian.Uint16(ordered[:2]))
 	case "uint16":
 		value = uint64(binary.BigEndian.Uint16(ordered))
 	case "int16":

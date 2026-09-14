@@ -216,6 +216,28 @@ func run() error {
 				return nil
 			}
 		}},
+		{"MQTT invalid JWT and username mismatch rejection", func(ctx context.Context) error {
+			token, err := auth.New(cfg.JWTSecret).IssueWithACL(id, "system", "service", nil, nil, time.Minute)
+			if err != nil {
+				return err
+			}
+			for i, login := range []struct{ user, password string }{{id, "invalid-jwt"}, {id + "-wrong", token}} {
+				client := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(cfg.MQTTBroker).SetClientID(fmt.Sprintf("%s-deny-%d", id, i)).SetUsername(login.user).SetPassword(login.password).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false).SetConnectTimeout(5 * time.Second))
+				attempt := client.Connect()
+				select {
+				case <-ctx.Done():
+					client.Disconnect(100)
+					return ctx.Err()
+				case <-attempt.Done():
+				}
+				code := attempt.(*mqtt.ConnectToken).ReturnCode()
+				client.Disconnect(100)
+				if attempt.Error() == nil || (code != 4 && code != 5) {
+					return fmt.Errorf("MQTT login boundary %d was not rejected", i)
+				}
+			}
+			return nil
+		}},
 		{"Weaviate readiness", func(ctx context.Context) error {
 			_, err := request(ctx, "GET", strings.TrimRight(cfg.WeaviateURL, "/")+"/v1/.well-known/ready", "")
 			return err

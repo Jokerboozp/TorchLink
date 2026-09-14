@@ -151,7 +151,11 @@ func (ConfigurableHexParser) ParseWithConfig(raw model.RawMessage, config map[st
 			return nil, errors.New("hex payload does not match configured endHex")
 		}
 	}
-	if strings.EqualFold(firstConfig(config, "checksum"), "sum8") {
+	checksum := strings.ToLower(strings.TrimSpace(firstConfig(config, "checksum")))
+	if checksum != "" && checksum != "sum8" {
+		return nil, fmt.Errorf("unsupported HEX checksum %q; use a Go protocol package for this checksum", checksum)
+	}
+	if checksum == "sum8" {
 		checksumAt := len(data) - 1
 		if firstConfig(config, "endHex") != "" {
 			end, _ := hex.DecodeString(strings.ReplaceAll(firstConfig(config, "endHex"), " ", ""))

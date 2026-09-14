@@ -49,6 +49,30 @@ func TestGeneratedModbusPreservesExplicitZeroBasedAddress(t *testing.T) {
 	}
 }
 
+func TestGeneratedCabinetBitPointPreview(t *testing.T) {
+	in := ProtocolAssistantInput{InputKind: "point-table", Transport: "MODBUS_RTU", DocumentFilename: "cabinet.csv", DocumentData: []byte("identifier,name,functionCode,address,addressNotation,dataType,bit\ninput4,输入4,3,8195,zero_based,bits,3\n")}
+	draft, _, err := buildUploadedProtocol(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = NormalizeGeneratedModbusConfig(draft.Config); err != nil {
+		t.Fatal(err)
+	}
+	point := draft.Config["points"].([]model.ModbusPoint)[0]
+	if point.DataType != "bits" || point.Bit == nil || *point.Bit != 3 || point.Address != 8195 {
+		t.Fatal("point import changed bit definition")
+	}
+	draft.Config["startAddress"] = 8195
+	// Unit 1, function 3, one register 0x0008, CRC 0x82B9 (low byte first).
+	preview, err := PreviewProtocolAssistant(draft, "tenant", "01 03 02 00 08 B9 82")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Properties["input4"] != true {
+		t.Fatalf("input4 = %v", preview.Properties["input4"])
+	}
+}
+
 type hexMappingAI struct{ protocolAssistantAI }
 
 func (hexMappingAI) GenerateJSON(context.Context, string, string, string) (string, error) {

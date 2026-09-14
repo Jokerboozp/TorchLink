@@ -75,7 +75,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) {
 		srv.Handler().ServeHTTP(out, req)
 		return out
 	}
-	q := onboarding.Request{ProductID: "modbus-product", ProductName: "模拟温度产品", DeviceID: "modbus-device", Name: "模拟温度设备", Type: connector.ModbusTCP, PollIntervalSec: 1, Profile: model.DeviceAccessProfile{Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: 1, TimeoutMs: 500}, PointTableCSV: "name,functionCode,address,addressNotation,dataType,scale\ntemperature,3,0,zero_based,uint16,1\n"}
+	q := onboarding.Request{ProductID: "modbus-product", ProductName: "模拟温度产品", DeviceID: "modbus-device", Name: "模拟温度设备", Type: connector.ModbusTCP, PollIntervalSec: 1, Profile: model.DeviceAccessProfile{Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: 1, TimeoutMs: 500}, PointTableCSV: "name,functionCode,address,addressNotation,dataType,scale,bit\ntemperature,3,0,zero_based,uint16,1,\ninput6,3,0,zero_based,bits,1,5\n"}
 	preview := call("POST", "/api/v1/onboarding/test", q)
 	var tested connector.Result
 	if err = json.Unmarshal(preview.Body.Bytes(), &tested); err != nil || preview.Code != 200 || !tested.Success || tested.Source != "network-read" {
@@ -129,7 +129,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) {
 	}
 	wait(func() bool { return connection()["ingest"].(map[string]any)["parsed"] == true })
 	records, count, err := repo.ListDeviceMessages(ctx, "tenant", "modbus-device", model.PropertyReport, 10, 0)
-	if err != nil || count < 1 || records[0].Properties["temperature"] != float64(42) {
+	if err != nil || count < 1 || records[0].Properties["temperature"] != float64(42) || records[0].Properties["input6"] != true {
 		t.Fatal("missing parsed simulator value", count, err)
 	}
 	index, err := repo.GetRawIndex(ctx, "tenant", records[0].RawMessageID)
