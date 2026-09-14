@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -111,11 +113,12 @@ func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	pointTable := strings.TrimSpace(r.FormValue("pointTable"))
-	if document.Text == "" && pointTable == "" {
+	if document.Text == "" && pointTable == "" && strings.TrimSpace(r.FormValue("samplePayload")) == "" {
 		problem(w, http.StatusUnprocessableEntity, "protocol document or point table is required")
 		return
 	}
 	input := core.ProtocolAssistantInput{
+		InputKind:        r.FormValue("inputKind"),
 		Name:             strings.TrimSpace(r.FormValue("name")),
 		Protocol:         strings.TrimSpace(r.FormValue("protocol")),
 		Transport:        strings.TrimSpace(r.FormValue("transport")),
@@ -126,11 +129,22 @@ func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Reques
 		DocumentFilename: document.Filename,
 		DocumentData:     document.Data,
 	}
+	if input.InputKind != "" && input.InputKind != "sample" && input.InputKind != "point-table" {
+		problem(w, 422, "unsupported upload type")
+		return
+	}
+	if len(input.SamplePayload) > 1<<20 {
+		problem(w, 422, "sample payload exceeds 1 MiB")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	draft, err := s.engine.GenerateProtocolAssistant(ctx, claims(r).TenantID, input)
 	if err != nil {
 		status := http.StatusBadGateway
+		if errors.Is(err, core.ErrProtocolInput) {
+			status = http.StatusUnprocessableEntity
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			status = http.StatusGatewayTimeout
 		}
@@ -181,6 +195,10 @@ func (s *Server) publishProtocolAssistant(w http.ResponseWriter, r *http.Request
 		Draft         model.ProtocolAssistantDraft `json:"draft"`
 	}
 	if decode(w, r, &in) != nil {
+		return
+	}
+	if generatedMapping(in.Draft.ParserType) {
+		s.saveGeneratedProtocol(w, r, in.ID, in.Version, in.Draft, in.Payload, in.PayloadFormat)
 		return
 	}
 	draft := in.Draft
@@ -295,6 +313,20 @@ func readProtocolAssistantDocument(r *http.Request, maximum int) (protocolAssist
 	}
 	if len(data) > maximum {
 		return protocolAssistantDocument{}, errors.New("protocol document exceeds 32 MiB")
+	}
+	if r.FormValue("inputKind") == "sample" {
+		if len(data) > 1<<20 {
+			return protocolAssistantDocument{}, errors.New("报文样本不能超过 1 MiB")
+		}
+		text := string(data)
+		switch strings.ToLower(filepath.Ext(header.Filename)) {
+		case ".bin":
+			text = hex.EncodeToString(data)
+		case ".json", ".txt", ".hex":
+		default:
+			return protocolAssistantDocument{}, errors.New("报文文件支持 JSON / TXT / HEX / BIN")
+		}
+		return protocolAssistantDocument{Filename: header.Filename, Data: data, Text: text}, nil
 	}
 	text, err := core.ExtractKnowledgeText(header.Filename, data)
 	if err != nil {

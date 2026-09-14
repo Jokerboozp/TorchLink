@@ -1,13 +1,12 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate'])
+const emit = defineEmits(['navigate'])
 import ProtocolAccessSettings from '../components/ProtocolAccessSettings.vue'
+import ProtocolAssistantView from './ProtocolAssistantView.vue'
 import FilePicker from '../components/FilePicker.vue'
 import { transportLabel, formatLabel, statusLabel, platformLabel } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { label, parsers } from '../labels'
-import ProtocolCatalog from '../components/ProtocolCatalog.vue'
-import ProtocolMarket from '../components/ProtocolMarket.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 
@@ -27,7 +26,10 @@ const products = ref([])
 const switching = ref(false)
 const source = reactive({ protocolId:'', name:'', version:'', productId:'', transport:'', publish:true })
 const props = defineProps({ section: { type: String, default: 'protocols' } })
-const sourceOpen = ref(false), profileOpen = ref(false), commandOpen = ref(false), catalogOpen = ref(false), marketOpen = ref(false)
+const sourceOpen = ref(false), profileOpen = ref(false), commandOpen = ref(false), assistantOpen = ref(false)
+const assistantRelease = ref(null), assistantName = ref('')
+function openAssistant(release = null, name = '') { assistantRelease.value=release;assistantName.value=name;assistantOpen.value=true }
+function assistantNavigate(page) { assistantOpen.value=false;emit('navigate',page) }
 const editingProfile = ref(false)
 const blankListener = () => ({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[], unitId:1, intervalMs:10000, retries:0, wireFormat:'' })
 const listener = reactive(blankListener())
@@ -162,10 +164,7 @@ onMounted(load)
   <div class="page-toolbar">
     <template v-if="props.section === 'protocols'">
       <el-button type="primary" @click="sourceOpen=true">上传源码</el-button>
-      <el-dropdown trigger="click"><el-button>更多</el-button><template #dropdown><el-dropdown-menu>
-        <el-dropdown-item @click="catalogOpen=true">协议目录</el-dropdown-item>
-        <el-dropdown-item @click="marketOpen=true">组织发布</el-dropdown-item>
-      </el-dropdown-menu></template></el-dropdown>
+      <el-button @click="openAssistant()">上传报文 / 点表</el-button>
       <span>{{ protocols.length }} 个协议 · {{ releaseCount }} 个版本</span>
     </template>
     <template v-else>
@@ -182,7 +181,7 @@ onMounted(load)
         <el-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></el-table-column>
         <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column>
-        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
+        <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><span v-for="release in row.releases" :key="release.version" class="right-gap"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><el-button v-if="release.artifact?.generatedMapping" link @click="openAssistant(release, row.definition.name)">解析测试</el-button><el-button v-if="release.status === 'VALIDATED'" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button><el-button v-if="release.artifact?.build?.kind === 'go-source'" link @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button><el-button v-if="release.artifact?.packagePath" link @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></span></template></el-table-column>
       </el-table>
 
     </template>
@@ -206,6 +205,7 @@ onMounted(load)
 
     </template>
   </el-card>
+  <el-dialog v-model="assistantOpen" title="生成协议" width="min(980px, 94vw)" :close-on-click-modal="false" destroy-on-close><ProtocolAssistantView v-if="assistantOpen" :initial-release="assistantRelease" :initial-name="assistantName" @saved="load" @navigate="assistantNavigate" /></el-dialog>
   <el-dialog v-model="sourceOpen" title="上传协议源码" width="min(720px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!compiling" :show-close="!compiling">
 
       <el-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务缺少源码编译环境，请联系管理员部署支持编译的后端服务。" type="warning" :closable="false" />
@@ -273,8 +273,6 @@ onMounted(load)
       <el-button type="primary" :loading="sendingCommand" @click="sendCommand">发送命令</el-button><el-button v-if="pendingProtocolCommand" @click="pendingProtocolCommand=null">开始一条新命令</el-button></el-form>
 
   </el-dialog>
-  <el-dialog v-model="catalogOpen" title="协议目录" width="min(1000px, 94vw)"><ProtocolCatalog v-if="catalogOpen" :protocols="protocols" @installed="load" /></el-dialog>
-  <el-dialog v-model="marketOpen" title="组织发布" width="min(1000px, 94vw)"><ProtocolMarket v-if="marketOpen" :protocols="protocols" /></el-dialog>
   <details v-if="result" class="technical-details"><summary>最近操作结果</summary><pre>{{ pretty(result) }}</pre></details>
 </template>
 <style scoped>

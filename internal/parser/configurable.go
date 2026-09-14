@@ -165,6 +165,9 @@ func (ConfigurableHexParser) ParseWithConfig(raw model.RawMessage, config map[st
 		if firstConfig(config, "checksumStartOffset") != "" {
 			start = configInt(config, "checksumStartOffset", 0)
 		}
+		if start < 0 || start > checksumAt {
+			return nil, errors.New("hex checksum start offset is invalid")
+		}
 		for _, value := range data[start:checksumAt] {
 			sum += value
 		}
@@ -184,7 +187,7 @@ func (ConfigurableHexParser) ParseWithConfig(raw model.RawMessage, config map[st
 		}
 		name := fmt.Sprint(field["name"])
 		offset, length := intFrom(field["offset"]), intFrom(field["length"])
-		if name == "" || offset < 0 || length <= 0 || offset+length > len(data) {
+		if name == "" || offset < 0 || length <= 0 || length > len(data) || offset > len(data)-length {
 			return nil, fmt.Errorf("fields[%d] has an invalid name, offset or length", i)
 		}
 		value, err := decodeHexField(data[offset:offset+length], field)

@@ -492,3 +492,13 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
   .horizontal-chart { min-height: 0; }
   .dashboard-page .card-header { flex-wrap: wrap; }
 }
+.protocol-generator { min-width: 0; }
+.protocol-generator .generator-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.protocol-generator .generator-actions > span { font-size: 12px; }
+.protocol-generator .el-form-item__content > .el-textarea { width: 100%; }
+.protocol-generator .section-toolbar strong { overflow-wrap: anywhere; }
+.protocol-generator .section-toolbar small { margin-left: 8px; font-weight: 400; }
+
+.protocol-generator .bottom-gap { margin-bottom: 18px; }
+.protocol-generator .el-descriptions__label { width: 120px; }
+.protocol-generator .section-toolbar small { display: block; margin: 5px 0 0; }

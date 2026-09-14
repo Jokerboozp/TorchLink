@@ -292,6 +292,15 @@ func parseModbusAddress(text, notation string, fc int) (int, string, int, error)
 	if err != nil || n < 0 {
 		return 0, "", 0, fmt.Errorf("invalid Modbus address %q", text)
 	}
+	if strings.EqualFold(strings.TrimSpace(notation), "zero_based") {
+		if fc == 0 {
+			return 0, "", 0, errors.New("functionCode is required for zero/one based addresses")
+		}
+		if n > 65535 {
+			return 0, "", 0, errors.New("Modbus address must not exceed 65535")
+		}
+		return n, "zero_based", fc, nil
+	}
 	notation = strings.ToLower(strings.TrimSpace(notation))
 	if notation == "" {
 		notation = "zero_based"

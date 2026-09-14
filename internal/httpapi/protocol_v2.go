@@ -466,6 +466,10 @@ func (s *Server) publishProtocolReleaseV2(w http.ResponseWriter, r *http.Request
 		problem(w, 422, "custom protocol release has no passing package test cases")
 		return
 	}
+	if release.Artifact["generatedMapping"] == true && release.Status != "VALIDATED" && release.Status != "PUBLISHED" {
+		problem(w, 422, "请先用真实样本完成解析预览")
+		return
+	}
 	now := time.Now().UnixMilli()
 	if err = s.engine.Repo.UpdateProtocolReleaseStatus(r.Context(), tenant, id, version, "PUBLISHED", now); err != nil {
 		problem(w, 500, err.Error())

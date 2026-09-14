@@ -214,6 +214,8 @@ func number(v any) (float64, bool) {
 		return float64(x), true
 	case int64:
 		return float64(x), true
+	case uint64:
+		return float64(x), true
 	case json.Number:
 		n, e := x.Float64()
 		return n, e == nil

@@ -299,13 +299,6 @@ CREATE TABLE IF NOT EXISTS raw_ingest_reservation (
  metadata jsonb NOT NULL,
  PRIMARY KEY(tenant_id,message_id)
 );
-CREATE TABLE IF NOT EXISTS protocol_market_entry (
- tenant_id text NOT NULL,
- protocol_id text NOT NULL,
- version text NOT NULL,
- body jsonb NOT NULL,
- PRIMARY KEY (tenant_id,protocol_id,version)
-);
 
 -- Per component/type watermark and lifecycle, committed with alarm_record.
 CREATE TABLE IF NOT EXISTS component_alarm_state (

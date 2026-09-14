@@ -87,7 +87,7 @@ JetLinks 信息依据 [社区仓库](https://github.com/jetlinks/jetlinks-commun
 | 主动连接、查询和子设备 | [TCP 与主子设备接入](docs/TCP_CHILD_DEVICE_ACCESS.md) |
 | 字段映射、源码开发与消防示例 | [配置驱动协议](docs/CONFIGURABLE_PROTOCOLS.md) · [Go 协议包](docs/GO_PROTOCOL_PACKAGES.md) · [GB26875](docs/GB26875_DAHUA_V103.md) |
 | MQTT 接收保障和部件告警 | [接收与告警契约](docs/DEVICE_RECEIVE_RELIABILITY.md) |
-| 进程拆分与协议分发 | [Access Gateway](docs/EDGE_AND_GATEWAY.md) · [可信目录](docs/PROTOCOL_CATALOG.md) · [私有市场](docs/PRIVATE_PROTOCOL_MARKET.md) |
+| 进程拆分 | [Access Gateway](docs/EDGE_AND_GATEWAY.md) |
 | AI 工作流和外部视频事件 | [AI 与知识库](docs/AI_PLUGIN_HARNESS.md) · [视频集成](docs/VIDEO_SDK_ADAPTER.md) |
 
 协作与开发约束见 [AGENTS.md](AGENTS.md)。

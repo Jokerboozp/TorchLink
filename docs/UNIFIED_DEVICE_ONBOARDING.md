@@ -8,7 +8,7 @@
 
 | 菜单 | 管理内容 |
 | --- | --- |
-| 协议管理 | 上传 Go 源码、编译与样例校验、发布版本；协议目录与组织发布收在“更多”中 |
+| 协议管理 | 上传报文或点表生成协议，或上传 Go 源码；预览、校验并发布版本 |
 | 产品管理 | 创建产品、配置物模型；“协议版本”用于绑定与回滚 |
 | 设备管理 | 选择已有产品，登记设备名称和标识，管理角色、主子关系与凭证 |
 | 接入实例 | 新建或编辑 TCP / UDP 连接，维护查询和子设备产品映射，查看运行状态；已有 Modbus 实例可编辑与测试 |
@@ -183,3 +183,16 @@ Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`�
 - 仓库根目录：`go test ./internal/httpapi ./internal/onboarding ./internal/core` 通过。新增回归覆盖独立产品/设备登记、标准报文解析、Go 发布版本绑定、未发布版本拒绝和租户边界。
 - 浏览器实测：创建标准产品、添加设备与一次性凭证返回、产品协议绑定、独立实例入口；桌面与 390px 窄屏表单、内容溢出及长弹窗滚动。
 - 可选浏览器脚本已同步新入口并通过语法检查；本次未运行这些脚本，也未重做真实 MQTT、TCP / UDP、Modbus 设备联调。
+
+## 从报文或点表生成协议
+
+在“协议管理 → 上传报文 / 点表”选择报文或点表。JSON 报文自动提取属性路径；CSV / Excel 点表生成 Modbus TCP / RTU 解析映射与读取块。HEX 报文需补充字段偏移、长度、端序及单位，由已配置 AI 辅助生成固定字段映射；单个样本不能可靠推断专用协议，变长与请求应答协议仍使用 Go 源码入口。
+
+生成后可查看字段、编辑映射并上传真实样本预览，再保存为不可变版本。没有样本时可先保存草稿；列表的“解析测试”可继续校验，成功后才可发布并在产品管理绑定。Modbus 预览需填写响应帧对应的零基起始地址。修改已保存的映射须创建新版本，不能覆盖旧版本。
+
+- 报文文件：`.json` / `.txt` / `.hex` / `.bin`，最大 1 MiB；二进制文件按 HEX 处理。
+- 点表文件：`.csv` / `.xlsx`，最大 32 MiB；也可粘贴 CSV。常用列为 `identifier,name,functionCode,address,addressNotation,dataType,scale`。零基地址应明确写 `addressNotation=zero_based`；未声明基准时传统 `40001` 等地址按 Modbus 表区换算。
+- 生成接口：`POST /api/v1/ai/protocol-assistant/generate`，multipart 参数 `inputKind=sample|point-table`；保存接口沿用 `/publish` 路径，生成的映射实际保存为 v2 `DRAFT` 或已通过样本校验的 `VALIDATED` 版本。
+- 已保存版本通过 `POST /api/v2/protocols/{id}/releases/{version}/preview` 校验样本，再通过既有 `/publish` 接口发布。以上写操作要求 operator 或更高角色，并按登录租户隔离。
+
+协议目录、组织发布及远程分发接口已移除；已有安装的协议版本和历史数据库内容不删除。

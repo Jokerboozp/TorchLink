@@ -118,7 +118,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | 添加设备、上报、凭据和命令 | [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) |
 | Go 协议与主子设备 | [协议包](GO_PROTOCOL_PACKAGES.md) · [TCP 接入](TCP_CHILD_DEVICE_ACCESS.md) |
 | 拆分 API / Gateway | [独立接入进程](EDGE_AND_GATEWAY.md) |
-| 跨平台分发源码 | [协议目录](PROTOCOL_CATALOG.md) · [组织审核](PRIVATE_PROTOCOL_MARKET.md) |
 | 升级旧节点、拓扑和影子配置 | [旧版本迁移](EDGE_REMOVAL.md) |
 
 ## 首页统计

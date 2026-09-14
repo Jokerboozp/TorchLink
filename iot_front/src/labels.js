@@ -12,7 +12,7 @@ export const backupTypes = { FULL:'设备数据备份', DEVICE_DAILY:'设备数�
 export const backupComponents = { raw:'原始报文', parsed:'解析数据', 'backup-manifest':'备份清单' }
 export const backupStatuses = { RUNNING:'执行中', COMPLETED:'已完成', FAILED:'失败' }
 export const categories = { smoke:'烟雾探测器', fire:'火灾探测器', water_pressure:'水压传感器', camera:'摄像机', gateway:'边缘网关', sensor:'通用传感器', video_ai:'视频智能分析设备', other:'其他设备' }
-export const parsers = { custom_json_parser:'通用 JSON', configurable_json_parser:'JSON 映射', configurable_hex_parser:'HEX 字段映射', modbus_coil_parser:'Modbus 线圈点表', javascript_sandbox_parser:'JavaScript 沙箱解析器', go_protocol_parser:'Go 协议包', gb26875_dahua_parser:'GB26875（大华）', fire_smoke_parser:'烟感 HEX', modbus_parser:'Modbus 寄存器' }
+export const parsers = { modbus_tcp_parser_v2:'Modbus TCP 点表', modbus_rtu_parser_v2:'Modbus RTU 点表', custom_json_parser:'通用 JSON', configurable_json_parser:'JSON 映射', configurable_hex_parser:'HEX 字段映射', modbus_coil_parser:'Modbus 线圈点表', javascript_sandbox_parser:'JavaScript 沙箱解析器', go_protocol_parser:'Go 协议包', gb26875_dahua_parser:'GB26875（大华）', fire_smoke_parser:'烟感 HEX', modbus_parser:'Modbus 寄存器' }
 export const messageTypes = {
   PROPERTY_REPORT: { label:'属性上报', description:'设备测点、开关量和当前状态值' },
   EVENT_REPORT: { label:'事件上报', description:'一次性发生的事件，例如复位、心跳或测试' },

@@ -26,7 +26,7 @@ Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可�
 | `ops-assistant` | 聊天工作台：设备、告警、趋势与知识辅助排障 |
 | `alarm-handler` | 告警业务：核验事实、判断影响并给出处置建议 |
 | `device-health-inspector` | 智能巡检：设备健康与异常分析 |
-| `protocol-assistant` | 协议助手：解释资料与点表，保存映射草稿 |
+| `protocol-assistant` | 协议助手：解释资料，生成报文字段映射；JSON 报文与 Modbus 点表可无需 AI 直接生成协议 |
 
 只有交互式聊天 Agent 出现在聊天工作台。告警研判与智能巡检返回后台任务，重新打开页面可读取进度和结果；预计剩余时间是估算值。协议草稿仍须通过源码校验与发布。
 

@@ -22,10 +22,6 @@ type AlarmFilter struct {
 
 type Repository interface {
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
-	ListProtocolMarket(context.Context, string) ([]model.ProtocolMarketEntry, error)
-	GetProtocolMarket(context.Context, string, string, string) (model.ProtocolMarketEntry, error)
-	SubmitProtocolMarket(context.Context, model.ProtocolMarketEntry) error
-	ReviewProtocolMarket(context.Context, string, string, string, string, string, string, int64) (model.ProtocolMarketEntry, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
 	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)
 	ListManagedDeviceChildren(context.Context, string, string, int, int) ([]model.ManagedDevice, int, error)
