@@ -1,5 +1,7 @@
 <script setup>
 import FilePicker from '../components/FilePicker.vue'
+import ProtocolMappingEditor from '../components/ProtocolMappingEditor.vue'
+import { mappingRows, mappingConfig } from '../protocolMapping'
 import { transportLabel } from '../presentation'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
@@ -9,7 +11,7 @@ import { parsers, messageTypes } from '../labels'
 const props = defineProps({ initialRelease:{type:Object,default:null}, initialName:{type:String,default:''} })
 const emit = defineEmits(['navigate','saved'])
 const file = ref(null), sampleFile = ref(null), draft = ref(null), preview = ref(null), saved = ref(null)
-const busy = ref(''), error = ref(''), step = ref('input'), configText = ref(''), startAddress = ref(0)
+const busy = ref(''), error = ref(''), step = ref('input'), mapping = ref([]), startAddress = ref(0)
 const form = reactive({ inputKind:'sample', name:'', protocol:`protocol-${crypto.randomUUID().slice(0,8)}`, version:'1.0.0', transport:'MQTT', payloadFormat:'json', pointTable:'', samplePayload:'' })
 const isModbus = computed(() => draft.value?.parserType?.startsWith('modbus_'))
 const supported = computed(() => ['configurable_json_parser','configurable_hex_parser','modbus_tcp_parser_v2','modbus_rtu_parser_v2'].includes(draft.value?.parserType))
@@ -36,7 +38,7 @@ async function work(name, action) {
   busy.value=name;error.value='';controller=new AbortController()
   try {await action({signal:controller.signal})} catch(e) {if(!disposed&&e.name!=='AbortError'){error.value=e.message;notifyError(e)}} finally {if(!disposed)busy.value=''}
 }
-function setDraft(value) {draft.value=value;configText.value=pretty(value.config || {});preview.value=value.preview || null;startAddress.value=value.config?.blocks?.[0]?.startAddress || 0;step.value='review'}
+function setDraft(value) {draft.value=value;mapping.value=mappingRows(value.config || {}, value.parserType);preview.value=value.preview || null;startAddress.value=value.config?.blocks?.[0]?.startAddress || 0;step.value='review'}
 async function generate() {
   if (!file.value && !(form.inputKind==='point-table'?form.pointTable.trim():form.samplePayload.trim())) return ElMessage.warning('请上传文件或填写内容')
   if (file.value?.size>32*1024*1024) return ElMessage.warning('文件不能超过 32 MiB')
@@ -51,11 +53,18 @@ async function generate() {
     form.transport=value.transport;form.payloadFormat=value.payloadFormat
   })
 }
-function newVersion() { saved.value=null;form.version=`auto-${Date.now()}`;configText.value=pretty(draft.value.config);preview.value=null }
-function updateConfig(value) { preview.value=null;try {const config=JSON.parse(value);if(config && typeof config==='object' && !Array.isArray(config))draft.value.config=config} catch {} }
+function newVersion() { saved.value=null;form.version=`auto-${Date.now()}`;draft.value={...draft.value,config:JSON.parse(JSON.stringify(draft.value.config))};mapping.value=mappingRows(draft.value.config,draft.value.parserType);preview.value=null }
+function updateConfig() { preview.value=null }
+function addMapping() {
+  mapping.value.push(isModbus.value
+    ? {identifier:'',name:'',functionCode:3,address:0,addressNotation:'zero_based',dataType:'uint16',registerCount:1,byteOrder:'big',wordOrder:'ABCD',scale:1,offset:0,pollIntervalSec:10,access:'read'}
+    : draft.value.parserType==='configurable_json_parser' ? {name:'',path:'',type:'',scale:1,original:''}
+    : {name:'',offset:0,length:2,type:'uint16',endian:'big',scale:1})
+  updateConfig()
+}
+function removeMapping(index) { mapping.value.splice(index,1);updateConfig() }
 function currentDraft() {
-  const config=saved.value ? saved.value.config : parseJSON(configText.value,'字段映射')
-  if (!config || Array.isArray(config) || typeof config!=='object') throw new Error('字段映射须为 JSON 对象')
+  const config=saved.value ? saved.value.config : mappingConfig(draft.value.config,draft.value.parserType,mapping.value)
   return {...draft.value,name:form.name,protocol:form.protocol,config:{...config,...(isModbus.value?{startAddress:startAddress.value}:{})}}
 }
 function payload() {return form.payloadFormat==='hex'?form.samplePayload.trim():parseJSON(form.samplePayload,'JSON 样本')}
@@ -110,11 +119,11 @@ onMounted(()=>{
     <template v-else>
       <div class="section-toolbar"><strong>{{ form.name }} <small class="muted-text">{{ parsers[draft.parserType] || draft.parserType }}</small></strong><el-button v-if="!saved" :disabled="!!busy" @click="step='input'">返回修改</el-button><el-button v-if="saved" :disabled="!!busy" @click="newVersion">新建版本</el-button><el-tag v-if="saved" :type="saved.status==='PUBLISHED'?'success':'info'">{{ {DRAFT:'草稿',VALIDATED:'已校验',PUBLISHED:'已发布'}[saved.status] || saved.status }}</el-tag></div>
       <details v-if="draft.warnings?.length" class="technical-details bottom-gap"><summary>需确认 {{ draft.warnings.length }} 项</summary><ul><li v-for="warning in draft.warnings" :key="warning">{{ warning }}</li></ul></details>
-      <el-table :data="fields" max-height="230" size="small"><el-table-column prop="name" label="字段" min-width="140" /><el-table-column prop="address" label="路径 / 地址" min-width="190" /><el-table-column prop="type" label="类型" min-width="100" /></el-table>
+      <el-table v-if="saved || !supported" :data="fields" max-height="230" size="small"><el-table-column prop="name" label="字段" min-width="140" /><el-table-column prop="address" label="路径 / 地址" min-width="190" /><el-table-column prop="type" label="类型" min-width="100" /></el-table>
       <template v-if="supported">
         <el-form label-position="top" class="top-gap" :disabled="!!busy">
           <div class="form-grid"><el-form-item label="协议标识"><el-input v-model="form.protocol" :disabled="!!saved" /></el-form-item><el-form-item label="版本"><el-input v-model="form.version" :disabled="!!saved" /></el-form-item></div>
-          <details v-if="!saved" class="technical-details bottom-gap"><summary>编辑字段映射</summary><el-input v-model="configText" type="textarea" :rows="8" @input="updateConfig" /></details>
+          <ProtocolMappingEditor v-if="!saved" :rows="mapping" :parser-type="draft.parserType" @change="updateConfig" @add="addMapping" @remove="removeMapping" />
           <el-form-item label="样本报文"><FilePicker accept=".json,.txt,.hex,.bin" @change="chooseSample" /><el-input v-model="form.samplePayload" type="textarea" :rows="4" class="top-gap" @input="preview=null" :placeholder="isModbus?'填写设备返回的完整 Modbus 响应帧':'填写真实样本验证解析结果'" /></el-form-item>
           <el-form-item v-if="isModbus" label="响应起始地址"><el-input-number v-model="startAddress" :min="0" :max="65535" :precision="0" @change="preview=null" /></el-form-item>
           <div class="generator-actions"><el-button :loading="busy==='preview'" @click="runPreview">解析预览</el-button><el-button v-if="!saved" type="primary" :loading="busy==='save'" @click="save">保存协议</el-button><el-button v-else-if="saved.status==='VALIDATED'" type="primary" :loading="busy==='publish'" @click="publish">发布协议</el-button><span v-else-if="saved.status==='DRAFT'" class="muted-text">样本校验通过后可发布</span><el-button v-else-if="saved.status==='PUBLISHED'" @click="emit('navigate','products')">绑定产品</el-button></div>

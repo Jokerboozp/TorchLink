@@ -3,12 +3,13 @@ import vm from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {ref,computed,reactive} from 'vue'
+import {mappingRows,mappingConfig} from '../src/protocolMapping.js'
 
 function setup(api,initialRelease=null) {
  const script=fs.readFileSync(new URL('../src/views/ProtocolAssistantView.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
  let mount,cleanup
- const context=vm.createContext({ref,computed,reactive,api,crypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},ElMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
- const c=vm.runInContext(script+'\n;({generate,save,runPreview,publish,changeKind,newVersion,updateConfig,form,file,draft,saved,preview,busy,error,step})',context)
+ const context=vm.createContext({mappingRows,mappingConfig,ref,computed,reactive,api,crypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},ElMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
+ const c=vm.runInContext(script+'\n;({generate,save,runPreview,publish,changeKind,newVersion,updateConfig,mapping,currentDraft,addMapping,removeMapping,form,file,draft,saved,preview,busy,error,step})',context)
  mount();return {...c,cleanup:()=>cleanup()}
 }
 test('message-only generation does not require a document and prevents double submission',async()=>{
@@ -40,6 +41,27 @@ test('switching upload kinds clears incompatible previous content',()=>{
 
 test('editing a new version does not mutate the saved release',()=>{
  const release={protocolId:'json',version:'1',parserType:'configurable_json_parser',transport:'MQTT',payloadFormat:'json',config:{properties:{temperature:'$.temperature'}},status:'PUBLISHED'}
- const c=setup(async()=>({}),release);c.newVersion();c.updateConfig('{"properties":{"temperature":"$.data.temperature"}}')
- assert.equal(c.saved.value,null);assert.notEqual(c.form.version,'1');assert.equal(release.config.properties.temperature,'$.temperature');assert.equal(c.draft.value.config.properties.temperature,'$.data.temperature')
+ const c=setup(async()=>({}),release);c.newVersion();c.mapping.value[0].path='$.data.temperature';c.updateConfig()
+ assert.equal(c.saved.value,null);assert.notEqual(c.form.version,'1');assert.equal(release.config.properties.temperature,'$.temperature');assert.equal(c.currentDraft().config.properties.temperature,'$.data.temperature')
+})
+
+
+test('edited mapping is sent to preview and save, and old preview is invalidated',async()=>{
+ const calls=[]
+ const release={protocolId:'json',version:'1',parserType:'configurable_json_parser',transport:'MQTT',payloadFormat:'json',config:{properties:{temperature:'$.temperature'}},status:'PUBLISHED'}
+ const c=setup(async(path,options)=>{const body=JSON.parse(options.body);calls.push({path,body});return path.endsWith('/preview')?{standardMessage:{properties:{heat:30}}}:{release:{...release,config:body.draft.config,status:'VALIDATED'}}},release)
+ c.newVersion();c.form.samplePayload='{"data":{"t":30}}';c.preview.value={properties:{temperature:25}}
+ c.mapping.value[0].name='heat';c.mapping.value[0].path='$.data.t';c.updateConfig();assert.equal(c.preview.value,null)
+ await c.runPreview();await c.save()
+ assert.equal(calls[0].body.draft.config.properties.heat,'$.data.t');assert.equal(calls[1].body.draft.config.properties.heat,'$.data.t')
+ assert.equal(release.config.properties.temperature,'$.temperature')
+})
+
+test('duplicate or blank field identifiers stop requests with a readable error',async()=>{
+ let requests=0
+ const release={protocolId:'json',version:'1',parserType:'configurable_json_parser',transport:'MQTT',payloadFormat:'json',config:{properties:{temperature:'$.temperature'}},status:'PUBLISHED'}
+ const c=setup(async()=>{requests++},release);c.newVersion();c.addMapping();await c.save()
+ assert.match(c.error.value,/字段标识/);assert.equal(requests,0)
+ Object.assign(c.mapping.value[1],{name:'temperature',path:'$.other'});await c.save();assert.match(c.error.value,/重复/);assert.equal(requests,0)
+ c.removeMapping(1);assert.equal(c.mapping.value.length,1)
 })
