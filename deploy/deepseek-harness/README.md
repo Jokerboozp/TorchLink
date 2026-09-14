@@ -98,3 +98,9 @@ Go API 将租户、用户和浏览器会话 ID 派生为内部 `conversationId`�
 Harness 进程只持有随机运行时代理密钥，不接收 MCP JWT。回环代理在内存保存当前上游 URL / JWT，为每个 MCP POST 注入 Authorization，因此每轮可更新 JWT 而不重建会话。代理只接受 POST，请求上限 1 MiB、有超时、不记录正文或凭据，运行时回收时删除路由。
 
 JSONL 用于持久历史与审计。当前锁定版本在首次 `prompt` 时调用 `agents.create`，不调用 `agents.resume` 冷恢复路径；对话连续性依赖驻留池。进程重启会创建新一代会话，不应把 JSONL 文件存在描述为已经恢复模型上下文。
+
+## 平台用户授权入口
+
+侧车内部令牌和 MCP JWT 不等于浏览器用户权限。Go API 在进入智能助手、巡检等全租户工作流前，要求普通用户具有全部设备范围、设备管理和对应菜单/操作权限；指定设备用户不会获得全租户 Harness 查询入口。单条告警研判由 API 校验告警所属设备。
+
+不要在侧车把浏览器的菜单标识当作 MCP scope，也不要把仅租户隔离的 Harness 查询描述为支持任意设备集合过滤。平台规则见 [用户权限](../../docs/USER_ACCESS_CONTROL.md)。

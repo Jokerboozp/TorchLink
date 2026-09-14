@@ -55,10 +55,10 @@ func decode(data []byte, ctx Context) (Message, error) {
 1. 实现 `version=2`、`operation=decode/ingress/encode` 请求及对应响应；解析结果必须放在 `standardMessage` 字段中。允许自由定义函数、类型、导入标准库和项目内包。
 2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在项目根目录（ZIP 可带一层外部目录）；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可在 `protocol.json` 指定 `cmd/worker` 等项目内目录。
 3. 填写协议标识；新版本号、传输方式、报文格式等可在项目根目录的 `protocol.json` 中维护，页面未填写时自动读取。完整项目样例放在 ZIP 的 `samples/cases.json` 中；函数模板的样例仍直接写在 Go 代码中。
-4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“协议与版本”页绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
-5. 更新代码时更换版本号。语法错误会在页面保留编译日志；样例失败、panic、超时均阻止发布。同一已保存版本不能覆盖。在“协议与版本”页可切换或回滚，历史原始报文保留实际使用版本。
+4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“产品管理 → 协议版本”操作中绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
+5. 更新代码时更换版本号。语法错误会在页面保留编译日志；样例失败、panic、超时均阻止发布。同一已保存版本不能覆盖。在“产品管理 → 协议版本”操作中可切换或回滚，历史原始报文保留实际使用版本。
 
-源码入口：`POST /api/v2/protocols/{id}/source-releases`，multipart 字段为 `file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`（仅 `capabilities` 和 `targetPlatforms` 为 JSON 数组）、`cases`、`publish`、`productId`。`publish` 默认 true，`productId` 可选。模板及编译器可用状态：`GET /api/v2/protocol-source-template`。写入需要 operator/admin 权限。
+源码入口：`POST /api/v2/protocols/{id}/source-releases`，multipart 字段为 `file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`（仅 `capabilities` 和 `targetPlatforms` 为 JSON 数组）、`cases`、`publish`、`productId`。`publish` 默认 true，`productId` 可选。模板及编译器可用状态：`GET /api/v2/protocol-source-template`。普通用户写入需要协议管理菜单及对应源码上传操作权限；内置管理员沿用维护权限，详见 [用户权限](USER_ACCESS_CONTROL.md)。
 
 平台自动生成 manifest 和版本制品，并保留原始源码、源文件 SHA-256、Worker SHA-256 及测试数量，无需用户手工打包二进制。源码上限 32 MiB，ZIP 最多 4096 条目、展开不超过 128 MiB；每个平台编译超时 120 秒，同一 API 进程同时运行一个上传构建/试跑任务；样例 1–100 条、总预算 60 秒，单例最多 10 秒。运行时仍逐报文启动 Worker，默认最多 5 秒、输出最多 1 MiB。
 
@@ -143,7 +143,7 @@ Content-Type: application/json
 {"type":"time-sync","confirmed":true}
 ```
 
-监听管理、命令及下载需要 operator/admin 权限。下载 API：
+接入网关配置属于全租户功能；普通用户需全部设备范围、设备管理及接入网关菜单和对应操作权限。源码/制品下载需协议管理菜单及各自下载权限；设备命令还需设备范围授权。下载 API：
 
 - `GET /api/v2/protocols/{id}/releases/{version}/source`：精确返回当时上传的 .go 或 ZIP；仅源码构建版本支持。
 - `GET /api/v2/protocols/{id}/releases/{version}/package`：包含版本 Worker、manifest、样例与原始源码的 ZIP；多平台版本包含其已构建目标。跨 OS/CPU 迁移须核实目标制品并实际试跑。
@@ -159,3 +159,9 @@ Content-Type: application/json
 ### 部件级火警、故障与恢复
 
 一台控制器上报多个部件时，使用 `event.components` 明确每个部件的稳定 ID、名称、位置、发生时间及各告警类型的布尔状态。平台按部件和类型独立生成与恢复告警，未上报项不变化。完整 Go 示例、乱序策略及旧版本迁移边界见 [部件告警与 MQTT 持久接收](DEVICE_RECEIVE_RELIABILITY.md)。无需维护额外 JSON 配置文件。
+
+## 页面入口
+
+协议生成和源码上传都在「协议管理」，连接配置在「接入网关」，实际报文及原始命令调试在「接入测试」。没有独立协议调试菜单。协议列表按协议条目分页，版本显示在版本区域；操作栏固定为解析测试、下载源码、下载制品、发布。Go 源码版本的字段映射解析测试不可用时按钮禁用，可通过源码样例与接入测试验证。
+
+协议目录、组织发布和远程分发接口已经移除；外部 CI 仍可按本文源码上传 API 提交版本。报文/点表生成流程见 [配置驱动协议](CONFIGURABLE_PROTOCOLS.md)。

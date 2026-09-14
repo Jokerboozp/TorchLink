@@ -61,13 +61,13 @@ return Frame{
 
 子设备的 Go `Encode` 先产生内部命令。平台再调用主设备协议 `Encode`，命令类型为 `child`，参数包含 `address`、`childType`、`payload`（HEX）和内部 `correlationId`。主协议按厂商格式封装外层数据，返回自己的关联 ID；入站应答必须包含对应子设备观察，避免其他子设备上报误完成命令。子设备独立会话状态暂不存储；需要跨帧握手状态时在主协议的 `State` 中按子设备地址维护。
 
-主设备“连接详情”展示分页子设备列表、产品/协议、最近上报及状态，可进入子设备详情，再返回主设备。子设备详情显示父连接用于通信，自己的数据状态独立展示。
+设备管理分为「独立设备、主设备、子设备」三个标签，并支持设备类型筛选。主设备“连接详情”展示分页子设备列表、产品/协议、最近上报及状态。只有分别授权后，用户才能进入关联主设备或子设备详情；主设备授权不会自动覆盖其子设备。全部设备范围用户可查看父连接，指定设备用户不展示共享接入网关和未授权父设备信息。
 
 接口：
 
 - `GET /api/v1/device-registry/{id}/children`：租户内主设备的分页子设备台账。
 - `GET /api/v2/products/{id}/protocol-binding`：查看产品协议绑定。
-- `POST /api/v2/device-access-profiles/{profileId}/devices/{childId}/commands`：沿主设备会话发送子设备命令，继续要求操作员权限及人工确认。
+- `POST /api/v2/device-access-profiles/{profileId}/devices/{childId}/commands`：沿主设备会话发送子设备命令，继续要求对应菜单/命令操作权限、设备范围及人工确认。
 
 迁移仅增加现有 `device_registry.body.gatewayId` 的查询索引；不删除历史数据，也不新增独立边缘节点数据库。
 
@@ -76,3 +76,5 @@ return Frame{
 `go test -race ./internal/protocolruntime ./internal/onboarding ./internal/adapters/memory` 覆盖 Socket 主动连接/重连、查询互斥、RTU CRC 与点表、并发注册及归属。`TestTCPParentChildSourceChain` 实际上传两份 Go 源码、编译发布，并通过两种方向的 TCP、正常业务归档/解析和 API 验证分层链路；配置 `IOT_TEST_BROWSER` 时验证真实 Chrome 页面。PostgreSQL 契约测试在 `TestDeviceOperationsMigrationAndAtomicity` 的隔离 schema 中运行，需要 `IOT_TEST_POSTGRES_DSN`。
 
 这些是协议模拟器和测试环境验证，不能代替厂商真实协议、设备或生产网络验收。
+
+用户级设备范围不改变协议内部的主子报文路由或自动注册。未获授权的子设备会继续接收和归档数据，但不会出现在该用户的列表、总数、告警或实时提醒中。授权步骤见 [用户权限](USER_ACCESS_CONTROL.md)。

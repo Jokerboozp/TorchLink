@@ -53,7 +53,7 @@ IOT_AI_HARNESS_MODEL=qwen3:1.7b
 
 ### 在界面切换 AI 模型服务
 
-管理员打开“AI 模型管理”，选择 Ollama、DeepSeek 或兼容接口，填写地址与模型。先“测试配置”，成功后“应用配置”；地址、模型或密钥改变后重新测试。Ollama 使用服务根地址，例如 `http://ollama-host:11434`；兼容接口须支持 Chat Completions。
+具有相应管理权限的用户打开“模型管理”，选择 Ollama、DeepSeek 或兼容接口，填写地址与模型。先“测试配置”，成功后“应用配置”；地址、模型或密钥改变后重新测试。Ollama 使用服务根地址，例如 `http://ollama-host:11434`；兼容接口须支持 Chat Completions。
 
 应用会同步 Provider 与 Harness，无需重启 API；正在运行的工作流结束后使用新配置。PostgreSQL 保存活动配置，内存模式仅当前进程有效。页面不返回明文接口密钥，同一服务留空可复用已存密钥。业务工作流和后台任务见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
 
@@ -152,11 +152,24 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | API 启动后前端无法访问 | `8081` 端口、Vite 代理、旧 IDE 环境变量覆盖 |
 | 知识库索引失败 | Ollama 模型下载是否完成，Weaviate 与 Ollama 日志 |
 | “立即备份设备数据”返回 502 | 先看平台 API 返回的具体备份错误；源码调试时确认 `Backup Service` 已启动、`IOT_BACKUP_URL=http://127.0.0.1:8092`，并确认数据库及 MinIO 地址可达 |
+| 普通用户登录后没有设备或告警 | 当前租户、设备管理菜单、设备访问范围及告警菜单是否均已分配；历史用户默认无设备 |
+| 编辑账户后旧登录返回401 | 修改用户、停用或重置密码会撤销旧会话，需要重新登录 |
 | 工作流失败但 Harness 健康 | API Key、模型可达性和 MCP 回调地址 |
 
 API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储、消息和知识库依赖。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。
 
 维护部署脚本时，可运行 `scripts/tests/deployment-smoke.ps1 -ComposeExe <独立Compose程序路径>` 或 `bash scripts/tests/deployment-smoke.sh <独立Compose程序路径>`。它们使用真实 Compose 解析配置，模拟 Docker 和 HTTP 操作，检查一键流程与失败分支，不会启动服务。
+
+## 用户权限升级
+
+升级时前端与 API/Gateway 使用同一版源码，沿用原 PostgreSQL 数据。启动迁移自动创建 `platform_access`；账户、角色、密码哈希和设备范围均保存在该表，不在浏览器持久保存密码。
+
+1. 使用内置管理员登录原租户，核对「用户与权限」中显示的所属租户。
+2. 为普通用户配置设备范围及菜单/按钮权限。历史未配置范围的账户默认「无设备」，不要批量自动提升为全部设备。主子设备分别授权。
+3. 普通用户从 `/api/v1/events` 每3秒获取授权范围内的状态及活动告警；不再签发浏览器 MQTT 或压测令牌。升级前旧 MQTT 令牌最长15分钟有效，切换时应撤销旧普通用户的 Broker 会话和重连资格，或等旧令牌全部过期后再开放使用；不要误断开设备或管理员连接。
+4. 使用两个不同设备范围的用户核对列表、总数、总览、详情和提醒，再恢复日常使用。验证入口见 [用户权限](USER_ACCESS_CONTROL.md)。
+
+`platform_access` 不在下面的设备数据导出范围内，需随完整数据库备份保管。备份中心、巡检等全租户功能仅向具备全部设备范围及相应菜单/按钮权限的用户开放。
 
 ## 设备数据备份
 

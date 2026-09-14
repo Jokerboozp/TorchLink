@@ -108,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 
 ## 登录与专题入口
 
-默认租户 `tenant_001`、用户名 `admin`、密码 `admin123`。可在相应环境文件中修改 `IOT_ADMIN_PASSWORD`，无长度或复杂度限制；修改后重启 API 生效。已有配置保留原密码。本地、在线、离线配置相互独立，不能混用凭据和数据卷。
+新环境管理员默认值由部署脚本生成，实际登录使用对应环境文件中的 `IOT_ADMIN_USER`、`IOT_ADMIN_PASSWORD` 和 `IOT_ADMIN_TENANTS`；常用租户为 `tenant_001`。已有配置保留原凭据，修改内置管理员配置后重启 API 生效。普通用户在「用户与权限」中创建，密码为10至72字节，归属创建者当前登录租户；不能把内置管理员的环境配置规则套用到普通用户。详见 [用户与设备权限](USER_ACCESS_CONTROL.md)。本地、在线、离线配置相互独立。
 
 设备连接指南与模拟发送入口见 [接入指南与测试设备](UNIFIED_DEVICE_ONBOARDING.md#接入指南与测试设备)。
 
@@ -117,19 +117,21 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | 端口、模型、状态、停止与备份 | [部署维护](DEPLOYMENT.md) |
 | 添加设备、上报、凭据和命令 | [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) |
 | Go 协议与主子设备 | [协议包](GO_PROTOCOL_PACKAGES.md) · [TCP 接入](TCP_CHILD_DEVICE_ACCESS.md) |
+| 用户、角色、菜单按钮和设备范围 | [用户权限](USER_ACCESS_CONTROL.md) |
+| 全部专题与验证记录 | [文档索引](README.md) |
 | 拆分 API / Gateway | [独立接入进程](EDGE_AND_GATEWAY.md) |
 | 升级旧节点、拓扑和影子配置 | [旧版本迁移](EDGE_REMOVAL.md) |
 
 ## 首页统计
 
-首页通过 `GET /api/v1/dashboard?days=7&offset=480` 读取当前租户聚合数据，要求 viewer 或更高角色。`days` 支持 7、30，`offset` 为相对 UTC 的分钟偏移（默认 480；页面使用浏览器当前偏移）。日期范围包含今天，按固定时区的自然日划分。
+首页通过 `GET /api/v1/dashboard?days=7&offset=480` 读取聚合数据。内置管理员查看当前租户；普通用户需要运行总览菜单，统计仅包含其有权访问的设备及告警，没有设备管理菜单或设备范围时返回零值。`days` 支持 7、30，`offset` 为相对 UTC 的分钟偏移（默认 480；页面使用浏览器当前偏移）。日期范围包含今天，按固定时区的自然日划分。
 
 - 设备总数、状态与产品分布只统计已登记设备；`ONLINE`、`ALARM` 归为在线，未产生运行状态的设备归为待连接。
 - 活动告警及其等级只统计 `ACTIVE`，高等级为 `HIGH` 和 `CRITICAL`，不受告警列表分页影响。
 - 趋势按 `firstTriggeredAt` 统计每日新增告警记录，包含已确认、恢复或关闭的记录；重复触发次数不作为新增条数，缺失日期补零。
 - 产品图展示数量最多的五项，其余合并为“其他产品”。实时通知合并刷新，失败保留上次成功数据。
 
-PostgreSQL 使用单条聚合查询；内存实现保持相同口径。入口为 `internal/httpapi/dashboard.go`，回归测试 `TestDashboard` 同时支持内存与 `IOT_TEST_POSTGRES_DSN` 指定的独立临时数据库 schema。
+全部设备范围使用仓储聚合查询；指定设备范围经请求级设备仓储过滤后统计，不把全租户计数返回给受限用户。内存实现保持相同口径。入口为 `internal/httpapi/dashboard.go`，回归测试 `TestDashboard` 同时支持内存与 `IOT_TEST_POSTGRES_DSN` 指定的独立临时数据库 schema。
 
 ## 源码与开发检查
 

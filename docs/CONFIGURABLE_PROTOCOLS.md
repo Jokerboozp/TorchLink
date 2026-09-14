@@ -41,25 +41,31 @@
 
 字段偏移从完整报文第 0 字节开始，支持 `uint8`、`int8`、`uint16`、`int16`、`uint32`、`int32`、`float32`、`ascii` 和 `hex`。这适用于固定长度传感器报文；变长、TLV、多信息体和复杂会话协议统一使用上传的 Go 源码包，包括 GB26875。
 
-发布前请在“解析调试”中输入样本并确认标准消息结果，再将协议包发布并绑定到产品。
+发布前请在“协议管理 → 解析测试”中输入样本并确认标准消息结果，再发布并在产品管理绑定。
 
 配置不足以描述的协议使用 [Go 源码包](GO_PROTOCOL_PACKAGES.md)，由平台编译、验证样例并发布。
 
-## AI 协议接入助手
+## 从报文或点表生成协议
 
-“协议接入助手”把协议资料整理成同一条人工确认链路：
+入口为「协议管理 → 协议生成」，弹窗标题为「生成协议」。选择输入类型后按以下流程操作：
 
-1. 在页面上传 PDF、DOCX、XLSX/CSV 点表或直接粘贴点表文本，并填写一条真实样本报文。
-2. 对 XLSX 点表，平台在 Go 中还原共享字符串和行列关系，直接生成 `modbus_coil_parser` 地址映射，不调用 AI，也不生成 JavaScript；其他资料才会调用已配置的 AI 模型服务生成 Go 映射草稿。
-3. 操作员在“字段映射”表单中修改字段名、线圈地址、数据类型、正常值、报出值和消息类型。
-4. 点击“运行解析预览”，平台使用 Go 解析器验证真实 Modbus RTU/TCP 响应；专用协议保存草稿后，另行编写并上传 Go 源码包。
-5. 点击“保存协议映射草稿”保留设计资料；实际接入统一到“设备接入 → 源码接入”上传代码、验证样例并发布。
+1. 报文支持上传 `.json/.txt/.hex/.bin` 或填写样本；JSON 自动提取路径，HEX 需提供字段偏移、长度、端序等说明，由已配置 AI 辅助生成固定字段映射。样本最大 1 MiB。
+2. 点表支持 `.xlsx/.csv`，文件最大 32 MiB，也可粘贴 CSV；平台直接生成 Modbus TCP / RTU 寄存器或线圈映射及读取块，不调用 AI。当前页面不提供 PDF、DOCX 上传。
+3. 在「编辑字段映射」中对照输入字段标识、JSON 路径、Modbus 地址或 HEX 偏移；支持新增、删除，展开行调整倍率、字节序等参数。无需直接编辑源码。
+4. 用真实样本执行「解析预览」。Modbus 需填写该响应帧对应的零基起始地址。编辑字段后旧预览清除，须重新验证。
+5. 「保存协议」创建不可变版本：无样本可保存为 `DRAFT`；样本通过后为 `VALIDATED`，再发布并绑定产品。已保存映射通过「新建版本」修改，不能覆盖原版本。
 
-对应 API 为：
+点表常用列为 `identifier,name,functionCode,address,addressNotation,dataType,scale`。零基地址明确填写 `addressNotation=zero_based`；未声明基准的 `40001` 等传统地址按 Modbus 表区换算。表单中的 Modbus 地址统一从 0 开始。单个报文不能推断完整的变长、会话或厂商协议，这类接入使用 [Go 源码包](GO_PROTOCOL_PACKAGES.md)。
 
-- `POST /api/v1/ai/protocol-assistant/generate`（`multipart/form-data`，字段 `file`、`pointTable`、`samplePayload` 等）
-- `POST /api/v1/ai/protocol-assistant/preview`
-- `POST /api/v1/ai/protocol-assistant/publish`
+| 接口 | 用途 |
+| --- | --- |
+| `POST /api/v1/ai/protocol-assistant/generate` | multipart 上传，`inputKind=sample\|point-table`，支持 `file`、`pointTable`、`samplePayload` |
+| `POST /api/v1/ai/protocol-assistant/preview` | 未保存映射的解析预览 |
+| `POST /api/v1/ai/protocol-assistant/publish` | 沿用历史路径名称，实际保存 v2 草稿或已校验版本 |
+| `POST /api/v2/protocols/{id}/releases/{version}/preview` | 校验已保存版本的真实样本 |
+| `POST /api/v2/protocols/{id}/releases/{version}/publish` | 发布已经校验的版本 |
+
+协议列表操作栏统一显示解析测试、下载源码、下载制品、发布；无对应能力时禁用并说明原因，权限仍由菜单和操作授权决定。版本号显示在版本区域。真实设备及原始命令联调统一在「接入测试」，没有独立协议调试菜单。
 
 ### 消息类型定义
 
@@ -74,7 +80,7 @@
 | 指令应答 | `COMMAND_REPLY` | 设备对平台指令的响应 |
 | 日志上报 | `LOG_REPORT` | 运行日志或诊断信息 |
 
-Excel 点表中的文本仅作为协议资料；平台不会执行其中的脚本、URL 或其他指令。保存映射草稿仍需要 `operator` 权限，Modbus 映射可先保存再用真实样本校验，专用协议必须上传 Go 源码包并通过样例验证后发布。
+Excel 点表中的文本仅作为协议资料；平台不会执行其中的脚本、URL 或其他指令。保存、预览及发布需要对应菜单和操作授权，详见 [用户权限](USER_ACCESS_CONTROL.md)。Modbus 映射可先保存再用真实样本校验，专用协议必须上传 Go 源码包并通过样例验证后发布。
 
 ## 已有协议
 

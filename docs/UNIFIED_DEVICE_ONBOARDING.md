@@ -107,7 +107,7 @@ X-Device-Secret: <设备 Secret>
 
 日常操作位于“设备管理 → 连接详情 → 设备控制”，根据产品物模型的 `commands[].fields` 生成文本、数值、布尔、对象或列表参数输入项，仅允许选择已定义命令。MQTT 参数提交到 `data`，Go 协议参数作为命令对象的顶层字段传给 encode，`type` 为命令标识；协议实现须与产品命令定义一致。
 
-原始命令调试统一位于“接入测试 → 连接指南 → 命令调试”，先选择具体设备，再填写 MQTT 命令类型及参数或 Go 原始命令 JSON，查看发送状态和应答。接入网关不再提供下行命令入口。未定义命令的产品不会在设备控制中开放自由输入；没有下行能力的连接显示不支持提示。原有人工确认、角色校验及服务端命令处理继续沿用。
+原始命令调试统一位于“接入测试 → 连接指南 → 命令调试”，先选择具体设备，再填写 MQTT 命令类型及参数或 Go 原始命令 JSON，查看发送状态和应答。接入网关不再提供下行命令入口。未定义命令的产品不会在设备控制中开放自由输入；没有下行能力的连接显示不支持提示。服务端继续要求人工确认，并检查菜单、操作与设备范围。
 
 
 Secret 仅首次创建或轮换返回，服务端保存哈希；详情返回 `credentialSupported` 标识。TCP、UDP、Modbus 与子设备不生成平台 Secret，调用凭据接口返回 422。显式设备通信方式优先于产品默认值；旧协议设备曾生成的密钥不能绕过当前认证检查。
@@ -119,7 +119,7 @@ HTTP Secret 在轮换后立即失效。MQTT 已签发令牌的及时撤销需配
 ```http
 POST /api/v1/device-registry/{id}/commands
 Content-Type: application/json
-Authorization: Bearer <operator-token>
+Authorization: Bearer <authorized-user-token>
 
 {"confirmed":true,"id":"cmd-001","type":"setThreshold","data":{"value":30}}
 ```
@@ -138,7 +138,7 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 ## 管理 API
 
-控制面使用登录令牌及租户隔离。测试、创建、凭据管理要求 admin，命令要求 operator/admin，读取按 viewer 授权。
+控制面使用登录令牌，并检查租户、菜单、操作及用户设备范围。设备详情、凭据和命令只允许访问授权设备；接入网关与接入测试涉及全租户配置，要求设备管理菜单、全部设备范围及对应菜单和操作权限。配置规则见 [用户权限](USER_ACCESS_CONTROL.md)。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
@@ -155,12 +155,12 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 ## 接入指南与测试设备
 
-**接入与测试** 包含两个标签：
+**接入测试** 包含两个标签：
 
-- **设备接入**：选择已登记设备，查看连接参数和报文示例；协议设备进入实际连接详情。按指南配置真实设备后，在原始报文中核对接收与解析。
+- **连接指南**：选择已登记设备，查看连接参数和报文示例；协议设备进入实际连接详情。按指南配置真实设备后，在原始报文中核对接收与解析。
 - **测试设备**：准备测试设备及关联产品/协议，选择报文模板或快捷发送，查看结果并跳转告警。测试告警进入正常业务链路，不自动创建规则。
 
-切换标签保留页面测试状态。新设备仍通过“设备管理 → 添加设备”创建；标准 HTTP/MQTT 真机联调使用本文的凭据与上报接口。
+切换标签保留页面测试状态。新设备仍通过“设备管理 → 对应设备分组 → 添加设备”创建；标准 HTTP/MQTT 真机联调使用本文的凭据与上报接口。
 
 ## 验证入口
 
@@ -178,12 +178,14 @@ go test -race ./internal/protocolruntime ./internal/adapters/mqtt
 
 Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`、`IOT_TEST_EMQX_API_SECRET`。
 
-浏览器检查按当前“添加设备 → 接入与测试 → 原始报文 / 告警”路径执行。仓库现有 `TestOnboardingBrowser` 仍引用已移除的联调面板，脚本更新前不能用于当前页面验收。
+浏览器检查按当前“设备管理 → 接入测试 → 原始报文 / 告警”路径执行。`TestOnboardingBrowser` 调用 `iot_front/tests/browser/onboarding-check.mjs`，已包含设备管理、接入网关及接入测试入口；它是可选集成检查，须提供相应测试环境，不能从普通单元测试通过推断浏览器已执行。
 
 测试使用隔离业务仓库或临时 schema、随机身份和非 retained 消息；凭据通过环境变量安全注入。缺少环境的集成分支会跳过。模拟器与受控故障测试不能代替厂商真机、固件补传或生产网络验收。
 
 
-## 管理界面调整验证（2026-09-14）
+## 早期管理界面验证（2026-09-14，历史记录）
+
+以下为当时 macOS 环境的验证快照，测试数量和入口描述保留原记录。后续 Windows 界面与设备权限验证见 [最新验收记录](testing/2026-09-14-权限与界面验收.md)。
 
 - 环境：本地 macOS，Vue 开发服务连接独立内存 API；未连接现有部署数据或真实设备。
 - `iot_front`：`npm test`（57 项通过）、`npm run build`（通过，仍有主包超过 500 kB 的体积提示）。
@@ -202,6 +204,12 @@ Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`�
 - 报文文件：`.json` / `.txt` / `.hex` / `.bin`，最大 1 MiB；二进制文件按 HEX 处理。
 - 点表文件：`.csv` / `.xlsx`，最大 32 MiB；也可粘贴 CSV。常用列为 `identifier,name,functionCode,address,addressNotation,dataType,scale`。零基地址应明确写 `addressNotation=zero_based`；未声明基准时传统 `40001` 等地址按 Modbus 表区换算。
 - 生成接口：`POST /api/v1/ai/protocol-assistant/generate`，multipart 参数 `inputKind=sample|point-table`；保存接口沿用 `/publish` 路径，生成的映射实际保存为 v2 `DRAFT` 或已通过样本校验的 `VALIDATED` 版本。
-- 已保存版本通过 `POST /api/v2/protocols/{id}/releases/{version}/preview` 校验样本，再通过既有 `/publish` 接口发布。以上写操作要求 operator 或更高角色，并按登录租户隔离。
+- 已保存版本通过 `POST /api/v2/protocols/{id}/releases/{version}/preview` 校验样本，再通过既有 `/publish` 接口发布。以上写操作要求对应菜单和操作授权，并按登录租户隔离。
 
 协议目录、组织发布及远程分发接口已移除；已有安装的协议版本和历史数据库内容不删除。
+
+## 设备分组与可见性
+
+设备管理分为「独立设备」「主设备」「子设备」三个标签，对应 `DIRECT/GATEWAY/CHILD`。设备类型筛选来自产品分类，按当前分组和类型筛选后分页；新增设备默认沿用当前标签角色。接收实时消息时只提示「有新数据」，点击刷新后更新列表。
+
+主设备是实体设备，接入网关是产品的软件连接配置，二者分别管理。普通用户仅看到授权设备及其告警，主子关系不自动传递权限；受限设备的连接详情不展示共享网关和其他设备会话。

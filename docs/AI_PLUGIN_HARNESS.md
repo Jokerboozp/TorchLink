@@ -28,7 +28,7 @@ Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可�
 | `device-health-inspector` | 智能巡检：设备健康与异常分析 |
 | `protocol-assistant` | 协议助手：解释资料，生成报文字段映射；JSON 报文与 Modbus 点表可无需 AI 直接生成协议 |
 
-只有交互式聊天 Agent 出现在聊天工作台。告警研判与智能巡检返回后台任务，重新打开页面可读取进度和结果；预计剩余时间是估算值。协议草稿仍须通过源码校验与发布。
+只有交互式聊天 Agent 出现在聊天工作台。告警研判与智能巡检返回后台任务，重新打开页面可读取进度和结果；预计剩余时间是估算值。生成的字段映射须通过真实样本预览并发布；专用 Go 协议须通过源码编译及样例校验后发布。
 
 内置 Manifest 只读，自定义聊天 Agent 通过管理员接口创建、编辑或停用，知识范围统一在知识库设置。新增 Agent 的工具白名单只能选取平台允许的只读工具，不能扩大权限。Manifest 格式、上游版本和内部接口集中在 [侧车开发说明](../deploy/deepseek-harness/README.md)。
 
@@ -56,6 +56,12 @@ Go API 暴露：
 浏览器只提交 `workflowId`、`conversationId`、`question` 和可选的 `maxTokens`。每次运行由 Go API 生成 Run ID，并签发有效期两分钟、绑定租户、用户、Run ID、Audience 和只读 scopes 的 MCP JWT。浏览器拿不到该令牌。
 
 流式事件为 `run.started`、`text.delta`、`tool.started`、`tool.completed`、`run.completed` 和 `run.failed`。reasoning 分片不会发给浏览器，工具事件仅提供名称、调用 ID、状态和安全摘要，不返回完整参数、原始结果或凭据。
+
+## 用户数据范围
+
+普通用户的智能助手、巡检等全租户任务需要设备管理菜单、全部设备范围及对应菜单/操作授权。指定设备或无设备范围的用户不能通过这些入口检索其他设备，菜单隐藏与后端拒绝同时生效；目前没有将指定设备集合透传给 Harness 的细粒度数据查询模式。
+
+单条告警详情及告警研判接口同时检查该告警所属设备范围及相应菜单/操作权限。模型管理、知识库的配置权限仍独立分配，不能因为角色名称为 operator 就推断所有操作可用。规则、设备范围及权限升级见 [用户权限](USER_ACCESS_CONTROL.md)。
 
 ## 安全边界
 

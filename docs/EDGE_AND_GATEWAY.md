@@ -30,3 +30,9 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 ## 验证入口
 
 `go test ./internal/platformapp ./internal/httpapi ./internal/protocolruntime` 覆盖进程职责、认证转发与执行协调；环境相关集成测试的实际执行条件见各测试。源码入口为 `internal/httpapi/process_role.go`、`internal/httpapi/execution_route.go` 和 `internal/protocolruntime/coordinator.go`。
+
+## 管理界面与用户范围
+
+「接入网关」菜单管理 `DeviceAccessProfile` 软件连接配置；「主设备」标签管理现场设备台账；`cmd/iot-access-gateway` 是部署进程，三者含义不同。API 和 Gateway 都需要使用包含设备权限校验的同版代码，转发保留原用户身份，并在目标服务重新校验。
+
+普通用户的全租户接入配置需要全部设备范围和相应菜单/按钮权限。指定设备用户的连接详情不暴露共享网关配置及其他设备会话。用户设备和告警范围见 [用户权限](USER_ACCESS_CONTROL.md)。
