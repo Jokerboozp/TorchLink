@@ -68,7 +68,7 @@ try {
   await until(()=>evaluate(`document.querySelector('.el-drawer .el-descriptions')?.textContent.includes('TCP')`))
   assert.ok(await evaluate(`document.querySelector('.el-drawer .el-table').textContent.includes('listener-a') && !document.querySelector('.el-drawer .el-table').textContent.includes('listener-b')`))
   await evaluate(`document.querySelector('.el-drawer__close-btn').click()`)
-  await click('接入实例')
+  await click('接入网关')
   await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.el-table__row')].find(e=>e.textContent.includes('listener-a')&&e.getClientRects().length);const expand=row?.querySelector('.el-table__expand-icon');if(!expand)return false;expand.click();return true})()`))
   await until(()=>evaluate(`document.querySelector('.instance-details')?.textContent.includes('127.0.0.1:1234')`))
   assert.ok(await evaluate(`document.querySelector('.instance-details').textContent.includes('历史设备')`))

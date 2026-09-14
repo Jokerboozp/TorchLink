@@ -1,15 +1,22 @@
 <script setup>
+import CommandValueInput from './CommandValueInput.vue'
+import { commandBody } from '../commandForm'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { api, formatTime, notifyError, pretty, session } from '../api'
 import { transportLabel, statusLabel } from '../presentation'
 import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatuses, dataStatuses, businessStatuses, stateSources, messageTypeLabel, label } from '../labels'
 
-const props = defineProps({ deviceId:String })
+const props = defineProps({ deviceId:String, debugCommands:Boolean })
 const emit = defineEmits(['close','navigate','device'])
 const data = ref(null), loading = ref(false), actionBusy = ref(false), error = ref(''), selectedProfile = ref('')
 const credential = ref(null), commandResult = ref(null)
+const commandReply = ref(null)
 const commandType = ref(''), commandData = ref('{}'), command = ref('{"type":""}')
+const commandValues = ref({})
+const operations = computed(() => data.value?.product?.thingModel?.commands || [])
+const selectedOperation = computed(() => operations.value.find(item => item.identifier === commandType.value))
+watch(commandType, () => { commandValues.value = {} })
 const pendingCommand = ref(null), pendingProtocol = ref(null)
 const lists = reactive(Object.fromEntries(['history','events','commands','children'].map(key => [key,{items:[],total:0,page:1,loading:false,error:''}])))
 const media = window.matchMedia('(max-width: 640px)')
@@ -37,6 +44,7 @@ async function loadList(key) {
     const result = await api(base()+paths[key],{signal:controller.signal})
     if (current !== generation || revisions[key] !== revision) return
     section.items = result.items || []; section.total = Number(result.total || 0)
+    if (key === 'commands' && commandResult.value?.id) commandResult.value = section.items.find(item => item.id === commandResult.value.id) || commandResult.value
   } catch (cause) {
     if (current === generation && revisions[key] === revision && cause.name !== 'AbortError') section.error = cause.message
   } finally { if (current === generation && revisions[key] === revision) section.loading = false }
@@ -57,8 +65,16 @@ async function load() {
     if (current === generation && cause.name !== 'AbortError') { data.value = null; error.value = cause.message }
   } finally { if (current === generation) loading.value = false }
 }
-function selectProfile() { pendingProtocol.value = null; commandResult.value = null; load() }
-function newCommand() { pendingCommand.value = null; pendingProtocol.value = null; commandResult.value = null }
+function selectProfile() { pendingProtocol.value = null; commandResult.value = null; commandReply.value = null; load() }
+function newCommand() { pendingCommand.value = null; pendingProtocol.value = null; commandResult.value = null; commandReply.value = null }
+async function showCommandReply() {
+  const id = commandResult.value?.rawMessageId
+  if (!id) return
+  try {
+    const reply = await api(`/api/v1/raw-messages/${encodeURIComponent(id)}`, {signal:controller.signal})
+    if (commandResult.value?.rawMessageId === id) commandReply.value = reply
+  } catch (cause) { if (cause.name !== 'AbortError') notifyError(cause) }
+}
 function objectJSON(value, title) {
   let parsed
   try { parsed = JSON.parse(value) } catch { throw new Error(`${title}须为有效的 JSON 对象`) }
@@ -89,7 +105,8 @@ async function sendMQTT() {
   await action(async () => {
     const type = commandType.value.trim()
     if (!type) throw new Error('请填写命令类型')
-    const body = {type,data:objectJSON(commandData.value,'命令参数')}
+    const body = props.debugCommands ? {type,data:objectJSON(commandData.value,'命令参数')} : commandBody(selectedOperation.value, commandValues.value)
+    commandReply.value = null
     await ElMessageBox.confirm('确认向该设备发送此命令？发送成功不代表执行成功。','人工确认命令')
     const signature = JSON.stringify(body)
     if (!pendingCommand.value || pendingCommand.value.signature !== signature) pendingCommand.value = {signature,id:crypto.randomUUID()}
@@ -99,7 +116,10 @@ async function sendMQTT() {
 }
 async function send() {
   await action(async () => {
-    const body = objectJSON(command.value,'协议命令')
+    const form = props.debugCommands ? null : commandBody(selectedOperation.value, commandValues.value)
+    if (form && Object.keys(form.data).some(key => ['type','confirmed','requestId','_scheduled'].includes(key))) throw new Error('命令参数包含保留字段，请检查产品命令定义')
+    const body = props.debugCommands ? objectJSON(command.value,'协议命令') : {...form.data,type:form.type}
+    commandReply.value = null
     if (typeof body.type !== 'string' || !body.type.trim()) throw new Error('请在协议命令中填写 type')
     await ElMessageBox.confirm('确认向该设备发送协议命令？请核对设备与参数。','人工确认命令')
     const profileId = data.value.profile.id, signature = JSON.stringify([profileId,props.deviceId,body])
@@ -108,7 +128,7 @@ async function send() {
   })
 }
 watch(() => props.deviceId,() => {
-  data.value = null; selectedProfile.value = ''; credential.value = null; newCommand()
+  data.value = null; selectedProfile.value = ''; credential.value = null; commandType.value='';commandValues.value={};commandData.value='{}';command.value='{"type":""}';newCommand()
   for (const section of Object.values(lists)) Object.assign(section,{items:[],total:0,page:1,error:'',loading:false})
   load()
 },{immediate:true})
@@ -116,7 +136,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 </script>
 
 <template>
-  <el-drawer :model-value="true" class="device-connection-drawer" title="设备连接与数据" size="min(900px, 100vw)" @close="emit('close')">
+  <el-drawer :model-value="true" class="device-connection-drawer" :title="debugCommands ? '接入测试 · 命令调试' : '设备连接与数据'" size="min(900px, 100vw)" @close="emit('close')">
     <div class="device-connection" v-loading="loading">
       <div class="connection-toolbar">
         <div><strong>{{data?.device?.name || '设备详情'}}</strong><small>{{props.deviceId}}</small></div>
@@ -142,15 +162,16 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <el-descriptions-item label="最后断开">{{formatTime(data.connection?.lastDisconnectAt)}}</el-descriptions-item>
             <el-descriptions-item label="原文接收">{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</el-descriptions-item>
             <el-descriptions-item label="解析状态">{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</el-descriptions-item>
-            <el-descriptions-item v-if="data.profile" label="运行时">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</el-descriptions-item>
+            <el-descriptions-item v-if="data.profile" label="接入网关">{{data.profile.id}}</el-descriptions-item>
+            <el-descriptions-item v-if="data.profile" label="网关运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</el-descriptions-item>
             <el-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</el-descriptions-item>
             <el-descriptions-item v-if="data.parent" label="所属主设备"><el-button link type="primary" @click="emit('device',data.parent.id)">{{data.parent.name || data.parent.id}}</el-button></el-descriptions-item>
             <el-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.tags?.childAddress || '—'}}</el-descriptions-item>
           </el-descriptions>
           <el-alert v-if="data.profile?.lastError || data.ingest?.parseError" class="section-feedback" title="最近接入异常" :description="data.profile?.lastError || data.ingest?.parseError" type="warning" :closable="false" show-icon />
           <div v-if="data.profiles?.length > 1" class="profile-picker">
-            <p>检测到多个关联实例，请选择要查看和发送命令的实例。</p>
-            <el-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入实例" @change="selectProfile"><el-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="p.id" /></el-select>
+            <p>检测到多个关联接入网关，请选择要查看和发送命令的网关。</p>
+            <el-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入网关" @change="selectProfile"><el-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="p.id" /></el-select>
           </div>
         </section>
 
@@ -184,7 +205,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         <section v-if="hasSessions" class="connection-section device-sessions">
           <h3>{{data.parent ? '主设备通信会话' : '在线会话'}}</h3>
           <el-table :data="data.sessions || []" border empty-text="暂无已识别的在线会话">
-            <el-table-column prop="profileId" label="接入实例" min-width="145" /><el-table-column prop="remoteAddress" label="远端地址" min-width="155" />
+            <el-table-column prop="profileId" label="接入网关" min-width="145" /><el-table-column prop="remoteAddress" label="远端地址" min-width="155" />
             <el-table-column prop="protocolId" label="会话协议" min-width="130" /><el-table-column prop="protocolVersion" label="会话版本" min-width="100" />
             <el-table-column label="最后有效报文" min-width="175"><template #default="{row}">{{formatTime(row.lastSeenAt)}}</template></el-table-column>
           </el-table>
@@ -239,23 +260,36 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         </section>
 
         <section v-if="data.connector==='MQTT' || (data.profile && data.canCommand)" class="connection-section device-commands">
-          <h3>{{data.connector==='MQTT' ? '设备消息命令' : '协议命令'}}</h3>
-          <p>已发送不代表设备执行成功。回执到达后刷新可查看结果；重试相同命令不会再次下发。</p>
+          <h3>{{debugCommands ? '原始命令调试' : '设备控制'}}</h3>
+          <p>已发送不代表设备执行成功。请核对发送状态和设备应答；结果未知时不要重复发送。</p>
           <template v-if="canEdit">
-            <el-form v-if="data.connector==='MQTT'" label-position="top">
-              <el-form-item label="命令类型"><el-select v-if="data.product?.thingModel?.commands?.length" v-model="commandType" placeholder="命令类型"><el-option v-for="c in data.product.thingModel.commands" :key="c.identifier" :value="c.identifier" :label="c.name || c.identifier" /></el-select><el-input v-else v-model="commandType" placeholder="命令类型" /></el-form-item>
-              <el-form-item label="命令参数"><el-input v-model="commandData" type="textarea" :rows="4" placeholder="命令参数 JSON 对象" /></el-form-item>
-              <el-button :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled" :loading="actionBusy" @click="sendMQTT">发送设备消息命令</el-button>
+            <template v-if="debugCommands">
+              <el-form v-if="data.connector==='MQTT'" label-position="top" :disabled="actionBusy || loading">
+                <el-form-item label="命令类型"><el-input v-model="commandType" placeholder="按设备协议填写命令类型" /></el-form-item>
+                <el-form-item label="命令参数"><el-input v-model="commandData" type="textarea" :rows="4" placeholder="命令参数 JSON 对象" /></el-form-item>
+              </el-form>
+              <el-form v-else label-position="top" :disabled="actionBusy || loading"><el-form-item label="原始命令 JSON"><el-input v-model="command" type="textarea" :rows="4" placeholder='{"type":"ping"}' /></el-form-item></el-form>
+            </template>
+            <el-form v-else-if="operations.length" label-position="top" :disabled="actionBusy || loading">
+              <el-form-item label="设备命令"><el-select v-model="commandType" aria-label="设备命令" placeholder="选择设备支持的命令"><el-option v-for="c in operations" :key="c.identifier" :value="c.identifier" :label="c.name || c.identifier" /></el-select></el-form-item>
+              <el-form-item v-for="field in selectedOperation?.fields || []" :key="`${commandType}:${field.identifier}`" :label="`${field.name || field.identifier}${field.unit ? `（${field.unit}）` : ''}`" :required="field.required">
+                <CommandValueInput v-model="commandValues[field.identifier]" :kind="field.dataType" :label="field.name || field.identifier" />
+              </el-form-item>
+              <p v-if="selectedOperation && !selectedOperation.fields?.length">此命令无需参数。</p>
             </el-form>
-            <template v-else>
-              <el-input v-model="command" type="textarea" :rows="4" placeholder="按协议文档填写命令" />
-              <el-button class="section-feedback" :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length" @click="send">发送命令</el-button>
-              <p v-if="!data.profile.enabled || !data.sessions?.length">当前无可用连接或实例已停用，暂时不能下发命令。</p>
+            <el-alert v-else title="当前产品尚未定义可用命令" description="请在产品物模型中定义命令和参数；原始命令调试统一在接入测试中进行。" type="info" :closable="false" />
+            <template v-if="debugCommands || operations.length">
+              <el-button v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || (!debugCommands && !selectedOperation)" :loading="actionBusy" @click="sendMQTT">{{debugCommands ? '发送调试命令' : '执行命令'}}</el-button>
+              <el-button v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || (!debugCommands && !selectedOperation)" @click="send">{{debugCommands ? '发送调试命令' : '执行命令'}}</el-button>
+              <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前无可用连接或接入网关已停用，暂时不能下发命令。</p>
             </template>
             <el-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand">开始一条新命令</el-button>
           </template>
-          <el-alert v-if="commandResult?.lastError" :title="label(commandStatuses,commandResult.status)" :description="commandResult.lastError" type="warning" :closable="false" />
-          <pre v-if="commandResult">{{pretty(commandResult)}}</pre>
+          <el-alert v-if="commandResult?.lastError" :title="label(commandStatuses,String(commandResult.status || '').toUpperCase())" :description="commandResult.lastError" type="warning" :closable="false" />
+          <el-descriptions v-if="commandResult" :column="1" border class="section-feedback"><el-descriptions-item label="发送状态">{{label(commandStatuses,String(commandResult.status || '').toUpperCase())}}</el-descriptions-item><el-descriptions-item label="设备应答">{{commandResult.reply || commandResult.response ? pretty(commandResult.reply || commandResult.response) : commandResult.rawMessageId ? `已收到应答，原始报文：${commandResult.rawMessageId}` : '尚无应答内容'}}</el-descriptions-item></el-descriptions>
+          <details v-if="debugCommands && commandResult"><summary>完整调试结果</summary><pre>{{pretty(commandResult)}}</pre></details>
+          <el-button v-if="commandResult?.rawMessageId" class="section-feedback" @click="showCommandReply">查看应答报文</el-button>
+          <pre v-if="commandReply">{{pretty(commandReply)}}</pre>
           <template v-if="data.connector==='MQTT'">
             <el-alert v-if="lists.commands.error" title="命令记录加载失败" :description="lists.commands.error" type="error" :closable="false" />
             <el-table v-else :data="lists.commands.items" border empty-text="暂无命令记录"><el-table-column prop="type" label="命令" min-width="120" /><el-table-column label="状态" min-width="170"><template #default="{row}">{{label(commandStatuses,row.status)}}</template></el-table-column><el-table-column label="回执" min-width="180"><template #default="{row}"><span class="field-value">{{pretty(row.reply || {})}}</span></template></el-table-column></el-table>
@@ -263,6 +297,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           </template>
         </section>
 
+        <el-alert v-if="debugCommands && data.connector!=='MQTT' && !(data.profile && data.canCommand)" title="当前设备连接不支持命令下发" type="info" :closable="false" />
         <section v-if="standardAccess && canEdit" class="connection-section device-credentials">
           <h3>设备凭据</h3><p>重新生成后旧凭据立即停用，新密钥仅显示一次。</p>
           <div class="section-actions"><el-button :disabled="loading || actionBusy || !data.credentialEnabled" @click="disable">禁用凭据</el-button><el-button :disabled="loading || actionBusy" @click="rotate">重新生成凭据</el-button></div>

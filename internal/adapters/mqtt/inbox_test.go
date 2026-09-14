@@ -251,14 +251,16 @@ func TestInboxReadFailureIsVisibleAndRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := inboxClient(t, d)
-	path := filepath.Join(root, "0")
-	moved := filepath.Join(root, "unavailable")
-	if err = os.Rename(path, moved); err != nil {
+	// A non-regular queue entry makes Next fail on every platform. Renaming
+	// the queue root fails before the test starts on Windows because its
+	// lock file remains open for the lifetime of the queue.
+	path := filepath.Join(root, "0", "unreadable.json")
+	if err = os.Mkdir(path, 0700); err != nil {
 		t.Fatal(err)
 	}
 	d.start(c)
 	eventually(t, func() bool { return d.health() != nil })
-	if err = os.Rename(moved, path); err != nil {
+	if err = os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool { return d.health() == nil })

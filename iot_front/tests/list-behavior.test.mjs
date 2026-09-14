@@ -116,7 +116,7 @@ for (const [file, endpoint, pageKey, rowsKey, totalKey] of [
     const pending=[]
     const c=component(file, path=>{
       const url=new URL(path,'http://audit.invalid')
-      if (url.pathname.endsWith(endpoint) && url.searchParams.get('pageSize')==='20') {
+      if (url.pathname.endsWith(endpoint) && (file === 'DevicesView.vue' || url.searchParams.get('pageSize')==='20')) {
         return new Promise(resolve=>pending.push(resolve))
       }
       return Promise.resolve({items:[],total:0})
@@ -124,12 +124,13 @@ for (const [file, endpoint, pageKey, rowsKey, totalKey] of [
     const first=c.load()
     c[pageKey].value=2
     const second=c.load()
-    pending[1]({items:[{id:'new'}],total:40})
+    const deviceList = file === 'DevicesView.vue'
+    pending[1]({items:[deviceList ? {id:'new',device:{id:'new',deviceRole:'DIRECT'}} : {id:'new'}],total:deviceList ? 1 : 40})
     await second
-    pending[0]({items:[{id:'old'}],total:20})
+    pending[0]({items:[deviceList ? {id:'old',device:{id:'old',deviceRole:'CHILD'}} : {id:'old'}],total:deviceList ? 1 : 20})
     await first
     assert.equal(c[rowsKey].value[0].id,'new')
-    assert.equal(c[totalKey].value,40)
+    assert.equal(c[totalKey].value,deviceList ? 1 : 40)
     assert.equal(c.loading.value,false)
   })
 }

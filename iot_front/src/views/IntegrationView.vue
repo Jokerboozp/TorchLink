@@ -105,7 +105,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @close="connectionDevice=''" @device="connectionDevice=$event" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}"/>
+  <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" debug-commands @close="connectionDevice=''" @device="connectionDevice=$event" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}"/>
   <div class="page-toolbar">
     <el-button plain type="primary" @click="emit('navigate','devices')">管理设备</el-button>
     <el-button :loading="loading" @click="load">刷新</el-button>
@@ -116,7 +116,7 @@ onMounted(async () => {
     <el-table v-loading="loading" :data="registry" stripe>
       <el-table-column label="设备" min-width="230"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></el-table-column>
       <el-table-column label="产品" min-width="170"><template #default="{ row }">{{ row.device.productId || '未绑定产品' }}</template></el-table-column>
-      <el-table-column label="操作" width="130" fixed="right" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="openGuide(row.device.id)">连接指南</el-button></div></template></el-table-column>
+      <el-table-column label="操作" width="230" fixed="right" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="openGuide(row.device.id)">连接指南</el-button><el-button @click="connectionDevice=row.device.id">命令调试</el-button></div></template></el-table-column>
       <template #empty><el-empty description="还没有注册设备，请先到设备管理创建" /></template>
     </el-table>
     <div class="list-pagination">

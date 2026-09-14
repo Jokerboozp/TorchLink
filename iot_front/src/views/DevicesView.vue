@@ -8,20 +8,31 @@ const connectionDevice = ref('')
 
 const emit = defineEmits(['navigate'])
 const products = ref([])
-const registry = ref([])
 const registryOptions = ref([])
-const unregistered = ref([])
+const unregisteredOptions = ref([])
+const deviceTab = ref('independent')
+const deviceGroups = { independent:{label:'独立设备',role:'DIRECT'}, main:{label:'主设备',role:'GATEWAY'}, children:{label:'子设备',role:'CHILD'} }
+const deviceCategory = ref('')
 const loading = ref(false)
+const updatesAvailable = ref(false)
 const dialog = ref(false)
 const saving = ref(false)
 const credentialDialog = ref(false)
 const credential = ref({})
 const registryPage = ref(1)
 const registryPageSize = ref(20)
-const registryTotal = ref(0)
 const unregisteredPage = ref(1)
 const unregisteredPageSize = ref(20)
-const unregisteredTotal = ref(0)
+const filteredRegistry = computed(() => registryOptions.value.filter(row =>
+  roleOf(row.device) === deviceGroups[deviceTab.value].role && matchesCategory(row.device.productId)))
+const registryTotal = computed(() => filteredRegistry.value.length)
+const registry = computed(() => filteredRegistry.value.slice((registryPage.value - 1) * registryPageSize.value, registryPage.value * registryPageSize.value))
+const filteredUnregistered = computed(() => unregisteredOptions.value.filter(row => matchesCategory(row.productId)))
+const unregisteredTotal = computed(() => filteredUnregistered.value.length)
+const unregistered = computed(() => filteredUnregistered.value.slice((unregisteredPage.value - 1) * unregisteredPageSize.value, unregisteredPage.value * unregisteredPageSize.value))
+function categoryOf(productId) { return products.value.find(item => item.id === productId)?.category || 'other' }
+function matchesCategory(productId) { return !deviceCategory.value || categoryOf(productId) === deviceCategory.value }
+function changeDeviceFilter() { registryPage.value = 1; unregisteredPage.value = 1 }
 
 const blank = () => ({ id:'', code:'', name:'', productId:'', deviceRole:'DIRECT', gatewayId:'', status:'ENABLED', tags:pretty({}), description:'' })
 const form = reactive(blank())
@@ -43,31 +54,30 @@ let loadVersion = 0
 async function load() {
   const version = ++loadVersion
   loading.value = true
+  updatesAvailable.value = false
   try {
-    const [productData, runtimeData, managedData, optionData] = await Promise.all([
+    const [productData, runtimeData, optionData] = await Promise.all([
       apiAll('/api/v1/products'),
-      api(`/api/v1/devices?unregistered=true&page=${unregisteredPage.value}&pageSize=${unregisteredPageSize.value}`),
-      api(`/api/v1/device-registry?page=${registryPage.value}&pageSize=${registryPageSize.value}`),
+      apiAll('/api/v1/devices?unregistered=true'),
       apiAll('/api/v1/device-registry')
     ])
     if (version !== loadVersion) return
     products.value = productData.items || []
     registryOptions.value = optionData.items || []
-    registry.value = managedData.items || []
-    registryTotal.value = Number(managedData.total ?? managedData.count ?? registry.value.length)
-    unregistered.value = runtimeData.items || []
-    unregisteredTotal.value = Number(runtimeData.total ?? runtimeData.count ?? unregistered.value.length)
+    unregisteredOptions.value = runtimeData.items || []
+    registryPage.value = Math.min(registryPage.value, Math.max(1, Math.ceil(registryTotal.value / registryPageSize.value)))
+    unregisteredPage.value = Math.min(unregisteredPage.value, Math.max(1, Math.ceil(unregisteredTotal.value / unregisteredPageSize.value)))
   } catch (error) {
     if (version === loadVersion) notifyError(error)
   } finally {
     if (version === loadVersion) loading.value = false
   }
 }
-function changeRegistryPage(value) { registryPage.value = value; load() }
-function changeRegistryPageSize(value) { registryPageSize.value = value; registryPage.value = 1; load() }
-function changeUnregisteredPage(value) { unregisteredPage.value = value; load() }
-function changeUnregisteredPageSize(value) { unregisteredPageSize.value = value; unregisteredPage.value = 1; load() }
-function open(device) { Object.assign(form, blank(), device ? { ...device, code:device.id, tags:pretty(device.tags || {}) } : {}); dialog.value = true }
+function changeRegistryPage(value) { registryPage.value = value }
+function changeRegistryPageSize(value) { registryPageSize.value = value; registryPage.value = 1 }
+function changeUnregisteredPage(value) { unregisteredPage.value = value }
+function changeUnregisteredPageSize(value) { unregisteredPageSize.value = value; unregisteredPage.value = 1 }
+function open(device) { Object.assign(form, blank(), device ? { ...device, code:device.id, tags:pretty(device.tags || {}) } : {deviceRole:deviceGroups[deviceTab.value].role}); dialog.value = true }
 
 async function save() {
   if (saving.value) return
@@ -110,18 +120,21 @@ function guide(id) { emit('navigate', 'integration', { deviceId:id }) }
 function hasReported(row) { return Number(row.runtimeState?.lastSeenAt || 0) > 0 }
 function openRaw(id) { emit('navigate', 'raw', { deviceId:id }) }
 
-const realtime = () => load()
+const realtime = () => { updatesAvailable.value = true }
 onMounted(() => { load(); window.addEventListener('iot:realtime', realtime) })
 onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
 </script>
 
 <template>
   <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id=>connectionDevice=id" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" />
-  <div class="page-toolbar"><el-button type="primary" @click="open()">添加设备</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>已注册设备 {{ registryTotal }} 台</span></div>
+  <el-tabs v-model="deviceTab" @tab-change="changeDeviceFilter" aria-label="设备分组"><el-tab-pane v-for="(group, key) in deviceGroups" :key="key" :label="group.label" :name="key" /></el-tabs>
+  <div class="page-toolbar"><el-button type="primary" @click="open()">添加{{ deviceGroups[deviceTab].label }}</el-button><el-button :loading="loading" @click="load">刷新设备</el-button><span>当前{{ deviceGroups[deviceTab].label }} {{ registryTotal }} 台</span><span v-if="updatesAvailable" role="status">有新数据，点击“刷新设备”更新</span></div>
+  <el-form inline class="device-filters" @submit.prevent><el-form-item label="设备类型"><el-select v-model="deviceCategory" clearable placeholder="全部类型" aria-label="设备类型" style="width:220px" @change="changeDeviceFilter"><el-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" /></el-select></el-form-item><el-form-item><el-button @click="deviceCategory='';changeDeviceFilter()">重置筛选</el-button></el-form-item></el-form>
   <el-card shadow="never" class="surface-card table-card">
     <el-table v-loading="loading" :data="registry" stripe>
       <el-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></el-table-column>
       <el-table-column label="产品" min-width="160"><template #default="{ row }">{{ productName(row.device.productId) }}</template></el-table-column>
+      <el-table-column label="设备类型" min-width="130"><template #default="{ row }">{{ label(categories, categoryOf(row.device.productId)) }}</template></el-table-column>
       <el-table-column label="运行状态" width="105"><template #default="{ row }"><el-tag :type="tagType(row.runtimeState?.businessStatus)" round>{{ label(businessStatuses, row.runtimeState?.businessStatus || 'NEVER_SEEN') }}</el-tag></template></el-table-column>
       <el-table-column label="启用状态" width="105"><template #default="{ row }"><el-tag :type="tagType(row.device.status)" round>{{ label(enabledStatuses, row.device.status) }}</el-tag></template></el-table-column>
       <el-table-column label="设备角色" width="120"><template #default="{ row }"><el-tag round>{{ label(deviceRoles, roleOf(row.device), '直接设备') }}</el-tag><small v-if="row.device.autoRegistered" class="subline">网关自动注册</small></template></el-table-column>
@@ -133,7 +146,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
     <div class="list-pagination"><el-pagination v-model:current-page="registryPage" v-model:page-size="registryPageSize" :total="registryTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeRegistryPage" @size-change="changeRegistryPageSize" /></div>
   </el-card>
 
-  <el-card v-if="unregisteredTotal" shadow="never" class="surface-card table-card top-gap">
+  <el-card v-if="deviceTab === 'independent' && unregisteredTotal" shadow="never" class="surface-card table-card top-gap">
     <template #header><div class="card-header"><strong>未注册设备</strong><small>{{ unregisteredTotal }} 台</small></div></template>
     <el-table :data="unregistered" stripe>
       <el-table-column prop="deviceId" label="设备标识" min-width="190" /><el-table-column label="产品" min-width="150"><template #default="{ row }">{{ productName(row.productId) }}</template></el-table-column><el-table-column label="业务状态" width="105"><template #default="{ row }"><el-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus) }}</el-tag></template></el-table-column><el-table-column label="连接状态" width="110"><template #default="{ row }">{{ label(connectionStatuses, row.connectionStatus) }}</template></el-table-column><el-table-column label="数据状态" width="110"><template #default="{ row }">{{ label(dataStatuses, row.dataStatus) }}</template></el-table-column><el-table-column label="最后活跃" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></el-table-column><el-table-column label="操作" fixed="right" width="120" align="center"><template #default="{ row }"><div class="table-actions"><el-button type="primary" plain @click="register(row.deviceId)">一键注册</el-button></div></template></el-table-column>
@@ -145,7 +158,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
   <el-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving">
     <el-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
       <el-form-item label="所属产品" required>
-        <el-select v-model="form.productId" filterable placeholder="选择产品" @change="id => { if (!form.id) form.deviceRole = products.find(item => item.id === id)?.category === 'gateway' ? 'GATEWAY' : 'DIRECT' }"><el-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></el-select>
+        <el-select v-model="form.productId" filterable placeholder="选择产品"><el-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></el-select>
         <el-button v-if="!products.length" link @click="dialog=false;emit('navigate','products')">新建产品</el-button>
       </el-form-item>
       <el-form-item label="设备名称" required><el-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></el-form-item>
