@@ -2,7 +2,7 @@
 
 FROM node:24-bookworm-slim AS build
 
-ARG DSH_REVISION=a66e4702047846cdaa10c66c9d3df3951f5ea70d
+ARG DSH_REVISION=fb2c4b9e698e30edb738bca4cf0618587db7d203
 WORKDIR /harness
 
 RUN npm install --global pnpm@11.7.0
@@ -17,6 +17,10 @@ RUN printf '\nverifyDepsBeforeRun: false\n' >> pnpm-workspace.yaml \
 # The Docker context intentionally excludes the upstream .git directory. The
 # full build accepts this explicit revision for its embedded client metadata.
 ENV DSH_CLIENT_COMMIT_HASH=$DSH_REVISION
+# Upstream builds the host Node-API flock addon before its TypeScript packages.
+# The Node image supplies headers; keep the C toolchain in the build stage only.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
 RUN --network=none pnpm run build
 COPY deploy/deepseek-harness/prepare-runtime-manifest.mjs /tmp/prepare-runtime-manifest.mjs
 COPY deploy/deepseek-harness/prepare-runtime-carrier.mjs /tmp/prepare-runtime-carrier.mjs
@@ -39,7 +43,7 @@ RUN node /harness/examples/iot-ops-agent/runtime-smoke.mjs
 
 FROM node:24-bookworm-slim AS runtime
 
-ARG DSH_REVISION=a66e4702047846cdaa10c66c9d3df3951f5ea70d
+ARG DSH_REVISION=fb2c4b9e698e30edb738bca4cf0618587db7d203
 LABEL org.opencontainers.image.title="IoT DeepSeek Harness sidecar" \
       org.opencontainers.image.revision="$DSH_REVISION" \
       org.opencontainers.image.source="https://github.com/deepseek-ai/deepseek-harness"

@@ -2,6 +2,8 @@
 
 本目录将官方 DeepSeek Harness JSON-RPC 运行时封装为基于 Manifest 的 IoT 工作流服务。业务入口见仓库 `docs/AI_PLUGIN_HARNESS.md`；本文说明镜像、内部接口及会话机制。
 
+当前固定上游预发布版本 [v0.1.5-rc.2](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.2)，提交为 `fb2c4b9e698e30edb738bca4cf0618587db7d203`。
+
 ## 构建与检查
 
 上游源码由 `scripts/fetch-deepseek-harness.sh` 获取到 Git 忽略的 `upstream/deepseek-harness`，版本以本目录 `REVISION` 为准。构建上下文必须是仓库根目录：
@@ -12,9 +14,17 @@ docker build -f deploy/deepseek-harness/Dockerfile -t iot-deepseek-harness:local
 node --test deploy/deepseek-harness/gateway.test.mjs
 ```
 
-Dockerfile 校验上游版本标记，用固定 pnpm 版本和 `--frozen-lockfile` 安装依赖，再禁用网络执行上游构建；运行载体按 `python/sdk-runtime` 的依赖清单生成。镜像构建还执行网关测试、真实 SDK / Cordis 导入和模拟 MCP 启动握手。独立网关测试注入协议兼容的模拟运行时，无需先构建 Harness。
+Dockerfile 校验上游版本标记，用固定 pnpm 版本和 `--frozen-lockfile` 安装依赖，再禁用网络执行上游构建；运行载体按 `python/sdk-runtime` 的依赖清单生成。新版原生文件锁模块需要 C 编译器和 libc 开发文件，仅构建阶段安装，Node 头文件由基础镜像提供。镜像构建还执行网关测试、真实 SDK / Cordis 导入，以及模拟模型和 MCP 的完整调用，验证工作流提示词、文本分片、工具执行和白名单。模拟模型仅监听临时回环端口，不调用外部模型或启动本地大模型。独立网关测试无需先构建 Harness。
 
 运行时使用 `@deepseek-ai/dsh/lib/bin.js` 的 `sdk-minimal` profile，应用本目录 `cordis.yml`。每个驻留会话有独立 `DSH_HOME`。升级时同步核对 `REVISION`、Dockerfile 构建参数和上游版本标记，再执行构建与检查。
+
+已构建镜像也可单独执行同一模拟验证：
+
+```bash
+docker run --rm --network none --entrypoint node iot-deepseek-harness:local /harness/examples/iot-ops-agent/runtime-smoke.mjs
+```
+
+`v0.1.5` 的提示词配置使用 `personaPrefix`；实时文本从 `agent/assistant-stream` 发布，不再作为逐片会话日志事件。IoT 插件仅转发文本为私有 JSON-RPC 通知 `iot.text.delta`，网关校验所属会话后转换成已有的 `text.delta`。推理和工具原始内容不转发，持久日志仍由上游保存完整消息。
 
 ## 服务配置
 
@@ -87,4 +97,4 @@ Go API 将租户、用户和浏览器会话 ID 派生为内部 `conversationId`�
 
 Harness 进程只持有随机运行时代理密钥，不接收 MCP JWT。回环代理在内存保存当前上游 URL / JWT，为每个 MCP POST 注入 Authorization，因此每轮可更新 JWT 而不重建会话。代理只接受 POST，请求上限 1 MiB、有超时、不记录正文或凭据，运行时回收时删除路由。
 
-JSONL 用于持久历史与审计。当前锁定版本的 `session/create` 不调用 `agents.resume` 冷恢复路径；对话连续性依赖驻留池。进程重启会创建新一代会话，不应把 JSONL 文件存在描述为已经恢复模型上下文。
+JSONL 用于持久历史与审计。当前锁定版本在首次 `prompt` 时调用 `agents.create`，不调用 `agents.resume` 冷恢复路径；对话连续性依赖驻留池。进程重启会创建新一代会话，不应把 JSONL 文件存在描述为已经恢复模型上下文。

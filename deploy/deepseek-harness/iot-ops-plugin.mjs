@@ -24,6 +24,20 @@ export const READ_ONLY_TOOL_CEILING = Object.freeze([
 
 const ceiling = new Set(READ_ONLY_TOOL_CEILING)
 
+// v0.1.5 stores complete assistant messages in the session log. Live chunks
+// are process-local, so bridge text through a private JSON-RPC notification
+// without appending synthetic events to the durable log. SDK stdout is the
+// protocol channel; reasoning and tool payloads never enter this notification.
+export function forwardAssistantText({ agent, frame }, write = line => process.stdout.write(line)) {
+  if (frame?.type !== 'chunk' || frame.chunk?.type !== 'text-delta') return
+  const text = frame.chunk.text
+  if (typeof text !== 'string' || text === '') return
+  write(`${JSON.stringify({
+    jsonrpc: '2.0', method: 'iot.text.delta',
+    params: { sessionId: String(agent.session.id), text },
+  })}\n`)
+}
+
 function resolveAllowedTools(config) {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) {
     throw new TypeError('iot-ops-policy config must be an object')
@@ -61,4 +75,6 @@ export function apply(ctx, config) {
   ctx.on('agent/created', ({ agent }) => {
     agent.ctx.tools.restrict({ allow: allowedTools })
   })
+
+  ctx.on('agent/assistant-stream', payload => forwardAssistantText(payload))
 }

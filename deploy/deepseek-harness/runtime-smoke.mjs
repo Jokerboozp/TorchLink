@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -12,6 +13,10 @@ const runtimeBin = process.env.DSH_RUNTIME_BIN
 const sdkClientModule = process.env.DSH_SDK_CLIENT_MODULE
   ?? join(runtimeRoot, 'node_modules', '@deepseek-ai', 'dsh-sdk-client', 'lib', 'index.js')
 const patchFile = join(deploymentRoot, 'cordis.yml')
+const persona = 'Read-only IoT operations startup verifier.'
+const allowedTool = 'mcp__iot__query_alarm_list'
+const modelRequests = []
+let toolCalls = 0
 
 const [{ McpServer }, { StreamableHTTPServerTransport }, { DeepSeekHarness }] = await Promise.all([
   import(pathToFileURL(join(runtimeRoot, 'node_modules', '@modelcontextprotocol', 'sdk', 'dist', 'esm', 'server', 'mcp.js')).href),
@@ -21,6 +26,28 @@ const [{ McpServer }, { StreamableHTTPServerTransport }, { DeepSeekHarness }] = 
 
 const httpServer = createServer((request, response) => {
   void (async () => {
+    if (request.url === '/v1/chat/completions') {
+      let body = ''
+      for await (const chunk of request) body += chunk
+      const input = JSON.parse(body)
+      modelRequests.push(input)
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      const send = (delta, finishReason = null) => response.write(`data: ${JSON.stringify({
+        id: 'runtime-smoke-completion', object: 'chat.completion.chunk', created: 1,
+        model: 'runtime-smoke', choices: [{ index: 0, delta, finish_reason: finishReason }],
+      })}\n\n`)
+      send({ role: 'assistant' })
+      if (!input.messages.some(message => message.role === 'tool')) {
+        send({ tool_calls: [{ index: 0, id: 'smoke-call', type: 'function', function: { name: allowedTool, arguments: '{}' } }] })
+        send({}, 'tool_calls')
+      } else {
+        send({ content: 'Runtime ' })
+        send({ content: 'verified.' })
+        send({}, 'stop')
+      }
+      response.end('data: [DONE]\n\n')
+      return
+    }
     const mcp = new McpServer(
       { name: 'iot-runtime-smoke', version: '1.0.0' },
       { capabilities: { tools: {} } },
@@ -28,7 +55,10 @@ const httpServer = createServer((request, response) => {
     mcp.registerTool('query_alarm_list', {
       description: 'Returns an empty alarm list for runtime startup verification.',
       inputSchema: {},
-    }, async () => ({ content: [{ type: 'text', text: '[]' }] }))
+    }, async () => {
+      toolCalls += 1
+      return { content: [{ type: 'text', text: '[]' }] }
+    })
     const transport = new StreamableHTTPServerTransport({})
     response.once('close', () => {
       void transport.close()
@@ -44,6 +74,7 @@ const httpServer = createServer((request, response) => {
 
 let temporaryRoot
 let harness
+let deadline
 try {
   await new Promise((resolveListen, reject) => {
     httpServer.once('error', reject)
@@ -68,19 +99,19 @@ try {
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
       TMPDIR: temporaryRoot,
       DEEPSEEK_API_KEY: 'runtime-smoke-key-not-used-for-model-calls',
-      IOT_HARNESS_MODEL: 'qwen3:1.7b',
-      IOT_HARNESS_OLLAMA_BASE_URL: 'http://127.0.0.1:11434/v1',
+      IOT_HARNESS_MODEL: 'runtime-smoke',
+      IOT_HARNESS_OLLAMA_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
       IOT_HARNESS_OLLAMA_API_KEY: 'ollama',
       IOT_HARNESS_CONTEXT_WINDOW: '8192',
       IOT_MCP_URL: `http://127.0.0.1:${address.port}/mcp`,
       IOT_MCP_RUNTIME_KEY: 'runtime-smoke-loopback-key',
       IOT_HARNESS_SESSION_ROOT: sessionRoot,
-      IOT_OPS_PERSONA: 'Read-only IoT operations startup verifier.',
-      IOT_ALLOWED_TOOLS_JSON: JSON.stringify(['mcp__iot__query_alarm_list']),
+      IOT_OPS_PERSONA: persona,
+      IOT_ALLOWED_TOOLS_JSON: JSON.stringify([allowedTool]),
     },
     cwd: workspace,
     provider: 'ollama',
-    model: 'qwen3:1.7b',
+    model: 'runtime-smoke',
     maxTokens: 256,
     requestTimeoutMs: 15000,
     shutdownTimeoutMs: 2000,
@@ -88,8 +119,28 @@ try {
     disposeGraceMs: 1000,
   })
   await harness.start()
-  process.stdout.write('DeepSeek Harness runtime carrier smoke passed\n')
+  const notifications = []
+  const result = await Promise.race([
+    harness.run('Query the alarms, then confirm verification.', {
+      sessionId: 'runtime-smoke', onNotification: notification => notifications.push(notification),
+    }),
+    new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('runtime smoke turn timed out')), 20000) }),
+  ])
+  assert.equal(result.events.findLast(event => event.type === 'turn/end')?.data.reason.kind, 'completed')
+  assert.equal(result.finalResponse, 'Runtime verified.')
+  assert.equal(toolCalls, 1)
+  assert.equal(modelRequests.length, 2)
+  for (const request of modelRequests) {
+    assert.ok(request.messages.some(message => ['system', 'developer'].includes(message.role) && message.content.includes(persona)), 'deployment persona reaches the model')
+    assert.deepEqual(request.tools.map(tool => tool.function.name), [allowedTool], 'only the allowed MCP tool reaches the model')
+  }
+  const textChunks = notifications.filter(notification => notification.method === 'iot.text.delta')
+  assert.equal(textChunks.map(notification => notification.params.text).join(''), 'Runtime verified.', 'text streams through the SDK before completion')
+  assert.ok(notifications.indexOf(textChunks[0]) < notifications.findIndex(notification => notification.params?.event?.type === 'assistant/message'
+    && notification.params.event.data.message.content.some(block => block.type === 'text' && block.text === 'Runtime verified.')), 'text arrives before the final message')
+  process.stdout.write('DeepSeek Harness runtime smoke passed: persona, text stream, MCP execution, tool allowlist\n')
 } finally {
+  clearTimeout(deadline)
   if (harness !== undefined) await harness.close().catch(() => {})
   if (httpServer.listening) {
     httpServer.closeAllConnections()

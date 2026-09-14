@@ -57,7 +57,7 @@
   config:
     includeHarnessIdentity: false
     includeRuntimeContext: false
-    persona: !!js process.env.IOT_OPS_PERSONA
+    personaPrefix: !!js process.env.IOT_OPS_PERSONA
 
 - id: agent-loop
   config:
@@ -79,7 +79,6 @@
 - id: sessions
   config:
     root: !!js process.env.IOT_HARNESS_SESSION_ROOT
-    packChunks: true
     compression: none
 
 - insert:

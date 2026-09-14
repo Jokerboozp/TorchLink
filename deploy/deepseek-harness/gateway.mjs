@@ -1005,18 +1005,16 @@ export function createGateway(options = {}) {
       const result = await withTimeout(entry.harness.run(run.question, {
         sessionId: entry.sessionId,
         onNotification(notification) {
-          const event = sessionEvent(notification, entry.sessionId)
-          if (event === undefined) return
-          if (event.type === 'assistant/chunk') {
-            const chunk = event.data?.chunk
-            // Reasoning chunks are intentionally ignored and never cross the
-            // gateway boundary.
-            if (chunk?.type === 'text-delta' && typeof chunk.text === 'string' && chunk.text !== '') {
+          if (notification?.method === 'iot.text.delta') {
+            const params = notification.params
+            if (params?.sessionId === entry.sessionId && typeof params.text === 'string' && params.text !== '') {
               emittedText = true
-              emit('text.delta', { delta: chunk.text })
+              emit('text.delta', { delta: params.text })
             }
             return
           }
+          const event = sessionEvent(notification, entry.sessionId)
+          if (event === undefined) return
           if (event.type === 'tool/call') {
             const callId = event.data?.callId
             const tool = event.data?.name

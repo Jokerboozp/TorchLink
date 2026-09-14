@@ -7,7 +7,7 @@ import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { createGateway, loadPluginCatalog } from './gateway.mjs'
-import { apply as applyPolicy } from './iot-ops-plugin.mjs'
+import { apply as applyPolicy, forwardAssistantText } from './iot-ops-plugin.mjs'
 
 const deploymentDir = dirname(fileURLToPath(import.meta.url))
 const gatewayToken = 'test-harness-token-that-is-at-least-32-chars'
@@ -218,8 +218,8 @@ test('Cordis policy installs a monotonic global guard and prompt restriction', (
   const ctx = {
     tools: { guard: callback => { guard = callback } },
     on: (name, callback) => {
-      assert.equal(name, 'agent/created')
-      created = callback
+      assert.ok(['agent/created', 'agent/assistant-stream'].includes(name))
+      if (name === 'agent/created') created = callback
     },
   }
   applyPolicy(ctx, { allowedTools: ['mcp__iot__query_alarm_list', 'mcp__iot__create_rule_draft'] })
@@ -228,6 +228,21 @@ test('Cordis policy installs a monotonic global guard and prompt restriction', (
   assert.equal(guard({ name: 'mcp__iot__control_device' }), 'tool not allowed')
   created({ agent: { ctx: { tools: { restrict: config => { restricted = config } } } } })
   assert.deepEqual(restricted, { allow: ['mcp__iot__query_alarm_list', 'mcp__iot__create_rule_draft'] })
+})
+
+test('runtime stream bridge forwards only text with its owning session', () => {
+  const frames = []
+  const write = line => frames.push(JSON.parse(line))
+  const agent = { session: { id: 'session-one' } }
+  for (const frame of [
+    { type: 'start' },
+    { type: 'chunk', chunk: { type: 'reasoning-delta', text: 'SECRET_REASONING' } },
+    { type: 'chunk', chunk: { type: 'tool-call', arguments: 'SECRET_ARGUMENTS' } },
+    { type: 'chunk', chunk: { type: 'text-delta', text: '' } },
+    { type: 'chunk', chunk: { type: 'text-delta', text: '可见结论' } },
+    { type: 'end' },
+  ]) forwardAssistantText({ agent, frame }, write)
+  assert.deepEqual(frames, [{ jsonrpc: '2.0', method: 'iot.text.delta', params: { sessionId: 'session-one', text: '可见结论' } }])
 })
 
 test('stream emits only the public NDJSON event vocabulary and suppresses reasoning/results', async () => {
@@ -241,7 +256,8 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
           params: { sessionId: options.sessionId, event },
         })
         notify({ type: 'assistant/chunk', data: { chunk: { type: 'reasoning-delta', text: 'SECRET_REASONING' } } })
-        notify({ type: 'assistant/chunk', data: { chunk: { type: 'text-delta', text: '可见结论' } } })
+        options.onNotification({ method: 'iot.text.delta', params: { sessionId: 'other-session', text: 'SECRET_OTHER_SESSION' } })
+        options.onNotification({ method: 'iot.text.delta', params: { sessionId: options.sessionId, text: '可见结论' } })
         notify({ type: 'tool/call', data: { callId: 'call-direct', name: 'mcp__iot__query_alarm_list', arguments: { secret: true } } })
         notify({ type: 'tool/result', data: { callId: 'call-direct', result: 'SECRET_TOOL_RESULT' } })
         notify({ type: 'tool/call', data: { callId: 'call-legacy', name: 'mcp__iot__query_knowledge_base' } })
@@ -272,7 +288,7 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
   assert.equal(events[7].data.clientAction.type, 'RULE_DRAFT_READY')
   assert.equal(events[7].data.clientAction.draft.actions[0].cameraId, 'camera-001')
   assert.equal(events[7].data.clientAction.persisted, true)
-  assert.doesNotMatch(payload, /SECRET_REASONING|SECRET_TOOL_RESULT|SECRET_LEGACY_RESULT|arguments/)
+  assert.doesNotMatch(payload, /SECRET_REASONING|SECRET_TOOL_RESULT|SECRET_LEGACY_RESULT|SECRET_OTHER_SESSION|arguments/)
   assert.doesNotMatch(payload, /MUST_NOT_LEAK/)
   assert.equal(factorySpec.mcpToken, undefined)
   assert.equal(factorySpec.provider, 'ollama')
