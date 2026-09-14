@@ -138,6 +138,25 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 			}
 		}
 	}
+	// Device data must not become visible through a related menu alone.
+	if !p["menu:devices"] || user.DeviceScope == "none" || user.DeviceScope == "" {
+		delete(p, "menu:alarms")
+		delete(p, "menu:raw")
+	}
+	if !p["menu:devices"] || user.DeviceScope != "all" {
+		// These services produce tenant-wide artifacts or launch tenant-wide jobs.
+		for _, menu := range []string{"ai", "inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} {
+			delete(p, "menu:"+menu)
+		}
+		for _, action := range []string{"POST /api/v1/device-registry", "POST /api/v1/device-states", "POST /api/v1/raw-messages", "POST /api/v1/raw-messages/replay"} {
+			delete(p, action)
+		}
+	}
+	for id := range p {
+		if parts := strings.SplitN(id, " ", 2); len(parts) == 2 && !p["menu:"+routeMenu(parts[1])] {
+			delete(p, id)
+		}
+	}
 	return p
 }
 func permissionList(p map[string]bool) []string {
@@ -155,8 +174,11 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 		return true
 	}
 	// Broker token is restricted separately. Managed users cannot access generic MCP.
-	if path == "/api/v1/mqtt/token" {
+	if path == "/api/v1/events" {
 		return p["menu:devices"] || p["menu:alarms"] || p["menu:dashboard"] || p["menu:raw"]
+	}
+	if path == "/api/v1/mqtt/token" || path == "/api/v1/mqtt/load-token" {
+		return false
 	}
 	menu := routeMenu(path)
 	if menu == "" {
@@ -213,6 +235,8 @@ func (s *Server) managedIdentity(r *http.Request, c auth.Claims) (model.Platform
 	return model.PlatformUser{}, nil, errors.New("account disabled or session revoked")
 }
 func (s *Server) accessRoutes() {
+	s.router.GET("/api/v1/events", s.authorize("viewer"), s.endpoint(s.userEvents))
+	s.router.GET("/api/v1/access/device-options", s.authorize("admin"), s.endpoint(s.accessDeviceOptions))
 	s.router.GET("/api/v1/auth/me", s.authorize("viewer"), s.endpoint(s.currentIdentity))
 	s.router.GET("/api/v1/access/permissions", s.authorize("admin"), s.endpoint(func(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, map[string]any{"items": s.permissionCatalog()})
@@ -294,7 +318,7 @@ func (s *Server) accessList(w http.ResponseWriter, r *http.Request) {
 	if state.Users == nil {
 		state.Users = []model.PlatformUser{}
 	}
-	write(w, 200, map[string]any{"items": state.Users})
+	write(w, 200, map[string]any{"items": state.Users, "tenantId": claims(r).TenantID})
 }
 
 var identityPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,63}$`)
@@ -326,6 +350,8 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 		Enabled     bool     `json:"enabled"`
 		RoleIDs     []string `json:"roleIds"`
 		Permissions []string `json:"permissions"`
+		DeviceScope string   `json:"deviceScope"`
+		DeviceIDs   []string `json:"deviceIds"`
 	}
 	if decode(w, r, &in) != nil {
 		return
@@ -335,6 +361,22 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Permissions == nil {
 		in.Permissions = []string{}
+	}
+	if in.DeviceScope == "" {
+		in.DeviceScope = "none"
+	}
+	if in.DeviceScope != "none" && in.DeviceScope != "selected" && in.DeviceScope != "all" {
+		problem(w, 422, "设备范围无效")
+		return
+	}
+	if in.DeviceIDs == nil || in.DeviceScope != "selected" {
+		in.DeviceIDs = []string{}
+	}
+	for _, id := range in.DeviceIDs {
+		if _, err := s.unscopedRepo().GetManagedDevice(r.Context(), claims(r).TenantID, id); err != nil {
+			problem(w, 422, "授权设备不存在或不属于当前租户")
+			return
+		}
 	}
 	if id := r.PathValue("id"); id != "" {
 		in.Username = id
@@ -377,7 +419,7 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "用户不存在")
 		return
 	}
-	u := model.PlatformUser{Username: in.Username, DisplayName: in.DisplayName, Enabled: in.Enabled, RoleIDs: in.RoleIDs, Permissions: in.Permissions, SessionVersion: time.Now().UnixNano()}
+	u := model.PlatformUser{Username: in.Username, DisplayName: in.DisplayName, Enabled: in.Enabled, RoleIDs: in.RoleIDs, Permissions: in.Permissions, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, SessionVersion: time.Now().UnixNano()}
 	if index >= 0 {
 		u.PasswordHash = state.Users[index].PasswordHash
 		u.SessionVersion = state.Users[index].SessionVersion + 1

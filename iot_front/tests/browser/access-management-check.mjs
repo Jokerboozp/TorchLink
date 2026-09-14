@@ -53,7 +53,7 @@ try{
  await writeFile(dir+'/screenshots/access-role-form.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'))
  await until(()=>evaluate(`(()=>{const group=[...document.querySelectorAll('.permission-group')].find(g=>g.querySelector('strong')?.textContent==='设备管理');const input=group?.querySelector('input');input?.click();return !!input})()`))
  await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.el-dialog')].some(e=>e.getClientRects().length)`))
- await evaluate(`document.querySelector('#tab-users').click()`);await click('添加用户');await fill('用户名',username);await fill('显示名称','演示 · 只读用户');await fill('初始密码',secret)
+ await evaluate(`document.querySelector('#tab-users').click()`);await click('添加用户');await fill('用户名',username);await fill('显示名称','演示 · 只读用户');await fill('初始密码',secret);await evaluate(`document.querySelector('input[value="all"]').click()`)
  await evaluate(`(()=>{const root=[...document.querySelectorAll('.el-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='角色');item.querySelector('.el-select__wrapper').click()})()`)
  await delay(500)
  await writeFile(dir+'/screenshots/access-user-form.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'))

@@ -69,6 +69,9 @@ type healthInspectionSnapshot struct {
 const healthInspectionCacheTTL = 10 * time.Minute
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
+	if _, ok := engine.Repo.(*deviceScopeRepository); !ok {
+		engine.Repo = &deviceScopeRepository{Repository: engine.Repo}
+	}
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.HandleMethodNotAllowed = true
@@ -2656,13 +2659,18 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 		}
 		allowed := claimsValue.Role == "admin" || claimsValue.Role == role || role == "viewer" && (claimsValue.Role == "operator" || claimsValue.Role == "viewer")
 		if claimsValue.TokenUse == "user" {
-			_, permissions, err := s.managedIdentity(c.Request, claimsValue)
+			user, permissions, err := s.managedIdentity(c.Request, claimsValue)
 			if err != nil {
 				ginProblem(c, 401, "账户已停用或会话已失效，请重新登录")
 				c.Abort()
 				return
 			}
 			allowed = allowsRoute(permissions, c.Request.Method, c.FullPath())
+			scope := scopeFor(user, permissions, claimsValue.TenantID)
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), deviceScopeKey{}, scope))
+			if allowed {
+				allowed = s.allowScopedRequest(c, scope)
+			}
 		}
 		if !allowed {
 			ginProblem(c, http.StatusForbidden, "insufficient role")

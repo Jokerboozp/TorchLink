@@ -91,6 +91,11 @@ const menuGroups = [
 ]
 pages.access = {title:'用户与权限',icon:Settings2,component:AccessView}
 const visibleGroups = computed(() => menuGroups.map(group=>({...group,items:group.items.filter(name=>can('menu:'+name))})).filter(group=>group.items.length))
+watch(() => permissionState.items.join('\n'), (value, old) => {
+ if (!authenticated.value || value === old) return
+ if (!can('menu:' + active.value)) active.value = visibleGroups.value[0]?.items[0] || ''
+ pageKey.value++
+})
 async function syncIdentity(){
  if(!authenticated.value)return
  try{await refreshPermissions();if(!can('menu:'+active.value))active.value=visibleGroups.value[0]?.items[0]||''}catch(error){notifyError(error)}

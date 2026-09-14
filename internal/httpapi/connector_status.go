@@ -64,6 +64,9 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
+	if limited(r.Context()) {
+		profiles = nil
+	}
 	items := []map[string]any{}
 	devices, err := s.engine.Repo.ListManagedDevices(r.Context(), tenant)
 	if err != nil {
@@ -117,6 +120,9 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
+	}
+	if limited(r.Context()) {
+		all = nil
 	}
 	candidates := []model.DeviceAccessProfile{}
 	byProfile := map[string][]map[string]any{}
@@ -212,6 +218,9 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var parent any
+	if !deviceAllowed(r.Context(), tenant, d.GatewayID) {
+		d.GatewayID = ""
+	}
 	if d.GatewayID != "" {
 		if gateway, e := s.engine.Repo.GetManagedDevice(r.Context(), tenant, d.GatewayID); e == nil {
 			parent = map[string]any{"id": gateway.ID, "name": gateway.Name}

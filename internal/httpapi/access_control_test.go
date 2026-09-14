@@ -36,7 +36,7 @@ func TestAccessControlLifecycleAndIsolation(t *testing.T) {
 	root := login("root", cfg.AdminPassword, "tenant_a", 200)["accessToken"].(string)
 	role := map[string]any{"id": "device_reader", "name": "设备查看", "permissions": []string{"menu:devices"}}
 	req("POST", "/api/v1/access/roles", root, role, 200)
-	user := map[string]any{"username": "demo_user", "displayName": "演示用户", "password": "initial-password-test", "enabled": true, "roleIds": []string{"device_reader"}, "permissions": []string{}}
+	user := map[string]any{"username": "demo_user", "displayName": "演示用户", "password": "initial-password-test", "enabled": true, "roleIds": []string{"device_reader"}, "permissions": []string{}, "deviceScope": "all"}
 	req("POST", "/api/v1/access/users", root, user, 200)
 	token := login("demo_user", "initial-password-test", "tenant_a", 200)["accessToken"].(string)
 	login("demo_user", "initial-password-test", "tenant_b", 401)
@@ -102,8 +102,8 @@ func TestAccessControlLifecycleAndIsolation(t *testing.T) {
 
 func TestUserPermissionsCombineRolesAndIndividualGrants(t *testing.T) {
 	state := model.AccessState{Roles: []model.PlatformRole{{ID: "reader", Permissions: []string{"menu:devices"}}}}
-	viewer := model.PlatformUser{RoleIDs: []string{"reader"}}
-	editor := model.PlatformUser{RoleIDs: []string{"reader"}, Permissions: []string{"POST /api/v1/device-registry"}}
+	viewer := model.PlatformUser{DeviceScope: "all", RoleIDs: []string{"reader"}}
+	editor := model.PlatformUser{DeviceScope: "all", RoleIDs: []string{"reader"}, Permissions: []string{"POST /api/v1/device-registry"}}
 	if allowsRoute(effectivePermissions(state, viewer), "POST", "/api/v1/device-registry") {
 		t.Fatal("viewer unexpectedly inherited another user's permission")
 	}

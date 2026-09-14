@@ -13,6 +13,8 @@ type PlatformUser struct {
 	Enabled        bool     `json:"enabled"`
 	RoleIDs        []string `json:"roleIds"`
 	Permissions    []string `json:"permissions"`
+	DeviceScope    string   `json:"deviceScope"`
+	DeviceIDs      []string `json:"deviceIds"`
 	SessionVersion int64    `json:"sessionVersion"`
 }
 type PlatformRole struct {
