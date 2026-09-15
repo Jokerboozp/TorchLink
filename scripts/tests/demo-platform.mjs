@@ -1,36 +1,38 @@
-// Run from the repository root. Credentials stay in memory; only demo resources are mutated.
+// Run from the repository root. Creates demo and built-in test resources; services may inspect or back up the tenant.
 import {readFile,writeFile,mkdir} from 'node:fs/promises'
-import {parseEnv} from 'node:util'
+import {demoConfig,redactDemo} from '../lib/demo-config.mjs'
+import {randomUUID} from 'node:crypto'
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
-const env={...parseEnv(await readFile('.env.local','utf8')),...process.env}
-const origin='http://127.0.0.1:5173', prefix='demo-20260914', dir='.e2e/demo-20260914'
+const {env,origin,prefix,dir,tenant,tcpPort,udpPort}=await demoConfig()
 await mkdir(dir,{recursive:true})
 let token, credential
-const tenant=(env.IOT_ADMIN_TENANTS || 'tenant_001').split(',')[0].trim()
-let state={prefix,results:[],ids:{}}
-try{state=JSON.parse(await readFile(`${dir}/results.json`,'utf8'))}catch{}
-async function req(path,{method='GET',body,device=false,raw=false,binary=false}={}){
- const headers={};if(token)headers.Authorization=`Bearer ${token}`
+let state={prefix,origin,tenant,results:[],ids:{}}
+try{const previous=JSON.parse(await readFile(`${dir}/results.json`,'utf8'));if(previous.origin!==origin || previous.tenant!==tenant || previous.prefix!==prefix)throw Error('结果目录属于其他地址、租户或旧格式，请换一个输出目录');state=previous}catch(e){if(e.code!=='ENOENT')throw e}
+async function req(path,{method='GET',body,device=false,raw=false,binary=false,authToken=token}={}){
+ const headers={};if(authToken)headers.Authorization=`Bearer ${authToken}`
  if(device){delete headers.Authorization;headers['X-Device-Key']=credential.accessKey;headers['X-Device-Secret']=credential.secret}
  if(body!==undefined && !(body instanceof FormData))headers['Content-Type']='application/json'
- const response=await fetch(origin+path,{method,headers,body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(150000)})
+ const response=await fetch(origin+path,{method,headers,redirect:'error',body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(240000)})
  if(!response.ok){const failure=new Error(`${method} ${path}: HTTP ${response.status}`);failure.status=response.status;throw failure}
  return binary?Buffer.from(await response.arrayBuffer()):raw?response.text():response.json()
 }
 async function check(name,action){
- try{const detail=await action();state.results.push({name,status:'通过',detail:detail || '',at:new Date().toISOString()});console.log(`通过：${name}${detail?' · '+detail:''}`)}
- catch(e){state.results.push({name,status:'未通过',detail:e.message,at:new Date().toISOString()});console.log(`未通过：${name} · ${e.message}`)}
+ const skip=env.IOT_DEMO_SKIP_AI==='1' && /真实模型|智能巡检|巡检成功|模型管理/.test(name) || env.IOT_DEMO_SKIP_BACKUP==='1' && name.startsWith('备份') || env.IOT_DEMO_SKIP_SOCKETS==='1' && /TCP\/UDP 实际/.test(name)
+ if(skip){state.results.push({stage,name,status:'跳过',detail:'按运行参数跳过',at:new Date().toISOString()});console.log(`跳过：${name}`)}
+ else try{const detail=await action();state.results.push({stage,name,status:'通过',detail:detail || '',at:new Date().toISOString()});console.log(`通过：${name}${detail?' · '+detail:''}`)}
+ catch(e){const detail=redactDemo(e.message,env);state.results.push({stage,name,status:'未通过',detail,at:new Date().toISOString()});console.log(`未通过：${name} · ${detail}`)}
  await writeFile(`${dir}/results.json`,JSON.stringify(state,null,2))
 }
-async function until(path,condition){for(let n=0;n<40;n++){const value=await req(path);if(condition(value))return value;await new Promise(r=>setTimeout(r,500))}throw new Error(`等待状态超时 ${path}`)}
+async function list(path){const items=[];for(let page=1;page<=10000;page++){const value=await req(`${path}${path.includes('?')?'&':'?'}page=${page}&pageSize=100`);items.push(...(value.items||[]));if(!(value.items?.length) || items.length>=Number(value.total??value.count??items.length))return {...value,items}}throw Error('分页超过限制')}
+async function until(path,condition){for(let n=0;n<40;n++){try{const value=await req(path);if(condition(value))return value}catch(e){if(e.status!==404)throw e}await new Promise(r=>setTimeout(r,500))}throw new Error(`等待状态超时 ${path}`)}
 const login=await req('/api/v1/auth/login',{method:'POST',body:{username:env.IOT_ADMIN_USER || 'admin',password:env.IOT_ADMIN_PASSWORD,tenantId:tenant}})
 token=login.accessToken;assert.ok(token)
 const stage=process.argv[2] || 'inspect'
 const resultStart=state.results.length
 if(stage==='inspect'){
  for(const [name,path] of Object.entries({产品:'/api/v1/products',设备:'/api/v1/device-registry',协议:'/api/v2/protocols',网关:'/api/v2/device-access-profiles',告警:'/api/v1/alarms',规则:'/api/v1/rules',原文:'/api/v1/raw-messages',摄像头:'/api/v1/integrations/video/cameras',知识:'/api/v1/knowledge/documents',模型:'/api/v1/ai/providers',智能体:'/api/v1/ai/workflows',备份:'/api/v1/backups',巡检:'/api/v1/ai/health-inspection/progress'})){
-  await check(`读取${name}`,async()=>{const v=await req(path);return JSON.stringify({count:v.total??v.items?.length,status:v.status,healthy:v.healthy,indexMode:v.indexMode,ids:name==='智能体'?v.items?.map(x=>({id:x.id,name:x.name})):undefined})})
+  await check(`读取${name}`,async()=>{let v;try{v=await req(path)}catch(e){if(name==='巡检'&&e.status===404)return '当前无巡检任务；业务空状态';throw e}return JSON.stringify({count:v.total??v.items?.length,status:v.status,healthy:v.healthy,indexMode:v.indexMode})})
  }
 }
 if(stage==='business'){
@@ -46,7 +48,7 @@ if(stage==='business'){
  await check('属性上报、历史曲线与在线状态',async()=>{for(let n=0;n<8;n++)await ingest('property',{temperature:24+n*0.5,humidity:45+n,demoGroup:prefix});await ingest('state',{connectionStatus:'CONNECTED'});const v=await req(`/api/v1/device-registry/${deviceId}/connection`);assert.ok(v.device);return '温度 24–27.5℃、湿度 45–52%，8 条属性记录'})
  await check('演示规则、告警触发、确认与关闭',async()=>{
   const rule={id:`${prefix}-high-temp`,name:'演示 · 高温告警（仅演示设备）',alarmType:'DEVICE_FAULT',level:'LOW',match:'all',enabled:true,conditions:[{field:'demoGroup',operator:'eq',value:prefix},{field:'temperature',operator:'gt',value:40}]}
-  const all=await req('/api/v1/rules?pageSize=100');await req(all.items?.some(x=>x.id===rule.id)?`/api/v1/rules/${rule.id}`:'/api/v1/rules',{method:all.items?.some(x=>x.id===rule.id)?'PUT':'POST',body:rule})
+  const all=await list('/api/v1/rules');await req(all.items?.some(x=>x.id===rule.id)?`/api/v1/rules/${rule.id}`:'/api/v1/rules',{method:all.items?.some(x=>x.id===rule.id)?'PUT':'POST',body:rule})
   await ingest('property',{demoGroup:prefix,temperature:58,humidity:38})
   const alarms=await until(`/api/v1/alarms?deviceId=${deviceId}&pageSize=100`,x=>x.items?.some(a=>a.status==='ACTIVE'))
   const alarm=alarms.items.find(a=>a.status==='ACTIVE');state.ids.closedAlarm=alarm.alarmId
@@ -62,7 +64,7 @@ if(stage==='business'){
  })
  await check('摄像头登记与设备映射',async()=>{
   const camera={cameraId:`${prefix}-camera`,cameraName:'演示 · 一层走廊摄像头',brand:'dahua',cameraPoint:'演示园区一层走廊',building:'演示楼',floor:'1F',room:'走廊',deviceId,enabled:true}
-  const all=await req('/api/v1/integrations/video/cameras?pageSize=100');const exists=all.items?.some(x=>x.cameraId===camera.cameraId)
+  const all=await list('/api/v1/integrations/video/cameras');const exists=all.items?.some(x=>x.cameraId===camera.cameraId)
   await req('/api/v1/integrations/video/cameras'+(exists?`/${camera.cameraId}`:''),{method:exists?'PUT':'POST',body:camera});state.ids.camera=camera.cameraId;return '仅摄像头元数据和映射，不伪造视频流'
  })
 }
@@ -92,18 +94,20 @@ if(stage==='protocols'){
  if(state.ids.tcpProtocol)await check('产品协议绑定与多接入网关',async()=>{
   const {id,version}=state.ids.tcpProtocol,productId=`${prefix}-tcp-product`
   const product={id:productId,name:'演示 · TCP 消防主机',category:'gateway',transport:'TCP',payloadFormat:'hex',protocolPackageId:`${id}@${version}`,status:'ENABLED',description:'演示软件接入网关与多设备连接',thingModel:{properties:[{identifier:'temperature',name:'温度',dataType:'number',unit:'℃'}],events:[],commands:[{identifier:'ping',name:'探测设备',fields:[]}]}}
-  const products=await req('/api/v1/products?pageSize=100');const exists=products.items.some(x=>x.id===productId);await req('/api/v1/products'+(exists?'/'+productId:''),{method:exists?'PUT':'POST',body:product})
+  const products=await list('/api/v1/products');const exists=products.items.some(x=>x.id===productId);await req('/api/v1/products'+(exists?'/'+productId:''),{method:exists?'PUT':'POST',body:product})
   await req(`/api/v2/products/${productId}/protocol-binding`,{method:'POST',body:{protocolId:id,version}})
-  for(const [network,port] of [['tcp',29075],['udp',29076]]){
-   const profile={id:`${prefix}-${network}-gateway`,productId,protocolId:id,protocolVersion:version,mode:'listener',network,host:'0.0.0.0',port,timeoutMs:5000,autoRegister:true,enabled:true,connectionMode:'listen'}
-   const all=await req('/api/v2/device-access-profiles');const exists=all.items.some(x=>x.id===profile.id);await req('/api/v2/device-access-profiles'+(exists?'/'+profile.id:''),{method:exists?'PUT':'POST',body:profile})
+  for(const [network,port] of [['tcp',tcpPort],['udp',udpPort]]){
+   const profile={id:`${prefix}-${network}-gateway`,productId,protocolId:id,protocolVersion:version,mode:'listener',network,host:'0.0.0.0',port,timeoutMs:5000,autoRegister:true,enabled:env.IOT_DEMO_SKIP_SOCKETS!=='1',connectionMode:'listen'}
+   const all=await req('/api/v2/device-access-profiles');const exists=all.items.some(x=>x.id===profile.id)
+   if(profile.enabled && all.items.some(x=>x.id!==profile.id && x.enabled && x.mode==='listener' && x.network===network && Number(x.port)===port))throw Error(`演示 ${network} 端口 ${port} 已由其他网关占用，请指定空闲端口`)
+   await req('/api/v2/device-access-profiles'+(exists?'/'+profile.id:''),{method:exists?'PUT':'POST',body:profile})
   }
-  state.ids.tcpProduct=productId;return 'TCP 29075、UDP 29076，同一产品两个网关'
+  state.ids.tcpProduct=productId;return `TCP ${tcpPort}、UDP ${udpPort}，网关${env.IOT_DEMO_SKIP_SOCKETS==='1'?'未启用':'已启用'}`
  })
 }
 if(stage==='services'){
- await check('知识库上传、索引与切片',async()=>{
-  const text='演示园区消防处置手册。演示一层温湿度传感器正常温度为20至30摄氏度。温度超过40摄氏度触发演示高温告警，应先核对设备位置和现场情况，再确认告警。演示接入网关TCP端口29075，UDP端口29076。设备支持ping探测，成功应答表示连接正常。本资料仅用于功能演示。'
+ await check('知识库上传与文档详情读取',async()=>{
+  const text=`演示园区消防处置手册。演示一层温湿度传感器正常温度为20至30摄氏度。温度超过40摄氏度触发演示高温告警，应先核对设备位置和现场情况，再确认告警。演示接入网关TCP端口${tcpPort}，UDP端口${udpPort}。设备支持ping探测，成功应答表示连接正常。本资料仅用于功能演示。`
   await writeFile(`${dir}/演示消防处置手册.txt`,text)
   const form=new FormData();form.append('file',new Blob([text]),'演示消防处置手册.txt');form.append('workflowId','ops-assistant')
   const value=await req('/api/v1/knowledge/documents',{method:'POST',body:form});state.ids.document=value.id
@@ -136,12 +140,12 @@ if(stage==='refine'){
  })
  await check('TCP/UDP 实际上报、设备命名及探测命令应答',async()=>{
   for(const [id,name] of [[7,'演示 · TCP 消防主机 A'],[8,'演示 · TCP 消防主机 B'],[9,'演示 · UDP 消防主机']]){
-   const deviceId=`${prefix}-tcp-${id}`,v=await req(`/api/v1/device-registry/${deviceId}/connection`)
+   const deviceId=`${prefix}-tcp-${id}`,v=await until(`/api/v1/device-registry/${deviceId}/connection`,x=>x.latest || x.latestProperties?.length)
    await req(`/api/v1/device-registry/${deviceId}`,{method:'PUT',body:{...v.device,name}})
    assert.ok(v.latest || v.latestProperties?.length)
   }
   const reply=await req(`/api/v2/device-access-profiles/${prefix}-tcp-gateway/devices/${prefix}-tcp-7/commands`,{method:'POST',body:{type:'ping',requestId:`demo-ping-${Date.now()}`,confirmed:true}})
-  assert.equal(reply.status,'acknowledged');state.ids.commandRaw=reply.rawMessageId;await req(`/api/v1/raw-messages/${reply.rawMessageId}`);return '两台TCP、一台UDP真实本机套接字，ping已应答'
+  assert.equal(reply.status,'acknowledged');state.ids.commandRaw=reply.rawMessageId;await req(`/api/v1/raw-messages/${reply.rawMessageId}`);return '两台TCP、一台UDP通过真实套接字上报，ping已应答'
  })
  await check('巡检成功状态与报告读取',async()=>{const report=JSON.parse(await readFile(`${dir}/inspection.json`,'utf8'));assert.equal(report.status,'succeeded');return `真实巡检报告已保存，任务 ${report.jobId || state.ids.inspection || "已完成"}`})
  await check('模型管理连接测试',async()=>{const active=await req('/api/v1/ai/providers');const {provider,baseUrl,model}=active.config;const result=await req('/api/v1/ai/providers/test',{method:'POST',body:{provider,baseUrl,model}});assert.equal(result.success,true);return '沿用当前模型，未修改全局配置'})
@@ -155,7 +159,7 @@ if(stage==='refine' || stage==='children'){
  await check('演示主子设备登记与归属',async()=>{
   for(const [id,name,role,gatewayId] of [[`${prefix}-parent`,'演示 · 楼层实体网关','GATEWAY',''],[`${prefix}-child`,'演示 · 网关下烟感','CHILD',`${prefix}-parent`]]){
    const body={id,name,productId:state.ids.productId,status:'ENABLED',deviceRole:role,gatewayId,description:'功能演示数据'}
-   const all=await req('/api/v1/device-registry?pageSize=100');const exists=all.items.some(x=>x.device.id===id);await req('/api/v1/device-registry'+(exists?'/'+id:''),{method:exists?'PUT':'POST',body})
+   const all=await list('/api/v1/device-registry');const exists=all.items.some(x=>x.device.id===id);await req('/api/v1/device-registry'+(exists?'/'+id:''),{method:exists?'PUT':'POST',body})
   }
   const children=await req(`/api/v1/device-registry/${prefix}-parent/children`);assert.ok(children.items.length);return '实体网关与子设备归属可查看'
  })
@@ -164,11 +168,11 @@ if(stage==='mqtt')await check('MQTT 上报、设备控制及命令回执',async(
  const deviceId=`${prefix}-mqtt-sensor`,productId=`${prefix}-mqtt-product`,stamp=Date.now()
  try{await req(`/api/v1/device-registry/${deviceId}/connection`);credential=(await req(`/api/v1/device-registry/${deviceId}/credentials`,{method:'POST'})).credential}
  catch(e){if(e.status!==404)throw e;const draft={deviceId,productId,productName:'演示 · MQTT 可控设备',name:'演示 · MQTT 温控器',type:'MQTT',messageKind:'property',payload:{id:`demo-mqtt-setup-${stamp}`,timestamp:stamp,data:{temperature:25}}};const v=await req('/api/v1/onboarding/test',{method:'POST',body:draft});assert.equal(v.success,true);credential=(await req('/api/v1/onboarding',{method:'POST',body:{...draft,testToken:v.testToken}})).credential}
- const products=await req('/api/v1/products?pageSize=100');const product=products.items.find(x=>x.id===productId)
+ const products=await list('/api/v1/products');const product=products.items.find(x=>x.id===productId)
  await req(`/api/v1/products/${productId}`,{method:'PUT',body:{...product,thingModel:{properties:[{identifier:'temperature',name:'温度',dataType:'number',unit:'℃'}],events:[],commands:[{identifier:'set-temperature',name:'设置目标温度',fields:[{identifier:'value',name:'目标温度',dataType:'integer',required:true,unit:'℃'}]}]}}})
  const auth=await req('/api/v1/device-mqtt/token',{method:'POST',device:true})
  const mqtt=createRequire(new URL('../../iot_front/package.json',import.meta.url))('mqtt')
- const broker=(env.IOT_DEVICE_MQTT_PUBLIC_URL || env.IOT_MQTT_BROKER).replace(/^tcp:/,'mqtt:')
+ const broker=(env.IOT_DEMO_MQTT_URL || `mqtt://${new URL(origin).hostname}:1883`).replace(/^tcp:/,'mqtt:')
  const client=mqtt.connect(broker,{clientId:`${prefix}-client`,username:auth.username,password:auth.token,reconnectPeriod:0,connectTimeout:12000})
  try{
   await new Promise((resolve,reject)=>{client.once('connect',resolve);client.once('error',()=>reject(new Error('MQTT连接失败')))})
@@ -181,6 +185,33 @@ if(stage==='mqtt')await check('MQTT 上报、设备控制及命令回执',async(
   const history=await until(`/api/v1/device-registry/${deviceId}/commands`,v=>v.items.some(x=>x.id===command.id&&x.status==='SUCCEEDED'))
   state.ids.mqttDevice=deviceId;state.ids.mqttCommand=command.id;return '真实 Broker 上报与回执，命令状态 SUCCEEDED'
  }finally{await client.endAsync()}
+})
+if(stage==='access')await check('用户、角色、租户和设备告警范围验证',async()=>{
+ assert.ok(state.ids.deviceId,'先运行 business 阶段')
+ const role={id:`${prefix}-reader`,name:'演示 · 设备与告警只读',permissions:['menu:devices','menu:alarms','menu:dashboard']}
+ const roles=await req('/api/v1/access/roles')
+ await req('/api/v1/access/roles'+(roles.items?.some(x=>x.id===role.id)?'/'+role.id:''),{method:roles.items?.some(x=>x.id===role.id)?'PUT':'POST',body:role})
+ const users=await req('/api/v1/access/users')
+ state.ids.users=[]
+ for(const [suffix,scope] of [['reader','selected'],['empty','none']]){
+  const password=env.IOT_DEMO_USER_PASSWORD || randomUUID()+'Aa9!'
+  const user={username:`${prefix}-${suffix}`,displayName:`演示 · ${scope==='none'?'无设备用户':'指定设备只读用户'}`,password,enabled:true,roleIds:[role.id],permissions:[],deviceScope:scope,deviceIds:scope==='selected'?[state.ids.deviceId]:[]}
+  const existing=users.items?.find(x=>x.username===user.username)
+  if(existing && !existing.displayName?.startsWith('演示'))throw Error('同名账户不带演示标记，拒绝修改')
+  await req('/api/v1/access/users'+(existing?'/'+user.username:''),{method:existing?'PUT':'POST',body:user})
+  if(existing)await req(`/api/v1/access/users/${user.username}/password`,{method:'POST',body:{password}})
+  const login=await req('/api/v1/auth/login',{method:'POST',body:{username:user.username,password,tenantId:tenant},authToken:null})
+  assert.equal(login.tenantId,tenant)
+  const options={authToken:login.accessToken}
+  const devices=await req('/api/v1/device-registry',options),events=await req('/api/v1/events',options)
+  assert.equal(devices.total,scope==='selected'?1:0)
+  assert.ok(events.alarms.every(x=>scope==='selected' && x.deviceId===state.ids.deviceId))
+  if(scope==='none'){assert.ok(!events.permissions.includes('menu:alarms'));assert.equal(events.devices.length,0);assert.equal(events.alarms.length,0)}
+  else { const visible=await req('/api/v1/alarms',options);assert.ok(visible.items.length>0);assert.ok(events.alarms.length>0);assert.ok(visible.items.every(x=>x.deviceId===state.ids.deviceId));await assert.rejects(req(`/api/v1/device-registry/${prefix}-parent/connection`,options),e=>e.status===403) }
+  await assert.rejects(req('/api/v1/mqtt/token',{...options,method:'POST'}),e=>e.status===403)
+  state.ids.users.push(user.username)
+ }
+ return `租户 ${tenant}；两个演示用户已创建。密码来自 IOT_DEMO_USER_PASSWORD 或随机生成，不写入报告；管理员可重置。`
 })
 console.log(`记录：${dir}/results.json`)
 if(state.results.slice(resultStart).some(item=>item.status==='未通过'))process.exitCode=1
