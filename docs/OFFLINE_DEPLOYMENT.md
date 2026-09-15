@@ -344,6 +344,31 @@ sudo docker compose --project-name iot-platform \
 
 回归入口：前端 `npm test` 与 `npm run build`，后端 `go test ./internal/httpapi`；在 `iot_front` 目录设置 `IOT_TEST_BROWSER` 为 Chromium/Edge 可执行文件后，运行 `node tests/browser/alarm-http-check.mjs`，使用构建后的真实页面、非安全 HTTP 域名及模拟 API 验证 MQTT 不可用时的新告警弹窗、历史不补弹和关闭后不重复。此浏览器测试和内存仓储 HTTP 权限测试不代替目标 Docker 环境验收。
 
+### 生成协议弹窗只显示标题和说明
+
+旧前端在初始化协议表单时直接调用 `crypto.randomUUID()`，通过非 localhost 的 HTTP 地址访问时该方法不可用，组件初始化异常后只显示父弹窗的标题与说明。修复后使用公共客户端 UUID 函数：HTTPS 使用原生 `randomUUID()`，HTTP 使用 `getRandomValues()` 生成 UUID v4；产品、设备自动编号和设备命令的幂等编号也使用此函数。现象是表单渲染失败，不表示协议数据被删除。
+
+常规更新方式是从最新源码重建前端镜像。在暂时无法拉取基础镜像时，也可在具备 Node/npm 依赖的可信构建机执行 `npm ci && npm run build`（目录 `iot_front`），将 **dist 目录内的全部文件**打包为 `iot-platform-web-static-update.tgz`：
+
+```bash
+tar -czf iot-platform-web-static-update.tgz -C iot_front/dist .
+sha256sum iot-platform-web-static-update.tgz > iot-platform-web-static-update.tgz.sha256
+```
+
+将归档及校验文件复制到服务器同一目录，然后执行：
+
+```bash
+sha256sum -c iot-platform-web-static-update.tgz.sha256 && \
+mkdir -p frontend-static-update && \
+tar -xzf iot-platform-web-static-update.tgz -C frontend-static-update && \
+sudo docker cp frontend-static-update/. \
+  iot-platform-platform-web-1:/usr/share/nginx/html/
+```
+
+复制完整产物后 Ctrl+F5 刷新，再打开「协议管理 → 协议生成」，检查报文、点表切换、上传选择器、协议名称及生成按钮。此方式仅更新当前前端容器的静态文件，保留已有 Nginx 配置、API、业务数据和旧静态资源；容器重启保留修改，重建会被镜像覆盖，后续应使用更新后的前端镜像。静态更新不代替前文告警修复要求的 API 更新。
+
+2026-09-15 本机通过真实 Edge 的非安全 HTTP 页面验证报文/点表表单显示、提交报文及返回后的字段映射输入框；生成接口使用模拟响应，不代表真实模型生成验收。回归入口为 `npm test`、`npm run build` 及 `IOT_TEST_BROWSER` 指定浏览器后的 `node tests/browser/alarm-http-check.mjs`。
+
 ### 设备接入配置补充
 
 离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级沿用当前幂等 schema 迁移，保留历史数据。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。

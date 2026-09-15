@@ -12,6 +12,7 @@ const dist = fileURLToPath(new URL('../../dist/', import.meta.url))
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 let alarms = [{ alarmId:'historical', deviceId:'device', status:'ACTIVE' }]
 let polls = 0, brokerAttempts = 0
+let generationRequests = 0
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname
   if (path.startsWith('/api/')) {
@@ -22,6 +23,13 @@ const server = createServer(async (req, res) => {
     if (path === '/api/v1/mqtt/token') data = { websocketUrl:`ws://iot-alarm.test:${server.address().port}/mqtt`, subscriptions:[] }
     if (path === '/api/v1/dashboard') data = { devices:1, online:1, activeAlarms:alarms.length, highAlarms:alarms.length, trend:[], states:[], products:[] }
     if (path === '/api/v1/alarms') data = { items:alarms, total:alarms.length }
+    if (path === '/api/v1/ai/protocol-assistant/generate') {
+      let body=''
+      for await (const chunk of req) body+=chunk.toString()
+      assert.ok(body.includes('"temperature":25'))
+      generationRequests++
+      data={name:'演示 HTTP 协议',parserType:'configurable_json_parser',config:{properties:{temperature:'$.temperature'}},transport:'MQTT',payloadFormat:'json',samplePayload:{temperature:25}}
+    }
     res.writeHead(200, { 'Content-Type':'application/json', 'Cache-Control':'no-store' })
     res.end(JSON.stringify(data))
     return
@@ -82,7 +90,27 @@ try {
   await evaluate("document.querySelector('.global-alert-close').click()")
   await delay(3500)
   assert.equal(await evaluate("document.querySelectorAll('.global-alert-popup').length"),0)
+  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false})
+  const click=async text=>until(()=>evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.textContent.trim()===${JSON.stringify(text)} && item.getClientRects().length && !item.disabled);if(!button)return false;button.click();return true})()`))
+  await click('协议管理');await click('协议生成')
+  await until(()=>evaluate("!!document.querySelector('.protocol-generator textarea')"))
+  assert.equal(await evaluate("document.querySelector('.protocol-generator').textContent.includes('协议名称')"),true)
+  await evaluate("[...document.querySelectorAll('.protocol-generator .el-radio-button')].find(item=>item.textContent.trim()==='点表').click()")
+  await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴 CSV 点表')"))
+  assert.equal(await evaluate("document.querySelector('.protocol-generator input[type=file]').accept"),'.xlsx,.csv')
+  await delay(500) // Wait for the dialog enter animation before visual review.
+  const inputScreenshot=await call('Page.captureScreenshot',{format:'png'})
+  await writeFile(join(output,'protocol-generator.png'),Buffer.from(inputScreenshot.data,'base64'))
+  await evaluate("[...document.querySelectorAll('.protocol-generator .el-radio-button')].find(item=>item.textContent.trim()==='报文').click()")
+  await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴报文')"))
+  await evaluate(`(()=>{const input=document.querySelector('.protocol-generator textarea');input.value='{"temperature":25}';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+  await click('生成协议')
+  await until(()=>evaluate("!!document.querySelector('.protocol-generator .mapping-editor input')"))
+  assert.equal(generationRequests,1)
+  assert.equal(await evaluate("document.querySelector('.mapping-editor').textContent.includes('编辑字段映射')"),true)
+  assert.deepEqual(errors,[])
   console.log('PASS: real HTTP origin without randomUUID; MQTT handshake fails; historical alarm silent; new alarm popup arrives via polling, closes and does not repeat. API responses are fixtures.')
+  console.log('PASS: HTTP protocol generator renders report/Excel-CSV inputs and submits a report to the fixture API, then displays mapping input fields.')
 } finally {
   socket?.close()
   const exited = new Promise(done => { if(browser.exitCode!==null || browser.signalCode!==null) done(); else browser.once('exit',done) })

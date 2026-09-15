@@ -4,14 +4,23 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {ref,computed,reactive} from 'vue'
 import {mappingRows,mappingConfig} from '../src/protocolMapping.js'
+import {createClientId} from '../src/clientId.js'
 
-function setup(api,initialRelease=null) {
+function setup(api,initialRelease=null,browserCrypto=crypto) {
  const script=fs.readFileSync(new URL('../src/views/ProtocolAssistantView.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
  let mount,cleanup
- const context=vm.createContext({mappingRows,mappingConfig,ref,computed,reactive,api,crypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},ElMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
+ const context=vm.createContext({mappingRows,mappingConfig,ref,computed,reactive,api,createClientId:()=>createClientId(browserCrypto),crypto:browserCrypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},ElMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
  const c=vm.runInContext(script+'\n;({generate,save,runPreview,publish,changeKind,newVersion,updateConfig,mapping,currentDraft,addMapping,removeMapping,form,file,draft,saved,preview,busy,error,step})',context)
  mount();return {...c,cleanup:()=>cleanup()}
 }
+
+test('HTTP 页面没有 randomUUID 时仍能初始化协议生成表单',()=>{
+ const c=setup(async()=>({}),null,{getRandomValues:array=>crypto.getRandomValues(array)})
+ assert.equal(c.step.value,'input')
+ assert.match(c.form.protocol,/^protocol-[0-9a-f]{8}$/)
+ c.form.inputKind='point-table';c.changeKind()
+ assert.equal(c.form.transport,'MODBUS_TCP')
+})
 test('message-only generation does not require a document and prevents double submission',async()=>{
  let finish;const requests=[]
  const c=setup((path,options)=>{requests.push({path,options});return new Promise(resolve=>{finish=resolve})})

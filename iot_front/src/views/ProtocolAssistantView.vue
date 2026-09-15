@@ -1,4 +1,5 @@
 <script setup>
+import { createClientId } from '../clientId'
 import FilePicker from '../components/FilePicker.vue'
 import ProtocolMappingEditor from '../components/ProtocolMappingEditor.vue'
 import { mappingRows, mappingConfig } from '../protocolMapping'
@@ -12,7 +13,7 @@ const props = defineProps({ initialRelease:{type:Object,default:null}, initialNa
 const emit = defineEmits(['navigate','saved'])
 const file = ref(null), sampleFile = ref(null), draft = ref(null), preview = ref(null), saved = ref(null)
 const busy = ref(''), error = ref(''), step = ref('input'), mapping = ref([]), startAddress = ref(0)
-const form = reactive({ inputKind:'sample', name:'', protocol:`protocol-${crypto.randomUUID().slice(0,8)}`, version:'1.0.0', transport:'MQTT', payloadFormat:'json', pointTable:'', samplePayload:'' })
+const form = reactive({ inputKind:'sample', name:'', protocol:`protocol-${createClientId().slice(0,8)}`, version:'1.0.0', transport:'MQTT', payloadFormat:'json', pointTable:'', samplePayload:'' })
 const isModbus = computed(() => draft.value?.parserType?.startsWith('modbus_'))
 const supported = computed(() => ['configurable_json_parser','configurable_hex_parser','modbus_tcp_parser_v2','modbus_rtu_parser_v2'].includes(draft.value?.parserType))
 const transports = computed(() => form.inputKind === 'point-table' ? ['MODBUS_TCP','MODBUS_RTU'] : ['MQTT','HTTP'])

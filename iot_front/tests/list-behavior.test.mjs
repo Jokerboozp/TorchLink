@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 import { loadAllPages } from '../src/listPagination.js'
+import { createClientId } from '../src/clientId.js'
 const require = createRequire(import.meta.url)
 const { ref, reactive, computed, watch } = require('vue')
 const root = new URL('../src/views/', import.meta.url)
@@ -11,10 +12,22 @@ const root = new URL('../src/views/', import.meta.url)
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(file, api, exports, notifyError = e => { throw e }) {
   const source = fs.readFileSync(new URL(file, root), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
-  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto, notifyError, ElMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams})
+  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, ElMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams})
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
+
+test('HTTP 页面新增产品和设备时可以生成默认编号并提交',async()=>{
+ for(const [file,prefix,path] of [['ProductsView.vue','product','/api/v1/products'],['DevicesView.vue','device','/api/v1/device-registry']]) {
+  const requests=[]
+  const c=component(file,async(url,options)=>{if(options?.method==='POST')requests.push({url,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save')
+  Object.assign(c.form,{name:'HTTP 演示',protocolPackageId:'protocol',productId:'product'})
+  await c.save()
+  assert.equal(requests.length,1)
+  assert.equal(requests[0].url,path)
+  assert.match(requests[0].body.id,new RegExp(`^${prefix}_[0-9a-f]{12}$`))
+ }
+})
 test('协议列表分页覆盖所有记录并在列表缩小时修正当前页',async()=>{
  const c=component('ProtocolsView.vue',async()=>({items:[]}),'protocols,protocolPage,protocolPageSize,pagedProtocols')
  c.protocols.value=Array.from({length:45},(_,i)=>({definition:{id:`protocol-${i+1}`},releases:[]}))

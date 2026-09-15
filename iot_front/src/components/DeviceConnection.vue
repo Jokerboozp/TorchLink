@@ -1,4 +1,5 @@
 <script setup>
+import { createClientId } from '../clientId'
 import CommandValueInput from './CommandValueInput.vue'
 import { commandBody } from '../commandForm'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -109,7 +110,7 @@ async function sendMQTT() {
     commandReply.value = null
     await ElMessageBox.confirm('确认向该设备发送此命令？发送成功不代表执行成功。','人工确认命令')
     const signature = JSON.stringify(body)
-    if (!pendingCommand.value || pendingCommand.value.signature !== signature) pendingCommand.value = {signature,id:crypto.randomUUID()}
+    if (!pendingCommand.value || pendingCommand.value.signature !== signature) pendingCommand.value = {signature,id:createClientId()}
     commandResult.value = await api(`${base()}/commands`,{method:'POST',body:JSON.stringify({...body,id:pendingCommand.value.id,confirmed:true})})
     await loadList('commands')
   })
@@ -123,7 +124,7 @@ async function send() {
     if (typeof body.type !== 'string' || !body.type.trim()) throw new Error('请在协议命令中填写 type')
     await ElMessageBox.confirm('确认向该设备发送协议命令？请核对设备与参数。','人工确认命令')
     const profileId = data.value.profile.id, signature = JSON.stringify([profileId,props.deviceId,body])
-    if (!pendingProtocol.value || pendingProtocol.value.signature !== signature) pendingProtocol.value = {signature,id:crypto.randomUUID()}
+    if (!pendingProtocol.value || pendingProtocol.value.signature !== signature) pendingProtocol.value = {signature,id:createClientId()}
     commandResult.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(profileId)}/devices/${encodeURIComponent(props.deviceId)}/commands`,{method:'POST',body:JSON.stringify({...body,requestId:pendingProtocol.value.id,confirmed:true})})
   })
 }

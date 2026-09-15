@@ -1,4 +1,5 @@
 <script setup>
+import { createClientId } from '../clientId'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, apiAll, formatTime, notifyError, parseJSON, pretty } from '../api'
@@ -86,7 +87,7 @@ async function save() {
   saving.value = true
   try {
     if (!form.id && form.code && registryOptions.value.some(item => item.device.id === form.code)) return ElMessage.warning('设备标识已存在，请在列表中编辑')
-    if (!form.id && !form.code) form.code = `device_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
+    if (!form.id && !form.code) form.code = `device_${createClientId().replaceAll('-', '').slice(0, 12)}`
     const value = { ...form, id:form.id || form.code, tags:parseJSON(form.tags, '标签结构化数据') }
     delete value.code
     const editing = Boolean(form.id)

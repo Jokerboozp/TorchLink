@@ -1,4 +1,5 @@
 <script setup>
+import { createClientId } from '../clientId'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import ProductProtocolBinding from '../components/ProductProtocolBinding.vue'
@@ -88,7 +89,7 @@ async function save() {
   if (!form.name.trim() || !form.protocolPackageId) return ElMessage.warning('请填写产品名称并选择协议包')
   saving.value = true
   try {
-    if (!form.id && !form.code) form.code = `product_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
+    if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}`
     const value = { ...form, id:form.id || form.code }
     value.thingModel=thingModelText.value.trim()?JSON.parse(thingModelText.value):null
  delete value.code
