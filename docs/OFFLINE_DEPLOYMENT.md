@@ -227,6 +227,36 @@ curl -fsS http://127.0.0.1:8080/health/ready
 
 镜像构建后的真实回归入口：`bash scripts/tests/platform-data-permissions-smoke.sh iot-platform-api:offline`，需要本地已有 API 和 `alpine:3.22` 镜像。测试只创建独立容器及匿名卷，用 API 的非 root 身份重现 MQTT 目录创建及持久化读写，结束后清理测试资源。2026-09-15 本机没有 Docker，已核对 Dockerfile 和脚本语法，尚未完成此真实容器测试或目标服务器恢复验收；用户提供的日志是本次启动失败的直接依据。
 
+### AI 助手 RUNTIME_ERROR 与模型列表为空
+
+`Harness runtime request failed / RUNTIME_ERROR` 是网关的通用异常提示。若以默认用户执行 `runtime-smoke.mjs` 明确报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，说明运行用户无法读取镜像内的依赖。旧构建阶段以 root 测试，未覆盖最终 `node` 用户的权限。修复后的 Harness 镜像显式设置程序目录可读、可遍历，并在最终 `USER node` 后执行同一运行时测试。
+
+当前容器可直接修正程序文件权限，无需联网、重建镜像或将服务改为 root。命令只调整镜像内的程序目录，不修改 `/data` 中的会话和配置；容器重启后仍保留，容器重建后需使用修复后的镜像或重新执行修正：
+
+```bash
+sudo docker exec --user 0:0 iot-platform-deepseek-harness-1 \
+  sh -ec 'chmod a+rx /harness; chmod -R a+rX /harness/runtime-node /harness/examples' && \
+sudo docker exec iot-platform-deepseek-harness-1 \
+  node /harness/examples/iot-ops-agent/runtime-smoke.mjs && \
+sudo docker restart iot-platform-deepseek-harness-1
+```
+
+测试应输出 `DeepSeek Harness runtime smoke passed`。它使用临时目录、模拟模型和 MCP，不证明真实 Ollama 模型已就绪。如果 `sudo docker exec iot-platform-ollama-1 ollama list` 只有表头，说明当前服务没有可列出的模型，仍需恢复模型后才能调用。
+
+在**含 `ollama-data.tgz` 和 `.sha256` 的离线包目录**执行下列命令。使用当前 Ollama 容器的实际挂载卷，临时解压后仅补齐缺失文件，保留已有模型。临时容器可写层还需容纳一份解压后的模型；目标卷也需足够空间。
+
+```bash
+sha256sum -c ollama-data.tgz.sha256 && \
+sudo docker run --rm --pull never --user 0:0 \
+  --volumes-from iot-platform-ollama-1 \
+  --mount "type=bind,source=$PWD,target=/backup,readonly" \
+  alpine:3.22 sh -ec 'mkdir -p /tmp/restore; tar -xzf /backup/ollama-data.tgz -C /tmp/restore; test -d /tmp/restore/models; cp -an /tmp/restore/. /root/.ollama/' && \
+sudo docker restart iot-platform-ollama-1
+sudo docker exec iot-platform-ollama-1 ollama list
+```
+
+若模型归档缺失或校验失败，应从原打包机补传匹配归档及校验文件。恢复后确认平台所配置的模型名称在列表中，再重试 AI 助手。2026-09-15 用户现场确认模型列表为空且包内有 1.5 GB 模型归档；是否恢复成功以目标容器的模型列表和实际请求结果为准。
+
 ### 设备接入配置补充
 
 离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级沿用当前幂等 schema 迁移，保留历史数据。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。

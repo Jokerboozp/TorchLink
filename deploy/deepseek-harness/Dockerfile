@@ -65,10 +65,16 @@ ENV NODE_ENV=production \
 WORKDIR /harness/examples/iot-ops-agent
 COPY --from=build /harness/runtime-node /harness/runtime-node
 COPY --from=build /harness/examples/iot-ops-agent /harness/examples/iot-ops-agent
-RUN mkdir -p /data/sessions /data/runtime-home /data/workspace \
+# pnpm staging / copied packages may retain root-only directory permissions.
+# Keep program files root-owned but readable/traversable by the runtime user.
+RUN chmod a+rx /harness \
+    && chmod -R a+rX /harness/runtime-node /harness/examples \
+    && mkdir -p /data/sessions /data/runtime-home /data/workspace \
     && chown -R node:node /data
 
 USER node
+# The build-stage root smoke alone cannot detect unreadable runtime packages.
+RUN --network=none node /harness/examples/iot-ops-agent/runtime-smoke.mjs
 EXPOSE 8091
 VOLUME ["/data"]
 HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=4 \

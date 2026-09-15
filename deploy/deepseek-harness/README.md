@@ -14,7 +14,7 @@ docker build -f deploy/deepseek-harness/Dockerfile -t iot-deepseek-harness:local
 node --test deploy/deepseek-harness/gateway.test.mjs
 ```
 
-Dockerfile 校验上游版本标记，用固定 pnpm 版本和 `--frozen-lockfile` 安装依赖，再禁用网络执行上游构建；运行载体按 `python/sdk-runtime` 的依赖清单生成。新版原生文件锁模块需要 C 编译器和 libc 开发文件，仅构建阶段安装，Node 头文件由基础镜像提供。镜像构建还执行网关测试、真实 SDK / Cordis 导入，以及模拟模型和 MCP 的完整调用，验证工作流提示词、文本分片、工具执行和白名单。模拟模型仅监听临时回环端口，不调用外部模型或启动本地大模型。独立网关测试无需先构建 Harness。
+Dockerfile 校验上游版本标记，用固定 pnpm 版本和 `--frozen-lockfile` 安装依赖，再禁用网络执行上游构建；运行载体按 `python/sdk-runtime` 的依赖清单生成。新版原生文件锁模块需要 C 编译器和 libc 开发文件，仅构建阶段安装，Node 头文件由基础镜像提供。镜像构建还执行网关测试、真实 SDK / Cordis 导入，以及模拟模型和 MCP 的完整调用，验证工作流提示词、文本分片、工具执行和白名单。程序目录保留 root 属主，显式赋予运行用户读取文件和遍历目录的权限；最终阶段在 `USER node` 后再次执行完整运行时测试，避免 root 构建测试掩盖依赖包权限错误。模拟模型仅监听临时回环端口，不调用外部模型或启动本地大模型。独立网关测试无需先构建 Harness。
 
 运行时使用 `@deepseek-ai/dsh/lib/bin.js` 的 `sdk-minimal` profile，应用本目录 `cordis.yml`。每个驻留会话有独立 `DSH_HOME`。升级时同步核对 `REVISION`、Dockerfile 构建参数和上游版本标记，再执行构建与检查。
 
@@ -23,6 +23,8 @@ Dockerfile 校验上游版本标记，用固定 pnpm 版本和 `--frozen-lockfil
 ```bash
 docker run --rm --network none --entrypoint node iot-deepseek-harness:local /harness/examples/iot-ops-agent/runtime-smoke.mjs
 ```
+
+已运行的旧镜像如果报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，恢复步骤见 [离线部署故障处理](../../docs/OFFLINE_DEPLOYMENT.md#ai-助手-runtime_error-与模型列表为空)。2026-09-15 用户在目标服务器以实际运行用户执行上述测试，复现依赖读取失败；本机无 Docker，新增的最终镜像非 root 构建检查尚待联网打包机执行，不将源码核对视为镜像验证通过。
 
 `v0.1.5` 的提示词配置使用 `personaPrefix`；实时文本从 `agent/assistant-stream` 发布，不再作为逐片会话日志事件。IoT 插件仅转发文本为私有 JSON-RPC 通知 `iot.text.delta`，网关校验所属会话后转换成已有的 `text.delta`。推理和工具原始内容不转发，持久日志仍由上游保存完整消息。
 
