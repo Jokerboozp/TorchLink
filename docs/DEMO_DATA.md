@@ -64,6 +64,62 @@ sudo --preserve-env=IOT_ADMIN_PASSWORD,IOT_ADMIN_USER docker run --rm --network 
 
 容器写入挂载目录的样例和报告可能属于 root；Docker 示例需要联网下载安装依赖或本机已有依赖。不要把旧 CentOS 的 Node 运行时不兼容误判为平台接口故障。
 
+## 在完全离线的部署机运行（独立演示镜像）
+
+无需在离线机安装 Node、npm 或源码，也不需要重打整个平台离线包。专用镜像包含脚本、锁定的 npm 依赖及 Go 协议样例；模型、备份等仍使用目标平台已经部署的服务。镜像入口为一键脚本，所有前述参数均可使用。
+
+**第一步：在联网 CentOS 打包机的源码目录构建并导出。** 以下默认打包机和部署机均为 x86_64；不同架构须针对部署机架构构建。
+
+```bash
+git pull --ff-only origin main
+sudo docker build -f deploy/demo-data/Dockerfile -t iot-platform-demo:offline .
+sudo docker save -o iot-platform-demo.tar iot-platform-demo:offline
+sha256sum iot-platform-demo.tar > iot-platform-demo.tar.sha256
+```
+
+镜像构建时会校验脚本 dry-run、MQTT 模块加载和 Go 模板存在。将 `iot-platform-demo.tar` 与校验文件复制到离线机的同一个目录。
+
+**第二步：在离线部署机导入，先查看计划。**
+
+```bash
+sha256sum -c iot-platform-demo.tar.sha256 && \
+sudo docker load -i iot-platform-demo.tar
+
+sudo docker run --rm --pull never --network host iot-platform-demo:offline \
+  --origin http://127.0.0.1:8080 --tenant tenant_001 --dry-run
+```
+
+这里使用 Linux 主机网络，因此 `127.0.0.1:8080` 指向离线机上已经发布的前端端口，而非演示容器自身隔离的端口。端口有调整时修改 `--origin`；租户也要与实际管理员一致。
+
+**第三步：生成数据并取出报告。** TCP/UDP 26875 须已映射且没有业务网关占用；如暂不具备条件，把两个端口参数替换成 `--skip-sockets`，仍可生成停用网关供查看。
+
+```bash
+export IOT_ADMIN_USER=admin
+read -rsp '目标平台管理员密码: ' IOT_ADMIN_PASSWORD; echo
+export IOT_ADMIN_PASSWORD
+demo_run="iot-demo-$(date +%Y%m%d-%H%M%S)"
+
+sudo --preserve-env=IOT_ADMIN_PASSWORD,IOT_ADMIN_USER docker run \
+  --name "$demo_run" --pull never --network host \
+  -e IOT_ADMIN_USER -e IOT_ADMIN_PASSWORD \
+  iot-platform-demo:offline \
+  --origin http://127.0.0.1:8080 --tenant tenant_001 \
+  --mqtt-url mqtt://127.0.0.1:1883 \
+  --tcp-port 26875 --udp-port 26875 --output /workspace/report
+demo_status=$?
+unset IOT_ADMIN_PASSWORD
+
+# 即使部分阶段失败，也尝试取出已经生成的报告。
+sudo docker cp "$demo_run:/workspace/report" "./$demo_run-report"
+echo "运行退出码：$demo_status；报告：$demo_run-report/report.html"
+```
+
+运行容器不使用 `--rm`，以便失败时也能取出报告；报告复制成功后可执行 `sudo docker rm "$demo_run"` 清理这一个演示容器（同时去掉保存在其配置中的管理员环境变量）。无需挂载宿主目录，不涉及宿主文件的 SELinux 标签调整。若登录或启动前检查就失败，可能尚无报告目录，使用 `sudo docker logs "$demo_run"` 查看原因。
+
+把结果目录复制到自己的电脑，用浏览器打开 `report.html`；再登录平台查看带“演示”的数据。每次运行创建新的演示前缀，不会因为镜像容器退出而删除平台中已生成的数据。脚本本身运行期间不下载依赖；离线环境的模型调用是否可用取决于已配置服务，外网模型不可达时可加 `--skip-ai`。
+
+当前开发环境没有 Docker，尚未实际构建或运行此镜像；一键脚本的本机隔离回归结果见下文。请以联网机的镜像构建结果和离线机生成的报告为准。
+
 ## 结果与覆盖范围
 
 结束时输出 `.e2e/<演示前缀>/report.html` 和 `report.json`；`results.json` 保存阶段明细及资源标识。报告根据这一次实际运行生成，不使用旧截图或历史成功描述。非零退出码表示有失败、阶段异常或中断。无需浏览器即可直接打开 HTML 查看结果。
