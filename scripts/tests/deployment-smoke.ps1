@@ -179,6 +179,7 @@ try {
         Assert (Test-Path (Join-Path $bundle "docker-runtime/$file.sha256")) "Docker runtime checksum omitted: $file"
     }
     Assert (Test-Path (Join-Path $bundle 'scripts/lib/docker-bootstrap.sh')) 'Docker bootstrap helper omitted'
+    Assert (Test-Path (Join-Path $bundle 'scripts/lib/restore-ollama-models.sh')) 'Ollama restore helper omitted'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_PROVIDER') -eq 'ollama') 'Offline default AI provider is not Ollama'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_MODEL') -eq 'qwen3:1.7b') 'Offline compact Qwen model is missing'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'ollama') 'Offline Harness does not use Ollama'

@@ -81,7 +81,7 @@ if [[ -f "$ollama_archive" ]]; then
   docker run --rm --pull never \
     --mount "type=volume,source=$ollama_volume,target=/dst" \
     --mount "type=bind,source=$bundle_dir,target=/backup,readonly" \
-    alpine:3.22 sh -ec 'mkdir -p /tmp/restore; tar -xzf /backup/ollama-data.tgz -C /tmp/restore; cp -an /tmp/restore/. /dst/'
+    alpine:3.22 sh /backup/scripts/lib/restore-ollama-models.sh /backup/ollama-data.tgz /dst
   echo "Ollama 模型已恢复（保留已有文件）。"
 fi
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180

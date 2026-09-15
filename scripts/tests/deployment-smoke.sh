@@ -160,6 +160,7 @@ grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$bundle/.env.offline"
 [ -s "$bundle/docker-runtime/docker-28.5.2.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-compose.sha256" ]
 [ -f "$bundle/scripts/lib/docker-bootstrap.sh" ]
+[ -f "$bundle/scripts/lib/restore-ollama-models.sh" ]
 grep -q 'ollama/ollama:' "$bundle/manifest.json"
 grep -q 'weaviate:' "$bundle/manifest.json"
 assert_call 'exec -T ollama ollama pull nomic-embed-text'

@@ -145,7 +145,7 @@ bash ./scripts/deploy-offline-macos.sh
 
 默认 Web 地址是 `http://服务器IP:8080`。管理员凭据见 `OFFLINE-CREDENTIALS.txt`；使用外部配置打包时，凭据仍以该配置为准。若需改端口，请先编辑包内 `.env.offline` 的 `IOT_WEB_PORT` 和 `IOT_API_PORT`。整个离线包包含密码，请限制访问和传输范围。
 
-同一个包可以重复执行部署命令：配置与数据卷保持原值，模型恢复只补齐缺失文件。模型解压会临时额外占用一份模型大小的磁盘空间。不要用重新生成随机凭据的新包直接替换已有数据库部署；升级时应沿用原来的 `.env.offline` 作为打包配置。
+同一个包可以重复执行部署命令：配置与数据卷保持原值，模型恢复通过 `scripts/lib/restore-ollama-models.sh` 逐文件补齐缺失文件，先复制 blobs 再复制 manifests，保留已有文件。每个新文件复制到临时文件后再改名，避免中断后留下被下次恢复跳过的半成品。模型解压会临时额外占用一份模型大小的磁盘空间。不要用重新生成随机凭据的新包直接替换已有数据库部署；升级时应沿用原来的 `.env.offline` 作为打包配置。
 
 离线部署项目名固定为 `iot-platform`，本地运行和在线部署使用各自的项目名；同一台机器运行多套系统时仍需调整重叠的宿主机端口。
 
@@ -243,19 +243,24 @@ sudo docker restart iot-platform-deepseek-harness-1
 
 测试应输出 `DeepSeek Harness runtime smoke passed`。它使用临时目录、模拟模型和 MCP，不证明真实 Ollama 模型已就绪。如果 `sudo docker exec iot-platform-ollama-1 ollama list` 只有表头，说明当前服务没有可列出的模型，仍需恢复模型后才能调用。
 
-在**含 `ollama-data.tgz` 和 `.sha256` 的离线包目录**执行下列命令。使用当前 Ollama 容器的实际挂载卷，临时解压后仅补齐缺失文件，保留已有模型。临时容器可写层还需容纳一份解压后的模型；目标卷也需足够空间。
+在**含 `ollama-data.tgz` 和 `.sha256` 的离线包目录**执行下列命令。旧包需先把更新后仓库的 `scripts/lib/restore-ollama-models.sh` 复制到包内同名路径，新包自动携带。使用当前 Ollama 容器的实际挂载卷，临时解压后仅补齐缺失文件，保留已有模型。临时容器可写层还需容纳一份解压后的模型；目标卷也需足够空间。
 
 ```bash
 sha256sum -c ollama-data.tgz.sha256 && \
 sudo docker run --rm --pull never --user 0:0 \
   --volumes-from iot-platform-ollama-1 \
   --mount "type=bind,source=$PWD,target=/backup,readonly" \
-  alpine:3.22 sh -ec 'mkdir -p /tmp/restore; tar -xzf /backup/ollama-data.tgz -C /tmp/restore; test -d /tmp/restore/models; cp -an /tmp/restore/. /root/.ollama/' && \
+  alpine:3.22 sh /backup/scripts/lib/restore-ollama-models.sh \
+  /backup/ollama-data.tgz /root/.ollama && \
 sudo docker restart iot-platform-ollama-1
 sudo docker exec iot-platform-ollama-1 ollama list
 ```
 
-若模型归档缺失或校验失败，应从原打包机补传匹配归档及校验文件。恢复后确认平台所配置的模型名称在列表中，再重试 AI 助手。2026-09-15 用户现场确认模型列表为空且包内有 1.5 GB 模型归档；是否恢复成功以目标容器的模型列表和实际请求结果为准。
+若模型归档缺失或校验失败，应从原打包机补传匹配归档及校验文件。恢复脚本会拒绝没有模型 manifests 的归档；仅有 blobs 不能提供可列出的模型。恢复后确认平台所配置的模型名称在列表中，再重试 AI 助手。
+
+2026-09-15 现场反馈：Harness 权限修正后的运行时测试通过，1.5 GB 模型归档 SHA256 通过，但旧恢复命令执行成功后列表仍为空。原因是 [BusyBox 的 `cp -n` 实现](https://raw.githubusercontent.com/mirror/busybox/master/libbb/copy_file.c) 在目标已存在时直接返回，发生在目录递归之前；`cp -an /tmp/restore/. /dst/` 因此跳过整个已有目标目录。此前 GNU cp 的本机验证未覆盖这一差异。
+
+回归入口 `scripts/tests/ollama-restore-smoke.sh` 须用 BusyBox 的 sh/cp/tar 执行；`--legacy` 参数应重现“返回成功但 manifests 不存在”，默认模式验证恢复新文件、保留旧文件、重复恢复及拒绝没有索引的归档。本机 BusyBox Windows 端口 v1.38.0 已重现旧命令失败并通过新脚本测试；此结果不等于目标 Alpine/Docker/Ollama 验收，目标仍需确认恢复文件计数、模型列表和 AI 请求。
 
 ### 设备接入配置补充
 

@@ -388,6 +388,7 @@ fi
 mkdir -p "$bundle_root/scripts"
 mkdir -p "$bundle_root/scripts/lib"
 cp "$script_dir/lib/docker-bootstrap.sh" "$bundle_root/scripts/lib/"
+cp "$script_dir/lib/restore-ollama-models.sh" "$bundle_root/scripts/lib/"
 if (( ! skip_docker_runtime )); then
   runtime_arch="$(docker info --format '{{.Architecture}}')"
   prepare_docker_runtime "$bundle_root/docker-runtime" "$runtime_arch"

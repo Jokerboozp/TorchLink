@@ -401,6 +401,7 @@ try {
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null
     Copy-Item -LiteralPath (Join-Path $scriptDir "lib/docker-bootstrap.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
+    Copy-Item -LiteralPath (Join-Path $scriptDir "lib/restore-ollama-models.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
     if (-not $SkipDockerRuntime) {
         $runtimeArch = (& docker info --format '{{.Architecture}}').Trim()
         if ($LASTEXITCODE -ne 0) { throw '无法获取打包用 Docker 架构。' }

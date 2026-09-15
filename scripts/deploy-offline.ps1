@@ -109,7 +109,7 @@ if (Test-Path -LiteralPath $ollamaArchive -PathType Leaf) {
         "run", "--rm", "--pull", "never",
         "--mount", "type=volume,source=$ollamaVolume,target=/dst",
         "--mount", "type=bind,source=$BundleDir,target=/backup,readonly",
-        "alpine:3.22", "sh", "-ec", "mkdir -p /tmp/restore; tar -xzf /backup/ollama-data.tgz -C /tmp/restore; cp -an /tmp/restore/. /dst/"
+        "alpine:3.22", "sh", "/backup/scripts/lib/restore-ollama-models.sh", "/backup/ollama-data.tgz", "/dst"
     )
     Write-Host "Ollama 模型已恢复（保留已有文件）。" -ForegroundColor Green
 }
