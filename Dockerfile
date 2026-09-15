@@ -4,6 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway
+RUN mkdir -p /runtime-data && chmod 0750 /runtime-data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
@@ -11,6 +12,9 @@ WORKDIR /app
 COPY --from=build /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 COPY --from=build /out/ /app/
+# Docker initializes a fresh named volume from this directory's ownership.
+# Existing volumes retain their ownership and may need the documented repair.
+COPY --from=build --chown=65532:65532 /runtime-data/ /app/data/
 VOLUME ["/app/data"]
 EXPOSE 8080 26875/tcp 26875/udp
 USER nonroot:nonroot

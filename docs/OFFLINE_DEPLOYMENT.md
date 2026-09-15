@@ -197,6 +197,36 @@ Ubuntu 使用相同的一键命令，无需切换脚本或另外准备 Docker �
 
 部署脚本检查入口为 `scripts/tests/docker-bootstrap-smoke.sh`、`scripts/tests/docker-ubuntu-smoke.sh`；它们验证模拟安装分支，实际安装仍需在目标系统确认。
 
+### API 反复重启：mqtt-inbox permission denied
+
+如果 API 日志反复出现 `mkdir /app/data/mqtt-inbox: permission denied`，前端同时返回 502，应先恢复 API 数据目录写权限。当前 API 镜像使用 distroless `nonroot`（UID/GID `65532:65532`），`/app/data` 使用 `platform-data` 命名卷。旧镜像没有预建属于该用户的数据目录，导致新卷默认属主不匹配。
+
+修复后的 Dockerfile 预建数据目录并以 `65532:65532` 复制进运行镜像，供新卷初始化。已有卷仍保留原内容和属主，单纯重建镜像不能修正已有卷，见 [Docker 数据卷初始化规则](https://docs.docker.com/engine/storage/volumes/)。
+
+对于标准离线部署，在服务器执行下面命令即可恢复已有数据卷，无需联网或重新构建镜像。容器名按实际替换；辅助容器挂载 API 实际使用的卷，命令只处理 `/app/data`，不删除数据、不使用 `chmod 777`：
+
+```bash
+sudo docker stop iot-platform-platform-api-1 && \
+sudo docker run --rm --pull never --user 0:0 \
+  --volumes-from iot-platform-platform-api-1 \
+  alpine:3.22 sh -ec 'chown -R 65532:65532 /app/data; chmod u+rwx /app/data' && \
+sudo docker run --rm --pull never --user 65532:65532 \
+  --volumes-from iot-platform-platform-api-1 \
+  alpine:3.22 sh -ec 'mkdir -p /app/data/mqtt-inbox; test -w /app/data/mqtt-inbox' && \
+sudo docker start iot-platform-platform-api-1
+```
+
+然后检查 API 日志和前端健康接口：
+
+```bash
+sudo docker logs --tail 60 iot-platform-platform-api-1
+curl -fsS http://127.0.0.1:8080/health/ready
+```
+
+启动需要时间；若 API 已正常监听而前端仍连接旧地址，执行 `sudo docker restart iot-platform-platform-web-1` 后再次检查。如果改属主或写入检查仍报权限错误，保留错误并检查实际挂载是否只读及 SELinux 拒绝记录，不关闭 SELinux 绕过检查。
+
+镜像构建后的真实回归入口：`bash scripts/tests/platform-data-permissions-smoke.sh iot-platform-api:offline`，需要本地已有 API 和 `alpine:3.22` 镜像。测试只创建独立容器及匿名卷，用 API 的非 root 身份重现 MQTT 目录创建及持久化读写，结束后清理测试资源。2026-09-15 本机没有 Docker，已核对 Dockerfile 和脚本语法，尚未完成此真实容器测试或目标服务器恢复验收；用户提供的日志是本次启动失败的直接依据。
+
 ### 设备接入配置补充
 
 离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级沿用当前幂等 schema 迁移，保留历史数据。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。
