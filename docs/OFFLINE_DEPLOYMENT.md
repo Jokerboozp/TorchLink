@@ -37,6 +37,40 @@ bash ./scripts/package-offline.sh
 
 打包时模型缓存保存在 `iot-platform-offline-build_ollama-data` 卷，完成后停止打包用 Ollama；不操作已有 `iot-platform` 部署。模型归档仅包含模型文件，不包含 Ollama 身份密钥。重复打包可复用缓存；曾下载的其他模型也可能保留在归档中。
 
+## openEuler 24.03 LTS-SP4 专用离线包
+
+对于启用 SELinux 的 openEuler，使用专用目标选项。只携带 Docker 静态二进制不足以构成完整系统依赖；缺少 `container-selinux` 或自定义安装路径标签时，Docker 即使可以响应 `docker info`，仍可能在导入镜像时发生 `failed to mknod(...): permission denied`。
+
+在有网且 Docker 可用的打包机运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1 -TargetOS openeuler-24.03-lts-sp4
+```
+
+```bash
+bash ./scripts/package-offline.sh --target-os openeuler-24.03-lts-sp4
+```
+
+打包机会启动临时 `openeuler/openeuler:24.03-lts-sp4` 容器，下载容器策略、SELinux 管理工具、iptables、xz、procps、curl 及完整 RPM 依赖，并用空安装根目录执行离线事务测试。依赖包附有 SHA256 和 OS/版本/架构信息，写入 `docker-runtime/packages`；下载或依赖检查失败不会输出打包完成。构建容器与目标 CPU 架构一致，仍不支持用 ARM 应用镜像包部署 x86 服务器。
+
+目标机器继续执行原命令：
+
+```bash
+sudo bash ./scripts/deploy-offline-linux.sh
+```
+
+首次安装或修复本项目安装的 Docker 时，部署脚本会：
+
+1. 检查 SELinux 策略和管理工具，缺少时校验并从包内安装 RPM，禁用所有 DNF 软件源。
+2. 为 `/usr/local/lib/iot-docker` 设置标准程序目录的持久标签映射，恢复程序、数据及运行目录标签。
+3. 对需要修复的受管 Docker 重启服务，确认进程进入 `container_runtime_t` 后才继续。已有容器会受该次重启影响；正常的受管 Docker 重复部署不会因此重启。
+
+脚本不会关闭 SELinux、删除 Docker 数据或更换存储驱动。现有外部 Docker 安装及远程 Docker 上下文不自动修复；自定义 Docker 数据目录需要单独配置策略。修复过的运行环境须继续通过实际镜像导入和服务健康检查，不能以标签检查替代整个部署验收。
+
+`generic` 仍为默认打包目标；专用目标不能与 `SkipDockerRuntime` / `--skip-docker-runtime` 或手工 `DockerPackagesDir` 同时使用。其他 SELinux 发行版需提供本发行版对应的容器策略及依赖包，不能混用 openEuler RPM。
+
+2026-09-15 验证：脚本回归模拟已运行但处于 `init_t` 的 Docker，覆盖缺少策略、包损坏、OS 不匹配、标签和进程修复、幂等及远程上下文；系统调用使用模拟实现。本机没有 Docker Engine，尚未实际下载/构建专用包，也未在 openEuler SELinux 内核完成镜像导入验证。
+
 ## 2. 目标机器一键部署
 
 进入复制后的离线包目录：

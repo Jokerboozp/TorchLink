@@ -22,3 +22,24 @@ function Save-LinuxDockerRuntime {
         [IO.File]::WriteAllText("$path.sha256", (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant())
     }
 }
+
+function Save-OpenEulerPackages {
+    param([string]$Directory, [string]$Architecture, [string]$Script)
+    $platform = switch ($Architecture) {
+        { $_ -in @('amd64', 'x86_64') } { 'amd64'; break }
+        { $_ -in @('arm64', 'aarch64') } { 'arm64'; break }
+        default { throw "不支持的架构：$Architecture" }
+    }
+    New-Item -ItemType Directory -Force -Path $Directory | Out-Null
+    $packagePath = (Resolve-Path -LiteralPath $Directory).Path
+    $preparePath = (Resolve-Path -LiteralPath $Script).Path
+    & docker run --rm --platform "linux/$platform" `
+        --mount "type=bind,source=$packagePath,target=/packages" `
+        --mount "type=bind,source=$preparePath,target=/prepare.sh,readonly" `
+        'openeuler/openeuler:24.03-lts-sp4' bash /prepare.sh
+    if ($LASTEXITCODE -ne 0) { throw 'openEuler 系统依赖准备失败，不能交付此离线包。' }
+    $marker = Join-Path $Directory 'target-os'
+    if (-not (Test-Path -LiteralPath "$marker.sha256") -or -not (Test-Path -LiteralPath $marker)) { throw '系统依赖缺少目标系统信息或校验值。' }
+    if ((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant() -ne (Get-Content -LiteralPath "$marker.sha256" -Raw).Trim()) { throw '系统依赖元数据校验失败。' }
+    if (-not (Get-ChildItem -LiteralPath $Directory -Filter 'container-selinux-*.rpm')) { throw '系统依赖缺少 container-selinux。' }
+}

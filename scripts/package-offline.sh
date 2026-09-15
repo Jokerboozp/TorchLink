@@ -17,6 +17,7 @@ ollama_embedding_model="nomic-embed-text"
 skip_ollama_model=0
 skip_docker_runtime=0
 docker_packages_dir=""
+target_os="generic"
 
 usage() {
   cat <<'EOF'
@@ -32,7 +33,8 @@ usage() {
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过全部模型；仅用于目标机已准备模型的情况
   --skip-docker-runtime 不携带 Docker 安装文件（目标机须已有 Docker 和 Compose）
-  --docker-packages-dir DIR  可选：精简 Linux 系统缺少的 iptables/xz/procps 及依赖 RPM/DEB 目录
+  --target-os OS        generic（默认）或 openeuler-24.03-lts-sp4；后者自动准备容器策略及系统依赖
+  --docker-packages-dir DIR  可选：匹配目标系统的系统工具/SELinux 及依赖 RPM/DEB 目录
   --full                 兼容参数；AI 与 Harness 已默认启用
   -h, --help             显示帮助
 EOF
@@ -269,6 +271,7 @@ while [[ $# -gt 0 ]]; do
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
     --skip-ollama-model) skip_ollama_model=1; shift ;;
     --skip-docker-runtime) skip_docker_runtime=1; shift ;;
+    --target-os) target_os="${2:?缺少目标系统}"; shift 2 ;;
     --docker-packages-dir) docker_packages_dir="${2:?缺少系统依赖包目录}"; shift 2 ;;
     --full) full=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -297,6 +300,10 @@ else
   output_parent="$project_root/$output_dir"
 fi
 mkdir -p "$output_parent"
+case "$target_os" in generic|openeuler-24.03-lts-sp4) ;; *) die "不支持的 target-os：$target_os";; esac
+if [ "$target_os" != generic ] && { (( skip_docker_runtime )) || [ -n "$docker_packages_dir" ]; }; then
+  die '专用系统包不能与 skip-docker-runtime 或 docker-packages-dir 同时使用'
+fi
 bundle_root="$output_parent/iot-platform-offline-$(date +%Y%m%d-%H%M%S)-$(random_hex 3)"
 mkdir -p "$bundle_root"
 
@@ -384,6 +391,9 @@ cp "$script_dir/lib/docker-bootstrap.sh" "$bundle_root/scripts/lib/"
 if (( ! skip_docker_runtime )); then
   runtime_arch="$(docker info --format '{{.Architecture}}')"
   prepare_docker_runtime "$bundle_root/docker-runtime" "$runtime_arch"
+  if [ "$target_os" = openeuler-24.03-lts-sp4 ]; then
+    prepare_openeuler_packages "$bundle_root/docker-runtime/packages" "$script_dir/lib/prepare-openeuler-packages.sh" "$runtime_arch"
+  fi
   if [ -n "$docker_packages_dir" ]; then
     [ -d "$docker_packages_dir" ] || die "系统依赖包目录不存在：$docker_packages_dir"
     cp -R "$docker_packages_dir" "$bundle_root/docker-runtime/packages"
@@ -448,6 +458,7 @@ cat > "$bundle_root/manifest.json" <<EOF
 {
   "format": 1,
   "project": "iot-platform",
+  "targetOS": "$target_os",
   "createdAtUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "gitCommit": "${commit//$'\n'/}",
   "profiles": $profiles_json,

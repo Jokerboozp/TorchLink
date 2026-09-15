@@ -10,7 +10,9 @@ param(
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel,
     [switch]$SkipDockerRuntime,
-    [string]$DockerPackagesDir = ""
+    [string]$DockerPackagesDir = "",
+    [ValidateSet("generic", "openeuler-24.03-lts-sp4")]
+    [string]$TargetOS = "generic"
 )
 
 $ErrorActionPreference = "Stop"

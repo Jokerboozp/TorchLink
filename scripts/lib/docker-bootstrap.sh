@@ -76,6 +76,96 @@ docker_runtime_root() {
   else echo '安装或启动 Docker 需要 root 权限，请以 root 重新执行部署脚本。' >&2; return 1; fi
 }
 
+# The private runtime is the only installation this project may relabel/restart.
+docker_runtime_is_managed_local() {
+  local endpoint
+  command -v systemctl >/dev/null 2>&1 || return 1
+  if [ -n "${DOCKER_CONTEXT:-}" ]; then
+    endpoint="$(docker context inspect "$DOCKER_CONTEXT" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)"
+  else
+    endpoint="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)}"
+  fi
+  case "$endpoint" in unix:///var/run/docker.sock|unix:///run/docker.sock) ;; *) return 1;; esac
+  systemctl show docker -p ExecStart 2>/dev/null | grep -q '/usr/local/lib/iot-docker/dockerd'
+}
+
+docker_runtime_host_identity() {
+  (. /etc/os-release; printf '%s\n%s\n%s\n%s\n' "$ID" "$VERSION_ID" "$VERSION" "$(uname -m)")
+}
+
+docker_runtime_install_packages() {
+  local directory="$1" package actual expected
+  # Prepared OS-specific sets cannot be used on a different release/architecture.
+  if [ -f "$directory/packages/target-os" ]; then
+    verify_docker_runtime_file "$directory/packages/target-os" || return 1
+    actual="$(docker_runtime_host_identity)" || return 1
+    expected="$(cat "$directory/packages/target-os")"
+    [ "$actual" = "$expected" ] || { echo '离线系统依赖与目标 OS/发行版/架构不匹配，请重新准备匹配的依赖包。' >&2; return 1; }
+  fi
+  compgen -G "$directory/packages/*.rpm" >/dev/null || { echo '离线包缺少 SELinux/系统依赖 RPM；请使用 openEuler 专用打包选项或提供匹配的 DockerPackagesDir。' >&2; return 1; }
+  for package in "$directory"/packages/*.rpm; do verify_docker_runtime_file "$package" || return 1; done
+  if command -v dnf >/dev/null 2>&1; then
+    docker_runtime_root dnf --disablerepo='*' install -y "$directory"/packages/*.rpm
+  else
+    docker_runtime_root rpm -Uvh "$directory"/packages/*.rpm
+  fi
+}
+
+docker_runtime_selinux_ready() {
+  command -v semanage >/dev/null 2>&1 && command -v restorecon >/dev/null 2>&1 &&
+    command -v matchpathcon >/dev/null 2>&1 &&
+    matchpathcon -n /usr/bin/dockerd 2>/dev/null | grep -q ':container_runtime_exec_t:'
+}
+
+docker_runtime_selinux() {
+  local mode="$1" directory="$2" phase="${3:-installed}" state pid context path active=0 repair=0
+  command -v getenforce >/dev/null 2>&1 || return 0
+  state="$(getenforce)"
+  case "$state" in Enforcing|Permissive) ;; Disabled) return 0;; *) echo '无法读取 SELinux 状态。' >&2; return 1;; esac
+  if ! docker_runtime_selinux_ready; then
+    if [ "$mode" = offline ]; then
+      docker_runtime_install_packages "$directory" || return 1
+    elif command -v dnf >/dev/null 2>&1; then
+      docker_runtime_root dnf install -y container-selinux policycoreutils-python-utils || return 1
+    else
+      echo 'SELinux 已启用，请先安装本发行版的 container-selinux 与 semanage 工具。' >&2; return 1
+    fi
+    docker_runtime_selinux_ready || { echo '容器 SELinux 策略或管理工具仍不可用；不会关闭 SELinux 继续部署。' >&2; return 1; }
+    repair=1
+  fi
+  [ "$phase" != prerequisites ] || return 0
+  if ! matchpathcon -n /usr/local/lib/iot-docker/dockerd | grep -q ':container_runtime_exec_t:'; then
+    docker_runtime_root semanage fcontext -a -e /usr/bin /usr/local/lib/iot-docker || return 1
+    repair=1
+  fi
+  for path in /usr/local/lib/iot-docker/dockerd /usr/local/lib/iot-docker/containerd /usr/local/lib/iot-docker/runc /var/lib/docker; do
+    [ ! -e "$path" ] || matchpathcon -V "$path" >/dev/null 2>&1 || repair=1
+  done
+  if systemctl is-active --quiet docker; then
+    active=1
+    pid="$(systemctl show docker -p MainPID | sed 's/^MainPID=//')"
+    context="$(ps -ww -p "$pid" -o label=)"
+    [[ "$context" == *:container_runtime_t:* ]] || repair=1
+    # A customized data root is not implicitly relabeled by this installer.
+    path="$(docker info --format '{{.DockerRootDir}}')"
+    [ "$path" = /var/lib/docker ] || { echo '受管 Docker 使用了自定义数据目录，请先配置该目录的 SELinux 策略。' >&2; return 1; }
+  fi
+  if [ "$repair" = 1 ]; then
+    echo '正在配置受管 Docker 的 SELinux 标签；已运行的受管 Docker 将重启。'
+    [ "$active" = 0 ] || docker_runtime_root systemctl stop docker || return 1
+    for path in /usr/local/lib/iot-docker /var/lib/docker /run/docker /run/docker.sock /etc/docker; do
+      [ ! -e "$path" ] || docker_runtime_root restorecon -R "$path" || return 1
+    done
+    [ "$active" = 0 ] || docker_runtime_root systemctl start docker || return 1
+  fi
+  # daemon liveness alone is insufficient: reject the init_t failure mode.
+  if [ "$active" = 1 ]; then
+    pid="$(systemctl show docker -p MainPID | sed 's/^MainPID=//')"
+    context="$(ps -ww -p "$pid" -o label=)"
+    [[ "$context" == *:container_runtime_t:* ]] || { echo 'Docker 仍未进入 container_runtime_t，停止部署；请检查容器策略和服务日志。' >&2; return 1; }
+  fi
+}
+
 ensure_deployment_git() {
   command -v git >/dev/null 2>&1 && return 0
   if command -v apt-get >/dev/null 2>&1; then
@@ -98,8 +188,7 @@ docker_runtime_prerequisites() {
       for package in "$directory"/packages/*.deb; do verify_docker_runtime_file "$package" || return 1; done
       docker_runtime_root dpkg -i "$directory"/packages/*.deb || return 1
     elif ! command -v dpkg >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && compgen -G "$directory/packages/*.rpm" >/dev/null; then
-      for package in "$directory"/packages/*.rpm; do verify_docker_runtime_file "$package" || return 1; done
-      docker_runtime_root rpm -Uvh "$directory"/packages/*.rpm || return 1
+      docker_runtime_install_packages "$directory" || return 1
     else
       echo '系统缺少 iptables、xz 或 ps。请在打包时通过 --docker-packages-dir / -DockerPackagesDir 加入匹配目标系统的依赖包；离线部署不会访问软件源。' >&2
       return 1
@@ -132,7 +221,10 @@ ensure_deployment_docker() {
   local mode="${1:-online}" directory="${2:-}" need_engine=0 need_compose=0 need_buildx=0 arch version stage unit name attempt build_arch
   # Keep working installations completely untouched, including remote contexts.
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && docker_compose_ready; then
-    if [ "$mode" = offline ] || docker buildx version >/dev/null 2>&1; then return; fi
+    if [ "$mode" = offline ] || docker buildx version >/dev/null 2>&1; then
+      if docker_runtime_is_managed_local; then docker_runtime_selinux "$mode" "$directory" || return 1; fi
+      return 0
+    fi
   fi
   case "${DOCKER_HOST:-}" in
     tcp://*|ssh://*) echo '当前配置的是远程 Docker，请先恢复远程连接或切换到本机；不会在本机安装替代服务。' >&2; return 1;;
@@ -175,6 +267,7 @@ ensure_deployment_docker() {
       echo '检测到已有 Docker 服务但找不到 CLI，请修复 PATH/已有安装后重试；不会覆盖它。' >&2; return 1
     fi
     docker_runtime_prerequisites "$mode" "$directory" || return 1
+    docker_runtime_selinux "$mode" "$directory" prerequisites || return 1
     stage="$(mktemp -d)"
     # Only regular files under docker/ may be installed; never extract links
     # or arbitrary paths from a transported archive.
@@ -231,10 +324,30 @@ UNIT
     docker_runtime_root install -m 0755 "$directory/docker-buildx" /usr/local/lib/docker/cli-plugins/docker-buildx || return 1
   fi
   if ! docker info >/dev/null 2>&1; then
+    if [ "$need_engine" = 1 ] || docker_runtime_is_managed_local; then
+      docker_runtime_selinux "$mode" "$directory" || return 1
+    fi
     docker_runtime_root systemctl enable --now docker || return 1
     for attempt in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
   fi
   docker info >/dev/null 2>&1 || { echo 'Docker 仍不可用；请检查 journalctl -u docker，以及当前账号的 Docker socket 权限。可用 sudo 重新执行部署脚本。' >&2; return 1; }
+  if [ "$need_engine" = 1 ] || docker_runtime_is_managed_local; then
+    docker_runtime_selinux "$mode" "$directory" || return 1
+  fi
   docker_compose_ready || { echo '需要 Docker Compose 2.24.4+，请检查已有用户级插件是否覆盖了系统插件。' >&2; return 1; }
   if [ "$mode" = online ]; then docker buildx version >/dev/null 2>&1 || { echo 'Docker Buildx 插件不可用。' >&2; return 1; }; fi
+}
+
+# Packaging is performed on the connected host, never on the offline target.
+prepare_openeuler_packages() {
+  local directory="$1" script="$2" arch="$3" platform
+  platform=amd64; case "$arch" in arm64|aarch64) platform=arm64;; amd64|x86_64) ;; *) return 1;; esac
+  mkdir -p "$directory"
+  directory="$(cd "$directory" && pwd)"
+  docker run --rm --platform "linux/$platform" \
+    --mount "type=bind,source=$directory,target=/packages" \
+    --mount "type=bind,source=$script,target=/prepare.sh,readonly" \
+    openeuler/openeuler:24.03-lts-sp4 bash /prepare.sh || return 1
+  verify_docker_runtime_file "$directory/target-os" || return 1
+  compgen -G "$directory/container-selinux-*.rpm" >/dev/null || return 1
 }

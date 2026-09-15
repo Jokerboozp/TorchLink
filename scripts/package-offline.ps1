@@ -9,11 +9,17 @@ param(
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel,
     [switch]$SkipDockerRuntime,
-    [string]$DockerPackagesDir = ""
+    [string]$DockerPackagesDir = "",
+    [ValidateSet("generic", "openeuler-24.03-lts-sp4")]
+    [string]$TargetOS = "generic"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($TargetOS -ne 'generic' -and ($SkipDockerRuntime -or $DockerPackagesDir)) {
+    throw '专用系统包不能与 SkipDockerRuntime 或 DockerPackagesDir 同时使用。'
+}
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
@@ -399,6 +405,9 @@ try {
         $runtimeArch = (& docker info --format '{{.Architecture}}').Trim()
         if ($LASTEXITCODE -ne 0) { throw '无法获取打包用 Docker 架构。' }
         Save-LinuxDockerRuntime -Directory (Join-Path $bundleRoot 'docker-runtime') -Architecture $runtimeArch
+        if ($TargetOS -eq 'openeuler-24.03-lts-sp4') {
+            Save-OpenEulerPackages -Directory (Join-Path $bundleRoot 'docker-runtime/packages') -Architecture $runtimeArch -Script (Join-Path $scriptDir 'lib/prepare-openeuler-packages.sh')
+        }
         if ($DockerPackagesDir) {
             if (-not (Test-Path -LiteralPath $DockerPackagesDir -PathType Container)) { throw 'DockerPackagesDir 不存在。' }
             Copy-Item -LiteralPath $DockerPackagesDir -Destination (Join-Path $bundleRoot 'docker-runtime/packages') -Recurse
@@ -445,6 +454,7 @@ try {
     $manifest = [ordered]@{
         format = 1
         project = "iot-platform"
+        targetOS = $TargetOS
         createdAtUtc = (Get-Date).ToUniversalTime().ToString("o")
         gitCommit = ([string]$commit).Trim()
         profiles = $profiles.ToArray()
