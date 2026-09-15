@@ -90,7 +90,14 @@ docker_runtime_is_managed_local() {
 }
 
 docker_runtime_host_identity() {
-  (. /etc/os-release; printf '%s\n%s\n%s\n%s\n' "$ID" "$VERSION_ID" "$VERSION" "$(uname -m)")
+  (
+    . /etc/os-release
+    ID="$(printf '%s' "${ID:-}" | tr '[:upper:]' '[:lower:]')"
+    if [ "$ID" = openeuler ] && [ "${VERSION_ID:-}" = 24.03 ]; then
+      case "${VERSION:-}" in '24.03 (LTS SP4)'|'24.03 (LTS-SP4)') VERSION='24.03 (LTS-SP4)';; esac
+    fi
+    printf '%s\n%s\n%s\n%s\n' "$ID" "${VERSION_ID:-}" "${VERSION:-}" "$(uname -m)"
+  )
 }
 
 docker_runtime_install_packages() {

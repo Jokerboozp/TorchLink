@@ -2,7 +2,15 @@
 # Runs only inside the disposable, connected openEuler packaging container.
 set -Eeuo pipefail
 . /etc/os-release
-[[ "$ID" == openeuler && "$VERSION_ID" == 24.03 && "$VERSION" == '24.03 (LTS-SP4)' ]] || { echo 'Unexpected package preparation OS' >&2; exit 1; }
+# os-release IDs vary in casing; the SP display name also uses space/hyphen forms.
+ID="$(printf '%s' "${ID:-}" | tr '[:upper:]' '[:lower:]')"
+if [[ "$ID" == openeuler && "${VERSION_ID:-}" == 24.03 ]]; then
+  case "${VERSION:-}" in '24.03 (LTS SP4)'|'24.03 (LTS-SP4)') VERSION='24.03 (LTS-SP4)';; esac
+fi
+[[ "$ID" == openeuler && "${VERSION_ID:-}" == 24.03 && "${VERSION:-}" == '24.03 (LTS-SP4)' ]] || {
+  printf '依赖准备系统不匹配：ID=%s VERSION_ID=%s VERSION=%s；需要 openEuler 24.03 LTS-SP4。\n' "$ID" "${VERSION_ID:-未提供}" "${VERSION:-未提供}" >&2
+  exit 1
+}
 out="/packages"
 dnf install -y dnf-plugins-core
 # --alldeps also collects dependencies already installed in the build container.

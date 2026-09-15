@@ -95,6 +95,8 @@ sudo bash ./scripts/deploy-offline-linux.sh
 
 2026-09-15 验证：脚本回归模拟已运行但处于 `init_t` 的 Docker，覆盖缺少策略、包损坏、OS 不匹配、标签和进程修复、幂等及远程上下文；系统调用使用模拟实现。本机没有 Docker Engine，尚未实际下载/构建专用包，也未在 openEuler SELinux 内核完成镜像导入验证。
 
+2026-09-15 补充修复：用户在 CentOS 上实际拉取的 `openeuler/openeuler:24.03-lts-sp4` 返回 `ID="openEuler"`、`VERSION_ID="24.03"`、`VERSION="24.03 (LTS-SP4)"`，旧脚本因 ID 大小写拒绝。`bash scripts/tests/openeuler-release-smoke.sh` 使用该输出作为样本执行实际准备脚本，验证通过版本检查后才调用 DNF，并检查目标服务器身份规范化；DNF 被测试替身拦截，未据此宣称完整 RPM 下载、打包或实机部署通过。
+
 ## 2. 目标机器一键部署
 
 进入复制后的离线包目录：
@@ -128,6 +130,7 @@ docker compose --project-name iot-platform --env-file .env.offline -f compose.ya
 docker compose --project-name iot-platform --env-file .env.offline -f compose.yaml -f compose.offline.yaml logs --tail=100 platform-api
 ```
 
+- 依赖准备报 `Unexpected package preparation OS`：旧检查把官方镜像的 `ID="openEuler"` 误判为不支持。更新源码后重试；当前检查统一发行版 ID 大小写，并兼容 `24.03 (LTS SP4)` / `24.03 (LTS-SP4)` 两种显示形式，仍拒绝其他发行版或 SP 版本。包内目标信息与服务器检查使用相同规范形式。无需重装 CentOS 或修改镜像的 `/etc/os-release`。
 - `--target-os` 提示未知参数：打包机源码需要包含提交 `271d279d` 或更新版本；在源码根目录执行 `bash ./scripts/package-offline.sh --help` 核对参数。不要在旧离线包目录尝试打包。
 - 缺少镜像或 SHA-256 不匹配：在有网机器重新打包并完整复制，不要在离线目标机执行拉取。
 - 缺少 `nomic-embed-text` 或对话模型：重新携带模型打包，再部署到原目录/配置；无需删除已有模型卷。
