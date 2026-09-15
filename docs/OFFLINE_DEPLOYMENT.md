@@ -229,6 +229,28 @@ curl -fsS http://127.0.0.1:8080/health/ready
 
 ### AI 助手 RUNTIME_ERROR 与模型列表为空
 
+在模型服务配置页面切换 Ollama、DeepSeek 或兼容接口时，升级后的 API 允许管理员直接填写平台可达的 HTTP/HTTPS 地址，不再使用 `IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS` 白名单。新离线包不再生成该项，旧环境文件可保留或移除；已有旧包需更新 API 镜像后才生效，单改 `.env.offline` 不会改变旧镜像行为。具体配置见 [界面切换 AI 模型服务](DEPLOYMENT.md#在界面切换-ai-模型服务)。
+
+已有离线部署可以只更新 API 镜像来取消限制。在**联网 CentOS/Linux 打包机源码目录**执行：
+
+```bash
+git pull --ff-only origin main
+sudo docker build -t iot-platform-api:offline . && \
+sudo docker save -o iot-platform-api-update.tar iot-platform-api:offline
+```
+
+把 `iot-platform-api-update.tar` 复制到目标服务器的原离线包目录，在该目录执行：
+
+```bash
+sudo docker load -i iot-platform-api-update.tar && \
+sudo docker compose --project-name iot-platform \
+  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
+  up -d --no-deps --force-recreate --no-build --pull never platform-api && \
+sudo docker restart iot-platform-platform-web-1
+```
+
+命令沿用原配置和数据卷；API 与前端会短暂重启，待服务恢复后在模型配置页重新测试并应用地址。这是增量更新，原包的 `images.tar` 仍包含旧镜像；之后完整部署应使用新包，重跑旧包部署脚本会再次导入旧镜像。
+
 `Harness runtime request failed / RUNTIME_ERROR` 是网关的通用异常提示。若以默认用户执行 `runtime-smoke.mjs` 明确报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，说明运行用户无法读取镜像内的依赖。旧构建阶段以 root 测试，未覆盖最终 `node` 用户的权限。修复后的 Harness 镜像显式设置程序目录可读、可遍历，并在最终 `USER node` 后执行同一运行时测试。
 
 当前容器可直接修正程序文件权限，无需联网、重建镜像或将服务改为 root。命令只调整镜像内的程序目录，不修改 `/data` 中的会话和配置；容器重启后仍保留，容器重建后需使用修复后的镜像或重新执行修正：

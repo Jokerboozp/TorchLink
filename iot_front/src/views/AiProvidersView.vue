@@ -188,7 +188,7 @@ onMounted(loadRuntime)
           <el-form label-position="top" :model="providerForm" :disabled="busy">
             <el-form-item label="模型来源"><el-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><el-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item>
             <p class="provider-description">{{ selectedProviderOption.description }}</p>
-            <el-form-item label="服务地址"><el-input v-model="providerForm.baseUrl" placeholder="例如 http://192.168.24.133:11434 或 https://api.deepseek.com" /></el-form-item>
+            <el-form-item label="服务地址"><el-input v-model="providerForm.baseUrl" placeholder="填写模型服务的 HTTP/HTTPS 地址，无需配置白名单" /></el-form-item>
             <el-form-item label="模型名称"><el-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></el-form-item>
             <el-form-item v-if="providerForm.provider !== 'ollama'" label="接口密钥"><el-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="留空表示沿用当前密钥" /></el-form-item>
             <div class="provider-actions"><el-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</el-button><el-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</el-button></div>
@@ -218,7 +218,7 @@ onMounted(loadRuntime)
       </el-table>
     </el-card>
 
-    <el-alert class="ai-management-note" title="配置说明" type="info" :closable="false" show-icon>本地模型地址填写模型服务根地址，例如 http://192.168.24.133:11434；误填 /v1 时平台会自动归一化。接口密钥只在测试、应用和服务端调用时使用，页面不会显示完整密钥。</el-alert>
+    <el-alert class="ai-management-note" title="配置说明" type="info" :closable="false" show-icon>管理员可直接填写平台服务器能够访问的 HTTP/HTTPS 模型服务地址，无需配置白名单。Docker 内置 Ollama 使用 http://ollama:11434，其他模型服务填写实际地址；Ollama 误填 /v1 时平台会自动归一化。地址填写纯文本，接口密钥单独填写，页面不会显示完整密钥。</el-alert>
   </div>
 </template>
 

@@ -55,7 +55,6 @@ services:
       IOT_AI_BASE_URL: ${IOT_AI_BASE_URL:-}
       IOT_AI_MODEL: ${IOT_AI_MODEL:-}
       IOT_AI_API_KEY: ${IOT_AI_API_KEY:-}
-      IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS: ${IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS:-https://api.deepseek.com,http://localhost:11434,http://127.0.0.1:11434,http://[::1]:11434,http://ollama:11434}
       IOT_AI_OLLAMA_URL: ${IOT_AI_OLLAMA_URL:-http://ollama:11434}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       IOT_AI_HARNESS_URL: ${IOT_AI_HARNESS_URL:-}

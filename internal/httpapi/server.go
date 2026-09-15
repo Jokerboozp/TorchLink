@@ -1475,8 +1475,8 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 			baseURL = strings.TrimRight(parsed.String(), "/")
 		}
 	}
-	if !originAllowed(baseURL, s.cfg.AITestOrigins) {
-		problem(w, 422, "模型服务地址不在允许测试的范围内")
+	if err := validateAIProviderURL(baseURL); err != nil {
+		problem(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	in.BaseURL = baseURL
@@ -1529,41 +1529,6 @@ func safeProviderTestError(err error) (string, string) {
 		return "AI_PROVIDER_CANCELED", "模型服务请求已取消"
 	}
 	return "AI_PROVIDER_REQUEST_FAILED", "模型服务请求失败，请检查地址、接口密钥、模型和服务状态"
-}
-func normalizedOrigin(rawURL string) (string, bool) {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || u.Hostname() == "" || u.User != nil {
-		return "", false
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", false
-	}
-	host := strings.ToLower(u.Hostname())
-	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
-	}
-	port := u.Port()
-	if port == "80" && scheme == "http" || port == "443" && scheme == "https" {
-		port = ""
-	}
-	if port != "" {
-		host += ":" + port
-	}
-	return scheme + "://" + host, true
-}
-func originAllowed(rawURL string, allowed []string) bool {
-	origin, ok := normalizedOrigin(rawURL)
-	if !ok {
-		return false
-	}
-	for _, candidate := range allowed {
-		allowedOrigin, valid := normalizedOrigin(candidate)
-		if valid && allowedOrigin == origin {
-			return true
-		}
-	}
-	return false
 }
 func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	var in struct {

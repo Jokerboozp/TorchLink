@@ -161,7 +161,8 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	engine.AIPlugins = aiadapter.NewProviderRegistry()
-	api := New(config.Config{DevMode: true, AITestOrigins: []string{providerServer.URL}}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// A newly supplied endpoint must work without an address allowlist.
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAIProviderRuntime(runtime)
 	server := newTestHTTPServer(api)
 	defer server.Close()
@@ -181,6 +182,18 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	if got := runtime.CurrentConfig(); got != active {
 		t.Fatalf("testing changed active provider: got %#v want %#v", got, active)
 	}
+	for _, invalidURL := range []string{"file:///etc/passwd", "http://user:secret@example.test", "http://example.test?key=secret", "[http://ollama:11434](http://ollama:11434)"} {
+		requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{
+			"provider": "deepseek", "baseUrl": invalidURL, "model": "active-model",
+		}, http.StatusUnprocessableEntity)
+	}
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", viewerToken, map[string]any{
+		"provider": "deepseek", "baseUrl": providerServer.URL, "model": "active-model",
+	}, http.StatusForbidden)
 }
 
 func newTestHTTPServer(api *Server) *httptest.Server {

@@ -194,7 +194,6 @@ function New-OfflineEnv {
             "IOT_AI_BASE_URL=http://ollama:11434",
             "IOT_AI_MODEL=$OllamaModel",
             "IOT_AI_API_KEY=",
-            "IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS=http://ollama:11434",
             "IOT_AI_OLLAMA_URL=http://ollama:11434",
             "DEEPSEEK_API_KEY=",
             "IOT_AI_HARNESS_ENABLED=$harnessEnabled",

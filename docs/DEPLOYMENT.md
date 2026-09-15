@@ -53,7 +53,9 @@ IOT_AI_HARNESS_MODEL=qwen3:1.7b
 
 ### 在界面切换 AI 模型服务
 
-具有相应管理权限的用户打开“模型管理”，选择 Ollama、DeepSeek 或兼容接口，填写地址与模型。先“测试配置”，成功后“应用配置”；地址、模型或密钥改变后重新测试。Ollama 使用服务根地址，例如 `http://ollama-host:11434`；兼容接口须支持 Chat Completions。
+具有相应管理权限的用户打开“模型管理”，选择 Ollama、DeepSeek 或兼容接口，直接填写平台服务器可达的 HTTP/HTTPS 地址与模型，无需配置地址白名单。先“测试配置”，成功后“应用配置”；地址、模型或密钥改变后重新测试。Ollama 使用服务根地址，Docker 内置服务为 `http://ollama:11434`，其他服务填写实际地址；兼容接口须支持 Chat Completions。地址使用纯文本，接口密钥单独填写，不能把 Markdown 链接或带凭据、查询参数、片段的 URL 当作服务根地址。
+
+旧的 `IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS` 已停用，升级后的 API 不再读取它，现有环境文件中保留该项也不会限制模型地址。已有部署需要更新 API 二进制或镜像才能生效，单独修改环境变量或重启旧镜像不能取消旧代码中的校验。模型配置权限、密钥脱敏和测试审计保持原有约束。
 
 应用会同步 Provider 与 Harness，无需重启 API；正在运行的工作流结束后使用新配置。PostgreSQL 保存活动配置，内存模式仅当前进程有效。页面不返回明文接口密钥，同一服务留空可复用已存密钥。业务工作流和后台任务见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
 

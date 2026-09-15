@@ -44,7 +44,7 @@ Go API 暴露：
 - `POST /api/v1/ai/chat`：兼容的非流式调用；未配置 Harness 时回退到原有本地助手。
 - `POST /api/v1/ai/chat/stream`：SSE 流式运行插件。
 - `GET /api/v1/ai/providers/config`：读取当前模型服务（管理员可看到地址和脱敏接口密钥提示）。
-- `POST /api/v1/ai/providers/test`：管理员测试候选模型服务；只发送测试请求，不修改活动配置。
+- `POST /api/v1/ai/providers/test`：管理员测试候选模型服务，可直接填写任意平台可达的 HTTP/HTTPS 地址，无需地址白名单；只发送测试请求，不修改活动配置。测试与应用统一校验根地址格式，密钥使用独立字段。
 - `PUT /api/v1/ai/providers/config`：管理员应用已测试的模型服务；支持 `ollama`、`deepseek` 和 `openai-compatible`。
 - `POST /api/v1/ai/health-inspection/run`：创建智能巡检任务并立即返回进度。
 - `GET /api/v1/ai/health-inspection/progress`：按当前租户读取智能巡检任务，重新打开页面时无需保存 job ID。

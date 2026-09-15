@@ -54,7 +54,6 @@ IOT_AI_PROVIDER	自动研判模型提供方，在线和离线默认 ollama
 IOT_AI_BASE_URL	自动研判模型 API 根地址；Ollama 原生接口不要添加 /v1
 IOT_AI_MODEL	自动研判使用的模型，8GB 部署默认 qwen3:1.7b
 IOT_AI_API_KEY	远程模型专用 API Key；使用本地 Ollama 时留空
-IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS	允许在管理页面测试的模型 API 来源
 IOT_AI_OLLAMA_URL	AI 页面访问 Ollama 沙箱的地址
 DEEPSEEK_API_KEY	DeepSeek 远程 API Key；仅在 Provider 设为 deepseek 时填写
 DEEPSEEK_BASE_URL	DeepSeek Harness 调用的模型 API 地址

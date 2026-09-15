@@ -108,7 +108,6 @@ func TestHTTPWorkflow(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "AI 插件测试成功"}}}})
 	}))
 	defer providerServer.Close()
-	api.cfg.AITestOrigins = []string{providerServer.URL}
 	providerTest := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "openai-compatible", "baseUrl": providerServer.URL, "model": "test-model", "question": "连接测试"}, 200)
 	if providerTest["success"] != true || providerTest["answer"] != "AI 插件测试成功" || !strings.HasPrefix(providerTest["traceId"].(string), "ai_trace_") {
 		t.Fatalf("unexpected AI provider test %#v", providerTest)
@@ -122,7 +121,6 @@ func TestHTTPWorkflow(t *testing.T) {
 	}))
 	defer ollamaServer.Close()
 	api.cfg.AITestOllamaURL = ollamaServer.URL
-	api.cfg.AITestOrigins = append(api.cfg.AITestOrigins, ollamaServer.URL)
 	ollamaTest := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "ollama", "model": "test-model", "question": "连接测试"}, 200)
 	if ollamaTest["success"] != true || ollamaTest["answer"] != "Ollama 沙箱地址生效" {
 		t.Fatalf("unexpected Ollama provider test %#v", ollamaTest)

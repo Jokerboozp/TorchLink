@@ -56,7 +56,6 @@ type Config struct {
 	AIHarnessMCPURL             string
 	AIHarnessModel              string
 	AIHarnessTimeout            time.Duration
-	AITestOrigins               []string
 	AITestOllamaURL             string
 	WeaviateURL                 string
 	BackupURL                   string
@@ -134,7 +133,6 @@ func Load() Config {
 		AIHarnessMCPURL:             strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MCP_URL")),
 		AIHarnessModel:              strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MODEL")),
 		AIHarnessTimeout:            duration("IOT_AI_HARNESS_TIMEOUT", 90*time.Second),
-		AITestOrigins:               split(get("IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS", "https://api.deepseek.com,http://localhost:11434,http://127.0.0.1:11434,http://[::1]:11434,http://ollama:11434")),
 		AITestOllamaURL:             get("IOT_AI_OLLAMA_URL", get("IOT_OLLAMA_URL", "http://localhost:11434")),
 		WeaviateURL:                 os.Getenv("IOT_WEAVIATE_URL"),
 		BackupURL:                   strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_BACKUP_URL")), "/"),
