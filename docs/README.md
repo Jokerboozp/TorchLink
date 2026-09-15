@@ -37,7 +37,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [部署配置与维护](DEPLOYMENT.md) | 配置、端口、数据库、用户权限升级和备份 |
-| [离线部署](OFFLINE_DEPLOYMENT.md) | CentOS/Linux、Windows、macOS 打包；openEuler 目标包、镜像、模型及交付检查 |
+| [离线部署](OFFLINE_DEPLOYMENT.md) | CentOS/Linux、Windows、macOS 打包；openEuler 本地 RPM 源、旧包修复补丁、镜像与模型交付 |
 | [EMQX 认证与授权](../ops/emqx/PRODUCTION_SECURITY.md) | 设备及管理端 MQTT 身份、ACL 和旧会话撤销 |
 | [旧版本兼容](EDGE_REMOVAL.md) | 已移除入口、保留数据及权限迁移 |
 | [网关部署边界](EDGE_AND_GATEWAY.md) | 进程部署与管理页面中不同网关概念 |

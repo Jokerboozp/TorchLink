@@ -411,8 +411,8 @@ try {
         if ($DockerPackagesDir) {
             if (-not (Test-Path -LiteralPath $DockerPackagesDir -PathType Container)) { throw 'DockerPackagesDir 不存在。' }
             Copy-Item -LiteralPath $DockerPackagesDir -Destination (Join-Path $bundleRoot 'docker-runtime/packages') -Recurse
-            Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'docker-runtime/packages') -File |
-                Where-Object { $_.Extension -in @('.rpm', '.deb') } | ForEach-Object {
+            Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'docker-runtime/packages') -File -Recurse |
+                Where-Object { $_.Extension -ne '.sha256' -and ($_.Extension -in @('.rpm', '.deb') -or $_.Name -like 'RPM-GPG-KEY-*' -or $_.Directory.Name -eq 'repodata') } | ForEach-Object {
                     [IO.File]::WriteAllText(($_.FullName + '.sha256'), (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
                 }
         }

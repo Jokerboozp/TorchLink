@@ -114,6 +114,8 @@ bash ./scripts/package-offline-linux.sh --target-os openeuler-24.03-lts-sp4
 
 系统依赖在临时 openEuler 容器中准备，不安装到 CentOS 宿主机。将完整离线包复制到 openEuler 后，在包内执行 `sudo bash ./scripts/deploy-offline-linux.sh`。Windows 对应参数、代码更新和凭据沿用见 [openEuler 专用离线包](OFFLINE_DEPLOYMENT.md#openeuler-2403-lts-sp4-专用离线包)。
 
+RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包保护。已有专用包若提示 `protected packages: grub2-pc`，可在联网 CentOS/Linux 打包机运行 `scripts/repair-offline-openeuler.sh 旧包目录` 生成仅含索引、公钥和部署脚本的补丁，无需重建镜像、模型；步骤与验证边界见 [旧包修复](OFFLINE_DEPLOYMENT.md#旧包提示-protected-packages-grub2-pc)。
+
 ## 登录与专题入口
 
 新环境管理员默认值由部署脚本生成，实际登录使用对应环境文件中的 `IOT_ADMIN_USER`、`IOT_ADMIN_PASSWORD` 和 `IOT_ADMIN_TENANTS`；常用租户为 `tenant_001`。已有配置保留原凭据，修改内置管理员配置后重启 API 生效。普通用户在「用户与权限」中创建，密码为10至72字节，归属创建者当前登录租户；不能把内置管理员的环境配置规则套用到普通用户。详见 [用户与设备权限](USER_ACCESS_CONTROL.md)。本地、在线、离线配置相互独立。

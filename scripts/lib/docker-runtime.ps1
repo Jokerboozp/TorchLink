@@ -41,5 +41,10 @@ function Save-OpenEulerPackages {
     $marker = Join-Path $Directory 'target-os'
     if (-not (Test-Path -LiteralPath "$marker.sha256") -or -not (Test-Path -LiteralPath $marker)) { throw '系统依赖缺少目标系统信息或校验值。' }
     if ((Get-FileHash -LiteralPath $marker -Algorithm SHA256).Hash.ToLowerInvariant() -ne (Get-Content -LiteralPath "$marker.sha256" -Raw).Trim()) { throw '系统依赖元数据校验失败。' }
+    foreach ($relative in @('repodata/repomd.xml', 'RPM-GPG-KEY-openEuler')) {
+        $path = Join-Path $Directory $relative
+        if (-not (Test-Path -LiteralPath $path) -or -not (Test-Path -LiteralPath "$path.sha256")) { throw "系统依赖缺少软件源索引或公钥：$relative" }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne (Get-Content -LiteralPath "$path.sha256" -Raw).Trim()) { throw "软件源文件校验失败：$relative" }
+    }
     if (-not (Get-ChildItem -LiteralPath $Directory -Filter 'container-selinux-*.rpm')) { throw '系统依赖缺少 container-selinux。' }
 }

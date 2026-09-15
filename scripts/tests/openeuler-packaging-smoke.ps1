@@ -12,6 +12,12 @@ function global:docker {
     $marker = Join-Path $global:fixtureDirectory 'target-os'
     [IO.File]::WriteAllText("$marker.sha256", (Get-FileHash $marker).Hash.ToLowerInvariant())
     [IO.File]::WriteAllText((Join-Path $global:fixtureDirectory 'container-selinux-fixture.rpm'), 'fixture')
+    New-Item -ItemType Directory -Force -Path (Join-Path $global:fixtureDirectory 'repodata') | Out-Null
+    foreach ($relative in @('repodata/repomd.xml', 'RPM-GPG-KEY-openEuler')) {
+        $path = Join-Path $global:fixtureDirectory $relative
+        [IO.File]::WriteAllText($path, 'fixture')
+        [IO.File]::WriteAllText("$path.sha256", (Get-FileHash $path).Hash.ToLowerInvariant())
+    }
     $global:LASTEXITCODE = 0
 }
 try {

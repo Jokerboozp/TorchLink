@@ -101,7 +101,9 @@ docker_runtime_host_identity() {
 }
 
 docker_runtime_install_packages() {
-  local directory="$1" package actual expected
+  local directory="$1" package actual expected repo_dir manager status=0 baseurl keys=''
+  shift
+  [ "$#" -gt 0 ] || { echo '必须明确指定要安装的系统包。' >&2; return 1; }
   # Prepared OS-specific sets cannot be used on a different release/architecture.
   if [ -f "$directory/packages/target-os" ]; then
     verify_docker_runtime_file "$directory/packages/target-os" || return 1
@@ -111,11 +113,44 @@ docker_runtime_install_packages() {
   fi
   compgen -G "$directory/packages/*.rpm" >/dev/null || { echo '离线包缺少 SELinux/系统依赖 RPM；请使用 openEuler 专用打包选项或提供匹配的 DockerPackagesDir。' >&2; return 1; }
   for package in "$directory"/packages/*.rpm; do verify_docker_runtime_file "$package" || return 1; done
-  if command -v dnf >/dev/null 2>&1; then
-    docker_runtime_root dnf --disablerepo='*' install -y "$directory"/packages/*.rpm
-  else
-    docker_runtime_root rpm -Uvh "$directory"/packages/*.rpm
-  fi
+  verify_docker_runtime_file "$directory/packages/repodata/repomd.xml" || {
+    echo '旧 RPM 目录缺少本地软件源索引。openEuler 包请在联网打包机运行 scripts/repair-offline-openeuler.sh 修复；不要强制安装全部 RPM。' >&2
+    return 1
+  }
+  for package in "$directory"/packages/repodata/*; do
+    case "$package" in *.sha256) continue;; esac
+    verify_docker_runtime_file "$package" || return 1
+  done
+  directory="$(cd "$directory/packages" && pwd)" || return 1
+  # Escape path characters that have special meaning in file URLs / repo config.
+  baseurl="${directory//%/%25}"; baseurl="${baseurl// /%20}"; baseurl="${baseurl//#/%23}"; baseurl="${baseurl//\$/%24}"
+  for package in "$directory"/RPM-GPG-KEY-*; do
+    case "$package" in *.sha256) continue;; esac
+    [ -f "$package" ] || continue
+    verify_docker_runtime_file "$package" || return 1
+    keys+=" file://$baseurl/$(basename "$package")"
+  done
+  [ -n "$keys" ] || { echo '本地 RPM 软件源缺少 RPM-GPG-KEY-* 签名公钥。' >&2; return 1; }
+  if command -v dnf >/dev/null 2>&1; then manager=dnf
+  elif command -v yum >/dev/null 2>&1; then manager=yum
+  else echo '离线 RPM 依赖需要 DNF 或 YUM 按包名解析；不支持直接批量 rpm 安装。' >&2; return 1; fi
+  repo_dir="$(mktemp -d)" || return 1
+  cat > "$repo_dir/iot-offline.repo" <<REPO
+[iot-offline]
+name=IoT offline system dependencies
+baseurl=file://$baseurl
+enabled=1
+gpgcheck=1
+gpgkey=$keys
+metadata_expire=0
+skip_if_unavailable=0
+REPO
+  # RPMs are candidates, not installation goals: keep existing boot packages and
+  # let the solver select only dependencies required by the named roots.
+  docker_runtime_root "$manager" --setopt="reposdir=$repo_dir" --disablerepo='*' \
+    --enablerepo=iot-offline --setopt=install_weak_deps=False install -y "$@" || status=$?
+  rm -rf -- "$repo_dir"
+  return "$status"
 }
 
 docker_runtime_selinux_ready() {
@@ -131,7 +166,7 @@ docker_runtime_selinux() {
   case "$state" in Enforcing|Permissive) ;; Disabled) return 0;; *) echo '无法读取 SELinux 状态。' >&2; return 1;; esac
   if ! docker_runtime_selinux_ready; then
     if [ "$mode" = offline ]; then
-      docker_runtime_install_packages "$directory" || return 1
+      docker_runtime_install_packages "$directory" container-selinux policycoreutils-python-utils || return 1
     elif command -v dnf >/dev/null 2>&1; then
       docker_runtime_root dnf install -y container-selinux policycoreutils-python-utils || return 1
     else
@@ -195,7 +230,7 @@ docker_runtime_prerequisites() {
       for package in "$directory"/packages/*.deb; do verify_docker_runtime_file "$package" || return 1; done
       docker_runtime_root dpkg -i "$directory"/packages/*.deb || return 1
     elif ! command -v dpkg >/dev/null 2>&1 && command -v rpm >/dev/null 2>&1 && compgen -G "$directory/packages/*.rpm" >/dev/null; then
-      docker_runtime_install_packages "$directory" || return 1
+      docker_runtime_install_packages "$directory" iptables xz procps-ng || return 1
     else
       echo '系统缺少 iptables、xz 或 ps。请在打包时通过 --docker-packages-dir / -DockerPackagesDir 加入匹配目标系统的依赖包；离线部署不会访问软件源。' >&2
       return 1
@@ -347,14 +382,16 @@ UNIT
 
 # Packaging is performed on the connected host, never on the offline target.
 prepare_openeuler_packages() {
-  local directory="$1" script="$2" arch="$3" platform
+  local directory="$1" script="$2" arch="$3" mode="${4:-download}" platform
   platform=amd64; case "$arch" in arm64|aarch64) platform=arm64;; amd64|x86_64) ;; *) return 1;; esac
   mkdir -p "$directory"
   directory="$(cd "$directory" && pwd)"
   docker run --rm --platform "linux/$platform" \
     --mount "type=bind,source=$directory,target=/packages" \
     --mount "type=bind,source=$script,target=/prepare.sh,readonly" \
-    openeuler/openeuler:24.03-lts-sp4 bash /prepare.sh || return 1
+    openeuler/openeuler:24.03-lts-sp4 bash /prepare.sh "$mode" || return 1
   verify_docker_runtime_file "$directory/target-os" || return 1
+  verify_docker_runtime_file "$directory/repodata/repomd.xml" || return 1
+  verify_docker_runtime_file "$directory/RPM-GPG-KEY-openEuler" || return 1
   compgen -G "$directory/container-selinux-*.rpm" >/dev/null || return 1
 }

@@ -397,8 +397,10 @@ if (( ! skip_docker_runtime )); then
   if [ -n "$docker_packages_dir" ]; then
     [ -d "$docker_packages_dir" ] || die "系统依赖包目录不存在：$docker_packages_dir"
     cp -R "$docker_packages_dir" "$bundle_root/docker-runtime/packages"
-    for package in "$bundle_root/docker-runtime/packages/"*.rpm "$bundle_root/docker-runtime/packages/"*.deb; do
+    for package in "$bundle_root/docker-runtime/packages/"*.rpm "$bundle_root/docker-runtime/packages/"*.deb \
+      "$bundle_root/docker-runtime/packages/"RPM-GPG-KEY-* "$bundle_root/docker-runtime/packages/repodata/"*; do
       [ -f "$package" ] || continue
+      case "$package" in *.sha256) continue;; esac
       docker_runtime_hash "$package" > "$package.sha256"
     done
   fi

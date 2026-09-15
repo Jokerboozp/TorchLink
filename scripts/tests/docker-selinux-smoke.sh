@@ -88,9 +88,14 @@ if ensure_deployment_docker offline "$root"; then echo 'Accepted wrong target OS
 echo 'PASS corrupt RPM and mismatched target OS stop before host changes'
 docker_runtime_host_identity > "$root/packages/target-os"
 docker_runtime_hash "$root/packages/target-os" > "$root/packages/target-os.sha256"
+mkdir -p "$root/packages/repodata"
+for fixture_file in repodata/repomd.xml RPM-GPG-KEY-openEuler; do
+  printf fixture > "$root/packages/$fixture_file"
+  docker_runtime_hash "$root/packages/$fixture_file" > "$root/packages/$fixture_file.sha256"
+done
 ensure_deployment_docker offline "$root"
 docker load -i images.tar
-grep -q '^dnf --disablerepo=\* install' "$calls"
+grep -q '^dnf .*install -y container-selinux policycoreutils-python-utils$' "$calls"
 grep -q '^semanage fcontext -a -e /usr/bin /usr/local/lib/iot-docker' "$calls"
 grep -q '^systemctl stop docker' "$calls"
 grep -q '^systemctl start docker' "$calls"
@@ -127,6 +132,11 @@ docker() {
   printf 'fixture OS' > "$fixture_prepare_dir/target-os"
   docker_runtime_hash "$fixture_prepare_dir/target-os" > "$fixture_prepare_dir/target-os.sha256"
   printf 'fixture RPM' > "$fixture_prepare_dir/container-selinux-test.rpm"
+  mkdir -p "$fixture_prepare_dir/repodata"
+  for fixture_file in repodata/repomd.xml RPM-GPG-KEY-openEuler; do
+    printf fixture > "$fixture_prepare_dir/$fixture_file"
+    docker_runtime_hash "$fixture_prepare_dir/$fixture_file" > "$fixture_prepare_dir/$fixture_file.sha256"
+  done
 }
 prepare_openeuler_packages "$fixture_prepare_dir" /prepare.sh x86_64
 fixture_prepare_fail=1

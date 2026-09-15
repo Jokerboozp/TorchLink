@@ -73,7 +73,7 @@ bash ./scripts/package-offline.sh --target-os openeuler-24.03-lts-sp4
 powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1 -TargetOS openeuler-24.03-lts-sp4
 ```
 
-无论打包机是 CentOS、Windows 还是 macOS，系统依赖准备都在临时 `openeuler/openeuler:24.03-lts-sp4` 容器内执行，不把 openEuler RPM 安装到打包机宿主系统。该容器会下载容器策略、SELinux 管理工具、iptables、xz、procps、curl 及完整 RPM 依赖，并用空安装根目录执行离线事务测试。依赖包附有 SHA256 和 OS/版本/架构信息，写入 `docker-runtime/packages`；下载或依赖检查失败不会输出打包完成。构建容器与目标 CPU 架构一致，仍不支持用 ARM 应用镜像包部署 x86 服务器。
+无论打包机是 CentOS、Windows 还是 macOS，系统依赖准备都在临时 `openeuler/openeuler:24.03-lts-sp4` 容器内执行，不把 openEuler RPM 安装到打包机宿主系统。该容器会下载容器策略、SELinux 管理工具、iptables、xz、procps、curl 及所需 RPM 依赖，关闭弱依赖，并用 `createrepo_c` 生成本地软件源索引。空安装根目录的离线事务测试只请求上述包名，由解析器从本地源选择依赖。依赖包、索引、公钥附有 SHA256，连同 OS/版本/架构信息写入 `docker-runtime/packages`；下载或依赖检查失败不会输出打包完成。构建容器与目标 CPU 架构一致，仍不支持用 ARM 应用镜像包部署 x86 服务器。
 
 ### 将完整离线包复制到 openEuler
 
@@ -85,7 +85,7 @@ sudo bash ./scripts/deploy-offline-linux.sh
 
 首次安装或修复本项目安装的 Docker 时，部署脚本会：
 
-1. 检查 SELinux 策略和管理工具，缺少时校验并从包内安装 RPM，禁用所有 DNF 软件源。
+1. 检查 SELinux 策略和管理工具，缺少时校验 RPM、索引和公钥，只启用包内 `file://` 软件源，按包名请求 `container-selinux policycoreutils-python-utils`。缺少基础工具时另请求 `iptables xz procps-ng`。保留 RPM 签名校验及系统受保护包规则，不将所有 RPM 作为安装目标；临时源配置在事务结束后移除。
 2. 为 `/usr/local/lib/iot-docker` 设置标准程序目录的持久标签映射，恢复程序、数据及运行目录标签。
 3. 对需要修复的受管 Docker 重启服务，确认进程进入 `container_runtime_t` 后才继续。已有容器会受该次重启影响；正常的受管 Docker 重复部署不会因此重启。
 
@@ -96,6 +96,34 @@ sudo bash ./scripts/deploy-offline-linux.sh
 2026-09-15 验证：脚本回归模拟已运行但处于 `init_t` 的 Docker，覆盖缺少策略、包损坏、OS 不匹配、标签和进程修复、幂等及远程上下文；系统调用使用模拟实现。本机没有 Docker Engine，尚未实际下载/构建专用包，也未在 openEuler SELinux 内核完成镜像导入验证。
 
 2026-09-15 补充修复：用户在 CentOS 上实际拉取的 `openeuler/openeuler:24.03-lts-sp4` 返回 `ID="openEuler"`、`VERSION_ID="24.03"`、`VERSION="24.03 (LTS-SP4)"`，旧脚本因 ID 大小写拒绝。`bash scripts/tests/openeuler-release-smoke.sh` 使用该输出作为样本执行实际准备脚本，验证通过版本检查后才调用 DNF，并检查目标服务器身份规范化；DNF 被测试替身拦截，未据此宣称完整 RPM 下载、打包或实机部署通过。
+
+### 旧包提示 protected packages: grub2-pc
+
+旧部署脚本执行 `dnf install packages/*.rpm`，把依赖目录的全部候选 RPM 都作为安装目标，可能触发与现有引导包 `grub2-pc` 的冲突。该报错表示 DNF 在事务执行前阻止了安装；不要添加 `--allowerasing`、移除受保护包或关闭保护规则。现在改为本地软件源按需安装，方式可参考 [openEuler 本地软件源文档](https://docs.openeuler.org/zh/docs/24.03_LTS/docs/Administration/%E6%90%AD%E5%BB%BArepo%E6%9C%8D%E5%8A%A1%E5%99%A8.html)。
+
+已有包含完整 RPM 的 openEuler 专用包可以只生成修复补丁，无需重建或传输镜像、模型。在**联网 CentOS/Linux 打包机的源码目录**执行，把参数替换成该旧包在打包机上的实际路径：
+
+```bash
+git pull --ff-only origin main
+bash ./scripts/repair-offline-openeuler.sh \
+  ./offline-bundles/iot-platform-offline-20260915-114745-82113b
+```
+
+修复工具校验旧包的目标身份和 RPM，在临时副本中借助 openEuler 容器补充索引、公钥，并执行按包名的离线事务测试。联网仅发生在打包机的准备容器中。失败不修改原包、不输出新补丁；缺少或损坏 RPM 时应重新准备完整包。成功后，旧包旁生成 `原目录名-rpm-repair.tar.gz` 和同名 `.sha256`，内容仅含部署引导脚本、RPM 索引和公钥。
+
+将这两个文件复制到**openEuler 服务器上旧包的上一级目录**，进入该上级目录执行（目录名按实际替换；校验通过后再解压）：
+
+```bash
+bundle=iot-platform-offline-20260915-114745-82113b
+sha256sum -c "$bundle-rpm-repair.tar.gz.sha256" && \
+  tar -xzf "$bundle-rpm-repair.tar.gz" -C "$bundle" && \
+  cd "$bundle" && \
+sudo bash ./scripts/deploy-offline-linux.sh
+```
+
+补丁不包含 `.env.offline`、镜像、模型或业务数据。应用时需对应生成补丁所用的旧包。若安装仍报依赖冲突，保留完整 DNF 日志排查；空安装根目录测试无法代替目标机器已有软件包状态的兼容性验证。
+
+2026-09-15 回归：`docker-rpm-repo-smoke.sh` 用带有引导 RPM 候选的模拟主机重现旧调用触发受保护包错误，验证 DNF/YUM 只请求指定包、本地源及签名校验、事务失败和损坏索引处理；`openeuler-rpm-preparation-smoke.sh` 执行实际准备脚本，替换 DNF、索引工具和公钥读取；`openeuler-repair-smoke.sh` 执行实际修复脚本、归档校验和解压，验证镜像与配置保留。包管理器及 Docker 容器操作均为模拟，尚未完成 openEuler 实机事务与镜像导入验证。
 
 ## 2. 目标机器一键部署
 
@@ -147,7 +175,7 @@ Ubuntu、CentOS 等使用 systemd 的 Linux 在线部署与离线部署共用检
 - 离线：仅读取包内 `docker-runtime/`，校验架构和 SHA-256 后安装，不会访问下载地址或软件源。旧包若没有安装文件且目标机缺少 Docker，需在有网机器重新打包。
 - 首次安装使用 Linux 静态二进制和 systemd；amd64 / arm64 均支持。3.x / 4.x 内核选择 Docker 24.0.9 兼容分支，其余选择 28.5.2；Compose 2.27.3，Buildx 0.14.1。旧内核兼容分支不代表 CentOS 7 仍受 Docker 官方维护。静态安装方式见 [Docker 官方说明](https://docs.docker.com/engine/install/binaries/)。
 - Linux 系统需已有 systemd、tar、iptables、xz 和 ps；健康检查需 curl。在线安装会通过系统包管理器补充 iptables/xz/procps，CentOS 7 使用临时 Vault 源，不覆盖已有 yum 配置。
-- 精简离线系统若缺少这些基础包，打包时使用 `--docker-packages-dir /path/to/packages` 或 `-DockerPackagesDir C:\\packages` 加入与目标发行版、版本和架构匹配的 RPM/DEB 及全部依赖。RPM 优先使用禁用所有软件源的 DNF 安装；无 DNF 时使用 rpm，DEB 使用 dpkg。部署不联网解决依赖，也不跳过依赖检查。
+- 精简离线系统若缺少这些基础包，打包时使用 `--docker-packages-dir /path/to/packages` 或 `-DockerPackagesDir C:\\packages` 加入与目标发行版、版本和架构匹配的 RPM/DEB 及全部依赖。手工 RPM 目录还须包含通过目标发行版 `createrepo_c` 生成的 `repodata/` 和本发行版 `RPM-GPG-KEY-*` 公钥，打包入口会为其写入 SHA256。目标机使用 DNF（无 DNF 则用 YUM）仅从本地源按包名解析，缺少索引或包管理器时停止；不再直接批量 `rpm -Uvh`。DEB 仍使用 dpkg。部署不联网解决依赖，也不跳过依赖检查。
 - 已有 Docker 的服务器可通过打包参数 `--skip-docker-runtime` / `-SkipDockerRuntime` 减小包体。该参数不适用于尚未安装 Docker 的目标机。
 
 Linux 首次部署示例：
