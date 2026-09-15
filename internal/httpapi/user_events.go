@@ -12,23 +12,26 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	alarms := []model.Alarm{}
 	states := []model.DeviceState{}
-	if c.TokenUse != "user" {
-		problem(w, 403, "此接口用于受限用户消息")
+	p := map[string]bool{"*": true}
+	var e error
+	if c.TokenUse == "user" {
+		_, p, e = s.managedIdentity(r, c)
+		if e != nil {
+			problem(w, 401, "会话已失效")
+			return
+		}
+	} else if c.TokenUse != "" || c.Role != "admin" {
+		problem(w, 403, "此接口用于已登录用户消息")
 		return
 	}
-	_, p, e := s.managedIdentity(r, c)
-	if e != nil {
-		problem(w, 401, "会话已失效")
-		return
-	}
-	if p["menu:alarms"] || p["menu:dashboard"] {
+	if p["*"] || p["menu:alarms"] || p["menu:dashboard"] {
 		alarms, e = s.engine.Repo.(*deviceScopeRepository).scopedAlarms(r.Context(), ports.AlarmFilter{TenantID: c.TenantID, Status: "ACTIVE"})
 		if e != nil {
 			problem(w, 503, "读取消息失败")
 			return
 		}
 	}
-	if p["menu:devices"] || p["menu:raw"] {
+	if p["*"] || p["menu:devices"] || p["menu:raw"] {
 		states, e = s.engine.Repo.ListDeviceStates(r.Context(), c.TenantID)
 		if e != nil {
 			problem(w, 503, "读取消息失败")

@@ -284,6 +284,38 @@ sudo docker exec iot-platform-ollama-1 ollama list
 
 回归入口 `scripts/tests/ollama-restore-smoke.sh` 须用 BusyBox 的 sh/cp/tar 执行；`--legacy` 参数应重现“返回成功但 manifests 不存在”，默认模式验证恢复新文件、保留旧文件、重复恢复及拒绝没有索引的归档。本机 BusyBox Windows 端口 v1.38.0 已重现旧命令失败并通过新脚本测试；此结果不等于目标 Alpine/Docker/Ollama 验收，目标仍需确认恢复文件计数、模型列表和 AI 请求。
 
+### 告警列表有记录，但管理员没有弹窗
+
+旧前端在管理员通过 `http://服务器IP:8080` 登录时，调用仅在安全上下文提供的 `crypto.randomUUID()`，可能在创建 MQTT 连接前失败；此外浏览器订阅的租户告警主题与实际按事件及位置发布的主题不匹配。修复后，管理员和普通用户均通过 `/api/v1/events` 每3秒读取有权访问的活动告警，管理员的 MQTT 解析事件和界面联动连接单独维护。不要把订阅放宽到全租户通配主题来绕过问题。
+
+本次修复需要**同时更新 API 和前端镜像**，仅修改环境变量或重启旧容器无效。在联网 CentOS/Linux 打包机的源码目录执行：
+
+```bash
+git pull --ff-only origin main && \
+sudo docker build -t iot-platform-api:offline . && \
+sudo docker build -t iot-platform-web:offline ./iot_front && \
+sudo docker save -o iot-platform-alert-update.tar \
+  iot-platform-api:offline iot-platform-web:offline
+```
+
+把 `iot-platform-alert-update.tar` 复制到目标服务器原离线包目录，在该目录执行（标准包使用下列项目名和镜像标签，自定义部署应沿用实际值）：
+
+```bash
+sudo docker load -i iot-platform-alert-update.tar && \
+sudo docker compose --project-name iot-platform \
+  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
+  up -d --no-deps --force-recreate --no-build --pull never platform-api && \
+sudo docker compose --project-name iot-platform \
+  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
+  up -d --no-deps --force-recreate --no-build --pull never platform-web
+```
+
+先重建 API、再重建前端，使 Nginx 重新解析 API 容器地址。此增量更新沿用原数据卷和环境文件，不重建模型或 Harness 容器；原包 `images.tar` 仍是旧镜像，后续完整部署应使用新包。
+
+更新后强制刷新浏览器并重新登录，确认右上角「告警提醒」中弹窗开启且不在静默时段，等待首个 `/api/v1/events` 请求成功后再发送新报警。正常前台页面下一次轮询应出现提醒；历史活动告警首次加载不补弹。若仍未出现，检查浏览器网络面板中该接口状态及响应是否包含新告警，勿分享登录令牌。权限规则见 [权限变更与实时提醒](USER_ACCESS_CONTROL.md#权限变更与实时提醒)。
+
+回归入口：前端 `npm test` 与 `npm run build`，后端 `go test ./internal/httpapi`；在 `iot_front` 目录设置 `IOT_TEST_BROWSER` 为 Chromium/Edge 可执行文件后，运行 `node tests/browser/alarm-http-check.mjs`，使用构建后的真实页面、非安全 HTTP 域名及模拟 API 验证 MQTT 不可用时的新告警弹窗、历史不补弹和关闭后不重复。此浏览器测试和内存仓储 HTTP 权限测试不代替目标 Docker 环境验收。
+
 ### 设备接入配置补充
 
 离线模板包含 `IOT_DEVICE_HTTP_PUBLIC_URL` 与 `IOT_DEVICE_MQTT_PUBLIC_URL`，初始为空。请在目标环境 `.env.offline` 设置实际设备可达的 HTTPS/MQTT TLS 地址；前者为空使用相对 API 路径，后者为空显示未配置。Compose 同时包含 JWT username 校验和到期断连；已有数据卷中的动态认证配置需单独核实。升级沿用当前幂等 schema 迁移，保留历史数据。操作与测试边界见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。

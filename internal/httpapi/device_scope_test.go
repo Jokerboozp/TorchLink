@@ -56,6 +56,20 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": name, "password": "scope-password-test", "tenantId": "tenant_a"}, 200)["accessToken"].(string)
 	}
 	root := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	_, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: "tenant_b", ID: "foreign-alarm", DeviceID: "foreign-device", RuleID: "foreign", Status: "ACTIVE"})
+	must(err)
+	adminEvents := req("GET", "/api/v1/events", root, nil, 200)
+	if len(adminEvents["alarms"].([]any)) != 46 || len(adminEvents["devices"].([]any)) != 46 {
+		t.Fatal("administrator events must contain only the current tenant's data", adminEvents)
+	}
+	if permissions := adminEvents["permissions"].([]any); len(permissions) != 1 || permissions[0] != "*" {
+		t.Fatal("administrator permissions changed", permissions)
+	}
+	for _, item := range adminEvents["alarms"].([]any) {
+		if item.(map[string]any)["tenantId"] != "tenant_a" {
+			t.Fatal("administrator events leak another tenant")
+		}
+	}
 	perms := []string{"menu:devices", "menu:alarms", "menu:dashboard", "menu:raw", "menu:ai", "menu:inspection", "menu:backups", "POST /api/v1/alarms/:id/actions"}
 	ids := []string{}
 	for i := 0; i < 46; i += 2 {
