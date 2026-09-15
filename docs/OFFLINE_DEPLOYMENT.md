@@ -284,6 +284,34 @@ sudo docker exec iot-platform-ollama-1 ollama list
 
 回归入口 `scripts/tests/ollama-restore-smoke.sh` 须用 BusyBox 的 sh/cp/tar 执行；`--legacy` 参数应重现“返回成功但 manifests 不存在”，默认模式验证恢复新文件、保留旧文件、重复恢复及拒绝没有索引的归档。本机 BusyBox Windows 端口 v1.38.0 已重现旧命令失败并通过新脚本测试；此结果不等于目标 Alpine/Docker/Ollama 验收，目标仍需确认恢复文件计数、模型列表和 AI 请求。
 
+### 协议、产品、接入网关页面出现 route not found
+
+这三个页面都读取 `/api/v2/protocols`。旧 Nginx 使用带末尾斜杠的前缀 `location /api/v2/protocols/`，会把集合请求自动 301 到 `/api/v2/protocols/`，后端只注册无末尾斜杠的集合路由，因此返回 JSON `route not found`。这是 [Nginx 的前缀 location 自动重定向行为](https://nginx.org/en/docs/http/ngx_http_core_module.html#location)，并非协议数据丢失。修复后的配置匹配集合及其子路径，同时将已有浏览器缓存跳转产生的集合末尾斜杠在代理内部规范化；保留请求方法、参数、认证头及协议上传限制。
+
+无需下载镜像，可在目标服务器修正标准前端容器中的模板和生效配置。下面命令保留首次备份；配置检查失败会恢复原文件。模板修正可保留到容器重启，容器重建后仍应使用含本修复的新前端镜像：
+
+```bash
+sudo docker exec --user 0:0 -i iot-platform-platform-web-1 sh -eu <<'SH'
+for file in /etc/nginx/templates/default.conf.template /etc/nginx/conf.d/default.conf; do
+  cp -p "$file" "$file.protocol-route-rollback"
+  test -e "$file.before-protocol-route" || cp -p "$file" "$file.before-protocol-route"
+  sed -i 's@location /api/v2/protocols/ {@location ~ ^/api/v2/protocols(/|$) {\n        rewrite ^/api/v2/protocols/$ /api/v2/protocols break;@' "$file"
+done
+if nginx -t; then
+  nginx -s reload
+else
+  for file in /etc/nginx/templates/default.conf.template /etc/nginx/conf.d/default.conf; do
+    cp -p "$file.protocol-route-rollback" "$file"
+  done
+  exit 1
+fi
+SH
+```
+
+无需登录令牌即可检查路由：`curl -i http://127.0.0.1:8080/api/v2/protocols` 和带末尾 `/` 的同一地址应返回 API 的 401（未登录），不再是 301 或 `route not found`。随后强制刷新浏览器，在登录状态下打开三个页面确认列表。`/api/v1/ai/health-inspection/progress` 若返回“智能巡检任务不存在或已过期”，是另一种业务 404；`mqtt/token` 连接重置也需单独检查 API/代理日志，不由这个路径修复保证解决。
+
+回归入口：设置 `IOT_TEST_NGINX` 为 Nginx 可执行文件，运行 `node scripts/tests/nginx-protocol-routing-smoke.mjs`。2026-09-15 本机 Nginx 1.27.5 Windows 版重现旧配置 301，并验证新配置的集合 GET/POST、末尾斜杠、查询参数、认证透传、协议下载路径和超过12 MiB的源码上传；上游为隔离 HTTP 模拟服务，不等于目标容器验收。
+
 ### 告警列表有记录，但管理员没有弹窗
 
 旧前端在管理员通过 `http://服务器IP:8080` 登录时，调用仅在安全上下文提供的 `crypto.randomUUID()`，可能在创建 MQTT 连接前失败；此外浏览器订阅的租户告警主题与实际按事件及位置发布的主题不匹配。修复后，管理员和普通用户均通过 `/api/v1/events` 每3秒读取有权访问的活动告警，管理员的 MQTT 解析事件和界面联动连接单独维护。不要把订阅放宽到全租户通配主题来绕过问题。
