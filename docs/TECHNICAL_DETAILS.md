@@ -106,6 +106,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 
 在有网机器使用 `scripts/package-offline.sh` / `.ps1` 打包，再把 `offline-bundles/iot-platform-offline-*` 整个目录复制到目标机，包括 `.env.offline`。后续命令在生成的离线包目录执行，打包和安装参数统一见 [离线部署](OFFLINE_DEPLOYMENT.md)。
 
+CentOS/Linux 也可作为 openEuler 的打包机，`target-os` 指定目标部署系统。在有网且 Docker 可用的 CentOS 打包机项目根目录运行：
+
+```bash
+bash ./scripts/package-offline-linux.sh --target-os openeuler-24.03-lts-sp4
+```
+
+系统依赖在临时 openEuler 容器中准备，不安装到 CentOS 宿主机。将完整离线包复制到 openEuler 后，在包内执行 `sudo bash ./scripts/deploy-offline-linux.sh`。Windows 对应参数、代码更新和凭据沿用见 [openEuler 专用离线包](OFFLINE_DEPLOYMENT.md#openeuler-2403-lts-sp4-专用离线包)。
+
 ## 登录与专题入口
 
 新环境管理员默认值由部署脚本生成，实际登录使用对应环境文件中的 `IOT_ADMIN_USER`、`IOT_ADMIN_PASSWORD` 和 `IOT_ADMIN_TENANTS`；常用租户为 `tenant_001`。已有配置保留原凭据，修改内置管理员配置后重启 API 生效。普通用户在「用户与权限」中创建，密码为10至72字节，归属创建者当前登录租户；不能把内置管理员的环境配置规则套用到普通用户。详见 [用户与设备权限](USER_ACCESS_CONTROL.md)。本地、在线、离线配置相互独立。

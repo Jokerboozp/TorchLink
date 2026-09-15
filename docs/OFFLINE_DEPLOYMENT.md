@@ -4,6 +4,8 @@
 
 打包机与目标机应使用相同 CPU 架构（例如均为 linux/amd64）；Apple Silicon 默认生成的 ARM64 镜像不能直接作为 x86 服务器离线包。CentOS 7.9 x86_64 使用 linux/amd64 包；新包默认携带 Linux Docker、Compose 和 Buildx 的安装文件与 SHA-256 校验值，首次安装请用 root 或 sudo 执行。
 
+打包机操作系统与目标系统可以不同：CentOS/Linux、Windows 或 macOS 都可以通过 Docker 准备 openEuler 离线包。`--target-os` / `-TargetOS` 指定的是目标部署系统，打包机无需安装为 openEuler。
+
 ## 1. 有网机器打包
 
 在仓库根目录执行：
@@ -14,7 +16,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 ```
 
 ```bash
-# Linux / macOS
+# CentOS / 其他 Linux
+bash ./scripts/package-offline-linux.sh
+# macOS
 bash ./scripts/package-offline.sh
 ```
 
@@ -29,6 +33,7 @@ bash ./scripts/package-offline.sh
 | 使用已有配置 | `-EnvFile .\.env.production` | `--env-file ./.env.production` |
 | 选择对话模型（默认 `qwen3:1.7b`） | `-OllamaModel qwen3:4b` | `--ollama-model qwen3:4b` |
 | 跳过模型归档（目标机已有模型时） | `-SkipOllamaModel` | `--skip-ollama-model` |
+| 目标为 openEuler 24.03 LTS-SP4 | `-TargetOS openeuler-24.03-lts-sp4` | `--target-os openeuler-24.03-lts-sp4` |
 | 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
 
 已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`），并让 Harness 使用同一模型。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。示例密码和空的必需密钥会被拒绝。
@@ -41,19 +46,38 @@ bash ./scripts/package-offline.sh
 
 对于启用 SELinux 的 openEuler，使用专用目标选项。只携带 Docker 静态二进制不足以构成完整系统依赖；缺少 `container-selinux` 或自定义安装路径标签时，Docker 即使可以响应 `docker info`，仍可能在导入镜像时发生 `failed to mknod(...): permission denied`。
 
-在有网且 Docker 可用的打包机运行：
+### CentOS / Linux 打包，openEuler 部署
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1 -TargetOS openeuler-24.03-lts-sp4
+在有网的 CentOS 虚拟机或其他 Linux 打包机的**项目源码根目录**执行。Docker Engine 必须能构建、运行 Linux 容器，Compose 至少为2.24.4；不能仅凭脚本参数可识别就认定当前主机已完成打包验证。
+
+使用仓库 `main` 分支时先更新代码，再打包：
+
+```bash
+git pull --ff-only origin main
+bash ./scripts/package-offline-linux.sh --target-os openeuler-24.03-lts-sp4
 ```
+
+Linux 包装脚本会将参数原样传递给 `package-offline.sh`，下面的命令等效，也适用于已启动 Docker Desktop 的 macOS 打包机：
 
 ```bash
 bash ./scripts/package-offline.sh --target-os openeuler-24.03-lts-sp4
 ```
 
-打包机会启动临时 `openeuler/openeuler:24.03-lts-sp4` 容器，下载容器策略、SELinux 管理工具、iptables、xz、procps、curl 及完整 RPM 依赖，并用空安装根目录执行离线事务测试。依赖包附有 SHA256 和 OS/版本/架构信息，写入 `docker-runtime/packages`；下载或依赖检查失败不会输出打包完成。构建容器与目标 CPU 架构一致，仍不支持用 ARM 应用镜像包部署 x86 服务器。
+已有平台部署需要沿用原凭据时，打包命令追加 `--env-file /实际路径/.env.offline`。使用当前代码重新打包，旧离线包不会自动增加系统依赖。
 
-目标机器继续执行原命令：
+### Windows 打包，openEuler 部署
+
+在有网且已启动 Docker Desktop（Linux 容器）的 Windows 打包机项目根目录执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1 -TargetOS openeuler-24.03-lts-sp4
+```
+
+无论打包机是 CentOS、Windows 还是 macOS，系统依赖准备都在临时 `openeuler/openeuler:24.03-lts-sp4` 容器内执行，不把 openEuler RPM 安装到打包机宿主系统。该容器会下载容器策略、SELinux 管理工具、iptables、xz、procps、curl 及完整 RPM 依赖，并用空安装根目录执行离线事务测试。依赖包附有 SHA256 和 OS/版本/架构信息，写入 `docker-runtime/packages`；下载或依赖检查失败不会输出打包完成。构建容器与目标 CPU 架构一致，仍不支持用 ARM 应用镜像包部署 x86 服务器。
+
+### 将完整离线包复制到 openEuler
+
+等待出现“离线包已生成”提示，将整个生成目录（包括隐藏文件 `.env.offline`、`images.tar` 和 `docker-runtime/`）复制到 openEuler 服务器，然后在**离线包根目录**执行：
 
 ```bash
 sudo bash ./scripts/deploy-offline-linux.sh
@@ -104,6 +128,7 @@ docker compose --project-name iot-platform --env-file .env.offline -f compose.ya
 docker compose --project-name iot-platform --env-file .env.offline -f compose.yaml -f compose.offline.yaml logs --tail=100 platform-api
 ```
 
+- `--target-os` 提示未知参数：打包机源码需要包含提交 `271d279d` 或更新版本；在源码根目录执行 `bash ./scripts/package-offline.sh --help` 核对参数。不要在旧离线包目录尝试打包。
 - 缺少镜像或 SHA-256 不匹配：在有网机器重新打包并完整复制，不要在离线目标机执行拉取。
 - 缺少 `nomic-embed-text` 或对话模型：重新携带模型打包，再部署到原目录/配置；无需删除已有模型卷。
 - 需要自行诊断：可显式使用 `-SkipHealthCheck` / `--skip-health-check`；只在确认传输完整性后使用 `-SkipHashCheck` / `--skip-hash-check`。跳过检查不代表部署验收通过。
@@ -113,13 +138,13 @@ GB26875 等协议统一上传 Go 源码包，并在平台启用通用 TCP/UDP �
 
 ## Docker 自动安装
 
-Ubuntu、CentOS 等使用 systemd 的 Linux 在线部署与离线部署共用检测逻辑：已有可用 Docker 和 Compose 2.24.4+ 时直接复用；仅缺 Compose 时只补插件；Docker 服务未启动时尝试启动。在线构建还会检测 Buildx。脚本不删除数据卷、不更改现有 daemon.json，也不会自动升级或降级已有 Docker Engine。
+Ubuntu、CentOS 等使用 systemd 的 Linux 在线部署与离线部署共用检测逻辑：已有可用 Docker 和 Compose 2.24.4+ 时复用；本项目安装的本机 Docker 还会检查 SELinux 策略和进程标签，确需修复时重启；仅缺 Compose 时只补插件；Docker 服务未启动时尝试启动。在线构建还会检测 Buildx。脚本不删除数据卷、不更改现有 daemon.json，也不会自动升级或降级已有 Docker Engine。
 
 - 在线：从 Docker / docker GitHub 官方地址下载缺失文件，安装后继续部署。
 - 离线：仅读取包内 `docker-runtime/`，校验架构和 SHA-256 后安装，不会访问下载地址或软件源。旧包若没有安装文件且目标机缺少 Docker，需在有网机器重新打包。
 - 首次安装使用 Linux 静态二进制和 systemd；amd64 / arm64 均支持。3.x / 4.x 内核选择 Docker 24.0.9 兼容分支，其余选择 28.5.2；Compose 2.27.3，Buildx 0.14.1。旧内核兼容分支不代表 CentOS 7 仍受 Docker 官方维护。静态安装方式见 [Docker 官方说明](https://docs.docker.com/engine/install/binaries/)。
 - Linux 系统需已有 systemd、tar、iptables、xz 和 ps；健康检查需 curl。在线安装会通过系统包管理器补充 iptables/xz/procps，CentOS 7 使用临时 Vault 源，不覆盖已有 yum 配置。
-- 精简离线系统若缺少这些基础包，打包时使用 `--docker-packages-dir /path/to/packages` 或 `-DockerPackagesDir C:\\packages` 加入与目标发行版、版本和架构匹配的 RPM/DEB 及全部依赖。安装使用本地 rpm/dpkg，不联网解决依赖、不跳过依赖检查。
+- 精简离线系统若缺少这些基础包，打包时使用 `--docker-packages-dir /path/to/packages` 或 `-DockerPackagesDir C:\\packages` 加入与目标发行版、版本和架构匹配的 RPM/DEB 及全部依赖。RPM 优先使用禁用所有软件源的 DNF 安装；无 DNF 时使用 rpm，DEB 使用 dpkg。部署不联网解决依赖，也不跳过依赖检查。
 - 已有 Docker 的服务器可通过打包参数 `--skip-docker-runtime` / `-SkipDockerRuntime` 减小包体。该参数不适用于尚未安装 Docker 的目标机。
 
 Linux 首次部署示例：
