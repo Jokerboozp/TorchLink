@@ -15,6 +15,8 @@ Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可�
 
 模型测试、切换及持久化配置见 [部署维护](DEPLOYMENT.md#在界面切换-ai-模型服务)。Harness 健康与模型 Provider 可用性需分别核对。
 
+也可在独立 Dify 工作区使用五个 IoT Workflow/Chatflow、两个原生 Agent 对比版及五个可复用 Skills，部署与边界见 [Dify 接入说明](../deploy/dify/README.md)。Dify 自行执行模型规划与对话，复用平台业务工具及 Agent 知识绑定；这是额外入口，平台页面和后台自动研判仍沿用上述链路。
+
 ## 知识检索
 
 知识文档在知识库页面上传与管理，保留租户及 Agent / `workflowId` 归属。业务工作流按授权范围检索；无法执行范围隔离时拒绝检索，不回退到全库。嵌入模型与向量存储配置见部署文档。

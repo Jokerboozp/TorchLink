@@ -30,6 +30,7 @@
 | [视频适配](VIDEO_SDK_ADAPTER.md) | 摄像头映射、视频接口及适配能力边界 |
 | [AI 工作流](AI_PLUGIN_HARNESS.md) | Harness、模型、知识检索、MCP 与权限 |
 | [Harness 服务](../deploy/deepseek-harness/README.md) | 独立服务配置、接口与平台授权边界 |
+| [Dify 原生应用](../deploy/dify/README.md) | IoT Workflow/Chatflow、原生 Agent 与 Skills 对比、接入权限和联调记录 |
 
 关键实现入口：[后端权限](../internal/httpapi/access_control.go)、[设备范围](../internal/httpapi/device_scope.go)、[用户事件](../internal/httpapi/user_events.go)、[前端权限](../iot_front/src/permissions.js)。文档与实现冲突时，应核对源码和针对性测试后修正文档。
 
