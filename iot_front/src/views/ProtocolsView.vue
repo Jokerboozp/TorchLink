@@ -9,6 +9,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue' /* 引入当前�
 import { label, parsers } from '../labels' /* 引入当前代码需要的依赖。 */
 import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
 import { api, download, formatTime, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
+import { can } from '../permissions' /* 根据当前账号权限决定版本详情中的可用操作。 */
 
 const protocols = ref([]) /* 声明 protocols。 */
 const protocolPage = ref(1), protocolPageSize = ref(20) /* 声明 protocolPage。 */
@@ -30,8 +31,14 @@ const switching = ref(false) /* 声明 switching。 */
 const source = reactive({ protocolId:'', name:'', version:'', productId:'', transport:'', publish:true }) /* 声明 source。 */
 const props = defineProps({ section: { type: String, default: 'protocols' } }) /* 声明 props。 */
 const sourceOpen = ref(false), profileOpen = ref(false), assistantOpen = ref(false) /* 声明 sourceOpen。 */
+const releaseOpen = ref(false), selectedProtocol = ref(null), selectedRelease = ref(null) /* 保存当前查看的协议及版本。 */
+function viewRelease(row, release) { selectedProtocol.value = row.definition; selectedRelease.value = release; releaseOpen.value = true } /* 所有版本通过同一入口查看详情。 */
+const hasReleaseActions = computed(() => { /* 仅在版本能力和账号权限都满足时显示专项操作。 */
+  const release = selectedRelease.value /* 读取当前版本。 */
+  return Boolean(release && ((release.artifact?.generatedMapping && can('POST /api/v2/protocols/:id/releases/:version/preview')) || (release.status === 'VALIDATED' && can('POST /api/v2/protocols/:id/releases/:version/publish')) || (release.artifact?.build?.kind === 'go-source' && can('GET /api/v2/protocols/:id/releases/:version/source')))) /* 返回可用操作状态。 */
+}) /* 结束版本操作判断。 */
 const assistantRelease = ref(null), assistantName = ref('') /* 声明 assistantRelease。 */
-function openAssistant(release = null, name = '') { assistantRelease.value=release;assistantName.value=name;assistantOpen.value=true } /* 定义 openAssistant 函数。 */
+function openAssistant(release = null, name = '') { releaseOpen.value=false;assistantRelease.value=release;assistantName.value=name;assistantOpen.value=true } /* 从版本详情进入解析测试时关闭原弹窗。 */
 function assistantNavigate(page) { assistantOpen.value=false;emit('navigate',page) } /* 定义 assistantNavigate 函数。 */
 const editingProfile = ref(false) /* 声明 editingProfile。 */
 const blankListener = () => ({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[], unitId:1, intervalMs:10000, retries:0, wireFormat:'' }) /* 声明 blankListener。 */
@@ -92,6 +99,7 @@ async function publishRelease(protocolId, version) { /* 定义 publishRelease �
   try { /* 执行当前语句并推进处理流程。 */
     await api(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(version)}/publish`, { method:'POST', body:'{}' }) /* 等待异步操作完成。 */
     ElMessage.success('版本已发布，可绑定产品使用') /* 执行当前语句并推进处理流程。 */
+    releaseOpen.value = false /* 发布后关闭旧状态的版本详情。 */
     await load() /* 等待异步操作完成。 */
   } catch (error) { notifyError(error) } finally { switching.value = false } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
@@ -165,15 +173,11 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
         <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
         <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><div v-for="release in row.releases" :key="release.version" class="release-history"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></div></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column label="操作" fixed="right" width="190"><template #default="{ row }"> <!-- 渲染 el-table-column 界面元素。 -->
-          <div v-for="release in (row.releases?.length ? row.releases : [{}])" :key="release.version || 'empty'" class="release-actions"> <!-- 渲染 div 界面元素。 -->
-            <div class="release-buttons"> <!-- 渲染 div 界面元素。 -->
-              <el-button v-if="release.artifact?.generatedMapping" v-permission="'POST /api/v2/protocols/:id/releases/:version/preview'" size="small" plain type="primary" @click="openAssistant(release, row.definition.name)">解析测试</el-button> <!-- 渲染 el-button 界面元素。 -->
-              <el-button v-if="release.status === 'VALIDATED'" v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" size="small" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button> <!-- 渲染 el-button 界面元素。 -->
-              <el-button v-if="release.artifact?.build?.kind === 'go-source'" v-permission="'GET /api/v2/protocols/:id/releases/:version/source'" size="small" plain @click="downloadSourceRelease(row.definition.id, release)">源码</el-button> <!-- 渲染 el-button 界面元素。 -->
-              <span v-if="!release.artifact?.generatedMapping && release.status !== 'VALIDATED' && release.artifact?.build?.kind !== 'go-source'">—</span> <!-- 渲染 span 界面元素。 -->
-            </div> <!-- 结束当前界面区域。 -->
-          </div> <!-- 结束当前界面区域。 -->
+        <el-table-column label="操作" fixed="right" width="120"><template #default="{ row }"> <!-- 每个已有版本使用相同的详情入口。 -->
+          <div v-for="release in (row.releases || [])" :key="release.version" class="release-actions"> <!-- 按版本历史顺序排列入口。 -->
+            <el-button size="small" plain type="primary" @click="viewRelease(row, release)">查看版本</el-button> <!-- 打开该版本详情。 -->
+          </div> <!-- 结束当前版本入口。 -->
+          <span v-if="!row.releases?.length" class="muted-text">暂无版本</span> <!-- 协议尚未创建版本时给出明确状态。 -->
         </template></el-table-column> <!-- 结束当前界面区域。 -->
       </el-table> <!-- 结束当前界面区域。 -->
       <div class="list-pagination"><el-pagination v-model:current-page="protocolPage" v-model:page-size="protocolPageSize" :total="protocols.length" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" @size-change="protocolPage=1" /></div> <!-- 渲染 div 界面元素。 -->
@@ -199,6 +203,22 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 
     </template>
   </el-card>
+  <el-dialog v-model="releaseOpen" title="协议版本" width="min(620px, 94vw)" destroy-on-close> <!-- 集中展示版本信息和该版本支持的操作。 -->
+    <template v-if="selectedProtocol && selectedRelease"> <!-- 仅在选中实际版本后渲染详情。 -->
+      <el-descriptions :column="1" border> <!-- 说明当前查看的是哪个协议版本。 -->
+        <el-descriptions-item label="协议">{{ selectedProtocol.name }} · {{ selectedProtocol.id }}</el-descriptions-item> <!-- 展示协议名称和标识。 -->
+        <el-descriptions-item label="版本">{{ selectedRelease.version }}</el-descriptions-item> <!-- 展示版本号。 -->
+        <el-descriptions-item label="状态"><el-tag :type="statusType(selectedRelease.status)" round>{{ statusText(selectedRelease.status) }}</el-tag></el-descriptions-item> <!-- 展示版本状态。 -->
+        <el-descriptions-item label="运行方式">{{ transportLabel(selectedRelease.transport) }} · {{ label(parsers, selectedRelease.parserType, '自定义协议程序') }}</el-descriptions-item> <!-- 展示通信和解析方式。 -->
+      </el-descriptions> <!-- 结束版本信息。 -->
+      <div class="release-buttons release-detail-actions"> <!-- 根据制品类型及权限展示适用操作。 -->
+        <el-button v-if="selectedRelease.artifact?.generatedMapping" v-permission="'POST /api/v2/protocols/:id/releases/:version/preview'" plain type="primary" @click="openAssistant(selectedRelease, selectedProtocol.name)">解析测试</el-button> <!-- 仅生成映射支持解析预览。 -->
+        <el-button v-if="selectedRelease.status === 'VALIDATED'" v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" plain type="primary" :loading="switching" @click="publishRelease(selectedProtocol.id, selectedRelease.version)">发布</el-button> <!-- 仅已校验版本可以发布。 -->
+        <el-button v-if="selectedRelease.artifact?.build?.kind === 'go-source'" v-permission="'GET /api/v2/protocols/:id/releases/:version/source'" plain @click="downloadSourceRelease(selectedProtocol.id, selectedRelease)">源码</el-button> <!-- 仅 Go 源码版本可以下载源码。 -->
+        <span v-if="!hasReleaseActions" class="muted-text">暂无可执行操作</span> <!-- 对无适用操作的版本说明原因。 -->
+      </div> <!-- 结束专项操作区域。 -->
+    </template> <!-- 结束版本详情。 -->
+  </el-dialog> <!-- 结束协议版本弹窗。 -->
   <el-dialog v-model="assistantOpen" title="生成协议" width="min(980px, 94vw)" :close-on-click-modal="false" destroy-on-close><p v-if="!assistantRelease" class="muted-text bottom-gap">通过报文或 Excel / CSV 点表生成协议</p><ProtocolAssistantView v-if="assistantOpen" :initial-release="assistantRelease" :initial-name="assistantName" @saved="load" @navigate="assistantNavigate" /></el-dialog>
   <el-dialog v-model="sourceOpen" title="上传协议源码" width="min(720px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!compiling" :show-close="!compiling">
 
@@ -265,5 +285,6 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .release-history + .release-history,.release-actions + .release-actions { margin-top: 12px; } /* 定义当前元素的样式规则。 */
 .release-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; } /* 定义当前元素的样式规则。 */
 .release-buttons .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
+.release-detail-actions { align-items: center; margin-top: 18px; } /* 让专项操作在版本信息下保持整齐。 */
 .source-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; } /* 定义当前元素的样式规则。 */
 </style>
