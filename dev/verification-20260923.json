@@ -1,0 +1,161 @@
+{
+  "at": "2026-09-23T03:06:14.953Z",
+  "origin": "http://127.0.0.1:8081",
+  "tenant": "tenant_001",
+  "packages": [
+    {
+      "id": "fb2018",
+      "version": "1.0.0",
+      "upload": "already-published"
+    },
+    {
+      "id": "fb2024",
+      "version": "1.0.0",
+      "upload": "already-published"
+    },
+    {
+      "id": "fb-hydraulic",
+      "version": "1.0.0",
+      "upload": "already-published"
+    },
+    {
+      "id": "fb-liquid-level",
+      "version": "1.0.0",
+      "upload": "already-published"
+    },
+    {
+      "id": "kuka-modbus",
+      "version": "1.0.1",
+      "upload": "passed",
+      "actualVersion": "1.0.1"
+    },
+    {
+      "id": "sp-cannon",
+      "version": "1.0.1",
+      "upload": "passed",
+      "actualVersion": "1.0.1"
+    }
+  ],
+  "setup": {
+    "status": "passed",
+    "products": [
+      "verify-20260923-fb2018",
+      "verify-20260923-fb2024",
+      "verify-20260923-fb-hydraulic",
+      "verify-20260923-fb-liquid-level",
+      "verify-20260923-kuka-modbus",
+      "verify-20260923-sp-cannon"
+    ],
+    "listenerProfiles": [
+      "verify-20260923-fb2018-tcp",
+      "verify-20260923-fb2024-tcp",
+      "verify-20260923-fb-hydraulic-tcp",
+      "verify-20260923-fb-liquid-level-tcp"
+    ],
+    "at": "2026-09-23T03:02:10.013Z"
+  },
+  "listenerTests": [
+    {
+      "id": "fb2018",
+      "parsed": 2,
+      "fireAndRecovery": true
+    },
+    {
+      "id": "fb2024",
+      "parsed": 3,
+      "switchInputAndFaultRecovery": true
+    },
+    {
+      "id": "fb-hydraulic",
+      "parsed": 5,
+      "combinedFrame": true,
+      "alarmAndRecovery": true,
+      "commandStatus": "acknowledged"
+    },
+    {
+      "id": "fb-liquid-level",
+      "parsed": 5,
+      "combinedFrame": true,
+      "alarmAndRecovery": true,
+      "commandStatus": "acknowledged"
+    }
+  ],
+  "dialTests": [
+    {
+      "id": "kuka-modbus",
+      "queryCount": 6,
+      "pollCycles": 2,
+      "parsedAtLeast": 12,
+      "alarmAndRecovery": true,
+      "rawMessageId": "raw_b17378bac5f17440f81d682a"
+    },
+    {
+      "id": "sp-cannon",
+      "queryCount": 17,
+      "pollCycles": 2,
+      "parsedAtLeast": 34,
+      "alarmAndRecovery": true,
+      "rawMessageId": "raw_b0aec48de4dcf5774774f1fa"
+    }
+  ],
+  "finalCheck": {
+    "status": "passed",
+    "at": "2026-09-23T03:06:15.198Z",
+    "checks": [
+      {
+        "id": "fb2018",
+        "version": "1.0.0",
+        "release": "PUBLISHED",
+        "productBound": true,
+        "profile": "DISABLED",
+        "parsedRaw": true,
+        "recoveredAlarm": true
+      },
+      {
+        "id": "fb2024",
+        "version": "1.0.0",
+        "release": "PUBLISHED",
+        "productBound": true,
+        "profile": "DISABLED",
+        "parsedRaw": true,
+        "recoveredAlarm": true
+      },
+      {
+        "id": "fb-hydraulic",
+        "version": "1.0.0",
+        "release": "PUBLISHED",
+        "productBound": true,
+        "profile": "DISABLED",
+        "parsedRaw": true,
+        "recoveredAlarm": true
+      },
+      {
+        "id": "fb-liquid-level",
+        "version": "1.0.0",
+        "release": "PUBLISHED",
+        "productBound": true,
+        "profile": "DISABLED",
+        "parsedRaw": true,
+        "recoveredAlarm": true
+      },
+      {
+        "id": "kuka-modbus",
+        "version": "1.0.1",
+        "release": "PUBLISHED",
+        "productBound": true,
+        "profile": "DISABLED",
+        "parsedRaw": true,
+        "recoveredAlarm": true
+      },
+      {
+        "id": "sp-cannon",
+        "version": "1.0.1",
+        "release": "PUBLISHED",
+        "productBound": true,
+        "profile": "DISABLED",
+        "parsedRaw": true,
+        "recoveredAlarm": true
+      }
+    ]
+  }
+}
