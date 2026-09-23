@@ -51,22 +51,38 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path.startsWith('/api/v1/backups?') ? { items:[{ id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now() }], total:1 }
         : path === '/api/v1/backups/backup-demo' ? { id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now(), details:{}, objectKey:'backup/manifest.json' }
         : path.startsWith('/api/v1/backups/backup-demo/files?') ? { artifacts:[{ component:'原始报文', filename:'raw-messages.jsonl.gz', size:313, checksum:'fixture' }], total:1, components:{ rawMessages:{ records:1 } } }
-        : path.startsWith('/api/v1/dashboard?') ? { devices: 0, online: 0, activeAlarms: 0, highAlarms: 0, states: {}, products: [], trend: [], levels: [], updatedAt: Date.now() } : null;
+        : path.startsWith('/api/v1/dashboard?') ? { devices: 3, online: 2, activeAlarms: 2, highAlarms: 1, states: { ONLINE:2, OFFLINE:1 }, products: [{ key:'product-demo', name:'演示烟感', count:3 }], trend: [], levels: { HIGH:1, MEDIUM:1 }, updatedAt: Date.now() } : null;
       return body ? Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })) : originalFetch(input, options);
     };
   ` }) /* 注入仅供界面检查使用的身份与权限。 */
   await call('Page.navigate', { url: origin }) /* 打开合成数据前端。 */
-  await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))")) /* 等待登录页。 */
+  await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))")).catch(async error => { throw new Error(`${error.message}；表单=${await evaluate("document.querySelector('.login-form')?.innerHTML.slice(0,500)")}；异常=${failures.slice(0,2).join(' | ')}；警告=${warnings.slice(0,3).join(' | ')}`) }) /* 等待登录页并报告首屏脚本异常。 */
+  const loginBrand = await evaluate("(() => {const root=getComputedStyle(document.documentElement),button=document.querySelector('.login-submit');return {navy:root.getPropertyValue('--brand-navy').trim(),primary:root.getPropertyValue('--primary').trim(),button:getComputedStyle(button).backgroundColor}})()") /* 读取最终计算后的登录页主色。 */
+  assert.ok(loginBrand.navy==='#13386c' && loginBrand.primary==='#13386c' && loginBrand.button==='rgb(19, 56, 108)', `登录页未使用品牌深蓝主色：${JSON.stringify(loginBrand)}`) /* 登录按钮与主题变量都应采用品牌深蓝。 */
+  const loginCapture = await call('Page.captureScreenshot', { format:'png' }) /* 留存登录页视觉检查截图。 */
+  await writeFile(join(tmpdir(), 'iot-brand-login.png'), Buffer.from(loginCapture.data, 'base64')) /* 保存登录页截图。 */
   await evaluate("(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()") /* 完成夹具登录。 */
   await until(() => evaluate("document.querySelectorAll('.menu-item').length >= 16")) /* 确认全部主菜单可见。 */
+  const asideBrand = await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)'),brand=aside.querySelector('.brand-logo');return {background:getComputedStyle(aside).backgroundImage,menu:getComputedStyle(menu).color,logo:getComputedStyle(brand).backgroundColor}})()") /* 读取实际渲染的导航颜色。 */
+  assert.ok(asideBrand.background.includes('rgb(19, 56, 108)') && asideBrand.menu==='rgb(220, 232, 245)' && asideBrand.logo==='rgb(255, 255, 255)', `深蓝侧栏、浅色菜单或白底品牌标识未生效：${JSON.stringify(asideBrand)}`) /* 检查导航可读性及白底 logo。 */
+  await evaluate("document.querySelector('.collapse-button').click()") /* 验证折叠导航。 */
+  assert.ok(await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)');return aside.classList.contains('is-collapsed') && menu.getBoundingClientRect().width>0 && getComputedStyle(menu).color==='rgb(220, 232, 245)'})()"), '折叠态导航图标不可见') /* 折叠后仍保留可读菜单。 */
+  await evaluate("document.querySelector('.collapse-button').click()") /* 恢复完整侧栏。 */
   for (const name of pages) { /* 逐页检查标题、正文和脚本异常。 */
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(name)}]').click()`) /* 打开目标页面。 */
     await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText === ${JSON.stringify(name)}`)).catch(async error => { throw new Error(`${name} 页面未能切换：${error.message}；当前 ${await evaluate("document.querySelector('.page-context h1')?.innerText || document.body.innerText.slice(0, 200)")}；异常 ${failures.slice(0, 2).join(' | ')}`) }) /* 确认当前页面标题。 */
     await delay(180) /* 等待异步页面的首屏渲染。 */
     const text = await evaluate("document.querySelector('.main-content')?.innerText.trim() || ''") /* 读取可见正文。 */
     assert.ok(text.length > name.length, `${name} 缺少业务内容`) /* 防止页面只显示标题。 */
+    if (name==='运行总览') assert.ok(await evaluate("(() => {const cards=[...document.querySelectorAll('.stat-card')];return cards.length===4 && cards.map(card=>getComputedStyle(card).borderTopColor).join('|')==='rgb(19, 56, 108)|rgb(22, 163, 74)|rgb(243, 129, 40)|rgb(220, 38, 38)' && getComputedStyle(document.querySelector('.device-ring circle')).transitionProperty.includes('stroke-dashoffset')})()"), '仪表盘色条或圆环过渡未生效') /* 四种 KPI 语义色及圆环过渡应同时出现。 */
+    if (name==='设备管理') assert.ok(await evaluate("(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(item=>item.innerText.includes('一层走廊烟感'));return row && row.querySelectorAll('.n-tag').length===1 && row.querySelector('.device-enabled-state')?.innerText.includes('已启用') && row.querySelector('.device-role-text')?.innerText.includes('直接设备')})()"), '设备列表仍堆叠多个状态标签') /* 仅运行状态保留标签。 */
     if (['运行总览', '协议管理', '产品管理', '设备管理', '告警中心', '智能助手'].includes(name)) { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存代表性页面的临时截图。 */
   } /* 结束页面遍历。 */
+  await call('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true }) /* 检查手机底部导航断点。 */
+  await delay(250) /* 等待侧栏宽度过渡完成。 */
+  const mobileBrand = await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)'),r=aside.getBoundingClientRect();return {bottom:r.bottom,width:r.width,viewport:innerWidth,height:innerHeight,background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color}})()") /* 读取手机导航的最终尺寸与颜色。 */
+  assert.ok(mobileBrand.bottom<=mobileBrand.height+1 && mobileBrand.width>=mobileBrand.viewport-2 && mobileBrand.background==='rgb(19, 56, 108)' && mobileBrand.menu==='rgb(220, 232, 245)', `手机底部导航未沿用品牌色或布局溢出：${JSON.stringify(mobileBrand)}`) /* 窄屏仍可读取导航入口。 */
+  await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false }) /* 恢复桌面视口。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"协议管理\"]').click()") /* 检查上传源码弹窗的额外目标选择。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')))")) /* 等待协议工具栏。 */
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')).click()") /* 打开源码上传弹窗。 */

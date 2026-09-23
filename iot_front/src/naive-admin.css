@@ -1,54 +1,55 @@
-/* 以 vue-naive-admin 的白色导航、工作区标签和绿色主色统一平台视觉。 */
+/* 保留 Naive UI 工作区布局，颜色统一由炬联深蓝和火焰橙驱动。 */
 :root { /* 设置后台页面的布局与视觉样式。 */
   --background: #f5f7fa; /* 配置后台主题变量。 */
   --foreground: #252b37; /* 配置后台主题变量。 */
   --card: #ffffff; /* 配置后台主题变量。 */
-  --primary: #18a058; /* 配置后台主题变量。 */
-  --accent: #eaf7ef; /* 配置后台主题变量。 */
-  --accent-foreground: #12804a; /* 配置后台主题变量。 */
+  --primary: var(--brand-navy); /* 全站主操作使用品牌深蓝。 */
+  --accent: #edf3fa; /* 浅蓝用于悬停和选中背景。 */
+  --accent-foreground: #16447c; /* 浅色背景上的链接保持足够对比。 */
   --muted-foreground: #758091; /* 配置后台主题变量。 */
   --border: #e7eaf0; /* 配置后台主题变量。 */
   --input: #d9dee8; /* 配置后台主题变量。 */
-  --ring: #18a058; /* 配置后台主题变量。 */
+  --ring: var(--brand-navy); /* 焦点环跟随主色。 */
   --radius: 8px; /* 配置后台主题变量。 */
-  --brand-navy: #1b4b3e; /* 配置后台主题变量。 */
+  --brand-navy: #13386c; /* 与 logo 深蓝保持一致。 */
 } /* 结束当前样式分组。 */
 
 body { color: var(--foreground); background: var(--background); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; } /* 设置后台页面的布局与视觉样式。 */
 #app > .n-config-provider { height: 100%; min-height: 0; } /* 让后台工作区在视口内滚动，避免配置提供器被内容撑高。 */
-code { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
+code { color: var(--primary); } /* 行内代码沿用品牌深蓝。 */
 a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 
 /* 管理布局参照模板的窄边框侧栏、顶部工具区和多标签工作区。 */
 .app-shell { background: var(--background); } /* 设置后台页面的布局与视觉样式。 */
-.app-aside { width: 220px; padding: 0 10px; background: #fff; border-right: 1px solid var(--border); box-shadow: none; } /* 设置后台页面的布局与视觉样式。 */
+.app-aside { width: 220px; padding: 0 10px; background: linear-gradient(180deg, var(--brand-navy), #0d2b52); border-right: 1px solid #0b284e; box-shadow: none; } /* 主导航采用品牌深蓝层次。 */
 .app-aside.is-collapsed { width: 64px; } /* 设置后台页面的布局与视觉样式。 */
-.brand { height: 66px; padding: 0 12px; border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
-.brand > .brand-logo { height: 64px; } /* 设置后台页面的布局与视觉样式。 */
+.brand { height: 66px; padding: 0 12px; border-bottom: 1px solid #ffffff30; } /* 品牌区使用浅色分隔线。 */
+.brand > .brand-logo { height: 62px; margin-block: 2px; background: #fff; border-radius: 7px; } /* 白底 logo 完整显示在品牌铭牌中。 */
 .brand-logo img { top: -10px; } /* 设置后台页面的布局与视觉样式。 */
-.menu-scroll { padding: 5px 0 18px; scrollbar-color: #d5dce5 transparent; } /* 设置后台页面的布局与视觉样式。 */
-.menu-group { margin: 18px 12px 7px; color: #9aa3b1; font-size: 11px; font-weight: 600; letter-spacing: .03em; } /* 设置后台页面的布局与视觉样式。 */
+.menu-scroll { padding: 5px 0 18px; scrollbar-color: #7190b5 transparent; } /* 深色导航里的滚动条保持可见。 */
+.menu-group { margin: 18px 12px 7px; color: #b8cce3; font-size: 11px; font-weight: 600; letter-spacing: .03em; } /* 分组标题保持清晰。 */
+.menu-group-toggle:hover { color: #fff; } /* 分组展开按钮在悬停时可读。 */
 .menu-group-toggle { width: calc(100% - 24px); } /* 设置后台页面的布局与视觉样式。 */
-.app-shell .menu-item { min-height: 38px; margin: 3px 0; padding: 7px 11px; color: #576171; border: 0; border-radius: 6px; font-size: 13px; font-weight: 500; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item { min-height: 38px; margin: 3px 0; padding: 7px 11px; color: #dce8f5; border: 0; border-radius: 6px; font-size: 13px; font-weight: 500; } /* 默认菜单文字和图标在深色侧栏可读。 */
 .app-shell .menu-item svg { width: 16px; height: 16px; } /* 设置后台页面的布局与视觉样式。 */
-.app-shell .menu-item:hover { color: #12804a; background: #f1f9f4; } /* 设置后台页面的布局与视觉样式。 */
-.app-shell .menu-item.active { color: #12804a; background: #eaf7ef; border: 0; box-shadow: none; font-weight: 650; } /* 设置后台页面的布局与视觉样式。 */
-.app-shell .menu-item.active svg { color: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item:hover { color: #fff; background: #ffffff18; } /* 悬停状态保留深色基底。 */
+.app-shell .menu-item.active { color: #fff; background: #ffffff24; border: 0; box-shadow: inset 3px 0 var(--brand-flame); font-weight: 650; } /* 当前页面用火焰橙侧线标记。 */
+.app-shell .menu-item.active svg { color: color-mix(in srgb, var(--brand-flame) 72%, white); } /* 活动图标在亮蓝底上使用更浅的火焰色以保持对比。 */
 .topbar { height: 60px; flex-basis: 60px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
 .collapse-button { color: #6b7585; } /* 设置后台页面的布局与视觉样式。 */
-.collapse-button:hover { color: #18a058; background: #eef8f1; } /* 设置后台页面的布局与视觉样式。 */
+.collapse-button:hover { color: var(--primary); background: var(--accent); } /* 设置后台页面的布局与视觉样式。 */
 .workspace-breadcrumb { display: flex; align-items: center; gap: 9px; color: #9099a8; font-size: 12px; white-space: nowrap; } /* 设置后台页面的布局与视觉样式。 */
 .workspace-breadcrumb strong { color: #454f5f; font-weight: 600; } /* 设置后台页面的布局与视觉样式。 */
 .breadcrumb-divider { color: #c4cad3; } /* 设置后台页面的布局与视觉样式。 */
 .account { border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
-.account:hover, .account:focus-visible { color: #12804a; background: #f1f9f4; border-color: #d5eddd; } /* 设置后台页面的布局与视觉样式。 */
-.account-avatar { width: 32px; height: 32px; background: #eaf7ef; color: #12804a; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
+.account:hover, .account:focus-visible { color: var(--primary); background: var(--accent); border-color: #cbd8e8; } /* 设置后台页面的布局与视觉样式。 */
+.account-avatar { width: 32px; height: 32px; background: var(--accent); color: var(--primary); font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
 .alert-settings-trigger { border-color: var(--border); border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
-.alert-settings-trigger:hover { border-color: #b8dfc7; color: #12804a; background: #f5fbf7; } /* 设置后台页面的布局与视觉样式。 */
+.alert-settings-trigger:hover { border-color: #a9bed8; color: var(--primary); background: var(--accent); } /* 设置后台页面的布局与视觉样式。 */
 .app-tabs { min-height: 42px; flex: none; display: flex; align-items: end; gap: 3px; padding: 4px 18px 0; overflow-x: auto; overflow-y: hidden; background: #fff; border-bottom: 1px solid var(--border); scrollbar-width: thin; } /* 设置后台页面的布局与视觉样式。 */
 .app-tab { height: 38px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 5px 0 9px; color: #7d8794; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 5px 5px 0 0; } /* 设置后台页面的布局与视觉样式。 */
-.app-tab:hover { color: #12804a; background: #f5faf7; } /* 设置后台页面的布局与视觉样式。 */
-.app-tab.active { color: #12804a; background: #f8fcf9; border-color: var(--border); border-bottom-color: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab:hover { color: var(--primary); background: var(--accent); } /* 设置后台页面的布局与视觉样式。 */
+.app-tab.active { color: var(--primary); background: #f7f9fc; border-color: var(--border); border-bottom-color: var(--brand-flame); } /* 工作区标签用火焰色强调选中态。 */
 .app-tab button { min-height: 28px; padding: 0 5px; display: inline-flex; align-items: center; gap: 7px; color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
 .app-tab button svg { width: 14px; height: 14px; } /* 设置后台页面的布局与视觉样式。 */
 .app-tab .app-tab-close { width: 22px; justify-content: center; border-radius: 4px; } /* 设置后台页面的布局与视觉样式。 */
@@ -65,9 +66,11 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .table-card.n-card > .n-card-content { padding: 0; } /* 数据表格贴合卡片边缘。 */
 .table-card.n-card > .n-card-header { padding-bottom: 15px; } /* 设置后台页面的布局与视觉样式。 */
 .stat-card.n-card > .n-card-content { min-height: 136px; padding: 19px 20px; display: grid; align-content: space-between; } /* 统计名称、数值和说明逐行排列。 */
+.stat-card.n-card { border-top: 3px solid var(--primary) !important; } /* 仅 KPI 卡片增加状态色条。 */
+.stat-card.n-card:has(i.success) { border-top-color: var(--success) !important; } /* 在线设备。 */
+.stat-card.n-card:has(i.warning) { border-top-color: var(--brand-flame) !important; } /* 活动告警。 */
+.stat-card.n-card:has(i.danger) { border-top-color: var(--destructive) !important; } /* 高等级告警。 */
 .stats-grid { gap: 14px; } /* 设置后台页面的布局与视觉样式。 */
-.stat-card i { background: #dff4e5; } /* 设置后台页面的布局与视觉样式。 */
-.stat-card i::after { background: #18a058; } /* 设置后台页面的布局与视觉样式。 */
 .app-shell .page-toolbar { min-height: 36px; margin-bottom: 16px; } /* 设置后台页面的布局与视觉样式。 */
 .app-shell .page-toolbar > span:not(.el-tag) { color: #8993a0; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
 .page-toolbar > .n-input, .page-toolbar > .n-select { width: 220px; } /* 设置后台页面的布局与视觉样式。 */
@@ -75,7 +78,7 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button::before { border-radius: 5px; } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button:not(.n-button--disabled):hover { background-color: var(--n-color-hover); color: var(--n-text-color-hover); transform: none; box-shadow: none; } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button.n-button--primary-type { color: #fff; } /* 设置后台页面的布局与视觉样式。 */
-.n-button.el-button.n-button--secondary.n-button--primary-type { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button.n-button--secondary.n-button--primary-type { color: var(--primary); } /* 次级主按钮使用品牌深蓝文字。 */
 .n-button.el-button.n-button--error-type:not(.n-button--secondary):not(.n-button--text):not(.n-button--disabled) { color: #c93636; background-color: #fff5f5; } /* 默认危险按钮使用浅红底和深红字。 */
 .n-button.el-button.n-button--secondary.n-button--error-type { color: #c93636; } /* 描边删除按钮使用深红色文字。 */
 .n-button.el-button.n-button--error-type:not(.n-button--disabled):hover { color: #a92323; background-color: #fee9e9; } /* 悬停时危险操作文字仍清晰可见。 */
@@ -108,21 +111,21 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-drawer .n-drawer-body-content-wrapper { overflow: auto; overscroll-behavior: contain; } /* 设置后台页面的布局与视觉样式。 */
 .n-descriptions.el-descriptions { overflow-wrap: anywhere; } /* 设置后台页面的布局与视觉样式。 */
 .n-tabs.el-tabs .n-tabs-tab { font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
-.n-tabs.el-tabs .n-tabs-tab.n-tabs-tab--active { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
-.dashboard-page .n-radio-group[aria-label="告警统计时段"] { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid #dce9df; border-radius: 7px; background: #f0f6f2; } /* 将趋势周期明确排成分段切换。 */
+.n-tabs.el-tabs .n-tabs-tab.n-tabs-tab--active { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
+.dashboard-page .n-radio-group[aria-label="告警统计时段"] { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid #d7e2ef; border-radius: 7px; background: var(--accent); } /* 趋势周期采用品牌浅蓝底。 */
 .dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button { min-width: 74px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: transparent; } /* 保持两个周期按钮尺寸一致。 */
 .dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button__state-border { display: none; } /* 去除与分段容器重叠的默认描边。 */
 .dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button--checked { background: #fff; box-shadow: 0 1px 3px rgba(18, 73, 41, .14); } /* 用实底突出当前周期。 */
-.ui-upload .n-upload-dragger { border-color: #cbd8cf; border-radius: 7px; background: #f9fcfa; } /* 设置后台页面的布局与视觉样式。 */
-.ui-upload .n-upload-dragger:hover { border-color: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.ui-upload .n-upload-dragger { border-color: #cbd8e8; border-radius: 7px; background: #f8fafd; } /* 设置后台页面的布局与视觉样式。 */
+.ui-upload .n-upload-dragger:hover { border-color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .ui-loading { position: relative; } /* 设置后台页面的布局与视觉样式。 */
 .ui-loading::after { content: ""; position: absolute; z-index: 20; inset: 0; background: rgba(255, 255, 255, .64); pointer-events: none; } /* 设置后台页面的布局与视觉样式。 */
-.ui-loading::before { content: ""; position: absolute; z-index: 21; top: 50%; left: 50%; width: 22px; height: 22px; margin: -11px; border: 2px solid #cae8d4; border-top-color: #18a058; border-radius: 50%; animation: ui-spin .75s linear infinite; pointer-events: none; } /* 设置后台页面的布局与视觉样式。 */
+.ui-loading::before { content: ""; position: absolute; z-index: 21; top: 50%; left: 50%; width: 22px; height: 22px; margin: -11px; border: 2px solid #cbd8e8; border-top-color: var(--primary); border-radius: 50%; animation: ui-spin .75s linear infinite; pointer-events: none; } /* 设置后台页面的布局与视觉样式。 */
 @keyframes ui-spin { to { transform: rotate(360deg); } } /* 设置后台页面的布局与视觉样式。 */
 
 /* 登录页保留平台品牌内容，并采用参考模板的双栏工作台入口。 */
-.login-page { background: linear-gradient(135deg, #edf8f0 0%, #f5f7fa 55%, #e9f4ee 100%); } /* 设置后台页面的布局与视觉样式。 */
-.login-form { border-color: #dfece3; border-radius: 12px; box-shadow: 0 22px 55px rgba(18, 66, 39, .08); } /* 设置后台页面的布局与视觉样式。 */
+.login-page { background: linear-gradient(135deg, #eaf0f8 0%, #f5f7fa 55%, #eef3fa 100%); } /* 登录页与品牌深蓝主色呼应。 */
+.login-form { border-color: #dfe7f1; border-radius: 12px; box-shadow: 0 22px 55px rgba(19, 56, 108, .09); } /* 设置后台页面的布局与视觉样式。 */
 .login-form h2 { letter-spacing: -.02em; } /* 设置后台页面的布局与视觉样式。 */
 .login-mark { border-radius: 8px; } /* 设置后台页面的布局与视觉样式。 */
 .login-field .n-input { width: 100%; min-height: 40px; } /* 设置后台页面的布局与视觉样式。 */
@@ -138,7 +141,7 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 } /* 结束当前样式分组。 */
 @media (max-width: 640px) { /* 按屏幕宽度调整后台布局。 */
   .app-shell { padding-bottom: 66px; } /* 设置后台页面的布局与视觉样式。 */
-  .app-shell .app-aside { width: 100% !important; height: 66px; padding: 6px 8px; background: #fff; } /* 设置后台页面的布局与视觉样式。 */
+  .app-shell .app-aside { width: 100% !important; height: 66px; padding: 6px 8px; background: var(--brand-navy); } /* 手机底部导航保留深蓝主题。 */
   .app-shell .menu-item { min-height: 48px; } /* 设置后台页面的布局与视觉样式。 */
   .topbar { height: 58px; flex-basis: 58px; padding-inline: 12px; } /* 设置后台页面的布局与视觉样式。 */
   .app-tabs { min-height: 40px; padding-inline: 8px; } /* 设置后台页面的布局与视觉样式。 */

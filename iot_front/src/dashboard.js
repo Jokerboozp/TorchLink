@@ -1,4 +1,4 @@
-const colors = ['#0071e3', '#30a46c', '#ff9f0a', '#af52de', '#5ac8fa', '#86868b'] /* 声明 colors。 */
+const colors = ['#13386c', '#3f79b1', '#f38128', '#30a46c', '#7e65a8', '#86868b'] /* 产品分布采用品牌深蓝和火焰色组成的图表配色。 */
 export function count(value) { return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0 } /* 执行当前语句并推进处理流程。 */
 export function deviceSegments(states = {}) { /* 执行当前语句并推进处理流程。 */
   const known = { ONLINE:['在线','#30a46c'], OFFLINE:['离线','#a1a1aa'], SUSPECTED_OFFLINE:['疑似离线','#ff9f0a'], NEVER_SEEN:['待连接','#d9e7f5'], UNKNOWN:['未知','#af52de'] } /* 声明 known。 */

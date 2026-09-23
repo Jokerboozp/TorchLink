@@ -122,5 +122,5 @@ export const UiUpload = defineComponent({ /* 文件拖放交给 Naive UI，保�
 
 export const UiConfigProvider = defineComponent({ /* 全站统一 Naive UI 中文语言和主题。 */
   name: 'UiConfigProvider', inheritAttrs: false, /* 根布局自行管理类名。 */
-  setup(_, { attrs, slots }) { return () => h(NConfigProvider, { ...attrs, locale: zhCN, dateLocale: dateZhCN, themeOverrides: { common: { primaryColor: '#18a058', primaryColorHover: '#36ad6a', primaryColorPressed: '#0c7a43', borderRadius: '6px' } } }, slots) } /* 使用模板风格的绿色主题。 */
+  setup(_, { attrs, slots }) { return () => h(NConfigProvider, { ...attrs, locale: zhCN, dateLocale: dateZhCN, themeOverrides: { common: { primaryColor: '#13386c', primaryColorHover: '#245486', primaryColorPressed: '#0e2c55', borderRadius: '6px' } } }, slots) } /* Naive UI 会解析颜色值，需使用与 --brand-navy 相同的实际色值。 */
 }) /* 结束全站配置。 */
