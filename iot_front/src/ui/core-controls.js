@@ -38,7 +38,7 @@ export const UiTag = defineComponent({ /* 状态标签统一使用 Naive UI。 *
 export const UiAlert = defineComponent({ /* 告警提示统一使用 Naive UI。 */
   name: 'UiAlert', inheritAttrs: false, /* 保留页面自定义类。 */
   props: { title: String, description: String, type: String, closable: { type: Boolean, default: true }, showIcon: Boolean }, /* 保留提示标题和内容。 */
-  setup(props, { attrs, slots }) { return () => h(NAlert, { ...attrs, class: ['el-alert', attrs.class], title: props.title, type: kind(props.type) === 'default' ? 'info' : kind(props.type), closable: props.closable }, { default: () => slots.default?.() || props.description }) } /* 绘制提示内容。 */
+  setup(props, { attrs, slots }) { return () => h(NAlert, { ...attrs, class: ['el-alert', attrs.class], title: props.title, type: kind(props.type) === 'default' ? 'info' : kind(props.type), closable: props.closable }, { header: () => slots.title?.() || props.title, default: () => slots.default?.() || props.description }) } /* 保留业务使用的标题插槽和正文。 */
 }) /* 结束提示适配。 */
 
 export const UiEmpty = defineComponent({ /* 空状态统一使用 Naive UI。 */

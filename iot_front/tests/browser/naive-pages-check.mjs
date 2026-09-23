@@ -38,6 +38,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
       const body = path === '/api/v1/auth/login' ? { accessToken: 'fixture-token', tenantId: 'fixture', role: 'admin', permissions: ['*'] }
         : path === '/api/v1/auth/me' ? { tenantId: 'fixture', role: 'admin', permissions: ['*'] }
         : path === '/api/v1/events' ? { permissions: ['*'], alarms: [], devices: [] }
+        : path.startsWith('/api/v1/raw-messages?') ? { items: [{ messageId: 'raw-demo', receivedAt: Date.now(), productId: 'product-demo', deviceId: 'device-demo', protocol: 'MQTT', parsed: true, parsedMessageType: 'PROPERTY_REPORT', payloadSize: 4, payloadHash: 'fixture-hash' }], total: 1 }
+        : path === '/api/v1/raw-messages/raw-demo' ? { parseStatus: 'PARSED', message: { messageId: 'raw-demo', deviceId: 'device-demo', productId: 'product-demo', payload: 'AA01', receivedAt: Date.now(), protocol: 'MQTT', payloadFormat: 'hex' }, standardMessage: { messageType: 'PROPERTY_REPORT', properties: { temperature: 42 } }, archive: { payloadHash: 'fixture-hash' } }
         : path.startsWith('/api/v1/dashboard?') ? { devices: 0, online: 0, activeAlarms: 0, highAlarms: 0, states: {}, products: [], trend: [], levels: [], updatedAt: Date.now() } : null;
       return body ? Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })) : originalFetch(input, options);
     };
@@ -78,8 +80,54 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate(`document.querySelector('.n-modal [role=switch]').getAttribute('aria-checked') !== ${JSON.stringify(initialSwitch)}`)) /* 确认状态反转。 */
   await evaluate("document.querySelector('.n-modal .n-base-close').click()") /* 离开未保存的设备表单。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 确认弹窗关闭。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"原始报文\"]').click()") /* 打开带解析结果的示例报文。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(row => row.innerText.includes('raw-demo')))")) /* 确认列表取得样本。 */
+  await evaluate("[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(row => row.innerText.includes('raw-demo')).querySelector('button').click()") /* 查看报文详情。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('报文详情与解析结果')))")) /* 等待详情弹窗。 */
+  assert.ok(await evaluate("document.querySelector('.n-modal')?.innerText.includes('标准解析结果') && document.querySelector('.n-modal')?.innerText.includes('原始报文')"), '报文详情缺少原文与解析结果标签') /* 两种记录都须可访问。 */
+  assert.ok(await evaluate("document.querySelector('.n-modal')?.innerText.includes('temperature')"), '报文详情未显示解析后的字段') /* 默认展示解析内容。 */
+  await evaluate("[...document.querySelectorAll('.n-modal .n-tabs-tab')].find(tab => tab.innerText.includes('原始报文')).click()") /* 切换到原始记录。 */
+  await until(() => evaluate("document.querySelector('.n-modal')?.innerText.includes('AA01')")) /* 确认原始载荷可读。 */
+  await evaluate("document.querySelector('.n-modal .n-base-close').click()") /* 关闭报文详情。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"运行总览\"]').click()") /* 检查总览页交互。 */
+  await until(() => evaluate("Boolean(document.querySelector('.dashboard-page .n-radio-group'))")) /* 等待趋势切换。 */
+  assert.ok(await evaluate("(() => {const card=document.querySelector('.stat-card');const label=card.querySelector('span').getBoundingClientRect(),value=card.querySelector('strong').getBoundingClientRect(),note=card.querySelector('small').getBoundingClientRect();return label.bottom<value.top && value.bottom<note.top})()"), '总览统计卡片文字相互重叠') /* 数值和说明必须分行显示。 */
+  assert.ok(await evaluate("document.querySelector('.app-shell').getBoundingClientRect().bottom <= innerHeight + 1"), '工作区超过视口高度，页面无法上下滚动') /* 工作区必须受视口约束。 */
+  assert.ok(await evaluate("(() => {const e=document.querySelector('.main-content');e.scrollTop=200;return e.scrollTop>0})()"), '总览内容无法纵向滚动') /* 超长页面须可滚动。 */
+  await evaluate("document.querySelector('.main-content').scrollTop=0") /* 恢复首屏。 */
+  await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 1000, y: 650, deltaX: 0, deltaY: 320 }) /* 模拟向下滚动。 */
+  await until(() => evaluate("document.querySelector('.main-content').scrollTop > 0")) /* 确认鼠标滚轮可用。 */
+  await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 1000, y: 650, deltaX: 0, deltaY: -320 }) /* 模拟向上滚动。 */
+  await until(() => evaluate("document.querySelector('.main-content').scrollTop === 0")) /* 确认双向滚动。 */
+  await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 100, y: 550, deltaX: 0, deltaY: 300 }) /* 检查侧栏向下滚动。 */
+  await until(() => evaluate("document.querySelector('.menu-scroll').scrollTop > 0")) /* 确认底部菜单可达。 */
+  await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 100, y: 550, deltaX: 0, deltaY: -300 }) /* 检查侧栏向上滚动。 */
+  await until(() => evaluate("document.querySelector('.menu-scroll').scrollTop === 0")) /* 确认侧栏双向滚动。 */
+  assert.ok(await evaluate("(() => {const b=[...document.querySelectorAll('.dashboard-page .n-radio-button')];return b.length===2 && getComputedStyle(b[0]).backgroundColor!==getComputedStyle(b[1]).backgroundColor})()"), '7 天与 30 天切换按钮缺少清晰的选中样式') /* 趋势切换状态须明确。 */
+  await evaluate("[...document.querySelectorAll('.dashboard-page .n-radio-button')][1].click()") /* 切换到近 30 天。 */
+  await until(() => evaluate("[...document.querySelectorAll('.dashboard-page .n-radio-button')][1].classList.contains('n-radio-button--checked')")) /* 确认选中状态同步。 */
+  await evaluate("document.querySelector('[aria-label=\"告警提醒设置\"]').click()") /* 检查设置弹窗。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('告警提醒设置')))")) /* 等待设置弹窗。 */
+  assert.ok(await evaluate("document.querySelector('.n-modal')?.innerText.includes('当前静默时段：')"), '告警提醒设置缺少静默时段说明') /* 提示标题必须显示。 */
+  await delay(250) /* 等待弹窗动画结束后检查布局。 */
+  const settingsCapture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), 'iot-naive-settings.png'), Buffer.from(settingsCapture.data, 'base64')) /* 留存设置弹窗的合成数据截图。 */
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }) /* 检查窄屏设置。 */
+  assert.ok(await evaluate("(() => {const m=document.querySelector('.n-modal'),r=m.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth+1 && [...m.querySelectorAll('.alert-setting-row,.alert-quiet-times,.n-time-picker')].every(e=>{const c=e.getBoundingClientRect();return c.left>=r.left+6 && c.right<=r.right-6})})()"), '窄屏告警设置内容被裁切') /* 控件须留在弹窗范围内。 */
+  await evaluate("document.querySelector('.n-modal .n-base-close').click()") /* 关闭设置弹窗。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 等待关闭。 */
+  assert.ok(await evaluate("document.querySelector('.app-shell').getBoundingClientRect().bottom <= innerHeight + 1"), '窄屏工作区超过视口高度') /* 窄屏滚动区域也须留在视口内。 */
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: true }) /* 缩短视口验证长表单滚动。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 打开长表单所在页面。 */
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '产品管理'")) /* 等待页面切换。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.innerText.includes('新建产品')).click()") /* 打开产品表单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length))")) /* 等待弹窗显示。 */
+  assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),body=modal.querySelector('.n-card-content');body.scrollTop=200;return modal.getBoundingClientRect().bottom<=innerHeight+1 && body.scrollTop>0})()"), '窄屏长弹窗正文无法上下滚动') /* 长表单应在弹窗内部滚动。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭产品表单。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 等待关闭。 */
+  await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
   await evaluate("document.querySelector('[aria-label=\"打开用户菜单\"]').click()") /* 打开账户菜单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-dropdown-option')].find(option => option.getClientRects().length && option.innerText.includes('退出登录')))")) /* 确认账户操作可见。 */
+  assert.notEqual(await evaluate("getComputedStyle([...document.querySelectorAll('.n-dropdown-menu')].find(menu => menu.getClientRects().length)).display"), 'flex', '账户菜单被横向 flex 样式破坏') /* 菜单须按列表纵向排布。 */
   await evaluate("[...document.querySelectorAll('.n-dropdown-option')].find(option => option.getClientRects().length && option.innerText.includes('退出登录')).querySelector('.n-dropdown-option-body').click()") /* 执行退出登录。 */
   await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))")) /* 确认退出后返回登录页。 */
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`) /* 不接受未处理的页面错误。 */

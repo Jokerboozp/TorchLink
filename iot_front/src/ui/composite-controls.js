@@ -54,7 +54,10 @@ export const UiTabs = defineComponent({ /* 标签页使用 Naive UI，保持原�
   name: 'UiTabs', inheritAttrs: false, /* 保留页面标签栏类名。 */
   props: { modelValue: [String, Number], type: String }, /* 当前标签页。 */
   emits: ['update:modelValue', 'tab-change', 'tab-click'], /* 保留旧业务事件。 */
-  setup(props, { attrs, slots, emit }) { return () => h(NTabs, { ...attrs, class: ['el-tabs', attrs.class], value: props.modelValue, type: props.type === 'border-card' ? 'card' : 'line', size: 'small', 'onUpdate:value': value => { emit('update:modelValue', value); emit('tab-change', value); emit('tab-click', { props: { name: value } }) } }, slots) } /* 绘制 Naive UI 标签页。 */
+  setup(props, { attrs, slots, emit }) { return () => { /* 把业务页签声明转换为 Naive UI 直接子节点。 */
+    const panes = nested(slots.default?.()).filter(node => node.type === UiTabPane || node.type?.name === 'UiTabPane').map(node => h(NTabPane, { ...node.props, name: node.props?.name || node.props?.label, tab: node.props?.label }, node.children)) /* 保留动态页签和内部内容。 */
+    return h(NTabs, { ...attrs, class: ['el-tabs', attrs.class], value: props.modelValue, type: props.type === 'border-card' ? 'card' : 'line', size: 'small', 'onUpdate:value': value => { emit('update:modelValue', value); emit('tab-change', value); emit('tab-click', { props: { name: value } }) } }, { default: () => panes }) /* 绘制 Naive UI 标签页。 */
+  } } /* 结束标签页渲染。 */
 }) /* 结束标签页适配。 */
 
 export const UiTabPane = defineComponent({ /* 标签页内容直接交给 Naive UI。 */
@@ -102,7 +105,8 @@ export const UiDropdown = defineComponent({ /* 账户菜单等悬浮菜单使用
   setup(_, { attrs, slots, emit }) { return () => { /* 根据下拉插槽生成 Naive UI 选项。 */
     const menus = nested(slots.dropdown?.()).flatMap(node => node.type === UiDropdownMenu || node.type?.name === 'UiDropdownMenu' ? nested(node.children?.default?.()) : [node]) /* 展开菜单容器。 */
     const options = menus.filter(node => node.type === UiDropdownItem || node.type?.name === 'UiDropdownItem').map(node => ({ key: node.props?.command, label: () => node.children?.default?.() || node.props?.command, disabled: node.props?.disabled })) /* 使用渲染函数保留菜单图标与文字。 */
-    return h(NDropdown, { ...attrs, options, trigger: 'click', onSelect: key => emit('command', key) }, { default: () => slots.default?.() }) /* 绘制 Naive UI 下拉菜单。 */
+    const { class: triggerClass, style: triggerStyle, ...dropdownAttrs } = attrs /* 触发器布局类不能传到弹出的菜单。 */
+    return h('div', { class: triggerClass, style: triggerStyle }, [h(NDropdown, { ...dropdownAttrs, options, trigger: 'click', onSelect: key => emit('command', key) }, { default: () => slots.default?.() })]) /* 分别绘制触发器与 Naive UI 弹出菜单。 */
   } } /* 结束菜单渲染。 */
 }) /* 结束下拉菜单适配。 */
 
