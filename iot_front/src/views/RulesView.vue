@@ -1,268 +1,268 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate'])
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
-import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
+defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
+import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
+import { ElMessage, ElMessageBox } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { api, apiAll, notifyError, parseJSON, pretty } from '../api' /* 引入当前代码需要的依赖。 */
+import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 
-const rules = ref([])
-const products = ref([])
-const dialog = ref(false)
-const draftDialog = ref(false)
-const readonly = ref(false)
-const loading = ref(false)
-const prompt = ref('')
-const draft = ref(null)
-const draftPresentation = ref(null)
-const drafting = ref(false)
-const draftError = ref('')
-const page = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
-const fieldDescriptions = [
-  { field:'name', meaning:'规则名称，只用于识别和审计。', example:'高温烟雾复合告警' },
-  { field:'description', meaning:'用中文解释这条规则为什么存在、命中后意味着什么。结构化数据不使用注释字段。', example:'温度过高且烟雾信号同时出现' },
-  { field:'productId', meaning:'可选的物模型产品标识；填写后只对该产品的设备计算。', example:'smoke-detector-v1' },
-  { field:'alarmType', meaning:'命中后生成的告警类型。', example:'FIRE_RISK' },
-  { field:'level', meaning:'告警等级：CRITICAL / HIGH / MEDIUM / LOW / INFO。', example:'HIGH' },
-  { field:'match', meaning:'all=全部条件满足；any=任一条件满足。', example:'all' },
-  { field:'conditions', meaning:'触发条件数组；按 match 字段组合。', example:'[{"field":"temperature","operator":">","value":80}]' },
-  { field:'conditions[].field', meaning:'标准消息字段；不写前缀时优先读取 properties，也可写 properties./tags./event.。', example:'temperature' },
-  { field:'conditions[].operator', meaning:'比较方式，如 eq、gt、gte、lt、contains、in、exists。', example:'>' },
-  { field:'conditions[].value', meaning:'和设备上报值比较的目标值，类型要和物模型一致。', example:'80' },
-  { field:'durationSeconds', meaning:'条件连续满足多少秒后触发；0 表示立即触发。', example:'30' },
-  { field:'recovery', meaning:'恢复条件数组，满足后关闭规则告警。', example:'temperature < 70' },
-  { field:'recovery[].field', meaning:'恢复判断读取的标准消息字段，字段路径规则与触发条件相同。', example:'temperature' },
-  { field:'recovery[].operator', meaning:'恢复判断使用的比较方式。', example:'lt' },
-  { field:'recovery[].value', meaning:'恢复判断的目标值，类型应与设备上报值一致。', example:'70' },
-  { field:'actions', meaning:'告警后的前端联动数组，只允许打开已登记摄像头或平台页面。', example:'[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' },
-  { field:'actions[].type', meaning:'联动类型：OPEN_CAMERA 或 OPEN_PAGE。', example:'OPEN_CAMERA' },
-  { field:'actions[].cameraId', meaning:'OPEN_CAMERA 要打开的摄像头标识，服务端会校验租户归属。', example:'camera-001' },
-  { field:'actions[].page', meaning:'OPEN_PAGE 要打开的平台页面代码，不能填写外部 URL。', example:'alarms' },
-  { field:'expression', meaning:'可选规则引擎表达式；填写后运行时优先使用它，智能草稿默认不启用。', example:'Properties["temperature"] > 80' },
-  { field:'enabled', meaning:'是否参与实时告警计算；智能生成的规则默认关闭。', example:'false' }
-]
-const blank = () => ({ id:'', name:'', description:'', alarmType:'FIRE_RISK', level:'HIGH', productId:'', match:'all', expression:'', genginePlaceholder:'', conditions:pretty([{ field:'temperature', operator:'>', value:80 }]), recovery:'[]', actions:'[]', durationSeconds:0, enabled:true })
-const form = reactive(blank())
+const rules = ref([]) /* 声明 rules。 */
+const products = ref([]) /* 声明 products。 */
+const dialog = ref(false) /* 声明 dialog。 */
+const draftDialog = ref(false) /* 声明 draftDialog。 */
+const readonly = ref(false) /* 声明 readonly。 */
+const loading = ref(false) /* 声明 loading。 */
+const prompt = ref('') /* 声明 prompt。 */
+const draft = ref(null) /* 声明 draft。 */
+const draftPresentation = ref(null) /* 声明 draftPresentation。 */
+const drafting = ref(false) /* 声明 drafting。 */
+const draftError = ref('') /* 声明 draftError。 */
+const page = ref(1) /* 声明 page。 */
+const pageSize = ref(20) /* 声明 pageSize。 */
+const total = ref(0) /* 声明 total。 */
+const fieldDescriptions = [ /* 声明 fieldDescriptions。 */
+  { field:'name', meaning:'规则名称，只用于识别和审计。', example:'高温烟雾复合告警' }, /* 执行当前语句并推进处理流程。 */
+  { field:'description', meaning:'用中文解释这条规则为什么存在、命中后意味着什么。结构化数据不使用注释字段。', example:'温度过高且烟雾信号同时出现' }, /* 执行当前语句并推进处理流程。 */
+  { field:'productId', meaning:'可选的物模型产品标识；填写后只对该产品的设备计算。', example:'smoke-detector-v1' }, /* 执行当前语句并推进处理流程。 */
+  { field:'alarmType', meaning:'命中后生成的告警类型。', example:'FIRE_RISK' }, /* 执行当前语句并推进处理流程。 */
+  { field:'level', meaning:'告警等级：CRITICAL / HIGH / MEDIUM / LOW / INFO。', example:'HIGH' }, /* 执行当前语句并推进处理流程。 */
+  { field:'match', meaning:'all=全部条件满足；any=任一条件满足。', example:'all' }, /* 执行当前语句并推进处理流程。 */
+  { field:'conditions', meaning:'触发条件数组；按 match 字段组合。', example:'[{"field":"temperature","operator":">","value":80}]' }, /* 执行当前语句并推进处理流程。 */
+  { field:'conditions[].field', meaning:'标准消息字段；不写前缀时优先读取 properties，也可写 properties./tags./event.。', example:'temperature' }, /* 执行当前语句并推进处理流程。 */
+  { field:'conditions[].operator', meaning:'比较方式，如 eq、gt、gte、lt、contains、in、exists。', example:'>' }, /* 执行当前语句并推进处理流程。 */
+  { field:'conditions[].value', meaning:'和设备上报值比较的目标值，类型要和物模型一致。', example:'80' }, /* 执行当前语句并推进处理流程。 */
+  { field:'durationSeconds', meaning:'条件连续满足多少秒后触发；0 表示立即触发。', example:'30' }, /* 执行当前语句并推进处理流程。 */
+  { field:'recovery', meaning:'恢复条件数组，满足后关闭规则告警。', example:'temperature < 70' }, /* 执行当前语句并推进处理流程。 */
+  { field:'recovery[].field', meaning:'恢复判断读取的标准消息字段，字段路径规则与触发条件相同。', example:'temperature' }, /* 执行当前语句并推进处理流程。 */
+  { field:'recovery[].operator', meaning:'恢复判断使用的比较方式。', example:'lt' }, /* 执行当前语句并推进处理流程。 */
+  { field:'recovery[].value', meaning:'恢复判断的目标值，类型应与设备上报值一致。', example:'70' }, /* 执行当前语句并推进处理流程。 */
+  { field:'actions', meaning:'告警后的前端联动数组，只允许打开已登记摄像头或平台页面。', example:'[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' }, /* 执行当前语句并推进处理流程。 */
+  { field:'actions[].type', meaning:'联动类型：OPEN_CAMERA 或 OPEN_PAGE。', example:'OPEN_CAMERA' }, /* 执行当前语句并推进处理流程。 */
+  { field:'actions[].cameraId', meaning:'OPEN_CAMERA 要打开的摄像头标识，服务端会校验租户归属。', example:'camera-001' }, /* 执行当前语句并推进处理流程。 */
+  { field:'actions[].page', meaning:'OPEN_PAGE 要打开的平台页面代码，不能填写外部 URL。', example:'alarms' }, /* 执行当前语句并推进处理流程。 */
+  { field:'expression', meaning:'可选规则引擎表达式；填写后运行时优先使用它，智能草稿默认不启用。', example:'Properties["temperature"] > 80' }, /* 执行当前语句并推进处理流程。 */
+  { field:'enabled', meaning:'是否参与实时告警计算；智能生成的规则默认关闭。', example:'false' } /* 执行当前语句并推进处理流程。 */
+] /* 结束当前表达式或代码块。 */
+const blank = () => ({ id:'', name:'', description:'', alarmType:'FIRE_RISK', level:'HIGH', productId:'', match:'all', expression:'', genginePlaceholder:'', conditions:pretty([{ field:'temperature', operator:'>', value:80 }]), recovery:'[]', actions:'[]', durationSeconds:0, enabled:true }) /* 声明 blank。 */
+const form = reactive(blank()) /* 声明 form。 */
 
-let loadVersion = 0
-async function load() {
-  const version = ++loadVersion
-  loading.value = true
-  try {
-    const [rulesData, productData] = await Promise.all([
-      api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`),
-      apiAll('/api/v1/products')
-    ])
-    if (version !== loadVersion) return
-    rules.value = rulesData.items || []
-    total.value = Number(rulesData.total ?? rulesData.count ?? rules.value.length)
-    products.value = productData.items || []
-  } catch (error) {
-    if (version === loadVersion) notifyError(error)
-  } finally {
-    if (version === loadVersion) loading.value = false
-  }
-}
+let loadVersion = 0 /* 声明 loadVersion。 */
+async function load() { /* 定义 load 函数。 */
+  const version = ++loadVersion /* 声明 version。 */
+  loading.value = true /* 更新 loading.value 的值。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const [rulesData, productData] = await Promise.all([ /* 执行当前语句并推进处理流程。 */
+      api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`), /* 执行当前语句并推进处理流程。 */
+      apiAll('/api/v1/products') /* 执行当前语句并推进处理流程。 */
+    ]) /* 结束当前表达式或代码块。 */
+    if (version !== loadVersion) return /* 判断条件并选择处理分支。 */
+    rules.value = rulesData.items || [] /* 更新 rules.value 的值。 */
+    total.value = Number(rulesData.total ?? rulesData.count ?? rules.value.length) /* 更新 total.value 的值。 */
+    products.value = productData.items || [] /* 更新 products.value 的值。 */
+  } catch (error) { /* 结束当前表达式或代码块。 */
+    if (version === loadVersion) notifyError(error) /* 判断条件并选择处理分支。 */
+  } finally { /* 结束当前表达式或代码块。 */
+    if (version === loadVersion) loading.value = false /* 判断条件并选择处理分支。 */
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function changePage(value) {
-  page.value = value
-  load()
-}
+function changePage(value) { /* 定义 changePage 函数。 */
+  page.value = value /* 更新 page.value 的值。 */
+  load() /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+function changePageSize(value) { /* 定义 changePageSize 函数。 */
+  pageSize.value = value /* 更新 pageSize.value 的值。 */
+  page.value = 1 /* 更新 page.value 的值。 */
+  load() /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-function open(value, presentation = null) {
-  Object.assign(form, blank(), value ? { ...value, conditions:pretty(value.conditions || (value.expression ? [] : [{ field:'temperature', operator:'>', value:80 }])), recovery:pretty(value.recovery || []), actions:pretty(value.actions || []), expression:value.expression || '', genginePlaceholder:presentation?.genginePlaceholder || value.genginePlaceholder || '' } : {})
-  readonly.value = false
-  dialog.value = true
-}
+function open(value, presentation = null) { /* 定义 open 函数。 */
+  Object.assign(form, blank(), value ? { ...value, conditions:pretty(value.conditions || (value.expression ? [] : [{ field:'temperature', operator:'>', value:80 }])), recovery:pretty(value.recovery || []), actions:pretty(value.actions || []), expression:value.expression || '', genginePlaceholder:presentation?.genginePlaceholder || value.genginePlaceholder || '' } : {}) /* 执行当前语句并推进处理流程。 */
+  readonly.value = false /* 更新 readonly.value 的值。 */
+  dialog.value = true /* 更新 dialog.value 的值。 */
+} /* 结束当前表达式或代码块。 */
 
-function view(value) {
-  open(value)
-  readonly.value = true
-}
+function view(value) { /* 定义 view 函数。 */
+  open(value) /* 执行当前语句并推进处理流程。 */
+  readonly.value = true /* 更新 readonly.value 的值。 */
+} /* 结束当前表达式或代码块。 */
 
-function startEdit() {
-  readonly.value = false
-}
+function startEdit() { /* 定义 startEdit 函数。 */
+  readonly.value = false /* 更新 readonly.value 的值。 */
+} /* 结束当前表达式或代码块。 */
 
-async function save() {
-  try {
-    const value = { ...form, expression:form.expression.trim(), conditions:parseJSON(form.conditions || '[]', '触发条件'), recovery:parseJSON(form.recovery || '[]', '恢复条件'), actions:parseJSON(form.actions || '[]', '联动动作'), durationSeconds:Number(form.durationSeconds) || 0 }
-    if (!Array.isArray(value.conditions) || !Array.isArray(value.recovery) || !Array.isArray(value.actions)) throw new Error('条件、恢复条件和联动动作必须是结构化数据数组')
-    if (!value.expression && !value.conditions.length) throw new Error('规则引擎表达式与条件结构化数据至少填写一种')
-    const id = value.id
-    delete value.id
-    delete value.genginePlaceholder
-    await api(id ? `/api/v1/rules/${encodeURIComponent(id)}` : '/api/v1/rules', { method:id ? 'PUT' : 'POST', body:JSON.stringify(value) })
-    ElMessage.success('规则已保存')
-    dialog.value = false
-    await load()
-  } catch (error) {
-    notifyError(error)
-  }
-}
+async function save() { /* 定义 save 函数。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const value = { ...form, expression:form.expression.trim(), conditions:parseJSON(form.conditions || '[]', '触发条件'), recovery:parseJSON(form.recovery || '[]', '恢复条件'), actions:parseJSON(form.actions || '[]', '联动动作'), durationSeconds:Number(form.durationSeconds) || 0 } /* 声明 value。 */
+    if (!Array.isArray(value.conditions) || !Array.isArray(value.recovery) || !Array.isArray(value.actions)) throw new Error('条件、恢复条件和联动动作必须是结构化数据数组') /* 判断条件并选择处理分支。 */
+    if (!value.expression && !value.conditions.length) throw new Error('规则引擎表达式与条件结构化数据至少填写一种') /* 判断条件并选择处理分支。 */
+    const id = value.id /* 声明 id。 */
+    delete value.id /* 执行当前语句并推进处理流程。 */
+    delete value.genginePlaceholder /* 执行当前语句并推进处理流程。 */
+    await api(id ? `/api/v1/rules/${encodeURIComponent(id)}` : '/api/v1/rules', { method:id ? 'PUT' : 'POST', body:JSON.stringify(value) }) /* 等待异步操作完成。 */
+    ElMessage.success('规则已保存') /* 执行当前语句并推进处理流程。 */
+    dialog.value = false /* 更新 dialog.value 的值。 */
+    await load() /* 等待异步操作完成。 */
+  } catch (error) { /* 结束当前表达式或代码块。 */
+    notifyError(error) /* 执行当前语句并推进处理流程。 */
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-async function remove(id) {
-  try {
-    await ElMessageBox.confirm('删除后规则将不再参与告警计算，历史告警仍会保留。', '删除规则', { type:'warning' })
-    await api(`/api/v1/rules/${encodeURIComponent(id)}`, { method:'DELETE' })
-    ElMessage.success('规则已删除')
-    await load()
-  } catch (error) {
-    if (error !== 'cancel') notifyError(error)
-  }
-}
+async function remove(id) { /* 定义 remove 函数。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    await ElMessageBox.confirm('删除后规则将不再参与告警计算，历史告警仍会保留。', '删除规则', { type:'warning' }) /* 等待异步操作完成。 */
+    await api(`/api/v1/rules/${encodeURIComponent(id)}`, { method:'DELETE' }) /* 等待异步操作完成。 */
+    ElMessage.success('规则已删除') /* 执行当前语句并推进处理流程。 */
+    await load() /* 等待异步操作完成。 */
+  } catch (error) { /* 结束当前表达式或代码块。 */
+    if (error !== 'cancel') notifyError(error) /* 判断条件并选择处理分支。 */
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function openDraft() {
-  draftError.value = ''
-  draftDialog.value = true
-  draftPresentation.value = null
-}
+function openDraft() { /* 定义 openDraft 函数。 */
+  draftError.value = '' /* 更新 draftError.value 的值。 */
+  draftDialog.value = true /* 更新 draftDialog.value 的值。 */
+  draftPresentation.value = null /* 更新 draftPresentation.value 的值。 */
+} /* 结束当前表达式或代码块。 */
 
-async function createDraft() {
-  if (!prompt.value.trim()) {
-    draftError.value = '请输入规则要求'
-    return
-  }
-  drafting.value = true
-  draftError.value = ''
-  draft.value = null
-  try {
-    const data = await api('/api/v1/ai/rule-draft', { method:'POST', body:JSON.stringify({ text:prompt.value.trim() }) })
-    draft.value = data.draft
-    draftPresentation.value = data.presentation || null
-  } catch(e) {
-    draftError.value=e?.message||String(e)
-    notifyError(e)
-  } finally {
-    drafting.value = false
-  }
-}
+async function createDraft() { /* 定义 createDraft 函数。 */
+  if (!prompt.value.trim()) { /* 判断条件并选择处理分支。 */
+    draftError.value = '请输入规则要求' /* 更新 draftError.value 的值。 */
+    return /* 返回当前处理结果。 */
+  } /* 结束当前表达式或代码块。 */
+  drafting.value = true /* 更新 drafting.value 的值。 */
+  draftError.value = '' /* 更新 draftError.value 的值。 */
+  draft.value = null /* 更新 draft.value 的值。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const data = await api('/api/v1/ai/rule-draft', { method:'POST', body:JSON.stringify({ text:prompt.value.trim() }) }) /* 声明 data。 */
+    draft.value = data.draft /* 更新 draft.value 的值。 */
+    draftPresentation.value = data.presentation || null /* 更新 draftPresentation.value 的值。 */
+  } catch(e) { /* 结束当前表达式或代码块。 */
+    draftError.value=e?.message||String(e) /* 更新 draftError.value 的值。 */
+    notifyError(e) /* 执行当前语句并推进处理流程。 */
+  } finally { /* 结束当前表达式或代码块。 */
+    drafting.value = false /* 更新 drafting.value 的值。 */
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function useDraft() {
-  open({ ...draft.value, id:'', enabled:false }, draftPresentation.value)
-  draftDialog.value = false
-}
+function useDraft() { /* 定义 useDraft 函数。 */
+  open({ ...draft.value, id:'', enabled:false }, draftPresentation.value) /* 执行当前语句并推进处理流程。 */
+  draftDialog.value = false /* 更新 draftDialog.value 的值。 */
+} /* 结束当前表达式或代码块。 */
 
-function conditionText(item) {
-  if (item.expression) return item.expression
-  if (Array.isArray(item.conditions) && item.conditions.length) return `${item.conditions.length} 个条件 · ${item.match === 'any' ? '任一满足' : '全部满足'}`
-  return '未配置条件'
-}
+function conditionText(item) { /* 定义 conditionText 函数。 */
+  if (item.expression) return item.expression /* 判断条件并选择处理分支。 */
+  if (Array.isArray(item.conditions) && item.conditions.length) return `${item.conditions.length} 个条件 · ${item.match === 'any' ? '任一满足' : '全部满足'}` /* 判断条件并选择处理分支。 */
+  return '未配置条件' /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-function actionText(item) {
-  if (!Array.isArray(item.actions) || !item.actions.length) return '无联动动作'
-  return item.actions.map(action => action.type || '动作').join('、')
-}
+function actionText(item) { /* 定义 actionText 函数。 */
+  if (!Array.isArray(item.actions) || !item.actions.length) return '无联动动作' /* 判断条件并选择处理分支。 */
+  return item.actions.map(action => action.type || '动作').join('、') /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-onMounted(async () => {
-  await load()
-  const raw = sessionStorage.getItem('iot:navigation-detail')
-  if (!raw) return
-  try {
-    const detail = JSON.parse(raw)
-    if (detail.ruleDraft) {
-      sessionStorage.removeItem('iot:navigation-detail')
-      open({ ...detail.ruleDraft, ...(detail.persisted ? {} : { id:'' }), enabled:false })
-    }
-  } catch {
+onMounted(async () => { /* 执行当前语句并推进处理流程。 */
+  await load() /* 等待异步操作完成。 */
+  const raw = sessionStorage.getItem('iot:navigation-detail') /* 声明 raw。 */
+  if (!raw) return /* 判断条件并选择处理分支。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const detail = JSON.parse(raw) /* 声明 detail。 */
+    if (detail.ruleDraft) { /* 判断条件并选择处理分支。 */
+      sessionStorage.removeItem('iot:navigation-detail') /* 执行当前语句并推进处理流程。 */
+      open({ ...detail.ruleDraft, ...(detail.persisted ? {} : { id:'' }), enabled:false }) /* 执行当前语句并推进处理流程。 */
+    } /* 结束当前表达式或代码块。 */
+  } catch { /* 结束当前表达式或代码块。 */
     // ignore invalid navigation detail
-  }
-})
+  } /* 结束当前表达式或代码块。 */
+}) /* 结束当前表达式或代码块。 */
 </script>
 
 <template>
-  <div class="page-toolbar">
-    <el-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()">手动添加规则</el-button>
-    <el-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft">智能生成规则草稿</el-button>
-    <el-button :loading="loading" @click="load">刷新</el-button>
-    <span>共 {{ total }} 条规则，详情、编辑和删除操作位于列表右侧。</span>
-  </div>
+  <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
+    <el-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()">手动添加规则</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <el-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft">智能生成规则草稿</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <el-button :loading="loading" @click="load">刷新</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <span>共 {{ total }} 条规则，详情、编辑和删除操作位于列表右侧。</span> <!-- 渲染 span 界面元素。 -->
+  </div> <!-- 结束当前界面区域。 -->
 
-  <el-card shadow="never" class="surface-card table-card">
-    <el-table v-loading="loading" :data="rules" stripe>
-      <el-table-column label="规则" min-width="230">
+  <el-card shadow="never" class="surface-card table-card"> <!-- 渲染 el-card 界面元素。 -->
+    <el-table v-loading="loading" :data="rules" stripe> <!-- 渲染 el-table 界面元素。 -->
+      <el-table-column label="规则" min-width="230"> <!-- 渲染 el-table-column 界面元素。 -->
         <template #default="{ row }"><b>{{ row.name }}</b><small class="subline">{{ row.id }}</small></template>
-      </el-table-column>
-      <el-table-column label="告警类型" min-width="135"><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></el-table-column>
-      <el-table-column label="等级" width="100" align="center"><template #default="{ row }"><el-tag :type="tagType(row.level)" round>{{ label(alarmLevels, row.level, '未设置') }}</el-tag></template></el-table-column>
-      <el-table-column label="状态" width="100" align="center"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '草稿' }}</el-tag></template></el-table-column>
-      <el-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></el-table-column>
-      <el-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></el-table-column>
-      <el-table-column label="操作" width="280" fixed="right" align="center">
+      </el-table-column> <!-- 结束当前界面区域。 -->
+      <el-table-column label="告警类型" min-width="135"><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
+      <el-table-column label="等级" width="100" align="center"><template #default="{ row }"><el-tag :type="tagType(row.level)" round>{{ label(alarmLevels, row.level, '未设置') }}</el-tag></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
+      <el-table-column label="状态" width="100" align="center"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '草稿' }}</el-tag></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
+      <el-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
+      <el-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
+      <el-table-column label="操作" width="280" fixed="right" align="center"> <!-- 渲染 el-table-column 界面元素。 -->
         <template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="view(row)">详情</el-button><el-button v-permission="'PUT /api/v1/rules/:id'" plain type="primary" @click="open(row)">编辑</el-button><el-button v-permission="'DELETE /api/v1/rules/:id'" plain type="danger" @click="remove(row.id)">删除</el-button></div></template>
-      </el-table-column>
+      </el-table-column> <!-- 结束当前界面区域。 -->
       <template #empty><el-empty description="暂无规则，可手动添加或使用智能生成草稿" /></template>
-    </el-table>
-    <div class="list-pagination">
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" />
-    </div>
-  </el-card>
+    </el-table> <!-- 结束当前界面区域。 -->
+    <div class="list-pagination"> <!-- 渲染 div 界面元素。 -->
+      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /> <!-- 渲染 el-pagination 界面元素。 -->
+    </div> <!-- 结束当前界面区域。 -->
+  </el-card> <!-- 结束当前界面区域。 -->
 
-  <el-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)">
-    <el-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" />
-    <el-button v-permission="'POST /api/v1/ai/rule-draft'" class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</el-button>
-    <el-alert v-if="draftError" class="top-gap" type="error" :closable="false" show-icon title="规则草稿生成失败" :description="draftError" />
-    <el-card v-if="draft" shadow="never" class="inner-card top-gap">
-      <el-descriptions :column="1">
-        <el-descriptions-item label="规则名称">{{ draft.name || '未命名' }}</el-descriptions-item>
-        <el-descriptions-item label="规则含义">{{ draft.description || '智能未提供说明，请在编辑页补充。' }}</el-descriptions-item>
-        <el-descriptions-item label="告警类型">{{ alarmType(draft.alarmType) }}</el-descriptions-item>
-        <el-descriptions-item label="告警等级">{{ label(alarmLevels, draft.level, '未设置') }}</el-descriptions-item>
-        <el-descriptions-item label="启用状态">待人工确认</el-descriptions-item>
-      </el-descriptions>
-      <el-alert class="top-gap" title="结构化数据不支持标准注释" description="可执行结构化数据保持纯净；字段含义、条件运算符和规则引擎替代写法在下面单独展示，避免把说明误当成运行字段。" type="info" :closable="false" show-icon />
-      <el-form label-position="top" class="top-gap">
-        <el-form-item label="智能生成的规则配置"><el-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly /></el-form-item>
-        <el-form-item label="可选规则引擎表达式（默认注释展示，不会自动启用）"><el-input :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'" type="textarea" :rows="5" readonly /></el-form-item>
-      </el-form>
-      <div class="rule-help-title">字段说明</div>
-      <el-table :data="draftPresentation?.fieldDescriptions || fieldDescriptions" size="small" border class="top-gap">
-        <el-table-column prop="field" label="字段" width="210" />
-        <el-table-column prop="meaning" label="含义" min-width="300" />
-        <el-table-column prop="example" label="示例" min-width="180" />
-      </el-table>
-      <el-button @click="useDraft">载入草稿并编辑</el-button>
-    </el-card>
+  <el-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)"> <!-- 渲染 el-dialog 界面元素。 -->
+    <el-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" /> <!-- 渲染 el-input 界面元素。 -->
+    <el-button v-permission="'POST /api/v1/ai/rule-draft'" class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <el-alert v-if="draftError" class="top-gap" type="error" :closable="false" show-icon title="规则草稿生成失败" :description="draftError" /> <!-- 渲染 el-alert 界面元素。 -->
+    <el-card v-if="draft" shadow="never" class="inner-card top-gap"> <!-- 渲染 el-card 界面元素。 -->
+      <el-descriptions :column="1"> <!-- 渲染 el-descriptions 界面元素。 -->
+        <el-descriptions-item label="规则名称">{{ draft.name || '未命名' }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
+        <el-descriptions-item label="规则含义">{{ draft.description || '智能未提供说明，请在编辑页补充。' }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
+        <el-descriptions-item label="告警类型">{{ alarmType(draft.alarmType) }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
+        <el-descriptions-item label="告警等级">{{ label(alarmLevels, draft.level, '未设置') }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
+        <el-descriptions-item label="启用状态">待人工确认</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
+      </el-descriptions> <!-- 结束当前界面区域。 -->
+      <el-alert class="top-gap" title="结构化数据不支持标准注释" description="可执行结构化数据保持纯净；字段含义、条件运算符和规则引擎替代写法在下面单独展示，避免把说明误当成运行字段。" type="info" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+      <el-form label-position="top" class="top-gap"> <!-- 渲染 el-form 界面元素。 -->
+        <el-form-item label="智能生成的规则配置"><el-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+        <el-form-item label="可选规则引擎表达式（默认注释展示，不会自动启用）"><el-input :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'" type="textarea" :rows="5" readonly /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      </el-form> <!-- 结束当前界面区域。 -->
+      <div class="rule-help-title">字段说明</div> <!-- 渲染 div 界面元素。 -->
+      <el-table :data="draftPresentation?.fieldDescriptions || fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 el-table 界面元素。 -->
+        <el-table-column prop="field" label="字段" width="210" /> <!-- 渲染 el-table-column 界面元素。 -->
+        <el-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 el-table-column 界面元素。 -->
+        <el-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 el-table-column 界面元素。 -->
+      </el-table> <!-- 结束当前界面区域。 -->
+      <el-button @click="useDraft">载入草稿并编辑</el-button> <!-- 渲染 el-button 界面元素。 -->
+    </el-card> <!-- 结束当前界面区域。 -->
     <template #footer><el-button @click="draftDialog=false">关闭</el-button></template>
-  </el-dialog>
+  </el-dialog> <!-- 结束当前界面区域。 -->
 
-  <el-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)">
-    <el-form :model="form" label-position="top" :disabled="readonly">
-      <el-form-item label="规则名称"><el-input v-model="form.name" /></el-form-item>
-      <el-form-item label="规则说明"><el-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></el-form-item>
-      <div class="form-grid">
-        <el-form-item label="告警类型"><el-select v-model="form.alarmType"><el-option v-for="(text,key) in alarmTypes" :key="key" :label="text" :value="key" /></el-select></el-form-item>
-        <el-form-item label="告警等级"><el-select v-model="form.level"><el-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></el-select></el-form-item>
-        <el-form-item label="所属产品（可选）"><el-select v-model="form.productId" clearable><el-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></el-select></el-form-item>
-        <el-form-item label="条件关系"><el-select v-model="form.match"><el-option label="全部满足" value="all" /><el-option label="任一满足" value="any" /></el-select></el-form-item>
-      </div>
-      <el-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" />
-      <el-form-item label="规则引擎表达式（可选，填入后优先执行）"><el-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></el-form-item>
-      <el-form-item label="触发条件结构化数据"><el-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></el-form-item>
-      <el-form-item label="恢复条件结构化数据"><el-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></el-form-item>
-      <el-form-item label="联动动作结构化数据"><el-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></el-form-item>
-      <div class="form-grid"><el-form-item label="持续秒数"><el-input-number v-model="form.durationSeconds" :min="0" /></el-form-item><el-form-item label="保存后状态"><el-switch v-model="form.enabled" active-text="立即启用" inactive-text="保存为草稿" /></el-form-item></div>
-      <div class="rule-help-title">字段说明</div>
-      <el-table :data="fieldDescriptions" size="small" border class="top-gap">
-        <el-table-column prop="field" label="字段" width="210" />
-        <el-table-column prop="meaning" label="含义" min-width="300" />
-        <el-table-column prop="example" label="示例" min-width="180" />
-      </el-table>
-    </el-form>
+  <el-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)"> <!-- 渲染 el-dialog 界面元素。 -->
+    <el-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 el-form 界面元素。 -->
+      <el-form-item label="规则名称"><el-input v-model="form.name" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      <el-form-item label="规则说明"><el-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      <div class="form-grid"> <!-- 渲染 div 界面元素。 -->
+        <el-form-item label="告警类型"><el-select v-model="form.alarmType"><el-option v-for="(text,key) in alarmTypes" :key="key" :label="text" :value="key" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+        <el-form-item label="告警等级"><el-select v-model="form.level"><el-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+        <el-form-item label="所属产品（可选）"><el-select v-model="form.productId" clearable><el-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+        <el-form-item label="条件关系"><el-select v-model="form.match"><el-option label="全部满足" value="all" /><el-option label="任一满足" value="any" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      </div> <!-- 结束当前界面区域。 -->
+      <el-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" /> <!-- 渲染 el-alert 界面元素。 -->
+      <el-form-item label="规则引擎表达式（可选，填入后优先执行）"><el-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      <el-form-item label="触发条件结构化数据"><el-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      <el-form-item label="恢复条件结构化数据"><el-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      <el-form-item label="联动动作结构化数据"><el-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+      <div class="form-grid"><el-form-item label="持续秒数"><el-input-number v-model="form.durationSeconds" :min="0" /></el-form-item><el-form-item label="保存后状态"><el-switch v-model="form.enabled" active-text="立即启用" inactive-text="保存为草稿" /></el-form-item></div> <!-- 渲染 div 界面元素。 -->
+      <div class="rule-help-title">字段说明</div> <!-- 渲染 div 界面元素。 -->
+      <el-table :data="fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 el-table 界面元素。 -->
+        <el-table-column prop="field" label="字段" width="210" /> <!-- 渲染 el-table-column 界面元素。 -->
+        <el-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 el-table-column 界面元素。 -->
+        <el-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 el-table-column 界面元素。 -->
+      </el-table> <!-- 结束当前界面区域。 -->
+    </el-form> <!-- 结束当前界面区域。 -->
     <template #footer><el-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</el-button><el-button @click="dialog=false">关闭</el-button><el-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</el-button></template>
-  </el-dialog>
+  </el-dialog> <!-- 结束当前界面区域。 -->
 </template>
 
 <style scoped>
-.rule-help-title { margin-top: 16px; color: var(--ink); font-size: 13px; font-weight: 700; }
-.rule-help-alert { margin: 2px 0 14px; }
-:deep(.el-table) { width: 100%; }
+.rule-help-title { margin-top: 16px; color: var(--ink); font-size: 13px; font-weight: 700; } /* 定义当前元素的样式规则。 */
+.rule-help-alert { margin: 2px 0 14px; } /* 定义当前元素的样式规则。 */
+:deep(.el-table) { width: 100%; } /* 设置  样式。 */
 </style>

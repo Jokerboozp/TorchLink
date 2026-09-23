@@ -1,265 +1,265 @@
-package httpapi
+package httpapi /* 声明 httpapi 包。 */
 
-import (
-	"context"
-	"iot-platform/internal/model"
-	"iot-platform/internal/parser"
-	"iot-platform/internal/ports"
-	"iot-platform/internal/protocolworker"
-	"net/http"
-	"sort"
-	"strings"
-)
+import ( /* 引入当前代码需要的依赖。 */
+	"context"                              /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model"          /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/parser"         /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"          /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/protocolworker" /* 执行当前语句并推进处理流程。 */
+	"net/http"                             /* 执行当前语句并推进处理流程。 */
+	"sort"                                 /* 执行当前语句并推进处理流程。 */
+	"strings"                              /* 执行当前语句并推进处理流程。 */
+) /* 结束当前表达式或代码块。 */
 
-type listenerSnapshot interface {
-	Status(string, string) (string, string, int64)
-	Sessions(string, string) []map[string]any
-}
+type listenerSnapshot interface { /* 定义 listenerSnapshot 类型。 */
+	Status(string, string) (string, string, int64) /* 执行当前语句并推进处理流程。 */
+	Sessions(string, string) []map[string]any      /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
 // Match only explicit configuration or an identified session, never product alone.
-func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessions []map[string]any) bool {
-	if d.TenantID == p.TenantID && d.GatewayID != "" && d.Tags["connectorProfileId"] == p.ID {
-		return true
-	}
-	if d.TenantID != p.TenantID || d.ProductID != p.ProductID {
-		return false
-	}
-	if d.Tags["connectorProfileId"] == p.ID || p.DeviceID == d.ID {
-		return true
-	}
-	for _, session := range sessions {
-		if session["deviceId"] == d.ID {
-			return true
-		}
-	}
-	return false
-}
+func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessions []map[string]any) bool { /* 定义 deviceUsesProfile 函数。 */
+	if d.TenantID == p.TenantID && d.GatewayID != "" && d.Tags["connectorProfileId"] == p.ID { /* 判断条件并选择处理分支。 */
+		return true /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if d.TenantID != p.TenantID || d.ProductID != p.ProductID { /* 判断条件并选择处理分支。 */
+		return false /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if d.Tags["connectorProfileId"] == p.ID || p.DeviceID == d.ID { /* 判断条件并选择处理分支。 */
+		return true /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	for _, session := range sessions { /* 循环处理当前数据。 */
+		if session["deviceId"] == d.ID { /* 判断条件并选择处理分支。 */
+			return true /* 返回当前处理结果。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	return false /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func (s *Server) profileSnapshot(ctx context.Context, tenant string, p model.DeviceAccessProfile) (model.DeviceAccessProfile, []map[string]any) {
-	sessions := []map[string]any{}
-	if p.Mode == "listener" && p.EdgeNodeID == "" {
-		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok {
-			status, message, last := runtime.Status(tenant, p.ID)
-			p.RuntimeStatus, p.LastError = status, message
-			if status == "LISTENING" || status == "CONNECTED" {
-				p.LastSuccessAt = max(p.LastSuccessAt, last)
-			}
-			sessions = runtime.Sessions(tenant, p.ID)
-		}
-	}
-	if p.EdgeNodeID != "" {
-		p.RuntimeStatus, p.LastError = "UNSUPPORTED", "边缘节点功能已移除，旧现场任务不会在中心执行"
-		sessions = []map[string]any{}
-	}
-	if !p.Enabled {
-		p.RuntimeStatus = "DISABLED"
-	}
-	return p, sessions
-}
+func (s *Server) profileSnapshot(ctx context.Context, tenant string, p model.DeviceAccessProfile) (model.DeviceAccessProfile, []map[string]any) { /* 定义 profileSnapshot 函数。 */
+	sessions := []map[string]any{}                  /* 更新 sessions 的值。 */
+	if p.Mode == "listener" && p.EdgeNodeID == "" { /* 判断条件并选择处理分支。 */
+		if runtime, ok := s.protocolListeners.(listenerSnapshot); ok { /* 判断条件并选择处理分支。 */
+			status, message, last := runtime.Status(tenant, p.ID) /* 更新 last 的值。 */
+			p.RuntimeStatus, p.LastError = status, message        /* 更新 p.LastError 的值。 */
+			if status == "LISTENING" || status == "CONNECTED" {   /* 判断条件并选择处理分支。 */
+				p.LastSuccessAt = max(p.LastSuccessAt, last) /* 更新 p.LastSuccessAt 的值。 */
+			} /* 结束当前表达式或代码块。 */
+			sessions = runtime.Sessions(tenant, p.ID) /* 更新 sessions 的值。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	if p.EdgeNodeID != "" { /* 判断条件并选择处理分支。 */
+		p.RuntimeStatus, p.LastError = "UNSUPPORTED", "边缘节点功能已移除，旧现场任务不会在中心执行" /* 更新 p.LastError 的值。 */
+		sessions = []map[string]any{}                                          /* 更新 sessions 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	if !p.Enabled { /* 判断条件并选择处理分支。 */
+		p.RuntimeStatus = "DISABLED" /* 更新 p.RuntimeStatus 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	return p, sessions /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
-	tenant := claims(r).TenantID
-	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	if limited(r.Context()) {
-		profiles = nil
-	}
-	items := []map[string]any{}
-	devices, err := s.engine.Repo.ListManagedDevices(r.Context(), tenant)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	sort.SliceStable(devices, func(i, j int) bool {
-		if devices[i].CreatedAt == devices[j].CreatedAt {
-			return devices[i].ID < devices[j].ID
-		}
-		return devices[i].CreatedAt > devices[j].CreatedAt
-	})
-	for _, p := range profiles {
-		p, sessions := s.profileSnapshot(r.Context(), tenant, p)
-		kind := profileTransport(p)
-		if p.Mode == "listener" {
-			kind = strings.ToUpper(p.Network)
-		}
-		recent := []map[string]any{}
-		for _, d := range devices {
-			if deviceUsesProfile(d, p, sessions) && len(recent) < 20 {
-				recent = append(recent, map[string]any{"deviceId": d.ID, "name": d.Name, "createdAt": d.CreatedAt})
-			}
-		}
-		items = append(items, map[string]any{"type": kind, "profile": p, "sessions": sessions, "recentDevices": recent})
-	}
-	for _, d := range devices {
-		if d.Tags["connector"] == "MQTT" || d.Tags["connector"] == "HTTP" {
-			items = append(items, map[string]any{"type": d.Tags["connector"], "deviceId": d.ID, "profile": nil, "sessions": []any{}})
-		}
-	}
-	write(w, 200, map[string]any{"items": items})
-}
-func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
-	tenant := claims(r).TenantID
-	d, err := s.engine.Repo.GetManagedDevice(r.Context(), tenant, r.PathValue("id"))
-	if err != nil {
-		problem(w, 404, "device not found")
-		return
-	}
-	p, _ := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID)
-	state, _ := s.engine.Repo.GetDeviceState(r.Context(), tenant, d.ID)
-	latest, _ := s.engine.Repo.GetLatestMessage(r.Context(), tenant, d.ID)
-	properties, _, err := s.engine.Repo.ListDeviceMessages(r.Context(), tenant, d.ID, model.PropertyReport, 1, 0)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	var profile *model.DeviceAccessProfile
-	all, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	if limited(r.Context()) {
-		all = nil
-	}
-	candidates := []model.DeviceAccessProfile{}
-	byProfile := map[string][]map[string]any{}
-	for _, candidate := range all {
-		candidate, live := s.profileSnapshot(r.Context(), tenant, candidate)
-		if !deviceUsesProfile(d, candidate, live) {
-			continue
-		}
-		candidates = append(candidates, candidate)
-		for _, session := range live {
-			if session["deviceId"] != d.ID && (d.GatewayID == "" || session["deviceId"] != d.GatewayID) {
-				continue
-			}
-			copy := map[string]any{"profileId": candidate.ID}
-			for key, value := range session {
-				copy[key] = value
-			}
-			byProfile[candidate.ID] = append(byProfile[candidate.ID], copy)
-		}
-	}
-	selected := r.URL.Query().Get("profileId")
-	if selected == "" {
-		for _, candidate := range candidates {
-			if candidate.ID == d.Tags["connectorProfileId"] {
-				selected = candidate.ID
-				break
-			}
-		}
-	}
-	for _, candidate := range candidates {
-		if candidate.ID == selected || (selected == "" && len(candidates) == 1) {
-			v := candidate
-			profile = &v
-			break
-		}
-	}
-	if r.URL.Query().Get("profileId") != "" && profile == nil {
-		problem(w, 422, "接入实例不属于该设备")
-		return
-	}
-	sessions := []map[string]any{}
-	for _, candidate := range candidates {
-		if profile == nil || profile.ID == candidate.ID {
-			sessions = append(sessions, byProfile[candidate.ID]...)
-		}
-	}
-	kind := d.Tags["connector"]
-	if kind == "" && profile != nil {
-		kind = profileTransport(*profile)
-		if profile.Mode == "listener" {
-			kind = strings.ToUpper(profile.Network)
-		}
-	}
-	protocolID, version := "", ""
-	if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" {
-		protocolID, version = parser.StandardProtocolID, "1.0.0"
-	} else if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil {
-		protocolID, version = binding.ProtocolID, binding.Version
-	} else if profile != nil {
-		protocolID, version = profile.ProtocolID, profile.ProtocolVersion
-	}
-	alarms, err := s.engine.Repo.ListAlarms(r.Context(), ports.AlarmFilter{TenantID: tenant, DeviceID: d.ID, Limit: 5})
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	revocations, err := s.engine.Repo.ListCredentialRevocations(r.Context(), tenant, d.ID, false)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Limit: 1})
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	ingest := map[string]any{"configurationSaved": true, "rawReceived": false, "parsed": false, "stage": "WAITING_FOR_DATA"}
-	if len(indexes) > 0 {
-		idx := indexes[0]
-		ingest["rawReceived"] = true
-		ingest["rawMessageId"] = idx.MessageID
-		ingest["receivedAt"] = idx.ReceivedAt
-		ingest["stage"] = "RAW_RECEIVED"
-		ingest["parseError"] = idx.ParseError
-		ingest["parseAttemptedAt"] = idx.ParseAttemptedAt
-		if idx.ParseError != "" {
-			ingest["stage"] = "PARSE_FAILED"
-		}
-		if standard, e := s.engine.Repo.GetStandardMessageByRaw(r.Context(), tenant, idx.MessageID); e == nil {
-			ingest["parsed"] = true
-			ingest["stage"] = "PARSED"
-			ingest["standardMessage"] = standard
-		}
-	}
-	var parent any
-	if !deviceAllowed(r.Context(), tenant, d.GatewayID) {
-		d.GatewayID = ""
-	}
-	if d.GatewayID != "" {
-		if gateway, e := s.engine.Repo.GetManagedDevice(r.Context(), tenant, d.GatewayID); e == nil {
-			parent = map[string]any{"id": gateway.ID, "name": gateway.Name}
-		}
-	}
-	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
-	canCommand := protocolworker.HasCapability(release, "encode") && (profile == nil || profile.EdgeNodeID == "")
-	if d.GatewayID != "" {
-		canCommand = canCommand && profile != nil
-		if profile != nil {
-			binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, profile.ProductID)
-			if e != nil {
-				canCommand = false
-			} else {
-				outer, e := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, binding.ProtocolID, binding.Version)
-				canCommand = canCommand && e == nil && protocolworker.HasCapability(outer, "encode")
-			}
-		}
-	}
+func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) { /* 定义 connectorStatus 函数。 */
+	tenant := claims(r).TenantID                                                 /* 更新 tenant 的值。 */
+	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant) /* 更新 err 的值。 */
+	if err != nil {                                                              /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if limited(r.Context()) { /* 判断条件并选择处理分支。 */
+		profiles = nil /* 更新 profiles 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	items := []map[string]any{}                                           /* 更新 items 的值。 */
+	devices, err := s.engine.Repo.ListManagedDevices(r.Context(), tenant) /* 更新 err 的值。 */
+	if err != nil {                                                       /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	sort.SliceStable(devices, func(i, j int) bool { /* 执行当前语句并推进处理流程。 */
+		if devices[i].CreatedAt == devices[j].CreatedAt { /* 判断条件并选择处理分支。 */
+			return devices[i].ID < devices[j].ID /* 返回当前处理结果。 */
+		} /* 结束当前表达式或代码块。 */
+		return devices[i].CreatedAt > devices[j].CreatedAt /* 返回当前处理结果。 */
+	}) /* 结束当前表达式或代码块。 */
+	for _, p := range profiles { /* 循环处理当前数据。 */
+		p, sessions := s.profileSnapshot(r.Context(), tenant, p) /* 更新 sessions 的值。 */
+		kind := profileTransport(p)                              /* 更新 kind 的值。 */
+		if p.Mode == "listener" {                                /* 判断条件并选择处理分支。 */
+			kind = strings.ToUpper(p.Network) /* 更新 kind 的值。 */
+		} /* 结束当前表达式或代码块。 */
+		recent := []map[string]any{} /* 更新 recent 的值。 */
+		for _, d := range devices {  /* 循环处理当前数据。 */
+			if deviceUsesProfile(d, p, sessions) && len(recent) < 20 { /* 判断条件并选择处理分支。 */
+				recent = append(recent, map[string]any{"deviceId": d.ID, "name": d.Name, "createdAt": d.CreatedAt}) /* 更新 recent 的值。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+		items = append(items, map[string]any{"type": kind, "profile": p, "sessions": sessions, "recentDevices": recent}) /* 更新 items 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	for _, d := range devices { /* 循环处理当前数据。 */
+		if d.Tags["connector"] == "MQTT" || d.Tags["connector"] == "HTTP" { /* 判断条件并选择处理分支。 */
+			items = append(items, map[string]any{"type": d.Tags["connector"], "deviceId": d.ID, "profile": nil, "sessions": []any{}}) /* 更新 items 的值。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	write(w, 200, map[string]any{"items": items}) /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
+func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* 定义 deviceConnection 函数。 */
+	tenant := claims(r).TenantID                                                     /* 更新 tenant 的值。 */
+	d, err := s.engine.Repo.GetManagedDevice(r.Context(), tenant, r.PathValue("id")) /* 更新 err 的值。 */
+	if err != nil {                                                                  /* 判断条件并选择处理分支。 */
+		problem(w, 404, "device not found") /* 执行当前语句并推进处理流程。 */
+		return                              /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	p, _ := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID)                                            /* 更新 _ 的值。 */
+	state, _ := s.engine.Repo.GetDeviceState(r.Context(), tenant, d.ID)                                           /* 更新 _ 的值。 */
+	latest, _ := s.engine.Repo.GetLatestMessage(r.Context(), tenant, d.ID)                                        /* 更新 _ 的值。 */
+	properties, _, err := s.engine.Repo.ListDeviceMessages(r.Context(), tenant, d.ID, model.PropertyReport, 1, 0) /* 更新 err 的值。 */
+	if err != nil {                                                                                               /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	var profile *model.DeviceAccessProfile                                  /* 声明 profile。 */
+	all, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant) /* 更新 err 的值。 */
+	if err != nil {                                                         /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if limited(r.Context()) { /* 判断条件并选择处理分支。 */
+		all = nil /* 更新 all 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	candidates := []model.DeviceAccessProfile{} /* 更新 candidates 的值。 */
+	byProfile := map[string][]map[string]any{}  /* 更新 byProfile 的值。 */
+	for _, candidate := range all {             /* 循环处理当前数据。 */
+		candidate, live := s.profileSnapshot(r.Context(), tenant, candidate) /* 更新 live 的值。 */
+		if !deviceUsesProfile(d, candidate, live) {                          /* 判断条件并选择处理分支。 */
+			continue /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		candidates = append(candidates, candidate) /* 更新 candidates 的值。 */
+		for _, session := range live {             /* 循环处理当前数据。 */
+			if session["deviceId"] != d.ID && (d.GatewayID == "" || session["deviceId"] != d.GatewayID) { /* 判断条件并选择处理分支。 */
+				continue /* 执行当前语句并推进处理流程。 */
+			} /* 结束当前表达式或代码块。 */
+			copy := map[string]any{"profileId": candidate.ID} /* 更新 copy 的值。 */
+			for key, value := range session {                 /* 循环处理当前数据。 */
+				copy[key] = value /* 更新 copy[key] 的值。 */
+			} /* 结束当前表达式或代码块。 */
+			byProfile[candidate.ID] = append(byProfile[candidate.ID], copy) /* 更新 byProfile[candidate.ID] 的值。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	selected := r.URL.Query().Get("profileId") /* 更新 selected 的值。 */
+	if selected == "" {                        /* 判断条件并选择处理分支。 */
+		for _, candidate := range candidates { /* 循环处理当前数据。 */
+			if candidate.ID == d.Tags["connectorProfileId"] { /* 判断条件并选择处理分支。 */
+				selected = candidate.ID /* 更新 selected 的值。 */
+				break                   /* 执行当前语句并推进处理流程。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	for _, candidate := range candidates { /* 循环处理当前数据。 */
+		if candidate.ID == selected || (selected == "" && len(candidates) == 1) { /* 判断条件并选择处理分支。 */
+			v := candidate /* 更新 v 的值。 */
+			profile = &v   /* 更新 profile 的值。 */
+			break          /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	if r.URL.Query().Get("profileId") != "" && profile == nil { /* 判断条件并选择处理分支。 */
+		problem(w, 422, "接入实例不属于该设备") /* 执行当前语句并推进处理流程。 */
+		return                        /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	sessions := []map[string]any{}         /* 更新 sessions 的值。 */
+	for _, candidate := range candidates { /* 循环处理当前数据。 */
+		if profile == nil || profile.ID == candidate.ID { /* 判断条件并选择处理分支。 */
+			sessions = append(sessions, byProfile[candidate.ID]...) /* 更新 sessions 的值。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	kind := d.Tags["connector"]       /* 更新 kind 的值。 */
+	if kind == "" && profile != nil { /* 判断条件并选择处理分支。 */
+		kind = profileTransport(*profile) /* 更新 kind 的值。 */
+		if profile.Mode == "listener" {   /* 判断条件并选择处理分支。 */
+			kind = strings.ToUpper(profile.Network) /* 更新 kind 的值。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	protocolID, version := "", ""                                       /* 更新 version 的值。 */
+	if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" { /* 判断条件并选择处理分支。 */
+		protocolID, version = parser.StandardProtocolID, "1.0.0" /* 更新 version 的值。 */
+	} else if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil { /* 结束当前表达式或代码块。 */
+		protocolID, version = binding.ProtocolID, binding.Version /* 更新 version 的值。 */
+	} else if profile != nil { /* 结束当前表达式或代码块。 */
+		protocolID, version = profile.ProtocolID, profile.ProtocolVersion /* 更新 version 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	alarms, err := s.engine.Repo.ListAlarms(r.Context(), ports.AlarmFilter{TenantID: tenant, DeviceID: d.ID, Limit: 5}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                     /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	revocations, err := s.engine.Repo.ListCredentialRevocations(r.Context(), tenant, d.ID, false) /* 更新 err 的值。 */
+	if err != nil {                                                                               /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Limit: 1}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                        /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	ingest := map[string]any{"configurationSaved": true, "rawReceived": false, "parsed": false, "stage": "WAITING_FOR_DATA"} /* 更新 ingest 的值。 */
+	if len(indexes) > 0 {                                                                                                    /* 判断条件并选择处理分支。 */
+		idx := indexes[0]                                 /* 更新 idx 的值。 */
+		ingest["rawReceived"] = true                      /* 执行当前语句并推进处理流程。 */
+		ingest["rawMessageId"] = idx.MessageID            /* 执行当前语句并推进处理流程。 */
+		ingest["receivedAt"] = idx.ReceivedAt             /* 执行当前语句并推进处理流程。 */
+		ingest["stage"] = "RAW_RECEIVED"                  /* 执行当前语句并推进处理流程。 */
+		ingest["parseError"] = idx.ParseError             /* 执行当前语句并推进处理流程。 */
+		ingest["parseAttemptedAt"] = idx.ParseAttemptedAt /* 执行当前语句并推进处理流程。 */
+		if idx.ParseError != "" {                         /* 判断条件并选择处理分支。 */
+			ingest["stage"] = "PARSE_FAILED" /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		if standard, e := s.engine.Repo.GetStandardMessageByRaw(r.Context(), tenant, idx.MessageID); e == nil { /* 判断条件并选择处理分支。 */
+			ingest["parsed"] = true              /* 执行当前语句并推进处理流程。 */
+			ingest["stage"] = "PARSED"           /* 执行当前语句并推进处理流程。 */
+			ingest["standardMessage"] = standard /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	var parent any                                        /* 声明 parent。 */
+	if !deviceAllowed(r.Context(), tenant, d.GatewayID) { /* 判断条件并选择处理分支。 */
+		d.GatewayID = "" /* 更新 d.GatewayID 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	if d.GatewayID != "" { /* 判断条件并选择处理分支。 */
+		if gateway, e := s.engine.Repo.GetManagedDevice(r.Context(), tenant, d.GatewayID); e == nil { /* 判断条件并选择处理分支。 */
+			parent = map[string]any{"id": gateway.ID, "name": gateway.Name} /* 更新 parent 的值。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	release, _ := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)                      /* 更新 _ 的值。 */
+	canCommand := protocolworker.HasCapability(release, "encode") && (profile == nil || profile.EdgeNodeID == "") /* 更新 canCommand 的值。 */
+	if d.GatewayID != "" {                                                                                        /* 判断条件并选择处理分支。 */
+		canCommand = canCommand && profile != nil /* 更新 canCommand 的值。 */
+		if profile != nil {                       /* 判断条件并选择处理分支。 */
+			binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, profile.ProductID) /* 更新 e 的值。 */
+			if e != nil {                                                                                 /* 判断条件并选择处理分支。 */
+				canCommand = false /* 更新 canCommand 的值。 */
+			} else { /* 结束当前表达式或代码块。 */
+				outer, e := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, binding.ProtocolID, binding.Version) /* 更新 e 的值。 */
+				canCommand = canCommand && e == nil && protocolworker.HasCapability(outer, "encode")                   /* 更新 canCommand 的值。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
 
-	write(w, 200, map[string]any{"parent": parent, "accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""})
-}
+	write(w, 200, map[string]any{"parent": parent, "accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""}) /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-func profileTransport(p model.DeviceAccessProfile) string {
-	if p.WireFormat == "rtu_over_tcp" {
-		return "MODBUS_RTU_TCP"
-	}
-	if p.Mode == "listener" {
-		return strings.ToUpper(p.Network)
-	}
-	switch p.Network {
-	case "serial":
-		return "MODBUS_RTU"
-	case "opc_ua":
-		return "OPC_UA"
-	case "snmp":
-		return "SNMP"
-	case "bacnet":
-		return "BACNET"
-	}
-	return "MODBUS_TCP"
-}
+func profileTransport(p model.DeviceAccessProfile) string { /* 定义 profileTransport 函数。 */
+	if p.WireFormat == "rtu_over_tcp" { /* 判断条件并选择处理分支。 */
+		return "MODBUS_RTU_TCP" /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if p.Mode == "listener" { /* 判断条件并选择处理分支。 */
+		return strings.ToUpper(p.Network) /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	switch p.Network { /* 根据条件选择处理路径。 */
+	case "serial": /* 处理当前分支。 */
+		return "MODBUS_RTU" /* 返回当前处理结果。 */
+	case "opc_ua": /* 处理当前分支。 */
+		return "OPC_UA" /* 返回当前处理结果。 */
+	case "snmp": /* 处理当前分支。 */
+		return "SNMP" /* 返回当前处理结果。 */
+	case "bacnet": /* 处理当前分支。 */
+		return "BACNET" /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	return "MODBUS_TCP" /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */

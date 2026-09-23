@@ -1,25 +1,45 @@
 #!/usr/bin/env bash
+# 执行当前脚本步骤。
 set -Eeuo pipefail
+# 执行当前脚本步骤。
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# 执行当前脚本步骤。
 project_root="$(dirname -- "$script_dir")"
 # shellcheck source=lib/deployment.sh
+# 执行当前脚本步骤。
 source "$script_dir/lib/deployment.sh"
 
+# 执行当前脚本步骤。
 env_file='.env.online'
+# 执行当前脚本步骤。
 project_name='iot-platform-online'
+# 执行当前脚本步骤。
 include_ai=0
+# 执行当前脚本步骤。
 include_harness=auto
+# 执行当前脚本步骤。
 health_timeout=180
+# 遍历数据并执行循环体。
 while [ "$#" -gt 0 ]; do
+  # 执行当前脚本步骤。
   case "$1" in
+    # 执行当前脚本步骤。
     --env-file|--project-name|--health-timeout)
+      # 执行当前脚本步骤。
       [ "$#" -ge 2 ] && [ -n "$2" ] || { printf '参数缺少值：%s\n' "$1" >&2; exit 1; }
+      # 执行当前脚本步骤。
       case "$1" in --env-file) env_file="$2";; --project-name) project_name="$2";; --health-timeout) health_timeout="$2";; esac
+      # 执行当前脚本步骤。
       shift 2;;
+    # 执行当前脚本步骤。
     --include-ai) include_ai=1; shift;;
+    # 执行当前脚本步骤。
     --include-harness) include_harness=1; shift;;
+    # 执行当前脚本步骤。
     --no-harness) include_harness=0; shift;;
+    # 执行当前脚本步骤。
     -h|--help)
+      # 执行当前脚本步骤。
       cat <<'EOF'
 用法：bash scripts/deploy-online.sh [选项]
   --env-file PATH       配置文件（默认 platform/.env.online；已有凭据保留）
@@ -31,102 +51,201 @@ while [ "$#" -gt 0 ]; do
 默认拉取运行镜像、构建应用、启动全部服务，并下载 qwen3:1.7b 与 nomic-embed-text。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
+      # 返回结果或结束当前脚本。
       exit 0;;
+    # 执行当前脚本步骤。
     *) printf '未知参数：%s\n' "$1" >&2; exit 1;;
+  # 执行当前脚本步骤。
   esac
+# 结束当前控制块。
 done
+# 执行当前脚本步骤。
 [[ "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo '项目名只能包含小写字母、数字、下划线和短横线，且以字母或数字开头。' >&2; exit 1; }
+# 执行当前脚本步骤。
 [[ "$health_timeout" =~ ^[1-9][0-9]*$ ]] || { echo '健康检查超时必须是正整数。' >&2; exit 1; }
+# 执行当前脚本步骤。
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
+# 执行当前脚本步骤。
 source "$script_dir/lib/docker-bootstrap.sh"
+# 执行当前脚本步骤。
 ensure_deployment_docker online
+# 执行当前脚本步骤。
 assert_docker_available
+# 执行当前脚本步骤。
 command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; exit 1; }
+# 执行当前脚本步骤。
 ensure_deployment_env "$env_file"
+# 执行当前脚本步骤。
 provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
+# 执行当前脚本步骤。
 configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
+# 判断条件后执行对应操作。
 if [ "$include_ai" -eq 1 ] || [ -z "$provider" ] || [ "$provider" = disabled ] || { [ "$provider" = deepseek ] && [ "$configured_model" = deepseek-v4-flash ]; } || { [ "$provider" = ollama ] && [ "$configured_model" = qwen3:8b ]; }; then
+  # 判断条件后执行对应操作。
   if [ "$provider" = ollama ]; then model="$configured_model"; else model="$(get_deployment_env_value "$env_file" IOT_OLLAMA_MODEL)"; fi
+  # 执行当前脚本步骤。
   case "$model" in ''|qwen3:8b|deepseek-v4-flash) model=qwen3:1.7b;; esac
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_PROVIDER ollama
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_OLLAMA_URL http://ollama:11434
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_OLLAMA_MODEL "$model"
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_BASE_URL http://ollama:11434
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_MODEL "$model"
+# 结束当前控制块。
 fi
+# 执行当前脚本步骤。
 provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
+# 判断条件后执行对应操作。
 if [ "$provider" = ollama ]; then
+  # 执行当前脚本步骤。
   model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"; model="${model:-qwen3:1.7b}"
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_OLLAMA_URL http://ollama:11434
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_OLLAMA_MODEL "$model"
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_BASE_URL http://ollama:11434
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_MODEL "$model"
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_HARNESS_PROVIDER ollama
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_HARNESS_OLLAMA_BASE_URL http://ollama:11434/v1
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_HARNESS_CONTEXT_WINDOW 8192
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL "$model"
+# 结束当前控制块。
 fi
+# 执行当前脚本步骤。
 case "$include_harness" in
+  # 执行当前脚本步骤。
   1) set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true;;
+  # 执行当前脚本步骤。
   0) set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED false;;
+# 执行当前脚本步骤。
 esac
+# 执行当前脚本步骤。
 include_harness="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)"
+# 判断条件后执行对应操作。
 if [ -z "$include_harness" ]; then include_harness=true; set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true; fi
+# 执行当前脚本步骤。
 case "$include_harness" in true|false) ;; *) echo 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' >&2; exit 1;; esac
+# 判断条件后执行对应操作。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; then
+  # 执行当前脚本步骤。
   deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"
+  # 判断条件后执行对应操作。
   if [ -z "$deepseek_key" ]; then deepseek_key="$(get_deployment_env_value "$env_file" IOT_AI_API_KEY)"; fi
+  # 判断条件后执行对应操作。
   if [ -n "$deepseek_key" ] && [ -z "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ]; then set_deployment_env_value "$env_file" DEEPSEEK_API_KEY "$deepseek_key"; fi
+  # 执行当前脚本步骤。
   [ -n "$(get_deployment_env_value "$env_file" IOT_AI_BASE_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_BASE_URL https://api.deepseek.com
+  # 执行当前脚本步骤。
   [ -n "$(get_deployment_env_value "$env_file" IOT_AI_MODEL)" ] || set_deployment_env_value "$env_file" IOT_AI_MODEL deepseek-v4-flash
+  # 判断条件后执行对应操作。
   if [ -z "$deepseek_key" ]; then echo '提示：请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' >&2; fi
+# 结束当前控制块。
 fi
+# 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then
+  # 执行当前脚本步骤。
   [ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_URL http://deepseek-harness:8091
+  # 执行当前脚本步骤。
   [ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL http://platform-api:8080/mcp/harness
+# 执行当前脚本步骤。
 else
+  # 执行当前脚本步骤。
   set_deployment_env_value "$env_file" IOT_AI_HARNESS_URL ''
+# 结束当前控制块。
 fi
+# 执行当前脚本步骤。
 annotate_deployment_env_file "$env_file"
+# 执行当前脚本步骤。
 compose=(compose --project-name "$project_name" --env-file "$env_file" -f "$project_root/compose.yaml")
+# 执行当前脚本步骤。
 build_services=(platform-api platform-web backup-service)
+# 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then
+  # 执行当前脚本步骤。
   command -v git >/dev/null 2>&1 || { echo '默认启用 Harness，需要安装 Git；也可在配置中设置 IOT_AI_HARNESS_ENABLED=false。' >&2; exit 1; }
+  # 执行当前脚本步骤。
   compose+=(--profile harness)
+  # 执行当前脚本步骤。
   build_services+=(deepseek-harness)
+  # 执行当前脚本步骤。
   sh "$script_dir/fetch-deepseek-harness.sh"
+# 结束当前控制块。
 fi
+# 执行当前脚本步骤。
 run_docker "${compose[@]}" config --quiet
+# 执行当前脚本步骤。
 services="$(docker "${compose[@]}" config --services)"
+# 执行当前脚本步骤。
 pull_services=()
+# 遍历数据并执行循环体。
 while IFS= read -r service; do
+  # 执行当前脚本步骤。
   service="${service%$'\r'}"
+  # 执行当前脚本步骤。
   case "$service" in platform-api|platform-web|backup-service|deepseek-harness|'') ;; *) pull_services+=("$service");; esac
+# 结束当前控制块。
 done <<< "$services"
+# 执行当前脚本步骤。
 echo '拉取运行依赖镜像……'
+# 执行当前脚本步骤。
 run_docker "${compose[@]}" pull "${pull_services[@]}"
+# 执行当前脚本步骤。
 echo '构建 API、前端和备份服务镜像……'
+# 执行当前脚本步骤。
 run_docker "${compose[@]}" build --pull "${build_services[@]}"
+# 执行当前脚本步骤。
 echo '启动服务……'
+# 执行当前脚本步骤。
 run_docker "${compose[@]}" up -d --no-build --pull never
+# 执行当前脚本步骤。
 echo '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时间）……'
+# 执行当前脚本步骤。
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
+# 判断条件后执行对应操作。
 if [ "$provider" = ollama ]; then
+  # 执行当前脚本步骤。
   model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
+  # 执行当前脚本步骤。
   echo "下载统一 AI 模型 ${model:-qwen3:1.7b}（告警研判与工作流共用）……"
+  # 执行当前脚本步骤。
   run_docker "${compose[@]}" exec -T ollama ollama pull "${model:-qwen3:1.7b}"
+# 结束当前控制块。
 fi
+# 执行当前脚本步骤。
 api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api_port:-8081}"
+# 执行当前脚本步骤。
 web_port="$(get_deployment_env_value "$env_file" IOT_WEB_PORT)"; web_port="${web_port:-8080}"
+# 执行当前脚本步骤。
 wait_deployment_http "http://127.0.0.1:$api_port/health/ready" "$health_timeout"
+# 执行当前脚本步骤。
 wait_deployment_http "http://127.0.0.1:$web_port/" "$health_timeout"
+# 执行当前脚本步骤。
 wait_deployment_http "http://127.0.0.1:$web_port/health/ready" "$health_timeout"
+# 执行当前脚本步骤。
 backup_port="$(get_deployment_env_value "$env_file" IOT_BACKUP_HTTP_PORT)"
+# 执行当前脚本步骤。
 wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/ready" "$health_timeout"
+# 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then
+  # 执行当前脚本步骤。
   harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
+  # 执行当前脚本步骤。
   wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"
+  # 执行当前脚本步骤。
   printf 'Harness 已启动；自动研判和工作流共用模型 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
+# 结束当前控制块。
 fi
+# 执行当前脚本步骤。
 run_docker "${compose[@]}" ps
+# 执行当前脚本步骤。
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"

@@ -1,364 +1,364 @@
-import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import test from 'node:test'
+import assert from 'node:assert/strict' /* 引入当前代码需要的依赖。 */
+import { readdir, readFile } from 'node:fs/promises' /* 引入当前代码需要的依赖。 */
+import { join } from 'node:path' /* 引入当前代码需要的依赖。 */
+import test from 'node:test' /* 引入当前代码需要的依赖。 */
 
-const root = new URL('..', import.meta.url)
+const root = new URL('..', import.meta.url) /* 声明 root。 */
 
-async function appSource() {
-  return (await Promise.all(['src/App.vue', 'src/pageGuide.js'].map(path => readFile(new URL(path, root), 'utf8')))).join('\n')
-}
+async function appSource() { /* 定义 appSource 函数。 */
+  return (await Promise.all(['src/App.vue', 'src/pageGuide.js'].map(path => readFile(new URL(path, root), 'utf8')))).join('\n') /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-async function sourceText(directory = new URL('src/', root)) {
-  const entries = await readdir(directory, { withFileTypes: true })
-  const contents = await Promise.all(entries.map(async entry => {
-    const path = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory)
-    return entry.isDirectory() ? sourceText(path) : readFile(path, 'utf8')
-  }))
-  return contents.flat().join('\n')
-}
+async function sourceText(directory = new URL('src/', root)) { /* 定义 sourceText 函数。 */
+  const entries = await readdir(directory, { withFileTypes: true }) /* 声明 entries。 */
+  const contents = await Promise.all(entries.map(async entry => { /* 声明 contents。 */
+    const path = new URL(entry.name + (entry.isDirectory() ? '/' : ''), directory) /* 声明 path。 */
+    return entry.isDirectory() ? sourceText(path) : readFile(path, 'utf8') /* 返回当前处理结果。 */
+  })) /* 结束当前表达式或代码块。 */
+  return contents.flat().join('\n') /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-test('management controls and Chinese labels remain available', async () => {
-  const source = await sourceText()
-  for (const label of ['查看详情', '批量下载', '未注册设备', '一键注册', '摄像头映射', '保存规则', '火灾风险', '紧急', '活动中', '告警中', '疑似离线']) {
-    assert.match(source, new RegExp(label), `missing label: ${label}`)
-  }
-  const labels = await import('../src/labels.js')
-  assert.equal(labels.alarmLevel('CRITICAL'), '紧急')
-  assert.equal(labels.alarmLevel('high'), '高')
-  assert.equal(labels.alarmLevel(''), '未设置')
-  const alarmsView = await readFile(new URL('src/views/AlarmsView.vue', root), 'utf8')
-  assert.match(alarmsView, /alarmLevel\(analysis\.riskLevel\)/)
-})
+test('management controls and Chinese labels remain available', async () => { /* 执行当前语句并推进处理流程。 */
+  const source = await sourceText() /* 声明 source。 */
+  for (const label of ['查看详情', '批量下载', '未注册设备', '一键注册', '摄像头映射', '保存规则', '火灾风险', '紧急', '活动中', '告警中', '疑似离线']) { /* 循环处理当前数据。 */
+    assert.match(source, new RegExp(label), `missing label: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  const labels = await import('../src/labels.js') /* 声明 labels。 */
+  assert.equal(labels.alarmLevel('CRITICAL'), '紧急') /* 验证实际结果符合预期。 */
+  assert.equal(labels.alarmLevel('high'), '高') /* 验证实际结果符合预期。 */
+  assert.equal(labels.alarmLevel(''), '未设置') /* 验证实际结果符合预期。 */
+  const alarmsView = await readFile(new URL('src/views/AlarmsView.vue', root), 'utf8') /* 声明 alarmsView。 */
+  assert.match(alarmsView, /alarmLevel\(analysis\.riskLevel\)/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('account logout is available from the top-right avatar menu', async () => {
-  const app = await appSource()
-  assert.match(app, /<el-dropdown class="account-dropdown"/)
-  assert.match(app, /aria-label="打开用户菜单"/)
-  assert.match(app, /command="logout"/)
-  assert.match(app, /function handleAccountCommand\(command\)/)
-  assert.doesNotMatch(app, /class="logout-button"/)
-})
+test('account logout is available from the top-right avatar menu', async () => { /* 执行当前语句并推进处理流程。 */
+  const app = await appSource() /* 声明 app。 */
+  assert.match(app, /<el-dropdown class="account-dropdown"/) /* 验证实际结果符合预期。 */
+  assert.match(app, /aria-label="打开用户菜单"/) /* 验证实际结果符合预期。 */
+  assert.match(app, /command="logout"/) /* 验证实际结果符合预期。 */
+  assert.match(app, /function handleAccountCommand\(command\)/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(app, /class="logout-button"/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('login form never exposes a built-in password', async () => {
-  const app = await appSource()
-  assert.match(app, /loginForm = ref\(\{ tenantId: 'tenant_001', username: 'admin', password: '' \}\)/)
-  assert.doesNotMatch(app, /password:\s*'admin123'/)
-})
+test('login form never exposes a built-in password', async () => { /* 执行当前语句并推进处理流程。 */
+  const app = await appSource() /* 声明 app。 */
+  assert.match(app, /loginForm = ref\(\{ tenantId: 'tenant_001', username: 'admin', password: '' \}\)/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(app, /password:\s*'admin123'/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('shared controls keep file pickers and text actions visibly shaped', async () => {
-  const styles = await readFile(new URL('src/styles.css', root), 'utf8')
-  const assistant = await readFile(new URL('src/views/ProtocolAssistantView.vue', root), 'utf8')
-  const protocols = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8')
-  assert.match(styles, /\.el-button\.is-text, \.el-button\.is-link \{[^}]*border: 1px solid var\(--border\)/)
-  assert.match(styles, /input\[type="file"\]::file-selector-button/)
-  assert.match(styles, /\.el-button--small \{[^}]*min-height: 28px/)
-  assert.match(`${assistant}\n${protocols}`, /<FilePicker/)
-})
+test('shared controls keep file pickers and text actions visibly shaped', async () => { /* 执行当前语句并推进处理流程。 */
+  const styles = await readFile(new URL('src/styles.css', root), 'utf8') /* 声明 styles。 */
+  const assistant = await readFile(new URL('src/views/ProtocolAssistantView.vue', root), 'utf8') /* 声明 assistant。 */
+  const protocols = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8') /* 声明 protocols。 */
+  assert.match(styles, /\.el-button\.is-text, \.el-button\.is-link \{[^}]*border: 1px solid var\(--border\)/) /* 验证实际结果符合预期。 */
+  assert.match(styles, /input\[type="file"\]::file-selector-button/) /* 验证实际结果符合预期。 */
+  assert.match(styles, /\.el-button--small \{[^}]*min-height: 28px/) /* 验证实际结果符合预期。 */
+  assert.match(`${assistant}\n${protocols}`, /<FilePicker/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('global alarm popup handles raised alarms, fault events and tenant-scoped settings', async () => {
-  const app = await appSource()
-  const popup = await readFile(new URL('src/components/GlobalAlertPopup.vue', root), 'utf8')
-  const alerts = await import('../src/globalAlert.js')
+test('global alarm popup handles raised alarms, fault events and tenant-scoped settings', async () => { /* 执行当前语句并推进处理流程。 */
+  const app = await appSource() /* 声明 app。 */
+  const popup = await readFile(new URL('src/components/GlobalAlertPopup.vue', root), 'utf8') /* 声明 popup。 */
+  const alerts = await import('../src/globalAlert.js') /* 声明 alerts。 */
 
-  assert.match(app, /GlobalAlertPopup/)
-  for (const label of ['告警提醒', '显示报警弹窗', '弹窗静默时段', '播放警报声', '查看告警详情', '查看原始报文', '设备名称', '报警内容', '报警类型', '报警时间', '报警等级']) {
-    assert.match(popup, new RegExp(label), `missing global alarm UI label: ${label}`)
-  }
-  assert.match(popup, /function alertContent\(item\)/)
-  assert.doesNotMatch(popup, /global-alert-identifiers/)
-  for (const technicalLabel of ['设备 ID', '告警编号', '消息 ID']) assert.doesNotMatch(popup, new RegExp(technicalLabel), `technical alarm identifier should not be shown: ${technicalLabel}`)
-  assert.match(popup, /window\.addEventListener\('iot:realtime'/)
+  assert.match(app, /GlobalAlertPopup/) /* 验证实际结果符合预期。 */
+  for (const label of ['告警提醒', '显示报警弹窗', '弹窗静默时段', '播放警报声', '查看告警详情', '查看原始报文', '设备名称', '报警内容', '报警类型', '报警时间', '报警等级']) { /* 循环处理当前数据。 */
+    assert.match(popup, new RegExp(label), `missing global alarm UI label: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  assert.match(popup, /function alertContent\(item\)/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(popup, /global-alert-identifiers/) /* 验证实际结果符合预期。 */
+  for (const technicalLabel of ['设备 ID', '告警编号', '消息 ID']) assert.doesNotMatch(popup, new RegExp(technicalLabel), `technical alarm identifier should not be shown: ${technicalLabel}`) /* 循环处理当前数据。 */
+  assert.match(popup, /window\.addEventListener\('iot:realtime'/) /* 验证实际结果符合预期。 */
 
-  const raised = alerts.parseRealtimeAlert(
-    '/iot/alarm/raised/city-1/district-1/building-1/smoke/device-1',
-    JSON.stringify({ alarmId:'alarm-1', triggerId:'message-1', deviceId:'device-1', deviceName:'东区烟感', alarmType:'FIRE_RISK', alarmLevel:'CRITICAL', source:'device', lastTriggeredAt:1760000000000 })
-  )
-  assert.equal(raised.kind, 'alarm')
-  assert.equal(raised.alarmId, 'alarm-1')
-  assert.equal(raised.deviceName, '东区烟感')
-  assert.equal(raised.detail, '检测到设备异常报警，请及时处理。')
-  assert.deepEqual(alerts.alertKeys(raised), ['alarm-1', 'message-1'])
+  const raised = alerts.parseRealtimeAlert( /* 声明 raised。 */
+    '/iot/alarm/raised/city-1/district-1/building-1/smoke/device-1', /* 执行当前语句并推进处理流程。 */
+    JSON.stringify({ alarmId:'alarm-1', triggerId:'message-1', deviceId:'device-1', deviceName:'东区烟感', alarmType:'FIRE_RISK', alarmLevel:'CRITICAL', source:'device', lastTriggeredAt:1760000000000 }) /* 执行当前语句并推进处理流程。 */
+  ) /* 结束当前表达式或代码块。 */
+  assert.equal(raised.kind, 'alarm') /* 验证实际结果符合预期。 */
+  assert.equal(raised.alarmId, 'alarm-1') /* 验证实际结果符合预期。 */
+  assert.equal(raised.deviceName, '东区烟感') /* 验证实际结果符合预期。 */
+  assert.equal(raised.detail, '检测到设备异常报警，请及时处理。') /* 验证实际结果符合预期。 */
+  assert.deepEqual(alerts.alertKeys(raised), ['alarm-1', 'message-1']) /* 验证实际结果符合预期。 */
 
-  const fault = alerts.parseRealtimeAlert(
-    '/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT',
-    { messageId:'message-fault', rawMessageId:'raw-message-fault', messageType:'EVENT_REPORT', deviceId:'device-1', event:{ type:'FAULT', description:'主电源故障' } }
-  )
-  assert.equal(fault.kind, 'fault')
-  assert.equal(fault.messageId, 'raw-message-fault')
-  assert.equal(fault.alarmType, 'DEVICE_FAULT')
-  assert.equal(fault.detail, '主电源故障')
-  assert.equal(alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', { messageType:'EVENT_REPORT', event:{ type:'HEARTBEAT' } }), null)
+  const fault = alerts.parseRealtimeAlert( /* 声明 fault。 */
+    '/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', /* 执行当前语句并推进处理流程。 */
+    { messageId:'message-fault', rawMessageId:'raw-message-fault', messageType:'EVENT_REPORT', deviceId:'device-1', event:{ type:'FAULT', description:'主电源故障' } } /* 执行当前语句并推进处理流程。 */
+  ) /* 结束当前表达式或代码块。 */
+  assert.equal(fault.kind, 'fault') /* 验证实际结果符合预期。 */
+  assert.equal(fault.messageId, 'raw-message-fault') /* 验证实际结果符合预期。 */
+  assert.equal(fault.alarmType, 'DEVICE_FAULT') /* 验证实际结果符合预期。 */
+  assert.equal(fault.detail, '主电源故障') /* 验证实际结果符合预期。 */
+  assert.equal(alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', { messageType:'EVENT_REPORT', event:{ type:'HEARTBEAT' } }), null) /* 验证实际结果符合预期。 */
 
-  const values = new Map()
-  const storage = { getItem:key => values.get(key) ?? null, setItem:(key, value) => values.set(key, value) }
-  const saved = alerts.saveAlertSettings(storage, { tenant:'tenant-a', user:'operator' }, { popupEnabled:false, soundEnabled:false, quietStart:'22:00', quietEnd:'07:00' })
-  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-a', user:'operator' }).popupEnabled, false)
-  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-b', user:'operator' }).popupEnabled, true)
-  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 23, 30), saved), true)
-  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 12, 0), saved), false)
-})
+  const values = new Map() /* 声明 values。 */
+  const storage = { getItem:key => values.get(key) ?? null, setItem:(key, value) => values.set(key, value) } /* 声明 storage。 */
+  const saved = alerts.saveAlertSettings(storage, { tenant:'tenant-a', user:'operator' }, { popupEnabled:false, soundEnabled:false, quietStart:'22:00', quietEnd:'07:00' }) /* 声明 saved。 */
+  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-a', user:'operator' }).popupEnabled, false) /* 验证实际结果符合预期。 */
+  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-b', user:'operator' }).popupEnabled, true) /* 验证实际结果符合预期。 */
+  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 23, 30), saved), true) /* 验证实际结果符合预期。 */
+  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 12, 0), saved), false) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('long dialogs keep the viewport fixed and scroll within the dialog body', async () => {
-  const styles = await readFile(new URL('src/styles.css', root), 'utf8')
-  const dialogStyle = styles.match(/\.el-dialog\s*\{[^}]+\}/)?.[0]
-  const dialogBodyStyle = styles.match(/\.el-dialog__body\s*\{[^}]+\}/)?.[0]
-  assert.ok(dialogStyle, 'dialog layout style must remain explicit')
-  assert.ok(dialogBodyStyle, 'dialog body layout style must remain explicit')
-  assert.match(styles, /\.main-content\s*\{[^}]*flex:\s*1 1 auto[^}]*overflow-y:\s*auto/)
-  assert.match(styles, /\.el-overlay-dialog\s*\{[^}]*overflow:\s*hidden/)
-  assert.match(dialogStyle, /display:\s*flex/)
-  assert.match(dialogStyle, /flex-direction:\s*column/)
-  assert.match(dialogStyle, /max-height:\s*calc\(100vh\s*-\s*48px\)/)
-  assert.match(dialogBodyStyle, /min-height:\s*0/)
-  assert.match(dialogBodyStyle, /overflow-y:\s*auto/)
-  assert.match(dialogBodyStyle, /overscroll-behavior:\s*contain/)
-})
+test('long dialogs keep the viewport fixed and scroll within the dialog body', async () => { /* 执行当前语句并推进处理流程。 */
+  const styles = await readFile(new URL('src/styles.css', root), 'utf8') /* 声明 styles。 */
+  const dialogStyle = styles.match(/\.el-dialog\s*\{[^}]+\}/)?.[0] /* 声明 dialogStyle。 */
+  const dialogBodyStyle = styles.match(/\.el-dialog__body\s*\{[^}]+\}/)?.[0] /* 声明 dialogBodyStyle。 */
+  assert.ok(dialogStyle, 'dialog layout style must remain explicit') /* 验证实际结果符合预期。 */
+  assert.ok(dialogBodyStyle, 'dialog body layout style must remain explicit') /* 验证实际结果符合预期。 */
+  assert.match(styles, /\.main-content\s*\{[^}]*flex:\s*1 1 auto[^}]*overflow-y:\s*auto/) /* 验证实际结果符合预期。 */
+  assert.match(styles, /\.el-overlay-dialog\s*\{[^}]*overflow:\s*hidden/) /* 验证实际结果符合预期。 */
+  assert.match(dialogStyle, /display:\s*flex/) /* 验证实际结果符合预期。 */
+  assert.match(dialogStyle, /flex-direction:\s*column/) /* 验证实际结果符合预期。 */
+  assert.match(dialogStyle, /max-height:\s*calc\(100vh\s*-\s*48px\)/) /* 验证实际结果符合预期。 */
+  assert.match(dialogBodyStyle, /min-height:\s*0/) /* 验证实际结果符合预期。 */
+  assert.match(dialogBodyStyle, /overflow-y:\s*auto/) /* 验证实际结果符合预期。 */
+  assert.match(dialogBodyStyle, /overscroll-behavior:\s*contain/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('camera metadata and AI workflow playground remain available', async () => {
-  const source = await sourceText()
-  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', '智能助手', '运行轨迹', '工具调用']) {
-    assert.match(source, new RegExp(label), `missing feature label: ${label}`)
-  }
-  const cameraView = await readFile(new URL('src/views/CameraMappingsView.vue', root), 'utf8')
-  assert.doesNotMatch(cameraView, /VideoStreamPlayer|autoPreview|openPreview|streamUrl|hls\.js/)
-  assert.match(source, /\.provider-select-row\s*\{[^}]*width:100%;[^}]*min-width:0;/, 'provider selector row must fill the Element Plus form content width')
-})
+test('camera metadata and AI workflow playground remain available', async () => { /* 执行当前语句并推进处理流程。 */
+  const source = await sourceText() /* 声明 source。 */
+  for (const label of ['摄像头点位', '不解析、拉取或预览视频流', '智能助手', '运行轨迹', '工具调用']) { /* 循环处理当前数据。 */
+    assert.match(source, new RegExp(label), `missing feature label: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  const cameraView = await readFile(new URL('src/views/CameraMappingsView.vue', root), 'utf8') /* 声明 cameraView。 */
+  assert.doesNotMatch(cameraView, /VideoStreamPlayer|autoPreview|openPreview|streamUrl|hls\.js/) /* 验证实际结果符合预期。 */
+  assert.match(source, /\.provider-select-row\s*\{[^}]*width:100%;[^}]*min-width:0;/, 'provider selector row must fill the Element Plus form content width') /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('knowledge management uploads files and lists tenant documents', async () => {
-  const app = await appSource()
-  const view = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
-  for (const label of ['知识库', '上传知识文档', '上传并建立索引', '已上传文档', '打开智能助手', '知识文档详情与切片', '索引与切片规则', '字符范围', '切片内容', '向量化', '知识库策略', '每次强制检索', '最低相似度', '无匹配知识时', '保存知识库策略']) {
-    assert.match(`${app}\n${view}`, new RegExp(label), `missing knowledge UI label: ${label}`)
-  }
-  assert.match(view, /api\((?:'|`)[^'`]*\/api\/v1\/knowledge\/documents(?:\?|['`])/)
-  assert.match(view, /method:'POST', body:form/)
-  assert.match(view, /new FormData\(\)/)
-  assert.match(view, /persistentIndex/)
-  assert.match(view, /api\((?:'|`)[^'`]*\/api\/v1\/ai\/workflows(?:\?|['`])/)
-  assert.match(view, /form\.append\('workflowId', workflowId\.value\)/)
-  assert.match(view, /<el-select v-model="workflowId"/)
-  assert.match(view, /api\(`\/api\/v1\/knowledge\/documents\/\$\{encodeURIComponent\(document\.id\)\}`\)/)
-  assert.match(view, /固定窗口 \+ 重叠/)
-  assert.match(view, /row\.startChar/)
-  assert.match(view, /row\.overlapChars/)
-  assert.match(view, /row\.vectorized/)
-  assert.match(view, /knowledge-binding/)
-  assert.match(view, /function loadBinding\(\)/)
-  assert.match(view, /function saveBinding\(\)/)
-  for (const label of ['知识分类', '知识标签', '告警处置操作规程']) assert.match(view, new RegExp(label), `missing knowledge metadata UI: ${label}`)
-})
+test('knowledge management uploads files and lists tenant documents', async () => { /* 执行当前语句并推进处理流程。 */
+  const app = await appSource() /* 声明 app。 */
+  const view = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8') /* 声明 view。 */
+  for (const label of ['知识库', '上传知识文档', '上传并建立索引', '已上传文档', '打开智能助手', '知识文档详情与切片', '索引与切片规则', '字符范围', '切片内容', '向量化', '知识库策略', '每次强制检索', '最低相似度', '无匹配知识时', '保存知识库策略']) { /* 循环处理当前数据。 */
+    assert.match(`${app}\n${view}`, new RegExp(label), `missing knowledge UI label: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  assert.match(view, /api\((?:'|`)[^'`]*\/api\/v1\/knowledge\/documents(?:\?|['`])/) /* 验证实际结果符合预期。 */
+  assert.match(view, /method:'POST', body:form/) /* 验证实际结果符合预期。 */
+  assert.match(view, /new FormData\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(view, /persistentIndex/) /* 验证实际结果符合预期。 */
+  assert.match(view, /api\((?:'|`)[^'`]*\/api\/v1\/ai\/workflows(?:\?|['`])/) /* 验证实际结果符合预期。 */
+  assert.match(view, /form\.append\('workflowId', workflowId\.value\)/) /* 验证实际结果符合预期。 */
+  assert.match(view, /<el-select v-model="workflowId"/) /* 验证实际结果符合预期。 */
+  assert.match(view, /api\(`\/api\/v1\/knowledge\/documents\/\$\{encodeURIComponent\(document\.id\)\}`\)/) /* 验证实际结果符合预期。 */
+  assert.match(view, /固定窗口 \+ 重叠/) /* 验证实际结果符合预期。 */
+  assert.match(view, /row\.startChar/) /* 验证实际结果符合预期。 */
+  assert.match(view, /row\.overlapChars/) /* 验证实际结果符合预期。 */
+  assert.match(view, /row\.vectorized/) /* 验证实际结果符合预期。 */
+  assert.match(view, /knowledge-binding/) /* 验证实际结果符合预期。 */
+  assert.match(view, /function loadBinding\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(view, /function saveBinding\(\)/) /* 验证实际结果符合预期。 */
+  for (const label of ['知识分类', '知识标签', '告警处置操作规程']) assert.match(view, new RegExp(label), `missing knowledge metadata UI: ${label}`) /* 循环处理当前数据。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('knowledge statistic cards use readable foreground colors', async () => {
-  const view = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
-  const statsStyle = view.match(/\.knowledge-stats span,\.knowledge-stats small \{[^}]+\}/)?.[0]
-  assert.ok(statsStyle, 'knowledge statistic label style must remain explicit')
-  assert.match(statsStyle, /color:var\(--muted-foreground\)/)
-  assert.doesNotMatch(statsStyle, /color:var\(--muted\)/)
-})
+test('knowledge statistic cards use readable foreground colors', async () => { /* 执行当前语句并推进处理流程。 */
+  const view = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8') /* 声明 view。 */
+  const statsStyle = view.match(/\.knowledge-stats span,\.knowledge-stats small \{[^}]+\}/)?.[0] /* 声明 statsStyle。 */
+  assert.ok(statsStyle, 'knowledge statistic label style must remain explicit') /* 验证实际结果符合预期。 */
+  assert.match(statsStyle, /color:var\(--muted-foreground\)/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(statsStyle, /color:var\(--muted\)/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('AI workbench uses cancellable SSE workflows and stable message keys', async () => {
-  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
-  const apiSource = await readFile(new URL('src/api.js', root), 'utf8')
-  const sseSource = await readFile(new URL('src/sse.js', root), 'utf8')
+test('AI workbench uses cancellable SSE workflows and stable message keys', async () => { /* 执行当前语句并推进处理流程。 */
+  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8') /* 声明 aiView。 */
+  const apiSource = await readFile(new URL('src/api.js', root), 'utf8') /* 声明 apiSource。 */
+  const sseSource = await readFile(new URL('src/sse.js', root), 'utf8') /* 声明 sseSource。 */
 
-  assert.match(aiView, /api\((?:'|`)[^'`]*\/api\/v1\/ai\/workflows(?:\?|['`])/)
-  assert.match(aiView, /runtimeRequestSequence/)
-  assert.match(aiView, /requestSequence !== runtimeRequestSequence/)
-  assert.match(aiView, /workflowManageRequestSequence/)
-  assert.match(aiView, /loadWorkflowManagement\(true\)/)
-  assert.match(aiView, /apiStream\('\/api\/v1\/ai\/chat\/stream'/)
-  assert.match(aiView, /new AbortController\(\)/)
-  assert.match(aiView, /:key="message\.id"/)
-  for (const field of ['question','conversationId','workflowId','model','maxTokens']) assert.match(aiView, new RegExp(`\\b${field}\\b`), `missing AI request field: ${field}`)
-  for (const eventType of ['run.started','text.delta','tool.started','tool.completed','run.completed','run.failed']) assert.ok(aiView.includes(`'${eventType}'`), `missing stream event: ${eventType}`)
-  assert.doesNotMatch(aiView, /event\.reasoning/)
-  assert.doesNotMatch(aiView, /conversationId\.value\s*=\s*event\.conversationId/)
-  assert.doesNotMatch(aiView, /model:[^\n]*runtime\.value\.active/)
-  assert.match(aiView, /conversationId\.value\s*=\s*makeId\('conversation'\)/)
-  for (const label of ['智能体插件管理', '新建智能体', '智能体配置清单', '校验并创建智能体', '保存后智能体会立即进入工作流列表']) assert.match(aiView, new RegExp(label), `missing dynamic Agent UI: ${label}`)
-  for (const field of ['schemaVersion','id','name','description','version','enabled','persona','defaultModel','maxTokens','capabilities','allowedTools']) assert.match(aiView, new RegExp(`name:'${field}'`), `missing Agent field documentation: ${field}`)
-  assert.match(aiView, /结构化数据标准不支持注释/)
-  assert.match(aiView, /允许使用的工具/)
-  for (const label of ['本次运行', '选择工作流', '运行参数', '运行环境', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow hierarchy label: ${label}`)
-  assert.match(aiView, /<el-drawer v-model="managementVisible" title="智能体管理"/)
-  assert.doesNotMatch(aiView, /<el-menu/)
-  assert.doesNotMatch(aiView, /Provider 测试/)
-  assert.doesNotMatch(aiView, /panel-knowledge|panel-provider/)
-  assert.doesNotMatch(aiView, /<el-collapse/)
-  assert.match(aiView, /method:'PUT'/)
-  assert.match(aiView, /api\('\/api\/v1\/ai\/workflows', \{ method:'POST'/)
-  for (const marker of ['/api/v1/ai/workflows/admin', "method:'DELETE'", '工作流插件管理', '已配置的工作流插件', '内置只读', '启用', '禁用', '删除']) {
-    assert.match(aiView, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing workflow management marker: ${marker}`)
-  }
-  for (const marker of ['agentPreviewVisible', 'agentPreviewJson', 'viewAgent', '查看内置智能体', '内置智能体配置清单（只读）']) {
-    assert.match(aiView, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing built-in Agent preview marker: ${marker}`)
-  }
-  for (const workflowId of ['alarm-handler', 'device-health-inspector', 'protocol-assistant']) {
-    assert.match(aiView, new RegExp(workflowId), `missing non-chat workflow classification: ${workflowId}`)
-  }
-  assert.match(aiView, /const nonChatWorkflowIds = new Set\(\[/)
-  assert.match(aiView, /isChatWorkflow\(item\)/)
-  assert.match(aiView, /value\.items\.filter\(isChatWorkflow\)/)
-  assert.match(aiView, /@click="viewAgent\(item\)"/)
-  assert.match(aiView, /@click="startCreateAgent"/)
-  assert.match(aiView, /function startCreateAgent\(\)/)
-  assert.match(aiView, /agentEditorVisible\.value = true/)
-  assert.match(aiView, /function openAgentManagement\(\)/)
-  assert.match(aiView, /agentEditorRef/)
-  assert.match(aiView, /@click="openAgentManagement"/)
-  assert.match(aiView, /method:'PUT'/)
-  assert.match(apiSource, /export async function apiStream/)
-  assert.match(apiSource, /request\.cache = 'no-store'/)
-  assert.doesNotMatch(aiView, /providerProfileStorageKey|testPlugin|sandbox\.provider/)
-  assert.match(apiSource, /text\/event-stream/)
-  assert.match(sseSource, /getReader\(\)/)
-})
+  assert.match(aiView, /api\((?:'|`)[^'`]*\/api\/v1\/ai\/workflows(?:\?|['`])/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /runtimeRequestSequence/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /requestSequence !== runtimeRequestSequence/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /workflowManageRequestSequence/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /loadWorkflowManagement\(true\)/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /apiStream\('\/api\/v1\/ai\/chat\/stream'/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /new AbortController\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /:key="message\.id"/) /* 验证实际结果符合预期。 */
+  for (const field of ['question','conversationId','workflowId','model','maxTokens']) assert.match(aiView, new RegExp(`\\b${field}\\b`), `missing AI request field: ${field}`) /* 循环处理当前数据。 */
+  for (const eventType of ['run.started','text.delta','tool.started','tool.completed','run.completed','run.failed']) assert.ok(aiView.includes(`'${eventType}'`), `missing stream event: ${eventType}`) /* 循环处理当前数据。 */
+  assert.doesNotMatch(aiView, /event\.reasoning/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /conversationId\.value\s*=\s*event\.conversationId/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /model:[^\n]*runtime\.value\.active/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /conversationId\.value\s*=\s*makeId\('conversation'\)/) /* 验证实际结果符合预期。 */
+  for (const label of ['智能体插件管理', '新建智能体', '智能体配置清单', '校验并创建智能体', '保存后智能体会立即进入工作流列表']) assert.match(aiView, new RegExp(label), `missing dynamic Agent UI: ${label}`) /* 循环处理当前数据。 */
+  for (const field of ['schemaVersion','id','name','description','version','enabled','persona','defaultModel','maxTokens','capabilities','allowedTools']) assert.match(aiView, new RegExp(`name:'${field}'`), `missing Agent field documentation: ${field}`) /* 循环处理当前数据。 */
+  assert.match(aiView, /结构化数据标准不支持注释/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /允许使用的工具/) /* 验证实际结果符合预期。 */
+  for (const label of ['本次运行', '选择工作流', '运行参数', '运行环境', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow hierarchy label: ${label}`) /* 循环处理当前数据。 */
+  assert.match(aiView, /<el-drawer v-model="managementVisible" title="智能体管理"/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /<el-menu/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /Provider 测试/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /panel-knowledge|panel-provider/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /<el-collapse/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /method:'PUT'/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /api\('\/api\/v1\/ai\/workflows', \{ method:'POST'/) /* 验证实际结果符合预期。 */
+  for (const marker of ['/api/v1/ai/workflows/admin', "method:'DELETE'", '工作流插件管理', '已配置的工作流插件', '内置只读', '启用', '禁用', '删除']) { /* 循环处理当前数据。 */
+    assert.match(aiView, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing workflow management marker: ${marker}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  for (const marker of ['agentPreviewVisible', 'agentPreviewJson', 'viewAgent', '查看内置智能体', '内置智能体配置清单（只读）']) { /* 循环处理当前数据。 */
+    assert.match(aiView, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing built-in Agent preview marker: ${marker}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  for (const workflowId of ['alarm-handler', 'device-health-inspector', 'protocol-assistant']) { /* 循环处理当前数据。 */
+    assert.match(aiView, new RegExp(workflowId), `missing non-chat workflow classification: ${workflowId}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  assert.match(aiView, /const nonChatWorkflowIds = new Set\(\[/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /isChatWorkflow\(item\)/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /value\.items\.filter\(isChatWorkflow\)/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /@click="viewAgent\(item\)"/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /@click="startCreateAgent"/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /function startCreateAgent\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /agentEditorVisible\.value = true/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /function openAgentManagement\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /agentEditorRef/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /@click="openAgentManagement"/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /method:'PUT'/) /* 验证实际结果符合预期。 */
+  assert.match(apiSource, /export async function apiStream/) /* 验证实际结果符合预期。 */
+  assert.match(apiSource, /request\.cache = 'no-store'/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /providerProfileStorageKey|testPlugin|sandbox\.provider/) /* 验证实际结果符合预期。 */
+  assert.match(apiSource, /text\/event-stream/) /* 验证实际结果符合预期。 */
+  assert.match(sseSource, /getReader\(\)/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('AI streaming keeps Markdown rendering and scroll work bounded', async () => {
-  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
+test('AI streaming keeps Markdown rendering and scroll work bounded', async () => { /* 执行当前语句并推进处理流程。 */
+  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8') /* 声明 aiView。 */
 
-  assert.match(aiView, /queueAssistantText/)
-  assert.match(aiView, /flushAssistantText/)
-  assert.match(aiView, /<MarkdownContent v-if="message\.text && message\.role === 'assistant' && message\.status !== 'streaming'"/)
-  assert.match(aiView, /<p v-else-if="message\.text">\{\{ message\.text \}\}<\/p>/)
-  assert.doesNotMatch(aiView, /behavior:'smooth'/)
-})
+  assert.match(aiView, /queueAssistantText/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /flushAssistantText/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /<MarkdownContent v-if="message\.text && message\.role === 'assistant' && message\.status !== 'streaming'"/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /<p v-else-if="message\.text">\{\{ message\.text \}\}<\/p>/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /behavior:'smooth'/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('AI chat sizes sent question bubbles to content until the readable max width', async () => {
-  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
-  const messageContentStyle = aiView.match(/\.message-content \{[^}]+\}/)?.[0]
-  const userContentStyle = aiView.match(/\.message-row\.user \.message-content \{[^}]+\}/)?.[0]
-  const userMessageStyle = aiView.match(/\.message-row\.user \.chat-message \{[^}]+\}/)?.[0]
-  assert.ok(messageContentStyle, 'AI message content width must remain explicit')
-  assert.ok(userContentStyle, 'AI user message content width must remain explicit')
-  assert.ok(userMessageStyle, 'AI user chat message width must remain explicit')
-  assert.match(messageContentStyle, /width:100%/)
-  assert.match(userContentStyle, /width:fit-content/)
-  assert.match(userContentStyle, /max-width:min\(82%,760px\)/)
-  assert.doesNotMatch(userContentStyle, /width:100%/)
-  assert.match(userMessageStyle, /width:fit-content/)
-  assert.match(userMessageStyle, /max-width:100%/)
-})
+test('AI chat sizes sent question bubbles to content until the readable max width', async () => { /* 执行当前语句并推进处理流程。 */
+  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8') /* 声明 aiView。 */
+  const messageContentStyle = aiView.match(/\.message-content \{[^}]+\}/)?.[0] /* 声明 messageContentStyle。 */
+  const userContentStyle = aiView.match(/\.message-row\.user \.message-content \{[^}]+\}/)?.[0] /* 声明 userContentStyle。 */
+  const userMessageStyle = aiView.match(/\.message-row\.user \.chat-message \{[^}]+\}/)?.[0] /* 声明 userMessageStyle。 */
+  assert.ok(messageContentStyle, 'AI message content width must remain explicit') /* 验证实际结果符合预期。 */
+  assert.ok(userContentStyle, 'AI user message content width must remain explicit') /* 验证实际结果符合预期。 */
+  assert.ok(userMessageStyle, 'AI user chat message width must remain explicit') /* 验证实际结果符合预期。 */
+  assert.match(messageContentStyle, /width:100%/) /* 验证实际结果符合预期。 */
+  assert.match(userContentStyle, /width:fit-content/) /* 验证实际结果符合预期。 */
+  assert.match(userContentStyle, /max-width:min\(82%,760px\)/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(userContentStyle, /width:100%/) /* 验证实际结果符合预期。 */
+  assert.match(userMessageStyle, /width:fit-content/) /* 验证实际结果符合预期。 */
+  assert.match(userMessageStyle, /max-width:100%/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('AI answers render safe Markdown in chat and health inspection', async () => {
-  const markdown = await import('../src/markdown.js')
-  const html = markdown.renderMarkdown('# 标题\n\n- **重点**\n\n`code`')
-  assert.match(html, /<h1>标题<\/h1>/)
-  assert.match(html, /<ul>[\s\S]*<strong>重点<\/strong>[\s\S]*<\/ul>/)
-  assert.match(html, /<code>code<\/code>/)
-  const unsafeHtml = markdown.renderMarkdown('<script>alert(1)</script>')
-  assert.match(unsafeHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
-  assert.doesNotMatch(unsafeHtml, /<script>/)
+test('AI answers render safe Markdown in chat and health inspection', async () => { /* 执行当前语句并推进处理流程。 */
+  const markdown = await import('../src/markdown.js') /* 声明 markdown。 */
+  const html = markdown.renderMarkdown('# 标题\n\n- **重点**\n\n`code`') /* 声明 html。 */
+  assert.match(html, /<h1>标题<\/h1>/) /* 验证实际结果符合预期。 */
+  assert.match(html, /<ul>[\s\S]*<strong>重点<\/strong>[\s\S]*<\/ul>/) /* 验证实际结果符合预期。 */
+  assert.match(html, /<code>code<\/code>/) /* 验证实际结果符合预期。 */
+  const unsafeHtml = markdown.renderMarkdown('<script>alert(1)</script>') /* 声明 unsafeHtml。 */
+  assert.match(unsafeHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(unsafeHtml, /<script>/) /* 验证实际结果符合预期。 */
 
-  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
-  const inspectionView = await readFile(new URL('src/views/HealthInspectionView.vue', root), 'utf8')
-  assert.match(aiView, /<MarkdownContent[^>]*:source="message\.text"/)
-  assert.match(inspectionView, /<MarkdownContent[^>]*:source="report\.aiAdvice"/)
-})
+  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8') /* 声明 aiView。 */
+  const inspectionView = await readFile(new URL('src/views/HealthInspectionView.vue', root), 'utf8') /* 声明 inspectionView。 */
+  assert.match(aiView, /<MarkdownContent[^>]*:source="message\.text"/) /* 验证实际结果符合预期。 */
+  assert.match(inspectionView, /<MarkdownContent[^>]*:source="report\.aiAdvice"/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('health inspection report survives menu-driven view recreation and stays tenant scoped', async () => {
-  const { HEALTH_INSPECTION_STORAGE_PREFIX, healthInspectionStorageKey, saveHealthInspection, loadHealthInspection } = await import('../src/healthInspectionState.js')
-  const values = new Map()
-  const storage = { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) }
-  const session = { tenant:'tenant-a', user:'alice' }
-  const report = { generatedAt:1760000000000, summary:'巡检完成', counts:{ total:3, healthy:2 }, items:[], aiAdvice:'需要复核一台设备。' }
-  assert.equal(saveHealthInspection(storage, session, report), true)
-  assert.ok([...values.keys()][0].startsWith(HEALTH_INSPECTION_STORAGE_PREFIX))
-  assert.deepEqual(loadHealthInspection(storage, session), report)
-  assert.equal(loadHealthInspection(storage, { tenant:'tenant-b', user:'alice' }), null)
-  assert.equal(loadHealthInspection(storage, { tenant:'tenant-a', user:'bob' }), null)
-  values.set(healthInspectionStorageKey(session), '{invalid')
-  assert.equal(loadHealthInspection(storage, session), null)
-  assert.equal(values.has(healthInspectionStorageKey(session)), false)
-})
+test('health inspection report survives menu-driven view recreation and stays tenant scoped', async () => { /* 执行当前语句并推进处理流程。 */
+  const { HEALTH_INSPECTION_STORAGE_PREFIX, healthInspectionStorageKey, saveHealthInspection, loadHealthInspection } = await import('../src/healthInspectionState.js') /* 执行当前语句并推进处理流程。 */
+  const values = new Map() /* 声明 values。 */
+  const storage = { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) } /* 声明 storage。 */
+  const session = { tenant:'tenant-a', user:'alice' } /* 声明 session。 */
+  const report = { generatedAt:1760000000000, summary:'巡检完成', counts:{ total:3, healthy:2 }, items:[], aiAdvice:'需要复核一台设备。' } /* 声明 report。 */
+  assert.equal(saveHealthInspection(storage, session, report), true) /* 验证实际结果符合预期。 */
+  assert.ok([...values.keys()][0].startsWith(HEALTH_INSPECTION_STORAGE_PREFIX)) /* 验证实际结果符合预期。 */
+  assert.deepEqual(loadHealthInspection(storage, session), report) /* 验证实际结果符合预期。 */
+  assert.equal(loadHealthInspection(storage, { tenant:'tenant-b', user:'alice' }), null) /* 验证实际结果符合预期。 */
+  assert.equal(loadHealthInspection(storage, { tenant:'tenant-a', user:'bob' }), null) /* 验证实际结果符合预期。 */
+  values.set(healthInspectionStorageKey(session), '{invalid') /* 执行当前语句并推进处理流程。 */
+  assert.equal(loadHealthInspection(storage, session), null) /* 验证实际结果符合预期。 */
+  assert.equal(values.has(healthInspectionStorageKey(session)), false) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('AI model administration has its own menu and business overview', async () => {
-  const app = await appSource()
-  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8')
-  const providerView = await readFile(new URL('src/views/AiProvidersView.vue', root), 'utf8')
-  const knowledgeView = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8')
-  assert.match(app, /knowledge: \{ \.\.\.pageGuide.knowledge/)
-  assert.match(app, /aiProviders: \{ \.\.\.pageGuide.aiProviders/)
-  assert.match(app, /items: \['aiProviders', 'ai', 'knowledge'\]/)
-  assert.match(app, /allowedPages = new Set\(\[[^\]]*'aiProviders'/s)
-  assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑智能体' : '新建智能体'"/)
-  assert.match(aiView, /function cancelAgentEditor\(\)/)
-  assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/)
-  assert.match(aiView, /管理模型服务/)
-  assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/)
-  assert.doesNotMatch(aiView, /<el-menu-item index="knowledge"|<el-menu-item index="provider"/)
-  for (const label of ['统一管理智能模型与业务能力', '模型服务配置', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) {
-    assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`)
-  }
-  for (const label of ['AI Provider', 'Provider 配置', '可用 Provider', '测试并应用']) {
-    assert.doesNotMatch(providerView, new RegExp(label), `English Provider wording should not be visible: ${label}`)
-  }
-  assert.match(providerView, /\/api\/v1\/ai\/providers\?page=1&pageSize=100/)
-  assert.match(providerView, /\/api\/v1\/ai\/providers\/test/)
-  assert.match(providerView, /\/api\/v1\/ai\/providers\/config/)
-  assert.match(providerView, /function testProviderConfig\(\)/)
-  assert.match(providerView, /function applyProviderConfig\(\)/)
-  assert.match(providerView, /:disabled="!canApply"/)
-  assert.match(providerView, /当前填写内容未生效/)
-  assert.match(providerView, /所有智能功能立即生效/)
-  assert.match(knowledgeView, /知识库策略/)
-})
+test('AI model administration has its own menu and business overview', async () => { /* 执行当前语句并推进处理流程。 */
+  const app = await appSource() /* 声明 app。 */
+  const aiView = await readFile(new URL('src/views/AiView.vue', root), 'utf8') /* 声明 aiView。 */
+  const providerView = await readFile(new URL('src/views/AiProvidersView.vue', root), 'utf8') /* 声明 providerView。 */
+  const knowledgeView = await readFile(new URL('src/views/KnowledgeView.vue', root), 'utf8') /* 声明 knowledgeView。 */
+  assert.match(app, /knowledge: \{ \.\.\.pageGuide.knowledge/) /* 验证实际结果符合预期。 */
+  assert.match(app, /aiProviders: \{ \.\.\.pageGuide.aiProviders/) /* 验证实际结果符合预期。 */
+  assert.match(app, /items: \['aiProviders', 'ai', 'knowledge'\]/) /* 验证实际结果符合预期。 */
+  assert.match(app, /allowedPages = new Set\(\[[^\]]*'aiProviders'/s) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /<el-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑智能体' : '新建智能体'"/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /function cancelAgentEditor\(\)/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /管理模型服务/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(aiView, /<el-menu-item index="knowledge"|<el-menu-item index="provider"/) /* 验证实际结果符合预期。 */
+  for (const label of ['统一管理智能模型与业务能力', '模型服务配置', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) { /* 循环处理当前数据。 */
+    assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  for (const label of ['AI Provider', 'Provider 配置', '可用 Provider', '测试并应用']) { /* 循环处理当前数据。 */
+    assert.doesNotMatch(providerView, new RegExp(label), `English Provider wording should not be visible: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  assert.match(providerView, /\/api\/v1\/ai\/providers\?page=1&pageSize=100/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /\/api\/v1\/ai\/providers\/test/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /\/api\/v1\/ai\/providers\/config/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /function testProviderConfig\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /function applyProviderConfig\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /:disabled="!canApply"/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /当前填写内容未生效/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /所有智能功能立即生效/) /* 验证实际结果符合预期。 */
+  assert.match(knowledgeView, /知识库策略/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('protocol v2 point-table, package release and device collection flows are visible', async () => {
-  const protocols = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8')
-  const raw = await readFile(new URL('src/views/RawView.vue', root), 'utf8')
-  const devices = await readFile(new URL('src/views/DevicesView.vue', root), 'utf8')
-  const app = await appSource()
-  for (const label of ['新建网关', '上传源码', '版本', '接入网关', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`)
-  for (const route of ['/api/v2/protocols', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/')))
-  assert.match(protocols, /产品绑定协议/)
-  assert.doesNotMatch(protocols, /commandOpen|下行命令/)
-  assert.doesNotMatch(protocols, /go-json-lines-v1|source\.cases|旧协议包/)
-  assert.match(app, /label: '设备接入'/)
-  assert.match(app, /integration: \{ \.\.\.pageGuide.integration/)
-  assert.match(raw, /standardMessage/)
-    assert.match(devices, /hasReported\(row\)/)
-  assert.match(devices, /查看数据/)
-  assert.match(devices, /连接详情/)
-  assert.doesNotMatch(devices, /轮换凭证|连接指南/)
-})
+test('protocol v2 point-table, package release and device collection flows are visible', async () => { /* 执行当前语句并推进处理流程。 */
+  const protocols = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8') /* 声明 protocols。 */
+  const raw = await readFile(new URL('src/views/RawView.vue', root), 'utf8') /* 声明 raw。 */
+  const devices = await readFile(new URL('src/views/DevicesView.vue', root), 'utf8') /* 声明 devices。 */
+  const app = await appSource() /* 声明 app。 */
+  for (const label of ['新建网关', '上传源码', '版本', '接入网关', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`) /* 循环处理当前数据。 */
+  for (const route of ['/api/v2/protocols', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/'))) /* 循环处理当前数据。 */
+  assert.match(protocols, /产品绑定协议/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(protocols, /commandOpen|下行命令/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(protocols, /go-json-lines-v1|source\.cases|旧协议包/) /* 验证实际结果符合预期。 */
+  assert.match(app, /label: '设备接入'/) /* 验证实际结果符合预期。 */
+  assert.match(app, /integration: \{ \.\.\.pageGuide.integration/) /* 验证实际结果符合预期。 */
+  assert.match(raw, /standardMessage/) /* 验证实际结果符合预期。 */
+    assert.match(devices, /hasReported\(row\)/) /* 验证实际结果符合预期。 */
+  assert.match(devices, /查看数据/) /* 验证实际结果符合预期。 */
+  assert.match(devices, /连接详情/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(devices, /轮换凭证|连接指南/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('test device workbench provisions a fixture and sends editable data and alarm templates', async () => {
-  const app = await appSource()
-  const view = await readFile(new URL('src/views/TestDeviceView.vue', root), 'utf8')
-  for (const label of ['测试设备', '发送正常数据', '发送报警数据', '发送恢复数据', '报文模板', '建议测试顺序']) {
-    assert.match(`${app}\n${view}`, new RegExp(label), `missing test device label: ${label}`)
-  }
-  assert.match(app, /testDevice/)
-  assert.match(app, /component: TestDeviceView/)
-  assert.match(view, /api\('\/api\/v1\/test-devices\/provision'/)
-  assert.match(view, /device-registry\/\$\{encodeURIComponent\(device\.value\.id\)\}\/debug/)
-  assert.match(view, /messageId.*<unique>/)
-  assert.match(view, /alarm.*true/)
-  assert.match(view, /localStorage/)
-  assert.match(view, /不会自动创建告警规则/)
-  assert.match(view, /告警会直接进入告警中心/)
-  assert.doesNotMatch(view, /系统生成的高温烟雾规则/)
-  assert.match(app, /action\.type === 'OPEN_PAGE'/)
-  assert.match(app, /openPage\(action\.page\)/)
-  assert.match(app, /'devices'/)
-})
+test('test device workbench provisions a fixture and sends editable data and alarm templates', async () => { /* 执行当前语句并推进处理流程。 */
+  const app = await appSource() /* 声明 app。 */
+  const view = await readFile(new URL('src/views/TestDeviceView.vue', root), 'utf8') /* 声明 view。 */
+  for (const label of ['测试设备', '发送正常数据', '发送报警数据', '发送恢复数据', '报文模板', '建议测试顺序']) { /* 循环处理当前数据。 */
+    assert.match(`${app}\n${view}`, new RegExp(label), `missing test device label: ${label}`) /* 验证实际结果符合预期。 */
+  } /* 结束当前表达式或代码块。 */
+  assert.match(app, /testDevice/) /* 验证实际结果符合预期。 */
+  assert.match(app, /component: TestDeviceView/) /* 验证实际结果符合预期。 */
+  assert.match(view, /api\('\/api\/v1\/test-devices\/provision'/) /* 验证实际结果符合预期。 */
+  assert.match(view, /device-registry\/\$\{encodeURIComponent\(device\.value\.id\)\}\/debug/) /* 验证实际结果符合预期。 */
+  assert.match(view, /messageId.*<unique>/) /* 验证实际结果符合预期。 */
+  assert.match(view, /alarm.*true/) /* 验证实际结果符合预期。 */
+  assert.match(view, /localStorage/) /* 验证实际结果符合预期。 */
+  assert.match(view, /不会自动创建告警规则/) /* 验证实际结果符合预期。 */
+  assert.match(view, /告警会直接进入告警中心/) /* 验证实际结果符合预期。 */
+  assert.doesNotMatch(view, /系统生成的高温烟雾规则/) /* 验证实际结果符合预期。 */
+  assert.match(app, /action\.type === 'OPEN_PAGE'/) /* 验证实际结果符合预期。 */
+  assert.match(app, /openPage\(action\.page\)/) /* 验证实际结果符合预期。 */
+  assert.match(app, /'devices'/) /* 验证实际结果符合预期。 */
+}) /* 结束当前表达式或代码块。 */
 
-test('alarm acknowledgement action is unavailable after the alarm is acknowledged', async () => {
-  const actions = await import('../src/alarmActions.js')
-  const alarms = await readFile(new URL('src/views/AlarmsView.vue', root), 'utf8')
-  assert.equal(actions.canAcknowledgeAlarm('ACTIVE'), true)
-  assert.equal(actions.canAcknowledgeAlarm('ACKED'), false)
-  assert.equal(actions.canAcknowledgeAlarm('CLOSED'), false)
-  assert.equal(actions.canCloseAlarm('ACKED'), true)
-  assert.match(alarms, /canAcknowledgeAlarm\(row\.status\)/)
-  assert.match(alarms, /canCloseAlarm\(row\.status\)/)
-  assert.match(alarms, /actionPending\[row\.alarmId\]/)
-  assert.match(alarms, /await load\(\)/)
-  assert.match(alarms, /analysisProgress/)
-  assert.match(alarms, /estimatedRemainingMs/)
-  assert.match(alarms, /progress\/\$\{encodeURIComponent\(jobId\)\}/)
+test('alarm acknowledgement action is unavailable after the alarm is acknowledged', async () => { /* 执行当前语句并推进处理流程。 */
+  const actions = await import('../src/alarmActions.js') /* 声明 actions。 */
+  const alarms = await readFile(new URL('src/views/AlarmsView.vue', root), 'utf8') /* 声明 alarms。 */
+  assert.equal(actions.canAcknowledgeAlarm('ACTIVE'), true) /* 验证实际结果符合预期。 */
+  assert.equal(actions.canAcknowledgeAlarm('ACKED'), false) /* 验证实际结果符合预期。 */
+  assert.equal(actions.canAcknowledgeAlarm('CLOSED'), false) /* 验证实际结果符合预期。 */
+  assert.equal(actions.canCloseAlarm('ACKED'), true) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /canAcknowledgeAlarm\(row\.status\)/) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /canCloseAlarm\(row\.status\)/) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /actionPending\[row\.alarmId\]/) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /await load\(\)/) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /analysisProgress/) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /estimatedRemainingMs/) /* 验证实际结果符合预期。 */
+  assert.match(alarms, /progress\/\$\{encodeURIComponent\(jobId\)\}/) /* 验证实际结果符合预期。 */
   assert.match(alarms, /progress`\)/)
   assert.match(alarms, /function handleDetailClosed\(\)/)
 })

@@ -1,35 +1,35 @@
-const htmlEntities = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;'
-}
+const htmlEntities = { /* 声明 htmlEntities。 */
+  '&': '&amp;', /* 执行当前语句并推进处理流程。 */
+  '<': '&lt;', /* 执行当前语句并推进处理流程。 */
+  '>': '&gt;', /* 执行当前语句并推进处理流程。 */
+  '"': '&quot;', /* 执行当前语句并推进处理流程。 */
+  "'": '&#39;' /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, character => htmlEntities[character])
-}
+function escapeHtml(value) { /* 定义 escapeHtml 函数。 */
+  return String(value ?? '').replace(/[&<>"']/g, character => htmlEntities[character]) /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-function safeHref(value) {
-  try {
-    const url = new URL(value)
-    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? value : ''
-  } catch {
-    return ''
-  }
-}
+function safeHref(value) { /* 定义 safeHref 函数。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const url = new URL(value) /* 声明 url。 */
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? value : '' /* 返回当前处理结果。 */
+  } catch { /* 结束当前表达式或代码块。 */
+    return '' /* 返回当前处理结果。 */
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function restoreTokens(value, tokens) {
-  return value.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] || '')
-}
+function restoreTokens(value, tokens) { /* 定义 restoreTokens 函数。 */
+  return value.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] || '') /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-function renderInline(value) {
-  const tokens = []
-  const token = html => {
-    const index = tokens.push(html) - 1
-    return `\u0000${index}\u0000`
-  }
-  let text = escapeHtml(value)
+function renderInline(value) { /* 定义 renderInline 函数。 */
+  const tokens = [] /* 声明 tokens。 */
+  const token = html => { /* 声明 token。 */
+    const index = tokens.push(html) - 1 /* 声明 index。 */
+    return `\u0000${index}\u0000` /* 返回当前处理结果。 */
+  } /* 结束当前表达式或代码块。 */
+  let text = escapeHtml(value) /* 声明 text。 */
 
   text = text.replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${code}</code>`))
   text = text.replace(/!\[([^\]\n]*)\]\([^\)\n]+\)/g, '$1')
@@ -72,70 +72,70 @@ function isBlockStart(lines, index) {
   const line = lines[index] || ''
   if (!line.trim()) return true
   if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) return true
-  if (/^ {0,3}#{1,6}\s+/.test(line)) return true
-  if (/^ {0,3}>\s?/.test(line)) return true
-  if (/^ {0,3}(?:[-+*]|\d+[.])\s+/.test(line)) return true
-  if (/^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/.test(line)) return true
-  return Boolean(lines[index + 1] && isTableSeparator(lines[index + 1]) && line.includes('|'))
-}
+  if (/^ {0,3}#{1,6}\s+/.test(line)) return true /* 判断条件并选择处理分支。 */
+  if (/^ {0,3}>\s?/.test(line)) return true /* 判断条件并选择处理分支。 */
+  if (/^ {0,3}(?:[-+*]|\d+[.])\s+/.test(line)) return true /* 判断条件并选择处理分支。 */
+  if (/^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/.test(line)) return true /* 判断条件并选择处理分支。 */
+  return Boolean(lines[index + 1] && isTableSeparator(lines[index + 1]) && line.includes('|')) /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-function renderFence(lines, start) {
+function renderFence(lines, start) { /* 定义 renderFence 函数。 */
   const opening = lines[start].match(/^ {0,3}(`{3,}|~{3,})\s*([^\s]*)?.*$/)
   const marker = opening?.[1]?.[0] || '`'
-  const markerLength = opening?.[1]?.length || 3
-  const language = (opening?.[2] || '').match(/^[A-Za-z0-9_-]+/)?.[0] || ''
-  const closingPattern = new RegExp(`^ {0,3}${marker}{${markerLength},}\\s*$`)
-  const content = []
-  let index = start + 1
-  while (index < lines.length && !closingPattern.test(lines[index])) {
-    content.push(lines[index])
-    index += 1
-  }
-  if (index < lines.length) index += 1
-  const className = language ? ` class="language-${language}"` : ''
-  return { html:`<pre><code${className}>${escapeHtml(content.join('\n'))}</code></pre>`, next:index }
-}
+  const markerLength = opening?.[1]?.length || 3 /* 声明 markerLength。 */
+  const language = (opening?.[2] || '').match(/^[A-Za-z0-9_-]+/)?.[0] || '' /* 声明 language。 */
+  const closingPattern = new RegExp(`^ {0,3}${marker}{${markerLength},}\\s*$`) /* 声明 closingPattern。 */
+  const content = [] /* 声明 content。 */
+  let index = start + 1 /* 声明 index。 */
+  while (index < lines.length && !closingPattern.test(lines[index])) { /* 循环处理当前数据。 */
+    content.push(lines[index]) /* 执行当前语句并推进处理流程。 */
+    index += 1 /* 更新 index 的值。 */
+  } /* 结束当前表达式或代码块。 */
+  if (index < lines.length) index += 1 /* 判断条件并选择处理分支。 */
+  const className = language ? ` class="language-${language}"` : '' /* 声明 className。 */
+  return { html:`<pre><code${className}>${escapeHtml(content.join('\n'))}</code></pre>`, next:index } /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-function renderList(lines, start, ordered) {
-  const itemPattern = ordered ? /^ {0,3}\d+[.]\s+(.+)$/ : /^ {0,3}[-+*]\s+(.+)$/
-  const items = []
-  let index = start
-  while (index < lines.length) {
-    const match = lines[index].match(itemPattern)
-    if (match) {
-      const content = [match[1]]
-      index += 1
-      while (index < lines.length && /^ {2,}\S/.test(lines[index]) && !itemPattern.test(lines[index])) {
-        content.push(lines[index].trim())
-        index += 1
-      }
-      items.push(`<li>${renderInline(content.join('\n')).replace(/\n/g, '<br>')}</li>`)
-      continue
-    }
-    break
-  }
-  return { html:`<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`, next:index }
-}
+function renderList(lines, start, ordered) { /* 定义 renderList 函数。 */
+  const itemPattern = ordered ? /^ {0,3}\d+[.]\s+(.+)$/ : /^ {0,3}[-+*]\s+(.+)$/ /* 声明 itemPattern。 */
+  const items = [] /* 声明 items。 */
+  let index = start /* 声明 index。 */
+  while (index < lines.length) { /* 循环处理当前数据。 */
+    const match = lines[index].match(itemPattern) /* 声明 match。 */
+    if (match) { /* 判断条件并选择处理分支。 */
+      const content = [match[1]] /* 声明 content。 */
+      index += 1 /* 更新 index 的值。 */
+      while (index < lines.length && /^ {2,}\S/.test(lines[index]) && !itemPattern.test(lines[index])) { /* 循环处理当前数据。 */
+        content.push(lines[index].trim()) /* 执行当前语句并推进处理流程。 */
+        index += 1 /* 更新 index 的值。 */
+      } /* 结束当前表达式或代码块。 */
+      items.push(`<li>${renderInline(content.join('\n')).replace(/\n/g, '<br>')}</li>`) /* 执行当前语句并推进处理流程。 */
+      continue /* 执行当前语句并推进处理流程。 */
+    } /* 结束当前表达式或代码块。 */
+    break /* 执行当前语句并推进处理流程。 */
+  } /* 结束当前表达式或代码块。 */
+  return { html:`<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`, next:index } /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-export function renderMarkdown(source) {
-  const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n')
-  const html = []
-  let index = 0
-  let paragraph = []
+export function renderMarkdown(source) { /* 执行当前语句并推进处理流程。 */
+  const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n') /* 声明 lines。 */
+  const html = [] /* 声明 html。 */
+  let index = 0 /* 声明 index。 */
+  let paragraph = [] /* 声明 paragraph。 */
 
-  const flushParagraph = () => {
-    if (!paragraph.length) return
-    html.push(`<p>${renderInline(paragraph.join('\n')).replace(/\n/g, '<br>')}</p>`)
-    paragraph = []
-  }
+  const flushParagraph = () => { /* 声明 flushParagraph。 */
+    if (!paragraph.length) return /* 判断条件并选择处理分支。 */
+    html.push(`<p>${renderInline(paragraph.join('\n')).replace(/\n/g, '<br>')}</p>`) /* 执行当前语句并推进处理流程。 */
+    paragraph = [] /* 更新 paragraph 的值。 */
+  } /* 结束当前表达式或代码块。 */
 
-  while (index < lines.length) {
-    const line = lines[index]
-    if (!line.trim()) {
-      flushParagraph()
-      index += 1
-      continue
-    }
+  while (index < lines.length) { /* 循环处理当前数据。 */
+    const line = lines[index] /* 声明 line。 */
+    if (!line.trim()) { /* 判断条件并选择处理分支。 */
+      flushParagraph() /* 执行当前语句并推进处理流程。 */
+      index += 1 /* 更新 index 的值。 */
+      continue /* 执行当前语句并推进处理流程。 */
+    } /* 结束当前表达式或代码块。 */
 
     if (/^ {0,3}(?:`{3,}|~{3,})/.test(line)) {
       flushParagraph()

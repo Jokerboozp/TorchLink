@@ -1,84 +1,84 @@
-package main
+package main /* 声明 main 包。 */
 
-import (
-	"fmt"
-	"strconv"
-)
+import ( /* 引入当前代码需要的依赖。 */
+	"fmt"     /* 执行当前语句并推进处理流程。 */
+	"strconv" /* 执行当前语句并推进处理流程。 */
+) /* 结束当前表达式或代码块。 */
 
 // 教学协议：AA 类型 设备号 数值 校验和。类型 1=上报、2=应答、3=探测命令。
 // 校验和为前四个字节之和（低 8 位）。请按厂家实际协议修改。
-func Protocol() Definition {
-	return Definition{
-		Transport: "TCP_UDP",
-		Decode:    decode,
-		Ingress:   ingress,
-		Encode:    encode,
-		Samples: []Sample{
-			{Name: "温度上报", Data: packet(1, 7, 42), Want: properties(map[string]any{"temperature": 42})},
-			{Name: "命令应答", Data: packet(2, 7, 1), Want: Message{MessageType: "COMMAND_REPLY", Event: map[string]any{"type": "ACK"}}},
-		},
-		Operations: []OperationSample{
-			{Name: "半帧", Operation: "ingress", Data: []byte{0xAA, 1}, Want: Frame{NeedMore: true}},
-			{Name: "完整上报与应答", Operation: "ingress", Data: packet(1, 7, 42), Want: Frame{Consumed: 5, DeviceID: "7", Reply: packet(2, 7, 42), State: map[string]any{"device": 7, "sequence": 0}}},
-			{Name: "探测命令", Operation: "encode", Command: Command{Type: "ping"}, Context: Context{State: map[string]any{"device": 7, "sequence": 0}}, Want: Frame{Reply: packet(3, 7, 1), CorrelationID: "1", State: map[string]any{"device": 7, "sequence": 1}}},
-			{Name: "命令应答关联", Operation: "ingress", Data: packet(2, 7, 1), Context: Context{State: map[string]any{"device": 7, "sequence": 1}}, Want: Frame{Consumed: 5, DeviceID: "7", CorrelationID: "1", State: map[string]any{"device": 7, "sequence": 1}}},
-		},
-	}
-}
+func Protocol() Definition { /* 定义 Protocol 函数。 */
+	return Definition{ /* 返回当前处理结果。 */
+		Transport: "TCP_UDP", /* 执行当前语句并推进处理流程。 */
+		Decode:    decode,    /* 执行当前语句并推进处理流程。 */
+		Ingress:   ingress,   /* 执行当前语句并推进处理流程。 */
+		Encode:    encode,    /* 执行当前语句并推进处理流程。 */
+		Samples: []Sample{ /* 执行当前语句并推进处理流程。 */
+			{Name: "温度上报", Data: packet(1, 7, 42), Want: properties(map[string]any{"temperature": 42})},                              /* 执行当前语句并推进处理流程。 */
+			{Name: "命令应答", Data: packet(2, 7, 1), Want: Message{MessageType: "COMMAND_REPLY", Event: map[string]any{"type": "ACK"}}}, /* 执行当前语句并推进处理流程。 */
+		}, /* 结束当前表达式或代码块。 */
+		Operations: []OperationSample{ /* 执行当前语句并推进处理流程。 */
+			{Name: "半帧", Operation: "ingress", Data: []byte{0xAA, 1}, Want: Frame{NeedMore: true}},                                                                                                                                                               /* 执行当前语句并推进处理流程。 */
+			{Name: "完整上报与应答", Operation: "ingress", Data: packet(1, 7, 42), Want: Frame{Consumed: 5, DeviceID: "7", Reply: packet(2, 7, 42), State: map[string]any{"device": 7, "sequence": 0}}},                                                                 /* 执行当前语句并推进处理流程。 */
+			{Name: "探测命令", Operation: "encode", Command: Command{Type: "ping"}, Context: Context{State: map[string]any{"device": 7, "sequence": 0}}, Want: Frame{Reply: packet(3, 7, 1), CorrelationID: "1", State: map[string]any{"device": 7, "sequence": 1}}}, /* 执行当前语句并推进处理流程。 */
+			{Name: "命令应答关联", Operation: "ingress", Data: packet(2, 7, 1), Context: Context{State: map[string]any{"device": 7, "sequence": 1}}, Want: Frame{Consumed: 5, DeviceID: "7", CorrelationID: "1", State: map[string]any{"device": 7, "sequence": 1}}},   /* 执行当前语句并推进处理流程。 */
+		}, /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-func packet(kind, device, value byte) []byte {
-	return []byte{0xAA, kind, device, value, byte(0xAA + kind + device + value)}
-}
+func packet(kind, device, value byte) []byte { /* 定义 packet 函数。 */
+	return []byte{0xAA, kind, device, value, byte(0xAA + kind + device + value)} /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func check(data []byte) error {
-	if len(data) != 5 || data[0] != 0xAA || (data[1] != 1 && data[1] != 2) || data[2] == 0 {
-		return fmt.Errorf("报文长度、类型或设备号无效")
-	}
-	if data[4] != byte(data[0]+data[1]+data[2]+data[3]) {
-		return fmt.Errorf("校验和错误")
-	}
-	return nil
-}
+func check(data []byte) error { /* 定义 check 函数。 */
+	if len(data) != 5 || data[0] != 0xAA || (data[1] != 1 && data[1] != 2) || data[2] == 0 { /* 判断条件并选择处理分支。 */
+		return fmt.Errorf("报文长度、类型或设备号无效") /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if data[4] != byte(data[0]+data[1]+data[2]+data[3]) { /* 判断条件并选择处理分支。 */
+		return fmt.Errorf("校验和错误") /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	return nil /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func decode(data []byte, ctx Context) (Message, error) {
-	if err := check(data); err != nil {
-		return Message{}, err
-	}
-	if data[1] == 2 {
-		return Message{MessageType: "COMMAND_REPLY", Event: map[string]any{"type": "ACK"}}, nil
-	}
-	return properties(map[string]any{"temperature": int(data[3])}), nil
-}
+func decode(data []byte, ctx Context) (Message, error) { /* 定义 decode 函数。 */
+	if err := check(data); err != nil { /* 判断条件并选择处理分支。 */
+		return Message{}, err /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if data[1] == 2 { /* 判断条件并选择处理分支。 */
+		return Message{MessageType: "COMMAND_REPLY", Event: map[string]any{"type": "ACK"}}, nil /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	return properties(map[string]any{"temperature": int(data[3])}), nil /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func ingress(data []byte, ctx Context) (Frame, error) {
-	if len(data) > 0 && data[0] != 0xAA {
-		return Frame{}, fmt.Errorf("帧头错误")
-	}
-	if len(data) < 5 {
-		return Frame{NeedMore: true}, nil
-	}
-	if err := check(data[:5]); err != nil {
-		return Frame{}, err
-	}
-	sequence, _ := ctx.State["sequence"].(float64)
-	result := Frame{Consumed: 5, DeviceID: strconv.Itoa(int(data[2])), State: map[string]any{"device": int(data[2]), "sequence": sequence}}
-	if data[1] == 2 {
-		result.CorrelationID = strconv.Itoa(int(data[3]))
-	} else {
-		result.Reply = packet(2, data[2], data[3])
-	}
-	return result, nil
-}
+func ingress(data []byte, ctx Context) (Frame, error) { /* 定义 ingress 函数。 */
+	if len(data) > 0 && data[0] != 0xAA { /* 判断条件并选择处理分支。 */
+		return Frame{}, fmt.Errorf("帧头错误") /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if len(data) < 5 { /* 判断条件并选择处理分支。 */
+		return Frame{NeedMore: true}, nil /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	if err := check(data[:5]); err != nil { /* 判断条件并选择处理分支。 */
+		return Frame{}, err /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	sequence, _ := ctx.State["sequence"].(float64)                                                                                          /* 更新 _ 的值。 */
+	result := Frame{Consumed: 5, DeviceID: strconv.Itoa(int(data[2])), State: map[string]any{"device": int(data[2]), "sequence": sequence}} /* 更新 result 的值。 */
+	if data[1] == 2 {                                                                                                                       /* 判断条件并选择处理分支。 */
+		result.CorrelationID = strconv.Itoa(int(data[3])) /* 更新 result.CorrelationID 的值。 */
+	} else { /* 结束当前表达式或代码块。 */
+		result.Reply = packet(2, data[2], data[3]) /* 更新 result.Reply 的值。 */
+	} /* 结束当前表达式或代码块。 */
+	return result, nil /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func encode(command Command, ctx Context) (Frame, error) {
-	if command.Type != "ping" {
-		return Frame{}, fmt.Errorf("不支持命令 %s", command.Type)
-	}
-	device, _ := ctx.State["device"].(float64)
-	if device < 1 || device > 255 {
-		return Frame{}, fmt.Errorf("请等待设备上报以取得地址")
-	}
-	previous, _ := ctx.State["sequence"].(float64)
-	sequence := int(previous)%255 + 1
-	return Frame{Reply: packet(3, byte(device), byte(sequence)), CorrelationID: strconv.Itoa(sequence), State: map[string]any{"device": device, "sequence": sequence}}, nil
-}
+func encode(command Command, ctx Context) (Frame, error) { /* 定义 encode 函数。 */
+	if command.Type != "ping" { /* 判断条件并选择处理分支。 */
+		return Frame{}, fmt.Errorf("不支持命令 %s", command.Type) /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	device, _ := ctx.State["device"].(float64) /* 更新 _ 的值。 */
+	if device < 1 || device > 255 {            /* 判断条件并选择处理分支。 */
+		return Frame{}, fmt.Errorf("请等待设备上报以取得地址") /* 返回当前处理结果。 */
+	} /* 结束当前表达式或代码块。 */
+	previous, _ := ctx.State["sequence"].(float64)                                                                                                                          /* 更新 _ 的值。 */
+	sequence := int(previous)%255 + 1                                                                                                                                       /* 更新 sequence 的值。 */
+	return Frame{Reply: packet(3, byte(device), byte(sequence)), CorrelationID: strconv.Itoa(sequence), State: map[string]any{"device": device, "sequence": sequence}}, nil /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */

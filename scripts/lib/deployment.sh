@@ -1,22 +1,37 @@
 #!/usr/bin/env bash
 # Shared helpers. Do not source dotenv: user values are data, never shell code.
+# 执行当前脚本步骤。
 deployment_lib_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# 执行当前脚本步骤。
 source "$deployment_lib_dir/env-comments.sh"
+# 执行当前脚本步骤。
 unset deployment_lib_dir
 
+# 执行当前脚本步骤。
 deployment_secret() {
   # od is provided by both GNU coreutils and macOS. No OpenSSL dependency.
+  # 执行当前脚本步骤。
   od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+# 结束当前控制块。
 }
 
+# 执行当前脚本步骤。
 ensure_deployment_env() {
+  # 执行当前脚本步骤。
   local env_path="$1"; shift
+  # 判断条件后执行对应操作。
   if [ -f "$env_path" ]; then
+    # 执行当前脚本步骤。
     printf '保留已有配置：%s\n' "$env_path"
+    # 返回结果或结束当前脚本。
     return
+  # 结束当前控制块。
   fi
+  # 执行当前脚本步骤。
   [ ! -e "$env_path" ] || { printf '配置路径不是文件：%s\n' "$env_path" >&2; return 1; }
+  # 执行当前脚本步骤。
   local defaults key value
+  # 执行当前脚本步骤。
   defaults="$(cat <<EOF
 POSTGRES_PASSWORD=$(deployment_secret)
 REDIS_PASSWORD=$(deployment_secret)
@@ -59,6 +74,7 @@ IOT_BACKUP_TIME=00:05
 IOT_BACKUP_ENABLED=true
 IOT_BACKUP_TIMEZONE=Asia/Shanghai
 EOF
+# 执行当前脚本步骤。
 )"
   for value in "$@"; do
     key="${value%%=*}"
@@ -102,10 +118,15 @@ set_deployment_env_value() {
   fi
   # Only used for explicit feature settings; credentials are never changed.
   updated="$(awk -v key="$key" -v value="$value" '
+    # 执行当前脚本步骤。
     { clean=$0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", clean) }
+    # 执行当前脚本步骤。
     clean ~ "^" key "[[:space:]]*=" { if (!found++) print key "=" value; next }
+    # 执行当前脚本步骤。
     { print }
+    # 执行当前脚本步骤。
     END { if (!found) print key "=" value }
+  # 执行当前脚本步骤。
   ' "$env_path")" || return 1
   printf '%s\n' "$updated" > "$env_path"
 }

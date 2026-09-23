@@ -1,234 +1,234 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import zhCn from 'element-plus/es/locale/lang/zh-cn'
-import {
-  Bell,
-  Boxes,
-  ChartNoAxesCombined,
-  ChevronDown,
-  Cpu,
-  Database,
-  FileText,
-  LayoutDashboard,
-  Library,
-  LogOut,
-  MessageCircle,
-  Network,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings2,
-  Upload,
-  Video
-} from '@lucide/vue'
-import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
-import { api, notifyError, session } from './api'
-import { pageGuide } from './pageGuide'
-import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
-import { startRealtime, stopRealtime } from './realtime'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
+import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import zhCn from 'element-plus/es/locale/lang/zh-cn' /* 引入当前代码需要的依赖。 */
+import { /* 引入当前代码需要的依赖。 */
+  Bell, /* 执行当前语句并推进处理流程。 */
+  Boxes, /* 执行当前语句并推进处理流程。 */
+  ChartNoAxesCombined, /* 执行当前语句并推进处理流程。 */
+  ChevronDown, /* 执行当前语句并推进处理流程。 */
+  Cpu, /* 执行当前语句并推进处理流程。 */
+  Database, /* 执行当前语句并推进处理流程。 */
+  FileText, /* 执行当前语句并推进处理流程。 */
+  LayoutDashboard, /* 执行当前语句并推进处理流程。 */
+  Library, /* 执行当前语句并推进处理流程。 */
+  LogOut, /* 执行当前语句并推进处理流程。 */
+  MessageCircle, /* 执行当前语句并推进处理流程。 */
+  Network, /* 执行当前语句并推进处理流程。 */
+  PanelLeftClose, /* 执行当前语句并推进处理流程。 */
+  PanelLeftOpen, /* 执行当前语句并推进处理流程。 */
+  Settings2, /* 执行当前语句并推进处理流程。 */
+  Upload, /* 执行当前语句并推进处理流程。 */
+  Video /* 执行当前语句并推进处理流程。 */
+} from '@lucide/vue' /* 结束当前表达式或代码块。 */
+import GlobalAlertPopup from './components/GlobalAlertPopup.vue' /* 引入当前代码需要的依赖。 */
+import { api, notifyError, session } from './api' /* 引入当前代码需要的依赖。 */
+import { pageGuide } from './pageGuide' /* 引入当前代码需要的依赖。 */
+import { can, permissionState, refreshPermissions, resetPermissions } from './permissions' /* 引入当前代码需要的依赖。 */
+import { startRealtime, stopRealtime } from './realtime' /* 引入当前代码需要的依赖。 */
 
-const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
-const DevicesView = defineAsyncComponent(() => import('./views/DevicesView.vue'))
-const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue'))
-const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue'))
-const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue'))
-const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
-const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
-const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
-const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
-const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
-const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
-const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
-const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
-const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue'))
-const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue'))
+const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue')) /* 声明 DashboardView。 */
+const DevicesView = defineAsyncComponent(() => import('./views/DevicesView.vue')) /* 声明 DevicesView。 */
+const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue')) /* 声明 ProductsView。 */
+const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue')) /* 声明 ProtocolsView。 */
+const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue')) /* 声明 TestDeviceView。 */
+const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue')) /* 声明 CameraMappingsView。 */
+const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue')) /* 声明 AlarmsView。 */
+const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue')) /* 声明 HealthInspectionView。 */
+const RawView = defineAsyncComponent(() => import('./views/RawView.vue')) /* 声明 RawView。 */
+const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue')) /* 声明 RulesView。 */
+const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue')) /* 声明 KnowledgeView。 */
+const AiView = defineAsyncComponent(() => import('./views/AiView.vue')) /* 声明 AiView。 */
+const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue')) /* 声明 AiProvidersView。 */
+const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue')) /* 声明 BackupsView。 */
+const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue')) /* 声明 AccessView。 */
 
-const authenticated = ref(Boolean(session.token))
-const active = ref('dashboard')
-const collapsed = ref(localStorage.getItem('iot:sidebar-collapsed') === 'true')
-watch(collapsed, value => localStorage.setItem('iot:sidebar-collapsed', String(value)))
-const closedGroups = ref([])
-function toggleGroup(name) { closedGroups.value = closedGroups.value.includes(name) ? closedGroups.value.filter(item => item !== name) : [...closedGroups.value, name] }
-const contentArea = ref(null)
-const pageKey = ref(0)
-const loginLoading = ref(false)
-const globalAlertPopup = ref(null)
-const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' })
-const identity = ref({ tenant: session.tenant, user: session.user, role: session.role })
-const currentTenant = computed(() => identity.value.tenant || loginForm.value.tenantId || '—')
-const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
-const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || '平台用户'))
+const authenticated = ref(Boolean(session.token)) /* 声明 authenticated。 */
+const active = ref('dashboard') /* 声明 active。 */
+const collapsed = ref(localStorage.getItem('iot:sidebar-collapsed') === 'true') /* 声明 collapsed。 */
+watch(collapsed, value => localStorage.setItem('iot:sidebar-collapsed', String(value))) /* 执行当前语句并推进处理流程。 */
+const closedGroups = ref([]) /* 声明 closedGroups。 */
+function toggleGroup(name) { closedGroups.value = closedGroups.value.includes(name) ? closedGroups.value.filter(item => item !== name) : [...closedGroups.value, name] } /* 定义 toggleGroup 函数。 */
+const contentArea = ref(null) /* 声明 contentArea。 */
+const pageKey = ref(0) /* 声明 pageKey。 */
+const loginLoading = ref(false) /* 声明 loginLoading。 */
+const globalAlertPopup = ref(null) /* 声明 globalAlertPopup。 */
+const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' }) /* 声明 loginForm。 */
+const identity = ref({ tenant: session.tenant, user: session.user, role: session.role }) /* 声明 identity。 */
+const currentTenant = computed(() => identity.value.tenant || loginForm.value.tenantId || '—') /* 声明 currentTenant。 */
+const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户') /* 声明 currentUser。 */
+const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || '平台用户')) /* 声明 currentRole。 */
 
-const pages = {
-  dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView },
-  devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
-  products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
-  protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView, props: { section: 'protocols' } },
-  profiles: { ...pageGuide.profiles, icon: Settings2, component: ProtocolsView, props: { section: 'profiles' } },
-  integration: { ...pageGuide.integration, icon: Upload, component: TestDeviceView },
-  cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView },
-  alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
-  inspection: { ...pageGuide.inspection, icon: ChartNoAxesCombined, component: HealthInspectionView },
-  raw: { ...pageGuide.raw, icon: FileText, component: RawView },
-  rules: { ...pageGuide.rules, icon: Settings2, component: RulesView },
-  knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView },
-  aiProviders: { ...pageGuide.aiProviders, icon: Cpu, component: AiProvidersView },
-  ai: { ...pageGuide.ai, icon: MessageCircle, component: AiView },
-  backups: { ...pageGuide.backups, icon: Database, component: BackupsView }
-}
-const current = computed(() => pages[active.value] || {title:'暂无可用功能'})
-const menuGroups = [
-  { label: '控制中心', items: ['dashboard'] },
-  { label: '设备接入', items: ['protocols', 'products', 'devices', 'profiles', 'integration', 'cameras'] },
-  { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] },
-  { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] },
-  { label: '系统维护', items: ['backups','access'] }
-]
-pages.access = {title:'用户与权限',icon:Settings2,component:AccessView}
-const visibleGroups = computed(() => menuGroups.map(group=>({...group,items:group.items.filter(name=>can('menu:'+name))})).filter(group=>group.items.length))
-watch(() => permissionState.items.join('\n'), (value, old) => {
- if (!authenticated.value || value === old) return
- if (!can('menu:' + active.value)) active.value = visibleGroups.value[0]?.items[0] || ''
- pageKey.value++
-})
-async function syncIdentity(){
- if(!authenticated.value)return
- try{await refreshPermissions();if(!can('menu:'+active.value))active.value=visibleGroups.value[0]?.items[0]||''}catch(error){notifyError(error)}
-}
-const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '工作台')
-async function login() {
-  loginLoading.value = true
-  try {
-    const data = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(loginForm.value) })
-    session.save(data, loginForm.value.username)
-    identity.value = { tenant: data.tenantId || '', user: loginForm.value.username, role: data.role || '' }
-    authenticated.value = true
-    permissionState.items=data.permissions || [];permissionState.ready=true
-    active.value = visibleGroups.value[0]?.items[0] || ''
-    loginForm.value.password=''
-    if(can(['menu:devices','menu:alarms','menu:dashboard','menu:raw']))connect()
-  } catch (error) {
-    notifyError(error)
-  } finally {
-    loginLoading.value = false
-  }
-}
+const pages = { /* 声明 pages。 */
+  dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView }, /* 执行当前语句并推进处理流程。 */
+  devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView }, /* 执行当前语句并推进处理流程。 */
+  products: { ...pageGuide.products, icon: Boxes, component: ProductsView }, /* 执行当前语句并推进处理流程。 */
+  protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView, props: { section: 'protocols' } }, /* 执行当前语句并推进处理流程。 */
+  profiles: { ...pageGuide.profiles, icon: Settings2, component: ProtocolsView, props: { section: 'profiles' } }, /* 执行当前语句并推进处理流程。 */
+  integration: { ...pageGuide.integration, icon: Upload, component: TestDeviceView }, /* 执行当前语句并推进处理流程。 */
+  cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView }, /* 执行当前语句并推进处理流程。 */
+  alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView }, /* 执行当前语句并推进处理流程。 */
+  inspection: { ...pageGuide.inspection, icon: ChartNoAxesCombined, component: HealthInspectionView }, /* 执行当前语句并推进处理流程。 */
+  raw: { ...pageGuide.raw, icon: FileText, component: RawView }, /* 执行当前语句并推进处理流程。 */
+  rules: { ...pageGuide.rules, icon: Settings2, component: RulesView }, /* 执行当前语句并推进处理流程。 */
+  knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView }, /* 执行当前语句并推进处理流程。 */
+  aiProviders: { ...pageGuide.aiProviders, icon: Cpu, component: AiProvidersView }, /* 执行当前语句并推进处理流程。 */
+  ai: { ...pageGuide.ai, icon: MessageCircle, component: AiView }, /* 执行当前语句并推进处理流程。 */
+  backups: { ...pageGuide.backups, icon: Database, component: BackupsView } /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
+const current = computed(() => pages[active.value] || {title:'暂无可用功能'}) /* 声明 current。 */
+const menuGroups = [ /* 声明 menuGroups。 */
+  { label: '控制中心', items: ['dashboard'] }, /* 执行当前语句并推进处理流程。 */
+  { label: '设备接入', items: ['protocols', 'products', 'devices', 'profiles', 'integration', 'cameras'] }, /* 执行当前语句并推进处理流程。 */
+  { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] }, /* 执行当前语句并推进处理流程。 */
+  { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] }, /* 执行当前语句并推进处理流程。 */
+  { label: '系统维护', items: ['backups','access'] } /* 执行当前语句并推进处理流程。 */
+] /* 结束当前表达式或代码块。 */
+pages.access = {title:'用户与权限',icon:Settings2,component:AccessView} /* 更新 pages.access 的值。 */
+const visibleGroups = computed(() => menuGroups.map(group=>({...group,items:group.items.filter(name=>can('menu:'+name))})).filter(group=>group.items.length)) /* 声明 visibleGroups。 */
+watch(() => permissionState.items.join('\n'), (value, old) => { /* 执行当前语句并推进处理流程。 */
+ if (!authenticated.value || value === old) return /* 判断条件并选择处理分支。 */
+ if (!can('menu:' + active.value)) active.value = visibleGroups.value[0]?.items[0] || '' /* 判断条件并选择处理分支。 */
+ pageKey.value++ /* 执行当前语句并推进处理流程。 */
+}) /* 结束当前表达式或代码块。 */
+async function syncIdentity(){ /* 定义 syncIdentity 函数。 */
+ if(!authenticated.value)return /* 判断条件并选择处理分支。 */
+ try{await refreshPermissions();if(!can('menu:'+active.value))active.value=visibleGroups.value[0]?.items[0]||''}catch(error){notifyError(error)} /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
+const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '工作台') /* 声明 currentGroup。 */
+async function login() { /* 定义 login 函数。 */
+  loginLoading.value = true /* 更新 loginLoading.value 的值。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const data = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(loginForm.value) }) /* 声明 data。 */
+    session.save(data, loginForm.value.username) /* 执行当前语句并推进处理流程。 */
+    identity.value = { tenant: data.tenantId || '', user: loginForm.value.username, role: data.role || '' } /* 更新 identity.value 的值。 */
+    authenticated.value = true /* 更新 authenticated.value 的值。 */
+    permissionState.items=data.permissions || [];permissionState.ready=true /* 更新 permissionState.items 的值。 */
+    active.value = visibleGroups.value[0]?.items[0] || '' /* 更新 active.value 的值。 */
+    loginForm.value.password='' /* 更新 loginForm.value.password 的值。 */
+    if(can(['menu:devices','menu:alarms','menu:dashboard','menu:raw']))connect() /* 判断条件并选择处理分支。 */
+  } catch (error) { /* 结束当前表达式或代码块。 */
+    notifyError(error) /* 执行当前语句并推进处理流程。 */
+  } finally { /* 结束当前表达式或代码块。 */
+    loginLoading.value = false /* 更新 loginLoading.value 的值。 */
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function logout() {
-  stopRealtime()
-  session.clear()
-  resetPermissions()
-  identity.value = { tenant: '', user: '', role: '' }
-  authenticated.value = false
-}
+function logout() { /* 定义 logout 函数。 */
+  stopRealtime() /* 执行当前语句并推进处理流程。 */
+  session.clear() /* 执行当前语句并推进处理流程。 */
+  resetPermissions() /* 执行当前语句并推进处理流程。 */
+  identity.value = { tenant: '', user: '', role: '' } /* 更新 identity.value 的值。 */
+  authenticated.value = false /* 更新 authenticated.value 的值。 */
+} /* 结束当前表达式或代码块。 */
 
-function handleAccountCommand(command) {
-  if (command === 'logout') logout()
-}
+function handleAccountCommand(command) { /* 定义 handleAccountCommand 函数。 */
+  if (command === 'logout') logout() /* 判断条件并选择处理分支。 */
+} /* 结束当前表达式或代码块。 */
 
-function openPage(name, detail) {
+function openPage(name, detail) { /* 定义 openPage 函数。 */
   // 历史导航事件仍使用 testDevice，统一落到当前的接入测试菜单。
-  if (name === 'testDevice') {
-    name = 'integration'
-  }
-  if (!pages[name] || !can('menu:'+name)) return
-  if (active.value === name && !detail) return
-  sessionStorage.removeItem('iot:navigation-detail')
-  active.value = name
-  pageKey.value++
-  if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail))
-  contentArea.value?.scrollTo({ top: 0 })
-}
+  if (name === 'testDevice') { /* 判断条件并选择处理分支。 */
+    name = 'integration' /* 更新 name 的值。 */
+  } /* 结束当前表达式或代码块。 */
+  if (!pages[name] || !can('menu:'+name)) return /* 判断条件并选择处理分支。 */
+  if (active.value === name && !detail) return /* 判断条件并选择处理分支。 */
+  sessionStorage.removeItem('iot:navigation-detail') /* 执行当前语句并推进处理流程。 */
+  active.value = name /* 更新 active.value 的值。 */
+  pageKey.value++ /* 执行当前语句并推进处理流程。 */
+  if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail)) /* 判断条件并选择处理分支。 */
+  contentArea.value?.scrollTo({ top: 0 }) /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-function openAlertSettings() {
-  globalAlertPopup.value?.openSettings()
-}
+function openAlertSettings() { /* 定义 openAlertSettings 函数。 */
+  globalAlertPopup.value?.openSettings() /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-function handleUIAction(payload) {
-  try {
-    const event = JSON.parse(payload)
-    const action = event?.action || {}
-    if (action.type === 'OPEN_CAMERA' && typeof action.cameraId === 'string' && action.cameraId) {
-      openPage('cameras', { cameraId: action.cameraId, actionId: event.id })
-      ElMessage.info(`规则联动：已定位摄像头信息 ${action.cameraId}`)
-      return
-    }
-    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
-    if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
-      openPage(action.page)
-      ElMessage.warning('规则联动：已打开相关业务页面')
-    }
-  } catch {
+function handleUIAction(payload) { /* 定义 handleUIAction 函数。 */
+  try { /* 执行当前语句并推进处理流程。 */
+    const event = JSON.parse(payload) /* 声明 event。 */
+    const action = event?.action || {} /* 声明 action。 */
+    if (action.type === 'OPEN_CAMERA' && typeof action.cameraId === 'string' && action.cameraId) { /* 判断条件并选择处理分支。 */
+      openPage('cameras', { cameraId: action.cameraId, actionId: event.id }) /* 执行当前语句并推进处理流程。 */
+      ElMessage.info(`规则联动：已定位摄像头信息 ${action.cameraId}`) /* 执行当前语句并推进处理流程。 */
+      return /* 返回当前处理结果。 */
+    } /* 结束当前表达式或代码块。 */
+    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups']) /* 声明 allowedPages。 */
+    if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) { /* 判断条件并选择处理分支。 */
+      openPage(action.page) /* 执行当前语句并推进处理流程。 */
+      ElMessage.warning('规则联动：已打开相关业务页面') /* 执行当前语句并推进处理流程。 */
+    } /* 结束当前表达式或代码块。 */
+  } catch { /* 结束当前表达式或代码块。 */
     // Ignore malformed or unsupported UI actions.
-  }
-}
+  } /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function connect() {
-  startRealtime((topic, payload) => {
-    if (topic.includes('/ui-action/')) handleUIAction(payload)
-    window.dispatchEvent(new CustomEvent('iot:realtime', { detail: { topic, payload } }))
-  })
-}
+function connect() { /* 定义 connect 函数。 */
+  startRealtime((topic, payload) => { /* 执行当前语句并推进处理流程。 */
+    if (topic.includes('/ui-action/')) handleUIAction(payload) /* 判断条件并选择处理分支。 */
+    window.dispatchEvent(new CustomEvent('iot:realtime', { detail: { topic, payload } })) /* 执行当前语句并推进处理流程。 */
+  }) /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
 
-function unauthorized() {
-  logout()
-  ElMessage.error('登录已过期，请重新登录')
-}
+function unauthorized() { /* 定义 unauthorized 函数。 */
+  logout() /* 执行当前语句并推进处理流程。 */
+  ElMessage.error('登录已过期，请重新登录') /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-onMounted(async () => {
-  window.addEventListener('iot:unauthorized', unauthorized)
-  window.addEventListener('focus',syncIdentity)
-  await syncIdentity()
-  if (authenticated.value && can(['menu:devices','menu:alarms','menu:dashboard','menu:raw'])) connect()
-})
+onMounted(async () => { /* 执行当前语句并推进处理流程。 */
+  window.addEventListener('iot:unauthorized', unauthorized) /* 执行当前语句并推进处理流程。 */
+  window.addEventListener('focus',syncIdentity) /* 执行当前语句并推进处理流程。 */
+  await syncIdentity() /* 等待异步操作完成。 */
+  if (authenticated.value && can(['menu:devices','menu:alarms','menu:dashboard','menu:raw'])) connect() /* 判断条件并选择处理分支。 */
+}) /* 结束当前表达式或代码块。 */
 
-onBeforeUnmount(() => {
-  window.removeEventListener('iot:unauthorized', unauthorized)
-  window.removeEventListener('focus',syncIdentity)
-  stopRealtime()
-})
+onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
+  window.removeEventListener('iot:unauthorized', unauthorized) /* 执行当前语句并推进处理流程。 */
+  window.removeEventListener('focus',syncIdentity) /* 执行当前语句并推进处理流程。 */
+  stopRealtime() /* 执行当前语句并推进处理流程。 */
+}) /* 结束当前表达式或代码块。 */
 </script>
 
 <template>
-  <el-config-provider :locale="zhCn" size="small">
-    <div v-if="!authenticated" class="login-page">
-      <section class="login-intro"><div class="login-brand"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section>
-      <section class="login-panel">
-        <form class="login-form" @submit.prevent="login">
-          <span class="login-mark"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span>
-          <h2>欢迎回来</h2>
-          <p>登录你的账户，进入炬联工作台</p>
-          <div class="login-fields">
-            <div class="login-field">
-              <label for="tenant-id">租户</label>
-              <el-input id="tenant-id" v-model="loginForm.tenantId" size="large" autocomplete="organization" />
-            </div>
-            <div class="login-field">
-              <label for="username">用户名</label>
-              <el-input id="username" v-model="loginForm.username" size="large" autocomplete="username" placeholder="请输入用户名" required />
-            </div>
-            <div class="login-field">
-              <label for="password">密码</label>
-              <el-input id="password" v-model="loginForm.password" size="large" type="password" autocomplete="current-password" placeholder="请输入密码" required />
-            </div>
-          </div>
-          <el-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</el-button>
-          <p class="login-help">账户由管理员分配 · 按授权访问设备和功能</p>
-        </form>
-      </section>
-    </div>
+  <el-config-provider :locale="zhCn" size="small"> <!-- 渲染 el-config-provider 界面元素。 -->
+    <div v-if="!authenticated" class="login-page"> <!-- 渲染 div 界面元素。 -->
+      <section class="login-intro"><div class="login-brand"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section> <!-- 渲染 section 界面元素。 -->
+      <section class="login-panel"> <!-- 渲染 section 界面元素。 -->
+        <form class="login-form" @submit.prevent="login"> <!-- 渲染 form 界面元素。 -->
+          <span class="login-mark"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span> <!-- 渲染 span 界面元素。 -->
+          <h2>欢迎回来</h2> <!-- 渲染 h2 界面元素。 -->
+          <p>登录你的账户，进入炬联工作台</p> <!-- 渲染 p 界面元素。 -->
+          <div class="login-fields"> <!-- 渲染 div 界面元素。 -->
+            <div class="login-field"> <!-- 渲染 div 界面元素。 -->
+              <label for="tenant-id">租户</label> <!-- 渲染 label 界面元素。 -->
+              <el-input id="tenant-id" v-model="loginForm.tenantId" size="large" autocomplete="organization" /> <!-- 渲染 el-input 界面元素。 -->
+            </div> <!-- 结束当前界面区域。 -->
+            <div class="login-field"> <!-- 渲染 div 界面元素。 -->
+              <label for="username">用户名</label> <!-- 渲染 label 界面元素。 -->
+              <el-input id="username" v-model="loginForm.username" size="large" autocomplete="username" placeholder="请输入用户名" required /> <!-- 渲染 el-input 界面元素。 -->
+            </div> <!-- 结束当前界面区域。 -->
+            <div class="login-field"> <!-- 渲染 div 界面元素。 -->
+              <label for="password">密码</label> <!-- 渲染 label 界面元素。 -->
+              <el-input id="password" v-model="loginForm.password" size="large" type="password" autocomplete="current-password" placeholder="请输入密码" required /> <!-- 渲染 el-input 界面元素。 -->
+            </div> <!-- 结束当前界面区域。 -->
+          </div> <!-- 结束当前界面区域。 -->
+          <el-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</el-button> <!-- 渲染 el-button 界面元素。 -->
+          <p class="login-help">账户由管理员分配 · 按授权访问设备和功能</p> <!-- 渲染 p 界面元素。 -->
+        </form> <!-- 结束当前界面区域。 -->
+      </section> <!-- 结束当前界面区域。 -->
+    </div> <!-- 结束当前界面区域。 -->
 
-    <div v-else class="app-shell">
-      <aside class="app-aside" :class="{ 'is-collapsed': collapsed }">
-        <div class="brand"><span class="brand-logo"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span></div>
-        <nav class="menu-scroll" aria-label="主导航">
-          <div class="menu-scroll-inner">
+    <div v-else class="app-shell"> <!-- 渲染 div 界面元素。 -->
+      <aside class="app-aside" :class="{ 'is-collapsed': collapsed }"> <!-- 渲染 aside 界面元素。 -->
+        <div class="brand"><span class="brand-logo"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span></div> <!-- 渲染 div 界面元素。 -->
+        <nav class="menu-scroll" aria-label="主导航"> <!-- 渲染 nav 界面元素。 -->
+          <div class="menu-scroll-inner"> <!-- 渲染 div 界面元素。 -->
             <template v-for="group in visibleGroups" :key="group.label">
-              <button v-show="!collapsed" class="menu-group menu-group-toggle" :aria-expanded="!closedGroups.includes(group.label)" @click="toggleGroup(group.label)">{{ group.label }}<ChevronDown :class="{closed:closedGroups.includes(group.label)}" /></button>
-              <button v-for="name in group.items" v-show="collapsed || !closedGroups.includes(group.label)" :key="name" type="button" class="menu-item" :class="{ active: active === name }" :aria-label="pages[name].title" :title="pages[name].title" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)">
-                <component :is="pages[name].icon" />
-                <span v-show="!collapsed">{{ pages[name].title }}</span>
-              </button>
+              <button v-show="!collapsed" class="menu-group menu-group-toggle" :aria-expanded="!closedGroups.includes(group.label)" @click="toggleGroup(group.label)">{{ group.label }}<ChevronDown :class="{closed:closedGroups.includes(group.label)}" /></button> <!-- 渲染 button 界面元素。 -->
+              <button v-for="name in group.items" v-show="collapsed || !closedGroups.includes(group.label)" :key="name" type="button" class="menu-item" :class="{ active: active === name }" :aria-label="pages[name].title" :title="pages[name].title" :aria-current="active === name ? 'page' : undefined" @click="openPage(name)"> <!-- 渲染 button 界面元素。 -->
+                <component :is="pages[name].icon" /> <!-- 渲染 component 界面元素。 -->
+                <span v-show="!collapsed">{{ pages[name].title }}</span> <!-- 渲染 span 界面元素。 -->
+              </button> <!-- 结束当前界面区域。 -->
             </template>
           </div>
         </nav>
@@ -249,9 +249,9 @@ onBeforeUnmount(() => {
                 <ChevronDown class="account-chevron" />
               </button>
               <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="logout"><LogOut />退出登录</el-dropdown-item>
-                </el-dropdown-menu>
+                <el-dropdown-menu> <!-- 渲染 el-dropdown-menu 界面元素。 -->
+                  <el-dropdown-item command="logout"><LogOut />退出登录</el-dropdown-item> <!-- 渲染 el-dropdown-item 界面元素。 -->
+                </el-dropdown-menu> <!-- 结束当前界面区域。 -->
               </template>
             </el-dropdown>
           </div>

@@ -1,364 +1,364 @@
-package httpapi
+package httpapi /* 声明 httpapi 包。 */
 
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"os"
-	"strings"
-	"testing"
-	"time"
+import ( /* 引入当前代码需要的依赖。 */
+	"bytes"             /* 执行当前语句并推进处理流程。 */
+	"context"           /* 执行当前语句并推进处理流程。 */
+	"encoding/json"     /* 执行当前语句并推进处理流程。 */
+	"fmt"               /* 执行当前语句并推进处理流程。 */
+	"io"                /* 执行当前语句并推进处理流程。 */
+	"log/slog"          /* 执行当前语句并推进处理流程。 */
+	"net/http"          /* 执行当前语句并推进处理流程。 */
+	"net/http/httptest" /* 执行当前语句并推进处理流程。 */
+	"net/url"           /* 执行当前语句并推进处理流程。 */
+	"os"                /* 执行当前语句并推进处理流程。 */
+	"strings"           /* 执行当前语句并推进处理流程。 */
+	"testing"           /* 执行当前语句并推进处理流程。 */
+	"time"              /* 执行当前语句并推进处理流程。 */
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"iot-platform/internal/adapters/local"
-	"iot-platform/internal/adapters/memory"
-	mqttadapter "iot-platform/internal/adapters/mqtt"
-	"iot-platform/internal/auth"
-	"iot-platform/internal/config"
-	"iot-platform/internal/connector"
-	"iot-platform/internal/core"
-	"iot-platform/internal/metrics"
-	"iot-platform/internal/model"
-	"iot-platform/internal/onboarding"
-	"iot-platform/internal/parser"
-	"iot-platform/internal/ports"
-)
+	mqtt "github.com/eclipse/paho.mqtt.golang"        /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/local"            /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/memory"           /* 执行当前语句并推进处理流程。 */
+	mqttadapter "iot-platform/internal/adapters/mqtt" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/auth"                      /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/config"                    /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/connector"                 /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/core"                      /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/metrics"                   /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model"                     /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/onboarding"                /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/parser"                    /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"                     /* 执行当前语句并推进处理流程。 */
+) /* 结束当前表达式或代码块。 */
 
 // Opt-in live broker check. All business storage is temporary, clients use clean
 // sessions and messages are non-retained under a unique test tenant.
-func TestStandardMQTTLiveBroker(t *testing.T) {
-	broker, secret := os.Getenv("IOT_TEST_MQTT_BROKER"), os.Getenv("IOT_TEST_MQTT_JWT_SECRET")
-	if broker == "" || secret == "" {
-		t.Skip("configure IOT_TEST_MQTT_BROKER and IOT_TEST_MQTT_JWT_SECRET")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	tenant := "integration-" + randomHex(8)
-	username := tenant + "-platform"
-	token, e := auth.New(secret).IssueWithACL(username, tenant, "service", nil, []auth.ACLRule{{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"}, {Permission: "allow", Action: "publish", Topic: "/iot/down/" + tenant + "/#"}}, time.Minute)
-	if e != nil {
-		t.Fatal(e)
-	}
-	platform, e := mqttadapter.New(broker, username, token, username)
-	if e != nil {
-		t.Fatal("test platform MQTT connection failed", e)
-	}
-	defer platform.Close()
-	repo := memory.NewRepository()
-	root := t.TempDir()
-	archive, e := local.NewArchive(root)
-	if e != nil {
-		t.Fatal(e)
-	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
-	if e = engine.Start(ctx); e != nil {
-		t.Fatal(e)
-	}
-	cfg := config.Load()
-	cfg.JWTSecret = secret
-	cfg.DataDir = root
-	srv := New(cfg, engine, metrics.New(), log)
-	srv.SetMQTTHealth(platform.Probe)
-	srv.SetDeviceOperations(platform.Publish, nil)
-	request := onboarding.Request{ProductID: "product", ProductName: "temporary MQTT test", DeviceID: "device", Name: "test device", Type: connector.MQTT, MessageKind: "property", Payload: json.RawMessage(`{"id":"preview","timestamp":1788850000000,"data":{"temperature":20}}`)}
-	preview, e := srv.onboarding.Test(ctx, tenant, request)
-	if e != nil || !preview.Success {
-		t.Fatal("onboarding preview failed", e)
-	}
-	request.TestToken = preview.TestToken
-	created, e := srv.onboarding.Create(ctx, tenant, request)
-	if e != nil {
-		t.Fatal(e)
-	}
-	failures := make(chan error, 4)
-	if e = platform.SubscribeStandard(func(c context.Context, tnt, p, d, kind string, payload []byte) error {
-		if tnt != tenant {
-			return nil
-		}
-		raw, e := srv.onboarding.PrepareStandard(c, tnt, p, d, kind, "MQTT", payload)
-		if e == nil {
-			_, _, e = engine.IngestRaw(c, raw)
-		}
-		if e != nil {
-			select {
-			case failures <- e:
-			default:
-			}
-		}
-		return e
-	}); e != nil {
-		t.Fatal(e)
-	}
-	r := httptest.NewRequest("POST", "/api/v1/device-mqtt/token", nil)
-	r.Header.Set("X-Device-Key", created.Credential.AccessKey)
-	r.Header.Set("X-Device-Secret", created.Credential.Secret)
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, r)
-	if w.Code != 200 {
-		t.Fatal("device token request failed", w.Code)
-	}
-	var credentials struct {
-		Username string `json:"username"`
-		Token    string `json:"token"`
-	}
-	if e = json.Unmarshal(w.Body.Bytes(), &credentials); e != nil {
-		t.Fatal(e)
-	}
-	device := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-device").SetUsername(credentials.Username).SetPassword(credentials.Token).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false).SetOrderMatters(false))
-	wait := func(t *testing.T, token mqtt.Token) {
-		t.Helper()
-		if !token.WaitTimeout(8 * time.Second) {
-			t.Fatal("MQTT operation timed out")
-		}
-		if token.Error() != nil {
-			t.Fatal("MQTT operation failed", token.Error())
-		}
-	}
-	wait(t, device.Connect())
-	defer device.Disconnect(100)
-	prefix := fmt.Sprintf("/iot/up/%s/product/device/", tenant)
-	wait(t, device.Subscribe(fmt.Sprintf("/iot/down/%s/product/device/command", tenant), 1, func(_ mqtt.Client, m mqtt.Message) {
-		var command struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(m.Payload(), &command) != nil {
-			return
-		}
-		body, _ := json.Marshal(map[string]any{"id": "reply-1", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"commandId": command.ID, "success": true}})
-		device.Publish(prefix+"command-reply", 1, false, body)
-	}))
-	property := []byte(fmt.Sprintf(`{"id":"property-1","timestamp":%d,"data":{"temperature":26.5}}`, time.Now().UnixMilli()))
-	wait(t, device.Publish(prefix+"property", 1, false, property))
-	until := func(t *testing.T, check func() bool) {
-		t.Helper()
-		for !check() {
-			select {
-			case e := <-failures:
-				t.Fatal(e)
-			case <-ctx.Done():
-				t.Fatal("MQTT integration deadline exceeded")
-			case <-time.After(20 * time.Millisecond):
-			}
-		}
-	}
-	until(t, func() bool {
-		m, e := repo.GetLatestMessage(ctx, tenant, "device")
-		return e == nil && m.MessageType == model.PropertyReport && m.Properties["temperature"] == 26.5
-	})
-	adminToken, _ := srv.auth.Issue("test", tenant, "admin", nil, time.Minute)
-	r = httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", bytes.NewBufferString(`{"confirmed":true,"id":"command-1","type":"test","data":{}}`))
-	r.Header.Set("Authorization", "Bearer "+adminToken)
-	r.Header.Set("Content-Type", "application/json")
-	w = httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, r)
-	if w.Code != 202 {
-		t.Fatal(w.Code, w.Body.String())
-	}
-	until(t, func() bool {
-		commands, _, e := repo.ListDeviceCommands(ctx, tenant, "device", 20, 0)
-		return e == nil && len(commands) == 1 && commands[0].Status == "SUCCEEDED"
-	})
-	raw, e := onboarding.StandardRaw(tenant, "product", "device", "property", "MQTT", property)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = repo.GetRawIndex(ctx, tenant, raw.MessageID); e != nil {
-		t.Fatal("live property was not archived", e)
-	}
+func TestStandardMQTTLiveBroker(t *testing.T) { /* 定义 TestStandardMQTTLiveBroker 函数。 */
+	broker, secret := os.Getenv("IOT_TEST_MQTT_BROKER"), os.Getenv("IOT_TEST_MQTT_JWT_SECRET") /* 更新 secret 的值。 */
+	if broker == "" || secret == "" {                                                          /* 判断条件并选择处理分支。 */
+		t.Skip("configure IOT_TEST_MQTT_BROKER and IOT_TEST_MQTT_JWT_SECRET") /* 执行当前语句并推进处理流程。 */
+	} /* 结束当前表达式或代码块。 */
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)                                                                                                                                                                                /* 更新 cancel 的值。 */
+	defer cancel()                                                                                                                                                                                                                                          /* 安排函数结束时执行清理。 */
+	tenant := "integration-" + randomHex(8)                                                                                                                                                                                                                 /* 更新 tenant 的值。 */
+	username := tenant + "-platform"                                                                                                                                                                                                                        /* 更新 username 的值。 */
+	token, e := auth.New(secret).IssueWithACL(username, tenant, "service", nil, []auth.ACLRule{{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"}, {Permission: "allow", Action: "publish", Topic: "/iot/down/" + tenant + "/#"}}, time.Minute) /* 更新 e 的值。 */
+	if e != nil {                                                                                                                                                                                                                                           /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	platform, e := mqttadapter.New(broker, username, token, username) /* 更新 e 的值。 */
+	if e != nil {                                                     /* 判断条件并选择处理分支。 */
+		t.Fatal("test platform MQTT connection failed", e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	defer platform.Close()               /* 安排函数结束时执行清理。 */
+	repo := memory.NewRepository()       /* 更新 repo 的值。 */
+	root := t.TempDir()                  /* 更新 root 的值。 */
+	archive, e := local.NewArchive(root) /* 更新 e 的值。 */
+	if e != nil {                        /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                         /* 更新 log 的值。 */
+	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
+	if e = engine.Start(ctx); e != nil {                                                                          /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	cfg := config.Load()                                                                                                                                                                                                                                                              /* 更新 cfg 的值。 */
+	cfg.JWTSecret = secret                                                                                                                                                                                                                                                            /* 更新 cfg.JWTSecret 的值。 */
+	cfg.DataDir = root                                                                                                                                                                                                                                                                /* 更新 cfg.DataDir 的值。 */
+	srv := New(cfg, engine, metrics.New(), log)                                                                                                                                                                                                                                       /* 更新 srv 的值。 */
+	srv.SetMQTTHealth(platform.Probe)                                                                                                                                                                                                                                                 /* 执行当前语句并推进处理流程。 */
+	srv.SetDeviceOperations(platform.Publish, nil)                                                                                                                                                                                                                                    /* 执行当前语句并推进处理流程。 */
+	request := onboarding.Request{ProductID: "product", ProductName: "temporary MQTT test", DeviceID: "device", Name: "test device", Type: connector.MQTT, MessageKind: "property", Payload: json.RawMessage(`{"id":"preview","timestamp":1788850000000,"data":{"temperature":20}}`)} /* 更新 request 的值。 */
+	preview, e := srv.onboarding.Test(ctx, tenant, request)                                                                                                                                                                                                                           /* 更新 e 的值。 */
+	if e != nil || !preview.Success {                                                                                                                                                                                                                                                 /* 判断条件并选择处理分支。 */
+		t.Fatal("onboarding preview failed", e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	request.TestToken = preview.TestToken                     /* 更新 request.TestToken 的值。 */
+	created, e := srv.onboarding.Create(ctx, tenant, request) /* 更新 e 的值。 */
+	if e != nil {                                             /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	failures := make(chan error, 4)                                                                           /* 更新 failures 的值。 */
+	if e = platform.SubscribeStandard(func(c context.Context, tnt, p, d, kind string, payload []byte) error { /* 判断条件并选择处理分支。 */
+		if tnt != tenant { /* 判断条件并选择处理分支。 */
+			return nil /* 返回当前处理结果。 */
+		} /* 结束当前表达式或代码块。 */
+		raw, e := srv.onboarding.PrepareStandard(c, tnt, p, d, kind, "MQTT", payload) /* 更新 e 的值。 */
+		if e == nil {                                                                 /* 判断条件并选择处理分支。 */
+			_, _, e = engine.IngestRaw(c, raw) /* 更新 e 的值。 */
+		} /* 结束当前表达式或代码块。 */
+		if e != nil { /* 判断条件并选择处理分支。 */
+			select { /* 根据条件选择处理路径。 */
+			case failures <- e: /* 处理当前分支。 */
+			default: /* 处理当前分支。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+		return e /* 返回当前处理结果。 */
+	}); e != nil { /* 结束当前表达式或代码块。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	r := httptest.NewRequest("POST", "/api/v1/device-mqtt/token", nil) /* 更新 r 的值。 */
+	r.Header.Set("X-Device-Key", created.Credential.AccessKey)         /* 执行当前语句并推进处理流程。 */
+	r.Header.Set("X-Device-Secret", created.Credential.Secret)         /* 执行当前语句并推进处理流程。 */
+	w := httptest.NewRecorder()                                        /* 更新 w 的值。 */
+	srv.Handler().ServeHTTP(w, r)                                      /* 执行当前语句并推进处理流程。 */
+	if w.Code != 200 {                                                 /* 判断条件并选择处理分支。 */
+		t.Fatal("device token request failed", w.Code) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	var credentials struct { /* 声明 credentials。 */
+		Username string `json:"username"` /* 执行当前语句并推进处理流程。 */
+		Token    string `json:"token"`    /* 执行当前语句并推进处理流程。 */
+	} /* 结束当前表达式或代码块。 */
+	if e = json.Unmarshal(w.Body.Bytes(), &credentials); e != nil { /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	device := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-device").SetUsername(credentials.Username).SetPassword(credentials.Token).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false).SetOrderMatters(false)) /* 更新 device 的值。 */
+	wait := func(t *testing.T, token mqtt.Token) {                                                                                                                                                                                                                   /* 更新 wait 的值。 */
+		t.Helper()                               /* 执行当前语句并推进处理流程。 */
+		if !token.WaitTimeout(8 * time.Second) { /* 判断条件并选择处理分支。 */
+			t.Fatal("MQTT operation timed out") /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		if token.Error() != nil { /* 判断条件并选择处理分支。 */
+			t.Fatal("MQTT operation failed", token.Error()) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	wait(t, device.Connect())                                                                                                     /* 执行当前语句并推进处理流程。 */
+	defer device.Disconnect(100)                                                                                                  /* 安排函数结束时执行清理。 */
+	prefix := fmt.Sprintf("/iot/up/%s/product/device/", tenant)                                                                   /* 更新 prefix 的值。 */
+	wait(t, device.Subscribe(fmt.Sprintf("/iot/down/%s/product/device/command", tenant), 1, func(_ mqtt.Client, m mqtt.Message) { /* 执行当前语句并推进处理流程。 */
+		var command struct { /* 声明 command。 */
+			ID string `json:"id"` /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		if json.Unmarshal(m.Payload(), &command) != nil { /* 判断条件并选择处理分支。 */
+			return /* 返回当前处理结果。 */
+		} /* 结束当前表达式或代码块。 */
+		body, _ := json.Marshal(map[string]any{"id": "reply-1", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"commandId": command.ID, "success": true}}) /* 更新 _ 的值。 */
+		device.Publish(prefix+"command-reply", 1, false, body)                                                                                                          /* 执行当前语句并推进处理流程。 */
+	})) /* 结束当前表达式或代码块。 */
+	property := []byte(fmt.Sprintf(`{"id":"property-1","timestamp":%d,"data":{"temperature":26.5}}`, time.Now().UnixMilli())) /* 更新 property 的值。 */
+	wait(t, device.Publish(prefix+"property", 1, false, property))                                                            /* 执行当前语句并推进处理流程。 */
+	until := func(t *testing.T, check func() bool) {                                                                          /* 更新 until 的值。 */
+		t.Helper()     /* 执行当前语句并推进处理流程。 */
+		for !check() { /* 循环处理当前数据。 */
+			select { /* 根据条件选择处理路径。 */
+			case e := <-failures: /* 处理当前分支。 */
+				t.Fatal(e) /* 验证实际结果符合预期。 */
+			case <-ctx.Done(): /* 处理当前分支。 */
+				t.Fatal("MQTT integration deadline exceeded") /* 验证实际结果符合预期。 */
+			case <-time.After(20 * time.Millisecond): /* 处理当前分支。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	until(t, func() bool { /* 执行当前语句并推进处理流程。 */
+		m, e := repo.GetLatestMessage(ctx, tenant, "device")                                            /* 更新 e 的值。 */
+		return e == nil && m.MessageType == model.PropertyReport && m.Properties["temperature"] == 26.5 /* 返回当前处理结果。 */
+	}) /* 结束当前表达式或代码块。 */
+	adminToken, _ := srv.auth.Issue("test", tenant, "admin", nil, time.Minute)                                                                                       /* 更新 _ 的值。 */
+	r = httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", bytes.NewBufferString(`{"confirmed":true,"id":"command-1","type":"test","data":{}}`)) /* 更新 r 的值。 */
+	r.Header.Set("Authorization", "Bearer "+adminToken)                                                                                                              /* 执行当前语句并推进处理流程。 */
+	r.Header.Set("Content-Type", "application/json")                                                                                                                 /* 执行当前语句并推进处理流程。 */
+	w = httptest.NewRecorder()                                                                                                                                       /* 更新 w 的值。 */
+	srv.Handler().ServeHTTP(w, r)                                                                                                                                    /* 执行当前语句并推进处理流程。 */
+	if w.Code != 202 {                                                                                                                                               /* 判断条件并选择处理分支。 */
+		t.Fatal(w.Code, w.Body.String()) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	until(t, func() bool { /* 执行当前语句并推进处理流程。 */
+		commands, _, e := repo.ListDeviceCommands(ctx, tenant, "device", 20, 0)    /* 更新 e 的值。 */
+		return e == nil && len(commands) == 1 && commands[0].Status == "SUCCEEDED" /* 返回当前处理结果。 */
+	}) /* 结束当前表达式或代码块。 */
+	raw, e := onboarding.StandardRaw(tenant, "product", "device", "property", "MQTT", property) /* 更新 e 的值。 */
+	if e != nil {                                                                               /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	if _, e = repo.GetRawIndex(ctx, tenant, raw.MessageID); e != nil { /* 判断条件并选择处理分支。 */
+		t.Fatal("live property was not archived", e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
 	// A clean-session reconnect must still accept the device JWT and resume
 	// ingress. Exercise rule activation/recovery after the transport reconnect.
-	device.Disconnect(100)
-	wait(t, device.Connect())
-	if e = repo.SaveRule(ctx, model.AlarmRule{TenantID: tenant, ID: "temperature-rule", ProductID: "product", Name: "temporary threshold", Enabled: true, AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Recovery: []model.RuleCondition{{Field: "temperature", Operator: "<", Value: 70}}}); e != nil {
-		t.Fatal(e)
-	}
-	raise := fmt.Sprintf(`{"id":"alarm-property","timestamp":%d,"data":{"temperature":85}}`, time.Now().UnixMilli())
-	wait(t, device.Publish(prefix+"property", 1, false, raise))
-	until(t, func() bool {
-		items, e := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: "device", Status: "ACTIVE", Limit: 10})
-		return e == nil && len(items) == 1 && items[0].RuleID == "temperature-rule"
-	})
+	device.Disconnect(100)                                                                                                                                                                                                                                                                                                                                                                   /* 执行当前语句并推进处理流程。 */
+	wait(t, device.Connect())                                                                                                                                                                                                                                                                                                                                                                /* 执行当前语句并推进处理流程。 */
+	if e = repo.SaveRule(ctx, model.AlarmRule{TenantID: tenant, ID: "temperature-rule", ProductID: "product", Name: "temporary threshold", Enabled: true, AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Recovery: []model.RuleCondition{{Field: "temperature", Operator: "<", Value: 70}}}); e != nil { /* 判断条件并选择处理分支。 */
+		t.Fatal(e) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	raise := fmt.Sprintf(`{"id":"alarm-property","timestamp":%d,"data":{"temperature":85}}`, time.Now().UnixMilli()) /* 更新 raise 的值。 */
+	wait(t, device.Publish(prefix+"property", 1, false, raise))                                                      /* 执行当前语句并推进处理流程。 */
+	until(t, func() bool {                                                                                           /* 执行当前语句并推进处理流程。 */
+		items, e := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: "device", Status: "ACTIVE", Limit: 10}) /* 更新 e 的值。 */
+		return e == nil && len(items) == 1 && items[0].RuleID == "temperature-rule"                                            /* 返回当前处理结果。 */
+	}) /* 结束当前表达式或代码块。 */
 	// Retransmit the same application message id before recovery.
-	wait(t, device.Publish(prefix+"property", 1, false, raise))
-	recoverBody := fmt.Sprintf(`{"id":"recovery-property","timestamp":%d,"data":{"temperature":25}}`, time.Now().UnixMilli())
-	wait(t, device.Publish(prefix+"property", 1, false, recoverBody))
-	until(t, func() bool {
-		items, e := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: "device", Status: "RECOVERED", Limit: 10})
-		return e == nil && len(items) == 1 && items[0].TriggerCount == 1
-	})
-	for _, body := range []string{raise, recoverBody} {
-		record, e := onboarding.StandardRaw(tenant, "product", "device", "property", "MQTT", []byte(body))
-		if e != nil {
-			t.Fatal(e)
-		}
-		if _, e = repo.GetRawIndex(ctx, tenant, record.MessageID); e != nil {
-			t.Fatal("rule input bypassed archive", e)
-		}
-	}
-	t.Log("live MQTT: clean-session reconnect, alarm activation, duplicate message deduplication and recovery passed")
-	t.Log("live MQTT: onboarding, device JWT, property archive, command dispatch and Raw command reply passed")
-	t.Run("AuthenticationAndACL", func(t *testing.T) {
-		reject := func(user, password string) {
-			client := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-deny-" + randomHex(4)).SetUsername(user).SetPassword(password).SetAutoReconnect(false).SetConnectRetry(false))
-			defer client.Disconnect(100)
-			attempt := client.Connect()
-			if !attempt.WaitTimeout(5 * time.Second) {
-				t.Fatal("authentication rejection timed out")
-			}
-			code := attempt.(*mqtt.ConnectToken).ReturnCode()
-			if attempt.Error() == nil || (code != 4 && code != 5) {
-				t.Fatalf("authentication rejection was not confirmed: CONNACK %d", code)
-			}
-		}
-		reject(credentials.Username, "invalid-jwt")
-		if os.Getenv("IOT_TEST_MQTT_STRICT_IDENTITY") == "true" {
-			reject(username, credentials.Token)
-		} else {
-			t.Log("username binding check not executed: set IOT_TEST_MQTT_STRICT_IDENTITY=true against updated isolated Broker")
-		}
-		for _, topic := range []string{"/iot/down/" + tenant + "/product/device/shadow", "/iot/down/" + tenant + "/product/other/command", "/iot/down/other-" + tenant + "/product/device/command", "/iot/up/#", "/iot/down/" + tenant + "/product/other/shadow", "/iot/down/other-" + tenant + "/product/device/shadow"} {
-			op := device.Subscribe(topic, 1, func(mqtt.Client, mqtt.Message) {})
-			if !op.WaitTimeout(5 * time.Second) {
-				t.Fatal("ACL subscription result timed out")
-			}
-			if op.(*mqtt.SubscribeToken).Result()[topic] != 128 {
-				t.Fatal("unauthorized subscription not rejected", topic)
-			}
-		}
-		forbidden := []string{"/iot/up/" + tenant + "/product/device/shadow-get", "/iot/up/" + tenant + "/product/other/property", "/iot/up/other-" + tenant + "/product/device/property", "/external/raw/" + tenant + "/product/device", "/iot/up/" + tenant + "/product/other/shadow-get", "/iot/up/other-" + tenant + "/product/device/shadow-get"}
-		acl := []auth.ACLRule{}
-		for _, topic := range append(forbidden, prefix+"property") {
-			acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: topic})
-		}
-		observerName := tenant + "-observer"
-		jwt, _ := srv.auth.IssueWithACL(observerName, tenant, "service", nil, acl, time.Minute)
-		observer := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(observerName).SetUsername(observerName).SetPassword(jwt).SetAutoReconnect(false))
-		wait(t, observer.Connect())
-		defer observer.Disconnect(100)
-		received := make(chan string, 8)
-		for _, topic := range append(forbidden, prefix+"property") {
-			wait(t, observer.Subscribe(topic, 1, func(_ mqtt.Client, m mqtt.Message) { received <- m.Topic() }))
-		}
-		for _, topic := range forbidden {
-			wait(t, device.Publish(topic, 1, false, `{"id":"acl-denied","timestamp":1000,"data":{"x":1}}`))
-		}
+	wait(t, device.Publish(prefix+"property", 1, false, raise))                                                               /* 执行当前语句并推进处理流程。 */
+	recoverBody := fmt.Sprintf(`{"id":"recovery-property","timestamp":%d,"data":{"temperature":25}}`, time.Now().UnixMilli()) /* 更新 recoverBody 的值。 */
+	wait(t, device.Publish(prefix+"property", 1, false, recoverBody))                                                         /* 执行当前语句并推进处理流程。 */
+	until(t, func() bool {                                                                                                    /* 执行当前语句并推进处理流程。 */
+		items, e := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: "device", Status: "RECOVERED", Limit: 10}) /* 更新 e 的值。 */
+		return e == nil && len(items) == 1 && items[0].TriggerCount == 1                                                          /* 返回当前处理结果。 */
+	}) /* 结束当前表达式或代码块。 */
+	for _, body := range []string{raise, recoverBody} { /* 循环处理当前数据。 */
+		record, e := onboarding.StandardRaw(tenant, "product", "device", "property", "MQTT", []byte(body)) /* 更新 e 的值。 */
+		if e != nil {                                                                                      /* 判断条件并选择处理分支。 */
+			t.Fatal(e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		if _, e = repo.GetRawIndex(ctx, tenant, record.MessageID); e != nil { /* 判断条件并选择处理分支。 */
+			t.Fatal("rule input bypassed archive", e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	t.Log("live MQTT: clean-session reconnect, alarm activation, duplicate message deduplication and recovery passed") /* 执行当前语句并推进处理流程。 */
+	t.Log("live MQTT: onboarding, device JWT, property archive, command dispatch and Raw command reply passed")        /* 执行当前语句并推进处理流程。 */
+	t.Run("AuthenticationAndACL", func(t *testing.T) {                                                                 /* 执行当前语句并推进处理流程。 */
+		reject := func(user, password string) { /* 更新 reject 的值。 */
+			client := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-deny-" + randomHex(4)).SetUsername(user).SetPassword(password).SetAutoReconnect(false).SetConnectRetry(false)) /* 更新 client 的值。 */
+			defer client.Disconnect(100)                                                                                                                                                                             /* 安排函数结束时执行清理。 */
+			attempt := client.Connect()                                                                                                                                                                              /* 更新 attempt 的值。 */
+			if !attempt.WaitTimeout(5 * time.Second) {                                                                                                                                                               /* 判断条件并选择处理分支。 */
+				t.Fatal("authentication rejection timed out") /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+			code := attempt.(*mqtt.ConnectToken).ReturnCode()       /* 更新 code 的值。 */
+			if attempt.Error() == nil || (code != 4 && code != 5) { /* 判断条件并选择处理分支。 */
+				t.Fatalf("authentication rejection was not confirmed: CONNACK %d", code) /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+		reject(credentials.Username, "invalid-jwt")               /* 执行当前语句并推进处理流程。 */
+		if os.Getenv("IOT_TEST_MQTT_STRICT_IDENTITY") == "true" { /* 判断条件并选择处理分支。 */
+			reject(username, credentials.Token) /* 执行当前语句并推进处理流程。 */
+		} else { /* 结束当前表达式或代码块。 */
+			t.Log("username binding check not executed: set IOT_TEST_MQTT_STRICT_IDENTITY=true against updated isolated Broker") /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		for _, topic := range []string{"/iot/down/" + tenant + "/product/device/shadow", "/iot/down/" + tenant + "/product/other/command", "/iot/down/other-" + tenant + "/product/device/command", "/iot/up/#", "/iot/down/" + tenant + "/product/other/shadow", "/iot/down/other-" + tenant + "/product/device/shadow"} { /* 循环处理当前数据。 */
+			op := device.Subscribe(topic, 1, func(mqtt.Client, mqtt.Message) {}) /* 更新 op 的值。 */
+			if !op.WaitTimeout(5 * time.Second) {                                /* 判断条件并选择处理分支。 */
+				t.Fatal("ACL subscription result timed out") /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+			if op.(*mqtt.SubscribeToken).Result()[topic] != 128 { /* 判断条件并选择处理分支。 */
+				t.Fatal("unauthorized subscription not rejected", topic) /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+		forbidden := []string{"/iot/up/" + tenant + "/product/device/shadow-get", "/iot/up/" + tenant + "/product/other/property", "/iot/up/other-" + tenant + "/product/device/property", "/external/raw/" + tenant + "/product/device", "/iot/up/" + tenant + "/product/other/shadow-get", "/iot/up/other-" + tenant + "/product/device/shadow-get"} /* 更新 forbidden 的值。 */
+		acl := []auth.ACLRule{}                                                                                                                                                                                                                                                                                                                        /* 更新 acl 的值。 */
+		for _, topic := range append(forbidden, prefix+"property") {                                                                                                                                                                                                                                                                                   /* 循环处理当前数据。 */
+			acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: topic}) /* 更新 acl 的值。 */
+		} /* 结束当前表达式或代码块。 */
+		observerName := tenant + "-observer"                                                                                                                               /* 更新 observerName 的值。 */
+		jwt, _ := srv.auth.IssueWithACL(observerName, tenant, "service", nil, acl, time.Minute)                                                                            /* 更新 _ 的值。 */
+		observer := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(observerName).SetUsername(observerName).SetPassword(jwt).SetAutoReconnect(false)) /* 更新 observer 的值。 */
+		wait(t, observer.Connect())                                                                                                                                        /* 执行当前语句并推进处理流程。 */
+		defer observer.Disconnect(100)                                                                                                                                     /* 安排函数结束时执行清理。 */
+		received := make(chan string, 8)                                                                                                                                   /* 更新 received 的值。 */
+		for _, topic := range append(forbidden, prefix+"property") {                                                                                                       /* 循环处理当前数据。 */
+			wait(t, observer.Subscribe(topic, 1, func(_ mqtt.Client, m mqtt.Message) { received <- m.Topic() })) /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		for _, topic := range forbidden { /* 循环处理当前数据。 */
+			wait(t, device.Publish(topic, 1, false, `{"id":"acl-denied","timestamp":1000,"data":{"x":1}}`)) /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
 		// A valid canary proves the observer and publication path are functioning.
-		wait(t, device.Publish(prefix+"property", 1, false, `{"id":"acl-canary","timestamp":1000,"data":{"x":1}}`))
-		select {
-		case topic := <-received:
-			if topic != prefix+"property" {
-				t.Fatal("unauthorized publication delivered", topic)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("allowed canary was not received")
-		}
-		select {
-		case topic := <-received:
-			t.Fatal("unexpected forbidden publication", topic)
-		case <-time.After(300 * time.Millisecond):
-		}
-		t.Log("bad credentials and forbidden subscriptions rejected; cross-device/cross-tenant/raw-topic publications blocked; valid canary received")
-	})
-	t.Run("CredentialRevocation", func(t *testing.T) {
-		base, key, apiSecret := os.Getenv("IOT_TEST_EMQX_API_URL"), os.Getenv("IOT_TEST_EMQX_API_KEY"), os.Getenv("IOT_TEST_EMQX_API_SECRET")
-		if base == "" || key == "" || apiSecret == "" {
-			t.Skip("configure IOT_TEST_EMQX_API_URL, IOT_TEST_EMQX_API_KEY and IOT_TEST_EMQX_API_SECRET")
-		}
-		admin := &mqttadapter.Admin{URL: base, Key: key, Secret: apiSecret}
-		srv.SetDeviceOperations(platform.Publish, admin.RevokeUsername)
-		cleanupBan := func(user string) {
-			t.Cleanup(func() {
-				req, e := http.NewRequest("DELETE", strings.TrimRight(base, "/")+"/api/v5/banned/username/"+url.PathEscape(user), nil)
-				if e != nil {
-					t.Error(e)
-					return
-				}
-				req.SetBasicAuth(key, apiSecret)
-				client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-				res, e := client.Do(req)
-				if e != nil {
-					t.Error("test ban cleanup request failed")
-					return
-				}
-				res.Body.Close()
-				if res.StatusCode != 204 && res.StatusCode != 404 {
-					t.Errorf("test ban cleanup HTTP %d", res.StatusCode)
-				}
-			})
-		}
-		cleanupBan(created.Credential.AccessKey)
-		next, revocation, e := srv.onboarding.ChangeCredential(ctx, tenant, "device", true)
-		if e != nil || revocation.Status != "REVOKED" {
-			t.Fatal("live credential rotation/revocation failed", revocation.Status, revocation.LastError, e)
-		}
-		until(t, func() bool { return !device.IsConnected() })
-		if e = admin.RevokeUsername(ctx, created.Credential.AccessKey); e != nil {
-			t.Fatal("repeated broker revocation failed", e)
-		}
-		rejectConnection := func(user, jwt string) {
-			t.Helper()
-			stale := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-rejected-" + randomHex(4)).SetUsername(user).SetPassword(jwt).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false))
-			defer stale.Disconnect(100)
-			attempt := stale.Connect()
-			if !attempt.WaitTimeout(5 * time.Second) {
-				t.Fatal("stale JWT rejection was not confirmed")
-			}
-			if attempt.Error() == nil || attempt.(*mqtt.ConnectToken).ReturnCode() != 5 {
-				t.Fatalf("expected broker CONNACK 5 for revoked JWT; got code %d", attempt.(*mqtt.ConnectToken).ReturnCode())
-			}
-		}
-		rejectConnection(credentials.Username, credentials.Token)
-		issue := func(c model.DeviceCredential) *httptest.ResponseRecorder {
-			r := httptest.NewRequest("POST", "/api/v1/device-mqtt/token", nil)
-			r.Header.Set("X-Device-Key", c.AccessKey)
-			r.Header.Set("X-Device-Secret", c.Secret)
-			w := httptest.NewRecorder()
-			srv.Handler().ServeHTTP(w, r)
-			return w
-		}
-		if issue(created.Credential).Code != 401 {
-			t.Fatal("old device secret accepted after rotation")
-		}
-		tokenResponse := issue(next)
-		if tokenResponse.Code != 200 {
-			t.Fatal("new credentials rejected", tokenResponse.Code)
-		}
-		var freshCredentials struct {
-			Username string `json:"username"`
-			Token    string `json:"token"`
-		}
-		if e = json.Unmarshal(tokenResponse.Body.Bytes(), &freshCredentials); e != nil {
-			t.Fatal(e)
-		}
-		fresh := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-fresh").SetUsername(freshCredentials.Username).SetPassword(freshCredentials.Token).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false))
-		wait(t, fresh.Connect())
-		defer fresh.Disconnect(100)
-		body := fmt.Sprintf(`{"id":"property-2","timestamp":%d,"data":{"temperature":30}}`, time.Now().UnixMilli())
-		wait(t, fresh.Publish(prefix+"property", 1, false, body))
-		until(t, func() bool {
-			m, e := repo.GetLatestMessage(ctx, tenant, "device")
-			return e == nil && m.MessageType == model.PropertyReport && m.Properties["temperature"] == float64(30)
-		})
-		cleanupBan(next.AccessKey)
-		_, disabled, e := srv.onboarding.ChangeCredential(ctx, tenant, "device", false)
-		if e != nil || disabled.Status != "REVOKED" {
-			t.Fatal("live disable failed", disabled.Status, e)
-		}
-		until(t, func() bool { return !fresh.IsConnected() })
-		rejectConnection(freshCredentials.Username, freshCredentials.Token)
-		if issue(next).Code != 401 {
-			t.Fatal("disabled device secret accepted")
-		}
-		if e = platform.Health(ctx); e != nil {
-			t.Fatal("unrelated platform MQTT connection was affected", e)
-		}
-		t.Log("live EMQX: rotation and disable disconnect sessions; stale JWT reconnect rejected; new credential ingress succeeds; repeated revocation succeeds; unrelated connection remains healthy")
-	})
-}
+		wait(t, device.Publish(prefix+"property", 1, false, `{"id":"acl-canary","timestamp":1000,"data":{"x":1}}`)) /* 执行当前语句并推进处理流程。 */
+		select {                                                                                                    /* 根据条件选择处理路径。 */
+		case topic := <-received: /* 处理当前分支。 */
+			if topic != prefix+"property" { /* 判断条件并选择处理分支。 */
+				t.Fatal("unauthorized publication delivered", topic) /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+		case <-time.After(5 * time.Second): /* 处理当前分支。 */
+			t.Fatal("allowed canary was not received") /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		select { /* 根据条件选择处理路径。 */
+		case topic := <-received: /* 处理当前分支。 */
+			t.Fatal("unexpected forbidden publication", topic) /* 验证实际结果符合预期。 */
+		case <-time.After(300 * time.Millisecond): /* 处理当前分支。 */
+		} /* 结束当前表达式或代码块。 */
+		t.Log("bad credentials and forbidden subscriptions rejected; cross-device/cross-tenant/raw-topic publications blocked; valid canary received") /* 执行当前语句并推进处理流程。 */
+	}) /* 结束当前表达式或代码块。 */
+	t.Run("CredentialRevocation", func(t *testing.T) { /* 执行当前语句并推进处理流程。 */
+		base, key, apiSecret := os.Getenv("IOT_TEST_EMQX_API_URL"), os.Getenv("IOT_TEST_EMQX_API_KEY"), os.Getenv("IOT_TEST_EMQX_API_SECRET") /* 更新 apiSecret 的值。 */
+		if base == "" || key == "" || apiSecret == "" {                                                                                       /* 判断条件并选择处理分支。 */
+			t.Skip("configure IOT_TEST_EMQX_API_URL, IOT_TEST_EMQX_API_KEY and IOT_TEST_EMQX_API_SECRET") /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		admin := &mqttadapter.Admin{URL: base, Key: key, Secret: apiSecret} /* 更新 admin 的值。 */
+		srv.SetDeviceOperations(platform.Publish, admin.RevokeUsername)     /* 执行当前语句并推进处理流程。 */
+		cleanupBan := func(user string) {                                   /* 更新 cleanupBan 的值。 */
+			t.Cleanup(func() { /* 执行当前语句并推进处理流程。 */
+				req, e := http.NewRequest("DELETE", strings.TrimRight(base, "/")+"/api/v5/banned/username/"+url.PathEscape(user), nil) /* 更新 e 的值。 */
+				if e != nil {                                                                                                          /* 判断条件并选择处理分支。 */
+					t.Error(e) /* 验证实际结果符合预期。 */
+					return     /* 返回当前处理结果。 */
+				} /* 结束当前表达式或代码块。 */
+				req.SetBasicAuth(key, apiSecret)                                                                                                               /* 执行当前语句并推进处理流程。 */
+				client := &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }} /* 更新 client 的值。 */
+				res, e := client.Do(req)                                                                                                                       /* 更新 e 的值。 */
+				if e != nil {                                                                                                                                  /* 判断条件并选择处理分支。 */
+					t.Error("test ban cleanup request failed") /* 验证实际结果符合预期。 */
+					return                                     /* 返回当前处理结果。 */
+				} /* 结束当前表达式或代码块。 */
+				res.Body.Close()                                    /* 执行当前语句并推进处理流程。 */
+				if res.StatusCode != 204 && res.StatusCode != 404 { /* 判断条件并选择处理分支。 */
+					t.Errorf("test ban cleanup HTTP %d", res.StatusCode) /* 验证实际结果符合预期。 */
+				} /* 结束当前表达式或代码块。 */
+			}) /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+		cleanupBan(created.Credential.AccessKey)                                            /* 执行当前语句并推进处理流程。 */
+		next, revocation, e := srv.onboarding.ChangeCredential(ctx, tenant, "device", true) /* 更新 e 的值。 */
+		if e != nil || revocation.Status != "REVOKED" {                                     /* 判断条件并选择处理分支。 */
+			t.Fatal("live credential rotation/revocation failed", revocation.Status, revocation.LastError, e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		until(t, func() bool { return !device.IsConnected() })                     /* 执行当前语句并推进处理流程。 */
+		if e = admin.RevokeUsername(ctx, created.Credential.AccessKey); e != nil { /* 判断条件并选择处理分支。 */
+			t.Fatal("repeated broker revocation failed", e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		rejectConnection := func(user, jwt string) { /* 更新 rejectConnection 的值。 */
+			t.Helper()                                                                                                                                                                                                                   /* 执行当前语句并推进处理流程。 */
+			stale := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-rejected-" + randomHex(4)).SetUsername(user).SetPassword(jwt).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false)) /* 更新 stale 的值。 */
+			defer stale.Disconnect(100)                                                                                                                                                                                                  /* 安排函数结束时执行清理。 */
+			attempt := stale.Connect()                                                                                                                                                                                                   /* 更新 attempt 的值。 */
+			if !attempt.WaitTimeout(5 * time.Second) {                                                                                                                                                                                   /* 判断条件并选择处理分支。 */
+				t.Fatal("stale JWT rejection was not confirmed") /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+			if attempt.Error() == nil || attempt.(*mqtt.ConnectToken).ReturnCode() != 5 { /* 判断条件并选择处理分支。 */
+				t.Fatalf("expected broker CONNACK 5 for revoked JWT; got code %d", attempt.(*mqtt.ConnectToken).ReturnCode()) /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+		} /* 结束当前表达式或代码块。 */
+		rejectConnection(credentials.Username, credentials.Token)            /* 执行当前语句并推进处理流程。 */
+		issue := func(c model.DeviceCredential) *httptest.ResponseRecorder { /* 更新 issue 的值。 */
+			r := httptest.NewRequest("POST", "/api/v1/device-mqtt/token", nil) /* 更新 r 的值。 */
+			r.Header.Set("X-Device-Key", c.AccessKey)                          /* 执行当前语句并推进处理流程。 */
+			r.Header.Set("X-Device-Secret", c.Secret)                          /* 执行当前语句并推进处理流程。 */
+			w := httptest.NewRecorder()                                        /* 更新 w 的值。 */
+			srv.Handler().ServeHTTP(w, r)                                      /* 执行当前语句并推进处理流程。 */
+			return w                                                           /* 返回当前处理结果。 */
+		} /* 结束当前表达式或代码块。 */
+		if issue(created.Credential).Code != 401 { /* 判断条件并选择处理分支。 */
+			t.Fatal("old device secret accepted after rotation") /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		tokenResponse := issue(next)   /* 更新 tokenResponse 的值。 */
+		if tokenResponse.Code != 200 { /* 判断条件并选择处理分支。 */
+			t.Fatal("new credentials rejected", tokenResponse.Code) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		var freshCredentials struct { /* 声明 freshCredentials。 */
+			Username string `json:"username"` /* 执行当前语句并推进处理流程。 */
+			Token    string `json:"token"`    /* 执行当前语句并推进处理流程。 */
+		} /* 结束当前表达式或代码块。 */
+		if e = json.Unmarshal(tokenResponse.Body.Bytes(), &freshCredentials); e != nil { /* 判断条件并选择处理分支。 */
+			t.Fatal(e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		fresh := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(tenant + "-fresh").SetUsername(freshCredentials.Username).SetPassword(freshCredentials.Token).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false)) /* 更新 fresh 的值。 */
+		wait(t, fresh.Connect())                                                                                                                                                                                                                          /* 执行当前语句并推进处理流程。 */
+		defer fresh.Disconnect(100)                                                                                                                                                                                                                       /* 安排函数结束时执行清理。 */
+		body := fmt.Sprintf(`{"id":"property-2","timestamp":%d,"data":{"temperature":30}}`, time.Now().UnixMilli())                                                                                                                                       /* 更新 body 的值。 */
+		wait(t, fresh.Publish(prefix+"property", 1, false, body))                                                                                                                                                                                         /* 执行当前语句并推进处理流程。 */
+		until(t, func() bool {                                                                                                                                                                                                                            /* 执行当前语句并推进处理流程。 */
+			m, e := repo.GetLatestMessage(ctx, tenant, "device")                                                   /* 更新 e 的值。 */
+			return e == nil && m.MessageType == model.PropertyReport && m.Properties["temperature"] == float64(30) /* 返回当前处理结果。 */
+		}) /* 结束当前表达式或代码块。 */
+		cleanupBan(next.AccessKey)                                                      /* 执行当前语句并推进处理流程。 */
+		_, disabled, e := srv.onboarding.ChangeCredential(ctx, tenant, "device", false) /* 更新 e 的值。 */
+		if e != nil || disabled.Status != "REVOKED" {                                   /* 判断条件并选择处理分支。 */
+			t.Fatal("live disable failed", disabled.Status, e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		until(t, func() bool { return !fresh.IsConnected() })               /* 执行当前语句并推进处理流程。 */
+		rejectConnection(freshCredentials.Username, freshCredentials.Token) /* 执行当前语句并推进处理流程。 */
+		if issue(next).Code != 401 {                                        /* 判断条件并选择处理分支。 */
+			t.Fatal("disabled device secret accepted") /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		if e = platform.Health(ctx); e != nil { /* 判断条件并选择处理分支。 */
+			t.Fatal("unrelated platform MQTT connection was affected", e) /* 验证实际结果符合预期。 */
+		} /* 结束当前表达式或代码块。 */
+		t.Log("live EMQX: rotation and disable disconnect sessions; stale JWT reconnect rejected; new credential ingress succeeds; repeated revocation succeeds; unrelated connection remains healthy") /* 执行当前语句并推进处理流程。 */
+	}) /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */

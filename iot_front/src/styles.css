@@ -1,540 +1,540 @@
-@import "tailwindcss";
+@import "tailwindcss"; /* 定义当前元素的样式规则。 */
 
-html:root {
-  --background: #f5f5f7;
-  --foreground: #1d1d1f;
-  --card: #ffffff;
-  --card-foreground: #1d1d1f;
-  --popover: #ffffff;
-  --popover-foreground: #1d1d1f;
-  --primary: #0071e3;
-  --brand-flame: #f38128;
-  --brand-navy: #13386c;
-  --primary-foreground: #ffffff;
-  --secondary: #f0f0f2;
-  --secondary-foreground: #424245;
-  --muted: #f2f2f4;
-  --muted-foreground: #6e6e73;
-  --accent: #eaf3ff;
-  --accent-foreground: #0066cc;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --success: #16a34a;
-  --success-foreground: #166534;
-  --warning: #d97706;
-  --warning-foreground: #92400e;
-  --border: #e5e5e7;
-  --input: #d2d2d7;
-  --ring: #007aff;
-  --radius: 0.875rem;
+html:root { /* 设置 html 样式。 */
+  --background: #f5f5f7; /* 设置 --background 样式。 */
+  --foreground: #1d1d1f; /* 设置 --foreground 样式。 */
+  --card: #ffffff; /* 设置 --card 样式。 */
+  --card-foreground: #1d1d1f; /* 设置 --card-foreground 样式。 */
+  --popover: #ffffff; /* 设置 --popover 样式。 */
+  --popover-foreground: #1d1d1f; /* 设置 --popover-foreground 样式。 */
+  --primary: #0071e3; /* 设置 --primary 样式。 */
+  --brand-flame: #f38128; /* 设置 --brand-flame 样式。 */
+  --brand-navy: #13386c; /* 设置 --brand-navy 样式。 */
+  --primary-foreground: #ffffff; /* 设置 --primary-foreground 样式。 */
+  --secondary: #f0f0f2; /* 设置 --secondary 样式。 */
+  --secondary-foreground: #424245; /* 设置 --secondary-foreground 样式。 */
+  --muted: #f2f2f4; /* 设置 --muted 样式。 */
+  --muted-foreground: #6e6e73; /* 设置 --muted-foreground 样式。 */
+  --accent: #eaf3ff; /* 设置 --accent 样式。 */
+  --accent-foreground: #0066cc; /* 设置 --accent-foreground 样式。 */
+  --destructive: #dc2626; /* 设置 --destructive 样式。 */
+  --destructive-foreground: #ffffff; /* 设置 --destructive-foreground 样式。 */
+  --success: #16a34a; /* 设置 --success 样式。 */
+  --success-foreground: #166534; /* 设置 --success-foreground 样式。 */
+  --warning: #d97706; /* 设置 --warning 样式。 */
+  --warning-foreground: #92400e; /* 设置 --warning-foreground 样式。 */
+  --border: #e5e5e7; /* 设置 --border 样式。 */
+  --input: #d2d2d7; /* 设置 --input 样式。 */
+  --ring: #007aff; /* 设置 --ring 样式。 */
+  --radius: 0.875rem; /* 设置 --radius 样式。 */
 
-  --el-color-primary: var(--primary);
-  --el-color-primary-light-3: #60a5fa;
-  --el-color-primary-light-5: #93c5fd;
-  --el-color-primary-light-7: #bfdbfe;
-  --el-color-primary-light-9: #eaf3ff;
-  --el-color-success: #16a34a;
-  --el-color-warning: #d97706;
-  --el-color-danger: #dc2626;
-  --el-border-radius-base: 0.5rem;
-  --el-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --el-text-color-primary: #1d1d1f;
-  --el-text-color-regular: #424245;
-  --el-border-color: #d2d2d7;
-  --el-border-color-light: #e5e5e7;
-  --el-font-size-base: 14px;
-  --el-font-size-small: 13px;
-  --el-font-size-extra-small: 12px;
+  --el-color-primary: var(--primary); /* 设置 --el-color-primary 样式。 */
+  --el-color-primary-light-3: #60a5fa; /* 设置 --el-color-primary-light-3 样式。 */
+  --el-color-primary-light-5: #93c5fd; /* 设置 --el-color-primary-light-5 样式。 */
+  --el-color-primary-light-7: #bfdbfe; /* 设置 --el-color-primary-light-7 样式。 */
+  --el-color-primary-light-9: #eaf3ff; /* 设置 --el-color-primary-light-9 样式。 */
+  --el-color-success: #16a34a; /* 设置 --el-color-success 样式。 */
+  --el-color-warning: #d97706; /* 设置 --el-color-warning 样式。 */
+  --el-color-danger: #dc2626; /* 设置 --el-color-danger 样式。 */
+  --el-border-radius-base: 0.5rem; /* 设置 --el-border-radius-base 样式。 */
+  --el-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; /* 设置 --el-font-family 样式。 */
+  --el-text-color-primary: #1d1d1f; /* 设置 --el-text-color-primary 样式。 */
+  --el-text-color-regular: #424245; /* 设置 --el-text-color-regular 样式。 */
+  --el-border-color: #d2d2d7; /* 设置 --el-border-color 样式。 */
+  --el-border-color-light: #e5e5e7; /* 设置 --el-border-color-light 样式。 */
+  --el-font-size-base: 14px; /* 设置 --el-font-size-base 样式。 */
+  --el-font-size-small: 13px; /* 设置 --el-font-size-small 样式。 */
+  --el-font-size-extra-small: 12px; /* 设置 --el-font-size-extra-small 样式。 */
 
-  --app-bg: var(--background);
-  --ink: var(--foreground);
-  --muted-text: var(--muted-foreground);
-  --line: var(--border);
-  --surface: var(--card);
-}
+  --app-bg: var(--background); /* 设置 --app-bg 样式。 */
+  --ink: var(--foreground); /* 设置 --ink 样式。 */
+  --muted-text: var(--muted-foreground); /* 设置 --muted-text 样式。 */
+  --line: var(--border); /* 设置 --line 样式。 */
+  --surface: var(--card); /* 设置 --surface 样式。 */
+} /* 结束当前样式规则。 */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
-}
+@theme inline { /* 定义当前元素的样式规则。 */
+  --color-background: var(--background); /* 设置 --color-background 样式。 */
+  --color-foreground: var(--foreground); /* 设置 --color-foreground 样式。 */
+  --color-card: var(--card); /* 设置 --color-card 样式。 */
+  --color-card-foreground: var(--card-foreground); /* 设置 --color-card-foreground 样式。 */
+  --color-popover: var(--popover); /* 设置 --color-popover 样式。 */
+  --color-popover-foreground: var(--popover-foreground); /* 设置 --color-popover-foreground 样式。 */
+  --color-primary: var(--primary); /* 设置 --color-primary 样式。 */
+  --color-primary-foreground: var(--primary-foreground); /* 设置 --color-primary-foreground 样式。 */
+  --color-secondary: var(--secondary); /* 设置 --color-secondary 样式。 */
+  --color-secondary-foreground: var(--secondary-foreground); /* 设置 --color-secondary-foreground 样式。 */
+  --color-muted: var(--muted); /* 设置 --color-muted 样式。 */
+  --color-muted-foreground: var(--muted-foreground); /* 设置 --color-muted-foreground 样式。 */
+  --color-accent: var(--accent); /* 设置 --color-accent 样式。 */
+  --color-accent-foreground: var(--accent-foreground); /* 设置 --color-accent-foreground 样式。 */
+  --color-destructive: var(--destructive); /* 设置 --color-destructive 样式。 */
+  --color-destructive-foreground: var(--destructive-foreground); /* 设置 --color-destructive-foreground 样式。 */
+  --color-success: var(--success); /* 设置 --color-success 样式。 */
+  --color-success-foreground: var(--success-foreground); /* 设置 --color-success-foreground 样式。 */
+  --color-warning: var(--warning); /* 设置 --color-warning 样式。 */
+  --color-warning-foreground: var(--warning-foreground); /* 设置 --color-warning-foreground 样式。 */
+  --color-border: var(--border); /* 设置 --color-border 样式。 */
+  --color-input: var(--input); /* 设置 --color-input 样式。 */
+  --color-ring: var(--ring); /* 设置 --color-ring 样式。 */
+  --radius-lg: var(--radius); /* 设置 --radius-lg 样式。 */
+  --radius-md: calc(var(--radius) - 2px); /* 设置 --radius-md 样式。 */
+  --radius-sm: calc(var(--radius) - 4px); /* 设置 --radius-sm 样式。 */
+} /* 结束当前样式规则。 */
 
 * { box-sizing: border-box; }
-html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-body { color: var(--foreground); background: var(--background); font: 14px/1.6 var(--el-font-family); -webkit-font-smoothing: antialiased; }
-button, input, textarea, select { font-family: inherit; }
-button { -webkit-tap-highlight-color: transparent; }
-code { color: #0066cc; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; }
-pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; background: #1d1d1f; border: 1px solid #1e293b; border-radius: 0.625rem; white-space: pre-wrap; word-break: break-word; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; }
-.break-all { word-break: break-all; }
+html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; } /* 设置 html, body, #app { width 样式。 */
+body { color: var(--foreground); background: var(--background); font: 14px/1.6 var(--el-font-family); -webkit-font-smoothing: antialiased; } /* 设置 body { color 样式。 */
+button, input, textarea, select { font-family: inherit; } /* 设置 button, input, textarea, select { font-family 样式。 */
+button { -webkit-tap-highlight-color: transparent; } /* 设置 button { -webkit-tap-highlight-color 样式。 */
+code { color: #0066cc; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; } /* 设置 code { color 样式。 */
+pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; background: #1d1d1f; border: 1px solid #1e293b; border-radius: 0.625rem; white-space: pre-wrap; word-break: break-word; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; } /* 设置 pre { max-height 样式。 */
+.break-all { word-break: break-all; } /* 定义当前元素的样式规则。 */
 
 /* Login */
-.login-page { height: 100%; display: grid; place-items: center; overflow: auto; background: var(--background); }
-.login-panel { width: min(440px, 100%); padding: 24px; }
-.login-form { padding: 36px; background: #fff; border: 1px solid var(--border); border-radius: 20px; box-shadow: 0 16px 48px #00000005; }
-.login-mark { position: relative; width: 58px; height: 58px; display: block; overflow: hidden; margin-bottom: 24px; border-radius: 13px; background: #fff; }
-.login-mark img { position: absolute; width: 260px; max-width: none; height: auto; top: -8px; left: -60px; }
-.login-form h2 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.04em; }
-.login-form > p { margin: 8px 0 28px; font-size: 13px; color: var(--muted-foreground); }
-.login-fields { display: grid; gap: 18px; }
-.login-field { display: grid; gap: 8px; }
-.login-field label { color: var(--secondary-foreground); font-size: 13px; font-weight: 600; }
-.login-field .el-input { width: 100%; }
-.login-field .el-input__wrapper { min-height: 42px; }
-.login-submit { width: 100%; min-height: 42px; margin-top: 28px; }
-.brand { display: flex; align-items: center; gap: 8px; }
+.login-page { height: 100%; display: grid; place-items: center; overflow: auto; background: var(--background); } /* 定义当前元素的样式规则。 */
+.login-panel { width: min(440px, 100%); padding: 24px; } /* 定义当前元素的样式规则。 */
+.login-form { padding: 36px; background: #fff; border: 1px solid var(--border); border-radius: 20px; box-shadow: 0 16px 48px #00000005; } /* 定义当前元素的样式规则。 */
+.login-mark { position: relative; width: 58px; height: 58px; display: block; overflow: hidden; margin-bottom: 24px; border-radius: 13px; background: #fff; } /* 定义当前元素的样式规则。 */
+.login-mark img { position: absolute; width: 260px; max-width: none; height: auto; top: -8px; left: -60px; } /* 定义当前元素的样式规则。 */
+.login-form h2 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.04em; } /* 定义当前元素的样式规则。 */
+.login-form > p { margin: 8px 0 28px; font-size: 13px; color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
+.login-fields { display: grid; gap: 18px; } /* 定义当前元素的样式规则。 */
+.login-field { display: grid; gap: 8px; } /* 定义当前元素的样式规则。 */
+.login-field label { color: var(--secondary-foreground); font-size: 13px; font-weight: 600; } /* 定义当前元素的样式规则。 */
+.login-field .el-input { width: 100%; } /* 定义当前元素的样式规则。 */
+.login-field .el-input__wrapper { min-height: 42px; } /* 定义当前元素的样式规则。 */
+.login-submit { width: 100%; min-height: 42px; margin-top: 28px; } /* 定义当前元素的样式规则。 */
+.brand { display: flex; align-items: center; gap: 8px; } /* 定义当前元素的样式规则。 */
 
 /* Application shell */
-.app-shell { width: 100%; height: 100%; min-height: 0; display: flex; overflow: hidden; background: var(--background); }
-.app-aside { width: 204px; height: 100%; padding: 0 12px; display: flex; flex: 0 0 auto; flex-direction: column; position: relative; z-index: 20; overflow: hidden; background: #f0f0f2; border-right: 1px solid var(--border); transition: width .2s ease; }
-.app-aside.is-collapsed { width: 64px; }
-.brand { height: 76px; padding: 0 7px; margin-bottom: 0; flex: none; }
-.brand > .brand-logo { position: relative; width: 145px; height: 72px; flex: none; overflow: hidden; }
-.brand-logo img { position: absolute; top: -7px; left: -60px; width: 260px; max-width: none; height: auto; mix-blend-mode: multiply; }
-.app-aside.is-collapsed .brand-logo { width: 46px; }
-.brand > div { display: grid; white-space: nowrap; }
-.brand strong { color: var(--foreground); font-size: 20px; letter-spacing: .02em; }
-.brand small { margin-top: 4px; color: var(--muted-foreground); font-size: 12px; }
-.menu-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #d2d2d7 transparent; }
-.menu-group { margin: 24px 12px 8px; color: #86868b; font-size: 12px; font-weight: 500; white-space: nowrap; }
-.menu-item, .collapse-button { border: 0; background: transparent; cursor: pointer; }
-.menu-item { width: 100%; min-height: 39px; margin: 2px 0; padding: 8px 12px; display: flex; align-items: center; gap: 11px; color: #515154; border-radius: 8px; font-size: 13px; text-align: left; white-space: nowrap; transition: color .16s ease, background .16s ease; }
-.menu-item svg { width: 17px; height: 17px; flex: none; stroke-width: 1.8; }
-.menu-item:hover { color: var(--accent-foreground); background: #f2f2f4; }
-.menu-item.active { color: var(--foreground); background: #fff; font-weight: 600; box-shadow: 0 1px 3px #00000008; }
-.menu-item.active svg { color: var(--primary); }
-.app-main { min-width: 0; min-height: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
-.topbar { height: 60px; flex: 0 0 60px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; position: relative; z-index: 15; background: var(--background); border-bottom: 0; }
-.title-area, .top-actions, .card-header { display: flex; align-items: center; }
-.title-area { gap: 14px; }
-.title-area > div > span { display: flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
-.title-area > div > span::before { content: ""; width: 5px; height: 5px; display: inline-block; background: var(--primary); border-radius: 999px; }
-.title-area h2 { margin: 3px 0 0; color: var(--foreground); font-size: 18px; line-height: 1.2; font-weight: 700; letter-spacing: -.025em; }
-.title-area p { display: none; }
-.collapse-button { width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted-foreground); border: 1px solid transparent; border-radius: .5rem; }
-.collapse-button:hover { color: var(--foreground); background: var(--muted); border-color: var(--border); }
-.collapse-button svg { width: 18px; height: 18px; }
-.top-actions { gap: 12px; }
-.alert-settings-trigger { min-height: 32px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #515154; background: #fff; border: 1px solid var(--border); border-radius: .5rem; cursor: pointer; font-size: 13px; font-weight: 600; transition: color .16s ease, background-color .16s ease, border-color .16s ease; }
-.alert-settings-trigger svg { width: 15px; height: 15px; }
-.alert-settings-trigger:hover { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; }
-.health { display: flex; align-items: center; gap: 8px; padding: 7px 10px; color: var(--success-foreground); background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.health i { width: 7px; height: 7px; background: var(--success); border-radius: 50%; box-shadow: 0 0 0 3px rgba(22,163,74,.12); }
-.tenant-pill { padding: 7px 10px; color: var(--muted-foreground); background: var(--muted); border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
-.account-dropdown { display: flex; align-items: center; }
-.account { min-height: 38px; padding: 3px 7px 3px 4px; display: flex; align-items: center; gap: 8px; color: var(--foreground); background: transparent; border: 1px solid transparent; border-radius: .625rem; cursor: pointer; font: inherit; text-align: left; transition: color .16s ease, background .16s ease, border-color .16s ease; }
-.account:hover, .account:focus-visible { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; outline: none; }
-.account-copy { min-width: 64px; display: grid; gap: 2px; }
-.account-copy strong { color: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; }
-.account-copy small { color: var(--muted-foreground); font-size: 12px; line-height: 1.2; }
-.account-avatar { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--brand-navy); color: #fff; font-size: 14px; font-weight: 700; }
-.account-chevron { width: 14px; height: 14px; color: var(--muted-foreground); }
-.el-dropdown-menu__item svg { width: 15px; height: 15px; margin-right: 7px; vertical-align: -3px; }
-.main-content { min-width: 0; min-height: 0; flex: 1 1 auto; padding: 16px 32px 40px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.main-content::-webkit-scrollbar, .menu-scroll::-webkit-scrollbar { width: 8px; }
-.main-content::-webkit-scrollbar-thumb, .menu-scroll::-webkit-scrollbar-thumb { background: #d2d2d7; border: 2px solid var(--background); border-radius: 999px; }
-.main-content::-webkit-scrollbar-track, .menu-scroll::-webkit-scrollbar-track { background: transparent; }
-.main-content--ai { display: flex; flex-direction: column; overflow: hidden; }
-.main-content--ai > .page-context { flex: none; }
+.app-shell { width: 100%; height: 100%; min-height: 0; display: flex; overflow: hidden; background: var(--background); } /* 定义当前元素的样式规则。 */
+.app-aside { width: 204px; height: 100%; padding: 0 12px; display: flex; flex: 0 0 auto; flex-direction: column; position: relative; z-index: 20; overflow: hidden; background: #f0f0f2; border-right: 1px solid var(--border); transition: width .2s ease; } /* 定义当前元素的样式规则。 */
+.app-aside.is-collapsed { width: 64px; } /* 定义当前元素的样式规则。 */
+.brand { height: 76px; padding: 0 7px; margin-bottom: 0; flex: none; } /* 定义当前元素的样式规则。 */
+.brand > .brand-logo { position: relative; width: 145px; height: 72px; flex: none; overflow: hidden; } /* 定义当前元素的样式规则。 */
+.brand-logo img { position: absolute; top: -7px; left: -60px; width: 260px; max-width: none; height: auto; mix-blend-mode: multiply; } /* 定义当前元素的样式规则。 */
+.app-aside.is-collapsed .brand-logo { width: 46px; } /* 定义当前元素的样式规则。 */
+.brand > div { display: grid; white-space: nowrap; } /* 定义当前元素的样式规则。 */
+.brand strong { color: var(--foreground); font-size: 20px; letter-spacing: .02em; } /* 定义当前元素的样式规则。 */
+.brand small { margin-top: 4px; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.menu-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #d2d2d7 transparent; } /* 定义当前元素的样式规则。 */
+.menu-group { margin: 24px 12px 8px; color: #86868b; font-size: 12px; font-weight: 500; white-space: nowrap; } /* 定义当前元素的样式规则。 */
+.menu-item, .collapse-button { border: 0; background: transparent; cursor: pointer; } /* 定义当前元素的样式规则。 */
+.menu-item { width: 100%; min-height: 39px; margin: 2px 0; padding: 8px 12px; display: flex; align-items: center; gap: 11px; color: #515154; border-radius: 8px; font-size: 13px; text-align: left; white-space: nowrap; transition: color .16s ease, background .16s ease; } /* 定义当前元素的样式规则。 */
+.menu-item svg { width: 17px; height: 17px; flex: none; stroke-width: 1.8; } /* 定义当前元素的样式规则。 */
+.menu-item:hover { color: var(--accent-foreground); background: #f2f2f4; } /* 定义当前元素的样式规则。 */
+.menu-item.active { color: var(--foreground); background: #fff; font-weight: 600; box-shadow: 0 1px 3px #00000008; } /* 定义当前元素的样式规则。 */
+.menu-item.active svg { color: var(--primary); } /* 定义当前元素的样式规则。 */
+.app-main { min-width: 0; min-height: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; } /* 定义当前元素的样式规则。 */
+.topbar { height: 60px; flex: 0 0 60px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; position: relative; z-index: 15; background: var(--background); border-bottom: 0; } /* 定义当前元素的样式规则。 */
+.title-area, .top-actions, .card-header { display: flex; align-items: center; } /* 定义当前元素的样式规则。 */
+.title-area { gap: 14px; } /* 定义当前元素的样式规则。 */
+.title-area > div > span { display: flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; } /* 定义当前元素的样式规则。 */
+.title-area > div > span::before { content: ""; width: 5px; height: 5px; display: inline-block; background: var(--primary); border-radius: 999px; } /* 定义当前元素的样式规则。 */
+.title-area h2 { margin: 3px 0 0; color: var(--foreground); font-size: 18px; line-height: 1.2; font-weight: 700; letter-spacing: -.025em; } /* 定义当前元素的样式规则。 */
+.title-area p { display: none; } /* 定义当前元素的样式规则。 */
+.collapse-button { width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted-foreground); border: 1px solid transparent; border-radius: .5rem; } /* 定义当前元素的样式规则。 */
+.collapse-button:hover { color: var(--foreground); background: var(--muted); border-color: var(--border); } /* 定义当前元素的样式规则。 */
+.collapse-button svg { width: 18px; height: 18px; } /* 定义当前元素的样式规则。 */
+.top-actions { gap: 12px; } /* 定义当前元素的样式规则。 */
+.alert-settings-trigger { min-height: 32px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: #515154; background: #fff; border: 1px solid var(--border); border-radius: .5rem; cursor: pointer; font-size: 13px; font-weight: 600; transition: color .16s ease, background-color .16s ease, border-color .16s ease; } /* 定义当前元素的样式规则。 */
+.alert-settings-trigger svg { width: 15px; height: 15px; } /* 定义当前元素的样式规则。 */
+.alert-settings-trigger:hover { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; } /* 定义当前元素的样式规则。 */
+.health { display: flex; align-items: center; gap: 8px; padding: 7px 10px; color: var(--success-foreground); background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 999px; font-size: 12px; font-weight: 600; } /* 定义当前元素的样式规则。 */
+.health i { width: 7px; height: 7px; background: var(--success); border-radius: 50%; box-shadow: 0 0 0 3px rgba(22,163,74,.12); } /* 定义当前元素的样式规则。 */
+.tenant-pill { padding: 7px 10px; color: var(--muted-foreground); background: var(--muted); border: 1px solid var(--border); border-radius: 999px; font-size: 12px; } /* 定义当前元素的样式规则。 */
+.account-dropdown { display: flex; align-items: center; } /* 定义当前元素的样式规则。 */
+.account { min-height: 38px; padding: 3px 7px 3px 4px; display: flex; align-items: center; gap: 8px; color: var(--foreground); background: transparent; border: 1px solid transparent; border-radius: .625rem; cursor: pointer; font: inherit; text-align: left; transition: color .16s ease, background .16s ease, border-color .16s ease; } /* 定义当前元素的样式规则。 */
+.account:hover, .account:focus-visible { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; outline: none; } /* 定义当前元素的样式规则。 */
+.account-copy { min-width: 64px; display: grid; gap: 2px; } /* 定义当前元素的样式规则。 */
+.account-copy strong { color: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; } /* 定义当前元素的样式规则。 */
+.account-copy small { color: var(--muted-foreground); font-size: 12px; line-height: 1.2; } /* 定义当前元素的样式规则。 */
+.account-avatar { width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--brand-navy); color: #fff; font-size: 14px; font-weight: 700; } /* 定义当前元素的样式规则。 */
+.account-chevron { width: 14px; height: 14px; color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
+.el-dropdown-menu__item svg { width: 15px; height: 15px; margin-right: 7px; vertical-align: -3px; } /* 定义当前元素的样式规则。 */
+.main-content { min-width: 0; min-height: 0; flex: 1 1 auto; padding: 16px 32px 40px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; } /* 定义当前元素的样式规则。 */
+.main-content::-webkit-scrollbar, .menu-scroll::-webkit-scrollbar { width: 8px; } /* 定义当前元素的样式规则。 */
+.main-content::-webkit-scrollbar-thumb, .menu-scroll::-webkit-scrollbar-thumb { background: #d2d2d7; border: 2px solid var(--background); border-radius: 999px; } /* 定义当前元素的样式规则。 */
+.main-content::-webkit-scrollbar-track, .menu-scroll::-webkit-scrollbar-track { background: transparent; } /* 定义当前元素的样式规则。 */
+.main-content--ai { display: flex; flex-direction: column; overflow: hidden; } /* 定义当前元素的样式规则。 */
+.main-content--ai > .page-context { flex: none; } /* 定义当前元素的样式规则。 */
 
 /* 统一业务卡片与表单 */
-.surface-card, .el-card { border: 0 !important; border-radius: var(--radius) !important; box-shadow: 0 1px 2px rgba(19,56,108,.045) !important; }
-.surface-card > .el-card__header { padding: 18px 20px 12px; border-bottom: 0; }
-.surface-card > .el-card__body { padding: 20px; }
-.table-card > .el-card__body { padding: 0; }
-.table-card > .el-card__header { padding-bottom: 16px; }
-.list-pagination { display:flex; justify-content:flex-end; padding:14px 16px; border-top:1px solid var(--border); background:#fff; }
-.list-pagination .el-pagination { flex-wrap:wrap; justify-content:flex-end; }
-.card-header { width: 100%; justify-content: space-between; gap: 14px; }
-.card-header small { color: var(--muted-foreground); font-weight: 400; }
-.el-button { min-height: 32px; height: 32px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--el-button-border-color, var(--border)); border-radius: .5rem; font-size: 13px; font-weight: 500; line-height: 1; box-shadow: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
-.el-button--small { min-height: 28px; height: 28px; padding: 0 10px; font-size: 13px; }
-.el-button--large { min-height: 40px; height: 40px; padding: 0 16px; }
-.el-button.is-circle { width: 30px; padding: 0; }
-.el-button:not(.is-disabled):not(:disabled):hover { box-shadow: 0 2px 5px rgba(15,23,42,.08); }
-.el-button:not(.is-disabled):not(:disabled):active { transform: translateY(1px); }
-.el-button:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; }
-.el-button--primary { --el-button-bg-color: var(--primary); --el-button-border-color: var(--primary); --el-button-text-color: #fff; --el-button-hover-bg-color: #0066cc; --el-button-hover-border-color: #0066cc; }
-.el-button--default, .el-button.is-plain { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #515154; --el-button-hover-bg-color: var(--accent); --el-button-hover-border-color: #bfdbfe; --el-button-hover-text-color: var(--accent-foreground); }
-.el-button.is-text, .el-button.is-link { border: 1px solid var(--border) !important; background: #fff !important; color: #515154 !important; text-decoration: none; }
-.el-button.is-text:hover, .el-button.is-link:hover { border-color: #bfdbfe !important; background: var(--accent) !important; color: var(--accent-foreground) !important; }
-.el-button--primary.is-text, .el-button--primary.is-link { border-color: #bfdbfe !important; background: #eaf3ff !important; color: #0066cc !important; }
-.el-button--primary.is-text:hover, .el-button--primary.is-link:hover { border-color: #93c5fd !important; background: #dbeafe !important; color: #1e40af !important; }
-.el-button.is-disabled, .el-button:disabled { cursor: not-allowed; }
+.surface-card, .el-card { border: 0 !important; border-radius: var(--radius) !important; box-shadow: 0 1px 2px rgba(19,56,108,.045) !important; } /* 定义当前元素的样式规则。 */
+.surface-card > .el-card__header { padding: 18px 20px 12px; border-bottom: 0; } /* 定义当前元素的样式规则。 */
+.surface-card > .el-card__body { padding: 20px; } /* 定义当前元素的样式规则。 */
+.table-card > .el-card__body { padding: 0; } /* 定义当前元素的样式规则。 */
+.table-card > .el-card__header { padding-bottom: 16px; } /* 定义当前元素的样式规则。 */
+.list-pagination { display:flex; justify-content:flex-end; padding:14px 16px; border-top:1px solid var(--border); background:#fff; } /* 定义当前元素的样式规则。 */
+.list-pagination .el-pagination { flex-wrap:wrap; justify-content:flex-end; } /* 定义当前元素的样式规则。 */
+.card-header { width: 100%; justify-content: space-between; gap: 14px; } /* 定义当前元素的样式规则。 */
+.card-header small { color: var(--muted-foreground); font-weight: 400; } /* 定义当前元素的样式规则。 */
+.el-button { min-height: 32px; height: 32px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--el-button-border-color, var(--border)); border-radius: .5rem; font-size: 13px; font-weight: 500; line-height: 1; box-shadow: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; } /* 定义当前元素的样式规则。 */
+.el-button--small { min-height: 28px; height: 28px; padding: 0 10px; font-size: 13px; } /* 定义当前元素的样式规则。 */
+.el-button--large { min-height: 40px; height: 40px; padding: 0 16px; } /* 定义当前元素的样式规则。 */
+.el-button.is-circle { width: 30px; padding: 0; } /* 定义当前元素的样式规则。 */
+.el-button:not(.is-disabled):not(:disabled):hover { box-shadow: 0 2px 5px rgba(15,23,42,.08); } /* 定义当前元素的样式规则。 */
+.el-button:not(.is-disabled):not(:disabled):active { transform: translateY(1px); } /* 定义当前元素的样式规则。 */
+.el-button:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; } /* 定义当前元素的样式规则。 */
+.el-button--primary { --el-button-bg-color: var(--primary); --el-button-border-color: var(--primary); --el-button-text-color: #fff; --el-button-hover-bg-color: #0066cc; --el-button-hover-border-color: #0066cc; } /* 定义当前元素的样式规则。 */
+.el-button--default, .el-button.is-plain { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #515154; --el-button-hover-bg-color: var(--accent); --el-button-hover-border-color: #bfdbfe; --el-button-hover-text-color: var(--accent-foreground); } /* 定义当前元素的样式规则。 */
+.el-button.is-text, .el-button.is-link { border: 1px solid var(--border) !important; background: #fff !important; color: #515154 !important; text-decoration: none; } /* 定义当前元素的样式规则。 */
+.el-button.is-text:hover, .el-button.is-link:hover { border-color: #bfdbfe !important; background: var(--accent) !important; color: var(--accent-foreground) !important; } /* 定义当前元素的样式规则。 */
+.el-button--primary.is-text, .el-button--primary.is-link { border-color: #bfdbfe !important; background: #eaf3ff !important; color: #0066cc !important; } /* 定义当前元素的样式规则。 */
+.el-button--primary.is-text:hover, .el-button--primary.is-link:hover { border-color: #93c5fd !important; background: #dbeafe !important; color: #1e40af !important; } /* 定义当前元素的样式规则。 */
+.el-button.is-disabled, .el-button:disabled { cursor: not-allowed; } /* 定义当前元素的样式规则。 */
 
 /* Keep controls consistent even when a lazy-loaded page adds component CSS. */
-:is(.app-shell, .el-overlay, .el-message-box) .el-button {
-  min-height: 32px; height: auto; padding: 7px 12px; gap: 6px;
-  border: 1px solid var(--el-button-border-color, var(--border));
-  border-radius: 8px; font-size: 13px; line-height: 1.25; font-weight: 500;
-  background-color: var(--el-button-bg-color, #fff);
-  color: var(--el-button-text-color, #424245);
-}
-:is(.app-shell, .el-overlay, .el-message-box) .el-button:not(.is-disabled):hover {
-  background-color: var(--el-button-hover-bg-color, #eaf3ff);
-  border-color: var(--el-button-hover-border-color, #93c5fd);
-  color: var(--el-button-hover-text-color, #0066cc);
-}
-:is(.app-shell, .el-overlay, .el-message-box) .el-button.is-disabled {
-  opacity: .5; box-shadow: none; transform: none;
-}
-:is(.app-shell, .el-overlay) .el-button svg { width: 14px; height: 14px; flex-shrink: 0; }
-:is(.app-shell, .el-overlay) .el-button > span { gap: 6px; }
-.el-button.is-plain.el-button--primary { --el-button-bg-color: #eaf3ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #0066cc; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; }
-.el-button.is-plain.el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; }
-.el-button.is-plain.el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; }
-.el-button.is-plain.el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; }
-button:focus-visible, [role="tab"]:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+:is(.app-shell, .el-overlay, .el-message-box) .el-button { /* 设置  样式。 */
+  min-height: 32px; height: auto; padding: 7px 12px; gap: 6px; /* 设置 min-height 样式。 */
+  border: 1px solid var(--el-button-border-color, var(--border)); /* 设置 border 样式。 */
+  border-radius: 8px; font-size: 13px; line-height: 1.25; font-weight: 500; /* 设置 border-radius 样式。 */
+  background-color: var(--el-button-bg-color, #fff); /* 设置 background-color 样式。 */
+  color: var(--el-button-text-color, #424245); /* 设置 color 样式。 */
+} /* 结束当前样式规则。 */
+:is(.app-shell, .el-overlay, .el-message-box) .el-button:not(.is-disabled):hover { /* 设置  样式。 */
+  background-color: var(--el-button-hover-bg-color, #eaf3ff); /* 设置 background-color 样式。 */
+  border-color: var(--el-button-hover-border-color, #93c5fd); /* 设置 border-color 样式。 */
+  color: var(--el-button-hover-text-color, #0066cc); /* 设置 color 样式。 */
+} /* 结束当前样式规则。 */
+:is(.app-shell, .el-overlay, .el-message-box) .el-button.is-disabled { /* 设置  样式。 */
+  opacity: .5; box-shadow: none; transform: none; /* 设置 opacity 样式。 */
+} /* 结束当前样式规则。 */
+:is(.app-shell, .el-overlay) .el-button svg { width: 14px; height: 14px; flex-shrink: 0; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-button > span { gap: 6px; } /* 设置  样式。 */
+.el-button.is-plain.el-button--primary { --el-button-bg-color: #eaf3ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #0066cc; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; } /* 定义当前元素的样式规则。 */
+.el-button.is-plain.el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; } /* 定义当前元素的样式规则。 */
+.el-button.is-plain.el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; } /* 定义当前元素的样式规则。 */
+.el-button.is-plain.el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; } /* 定义当前元素的样式规则。 */
+button:focus-visible, [role="tab"]:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; } /* 设置 button 样式。 */
 
-input[type="file"] { width: 100%; min-height: 32px; padding: 4px 6px; color: var(--muted-foreground); background: var(--card); border: 1px solid var(--input); border-radius: .5rem; font-size: 13px; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; }
-input[type="file"]::file-selector-button { min-height: 26px; margin-right: 9px; padding: 0 10px; color: #424245; background: #fff; border: 1px solid var(--border); border-radius: .375rem; font: 600 13px var(--el-font-family); cursor: pointer; transition: color .16s ease, background-color .16s ease, border-color .16s ease; }
-input[type="file"]::file-selector-button:hover { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; }
-input[type="file"]:hover { border-color: #94a3b8; }
-input[type="file"]:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; }
-input[type="file"]:disabled { opacity: .6; cursor: not-allowed; }
-.table-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; white-space: normal; }
-.table-actions .el-button, .el-table .el-button { min-height: 28px; height: 28px; padding: 0 10px; border-width: 1px; border-style: solid; border-radius: 4px; font-size: 13px; font-weight: 500; box-shadow: none; }
-.table-actions .el-button--default, .el-table .el-button--default { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #515154; --el-button-hover-bg-color: var(--muted); --el-button-hover-border-color: #d2d2d7; --el-button-hover-text-color: var(--foreground); }
-.table-actions .el-button--primary, .el-table .el-button--primary { --el-button-bg-color: #eaf3ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #0066cc; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; }
-.table-actions .el-button--success, .el-table .el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; }
-.table-actions .el-button--warning, .el-table .el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; }
-.table-actions .el-button--danger, .el-table .el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; }
-.table-actions .el-button + .el-button { margin-left: 0; }
-.el-input__wrapper, .el-select__wrapper, .el-textarea__inner { border-radius: .5rem; box-shadow: 0 0 0 1px var(--input) inset !important; background: var(--card); }
-.el-input__wrapper:hover, .el-select__wrapper:hover, .el-textarea__inner:hover { box-shadow: 0 0 0 1px #94a3b8 inset !important; }
-.el-input__wrapper.is-focus, .el-select__wrapper.is-focused, .el-textarea__inner:focus { box-shadow: 0 0 0 2px rgba(59,130,246,.2), 0 0 0 1px var(--ring) inset !important; }
-.el-form-item__label { color: #424245 !important; font-size: 13px; font-weight: 600; }
-.el-overlay-dialog { display: flex; align-items: flex-start; justify-content: center; padding: 24px 0; overflow: hidden; overscroll-behavior: contain; }
-.el-dialog { max-height: calc(100vh - 48px); margin: 0 auto; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: .875rem; overflow: hidden; box-shadow: 0 24px 64px rgba(15,23,42,.16); }
-.el-dialog__header { flex: 0 0 auto; margin-right: 0; padding: 20px 24px 12px; border-bottom: 1px solid var(--border); }
-.el-dialog__body { min-height: 0; flex: 1 1 auto; padding: 18px 24px 20px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.el-dialog__footer { flex: 0 0 auto; padding: 0 24px 20px; }
-.el-table { --el-table-header-bg-color: #fafafa; --el-table-row-hover-bg-color: #f8fbff; --el-table-border-color: var(--border); --el-table-text-color: #424245; --el-table-header-text-color: #6e6e73; }
-.el-table th.el-table__cell { color: #6e6e73; font-size: 13px; font-weight: 600; }
-.el-table .cell { font-size: 14px; line-height: 1.65; }
-.el-table tr { background: transparent; }
-.el-tag { font-size: 11px; font-weight: 500; border: 0; border-radius: 4px; }
-.el-alert { border-radius: .625rem; }
-.el-empty__description p { color: var(--muted-foreground); font-size: 13px; }
-.el-tabs__item { font-size: 13px; }
-.el-tabs__nav-wrap::after { background-color: var(--border); }
-.el-checkbox__label, .el-radio__label, .el-switch__label { font-size: 13px; }
-.subline { display: block; margin-top: 3px; color: var(--muted-foreground); font-size: 12px; }
-.page-toolbar { min-height: 42px; margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
-.page-toolbar > .el-input, .page-toolbar > .el-select { width: 220px; }
-.page-toolbar > span { color: var(--muted-foreground); font-size: 12px; }
-.top-gap { margin-top: 16px; }
-.left-gap { margin-left: 8px; }
-.right-gap { margin-right: 6px; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+input[type="file"] { width: 100%; min-height: 32px; padding: 4px 6px; color: var(--muted-foreground); background: var(--card); border: 1px solid var(--input); border-radius: .5rem; font-size: 13px; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; } /* 设置 input[type="file"] { width 样式。 */
+input[type="file"]::file-selector-button { min-height: 26px; margin-right: 9px; padding: 0 10px; color: #424245; background: #fff; border: 1px solid var(--border); border-radius: .375rem; font: 600 13px var(--el-font-family); cursor: pointer; transition: color .16s ease, background-color .16s ease, border-color .16s ease; } /* 设置 input[type="file"] 样式。 */
+input[type="file"]::file-selector-button:hover { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; } /* 设置 input[type="file"] 样式。 */
+input[type="file"]:hover { border-color: #94a3b8; } /* 设置 input[type="file"] 样式。 */
+input[type="file"]:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; } /* 设置 input[type="file"] 样式。 */
+input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 input[type="file"] 样式。 */
+.table-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; white-space: normal; } /* 定义当前元素的样式规则。 */
+.table-actions .el-button, .el-table .el-button { min-height: 28px; height: 28px; padding: 0 10px; border-width: 1px; border-style: solid; border-radius: 4px; font-size: 13px; font-weight: 500; box-shadow: none; } /* 定义当前元素的样式规则。 */
+.table-actions .el-button--default, .el-table .el-button--default { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #515154; --el-button-hover-bg-color: var(--muted); --el-button-hover-border-color: #d2d2d7; --el-button-hover-text-color: var(--foreground); } /* 定义当前元素的样式规则。 */
+.table-actions .el-button--primary, .el-table .el-button--primary { --el-button-bg-color: #eaf3ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #0066cc; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; } /* 定义当前元素的样式规则。 */
+.table-actions .el-button--success, .el-table .el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; } /* 定义当前元素的样式规则。 */
+.table-actions .el-button--warning, .el-table .el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; } /* 定义当前元素的样式规则。 */
+.table-actions .el-button--danger, .el-table .el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; } /* 定义当前元素的样式规则。 */
+.table-actions .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
+.el-input__wrapper, .el-select__wrapper, .el-textarea__inner { border-radius: .5rem; box-shadow: 0 0 0 1px var(--input) inset !important; background: var(--card); } /* 定义当前元素的样式规则。 */
+.el-input__wrapper:hover, .el-select__wrapper:hover, .el-textarea__inner:hover { box-shadow: 0 0 0 1px #94a3b8 inset !important; } /* 定义当前元素的样式规则。 */
+.el-input__wrapper.is-focus, .el-select__wrapper.is-focused, .el-textarea__inner:focus { box-shadow: 0 0 0 2px rgba(59,130,246,.2), 0 0 0 1px var(--ring) inset !important; } /* 定义当前元素的样式规则。 */
+.el-form-item__label { color: #424245 !important; font-size: 13px; font-weight: 600; } /* 定义当前元素的样式规则。 */
+.el-overlay-dialog { display: flex; align-items: flex-start; justify-content: center; padding: 24px 0; overflow: hidden; overscroll-behavior: contain; } /* 定义当前元素的样式规则。 */
+.el-dialog { max-height: calc(100vh - 48px); margin: 0 auto; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: .875rem; overflow: hidden; box-shadow: 0 24px 64px rgba(15,23,42,.16); } /* 定义当前元素的样式规则。 */
+.el-dialog__header { flex: 0 0 auto; margin-right: 0; padding: 20px 24px 12px; border-bottom: 1px solid var(--border); } /* 定义当前元素的样式规则。 */
+.el-dialog__body { min-height: 0; flex: 1 1 auto; padding: 18px 24px 20px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; } /* 定义当前元素的样式规则。 */
+.el-dialog__footer { flex: 0 0 auto; padding: 0 24px 20px; } /* 定义当前元素的样式规则。 */
+.el-table { --el-table-header-bg-color: #fafafa; --el-table-row-hover-bg-color: #f8fbff; --el-table-border-color: var(--border); --el-table-text-color: #424245; --el-table-header-text-color: #6e6e73; } /* 定义当前元素的样式规则。 */
+.el-table th.el-table__cell { color: #6e6e73; font-size: 13px; font-weight: 600; } /* 定义当前元素的样式规则。 */
+.el-table .cell { font-size: 14px; line-height: 1.65; } /* 定义当前元素的样式规则。 */
+.el-table tr { background: transparent; } /* 定义当前元素的样式规则。 */
+.el-tag { font-size: 11px; font-weight: 500; border: 0; border-radius: 4px; } /* 定义当前元素的样式规则。 */
+.el-alert { border-radius: .625rem; } /* 定义当前元素的样式规则。 */
+.el-empty__description p { color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
+.el-tabs__item { font-size: 13px; } /* 定义当前元素的样式规则。 */
+.el-tabs__nav-wrap::after { background-color: var(--border); } /* 定义当前元素的样式规则。 */
+.el-checkbox__label, .el-radio__label, .el-switch__label { font-size: 13px; } /* 定义当前元素的样式规则。 */
+.subline { display: block; margin-top: 3px; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.page-toolbar { min-height: 42px; margin-bottom: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 9px; } /* 定义当前元素的样式规则。 */
+.page-toolbar > .el-input, .page-toolbar > .el-select { width: 220px; } /* 定义当前元素的样式规则。 */
+.page-toolbar > span { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.top-gap { margin-top: 16px; } /* 定义当前元素的样式规则。 */
+.left-gap { margin-left: 8px; } /* 定义当前元素的样式规则。 */
+.right-gap { margin-right: 6px; } /* 定义当前元素的样式规则。 */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; } /* 定义当前元素的样式规则。 */
 
 /* Dashboard and shared business surfaces */
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
-.stat-card { min-height: 138px; position: relative; overflow: hidden; background: #fff; }
-.stat-card > .el-card__body { height: 136px; padding: 20px; display: grid; align-content: space-between; }
-.stat-card span { color: var(--muted-foreground); font-size: 13px; }
-.stat-card strong { align-self: end; color: var(--foreground); font-size: 34px; line-height: 1; letter-spacing: -.05em; }
-.stat-card small { color: #94a3b8; font-size: 12px; }
-.stat-card small.success { color: var(--success-foreground); }.stat-card small.warning { color: var(--warning-foreground); }.stat-card small.danger { color: var(--destructive); }
-.stat-card { border-radius: var(--radius) !important; box-shadow: none !important; }
-.stat-card i { position: absolute; right: 18px; top: 18px; width: 8px; height: 8px; background: #dbeafe; border-radius: .625rem; }
-.stat-card i::after { content: ""; width: 8px; height: 8px; position: absolute; inset: 0; margin: auto; background: var(--primary); border-radius: 50%; }
-.stat-card i.success { background: #dcfce7; }.stat-card i.success::after { background: var(--success); }
-.stat-card i.warning { background: #fef3c7; }.stat-card i.warning::after { background: var(--brand-flame); }
-.stat-card i.danger { background: #fee2e2; }.stat-card i.danger::after { background: var(--destructive); }
-.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr); gap: 16px; }
-.alarm-row { min-height: 62px; display: grid; grid-template-columns: 8px 1fr auto auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
-.alarm-row:last-child { border-bottom: 0; }
-.alarm-row > i { width: 7px; height: 7px; background: var(--brand-flame); border-radius: 50%; }
-.alarm-row strong { font-size: 13px; }.alarm-row small { display: block; color: var(--muted-foreground); font-size: 12px; }
-.online-summary { min-height: 245px; display: flex; align-items: center; justify-content: center; gap: 34px; }
-.online-summary p { min-width: 125px; display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 13px; }
-.online-summary p i { width: 8px; height: 8px; background: #d2d2d7; border-radius: 50%; }.online-summary p i.online { background: var(--primary); }.online-summary p b { margin-left: auto; color: var(--foreground); }
-.workspace-grid { display: grid; grid-template-columns: minmax(300px, .78fr) minmax(440px, 1.22fr); gap: 16px; align-items: start; }
-.workspace-grid.protocol { grid-template-columns: minmax(300px, .7fr) minmax(520px, 1.3fr); }
-.assistant-grid { display: grid; grid-template-columns: minmax(360px, .82fr) minmax(520px, 1.18fr); gap: 16px; align-items: start; }
-.protocol-assistant-page .el-table .el-input__wrapper { padding-left: 7px; padding-right: 7px; }
-.protocol-assistant-page .el-table .el-input__inner { font-size: 13px; }
-.inspection-counts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; }
-.inspection-counts > div { min-height: 80px; padding: 12px; display: grid; align-content: space-between; background: #f5f7fa; border-radius: .625rem; }.inspection-counts span { color: var(--muted-foreground); font-size: 12px; }.inspection-counts strong { color: var(--foreground); font-size: 25px; line-height: 1; }.inspection-counts .healthy { background: #f0fdf4; }.inspection-counts .attention { background: #fffbeb; }.inspection-counts .critical, .inspection-counts .offline { background: #fef2f2; }.inspection-findings { margin-left: 8px; }.report-text { white-space: pre-wrap; color: #515154; line-height: 1.75; font-size: 13px; }.analysis-grid { display: grid; gap: 9px; line-height: 1.65; }.analysis-grid ul { margin: 5px 0 0; padding-left: 20px; color: #6e6e73; }
-.catalog-list { display: grid; gap: 8px; }
-.catalog-list > button { min-height: 68px; padding: 12px 13px; display: flex; justify-content: space-between; gap: 18px; color: var(--foreground); background: #f5f7fa; border: 1px solid transparent; border-radius: .625rem; cursor: pointer; text-align: left; transition: .18s ease; }
-.catalog-list > button:hover { background: #eaf3ff; transform: translateY(-1px); }
-.catalog-list > button span { display: grid; gap: 3px; }.catalog-list > button span:last-child { justify-items: end; }.catalog-list small { color: var(--muted-foreground); font-size: 12px; }
-.integration-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr); gap: 16px; }
-.guide-stack { display: grid; gap: 12px; margin-top: 18px; }
-.guide-stack .el-steps { height: 250px; padding: 8px 4px; }
-.inner-card { background: #f5f7fa; border-radius: .625rem !important; box-shadow: none !important; }
-.inner-card > .el-card__body { display: grid; gap: 8px; }.inner-card p, .inner-card small { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }.inner-card code { display: block; padding: 8px 9px; overflow: auto; background: #dbeafe; border-radius: .5rem; }.inner-card .el-button { justify-self: start; }
-.rules-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr); gap: 16px; }
-.rule-list { display: grid; gap: 8px; }.rule-item { min-height: 66px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #f5f7fa; border-radius: .625rem; }.rule-item small { display: block; margin-top: 3px; color: var(--muted-foreground); font-size: 12px; }.rule-item > div:last-child { display: flex; align-items: center; gap: 4px; }
-.chat-card { height: 100%; min-height: 520px; }.chat-card > .el-card__body { height: 100%; display: flex; flex-direction: column; }.chat-log { flex: 1; overflow: auto; padding: 10px 8px; }.chat-message { max-width: min(76%, 720px); margin: 9px 0; padding: 11px 14px; line-height: 1.7; white-space: pre-wrap; border-radius: 14px; }.chat-message.assistant { background: #f2f2f4; border-bottom-left-radius: 4px; }.chat-message.user { margin-left: auto; color: #fff; background: var(--primary); border-bottom-right-radius: 4px; }.chat-compose { display: flex; gap: 9px; padding-top: 14px; border-top: 1px solid var(--border); }.chat-compose .el-input { flex: 1; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; } /* 定义当前元素的样式规则。 */
+.stat-card { min-height: 138px; position: relative; overflow: hidden; background: #fff; } /* 定义当前元素的样式规则。 */
+.stat-card > .el-card__body { height: 136px; padding: 20px; display: grid; align-content: space-between; } /* 定义当前元素的样式规则。 */
+.stat-card span { color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
+.stat-card strong { align-self: end; color: var(--foreground); font-size: 34px; line-height: 1; letter-spacing: -.05em; } /* 定义当前元素的样式规则。 */
+.stat-card small { color: #94a3b8; font-size: 12px; } /* 定义当前元素的样式规则。 */
+.stat-card small.success { color: var(--success-foreground); }.stat-card small.warning { color: var(--warning-foreground); }.stat-card small.danger { color: var(--destructive); } /* 定义当前元素的样式规则。 */
+.stat-card { border-radius: var(--radius) !important; box-shadow: none !important; } /* 定义当前元素的样式规则。 */
+.stat-card i { position: absolute; right: 18px; top: 18px; width: 8px; height: 8px; background: #dbeafe; border-radius: .625rem; } /* 定义当前元素的样式规则。 */
+.stat-card i::after { content: ""; width: 8px; height: 8px; position: absolute; inset: 0; margin: auto; background: var(--primary); border-radius: 50%; } /* 定义当前元素的样式规则。 */
+.stat-card i.success { background: #dcfce7; }.stat-card i.success::after { background: var(--success); } /* 定义当前元素的样式规则。 */
+.stat-card i.warning { background: #fef3c7; }.stat-card i.warning::after { background: var(--brand-flame); } /* 定义当前元素的样式规则。 */
+.stat-card i.danger { background: #fee2e2; }.stat-card i.danger::after { background: var(--destructive); } /* 定义当前元素的样式规则。 */
+.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr); gap: 16px; } /* 定义当前元素的样式规则。 */
+.alarm-row { min-height: 62px; display: grid; grid-template-columns: 8px 1fr auto auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); } /* 定义当前元素的样式规则。 */
+.alarm-row:last-child { border-bottom: 0; } /* 定义当前元素的样式规则。 */
+.alarm-row > i { width: 7px; height: 7px; background: var(--brand-flame); border-radius: 50%; } /* 定义当前元素的样式规则。 */
+.alarm-row strong { font-size: 13px; }.alarm-row small { display: block; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.online-summary { min-height: 245px; display: flex; align-items: center; justify-content: center; gap: 34px; } /* 定义当前元素的样式规则。 */
+.online-summary p { min-width: 125px; display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
+.online-summary p i { width: 8px; height: 8px; background: #d2d2d7; border-radius: 50%; }.online-summary p i.online { background: var(--primary); }.online-summary p b { margin-left: auto; color: var(--foreground); } /* 定义当前元素的样式规则。 */
+.workspace-grid { display: grid; grid-template-columns: minmax(300px, .78fr) minmax(440px, 1.22fr); gap: 16px; align-items: start; } /* 定义当前元素的样式规则。 */
+.workspace-grid.protocol { grid-template-columns: minmax(300px, .7fr) minmax(520px, 1.3fr); } /* 定义当前元素的样式规则。 */
+.assistant-grid { display: grid; grid-template-columns: minmax(360px, .82fr) minmax(520px, 1.18fr); gap: 16px; align-items: start; } /* 定义当前元素的样式规则。 */
+.protocol-assistant-page .el-table .el-input__wrapper { padding-left: 7px; padding-right: 7px; } /* 定义当前元素的样式规则。 */
+.protocol-assistant-page .el-table .el-input__inner { font-size: 13px; } /* 定义当前元素的样式规则。 */
+.inspection-counts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; } /* 定义当前元素的样式规则。 */
+.inspection-counts > div { min-height: 80px; padding: 12px; display: grid; align-content: space-between; background: #f5f7fa; border-radius: .625rem; }.inspection-counts span { color: var(--muted-foreground); font-size: 12px; }.inspection-counts strong { color: var(--foreground); font-size: 25px; line-height: 1; }.inspection-counts .healthy { background: #f0fdf4; }.inspection-counts .attention { background: #fffbeb; }.inspection-counts .critical, .inspection-counts .offline { background: #fef2f2; }.inspection-findings { margin-left: 8px; }.report-text { white-space: pre-wrap; color: #515154; line-height: 1.75; font-size: 13px; }.analysis-grid { display: grid; gap: 9px; line-height: 1.65; }.analysis-grid ul { margin: 5px 0 0; padding-left: 20px; color: #6e6e73; } /* 定义当前元素的样式规则。 */
+.catalog-list { display: grid; gap: 8px; } /* 定义当前元素的样式规则。 */
+.catalog-list > button { min-height: 68px; padding: 12px 13px; display: flex; justify-content: space-between; gap: 18px; color: var(--foreground); background: #f5f7fa; border: 1px solid transparent; border-radius: .625rem; cursor: pointer; text-align: left; transition: .18s ease; } /* 定义当前元素的样式规则。 */
+.catalog-list > button:hover { background: #eaf3ff; transform: translateY(-1px); } /* 定义当前元素的样式规则。 */
+.catalog-list > button span { display: grid; gap: 3px; }.catalog-list > button span:last-child { justify-items: end; }.catalog-list small { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.integration-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr); gap: 16px; } /* 定义当前元素的样式规则。 */
+.guide-stack { display: grid; gap: 12px; margin-top: 18px; } /* 定义当前元素的样式规则。 */
+.guide-stack .el-steps { height: 250px; padding: 8px 4px; } /* 定义当前元素的样式规则。 */
+.inner-card { background: #f5f7fa; border-radius: .625rem !important; box-shadow: none !important; } /* 定义当前元素的样式规则。 */
+.inner-card > .el-card__body { display: grid; gap: 8px; }.inner-card p, .inner-card small { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }.inner-card code { display: block; padding: 8px 9px; overflow: auto; background: #dbeafe; border-radius: .5rem; }.inner-card .el-button { justify-self: start; } /* 定义当前元素的样式规则。 */
+.rules-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr); gap: 16px; } /* 定义当前元素的样式规则。 */
+.rule-list { display: grid; gap: 8px; }.rule-item { min-height: 66px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #f5f7fa; border-radius: .625rem; }.rule-item small { display: block; margin-top: 3px; color: var(--muted-foreground); font-size: 12px; }.rule-item > div:last-child { display: flex; align-items: center; gap: 4px; } /* 定义当前元素的样式规则。 */
+.chat-card { height: 100%; min-height: 520px; }.chat-card > .el-card__body { height: 100%; display: flex; flex-direction: column; }.chat-log { flex: 1; overflow: auto; padding: 10px 8px; }.chat-message { max-width: min(76%, 720px); margin: 9px 0; padding: 11px 14px; line-height: 1.7; white-space: pre-wrap; border-radius: 14px; }.chat-message.assistant { background: #f2f2f4; border-bottom-left-radius: 4px; }.chat-message.user { margin-left: auto; color: #fff; background: var(--primary); border-bottom-right-radius: 4px; }.chat-compose { display: flex; gap: 9px; padding-top: 14px; border-top: 1px solid var(--border); }.chat-compose .el-input { flex: 1; } /* 定义当前元素的样式规则。 */
 
-.markdown-content { color: inherit; white-space: normal; overflow-wrap: anywhere; }
-.markdown-content > :first-child { margin-top: 0; }
-.markdown-content > :last-child { margin-bottom: 0; }
-.markdown-content p { margin: 0 0 10px; white-space: normal; }
-.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4, .markdown-content h5, .markdown-content h6 { margin: 13px 0 7px; color: inherit; line-height: 1.35; font-weight: 700; }
-.markdown-content h1 { font-size: 18px; }.markdown-content h2 { font-size: 16px; }.markdown-content h3 { font-size: 14px; }.markdown-content h4, .markdown-content h5, .markdown-content h6 { font-size: 13px; }
-.markdown-content ul, .markdown-content ol { margin: 7px 0 10px; padding-left: 22px; }.markdown-content li { margin: 3px 0; }.markdown-content blockquote { margin: 9px 0; padding: 4px 12px; color: #6e6e73; border-left: 3px solid #93c5fd; background: rgba(239,246,255,.7); }
-.markdown-content code { padding: 1px 4px; color: #0066cc; background: #eaf3ff; border-radius: 3px; font: .92em ui-monospace, SFMono-Regular, Consolas, monospace; }.markdown-content pre { margin: 10px 0; white-space: pre-wrap; }.markdown-content pre code { padding: 0; color: inherit; background: transparent; border-radius: 0; font: inherit; }
-.markdown-content a { color: #0066cc; text-decoration: underline; }.markdown-content hr { margin: 12px 0; border: 0; border-top: 1px solid var(--border); }.markdown-table-wrap { max-width: 100%; margin: 10px 0; overflow-x: auto; }.markdown-content table { width: 100%; border-collapse: collapse; font-size: .95em; }.markdown-content th, .markdown-content td { padding: 6px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; }.markdown-content th { background: #fafafa; font-weight: 700; }
+.markdown-content { color: inherit; white-space: normal; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
+.markdown-content > :first-child { margin-top: 0; } /* 定义当前元素的样式规则。 */
+.markdown-content > :last-child { margin-bottom: 0; } /* 定义当前元素的样式规则。 */
+.markdown-content p { margin: 0 0 10px; white-space: normal; } /* 定义当前元素的样式规则。 */
+.markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4, .markdown-content h5, .markdown-content h6 { margin: 13px 0 7px; color: inherit; line-height: 1.35; font-weight: 700; } /* 定义当前元素的样式规则。 */
+.markdown-content h1 { font-size: 18px; }.markdown-content h2 { font-size: 16px; }.markdown-content h3 { font-size: 14px; }.markdown-content h4, .markdown-content h5, .markdown-content h6 { font-size: 13px; } /* 定义当前元素的样式规则。 */
+.markdown-content ul, .markdown-content ol { margin: 7px 0 10px; padding-left: 22px; }.markdown-content li { margin: 3px 0; }.markdown-content blockquote { margin: 9px 0; padding: 4px 12px; color: #6e6e73; border-left: 3px solid #93c5fd; background: rgba(239,246,255,.7); } /* 定义当前元素的样式规则。 */
+.markdown-content code { padding: 1px 4px; color: #0066cc; background: #eaf3ff; border-radius: 3px; font: .92em ui-monospace, SFMono-Regular, Consolas, monospace; }.markdown-content pre { margin: 10px 0; white-space: pre-wrap; }.markdown-content pre code { padding: 0; color: inherit; background: transparent; border-radius: 0; font: inherit; } /* 定义当前元素的样式规则。 */
+.markdown-content a { color: #0066cc; text-decoration: underline; }.markdown-content hr { margin: 12px 0; border: 0; border-top: 1px solid var(--border); }.markdown-table-wrap { max-width: 100%; margin: 10px 0; overflow-x: auto; }.markdown-content table { width: 100%; border-collapse: collapse; font-size: .95em; }.markdown-content th, .markdown-content td { padding: 6px 8px; border: 1px solid var(--border); text-align: left; vertical-align: top; }.markdown-content th { background: #fafafa; font-weight: 700; } /* 定义当前元素的样式规则。 */
 
 /* Global alarm notifications and preferences */
-.global-alert-popups { width: min(410px, calc(100vw - 32px)); display: grid; gap: 10px; position: fixed; right: 22px; bottom: 22px; z-index: 1200; pointer-events: none; }
-.global-alert-popup { padding: 15px; color: var(--foreground); background: rgba(255,255,255,.98); border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: .75rem; box-shadow: 0 18px 44px rgba(15,23,42,.18); pointer-events: auto; }
-.global-alert-popup.is-fault { border-color: #fde68a; border-left-color: #f59e0b; }
-.global-alert-head { display: grid; grid-template-columns: 34px minmax(0, 1fr) 24px; align-items: start; gap: 10px; }
-.global-alert-icon { width: 34px; height: 34px; display: grid; place-items: center; color: #dc2626; background: #fee2e2; border-radius: .625rem; }
-.global-alert-icon svg { width: 18px; height: 18px; }
-.is-fault .global-alert-icon { color: #b45309; background: #fef3c7; }
-.global-alert-title { min-width: 0; }
-.global-alert-kicker { display: block; color: var(--muted-foreground); font-size: 12px; font-weight: 700; letter-spacing: .08em; }
-.global-alert-title h3 { margin: 3px 0 2px; overflow: hidden; color: var(--foreground); font-size: 15px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.global-alert-close { width: 24px; height: 24px; display: grid; place-items: center; color: #94a3b8; background: transparent; border: 0; border-radius: .375rem; cursor: pointer; }
-.global-alert-close:hover { color: var(--destructive); background: #fef2f2; }
-.global-alert-close svg { width: 15px; height: 15px; }
-.global-alert-facts { margin-top: 12px; display: grid; gap: 8px; }
-.global-alert-fact { min-width: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 9px; }
-.global-alert-fact > span { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
-.global-alert-fact > strong { min-width: 0; color: var(--foreground); font-size: 13px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
-.global-alert-fact-content > strong { padding: 7px 8px; color: #515154; background: #fafafa; border: 1px solid var(--border); border-radius: .5rem; font-weight: 500; }
-.global-alert-fact .el-tag { justify-self: start; height: 22px; }
-.global-alert-actions { margin-top: 13px; display: flex; justify-content: flex-end; gap: 7px; }
-.global-alert-actions .el-button { min-width: 74px; }
-.global-alert-enter-active, .global-alert-leave-active { transition: opacity .2s ease, transform .2s ease; }
-.global-alert-enter-from, .global-alert-leave-to { opacity: 0; transform: translateY(10px); }
-.alert-settings { display: grid; gap: 12px; }
-.alert-setting-row { min-height: 58px; padding: 12px 13px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #fafafa; border: 1px solid var(--border); border-radius: .625rem; }
-.alert-setting-row-stack { align-items: flex-start; flex-direction: column; gap: 10px; }
-.alert-setting-copy { min-width: 0; display: grid; gap: 4px; }
-.alert-setting-copy strong { color: var(--foreground); font-size: 13px; }
-.alert-setting-copy span { color: var(--muted-foreground); font-size: 12px; line-height: 1.55; }
-.alert-quiet-times { width: 100%; display: flex; align-items: center; gap: 8px; }
-.alert-quiet-times .el-time-editor { width: 145px; }
-.alert-quiet-times > span { color: var(--muted-foreground); font-size: 12px; }
-.alert-sound-setting { display: flex; align-items: center; gap: 9px; }
-.alert-sound-setting .el-button svg { width: 14px; height: 14px; }
-.alert-settings-note { display: flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 12px; }
-.alert-settings-note svg { width: 14px; height: 14px; }
-@media (max-width: 1120px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .workspace-grid, .workspace-grid.protocol, .integration-grid, .rules-grid, .assistant-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 900px) {
-  .app-aside { width: 58px !important; padding-inline: 7px; }.brand { justify-content: center; padding: 0; }.brand > div, .menu-group, .menu-item span { display: none !important; }.menu-item { justify-content: center; padding: 8px; }.menu-item svg { width: 20px; height: 20px; }
-  .topbar, .main-content { padding-inline: 20px; }.dashboard-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 640px) {
-  .app-shell { padding-bottom: 68px; }.app-aside { width: 100% !important; height: 66px; padding: 8px 10px; position: fixed; top: auto; bottom: 0; border: 0; border-top: 1px solid var(--border); box-shadow: 0 -8px 24px rgba(15,23,42,.08); }.brand, .logout-button, .menu-group { display: none; }.menu-scroll { overflow: hidden; }.menu-scroll-inner { display: flex; }.menu-item { flex: 0 0 68px; height: 50px; display: grid; align-content: center; justify-items: center; gap: 0; padding: 3px 5px; font-size: 12px; }.menu-item span { display: block !important; font-size: 12px; }.menu-item svg { width: 19px; height: 19px; }
-  .el-overlay-dialog { padding: 12px; }.el-dialog { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); }
-  .topbar { height: 88px; flex-basis: 88px; padding-inline: 12px; }.title-area { min-width: 0; gap: 8px; }.title-area h2 { font-size: 20px; }.title-area p { max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.collapse-button { display: none; }.alert-settings-trigger { width: 30px; padding: 0; font-size: 0; }.health { width: 30px; height: 30px; padding: 0; justify-content: center; font-size: 0; }.tenant-pill { display: none; }.account { min-height: 34px; padding-right: 3px; }.account-copy { display: none; }.account-chevron { display: none; }.main-content { padding: 0 12px 24px; scrollbar-gutter: auto; }
-  .stats-grid { gap: 9px; }.stat-card, .stat-card > .el-card__body { min-height: 116px; height: 116px; }.stat-card > .el-card__body { padding: 15px; }.stat-card strong { font-size: 28px; }.stat-card i { right: 13px; top: 13px; width: 28px; height: 28px; }.inspection-counts { grid-template-columns: repeat(2, 1fr); }
-  .surface-card > .el-card__body { padding: 15px; }.table-card > .el-card__body { padding: 0; }.form-grid { grid-template-columns: 1fr; }.page-toolbar > * { flex: 1 1 auto; }.page-toolbar > .el-input, .page-toolbar > .el-select { width: auto; min-width: 145px; }.online-summary { flex-direction: column; }.alarm-row { grid-template-columns: 8px 1fr auto; }.alarm-row > .el-button { display: none; }.card-header small { display: none; }.chat-card { height: 100%; min-height: 440px; }.chat-message { max-width: 88%; }
-  .global-alert-popups { width: calc(100vw - 24px); right: 12px; bottom: 78px; }.global-alert-popup { padding: 13px; }.alert-setting-row:not(.alert-setting-row-stack) { align-items: flex-start; flex-direction: column; gap: 10px; }.alert-quiet-times .el-time-editor { min-width: 0; flex: 1; }.alert-sound-setting { width: 100%; justify-content: space-between; }
-}
-@media (max-width: 390px) { .stats-grid { grid-template-columns: 1fr; }.stat-card, .stat-card > .el-card__body { min-height: 105px; height: 105px; } }
+.global-alert-popups { width: min(410px, calc(100vw - 32px)); display: grid; gap: 10px; position: fixed; right: 22px; bottom: 22px; z-index: 1200; pointer-events: none; } /* 定义当前元素的样式规则。 */
+.global-alert-popup { padding: 15px; color: var(--foreground); background: rgba(255,255,255,.98); border: 1px solid #fecaca; border-left: 4px solid #dc2626; border-radius: .75rem; box-shadow: 0 18px 44px rgba(15,23,42,.18); pointer-events: auto; } /* 定义当前元素的样式规则。 */
+.global-alert-popup.is-fault { border-color: #fde68a; border-left-color: #f59e0b; } /* 定义当前元素的样式规则。 */
+.global-alert-head { display: grid; grid-template-columns: 34px minmax(0, 1fr) 24px; align-items: start; gap: 10px; } /* 定义当前元素的样式规则。 */
+.global-alert-icon { width: 34px; height: 34px; display: grid; place-items: center; color: #dc2626; background: #fee2e2; border-radius: .625rem; } /* 定义当前元素的样式规则。 */
+.global-alert-icon svg { width: 18px; height: 18px; } /* 定义当前元素的样式规则。 */
+.is-fault .global-alert-icon { color: #b45309; background: #fef3c7; } /* 定义当前元素的样式规则。 */
+.global-alert-title { min-width: 0; } /* 定义当前元素的样式规则。 */
+.global-alert-kicker { display: block; color: var(--muted-foreground); font-size: 12px; font-weight: 700; letter-spacing: .08em; } /* 定义当前元素的样式规则。 */
+.global-alert-title h3 { margin: 3px 0 2px; overflow: hidden; color: var(--foreground); font-size: 15px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; } /* 定义当前元素的样式规则。 */
+.global-alert-close { width: 24px; height: 24px; display: grid; place-items: center; color: #94a3b8; background: transparent; border: 0; border-radius: .375rem; cursor: pointer; } /* 定义当前元素的样式规则。 */
+.global-alert-close:hover { color: var(--destructive); background: #fef2f2; } /* 定义当前元素的样式规则。 */
+.global-alert-close svg { width: 15px; height: 15px; } /* 定义当前元素的样式规则。 */
+.global-alert-facts { margin-top: 12px; display: grid; gap: 8px; } /* 定义当前元素的样式规则。 */
+.global-alert-fact { min-width: 0; display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 9px; } /* 定义当前元素的样式规则。 */
+.global-alert-fact > span { color: var(--muted-foreground); font-size: 12px; line-height: 1.6; } /* 定义当前元素的样式规则。 */
+.global-alert-fact > strong { min-width: 0; color: var(--foreground); font-size: 13px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
+.global-alert-fact-content > strong { padding: 7px 8px; color: #515154; background: #fafafa; border: 1px solid var(--border); border-radius: .5rem; font-weight: 500; } /* 定义当前元素的样式规则。 */
+.global-alert-fact .el-tag { justify-self: start; height: 22px; } /* 定义当前元素的样式规则。 */
+.global-alert-actions { margin-top: 13px; display: flex; justify-content: flex-end; gap: 7px; } /* 定义当前元素的样式规则。 */
+.global-alert-actions .el-button { min-width: 74px; } /* 定义当前元素的样式规则。 */
+.global-alert-enter-active, .global-alert-leave-active { transition: opacity .2s ease, transform .2s ease; } /* 定义当前元素的样式规则。 */
+.global-alert-enter-from, .global-alert-leave-to { opacity: 0; transform: translateY(10px); } /* 定义当前元素的样式规则。 */
+.alert-settings { display: grid; gap: 12px; } /* 定义当前元素的样式规则。 */
+.alert-setting-row { min-height: 58px; padding: 12px 13px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #fafafa; border: 1px solid var(--border); border-radius: .625rem; } /* 定义当前元素的样式规则。 */
+.alert-setting-row-stack { align-items: flex-start; flex-direction: column; gap: 10px; } /* 定义当前元素的样式规则。 */
+.alert-setting-copy { min-width: 0; display: grid; gap: 4px; } /* 定义当前元素的样式规则。 */
+.alert-setting-copy strong { color: var(--foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
+.alert-setting-copy span { color: var(--muted-foreground); font-size: 12px; line-height: 1.55; } /* 定义当前元素的样式规则。 */
+.alert-quiet-times { width: 100%; display: flex; align-items: center; gap: 8px; } /* 定义当前元素的样式规则。 */
+.alert-quiet-times .el-time-editor { width: 145px; } /* 定义当前元素的样式规则。 */
+.alert-quiet-times > span { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.alert-sound-setting { display: flex; align-items: center; gap: 9px; } /* 定义当前元素的样式规则。 */
+.alert-sound-setting .el-button svg { width: 14px; height: 14px; } /* 定义当前元素的样式规则。 */
+.alert-settings-note { display: flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.alert-settings-note svg { width: 14px; height: 14px; } /* 定义当前元素的样式规则。 */
+@media (max-width: 1120px) { /* 按屏幕条件调整样式。 */
+  .stats-grid { grid-template-columns: repeat(2, 1fr); } /* 定义当前元素的样式规则。 */
+  .workspace-grid, .workspace-grid.protocol, .integration-grid, .rules-grid, .assistant-grid { grid-template-columns: 1fr; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
+@media (max-width: 900px) { /* 按屏幕条件调整样式。 */
+  .app-aside { width: 58px !important; padding-inline: 7px; }.brand { justify-content: center; padding: 0; }.brand > div, .menu-group, .menu-item span { display: none !important; }.menu-item { justify-content: center; padding: 8px; }.menu-item svg { width: 20px; height: 20px; } /* 定义当前元素的样式规则。 */
+  .topbar, .main-content { padding-inline: 20px; }.dashboard-grid { grid-template-columns: 1fr; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
+@media (max-width: 640px) { /* 按屏幕条件调整样式。 */
+  .app-shell { padding-bottom: 68px; }.app-aside { width: 100% !important; height: 66px; padding: 8px 10px; position: fixed; top: auto; bottom: 0; border: 0; border-top: 1px solid var(--border); box-shadow: 0 -8px 24px rgba(15,23,42,.08); }.brand, .logout-button, .menu-group { display: none; }.menu-scroll { overflow: hidden; }.menu-scroll-inner { display: flex; }.menu-item { flex: 0 0 68px; height: 50px; display: grid; align-content: center; justify-items: center; gap: 0; padding: 3px 5px; font-size: 12px; }.menu-item span { display: block !important; font-size: 12px; }.menu-item svg { width: 19px; height: 19px; } /* 定义当前元素的样式规则。 */
+  .el-overlay-dialog { padding: 12px; }.el-dialog { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); } /* 定义当前元素的样式规则。 */
+  .topbar { height: 88px; flex-basis: 88px; padding-inline: 12px; }.title-area { min-width: 0; gap: 8px; }.title-area h2 { font-size: 20px; }.title-area p { max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.collapse-button { display: none; }.alert-settings-trigger { width: 30px; padding: 0; font-size: 0; }.health { width: 30px; height: 30px; padding: 0; justify-content: center; font-size: 0; }.tenant-pill { display: none; }.account { min-height: 34px; padding-right: 3px; }.account-copy { display: none; }.account-chevron { display: none; }.main-content { padding: 0 12px 24px; scrollbar-gutter: auto; } /* 定义当前元素的样式规则。 */
+  .stats-grid { gap: 9px; }.stat-card, .stat-card > .el-card__body { min-height: 116px; height: 116px; }.stat-card > .el-card__body { padding: 15px; }.stat-card strong { font-size: 28px; }.stat-card i { right: 13px; top: 13px; width: 28px; height: 28px; }.inspection-counts { grid-template-columns: repeat(2, 1fr); } /* 定义当前元素的样式规则。 */
+  .surface-card > .el-card__body { padding: 15px; }.table-card > .el-card__body { padding: 0; }.form-grid { grid-template-columns: 1fr; }.page-toolbar > * { flex: 1 1 auto; }.page-toolbar > .el-input, .page-toolbar > .el-select { width: auto; min-width: 145px; }.online-summary { flex-direction: column; }.alarm-row { grid-template-columns: 8px 1fr auto; }.alarm-row > .el-button { display: none; }.card-header small { display: none; }.chat-card { height: 100%; min-height: 440px; }.chat-message { max-width: 88%; } /* 定义当前元素的样式规则。 */
+  .global-alert-popups { width: calc(100vw - 24px); right: 12px; bottom: 78px; }.global-alert-popup { padding: 13px; }.alert-setting-row:not(.alert-setting-row-stack) { align-items: flex-start; flex-direction: column; gap: 10px; }.alert-quiet-times .el-time-editor { min-width: 0; flex: 1; }.alert-sound-setting { width: 100%; justify-content: space-between; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
+@media (max-width: 390px) { .stats-grid { grid-template-columns: 1fr; }.stat-card, .stat-card > .el-card__body { min-height: 105px; height: 105px; } } /* 按屏幕条件调整样式。 */
 
 /* Shared task navigation and clear action surfaces. */
-.page-context { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
-.app-shell .menu-item { border: 1px solid transparent; }
-.app-shell .menu-item:hover { border-color: transparent; }
-.app-shell .menu-item.active { border-color: #e5e5e780; }
-.app-shell .page-toolbar { padding: 0; background: transparent; border: 0; gap: 8px; margin-bottom: 18px; }
-.app-shell .page-toolbar > span:not(.el-tag) { flex: 1 1 120px; line-height: 1.6; text-align: right; font-size: 13px; }
-.app-shell .page-toolbar > .el-button { flex-shrink: 0; }
-.el-table .el-table__cell { padding-block: 15px; }
-.el-table .el-table-fixed-column--right { border-left: 1px solid #e5e5e7; background: var(--el-table-tr-bg-color, #fff); }
-.el-dialog .el-dialog__footer { padding-top: 16px; border-top: 1px solid var(--border); background: #fff; }
-.el-dialog__footer .el-button { margin-top: 4px; }
-:is(.app-shell, .el-overlay) .el-tabs__nav-wrap::after, :is(.app-shell, .el-overlay) .el-tabs__active-bar { display: block; }
-:is(.app-shell, .el-overlay) .el-tabs__nav { gap: 8px; padding: 0 8px; border: 0; }
-:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item { height: 44px; margin: 0; padding: 0 16px !important; border: 0; border-radius: 0; background: transparent; color: #6e6e73; font-size: 13px; font-weight: 500; }
-:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item:hover { color: var(--primary); background: #f5f9ff; }
-:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item.is-active { color: var(--primary); background: #fff; box-shadow: inset 0 -2px var(--primary); }
-:is(.app-shell, .el-overlay) .el-input__wrapper, :is(.app-shell, .el-overlay) .el-select__wrapper { min-height: 32px; }
-.app-shell .el-tabs--border-card { border-radius: 6px; overflow: hidden; box-shadow: none; border-color: var(--border); }
-.app-shell .el-tabs--border-card > .el-tabs__header { padding: 0 8px; background: #fff; }
-.section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.section-toolbar > strong { font-size: 14px; }
-@media (max-width: 900px) {
-  .app-shell .menu-item { min-height: 50px; height: auto; display: grid; gap: 3px; justify-items: center; padding: 6px 2px; }
-  .app-shell .menu-item span { display: block !important; font-size: 12px; }
-  .app-shell .app-aside { width: 76px !important; }
-}
-@media (max-width: 640px) {
-  .app-shell .app-aside { width: 100% !important; }
-  .app-shell .menu-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
-  .menu-scroll-inner { width: max-content; }
-  .app-shell .menu-item { min-height: 44px; margin: 0 2px; }
-  .main-content { padding-top: 16px; }
-  .topbar { height: 68px; flex-basis: 68px; }
-  .top-actions { gap: 6px; }
-  .title-area h2 { font-size: 16px; }
-  .title-area > div > span { font-size: 12px; }
-  .page-context { gap: 12px; margin-bottom: 14px; }
-  .app-shell .page-toolbar { padding: 0; }
-  .app-shell .page-toolbar > span:not(.el-tag) { flex-basis: auto; }
-  .el-table .el-table__cell.el-table-fixed-column--right { position: static !important; }
-  .alarm-row { grid-template-columns: 8px minmax(0, 1fr) auto; }
-  .alarm-row > .el-button { display: inline-flex; grid-column: 2 / -1; justify-self: end; margin-bottom: 10px; }
-  .card-header { flex-wrap: wrap; }
-  .list-pagination { padding: 12px 8px; }
-  .list-pagination .el-pagination { gap: 6px; }
-}
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+.page-context { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; } /* 定义当前元素的样式规则。 */
+.app-shell .menu-item { border: 1px solid transparent; } /* 定义当前元素的样式规则。 */
+.app-shell .menu-item:hover { border-color: transparent; } /* 定义当前元素的样式规则。 */
+.app-shell .menu-item.active { border-color: #e5e5e780; } /* 定义当前元素的样式规则。 */
+.app-shell .page-toolbar { padding: 0; background: transparent; border: 0; gap: 8px; margin-bottom: 18px; } /* 定义当前元素的样式规则。 */
+.app-shell .page-toolbar > span:not(.el-tag) { flex: 1 1 120px; line-height: 1.6; text-align: right; font-size: 13px; } /* 定义当前元素的样式规则。 */
+.app-shell .page-toolbar > .el-button { flex-shrink: 0; } /* 定义当前元素的样式规则。 */
+.el-table .el-table__cell { padding-block: 15px; } /* 定义当前元素的样式规则。 */
+.el-table .el-table-fixed-column--right { border-left: 1px solid #e5e5e7; background: var(--el-table-tr-bg-color, #fff); } /* 定义当前元素的样式规则。 */
+.el-dialog .el-dialog__footer { padding-top: 16px; border-top: 1px solid var(--border); background: #fff; } /* 定义当前元素的样式规则。 */
+.el-dialog__footer .el-button { margin-top: 4px; } /* 定义当前元素的样式规则。 */
+:is(.app-shell, .el-overlay) .el-tabs__nav-wrap::after, :is(.app-shell, .el-overlay) .el-tabs__active-bar { display: block; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-tabs__nav { gap: 8px; padding: 0 8px; border: 0; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item { height: 44px; margin: 0; padding: 0 16px !important; border: 0; border-radius: 0; background: transparent; color: #6e6e73; font-size: 13px; font-weight: 500; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item:hover { color: var(--primary); background: #f5f9ff; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-tabs .el-tabs__header .el-tabs__item.is-active { color: var(--primary); background: #fff; box-shadow: inset 0 -2px var(--primary); } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-input__wrapper, :is(.app-shell, .el-overlay) .el-select__wrapper { min-height: 32px; } /* 设置  样式。 */
+.app-shell .el-tabs--border-card { border-radius: 6px; overflow: hidden; box-shadow: none; border-color: var(--border); } /* 定义当前元素的样式规则。 */
+.app-shell .el-tabs--border-card > .el-tabs__header { padding: 0 8px; background: #fff; } /* 定义当前元素的样式规则。 */
+.section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; } /* 定义当前元素的样式规则。 */
+.section-toolbar > strong { font-size: 14px; } /* 定义当前元素的样式规则。 */
+@media (max-width: 900px) { /* 按屏幕条件调整样式。 */
+  .app-shell .menu-item { min-height: 50px; height: auto; display: grid; gap: 3px; justify-items: center; padding: 6px 2px; } /* 定义当前元素的样式规则。 */
+  .app-shell .menu-item span { display: block !important; font-size: 12px; } /* 定义当前元素的样式规则。 */
+  .app-shell .app-aside { width: 76px !important; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
+@media (max-width: 640px) { /* 按屏幕条件调整样式。 */
+  .app-shell .app-aside { width: 100% !important; } /* 定义当前元素的样式规则。 */
+  .app-shell .menu-scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; } /* 定义当前元素的样式规则。 */
+  .menu-scroll-inner { width: max-content; } /* 定义当前元素的样式规则。 */
+  .app-shell .menu-item { min-height: 44px; margin: 0 2px; } /* 定义当前元素的样式规则。 */
+  .main-content { padding-top: 16px; } /* 定义当前元素的样式规则。 */
+  .topbar { height: 68px; flex-basis: 68px; } /* 定义当前元素的样式规则。 */
+  .top-actions { gap: 6px; } /* 定义当前元素的样式规则。 */
+  .title-area h2 { font-size: 16px; } /* 定义当前元素的样式规则。 */
+  .title-area > div > span { font-size: 12px; } /* 定义当前元素的样式规则。 */
+  .page-context { gap: 12px; margin-bottom: 14px; } /* 定义当前元素的样式规则。 */
+  .app-shell .page-toolbar { padding: 0; } /* 定义当前元素的样式规则。 */
+  .app-shell .page-toolbar > span:not(.el-tag) { flex-basis: auto; } /* 定义当前元素的样式规则。 */
+  .el-table .el-table__cell.el-table-fixed-column--right { position: static !important; } /* 定义当前元素的样式规则。 */
+  .alarm-row { grid-template-columns: 8px minmax(0, 1fr) auto; } /* 定义当前元素的样式规则。 */
+  .alarm-row > .el-button { display: inline-flex; grid-column: 2 / -1; justify-self: end; margin-bottom: 10px; } /* 定义当前元素的样式规则。 */
+  .card-header { flex-wrap: wrap; } /* 定义当前元素的样式规则。 */
+  .list-pagination { padding: 12px 8px; } /* 定义当前元素的样式规则。 */
+  .list-pagination .el-pagination { gap: 6px; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } } /* 按屏幕条件调整样式。 */
 
 /* 工作台的层级、任务说明与窄屏行为 */
-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
-.el-form-item__content > .el-select, .el-form-item__content > .el-input { min-width: 0; }
-.el-drawer__body { min-height: 0; overflow: auto; overscroll-behavior: contain; }
-.el-descriptions__table { table-layout: fixed; }
-.el-descriptions__content { overflow-wrap: anywhere; }
-.main-content .el-alert + .el-alert { margin-top: 12px; }
-.dashboard-error { margin-bottom: 16px; }
-.technical-details { margin-top: 16px; font-size: 13px; color: #6e6e73; }
-.technical-details summary { cursor: pointer; padding: 10px 0; }
-@media (max-width: 640px) {
-  .el-dialog__body, .el-dialog__header, .el-drawer__body { padding: 16px; }
-  .el-descriptions__label { width: 90px; }
-}
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; } /* 设置 button 样式。 */
+.el-form-item__content > .el-select, .el-form-item__content > .el-input { min-width: 0; } /* 定义当前元素的样式规则。 */
+.el-drawer__body { min-height: 0; overflow: auto; overscroll-behavior: contain; } /* 定义当前元素的样式规则。 */
+.el-descriptions__table { table-layout: fixed; } /* 定义当前元素的样式规则。 */
+.el-descriptions__content { overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
+.main-content .el-alert + .el-alert { margin-top: 12px; } /* 定义当前元素的样式规则。 */
+.dashboard-error { margin-bottom: 16px; } /* 定义当前元素的样式规则。 */
+.technical-details { margin-top: 16px; font-size: 13px; color: #6e6e73; } /* 定义当前元素的样式规则。 */
+.technical-details summary { cursor: pointer; padding: 10px 0; } /* 定义当前元素的样式规则。 */
+@media (max-width: 640px) { /* 按屏幕条件调整样式。 */
+  .el-dialog__body, .el-dialog__header, .el-drawer__body { padding: 16px; } /* 定义当前元素的样式规则。 */
+  .el-descriptions__label { width: 90px; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
 
-@media (max-width: 900px) {
-  .table-card:has(.el-table) > .el-card__body::before { content: "左右滑动表格，查看完整信息与操作"; display: block; padding: 10px 14px; color: #718198; background: #fafafa; border-bottom: 1px solid var(--border); font-size: 12px; }
-}
+@media (max-width: 900px) { /* 按屏幕条件调整样式。 */
+  .table-card:has(.el-table) > .el-card__body::before { content: "左右滑动表格，查看完整信息与操作"; display: block; padding: 10px 14px; color: #718198; background: #fafafa; border-bottom: 1px solid var(--border); font-size: 12px; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
 
 /* Quiet hierarchy shared by management pages. */
-.workspace-label { color: var(--muted-foreground); font-size: 13px; }
-.page-context { margin-bottom: 24px; }
-.page-context h1 { margin: 0; color: var(--foreground); font-size: 28px; line-height: 1.3; font-weight: 600; letter-spacing: -.035em; }
-.app-shell .page-toolbar .el-button + .el-button { margin-left: 0; }
-.el-table { --el-table-row-hover-bg-color: #f5f8fc; }
-.el-table b { font-weight: 500; }
-.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: #fff; }
-:is(.app-shell, .el-overlay) .el-table .el-button { border: 1px solid #cbd5e1 !important; background: #fff !important; box-shadow: none; color: var(--el-button-text-color, var(--primary)); padding-inline: 10px; }
-:is(.app-shell, .el-overlay) .el-table .el-button--primary { background:#eff6ff !important; border-color:#bfdbfe !important; }
-:is(.app-shell, .el-overlay) .el-table .el-button--success { background:#f0fdf4 !important; border-color:#bbf7d0 !important; }
-:is(.app-shell, .el-overlay) .el-table .el-button--danger { background:#fef2f2 !important; border-color:#fecaca !important; }
-:is(.app-shell, .el-overlay) .el-table .el-button:hover { background: var(--accent) !important; }
-:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button { border-color: #cbd5e1 !important; background: #fff !important; color: #334155; }
-:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button--primary { border-color: #93c5fd !important; background: #eff6ff !important; color: #0066cc; }
-:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button:hover { border-color: #60a5fa !important; background: #dbeafe !important; color: #1e40af; }
-:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button.is-disabled { border-color: #e2e8f0 !important; background: #f8fafc !important; color: #94a3b8; cursor: not-allowed; }
-.el-tag { --el-tag-border-color: transparent; font-weight: 400; }
-.el-table .el-tag { border-color: transparent; }
-.menu-group-toggle { width:calc(100% - 24px); padding:0; border:0; background:transparent; display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
-.menu-group-toggle svg { width:13px; height:13px; transition:transform .2s; }
-.menu-group-toggle svg.closed { transform:rotate(-90deg); }
-.login-page { grid-template-columns:minmax(0,1.2fr) minmax(390px,1fr); background:#f5f7fb; padding:5vh 6vw; gap:4vw; }
-.login-intro { position:relative; min-height:650px; padding:45px; overflow:hidden; border-radius:28px; background:linear-gradient(145deg,#102b51,#0a4471 68%,#176682); color:#fff; }
-.login-brand { position:relative; width:194px; height:86px; overflow:hidden; border-radius:14px; background:#fff; }
-.login-brand img { position:absolute; top:-9px; left:-82px; width:360px; max-width:none; height:auto; }
-.login-eyebrow { display:block; margin-top:100px; color:#8dccf2; font-size:14px; letter-spacing:.12em; }
-.login-intro h1 { font-size:clamp(32px,3.4vw,52px); line-height:1.35; font-weight:650; margin:20px 0; position:relative; z-index:1; }
-.login-intro p { color:#bbd1e4; font-size:16px; line-height:1.9; position:relative; z-index:1; }
-.login-capabilities { display:flex; gap:22px; margin-top:45px; flex-wrap:wrap; position:relative; z-index:1; }
-.login-capabilities span { display:flex; gap:7px; align-items:center; font-size:13px; color:#d9e9f6; }
-.login-capabilities svg { width:18px; height:18px; }
-.login-grid-art { position:absolute; width:330px; height:330px; right:-75px; bottom:-100px; border:1px solid #ffffff22; border-radius:50%; box-shadow:0 0 0 45px #ffffff05,0 0 0 90px #ffffff04,0 0 0 135px #ffffff03; }
-.login-panel { width:min(470px,100%); justify-self:center; padding:10px; }
-.login-form { padding:42px; border-color:#e4eaf2; box-shadow:0 20px 60px #142e5610; }
-.login-form .login-help { font-size:12px; text-align:center; margin:20px 0 0; }
-.el-table .el-button.is-disabled { color:#94a3b8 !important; background:#f8fafc !important; border-color:#e2e8f0 !important; }
-@media(max-width:850px) { .login-page { grid-template-columns:1fr; padding:30px 12px; }.login-intro { display:none; }.login-form { padding:30px; } }
-.el-form-item { margin-bottom: 20px; }
-.el-form-item__label { font-weight: 500; }
-.el-collapse { --el-collapse-border-color: var(--border); }
-.el-collapse-item__header { font-weight: 500; }
-:is(.app-shell, .el-overlay) .el-input .el-input__wrapper, :is(.app-shell, .el-overlay) .el-select .el-select__wrapper { min-height: 36px; }
-.el-table .el-table-fixed-column--right { border-left: 0; }
-@media (max-width: 640px) {
-  .main-content { padding: 16px 14px 24px; }
-  .topbar { padding-inline: 14px; height: 52px; flex-basis: 52px; }
-  .page-context { margin-bottom: 18px; }
-  .page-context h1 { font-size: 24px; }
-  .workspace-label { font-size: 12px; }
-}
+.workspace-label { color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
+.page-context { margin-bottom: 24px; } /* 定义当前元素的样式规则。 */
+.page-context h1 { margin: 0; color: var(--foreground); font-size: 28px; line-height: 1.3; font-weight: 600; letter-spacing: -.035em; } /* 定义当前元素的样式规则。 */
+.app-shell .page-toolbar .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
+.el-table { --el-table-row-hover-bg-color: #f5f8fc; } /* 定义当前元素的样式规则。 */
+.el-table b { font-weight: 500; } /* 定义当前元素的样式规则。 */
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: #fff; } /* 定义当前元素的样式规则。 */
+:is(.app-shell, .el-overlay) .el-table .el-button { border: 1px solid #cbd5e1 !important; background: #fff !important; box-shadow: none; color: var(--el-button-text-color, var(--primary)); padding-inline: 10px; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .el-button--primary { background:#eff6ff !important; border-color:#bfdbfe !important; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .el-button--success { background:#f0fdf4 !important; border-color:#bbf7d0 !important; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .el-button--danger { background:#fef2f2 !important; border-color:#fecaca !important; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .el-button:hover { background: var(--accent) !important; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button { border-color: #cbd5e1 !important; background: #fff !important; color: #334155; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button--primary { border-color: #93c5fd !important; background: #eff6ff !important; color: #0066cc; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button:hover { border-color: #60a5fa !important; background: #dbeafe !important; color: #1e40af; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button.is-disabled { border-color: #e2e8f0 !important; background: #f8fafc !important; color: #94a3b8; cursor: not-allowed; } /* 设置  样式。 */
+.el-tag { --el-tag-border-color: transparent; font-weight: 400; } /* 定义当前元素的样式规则。 */
+.el-table .el-tag { border-color: transparent; } /* 定义当前元素的样式规则。 */
+.menu-group-toggle { width:calc(100% - 24px); padding:0; border:0; background:transparent; display:flex; align-items:center; justify-content:space-between; cursor:pointer; } /* 定义当前元素的样式规则。 */
+.menu-group-toggle svg { width:13px; height:13px; transition:transform .2s; } /* 定义当前元素的样式规则。 */
+.menu-group-toggle svg.closed { transform:rotate(-90deg); } /* 定义当前元素的样式规则。 */
+.login-page { grid-template-columns:minmax(0,1.2fr) minmax(390px,1fr); background:#f5f7fb; padding:5vh 6vw; gap:4vw; } /* 定义当前元素的样式规则。 */
+.login-intro { position:relative; min-height:650px; padding:45px; overflow:hidden; border-radius:28px; background:linear-gradient(145deg,#102b51,#0a4471 68%,#176682); color:#fff; } /* 定义当前元素的样式规则。 */
+.login-brand { position:relative; width:194px; height:86px; overflow:hidden; border-radius:14px; background:#fff; } /* 定义当前元素的样式规则。 */
+.login-brand img { position:absolute; top:-9px; left:-82px; width:360px; max-width:none; height:auto; } /* 定义当前元素的样式规则。 */
+.login-eyebrow { display:block; margin-top:100px; color:#8dccf2; font-size:14px; letter-spacing:.12em; } /* 定义当前元素的样式规则。 */
+.login-intro h1 { font-size:clamp(32px,3.4vw,52px); line-height:1.35; font-weight:650; margin:20px 0; position:relative; z-index:1; } /* 定义当前元素的样式规则。 */
+.login-intro p { color:#bbd1e4; font-size:16px; line-height:1.9; position:relative; z-index:1; } /* 定义当前元素的样式规则。 */
+.login-capabilities { display:flex; gap:22px; margin-top:45px; flex-wrap:wrap; position:relative; z-index:1; } /* 定义当前元素的样式规则。 */
+.login-capabilities span { display:flex; gap:7px; align-items:center; font-size:13px; color:#d9e9f6; } /* 定义当前元素的样式规则。 */
+.login-capabilities svg { width:18px; height:18px; } /* 定义当前元素的样式规则。 */
+.login-grid-art { position:absolute; width:330px; height:330px; right:-75px; bottom:-100px; border:1px solid #ffffff22; border-radius:50%; box-shadow:0 0 0 45px #ffffff05,0 0 0 90px #ffffff04,0 0 0 135px #ffffff03; } /* 定义当前元素的样式规则。 */
+.login-panel { width:min(470px,100%); justify-self:center; padding:10px; } /* 定义当前元素的样式规则。 */
+.login-form { padding:42px; border-color:#e4eaf2; box-shadow:0 20px 60px #142e5610; } /* 定义当前元素的样式规则。 */
+.login-form .login-help { font-size:12px; text-align:center; margin:20px 0 0; } /* 定义当前元素的样式规则。 */
+.el-table .el-button.is-disabled { color:#94a3b8 !important; background:#f8fafc !important; border-color:#e2e8f0 !important; } /* 定义当前元素的样式规则。 */
+@media(max-width:850px) { .login-page { grid-template-columns:1fr; padding:30px 12px; }.login-intro { display:none; }.login-form { padding:30px; } } /* 按屏幕条件调整样式。 */
+.el-form-item { margin-bottom: 20px; } /* 定义当前元素的样式规则。 */
+.el-form-item__label { font-weight: 500; } /* 定义当前元素的样式规则。 */
+.el-collapse { --el-collapse-border-color: var(--border); } /* 定义当前元素的样式规则。 */
+.el-collapse-item__header { font-weight: 500; } /* 定义当前元素的样式规则。 */
+:is(.app-shell, .el-overlay) .el-input .el-input__wrapper, :is(.app-shell, .el-overlay) .el-select .el-select__wrapper { min-height: 36px; } /* 设置  样式。 */
+.el-table .el-table-fixed-column--right { border-left: 0; } /* 定义当前元素的样式规则。 */
+@media (max-width: 640px) { /* 按屏幕条件调整样式。 */
+  .main-content { padding: 16px 14px 24px; } /* 定义当前元素的样式规则。 */
+  .topbar { padding-inline: 14px; height: 52px; flex-basis: 52px; } /* 定义当前元素的样式规则。 */
+  .page-context { margin-bottom: 18px; } /* 定义当前元素的样式规则。 */
+  .page-context h1 { font-size: 24px; } /* 定义当前元素的样式规则。 */
+  .workspace-label { font-size: 12px; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
 
-.dashboard-page { min-width: 0; }
-.dashboard-toolbar { min-height: 32px; margin-bottom: 18px; font-size: 13px; }
-.dashboard-charts { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 18px; margin-bottom: 18px; }
-.dashboard-distributions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; }
-.dashboard-page .surface-card { min-width: 0; }
-.dashboard-page .card-header { min-height: 30px; gap: 12px; }
-.dashboard-page .card-header > strong { flex-shrink: 0; }
-.dashboard-page .surface-card > .el-card__header { padding-block: 15px; }
-.chart-meta, .trend-caption > span { font-size: 12px; color: var(--muted-foreground); }
-.trend-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.trend-caption > strong { font-size: 26px; letter-spacing: -.04em; font-weight: 600; }
-.trend-caption small { font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted-foreground); }
-.trend-plot svg { display: block; width: 100%; min-height: 200px; overflow: visible; }
-.trend-plot text { fill: var(--muted-foreground); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
-.trend-plot circle[tabindex]:focus { outline: none; stroke: #0071e3; stroke-width: 1.5; }
-.device-chart { min-height: 256px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
-.device-ring { position: relative; width: 174px; height: 174px; flex-shrink: 0; }
-.device-ring svg { width: 100%; height: 100%; }
-.device-ring > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-.device-ring strong { font-size: 32px; font-weight: 600; letter-spacing: -.04em; }
-.device-ring small { font-size: 16px; margin-left: 2px; }
-.device-ring span { font-size: 12px; color: var(--muted-foreground); margin-top: 4px; }
-.chart-legend { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 20px; }
-.chart-legend > div { display: flex; align-items: center; gap: 7px; font-size: 13px; }
-.chart-legend i { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.chart-legend span { color: var(--muted-foreground); }
-.chart-legend b { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
-.horizontal-chart { min-height: 238px; display: flex; flex-direction: column; gap: 16px; }
-.bar-row > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; margin-bottom: 8px; }
-.bar-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar-row b { font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.bar-row small { color: var(--muted-foreground); font-size: 12px; font-weight: 400; }
-.bar-track { height: 6px; background: #f1f2f4; border-radius: 3px; overflow: hidden; }
-.bar-track i { display: block; height: 100%; border-radius: inherit; }
-.dashboard-page .alarm-row > div { min-width: 0; overflow-wrap: anywhere; }
-@media (min-width: 1440px) { .device-chart { flex-direction: row; gap: 24px; }.chart-legend { grid-template-columns: 1fr; } }
-@media (max-width: 1100px) { .dashboard-charts { grid-template-columns: minmax(0,1fr); }.device-chart { flex-direction: row; gap: 40px; min-height: 210px; }.chart-legend { max-width: 320px; } }
-@media (max-width: 600px) {
-  .dashboard-distributions { grid-template-columns: minmax(0,1fr); }
-  .dashboard-page .stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-  .dashboard-page .stat-card i { display: none; }
-  .dashboard-page .stat-card small { font-size: 12px; }
-  .dashboard-page .stat-card strong { font-size: 28px; }
-  .trend-caption { flex-wrap: wrap; gap: 6px; }.trend-caption > span { font-size: 12px; }
-  .trend-plot svg { min-height: 150px; }
-  .trend-plot text { font-size: 22px; }
-  .device-chart { flex-direction: column; gap: 20px; }
-  .horizontal-chart { min-height: 0; }
-  .dashboard-page .card-header { flex-wrap: wrap; }
-}
-.protocol-generator { min-width: 0; }
-.protocol-generator .generator-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
-.protocol-generator .generator-actions > span { font-size: 13px; }
-.protocol-generator .el-form-item__content > .el-textarea { width: 100%; }
-.protocol-generator .section-toolbar strong { overflow-wrap: anywhere; }
-.protocol-generator .section-toolbar small { margin-left: 8px; font-weight: 400; }
+.dashboard-page { min-width: 0; } /* 定义当前元素的样式规则。 */
+.dashboard-toolbar { min-height: 32px; margin-bottom: 18px; font-size: 13px; } /* 定义当前元素的样式规则。 */
+.dashboard-charts { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 18px; margin-bottom: 18px; } /* 定义当前元素的样式规则。 */
+.dashboard-distributions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; } /* 定义当前元素的样式规则。 */
+.dashboard-page .surface-card { min-width: 0; } /* 定义当前元素的样式规则。 */
+.dashboard-page .card-header { min-height: 30px; gap: 12px; } /* 定义当前元素的样式规则。 */
+.dashboard-page .card-header > strong { flex-shrink: 0; } /* 定义当前元素的样式规则。 */
+.dashboard-page .surface-card > .el-card__header { padding-block: 15px; } /* 定义当前元素的样式规则。 */
+.chart-meta, .trend-caption > span { font-size: 12px; color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
+.trend-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; } /* 定义当前元素的样式规则。 */
+.trend-caption > strong { font-size: 26px; letter-spacing: -.04em; font-weight: 600; } /* 定义当前元素的样式规则。 */
+.trend-caption small { font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
+.trend-plot svg { display: block; width: 100%; min-height: 200px; overflow: visible; } /* 定义当前元素的样式规则。 */
+.trend-plot text { fill: var(--muted-foreground); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; } /* 定义当前元素的样式规则。 */
+.trend-plot circle[tabindex]:focus { outline: none; stroke: #0071e3; stroke-width: 1.5; } /* 定义当前元素的样式规则。 */
+.device-chart { min-height: 256px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; } /* 定义当前元素的样式规则。 */
+.device-ring { position: relative; width: 174px; height: 174px; flex-shrink: 0; } /* 定义当前元素的样式规则。 */
+.device-ring svg { width: 100%; height: 100%; } /* 定义当前元素的样式规则。 */
+.device-ring > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; } /* 定义当前元素的样式规则。 */
+.device-ring strong { font-size: 32px; font-weight: 600; letter-spacing: -.04em; } /* 定义当前元素的样式规则。 */
+.device-ring small { font-size: 16px; margin-left: 2px; } /* 定义当前元素的样式规则。 */
+.device-ring span { font-size: 12px; color: var(--muted-foreground); margin-top: 4px; } /* 定义当前元素的样式规则。 */
+.chart-legend { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px 20px; } /* 定义当前元素的样式规则。 */
+.chart-legend > div { display: flex; align-items: center; gap: 7px; font-size: 13px; } /* 定义当前元素的样式规则。 */
+.chart-legend i { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; } /* 定义当前元素的样式规则。 */
+.chart-legend span { color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
+.chart-legend b { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; } /* 定义当前元素的样式规则。 */
+.horizontal-chart { min-height: 238px; display: flex; flex-direction: column; gap: 16px; } /* 定义当前元素的样式规则。 */
+.bar-row > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; margin-bottom: 8px; } /* 定义当前元素的样式规则。 */
+.bar-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 定义当前元素的样式规则。 */
+.bar-row b { font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; } /* 定义当前元素的样式规则。 */
+.bar-row small { color: var(--muted-foreground); font-size: 12px; font-weight: 400; } /* 定义当前元素的样式规则。 */
+.bar-track { height: 6px; background: #f1f2f4; border-radius: 3px; overflow: hidden; } /* 定义当前元素的样式规则。 */
+.bar-track i { display: block; height: 100%; border-radius: inherit; } /* 定义当前元素的样式规则。 */
+.dashboard-page .alarm-row > div { min-width: 0; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
+@media (min-width: 1440px) { .device-chart { flex-direction: row; gap: 24px; }.chart-legend { grid-template-columns: 1fr; } } /* 按屏幕条件调整样式。 */
+@media (max-width: 1100px) { .dashboard-charts { grid-template-columns: minmax(0,1fr); }.device-chart { flex-direction: row; gap: 40px; min-height: 210px; }.chart-legend { max-width: 320px; } } /* 按屏幕条件调整样式。 */
+@media (max-width: 600px) { /* 按屏幕条件调整样式。 */
+  .dashboard-distributions { grid-template-columns: minmax(0,1fr); } /* 定义当前元素的样式规则。 */
+  .dashboard-page .stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } /* 定义当前元素的样式规则。 */
+  .dashboard-page .stat-card i { display: none; } /* 定义当前元素的样式规则。 */
+  .dashboard-page .stat-card small { font-size: 12px; } /* 定义当前元素的样式规则。 */
+  .dashboard-page .stat-card strong { font-size: 28px; } /* 定义当前元素的样式规则。 */
+  .trend-caption { flex-wrap: wrap; gap: 6px; }.trend-caption > span { font-size: 12px; } /* 定义当前元素的样式规则。 */
+  .trend-plot svg { min-height: 150px; } /* 定义当前元素的样式规则。 */
+  .trend-plot text { font-size: 22px; } /* 定义当前元素的样式规则。 */
+  .device-chart { flex-direction: column; gap: 20px; } /* 定义当前元素的样式规则。 */
+  .horizontal-chart { min-height: 0; } /* 定义当前元素的样式规则。 */
+  .dashboard-page .card-header { flex-wrap: wrap; } /* 定义当前元素的样式规则。 */
+} /* 结束当前样式规则。 */
+.protocol-generator { min-width: 0; } /* 定义当前元素的样式规则。 */
+.protocol-generator .generator-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; } /* 定义当前元素的样式规则。 */
+.protocol-generator .generator-actions > span { font-size: 13px; } /* 定义当前元素的样式规则。 */
+.protocol-generator .el-form-item__content > .el-textarea { width: 100%; } /* 定义当前元素的样式规则。 */
+.protocol-generator .section-toolbar strong { overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
+.protocol-generator .section-toolbar small { margin-left: 8px; font-weight: 400; } /* 定义当前元素的样式规则。 */
 
-.protocol-generator .bottom-gap { margin-bottom: 18px; }
-.protocol-generator .el-descriptions__label { width: 120px; }
-.protocol-generator .section-toolbar small { display: block; margin: 5px 0 0; }
+.protocol-generator .bottom-gap { margin-bottom: 18px; } /* 定义当前元素的样式规则。 */
+.protocol-generator .el-descriptions__label { width: 120px; } /* 定义当前元素的样式规则。 */
+.protocol-generator .section-toolbar small { display: block; margin: 5px 0 0; } /* 定义当前元素的样式规则。 */

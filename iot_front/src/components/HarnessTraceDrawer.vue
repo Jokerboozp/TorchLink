@@ -1,35 +1,35 @@
 <script setup>
-import { computed } from 'vue'
-import ToolCallCard from './ToolCallCard.vue'
+import { computed } from 'vue' /* 引入当前代码需要的依赖。 */
+import ToolCallCard from './ToolCallCard.vue' /* 引入当前代码需要的依赖。 */
 
-const props = defineProps({
-  modelValue: { type:Boolean, default:false },
-  run: { type:Object, default:null }
-})
-const emit = defineEmits(['update:modelValue'])
+const props = defineProps({ /* 声明 props。 */
+  modelValue: { type:Boolean, default:false }, /* 执行当前语句并推进处理流程。 */
+  run: { type:Object, default:null } /* 执行当前语句并推进处理流程。 */
+}) /* 结束当前表达式或代码块。 */
+const emit = defineEmits(['update:modelValue']) /* 声明 emit。 */
 
-const statusMeta = computed(() => ({
-  running: { label:'运行中', type:'warning' },
-  succeeded: { label:'已完成', type:'success' },
-  failed: { label:'失败', type:'danger' },
-  canceled: { label:'已停止', type:'info' }
-}[props.run?.status] || { label:'等待中', type:'info' }))
+const statusMeta = computed(() => ({ /* 声明 statusMeta。 */
+  running: { label:'运行中', type:'warning' }, /* 执行当前语句并推进处理流程。 */
+  succeeded: { label:'已完成', type:'success' }, /* 执行当前语句并推进处理流程。 */
+  failed: { label:'失败', type:'danger' }, /* 执行当前语句并推进处理流程。 */
+  canceled: { label:'已停止', type:'info' } /* 执行当前语句并推进处理流程。 */
+}[props.run?.status] || { label:'等待中', type:'info' })) /* 结束当前表达式或代码块。 */
 
-function formatClock(value) {
-  if (!value) return '—'
-  const date = new Date(Number(value))
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('zh-CN', { hour12:false })
-}
+function formatClock(value) { /* 定义 formatClock 函数。 */
+  if (!value) return '—' /* 判断条件并选择处理分支。 */
+  const date = new Date(Number(value)) /* 声明 date。 */
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('zh-CN', { hour12:false }) /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 </script>
 
 <template>
-  <el-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue',$event)">
+  <el-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue',$event)"> <!-- 渲染 el-drawer 界面元素。 -->
     <template #header>
-      <div class="drawer-heading">
-        <span class="section-kicker">执行过程</span>
-        <strong>运行轨迹</strong>
-        <small>只展示服务端返回的摘要，不呈现工具原始敏感载荷。</small>
-      </div>
+      <div class="drawer-heading"> <!-- 渲染 div 界面元素。 -->
+        <span class="section-kicker">执行过程</span> <!-- 渲染 span 界面元素。 -->
+        <strong>运行轨迹</strong> <!-- 渲染 strong 界面元素。 -->
+        <small>只展示服务端返回的摘要，不呈现工具原始敏感载荷。</small> <!-- 渲染 small 界面元素。 -->
+      </div> <!-- 结束当前界面区域。 -->
     </template>
 
     <div v-if="run" class="trace-body">
@@ -68,9 +68,9 @@ function formatClock(value) {
 </template>
 
 <style scoped>
-.drawer-heading { display:grid; gap:3px; }.drawer-heading strong { color:#1f1f1f; font-size:17px; }.drawer-heading small { color:#8c8c8c; font-size:12px; }.section-kicker { color:#1677ff; font-size:12px; font-weight:700; letter-spacing:.14em; }
-.trace-body { display:grid; gap:18px; }.run-summary { padding:13px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; background:#fafafa; border:1px solid #e8e8e8; border-radius:4px; }.run-summary>div { min-width:0; display:grid; gap:4px; }.run-summary small { color:#8c8c8c; font-size:12px; }.run-summary strong { overflow:hidden; color:#3d3d3d; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
-.trace-identifiers { display:grid; gap:4px; color:#8c8c8c; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all; }.run-error { margin-top:-4px; }.trace-section { display:grid; gap:9px; }.section-title { display:flex; align-items:center; justify-content:space-between; padding-bottom:8px; border-bottom:1px solid #f0f0f0; }.section-title strong { font-size:13px; }.section-title span { color:#8c8c8c; font-size:12px; }
-.trace-list { margin:0; padding:0; list-style:none; }.trace-list li { position:relative; min-height:52px; padding:0 0 14px 23px; }.trace-list li:not(:last-child)::before { content:''; position:absolute; left:5px; top:12px; bottom:-2px; width:1px; background:#e5e5e5; }.trace-list i { position:absolute; left:0; top:4px; width:11px; height:11px; background:#fff; border:3px solid #8c8c8c; border-radius:50%; }.trace-list .is-success i { border-color:#52c41a; }.trace-list .is-running i { border-color:#faad14; }.trace-list .is-danger i { border-color:#ff4d4f; }.trace-list li>div { display:grid; gap:3px; }.trace-list strong { color:#3d3d3d; font-size:13px; }.trace-list small { color:#8c8c8c; font-size:12px; }.trace-list p { margin:2px 0 0; color:#646c73; font-size:12px; line-height:1.55; }
-@media (max-width:480px) { .run-summary { grid-template-columns:1fr; } }
+.drawer-heading { display:grid; gap:3px; }.drawer-heading strong { color:#1f1f1f; font-size:17px; }.drawer-heading small { color:#8c8c8c; font-size:12px; }.section-kicker { color:#1677ff; font-size:12px; font-weight:700; letter-spacing:.14em; } /* 定义当前元素的样式规则。 */
+.trace-body { display:grid; gap:18px; }.run-summary { padding:13px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; background:#fafafa; border:1px solid #e8e8e8; border-radius:4px; }.run-summary>div { min-width:0; display:grid; gap:4px; }.run-summary small { color:#8c8c8c; font-size:12px; }.run-summary strong { overflow:hidden; color:#3d3d3d; font-size:13px; text-overflow:ellipsis; white-space:nowrap; } /* 定义当前元素的样式规则。 */
+.trace-identifiers { display:grid; gap:4px; color:#8c8c8c; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all; }.run-error { margin-top:-4px; }.trace-section { display:grid; gap:9px; }.section-title { display:flex; align-items:center; justify-content:space-between; padding-bottom:8px; border-bottom:1px solid #f0f0f0; }.section-title strong { font-size:13px; }.section-title span { color:#8c8c8c; font-size:12px; } /* 定义当前元素的样式规则。 */
+.trace-list { margin:0; padding:0; list-style:none; }.trace-list li { position:relative; min-height:52px; padding:0 0 14px 23px; }.trace-list li:not(:last-child)::before { content:''; position:absolute; left:5px; top:12px; bottom:-2px; width:1px; background:#e5e5e5; }.trace-list i { position:absolute; left:0; top:4px; width:11px; height:11px; background:#fff; border:3px solid #8c8c8c; border-radius:50%; }.trace-list .is-success i { border-color:#52c41a; }.trace-list .is-running i { border-color:#faad14; }.trace-list .is-danger i { border-color:#ff4d4f; }.trace-list li>div { display:grid; gap:3px; }.trace-list strong { color:#3d3d3d; font-size:13px; }.trace-list small { color:#8c8c8c; font-size:12px; }.trace-list p { margin:2px 0 0; color:#646c73; font-size:12px; line-height:1.55; } /* 定义当前元素的样式规则。 */
+@media (max-width:480px) { .run-summary { grid-template-columns:1fr; } } /* 按屏幕条件调整样式。 */
 </style>

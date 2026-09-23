@@ -1,98 +1,98 @@
-package httpapi
+package httpapi /* 声明 httpapi 包。 */
 
-import (
-	"context"
-	"io"
-	"log/slog"
-	"testing"
-	"time"
+import ( /* 引入当前代码需要的依赖。 */
+	"context"  /* 执行当前语句并推进处理流程。 */
+	"io"       /* 执行当前语句并推进处理流程。 */
+	"log/slog" /* 执行当前语句并推进处理流程。 */
+	"testing"  /* 执行当前语句并推进处理流程。 */
+	"time"     /* 执行当前语句并推进处理流程。 */
 
-	"iot-platform/internal/adapters/local"
-	"iot-platform/internal/adapters/memory"
-	"iot-platform/internal/config"
-	"iot-platform/internal/core"
-	"iot-platform/internal/metrics"
-	"iot-platform/internal/model"
-	"iot-platform/internal/parser"
-)
+	"iot-platform/internal/adapters/local"  /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/memory" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/config"          /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/metrics"         /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/parser"          /* 执行当前语句并推进处理流程。 */
+) /* 结束当前表达式或代码块。 */
 
-type progressTestAI struct {
-	release <-chan struct{}
-}
+type progressTestAI struct { /* 定义 progressTestAI 类型。 */
+	release <-chan struct{} /* 执行当前语句并推进处理流程。 */
+} /* 结束当前表达式或代码块。 */
 
-func (p progressTestAI) AnalyzeAlarm(_ context.Context, alarm model.Alarm, _ []map[string]any, _ []string) (model.AIAnalysis, error) {
-	<-p.release
-	return model.AIAnalysis{AlarmID: alarm.ID, Summary: "研判完成", RiskLevel: alarm.AlarmLevel, Confidence: .9, Model: "qwen3:1.7b"}, nil
-}
+func (p progressTestAI) AnalyzeAlarm(_ context.Context, alarm model.Alarm, _ []map[string]any, _ []string) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
+	<-p.release                                                                                                                        /* 执行当前语句并推进处理流程。 */
+	return model.AIAnalysis{AlarmID: alarm.ID, Summary: "研判完成", RiskLevel: alarm.AlarmLevel, Confidence: .9, Model: "qwen3:1.7b"}, nil /* 返回当前处理结果。 */
+} /* 结束当前表达式或代码块。 */
 
-func (progressTestAI) Chat(context.Context, string, string) (string, error) { return "", nil }
-func (progressTestAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
-	return model.AlarmRule{}, nil
-}
-func (progressTestAI) Health(context.Context) error { return nil }
+func (progressTestAI) Chat(context.Context, string, string) (string, error) { return "", nil } /* 定义 Chat 函数。 */
+func (progressTestAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) { /* 定义 RuleDraft 函数。 */
+	return model.AlarmRule{}, nil /* 返回当前处理结果。 */
+}                                                   /* 结束当前表达式或代码块。 */
+func (progressTestAI) Health(context.Context) error { return nil } /* 定义 Health 函数。 */
 
-func TestAIAnalysisJobReportsProgressAndPersistsResult(t *testing.T) {
-	repo := memory.NewRepository()
-	archive, err := local.NewArchive(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	release := make(chan struct{})
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	engine.AI = progressTestAI{release: release}
-	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	job := api.startAIAnalysisJob("tenant-a", "alarm-progress", "operator")
-	if job.Status != "running" || job.Progress != 8 || job.EstimatedRemainingMs <= 0 {
-		t.Fatalf("unexpected initial progress: %#v", aiAnalysisJobView(job))
-	}
-	close(release)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		api.aiAnalysisMu.RLock()
-		current := cloneAIAnalysisJob(api.aiAnalysisJobs[alarmJobKey("tenant-a", "alarm-progress")])
-		api.aiAnalysisMu.RUnlock()
-		if current != nil && current.Status != "running" {
-			if current.Status != "succeeded" || current.Progress != 100 || current.Analysis.Summary != "研判完成" {
-				t.Fatalf("unexpected completed progress: %#v", aiAnalysisJobView(current))
-			}
-			if saved, getErr := repo.GetAIAnalysis(context.Background(), "tenant-a", "alarm-progress"); getErr != nil || saved.Summary != "研判完成" {
-				t.Fatalf("analysis was not persisted: %#v err=%v", saved, getErr)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("AI analysis job did not complete")
-}
+func TestAIAnalysisJobReportsProgressAndPersistsResult(t *testing.T) { /* 定义 TestAIAnalysisJobReportsProgressAndPersistsResult 函数。 */
+	repo := memory.NewRepository()                /* 更新 repo 的值。 */
+	archive, err := local.NewArchive(t.TempDir()) /* 更新 err 的值。 */
+	if err != nil {                               /* 判断条件并选择处理分支。 */
+		t.Fatal(err) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	release := make(chan struct{})                                                                                                                                                                                                                /* 更新 release 的值。 */
+	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                               /* 更新 engine 的值。 */
+	engine.AI = progressTestAI{release: release}                                                                                                                                                                                                  /* 更新 engine.AI 的值。 */
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                                                                               /* 更新 api 的值。 */
+	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                                                                               /* 判断条件并选择处理分支。 */
+		t.Fatal(err) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	job := api.startAIAnalysisJob("tenant-a", "alarm-progress", "operator")            /* 更新 job 的值。 */
+	if job.Status != "running" || job.Progress != 8 || job.EstimatedRemainingMs <= 0 { /* 判断条件并选择处理分支。 */
+		t.Fatalf("unexpected initial progress: %#v", aiAnalysisJobView(job)) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	close(release)                              /* 执行当前语句并推进处理流程。 */
+	deadline := time.Now().Add(2 * time.Second) /* 更新 deadline 的值。 */
+	for time.Now().Before(deadline) {           /* 循环处理当前数据。 */
+		api.aiAnalysisMu.RLock()                                                                     /* 执行当前语句并推进处理流程。 */
+		current := cloneAIAnalysisJob(api.aiAnalysisJobs[alarmJobKey("tenant-a", "alarm-progress")]) /* 更新 current 的值。 */
+		api.aiAnalysisMu.RUnlock()                                                                   /* 执行当前语句并推进处理流程。 */
+		if current != nil && current.Status != "running" {                                           /* 判断条件并选择处理分支。 */
+			if current.Status != "succeeded" || current.Progress != 100 || current.Analysis.Summary != "研判完成" { /* 判断条件并选择处理分支。 */
+				t.Fatalf("unexpected completed progress: %#v", aiAnalysisJobView(current)) /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+			if saved, getErr := repo.GetAIAnalysis(context.Background(), "tenant-a", "alarm-progress"); getErr != nil || saved.Summary != "研判完成" { /* 判断条件并选择处理分支。 */
+				t.Fatalf("analysis was not persisted: %#v err=%v", saved, getErr) /* 验证实际结果符合预期。 */
+			} /* 结束当前表达式或代码块。 */
+			return /* 返回当前处理结果。 */
+		} /* 结束当前表达式或代码块。 */
+		time.Sleep(10 * time.Millisecond) /* 执行当前语句并推进处理流程。 */
+	} /* 结束当前表达式或代码块。 */
+	t.Fatal("AI analysis job did not complete") /* 验证实际结果符合预期。 */
+} /* 结束当前表达式或代码块。 */
 
-func TestAIAnalysisProgressCanBeLoadedWithoutJobID(t *testing.T) {
-	repo := memory.NewRepository()
-	archive, err := local.NewArchive(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	release := make(chan struct{})
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	engine.AI = progressTestAI{release: release}
-	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress-resume", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	job := api.startAIAnalysisJob("tenant-a", "alarm-progress-resume", "operator")
-	server := newTestHTTPServer(api)
-	defer server.Close()
-	defer close(release)
-	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	progress := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/alarm-analysis/alarm-progress-resume/progress", viewerToken, nil, 200)
-	if progress["jobId"] != job.ID || progress["status"] != "running" {
-		t.Fatalf("unexpected resumable progress: %#v", progress)
-	}
-}
+func TestAIAnalysisProgressCanBeLoadedWithoutJobID(t *testing.T) { /* 定义 TestAIAnalysisProgressCanBeLoadedWithoutJobID 函数。 */
+	repo := memory.NewRepository()                /* 更新 repo 的值。 */
+	archive, err := local.NewArchive(t.TempDir()) /* 更新 err 的值。 */
+	if err != nil {                               /* 判断条件并选择处理分支。 */
+		t.Fatal(err) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	release := make(chan struct{})                                                                                                                                                                                                                       /* 更新 release 的值。 */
+	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                                      /* 更新 engine 的值。 */
+	engine.AI = progressTestAI{release: release}                                                                                                                                                                                                         /* 更新 engine.AI 的值。 */
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                                                                                      /* 更新 api 的值。 */
+	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress-resume", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                                                                                      /* 判断条件并选择处理分支。 */
+		t.Fatal(err) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	job := api.startAIAnalysisJob("tenant-a", "alarm-progress-resume", "operator")     /* 更新 job 的值。 */
+	server := newTestHTTPServer(api)                                                   /* 更新 server 的值。 */
+	defer server.Close()                                                               /* 安排函数结束时执行清理。 */
+	defer close(release)                                                               /* 安排函数结束时执行清理。 */
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour) /* 检查错误并决定后续处理。 */
+	if err != nil {                                                                    /* 判断条件并选择处理分支。 */
+		t.Fatal(err) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+	progress := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/alarm-analysis/alarm-progress-resume/progress", viewerToken, nil, 200) /* 更新 progress 的值。 */
+	if progress["jobId"] != job.ID || progress["status"] != "running" {                                                                              /* 判断条件并选择处理分支。 */
+		t.Fatalf("unexpected resumable progress: %#v", progress) /* 验证实际结果符合预期。 */
+	} /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
