@@ -24,7 +24,7 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .app-aside { width: 220px; padding: 0 10px; background: linear-gradient(180deg, var(--brand-navy), #0d2b52); border-right: 1px solid #0b284e; box-shadow: none; } /* 主导航采用品牌深蓝层次。 */
 .app-aside.is-collapsed { width: 64px; } /* 设置后台页面的布局与视觉样式。 */
 .brand { height: 66px; padding: 0 5px; border-bottom: 1px solid #ffffff30; } /* 标志在深色侧栏上居中留白。 */
-.brand > .brand-logo { height: 54px; margin: 0; background: transparent; } /* 透明底标志融入深蓝侧栏。 */
+.brand > .brand-logo { height: 58px; margin: 0; background: transparent; } /* 透明底标志融入深蓝侧栏。 */
 .menu-scroll { padding: 5px 0 18px; scrollbar-color: #7190b5 transparent; } /* 深色导航里的滚动条保持可见。 */
 .menu-group { margin: 18px 12px 7px; color: #b8cce3; font-size: 11px; font-weight: 600; letter-spacing: .03em; } /* 分组标题保持清晰。 */
 .menu-group-toggle:hover { color: #fff; } /* 分组展开按钮在悬停时可读。 */
