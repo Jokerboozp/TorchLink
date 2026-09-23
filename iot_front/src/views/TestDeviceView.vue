@@ -120,6 +120,7 @@ async function sendTemplate(kind) {
   sending.value = kind
   saveTemplates()
   try {
+    // 测试报文走受权限保护的调试接收接口，再以归档结果确认解析状态。
     const response = await api(`/api/v1/device-registry/${encodeURIComponent(device.value.id)}/debug`, { method: 'POST', body: JSON.stringify(body) })
     const messageId = response.archive?.messageId || response.messageId || body.messageId
     const rawDetail = await loadRawDetail(messageId)

@@ -88,8 +88,9 @@ async function save() {
   saving.value = true
   try {
     if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}`
+    // 编辑页不暴露物模型 JSON，但提交时保留已加载的模型，避免意外清空命令定义。
     const value = { ...form, id:form.id || form.code }
- delete value.code
+    delete value.code
     const editing = Boolean(form.id)
     await api(editing ? `/api/v1/products/${encodeURIComponent(value.id)}` : '/api/v1/products', {
       method: editing ? 'PUT' : 'POST',

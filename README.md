@@ -1,7 +1,7 @@
 # 炬联 TorchLink
 
 <p align="center">
-  <img src="docs/assets/torchlink-logo.png" alt="炬联 TorchLink Logo" width="600">
+  <img src="iot_front/public/torchlink-logo.png" alt="炬联 TorchLink Logo" width="600">
 </p>
 
 <p align="center"><strong>连接设备，感知安全。</strong></p>

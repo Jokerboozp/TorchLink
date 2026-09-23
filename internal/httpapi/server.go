@@ -713,6 +713,7 @@ func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) 
 	write(w, 200, map[string]any{"deviceId": r.PathValue("id"), "credential": c, "revocation": v})
 }
 func (s *Server) debugDeviceIngest(w http.ResponseWriter, r *http.Request) {
+	// 接入测试报文仍走正常归档与解析链路；设备归属从当前租户的登记记录确定。
 	c := claims(r)
 	v, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, r.PathValue("id"))
 	if err != nil {

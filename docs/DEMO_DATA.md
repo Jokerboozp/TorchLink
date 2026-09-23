@@ -147,10 +147,10 @@ echo "运行退出码：$demo_status；报告：$demo_run-report/report.html"
 
 `--prefix demo-mytest` 固定资源前缀；`--output /path/to/results` 指定本机结果目录；`--device-host` 指定套接字实际连接的主机（默认平台地址主机）。`--stages` 用逗号选择阶段，顺序按传入值执行；单独执行后续阶段需保留同一前缀/输出目录的前置结果，推荐使用默认完整顺序。
 
-## 开发回归与旧入口
+## 开发回归
 
 `node --test scripts/tests/demo-data.test.mjs` 检查参数、dry-run、网关归属与监听状态校验、失败报告及凭据脱敏。设置 `IOT_DEMO_TEST_API_EXE` 为本机构建的 API 可执行文件后，还会启动隔离内存仓储 API，跑真实 HTTP/Go编译/TCP/UDP/Excel/权限链路；AI、备份和MQTT真实基础设施不由这个测试覆盖。
 
 2026-09-15 本机隔离回归共5项通过，包含上述真实API链路；目标部署服务器尚未执行本脚本，需以目标运行生成的报告为准。
 
-旧的 `demo-report.mjs`、`demo-report-server.mjs` 和浏览器 `demo-platform-check.mjs` 仍是2026-09-14本机验收辅助脚本，含固定目录和历史描述，不作为本入口的一键报告生成器。查看当前报告请用 `report.html`，不要将旧报告当成本次结果。
+当前报告由一键脚本生成在本次指定的输出目录，使用 `report.html` 查看。2026-09-14 的固定目录报告工具已移除；当时的验收结论仍保存在 [历史记录](testing/2026-09-14-功能验收.md)。

@@ -127,6 +127,7 @@ function handleAccountCommand(command) {
 }
 
 function openPage(name, detail) {
+  // 历史导航事件仍使用 testDevice，统一落到当前的接入测试菜单。
   if (name === 'testDevice') {
     name = 'integration'
   }
