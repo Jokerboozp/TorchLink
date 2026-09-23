@@ -71,9 +71,18 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')))")) /* 等待协议工具栏。 */
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')).click()") /* 打开源码上传弹窗。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('编译选项')))")) /* 等待编译选项。 */
+  const sourceLayout = await evaluate("(() => {const modal=document.querySelector('.source-upload-dialog'),file=modal.querySelector('.source-file-item'),templates=modal.querySelector('.source-template-panel'),options=modal.querySelector('.source-compile-options'),publish=modal.querySelector('.source-publish-panel'),footer=modal.querySelector('.source-submit-row'),r=e=>e.getBoundingClientRect();return {separateRows:r(templates).top>=r(file).bottom,optionsAfterTemplates:r(options).top>=r(templates).bottom,publishAfterOptions:r(publish).top>=r(options).bottom,templateButtons:templates.querySelectorAll('button').length,footerButton:footer.querySelector('button')?.innerText,withinModal:r(templates).left>=r(modal).left&&r(templates).right<=r(modal).right}})()") /* 检查文件、模板、选项与发布区分行展示。 */
+  assert.ok(sourceLayout.separateRows && sourceLayout.optionsAfterTemplates && sourceLayout.publishAfterOptions && sourceLayout.withinModal && sourceLayout.templateButtons===2 && sourceLayout.footerButton.includes('上传、编译并发布'), `上传源码分组布局异常：${JSON.stringify(sourceLayout)}`) /* 模板操作不能再挤在文件名同一行。 */
+  await evaluate("document.querySelector('.source-publish-panel .n-switch').click()") /* 切换到只保存已校验版本。 */
+  assert.ok(await evaluate("(() => {const modal=document.querySelector('.source-upload-dialog');return modal.querySelector('.source-publish-panel').innerText.includes('稍后可在协议版本中发布') && modal.querySelector('.source-submit-row button').innerText.includes('上传、编译并校验')})()"), '仅校验模式的结果说明或提交按钮未同步更新') /* 操作结果须随发布开关变化。 */
+  await evaluate("document.querySelector('.source-publish-panel .n-switch').click()") /* 恢复默认的立即发布。 */
+  await delay(300) /* 等待弹窗动画结束，截图应呈现最终布局。 */
+  const sourceCapture = await call('Page.captureScreenshot', { format:'png' }) /* 留存弹窗的合成数据截图供布局复核。 */
+  await writeFile(join(tmpdir(), 'iot-source-upload-desktop.png'), Buffer.from(sourceCapture.data, 'base64')) /* 保存桌面视口截图。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-collapse-item__header-main').click()") /* 展开额外目标。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal .n-form-item')].find(item=>item.innerText.includes('额外编译目标') && item.getBoundingClientRect().height>0))")) /* 等待目标选择器真正展开。 */
   await delay(250) /* 等待折叠动画结束再检查滚动尺寸。 */
+  assert.ok(await evaluate("(() => {const modal=document.querySelector('.source-upload-dialog'),select=modal.querySelector('.source-target-item .n-base-selection'),help=modal.querySelector('.source-target-help');return select && help && help.getBoundingClientRect().top>=select.getBoundingClientRect().bottom})()"), '额外编译目标说明仍与下拉框挤在同一行') /* 编译说明应位于选择器下方。 */
   await evaluate("[...document.querySelectorAll('.n-modal .n-form-item')].find(item=>item.innerText.includes('额外编译目标')).querySelector('.n-base-selection').click()") /* 展开多选菜单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.getClientRects().length))")) /* 等待可见选项。 */
   const targetOption = await evaluate("(() => {const option=[...document.querySelectorAll('.n-base-select-option')].find(item=>item.getClientRects().length),r=option.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;return {outsideModal:!option.closest('.n-modal'),x,y,visible:r.top>=0&&r.bottom<=innerHeight,hit:document.elementFromPoint(x,y)?.closest('.n-base-select-option')===option}})()") /* 检查菜单未被弹窗遮住。 */
@@ -89,6 +98,10 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate("document.querySelector('.n-modal .n-card-content').scrollTop>0")) /* 等待正文滚动。 */
   await call('Input.dispatchMouseEvent', { type:'mouseWheel', x:sourceWheel.x, y:sourceWheel.y, deltaX:0, deltaY:-300 }) /* 验证向上滚动。 */
   await until(() => evaluate("document.querySelector('.n-modal .n-card-content').scrollTop===0")) /* 确认返回顶部。 */
+  await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false }) /* 恢复桌面视口。 */
+  await call('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true }) /* 检查窄屏模板与提交按钮的换行。 */
+  const mobileSourceLayout = await evaluate("(() => {const modal=document.querySelector('.source-upload-dialog'),panel=modal.querySelector('.source-template-panel'),footer=modal.querySelector('.source-submit-row'),button=footer.querySelector('button'),r=e=>e.getBoundingClientRect();return {viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,modalRight:r(modal).right,panelRight:r(panel).right,buttonRight:r(button).right,footerWidth:r(footer).width,buttonWidth:r(button).width}})()") /* 读取手机视口中各分组的宽度。 */
+  assert.ok(mobileSourceLayout.documentWidth<=mobileSourceLayout.viewport+2 && mobileSourceLayout.modalRight<=mobileSourceLayout.viewport+1 && mobileSourceLayout.panelRight<=mobileSourceLayout.viewport+1 && mobileSourceLayout.buttonRight<=mobileSourceLayout.viewport+1, `上传源码窄屏横向溢出：${JSON.stringify(mobileSourceLayout)}`) /* 窄屏仍可完整看到模板与提交按钮。 */
   await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false }) /* 恢复桌面视口。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭上传弹窗。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待弹窗关闭。 */

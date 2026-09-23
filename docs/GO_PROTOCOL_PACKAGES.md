@@ -55,7 +55,7 @@ func decode(data []byte, ctx Context) (Message, error) {
 1. 实现 `version=2`、`operation=decode/ingress/encode` 请求及对应响应；解析结果必须放在 `standardMessage` 字段中。允许自由定义函数、类型、导入标准库和项目内包。
 2. 单文件直接上传 `.go`。多文件项目把 `go.mod`、源码及项目内包放在项目根目录（ZIP 可带一层外部目录）；第三方依赖先执行 `go mod vendor`，把 `vendor` 一起上传。默认构建入口为 `.`，也可在 `protocol.json` 指定 `cmd/worker` 等项目内目录。
 3. 填写协议标识；新版本号、传输方式、报文格式等可在项目根目录的 `protocol.json` 中维护，页面未填写时自动读取。完整项目样例放在 ZIP 的 `samples/cases.json` 中；函数模板的样例仍直接写在 Go 代码中。
-4. 选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“产品管理 → 协议版本”操作中绑定。选择“仅保存已校验版本”时不改变产品绑定，稍后可发布。
+4. 上传 `.go` 文件或完整项目 ZIP；没有源码时，单纯解析上报可下载解析模板，需要分帧、应答和命令编码示例可下载 TCP / UDP 模板。选择已有产品后点击“上传、编译并发布”。平台始终构建服务器 OS/CPU，可同时选择额外编译目标；发布端全部样例通过后切换该产品的绑定版本；未选产品时只发布，可稍后在“产品管理 → 协议版本”操作中绑定。将“校验通过后”切换为“暂不发布”并点击“上传、编译并校验”时，仅保存已校验版本，不改变产品绑定，稍后可发布。
 5. 更新代码时更换版本号。语法错误会在页面保留编译日志；样例失败、panic、超时均阻止发布。同一已保存版本不能覆盖。在“产品管理 → 协议版本”操作中可切换或回滚，历史原始报文保留实际使用版本。
 
 源码入口：`POST /api/v2/protocols/{id}/source-releases`，multipart 字段为 `file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`（仅 `capabilities` 和 `targetPlatforms` 为 JSON 数组）、`cases`、`publish`、`productId`。`publish` 默认 true，`productId` 可选。模板及编译器可用状态：`GET /api/v2/protocol-source-template`。普通用户写入需要协议管理菜单及对应源码上传操作权限；内置管理员沿用维护权限，详见 [用户权限](USER_ACCESS_CONTROL.md)。

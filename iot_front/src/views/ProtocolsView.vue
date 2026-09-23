@@ -220,8 +220,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
     </template> <!-- 结束版本详情。 -->
   </ui-dialog> <!-- 结束协议版本弹窗。 -->
   <ui-dialog v-model="assistantOpen" title="生成协议" width="min(980px, 94vw)" :close-on-click-modal="false" destroy-on-close><p v-if="!assistantRelease" class="muted-text bottom-gap">通过报文或 Excel / CSV 点表生成协议</p><ProtocolAssistantView v-if="assistantOpen" :initial-release="assistantRelease" :initial-name="assistantName" @saved="load" @navigate="assistantNavigate" /></ui-dialog>
-  <ui-dialog v-model="sourceOpen" title="上传协议源码" width="min(720px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!compiling" :show-close="!compiling">
-
+  <ui-dialog v-model="sourceOpen" class="source-upload-dialog" title="上传协议源码" width="min(760px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!compiling" :show-close="!compiling">
       <ui-alert v-if="sourceTemplate && !sourceTemplate.compilerAvailable" class="top-gap" title="当前服务缺少源码编译环境，请联系管理员部署支持编译的后端服务。" type="warning" :closable="false" />
       <ui-form :disabled="compiling" :model="source" label-position="top" class="top-gap">
         <div class="form-grid">
@@ -231,26 +230,35 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
           <ui-form-item label="绑定产品（可选）"><ui-select v-model="source.productId" filterable clearable :disabled="!source.publish" placeholder="选择后，发布成功立即切换"><ui-option v-for="p in products" :key="p.id" :label="`${p.name} · ${p.id}`" :value="p.id" /></ui-select></ui-form-item>
           <ui-form-item label="设备上报通道"><ui-select v-model="source.transport" clearable placeholder="自动识别，可手动选择"><ui-option v-for="value in ['MQTT','HTTP','TCP','UDP','TCP_UDP']" :key="value" :label="transportLabel(value)" :value="value" /></ui-select></ui-form-item>
         </div>
-        <ui-form-item label="源码文件或项目压缩包">
-          <FilePicker accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
-          <ui-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate()">下载解析模板</ui-button>
-          <ui-button plain class="left-gap" :disabled="!sourceTemplate" @click="downloadSourceTemplate('tcp')">下载 TCP / UDP 模板</ui-button>
-          <small class="subline">支持 .go 或完整项目 ZIP，样例通过后才可发布。</small>
+        <ui-form-item label="源码文件或项目压缩包" class="source-file-item">
+          <div class="source-file-field">
+            <FilePicker accept=".go,.zip" :disabled="compiling" @change="chooseSourceFile" />
+            <small>上传 .go 文件或完整 Go 项目 ZIP，文件不能超过 32 MB。</small>
+          </div>
         </ui-form-item>
-        <ui-collapse>
+        <div class="source-template-panel">
+          <div><strong>还没有源码？</strong><small>解析模板适合单纯解析上报；TCP / UDP 模板还包含分帧、应答和命令编码示例。</small></div>
+          <div class="source-template-actions">
+            <ui-button plain :disabled="!sourceTemplate || compiling" @click="downloadSourceTemplate()">下载解析模板</ui-button>
+            <ui-button plain :disabled="!sourceTemplate || compiling" @click="downloadSourceTemplate('tcp')">下载 TCP / UDP 模板</ui-button>
+          </div>
+        </div>
+        <ui-collapse class="source-compile-options">
           <ui-collapse-item title="编译选项" name="advanced">
-            <ui-form-item label="额外编译目标（可选）">
+            <ui-form-item label="额外编译目标（可选）" class="source-target-item">
               <ui-select v-model="targetPlatforms" multiple clearable :to="true" :disabled="compiling" placeholder="默认仅构建发布端平台"><ui-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></ui-select> <!-- 选项弹层挂到页面根部，避免被源码弹窗边界裁切。 -->
-              <small class="subline">其他平台仅生成编译制品；在对应平台实际试跑前不能视为验收通过。</small>
             </ui-form-item>
+            <small class="source-target-help">发布端会编译并运行样例；额外目标仅生成编译制品，所有所选目标都须编译成功，实际试跑后才能确认适配。</small>
           </ui-collapse-item>
         </ui-collapse>
-        <ui-switch v-model="source.publish" active-text="测试通过后立即发布" inactive-text="仅保存已校验版本" />
-        <div class="dialog-actions"><ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</ui-button></div>
-        <small v-if="compiling" class="subline">首次编译可能较慢，请保持页面打开。每个平台编译最长 120 秒，随后运行样例测试。</small>
+        <div class="source-publish-panel">
+          <div><strong>校验通过后</strong><small>{{ source.publish ? '自动发布新版本；若已绑定产品，立即切换到新版本。' : '仅保存已校验版本，稍后可在协议版本中发布。' }}</small></div>
+          <ui-switch v-model="source.publish" active-text="立即发布" inactive-text="暂不发布" />
+        </div>
+        <small v-if="compiling" class="source-compiling-help">首次编译可能较慢，请保持页面打开。每个平台编译最长 120 秒，随后运行样例测试。</small>
         <ui-alert v-if="sourceError" class="top-gap" title="操作未完成，请查看原因" type="error" :closable="false"><pre class="source-error">{{ sourceError }}</pre></ui-alert>
       </ui-form>
-
+      <template #footer><div class="source-submit-row"><span>提交后先编译并试跑样例，全部通过才会按上方设置保存或发布。</span><ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</ui-button></div></template>
   </ui-dialog>
   <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑接入网关' : '新建接入网关'" width="min(760px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener">
       <p class="muted-text">接入网关是平台的软件接入服务，用于管理产品的设备连接与端口。一个产品可配置多个网关；现场实体网关在设备管理中登记。</p>
@@ -287,4 +295,18 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .release-buttons .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
 .release-detail-actions { align-items: center; margin-top: 18px; } /* 让专项操作在版本信息下保持整齐。 */
 .source-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; } /* 定义当前元素的样式规则。 */
+.source-file-field { width: 100%; min-width: 0; display: grid; gap: 7px; } /* 文件操作独占一行，避免按钮与文件名相互挤压。 */
+.source-file-field small, .source-template-panel small, .source-publish-panel small, .source-target-help, .source-compiling-help { display: block; color: #697386; font-size: 12px; line-height: 1.5; } /* 辅助说明换行显示并保持可读。 */
+.source-template-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin: 2px 0 16px; padding: 14px 16px; border: 1px solid #e1e8f0; border-radius: 8px; background: #f8fafc; } /* 将模板下载与文件上传分组。 */
+.source-template-panel strong, .source-publish-panel strong { display: block; margin-bottom: 3px; font-size: 13px; color: #243145; } /* 明确每组操作的用途。 */
+.source-template-actions { display: flex; flex-wrap: wrap; gap: 8px; } /* 模板按钮在窄视口自动换行。 */
+.source-compile-options { margin-bottom: 16px; } /* 编译选项与发布方式分隔。 */
+.source-target-item { margin: 8px 0 4px !important; } /* 下拉框与自身说明保持一组。 */
+.source-target-help { margin-bottom: 12px; } /* 说明独占一行，避免挤到下拉框右侧。 */
+.source-publish-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; padding: 14px 16px; border: 1px solid #d9e8df; border-radius: 8px; background: #f7fbf8; } /* 发布行为及结果说明集中展示。 */
+.source-compiling-help { margin-top: 12px; } /* 编译耗时提示放在发布设置下方。 */
+.source-submit-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 14px; } /* 提交操作固定在弹窗页脚。 */
+.source-submit-row span { color: #697386; font-size: 12px; line-height: 1.5; } /* 页脚简述实际执行顺序。 */
+.source-submit-row button { flex: none; } /* 提交按钮不被说明文字压缩。 */
+@media (max-width: 640px) { .source-template-actions, .source-template-actions button, .source-submit-row, .source-submit-row button { width: 100%; } .source-submit-row { flex-wrap: wrap; } } /* 窄屏使用单列按钮，避免横向溢出。 */
 </style>
