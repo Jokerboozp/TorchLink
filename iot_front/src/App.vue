@@ -80,7 +80,8 @@ const pages = { /* 声明 pages。 */
 const current = computed(() => pages[active.value] || {title:'暂无可用功能'}) /* 声明 current。 */
 const menuGroups = [ /* 声明 menuGroups。 */
   { label: '控制中心', items: ['dashboard'] }, /* 执行当前语句并推进处理流程。 */
-  { label: '设备接入', items: ['protocols', 'products', 'devices', 'profiles', 'integration', 'cameras'] }, /* 执行当前语句并推进处理流程。 */
+  { label: '设备接入', items: ['devices', 'products', 'profiles', 'cameras'] },
+  { label: '技术配置与调试', items: ['protocols', 'integration'] },
   { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] }, /* 执行当前语句并推进处理流程。 */
   { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] }, /* 执行当前语句并推进处理流程。 */
   { label: '系统维护', items: ['backups','access'] } /* 执行当前语句并推进处理流程。 */

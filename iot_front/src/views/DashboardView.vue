@@ -57,7 +57,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
 <template>
   <div class="dashboard-page" :aria-busy="loading"> <!-- 渲染 div 界面元素。 -->
     <ui-alert v-if="loadError" class="dashboard-error" :title="loadError" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
-    <div class="section-toolbar dashboard-toolbar"><span class="muted-text">{{ loading ? '正在更新…' : data ? `更新于 ${formatTime(data.updatedAt)}` : '尚未获取数据' }}</span><ui-button :loading="loading" @click="load"><RefreshCw :size="14" />刷新</ui-button></div> <!-- 渲染 div 界面元素。 -->
+    <div class="section-toolbar dashboard-toolbar"><span class="muted-text">{{ loading ? '正在更新…' : data ? `更新于 ${formatTime(data.updatedAt)}` : '尚未获取数据' }}</span><ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="emit('navigate','devices',{onboarding:true})">接入设备</ui-button><ui-button :loading="loading" @click="load"><RefreshCw :size="14" />刷新</ui-button></div> <!-- 渲染 div 界面元素。 -->
     <div class="stats-grid"> <!-- 渲染 div 界面元素。 -->
       <ui-card v-for="item in [{label:'设备总数',value:stats.devices,note:'已登记设备',tone:'primary'},{label:'在线设备',value:stats.online,note:`在线率 ${rate}%`,tone:'success'},{label:'活动告警',value:stats.activeAlarms,note:'待确认',tone:'warning'},{label:'高等级告警',value:stats.highAlarms,note:'紧急与高等级 · 活动中',tone:'danger'}]" :key="item.label" class="stat-card" shadow="never"> <!-- 渲染 ui-card 界面元素。 -->
         <span>{{ item.label }}</span><strong>{{ data ? item.value.toLocaleString() : '—' }}</strong><small :class="item.tone">{{ data ? item.note : '等待更新' }}</small><i :class="item.tone" /> <!-- 渲染 span 界面元素。 -->

@@ -311,9 +311,9 @@ test('protocol v2 point-table, package release and device collection flows are v
   const raw = await readFile(new URL('src/views/RawView.vue', root), 'utf8') /* 声明 raw。 */
   const devices = await readFile(new URL('src/views/DevicesView.vue', root), 'utf8') /* 声明 devices。 */
   const app = await appSource() /* 声明 app。 */
-  for (const label of ['新建网关', '上传源码', '版本', '接入网关', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`) /* 循环处理当前数据。 */
+  for (const label of ['新建平台连接配置', '上传源码', '版本', '平台连接配置', '连接测试']) assert.match(protocols, new RegExp(label), `missing label: ${label}`) /* 循环处理当前数据。 */
   for (const route of ['/api/v2/protocols', '/api/v2/device-access-profiles']) assert.match(protocols, new RegExp(route.replaceAll('/', '\\/'))) /* 循环处理当前数据。 */
-  assert.match(protocols, /产品绑定协议/) /* 验证实际结果符合预期。 */
+  assert.match(protocols, /模板绑定协议/) /* 验证实际结果符合预期。 */
   assert.doesNotMatch(protocols, /commandOpen|下行命令/) /* 验证实际结果符合预期。 */
   assert.doesNotMatch(protocols, /go-json-lines-v1|source\.cases|旧协议包/) /* 验证实际结果符合预期。 */
   assert.match(app, /label: '设备接入'/) /* 验证实际结果符合预期。 */
@@ -382,7 +382,7 @@ test('device access and health inspection pages expose the new runtime workflow'
   const protocol = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8')
   const inspection = await readFile(new URL('src/views/HealthInspectionView.vue', root), 'utf8')
   const app = await appSource()
-  for (const label of ['设备连接平台', '保存接入网关', '协议版本', '接入网关']) {
+  for (const label of ['设备连接平台', '保存平台连接配置', '协议版本', '平台连接配置']) {
     assert.match(protocol, new RegExp(label), `missing protocol v2 label: ${label}`)
   }
   for (const label of ['设备健康巡检', '立即巡检', '状态正常', '活动告警', '智能巡检建议']) {
@@ -399,7 +399,7 @@ test('device access and health inspection pages expose the new runtime workflow'
   assert.match(inspection, /onBeforeUnmount/)
   assert.doesNotMatch(inspection, /onMounted\(run\)/)
   assert.match(inspection, /点击“立即巡检”开始检查/)
-  assert.match(app, /title:\s*'协议管理'/)
+  assert.match(app, /title:\s*'设备通信协议'/)
   assert.match(app, /title:'智能巡检'/)
   assert.doesNotMatch(app, /protocolAssistant/)
   assert.match(app, /inspection/)

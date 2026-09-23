@@ -123,9 +123,13 @@ func (s *Server) deviceAccessInfo(d model.ManagedDevice) map[string]any { /* 定
 		return nil /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	identity := d.TenantID + "/" + d.ProductID + "/" + d.ID /* 更新 identity 的值。 */
-	return map[string]any{                                  /* 返回当前处理结果。 */
-		"httpUrl":    publicEndpoint(s.cfg.DeviceHTTPPublicURL) + "/api/v1/device-ingest/standard/" + identity + "/property", /* 执行当前语句并推进处理流程。 */
-		"mqttBroker": publicEndpoint(s.cfg.MQTTPublicURL), "mqttWebSocket": publicEndpoint(s.cfg.MQTTWebSocketURL),           /* 执行当前语句并推进处理流程。 */
+	httpURL := ""
+	if endpoint := publicEndpoint(s.cfg.DeviceHTTPPublicURL); endpoint != "" {
+		httpURL = endpoint + "/api/v1/device-ingest/standard/" + identity + "/property"
+	}
+	return map[string]any{ /* 返回当前处理结果。 */
+		"httpUrl":    httpURL,
+		"mqttBroker": publicEndpoint(s.cfg.MQTTPublicURL), "mqttWebSocket": publicEndpoint(s.cfg.MQTTWebSocketURL), /* 执行当前语句并推进处理流程。 */
 		"clientId": "device-" + d.AccessKey, "username": d.AccessKey, "tokenEndpoint": "/api/v1/device-mqtt/token", /* 执行当前语句并推进处理流程。 */
 		"upTopic": "/iot/up/" + identity + "/property", "downTopic": "/iot/down/" + identity + "/command", /* 执行当前语句并推进处理流程。 */
 		"sample": map[string]any{"version": "1.0", "id": "replace-with-unique-message-id", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"temperature": 26.5}}, /* 执行当前语句并推进处理流程。 */

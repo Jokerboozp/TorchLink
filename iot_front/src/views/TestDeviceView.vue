@@ -154,7 +154,7 @@ function alarmLabel(value) { /* 定义 alarmLabel 函数。 */
   return alarmType(value) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
-onMounted(() => prepare()) /* 执行当前语句并推进处理流程。 */
+onMounted(() => restoreTemplates())
 </script>
 
 <template>
@@ -164,7 +164,7 @@ onMounted(() => prepare()) /* 执行当前语句并推进处理流程。 */
       <ui-button plain type="warning" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       <ui-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       <ui-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <span>系统会为当前租户生成一台可重复使用的测试烟感设备。</span> <!-- 渲染 span 界面元素。 -->
+      <span>点击“准备测试设备”后才会创建测试资源；模拟结果不能证明现场设备已接通。</span> <!-- 渲染 span 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
 
     <ui-alert v-if="device" title="设备告警直接进入告警中心" description="测试设备不会自动创建告警规则；发送报警数据会直接产生设备告警。若存在匹配规则，则按规则提供告警类型、等级和联动动作。"

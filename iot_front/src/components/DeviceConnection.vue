@@ -144,7 +144,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           <h3>连接概览</h3> <!-- 渲染 h3 界面元素。 -->
           <ui-descriptions :column="columns" border> <!-- 渲染 ui-descriptions 界面元素。 -->
             <ui-descriptions-item label="设备">{{data.device.name || props.deviceId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="产品">{{data.product?.name || data.device.productId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="设备模板">{{data.product?.name || data.device.productId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="接入方式">{{transportLabel(data.connector) || '未配置'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="创建时间">{{formatTime(data.device.createdAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="当前绑定协议">{{data.protocolId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
@@ -157,23 +157,23 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <ui-descriptions-item label="最后断开">{{formatTime(data.connection?.lastDisconnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="原文接收">{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="解析状态">{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item v-if="data.profile" label="接入网关">{{data.profile.id}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item v-if="data.profile" label="网关运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile" label="平台连接配置">{{data.profile.id}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile" label="连接运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.parent" label="所属主设备"><ui-button link type="primary" @click="emit('device',data.parent.id)">{{data.parent.name || data.parent.id}}</ui-button></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.tags?.childAddress || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
           </ui-descriptions> <!-- 结束当前界面区域。 -->
           <ui-alert v-if="data.profile?.lastError || data.ingest?.parseError" class="section-feedback" title="最近接入异常" :description="data.profile?.lastError || data.ingest?.parseError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
           <div v-if="data.profiles?.length > 1" class="profile-picker"> <!-- 渲染 div 界面元素。 -->
-            <p>检测到多个关联接入网关，请选择要查看和发送命令的网关。</p> <!-- 渲染 p 界面元素。 -->
-            <ui-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入网关" @change="selectProfile"><ui-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="p.id" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
+            <p>检测到多个关联的平台连接配置，请根据用途、地址和状态选择。</p> <!-- 渲染 p 界面元素。 -->
+            <ui-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择平台连接配置" @change="selectProfile"><ui-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="`${p.id} · ${p.host}:${p.port} · ${p.runtimeStatus||'待确认'}`" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="standardAccess" class="connection-section device-access-info"> <!-- 渲染 section 界面元素。 -->
           <h3>设备接入信息</h3> <!-- 渲染 h3 界面元素。 -->
           <ui-descriptions :column="1" border> <!-- 渲染 ui-descriptions 界面元素。 -->
-            <ui-descriptions-item v-if="data.connector==='HTTP'" label="上报接口"><code>{{data.accessInfo.httpUrl}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.connector==='HTTP'" label="上报接口"><code>{{data.accessInfo.httpUrl || '未配置平台对外 HTTP 地址'}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.connector==='MQTT'" label="消息服务地址"><code>{{data.accessInfo.mqttBroker || '未配置对外地址'}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.connector==='MQTT'" label="客户端标识"><code>{{data.accessInfo.clientId}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="接入密钥"><code>{{data.accessInfo.username}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
@@ -181,6 +181,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <ui-descriptions-item v-if="data.connector==='MQTT'" label="下行 Topic"><code>{{data.accessInfo.downTopic}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="凭据状态">{{data.credentialEnabled ? '已启用' : '已禁用'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
           </ui-descriptions> <!-- 结束当前界面区域。 -->
+          <p v-if="data.connector==='MQTT'">设备先用 AccessKey 和 Secret 调用 {{data.accessInfo.tokenEndpoint}} 换取短期 MQTT token，再以返回的 username 和 token 连接 Broker；Secret 不能直接作为 MQTT 密码。</p>
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="isParent" class="connection-section device-children" v-loading="lists.children.loading"> <!-- 渲染 section 界面元素。 -->
@@ -188,7 +189,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           <ui-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
           <ui-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息"> <!-- 渲染 ui-table 界面元素。 -->
             <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.tags.childAddress" label="地址" min-width="90" /> <!-- 渲染 ui-table-column 界面元素。 -->
-            <ui-table-column prop="productName" label="产品" min-width="130" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="productName" label="设备模板" min-width="130" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="协议" min-width="150"><template #default="{row}">{{row.binding?.protocolId || '未配置'}} · {{row.binding?.version || '—'}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{formatTime(row.runtimeState?.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="状态" min-width="95"><template #default="{row}">{{label(businessStatuses,row.runtimeState?.businessStatus) || '未知'}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
@@ -200,7 +201,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         <section v-if="hasSessions" class="connection-section device-sessions"> <!-- 渲染 section 界面元素。 -->
           <h3>{{data.parent ? '主设备通信会话' : '在线会话'}}</h3> <!-- 渲染 h3 界面元素。 -->
           <ui-table :data="data.sessions || []" border empty-text="暂无已识别的在线会话"> <!-- 渲染 ui-table 界面元素。 -->
-            <ui-table-column prop="profileId" label="接入网关" min-width="145" /><ui-table-column prop="remoteAddress" label="远端地址" min-width="155" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="profileId" label="平台连接配置" min-width="145" /><ui-table-column prop="remoteAddress" label="远端地址" min-width="155" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column prop="protocolId" label="会话协议" min-width="130" /><ui-table-column prop="protocolVersion" label="会话版本" min-width="100" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="最后有效报文" min-width="175"><template #default="{row}">{{formatTime(row.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
           </ui-table> <!-- 结束当前界面区域。 -->
@@ -267,7 +268,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             </ui-form> <!-- 结束当前界面区域。 -->
             <ui-button v-permission="'POST /api/v1/device-registry/:id/commands'" v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || !selectedOperation" :loading="actionBusy" @click="sendMQTT">执行命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
             <ui-button v-permission="'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'" v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || !selectedOperation" @click="send">执行命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-            <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前无可用连接或接入网关已停用，暂时不能下发命令。</p> <!-- 渲染 p 界面元素。 -->
+            <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前无可用连接或平台连接配置已停用，暂时不能下发命令。</p> <!-- 渲染 p 界面元素。 -->
             <ui-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand">开始一条新命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </template>
           <ui-alert v-if="commandResult?.lastError" :title="label(commandStatuses,String(commandResult.status || '').toUpperCase())" :description="commandResult.lastError" type="warning" :closable="false" />

@@ -17,15 +17,16 @@ function component(file, api, exports, notifyError = e => { throw e }) { /* 定�
 } /* 结束当前表达式或代码块。 */
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`})) /* 声明 items。 */
 
-test('HTTP 页面新增产品和设备时可以生成默认编号并提交',async()=>{ /* 执行当前语句并推进处理流程。 */
+test('产品可生成模板编号，快捷登记必须使用实际设备编号',async()=>{ /* 执行当前语句并推进处理流程。 */
  for(const [file,prefix,path] of [['ProductsView.vue','product','/api/v1/products'],['DevicesView.vue','device','/api/v1/device-registry']]) { /* 循环处理当前数据。 */
   const requests=[] /* 声明 requests。 */
   const c=component(file,async(url,options)=>{if(options?.method==='POST')requests.push({url,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save') /* 声明 c。 */
-  Object.assign(c.form,{name:'HTTP 演示',protocolPackageId:'protocol',productId:'product'}) /* 执行当前语句并推进处理流程。 */
+  Object.assign(c.form,{name:'HTTP 演示',protocolPackageId:'protocol',productId:'product',...(prefix==='device'?{code:'real-device-01'}:{})})
   await c.save() /* 等待异步操作完成。 */
   assert.equal(requests.length,1) /* 验证实际结果符合预期。 */
   assert.equal(requests[0].url,path) /* 验证实际结果符合预期。 */
-  assert.match(requests[0].body.id,new RegExp(`^${prefix}_[0-9a-f]{12}$`)) /* 验证实际结果符合预期。 */
+  if(prefix==='product') assert.match(requests[0].body.id,/^product_[0-9a-f]{12}$/)
+  else assert.equal(requests[0].body.id,'real-device-01')
  } /* 结束当前表达式或代码块。 */
 }) /* 结束当前表达式或代码块。 */
 test('协议列表分页覆盖所有记录并在列表缩小时修正当前页',async()=>{ /* 执行当前语句并推进处理流程。 */
@@ -58,8 +59,8 @@ test('device registration offers product 101', async()=>{ /* 执行当前语句�
   await c.load() /* 等待异步操作完成。 */
   assert.ok(c.products.value.some(x=>x.id==='item-101')) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
-test('product editor offers protocol 101', async()=>{ /* 执行当前语句并推进处理流程。 */
-  const c=component('ProductsView.vue', async path=>path.includes('/protocol-packages') ? paginated(path) : {items:[],total:0}, 'load,protocols') /* 声明 c。 */
+test('product editor offers published protocol 101', async()=>{ /* 执行当前语句并推进处理流程。 */
+  const c=component('ProductsView.vue', async path=>path.includes('/protocol-packages') ? {...paginated(path),items:paginated(path).items.map(item=>({...item,status:'PUBLISHED'}))} : {items:[],total:0}, 'load,protocols') /* 声明 c。 */
   await c.load() /* 等待异步操作完成。 */
   assert.ok(c.protocols.value.some(x=>x.id==='item-101')) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
@@ -102,7 +103,7 @@ test('product pagination does not discard an in-flight protocol catalog', async(
   const first=c.load() /* 声明 first。 */
   await new Promise(resolve=>setImmediate(resolve)) /* 等待异步操作完成。 */
   c.changePage(2) /* 执行当前语句并推进处理流程。 */
-  finishCatalog({items:[{id:'late-protocol',name:'最新协议'}],total:1}) /* 执行当前语句并推进处理流程。 */
+  finishCatalog({items:[{id:'late-protocol',name:'最新协议',status:'PUBLISHED'}],total:1}) /* 执行当前语句并推进处理流程。 */
   await first /* 等待异步操作完成。 */
   assert.ok(c.protocols.value.some(item=>item.id==='late-protocol')) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */

@@ -3,6 +3,7 @@ package model /* 声明 model 包。 */
 import ( /* 引入当前代码需要的依赖。 */
 	"encoding/json" /* 执行当前语句并推进处理流程。 */
 	"errors"        /* 执行当前语句并推进处理流程。 */
+	"strings"
 ) /* 结束当前表达式或代码块。 */
 
 // ChildProductBinding maps a protocol's device type to a preconfigured product.
@@ -53,6 +54,12 @@ type ProtocolQuery struct { /* 定义 ProtocolQuery 类型。 */
 } /* 结束当前表达式或代码块。 */
 
 func ValidateProtocolAccess(p DeviceAccessProfile) error { /* 定义 ValidateProtocolAccess 函数。 */
+	if p.PublicHost != "" {
+		host := strings.TrimSpace(p.PublicHost)
+		if p.Mode != "listener" || p.ConnectionMode == "dial" || host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" || strings.ContainsAny(host, "/@?# ") {
+			return errors.New("平台对外地址须为现场设备可填写的域名或 IP，不能使用监听地址")
+		}
+	}
 	if p.ConnectionMode != "" && p.ConnectionMode != "listen" && p.ConnectionMode != "dial" { /* 判断条件并选择处理分支。 */
 		return errors.New("连接方向须为 listen 或 dial") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */

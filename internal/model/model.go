@@ -325,6 +325,7 @@ type DeviceAccessProfile struct { /* 定义 DeviceAccessProfile 类型。 */
 	PointTableVersion string `json:"pointTableVersion"`       /* 执行当前语句并推进处理流程。 */
 	CollectorID       string `json:"collectorId,omitempty"`   /* 执行当前语句并推进处理流程。 */
 	Host              string `json:"host"`                    /* 执行当前语句并推进处理流程。 */
+	PublicHost        string `json:"publicHost,omitempty"`    // Address configured on field devices for listener profiles.
 	Port              int    `json:"port"`                    /* 执行当前语句并推进处理流程。 */
 	UnitID            int    `json:"unitId"`                  /* 执行当前语句并推进处理流程。 */
 	TimeoutMs         int    `json:"timeoutMs"`               /* 执行当前语句并推进处理流程。 */

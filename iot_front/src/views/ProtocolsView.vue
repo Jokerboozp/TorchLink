@@ -41,11 +41,12 @@ const assistantRelease = ref(null), assistantName = ref('') /* 声明 assistantR
 function openAssistant(release = null, name = '') { releaseOpen.value=false;assistantRelease.value=release;assistantName.value=name;assistantOpen.value=true } /* 从版本详情进入解析测试时关闭原弹窗。 */
 function assistantNavigate(page) { assistantOpen.value=false;emit('navigate',page) } /* 定义 assistantNavigate 函数。 */
 const editingProfile = ref(false) /* 声明 editingProfile。 */
-const blankListener = () => ({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[], unitId:1, intervalMs:10000, retries:0, wireFormat:'' }) /* 声明 blankListener。 */
+const blankListener = () => ({ id:'', productId:'', protocolId:'', protocolVersion:'', mode:'listener', network:'tcp', host:'0.0.0.0', publicHost:'', port:26875, timeoutMs:5000, autoRegister:false, enabled:true, connectionMode:'listen', deviceId:'',queries:[],childProducts:[], unitId:1, intervalMs:10000, retries:0, wireFormat:'' }) /* 声明 blankListener。 */
 const listener = reactive(blankListener()) /* 声明 listener。 */
 function resetListener(value = {}) { for (const key of Object.keys(listener)) delete listener[key]; Object.assign(listener, blankListener(), value) } /* 定义 resetListener 函数。 */
 function createProfile() { bindingRevision++; resetListener(); editingProfile.value=false; profileOpen.value=true } /* 定义 createProfile 函数。 */
 watch(()=>listener.network,value=>{if(value!=='tcp'){listener.connectionMode='listen';listener.deviceId='';listener.queries=[]}}) /* 执行当前语句并推进处理流程。 */
+watch(()=>listener.connectionMode,value=>{if(value==='dial')listener.publicHost=''})
 function editProfile(profile){bindingRevision++;resetListener({...JSON.parse(JSON.stringify(profile)),mode:profile.mode || 'poll',network:profile.network || 'tcp',connectionMode:profile.mode === 'listener' ? profile.connectionMode || 'listen' : ''});editingProfile.value=true;profileOpen.value=true} /* 定义 editProfile 函数。 */
 const savingListener = ref(false) /* 声明 savingListener。 */
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0)) /* 声明 releaseCount。 */
@@ -110,7 +111,7 @@ async function saveListener() { /* 定义 saveListener 函数。 */
   savingListener.value = true /* 更新 savingListener.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     result.value = await api(editingProfile.value ? `/api/v2/device-access-profiles/${encodeURIComponent(listener.id)}` : '/api/v2/device-access-profiles', { method:editingProfile.value ? 'PUT' : 'POST', body:JSON.stringify(listener) }) /* 更新 result.value 的值。 */
-    UiMessage.success('接入网关已保存') /* 执行当前语句并推进处理流程。 */
+    UiMessage.success('平台连接配置已保存')
     profileOpen.value = false /* 更新 profileOpen.value 的值。 */
     await load() /* 等待异步操作完成。 */
   } catch (error) { notifyError(error) } finally { savingListener.value = false } /* 结束当前表达式或代码块。 */
@@ -160,8 +161,8 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       <span>{{ protocols.length }} 个协议 · {{ releaseCount }} 个版本</span> <!-- 渲染 span 界面元素。 -->
     </template>
     <template v-else>
-      <ui-button v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="createProfile">新建网关</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <span>{{ profiles.length }} 个接入网关</span> <!-- 渲染 span 界面元素。 -->
+      <ui-button v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="createProfile">新建平台连接配置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <span>{{ profiles.length }} 个平台连接配置</span> <!-- 渲染 span 界面元素。 -->
     </template>
     <ui-button :loading="loading" @click="load">刷新</ui-button>
   </div>
@@ -191,7 +192,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
           <h4>最近接入设备（按创建时间，最多 20 台）</h4><ui-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><ui-table-column prop="deviceId" label="设备标识"/><ui-table-column prop="name" label="名称"/><ui-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></ui-table-column></ui-table></div> <!-- 渲染 h4 界面元素。 -->
         </template></ui-table-column> <!-- 结束当前界面区域。 -->
         <ui-table-column label="在线会话" width="100"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="接入网关" min-width="190"><template #default="{ row }"><b>{{ row.id }}</b><small v-if="row.deviceId" class="subline">目标设备：{{ row.deviceId }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column label="平台连接配置" min-width="190"><template #default="{ row }"><b>{{ row.id }}</b><small v-if="row.deviceId" class="subline">目标设备：{{ row.deviceId }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="关联产品" min-width="180"><template #default="{ row }">{{ products.find(p => p.id === row.productId)?.name || row.productId }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="接入地址 / 端口" min-width="200"><template #default="{ row }">{{ row.host }}:{{ row.port }}<small class="subline">{{ row.mode === 'listener' ? `${transportLabel(row.network)} · ${row.connectionMode === 'dial' ? '平台连接设备' : '设备连接平台'}` : `Modbus 采集 · 站号 ${row.unitId}` }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
@@ -260,29 +261,30 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       </ui-form>
       <template #footer><div class="source-submit-row"><span>提交后先编译并试跑样例，全部通过才会按上方设置保存或发布。</span><ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</ui-button></div></template>
   </ui-dialog>
-  <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑接入网关' : '新建接入网关'" width="min(760px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener">
-      <p class="muted-text">接入网关是平台的软件接入服务，用于管理产品的设备连接与端口。一个产品可配置多个网关；现场实体网关在设备管理中登记。</p>
+  <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑平台连接配置' : '新建平台连接配置'" width="min(760px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener">
+      <p class="muted-text">这里配置平台的监听或采集服务；现场主设备在设备管理中登记。共享监听可供多台设备使用。</p>
       <ui-form :disabled="savingListener" label-position="top" class="top-gap">
         <div class="form-grid">
-          <ui-form-item label="接入网关标识"><ui-input v-model="listener.id" :disabled="editingProfile" placeholder="例如 dahua-tcp" /></ui-form-item>
-          <ui-form-item label="关联产品"><ui-select v-model="listener.productId" filterable placeholder="选择需要接入的产品" @change="selectProduct"><ui-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></ui-select></ui-form-item>
-          <ui-form-item label="产品绑定协议"><ui-input :model-value="protocols.find(p => p.definition.id === listener.protocolId)?.definition.name || listener.protocolId" readonly placeholder="选择产品后自动读取" /></ui-form-item>
-          <ui-form-item label="产品当前绑定版本"><ui-input :model-value="listener.protocolVersion" readonly placeholder="请先在产品管理绑定已发布协议" /></ui-form-item>
+          <ui-form-item label="连接名称 / 标识"><ui-input v-model="listener.id" :disabled="editingProfile" placeholder="例如 dahua-tcp" /></ui-form-item>
+          <ui-form-item label="关联设备模板"><ui-select v-model="listener.productId" filterable placeholder="选择需要接入的设备模板" @change="selectProduct"><ui-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></ui-select></ui-form-item>
+          <ui-form-item label="模板绑定协议"><ui-input :model-value="protocols.find(p => p.definition.id === listener.protocolId)?.definition.name || listener.protocolId" readonly placeholder="选择模板后自动读取" /></ui-form-item>
+          <ui-form-item label="模板当前绑定版本"><ui-input :model-value="listener.protocolVersion" readonly placeholder="请先在设备模板绑定已发布协议" /></ui-form-item>
           <ui-form-item v-if="listener.mode==='listener'" label="网络"><ui-select v-model="listener.network"><ui-option label="TCP" value="tcp" /><ui-option label="UDP" value="udp" /></ui-select></ui-form-item>
           <ui-form-item v-if="listener.mode==='listener' && listener.network==='tcp'" label="连接方向"><ui-select v-model="listener.connectionMode"><ui-option value="listen" label="设备连接平台"/><ui-option value="dial" label="平台连接设备"/></ui-select></ui-form-item>
 <ui-form-item v-if="listener.connectionMode==='dial' || listener.mode==='poll'" label="已配置的设备标识"><ui-input v-model="listener.deviceId" /></ui-form-item>
 <ui-form-item :label="listener.connectionMode==='dial' || listener.mode==='poll'?'设备地址 / 主机名':'本机监听地址'"><ui-input v-model="listener.host" /></ui-form-item>
+          <ui-form-item v-if="listener.mode==='listener' && listener.connectionMode!=='dial'" label="现场设备填写的平台对外地址"><ui-input v-model="listener.publicHost" placeholder="填写实际可达域名或 IP，不要填 0.0.0.0" /></ui-form-item>
           <ui-form-item label="端口"><ui-input-number v-model="listener.port" :min="1" :max="65535" /></ui-form-item>
-          <ui-form-item label="操作超时（毫秒）"><ui-input-number v-model="listener.timeoutMs" :min="1" :max="30000" /></ui-form-item>
+          <ui-form-item label="操作超时（秒）"><ui-input-number :model-value="listener.timeoutMs/1000" :min="0.001" :max="30" :step="0.5" @update:model-value="value=>listener.timeoutMs=Math.round(Number(value)*1000)" /></ui-form-item>
         </div>
         <ui-switch v-if="listener.mode==='listener'" v-model="listener.autoRegister" active-text="自动登记协议识别的新设备" />
         <div v-if="listener.mode==='poll'" class="form-grid">
           <ui-form-item label="站号"><ui-input-number v-model="listener.unitId" :min="0" :max="255" /></ui-form-item>
-          <ui-form-item label="采集周期（毫秒）"><ui-input-number v-model="listener.intervalMs" :min="1000" /></ui-form-item>
+          <ui-form-item label="采集周期（秒）"><ui-input-number :model-value="listener.intervalMs/1000" :min="1" @update:model-value="value=>listener.intervalMs=Math.round(Number(value)*1000)" /></ui-form-item>
           <ui-form-item label="重试次数"><ui-input-number v-model="listener.retries" :min="0" :max="3" /></ui-form-item>
         </div>
         <ui-switch v-model="listener.enabled" active-text="启用接入" />
-        <ui-collapse v-if="listener.mode==='listener'"><ui-collapse-item title="定时查询与子设备" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></ui-collapse-item></ui-collapse><div class="dialog-actions"><ui-button v-permission="['POST /api/v2/device-access-profiles','PUT /api/v2/device-access-profiles/:id']" type="primary" :loading="savingListener" @click="saveListener">保存接入网关</ui-button></div>
+        <ui-collapse v-if="listener.mode==='listener'"><ui-collapse-item title="定时读取与子设备" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></ui-collapse-item></ui-collapse><div class="dialog-actions"><ui-button v-permission="['POST /api/v2/device-access-profiles','PUT /api/v2/device-access-profiles/:id']" type="primary" :loading="savingListener" @click="saveListener">保存平台连接配置</ui-button></div>
       </ui-form>
 
   </ui-dialog>

@@ -7,7 +7,7 @@ test('实时消息不重载设备列表，手动刷新仍读取最新数据',asy
  const source=await readFile(new URL('../src/views/DevicesView.vue',import.meta.url),'utf8') /* 声明 source。 */
  const script=source.split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm,'') /* 声明 script。 */
  let mounted,requests=0;const events=new Map() /* 声明 mounted。 */
- const context=vm.createContext({ref:value=>({value}),reactive:v=>v,computed:fn=>({get value(){return fn()}}),defineEmits:()=>()=>{},pretty:JSON.stringify,onMounted:fn=>mounted=fn,onBeforeUnmount:()=>{},window:{addEventListener:(k,fn)=>events.set(k,fn)},api:async()=>{requests++;return{items:[]}},apiAll:async()=>{requests++;return{items:[]}},notifyError:e=>{throw e},setTimeout,clearTimeout}) /* 声明 context。 */
+ const context=vm.createContext({ref:value=>({value}),reactive:v=>v,computed:fn=>({get value(){return fn()}}),defineEmits:()=>()=>{},pretty:JSON.stringify,onMounted:fn=>mounted=fn,onBeforeUnmount:()=>{},window:{addEventListener:(k,fn)=>events.set(k,fn)},session:{tenant:'t',user:'u'},sessionStorage:{getItem:()=>null,removeItem(){}},localStorage:{getItem:()=>null},api:async()=>{requests++;return{items:[]}},apiAll:async()=>{requests++;return{items:[]}},notifyError:e=>{throw e},setTimeout,clearTimeout}) /* 声明 context。 */
  vm.runInContext(script+'\nglobalThis.refresh=load;globalThis.busy=loading;',context) /* 执行当前语句并推进处理流程。 */
  mounted();await new Promise(r=>setTimeout(r,0));const initial=requests /* 执行当前语句并推进处理流程。 */
  for(let i=0;i<10;i++)events.get('iot:realtime')({detail:{topic:'device.state',payload:{deviceId:'demo'}}}) /* 循环处理当前数据。 */
