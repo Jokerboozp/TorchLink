@@ -55,6 +55,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/access/roles' ? { items:[{ id:'viewer', name:'查看员', permissions:[] }] }
         : path === '/api/v1/access/permissions' ? { items:[{ id:'menu:devices', name:'设备管理', kind:'menu', menu:'devices' },{ id:'GET /api/v1/devices', name:'查看设备', kind:'action', menu:'devices' }] }
         : path === '/api/v1/access/device-options' ? { items:[{ id:'device-demo', name:'测试设备' }] }
+        : path === '/api/v1/device-registry' && options?.method === 'POST' ? { credential:{ accessKey:'fixture-access-key', secret:'fixture-device-secret' } }
         : path.startsWith('/api/v1/backups?') ? { items:[{ id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now() }], total:1 }
         : path === '/api/v1/backups/backup-demo' ? { id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now(), details:{}, objectKey:'backup/manifest.json' }
         : path.startsWith('/api/v1/backups/backup-demo/files?') ? { artifacts:[{ component:'原始报文', filename:'raw-messages.jsonl.gz', size:313, checksum:'fixture' }], total:1, components:{ rawMessages:{ records:1 } } }
@@ -365,6 +366,28 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭产品表单。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 等待关闭。 */
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"设备管理\"]').click()") /* 凭证弹窗仅在新增设备后出现，使用合成响应覆盖。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(b=>b.innerText==='添加独立设备'))"))
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(b=>b.innerText==='添加独立设备').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length&&m.innerText.includes('保存设备')))"))
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-select .n-base-selection').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length))"))
+  await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length).click()")
+  await evaluate("(() => {const input=document.querySelector('input[placeholder=\"例如 一层东侧烟感\"]');input.value='验收设备';input.dispatchEvent(new Event('input',{bubbles:true}))})()")
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-card__footer button:last-child').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length&&m.innerText.includes('fixture-device-secret')))"))
+  await delay(400)
+  assert.ok(await evaluate("(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),r=m.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&m.innerText.includes('fixture-access-key')&&m.innerText.includes('复制凭证')})()"), '设备凭证弹窗未显示完整密钥或复制操作')
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)"))
+  await evaluate("document.querySelector('.menu-item[aria-label=\"用户与权限\"]').click()") /* 校验删除确认共享弹窗的说明与取消操作。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(b=>b.innerText==='删除'))"))
+  await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(b=>b.innerText==='删除').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-dialog')].find(d=>d.getClientRects().length&&d.innerText.includes('删除确认')))"))
+  await delay(350)
+  assert.ok(await evaluate("(() => {const d=[...document.querySelectorAll('.n-dialog')].find(x=>x.getClientRects().length),r=d.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&d.innerText.includes('操作员')&&d.innerText.includes('取消')&&d.innerText.includes('确定')})()"), '删除用户确认框缺少对象、操作说明或取消入口')
+  await evaluate("[...document.querySelectorAll('.n-dialog')].find(d=>d.getClientRects().length).querySelector('.n-dialog__action button:first-child').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-dialog')].some(d=>d.getClientRects().length)"))
   await evaluate("document.querySelector('[aria-label=\"打开用户菜单\"]').click()") /* 打开账户菜单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-dropdown-option')].find(option => option.getClientRects().length && option.innerText.includes('退出登录')))")) /* 确认账户操作可见。 */
   assert.notEqual(await evaluate("getComputedStyle([...document.querySelectorAll('.n-dropdown-menu')].find(menu => menu.getClientRects().length)).display"), 'flex', '账户菜单被横向 flex 样式破坏') /* 菜单须按列表纵向排布。 */
