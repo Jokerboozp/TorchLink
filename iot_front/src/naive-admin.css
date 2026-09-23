@@ -98,6 +98,7 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-alert.el-alert { border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
 .n-modal.el-dialog { max-height: calc(100dvh - 48px); overflow: hidden; border-radius: 8px; box-shadow: 0 24px 70px rgba(20, 34, 28, .16); } /* 设置后台页面的布局与视觉样式。 */
 .n-modal.el-dialog .n-card-content { min-height: 0; overflow: auto; overscroll-behavior: contain; } /* 长弹窗正文在卡片内部滚动。 */
+.n-modal.el-dialog.alarm-detail-dialog > .n-card-content > pre { max-height: none; overflow: visible; } /* 告警原始 JSON 不再另开滚动层，滚轮始终作用于详情正文。 */
 .n-modal.el-dialog .n-card-header { border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
 .n-modal.el-dialog .n-card__footer { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--border); } /* 弹窗操作按钮在独立页脚内对齐。 */
 .n-dropdown-menu { min-width: 132px; } /* 账户菜单为图标和文字留出足够宽度。 */

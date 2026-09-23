@@ -42,6 +42,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path.startsWith('/api/v1/raw-messages?') ? { items: [{ messageId: 'raw-demo', receivedAt: Date.now(), productId: 'product-demo', deviceId: 'device-demo', protocol: 'MQTT', parsed: true, parsedMessageType: 'PROPERTY_REPORT', payloadSize: 4, payloadHash: 'fixture-hash' }], total: 1 }
         : path === '/api/v1/raw-messages/raw-demo' ? { parseStatus: 'PARSED', message: { messageId: 'raw-demo', deviceId: 'device-demo', productId: 'product-demo', payload: 'AA01', receivedAt: Date.now(), protocol: 'MQTT', payloadFormat: 'hex' }, standardMessage: { messageType: 'PROPERTY_REPORT', properties: { temperature: 42 } }, archive: { payloadHash: 'fixture-hash' } }
         : path.startsWith('/api/v1/alarms?') ? { items: [{ alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', lastTriggeredAt:Date.now() }], total:1 }
+        : path === '/api/v1/alarms/alarm-demo' ? { alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', firstTriggeredAt:Date.now(), lastTriggeredAt:Date.now(), triggerCount:1, diagnosticLines:Array.from({length:80},(_,index)=>'第 '+(index+1)+' 条诊断记录') }
         : path.startsWith('/api/v1/rules?') ? { items: [{ id:'rule-demo', name:'演示规则', alarmType:'DEVICE_FAULT', level:'HIGH', enabled:true, conditions:[], actions:[] }], total:1 }
         : path === '/api/v1/access/users' ? { tenantId:'fixture', items:[{ username:'operator-demo', displayName:'操作员', enabled:true, roleIds:[], deviceScope:'none' }] }
         : path === '/api/v1/access/roles' || path === '/api/v1/access/permissions' || path === '/api/v1/access/device-options' ? { items:[] }
@@ -70,6 +71,18 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     const buttonColor = await evaluate(`(() => {const button=[...document.querySelectorAll('.n-data-table-tbody button')].find(item=>item.innerText.trim()===${JSON.stringify(label)}),s=getComputedStyle(button);return {color:s.color,background:s.backgroundColor,disabled:button.disabled,className:button.className}})()`) /* 读取真实颜色。 */
     assert.ok(buttonColor.color!==buttonColor.background && buttonColor.color!=='rgb(255, 255, 255)', `${page}的${label}按钮文字不可见：${JSON.stringify(buttonColor)}`) /* 危险按钮文字不能与浅色背景融为一体。 */
   } /* 结束危险操作检查。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"告警中心\"]').click()") /* 复现告警详情的长报文滚动。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('查看详情')))")) /* 等待告警列表。 */
+  await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('查看详情')).click()") /* 打开告警详情。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('diagnosticLines')))")) /* 等待长报文显示。 */
+  assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(item=>item.getClientRects().length),pre=modal.querySelector('pre');return pre.scrollHeight<=pre.clientHeight+1 && getComputedStyle(pre).overflowY==='visible'})()"), '告警详情的 JSON 报文仍单独截取滚轮') /* 详情只能保留外层正文滚动。 */
+  const alarmWheel = await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(item=>item.getClientRects().length),body=modal.querySelector('.n-card-content'),pre=modal.querySelector('pre');body.scrollTop=Math.max(0,pre.offsetTop-160);const rect=pre.getBoundingClientRect();return {x:rect.left+Math.min(100,rect.width/2),y:Math.max(120,Math.min(innerHeight-120,rect.top+80)),top:body.scrollTop}})()") /* 将滚轮定位在报文区域。 */
+  await call('Input.dispatchMouseEvent', { type:'mouseWheel', x:alarmWheel.x, y:alarmWheel.y, deltaX:0, deltaY:260 }) /* 在报文上向下滚动。 */
+  await until(() => evaluate(`document.querySelector('.n-modal .n-card-content').scrollTop>${alarmWheel.top}`)) /* 外层详情应继续滚动。 */
+  await call('Input.dispatchMouseEvent', { type:'mouseWheel', x:alarmWheel.x, y:alarmWheel.y, deltaX:0, deltaY:-260 }) /* 在报文上向上滚动。 */
+  await until(() => evaluate(`document.querySelector('.n-modal .n-card-content').scrollTop<=${alarmWheel.top}`)) /* 验证双向滚动。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭告警详情。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待详情关闭。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 检查协议回滚弹窗。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('协议版本')))")) /* 等待产品数据。 */
   await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('协议版本')).click()") /* 打开协议版本弹窗。 */
