@@ -121,6 +121,30 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     }
     const overlay = await evaluate(`(() => {const m=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),r=m.getBoundingClientRect(),body=m.querySelector('.n-card-content,.n-drawer-body-content-wrapper'),footer=m.querySelector('.n-card__footer'),b=body?.getBoundingClientRect(),f=footer?.getBoundingClientRect(),fields=[...m.querySelectorAll('.n-form-item,.n-input,.n-select,.n-alert')].filter(e=>e.getClientRects().length),outside=fields.filter(e=>{const x=e.getBoundingClientRect();return x.left<r.left-2||x.right>r.right+2}).map(e=>e.innerText.slice(0,25));let reachable=true;if(body&&body.scrollHeight>body.clientHeight+2){body.scrollTop=body.scrollHeight;reachable=body.scrollTop>0}return {title:m.querySelector('.n-card-header__main,.n-drawer-header__main')?.innerText||'',rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},withinViewport:r.left>=-1&&r.right<=innerWidth+1&&r.top>=-1&&r.bottom<=innerHeight+1,footerSeparate:!f||!b||b.bottom<=f.top+2,reachable,outside}})()`)
     assert.ok(overlay.withinViewport && overlay.footerSeparate && overlay.reachable && !overlay.outside.length, `${pageName} / ${actionName} 弹层布局或滚动异常：${JSON.stringify(overlay)}`)
+    if (pageName==='设备模板' && actionName!=='详情') {
+      const sectionCount=await evaluate("document.querySelectorAll('.n-modal .product-editor-section').length")
+      assert.equal(sectionCount,4,'设备模板弹窗应按身份、协议、型号、状态分区')
+      await evaluate("document.querySelector('.n-modal .product-editor-advanced .n-collapse-item__header-main').click()")
+      await until(() => evaluate("document.querySelector('.product-editor-advanced .n-collapse-item__content-wrapper')?.getBoundingClientRect().height>10"))
+      assert.ok(await evaluate("document.querySelectorAll('.product-editor-advanced .n-form-item').length===2"),'高级通信设置应有独立的传输协议与数据格式字段')
+    }
+    if (pageName==='设备通信协议' && actionName==='协议生成') assert.equal(await evaluate("document.querySelectorAll('.protocol-generator .generator-section').length"),2,'生成协议应区分资料与协议基本信息')
+    if (pageName==='设备管理' && ['快捷添加','编辑'].includes(actionName)) {
+      await evaluate("document.querySelector('.n-modal .device-advanced .n-collapse-item__header-main').click()")
+      await until(() => evaluate("document.querySelector('.device-advanced-section')?.getBoundingClientRect().height>0"))
+      assert.equal(await evaluate("document.querySelectorAll('.device-advanced-section').length"),3,'设备更多设置应分开显示状态、标签和备注')
+      await evaluate("[...document.querySelectorAll('.device-advanced-section button')].find(button=>button.textContent.trim()==='添加标签').click()")
+      assert.ok(await evaluate("[...document.querySelectorAll('.device-tag-row')].every(row=>row.querySelectorAll('label').length===2)"),'标签名称和内容应分别标注')
+    }
+    if (pageName==='告警规则' && ['手动添加规则','详情','编辑'].includes(actionName)) {
+      assert.equal(await evaluate("document.querySelectorAll('.n-modal .rule-editor-section').length"),3,'规则弹窗应按基本信息、触发条件、联动动作分区')
+      assert.ok(await evaluate("(() => {const field=document.querySelector('.rule-action-field'),input=field?.querySelector('.n-input'),help=field?.querySelector('small');return input&&help&&help.getBoundingClientRect().top>=input.getBoundingClientRect().bottom})()"),'联动动作说明应位于输入框下方')
+      assert.ok(await evaluate("!document.querySelector('.rule-field-reference').open"),'字段参考应默认收起')
+      await evaluate("document.querySelector('.rule-field-reference summary').click()")
+      assert.ok(await evaluate("document.querySelector('.rule-field-reference').open && document.querySelectorAll('.rule-field-reference .n-data-table-tr').length>0"),'字段参考应能展开查看')
+    }
+    if (pageName==='摄像头映射' && actionName==='新增摄像头') assert.equal(await evaluate("document.querySelectorAll('.camera-editor-section').length"),3,'摄像头弹窗应分开显示身份、位置、关联与状态')
+    if (pageName==='用户与权限' && tabName==='角色管理') assert.equal(await evaluate("document.querySelectorAll('.role-editor-section').length"),2,'角色弹窗应分开显示身份与权限')
     const capture=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),`iot-overlay-${overlayCases.indexOf(overlayCases.find(item=>item[0]===pageName&&item[1]===actionName&&item[2]===tabName))}.png`),Buffer.from(capture.data,'base64'))
     await evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')?.querySelector('.n-base-close')?.click()")
     await until(() => evaluate("![...document.querySelectorAll('.n-modal,.n-drawer')].some(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')"))
@@ -381,12 +405,15 @@ try { /* 所有浏览器资源在 finally 中释放。 */
       await evaluate("document.querySelector('.n-modal .n-collapse-item__header-main').click()")
       await until(() => evaluate("document.querySelectorAll('.n-modal .device-tag-row input').length===2"))
     }
+    if (pageName==='设备模板' && actionName==='新建设备模板') await evaluate("document.querySelector('.n-modal .product-editor-advanced .n-collapse-item__header-main').click()")
+    if (pageName==='告警规则' && actionName==='手动添加规则') { await evaluate("document.querySelector('.n-modal .rule-field-reference summary').click()"); assert.ok(await evaluate("document.querySelectorAll('.rule-reference-cards article').length>0 && getComputedStyle(document.querySelector('.rule-reference-cards')).display==='grid'"),'手机端字段参考应按卡片逐条阅读') }
+    if (pageName==='平台连接配置' && actionName==='编辑') await evaluate("document.querySelector('.n-modal .profile-advanced .n-collapse-item__header-main').click()")
     await delay(550)
     if (pageName==='设备管理' && actionName==='连接详情') {
       const topShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-device-connection-mobile-top.png'),Buffer.from(topShot.data,'base64'))
     }
-    const layout = await evaluate("(()=>{const m=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),r=m.getBoundingClientRect(),body=m.querySelector('.n-card-content,.n-drawer-body-content-wrapper'),fields=[...m.querySelectorAll('.n-form-item,.n-input,.n-select,.n-alert')].filter(e=>e.getClientRects().length),outside=fields.filter(e=>{const x=e.getBoundingClientRect();return x.left<r.left-2||x.right>r.right+2}).map(e=>e.innerText.slice(0,25));let reachable=true;if(body&&body.scrollHeight>body.clientHeight+2){body.scrollTop=body.scrollHeight;reachable=body.scrollTop>0}return {rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},reachable,outside}})()")
-    assert.ok(layout.rect.left>=-1&&layout.rect.right<=layout.viewport.width+1&&layout.rect.top>=-1&&layout.rect.bottom<=layout.viewport.height+1&&layout.reachable&&!layout.outside.length,`${pageName} / ${actionName} 手机弹层溢出：${JSON.stringify(layout)}`)
+    const layout = await evaluate("(()=>{const m=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),r=m.getBoundingClientRect(),body=m.querySelector('.n-card-content,.n-drawer-body-content-wrapper'),fields=[...m.querySelectorAll('.n-form-item,.n-input,.n-select,.n-alert')].filter(e=>e.getClientRects().length),outside=fields.filter(e=>{const x=e.getBoundingClientRect();return x.left<r.left-2||x.right>r.right+2}).map(e=>e.innerText.slice(0,25));let reachable=true;if(body&&body.scrollHeight>body.clientHeight+2){body.scrollTop=body.scrollHeight;reachable=body.scrollTop>0}return {rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},reachable,outside,bodyOverflow:body?body.scrollWidth>body.clientWidth+2:false}})()")
+    assert.ok(layout.rect.left>=-1&&layout.rect.right<=layout.viewport.width+1&&layout.rect.top>=-1&&layout.rect.bottom<=layout.viewport.height+1&&layout.reachable&&!layout.outside.length&&!layout.bodyOverflow,`${pageName} / ${actionName} 手机弹层溢出：${JSON.stringify(layout)}`)
     const shot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),`iot-mobile-overlay-${overlayCases.findIndex(item=>item[0]===pageName&&item[1]===actionName&&item[2]===tabName)}.png`),Buffer.from(shot.data,'base64'))
     await evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')?.querySelector('.n-base-close')?.click()")
     await until(() => evaluate("![...document.querySelectorAll('.n-modal,.n-drawer')].some(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')"))
@@ -420,6 +447,23 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   assert.ok(await evaluate("(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),r=m.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&m.innerText.includes('fixture-access-key')&&m.innerText.includes('复制凭证')})()"), '设备凭证弹窗未显示完整密钥或复制操作')
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()")
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)"))
+  await evaluate("(() => { const base=window.fetch; window.fetch=(input,options)=>String(input).startsWith('/api/v1/products') && (!options?.method || options.method==='GET') ? Promise.resolve(new Response(JSON.stringify({items:[{id:'product-demo',name:'烟雾探测器',category:'smoke',transport:'MQTT',payloadFormat:'json',status:'ENABLED',protocolPackageId:'iot-standard@1.0.0',metadata:{}}],total:1}),{headers:{'Content-Type':'application/json'}})) : base(input,options) })()")
+  await call('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true })
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText==='接入设备').click()")
+  await until(() => evaluate("Boolean(document.querySelector('.onboarding-workspace .scenario-grid'))"))
+  await evaluate("document.querySelector('.scenario-option[aria-label=\"已有型号\"]').click()")
+  await evaluate("document.querySelector('.onboarding-workspace .n-select .n-base-selection').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.getClientRects().length))"))
+  await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(option=>option.getClientRects().length).click()")
+  await evaluate("[...document.querySelectorAll('.onboarding-actions button')].find(button=>button.innerText==='下一步').click()")
+  await until(() => evaluate("document.querySelector('.onboarding-card .step-intro h3')?.innerText==='填写设备信息'"))
+  await evaluate("document.querySelector('.onboarding-optional summary').click()")
+  await evaluate("[...document.querySelectorAll('.onboarding-labels button')].find(button=>button.innerText==='添加标签').click()")
+  const optionalLayout=await evaluate("(() => {const rows=[...document.querySelectorAll('.onboarding-label-row')],details=document.querySelector('.onboarding-optional'),r=details.getBoundingClientRect();return {rows:rows.length,labeled:rows.every(row=>row.querySelectorAll('label').length===2),right:r.right,viewport:innerWidth,document:document.documentElement.scrollWidth}})()")
+  assert.ok(optionalLayout.rows>=1&&optionalLayout.labeled&&optionalLayout.right<=optionalLayout.viewport+1&&optionalLayout.document<=optionalLayout.viewport+2,`接入向导的可选标签应在手机端独立标注且不溢出：${JSON.stringify(optionalLayout)}`)
+  await evaluate("document.querySelector('.main-content').scrollTop=document.querySelector('.main-content').scrollHeight")
+  const onboardingShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-onboarding-optional-mobile.png'),Buffer.from(onboardingShot.data,'base64'))
+  await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false })
   await evaluate("document.querySelector('.menu-item[aria-label=\"用户与权限\"]').click()") /* 校验删除确认共享弹窗的说明与取消操作。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(b=>b.innerText==='删除'))"))
   await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(b=>b.innerText==='删除').click()")

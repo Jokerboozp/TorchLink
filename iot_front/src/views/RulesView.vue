@@ -234,8 +234,9 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
     <template #footer><ui-button @click="draftDialog=false">关闭</ui-button></template>
   </ui-dialog> <!-- 结束当前界面区域。 -->
 
-  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
+  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)" destroy-on-close> <!-- 渲染 ui-dialog 界面元素。 -->
     <ui-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 ui-form 界面元素。 -->
+      <section class="rule-editor-section"><div class="rule-editor-heading"><h3>规则基本信息</h3><p>确定规则名称、告警结果及适用设备范围。</p></div>
       <ui-form-item label="规则名称"><ui-input v-model="form.name" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="规则说明"><ui-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <div class="form-grid"> <!-- 渲染 div 界面元素。 -->
@@ -243,26 +244,37 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
         <ui-form-item label="告警等级"><ui-select v-model="form.level"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="所属产品（可选）"><ui-select v-model="form.productId" clearable><ui-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="条件关系"><ui-select v-model="form.match"><ui-option label="全部满足" value="all" /><ui-option label="任一满足" value="any" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      </div> <!-- 结束当前界面区域。 -->
+      </div></section> <!-- 结束当前界面区域。 -->
+      <section class="rule-editor-section"><div class="rule-editor-heading"><h3>触发与恢复条件</h3><p>按设备上报的数据填写条件；表达式填写后优先于结构化触发条件执行。</p></div>
       <ui-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" /> <!-- 渲染 ui-alert 界面元素。 -->
       <ui-form-item label="规则引擎表达式（可选，填入后优先执行）"><ui-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="触发条件结构化数据"><ui-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="恢复条件结构化数据"><ui-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item label="联动动作结构化数据"><ui-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      </section>
+      <section class="rule-editor-section"><div class="rule-editor-heading"><h3>联动动作与生效</h3><p>设置命中后的平台动作，以及规则保存后的运行状态。</p></div>
+      <ui-form-item label="联动动作结构化数据"><div class="rule-action-field"><ui-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></div></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <div class="form-grid"><ui-form-item label="持续秒数"><ui-input-number v-model="form.durationSeconds" :min="0" /></ui-form-item><ui-form-item label="保存后状态"><ui-switch v-model="form.enabled" active-text="立即启用" inactive-text="保存为草稿" /></ui-form-item></div> <!-- 渲染 div 界面元素。 -->
-      <div class="rule-help-title">字段说明</div> <!-- 渲染 div 界面元素。 -->
-      <ui-table :data="fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 ui-table 界面元素。 -->
+      </section>
+      <details class="rule-field-reference"><summary>查看结构化数据字段说明 <small>填写 JSON 时参考</small></summary>
+      <div class="rule-reference-scroll"><ui-table :data="fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 ui-table 界面元素。 -->
         <ui-table-column prop="field" label="字段" width="210" /> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 ui-table-column 界面元素。 -->
-      </ui-table> <!-- 结束当前界面区域。 -->
+      </ui-table></div><div class="rule-reference-cards"><article v-for="item in fieldDescriptions" :key="item.field"><strong>{{ item.field }}</strong><p>{{ item.meaning }}</p><small>示例：{{ item.example }}</small></article></div></details> <!-- 结束当前界面区域。 -->
     </ui-form> <!-- 结束当前界面区域。 -->
     <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</ui-button></template>
   </ui-dialog> <!-- 结束当前界面区域。 -->
 </template>
 
 <style scoped>
-.rule-help-title { margin-top: 16px; color: var(--ink); font-size: 13px; font-weight: 700; } /* 定义当前元素的样式规则。 */
+.rule-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}
+.rule-editor-heading{margin-bottom:13px}.rule-editor-heading h3{margin:0;color:#223f60;font-size:14px}.rule-editor-heading p{margin:5px 0 0;color:#64778c;font-size:12px;line-height:1.6}
+.rule-editor-section :deep(.n-form-item){min-width:0}.rule-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
+.rule-action-field{display:grid;width:100%;gap:7px}.rule-action-field small{color:#64778c;font-size:12px;line-height:1.5}
+.rule-field-reference{padding:13px 16px;border:1px solid #dce6f1;border-radius:10px;background:#fff}.rule-field-reference summary{cursor:pointer;color:#294562;font-size:13px;font-weight:700}.rule-field-reference summary small{margin-left:8px;color:#73859a;font-weight:400}.rule-field-reference :deep(.n-data-table){max-width:100%}
+.rule-reference-scroll{max-width:100%;overflow-x:auto}
+.rule-reference-cards{display:none}
+@media(max-width:640px){.rule-editor-section{padding:13px}.rule-field-reference{padding:12px}.rule-field-reference summary small{display:block;margin:3px 0 0}.rule-reference-scroll{display:none}.rule-reference-cards{display:grid;gap:8px;margin-top:12px}.rule-reference-cards article{padding:10px;border:1px solid #dce6f1;border-radius:7px;background:#f9fbfe}.rule-reference-cards strong{display:block;color:#294562;font-size:12px;overflow-wrap:anywhere}.rule-reference-cards p{margin:5px 0;color:#445b73;font-size:12px;line-height:1.55}.rule-reference-cards small{display:block;color:#697e93;font-size:11px;line-height:1.5;overflow-wrap:anywhere}}
 .rule-help-alert { margin: 2px 0 14px; } /* 定义当前元素的样式规则。 */
 :deep(.el-table) { width: 100%; } /* 设置  样式。 */
 </style>

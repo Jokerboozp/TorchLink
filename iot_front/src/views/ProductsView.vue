@@ -156,21 +156,25 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
     </div> <!-- 结束当前界面区域。 -->
   </ui-card> <!-- 结束当前界面区域。 -->
 
-  <ui-dialog v-model="dialog" :title="readonly ? `设备模板详情 · ${form.name || form.id}` : (form.id ? `编辑设备模板 · ${form.name}` : '新建设备模板')" width="min(760px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
+  <ui-dialog v-model="dialog" :title="readonly ? `设备模板详情 · ${form.name || form.id}` : (form.id ? `编辑设备模板 · ${form.name}` : '新建设备模板')" width="min(760px, 94vw)" destroy-on-close> <!-- 渲染 ui-dialog 界面元素。 -->
     <ui-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 ui-form 界面元素。 -->
-      <ui-form-item label="模板名称"><ui-input v-model="form.name" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item label="模板标识"><ui-input v-model="form.code" :disabled="readonly || !!form.id" placeholder="留空自动生成" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <section class="product-editor-section"><div class="product-editor-heading"><h3>模板身份</h3><p>名称用于页面识别；模板标识创建后不可修改。</p></div>
+      <div class="form-grid"><ui-form-item label="模板名称"><ui-input v-model="form.name" /></ui-form-item>
+      <ui-form-item label="模板标识"><ui-input v-model="form.code" :disabled="readonly || !!form.id" placeholder="留空自动生成" /></ui-form-item></div></section>
+      <section class="product-editor-section"><div class="product-editor-heading"><h3>分类与通信协议</h3><p>选择设备分类和已发布协议，通信方式会根据协议自动带入。</p></div>
       <div class="form-grid"> <!-- 渲染 div 界面元素。 -->
         <ui-form-item label="设备分类"><ui-select v-model="form.category"><ui-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="设备通信协议"><ui-select v-model="form.protocolPackageId" :disabled="!!form.id" filterable @change="id => { const p = protocols.find(p => p.id === id); if (p) { form.transport = p.transport === 'MQTT_HTTP' ? 'MQTT' : p.transport === 'TCP_UDP' ? 'TCP' : p.transport; form.payloadFormat = p.payloadFormat } }"><ui-option v-for="item in protocols" :key="item.id" :label="item.name" :value="item.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item v-if="protocols.find(p=>p.id===form.protocolPackageId)?.transport==='MQTT_HTTP'" label="设备上报方式"><ui-select v-model="form.transport"><ui-option label="MQTT" value="MQTT" /><ui-option label="HTTP" value="HTTP" /></ui-select></ui-form-item>
         <ui-form-item v-if="protocols.find(p=>p.id===form.protocolPackageId)?.transport==='TCP_UDP'" label="设备上报方式"><ui-select v-model="form.transport"><ui-option label="TCP" value="TCP" /><ui-option label="UDP" value="UDP" /></ui-select></ui-form-item>
+      </div></section> <!-- 结束当前界面区域。 -->
+      <section class="product-editor-section"><div class="product-editor-heading"><h3>型号与编号线索</h3><p>帮助现场人员确认设备型号并找到真实上报编号，可按已知信息填写。</p></div><div class="form-grid">
         <ui-form-item label="厂商（如已知）"><ui-input v-model="form.metadata.manufacturer" /></ui-form-item><ui-form-item label="型号（如已知）"><ui-input v-model="form.metadata.model" /></ui-form-item>
         <ui-form-item label="编号类型（如已知）"><ui-input v-model="form.metadata.idKind" placeholder="IMEI、序列号或协议地址" /></ui-form-item><ui-form-item label="编号位置（如已知）"><ui-input v-model="form.metadata.idLocation" placeholder="设备铭牌或厂家配置工具" /></ui-form-item>
-      </div> <!-- 结束当前界面区域。 -->
-      <ui-collapse><ui-collapse-item title="高级通信设置" name="advanced"><div class="form-grid"><ui-form-item label="传输协议"><ui-select v-model="form.transport"><ui-option v-for="x in ['MQTT','HTTP','MQTT_HTTP','TCP','UDP','TCP_UDP','MODBUS_TCP','MODBUS_RTU']" :key="x" :label="transportLabel(x)" :value="x" /></ui-select></ui-form-item><ui-form-item label="数据格式"><ui-select v-model="form.payloadFormat"><ui-option label="JSON" value="json" /><ui-option label="HEX（十六进制）" value="hex" /><ui-option label="Binary（二进制）" value="binary" /></ui-select></ui-form-item></div></ui-collapse-item></ui-collapse>
-      <ui-form-item label="模板状态"><ui-select v-model="form.status"><ui-option label="已启用" value="ENABLED" /><ui-option label="已停用" value="DISABLED" /><ui-option label="草稿" value="DRAFT" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item label="说明"><ui-input v-model="form.description" type="textarea" :rows="3" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      </div></section>
+      <section class="product-editor-section"><div class="product-editor-heading"><h3>状态与说明</h3><p>保存后可按模板状态决定是否提供给新设备使用。</p></div><div class="form-grid"><ui-form-item label="模板状态"><ui-select v-model="form.status"><ui-option label="已启用" value="ENABLED" /><ui-option label="已停用" value="DISABLED" /><ui-option label="草稿" value="DRAFT" /></ui-select></ui-form-item></div>
+      <ui-form-item label="说明"><ui-input v-model="form.description" type="textarea" :rows="3" /></ui-form-item></section>
+      <ui-collapse class="product-editor-advanced"><ui-collapse-item title="高级通信设置（按需调整）" name="advanced"><p>仅在协议要求不同的传输方式或数据格式时修改。</p><div class="form-grid"><ui-form-item label="传输协议"><ui-select v-model="form.transport"><ui-option v-for="x in ['MQTT','HTTP','MQTT_HTTP','TCP','UDP','TCP_UDP','MODBUS_TCP','MODBUS_RTU']" :key="x" :label="transportLabel(x)" :value="x" /></ui-select></ui-form-item><ui-form-item label="数据格式"><ui-select v-model="form.payloadFormat"><ui-option label="JSON" value="json" /><ui-option label="HEX（十六进制）" value="hex" /><ui-option label="Binary（二进制）" value="binary" /></ui-select></ui-form-item></div></ui-collapse-item></ui-collapse>
     </ui-form> <!-- 结束当前界面区域。 -->
     <template #footer>
       <ui-button v-permission="'PUT /api/v1/products/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button> <!-- 渲染 ui-button 界面元素。 -->
@@ -179,3 +183,10 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
     </template>
   </ui-dialog>
 </template>
+<style scoped>
+.product-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}
+.product-editor-heading{margin-bottom:13px}.product-editor-heading h3{margin:0;color:#223f60;font-size:14px}.product-editor-heading p,.product-editor-advanced p{margin:5px 0 0;color:#64778c;font-size:12px;line-height:1.6}
+.product-editor-section :deep(.n-form-item){min-width:0}.product-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
+.product-editor-advanced{padding:0 16px;border:1px solid #dce6f1;border-radius:10px;background:#fff}.product-editor-advanced p{margin:8px 0 13px}
+@media(max-width:640px){.product-editor-section{padding:13px}.product-editor-advanced{padding:0 12px}}
+</style>

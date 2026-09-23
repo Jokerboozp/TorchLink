@@ -152,7 +152,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
     <div class="list-pagination"><ui-pagination v-model:current-page="unregisteredPage" v-model:page-size="unregisteredPageSize" :total="unregisteredTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeUnregisteredPage" @size-change="changeUnregisteredPageSize" /></div> <!-- 渲染 div 界面元素。 -->
   </ui-card> <!-- 结束当前界面区域。 -->
 
-  <ui-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving"> <!-- 渲染 ui-dialog 界面元素。 -->
+  <ui-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close> <!-- 渲染 ui-dialog 界面元素。 -->
     <ui-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save"> <!-- 渲染 ui-form 界面元素。 -->
       <ui-form-item label="设备模板" required> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-select v-model="form.productId" filterable placeholder="选择设备模板"><ui-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
@@ -162,10 +162,10 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
       <ui-form-item label="实际设备编号" required><ui-input v-model="form.code" :disabled="!!form.id" placeholder="填写设备实际使用的上报标识" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="接入关系"><div class="device-role-choice"><ui-radio-group v-model="form.deviceRole" class="segmented-choice-group" aria-label="接入关系"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group><small>{{ deviceRoleDescriptions[form.deviceRole] }}</small></div></ui-form-item> <!-- 独立边框与说明明确区分设备关系。 -->
       <ui-form-item v-if="form.deviceRole === 'CHILD'" label="所属主设备" required><ui-select v-model="form.gatewayId" filterable><ui-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-collapse><ui-collapse-item title="更多设置" name="advanced"> <!-- 渲染 ui-collapse 界面元素。 -->
-        <ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-form-item label="标签"><div class="device-tag-list"><div v-for="(row,index) in form.tags" :key="index" class="device-tag-row"><ui-input v-model="row.key" placeholder="名称" /><ui-input v-model="row.value" placeholder="内容" /><ui-button @click="form.tags.splice(index,1)">移除</ui-button></div><ui-button @click="form.tags.push({key:'',value:''})">添加标签</ui-button></div></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-form-item label="备注"><ui-input v-model="form.description" type="textarea" :rows="2" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-collapse class="device-advanced"><ui-collapse-item title="更多设置（状态、标签与备注）" name="advanced"> <!-- 渲染 ui-collapse 界面元素。 -->
+        <section class="device-advanced-section"><h4>设备状态</h4><p>停用后设备保留在列表中，暂不参与正常接入。</p><ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" /></ui-form-item></section>
+        <section class="device-advanced-section"><h4>设备标签</h4><p>用名称和内容记录设备的检索线索。</p><div class="device-tag-list"><div v-for="(row,index) in form.tags" :key="index" class="device-tag-row"><label>名称<ui-input v-model="row.key" placeholder="例如楼层" /></label><label>内容<ui-input v-model="row.value" placeholder="例如一层" /></label><ui-button @click="form.tags.splice(index,1)">移除</ui-button></div><p v-if="!form.tags.length" class="device-tag-empty">尚未添加标签。</p><ui-button @click="form.tags.push({key:'',value:''})">添加标签</ui-button></div></section>
+        <section class="device-advanced-section"><h4>补充说明</h4><ui-form-item label="备注"><ui-input v-model="form.description" type="textarea" :rows="2" /></ui-form-item></section>
       </ui-collapse-item></ui-collapse> <!-- 结束当前界面区域。 -->
     </ui-form> <!-- 结束当前界面区域。 -->
     <template #footer><ui-button :disabled="saving" @click="dialog = false">取消</ui-button><ui-button v-permission="['POST /api/v1/device-registry','PUT /api/v1/device-registry/:id']" type="primary" :loading="saving" @click="save">保存设备</ui-button></template>
@@ -175,5 +175,8 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   </template>
 </template>
 <style scoped>
-.device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:#65778b;font-size:12px;line-height:1.5}.device-tag-list{width:100%}.device-tag-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}.device-tag-row>*{min-width:0}.device-tag-row .n-input{flex:1}@media(max-width:640px){.device-tag-row{flex-wrap:wrap}.device-tag-row .n-input{flex-basis:calc(50% - 4px)}}
+.device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:#65778b;font-size:12px;line-height:1.5}
+.device-advanced{margin-top:5px}.device-advanced-section{padding:13px;margin:10px 0;border:1px solid #dce6f1;border-radius:9px;background:#f9fbfe}.device-advanced-section h4{margin:0;color:#294562;font-size:13px}.device-advanced-section p{margin:4px 0 11px;color:#64778c;font-size:12px;line-height:1.5}.device-advanced-section :deep(.n-form-item){margin:10px 0 0}
+.device-tag-list{width:100%}.device-tag-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:10px 0}.device-tag-row label{display:grid;min-width:0;gap:5px;color:#435a74;font-size:12px;font-weight:600}.device-tag-row :deep(.n-input){width:100%}.device-tag-empty{padding:10px;border:1px dashed #cbd8e7;border-radius:7px;background:#fff}
+@media(max-width:640px){.device-tag-row{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tag-row .n-button{justify-self:start}}
 </style>

@@ -1,8 +1,9 @@
 <script setup>
-import { ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
+import { computed, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
 import { api } from '../api' /* 引入当前代码需要的依赖。 */
 const props=defineProps({profile:{type:Object,required:true},products:{type:Array,default:()=>[]},productId:String,canPoll:{type:Boolean,default:true}}) /* 声明 props。 */
 const bindings=ref({}), errors=ref({}) /* 声明 bindings。 */
+const childTemplates=computed(()=>props.products.filter(x=>x.id!==props.productId && x.status==='ENABLED'))
 let revision=0 /* 声明 revision。 */
 watch(()=>props.profile.childProducts?.map(x=>x.productId).join('|'),async()=>{ /* 执行当前语句并推进处理流程。 */
  const current=++revision /* 声明 current。 */
@@ -17,25 +18,55 @@ function addChild(){(props.profile.childProducts ||= []).push({type:'',productId
 function addQuery(){(props.profile.queries ||= []).push({type:'',intervalSec:10})} /* 定义 addQuery 函数。 */
 </script>
 <template>
-<section class="protocol-access-settings"> <!-- 渲染 section 界面元素。 -->
- <template v-if="canPoll"><h4>定时读取设备数据</h4><p>仅在已发布协议明确提供读取内容时设置；请按协议说明填写。平台等待本次应答后再发送下一条，超时后会重连。</p>
- <div v-for="(query,index) in profile.queries||[]" :key="index" class="setting-row"> <!-- 渲染 div 界面元素。 -->
-  <ui-input v-model="query.type" placeholder="协议声明的读取内容" aria-label="读取内容" /> <!-- 渲染 ui-input 界面元素。 -->
-  <ui-input-number v-model="query.intervalSec" :min="1" :max="86400" aria-label="查询周期秒" /><span>秒</span> <!-- 渲染 ui-input-number 界面元素。 -->
-  <ui-button @click="profile.queries.splice(index,1)">移除</ui-button> <!-- 渲染 ui-button 界面元素。 -->
- </div> <!-- 结束当前界面区域。 -->
- <ui-button :disabled="(profile.queries?.length||0)>=32" @click="addQuery">添加定时读取</ui-button></template> <!-- 渲染 ui-button 界面元素。 -->
- <h4>子设备产品与协议</h4><p>先为子设备产品绑定协议，再在这里配置报文类型与产品的对应关系。主设备注册后，上报的子设备将自动登记并关联；不同产品可以使用不同协议。</p> <!-- 渲染 h4 界面元素。 -->
- <div v-for="(child,index) in profile.childProducts||[]" :key="index" class="child-setting"> <!-- 渲染 div 界面元素。 -->
-  <div class="setting-row"><ui-input v-model="child.type" placeholder="协议返回的子设备类型" aria-label="子设备类型" /> <!-- 渲染 div 界面元素。 -->
-   <ui-select v-model="child.productId" filterable placeholder="子设备产品" aria-label="子设备产品"><ui-option v-for="p in products.filter(x=>x.id!==productId && x.status==='ENABLED')" :key="p.id" :value="p.id" :label="p.name" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
-   <ui-button @click="profile.childProducts.splice(index,1)">移除</ui-button></div> <!-- 渲染 ui-button 界面元素。 -->
-  <p v-if="bindings[child.productId]">协议：{{bindings[child.productId].protocolId}} · {{bindings[child.productId].version}}</p> <!-- 渲染 p 界面元素。 -->
-  <p v-else-if="child.productId" class="binding-error">{{errors[child.productId]||'正在读取协议…'}}</p> <!-- 渲染 p 界面元素。 -->
- </div> <!-- 结束当前界面区域。 -->
- <ui-button :disabled="(profile.childProducts?.length||0)>=64" @click="addChild">添加子设备产品</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-</section> <!-- 结束当前界面区域。 -->
+<div class="protocol-access-settings">
+  <section v-if="canPoll" class="access-option-section">
+    <header class="access-section-heading"><div><h4>定时读取设备数据</h4><p>仅在已发布协议提供读取能力时设置。按协议填写读取内容；平台等待应答后再执行下一次读取。</p></div><span>{{ profile.queries?.length || 0 }} / 32</span></header>
+    <div v-if="!profile.queries?.length" class="access-empty">尚未设置定时读取。需要平台主动读取设备数据时，再添加读取任务。</div>
+    <div v-for="(query,index) in profile.queries||[]" :key="index" class="access-config-card">
+      <div class="access-card-heading"><strong>读取任务 {{ index + 1 }}</strong><ui-button plain @click="profile.queries.splice(index,1)">移除</ui-button></div>
+      <div class="access-field-grid">
+        <div class="access-field"><span>协议读取内容</span><ui-input v-model="query.type" placeholder="填写协议声明的读取内容" aria-label="读取内容" /></div>
+        <div class="access-field"><span>读取间隔（秒）</span><ui-input-number v-model="query.intervalSec" :min="1" :max="86400" aria-label="查询周期秒" /></div>
+      </div>
+    </div>
+    <ui-button class="access-add-button" :disabled="(profile.queries?.length||0)>=32" @click="addQuery">添加定时读取</ui-button>
+  </section>
+
+  <section class="access-option-section">
+    <header class="access-section-heading"><div><h4>子设备类型映射</h4><p>把协议返回的子设备类型关联到设备模板。模板须先绑定协议，识别到的子设备才会自动登记。</p></div><span>{{ profile.childProducts?.length || 0 }} / 64</span></header>
+    <div v-if="!profile.childProducts?.length" class="access-empty">尚未设置子设备映射。主设备不下接其他设备时，可保持为空。</div>
+    <div v-for="(child,index) in profile.childProducts||[]" :key="index" class="access-config-card">
+      <div class="access-card-heading"><strong>子设备映射 {{ index + 1 }}</strong><ui-button plain @click="profile.childProducts.splice(index,1)">移除</ui-button></div>
+      <div class="access-field-grid">
+        <div class="access-field"><span>协议返回的子设备类型</span><ui-input v-model="child.type" placeholder="例如协议中的类型标识" aria-label="子设备类型" /></div>
+        <div class="access-field"><span>对应设备模板</span><ui-select v-model="child.productId" filterable placeholder="选择已启用的子设备模板" aria-label="子设备产品"><ui-option v-for="p in childTemplates" :key="p.id" :value="p.id" :label="p.name" /></ui-select></div>
+      </div>
+      <p v-if="bindings[child.productId]" class="access-binding">已绑定协议：{{ bindings[child.productId].protocolId }} · {{ bindings[child.productId].version }}</p>
+      <p v-else-if="child.productId" class="access-binding binding-error">{{ errors[child.productId] || '正在读取模板绑定协议…' }}</p>
+      <p v-else class="access-binding">选择模板后显示其绑定协议。</p>
+    </div>
+    <p v-if="!childTemplates.length" class="access-template-help">当前没有其他已启用的设备模板，请先在设备模板中创建并绑定子设备协议。</p>
+    <ui-button class="access-add-button" :disabled="(profile.childProducts?.length||0)>=64" @click="addChild">添加子设备产品</ui-button>
+  </section>
+</div>
 </template>
 <style scoped>
-.setting-row{display:flex;align-items:center;gap:8px;margin:8px 0}.setting-row .el-input,.setting-row .el-select{flex:1;min-width:120px}.child-setting{margin:12px 0}.binding-error{color:var(--el-color-danger)}p{font-size:13px;color:var(--el-text-color-secondary)}@media(max-width:600px){.setting-row{flex-wrap:wrap}} /* 定义当前元素的样式规则。 */
+.protocol-access-settings{display:grid;gap:14px;padding:14px 0 2px}
+.access-option-section{min-width:0;padding:16px;border:1px solid #dce6f1;border-radius:10px;background:#f8fafc}
+.access-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.access-section-heading h4{margin:0;color:#203b58;font-size:14px}
+.access-section-heading p{margin:5px 0 0;color:#63768b;font-size:12px;line-height:1.6}
+.access-section-heading>span{flex:none;padding:3px 8px;border-radius:999px;color:#42688e;background:#e8f1fa;font-size:11px;white-space:nowrap}
+.access-empty{padding:15px;border:1px dashed #c9d8e8;border-radius:8px;color:#687b8e;background:#fff;font-size:12px;line-height:1.6}
+.access-config-card{padding:14px;border:1px solid #d9e4ef;border-radius:9px;background:#fff}
+.access-config-card+.access-config-card{margin-top:10px}
+.access-card-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.access-card-heading strong{color:#294562;font-size:13px}
+.access-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.access-field{display:grid;min-width:0;gap:6px;color:#435a74;font-size:12px;font-weight:600}
+.access-field :deep(.n-input),.access-field :deep(.n-select),.access-field :deep(.n-input-number){width:100%;min-width:0}
+.access-binding,.access-template-help{margin:10px 0 0;color:#65788b;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.access-binding.binding-error{color:#b94444}
+.access-add-button{margin-top:12px}
+@media(max-width:600px){.protocol-access-settings{padding-top:10px}.access-option-section{padding:13px}.access-field-grid{grid-template-columns:1fr}.access-section-heading{flex-wrap:wrap}.access-config-card{padding:12px}}
 </style>

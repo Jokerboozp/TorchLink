@@ -109,12 +109,16 @@ onMounted(()=>{ /* 执行当前语句并推进处理流程。 */
   <div class="protocol-generator" :aria-busy="!!busy"> <!-- 渲染 div 界面元素。 -->
     <ui-alert v-if="error" :title="error" type="error" :closable="false" class="bottom-gap" /> <!-- 渲染 ui-alert 界面元素。 -->
     <ui-form v-if="step==='input'" label-position="top" :disabled="!!busy" @submit.prevent="generate"> <!-- 渲染 ui-form 界面元素。 -->
+      <section class="generator-section"><div class="generator-section-heading"><h3>提供协议资料</h3><p>选择报文或点表，上传文件或直接粘贴内容。</p></div>
       <ui-radio-group v-model="form.inputKind" @change="changeKind" class="bottom-gap segmented-choice-group" aria-label="上传类型"><ui-radio-button value="sample">报文</ui-radio-button><ui-radio-button value="point-table">点表</ui-radio-button></ui-radio-group> <!-- 渲染 ui-radio-group 界面元素。 -->
       <ui-form-item :label="form.inputKind==='point-table'?'上传点表':'上传报文'"><FilePicker :key="form.inputKind" :accept="form.inputKind==='point-table'?'.xlsx,.csv':'.json,.txt,.hex,.bin'" @change="chooseFile" /><small class="subline">{{ file?.name || (form.inputKind==='point-table'?'Excel / CSV':'JSON / TXT / HEX / BIN') }}</small></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item v-if="form.inputKind==='point-table'" label="或粘贴 CSV 点表"><ui-input v-model="form.pointTable" type="textarea" :rows="5" placeholder="name,functionCode,address,addressNotation,dataType&#10;temperature,3,0,zero_based,uint16" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item v-else label="或粘贴报文"><ui-input v-model="form.samplePayload" type="textarea" :rows="5" placeholder='{"data":{"temperature":25.5,"smoke":false}}' /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      </section>
+      <section class="generator-section"><div class="generator-section-heading"><h3>协议基本信息</h3><p>确认协议名称、传输方式和样本解析格式。</p></div>
       <div class="form-grid"><ui-form-item label="协议名称"><ui-input v-model="form.name" placeholder="可由文件名生成" /></ui-form-item><ui-form-item label="传输方式"><ui-select v-model="form.transport"><ui-option v-for="item in transports" :key="item" :label="transportLabel(item)" :value="item" /></ui-select></ui-form-item></div> <!-- 渲染 div 界面元素。 -->
       <template v-if="form.inputKind==='sample'"><ui-form-item label="报文格式"><ui-radio-group v-model="form.payloadFormat"><ui-radio value="json">JSON</ui-radio><ui-radio value="hex">HEX</ui-radio></ui-radio-group></ui-form-item><ui-form-item label="字段说明（可选）"><ui-input v-model="form.pointTable" type="textarea" :rows="2" placeholder="HEX 报文请说明字段偏移、长度、端序与单位" /></ui-form-item></template>
+      </section>
       <div class="generator-actions"><ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" type="primary" :loading="busy==='generate'" native-type="submit">生成协议</ui-button></div> <!-- 渲染 div 界面元素。 -->
     </ui-form> <!-- 结束当前界面区域。 -->
     <template v-else>
@@ -135,3 +139,7 @@ onMounted(()=>{ /* 执行当前语句并推进处理流程。 */
     </template>
   </div>
 </template>
+<style scoped>
+.generator-section{padding:16px 18px;margin-bottom:13px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}.generator-section-heading{margin-bottom:14px}.generator-section-heading h3{margin:0;color:#223f60;font-size:14px}.generator-section-heading p{margin:5px 0 0;color:#64778c;font-size:12px;line-height:1.6}.generator-section :deep(.n-form-item:last-child){margin-bottom:0}
+@media(max-width:640px){.generator-section{padding:13px}}
+</style>

@@ -261,7 +261,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       </ui-form>
       <template #footer><div class="source-submit-row"><span>提交后先编译并试跑样例，全部通过才会按上方设置保存或发布。</span><ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</ui-button></div></template>
   </ui-dialog>
-  <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑平台连接配置' : '新建平台连接配置'" width="min(820px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener" class="profile-editor-dialog">
+  <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑平台连接配置' : '新建平台连接配置'" width="min(820px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener" class="profile-editor-dialog" destroy-on-close>
     <div class="profile-editor-layout">
       <p class="profile-editor-intro">配置平台如何连接现场设备。共享监听可供多台设备使用；具体设备在设备管理中登记。</p>
       <ui-form :disabled="savingListener" label-position="top">
@@ -308,7 +308,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
             <div v-if="listener.mode==='listener'" class="profile-toggle-row"><div><strong>自动登记新设备</strong><small>协议识别出新设备后，自动加入设备列表。</small></div><ui-switch v-model="listener.autoRegister" /></div>
             <div class="profile-toggle-row"><div><strong>启用连接配置</strong><small>保存后按此状态运行监听或采集服务。</small></div><ui-switch v-model="listener.enabled" /></div>
           </div>
-          <ui-collapse v-if="listener.mode==='listener'" class="profile-advanced"><ui-collapse-item title="定时读取与子设备（可选）" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></ui-collapse-item></ui-collapse>
+          <ui-collapse v-if="listener.mode==='listener'" class="profile-advanced"><ui-collapse-item :title="listener.network==='tcp' ? '定时读取与子设备（可选）' : '子设备映射（可选）'" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></ui-collapse-item></ui-collapse>
         </section>
       </ui-form>
     </div>

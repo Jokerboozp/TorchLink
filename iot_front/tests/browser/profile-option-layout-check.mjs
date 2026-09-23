@@ -109,6 +109,23 @@ try {
   console.log(JSON.stringify({ choices, layout }))
   assert.ok(choices.count === 3 && choices.className.includes('segmented-choice-group') && choices.gap >= 6 && Number.parseFloat(choices.border) >= 1, '接入关系选项应有独立边框和间距')
   assert.ok(layout.sections >= 4 && layout.summary && layout.footer && !layout.horizontalOverflow, '平台连接配置应按流程分区，协议摘要与保存操作应清晰可见')
+  await evaluate("[...document.querySelectorAll('.n-modal .n-collapse-item__header-main')].find(item => item.textContent.includes('定时读取与子设备')).click()")
+  await until(() => evaluate("Boolean(document.querySelector('.protocol-access-settings')?.getClientRects().length)"), '定时读取与子设备设置')
+  await delay(200)
+  const advanced = await evaluate(`(() => {
+    const root = document.querySelector('.protocol-access-settings')
+    return { sections: root?.querySelectorAll('.access-option-section').length || 0, emptyStates: root?.querySelectorAll('.access-empty').length || 0, horizontalOverflow: root?.scrollWidth > root?.clientWidth + 2 }
+  })()`)
+  await evaluate("(() => { const body = document.querySelector('.n-modal .n-card-content'); body.scrollTop = body.scrollHeight })()")
+  await delay(120)
+  const advancedShot = await call('Page.captureScreenshot', { format: 'png' })
+  await writeFile(join(tmpdir(), 'iot-profile-advanced.png'), Buffer.from(advancedShot.data, 'base64'))
+  console.log(JSON.stringify({ advanced }))
+  assert.deepEqual(advanced, { sections: 2, emptyStates: 2, horizontalOverflow: false }, '展开区应明确区分定时读取和子设备映射，并说明空状态')
+  await evaluate("[...document.querySelectorAll('.protocol-access-settings button')].find(button => button.textContent.trim() === '添加定时读取').click()")
+  await evaluate("[...document.querySelectorAll('.protocol-access-settings button')].find(button => button.textContent.trim() === '添加子设备产品').click()")
+  await until(() => evaluate("document.querySelectorAll('.protocol-access-settings .access-config-card').length === 2"), '新增读取与子设备映射')
+  assert.ok(await evaluate("[...document.querySelectorAll('.access-config-card')].every(card => card.querySelectorAll('.access-field').length === 2 && card.querySelectorAll('input').length >= 2)"), '新增后应显示独立标注的两个输入字段')
   await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await delay(200)
   const mobile = await evaluate(`(() => {

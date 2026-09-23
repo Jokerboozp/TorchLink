@@ -463,8 +463,10 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .el-descriptions__content { overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
 .main-content .el-alert + .el-alert { margin-top: 12px; } /* 定义当前元素的样式规则。 */
 .dashboard-error { margin-bottom: 16px; } /* 定义当前元素的样式规则。 */
-.technical-details { margin-top: 16px; font-size: 13px; color: #6e6e73; } /* 定义当前元素的样式规则。 */
-.technical-details summary { cursor: pointer; padding: 10px 0; } /* 定义当前元素的样式规则。 */
+.technical-details { min-width: 0; margin-top: 16px; padding: 0 14px; border: 1px solid #dce6f1; border-radius: 9px; background: #f9fbfe; font-size: 13px; color: #435a74; } /* 将可选的技术信息独立呈现。 */
+.technical-details summary { cursor: pointer; padding: 12px 0; font-weight: 600; } /* 定义当前元素的样式规则。 */
+.technical-details[open] summary { border-bottom: 1px solid #e4ebf3; }
+.technical-details pre, .technical-details ul { margin: 12px 0 14px; }
 @media (max-width: 640px) { /* 按屏幕条件调整样式。 */
   .el-dialog__body, .el-dialog__header, .el-drawer__body { padding: 16px; } /* 定义当前元素的样式规则。 */
   .el-descriptions__label { width: 90px; } /* 定义当前元素的样式规则。 */

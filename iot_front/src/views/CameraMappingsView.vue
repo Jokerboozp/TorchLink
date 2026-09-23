@@ -106,24 +106,28 @@ onMounted(async () => { await load(); consumeNavigationAction() }) /* 执行当�
   <ui-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
 
     <ui-form :model="camera" label-position="top"> <!-- 渲染 ui-form 界面元素。 -->
-      <div class="form-grid"> <!-- 渲染 div 界面元素。 -->
+      <section class="camera-editor-section"><h3>摄像头身份</h3><p>填写外部视频平台的标识和现场可识别的名称。</p><div class="form-grid"> <!-- 渲染 div 界面元素。 -->
         <ui-form-item label="摄像头标识"><ui-input v-model="camera.cameraId" :disabled="!!editing" placeholder="外部视频平台摄像头标识" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="品牌"><ui-input v-model="camera.brand" placeholder="例如：海康、大华" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="摄像头名称"><ui-input v-model="camera.cameraName" placeholder="例如：一层大厅东侧" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-form-item label="摄像头点位"><ui-input v-model="camera.cameraPoint" placeholder="例如：东侧入口" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      </div></section>
+      <section class="camera-editor-section"><h3>安装位置</h3><p>用于在告警联动时快速确认摄像头拍摄范围。</p><div class="form-grid">
+        <ui-form-item label="摄像头点位"><ui-input v-model="camera.cameraPoint" placeholder="例如：东侧入口" /></ui-form-item>
         <ui-form-item label="建筑"><ui-input v-model="camera.building" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="楼层"><ui-input v-model="camera.floor" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="房间"><ui-input v-model="camera.room" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-form-item label="关联设备（可选）"><ui-select v-model="camera.deviceId" clearable filterable placeholder="选择一个设备"><ui-option v-for="item in devices" :key="item.id" :label="`${item.name || item.id} · ${item.id}`" :value="item.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <ui-alert title="保存后只能保留一个设备关联；同一设备可以在多个摄像头记录中出现。直播地址、开发工具包、流媒体服务均不在此配置。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
-      <ui-form-item><ui-switch v-model="camera.enabled" active-text="启用该摄像头" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      </section>
+      <section class="camera-editor-section"><h3>关联与状态</h3><p>每个摄像头最多关联一台设备，同一设备可关联多个摄像头。</p><ui-form-item label="关联设备（可选）"><ui-select v-model="camera.deviceId" clearable filterable placeholder="选择一个设备"><ui-option v-for="item in devices" :key="item.id" :label="`${item.name || item.id} · ${item.id}`" :value="item.id" /></ui-select></ui-form-item>
+      <ui-form-item label="摄像头状态"><ui-switch v-model="camera.enabled" active-text="启用该摄像头" /></ui-form-item>
+      <small>直播地址、开发工具包和流媒体服务不在此配置。</small></section>
     </ui-form> <!-- 结束当前界面区域。 -->
     <template #footer><ui-button @click="dialogVisible=false">取消</ui-button><ui-button v-permission="['POST /api/v1/integrations/video/cameras','PUT /api/v1/integrations/video/cameras/:id']" type="primary" @click="save">保存</ui-button></template>
   </ui-dialog> <!-- 结束当前界面区域。 -->
 </template>
 
 <style scoped>
-:deep(.el-alert) { margin:-4px 0 18px; } /* 设置  样式。 */
+.camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}.camera-editor-section h3{margin:0;color:#223f60;font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:#64778c;font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
+@media(max-width:640px){.camera-editor-section{padding:13px}}
 :deep(.el-table .camera-highlight > td) { background:#eff6ff !important; } /* 设置  样式。 */
 </style>
