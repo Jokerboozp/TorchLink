@@ -44,9 +44,9 @@ try{ /* 执行当前语句并推进处理流程。 */
  await click('添加用户');await fill('用户名',username);await fill('显示名称','演示 · 指定设备用户');await fill('初始密码',secret) /* 等待异步操作完成。 */
  if(!await evaluate(`document.querySelector('.el-dialog input[disabled]')?.value===${JSON.stringify(tenant)}`))throw Error('新增用户未显示租户') /* 判断条件并选择处理分支。 */
  await evaluate(`document.querySelector('input[value="selected"]').click()`) /* 等待异步操作完成。 */
- await evaluate(`(()=>{const row=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent==='可访问设备');row.querySelector('.el-select__wrapper').click()})()`) /* 等待异步操作完成。 */
- await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim().endsWith(${JSON.stringify('（'+allowed.id+'）')})&&e.getClientRects().length);e?.click();return !!e})()`)) /* 等待异步操作完成。 */
- await evaluate(`document.querySelector('.el-dialog__header').click()`) /* 等待异步操作完成。 */
+ await evaluate(`(()=>{const row=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent==='可访问设备');row.querySelector('.n-base-selection').click()})()`) /* 等待异步操作完成。 */
+ await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim().endsWith(${JSON.stringify('（'+allowed.id+'）')})&&e.getClientRects().length);e?.click();return !!e})()`)) /* 等待异步操作完成。 */
+ await evaluate(`document.querySelector('.n-card-header').click()`) /* 等待异步操作完成。 */
  for(const name of ['设备管理','告警中心','运行总览'])await evaluate(`(()=>{const g=[...document.querySelectorAll('.permission-group')].find(e=>e.querySelector('strong')?.textContent===${JSON.stringify(name)});g.querySelector('input').click()})()`) /* 循环处理当前数据。 */
  await writeFile(dir+'/screenshots/device-scope-form.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.el-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */

@@ -45,11 +45,11 @@ try{ /* 执行当前语句并推进处理流程。 */
  // A controlled 45-record catalog tests real pagination without polluting the platform.
  await evaluate(`(()=>{const original=window.fetch;window.fetch=(input,options)=>{if(String(input)==='/api/v2/protocols')return Promise.resolve(new Response(JSON.stringify({items:Array.from({length:45},(_,i)=>({definition:{id:'page-fixture-'+(i+1),name:'分页验证协议 '+(i+1)},releases:[]}))}),{headers:{'Content-Type':'application/json'}}));return original(input,options)}})()`) /* 等待异步操作完成。 */
  await evaluate(`document.querySelector('.menu-item[aria-label="协议管理"]').click()`);await delay(700) /* 等待异步操作完成。 */
- if(await evaluate(`document.querySelectorAll('.el-table__body .el-table__row').length`)!==20)throw Error('协议首屏没有20条') /* 判断条件并选择处理分支。 */
- await evaluate(`[...document.querySelectorAll('.el-pager .number')].find(e=>e.textContent.trim()==='2').click()`);await delay(100) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.el-table__body').textContent.includes('page-fixture-21')`))throw Error('协议第二页错位') /* 判断条件并选择处理分支。 */
- await evaluate(`[...document.querySelectorAll('.el-pager .number')].find(e=>e.textContent.trim()==='3').click()`);await delay(100) /* 等待异步操作完成。 */
- if(await evaluate(`document.querySelectorAll('.el-table__body .el-table__row').length`)!==5)throw Error('协议末页条数错误') /* 判断条件并选择处理分支。 */
+ if(await evaluate(`document.querySelectorAll('.n-data-table-tbody .n-data-table-tbody .n-data-table-tr').length`)!==20)throw Error('协议首屏没有20条') /* 判断条件并选择处理分支。 */
+ await evaluate(`[...document.querySelectorAll('.n-pagination .number')].find(e=>e.textContent.trim()==='2').click()`);await delay(100) /* 等待异步操作完成。 */
+ if(!await evaluate(`document.querySelector('.n-data-table-tbody').textContent.includes('page-fixture-21')`))throw Error('协议第二页错位') /* 判断条件并选择处理分支。 */
+ await evaluate(`[...document.querySelectorAll('.n-pagination .number')].find(e=>e.textContent.trim()==='3').click()`);await delay(100) /* 等待异步操作完成。 */
+ if(await evaluate(`document.querySelectorAll('.n-data-table-tbody .n-data-table-tbody .n-data-table-tr').length`)!==5)throw Error('协议末页条数错误') /* 判断条件并选择处理分支。 */
  await writeFile(dir+'/screenshots/protocol-pagination.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  console.log('通过：菜单分组折叠、全菜单操作按钮边框与背景、45条协议跨页及末页。分页数据为隔离浏览器内测试样本。') /* 执行当前语句并推进处理流程。 */
  if(errors.some(e=>e.error||e.path?.startsWith('/api/')&&e.status!==404))throw Error('存在页面或API异常') /* 判断条件并选择处理分支。 */

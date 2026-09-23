@@ -18,22 +18,22 @@ function addQuery(){(props.profile.queries ||= []).push({type:'',intervalSec:10}
 </script>
 <template>
 <section class="protocol-access-settings"> <!-- 渲染 section 界面元素。 -->
- <template v-if="canPoll"><h4>定时查询</h4><p>填写 Go 协议支持的查询类型。平台等待本次应答后再发送下一条；查询超时会断开连接，等待重新连接。</p>
+ <template v-if="canPoll"><h4>定时读取设备数据</h4><p>仅在已发布协议明确提供读取内容时设置；请按协议说明填写。平台等待本次应答后再发送下一条，超时后会重连。</p>
  <div v-for="(query,index) in profile.queries||[]" :key="index" class="setting-row"> <!-- 渲染 div 界面元素。 -->
-  <el-input v-model="query.type" placeholder="查询类型，例如 read-status" aria-label="查询类型" /> <!-- 渲染 el-input 界面元素。 -->
-  <el-input-number v-model="query.intervalSec" :min="1" :max="86400" aria-label="查询周期秒" /><span>秒</span> <!-- 渲染 el-input-number 界面元素。 -->
-  <el-button @click="profile.queries.splice(index,1)">移除</el-button> <!-- 渲染 el-button 界面元素。 -->
+  <ui-input v-model="query.type" placeholder="协议声明的读取内容" aria-label="读取内容" /> <!-- 渲染 ui-input 界面元素。 -->
+  <ui-input-number v-model="query.intervalSec" :min="1" :max="86400" aria-label="查询周期秒" /><span>秒</span> <!-- 渲染 ui-input-number 界面元素。 -->
+  <ui-button @click="profile.queries.splice(index,1)">移除</ui-button> <!-- 渲染 ui-button 界面元素。 -->
  </div> <!-- 结束当前界面区域。 -->
- <el-button :disabled="(profile.queries?.length||0)>=32" @click="addQuery">添加定时查询</el-button></template> <!-- 渲染 el-button 界面元素。 -->
+ <ui-button :disabled="(profile.queries?.length||0)>=32" @click="addQuery">添加定时读取</ui-button></template> <!-- 渲染 ui-button 界面元素。 -->
  <h4>子设备产品与协议</h4><p>先为子设备产品绑定协议，再在这里配置报文类型与产品的对应关系。主设备注册后，上报的子设备将自动登记并关联；不同产品可以使用不同协议。</p> <!-- 渲染 h4 界面元素。 -->
  <div v-for="(child,index) in profile.childProducts||[]" :key="index" class="child-setting"> <!-- 渲染 div 界面元素。 -->
-  <div class="setting-row"><el-input v-model="child.type" placeholder="协议返回的子设备类型" aria-label="子设备类型" /> <!-- 渲染 div 界面元素。 -->
-   <el-select v-model="child.productId" filterable placeholder="子设备产品" aria-label="子设备产品"><el-option v-for="p in products.filter(x=>x.id!==productId && x.status==='ENABLED')" :key="p.id" :value="p.id" :label="p.name" /></el-select> <!-- 渲染 el-select 界面元素。 -->
-   <el-button @click="profile.childProducts.splice(index,1)">移除</el-button></div> <!-- 渲染 el-button 界面元素。 -->
+  <div class="setting-row"><ui-input v-model="child.type" placeholder="协议返回的子设备类型" aria-label="子设备类型" /> <!-- 渲染 div 界面元素。 -->
+   <ui-select v-model="child.productId" filterable placeholder="子设备产品" aria-label="子设备产品"><ui-option v-for="p in products.filter(x=>x.id!==productId && x.status==='ENABLED')" :key="p.id" :value="p.id" :label="p.name" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
+   <ui-button @click="profile.childProducts.splice(index,1)">移除</ui-button></div> <!-- 渲染 ui-button 界面元素。 -->
   <p v-if="bindings[child.productId]">协议：{{bindings[child.productId].protocolId}} · {{bindings[child.productId].version}}</p> <!-- 渲染 p 界面元素。 -->
   <p v-else-if="child.productId" class="binding-error">{{errors[child.productId]||'正在读取协议…'}}</p> <!-- 渲染 p 界面元素。 -->
  </div> <!-- 结束当前界面区域。 -->
- <el-button :disabled="(profile.childProducts?.length||0)>=64" @click="addChild">添加子设备产品</el-button> <!-- 渲染 el-button 界面元素。 -->
+ <ui-button :disabled="(profile.childProducts?.length||0)>=64" @click="addChild">添加子设备产品</ui-button> <!-- 渲染 ui-button 界面元素。 -->
 </section> <!-- 结束当前界面区域。 -->
 </template>
 <style scoped>

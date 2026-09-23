@@ -161,77 +161,78 @@ func (s *Server) routes() { /* 定义 routes 函数。 */
 	s.router.POST("/api/v2/device-access-profiles/:id/devices/:deviceId/commands", s.authorize("operator"), s.endpoint(s.protocolDeviceCommand, "id", "deviceId")) /* 执行当前语句并推进处理流程。 */
 	s.router.GET("/api/v1/device-registry", s.authorize("viewer"), s.endpoint(s.deviceRegistry))                                                                   /* 执行当前语句并推进处理流程。 */
 	s.router.POST("/api/v1/device-registry", s.authorize("operator"), s.endpoint(s.saveManagedDevice))                                                             /* 执行当前语句并推进处理流程。 */
-	s.router.PUT("/api/v1/device-registry/:id", s.authorize("operator"), s.endpoint(s.saveManagedDevice, "id"))                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/test-devices/provision", s.authorize("operator"), s.endpoint(s.provisionTestDevice))                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/discovered-devices/:id/register", s.authorize("operator"), s.endpoint(s.registerDiscoveredDevice, "id"))                                /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.rotateDeviceCredential, "id"))                                     /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/device-registry/:id/debug", s.authorize("operator"), s.endpoint(s.debugDeviceIngest, "id"))                                             /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/raw-messages", s.authorize("operator"), s.endpoint(s.ingestRaw))                                                                        /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/raw-messages", s.authorize("viewer"), s.endpoint(s.listRaw))                                                                             /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/raw-messages/download", s.authorize("viewer"), s.endpoint(s.downloadRawBatch))                                                          /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/raw-messages/:id", s.authorize("viewer"), s.endpoint(s.rawDetail, "id"))                                                                 /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/raw-messages/:id/download", s.authorize("viewer"), s.endpoint(s.downloadRaw, "id"))                                                      /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/raw-messages/replay", s.authorize("admin"), s.endpoint(s.startReplay))                                                                  /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/replays/:id", s.authorize("viewer"), s.endpoint(s.getReplay, "id"))                                                                      /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/dashboard", s.authorize("viewer"), s.endpoint(s.dashboard))                                                                              /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/devices", s.authorize("viewer"), s.endpoint(s.devices))                                                                                  /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/devices/:deviceId/latest", s.authorize("viewer"), s.endpoint(s.deviceLatest, "deviceId"))                                                /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/devices/:deviceId/properties/history", s.authorize("viewer"), s.endpoint(s.history, "deviceId"))                                         /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/device-states", s.authorize("operator"), s.endpoint(s.stateEvent))                                                                      /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/rules", s.authorize("viewer"), s.endpoint(s.rules))                                                                                      /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/rules", s.authorize("operator"), s.endpoint(s.saveRule))                                                                                /* 执行当前语句并推进处理流程。 */
-	s.router.PUT("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.saveRule, "id"))                                                                       /* 执行当前语句并推进处理流程。 */
-	s.router.DELETE("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.deleteRule, "id"))                                                                  /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/alarms", s.authorize("viewer"), s.endpoint(s.alarms))                                                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/alarms/:id", s.authorize("viewer"), s.endpoint(s.alarm, "id"))                                                                           /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/alarms/:id/actions", s.authorize("operator"), s.endpoint(s.alarmAction, "id"))                                                          /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/backups/:id/files/:filename", s.authorize("admin"), s.endpoint(s.downloadBackupFile, "id", "filename"))                                  /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/backups/:id/files", s.authorize("viewer"), s.endpoint(s.backupFiles, "id"))                                                              /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/backups/:id/restore-drill", s.authorize("admin"), s.endpoint(s.restoreBackup, "id"))                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/backups/:id", s.authorize("viewer"), s.endpoint(s.getBackup, "id"))                                                                      /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/backups", s.authorize("viewer"), s.endpoint(s.listBackups))                                                                              /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/backups", s.authorize("admin"), s.endpoint(s.runBackup))                                                                                /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId", s.authorize("viewer"), s.endpoint(s.aiAnalysis, "alarmId"))                                                 /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/alarm-analysis/:alarmId/run", s.authorize("operator"), s.endpoint(s.runAIAlarmAnalysis, "alarmId"))                                  /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId"))                           /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress/:jobId", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId", "jobId"))           /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/health-inspection", s.authorize("viewer"), s.endpoint(s.healthInspection))                                                           /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/health-inspection/run", s.authorize("viewer"), s.endpoint(s.runHealthInspection))                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/health-inspection/progress", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress))                                           /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/health-inspection/progress/:jobId", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress, "jobId"))                           /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/health-inspection/pdf", s.authorize("viewer"), s.endpoint(s.healthInspectionPDF))                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/protocol-assistant/generate", s.authorize("operator"), s.endpoint(s.generateProtocolAssistant))                                      /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/protocol-assistant/preview", s.authorize("operator"), s.endpoint(s.previewProtocolAssistant))                                        /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/protocol-assistant/publish", s.authorize("operator"), s.endpoint(s.publishProtocolAssistant))                                        /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/providers", s.authorize("viewer"), s.endpoint(s.aiProviders))                                                                         /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/providers/config", s.authorize("viewer"), s.endpoint(s.aiProviderConfig))                                                             /* 执行当前语句并推进处理流程。 */
-	s.router.PUT("/api/v1/ai/providers/config", s.authorize("admin"), s.endpoint(s.updateAIProviderConfig))                                                        /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/providers/test", s.authorize("admin"), s.endpoint(s.testAIProvider))                                                                 /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/workflows", s.authorize("viewer"), s.endpoint(s.aiWorkflows))                                                                         /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/workflows/admin", s.authorize("admin"), s.endpoint(s.aiWorkflowManifests))                                                            /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/workflows", s.authorize("admin"), s.endpoint(s.saveAIWorkflow))                                                                      /* 执行当前语句并推进处理流程。 */
-	s.router.PUT("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.updateAIWorkflow, "id"))                                                           /* 执行当前语句并推进处理流程。 */
-	s.router.DELETE("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.deleteAIWorkflow, "id"))                                                        /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("viewer"), s.endpoint(s.workflowKnowledgeBinding, "id"))                                /* 执行当前语句并推进处理流程。 */
-	s.router.PUT("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("operator"), s.endpoint(s.workflowKnowledgeBinding, "id"))                              /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/chat", s.authorize("viewer"), s.endpoint(s.aiChat))                                                                                  /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/chat/stream", s.authorize("viewer"), s.endpoint(s.aiChatStream))                                                                     /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/rule-draft", s.authorize("operator"), s.endpoint(s.aiRuleDraft))                                                                     /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/ai/reports", s.authorize("viewer"), s.endpoint(s.aiReport))                                                                             /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/knowledge/documents", s.authorize("viewer"), s.endpoint(s.knowledgeDocs))                                                                /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/knowledge/documents/:id", s.authorize("viewer"), s.endpoint(s.knowledgeDocumentDetail, "id"))                                            /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/knowledge/documents", s.authorize("operator"), s.endpoint(s.knowledgeUpload))                                                           /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/mqtt/token", s.authorize("viewer"), s.endpoint(s.mqttToken))                                                                            /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/mqtt/load-token", s.authorize("admin"), s.endpoint(s.mqttLoadToken))                                                                    /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/device-mqtt/token", s.endpoint(s.deviceMQTTToken))                                                                                      /* 执行当前语句并推进处理流程。 */
-	mcpHandler := gin.WrapH(mcpserver.New(s.engine))                                                                                                               /* 更新 mcpHandler 的值。 */
-	s.router.GET("/mcp", s.authorize("viewer"), mcpHandler)                                                                                                        /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/mcp", s.authorize("viewer"), mcpHandler)                                                                                                       /* 执行当前语句并推进处理流程。 */
-	s.router.DELETE("/mcp", s.authorize("viewer"), mcpHandler)                                                                                                     /* 执行当前语句并推进处理流程。 */
-	harnessMCPHandler := gin.WrapH(mcpserver.NewHarness(s.engine))                                                                                                 /* 更新 harnessMCPHandler 的值。 */
-	s.router.POST("/mcp/harness", s.authorizeHarness(), harnessMCPHandler)                                                                                         /* 执行当前语句并推进处理流程。 */
-	s.router.NoRoute(func(c *gin.Context) { ginProblem(c, http.StatusNotFound, "route not found") })                                                               /* 执行当前语句并推进处理流程。 */
-	s.router.NoMethod(func(c *gin.Context) { ginProblem(c, http.StatusMethodNotAllowed, "method not allowed") })                                                   /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/device-registry/:id/children", s.authorize("operator"), s.endpoint(s.registerConfiguredChild, "id"))
+	s.router.PUT("/api/v1/device-registry/:id", s.authorize("operator"), s.endpoint(s.saveManagedDevice, "id"))                                          /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/test-devices/provision", s.authorize("operator"), s.endpoint(s.provisionTestDevice))                                          /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/discovered-devices/:id/register", s.authorize("operator"), s.endpoint(s.registerDiscoveredDevice, "id"))                      /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.rotateDeviceCredential, "id"))                           /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/device-registry/:id/debug", s.authorize("operator"), s.endpoint(s.debugDeviceIngest, "id"))                                   /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/raw-messages", s.authorize("operator"), s.endpoint(s.ingestRaw))                                                              /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/raw-messages", s.authorize("viewer"), s.endpoint(s.listRaw))                                                                   /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/raw-messages/download", s.authorize("viewer"), s.endpoint(s.downloadRawBatch))                                                /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/raw-messages/:id", s.authorize("viewer"), s.endpoint(s.rawDetail, "id"))                                                       /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/raw-messages/:id/download", s.authorize("viewer"), s.endpoint(s.downloadRaw, "id"))                                            /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/raw-messages/replay", s.authorize("admin"), s.endpoint(s.startReplay))                                                        /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/replays/:id", s.authorize("viewer"), s.endpoint(s.getReplay, "id"))                                                            /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/dashboard", s.authorize("viewer"), s.endpoint(s.dashboard))                                                                    /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/devices", s.authorize("viewer"), s.endpoint(s.devices))                                                                        /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/devices/:deviceId/latest", s.authorize("viewer"), s.endpoint(s.deviceLatest, "deviceId"))                                      /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/devices/:deviceId/properties/history", s.authorize("viewer"), s.endpoint(s.history, "deviceId"))                               /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/device-states", s.authorize("operator"), s.endpoint(s.stateEvent))                                                            /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/rules", s.authorize("viewer"), s.endpoint(s.rules))                                                                            /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/rules", s.authorize("operator"), s.endpoint(s.saveRule))                                                                      /* 执行当前语句并推进处理流程。 */
+	s.router.PUT("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.saveRule, "id"))                                                             /* 执行当前语句并推进处理流程。 */
+	s.router.DELETE("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.deleteRule, "id"))                                                        /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/alarms", s.authorize("viewer"), s.endpoint(s.alarms))                                                                          /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/alarms/:id", s.authorize("viewer"), s.endpoint(s.alarm, "id"))                                                                 /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/alarms/:id/actions", s.authorize("operator"), s.endpoint(s.alarmAction, "id"))                                                /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/backups/:id/files/:filename", s.authorize("admin"), s.endpoint(s.downloadBackupFile, "id", "filename"))                        /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/backups/:id/files", s.authorize("viewer"), s.endpoint(s.backupFiles, "id"))                                                    /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/backups/:id/restore-drill", s.authorize("admin"), s.endpoint(s.restoreBackup, "id"))                                          /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/backups/:id", s.authorize("viewer"), s.endpoint(s.getBackup, "id"))                                                            /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/backups", s.authorize("viewer"), s.endpoint(s.listBackups))                                                                    /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/backups", s.authorize("admin"), s.endpoint(s.runBackup))                                                                      /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId", s.authorize("viewer"), s.endpoint(s.aiAnalysis, "alarmId"))                                       /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/alarm-analysis/:alarmId/run", s.authorize("operator"), s.endpoint(s.runAIAlarmAnalysis, "alarmId"))                        /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId"))                 /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/alarm-analysis/:alarmId/progress/:jobId", s.authorize("viewer"), s.endpoint(s.aiAlarmAnalysisProgress, "alarmId", "jobId")) /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/health-inspection", s.authorize("viewer"), s.endpoint(s.healthInspection))                                                 /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/health-inspection/run", s.authorize("viewer"), s.endpoint(s.runHealthInspection))                                          /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/health-inspection/progress", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress))                                 /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/health-inspection/progress/:jobId", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress, "jobId"))                 /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/health-inspection/pdf", s.authorize("viewer"), s.endpoint(s.healthInspectionPDF))                                          /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/protocol-assistant/generate", s.authorize("operator"), s.endpoint(s.generateProtocolAssistant))                            /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/protocol-assistant/preview", s.authorize("operator"), s.endpoint(s.previewProtocolAssistant))                              /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/protocol-assistant/publish", s.authorize("operator"), s.endpoint(s.publishProtocolAssistant))                              /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/providers", s.authorize("viewer"), s.endpoint(s.aiProviders))                                                               /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/providers/config", s.authorize("viewer"), s.endpoint(s.aiProviderConfig))                                                   /* 执行当前语句并推进处理流程。 */
+	s.router.PUT("/api/v1/ai/providers/config", s.authorize("admin"), s.endpoint(s.updateAIProviderConfig))                                              /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/providers/test", s.authorize("admin"), s.endpoint(s.testAIProvider))                                                       /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/workflows", s.authorize("viewer"), s.endpoint(s.aiWorkflows))                                                               /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/workflows/admin", s.authorize("admin"), s.endpoint(s.aiWorkflowManifests))                                                  /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/workflows", s.authorize("admin"), s.endpoint(s.saveAIWorkflow))                                                            /* 执行当前语句并推进处理流程。 */
+	s.router.PUT("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.updateAIWorkflow, "id"))                                                 /* 执行当前语句并推进处理流程。 */
+	s.router.DELETE("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.deleteAIWorkflow, "id"))                                              /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("viewer"), s.endpoint(s.workflowKnowledgeBinding, "id"))                      /* 执行当前语句并推进处理流程。 */
+	s.router.PUT("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("operator"), s.endpoint(s.workflowKnowledgeBinding, "id"))                    /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/chat", s.authorize("viewer"), s.endpoint(s.aiChat))                                                                        /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/chat/stream", s.authorize("viewer"), s.endpoint(s.aiChatStream))                                                           /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/rule-draft", s.authorize("operator"), s.endpoint(s.aiRuleDraft))                                                           /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/ai/reports", s.authorize("viewer"), s.endpoint(s.aiReport))                                                                   /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/knowledge/documents", s.authorize("viewer"), s.endpoint(s.knowledgeDocs))                                                      /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/knowledge/documents/:id", s.authorize("viewer"), s.endpoint(s.knowledgeDocumentDetail, "id"))                                  /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/knowledge/documents", s.authorize("operator"), s.endpoint(s.knowledgeUpload))                                                 /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/mqtt/token", s.authorize("viewer"), s.endpoint(s.mqttToken))                                                                  /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/mqtt/load-token", s.authorize("admin"), s.endpoint(s.mqttLoadToken))                                                          /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/api/v1/device-mqtt/token", s.endpoint(s.deviceMQTTToken))                                                                            /* 执行当前语句并推进处理流程。 */
+	mcpHandler := gin.WrapH(mcpserver.New(s.engine))                                                                                                     /* 更新 mcpHandler 的值。 */
+	s.router.GET("/mcp", s.authorize("viewer"), mcpHandler)                                                                                              /* 执行当前语句并推进处理流程。 */
+	s.router.POST("/mcp", s.authorize("viewer"), mcpHandler)                                                                                             /* 执行当前语句并推进处理流程。 */
+	s.router.DELETE("/mcp", s.authorize("viewer"), mcpHandler)                                                                                           /* 执行当前语句并推进处理流程。 */
+	harnessMCPHandler := gin.WrapH(mcpserver.NewHarness(s.engine))                                                                                       /* 更新 harnessMCPHandler 的值。 */
+	s.router.POST("/mcp/harness", s.authorizeHarness(), harnessMCPHandler)                                                                               /* 执行当前语句并推进处理流程。 */
+	s.router.NoRoute(func(c *gin.Context) { ginProblem(c, http.StatusNotFound, "route not found") })                                                     /* 执行当前语句并推进处理流程。 */
+	s.router.NoMethod(func(c *gin.Context) { ginProblem(c, http.StatusMethodNotAllowed, "method not allowed") })                                         /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 func (s *Server) login(w http.ResponseWriter, r *http.Request) { /* 定义 login 函数。 */
 	var in struct { /* 声明 in。 */
@@ -573,12 +574,17 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) { /* 
 		if v.Tags == nil {                                                                                                  /* 判断条件并选择处理分支。 */
 			v.Tags = map[string]string{} /* 更新 v.Tags 的值。 */
 		} /* 结束当前表达式或代码块。 */
-		for _, key := range []string{"onboardingRequestHash", "connector", "connectorProfileId", "childAddress", "childType"} { /* 循环处理当前数据。 */
+		for _, key := range []string{"onboardingRequestHash", "connector", "childType"} { /* 循环处理当前数据。 */
 			delete(v.Tags, key)                      /* 执行当前语句并推进处理流程。 */
 			if value := old.Tags[key]; value != "" { /* 判断条件并选择处理分支。 */
 				v.Tags[key] = value /* 更新 v.Tags[key] 的值。 */
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
+		for _, key := range []string{"connectorProfileId", "childAddress"} {
+			if _, supplied := v.Tags[key]; !supplied && old.Tags[key] != "" {
+				v.Tags[key] = old.Tags[key]
+			}
+		}
 		if v.RegistrationSource == "" { /* 判断条件并选择处理分支。 */
 			v.RegistrationSource = old.RegistrationSource /* 更新 v.RegistrationSource 的值。 */
 		} /* 结束当前表达式或代码块。 */
@@ -624,6 +630,40 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) { /* 
 	} else { /* 结束当前表达式或代码块。 */
 		v.GatewayID = "" /* 更新 v.GatewayID 的值。 */
 	} /* 结束当前表达式或代码块。 */
+	if v.Tags == nil {
+		v.Tags = map[string]string{}
+	}
+	if v.DeviceRole == "CHILD" {
+		parent, parentErr := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.GatewayID)
+		if parentErr != nil {
+			problem(w, 422, "所属主设备已不存在")
+			return
+		}
+		// A child uses its parent's physical connection; the caller cannot bind
+		// it to an unrelated tenant-wide listener.
+		if requested := v.Tags["connectorProfileId"]; requested != "" && requested != parent.Tags["connectorProfileId"] {
+			problem(w, 422, "子设备只能继承所属主设备的连接")
+			return
+		}
+		v.Tags["connectorProfileId"] = parent.Tags["connectorProfileId"]
+	} else if requested := v.Tags["connectorProfileId"]; requested != "" {
+		profiles, profileErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), c.TenantID)
+		if profileErr != nil {
+			problem(w, 500, profileErr.Error())
+			return
+		}
+		valid := false
+		for _, candidate := range profiles {
+			if candidate.ID == requested && candidate.ProductID == v.ProductID && (candidate.DeviceID == "" || candidate.DeviceID == v.ID) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			problem(w, 422, "平台连接配置不可用，请重新选择当前设备模板的连接")
+			return
+		}
+	}
 	if created { /* 判断条件并选择处理分支。 */
 		if product.ProtocolPackageID == parser.StandardProtocolID+"@1.0.0" { /* 判断条件并选择处理分支。 */
 			if v.Tags == nil { /* 判断条件并选择处理分支。 */

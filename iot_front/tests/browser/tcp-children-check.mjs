@@ -29,7 +29,7 @@ try { /* 执行当前语句并推进处理流程。 */
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 声明 click。 */
   const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`) /* 声明 fill。 */
   await click('设备管理') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.el-table__row')].find(e=>e.querySelector('small.subline')?.textContent.trim()==='main-1');const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.querySelector('small.subline')?.textContent.trim()==='main-1');const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer')?.textContent.includes('子设备（1）')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.el-drawer').textContent.includes('sensor')`)) /* 验证实际结果符合预期。 */
   await click('查看子设备') /* 等待异步操作完成。 */
@@ -39,7 +39,7 @@ try { /* 执行当前语句并推进处理流程。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer')?.textContent.includes('子设备（1）')`)) /* 等待异步操作完成。 */
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer').getBoundingClientRect().width<=390`)) /* 等待异步操作完成。 */
-  await evaluate(`document.querySelector('.el-drawer__close-btn').click()`) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('.n-base-close').click()`) /* 等待异步操作完成。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
   await click('接入网关'); await click('新建网关') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.body.textContent.includes('连接方向')`)) /* 等待异步操作完成。 */
@@ -48,13 +48,13 @@ try { /* 执行当前语句并推进处理流程。 */
   await click('添加子设备产品') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('input[aria-label="子设备类型"]')`)) /* 等待异步操作完成。 */
   await evaluate(`(()=>{const e=document.querySelector('input[aria-label="子设备类型"]');e.value='smoke';e.dispatchEvent(new Event('input',{bubbles:true}))})()`) /* 等待异步操作完成。 */
-  await evaluate(`document.querySelector('[aria-label="子设备产品"]').closest('.el-select').querySelector('.el-select__wrapper').click()`) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='sensor'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('[aria-label="子设备产品"]').closest('.el-select').querySelector('.n-base-selection').click()`) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='sensor'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.protocol-access-settings')?.textContent.includes('协议：sensor · 1')`)) /* 等待异步操作完成。 */
   await click('添加定时查询') /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('input[aria-label="查询类型"]')!==null`)) /* 验证实际结果符合预期。 */
-  await evaluate(`document.querySelector('.el-dialog__headerbtn').click()`) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.el-table__row')].find(e=>e.textContent.includes('listen')&&e.getClientRects().length);const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='编辑');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('.n-base-close').click()`) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('listen')&&e.getClientRects().length);const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='编辑');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('input[aria-label="子设备类型"]')?.value==='smoke'`)) /* 等待异步操作完成。 */
   await click('保存接入网关') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.body.textContent.includes('接入网关已保存')`)) /* 等待异步操作完成。 */

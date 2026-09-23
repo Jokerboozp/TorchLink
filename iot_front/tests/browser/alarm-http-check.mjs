@@ -95,13 +95,13 @@ try { /* 执行当前语句并推进处理流程。 */
   await click('协议管理');await click('协议生成') /* 等待异步操作完成。 */
   await until(()=>evaluate("!!document.querySelector('.protocol-generator textarea')")) /* 等待异步操作完成。 */
   assert.equal(await evaluate("document.querySelector('.protocol-generator').textContent.includes('协议名称')"),true) /* 验证实际结果符合预期。 */
-  await evaluate("[...document.querySelectorAll('.protocol-generator .el-radio-button')].find(item=>item.textContent.trim()==='点表').click()") /* 等待异步操作完成。 */
+  await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='点表').click()") /* 等待异步操作完成。 */
   await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴 CSV 点表')")) /* 等待异步操作完成。 */
   assert.equal(await evaluate("document.querySelector('.protocol-generator input[type=file]').accept"),'.xlsx,.csv') /* 验证实际结果符合预期。 */
   await delay(500) /* 等待异步操作完成。 */ // Wait for the dialog enter animation before visual review.
   const inputScreenshot=await call('Page.captureScreenshot',{format:'png'}) /* 声明 inputScreenshot。 */
   await writeFile(join(output,'protocol-generator.png'),Buffer.from(inputScreenshot.data,'base64')) /* 等待异步操作完成。 */
-  await evaluate("[...document.querySelectorAll('.protocol-generator .el-radio-button')].find(item=>item.textContent.trim()==='报文').click()") /* 等待异步操作完成。 */
+  await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='报文').click()") /* 等待异步操作完成。 */
   await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴报文')")) /* 等待异步操作完成。 */
   await evaluate(`(()=>{const input=document.querySelector('.protocol-generator textarea');input.value='{"temperature":25}';input.dispatchEvent(new Event('input',{bubbles:true}))})()`) /* 等待异步操作完成。 */
   await click('生成协议') /* 等待异步操作完成。 */

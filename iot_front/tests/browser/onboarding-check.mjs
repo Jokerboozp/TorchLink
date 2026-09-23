@@ -40,16 +40,16 @@ try { /* 执行当前语句并推进处理流程。 */
   await click('保存产品') /* 等待异步操作完成。 */
   await until(()=>evaluate(`!document.querySelector('.el-dialog')?.getClientRects().length`)) /* 等待异步操作完成。 */
   await click('设备管理'); await click('添加设备') /* 等待异步操作完成。 */
-  assert.equal(await evaluate(`!!document.querySelector('.el-dialog .el-steps')`),false) /* 验证实际结果符合预期。 */
-  await evaluate(`document.querySelector('.el-dialog .el-select__wrapper').click()`) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='浏览器标准产品'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
+  assert.equal(await evaluate(`!!document.querySelector('.el-dialog .n-steps')`),false) /* 验证实际结果符合预期。 */
+  await evaluate(`document.querySelector('.el-dialog .n-base-selection').click()`) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='浏览器标准产品'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
   await fill('设备名称','浏览器传感器修订'); await fill('设备标识','browser-device') /* 等待异步操作完成。 */
   await click('保存设备') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-dialog .el-descriptions__content')?.textContent`)) /* 等待异步操作完成。 */
-  const credentials=await evaluate(`Array.from(document.querySelectorAll('.el-dialog .el-descriptions__content')).map(e=>e.textContent.trim())`) /* 声明 credentials。 */
+  await until(()=>evaluate(`document.querySelector('.el-dialog .n-descriptions-table-content')?.textContent`)) /* 等待异步操作完成。 */
+  const credentials=await evaluate(`Array.from(document.querySelectorAll('.el-dialog .n-descriptions-table-content')).map(e=>e.textContent.trim())`) /* 声明 credentials。 */
   const deviceCredential=['browser-device','',credentials[0],credentials[1]] /* 声明 deviceCredential。 */
   await click('关闭') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.el-table__row')].find(e=>e.textContent.includes('browser-device'));const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('browser-device'));const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer')?.textContent.includes('iot-standard')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.el-drawer').textContent.includes('连接与状态历史')`)) /* 验证实际结果符合预期。 */
   assert.ok(await evaluate(`document.querySelector('.el-drawer').textContent.includes('最近事件')`)) /* 验证实际结果符合预期。 */
@@ -58,18 +58,18 @@ try { /* 执行当前语句并推进处理流程。 */
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
   await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer').getBoundingClientRect().width<=391`)) /* 等待异步操作完成。 */
-  await evaluate(`document.querySelector('.el-drawer__close-btn').click()`) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('.n-base-close').click()`) /* 等待异步操作完成。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.el-table__row')].find(e=>e.textContent.includes('历史设备'));const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('历史设备'));const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer')?.textContent.includes('检测到多个关联实例')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`![...document.querySelectorAll('.el-drawer button')].some(e=>e.textContent.trim()==='发送命令')`)) /* 验证实际结果符合预期。 */
-  await evaluate(`document.querySelector('.el-drawer .el-select__wrapper').click()`) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const option=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='listener-a'&&e.getClientRects().length);if(!option)return false;option.click();return true})()`)) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('.el-drawer .n-base-selection').click()`) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const option=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='listener-a'&&e.getClientRects().length);if(!option)return false;option.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-drawer .el-descriptions')?.textContent.includes('TCP')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.el-drawer .el-table').textContent.includes('listener-a') && !document.querySelector('.el-drawer .el-table').textContent.includes('listener-b')`)) /* 验证实际结果符合预期。 */
-  await evaluate(`document.querySelector('.el-drawer__close-btn').click()`) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('.n-base-close').click()`) /* 等待异步操作完成。 */
   await click('接入网关') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.el-table__row')].find(e=>e.textContent.includes('listener-a')&&e.getClientRects().length);const expand=row?.querySelector('.el-table__expand-icon');if(!expand)return false;expand.click();return true})()`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('listener-a')&&e.getClientRects().length);const expand=row?.querySelector('.n-data-table-expand-trigger');if(!expand)return false;expand.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.instance-details')?.textContent.includes('127.0.0.1:1234')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.instance-details').textContent.includes('历史设备')`)) /* 验证实际结果符合预期。 */
   await click('接入测试') /* 等待异步操作完成。 */
@@ -84,7 +84,7 @@ try { /* 执行当前语句并推进处理流程。 */
   await until(()=>evaluate(`document.querySelector('.standard-commissioning .el-table')?.textContent.includes('平台已去重')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.standard-commissioning pre').textContent.includes('temperature')`)) /* 验证实际结果符合预期。 */
   if(process.env.IOT_TEST_MQTT_WEBSOCKET) { /* 判断条件并选择处理分支。 */
-    await evaluate(`([...document.querySelectorAll('.standard-commissioning .el-radio')].find(e=>e.textContent.trim()==='MQTT')).click()`) /* 等待异步操作完成。 */
+    await evaluate(`([...document.querySelectorAll('.standard-commissioning .n-radio')].find(e=>e.textContent.trim()==='MQTT')).click()`) /* 等待异步操作完成。 */
     await fill('设备密钥','invalid-mqtt-secret') /* 等待异步操作完成。 */
     await click('连接 / 重新认证') /* 等待异步操作完成。 */
     await until(()=>evaluate(`document.querySelector('.standard-commissioning')?.textContent.includes('认证拒绝，请检查或重新生成凭据')`)) /* 等待异步操作完成。 */
@@ -124,7 +124,7 @@ try { /* 执行当前语句并推进处理流程。 */
     await until(()=>evaluate(`Number(document.querySelector('[data-testid=mqtt-connect-count]')?.textContent)>=2`)) /* 等待异步操作完成。 */
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('密钥'))`));throw e}) /* 等待异步操作完成。 */
     await click('重发同一条消息') /* 等待异步操作完成。 */
-    await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning .el-table__row')].filter(e=>e.textContent.includes('已解析')).length===2)`)) /* 等待异步操作完成。 */
+    await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning .n-data-table-tbody .n-data-table-tr')].filter(e=>e.textContent.includes('已解析')).length===2)`)) /* 等待异步操作完成。 */
     console.log('PASS: live Broker WebSocket credential rejection without operator logout, authentication, Raw parsing, injected transport loss, automatic reconnect and retransmission') /* 执行当前语句并推进处理流程。 */
   } /* 结束当前表达式或代码块。 */
   await evaluate(`(()=>{const original=URL.createObjectURL;URL.createObjectURL=function(blob){window.__commissioningReport=blob.text();return original.call(URL,blob)}})()`) /* 等待异步操作完成。 */
@@ -142,10 +142,10 @@ try { /* 执行当前语句并推进处理流程。 */
   await click('保存') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.el-table')?.textContent.includes('直接登记摄像头')`)) /* 等待异步操作完成。 */
   await click('模型管理') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`!!document.querySelector('.provider-select .el-select__wrapper')`)) /* 等待异步操作完成。 */
-  await evaluate(`document.querySelector('.provider-select .el-select__wrapper').click()`) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`([...document.querySelectorAll('.el-select-dropdown__item')].filter(e=>e.getClientRects().length).length>=3)`)) /* 等待异步操作完成。 */
-  const providerNames = await evaluate(`[...document.querySelectorAll('.el-select-dropdown__item')].filter(e=>e.getClientRects().length).map(e=>e.textContent.trim())`) /* 声明 providerNames。 */
+  await until(()=>evaluate(`!!document.querySelector('.provider-select .n-base-selection')`)) /* 等待异步操作完成。 */
+  await evaluate(`document.querySelector('.provider-select .n-base-selection').click()`) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`([...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).length>=3)`)) /* 等待异步操作完成。 */
+  const providerNames = await evaluate(`[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.textContent.trim())`) /* 声明 providerNames。 */
   assert.deepEqual(providerNames, ['Ollama','DeepSeek','OpenAI 兼容 API']) /* 验证实际结果符合预期。 */
   console.log('PASS: technical provider names are visible; no model test or configuration apply was performed') /* 执行当前语句并推进处理流程。 */
   console.log('PASS: independent product and device registration, legacy Modbus API fixture, connection history, mobile drawer, legacy profile selection, listener sessions and recent devices, HTTP credential rejection and deduplication, report export without secrets, credential cleanup') /* 执行当前语句并推进处理流程。 */

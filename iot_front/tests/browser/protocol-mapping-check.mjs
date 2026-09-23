@@ -19,13 +19,13 @@ server.middlewares.use(async(req,res,next)=>{ /* 执行当前语句并推进处�
  if(req.url.startsWith('/mapping-fixture')) { /* 判断条件并选择处理分支。 */
   res.setHeader('Content-Type','text/html');res.end(await server.transformIndexHtml(req.url,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app" style="padding:20px;max-width:1100px;margin:auto"></div><script type="module">
 import {createApp,h} from 'vue';
-import ElementPlus from 'element-plus';
-import '/node_modules/element-plus/dist/index.css';
+import {installUi} from '/src/ui/index.js';
 import '/src/styles.css';
+import '/src/naive-admin.css';
 import Assistant from '/src/views/ProtocolAssistantView.vue';
 const kind=new URLSearchParams(location.search).get('kind');
 const configs={json:{properties:{temperature:'$.temperature'}},hex:{startHex:'AA',fields:[{name:'temperature',offset:1,length:2,type:'uint16',endian:'big',scale:1}]},modbus:{points:[{identifier:'temperature',name:'温度',address:10,addressNotation:'zero_based',functionCode:3,dataType:'uint16',registerCount:1,byteOrder:'big',wordOrder:'ABCD',scale:0.1,offset:0,unit:'℃',pollIntervalSec:10}],blocks:[{startAddress:10}]}};
-createApp({render:()=>h(Assistant,{initialName:'字段映射验收',initialRelease:{protocolId:'fixture',version:'1',status:'DRAFT',parserType:{json:'configurable_json_parser',hex:'configurable_hex_parser',modbus:'modbus_tcp_parser_v2'}[kind],transport:kind==='modbus'?'MODBUS_TCP':'MQTT',payloadFormat:kind==='json'?'json':'hex',config:configs[kind]}})}).use(ElementPlus).mount('#app');
+const app=createApp({render:()=>h(Assistant,{initialName:'字段映射验收',initialRelease:{protocolId:'fixture',version:'1',status:'DRAFT',parserType:{json:'configurable_json_parser',hex:'configurable_hex_parser',modbus:'modbus_tcp_parser_v2'}[kind],transport:kind==='modbus'?'MODBUS_TCP':'MQTT',payloadFormat:kind==='json'?'json':'hex',config:configs[kind]}})});installUi(app);app.directive('permission',{mounted(){}});app.mount('#app');
 </script></body></html>`));return
  } /* 结束当前表达式或代码块。 */
  next() /* 执行当前语句并推进处理流程。 */
@@ -51,7 +51,7 @@ try { /* 执行当前语句并推进处理流程。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
 
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 声明 click。 */
-  const fill=async(label,value)=>evaluate(`(()=>{const input=document.querySelector('[aria-label="'+${JSON.stringify(label)}+'"]');if(!input)throw new Error('missing '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.blur()})()`) /* 声明 fill。 */
+  const fill=async(label,value)=>evaluate(`(()=>{const field=document.querySelector('[aria-label="'+${JSON.stringify(label)}+'"]');const input=field?.matches('input,textarea')?field:field?.querySelector('input,textarea');if(!input)throw new Error('missing '+${JSON.stringify(label)});input.focus();input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.blur()})()`) /* 将输入写入 Naive UI 内部的原生控件并提交数字字段。 */
   for(const kind of ['json','modbus','hex']) { /* 循环处理当前数据。 */
    savedBody=null /* 更新 savedBody 的值。 */
    await call('Page.navigate',{url:origin+'mapping-fixture?kind='+kind}) /* 等待异步操作完成。 */
@@ -70,7 +70,7 @@ try { /* 执行当前语句并推进处理流程。 */
    await until(()=>evaluate(`document.body.textContent.includes('第 2 行请填写字段标识')`)) /* 等待异步操作完成。 */
    assert.equal(savedBody,null) /* 验证实际结果符合预期。 */
    await evaluate(`document.querySelector('[aria-label="删除第2行字段"]').click()`) /* 等待异步操作完成。 */
-   await evaluate(`document.querySelector('.el-table__expand-icon').click()`) /* 等待异步操作完成。 */
+   await evaluate(`document.querySelector('.n-data-table-expand-trigger').click()`) /* 展开 Naive UI 表格的字段详情。 */
    await until(()=>evaluate(`document.querySelector('[aria-label="第1行倍率"]')!==null`)) /* 等待异步操作完成。 */
    await fill('第1行倍率','0.5') /* 等待异步操作完成。 */
    await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
@@ -79,7 +79,7 @@ try { /* 执行当前语句并推进处理流程。 */
    await click('保存协议') /* 等待异步操作完成。 */
    await until(()=>savedBody) /* 等待异步操作完成。 */
    const config=savedBody.draft.config /* 声明 config。 */
-   if(kind==='json')assert.deepEqual(config.properties.mapped_temperature,{path:'$.data.temperature',type:'',scale:0.5}) /* 判断条件并选择处理分支。 */
+   if(kind==='json')assert.deepEqual(config.properties.mapped_temperature,{path:'$.data.temperature',type:'',scale:0.5},JSON.stringify(config)) /* 判断条件并选择处理分支。 */
    else {assert.equal(config[kind==='modbus'?'points':'fields'][0][kind==='modbus'?'address':'offset'],12);assert.equal(config[kind==='modbus'?'points':'fields'][0].scale,0.5)} /* 验证实际结果符合预期。 */
    await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
   } /* 结束当前表达式或代码块。 */

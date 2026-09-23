@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { AlertTriangle, BellRing, Clock3, Volume2, X } from '@lucide/vue' /* 引入当前代码需要的依赖。 */
 import { formatTime, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { alarmType } from '../labels' /* 引入当前代码需要的依赖。 */
@@ -91,13 +91,13 @@ function saveSettingsForm() { /* 定义 saveSettingsForm 函数。 */
   saveAlertSettings(window.localStorage, storageIdentity, next) /* 执行当前语句并推进处理流程。 */
   if (!next.popupEnabled || currentQuietHours()) popupAlerts.value = [] /* 判断条件并选择处理分支。 */
   settingsVisible.value = false /* 更新 settingsVisible.value 的值。 */
-  ElMessage.success('告警提醒设置已保存') /* 执行当前语句并推进处理流程。 */
+  UiMessage.success('告警提醒设置已保存') /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 async function testSound() { /* 定义 testSound 函数。 */
   const played = await playAlarmTone() /* 声明 played。 */
-  if (played) ElMessage.success('警报声试听已播放') /* 判断条件并选择处理分支。 */
-  else ElMessage.warning('当前浏览器不支持声音播放，请检查浏览器权限') /* 执行当前语句并推进处理流程。 */
+  if (played) UiMessage.success('警报声试听已播放') /* 判断条件并选择处理分支。 */
+  else UiMessage.warning('当前浏览器不支持声音播放，请检查浏览器权限') /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 defineExpose({ openSettings }) /* 执行当前语句并推进处理流程。 */
@@ -143,24 +143,24 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
         </div> <!-- 结束当前界面区域。 -->
         <div class="global-alert-fact"> <!-- 渲染 div 界面元素。 -->
           <span>报警等级</span> <!-- 渲染 span 界面元素。 -->
-          <el-tag :type="alertTagType(item.alarmLevel)" round>{{ item.alarmLevelLabel }}</el-tag> <!-- 渲染 el-tag 界面元素。 -->
+          <ui-tag :type="alertTagType(item.alarmLevel)" round>{{ item.alarmLevelLabel }}</ui-tag> <!-- 渲染 ui-tag 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
       </div> <!-- 结束当前界面区域。 -->
       <div class="global-alert-actions"> <!-- 渲染 div 界面元素。 -->
-        <el-button size="small" type="danger" plain @click="viewAlert(item)">{{ item.alarmId ? '查看告警详情' : '查看原始报文' }}</el-button> <!-- 渲染 el-button 界面元素。 -->
-        <el-button size="small" @click="dismissAlert(item.id)">关闭提示</el-button> <!-- 渲染 el-button 界面元素。 -->
+        <ui-button size="small" type="danger" plain @click="viewAlert(item)">{{ item.alarmId ? '查看告警详情' : '查看原始报文' }}</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+        <ui-button size="small" @click="dismissAlert(item.id)">关闭提示</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
     </article> <!-- 结束当前界面区域。 -->
   </TransitionGroup> <!-- 结束当前界面区域。 -->
 
-  <el-dialog v-model="settingsVisible" title="告警提醒设置" width="min(540px, calc(100vw - 24px))"> <!-- 渲染 el-dialog 界面元素。 -->
+  <ui-dialog v-model="settingsVisible" title="告警提醒设置" width="min(540px, calc(100vw - 24px))"> <!-- 渲染 ui-dialog 界面元素。 -->
     <div class="alert-settings"> <!-- 渲染 div 界面元素。 -->
       <div class="alert-setting-row"> <!-- 渲染 div 界面元素。 -->
         <div class="alert-setting-copy"> <!-- 渲染 div 界面元素。 -->
           <strong>显示报警弹窗</strong> <!-- 渲染 strong 界面元素。 -->
           <span>关闭后不显示右下角弹窗，告警仍会保留在告警中心。</span> <!-- 渲染 span 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
-        <el-switch v-model="settingsDraft.popupEnabled" active-text="开启" inactive-text="关闭" /> <!-- 渲染 el-switch 界面元素。 -->
+        <ui-switch v-model="settingsDraft.popupEnabled" active-text="开启" inactive-text="关闭" /> <!-- 渲染 ui-switch 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
       <div class="alert-setting-row alert-setting-row-stack"> <!-- 渲染 div 界面元素。 -->
         <div class="alert-setting-copy"> <!-- 渲染 div 界面元素。 -->
@@ -168,9 +168,9 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
           <span>每天该时段不显示弹窗，也不播放警报声；留空表示不设置。</span> <!-- 渲染 span 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
         <div class="alert-quiet-times"> <!-- 渲染 div 界面元素。 -->
-          <el-time-picker v-model="settingsDraft.quietStart" value-format="HH:mm" format="HH:mm" placeholder="开始时间" clearable /> <!-- 渲染 el-time-picker 界面元素。 -->
+          <ui-time-picker v-model="settingsDraft.quietStart" value-format="HH:mm" format="HH:mm" placeholder="开始时间" clearable /> <!-- 渲染 ui-time-picker 界面元素。 -->
           <span>至</span> <!-- 渲染 span 界面元素。 -->
-          <el-time-picker v-model="settingsDraft.quietEnd" value-format="HH:mm" format="HH:mm" placeholder="结束时间" clearable /> <!-- 渲染 el-time-picker 界面元素。 -->
+          <ui-time-picker v-model="settingsDraft.quietEnd" value-format="HH:mm" format="HH:mm" placeholder="结束时间" clearable /> <!-- 渲染 ui-time-picker 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
       </div> <!-- 结束当前界面区域。 -->
       <div class="alert-setting-row"> <!-- 渲染 div 界面元素。 -->
@@ -178,16 +178,16 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
           <strong>播放警报声</strong> <!-- 渲染 strong 界面元素。 -->
           <span>新报警或故障到达时播放提示音，静默时段除外。</span> <!-- 渲染 span 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
-        <div class="alert-sound-setting"><el-switch v-model="settingsDraft.soundEnabled" active-text="开启" inactive-text="关闭" /><el-button size="small" plain @click="testSound"><Volume2 />试听</el-button></div> <!-- 渲染 div 界面元素。 -->
+        <div class="alert-sound-setting"><ui-switch v-model="settingsDraft.soundEnabled" active-text="开启" inactive-text="关闭" /><ui-button size="small" plain @click="testSound"><Volume2 />试听</ui-button></div> <!-- 渲染 div 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <el-alert type="info" :closable="false" show-icon> <!-- 渲染 el-alert 界面元素。 -->
+      <ui-alert type="info" :closable="false" show-icon> <!-- 渲染 ui-alert 界面元素。 -->
         <template #title>当前静默时段：{{ quietHoursLabel }}</template>
-      </el-alert> <!-- 结束当前界面区域。 -->
+      </ui-alert> <!-- 结束当前界面区域。 -->
       <div class="alert-settings-note"><Clock3 /> 设置仅保存在当前浏览器的当前租户和用户下。</div> <!-- 渲染 div 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
     <template #footer>
-      <el-button @click="settingsVisible = false">取消</el-button> <!-- 渲染 el-button 界面元素。 -->
-      <el-button type="primary" @click="saveSettingsForm">保存设置</el-button> <!-- 渲染 el-button 界面元素。 -->
+      <ui-button @click="settingsVisible = false">取消</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <ui-button type="primary" @click="saveSettingsForm">保存设置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     </template>
-  </el-dialog>
+  </ui-dialog>
 </template>

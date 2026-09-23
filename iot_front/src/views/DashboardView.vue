@@ -56,39 +56,39 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
 
 <template>
   <div class="dashboard-page" :aria-busy="loading"> <!-- 渲染 div 界面元素。 -->
-    <el-alert v-if="loadError" class="dashboard-error" :title="loadError" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-    <div class="section-toolbar dashboard-toolbar"><span class="muted-text">{{ loading ? '正在更新…' : data ? `更新于 ${formatTime(data.updatedAt)}` : '尚未获取数据' }}</span><el-button :loading="loading" @click="load"><RefreshCw :size="14" />刷新</el-button></div> <!-- 渲染 div 界面元素。 -->
+    <ui-alert v-if="loadError" class="dashboard-error" :title="loadError" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+    <div class="section-toolbar dashboard-toolbar"><span class="muted-text">{{ loading ? '正在更新…' : data ? `更新于 ${formatTime(data.updatedAt)}` : '尚未获取数据' }}</span><ui-button :loading="loading" @click="load"><RefreshCw :size="14" />刷新</ui-button></div> <!-- 渲染 div 界面元素。 -->
     <div class="stats-grid"> <!-- 渲染 div 界面元素。 -->
-      <el-card v-for="item in [{label:'设备总数',value:stats.devices,note:'已登记设备',tone:'primary'},{label:'在线设备',value:stats.online,note:`在线率 ${rate}%`,tone:'success'},{label:'活动告警',value:stats.activeAlarms,note:'待确认',tone:'warning'},{label:'高等级告警',value:stats.highAlarms,note:'紧急与高等级 · 活动中',tone:'danger'}]" :key="item.label" class="stat-card" shadow="never"> <!-- 渲染 el-card 界面元素。 -->
+      <ui-card v-for="item in [{label:'设备总数',value:stats.devices,note:'已登记设备',tone:'primary'},{label:'在线设备',value:stats.online,note:`在线率 ${rate}%`,tone:'success'},{label:'活动告警',value:stats.activeAlarms,note:'待确认',tone:'warning'},{label:'高等级告警',value:stats.highAlarms,note:'紧急与高等级 · 活动中',tone:'danger'}]" :key="item.label" class="stat-card" shadow="never"> <!-- 渲染 ui-card 界面元素。 -->
         <span>{{ item.label }}</span><strong>{{ data ? item.value.toLocaleString() : '—' }}</strong><small :class="item.tone">{{ data ? item.note : '等待更新' }}</small><i :class="item.tone" /> <!-- 渲染 span 界面元素。 -->
-      </el-card> <!-- 结束当前界面区域。 -->
+      </ui-card> <!-- 结束当前界面区域。 -->
     </div> <!-- 结束当前界面区域。 -->
     <div class="dashboard-charts"> <!-- 渲染 div 界面元素。 -->
-      <el-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><el-radio-group v-model="days" size="small" aria-label="告警统计时段" @change="load"><el-radio-button :value="7">近 7 天</el-radio-button><el-radio-button :value="30">近 30 天</el-radio-button></el-radio-group></div></template> <!-- 渲染 el-card 界面元素。 -->
-        <DashboardTrend v-if="data" :items="data.trend" /><el-skeleton v-else :rows="5" :loading="loading" animated><el-empty description="尚未获取趋势数据" :image-size="76" /></el-skeleton> <!-- 渲染 DashboardTrend 界面元素。 -->
-      </el-card> <!-- 结束当前界面区域。 -->
-      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><el-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</el-button></div></template> <!-- 渲染 el-card 界面元素。 -->
+      <ui-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><ui-radio-group v-model="days" size="small" aria-label="告警统计时段" @change="load"><ui-radio-button :value="7">近 7 天</ui-radio-button><ui-radio-button :value="30">近 30 天</ui-radio-button></ui-radio-group></div></template> <!-- 渲染 ui-card 界面元素。 -->
+        <DashboardTrend v-if="data" :items="data.trend" /><ui-skeleton v-else :rows="5" :loading="loading" animated><ui-empty description="尚未获取趋势数据" :image-size="76" /></ui-skeleton> <!-- 渲染 DashboardTrend 界面元素。 -->
+      </ui-card> <!-- 结束当前界面区域。 -->
+      <ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><ui-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->
         <div v-if="data && stats.devices" class="device-chart"> <!-- 渲染 div 界面元素。 -->
           <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="#f0f0f2" stroke-width="15" /><circle v-for="item in states.filter(item => item.count)" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="15" pathLength="100" :stroke-dasharray="`${item.percent} ${100-item.percent}`" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div> <!-- 渲染 div 界面元素。 -->
           <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }}</b></div></div> <!-- 渲染 div 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
-        <el-empty v-else :description="data ? '暂无已登记设备' : loading ? '正在读取设备' : '尚未获取设备数据'" :image-size="76" /> <!-- 渲染 el-empty 界面元素。 -->
-      </el-card> <!-- 结束当前界面区域。 -->
+        <ui-empty v-else :description="data ? '暂无已登记设备' : loading ? '正在读取设备' : '尚未获取设备数据'" :image-size="76" /> <!-- 渲染 ui-empty 界面元素。 -->
+      </ui-card> <!-- 结束当前界面区域。 -->
     </div> <!-- 结束当前界面区域。 -->
     <div class="dashboard-distributions"> <!-- 渲染 div 界面元素。 -->
-      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>产品设备分布</strong><el-button v-permission="'menu:products'" text @click="emit('navigate','products')">管理产品</el-button></div></template> <!-- 渲染 el-card 界面元素。 -->
+      <ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>产品设备分布</strong><ui-button v-permission="'menu:products'" text @click="emit('navigate','products')">管理产品</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->
         <div v-if="products.length" class="horizontal-chart"><div v-for="item in products" :key="item.key" class="bar-row"><div><span :title="item.name">{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>台</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / productMax * 100}%`, background:item.color }" /></div></div></div> <!-- 渲染 div 界面元素。 -->
-        <el-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" /> <!-- 渲染 el-empty 界面元素。 -->
-      </el-card> <!-- 结束当前界面区域。 -->
-      <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta">{{ data ? `${stats.activeAlarms.toLocaleString()} 条` : '—' }}</span></div></template> <!-- 渲染 el-card 界面元素。 -->
+        <ui-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" /> <!-- 渲染 ui-empty 界面元素。 -->
+      </ui-card> <!-- 结束当前界面区域。 -->
+      <ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta">{{ data ? `${stats.activeAlarms.toLocaleString()} 条` : '—' }}</span></div></template> <!-- 渲染 ui-card 界面元素。 -->
         <div v-if="data && stats.activeAlarms" class="horizontal-chart"><div v-for="item in levels" :key="item.key" class="bar-row"><div><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>条</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / stats.activeAlarms * 100}%`, background:item.color }" /></div></div></div> <!-- 渲染 div 界面元素。 -->
-        <el-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" /> <!-- 渲染 el-empty 界面元素。 -->
-      </el-card> <!-- 结束当前界面区域。 -->
+        <ui-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" /> <!-- 渲染 ui-empty 界面元素。 -->
+      </ui-card> <!-- 结束当前界面区域。 -->
     </div> <!-- 结束当前界面区域。 -->
-    <el-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>最新活动告警</strong><el-button v-permission="'menu:alarms'" text @click="emit('navigate','alarms')">查看全部</el-button></div></template> <!-- 渲染 el-card 界面元素。 -->
-      <el-empty v-if="!alarms.length" :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" /> <!-- 渲染 el-empty 界面元素。 -->
-      <div v-for="alarm in alarms" :key="alarm.alarmId" class="alarm-row"><i /><div><strong>{{ alarm.deviceName || alarm.deviceId }} · {{ alarmType(alarm.alarmType) }}</strong><small>{{ alarm.details?.description || alarm.details?.message || alarmType(alarm.alarmType) }} · {{ formatTime(alarm.lastTriggeredAt) }}</small></div><el-tag :type="tagType(alarm.alarmLevel)" effect="light" round>{{ label(alarmLevels,alarm.alarmLevel,'未设置') }}</el-tag><el-button text @click="showDetail(alarm.alarmId)">详情</el-button></div> <!-- 渲染 div 界面元素。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
-  <el-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"><el-descriptions v-if="detail" :column="1" border><el-descriptions-item label="告警编号">{{ detail.alarmId }}</el-descriptions-item><el-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</el-descriptions-item><el-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</el-descriptions-item><el-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</el-descriptions-item></el-descriptions><details class="technical-details"><summary>查看原始记录</summary><pre>{{ JSON.stringify(detail,null,2) }}</pre></details><template #footer><el-button @click="detailVisible = false">关闭</el-button><el-button v-permission="'menu:alarms'" type="primary" @click="emit('navigate', 'alarms', { alarmId: detail?.alarmId })">前往告警处置</el-button></template></el-dialog> <!-- 渲染 el-dialog 界面元素。 -->
+    <ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>最新活动告警</strong><ui-button v-permission="'menu:alarms'" text @click="emit('navigate','alarms')">查看全部</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->
+      <ui-empty v-if="!alarms.length" :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" /> <!-- 渲染 ui-empty 界面元素。 -->
+      <div v-for="alarm in alarms" :key="alarm.alarmId" class="alarm-row"><i /><div><strong>{{ alarm.deviceName || alarm.deviceId }} · {{ alarmType(alarm.alarmType) }}</strong><small>{{ alarm.details?.description || alarm.details?.message || alarmType(alarm.alarmType) }} · {{ formatTime(alarm.lastTriggeredAt) }}</small></div><ui-tag :type="tagType(alarm.alarmLevel)" effect="light" round>{{ label(alarmLevels,alarm.alarmLevel,'未设置') }}</ui-tag><ui-button text @click="showDetail(alarm.alarmId)">详情</ui-button></div> <!-- 渲染 div 界面元素。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
+  <ui-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"><ui-descriptions v-if="detail" :column="1" border><ui-descriptions-item label="告警编号">{{ detail.alarmId }}</ui-descriptions-item><ui-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</ui-descriptions-item><ui-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</ui-descriptions-item></ui-descriptions><details class="technical-details"><summary>查看原始记录</summary><pre>{{ JSON.stringify(detail,null,2) }}</pre></details><template #footer><ui-button @click="detailVisible = false">关闭</ui-button><ui-button v-permission="'menu:alarms'" type="primary" @click="emit('navigate', 'alarms', { alarmId: detail?.alarmId })">前往告警处置</ui-button></template></ui-dialog> <!-- 渲染 ui-dialog 界面元素。 -->
   </div> <!-- 结束当前界面区域。 -->
 </template>

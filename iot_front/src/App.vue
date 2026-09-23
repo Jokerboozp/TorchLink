@@ -1,7 +1,6 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
-import zhCn from 'element-plus/es/locale/lang/zh-cn' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from './ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { /* 引入当前代码需要的依赖。 */
   Bell, /* 执行当前语句并推进处理流程。 */
   Boxes, /* 执行当前语句并推进处理流程。 */
@@ -19,7 +18,8 @@ import { /* 引入当前代码需要的依赖。 */
   PanelLeftOpen, /* 执行当前语句并推进处理流程。 */
   Settings2, /* 执行当前语句并推进处理流程。 */
   Upload, /* 执行当前语句并推进处理流程。 */
-  Video /* 执行当前语句并推进处理流程。 */
+  Video, /* 执行当前语句并推进处理流程。 */
+  X /* 关闭工作区标签页。 */
 } from '@lucide/vue' /* 结束当前表达式或代码块。 */
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue' /* 引入当前代码需要的依赖。 */
 import { api, notifyError, session } from './api' /* 引入当前代码需要的依赖。 */
@@ -45,6 +45,7 @@ const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue')) 
 
 const authenticated = ref(Boolean(session.token)) /* 声明 authenticated。 */
 const active = ref('dashboard') /* 声明 active。 */
+const openedTabs = ref(['dashboard']) /* 保存本次会话打开的工作区页面。 */
 const collapsed = ref(localStorage.getItem('iot:sidebar-collapsed') === 'true') /* 声明 collapsed。 */
 watch(collapsed, value => localStorage.setItem('iot:sidebar-collapsed', String(value))) /* 执行当前语句并推进处理流程。 */
 const closedGroups = ref([]) /* 声明 closedGroups。 */
@@ -79,7 +80,8 @@ const pages = { /* 声明 pages。 */
 const current = computed(() => pages[active.value] || {title:'暂无可用功能'}) /* 声明 current。 */
 const menuGroups = [ /* 声明 menuGroups。 */
   { label: '控制中心', items: ['dashboard'] }, /* 执行当前语句并推进处理流程。 */
-  { label: '设备接入', items: ['protocols', 'products', 'devices', 'profiles', 'integration', 'cameras'] }, /* 执行当前语句并推进处理流程。 */
+  { label: '设备接入', items: ['devices', 'products', 'profiles', 'cameras'] },
+  { label: '技术配置与调试', items: ['protocols', 'integration'] },
   { label: '监测与处置', items: ['alarms', 'inspection', 'raw', 'rules'] }, /* 执行当前语句并推进处理流程。 */
   { label: '智能助手', items: ['aiProviders', 'ai', 'knowledge'] }, /* 执行当前语句并推进处理流程。 */
   { label: '系统维护', items: ['backups','access'] } /* 执行当前语句并推进处理流程。 */
@@ -89,11 +91,13 @@ const visibleGroups = computed(() => menuGroups.map(group=>({...group,items:grou
 watch(() => permissionState.items.join('\n'), (value, old) => { /* 执行当前语句并推进处理流程。 */
  if (!authenticated.value || value === old) return /* 判断条件并选择处理分支。 */
  if (!can('menu:' + active.value)) active.value = visibleGroups.value[0]?.items[0] || '' /* 判断条件并选择处理分支。 */
+ openedTabs.value = openedTabs.value.filter(name => can('menu:' + name)) /* 权限收窄后移除无权访问的标签。 */
+ if (active.value && !openedTabs.value.includes(active.value)) openedTabs.value.push(active.value) /* 保留当前可访问页面。 */
  pageKey.value++ /* 执行当前语句并推进处理流程。 */
 }) /* 结束当前表达式或代码块。 */
 async function syncIdentity(){ /* 定义 syncIdentity 函数。 */
  if(!authenticated.value)return /* 判断条件并选择处理分支。 */
- try{await refreshPermissions();if(!can('menu:'+active.value))active.value=visibleGroups.value[0]?.items[0]||''}catch(error){notifyError(error)} /* 执行当前语句并推进处理流程。 */
+ try{await refreshPermissions();if(!can('menu:'+active.value))active.value=visibleGroups.value[0]?.items[0]||'';openedTabs.value=openedTabs.value.filter(name=>can('menu:'+name));if(active.value&&!openedTabs.value.includes(active.value))openedTabs.value.push(active.value)}catch(error){notifyError(error)} /* 同步权限后保持标签栏只含可访问页面。 */
 } /* 结束当前表达式或代码块。 */
 const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '工作台') /* 声明 currentGroup。 */
 async function login() { /* 定义 login 函数。 */
@@ -105,6 +109,7 @@ async function login() { /* 定义 login 函数。 */
     authenticated.value = true /* 更新 authenticated.value 的值。 */
     permissionState.items=data.permissions || [];permissionState.ready=true /* 更新 permissionState.items 的值。 */
     active.value = visibleGroups.value[0]?.items[0] || '' /* 更新 active.value 的值。 */
+    openedTabs.value = active.value ? [active.value] : [] /* 新登录会话从首个可访问页面开始。 */
     loginForm.value.password='' /* 更新 loginForm.value.password 的值。 */
     if(can(['menu:devices','menu:alarms','menu:dashboard','menu:raw']))connect() /* 判断条件并选择处理分支。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
@@ -135,10 +140,18 @@ function openPage(name, detail) { /* 定义 openPage 函数。 */
   if (active.value === name && !detail) return /* 判断条件并选择处理分支。 */
   sessionStorage.removeItem('iot:navigation-detail') /* 执行当前语句并推进处理流程。 */
   active.value = name /* 更新 active.value 的值。 */
+  if (!openedTabs.value.includes(name)) openedTabs.value.push(name) /* 新页面加入工作区标签栏。 */
   pageKey.value++ /* 执行当前语句并推进处理流程。 */
   if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail)) /* 判断条件并选择处理分支。 */
   contentArea.value?.scrollTo({ top: 0 }) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
+
+function closeTab(name) { /* 关闭工作区标签并保持一个可见页面。 */
+  if (openedTabs.value.length <= 1) return /* 最后一个页面保持打开。 */
+  const index = openedTabs.value.indexOf(name) /* 记住被关闭标签的位置。 */
+  openedTabs.value = openedTabs.value.filter(item => item !== name) /* 移除指定标签。 */
+  if (active.value === name) openPage(openedTabs.value[Math.max(0, index - 1)]) /* 当前页关闭后定位到相邻页面。 */
+} /* 结束标签关闭逻辑。 */
 
 function openAlertSettings() { /* 定义 openAlertSettings 函数。 */
   globalAlertPopup.value?.openSettings() /* 执行当前语句并推进处理流程。 */
@@ -150,13 +163,13 @@ function handleUIAction(payload) { /* 定义 handleUIAction 函数。 */
     const action = event?.action || {} /* 声明 action。 */
     if (action.type === 'OPEN_CAMERA' && typeof action.cameraId === 'string' && action.cameraId) { /* 判断条件并选择处理分支。 */
       openPage('cameras', { cameraId: action.cameraId, actionId: event.id }) /* 执行当前语句并推进处理流程。 */
-      ElMessage.info(`规则联动：已定位摄像头信息 ${action.cameraId}`) /* 执行当前语句并推进处理流程。 */
+      UiMessage.info(`规则联动：已定位摄像头信息 ${action.cameraId}`) /* 执行当前语句并推进处理流程。 */
       return /* 返回当前处理结果。 */
     } /* 结束当前表达式或代码块。 */
     const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups']) /* 声明 allowedPages。 */
     if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) { /* 判断条件并选择处理分支。 */
       openPage(action.page) /* 执行当前语句并推进处理流程。 */
-      ElMessage.warning('规则联动：已打开相关业务页面') /* 执行当前语句并推进处理流程。 */
+      UiMessage.warning('规则联动：已打开相关业务页面') /* 执行当前语句并推进处理流程。 */
     } /* 结束当前表达式或代码块。 */
   } catch { /* 结束当前表达式或代码块。 */
     // Ignore malformed or unsupported UI actions.
@@ -172,7 +185,7 @@ function connect() { /* 定义 connect 函数。 */
 
 function unauthorized() { /* 定义 unauthorized 函数。 */
   logout() /* 执行当前语句并推进处理流程。 */
-  ElMessage.error('登录已过期，请重新登录') /* 执行当前语句并推进处理流程。 */
+  UiMessage.error('登录已过期，请重新登录') /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 onMounted(async () => { /* 执行当前语句并推进处理流程。 */
@@ -190,7 +203,7 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 </script>
 
 <template>
-  <el-config-provider :locale="zhCn" size="small"> <!-- 渲染 el-config-provider 界面元素。 -->
+  <ui-config-provider size="small"> <!-- 渲染 ui-config-provider 界面元素。 -->
     <div v-if="!authenticated" class="login-page"> <!-- 渲染 div 界面元素。 -->
       <section class="login-intro"><div class="login-brand"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section> <!-- 渲染 section 界面元素。 -->
       <section class="login-panel"> <!-- 渲染 section 界面元素。 -->
@@ -201,18 +214,18 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
           <div class="login-fields"> <!-- 渲染 div 界面元素。 -->
             <div class="login-field"> <!-- 渲染 div 界面元素。 -->
               <label for="tenant-id">租户</label> <!-- 渲染 label 界面元素。 -->
-              <el-input id="tenant-id" v-model="loginForm.tenantId" size="large" autocomplete="organization" /> <!-- 渲染 el-input 界面元素。 -->
+              <ui-input id="tenant-id" v-model="loginForm.tenantId" size="large" autocomplete="organization" /> <!-- 渲染 ui-input 界面元素。 -->
             </div> <!-- 结束当前界面区域。 -->
             <div class="login-field"> <!-- 渲染 div 界面元素。 -->
               <label for="username">用户名</label> <!-- 渲染 label 界面元素。 -->
-              <el-input id="username" v-model="loginForm.username" size="large" autocomplete="username" placeholder="请输入用户名" required /> <!-- 渲染 el-input 界面元素。 -->
+              <ui-input id="username" v-model="loginForm.username" size="large" autocomplete="username" placeholder="请输入用户名" required /> <!-- 渲染 ui-input 界面元素。 -->
             </div> <!-- 结束当前界面区域。 -->
             <div class="login-field"> <!-- 渲染 div 界面元素。 -->
               <label for="password">密码</label> <!-- 渲染 label 界面元素。 -->
-              <el-input id="password" v-model="loginForm.password" size="large" type="password" autocomplete="current-password" placeholder="请输入密码" required /> <!-- 渲染 el-input 界面元素。 -->
+              <ui-input id="password" v-model="loginForm.password" size="large" type="password" autocomplete="current-password" placeholder="请输入密码" required /> <!-- 渲染 ui-input 界面元素。 -->
             </div> <!-- 结束当前界面区域。 -->
           </div> <!-- 结束当前界面区域。 -->
-          <el-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</el-button> <!-- 渲染 el-button 界面元素。 -->
+          <ui-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           <p class="login-help">账户由管理员分配 · 按授权访问设备和功能</p> <!-- 渲染 p 界面元素。 -->
         </form> <!-- 结束当前界面区域。 -->
       </section> <!-- 结束当前界面区域。 -->
@@ -220,7 +233,7 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 
     <div v-else class="app-shell"> <!-- 渲染 div 界面元素。 -->
       <aside class="app-aside" :class="{ 'is-collapsed': collapsed }"> <!-- 渲染 aside 界面元素。 -->
-        <div class="brand"><span class="brand-logo"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span></div> <!-- 渲染 div 界面元素。 -->
+        <div class="brand"><span class="brand-logo"><img src="/torchlink-sidebar.svg" alt="炬联 TorchLink" /></span></div> <!-- 深色侧栏使用透明底品牌标志。 -->
         <nav class="menu-scroll" aria-label="主导航"> <!-- 渲染 nav 界面元素。 -->
           <div class="menu-scroll-inner"> <!-- 渲染 div 界面元素。 -->
             <template v-for="group in visibleGroups" :key="group.label">
@@ -238,31 +251,37 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
         <header class="topbar">
           <div class="title-area">
             <button class="collapse-button" :aria-label="collapsed ? '展开菜单' : '折叠菜单'" :aria-expanded="!collapsed" @click="collapsed = !collapsed"><component :is="collapsed ? PanelLeftOpen : PanelLeftClose" /></button>
-            <span class="workspace-label">{{ currentGroup }}</span>
+            <div class="workspace-breadcrumb"><span>工作台</span><span class="breadcrumb-divider">/</span><span>{{ currentGroup }}</span><span class="breadcrumb-divider">/</span><strong>{{ current.title }}</strong></div> <!-- 显示当前任务在后台管理结构中的位置。 -->
           </div>
           <div class="top-actions">
             <button v-if="can('menu:alarms')" class="alert-settings-trigger" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
-            <el-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
+            <ui-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">
                 <span class="account-avatar" aria-hidden="true">{{ currentRole.slice(0, 1) }}</span>
                 <span class="account-copy"><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong><small>{{ currentRole }}</small></span>
                 <ChevronDown class="account-chevron" />
               </button>
               <template #dropdown>
-                <el-dropdown-menu> <!-- 渲染 el-dropdown-menu 界面元素。 -->
-                  <el-dropdown-item command="logout"><LogOut />退出登录</el-dropdown-item> <!-- 渲染 el-dropdown-item 界面元素。 -->
-                </el-dropdown-menu> <!-- 结束当前界面区域。 -->
+                <ui-dropdown-menu> <!-- 渲染 ui-dropdown-menu 界面元素。 -->
+                  <ui-dropdown-item command="logout"><LogOut />退出登录</ui-dropdown-item> <!-- 渲染 ui-dropdown-item 界面元素。 -->
+                </ui-dropdown-menu> <!-- 结束当前界面区域。 -->
               </template>
-            </el-dropdown>
+            </ui-dropdown>
           </div>
         </header>
+        <div class="app-tabs" role="tablist" aria-label="已打开页面"> <!-- 工作区标签栏沿用参考模板的多页导航方式。 -->
+          <div v-for="name in openedTabs" :key="name" class="app-tab" :class="{ active: active === name }"> <!-- 保留会话中打开的页面。 -->
+            <button type="button" role="tab" :aria-selected="active === name" @click="openPage(name)"><component :is="pages[name].icon" /><span>{{ pages[name].title }}</span></button> <!-- 切换工作区页面。 -->
+            <button v-if="openedTabs.length > 1" type="button" class="app-tab-close" :aria-label="`关闭${pages[name].title}`" @click="closeTab(name)"><X /></button> <!-- 关闭不再使用的标签。 -->
+          </div> <!-- 结束单个工作区标签。 -->
+        </div> <!-- 结束工作区标签栏。 -->
         <section ref="contentArea" class="main-content" :class="{ 'main-content--ai': active === 'ai' }">
           <div class="page-context"><h1>{{ current.title }}</h1></div>
           <component v-if="permissionState.ready && current.component" :is="current.component" :key="`${active}-${pageKey}`" v-bind="current.props || {}" @navigate="openPage" />
-          <el-empty v-else-if="permissionState.ready" description="尚未分配菜单权限，请联系管理员" />
+          <ui-empty v-else-if="permissionState.ready" description="尚未分配菜单权限，请联系管理员" />
         </section>
       </main>
     </div>
     <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="openPage" />
-  </el-config-provider>
+  </ui-config-provider>
 </template>

@@ -21,7 +21,7 @@ type permissionItem struct { /* 定义 permissionItem 类型。 */
 	Kind string `json:"kind"` /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "协议管理", "products": "产品管理", "devices": "设备管理", "profiles": "接入网关", "integration": "接入测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限"} /* 声明 menuNames。 */
+var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设备通信协议", "products": "设备模板", "devices": "设备管理", "profiles": "平台连接配置", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限"} /* 声明 menuNames。 */
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string { /* 定义 routeMenu 函数。 */
@@ -42,6 +42,9 @@ func routeMenu(path string) string { /* 定义 routeMenu 函数。 */
 	return "" /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func routeAction(method, path string) string { /* 定义 routeAction 函数。 */
+	if method == "POST" && strings.HasSuffix(path, "/device-registry/:id/children") {
+		return "登记子设备"
+	}
 	if strings.Contains(path, "/password") { /* 判断条件并选择处理分支。 */
 		return "重置用户密码" /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -148,7 +151,7 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 		for _, menu := range []string{"ai", "inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} { /* 循环处理当前数据。 */
 			delete(p, "menu:"+menu) /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
-		for _, action := range []string{"POST /api/v1/device-registry", "POST /api/v1/device-states", "POST /api/v1/raw-messages", "POST /api/v1/raw-messages/replay"} { /* 循环处理当前数据。 */
+		for _, action := range []string{"POST /api/v1/device-registry", "POST /api/v1/device-registry/:id/children", "POST /api/v1/device-states", "POST /api/v1/raw-messages", "POST /api/v1/raw-messages/replay"} { /* 循环处理当前数据。 */
 			delete(p, action) /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */

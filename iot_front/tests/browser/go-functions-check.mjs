@@ -30,7 +30,7 @@ try { /* 执行当前语句并推进处理流程。 */
   await click('协议管理'); await click('上传源码') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('input[type=file]')`)) /* 等待异步操作完成。 */
   await fill('协议标识','functions-browser') /* 等待异步操作完成。 */
-  assert.equal(await evaluate(`[...document.querySelectorAll('.el-collapse-item__content textarea')].some(e=>e.getClientRects().length>0)`),false) /* 验证实际结果符合预期。 */
+  assert.equal(await evaluate(`[...document.querySelectorAll('.n-collapse-item__content-inner textarea')].some(e=>e.getClientRects().length>0)`),false) /* 验证实际结果符合预期。 */
   assert.equal(await evaluate(`document.querySelector('input[placeholder="Go 函数模式留空自动生成新版本"]').value`),'') /* 验证实际结果符合预期。 */
   // Template download uses the authenticated endpoint and a real ZIP response.
   await click('下载解析模板') /* 等待异步操作完成。 */

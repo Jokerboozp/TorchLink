@@ -39,25 +39,25 @@ try{ /* 执行当前语句并推进处理流程。 */
  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='刷新设备').click()`);await delay(600) /* 等待异步操作完成。 */
  if(await evaluate('window.__registryRequests')===0)throw Error('手动刷新失效') /* 判断条件并选择处理分支。 */
  console.log('通过：20条实时事件无整表重载，更新提示与手动刷新正常') /* 执行当前语句并推进处理流程。 */
- if(await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-child')`))throw Error('独立设备页混入子设备') /* 判断条件并选择处理分支。 */
- if(await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-parent')`))throw Error('独立设备页混入主设备') /* 判断条件并选择处理分支。 */
+ if(await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-child')`))throw Error('独立设备页混入子设备') /* 判断条件并选择处理分支。 */
+ if(await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-parent')`))throw Error('独立设备页混入主设备') /* 判断条件并选择处理分支。 */
  await evaluate(`document.querySelector('#tab-children').click()`);await delay(250) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-child')`))throw Error('子设备未出现在独立标签页') /* 判断条件并选择处理分支。 */
- if(await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-mqtt-sensor')`))throw Error('子设备页混入直接设备') /* 判断条件并选择处理分支。 */
+ if(!await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-child')`))throw Error('子设备未出现在独立标签页') /* 判断条件并选择处理分支。 */
+ if(await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-mqtt-sensor')`))throw Error('子设备页混入直接设备') /* 判断条件并选择处理分支。 */
  await writeFile(dir+'/screenshots/child-devices.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  await evaluate(`document.querySelector('.device-filters .el-select').click()`) /* 等待异步操作完成。 */
- await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='摄像机');e?.click();return !!e})()`));await delay(200) /* 等待异步操作完成。 */
- if(await evaluate(`!!document.querySelector('.table-card .el-table__body .el-table__row')`))throw Error('设备类型筛选没有排除非摄像机子设备') /* 判断条件并选择处理分支。 */
+ await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='摄像机');e?.click();return !!e})()`));await delay(200) /* 等待异步操作完成。 */
+ if(await evaluate(`!!document.querySelector('.table-card .n-data-table-tbody .n-data-table-tbody .n-data-table-tr')`))throw Error('设备类型筛选没有排除非摄像机子设备') /* 判断条件并选择处理分支。 */
  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='重置筛选').click()`);await delay(200) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-child')`))throw Error('重置类型筛选失效') /* 判断条件并选择处理分支。 */
+ if(!await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-child')`))throw Error('重置类型筛选失效') /* 判断条件并选择处理分支。 */
  await evaluate(`document.querySelector('#tab-main').click()`);await delay(150) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-parent')`))throw Error('主设备页缺少网关设备') /* 判断条件并选择处理分支。 */
- if(await evaluate(`document.querySelector('.table-card .el-table__body')?.innerText.includes('demo-20260914-mqtt-sensor')`))throw Error('主设备页混入独立设备') /* 判断条件并选择处理分支。 */
+ if(!await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-parent')`))throw Error('主设备页缺少网关设备') /* 判断条件并选择处理分支。 */
+ if(await evaluate(`document.querySelector('.table-card .n-data-table-tbody')?.innerText.includes('demo-20260914-mqtt-sensor')`))throw Error('主设备页混入独立设备') /* 判断条件并选择处理分支。 */
  console.log('通过：独立设备、主设备、子设备三个标签页互不混合，类型筛选及重置正常') /* 执行当前语句并推进处理流程。 */
  await evaluate(`document.querySelector('.menu-item[aria-label="协议管理"]').click()`);await delay(1000) /* 等待异步操作完成。 */
  const groups=await evaluate(`[...document.querySelectorAll('.release-buttons')].map(g=>[...g.querySelectorAll('button')].map(b=>b.textContent.trim()).join(','))`) /* 声明 groups。 */
  if(!groups.length||groups.some(g=>g.includes('下载制品')))throw Error('协议操作栏仍包含多余操作') /* 判断条件并选择处理分支。 */
- const buttons=await evaluate(`[...document.querySelectorAll('.release-buttons button')].map(b=>({text:b.textContent.trim(),disabled:b.disabled,link:b.classList.contains('is-link'),column:!!b.closest('td.el-table-fixed-column--right'),border:getComputedStyle(b).borderTopColor,background:getComputedStyle(b).backgroundColor}))`) /* 声明 buttons。 */
+ const buttons=await evaluate(`[...document.querySelectorAll('.release-buttons button')].map(b=>({text:b.textContent.trim(),disabled:b.disabled,link:b.classList.contains('is-link'),column:!!b.closest('td.n-data-table-td--fixed-right'),border:getComputedStyle(b).borderTopColor,background:getComputedStyle(b).backgroundColor}))`) /* 声明 buttons。 */
  if(buttons.some(b=>b.border==='rgba(0, 0, 0, 0)'||b.background==='rgba(0, 0, 0, 0)'))throw Error('协议按钮被全局样式显示成文字链接') /* 判断条件并选择处理分支。 */
  if(buttons.some(b=>b.disabled))throw Error('协议操作栏显示了不可用按钮') /* 判断条件并选择处理分支。 */
  if(!buttons.some(b=>b.text==='解析测试'&&!b.link&&b.column))throw Error('可用的解析测试未显示在固定操作栏') /* 判断条件并选择处理分支。 */

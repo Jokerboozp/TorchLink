@@ -1,6 +1,56 @@
 package httpapi /* 声明 httpapi 包。 */
 
-import "net/http" /* 引入当前代码需要的依赖。 */
+import (
+	"iot-platform/internal/model"
+	"net/http"
+)
+
+// Register a child only through a configured parent mapping. The repository
+// derives the stable child ID from tenant, parent and address and handles retries.
+func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request) {
+	if limited(r.Context()) {
+		problem(w, 403, "登记子设备需要全部设备范围")
+		return
+	}
+	tenant, parentID := claims(r).TenantID, r.PathValue("id")
+	parent, err := s.engine.Repo.GetManagedDevice(r.Context(), tenant, parentID)
+	if err != nil || parent.DeviceRole == "CHILD" {
+		problem(w, 404, "所属主设备不存在")
+		return
+	}
+	profileID := parent.Tags["connectorProfileId"]
+	if profileID == "" {
+		problem(w, 422, "主设备尚未关联平台连接配置")
+		return
+	}
+	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
+	if err != nil {
+		problem(w, 500, err.Error())
+		return
+	}
+	var profile model.DeviceAccessProfile
+	for _, item := range profiles {
+		if item.ID == profileID && item.ProductID == parent.ProductID && (item.DeviceID == "" || item.DeviceID == parent.ID) {
+			profile = item
+			break
+		}
+	}
+	if profile.ID == "" {
+		problem(w, 422, "主设备的平台连接配置已失效")
+		return
+	}
+	var identity model.ChildIdentity
+	if decode(w, r, &identity) != nil {
+		return
+	}
+	child, created, err := s.engine.Repo.RegisterProtocolChild(r.Context(), profile, parent.ID, identity)
+	if err != nil {
+		problem(w, 422, "子设备地址、类型或已发布协议与主设备配置不匹配")
+		return
+	}
+	s.audit(r, "device.child.register", "device", child.ID, map[string]any{"parentId": parent.ID, "created": created})
+	write(w, map[bool]int{true: 201, false: 200}[created], map[string]any{"device": child, "reused": !created})
+}
 
 func (s *Server) getProductProtocolBinding(w http.ResponseWriter, r *http.Request) { /* 定义 getProductProtocolBinding 函数。 */
 	binding, err := s.engine.Repo.GetProductProtocolBinding(r.Context(), claims(r).TenantID, r.PathValue("id")) /* 更新 err 的值。 */

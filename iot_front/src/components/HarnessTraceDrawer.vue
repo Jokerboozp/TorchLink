@@ -23,7 +23,7 @@ function formatClock(value) { /* 定义 formatClock 函数。 */
 </script>
 
 <template>
-  <el-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue',$event)"> <!-- 渲染 el-drawer 界面元素。 -->
+  <ui-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue',$event)"> <!-- 渲染 ui-drawer 界面元素。 -->
     <template #header>
       <div class="drawer-heading"> <!-- 渲染 div 界面元素。 -->
         <span class="section-kicker">执行过程</span> <!-- 渲染 span 界面元素。 -->
@@ -34,7 +34,7 @@ function formatClock(value) { /* 定义 formatClock 函数。 */
 
     <div v-if="run" class="trace-body">
       <section class="run-summary">
-        <div><small>状态</small><el-tag :type="statusMeta.type" effect="light">{{ statusMeta.label }}</el-tag></div>
+        <div><small>状态</small><ui-tag :type="statusMeta.type" effect="light">{{ statusMeta.label }}</ui-tag></div>
         <div><small>工作流</small><strong>{{ run.workflowName || run.workflowId || '默认工作流' }}</strong></div>
         <div><small>模型</small><strong>{{ [run.provider,run.model].filter(Boolean).join(' / ') || '由服务端选择' }}</strong></div>
         <div><small>耗时</small><strong>{{ run.durationMs != null ? `${run.durationMs} 毫秒` : '—' }}</strong></div>
@@ -45,11 +45,11 @@ function formatClock(value) { /* 定义 formatClock 函数。 */
         <span v-if="run.traceId">追踪编号 · {{ run.traceId }}</span>
       </div>
 
-      <el-alert v-if="run.error" class="run-error" :title="run.error.message || '运行失败'" :description="[run.error.code,run.error.stage].filter(Boolean).join(' · ')" type="error" :closable="false" show-icon />
+      <ui-alert v-if="run.error" class="run-error" :title="run.error.message || '运行失败'" :description="[run.error.code,run.error.stage].filter(Boolean).join(' · ')" type="error" :closable="false" show-icon />
 
       <section class="trace-section">
         <div class="section-title"><strong>事件时间线</strong><span>{{ run.events?.length || 0 }} 个事件</span></div>
-        <el-empty v-if="!run.events?.length" description="运行事件尚未到达" :image-size="64" />
+        <ui-empty v-if="!run.events?.length" description="运行事件尚未到达" :image-size="64" />
         <ol v-else class="trace-list">
           <li v-for="event in run.events" :key="event.id" :class="`is-${event.status || 'info'}`">
             <i />
@@ -63,8 +63,8 @@ function formatClock(value) { /* 定义 formatClock 函数。 */
         <ToolCallCard v-for="tool in run.tools" :key="tool.id || tool.toolCallId" :tool="tool" />
       </section>
     </div>
-    <el-empty v-else description="选择一条智能消息查看运行轨迹" />
-  </el-drawer>
+    <ui-empty v-else description="选择一条智能消息查看运行轨迹" />
+  </ui-drawer>
 </template>
 
 <style scoped>

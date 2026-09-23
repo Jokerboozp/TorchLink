@@ -27,11 +27,11 @@ server.middlewares.use(async(req,res,next)=>{ /* 执行当前语句并推进处�
  if(req.url.startsWith('/mapping-fixture')) { /* 判断条件并选择处理分支。 */
   res.setHeader('Content-Type','text/html');res.end(await server.transformIndexHtml(req.url,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app" style="padding:20px;max-width:1100px;margin:auto"></div><script type="module">
 import {createApp,h} from 'vue';
-import ElementPlus from 'element-plus';
-import '/node_modules/element-plus/dist/index.css';
+import {installUi} from '/src/ui/index.js';
 import '/src/styles.css';
+import '/src/naive-admin.css';
 import Gateways from '/src/views/ProtocolsView.vue';import {pageGuide} from '/src/pageGuide.js';
-createApp({render:()=>h('div',[h('h1',pageGuide.profiles.title),h('p',pageGuide.profiles.sub),h(Gateways,{section:'profiles'})])}).use(ElementPlus).mount('#app');
+const app=createApp({render:()=>h('div',[h('h1',pageGuide.profiles.title),h('p',pageGuide.profiles.sub),h(Gateways,{section:'profiles'})])});installUi(app);app.directive('permission',{mounted(){}});app.mount('#app');
 </script></body></html>`));return
  } /* 结束当前表达式或代码块。 */
  next() /* 执行当前语句并推进处理流程。 */
@@ -57,13 +57,13 @@ try { /* 执行当前语句并推进处理流程。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
 
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 声明 click。 */
-  const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-dialog .el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input');input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.blur()})()`) /* 声明 fill。 */
+  const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-dialog .el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input');input.focus();input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.blur()})()`) /* 填写 Naive UI 表单并提交数字字段。 */
   await call('Page.navigate',{url:origin+'mapping-fixture'}) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.body.textContent.includes('gateway-b')`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.body?.textContent.includes('gateway-b')`)) /* 等待页面文档和合成数据就绪。 */
   assert.equal(await evaluate(`document.querySelector('h1').textContent`),'接入网关') /* 验证实际结果符合预期。 */
   await click('新建网关');await fill('接入网关标识','gateway-c') /* 等待异步操作完成。 */
-  await evaluate(`(()=>{const item=[...document.querySelectorAll('.el-dialog .el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='关联产品');item.querySelector('.el-select__wrapper').click()})()`) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='消防主机'&&e.getClientRects().length);if(!item)return false;item.click();return true})()`)) /* 等待异步操作完成。 */
+  await evaluate(`(()=>{const item=[...document.querySelectorAll('.el-dialog .el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='关联产品');item.querySelector('.n-base-selection').click()})()`) /* 展开 Naive UI 产品选择器。 */
+  await until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='消防主机'&&e.getClientRects().length);if(!item)return false;item.click();return true})()`)) /* 选择夹具产品。 */
   await until(()=>evaluate(`document.querySelector('.el-dialog input[placeholder="选择产品后自动读取"]')?.value==='消防协议'`)) /* 等待异步操作完成。 */
   assert.equal(await evaluate(`document.querySelector('.el-dialog input[placeholder="选择产品后自动读取"]').readOnly`),true) /* 验证实际结果符合预期。 */
   await fill('端口','26877') /* 等待异步操作完成。 */

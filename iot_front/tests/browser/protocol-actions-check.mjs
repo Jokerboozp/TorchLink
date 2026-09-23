@@ -1,7 +1,7 @@
 // 用隔离的合成 API 数据检查不同来源协议的统一版本入口。
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -34,6 +34,7 @@ try {
 
   // 登录、权限轮询和协议目录均返回合成数据，不连接真实业务服务。
   await call('Page.enable')
+  await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) // 固定桌面尺寸以检查表格和导航布局。
   await call('Page.addScriptToEvaluateOnNewDocument', { source: `
     localStorage.clear();
     const originalFetch = window.fetch.bind(window);
@@ -53,19 +54,22 @@ try {
   await evaluate("document.querySelector('.login-form button[type=submit]').click()")
   await until(() => evaluate("Boolean(document.querySelector('.menu-item[aria-label=\"协议管理\"]'))"))
   await evaluate("document.querySelector('.menu-item[aria-label=\"协议管理\"]').click()")
-  await until(() => evaluate("document.querySelectorAll('.el-table__body .el-table__row').length === 4"))
+  await until(() => evaluate("document.querySelectorAll('.n-data-table-tr').length >= 4")).catch(async error => { throw new Error(`${error.message}: ${await evaluate('document.body.innerText.slice(0, 800)')}`) })
+  const screenshot = await call('Page.captureScreenshot', { format: 'png' }) // 截取协议页用于视觉核对。
+  await writeFile(join(tmpdir(), 'iot-naive-protocol.png'), Buffer.from(screenshot.data, 'base64')) // 截图保存在临时目录，不进入代码仓库。
 
   // 三类版本均能打开详情，专项操作仍按制品能力分别显示。
-  const labels = await evaluate("[...document.querySelectorAll('.el-table__body .el-table__row')].map(row => row.querySelector('td:last-child')?.innerText.trim())")
+  const labels = await evaluate("[...document.querySelectorAll('.n-data-table-tr')].filter(row => row.querySelector('td')).map(row => row.querySelector('td:last-child')?.innerText.trim())")
   assert.deepEqual(labels.map(label => label.includes('查看版本')), [true, true, true, false], `操作列不一致：${labels.join(' / ')}`)
   assert.ok(labels.every(label => !label.includes('—')), `操作列仍有横线：${labels.join(' / ')}`)
   assert.equal(labels[3], '暂无版本')
   for (const [index, expected] of ['解析测试', '源码', '暂无可执行操作'].entries()) {
-    await evaluate(`document.querySelectorAll('.el-table__body .el-table__row')[${index}].querySelector('td:last-child button').click()`)
+    await evaluate(`[...document.querySelectorAll('.n-data-table-tr')].filter(row => row.querySelector('td'))[${index}].querySelector('td:last-child button').click()`)
     await until(() => evaluate("Boolean([...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length))"))
     const detail = await evaluate("[...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length)?.innerText || ''")
     assert.ok(detail.includes(expected), `${fixtures[index].definition.name} 的详情缺少“${expected}”`)
-    await evaluate("[...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length)?.querySelector('.el-dialog__headerbtn')?.click()")
+    await evaluate("[...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length)?.querySelector('.n-base-close')?.click()")
+    await until(() => evaluate("![...document.querySelectorAll('.el-dialog')].some(dialog => dialog.getClientRects().length)"))
     await delay(120)
   }
   console.log('PASS: 三种协议版本均显示统一入口，无版本协议显示明确状态')

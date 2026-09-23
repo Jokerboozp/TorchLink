@@ -2,7 +2,7 @@
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, download, formatTime, notifyError, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { businessStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 import MarkdownContent from '../components/MarkdownContent.vue' /* 引入当前代码需要的依赖。 */
@@ -56,7 +56,7 @@ function handleProgress(value, token, announce = false) { /* 定义 handleProgre
   if (value.status === 'succeeded' && value.report) { /* 判断条件并选择处理分支。 */
     report.value = value.report /* 更新 report.value 的值。 */
     saveHealthInspection(inspectionStorage, session, value.report) /* 执行当前语句并推进处理流程。 */
-    if (announce && previous?.status === 'running') ElMessage.success('设备健康巡检已完成') /* 判断条件并选择处理分支。 */
+    if (announce && previous?.status === 'running') UiMessage.success('设备健康巡检已完成') /* 判断条件并选择处理分支。 */
   } /* 结束当前表达式或代码块。 */
   if (value.status === 'failed') { /* 判断条件并选择处理分支。 */
     error.value = value.error || '智能巡检失败，请稍后重试' /* 更新 error.value 的值。 */
@@ -114,7 +114,7 @@ async function downloadPDF() { /* 定义 downloadPDF 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
     const stamp = new Date(Number(report.value.generatedAt || Date.now())).toISOString().replace(/[:.]/g, '-') /* 声明 stamp。 */
     await download('/api/v1/ai/health-inspection/pdf', `智能巡检结果_${stamp}.pdf`, { method:'POST', body:'{}' }) /* 等待异步操作完成。 */
-    ElMessage.success('巡检结果文档已下载') /* 执行当前语句并推进处理流程。 */
+    UiMessage.success('巡检结果文档已下载') /* 执行当前语句并推进处理流程。 */
   } catch (exception) { /* 结束当前表达式或代码块。 */
     notifyError(exception) /* 执行当前语句并推进处理流程。 */
   } finally { /* 结束当前表达式或代码块。 */
@@ -133,28 +133,28 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
   <div class="inspection-page"> <!-- 渲染 div 界面元素。 -->
     <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
       <div><strong>设备健康巡检</strong><small class="subline">核对设备在线状态、数据新鲜度和活动告警，再生成智能处置建议；进入页面不会自动执行</small></div> <!-- 渲染 div 界面元素。 -->
-      <div class="table-actions"><el-button v-permission="'POST /api/v1/ai/health-inspection/pdf'" v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</el-button><el-button v-permission="'POST /api/v1/ai/health-inspection/run'" type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</el-button></div> <!-- 渲染 div 界面元素。 -->
+      <div class="table-actions"><ui-button v-permission="'POST /api/v1/ai/health-inspection/pdf'" v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</ui-button><ui-button v-permission="'POST /api/v1/ai/health-inspection/run'" type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</ui-button></div> <!-- 渲染 div 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
 
-    <el-alert v-if="error" class="top-gap" :title="error" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+    <ui-alert v-if="error" class="top-gap" :title="error" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
 
-    <el-card v-if="progress" shadow="never" class="surface-card inspection-progress top-gap"> <!-- 渲染 el-card 界面元素。 -->
+    <ui-card v-if="progress" shadow="never" class="surface-card inspection-progress top-gap"> <!-- 渲染 ui-card 界面元素。 -->
       <div class="inspection-progress-heading"><div><strong>{{ progress.message }}</strong><small v-if="progress.status === 'running'">任务在后台继续执行，切换页面后会自动恢复</small><small v-else-if="progress.status === 'succeeded'">本次巡检结果已保存，可下载文档</small></div><strong>{{ progressPercentage }}%</strong></div> <!-- 渲染 div 界面元素。 -->
-      <el-progress :percentage="progressPercentage" :status="progressStatus" :stroke-width="10" :show-text="false" /> <!-- 渲染 el-progress 界面元素。 -->
+      <ui-progress :percentage="progressPercentage" :status="progressStatus" :stroke-width="10" :show-text="false" /> <!-- 渲染 ui-progress 界面元素。 -->
       <div class="inspection-progress-meta"><span v-if="progress.status === 'running'">预计剩余 {{ formatRemaining(progress.estimatedRemainingMs) }}</span><span v-else-if="progress.status === 'failed'">请检查模型服务和设备数据后重试</span><span v-else>已完成</span><span v-if="progress.updatedAt">更新时间：{{ formatTime(progress.updatedAt) }}</span></div> <!-- 渲染 div 界面元素。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
 
-    <el-card shadow="never" class="surface-card top-gap"> <!-- 渲染 el-card 界面元素。 -->
-      <el-skeleton v-if="loading && !report" :rows="5" animated /> <!-- 渲染 el-skeleton 界面元素。 -->
+    <ui-card shadow="never" class="surface-card top-gap"> <!-- 渲染 ui-card 界面元素。 -->
+      <ui-skeleton v-if="loading && !report" :rows="5" animated /> <!-- 渲染 ui-skeleton 界面元素。 -->
       <template v-else-if="report">
-        <el-alert :title="report.summary" type="info" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+        <ui-alert :title="report.summary" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
         <div class="inspection-counts top-gap"><div><span>设备总数</span><strong>{{ counts.total || 0 }}</strong></div><div class="healthy"><span>状态正常</span><strong>{{ counts.healthy || 0 }}</strong></div><div class="attention"><span>需关注</span><strong>{{ counts.attention || 0 }}</strong></div><div class="critical"><span>高风险</span><strong>{{ counts.critical || 0 }}</strong></div><div class="offline"><span>离线/疑似离线</span><strong>{{ counts.offline || 0 }}</strong></div><div><span>活动告警</span><strong>{{ counts.activeAlarms || 0 }}</strong></div></div> <!-- 渲染 div 界面元素。 -->
-        <el-card v-if="report.aiAdvice" shadow="never" class="inner-card top-gap"><template #header><strong>智能巡检建议</strong></template><MarkdownContent class="report-text" :source="report.aiAdvice" /></el-card> <!-- 渲染 el-card 界面元素。 -->
-        <el-alert v-for="warning in report.warnings || []" :key="warning" class="top-gap" :title="warning" type="warning" :closable="false" /> <!-- 渲染 el-alert 界面元素。 -->
-        <el-table class="top-gap" :data="report.items || []" stripe><el-table-column label="设备" min-width="190"><template #default="{row}"><b>{{ row.deviceName || row.deviceId }}</b><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template></el-table-column><el-table-column label="业务状态" width="130"><template #default="{row}"><el-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus, row.businessStatus) }}</el-tag></template></el-table-column><el-table-column label="最近上报" min-width="170"><template #default="{row}">{{ formatTime(row.lastSeenAt) }}</template></el-table-column><el-table-column label="活动告警" width="100"><template #default="{row}">{{ row.activeAlarmCount }}</template></el-table-column><el-table-column label="巡检结论" min-width="280"><template #default="{row}"><el-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</el-tag><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template></el-table-column></el-table> <!-- 渲染 el-table 界面元素。 -->
+        <ui-card v-if="report.aiAdvice" shadow="never" class="inner-card top-gap"><template #header><strong>智能巡检建议</strong></template><MarkdownContent class="report-text" :source="report.aiAdvice" /></ui-card> <!-- 渲染 ui-card 界面元素。 -->
+        <ui-alert v-for="warning in report.warnings || []" :key="warning" class="top-gap" :title="warning" type="warning" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
+        <ui-table class="top-gap" :data="report.items || []" stripe><ui-table-column label="设备" min-width="190"><template #default="{row}"><b>{{ row.deviceName || row.deviceId }}</b><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template></ui-table-column><ui-table-column label="业务状态" width="130"><template #default="{row}"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="活动告警" width="100"><template #default="{row}">{{ row.activeAlarmCount }}</template></ui-table-column><ui-table-column label="巡检结论" min-width="280"><template #default="{row}"><ui-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</ui-tag><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template></ui-table-column></ui-table> <!-- 渲染 ui-table 界面元素。 -->
       </template>
-      <el-empty v-else description="点击“立即巡检”开始检查" />
-    </el-card>
+      <ui-empty v-else description="点击“立即巡检”开始检查" />
+    </ui-card>
   </div>
 </template>
 

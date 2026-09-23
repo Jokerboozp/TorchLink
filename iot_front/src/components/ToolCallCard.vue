@@ -30,17 +30,17 @@ function safeSummary(value) { /* 定义 safeSummary 函数。 */
         <small>工具调用</small> <!-- 渲染 small 界面元素。 -->
         <strong>{{ toolName(tool.name) }}</strong> <!-- 渲染 strong 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <el-tag :type="statusMeta.type" size="small" effect="light">{{ statusMeta.label }}</el-tag> <!-- 渲染 el-tag 界面元素。 -->
+      <ui-tag :type="statusMeta.type" size="small" effect="light">{{ statusMeta.label }}</ui-tag> <!-- 渲染 ui-tag 界面元素。 -->
     </header> <!-- 结束当前界面区域。 -->
     <div class="tool-meta"> <!-- 渲染 div 界面元素。 -->
       <span v-if="tool.toolCallId">标识 · {{ tool.toolCallId }}</span> <!-- 渲染 span 界面元素。 -->
       <span v-if="tool.durationMs != null">{{ tool.durationMs }} 毫秒</span> <!-- 渲染 span 界面元素。 -->
-      <el-button v-if="hasDetails" plain size="small" @click="expanded=!expanded">{{ expanded ? '收起详情' : '查看详情' }}</el-button> <!-- 渲染 el-button 界面元素。 -->
+      <ui-button v-if="hasDetails" plain size="small" @click="expanded=!expanded">{{ expanded ? '收起详情' : '查看详情' }}</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
     <div v-if="expanded" class="tool-details"> <!-- 渲染 div 界面元素。 -->
       <section v-if="tool.inputSummary"><strong>输入摘要</strong><pre>{{ safeSummary(tool.inputSummary) }}</pre></section> <!-- 渲染 section 界面元素。 -->
       <section v-if="tool.outputSummary"><strong>输出摘要</strong><pre>{{ safeSummary(tool.outputSummary) }}</pre></section> <!-- 渲染 section 界面元素。 -->
-      <el-alert v-if="tool.error" :title="safeSummary(tool.error)" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+      <ui-alert v-if="tool.error" :title="safeSummary(tool.error)" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
   </article> <!-- 结束当前界面区域。 -->
 </template>

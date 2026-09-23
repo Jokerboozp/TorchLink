@@ -15,15 +15,13 @@
   "dependencies": {
     "@lucide/vue": "^1.34.0",
     "@tailwindcss/vite": "^4.3.3",
-    "element-plus": "2.14.4",
     "mqtt": "5.15.2",
+    "naive-ui": "^2.45.3",
     "tailwindcss": "^4.3.3",
     "vue": "3.5.41"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.8",
-    "unplugin-auto-import": "^21.1.0",
-    "unplugin-vue-components": "^32.1.0",
     "vite": "8.2.1"
   }
 }

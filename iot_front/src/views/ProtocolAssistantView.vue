@@ -5,7 +5,7 @@ import ProtocolMappingEditor from '../components/ProtocolMappingEditor.vue' /* �
 import { mappingRows, mappingConfig } from '../protocolMapping' /* 引入当前代码需要的依赖。 */
 import { transportLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, notifyError, parseJSON, pretty } from '../api' /* 引入当前代码需要的依赖。 */
 import { parsers, messageTypes } from '../labels' /* 引入当前代码需要的依赖。 */
 
@@ -41,8 +41,8 @@ async function work(name, action) { /* 定义 work 函数。 */
 } /* 结束当前表达式或代码块。 */
 function setDraft(value) {draft.value=value;mapping.value=mappingRows(value.config || {}, value.parserType);preview.value=value.preview || null;startAddress.value=value.config?.blocks?.[0]?.startAddress || 0;step.value='review'} /* 定义 setDraft 函数。 */
 async function generate() { /* 定义 generate 函数。 */
-  if (!file.value && !(form.inputKind==='point-table'?form.pointTable.trim():form.samplePayload.trim())) return ElMessage.warning('请上传文件或填写内容') /* 判断条件并选择处理分支。 */
-  if (file.value?.size>32*1024*1024) return ElMessage.warning('文件不能超过 32 MiB') /* 判断条件并选择处理分支。 */
+  if (!file.value && !(form.inputKind==='point-table'?form.pointTable.trim():form.samplePayload.trim())) return UiMessage.warning('请上传文件或填写内容') /* 判断条件并选择处理分支。 */
+  if (file.value?.size>32*1024*1024) return UiMessage.warning('文件不能超过 32 MiB') /* 判断条件并选择处理分支。 */
   await work('generate',async options=>{ /* 等待异步操作完成。 */
     const body=new FormData();if(file.value)body.append('file',file.value) /* 声明 body。 */
     for(const [key,value] of Object.entries(form))body.append(key,String(value)) /* 循环处理当前数据。 */
@@ -70,7 +70,7 @@ function currentDraft() { /* 定义 currentDraft 函数。 */
 } /* 结束当前表达式或代码块。 */
 function payload() {return form.payloadFormat==='hex'?form.samplePayload.trim():parseJSON(form.samplePayload,'JSON 样本')} /* 定义 payload 函数。 */
 async function runPreview() { /* 定义 runPreview 函数。 */
-  if(!form.samplePayload.trim())return ElMessage.warning('请上传或填写真实样本报文') /* 判断条件并选择处理分支。 */
+  if(!form.samplePayload.trim())return UiMessage.warning('请上传或填写真实样本报文') /* 判断条件并选择处理分支。 */
   preview.value=null /* 更新 preview.value 的值。 */
   await work('preview',async options=>{ /* 等待异步操作完成。 */
     const value=saved.value /* 声明 value。 */
@@ -86,7 +86,7 @@ async function save() { /* 定义 save 函数。 */
   await work('save',async options=>{ /* 等待异步操作完成。 */
     const value=await api('/api/v1/ai/protocol-assistant/publish',{...options,method:'POST',body:JSON.stringify({id:form.protocol,version:form.version,status:'DRAFT',draft:currentDraft(),payloadFormat:form.payloadFormat,...(form.samplePayload.trim()?{payload:payload()}:{})})}) /* 声明 value。 */
     if(disposed)return /* 判断条件并选择处理分支。 */
-    saved.value=value.release;draft.value.config=value.release.config;preview.value=value.standardMessage || preview.value;emit('saved');ElMessage.success('协议已保存') /* 更新 saved.value 的值。 */
+    saved.value=value.release;draft.value.config=value.release.config;preview.value=value.standardMessage || preview.value;emit('saved');UiMessage.success('协议已保存') /* 更新 saved.value 的值。 */
   }) /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 async function publish() { /* 定义 publish 函数。 */
@@ -94,7 +94,7 @@ async function publish() { /* 定义 publish 函数。 */
     const release=saved.value /* 声明 release。 */
     const value=await api(`/api/v2/protocols/${encodeURIComponent(release.protocolId)}/releases/${encodeURIComponent(release.version)}/publish`,{...options,method:'POST',body:'{}'}) /* 声明 value。 */
     if(disposed)return /* 判断条件并选择处理分支。 */
-    saved.value=value;emit('saved');ElMessage.success('协议已发布，可到产品管理绑定') /* 更新 saved.value 的值。 */
+    saved.value=value;emit('saved');UiMessage.success('协议已发布，可到产品管理绑定') /* 更新 saved.value 的值。 */
   }) /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 onMounted(()=>{ /* 执行当前语句并推进处理流程。 */
@@ -107,31 +107,31 @@ onMounted(()=>{ /* 执行当前语句并推进处理流程。 */
 
 <template>
   <div class="protocol-generator" :aria-busy="!!busy"> <!-- 渲染 div 界面元素。 -->
-    <el-alert v-if="error" :title="error" type="error" :closable="false" class="bottom-gap" /> <!-- 渲染 el-alert 界面元素。 -->
-    <el-form v-if="step==='input'" label-position="top" :disabled="!!busy" @submit.prevent="generate"> <!-- 渲染 el-form 界面元素。 -->
-      <el-radio-group v-model="form.inputKind" @change="changeKind" class="bottom-gap" aria-label="上传类型"><el-radio-button value="sample">报文</el-radio-button><el-radio-button value="point-table">点表</el-radio-button></el-radio-group> <!-- 渲染 el-radio-group 界面元素。 -->
-      <el-form-item :label="form.inputKind==='point-table'?'上传点表':'上传报文'"><FilePicker :key="form.inputKind" :accept="form.inputKind==='point-table'?'.xlsx,.csv':'.json,.txt,.hex,.bin'" @change="chooseFile" /><small class="subline">{{ file?.name || (form.inputKind==='point-table'?'Excel / CSV':'JSON / TXT / HEX / BIN') }}</small></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item v-if="form.inputKind==='point-table'" label="或粘贴 CSV 点表"><el-input v-model="form.pointTable" type="textarea" :rows="5" placeholder="name,functionCode,address,addressNotation,dataType&#10;temperature,3,0,zero_based,uint16" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item v-else label="或粘贴报文"><el-input v-model="form.samplePayload" type="textarea" :rows="5" placeholder='{"data":{"temperature":25.5,"smoke":false}}' /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <div class="form-grid"><el-form-item label="协议名称"><el-input v-model="form.name" placeholder="可由文件名生成" /></el-form-item><el-form-item label="传输方式"><el-select v-model="form.transport"><el-option v-for="item in transports" :key="item" :label="transportLabel(item)" :value="item" /></el-select></el-form-item></div> <!-- 渲染 div 界面元素。 -->
-      <template v-if="form.inputKind==='sample'"><el-form-item label="报文格式"><el-radio-group v-model="form.payloadFormat"><el-radio value="json">JSON</el-radio><el-radio value="hex">HEX</el-radio></el-radio-group></el-form-item><el-form-item label="字段说明（可选）"><el-input v-model="form.pointTable" type="textarea" :rows="2" placeholder="HEX 报文请说明字段偏移、长度、端序与单位" /></el-form-item></template>
-      <div class="generator-actions"><el-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" type="primary" :loading="busy==='generate'" native-type="submit">生成协议</el-button></div> <!-- 渲染 div 界面元素。 -->
-    </el-form> <!-- 结束当前界面区域。 -->
+    <ui-alert v-if="error" :title="error" type="error" :closable="false" class="bottom-gap" /> <!-- 渲染 ui-alert 界面元素。 -->
+    <ui-form v-if="step==='input'" label-position="top" :disabled="!!busy" @submit.prevent="generate"> <!-- 渲染 ui-form 界面元素。 -->
+      <ui-radio-group v-model="form.inputKind" @change="changeKind" class="bottom-gap" aria-label="上传类型"><ui-radio-button value="sample">报文</ui-radio-button><ui-radio-button value="point-table">点表</ui-radio-button></ui-radio-group> <!-- 渲染 ui-radio-group 界面元素。 -->
+      <ui-form-item :label="form.inputKind==='point-table'?'上传点表':'上传报文'"><FilePicker :key="form.inputKind" :accept="form.inputKind==='point-table'?'.xlsx,.csv':'.json,.txt,.hex,.bin'" @change="chooseFile" /><small class="subline">{{ file?.name || (form.inputKind==='point-table'?'Excel / CSV':'JSON / TXT / HEX / BIN') }}</small></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item v-if="form.inputKind==='point-table'" label="或粘贴 CSV 点表"><ui-input v-model="form.pointTable" type="textarea" :rows="5" placeholder="name,functionCode,address,addressNotation,dataType&#10;temperature,3,0,zero_based,uint16" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item v-else label="或粘贴报文"><ui-input v-model="form.samplePayload" type="textarea" :rows="5" placeholder='{"data":{"temperature":25.5,"smoke":false}}' /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <div class="form-grid"><ui-form-item label="协议名称"><ui-input v-model="form.name" placeholder="可由文件名生成" /></ui-form-item><ui-form-item label="传输方式"><ui-select v-model="form.transport"><ui-option v-for="item in transports" :key="item" :label="transportLabel(item)" :value="item" /></ui-select></ui-form-item></div> <!-- 渲染 div 界面元素。 -->
+      <template v-if="form.inputKind==='sample'"><ui-form-item label="报文格式"><ui-radio-group v-model="form.payloadFormat"><ui-radio value="json">JSON</ui-radio><ui-radio value="hex">HEX</ui-radio></ui-radio-group></ui-form-item><ui-form-item label="字段说明（可选）"><ui-input v-model="form.pointTable" type="textarea" :rows="2" placeholder="HEX 报文请说明字段偏移、长度、端序与单位" /></ui-form-item></template>
+      <div class="generator-actions"><ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" type="primary" :loading="busy==='generate'" native-type="submit">生成协议</ui-button></div> <!-- 渲染 div 界面元素。 -->
+    </ui-form> <!-- 结束当前界面区域。 -->
     <template v-else>
-      <div class="section-toolbar"><strong>{{ form.name }} <small class="muted-text">{{ parsers[draft.parserType] || draft.parserType }}</small></strong><el-button v-if="!saved" :disabled="!!busy" @click="step='input'">返回修改</el-button><el-button v-if="saved" :disabled="!!busy" @click="newVersion">新建版本</el-button><el-tag v-if="saved" :type="saved.status==='PUBLISHED'?'success':'info'">{{ {DRAFT:'草稿',VALIDATED:'已校验',PUBLISHED:'已发布'}[saved.status] || saved.status }}</el-tag></div> <!-- 渲染 div 界面元素。 -->
+      <div class="section-toolbar"><strong>{{ form.name }} <small class="muted-text">{{ parsers[draft.parserType] || draft.parserType }}</small></strong><ui-button v-if="!saved" :disabled="!!busy" @click="step='input'">返回修改</ui-button><ui-button v-if="saved" :disabled="!!busy" @click="newVersion">新建版本</ui-button><ui-tag v-if="saved" :type="saved.status==='PUBLISHED'?'success':'info'">{{ {DRAFT:'草稿',VALIDATED:'已校验',PUBLISHED:'已发布'}[saved.status] || saved.status }}</ui-tag></div> <!-- 渲染 div 界面元素。 -->
       <details v-if="draft.warnings?.length" class="technical-details bottom-gap"><summary>需确认 {{ draft.warnings.length }} 项</summary><ul><li v-for="warning in draft.warnings" :key="warning">{{ warning }}</li></ul></details> <!-- 渲染 details 界面元素。 -->
-      <el-table v-if="saved || !supported" :data="fields" max-height="230" size="small"><el-table-column prop="name" label="字段" min-width="140" /><el-table-column prop="address" label="路径 / 地址" min-width="190" /><el-table-column prop="type" label="类型" min-width="100" /></el-table> <!-- 渲染 el-table 界面元素。 -->
+      <ui-table v-if="saved || !supported" :data="fields" max-height="230" size="small"><ui-table-column prop="name" label="字段" min-width="140" /><ui-table-column prop="address" label="路径 / 地址" min-width="190" /><ui-table-column prop="type" label="类型" min-width="100" /></ui-table> <!-- 渲染 ui-table 界面元素。 -->
       <template v-if="supported">
-        <el-form label-position="top" class="top-gap" :disabled="!!busy"> <!-- 渲染 el-form 界面元素。 -->
-          <div class="form-grid"><el-form-item label="协议标识"><el-input v-model="form.protocol" :disabled="!!saved" /></el-form-item><el-form-item label="版本"><el-input v-model="form.version" :disabled="!!saved" /></el-form-item></div> <!-- 渲染 div 界面元素。 -->
+        <ui-form label-position="top" class="top-gap" :disabled="!!busy"> <!-- 渲染 ui-form 界面元素。 -->
+          <div class="form-grid"><ui-form-item label="协议标识"><ui-input v-model="form.protocol" :disabled="!!saved" /></ui-form-item><ui-form-item label="版本"><ui-input v-model="form.version" :disabled="!!saved" /></ui-form-item></div> <!-- 渲染 div 界面元素。 -->
           <ProtocolMappingEditor v-if="!saved" :rows="mapping" :parser-type="draft.parserType" @change="updateConfig" @add="addMapping" @remove="removeMapping" /> <!-- 渲染 ProtocolMappingEditor 界面元素。 -->
-          <el-form-item label="样本报文"><FilePicker accept=".json,.txt,.hex,.bin" @change="chooseSample" /><el-input v-model="form.samplePayload" type="textarea" :rows="4" class="top-gap" @input="preview=null" :placeholder="isModbus?'填写设备返回的完整 Modbus 响应帧':'填写真实样本验证解析结果'" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-          <el-form-item v-if="isModbus" label="响应起始地址"><el-input-number v-model="startAddress" :min="0" :max="65535" :precision="0" @change="preview=null" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-          <div class="generator-actions"><el-button v-permission="['POST /api/v1/ai/protocol-assistant/preview','POST /api/v2/protocols/:id/releases/:version/preview']" :loading="busy==='preview'" @click="runPreview">解析预览</el-button><el-button v-permission="'POST /api/v1/ai/protocol-assistant/publish'" v-if="!saved" type="primary" :loading="busy==='save'" @click="save">保存协议</el-button><el-button v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" v-else-if="saved.status==='VALIDATED'" type="primary" :loading="busy==='publish'" @click="publish">发布协议</el-button><span v-else-if="saved.status==='DRAFT'" class="muted-text">样本校验通过后可发布</span><el-button v-permission="'menu:products'" v-else-if="saved.status==='PUBLISHED'" @click="emit('navigate','products')">绑定产品</el-button></div> <!-- 渲染 div 界面元素。 -->
-        </el-form> <!-- 结束当前界面区域。 -->
-        <el-descriptions v-if="preview" class="top-gap" :column="1" border><el-descriptions-item label="消息类型">{{ messageTypes[preview.messageType]?.label || preview.messageType }}</el-descriptions-item><el-descriptions-item v-if="Object.keys(preview.event || {}).length" label="事件">{{ pretty(preview.event) }}</el-descriptions-item><el-descriptions-item v-for="(value,key) in preview.properties" :key="key" :label="key">{{ typeof value==='object'?pretty(value):value }}</el-descriptions-item></el-descriptions> <!-- 渲染 el-descriptions 界面元素。 -->
+          <ui-form-item label="样本报文"><FilePicker accept=".json,.txt,.hex,.bin" @change="chooseSample" /><ui-input v-model="form.samplePayload" type="textarea" :rows="4" class="top-gap" @input="preview=null" :placeholder="isModbus?'填写设备返回的完整 Modbus 响应帧':'填写真实样本验证解析结果'" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+          <ui-form-item v-if="isModbus" label="响应起始地址"><ui-input-number v-model="startAddress" :min="0" :max="65535" :precision="0" @change="preview=null" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+          <div class="generator-actions"><ui-button v-permission="['POST /api/v1/ai/protocol-assistant/preview','POST /api/v2/protocols/:id/releases/:version/preview']" :loading="busy==='preview'" @click="runPreview">解析预览</ui-button><ui-button v-permission="'POST /api/v1/ai/protocol-assistant/publish'" v-if="!saved" type="primary" :loading="busy==='save'" @click="save">保存协议</ui-button><ui-button v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" v-else-if="saved.status==='VALIDATED'" type="primary" :loading="busy==='publish'" @click="publish">发布协议</ui-button><span v-else-if="saved.status==='DRAFT'" class="muted-text">样本校验通过后可发布</span><ui-button v-permission="'menu:products'" v-else-if="saved.status==='PUBLISHED'" @click="emit('navigate','products')">绑定产品</ui-button></div> <!-- 渲染 div 界面元素。 -->
+        </ui-form> <!-- 结束当前界面区域。 -->
+        <ui-descriptions v-if="preview" class="top-gap" :column="1" border><ui-descriptions-item label="消息类型">{{ messageTypes[preview.messageType]?.label || preview.messageType }}</ui-descriptions-item><ui-descriptions-item v-if="Object.keys(preview.event || {}).length" label="事件">{{ pretty(preview.event) }}</ui-descriptions-item><ui-descriptions-item v-for="(value,key) in preview.properties" :key="key" :label="key">{{ typeof value==='object'?pretty(value):value }}</ui-descriptions-item></ui-descriptions> <!-- 渲染 ui-descriptions 界面元素。 -->
       </template>
-      <el-alert v-else class="top-gap" type="info" title="当前资料不足以生成可运行映射，请补充字段说明，或上传专用 Go 协议源码。" :closable="false" />
+      <ui-alert v-else class="top-gap" type="info" title="当前资料不足以生成可运行映射，请补充字段说明，或上传专用 Go 协议源码。" :closable="false" />
     </template>
   </div>
 </template>

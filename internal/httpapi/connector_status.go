@@ -8,7 +8,9 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/protocolworker" /* 执行当前语句并推进处理流程。 */
 	"net/http"                             /* 执行当前语句并推进处理流程。 */
 	"sort"                                 /* 执行当前语句并推进处理流程。 */
-	"strings"                              /* 执行当前语句并推进处理流程。 */
+	"strconv"
+	"strings" /* 执行当前语句并推进处理流程。 */
+	"time"
 ) /* 结束当前表达式或代码块。 */
 
 type listenerSnapshot interface { /* 定义 listenerSnapshot 类型。 */
@@ -176,11 +178,13 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 			kind = strings.ToUpper(profile.Network) /* 更新 kind 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	protocolID, version := "", ""                                       /* 更新 version 的值。 */
+	protocolID, version := "", "" /* 更新 version 的值。 */
+	bindingRevision := int64(0)
 	if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" { /* 判断条件并选择处理分支。 */
 		protocolID, version = parser.StandardProtocolID, "1.0.0" /* 更新 version 的值。 */
 	} else if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil { /* 结束当前表达式或代码块。 */
 		protocolID, version = binding.ProtocolID, binding.Version /* 更新 version 的值。 */
+		bindingRevision = binding.UpdatedAt
 	} else if profile != nil { /* 结束当前表达式或代码块。 */
 		protocolID, version = profile.ProtocolID, profile.ProtocolVersion /* 更新 version 的值。 */
 	} /* 结束当前表达式或代码块。 */
@@ -194,14 +198,66 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Limit: 1}) /* 更新 err 的值。 */
-	if err != nil {                                                                                                        /* 判断条件并选择处理分支。 */
+	// A check starts at a caller-selected observation time, but never predates the
+	// saved device and selected connection revisions. The ordinary detail view
+	// continues to show the latest historical result when since is omitted.
+	since := int64(0)
+	if value := r.URL.Query().Get("since"); value != "" {
+		parsed, parseErr := strconv.ParseInt(value, 10, 64)
+		if parseErr != nil || parsed < 1 || parsed > time.Now().Add(time.Minute).UnixMilli() {
+			problem(w, 422, "检测开始时间无效")
+			return
+		}
+		since = max(parsed, d.UpdatedAt, p.UpdatedAt, bindingRevision)
+		if profile != nil {
+			since = max(since, profile.UpdatedAt)
+		}
+	}
+	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Start: since, Limit: 30}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                       /* 判断条件并选择处理分支。 */
 		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	ingest := map[string]any{"configurationSaved": true, "rawReceived": false, "parsed": false, "stage": "WAITING_FOR_DATA"} /* 更新 ingest 的值。 */
-	if len(indexes) > 0 {                                                                                                    /* 判断条件并选择处理分支。 */
-		idx := indexes[0]                                 /* 更新 idx 的值。 */
+	ingest := map[string]any{"configurationSaved": true, "rawReceived": false, "parsed": false, "stage": "WAITING_FOR_DATA", "since": since, "recentCount": 0, "simulationCount": 0, "continuouslyUpdating": false}
+	var selectedRaw *model.RawArchiveIndex
+	validCount := 0
+	parsedCount := 0
+	simulationCount := 0
+	for i := range indexes {
+		idx := &indexes[i]
+		raw, rawErr := s.engine.GetRaw(r.Context(), *idx)
+		if rawErr != nil || raw.TenantID != tenant || raw.ProductID != d.ProductID || raw.DeviceID != d.ID {
+			continue
+		}
+		// Debug, sample, replay and arbitrary management ingress are not field evidence.
+		if raw.Source == "managed-device" || raw.Source == "gateway" {
+			simulationCount++
+			continue
+		}
+		if raw.Source != "standard-http" && raw.Source != "standard-mqtt" && !strings.HasPrefix(raw.Source, "go-protocol-") && raw.Source != "modbus-tcp-collector" {
+			continue
+		}
+		if profile != nil && raw.Metadata["profileId"] != profile.ID {
+			continue
+		}
+		if protocolID != "" && raw.ProtocolID != "" && raw.ProtocolID != protocolID {
+			continue
+		}
+		if version != "" && raw.ProtocolVersion != "" && raw.ProtocolVersion != version {
+			continue
+		}
+		validCount++
+		if _, parseErr := s.engine.Repo.GetStandardMessageByRaw(r.Context(), tenant, idx.MessageID); parseErr == nil {
+			parsedCount++
+		}
+		if selectedRaw == nil {
+			selectedRaw = idx
+		}
+	}
+	ingest["recentCount"] = validCount
+	ingest["simulationCount"] = simulationCount
+	if selectedRaw != nil {
+		idx := *selectedRaw
 		ingest["rawReceived"] = true                      /* 执行当前语句并推进处理流程。 */
 		ingest["rawMessageId"] = idx.MessageID            /* 执行当前语句并推进处理流程。 */
 		ingest["receivedAt"] = idx.ReceivedAt             /* 执行当前语句并推进处理流程。 */
@@ -216,7 +272,27 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 			ingest["stage"] = "PARSED"           /* 执行当前语句并推进处理流程。 */
 			ingest["standardMessage"] = standard /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
+		if idx.ReceivedAt < time.Now().Add(-15*time.Minute).UnixMilli() {
+			ingest["stale"] = true
+		} else if ingest["parsed"] == true && parsedCount >= 2 {
+			ingest["continuouslyUpdating"] = true
+		}
 	} /* 结束当前表达式或代码块。 */
+	if since > 0 && ingest["parsed"] != true {
+		older, olderErr := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, End: since - 1, Limit: 30})
+		if olderErr == nil {
+			for _, idx := range older {
+				raw, rawErr := s.engine.GetRaw(r.Context(), idx)
+				if rawErr != nil || raw.TenantID != tenant || raw.ProductID != d.ProductID || raw.DeviceID != d.ID || (raw.Source != "standard-http" && raw.Source != "standard-mqtt" && !strings.HasPrefix(raw.Source, "go-protocol-") && raw.Source != "modbus-tcp-collector") {
+					continue
+				}
+				if _, parsedErr := s.engine.Repo.GetStandardMessageByRaw(r.Context(), tenant, idx.MessageID); parsedErr == nil {
+					ingest["previousParsedAt"] = idx.ReceivedAt
+					break
+				}
+			}
+		}
+	}
 	var parent any                                        /* 声明 parent。 */
 	if !deviceAllowed(r.Context(), tenant, d.GatewayID) { /* 判断条件并选择处理分支。 */
 		d.GatewayID = "" /* 更新 d.GatewayID 的值。 */

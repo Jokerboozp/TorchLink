@@ -46,9 +46,9 @@ try { /* 执行当前语句并推进处理流程。 */
   if(process.env.IOT_TEST_SCREENSHOT_DIR)await writeFile(join(process.env.IOT_TEST_SCREENSHOT_DIR,'device-connection-desktop.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 判断条件并选择处理分支。 */
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
   await delay(300) /* 等待异步操作完成。 */
-  assert.ok(await evaluate(`(()=>{const e=document.querySelector('.el-drawer__body');return e.scrollWidth<=e.clientWidth+1})()`),'drawer content must not overflow') /* 验证实际结果符合预期。 */
-  assert.ok(await evaluate(`[...document.querySelectorAll('.device-summary .el-descriptions__body tr')].every(e=>e.children.length===2)`),'mobile overview must use one label/value pair per row') /* 验证实际结果符合预期。 */
-  assert.ok(await evaluate(`(()=>{const card=document.querySelector('.connection-section');return getComputedStyle(card).backgroundColor==='rgb(255, 255, 255)' && getComputedStyle(document.querySelector('.el-drawer__body')).backgroundColor==='rgb(241, 244, 248)' && getComputedStyle(card).borderTopWidth!=='0px'})()`),'card boundaries must be distinct from background') /* 验证实际结果符合预期。 */
+  assert.ok(await evaluate(`(()=>{const e=document.querySelector('.n-drawer-body-content-wrapper');return e.scrollWidth<=e.clientWidth+1})()`),'drawer content must not overflow') /* 验证实际结果符合预期。 */
+  assert.ok(await evaluate(`[...document.querySelectorAll('.device-summary .n-descriptions-table tr')].every(e=>e.children.length===2)`),'mobile overview must use one label/value pair per row') /* 验证实际结果符合预期。 */
+  assert.ok(await evaluate(`(()=>{const card=document.querySelector('.connection-section');return getComputedStyle(card).backgroundColor==='rgb(255, 255, 255)' && getComputedStyle(document.querySelector('.n-drawer-body-content-wrapper')).backgroundColor==='rgb(241, 244, 248)' && getComputedStyle(card).borderTopWidth!=='0px'})()`),'card boundaries must be distinct from background') /* 验证实际结果符合预期。 */
   if(process.env.IOT_TEST_SCREENSHOT_DIR)await writeFile(join(process.env.IOT_TEST_SCREENSHOT_DIR,'device-connection-mobile.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 判断条件并选择处理分支。 */
   await evaluate(`localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_VIEWER_TOKEN)});localStorage.setItem('iot_role','viewer')`) /* 等待异步操作完成。 */
   // Remove the startup admin token hook before reload.

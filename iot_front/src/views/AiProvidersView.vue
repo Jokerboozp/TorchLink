@@ -2,7 +2,7 @@
 import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
 import { aiProviderOptions as providerOptions } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { computed, onMounted, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, session } from '../api' /* 引入当前代码需要的依赖。 */
 
 const emit = defineEmits(['navigate']) /* 声明 emit。 */
@@ -128,7 +128,7 @@ async function testProviderConfig() { /* 定义 testProviderConfig 函数。 */
       return /* 返回当前处理结果。 */
     } /* 结束当前表达式或代码块。 */
     testedFingerprint.value = candidate.fingerprint /* 更新 testedFingerprint.value 的值。 */
-    ElMessage.success('配置测试通过。确认无误后可点击“应用配置”') /* 执行当前语句并推进处理流程。 */
+    UiMessage.success('配置测试通过。确认无误后可点击“应用配置”') /* 执行当前语句并推进处理流程。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     providerError.value = error.message || '模型服务测试失败' /* 更新 providerError.value 的值。 */
   } finally { /* 结束当前表达式或代码块。 */
@@ -152,7 +152,7 @@ async function applyProviderConfig() { /* 定义 applyProviderConfig 函数。 *
     await loadRuntime() /* 等待异步操作完成。 */
     testResult.value = null /* 更新 testResult.value 的值。 */
     testedFingerprint.value = '' /* 更新 testedFingerprint.value 的值。 */
-    ElMessage.success(`已应用${providerLabel(candidate.body.provider)}，所有智能功能立即生效`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`已应用${providerLabel(candidate.body.provider)}，所有智能功能立即生效`) /* 执行当前语句并推进处理流程。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     providerError.value = error.message || '模型服务应用失败' /* 更新 providerError.value 的值。 */
   } finally { /* 结束当前表达式或代码块。 */
@@ -172,53 +172,53 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 
 <template>
   <div class="ai-management-page"> <!-- 渲染 div 界面元素。 -->
-    <el-card shadow="never" class="surface-card ai-management-hero" v-loading="loading"> <!-- 渲染 el-card 界面元素。 -->
+    <ui-card shadow="never" class="surface-card ai-management-hero" v-loading="loading"> <!-- 渲染 ui-card 界面元素。 -->
       <div class="ai-management-hero-grid"> <!-- 渲染 div 界面元素。 -->
         <div class="ai-management-hero-copy"><span class="section-kicker">智能模型管理</span><h3>统一管理智能模型与业务能力</h3><p>在这里选择模型服务和活动模型。应用后，告警研判、工作流、巡检、规则草稿及协议助手会共用新配置。</p></div> <!-- 渲染 div 界面元素。 -->
-        <div class="ai-active-provider"><div class="ai-active-provider-heading"><span>当前活动模型服务</span><el-tag :type="activeStatusType" effect="light">{{ activeStatusLabel }}</el-tag></div><strong>{{ activeProviderName }}</strong><small>{{ activeModel }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small><small v-if="runtime.config?.baseUrl">{{ runtime.config.baseUrl }}</small></div> <!-- 渲染 div 界面元素。 -->
+        <div class="ai-active-provider"><div class="ai-active-provider-heading"><span>当前活动模型服务</span><ui-tag :type="activeStatusType" effect="light">{{ activeStatusLabel }}</ui-tag></div><strong>{{ activeProviderName }}</strong><small>{{ activeModel }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small><small v-if="runtime.config?.baseUrl">{{ runtime.config.baseUrl }}</small></div> <!-- 渲染 div 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
 
-    <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon><el-button plain size="small" @click="loadRuntime">重新加载</el-button></el-alert> <!-- 渲染 el-alert 界面元素。 -->
+    <ui-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert> <!-- 渲染 ui-alert 界面元素。 -->
 
     <div class="ai-management-grid"> <!-- 渲染 div 界面元素。 -->
-      <el-card shadow="never" class="surface-card ai-provider-config"> <!-- 渲染 el-card 界面元素。 -->
-        <template #header><div class="card-header"><div><strong>模型服务配置</strong><small>先测试当前填写内容，再选择是否应用到全部智能功能</small></div><el-tag effect="plain">管理员</el-tag></div></template>
+      <ui-card shadow="never" class="surface-card ai-provider-config"> <!-- 渲染 ui-card 界面元素。 -->
+        <template #header><div class="card-header"><div><strong>模型服务配置</strong><small>先测试当前填写内容，再选择是否应用到全部智能功能</small></div><ui-tag effect="plain">管理员</ui-tag></div></template>
         <template v-if="isAdmin">
-          <el-form label-position="top" :model="providerForm" :disabled="busy"> <!-- 渲染 el-form 界面元素。 -->
-            <el-form-item label="模型来源"><el-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><el-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+          <ui-form label-position="top" :model="providerForm" :disabled="busy"> <!-- 渲染 ui-form 界面元素。 -->
+            <ui-form-item label="模型来源"><ui-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><ui-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
             <p class="provider-description">{{ selectedProviderOption.description }}</p> <!-- 渲染 p 界面元素。 -->
-            <el-form-item label="服务地址"><el-input v-model="providerForm.baseUrl" placeholder="填写模型服务的 HTTP/HTTPS 地址，无需配置白名单" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-            <el-form-item label="模型名称"><el-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-            <el-form-item v-if="providerForm.provider !== 'ollama'" label="接口密钥"><el-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="留空表示沿用当前密钥" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-            <div class="provider-actions"><el-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</el-button><el-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</el-button></div> <!-- 渲染 div 界面元素。 -->
-          </el-form> <!-- 结束当前界面区域。 -->
-          <el-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+            <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" placeholder="填写模型服务的 HTTP/HTTPS 地址，无需配置白名单" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+            <ui-form-item label="模型名称"><ui-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+            <ui-form-item v-if="providerForm.provider !== 'ollama'" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="留空表示沿用当前密钥" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+            <div class="provider-actions"><ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</ui-button><ui-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</ui-button></div> <!-- 渲染 div 界面元素。 -->
+          </ui-form> <!-- 结束当前界面区域。 -->
+          <ui-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
           <div v-if="testResult" class="provider-test-result" :class="{ success:testResult.success, failed:!testResult.success }"><div><strong>{{ testResult.success ? '配置测试通过' : '配置测试失败' }}</strong><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} 毫秒</span></div><p v-if="testResult.answer">{{ testResult.answer }}</p><small v-if="testResult.success">当前填写内容未生效；确认无误后点击“应用配置”。</small></div> <!-- 渲染 div 界面元素。 -->
           <small v-if="runtime.config?.apiKeyConfigured && providerForm.provider !== 'ollama'" class="provider-key-hint">当前已保存接口密钥：{{ runtime.config.apiKeyHint || '已配置' }}；留空测试或应用会继续使用它。</small> <!-- 渲染 small 界面元素。 -->
         </template>
-        <div v-else class="provider-viewer-summary"><el-alert title="模型服务配置仅限管理员修改。" type="info" :closable="false" show-icon /><strong>{{ activeProviderName }}</strong><span>{{ activeModel }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</span></div>
-      </el-card>
+        <div v-else class="provider-viewer-summary"><ui-alert title="模型服务配置仅限管理员修改。" type="info" :closable="false" show-icon /><strong>{{ activeProviderName }}</strong><span>{{ activeModel }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</span></div>
+      </ui-card>
 
-      <el-card shadow="never" class="surface-card ai-capability-card">
-        <template #header><div class="card-header"><div><strong>智能业务能力</strong><small>所有能力跟随当前活动模型服务</small></div><el-tag type="success" effect="plain">{{ runtime.healthy ? '可用' : '待检查' }}</el-tag></div></template>
+      <ui-card shadow="never" class="surface-card ai-capability-card">
+        <template #header><div class="card-header"><div><strong>智能业务能力</strong><small>所有能力跟随当前活动模型服务</small></div><ui-tag type="success" effect="plain">{{ runtime.healthy ? '可用' : '待检查' }}</ui-tag></div></template>
         <div class="ai-capability-list"> <!-- 渲染 div 界面元素。 -->
-          <div v-for="item in capabilities" :key="item.title" class="ai-capability-item"><span class="ai-capability-dot" :class="{ online:runtime.healthy }" /><div><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div><el-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</el-button></div> <!-- 渲染 div 界面元素。 -->
+          <div v-for="item in capabilities" :key="item.title" class="ai-capability-item"><span class="ai-capability-dot" :class="{ online:runtime.healthy }" /><div><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div><ui-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</ui-button></div> <!-- 渲染 div 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
-      </el-card> <!-- 结束当前界面区域。 -->
+      </ui-card> <!-- 结束当前界面区域。 -->
     </div> <!-- 结束当前界面区域。 -->
 
-    <el-card shadow="never" class="surface-card ai-provider-list"> <!-- 渲染 el-card 界面元素。 -->
-      <template #header><div class="card-header"><div><strong>可用模型服务</strong><small>当前模型服务会显示“使用中”</small></div><el-button size="small" :loading="loading" @click="loadRuntime">刷新状态</el-button></div></template>
-      <el-table v-loading="loading" :data="runtime.items || []" stripe> <!-- 渲染 el-table 界面元素。 -->
-        <el-table-column label="模型服务" min-width="190"><template #default="{row}"><div class="provider-name"><strong>{{ providerLabel(row.id) }}</strong><el-tag v-if="row.id === activeProvider" size="small" type="success" effect="plain">使用中</el-tag></div></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column label="说明" min-width="270"><template #default="{row}">{{ providerDescription(row) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column label="默认模型" min-width="150"><template #default="{row}">{{ row.defaultModel || '由配置决定' }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column label="支持能力" min-width="240"><template #default="{row}"><div class="provider-capabilities"><el-tag v-for="capability in (row.capabilities || [])" :key="capability" size="small" effect="plain">{{ capabilityLabel(capability) }}</el-tag></div></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-      </el-table> <!-- 结束当前界面区域。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
+    <ui-card shadow="never" class="surface-card ai-provider-list"> <!-- 渲染 ui-card 界面元素。 -->
+      <template #header><div class="card-header"><div><strong>可用模型服务</strong><small>当前模型服务会显示“使用中”</small></div><ui-button size="small" :loading="loading" @click="loadRuntime">刷新状态</ui-button></div></template>
+      <ui-table v-loading="loading" :data="runtime.items || []" stripe> <!-- 渲染 ui-table 界面元素。 -->
+        <ui-table-column label="模型服务" min-width="190"><template #default="{row}"><div class="provider-name"><strong>{{ providerLabel(row.id) }}</strong><ui-tag v-if="row.id === activeProvider" size="small" type="success" effect="plain">使用中</ui-tag></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column label="说明" min-width="270"><template #default="{row}">{{ providerDescription(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column label="默认模型" min-width="150"><template #default="{row}">{{ row.defaultModel || '由配置决定' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column label="支持能力" min-width="240"><template #default="{row}"><div class="provider-capabilities"><ui-tag v-for="capability in (row.capabilities || [])" :key="capability" size="small" effect="plain">{{ capabilityLabel(capability) }}</ui-tag></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      </ui-table> <!-- 结束当前界面区域。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
 
-    <el-alert class="ai-management-note" title="配置说明" type="info" :closable="false" show-icon>管理员可直接填写平台服务器能够访问的 HTTP/HTTPS 模型服务地址，无需配置白名单。Docker 内置 Ollama 使用 http://ollama:11434，其他模型服务填写实际地址；Ollama 误填 /v1 时平台会自动归一化。地址填写纯文本，接口密钥单独填写，页面不会显示完整密钥。</el-alert> <!-- 渲染 el-alert 界面元素。 -->
+    <ui-alert class="ai-management-note" title="配置说明" type="info" :closable="false" show-icon>管理员可直接填写平台服务器能够访问的 HTTP/HTTPS 模型服务地址，无需配置白名单。Docker 内置 Ollama 使用 http://ollama:11434，其他模型服务填写实际地址；Ollama 误填 /v1 时平台会自动归一化。地址填写纯文本，接口密钥单独填写，页面不会显示完整密钥。</ui-alert> <!-- 渲染 ui-alert 界面元素。 -->
   </div> <!-- 结束当前界面区域。 -->
 </template>
 
@@ -230,9 +230,9 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .ai-management-hero-copy h3 { margin:0; color:#1f2329; font-size:22px; letter-spacing:-.02em; } /* 定义当前元素的样式规则。 */
 .ai-management-hero-copy p { max-width:720px; margin:0; color:#646c73; font-size:13px; line-height:1.8; } /* 定义当前元素的样式规则。 */
 .ai-active-provider { display:grid; align-content:center; gap:5px; padding:16px; background:#f5f7fa; border-radius:.625rem; } /* 定义当前元素的样式规则。 */
-.ai-active-provider-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#64748b; font-size:12px; } /* 定义当前元素的样式规则。 */
+.ai-active-provider-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#52657d; font-size:12px; } /* 浅底状态卡的辅助文字保持足够对比。 */
 .ai-active-provider strong { color:#1554ad; font-size:16px; } /* 定义当前元素的样式规则。 */
-.ai-active-provider small { color:#64748b; font-size:12px; line-height:1.5; word-break:break-all; } /* 定义当前元素的样式规则。 */
+.ai-active-provider small { color:#52657d; font-size:12px; line-height:1.5; word-break:break-all; } /* 浅底状态卡的辅助文字保持足够对比。 */
 .ai-management-grid { display:grid; grid-template-columns:minmax(300px,420px) minmax(0,1fr); gap:16px; align-items:start; } /* 定义当前元素的样式规则。 */
 .ai-provider-config :deep(.el-form-item) { margin-bottom:12px; } /* 定义当前元素的样式规则。 */
 .ai-provider-config :deep(.el-select) { width:100%; } /* 定义当前元素的样式规则。 */
@@ -245,7 +245,7 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .provider-test-result.failed { background:#fff2f0; border-color:#ffccc7; } /* 定义当前元素的样式规则。 */
 .provider-test-result>div { display:flex; justify-content:space-between; align-items:center; gap:8px; } /* 定义当前元素的样式规则。 */
 .provider-test-result p { margin:8px 0; color:#3d3d3d; font-size:12px; line-height:1.6; white-space:pre-wrap; } /* 定义当前元素的样式规则。 */
-.provider-test-result span,.provider-test-result small { color:#8c8c8c; font-size:12px; } /* 定义当前元素的样式规则。 */
+.provider-test-result span,.provider-test-result small { color:var(--muted-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
 .provider-test-result small { display:block; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .provider-key-hint { display:block; margin-top:9px; color:#64748b; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .provider-viewer-summary { display:grid; gap:10px; } /* 定义当前元素的样式规则。 */
@@ -257,9 +257,9 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .ai-capability-dot { width:8px; height:8px; background:#cbd5e1; border-radius:50%; } /* 定义当前元素的样式规则。 */
 .ai-capability-dot.online { background:#52c41a; box-shadow:0 0 0 3px #f6ffed; } /* 定义当前元素的样式规则。 */
 .ai-capability-item strong { color:#303133; font-size:13px; } /* 定义当前元素的样式规则。 */
-.ai-capability-item p { margin:3px 0 0; color:#7b8490; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
+.ai-capability-item p { margin:3px 0 0; color:var(--muted-foreground); font-size:12px; line-height:1.5; } /* 能力说明在白底上保持可读。 */
 .provider-name { display:flex; align-items:center; gap:6px; } /* 定义当前元素的样式规则。 */
-.provider-name small { color:#86909c; } /* 定义当前元素的样式规则。 */
+.provider-name small { color:var(--muted-foreground); } /* 定义当前元素的样式规则。 */
 .provider-capabilities { display:flex; flex-wrap:wrap; gap:4px; } /* 定义当前元素的样式规则。 */
 .ai-management-note { margin-bottom:2px; } /* 定义当前元素的样式规则。 */
 @media (max-width:860px) { .ai-management-hero-grid,.ai-management-grid { grid-template-columns:1fr; } } /* 按屏幕条件调整样式。 */

@@ -212,7 +212,7 @@ export function parseRealtimeAlert(topic, payload) { /* 执行当前语句并推
   if (Array.isArray(data.event?.components)) return null /* 判断条件并选择处理分支。 */
 
   const messageType = upper(data.messageType || data.type) /* 声明 messageType。 */
-  if (messageType === 'ALARM_REPORT' || messageType === 'ALARM') return normalizeAlert(data, 'alarm', value) /* 判断条件并选择处理分支。 */
+  if (messageType === 'ALARM_REPORT' || messageType === 'ALARM') return null /* 设备报警以正式 raised 事件通知，避免同一报文弹出两次。 */
   if (messageType === 'EVENT_REPORT' && hasFaultEvent(data)) return normalizeAlert(data, 'fault', value) /* 判断条件并选择处理分支。 */
   if (!messageType && hasFaultEvent(data)) return normalizeAlert(data, 'fault', value) /* 判断条件并选择处理分支。 */
   return null /* 返回当前处理结果。 */

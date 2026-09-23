@@ -1,5 +1,5 @@
 import { errorMessage } from './presentation' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from './ui/feedback.js' /* 引入当前代码需要的依赖。 */
 
 import { consumeSSE } from './sse' /* 引入当前代码需要的依赖。 */
 import { loadAllPages } from './listPagination.js' /* 引入当前代码需要的依赖。 */
@@ -102,7 +102,7 @@ export async function download(path, filename, options = {}) { /* 执行当前�
   setTimeout(() => URL.revokeObjectURL(url), 1000) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-export function notifyError(error) { ElMessage.error(errorMessage(error)) } /* 执行当前语句并推进处理流程。 */
+export function notifyError(error) { UiMessage.error(errorMessage(error)) } /* 执行当前语句并推进处理流程。 */
 export const formatTime = value => value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12:false }) : '—' /* 执行当前语句并推进处理流程。 */
 export const pretty = value => JSON.stringify(value, null, 2) /* 执行当前语句并推进处理流程。 */
 export function parseJSON(value, label = '结构化数据') { /* 执行当前语句并推进处理流程。 */

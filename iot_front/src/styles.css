@@ -7,16 +7,16 @@ html:root { /* 设置 html 样式。 */
   --card-foreground: #1d1d1f; /* 设置 --card-foreground 样式。 */
   --popover: #ffffff; /* 设置 --popover 样式。 */
   --popover-foreground: #1d1d1f; /* 设置 --popover-foreground 样式。 */
-  --primary: #0071e3; /* 设置 --primary 样式。 */
   --brand-flame: #f38128; /* 设置 --brand-flame 样式。 */
   --brand-navy: #13386c; /* 设置 --brand-navy 样式。 */
+  --primary: var(--brand-navy); /* 主操作沿用炬联深蓝，白字对比度满足 AA。 */
   --primary-foreground: #ffffff; /* 设置 --primary-foreground 样式。 */
   --secondary: #f0f0f2; /* 设置 --secondary 样式。 */
   --secondary-foreground: #424245; /* 设置 --secondary-foreground 样式。 */
   --muted: #f2f2f4; /* 设置 --muted 样式。 */
   --muted-foreground: #6e6e73; /* 设置 --muted-foreground 样式。 */
-  --accent: #eaf3ff; /* 设置 --accent 样式。 */
-  --accent-foreground: #0066cc; /* 设置 --accent-foreground 样式。 */
+  --accent: #edf3fa; /* 设置浅蓝交互底色。 */
+  --accent-foreground: #16447c; /* 设置浅色背景上的品牌深蓝文字。 */
   --destructive: #dc2626; /* 设置 --destructive 样式。 */
   --destructive-foreground: #ffffff; /* 设置 --destructive-foreground 样式。 */
   --success: #16a34a; /* 设置 --success 样式。 */
@@ -25,14 +25,14 @@ html:root { /* 设置 html 样式。 */
   --warning-foreground: #92400e; /* 设置 --warning-foreground 样式。 */
   --border: #e5e5e7; /* 设置 --border 样式。 */
   --input: #d2d2d7; /* 设置 --input 样式。 */
-  --ring: #007aff; /* 设置 --ring 样式。 */
+  --ring: var(--brand-navy); /* 焦点环与主色保持一致。 */
   --radius: 0.875rem; /* 设置 --radius 样式。 */
 
   --el-color-primary: var(--primary); /* 设置 --el-color-primary 样式。 */
-  --el-color-primary-light-3: #60a5fa; /* 设置 --el-color-primary-light-3 样式。 */
-  --el-color-primary-light-5: #93c5fd; /* 设置 --el-color-primary-light-5 样式。 */
-  --el-color-primary-light-7: #bfdbfe; /* 设置 --el-color-primary-light-7 样式。 */
-  --el-color-primary-light-9: #eaf3ff; /* 设置 --el-color-primary-light-9 样式。 */
+  --el-color-primary-light-3: #56749b; /* 兼容旧样式的深蓝浅阶。 */
+  --el-color-primary-light-5: #899db7; /* 兼容旧样式的深蓝浅阶。 */
+  --el-color-primary-light-7: #bbc9db; /* 兼容旧样式的深蓝浅阶。 */
+  --el-color-primary-light-9: #edf3fa; /* 兼容旧样式的深蓝浅阶。 */
   --el-color-success: #16a34a; /* 设置 --el-color-success 样式。 */
   --el-color-warning: #d97706; /* 设置 --el-color-warning 样式。 */
   --el-color-danger: #dc2626; /* 设置 --el-color-danger 样式。 */
@@ -109,23 +109,23 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 
 /* Application shell */
 .app-shell { width: 100%; height: 100%; min-height: 0; display: flex; overflow: hidden; background: var(--background); } /* 定义当前元素的样式规则。 */
-.app-aside { width: 204px; height: 100%; padding: 0 12px; display: flex; flex: 0 0 auto; flex-direction: column; position: relative; z-index: 20; overflow: hidden; background: #f0f0f2; border-right: 1px solid var(--border); transition: width .2s ease; } /* 定义当前元素的样式规则。 */
+.app-aside { width: 204px; height: 100%; padding: 0 12px; display: flex; flex: 0 0 auto; flex-direction: column; position: relative; z-index: 20; overflow: hidden; background: var(--brand-navy); border-right: 1px solid #0c2a50; transition: width .2s ease; } /* 侧栏使用品牌深蓝。 */
 .app-aside.is-collapsed { width: 64px; } /* 定义当前元素的样式规则。 */
 .brand { height: 76px; padding: 0 7px; margin-bottom: 0; flex: none; } /* 定义当前元素的样式规则。 */
-.brand > .brand-logo { position: relative; width: 145px; height: 72px; flex: none; overflow: hidden; } /* 定义当前元素的样式规则。 */
-.brand-logo img { position: absolute; top: -7px; left: -60px; width: 260px; max-width: none; height: auto; mix-blend-mode: multiply; } /* 定义当前元素的样式规则。 */
+.brand > .brand-logo { width: 180px; height: 58px; flex: none; overflow: hidden; } /* 完整容纳透明底品牌标志。 */
+.brand-logo img { display: block; width: 180px; max-width: none; height: 58px; object-fit: contain; } /* 展开显示完整字标，折叠时保留左侧图形。 */
 .app-aside.is-collapsed .brand-logo { width: 46px; } /* 定义当前元素的样式规则。 */
 .brand > div { display: grid; white-space: nowrap; } /* 定义当前元素的样式规则。 */
 .brand strong { color: var(--foreground); font-size: 20px; letter-spacing: .02em; } /* 定义当前元素的样式规则。 */
 .brand small { margin-top: 4px; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
-.menu-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #d2d2d7 transparent; } /* 定义当前元素的样式规则。 */
-.menu-group { margin: 24px 12px 8px; color: #86868b; font-size: 12px; font-weight: 500; white-space: nowrap; } /* 定义当前元素的样式规则。 */
+.menu-scroll { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; scrollbar-color: #7190b5 transparent; } /* 深色侧栏中的滚动条保持可见。 */
+.menu-group { margin: 24px 12px 8px; color: #b8cce3; font-size: 12px; font-weight: 500; white-space: nowrap; } /* 分组标题在深色背景下保持可读。 */
 .menu-item, .collapse-button { border: 0; background: transparent; cursor: pointer; } /* 定义当前元素的样式规则。 */
-.menu-item { width: 100%; min-height: 39px; margin: 2px 0; padding: 8px 12px; display: flex; align-items: center; gap: 11px; color: #515154; border-radius: 8px; font-size: 13px; text-align: left; white-space: nowrap; transition: color .16s ease, background .16s ease; } /* 定义当前元素的样式规则。 */
+.menu-item { width: 100%; min-height: 39px; margin: 2px 0; padding: 8px 12px; display: flex; align-items: center; gap: 11px; color: #dce8f5; border-radius: 8px; font-size: 13px; text-align: left; white-space: nowrap; transition: color .16s ease, background .16s ease; } /* 侧栏默认文字与图标采用高对比浅色。 */
 .menu-item svg { width: 17px; height: 17px; flex: none; stroke-width: 1.8; } /* 定义当前元素的样式规则。 */
-.menu-item:hover { color: var(--accent-foreground); background: #f2f2f4; } /* 定义当前元素的样式规则。 */
-.menu-item.active { color: var(--foreground); background: #fff; font-weight: 600; box-shadow: 0 1px 3px #00000008; } /* 定义当前元素的样式规则。 */
-.menu-item.active svg { color: var(--primary); } /* 定义当前元素的样式规则。 */
+.menu-item:hover { color: #fff; background: #ffffff18; } /* 悬停时保持深色表面。 */
+.menu-item.active { color: #fff; background: #ffffff24; font-weight: 600; box-shadow: inset 3px 0 var(--brand-flame); } /* 用橙色侧线标记当前页面。 */
+.menu-item.active svg { color: var(--brand-flame); } /* 当前页面图标显示火焰强调色。 */
 .app-main { min-width: 0; min-height: 0; height: 100%; display: flex; flex: 1; flex-direction: column; overflow: hidden; } /* 定义当前元素的样式规则。 */
 .topbar { height: 60px; flex: 0 0 60px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; position: relative; z-index: 15; background: var(--background); border-bottom: 0; } /* 定义当前元素的样式规则。 */
 .title-area, .top-actions, .card-header { display: flex; align-items: center; } /* 定义当前元素的样式规则。 */
@@ -169,6 +169,7 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .list-pagination { display:flex; justify-content:flex-end; padding:14px 16px; border-top:1px solid var(--border); background:#fff; } /* 定义当前元素的样式规则。 */
 .list-pagination .el-pagination { flex-wrap:wrap; justify-content:flex-end; } /* 定义当前元素的样式规则。 */
 .card-header { width: 100%; justify-content: space-between; gap: 14px; } /* 定义当前元素的样式规则。 */
+.card-header > div:first-child:not(:last-child) { min-width: 0; display: grid; gap: 3px; } /* 带副标题的卡片头将标题与说明分行。 */
 .card-header small { color: var(--muted-foreground); font-weight: 400; } /* 定义当前元素的样式规则。 */
 .el-button { min-height: 32px; height: 32px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--el-button-border-color, var(--border)); border-radius: .5rem; font-size: 13px; font-weight: 500; line-height: 1; box-shadow: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; } /* 定义当前元素的样式规则。 */
 .el-button--small { min-height: 28px; height: 28px; padding: 0 10px; font-size: 13px; } /* 定义当前元素的样式规则。 */
@@ -253,11 +254,11 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
 
 /* Dashboard and shared business surfaces */
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; } /* 定义当前元素的样式规则。 */
-.stat-card { min-height: 138px; position: relative; overflow: hidden; background: #fff; } /* 定义当前元素的样式规则。 */
+.stat-card { min-height: 138px; position: relative; overflow: hidden; background: #fff; border-top: 3px solid var(--border); } /* KPI 卡片顶部保留状态色条。 */
 .stat-card > .el-card__body { height: 136px; padding: 20px; display: grid; align-content: space-between; } /* 定义当前元素的样式规则。 */
 .stat-card span { color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
 .stat-card strong { align-self: end; color: var(--foreground); font-size: 34px; line-height: 1; letter-spacing: -.05em; } /* 定义当前元素的样式规则。 */
-.stat-card small { color: #94a3b8; font-size: 12px; } /* 定义当前元素的样式规则。 */
+.stat-card small { color: #52657d; font-size: 12px; } /* 数值说明在白底卡片上保持可读。 */
 .stat-card small.success { color: var(--success-foreground); }.stat-card small.warning { color: var(--warning-foreground); }.stat-card small.danger { color: var(--destructive); } /* 定义当前元素的样式规则。 */
 .stat-card { border-radius: var(--radius) !important; box-shadow: none !important; } /* 定义当前元素的样式规则。 */
 .stat-card i { position: absolute; right: 18px; top: 18px; width: 8px; height: 8px; background: #dbeafe; border-radius: .625rem; } /* 定义当前元素的样式规则。 */
@@ -265,6 +266,15 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
 .stat-card i.success { background: #dcfce7; }.stat-card i.success::after { background: var(--success); } /* 定义当前元素的样式规则。 */
 .stat-card i.warning { background: #fef3c7; }.stat-card i.warning::after { background: var(--brand-flame); } /* 定义当前元素的样式规则。 */
 .stat-card i.danger { background: #fee2e2; }.stat-card i.danger::after { background: var(--destructive); } /* 定义当前元素的样式规则。 */
+.stat-card:has(i.primary) { border-top-color: var(--primary); } /* 设备总数使用品牌深蓝。 */
+.stat-card:has(i.success) { border-top-color: var(--success); } /* 在线设备使用成功色。 */
+.stat-card:has(i.warning) { border-top-color: var(--brand-flame); } /* 活动告警使用火焰橙。 */
+.stat-card:has(i.danger) { border-top-color: var(--destructive); } /* 高等级告警使用危险色。 */
+.device-enabled-state { display: inline-flex; align-items: center; gap: 7px; color: #6b7280; white-space: nowrap; } /* 启用状态用简洁圆点和文字呈现。 */
+.device-enabled-state i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: #9ca3af; } /* 已停用设备采用中性圆点。 */
+.device-enabled-state.is-enabled { color: #166534; } /* 已启用设备的文字保持足够对比。 */
+.device-enabled-state.is-enabled i { background: var(--success); } /* 已启用设备使用成功色圆点。 */
+.device-role-text { color: var(--foreground); white-space: nowrap; } /* 设备角色不再使用状态标签。 */
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, .85fr); gap: 16px; } /* 定义当前元素的样式规则。 */
 .alarm-row { min-height: 62px; display: grid; grid-template-columns: 8px 1fr auto auto; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); } /* 定义当前元素的样式规则。 */
 .alarm-row:last-child { border-bottom: 0; } /* 定义当前元素的样式规则。 */
@@ -492,10 +502,11 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .trend-caption small { font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
 .trend-plot svg { display: block; width: 100%; min-height: 200px; overflow: visible; } /* 定义当前元素的样式规则。 */
 .trend-plot text { fill: var(--muted-foreground); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; } /* 定义当前元素的样式规则。 */
-.trend-plot circle[tabindex]:focus { outline: none; stroke: #0071e3; stroke-width: 1.5; } /* 定义当前元素的样式规则。 */
+.trend-plot circle[tabindex]:focus { outline: none; stroke: var(--primary); stroke-width: 1.5; } /* 趋势焦点沿用品牌主色。 */
 .device-chart { min-height: 256px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; } /* 定义当前元素的样式规则。 */
 .device-ring { position: relative; width: 174px; height: 174px; flex-shrink: 0; } /* 定义当前元素的样式规则。 */
 .device-ring svg { width: 100%; height: 100%; } /* 定义当前元素的样式规则。 */
+.device-ring circle { transition: stroke-dashoffset .4s ease; } /* 状态变化时圆环平滑过渡。 */
 .device-ring > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; } /* 定义当前元素的样式规则。 */
 .device-ring strong { font-size: 32px; font-weight: 600; letter-spacing: -.04em; } /* 定义当前元素的样式规则。 */
 .device-ring small { font-size: 16px; margin-left: 2px; } /* 定义当前元素的样式规则。 */
@@ -511,7 +522,7 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .bar-row b { font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; } /* 定义当前元素的样式规则。 */
 .bar-row small { color: var(--muted-foreground); font-size: 12px; font-weight: 400; } /* 定义当前元素的样式规则。 */
 .bar-track { height: 6px; background: #f1f2f4; border-radius: 3px; overflow: hidden; } /* 定义当前元素的样式规则。 */
-.bar-track i { display: block; height: 100%; border-radius: inherit; } /* 定义当前元素的样式规则。 */
+.bar-track i { display: block; height: 100%; border-radius: inherit; transition: width .4s ease; } /* 进度条长度平滑变化。 */
 .dashboard-page .alarm-row > div { min-width: 0; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
 @media (min-width: 1440px) { .device-chart { flex-direction: row; gap: 24px; }.chart-legend { grid-template-columns: 1fr; } } /* 按屏幕条件调整样式。 */
 @media (max-width: 1100px) { .dashboard-charts { grid-template-columns: minmax(0,1fr); }.device-chart { flex-direction: row; gap: 40px; min-height: 210px; }.chart-legend { max-width: 320px; } } /* 按屏幕条件调整样式。 */
