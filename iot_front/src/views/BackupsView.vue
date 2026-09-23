@@ -248,7 +248,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .backup-table-card :deep(.el-table) { min-height: 280px; } /* 定义当前元素的样式规则。 */
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; } /* 定义当前元素的样式规则。 */
 .section-heading strong, .section-heading span { display: block; } /* 定义当前元素的样式规则。 */
-.section-heading span { color: var(--muted); margin-top: 4px; } /* 定义当前元素的样式规则。 */
+.section-heading span { color: var(--muted-foreground); margin-top: 4px; } /* 备份详情说明文字在白底上保持可读。 */
 @media (max-width: 900px) { /* 按屏幕条件调整样式。 */
   .backup-stat-grid { grid-template-columns: 1fr; } /* 定义当前元素的样式规则。 */
   .section-heading { align-items: flex-start; flex-direction: column; } /* 定义当前元素的样式规则。 */

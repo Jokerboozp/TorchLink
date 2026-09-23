@@ -104,7 +104,7 @@ export const UiDropdown = defineComponent({ /* 账户菜单等悬浮菜单使用
   emits: ['command'], /* 保留账户操作回调。 */
   setup(_, { attrs, slots, emit }) { return () => { /* 根据下拉插槽生成 Naive UI 选项。 */
     const menus = nested(slots.dropdown?.()).flatMap(node => node.type === UiDropdownMenu || node.type?.name === 'UiDropdownMenu' ? nested(node.children?.default?.()) : [node]) /* 展开菜单容器。 */
-    const options = menus.filter(node => node.type === UiDropdownItem || node.type?.name === 'UiDropdownItem').map(node => ({ key: node.props?.command, label: () => node.children?.default?.() || node.props?.command, disabled: node.props?.disabled })) /* 使用渲染函数保留菜单图标与文字。 */
+    const options = menus.filter(node => node.type === UiDropdownItem || node.type?.name === 'UiDropdownItem').map(node => ({ key: node.props?.command, label: () => h('span', { class: 'ui-dropdown-label' }, node.children?.default?.() || node.props?.command), disabled: node.props?.disabled })) /* 图标与文字作为同一行菜单标签。 */
     const { class: triggerClass, style: triggerStyle, ...dropdownAttrs } = attrs /* 触发器布局类不能传到弹出的菜单。 */
     return h('div', { class: triggerClass, style: triggerStyle }, [h(NDropdown, { ...dropdownAttrs, options, trigger: 'click', onSelect: key => emit('command', key) }, { default: () => slots.default?.() })]) /* 分别绘制触发器与 Naive UI 弹出菜单。 */
   } } /* 结束菜单渲染。 */

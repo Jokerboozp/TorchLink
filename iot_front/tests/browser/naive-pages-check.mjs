@@ -38,8 +38,16 @@ try { /* 所有浏览器资源在 finally 中释放。 */
       const body = path === '/api/v1/auth/login' ? { accessToken: 'fixture-token', tenantId: 'fixture', role: 'admin', permissions: ['*'] }
         : path === '/api/v1/auth/me' ? { tenantId: 'fixture', role: 'admin', permissions: ['*'] }
         : path === '/api/v1/events' ? { permissions: ['*'], alarms: [], devices: [] }
+        : path === '/api/v1/mqtt/token' ? { websocketUrl:'ws://127.0.0.1:1', username:'fixture', token:'fixture', subscriptions:[] }
         : path.startsWith('/api/v1/raw-messages?') ? { items: [{ messageId: 'raw-demo', receivedAt: Date.now(), productId: 'product-demo', deviceId: 'device-demo', protocol: 'MQTT', parsed: true, parsedMessageType: 'PROPERTY_REPORT', payloadSize: 4, payloadHash: 'fixture-hash' }], total: 1 }
         : path === '/api/v1/raw-messages/raw-demo' ? { parseStatus: 'PARSED', message: { messageId: 'raw-demo', deviceId: 'device-demo', productId: 'product-demo', payload: 'AA01', receivedAt: Date.now(), protocol: 'MQTT', payloadFormat: 'hex' }, standardMessage: { messageType: 'PROPERTY_REPORT', properties: { temperature: 42 } }, archive: { payloadHash: 'fixture-hash' } }
+        : path.startsWith('/api/v1/alarms?') ? { items: [{ alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', lastTriggeredAt:Date.now() }], total:1 }
+        : path.startsWith('/api/v1/rules?') ? { items: [{ id:'rule-demo', name:'演示规则', alarmType:'DEVICE_FAULT', level:'HIGH', enabled:true, conditions:[], actions:[] }], total:1 }
+        : path === '/api/v1/access/users' ? { tenantId:'fixture', items:[{ username:'operator-demo', displayName:'操作员', enabled:true, roleIds:[], deviceScope:'none' }] }
+        : path === '/api/v1/access/roles' || path === '/api/v1/access/permissions' || path === '/api/v1/access/device-options' ? { items:[] }
+        : path.startsWith('/api/v1/backups?') ? { items:[{ id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now() }], total:1 }
+        : path === '/api/v1/backups/backup-demo' ? { id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now(), details:{}, objectKey:'backup/manifest.json' }
+        : path.startsWith('/api/v1/backups/backup-demo/files?') ? { artifacts:[{ component:'原始报文', filename:'raw-messages.jsonl.gz', size:313, checksum:'fixture' }], total:1, components:{ rawMessages:{ records:1 } } }
         : path.startsWith('/api/v1/dashboard?') ? { devices: 0, online: 0, activeAlarms: 0, highAlarms: 0, states: {}, products: [], trend: [], levels: [], updatedAt: Date.now() } : null;
       return body ? Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })) : originalFetch(input, options);
     };
@@ -50,12 +58,47 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate("document.querySelectorAll('.menu-item').length >= 16")) /* 确认全部主菜单可见。 */
   for (const name of pages) { /* 逐页检查标题、正文和脚本异常。 */
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(name)}]').click()`) /* 打开目标页面。 */
-    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText === ${JSON.stringify(name)}`)) /* 确认当前页面标题。 */
+    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText === ${JSON.stringify(name)}`)).catch(async error => { throw new Error(`${name} 页面未能切换：${error.message}；当前 ${await evaluate("document.querySelector('.page-context h1')?.innerText || document.body.innerText.slice(0, 200)")}；异常 ${failures.slice(0, 2).join(' | ')}`) }) /* 确认当前页面标题。 */
     await delay(180) /* 等待异步页面的首屏渲染。 */
     const text = await evaluate("document.querySelector('.main-content')?.innerText.trim() || ''") /* 读取可见正文。 */
     assert.ok(text.length > name.length, `${name} 缺少业务内容`) /* 防止页面只显示标题。 */
     if (['运行总览', '协议管理', '产品管理', '设备管理', '告警中心', '智能助手'].includes(name)) { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存代表性页面的临时截图。 */
   } /* 结束页面遍历。 */
+  for (const [page, label] of [['告警中心', '关闭告警'], ['告警规则', '删除'], ['用户与权限', '删除']]) { /* 检查三个列表中的危险操作可见。 */
+    await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(page)}]').click()`) /* 打开目标列表。 */
+    await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button => button.innerText.trim() === ${JSON.stringify(label)}))`)) /* 等待目标按钮。 */
+    const buttonColor = await evaluate(`(() => {const button=[...document.querySelectorAll('.n-data-table-tbody button')].find(item=>item.innerText.trim()===${JSON.stringify(label)}),s=getComputedStyle(button);return {color:s.color,background:s.backgroundColor,disabled:button.disabled,className:button.className}})()`) /* 读取真实颜色。 */
+    assert.ok(buttonColor.color!==buttonColor.background && buttonColor.color!=='rgb(255, 255, 255)', `${page}的${label}按钮文字不可见：${JSON.stringify(buttonColor)}`) /* 危险按钮文字不能与浅色背景融为一体。 */
+  } /* 结束危险操作检查。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 检查协议回滚弹窗。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('协议版本')))")) /* 等待产品数据。 */
+  await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('协议版本')).click()") /* 打开协议版本弹窗。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('回滚上一版本')))")) /* 等待弹窗页脚。 */
+  assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),buttons=[...modal.querySelectorAll('button')].filter(b=>['回滚上一版本','绑定协议'].includes(b.innerText.trim())),a=buttons[0].getBoundingClientRect(),b=buttons[1].getBoundingClientRect(),style=getComputedStyle(buttons[0]);return buttons.length===2 && a.right+6<=b.left && style.color!=='rgb(255, 255, 255)'})()"), '回滚上一版本按钮不可读或紧贴绑定按钮') /* 弹窗页脚保留文字与间距。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭绑定弹窗。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待弹窗关闭。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"接入网关\"]').click()") /* 检查接入网关表单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('新建网关')))")) /* 等待工具栏。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('新建网关')).click()") /* 打开网关表单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('保存接入网关')))")) /* 等待表单内容。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-collapse-item__header-main')?.click()") /* 展开网关高级配置。 */
+  await call('Emulation.setDeviceMetricsOverride', { width: 1000, height: 600, deviceScaleFactor: 1, mobile: false }) /* 用较短视口检查长表单。 */
+  const gatewayLayout = await evaluate("(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),body=m.querySelector('.n-card-content'),save=[...m.querySelectorAll('button')].find(b=>b.innerText.includes('保存接入网关'));body.scrollTop=300;return {scrollHeight:body.scrollHeight,clientHeight:body.clientHeight,scrollTop:body.scrollTop,buttonRight:save.getBoundingClientRect().right,modalRight:m.getBoundingClientRect().right}})()") /* 读取网关表单几何信息。 */
+  assert.ok(gatewayLayout.scrollTop>0 && gatewayLayout.buttonRight<=gatewayLayout.modalRight-12, `网关编辑表单无法滚动或保存按钮错位：${JSON.stringify(gatewayLayout)}`) /* 长表单保持可滚动且按钮在弹窗内。 */
+  await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭网关表单。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待表单关闭。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"备份中心\"]').click()") /* 检查备份详情说明。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('详情 / 文件')))")) /* 等待备份行。 */
+  await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('详情 / 文件')).click()") /* 打开备份详情。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal .section-heading span')].find(item=>item.innerText.includes('清单中的每个文件')))")) /* 等待说明文字。 */
+  assert.ok(await evaluate("(() => {const text=[...document.querySelectorAll('.n-modal .section-heading span')].find(item=>item.innerText.includes('清单中的每个文件'));return getComputedStyle(text).color!=='rgb(242, 242, 244)'})()"), '备份详情说明文字与白色背景过于接近') /* 明确使用深色辅助文本。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭备份详情。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待详情关闭。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"智能助手\"]').click()") /* 检查智能助手滚动区。 */
+  await until(() => evaluate("Boolean(document.querySelector('.control-scroll') && document.querySelector('.chat-log'))")) /* 等待双栏内容。 */
+  assert.ok(await evaluate("(() => {const left=document.querySelector('.control-scroll');left.scrollTop=200;return left.scrollTop>0})()"), '智能助手运行参数无法向下滚动') /* 左侧长配置须可达。 */
+  assert.ok(await evaluate("(() => {const log=document.querySelector('.chat-log');for(let i=0;i<30;i++){const item=document.createElement('p');item.textContent='滚动测试';log.append(item)}log.scrollTop=200;return log.scrollTop>0})()"), '智能助手对话记录无法向下滚动') /* 对话滚动容器需保持有效。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 打开产品管理检查表单。 */
   await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '产品管理'")) /* 等待页面切换。 */
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.textContent.includes('新建产品')).click()") /* 打开新建产品弹窗。 */
@@ -128,6 +171,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('[aria-label=\"打开用户菜单\"]').click()") /* 打开账户菜单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-dropdown-option')].find(option => option.getClientRects().length && option.innerText.includes('退出登录')))")) /* 确认账户操作可见。 */
   assert.notEqual(await evaluate("getComputedStyle([...document.querySelectorAll('.n-dropdown-menu')].find(menu => menu.getClientRects().length)).display"), 'flex', '账户菜单被横向 flex 样式破坏') /* 菜单须按列表纵向排布。 */
+  const logoutLayout = await evaluate("(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length),icon=label.querySelector('svg').getBoundingClientRect(),text=label.getBoundingClientRect();return {width:text.width,height:text.height,iconHeight:icon.height,display:getComputedStyle(label).display}})()") /* 读取退出菜单布局。 */
+  assert.ok(logoutLayout.width>60 && logoutLayout.iconHeight<=logoutLayout.height && logoutLayout.display==='inline-flex', `退出登录图标与文字未排在同一行：${JSON.stringify(logoutLayout)}`) /* 菜单项完整显示。 */
   await evaluate("[...document.querySelectorAll('.n-dropdown-option')].find(option => option.getClientRects().length && option.innerText.includes('退出登录')).querySelector('.n-dropdown-option-body').click()") /* 执行退出登录。 */
   await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))")) /* 确认退出后返回登录页。 */
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`) /* 不接受未处理的页面错误。 */

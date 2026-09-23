@@ -76,7 +76,10 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button:not(.n-button--disabled):hover { background-color: var(--n-color-hover); color: var(--n-text-color-hover); transform: none; box-shadow: none; } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button.n-button--primary-type { color: #fff; } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button.n-button--secondary.n-button--primary-type { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
-.n-button.el-button.n-button--error-type { color: #fff; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button.n-button--error-type:not(.n-button--secondary):not(.n-button--text):not(.n-button--disabled) { color: #c93636; background-color: #fff5f5; } /* 默认危险按钮使用浅红底和深红字。 */
+.n-button.el-button.n-button--secondary.n-button--error-type { color: #c93636; } /* 描边删除按钮使用深红色文字。 */
+.n-button.el-button.n-button--error-type:not(.n-button--disabled):hover { color: #a92323; background-color: #fee9e9; } /* 悬停时危险操作文字仍清晰可见。 */
+.n-button.el-button.n-button--disabled { color: #8e98a7; background-color: #f5f7fa; } /* 禁用操作仍保留可读文案。 */
 .n-input.el-input, .n-select.el-select { min-width: 0; } /* 设置后台页面的布局与视觉样式。 */
 .n-form-item.el-form-item { margin-bottom: 13px; } /* 设置后台页面的布局与视觉样式。 */
 .n-form-item.el-form-item .n-form-item-label { color: #596273; font-size: 12px; font-weight: 600; } /* 设置后台页面的布局与视觉样式。 */
@@ -96,7 +99,11 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-modal.el-dialog { max-height: calc(100dvh - 48px); overflow: hidden; border-radius: 8px; box-shadow: 0 24px 70px rgba(20, 34, 28, .16); } /* 设置后台页面的布局与视觉样式。 */
 .n-modal.el-dialog .n-card-content { min-height: 0; overflow: auto; overscroll-behavior: contain; } /* 长弹窗正文在卡片内部滚动。 */
 .n-modal.el-dialog .n-card-header { border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
-.n-modal.el-dialog .n-card__footer { border-top: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.n-modal.el-dialog .n-card__footer { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--border); } /* 弹窗操作按钮在独立页脚内对齐。 */
+.n-dropdown-menu { min-width: 132px; } /* 账户菜单为图标和文字留出足够宽度。 */
+.ui-dropdown-label { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; } /* 下拉操作横向显示图标和名称。 */
+.ui-dropdown-label svg { width: 16px; height: 16px; flex: none; } /* 保持菜单图标尺寸稳定。 */
+.top-actions { gap: 18px; } /* 顶部提醒与账户入口保持清晰间距。 */
 .n-drawer .n-drawer-body-content-wrapper { overflow: auto; overscroll-behavior: contain; } /* 设置后台页面的布局与视觉样式。 */
 .n-descriptions.el-descriptions { overflow-wrap: anywhere; } /* 设置后台页面的布局与视觉样式。 */
 .n-tabs.el-tabs .n-tabs-tab { font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */

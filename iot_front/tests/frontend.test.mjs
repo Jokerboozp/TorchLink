@@ -79,6 +79,7 @@ test('global alarm popup handles raised alarms, fault events and tenant-scoped s
   assert.equal(raised.deviceName, '东区烟感') /* 验证实际结果符合预期。 */
   assert.equal(raised.detail, '检测到设备异常报警，请及时处理。') /* 验证实际结果符合预期。 */
   assert.deepEqual(alerts.alertKeys(raised), ['alarm-1', 'message-1']) /* 验证实际结果符合预期。 */
+  assert.equal(alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/ALARM_REPORT', { messageId:'message-1', messageType:'ALARM_REPORT', deviceId:'device-1' }), null) /* 正式告警由 raised 事件通知，解析消息不再重复弹窗。 */
 
   const fault = alerts.parseRealtimeAlert( /* 声明 fault。 */
     '/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', /* 执行当前语句并推进处理流程。 */
