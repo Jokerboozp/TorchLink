@@ -114,10 +114,15 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-descriptions.el-descriptions { overflow-wrap: anywhere; } /* 设置后台页面的布局与视觉样式。 */
 .n-tabs.el-tabs .n-tabs-tab { font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
 .n-tabs.el-tabs .n-tabs-tab.n-tabs-tab--active { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
-.dashboard-page .n-radio-group[aria-label="告警统计时段"] { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid #d7e2ef; border-radius: 7px; background: var(--accent); } /* 趋势周期采用品牌浅蓝底。 */
-.dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button { min-width: 74px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; background: transparent; } /* 保持两个周期按钮尺寸一致。 */
-.dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button__state-border { display: none; } /* 去除与分段容器重叠的默认描边。 */
-.dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button--checked { background: #fff; box-shadow: 0 1px 3px rgba(18, 73, 41, .14); } /* 用实底突出当前周期。 */
+.segmented-choice-group.n-radio-group { display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; } /* 表单中的每个选项独立成块，避免相邻文字粘连。 */
+.segmented-choice-group .n-radio-button { display: inline-flex; min-height: 34px; height: auto; align-items: center; justify-content: center; margin: 0 !important; border: 1px solid #cbd8e8 !important; border-radius: 8px !important; background: #fff !important; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.segmented-choice-group .n-radio-button__state-border { display: none; }
+.segmented-choice-group .n-radio-button__label { color: #334b68; font-weight: 500; }
+.segmented-choice-group .n-radio-button:hover { border-color: #6c98c5 !important; background: #f6faff !important; }
+.segmented-choice-group .n-radio-button.n-radio-button--checked { border-color: #2d67a6 !important; background: #eaf3ff !important; box-shadow: 0 0 0 1px #2d67a62b; }
+.segmented-choice-group .n-radio-button.n-radio-button--checked .n-radio-button__label { color: #174a83; font-weight: 650; }
+.segmented-choice-group .n-radio-button:focus-within { outline: 2px solid #2d67a6; outline-offset: 2px; }
+.dashboard-page .n-radio-group[aria-label="告警统计时段"] .n-radio-button { min-width: 74px; min-height: 28px; } /* 小尺寸周期选项沿用紧凑高度。 */
 .ui-upload .n-upload-dragger { border-color: #cbd8e8; border-radius: 7px; background: #f8fafd; } /* 设置后台页面的布局与视觉样式。 */
 .ui-upload .n-upload-dragger:hover { border-color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .ui-loading { position: relative; } /* 设置后台页面的布局与视觉样式。 */

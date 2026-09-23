@@ -261,32 +261,58 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       </ui-form>
       <template #footer><div class="source-submit-row"><span>提交后先编译并试跑样例，全部通过才会按上方设置保存或发布。</span><ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" :loading="compiling" :disabled="sourceTemplate && !sourceTemplate.compilerAvailable" @click="uploadSource">{{ compiling ? '正在编译并试跑样例…' : source.publish ? '上传、编译并发布' : '上传、编译并校验' }}</ui-button></div></template>
   </ui-dialog>
-  <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑平台连接配置' : '新建平台连接配置'" width="min(760px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener">
-      <p class="muted-text">这里配置平台的监听或采集服务；现场主设备在设备管理中登记。共享监听可供多台设备使用。</p>
-      <ui-form :disabled="savingListener" label-position="top" class="top-gap">
-        <div class="form-grid">
-          <ui-form-item label="连接名称 / 标识"><ui-input v-model="listener.id" :disabled="editingProfile" placeholder="例如 dahua-tcp" /></ui-form-item>
-          <ui-form-item label="关联设备模板"><ui-select v-model="listener.productId" filterable placeholder="选择需要接入的设备模板" @change="selectProduct"><ui-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></ui-select></ui-form-item>
-          <ui-form-item label="模板绑定协议"><ui-input :model-value="protocols.find(p => p.definition.id === listener.protocolId)?.definition.name || listener.protocolId" readonly placeholder="选择模板后自动读取" /></ui-form-item>
-          <ui-form-item label="模板当前绑定版本"><ui-input :model-value="listener.protocolVersion" readonly placeholder="请先在设备模板绑定已发布协议" /></ui-form-item>
-          <ui-form-item v-if="listener.mode==='listener'" label="网络"><ui-select v-model="listener.network"><ui-option label="TCP" value="tcp" /><ui-option label="UDP" value="udp" /></ui-select></ui-form-item>
-          <ui-form-item v-if="listener.mode==='listener' && listener.network==='tcp'" label="连接方向"><ui-select v-model="listener.connectionMode"><ui-option value="listen" label="设备连接平台"/><ui-option value="dial" label="平台连接设备"/></ui-select></ui-form-item>
-<ui-form-item v-if="listener.connectionMode==='dial' || listener.mode==='poll'" label="已配置的设备标识"><ui-input v-model="listener.deviceId" /></ui-form-item>
-<ui-form-item :label="listener.connectionMode==='dial' || listener.mode==='poll'?'设备地址 / 主机名':'本机监听地址'"><ui-input v-model="listener.host" /></ui-form-item>
-          <ui-form-item v-if="listener.mode==='listener' && listener.connectionMode!=='dial'" label="现场设备填写的平台对外地址"><ui-input v-model="listener.publicHost" placeholder="填写实际可达域名或 IP，不要填 0.0.0.0" /></ui-form-item>
-          <ui-form-item label="端口"><ui-input-number v-model="listener.port" :min="1" :max="65535" /></ui-form-item>
-          <ui-form-item label="操作超时（秒）"><ui-input-number :model-value="listener.timeoutMs/1000" :min="0.001" :max="30" :step="0.5" @update:model-value="value=>listener.timeoutMs=Math.round(Number(value)*1000)" /></ui-form-item>
-        </div>
-        <ui-switch v-if="listener.mode==='listener'" v-model="listener.autoRegister" active-text="自动登记协议识别的新设备" />
-        <div v-if="listener.mode==='poll'" class="form-grid">
-          <ui-form-item label="站号"><ui-input-number v-model="listener.unitId" :min="0" :max="255" /></ui-form-item>
-          <ui-form-item label="采集周期（秒）"><ui-input-number :model-value="listener.intervalMs/1000" :min="1" @update:model-value="value=>listener.intervalMs=Math.round(Number(value)*1000)" /></ui-form-item>
-          <ui-form-item label="重试次数"><ui-input-number v-model="listener.retries" :min="0" :max="3" /></ui-form-item>
-        </div>
-        <ui-switch v-model="listener.enabled" active-text="启用接入" />
-        <ui-collapse v-if="listener.mode==='listener'"><ui-collapse-item title="定时读取与子设备" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></ui-collapse-item></ui-collapse><div class="dialog-actions"><ui-button v-permission="['POST /api/v2/device-access-profiles','PUT /api/v2/device-access-profiles/:id']" type="primary" :loading="savingListener" @click="saveListener">保存平台连接配置</ui-button></div>
-      </ui-form>
+  <ui-dialog v-model="profileOpen" :title="editingProfile ? '编辑平台连接配置' : '新建平台连接配置'" width="min(820px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!savingListener" :show-close="!savingListener" class="profile-editor-dialog">
+    <div class="profile-editor-layout">
+      <p class="profile-editor-intro">配置平台如何连接现场设备。共享监听可供多台设备使用；具体设备在设备管理中登记。</p>
+      <ui-form :disabled="savingListener" label-position="top">
+        <section class="profile-editor-section">
+          <div class="profile-section-heading"><span>01</span><div><h3>适用设备</h3><p>选择设备模板后，自动使用模板绑定的协议与版本。</p></div></div>
+          <div class="profile-field-grid">
+            <ui-form-item label="连接名称 / 标识" required><ui-input v-model="listener.id" :disabled="editingProfile" placeholder="例如 dahua-tcp" /></ui-form-item>
+            <ui-form-item label="关联设备模板" required><ui-select v-model="listener.productId" filterable placeholder="选择需要接入的设备模板" @change="selectProduct"><ui-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" /></ui-select></ui-form-item>
+          </div>
+          <div class="profile-protocol-summary"><div><span>模板绑定协议</span><strong>{{ protocols.find(p => p.definition.id === listener.protocolId)?.definition.name || listener.protocolId || '选择模板后自动读取' }}</strong></div><div><span>模板当前绑定版本</span><strong>{{ listener.protocolVersion || '请先在设备模板绑定已发布协议' }}</strong></div></div>
+        </section>
 
+        <section class="profile-editor-section">
+          <div class="profile-section-heading"><span>02</span><div><h3>连接方式</h3><p>确定由设备连接平台，还是由平台主动连接设备。</p></div></div>
+          <div class="profile-field-grid" v-if="listener.mode==='listener'">
+            <ui-form-item label="网络协议"><ui-select v-model="listener.network"><ui-option label="TCP" value="tcp" /><ui-option label="UDP" value="udp" /></ui-select></ui-form-item>
+            <ui-form-item v-if="listener.network==='tcp'" label="连接方向"><ui-select v-model="listener.connectionMode"><ui-option value="listen" label="设备连接平台"/><ui-option value="dial" label="平台连接设备"/></ui-select></ui-form-item>
+          </div>
+          <div class="profile-mode-note">{{ listener.mode==='poll' ? '平台定时连接并采集设备数据。' : listener.connectionMode==='dial' ? '平台主动连接指定设备，需填写设备可达地址。' : listener.network==='udp' ? '设备向平台监听端口发送 UDP 报文。' : '设备主动连接平台监听端口，可由多台设备共享。' }}</div>
+        </section>
+
+        <section class="profile-editor-section">
+          <div class="profile-section-heading"><span>03</span><div><h3>地址与端口</h3><p>{{ listener.connectionMode==='dial' || listener.mode==='poll' ? '填写目标设备在平台侧可达的地址。' : '区分平台本机监听地址和现场设备实际填写的对外地址。' }}</p></div></div>
+          <div class="profile-field-grid">
+            <ui-form-item v-if="listener.connectionMode==='dial' || listener.mode==='poll'" label="目标设备标识"><ui-input v-model="listener.deviceId" placeholder="填写已登记设备的标识" /></ui-form-item>
+            <ui-form-item :label="listener.connectionMode==='dial' || listener.mode==='poll'?'设备地址 / 主机名':'本机监听地址'"><ui-input v-model="listener.host" :placeholder="listener.connectionMode==='dial' || listener.mode==='poll'?'设备可达域名或 IP':'例如 0.0.0.0'" /></ui-form-item>
+            <ui-form-item v-if="listener.mode==='listener' && listener.connectionMode!=='dial'" label="平台对外地址"><ui-input v-model="listener.publicHost" placeholder="现场设备可达域名或 IP" /></ui-form-item>
+            <ui-form-item label="端口"><ui-input-number v-model="listener.port" :min="1" :max="65535" /></ui-form-item>
+          </div>
+          <p v-if="listener.mode==='listener' && listener.connectionMode!=='dial'" class="profile-address-help">本机监听地址可用 0.0.0.0；现场设备须填写平台对外地址和端口，不能使用 0.0.0.0。</p>
+        </section>
+
+        <section class="profile-editor-section">
+          <div class="profile-section-heading"><span>04</span><div><h3>运行设置</h3><p>设置超时、自动登记及启用状态。</p></div></div>
+          <div class="profile-field-grid">
+            <ui-form-item label="操作超时（秒）"><ui-input-number :model-value="listener.timeoutMs/1000" :min="0.001" :max="30" :step="0.5" @update:model-value="value=>listener.timeoutMs=Math.round(Number(value)*1000)" /></ui-form-item>
+            <template v-if="listener.mode==='poll'">
+              <ui-form-item label="站号"><ui-input-number v-model="listener.unitId" :min="0" :max="255" /></ui-form-item>
+              <ui-form-item label="采集周期（秒）"><ui-input-number :model-value="listener.intervalMs/1000" :min="1" @update:model-value="value=>listener.intervalMs=Math.round(Number(value)*1000)" /></ui-form-item>
+              <ui-form-item label="重试次数"><ui-input-number v-model="listener.retries" :min="0" :max="3" /></ui-form-item>
+            </template>
+          </div>
+          <div class="profile-toggle-list">
+            <div v-if="listener.mode==='listener'" class="profile-toggle-row"><div><strong>自动登记新设备</strong><small>协议识别出新设备后，自动加入设备列表。</small></div><ui-switch v-model="listener.autoRegister" /></div>
+            <div class="profile-toggle-row"><div><strong>启用连接配置</strong><small>保存后按此状态运行监听或采集服务。</small></div><ui-switch v-model="listener.enabled" /></div>
+          </div>
+          <ui-collapse v-if="listener.mode==='listener'" class="profile-advanced"><ui-collapse-item title="定时读取与子设备（可选）" name="advanced"><ProtocolAccessSettings :profile="listener" :can-poll="listener.network==='tcp'" :products="products" :product-id="listener.productId"/></ui-collapse-item></ui-collapse>
+        </section>
+      </ui-form>
+    </div>
+    <template #footer><div class="profile-editor-footer"><ui-button :disabled="savingListener" @click="profileOpen=false">取消</ui-button><ui-button v-permission="['POST /api/v2/device-access-profiles','PUT /api/v2/device-access-profiles/:id']" type="primary" :loading="savingListener" @click="saveListener">保存平台连接配置</ui-button></div></template>
   </ui-dialog>
   <details v-if="result" class="technical-details"><summary>最近操作结果</summary><pre>{{ pretty(result) }}</pre></details>
 </template>
@@ -310,5 +336,30 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .source-submit-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 14px; } /* 提交操作固定在弹窗页脚。 */
 .source-submit-row span { color: #697386; font-size: 12px; line-height: 1.5; } /* 页脚简述实际执行顺序。 */
 .source-submit-row button { flex: none; } /* 提交按钮不被说明文字压缩。 */
+.profile-editor-intro { margin: 0 0 16px; color: #53667d; font-size: 13px; line-height: 1.6; }
+.profile-editor-section { padding: 20px; border: 1px solid #dce6f1; border-radius: 12px; background: #fff; }
+.profile-editor-section + .profile-editor-section { margin-top: 14px; }
+.profile-section-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 17px; }
+.profile-section-heading > span { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border-radius: 8px; color: #174b86; background: #eaf2fb; font-size: 12px; font-weight: 700; }
+.profile-section-heading h3 { margin: 0; color: #19334f; font-size: 15px; line-height: 1.4; }
+.profile-section-heading p { margin: 3px 0 0; color: #63758b; font-size: 12px; line-height: 1.5; }
+.profile-field-grid, .profile-protocol-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.profile-field-grid > *, .profile-protocol-summary > * { min-width: 0; }
+.profile-field-grid :deep(.n-form-item) { margin-bottom: 0; }
+.profile-field-grid :deep(.n-input), .profile-field-grid :deep(.n-select), .profile-field-grid :deep(.n-input-number) { width: 100%; }
+.profile-protocol-summary { margin-top: 16px; padding: 13px 15px; border: 1px solid #e1eaf4; border-radius: 9px; background: #f5f8fc; }
+.profile-protocol-summary span, .profile-protocol-summary strong { display: block; overflow-wrap: anywhere; }
+.profile-protocol-summary span { margin-bottom: 4px; color: #64768b; font-size: 12px; }
+.profile-protocol-summary strong { color: #1d3958; font-size: 13px; font-weight: 600; }
+.profile-mode-note, .profile-address-help { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; color: #355b83; background: #eff6fd; font-size: 12px; line-height: 1.6; }
+.profile-toggle-list { display: grid; gap: 10px; margin-top: 18px; }
+.profile-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #e1e8f1; border-radius: 9px; background: #fbfcfe; }
+.profile-toggle-row strong, .profile-toggle-row small { display: block; }
+.profile-toggle-row strong { color: #253d57; font-size: 13px; }
+.profile-toggle-row small { margin-top: 3px; color: #68798d; font-size: 12px; line-height: 1.5; }
+.profile-toggle-row :deep(.ui-switch-field) { flex: none; }
+.profile-advanced { margin-top: 18px; border-top: 1px solid #e4ebf3; }
+.profile-editor-footer { display: flex; width: 100%; justify-content: flex-end; gap: 8px; }
 @media (max-width: 640px) { .source-template-actions, .source-template-actions button, .source-submit-row, .source-submit-row button { width: 100%; } .source-submit-row { flex-wrap: wrap; } } /* 窄屏使用单列按钮，避免横向溢出。 */
+@media (max-width: 640px) { .profile-editor-section { padding: 16px; }.profile-field-grid, .profile-protocol-summary { grid-template-columns: 1fr; }.profile-section-heading { gap: 9px; }.profile-toggle-row { padding: 11px 12px; } }
 </style>

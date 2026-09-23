@@ -64,7 +64,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
       </ui-card> <!-- 结束当前界面区域。 -->
     </div> <!-- 结束当前界面区域。 -->
     <div class="dashboard-charts"> <!-- 渲染 div 界面元素。 -->
-      <ui-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><ui-radio-group v-model="days" size="small" aria-label="告警统计时段" @change="load"><ui-radio-button :value="7">近 7 天</ui-radio-button><ui-radio-button :value="30">近 30 天</ui-radio-button></ui-radio-group></div></template> <!-- 渲染 ui-card 界面元素。 -->
+      <ui-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><ui-radio-group v-model="days" size="small" class="segmented-choice-group" aria-label="告警统计时段" @change="load"><ui-radio-button :value="7">近 7 天</ui-radio-button><ui-radio-button :value="30">近 30 天</ui-radio-button></ui-radio-group></div></template> <!-- 渲染 ui-card 界面元素。 -->
         <DashboardTrend v-if="data" :items="data.trend" /><ui-skeleton v-else :rows="5" :loading="loading" animated><ui-empty description="尚未获取趋势数据" :image-size="76" /></ui-skeleton> <!-- 渲染 DashboardTrend 界面元素。 -->
       </ui-card> <!-- 结束当前界面区域。 -->
       <ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><ui-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->

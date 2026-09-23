@@ -263,7 +263,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
             <ui-form v-loading="bindingLoading" class="knowledge-policy-form" label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving"> <!-- 渲染 ui-form 界面元素。 -->
               <div class="knowledge-policy-section"> <!-- 渲染 div 界面元素。 -->
                 <div class="knowledge-section-copy"><h3>何时检索</h3><p>决定智能体在回答前是否查询知识文档。</p></div> <!-- 渲染 div 界面元素。 -->
-                <ui-form-item label="检索模式"><ui-radio-group v-model="knowledgeBinding.retrievalMode"><ui-radio-button value="auto">按需检索</ui-radio-button><ui-radio-button value="always">每次强制检索</ui-radio-button><ui-radio-button value="disabled">禁用</ui-radio-button></ui-radio-group></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+                <ui-form-item label="检索模式"><ui-radio-group v-model="knowledgeBinding.retrievalMode" class="segmented-choice-group" aria-label="检索模式"><ui-radio-button value="auto">按需检索</ui-radio-button><ui-radio-button value="always">每次强制检索</ui-radio-button><ui-radio-button value="disabled">禁用</ui-radio-button></ui-radio-group></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
               </div> <!-- 结束当前界面区域。 -->
               <div class="knowledge-policy-section"> <!-- 渲染 div 界面元素。 -->
                 <div class="knowledge-section-copy"><h3>匹配要求</h3><p>控制取回的片段数量，以及内容的最低相似度。</p></div> <!-- 渲染 div 界面元素。 -->

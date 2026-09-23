@@ -14,6 +14,7 @@ const registryOptions = ref([]) /* 声明 registryOptions。 */
 const unregisteredOptions = ref([]) /* 声明 unregisteredOptions。 */
 const deviceTab = ref('independent') /* 声明 deviceTab。 */
 const deviceGroups = { independent:{label:'独立设备',role:'DIRECT'}, main:{label:'主设备',role:'GATEWAY'}, children:{label:'子设备',role:'CHILD'} } /* 声明 deviceGroups。 */
+const deviceRoleDescriptions = { DIRECT:'单独登记，不关联下级设备。', GATEWAY:'可作为主设备关联下级子设备。', CHILD:'需选择一台已登记的主设备。' }
 const deviceCategory = ref('') /* 声明 deviceCategory。 */
 const loading = ref(false) /* 声明 loading。 */
 const updatesAvailable = ref(false) /* 声明 updatesAvailable。 */
@@ -159,7 +160,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
       </ui-form-item> <!-- 结束当前界面区域。 -->
       <ui-form-item label="设备名称" required><ui-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="实际设备编号" required><ui-input v-model="form.code" :disabled="!!form.id" placeholder="填写设备实际使用的上报标识" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item label="接入关系"><ui-radio-group v-model="form.deviceRole"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="接入关系"><div class="device-role-choice"><ui-radio-group v-model="form.deviceRole" class="segmented-choice-group" aria-label="接入关系"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group><small>{{ deviceRoleDescriptions[form.deviceRole] }}</small></div></ui-form-item> <!-- 独立边框与说明明确区分设备关系。 -->
       <ui-form-item v-if="form.deviceRole === 'CHILD'" label="所属主设备" required><ui-select v-model="form.gatewayId" filterable><ui-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-collapse><ui-collapse-item title="更多设置" name="advanced"> <!-- 渲染 ui-collapse 界面元素。 -->
         <ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
@@ -174,5 +175,5 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   </template>
 </template>
 <style scoped>
-.device-tag-list{width:100%}.device-tag-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}.device-tag-row>*{min-width:0}.device-tag-row .n-input{flex:1}@media(max-width:640px){.device-tag-row{flex-wrap:wrap}.device-tag-row .n-input{flex-basis:calc(50% - 4px)}}
+.device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:#65778b;font-size:12px;line-height:1.5}.device-tag-list{width:100%}.device-tag-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}.device-tag-row>*{min-width:0}.device-tag-row .n-input{flex:1}@media(max-width:640px){.device-tag-row{flex-wrap:wrap}.device-tag-row .n-input{flex-basis:calc(50% - 4px)}}
 </style>
