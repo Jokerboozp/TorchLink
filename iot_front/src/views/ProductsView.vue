@@ -185,7 +185,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 </template>
 <style scoped>
 .product-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}
-.product-editor-heading{margin-bottom:13px}.product-editor-heading h3{margin:0;color:#223f60;font-size:14px}.product-editor-heading p,.product-editor-advanced p{margin:5px 0 0;color:#64778c;font-size:12px;line-height:1.6}
+.product-editor-heading{margin-bottom:13px}.product-editor-heading h3{margin:0;color:#223f60;font-size:14px}.product-editor-heading p,.product-editor-advanced p{margin:5px 0 0;color:#53697f;font-size:12px;line-height:1.6}
 .product-editor-section :deep(.n-form-item){min-width:0}.product-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
 .product-editor-advanced{padding:0 16px;border:1px solid #dce6f1;border-radius:10px;background:#fff}.product-editor-advanced p{margin:8px 0 13px}
 @media(max-width:640px){.product-editor-section{padding:13px}.product-editor-advanced{padding:0 12px}}

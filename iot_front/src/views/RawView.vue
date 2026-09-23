@@ -13,6 +13,7 @@ const selection = ref([]) /* 声明 selection。 */
 const loading = ref(false) /* 声明 loading。 */
 const detail = ref(null) /* 声明 detail。 */
 const detailVisible = ref(false) /* 声明 detailVisible。 */
+const detailTab = ref('parsed') /* 每次查看报文都从解析结果开始，并显式同步页签状态。 */
 const page = ref(1) /* 声明 page。 */
 const pageSize = ref(20) /* 声明 pageSize。 */
 const total = ref(0) /* 声明 total。 */
@@ -53,6 +54,7 @@ function changePageSize(value) { /* 定义 changePageSize 函数。 */
 async function show(id) { /* 定义 show 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
     detail.value = await api(`/api/v1/raw-messages/${encodeURIComponent(id)}`) /* 更新 detail.value 的值。 */
+    detailTab.value = 'parsed'
     detailVisible.value = true /* 更新 detailVisible.value 的值。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     notifyError(error) /* 执行当前语句并推进处理流程。 */
@@ -110,7 +112,7 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
   </ui-card> <!-- 结束当前界面区域。 -->
   <ui-dialog v-model="detailVisible" title="报文详情与解析结果" width="min(900px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
     <ui-descriptions v-if="detail" :column="2" border><ui-descriptions-item label="消息标识">{{ detail.message?.messageId }}</ui-descriptions-item><ui-descriptions-item label="解析状态"><ui-tag :type="detail.parseStatus === 'PARSED' ? 'success' : 'info'" round>{{ detail.parseStatus === 'PARSED' ? '已解析' : detail.parseStatus === 'FAILED' ? '解析失败' : '待解析/未匹配' }}</ui-tag></ui-descriptions-item><ui-descriptions-item label="设备 / 产品">{{ detail.message?.deviceId }} / {{ detail.message?.productId }}</ui-descriptions-item><ui-descriptions-item label="接收时间">{{ formatTime(detail.message?.receivedAt) }}</ui-descriptions-item><ui-descriptions-item label="协议 / 格式">{{ transportLabel(detail.message?.protocol) }} / {{ formatLabel(detail.message?.payloadFormat) }}</ui-descriptions-item><ui-descriptions-item label="解析器">{{ detail.standardMessage?.parser || '—' }} {{ detail.standardMessage?.parserVersion || '' }}</ui-descriptions-item><ui-descriptions-item label="完整性校验摘要" :span="2"><code class="break-all">{{ detail.archive?.payloadHash }}</code></ui-descriptions-item></ui-descriptions> <!-- 渲染 ui-descriptions 界面元素。 -->
-    <ui-alert v-if="detail.parseStatus !== 'PARSED'" class="top-gap" title="当前没有可展示的标准解析结果" :description="detail.parseError || '可能仍在异步处理，或该协议包没有匹配的解析器。请检查协议开发中的样本调试结果。'" type="warning" :closable="false" show-icon /><pre v-if="detail.parseStatus !== 'PARSED'">{{pretty(detail.message)}}</pre><ui-tabs v-else class="top-gap"><ui-tab-pane label="标准解析结果"><pre>{{ pretty(detail?.standardMessage) }}</pre></ui-tab-pane><ui-tab-pane label="原始报文"><pre>{{ pretty(detail?.message) }}</pre></ui-tab-pane></ui-tabs> <!-- 渲染 ui-alert 界面元素。 -->
+    <ui-alert v-if="detail.parseStatus !== 'PARSED'" class="top-gap" title="当前没有可展示的标准解析结果" :description="detail.parseError || '可能仍在异步处理，或该协议包没有匹配的解析器。请检查协议开发中的样本调试结果。'" type="warning" :closable="false" show-icon /><pre v-if="detail.parseStatus !== 'PARSED'">{{pretty(detail.message)}}</pre><ui-tabs v-else v-model="detailTab" class="top-gap"><ui-tab-pane name="parsed" label="标准解析结果"><pre>{{ pretty(detail?.standardMessage) }}</pre></ui-tab-pane><ui-tab-pane name="raw" label="原始报文"><pre>{{ pretty(detail?.message) }}</pre></ui-tab-pane></ui-tabs> <!-- 渲染 ui-alert 界面元素。 -->
     <template #footer><ui-button @click="detailVisible = false">关闭</ui-button><ui-button v-permission="'GET /api/v1/raw-messages/:id/download'" type="primary" @click="downloadOne(detail.message.messageId)">下载原始报文</ui-button></template>
   </ui-dialog> <!-- 结束当前界面区域。 -->
 </template>

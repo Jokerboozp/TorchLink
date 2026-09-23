@@ -127,7 +127,7 @@ onMounted(async () => { await load(); consumeNavigationAction() }) /* 执行当�
 </template>
 
 <style scoped>
-.camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}.camera-editor-section h3{margin:0;color:#223f60;font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:#64778c;font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
+.camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}.camera-editor-section h3{margin:0;color:#223f60;font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:#53697f;font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
 @media(max-width:640px){.camera-editor-section{padding:13px}}
 :deep(.el-table .camera-highlight > td) { background:#eff6ff !important; } /* 设置  样式。 */
 </style>

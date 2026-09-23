@@ -356,7 +356,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .profile-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #e1e8f1; border-radius: 9px; background: #fbfcfe; }
 .profile-toggle-row strong, .profile-toggle-row small { display: block; }
 .profile-toggle-row strong { color: #253d57; font-size: 13px; }
-.profile-toggle-row small { margin-top: 3px; color: #68798d; font-size: 12px; line-height: 1.5; }
+.profile-toggle-row small { margin-top: 3px; color: #53697f; font-size: 12px; line-height: 1.5; }
 .profile-toggle-row :deep(.ui-switch-field) { flex: none; }
 .profile-advanced { margin-top: 18px; border-top: 1px solid #e4ebf3; }
 .profile-editor-footer { display: flex; width: 100%; justify-content: flex-end; gap: 8px; }

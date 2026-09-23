@@ -176,7 +176,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* æ
 </template>
 <style scoped>
 .device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:#65778b;font-size:12px;line-height:1.5}
-.device-advanced{margin-top:5px}.device-advanced-section{padding:13px;margin:10px 0;border:1px solid #dce6f1;border-radius:9px;background:#f9fbfe}.device-advanced-section h4{margin:0;color:#294562;font-size:13px}.device-advanced-section p{margin:4px 0 11px;color:#64778c;font-size:12px;line-height:1.5}.device-advanced-section :deep(.n-form-item){margin:10px 0 0}
+.device-advanced{margin-top:5px}.device-advanced-section{padding:13px;margin:10px 0;border:1px solid #dce6f1;border-radius:9px;background:#f9fbfe}.device-advanced-section h4{margin:0;color:#294562;font-size:13px}.device-advanced-section p{margin:4px 0 11px;color:#53697f;font-size:12px;line-height:1.5}.device-advanced-section :deep(.n-form-item){margin:10px 0 0}
 .device-tag-list{width:100%}.device-tag-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:10px 0}.device-tag-row label{display:grid;min-width:0;gap:5px;color:#435a74;font-size:12px;font-weight:600}.device-tag-row :deep(.n-input){width:100%}.device-tag-empty{padding:10px;border:1px dashed #cbd8e7;border-radius:7px;background:#fff}
 @media(max-width:640px){.device-tag-row{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tag-row .n-button{justify-self:start}}
 </style>
