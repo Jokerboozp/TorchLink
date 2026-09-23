@@ -18,14 +18,14 @@ export const UiOption = defineComponent({ /* 选项只供下拉框读取参数�
 
 export const UiSelect = defineComponent({ /* 将选项子节点转换成 Naive UI 下拉选项。 */
   name: 'UiSelect', inheritAttrs: false, /* 明确转发样式与无障碍属性。 */
-  props: { modelValue: [String, Number, Boolean, Array], multiple: Boolean, filterable: Boolean, clearable: Boolean, disabled: Boolean, placeholder: String, collapseTags: Boolean, collapseTagsTooltip: Boolean }, /* 保留现有选择器契约。 */
+  props: { modelValue: [String, Number, Boolean, Array], multiple: Boolean, filterable: Boolean, clearable: Boolean, disabled: Boolean, placeholder: String, collapseTags: Boolean, collapseTagsTooltip: Boolean, allowCreate: Boolean }, /* 需要自由输入的知识标签和智能体标识启用创建选项。 */
   emits: ['update:modelValue', 'change'], /* 保留业务选择回调。 */
   setup(props, { attrs, slots, emit }) { return () => { /* 每次渲染都读取动态选项。 */
     const booleanKey = value => value === true ? '__ui_boolean_true__' : value === false ? '__ui_boolean_false__' : value /* 布尔选项转成 Naive UI 接受的字符串键。 */
     const restoreValue = value => value === '__ui_boolean_true__' ? true : value === '__ui_boolean_false__' ? false : value /* 对业务继续返回布尔值。 */
     const options = nested(slots.default?.()).filter(node => node.type === UiOption || node.type?.name === 'UiOption').map(node => ({ label: node.props?.label ?? String(node.props?.value ?? ''), value: booleanKey(node.props?.value), disabled: node.props?.disabled })) /* 生成 Naive UI 所需选项。 */
     const selected = Array.isArray(props.modelValue) ? props.modelValue.map(booleanKey) : booleanKey(props.modelValue) /* 保持当前选择值的类型映射。 */
-    return h(NSelect, { ...attrs, class: ['el-select', attrs.class], value: selected === '' ? null : selected, multiple: props.multiple, filterable: props.filterable, clearable: props.clearable, disabled: props.disabled, placeholder: props.placeholder, maxTagCount: props.collapseTags ? 'responsive' : undefined, options, 'onUpdate:value': value => { const next = value == null && !props.multiple ? '' : Array.isArray(value) ? value.map(restoreValue) : restoreValue(value); emit('update:modelValue', next); emit('change', next) } }) /* 绘制 Naive UI 下拉框。 */
+    return h(NSelect, { ...attrs, class: ['el-select', attrs.class], value: selected === '' ? null : selected, multiple: props.multiple, filterable: props.filterable, clearable: props.clearable, disabled: props.disabled, placeholder: props.placeholder, tag: props.allowCreate, maxTagCount: props.collapseTags ? 'responsive' : undefined, options, 'onUpdate:value': value => { const next = value == null && !props.multiple ? '' : Array.isArray(value) ? value.map(restoreValue) : restoreValue(value); emit('update:modelValue', next); emit('change', next) } }) /* 将 allow-create 对应到 Naive UI 的自由输入功能。 */
   } } /* 结束选择器渲染。 */
 }) /* 结束选择器适配。 */
 

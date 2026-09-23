@@ -280,14 +280,19 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       </ui-tab-pane>
     </ui-tabs>
 
-    <ui-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(620px, 94vw)">
-      <div class="knowledge-upload-step"><span>1</span><div><strong>选择文档</strong><small>单个文件不超过 32 兆字节</small></div></div>
-      <ui-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><Upload class="upload-icon" /><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、办公文档、网页和文本；扫描件需先进行文字识别。</div></template></ui-upload>
-      <div class="knowledge-upload-step knowledge-upload-step-gap"><span>2</span><div><strong>关联智能体</strong><small>每份文档只属于一个智能体</small></div></div>
-      <ui-form label-position="top" class="knowledge-upload-form">
-        <ui-form-item label="关联智能体（必选）"><ui-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><ui-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></ui-select><small class="field-tip">未启动工作流服务时，可以输入计划使用的智能体标识。</small></ui-form-item>
-        <div class="metadata-grid"><ui-form-item label="知识分类（可选）"><ui-select v-model="category" :disabled="uploading"><ui-option label="设备手册" value="manual" /><ui-option label="告警处置操作规程" value="alarm-sop" /><ui-option label="运维维修" value="maintenance" /><ui-option label="消防规范" value="regulation" /><ui-option label="常见问题" value="faq" /></ui-select></ui-form-item><ui-form-item label="知识标签（可选）"><ui-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></ui-form-item></div>
-      </ui-form>
+    <ui-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(680px, 94vw)" class="knowledge-upload-dialog">
+      <section class="knowledge-upload-section">
+        <div class="knowledge-upload-step"><span>1</span><div><strong>选择文档</strong><small>每次上传一个文件，最大 32 兆字节</small></div></div>
+        <ui-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><Upload class="upload-icon" /><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、办公文档、网页和文本；扫描件需先进行文字识别。</div></template></ui-upload>
+      </section>
+      <section class="knowledge-upload-section">
+        <div class="knowledge-upload-step"><span>2</span><div><strong>指定归属</strong><small>文档只供所选智能体检索</small></div></div>
+        <ui-form label-position="top" class="knowledge-upload-form">
+          <ui-form-item label="关联智能体（必选）"><ui-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择智能体，或输入标识后按回车"><ui-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></ui-select></ui-form-item>
+          <p class="field-tip">列表中没有目标智能体时，可输入计划使用的智能体标识并按回车创建。</p>
+          <div class="metadata-grid"><ui-form-item label="知识分类（可选）"><ui-select v-model="category" :disabled="uploading"><ui-option label="设备手册" value="manual" /><ui-option label="告警处置操作规程" value="alarm-sop" /><ui-option label="运维维修" value="maintenance" /><ui-option label="消防规范" value="regulation" /><ui-option label="常见问题" value="faq" /></ui-select></ui-form-item><ui-form-item label="知识标签（可选）"><ui-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后按回车" /></ui-form-item></div>
+        </ui-form>
+      </section>
       <template #footer><ui-button @click="uploadDialog=false">取消</ui-button><ui-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</ui-button></template>
     </ui-dialog> <!-- 结束当前界面区域。 -->
 
@@ -351,15 +356,19 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .knowledge-number-grid :deep(.el-input-number) { width:100%; } /* 定义当前元素的样式规则。 */
 .knowledge-policy-actions { display:flex; align-items:center; justify-content:flex-end; gap:16px; padding-top:20px; } /* 定义当前元素的样式规则。 */
 .knowledge-policy-actions small { margin-right:auto; color:var(--muted-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
-.knowledge-upload-step { display:flex; align-items:center; gap:10px; margin-bottom:12px; } /* 定义当前元素的样式规则。 */
+.knowledge-upload-section { min-width:0; padding:0 0 20px; } /* 上传步骤各占独立区域，说明不与输入框挤在同一行。 */
+.knowledge-upload-section + .knowledge-upload-section { padding-top:20px; border-top:1px solid var(--border); }
+.knowledge-upload-section:last-of-type { padding-bottom:0; }
+.knowledge-upload-step { display:flex; align-items:center; gap:10px; margin-bottom:14px; } /* 定义当前元素的样式规则。 */
 .knowledge-upload-step > span { width:25px; height:25px; flex:none; display:grid; place-items:center; color:#fff; background:var(--brand-navy); border-radius:50%; font-size:12px; font-weight:700; } /* 定义当前元素的样式规则。 */
 .knowledge-upload-step > div { display:flex; align-items:baseline; gap:9px; } /* 定义当前元素的样式规则。 */
 .knowledge-upload-step strong { font-size:14px; } /* 定义当前元素的样式规则。 */
 .knowledge-upload-step small,.field-tip { color:var(--muted-foreground); font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
-.knowledge-upload-step-gap { margin-top:26px; } /* 定义当前元素的样式规则。 */
 .upload-icon { width:32px; height:32px; color:var(--primary); } /* 定义当前元素的样式规则。 */
-.knowledge-upload-form :deep(.el-select) { width:100%; } /* 定义当前元素的样式规则。 */
-.metadata-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } /* 定义当前元素的样式规则。 */
+.knowledge-upload-form :deep(.n-form-item),.knowledge-upload-form :deep(.n-select) { width:100%; min-width:0; } /* 表单字段与选择器占据整行。 */
+.knowledge-upload-form .field-tip { display:block; margin:-3px 0 16px; } /* 说明独立换行，避免覆盖选择器。 */
+.metadata-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; } /* 定义当前元素的样式规则。 */
+.metadata-grid > * { min-width:0; }
 .knowledge-detail { min-height:140px; } /* 定义当前元素的样式规则。 */
 .knowledge-detail-file { display:flex; align-items:center; gap:12px; padding:3px 0 18px; } /* 定义当前元素的样式规则。 */
 .knowledge-detail-file > div { min-width:0; flex:1; display:grid; gap:4px; } /* 定义当前元素的样式规则。 */

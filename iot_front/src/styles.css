@@ -112,8 +112,8 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .app-aside { width: 204px; height: 100%; padding: 0 12px; display: flex; flex: 0 0 auto; flex-direction: column; position: relative; z-index: 20; overflow: hidden; background: var(--brand-navy); border-right: 1px solid #0c2a50; transition: width .2s ease; } /* 侧栏使用品牌深蓝。 */
 .app-aside.is-collapsed { width: 64px; } /* 定义当前元素的样式规则。 */
 .brand { height: 76px; padding: 0 7px; margin-bottom: 0; flex: none; } /* 定义当前元素的样式规则。 */
-.brand > .brand-logo { position: relative; width: 145px; height: 72px; flex: none; overflow: hidden; } /* 定义当前元素的样式规则。 */
-.brand-logo img { position: absolute; top: -7px; left: -60px; width: 260px; max-width: none; height: auto; } /* 保留原始深蓝和火焰色，避免混合模式污染图标。 */
+.brand > .brand-logo { width: 180px; height: 54px; flex: none; overflow: hidden; } /* 完整容纳透明底品牌标志。 */
+.brand-logo img { display: block; width: 180px; max-width: none; height: 54px; object-fit: contain; } /* 展开显示完整字标，折叠时保留左侧图形。 */
 .app-aside.is-collapsed .brand-logo { width: 46px; } /* 定义当前元素的样式规则。 */
 .brand > div { display: grid; white-space: nowrap; } /* 定义当前元素的样式规则。 */
 .brand strong { color: var(--foreground); font-size: 20px; letter-spacing: .02em; } /* 定义当前元素的样式规则。 */

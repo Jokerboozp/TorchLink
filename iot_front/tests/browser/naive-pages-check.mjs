@@ -47,7 +47,9 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/ai/alarm-analysis/alarm-demo' ? { summary:'设备多次触发故障告警，需要检查现场状态', riskLevel:'MEDIUM', confidence:0.85, possibleReasons:['设备状态异常','通信链路抖动'], suggestions:['检查设备电源和网络','核对告警历史'], model:'fixture', createdAt:Date.now() }
         : path.startsWith('/api/v1/rules?') ? { items: [{ id:'rule-demo', name:'演示规则', alarmType:'DEVICE_FAULT', level:'HIGH', enabled:true, conditions:[], actions:[] }], total:1 }
         : path === '/api/v1/access/users' ? { tenantId:'fixture', items:[{ username:'operator-demo', displayName:'操作员', enabled:true, roleIds:[], deviceScope:'none' }] }
-        : path === '/api/v1/access/roles' || path === '/api/v1/access/permissions' || path === '/api/v1/access/device-options' ? { items:[] }
+        : path === '/api/v1/access/roles' ? { items:[{ id:'viewer', name:'查看员', permissions:[] }] }
+        : path === '/api/v1/access/permissions' ? { items:[{ id:'menu:devices', name:'设备管理', kind:'menu', menu:'devices' },{ id:'GET /api/v1/devices', name:'查看设备', kind:'action', menu:'devices' }] }
+        : path === '/api/v1/access/device-options' ? { items:[{ id:'device-demo', name:'测试设备' }] }
         : path.startsWith('/api/v1/backups?') ? { items:[{ id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now() }], total:1 }
         : path === '/api/v1/backups/backup-demo' ? { id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now(), details:{}, objectKey:'backup/manifest.json' }
         : path.startsWith('/api/v1/backups/backup-demo/files?') ? { artifacts:[{ component:'原始报文', filename:'raw-messages.jsonl.gz', size:313, checksum:'fixture' }], total:1, components:{ rawMessages:{ records:1 } } }
@@ -64,7 +66,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()") /* 完成夹具登录。 */
   await until(() => evaluate("document.querySelectorAll('.menu-item').length >= 16")) /* 确认全部主菜单可见。 */
   const asideBrand = await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)'),brand=aside.querySelector('.brand-logo');return {background:getComputedStyle(aside).backgroundImage,menu:getComputedStyle(menu).color,logo:getComputedStyle(brand).backgroundColor}})()") /* 读取实际渲染的导航颜色。 */
-  assert.ok(asideBrand.background.includes('rgb(19, 56, 108)') && asideBrand.menu==='rgb(220, 232, 245)' && asideBrand.logo==='rgb(255, 255, 255)', `深蓝侧栏、浅色菜单或白底品牌标识未生效：${JSON.stringify(asideBrand)}`) /* 检查导航可读性及白底 logo。 */
+  assert.ok(asideBrand.background.includes('rgb(19, 56, 108)') && asideBrand.menu==='rgb(220, 232, 245)' && asideBrand.logo==='rgba(0, 0, 0, 0)' && await evaluate("document.querySelector('.brand-logo img')?.naturalWidth > 0"), `深蓝侧栏、浅色菜单或透明底品牌标识未生效：${JSON.stringify(asideBrand)}`) /* 检查导航可读性及透明底 logo。 */
   await evaluate("document.querySelector('.collapse-button').click()") /* 验证折叠导航。 */
   assert.ok(await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)');return aside.classList.contains('is-collapsed') && menu.getBoundingClientRect().width>0 && getComputedStyle(menu).color==='rgb(220, 232, 245)'})()"), '折叠态导航图标不可见') /* 折叠后仍保留可读菜单。 */
   await evaluate("document.querySelector('.collapse-button').click()") /* 恢复完整侧栏。 */
@@ -78,10 +80,63 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     if (name==='设备管理') assert.ok(await evaluate("(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(item=>item.innerText.includes('一层走廊烟感'));return row && row.querySelectorAll('.n-tag').length===1 && row.querySelector('.device-enabled-state')?.innerText.includes('已启用') && row.querySelector('.device-role-text')?.innerText.includes('直接设备')})()"), '设备列表仍堆叠多个状态标签') /* 仅运行状态保留标签。 */
     if (['运行总览', '协议管理', '产品管理', '设备管理', '告警中心', '智能助手'].includes(name)) { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存代表性页面的临时截图。 */
   } /* 结束页面遍历。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"用户与权限\"]').click()") /* 检查添加与编辑用户表单。 */
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '用户与权限'"))
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('添加用户')).click()")
+  await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
+  assert.ok(await evaluate("(() => {const m=document.querySelector('.n-modal'),grid=m.querySelector('.user-editor-grid'),items=[...grid.children],r=e=>e.getBoundingClientRect();return items.length===4 && r(items[0]).top===r(items[1]).top && r(items[2]).top===r(items[3]).top && !m.querySelector('.user-editor-permissions details').open && m.querySelector('.user-editor-switch [role=switch]')})()"), '添加用户账户信息分栏、状态或权限折叠区异常')
+  await evaluate("document.querySelector('.user-editor-permissions summary').click()")
+  assert.ok(await evaluate("document.querySelector('.user-editor-permissions details').open && document.querySelectorAll('.user-editor-permissions .permission-group').length>0"), '用户附加权限无法展开')
+  await delay(300)
+  const userCapture=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-user-add.png'),Buffer.from(userCapture.data,'base64'))
+  await evaluate("document.querySelector('.n-modal .n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
+  await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText==='编辑').click()")
+  await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
+  assert.ok(await evaluate("(() => {const m=document.querySelector('.n-modal');return m.innerText.includes('重置密码') && m.querySelector('input[placeholder*=用户名]')===null && m.querySelector('.user-editor-grid input')?.disabled})()"), '编辑用户表单未说明密码操作或允许修改用户名')
+  await evaluate("document.querySelector('.n-modal .n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
+  await evaluate("document.querySelector('.menu-item[aria-label=\"知识库\"]').click()") /* 检查上传弹窗字段和自由输入。 */
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '知识库'"))
+  await evaluate("[...document.querySelectorAll('button')].find(button=>button.innerText.includes('上传知识文档')).click()")
+  await until(() => evaluate("Boolean(document.querySelector('.knowledge-upload-dialog'))"))
+  assert.ok(await evaluate("(() => {const m=document.querySelector('.knowledge-upload-dialog'),sections=m.querySelectorAll('.knowledge-upload-section'),select=m.querySelector('.knowledge-upload-form .n-select'),tip=m.querySelector('.field-tip'),r=e=>e.getBoundingClientRect();return sections.length===2 && r(sections[1]).top>=r(sections[0]).bottom && r(tip).top>=r(select).bottom && r(tip).right<=r(m).right})()"), '知识上传步骤或字段说明出现重叠')
+  await delay(300)
+  const uploadCapture=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-knowledge-upload.png'),Buffer.from(uploadCapture.data,'base64'))
+  await evaluate("document.querySelector('.knowledge-upload-form .n-select .n-base-selection').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.getClientRects().length))"))
+  await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(option=>option.getClientRects().length).click()")
+  await until(() => evaluate("document.querySelector('.knowledge-upload-form .n-select .n-base-selection-label')?.innerText.includes('运维助手')"))
+  await evaluate("document.querySelector('.knowledge-upload-form .n-select .n-base-selection').click()")
+  await call('Input.insertText',{text:'custom-assistant'})
+  await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13})
+  await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13})
+  await until(() => evaluate("document.querySelector('.knowledge-upload-form .n-select .n-base-selection-label')?.innerText.includes('custom-assistant')"))
+  await evaluate("document.querySelectorAll('.knowledge-upload-form .n-select .n-base-selection')[2].click()")
+  await call('Input.insertText',{text:'消防设备'})
+  await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13})
+  await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13})
+  await until(() => evaluate("document.querySelectorAll('.knowledge-upload-form .n-select')[2]?.innerText.includes('消防设备')"))
+  await evaluate("document.querySelector('.knowledge-upload-dialog .n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
   await call('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true }) /* 检查手机底部导航断点。 */
   await delay(250) /* 等待侧栏宽度过渡完成。 */
   const mobileBrand = await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)'),r=aside.getBoundingClientRect();return {bottom:r.bottom,width:r.width,viewport:innerWidth,height:innerHeight,background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color}})()") /* 读取手机导航的最终尺寸与颜色。 */
   assert.ok(mobileBrand.bottom<=mobileBrand.height+1 && mobileBrand.width>=mobileBrand.viewport-2 && mobileBrand.background==='rgb(19, 56, 108)' && mobileBrand.menu==='rgb(220, 232, 245)', `手机底部导航未沿用品牌色或布局溢出：${JSON.stringify(mobileBrand)}`) /* 窄屏仍可读取导航入口。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"用户与权限\"]').click()")
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText==='用户与权限'"))
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('添加用户')).click()")
+  await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
+  assert.ok(await evaluate("(() => {const m=document.querySelector('.n-modal'),r=m.getBoundingClientRect(),items=[...m.querySelector('.user-editor-grid').children],body=m.querySelector('.n-card-content');return r.left>=0&&r.right<=innerWidth+1&&items[1].getBoundingClientRect().top>=items[0].getBoundingClientRect().bottom&&body.scrollHeight>body.clientHeight})()"), '窄屏添加用户弹窗溢出或无法滚动')
+  await evaluate("document.querySelector('.n-modal .n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
+  await evaluate("document.querySelector('.menu-item[aria-label=\"知识库\"]').click()")
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText==='知识库'"))
+  await evaluate("[...document.querySelectorAll('button')].find(button=>button.innerText.includes('上传知识文档')).click()")
+  await until(() => evaluate("Boolean(document.querySelector('.knowledge-upload-dialog'))"))
+  assert.ok(await evaluate("(() => {const m=document.querySelector('.knowledge-upload-dialog'),r=m.getBoundingClientRect(),fields=[...m.querySelector('.metadata-grid').children];return r.left>=0&&r.right<=innerWidth+1&&fields[1].getBoundingClientRect().top>=fields[0].getBoundingClientRect().bottom})()"), '窄屏知识上传元数据字段未换行')
+  await evaluate("document.querySelector('.knowledge-upload-dialog .n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
   await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false }) /* 恢复桌面视口。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"协议管理\"]').click()") /* 检查上传源码弹窗的额外目标选择。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')))")) /* 等待协议工具栏。 */

@@ -232,7 +232,7 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 
     <div v-else class="app-shell"> <!-- 渲染 div 界面元素。 -->
       <aside class="app-aside" :class="{ 'is-collapsed': collapsed }"> <!-- 渲染 aside 界面元素。 -->
-        <div class="brand"><span class="brand-logo"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span></div> <!-- 渲染 div 界面元素。 -->
+        <div class="brand"><span class="brand-logo"><img src="/torchlink-sidebar.svg" alt="炬联 TorchLink" /></span></div> <!-- 深色侧栏使用透明底品牌标志。 -->
         <nav class="menu-scroll" aria-label="主导航"> <!-- 渲染 nav 界面元素。 -->
           <div class="menu-scroll-inner"> <!-- 渲染 div 界面元素。 -->
             <template v-for="group in visibleGroups" :key="group.label">
