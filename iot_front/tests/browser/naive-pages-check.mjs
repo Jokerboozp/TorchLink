@@ -39,6 +39,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/auth/me' ? { tenantId: 'fixture', role: 'admin', permissions: ['*'] }
         : path === '/api/v1/events' ? { permissions: ['*'], alarms: [], devices: [] }
         : path === '/api/v1/mqtt/token' ? { websocketUrl:'ws://127.0.0.1:1', username:'fixture', token:'fixture', subscriptions:[] }
+        : path === '/api/v2/protocol-source-template' ? { compilerAvailable:true, targetPlatforms:['linux-amd64','linux-arm64','windows-amd64','windows-arm64','darwin-amd64','darwin-arm64'] }
         : path.startsWith('/api/v1/raw-messages?') ? { items: [{ messageId: 'raw-demo', receivedAt: Date.now(), productId: 'product-demo', deviceId: 'device-demo', protocol: 'MQTT', parsed: true, parsedMessageType: 'PROPERTY_REPORT', payloadSize: 4, payloadHash: 'fixture-hash' }], total: 1 }
         : path === '/api/v1/raw-messages/raw-demo' ? { parseStatus: 'PARSED', message: { messageId: 'raw-demo', deviceId: 'device-demo', productId: 'product-demo', payload: 'AA01', receivedAt: Date.now(), protocol: 'MQTT', payloadFormat: 'hex' }, standardMessage: { messageType: 'PROPERTY_REPORT', properties: { temperature: 42 } }, archive: { payloadHash: 'fixture-hash' } }
         : path.startsWith('/api/v1/alarms?') ? { items: [{ alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', lastTriggeredAt:Date.now() }], total:1 }
@@ -65,6 +66,31 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     assert.ok(text.length > name.length, `${name} 缺少业务内容`) /* 防止页面只显示标题。 */
     if (['运行总览', '协议管理', '产品管理', '设备管理', '告警中心', '智能助手'].includes(name)) { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存代表性页面的临时截图。 */
   } /* 结束页面遍历。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"协议管理\"]').click()") /* 检查上传源码弹窗的额外目标选择。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')))")) /* 等待协议工具栏。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')).click()") /* 打开源码上传弹窗。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('编译选项')))")) /* 等待编译选项。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-collapse-item__header-main').click()") /* 展开额外目标。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal .n-form-item')].find(item=>item.innerText.includes('额外编译目标') && item.getBoundingClientRect().height>0))")) /* 等待目标选择器真正展开。 */
+  await delay(250) /* 等待折叠动画结束再检查滚动尺寸。 */
+  await evaluate("[...document.querySelectorAll('.n-modal .n-form-item')].find(item=>item.innerText.includes('额外编译目标')).querySelector('.n-base-selection').click()") /* 展开多选菜单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.getClientRects().length))")) /* 等待可见选项。 */
+  const targetOption = await evaluate("(() => {const option=[...document.querySelectorAll('.n-base-select-option')].find(item=>item.getClientRects().length),r=option.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;return {outsideModal:!option.closest('.n-modal'),x,y,visible:r.top>=0&&r.bottom<=innerHeight,hit:document.elementFromPoint(x,y)?.closest('.n-base-select-option')===option}})()") /* 检查菜单未被弹窗遮住。 */
+  assert.ok(targetOption.outsideModal && targetOption.visible && targetOption.hit, `额外编译目标菜单被裁切或遮挡：${JSON.stringify(targetOption)}`) /* 选项必须能接收真实鼠标事件。 */
+  await call('Input.dispatchMouseEvent', { type:'mousePressed', x:targetOption.x, y:targetOption.y, button:'left', clickCount:1 }) /* 用鼠标选择一个编译目标。 */
+  await call('Input.dispatchMouseEvent', { type:'mouseReleased', x:targetOption.x, y:targetOption.y, button:'left', clickCount:1 }) /* 完成点击。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal .n-base-selection')].find(item=>item.innerText.includes('Linux')))")) /* 确认实际多选值已更新。 */
+  await call('Emulation.setDeviceMetricsOverride', { width:1000, height:600, deviceScaleFactor:1, mobile:false }) /* 用短视口验证上传表单滚动。 */
+  const sourceScroll = await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),body=modal.querySelector('.n-card-content');body.scrollTop=250;return {top:body.scrollTop,scrollHeight:body.scrollHeight,clientHeight:body.clientHeight,modalHeight:modal.getBoundingClientRect().height,overflow:getComputedStyle(body).overflowY,modalDisplay:getComputedStyle(modal).display,bodyFlex:getComputedStyle(body).flex,modalMaxHeight:getComputedStyle(modal).maxHeight,children:[...modal.children].map(e=>[e.className,e.getBoundingClientRect().height])}})()") /* 读取上传弹窗滚动范围。 */
+  assert.ok(sourceScroll.top>0, `额外编译目标展开后上传源码正文无法滚动：${JSON.stringify(sourceScroll)}`) /* 弹窗正文仍可上下滚动。 */
+  const sourceWheel = await evaluate("(() => {const body=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-card-content'),r=body.getBoundingClientRect();body.scrollTop=0;return {x:r.left+20,y:r.top+Math.min(90,r.height/2)}})()") /* 定位弹窗正文的滚轮测试点。 */
+  await call('Input.dispatchMouseEvent', { type:'mouseWheel', x:sourceWheel.x, y:sourceWheel.y, deltaX:0, deltaY:300 }) /* 验证向下滚动。 */
+  await until(() => evaluate("document.querySelector('.n-modal .n-card-content').scrollTop>0")) /* 等待正文滚动。 */
+  await call('Input.dispatchMouseEvent', { type:'mouseWheel', x:sourceWheel.x, y:sourceWheel.y, deltaX:0, deltaY:-300 }) /* 验证向上滚动。 */
+  await until(() => evaluate("document.querySelector('.n-modal .n-card-content').scrollTop===0")) /* 确认返回顶部。 */
+  await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false }) /* 恢复桌面视口。 */
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭上传弹窗。 */
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待弹窗关闭。 */
   for (const [page, label] of [['告警中心', '关闭告警'], ['告警规则', '删除'], ['用户与权限', '删除']]) { /* 检查三个列表中的危险操作可见。 */
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(page)}]').click()`) /* 打开目标列表。 */
     await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button => button.innerText.trim() === ${JSON.stringify(label)}))`)) /* 等待目标按钮。 */

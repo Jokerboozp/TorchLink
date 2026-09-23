@@ -240,7 +240,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
         <ui-collapse>
           <ui-collapse-item title="编译选项" name="advanced">
             <ui-form-item label="额外编译目标（可选）">
-              <ui-select v-model="targetPlatforms" multiple clearable :disabled="compiling" placeholder="默认仅构建发布端平台"><ui-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></ui-select>
+              <ui-select v-model="targetPlatforms" multiple clearable :to="true" :disabled="compiling" placeholder="默认仅构建发布端平台"><ui-option v-for="platform in (sourceTemplate?.targetPlatforms || [])" :key="platform" :label="platformLabel(platform)" :value="platform" /></ui-select> <!-- 选项弹层挂到页面根部，避免被源码弹窗边界裁切。 -->
               <small class="subline">其他平台仅生成编译制品；在对应平台实际试跑前不能视为验收通过。</small>
             </ui-form-item>
           </ui-collapse-item>
