@@ -71,3 +71,19 @@ test('MQTT 续期保留告警快照，旧连接及退出后的消息不可继续
  connections[1].handlers.message('/iot/parsed/tenant/device','after-logout')
  assert.equal(r.messages.length,2)
 })
+
+test('管理员 MQTT 消息与下一次 HTTP 快照只触发一次告警刷新',async()=>{
+ let snapshot={alarms:[],devices:[],permissions:['*']}
+ let connection
+ const r=realtime(async path=>path.includes('mqtt/token') ? {websocketUrl:'ws://server/mqtt',subscriptions:[]} : snapshot,{
+  role:'admin',mqtt:{connect(){connection={on(name,fn){this[name]=fn},subscribe(){},end(){}};return connection}}
+ })
+ await r.start();await settle()
+ const alarm={alarmId:'same-alarm',deviceId:'device',status:'ACTIVE',lastTriggeredAt:123}
+ connection.message('/iot/alarm/raised/tenant',JSON.stringify(alarm))
+ connection.message('/iot/alarm/raised/tenant',JSON.stringify(alarm))
+ assert.equal(r.messages.length,1)
+ snapshot={...snapshot,alarms:[alarm]}
+ await r.timers.shift()()
+ assert.equal(r.messages.length,1)
+})

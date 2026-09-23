@@ -63,6 +63,36 @@ test('product editor offers protocol 101', async()=>{
   await c.load()
   assert.ok(c.protocols.value.some(x=>x.id==='item-101'))
 })
+
+test('product pagination reuses the loaded protocol catalog', async()=>{
+  const requests=[]
+  const c=component('ProductsView.vue', async path=>{
+    requests.push(path)
+    return {items:[],total:60}
+  }, 'load,changePage,changePageSize')
+  await c.load()
+  const catalogRequests=()=>requests.filter(path=>path.includes('/protocol-packages') || path==='/api/v2/protocols').length
+  assert.equal(catalogRequests(),2)
+  c.changePage(2)
+  await new Promise(resolve=>setImmediate(resolve))
+  c.changePageSize(50)
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(catalogRequests(),2)
+  assert.ok(requests.some(path=>path.includes('page=2')))
+})
+test('product pagination does not discard an in-flight protocol catalog', async()=>{
+  let finishCatalog
+  const c=component('ProductsView.vue', async path=>{
+    if(path.includes('/protocol-packages')) return new Promise(resolve=>{finishCatalog=resolve})
+    return {items:[],total:60}
+  }, 'load,changePage,protocols')
+  const first=c.load()
+  await new Promise(resolve=>setImmediate(resolve))
+  c.changePage(2)
+  finishCatalog({items:[{id:'late-protocol',name:'最新协议'}],total:1})
+  await first
+  assert.ok(c.protocols.value.some(item=>item.id==='late-protocol'))
+})
 test('child device can choose a gateway outside current registry page', async()=>{
   const rows=Array.from({length:21},(_,i)=>({device:{id:`device-${i+1}`,deviceRole:i===20?'GATEWAY':'DIRECT'}}))
   const c=component('DevicesView.vue', async path=>{

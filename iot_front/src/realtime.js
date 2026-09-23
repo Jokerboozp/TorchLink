@@ -19,6 +19,23 @@ export async function startRealtime(onMessage) {
   stopRealtime()
   const run = generation
   let previous = null
+  const brokerDelivered = new Map()
+  const brokerMessage = (topic, payload) => {
+    const body = payload.toString()
+    try {
+      const value = JSON.parse(body)
+      const kind = topic.includes('/alarm/') ? 'alarm' : topic.includes('/device/state/') ? 'state' : ''
+      const id = kind === 'alarm' ? value.alarmId : kind === 'state' ? value.deviceId : ''
+      if (id) {
+        const key = `${kind}:${id}`
+        const normalized = JSON.stringify(value)
+        const delivered = brokerDelivered.get(key)
+        if (previous?.get(key) === normalized || delivered?.payload === normalized && delivered.expiresAt > Date.now()) return
+        brokerDelivered.set(key, { payload: normalized, expiresAt: Date.now() + 10000 })
+      }
+    } catch { /* Other MQTT topics do not use the event snapshot. */ }
+    onMessage?.(topic, body)
+  }
   // All accounts receive authoritative alarms over the authenticated API.
   // Broker availability and token renewal must not reset this snapshot.
   const poll = async () => {
@@ -32,10 +49,16 @@ export async function startRealtime(onMessage) {
           const key = kind + ':' + (value.alarmId || value.deviceId)
           const payload = JSON.stringify(value)
           next.set(key, payload)
-          if (previous && previous.get(key) !== payload) onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload)
+          if (previous && previous.get(key) !== payload) {
+            const delivered = brokerDelivered.get(key)
+            if (delivered?.payload !== payload || delivered.expiresAt <= Date.now()) onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload)
+          }
         }
       }
       previous = next
+      for (const [key, delivered] of brokerDelivered) {
+        if (delivered.expiresAt <= Date.now()) brokerDelivered.delete(key)
+      }
     } catch (error) {
       if (run !== generation) return
       // Keep the last successful snapshot across transient network failures.
@@ -69,7 +92,7 @@ export async function startRealtime(onMessage) {
         if (run === generation && client === connection) connection.subscribe(auth.subscriptions || [], { qos: 1 })
       })
       connection.on('message', (topic, payload) => {
-        if (run === generation && client === connection) onMessage?.(topic, payload.toString())
+        if (run === generation && client === connection) brokerMessage(topic, payload)
       })
       // Connection errors do not interrupt HTTP alarm delivery; MQTT retries itself.
       connection.on('error', () => {})

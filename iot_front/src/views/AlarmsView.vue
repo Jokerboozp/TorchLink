@@ -160,7 +160,11 @@ async function action(id, value) {
   }
 }
 
-const realtime = () => load()
+let realtimeTimer = 0
+const realtime = event => {
+  if (!event?.detail?.topic?.includes('/alarm/') || realtimeTimer) return
+  realtimeTimer = window.setTimeout(() => { realtimeTimer = 0; void load() }, 300)
+}
 onMounted(async () => {
   const navigation = alarmNavigation(sessionStorage.getItem('iot:navigation-detail'))
   sessionStorage.removeItem('iot:navigation-detail')
@@ -172,6 +176,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   analysisViewToken += 1
   stopAnalysisPolling()
+  window.clearTimeout(realtimeTimer)
   window.removeEventListener('iot:realtime', realtime)
 })
 </script>

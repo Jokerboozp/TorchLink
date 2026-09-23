@@ -7,6 +7,14 @@ import (
 )
 
 func (r *Repository) DashboardCounts(_ context.Context, tenant string, start, end int64) ([]model.DashboardCount, error) {
+	return r.dashboardCounts(tenant, start, end, nil)
+}
+
+func (r *Repository) DashboardCountsForDevices(_ context.Context, tenant string, start, end int64, ids []string) ([]model.DashboardCount, error) {
+	return r.dashboardCounts(tenant, start, end, idSet(ids))
+}
+
+func (r *Repository) dashboardCounts(tenant string, start, end int64, allowed map[string]bool) ([]model.DashboardCount, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	counts := map[string]model.DashboardCount{}
@@ -20,7 +28,7 @@ func (r *Repository) DashboardCounts(_ context.Context, tenant string, start, en
 		counts[k] = v
 	}
 	for _, d := range r.devices {
-		if d.TenantID != tenant {
+		if d.TenantID != tenant || allowed != nil && !allowed[d.ID] {
 			continue
 		}
 		state := r.states[key(tenant, d.ID)]
@@ -40,7 +48,7 @@ func (r *Repository) DashboardCounts(_ context.Context, tenant string, start, en
 		add("product", d.ProductID, name)
 	}
 	for _, a := range r.alarms {
-		if a.TenantID != tenant {
+		if a.TenantID != tenant || allowed != nil && !allowed[a.DeviceID] {
 			continue
 		}
 		if a.Status == "ACTIVE" {

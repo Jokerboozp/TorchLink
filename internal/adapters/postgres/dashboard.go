@@ -7,11 +7,19 @@ import (
 
 // One statement gives a consistent snapshot and keeps full records in storage.
 func (r *Repository) DashboardCounts(ctx context.Context, tenant string, start, end int64) ([]model.DashboardCount, error) {
+	return r.dashboardCounts(ctx, tenant, start, end, false, nil)
+}
+
+func (r *Repository) DashboardCountsForDevices(ctx context.Context, tenant string, start, end int64, ids []string) ([]model.DashboardCount, error) {
+	return r.dashboardCounts(ctx, tenant, start, end, true, ids)
+}
+
+func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, end int64, scoped bool, ids []string) ([]model.DashboardCount, error) {
 	rows, err := r.pool.Query(ctx, `
  WITH registered AS (
   SELECT d.product_id, CASE WHEN s.business_status='ALARM' THEN 'ONLINE' ELSE coalesce(nullif(s.business_status,''),'NEVER_SEEN') END AS state
   FROM device_registry d LEFT JOIN device_state s ON s.tenant_id=d.tenant_id AND s.device_id=d.id
-  WHERE d.tenant_id=$1
+  WHERE d.tenant_id=$1 AND (NOT $4::boolean OR d.id=ANY($5::text[]))
  )
  SELECT 'state', state, '', count(*) FROM registered GROUP BY state
  UNION ALL
@@ -19,11 +27,11 @@ func (r *Repository) DashboardCounts(ctx context.Context, tenant string, start, 
  FROM registered d LEFT JOIN iot_product p ON p.tenant_id=$1 AND p.id=d.product_id
  GROUP BY d.product_id, p.body->>'name'
  UNION ALL
- SELECT 'level', level, '', count(*) FROM alarm_record WHERE tenant_id=$1 AND status='ACTIVE' GROUP BY level
+ SELECT 'level', level, '', count(*) FROM alarm_record WHERE tenant_id=$1 AND status='ACTIVE' AND (NOT $4::boolean OR device_id=ANY($5::text[])) GROUP BY level
  UNION ALL
  SELECT 'day', (((body->>'firstTriggeredAt')::bigint-$2::bigint)/86400000)::text, '', count(*)
- FROM alarm_record WHERE tenant_id=$1 AND (body->>'firstTriggeredAt')::bigint BETWEEN $2::bigint AND $3::bigint
- GROUP BY 2`, tenant, start, end)
+ FROM alarm_record WHERE tenant_id=$1 AND (body->>'firstTriggeredAt')::bigint BETWEEN $2::bigint AND $3::bigint AND (NOT $4::boolean OR device_id=ANY($5::text[]))
+ GROUP BY 2`, tenant, start, end, scoped, ids)
 	if err != nil {
 		return nil, err
 	}

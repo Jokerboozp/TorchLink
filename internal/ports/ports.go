@@ -23,6 +23,7 @@ type AlarmFilter struct {
 type Repository interface {
 	AccessStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
+	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
 	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)
 	ListManagedDeviceChildren(context.Context, string, string, int, int) ([]model.ManagedDevice, int, error)
@@ -45,6 +46,7 @@ type Repository interface {
 	SaveOnboarding(context.Context, model.OnboardingBundle) error
 	SaveProduct(context.Context, model.Product) error
 	GetProduct(context.Context, string, string) (model.Product, error)
+	GetProductsByIDs(context.Context, string, []string) (map[string]model.Product, error)
 	ListProducts(context.Context, string) ([]model.Product, error)
 	ListProductsPage(context.Context, string, int, int) ([]model.Product, int, error)
 	SaveProtocolPackage(context.Context, model.ProtocolPackage) error
@@ -84,11 +86,13 @@ type Repository interface {
 	ClaimStandardMessage(context.Context, model.StandardMessage) (shouldProcess bool, created bool, err error)
 	MarkStandardMessageProcessed(context.Context, string, string) error
 	GetStandardMessageByRaw(context.Context, string, string) (model.StandardMessage, error)
+	GetStandardMessagesByRawIDs(context.Context, string, []string) (map[string]model.StandardMessage, error)
 	GetLatestMessage(context.Context, string, string) (model.StandardMessage, error)
 	PropertyHistory(context.Context, string, string, string, int64, int64, int) ([]map[string]any, error)
 	PropertyHistoryPage(context.Context, string, string, string, int64, int64, int, int) ([]map[string]any, int, error)
 	UpsertDeviceState(context.Context, model.DeviceState) error
 	GetDeviceState(context.Context, string, string) (model.DeviceState, error)
+	GetDeviceStatesByIDs(context.Context, string, []string) (map[string]model.DeviceState, error)
 	ListDeviceStates(context.Context, string) ([]model.DeviceState, error)
 	ListDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
 	ListUnregisteredDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
@@ -114,6 +118,7 @@ type Repository interface {
 	SaveVideoCameraMapping(context.Context, model.VideoCameraMapping) error
 	GetVideoCameraMapping(context.Context, string, string) (model.VideoCameraMapping, error)
 	ListVideoCameraMappings(context.Context, string) ([]model.VideoCameraMapping, error)
+	ListVideoCameraMappingsByDeviceIDs(context.Context, string, []string) (map[string][]model.VideoCameraMapping, error)
 	ListVideoCameraMappingsPage(context.Context, string, int, int) ([]model.VideoCameraMapping, int, error)
 	ReplaceVideoCameraRelations(context.Context, string, string, []model.VideoCameraRelation) error
 	ListVideoCameraRelations(context.Context, string, string) ([]model.VideoCameraRelation, error)

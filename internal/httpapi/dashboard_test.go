@@ -108,6 +108,34 @@ func checkDashboard(t *testing.T, repo ports.Repository) {
 			must(err)
 		}
 	}
+	scoped, err := repo.DashboardCountsForDevices(ctx, "tenant", start, now.UnixMilli(), []string{"0", "1"})
+	must(err)
+	counts := map[string]int{}
+	for _, item := range scoped {
+		counts[item.Kind] += item.Count
+	}
+	if counts["state"] != 2 || counts["product"] != 2 || counts["level"] != 2 || counts["day"] != 1 {
+		t.Fatalf("scoped dashboard counts: %+v", scoped)
+	}
+	productsByID, err := repo.GetProductsByIDs(ctx, "tenant", []string{"p", "missing"})
+	must(err)
+	statesByID, err := repo.GetDeviceStatesByIDs(ctx, "tenant", []string{"0", "missing"})
+	must(err)
+	if len(productsByID) != 1 || len(statesByID) != 1 || statesByID["0"].BusinessStatus != "ONLINE" {
+		t.Fatalf("batch device lookups: products=%+v states=%+v", productsByID, statesByID)
+	}
+	must(repo.SaveStandardMessage(ctx, model.StandardMessage{TenantID: "tenant", MessageID: "batch-standard", RawMessageID: "batch-raw", DeviceID: "0", Parser: "batch-test"}))
+	parsedByRaw, err := repo.GetStandardMessagesByRawIDs(ctx, "tenant", []string{"batch-raw", "missing"})
+	must(err)
+	if len(parsedByRaw) != 1 || parsedByRaw["batch-raw"].Parser != "batch-test" {
+		t.Fatalf("batch parsed messages: %+v", parsedByRaw)
+	}
+	must(repo.SaveVideoCameraMapping(ctx, model.VideoCameraMapping{TenantID: "tenant", CameraID: "batch-camera", CameraName: "批量测试摄像头", DeviceID: "0", Enabled: true}))
+	camerasByDevice, err := repo.ListVideoCameraMappingsByDeviceIDs(ctx, "tenant", []string{"0", "missing"})
+	must(err)
+	if len(camerasByDevice) != 1 || len(camerasByDevice["0"]) != 1 || camerasByDevice["0"][0].CameraID != "batch-camera" {
+		t.Fatalf("batch camera mappings: %+v", camerasByDevice)
+	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Load()
 	cfg.JWTSecret = "dashboard-test-secret-32-characters"

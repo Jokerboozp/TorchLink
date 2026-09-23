@@ -7,8 +7,6 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 	"net/http"
-	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -45,6 +43,37 @@ func limited(ctx context.Context) bool { v, ok := requestScope(ctx); return ok &
 var errDeviceScope = errors.New("设备不存在或无访问权限")
 
 type deviceScopeRepository struct{ ports.Repository }
+
+func (r *deviceScopeRepository) scopedIDs(ctx context.Context, tenant string, ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if deviceAllowed(ctx, tenant, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func (r *deviceScopeRepository) GetDeviceStatesByIDs(ctx context.Context, tenant string, ids []string) (map[string]model.DeviceState, error) {
+	return r.Repository.GetDeviceStatesByIDs(ctx, tenant, r.scopedIDs(ctx, tenant, ids))
+}
+
+func (r *deviceScopeRepository) GetStandardMessagesByRawIDs(ctx context.Context, tenant string, ids []string) (map[string]model.StandardMessage, error) {
+	items, err := r.Repository.GetStandardMessagesByRawIDs(ctx, tenant, ids)
+	if err != nil {
+		return nil, err
+	}
+	for id, item := range items {
+		if !deviceAllowed(ctx, tenant, item.DeviceID) {
+			delete(items, id)
+		}
+	}
+	return items, nil
+}
+
+func (r *deviceScopeRepository) ListVideoCameraMappingsByDeviceIDs(ctx context.Context, tenant string, ids []string) (map[string][]model.VideoCameraMapping, error) {
+	return r.Repository.ListVideoCameraMappingsByDeviceIDs(ctx, tenant, r.scopedIDs(ctx, tenant, ids))
+}
 
 func (s *Server) unscopedRepo() ports.Repository {
 	if r, ok := s.engine.Repo.(*deviceScopeRepository); ok {
@@ -239,55 +268,12 @@ func (r *deviceScopeRepository) DashboardCounts(ctx context.Context, t string, s
 	if !limited(ctx) {
 		return r.Repository.DashboardCounts(ctx, t, start, end)
 	}
-	rows, e := r.ListManagedDevices(ctx, t)
-	if e != nil {
-		return nil, e
+	scope, _ := requestScope(ctx)
+	ids := make([]string, 0, len(scope.IDs))
+	for id := range scope.IDs {
+		ids = append(ids, id)
 	}
-	counts := map[string]model.DashboardCount{}
-	add := func(kind, key, name string) {
-		id := kind + "\x00" + key
-		v := counts[id]
-		v.Kind = kind
-		v.Key = key
-		v.Name = name
-		v.Count++
-		counts[id] = v
-	}
-	for _, d := range rows {
-		state, _ := r.GetDeviceState(ctx, t, d.ID)
-		status := state.BusinessStatus
-		if status == "ALARM" {
-			status = "ONLINE"
-		}
-		if status == "" {
-			status = "NEVER_SEEN"
-		}
-		add("state", status, "")
-		p, _ := r.GetProduct(ctx, t, d.ProductID)
-		name := p.Name
-		if name == "" {
-			name = d.ProductID
-		}
-		add("product", d.ProductID, name)
-	}
-	alarms, e := r.scopedAlarms(ctx, ports.AlarmFilter{TenantID: t})
-	if e != nil {
-		return nil, e
-	}
-	for _, a := range alarms {
-		if a.Status == "ACTIVE" {
-			add("level", a.AlarmLevel, "")
-		}
-		if a.FirstTriggeredAt >= start && a.FirstTriggeredAt <= end {
-			add("day", strconv.FormatInt((a.FirstTriggeredAt-start)/86400000, 10), "")
-		}
-	}
-	out := []model.DashboardCount{}
-	for _, v := range counts {
-		out = append(out, v)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Kind+out[i].Key < out[j].Kind+out[j].Key })
-	return out, nil
+	return r.Repository.DashboardCountsForDevices(ctx, t, start, end, ids)
 }
 func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 	rows, e := s.unscopedRepo().ListManagedDevices(r.Context(), claims(r).TenantID)

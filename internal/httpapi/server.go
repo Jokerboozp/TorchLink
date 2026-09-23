@@ -469,7 +469,27 @@ func (s *Server) testProtocolPackage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	tenantID := claims(r).TenantID
 	pagination := parseListPagination(r)
-	items, total, err := s.engine.Repo.ListManagedDevicesPage(r.Context(), tenantID, pagination.PageSize, pagination.Offset)
+	var items []model.ManagedDevice
+	var total int
+	var err error
+	var childCounts map[string]int
+	if limited(r.Context()) {
+		// Reuse the authorized list for the page and child counts.
+		all, listErr := s.engine.Repo.ListManagedDevices(r.Context(), tenantID)
+		err = listErr
+		if err == nil {
+			total = len(all)
+			items = pageSlice(all, pagination.PageSize, pagination.Offset)
+			childCounts = make(map[string]int, len(items))
+			for _, child := range all {
+				if child.GatewayID != "" {
+					childCounts[child.GatewayID]++
+				}
+			}
+		}
+	} else {
+		items, total, err = s.engine.Repo.ListManagedDevicesPage(r.Context(), tenantID, pagination.PageSize, pagination.Offset)
+	}
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
@@ -478,16 +498,40 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		deviceIDs = append(deviceIDs, item.ID)
 	}
-	childCounts, err := s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs)
+	if childCounts == nil {
+		childCounts, err = s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs)
+		if err != nil {
+			problem(w, 500, err.Error())
+			return
+		}
+	}
+	productIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		productIDs = append(productIDs, item.ProductID)
+	}
+	products, err := s.engine.Repo.GetProductsByIDs(r.Context(), tenantID, productIDs)
 	if err != nil {
-		problem(w, 500, err.Error())
-		return
+		products = map[string]model.Product{}
+		for _, id := range productIDs {
+			if product, getErr := s.engine.Repo.GetProduct(r.Context(), tenantID, id); getErr == nil {
+				products[id] = product
+			}
+		}
+	}
+	states, err := s.engine.Repo.GetDeviceStatesByIDs(r.Context(), tenantID, deviceIDs)
+	if err != nil {
+		states = map[string]model.DeviceState{}
+		for _, id := range deviceIDs {
+			if state, getErr := s.engine.Repo.GetDeviceState(r.Context(), tenantID, id); getErr == nil {
+				states[id] = state
+			}
+		}
 	}
 	out := make([]map[string]any, 0, len(items))
 	for _, v := range items {
-		product, _ := s.engine.Repo.GetProduct(r.Context(), tenantID, v.ProductID)
+		product := products[v.ProductID]
 		row := map[string]any{"device": v.Public(product), "childCount": childCounts[v.ID], "credentialSupported": v.UsesPlatformCredentials(product)}
-		if state, stateErr := s.engine.Repo.GetDeviceState(r.Context(), tenantID, v.ID); stateErr == nil {
+		if state, ok := states[v.ID]; ok {
 			row["runtimeState"] = state
 		}
 		out = append(out, row)
@@ -806,18 +850,45 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	pagination := parseListPagination(r)
 	filter := ports.RawFilter{TenantID: c.TenantID, ProductID: q.Get("productId"), DeviceID: q.Get("deviceId"), Start: i64(q.Get("start")), End: i64(q.Get("end")), Limit: pagination.PageSize, Offset: pagination.Offset}
-	items, err := s.engine.Repo.ListRawIndexes(r.Context(), filter)
+	var items []model.RawArchiveIndex
+	var total int
+	var err error
+	if limited(r.Context()) {
+		all, scanErr := s.engine.Repo.(*deviceScopeRepository).scopedRaw(r.Context(), filter)
+		err = scanErr
+		if err == nil {
+			total = len(all)
+			items = pageSlice(all, filter.Limit, filter.Offset)
+		}
+	} else {
+		items, err = s.engine.Repo.ListRawIndexes(r.Context(), filter)
+	}
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
-	total, err := s.engine.Repo.CountRawIndexes(r.Context(), filter)
+	if !limited(r.Context()) {
+		total, err = s.engine.Repo.CountRawIndexes(r.Context(), filter)
+		if err != nil {
+			problem(w, 500, err.Error())
+			return
+		}
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.MessageID)
+	}
+	messages, err := s.engine.Repo.GetStandardMessagesByRawIDs(r.Context(), c.TenantID, ids)
 	if err != nil {
-		problem(w, 500, err.Error())
-		return
+		messages = map[string]model.StandardMessage{}
+		for _, id := range ids {
+			if message, getErr := s.engine.Repo.GetStandardMessageByRaw(r.Context(), c.TenantID, id); getErr == nil {
+				messages[id] = message
+			}
+		}
 	}
 	for i := range items {
-		if message, parseErr := s.engine.Repo.GetStandardMessageByRaw(r.Context(), c.TenantID, items[i].MessageID); parseErr == nil {
+		if message, ok := messages[items[i].MessageID]; ok {
 			items[i].Parsed = true
 			items[i].ParsedMessageType = string(message.MessageType)
 			items[i].Parser = message.Parser
@@ -1167,20 +1238,45 @@ func (s *Server) alarms(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	pagination := parseListPagination(r)
 	filter := ports.AlarmFilter{TenantID: claims(r).TenantID, DeviceID: q.Get("deviceId"), Status: q.Get("status"), Level: q.Get("level"), Source: q.Get("source"), Start: i64(q.Get("start")), End: i64(q.Get("end")), Limit: pagination.PageSize, Offset: pagination.Offset}
-	items, err := s.engine.Repo.ListAlarms(r.Context(), filter)
+	var items []model.Alarm
+	var total int
+	var err error
+	if limited(r.Context()) {
+		all, scanErr := s.engine.Repo.(*deviceScopeRepository).scopedAlarms(r.Context(), filter)
+		err = scanErr
+		if err == nil {
+			total = len(all)
+			items = pageSlice(all, filter.Limit, filter.Offset)
+		}
+	} else {
+		items, err = s.engine.Repo.ListAlarms(r.Context(), filter)
+	}
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
-	for index := range items {
-		if cameras, cameraErr := s.engine.ListCameraSummaries(r.Context(), items[index].TenantID, items[index].DeviceID); cameraErr == nil {
-			items[index].Cameras = cameras
+	deviceIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		deviceIDs = append(deviceIDs, item.DeviceID)
+	}
+	cameras, err := s.engine.ListCameraSummariesForDevices(r.Context(), claims(r).TenantID, deviceIDs)
+	if err == nil {
+		for index := range items {
+			items[index].Cameras = cameras[items[index].DeviceID]
+		}
+	} else {
+		for index := range items {
+			if summaries, getErr := s.engine.ListCameraSummaries(r.Context(), items[index].TenantID, items[index].DeviceID); getErr == nil {
+				items[index].Cameras = summaries
+			}
 		}
 	}
-	total, err := s.engine.Repo.CountAlarms(r.Context(), filter)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
+	if !limited(r.Context()) {
+		total, err = s.engine.Repo.CountAlarms(r.Context(), filter)
+		if err != nil {
+			problem(w, 500, err.Error())
+			return
+		}
 	}
 	writeList(w, 200, items, total, pagination, nil)
 }

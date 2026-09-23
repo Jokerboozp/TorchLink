@@ -25,18 +25,20 @@ const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackag
 const form = reactive(blank())
 
 let loadVersion = 0
-async function load() {
+let catalogVersion = 0
+async function load({ catalog = true } = {}) {
   const version = ++loadVersion
+  const currentCatalog = catalog ? ++catalogVersion : 0
   loading.value = true
   try {
     const [p, pk] = await Promise.all([
       api(`/api/v1/products?page=${productPage.value}&pageSize=${productPageSize.value}`),
-      Promise.all([apiAll('/api/v1/protocol-packages'), api('/api/v2/protocols')])
+      catalog ? Promise.all([apiAll('/api/v1/protocol-packages'), api('/api/v2/protocols')]) : null
     ])
+    if (pk && currentCatalog === catalogVersion) protocols.value = [...new Map([{ id:'iot-standard@1.0.0', name:'标准设备上报', transport:'MQTT', payloadFormat:'json' }, ...(pk[0].items || []), ...(pk[1].items || []).flatMap(p => (p.releases || []).filter(r => r.status === 'PUBLISHED').map(r => ({ id:`${p.definition.id}@${r.version}`, name:`${p.definition.name} · ${r.version}`, transport:r.transport, payloadFormat:r.payloadFormat })))].map(p => [p.id, p])).values()]
     if (version !== loadVersion) return
     products.value = p.items || []
     productTotal.value = Number(p.total ?? p.count ?? products.value.length)
-    protocols.value = [...new Map([{ id:'iot-standard@1.0.0', name:'标准设备上报', transport:'MQTT', payloadFormat:'json' }, ...(pk[0].items || []), ...(pk[1].items || []).flatMap(p => (p.releases || []).filter(r => r.status === 'PUBLISHED').map(r => ({ id:`${p.definition.id}@${r.version}`, name:`${p.definition.name} · ${r.version}`, transport:r.transport, payloadFormat:r.payloadFormat })))].map(p => [p.id, p])).values()]
   } catch (error) {
     if (version === loadVersion) notifyError(error)
   } finally {
@@ -46,13 +48,13 @@ async function load() {
 
 function changePage(value) {
   productPage.value = value
-  load()
+  load({ catalog:false })
 }
 
 function changePageSize(value) {
   productPageSize.value = value
   productPage.value = 1
-  load()
+  load({ catalog:false })
 }
 
 function reset() {
