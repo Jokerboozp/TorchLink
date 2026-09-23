@@ -21,13 +21,12 @@ server.middlewares.use(async(req,res,next)=>{ /* 执行当前语句并推进处�
  if(req.url.startsWith('/mapping-fixture')) { /* 判断条件并选择处理分支。 */
   res.setHeader('Content-Type','text/html');res.end(await server.transformIndexHtml(req.url,`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app" style="padding:20px;max-width:1100px;margin:auto"></div><script type="module">
 import {createApp,h} from 'vue';
-import ElementPlus from 'element-plus';
-import zhCn from '/node_modules/element-plus/es/locale/lang/zh-cn.mjs';
-import '/node_modules/element-plus/dist/index.css';
+import {installUi} from '/src/ui/index.js';
 import '/src/styles.css';
+import '/src/naive-admin.css';
 import DeviceConnection from '/src/components/DeviceConnection.vue';
 localStorage.setItem('iot_role','operator');
-createApp({render:()=>h(DeviceConnection,{deviceId:'d'})}).use(ElementPlus,{locale:zhCn}).mount('#app');
+const app=createApp({render:()=>h(DeviceConnection,{deviceId:'d'})});installUi(app);app.directive('permission',{mounted(){}});app.mount('#app');
 </script></body></html>`));return
  } /* 结束当前表达式或代码块。 */
  next() /* 执行当前语句并推进处理流程。 */
@@ -53,17 +52,17 @@ try { /* 执行当前语句并推进处理流程。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
 
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 声明 click。 */
-  const fill=async(label,value)=>evaluate(`(()=>{const input=document.querySelector('[aria-label="'+${JSON.stringify(label)}+'"]');if(!input)throw new Error('missing '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.blur()})()`) /* 声明 fill。 */
+  const fill=async(label,value)=>evaluate(`(()=>{const field=document.querySelector('[aria-label="'+${JSON.stringify(label)}+'"]');const input=field?.matches('input,textarea')?field:field?.querySelector('input,textarea');if(!input)throw new Error('missing '+${JSON.stringify(label)});input.focus();input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.blur()})()`) /* 填写 Naive UI 命令字段。 */
   for(const mode of ['MQTT','TCP']) { /* 循环处理当前数据。 */
    transport=mode;savedBody=null /* 更新 transport 的值。 */
    await call('Page.navigate',{url:origin+'mapping-fixture'}) /* 等待异步操作完成。 */
    await until(()=>evaluate(`document.body.textContent.includes('设备控制')`)) /* 等待异步操作完成。 */
    assert.equal(await evaluate(`document.querySelector('.device-commands textarea')!==null`),false) /* 验证实际结果符合预期。 */
-   await evaluate(`document.querySelector('[aria-label="设备命令"]').closest('.el-select').querySelector('.el-select__wrapper').click()`) /* 等待异步操作完成。 */
-   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='设置参数'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
+   await evaluate(`document.querySelector('[aria-label="设备命令"]').closest('.el-select').querySelector('.n-base-selection').click()`) /* 展开命令选择器。 */
+   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='设置参数'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 选择设置参数命令。 */
    await fill('目标数值','0') /* 等待异步操作完成。 */
-   await evaluate(`document.querySelector('[aria-label="启用"]').closest('.el-select').querySelector('.el-select__wrapper').click()`) /* 等待异步操作完成。 */
-   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.el-select-dropdown__item')].find(e=>e.textContent.trim()==='否（false）'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
+   await evaluate(`document.querySelector('[aria-label="启用"]').closest('.el-select').querySelector('.n-base-selection').click()`) /* 展开布尔参数选择器。 */
+   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='否（false）'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 选择 false。 */
    await click('添加参数项') /* 等待异步操作完成。 */
    await fill('扩展配置.field','test') /* 等待异步操作完成。 */
    if(mode==='MQTT' && process.env.IOT_TEST_SCREENSHOT){await evaluate(`document.querySelector('.device-commands').scrollIntoView()`);await delay(350);await writeFile(process.env.IOT_TEST_SCREENSHOT,Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64'))} /* 判断条件并选择处理分支。 */
@@ -73,7 +72,7 @@ try { /* 执行当前语句并推进处理流程。 */
    await until(()=>evaluate(`document.querySelector('.device-commands').textContent.includes('发送状态')`)) /* 等待异步操作完成。 */
    if(mode==='TCP'){await click('查看应答报文');await until(()=>evaluate(`document.querySelector('.device-commands').textContent.includes('AA01')`))} /* 判断条件并选择处理分支。 */
    await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(200) /* 等待异步操作完成。 */
-   assert.equal(await evaluate(`document.querySelector('.el-drawer__body').scrollWidth<=document.querySelector('.el-drawer__body').clientWidth+2`),true) /* 验证实际结果符合预期。 */
+   assert.equal(await evaluate(`document.querySelector('.n-drawer-body-content-wrapper').scrollWidth<=document.querySelector('.n-drawer-body-content-wrapper').clientWidth+2`),true) /* 检查移动视口下抽屉内容。 */
    await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
   } /* 结束当前表达式或代码块。 */
   console.log('PASS: MQTT/Go device control forms, zero/false/object parameters, confirmation, response and mobile layout (synthetic API)') /* 执行当前语句并推进处理流程。 */

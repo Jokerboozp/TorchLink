@@ -1,0 +1,138 @@
+/* 以 vue-naive-admin 的白色导航、工作区标签和绿色主色统一平台视觉。 */
+:root { /* 设置后台页面的布局与视觉样式。 */
+  --background: #f5f7fa; /* 配置后台主题变量。 */
+  --foreground: #252b37; /* 配置后台主题变量。 */
+  --card: #ffffff; /* 配置后台主题变量。 */
+  --primary: #18a058; /* 配置后台主题变量。 */
+  --accent: #eaf7ef; /* 配置后台主题变量。 */
+  --accent-foreground: #12804a; /* 配置后台主题变量。 */
+  --muted-foreground: #758091; /* 配置后台主题变量。 */
+  --border: #e7eaf0; /* 配置后台主题变量。 */
+  --input: #d9dee8; /* 配置后台主题变量。 */
+  --ring: #18a058; /* 配置后台主题变量。 */
+  --radius: 8px; /* 配置后台主题变量。 */
+  --brand-navy: #1b4b3e; /* 配置后台主题变量。 */
+} /* 结束当前样式分组。 */
+
+body { color: var(--foreground); background: var(--background); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; } /* 设置后台页面的布局与视觉样式。 */
+code { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
+a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
+
+/* 管理布局参照模板的窄边框侧栏、顶部工具区和多标签工作区。 */
+.app-shell { background: var(--background); } /* 设置后台页面的布局与视觉样式。 */
+.app-aside { width: 220px; padding: 0 10px; background: #fff; border-right: 1px solid var(--border); box-shadow: none; } /* 设置后台页面的布局与视觉样式。 */
+.app-aside.is-collapsed { width: 64px; } /* 设置后台页面的布局与视觉样式。 */
+.brand { height: 66px; padding: 0 12px; border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.brand > .brand-logo { height: 64px; } /* 设置后台页面的布局与视觉样式。 */
+.brand-logo img { top: -10px; } /* 设置后台页面的布局与视觉样式。 */
+.menu-scroll { padding: 5px 0 18px; scrollbar-color: #d5dce5 transparent; } /* 设置后台页面的布局与视觉样式。 */
+.menu-group { margin: 18px 12px 7px; color: #9aa3b1; font-size: 11px; font-weight: 600; letter-spacing: .03em; } /* 设置后台页面的布局与视觉样式。 */
+.menu-group-toggle { width: calc(100% - 24px); } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item { min-height: 38px; margin: 3px 0; padding: 7px 11px; color: #576171; border: 0; border-radius: 6px; font-size: 13px; font-weight: 500; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item svg { width: 16px; height: 16px; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item:hover { color: #12804a; background: #f1f9f4; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item.active { color: #12804a; background: #eaf7ef; border: 0; box-shadow: none; font-weight: 650; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .menu-item.active svg { color: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.topbar { height: 60px; flex-basis: 60px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.collapse-button { color: #6b7585; } /* 设置后台页面的布局与视觉样式。 */
+.collapse-button:hover { color: #18a058; background: #eef8f1; } /* 设置后台页面的布局与视觉样式。 */
+.workspace-breadcrumb { display: flex; align-items: center; gap: 9px; color: #9099a8; font-size: 12px; white-space: nowrap; } /* 设置后台页面的布局与视觉样式。 */
+.workspace-breadcrumb strong { color: #454f5f; font-weight: 600; } /* 设置后台页面的布局与视觉样式。 */
+.breadcrumb-divider { color: #c4cad3; } /* 设置后台页面的布局与视觉样式。 */
+.account { border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
+.account:hover, .account:focus-visible { color: #12804a; background: #f1f9f4; border-color: #d5eddd; } /* 设置后台页面的布局与视觉样式。 */
+.account-avatar { width: 32px; height: 32px; background: #eaf7ef; color: #12804a; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
+.alert-settings-trigger { border-color: var(--border); border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
+.alert-settings-trigger:hover { border-color: #b8dfc7; color: #12804a; background: #f5fbf7; } /* 设置后台页面的布局与视觉样式。 */
+.app-tabs { min-height: 42px; flex: none; display: flex; align-items: end; gap: 3px; padding: 4px 18px 0; overflow-x: auto; overflow-y: hidden; background: #fff; border-bottom: 1px solid var(--border); scrollbar-width: thin; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab { height: 38px; flex: none; display: flex; align-items: center; gap: 1px; padding: 0 5px 0 9px; color: #7d8794; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 5px 5px 0 0; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab:hover { color: #12804a; background: #f5faf7; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab.active { color: #12804a; background: #f8fcf9; border-color: var(--border); border-bottom-color: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab button { min-height: 28px; padding: 0 5px; display: inline-flex; align-items: center; gap: 7px; color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab button svg { width: 14px; height: 14px; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab .app-tab-close { width: 22px; justify-content: center; border-radius: 4px; } /* 设置后台页面的布局与视觉样式。 */
+.app-tab .app-tab-close:hover { color: #475569; background: #e7ecea; } /* 设置后台页面的布局与视觉样式。 */
+.main-content { padding: 24px 24px 42px; background: var(--background); scrollbar-gutter: stable; } /* 设置后台页面的布局与视觉样式。 */
+.page-context { margin-bottom: 18px; } /* 设置后台页面的布局与视觉样式。 */
+.page-context h1 { color: #222b39; font-size: 22px; font-weight: 650; letter-spacing: -.025em; } /* 设置后台页面的布局与视觉样式。 */
+.workspace-label { color: #7d8794; } /* 设置后台页面的布局与视觉样式。 */
+
+/* 全部业务控件由 Naive UI 绘制，管理页保持统一的间距与密度。 */
+.surface-card.n-card, .el-card.n-card { border: 1px solid var(--border) !important; border-radius: 8px !important; box-shadow: 0 1px 3px rgba(18, 38, 24, .025) !important; } /* 设置后台页面的布局与视觉样式。 */
+.surface-card.n-card > .n-card-header { padding: 18px 20px 12px; } /* 设置后台页面的布局与视觉样式。 */
+.surface-card.n-card > .n-card__content { padding: 20px; } /* 设置后台页面的布局与视觉样式。 */
+.table-card.n-card > .n-card__content { padding: 0; } /* 设置后台页面的布局与视觉样式。 */
+.table-card.n-card > .n-card-header { padding-bottom: 15px; } /* 设置后台页面的布局与视觉样式。 */
+.stat-card.n-card > .n-card__content { min-height: 136px; padding: 19px 20px; display: grid; align-content: space-between; } /* 设置后台页面的布局与视觉样式。 */
+.stats-grid { gap: 14px; } /* 设置后台页面的布局与视觉样式。 */
+.stat-card i { background: #dff4e5; } /* 设置后台页面的布局与视觉样式。 */
+.stat-card i::after { background: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .page-toolbar { min-height: 36px; margin-bottom: 16px; } /* 设置后台页面的布局与视觉样式。 */
+.app-shell .page-toolbar > span:not(.el-tag) { color: #8993a0; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
+.page-toolbar > .n-input, .page-toolbar > .n-select { width: 220px; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button, :is(.app-shell, .el-dialog) .n-button.el-button { height: var(--n-height); min-height: var(--n-height); padding: var(--n-padding); border: 0; border-radius: 5px; background-color: var(--n-color); color: var(--n-text-color); box-shadow: none; font-size: var(--n-font-size); font-weight: 500; line-height: 1.4; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button::before { border-radius: 5px; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button:not(.n-button--disabled):hover { background-color: var(--n-color-hover); color: var(--n-text-color-hover); transform: none; box-shadow: none; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button.n-button--primary-type { color: #fff; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button.n-button--secondary.n-button--primary-type { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
+.n-button.el-button.n-button--error-type { color: #fff; } /* 设置后台页面的布局与视觉样式。 */
+.n-input.el-input, .n-select.el-select { min-width: 0; } /* 设置后台页面的布局与视觉样式。 */
+.n-form-item.el-form-item { margin-bottom: 13px; } /* 设置后台页面的布局与视觉样式。 */
+.n-form-item.el-form-item .n-form-item-label { color: #596273; font-size: 12px; font-weight: 600; } /* 设置后台页面的布局与视觉样式。 */
+.ui-form-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; } /* 设置后台页面的布局与视觉样式。 */
+.ui-form-inline .n-form-item { margin-bottom: 0; } /* 设置后台页面的布局与视觉样式。 */
+.ui-switch-field { display: inline-flex; align-items: center; gap: 10px; } /* 设置后台页面的布局与视觉样式。 */
+.ui-switch-label { color: #6e7887; font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
+.n-data-table.el-table { color: #3f4958; } /* 设置后台页面的布局与视觉样式。 */
+.n-data-table.el-table .n-data-table-th { background: #fafbfd; color: #727d8b; font-size: 12px; font-weight: 600; } /* 设置后台页面的布局与视觉样式。 */
+.n-data-table.el-table .n-data-table-td { font-size: 12px; line-height: 1.55; } /* 设置后台页面的布局与视觉样式。 */
+.n-data-table.el-table .n-data-table-tr:hover .n-data-table-td { background: #f7fbf8; } /* 设置后台页面的布局与视觉样式。 */
+.n-data-table.el-table .n-data-table-td--fixed-right { border-left: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.list-pagination { padding: 13px 18px; background: #fff; border-top: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.n-pagination.el-pagination { gap: 7px; } /* 设置后台页面的布局与视觉样式。 */
+.n-tag.el-tag { border-radius: 4px; font-size: 11px; } /* 设置后台页面的布局与视觉样式。 */
+.n-alert.el-alert { border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
+.n-modal.el-dialog { max-height: calc(100dvh - 48px); overflow: hidden; border-radius: 8px; box-shadow: 0 24px 70px rgba(20, 34, 28, .16); } /* 设置后台页面的布局与视觉样式。 */
+.n-modal.el-dialog .n-card__content { min-height: 0; overflow: auto; overscroll-behavior: contain; } /* 设置后台页面的布局与视觉样式。 */
+.n-modal.el-dialog .n-card-header { border-bottom: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.n-modal.el-dialog .n-card__footer { border-top: 1px solid var(--border); } /* 设置后台页面的布局与视觉样式。 */
+.n-drawer .n-drawer-body-content-wrapper { overflow: auto; overscroll-behavior: contain; } /* 设置后台页面的布局与视觉样式。 */
+.n-descriptions.el-descriptions { overflow-wrap: anywhere; } /* 设置后台页面的布局与视觉样式。 */
+.n-tabs.el-tabs .n-tabs-tab { font-size: 12px; } /* 设置后台页面的布局与视觉样式。 */
+.n-tabs.el-tabs .n-tabs-tab.n-tabs-tab--active { color: #12804a; } /* 设置后台页面的布局与视觉样式。 */
+.ui-upload .n-upload-dragger { border-color: #cbd8cf; border-radius: 7px; background: #f9fcfa; } /* 设置后台页面的布局与视觉样式。 */
+.ui-upload .n-upload-dragger:hover { border-color: #18a058; } /* 设置后台页面的布局与视觉样式。 */
+.ui-loading { position: relative; } /* 设置后台页面的布局与视觉样式。 */
+.ui-loading::after { content: ""; position: absolute; z-index: 20; inset: 0; background: rgba(255, 255, 255, .64); pointer-events: none; } /* 设置后台页面的布局与视觉样式。 */
+.ui-loading::before { content: ""; position: absolute; z-index: 21; top: 50%; left: 50%; width: 22px; height: 22px; margin: -11px; border: 2px solid #cae8d4; border-top-color: #18a058; border-radius: 50%; animation: ui-spin .75s linear infinite; pointer-events: none; } /* 设置后台页面的布局与视觉样式。 */
+@keyframes ui-spin { to { transform: rotate(360deg); } } /* 设置后台页面的布局与视觉样式。 */
+
+/* 登录页保留平台品牌内容，并采用参考模板的双栏工作台入口。 */
+.login-page { background: linear-gradient(135deg, #edf8f0 0%, #f5f7fa 55%, #e9f4ee 100%); } /* 设置后台页面的布局与视觉样式。 */
+.login-form { border-color: #dfece3; border-radius: 12px; box-shadow: 0 22px 55px rgba(18, 66, 39, .08); } /* 设置后台页面的布局与视觉样式。 */
+.login-form h2 { letter-spacing: -.02em; } /* 设置后台页面的布局与视觉样式。 */
+.login-mark { border-radius: 8px; } /* 设置后台页面的布局与视觉样式。 */
+.login-field .n-input { width: 100%; min-height: 40px; } /* 设置后台页面的布局与视觉样式。 */
+.login-submit.n-button { width: 100%; min-height: 40px; } /* 设置后台页面的布局与视觉样式。 */
+
+@media (max-width: 900px) { /* 按屏幕宽度调整后台布局。 */
+  .app-shell .app-aside { width: 70px !important; padding-inline: 6px; } /* 设置后台页面的布局与视觉样式。 */
+  .app-shell .menu-item { min-height: 48px; } /* 设置后台页面的布局与视觉样式。 */
+  .topbar { padding-inline: 18px; } /* 设置后台页面的布局与视觉样式。 */
+  .main-content { padding: 18px; } /* 设置后台页面的布局与视觉样式。 */
+  .workspace-breadcrumb span:not(:last-child) { display: none; } /* 设置后台页面的布局与视觉样式。 */
+  .breadcrumb-divider { display: none; } /* 设置后台页面的布局与视觉样式。 */
+} /* 结束当前样式分组。 */
+@media (max-width: 640px) { /* 按屏幕宽度调整后台布局。 */
+  .app-shell { padding-bottom: 66px; } /* 设置后台页面的布局与视觉样式。 */
+  .app-shell .app-aside { width: 100% !important; height: 66px; padding: 6px 8px; background: #fff; } /* 设置后台页面的布局与视觉样式。 */
+  .app-shell .menu-item { min-height: 48px; } /* 设置后台页面的布局与视觉样式。 */
+  .topbar { height: 58px; flex-basis: 58px; padding-inline: 12px; } /* 设置后台页面的布局与视觉样式。 */
+  .app-tabs { min-height: 40px; padding-inline: 8px; } /* 设置后台页面的布局与视觉样式。 */
+  .app-tab { height: 36px; } /* 设置后台页面的布局与视觉样式。 */
+  .main-content { padding: 14px 12px 28px; } /* 设置后台页面的布局与视觉样式。 */
+  .page-context h1 { font-size: 19px; } /* 设置后台页面的布局与视觉样式。 */
+  .n-modal.el-dialog { max-height: calc(100dvh - 24px); } /* 设置后台页面的布局与视觉样式。 */
+  .ui-form-inline { align-items: stretch; } /* 设置后台页面的布局与视觉样式。 */
+  .page-toolbar > .n-input, .page-toolbar > .n-select { width: 100%; } /* 设置后台页面的布局与视觉样式。 */
+} /* 结束当前样式分组。 */

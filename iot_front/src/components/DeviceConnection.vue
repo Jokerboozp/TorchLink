@@ -3,7 +3,7 @@ import { createClientId } from '../clientId' /* 引入当前代码需要的依�
 import CommandValueInput from './CommandValueInput.vue' /* 引入当前代码需要的依赖。 */
 import { commandBody } from '../commandForm' /* 引入当前代码需要的依赖。 */
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessageBox, ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessageBox, UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, formatTime, notifyError, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { transportLabel, statusLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatuses, dataStatuses, businessStatuses, stateSources, messageTypeLabel, label } from '../labels' /* 引入当前代码需要的依赖。 */
@@ -84,16 +84,16 @@ async function action(work) { /* 定义 action 函数。 */
 } /* 结束当前表达式或代码块。 */
 async function rotate() { /* 定义 rotate 函数。 */
   await action(async () => { /* 等待异步操作完成。 */
-    await ElMessageBox.confirm('重新生成后旧凭据立即在平台停用；消息服务撤销结果可在下方查看。','重新生成凭据') /* 等待异步操作完成。 */
+    await UiMessageBox.confirm('重新生成后旧凭据立即在平台停用；消息服务撤销结果可在下方查看。','重新生成凭据') /* 等待异步操作完成。 */
     const result = await api(`${base()}/credentials`,{method:'POST'}) /* 声明 result。 */
     credential.value = result.credential; await load() /* 更新 credential.value 的值。 */
   }) /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 async function disable() { /* 定义 disable 函数。 */
   await action(async () => { /* 等待异步操作完成。 */
-    await ElMessageBox.confirm('禁用后设备不能使用此凭据上报或换取MQTT 令牌。','禁用设备凭据') /* 等待异步操作完成。 */
+    await UiMessageBox.confirm('禁用后设备不能使用此凭据上报或换取MQTT 令牌。','禁用设备凭据') /* 等待异步操作完成。 */
     await api(`${base()}/credentials`,{method:'DELETE'}) /* 等待异步操作完成。 */
-    credential.value = null; ElMessage.success('凭据已禁用'); await load() /* 更新 credential.value 的值。 */
+    credential.value = null; UiMessage.success('凭据已禁用'); await load() /* 更新 credential.value 的值。 */
   }) /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 async function sendMQTT() { /* 定义 sendMQTT 函数。 */
@@ -102,7 +102,7 @@ async function sendMQTT() { /* 定义 sendMQTT 函数。 */
     if (!type) throw new Error('请填写命令类型') /* 判断条件并选择处理分支。 */
     const body = commandBody(selectedOperation.value, commandValues.value) /* 声明 body。 */
     commandReply.value = null /* 更新 commandReply.value 的值。 */
-    await ElMessageBox.confirm('确认向该设备发送此命令？发送成功不代表执行成功。','人工确认命令') /* 等待异步操作完成。 */
+    await UiMessageBox.confirm('确认向该设备发送此命令？发送成功不代表执行成功。','人工确认命令') /* 等待异步操作完成。 */
     const signature = JSON.stringify(body) /* 声明 signature。 */
     if (!pendingCommand.value || pendingCommand.value.signature !== signature) pendingCommand.value = {signature,id:createClientId()} /* 判断条件并选择处理分支。 */
     commandResult.value = await api(`${base()}/commands`,{method:'POST',body:JSON.stringify({...body,id:pendingCommand.value.id,confirmed:true})}) /* 更新 commandResult.value 的值。 */
@@ -116,7 +116,7 @@ async function send() { /* 定义 send 函数。 */
     const body = {...form.data,type:form.type} /* 声明 body。 */
     commandReply.value = null /* 更新 commandReply.value 的值。 */
     if (typeof body.type !== 'string' || !body.type.trim()) throw new Error('请在协议命令中填写 type') /* 判断条件并选择处理分支。 */
-    await ElMessageBox.confirm('确认向该设备发送协议命令？请核对设备与参数。','人工确认命令') /* 等待异步操作完成。 */
+    await UiMessageBox.confirm('确认向该设备发送协议命令？请核对设备与参数。','人工确认命令') /* 等待异步操作完成。 */
     const profileId = data.value.profile.id, signature = JSON.stringify([profileId,props.deviceId,body]) /* 声明 profileId。 */
     if (!pendingProtocol.value || pendingProtocol.value.signature !== signature) pendingProtocol.value = {signature,id:createClientId()} /* 判断条件并选择处理分支。 */
     commandResult.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(profileId)}/devices/${encodeURIComponent(props.deviceId)}/commands`,{method:'POST',body:JSON.stringify({...body,requestId:pendingProtocol.value.id,confirmed:true})}) /* 更新 commandResult.value 的值。 */
@@ -131,165 +131,165 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 </script>
 
 <template>
-  <el-drawer :model-value="true" class="device-connection-drawer" title="设备连接与数据" size="min(900px, 100vw)" @close="emit('close')"> <!-- 渲染 el-drawer 界面元素。 -->
+  <ui-drawer :model-value="true" class="device-connection-drawer" title="设备连接与数据" size="min(900px, 100vw)" @close="emit('close')"> <!-- 渲染 ui-drawer 界面元素。 -->
     <div class="device-connection" v-loading="loading"> <!-- 渲染 div 界面元素。 -->
       <div class="connection-toolbar"> <!-- 渲染 div 界面元素。 -->
         <div><strong>{{data?.device?.name || '设备详情'}}</strong><small>{{props.deviceId}}</small></div> <!-- 渲染 div 界面元素。 -->
-        <el-button :loading="loading" :disabled="actionBusy" @click="load">刷新</el-button> <!-- 渲染 el-button 界面元素。 -->
+        <ui-button :loading="loading" :disabled="actionBusy" @click="load">刷新</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <el-alert v-if="error" title="设备详情加载失败" :description="error" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-      <el-empty v-if="!data && !loading && !error" description="暂无设备信息" /> <!-- 渲染 el-empty 界面元素。 -->
+      <ui-alert v-if="error" title="设备详情加载失败" :description="error" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+      <ui-empty v-if="!data && !loading && !error" description="暂无设备信息" /> <!-- 渲染 ui-empty 界面元素。 -->
       <template v-if="data">
         <section class="connection-section device-summary"> <!-- 渲染 section 界面元素。 -->
           <h3>连接概览</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-descriptions :column="columns" border> <!-- 渲染 el-descriptions 界面元素。 -->
-            <el-descriptions-item label="设备">{{data.device.name || props.deviceId}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="产品">{{data.product?.name || data.device.productId || '—'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="接入方式">{{transportLabel(data.connector) || '未配置'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="创建时间">{{formatTime(data.device.createdAt)}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="当前绑定协议">{{data.protocolId || '—'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="绑定版本">{{data.protocolVersion || '—'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="连接状态">{{label(connectionStatuses,data.connection?.connectionStatus) || '未知'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="数据状态">{{label(dataStatuses,data.connection?.dataStatus) || '未知'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="业务状态">{{label(businessStatuses,data.connection?.businessStatus) || '未知'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="最后上报">{{formatTime(data.connection?.lastSeenAt)}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="最后连接">{{formatTime(data.connection?.lastConnectAt)}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="最后断开">{{formatTime(data.connection?.lastDisconnectAt)}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="原文接收">{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="解析状态">{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.profile" label="接入网关">{{data.profile.id}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.profile" label="网关运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.parent" label="所属主设备"><el-button link type="primary" @click="emit('device',data.parent.id)">{{data.parent.name || data.parent.id}}</el-button></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.tags?.childAddress || '—'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-          </el-descriptions> <!-- 结束当前界面区域。 -->
-          <el-alert v-if="data.profile?.lastError || data.ingest?.parseError" class="section-feedback" title="最近接入异常" :description="data.profile?.lastError || data.ingest?.parseError" type="warning" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+          <ui-descriptions :column="columns" border> <!-- 渲染 ui-descriptions 界面元素。 -->
+            <ui-descriptions-item label="设备">{{data.device.name || props.deviceId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="产品">{{data.product?.name || data.device.productId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="接入方式">{{transportLabel(data.connector) || '未配置'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="创建时间">{{formatTime(data.device.createdAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="当前绑定协议">{{data.protocolId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="绑定版本">{{data.protocolVersion || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="连接状态">{{label(connectionStatuses,data.connection?.connectionStatus) || '未知'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="数据状态">{{label(dataStatuses,data.connection?.dataStatus) || '未知'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="业务状态">{{label(businessStatuses,data.connection?.businessStatus) || '未知'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="最后上报">{{formatTime(data.connection?.lastSeenAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="最后连接">{{formatTime(data.connection?.lastConnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="最后断开">{{formatTime(data.connection?.lastDisconnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="原文接收">{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="解析状态">{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile" label="接入网关">{{data.profile.id}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile" label="网关运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.parent" label="所属主设备"><ui-button link type="primary" @click="emit('device',data.parent.id)">{{data.parent.name || data.parent.id}}</ui-button></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.tags?.childAddress || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+          </ui-descriptions> <!-- 结束当前界面区域。 -->
+          <ui-alert v-if="data.profile?.lastError || data.ingest?.parseError" class="section-feedback" title="最近接入异常" :description="data.profile?.lastError || data.ingest?.parseError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
           <div v-if="data.profiles?.length > 1" class="profile-picker"> <!-- 渲染 div 界面元素。 -->
             <p>检测到多个关联接入网关，请选择要查看和发送命令的网关。</p> <!-- 渲染 p 界面元素。 -->
-            <el-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入网关" @change="selectProfile"><el-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="p.id" /></el-select> <!-- 渲染 el-select 界面元素。 -->
+            <ui-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入网关" @change="selectProfile"><ui-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="p.id" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="standardAccess" class="connection-section device-access-info"> <!-- 渲染 section 界面元素。 -->
           <h3>设备接入信息</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-descriptions :column="1" border> <!-- 渲染 el-descriptions 界面元素。 -->
-            <el-descriptions-item v-if="data.connector==='HTTP'" label="上报接口"><code>{{data.accessInfo.httpUrl}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.connector==='MQTT'" label="消息服务地址"><code>{{data.accessInfo.mqttBroker || '未配置对外地址'}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.connector==='MQTT'" label="客户端标识"><code>{{data.accessInfo.clientId}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="接入密钥"><code>{{data.accessInfo.username}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.connector==='MQTT'" label="上行 Topic"><code>{{data.accessInfo.upTopic}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item v-if="data.connector==='MQTT'" label="下行 Topic"><code>{{data.accessInfo.downTopic}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="凭据状态">{{data.credentialEnabled ? '已启用' : '已禁用'}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-          </el-descriptions> <!-- 结束当前界面区域。 -->
+          <ui-descriptions :column="1" border> <!-- 渲染 ui-descriptions 界面元素。 -->
+            <ui-descriptions-item v-if="data.connector==='HTTP'" label="上报接口"><code>{{data.accessInfo.httpUrl}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.connector==='MQTT'" label="消息服务地址"><code>{{data.accessInfo.mqttBroker || '未配置对外地址'}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.connector==='MQTT'" label="客户端标识"><code>{{data.accessInfo.clientId}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="接入密钥"><code>{{data.accessInfo.username}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.connector==='MQTT'" label="上行 Topic"><code>{{data.accessInfo.upTopic}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.connector==='MQTT'" label="下行 Topic"><code>{{data.accessInfo.downTopic}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="凭据状态">{{data.credentialEnabled ? '已启用' : '已禁用'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+          </ui-descriptions> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="isParent" class="connection-section device-children" v-loading="lists.children.loading"> <!-- 渲染 section 界面元素。 -->
           <h3>子设备（{{lists.children.total}}）</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" /> <!-- 渲染 el-alert 界面元素。 -->
-          <el-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column prop="device.name" label="名称" min-width="140" /><el-table-column prop="device.tags.childAddress" label="地址" min-width="90" /> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column prop="productName" label="产品" min-width="130" /> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="协议" min-width="150"><template #default="{row}">{{row.binding?.protocolId || '未配置'}} · {{row.binding?.version || '—'}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="最近上报" min-width="170"><template #default="{row}">{{formatTime(row.runtimeState?.lastSeenAt)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="状态" min-width="95"><template #default="{row}">{{label(businessStatuses,row.runtimeState?.businessStatus) || '未知'}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="操作" width="110" fixed="right"><template #default="{row}"><el-button link type="primary" @click="emit('device',row.device.id)">查看子设备</el-button></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          </el-table> <!-- 结束当前界面区域。 -->
-          <el-pagination v-if="lists.children.total>20" v-model:current-page="lists.children.page" :page-size="20" :total="lists.children.total" layout="prev, pager, next" @current-change="loadList('children')" /> <!-- 渲染 el-pagination 界面元素。 -->
+          <ui-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
+          <ui-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.tags.childAddress" label="地址" min-width="90" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="productName" label="产品" min-width="130" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="协议" min-width="150"><template #default="{row}">{{row.binding?.protocolId || '未配置'}} · {{row.binding?.version || '—'}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{formatTime(row.runtimeState?.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="状态" min-width="95"><template #default="{row}">{{label(businessStatuses,row.runtimeState?.businessStatus) || '未知'}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="操作" width="110" fixed="right"><template #default="{row}"><ui-button link type="primary" @click="emit('device',row.device.id)">查看子设备</ui-button></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          </ui-table> <!-- 结束当前界面区域。 -->
+          <ui-pagination v-if="lists.children.total>20" v-model:current-page="lists.children.page" :page-size="20" :total="lists.children.total" layout="prev, pager, next" @current-change="loadList('children')" /> <!-- 渲染 ui-pagination 界面元素。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="hasSessions" class="connection-section device-sessions"> <!-- 渲染 section 界面元素。 -->
           <h3>{{data.parent ? '主设备通信会话' : '在线会话'}}</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-table :data="data.sessions || []" border empty-text="暂无已识别的在线会话"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column prop="profileId" label="接入网关" min-width="145" /><el-table-column prop="remoteAddress" label="远端地址" min-width="155" /> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column prop="protocolId" label="会话协议" min-width="130" /><el-table-column prop="protocolVersion" label="会话版本" min-width="100" /> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="最后有效报文" min-width="175"><template #default="{row}">{{formatTime(row.lastSeenAt)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          </el-table> <!-- 结束当前界面区域。 -->
+          <ui-table :data="data.sessions || []" border empty-text="暂无已识别的在线会话"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column prop="profileId" label="接入网关" min-width="145" /><ui-table-column prop="remoteAddress" label="远端地址" min-width="155" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="protocolId" label="会话协议" min-width="130" /><ui-table-column prop="protocolVersion" label="会话版本" min-width="100" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="最后有效报文" min-width="175"><template #default="{row}">{{formatTime(row.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          </ui-table> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section class="connection-section device-properties"> <!-- 渲染 section 界面元素。 -->
           <h3>最新属性 <small>{{formatTime(data.latestProperties?.[0]?.timestamp)}}</small></h3> <!-- 渲染 h3 界面元素。 -->
-          <el-table :data="properties" border empty-text="暂无已解析的属性报文"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column prop="key" label="属性" :width="narrow ? 105 : 200" /><el-table-column label="值" min-width="120"><template #default="{row}"><span class="field-value">{{displayValue(row.value)}}</span></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          </el-table> <!-- 结束当前界面区域。 -->
+          <ui-table :data="properties" border empty-text="暂无已解析的属性报文"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column prop="key" label="属性" :width="narrow ? 105 : 200" /><ui-table-column label="值" min-width="120"><template #default="{row}"><span class="field-value">{{displayValue(row.value)}}</span></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          </ui-table> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section class="connection-section device-latest"> <!-- 渲染 section 界面元素。 -->
           <h3>最新报文</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-descriptions v-if="data.latest?.messageId" :column="columns" border> <!-- 渲染 el-descriptions 界面元素。 -->
-            <el-descriptions-item label="消息类型">{{messageTypeLabel(data.latest.messageType)}}</el-descriptions-item><el-descriptions-item label="时间">{{formatTime(data.latest.timestamp)}}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-            <el-descriptions-item label="标准消息标识" :span="columns"><code>{{data.latest.messageId}}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-          </el-descriptions> <!-- 结束当前界面区域。 -->
-          <el-empty v-else description="暂无已解析报文" :image-size="48" /> <!-- 渲染 el-empty 界面元素。 -->
-          <el-collapse v-if="data.latest?.messageId" class="message-detail"><el-collapse-item title="查看完整标准消息" name="message"><pre>{{pretty(data.latest)}}</pre></el-collapse-item></el-collapse> <!-- 渲染 el-collapse 界面元素。 -->
-          <div class="section-actions"><el-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</el-button><el-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</el-button></div> <!-- 渲染 div 界面元素。 -->
+          <ui-descriptions v-if="data.latest?.messageId" :column="columns" border> <!-- 渲染 ui-descriptions 界面元素。 -->
+            <ui-descriptions-item label="消息类型">{{messageTypeLabel(data.latest.messageType)}}</ui-descriptions-item><ui-descriptions-item label="时间">{{formatTime(data.latest.timestamp)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item label="标准消息标识" :span="columns"><code>{{data.latest.messageId}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+          </ui-descriptions> <!-- 结束当前界面区域。 -->
+          <ui-empty v-else description="暂无已解析报文" :image-size="48" /> <!-- 渲染 ui-empty 界面元素。 -->
+          <ui-collapse v-if="data.latest?.messageId" class="message-detail"><ui-collapse-item title="查看完整标准消息" name="message"><pre>{{pretty(data.latest)}}</pre></ui-collapse-item></ui-collapse> <!-- 渲染 ui-collapse 界面元素。 -->
+          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button></div> <!-- 渲染 div 界面元素。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section class="connection-section device-history" v-loading="lists.history.loading"> <!-- 渲染 section 界面元素。 -->
           <h3>连接与状态历史</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-alert v-if="lists.history.error" title="状态历史加载失败" :description="lists.history.error" type="error" :closable="false" /> <!-- 渲染 el-alert 界面元素。 -->
-          <el-table v-else :data="lists.history.items" border empty-text="暂无状态变更"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column label="记录时间" min-width="175"><template #default="{row}">{{formatTime(row.recordedAt)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="连接" min-width="100"><template #default="{row}">{{label(connectionStatuses,row.state?.connectionStatus)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="业务" min-width="100"><template #default="{row}">{{label(businessStatuses,row.state?.businessStatus)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="来源" min-width="100"><template #default="{row}">{{label(stateSources,row.state?.statusSource)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          </el-table> <!-- 结束当前界面区域。 -->
-          <el-pagination v-if="lists.history.total>20" v-model:current-page="lists.history.page" :page-size="20" :total="lists.history.total" layout="prev, pager, next" @current-change="loadList('history')" /> <!-- 渲染 el-pagination 界面元素。 -->
+          <ui-alert v-if="lists.history.error" title="状态历史加载失败" :description="lists.history.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
+          <ui-table v-else :data="lists.history.items" border empty-text="暂无状态变更"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column label="记录时间" min-width="175"><template #default="{row}">{{formatTime(row.recordedAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="连接" min-width="100"><template #default="{row}">{{label(connectionStatuses,row.state?.connectionStatus)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="业务" min-width="100"><template #default="{row}">{{label(businessStatuses,row.state?.businessStatus)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="来源" min-width="100"><template #default="{row}">{{label(stateSources,row.state?.statusSource)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          </ui-table> <!-- 结束当前界面区域。 -->
+          <ui-pagination v-if="lists.history.total>20" v-model:current-page="lists.history.page" :page-size="20" :total="lists.history.total" layout="prev, pager, next" @current-change="loadList('history')" /> <!-- 渲染 ui-pagination 界面元素。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section class="connection-section device-events" v-loading="lists.events.loading"> <!-- 渲染 section 界面元素。 -->
           <h3>最近事件</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-alert v-if="lists.events.error" title="事件加载失败" :description="lists.events.error" type="error" :closable="false" /> <!-- 渲染 el-alert 界面元素。 -->
-          <el-table v-else :data="lists.events.items" border empty-text="暂无事件"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column label="时间" min-width="175"><template #default="{row}">{{formatTime(row.timestamp)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="事件内容" min-width="200"><template #default="{row}"><span class="field-value">{{pretty(row.event || {})}}</span></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          </el-table> <!-- 结束当前界面区域。 -->
-          <el-pagination v-if="lists.events.total>20" v-model:current-page="lists.events.page" :page-size="20" :total="lists.events.total" layout="prev, pager, next" @current-change="loadList('events')" /> <!-- 渲染 el-pagination 界面元素。 -->
+          <ui-alert v-if="lists.events.error" title="事件加载失败" :description="lists.events.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
+          <ui-table v-else :data="lists.events.items" border empty-text="暂无事件"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column label="时间" min-width="175"><template #default="{row}">{{formatTime(row.timestamp)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="事件内容" min-width="200"><template #default="{row}"><span class="field-value">{{pretty(row.event || {})}}</span></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          </ui-table> <!-- 结束当前界面区域。 -->
+          <ui-pagination v-if="lists.events.total>20" v-model:current-page="lists.events.page" :page-size="20" :total="lists.events.total" layout="prev, pager, next" @current-change="loadList('events')" /> <!-- 渲染 ui-pagination 界面元素。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section class="connection-section device-alarms"> <!-- 渲染 section 界面元素。 -->
           <h3>最近告警</h3> <!-- 渲染 h3 界面元素。 -->
-          <el-table :data="data.recentAlarms || []" border empty-text="暂无告警"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column label="告警" min-width="100"><template #default="{row}">{{alarmType(row.alarmType)}}</template></el-table-column><el-table-column label="级别" min-width="90"><template #default="{row}">{{alarmLevel(row.alarmLevel)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="状态" min-width="100"><template #default="{row}">{{label(alarmStatuses,row.status)}}</template></el-table-column><el-table-column label="最近触发" min-width="175"><template #default="{row}">{{formatTime(row.lastTriggeredAt)}}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          </el-table> <!-- 结束当前界面区域。 -->
+          <ui-table :data="data.recentAlarms || []" border empty-text="暂无告警"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column label="告警" min-width="100"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column><ui-table-column label="级别" min-width="90"><template #default="{row}">{{alarmLevel(row.alarmLevel)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="状态" min-width="100"><template #default="{row}">{{label(alarmStatuses,row.status)}}</template></ui-table-column><ui-table-column label="最近触发" min-width="175"><template #default="{row}">{{formatTime(row.lastTriggeredAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          </ui-table> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="operations.length && (data.connector==='MQTT' || (data.profile && data.canCommand))" class="connection-section device-commands"> <!-- 渲染 section 界面元素。 -->
           <h3>设备控制</h3> <!-- 渲染 h3 界面元素。 -->
           <p>已发送不代表设备执行成功。请核对发送状态和设备应答；结果未知时不要重复发送。</p> <!-- 渲染 p 界面元素。 -->
           <template v-if="canEdit">
-            <el-form label-position="top" :disabled="actionBusy || loading"> <!-- 渲染 el-form 界面元素。 -->
-              <el-form-item label="设备命令"><el-select v-model="commandType" aria-label="设备命令" placeholder="选择设备支持的命令"><el-option v-for="c in operations" :key="c.identifier" :value="c.identifier" :label="c.name || c.identifier" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-              <el-form-item v-for="field in selectedOperation?.fields || []" :key="`${commandType}:${field.identifier}`" :label="`${field.name || field.identifier}${field.unit ? `（${field.unit}）` : ''}`" :required="field.required"> <!-- 渲染 el-form-item 界面元素。 -->
+            <ui-form label-position="top" :disabled="actionBusy || loading"> <!-- 渲染 ui-form 界面元素。 -->
+              <ui-form-item label="设备命令"><ui-select v-model="commandType" aria-label="设备命令" placeholder="选择设备支持的命令"><ui-option v-for="c in operations" :key="c.identifier" :value="c.identifier" :label="c.name || c.identifier" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+              <ui-form-item v-for="field in selectedOperation?.fields || []" :key="`${commandType}:${field.identifier}`" :label="`${field.name || field.identifier}${field.unit ? `（${field.unit}）` : ''}`" :required="field.required"> <!-- 渲染 ui-form-item 界面元素。 -->
                 <CommandValueInput v-model="commandValues[field.identifier]" :kind="field.dataType" :label="field.name || field.identifier" /> <!-- 渲染 CommandValueInput 界面元素。 -->
-              </el-form-item> <!-- 结束当前界面区域。 -->
+              </ui-form-item> <!-- 结束当前界面区域。 -->
               <p v-if="selectedOperation && !selectedOperation.fields?.length">此命令无需参数。</p> <!-- 渲染 p 界面元素。 -->
-            </el-form> <!-- 结束当前界面区域。 -->
-            <el-button v-permission="'POST /api/v1/device-registry/:id/commands'" v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || !selectedOperation" :loading="actionBusy" @click="sendMQTT">执行命令</el-button> <!-- 渲染 el-button 界面元素。 -->
-            <el-button v-permission="'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'" v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || !selectedOperation" @click="send">执行命令</el-button> <!-- 渲染 el-button 界面元素。 -->
+            </ui-form> <!-- 结束当前界面区域。 -->
+            <ui-button v-permission="'POST /api/v1/device-registry/:id/commands'" v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || !selectedOperation" :loading="actionBusy" @click="sendMQTT">执行命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+            <ui-button v-permission="'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'" v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || !selectedOperation" @click="send">执行命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
             <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前无可用连接或接入网关已停用，暂时不能下发命令。</p> <!-- 渲染 p 界面元素。 -->
-            <el-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand">开始一条新命令</el-button> <!-- 渲染 el-button 界面元素。 -->
+            <ui-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand">开始一条新命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </template>
-          <el-alert v-if="commandResult?.lastError" :title="label(commandStatuses,String(commandResult.status || '').toUpperCase())" :description="commandResult.lastError" type="warning" :closable="false" />
-          <el-descriptions v-if="commandResult" :column="1" border class="section-feedback"><el-descriptions-item label="发送状态">{{label(commandStatuses,String(commandResult.status || '').toUpperCase())}}</el-descriptions-item><el-descriptions-item label="设备应答">{{commandResult.reply || commandResult.response ? pretty(commandResult.reply || commandResult.response) : commandResult.rawMessageId ? `已收到应答，原始报文：${commandResult.rawMessageId}` : '尚无应答内容'}}</el-descriptions-item></el-descriptions>
-          <el-button v-if="commandResult?.rawMessageId" class="section-feedback" @click="showCommandReply">查看应答报文</el-button>
+          <ui-alert v-if="commandResult?.lastError" :title="label(commandStatuses,String(commandResult.status || '').toUpperCase())" :description="commandResult.lastError" type="warning" :closable="false" />
+          <ui-descriptions v-if="commandResult" :column="1" border class="section-feedback"><ui-descriptions-item label="发送状态">{{label(commandStatuses,String(commandResult.status || '').toUpperCase())}}</ui-descriptions-item><ui-descriptions-item label="设备应答">{{commandResult.reply || commandResult.response ? pretty(commandResult.reply || commandResult.response) : commandResult.rawMessageId ? `已收到应答，原始报文：${commandResult.rawMessageId}` : '尚无应答内容'}}</ui-descriptions-item></ui-descriptions>
+          <ui-button v-if="commandResult?.rawMessageId" class="section-feedback" @click="showCommandReply">查看应答报文</ui-button>
           <pre v-if="commandReply">{{pretty(commandReply)}}</pre>
           <template v-if="data.connector==='MQTT'">
-            <el-alert v-if="lists.commands.error" title="命令记录加载失败" :description="lists.commands.error" type="error" :closable="false" /> <!-- 渲染 el-alert 界面元素。 -->
-            <el-table v-else :data="lists.commands.items" border empty-text="暂无命令记录"><el-table-column prop="type" label="命令" min-width="120" /><el-table-column label="状态" min-width="170"><template #default="{row}">{{label(commandStatuses,row.status)}}</template></el-table-column><el-table-column label="回执" min-width="180"><template #default="{row}"><span class="field-value">{{pretty(row.reply || {})}}</span></template></el-table-column></el-table> <!-- 渲染 el-table 界面元素。 -->
-            <el-pagination v-if="lists.commands.total>20" v-model:current-page="lists.commands.page" :page-size="20" :total="lists.commands.total" layout="prev, pager, next" @current-change="loadList('commands')" /> <!-- 渲染 el-pagination 界面元素。 -->
+            <ui-alert v-if="lists.commands.error" title="命令记录加载失败" :description="lists.commands.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
+            <ui-table v-else :data="lists.commands.items" border empty-text="暂无命令记录"><ui-table-column prop="type" label="命令" min-width="120" /><ui-table-column label="状态" min-width="170"><template #default="{row}">{{label(commandStatuses,row.status)}}</template></ui-table-column><ui-table-column label="回执" min-width="180"><template #default="{row}"><span class="field-value">{{pretty(row.reply || {})}}</span></template></ui-table-column></ui-table> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-pagination v-if="lists.commands.total>20" v-model:current-page="lists.commands.page" :page-size="20" :total="lists.commands.total" layout="prev, pager, next" @current-change="loadList('commands')" /> <!-- 渲染 ui-pagination 界面元素。 -->
           </template>
         </section>
 
         <section v-if="standardAccess && canEdit" class="connection-section device-credentials">
           <h3>设备凭据</h3><p>重新生成后旧凭据立即停用，新密钥仅显示一次。</p>
-          <div class="section-actions"><el-button v-permission="'DELETE /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy || !data.credentialEnabled" @click="disable">禁用凭据</el-button><el-button v-permission="'POST /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy" @click="rotate">重新生成凭据</el-button></div>
+          <div class="section-actions"><ui-button v-permission="'DELETE /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy || !data.credentialEnabled" @click="disable">禁用凭据</ui-button><ui-button v-permission="'POST /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy" @click="rotate">重新生成凭据</ui-button></div>
           <pre v-if="credential">仅本次显示，请妥善保存：{{pretty(credential)}}</pre>
           <p v-for="revocation in data.revocations" :key="revocation.id">旧凭据消息服务撤销：{{revocation.status==='REVOKED' ? '已完成' : '待完成（平台已停用旧凭据）'}}</p>
         </section>
       </template>
     </div>
-  </el-drawer>
+  </ui-drawer>
 </template>
 
 <style scoped>

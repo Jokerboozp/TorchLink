@@ -3,7 +3,7 @@ import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { computed, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage, ElMessageBox } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, download, notifyError, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels' /* 引入当前代码需要的依赖。 */
 
@@ -119,7 +119,7 @@ async function runBackup(type) { /* 定义 runBackup 函数。 */
   actionLoading.value = `run:${type}` /* 更新 actionLoading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     await api('/api/v1/backups', { method: 'POST', body: JSON.stringify({ type }) }) /* 等待异步操作完成。 */
-    ElMessage.success(`${label(backupTypes, type)}已完成`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`${label(backupTypes, type)}已完成`) /* 执行当前语句并推进处理流程。 */
     await load() /* 等待异步操作完成。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     notifyError(error) /* 执行当前语句并推进处理流程。 */
@@ -130,14 +130,14 @@ async function runBackup(type) { /* 定义 runBackup 函数。 */
 
 async function restoreDrill(row) { /* 定义 restoreDrill 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
-    await ElMessageBox.confirm(`将校验“${row.id}”中的备份文件，是否继续？`, '文件校验', { type: 'warning', confirmButtonText: '开始校验', cancelButtonText: '取消' }) /* 等待异步操作完成。 */
+    await UiMessageBox.confirm(`将校验“${row.id}”中的备份文件，是否继续？`, '文件校验', { type: 'warning', confirmButtonText: '开始校验', cancelButtonText: '取消' }) /* 等待异步操作完成。 */
   } catch { /* 结束当前表达式或代码块。 */
     return /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
   actionLoading.value = `drill:${row.id}` /* 更新 actionLoading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     const result = await api(`/api/v1/backups/${idPath(row.id)}/restore-drill`, { method: 'POST' }) /* 声明 result。 */
-    ElMessage.success(`文件校验完成，已校验 ${result.artifactsChecked || 0} 个文件`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`文件校验完成，已校验 ${result.artifactsChecked || 0} 个文件`) /* 执行当前语句并推进处理流程。 */
     await load() /* 等待异步操作完成。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     notifyError(error) /* 执行当前语句并推进处理流程。 */
@@ -151,7 +151,7 @@ async function downloadArtifact(row, artifact) { /* 定义 downloadArtifact 函�
   actionLoading.value = `download:${key}` /* 更新 actionLoading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     await download(`/api/v1/backups/${idPath(row.id)}/files/${encodeURIComponent(artifact.filename)}`, artifact.filename) /* 等待异步操作完成。 */
-    ElMessage.success(`已下载 ${artifact.filename}`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`已下载 ${artifact.filename}`) /* 执行当前语句并推进处理流程。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     notifyError(error) /* 执行当前语句并推进处理流程。 */
   } finally { /* 结束当前表达式或代码块。 */
@@ -164,74 +164,74 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 
 <template>
   <div class="page-toolbar backups-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <el-select v-model="filters.type" clearable placeholder="备份类型" @change="load(true)"> <!-- 渲染 el-select 界面元素。 -->
-      <el-option v-for="(text, value) in backupTypes" :key="value" :label="text" :value="value" /> <!-- 渲染 el-option 界面元素。 -->
-    </el-select> <!-- 结束当前界面区域。 -->
-    <el-select v-model="filters.status" clearable placeholder="执行状态" @change="load(true)"> <!-- 渲染 el-select 界面元素。 -->
-      <el-option v-for="(text, value) in backupStatuses" :key="value" :label="text" :value="value" /> <!-- 渲染 el-option 界面元素。 -->
-    </el-select> <!-- 结束当前界面区域。 -->
-    <el-button :loading="loading" @click="load()">刷新记录</el-button><el-button :disabled="!filters.type && !filters.status" @click="filters.type = ''; filters.status = ''; load(true)">重置筛选</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <ui-select v-model="filters.type" clearable placeholder="备份类型" @change="load(true)"> <!-- 渲染 ui-select 界面元素。 -->
+      <ui-option v-for="(text, value) in backupTypes" :key="value" :label="text" :value="value" /> <!-- 渲染 ui-option 界面元素。 -->
+    </ui-select> <!-- 结束当前界面区域。 -->
+    <ui-select v-model="filters.status" clearable placeholder="执行状态" @change="load(true)"> <!-- 渲染 ui-select 界面元素。 -->
+      <ui-option v-for="(text, value) in backupStatuses" :key="value" :label="text" :value="value" /> <!-- 渲染 ui-option 界面元素。 -->
+    </ui-select> <!-- 结束当前界面区域。 -->
+    <ui-button :loading="loading" @click="load()">刷新记录</ui-button><ui-button :disabled="!filters.type && !filters.status" @click="filters.type = ''; filters.status = ''; load(true)">重置筛选</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     <span class="toolbar-hint">仅备份设备原始报文与解析数据；每日自动备份昨日数据</span> <!-- 渲染 span 界面元素。 -->
     <span v-if="!isAdmin" class="toolbar-hint">查看权限：当前账号不能手动触发备份或文件校验</span> <!-- 渲染 span 界面元素。 -->
     <template v-if="isAdmin">
-      <el-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</el-button> <!-- 渲染 el-button 界面元素。 -->
-      <el-button v-permission="'POST /api/v1/backups'" type="warning" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</el-button> <!-- 渲染 el-button 界面元素。 -->
+      <ui-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <ui-button v-permission="'POST /api/v1/backups'" type="warning" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     </template>
   </div>
 
   <div class="backup-stat-grid">
-    <el-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></el-card>
-    <el-card shadow="never" class="surface-card"><span>当前执行中</span><strong>{{ runningCount }}</strong><small>备份任务正在进行时不可重复触发</small></el-card>
-    <el-card shadow="never" class="surface-card"><span>最近完成</span><strong>{{ latestCompleted ? label(backupTypes, latestCompleted.type) : '暂无' }}</strong><small>{{ latestCompleted ? formatDate(latestCompleted.completedAt) : '等待首个成功任务' }}</small></el-card>
+    <ui-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></ui-card>
+    <ui-card shadow="never" class="surface-card"><span>当前执行中</span><strong>{{ runningCount }}</strong><small>备份任务正在进行时不可重复触发</small></ui-card>
+    <ui-card shadow="never" class="surface-card"><span>最近完成</span><strong>{{ latestCompleted ? label(backupTypes, latestCompleted.type) : '暂无' }}</strong><small>{{ latestCompleted ? formatDate(latestCompleted.completedAt) : '等待首个成功任务' }}</small></ui-card>
   </div>
 
-  <el-card shadow="never" class="surface-card table-card backup-table-card">
-    <el-table v-loading="loading" :data="records" stripe>
-      <el-table-column label="类型" width="130"><template #default="{ row }"><el-tag :type="row.type === 'FULL' ? 'primary' : row.type === 'INCREMENTAL' ? 'success' : 'info'" round>{{ label(backupTypes, row.type) }}</el-tag></template></el-table-column>
-      <el-table-column label="任务标识" min-width="270"><template #default="{ row }"><code>{{ row.id }}</code></template></el-table-column>
-      <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(row.status)" round>{{ label(backupStatuses, row.status) }}</el-tag></template></el-table-column>
-      <el-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></el-table-column>
-      <el-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></el-table-column>
-      <el-table-column label="清单校验摘要" min-width="170"><template #default="{ row }"><el-tooltip v-if="row.checksum" :content="row.checksum"><code>{{ row.checksum.slice(0, 12) }}…</code></el-tooltip><span v-else>—</span></template></el-table-column>
-      <el-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDetail(row)">详情 / 文件</el-button><el-button v-permission="'POST /api/v1/backups/:id/restore-drill'" v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</el-button></div></template></el-table-column>
-    </el-table>
-    <el-empty v-if="!loading && !records.length" description="还没有备份记录；定时任务执行后会自动出现在这里" />
+  <ui-card shadow="never" class="surface-card table-card backup-table-card">
+    <ui-table v-loading="loading" :data="records" stripe>
+      <ui-table-column label="类型" width="130"><template #default="{ row }"><ui-tag :type="row.type === 'FULL' ? 'primary' : row.type === 'INCREMENTAL' ? 'success' : 'info'" round>{{ label(backupTypes, row.type) }}</ui-tag></template></ui-table-column>
+      <ui-table-column label="任务标识" min-width="270"><template #default="{ row }"><code>{{ row.id }}</code></template></ui-table-column>
+      <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(row.status)" round>{{ label(backupStatuses, row.status) }}</ui-tag></template></ui-table-column>
+      <ui-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></ui-table-column>
+      <ui-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></ui-table-column>
+      <ui-table-column label="清单校验摘要" min-width="170"><template #default="{ row }"><ui-tooltip v-if="row.checksum" :content="row.checksum"><code>{{ row.checksum.slice(0, 12) }}…</code></ui-tooltip><span v-else>—</span></template></ui-table-column>
+      <ui-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="showDetail(row)">详情 / 文件</ui-button><ui-button v-permission="'POST /api/v1/backups/:id/restore-drill'" v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</ui-button></div></template></ui-table-column>
+    </ui-table>
+    <ui-empty v-if="!loading && !records.length" description="还没有备份记录；定时任务执行后会自动出现在这里" />
     <div class="list-pagination">
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" />
+      <ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" />
     </div>
-  </el-card>
+  </ui-card>
 
-  <el-dialog v-model="detailVisible" :title="detail ? `${label(backupTypes, detail.type)} · ${detail.id}` : '备份详情'" width="min(1080px, 94vw)">
-    <el-skeleton v-if="detailLoading" :rows="6" animated />
+  <ui-dialog v-model="detailVisible" :title="detail ? `${label(backupTypes, detail.type)} · ${detail.id}` : '备份详情'" width="min(1080px, 94vw)">
+    <ui-skeleton v-if="detailLoading" :rows="6" animated />
     <template v-else-if="detail">
-      <el-descriptions :column="2" border> <!-- 渲染 el-descriptions 界面元素。 -->
-        <el-descriptions-item label="任务标识">{{ detail.id }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="状态"><el-tag :type="statusType(detail.status)" round>{{ label(backupStatuses, detail.status) }}</el-tag></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="开始时间">{{ formatDate(detail.startedAt) }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="完成时间">{{ formatDate(detail.completedAt) }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="对象存储清单" :span="2"><code class="break-all">{{ detail.objectKey || '—' }}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="清单完整性校验摘要" :span="2"><code class="break-all">{{ detail.checksum || '—' }}</code></el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-      </el-descriptions> <!-- 结束当前界面区域。 -->
-      <el-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+      <ui-descriptions :column="2" border> <!-- 渲染 ui-descriptions 界面元素。 -->
+        <ui-descriptions-item label="任务标识">{{ detail.id }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="状态"><ui-tag :type="statusType(detail.status)" round>{{ label(backupStatuses, detail.status) }}</ui-tag></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="开始时间">{{ formatDate(detail.startedAt) }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="完成时间">{{ formatDate(detail.completedAt) }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="对象存储清单" :span="2"><code class="break-all">{{ detail.objectKey || '—' }}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="清单完整性校验摘要" :span="2"><code class="break-all">{{ detail.checksum || '—' }}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+      </ui-descriptions> <!-- 结束当前界面区域。 -->
+      <ui-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
       <template v-if="manifest">
-        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><el-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</el-button></div> <!-- 渲染 div 界面元素。 -->
-        <el-table :data="manifest.artifacts" stripe> <!-- 渲染 el-table 界面元素。 -->
-          <el-table-column label="组件" width="160"><template #default="{row}">{{ label(backupComponents, row.component, '其他组件') }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          <el-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          <el-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          <el-table-column label="完整性校验摘要" min-width="190"><template #default="{ row }"><el-tooltip :content="row.sha256"><code>{{ row.sha256?.slice(0, 12) }}…</code></el-tooltip></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-          <el-table-column label="操作" width="100" align="center"><template #default="{ row }"><el-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</el-button><span v-else class="muted-text">管理员可下载</span></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-        </el-table> <!-- 结束当前界面区域。 -->
+        <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><ui-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</ui-button></div> <!-- 渲染 div 界面元素。 -->
+        <ui-table :data="manifest.artifacts" stripe> <!-- 渲染 ui-table 界面元素。 -->
+          <ui-table-column label="组件" width="160"><template #default="{row}">{{ label(backupComponents, row.component, '其他组件') }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          <ui-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          <ui-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          <ui-table-column label="完整性校验摘要" min-width="190"><template #default="{ row }"><ui-tooltip :content="row.sha256"><code>{{ row.sha256?.slice(0, 12) }}…</code></ui-tooltip></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+          <ui-table-column label="操作" width="100" align="center"><template #default="{ row }"><ui-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</ui-button><span v-else class="muted-text">管理员可下载</span></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+        </ui-table> <!-- 结束当前界面区域。 -->
         <div class="list-pagination"> <!-- 渲染 div 界面元素。 -->
-          <el-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" /> <!-- 渲染 el-pagination 界面元素。 -->
+          <ui-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" /> <!-- 渲染 ui-pagination 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
         <div class="section-heading top-gap"><div><strong>组件说明</strong><span>由备份任务写入文件清单，用于确认本次备份覆盖范围</span></div></div> <!-- 渲染 div 界面元素。 -->
         <pre>{{ pretty(manifest.components) }}</pre> <!-- 渲染 pre 界面元素。 -->
       </template>
-      <el-tabs v-if="detail.details && !manifest" class="top-gap"><el-tab-pane label="任务详情"><pre>{{ pretty(detail.details) }}</pre></el-tab-pane></el-tabs>
+      <ui-tabs v-if="detail.details && !manifest" class="top-gap"><ui-tab-pane label="任务详情"><pre>{{ pretty(detail.details) }}</pre></ui-tab-pane></ui-tabs>
     </template>
-    <template #footer><el-button @click="detailVisible = false">关闭</el-button></template>
-  </el-dialog> <!-- 结束当前界面区域。 -->
+    <template #footer><ui-button @click="detailVisible = false">关闭</ui-button></template>
+  </ui-dialog> <!-- 结束当前界面区域。 -->
 </template>
 
 <style scoped>

@@ -2,7 +2,7 @@
 import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
 import { aiProviderOptions as providerOptions, capabilityName } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage, ElMessageBox } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiStream, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { AI_HISTORY_STORAGE_PREFIX, loadAIHistory, saveAIHistory } from '../aiHistory' /* 引入当前代码需要的依赖。 */
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus' /* 引入当前代码需要的依赖。 */
@@ -265,7 +265,7 @@ function startCreateAgent() { /* 定义 startCreateAgent 函数。 */
   resetAgentJson() /* 执行当前语句并推进处理流程。 */
   agentEditorVisible.value = true /* 更新 agentEditorVisible.value 的值。 */
   focusAgentEditor() /* 执行当前语句并推进处理流程。 */
-  ElMessage.info('已打开新建智能体，请填写配置清单结构化数据') /* 执行当前语句并推进处理流程。 */
+  UiMessage.info('已打开新建智能体，请填写配置清单结构化数据') /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 async function loadWorkflowManagement(force = false) { /* 定义 loadWorkflowManagement 函数。 */
@@ -324,9 +324,9 @@ async function saveAgent() { /* 定义 saveAgent 函数。 */
   if (!isAdmin.value || creatingAgent.value) return /* 判断条件并选择处理分支。 */
   let manifest /* 声明 manifest。 */
   try { manifest = JSON.parse(agentJson.value) } /* 执行当前语句并推进处理流程。 */
-  catch { ElMessage.error('智能体结构化数据格式不正确'); return } /* 执行当前语句并推进处理流程。 */
+  catch { UiMessage.error('智能体结构化数据格式不正确'); return } /* 执行当前语句并推进处理流程。 */
   if (editingAgentId.value && manifest?.id !== editingAgentId.value) { /* 判断条件并选择处理分支。 */
-    ElMessage.error('编辑时不能修改智能体的唯一标识；如需新插件请先新建') /* 执行当前语句并推进处理流程。 */
+    UiMessage.error('编辑时不能修改智能体的唯一标识；如需新插件请先新建') /* 执行当前语句并推进处理流程。 */
     return /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
   const editing = Boolean(editingAgentId.value) /* 声明 editing。 */
@@ -341,7 +341,7 @@ async function saveAgent() { /* 定义 saveAgent 函数。 */
     editingAgentId.value = '' /* 更新 editingAgentId.value 的值。 */
     agentJson.value = JSON.stringify(agentTemplate, null, 2) /* 更新 agentJson.value 的值。 */
     agentEditorVisible.value = false /* 更新 agentEditorVisible.value 的值。 */
-    ElMessage.success(`${editing ? '智能体已更新' : '智能体已创建'}：${workflowName(saved)}`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`${editing ? '智能体已更新' : '智能体已创建'}：${workflowName(saved)}`) /* 执行当前语句并推进处理流程。 */
   } catch (error) { workflowManageError.value = error.message || (editing ? '智能体更新失败' : '智能体创建失败') } /* 结束当前表达式或代码块。 */
   finally { creatingAgent.value = false } /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
@@ -353,7 +353,7 @@ async function toggleWorkflow(item) { /* 定义 toggleWorkflow 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
     await api(`/api/v1/ai/workflows/${encodeURIComponent(workflowKey(item))}`, { method:'PUT', body:JSON.stringify(manifest) }) /* 等待异步操作完成。 */
     await Promise.all([loadRuntime(), loadWorkflowManagement()]) /* 等待异步操作完成。 */
-    ElMessage.success(`${workflowName(item)}已${manifest.enabled ? '启用' : '禁用'}`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`${workflowName(item)}已${manifest.enabled ? '启用' : '禁用'}`) /* 执行当前语句并推进处理流程。 */
   } catch (error) { workflowManageError.value = error.message || '工作流状态更新失败' } /* 结束当前表达式或代码块。 */
   finally { creatingAgent.value = false } /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
@@ -362,7 +362,7 @@ async function deleteWorkflow(item) { /* 定义 deleteWorkflow 函数。 */
   if (!isAdmin.value || isBuiltinWorkflow(item) || creatingAgent.value) return /* 判断条件并选择处理分支。 */
   const deletedWorkflowId = workflowKey(item) /* 声明 deletedWorkflowId。 */
   try { /* 执行当前语句并推进处理流程。 */
-    await ElMessageBox.confirm(`删除后将无法运行“${workflowName(item)}”，确定继续吗？`, '删除工作流插件', { type:'warning', confirmButtonText:'确定删除', cancelButtonText:'取消' }) /* 等待异步操作完成。 */
+    await UiMessageBox.confirm(`删除后将无法运行“${workflowName(item)}”，确定继续吗？`, '删除工作流插件', { type:'warning', confirmButtonText:'确定删除', cancelButtonText:'取消' }) /* 等待异步操作完成。 */
   } catch { return } /* 结束当前表达式或代码块。 */
   creatingAgent.value = true /* 更新 creatingAgent.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
@@ -375,7 +375,7 @@ async function deleteWorkflow(item) { /* 定义 deleteWorkflow 函数。 */
     if (selectedWorkflowId.value === deletedWorkflowId) selectedWorkflowId.value = workflowKey(remaining.find(candidate => candidate.enabled !== false)) /* 判断条件并选择处理分支。 */
     if (editingAgentId.value === deletedWorkflowId) cancelAgentEditor() /* 判断条件并选择处理分支。 */
     await Promise.all([loadRuntime(), loadWorkflowManagement(true)]) /* 等待异步操作完成。 */
-    ElMessage.success(`已删除工作流插件：${workflowName(item)}`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`已删除工作流插件：${workflowName(item)}`) /* 执行当前语句并推进处理流程。 */
   } catch (error) { workflowManageError.value = error.message || '工作流插件删除失败' } /* 结束当前表达式或代码块。 */
   finally { creatingAgent.value = false } /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
@@ -543,87 +543,87 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading"> <!-- 渲染 div 界面元素。 -->
     <div><span class="section-kicker">智能助手</span><strong>智能助手</strong><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small></div> <!-- 渲染 div 界面元素。 -->
-    <div class="runtime-actions"><div class="runtime-status"><el-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</el-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><el-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</el-button><el-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</el-button><el-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</el-button></div> <!-- 渲染 div 界面元素。 -->
+    <div class="runtime-actions"><div class="runtime-status"><ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</ui-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><ui-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</ui-button><ui-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</ui-button><ui-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</ui-button></div> <!-- 渲染 div 界面元素。 -->
   </div> <!-- 结束当前界面区域。 -->
 
   <div class="ai-workbench" :class="{ 'is-controls-open': controlsExpanded }"> <!-- 渲染 div 界面元素。 -->
-    <el-card shadow="never" class="surface-card control-card"> <!-- 渲染 el-card 界面元素。 -->
-      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流并设置必要参数</small></div><el-tag effect="plain">执行</el-tag></div></template>
+    <ui-card shadow="never" class="surface-card control-card"> <!-- 渲染 ui-card 界面元素。 -->
+      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流并设置必要参数</small></div><ui-tag effect="plain">执行</ui-tag></div></template>
       <div class="control-scroll"> <!-- 渲染 div 界面元素。 -->
-        <el-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><el-button plain size="small" @click="loadRuntime">重新加载</el-button></el-alert> <!-- 渲染 el-alert 界面元素。 -->
+        <ui-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert> <!-- 渲染 ui-alert 界面元素。 -->
         <div class="control-section-label"><span>01</span>模型服务</div> <!-- 渲染 div 界面元素。 -->
         <div class="provider-summary"> <!-- 渲染 div 界面元素。 -->
           <span>当前模型服务</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small> <!-- 渲染 span 界面元素。 -->
-          <el-button v-permission="'menu:aiProviders'" type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</el-button> <!-- 渲染 el-button 界面元素。 -->
+          <ui-button v-permission="'menu:aiProviders'" type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</ui-button> <!-- 渲染 ui-button 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
         <div class="control-section-label"><span>02</span>选择工作流</div> <!-- 渲染 div 界面元素。 -->
-        <el-form label-position="top"><el-form-item label="工作流插件"><el-select v-model="selectedWorkflowId" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><el-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></el-select></el-form-item></el-form> <!-- 渲染 el-form 界面元素。 -->
-        <el-empty v-if="!runtimeLoading && !workflowItems.length" description="暂无可用工作流" :image-size="62" /> <!-- 渲染 el-empty 界面元素。 -->
-        <div v-if="selectedWorkflow" class="workflow-description"><div><span class="workflow-icon">流程</span><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ selectedWorkflow.version ? `v${selectedWorkflow.version}` : '服务端托管' }}</small></div></div><p>{{ selectedWorkflow.description || '该工作流会按服务端策略调用受控工具。' }}</p><div v-if="selectedCapabilities.length" class="capability-list"><el-tag v-for="item in selectedCapabilities" :key="capabilityLabel(item)" size="small" effect="plain">{{ capabilityLabel(item) }}</el-tag></div></div> <!-- 渲染 div 界面元素。 -->
+        <ui-form label-position="top"><ui-form-item label="工作流插件"><ui-select v-model="selectedWorkflowId" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select></ui-form-item></ui-form> <!-- 渲染 ui-form 界面元素。 -->
+        <ui-empty v-if="!runtimeLoading && !workflowItems.length" description="暂无可用工作流" :image-size="62" /> <!-- 渲染 ui-empty 界面元素。 -->
+        <div v-if="selectedWorkflow" class="workflow-description"><div><span class="workflow-icon">流程</span><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ selectedWorkflow.version ? `v${selectedWorkflow.version}` : '服务端托管' }}</small></div></div><p>{{ selectedWorkflow.description || '该工作流会按服务端策略调用受控工具。' }}</p><div v-if="selectedCapabilities.length" class="capability-list"><ui-tag v-for="item in selectedCapabilities" :key="capabilityLabel(item)" size="small" effect="plain">{{ capabilityLabel(item) }}</ui-tag></div></div> <!-- 渲染 div 界面元素。 -->
         <div class="control-section-label"><span>03</span>运行参数</div> <!-- 渲染 div 界面元素。 -->
-        <el-form class="run-config" label-position="top" :model="runConfig" :disabled="sending"><div><el-form-item label="运行模型"><el-input v-model="runConfig.model" readonly placeholder="使用活动模型" /></el-form-item><el-form-item label="最大输出"><el-input-number v-model="runConfig.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></el-form-item></div></el-form> <!-- 渲染 el-form 界面元素。 -->
+        <ui-form class="run-config" label-position="top" :model="runConfig" :disabled="sending"><div><ui-form-item label="运行模型"><ui-input v-model="runConfig.model" readonly placeholder="使用活动模型" /></ui-form-item><ui-form-item label="最大输出"><ui-input-number v-model="runConfig.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item></div></ui-form> <!-- 渲染 ui-form 界面元素。 -->
         <div class="control-section-label"><span>04</span>运行环境</div> <!-- 渲染 div 界面元素。 -->
         <div class="runtime-overview runtime-overview-single"> <!-- 渲染 div 界面元素。 -->
           <div class="overview-item overview-item-static"><span>当前模型服务</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.baseUrl || '地址由服务端配置' }}</small></div> <!-- 渲染 div 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
-        <el-alert v-if="runtimeError" class="runtime-warning" :title="runtimeError" type="warning" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+        <ui-alert v-if="runtimeError" class="runtime-warning" :title="runtimeError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
 
-    <el-card shadow="never" class="surface-card chat-card ai-chat-card"> <!-- 渲染 el-card 界面元素。 -->
-      <template #header><div class="card-header chat-header"><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ conversationId ? `会话 · ${conversationId}` : '新会话 · 服务端受控租户上下文' }}</small></div><div><el-button plain :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</el-button><el-button plain type="warning" :disabled="sending" @click="clearConversation">清空对话</el-button></div></div></template>
+    <ui-card shadow="never" class="surface-card chat-card ai-chat-card"> <!-- 渲染 ui-card 界面元素。 -->
+      <template #header><div class="card-header chat-header"><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ conversationId ? `会话 · ${conversationId}` : '新会话 · 服务端受控租户上下文' }}</small></div><div><ui-button plain :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button><ui-button plain type="warning" :disabled="sending" @click="clearConversation">清空对话</ui-button></div></div></template>
       <div class="quick-prompts"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div> <!-- 渲染 div 界面元素。 -->
       <div ref="log" class="chat-log" aria-live="polite"> <!-- 渲染 div 界面元素。 -->
         <div v-for="message in messages" :key="message.id" class="message-row" :class="message.role"> <!-- 渲染 div 界面元素。 -->
-          <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><el-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</el-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><el-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</el-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small><el-button v-permission="'POST /api/v1/ai/chat/stream'" v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</el-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} 词元</span><el-button plain size="small" @click="openTrace(message)">查看轨迹</el-button></div></div> <!-- 渲染 span 界面元素。 -->
+          <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><ui-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</ui-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><ui-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</ui-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small><ui-button v-permission="'POST /api/v1/ai/chat/stream'" v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</ui-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} 词元</span><ui-button plain size="small" @click="openTrace(message)">查看轨迹</ui-button></div></div> <!-- 渲染 span 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <div class="chat-compose"><el-input v-model="question" type="textarea" :autosize="{ minRows:1,maxRows:4 }" maxlength="4000" resize="none" placeholder="询问设备、告警、趋势或处置知识；上档键与回车键换行" :disabled="sending || !workflowItems.length" @keydown.enter.exact.prevent="send()" /><el-button v-if="sending" type="danger" plain @click="stop">停止</el-button><el-button v-permission="'POST /api/v1/ai/chat/stream'" v-else type="primary" :disabled="!question.trim() || !workflowItems.length" @click="send()">发送</el-button></div><small class="chat-notice">智能输出仅供辅助判断，不会自动执行设备控制或启用规则。</small> <!-- 渲染 div 界面元素。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
+      <div class="chat-compose"><ui-input v-model="question" type="textarea" :autosize="{ minRows:1,maxRows:4 }" maxlength="4000" resize="none" placeholder="询问设备、告警、趋势或处置知识；上档键与回车键换行" :disabled="sending || !workflowItems.length" @keydown.enter.exact.prevent="send()" /><ui-button v-if="sending" type="danger" plain @click="stop">停止</ui-button><ui-button v-permission="'POST /api/v1/ai/chat/stream'" v-else type="primary" :disabled="!question.trim() || !workflowItems.length" @click="send()">发送</ui-button></div><small class="chat-notice">智能输出仅供辅助判断，不会自动执行设备控制或启用规则。</small> <!-- 渲染 div 界面元素。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
   </div> <!-- 结束当前界面区域。 -->
 
-  <el-drawer v-model="managementVisible" title="智能体管理" size="min(760px, 94vw)" class="workflow-manager" append-to-body> <!-- 渲染 el-drawer 界面元素。 -->
+  <ui-drawer v-model="managementVisible" title="智能体管理" size="min(760px, 94vw)" class="workflow-manager" append-to-body> <!-- 渲染 ui-drawer 界面元素。 -->
     <section class="manager-panel panel-agent"> <!-- 渲染 section 界面元素。 -->
-        <div class="manager-intro"><span>智能体管理</span><div><h3>智能体插件管理</h3><el-tag size="small" type="primary" effect="plain">管理员</el-tag></div><p>内置智能体仅可查看；动态智能体可编辑、启用/禁用或删除。点击“新建智能体”即可在弹窗中提交新的配置清单，保存后智能体会立即进入工作流列表。</p></div> <!-- 渲染 div 界面元素。 -->
-        <el-alert v-if="!isAdmin" title="工作流插件管理仅限管理员。" type="warning" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+        <div class="manager-intro"><span>智能体管理</span><div><h3>智能体插件管理</h3><ui-tag size="small" type="primary" effect="plain">管理员</ui-tag></div><p>内置智能体仅可查看；动态智能体可编辑、启用/禁用或删除。点击“新建智能体”即可在弹窗中提交新的配置清单，保存后智能体会立即进入工作流列表。</p></div> <!-- 渲染 div 界面元素。 -->
+        <ui-alert v-if="!isAdmin" title="工作流插件管理仅限管理员。" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
         <div v-else class="workflow-admin-panel"> <!-- 渲染 div 界面元素。 -->
-          <div class="workflow-admin-toolbar"><div><strong>已配置的工作流插件</strong><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天智能体只读；告警研判、设备巡检和协议接入由业务页面调用</small></div><div><el-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</el-button><el-button v-permission="'POST /api/v1/ai/workflows'" size="small" type="primary" plain @click="startCreateAgent">新建智能体</el-button></div></div> <!-- 渲染 div 界面元素。 -->
-          <el-alert v-if="workflowManageError" :title="workflowManageError" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-          <el-skeleton v-if="workflowManageLoading && !workflowManageItems.length" :rows="4" animated /> <!-- 渲染 el-skeleton 界面元素。 -->
-          <el-empty v-else-if="!workflowManageItems.length" description="暂无工作流插件" :image-size="56" /> <!-- 渲染 el-empty 界面元素。 -->
+          <div class="workflow-admin-toolbar"><div><strong>已配置的工作流插件</strong><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天智能体只读；告警研判、设备巡检和协议接入由业务页面调用</small></div><div><ui-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</ui-button><ui-button v-permission="'POST /api/v1/ai/workflows'" size="small" type="primary" plain @click="startCreateAgent">新建智能体</ui-button></div></div> <!-- 渲染 div 界面元素。 -->
+          <ui-alert v-if="workflowManageError" :title="workflowManageError" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+          <ui-skeleton v-if="workflowManageLoading && !workflowManageItems.length" :rows="4" animated /> <!-- 渲染 ui-skeleton 界面元素。 -->
+          <ui-empty v-else-if="!workflowManageItems.length" description="暂无工作流插件" :image-size="56" /> <!-- 渲染 ui-empty 界面元素。 -->
           <div v-else class="workflow-admin-list"> <!-- 渲染 div 界面元素。 -->
             <div v-for="item in workflowManageItems" :key="workflowKey(item)" class="workflow-admin-item"> <!-- 渲染 div 界面元素。 -->
-              <div class="workflow-admin-main"><div><strong>{{ workflowName(item) }}</strong><el-tag size="small" :type="item.enabled === false ? 'info' : 'success'" effect="plain">{{ item.enabled === false ? '已禁用' : '已启用' }}</el-tag><el-tag v-if="isBuiltinWorkflow(item)" size="small" effect="plain">内置只读</el-tag></div><small>{{ workflowKey(item) }} · {{ item.version ? `v${item.version}` : '无版本' }}</small><p>{{ item.description || '未填写插件说明' }}</p></div> <!-- 渲染 div 界面元素。 -->
-              <div class="workflow-admin-actions"><template v-if="isBuiltinWorkflow(item)"><el-button size="small" type="primary" plain @click="viewAgent(item)">查看</el-button></template><template v-else><el-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="editAgent(item)">编辑</el-button><el-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="toggleWorkflow(item)">{{ item.enabled === false ? '启用' : '禁用' }}</el-button><el-button v-permission="'DELETE /api/v1/ai/workflows/:id'" size="small" type="danger" plain @click="deleteWorkflow(item)">删除</el-button></template></div> <!-- 渲染 div 界面元素。 -->
+              <div class="workflow-admin-main"><div><strong>{{ workflowName(item) }}</strong><ui-tag size="small" :type="item.enabled === false ? 'info' : 'success'" effect="plain">{{ item.enabled === false ? '已禁用' : '已启用' }}</ui-tag><ui-tag v-if="isBuiltinWorkflow(item)" size="small" effect="plain">内置只读</ui-tag></div><small>{{ workflowKey(item) }} · {{ item.version ? `v${item.version}` : '无版本' }}</small><p>{{ item.description || '未填写插件说明' }}</p></div> <!-- 渲染 div 界面元素。 -->
+              <div class="workflow-admin-actions"><template v-if="isBuiltinWorkflow(item)"><ui-button size="small" type="primary" plain @click="viewAgent(item)">查看</ui-button></template><template v-else><ui-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="editAgent(item)">编辑</ui-button><ui-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="toggleWorkflow(item)">{{ item.enabled === false ? '启用' : '禁用' }}</ui-button><ui-button v-permission="'DELETE /api/v1/ai/workflows/:id'" size="small" type="danger" plain @click="deleteWorkflow(item)">删除</ui-button></template></div> <!-- 渲染 div 界面元素。 -->
             </div> <!-- 结束当前界面区域。 -->
           </div> <!-- 结束当前界面区域。 -->
           <div v-if="workflowManageTotal" class="list-pagination"> <!-- 渲染 div 界面元素。 -->
-            <el-pagination v-model:current-page="workflowManagePage" v-model:page-size="workflowManagePageSize" :total="workflowManageTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeWorkflowManagePage" @size-change="changeWorkflowManagePageSize" /> <!-- 渲染 el-pagination 界面元素。 -->
+            <ui-pagination v-model:current-page="workflowManagePage" v-model:page-size="workflowManagePageSize" :total="workflowManageTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeWorkflowManagePage" @size-change="changeWorkflowManagePageSize" /> <!-- 渲染 ui-pagination 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
         </div> <!-- 结束当前界面区域。 -->
       </section> <!-- 结束当前界面区域。 -->
-  </el-drawer> <!-- 结束当前界面区域。 -->
-  <el-dialog v-model="agentEditorVisible" :title="editingAgentId ? '编辑智能体' : '新建智能体'" width="min(820px, 94vw)" class="agent-editor-dialog" append-to-body destroy-on-close> <!-- 渲染 el-dialog 界面元素。 -->
-    <el-alert title="结构化数据标准不支持注释。内置智能体仅可查看，动态智能体可在管理清单中编辑、启用或删除。" type="info" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-    <el-form class="drawer-form" label-position="top" :disabled="!isAdmin || creatingAgent"> <!-- 渲染 el-form 界面元素。 -->
-      <el-form-item label="智能体配置清单"><el-input ref="agentEditorRef" v-model="agentJson" class="agent-json-editor" type="textarea" :rows="18" resize="vertical" spellcheck="false" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+  </ui-drawer> <!-- 结束当前界面区域。 -->
+  <ui-dialog v-model="agentEditorVisible" :title="editingAgentId ? '编辑智能体' : '新建智能体'" width="min(820px, 94vw)" class="agent-editor-dialog" append-to-body destroy-on-close> <!-- 渲染 ui-dialog 界面元素。 -->
+    <ui-alert title="结构化数据标准不支持注释。内置智能体仅可查看，动态智能体可在管理清单中编辑、启用或删除。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+    <ui-form class="drawer-form" label-position="top" :disabled="!isAdmin || creatingAgent"> <!-- 渲染 ui-form 界面元素。 -->
+      <ui-form-item label="智能体配置清单"><ui-input ref="agentEditorRef" v-model="agentJson" class="agent-json-editor" type="textarea" :rows="18" resize="vertical" spellcheck="false" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <div class="manifest-guide"> <!-- 渲染 div 界面元素。 -->
-        <div class="manifest-guide-title"><div><strong>字段说明</strong><small>所有字段均为必填，请参考下方说明填写。</small></div><el-tag size="small" effect="plain">11 个字段</el-tag></div> <!-- 渲染 div 界面元素。 -->
+        <div class="manifest-guide-title"><div><strong>字段说明</strong><small>所有字段均为必填，请参考下方说明填写。</small></div><ui-tag size="small" effect="plain">11 个字段</ui-tag></div> <!-- 渲染 div 界面元素。 -->
         <div class="manifest-field-list"> <!-- 渲染 div 界面元素。 -->
           <div v-for="field in agentFieldDocs" :key="field.name" class="manifest-field"><code>{{ field.name }}</code><span>{{ field.type }}</span><p>{{ field.note }}</p></div> <!-- 渲染 div 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
         <div class="tool-whitelist"><strong>允许使用的工具</strong><div><span v-for="tool in agentToolDocs" :key="tool.name"><code>{{ tool.name }}</code><small>{{ tool.label }}</small></span></div></div> <!-- 渲染 div 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <el-alert title="只允许受控查询工具与“仅生成、不保存”的规则草稿工具；内置智能体不能覆盖，智能体不能直接启用规则。" type="info" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-    </el-form> <!-- 结束当前界面区域。 -->
-    <template #footer><el-button @click="cancelAgentEditor">取消</el-button><el-button v-permission="['POST /api/v1/ai/workflows','PUT /api/v1/ai/workflows/:id']" type="primary" :loading="creatingAgent" @click="saveAgent">{{ editingAgentId ? '校验并保存修改' : '校验并创建智能体' }}</el-button></template>
-  </el-dialog> <!-- 结束当前界面区域。 -->
-  <el-dialog v-model="agentPreviewVisible" title="查看内置智能体配置清单（只读）" width="min(760px, 92vw)" append-to-body> <!-- 渲染 el-dialog 界面元素。 -->
-    <el-alert title="内置智能体仅供查看，不能编辑、启用/禁用或删除。" type="info" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-    <div v-if="agentPreview" class="agent-preview-summary"><div><strong>{{ workflowName(agentPreview) }}</strong><el-tag size="small" effect="plain">内置只读</el-tag></div><small>{{ workflowKey(agentPreview) }} · {{ agentPreview.version ? `v${agentPreview.version}` : '无版本' }} · {{ agentPreview.defaultModel || '未设置模型' }}</small><p>{{ agentPreview.description || '未填写插件说明' }}</p></div> <!-- 渲染 div 界面元素。 -->
+      <ui-alert title="只允许受控查询工具与“仅生成、不保存”的规则草稿工具；内置智能体不能覆盖，智能体不能直接启用规则。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+    </ui-form> <!-- 结束当前界面区域。 -->
+    <template #footer><ui-button @click="cancelAgentEditor">取消</ui-button><ui-button v-permission="['POST /api/v1/ai/workflows','PUT /api/v1/ai/workflows/:id']" type="primary" :loading="creatingAgent" @click="saveAgent">{{ editingAgentId ? '校验并保存修改' : '校验并创建智能体' }}</ui-button></template>
+  </ui-dialog> <!-- 结束当前界面区域。 -->
+  <ui-dialog v-model="agentPreviewVisible" title="查看内置智能体配置清单（只读）" width="min(760px, 92vw)" append-to-body> <!-- 渲染 ui-dialog 界面元素。 -->
+    <ui-alert title="内置智能体仅供查看，不能编辑、启用/禁用或删除。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+    <div v-if="agentPreview" class="agent-preview-summary"><div><strong>{{ workflowName(agentPreview) }}</strong><ui-tag size="small" effect="plain">内置只读</ui-tag></div><small>{{ workflowKey(agentPreview) }} · {{ agentPreview.version ? `v${agentPreview.version}` : '无版本' }} · {{ agentPreview.defaultModel || '未设置模型' }}</small><p>{{ agentPreview.description || '未填写插件说明' }}</p></div> <!-- 渲染 div 界面元素。 -->
     <pre class="agent-manifest-preview">{{ agentPreviewJson }}</pre> <!-- 渲染 pre 界面元素。 -->
-    <template #footer><el-button @click="agentPreviewVisible = false">关闭</el-button></template>
-  </el-dialog> <!-- 结束当前界面区域。 -->
+    <template #footer><ui-button @click="agentPreviewVisible = false">关闭</ui-button></template>
+  </ui-dialog> <!-- 结束当前界面区域。 -->
   <HarnessTraceDrawer v-model="traceVisible" :run="selectedRun" /> <!-- 渲染 HarnessTraceDrawer 界面元素。 -->
 </template>
 

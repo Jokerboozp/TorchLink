@@ -23,5 +23,5 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length-1
       </g> <!-- 结束当前界面区域。 -->
     </svg> <!-- 结束当前界面区域。 -->
   </div> <!-- 结束当前界面区域。 -->
-  <el-empty v-else description="所选时段暂无新增告警" :image-size="76" /> <!-- 渲染 el-empty 界面元素。 -->
+  <ui-empty v-else description="所选时段暂无新增告警" :image-size="76" /> <!-- 渲染 ui-empty 界面元素。 -->
 </template>

@@ -9,7 +9,7 @@ npm run dev
 
 Windows PowerShell 遇到执行策略限制时改用 `npm.cmd`。开发地址为 `http://localhost:5173`；[vite.config.js](vite.config.js) 将 `/api`、`/health`、`/mcp` 代理到 `http://localhost:8081`，可设置 `VITE_API_PROXY_TARGET` 修改。生产镜像以本目录为构建上下文。
 
-页面通过 `src/api.js` 使用同源接口。样式使用 Tailwind CSS v4 和 Lucide 图标，业务控件沿用 Element Plus；复用既有交互和样式。缓存按租户与用户隔离，分页和异步列表约定见 [列表分页](../docs/LIST_PAGINATION.md)。
+页面通过 `src/api.js` 使用同源接口。界面以 [vue-naive-admin](https://github.com/zclzone/vue-naive-admin) 的后台布局为参考，采用 Naive UI、Tailwind CSS v4 和 Lucide 图标；业务页面的表单、表格、弹窗、选择器和反馈控件均由 Naive UI 绘制。`src/ui` 适配原有业务组件接口，统一处理双向绑定、列表选择和弹窗事件。缓存按租户与用户隔离，分页和异步列表约定见 [列表分页](../docs/LIST_PAGINATION.md)。
 
 ```bash
 npm test
@@ -17,6 +17,8 @@ npm run build
 ```
 
 测试使用 Node test runner；构建检查不等于浏览器交互验收。接口调用不保存管理员密码，协议上传沿用后端源码校验与发布流程。
+
+本地合成数据界面验收：先执行 `npm run build`，再从本目录运行 `node tests/browser/ui-preview.mjs`；另开终端运行 `node tests/browser/naive-pages-check.mjs` 与 `node tests/browser/protocol-actions-check.mjs`。前者覆盖全部 16 个主页面、产品表单与账户菜单，后者覆盖协议版本操作。这些脚本只连接本机夹具，不写真实业务数据。
 
 ## 页面与权限
 

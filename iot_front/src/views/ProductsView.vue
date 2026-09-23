@@ -5,7 +5,7 @@ defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import ProductProtocolBinding from '../components/ProductProtocolBinding.vue' /* 引入当前代码需要的依赖。 */
 import { transportLabel, formatLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
 import { categories, enabledStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 
@@ -84,7 +84,7 @@ function startEdit() { /* 定义 startEdit 函数。 */
 
 async function save() { /* 定义 save 函数。 */
   if (saving.value) return /* 判断条件并选择处理分支。 */
-  if (!form.name.trim() || !form.protocolPackageId) return ElMessage.warning('请填写产品名称并选择协议包') /* 判断条件并选择处理分支。 */
+  if (!form.name.trim() || !form.protocolPackageId) return UiMessage.warning('请填写产品名称并选择协议包') /* 判断条件并选择处理分支。 */
   saving.value = true /* 更新 saving.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}` /* 判断条件并选择处理分支。 */
@@ -96,7 +96,7 @@ async function save() { /* 定义 save 函数。 */
       method: editing ? 'PUT' : 'POST', /* 执行当前语句并推进处理流程。 */
       body: JSON.stringify(value) /* 执行当前语句并推进处理流程。 */
     }) /* 结束当前表达式或代码块。 */
-    ElMessage.success('产品已保存') /* 执行当前语句并推进处理流程。 */
+    UiMessage.success('产品已保存') /* 执行当前语句并推进处理流程。 */
     dialog.value = false /* 更新 dialog.value 的值。 */
     reset() /* 执行当前语句并推进处理流程。 */
     await load() /* 等待异步操作完成。 */
@@ -113,66 +113,66 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 <template>
   <ProductProtocolBinding v-if="bindingProduct" :key="bindingProduct.id" :product="bindingProduct" @close="bindingProduct=null" @saved="load" /> <!-- 渲染 ProductProtocolBinding 界面元素。 -->
   <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <el-button v-permission="'POST /api/v1/products'" type="primary" @click="openCreate">新建产品</el-button> <!-- 渲染 el-button 界面元素。 -->
-    <el-button :loading="loading" @click="load">刷新</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <ui-button v-permission="'POST /api/v1/products'" type="primary" @click="openCreate">新建产品</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+    <ui-button :loading="loading" @click="load">刷新</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     <span>{{ productTotal }} 个产品</span> <!-- 渲染 span 界面元素。 -->
   </div> <!-- 结束当前界面区域。 -->
 
-  <el-card shadow="never" class="surface-card table-card"> <!-- 渲染 el-card 界面元素。 -->
-    <el-table v-loading="loading" :data="products" stripe> <!-- 渲染 el-table 界面元素。 -->
-      <el-table-column label="产品" min-width="230"> <!-- 渲染 el-table-column 界面元素。 -->
+  <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
+    <ui-table v-loading="loading" :data="products" stripe> <!-- 渲染 ui-table 界面元素。 -->
+      <ui-table-column label="产品" min-width="230"> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }">
           <b>{{ row.name || row.id }}</b> <!-- 渲染 b 界面元素。 -->
           <small class="subline">{{ row.id }}</small> <!-- 渲染 small 界面元素。 -->
         </template>
-      </el-table-column>
-      <el-table-column label="分类" width="130">
+      </ui-table-column>
+      <ui-table-column label="分类" width="130">
         <template #default="{ row }">{{ label(categories, row.category, '其他设备') }}</template>
-      </el-table-column> <!-- 结束当前界面区域。 -->
-      <el-table-column label="协议 / 格式" min-width="180"> <!-- 渲染 el-table-column 界面元素。 -->
+      </ui-table-column> <!-- 结束当前界面区域。 -->
+      <ui-table-column label="协议 / 格式" min-width="180"> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }">
           <b>{{ transportLabel(row.transport) }}</b> <!-- 渲染 b 界面元素。 -->
           <small class="subline">{{ formatLabel(row.payloadFormat) }}</small> <!-- 渲染 small 界面元素。 -->
         </template>
-      </el-table-column>
-      <el-table-column label="状态" width="110" align="center">
-        <template #default="{ row }"><el-tag :type="tagType(row.status)" round>{{ label(enabledStatuses, row.status) }}</el-tag></template>
-      </el-table-column> <!-- 结束当前界面区域。 -->
-      <el-table-column label="说明" min-width="220" show-overflow-tooltip> <!-- 渲染 el-table-column 界面元素。 -->
+      </ui-table-column>
+      <ui-table-column label="状态" width="110" align="center">
+        <template #default="{ row }"><ui-tag :type="tagType(row.status)" round>{{ label(enabledStatuses, row.status) }}</ui-tag></template>
+      </ui-table-column> <!-- 结束当前界面区域。 -->
+      <ui-table-column label="说明" min-width="220" show-overflow-tooltip> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }">{{ row.description || '-' }}</template>
-      </el-table-column> <!-- 结束当前界面区域。 -->
-      <el-table-column label="操作" width="240" fixed="right" align="center"> <!-- 渲染 el-table-column 界面元素。 -->
+      </ui-table-column> <!-- 结束当前界面区域。 -->
+      <ui-table-column label="操作" width="240" fixed="right" align="center"> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }">
           <div class="table-actions"> <!-- 渲染 div 界面元素。 -->
-            <el-button plain type="primary" @click="view(row)">详情</el-button> <!-- 渲染 el-button 界面元素。 -->
-            <el-button plain @click="bindingProduct=row">协议版本</el-button><el-button v-permission="'PUT /api/v1/products/:id'" plain type="primary" @click="edit(row)">编辑</el-button> <!-- 渲染 el-button 界面元素。 -->
+            <ui-button plain type="primary" @click="view(row)">详情</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+            <ui-button plain @click="bindingProduct=row">协议版本</ui-button><ui-button v-permission="'PUT /api/v1/products/:id'" plain type="primary" @click="edit(row)">编辑</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
         </template>
-      </el-table-column>
-      <template #empty><el-empty description="暂无产品" /></template>
-    </el-table> <!-- 结束当前界面区域。 -->
+      </ui-table-column>
+      <template #empty><ui-empty description="暂无产品" /></template>
+    </ui-table> <!-- 结束当前界面区域。 -->
     <div class="list-pagination"> <!-- 渲染 div 界面元素。 -->
-      <el-pagination v-model:current-page="productPage" v-model:page-size="productPageSize" :total="productTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /> <!-- 渲染 el-pagination 界面元素。 -->
+      <ui-pagination v-model:current-page="productPage" v-model:page-size="productPageSize" :total="productTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /> <!-- 渲染 ui-pagination 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
-  </el-card> <!-- 结束当前界面区域。 -->
+  </ui-card> <!-- 结束当前界面区域。 -->
 
-  <el-dialog v-model="dialog" :title="readonly ? `产品详情 · ${form.name || form.id}` : (form.id ? `编辑产品 · ${form.name}` : '新建产品')" width="min(760px, 94vw)"> <!-- 渲染 el-dialog 界面元素。 -->
-    <el-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 el-form 界面元素。 -->
-      <el-form-item label="产品名称"><el-input v-model="form.name" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item label="产品标识"><el-input v-model="form.code" :disabled="readonly || !!form.id" placeholder="留空自动生成" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+  <ui-dialog v-model="dialog" :title="readonly ? `产品详情 · ${form.name || form.id}` : (form.id ? `编辑产品 · ${form.name}` : '新建产品')" width="min(760px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
+    <ui-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 ui-form 界面元素。 -->
+      <ui-form-item label="产品名称"><ui-input v-model="form.name" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="产品标识"><ui-input v-model="form.code" :disabled="readonly || !!form.id" placeholder="留空自动生成" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <div class="form-grid"> <!-- 渲染 div 界面元素。 -->
-        <el-form-item label="设备分类"><el-select v-model="form.category"><el-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="协议包"><el-select v-model="form.protocolPackageId" :disabled="!!form.id" filterable @change="id => { const p = protocols.find(p => p.id === id); if (p) { form.transport = p.transport === 'MQTT_HTTP' ? 'MQTT' : p.transport; form.payloadFormat = p.payloadFormat } }"><el-option v-for="item in protocols" :key="item.id" :label="item.name" :value="item.id" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="传输协议"><el-select v-model="form.transport"><el-option v-for="x in ['MQTT','HTTP','MQTT_HTTP','TCP','UDP','TCP_UDP','MODBUS_TCP','MODBUS_RTU']" :key="x" :label="transportLabel(x)" :value="x" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="数据格式"><el-select v-model="form.payloadFormat"><el-option label="JSON" value="json" /><el-option label="HEX（十六进制）" value="hex" /><el-option label="Binary（二进制）" value="binary" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+        <ui-form-item label="设备分类"><ui-select v-model="form.category"><ui-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="协议包"><ui-select v-model="form.protocolPackageId" :disabled="!!form.id" filterable @change="id => { const p = protocols.find(p => p.id === id); if (p) { form.transport = p.transport === 'MQTT_HTTP' ? 'MQTT' : p.transport; form.payloadFormat = p.payloadFormat } }"><ui-option v-for="item in protocols" :key="item.id" :label="item.name" :value="item.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="传输协议"><ui-select v-model="form.transport"><ui-option v-for="x in ['MQTT','HTTP','MQTT_HTTP','TCP','UDP','TCP_UDP','MODBUS_TCP','MODBUS_RTU']" :key="x" :label="transportLabel(x)" :value="x" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="数据格式"><ui-select v-model="form.payloadFormat"><ui-option label="JSON" value="json" /><ui-option label="HEX（十六进制）" value="hex" /><ui-option label="Binary（二进制）" value="binary" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <el-form-item label="产品状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /><el-option label="草稿" value="DRAFT" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-    </el-form> <!-- 结束当前界面区域。 -->
+      <ui-form-item label="产品状态"><ui-select v-model="form.status"><ui-option label="已启用" value="ENABLED" /><ui-option label="已停用" value="DISABLED" /><ui-option label="草稿" value="DRAFT" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="说明"><ui-input v-model="form.description" type="textarea" :rows="3" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+    </ui-form> <!-- 结束当前界面区域。 -->
     <template #footer>
-      <el-button v-permission="'PUT /api/v1/products/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</el-button> <!-- 渲染 el-button 界面元素。 -->
-      <el-button @click="dialog=false">关闭</el-button> <!-- 渲染 el-button 界面元素。 -->
-      <el-button v-permission="['POST /api/v1/products','PUT /api/v1/products/:id']" v-if="!readonly" type="primary" :loading="saving" @click="save">保存产品</el-button> <!-- 渲染 el-button 界面元素。 -->
+      <ui-button v-permission="'PUT /api/v1/products/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <ui-button @click="dialog=false">关闭</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <ui-button v-permission="['POST /api/v1/products','PUT /api/v1/products/:id']" v-if="!readonly" type="primary" :loading="saving" @click="save">保存产品</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     </template>
-  </el-dialog>
+  </ui-dialog>
 </template>

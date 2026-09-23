@@ -2,7 +2,7 @@
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage, ElMessageBox } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, notifyError, parseJSON, pretty } from '../api' /* 引入当前代码需要的依赖。 */
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 
@@ -101,7 +101,7 @@ async function save() { /* 定义 save 函数。 */
     delete value.id /* 执行当前语句并推进处理流程。 */
     delete value.genginePlaceholder /* 执行当前语句并推进处理流程。 */
     await api(id ? `/api/v1/rules/${encodeURIComponent(id)}` : '/api/v1/rules', { method:id ? 'PUT' : 'POST', body:JSON.stringify(value) }) /* 等待异步操作完成。 */
-    ElMessage.success('规则已保存') /* 执行当前语句并推进处理流程。 */
+    UiMessage.success('规则已保存') /* 执行当前语句并推进处理流程。 */
     dialog.value = false /* 更新 dialog.value 的值。 */
     await load() /* 等待异步操作完成。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
@@ -111,9 +111,9 @@ async function save() { /* 定义 save 函数。 */
 
 async function remove(id) { /* 定义 remove 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
-    await ElMessageBox.confirm('删除后规则将不再参与告警计算，历史告警仍会保留。', '删除规则', { type:'warning' }) /* 等待异步操作完成。 */
+    await UiMessageBox.confirm('删除后规则将不再参与告警计算，历史告警仍会保留。', '删除规则', { type:'warning' }) /* 等待异步操作完成。 */
     await api(`/api/v1/rules/${encodeURIComponent(id)}`, { method:'DELETE' }) /* 等待异步操作完成。 */
-    ElMessage.success('规则已删除') /* 执行当前语句并推进处理流程。 */
+    UiMessage.success('规则已删除') /* 执行当前语句并推进处理流程。 */
     await load() /* 等待异步操作完成。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     if (error !== 'cancel') notifyError(error) /* 判断条件并选择处理分支。 */
@@ -180,85 +180,85 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
 
 <template>
   <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <el-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()">手动添加规则</el-button> <!-- 渲染 el-button 界面元素。 -->
-    <el-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft">智能生成规则草稿</el-button> <!-- 渲染 el-button 界面元素。 -->
-    <el-button :loading="loading" @click="load">刷新</el-button> <!-- 渲染 el-button 界面元素。 -->
+    <ui-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()">手动添加规则</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+    <ui-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft">智能生成规则草稿</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+    <ui-button :loading="loading" @click="load">刷新</ui-button> <!-- 渲染 ui-button 界面元素。 -->
     <span>共 {{ total }} 条规则，详情、编辑和删除操作位于列表右侧。</span> <!-- 渲染 span 界面元素。 -->
   </div> <!-- 结束当前界面区域。 -->
 
-  <el-card shadow="never" class="surface-card table-card"> <!-- 渲染 el-card 界面元素。 -->
-    <el-table v-loading="loading" :data="rules" stripe> <!-- 渲染 el-table 界面元素。 -->
-      <el-table-column label="规则" min-width="230"> <!-- 渲染 el-table-column 界面元素。 -->
+  <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
+    <ui-table v-loading="loading" :data="rules" stripe> <!-- 渲染 ui-table 界面元素。 -->
+      <ui-table-column label="规则" min-width="230"> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }"><b>{{ row.name }}</b><small class="subline">{{ row.id }}</small></template>
-      </el-table-column> <!-- 结束当前界面区域。 -->
-      <el-table-column label="告警类型" min-width="135"><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-      <el-table-column label="等级" width="100" align="center"><template #default="{ row }"><el-tag :type="tagType(row.level)" round>{{ label(alarmLevels, row.level, '未设置') }}</el-tag></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-      <el-table-column label="状态" width="100" align="center"><template #default="{ row }"><el-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '草稿' }}</el-tag></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-      <el-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-      <el-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-      <el-table-column label="操作" width="280" fixed="right" align="center"> <!-- 渲染 el-table-column 界面元素。 -->
-        <template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="view(row)">详情</el-button><el-button v-permission="'PUT /api/v1/rules/:id'" plain type="primary" @click="open(row)">编辑</el-button><el-button v-permission="'DELETE /api/v1/rules/:id'" plain type="danger" @click="remove(row.id)">删除</el-button></div></template>
-      </el-table-column> <!-- 结束当前界面区域。 -->
-      <template #empty><el-empty description="暂无规则，可手动添加或使用智能生成草稿" /></template>
-    </el-table> <!-- 结束当前界面区域。 -->
+      </ui-table-column> <!-- 结束当前界面区域。 -->
+      <ui-table-column label="告警类型" min-width="135"><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="等级" width="100" align="center"><template #default="{ row }"><ui-tag :type="tagType(row.level)" round>{{ label(alarmLevels, row.level, '未设置') }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="状态" width="100" align="center"><template #default="{ row }"><ui-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '草稿' }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" width="280" fixed="right" align="center"> <!-- 渲染 ui-table-column 界面元素。 -->
+        <template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="view(row)">详情</ui-button><ui-button v-permission="'PUT /api/v1/rules/:id'" plain type="primary" @click="open(row)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/rules/:id'" plain type="danger" @click="remove(row.id)">删除</ui-button></div></template>
+      </ui-table-column> <!-- 结束当前界面区域。 -->
+      <template #empty><ui-empty description="暂无规则，可手动添加或使用智能生成草稿" /></template>
+    </ui-table> <!-- 结束当前界面区域。 -->
     <div class="list-pagination"> <!-- 渲染 div 界面元素。 -->
-      <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /> <!-- 渲染 el-pagination 界面元素。 -->
+      <ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /> <!-- 渲染 ui-pagination 界面元素。 -->
     </div> <!-- 结束当前界面区域。 -->
-  </el-card> <!-- 结束当前界面区域。 -->
+  </ui-card> <!-- 结束当前界面区域。 -->
 
-  <el-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)"> <!-- 渲染 el-dialog 界面元素。 -->
-    <el-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" /> <!-- 渲染 el-input 界面元素。 -->
-    <el-button v-permission="'POST /api/v1/ai/rule-draft'" class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</el-button> <!-- 渲染 el-button 界面元素。 -->
-    <el-alert v-if="draftError" class="top-gap" type="error" :closable="false" show-icon title="规则草稿生成失败" :description="draftError" /> <!-- 渲染 el-alert 界面元素。 -->
-    <el-card v-if="draft" shadow="never" class="inner-card top-gap"> <!-- 渲染 el-card 界面元素。 -->
-      <el-descriptions :column="1"> <!-- 渲染 el-descriptions 界面元素。 -->
-        <el-descriptions-item label="规则名称">{{ draft.name || '未命名' }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="规则含义">{{ draft.description || '智能未提供说明，请在编辑页补充。' }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="告警类型">{{ alarmType(draft.alarmType) }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="告警等级">{{ label(alarmLevels, draft.level, '未设置') }}</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-        <el-descriptions-item label="启用状态">待人工确认</el-descriptions-item> <!-- 渲染 el-descriptions-item 界面元素。 -->
-      </el-descriptions> <!-- 结束当前界面区域。 -->
-      <el-alert class="top-gap" title="结构化数据不支持标准注释" description="可执行结构化数据保持纯净；字段含义、条件运算符和规则引擎替代写法在下面单独展示，避免把说明误当成运行字段。" type="info" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-      <el-form label-position="top" class="top-gap"> <!-- 渲染 el-form 界面元素。 -->
-        <el-form-item label="智能生成的规则配置"><el-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="可选规则引擎表达式（默认注释展示，不会自动启用）"><el-input :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'" type="textarea" :rows="5" readonly /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      </el-form> <!-- 结束当前界面区域。 -->
+  <ui-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
+    <ui-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" /> <!-- 渲染 ui-input 界面元素。 -->
+    <ui-button v-permission="'POST /api/v1/ai/rule-draft'" class="top-gap" type="primary" :loading="drafting" @click="createDraft">生成草稿</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+    <ui-alert v-if="draftError" class="top-gap" type="error" :closable="false" show-icon title="规则草稿生成失败" :description="draftError" /> <!-- 渲染 ui-alert 界面元素。 -->
+    <ui-card v-if="draft" shadow="never" class="inner-card top-gap"> <!-- 渲染 ui-card 界面元素。 -->
+      <ui-descriptions :column="1"> <!-- 渲染 ui-descriptions 界面元素。 -->
+        <ui-descriptions-item label="规则名称">{{ draft.name || '未命名' }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="规则含义">{{ draft.description || '智能未提供说明，请在编辑页补充。' }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="告警类型">{{ alarmType(draft.alarmType) }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="告警等级">{{ label(alarmLevels, draft.level, '未设置') }}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+        <ui-descriptions-item label="启用状态">待人工确认</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+      </ui-descriptions> <!-- 结束当前界面区域。 -->
+      <ui-alert class="top-gap" title="结构化数据不支持标准注释" description="可执行结构化数据保持纯净；字段含义、条件运算符和规则引擎替代写法在下面单独展示，避免把说明误当成运行字段。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+      <ui-form label-position="top" class="top-gap"> <!-- 渲染 ui-form 界面元素。 -->
+        <ui-form-item label="智能生成的规则配置"><ui-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="可选规则引擎表达式（默认注释展示，不会自动启用）"><ui-input :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'" type="textarea" :rows="5" readonly /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      </ui-form> <!-- 结束当前界面区域。 -->
       <div class="rule-help-title">字段说明</div> <!-- 渲染 div 界面元素。 -->
-      <el-table :data="draftPresentation?.fieldDescriptions || fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 el-table 界面元素。 -->
-        <el-table-column prop="field" label="字段" width="210" /> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 el-table-column 界面元素。 -->
-      </el-table> <!-- 结束当前界面区域。 -->
-      <el-button @click="useDraft">载入草稿并编辑</el-button> <!-- 渲染 el-button 界面元素。 -->
-    </el-card> <!-- 结束当前界面区域。 -->
-    <template #footer><el-button @click="draftDialog=false">关闭</el-button></template>
-  </el-dialog> <!-- 结束当前界面区域。 -->
+      <ui-table :data="draftPresentation?.fieldDescriptions || fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 ui-table 界面元素。 -->
+        <ui-table-column prop="field" label="字段" width="210" /> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 ui-table-column 界面元素。 -->
+      </ui-table> <!-- 结束当前界面区域。 -->
+      <ui-button @click="useDraft">载入草稿并编辑</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+    </ui-card> <!-- 结束当前界面区域。 -->
+    <template #footer><ui-button @click="draftDialog=false">关闭</ui-button></template>
+  </ui-dialog> <!-- 结束当前界面区域。 -->
 
-  <el-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)"> <!-- 渲染 el-dialog 界面元素。 -->
-    <el-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 el-form 界面元素。 -->
-      <el-form-item label="规则名称"><el-input v-model="form.name" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item label="规则说明"><el-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
+    <ui-form :model="form" label-position="top" :disabled="readonly"> <!-- 渲染 ui-form 界面元素。 -->
+      <ui-form-item label="规则名称"><ui-input v-model="form.name" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="规则说明"><ui-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <div class="form-grid"> <!-- 渲染 div 界面元素。 -->
-        <el-form-item label="告警类型"><el-select v-model="form.alarmType"><el-option v-for="(text,key) in alarmTypes" :key="key" :label="text" :value="key" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="告警等级"><el-select v-model="form.level"><el-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="所属产品（可选）"><el-select v-model="form.productId" clearable><el-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-        <el-form-item label="条件关系"><el-select v-model="form.match"><el-option label="全部满足" value="all" /><el-option label="任一满足" value="any" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+        <ui-form-item label="告警类型"><ui-select v-model="form.alarmType"><ui-option v-for="(text,key) in alarmTypes" :key="key" :label="text" :value="key" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="告警等级"><ui-select v-model="form.level"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="所属产品（可选）"><ui-select v-model="form.productId" clearable><ui-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="条件关系"><ui-select v-model="form.match"><ui-option label="全部满足" value="all" /><ui-option label="任一满足" value="any" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <el-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" /> <!-- 渲染 el-alert 界面元素。 -->
-      <el-form-item label="规则引擎表达式（可选，填入后优先执行）"><el-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item label="触发条件结构化数据"><el-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item label="恢复条件结构化数据"><el-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <el-form-item label="联动动作结构化数据"><el-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
-      <div class="form-grid"><el-form-item label="持续秒数"><el-input-number v-model="form.durationSeconds" :min="0" /></el-form-item><el-form-item label="保存后状态"><el-switch v-model="form.enabled" active-text="立即启用" inactive-text="保存为草稿" /></el-form-item></div> <!-- 渲染 div 界面元素。 -->
+      <ui-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" /> <!-- 渲染 ui-alert 界面元素。 -->
+      <ui-form-item label="规则引擎表达式（可选，填入后优先执行）"><ui-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="触发条件结构化数据"><ui-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="恢复条件结构化数据"><ui-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item label="联动动作结构化数据"><ui-input v-model="form.actions" type="textarea" :rows="4" placeholder='[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]' /><small>支持定位已登记摄像头或打开平台页面，保存前会校验目标是否有效。</small></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <div class="form-grid"><ui-form-item label="持续秒数"><ui-input-number v-model="form.durationSeconds" :min="0" /></ui-form-item><ui-form-item label="保存后状态"><ui-switch v-model="form.enabled" active-text="立即启用" inactive-text="保存为草稿" /></ui-form-item></div> <!-- 渲染 div 界面元素。 -->
       <div class="rule-help-title">字段说明</div> <!-- 渲染 div 界面元素。 -->
-      <el-table :data="fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 el-table 界面元素。 -->
-        <el-table-column prop="field" label="字段" width="210" /> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 el-table-column 界面元素。 -->
-        <el-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 el-table-column 界面元素。 -->
-      </el-table> <!-- 结束当前界面区域。 -->
-    </el-form> <!-- 结束当前界面区域。 -->
-    <template #footer><el-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</el-button><el-button @click="dialog=false">关闭</el-button><el-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</el-button></template>
-  </el-dialog> <!-- 结束当前界面区域。 -->
+      <ui-table :data="fieldDescriptions" size="small" border class="top-gap"> <!-- 渲染 ui-table 界面元素。 -->
+        <ui-table-column prop="field" label="字段" width="210" /> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column prop="meaning" label="含义" min-width="300" /> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column prop="example" label="示例" min-width="180" /> <!-- 渲染 ui-table-column 界面元素。 -->
+      </ui-table> <!-- 结束当前界面区域。 -->
+    </ui-form> <!-- 结束当前界面区域。 -->
+    <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</ui-button></template>
+  </ui-dialog> <!-- 结束当前界面区域。 -->
 </template>
 
 <style scoped>

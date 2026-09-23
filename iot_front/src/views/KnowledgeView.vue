@@ -3,7 +3,7 @@ import {can} from '../permissions' /* 引入当前代码需要的依赖。 */
 import { statusLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { computed, onMounted, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { FileText, Upload } from '@lucide/vue' /* 引入当前代码需要的依赖。 */
-import { ElMessage } from 'element-plus' /* 引入当前代码需要的依赖。 */
+import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 
 import { api, formatTime, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
 
@@ -121,7 +121,7 @@ async function saveBinding() { /* 定义 saveBinding 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
     const value = await api(`/api/v1/ai/workflows/${encodeURIComponent(bindingWorkflowId.value)}/knowledge-binding`, { method:'PUT', body:JSON.stringify(knowledgeBinding.value) }) /* 声明 value。 */
     knowledgeBinding.value = { ...knowledgeBinding.value, ...value } /* 更新 knowledgeBinding.value 的值。 */
-    ElMessage.success(`已保存 ${agentName(selectedBindingAgent.value)} 的知识库策略`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`已保存 ${agentName(selectedBindingAgent.value)} 的知识库策略`) /* 执行当前语句并推进处理流程。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
     bindingError.value = error.message || '知识库策略保存失败' /* 更新 bindingError.value 的值。 */
   } finally { /* 结束当前表达式或代码块。 */
@@ -139,13 +139,13 @@ function chooseFile(file) { /* 定义 chooseFile 函数。 */
   if (Number(file.size || file.raw?.size || 0) > 32 * 1024 * 1024) { /* 判断条件并选择处理分支。 */
     selectedFile.value = null /* 更新 selectedFile.value 的值。 */
     uploadRef.value?.clearFiles() /* 执行当前语句并推进处理流程。 */
-    ElMessage.error('知识库文件不能超过 32 兆字节') /* 执行当前语句并推进处理流程。 */
+    UiMessage.error('知识库文件不能超过 32 兆字节') /* 执行当前语句并推进处理流程。 */
     return /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
   selectedFile.value = file.raw || null /* 更新 selectedFile.value 的值。 */
 } /* 结束当前表达式或代码块。 */
 function removeFile() { selectedFile.value = null } /* 定义 removeFile 函数。 */
-function rejectExtra() { ElMessage.warning('每次只能上传一个知识库文件') } /* 定义 rejectExtra 函数。 */
+function rejectExtra() { UiMessage.warning('每次只能上传一个知识库文件') } /* 定义 rejectExtra 函数。 */
 async function showDocument(document) { /* 定义 showDocument 函数。 */
   selectedDocument.value = document /* 更新 selectedDocument.value 的值。 */
   selectedDetail.value = null /* 更新 selectedDetail.value 的值。 */
@@ -164,8 +164,8 @@ async function showDocument(document) { /* 定义 showDocument 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 async function upload() { /* 定义 upload 函数。 */
-  if (!workflowId.value) return ElMessage.warning('请选择要关联的智能体') /* 判断条件并选择处理分支。 */
-  if (!selectedFile.value) return ElMessage.warning('请先选择知识库文件') /* 判断条件并选择处理分支。 */
+  if (!workflowId.value) return UiMessage.warning('请选择要关联的智能体') /* 判断条件并选择处理分支。 */
+  if (!selectedFile.value) return UiMessage.warning('请先选择知识库文件') /* 判断条件并选择处理分支。 */
   uploading.value = true /* 更新 uploading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     const form = new FormData() /* 声明 form。 */
@@ -174,7 +174,7 @@ async function upload() { /* 定义 upload 函数。 */
     if (category.value.trim()) form.append('category', category.value.trim()) /* 判断条件并选择处理分支。 */
     if (tags.value.length) form.append('tags', tags.value.join(',')) /* 判断条件并选择处理分支。 */
     const created = await api('/api/v1/knowledge/documents', { method:'POST', body:form }) /* 声明 created。 */
-    ElMessage.success(`知识库已索引并绑定到 ${agentLabel(created.workflowId)}`) /* 执行当前语句并推进处理流程。 */
+    UiMessage.success(`知识库已索引并绑定到 ${agentLabel(created.workflowId)}`) /* 执行当前语句并推进处理流程。 */
     selectedFile.value = null /* 更新 selectedFile.value 的值。 */
     category.value = 'manual' /* 更新 category.value 的值。 */
     tags.value = [] /* 更新 tags.value 的值。 */
@@ -200,13 +200,13 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
         <p>上传设备手册与处置规范，按智能体管理文档和检索方式。</p> <!-- 渲染 p 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
       <div class="knowledge-intro-actions"> <!-- 渲染 div 界面元素。 -->
-        <el-button v-permission="'menu:ai'" @click="emit('navigate', 'ai')">打开智能助手</el-button> <!-- 渲染 el-button 界面元素。 -->
-        <el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :disabled="!canUpload" @click="openUpload"><Upload :size="16" />上传知识文档</el-button> <!-- 渲染 el-button 界面元素。 -->
+        <ui-button v-permission="'menu:ai'" @click="emit('navigate', 'ai')">打开智能助手</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+        <ui-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :disabled="!canUpload" @click="openUpload"><Upload :size="16" />上传知识文档</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
     </header> <!-- 结束当前界面区域。 -->
 
-    <el-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
-    <el-alert v-if="documentsLoaded && !runtime.persistentIndex" title="当前使用内存索引，服务重启后需要重新建立文档检索索引。" type="warning" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+    <ui-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+    <ui-alert v-if="documentsLoaded && !runtime.persistentIndex" title="当前使用内存索引，服务重启后需要重新建立文档检索索引。" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
 
     <section class="knowledge-stats" aria-label="知识库概况"> <!-- 渲染 section 界面元素。 -->
       <div><span>知识文档</span><strong>{{ documentsLoaded ? total : '—' }}</strong><small>当前租户全部文档</small></div> <!-- 渲染 div 界面元素。 -->
@@ -215,92 +215,92 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       <div class="knowledge-index-state"><span>索引存储</span><strong>{{ documentsLoaded ? (runtime.persistentIndex ? '持久化' : '内存') : '读取中' }}</strong><small>{{ runtime.indexMode || '索引模式未返回' }}</small></div> <!-- 渲染 div 界面元素。 -->
     </section> <!-- 结束当前界面区域。 -->
 
-    <el-tabs v-model="activeTab" class="knowledge-tabs"> <!-- 渲染 el-tabs 界面元素。 -->
-      <el-tab-pane name="documents" label="文档"> <!-- 渲染 el-tab-pane 界面元素。 -->
+    <ui-tabs v-model="activeTab" class="knowledge-tabs"> <!-- 渲染 ui-tabs 界面元素。 -->
+      <ui-tab-pane name="documents" label="文档"> <!-- 渲染 ui-tab-pane 界面元素。 -->
         <section class="knowledge-panel documents-panel" aria-label="已上传文档"> <!-- 渲染 section 界面元素。 -->
           <div class="knowledge-panel-heading"> <!-- 渲染 div 界面元素。 -->
             <div><h2>已上传文档</h2><p>查看文档的归属、索引状态和内容切片。</p></div> <!-- 渲染 div 界面元素。 -->
-            <el-button :loading="loading" @click="load">刷新列表</el-button> <!-- 渲染 el-button 界面元素。 -->
+            <ui-button :loading="loading" @click="load">刷新列表</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
 
-          <el-table v-loading="loading" :data="documents" class="knowledge-table"> <!-- 渲染 el-table 界面元素。 -->
-            <el-table-column label="文档" min-width="270"><template #default="{ row }"><div class="document-name"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="关联智能体" min-width="175"><template #default="{ row }">{{ agentLabel(row.workflowId) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="索引状态" width="110"><template #default="{ row }"><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</el-tag></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="内容分片" width="100" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="上传时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <el-table-column label="操作" width="96" align="right"><template #default="{ row }"><el-button plain type="primary" @click="showDocument(row)">查看详情</el-button></template></el-table-column> <!-- 渲染 el-table-column 界面元素。 -->
-            <template #empty><el-empty description="还没有知识文档" /></template>
-          </el-table> <!-- 结束当前界面区域。 -->
+          <ui-table v-loading="loading" :data="documents" class="knowledge-table"> <!-- 渲染 ui-table 界面元素。 -->
+            <ui-table-column label="文档" min-width="270"><template #default="{ row }"><div class="document-name"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="关联智能体" min-width="175"><template #default="{ row }">{{ agentLabel(row.workflowId) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="索引状态" width="110"><template #default="{ row }"><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="内容分片" width="100" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="上传时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="操作" width="96" align="right"><template #default="{ row }"><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <template #empty><ui-empty description="还没有知识文档" /></template>
+          </ui-table> <!-- 结束当前界面区域。 -->
 
           <div v-loading="loading" class="knowledge-mobile-list"> <!-- 渲染 div 界面元素。 -->
             <article v-for="row in documents" :key="row.id" class="knowledge-mobile-document"> <!-- 渲染 article 界面元素。 -->
               <div class="knowledge-mobile-document-head"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div> <!-- 渲染 div 界面元素。 -->
-              <div class="knowledge-mobile-document-meta"><span>{{ agentLabel(row.workflowId) }}</span><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</el-tag></div> <!-- 渲染 div 界面元素。 -->
-              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><el-button plain type="primary" @click="showDocument(row)">查看详情</el-button></div> <!-- 渲染 div 界面元素。 -->
+              <div class="knowledge-mobile-document-meta"><span>{{ agentLabel(row.workflowId) }}</span><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></div> <!-- 渲染 div 界面元素。 -->
+              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button></div> <!-- 渲染 div 界面元素。 -->
             </article> <!-- 结束当前界面区域。 -->
-            <el-empty v-if="!loading && !documents.length" description="还没有知识文档" /> <!-- 渲染 el-empty 界面元素。 -->
+            <ui-empty v-if="!loading && !documents.length" description="还没有知识文档" /> <!-- 渲染 ui-empty 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
 
-          <div class="list-pagination knowledge-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" hide-on-single-page @current-change="changePage" @size-change="changePageSize" /></div> <!-- 渲染 div 界面元素。 -->
+          <div class="list-pagination knowledge-pagination"><ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" hide-on-single-page @current-change="changePage" @size-change="changePageSize" /></div> <!-- 渲染 div 界面元素。 -->
         </section> <!-- 结束当前界面区域。 -->
-      </el-tab-pane> <!-- 结束当前界面区域。 -->
+      </ui-tab-pane> <!-- 结束当前界面区域。 -->
 
-      <el-tab-pane name="policy" label="检索策略"> <!-- 渲染 el-tab-pane 界面元素。 -->
+      <ui-tab-pane name="policy" label="检索策略"> <!-- 渲染 ui-tab-pane 界面元素。 -->
         <section class="knowledge-panel policy-panel" aria-label="知识库策略"> <!-- 渲染 section 界面元素。 -->
           <div class="knowledge-panel-heading"> <!-- 渲染 div 界面元素。 -->
             <div><h2>知识库策略</h2><p>每个智能体只检索属于自己的文档，按需调整回答时的检索规则。</p></div> <!-- 渲染 div 界面元素。 -->
-            <el-button v-if="agents.length" :loading="bindingLoading" @click="loadBinding">刷新策略</el-button> <!-- 渲染 el-button 界面元素。 -->
+            <ui-button v-if="agents.length" :loading="bindingLoading" @click="loadBinding">刷新策略</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
-          <el-empty v-if="!agents.length" description="暂无可配置的智能体；上传文档时仍可输入智能体标识。" /> <!-- 渲染 el-empty 界面元素。 -->
+          <ui-empty v-if="!agents.length" description="暂无可配置的智能体；上传文档时仍可输入智能体标识。" /> <!-- 渲染 ui-empty 界面元素。 -->
           <template v-else>
-            <el-alert v-if="bindingError" :title="bindingError" type="warning" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+            <ui-alert v-if="bindingError" :title="bindingError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
             <div class="knowledge-policy-target"> <!-- 渲染 div 界面元素。 -->
               <label for="knowledge-agent">当前智能体</label> <!-- 渲染 label 界面元素。 -->
-              <el-select id="knowledge-agent" v-model="bindingWorkflowId" filterable :disabled="bindingSaving" placeholder="选择智能体" @change="loadBinding"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></el-select> <!-- 渲染 el-select 界面元素。 -->
+              <ui-select id="knowledge-agent" v-model="bindingWorkflowId" filterable :disabled="bindingSaving" placeholder="选择智能体" @change="loadBinding"><ui-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
               <small>本页 {{ documents.filter(item => item.workflowId === bindingWorkflowId).length }} 份文档归属该智能体</small> <!-- 渲染 small 界面元素。 -->
             </div> <!-- 结束当前界面区域。 -->
-            <el-form v-loading="bindingLoading" class="knowledge-policy-form" label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving"> <!-- 渲染 el-form 界面元素。 -->
+            <ui-form v-loading="bindingLoading" class="knowledge-policy-form" label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving"> <!-- 渲染 ui-form 界面元素。 -->
               <div class="knowledge-policy-section"> <!-- 渲染 div 界面元素。 -->
                 <div class="knowledge-section-copy"><h3>何时检索</h3><p>决定智能体在回答前是否查询知识文档。</p></div> <!-- 渲染 div 界面元素。 -->
-                <el-form-item label="检索模式"><el-radio-group v-model="knowledgeBinding.retrievalMode"><el-radio-button value="auto">按需检索</el-radio-button><el-radio-button value="always">每次强制检索</el-radio-button><el-radio-button value="disabled">禁用</el-radio-button></el-radio-group></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+                <ui-form-item label="检索模式"><ui-radio-group v-model="knowledgeBinding.retrievalMode"><ui-radio-button value="auto">按需检索</ui-radio-button><ui-radio-button value="always">每次强制检索</ui-radio-button><ui-radio-button value="disabled">禁用</ui-radio-button></ui-radio-group></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
               </div> <!-- 结束当前界面区域。 -->
               <div class="knowledge-policy-section"> <!-- 渲染 div 界面元素。 -->
                 <div class="knowledge-section-copy"><h3>匹配要求</h3><p>控制取回的片段数量，以及内容的最低相似度。</p></div> <!-- 渲染 div 界面元素。 -->
-                <div class="knowledge-number-grid"><el-form-item label="召回数量"><el-input-number v-model="knowledgeBinding.topK" :min="1" :max="20" controls-position="right" /></el-form-item><el-form-item label="最低相似度"><el-input-number v-model="knowledgeBinding.minScore" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></el-form-item></div> <!-- 渲染 div 界面元素。 -->
+                <div class="knowledge-number-grid"><ui-form-item label="召回数量"><ui-input-number v-model="knowledgeBinding.topK" :min="1" :max="20" controls-position="right" /></ui-form-item><ui-form-item label="最低相似度"><ui-input-number v-model="knowledgeBinding.minScore" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></ui-form-item></div> <!-- 渲染 div 界面元素。 -->
               </div> <!-- 结束当前界面区域。 -->
               <div class="knowledge-policy-section"> <!-- 渲染 div 界面元素。 -->
                 <div class="knowledge-section-copy"><h3>没有匹配时</h3><p>明确缺少依据时，智能体是否还可以给出一般性回答。</p></div> <!-- 渲染 div 界面元素。 -->
-                <el-form-item label="无匹配知识时"><el-select v-model="knowledgeBinding.noMatchPolicy"><el-option label="允许模型回答，但必须说明证据不足" value="allow-model" /><el-option label="阻止回答，必须先补充知识" value="require-evidence" /></el-select></el-form-item> <!-- 渲染 el-form-item 界面元素。 -->
+                <ui-form-item label="无匹配知识时"><ui-select v-model="knowledgeBinding.noMatchPolicy"><ui-option label="允许模型回答，但必须说明证据不足" value="allow-model" /><ui-option label="阻止回答，必须先补充知识" value="require-evidence" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
               </div> <!-- 结束当前界面区域。 -->
-              <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><el-button v-permission="'PUT /api/v1/ai/workflows/:id/knowledge-binding'" type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</el-button></div> <!-- 渲染 div 界面元素。 -->
-            </el-form> <!-- 结束当前界面区域。 -->
+              <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><ui-button v-permission="'PUT /api/v1/ai/workflows/:id/knowledge-binding'" type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</ui-button></div> <!-- 渲染 div 界面元素。 -->
+            </ui-form> <!-- 结束当前界面区域。 -->
           </template>
         </section>
-      </el-tab-pane>
-    </el-tabs>
+      </ui-tab-pane>
+    </ui-tabs>
 
-    <el-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(620px, 94vw)">
+    <ui-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(620px, 94vw)">
       <div class="knowledge-upload-step"><span>1</span><div><strong>选择文档</strong><small>单个文件不超过 32 兆字节</small></div></div>
-      <el-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><Upload class="upload-icon" /><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、办公文档、网页和文本；扫描件需先进行文字识别。</div></template></el-upload>
+      <ui-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><Upload class="upload-icon" /><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、办公文档、网页和文本；扫描件需先进行文字识别。</div></template></ui-upload>
       <div class="knowledge-upload-step knowledge-upload-step-gap"><span>2</span><div><strong>关联智能体</strong><small>每份文档只属于一个智能体</small></div></div>
-      <el-form label-position="top" class="knowledge-upload-form">
-        <el-form-item label="关联智能体（必选）"><el-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></el-select><small class="field-tip">未启动工作流服务时，可以输入计划使用的智能体标识。</small></el-form-item>
-        <div class="metadata-grid"><el-form-item label="知识分类（可选）"><el-select v-model="category" :disabled="uploading"><el-option label="设备手册" value="manual" /><el-option label="告警处置操作规程" value="alarm-sop" /><el-option label="运维维修" value="maintenance" /><el-option label="消防规范" value="regulation" /><el-option label="常见问题" value="faq" /></el-select></el-form-item><el-form-item label="知识标签（可选）"><el-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></el-form-item></div>
-      </el-form>
-      <template #footer><el-button @click="uploadDialog=false">取消</el-button><el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</el-button></template>
-    </el-dialog> <!-- 结束当前界面区域。 -->
+      <ui-form label-position="top" class="knowledge-upload-form">
+        <ui-form-item label="关联智能体（必选）"><ui-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><ui-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></ui-select><small class="field-tip">未启动工作流服务时，可以输入计划使用的智能体标识。</small></ui-form-item>
+        <div class="metadata-grid"><ui-form-item label="知识分类（可选）"><ui-select v-model="category" :disabled="uploading"><ui-option label="设备手册" value="manual" /><ui-option label="告警处置操作规程" value="alarm-sop" /><ui-option label="运维维修" value="maintenance" /><ui-option label="消防规范" value="regulation" /><ui-option label="常见问题" value="faq" /></ui-select></ui-form-item><ui-form-item label="知识标签（可选）"><ui-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></ui-form-item></div>
+      </ui-form>
+      <template #footer><ui-button @click="uploadDialog=false">取消</ui-button><ui-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</ui-button></template>
+    </ui-dialog> <!-- 结束当前界面区域。 -->
 
-    <el-dialog v-model="detailDialog" title="知识文档详情与切片" width="min(900px, 96vw)"> <!-- 渲染 el-dialog 界面元素。 -->
-      <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon /> <!-- 渲染 el-alert 界面元素。 -->
+    <ui-dialog v-model="detailDialog" title="知识文档详情与切片" width="min(900px, 96vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
+      <ui-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
       <div v-loading="detailLoading" class="knowledge-detail"> <!-- 渲染 div 界面元素。 -->
-        <div v-if="selectedDocument" class="knowledge-detail-file"><FileText class="document-icon" /><div><strong>{{ selectedDocument.filename }}</strong><small>{{ selectedDocument.id }}</small></div><el-tag :type="selectedDocument.status === 'INDEXED' ? 'success' : 'warning'">{{ statusLabel(selectedDocument.status) }}</el-tag></div> <!-- 渲染 div 界面元素。 -->
+        <div v-if="selectedDocument" class="knowledge-detail-file"><FileText class="document-icon" /><div><strong>{{ selectedDocument.filename }}</strong><small>{{ selectedDocument.id }}</small></div><ui-tag :type="selectedDocument.status === 'INDEXED' ? 'success' : 'warning'">{{ statusLabel(selectedDocument.status) }}</ui-tag></div> <!-- 渲染 div 界面元素。 -->
         <dl v-if="selectedDocument" class="knowledge-detail-meta"><div><dt>关联智能体</dt><dd>{{ agentLabel(selectedDocument.workflowId) }}</dd></div><div><dt>知识分类</dt><dd>{{ categoryLabel(selectedDocument.category) }}</dd></div><div><dt>内容统计</dt><dd>{{ selectedDocument.metadata?.chunks || 0 }} 个分片 · {{ formatBytes(selectedDocument.metadata?.size) }}</dd></div><div><dt>上传时间</dt><dd>{{ formatTime(selectedDocument.createdAt) }}</dd></div><div v-if="selectedDocument.tags?.length"><dt>知识标签</dt><dd>{{ selectedDocument.tags.join('、') }}</dd></div></dl> <!-- 渲染 dl 界面元素。 -->
         <section v-if="selectedDetail?.index" class="knowledge-index-rules"><div class="knowledge-detail-section-heading"><h3>索引与切片规则</h3><span>{{ selectedDetail.index.mode }} · {{ selectedDetail.index.vectorizer }}</span></div><div class="knowledge-rule-grid"><div><small>切片策略</small><strong>{{ selectedDetail.index.chunking?.strategy === 'fixed-window-overlap' ? '固定窗口 + 重叠' : selectedDetail.index.chunking?.strategy }}</strong></div><div><small>窗口 / 重叠</small><strong>{{ selectedDetail.index.chunking?.size }} / {{ selectedDetail.index.chunking?.overlap }} 字符</strong></div><div><small>提取文本</small><strong>{{ selectedDetail.index.extractedChars || 0 }} 字符</strong></div><div><small>实际分片</small><strong>{{ selectedDetail.index.chunkCount }}</strong></div></div><p v-if="selectedDetail.index.embeddingModel">向量模型：{{ selectedDetail.index.embeddingModel }}</p></section> <!-- 渲染 section 界面元素。 -->
-        <section v-if="selectedDetail" class="knowledge-chunks"><div class="knowledge-detail-section-heading"><h3>切片内容</h3><span>{{ selectedDetail.chunks?.length || 0 }} 个分片，点击逐条查看</span></div><div v-if="selectedDetail.chunks?.length" class="knowledge-chunk-list"><details v-for="(row, index) in selectedDetail.chunks" :key="row.chunkId || index" :open="index === 0" class="knowledge-chunk"><summary><span class="knowledge-chunk-number">{{ index + 1 }}</span><span>字符范围 [{{ row.startChar }}, {{ row.endChar }})</span><el-tag :type="row.vectorized ? 'success' : 'info'" size="small">{{ row.vectorized ? '向量化完成' : '非向量索引' }}</el-tag></summary><div class="knowledge-chunk-body"><p>{{ row.content }}</p><small>重叠 {{ row.overlapChars || 0 }} 字符 · {{ row.characterCount }} 字符 · {{ row.chunkId }}</small></div></details></div><el-empty v-else description="索引中没有可查看的切片" :image-size="56" /></section> <!-- 渲染 section 界面元素。 -->
+        <section v-if="selectedDetail" class="knowledge-chunks"><div class="knowledge-detail-section-heading"><h3>切片内容</h3><span>{{ selectedDetail.chunks?.length || 0 }} 个分片，点击逐条查看</span></div><div v-if="selectedDetail.chunks?.length" class="knowledge-chunk-list"><details v-for="(row, index) in selectedDetail.chunks" :key="row.chunkId || index" :open="index === 0" class="knowledge-chunk"><summary><span class="knowledge-chunk-number">{{ index + 1 }}</span><span>字符范围 [{{ row.startChar }}, {{ row.endChar }})</span><ui-tag :type="row.vectorized ? 'success' : 'info'" size="small">{{ row.vectorized ? '向量化完成' : '非向量索引' }}</ui-tag></summary><div class="knowledge-chunk-body"><p>{{ row.content }}</p><small>重叠 {{ row.overlapChars || 0 }} 字符 · {{ row.characterCount }} 字符 · {{ row.chunkId }}</small></div></details></div><ui-empty v-else description="索引中没有可查看的切片" :image-size="56" /></section> <!-- 渲染 section 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
-      <template #footer><el-button @click="detailDialog=false">关闭</el-button></template>
-    </el-dialog> <!-- 结束当前界面区域。 -->
+      <template #footer><ui-button @click="detailDialog=false">关闭</ui-button></template>
+    </ui-dialog> <!-- 结束当前界面区域。 -->
   </div> <!-- 结束当前界面区域。 -->
 </template>
 

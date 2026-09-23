@@ -12,7 +12,7 @@ const root = new URL('../src/views/', import.meta.url) /* 声明 root。 */
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(file, api, exports, notifyError = e => { throw e }) { /* 定义 component 函数。 */
   const source = fs.readFileSync(new URL(file, root), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '') /* 声明 source。 */
-  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, ElMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams}) /* 声明 context。 */
+  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams}) /* 为 Naive UI 消息入口提供无副作用替身。 */
   return vm.runInContext(source + '\n;({' + exports + '})', context) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`})) /* 声明 items。 */
