@@ -115,6 +115,10 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     assert.ok(found, `${pageName} 缺少“${actionName}”入口`)
     await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length && getComputedStyle(item).visibility!=='hidden'))"))
     await delay(550)
+    if (pageName==='设备管理' && actionName==='连接详情') {
+      assert.ok(await evaluate("document.querySelectorAll('.device-connection-drawer .connection-status-grid > div').length===6"), '设备连接详情未优先展示六项接入状态')
+      const topShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-device-connection-top.png'),Buffer.from(topShot.data,'base64'))
+    }
     const overlay = await evaluate(`(() => {const m=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),r=m.getBoundingClientRect(),body=m.querySelector('.n-card-content,.n-drawer-body-content-wrapper'),footer=m.querySelector('.n-card__footer'),b=body?.getBoundingClientRect(),f=footer?.getBoundingClientRect(),fields=[...m.querySelectorAll('.n-form-item,.n-input,.n-select,.n-alert')].filter(e=>e.getClientRects().length),outside=fields.filter(e=>{const x=e.getBoundingClientRect();return x.left<r.left-2||x.right>r.right+2}).map(e=>e.innerText.slice(0,25));let reachable=true;if(body&&body.scrollHeight>body.clientHeight+2){body.scrollTop=body.scrollHeight;reachable=body.scrollTop>0}return {title:m.querySelector('.n-card-header__main,.n-drawer-header__main')?.innerText||'',rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},withinViewport:r.left>=-1&&r.right<=innerWidth+1&&r.top>=-1&&r.bottom<=innerHeight+1,footerSeparate:!f||!b||b.bottom<=f.top+2,reachable,outside}})()`)
     assert.ok(overlay.withinViewport && overlay.footerSeparate && overlay.reachable && !overlay.outside.length, `${pageName} / ${actionName} 弹层布局或滚动异常：${JSON.stringify(overlay)}`)
     const capture=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),`iot-overlay-${overlayCases.indexOf(overlayCases.find(item=>item[0]===pageName&&item[1]===actionName&&item[2]===tabName))}.png`),Buffer.from(capture.data,'base64'))
@@ -378,6 +382,9 @@ try { /* 所有浏览器资源在 finally 中释放。 */
       await until(() => evaluate("document.querySelectorAll('.n-modal .device-tag-row input').length===2"))
     }
     await delay(550)
+    if (pageName==='设备管理' && actionName==='连接详情') {
+      const topShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-device-connection-mobile-top.png'),Buffer.from(topShot.data,'base64'))
+    }
     const layout = await evaluate("(()=>{const m=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),r=m.getBoundingClientRect(),body=m.querySelector('.n-card-content,.n-drawer-body-content-wrapper'),fields=[...m.querySelectorAll('.n-form-item,.n-input,.n-select,.n-alert')].filter(e=>e.getClientRects().length),outside=fields.filter(e=>{const x=e.getBoundingClientRect();return x.left<r.left-2||x.right>r.right+2}).map(e=>e.innerText.slice(0,25));let reachable=true;if(body&&body.scrollHeight>body.clientHeight+2){body.scrollTop=body.scrollHeight;reachable=body.scrollTop>0}return {rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},reachable,outside}})()")
     assert.ok(layout.rect.left>=-1&&layout.rect.right<=layout.viewport.width+1&&layout.rect.top>=-1&&layout.rect.bottom<=layout.viewport.height+1&&layout.reachable&&!layout.outside.length,`${pageName} / ${actionName} 手机弹层溢出：${JSON.stringify(layout)}`)
     const shot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),`iot-mobile-overlay-${overlayCases.findIndex(item=>item[0]===pageName&&item[1]===actionName&&item[2]===tabName)}.png`),Buffer.from(shot.data,'base64'))

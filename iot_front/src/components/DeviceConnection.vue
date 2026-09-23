@@ -142,7 +142,9 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
       <ui-empty v-if="!data && !loading && !error" description="暂无设备信息" /> <!-- 渲染 ui-empty 界面元素。 -->
       <template v-if="data">
         <section class="connection-section device-summary"> <!-- 渲染 section 界面元素。 -->
-          <h3>连接概览</h3> <!-- 渲染 h3 界面元素。 -->
+          <h3>当前接入状态</h3>
+          <div class="connection-status-grid" role="status"><div><span>业务状态</span><strong>{{label(businessStatuses,data.connection?.businessStatus) || '未知'}}</strong></div><div><span>连接状态</span><strong>{{label(connectionStatuses,data.connection?.connectionStatus) || '未知'}}</strong></div><div><span>数据状态</span><strong>{{label(dataStatuses,data.connection?.dataStatus) || '未知'}}</strong></div><div><span>最近上报</span><strong>{{formatTime(data.connection?.lastSeenAt)}}</strong></div><div><span>原文接收</span><strong>{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</strong></div><div><span>解析状态</span><strong>{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</strong></div></div>
+          <h4 class="connection-subtitle">设备与协议</h4>
           <ui-descriptions :column="columns" border> <!-- 渲染 ui-descriptions 界面元素。 -->
             <ui-descriptions-item label="设备">{{data.device.name || props.deviceId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="设备模板">{{data.product?.name || data.device.productId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
@@ -150,14 +152,8 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <ui-descriptions-item label="创建时间">{{formatTime(data.device.createdAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="当前绑定协议">{{data.protocolId || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="绑定版本">{{data.protocolVersion || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="连接状态">{{label(connectionStatuses,data.connection?.connectionStatus) || '未知'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="数据状态">{{label(dataStatuses,data.connection?.dataStatus) || '未知'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="业务状态">{{label(businessStatuses,data.connection?.businessStatus) || '未知'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="最后上报">{{formatTime(data.connection?.lastSeenAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="最后连接">{{formatTime(data.connection?.lastConnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="最后断开">{{formatTime(data.connection?.lastDisconnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="原文接收">{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item label="解析状态">{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.profile" label="平台连接配置">{{data.profile.id}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.profile" label="连接运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
@@ -303,6 +299,11 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 .connection-toolbar strong { display:block; font-size:17px; color:#0f172a; } /* 定义当前元素的样式规则。 */
 .connection-toolbar small { display:block; overflow-wrap:anywhere; color:#52637a; } /* 定义当前元素的样式规则。 */
 .connection-section { min-width:0; margin:0 0 16px; padding:18px; border:1px solid #d5dde8; border-radius:8px; background:#fff; } /* 定义当前元素的样式规则。 */
+.connection-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:20px; }
+.connection-status-grid > div { min-width:0; padding:11px 13px; border:1px solid #dce7f3; border-radius:7px; background:#f5f9fe; }
+.connection-status-grid span { display:block; margin-bottom:4px; color:#60718a; font-size:12px; }
+.connection-status-grid strong { display:block; color:#1c3e67; font-size:14px; line-height:1.45; overflow-wrap:anywhere; }
+.connection-subtitle { margin:0 0 10px; color:#334861; font-size:13px; font-weight:650; }
 h3 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin:0 0 14px; font-size:14px; font-weight:650; line-height:1.5; color:#172b4d; } /* 设置 h3 { display 样式。 */
 h3 small { font-size:13px; font-weight:400; color:#52637a; } /* 设置 h3 small { font-size 样式。 */
 p { margin:10px 0; color:#52637a; overflow-wrap:anywhere; } /* 设置 p { margin 样式。 */
@@ -323,6 +324,8 @@ pre { max-height:320px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywh
   :global(.device-connection-drawer .el-drawer__header) { padding:16px; } /* 设置  样式。 */
   :global(.device-connection-drawer .el-drawer__body) { padding:12px; } /* 设置  样式。 */
   .connection-section { padding:12px; margin-bottom:12px; } /* 定义当前元素的样式规则。 */
+  .connection-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-bottom:16px; }
+  .connection-status-grid > div { padding:9px; }
   :deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:100px; } /* 设置  样式。 */
   :deep(.el-descriptions__cell) { padding:9px !important; } /* 设置  样式。 */
 } /* 结束当前样式规则。 */

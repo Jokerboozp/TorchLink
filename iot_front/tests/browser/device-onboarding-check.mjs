@@ -18,10 +18,10 @@ try {
   socket.onmessage=event=>{const value=JSON.parse(event.data);if(value.id){const p=pending.get(value.id);pending.delete(value.id);value.error?p.reject(new Error(value.error.message)):p.resolve(value.result)}}
   const call=(method,params={})=>new Promise((resolve,reject)=>{const next=++id;pending.set(next,{resolve,reject});socket.send(JSON.stringify({id:next,method,params}))})
   const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.text+' '+JSON.stringify(r.exceptionDetails.exception));return r.result.value}
-  const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button,label')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`),text)
+  const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button,label')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(text)}||e.textContent.trim()===${JSON.stringify(text)})&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`),text)
   const fill=async(label,value)=>until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item,.n-form-item')].find(e=>e.querySelector('.n-form-item-label,.el-form-item__label,label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const input=item?.querySelector('input');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));return true})()`),`input: ${label}`)
   const select=async(label,match)=>{await until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item,.n-form-item')].find(e=>e.querySelector('.n-form-item-label,.el-form-item__label,label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const control=item?.querySelector('.n-base-selection');if(!control)return false;control.click();return true})()`),`select: ${label}`);await until(()=>evaluate(`(()=>{const option=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.includes(${JSON.stringify(match)})&&e.getClientRects().length);if(!option)return false;option.click();return true})()`),`option: ${match}`)}
-  const capture=async name=>{await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'),`${name} horizontal overflow`);const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(join(tmpdir(),`iot-onboarding-${name}.png`),Buffer.from(shot.data,'base64'))}
+  const capture=async name=>{await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'),`${name} horizontal overflow`);if(!name.endsWith('-bottom'))assert.ok(await evaluate("(()=>{const heading=document.querySelector('.onboarding-card .step-intro h3'),content=document.querySelector('.main-content');if(!heading||!content)return false;const h=heading.getBoundingClientRect(),c=content.getBoundingClientRect();return h.top>=c.top-1&&h.top<c.bottom})()"),`${name} step heading not visible`);const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(join(tmpdir(),`iot-onboarding-${name}.png`),Buffer.from(shot.data,'base64'))}
   await call('Page.enable')
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false})
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_TOKEN)});localStorage.setItem('iot_tenant','tenant');localStorage.setItem('iot_role','admin');localStorage.setItem('iot_user','browser-test');`})
@@ -31,11 +31,19 @@ try {
   await capture('desktop-start')
   await click('首次接入新型号')
   await capture('desktop-new-template')
+  await evaluate("document.querySelector('.onboarding-optional summary').click()")
+  await until(()=>evaluate("document.querySelector('.onboarding-optional input')?.getClientRects().length>0"),'optional template details')
+  await evaluate("document.querySelector('.main-content').scrollTop=document.querySelector('.main-content').scrollHeight")
+  await capture('desktop-template-optional-bottom')
   await fill('模板名称','浏览器新型号')
   await select('设备通信协议','标准设备上报')
   await click('下一步')
   await until(()=>evaluate(`document.querySelector('.onboarding-workspace')?.textContent.includes('填写设备信息') && !!document.querySelector('.onboarding-workspace input[placeholder="例如 一层东侧烟感"]')`),'new template saved')
   await capture('desktop-device-info')
+  await evaluate("document.querySelector('.onboarding-optional summary').click()")
+  await until(()=>evaluate("document.querySelector('.onboarding-optional textarea')?.getClientRects().length>0"),'optional device details')
+  await evaluate("document.querySelector('.main-content').scrollTop=document.querySelector('.main-content').scrollHeight")
+  await capture('desktop-device-optional-bottom')
   await fill('设备名称','浏览器现场设备')
   await click('使用平台编号')
   await click('下一步')
