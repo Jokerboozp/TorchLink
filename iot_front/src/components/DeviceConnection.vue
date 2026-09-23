@@ -57,6 +57,7 @@ async function load() { /* 定义 load 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
     const result = await api(`${base()}/connection${selectedProfile.value ? `?profileId=${encodeURIComponent(selectedProfile.value)}` : ''}`,{signal:controller.signal}) /* 声明 result。 */
     if (current !== generation) return /* 判断条件并选择处理分支。 */
+    if (!result?.device?.id) throw new Error('设备连接信息不完整，请刷新后重试。')
     data.value = result; selectedProfile.value = result.profile?.id || '' /* 更新 data.value 的值。 */
     const jobs = [loadList('history'),loadList('events')] /* 声明 jobs。 */
     if (isParent.value) jobs.push(loadList('children')) /* 判断条件并选择处理分支。 */

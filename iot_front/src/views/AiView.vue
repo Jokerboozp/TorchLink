@@ -171,6 +171,7 @@ function scheduleScroll() { /* 定义 scheduleScroll 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 function providerLabel(provider) { /* 定义 providerLabel 函数。 */
+  if (provider === 'disabled') return '未启用'
   return providerOptions.find(item => item.id === provider)?.label || provider || '未配置' /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -652,6 +653,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 @keyframes pulse { 50% { opacity:.28; transform:translateY(-2px); } } /* 定义当前元素的样式规则。 */
 .controls-toggle { display:none; } @media (max-width:1120px) {.ai-runtime { gap:10px; flex-wrap:wrap; }.runtime-status { white-space:normal; flex-wrap:wrap; }.quick-prompts { flex-wrap:nowrap; overflow-x:auto; }.quick-prompts button { flex:none; } } /* 定义当前元素的样式规则。 */
 @media (max-width:760px) { .controls-toggle { display:inline-flex; }.ai-workbench { grid-template-columns:1fr; }.control-card { display:none; }.ai-workbench.is-controls-open .ai-chat-card { display:none; }.ai-workbench.is-controls-open .control-card { display:flex; } } /* 按屏幕条件调整样式。 */
+@media (max-width:640px) { .quick-prompts { flex-wrap:wrap; overflow-x:visible; }.quick-prompts button { flex:1 1 100%; min-width:0; white-space:normal; text-align:left; overflow-wrap:anywhere; } }
 @media (max-width:640px) { .ai-runtime>div:first-child { display:none; }.ai-runtime { padding:10px 12px; min-height:0; }.runtime-status { font-size:12px; }.chat-header small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }.ai-runtime { align-items:flex-start; flex-direction:column; }.runtime-actions,.runtime-status { width:100%; white-space:normal; flex-wrap:wrap; }.runtime-actions { align-items:flex-start; }.runtime-actions .el-button:first-of-type { margin-left:auto; }.runtime-overview { grid-template-columns:1fr; }.chat-header { align-items:flex-start; gap:8px; }.chat-header>div:last-child { flex-wrap:wrap; justify-content:flex-end; }.message-content { max-width:88%; }.chat-compose .el-button { min-width:58px; }.binding-numbers { grid-template-columns:1fr; }.manager-shell { grid-template-columns:1fr; gap:16px; }.manager-menu { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }.manager-menu :deep(.el-menu-item) { height:54px; margin:0 3px 0 0; padding:0 7px !important; justify-content:center; }.manager-menu-copy small { display:none; }.manager-menu-icon { display:none; }.workflow-admin-toolbar { align-items:flex-start; flex-direction:column; }.workflow-admin-toolbar>div:last-child { width:100%; }.workflow-admin-toolbar>div:last-child .el-button { flex:1; }.workflow-admin-item { flex-direction:column; }.workflow-admin-actions { width:100%; }.workflow-admin-actions .el-button { flex:1; } } /* 按屏幕条件调整样式。 */
 @media (max-width:520px) { .manifest-field { grid-template-columns:1fr auto; }.manifest-field p { grid-column:1 / -1; }.tool-whitelist>div { grid-template-columns:1fr; } } /* 按屏幕条件调整样式。 */
 

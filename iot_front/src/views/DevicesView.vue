@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api, apiAll, formatTime, notifyError, parseJSON, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
+import { api, apiAll, formatTime, notifyError, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 import DeviceConnection from '../components/DeviceConnection.vue' /* 引入当前代码需要的依赖。 */
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
@@ -36,7 +36,7 @@ function categoryOf(productId) { return products.value.find(item => item.id === 
 function matchesCategory(productId) { return !deviceCategory.value || categoryOf(productId) === deviceCategory.value } /* 定义 matchesCategory 函数。 */
 function changeDeviceFilter() { registryPage.value = 1; unregisteredPage.value = 1 } /* 定义 changeDeviceFilter 函数。 */
 
-const blank = () => ({ id:'', code:'', name:'', productId:'', deviceRole:'DIRECT', gatewayId:'', status:'ENABLED', tags:pretty({}), description:'' }) /* 声明 blank。 */
+const blank = () => ({ id:'', code:'', name:'', productId:'', deviceRole:'DIRECT', gatewayId:'', status:'ENABLED', tags:[{key:'',value:''}], description:'' }) /* 声明 blank。 */
 const form = reactive(blank()) /* 声明 form。 */
 const gateways = computed(() => registryOptions.value.filter(item => roleOf(item.device) === 'GATEWAY')) /* 声明 gateways。 */
 
@@ -48,7 +48,7 @@ function deviceName(id) { return registryOptions.value.find(item => item.device.
 function relation(row) { /* 定义 relation 函数。 */
   const role = roleOf(row.device) /* 声明 role。 */
   if (role === 'GATEWAY') return `${row.childCount || 0} 个子设备` /* 判断条件并选择处理分支。 */
-  if (role === 'CHILD') return `所属网关：${deviceName(row.device.gatewayId)}` /* 判断条件并选择处理分支。 */
+  if (role === 'CHILD') return `所属主设备：${deviceName(row.device.gatewayId)}` /* 判断条件并选择处理分支。 */
   return '独立接入' /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -79,16 +79,17 @@ function changeRegistryPage(value) { registryPage.value = value } /* 定义 chan
 function changeRegistryPageSize(value) { registryPageSize.value = value; registryPage.value = 1 } /* 定义 changeRegistryPageSize 函数。 */
 function changeUnregisteredPage(value) { unregisteredPage.value = value } /* 定义 changeUnregisteredPage 函数。 */
 function changeUnregisteredPageSize(value) { unregisteredPageSize.value = value; unregisteredPage.value = 1 } /* 定义 changeUnregisteredPageSize 函数。 */
-function open(device) { Object.assign(form, blank(), device ? { ...device, code:device.id, tags:pretty(device.tags || {}) } : {deviceRole:deviceGroups[deviceTab.value].role}); dialog.value = true } /* 定义 open 函数。 */
+function open(device) { const tags = Object.entries(device?.tags || {}).map(([key,value]) => ({key,value})); Object.assign(form, blank(), device ? { ...device, code:device.id, tags:tags.length ? tags : [{key:'',value:''}] } : {deviceRole:deviceGroups[deviceTab.value].role}); dialog.value = true } /* 定义 open 函数。 */
 
 async function save() { /* 定义 save 函数。 */
   if (saving.value) return /* 判断条件并选择处理分支。 */
   if (!form.name.trim() || !form.productId || (!form.id && !form.code.trim())) return UiMessage.warning('请填写设备名称、模板和实际设备编号')
-  if (form.deviceRole === 'CHILD' && !form.gatewayId) return UiMessage.warning('请选择所属网关') /* 判断条件并选择处理分支。 */
+  if (form.deviceRole === 'CHILD' && !form.gatewayId) return UiMessage.warning('请选择所属主设备') /* 判断条件并选择处理分支。 */
   saving.value = true /* 更新 saving.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     if (!form.id && form.code && registryOptions.value.some(item => item.device.id === form.code)) return UiMessage.warning('设备标识已存在，请在列表中编辑') /* 判断条件并选择处理分支。 */
-    const value = { ...form, id:form.id || form.code, tags:parseJSON(form.tags, '标签结构化数据') } /* 声明 value。 */
+    const tags = Object.fromEntries(form.tags.filter(row => row.key.trim()).map(row => [row.key.trim(), row.value]))
+    const value = { ...form, id:form.id || form.code, tags } /* 声明 value。 */
     delete value.code /* 执行当前语句并推进处理流程。 */
     const editing = Boolean(form.id) /* 声明 editing。 */
     if (value.deviceRole !== 'CHILD') value.gatewayId = '' /* 判断条件并选择处理分支。 */
@@ -132,7 +133,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
       <ui-table-column label="设备类型" min-width="130"><template #default="{ row }">{{ label(categories, categoryOf(row.device.productId)) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="运行状态" width="105"><template #default="{ row }"><ui-tag :type="tagType(row.runtimeState?.businessStatus)" round>{{ label(businessStatuses, row.runtimeState?.businessStatus || 'NEVER_SEEN') }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="启用状态" width="105"><template #default="{ row }"><span class="device-enabled-state" :class="{ 'is-enabled': row.device.status === 'ENABLED' }"><i aria-hidden="true" />{{ label(enabledStatuses, row.device.status) }}</span></template></ui-table-column> <!-- 启用状态用圆点和文字，减少重复标签。 -->
-      <ui-table-column label="接入关系" width="120"><template #default="{ row }"><span class="device-role-text">{{ label(deviceRoles, roleOf(row.device), '直接设备') }}</span><small v-if="row.device.autoRegistered" class="subline">协议子设备</small></template></ui-table-column> <!-- 设备角色使用普通文字，保留自动注册说明。 -->
+      <ui-table-column label="接入关系" width="120"><template #default="{ row }"><span class="device-role-text">{{ label(deviceRoles, roleOf(row.device), '独立设备') }}</span><small v-if="row.device.autoRegistered" class="subline">协议子设备</small></template></ui-table-column> <!-- 设备角色使用普通文字，保留自动注册说明。 -->
       <ui-table-column label="所属关系" min-width="150"><template #default="{ row }">{{ relation(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="操作" fixed="right" width="240" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain @click="connectionDevice=row.device.id">连接详情</ui-button><ui-button v-if="hasReported(row)" v-permission="'menu:raw'" plain type="success" @click="openRaw(row.device.id)">查看数据</ui-button><ui-button v-permission="'PUT /api/v1/device-registry/:id'" plain @click="open(row.device)">编辑</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
@@ -144,7 +145,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   <ui-card v-if="deviceTab === 'independent' && unregisteredTotal" shadow="never" class="surface-card table-card top-gap"> <!-- 渲染 ui-card 界面元素。 -->
     <template #header><div class="card-header"><strong>未注册设备</strong><small>{{ unregisteredTotal }} 台</small></div></template>
     <ui-table :data="unregistered" stripe> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column prop="deviceId" label="设备标识" min-width="190" /><ui-table-column label="产品" min-width="150"><template #default="{ row }">{{ productName(row.productId) }}</template></ui-table-column><ui-table-column label="业务状态" width="105"><template #default="{ row }"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="连接状态" width="110"><template #default="{ row }">{{ label(connectionStatuses, row.connectionStatus) }}</template></ui-table-column><ui-table-column label="数据状态" width="110"><template #default="{ row }">{{ label(dataStatuses, row.dataStatus) }}</template></ui-table-column><ui-table-column label="最后活跃" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="操作" fixed="right" width="120" align="center"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'POST /api/v1/discovered-devices/:id/register'" type="primary" plain @click="register(row.deviceId)">一键注册</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column prop="deviceId" label="设备标识" min-width="190" /><ui-table-column label="设备模板" min-width="150"><template #default="{ row }">{{ productName(row.productId) }}</template></ui-table-column><ui-table-column label="业务状态" width="105"><template #default="{ row }"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="连接状态" width="110"><template #default="{ row }">{{ label(connectionStatuses, row.connectionStatus) }}</template></ui-table-column><ui-table-column label="数据状态" width="110"><template #default="{ row }">{{ label(dataStatuses, row.dataStatus) }}</template></ui-table-column><ui-table-column label="最后活跃" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="操作" fixed="right" width="120" align="center"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'POST /api/v1/discovered-devices/:id/register'" type="primary" plain @click="register(row.deviceId)">一键注册</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <template #empty><ui-empty description="当前没有未注册设备" /></template>
     </ui-table> <!-- 结束当前界面区域。 -->
     <div class="list-pagination"><ui-pagination v-model:current-page="unregisteredPage" v-model:page-size="unregisteredPageSize" :total="unregisteredTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeUnregisteredPage" @size-change="changeUnregisteredPageSize" /></div> <!-- 渲染 div 界面元素。 -->
@@ -153,16 +154,16 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   <ui-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving"> <!-- 渲染 ui-dialog 界面元素。 -->
     <ui-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save"> <!-- 渲染 ui-form 界面元素。 -->
       <ui-form-item label="设备模板" required> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-select v-model="form.productId" filterable placeholder="选择产品"><ui-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
+        <ui-select v-model="form.productId" filterable placeholder="选择设备模板"><ui-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
         <ui-button v-permission="'menu:products'" v-if="!products.length" link @click="dialog=false;emit('navigate','products')">新建设备模板</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       </ui-form-item> <!-- 结束当前界面区域。 -->
       <ui-form-item label="设备名称" required><ui-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="实际设备编号" required><ui-input v-model="form.code" :disabled="!!form.id" placeholder="填写设备实际使用的上报标识" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-form-item label="接入关系"><ui-radio-group v-model="form.deviceRole"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item v-if="form.deviceRole === 'CHILD'" label="所属网关" required><ui-select v-model="form.gatewayId" filterable><ui-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+      <ui-form-item v-if="form.deviceRole === 'CHILD'" label="所属主设备" required><ui-select v-model="form.gatewayId" filterable><ui-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       <ui-collapse><ui-collapse-item title="更多设置" name="advanced"> <!-- 渲染 ui-collapse 界面元素。 -->
         <ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-form-item label="标签"><ui-input v-model="form.tags" type="textarea" :rows="3" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+        <ui-form-item label="标签"><div class="device-tag-list"><div v-for="(row,index) in form.tags" :key="index" class="device-tag-row"><ui-input v-model="row.key" placeholder="名称" /><ui-input v-model="row.value" placeholder="内容" /><ui-button @click="form.tags.splice(index,1)">移除</ui-button></div><ui-button @click="form.tags.push({key:'',value:''})">添加标签</ui-button></div></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
         <ui-form-item label="备注"><ui-input v-model="form.description" type="textarea" :rows="2" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
       </ui-collapse-item></ui-collapse> <!-- 结束当前界面区域。 -->
     </ui-form> <!-- 结束当前界面区域。 -->
@@ -172,3 +173,6 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   <ui-dialog v-model="credentialDialog" title="设备凭证" @closed="credential={}" width="min(520px, 92vw)"><ui-alert title="密钥只显示这一次，请立即复制并安全保存。" type="warning" :closable="false" /><ui-descriptions class="top-gap" :column="1" border><ui-descriptions-item label="接入密钥"><code>{{ credential.accessKey }}</code></ui-descriptions-item><ui-descriptions-item label="设备密钥"><code class="break-all">{{ credential.secret }}</code></ui-descriptions-item></ui-descriptions><template #footer><ui-button @click="credentialDialog = false">关闭</ui-button><ui-button type="primary" @click="copyCredential">复制凭证</ui-button></template></ui-dialog> <!-- 渲染 ui-dialog 界面元素。 -->
   </template>
 </template>
+<style scoped>
+.device-tag-list{width:100%}.device-tag-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}.device-tag-row>*{min-width:0}.device-tag-row .n-input{flex:1}@media(max-width:640px){.device-tag-row{flex-wrap:wrap}.device-tag-row .n-input{flex-basis:calc(50% - 4px)}}
+</style>

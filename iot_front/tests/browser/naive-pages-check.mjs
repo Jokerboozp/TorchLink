@@ -7,7 +7,7 @@ import { join } from 'node:path'
 
 const browser = process.env.IOT_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' /* 使用本机 Edge 的独立会话。 */
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173' /* 只访问合成数据预览服务。 */
-const pages = ['运行总览', '协议管理', '产品管理', '设备管理', '接入网关', '接入测试', '摄像头映射', '告警中心', '智能巡检', '原始报文', '告警规则', '模型管理', '智能助手', '知识库', '备份中心', '用户与权限'] /* 检查全部主菜单。 */
+const pages = ['运行总览', '设备通信协议', '设备模板', '设备管理', '平台连接配置', '模拟设备测试', '摄像头映射', '告警中心', '智能巡检', '原始报文', '告警规则', '模型管理', '智能助手', '知识库', '备份中心', '用户与权限'] /* 检查全部主菜单。 */
 const profile = await mkdtemp(join(tmpdir(), 'iot-naive-pages-')) /* 隔离浏览器本地数据。 */
 const child = spawn(browser, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' }) /* 启动临时浏览器。 */
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms)) /* 给页面渲染留出短暂时间。 */
@@ -55,7 +55,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/access/roles' ? { items:[{ id:'viewer', name:'查看员', permissions:[] }] }
         : path === '/api/v1/access/permissions' ? { items:[{ id:'menu:devices', name:'设备管理', kind:'menu', menu:'devices' },{ id:'GET /api/v1/devices', name:'查看设备', kind:'action', menu:'devices' }] }
         : path === '/api/v1/access/device-options' ? { items:[{ id:'device-demo', name:'测试设备' }] }
-        : path === '/api/v1/device-registry' && options?.method === 'POST' ? { credential:{ accessKey:'fixture-access-key', secret:'fixture-device-secret' } }
+        : path === '/api/v1/device-registry/device-demo/connection' ? { device:{id:'device-demo',name:'一层走廊烟感',productId:'product-demo',deviceRole:'DIRECT',status:'ENABLED',createdAt:Date.now(),accessKey:'fixture-access-key',tags:{connector:'MQTT'}},product:{id:'product-demo',name:'烟雾探测器',status:'ENABLED',transport:'MQTT',thingModel:{properties:[],commands:[]}},connector:'MQTT',protocolId:'iot-standard',protocolVersion:'1.0.0',connection:{connectionStatus:'CONNECTED',dataStatus:'FRESH',businessStatus:'ONLINE',lastSeenAt:Date.now()},accessInfo:{mqttBroker:'mqtts://devices.example.test:8883',clientId:'device-demo',username:'fixture-access-key',upTopic:'/iot/up/fixture/product-demo/device-demo/property',downTopic:'/iot/down/fixture/product-demo/device-demo/command',tokenEndpoint:'/api/v1/device-mqtt/token',sample:{temperature:22}},ingest:{configurationSaved:true,rawReceived:false,parsed:false,stage:'WAITING_FOR_DATA'},profile:null,profiles:[],sessions:[],latestProperties:[],recentAlarms:[],revocations:[],credentialSupported:true,credentialEnabled:true }
+        : path === '/api/v1/device-registry' && options?.method === 'POST' ? (window.__postedDevice = JSON.parse(options.body), { credential:{ accessKey:'fixture-access-key', secret:'fixture-device-secret' } })
         : path.startsWith('/api/v1/backups?') ? { items:[{ id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now() }], total:1 }
         : path === '/api/v1/backups/backup-demo' ? { id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now(), details:{}, objectKey:'backup/manifest.json' }
         : path.startsWith('/api/v1/backups/backup-demo/files?') ? { artifacts:[{ component:'原始报文', filename:'raw-messages.jsonl.gz', size:313, checksum:'fixture' }], total:1, components:{ rawMessages:{ records:1 } } }
@@ -90,14 +91,14 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     console.log(`${name} 按钮：${(await evaluate("[...document.querySelectorAll('.main-content button')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim()).filter(Boolean).slice(0,35)" )).join('、')}`)
     if (name==='运行总览') { assert.ok(await evaluate("(() => {const cards=[...document.querySelectorAll('.stat-card')];return cards.length===4 && cards.map(card=>getComputedStyle(card).borderTopColor).join('|')==='rgb(19, 56, 108)|rgb(22, 163, 74)|rgb(243, 129, 40)|rgb(220, 38, 38)' && getComputedStyle(document.querySelector('.device-ring circle')).transitionProperty.includes('stroke-dashoffset')})()"), '仪表盘色条或圆环过渡未生效'); assert.ok(!contrastAudit.some(item=>item.text==='已登记设备'&&item.contrast<4.5), '总览统计卡片的说明文字对比不足') } /* 检查总览主题与说明可读性。 */
     if (name==='备份中心') assert.ok(await evaluate("(() => {const card=document.querySelector('.backup-stat-grid .n-card-content'),label=card?.querySelector('span'),value=card?.querySelector('strong'),note=card?.querySelector('small');if(!label||!value||!note)return false;const a=label.getBoundingClientRect(),b=value.getBoundingClientRect(),c=note.getBoundingClientRect();return a.bottom<=b.top&&b.bottom<=c.top})()"), '备份概览卡片的标题、数值和说明挤在同一行') /* 卡片内容应按层级纵向排列。 */
-    if (name==='设备管理') assert.ok(await evaluate("(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(item=>item.innerText.includes('一层走廊烟感'));return row && row.querySelectorAll('.n-tag').length===1 && row.querySelector('.device-enabled-state')?.innerText.includes('已启用') && row.querySelector('.device-role-text')?.innerText.includes('直接设备')})()"), '设备列表仍堆叠多个状态标签') /* 仅运行状态保留标签。 */
+    if (name==='设备管理') assert.ok(await evaluate("(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(item=>item.innerText.includes('一层走廊烟感'));return row && row.querySelectorAll('.n-tag').length===1 && row.querySelector('.device-enabled-state')?.innerText.includes('已启用') && row.querySelector('.device-role-text')?.innerText.includes('独立设备')})()"), '设备列表仍堆叠多个状态标签') /* 仅运行状态保留标签。 */
     { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存每个主页面的临时截图供逐页复核。 */
   } /* 结束页面遍历。 */
   const overlayCases = [
-    ['运行总览','详情'],['协议管理','查看版本'],['协议管理','上传源码'],['协议管理','协议生成'],
-    ['产品管理','新建产品'],['产品管理','详情'],['产品管理','编辑'],
-    ['设备管理','添加独立设备'],['设备管理','编辑'],['设备管理','连接详情'],
-    ['接入网关','新建网关'],['接入网关','编辑'],['摄像头映射','新增摄像头'],
+    ['运行总览','详情'],['设备通信协议','查看版本'],['设备通信协议','上传源码'],['设备通信协议','协议生成'],
+    ['设备模板','新建设备模板'],['设备模板','详情'],['设备模板','编辑'],
+    ['设备管理','快捷添加'],['设备管理','编辑'],['设备管理','连接详情'],
+    ['平台连接配置','新建平台连接配置'],['平台连接配置','编辑'],['摄像头映射','新增摄像头'],
     ['告警中心','查看详情'],['原始报文','详情'],
     ['告警规则','手动添加规则'],['告警规则','智能生成规则草稿'],['告警规则','详情'],['告警规则','编辑'],
     ['智能助手','智能体管理'],['知识库','上传知识文档'],['知识库','查看详情'],
@@ -204,7 +205,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.knowledge-upload-dialog .n-base-close').click()")
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
   await call('Emulation.setDeviceMetricsOverride', { width:1440, height:900, deviceScaleFactor:1, mobile:false }) /* 恢复桌面视口。 */
-  await evaluate("document.querySelector('.menu-item[aria-label=\"协议管理\"]').click()") /* 检查上传源码弹窗的额外目标选择。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"设备通信协议\"]').click()") /* 检查上传源码弹窗的额外目标选择。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')))")) /* 等待协议工具栏。 */
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('上传源码')).click()") /* 打开源码上传弹窗。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('编译选项')))")) /* 等待编译选项。 */
@@ -268,20 +269,20 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate(`document.querySelector('.n-modal .n-card-content').scrollTop<=${alarmWheel.top}`)) /* 验证双向滚动。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭告警详情。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待详情关闭。 */
-  await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 检查协议回滚弹窗。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 检查协议回滚弹窗。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('协议版本')))")) /* 等待产品数据。 */
   await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('协议版本')).click()") /* 打开协议版本弹窗。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('回滚上一版本')))")) /* 等待弹窗页脚。 */
   assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),buttons=[...modal.querySelectorAll('button')].filter(b=>['回滚上一版本','绑定协议'].includes(b.innerText.trim())),a=buttons[0].getBoundingClientRect(),b=buttons[1].getBoundingClientRect(),style=getComputedStyle(buttons[0]);return buttons.length===2 && a.right+6<=b.left && style.color!=='rgb(255, 255, 255)'})()"), '回滚上一版本按钮不可读或紧贴绑定按钮') /* 弹窗页脚保留文字与间距。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭绑定弹窗。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待弹窗关闭。 */
-  await evaluate("document.querySelector('.menu-item[aria-label=\"接入网关\"]').click()") /* 检查接入网关表单。 */
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('新建网关')))")) /* 等待工具栏。 */
-  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('新建网关')).click()") /* 打开网关表单。 */
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('保存接入网关')))")) /* 等待表单内容。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"平台连接配置\"]').click()") /* 检查平台连接配置表单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('新建平台连接配置')))")) /* 等待工具栏。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('新建平台连接配置')).click()") /* 打开网关表单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('保存平台连接配置')))")) /* 等待表单内容。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-collapse-item__header-main')?.click()") /* 展开网关高级配置。 */
   await call('Emulation.setDeviceMetricsOverride', { width: 1000, height: 600, deviceScaleFactor: 1, mobile: false }) /* 用较短视口检查长表单。 */
-  const gatewayLayout = await evaluate("(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),body=m.querySelector('.n-card-content'),save=[...m.querySelectorAll('button')].find(b=>b.innerText.includes('保存接入网关'));body.scrollTop=300;return {scrollHeight:body.scrollHeight,clientHeight:body.clientHeight,scrollTop:body.scrollTop,buttonRight:save.getBoundingClientRect().right,modalRight:m.getBoundingClientRect().right}})()") /* 读取网关表单几何信息。 */
+  const gatewayLayout = await evaluate("(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),body=m.querySelector('.n-card-content'),save=[...m.querySelectorAll('button')].find(b=>b.innerText.includes('保存平台连接配置'));body.scrollTop=300;return {scrollHeight:body.scrollHeight,clientHeight:body.clientHeight,scrollTop:body.scrollTop,buttonRight:save.getBoundingClientRect().right,modalRight:m.getBoundingClientRect().right}})()") /* 读取网关表单几何信息。 */
   assert.ok(gatewayLayout.scrollTop>0 && gatewayLayout.buttonRight<=gatewayLayout.modalRight-12, `网关编辑表单无法滚动或保存按钮错位：${JSON.stringify(gatewayLayout)}`) /* 长表单保持可滚动且按钮在弹窗内。 */
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭网关表单。 */
@@ -297,10 +298,10 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate("Boolean(document.querySelector('.control-scroll') && document.querySelector('.chat-log'))")) /* 等待双栏内容。 */
   assert.ok(await evaluate("(() => {const left=document.querySelector('.control-scroll');left.scrollTop=200;return left.scrollTop>0})()"), '智能助手运行参数无法向下滚动') /* 左侧长配置须可达。 */
   assert.ok(await evaluate("(() => {const log=document.querySelector('.chat-log');for(let i=0;i<30;i++){const item=document.createElement('p');item.textContent='滚动测试';log.append(item)}log.scrollTop=200;return log.scrollTop>0})()"), '智能助手对话记录无法向下滚动') /* 对话滚动容器需保持有效。 */
-  await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 打开产品管理检查表单。 */
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '产品管理'")) /* 等待页面切换。 */
-  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.textContent.includes('新建产品')).click()") /* 打开新建产品弹窗。 */
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('产品名称')))")) /* 确认 Naive UI 弹窗显示字段。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 打开设备模板检查表单。 */
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '设备模板'")) /* 等待页面切换。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.textContent.includes('新建设备模板')).click()") /* 打开新建设备模板弹窗。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('模板名称')))")) /* 确认 Naive UI 弹窗显示字段。 */
   await evaluate("[...document.querySelectorAll('.n-modal .n-form-item')].find(item => item.innerText.includes('设备分类')).querySelector('.n-base-selection').click()") /* 展开设备分类下拉框。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option => option.getClientRects().length))")) /* 确认选项实际可交互。 */
   await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(option => option.getClientRects().length).click()") /* 选择首个设备分类。 */
@@ -312,8 +313,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-drawer')].find(drawer => drawer.getClientRects().length && drawer.innerText.includes('设备连接与数据')))")) /* 确认抽屉显示。 */
   await evaluate("document.querySelector('.n-drawer .n-base-close').click()") /* 关闭受控抽屉。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-drawer')].some(drawer => drawer.getClientRects().length)")) /* 确认抽屉解除挂载。 */
-  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.innerText.includes('添加独立设备')).click()") /* 打开设备编辑表单。 */
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('设备角色')))")) /* 确认角色控件显示。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.innerText.includes('快捷添加')).click()") /* 打开设备编辑表单。 */
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('接入关系')))")) /* 确认角色控件显示。 */
   await evaluate("document.querySelector('.n-modal .n-collapse-item__header-main').click()") /* 展开更多设置。 */
   await until(() => evaluate("Boolean(document.querySelector('.n-modal [role=switch]'))")) /* 等待设备状态开关。 */
   const initialSwitch = await evaluate("document.querySelector('.n-modal [role=switch]').getAttribute('aria-checked')") /* 记录原状态。 */
@@ -357,25 +358,57 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.n-modal .n-base-close').click()") /* 关闭设置弹窗。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 等待关闭。 */
   assert.ok(await evaluate("document.querySelector('.app-shell').getBoundingClientRect().bottom <= innerHeight + 1"), '窄屏工作区超过视口高度') /* 窄屏滚动区域也须留在视口内。 */
+  for (const name of pages) {
+    await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(name)}]').click()`)
+    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText===${JSON.stringify(name)}`))
+    await delay(120)
+    const width = await evaluate("({document:document.documentElement.scrollWidth,viewport:innerWidth,content:document.querySelector('.main-content').getBoundingClientRect().width})")
+    assert.ok(width.document <= width.viewport + 2 && width.content <= width.viewport + 2, `${name} 手机视图横向溢出：${JSON.stringify(width)}`)
+    const shot = await call('Page.captureScreenshot', { format:'png' }); await writeFile(join(tmpdir(), `iot-mobile-${pages.indexOf(name)}.png`), Buffer.from(shot.data, 'base64'))
+  }
+  console.log(`PASS: ${pages.length} 个主页面手机视图无横向溢出`)
+  for (const [pageName, actionName, tabName] of overlayCases) {
+    await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(pageName)}]').click()`)
+    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText===${JSON.stringify(pageName)}`))
+    if (tabName) { await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`)); await evaluate(`[...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`) }
+    await until(() => evaluate(`(()=>{const button=[...document.querySelectorAll('.main-content button')].find(item=>item.getClientRects().length&&item.innerText.trim()===${JSON.stringify(actionName)});if(!button)return false;button.click();return true})()`), `${pageName} 手机视图缺少“${actionName}”入口`)
+    await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'))"))
+    if (pageName==='设备管理' && actionName==='快捷添加') {
+      await evaluate("document.querySelector('.n-modal .n-collapse-item__header-main').click()")
+      await until(() => evaluate("document.querySelectorAll('.n-modal .device-tag-row input').length===2"))
+    }
+    await delay(550)
+    const layout = await evaluate("(()=>{const m=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),r=m.getBoundingClientRect(),body=m.querySelector('.n-card-content,.n-drawer-body-content-wrapper'),fields=[...m.querySelectorAll('.n-form-item,.n-input,.n-select,.n-alert')].filter(e=>e.getClientRects().length),outside=fields.filter(e=>{const x=e.getBoundingClientRect();return x.left<r.left-2||x.right>r.right+2}).map(e=>e.innerText.slice(0,25));let reachable=true;if(body&&body.scrollHeight>body.clientHeight+2){body.scrollTop=body.scrollHeight;reachable=body.scrollTop>0}return {rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},reachable,outside}})()")
+    assert.ok(layout.rect.left>=-1&&layout.rect.right<=layout.viewport.width+1&&layout.rect.top>=-1&&layout.rect.bottom<=layout.viewport.height+1&&layout.reachable&&!layout.outside.length,`${pageName} / ${actionName} 手机弹层溢出：${JSON.stringify(layout)}`)
+    const shot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),`iot-mobile-overlay-${overlayCases.findIndex(item=>item[0]===pageName&&item[1]===actionName&&item[2]===tabName)}.png`),Buffer.from(shot.data,'base64'))
+    await evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')?.querySelector('.n-base-close')?.click()")
+    await until(() => evaluate("![...document.querySelectorAll('.n-modal,.n-drawer')].some(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')"))
+  }
+  console.log(`PASS: ${overlayCases.length} 个弹层手机视图布局与滚动检查`)
   await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: true }) /* 缩短视口验证长表单滚动。 */
-  await evaluate("document.querySelector('.menu-item[aria-label=\"产品管理\"]').click()") /* 打开长表单所在页面。 */
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '产品管理'")) /* 等待页面切换。 */
-  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.innerText.includes('新建产品')).click()") /* 打开产品表单。 */
+  await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 打开长表单所在页面。 */
+  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '设备模板'")) /* 等待页面切换。 */
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.innerText.includes('新建设备模板')).click()") /* 打开产品表单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length))")) /* 等待弹窗显示。 */
   assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),body=modal.querySelector('.n-card-content');body.scrollTop=200;return modal.getBoundingClientRect().bottom<=innerHeight+1 && body.scrollTop>0})()"), '窄屏长弹窗正文无法上下滚动') /* 长表单应在弹窗内部滚动。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭产品表单。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 等待关闭。 */
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"设备管理\"]').click()") /* 凭证弹窗仅在新增设备后出现，使用合成响应覆盖。 */
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(b=>b.innerText==='添加独立设备'))"))
-  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(b=>b.innerText==='添加独立设备').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.page-toolbar button')].find(b=>b.innerText==='快捷添加'))"))
+  await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(b=>b.innerText==='快捷添加').click()")
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length&&m.innerText.includes('保存设备')))"))
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-select .n-base-selection').click()")
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length))"))
   await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length).click()")
   await evaluate("(() => {const input=document.querySelector('input[placeholder=\"例如 一层东侧烟感\"]');input.value='验收设备';input.dispatchEvent(new Event('input',{bubbles:true}))})()")
+  await evaluate("(() => {const input=document.querySelector('input[placeholder=\"填写设备实际使用的上报标识\"]');input.value='fixture-site-device';input.dispatchEvent(new Event('input',{bubbles:true}))})()")
+  await evaluate("document.querySelector('.n-modal .n-collapse-item__header-main').click()")
+  await until(() => evaluate("document.querySelectorAll('.n-modal .device-tag-row input').length===2"))
+  await evaluate("(() => {const inputs=[...document.querySelectorAll('.n-modal .device-tag-row input')];inputs[0].value='楼栋';inputs[0].dispatchEvent(new Event('input',{bubbles:true}));inputs[1].value='A座';inputs[1].dispatchEvent(new Event('input',{bubbles:true}))})()")
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-card__footer button:last-child').click()")
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length&&m.innerText.includes('fixture-device-secret')))"))
+  assert.equal(await evaluate("window.__postedDevice?.tags?.['楼栋']"),'A座','快捷添加设备标签未按名称和内容保存')
   await delay(400)
   assert.ok(await evaluate("(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),r=m.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&m.innerText.includes('fixture-access-key')&&m.innerText.includes('复制凭证')})()"), '设备凭证弹窗未显示完整密钥或复制操作')
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()")
