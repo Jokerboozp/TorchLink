@@ -78,6 +78,9 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button:not(.n-button--disabled):hover { background-color: var(--n-color-hover); color: var(--n-text-color-hover); transform: none; box-shadow: none; } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button.n-button--primary-type { color: #fff; } /* 设置后台页面的布局与视觉样式。 */
 .n-button.el-button.n-button--secondary.n-button--primary-type { color: var(--primary); } /* 次级主按钮使用品牌深蓝文字。 */
+.n-button.el-button.n-button--warning-type:not(.n-button--secondary):not(.n-button--text):not(.n-button--disabled) { color: #3f2a0d; } /* 橙色实底按钮改用深色文字。 */
+.n-button.el-button.n-button--secondary.n-button--warning-type:not(.n-button--disabled) { color: #835000; } /* 浅底告警操作使用深橙文字。 */
+.n-button.el-button.n-button--secondary.n-button--success-type:not(.n-button--disabled) { color: #166534; } /* 浅底成功操作使用深绿文字。 */
 .n-button.el-button.n-button--error-type:not(.n-button--secondary):not(.n-button--text):not(.n-button--disabled) { color: #c93636; background-color: #fff5f5; } /* 默认危险按钮使用浅红底和深红字。 */
 .n-button.el-button.n-button--secondary.n-button--error-type { color: #c93636; } /* 描边删除按钮使用深红色文字。 */
 .n-button.el-button.n-button--error-type:not(.n-button--disabled):hover { color: #a92323; background-color: #fee9e9; } /* 悬停时危险操作文字仍清晰可见。 */

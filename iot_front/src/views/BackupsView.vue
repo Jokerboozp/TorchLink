@@ -240,8 +240,8 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .toolbar-hint { color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
 .muted-text { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; } /* 定义当前元素的样式规则。 */
-.backup-stat-grid :deep(.el-card) { border: 0; box-shadow: none; background: #f5f7fa; } /* 定义当前元素的样式规则。 */
-.backup-stat-grid :deep(.el-card__body) { min-height: 116px; display: flex; flex-direction: column; justify-content: center; gap: 7px; } /* 定义当前元素的样式规则。 */
+.backup-stat-grid :deep(.n-card) { border: 0; box-shadow: none; background: #f5f7fa; } /* 卡片样式命中当前 Naive UI 结构。 */
+.backup-stat-grid :deep(.n-card-content) { min-height: 116px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 7px; } /* 标题、数值和说明分行排列。 */
 .backup-stat-grid span { color: var(--foreground); font-size: 13px; font-weight: 700; line-height: 1.3; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid strong { color: var(--ink); font-size: 28px; line-height: 1.1; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid small { color: #475569; font-size: 12px; line-height: 1.5; } /* 定义当前元素的样式规则。 */

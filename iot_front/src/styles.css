@@ -169,6 +169,7 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .list-pagination { display:flex; justify-content:flex-end; padding:14px 16px; border-top:1px solid var(--border); background:#fff; } /* 定义当前元素的样式规则。 */
 .list-pagination .el-pagination { flex-wrap:wrap; justify-content:flex-end; } /* 定义当前元素的样式规则。 */
 .card-header { width: 100%; justify-content: space-between; gap: 14px; } /* 定义当前元素的样式规则。 */
+.card-header > div:first-child:not(:last-child) { min-width: 0; display: grid; gap: 3px; } /* 带副标题的卡片头将标题与说明分行。 */
 .card-header small { color: var(--muted-foreground); font-weight: 400; } /* 定义当前元素的样式规则。 */
 .el-button { min-height: 32px; height: 32px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--el-button-border-color, var(--border)); border-radius: .5rem; font-size: 13px; font-weight: 500; line-height: 1; box-shadow: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; } /* 定义当前元素的样式规则。 */
 .el-button--small { min-height: 28px; height: 28px; padding: 0 10px; font-size: 13px; } /* 定义当前元素的样式规则。 */
@@ -257,7 +258,7 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
 .stat-card > .el-card__body { height: 136px; padding: 20px; display: grid; align-content: space-between; } /* 定义当前元素的样式规则。 */
 .stat-card span { color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
 .stat-card strong { align-self: end; color: var(--foreground); font-size: 34px; line-height: 1; letter-spacing: -.05em; } /* 定义当前元素的样式规则。 */
-.stat-card small { color: #94a3b8; font-size: 12px; } /* 定义当前元素的样式规则。 */
+.stat-card small { color: #52657d; font-size: 12px; } /* 数值说明在白底卡片上保持可读。 */
 .stat-card small.success { color: var(--success-foreground); }.stat-card small.warning { color: var(--warning-foreground); }.stat-card small.danger { color: var(--destructive); } /* 定义当前元素的样式规则。 */
 .stat-card { border-radius: var(--radius) !important; box-shadow: none !important; } /* 定义当前元素的样式规则。 */
 .stat-card i { position: absolute; right: 18px; top: 18px; width: 8px; height: 8px; background: #dbeafe; border-radius: .625rem; } /* 定义当前元素的样式规则。 */

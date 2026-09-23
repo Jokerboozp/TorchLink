@@ -55,7 +55,7 @@ export const UiTabs = defineComponent({ /* 标签页使用 Naive UI，保持原�
   props: { modelValue: [String, Number], type: String }, /* 当前标签页。 */
   emits: ['update:modelValue', 'tab-change', 'tab-click'], /* 保留旧业务事件。 */
   setup(props, { attrs, slots, emit }) { return () => { /* 把业务页签声明转换为 Naive UI 直接子节点。 */
-    const panes = nested(slots.default?.()).filter(node => node.type === UiTabPane || node.type?.name === 'UiTabPane').map(node => h(NTabPane, { ...node.props, name: node.props?.name || node.props?.label, tab: node.props?.label }, node.children)) /* 保留动态页签和内部内容。 */
+    const panes = nested(slots.default?.()).filter(node => node.type === UiTabPane || node.type?.name === 'UiTabPane').map(node => h(NTabPane, { ...node.props, name: node.props?.name || node.props?.label, tab: node.props?.label }, { ...(node.children?.default ? { default: node.children.default } : {}), tab: () => node.props?.label })) /* 明确提供页签标题插槽，避免空白页签。 */
     return h(NTabs, { ...attrs, class: ['el-tabs', attrs.class], value: props.modelValue, type: props.type === 'border-card' ? 'card' : 'line', size: 'small', 'onUpdate:value': value => { emit('update:modelValue', value); emit('tab-change', value); emit('tab-click', { props: { name: value } }) } }, { default: () => panes }) /* 绘制 Naive UI 标签页。 */
   } } /* 结束标签页渲染。 */
 }) /* 结束标签页适配。 */

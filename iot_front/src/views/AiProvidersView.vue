@@ -230,9 +230,9 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .ai-management-hero-copy h3 { margin:0; color:#1f2329; font-size:22px; letter-spacing:-.02em; } /* 定义当前元素的样式规则。 */
 .ai-management-hero-copy p { max-width:720px; margin:0; color:#646c73; font-size:13px; line-height:1.8; } /* 定义当前元素的样式规则。 */
 .ai-active-provider { display:grid; align-content:center; gap:5px; padding:16px; background:#f5f7fa; border-radius:.625rem; } /* 定义当前元素的样式规则。 */
-.ai-active-provider-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#64748b; font-size:12px; } /* 定义当前元素的样式规则。 */
+.ai-active-provider-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#52657d; font-size:12px; } /* 浅底状态卡的辅助文字保持足够对比。 */
 .ai-active-provider strong { color:#1554ad; font-size:16px; } /* 定义当前元素的样式规则。 */
-.ai-active-provider small { color:#64748b; font-size:12px; line-height:1.5; word-break:break-all; } /* 定义当前元素的样式规则。 */
+.ai-active-provider small { color:#52657d; font-size:12px; line-height:1.5; word-break:break-all; } /* 浅底状态卡的辅助文字保持足够对比。 */
 .ai-management-grid { display:grid; grid-template-columns:minmax(300px,420px) minmax(0,1fr); gap:16px; align-items:start; } /* 定义当前元素的样式规则。 */
 .ai-provider-config :deep(.el-form-item) { margin-bottom:12px; } /* 定义当前元素的样式规则。 */
 .ai-provider-config :deep(.el-select) { width:100%; } /* 定义当前元素的样式规则。 */
@@ -245,7 +245,7 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .provider-test-result.failed { background:#fff2f0; border-color:#ffccc7; } /* 定义当前元素的样式规则。 */
 .provider-test-result>div { display:flex; justify-content:space-between; align-items:center; gap:8px; } /* 定义当前元素的样式规则。 */
 .provider-test-result p { margin:8px 0; color:#3d3d3d; font-size:12px; line-height:1.6; white-space:pre-wrap; } /* 定义当前元素的样式规则。 */
-.provider-test-result span,.provider-test-result small { color:#8c8c8c; font-size:12px; } /* 定义当前元素的样式规则。 */
+.provider-test-result span,.provider-test-result small { color:var(--muted-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
 .provider-test-result small { display:block; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .provider-key-hint { display:block; margin-top:9px; color:#64748b; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .provider-viewer-summary { display:grid; gap:10px; } /* 定义当前元素的样式规则。 */
@@ -257,9 +257,9 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .ai-capability-dot { width:8px; height:8px; background:#cbd5e1; border-radius:50%; } /* 定义当前元素的样式规则。 */
 .ai-capability-dot.online { background:#52c41a; box-shadow:0 0 0 3px #f6ffed; } /* 定义当前元素的样式规则。 */
 .ai-capability-item strong { color:#303133; font-size:13px; } /* 定义当前元素的样式规则。 */
-.ai-capability-item p { margin:3px 0 0; color:#7b8490; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
+.ai-capability-item p { margin:3px 0 0; color:var(--muted-foreground); font-size:12px; line-height:1.5; } /* 能力说明在白底上保持可读。 */
 .provider-name { display:flex; align-items:center; gap:6px; } /* 定义当前元素的样式规则。 */
-.provider-name small { color:#86909c; } /* 定义当前元素的样式规则。 */
+.provider-name small { color:var(--muted-foreground); } /* 定义当前元素的样式规则。 */
 .provider-capabilities { display:flex; flex-wrap:wrap; gap:4px; } /* 定义当前元素的样式规则。 */
 .ai-management-note { margin-bottom:2px; } /* 定义当前元素的样式规则。 */
 @media (max-width:860px) { .ai-management-hero-grid,.ai-management-grid { grid-template-columns:1fr; } } /* 按屏幕条件调整样式。 */
