@@ -205,12 +205,24 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 <template>
   <ui-config-provider size="small"> <!-- 渲染 ui-config-provider 界面元素。 -->
     <div v-if="!authenticated" class="login-page"> <!-- 渲染 div 界面元素。 -->
-      <section class="login-intro"><div class="login-brand"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section> <!-- 渲染 section 界面元素。 -->
+      <section class="login-intro">
+        <div class="login-intro-header"><div class="login-brand"><img src="/torchlink-sidebar.svg" alt="炬联 TorchLink" /></div><span>消防物联网管理平台</span></div>
+        <div class="login-intro-copy"><span class="login-eyebrow">智慧消防 · 全域感知</span><h1>连接现场设备<br /><em>守护每一处安全</em></h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p></div>
+        <div class="login-scene" aria-hidden="true">
+          <div class="login-scene-glow"></div>
+          <div class="login-scene-card">
+            <div class="login-scene-title"><span><i></i>现场运行态势</span><small>实时感知</small></div>
+            <div class="login-scene-body"><div class="login-scene-building"><span></span><span></span><span></span></div><div class="login-scene-status"><span><i></i>设备接入</span><span><i></i>状态监测</span><span><i></i>告警响应</span></div></div>
+          </div>
+          <div class="login-scene-signal"><Network /><span>多协议连接</span><i></i><i></i><i></i></div>
+        </div>
+        <div class="login-intro-footer"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div>
+      </section> <!-- 渲染 section 界面元素。 -->
       <section class="login-panel"> <!-- 渲染 section 界面元素。 -->
         <form class="login-form" @submit.prevent="login"> <!-- 渲染 form 界面元素。 -->
-          <span class="login-mark"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span> <!-- 渲染 span 界面元素。 -->
-          <h2>欢迎回来</h2> <!-- 渲染 h2 界面元素。 -->
-          <p>登录你的账户，进入炬联工作台</p> <!-- 渲染 p 界面元素。 -->
+          <span class="login-mark"><img src="/torchlink-login.svg" alt="炬联 TorchLink" /></span> <!-- 完整显示横向品牌图。 -->
+          <h2>欢迎使用炬联</h2> <!-- 渲染 h2 界面元素。 -->
+          <p>登录账户，进入消防物联网工作台</p> <!-- 渲染 p 界面元素。 -->
           <div class="login-fields"> <!-- 渲染 div 界面元素。 -->
             <div class="login-field"> <!-- 渲染 div 界面元素。 -->
               <label for="tenant-id">租户</label> <!-- 渲染 label 界面元素。 -->

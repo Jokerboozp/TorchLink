@@ -115,7 +115,7 @@ function hasReported(row) { return Number(row.runtimeState?.lastSeenAt || 0) > 0
 function openRaw(id) { emit('navigate', 'raw', { deviceId:id }) } /* 定义 openRaw 函数。 */
 
 const realtime = () => { updatesAvailable.value = true } /* 声明 realtime。 */
-onMounted(() => { const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}'); const draftKey = `iot:device-onboarding:${session.tenant}:${session.user}`; if (detail.onboarding || localStorage.getItem(draftKey)) onboarding.value = true; sessionStorage.removeItem('iot:navigation-detail'); load(); window.addEventListener('iot:realtime', realtime) })
+onMounted(() => { const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}'); if (detail.onboarding) onboarding.value = true; sessionStorage.removeItem('iot:navigation-detail'); load(); window.addEventListener('iot:realtime', realtime) })
 onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* 执行当前语句并推进处理流程。 */
 </script>
 

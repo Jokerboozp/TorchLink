@@ -92,19 +92,57 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .break-all { word-break: break-all; } /* 定义当前元素的样式规则。 */
 
 /* Login */
-.login-page { height: 100%; display: grid; place-items: center; overflow: auto; background: var(--background); } /* 定义当前元素的样式规则。 */
-.login-panel { width: min(440px, 100%); padding: 24px; } /* 定义当前元素的样式规则。 */
-.login-form { padding: 36px; background: #fff; border: 1px solid var(--border); border-radius: 20px; box-shadow: 0 16px 48px #00000005; } /* 定义当前元素的样式规则。 */
-.login-mark { position: relative; width: 58px; height: 58px; display: block; overflow: hidden; margin-bottom: 24px; border-radius: 13px; background: #fff; } /* 定义当前元素的样式规则。 */
-.login-mark img { position: absolute; width: 260px; max-width: none; height: auto; top: -8px; left: -60px; } /* 定义当前元素的样式规则。 */
-.login-form h2 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.04em; } /* 定义当前元素的样式规则。 */
-.login-form > p { margin: 8px 0 28px; font-size: 13px; color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
-.login-fields { display: grid; gap: 18px; } /* 定义当前元素的样式规则。 */
-.login-field { display: grid; gap: 8px; } /* 定义当前元素的样式规则。 */
-.login-field label { color: var(--secondary-foreground); font-size: 13px; font-weight: 600; } /* 定义当前元素的样式规则。 */
-.login-field .el-input { width: 100%; } /* 定义当前元素的样式规则。 */
-.login-field .el-input__wrapper { min-height: 42px; } /* 定义当前元素的样式规则。 */
-.login-submit { width: 100%; min-height: 42px; margin-top: 28px; } /* 定义当前元素的样式规则。 */
+.login-page { width: 100%; height: 100%; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(360px, .82fr); align-items: stretch; gap: clamp(24px, 4vw, 72px); padding: clamp(20px, 3.5vw, 52px); overflow: auto; background: radial-gradient(circle at 88% 12%, #e7f0fb 0, transparent 36%), #f4f7fb; }
+.login-intro { position: relative; display: flex; flex-direction: column; min-height: 690px; padding: clamp(32px, 3.6vw, 56px); overflow: hidden; border-radius: 30px; color: #fff; background: radial-gradient(circle at 80% 55%, #1e5b91 0, transparent 44%), linear-gradient(145deg, #0d2d58 0%, #123f71 60%, #0b315d 100%); box-shadow: 0 24px 60px #15375e24; }
+.login-intro::before { position: absolute; inset: 0; content: ''; pointer-events: none; opacity: .4; background-image: linear-gradient(#ffffff0a 1px, transparent 1px), linear-gradient(90deg, #ffffff0a 1px, transparent 1px); background-size: 42px 42px; mask-image: linear-gradient(to bottom, transparent 18%, #000 100%); }
+.login-intro-header, .login-intro-copy, .login-scene, .login-intro-footer { position: relative; z-index: 1; }
+.login-intro-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.login-brand { width: 180px; height: 58px; flex: none; }
+.login-brand img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.login-intro-header > span { padding: 7px 11px; border: 1px solid #ffffff38; border-radius: 999px; color: #d6e6f6; font-size: 12px; white-space: nowrap; }
+.login-intro-copy { margin-top: clamp(65px, 10vh, 112px); }
+.login-eyebrow { color: #9dd0fa; font-size: 13px; font-weight: 600; letter-spacing: .16em; }
+.login-intro h1 { margin: 18px 0 18px; font-size: clamp(36px, 3.4vw, 54px); font-weight: 650; letter-spacing: -.04em; line-height: 1.27; }
+.login-intro h1 em { color: #ffbc7a; font-style: normal; }
+.login-intro-copy p { margin: 0; color: #cfdeec; font-size: 15px; line-height: 1.9; }
+.login-scene { width: min(100%, 510px); height: 226px; margin: 38px auto 78px; }
+.login-scene-glow { position: absolute; width: 370px; height: 370px; left: 50%; top: -72px; transform: translateX(-50%); border: 1px solid #ffffff2c; border-radius: 50%; box-shadow: 0 0 0 50px #ffffff08, 0 0 0 100px #ffffff05; }
+.login-scene-card { position: absolute; inset: 8px 54px 8px 0; padding: 18px 22px; border: 1px solid #c4def84d; border-radius: 20px; background: linear-gradient(145deg, #ffffff24, #ffffff0d); box-shadow: 0 20px 50px #071f435c; backdrop-filter: blur(12px); }
+.login-scene-title, .login-scene-title > span { display: flex; align-items: center; }
+.login-scene-title { justify-content: space-between; gap: 12px; color: #fff; font-size: 13px; font-weight: 600; }
+.login-scene-title > span { gap: 9px; }
+.login-scene-title i { width: 8px; height: 8px; border-radius: 50%; background: #ff9e4a; box-shadow: 0 0 0 4px #ff9e4a30; }
+.login-scene-title small { color: #c2e0f6; font-size: 11px; font-weight: 400; }
+.login-scene-body { display: grid; grid-template-columns: 1.25fr 1fr; gap: 26px; align-items: end; margin-top: 22px; }
+.login-scene-building { height: 115px; display: flex; align-items: end; gap: 10px; padding: 0 6px 0 0; border-bottom: 1px solid #8dbbe480; }
+.login-scene-building span { width: 27%; height: 68%; border: 1px solid #a2c9eea8; border-bottom: 0; border-radius: 4px 4px 0 0; background: repeating-linear-gradient(0deg, transparent 0 14px, #b4d8f44d 14px 16px), repeating-linear-gradient(90deg, #ffffff1a 0 12px, #ffffff0d 12px 15px); box-shadow: inset 0 0 18px #b3d9f226; }
+.login-scene-building span:nth-child(2) { width: 36%; height: 100%; }
+.login-scene-building span:nth-child(3) { height: 80%; }
+.login-scene-status { display: grid; gap: 13px; padding-bottom: 9px; }
+.login-scene-status span { display: flex; align-items: center; gap: 9px; color: #d9ebfb; font-size: 12px; white-space: nowrap; }
+.login-scene-status i { width: 7px; height: 7px; border-radius: 50%; background: #78d8c2; box-shadow: 0 0 0 4px #78d8c221; }
+.login-scene-signal { position: absolute; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 11px 14px; border: 1px solid #d1e8ff80; border-radius: 12px; color: #154171; background: #fff; box-shadow: 0 12px 35px #071e4360; font-size: 12px; font-weight: 600; }
+.login-scene-signal svg { width: 16px; height: 16px; color: #f38128; }
+.login-scene-signal i { width: 4px; height: 4px; border-radius: 50%; background: #a8bfd7; }
+.login-scene-signal i:last-child { background: #f38128; }
+.login-intro-footer { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: auto; color: #d8e9f7; }
+.login-intro-footer span { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.login-intro-footer svg { width: 17px; height: 17px; color: #ffae65; }
+.login-panel { width: min(500px, 100%); display: flex; align-items: center; justify-self: center; }
+.login-form { width: 100%; padding: clamp(32px, 3.4vw, 52px); border: 1px solid #e2e9f3; border-radius: 26px; background: #fff; box-shadow: 0 22px 65px #17386116; }
+.login-mark { display: block; width: 190px; margin-bottom: 32px; }
+.login-mark img { display: block; width: 100%; height: auto; }
+.login-form h2 { margin: 0; color: #142b4a; font-size: 29px; font-weight: 650; letter-spacing: -.035em; }
+.login-form > p { margin: 8px 0 32px; color: #66788d; font-size: 13px; }
+.login-fields { display: grid; gap: 20px; }
+.login-field { display: grid; gap: 8px; }
+.login-field label { color: #344762; font-size: 13px; font-weight: 600; }
+.login-field .n-input { width: 100%; min-height: 44px; border-radius: 10px; }
+.login-submit { width: 100%; min-height: 46px; margin-top: 30px; border-radius: 10px; }
+.login-form .login-help { margin: 22px 0 0; color: #8493a6; font-size: 12px; text-align: center; }
+@media (max-width: 1000px) { .login-intro { padding: 32px; }.login-intro-header > span { display: none; }.login-scene { margin-top: 30px; }.login-scene-card { right: 28px; }.login-scene-status { display: none; }.login-scene-body { grid-template-columns: 1fr; } }
+@media (max-width: 850px) { .login-page { grid-template-columns: 1fr; place-items: center; padding: 24px; }.login-intro { display: none; }.login-panel { width: min(470px, 100%); }.login-form { padding: clamp(28px, 7vw, 42px); } }
+@media (max-width: 480px) { .login-page { padding: 16px; }.login-form { border-radius: 20px; }.login-mark { width: 164px; margin-bottom: 28px; }.login-form h2 { font-size: 26px; } }
 .brand { display: flex; align-items: center; gap: 8px; } /* 定义当前元素的样式规则。 */
 
 /* Application shell */
@@ -458,22 +496,7 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .menu-group-toggle { width:calc(100% - 24px); padding:0; border:0; background:transparent; display:flex; align-items:center; justify-content:space-between; cursor:pointer; } /* 定义当前元素的样式规则。 */
 .menu-group-toggle svg { width:13px; height:13px; transition:transform .2s; } /* 定义当前元素的样式规则。 */
 .menu-group-toggle svg.closed { transform:rotate(-90deg); } /* 定义当前元素的样式规则。 */
-.login-page { grid-template-columns:minmax(0,1.2fr) minmax(390px,1fr); background:#f5f7fb; padding:5vh 6vw; gap:4vw; } /* 定义当前元素的样式规则。 */
-.login-intro { position:relative; min-height:650px; padding:45px; overflow:hidden; border-radius:28px; background:linear-gradient(145deg,#102b51,#0a4471 68%,#176682); color:#fff; } /* 定义当前元素的样式规则。 */
-.login-brand { position:relative; width:194px; height:86px; overflow:hidden; border-radius:14px; background:#fff; } /* 定义当前元素的样式规则。 */
-.login-brand img { position:absolute; top:-9px; left:-82px; width:360px; max-width:none; height:auto; } /* 定义当前元素的样式规则。 */
-.login-eyebrow { display:block; margin-top:100px; color:#8dccf2; font-size:14px; letter-spacing:.12em; } /* 定义当前元素的样式规则。 */
-.login-intro h1 { font-size:clamp(32px,3.4vw,52px); line-height:1.35; font-weight:650; margin:20px 0; position:relative; z-index:1; } /* 定义当前元素的样式规则。 */
-.login-intro p { color:#bbd1e4; font-size:16px; line-height:1.9; position:relative; z-index:1; } /* 定义当前元素的样式规则。 */
-.login-capabilities { display:flex; gap:22px; margin-top:45px; flex-wrap:wrap; position:relative; z-index:1; } /* 定义当前元素的样式规则。 */
-.login-capabilities span { display:flex; gap:7px; align-items:center; font-size:13px; color:#d9e9f6; } /* 定义当前元素的样式规则。 */
-.login-capabilities svg { width:18px; height:18px; } /* 定义当前元素的样式规则。 */
-.login-grid-art { position:absolute; width:330px; height:330px; right:-75px; bottom:-100px; border:1px solid #ffffff22; border-radius:50%; box-shadow:0 0 0 45px #ffffff05,0 0 0 90px #ffffff04,0 0 0 135px #ffffff03; } /* 定义当前元素的样式规则。 */
-.login-panel { width:min(470px,100%); justify-self:center; padding:10px; } /* 定义当前元素的样式规则。 */
-.login-form { padding:42px; border-color:#e4eaf2; box-shadow:0 20px 60px #142e5610; } /* 定义当前元素的样式规则。 */
-.login-form .login-help { font-size:12px; text-align:center; margin:20px 0 0; } /* 定义当前元素的样式规则。 */
 .el-table .el-button.is-disabled { color:#94a3b8 !important; background:#f8fafc !important; border-color:#e2e8f0 !important; } /* 定义当前元素的样式规则。 */
-@media(max-width:850px) { .login-page { grid-template-columns:1fr; padding:30px 12px; }.login-intro { display:none; }.login-form { padding:30px; } } /* 按屏幕条件调整样式。 */
 .el-form-item { margin-bottom: 20px; } /* 定义当前元素的样式规则。 */
 .el-form-item__label { font-weight: 500; } /* 定义当前元素的样式规则。 */
 .el-collapse { --el-collapse-border-color: var(--border); } /* 定义当前元素的样式规则。 */
