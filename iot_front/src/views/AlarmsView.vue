@@ -225,7 +225,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .analysis-progress { margin: 12px 0; padding: 12px; background: #f5f9ff; border: 1px solid #d6e8ff; border-radius: 5px; }
-.analysis-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; color:#1554ad; font-size:12px; }
+.analysis-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; color:#1554ad; font-size:13px; }
 .analysis-progress-heading span { color:#1677ff; font-weight:700; }
-.analysis-progress small { display:block; margin-top:7px; color:#697386; font-size:10px; }
+.analysis-progress small { display:block; margin-top:7px; color:#697386; font-size:12px; }
 </style>

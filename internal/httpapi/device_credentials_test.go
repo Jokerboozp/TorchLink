@@ -75,11 +75,9 @@ func TestProtocolDevicesHaveNoPlatformCredentials(t *testing.T) {
 			if err = repo.SaveManagedDevice(ctx, d); err != nil {
 				t.Fatal(err)
 			}
-			for _, suffix := range []string{"connection", "connection-guide"} {
-				w = call("GET", "/api/v1/device-registry/"+id+"/"+suffix, "", "tenant", "admin", "", "")
-				if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"credentialSupported":false`)) || bytes.Contains(w.Body.Bytes(), []byte(`"accessKey"`)) {
-					t.Fatalf("unexpected detail: %d %s", w.Code, w.Body.String())
-				}
+			w = call("GET", "/api/v1/device-registry/"+id+"/connection", "", "tenant", "admin", "", "")
+			if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"credentialSupported":false`)) || bytes.Contains(w.Body.Bytes(), []byte(`"accessKey"`)) {
+				t.Fatalf("unexpected detail: %d %s", w.Code, w.Body.String())
 			}
 			for _, method := range []string{"POST", "DELETE"} {
 				path := "/api/v1/device-registry/" + id + "/credentials"

@@ -2,16 +2,17 @@
 import {can} from '../permissions'
 import { statusLabel } from '../presentation'
 import { computed, onMounted, ref } from 'vue'
-import { Collection, UploadFilled } from '@element-plus/icons-vue'
+import { FileText, Upload } from '@lucide/vue'
 import { ElMessage } from 'element-plus'
 
-import { api, formatTime, notifyError, session } from '../api'
+import { api, formatTime, notifyError } from '../api'
 
 const emit = defineEmits(['navigate'])
 const uploadRef = ref(null)
 const documents = ref([])
 const agents = ref([])
 const loading = ref(false)
+const documentsLoaded = ref(false)
 const uploading = ref(false)
 const uploadDialog = ref(false)
 const detailDialog = ref(false)
@@ -28,18 +29,20 @@ const agentError = ref('')
 const bindingLoading = ref(false)
 const bindingSaving = ref(false)
 const bindingError = ref('')
+let bindingRequestId = 0
+const loadedBindingWorkflowId = ref('')
 const bindingWorkflowId = ref('')
 const knowledgeBinding = ref({ retrievalMode:'auto', topK:5, minScore:0.25, noMatchPolicy:'allow-model' })
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const activeTab = ref('documents')
 
 const canUpload = computed(() => can('POST /api/v1/knowledge/documents'))
 const canManageBinding = computed(() => can('PUT /api/v1/ai/workflows/:id/knowledge-binding'))
 const indexedCount = computed(() => documents.value.filter(item => item.status === 'INDEXED').length)
 const totalChunks = computed(() => documents.value.reduce((sum, item) => sum + Number(item.metadata?.chunks || 0), 0))
 const totalSize = computed(() => documents.value.reduce((sum, item) => sum + Number(item.metadata?.size || 0), 0))
-const selectedAgent = computed(() => agents.value.find(item => (item.id || item.workflowId) === workflowId.value))
 const selectedBindingAgent = computed(() => agents.value.find(item => agentKey(item) === bindingWorkflowId.value))
 
 function agentKey(item) { return item?.id || item?.workflowId || '' }
@@ -49,6 +52,8 @@ function agentLabel(id) {
   const agent = agents.value.find(item => agentKey(item) === id)
   return agent ? agentName(agent) : id
 }
+const categoryNames = { manual:'设备手册', 'alarm-sop':'告警处置操作规程', maintenance:'运维维修', regulation:'消防规范', faq:'常见问题' }
+function categoryLabel(value) { return categoryNames[value] || value || '未分类' }
 function formatBytes(value) {
   const size = Number(value || 0)
   if (size < 1024) return `${size} 字节`
@@ -69,14 +74,15 @@ async function load() {
       documents.value = Array.isArray(data.items) ? data.items : []
       total.value = Number(data.total ?? data.count ?? documents.value.length)
       runtime.value = { indexMode:data.indexMode || '', persistentIndex:Boolean(data.persistentIndex) }
+      documentsLoaded.value = true
     } else {
       throw documentResult.reason
     }
     if (agentResult.status === 'fulfilled') agents.value = Array.isArray(agentResult.value.items) ? agentResult.value.items.filter(item => item.enabled !== false) : []
     else agentError.value = agentResult.reason?.message || '智能体列表读取失败'
     if (!workflowId.value && agents.value.length) workflowId.value = agentKey(agents.value[0])
-    if (!bindingWorkflowId.value && agents.value.length) bindingWorkflowId.value = agentKey(agents.value[0])
-    if (bindingWorkflowId.value) void loadBinding()
+    if (agents.value.length && !agents.value.some(item => agentKey(item) === bindingWorkflowId.value)) bindingWorkflowId.value = agentKey(agents.value[0])
+    if (bindingWorkflowId.value && loadedBindingWorkflowId.value !== bindingWorkflowId.value) void loadBinding()
   } catch (error) {
     if (error?.message?.includes('workflows')) agentError.value = error.message
     else notifyError(error)
@@ -87,20 +93,24 @@ async function load() {
 
 async function loadBinding() {
   if (!bindingWorkflowId.value) return
+  const workflow = bindingWorkflowId.value
+  const requestId = ++bindingRequestId
   bindingLoading.value = true
   bindingError.value = ''
   try {
-    const value = await api(`/api/v1/ai/workflows/${encodeURIComponent(bindingWorkflowId.value)}/knowledge-binding`)
+    const value = await api(`/api/v1/ai/workflows/${encodeURIComponent(workflow)}/knowledge-binding`)
+    if (requestId !== bindingRequestId || bindingWorkflowId.value !== workflow) return
     knowledgeBinding.value = {
       retrievalMode:value.retrievalMode || 'auto',
       topK:Number(value.topK) || 5,
       minScore:Number(value.minScore ?? 0.25),
       noMatchPolicy:value.noMatchPolicy || 'allow-model'
     }
+    loadedBindingWorkflowId.value = workflow
   } catch (error) {
-    bindingError.value = error.message || '知识库策略读取失败'
+    if (requestId === bindingRequestId) bindingError.value = error.message || '知识库策略读取失败'
   } finally {
-    bindingLoading.value = false
+    if (requestId === bindingRequestId) bindingLoading.value = false
   }
 }
 
@@ -170,6 +180,7 @@ async function upload() {
     tags.value = []
     uploadRef.value?.clearFiles()
     uploadDialog.value = false
+    activeTab.value = 'documents'
     await load()
   } catch (error) {
     notifyError(error)
@@ -182,98 +193,237 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="knowledge-hero">
-    <div><span>专属知识管理</span><h3>知识库</h3><p>上传设备手册、维护记录和处置规范。每份文档归属于一个智能体，用于回答与该业务相关的问题。</p></div>
-    <div class="hero-actions"><el-tag :type="runtime.persistentIndex ? 'success' : 'warning'" effect="dark">{{ runtime.persistentIndex ? '持久化索引' : '本地内存索引' }}</el-tag><el-button v-permission="'menu:ai'" type="primary" plain @click="emit('navigate','ai')">打开智能助手</el-button></div>
-  </section>
-
-  <el-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
-  <el-alert v-if="!runtime.persistentIndex" title="当前索引不是持久化向量库；文档记录会保存，但重启后检索索引需要重新建立。请启动本地向量数据库。" type="warning" :closable="false" show-icon />
-
-  <div class="knowledge-stats"><el-card shadow="never" class="surface-card"><span>知识文档</span><strong>{{ total }}</strong><small>当前租户</small></el-card><el-card shadow="never" class="surface-card"><span>已完成索引</span><strong>{{ indexedCount }}</strong><small>可供智能体检索</small></el-card><el-card shadow="never" class="surface-card"><span>内容分片</span><strong>{{ totalChunks }}</strong><small>{{ formatBytes(totalSize) }}</small></el-card></div>
-
-  <div class="page-toolbar knowledge-toolbar"><el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :disabled="!canUpload" @click="openUpload">上传并绑定智能体</el-button><el-button :loading="loading" @click="load">刷新</el-button><span>共 {{ total }} 份文档，上传时必须选择或输入一个智能体标识。</span></div>
-
-  <el-card v-if="agents.length" shadow="never" class="surface-card knowledge-policy-card">
-    <template #header><div class="card-header"><div><strong>知识库策略</strong><small>文档、绑定和检索策略统一在本页面维护</small></div><el-button size="small" :loading="bindingLoading" @click="loadBinding">刷新策略</el-button></div></template>
-    <el-alert v-if="bindingError" :title="bindingError" type="warning" :closable="false" show-icon />
-    <el-form label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving">
-      <div class="knowledge-policy-grid">
-        <el-form-item label="当前智能体"><el-select v-model="bindingWorkflowId" filterable placeholder="选择智能体" @change="loadBinding"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select></el-form-item>
-        <el-form-item label="检索模式"><el-radio-group v-model="knowledgeBinding.retrievalMode"><el-radio-button value="auto">按需检索</el-radio-button><el-radio-button value="always">每次强制检索</el-radio-button><el-radio-button value="disabled">禁用</el-radio-button></el-radio-group></el-form-item>
+  <div class="knowledge-page">
+    <header class="knowledge-intro">
+      <div class="knowledge-intro-copy">
+        <span class="knowledge-kicker">智能体知识</span>
+        <p>上传设备手册与处置规范，按智能体管理文档和检索方式。</p>
       </div>
-      <el-alert :title="`${documents.filter(item => item.workflowId === bindingWorkflowId).length} 份文档已直接绑定当前智能体`" type="success" :closable="false" show-icon />
-      <div class="binding-numbers"><el-form-item label="召回数量"><el-input-number v-model="knowledgeBinding.topK" :min="1" :max="20" controls-position="right" /></el-form-item><el-form-item label="最低相似度"><el-input-number v-model="knowledgeBinding.minScore" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></el-form-item></div>
-      <el-form-item label="无匹配知识时"><el-select v-model="knowledgeBinding.noMatchPolicy"><el-option label="允许模型回答，但必须说明证据不足" value="allow-model" /><el-option label="阻止回答，必须先补充知识" value="require-evidence" /></el-select></el-form-item>
-      <el-alert title="每个智能体只能检索自己的文档，关联范围由服务端校验。" type="info" :closable="false" show-icon />
-      <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><el-button v-permission="'PUT /api/v1/ai/workflows/:id/knowledge-binding'" type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</el-button></div>
-    </el-form>
-  </el-card>
-
-  <el-card shadow="never" class="surface-card table-card documents-card">
-    <template #header><div class="card-header"><div><strong>已上传文档</strong><small>文档和智能体归属持久化保存</small></div><el-tag effect="plain">{{ runtime.persistentIndex ? '持久化索引' : '内存索引' }}</el-tag></div></template>
-    <el-table v-loading="loading" :data="documents" stripe>
-      <el-table-column label="文档" min-width="240"><template #default="{ row }"><div class="document-name"><el-icon><Collection /></el-icon><span><b>{{ row.filename }}</b><small>{{ row.id }}</small></span></div></template></el-table-column>
-      <el-table-column label="关联智能体" min-width="190"><template #default="{ row }"><b>{{ agentLabel(row.workflowId) }}</b><small class="subline">{{ row.workflowId || '未关联' }}</small></template></el-table-column>
-      <el-table-column label="索引" width="105" align="center"><template #default="{ row }"><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-      <el-table-column label="分片 / 大小" width="120" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}<small class="subline">{{ formatBytes(row.metadata?.size) }}</small></template></el-table-column>
-      <el-table-column label="上传时间" min-width="160"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></el-table-column>
-      <el-table-column label="操作" width="110" fixed="right" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain type="primary" @click="showDocument(row)">详情</el-button></div></template></el-table-column>
-      <template #empty><el-empty description="暂无知识库文档" /></template>
-    </el-table>
-    <div class="list-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div>
-  </el-card>
-
-  <el-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(650px, 94vw)">
-    <el-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><el-icon class="upload-icon"><UploadFilled /></el-icon><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持文档、办公文档、开放文档、网页或标记文档和通用字符编码文本；扫描版文档需要先完成文字识别。</div></template></el-upload>
-    <el-form label-position="top" class="top-gap">
-      <el-form-item label="关联智能体（必选）"><el-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="`${agentName(agent)} · ${agentKey(agent)}`" :value="agentKey(agent)" /></el-select><small class="field-tip">上传后检索服务端会强制使用这个智能体标识，不会跨智能体检索；未启动工作流服务时也可以先输入计划使用的智能体标识。</small></el-form-item>
-      <div class="metadata-grid"><el-form-item label="知识分类（可选）"><el-select v-model="category" :disabled="uploading"><el-option label="设备手册" value="manual" /><el-option label="告警处置操作规程" value="alarm-sop" /><el-option label="运维维修" value="maintenance" /><el-option label="消防规范" value="regulation" /><el-option label="常见问题" value="faq" /></el-select></el-form-item><el-form-item label="知识标签（可选）"><el-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></el-form-item></div>
-    </el-form>
-    <template #footer><el-button @click="uploadDialog=false">取消</el-button><el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</el-button></template>
-  </el-dialog>
-
-  <el-dialog v-model="detailDialog" title="知识文档详情与切片" width="min(1080px, 96vw)">
-    <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
-    <div v-loading="detailLoading" class="detail-body">
-      <el-descriptions v-if="selectedDocument" :column="2" border>
-        <el-descriptions-item label="文件名">{{ selectedDocument.filename }}</el-descriptions-item>
-        <el-descriptions-item label="文档标识">{{ selectedDocument.id }}</el-descriptions-item>
-        <el-descriptions-item label="关联智能体">{{ agentLabel(selectedDocument.workflowId) }}（{{ selectedDocument.workflowId || '未关联' }}）</el-descriptions-item>
-        <el-descriptions-item label="索引状态">{{ statusLabel(selectedDocument.status) }}</el-descriptions-item>
-        <el-descriptions-item label="知识分类">{{ selectedDocument.category || '未分类' }}</el-descriptions-item>
-        <el-descriptions-item label="内容统计">{{ selectedDocument.metadata?.chunks || 0 }} 个分片 / {{ formatBytes(selectedDocument.metadata?.size) }}</el-descriptions-item>
-        <el-descriptions-item label="标签">{{ (selectedDocument.tags || []).join('、') || '无' }}</el-descriptions-item>
-        <el-descriptions-item label="上传时间">{{ formatTime(selectedDocument.createdAt) }}</el-descriptions-item>
-      </el-descriptions>
-      <div v-if="selectedDetail?.index" class="chunk-policy">
-        <div class="chunk-policy-title"><strong>索引与切片规则</strong><el-tag size="small" type="success" effect="plain">{{ selectedDetail.index.mode }}</el-tag><el-tag size="small" effect="plain">{{ selectedDetail.index.vectorizer }}</el-tag><el-tag v-if="selectedDetail.index.embeddingModel" size="small" type="success" effect="plain">{{ selectedDetail.index.embeddingModel }}</el-tag></div>
-        <div class="chunk-policy-grid"><span>切片策略<strong>{{ selectedDetail.index.chunking?.strategy === 'fixed-window-overlap' ? '固定窗口 + 重叠' : selectedDetail.index.chunking?.strategy }}</strong></span><span>窗口<strong>{{ selectedDetail.index.chunking?.size }} 字符</strong></span><span>重叠<strong>{{ selectedDetail.index.chunking?.overlap }} 字符</strong></span><span>提取文本<strong>{{ selectedDetail.index.extractedChars || 0 }} 字符</strong></span><span>实际分片<strong>{{ selectedDetail.index.chunkCount }}</strong></span></div>
-        <small>{{ selectedDetail.index.chunking?.normalization || '先提取并清洗文本，再进行固定窗口切片。' }}；字符范围采用左闭右开：包含起始位置，不包含结束位置。页面不展示高维向量本身，只展示切片文本和向量化状态。</small>
+      <div class="knowledge-intro-actions">
+        <el-button v-permission="'menu:ai'" @click="emit('navigate', 'ai')">打开智能助手</el-button>
+        <el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :disabled="!canUpload" @click="openUpload"><Upload :size="16" />上传知识文档</el-button>
       </div>
-      <el-table v-if="selectedDetail" :data="selectedDetail.chunks || []" stripe border class="chunk-table">
-        <el-table-column label="#" prop="index" width="58" align="center" />
-        <el-table-column label="字符范围" width="138"><template #default="{ row }">[{{ row.startChar }}, {{ row.endChar }})<small class="subline">{{ row.characterCount }} 字符</small></template></el-table-column>
-        <el-table-column label="重叠" width="72" align="center"><template #default="{ row }">{{ row.overlapChars || 0 }}</template></el-table-column>
-        <el-table-column label="向量化" width="92" align="center"><template #default="{ row }"><el-tag :type="row.vectorized ? 'success' : 'info'" size="small">{{ row.vectorized ? '已完成' : '非向量索引' }}</el-tag></template></el-table-column>
-        <el-table-column label="切片内容" min-width="480"><template #default="{ row }"><div class="chunk-content">{{ row.content }}</div><small class="subline">{{ row.chunkId }}</small></template></el-table-column>
-        <template #empty><el-empty description="索引中没有可查看的切片" :image-size="56" /></template>
-      </el-table>
-    </div>
-    <template #footer><el-button @click="detailDialog=false">关闭</el-button></template>
-  </el-dialog>
+    </header>
+
+    <el-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
+    <el-alert v-if="documentsLoaded && !runtime.persistentIndex" title="当前使用内存索引，服务重启后需要重新建立文档检索索引。" type="warning" :closable="false" show-icon />
+
+    <section class="knowledge-stats" aria-label="知识库概况">
+      <div><span>知识文档</span><strong>{{ documentsLoaded ? total : '—' }}</strong><small>当前租户全部文档</small></div>
+      <div><span>本页已索引</span><strong>{{ documentsLoaded ? indexedCount : '—' }}</strong><small>当前页可供检索</small></div>
+      <div><span>本页内容分片</span><strong>{{ documentsLoaded ? totalChunks : '—' }}</strong><small>{{ documentsLoaded ? formatBytes(totalSize) : '等待读取' }}</small></div>
+      <div class="knowledge-index-state"><span>索引存储</span><strong>{{ documentsLoaded ? (runtime.persistentIndex ? '持久化' : '内存') : '读取中' }}</strong><small>{{ runtime.indexMode || '索引模式未返回' }}</small></div>
+    </section>
+
+    <el-tabs v-model="activeTab" class="knowledge-tabs">
+      <el-tab-pane name="documents" label="文档">
+        <section class="knowledge-panel documents-panel" aria-label="已上传文档">
+          <div class="knowledge-panel-heading">
+            <div><h2>已上传文档</h2><p>查看文档的归属、索引状态和内容切片。</p></div>
+            <el-button :loading="loading" @click="load">刷新列表</el-button>
+          </div>
+
+          <el-table v-loading="loading" :data="documents" class="knowledge-table">
+            <el-table-column label="文档" min-width="270"><template #default="{ row }"><div class="document-name"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div></template></el-table-column>
+            <el-table-column label="关联智能体" min-width="175"><template #default="{ row }">{{ agentLabel(row.workflowId) }}</template></el-table-column>
+            <el-table-column label="索引状态" width="110"><template #default="{ row }"><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
+            <el-table-column label="内容分片" width="100" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}</template></el-table-column>
+            <el-table-column label="上传时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></el-table-column>
+            <el-table-column label="操作" width="96" align="right"><template #default="{ row }"><el-button plain type="primary" @click="showDocument(row)">查看详情</el-button></template></el-table-column>
+            <template #empty><el-empty description="还没有知识文档" /></template>
+          </el-table>
+
+          <div v-loading="loading" class="knowledge-mobile-list">
+            <article v-for="row in documents" :key="row.id" class="knowledge-mobile-document">
+              <div class="knowledge-mobile-document-head"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div>
+              <div class="knowledge-mobile-document-meta"><span>{{ agentLabel(row.workflowId) }}</span><el-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</el-tag></div>
+              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><el-button plain type="primary" @click="showDocument(row)">查看详情</el-button></div>
+            </article>
+            <el-empty v-if="!loading && !documents.length" description="还没有知识文档" />
+          </div>
+
+          <div class="list-pagination knowledge-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" hide-on-single-page @current-change="changePage" @size-change="changePageSize" /></div>
+        </section>
+      </el-tab-pane>
+
+      <el-tab-pane name="policy" label="检索策略">
+        <section class="knowledge-panel policy-panel" aria-label="知识库策略">
+          <div class="knowledge-panel-heading">
+            <div><h2>知识库策略</h2><p>每个智能体只检索属于自己的文档，按需调整回答时的检索规则。</p></div>
+            <el-button v-if="agents.length" :loading="bindingLoading" @click="loadBinding">刷新策略</el-button>
+          </div>
+          <el-empty v-if="!agents.length" description="暂无可配置的智能体；上传文档时仍可输入智能体标识。" />
+          <template v-else>
+            <el-alert v-if="bindingError" :title="bindingError" type="warning" :closable="false" show-icon />
+            <div class="knowledge-policy-target">
+              <label for="knowledge-agent">当前智能体</label>
+              <el-select id="knowledge-agent" v-model="bindingWorkflowId" filterable :disabled="bindingSaving" placeholder="选择智能体" @change="loadBinding"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></el-select>
+              <small>本页 {{ documents.filter(item => item.workflowId === bindingWorkflowId).length }} 份文档归属该智能体</small>
+            </div>
+            <el-form v-loading="bindingLoading" class="knowledge-policy-form" label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving">
+              <div class="knowledge-policy-section">
+                <div class="knowledge-section-copy"><h3>何时检索</h3><p>决定智能体在回答前是否查询知识文档。</p></div>
+                <el-form-item label="检索模式"><el-radio-group v-model="knowledgeBinding.retrievalMode"><el-radio-button value="auto">按需检索</el-radio-button><el-radio-button value="always">每次强制检索</el-radio-button><el-radio-button value="disabled">禁用</el-radio-button></el-radio-group></el-form-item>
+              </div>
+              <div class="knowledge-policy-section">
+                <div class="knowledge-section-copy"><h3>匹配要求</h3><p>控制取回的片段数量，以及内容的最低相似度。</p></div>
+                <div class="knowledge-number-grid"><el-form-item label="召回数量"><el-input-number v-model="knowledgeBinding.topK" :min="1" :max="20" controls-position="right" /></el-form-item><el-form-item label="最低相似度"><el-input-number v-model="knowledgeBinding.minScore" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></el-form-item></div>
+              </div>
+              <div class="knowledge-policy-section">
+                <div class="knowledge-section-copy"><h3>没有匹配时</h3><p>明确缺少依据时，智能体是否还可以给出一般性回答。</p></div>
+                <el-form-item label="无匹配知识时"><el-select v-model="knowledgeBinding.noMatchPolicy"><el-option label="允许模型回答，但必须说明证据不足" value="allow-model" /><el-option label="阻止回答，必须先补充知识" value="require-evidence" /></el-select></el-form-item>
+              </div>
+              <div class="knowledge-policy-actions"><small v-if="!canManageBinding">当前账号可查看策略；修改需要管理员或运维人员权限。</small><el-button v-permission="'PUT /api/v1/ai/workflows/:id/knowledge-binding'" type="primary" :loading="bindingSaving" :disabled="!canManageBinding || !bindingWorkflowId" @click="saveBinding">保存知识库策略</el-button></div>
+            </el-form>
+          </template>
+        </section>
+      </el-tab-pane>
+    </el-tabs>
+
+    <el-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(620px, 94vw)">
+      <div class="knowledge-upload-step"><span>1</span><div><strong>选择文档</strong><small>单个文件不超过 32 兆字节</small></div></div>
+      <el-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><Upload class="upload-icon" /><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、办公文档、网页和文本；扫描件需先进行文字识别。</div></template></el-upload>
+      <div class="knowledge-upload-step knowledge-upload-step-gap"><span>2</span><div><strong>关联智能体</strong><small>每份文档只属于一个智能体</small></div></div>
+      <el-form label-position="top" class="knowledge-upload-form">
+        <el-form-item label="关联智能体（必选）"><el-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择或输入智能体标识"><el-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></el-select><small class="field-tip">未启动工作流服务时，可以输入计划使用的智能体标识。</small></el-form-item>
+        <div class="metadata-grid"><el-form-item label="知识分类（可选）"><el-select v-model="category" :disabled="uploading"><el-option label="设备手册" value="manual" /><el-option label="告警处置操作规程" value="alarm-sop" /><el-option label="运维维修" value="maintenance" /><el-option label="消防规范" value="regulation" /><el-option label="常见问题" value="faq" /></el-select></el-form-item><el-form-item label="知识标签（可选）"><el-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后回车" /></el-form-item></div>
+      </el-form>
+      <template #footer><el-button @click="uploadDialog=false">取消</el-button><el-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :loading="uploading" :disabled="!canUpload || !selectedFile || !workflowId" @click="upload">上传并建立索引</el-button></template>
+    </el-dialog>
+
+    <el-dialog v-model="detailDialog" title="知识文档详情与切片" width="min(900px, 96vw)">
+      <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
+      <div v-loading="detailLoading" class="knowledge-detail">
+        <div v-if="selectedDocument" class="knowledge-detail-file"><FileText class="document-icon" /><div><strong>{{ selectedDocument.filename }}</strong><small>{{ selectedDocument.id }}</small></div><el-tag :type="selectedDocument.status === 'INDEXED' ? 'success' : 'warning'">{{ statusLabel(selectedDocument.status) }}</el-tag></div>
+        <dl v-if="selectedDocument" class="knowledge-detail-meta"><div><dt>关联智能体</dt><dd>{{ agentLabel(selectedDocument.workflowId) }}</dd></div><div><dt>知识分类</dt><dd>{{ categoryLabel(selectedDocument.category) }}</dd></div><div><dt>内容统计</dt><dd>{{ selectedDocument.metadata?.chunks || 0 }} 个分片 · {{ formatBytes(selectedDocument.metadata?.size) }}</dd></div><div><dt>上传时间</dt><dd>{{ formatTime(selectedDocument.createdAt) }}</dd></div><div v-if="selectedDocument.tags?.length"><dt>知识标签</dt><dd>{{ selectedDocument.tags.join('、') }}</dd></div></dl>
+        <section v-if="selectedDetail?.index" class="knowledge-index-rules"><div class="knowledge-detail-section-heading"><h3>索引与切片规则</h3><span>{{ selectedDetail.index.mode }} · {{ selectedDetail.index.vectorizer }}</span></div><div class="knowledge-rule-grid"><div><small>切片策略</small><strong>{{ selectedDetail.index.chunking?.strategy === 'fixed-window-overlap' ? '固定窗口 + 重叠' : selectedDetail.index.chunking?.strategy }}</strong></div><div><small>窗口 / 重叠</small><strong>{{ selectedDetail.index.chunking?.size }} / {{ selectedDetail.index.chunking?.overlap }} 字符</strong></div><div><small>提取文本</small><strong>{{ selectedDetail.index.extractedChars || 0 }} 字符</strong></div><div><small>实际分片</small><strong>{{ selectedDetail.index.chunkCount }}</strong></div></div><p v-if="selectedDetail.index.embeddingModel">向量模型：{{ selectedDetail.index.embeddingModel }}</p></section>
+        <section v-if="selectedDetail" class="knowledge-chunks"><div class="knowledge-detail-section-heading"><h3>切片内容</h3><span>{{ selectedDetail.chunks?.length || 0 }} 个分片，点击逐条查看</span></div><div v-if="selectedDetail.chunks?.length" class="knowledge-chunk-list"><details v-for="(row, index) in selectedDetail.chunks" :key="row.chunkId || index" :open="index === 0" class="knowledge-chunk"><summary><span class="knowledge-chunk-number">{{ index + 1 }}</span><span>字符范围 [{{ row.startChar }}, {{ row.endChar }})</span><el-tag :type="row.vectorized ? 'success' : 'info'" size="small">{{ row.vectorized ? '向量化完成' : '非向量索引' }}</el-tag></summary><div class="knowledge-chunk-body"><p>{{ row.content }}</p><small>重叠 {{ row.overlapChars || 0 }} 字符 · {{ row.characterCount }} 字符 · {{ row.chunkId }}</small></div></details></div><el-empty v-else description="索引中没有可查看的切片" :image-size="56" /></section>
+      </div>
+      <template #footer><el-button @click="detailDialog=false">关闭</el-button></template>
+    </el-dialog>
+  </div>
 </template>
 
 <style scoped>
-.knowledge-hero { min-height:112px; margin-bottom:14px; padding:20px 22px; display:flex; align-items:center; justify-content:space-between; gap:20px; color:#fff; background:linear-gradient(125deg,#0d2850,#1554ad 68%,#1677ff); border-radius:6px; overflow:hidden; position:relative; }
-.knowledge-hero::after { content:""; width:220px; height:220px; position:absolute; right:-70px; top:-115px; border:1px solid rgba(255,255,255,.16); border-radius:50%; box-shadow:0 0 0 42px rgba(255,255,255,.035),0 0 0 84px rgba(255,255,255,.025); }
-.knowledge-hero>div { position:relative; z-index:1; }.knowledge-hero span { color:rgba(255,255,255,.68); font-size:9px; font-weight:700; letter-spacing:.16em; }.knowledge-hero h3 { margin:5px 0; font-size:22px; }.knowledge-hero p { margin:0; color:rgba(255,255,255,.72); font-size:12px; }.hero-actions { display:flex; align-items:center; gap:9px; }.hero-actions .el-button { color:#fff; background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.28); }
-.knowledge-stats { margin:14px 0; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }.knowledge-stats .el-card :deep(.el-card__body) { min-height:92px; display:grid; grid-template-columns:1fr auto; align-items:center; gap:2px 14px; }.knowledge-stats span,.knowledge-stats small { color:var(--muted-foreground); font-size:11px; }.knowledge-stats strong { grid-row:1/3; grid-column:2; color:#1554ad; font-size:28px; }.knowledge-stats small { grid-column:1; }
-.knowledge-toolbar { margin-top:2px; }.upload-icon { color:#1677ff; font-size:38px; }.field-tip { display:block; margin-top:5px; color:#475569; font-size:10px; line-height:1.5; }.metadata-grid { display:grid; grid-template-columns:.8fr 1.2fr; gap:10px; }.document-name { display:flex; align-items:center; gap:9px; }.document-name>.el-icon { width:30px; height:30px; flex:none; color:#1677ff; background:#eaf3ff; border-radius:4px; }.document-name span { min-width:0; }.document-name b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.document-name small { display:block; margin-top:3px; color:#475569; font-size:9px; word-break:break-all; }
-.knowledge-policy-card { margin-bottom:14px; }.knowledge-policy-card :deep(.el-alert) { margin-bottom:12px; }.knowledge-policy-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.35fr); gap:12px; }.knowledge-policy-grid :deep(.el-select),.knowledge-policy-grid :deep(.el-radio-group) { width:100%; }.knowledge-policy-grid :deep(.el-radio-button) { flex:1; }.knowledge-policy-grid :deep(.el-radio-button__inner) { width:100%; padding-left:8px; padding-right:8px; }.knowledge-policy-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }.knowledge-policy-actions small { color:#475569; font-size:10px; line-height:1.5; }
-.detail-body { min-height:180px; }.chunk-policy { margin-top:14px; padding:14px; border:1px solid #dbeafe; border-radius:6px; background:#f8fbff; }.chunk-policy-title { display:flex; align-items:center; flex-wrap:wrap; gap:7px; }.chunk-policy-title strong { margin-right:auto; color:#16345f; }.chunk-policy-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin:12px 0 9px; }.chunk-policy-grid span { display:flex; flex-direction:column; gap:3px; color:#64748b; font-size:10px; }.chunk-policy-grid strong { color:#16345f; font-size:13px; }.chunk-policy>small { color:#475569; line-height:1.6; }.chunk-table { margin-top:14px; }.chunk-table :deep(.el-table__cell) { vertical-align:top; }.chunk-content { max-height:180px; overflow:auto; white-space:pre-wrap; word-break:break-word; color:#1e293b; line-height:1.6; font-size:12px; }.subline { display:block; margin-top:4px; color:#64748b; font-size:10px; word-break:break-all; }
-@media (max-width:640px) { .knowledge-hero { align-items:flex-start; flex-direction:column; }.knowledge-hero p { line-height:1.6; }.hero-actions { width:100%; justify-content:space-between; }.knowledge-stats { grid-template-columns:1fr; }.documents-card { overflow:hidden; }.metadata-grid { grid-template-columns:1fr; }.knowledge-policy-grid { grid-template-columns:1fr; }.knowledge-policy-actions { align-items:flex-start; flex-direction:column; }.knowledge-policy-actions .el-button { width:100%; } }
+.knowledge-page { display:grid; gap:18px; min-width:0; padding-bottom:24px; }
+.knowledge-intro { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:4px 0 2px; }
+.knowledge-kicker { color:var(--brand-navy); font-size:14px; font-weight:700; }
+.knowledge-intro-copy p { max-width:650px; margin:5px 0 0; color:var(--muted-foreground); font-size:14px; }
+.knowledge-intro-actions { display:flex; gap:8px; flex:none; }
+.knowledge-intro-actions .el-button { margin:0; }
+.knowledge-intro-actions svg { width:16px; height:16px; }
+.knowledge-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; overflow:hidden; border-radius:var(--radius); background:#e9edf3; }
+.knowledge-stats > div { min-width:0; min-height:104px; padding:16px 18px; display:grid; align-content:space-between; background:#fff; }
+.knowledge-stats span,.knowledge-stats small { color:var(--muted-foreground); font-size:12px; }
+.knowledge-stats strong { color:var(--foreground); font-size:26px; line-height:1.15; font-weight:650; font-variant-numeric:tabular-nums; }
+.knowledge-stats .knowledge-index-state strong { color:var(--brand-navy); font-size:18px; }
+.knowledge-tabs { min-width:0; }
+.knowledge-tabs :deep(.el-tabs__header) { margin-bottom:14px; }
+.knowledge-tabs :deep(.el-tabs__item) { height:42px; padding:0 22px; font-size:14px; }
+.knowledge-tabs :deep(.el-tabs__active-bar) { height:3px; border-radius:3px; }
+.knowledge-panel { min-width:0; overflow:hidden; background:#fff; border-radius:var(--radius); box-shadow:0 1px 2px rgba(19,56,108,.045); }
+.knowledge-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 24px 14px; }
+.knowledge-panel-heading h2 { margin:0; font-size:18px; line-height:1.3; }
+.knowledge-panel-heading p { margin:5px 0 0; color:var(--muted-foreground); font-size:13px; }
+.knowledge-table { width:100%; }
+.knowledge-table :deep(.el-table__header th) { background:#fff; }
+.knowledge-table :deep(.el-table__cell) { padding:12px 0; }
+.document-name { min-width:0; display:flex; align-items:center; gap:12px; }
+.document-icon { width:36px; height:36px; flex:none; padding:9px; color:var(--brand-navy); background:#eef4fc; border-radius:10px; }
+.document-name > div { min-width:0; display:grid; gap:3px; }
+.document-name strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+.document-name small { color:var(--muted-foreground); font-size:12px; }
+.knowledge-pagination { border-top:1px solid #f0f2f5; }
+.knowledge-mobile-list { display:none; }
+.policy-panel { padding-bottom:8px; }
+.knowledge-policy-target { margin:0 24px; padding:16px 18px; display:grid; grid-template-columns:130px minmax(0,360px) 1fr; align-items:center; gap:14px; background:#f5f7fa; border-radius:10px; }
+.knowledge-policy-target label { font-size:13px; font-weight:600; }
+.knowledge-policy-target small { color:var(--muted-foreground); font-size:12px; }
+.knowledge-policy-form { padding:6px 24px 16px; }
+.knowledge-policy-section { padding:20px 0; display:grid; grid-template-columns:minmax(170px,.8fr) minmax(0,1.2fr); align-items:start; gap:24px; border-bottom:1px solid #eef0f3; }
+.knowledge-section-copy h3 { margin:0; font-size:15px; }
+.knowledge-section-copy p { max-width:280px; margin:5px 0 0; color:var(--muted-foreground); font-size:12px; line-height:1.6; }
+.knowledge-policy-section .el-form-item { width:100%; max-width:430px; margin:0; }
+.knowledge-policy-section :deep(.el-radio-group),.knowledge-policy-section :deep(.el-select) { width:100%; }
+.knowledge-policy-section :deep(.el-radio-button) { flex:1; }
+.knowledge-policy-section :deep(.el-radio-button__inner) { width:100%; padding-inline:8px; }
+.knowledge-number-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:430px; }
+.knowledge-number-grid :deep(.el-input-number) { width:100%; }
+.knowledge-policy-actions { display:flex; align-items:center; justify-content:flex-end; gap:16px; padding-top:20px; }
+.knowledge-policy-actions small { margin-right:auto; color:var(--muted-foreground); font-size:12px; }
+.knowledge-upload-step { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.knowledge-upload-step > span { width:25px; height:25px; flex:none; display:grid; place-items:center; color:#fff; background:var(--brand-navy); border-radius:50%; font-size:12px; font-weight:700; }
+.knowledge-upload-step > div { display:flex; align-items:baseline; gap:9px; }
+.knowledge-upload-step strong { font-size:14px; }
+.knowledge-upload-step small,.field-tip { color:var(--muted-foreground); font-size:12px; line-height:1.5; }
+.knowledge-upload-step-gap { margin-top:26px; }
+.upload-icon { width:32px; height:32px; color:var(--primary); }
+.knowledge-upload-form :deep(.el-select) { width:100%; }
+.metadata-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.knowledge-detail { min-height:140px; }
+.knowledge-detail-file { display:flex; align-items:center; gap:12px; padding:3px 0 18px; }
+.knowledge-detail-file > div { min-width:0; flex:1; display:grid; gap:4px; }
+.knowledge-detail-file strong { overflow:hidden; font-size:16px; text-overflow:ellipsis; white-space:nowrap; }
+.knowledge-detail-file small { color:var(--muted-foreground); font-size:12px; overflow-wrap:anywhere; }
+.knowledge-detail-meta { margin:0; padding:16px 18px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; background:#f5f7fa; border-radius:10px; }
+.knowledge-detail-meta div { min-width:0; }
+.knowledge-detail-meta dt { color:var(--muted-foreground); font-size:12px; }
+.knowledge-detail-meta dd { margin:5px 0 0; font-size:13px; overflow-wrap:anywhere; }
+.knowledge-index-rules,.knowledge-chunks { margin-top:24px; }
+.knowledge-detail-section-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.knowledge-detail-section-heading h3 { margin:0; font-size:15px; }
+.knowledge-detail-section-heading span { color:var(--muted-foreground); font-size:12px; }
+.knowledge-rule-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.knowledge-rule-grid > div { min-width:0; padding:12px; display:grid; gap:5px; background:#f5f7fa; border-radius:8px; }
+.knowledge-rule-grid small { color:var(--muted-foreground); font-size:12px; }
+.knowledge-rule-grid strong { font-size:13px; overflow-wrap:anywhere; }
+.knowledge-index-rules p { margin:10px 0 0; color:var(--muted-foreground); font-size:12px; }
+.knowledge-chunk-list { display:grid; gap:8px; }
+.knowledge-chunk { border:1px solid #e9edf3; border-radius:9px; }
+.knowledge-chunk summary { min-height:52px; padding:10px 14px; display:flex; align-items:center; gap:12px; cursor:pointer; list-style:none; font-size:13px; }
+.knowledge-chunk summary::-webkit-details-marker { display:none; }
+.knowledge-chunk summary .el-tag { margin-left:auto; }
+.knowledge-chunk-number { width:26px; height:26px; flex:none; display:grid; place-items:center; color:var(--brand-navy); background:#eef4fc; border-radius:7px; font-size:12px; font-weight:700; }
+.knowledge-chunk-body { padding:0 14px 14px 52px; }
+.knowledge-chunk-body p { max-height:220px; margin:0; padding:12px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f5f7fa; border-radius:7px; font-size:13px; line-height:1.7; }
+.knowledge-chunk-body small { display:block; margin-top:7px; color:var(--muted-foreground); font-size:12px; overflow-wrap:anywhere; }
 :deep(.el-dialog__body) { overflow-x:hidden; }
-:deep(.el-table .cell) { white-space:normal; }
-:deep(.el-upload__text), :deep(.el-upload__tip) { color:#475569; }
+:deep(.el-upload__text),:deep(.el-upload__tip) { color:#475569; }
+@media (max-width:900px) { .knowledge-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.knowledge-policy-target { grid-template-columns:120px minmax(0,1fr); }.knowledge-policy-target small { grid-column:2; } }
+@media (max-width:640px) {
+  .knowledge-page { gap:14px; }
+  .knowledge-intro { align-items:flex-start; flex-direction:column; gap:14px; }
+  .knowledge-intro-actions { width:100%; }
+  .knowledge-intro-actions .el-button { flex:1; padding-inline:8px; }
+  .knowledge-stats > div { min-height:88px; padding:12px; }
+  .knowledge-stats strong { font-size:22px; }
+  .knowledge-stats .knowledge-index-state strong { font-size:16px; }
+  .knowledge-panel-heading { padding:18px 16px 10px; }
+  .knowledge-panel-heading p { display:none; }
+  .knowledge-table { display:none; }
+  .knowledge-mobile-list { min-height:90px; padding:0 16px 12px; display:grid; gap:9px; }
+  .knowledge-mobile-document { padding:14px; display:grid; gap:12px; background:#f5f7fa; border-radius:10px; }
+  .knowledge-mobile-document-head { min-width:0; display:flex; align-items:center; gap:10px; }
+  .knowledge-mobile-document-head > div { min-width:0; display:grid; gap:3px; }
+  .knowledge-mobile-document-head strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
+  .knowledge-mobile-document-head small { color:var(--muted-foreground); font-size:12px; }
+  .knowledge-mobile-document-meta,.knowledge-mobile-document-foot { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; }
+  .knowledge-mobile-document-meta span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .knowledge-mobile-document-foot small { color:var(--muted-foreground); font-size:12px; }
+  .knowledge-pagination { justify-content:center; padding:10px; }
+  .knowledge-pagination :deep(.el-pagination__sizes),.knowledge-pagination :deep(.el-pagination__total) { display:none; }
+  .knowledge-policy-target { margin:0 16px; grid-template-columns:1fr; gap:7px; }
+  .knowledge-policy-target small { grid-column:1; }
+  .knowledge-policy-form { padding-inline:16px; }
+  .knowledge-policy-section { grid-template-columns:1fr; gap:12px; }
+  .knowledge-section-copy p { max-width:none; }
+  .knowledge-number-grid { gap:8px; }
+  .knowledge-policy-actions { flex-direction:column; align-items:stretch; }
+  .knowledge-upload-step > div { display:grid; gap:0; }
+  .metadata-grid,.knowledge-detail-meta { grid-template-columns:1fr; }
+  .knowledge-rule-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .knowledge-detail-section-heading { align-items:flex-start; flex-direction:column; gap:3px; }
+  .knowledge-chunk summary { flex-wrap:wrap; }
+  .knowledge-chunk-body { padding-left:14px; }
+}
 </style>

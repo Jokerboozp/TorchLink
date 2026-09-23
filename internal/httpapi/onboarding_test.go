@@ -76,14 +76,8 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	}
 	var created onboarding.Result
 	_ = json.Unmarshal(w.Body.Bytes(), &created)
-	guide := call("GET", "/api/v1/device-registry/device/connection-guide", nil, model.DeviceCredential{}, true)
-	var guideData struct {
-		HTTP            struct{ Method, URL string }
-		MQTT            struct{ Broker, Topic string }
-		PayloadTemplate map[string]any
-	}
-	if err := json.Unmarshal(guide.Body.Bytes(), &guideData); err != nil || guide.Code != 200 || guideData.HTTP.Method != "POST" || guideData.HTTP.URL != "https://devices.example.test/api/v1/device-ingest/standard/tenant/product/device/property" || guideData.MQTT.Topic != "/iot/up/tenant/product/device/property" || guideData.MQTT.Broker != cfg.MQTTPublicURL || guideData.PayloadTemplate["version"] != "1.0" {
-		t.Fatal("standard connection guide contract", guide.Code, err)
+	if guide := call("GET", "/api/v1/device-registry/device/connection-guide", nil, model.DeviceCredential{}, true); guide.Code != 404 {
+		t.Fatalf("removed connection guide endpoint: %d", guide.Code)
 	}
 	connection := call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)
 	if connection.Code != 200 || !strings.Contains(connection.Body.String(), "WAITING_FOR_DATA") {

@@ -228,15 +228,15 @@ onMounted(loadRuntime)
 .ai-management-hero-grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr); gap:18px; align-items:stretch; }
 .ai-management-hero-copy { display:grid; align-content:center; gap:7px; padding:7px 2px; }
 .ai-management-hero-copy h3 { margin:0; color:#1f2329; font-size:22px; letter-spacing:-.02em; }
-.ai-management-hero-copy p { max-width:720px; margin:0; color:#646c73; font-size:12px; line-height:1.8; }
-.ai-active-provider { display:grid; align-content:center; gap:5px; padding:16px; background:#f5f9ff; border:1px solid #d6e8ff; border-radius:6px; }
-.ai-active-provider-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#64748b; font-size:11px; }
+.ai-management-hero-copy p { max-width:720px; margin:0; color:#646c73; font-size:13px; line-height:1.8; }
+.ai-active-provider { display:grid; align-content:center; gap:5px; padding:16px; background:#f5f7fa; border-radius:.625rem; }
+.ai-active-provider-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#64748b; font-size:12px; }
 .ai-active-provider strong { color:#1554ad; font-size:16px; }
-.ai-active-provider small { color:#64748b; font-size:10px; line-height:1.5; word-break:break-all; }
+.ai-active-provider small { color:#64748b; font-size:12px; line-height:1.5; word-break:break-all; }
 .ai-management-grid { display:grid; grid-template-columns:minmax(300px,420px) minmax(0,1fr); gap:16px; align-items:start; }
 .ai-provider-config :deep(.el-form-item) { margin-bottom:12px; }
 .ai-provider-config :deep(.el-select) { width:100%; }
-.provider-description { margin:-4px 0 11px; color:#64748b; font-size:10px; line-height:1.5; }
+.provider-description { margin:-4px 0 11px; color:#64748b; font-size:12px; line-height:1.5; }
 .provider-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:2px; }
 .provider-actions .el-button { min-width:104px; }
 .provider-error { margin-top:10px; }
@@ -244,20 +244,20 @@ onMounted(loadRuntime)
 .provider-test-result.success { background:#f6ffed; border-color:#b7eb8f; }
 .provider-test-result.failed { background:#fff2f0; border-color:#ffccc7; }
 .provider-test-result>div { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-.provider-test-result p { margin:8px 0; color:#3d3d3d; font-size:11px; line-height:1.6; white-space:pre-wrap; }
-.provider-test-result span,.provider-test-result small { color:#8c8c8c; font-size:10px; }
+.provider-test-result p { margin:8px 0; color:#3d3d3d; font-size:12px; line-height:1.6; white-space:pre-wrap; }
+.provider-test-result span,.provider-test-result small { color:#8c8c8c; font-size:12px; }
 .provider-test-result small { display:block; line-height:1.5; }
-.provider-key-hint { display:block; margin-top:9px; color:#64748b; font-size:10px; line-height:1.5; }
+.provider-key-hint { display:block; margin-top:9px; color:#64748b; font-size:12px; line-height:1.5; }
 .provider-viewer-summary { display:grid; gap:10px; }
 .provider-viewer-summary strong { color:#1554ad; font-size:16px; }
-.provider-viewer-summary span { color:#64748b; font-size:11px; }
+.provider-viewer-summary span { color:#64748b; font-size:12px; }
 .ai-capability-list { display:grid; gap:7px; }
 .ai-capability-item { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid #f0f0f0; }
 .ai-capability-item:last-child { border-bottom:0; }
 .ai-capability-dot { width:8px; height:8px; background:#cbd5e1; border-radius:50%; }
 .ai-capability-dot.online { background:#52c41a; box-shadow:0 0 0 3px #f6ffed; }
-.ai-capability-item strong { color:#303133; font-size:12px; }
-.ai-capability-item p { margin:3px 0 0; color:#7b8490; font-size:10px; line-height:1.5; }
+.ai-capability-item strong { color:#303133; font-size:13px; }
+.ai-capability-item p { margin:3px 0 0; color:#7b8490; font-size:12px; line-height:1.5; }
 .provider-name { display:flex; align-items:center; gap:6px; }
 .provider-name small { color:#86909c; }
 .provider-capabilities { display:flex; flex-wrap:wrap; gap:4px; }

@@ -237,14 +237,14 @@ onMounted(load)
 <style scoped>
 .backups-toolbar { flex-wrap: wrap; }
 .backups-toolbar .el-select { width: 150px; }
-.toolbar-hint { color: var(--muted); }
-.muted-text { color: var(--muted); font-size: 11px; }
+.toolbar-hint { color: var(--muted-foreground); }
+.muted-text { color: var(--muted-foreground); font-size: 12px; }
 .backup-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
-.backup-stat-grid :deep(.el-card) { border-color: #cbd5e1; box-shadow: 0 2px 8px rgba(15, 23, 42, .06); }
+.backup-stat-grid :deep(.el-card) { border: 0; box-shadow: none; background: #f5f7fa; }
 .backup-stat-grid :deep(.el-card__body) { min-height: 116px; display: flex; flex-direction: column; justify-content: center; gap: 7px; }
 .backup-stat-grid span { color: var(--foreground); font-size: 13px; font-weight: 700; line-height: 1.3; }
 .backup-stat-grid strong { color: var(--ink); font-size: 28px; line-height: 1.1; }
-.backup-stat-grid small { color: #475569; font-size: 11px; line-height: 1.5; }
+.backup-stat-grid small { color: #475569; font-size: 12px; line-height: 1.5; }
 .backup-table-card :deep(.el-table) { min-height: 280px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .section-heading strong, .section-heading span { display: block; }

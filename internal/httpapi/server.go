@@ -165,7 +165,6 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/test-devices/provision", s.authorize("operator"), s.endpoint(s.provisionTestDevice))
 	s.router.POST("/api/v1/discovered-devices/:id/register", s.authorize("operator"), s.endpoint(s.registerDiscoveredDevice, "id"))
 	s.router.POST("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.rotateDeviceCredential, "id"))
-	s.router.GET("/api/v1/device-registry/:id/connection-guide", s.authorize("viewer"), s.endpoint(s.deviceConnectionGuide, "id"))
 	s.router.POST("/api/v1/device-registry/:id/debug", s.authorize("operator"), s.endpoint(s.debugDeviceIngest, "id"))
 	s.router.POST("/api/v1/raw-messages", s.authorize("operator"), s.endpoint(s.ingestRaw))
 	s.router.GET("/api/v1/raw-messages", s.authorize("viewer"), s.endpoint(s.listRaw))
@@ -712,42 +711,6 @@ func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) 
 	}
 	s.audit(r, "device.credential.rotate", "device", r.PathValue("id"), nil)
 	write(w, 200, map[string]any{"deviceId": r.PathValue("id"), "credential": c, "revocation": v})
-}
-func (s *Server) deviceConnectionGuide(w http.ResponseWriter, r *http.Request) {
-	c := claims(r)
-	v, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, r.PathValue("id"))
-	if err != nil {
-		problem(w, 404, "device not found")
-		return
-	}
-	p, err := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ProductID)
-	if err != nil {
-		problem(w, 404, "product not found")
-		return
-	}
-	if !v.UsesPlatformCredentials(p) {
-		transport := v.Tags["connector"]
-		if transport == "" {
-			transport = p.Transport
-		}
-		write(w, 200, map[string]any{"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "gatewayId": v.GatewayID, "connector": transport, "credentialSupported": false, "connectionUrl": "/api/v1/device-registry/" + url.PathEscape(v.ID) + "/connection"})
-		return
-	}
-	if info := s.deviceAccessInfo(v); info != nil {
-		write(w, 200, map[string]any{
-			"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "accessKey": v.AccessKey, "secretHint": v.SecretHint,
-			"http":            map[string]any{"method": "POST", "url": info["httpUrl"], "headers": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>", "Content-Type": "application/json"}},
-			"mqtt":            map[string]any{"broker": info["mqttBroker"], "topic": info["upTopic"], "downTopic": info["downTopic"], "clientId": info["clientId"], "username": info["username"], "tokenEndpoint": info["tokenEndpoint"]},
-			"payloadTemplate": info["sample"],
-		})
-		return
-	}
-	pkg, _ := s.engine.Repo.GetProtocolPackage(r.Context(), c.TenantID, p.ProtocolPackageID)
-	result := map[string]any{"deviceId": v.ID, "productId": p.ID, "deviceRole": v.DeviceRole, "gatewayId": v.GatewayID, "accessKey": v.AccessKey, "secretHint": v.SecretHint, "http": map[string]any{"method": "POST", "url": "/api/v1/device-ingest/" + v.ID, "headers": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>", "Content-Type": "application/json"}}, "mqtt": map[string]any{"broker": publicEndpoint(s.cfg.MQTTPublicURL), "topic": fmt.Sprintf("/external/raw/%s/%s/%s", c.TenantID, p.ID, v.ID), "tokenEndpoint": "/api/v1/device-mqtt/token", "tokenHeaders": map[string]string{"X-Device-Key": v.AccessKey, "X-Device-Secret": "<仅创建或轮换时显示>"}}, "payloadTemplate": map[string]any{"messageId": "raw_<unique>", "tenantId": c.TenantID, "productId": p.ID, "deviceId": v.ID, "protocol": pkg.Protocol, "transport": pkg.Transport, "payloadFormat": pkg.PayloadFormat, "payload": map[string]any{"properties": map[string]any{"temperature": 25.5}}}}
-	if v.DeviceRole == "GATEWAY" || p.Category == "gateway" {
-		result["gateway"] = map[string]any{"autoRegisterChildren": true, "description": "网关上报一个尚未注册的子设备时，平台自动注册并建立关联", "childPayloadTemplate": map[string]any{"messageId": "raw_<unique>", "deviceId": "child_device_001", "deviceName": "一号子设备", "productId": "<child_product_id>", "payload": map[string]any{"properties": map[string]any{"temperature": 25.5}}}}
-	}
-	write(w, 200, result)
 }
 func (s *Server) debugDeviceIngest(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)

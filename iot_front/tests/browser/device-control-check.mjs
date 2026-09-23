@@ -27,8 +27,7 @@ import '/node_modules/element-plus/dist/index.css';
 import '/src/styles.css';
 import DeviceConnection from '/src/components/DeviceConnection.vue';
 localStorage.setItem('iot_role','operator');
-const debugCommands=new URLSearchParams(location.search).get('debug')==='true';
-createApp({render:()=>h(DeviceConnection,{deviceId:'d',debugCommands})}).use(ElementPlus,{locale:zhCn}).mount('#app');
+createApp({render:()=>h(DeviceConnection,{deviceId:'d'})}).use(ElementPlus,{locale:zhCn}).mount('#app');
 </script></body></html>`));return
  }
  next()
@@ -76,14 +75,8 @@ try {
    await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(200)
    assert.equal(await evaluate(`document.querySelector('.el-drawer__body').scrollWidth<=document.querySelector('.el-drawer__body').clientWidth+2`),true)
    await call('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false})
-   savedBody=null
-   await call('Page.navigate',{url:origin+'mapping-fixture?debug=true'})
-   await until(()=>evaluate(`document.body.textContent.includes('原始命令调试')`))
-   assert.equal(await evaluate(`document.querySelector('.device-commands textarea')!==null`),true)
-   await evaluate(`(()=>{const e=document.querySelector('.device-commands textarea');e.value=${JSON.stringify(mode==='MQTT'?'{}':'{"type":"ping"}')};e.dispatchEvent(new Event('input',{bubbles:true}));${mode==='MQTT'?"const t=document.querySelector('.device-commands input');t.value='ping';t.dispatchEvent(new Event('input',{bubbles:true}));":''}})()`)
-   await click('发送调试命令');await click('确定');await until(()=>savedBody);assert.equal(savedBody.type,'ping')
   }
-  console.log('PASS: MQTT/Go device control forms, zero/false/object parameters, confirmation, raw debug separation, response and mobile layout (synthetic API)')
+  console.log('PASS: MQTT/Go device control forms, zero/false/object parameters, confirmation, response and mobile layout (synthetic API)')
 } finally {
   await server.close()
   if(socket)socket.close()

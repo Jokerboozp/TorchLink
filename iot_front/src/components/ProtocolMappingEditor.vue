@@ -54,7 +54,7 @@ function changeType(row, value) {
 
 <style scoped>
 .mapping-editor { min-width: 0; margin-bottom: 20px; }
-.mapping-editor p { margin: 8px 0 12px; font-size: 12px; }
+.mapping-editor p { margin: 8px 0 12px; font-size: 13px; }
 .mapping-editor :deep(.el-input-number) { width: 100%; }
 .mapping-options { padding: 16px; max-width: 850px; }
 .mapping-source { white-space: normal; overflow-wrap: anywhere; }

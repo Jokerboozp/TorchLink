@@ -9,7 +9,6 @@ import { ElMessage } from 'element-plus'
 import { api, apiAll, notifyError } from '../api'
 import { categories, enabledStatuses, label, tagType } from '../labels'
 
-const thingModelText = ref('')
 const bindingProduct = ref(null)
 const products = ref([])
 const protocols = ref([])
@@ -59,7 +58,6 @@ function changePageSize(value) {
 
 function reset() {
   Object.assign(form, blank())
- thingModelText.value=''
 }
 
 function openCreate() {
@@ -70,14 +68,12 @@ function openCreate() {
 
 function view(item) {
   Object.assign(form, { ...blank(), ...item, code:item.id })
- thingModelText.value=item.thingModel?JSON.stringify(item.thingModel,null,2):''
   readonly.value = true
   dialog.value = true
 }
 
 function edit(item) {
   Object.assign(form, { ...blank(), ...item, code:item.id })
- thingModelText.value=item.thingModel?JSON.stringify(item.thingModel,null,2):''
   readonly.value = false
   dialog.value = true
 }
@@ -93,7 +89,6 @@ async function save() {
   try {
     if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}`
     const value = { ...form, id:form.id || form.code }
-    value.thingModel=thingModelText.value.trim()?JSON.parse(thingModelText.value):null
  delete value.code
     const editing = Boolean(form.id)
     await api(editing ? `/api/v1/products/${encodeURIComponent(value.id)}` : '/api/v1/products', {
@@ -172,7 +167,6 @@ onMounted(load)
       </div>
       <el-form-item label="产品状态"><el-select v-model="form.status"><el-option label="已启用" value="ENABLED" /><el-option label="已停用" value="DISABLED" /><el-option label="草稿" value="DRAFT" /></el-select></el-form-item>
       <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="3" /></el-form-item>
-      <el-collapse><el-collapse-item title="物模型基础（高级）" name="thing-model"><p>定义属性、事件和命令。此定义用于描述数据及校验命令；属性标记为可写后，才允许设置设备的期望状态。</p><el-input v-model="thingModelText" type="textarea" :rows="12" placeholder='{"properties":[{"identifier":"temperature","name":"温度","dataType":"number","unit":"℃"}],"events":[],"commands":[]}' /></el-collapse-item></el-collapse>
     </el-form>
     <template #footer>
       <el-button v-permission="'PUT /api/v1/products/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</el-button>

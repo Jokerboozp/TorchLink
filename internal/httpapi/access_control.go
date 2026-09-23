@@ -194,8 +194,8 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 	lookups := map[string][]string{
 		"/api/v1/protocol-packages": {"products"},
 		"/api/v1/alarms":            {"dashboard", "integration"}, "/api/v1/alarms/:id": {"dashboard"},
-		"/api/v1/device-registry/:id/connection-guide": {"integration"}, "/api/v1/device-registry/:id/connection": {"integration"},
-		"/api/v1/device-registry/:id/history": {"integration"}, "/api/v1/device-registry/:id/children": {"integration"}, "/api/v1/device-registry/:id/commands": {"integration"},
+		"/api/v1/device-registry/:id/connection": {"integration"},
+		"/api/v1/device-registry/:id/history":    {"integration"}, "/api/v1/device-registry/:id/children": {"integration"}, "/api/v1/device-registry/:id/commands": {"integration"},
 		"/api/v1/raw-messages/:id": {"integration", "devices"}, "/api/v1/rules": {"ai"},
 	}
 	for _, dep := range lookups[path] {

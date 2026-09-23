@@ -1,7 +1,7 @@
 <script setup>
 import { createClientId } from '../clientId'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { api, apiAll, formatTime, notifyError, parseJSON, pretty } from '../api'
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels'
 import DeviceConnection from '../components/DeviceConnection.vue'
@@ -107,17 +107,8 @@ async function register(id) {
     await load()
   } catch (error) { notifyError(error) }
 }
-async function rotate(id) {
-  try {
-    await ElMessageBox.confirm('轮换后旧凭证立即失效，确定继续？', '轮换设备凭证', { type:'warning' })
-    const result = await api(`/api/v1/device-registry/${encodeURIComponent(id)}/credentials`, { method:'POST', body:'{}' })
-    showCredential(result.credential)
-    await load()
-  } catch (error) { if (error !== 'cancel') notifyError(error) }
-}
 function showCredential(value) { credential.value = value; credentialDialog.value = true }
 async function copyCredential() { await navigator.clipboard.writeText(`X-Device-Key: ${credential.value.accessKey}\nX-Device-Secret: ${credential.value.secret}`); ElMessage.success('凭证已复制') }
-function guide(id) { emit('navigate', 'integration', { deviceId:id }) }
 function hasReported(row) { return Number(row.runtimeState?.lastSeenAt || 0) > 0 }
 function openRaw(id) { emit('navigate', 'raw', { deviceId:id }) }
 
@@ -141,7 +132,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime))
       <el-table-column label="设备角色" width="120"><template #default="{ row }"><el-tag round>{{ label(deviceRoles, roleOf(row.device), '直接设备') }}</el-tag><small v-if="row.device.autoRegistered" class="subline">网关自动注册</small></template></el-table-column>
       <el-table-column label="所属关系" min-width="150"><template #default="{ row }">{{ relation(row) }}</template></el-table-column>
       <el-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></el-table-column>
-      <el-table-column label="操作" fixed="right" width="270" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain @click="connectionDevice=row.device.id">连接详情</el-button><el-button v-if="!hasReported(row)" plain type="primary" @click="row.credentialSupported ? guide(row.device.id) : connectionDevice=row.device.id">配置接入</el-button><el-button v-else v-permission="'menu:raw'" plain type="success" @click="openRaw(row.device.id)">查看数据</el-button><el-dropdown v-permission="['PUT /api/v1/device-registry/:id','POST /api/v1/device-registry/:id/credentials']" trigger="click"><el-button plain aria-label="更多设备操作">更多操作</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item v-permission="'PUT /api/v1/device-registry/:id'" @click="open(row.device)">编辑设备</el-dropdown-item><el-dropdown-item v-permission="'POST /api/v1/device-registry/:id/credentials'" v-if="row.credentialSupported" @click="rotate(row.device.id)">轮换凭证</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></template></el-table-column>
+      <el-table-column label="操作" fixed="right" width="240" align="center"><template #default="{ row }"><div class="table-actions"><el-button plain @click="connectionDevice=row.device.id">连接详情</el-button><el-button v-if="hasReported(row)" v-permission="'menu:raw'" plain type="success" @click="openRaw(row.device.id)">查看数据</el-button><el-button v-permission="'PUT /api/v1/device-registry/:id'" plain @click="open(row.device)">编辑</el-button></div></template></el-table-column>
       <template #empty><el-empty description="暂无设备" /></template>
     </el-table>
     <div class="list-pagination"><el-pagination v-model:current-page="registryPage" v-model:page-size="registryPageSize" :total="registryTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeRegistryPage" @size-change="changeRegistryPageSize" /></div>

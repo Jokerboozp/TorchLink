@@ -113,8 +113,8 @@ async function toggleProfile(profile) {
     await load()
   } catch (error) { notifyError(error) }
 }
-async function downloadRelease(protocolId, release, kind) {
-  try { await download(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(release.version)}/${kind}`, `${protocolId}-${release.version}-${kind}.${kind === 'source' && release.artifact?.filename?.toLowerCase().endsWith('.go') ? 'go' : 'zip'}`) }
+async function downloadSourceRelease(protocolId, release) {
+  try { await download(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(release.version)}/source`, `${protocolId}-${release.version}-source.${release.artifact?.filename?.toLowerCase().endsWith('.go') ? 'go' : 'zip'}`) }
   catch (error) { notifyError(error) }
 }
 async function testProfile(profile) {
@@ -165,13 +165,13 @@ onMounted(load)
         <el-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</el-tag></template></el-table-column>
         <el-table-column label="版本历史" min-width="240"><template #default="{ row }"><div v-for="release in row.releases" :key="release.version" class="release-history"><el-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</el-tag><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></div></template></el-table-column>
-        <el-table-column label="操作" fixed="right" width="350"><template #default="{ row }">
+        <el-table-column label="操作" fixed="right" width="190"><template #default="{ row }">
           <div v-for="release in (row.releases?.length ? row.releases : [{}])" :key="release.version || 'empty'" class="release-actions">
             <div class="release-buttons">
-              <el-tooltip :disabled="!!release.artifact?.generatedMapping" content="此协议无字段映射测试配置，请在接入测试中验证" placement="top"><span><el-button v-permission="'POST /api/v2/protocols/:id/releases/:version/preview'" :disabled="!release.artifact?.generatedMapping" size="small" plain type="primary" @click="openAssistant(release, row.definition.name)">解析测试</el-button></span></el-tooltip>
-              <el-tooltip :disabled="release.artifact?.build?.kind === 'go-source'" content="此版本没有可下载的 Go 源码" placement="top"><span><el-button v-permission="'GET /api/v2/protocols/:id/releases/:version/source'" :disabled="release.artifact?.build?.kind !== 'go-source'" size="small" plain @click="downloadRelease(row.definition.id, release, 'source')">下载源码</el-button></span></el-tooltip>
-              <el-tooltip :disabled="!!release.artifact?.packagePath" content="此版本没有可下载的协议制品" placement="top"><span><el-button v-permission="'GET /api/v2/protocols/:id/releases/:version/package'" :disabled="!release.artifact?.packagePath" size="small" plain @click="downloadRelease(row.definition.id, release, 'package')">下载制品</el-button></span></el-tooltip>
-              <el-tooltip :disabled="release.status === 'VALIDATED'" :content="release.status === 'PUBLISHED' ? '此版本已发布' : '版本通过校验后才能发布'" placement="top"><span><el-button v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" :disabled="release.status !== 'VALIDATED'" size="small" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button></span></el-tooltip>
+              <el-button v-if="release.artifact?.generatedMapping" v-permission="'POST /api/v2/protocols/:id/releases/:version/preview'" size="small" plain type="primary" @click="openAssistant(release, row.definition.name)">解析测试</el-button>
+              <el-button v-if="release.status === 'VALIDATED'" v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" size="small" plain type="primary" :loading="switching" @click="publishRelease(row.definition.id, release.version)">发布</el-button>
+              <el-button v-if="release.artifact?.build?.kind === 'go-source'" v-permission="'GET /api/v2/protocols/:id/releases/:version/source'" size="small" plain @click="downloadSourceRelease(row.definition.id, release)">源码</el-button>
+              <span v-if="!release.artifact?.generatedMapping && release.status !== 'VALIDATED' && release.artifact?.build?.kind !== 'go-source'">—</span>
             </div>
           </div>
         </template></el-table-column>

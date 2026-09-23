@@ -263,26 +263,26 @@ onMounted(() => prepare())
 .test-device-workbench, .test-device-side { display: grid; gap: 16px; min-width: 0; }
 .test-device-view code { overflow-wrap: anywhere; word-break: break-word; }
 .test-device-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
-.test-device-summary > div { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: .625rem; background: #f8fafc; }
-.test-device-summary span, .test-device-summary small, .credential-box span { display: block; color: var(--muted-foreground); font-size: 11px; }
+.test-device-summary > div { min-width: 0; padding: 13px; border-radius: .625rem; background: #f5f7fa; }
+.test-device-summary span, .test-device-summary small, .credential-box span { display: block; color: var(--muted-foreground); font-size: 12px; }
 .test-device-summary strong { display: block; margin: 7px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .credential-box { display: grid; gap: 6px; padding: 12px; border: 1px solid #fcd34d; border-radius: .625rem; background: #fffbeb; }
 .credential-box code { overflow-wrap: anywhere; color: #92400e; }
 .template-switcher { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 11px; }
-.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); background: #fff; cursor: pointer; font-size: 12px; }
+.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); background: #fff; cursor: pointer; font-size: 13px; }
 .template-switcher button:hover, .template-switcher button.active { border-color: var(--primary); color: var(--accent-foreground); background: var(--accent); }
 .template-editor :deep(textarea) { min-height: 330px; padding: 13px; color: #dbeafe; background: #0f172a; border-color: #1e293b; border-radius: .625rem; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; }
 .template-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-.template-actions span { color: var(--muted-foreground); font-size: 11px; }
+.template-actions span { color: var(--muted-foreground); font-size: 12px; }
 .quick-send-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .quick-send { min-height: 74px; padding: 13px; display: grid; gap: 5px; text-align: left; border: 1px solid var(--border); border-radius: .625rem; background: #fff; cursor: pointer; }
 .quick-send:hover:not(:disabled) { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.1); }
 .quick-send:disabled { cursor: not-allowed; opacity: .58; }
 .quick-send strong { font-size: 13px; }
-.quick-send small { color: var(--muted-foreground); font-size: 11px; }
+.quick-send small { color: var(--muted-foreground); font-size: 12px; }
 .quick-send.normal { border-left: 3px solid var(--success); }.quick-send.danger { border-left: 3px solid var(--destructive); }.quick-send.warning { border-left: 3px solid var(--warning); }.quick-send.event { border-left: 3px solid var(--primary); }
 .send-history-item { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); }
-.send-history-item:last-child { border-bottom: 0; }.send-history-item strong, .send-history-item small { display: block; }.send-history-item small { max-width: 190px; margin-top: 3px; overflow: hidden; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.send-history-item:last-child { border-bottom: 0; }.send-history-item strong, .send-history-item small { display: block; }.send-history-item small { max-width: 190px; margin-top: 3px; overflow: hidden; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .result-json { max-height: 300px; margin-top: 13px; }
 .loading-card { min-height: 300px; display: grid; place-items: center; }
 @media (max-width: 1050px) { .test-device-layout { grid-template-columns: 1fr; }.test-device-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }.result-card { grid-column: 1 / -1; } }

@@ -164,7 +164,7 @@ onBeforeUnmount(() => {
 .inspection-progress-heading>div { display:grid; gap:4px; }
 .inspection-progress-heading strong { color:#1554ad; font-size:14px; }
 .inspection-progress-heading>strong { font-size:20px; }
-.inspection-progress-heading small,.inspection-progress-meta { color:#64748b; font-size:11px; line-height:1.5; }
+.inspection-progress-heading small,.inspection-progress-meta { color:#64748b; font-size:12px; line-height:1.5; }
 .inspection-progress-meta { display:flex; justify-content:space-between; gap:12px; margin-top:8px; }
 .inspection-findings { display:inline-block; margin-left:8px; color:#646c73; line-height:1.6; }
 @media (max-width:560px) { .inspection-progress-meta { display:grid; gap:2px; } }

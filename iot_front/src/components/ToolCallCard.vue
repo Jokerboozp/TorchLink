@@ -48,9 +48,9 @@ function safeSummary(value) {
 <style scoped>
 .tool-card { margin-top:10px; padding:10px 11px; background:#fafafa; border:1px solid #e8e8e8; border-left:3px solid #d9d9d9; border-radius:4px; }
 .tool-card.is-running { border-left-color:#faad14; }.tool-card.is-succeeded { border-left-color:#52c41a; }.tool-card.is-failed { border-left-color:#ff4d4f; }
-.tool-card header { display:flex; align-items:center; gap:9px; }.tool-icon { width:25px; height:25px; flex:0 0 25px; display:grid; place-items:center; color:#1677ff; background:#e6f4ff; border-radius:4px; font-size:10px; font-weight:800; }
-.tool-title { min-width:0; flex:1; display:grid; gap:1px; }.tool-title small { color:#8c8c8c; font-size:9px; letter-spacing:.08em; }.tool-title strong { overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-.tool-meta { min-height:20px; margin-top:7px; padding-left:34px; display:flex; align-items:center; gap:10px; color:#8c8c8c; font-size:10px; }.tool-meta .el-button { margin-left:auto; padding:0; font-size:10px; }
-.tool-details { margin:7px 0 0 34px; display:grid; gap:8px; }.tool-details section { display:grid; gap:4px; }.tool-details strong { color:#646c73; font-size:10px; }.tool-details pre { max-height:180px; margin:0; padding:8px; overflow:auto; color:#3d3d3d; background:#fff; border:1px solid #ededed; border-radius:3px; font:10px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
+.tool-card header { display:flex; align-items:center; gap:9px; }.tool-icon { width:25px; height:25px; flex:0 0 25px; display:grid; place-items:center; color:#1677ff; background:#e6f4ff; border-radius:4px; font-size:12px; font-weight:800; }
+.tool-title { min-width:0; flex:1; display:grid; gap:1px; }.tool-title small { color:#8c8c8c; font-size:12px; letter-spacing:.08em; }.tool-title strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.tool-meta { min-height:20px; margin-top:7px; padding-left:34px; display:flex; align-items:center; gap:10px; color:#8c8c8c; font-size:12px; }.tool-meta .el-button { margin-left:auto; padding:0; font-size:12px; }
+.tool-details { margin:7px 0 0 34px; display:grid; gap:8px; }.tool-details section { display:grid; gap:4px; }.tool-details strong { color:#646c73; font-size:12px; }.tool-details pre { max-height:180px; margin:0; padding:8px; overflow:auto; color:#3d3d3d; background:#fff; border:1px solid #ededed; border-radius:3px; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
 .tool-meta .el-button { min-height:24px; height:24px; padding:0 8px; }
 </style>

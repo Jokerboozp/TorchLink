@@ -4,7 +4,6 @@ import { ElMessage } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import {
   Bell,
-  Flame,
   Boxes,
   ChartNoAxesCombined,
   ChevronDown,
@@ -22,10 +21,6 @@ import {
   Upload,
   Video
 } from '@lucide/vue'
-import Avatar from './components/ui/Avatar.vue'
-import Button from './components/ui/Button.vue'
-import Input from './components/ui/Input.vue'
-import Label from './components/ui/Label.vue'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
@@ -36,7 +31,7 @@ const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.v
 const DevicesView = defineAsyncComponent(() => import('./views/DevicesView.vue'))
 const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue'))
 const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue'))
-const DeviceAccessView = defineAsyncComponent(() => import('./views/DeviceAccessView.vue'))
+const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue'))
 const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
 const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
@@ -70,7 +65,7 @@ const pages = {
   products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
   protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView, props: { section: 'protocols' } },
   profiles: { ...pageGuide.profiles, icon: Settings2, component: ProtocolsView, props: { section: 'profiles' } },
-  integration: { ...pageGuide.integration, icon: Upload, component: DeviceAccessView },
+  integration: { ...pageGuide.integration, icon: Upload, component: TestDeviceView },
   cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView },
   alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
   inspection: { ...pageGuide.inspection, icon: ChartNoAxesCombined, component: HealthInspectionView },
@@ -134,7 +129,6 @@ function handleAccountCommand(command) {
 function openPage(name, detail) {
   if (name === 'testDevice') {
     name = 'integration'
-    detail = { ...detail, tab: 'testDevice' }
   }
   if (!pages[name] || !can('menu:'+name)) return
   if (active.value === name && !detail) return
@@ -197,27 +191,27 @@ onBeforeUnmount(() => {
 <template>
   <el-config-provider :locale="zhCn" size="small">
     <div v-if="!authenticated" class="login-page">
-      <section class="login-intro"><div class="login-brand"><Flame :size="30" />炬联 <span>TORCHLINK</span></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section>
+      <section class="login-intro"><div class="login-brand"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></div><span class="login-eyebrow">消防物联网管理平台</span><h1>连接每一台设备<br />守护每一处安全</h1><p>从设备接入、实时监测到告警处置，<br />在一个工作台掌握现场运行情况。</p><div class="login-capabilities"><span><Network />多协议接入</span><span><Bell />实时告警</span><span><ChartNoAxesCombined />智能巡检</span></div><div class="login-grid-art" aria-hidden="true"><span></span><span></span><span></span><i></i></div></section>
       <section class="login-panel">
         <form class="login-form" @submit.prevent="login">
-          <span class="login-mark"><Flame :size="32" /></span>
+          <span class="login-mark"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span>
           <h2>欢迎回来</h2>
           <p>登录你的账户，进入炬联工作台</p>
           <div class="login-fields">
             <div class="login-field">
-              <Label for="tenant-id">租户</Label>
-              <Input id="tenant-id" v-model="loginForm.tenantId" autocomplete="organization" />
+              <label for="tenant-id">租户</label>
+              <el-input id="tenant-id" v-model="loginForm.tenantId" size="large" autocomplete="organization" />
             </div>
             <div class="login-field">
-              <Label for="username">用户名</Label>
-              <Input id="username" v-model="loginForm.username" autocomplete="username" placeholder="请输入用户名" required />
+              <label for="username">用户名</label>
+              <el-input id="username" v-model="loginForm.username" size="large" autocomplete="username" placeholder="请输入用户名" required />
             </div>
             <div class="login-field">
-              <Label for="password">密码</Label>
-              <Input id="password" v-model="loginForm.password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+              <label for="password">密码</label>
+              <el-input id="password" v-model="loginForm.password" size="large" type="password" autocomplete="current-password" placeholder="请输入密码" required />
             </div>
           </div>
-          <Button type="submit" class="login-submit" :loading="loginLoading">进入平台</Button>
+          <el-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</el-button>
           <p class="login-help">账户由管理员分配 · 按授权访问设备和功能</p>
         </form>
       </section>
@@ -225,7 +219,7 @@ onBeforeUnmount(() => {
 
     <div v-else class="app-shell">
       <aside class="app-aside" :class="{ 'is-collapsed': collapsed }">
-        <div class="brand"><span><Flame :size="23" aria-hidden="true" /></span><div v-show="!collapsed"><strong>炬联</strong></div></div>
+        <div class="brand"><span class="brand-logo"><img src="/torchlink-logo.png" alt="炬联 TorchLink" /></span></div>
         <nav class="menu-scroll" aria-label="主导航">
           <div class="menu-scroll-inner">
             <template v-for="group in visibleGroups" :key="group.label">
@@ -249,7 +243,7 @@ onBeforeUnmount(() => {
             <button v-if="can('menu:alarms')" class="alert-settings-trigger" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
             <el-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">
-                <Avatar>{{ currentRole.slice(0, 1) }}</Avatar>
+                <span class="account-avatar" aria-hidden="true">{{ currentRole.slice(0, 1) }}</span>
                 <span class="account-copy"><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong><small>{{ currentRole }}</small></span>
                 <ChevronDown class="account-chevron" />
               </button>

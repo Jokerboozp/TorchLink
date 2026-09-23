@@ -64,6 +64,19 @@ test('product editor offers protocol 101', async()=>{
   assert.ok(c.protocols.value.some(x=>x.id==='item-101'))
 })
 
+test('editing a product preserves its existing thing model', async()=>{
+  let saved
+  const model={properties:[{identifier:'temperature',dataType:'number'}],commands:[{identifier:'reset'}]}
+  const c=component('ProductsView.vue', async (_path,options)=>{
+    if(options?.method==='PUT') saved=JSON.parse(options.body)
+    return {items:[],total:0}
+  }, 'edit,form,save')
+  c.edit({id:'product-1',name:'传感器',protocolPackageId:'iot-standard@1.0.0',thingModel:model})
+  c.form.description='更新说明'
+  await c.save()
+  assert.deepEqual(saved.thingModel,model)
+})
+
 test('product pagination reuses the loaded protocol catalog', async()=>{
   const requests=[]
   const c=component('ProductsView.vue', async path=>{
