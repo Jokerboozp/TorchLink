@@ -22,22 +22,25 @@ const pageSize = ref(20) /* 声明 pageSize。 */
 const total = ref(0) /* 声明 total。 */
 let analysisPollTimer = 0 /* 声明 analysisPollTimer。 */
 let analysisViewToken = 0 /* 声明 analysisViewToken。 */
+let loadVersion = 0
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0)))) /* 声明 progressPercent。 */
 const progressStatus = computed(() => analysisProgress.value?.status === 'failed' ? 'exception' : analysisProgress.value?.status === 'succeeded' ? 'success' : undefined) /* 声明 progressStatus。 */
 
 async function load(resetPage = false) { /* 定义 load 函数。 */
+  const version = ++loadVersion
   if (resetPage) page.value = 1 /* 判断条件并选择处理分支。 */
   loading.value = true /* 更新 loading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     const q = alarmQuery(filters, page.value, pageSize.value) /* 声明 q。 */
     const d = await api('/api/v1/alarms?' + q) /* 声明 d。 */
+    if (version !== loadVersion) return
     items.value = d.items || [] /* 更新 items.value 的值。 */
     total.value = Number(d.total ?? d.count ?? items.value.length) /* 更新 total.value 的值。 */
   } catch (e) { /* 结束当前表达式或代码块。 */
-    notifyError(e) /* 执行当前语句并推进处理流程。 */
+    if (version === loadVersion) notifyError(e) /* 执行当前语句并推进处理流程。 */
   } finally { /* 结束当前表达式或代码块。 */
-    loading.value = false /* 更新 loading.value 的值。 */
+    if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

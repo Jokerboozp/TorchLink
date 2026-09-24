@@ -30,6 +30,7 @@ const bindingLoading = ref(false) /* 声明 bindingLoading。 */
 const bindingSaving = ref(false) /* 声明 bindingSaving。 */
 const bindingError = ref('') /* 声明 bindingError。 */
 let bindingRequestId = 0 /* 声明 bindingRequestId。 */
+let loadVersion = 0
 const loadedBindingWorkflowId = ref('') /* 声明 loadedBindingWorkflowId。 */
 const bindingWorkflowId = ref('') /* 声明 bindingWorkflowId。 */
 const knowledgeBinding = ref({ retrievalMode:'auto', topK:5, minScore:0.25, noMatchPolicy:'allow-model' }) /* 声明 knowledgeBinding。 */
@@ -62,6 +63,7 @@ function formatBytes(value) { /* 定义 formatBytes 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 async function load() { /* 定义 load 函数。 */
+  const version = ++loadVersion
   loading.value = true /* 更新 loading.value 的值。 */
   agentError.value = '' /* 更新 agentError.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
@@ -69,6 +71,7 @@ async function load() { /* 定义 load 函数。 */
       api(`/api/v1/knowledge/documents?page=${page.value}&pageSize=${pageSize.value}`), /* 执行当前语句并推进处理流程。 */
       api('/api/v1/ai/workflows?page=1&pageSize=100') /* 执行当前语句并推进处理流程。 */
     ]) /* 结束当前表达式或代码块。 */
+    if (version !== loadVersion) return
     if (documentResult.status === 'fulfilled') { /* 判断条件并选择处理分支。 */
       const data = documentResult.value /* 声明 data。 */
       documents.value = Array.isArray(data.items) ? data.items : [] /* 更新 documents.value 的值。 */
@@ -84,10 +87,12 @@ async function load() { /* 定义 load 函数。 */
     if (agents.value.length && !agents.value.some(item => agentKey(item) === bindingWorkflowId.value)) bindingWorkflowId.value = agentKey(agents.value[0]) /* 判断条件并选择处理分支。 */
     if (bindingWorkflowId.value && loadedBindingWorkflowId.value !== bindingWorkflowId.value) void loadBinding() /* 判断条件并选择处理分支。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
-    if (error?.message?.includes('workflows')) agentError.value = error.message /* 判断条件并选择处理分支。 */
-    else notifyError(error) /* 执行当前语句并推进处理流程。 */
+    if (version === loadVersion) {
+      if (error?.message?.includes('workflows')) agentError.value = error.message /* 判断条件并选择处理分支。 */
+      else notifyError(error) /* 执行当前语句并推进处理流程。 */
+    }
   } finally { /* 结束当前表达式或代码块。 */
-    loading.value = false /* 更新 loading.value 的值。 */
+    if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

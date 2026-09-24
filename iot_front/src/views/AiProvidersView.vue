@@ -16,6 +16,7 @@ const providerError = ref('') /* 声明 providerError。 */
 const testResult = ref(null) /* 声明 testResult。 */
 const testedFingerprint = ref('') /* 声明 testedFingerprint。 */
 const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'' }) /* 声明 providerForm。 */
+let loadVersion = 0
 
 const capabilityLabels = { /* 声明 capabilityLabels。 */
   chat:'对话', /* 执行当前语句并推进处理流程。 */
@@ -81,16 +82,18 @@ function providerChanged(provider) { /* 定义 providerChanged 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 async function loadRuntime() { /* 定义 loadRuntime 函数。 */
+  const version = ++loadVersion
   loading.value = true /* 更新 loading.value 的值。 */
   loadError.value = '' /* 更新 loadError.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     const value = await api('/api/v1/ai/providers?page=1&pageSize=100') /* 声明 value。 */
+    if (version !== loadVersion) return
     runtime.value = value /* 更新 runtime.value 的值。 */
     syncProviderForm(value) /* 执行当前语句并推进处理流程。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
-    loadError.value = error.message || '模型服务状态读取失败' /* 更新 loadError.value 的值。 */
+    if (version === loadVersion) loadError.value = error.message || '模型服务状态读取失败' /* 更新 loadError.value 的值。 */
   } finally { /* 结束当前表达式或代码块。 */
-    loading.value = false /* 更新 loading.value 的值。 */
+    if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

@@ -165,4 +165,6 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 
 本地集成入口：`go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 检查依赖读写；前端、API 和备份启动后，`node scripts/tests/local-business-smoke.mjs` 检查登录、接入、归档、规则及回放。业务冒烟会创建唯一测试数据，结束停用本次规则与凭据并保留记录；仅在测试环境运行。
 
+Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交原消息位点后才继续消费。死信中的合法 JSON 报文保持 `payload` 原结构；非 JSON 或二进制报文放在 `payload` 的 Base64 字符串中，并带 `payloadEncoding: "base64"`，可还原原始字节。
+
 真实 PostgreSQL、MQTT 用例及浏览器检查说明见 [接入验证](UNIFIED_DEVICE_ONBOARDING.md#验证入口)。部署脚本检查见 [部署排查入口](DEPLOYMENT.md#排查入口)。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。

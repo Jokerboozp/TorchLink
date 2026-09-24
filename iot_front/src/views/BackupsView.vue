@@ -21,6 +21,7 @@ const manifestPageSize = ref(20) /* 声明 manifestPageSize。 */
 const manifestTotal = ref(0) /* 声明 manifestTotal。 */
 const page = ref(1) /* 声明 page。 */
 const pageSize = ref(20) /* 声明 pageSize。 */
+let loadVersion = 0
 
 const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','GET /api/v1/backups/:id/files/:filename'])) /* 声明 isAdmin。 */
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length) /* 声明 runningCount。 */
@@ -52,6 +53,7 @@ function idPath(value) { /* 定义 idPath 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 async function load(resetPage = false) { /* 定义 load 函数。 */
+  const version = ++loadVersion
   if (resetPage) page.value = 1 /* 判断条件并选择处理分支。 */
   loading.value = true /* 更新 loading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
@@ -59,12 +61,13 @@ async function load(resetPage = false) { /* 定义 load 函数。 */
     if (filters.type) query.set('type', filters.type) /* 判断条件并选择处理分支。 */
     if (filters.status) query.set('status', filters.status) /* 判断条件并选择处理分支。 */
     const data = await api(`/api/v1/backups?${query.toString()}`) /* 声明 data。 */
+    if (version !== loadVersion) return
     records.value = data.items || [] /* 更新 records.value 的值。 */
-    total.value = Number(data.total || records.value.length) /* 更新 total.value 的值。 */
+    total.value = Number(data.total ?? data.count ?? records.value.length) /* 更新 total.value 的值。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
-    notifyError(error) /* 执行当前语句并推进处理流程。 */
+    if (version === loadVersion) notifyError(error) /* 执行当前语句并推进处理流程。 */
   } finally { /* 结束当前表达式或代码块。 */
-    loading.value = false /* 更新 loading.value 的值。 */
+    if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

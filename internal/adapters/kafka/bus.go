@@ -2,6 +2,8 @@ package kafkaadapter /* 声明 kafkaadapter 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
 	"context" /* 执行当前语句并推进处理流程。 */
+	"encoding/base64"
+	"encoding/json"
 	"fmt"     /* 执行当前语句并推进处理流程。 */
 	"strings" /* 执行当前语句并推进处理流程。 */
 	"sync"    /* 执行当前语句并推进处理流程。 */
@@ -33,6 +35,41 @@ func (b *Bus) writer(topic string) *kafka.Writer { /* 定义 writer 函数。 */
 func (b *Bus) Publish(ctx context.Context, topic, key string, payload []byte) error { /* 定义 Publish 函数。 */
 	return b.writer(topic).WriteMessages(ctx, kafka.Message{Key: []byte(key), Value: payload}) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+func deadLetterPayload(topic, group string, cause error, payload []byte) []byte {
+	message := struct {
+		SourceTopic     string          `json:"sourceTopic"`
+		ConsumerGroup   string          `json:"consumerGroup"`
+		RetryCount      int             `json:"retryCount"`
+		Error           string          `json:"error"`
+		Payload         json.RawMessage `json:"payload"`
+		PayloadEncoding string          `json:"payloadEncoding,omitempty"`
+	}{SourceTopic: topic, ConsumerGroup: group, RetryCount: 3, Error: cause.Error()}
+	if json.Valid(payload) {
+		message.Payload = json.RawMessage(payload)
+	} else {
+		message.Payload, _ = json.Marshal(base64.StdEncoding.EncodeToString(payload))
+		message.PayloadEncoding = "base64"
+	}
+	body, _ := json.Marshal(message)
+	return body
+}
+func retryUntilSuccess(ctx context.Context, delay time.Duration, operation func() error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := operation(); err == nil {
+			return nil
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
 func (b *Bus) Subscribe(ctx context.Context, topic, group string, h ports.Handler) error { /* 定义 Subscribe 函数。 */
 	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0}) /* 更新 reader 的值。 */
 	b.mu.Lock()                                                                                                                                                       /* 执行当前语句并推进处理流程。 */
@@ -57,14 +94,14 @@ func (b *Bus) Subscribe(ctx context.Context, topic, group string, h ports.Handle
 				} /* 结束当前表达式或代码块。 */
 			} /* 结束当前表达式或代码块。 */
 			if handleErr != nil { /* 判断条件并选择处理分支。 */
-				dlq := append([]byte(fmt.Sprintf(`{"sourceTopic":%q,"consumerGroup":%q,"retryCount":3,"error":%q,"payload":`, topic, group, handleErr.Error())), append(m.Value, '}')...) /* 更新 dlq 的值。 */
-				if err := b.Publish(ctx, "iot.dlq."+group, string(m.Key), dlq); err != nil {                                                                                              /* 判断条件并选择处理分支。 */
-					continue /* 执行当前语句并推进处理流程。 */
+				dlq := deadLetterPayload(topic, group, handleErr, m.Value)                                                                                         /* 更新 dlq 的值。 */
+				if err := retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return b.Publish(ctx, "iot.dlq."+group, string(m.Key), dlq) }); err != nil { /* 判断条件并选择处理分支。 */
+					return
 				} /* 结束当前表达式或代码块。 */
-				_ = reader.CommitMessages(ctx, m) /* 更新 _ 的值。 */
-				continue                          /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
-			_ = reader.CommitMessages(ctx, m) /* 更新 _ 的值。 */
+			if err := retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return reader.CommitMessages(ctx, m) }); err != nil {
+				return
+			}
 		} /* 结束当前表达式或代码块。 */
 	}() /* 结束当前表达式或代码块。 */
 	return nil /* 返回当前处理结果。 */

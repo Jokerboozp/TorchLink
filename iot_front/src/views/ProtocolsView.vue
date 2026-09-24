@@ -50,6 +50,7 @@ watch(()=>listener.connectionMode,value=>{if(value==='dial')listener.publicHost=
 function editProfile(profile){bindingRevision++;resetListener({...JSON.parse(JSON.stringify(profile)),mode:profile.mode || 'poll',network:profile.network || 'tcp',connectionMode:profile.mode === 'listener' ? profile.connectionMode || 'listen' : ''});editingProfile.value=true;profileOpen.value=true} /* 定义 editProfile 函数。 */
 const savingListener = ref(false) /* 声明 savingListener。 */
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0)) /* 声明 releaseCount。 */
+let loadVersion = 0
 
 async function loadProducts() { /* 定义 loadProducts 函数。 */
   const items = [] /* 声明 items。 */
@@ -61,15 +62,17 @@ async function loadProducts() { /* 定义 loadProducts 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 async function load() { /* 定义 load 函数。 */
+  const version = ++loadVersion
   loading.value = true /* 更新 loading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     const [catalog, access, productList, template, connectors] = await Promise.all([api('/api/v2/protocols'), props.section === 'profiles' ? api('/api/v2/device-access-profiles') : {}, loadProducts(), props.section === 'protocols' ? api('/api/v2/protocol-source-template') : null, props.section === 'profiles' ? api('/api/v1/connectors') : {}]) /* 执行当前语句并推进处理流程。 */
+    if (version !== loadVersion) return
     protocols.value = catalog.items || [] /* 更新 protocols.value 的值。 */
     snapshots.value = Object.fromEntries((connectors.items || []).filter(x => x.profile).map(x => [x.profile.id, x])) /* 更新 snapshots.value 的值。 */
     profiles.value = (access.items || []).map(p => snapshot(p.id).profile || p) /* 更新 profiles.value 的值。 */
     products.value = productList /* 更新 products.value 的值。 */
     sourceTemplate.value = template /* 更新 sourceTemplate.value 的值。 */
-  } catch (error) { notifyError(error) } finally { loading.value = false } /* 结束当前表达式或代码块。 */
+  } catch (error) { if (version === loadVersion) notifyError(error) } finally { if (version === loadVersion) loading.value = false } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
 function chooseSourceFile(event) { sourceFile.value = event.target.files?.[0] || null; sourceError.value = '' } /* 定义 chooseSourceFile 函数。 */
