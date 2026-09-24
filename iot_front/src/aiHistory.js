@@ -1,10 +1,11 @@
 export const AI_HISTORY_STORAGE_PREFIX = 'iot:ai-history:v1' /* 执行当前语句并推进处理流程。 */
 
-export function aiHistoryStorageKey(session) { /* 执行当前语句并推进处理流程。 */
-  return `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}` /* 返回当前处理结果。 */
+export function aiHistoryStorageKey(session, workflowId = '') { /* 执行当前语句并推进处理流程。 */
+  const base = `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}`
+  return workflowId ? `${base}:${encodeURIComponent(workflowId)}` : base
 } /* 结束当前表达式或代码块。 */
 
-export function saveAIHistory(storage, session, state) { /* 执行当前语句并推进处理流程。 */
+export function saveAIHistory(storage, session, state, workflowId = '') { /* 执行当前语句并推进处理流程。 */
   if (!storage) return false /* 判断条件并选择处理分支。 */
   try { /* 执行当前语句并推进处理流程。 */
     const payload = { /* 声明 payload。 */
@@ -17,14 +18,14 @@ export function saveAIHistory(storage, session, state) { /* 执行当前语句�
     } /* 结束当前表达式或代码块。 */
     let encoded = JSON.stringify(payload) /* 声明 encoded。 */
     if (encoded.length > 512000) encoded = JSON.stringify({ ...payload, messages:payload.messages.slice(-20), runs:payload.runs.slice(0, 10) }) /* 判断条件并选择处理分支。 */
-    storage.setItem(aiHistoryStorageKey(session), encoded) /* 执行当前语句并推进处理流程。 */
+    storage.setItem(aiHistoryStorageKey(session, workflowId), encoded) /* 执行当前语句并推进处理流程。 */
     return true /* 返回当前处理结果。 */
   } catch { return false } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
-export function loadAIHistory(storage, session, now = Date.now()) { /* 执行当前语句并推进处理流程。 */
+export function loadAIHistory(storage, session, now = Date.now(), workflowId = '') { /* 执行当前语句并推进处理流程。 */
   if (!storage) return null /* 判断条件并选择处理分支。 */
-  const key = aiHistoryStorageKey(session) /* 声明 key。 */
+  const key = aiHistoryStorageKey(session, workflowId) /* 声明 key。 */
   try { /* 执行当前语句并推进处理流程。 */
     const raw = storage.getItem(key) /* 声明 raw。 */
     if (!raw) return null /* 判断条件并选择处理分支。 */

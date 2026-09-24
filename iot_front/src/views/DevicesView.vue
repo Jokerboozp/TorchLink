@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, formatTime, notifyError, session } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 import DeviceConnection from '../components/DeviceConnection.vue' /* 引入当前代码需要的依赖。 */
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
@@ -114,6 +115,7 @@ function showCredential(value) { credential.value = value; credentialDialog.valu
 async function copyCredential() { await navigator.clipboard.writeText(`X-Device-Key: ${credential.value.accessKey}\nX-Device-Secret: ${credential.value.secret}`); UiMessage.success('凭证已复制') } /* 定义 copyCredential 函数。 */
 function hasReported(row) { return Number(row.runtimeState?.lastSeenAt || 0) > 0 } /* 定义 hasReported 函数。 */
 function openRaw(id) { emit('navigate', 'raw', { deviceId:id }) } /* 定义 openRaw 函数。 */
+function removeDevice(row) { return confirmDelete({ label:row.name || row.id, path:`/api/v1/device-registry/${encodeURIComponent(row.id)}`, onDeleted:load }) }
 
 const realtime = () => { updatesAvailable.value = true } /* 声明 realtime。 */
 onMounted(() => { const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}'); if (detail.onboarding) onboarding.value = true; sessionStorage.removeItem('iot:navigation-detail'); load(); window.addEventListener('iot:realtime', realtime) })
@@ -137,7 +139,7 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
       <ui-table-column label="接入关系" width="120"><template #default="{ row }"><span class="device-role-text">{{ label(deviceRoles, roleOf(row.device), '独立设备') }}</span><small v-if="row.device.autoRegistered" class="subline">协议子设备</small></template></ui-table-column> <!-- 设备角色使用普通文字，保留自动注册说明。 -->
       <ui-table-column label="所属关系" min-width="150"><template #default="{ row }">{{ relation(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" fixed="right" width="240" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain @click="connectionDevice=row.device.id">连接详情</ui-button><ui-button v-if="hasReported(row)" v-permission="'menu:raw'" plain type="success" @click="openRaw(row.device.id)">查看数据</ui-button><ui-button v-permission="'PUT /api/v1/device-registry/:id'" plain @click="open(row.device)">编辑</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" fixed="right" width="310" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain @click="connectionDevice=row.device.id">连接详情</ui-button><ui-button v-if="hasReported(row)" v-permission="'menu:raw'" plain type="success" @click="openRaw(row.device.id)">查看数据</ui-button><ui-button v-permission="'PUT /api/v1/device-registry/:id'" plain @click="open(row.device)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/device-registry/:id'" plain type="danger" @click="removeDevice(row.device)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <template #empty><ui-empty description="暂无设备" /></template>
     </ui-table> <!-- 结束当前界面区域。 -->
     <div class="list-pagination"><ui-pagination v-model:current-page="registryPage" v-model:page-size="registryPageSize" :total="registryTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeRegistryPage" @size-change="changeRegistryPageSize" /></div> <!-- 渲染 div 界面元素。 -->

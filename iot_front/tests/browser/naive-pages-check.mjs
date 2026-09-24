@@ -50,6 +50,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/alarms/alarm-demo' ? { alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', firstTriggeredAt:Date.now(), lastTriggeredAt:Date.now(), triggerCount:1, diagnosticLines:Array.from({length:80},(_,index)=>'第 '+(index+1)+' 条诊断记录') }
         : path === '/api/v1/ai/alarm-analysis/alarm-demo' ? { summary:'设备多次触发故障告警，需要检查现场状态', riskLevel:'MEDIUM', confidence:0.85, possibleReasons:['设备状态异常','通信链路抖动'], suggestions:['检查设备电源和网络','核对告警历史'], model:'fixture', createdAt:Date.now() }
         : path.startsWith('/api/v1/ai/workflows/admin?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'只读配置清单', enabled:true, version:'1.0.0' },{ id:'custom-assistant', name:'示例智能体', description:'可编辑的工作流', enabled:true, version:'1.0.0' }], total:2 }
+        : path.startsWith('/api/v1/ai/workflows?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'查询设备与告警', enabled:true, capabilities:['告警查询'], allowedTools:['mcp__iot__query_alarm_list'] },{ id:'custom-assistant', name:'示例智能体', description:'检索处置知识', enabled:true, capabilities:['知识检索'], allowedTools:['mcp__iot__query_knowledge_base'] }], total:2, healthy:true }
         : path.startsWith('/api/v1/rules?') ? { items: [{ id:'rule-demo', name:'演示规则', alarmType:'DEVICE_FAULT', level:'HIGH', enabled:true, conditions:[], actions:[] }], total:1 }
         : path === '/api/v1/access/users' ? { tenantId:'fixture', items:[{ username:'operator-demo', displayName:'操作员', enabled:true, roleIds:[], deviceScope:'none' }] }
         : path === '/api/v1/access/roles' ? { items:[{ id:'viewer', name:'查看员', permissions:[] }] }
@@ -327,9 +328,16 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   assert.ok(await evaluate("(() => {const text=[...document.querySelectorAll('.n-modal .section-heading span')].find(item=>item.innerText.includes('清单中的每个文件'));return getComputedStyle(text).color!=='rgb(242, 242, 244)'})()"), '备份详情说明文字与白色背景过于接近') /* 明确使用深色辅助文本。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭备份详情。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待详情关闭。 */
+  await evaluate("(() => {const base='iot:ai-history:v1:'+localStorage.getItem('iot_tenant')+':'+localStorage.getItem('iot_user');for(const [id,text] of [['ops-assistant','A 专属对话'],['custom-assistant','B 专属对话']]){const state={version:1,selectedWorkflowId:id,conversationId:'conversation-'+id,messages:[{id:'message-'+id,role:'user',status:'succeeded',text}],runs:[]};localStorage.setItem(base+':'+encodeURIComponent(id),JSON.stringify(state));if(id==='ops-assistant')localStorage.setItem(base,JSON.stringify(state))}})()")
   await evaluate("document.querySelector('.menu-item[aria-label=\"智能助手\"]').click()") /* 检查智能助手滚动区。 */
   await until(() => evaluate("Boolean(document.querySelector('.control-scroll') && document.querySelector('.chat-log'))")) /* 等待双栏内容。 */
-  assert.ok(await evaluate("(() => {const left=document.querySelector('.control-scroll');left.scrollTop=200;return left.scrollTop>0})()"), '智能助手运行参数无法向下滚动') /* 左侧长配置须可达。 */
+  await until(() => evaluate("document.querySelector('.chat-log')?.innerText.includes('A 专属对话')"))
+  await evaluate("document.querySelector('.control-card .n-base-selection').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.innerText.includes('示例智能体')))"))
+  await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(option=>option.innerText.includes('示例智能体')).click()")
+  await until(() => evaluate("document.querySelector('.chat-log')?.innerText.includes('B 专属对话')"))
+  assert.ok(await evaluate("!document.querySelector('.chat-log').innerText.includes('A 专属对话') && document.querySelector('.quick-prompts').innerText.includes('示例智能体')"), '切换工作流后仍显示上一个插件的会话或快捷操作')
+  assert.ok(await evaluate("(() => {const left=document.querySelector('.control-scroll');if(left.scrollHeight<=left.clientHeight+1)return true;left.scrollTop=200;return left.scrollTop>0})()"), '智能助手运行参数被裁切且无法滚动') /* 内容可完整显示，过长时可滚动。 */
   assert.ok(await evaluate("(() => {const log=document.querySelector('.chat-log');for(let i=0;i<30;i++){const item=document.createElement('p');item.textContent='滚动测试';log.append(item)}log.scrollTop=200;return log.scrollTop>0})()"), '智能助手对话记录无法向下滚动') /* 对话滚动容器需保持有效。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 打开设备模板检查表单。 */
   await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '设备模板'")) /* 等待页面切换。 */

@@ -9,6 +9,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue' /* 引入当前�
 import { label, parsers } from '../labels' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, download, formatTime, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 import { can } from '../permissions' /* 根据当前账号权限决定版本详情中的可用操作。 */
 
 const protocols = ref([]) /* 声明 protocols。 */
@@ -154,6 +155,8 @@ function statusText(value) { return ({ LISTENING:'监听中', DISABLED:'已停�
 function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ERROR:'danger', REVOKED:'danger', VALIDATED:'warning', PENDING:'info' })[value] || 'info' } /* 定义 statusType 函数。 */
 
 onMounted(load) /* 执行当前语句并推进处理流程。 */
+function removeProtocol(row) { return confirmDelete({ label:row.definition.name || row.definition.id, path:`/api/v2/protocols/${encodeURIComponent(row.definition.id)}`, onDeleted:load, warning:'未被引用的版本将一并删除，删除后无法恢复。', blockedHint:'协议仍被产品或平台连接配置引用，请先解除绑定。' }) }
+function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2/device-access-profiles/${encodeURIComponent(row.id)}`, onDeleted:load, blockedHint:'请先停用平台连接配置，并解除关联设备后再删除。' }) }
 </script>
 
 <template>
@@ -177,11 +180,12 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
         <ui-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="版本历史" min-width="240"><template #default="{ row }"><div v-for="release in row.releases" :key="release.version" class="release-history"><ui-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</ui-tag><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="操作" fixed="right" width="120"><template #default="{ row }"> <!-- 每个已有版本使用相同的详情入口。 -->
+        <ui-table-column label="操作" fixed="right" width="190"><template #default="{ row }"> <!-- 每个已有版本使用相同的详情入口。 -->
           <div v-for="release in (row.releases || [])" :key="release.version" class="release-actions"> <!-- 按版本历史顺序排列入口。 -->
             <ui-button size="small" plain type="primary" @click="viewRelease(row, release)">查看版本</ui-button> <!-- 打开该版本详情。 -->
           </div> <!-- 结束当前版本入口。 -->
           <span v-if="!row.releases?.length" class="muted-text">暂无版本</span> <!-- 协议尚未创建版本时给出明确状态。 -->
+          <ui-button v-permission="'DELETE /api/v2/protocols/:id'" size="small" plain type="danger" @click="removeProtocol(row)">删除协议</ui-button>
         </template></ui-table-column> <!-- 结束当前界面区域。 -->
       </ui-table> <!-- 结束当前界面区域。 -->
       <div class="list-pagination"><ui-pagination v-model:current-page="protocolPage" v-model:page-size="protocolPageSize" :total="protocols.length" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" @size-change="protocolPage=1" /></div> <!-- 渲染 div 界面元素。 -->
@@ -202,7 +206,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
         <ui-table-column label="状态" width="120"><template #default="{ row }"><ui-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="操作" width="210" fixed="right"><template #default="{ row }"><ui-button v-permission="'POST /api/v2/device-access-profiles/:id/test'" v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</ui-button><ui-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="editProfile(row)">编辑</ui-button><ui-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</ui-button></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+        <ui-table-column label="操作" width="300" fixed="right"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'POST /api/v2/device-access-profiles/:id/test'" v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</ui-button><ui-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="editProfile(row)">编辑</ui-button><ui-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</ui-button><ui-button v-permission="'DELETE /api/v2/device-access-profiles/:id'" plain type="danger" @click="removeProfile(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       </ui-table> <!-- 结束当前界面区域。 -->
 
     </template>

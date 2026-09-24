@@ -29,6 +29,29 @@ type Weaviate struct { /* 定义 Weaviate 类型。 */
 func NewWeaviate(url string) *Weaviate { /* 定义 NewWeaviate 函数。 */
 	return &Weaviate{url: strings.TrimRight(url, "/"), http: &http.Client{Timeout: 30 * time.Second}} /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+// DeleteKnowledgeDocument removes every indexed chunk belonging to the document.
+func (w *Weaviate) DeleteKnowledgeDocument(ctx context.Context, tenant, documentID, workflowID string) error {
+	chunks, err := w.ListKnowledgeChunks(ctx, tenant, documentID)
+	if err != nil {
+		return err
+	}
+	for _, chunk := range chunks {
+		objectID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(strings.Join([]string{tenant, workflowID, chunk.ChunkID}, "\x00")))
+		req, err := http.NewRequestWithContext(ctx, http.MethodDelete, w.url+"/v1/objects/IotKnowledge/"+objectID.String(), nil)
+		if err != nil {
+			return err
+		}
+		resp, err := w.http.Do(req)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		if resp.StatusCode/100 != 2 && resp.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("weaviate delete chunk: %s", resp.Status)
+		}
+	}
+	return nil
+}
 func (w *Weaviate) Index(ctx context.Context, tenant, product, id string, data []byte) error { /* 定义 Index 函数。 */
 	return w.IndexKnowledge(ctx, ports.KnowledgeIndexInput{TenantID: tenant, ProductID: product, DocumentID: id, ChunkID: id, Content: data}) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

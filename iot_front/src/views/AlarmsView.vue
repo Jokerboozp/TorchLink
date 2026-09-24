@@ -4,6 +4,7 @@ defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, formatTime, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions' /* 引入当前代码需要的依赖。 */
 import { alarmNavigation, alarmQuery } from '../alarmNavigation' /* 引入当前代码需要的依赖。 */
 import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
@@ -162,6 +163,7 @@ async function action(id, value) { /* 定义 action 函数。 */
     delete actionPending[id] /* 执行当前语句并推进处理流程。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+function removeAlarm(row) { return confirmDelete({ label:row.alarmType || row.alarmId, path:`/api/v1/alarms/${encodeURIComponent(row.alarmId)}`, onDeleted:load, warning:'告警记录和研判结果将一并清理；活动告警请先关闭。' }) }
 
 let realtimeTimer = 0 /* 声明 realtimeTimer。 */
 const realtime = event => { /* 声明 realtime。 */
@@ -201,7 +203,7 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
       <ui-table-column label="告警类型" min-width="150"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="等级" width="90"><template #default="{row}"><ui-tag :type="tagType(row.alarmLevel)" round>{{label(alarmLevels,row.alarmLevel,'未设置')}}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="状态" width="100"><template #default="{row}"><ui-tag :type="tagType(row.status)" round>{{label(alarmStatuses,row.status)}}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" fixed="right" width="310" align="center"><template #default="{row}"><div class="table-actions"><ui-button plain type="primary" @click="show(row.alarmId)">查看详情</ui-button><template v-if="['ACTIVE','ACKED'].includes(row.status)"><ui-button v-permission="'POST /api/v1/alarms/:id/actions'" v-if="canAcknowledgeAlarm(row.status)" :loading="actionPending[row.alarmId] === 'ACKED'" :disabled="Boolean(actionPending[row.alarmId])" plain type="warning" @click="action(row.alarmId,'ACKED')">确认告警</ui-button><ui-button v-permission="'POST /api/v1/alarms/:id/actions'" v-if="canCloseAlarm(row.status)" :loading="actionPending[row.alarmId] === 'CLOSED'" :disabled="Boolean(actionPending[row.alarmId])" plain type="danger" @click="action(row.alarmId,'CLOSED')">关闭告警</ui-button></template></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" fixed="right" width="380" align="center"><template #default="{row}"><div class="table-actions"><ui-button plain type="primary" @click="show(row.alarmId)">查看详情</ui-button><template v-if="['ACTIVE','ACKED'].includes(row.status)"><ui-button v-permission="'POST /api/v1/alarms/:id/actions'" v-if="canAcknowledgeAlarm(row.status)" :loading="actionPending[row.alarmId] === 'ACKED'" :disabled="Boolean(actionPending[row.alarmId])" plain type="warning" @click="action(row.alarmId,'ACKED')">确认告警</ui-button><ui-button v-permission="'POST /api/v1/alarms/:id/actions'" v-if="canCloseAlarm(row.status)" :loading="actionPending[row.alarmId] === 'CLOSED'" :disabled="Boolean(actionPending[row.alarmId])" plain type="danger" @click="action(row.alarmId,'CLOSED')">关闭告警</ui-button></template><ui-button v-permission="'DELETE /api/v1/alarms/:id'" v-else plain type="danger" @click="removeAlarm(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
     </ui-table> <!-- 结束当前界面区域。 -->
     <div class="list-pagination"><ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div> <!-- 渲染 div 界面元素。 -->
   </ui-card> <!-- 结束当前界面区域。 -->

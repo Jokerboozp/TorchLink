@@ -23,6 +23,18 @@ type document struct { /* 定义 document 类型。 */
 } /* 结束当前表达式或代码块。 */
 
 func NewLocal() *Local { return &Local{docs: map[string][]document{}} } /* 定义 NewLocal 函数。 */
+func (k *Local) DeleteKnowledgeDocument(_ context.Context, tenant, documentID, _ string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	kept := k.docs[tenant][:0]
+	for _, item := range k.docs[tenant] {
+		if item.documentID != documentID {
+			kept = append(kept, item)
+		}
+	}
+	k.docs[tenant] = kept
+	return nil
+}
 func (k *Local) Index(_ context.Context, tenant, product, id string, data []byte) error { /* 定义 Index 函数。 */
 	return k.IndexKnowledge(context.Background(), ports.KnowledgeIndexInput{TenantID: tenant, ProductID: product, DocumentID: id, ChunkID: id, Content: data}) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

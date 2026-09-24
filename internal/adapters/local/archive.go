@@ -93,3 +93,22 @@ func (a *Archive) GetObject(_ context.Context, bucket, key string) (io.ReadClose
 	return os.Open(filepath.Join(a.root, safe(bucket), filepath.FromSlash(key))) /* 返回当前处理结果。 */
 }                                               /* 结束当前表达式或代码块。 */
 func (a *Archive) Health(context.Context) error { _, err := os.Stat(a.root); return err } /* 定义 Health 函数。 */
+func (a *Archive) DeleteObject(_ context.Context, bucket, key string) error {
+	base, err := filepath.Abs(filepath.Join(a.root, safe(bucket)))
+	if err != nil {
+		return err
+	}
+	target, err := filepath.Abs(filepath.Join(base, filepath.FromSlash(key)))
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("invalid object key")
+	}
+	err = os.Remove(target)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}

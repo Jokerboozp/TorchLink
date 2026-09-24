@@ -6,6 +6,7 @@ import { FileText, Upload } from '@lucide/vue' /* 引入当前代码需要的依
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 
 import { api, formatTime, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 
 const emit = defineEmits(['navigate']) /* 声明 emit。 */
 const uploadRef = ref(null) /* 声明 uploadRef。 */
@@ -195,6 +196,7 @@ async function upload() { /* 定义 upload 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 onMounted(load) /* 执行当前语句并推进处理流程。 */
+function removeDocument(row) { return confirmDelete({ label:row.filename, path:`/api/v1/knowledge/documents/${encodeURIComponent(row.id)}`, onDeleted:async () => { if (selectedDocument.value?.id === row.id) detailDialog.value = false; await load() }, warning:'原文件和检索索引将一并清理，删除后无法恢复。' }) }
 </script>
 
 <template>
@@ -234,7 +236,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
             <ui-table-column label="索引状态" width="110"><template #default="{ row }"><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="内容分片" width="100" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="上传时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-            <ui-table-column label="操作" width="96" align="right"><template #default="{ row }"><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="操作" width="170" align="right"><template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button><ui-button v-permission="'DELETE /api/v1/knowledge/documents/:id'" plain type="danger" @click="removeDocument(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <template #empty><ui-empty description="还没有知识文档" /></template>
           </ui-table> <!-- 结束当前界面区域。 -->
 
@@ -242,7 +244,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
             <article v-for="row in documents" :key="row.id" class="knowledge-mobile-document"> <!-- 渲染 article 界面元素。 -->
               <div class="knowledge-mobile-document-head"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div> <!-- 渲染 div 界面元素。 -->
               <div class="knowledge-mobile-document-meta"><span>{{ agentLabel(row.workflowId) }}</span><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></div> <!-- 渲染 div 界面元素。 -->
-              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button></div> <!-- 渲染 div 界面元素。 -->
+              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button><ui-button v-permission="'DELETE /api/v1/knowledge/documents/:id'" plain type="danger" @click="removeDocument(row)">删除</ui-button></div> <!-- 渲染 div 界面元素。 -->
             </article> <!-- 结束当前界面区域。 -->
             <ui-empty v-if="!loading && !documents.length" description="还没有知识文档" /> <!-- 渲染 ui-empty 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->

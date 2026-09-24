@@ -7,6 +7,7 @@ import { transportLabel, formatLabel } from '../presentation' /* 引入当前代
 import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 import { categories, enabledStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 
 const bindingProduct = ref(null) /* 声明 bindingProduct。 */
@@ -108,6 +109,7 @@ async function save() { /* 定义 save 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 onMounted(load) /* 执行当前语句并推进处理流程。 */
+function remove(row) { return confirmDelete({ label:row.name || row.id, path:`/api/v1/products/${encodeURIComponent(row.id)}`, onDeleted:load }) }
 </script>
 
 <template>
@@ -141,11 +143,11 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       <ui-table-column label="说明" min-width="220" show-overflow-tooltip> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }">{{ row.description || '-' }}</template>
       </ui-table-column> <!-- 结束当前界面区域。 -->
-      <ui-table-column label="操作" width="240" fixed="right" align="center"> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" width="310" fixed="right" align="center"> <!-- 渲染 ui-table-column 界面元素。 -->
         <template #default="{ row }">
           <div class="table-actions"> <!-- 渲染 div 界面元素。 -->
             <ui-button plain type="primary" @click="view(row)">详情</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-            <ui-button plain @click="bindingProduct=row">协议版本</ui-button><ui-button v-permission="'PUT /api/v1/products/:id'" plain type="primary" @click="edit(row)">编辑</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+            <ui-button plain @click="bindingProduct=row">协议版本</ui-button><ui-button v-permission="'PUT /api/v1/products/:id'" plain type="primary" @click="edit(row)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/products/:id'" plain type="danger" @click="remove(row)">删除</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
         </template>
       </ui-table-column>

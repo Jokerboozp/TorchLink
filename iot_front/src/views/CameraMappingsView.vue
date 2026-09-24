@@ -4,6 +4,7 @@ defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 
 const cameras = ref([]) /* 声明 cameras。 */
 const devices = ref([]) /* 声明 devices。 */
@@ -75,6 +76,7 @@ function consumeNavigationAction() { /* 定义 consumeNavigationAction 函数。
 } /* 结束当前表达式或代码块。 */
 
 function rowClassName({ row }) { return row.cameraId === highlightedCameraId.value ? 'camera-highlight' : '' } /* 定义 rowClassName 函数。 */
+function remove(row) { return confirmDelete({ label:row.cameraName || row.cameraId, path:`/api/v1/integrations/video/cameras/${encodeURIComponent(row.cameraId)}`, onDeleted:load }) }
 function changePage(value) { page.value = value; load() } /* 定义 changePage 函数。 */
 function changePageSize(value) { pageSize.value = value; page.value = 1; load() } /* 定义 changePageSize 函数。 */
 
@@ -97,7 +99,7 @@ onMounted(async () => { await load(); consumeNavigationAction() }) /* 执行当�
       <ui-table-column label="位置" min-width="210"><template #default="{ row }">{{ [row.building, row.floor, row.room].filter(Boolean).join(' / ') || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="关联设备" min-width="180"><template #default="{ row }">{{ row.deviceId || '未关联' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="状态" width="100" align="center"><template #default="{ row }"><ui-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '已停用' }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" width="100" align="center" fixed="right"><template #default="{ row }"><ui-button v-permission="'PUT /api/v1/integrations/video/cameras/:id'" plain type="primary" @click="open(row)">编辑</ui-button></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" width="160" align="center" fixed="right"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'PUT /api/v1/integrations/video/cameras/:id'" plain type="primary" @click="open(row)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/integrations/video/cameras/:id'" plain type="danger" @click="remove(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <template #empty><ui-empty description="暂无摄像头信息" /></template>
     </ui-table> <!-- 结束当前界面区域。 -->
     <div class="list-pagination"><ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div> <!-- 渲染 div 界面元素。 -->

@@ -90,3 +90,6 @@ func (a *Archive) GetObject(ctx context.Context, bucket, key string) (io.ReadClo
 	return a.client.GetObject(ctx, bucket, key, minio.GetObjectOptions{}) /* 返回当前处理结果。 */
 }                                                   /* 结束当前表达式或代码块。 */
 func (a *Archive) Health(ctx context.Context) error { _, err := a.client.ListBuckets(ctx); return err } /* 定义 Health 函数。 */
+func (a *Archive) DeleteObject(ctx context.Context, bucket, key string) error {
+	return a.client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{})
+}

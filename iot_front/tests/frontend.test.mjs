@@ -181,7 +181,8 @@ test('AI workbench uses cancellable SSE workflows and stable message keys', asyn
   for (const field of ['schemaVersion','id','name','description','version','enabled','persona','defaultModel','maxTokens','capabilities','allowedTools']) assert.match(aiView, new RegExp(`name:'${field}'`), `missing Agent field documentation: ${field}`) /* 循环处理当前数据。 */
   assert.match(aiView, /结构化数据标准不支持注释/) /* 验证实际结果符合预期。 */
   assert.match(aiView, /允许使用的工具/) /* 验证实际结果符合预期。 */
-  for (const label of ['本次运行', '选择工作流', '运行参数', '运行环境', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow hierarchy label: ${label}`) /* 循环处理当前数据。 */
+  for (const label of ['本次运行', '工作流插件', '最大输出词元', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow control: ${label}`) /* 循环处理当前数据。 */
+  assert.doesNotMatch(aiView, /<div class="control-section-label"><span>04<\/span>运行环境/) /* 左侧不重复展示顶部模型状态。 */
   assert.match(aiView, /<ui-drawer v-model="managementVisible" title="智能体管理"/) /* 确认智能体管理抽屉已经迁移。 */
   assert.doesNotMatch(aiView, /<ui-menu/) /* 管理抽屉不引入嵌套菜单。 */
   assert.doesNotMatch(aiView, /Provider 测试/) /* 验证实际结果符合预期。 */
@@ -286,7 +287,7 @@ test('AI model administration has its own menu and business overview', async () 
   assert.match(aiView, /<ui-dialog v-model="agentEditorVisible" :title="editingAgentId \? '编辑智能体' : '新建智能体'"/) /* 确认智能体编辑弹窗已经迁移。 */
   assert.match(aiView, /function cancelAgentEditor\(\)/) /* 验证实际结果符合预期。 */
   assert.doesNotMatch(aiView, /Provider 测试|连接并测试插件|\/api\/v1\/ai\/providers\/test/) /* 验证实际结果符合预期。 */
-  assert.match(aiView, /管理模型服务/) /* 验证实际结果符合预期。 */
+  assert.match(aiView, /providerLabel\(runtime\.config\?\.provider \|\| runtime\.active\?\.id\)/) /* 顶部保留当前模型状态。 */
   assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/) /* 验证实际结果符合预期。 */
   assert.doesNotMatch(aiView, /<ui-menu-item index="knowledge"|<ui-menu-item index="provider"/) /* 不恢复旧的嵌套菜单。 */
   for (const label of ['统一管理智能模型与业务能力', '模型服务配置', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) { /* 循环处理当前数据。 */
@@ -447,6 +448,19 @@ test('AI conversation history survives view recreation and stays tenant scoped',
   assert.equal(restored.runs[0].status, 'canceled')
   assert.equal(restored.runs[0].finishedAt, 123456)
   assert.equal(loadAIHistory(storage, { tenant:'tenant-b', user:'alice' }), null)
+})
+
+test('AI conversations are isolated by workflow and legacy history stays readable', async () => {
+  const { loadAIHistory, saveAIHistory } = await import('../src/aiHistory.js')
+  const values = new Map()
+  const storage = { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) }
+  const session = { tenant:'tenant-a', user:'alice' }
+  const state = (workflow, text) => ({ conversationId:`conversation-${workflow}`, selectedWorkflowId:workflow, messages:[{ id:workflow, role:'user', status:'succeeded', text }], runs:[] })
+  saveAIHistory(storage, session, state('workflow-a', 'A 的对话'), 'workflow-a')
+  saveAIHistory(storage, session, state('workflow-b', 'B 的对话'), 'workflow-b')
+  assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-a').messages[0].text, 'A 的对话')
+  assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-b').messages[0].text, 'B 的对话')
+  assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-c'), null)
 })
 
 test('AI rule draft cards reconcile persisted snapshots with current rule state', async () => {

@@ -21,6 +21,7 @@ type AlarmFilter struct { /* 定义 AlarmFilter 类型。 */
 } /* 结束当前表达式或代码块。 */
 
 type Repository interface { /* 定义 Repository 类型。 */
+	DeleteResource(context.Context, string, string, string) error
 	AccessStore                                                                                                                             /* 执行当前语句并推进处理流程。 */
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)                                                  /* 执行当前语句并推进处理流程。 */
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)                              /* 执行当前语句并推进处理流程。 */
@@ -144,6 +145,13 @@ type Archive interface { /* 定义 Archive 类型。 */
 	GetObject(context.Context, string, string) (io.ReadCloser, error)                    /* 执行当前语句并推进处理流程。 */
 	Health(context.Context) error                                                        /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
+
+type ObjectDeleter interface {
+	DeleteObject(context.Context, string, string) error
+}
+type KnowledgeDocumentDeleter interface {
+	DeleteKnowledgeDocument(context.Context, string, string, string) error
+}
 
 // RawMessageStore keeps the raw device payload available for parsing, replay
 // and the daily object-storage backup. It is deliberately separate from

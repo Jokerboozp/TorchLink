@@ -3,17 +3,19 @@ package main /* 声明 main 包。 */
 import ( /* 引入当前代码需要的依赖。 */
 	"context"       /* 执行当前语句并推进处理流程。 */
 	"encoding/json" /* 执行当前语句并推进处理流程。 */
-	"flag"          /* 执行当前语句并推进处理流程。 */
-	"fmt"           /* 执行当前语句并推进处理流程。 */
-	"io"            /* 执行当前语句并推进处理流程。 */
-	"log/slog"      /* 执行当前语句并推进处理流程。 */
-	"net/http"      /* 执行当前语句并推进处理流程。 */
-	"os"            /* 执行当前语句并推进处理流程。 */
-	"os/signal"     /* 执行当前语句并推进处理流程。 */
-	"strconv"       /* 执行当前语句并推进处理流程。 */
-	"strings"       /* 执行当前语句并推进处理流程。 */
-	"syscall"       /* 执行当前语句并推进处理流程。 */
-	"time"          /* 执行当前语句并推进处理流程。 */
+	"errors"
+	"flag" /* 执行当前语句并推进处理流程。 */
+	"fmt"  /* 执行当前语句并推进处理流程。 */
+	"github.com/jackc/pgx/v5"
+	"io"        /* 执行当前语句并推进处理流程。 */
+	"log/slog"  /* 执行当前语句并推进处理流程。 */
+	"net/http"  /* 执行当前语句并推进处理流程。 */
+	"os"        /* 执行当前语句并推进处理流程。 */
+	"os/signal" /* 执行当前语句并推进处理流程。 */
+	"strconv"   /* 执行当前语句并推进处理流程。 */
+	"strings"   /* 执行当前语句并推进处理流程。 */
+	"syscall"   /* 执行当前语句并推进处理流程。 */
+	"time"      /* 执行当前语句并推进处理流程。 */
 
 	"iot-platform/internal/backup" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/config" /* 执行当前语句并推进处理流程。 */
@@ -89,6 +91,25 @@ func main() { /* 定义 main 函数。 */
 		result, getErr := service.GetTask(r.Context(), r.PathValue("id")) /* 更新 getErr 的值。 */
 		respond(w, result, getErr)                                        /* 执行当前语句并推进处理流程。 */
 	})) /* 结束当前表达式或代码块。 */
+	mux.HandleFunc("DELETE /backups/{id}", protected(adminToken, func(w http.ResponseWriter, r *http.Request) {
+		err := service.DeleteTask(r.Context(), r.PathValue("id"))
+		status := http.StatusOK
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			status = http.StatusNotFound
+		case errors.Is(err, backup.ErrTaskRunning), errors.Is(err, backup.ErrTaskReferenced):
+			status = http.StatusConflict
+		case err != nil:
+			status = http.StatusInternalServerError
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		} else {
+			_ = json.NewEncoder(w).Encode(map[string]any{"deleted": true})
+		}
+	}))
 	mux.HandleFunc("GET /backups/{id}/files", protected(adminToken, func(w http.ResponseWriter, r *http.Request) { /* 执行当前语句并推进处理流程。 */
 		query := r.URL.Query()                                                     /* 更新 query 的值。 */
 		limit := intQuery(query.Get("pageSize"), intQuery(query.Get("limit"), 20)) /* 更新 limit 的值。 */

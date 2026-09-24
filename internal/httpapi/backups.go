@@ -37,6 +37,17 @@ func (s *Server) getBackup(w http.ResponseWriter, r *http.Request) { /* 定义 g
 	s.proxyBackupJSON(w, r, http.MethodGet, "/backups/"+id, nil, nil, 30*time.Second) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
+func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request) {
+	id, err := backupPathSegment(r.PathValue("id"), "backup id")
+	if err != nil {
+		problem(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.proxyBackupJSON(w, r, http.MethodDelete, "/backups/"+id, nil, nil, 2*time.Minute) {
+		s.audit(r, "backup.delete", "backup", id, nil)
+	}
+}
+
 func (s *Server) backupFiles(w http.ResponseWriter, r *http.Request) { /* 定义 backupFiles 函数。 */
 	id, err := backupPathSegment(r.PathValue("id"), "backup id") /* 更新 err 的值。 */
 	if err != nil {                                              /* 判断条件并选择处理分支。 */
@@ -208,7 +219,11 @@ func (s *Server) backupUpstreamProblem(w http.ResponseWriter, response *http.Res
 	if detail == "" {                          /* 判断条件并选择处理分支。 */
 		detail = "upstream service did not provide an error detail" /* 更新 detail 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	problem(w, http.StatusBadGateway, fmt.Sprintf("backup service returned HTTP %d: %s", response.StatusCode, detail)) /* 执行当前语句并推进处理流程。 */
+	status := http.StatusBadGateway
+	if response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusConflict {
+		status = response.StatusCode
+	}
+	problem(w, status, fmt.Sprintf("backup service returned HTTP %d: %s", response.StatusCode, detail)) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func sanitizeBackupErrorDetail(value string) string { /* 定义 sanitizeBackupErrorDetail 函数。 */

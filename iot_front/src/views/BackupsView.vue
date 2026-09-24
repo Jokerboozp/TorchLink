@@ -5,6 +5,7 @@ defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { computed, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, download, notifyError, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
+import { confirmDelete } from '../deleteAction'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels' /* 引入当前代码需要的依赖。 */
 
 const filters = reactive({ type: '', status: '' }) /* 声明 filters。 */
@@ -23,7 +24,7 @@ const page = ref(1) /* 声明 page。 */
 const pageSize = ref(20) /* 声明 pageSize。 */
 let loadVersion = 0
 
-const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','GET /api/v1/backups/:id/files/:filename'])) /* 声明 isAdmin。 */
+const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','GET /api/v1/backups/:id/files/:filename','DELETE /api/v1/backups/:id'])) /* 声明 isAdmin。 */
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length) /* 声明 runningCount。 */
 const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type))) /* 声明 latestCompleted。 */
 
@@ -163,6 +164,7 @@ async function downloadArtifact(row, artifact) { /* 定义 downloadArtifact 函�
 } /* 结束当前表达式或代码块。 */
 
 onMounted(load) /* 执行当前语句并推进处理流程。 */
+function removeBackup(row) { return confirmDelete({ label:row.id, path:`/api/v1/backups/${idPath(row.id)}`, onDeleted:async () => { if (detail.value?.id === row.id) detailVisible.value = false; await load() }, warning:'备份记录、对象存储文件和本地副本将一并清理，删除后无法恢复。', blockedHint:'备份正在运行，或被文件校验记录引用；请先删除关联的校验记录。' }) }
 </script>
 
 <template>
@@ -196,7 +198,7 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
       <ui-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></ui-table-column>
       <ui-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></ui-table-column>
       <ui-table-column label="清单校验摘要" min-width="170"><template #default="{ row }"><ui-tooltip v-if="row.checksum" :content="row.checksum"><code>{{ row.checksum.slice(0, 12) }}…</code></ui-tooltip><span v-else>—</span></template></ui-table-column>
-      <ui-table-column label="操作" fixed="right" min-width="210" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="showDetail(row)">详情 / 文件</ui-button><ui-button v-permission="'POST /api/v1/backups/:id/restore-drill'" v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</ui-button></div></template></ui-table-column>
+      <ui-table-column label="操作" fixed="right" min-width="290" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="showDetail(row)">详情 / 文件</ui-button><ui-button v-permission="'POST /api/v1/backups/:id/restore-drill'" v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</ui-button><ui-button v-permission="'DELETE /api/v1/backups/:id'" v-if="row.status !== 'RUNNING'" plain type="danger" @click="removeBackup(row)">删除</ui-button></div></template></ui-table-column>
     </ui-table>
     <ui-empty v-if="!loading && !records.length" description="还没有备份记录；定时任务执行后会自动出现在这里" />
     <div class="list-pagination">

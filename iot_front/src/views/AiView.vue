@@ -18,6 +18,8 @@ let abortController = null /* 声明 abortController。 */
 let scrollFrame = 0 /* 声明 scrollFrame。 */
 let scrollQueued = false /* 声明 scrollQueued。 */
 let historyTimer = 0 /* 声明 historyTimer。 */
+let activeConversationWorkflowId = ''
+let restoringConversation = false
 const pendingTextStates = new Map() /* 声明 pendingTextStates。 */
 const makeId = prefix => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${++sequence}`}` /* 声明 makeId。 */
 const welcomeMessage = () => ({ id:'welcome', role:'assistant', status:'succeeded', text:'你好，我是消防物联网智能运维助手。选择一个工作流后，可以直接查询设备、告警和趋势；所有工具执行都会显示在运行轨迹中。', tools:[] }) /* 声明 welcomeMessage。 */
@@ -32,20 +34,43 @@ const selectedRunKey = ref('') /* 声明 selectedRunKey。 */
 const traceVisible = ref(false) /* 声明 traceVisible。 */
 
 function persistConversation() { /* 定义 persistConversation 函数。 */
-  saveAIHistory(localStorage, session, { conversationId:conversationId.value, selectedWorkflowId:selectedWorkflowId.value, messages:messages.value, runs:runs.value }) /* 执行当前语句并推进处理流程。 */
+  if (!activeConversationWorkflowId) return
+  const state = { conversationId:conversationId.value, selectedWorkflowId:activeConversationWorkflowId, messages:messages.value, runs:runs.value }
+  saveAIHistory(localStorage, session, state, activeConversationWorkflowId)
+  saveAIHistory(localStorage, session, state)
 } /* 结束当前表达式或代码块。 */
 function scheduleConversationPersist() { /* 定义 scheduleConversationPersist 函数。 */
   if (historyTimer) clearTimeout(historyTimer) /* 判断条件并选择处理分支。 */
   historyTimer = setTimeout(() => { historyTimer = 0; persistConversation() }, 150) /* 更新 historyTimer 的值。 */
 } /* 结束当前表达式或代码块。 */
 function restoreConversation() { /* 定义 restoreConversation 函数。 */
-  const saved = loadAIHistory(localStorage, session) /* 声明 saved。 */
-  if (!saved) return /* 判断条件并选择处理分支。 */
+  const legacy = loadAIHistory(localStorage, session)
+  if (!legacy?.selectedWorkflowId) return
+  const saved = loadAIHistory(localStorage, session, Date.now(), legacy.selectedWorkflowId) || legacy
+  restoringConversation = true
+  activeConversationWorkflowId = saved.selectedWorkflowId
   messages.value = saved.messages.length ? saved.messages : [welcomeMessage()] /* 更新 messages.value 的值。 */
   runs.value = saved.runs /* 更新 runs.value 的值。 */
   conversationId.value = saved.conversationId /* 更新 conversationId.value 的值。 */
   selectedWorkflowId.value = saved.selectedWorkflowId /* 更新 selectedWorkflowId.value 的值。 */
+  restoringConversation = false
+  persistConversation()
 } /* 结束当前表达式或代码块。 */
+
+function switchConversation(workflowId) {
+  if (restoringConversation || workflowId === activeConversationWorkflowId) return
+  persistConversation()
+  activeConversationWorkflowId = workflowId
+  const saved = workflowId ? loadAIHistory(localStorage, session, Date.now(), workflowId) : null
+  messages.value = saved?.messages?.length ? saved.messages : [welcomeMessage()]
+  runs.value = saved?.runs || []
+  conversationId.value = saved?.conversationId || ''
+  question.value = ''
+  selectedRunKey.value = ''
+  traceVisible.value = false
+  nextTick(scheduleScroll)
+  persistConversation()
+}
 
 async function refreshRuleDraftStatuses() { /* 定义 refreshRuleDraftStatuses 函数。 */
   if (!messages.value.some(message => message?.ruleDraftPersisted === true && message?.ruleDraft?.id)) return /* 判断条件并选择处理分支。 */
@@ -109,7 +134,18 @@ const agentToolDocs = [ /* 声明 agentToolDocs。 */
 const managementVisible = ref(false) /* 声明 managementVisible。 */
 const agentEditorVisible = ref(false) /* 声明 agentEditorVisible。 */
 const runConfig = reactive({ model:'', maxTokens:1200 }) /* 声明 runConfig。 */
-const quickQuestions = ['当前有哪些高等级活动告警？', 'device_001 最近温度趋势如何？', '给出今日消防巡检重点'] /* 声明 quickQuestions。 */
+const quickQuestions = computed(() => {
+  if (!selectedWorkflow.value) return []
+  const name = workflowName(selectedWorkflow.value)
+  const tools = selectedWorkflow.value.allowedTools || selectedWorkflow.value.tools || []
+  const capabilities = selectedCapabilities.value.map(capabilityLabel)
+  const prompts = [`请介绍「${name}」可以协助处理哪些任务？`]
+  if (tools.some(tool => String(tool).includes('query_alarm_list')) || capabilities.some(item => item.includes('告警'))) prompts.push('当前有哪些高等级活动告警？')
+  if (tools.some(tool => String(tool).includes('query_device_latest')) || capabilities.some(item => item.includes('设备'))) prompts.push('请概览当前设备状态和异常设备。')
+  if (tools.some(tool => String(tool).includes('query_knowledge_base')) || capabilities.some(item => item.includes('知识'))) prompts.push('查找与当前消防巡检相关的处置知识。')
+  if (prompts.length === 1) prompts.push(`请按「${name}」的职责给出今天的工作建议。`)
+  return prompts.slice(0, 3)
+})
 
 const nonChatWorkflowIds = new Set(['alarm-handler', 'device-health-inspector', 'protocol-assistant']) /* 声明 nonChatWorkflowIds。 */
 const workflowItems = computed(() => (workflows.value.items || []).filter(item => item.enabled !== false && isChatWorkflow(item))) /* 声明 workflowItems。 */
@@ -381,7 +417,7 @@ async function deleteWorkflow(item) { /* 定义 deleteWorkflow 函数。 */
   finally { creatingAgent.value = false } /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-watch(selectedWorkflowId, () => { applyWorkflowDefaults() }) /* 执行当前语句并推进处理流程。 */
+watch(selectedWorkflowId, workflowId => { switchConversation(workflowId); applyWorkflowDefaults() }, { flush:'sync' })
 
 function applyWorkflowDefaults() { /* 定义 applyWorkflowDefaults 函数。 */
   const workflow = selectedWorkflow.value /* 声明 workflow。 */
@@ -549,24 +585,14 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 
   <div class="ai-workbench" :class="{ 'is-controls-open': controlsExpanded }"> <!-- 渲染 div 界面元素。 -->
     <ui-card shadow="never" class="surface-card control-card"> <!-- 渲染 ui-card 界面元素。 -->
-      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流并设置必要参数</small></div><ui-tag effect="plain">执行</ui-tag></div></template>
+      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流，开始对话</small></div></div></template>
       <div class="control-scroll"> <!-- 渲染 div 界面元素。 -->
         <ui-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert> <!-- 渲染 ui-alert 界面元素。 -->
-        <div class="control-section-label"><span>01</span>模型服务</div> <!-- 渲染 div 界面元素。 -->
-        <div class="provider-summary"> <!-- 渲染 div 界面元素。 -->
-          <span>当前模型服务</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.apiKeyConfigured ? '接口密钥已配置' : '无需接口密钥' }}</small> <!-- 渲染 span 界面元素。 -->
-          <ui-button v-permission="'menu:aiProviders'" type="primary" plain @click="emit('navigate', 'aiProviders')">管理模型服务</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-        </div> <!-- 结束当前界面区域。 -->
-        <div class="control-section-label"><span>02</span>选择工作流</div> <!-- 渲染 div 界面元素。 -->
+        <div class="control-section-label">工作流</div> <!-- 渲染 div 界面元素。 -->
         <ui-form label-position="top"><ui-form-item label="工作流插件"><ui-select v-model="selectedWorkflowId" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select></ui-form-item></ui-form> <!-- 渲染 ui-form 界面元素。 -->
         <ui-empty v-if="!runtimeLoading && !workflowItems.length" description="暂无可用工作流" :image-size="62" /> <!-- 渲染 ui-empty 界面元素。 -->
-        <div v-if="selectedWorkflow" class="workflow-description"><div><span class="workflow-icon">流程</span><div><strong>{{ workflowName(selectedWorkflow) }}</strong><small>{{ selectedWorkflow.version ? `v${selectedWorkflow.version}` : '服务端托管' }}</small></div></div><p>{{ selectedWorkflow.description || '该工作流会按服务端策略调用受控工具。' }}</p><div v-if="selectedCapabilities.length" class="capability-list"><ui-tag v-for="item in selectedCapabilities" :key="capabilityLabel(item)" size="small" effect="plain">{{ capabilityLabel(item) }}</ui-tag></div></div> <!-- 渲染 div 界面元素。 -->
-        <div class="control-section-label"><span>03</span>运行参数</div> <!-- 渲染 div 界面元素。 -->
-        <ui-form class="run-config" label-position="top" :model="runConfig" :disabled="sending"><div><ui-form-item label="运行模型"><ui-input v-model="runConfig.model" readonly placeholder="使用活动模型" /></ui-form-item><ui-form-item label="最大输出"><ui-input-number v-model="runConfig.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item></div></ui-form> <!-- 渲染 ui-form 界面元素。 -->
-        <div class="control-section-label"><span>04</span>运行环境</div> <!-- 渲染 div 界面元素。 -->
-        <div class="runtime-overview runtime-overview-single"> <!-- 渲染 div 界面元素。 -->
-          <div class="overview-item overview-item-static"><span>当前模型服务</span><strong>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}</strong><small>{{ runtime.config?.model || runtime.active?.model || '由服务端选择' }} · {{ runtime.config?.baseUrl || '地址由服务端配置' }}</small></div> <!-- 渲染 div 界面元素。 -->
-        </div> <!-- 结束当前界面区域。 -->
+        <p v-if="selectedWorkflow" class="workflow-brief">{{ selectedWorkflow.description || '按工作流配置查询设备、告警和知识。' }}</p>
+        <ui-form class="run-config" label-position="top" :model="runConfig" :disabled="sending"><ui-form-item label="最大输出词元"><ui-input-number v-model="runConfig.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item></ui-form> <!-- 渲染 ui-form 界面元素。 -->
         <ui-alert v-if="runtimeError" class="runtime-warning" :title="runtimeError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
     </ui-card> <!-- 结束当前界面区域。 -->
@@ -691,6 +717,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 .message-meta button { min-height:24px; padding:3px 8px; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; border-radius:.375rem; font-size:12px; cursor:pointer; } /* 定义当前元素的样式规则。 */
 .message-meta button:hover { background:#dbeafe; border-color:#93c5fd; } /* 定义当前元素的样式规则。 */
 .message-meta button:focus-visible { outline:2px solid rgba(59,130,246,.35); outline-offset:2px; } /* 定义当前元素的样式规则。 */
+.workflow-brief { margin:0 0 14px; padding:10px 12px; color:#475569; background:#f5f9ff; border-radius:.5rem; font-size:12px; line-height:1.6; }
 
 /* Secondary groups use spacing and a quiet fill instead of stacked outlines. */
 .ai-runtime { border:0; border-left:3px solid var(--primary); border-radius:var(--radius); } /* 定义当前元素的样式规则。 */

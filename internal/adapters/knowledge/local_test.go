@@ -7,6 +7,32 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/ports" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
+func TestLocalDeleteKnowledgeDocumentKeepsOtherDocumentsAndTenants(t *testing.T) {
+	index := NewLocal()
+	ctx := context.Background()
+	for _, item := range []ports.KnowledgeIndexInput{
+		{TenantID: "one", DocumentID: "remove", ChunkID: "a", Content: []byte("one")},
+		{TenantID: "one", DocumentID: "keep", ChunkID: "b", Content: []byte("two")},
+		{TenantID: "two", DocumentID: "remove", ChunkID: "c", Content: []byte("three")},
+	} {
+		if err := index.IndexKnowledge(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := index.DeleteKnowledgeDocument(ctx, "one", "remove", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		tenant, document string
+		want             int
+	}{{"one", "remove", 0}, {"one", "keep", 1}, {"two", "remove", 1}} {
+		chunks, err := index.ListKnowledgeChunks(ctx, check.tenant, check.document)
+		if err != nil || len(chunks) != check.want {
+			t.Fatalf("%s/%s: %d chunks, %v", check.tenant, check.document, len(chunks), err)
+		}
+	}
+}
+
 func TestLocalKnowledgeAppliesWorkflowMetadataFilters(t *testing.T) { /* 定义 TestLocalKnowledgeAppliesWorkflowMetadataFilters 函数。 */
 	index := NewLocal()                                /* 更新 index 的值。 */
 	for _, input := range []ports.KnowledgeIndexInput{ /* 循环处理当前数据。 */

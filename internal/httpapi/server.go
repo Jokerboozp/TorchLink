@@ -109,7 +109,8 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) routes() { /* 定义 routes 函数。 */
-	s.accessRoutes()                                                                                                                                                      /* 执行当前语句并推进处理流程。 */
+	s.accessRoutes() /* 执行当前语句并推进处理流程。 */
+	s.deletionRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))                                                                         /* 执行当前语句并推进处理流程。 */
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))                                                                              /* 执行当前语句并推进处理流程。 */
 	s.deviceOperationsRoutes()                                                                                                                                            /* 执行当前语句并推进处理流程。 */

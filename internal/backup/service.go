@@ -343,6 +343,8 @@ func (s *Service) exportClickHouseRows(ctx context.Context, sql string, unwrap b
 } /* 结束当前表达式或代码块。 */
 
 func (s *Service) Verify(ctx context.Context, backupID string) (map[string]any, error) { /* 定义 Verify 函数。 */
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if backupID == "" || backupID == "latest" { /* 判断条件并选择处理分支。 */
 		if err := s.pool.QueryRow(ctx, `SELECT id FROM backup_task WHERE status='COMPLETED' AND backup_type IN ('FULL','INCREMENTAL','RAW_LOGS','DEVICE_DAILY') ORDER BY completed_at DESC LIMIT 1`).Scan(&backupID); err != nil { /* 判断条件并选择处理分支。 */
 			return nil, err /* 返回当前处理结果。 */
