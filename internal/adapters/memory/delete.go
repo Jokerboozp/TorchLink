@@ -8,6 +8,42 @@ import (
 	"iot-platform/internal/model"
 )
 
+// DeleteProtocolRelease removes one unbound release while keeping its protocol family.
+func (r *Repository) DeleteProtocolRelease(_ context.Context, tenant, protocolID, version string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	releaseKey := key(tenant, protocolID, version)
+	if _, ok := r.protocolReleases[releaseKey]; !ok {
+		return model.ErrNotFound
+	}
+	for _, binding := range r.protocolBindings {
+		if binding.TenantID != tenant {
+			continue
+		}
+		if (binding.ProtocolID == protocolID && binding.Version == version) || (binding.PreviousVersion == version && (binding.PreviousProtocolID == protocolID || binding.PreviousProtocolID == "" && binding.ProtocolID == protocolID)) {
+			return model.ErrResourceInUse
+		}
+	}
+	for _, profile := range r.accessProfiles {
+		if profile.TenantID == tenant && profile.ProtocolID == protocolID && profile.ProtocolVersion == version {
+			return model.ErrResourceInUse
+		}
+	}
+	delete(r.protocolReleases, releaseKey)
+	for _, release := range r.protocolReleases {
+		if release.TenantID == tenant && release.ProtocolID == protocolID && release.PointTableVersion == version {
+			return nil
+		}
+	}
+	for _, profile := range r.accessProfiles {
+		if profile.TenantID == tenant && profile.ProtocolID == protocolID && profile.PointTableVersion == version {
+			return nil
+		}
+	}
+	delete(r.pointTables, releaseKey)
+	return nil
+}
+
 // DeleteResource checks live references under the same lock as the deletion.
 func (r *Repository) DeleteResource(_ context.Context, tenant, kind, id string) error {
 	r.mu.Lock()

@@ -22,6 +22,7 @@ type AlarmFilter struct { /* 定义 AlarmFilter 类型。 */
 
 type Repository interface { /* 定义 Repository 类型。 */
 	DeleteResource(context.Context, string, string, string) error
+	DeleteProtocolRelease(context.Context, string, string, string) error
 	AccessStore                                                                                                                             /* 执行当前语句并推进处理流程。 */
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)                                                  /* 执行当前语句并推进处理流程。 */
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)                              /* 执行当前语句并推进处理流程。 */

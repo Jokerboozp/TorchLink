@@ -2,10 +2,55 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
 
 	"iot-platform/internal/model"
 )
+
+// DeleteProtocolRelease checks active bindings and removes only the selected version.
+func (r *Repository) DeleteProtocolRelease(ctx context.Context, tenant, protocolID, version string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var selected string
+	err = tx.QueryRow(ctx, `SELECT version FROM protocol_release WHERE tenant_id=$1 AND protocol_id=$2 AND version=$3 FOR UPDATE`, tenant, protocolID, version).Scan(&selected)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var inUse bool
+	checks := []string{
+		`SELECT EXISTS(SELECT 1 FROM product_protocol_binding WHERE tenant_id=$1 AND ((protocol_id=$2 AND version=$3) OR (body->>'previousVersion'=$3 AND (body->>'previousProtocolId'=$2 OR (COALESCE(body->>'previousProtocolId','')='' AND protocol_id=$2)))))`,
+		`SELECT EXISTS(SELECT 1 FROM device_access_profile WHERE tenant_id=$1 AND body->>'protocolId'=$2 AND body->>'protocolVersion'=$3)`,
+	}
+	for _, query := range checks {
+		if err = tx.QueryRow(ctx, query, tenant, protocolID, version).Scan(&inUse); err != nil {
+			return err
+		}
+		if inUse {
+			return model.ErrResourceInUse
+		}
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM protocol_release WHERE tenant_id=$1 AND protocol_id=$2 AND version=$3`, tenant, protocolID, version); err != nil {
+		return err
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM protocol_release WHERE tenant_id=$1 AND protocol_id=$2 AND body->>'pointTableVersion'=$3 UNION ALL SELECT 1 FROM device_access_profile WHERE tenant_id=$1 AND body->>'protocolId'=$2 AND body->>'pointTableVersion'=$3)`, tenant, protocolID, version).Scan(&inUse); err != nil {
+		return err
+	}
+	if !inUse {
+		if _, err = tx.Exec(ctx, `DELETE FROM point_table_release WHERE tenant_id=$1 AND protocol_id=$2 AND version=$3`, tenant, protocolID, version); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
 
 // DeleteResource keeps the reference check and database cleanup in one transaction.
 // Identifiers in the SQL below are fixed application constants, never user input.

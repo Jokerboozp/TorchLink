@@ -147,6 +147,7 @@ Content-Type: application/json
 
 - `GET /api/v2/protocols/{id}/releases/{version}/source`：精确返回当时上传的 .go 或 ZIP；仅源码构建版本支持。
 - `GET /api/v2/protocols/{id}/releases/{version}/package`：包含版本 Worker、manifest、样例与原始源码的 ZIP；多平台版本包含其已构建目标。跨 OS/CPU 迁移须核实目标制品并实际试跑。
+- `DELETE /api/v2/protocols/{id}/releases/{version}`：只删除指定版本及其独有制品，保留协议和其他版本；被产品当前绑定、回滚版本或平台连接配置引用时返回 409，须先切换关联版本。
 
 两种下载均检查租户归属和 SHA-256，可用于把平台版本归档回外部协议仓库。平台没有自动拉取远程仓库；可由外部 CI 调用源码上传 API。
 

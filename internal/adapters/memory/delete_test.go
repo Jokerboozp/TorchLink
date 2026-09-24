@@ -70,3 +70,32 @@ func TestDeleteResourceChecksProfileProtocolCameraAndAlarm(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDeleteProtocolReleaseKeepsOtherVersionsAndBlocksBindings(t *testing.T) {
+	ctx := context.Background()
+	r := NewRepository()
+	for _, version := range []string{"1.0.0", "2.0.0"} {
+		if err := r.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "protocol", Version: version}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = r.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant", ProductID: "product", ProtocolID: "protocol", Version: "2.0.0", PreviousVersion: "1.0.0"})
+	if err := r.DeleteProtocolRelease(ctx, "tenant", "protocol", "1.0.0"); !errors.Is(err, model.ErrResourceInUse) {
+		t.Fatalf("rollback version must be protected: %v", err)
+	}
+	_ = r.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant", ProductID: "product", ProtocolID: "protocol", Version: "2.0.0"})
+	_ = r.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: "profile", ProtocolID: "protocol", ProtocolVersion: "1.0.0"})
+	if err := r.DeleteProtocolRelease(ctx, "tenant", "protocol", "1.0.0"); !errors.Is(err, model.ErrResourceInUse) {
+		t.Fatalf("profile version must be protected: %v", err)
+	}
+	_ = r.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: "profile", ProtocolID: "protocol", ProtocolVersion: "2.0.0"})
+	if err := r.DeleteProtocolRelease(ctx, "tenant", "protocol", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.GetProtocolRelease(ctx, "tenant", "protocol", "2.0.0"); err != nil {
+		t.Fatalf("other version was deleted: %v", err)
+	}
+	if err := r.DeleteProtocolRelease(ctx, "tenant", "protocol", "1.0.0"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("repeat delete: %v", err)
+	}
+}

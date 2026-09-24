@@ -42,7 +42,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/events' ? { permissions: ['*'], alarms: [], devices: [] }
         : path === '/api/v1/mqtt/token' ? { websocketUrl:'ws://127.0.0.1:1', username:'fixture', token:'fixture', subscriptions:[] }
         : path === '/api/v2/protocol-source-template' ? { compilerAvailable:true, targetPlatforms:['linux-amd64','linux-arm64','windows-amd64','windows-arm64','darwin-amd64','darwin-arm64'] }
-        : path === '/api/v2/protocols' ? { items:[{ definition:{ id:'protocol-demo', name:'演示消防协议', vendor:'炬联' }, releases:[{ version:'1.0.0', status:'PUBLISHED', transport:'MQTT', parserType:'JSON', artifact:{ platform:'linux-amd64' } }] }] }
+        : path === '/api/v2/protocols' ? { items:[{ definition:{ id:'protocol-demo', name:'演示消防协议', vendor:'炬联' }, releases:[{ version:'2.0.0', status:'PUBLISHED', transport:'MQTT', parserType:'JSON', artifact:{ platform:'linux-amd64' } },{ version:'1.0.0', status:'VALIDATED', transport:'MQTT', parserType:'JSON', artifact:{ platform:'linux-amd64' } }] }] }
         : path === '/api/v2/device-access-profiles' ? { items:[{ id:'gateway-demo', productId:'product-demo', protocolId:'protocol-demo', protocolVersion:'1.0.0', mode:'listener', network:'tcp', connectionMode:'listen', host:'0.0.0.0', port:26875, timeoutMs:5000, enabled:true }] }
         : path.startsWith('/api/v1/raw-messages?') ? { items: [{ messageId: 'raw-demo', receivedAt: Date.now(), productId: 'product-demo', deviceId: 'device-demo', protocol: 'MQTT', parsed: true, parsedMessageType: 'PROPERTY_REPORT', payloadSize: 4, payloadHash: 'fixture-hash' }], total: 1 }
         : path === '/api/v1/raw-messages/raw-demo' ? { parseStatus: 'PARSED', message: { messageId: 'raw-demo', deviceId: 'device-demo', productId: 'product-demo', payload: 'AA01', receivedAt: Date.now(), protocol: 'MQTT', payloadFormat: 'hex' }, standardMessage: { messageType: 'PROPERTY_REPORT', properties: { temperature: 42 } }, archive: { payloadHash: 'fixture-hash' } }
@@ -97,7 +97,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存每个主页面的临时截图供逐页复核。 */
   } /* 结束页面遍历。 */
   const overlayCases = [
-    ['运行总览','详情'],['设备通信协议','查看版本'],['设备通信协议','上传源码'],['设备通信协议','协议生成'],
+    ['运行总览','详情'],['设备通信协议','管理版本'],['设备通信协议','上传源码'],['设备通信协议','协议生成'],
     ['设备模板','新建设备模板'],['设备模板','详情'],['设备模板','编辑'],
     ['设备管理','快捷添加'],['设备管理','编辑'],['设备管理','连接详情'],
     ['平台连接配置','新建平台连接配置'],['平台连接配置','编辑'],['摄像头映射','新增摄像头'],
@@ -117,6 +117,9 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     assert.ok(found, `${pageName} 缺少“${actionName}”入口`)
     await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length && getComputedStyle(item).visibility!=='hidden'))"))
     await delay(550)
+    if (pageName==='设备通信协议' && actionName==='管理版本') {
+      assert.ok(await evaluate("(() => {const modal=document.querySelector('.protocol-versions-dialog');return modal && modal.innerText.includes('2.0.0') && modal.innerText.includes('1.0.0') && modal.querySelectorAll('.n-data-table-tbody .n-data-table-tr').length===2 && [...modal.querySelectorAll('button')].filter(button=>button.innerText.trim()==='删除').length===2})()"), '版本管理弹窗未逐版本展示详情与删除入口')
+    }
     if (pageName==='设备管理' && actionName==='连接详情') {
       assert.ok(await evaluate("document.querySelectorAll('.device-connection-drawer .connection-status-grid > div').length===6"), '设备连接详情未优先展示六项接入状态')
       const topShot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-device-connection-top.png'),Buffer.from(topShot.data,'base64'))

@@ -33,7 +33,10 @@ const source = reactive({ protocolId:'', name:'', version:'', productId:'', tran
 const props = defineProps({ section: { type: String, default: 'protocols' } }) /* 声明 props。 */
 const sourceOpen = ref(false), profileOpen = ref(false), assistantOpen = ref(false) /* 声明 sourceOpen。 */
 const releaseOpen = ref(false), selectedProtocol = ref(null), selectedRelease = ref(null) /* 保存当前查看的协议及版本。 */
-function viewRelease(row, release) { selectedProtocol.value = row.definition; selectedRelease.value = release; releaseOpen.value = true } /* 所有版本通过同一入口查看详情。 */
+const versionsOpen = ref(false), managedProtocolId = ref('')
+const managedProtocol = computed(() => protocols.value.find(item => item.definition.id === managedProtocolId.value) || null)
+function manageVersions(row) { managedProtocolId.value = row.definition.id; versionsOpen.value = true }
+function viewRelease(row, release) { versionsOpen.value = false; selectedProtocol.value = row.definition; selectedRelease.value = release; releaseOpen.value = true } /* 所有版本通过同一入口查看详情。 */
 const hasReleaseActions = computed(() => { /* 仅在版本能力和账号权限都满足时显示专项操作。 */
   const release = selectedRelease.value /* 读取当前版本。 */
   return Boolean(release && ((release.artifact?.generatedMapping && can('POST /api/v2/protocols/:id/releases/:version/preview')) || (release.status === 'VALIDATED' && can('POST /api/v2/protocols/:id/releases/:version/publish')) || (release.artifact?.build?.kind === 'go-source' && can('GET /api/v2/protocols/:id/releases/:version/source')))) /* 返回可用操作状态。 */
@@ -156,6 +159,7 @@ function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ER
 
 onMounted(load) /* 执行当前语句并推进处理流程。 */
 function removeProtocol(row) { return confirmDelete({ label:row.definition.name || row.definition.id, path:`/api/v2/protocols/${encodeURIComponent(row.definition.id)}`, onDeleted:load, warning:'未被引用的版本将一并删除，删除后无法恢复。', blockedHint:'协议仍被产品或平台连接配置引用，请先解除绑定。' }) }
+function removeRelease(row, release) { return confirmDelete({ label:`${row.definition.name || row.definition.id} · ${release.version}`, path:`/api/v2/protocols/${encodeURIComponent(row.definition.id)}/releases/${encodeURIComponent(release.version)}`, onDeleted:load, warning:'仅删除此版本及其独有制品，删除后无法恢复。', blockedHint:'此版本仍被设备模板、回滚记录或平台连接配置引用，请先切换关联版本。' }) }
 function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2/device-access-profiles/${encodeURIComponent(row.id)}`, onDeleted:load, blockedHint:'请先停用平台连接配置，并解除关联设备后再删除。' }) }
 </script>
 
@@ -179,14 +183,11 @@ function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2
         <ui-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
         <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="版本历史" min-width="240"><template #default="{ row }"><div v-for="release in row.releases" :key="release.version" class="release-history"><ui-tag :type="statusType(release.status)" effect="plain">{{ release.version }} · {{ statusText(release.status) }}</ui-tag><small v-if="release.artifact?.platform" class="subline">{{ platformLabel(release.artifact.platform) }} · 发布端样例 {{ release.artifact.testCases || 0 }} 项</small><small v-for="(variant, platform) in (release.artifact?.variants || {})" :key="platform" class="subline">{{ platformLabel(platform) }} · {{ variant.validation === 'COMPILED' ? '已编译，待节点试跑' : '已上传，待节点试跑' }}</small></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="操作" fixed="right" width="190"><template #default="{ row }"> <!-- 每个已有版本使用相同的详情入口。 -->
-          <div v-for="release in (row.releases || [])" :key="release.version" class="release-actions"> <!-- 按版本历史顺序排列入口。 -->
-            <ui-button size="small" plain type="primary" @click="viewRelease(row, release)">查看版本</ui-button> <!-- 打开该版本详情。 -->
-          </div> <!-- 结束当前版本入口。 -->
-          <span v-if="!row.releases?.length" class="muted-text">暂无版本</span> <!-- 协议尚未创建版本时给出明确状态。 -->
+        <ui-table-column label="版本数量" width="100"><template #default="{ row }">{{ row.releases?.length || 0 }}</template></ui-table-column>
+        <ui-table-column label="操作" fixed="right" width="220"><template #default="{ row }"><div class="table-actions">
+          <ui-button size="small" plain type="primary" @click="manageVersions(row)">管理版本</ui-button>
           <ui-button v-permission="'DELETE /api/v2/protocols/:id'" size="small" plain type="danger" @click="removeProtocol(row)">删除协议</ui-button>
-        </template></ui-table-column> <!-- 结束当前界面区域。 -->
+        </div></template></ui-table-column> <!-- 结束当前界面区域。 -->
       </ui-table> <!-- 结束当前界面区域。 -->
       <div class="list-pagination"><ui-pagination v-model:current-page="protocolPage" v-model:page-size="protocolPageSize" :total="protocols.length" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" @size-change="protocolPage=1" /></div> <!-- 渲染 div 界面元素。 -->
     </template>
@@ -211,6 +212,18 @@ function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2
 
     </template>
   </ui-card>
+  <ui-dialog v-model="versionsOpen" class="protocol-versions-dialog" :title="`${managedProtocol?.definition.name || '协议'} · 版本管理`" width="min(880px, 96vw)" destroy-on-close>
+    <template v-if="managedProtocol">
+      <p class="versions-summary">{{ managedProtocol.definition.id }} · 共 {{ managedProtocol.releases?.length || 0 }} 个版本。删除前请确认该版本未被设备模板或平台连接配置引用。</p>
+      <ui-table :data="managedProtocol.releases || []" stripe empty-text="暂无版本，可上传源码创建新版本">
+        <ui-table-column label="版本" min-width="130"><template #default="{ row }"><strong>{{ row.version }}</strong></template></ui-table-column>
+        <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(row.status)" round>{{ statusText(row.status) }}</ui-tag></template></ui-table-column>
+        <ui-table-column label="运行方式" min-width="185"><template #default="{ row }">{{ transportLabel(row.transport) }} · {{ label(parsers, row.parserType, '自定义协议程序') }}</template></ui-table-column>
+        <ui-table-column label="创建时间" min-width="170"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column>
+        <ui-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><div class="table-actions"><ui-button size="small" plain @click="viewRelease(managedProtocol, row)">详情</ui-button><ui-button v-permission="'DELETE /api/v2/protocols/:id/releases/:version'" size="small" plain type="danger" @click="removeRelease(managedProtocol, row)">删除</ui-button></div></template></ui-table-column>
+      </ui-table>
+    </template>
+  </ui-dialog>
   <ui-dialog v-model="releaseOpen" title="协议版本" width="min(620px, 94vw)" destroy-on-close> <!-- 集中展示版本信息和该版本支持的操作。 -->
     <template v-if="selectedProtocol && selectedRelease"> <!-- 仅在选中实际版本后渲染详情。 -->
       <ui-descriptions :column="1" border> <!-- 说明当前查看的是哪个协议版本。 -->
@@ -325,7 +338,7 @@ function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2
 </template>
 <style scoped>
 .instance-details { padding: 16px 24px; } /* 定义当前元素的样式规则。 */
-.release-history + .release-history,.release-actions + .release-actions { margin-top: 12px; } /* 定义当前元素的样式规则。 */
+.versions-summary { margin:0 0 14px; color:#586579; font-size:13px; line-height:1.6; }
 .release-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; } /* 定义当前元素的样式规则。 */
 .release-buttons .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
 .release-detail-actions { align-items: center; margin-top: 18px; } /* 让专项操作在版本信息下保持整齐。 */

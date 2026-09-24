@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"iot-platform/internal/adapters/knowledge"
@@ -37,6 +39,52 @@ func TestDeleteResourceRoutesReturnConflictAndNotFound(t *testing.T) {
 	request("DELETE", "/api/v1/device-registry/device", token, nil, 200)
 	request("DELETE", "/api/v1/products/product", token, nil, 200)
 	request("DELETE", "/api/v1/products/product", token, nil, 404)
+}
+
+func TestDeleteProtocolReleaseOnlyRemovesSelectedVersionAndArtifacts(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	_ = repo.SaveProtocolDefinition(ctx, model.ProtocolDefinition{TenantID: "tenant_a", ID: "protocol", Name: "测试协议"})
+	for _, version := range []string{"1.0.0", "2.0.0"} {
+		if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant_a", ProtocolID: "protocol", Version: version}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant_a", ProductID: "product", ProtocolID: "protocol", Version: "2.0.0", PreviousVersion: "1.0.0"})
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword, cfg.JWTSecret = "root", "root-password-test", "delete-test-signing-key-32-characters"
+	cfg.AdminTenants = []string{"tenant_a"}
+	cfg.DevMode = true
+	cfg.DataDir = t.TempDir()
+	for _, version := range []string{"1.0.0", "2.0.0"} {
+		path := filepath.Join(cfg.DataDir, "protocol-releases", "tenant_a", "protocol", version)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "package.zip"), []byte("test"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := httptest.NewServer(New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	defer server.Close()
+	token := requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	path := server.URL + "/api/v2/protocols/protocol/releases/1.0.0"
+	requestJSON(t, server.Client(), "DELETE", path, token, nil, 409)
+	_ = repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant_a", ProductID: "product", ProtocolID: "protocol", Version: "2.0.0"})
+	requestJSON(t, server.Client(), "DELETE", path, token, nil, 200)
+	requestJSON(t, server.Client(), "DELETE", path, token, nil, 404)
+	if _, err := repo.GetProtocolDefinition(ctx, "tenant_a", "protocol"); err != nil {
+		t.Fatalf("protocol family was deleted: %v", err)
+	}
+	if _, err := repo.GetProtocolRelease(ctx, "tenant_a", "protocol", "2.0.0"); err != nil {
+		t.Fatalf("other version was deleted: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "protocol-releases", "tenant_a", "protocol", "1.0.0")); !os.IsNotExist(err) {
+		t.Fatalf("deleted version artifacts remain: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "protocol-releases", "tenant_a", "protocol", "2.0.0", "package.zip")); err != nil {
+		t.Fatalf("other version artifacts were removed: %v", err)
+	}
 }
 
 func TestDeleteKnowledgeDocumentClearsIndexObjectAndRecord(t *testing.T) {
