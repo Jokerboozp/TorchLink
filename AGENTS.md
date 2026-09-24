@@ -42,7 +42,7 @@
 | `internal/backup/`、`cmd/backup-service/` | 备份逻辑与独立备份服务 |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的完整 Go 协议 module 示例 |
 | `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/` | 专用网关、虚拟设备和负载工具；按任务使用 |
-| `iot_front/` | Vue 3、Vite 管理端，复用现有 Element Plus 和样式体系 |
+| `iot_front/` | Vue 3、Vite 管理端，复用现有 Naive UI、Tailwind CSS 和 Lucide 图标 |
 | `scripts/`、`compose*.yaml`、`deploy/` | 本地准备、部署、离线打包和服务配置 |
 
 修改业务时沿“页面 / API → 业务逻辑 → 依赖接口 → 存储或外部适配器”追踪完整链路。多个页面出现同类症状，优先查共享 API、公共状态和仓储实现。
@@ -144,7 +144,7 @@ npm run dev
 | 执行目录 | 命令 | 适用范围 |
 |---|---|---|
 | 仓库根目录 | `go test ./internal/core ./internal/httpapi` | 示例：业务及 API 相关包；按改动选择实际包 |
-| 仓库根目录 | `go test ./...` | 后端完整测试 |
+| 仓库根目录 | `go test ./cmd/... ./internal/...` | 正式后端源码测试，避免扫描运行数据目录中的临时程序 |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立协议 module；根 module 测试不能代替此项 |
 | `iot_front` | `npm test` | 现有前端测试 |
 | `iot_front` | `npm run build` | 前端构建 |
@@ -166,11 +166,11 @@ npm run dev
 
 ## 11. 仓库内参考文档
 
-- [README](README.md)：炬联项目介绍、功能、架构和平台对比。
+- [README](README.md)：炬联项目介绍、运行入口、目录和开发检查。
 - [技术详情](docs/TECHNICAL_DETAILS.md)：环境准备、本地 / 在线 / 离线入口、扩展模块及开发检查。
 - [部署配置与维护](docs/DEPLOYMENT.md)：配置、端口和维护操作。
 - [离线部署](docs/OFFLINE_DEPLOYMENT.md)：离线包、模型、校验和更新。
-- [文档索引](docs/README.md)：当前专题、源码依据和历史验证记录。
+- [文档索引](docs/README.md)：当前开发、协议和运维专题。
 - [用户权限](docs/USER_ACCESS_CONTROL.md)：租户归属、角色、菜单按钮、设备范围和实时提醒。
 - [统一设备接入](docs/UNIFIED_DEVICE_ONBOARDING.md)：设备与产品接入、凭据和标准报文。
 - [Go 协议包](docs/GO_PROTOCOL_PACKAGES.md)：当前源码上传、运行时、发布和回滚契约。

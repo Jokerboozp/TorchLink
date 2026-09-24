@@ -63,17 +63,6 @@ type Config struct { /* 定义 Config 类型。 */
 	VideoSecrets                map[string]string /* 执行当前语句并推进处理流程。 */
 	VideoPlatformTenants        map[string]string /* 执行当前语句并推进处理流程。 */
 	VideoMediaHosts             []string          /* 执行当前语句并推进处理流程。 */
-	VideoPreviewOrigins         []string          /* 执行当前语句并推进处理流程。 */
-	VideoZLMAPIURL              string            /* 执行当前语句并推进处理流程。 */
-	VideoZLMPlaybackURL         string            /* 执行当前语句并推进处理流程。 */
-	VideoZLMSecret              string            /* 执行当前语句并推进处理流程。 */
-	VideoZLMVhost               string            /* 执行当前语句并推进处理流程。 */
-	VideoZLMApp                 string            /* 执行当前语句并推进处理流程。 */
-	DahuaVideoSDKURL            string            /* 执行当前语句并推进处理流程。 */
-	DahuaVideoSDKToken          string            /* 执行当前语句并推进处理流程。 */
-	HikvisionVideoAPIURL        string            /* 执行当前语句并推进处理流程。 */
-	HikvisionAppKey             string            /* 执行当前语句并推进处理流程。 */
-	HikvisionAppSecret          string            /* 执行当前语句并推进处理流程。 */
 	OfflineScan                 time.Duration     /* 执行当前语句并推进处理流程。 */
 	ModbusAllowedCIDRs          []string          /* 执行当前语句并推进处理流程。 */
 	DevMode                     bool              /* 执行当前语句并推进处理流程。 */
@@ -140,17 +129,6 @@ func Load() Config { /* 定义 Load 函数。 */
 		VideoSecrets:                parsePairs(os.Getenv("IOT_VIDEO_PLATFORM_SECRETS")),                                                            /* 执行当前语句并推进处理流程。 */
 		VideoPlatformTenants:        parsePairs(os.Getenv("IOT_VIDEO_PLATFORM_TENANTS")),                                                            /* 执行当前语句并推进处理流程。 */
 		VideoMediaHosts:             split(os.Getenv("IOT_VIDEO_MEDIA_ALLOWED_HOSTS")),                                                              /* 执行当前语句并推进处理流程。 */
-		VideoPreviewOrigins:         split(os.Getenv("IOT_VIDEO_PREVIEW_ALLOWED_ORIGINS")),                                                          /* 执行当前语句并推进处理流程。 */
-		VideoZLMAPIURL:              strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_VIDEO_ZLM_API_URL")), "/"),                                  /* 执行当前语句并推进处理流程。 */
-		VideoZLMPlaybackURL:         strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_VIDEO_ZLM_PLAYBACK_BASE_URL")), "/"),                        /* 执行当前语句并推进处理流程。 */
-		VideoZLMSecret:              strings.TrimSpace(os.Getenv("IOT_VIDEO_ZLM_SECRET")),                                                           /* 执行当前语句并推进处理流程。 */
-		VideoZLMVhost:               get("IOT_VIDEO_ZLM_VHOST", "__defaultVhost__"),                                                                 /* 执行当前语句并推进处理流程。 */
-		VideoZLMApp:                 get("IOT_VIDEO_ZLM_APP", "iot"),                                                                                /* 执行当前语句并推进处理流程。 */
-		DahuaVideoSDKURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_VIDEO_DAHUA_SDK_URL")), "/"),                                /* 执行当前语句并推进处理流程。 */
-		DahuaVideoSDKToken:          strings.TrimSpace(os.Getenv("IOT_VIDEO_DAHUA_SDK_TOKEN")),                                                      /* 执行当前语句并推进处理流程。 */
-		HikvisionVideoAPIURL:        strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_VIDEO_HIKVISION_API_URL")), "/"),                            /* 执行当前语句并推进处理流程。 */
-		HikvisionAppKey:             strings.TrimSpace(os.Getenv("IOT_VIDEO_HIKVISION_APP_KEY")),                                                    /* 执行当前语句并推进处理流程。 */
-		HikvisionAppSecret:          strings.TrimSpace(os.Getenv("IOT_VIDEO_HIKVISION_APP_SECRET")),                                                 /* 执行当前语句并推进处理流程。 */
 		OfflineScan:                 duration("IOT_OFFLINE_SCAN_INTERVAL", 30*time.Second),                                                          /* 执行当前语句并推进处理流程。 */
 		ModbusAllowedCIDRs:          split(get("IOT_MODBUS_ALLOWED_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128")), /* 执行当前语句并推进处理流程。 */
 		DevMode:                     devMode,                                                                                                        /* 执行当前语句并推进处理流程。 */

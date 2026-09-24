@@ -1,6 +1,6 @@
 # 独立接入进程
 
-当前保留中心 API 与独立 Access Gateway。旧现场节点配置的迁移见 [旧版本迁移](EDGE_REMOVAL.md)。
+当前保留中心 API 与独立 Access Gateway。旧现场节点配置的迁移见 [旧版本迁移](DEPLOYMENT.md#旧版本迁移)。
 
 ## 进程职责
 

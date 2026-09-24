@@ -3,7 +3,6 @@ package parser /* 声明 parser 包。 */
 import ( /* 引入当前代码需要的依赖。 */
 	"encoding/binary" /* 执行当前语句并推进处理流程。 */
 	"encoding/hex"    /* 执行当前语句并推进处理流程。 */
-	"encoding/json"   /* 执行当前语句并推进处理流程。 */
 	"errors"          /* 执行当前语句并推进处理流程。 */
 	"fmt"             /* 执行当前语句并推进处理流程。 */
 	"strings"         /* 执行当前语句并推进处理流程。 */
@@ -332,9 +331,4 @@ func encodeBCD(value int) byte { return byte(value/10<<4 | value%10) } /* 定义
 
 func isGB26875PlatformAddress(value string) bool { /* 定义 isGB26875PlatformAddress 函数。 */
 	return strings.EqualFold(value, "FFFFFFFFFFFF") || strings.EqualFold(value, "000000000000") /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-
-func marshalHexPayload(frame []byte) json.RawMessage { /* 定义 marshalHexPayload 函数。 */
-	value, _ := json.Marshal(strings.ToUpper(hex.EncodeToString(frame))) /* 更新 _ 的值。 */
-	return value                                                         /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

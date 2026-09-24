@@ -1,8 +1,6 @@
 # 消防平台 Go 协议包
 
-这里是从六份旧解析/采集程序迁移出的独立 `go-protocol-v2` 包。每个子目录都可独立运行 `go test ./...`，包含平台函数适配器与本地样例测试；`dist/` 中的六个 ZIP 已上传至当前本机平台并发布。FB2018、FB2024、液压、液位包为 `1.0.0`；KUKA 和水炮包为 `1.0.1`，后续修改须递增版本。
-
-逐行中文注释只更新了本目录源码；`dist/` 保留此前已发布的原始 ZIP，二者的源码哈希不再相同。需要再次上传时，应递增协议版本并重新打包，不能用当前源码覆盖已发布版本。
+这里维护六个独立 `go-protocol-v2` 包，每个子目录包含平台函数适配器和样例测试，可独立运行 `go test ./...`。发布前核对目标平台已有版本，递增版本并重新打包，不能覆盖已发布版本；具体契约见 [Go 协议包](../docs/GO_PROTOCOL_PACKAGES.md)。
 
 | 目录 / 上传协议标识 | 旧代码 | 网络与设备识别 | 主要数据 |
 | --- | --- | --- | --- |
@@ -21,22 +19,19 @@
 - KUKA：配置 `network=tcp`、`connectionMode=dial`、设备目标地址/端口及预先登记的设备 ID。`queries` 添加六条不同的 `type`：`coil-0`、`coil-3001`、`coil-3002`、`coil-3003`、`coil-3013`、`coil-3042`，周期按现场要求配置。旧程序使用 Modbus TCP 线圈功能码 `0x01`、站号 1。
 - 水炮：同样配置主动连接及预登记设备 ID。`queries` 添加 `type=host`，以及 `fault-1`～`fault-8`、`status-1`～`status-8` 共 17 条不同类型。旧程序使用 Modbus TCP 输入寄存器功能码 `0x04`、站号 1。
 
-`verify-platform.mjs dial-test` 为虚拟 Modbus 设备把每个查询点设为 5 秒，仅用于快速跑完两轮测试，并在结束时停用实例。实际设备启用前须按设备响应能力和现场采集要求重新设定周期；17 个查询点的 5 秒测试配置不代表生产建议。
-
 注意：KUKA 和水炮旧程序是短连接逐点轮询；新版接入网关保持一个 TCP 会话并串行查询，设备必须允许保持连接。Modbus TCP 响应不含设备唯一标识，所以这两个包要求每个主动连接实例绑定已登记设备，并按现场网络白名单限制目标地址。FB2018 旧程序曾以远端 IP 生成设备 ID；新版函数契约未提供远端 IP，现使用报文源地址。若现场多台 FB2018 都发全零源地址，会得到同一个 ID，必须先给设备配置唯一源地址或使用独立主动连接实例的预配置设备 ID。FB2024 全零源地址也有相同限制。
 
-旧 JetLinks 自动生成子设备台账的方式没有原样迁移。这批包把部件作为控制器下的稳定 `components`；如需每个部件单独成为可授权的设备，应另行按新版平台主子设备协议和 `childProducts` 配置。六个包已用本机虚拟设备完成平台链路测试，结果在 `verification-20260923.json`；现场设备的真实报文和网络连通仍需现场联调。
+这批包把部件作为控制器下的稳定 `components`；如需每个部件单独成为可授权的设备，应按平台主子设备协议和 `childProducts` 配置。样例测试不替代现场真实报文与网络联调。
 
 ## 本地验证与打包
 
-在 PowerShell 中对任一子目录运行：
+在仓库根目录使用 PowerShell，例如打包 FB2018：
 
 ```powershell
-cd D:\iot\platform\dev\fb2018
+cd dev/fb2018
 go test ./...
+New-Item -ItemType Directory -Force -Path ../dist | Out-Null
 Compress-Archive -Path .\* -DestinationPath ..\dist\fb2018.zip -Force
 ```
 
-其它五个目录替换名称即可。压缩包里应直接包含 `go.mod`、`protocol.go`、`zz_platform.go`、测试文件；平台构建不执行 `_test.go`，会独立编译并运行 `Samples` 与 `Operations`。旧样本数据来自对应旧项目测试，协议包没有第三方依赖。
-
-`verify-platform.mjs` 使用平台根目录的 `.env.local` 登录本机平台，在 `D:\iot\platform` 中运行。`upload` 发布 ZIP，`setup` 创建六个虚拟测试产品与接入实例，`listen-test` 测试四个 TCP 上报协议，`dial-test` 启动两个虚拟 Modbus 服务器并测试主动轮询。测试结束后六个测试接入实例均停用；产品、设备、协议发布和解析记录保留，便于平台界面复核。运行 `setup` 和 `listen-test` 前需启用相应监听实例。
+其它五个目录替换名称即可。压缩包里应直接包含 `go.mod`、`protocol.go`、`zz_platform.go`、测试文件；平台构建不执行 `_test.go`，会独立编译并运行 `Samples` 与 `Operations`。协议包没有第三方依赖。`dev/dist/` 是本地生成目录，不提交 ZIP；在协议管理页面上传并核对样例结果后发布。

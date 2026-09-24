@@ -672,7 +672,7 @@ try {
     # 执行当前脚本步骤。
     Copy-Item -LiteralPath (Join-Path $projectRoot "docs/EDGE_AND_GATEWAY.md") -Destination $bundleRoot
     # 执行当前脚本步骤。
-    Copy-Item -LiteralPath (Join-Path $projectRoot "docs/EDGE_REMOVAL.md") -Destination $bundleRoot
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs/DEPLOYMENT.md") -Destination $bundleRoot
     # 执行当前脚本步骤。
     Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $bundleRoot -Recurse
     # 执行当前脚本步骤。

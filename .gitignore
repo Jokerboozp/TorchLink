@@ -7,12 +7,16 @@ data/
 *.log
 coverage.out
 __debug_bin*
+dev/dist/
+dev/verification-*.json
 iot_front/node_modules/
 iot_front/dist/
 upstream/deepseek-harness/
 upstream/deepseek-harness.revision
 offline-bundles/
 .vscode/
+.tools/
+.idea/
 iot_front/.idea/
 .gitignore
 .DS_Store

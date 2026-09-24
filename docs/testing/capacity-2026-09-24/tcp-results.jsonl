@@ -1,8 +1,0 @@
-{"run":"tcp-sessions","profileId":"cap-tcp-muf0dquq","port":29991,"levels":[1,32,64,128,129,160],"at":"2026-09-24T04:05:14.190Z"}
-{"at":"2026-09-24T04:05:15.511Z","kind":"tcp-sessions","profileId":"cap-tcp-muf0dquq","target":1,"attempted":1,"connected":1,"connectFailures":0,"open":1,"closed":0,"ready":200}
-{"at":"2026-09-24T04:05:19.032Z","kind":"tcp-sessions","profileId":"cap-tcp-muf0dquq","target":32,"attempted":32,"connected":31,"connectFailures":0,"open":32,"closed":0,"ready":200}
-{"at":"2026-09-24T04:05:19.999Z","kind":"tcp-sessions","profileId":"cap-tcp-muf0dquq","target":64,"attempted":64,"connected":32,"connectFailures":0,"open":64,"closed":0,"ready":200}
-{"at":"2026-09-24T04:05:22.861Z","kind":"tcp-sessions","profileId":"cap-tcp-muf0dquq","target":128,"attempted":128,"connected":64,"connectFailures":0,"open":128,"closed":0,"ready":200}
-{"at":"2026-09-24T04:05:23.817Z","kind":"tcp-sessions","profileId":"cap-tcp-muf0dquq","target":129,"attempted":129,"connected":1,"connectFailures":0,"open":128,"closed":1,"ready":200}
-{"at":"2026-09-24T04:05:26.706Z","kind":"tcp-sessions","profileId":"cap-tcp-muf0dquq","target":160,"attempted":160,"connected":31,"connectFailures":0,"open":128,"closed":32,"ready":200}
-{"at":"2026-09-24T04:05:26.866Z","kind":"tcp-cleanup","profileId":"cap-tcp-muf0dquq","disableStatus":201,"deleteStatus":200,"ready":200}

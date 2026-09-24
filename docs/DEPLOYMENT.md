@@ -162,6 +162,16 @@ API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储
 
 维护部署脚本时，可运行 `scripts/tests/deployment-smoke.ps1 -ComposeExe <独立Compose程序路径>` 或 `bash scripts/tests/deployment-smoke.sh <独立Compose程序路径>`。它们使用真实 Compose 解析配置，模拟 Docker 和 HTTP 操作，检查一键流程与失败分支，不会启动服务。
 
+## 旧版本迁移
+
+旧现场 Agent、节点登记、现场任务与程序分发入口已移除，设备继续通过中心 MQTT / HTTP、Modbus、Go TCP / UDP、独立 Access Gateway 及主子设备关系接入。
+
+- `DeviceAccessProfile.edgeNodeId` 非空的旧配置不会在中心执行，也不能保存为有效实例。先确认设备网络和产品协议，再到「接入网关」重新配置；旧串口任务不能仅清空节点标识后运行。外部已部署 Agent 需由部署者停用。
+- 新库不创建 `edge_node`、`edge_read_job`、`edge_program`、`device_shadow`、`device_shadow_change` 或 `device_twin_topology`；启动迁移保留旧表与历史数据，当前 API 不再管理它们。`gatewayId` 表示业务主设备，主子设备状态和权限分别维护。
+- 升级沿用原环境文件、Compose 项目名、数据卷、协议制品及 MQTT 接收目录；不可变协议版本不被新源码覆盖。TCP / UDP、Modbus 与子设备不使用历史内部凭据通过 HTTP / MQTT 认证。
+
+无需清空数据库完成迁移。设备数据导出不包含完整环境备份，数据库、配置和密钥需分别保管；普通用户权限按下一节处理。
+
 ## 用户权限升级
 
 升级时前端与 API/Gateway 使用同一版源码，沿用原 PostgreSQL 数据。启动迁移自动创建 `platform_access`；账户、角色、密码哈希和设备范围均保存在该表，不在浏览器持久保存密码。
@@ -199,7 +209,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
 
 设备向导的 `IOT_DEVICE_HTTP_PUBLIC_URL`、`IOT_DEVICE_MQTT_PUBLIC_URL` 分别配置设备可达的 HTTPS 根地址和 MQTT TLS Broker；留空时 HTTP 使用相对路径，MQTT 明确未配置，不使用容器名或固定 localhost 冒充外部地址。WebSocket 沿用 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。本地 `.env.local`、在线 `.env.online`、离线 `.env.offline` 分别设置，不能互相替代。监听端口仍需实际容器映射与网络连通。
 
-默认采用单实例；可选独立 Gateway 与执行协调见 [接入进程](EDGE_AND_GATEWAY.md)。现场节点已移除，中心仍拒绝执行旧 edgeNodeId 非空的任务，详见 [移除说明](EDGE_REMOVAL.md)。EMQX 要求 username claim 匹配及到期断连，已有动态认证器配置需核实实际生效；不要将本地修改当成已部署。迁移、设备认证与验证命令见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。
+默认采用单实例；可选独立 Gateway 与执行协调见 [接入进程](EDGE_AND_GATEWAY.md)。旧现场配置处理见 [旧版本迁移](#旧版本迁移)。EMQX 要求 username claim 匹配及到期断连，已有动态认证器配置需核实实际生效。设备认证与验证命令见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。
 
 ## MQTT 接收目录
 

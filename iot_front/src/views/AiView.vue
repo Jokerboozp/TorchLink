@@ -4,7 +4,7 @@ import { aiProviderOptions as providerOptions, capabilityName } from '../present
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiStream, session } from '../api' /* 引入当前代码需要的依赖。 */
-import { AI_HISTORY_STORAGE_PREFIX, loadAIHistory, saveAIHistory } from '../aiHistory' /* 引入当前代码需要的依赖。 */
+import { loadAIHistory, saveAIHistory } from '../aiHistory' /* 引入当前代码需要的依赖。 */
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus' /* 引入当前代码需要的依赖。 */
 import HarnessTraceDrawer from '../components/HarnessTraceDrawer.vue' /* 引入当前代码需要的依赖。 */
 import MarkdownContent from '../components/MarkdownContent.vue' /* 引入当前代码需要的依赖。 */

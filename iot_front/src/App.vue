@@ -56,7 +56,6 @@ const loginLoading = ref(false) /* 声明 loginLoading。 */
 const globalAlertPopup = ref(null) /* 声明 globalAlertPopup。 */
 const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' }) /* 声明 loginForm。 */
 const identity = ref({ tenant: session.tenant, user: session.user, role: session.role }) /* 声明 identity。 */
-const currentTenant = computed(() => identity.value.tenant || loginForm.value.tenantId || '—') /* 声明 currentTenant。 */
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户') /* 声明 currentUser。 */
 const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || '平台用户')) /* 声明 currentRole。 */
 

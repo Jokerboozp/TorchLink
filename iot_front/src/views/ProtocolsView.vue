@@ -4,7 +4,7 @@ const emit = defineEmits(['navigate']) /* 声明 emit。 */
 import ProtocolAccessSettings from '../components/ProtocolAccessSettings.vue' /* 引入当前代码需要的依赖。 */
 import ProtocolAssistantView from './ProtocolAssistantView.vue' /* 引入当前代码需要的依赖。 */
 import FilePicker from '../components/FilePicker.vue' /* 引入当前代码需要的依赖。 */
-import { transportLabel, formatLabel, statusLabel, platformLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
+import { transportLabel, statusLabel, platformLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { computed, onMounted, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
 import { label, parsers } from '../labels' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */

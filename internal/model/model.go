@@ -693,25 +693,6 @@ type VideoCameraRelation struct { /* 定义 VideoCameraRelation 类型。 */
 	TargetID     string `json:"targetId"`     /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-// VideoStream is a short-lived source or browser playback address. SDK
-// providers may return an expiring URL; it is never persisted in a camera
-// mapping and should not be exposed to viewers before the preview request.
-type VideoStream struct { /* 定义 VideoStream 类型。 */
-	URL        string `json:"url"`                 /* 执行当前语句并推进处理流程。 */
-	StreamType string `json:"streamType"`          /* 执行当前语句并推进处理流程。 */
-	Provider   string `json:"provider,omitempty"`  /* 执行当前语句并推进处理流程。 */
-	ExpiresAt  int64  `json:"expiresAt,omitempty"` /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-
-type VideoPreview struct { /* 定义 VideoPreview 类型。 */
-	CameraID    string `json:"cameraId"`            /* 执行当前语句并推进处理流程。 */
-	CameraName  string `json:"cameraName"`          /* 执行当前语句并推进处理流程。 */
-	PlaybackURL string `json:"playbackUrl"`         /* 执行当前语句并推进处理流程。 */
-	StreamType  string `json:"streamType"`          /* 执行当前语句并推进处理流程。 */
-	Provider    string `json:"provider,omitempty"`  /* 执行当前语句并推进处理流程。 */
-	ExpiresAt   int64  `json:"expiresAt,omitempty"` /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-
 type AIToolCallLog struct { /* 定义 AIToolCallLog 类型。 */
 	ID        string         `json:"id"`               /* 执行当前语句并推进处理流程。 */
 	TenantID  string         `json:"tenantId"`         /* 执行当前语句并推进处理流程。 */

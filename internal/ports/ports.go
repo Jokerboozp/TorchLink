@@ -207,13 +207,6 @@ type AIJSONGenerator interface { /* 定义 AIJSONGenerator 类型。 */
 	GenerateJSON(context.Context, string, string, string) (string, error) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-// VideoPreviewService resolves direct or vendor-SDK camera sources and, when
-// configured, proxies them through ZLMediaKit into a browser playback URL.
-type VideoPreviewService interface { /* 定义 VideoPreviewService 类型。 */
-	Preview(context.Context, model.VideoCameraMapping) (model.VideoPreview, error) /* 执行当前语句并推进处理流程。 */
-	Eligible(model.VideoCameraMapping, []string) bool                              /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-
 type AIPluginConfig struct { /* 定义 AIPluginConfig 类型。 */
 	Provider  string `json:"provider"`          /* 执行当前语句并推进处理流程。 */
 	BaseURL   string `json:"baseUrl,omitempty"` /* 执行当前语句并推进处理流程。 */

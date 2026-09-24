@@ -14,19 +14,7 @@ IOT_ADMIN_USER	平台内置管理员用户名
 IOT_ADMIN_PASSWORD	平台内置管理员密码，默认 admin123，可自定义，无长度或复杂度限制
 IOT_ADMIN_TENANTS	内置管理员可访问的租户，多个值用逗号分隔
 IOT_VIDEO_PLATFORM_SECRETS	外部视频平台及其签名密钥，格式为平台名:密钥
-IOT_VIDEO_MEDIA_ALLOWED_HOSTS	允许访问的视频媒体和厂商接口主机，多个值用逗号分隔
-IOT_VIDEO_PREVIEW_ALLOWED_ORIGINS	允许浏览器预览视频的来源地址，多个值用逗号分隔
-IOT_VIDEO_PREVIEW_CSP_SOURCES	视频预览 CSP 来源，多个值用空格分隔
-IOT_VIDEO_ZLM_API_URL	ZLMediaKit API 地址
-IOT_VIDEO_ZLM_PLAYBACK_BASE_URL	浏览器可访问的 ZLMediaKit 播放地址
-IOT_VIDEO_ZLM_SECRET	ZLMediaKit API 密钥
-IOT_VIDEO_ZLM_VHOST	ZLMediaKit 虚拟主机名
-IOT_VIDEO_ZLM_APP	ZLMediaKit 应用名
-IOT_VIDEO_DAHUA_SDK_URL	大华视频适配器地址
-IOT_VIDEO_DAHUA_SDK_TOKEN	大华视频适配器访问令牌
-IOT_VIDEO_HIKVISION_API_URL	海康威视 Artemis API 地址
-IOT_VIDEO_HIKVISION_APP_KEY	海康威视 Artemis AppKey
-IOT_VIDEO_HIKVISION_APP_SECRET	海康威视 Artemis AppSecret
+IOT_VIDEO_MEDIA_ALLOWED_HOSTS	允许下载外部视频事件媒体的主机，多个值用逗号分隔
 IOT_AI_HARNESS_TOKEN	平台与 DeepSeek Harness 之间的内部令牌
 IOT_BACKUP_ADMIN_TOKEN	备份服务管理令牌
 GB26875_CONTROL_TOKEN	GB/T 26875 网关控制令牌

@@ -4,7 +4,7 @@ import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
 defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { computed, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api, download, notifyError, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
+import { api, download, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
 import { confirmDelete } from '../deleteAction'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels' /* 引入当前代码需要的依赖。 */
 

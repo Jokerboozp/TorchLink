@@ -53,4 +53,4 @@
 
 创建用户时先核对只读的所属租户，再分配角色、额外操作和设备范围。角色提供功能权限，设备范围直接在用户上配置，二者不能相互替代。只有设备管理及全部设备范围还不足以管理账户，仍需「用户与权限」菜单和对应操作。
 
-升级已有系统见 [部署升级](DEPLOYMENT.md#用户权限升级)。最新本机测试及限制见 [权限与界面验收](testing/2026-09-14-权限与界面验收.md)，该记录不代表生产环境验收。
+升级已有系统见 [部署升级](DEPLOYMENT.md#用户权限升级)。回归入口为 `go test ./internal/httpapi -run 'Test(AccessControlLifecycleAndIsolation|DeviceScopeHTTPIsolation|UserPermissionsCombineRolesAndIndividualGrants)'`；浏览器检查见 [前端说明](../iot_front/README.md)。

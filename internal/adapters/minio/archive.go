@@ -7,7 +7,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"encoding/json" /* 执行当前语句并推进处理流程。 */
 	"fmt"           /* 执行当前语句并推进处理流程。 */
 	"io"            /* 执行当前语句并推进处理流程。 */
-	"strings"       /* 执行当前语句并推进处理流程。 */
 	"sync"          /* 执行当前语句并推进处理流程。 */
 
 	"github.com/minio/minio-go/v7"                 /* 执行当前语句并推进处理流程。 */
@@ -27,8 +26,7 @@ func New(endpoint, access, secret string, tls bool) (*Archive, error) { /* 定�
 		return nil, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	return &Archive{client: c}, nil /* 返回当前处理结果。 */
-}                          /* 结束当前表达式或代码块。 */
-func safe(v string) string { return strings.NewReplacer("/", "_", "\\", "_", "..", "_").Replace(v) } /* 定义 safe 函数。 */
+} /* 结束当前表达式或代码块。 */
 func (a *Archive) ensure(ctx context.Context, bucket string) error { /* 定义 ensure 函数。 */
 	if _, ok := a.ensured.Load(bucket); ok { /* 判断条件并选择处理分支。 */
 		return nil /* 返回当前处理结果。 */

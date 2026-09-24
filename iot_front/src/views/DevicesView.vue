@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api, apiAll, formatTime, notifyError, session } from '../api' /* 引入当前代码需要的依赖。 */
+import { api, apiAll, formatTime, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
 import { confirmDelete } from '../deleteAction'
 import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
 import DeviceConnection from '../components/DeviceConnection.vue' /* 引入当前代码需要的依赖。 */

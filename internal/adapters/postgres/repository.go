@@ -1178,22 +1178,6 @@ func cleanUniqueStrings(values []string) []string { /* 定义 cleanUniqueStrings
 	return out /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
-func relationIDs(relations []model.VideoCameraRelation) (deviceIDs, floorIDs, roomIDs []string) { /* 定义 relationIDs 函数。 */
-	for _, relation := range relations { /* 循环处理当前数据。 */
-		if relation.TargetID == "" { /* 判断条件并选择处理分支。 */
-			continue /* 执行当前语句并推进处理流程。 */
-		} /* 结束当前表达式或代码块。 */
-		switch relation.RelationType { /* 根据条件选择处理路径。 */
-		case "device": /* 处理当前分支。 */
-			deviceIDs = append(deviceIDs, relation.TargetID) /* 更新 deviceIDs 的值。 */
-		case "floor": /* 处理当前分支。 */
-			floorIDs = append(floorIDs, relation.TargetID) /* 更新 floorIDs 的值。 */
-		case "room": /* 处理当前分支。 */
-			roomIDs = append(roomIDs, relation.TargetID) /* 更新 roomIDs 的值。 */
-		} /* 结束当前表达式或代码块。 */
-	} /* 结束当前表达式或代码块。 */
-	return deviceIDs, floorIDs, roomIDs /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
 func (r *Repository) SaveAIAnalysis(ctx context.Context, v model.AIAnalysis) error { /* 定义 SaveAIAnalysis 函数。 */
 	b, _ := json.Marshal(v)                                                                                                                                                                                           /* 更新 _ 的值。 */
 	_, err := r.pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES($1,$2,$3) ON CONFLICT(tenant_id,alarm_id) DO UPDATE SET body=excluded.body,created_at=now()`, v.TenantID, v.AlarmID, b) /* 更新 err 的值。 */

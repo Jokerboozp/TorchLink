@@ -85,7 +85,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.collapse-button').click()") /* 恢复完整侧栏。 */
   for (const name of pages) { /* 逐页检查标题、正文和脚本异常。 */
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(name)}]').click()`) /* 打开目标页面。 */
-    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText === ${JSON.stringify(name)}`)).catch(async error => { throw new Error(`${name} 页面未能切换：${error.message}；当前 ${await evaluate("document.querySelector('.page-context h1')?.innerText || document.body.innerText.slice(0, 200)")}；异常 ${failures.slice(0, 2).join(' | ')}`) }) /* 确认当前页面标题。 */
+    await until(() => evaluate(`document.querySelector('.workspace-breadcrumb strong')?.innerText === ${JSON.stringify(name)}`)).catch(async error => { throw new Error(`${name} 页面未能切换：${error.message}；当前 ${await evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText || document.body.innerText.slice(0, 200)")}；异常 ${failures.slice(0, 2).join(' | ')}`) }) /* 确认当前页面标题。 */
     const text = await until(async () => { const value=await evaluate("document.querySelector('.main-content')?.innerText.trim() || ''"); return value.length>name.length ? value : false }).catch(async error => { throw new Error(`${name} 缺少业务内容：${error.message}；异常=${failures.slice(-3).join(' | ')}；警告=${warnings.slice(-3).join(' | ')}`) }) /* 等待异步页面出现业务内容。 */
     assert.ok(text.length > name.length, `${name} 缺少业务内容`) /* 防止页面只显示标题。 */
     assert.ok(await evaluate("[...document.querySelectorAll('.main-content .n-tabs-tab')].every(tab=>tab.innerText.trim().length>0 && tab.getBoundingClientRect().width>0)"), `${name} 存在空白页签`) /* 所有主页面页签必须有可读标题。 */
@@ -116,7 +116,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   ] /* 覆盖每个页面可直接打开的编辑、详情和管理弹层。 */
   for (const [pageName, actionName, tabName] of overlayCases) {
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(pageName)}]').click()`)
-    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText===${JSON.stringify(pageName)}`))
+    await until(() => evaluate(`document.querySelector('.workspace-breadcrumb strong')?.innerText===${JSON.stringify(pageName)}`))
     await delay(100)
     if (tabName) { await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`)); await evaluate(`[...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`); await delay(100) }
     console.log('弹层检查', pageName, actionName, tabName || '')
@@ -191,7 +191,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("[...document.querySelectorAll('.n-drawer')].find(d=>d.getClientRects().length).querySelector('.n-base-close').click()")
   await until(() => evaluate("![...document.querySelectorAll('.n-drawer')].some(d=>d.getClientRects().length)"))
   await evaluate("document.querySelector('.menu-item[aria-label=\"用户与权限\"]').click()") /* 检查添加与编辑用户表单。 */
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '用户与权限'"))
+  await until(() => evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText === '用户与权限'"))
   await evaluate("document.querySelector('.n-tabs-tab[data-name=users]').click()")
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('添加用户')).click()")
   await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
@@ -208,7 +208,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.user-editor').closest('.n-modal').querySelector('.n-base-close').click()")
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
   await evaluate("document.querySelector('.menu-item[aria-label=\"知识库\"]').click()") /* 检查上传弹窗字段和自由输入。 */
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '知识库'"))
+  await until(() => evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText === '知识库'"))
   await evaluate("[...document.querySelectorAll('button')].find(button=>button.innerText.includes('上传知识文档')).click()")
   await until(() => evaluate("Boolean(document.querySelector('.knowledge-upload-dialog'))"))
   assert.ok(await evaluate("(() => {const m=document.querySelector('.knowledge-upload-dialog'),sections=m.querySelectorAll('.knowledge-upload-section'),select=m.querySelector('.knowledge-upload-form .n-select'),tip=m.querySelector('.field-tip'),r=e=>e.getBoundingClientRect();return sections.length===2 && r(sections[1]).top>=r(sections[0]).bottom && r(tip).top>=r(select).bottom && r(tip).right<=r(m).right})()"), '知识上传步骤或字段说明出现重叠')
@@ -235,14 +235,14 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   const mobileBrand = await evaluate("(() => {const aside=document.querySelector('.app-aside'),menu=aside.querySelector('.menu-item:not(.active)'),r=aside.getBoundingClientRect();return {bottom:r.bottom,width:r.width,viewport:innerWidth,height:innerHeight,background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color}})()") /* 读取手机导航的最终尺寸与颜色。 */
   assert.ok(mobileBrand.bottom<=mobileBrand.height+1 && mobileBrand.width>=mobileBrand.viewport-2 && mobileBrand.background==='rgb(19, 56, 108)' && mobileBrand.menu==='rgb(220, 232, 245)', `手机底部导航未沿用品牌色或布局溢出：${JSON.stringify(mobileBrand)}`) /* 窄屏仍可读取导航入口。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"用户与权限\"]').click()")
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText==='用户与权限'"))
+  await until(() => evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText==='用户与权限'"))
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button=>button.innerText.includes('添加用户')).click()")
   await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
   assert.ok(await evaluate("(() => {const m=document.querySelector('.user-editor').closest('.n-modal'),r=m.getBoundingClientRect(),items=[...m.querySelector('.user-editor-grid').children],body=m.querySelector('.n-card-content');return r.left>=0&&r.right<=innerWidth+1&&items[1].getBoundingClientRect().top>=items[0].getBoundingClientRect().bottom&&body.scrollHeight>body.clientHeight})()"), '窄屏添加用户弹窗溢出或无法滚动')
   await evaluate("document.querySelector('.user-editor').closest('.n-modal').querySelector('.n-base-close').click()")
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal=>modal.getClientRects().length)"))
   await evaluate("document.querySelector('.menu-item[aria-label=\"知识库\"]').click()")
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText==='知识库'"))
+  await until(() => evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText==='知识库'"))
   await evaluate("[...document.querySelectorAll('button')].find(button=>button.innerText.includes('上传知识文档')).click()")
   await until(() => evaluate("Boolean(document.querySelector('.knowledge-upload-dialog'))"))
   assert.ok(await evaluate("(() => {const m=document.querySelector('.knowledge-upload-dialog'),r=m.getBoundingClientRect(),fields=[...m.querySelector('.metadata-grid').children];return r.left>=0&&r.right<=innerWidth+1&&fields[1].getBoundingClientRect().top>=fields[0].getBoundingClientRect().bottom})()"), '窄屏知识上传元数据字段未换行')
@@ -350,7 +350,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   assert.ok(await evaluate("document.querySelector('.chat-workflow-select').getBoundingClientRect().width>=220"), '工作流切换控件过窄')
   assert.ok(await evaluate("(() => {const log=document.querySelector('.chat-log');for(let i=0;i<30;i++){const item=document.createElement('p');item.textContent='滚动测试';log.append(item)}log.scrollTop=200;return log.scrollTop>0})()"), '智能助手对话记录无法向下滚动') /* 对话滚动容器需保持有效。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 打开设备模板检查表单。 */
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '设备模板'")) /* 等待页面切换。 */
+  await until(() => evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText === '设备模板'")) /* 等待页面切换。 */
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.textContent.includes('新建设备模板')).click()") /* 打开新建设备模板弹窗。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length && modal.innerText.includes('模板名称')))")) /* 确认 Naive UI 弹窗显示字段。 */
   await evaluate("[...document.querySelectorAll('.n-modal .n-form-item')].find(item => item.innerText.includes('设备分类')).querySelector('.n-base-selection').click()") /* 展开设备分类下拉框。 */
@@ -411,7 +411,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   assert.ok(await evaluate("document.querySelector('.app-shell').getBoundingClientRect().bottom <= innerHeight + 1"), '窄屏工作区超过视口高度') /* 窄屏滚动区域也须留在视口内。 */
   for (const name of pages) {
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(name)}]').click()`)
-    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText===${JSON.stringify(name)}`))
+    await until(() => evaluate(`document.querySelector('.workspace-breadcrumb strong')?.innerText===${JSON.stringify(name)}`))
     await delay(120)
     const width = await evaluate("({document:document.documentElement.scrollWidth,viewport:innerWidth,content:document.querySelector('.main-content').getBoundingClientRect().width})")
     assert.ok(width.document <= width.viewport + 2 && width.content <= width.viewport + 2, `${name} 手机视图横向溢出：${JSON.stringify(width)}`)
@@ -420,7 +420,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   console.log(`PASS: ${pages.length} 个主页面手机视图无横向溢出`)
   for (const [pageName, actionName, tabName] of overlayCases) {
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(pageName)}]').click()`)
-    await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText===${JSON.stringify(pageName)}`))
+    await until(() => evaluate(`document.querySelector('.workspace-breadcrumb strong')?.innerText===${JSON.stringify(pageName)}`))
     if (tabName) { await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`)); await evaluate(`[...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`) }
     await until(() => evaluate(`(()=>{const button=[...document.querySelectorAll('.main-content button')].find(item=>item.getClientRects().length&&item.innerText.trim()===${JSON.stringify(actionName)});if(!button)return false;button.click();return true})()`), `${pageName} 手机视图缺少“${actionName}”入口`)
     await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'))"))
@@ -444,7 +444,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   console.log(`PASS: ${overlayCases.length} 个弹层手机视图布局与滚动检查`)
   await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: true }) /* 缩短视口验证长表单滚动。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 打开长表单所在页面。 */
-  await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '设备模板'")) /* 等待页面切换。 */
+  await until(() => evaluate("document.querySelector('.workspace-breadcrumb strong')?.innerText === '设备模板'")) /* 等待页面切换。 */
   await evaluate("[...document.querySelectorAll('.page-toolbar button')].find(button => button.innerText.includes('新建设备模板')).click()") /* 打开产品表单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length))")) /* 等待弹窗显示。 */
   assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),body=modal.querySelector('.n-card-content');body.scrollTop=200;return modal.getBoundingClientRect().bottom<=innerHeight+1 && body.scrollTop>0})()"), '窄屏长弹窗正文无法上下滚动') /* 长表单应在弹窗内部滚动。 */

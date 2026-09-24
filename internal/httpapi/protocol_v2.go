@@ -339,9 +339,6 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 
 type protocolPackageCaseV2 = protocolworker.SampleCase /* 定义 protocolPackageCaseV2 类型。 */
 
-func validateProtocolPackageCasesV2(root string, artifact map[string]any, entries map[string][]byte, manifest protocolPackageManifestV2, required bool) (int, error) { /* 定义 validateProtocolPackageCasesV2 函数。 */
-	return validateProtocolPackageCasesContextV2(context.Background(), root, artifact, entries, manifest, required) /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
 func validateProtocolPackageCasesContextV2(parent context.Context, root string, artifact map[string]any, entries map[string][]byte, manifest protocolPackageManifestV2, required bool) (int, error) { /* 定义 validateProtocolPackageCasesContextV2 函数。 */
 	return protocolworker.ValidateSamples(parent, root, artifact, entries, protocolworker.SampleManifest{ID: manifest.ID, Runtime: manifest.Runtime, Transport: manifest.Transport, PayloadFormat: manifest.PayloadFormat, Capabilities: manifest.Capabilities}, required) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
@@ -828,17 +825,6 @@ func artifactTestCountV2(artifact map[string]any) int { /* 定义 artifactTestCo
 	default: /* 处理当前分支。 */
 		return 0 /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
-func formIntStrict(r *http.Request, name string, fallback int) (int, error) { /* 定义 formIntStrict 函数。 */
-	v := strings.TrimSpace(r.FormValue(name)) /* 更新 v 的值。 */
-	if v == "" {                              /* 判断条件并选择处理分支。 */
-		return fallback, nil /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	n, err := strconv.Atoi(v) /* 更新 err 的值。 */
-	if err != nil {           /* 判断条件并选择处理分支。 */
-		return 0, fmt.Errorf("%s must be an integer", name) /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	return n, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func formBoolStrict(r *http.Request, name string, fallback bool) (bool, error) { /* 定义 formBoolStrict 函数。 */
 	v := strings.TrimSpace(r.FormValue(name)) /* 更新 v 的值。 */

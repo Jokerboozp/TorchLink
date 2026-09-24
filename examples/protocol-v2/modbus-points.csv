@@ -1,5 +1,0 @@
-identifier,name,functionCode,address,addressNotation,dataType,registerCount,byteOrder,wordOrder,bit,scale,offset,unit,access,pollIntervalSec,deadband,alarmMapping,description
-temperature,温度,03,40001,4xxxx,int16,1,big,ABCD,,0.1,0,℃,read,10,0.5,,温度原始值按 0.1 缩放
-pressure,管网压力,03,40002,4xxxx,uint16,1,big,ABCD,,0.01,0,MPa,read,10,0.01,,压力传感器
-pump_running,消防泵运行,01,0,zero_based,bool,1,big,ABCD,,1,0,,read,5,0,1=PUMP_RUNNING,运行线圈
-fault,设备故障,02,10001,1xxxx,bool,1,big,ABCD,,1,0,,read,5,0,1=DEVICE_FAULT,离散输入故障位

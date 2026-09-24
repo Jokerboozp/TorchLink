@@ -691,7 +691,7 @@ cp "$project_root/compose.access.yaml" "$bundle_root/"
 # 执行当前脚本步骤。
 cp "$project_root/docs/EDGE_AND_GATEWAY.md" "$bundle_root/"
 # 执行当前脚本步骤。
-cp "$project_root/docs/EDGE_REMOVAL.md" "$bundle_root/"
+cp "$project_root/docs/DEPLOYMENT.md" "$bundle_root/"
 # 执行当前脚本步骤。
 cp -R "$project_root/deploy" "$bundle_root/"
 # 执行当前脚本步骤。

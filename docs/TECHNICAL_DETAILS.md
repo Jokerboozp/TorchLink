@@ -128,9 +128,9 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 | 添加设备、上报、凭据和命令 | [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) |
 | Go 协议与主子设备 | [协议包](GO_PROTOCOL_PACKAGES.md) · [TCP 接入](TCP_CHILD_DEVICE_ACCESS.md) |
 | 用户、角色、菜单按钮和设备范围 | [用户权限](USER_ACCESS_CONTROL.md) |
-| 全部专题与验证记录 | [文档索引](README.md) |
+| 全部专题 | [文档索引](README.md) |
 | 拆分 API / Gateway | [独立接入进程](EDGE_AND_GATEWAY.md) |
-| 升级旧节点、拓扑和影子配置 | [旧版本迁移](EDGE_REMOVAL.md) |
+| 升级旧节点、拓扑和影子配置 | [旧版本迁移](DEPLOYMENT.md#旧版本迁移) |
 
 ## 首页统计
 
@@ -143,6 +143,30 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 
 全部设备范围使用仓储聚合查询；指定设备范围经请求级设备仓储过滤后统计，不把全租户计数返回给受限用户。内存实现保持相同口径。入口为 `internal/httpapi/dashboard.go`，回归测试 `TestDashboard` 同时支持内存与 `IOT_TEST_POSTGRES_DSN` 指定的独立临时数据库 schema。
 
+## 列表与分页
+
+采用 `internal/httpapi/pagination.go` 的接口支持 `page/pageSize`，兼容 `limit/offset`，每页默认 20 条、上限 100 条，返回 `items`、`total`、`page`、`pageSize`。正数 `page` 优先于 `offset`；超大参数收敛到整数安全上界，越界页返回空列表并保留实际总数，非数字沿用默认行为。
+
+设备、产品、规则、摄像头的关联选项通过 `apiAll` 逐页加载，与表格当前页分开保存；任一页失败则整体失败，不显示不完整目录。列表仅允许最新请求写入数据、总数和加载状态，旧请求不覆盖当前结果。逐页请求不保证数据库快照一致性。
+
+设备管理先读取授权设备目录，再按独立设备、主设备、子设备及关键词、类型筛选并在页面分页，切换条件重置页码。协议目录按协议条目前端分页，版本在条目内展示。两者与后端通用分页的实现不同。服务端设备、状态、告警、原始报文和总览均先按用户范围过滤再计数；具体权限见 [用户权限](USER_ACCESS_CONTROL.md)。
+
+对应回归入口为 `go test ./internal/httpapi -run 'Test(OversizedPagination|PaginationArithmetic|PageItems|ParseListPagination)'` 和在 `iot_front` 中执行 `node --test tests/list-behavior.test.mjs`。
+
+## 容量边界
+
+容量取决于目标硬件、报文频率、协议、规则、留存时间与管理查询负载。以下是源码限额，不是持续吞吐或生产容量承诺：
+
+| 链路 | 限额与实现 |
+| --- | --- |
+| 标准 HTTP / MQTT 上报 | `internal/onboarding/service.go`：每设备每秒 20 条；进程限流表最多 10,000 个设备键，表满时只清理超过约 1 分钟未更新的键 |
+| 自定义 TCP 监听 | `internal/protocolruntime/listeners.go`：每个 Profile 最多 128 个会话，每进程 32 个 Worker 操作槽 |
+| MQTT 持久接收 | 每实例 10,000 条 / 512 MiB，均分 8 个分片；热点可先填满，保障见 [接收可靠性](DEVICE_RECEIVE_RELIABILITY.md) |
+
+Go 协议的 ingress、decode、encode 逐次启动 Worker；Kafka 每个订阅逐条处理，主题分区数不能直接当作应用并行度。管理端每次事件请求结束 3 秒后再次读取设备状态及活动告警，在线用户和设备数会共同放大查询负载。入口 HTTP 202、MQTT PUBACK 或就绪检查成功均不能证明解析、告警已完成。
+
+验收应在隔离环境使用实际设备凭据与代表性报文，分别测连接、持续上报、突发及断流恢复，同时记录 Raw 落盘、Kafka 积压、解析和告警完成延迟、MQTT 队列、数据库与管理请求 P95/P99。持续增长的积压表示该负载不可持续。`cmd/loadgen` 默认参数只是生成器输入，其管理员上报链路不能代替标准设备认证及完整端到端压测。
+
 ## 源码与开发检查
 
 | 入口 | 职责 |
@@ -150,7 +174,7 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 | `cmd/iot-platform/`、`internal/platformapp/` | API 启动和依赖装配 |
 | `internal/httpapi/`、`internal/core/`、`internal/adapters/` | 接口、业务、外部存储与服务 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | 协议编译、连接运行时和 Worker |
-| `iot_front/` | [Vue 管理端](../iot_front/README.md)；[分页与关联选择](LIST_PAGINATION.md) |
+| `iot_front/` | [Vue 管理端](../iot_front/README.md)；[列表与分页](#列表与分页) |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的协议 module |
 | `scripts/`、`deploy/`、`compose*.yaml` | 准备、部署与打包配置 |
 
@@ -158,8 +182,9 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 
 | 执行目录 | 命令 | 验证范围 |
 | --- | --- | --- |
-| 仓库根目录 | `go test ./...` | 根 Go module；不包含独立协议 module |
+| 仓库根目录 | `go test ./cmd/... ./internal/...` | 正式后端源码，避免把本地生成目录纳入测试 |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立协议及模拟器 |
+| `dev/` 下各协议 module 目录 | `go test ./...` | 对应厂商协议；与根 module 分开执行 |
 | `iot_front` | `npm test`、`npm run build` | 前端测试及构建；没有独立 lint/typecheck 脚本 |
 | 仓库根目录 | `git diff --check` | 空白错误 |
 

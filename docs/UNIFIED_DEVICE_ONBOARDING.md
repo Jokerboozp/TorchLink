@@ -165,7 +165,7 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 | GET | `/api/v1/device-registry/{id}/history?kind=connection` | 连接历史；`kind=event` 查询事件 |
 | GET | `/api/v1/device-registry/{id}/commands` | 命令与回执记录 |
 
-请求结构见 [onboarding/service.go](../internal/onboarding/service.go)，分页约定见 [列表分页](LIST_PAGINATION.md)。API 仍可保存 `thingModel` 以描述 properties/events/commands 及参数类型；产品页面不再提供原始 JSON 编辑框，编辑产品时保留已有模型。
+请求结构见 [onboarding/service.go](../internal/onboarding/service.go)，分页约定见 [列表与分页](TECHNICAL_DETAILS.md#列表与分页)。API 仍可保存 `thingModel` 以描述 properties/events/commands 及参数类型；产品页面不再提供原始 JSON 编辑框，编辑产品时保留已有模型。
 
 ## 测试设备
 
@@ -192,30 +192,9 @@ Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`�
 测试使用隔离业务仓库或临时 schema、随机身份和非 retained 消息；凭据通过环境变量安全注入。缺少环境的集成分支会跳过。模拟器与受控故障测试不能代替厂商真机、固件补传或生产网络验收。
 
 
-## 早期管理界面验证（2026-09-14，历史记录）
-
-以下为当时 macOS 环境的验证快照，测试数量和入口描述保留原记录。后续 Windows 界面与设备权限验证见 [最新验收记录](testing/2026-09-14-权限与界面验收.md)。
-
-- 环境：本地 macOS，Vue 开发服务连接独立内存 API；未连接现有部署数据或真实设备。
-- `iot_front`：`npm test`（57 项通过）、`npm run build`（通过，仍有主包超过 500 kB 的体积提示）。
-- 仓库根目录：`go test ./internal/httpapi ./internal/onboarding ./internal/core` 通过。新增回归覆盖独立产品/设备登记、标准报文解析、Go 发布版本绑定、未发布版本拒绝和租户边界。
-- 浏览器实测：创建标准产品、添加设备与一次性凭证返回、产品协议绑定、独立实例入口；桌面与 390px 窄屏表单、内容溢出及长弹窗滚动。
-- 可选浏览器脚本已同步新入口并通过语法检查；本次未运行这些脚本，也未重做真实 MQTT、TCP / UDP、Modbus 设备联调。
-
 ## 从报文或点表生成协议
 
-在“协议管理 → 协议生成”选择报文或点表，弹窗标题为“生成协议”。JSON 报文自动提取属性路径；CSV / Excel 点表生成 Modbus TCP / RTU 解析映射与读取块。HEX 报文需补充字段偏移、长度、端序及单位，由已配置 AI 辅助生成固定字段映射；单个样本不能可靠推断专用协议，变长与请求应答协议仍使用 Go 源码入口。
-
-生成后在“编辑字段映射”对照表中填写字段标识与 JSON 路径、Modbus 地址或 HEX 字节偏移，不需要编辑 JSON 源码。支持添加、删除字段；展开行可调整倍率、字节序等参数。Modbus 地址统一从 0 开始，固定宽度类型自动同步寄存器数量。修改映射后旧预览清除，重新解析预览或保存时使用最新输入；已保存版本须先“新建版本”才能编辑。
-
-生成后可查看字段、编辑映射并上传真实样本预览，再保存为不可变版本。没有样本时可先保存草稿；列表的“解析测试”可继续校验，成功后才可发布并在设备模板绑定。Modbus 预览需填写响应帧对应的零基起始地址。修改已保存的映射须创建新版本，不能覆盖旧版本。
-
-- 报文文件：`.json` / `.txt` / `.hex` / `.bin`，最大 1 MiB；二进制文件按 HEX 处理。
-- 点表文件：`.csv` / `.xlsx`，最大 32 MiB；也可粘贴 CSV。常用列为 `identifier,name,functionCode,address,addressNotation,dataType,scale`。零基地址应明确写 `addressNotation=zero_based`；未声明基准时传统 `40001` 等地址按 Modbus 表区换算。
-- 生成接口：`POST /api/v1/ai/protocol-assistant/generate`，multipart 参数 `inputKind=sample|point-table`；保存接口沿用 `/publish` 路径，生成的映射实际保存为 v2 `DRAFT` 或已通过样本校验的 `VALIDATED` 版本。
-- 已保存版本通过 `POST /api/v2/protocols/{id}/releases/{version}/preview` 校验样本，再通过既有 `/publish` 接口发布。以上写操作要求对应菜单和操作授权，并按登录租户隔离。
-
-协议目录、组织发布及远程分发接口已移除；已有安装的协议版本和历史数据库内容不删除。
+在「协议管理 → 协议生成」上传报文或 Excel / CSV 点表，编辑字段映射，用真实样本预览，再保存、发布并绑定产品。文件格式、大小、地址基准及接口统一见 [配置驱动协议](CONFIGURABLE_PROTOCOLS.md#从报文或点表生成协议)。变长、会话或厂商专用协议使用 [Go 源码包](GO_PROTOCOL_PACKAGES.md)。
 
 ## 设备分组与可见性
 

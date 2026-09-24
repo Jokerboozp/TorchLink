@@ -59,16 +59,6 @@ func TestVideoPlatformTenantBindings(t *testing.T) { /* 定义 TestVideoPlatform
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
-func TestHikvisionArtemisConfig(t *testing.T) { /* 定义 TestHikvisionArtemisConfig 函数。 */
-	t.Setenv("IOT_VIDEO_HIKVISION_API_URL", "https://hikcentral.example.internal")                                                                       /* 执行当前语句并推进处理流程。 */
-	t.Setenv("IOT_VIDEO_HIKVISION_APP_KEY", "app-key")                                                                                                   /* 执行当前语句并推进处理流程。 */
-	t.Setenv("IOT_VIDEO_HIKVISION_APP_SECRET", "app-secret")                                                                                             /* 执行当前语句并推进处理流程。 */
-	cfg := Load()                                                                                                                                        /* 更新 cfg 的值。 */
-	if cfg.HikvisionVideoAPIURL != "https://hikcentral.example.internal" || cfg.HikvisionAppKey != "app-key" || cfg.HikvisionAppSecret != "app-secret" { /* 判断条件并选择处理分支。 */
-		t.Fatalf("unexpected Hikvision Artemis config: %#v", cfg) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
-
 func TestAdminTenantAllowlist(t *testing.T) { /* 定义 TestAdminTenantAllowlist 函数。 */
 	t.Setenv("IOT_ADMIN_TENANTS", "tenant-a, tenant-b")                                                       /* 执行当前语句并推进处理流程。 */
 	cfg := Load()                                                                                             /* 更新 cfg 的值。 */

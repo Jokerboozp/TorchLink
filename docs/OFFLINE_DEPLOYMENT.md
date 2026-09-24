@@ -93,10 +93,6 @@ sudo bash ./scripts/deploy-offline-linux.sh
 
 `generic` 仍为默认打包目标；专用目标不能与 `SkipDockerRuntime` / `--skip-docker-runtime` 或手工 `DockerPackagesDir` 同时使用。其他 SELinux 发行版需提供本发行版对应的容器策略及依赖包，不能混用 openEuler RPM。
 
-2026-09-15 验证：脚本回归模拟已运行但处于 `init_t` 的 Docker，覆盖缺少策略、包损坏、OS 不匹配、标签和进程修复、幂等及远程上下文；系统调用使用模拟实现。本机没有 Docker Engine，尚未实际下载/构建专用包，也未在 openEuler SELinux 内核完成镜像导入验证。
-
-2026-09-15 补充修复：用户在 CentOS 上实际拉取的 `openeuler/openeuler:24.03-lts-sp4` 返回 `ID="openEuler"`、`VERSION_ID="24.03"`、`VERSION="24.03 (LTS-SP4)"`，旧脚本因 ID 大小写拒绝。`bash scripts/tests/openeuler-release-smoke.sh` 使用该输出作为样本执行实际准备脚本，验证通过版本检查后才调用 DNF，并检查目标服务器身份规范化；DNF 被测试替身拦截，未据此宣称完整 RPM 下载、打包或实机部署通过。
-
 ### 旧包提示 protected packages: grub2-pc
 
 旧部署脚本执行 `dnf install packages/*.rpm`，把依赖目录的全部候选 RPM 都作为安装目标，可能触发与现有引导包 `grub2-pc` 的冲突。该报错表示 DNF 在事务执行前阻止了安装；不要添加 `--allowerasing`、移除受保护包或关闭保护规则。现在改为本地软件源按需安装，方式可参考 [openEuler 本地软件源文档](https://docs.openeuler.org/zh/docs/24.03_LTS/docs/Administration/%E6%90%AD%E5%BB%BArepo%E6%9C%8D%E5%8A%A1%E5%99%A8.html)。
@@ -123,8 +119,6 @@ sudo bash ./scripts/deploy-offline-linux.sh
 
 补丁不包含 `.env.offline`、镜像、模型或业务数据。应用时需对应生成补丁所用的旧包。若安装仍报依赖冲突，保留完整 DNF 日志排查；空安装根目录测试无法代替目标机器已有软件包状态的兼容性验证。
 
-2026-09-15 回归：`docker-rpm-repo-smoke.sh` 用带有引导 RPM 候选的模拟主机重现旧调用触发受保护包错误，验证 DNF/YUM 只请求指定包、本地源及签名校验、事务失败和损坏索引处理；`openeuler-rpm-preparation-smoke.sh` 执行实际准备脚本，替换 DNF、索引工具和公钥读取；`openeuler-repair-smoke.sh` 执行实际修复脚本、归档校验和解压，验证镜像与配置保留。包管理器及 Docker 容器操作均为模拟，尚未完成 openEuler 实机事务与镜像导入验证。
-
 ## 2. 目标机器一键部署
 
 进入复制后的离线包目录：
@@ -149,6 +143,35 @@ bash ./scripts/deploy-offline-macos.sh
 
 离线部署项目名固定为 `iot-platform`，本地运行和在线部署使用各自的项目名；同一台机器运行多套系统时仍需调整重叠的宿主机端口。
 
+## 更新已有部署
+
+完整升级应使用原 `.env.offline` 重新打包，沿用原项目名、数据卷与协议制品目录。旧现场节点及权限迁移见 [部署维护](DEPLOYMENT.md#旧版本迁移)。
+
+仅更新 API / 前端时，可在与目标同架构、联网的源码打包机执行：
+
+```bash
+sudo docker build -t iot-platform-api:offline . && \
+sudo docker build -t iot-platform-web:offline ./iot_front && \
+sudo docker save -o iot-platform-update.tar \
+  iot-platform-api:offline iot-platform-web:offline
+sha256sum iot-platform-update.tar > iot-platform-update.tar.sha256
+```
+
+将归档与校验文件复制到服务器原离线包目录，在该目录执行：
+
+```bash
+sha256sum -c iot-platform-update.tar.sha256 && \
+sudo docker load -i iot-platform-update.tar && \
+sudo docker compose --project-name iot-platform \
+  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
+  up -d --no-deps --force-recreate --no-build --pull never platform-api && \
+sudo docker compose --project-name iot-platform \
+  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
+  up -d --no-deps --force-recreate --no-build --pull never platform-web
+```
+
+先重建 API 再重建前端，使 Nginx 重新解析 API 地址。服务会短暂重启，之后检查健康并强制刷新浏览器。自定义部署须替换实际项目名和镜像标签。该方式沿用原配置与数据，不更新 Harness、模型或 Compose；这些组件有变更时重新交付完整包。原 `images.tar` 仍含旧镜像，不能再用旧包完整部署覆盖本次更新。
+
 ## 查看状态与排错
 
 在离线包目录执行（Windows / Linux / macOS 通用）：
@@ -159,7 +182,7 @@ docker compose --project-name iot-platform --env-file .env.offline -f compose.ya
 ```
 
 - 依赖准备报 `Unexpected package preparation OS`：旧检查把官方镜像的 `ID="openEuler"` 误判为不支持。更新源码后重试；当前检查统一发行版 ID 大小写，并兼容 `24.03 (LTS SP4)` / `24.03 (LTS-SP4)` 两种显示形式，仍拒绝其他发行版或 SP 版本。包内目标信息与服务器检查使用相同规范形式。无需重装 CentOS 或修改镜像的 `/etc/os-release`。
-- `--target-os` 提示未知参数：打包机源码需要包含提交 `271d279d` 或更新版本；在源码根目录执行 `bash ./scripts/package-offline.sh --help` 核对参数。不要在旧离线包目录尝试打包。
+- `--target-os` 提示未知参数：更新打包机源码，在源码根目录执行 `bash ./scripts/package-offline.sh --help` 核对参数。不要在旧离线包目录尝试打包。
 - 缺少镜像或 SHA-256 不匹配：在有网机器重新打包并完整复制，不要在离线目标机执行拉取。
 - 缺少 `nomic-embed-text` 或对话模型：重新携带模型打包，再部署到原目录/配置；无需删除已有模型卷。
 - 需要自行诊断：可显式使用 `-SkipHealthCheck` / `--skip-health-check`；只在确认传输完整性后使用 `-SkipHashCheck` / `--skip-hash-check`。跳过检查不代表部署验收通过。
@@ -225,31 +248,11 @@ curl -fsS http://127.0.0.1:8080/health/ready
 
 启动需要时间；若 API 已正常监听而前端仍连接旧地址，执行 `sudo docker restart iot-platform-platform-web-1` 后再次检查。如果改属主或写入检查仍报权限错误，保留错误并检查实际挂载是否只读及 SELinux 拒绝记录，不关闭 SELinux 绕过检查。
 
-镜像构建后的真实回归入口：`bash scripts/tests/platform-data-permissions-smoke.sh iot-platform-api:offline`，需要本地已有 API 和 `alpine:3.22` 镜像。测试只创建独立容器及匿名卷，用 API 的非 root 身份重现 MQTT 目录创建及持久化读写，结束后清理测试资源。2026-09-15 本机没有 Docker，已核对 Dockerfile 和脚本语法，尚未完成此真实容器测试或目标服务器恢复验收；用户提供的日志是本次启动失败的直接依据。
+镜像构建后的回归入口：`bash scripts/tests/platform-data-permissions-smoke.sh iot-platform-api:offline`，需要本地已有 API 和 `alpine:3.22` 镜像。测试使用独立容器及匿名卷，检查非 root 身份下 MQTT 目录创建和持久化读写，结束后清理测试资源。
 
 ### AI 助手 RUNTIME_ERROR 与模型列表为空
 
-在模型服务配置页面切换 Ollama、DeepSeek 或兼容接口时，升级后的 API 允许管理员直接填写平台可达的 HTTP/HTTPS 地址，不再使用 `IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS` 白名单。新离线包不再生成该项，旧环境文件可保留或移除；已有旧包需更新 API 镜像后才生效，单改 `.env.offline` 不会改变旧镜像行为。具体配置见 [界面切换 AI 模型服务](DEPLOYMENT.md#在界面切换-ai-模型服务)。
-
-已有离线部署可以只更新 API 镜像来取消限制。在**联网 CentOS/Linux 打包机源码目录**执行：
-
-```bash
-git pull --ff-only origin main
-sudo docker build -t iot-platform-api:offline . && \
-sudo docker save -o iot-platform-api-update.tar iot-platform-api:offline
-```
-
-把 `iot-platform-api-update.tar` 复制到目标服务器的原离线包目录，在该目录执行：
-
-```bash
-sudo docker load -i iot-platform-api-update.tar && \
-sudo docker compose --project-name iot-platform \
-  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
-  up -d --no-deps --force-recreate --no-build --pull never platform-api && \
-sudo docker restart iot-platform-platform-web-1
-```
-
-命令沿用原配置和数据卷；API 与前端会短暂重启，待服务恢复后在模型配置页重新测试并应用地址。这是增量更新，原包的 `images.tar` 仍包含旧镜像；之后完整部署应使用新包，重跑旧包部署脚本会再次导入旧镜像。
+模型服务地址和旧白名单处理见 [模型配置](DEPLOYMENT.md#在界面切换-ai-模型服务)；旧镜像需按 [更新已有部署](#更新已有部署) 升级，修改环境变量不能改变旧代码。
 
 `Harness runtime request failed / RUNTIME_ERROR` 是网关的通用异常提示。若以默认用户执行 `runtime-smoke.mjs` 明确报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，说明运行用户无法读取镜像内的依赖。旧构建阶段以 root 测试，未覆盖最终 `node` 用户的权限。修复后的 Harness 镜像显式设置程序目录可读、可遍历，并在最终 `USER node` 后执行同一运行时测试。
 
@@ -280,9 +283,7 @@ sudo docker exec iot-platform-ollama-1 ollama list
 
 若模型归档缺失或校验失败，应从原打包机补传匹配归档及校验文件。恢复脚本会拒绝没有模型 manifests 的归档；仅有 blobs 不能提供可列出的模型。恢复后确认平台所配置的模型名称在列表中，再重试 AI 助手。
 
-2026-09-15 现场反馈：Harness 权限修正后的运行时测试通过，1.5 GB 模型归档 SHA256 通过，但旧恢复命令执行成功后列表仍为空。原因是 [BusyBox 的 `cp -n` 实现](https://raw.githubusercontent.com/mirror/busybox/master/libbb/copy_file.c) 在目标已存在时直接返回，发生在目录递归之前；`cp -an /tmp/restore/. /dst/` 因此跳过整个已有目标目录。此前 GNU cp 的本机验证未覆盖这一差异。
-
-回归入口 `scripts/tests/ollama-restore-smoke.sh` 须用 BusyBox 的 sh/cp/tar 执行；`--legacy` 参数应重现“返回成功但 manifests 不存在”，默认模式验证恢复新文件、保留旧文件、重复恢复及拒绝没有索引的归档。本机 BusyBox Windows 端口 v1.38.0 已重现旧命令失败并通过新脚本测试；此结果不等于目标 Alpine/Docker/Ollama 验收，目标仍需确认恢复文件计数、模型列表和 AI 请求。
+不要恢复旧的 `cp -an /tmp/restore/. /dst/` 命令：BusyBox 会跳过已存在的目标目录。回归入口 `scripts/tests/ollama-restore-smoke.sh` 使用 BusyBox 的 sh/cp/tar 检查补齐文件、保留旧文件、重复恢复及缺少索引的失败路径；目标环境仍需确认模型列表和实际 AI 请求。
 
 ### 协议、产品、接入网关页面出现 route not found
 
@@ -310,35 +311,11 @@ SH
 
 无需登录令牌即可检查路由：`curl -i http://127.0.0.1:8080/api/v2/protocols` 和带末尾 `/` 的同一地址应返回 API 的 401（未登录），不再是 301 或 `route not found`。随后强制刷新浏览器，在登录状态下打开三个页面确认列表。`/api/v1/ai/health-inspection/progress` 若返回“智能巡检任务不存在或已过期”，是另一种业务 404；`mqtt/token` 连接重置也需单独检查 API/代理日志，不由这个路径修复保证解决。
 
-回归入口：设置 `IOT_TEST_NGINX` 为 Nginx 可执行文件，运行 `node scripts/tests/nginx-protocol-routing-smoke.mjs`。2026-09-15 本机 Nginx 1.27.5 Windows 版重现旧配置 301，并验证新配置的集合 GET/POST、末尾斜杠、查询参数、认证透传、协议下载路径和超过12 MiB的源码上传；上游为隔离 HTTP 模拟服务，不等于目标容器验收。
+回归入口：设置 `IOT_TEST_NGINX` 为 Nginx 可执行文件，运行 `node scripts/tests/nginx-protocol-routing-smoke.mjs`。它使用隔离的模拟上游检查集合路由、认证透传及源码上传，目标容器仍需另行确认。
 
 ### 告警列表有记录，但管理员没有弹窗
 
-旧前端在管理员通过 `http://服务器IP:8080` 登录时，调用仅在安全上下文提供的 `crypto.randomUUID()`，可能在创建 MQTT 连接前失败；此外浏览器订阅的租户告警主题与实际按事件及位置发布的主题不匹配。修复后，管理员和普通用户均通过 `/api/v1/events` 每3秒读取有权访问的活动告警，管理员的 MQTT 解析事件和界面联动连接单独维护。不要把订阅放宽到全租户通配主题来绕过问题。
-
-本次修复需要**同时更新 API 和前端镜像**，仅修改环境变量或重启旧容器无效。在联网 CentOS/Linux 打包机的源码目录执行：
-
-```bash
-git pull --ff-only origin main && \
-sudo docker build -t iot-platform-api:offline . && \
-sudo docker build -t iot-platform-web:offline ./iot_front && \
-sudo docker save -o iot-platform-alert-update.tar \
-  iot-platform-api:offline iot-platform-web:offline
-```
-
-把 `iot-platform-alert-update.tar` 复制到目标服务器原离线包目录，在该目录执行（标准包使用下列项目名和镜像标签，自定义部署应沿用实际值）：
-
-```bash
-sudo docker load -i iot-platform-alert-update.tar && \
-sudo docker compose --project-name iot-platform \
-  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
-  up -d --no-deps --force-recreate --no-build --pull never platform-api && \
-sudo docker compose --project-name iot-platform \
-  --env-file .env.offline -f compose.yaml -f compose.offline.yaml \
-  up -d --no-deps --force-recreate --no-build --pull never platform-web
-```
-
-先重建 API、再重建前端，使 Nginx 重新解析 API 容器地址。此增量更新沿用原数据卷和环境文件，不重建模型或 Harness 容器；原包 `images.tar` 仍是旧镜像，后续完整部署应使用新包。
+所有用户通过 `/api/v1/events` 读取有权访问的活动告警，管理员另有 MQTT 解析事件和界面联动连接。旧版本若受 HTTP 页面 UUID 或 MQTT 主题问题影响，按 [更新已有部署](#更新已有部署) 同时更新 API 和前端；不通过扩大订阅范围绕过权限。
 
 更新后强制刷新浏览器并重新登录，确认右上角「告警提醒」中弹窗开启且不在静默时段，等待首个 `/api/v1/events` 请求成功后再发送新报警。正常前台页面下一次轮询应出现提醒；历史活动告警首次加载不补弹。若仍未出现，检查浏览器网络面板中该接口状态及响应是否包含新告警，勿分享登录令牌。权限规则见 [权限变更与实时提醒](USER_ACCESS_CONTROL.md#权限变更与实时提醒)。
 
@@ -346,28 +323,7 @@ sudo docker compose --project-name iot-platform \
 
 ### 生成协议弹窗只显示标题和说明
 
-旧前端在初始化协议表单时直接调用 `crypto.randomUUID()`，通过非 localhost 的 HTTP 地址访问时该方法不可用，组件初始化异常后只显示父弹窗的标题与说明。修复后使用公共客户端 UUID 函数：HTTPS 使用原生 `randomUUID()`，HTTP 使用 `getRandomValues()` 生成 UUID v4；产品、设备自动编号和设备命令的幂等编号也使用此函数。现象是表单渲染失败，不表示协议数据被删除。
-
-常规更新方式是从最新源码重建前端镜像。在暂时无法拉取基础镜像时，也可在具备 Node/npm 依赖的可信构建机执行 `npm ci && npm run build`（目录 `iot_front`），将 **dist 目录内的全部文件**打包为 `iot-platform-web-static-update.tgz`：
-
-```bash
-tar -czf iot-platform-web-static-update.tgz -C iot_front/dist .
-sha256sum iot-platform-web-static-update.tgz > iot-platform-web-static-update.tgz.sha256
-```
-
-将归档及校验文件复制到服务器同一目录，然后执行：
-
-```bash
-sha256sum -c iot-platform-web-static-update.tgz.sha256 && \
-mkdir -p frontend-static-update && \
-tar -xzf iot-platform-web-static-update.tgz -C frontend-static-update && \
-sudo docker cp frontend-static-update/. \
-  iot-platform-platform-web-1:/usr/share/nginx/html/
-```
-
-复制完整产物后 Ctrl+F5 刷新，再打开「协议管理 → 协议生成」，检查报文、点表切换、上传选择器、协议名称及生成按钮。此方式仅更新当前前端容器的静态文件，保留已有 Nginx 配置、API、业务数据和旧静态资源；容器重启保留修改，重建会被镜像覆盖，后续应使用更新后的前端镜像。静态更新不代替前文告警修复要求的 API 更新。
-
-2026-09-15 本机通过真实 Edge 的非安全 HTTP 页面验证报文/点表表单显示、提交报文及返回后的字段映射输入框；生成接口使用模拟响应，不代表真实模型生成验收。回归入口为 `npm test`、`npm run build` 及 `IOT_TEST_BROWSER` 指定浏览器后的 `node tests/browser/alarm-http-check.mjs`。
+旧前端通过非 localhost 的 HTTP 地址访问时，直接调用 `crypto.randomUUID()` 会使表单初始化失败。当前公共 UUID 函数已兼容 HTTP；按 [更新已有部署](#更新已有部署) 升级前端后强制刷新，检查「协议管理 → 协议生成」中的报文、点表切换和字段映射。该现象不表示协议数据被删除，前端回归入口与上节相同。
 
 ### 设备接入配置补充
 
