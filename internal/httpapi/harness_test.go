@@ -260,6 +260,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) { /* 定义 
 		t.Fatalf("forced knowledge evidence was not supplied to Harness: %q", forced.Question) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 
+	api.SetAIProviderRuntime(&providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "deepseek", Model: "deepseek-chat", MaxTokens: 3072}})
 	streamReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/chat/stream", bytes.NewBufferString(`{"question":"stream?","conversationId":"browser-controlled"}`)) /* 更新 _ 的值。 */
 	streamReq.Header.Set("Authorization", "Bearer "+token)                                                                                                                       /* 执行当前语句并推进处理流程。 */
 	streamReq.Header.Set("Content-Type", "application/json")                                                                                                                     /* 执行当前语句并推进处理流程。 */
@@ -275,6 +276,12 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) { /* 定义 
 	if strings.Contains(string(streamBody), "conv_") || strings.Contains(string(streamBody), "internal-session") || strings.Contains(string(streamBody), "internal-api-key") || !strings.Contains(string(streamBody), `"visible":"ok"`) || !strings.Contains(string(streamBody), `"safe":"nested-ok"`) { /* 判断条件并选择处理分支。 */
 		t.Fatalf("SSE leaked internal conversation/session data: %s", streamBody) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
+	runtime.mu.Lock()
+	streamRequest := runtime.requests[len(runtime.requests)-1]
+	runtime.mu.Unlock()
+	if streamRequest.MaxTokens != 3072 {
+		t.Fatalf("configured maxTokens was not used by stream chat: %d", streamRequest.MaxTokens)
+	}
 
 	runtime.fail = true                                                                                                                                                       /* 更新 runtime.fail 的值。 */
 	failedSync := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "fail?"}, http.StatusBadGateway)           /* 更新 failedSync 的值。 */

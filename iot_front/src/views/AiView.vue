@@ -133,7 +133,7 @@ const agentToolDocs = [ /* 声明 agentToolDocs。 */
 ] /* 结束当前表达式或代码块。 */
 const managementVisible = ref(false) /* 声明 managementVisible。 */
 const agentEditorVisible = ref(false) /* 声明 agentEditorVisible。 */
-const runConfig = reactive({ model:'', maxTokens:1200 }) /* 声明 runConfig。 */
+const runConfig = reactive({ model:'' }) /* 声明 runConfig。 */
 const quickQuestions = computed(() => {
   if (!selectedWorkflow.value) return []
   const name = workflowName(selectedWorkflow.value)
@@ -422,7 +422,6 @@ watch(selectedWorkflowId, workflowId => { switchConversation(workflowId); applyW
 function applyWorkflowDefaults() { /* 定义 applyWorkflowDefaults 函数。 */
   const workflow = selectedWorkflow.value /* 声明 workflow。 */
   runConfig.model = runtime.value.config?.model || runtime.value.active?.model || workflow?.defaultModel || workflow?.model || '' /* 更新 runConfig.model 的值。 */
-  if (Number.isSafeInteger(workflow?.maxTokens)) runConfig.maxTokens = Math.max(128, Math.min(8192, workflow.maxTokens)) /* 判断条件并选择处理分支。 */
 } /* 结束当前表达式或代码块。 */
 
 function addRunEvent(run, event, label, status = 'info', detail = '') { /* 定义 addRunEvent 函数。 */
@@ -531,8 +530,7 @@ async function send(textValue) { /* 定义 send 函数。 */
 
   const controller = new AbortController() /* 声明 controller。 */
   abortController = controller /* 更新 abortController 的值。 */
-  const maxTokens = Math.max(128, Math.min(8192, Number(runConfig.maxTokens) || 1200)) /* 声明 maxTokens。 */
-  const body = { question:text, conversationId:conversationId.value, workflowId:selectedWorkflowId.value, model:runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || '', maxTokens } /* 声明 body。 */
+  const body = { question:text, conversationId:conversationId.value, workflowId:selectedWorkflowId.value, model:runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || '' } /* 声明 body。 */
 
   try { /* 执行当前语句并推进处理流程。 */
     await apiStream('/api/v1/ai/chat/stream', { method:'POST', body:JSON.stringify(body), signal:controller.signal }, event => applyStreamEvent(event, assistant, run)) /* 等待异步操作完成。 */
@@ -580,20 +578,17 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading"> <!-- 渲染 div 界面元素。 -->
     <div><span class="section-kicker">智能助手</span><strong>智能助手</strong><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small></div> <!-- 渲染 div 界面元素。 -->
-    <div class="runtime-actions"><div class="runtime-status"><ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</ui-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><ui-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '运行参数' }}</ui-button><ui-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</ui-button><ui-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</ui-button></div> <!-- 渲染 div 界面元素。 -->
+    <div class="runtime-actions"><div class="runtime-status"><ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</ui-tag><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span><i :class="{ online:activeHealthy }" />{{ healthMessage }}</div><ui-button class="controls-toggle" size="small" :aria-expanded="controlsExpanded" @click="controlsExpanded = !controlsExpanded">{{ controlsExpanded ? '返回对话' : '切换工作流' }}</ui-button><ui-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</ui-button><ui-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</ui-button></div> <!-- 渲染 div 界面元素。 -->
   </div> <!-- 结束当前界面区域。 -->
+  <ui-alert v-if="runtimeError" class="runtime-warning" :title="runtimeError" type="warning" :closable="false" show-icon />
 
   <div class="ai-workbench" :class="{ 'is-controls-open': controlsExpanded }"> <!-- 渲染 div 界面元素。 -->
     <ui-card shadow="never" class="surface-card control-card"> <!-- 渲染 ui-card 界面元素。 -->
-      <template #header><div class="card-header"><div><strong>本次运行</strong><small>选择工作流，开始对话</small></div></div></template>
+      <template #header><div class="card-header"><div><strong>本次运行</strong><small>切换工作流插件</small></div></div></template>
       <div class="control-scroll"> <!-- 渲染 div 界面元素。 -->
         <ui-alert v-if="workflowError" :title="workflowError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert> <!-- 渲染 ui-alert 界面元素。 -->
-        <div class="control-section-label">工作流</div> <!-- 渲染 div 界面元素。 -->
         <ui-form label-position="top"><ui-form-item label="工作流插件"><ui-select v-model="selectedWorkflowId" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select></ui-form-item></ui-form> <!-- 渲染 ui-form 界面元素。 -->
         <ui-empty v-if="!runtimeLoading && !workflowItems.length" description="暂无可用工作流" :image-size="62" /> <!-- 渲染 ui-empty 界面元素。 -->
-        <p v-if="selectedWorkflow" class="workflow-brief">{{ selectedWorkflow.description || '按工作流配置查询设备、告警和知识。' }}</p>
-        <ui-form class="run-config" label-position="top" :model="runConfig" :disabled="sending"><ui-form-item label="最大输出词元"><ui-input-number v-model="runConfig.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item></ui-form> <!-- 渲染 ui-form 界面元素。 -->
-        <ui-alert v-if="runtimeError" class="runtime-warning" :title="runtimeError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
     </ui-card> <!-- 结束当前界面区域。 -->
 

@@ -1359,14 +1359,22 @@ func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) { /* 定义
 	writeList(w, 200, items, total, pagination, meta) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
+func effectiveAIMaxTokens(value int) int {
+	if value < 128 || value > 8192 {
+		return 2048
+	}
+	return value
+}
+
 func (s *Server) aiProviderConfigView(r *http.Request, config ports.AIPluginConfig, info ports.AIPluginInfo) map[string]any { /* 定义 aiProviderConfigView 函数。 */
 	key := strings.TrimSpace(config.APIKey) /* 更新 key 的值。 */
 	view := map[string]any{                 /* 更新 view 的值。 */
 		"provider":         config.Provider, /* 执行当前语句并推进处理流程。 */
 		"providerName":     info.Name,       /* 执行当前语句并推进处理流程。 */
 		"model":            config.Model,    /* 执行当前语句并推进处理流程。 */
-		"apiKeyConfigured": key != "",       /* 执行当前语句并推进处理流程。 */
-		"active":           info.Enabled,    /* 执行当前语句并推进处理流程。 */
+		"maxTokens":        effectiveAIMaxTokens(config.MaxTokens),
+		"apiKeyConfigured": key != "",    /* 执行当前语句并推进处理流程。 */
+		"active":           info.Enabled, /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 	if s.canConfigureAI(r) { /* 判断条件并选择处理分支。 */
 		view["baseUrl"] = config.BaseURL /* 执行当前语句并推进处理流程。 */
@@ -1394,10 +1402,11 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	s.aiProviderUpdateMu.Lock()         /* 执行当前语句并推进处理流程。 */
 	defer s.aiProviderUpdateMu.Unlock() /* 安排函数结束时执行清理。 */
 	var in struct {                     /* 声明 in。 */
-		Provider string  `json:"provider"` /* 执行当前语句并推进处理流程。 */
-		BaseURL  string  `json:"baseUrl"`  /* 执行当前语句并推进处理流程。 */
-		Model    string  `json:"model"`    /* 执行当前语句并推进处理流程。 */
-		APIKey   *string `json:"apiKey"`   /* 执行当前语句并推进处理流程。 */
+		Provider  string  `json:"provider"` /* 执行当前语句并推进处理流程。 */
+		BaseURL   string  `json:"baseUrl"`  /* 执行当前语句并推进处理流程。 */
+		Model     string  `json:"model"`    /* 执行当前语句并推进处理流程。 */
+		APIKey    *string `json:"apiKey"`   /* 执行当前语句并推进处理流程。 */
+		MaxTokens *int    `json:"maxTokens"`
 	} /* 结束当前表达式或代码块。 */
 	if decode(w, r, &in) != nil { /* 判断条件并选择处理分支。 */
 		return /* 返回当前处理结果。 */
@@ -1459,10 +1468,18 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 		problem(w, http.StatusUnprocessableEntity, "云端或兼容接口模型必须填写接口密钥") /* 执行当前语句并推进处理流程。 */
 		return                                                          /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	candidate := ports.AIPluginConfig{Provider: provider, BaseURL: baseURL, Model: modelName, APIKey: apiKey} /* 更新 candidate 的值。 */
-	configureCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)                                  /* 更新 cancel 的值。 */
-	defer cancel()                                                                                            /* 安排函数结束时执行清理。 */
-	if err := s.aiProviderRuntime.Configure(configureCtx, candidate); err != nil {                            /* 判断条件并选择处理分支。 */
+	maxTokens := effectiveAIMaxTokens(current.MaxTokens)
+	if in.MaxTokens != nil {
+		if *in.MaxTokens < 128 || *in.MaxTokens > 8192 {
+			problem(w, http.StatusUnprocessableEntity, "最大输出词元必须在 128 到 8192 之间")
+			return
+		}
+		maxTokens = *in.MaxTokens
+	}
+	candidate := ports.AIPluginConfig{Provider: provider, BaseURL: baseURL, Model: modelName, APIKey: apiKey, MaxTokens: maxTokens} /* 更新 candidate 的值。 */
+	configureCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)                                                        /* 更新 cancel 的值。 */
+	defer cancel()                                                                                                                  /* 安排函数结束时执行清理。 */
+	if err := s.aiProviderRuntime.Configure(configureCtx, candidate); err != nil {                                                  /* 判断条件并选择处理分支。 */
 		problem(w, http.StatusBadGateway, "模型服务健康检查失败，请检查地址、模型和接口密钥") /* 执行当前语句并推进处理流程。 */
 		return                                                        /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -2009,9 +2026,13 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	if s.aiProviderRuntime != nil { /* 判断条件并选择处理分支。 */
 		// The selected Provider owns the model for every AI surface. Keep the
 		// browser's run form from sending a stale per-workflow model override.
-		if configuredModel := strings.TrimSpace(s.aiProviderRuntime.CurrentConfig().Model); configuredModel != "" { /* 判断条件并选择处理分支。 */
+		config := s.aiProviderRuntime.CurrentConfig()
+		if configuredModel := strings.TrimSpace(config.Model); configuredModel != "" { /* 判断条件并选择处理分支。 */
 			modelName = configuredModel /* 更新 modelName 的值。 */
 		} /* 结束当前表达式或代码块。 */
+		if maxTokens <= 0 {
+			maxTokens = effectiveAIMaxTokens(config.MaxTokens)
+		}
 	} /* 结束当前表达式或代码块。 */
 	knowledgeQuestion := question      /* 更新 knowledgeQuestion 的值。 */
 	runID := "ai_run_" + randomHex(10) /* 更新 runID 的值。 */

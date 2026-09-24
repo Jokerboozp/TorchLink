@@ -214,10 +214,11 @@ type VideoPreviewService interface { /* 定义 VideoPreviewService 类型。 */
 } /* 结束当前表达式或代码块。 */
 
 type AIPluginConfig struct { /* 定义 AIPluginConfig 类型。 */
-	Provider string `json:"provider"`          /* 执行当前语句并推进处理流程。 */
-	BaseURL  string `json:"baseUrl,omitempty"` /* 执行当前语句并推进处理流程。 */
-	Model    string `json:"model,omitempty"`   /* 执行当前语句并推进处理流程。 */
-	APIKey   string `json:"apiKey,omitempty"`  /* 执行当前语句并推进处理流程。 */
+	Provider  string `json:"provider"`          /* 执行当前语句并推进处理流程。 */
+	BaseURL   string `json:"baseUrl,omitempty"` /* 执行当前语句并推进处理流程。 */
+	Model     string `json:"model,omitempty"`   /* 执行当前语句并推进处理流程。 */
+	APIKey    string `json:"apiKey,omitempty"`  /* 执行当前语句并推进处理流程。 */
+	MaxTokens int    `json:"maxTokens,omitempty"`
 } /* 结束当前表达式或代码块。 */
 
 type AIPluginInfo struct { /* 定义 AIPluginInfo 类型。 */

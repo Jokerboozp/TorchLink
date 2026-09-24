@@ -98,18 +98,19 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) { /* 定义 
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	updated := requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/providers/config", adminToken, map[string]any{ /* 更新 updated 的值。 */
-		"provider": "deepseek",                 /* 执行当前语句并推进处理流程。 */
-		"baseUrl":  "https://api.deepseek.com", /* 执行当前语句并推进处理流程。 */
-		"model":    "deepseek-chat",            /* 执行当前语句并推进处理流程。 */
-		"apiKey":   "provider-secret",          /* 执行当前语句并推进处理流程。 */
+		"provider":  "deepseek",                 /* 执行当前语句并推进处理流程。 */
+		"baseUrl":   "https://api.deepseek.com", /* 执行当前语句并推进处理流程。 */
+		"model":     "deepseek-chat",            /* 执行当前语句并推进处理流程。 */
+		"apiKey":    "provider-secret",          /* 执行当前语句并推进处理流程。 */
+		"maxTokens": 3072,
 	}, 200) /* 结束当前表达式或代码块。 */
-	if updated["provider"] != "deepseek" || updated["model"] != "deepseek-chat" || updated["apiKeyConfigured"] != true || updated["apiKeyHint"] != "prov***" { /* 判断条件并选择处理分支。 */
+	if updated["provider"] != "deepseek" || updated["model"] != "deepseek-chat" || updated["maxTokens"] != float64(3072) || updated["apiKeyConfigured"] != true || updated["apiKeyHint"] != "prov***" { /* 判断条件并选择处理分支。 */
 		t.Fatalf("unexpected redacted provider response: %#v", updated) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if _, leaked := updated["apiKey"]; leaked { /* 判断条件并选择处理分支。 */
 		t.Fatalf("provider key leaked in response: %#v", updated) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if got := runtime.CurrentConfig(); got.Provider != "deepseek" || got.APIKey != "provider-secret" { /* 判断条件并选择处理分支。 */
+	if got := runtime.CurrentConfig(); got.Provider != "deepseek" || got.APIKey != "provider-secret" || got.MaxTokens != 3072 { /* 判断条件并选择处理分支。 */
 		t.Fatalf("runtime was not updated: %#v", got) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if got, found, loadErr := repo.LoadAIProviderConfig(context.Background()); loadErr != nil || !found || got != runtime.CurrentConfig() { /* 判断条件并选择处理分支。 */
@@ -119,9 +120,9 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) { /* 定义 
 	if len(workflow.updates) != 1 || workflow.updates[0].Provider != "deepseek" { /* 判断条件并选择处理分支。 */
 		t.Fatalf("workflow provider was not updated: %#v", workflow.updates) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	workflow.mu.Unlock()                                                                                              /* 执行当前语句并推进处理流程。 */
-	viewer := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/providers/config", viewerToken, nil, 200) /* 更新 viewer 的值。 */
-	if viewer["provider"] != "deepseek" || viewer["apiKeyConfigured"] != true {                                       /* 判断条件并选择处理分支。 */
+	workflow.mu.Unlock()                                                                                                /* 执行当前语句并推进处理流程。 */
+	viewer := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/providers/config", viewerToken, nil, 200)   /* 更新 viewer 的值。 */
+	if viewer["provider"] != "deepseek" || viewer["maxTokens"] != float64(3072) || viewer["apiKeyConfigured"] != true { /* 判断条件并选择处理分支。 */
 		t.Fatalf("unexpected viewer provider response: %#v", viewer) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if _, exposed := viewer["baseUrl"]; exposed { /* 判断条件并选择处理分支。 */

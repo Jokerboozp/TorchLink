@@ -15,7 +15,7 @@ const loadError = ref('') /* 声明 loadError。 */
 const providerError = ref('') /* 声明 providerError。 */
 const testResult = ref(null) /* 声明 testResult。 */
 const testedFingerprint = ref('') /* 声明 testedFingerprint。 */
-const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'' }) /* 声明 providerForm。 */
+const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'', maxTokens:2048 }) /* 声明 providerForm。 */
 let loadVersion = 0
 
 const capabilityLabels = { /* 声明 capabilityLabels。 */
@@ -42,7 +42,7 @@ const activeModel = computed(() => runtime.value.config?.model || runtime.value.
 const activeStatusType = computed(() => runtime.value.healthy ? 'success' : activeProvider.value === 'disabled' ? 'info' : 'warning') /* 声明 activeStatusType。 */
 const activeStatusLabel = computed(() => runtime.value.healthy ? '连接正常' : runtime.value.healthMessage || '连接异常') /* 声明 activeStatusLabel。 */
 const busy = computed(() => testing.value || applying.value) /* 声明 busy。 */
-const candidateFingerprint = computed(() => [providerForm.provider.trim(), providerForm.baseUrl.trim(), providerForm.model.trim(), providerForm.apiKey.trim()].join('\u0000')) /* 声明 candidateFingerprint。 */
+const candidateFingerprint = computed(() => [providerForm.provider.trim(), providerForm.baseUrl.trim(), providerForm.model.trim(), providerForm.apiKey.trim(), providerForm.maxTokens].join('\u0000')) /* 声明 candidateFingerprint。 */
 const canApply = computed(() => Boolean(testResult.value?.success && testedFingerprint.value === candidateFingerprint.value)) /* 声明 canApply。 */
 
 function providerLabel(provider) { /* 定义 providerLabel 函数。 */
@@ -63,6 +63,7 @@ function syncProviderForm(value) { /* 定义 syncProviderForm 函数。 */
   if (providerOptions.some(item => item.id === config.provider)) providerForm.provider = config.provider /* 判断条件并选择处理分支。 */
   providerForm.baseUrl = config.baseUrl || providerForm.baseUrl /* 更新 providerForm.baseUrl 的值。 */
   providerForm.model = config.model || providerForm.model /* 更新 providerForm.model 的值。 */
+  providerForm.maxTokens = config.maxTokens || 2048
   providerForm.apiKey = '' /* 更新 providerForm.apiKey 的值。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -103,6 +104,7 @@ function candidateConfig() { /* 定义 candidateConfig 函数。 */
   const baseUrl = providerForm.baseUrl.trim() /* 声明 baseUrl。 */
   const model = providerForm.model.trim() /* 声明 model。 */
   const apiKey = providerForm.apiKey.trim() /* 声明 apiKey。 */
+  const maxTokens = Number(providerForm.maxTokens)
   if (!provider || !baseUrl || !model) { /* 判断条件并选择处理分支。 */
     providerError.value = '请填写模型来源、服务地址和模型名称' /* 更新 providerError.value 的值。 */
     return null /* 返回当前处理结果。 */
@@ -111,9 +113,13 @@ function candidateConfig() { /* 定义 candidateConfig 函数。 */
     providerError.value = '切换到云端或兼容接口模型时必须填写接口密钥' /* 更新 providerError.value 的值。 */
     return null /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
-  const body = { provider, baseUrl, model } /* 声明 body。 */
+  if (!Number.isSafeInteger(maxTokens) || maxTokens < 128 || maxTokens > 8192) {
+    providerError.value = '最大输出词元必须在 128 到 8192 之间'
+    return null
+  }
+  const body = { provider, baseUrl, model, maxTokens } /* 声明 body。 */
   if (apiKey) body.apiKey = apiKey /* 判断条件并选择处理分支。 */
-  return { body, fingerprint: [provider, baseUrl, model, apiKey].join('\u0000') } /* 返回当前处理结果。 */
+  return { body, fingerprint: [provider, baseUrl, model, apiKey, maxTokens].join('\u0000') } /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 async function testProviderConfig() { /* 定义 testProviderConfig 函数。 */
@@ -193,6 +199,7 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
             <p class="provider-description">{{ selectedProviderOption.description }}</p> <!-- 渲染 p 界面元素。 -->
             <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" placeholder="填写模型服务的 HTTP/HTTPS 地址，无需配置白名单" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
             <ui-form-item label="模型名称"><ui-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
+            <ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /><small class="provider-field-hint">智能助手对话的单次输出上限。</small></ui-form-item>
             <ui-form-item v-if="providerForm.provider !== 'ollama'" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="留空表示沿用当前密钥" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
             <div class="provider-actions"><ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</ui-button><ui-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</ui-button></div> <!-- 渲染 div 界面元素。 -->
           </ui-form> <!-- 结束当前界面区域。 -->
@@ -239,6 +246,8 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
 .ai-management-grid { display:grid; grid-template-columns:minmax(300px,420px) minmax(0,1fr); gap:16px; align-items:start; } /* 定义当前元素的样式规则。 */
 .ai-provider-config :deep(.el-form-item) { margin-bottom:12px; } /* 定义当前元素的样式规则。 */
 .ai-provider-config :deep(.el-select) { width:100%; } /* 定义当前元素的样式规则。 */
+.ai-provider-config :deep(.el-input-number) { width:100%; }
+.provider-field-hint { display:block; margin-top:4px; color:#64748b; font-size:12px; line-height:1.5; }
 .provider-description { margin:-4px 0 11px; color:#64748b; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .provider-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:2px; } /* 定义当前元素的样式规则。 */
 .provider-actions .el-button { min-width:104px; } /* 定义当前元素的样式规则。 */

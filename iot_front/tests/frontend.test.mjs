@@ -181,7 +181,8 @@ test('AI workbench uses cancellable SSE workflows and stable message keys', asyn
   for (const field of ['schemaVersion','id','name','description','version','enabled','persona','defaultModel','maxTokens','capabilities','allowedTools']) assert.match(aiView, new RegExp(`name:'${field}'`), `missing Agent field documentation: ${field}`) /* 循环处理当前数据。 */
   assert.match(aiView, /结构化数据标准不支持注释/) /* 验证实际结果符合预期。 */
   assert.match(aiView, /允许使用的工具/) /* 验证实际结果符合预期。 */
-  for (const label of ['本次运行', '工作流插件', '最大输出词元', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow control: ${label}`) /* 循环处理当前数据。 */
+  for (const label of ['本次运行', '工作流插件', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow control: ${label}`) /* 循环处理当前数据。 */
+  assert.doesNotMatch(aiView, /runConfig\.maxTokens|label="最大输出词元"/) /* 最大输出词元统一在模型管理配置。 */
   assert.doesNotMatch(aiView, /<div class="control-section-label"><span>04<\/span>运行环境/) /* 左侧不重复展示顶部模型状态。 */
   assert.match(aiView, /<ui-drawer v-model="managementVisible" title="智能体管理"/) /* 确认智能体管理抽屉已经迁移。 */
   assert.doesNotMatch(aiView, /<ui-menu/) /* 管理抽屉不引入嵌套菜单。 */
@@ -293,6 +294,7 @@ test('AI model administration has its own menu and business overview', async () 
   for (const label of ['统一管理智能模型与业务能力', '模型服务配置', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) { /* 循环处理当前数据。 */
     assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`) /* 验证实际结果符合预期。 */
   } /* 结束当前表达式或代码块。 */
+  assert.match(providerView, /label="最大输出词元"/)
   for (const label of ['AI Provider', 'Provider 配置', '可用 Provider', '测试并应用']) { /* 循环处理当前数据。 */
     assert.doesNotMatch(providerView, new RegExp(label), `English Provider wording should not be visible: ${label}`) /* 验证实际结果符合预期。 */
   } /* 结束当前表达式或代码块。 */

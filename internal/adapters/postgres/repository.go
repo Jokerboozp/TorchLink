@@ -1334,18 +1334,19 @@ func (r *Repository) LoadAIProviderConfig(ctx context.Context) (ports.AIPluginCo
 		return ports.AIPluginConfig{}, false, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	var values struct { /* 声明 values。 */
-		BaseURL string `json:"baseUrl"` /* 执行当前语句并推进处理流程。 */
-		APIKey  string `json:"apiKey"`  /* 执行当前语句并推进处理流程。 */
+		BaseURL   string `json:"baseUrl"` /* 执行当前语句并推进处理流程。 */
+		APIKey    string `json:"apiKey"`  /* 执行当前语句并推进处理流程。 */
+		MaxTokens int    `json:"maxTokens"`
 	} /* 结束当前表达式或代码块。 */
 	if len(raw) > 0 { /* 判断条件并选择处理分支。 */
 		if err := json.Unmarshal(raw, &values); err != nil { /* 判断条件并选择处理分支。 */
 			return ports.AIPluginConfig{}, false, err /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	return ports.AIPluginConfig{Provider: provider, BaseURL: values.BaseURL, Model: modelName, APIKey: values.APIKey}, true, nil /* 返回当前处理结果。 */
+	return ports.AIPluginConfig{Provider: provider, BaseURL: values.BaseURL, Model: modelName, APIKey: values.APIKey, MaxTokens: values.MaxTokens}, true, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) SaveAIProviderConfig(ctx context.Context, v ports.AIPluginConfig) error { /* 定义 SaveAIProviderConfig 函数。 */
-	raw, _ := json.Marshal(map[string]string{"baseUrl": v.BaseURL, "apiKey": v.APIKey}) /* 更新 _ 的值。 */
+	raw, _ := json.Marshal(map[string]any{"baseUrl": v.BaseURL, "apiKey": v.APIKey, "maxTokens": v.MaxTokens}) /* 更新 _ 的值。 */
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO ai_model_config(id,tenant_id,provider,model,config,enabled,updated_at)
 		VALUES('__active__','__global__',$1,$2,$3,true,now())
