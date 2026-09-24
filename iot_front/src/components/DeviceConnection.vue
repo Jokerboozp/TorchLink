@@ -291,35 +291,33 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 </template>
 
 <style scoped>
-:global(.device-connection-drawer .el-drawer__header) { margin-bottom:0; padding:20px 24px; border-bottom:1px solid #d5dde8; color:#172b4d; background:#fff; } /* 设置  样式。 */
-:global(.device-connection-drawer .el-drawer__body) { background:#f1f4f8; padding:20px; } /* 设置  样式。 */
-.device-connection { min-width:0; color:#1e293b; font-size:13px; line-height:1.6; } /* 定义当前元素的样式规则。 */
+:global(.device-connection-drawer .el-drawer__header) { margin-bottom:0; padding:20px 24px; border-bottom:1px solid var(--border); color:var(--accent-foreground); background:var(--card); } /* 设置  样式。 */
+:global(.device-connection-drawer .el-drawer__body) { background:var(--surface-subtle); padding:20px; } /* 设置  样式。 */
+.device-connection { min-width:0; color:var(--text-strong); font-size:13px; line-height:1.6; } /* 定义当前元素的样式规则。 */
 .connection-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; } /* 定义当前元素的样式规则。 */
 .connection-toolbar > div { min-width:0; } /* 定义当前元素的样式规则。 */
-.connection-toolbar strong { display:block; font-size:17px; color:#0f172a; } /* 定义当前元素的样式规则。 */
-.connection-toolbar small { display:block; overflow-wrap:anywhere; color:#52637a; } /* 定义当前元素的样式规则。 */
-.connection-section { min-width:0; margin:0 0 16px; padding:18px; border:1px solid #d5dde8; border-radius:8px; background:#fff; } /* 定义当前元素的样式规则。 */
+.connection-toolbar strong { display:block; font-size:17px; color:var(--text-strong); } /* 定义当前元素的样式规则。 */
+.connection-toolbar small { display:block; overflow-wrap:anywhere; color:var(--accent-foreground); } /* 定义当前元素的样式规则。 */
+.connection-section { min-width:0; margin:0 0 16px; padding:18px; border:1px solid var(--border); border-radius:8px; background:var(--card); } /* 定义当前元素的样式规则。 */
 .connection-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:20px; }
-.connection-status-grid > div { min-width:0; padding:11px 13px; border:1px solid #dce7f3; border-radius:7px; background:#f5f9fe; }
-.connection-status-grid span { display:block; margin-bottom:4px; color:#60718a; font-size:12px; }
-.connection-status-grid strong { display:block; color:#1c3e67; font-size:14px; line-height:1.45; overflow-wrap:anywhere; }
-.connection-subtitle { margin:0 0 10px; color:#334861; font-size:13px; font-weight:650; }
-h3 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin:0 0 14px; font-size:14px; font-weight:650; line-height:1.5; color:#172b4d; } /* 设置 h3 { display 样式。 */
-h3 small { font-size:13px; font-weight:400; color:#52637a; } /* 设置 h3 small { font-size 样式。 */
-p { margin:10px 0; color:#52637a; overflow-wrap:anywhere; } /* 设置 p { margin 样式。 */
+.connection-status-grid > div { min-width:0; padding:11px 13px; border:1px solid var(--border); border-radius:7px; background:var(--surface-subtle); }
+.connection-status-grid span { display:block; margin-bottom:4px; color:var(--accent-foreground); font-size:12px; }
+.connection-status-grid strong { display:block; color:var(--accent-foreground); font-size:14px; line-height:1.45; overflow-wrap:anywhere; }
+.connection-subtitle { margin:0 0 10px; color:var(--accent-foreground); font-size:13px; font-weight:650; }
+h3 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin:0 0 14px; font-size:14px; font-weight:650; line-height:1.5; color:var(--accent-foreground); } /* 设置 h3 { display 样式。 */
+h3 small { font-size:13px; font-weight:400; color:var(--accent-foreground); } /* 设置 h3 small { font-size 样式。 */
+p { margin:10px 0; color:var(--accent-foreground); overflow-wrap:anywhere; } /* 设置 p { margin 样式。 */
 code,.field-value { color:inherit; font:inherit; overflow-wrap:anywhere; word-break:break-word; white-space:pre-wrap; } /* 设置 code,.field-value { color 样式。 */
-pre { max-height:320px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f4f6fa; border:1px solid #d5dde8; border-radius:6px; padding:12px; color:#334155; margin:12px 0 0; } /* 设置 pre { max-height 样式。 */
+pre { max-height:320px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--surface-subtle); border:1px solid var(--border); border-radius:6px; padding:12px; color:var(--accent-foreground); margin:12px 0 0; } /* 设置 pre { max-height 样式。 */
 .section-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; } /* 定义当前元素的样式规则。 */
 .section-actions :deep(.el-button + .el-button) { margin-left:0; } /* 定义当前元素的样式规则。 */
 .section-feedback,.profile-picker,.message-detail { margin-top:14px; } /* 定义当前元素的样式规则。 */
 :deep(.el-descriptions__table) { table-layout:fixed; } /* 设置  样式。 */
-:deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:120px; background:#edf2f7; color:#3c4e66; font-weight:500; } /* 设置  样式。 */
-:deep(.el-descriptions__content.el-descriptions__cell.is-bordered-content) { background:#fff; color:#172b4d; overflow-wrap:anywhere; } /* 设置  样式。 */
-:deep(.el-descriptions__cell) { padding:10px 12px !important; border-color:#d5dde8 !important; } /* 设置  样式。 */
-:deep(.el-table) { --el-table-header-bg-color:#edf2f7; --el-table-border-color:#d5dde8; --el-table-header-text-color:#3c4e66; --el-table-text-color:#172b4d; } /* 设置  样式。 */
-:deep(.el-table .cell) { overflow-wrap:anywhere; } /* 设置  样式。 */
+:deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:120px; background:var(--surface-subtle); color:var(--accent-foreground); font-weight:500; } /* 设置  样式。 */
+:deep(.el-descriptions__content.el-descriptions__cell.is-bordered-content) { background:var(--card); color:var(--accent-foreground); overflow-wrap:anywhere; } /* 设置  样式。 */
+:deep(.el-descriptions__cell) { padding:10px 12px !important; border-color:var(--border) !important; } /* 设置  样式。 */
 :deep(.el-pagination) { margin-top:12px; justify-content:flex-end; } /* 设置  样式。 */
-:deep(.el-collapse-item__header) { font-size:13px; font-weight:600; color:#172b4d; } /* 设置  样式。 */
+:deep(.el-collapse-item__header) { font-size:13px; font-weight:600; color:var(--accent-foreground); } /* 设置  样式。 */
 @media (max-width:640px) { /* 按屏幕条件调整样式。 */
   :global(.device-connection-drawer .el-drawer__header) { padding:16px; } /* 设置  样式。 */
   :global(.device-connection-drawer .el-drawer__body) { padding:12px; } /* 设置  样式。 */

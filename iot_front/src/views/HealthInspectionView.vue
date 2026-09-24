@@ -160,28 +160,28 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 
 <style scoped>
 .inspection-page { min-width:0; }
-.inspection-hero { box-sizing:border-box; width:100%; min-width:0; padding:19px 22px; display:flex; align-items:center; justify-content:space-between; gap:24px; background:#fff; border:1px solid #e1e9f2; border-left:4px solid #1554ad; border-radius:10px; }
+.inspection-hero { box-sizing:border-box; width:100%; min-width:0; padding:19px 22px; display:flex; align-items:center; justify-content:space-between; gap:24px; background:var(--card); border:1px solid var(--border); border-left:4px solid var(--primary); border-radius:10px; }
 .inspection-hero-copy { min-width:0; }
-.inspection-hero-copy h2 { margin:0; color:#1f2d40; font-size:17px; line-height:1.4; }
-.inspection-hero-copy p { margin:5px 0 10px; color:#52657d; font-size:13px; line-height:1.6; }
+.inspection-hero-copy h2 { margin:0; color:var(--text-strong); font-size:17px; line-height:1.4; }
+.inspection-hero-copy p { margin:5px 0 10px; color:var(--accent-foreground); font-size:13px; line-height:1.6; }
 .inspection-scope { display:flex; flex-wrap:wrap; gap:7px; }
-.inspection-scope span { padding:3px 9px; color:#1554ad; background:#edf4ff; border-radius:5px; font-size:12px; }
+.inspection-scope span { padding:3px 9px; color:var(--primary); background:var(--surface-subtle); border-radius:5px; font-size:12px; }
 .inspection-hero-side { flex:none; display:grid; justify-items:end; gap:10px; }
-.inspection-hero-side>small { color:#607086; font-size:12px; }
+.inspection-hero-side>small { color:var(--accent-foreground); font-size:12px; }
 .inspection-hero-actions { display:flex; align-items:center; gap:8px; }
 .inspection-hero-actions :deep(.n-button) { min-width:112px; }
 .inspection-hero-actions :deep(.n-button--primary-type) { min-width:132px; height:38px; }
 .inspection-empty { min-height:122px; display:grid; align-content:center; justify-items:center; gap:6px; text-align:center; }
-.inspection-empty strong { color:#24364d; font-size:14px; }
-.inspection-empty p { margin:0; color:#607086; font-size:13px; line-height:1.5; }
-.inspection-progress { border-color:#d6e8ff; background:#f8fbff; } /* 定义当前元素的样式规则。 */
+.inspection-empty strong { color:var(--accent-foreground); font-size:14px; }
+.inspection-empty p { margin:0; color:var(--accent-foreground); font-size:13px; line-height:1.5; }
+.inspection-progress { border-color:var(--border-info); background:var(--card); } /* 定义当前元素的样式规则。 */
 .inspection-progress-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; } /* 定义当前元素的样式规则。 */
 .inspection-progress-heading>div { display:grid; gap:4px; } /* 定义当前元素的样式规则。 */
-.inspection-progress-heading strong { color:#1554ad; font-size:14px; } /* 定义当前元素的样式规则。 */
+.inspection-progress-heading strong { color:var(--primary); font-size:14px; } /* 定义当前元素的样式规则。 */
 .inspection-progress-heading>strong { font-size:20px; } /* 定义当前元素的样式规则。 */
-.inspection-progress-heading small,.inspection-progress-meta { color:#64748b; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
+.inspection-progress-heading small,.inspection-progress-meta { color:var(--accent-foreground); font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .inspection-progress-meta { display:flex; justify-content:space-between; gap:12px; margin-top:8px; } /* 定义当前元素的样式规则。 */
-.inspection-findings { display:inline-block; margin-left:8px; color:#646c73; line-height:1.6; } /* 定义当前元素的样式规则。 */
+.inspection-findings { display:inline-block; margin-left:8px; color:var(--accent-foreground); line-height:1.6; } /* 定义当前元素的样式规则。 */
 @media (max-width:760px) { .inspection-hero { align-items:stretch; flex-direction:column; gap:18px; padding:17px; }.inspection-hero-side { justify-items:stretch; }.inspection-hero-actions :deep(.n-button) { flex:1; min-width:0; } }
 @media (max-width:560px) { .inspection-progress-meta { display:grid; gap:2px; } } /* 按屏幕条件调整样式。 */
 </style>

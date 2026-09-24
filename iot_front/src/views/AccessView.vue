@@ -59,18 +59,18 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 </template>
 <style scoped>
 .user-editor { display:grid; gap:18px; } /* 用户编辑按操作目的分区，减少连续长表单的阅读负担。 */
-.user-editor-section { min-width:0; padding:18px; border:1px solid var(--border); border-radius:8px; background:#fff; }
+.user-editor-section { min-width:0; padding:18px; border:1px solid var(--border); border-radius:8px; background:var(--card); }
 .user-editor-heading { margin-bottom:15px; }
 .user-editor-heading h3 { margin:0; font-size:15px; }
 .user-editor-heading p { margin:4px 0 0; color:var(--muted-foreground); font-size:12px; line-height:1.5; }
 .user-editor-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
 .user-editor-grid > * { min-width:0; }
 .user-editor :deep(.n-form-item),.user-editor :deep(.n-select),.user-editor :deep(.n-input) { width:100%; min-width:0; }
-.user-editor-password-note { align-self:center; padding:10px 12px; color:var(--muted-foreground); background:#f5f7fa; border-radius:6px; font-size:12px; line-height:1.5; }
-.user-editor-switch { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:11px 13px; background:#f5f7fa; border-radius:6px; font-size:13px; font-weight:600; }
+.user-editor-password-note { align-self:center; padding:10px 12px; color:var(--muted-foreground); background:var(--surface-subtle); border-radius:6px; font-size:12px; line-height:1.5; }
+.user-editor-switch { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:11px 13px; background:var(--surface-subtle); border-radius:6px; font-size:13px; font-weight:600; }
 .user-editor-switch small { display:block; margin-top:3px; color:var(--muted-foreground); font-size:12px; font-weight:400; }
 .user-editor-scope { display:flex; flex-wrap:wrap; gap:8px; }
-.user-editor-hint { margin:4px 0 0; padding:10px 12px; color:#4d627c; background:#f2f6fb; border-radius:6px; font-size:12px; line-height:1.6; }
+.user-editor-hint { margin:4px 0 0; padding:10px 12px; color:var(--accent-foreground); background:var(--surface-subtle); border-radius:6px; font-size:12px; line-height:1.6; }
 .user-editor-permissions { padding:0; }
 .user-editor-permissions summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; cursor:pointer; list-style:none; font-size:14px; font-weight:600; }
 .user-editor-permissions summary::-webkit-details-marker { display:none; }
@@ -79,6 +79,6 @@ onMounted(load) /* 执行当前语句并推进处理流程。 */
 .user-editor-permissions details[open] .user-editor-expand { font-size:0; }
 .user-editor-permissions details[open] .user-editor-expand::after { content:'收起设置'; font-size:12px; }
 .user-editor-permissions :deep(.permission-picker) { padding:0 18px 18px; border-top:1px solid var(--border); }
-.role-editor{display:grid;gap:14px}.role-editor-section{min-width:0;padding:16px 18px;border:1px solid var(--border);border-radius:8px;background:#fff}.role-editor-section h3{margin:0;font-size:14px}.role-editor-section p{margin:5px 0 14px;color:var(--muted-foreground);font-size:12px;line-height:1.5}.role-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
+.role-editor{display:grid;gap:14px}.role-editor-section{min-width:0;padding:16px 18px;border:1px solid var(--border);border-radius:8px;background:var(--card)}.role-editor-section h3{margin:0;font-size:14px}.role-editor-section p{margin:5px 0 14px;color:var(--muted-foreground);font-size:12px;line-height:1.5}.role-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
 @media (max-width:640px) { .user-editor-grid { grid-template-columns:1fr; }.user-editor-section { padding:14px; }.user-editor-permissions { padding:0; }.user-editor-scope { flex-direction:column; align-items:stretch; }.user-editor-scope :deep(.n-radio-button) { width:100%; } }
 </style>

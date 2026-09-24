@@ -20,9 +20,9 @@ const states = computed(() => ringSegments(deviceSegments(stats.value.states))) 
 const products = computed(() => productBars(stats.value.products)) /* 声明 products。 */
 const productMax = computed(() => Math.max(1,...products.value.map(item => item.count))) /* 声明 productMax。 */
 const levels = computed(() => { /* 声明 levels。 */
-  const known = Object.entries(alarmLevels).map(([key,name],index) => ({ key,name,count:stats.value.levels?.[key] || 0,color:['#e5484d','#ff9f0a','#e5b64c','#0071e3','#86868b'][index] })) /* 声明 known。 */
+  const known = Object.entries(alarmLevels).map(([key,name],index) => ({ key,name,count:stats.value.levels?.[key] || 0,color:['var(--destructive)','var(--brand-flame)','var(--warning)','var(--primary)','var(--muted-foreground)'][index] })) /* 声明 known。 */
   const other = Object.entries(stats.value.levels || {}).filter(([key]) => !alarmLevels[key]).reduce((sum,[,n]) => sum+n,0) /* 声明 other。 */
-  return other ? [...known,{key:'OTHER',name:'未设置',count:other,color:'#af52de'}] : known /* 返回当前处理结果。 */
+  return other ? [...known,{key:'OTHER',name:'未设置',count:other,color:'var(--text-secondary)'}] : known /* 返回当前处理结果。 */
 }) /* 结束当前表达式或代码块。 */
 let controller, revision = 0, timer, disposed = false /* 声明 controller。 */
 async function load() { /* 定义 load 函数。 */
@@ -69,7 +69,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
       </ui-card> <!-- 结束当前界面区域。 -->
       <ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><ui-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->
         <div v-if="data && stats.devices" class="device-chart"> <!-- 渲染 div 界面元素。 -->
-          <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="#f0f0f2" stroke-width="15" /><circle v-for="item in states.filter(item => item.count)" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="15" pathLength="100" :stroke-dasharray="`${item.percent} ${100-item.percent}`" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div> <!-- 渲染 div 界面元素。 -->
+          <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="var(--secondary)" stroke-width="15" /><circle v-for="item in states.filter(item => item.count)" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="15" pathLength="100" :stroke-dasharray="`${item.percent} ${100-item.percent}`" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div> <!-- 渲染 div 界面元素。 -->
           <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }}</b></div></div> <!-- 渲染 div 界面元素。 -->
         </div> <!-- 结束当前界面区域。 -->
         <ui-empty v-else :description="data ? '暂无已登记设备' : loading ? '正在读取设备' : '尚未获取设备数据'" :image-size="76" /> <!-- 渲染 ui-empty 界面元素。 -->

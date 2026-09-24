@@ -338,47 +338,47 @@ function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2
 </template>
 <style scoped>
 .instance-details { padding: 16px 24px; } /* 定义当前元素的样式规则。 */
-.versions-summary { margin:0 0 14px; color:#586579; font-size:13px; line-height:1.6; }
+.versions-summary { margin:0 0 14px; color:var(--accent-foreground); font-size:13px; line-height:1.6; }
 .release-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; } /* 定义当前元素的样式规则。 */
 .release-buttons .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
 .release-detail-actions { align-items: center; margin-top: 18px; } /* 让专项操作在版本信息下保持整齐。 */
 .source-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; } /* 定义当前元素的样式规则。 */
 .source-file-field { width: 100%; min-width: 0; display: grid; gap: 7px; } /* 文件操作独占一行，避免按钮与文件名相互挤压。 */
-.source-file-field small, .source-template-panel small, .source-publish-panel small, .source-target-help, .source-compiling-help { display: block; color: #697386; font-size: 12px; line-height: 1.5; } /* 辅助说明换行显示并保持可读。 */
-.source-template-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin: 2px 0 16px; padding: 14px 16px; border: 1px solid #e1e8f0; border-radius: 8px; background: #f8fafc; } /* 将模板下载与文件上传分组。 */
-.source-template-panel strong, .source-publish-panel strong { display: block; margin-bottom: 3px; font-size: 13px; color: #243145; } /* 明确每组操作的用途。 */
+.source-file-field small, .source-template-panel small, .source-publish-panel small, .source-target-help, .source-compiling-help { display: block; color: var(--accent-foreground); font-size: 12px; line-height: 1.5; } /* 辅助说明换行显示并保持可读。 */
+.source-template-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin: 2px 0 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); } /* 将模板下载与文件上传分组。 */
+.source-template-panel strong, .source-publish-panel strong { display: block; margin-bottom: 3px; font-size: 13px; color: var(--accent-foreground); } /* 明确每组操作的用途。 */
 .source-template-actions { display: flex; flex-wrap: wrap; gap: 8px; } /* 模板按钮在窄视口自动换行。 */
 .source-compile-options { margin-bottom: 16px; } /* 编译选项与发布方式分隔。 */
 .source-target-item { margin: 8px 0 4px !important; } /* 下拉框与自身说明保持一组。 */
 .source-target-help { margin-bottom: 12px; } /* 说明独占一行，避免挤到下拉框右侧。 */
-.source-publish-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; padding: 14px 16px; border: 1px solid #d9e8df; border-radius: 8px; background: #f7fbf8; } /* 发布行为及结果说明集中展示。 */
+.source-publish-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); } /* 发布行为及结果说明集中展示。 */
 .source-compiling-help { margin-top: 12px; } /* 编译耗时提示放在发布设置下方。 */
 .source-submit-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 14px; } /* 提交操作固定在弹窗页脚。 */
-.source-submit-row span { color: #697386; font-size: 12px; line-height: 1.5; } /* 页脚简述实际执行顺序。 */
+.source-submit-row span { color: var(--accent-foreground); font-size: 12px; line-height: 1.5; } /* 页脚简述实际执行顺序。 */
 .source-submit-row button { flex: none; } /* 提交按钮不被说明文字压缩。 */
-.profile-editor-intro { margin: 0 0 16px; color: #53667d; font-size: 13px; line-height: 1.6; }
-.profile-editor-section { padding: 20px; border: 1px solid #dce6f1; border-radius: 12px; background: #fff; }
+.profile-editor-intro { margin: 0 0 16px; color: var(--accent-foreground); font-size: 13px; line-height: 1.6; }
+.profile-editor-section { padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
 .profile-editor-section + .profile-editor-section { margin-top: 14px; }
 .profile-section-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 17px; }
-.profile-section-heading > span { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border-radius: 8px; color: #174b86; background: #eaf2fb; font-size: 12px; font-weight: 700; }
-.profile-section-heading h3 { margin: 0; color: #19334f; font-size: 15px; line-height: 1.4; }
-.profile-section-heading p { margin: 3px 0 0; color: #63758b; font-size: 12px; line-height: 1.5; }
+.profile-section-heading > span { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border-radius: 8px; color: var(--accent-foreground); background: var(--surface-subtle); font-size: 12px; font-weight: 700; }
+.profile-section-heading h3 { margin: 0; color: var(--accent-foreground); font-size: 15px; line-height: 1.4; }
+.profile-section-heading p { margin: 3px 0 0; color: var(--accent-foreground); font-size: 12px; line-height: 1.5; }
 .profile-field-grid, .profile-protocol-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
 .profile-field-grid > *, .profile-protocol-summary > * { min-width: 0; }
 .profile-field-grid :deep(.n-form-item) { margin-bottom: 0; }
 .profile-field-grid :deep(.n-input), .profile-field-grid :deep(.n-select), .profile-field-grid :deep(.n-input-number) { width: 100%; }
-.profile-protocol-summary { margin-top: 16px; padding: 13px 15px; border: 1px solid #e1eaf4; border-radius: 9px; background: #f5f8fc; }
+.profile-protocol-summary { margin-top: 16px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-subtle); }
 .profile-protocol-summary span, .profile-protocol-summary strong { display: block; overflow-wrap: anywhere; }
-.profile-protocol-summary span { margin-bottom: 4px; color: #64768b; font-size: 12px; }
-.profile-protocol-summary strong { color: #1d3958; font-size: 13px; font-weight: 600; }
-.profile-mode-note, .profile-address-help { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; color: #355b83; background: #eff6fd; font-size: 12px; line-height: 1.6; }
+.profile-protocol-summary span { margin-bottom: 4px; color: var(--accent-foreground); font-size: 12px; }
+.profile-protocol-summary strong { color: var(--accent-foreground); font-size: 13px; font-weight: 600; }
+.profile-mode-note, .profile-address-help { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; color: var(--accent-foreground); background: var(--surface-subtle); font-size: 12px; line-height: 1.6; }
 .profile-toggle-list { display: grid; gap: 10px; margin-top: 18px; }
-.profile-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #e1e8f1; border-radius: 9px; background: #fbfcfe; }
+.profile-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
 .profile-toggle-row strong, .profile-toggle-row small { display: block; }
-.profile-toggle-row strong { color: #253d57; font-size: 13px; }
-.profile-toggle-row small { margin-top: 3px; color: #53697f; font-size: 12px; line-height: 1.5; }
+.profile-toggle-row strong { color: var(--accent-foreground); font-size: 13px; }
+.profile-toggle-row small { margin-top: 3px; color: var(--accent-foreground); font-size: 12px; line-height: 1.5; }
 .profile-toggle-row :deep(.ui-switch-field) { flex: none; }
-.profile-advanced { margin-top: 18px; border-top: 1px solid #e4ebf3; }
+.profile-advanced { margin-top: 18px; border-top: 1px solid var(--border); }
 .profile-editor-footer { display: flex; width: 100%; justify-content: flex-end; gap: 8px; }
 @media (max-width: 640px) { .source-template-actions, .source-template-actions button, .source-submit-row, .source-submit-row button { width: 100%; } .source-submit-row { flex-wrap: wrap; } } /* 窄屏使用单列按钮，避免横向溢出。 */
 @media (max-width: 640px) { .profile-editor-section { padding: 16px; }.profile-field-grid, .profile-protocol-summary { grid-template-columns: 1fr; }.profile-section-heading { gap: 9px; }.profile-toggle-row { padding: 11px 12px; } }

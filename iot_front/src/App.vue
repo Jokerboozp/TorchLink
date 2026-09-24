@@ -203,7 +203,7 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 </script>
 
 <template>
-  <ui-config-provider size="small"> <!-- 渲染 ui-config-provider 界面元素。 -->
+  <ui-config-provider size="medium"> <!-- 保持表单易读，紧凑尺寸交给具体表格。 -->
     <div v-if="!authenticated" class="login-page"> <!-- 渲染 div 界面元素。 -->
       <section class="login-intro">
         <div class="login-intro-header"><div class="login-brand"><img src="/torchlink-sidebar.svg" alt="炬联 TorchLink" /></div><span>消防物联网管理平台</span></div>
@@ -288,7 +288,6 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
           </div> <!-- 结束单个工作区标签。 -->
         </div> <!-- 结束工作区标签栏。 -->
         <section ref="contentArea" class="main-content" :class="{ 'main-content--ai': active === 'ai' }">
-          <div class="page-context"><h1>{{ current.title }}</h1></div>
           <component v-if="permissionState.ready && current.component" :is="current.component" :key="`${active}-${pageKey}`" v-bind="current.props || {}" @navigate="openPage" />
           <ui-empty v-else-if="permissionState.ready" description="尚未分配菜单权限，请联系管理员" />
         </section>

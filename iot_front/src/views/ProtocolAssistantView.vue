@@ -140,6 +140,6 @@ onMounted(()=>{ /* 执行当前语句并推进处理流程。 */
   </div>
 </template>
 <style scoped>
-.generator-section{padding:16px 18px;margin-bottom:13px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}.generator-section-heading{margin-bottom:14px}.generator-section-heading h3{margin:0;color:#223f60;font-size:14px}.generator-section-heading p{margin:5px 0 0;color:#53697f;font-size:12px;line-height:1.6}.generator-section :deep(.n-form-item:last-child){margin-bottom:0}
+.generator-section{padding:16px 18px;margin-bottom:13px;border:1px solid var(--border);border-radius:10px;background:var(--card)}.generator-section-heading{margin-bottom:14px}.generator-section-heading h3{margin:0;color:var(--accent-foreground);font-size:14px}.generator-section-heading p{margin:5px 0 0;color:var(--accent-foreground);font-size:12px;line-height:1.6}.generator-section :deep(.n-form-item:last-child){margin-bottom:0}
 @media(max-width:640px){.generator-section{padding:13px}}
 </style>

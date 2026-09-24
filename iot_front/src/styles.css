@@ -25,26 +25,23 @@ html:root { /* 设置 html 样式。 */
   --warning-foreground: #92400e; /* 设置 --warning-foreground 样式。 */
   --border: #e5e5e7; /* 设置 --border 样式。 */
   --input: #d2d2d7; /* 设置 --input 样式。 */
+  --text-strong: #243248;
+  --text-secondary: #52657d;
+  --surface-subtle: #f8fafc;
+  --surface-success: #f0fdf4;
+  --surface-warning: #fffbeb;
+  --surface-danger: #fef2f2;
+  --border-info: #bfdbfe;
+  --border-success: #bbf7d0;
+  --border-warning: #fde68a;
+  --border-danger: #fecaca;
+  --code-background: #0f172a;
+  --code-foreground: #dbeafe;
+  --code-border: #1e293b;
   --ring: var(--brand-navy); /* 焦点环与主色保持一致。 */
   --radius: 0.875rem; /* 设置 --radius 样式。 */
 
-  --el-color-primary: var(--primary); /* 设置 --el-color-primary 样式。 */
-  --el-color-primary-light-3: #56749b; /* 兼容旧样式的深蓝浅阶。 */
-  --el-color-primary-light-5: #899db7; /* 兼容旧样式的深蓝浅阶。 */
-  --el-color-primary-light-7: #bbc9db; /* 兼容旧样式的深蓝浅阶。 */
-  --el-color-primary-light-9: #edf3fa; /* 兼容旧样式的深蓝浅阶。 */
-  --el-color-success: #16a34a; /* 设置 --el-color-success 样式。 */
-  --el-color-warning: #d97706; /* 设置 --el-color-warning 样式。 */
-  --el-color-danger: #dc2626; /* 设置 --el-color-danger 样式。 */
-  --el-border-radius-base: 0.5rem; /* 设置 --el-border-radius-base 样式。 */
-  --el-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; /* 设置 --el-font-family 样式。 */
-  --el-text-color-primary: #1d1d1f; /* 设置 --el-text-color-primary 样式。 */
-  --el-text-color-regular: #424245; /* 设置 --el-text-color-regular 样式。 */
-  --el-border-color: #d2d2d7; /* 设置 --el-border-color 样式。 */
-  --el-border-color-light: #e5e5e7; /* 设置 --el-border-color-light 样式。 */
-  --el-font-size-base: 14px; /* 设置 --el-font-size-base 样式。 */
-  --el-font-size-small: 13px; /* 设置 --el-font-size-small 样式。 */
-  --el-font-size-extra-small: 12px; /* 设置 --el-font-size-extra-small 样式。 */
+  --app-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 
   --app-bg: var(--background); /* 设置 --app-bg 样式。 */
   --ink: var(--foreground); /* 设置 --ink 样式。 */
@@ -84,7 +81,7 @@ html:root { /* 设置 html 样式。 */
 
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; } /* 设置 html, body, #app { width 样式。 */
-body { color: var(--foreground); background: var(--background); font: 14px/1.6 var(--el-font-family); -webkit-font-smoothing: antialiased; } /* 设置 body { color 样式。 */
+body { color: var(--foreground); background: var(--background); font: 15px/1.6 var(--app-font-family); -webkit-font-smoothing: antialiased; } /* 设置 body { color 样式。 */
 button, input, textarea, select { font-family: inherit; } /* 设置 button, input, textarea, select { font-family 样式。 */
 button { -webkit-tap-highlight-color: transparent; } /* 设置 button { -webkit-tap-highlight-color 样式。 */
 code { color: #0066cc; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; } /* 设置 code { color 样式。 */
@@ -196,7 +193,6 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .main-content::-webkit-scrollbar-thumb, .menu-scroll::-webkit-scrollbar-thumb { background: #d2d2d7; border: 2px solid var(--background); border-radius: 999px; } /* 定义当前元素的样式规则。 */
 .main-content::-webkit-scrollbar-track, .menu-scroll::-webkit-scrollbar-track { background: transparent; } /* 定义当前元素的样式规则。 */
 .main-content--ai { display: flex; flex-direction: column; overflow: hidden; } /* 定义当前元素的样式规则。 */
-.main-content--ai > .page-context { flex: none; } /* 定义当前元素的样式规则。 */
 
 /* 统一业务卡片与表单 */
 .surface-card, .el-card { border: 0 !important; border-radius: var(--radius) !important; box-shadow: 0 1px 2px rgba(19,56,108,.045) !important; } /* 定义当前元素的样式规则。 */
@@ -209,58 +205,26 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .card-header { width: 100%; justify-content: space-between; gap: 14px; } /* 定义当前元素的样式规则。 */
 .card-header > div:first-child:not(:last-child) { min-width: 0; display: grid; gap: 3px; } /* 带副标题的卡片头将标题与说明分行。 */
 .card-header small { color: var(--muted-foreground); font-weight: 400; } /* 定义当前元素的样式规则。 */
-.el-button { min-height: 32px; height: 32px; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--el-button-border-color, var(--border)); border-radius: .5rem; font-size: 13px; font-weight: 500; line-height: 1; box-shadow: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; } /* 定义当前元素的样式规则。 */
-.el-button--small { min-height: 28px; height: 28px; padding: 0 10px; font-size: 13px; } /* 定义当前元素的样式规则。 */
-.el-button--large { min-height: 40px; height: 40px; padding: 0 16px; } /* 定义当前元素的样式规则。 */
-.el-button.is-circle { width: 30px; padding: 0; } /* 定义当前元素的样式规则。 */
+.el-button { min-height: 36px; height: auto; padding: 0 13px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border); border-radius: .5rem; font-size: 14px; font-weight: 500; line-height: 1; box-shadow: none; transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; } /* 定义当前元素的样式规则。 */
 .el-button:not(.is-disabled):not(:disabled):hover { box-shadow: 0 2px 5px rgba(15,23,42,.08); } /* 定义当前元素的样式规则。 */
 .el-button:not(.is-disabled):not(:disabled):active { transform: translateY(1px); } /* 定义当前元素的样式规则。 */
 .el-button:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; } /* 定义当前元素的样式规则。 */
-.el-button--primary { --el-button-bg-color: var(--primary); --el-button-border-color: var(--primary); --el-button-text-color: #fff; --el-button-hover-bg-color: #0066cc; --el-button-hover-border-color: #0066cc; } /* 定义当前元素的样式规则。 */
-.el-button--default, .el-button.is-plain { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #515154; --el-button-hover-bg-color: var(--accent); --el-button-hover-border-color: #bfdbfe; --el-button-hover-text-color: var(--accent-foreground); } /* 定义当前元素的样式规则。 */
-.el-button.is-text, .el-button.is-link { border: 1px solid var(--border) !important; background: #fff !important; color: #515154 !important; text-decoration: none; } /* 定义当前元素的样式规则。 */
-.el-button.is-text:hover, .el-button.is-link:hover { border-color: #bfdbfe !important; background: var(--accent) !important; color: var(--accent-foreground) !important; } /* 定义当前元素的样式规则。 */
-.el-button--primary.is-text, .el-button--primary.is-link { border-color: #bfdbfe !important; background: #eaf3ff !important; color: #0066cc !important; } /* 定义当前元素的样式规则。 */
-.el-button--primary.is-text:hover, .el-button--primary.is-link:hover { border-color: #93c5fd !important; background: #dbeafe !important; color: #1e40af !important; } /* 定义当前元素的样式规则。 */
+.n-button.el-button.n-button--text { border: 1px solid var(--border) !important; background: var(--card) !important; color: var(--text-secondary) !important; text-decoration: none; }
+.n-button.el-button.n-button--text:hover { border-color: var(--border-info) !important; background: var(--accent) !important; color: var(--accent-foreground) !important; }
 .el-button.is-disabled, .el-button:disabled { cursor: not-allowed; } /* 定义当前元素的样式规则。 */
 
-/* Keep controls consistent even when a lazy-loaded page adds component CSS. */
-:is(.app-shell, .el-overlay, .el-message-box) .el-button { /* 设置  样式。 */
-  min-height: 32px; height: auto; padding: 7px 12px; gap: 6px; /* 设置 min-height 样式。 */
-  border: 1px solid var(--el-button-border-color, var(--border)); /* 设置 border 样式。 */
-  border-radius: 8px; font-size: 13px; line-height: 1.25; font-weight: 500; /* 设置 border-radius 样式。 */
-  background-color: var(--el-button-bg-color, #fff); /* 设置 background-color 样式。 */
-  color: var(--el-button-text-color, #424245); /* 设置 color 样式。 */
-} /* 结束当前样式规则。 */
-:is(.app-shell, .el-overlay, .el-message-box) .el-button:not(.is-disabled):hover { /* 设置  样式。 */
-  background-color: var(--el-button-hover-bg-color, #eaf3ff); /* 设置 background-color 样式。 */
-  border-color: var(--el-button-hover-border-color, #93c5fd); /* 设置 border-color 样式。 */
-  color: var(--el-button-hover-text-color, #0066cc); /* 设置 color 样式。 */
-} /* 结束当前样式规则。 */
-:is(.app-shell, .el-overlay, .el-message-box) .el-button.is-disabled { /* 设置  样式。 */
-  opacity: .5; box-shadow: none; transform: none; /* 设置 opacity 样式。 */
-} /* 结束当前样式规则。 */
-:is(.app-shell, .el-overlay) .el-button svg { width: 14px; height: 14px; flex-shrink: 0; } /* 设置  样式。 */
-:is(.app-shell, .el-overlay) .el-button > span { gap: 6px; } /* 设置  样式。 */
-.el-button.is-plain.el-button--primary { --el-button-bg-color: #eaf3ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #0066cc; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; } /* 定义当前元素的样式规则。 */
-.el-button.is-plain.el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; } /* 定义当前元素的样式规则。 */
-.el-button.is-plain.el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; } /* 定义当前元素的样式规则。 */
-.el-button.is-plain.el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; } /* 定义当前元素的样式规则。 */
+:is(.app-shell, .el-overlay) .el-button svg { width: 14px; height: 14px; flex-shrink: 0; }
+:is(.app-shell, .el-overlay) .el-button > span { gap: 6px; }
 button:focus-visible, [role="tab"]:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; } /* 设置 button 样式。 */
 
 input[type="file"] { width: 100%; min-height: 32px; padding: 4px 6px; color: var(--muted-foreground); background: var(--card); border: 1px solid var(--input); border-radius: .5rem; font-size: 13px; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease; } /* 设置 input[type="file"] { width 样式。 */
-input[type="file"]::file-selector-button { min-height: 26px; margin-right: 9px; padding: 0 10px; color: #424245; background: #fff; border: 1px solid var(--border); border-radius: .375rem; font: 600 13px var(--el-font-family); cursor: pointer; transition: color .16s ease, background-color .16s ease, border-color .16s ease; } /* 设置 input[type="file"] 样式。 */
+input[type="file"]::file-selector-button { min-height: 26px; margin-right: 9px; padding: 0 10px; color: #424245; background: #fff; border: 1px solid var(--border); border-radius: .375rem; font: 600 13px var(--app-font-family); cursor: pointer; transition: color .16s ease, background-color .16s ease, border-color .16s ease; } /* 设置 input[type="file"] 样式。 */
 input[type="file"]::file-selector-button:hover { color: var(--accent-foreground); background: var(--accent); border-color: #bfdbfe; } /* 设置 input[type="file"] 样式。 */
 input[type="file"]:hover { border-color: #94a3b8; } /* 设置 input[type="file"] 样式。 */
 input[type="file"]:focus-visible { outline: 2px solid rgba(59,130,246,.35); outline-offset: 2px; } /* 设置 input[type="file"] 样式。 */
 input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 input[type="file"] 样式。 */
 .table-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; white-space: normal; } /* 定义当前元素的样式规则。 */
 .table-actions .el-button, .el-table .el-button { min-height: 28px; height: 28px; padding: 0 10px; border-width: 1px; border-style: solid; border-radius: 4px; font-size: 13px; font-weight: 500; box-shadow: none; } /* 定义当前元素的样式规则。 */
-.table-actions .el-button--default, .el-table .el-button--default { --el-button-bg-color: #fff; --el-button-border-color: var(--border); --el-button-text-color: #515154; --el-button-hover-bg-color: var(--muted); --el-button-hover-border-color: #d2d2d7; --el-button-hover-text-color: var(--foreground); } /* 定义当前元素的样式规则。 */
-.table-actions .el-button--primary, .el-table .el-button--primary { --el-button-bg-color: #eaf3ff; --el-button-border-color: #bfdbfe; --el-button-text-color: #0066cc; --el-button-hover-bg-color: #dbeafe; --el-button-hover-border-color: #93c5fd; --el-button-hover-text-color: #1e40af; } /* 定义当前元素的样式规则。 */
-.table-actions .el-button--success, .el-table .el-button--success { --el-button-bg-color: #f0fdf4; --el-button-border-color: #bbf7d0; --el-button-text-color: #166534; --el-button-hover-bg-color: #dcfce7; --el-button-hover-border-color: #86efac; --el-button-hover-text-color: #14532d; } /* 定义当前元素的样式规则。 */
-.table-actions .el-button--warning, .el-table .el-button--warning { --el-button-bg-color: #fffbeb; --el-button-border-color: #fde68a; --el-button-text-color: #92400e; --el-button-hover-bg-color: #fef3c7; --el-button-hover-border-color: #fcd34d; --el-button-hover-text-color: #78350f; } /* 定义当前元素的样式规则。 */
-.table-actions .el-button--danger, .el-table .el-button--danger { --el-button-bg-color: #fef2f2; --el-button-border-color: #fecaca; --el-button-text-color: #b91c1c; --el-button-hover-bg-color: #fee2e2; --el-button-hover-border-color: #fca5a5; --el-button-hover-text-color: #991b1b; } /* 定义当前元素的样式规则。 */
 .table-actions .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
 .el-input__wrapper, .el-select__wrapper, .el-textarea__inner { border-radius: .5rem; box-shadow: 0 0 0 1px var(--input) inset !important; background: var(--card); } /* 定义当前元素的样式规则。 */
 .el-input__wrapper:hover, .el-select__wrapper:hover, .el-textarea__inner:hover { box-shadow: 0 0 0 1px #94a3b8 inset !important; } /* 定义当前元素的样式规则。 */
@@ -271,9 +235,6 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
 .el-dialog__header { flex: 0 0 auto; margin-right: 0; padding: 20px 24px 12px; border-bottom: 1px solid var(--border); } /* 定义当前元素的样式规则。 */
 .el-dialog__body { min-height: 0; flex: 1 1 auto; padding: 18px 24px 20px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; } /* 定义当前元素的样式规则。 */
 .el-dialog__footer { flex: 0 0 auto; padding: 0 24px 20px; } /* 定义当前元素的样式规则。 */
-.el-table { --el-table-header-bg-color: #fafafa; --el-table-row-hover-bg-color: #f8fbff; --el-table-border-color: var(--border); --el-table-text-color: #424245; --el-table-header-text-color: #6e6e73; } /* 定义当前元素的样式规则。 */
-.el-table th.el-table__cell { color: #6e6e73; font-size: 13px; font-weight: 600; } /* 定义当前元素的样式规则。 */
-.el-table .cell { font-size: 14px; line-height: 1.65; } /* 定义当前元素的样式规则。 */
 .el-table tr { background: transparent; } /* 定义当前元素的样式规则。 */
 .el-tag { font-size: 11px; font-weight: 500; border: 0; border-radius: 4px; } /* 定义当前元素的样式规则。 */
 .el-alert { border-radius: .625rem; } /* 定义当前元素的样式规则。 */
@@ -407,7 +368,6 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
 @media (max-width: 390px) { .stats-grid { grid-template-columns: 1fr; }.stat-card, .stat-card > .el-card__body { min-height: 105px; height: 105px; } } /* 按屏幕条件调整样式。 */
 
 /* Shared task navigation and clear action surfaces. */
-.page-context { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; } /* 定义当前元素的样式规则。 */
 .app-shell .menu-item { border: 1px solid transparent; } /* 定义当前元素的样式规则。 */
 .app-shell .menu-item:hover { border-color: transparent; } /* 定义当前元素的样式规则。 */
 .app-shell .menu-item.active { border-color: #e5e5e780; } /* 定义当前元素的样式规则。 */
@@ -415,7 +375,6 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
 .app-shell .page-toolbar > span:not(.el-tag) { flex: 1 1 120px; line-height: 1.6; text-align: right; font-size: 13px; } /* 定义当前元素的样式规则。 */
 .app-shell .page-toolbar > .el-button { flex-shrink: 0; } /* 定义当前元素的样式规则。 */
 .el-table .el-table__cell { padding-block: 15px; } /* 定义当前元素的样式规则。 */
-.el-table .el-table-fixed-column--right { border-left: 1px solid #e5e5e7; background: var(--el-table-tr-bg-color, #fff); } /* 定义当前元素的样式规则。 */
 .el-dialog .el-dialog__footer { padding-top: 16px; border-top: 1px solid var(--border); background: #fff; } /* 定义当前元素的样式规则。 */
 .el-dialog__footer .el-button { margin-top: 4px; } /* 定义当前元素的样式规则。 */
 :is(.app-shell, .el-overlay) .el-tabs__nav-wrap::after, :is(.app-shell, .el-overlay) .el-tabs__active-bar { display: block; } /* 设置  样式。 */
@@ -443,7 +402,6 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
   .top-actions { gap: 6px; } /* 定义当前元素的样式规则。 */
   .title-area h2 { font-size: 16px; } /* 定义当前元素的样式规则。 */
   .title-area > div > span { font-size: 12px; } /* 定义当前元素的样式规则。 */
-  .page-context { gap: 12px; margin-bottom: 14px; } /* 定义当前元素的样式规则。 */
   .app-shell .page-toolbar { padding: 0; } /* 定义当前元素的样式规则。 */
   .app-shell .page-toolbar > span:not(.el-tag) { flex-basis: auto; } /* 定义当前元素的样式规则。 */
   .el-table .el-table__cell.el-table-fixed-column--right { position: static !important; } /* 定义当前元素的样式规则。 */
@@ -478,22 +436,13 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 
 /* Quiet hierarchy shared by management pages. */
 .workspace-label { color: var(--muted-foreground); font-size: 13px; } /* 定义当前元素的样式规则。 */
-.page-context { margin-bottom: 24px; } /* 定义当前元素的样式规则。 */
-.page-context h1 { margin: 0; color: var(--foreground); font-size: 28px; line-height: 1.3; font-weight: 600; letter-spacing: -.035em; } /* 定义当前元素的样式规则。 */
 .app-shell .page-toolbar .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
-.el-table { --el-table-row-hover-bg-color: #f5f8fc; } /* 定义当前元素的样式规则。 */
 .el-table b { font-weight: 500; } /* 定义当前元素的样式规则。 */
-.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell { background: #fff; } /* 定义当前元素的样式规则。 */
-:is(.app-shell, .el-overlay) .el-table .el-button { border: 1px solid #cbd5e1 !important; background: #fff !important; box-shadow: none; color: var(--el-button-text-color, var(--primary)); padding-inline: 10px; } /* 设置  样式。 */
-:is(.app-shell, .el-overlay) .el-table .el-button--primary { background:#eff6ff !important; border-color:#bfdbfe !important; } /* 设置  样式。 */
-:is(.app-shell, .el-overlay) .el-table .el-button--success { background:#f0fdf4 !important; border-color:#bbf7d0 !important; } /* 设置  样式。 */
-:is(.app-shell, .el-overlay) .el-table .el-button--danger { background:#fef2f2 !important; border-color:#fecaca !important; } /* 设置  样式。 */
+:is(.app-shell, .el-overlay) .el-table .el-button { border: 1px solid #cbd5e1 !important; background: #fff !important; box-shadow: none; color: var(--primary); padding-inline: 10px; } /* 设置  样式。 */
 :is(.app-shell, .el-overlay) .el-table .el-button:hover { background: var(--accent) !important; } /* 设置  样式。 */
 :is(.app-shell, .el-overlay) .el-table .release-buttons .el-button { border-color: #cbd5e1 !important; background: #fff !important; color: #334155; } /* 设置  样式。 */
-:is(.app-shell, .el-overlay) .el-table .release-buttons .el-button--primary { border-color: #93c5fd !important; background: #eff6ff !important; color: #0066cc; } /* 设置  样式。 */
 :is(.app-shell, .el-overlay) .el-table .release-buttons .el-button:hover { border-color: #60a5fa !important; background: #dbeafe !important; color: #1e40af; } /* 设置  样式。 */
 :is(.app-shell, .el-overlay) .el-table .release-buttons .el-button.is-disabled { border-color: #e2e8f0 !important; background: #f8fafc !important; color: #94a3b8; cursor: not-allowed; } /* 设置  样式。 */
-.el-tag { --el-tag-border-color: transparent; font-weight: 400; } /* 定义当前元素的样式规则。 */
 .el-table .el-tag { border-color: transparent; } /* 定义当前元素的样式规则。 */
 .menu-group-toggle { width:calc(100% - 24px); padding:0; border:0; background:transparent; display:flex; align-items:center; justify-content:space-between; cursor:pointer; } /* 定义当前元素的样式规则。 */
 .menu-group-toggle svg { width:13px; height:13px; transition:transform .2s; } /* 定义当前元素的样式规则。 */
@@ -501,15 +450,11 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 .el-table .el-button.is-disabled { color:#94a3b8 !important; background:#f8fafc !important; border-color:#e2e8f0 !important; } /* 定义当前元素的样式规则。 */
 .el-form-item { margin-bottom: 20px; } /* 定义当前元素的样式规则。 */
 .el-form-item__label { font-weight: 500; } /* 定义当前元素的样式规则。 */
-.el-collapse { --el-collapse-border-color: var(--border); } /* 定义当前元素的样式规则。 */
 .el-collapse-item__header { font-weight: 500; } /* 定义当前元素的样式规则。 */
 :is(.app-shell, .el-overlay) .el-input .el-input__wrapper, :is(.app-shell, .el-overlay) .el-select .el-select__wrapper { min-height: 36px; } /* 设置  样式。 */
-.el-table .el-table-fixed-column--right { border-left: 0; } /* 定义当前元素的样式规则。 */
 @media (max-width: 640px) { /* 按屏幕条件调整样式。 */
   .main-content { padding: 16px 14px 24px; } /* 定义当前元素的样式规则。 */
   .topbar { padding-inline: 14px; height: 52px; flex-basis: 52px; } /* 定义当前元素的样式规则。 */
-  .page-context { margin-bottom: 18px; } /* 定义当前元素的样式规则。 */
-  .page-context h1 { font-size: 24px; } /* 定义当前元素的样式规则。 */
   .workspace-label { font-size: 12px; } /* 定义当前元素的样式规则。 */
 } /* 结束当前样式规则。 */
 

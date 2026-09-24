@@ -37,7 +37,7 @@ function remove(key) { emit('update:modelValue', props.kind === 'array' ? props.
   </div> <!-- 结束当前界面区域。 -->
 </template>
 <style scoped>
-.command-object { width:100%; min-width:0; border-left:2px solid #d5dde8; padding-left:12px; } /* 定义当前元素的样式规则。 */
+.command-object { width:100%; min-width:0; border-left:2px solid var(--border); padding-left:12px; } /* 定义当前元素的样式规则。 */
 .command-entry { margin-bottom:12px; } /* 定义当前元素的样式规则。 */
 .command-entry-heading { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; } /* 定义当前元素的样式规则。 */
 .command-entry-heading > .el-input,.command-entry-heading > .el-select { width:140px; } /* 定义当前元素的样式规则。 */

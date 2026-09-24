@@ -6,7 +6,7 @@ const kind = value => ({ danger: 'error', primary: 'primary', success: 'success'
 export const UiButton = defineComponent({ /* 保持原按钮事件与视觉语义。 */
   name: 'UiButton', inheritAttrs: false, /* 明确转发原生属性。 */
   props: { type: String, plain: Boolean, link: Boolean, text: Boolean, round: Boolean, circle: Boolean, size: String, loading: Boolean, disabled: Boolean, nativeType: String }, /* 页面按钮常用参数。 */
-  setup(props, { attrs, slots }) { return () => h(NButton, { ...attrs, class: ['el-button', attrs.class], type: kind(props.type), secondary: props.plain, text: props.link || props.text, round: props.round, circle: props.circle, size: props.size || 'small', loading: props.loading, disabled: props.disabled, attrType: props.nativeType || 'button' }, slots) } /* 使用 Naive UI 按钮。 */
+  setup(props, { attrs, slots }) { return () => h(NButton, { ...attrs, class: ['el-button', attrs.class], type: kind(props.type), secondary: props.plain, text: props.link || props.text, round: props.round, circle: props.circle, size: props.size || 'medium', loading: props.loading, disabled: props.disabled, attrType: props.nativeType || 'button' }, slots) } /* 使用 Naive UI 按钮。 */
 }) /* 结束按钮适配。 */
 
 export const UiInput = defineComponent({ /* 文本、密码与多行输入共用 Naive UI 输入框。 */
@@ -80,7 +80,7 @@ export const UiRadioGroup = defineComponent({ /* 单选分组保留 v-model 语�
   name: 'UiRadioGroup', inheritAttrs: false, /* 保留无障碍标签。 */
   props: { modelValue: [String, Number, Boolean], size: String, disabled: Boolean }, /* 当前选项和尺寸。 */
   emits: ['update:modelValue', 'change'], /* 保留业务变更事件。 */
-  setup(props, { attrs, slots, emit }) { return () => h(NRadioGroup, { ...attrs, class: ['el-radio-group', attrs.class], value: props.modelValue, size: props.size || 'small', disabled: props.disabled, 'onUpdate:value': value => { emit('update:modelValue', value); emit('change', value) } }, slots) } /* 绘制单选组。 */
+  setup(props, { attrs, slots, emit }) { return () => h(NRadioGroup, { ...attrs, class: ['el-radio-group', attrs.class], value: props.modelValue, size: props.size || 'medium', disabled: props.disabled, 'onUpdate:value': value => { emit('update:modelValue', value); emit('change', value) } }, slots) } /* 绘制单选组。 */
 }) /* 结束单选组适配。 */
 
 export const UiRadioButton = defineComponent({ /* 分段式选项使用 Naive UI 单选按钮。 */

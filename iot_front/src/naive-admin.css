@@ -38,7 +38,7 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .collapse-button { color: #6b7585; } /* 设置后台页面的布局与视觉样式。 */
 .collapse-button:hover { color: var(--primary); background: var(--accent); } /* 设置后台页面的布局与视觉样式。 */
 .workspace-breadcrumb { display: flex; align-items: center; gap: 9px; color: #9099a8; font-size: 12px; white-space: nowrap; } /* 设置后台页面的布局与视觉样式。 */
-.workspace-breadcrumb strong { color: #454f5f; font-weight: 600; } /* 设置后台页面的布局与视觉样式。 */
+.workspace-breadcrumb strong { color: var(--foreground); font-size: 15px; font-weight: 650; } /* 当前页面在精简导航后仍清晰可辨。 */
 .breadcrumb-divider { color: #c4cad3; } /* 设置后台页面的布局与视觉样式。 */
 .account { border-radius: 6px; } /* 设置后台页面的布局与视觉样式。 */
 .account:hover, .account:focus-visible { color: var(--primary); background: var(--accent); border-color: #cbd8e8; } /* 设置后台页面的布局与视觉样式。 */
@@ -54,8 +54,6 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 .app-tab .app-tab-close { width: 22px; justify-content: center; border-radius: 4px; } /* 设置后台页面的布局与视觉样式。 */
 .app-tab .app-tab-close:hover { color: #475569; background: #e7ecea; } /* 设置后台页面的布局与视觉样式。 */
 .main-content { padding: 24px 24px 42px; background: var(--background); scrollbar-gutter: stable; } /* 设置后台页面的布局与视觉样式。 */
-.page-context { margin-bottom: 18px; } /* 设置后台页面的布局与视觉样式。 */
-.page-context h1 { color: #222b39; font-size: 22px; font-weight: 650; letter-spacing: -.025em; } /* 设置后台页面的布局与视觉样式。 */
 .workspace-label { color: #7d8794; } /* 设置后台页面的布局与视觉样式。 */
 
 /* 全部业务控件由 Naive UI 绘制，管理页保持统一的间距与密度。 */
@@ -154,7 +152,6 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
   .app-tabs { min-height: 40px; padding-inline: 8px; } /* 设置后台页面的布局与视觉样式。 */
   .app-tab { height: 36px; } /* 设置后台页面的布局与视觉样式。 */
   .main-content { padding: 14px 12px 28px; } /* 设置后台页面的布局与视觉样式。 */
-  .page-context h1 { font-size: 19px; } /* 设置后台页面的布局与视觉样式。 */
   .n-modal.el-dialog { max-height: calc(100dvh - 24px); } /* 设置后台页面的布局与视觉样式。 */
   .ui-form-inline { align-items: stretch; } /* 设置后台页面的布局与视觉样式。 */
   .page-toolbar > .n-input, .page-toolbar > .n-select { width: 100%; } /* 设置后台页面的布局与视觉样式。 */

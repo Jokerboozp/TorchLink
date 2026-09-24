@@ -270,20 +270,20 @@ onMounted(() => {
 .test-device-workbench, .test-device-side { display: grid; gap: 16px; min-width: 0; } /* 定义当前元素的样式规则。 */
 .test-device-view code { overflow-wrap: anywhere; word-break: break-word; } /* 定义当前元素的样式规则。 */
 .test-device-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; } /* 定义当前元素的样式规则。 */
-.test-device-summary > div { min-width: 0; padding: 13px; border-radius: .625rem; background: #f5f7fa; } /* 定义当前元素的样式规则。 */
+.test-device-summary > div { min-width: 0; padding: 13px; border-radius: .625rem; background: var(--surface-subtle); } /* 定义当前元素的样式规则。 */
 .test-device-summary span, .test-device-summary small, .credential-box span { display: block; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .test-device-summary strong { display: block; margin: 7px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; } /* 定义当前元素的样式规则。 */
-.credential-box { display: grid; gap: 6px; padding: 12px; border: 1px solid #fcd34d; border-radius: .625rem; background: #fffbeb; } /* 定义当前元素的样式规则。 */
-.credential-box code { overflow-wrap: anywhere; color: #92400e; } /* 定义当前元素的样式规则。 */
+.credential-box { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--warning); border-radius: .625rem; background: var(--surface-subtle); } /* 定义当前元素的样式规则。 */
+.credential-box code { overflow-wrap: anywhere; color: var(--warning-foreground); } /* 定义当前元素的样式规则。 */
 .template-switcher { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 11px; } /* 定义当前元素的样式规则。 */
-.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); background: #fff; cursor: pointer; font-size: 13px; } /* 定义当前元素的样式规则。 */
+.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); background: var(--card); cursor: pointer; font-size: 13px; } /* 定义当前元素的样式规则。 */
 .template-switcher button:hover, .template-switcher button.active { border-color: var(--primary); color: var(--accent-foreground); background: var(--accent); } /* 定义当前元素的样式规则。 */
-.template-editor :deep(textarea) { min-height: 330px; padding: 13px; color: #dbeafe; background: #0f172a; border-color: #1e293b; border-radius: .625rem; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; } /* 定义当前元素的样式规则。 */
+.template-editor :deep(textarea) { min-height: 330px; padding: 13px; color: var(--code-foreground); background: var(--code-background); border-color: var(--code-border); border-radius: .625rem; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; } /* 定义当前元素的样式规则。 */
 .template-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; } /* 定义当前元素的样式规则。 */
 .template-actions span { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .quick-send-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; } /* 定义当前元素的样式规则。 */
-.quick-send { min-height: 74px; padding: 13px; display: grid; gap: 5px; text-align: left; border: 1px solid var(--border); border-radius: .625rem; background: #fff; cursor: pointer; } /* 定义当前元素的样式规则。 */
-.quick-send:hover:not(:disabled) { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.1); } /* 定义当前元素的样式规则。 */
+.quick-send { min-height: 74px; padding: 13px; display: grid; gap: 5px; text-align: left; border: 1px solid var(--border); border-radius: .625rem; background: var(--card); cursor: pointer; } /* 定义当前元素的样式规则。 */
+.quick-send:hover:not(:disabled) { border-color: var(--primary); box-shadow: 0 2px 8px color-mix(in srgb,var(--primary) 10%,transparent); } /* 定义当前元素的样式规则。 */
 .quick-send:disabled { cursor: not-allowed; opacity: .58; } /* 定义当前元素的样式规则。 */
 .quick-send strong { font-size: 13px; } /* 定义当前元素的样式规则。 */
 .quick-send small { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */

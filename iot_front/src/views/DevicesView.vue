@@ -14,7 +14,11 @@ const products = ref([]) /* 声明 products。 */
 const registryOptions = ref([]) /* 声明 registryOptions。 */
 const unregisteredOptions = ref([]) /* 声明 unregisteredOptions。 */
 const deviceTab = ref('independent') /* 声明 deviceTab。 */
-const deviceGroups = { independent:{label:'独立设备',role:'DIRECT'}, main:{label:'主设备',role:'GATEWAY'}, children:{label:'子设备',role:'CHILD'} } /* 声明 deviceGroups。 */
+const deviceGroups = {
+  independent:{label:'独立设备',role:'DIRECT',hint:'直接接入平台，不归属主设备'},
+  main:{label:'主设备',role:'GATEWAY',hint:'可管理下接的子设备'},
+  children:{label:'子设备',role:'CHILD',hint:'通过主设备接入平台'}
+} /* 声明 deviceGroups。 */
 const deviceRoleDescriptions = { DIRECT:'单独登记，不关联下级设备。', GATEWAY:'可作为主设备关联下级子设备。', CHILD:'需选择一台已登记的主设备。' }
 const deviceCategory = ref('') /* 声明 deviceCategory。 */
 const loading = ref(false) /* 声明 loading。 */
@@ -126,9 +130,14 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   <DeviceOnboarding v-if="onboarding" @close="onboarding=false;load()" @done="onboarding=false;load()" @detail="id=>{onboarding=false;connectionDevice=id;load()}" @navigate="(page,query)=>emit('navigate',page,query)" />
   <template v-else>
   <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id=>connectionDevice=id" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" /> <!-- 渲染 DeviceConnection 界面元素。 -->
-  <ui-tabs v-model="deviceTab" @tab-change="changeDeviceFilter" aria-label="设备分组"><ui-tab-pane v-for="(group, key) in deviceGroups" :key="key" :label="group.label" :name="key" /></ui-tabs> <!-- 渲染 ui-tabs 界面元素。 -->
-  <div class="page-toolbar"><ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="onboarding=true;connectionDevice=''">接入设备</ui-button><ui-button v-if="deviceTab!=='children'" v-permission="'POST /api/v1/device-registry'" @click="open()">快捷添加</ui-button><ui-button :loading="loading" @click="load">刷新设备</ui-button><span>当前{{ deviceGroups[deviceTab].label }} {{ registryTotal }} 台</span><span v-if="updatesAvailable" role="status">有新数据，点击“刷新设备”更新</span></div> <!-- 渲染 div 界面元素。 -->
-  <ui-form inline class="device-filters" @submit.prevent><ui-form-item label="设备类型"><ui-select v-model="deviceCategory" clearable placeholder="全部类型" aria-label="设备类型" style="width:220px" @change="changeDeviceFilter"><ui-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" /></ui-select></ui-form-item><ui-form-item><ui-button @click="deviceCategory='';changeDeviceFilter()">重置筛选</ui-button></ui-form-item></ui-form> <!-- 渲染 ui-form 界面元素。 -->
+  <section class="device-group-section" aria-labelledby="device-group-heading">
+    <div class="device-group-heading"><h2 id="device-group-heading">按接入关系查看</h2><p>选择设备与平台的连接关系</p></div>
+    <div class="device-group-options" role="group" aria-label="设备接入关系">
+      <button v-for="(group, key) in deviceGroups" :id="`tab-${key}`" :key="key" type="button" class="device-group-option" :class="{active:deviceTab===key}" :aria-pressed="deviceTab===key" @click="deviceTab=key;changeDeviceFilter()"><strong>{{ group.label }}</strong><small>{{ group.hint }}</small></button>
+    </div>
+  </section>
+  <div class="device-list-heading"><div><h3>{{ deviceGroups[deviceTab].label }}列表 <span>{{ registryTotal }} 台</span></h3><p>查看设备状态、连接详情与最近活跃时间</p></div><div class="page-toolbar"><ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="onboarding=true;connectionDevice=''">接入设备</ui-button><ui-button v-if="deviceTab!=='children'" v-permission="'POST /api/v1/device-registry'" @click="open()">快捷添加</ui-button><ui-button :loading="loading" @click="load">刷新设备</ui-button><span v-if="updatesAvailable" role="status">有新数据，点击“刷新设备”更新</span></div></div>
+  <section class="device-filter-panel" aria-label="筛选设备列表"><div class="device-filter-heading"><strong>筛选条件</strong><span>仅筛选当前的{{ deviceGroups[deviceTab].label }}列表</span></div><ui-form inline class="device-filters" @submit.prevent><ui-form-item label="设备类型"><ui-select v-model="deviceCategory" clearable placeholder="全部类型" aria-label="设备类型" class="device-category-select" @change="changeDeviceFilter"><ui-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" /></ui-select></ui-form-item><ui-form-item><ui-button :disabled="!deviceCategory" @click="deviceCategory='';changeDeviceFilter()">重置筛选</ui-button></ui-form-item></ui-form></section>
   <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
     <ui-table v-loading="loading" :data="registry" stripe> <!-- 渲染 ui-table 界面元素。 -->
       <ui-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
@@ -177,8 +186,31 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
   </template>
 </template>
 <style scoped>
-.device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:#65778b;font-size:12px;line-height:1.5}
-.device-advanced{margin-top:5px}.device-advanced-section{padding:13px;margin:10px 0;border:1px solid #dce6f1;border-radius:9px;background:#f9fbfe}.device-advanced-section h4{margin:0;color:#294562;font-size:13px}.device-advanced-section p{margin:4px 0 11px;color:#53697f;font-size:12px;line-height:1.5}.device-advanced-section :deep(.n-form-item){margin:10px 0 0}
-.device-tag-list{width:100%}.device-tag-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:10px 0}.device-tag-row label{display:grid;min-width:0;gap:5px;color:#435a74;font-size:12px;font-weight:600}.device-tag-row :deep(.n-input){width:100%}.device-tag-empty{padding:10px;border:1px dashed #cbd8e7;border-radius:7px;background:#fff}
-@media(max-width:640px){.device-tag-row{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tag-row .n-button{justify-self:start}}
+.device-group-section{margin-bottom:28px}
+.device-group-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px}
+.device-group-heading h2{margin:0;color:var(--text-strong);font-size:17px;line-height:1.4}
+.device-group-heading p{margin:0;color:var(--muted-foreground);font-size:13px}
+.device-group-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:1040px}
+.device-group-option{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:76px;padding:14px 16px;border:1px solid var(--border);border-radius:9px;background:var(--card);text-align:left;cursor:pointer;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease}
+.device-group-option strong{color:var(--text-strong);font-size:15px;line-height:1.3}
+.device-group-option small{color:var(--muted-foreground);font-size:12px;line-height:1.4}
+.device-group-option:hover{border-color:var(--border-info);background:var(--surface-subtle)}
+.device-group-option.active{border-color:var(--primary);background:var(--accent);box-shadow:inset 3px 0 var(--brand-flame)}
+.device-group-option.active strong{color:var(--accent-foreground)}
+.device-group-option:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.device-list-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;margin-bottom:16px}
+.device-list-heading h3{display:flex;align-items:baseline;gap:12px;margin:0;color:var(--text-strong);font-size:18px;line-height:1.4}
+.device-list-heading h3 span{color:var(--muted-foreground);font-size:13px;font-weight:500}
+.device-list-heading p{margin:3px 0 0;color:var(--muted-foreground);font-size:13px}
+.device-list-heading .page-toolbar{min-height:0;margin:0}
+.device-filter-panel{display:flex;align-items:center;flex-wrap:wrap;gap:12px 28px;margin-bottom:18px;padding:15px 18px;border:1px solid var(--border);border-radius:9px;background:var(--surface-subtle)}
+.device-filter-heading{display:flex;flex-direction:column;gap:3px}
+.device-filter-heading strong{color:var(--text-strong);font-size:14px}
+.device-filter-heading span{color:var(--muted-foreground);font-size:12px}
+.device-filters{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.device-category-select{width:220px}
+.device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:var(--accent-foreground);font-size:12px;line-height:1.5}
+.device-advanced{margin-top:5px}.device-advanced-section{padding:13px;margin:10px 0;border:1px solid var(--border);border-radius:9px;background:var(--card)}.device-advanced-section h4{margin:0;color:var(--accent-foreground);font-size:13px}.device-advanced-section p{margin:4px 0 11px;color:var(--accent-foreground);font-size:12px;line-height:1.5}.device-advanced-section :deep(.n-form-item){margin:10px 0 0}
+.device-tag-list{width:100%}.device-tag-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:10px 0}.device-tag-row label{display:grid;min-width:0;gap:5px;color:var(--accent-foreground);font-size:12px;font-weight:600}.device-tag-row :deep(.n-input){width:100%}.device-tag-empty{padding:10px;border:1px dashed var(--border-info);border-radius:7px;background:var(--card)}
+@media(max-width:640px){.device-group-section{margin-bottom:22px}.device-group-options{grid-template-columns:1fr;gap:8px}.device-group-option{min-height:0;padding:11px 14px}.device-list-heading{align-items:stretch}.device-list-heading .page-toolbar{width:100%}.device-filter-panel{align-items:stretch;padding:14px}.device-filters{align-items:stretch}.device-category-select{width:min(220px,100%)}.device-tag-row{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tag-row .n-button{justify-self:start}}
 </style>

@@ -229,8 +229,8 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 </template>
 
 <style scoped>
-.analysis-progress { margin: 12px 0; padding: 12px; background: #f5f9ff; border: 1px solid #d6e8ff; border-radius: 5px; } /* 定义当前元素的样式规则。 */
-.analysis-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; color:#1554ad; font-size:13px; } /* 定义当前元素的样式规则。 */
-.analysis-progress-heading span { color:#1677ff; font-weight:700; } /* 定义当前元素的样式规则。 */
-.analysis-progress small { display:block; margin-top:7px; color:#697386; font-size:12px; } /* 定义当前元素的样式规则。 */
+.analysis-progress { margin: 12px 0; padding: 12px; background: var(--surface-subtle); border: 1px solid var(--border-info); border-radius: 5px; } /* 定义当前元素的样式规则。 */
+.analysis-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; color:var(--primary); font-size:13px; } /* 定义当前元素的样式规则。 */
+.analysis-progress-heading span { color:var(--primary); font-weight:700; } /* 定义当前元素的样式规则。 */
+.analysis-progress small { display:block; margin-top:7px; color:var(--accent-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
 </style>

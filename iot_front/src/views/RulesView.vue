@@ -267,14 +267,13 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
 </template>
 
 <style scoped>
-.rule-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid #dce6f1;border-radius:10px;background:#f9fbfe}
-.rule-editor-heading{margin-bottom:13px}.rule-editor-heading h3{margin:0;color:#223f60;font-size:14px}.rule-editor-heading p{margin:5px 0 0;color:#53697f;font-size:12px;line-height:1.6}
+.rule-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.rule-editor-heading{margin-bottom:13px}.rule-editor-heading h3{margin:0;color:var(--accent-foreground);font-size:14px}.rule-editor-heading p{margin:5px 0 0;color:var(--accent-foreground);font-size:12px;line-height:1.6}
 .rule-editor-section :deep(.n-form-item){min-width:0}.rule-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
-.rule-action-field{display:grid;width:100%;gap:7px}.rule-action-field small{color:#53697f;font-size:12px;line-height:1.5}
-.rule-field-reference{padding:13px 16px;border:1px solid #dce6f1;border-radius:10px;background:#fff}.rule-field-reference summary{cursor:pointer;color:#294562;font-size:13px;font-weight:700}.rule-field-reference summary small{margin-left:8px;color:#53697f;font-weight:400}.rule-field-reference :deep(.n-data-table){max-width:100%}
+.rule-action-field{display:grid;width:100%;gap:7px}.rule-action-field small{color:var(--accent-foreground);font-size:12px;line-height:1.5}
+.rule-field-reference{padding:13px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card)}.rule-field-reference summary{cursor:pointer;color:var(--accent-foreground);font-size:13px;font-weight:700}.rule-field-reference summary small{margin-left:8px;color:var(--accent-foreground);font-weight:400}.rule-field-reference :deep(.n-data-table){max-width:100%}
 .rule-reference-scroll{max-width:100%;overflow-x:auto}
 .rule-reference-cards{display:none}
-@media(max-width:640px){.rule-editor-section{padding:13px}.rule-field-reference{padding:12px}.rule-field-reference summary small{display:block;margin:3px 0 0}.rule-reference-scroll{display:none}.rule-reference-cards{display:grid;gap:8px;margin-top:12px}.rule-reference-cards article{padding:10px;border:1px solid #dce6f1;border-radius:7px;background:#f9fbfe}.rule-reference-cards strong{display:block;color:#294562;font-size:12px;overflow-wrap:anywhere}.rule-reference-cards p{margin:5px 0;color:#445b73;font-size:12px;line-height:1.55}.rule-reference-cards small{display:block;color:#53697f;font-size:11px;line-height:1.5;overflow-wrap:anywhere}}
+@media(max-width:640px){.rule-editor-section{padding:13px}.rule-field-reference{padding:12px}.rule-field-reference summary small{display:block;margin:3px 0 0}.rule-reference-scroll{display:none}.rule-reference-cards{display:grid;gap:8px;margin-top:12px}.rule-reference-cards article{padding:10px;border:1px solid var(--border);border-radius:7px;background:var(--card)}.rule-reference-cards strong{display:block;color:var(--accent-foreground);font-size:12px;overflow-wrap:anywhere}.rule-reference-cards p{margin:5px 0;color:var(--accent-foreground);font-size:12px;line-height:1.55}.rule-reference-cards small{display:block;color:var(--accent-foreground);font-size:11px;line-height:1.5;overflow-wrap:anywhere}}
 .rule-help-alert { margin: 2px 0 14px; } /* 定义当前元素的样式规则。 */
-:deep(.el-table) { width: 100%; } /* 设置  样式。 */
 </style>

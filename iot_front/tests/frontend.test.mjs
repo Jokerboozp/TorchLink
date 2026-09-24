@@ -50,9 +50,9 @@ test('shared controls keep file pickers and text actions visibly shaped', async 
   const styles = await readFile(new URL('src/styles.css', root), 'utf8') /* 声明 styles。 */
   const assistant = await readFile(new URL('src/views/ProtocolAssistantView.vue', root), 'utf8') /* 声明 assistant。 */
   const protocols = await readFile(new URL('src/views/ProtocolsView.vue', root), 'utf8') /* 声明 protocols。 */
-  assert.match(styles, /\.el-button\.is-text, \.el-button\.is-link \{[^}]*border: 1px solid var\(--border\)/) /* 验证实际结果符合预期。 */
+  assert.match(styles, /\.n-button\.el-button\.n-button--text \{[^}]*border: 1px solid var\(--border\)/) /* 验证 Naive UI 文本按钮有可见轮廓。 */
   assert.match(styles, /input\[type="file"\]::file-selector-button/) /* 验证实际结果符合预期。 */
-  assert.match(styles, /\.el-button--small \{[^}]*min-height: 28px/) /* 验证实际结果符合预期。 */
+  assert.match(styles, /\.table-actions \.el-button, \.el-table \.el-button \{[^}]*min-height: 28px/) /* 表格操作维持紧凑尺寸。 */
   assert.match(`${assistant}\n${protocols}`, /<FilePicker/) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
 
