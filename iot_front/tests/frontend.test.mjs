@@ -291,7 +291,7 @@ test('AI model administration has its own menu and business overview', async () 
   assert.match(aiView, /providerLabel\(runtime\.config\?\.provider \|\| runtime\.active\?\.id\)/) /* 顶部保留当前模型状态。 */
   assert.doesNotMatch(aiView, /providerForm|saveProviderConfig|\/api\/v1\/ai\/providers\/config/) /* 验证实际结果符合预期。 */
   assert.doesNotMatch(aiView, /<ui-menu-item index="knowledge"|<ui-menu-item index="provider"/) /* 不恢复旧的嵌套菜单。 */
-  for (const label of ['统一管理智能模型与业务能力', '模型服务配置', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) { /* 循环处理当前数据。 */
+  for (const label of ['连接并启用模型服务', '模型服务配置', '选择模型来源', '填写连接信息', '设置模型与输出', '智能业务能力', '可用模型服务', '测试配置', '应用配置', '智能告警研判', '智能巡检']) { /* 循环处理当前数据。 */
     assert.match(providerView, new RegExp(label), `missing AI Provider management label: ${label}`) /* 验证实际结果符合预期。 */
   } /* 结束当前表达式或代码块。 */
   assert.match(providerView, /label="最大输出词元"/)
@@ -304,7 +304,7 @@ test('AI model administration has its own menu and business overview', async () 
   assert.match(providerView, /function testProviderConfig\(\)/) /* 验证实际结果符合预期。 */
   assert.match(providerView, /function applyProviderConfig\(\)/) /* 验证实际结果符合预期。 */
   assert.match(providerView, /:disabled="!canApply"/) /* 验证实际结果符合预期。 */
-  assert.match(providerView, /当前填写内容未生效/) /* 验证实际结果符合预期。 */
+  assert.match(providerView, /测试只验证连接，点击“应用配置”后才会生效/) /* 验证测试和启用的区别有明确说明。 */
   assert.match(providerView, /所有智能功能立即生效/) /* 验证实际结果符合预期。 */
   assert.match(knowledgeView, /知识库策略/) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
