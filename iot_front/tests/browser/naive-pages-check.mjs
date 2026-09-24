@@ -44,6 +44,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v2/protocol-source-template' ? { compilerAvailable:true, targetPlatforms:['linux-amd64','linux-arm64','windows-amd64','windows-arm64','darwin-amd64','darwin-arm64'] }
         : path === '/api/v2/protocols' ? { items:[{ definition:{ id:'protocol-demo', name:'演示消防协议', vendor:'炬联' }, releases:[{ version:'2.0.0', status:'PUBLISHED', transport:'MQTT', parserType:'JSON', artifact:{ platform:'linux-amd64' } },{ version:'1.0.0', status:'VALIDATED', transport:'MQTT', parserType:'JSON', artifact:{ platform:'linux-amd64' } }] }] }
         : path === '/api/v2/device-access-profiles' ? { items:[{ id:'gateway-demo', productId:'product-demo', protocolId:'protocol-demo', protocolVersion:'1.0.0', mode:'listener', network:'tcp', connectionMode:'listen', host:'0.0.0.0', port:26875, timeoutMs:5000, enabled:true }] }
+        : path.startsWith('/api/v1/products?') ? { items:[{ id:'product-demo', name:'烟雾探测器', category:'smoke', transport:'MQTT', payloadFormat:'json', status:'ENABLED', protocolPackageId:'iot-standard@1.0.0', metadata:{} }], total:1 }
+        : path.startsWith('/api/v1/device-registry?') ? { items:[{ device:{ id:'device-demo', name:'一层走廊烟感', productId:'product-demo', deviceRole:'DIRECT', status:'ENABLED', createdAt:Date.now() }, runtimeState:{ businessStatus:'ONLINE', lastSeenAt:Date.now() }, childCount:0 }], total:1 }
         : path.startsWith('/api/v1/raw-messages?') ? { items: [{ messageId: 'raw-demo', receivedAt: Date.now(), productId: 'product-demo', deviceId: 'device-demo', protocol: 'MQTT', parsed: true, parsedMessageType: 'PROPERTY_REPORT', payloadSize: 4, payloadHash: 'fixture-hash' }], total: 1 }
         : path === '/api/v1/raw-messages/raw-demo' ? { parseStatus: 'PARSED', message: { messageId: 'raw-demo', deviceId: 'device-demo', productId: 'product-demo', payload: 'AA01', receivedAt: Date.now(), protocol: 'MQTT', payloadFormat: 'hex' }, standardMessage: { messageType: 'PROPERTY_REPORT', properties: { temperature: 42 } }, archive: { payloadHash: 'fixture-hash' } }
         : path.startsWith('/api/v1/alarms?') ? { items: [{ alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', lastTriggeredAt:Date.now() }], total:1 }
@@ -51,6 +53,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/ai/alarm-analysis/alarm-demo' ? { summary:'设备多次触发故障告警，需要检查现场状态', riskLevel:'MEDIUM', confidence:0.85, possibleReasons:['设备状态异常','通信链路抖动'], suggestions:['检查设备电源和网络','核对告警历史'], model:'fixture', createdAt:Date.now() }
         : path.startsWith('/api/v1/ai/workflows/admin?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'只读配置清单', enabled:true, version:'1.0.0' },{ id:'custom-assistant', name:'示例智能体', description:'可编辑的工作流', enabled:true, version:'1.0.0' }], total:2 }
         : path.startsWith('/api/v1/ai/workflows?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'查询设备与告警', enabled:true, capabilities:['告警查询'], allowedTools:['mcp__iot__query_alarm_list'] },{ id:'custom-assistant', name:'示例智能体', description:'检索处置知识', enabled:true, capabilities:['知识检索'], allowedTools:['mcp__iot__query_knowledge_base'] }], total:2, healthy:true }
+        : path.startsWith('/api/v1/knowledge/documents?') ? { items:[{ id:'knowledge-demo', filename:'消防处置手册.md', workflowId:'ops-assistant', category:'manual', metadata:{ chunks:2, size:2048 }, createdAt:Date.now() }], total:1, indexMode:'vector', persistentIndex:true }
+        : path === '/api/v1/knowledge/documents/knowledge-demo' ? { document:{ id:'knowledge-demo', filename:'消防处置手册.md', workflowId:'ops-assistant', category:'manual', metadata:{ chunks:2, size:2048 }, createdAt:Date.now() }, index:{ mode:'vector', vectorizer:'fixture', chunking:{ strategy:'fixed-window-overlap', size:500, overlap:50 }, extractedChars:950, chunkCount:2 }, chunks:[{ chunkId:'chunk-1', startChar:0, endChar:500, characterCount:500, vectorized:true, content:'设备告警处置步骤' },{ chunkId:'chunk-2', startChar:450, endChar:950, characterCount:500, vectorized:true, content:'现场复核与恢复流程' }] }
         : path.startsWith('/api/v1/rules?') ? { items: [{ id:'rule-demo', name:'演示规则', alarmType:'DEVICE_FAULT', level:'HIGH', enabled:true, conditions:[], actions:[] }], total:1 }
         : path === '/api/v1/access/users' ? { tenantId:'fixture', items:[{ username:'operator-demo', displayName:'操作员', enabled:true, roleIds:[], deviceScope:'none' }] }
         : path === '/api/v1/access/roles' ? { items:[{ id:'viewer', name:'查看员', permissions:[] }] }
@@ -62,7 +66,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
         : path === '/api/v1/backups/backup-demo' ? { id:'backup-demo', type:'DEVICE_DAILY', status:'COMPLETED', startedAt:Date.now(), completedAt:Date.now(), details:{}, objectKey:'backup/manifest.json' }
         : path.startsWith('/api/v1/backups/backup-demo/files?') ? { artifacts:[{ component:'原始报文', filename:'raw-messages.jsonl.gz', size:313, checksum:'fixture' }], total:1, components:{ rawMessages:{ records:1 } } }
         : path.startsWith('/api/v1/dashboard?') ? { devices: 3, online: 2, activeAlarms: 2, highAlarms: 1, states: { ONLINE:2, OFFLINE:1 }, products: [{ key:'product-demo', name:'演示烟感', count:3 }], trend: [], levels: { HIGH:1, MEDIUM:1 }, updatedAt: Date.now() } : null;
-      return body ? Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })) : originalFetch(input, options);
+      return body || path.startsWith('/api/') ? Promise.resolve(new Response(JSON.stringify(body || { items:[], total:0 }), { headers: { 'Content-Type': 'application/json' } })) : originalFetch(input, options);
     };
   ` }) /* 注入仅供界面检查使用的身份与权限。 */
   await call('Page.navigate', { url: origin }) /* 打开合成数据前端。 */
@@ -81,8 +85,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   for (const name of pages) { /* 逐页检查标题、正文和脚本异常。 */
     await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(name)}]').click()`) /* 打开目标页面。 */
     await until(() => evaluate(`document.querySelector('.page-context h1')?.innerText === ${JSON.stringify(name)}`)).catch(async error => { throw new Error(`${name} 页面未能切换：${error.message}；当前 ${await evaluate("document.querySelector('.page-context h1')?.innerText || document.body.innerText.slice(0, 200)")}；异常 ${failures.slice(0, 2).join(' | ')}`) }) /* 确认当前页面标题。 */
-    await delay(180) /* 等待异步页面的首屏渲染。 */
-    const text = await evaluate("document.querySelector('.main-content')?.innerText.trim() || ''") /* 读取可见正文。 */
+    const text = await until(async () => { const value=await evaluate("document.querySelector('.main-content')?.innerText.trim() || ''"); return value.length>name.length ? value : false }).catch(async error => { throw new Error(`${name} 缺少业务内容：${error.message}；异常=${failures.slice(-3).join(' | ')}；警告=${warnings.slice(-3).join(' | ')}`) }) /* 等待异步页面出现业务内容。 */
     assert.ok(text.length > name.length, `${name} 缺少业务内容`) /* 防止页面只显示标题。 */
     assert.ok(await evaluate("[...document.querySelectorAll('.main-content .n-tabs-tab')].every(tab=>tab.innerText.trim().length>0 && tab.getBoundingClientRect().width>0)"), `${name} 存在空白页签`) /* 所有主页面页签必须有可读标题。 */
     const surfaceAudit = await auditControls('.main-content')
@@ -95,6 +98,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     if (name==='备份中心') assert.ok(await evaluate("(() => {const card=document.querySelector('.backup-stat-grid .n-card-content'),label=card?.querySelector('span'),value=card?.querySelector('strong'),note=card?.querySelector('small');if(!label||!value||!note)return false;const a=label.getBoundingClientRect(),b=value.getBoundingClientRect(),c=note.getBoundingClientRect();return a.bottom<=b.top&&b.bottom<=c.top})()"), '备份概览卡片的标题、数值和说明挤在同一行') /* 卡片内容应按层级纵向排列。 */
     if (name==='设备管理') assert.ok(await evaluate("(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(item=>item.innerText.includes('一层走廊烟感'));return row && row.querySelectorAll('.n-tag').length===1 && row.querySelector('.device-enabled-state')?.innerText.includes('已启用') && row.querySelector('.device-role-text')?.innerText.includes('独立设备')})()"), '设备列表仍堆叠多个状态标签') /* 仅运行状态保留标签。 */
     if (name==='模型管理') assert.ok(await evaluate("(() => {const config=document.querySelector('.ai-provider-config'),scope=document.querySelector('.ai-capability-card'),token=document.querySelector('.config-field-grid .n-input-number'),hint=document.querySelector('.config-field-grid .provider-field-hint');return config&&scope&&token&&hint&&config.getBoundingClientRect().width>scope.getBoundingClientRect().width&&config.querySelectorAll('.config-section').length===3&&hint.getBoundingClientRect().top>=token.getBoundingClientRect().bottom})()"), '模型配置未突出主操作，或词元说明与输入框挤在一起')
+    if (name==='智能助手') assert.ok(await evaluate("(() => {const workbench=document.querySelector('.ai-workbench'),chat=document.querySelector('.ai-chat-card'),select=document.querySelector('.chat-workflow-select');return workbench&&chat&&select&&!document.querySelector('.control-card')&&chat.getBoundingClientRect().width>=workbench.getBoundingClientRect().width-2&&select.getBoundingClientRect().width>=220})()"), '智能助手仍有独立运行栏，或对话区未占满可用宽度')
     { const capture = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-naive-${pages.indexOf(name)}.png`), Buffer.from(capture.data, 'base64')) } /* 留存每个主页面的临时截图供逐页复核。 */
   } /* 结束页面遍历。 */
   const overlayCases = [
@@ -334,14 +338,14 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待详情关闭。 */
   await evaluate("(() => {const base='iot:ai-history:v1:'+localStorage.getItem('iot_tenant')+':'+localStorage.getItem('iot_user');for(const [id,text] of [['ops-assistant','A 专属对话'],['custom-assistant','B 专属对话']]){const state={version:1,selectedWorkflowId:id,conversationId:'conversation-'+id,messages:[{id:'message-'+id,role:'user',status:'succeeded',text}],runs:[]};localStorage.setItem(base+':'+encodeURIComponent(id),JSON.stringify(state));if(id==='ops-assistant')localStorage.setItem(base,JSON.stringify(state))}})()")
   await evaluate("document.querySelector('.menu-item[aria-label=\"智能助手\"]').click()") /* 检查智能助手滚动区。 */
-  await until(() => evaluate("Boolean(document.querySelector('.control-scroll') && document.querySelector('.chat-log'))")) /* 等待双栏内容。 */
+  await until(() => evaluate("Boolean(document.querySelector('.chat-workflow-select') && document.querySelector('.chat-log'))")) /* 等待工作流切换与对话区。 */
   await until(() => evaluate("document.querySelector('.chat-log')?.innerText.includes('A 专属对话')"))
-  await evaluate("document.querySelector('.control-card .n-base-selection').click()")
+  await evaluate("document.querySelector('.chat-workflow-select .n-base-selection').click()")
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.innerText.includes('示例智能体')))"))
   await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(option=>option.innerText.includes('示例智能体')).click()")
   await until(() => evaluate("document.querySelector('.chat-log')?.innerText.includes('B 专属对话')"))
   assert.ok(await evaluate("!document.querySelector('.chat-log').innerText.includes('A 专属对话') && document.querySelector('.quick-prompts').innerText.includes('示例智能体')"), '切换工作流后仍显示上一个插件的会话或快捷操作')
-  assert.ok(await evaluate("(() => {const left=document.querySelector('.control-scroll');if(left.scrollHeight<=left.clientHeight+1)return true;left.scrollTop=200;return left.scrollTop>0})()"), '智能助手运行参数被裁切且无法滚动') /* 内容可完整显示，过长时可滚动。 */
+  assert.ok(await evaluate("document.querySelector('.chat-workflow-select').getBoundingClientRect().width>=220"), '工作流切换控件过窄')
   assert.ok(await evaluate("(() => {const log=document.querySelector('.chat-log');for(let i=0;i<30;i++){const item=document.createElement('p');item.textContent='滚动测试';log.append(item)}log.scrollTop=200;return log.scrollTop>0})()"), '智能助手对话记录无法向下滚动') /* 对话滚动容器需保持有效。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"设备模板\"]').click()") /* 打开设备模板检查表单。 */
   await until(() => evaluate("document.querySelector('.page-context h1')?.innerText === '设备模板'")) /* 等待页面切换。 */

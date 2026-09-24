@@ -181,7 +181,9 @@ test('AI workbench uses cancellable SSE workflows and stable message keys', asyn
   for (const field of ['schemaVersion','id','name','description','version','enabled','persona','defaultModel','maxTokens','capabilities','allowedTools']) assert.match(aiView, new RegExp(`name:'${field}'`), `missing Agent field documentation: ${field}`) /* 循环处理当前数据。 */
   assert.match(aiView, /结构化数据标准不支持注释/) /* 验证实际结果符合预期。 */
   assert.match(aiView, /允许使用的工具/) /* 验证实际结果符合预期。 */
-  for (const label of ['本次运行', '工作流插件', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow control: ${label}`) /* 循环处理当前数据。 */
+  for (const label of ['工作流插件', '智能体管理']) assert.match(aiView, new RegExp(label), `missing workflow control: ${label}`) /* 循环处理当前数据。 */
+  assert.match(aiView, /class="chat-workflow-select"/) /* 工作流切换控件位于对话顶部。 */
+  assert.doesNotMatch(aiView, /class="surface-card control-card"|controlsExpanded/) /* 不再占用单独的运行侧栏。 */
   assert.doesNotMatch(aiView, /runConfig\.maxTokens|label="最大输出词元"/) /* 最大输出词元统一在模型管理配置。 */
   assert.doesNotMatch(aiView, /<div class="control-section-label"><span>04<\/span>运行环境/) /* 左侧不重复展示顶部模型状态。 */
   assert.match(aiView, /<ui-drawer v-model="managementVisible" title="智能体管理"/) /* 确认智能体管理抽屉已经迁移。 */
