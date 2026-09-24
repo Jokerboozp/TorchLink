@@ -13,6 +13,7 @@ const list=items=>({items,total:items.length,count:items.length,page:1,pageSize:
 const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname.startsWith('/api/')){ /* 声明 server。 */
 res.setHeader('Content-Type','application/json; charset=utf-8');let data=list([]) /* 执行当前语句并推进处理流程。 */
 if(u.pathname==='/api/v1/auth/login')data={accessToken:'local-ui-fixture',tenantId:'界面验收租户',role:'admin'} /* 判断条件并选择处理分支。 */
+else if(u.pathname==='/api/v1/test-devices/provision'&&req.method==='POST')data={device:{id:'device-test-preview',name:'界面验收测试设备',productId:'product-demo',accessKey:'示例接入标识',status:'ENABLED'},product:products[0],protocolPackage:{id:'protocol-test-preview',parserType:'JSON',version:'1'},templates:{data:{messageId:'<unique>',properties:{temperature:25}},alarm:{messageId:'<unique>',properties:{temperature:85,smoke:true}},recovery:{messageId:'<unique>',properties:{temperature:25,smoke:false}},event:{messageId:'<unique>',event:{type:'heartbeat'}}}} /* 仅返回合成数据，不写入业务服务。 */
 else if(req.method!=='GET'){res.statusCode=503;data={message:'界面验收环境不执行实际业务操作'}} /* 判断条件并选择处理分支。 */
 else if(u.pathname==='/api/v1/products')data=list(products) /* 判断条件并选择处理分支。 */
 else if(u.pathname==='/api/v1/device-registry')data=list(devices) /* 判断条件并选择处理分支。 */

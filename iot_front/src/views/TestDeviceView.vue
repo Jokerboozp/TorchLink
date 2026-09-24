@@ -2,6 +2,7 @@
 import { statusLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { computed, onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
+import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
 import { api, formatTime, notifyError, parseJSON, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { alarmType, label, messageTypeLabel, tagType, parsers } from '../labels' /* 引入当前代码需要的依赖。 */
 
@@ -61,6 +62,7 @@ function resetLocalTemplates() { /* 定义 resetLocalTemplates 函数。 */
 } /* 结束当前表达式或代码块。 */
 
 async function prepare(reset = false) { /* 定义 prepare 函数。 */
+  if (loading.value) return
   loading.value = true /* 更新 loading.value 的值。 */
   try { /* 执行当前语句并推进处理流程。 */
     const data = await api('/api/v1/test-devices/provision', { method: 'POST', body: JSON.stringify({ reset }) }) /* 声明 data。 */
@@ -154,17 +156,21 @@ function alarmLabel(value) { /* 定义 alarmLabel 函数。 */
   return alarmType(value) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
-onMounted(() => restoreTemplates())
+onMounted(() => {
+  restoreTemplates()
+  if (can('POST /api/v1/test-devices/provision')) void prepare(false)
+})
 </script>
 
 <template>
   <div class="test-device-view"> <!-- 渲染 div 界面元素。 -->
     <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-      <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :loading="loading" @click="prepare(false)">准备测试设备</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <ui-button plain type="warning" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :loading="loading" @click="prepare(false)">重新准备测试设备</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+      <ui-button v-permission="'POST /api/v1/test-devices/provision'" plain type="warning" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       <ui-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</ui-button> <!-- 渲染 ui-button 界面元素。 -->
       <ui-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <span>点击“准备测试设备”后才会创建测试资源；模拟结果不能证明现场设备已接通。</span> <!-- 渲染 span 界面元素。 -->
+      <span v-if="can('POST /api/v1/test-devices/provision')">进入页面后自动准备测试设备；如准备失败，可点击“重新准备测试设备”重试。模拟结果不能证明现场设备已接通。</span> <!-- 渲染 span 界面元素。 -->
+      <span v-else>当前账号没有准备测试设备的权限。</span>
     </div> <!-- 结束当前界面区域。 -->
 
     <ui-alert v-if="device" title="设备告警直接进入告警中心" description="测试设备不会自动创建告警规则；发送报警数据会直接产生设备告警。若存在匹配规则，则按规则提供告警类型、等级和联动动作。"
