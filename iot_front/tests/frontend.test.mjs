@@ -403,7 +403,7 @@ test('device access and health inspection pages expose the new runtime workflow'
   assert.match(inspection, /estimatedRemainingMs/)
   assert.match(inspection, /onBeforeUnmount/)
   assert.doesNotMatch(inspection, /onMounted\(run\)/)
-  assert.match(inspection, /点击“立即巡检”开始检查/)
+  assert.match(inspection, /点击上方“立即巡检”开始检查/)
   assert.match(app, /title:\s*'设备通信协议'/)
   assert.match(app, /title:'智能巡检'/)
   assert.doesNotMatch(app, /protocolAssistant/)

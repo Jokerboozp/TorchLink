@@ -131,10 +131,10 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 
 <template>
   <div class="inspection-page"> <!-- 渲染 div 界面元素。 -->
-    <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-      <div><strong>设备健康巡检</strong><small class="subline">核对设备在线状态、数据新鲜度和活动告警，再生成智能处置建议；进入页面不会自动执行</small></div> <!-- 渲染 div 界面元素。 -->
-      <div class="table-actions"><ui-button v-permission="'POST /api/v1/ai/health-inspection/pdf'" v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</ui-button><ui-button v-permission="'POST /api/v1/ai/health-inspection/run'" type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</ui-button></div> <!-- 渲染 div 界面元素。 -->
-    </div> <!-- 结束当前界面区域。 -->
+    <header class="inspection-hero">
+      <div class="inspection-hero-copy"><h2>设备健康巡检</h2><p>汇总设备运行情况，生成需要关注的设备与处置建议。</p><div class="inspection-scope"><span>在线状态</span><span>数据新鲜度</span><span>活动告警</span></div></div>
+      <div class="inspection-hero-side"><small>手动启动检查，不会执行设备控制</small><div class="inspection-hero-actions"><ui-button v-permission="'POST /api/v1/ai/health-inspection/pdf'" v-if="report" :disabled="inspectionRunning" :loading="downloading" @click="downloadPDF">下载文档</ui-button><ui-button v-permission="'POST /api/v1/ai/health-inspection/run'" type="primary" :disabled="inspectionRunning" :loading="loading" @click="run">{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</ui-button></div></div>
+    </header>
 
     <ui-alert v-if="error" class="top-gap" :title="error" type="error" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
 
@@ -153,12 +153,27 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
         <ui-alert v-for="warning in report.warnings || []" :key="warning" class="top-gap" :title="warning" type="warning" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
         <ui-table class="top-gap" :data="report.items || []" stripe><ui-table-column label="设备" min-width="190"><template #default="{row}"><b>{{ row.deviceName || row.deviceId }}</b><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template></ui-table-column><ui-table-column label="业务状态" width="130"><template #default="{row}"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="活动告警" width="100"><template #default="{row}">{{ row.activeAlarmCount }}</template></ui-table-column><ui-table-column label="巡检结论" min-width="280"><template #default="{row}"><ui-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</ui-tag><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template></ui-table-column></ui-table> <!-- 渲染 ui-table 界面元素。 -->
       </template>
-      <ui-empty v-else description="点击“立即巡检”开始检查" />
+      <div v-else class="inspection-empty"><strong>尚无巡检结果</strong><p>点击上方“立即巡检”开始检查，结果会显示在这里。</p></div>
     </ui-card>
   </div>
 </template>
 
 <style scoped>
+.inspection-page { min-width:0; }
+.inspection-hero { box-sizing:border-box; width:100%; min-width:0; padding:19px 22px; display:flex; align-items:center; justify-content:space-between; gap:24px; background:#fff; border:1px solid #e1e9f2; border-left:4px solid #1554ad; border-radius:10px; }
+.inspection-hero-copy { min-width:0; }
+.inspection-hero-copy h2 { margin:0; color:#1f2d40; font-size:17px; line-height:1.4; }
+.inspection-hero-copy p { margin:5px 0 10px; color:#52657d; font-size:13px; line-height:1.6; }
+.inspection-scope { display:flex; flex-wrap:wrap; gap:7px; }
+.inspection-scope span { padding:3px 9px; color:#1554ad; background:#edf4ff; border-radius:5px; font-size:12px; }
+.inspection-hero-side { flex:none; display:grid; justify-items:end; gap:10px; }
+.inspection-hero-side>small { color:#607086; font-size:12px; }
+.inspection-hero-actions { display:flex; align-items:center; gap:8px; }
+.inspection-hero-actions :deep(.n-button) { min-width:112px; }
+.inspection-hero-actions :deep(.n-button--primary-type) { min-width:132px; height:38px; }
+.inspection-empty { min-height:122px; display:grid; align-content:center; justify-items:center; gap:6px; text-align:center; }
+.inspection-empty strong { color:#24364d; font-size:14px; }
+.inspection-empty p { margin:0; color:#607086; font-size:13px; line-height:1.5; }
 .inspection-progress { border-color:#d6e8ff; background:#f8fbff; } /* 定义当前元素的样式规则。 */
 .inspection-progress-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; } /* 定义当前元素的样式规则。 */
 .inspection-progress-heading>div { display:grid; gap:4px; } /* 定义当前元素的样式规则。 */
@@ -167,5 +182,6 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 .inspection-progress-heading small,.inspection-progress-meta { color:#64748b; font-size:12px; line-height:1.5; } /* 定义当前元素的样式规则。 */
 .inspection-progress-meta { display:flex; justify-content:space-between; gap:12px; margin-top:8px; } /* 定义当前元素的样式规则。 */
 .inspection-findings { display:inline-block; margin-left:8px; color:#646c73; line-height:1.6; } /* 定义当前元素的样式规则。 */
+@media (max-width:760px) { .inspection-hero { align-items:stretch; flex-direction:column; gap:18px; padding:17px; }.inspection-hero-side { justify-items:stretch; }.inspection-hero-actions :deep(.n-button) { flex:1; min-width:0; } }
 @media (max-width:560px) { .inspection-progress-meta { display:grid; gap:2px; } } /* 按屏幕条件调整样式。 */
 </style>

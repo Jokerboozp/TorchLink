@@ -583,7 +583,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 
   <div class="ai-workbench"> <!-- 渲染 div 界面元素。 -->
     <ui-card shadow="never" class="surface-card chat-card ai-chat-card"> <!-- 渲染 ui-card 界面元素。 -->
-      <template #header><div class="card-header chat-header"><div class="chat-workflow"><strong>工作流插件</strong><ui-select v-model="selectedWorkflowId" class="chat-workflow-select" placeholder="选择智能助手" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select><small>{{ conversationId ? `会话 · ${conversationId}` : '新会话 · 服务端受控租户上下文' }}</small></div><div class="chat-header-actions"><ui-button plain :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button><ui-button plain type="warning" :disabled="sending" @click="clearConversation">清空对话</ui-button></div></div></template>
+      <template #header><div class="card-header chat-header"><div class="chat-workflow"><div class="chat-workflow-label"><strong>当前工作流</strong><small>决定对话能力</small></div><div class="chat-workflow-control"><ui-select v-model="selectedWorkflowId" class="chat-workflow-select" aria-label="工作流插件" placeholder="选择工作流插件" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select><small>{{ selectedWorkflow?.description || '选择插件后开始对话' }} · 切换后显示该插件的会话与快捷提问</small></div></div><div class="chat-header-actions"><ui-button plain :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button><ui-button plain type="warning" :disabled="sending" @click="clearConversation">清空对话</ui-button></div></div></template>
       <ui-alert v-if="workflowError" class="chat-workflow-error" :title="workflowError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert>
       <ui-empty v-if="!runtimeLoading && !workflowItems.length" class="chat-workflow-empty" description="暂无可用工作流" :image-size="62" />
       <div class="quick-prompts"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div> <!-- 渲染 div 界面元素。 -->
@@ -671,14 +671,15 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 .ai-workbench { grid-template-columns:minmax(0,1fr); }
 .ai-chat-card { min-width:0; }
 .chat-header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.chat-header>.chat-workflow { min-width:0; display:grid; grid-template-columns:auto minmax(220px,360px); align-items:center; gap:5px 12px; }
-.chat-workflow strong { color:#23354d; font-size:13px; white-space:nowrap; }
+.chat-header>.chat-workflow { flex:1; min-width:0; display:grid; grid-template-columns:auto minmax(260px,420px); align-items:center; justify-content:start; gap:14px; }
+.chat-workflow-label,.chat-workflow-control { min-width:0; display:grid; gap:4px; }
+.chat-workflow-label strong { color:#23354d; font-size:14px; white-space:nowrap; }
+.chat-workflow-label small,.chat-workflow-control small { min-width:0; overflow:hidden; color:#607086; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
 .chat-workflow-select { width:100%; min-width:0; }
-.chat-workflow small { grid-column:2; min-width:0; overflow:hidden; color:#607086; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
 .chat-header>.chat-header-actions { flex:none; display:flex; align-items:center; gap:8px; }
 .chat-workflow-error { flex:none; margin-bottom:12px; }
 .chat-workflow-empty { flex:none; }
-@media (max-width:760px) { .chat-header { align-items:stretch; flex-direction:column; }.chat-header>.chat-workflow { grid-template-columns:1fr; }.chat-workflow small { grid-column:1; }.chat-header>.chat-header-actions { justify-content:flex-start; } }
+@media (max-width:760px) { .chat-header { align-items:stretch; flex-direction:column; }.chat-header>.chat-workflow { grid-template-columns:1fr; gap:8px; }.chat-header>.chat-header-actions { justify-content:flex-start; } }
 
 /* Keep workflow metadata and helper copy distinct from the light panels. */
 .ai-runtime small, /* 定义当前元素的样式规则。 */
