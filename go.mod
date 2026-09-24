@@ -16,6 +16,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.95
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/segmentio/kafka-go v0.4.49
+	golang.org/x/crypto v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -80,7 +81,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/mock v0.5.0 // indirect
 	golang.org/x/arch v0.20.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20241204233417-43b7b7cde48d // indirect
 	golang.org/x/mod v0.25.0
 	golang.org/x/net v0.42.0

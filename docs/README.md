@@ -27,6 +27,7 @@
 | [GB26875 大华协议](GB26875_DAHUA_V103.md) | 协议适配及平台配置 |
 | [独立协议示例](../protocol-packages/gb26875-dahua/README.md) | 示例 module 的打包与测试 |
 | [接收可靠性](DEVICE_RECEIVE_RELIABILITY.md) | 部件告警、MQTT 持久队列和接收确认 |
+| [承压能力评估](CAPACITY_ASSESSMENT_2026-09-24.md) | 本机逐级压测结果、代码限额与生产验收边界 |
 | [视频适配](VIDEO_SDK_ADAPTER.md) | 摄像头映射、视频接口及适配能力边界 |
 | [AI 工作流](AI_PLUGIN_HARNESS.md) | Harness、模型、知识检索、MCP 与权限 |
 | [Harness 服务](../deploy/deepseek-harness/README.md) | 独立服务配置、接口与平台授权边界 |
