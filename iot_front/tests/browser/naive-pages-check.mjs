@@ -342,6 +342,8 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.menu-item[aria-label=\"智能助手\"]').click()") /* 检查智能助手滚动区。 */
   await until(() => evaluate("Boolean(document.querySelector('.chat-workflow-select') && document.querySelector('.chat-log'))")) /* 等待工作流切换与对话区。 */
   await until(() => evaluate("document.querySelector('.chat-log')?.innerText.includes('A 专属对话')"))
+  assert.deepEqual(await auditContrast('.message-row.user'), [], '智能助手用户消息文字与气泡背景对比不足')
+  { const capture=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-ai-user-message.png'),Buffer.from(capture.data,'base64')) }
   await evaluate("document.querySelector('.chat-workflow-select .n-base-selection').click()")
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-base-select-option')].find(option=>option.innerText.includes('示例智能体')))"))
   await evaluate("[...document.querySelectorAll('.n-base-select-option')].find(option=>option.innerText.includes('示例智能体')).click()")

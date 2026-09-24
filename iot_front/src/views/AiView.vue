@@ -725,4 +725,8 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 .overview-item:hover,.overview-item:first-child:hover,.overview-item:last-child:hover,.overview-item-static:hover { border-color:transparent; } /* 定义当前元素的样式规则。 */
 .overview-item strong,.manager-entry strong,.workflow-admin-main strong,.knowledge-summary strong,.quick-prompts button,.message-meta button { font-size:13px; } /* 定义当前元素的样式规则。 */
 .agent-json-editor :deep(textarea),.agent-manifest-preview { font-size:13px; } /* 定义当前元素的样式规则。 */
+/* 深色用户消息与浅色悬停状态分别使用可读的前景色。 */
+.message-row.user .message-avatar,.chat-message.user { color:var(--primary-foreground,#fff); background:var(--primary); }
+.chat-message.user.is-failed { color:var(--foreground); background:var(--surface-subtle); }
+.quick-prompts button:hover:not(:disabled) { color:var(--accent-foreground); background:var(--accent); }
 </style>
