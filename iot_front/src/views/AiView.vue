@@ -583,10 +583,18 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 
   <div class="ai-workbench"> <!-- 渲染 div 界面元素。 -->
     <ui-card shadow="never" class="surface-card chat-card ai-chat-card"> <!-- 渲染 ui-card 界面元素。 -->
-      <template #header><div class="card-header chat-header"><div class="chat-workflow"><div class="chat-workflow-label"><strong>工作流插件</strong></div><div class="chat-workflow-control"><ui-select v-model="selectedWorkflowId" class="chat-workflow-select" aria-label="工作流插件" placeholder="选择工作流插件" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select><small>切换后显示该插件的会话记录与快捷提问</small></div></div><div class="chat-header-actions"><ui-button plain :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button><ui-button plain type="warning" :disabled="sending" @click="clearConversation">清空对话</ui-button></div></div></template>
+      <template #header>
+        <div class="card-header chat-header">
+          <div class="chat-workflow">
+            <div class="chat-workflow-label"><strong>工作流插件</strong><small>各插件独立保存会话</small></div>
+            <ui-select v-model="selectedWorkflowId" class="chat-workflow-select" aria-label="工作流插件" placeholder="选择工作流插件" :disabled="sending || !workflowItems.length"><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)" /></ui-select>
+          </div>
+          <div class="chat-header-actions"><ui-button plain size="small" :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button><ui-button plain type="warning" size="small" :disabled="sending" @click="clearConversation">清空对话</ui-button></div>
+        </div>
+      </template>
       <ui-alert v-if="workflowError" class="chat-workflow-error" :title="workflowError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert>
       <ui-empty v-if="!runtimeLoading && !workflowItems.length" class="chat-workflow-empty" description="暂无可用工作流" :image-size="62" />
-      <div class="quick-prompts"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div> <!-- 渲染 div 界面元素。 -->
+      <div v-if="quickQuestions.length" class="quick-prompts"><span class="quick-prompts-label">快捷提问</span><div class="quick-prompts-list"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div></div> <!-- 渲染 div 界面元素。 -->
       <div ref="log" class="chat-log" aria-live="polite"> <!-- 渲染 div 界面元素。 -->
         <div v-for="message in messages" :key="message.id" class="message-row" :class="message.role"> <!-- 渲染 div 界面元素。 -->
           <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span><div class="message-content"><div class="chat-message" :class="[message.role,`is-${message.status}`]"><MarkdownContent v-if="message.text && message.role === 'assistant' && message.status !== 'streaming'" :source="message.text" /><p v-else-if="message.text">{{ message.text }}</p><div v-else-if="message.status === 'streaming'" class="typing"><i/><i/><i/><span>正在运行工作流</span></div><ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" /><div v-if="message.ruleDraft" class="rule-draft-card"><div><strong>{{ message.ruleDraft.name || '自动化规则草稿' }}</strong><ui-tag :type="ruleDraftStatusType(message)" size="small">{{ ruleDraftStatusLabel(message) }}</ui-tag></div><small>{{ message.ruleDraft.conditions?.length || 0 }} 个条件 · {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small><ui-button type="primary" size="small" :disabled="ruleDraftActionDisabled(message)" @click="editRuleDraft(message.ruleDraft, message.ruleDraftPersisted, message.ruleDraftState)">{{ ruleDraftActionLabel(message) }}</ui-button></div><div v-if="message.error" class="message-error"><strong>{{ message.error.message }}</strong><small v-if="message.error.code || message.error.stage">{{ [message.error.code,message.error.stage].filter(Boolean).join(' · ') }}</small><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small><ui-button v-permission="'POST /api/v1/ai/chat/stream'" v-if="message.prompt" plain size="small" :disabled="sending" @click="retry(message)">重新运行</ui-button></div></div><div v-if="message.role === 'assistant' && message.runKey" class="message-meta"><span v-if="message.status === 'streaming'">运行中</span><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span><span v-if="message.usage?.totalTokens != null">{{ message.usage.totalTokens }} 词元</span><ui-button plain size="small" @click="openTrace(message)">查看轨迹</ui-button></div></div> <!-- 渲染 span 界面元素。 -->
@@ -670,16 +678,21 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 
 .ai-workbench { grid-template-columns:minmax(0,1fr); }
 .ai-chat-card { min-width:0; }
-.chat-header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.ai-chat-card .chat-header>.chat-workflow { width:min(100%,520px); min-width:0; display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
-.chat-workflow-label,.chat-workflow-control { min-width:0; display:grid; gap:6px; }
-.chat-workflow-label strong { color:var(--accent-foreground); font-size:14px; white-space:nowrap; }
-.chat-workflow-control small { max-width:none; color:var(--accent-foreground); font-size:12px; line-height:1.5; white-space:normal; }
+.ai-chat-card :deep(.n-card-header) { padding:14px 20px; border-bottom:1px solid var(--border); }
+.chat-header { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.ai-chat-card .chat-header>.chat-workflow { width:min(100%,620px); min-width:0; display:grid; grid-template-columns:150px minmax(220px,1fr); align-items:center; gap:16px; }
+.chat-workflow-label { min-width:0; display:grid; gap:3px; }
+.chat-workflow-label strong { color:var(--text-strong); font-size:14px; white-space:nowrap; }
+.chat-workflow-label small { color:var(--muted-foreground); font-size:12px; line-height:1.4; }
 .chat-workflow-select { width:100%; min-width:0; }
 .chat-header>.chat-header-actions { flex:none; display:flex; align-items:center; gap:8px; }
+.quick-prompts { align-items:center; gap:12px; padding:0 0 14px; }
+.quick-prompts-label { flex:none; color:var(--muted-foreground); font-size:12px; font-weight:600; white-space:nowrap; }
+.quick-prompts-list { min-width:0; display:flex; flex-wrap:wrap; gap:7px; }
 .chat-workflow-error { flex:none; margin-bottom:12px; }
 .chat-workflow-empty { flex:none; }
-@media (max-width:760px) { .chat-header { align-items:stretch; flex-direction:column; }.chat-header>.chat-header-actions { justify-content:flex-start; } }
+@media (max-width:900px) { .chat-header { align-items:stretch; flex-direction:column; gap:12px; }.ai-chat-card .chat-header>.chat-workflow { width:100%; }.chat-header>.chat-header-actions { justify-content:flex-end; } }
+@media (max-width:640px) { .ai-chat-card .chat-header>.chat-workflow { grid-template-columns:minmax(0,1fr); gap:7px; }.chat-header>.chat-header-actions { justify-content:flex-start; }.quick-prompts { align-items:flex-start; flex-direction:column; gap:8px; }.quick-prompts-list { width:100%; }.quick-prompts-list button { flex:1 1 100%; } }
 
 /* Keep workflow metadata and helper copy distinct from the light panels. */
 .ai-runtime small, /* 定义当前元素的样式规则。 */
