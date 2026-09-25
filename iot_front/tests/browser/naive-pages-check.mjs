@@ -10,6 +10,9 @@ const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173' /* �
 const pages = ['运行总览', '设备通信协议', '设备模板', '设备管理', '模拟设备测试', '摄像头映射', '告警中心', '智能巡检', '原始报文', '告警规则', '模型管理', '智能助手', '知识库', '备份中心', '用户与权限'] /* 检查全部主菜单。 */
 const profile = await mkdtemp(join(tmpdir(), 'iot-naive-pages-')) /* 隔离浏览器本地数据。 */
 const child = spawn(browser, ['--headless=new', '--use-mock-keychain', '--password-store=basic', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-hang-monitor', '--disable-features=TabFreezing,IntensiveWakeUpThrottling,HighEfficiencyModeAvailable,BatterySaverModeAvailable', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' }) /* 启动临时浏览器。 */
+// macOS 会结束不允许后台运行的无头 Chrome（约 30 秒后正常退出），此时直接报错而不是等待 CDP 超时。
+let finished = false
+child.once('exit', (code, signal) => { if (finished) return; console.error(`浏览器进程提前退出（code=${code}, signal=${signal}）。macOS 上请在“系统设置 → 通用 → 登录项与扩展 → 允许在后台”中允许 Google Chrome，或改用 Linux 环境运行。`); process.exit(1) })
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms)) /* 给页面渲染留出短暂时间。 */
 async function until(check) { for (let i = 0; i < 100; i++) { const value = await check(); if (value) return value; await delay(100) } throw new Error('页面等待超时') } /* 等待确定的页面状态。 */
 
@@ -24,7 +27,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   const failures = [] /* 收集页面脚本错误。 */
   const warnings = [] /* 收集框架组件警告。 */
   socket.onmessage = event => { const message = JSON.parse(event.data); if (message.method === 'Page.javascriptDialogOpening') console.log('JS 对话框：', JSON.stringify(message.params).slice(0, 300)); if (message.method === 'Inspector.targetCrashed') console.log('页面崩溃'); if (message.method === 'Runtime.exceptionThrown') failures.push(message.params.exceptionDetails?.exception?.description || message.params.exceptionDetails?.text); if (message.method === 'Runtime.consoleAPICalled' && ['warning', 'error'].includes(message.params.type)) warnings.push(message.params.args.map(arg => arg.value || arg.description || '').join(' ')); if (!message.id) return; const entry = pending.get(message.id); pending.delete(message.id); message.error ? entry.reject(new Error(message.error.message)) : entry.resolve(message.result) } /* 分发事件和请求结果。 */
-  const skipScreenshots = process.env.IOT_UI_SKIP_SCREENSHOTS === '1' /* 部分 macOS 无头浏览器在多次截图后会停止响应，可跳过截图只做断言。 */
+  const skipScreenshots = process.env.IOT_UI_SKIP_SCREENSHOTS === '1' /* 仅需断言时可跳过截图。 */
   const blankPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
   const call = (method, params = {}) => skipScreenshots && method === 'Page.captureScreenshot' ? Promise.resolve({ data: blankPng }) : new Promise((resolve, reject) => { const next = ++id; const timer = setTimeout(() => { pending.delete(next); reject(new Error(`CDP ${method} 超过 30 秒未响应：${JSON.stringify(params).slice(0, 160)}`)) }, 30000); pending.set(next, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } }); socket.send(JSON.stringify({ id: next, method, params })) }) /* 发送 CDP 请求；超时即报错，避免浏览器卡死时静默退出。 */
   const evaluate = async expression => { const value = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (value.exceptionDetails) throw new Error(value.exceptionDetails.exception?.description || value.exceptionDetails.text); return value.result.value } /* 读取页面可见状态。 */
@@ -132,7 +135,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
     ['告警中心','查看详情'],['原始报文','详情'],
     ['告警规则','手动添加规则'],['告警规则','智能生成规则草稿'],['告警规则','详情'],['告警规则','编辑'],
     ['智能助手','智能体管理'],['知识库','上传知识文档'],['知识库','查看详情'],
-    ['备份中心','详情 / 文件'],['用户与权限','添加用户'],['用户与权限','编辑'],['用户与权限','重置密码'],
+    ['备份中心','详情 / 文件'],['用户与权限','添加用户','用户管理'],['用户与权限','编辑','用户管理'],['用户与权限','重置密码','用户管理'],
     ['用户与权限','添加角色','角色管理'],['用户与权限','编辑','角色管理']
   ] /* 覆盖每个页面可直接打开的编辑、详情和管理弹层。 */
   const skippedOverlays = new Set((process.env.IOT_UI_SKIP_OVERLAYS || '').split(',').filter(Boolean)) /* 仅用于定位环境问题：如“用户与权限/编辑”。 */
@@ -183,7 +186,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
       assert.ok(await evaluate("document.querySelector('.rule-field-reference').open && document.querySelectorAll('.rule-field-reference .n-data-table-tr').length>0"),'字段参考应能展开查看')
     }
     if (pageName==='摄像头映射' && actionName==='新增摄像头') assert.equal(await evaluate("document.querySelectorAll('.camera-editor-section').length"),3,'摄像头弹窗应分开显示身份、位置、关联与状态')
-    if (pageName==='用户与权限' && tabName==='角色管理') assert.equal(await evaluate("document.querySelectorAll('.role-editor-section').length"),2,'角色弹窗应分开显示身份与权限')
+    if (pageName==='用户与权限' && tabName==='角色管理') assert.equal(await evaluate("document.querySelectorAll('.role-editor-section').length"),3,'角色弹窗应分开显示角色信息、可用功能与设备范围')
     const capture=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),`iot-overlay-${overlayCases.indexOf(overlayCases.find(item=>item[0]===pageName&&item[1]===actionName&&item[2]===tabName))}.png`),Buffer.from(capture.data,'base64'))
     await evaluate("(() => {const overlay=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),close=[...overlay.querySelectorAll('.n-card__footer button')].find(button=>button.getClientRects().length&&['关闭','取消','关闭详情','关闭弹窗'].includes(button.innerText.trim())&&!button.disabled);(close||overlay.querySelector('.n-base-close'))?.click()})()")
     await until(() => evaluate("![...document.querySelectorAll('.n-modal,.n-drawer')].some(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')"))
@@ -265,6 +268,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.app-sidebar-mask').click()")
   await until(() => evaluate("!document.querySelector('.app-sidebar-mask')"))
   await openPage('用户与权限')
+  await until(() => evaluate("Boolean(document.querySelector('.n-tabs-tab[data-name=users]'))")); await evaluate("document.querySelector('.n-tabs-tab[data-name=users]').click()") /* 默认显示角色管理，先切换到用户管理。 */
   await evaluate("[...document.querySelectorAll(':is(.page-toolbar,.filter-bar) button')].find(button=>button.innerText.includes('添加用户')).click()")
   await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
   assert.ok(await evaluate("(() => {const m=document.querySelector('.user-editor').closest('.n-modal'),r=m.getBoundingClientRect(),items=[...m.querySelector('.user-editor-grid').children],body=m.querySelector('.n-card-content');return r.left>=0&&r.right<=innerWidth+1&&items[1].getBoundingClientRect().top>=items[0].getBoundingClientRect().bottom&&body.scrollHeight>body.clientHeight})()"), '窄屏添加用户弹窗溢出或无法滚动')
@@ -475,6 +479,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   console.log(`PASS: ${overlayCases.length} 个弹层手机视图布局与滚动检查`)
   await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: true }) /* 缩短视口验证长表单滚动。 */
   await openPage('设备模板')
+  await until(() => evaluate("Boolean([...document.querySelectorAll(':is(.page-toolbar,.filter-bar) button')].find(button => button.innerText.includes('新建设备模板')))")) /* 等待模板页工具栏。 */
   await evaluate("[...document.querySelectorAll(':is(.page-toolbar,.filter-bar) button')].find(button => button.innerText.includes('新建设备模板')).click()") /* 打开产品表单。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length))")) /* 等待弹窗显示。 */
   assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),body=modal.querySelector('.n-card-content');body.scrollTop=200;return modal.getBoundingClientRect().bottom<=innerHeight+1 && body.scrollTop>0})()"), '窄屏长弹窗正文无法上下滚动') /* 长表单应在弹窗内部滚动。 */
@@ -483,6 +488,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
   // 添加设备向导的各接入方式由 onboarding-modes-check.mjs 单独检查。
   await openPage('用户与权限') /* 校验删除确认共享弹窗的说明与取消操作。 */
+  await until(() => evaluate("Boolean(document.querySelector('.n-tabs-tab[data-name=users]'))")); await evaluate("document.querySelector('.n-tabs-tab[data-name=users]').click()") /* 默认显示角色管理，先切换到用户管理。 */
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-data-table-tbody button')].find(b=>b.innerText==='删除'))"))
   await evaluate("[...document.querySelectorAll('.n-data-table-tbody button')].find(b=>b.innerText==='删除').click()")
   await until(() => evaluate("Boolean([...document.querySelectorAll('.n-dialog')].find(d=>d.getClientRects().length&&d.innerText.includes('删除确认')))"))
@@ -501,6 +507,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   if (warnings.length) console.log(`页面警告 ${warnings.length} 条：${[...new Set(warnings)].slice(0, 8).join(' | ')}`) /* 输出需继续排查的框架警告。 */
   console.log(`PASS: ${pages.length} 个主页面正常渲染`) /* 报告界面检查结果。 */
 } finally { /* 清理浏览器与临时配置。 */
+  finished = true
   socket?.close() /* 关闭调试连接。 */
   const exited = new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve) }) /* 等待浏览器结束。 */
   child.kill() /* 停止临时浏览器。 */

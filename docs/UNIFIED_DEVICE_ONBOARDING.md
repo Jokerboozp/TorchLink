@@ -187,7 +187,7 @@ go test -race ./internal/protocolruntime ./internal/adapters/mqtt
 
 Broker 撤销子用例另需 `IOT_TEST_EMQX_API_URL`、`IOT_TEST_EMQX_API_KEY`、`IOT_TEST_EMQX_API_SECRET`。
 
-浏览器检查应覆盖“设备管理 → 添加设备”、设备详情和窄屏布局。设置 `IOT_TEST_BROWSER` 后，`go test ./internal/httpapi -run TestDeviceOnboardingBrowser` 会构建隔离的 Go API，并用真实浏览器运行 `iot_front/tests/browser/device-onboarding-check.mjs`：覆盖新型号与已有型号、一次性密钥、合成现场上报后的后端诊断、服务端筛选和 390px 布局（需先执行 `npm run build`）。`iot_front/tests/browser/onboarding-modes-check.mjs` 在本机合成夹具上检查共享监听与标准上报两种方式。普通单元测试通过不代表浏览器或真实设备验收。
+浏览器检查应覆盖“设备管理 → 添加设备”、设备详情和窄屏布局。设置 `IOT_TEST_BROWSER` 后，`go test ./internal/httpapi -run TestDeviceOnboardingBrowser` 会构建隔离的 Go API，并用真实浏览器运行 `iot_front/tests/browser/device-onboarding-check.mjs`：覆盖新型号与已有型号、一次性密钥、合成现场上报后的后端诊断、服务端筛选和 390px 布局（需先执行 `npm run build`）。`iot_front/tests/browser/onboarding-modes-check.mjs` 在本机合成夹具上检查共享监听与标准上报两种方式。`TestOnboardingBrowser` 通过页面新建设备模板、用向导添加 HTTP 设备，再以设备凭据验证错误密钥拒绝、解析与重发去重，并检查连接详情、多接入点选择、接入点会话、摄像头登记和模型来源名称；同时设置 `IOT_TEST_MQTT_WEBSOCKET`、`IOT_TEST_MQTT_BROKER` 与 `IOT_TEST_MQTT_JWT_SECRET` 时，设备还会换取 MQTT 令牌并经真实 Broker WebSocket 上报。普通单元测试通过不代表浏览器或真实设备验收。
 
 测试使用隔离业务仓库或临时 schema、随机身份和非 retained 消息；凭据通过环境变量安全注入。缺少环境的集成分支会跳过。模拟器与受控故障测试不能代替厂商真机、固件补传或生产网络验收。
 

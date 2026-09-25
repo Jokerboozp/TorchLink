@@ -29,11 +29,11 @@ try { /* 执行当前语句并推进处理流程。 */
   const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`) /* 声明 fill。 */
   await click('告警中心') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.body.textContent.includes('二楼走廊')`)) /* 等待异步操作完成。 */
-  assert.equal(await evaluate(`document.querySelectorAll('.n-data-table-tbody tbody tr').length`),2) /* 验证实际结果符合预期。 */
+  assert.equal(await evaluate(`document.querySelectorAll('.n-data-table-tbody .n-data-table-tr').length`),2) /* 验证实际结果符合预期。 */
   await click('查看详情') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.n-card__content')?.textContent.includes('loop-1/node-7')`)) /* 等待异步操作完成。 */
-  assert.equal(await evaluate(`document.querySelector('.n-card__content').textContent.includes('部件位置')`),true) /* 验证实际结果符合预期。 */
-  assert.equal(await evaluate(`document.querySelector('.n-card__content').textContent.includes('loop-1/node-8')`),false) /* 验证实际结果符合预期。 */
+  await until(()=>evaluate(`document.querySelector('.n-modal')?.textContent.includes('loop-1/node-7')`)) /* 等待异步操作完成。 */
+  assert.equal(await evaluate(`document.querySelector('.n-modal').textContent.includes('部件位置')`),true) /* 验证实际结果符合预期。 */
+  assert.equal(await evaluate(`document.querySelector('.n-modal').textContent.includes('loop-1/node-8')`),false) /* 验证实际结果符合预期。 */
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
   await delay(200) /* 等待异步操作完成。 */
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=window.innerWidth+2`),true) /* 验证实际结果符合预期。 */

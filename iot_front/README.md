@@ -18,7 +18,7 @@ npm run build
 
 测试使用 Node test runner，覆盖列表分页与请求竞态、身份隔离、告警提醒、协议生成与映射、SSE 和 Markdown 安全等行为。构建检查不等于浏览器交互验收。
 
-本地合成数据界面验收：先执行 `npm run build`，再从本目录运行 `node tests/browser/ui-preview.mjs`；另开终端运行 `node tests/browser/naive-pages-check.mjs`、`node tests/browser/onboarding-modes-check.mjs` 与 `node tests/browser/protocol-actions-check.mjs`，用 `IOT_TEST_BROWSER` 指定 Chrome 或 Edge 可执行文件。第一个覆盖侧栏全部主页面、弹层、窄屏与账户菜单；第二个覆盖添加设备向导的共享监听与标准上报；第三个覆盖协议版本操作。这些脚本只连接本机夹具，不写真实业务数据。每条浏览器命令超过 30 秒未响应会直接报错；`IOT_UI_SKIP_SCREENSHOTS=1` 可跳过截图，`IOT_UI_SKIP_OVERLAYS=页面/操作,…` 可跳过指定弹层，仅用于定位环境问题。
+本地合成数据界面验收：先执行 `npm run build`，再从本目录运行 `node tests/browser/ui-preview.mjs`；另开终端运行 `node tests/browser/naive-pages-check.mjs`、`node tests/browser/onboarding-modes-check.mjs` 与 `node tests/browser/protocol-actions-check.mjs`，用 `IOT_TEST_BROWSER` 指定 Chrome 或 Edge 可执行文件。第一个覆盖侧栏全部主页面、弹层、窄屏与账户菜单；第二个覆盖添加设备向导的共享监听与标准上报；第三个覆盖协议版本操作。这些脚本只连接本机夹具，不写真实业务数据。每条浏览器命令超过 30 秒未响应会直接报错；`IOT_UI_SKIP_SCREENSHOTS=1` 可跳过截图，`IOT_UI_SKIP_OVERLAYS=页面/操作,…` 可跳过指定弹层，仅用于定位环境问题。macOS 会在约 30 秒后结束不允许后台运行的无头 Chrome（退出码 0），浏览器脚本随之中断；需在“系统设置 → 通用 → 登录项与扩展 → 允许在后台”中允许 Google Chrome，或在 Linux 环境运行。
 
 ## 页面与权限
 

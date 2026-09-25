@@ -19,7 +19,7 @@ const snapshots = ref({})
 const snapshot = id => snapshots.value[id] || { sessions: [], recentDevices: [] }
 const loading = ref(false), testingId = ref(''), result = ref(null)
 const profileOpen = ref(false), editingProfile = ref(false), savingListener = ref(false)
-const blankListener = () => ({ id: '', productId: props.productId || '', protocolId: '', protocolVersion: '', mode: 'listener', network: 'tcp', host: '0.0.0.0', publicHost: '', port: 26875, timeoutMs: 5000, autoRegister: false, enabled: true, connectionMode: 'listen', deviceId: '', queries: [], childProducts: [], unitId: 1, intervalMs: 10000, retries: 0, wireFormat: '' })
+const blankListener = () => ({ id: '', productId: props.productId || '', protocolId: '', protocolVersion: '', mode: 'listener', network: 'tcp', host: '0.0.0.0', publicHost: '', port: 26875, timeoutMs: 5000, autoRegister: false, enabled: true, connectionMode: 'listen', deviceId: '', queries: [], childProducts: [], unitId: 1, retries: 0, wireFormat: '' })
 const listener = reactive(blankListener())
 const visibleProfiles = computed(() => props.productId ? profiles.value.filter(item => item.productId === props.productId) : profiles.value)
 const productName = id => products.value.find(item => item.id === id)?.name || id
@@ -171,7 +171,6 @@ onMounted(load)
             <ui-form-item label="操作超时（秒）"><ui-input-number :model-value="listener.timeoutMs / 1000" :min="0.001" :max="30" :step="0.5" @update:model-value="value => listener.timeoutMs = Math.round(Number(value) * 1000)" /></ui-form-item>
             <template v-if="listener.mode === 'poll'">
               <ui-form-item label="站号"><ui-input-number v-model="listener.unitId" :min="0" :max="255" /></ui-form-item>
-              <ui-form-item label="采集周期（秒）"><ui-input-number :model-value="listener.intervalMs / 1000" :min="1" @update:model-value="value => listener.intervalMs = Math.round(Number(value) * 1000)" /></ui-form-item>
               <ui-form-item label="重试次数"><ui-input-number v-model="listener.retries" :min="0" :max="3" /></ui-form-item>
             </template>
           </div>
