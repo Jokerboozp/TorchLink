@@ -107,7 +107,7 @@ func TestDurableMQTTRealBrokerAuthenticationRestartAndOfflineDelivery(t *testing
 	if err = repo.SaveProduct(ctx, model.Product{TenantID: "test", ID: "p", Status: "ENABLED"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "test", ProductID: "p", ID: "d", Name: "消防控制器", Status: "ENABLED", SecretHash: "test-inventory-credential", Tags: map[string]string{"connector": "MQTT"}}); err != nil { /* 判断条件并选择处理分支。 */
+	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "test", ProductID: "p", ID: "d", Name: "消防控制器", Status: "ENABLED", SecretHash: "test-inventory-credential", Connector: "MQTT"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	ingress := onboarding.New(repo, engine.Parsers, t.TempDir(), nil)                                  /* 更新 ingress 的值。 */

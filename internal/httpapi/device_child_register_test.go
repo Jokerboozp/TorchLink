@@ -48,7 +48,7 @@ func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
 	if err := repo.SaveDeviceAccessProfile(ctx, profile); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "parent", ProductID: "parent-product", Name: "主设备", Status: "ENABLED", DeviceRole: "GATEWAY", Tags: map[string]string{"connectorProfileId": "listener"}}); err != nil {
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "parent", ProductID: "parent-product", Name: "主设备", Status: "ENABLED", DeviceRole: "GATEWAY", ConnectorProfileID: "listener"}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(body string) (int, map[string]any) {
@@ -80,7 +80,7 @@ func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
 		t.Fatalf("unmapped child accepted: %d", code)
 	}
 	child, err := repo.GetManagedDevice(ctx, "tenant", id.(string))
-	if err != nil || child.GatewayID != "parent" || child.Tags["connectorProfileId"] != "listener" {
+	if err != nil || child.GatewayID != "parent" || child.ConnectorProfileID != "listener" {
 		t.Fatalf("child relation: %+v %v", child, err)
 	}
 	if err := repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: "foreign", ProductID: "child-product", Mode: "listener", Network: "tcp", Enabled: true}); err != nil {

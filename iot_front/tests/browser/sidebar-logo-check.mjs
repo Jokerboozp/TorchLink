@@ -36,13 +36,13 @@ try {
     await call('Page.navigate', { url: process.env.IOT_UI_PREVIEW_ORIGIN })
     await until(() => evaluate("Boolean(document.querySelector('.login-form #password'))"))
     await evaluate("(()=>{const input=document.querySelector('.login-form #password');input.value='fixture';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.login-form').requestSubmit()})()")
-    await until(() => evaluate("document.querySelector('.brand-logo img')?.complete && document.querySelector('.brand-logo img')?.naturalWidth > 0"))
-    const inspect = () => evaluate(`(() => {const aside=document.querySelector('.app-aside'),brand=document.querySelector('.brand'),logo=document.querySelector('.brand-logo'),img=logo.querySelector('img'),a=aside.getBoundingClientRect(),b=brand.getBoundingClientRect(),l=logo.getBoundingClientRect(),i=img.getBoundingClientRect();return {collapsed:aside.classList.contains('is-collapsed'),aside:{left:a.left,right:a.right},brand:{top:b.top,bottom:b.bottom},logo:{left:l.left,right:l.right,top:l.top,bottom:l.bottom,width:l.width,height:l.height},image:{left:i.left,width:i.width,height:i.height}}})()`)
+    await until(() => evaluate("document.querySelector('.app-sidebar__brand img')?.complete && document.querySelector('.app-sidebar__brand img')?.naturalWidth > 0"))
+    const inspect = () => evaluate(`(() => {const aside=document.querySelector('.app-sidebar'),brand=document.querySelector('.brand'),logo=document.querySelector('.app-sidebar__brand'),img=logo.querySelector('img'),a=aside.getBoundingClientRect(),b=brand.getBoundingClientRect(),l=logo.getBoundingClientRect(),i=img.getBoundingClientRect();return {collapsed:aside.classList.contains('is-collapsed'),aside:{left:a.left,right:a.right},brand:{top:b.top,bottom:b.bottom},logo:{left:l.left,right:l.right,top:l.top,bottom:l.bottom,width:l.width,height:l.height},image:{left:i.left,width:i.width,height:i.height}}})()`)
     const expanded = await inspect()
     assert.ok(expanded.logo.top >= expanded.brand.top && expanded.logo.bottom <= expanded.brand.bottom && expanded.logo.right <= expanded.aside.right, `展开侧栏 Logo 越界：${JSON.stringify(expanded)}`)
     const screenshot = async name => { const result = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), name), Buffer.from(result.data, 'base64')) }
     await screenshot('iot-sidebar-logo-expanded.png')
-    await evaluate("document.querySelector('.collapse-button').click()")
+    await evaluate("document.querySelector('.app-topbar__toggle').click()")
     await until(async () => { const state = await inspect(); return state.collapsed ? state : null })
     await delay(250) // Wait for the sidebar width transition before checking the final clipped state.
     const collapsed = await inspect()

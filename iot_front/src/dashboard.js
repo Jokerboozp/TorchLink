@@ -1,10 +1,10 @@
-const colors = ['#13386c', '#3f79b1', '#f38128', '#30a46c', '#7e65a8', '#86868b'] /* 产品分布采用品牌深蓝和火焰色组成的图表配色。 */
+// 运行总览的图表数据；颜色只引用 tokens.css 中的变量：设备状态用状态色，产品分布为单一度量用单色。
 export function count(value) { return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0 } /* 执行当前语句并推进处理流程。 */
 export function deviceSegments(states = {}) { /* 执行当前语句并推进处理流程。 */
-  const known = { ONLINE:['在线','#30a46c'], OFFLINE:['离线','#a1a1aa'], SUSPECTED_OFFLINE:['疑似离线','#ff9f0a'], NEVER_SEEN:['待连接','#d9e7f5'], UNKNOWN:['未知','#af52de'] } /* 声明 known。 */
+  const known = { ONLINE:['在线','var(--success)'], OFFLINE:['离线','var(--gray-500)'], SUSPECTED_OFFLINE:['疑似离线','var(--warning)'], NEVER_SEEN:['待连接','var(--gray-400)'], UNKNOWN:['未知','var(--info)'] } /* 声明 known。 */
   return Object.entries(known).map(([key, [name, color]]) => ({ key, name, color, count:count(states[key]) })) /* 返回当前处理结果。 */
     .filter(item => item.key !== 'UNKNOWN' || item.count > 0) /* 执行当前语句并推进处理流程。 */
-    .concat(Object.keys(states).some(key => !known[key]) ? [{ key:'OTHER', name:'其他', color:'#af52de', count:Object.entries(states).filter(([key]) => !known[key]).reduce((sum, [,value]) => sum + count(value), 0) }] : []) /* 执行当前语句并推进处理流程。 */
+    .concat(Object.keys(states).some(key => !known[key]) ? [{ key:'OTHER', name:'其他', color:'var(--info)', count:Object.entries(states).filter(([key]) => !known[key]).reduce((sum, [,value]) => sum + count(value), 0) }] : []) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 export function ringSegments(items) { /* 执行当前语句并推进处理流程。 */
   const total = items.reduce((sum, item) => sum + count(item.count), 0) /* 声明 total。 */
@@ -15,7 +15,8 @@ export function productBars(products = []) { /* 执行当前语句并推进处�
   const sorted = products.map(item => ({ ...item, count:count(item.count) })).sort((a,b) => b.count-a.count || a.key.localeCompare(b.key)) /* 声明 sorted。 */
   const top = sorted.slice(0,5) /* 声明 top。 */
   if (sorted.length > 5) top.push({ key:'__other', name:'其他产品', count:sorted.slice(5).reduce((sum,item) => sum+item.count,0) }) /* 判断条件并选择处理分支。 */
-  return top.map((item,index) => ({ ...item, color:colors[index] })) /* 返回当前处理结果。 */
+  // 同一度量只用一种颜色；“其他产品”用中性色。
+  return top.map(item => ({ ...item, color:item.key === '__other' ? 'var(--gray-400)' : 'var(--primary)' })) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 export function trendGeometry(trend = []) { /* 执行当前语句并推进处理流程。 */
   const max = Math.max(1, ...trend.map(item => count(item.count))) /* 声明 max。 */

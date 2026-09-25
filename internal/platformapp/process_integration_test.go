@@ -19,7 +19,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"github.com/jackc/pgx/v5"                 /* 执行当前语句并推进处理流程。 */
 	"github.com/jackc/pgx/v5/pgxpool"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/postgres" /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"             /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/onboarding"        /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
@@ -163,17 +162,11 @@ func TestSplitProcessesPostgresKafkaRecovery(t *testing.T) { /* 定义 TestSplit
 	var login struct { /* 声明 login。 */
 		AccessToken string `json:"accessToken"` /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
-	request(apiAddr, "/api/v1/auth/login", "", map[string]string{"username": "test-admin", "password": "wrong", "tenantId": "t"}, nil, 401, nil)                                                                                                           /* 执行当前语句并推进处理流程。 */
-	request(apiAddr, "/api/v1/auth/login", "", map[string]string{"username": "test-admin", "password": "isolated-process-password", "tenantId": "t"}, nil, 200, &login)                                                                                    /* 执行当前语句并推进处理流程。 */
-	request(gatewayAddr, "/api/v1/auth/login", "", map[string]string{}, nil, 404, nil)                                                                                                                                                                     /* 执行当前语句并推进处理流程。 */
-	q := onboarding.Request{ProductID: "p", ProductName: "process product", DeviceID: "d", Name: "process device", Type: connector.HTTP, MessageKind: "property", Payload: json.RawMessage(`{"id":"preview","timestamp":1000,"data":{"temperature":42}}`)} /* 更新 q 的值。 */
-	var preview connector.Result                                                                                                                                                                                                                           /* 声明 preview。 */
-	request(apiAddr, "/api/v1/onboarding/test", login.AccessToken, q, nil, 200, &preview)                                                                                                                                                                  /* 执行当前语句并推进处理流程。 */
-	if !preview.Success {                                                                                                                                                                                                                                  /* 判断条件并选择处理分支。 */
-		t.Fatal("onboarding preview failed") /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	q.TestToken = preview.TestToken                                                                                          /* 更新 q.TestToken 的值。 */
-	var created onboarding.Result                                                                                            /* 声明 created。 */
+	request(apiAddr, "/api/v1/auth/login", "", map[string]string{"username": "test-admin", "password": "wrong", "tenantId": "t"}, nil, 401, nil)                        /* 执行当前语句并推进处理流程。 */
+	request(apiAddr, "/api/v1/auth/login", "", map[string]string{"username": "test-admin", "password": "isolated-process-password", "tenantId": "t"}, nil, 200, &login) /* 执行当前语句并推进处理流程。 */
+	request(gatewayAddr, "/api/v1/auth/login", "", map[string]string{}, nil, 404, nil)                                                                                  /* 执行当前语句并推进处理流程。 */
+	q := onboarding.EnrollRequest{RequestID: "process-1", NewProduct: &onboarding.NewProduct{ID: "p", Name: "process product", ProtocolPackageID: onboarding.StandardPackageID, Transport: "HTTP"}, Device: onboarding.EnrollDevice{ID: "d", Name: "process device"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}}
+	var created onboarding.EnrollResult
 	request(apiAddr, "/api/v1/onboarding", login.AccessToken, q, nil, 201, &created)                                         /* 执行当前语句并推进处理流程。 */
 	headers := map[string]string{"X-Device-Key": created.Credential.AccessKey, "X-Device-Secret": created.Credential.Secret} /* 更新 headers 的值。 */
 	path := "/api/v1/device-ingest/standard/t/p/d/property"                                                                  /* 更新 path 的值。 */

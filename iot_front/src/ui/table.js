@@ -1,5 +1,5 @@
 import { Comment, Fragment, defineComponent, h } from 'vue' /* 使用 Vue 节点保留各页面的单元格插槽。 */
-import { NDataTable } from 'naive-ui' /* 表格绘制、固定列与选择能力由 Naive UI 提供。 */
+import { NDataTable, NEmpty } from 'naive-ui' /* 表格绘制、固定列与选择能力由 Naive UI 提供。 */
 
 export const UiTableColumn = defineComponent({ /* 列声明只向父表格提供配置，不单独产生页面节点。 */
   name: 'UiTableColumn', /* 供父表格识别列节点。 */
@@ -32,7 +32,8 @@ export const UiTable = defineComponent({ /* 把页面列插槽转换为 Naive UI
     rowClassName: Function, /* 业务状态驱动的行样式。 */
     emptyText: String, /* 空列表提示。 */
     maxHeight: [String, Number], /* 最大可视高度。 */
-    size: String /* 表格密度。 */
+    size: String, /* 表格密度。 */
+    loading: Boolean /* 加载中显示表格自带的等待状态。 */
   }, /* 结束输入契约。 */
   emits: ['selection-change'], /* 继续把勾选行交给业务模块。 */
   setup(props, { attrs, slots, emit }) { /* 初始化表格适配逻辑。 */
@@ -56,7 +57,7 @@ export const UiTable = defineComponent({ /* 把页面列插槽转换为 Naive UI
       const scrollX = columns.reduce((total, column) => total + (column.width || column.minWidth || 140), 0) /* 宽表格允许横向滚动。 */
       return h(NDataTable, { /* 渲染 Naive UI 数据表格。 */
         ...attrs, /* 保留页面的类名与无障碍属性。 */
-        class: ['ui-table', 'el-table', attrs.class], /* 兼容已有布局样式。 */
+        class: ['ui-table', attrs.class], /* 兼容已有布局样式。 */
         columns, /* 传入转换后的列。 */
         data: props.data, /* 传入当前页数据。 */
         striped: props.stripe, /* 按页面配置显示斑马纹。 */
@@ -67,8 +68,8 @@ export const UiTable = defineComponent({ /* 把页面列插槽转换为 Naive UI
         rowKey: row => typeof props.rowKey === 'function' ? props.rowKey(row) : row?.[props.rowKey || 'id'] ?? row?.messageId ?? props.data.indexOf(row), /* 保留行标识。 */
         rowClassName: props.rowClassName ? (row, index) => props.rowClassName({ row, rowIndex: index }) : undefined, /* 兼容业务行样式回调。 */
         'onUpdate:checkedRowKeys': (keys, rows) => emit('selection-change', rows || props.data.filter(row => keys.includes(row?.[props.rowKey || 'id'] ?? row?.messageId))), /* 将选择键还原为业务行。 */
-        renderEmpty: () => props.emptyText || '暂无数据' /* 显示当前页面的空列表提示。 */
-      }) /* 结束 Naive UI 表格。 */
+        loading: props.loading /* 表格自身的加载状态。 */
+      }, { empty: () => h(NEmpty, { description: props.emptyText || '暂无数据', size: 'small' }) }) /* 空列表显示当前页面给出的提示。 */
     } /* 结束渲染函数。 */
   } /* 结束表格初始化。 */
 }) /* 结束数据表格适配。 */

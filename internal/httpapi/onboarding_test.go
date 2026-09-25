@@ -15,7 +15,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/adapters/local"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/memory" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/config"          /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"       /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/metrics"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
@@ -36,17 +35,17 @@ func TestStandardOnboardingHTTPChain(t *testing.T) { /* 定义 TestStandardOnboa
 	if err = engine.Start(ctx); err != nil {                                                                             /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	cfg := config.Load()                                                                                                                            /* 更新 cfg 的值。 */
-	cfg.JWTSecret = "onboarding-test-signing-key-32-characters"                                                                                     /* 更新 cfg.JWTSecret 的值。 */
-	cfg.AdminTenants = []string{"tenant"}                                                                                                           /* 更新 cfg.AdminTenants 的值。 */
-	cfg.DeviceHTTPPublicURL = "https://devices.example.test"                                                                                        /* 更新 cfg.DeviceHTTPPublicURL 的值。 */
-	cfg.MQTTPublicURL = "mqtts://devices.example.test:8883"                                                                                         /* 更新 cfg.MQTTPublicURL 的值。 */
-	srv := New(cfg, engine, metrics.New(), log)                                                                                                     /* 更新 srv 的值。 */
-	token, _ := srv.auth.Issue("tester", "tenant", "admin", nil, time.Hour)                                                                         /* 更新 _ 的值。 */
-	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED"})                                                  /* 更新 _ 的值。 */
-	payload := json.RawMessage(`{"id":"a","timestamp":1788850000000,"data":{"temperature":26.5}}`)                                                  /* 更新 payload 的值。 */
-	q := onboarding.Request{ProductID: "product", DeviceID: "device", Name: "传感器", Type: connector.HTTP, MessageKind: "property", Payload: payload} /* 更新 q 的值。 */
-	call := func(method, path string, body []byte, credential model.DeviceCredential, admin bool) *httptest.ResponseRecorder {                      /* 更新 call 的值。 */
+	cfg := config.Load()                                                                                                                                               /* 更新 cfg 的值。 */
+	cfg.JWTSecret = "onboarding-test-signing-key-32-characters"                                                                                                        /* 更新 cfg.JWTSecret 的值。 */
+	cfg.AdminTenants = []string{"tenant"}                                                                                                                              /* 更新 cfg.AdminTenants 的值。 */
+	cfg.DeviceHTTPPublicURL = "https://devices.example.test"                                                                                                           /* 更新 cfg.DeviceHTTPPublicURL 的值。 */
+	cfg.MQTTPublicURL = "mqtts://devices.example.test:8883"                                                                                                            /* 更新 cfg.MQTTPublicURL 的值。 */
+	srv := New(cfg, engine, metrics.New(), log)                                                                                                                        /* 更新 srv 的值。 */
+	token, _ := srv.auth.Issue("tester", "tenant", "admin", nil, time.Hour)                                                                                            /* 更新 _ 的值。 */
+	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED", ProtocolPackageID: onboarding.StandardPackageID, Transport: "HTTP"}) /* 更新 _ 的值。 */
+	payload := json.RawMessage(`{"id":"a","timestamp":1788850000000,"data":{"temperature":26.5}}`)                                                                     /* 更新 payload 的值。 */
+	q := onboarding.EnrollRequest{RequestID: "req-1", ProductID: "product", Device: onboarding.EnrollDevice{ID: "device", Name: "传感器"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}}
+	call := func(method, path string, body []byte, credential model.DeviceCredential, admin bool) *httptest.ResponseRecorder { /* 更新 call 的值。 */
 		r := httptest.NewRequest(method, path, bytes.NewReader(body)) /* 更新 r 的值。 */
 		r.Header.Set("Content-Type", "application/json")              /* 执行当前语句并推进处理流程。 */
 		r.Header.Set("X-Device-Key", credential.AccessKey)            /* 执行当前语句并推进处理流程。 */
@@ -58,29 +57,28 @@ func TestStandardOnboardingHTTPChain(t *testing.T) { /* 定义 TestStandardOnboa
 		srv.Handler().ServeHTTP(w, r) /* 执行当前语句并推进处理流程。 */
 		return w                      /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	data, _ := json.Marshal(q)                                                         /* 更新 _ 的值。 */
-	w := call("POST", "/api/v1/onboarding/test", data, model.DeviceCredential{}, true) /* 更新 w 的值。 */
-	if w.Code != 200 {                                                                 /* 判断条件并选择处理分支。 */
-		t.Fatal(w.Code, w.Body.String()) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	var preview connector.Result                 /* 声明 preview。 */
-	_ = json.Unmarshal(w.Body.Bytes(), &preview) /* 更新 _ 的值。 */
-	if !preview.Success {                        /* 判断条件并选择处理分支。 */
-		t.Fatal(w.Body.String()) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	q.TestToken = preview.TestToken                                              /* 更新 q.TestToken 的值。 */
-	data, _ = json.Marshal(q)                                                    /* 更新 _ 的值。 */
+	w := call("GET", "/api/v1/onboarding/preflight?productId=product", nil, model.DeviceCredential{}, true)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"mode":"standard"`) || !strings.Contains(w.Body.String(), `"ready":true`) {
+		t.Fatal("preflight", w.Code, w.Body.String())
+	}
+	data, _ := json.Marshal(q)
 	w = call("POST", "/api/v1/onboarding", data, model.DeviceCredential{}, true) /* 更新 w 的值。 */
 	if w.Code != 201 {                                                           /* 判断条件并选择处理分支。 */
 		t.Fatal(w.Code, w.Body.String()) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	var created onboarding.Result                                                                                                        /* 声明 created。 */
-	_ = json.Unmarshal(w.Body.Bytes(), &created)                                                                                         /* 更新 _ 的值。 */
+	var created struct {
+		onboarding.EnrollResult
+		AccessInfo map[string]any `json:"accessInfo"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &created) /* 更新 _ 的值。 */
+	if created.Credential.Secret == "" || created.AccessInfo["httpUrl"] != "https://devices.example.test/api/v1/device-ingest/standard/tenant/product/device/property" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("device access information", w.Body.String())
+	}
 	if guide := call("GET", "/api/v1/device-registry/device/connection-guide", nil, model.DeviceCredential{}, true); guide.Code != 404 { /* 判断条件并选择处理分支。 */
 		t.Fatalf("removed connection guide endpoint: %d", guide.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	connection := call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true) /* 更新 connection 的值。 */
-	if connection.Code != 200 || !strings.Contains(connection.Body.String(), "WAITING_FOR_DATA") {              /* 判断条件并选择处理分支。 */
+	connection := call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)                               /* 更新 connection 的值。 */
+	if connection.Code != 200 || !strings.Contains(connection.Body.String(), "WAITING_FOR_DATA") || diagnosisStage(connection) != "WAITING" { /* 判断条件并选择处理分支。 */
 		t.Fatal("configuration falsely reported receipt", connection.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if replay := call("POST", "/api/v1/onboarding", data, model.DeviceCredential{}, true); replay.Code != 200 || !strings.Contains(replay.Body.String(), `"reused":true`) || strings.Contains(replay.Body.String(), created.Credential.Secret) { /* 判断条件并选择处理分支。 */
@@ -132,8 +130,8 @@ func TestStandardOnboardingHTTPChain(t *testing.T) { /* 定义 TestStandardOnboa
 	if err != nil || !bytes.Equal(preserved.Payload, payload) { /* 判断条件并选择处理分支。 */
 		t.Fatal("conflict overwrote archived raw", err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	connection = call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)                                                   /* 更新 connection 的值。 */
-	if connection.Code != 200 || !strings.Contains(connection.Body.String(), `"stage":"PARSED"`) || !strings.Contains(connection.Body.String(), idx.MessageID) { /* 判断条件并选择处理分支。 */
+	connection = call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)                                                                                             /* 更新 connection 的值。 */
+	if connection.Code != 200 || !strings.Contains(connection.Body.String(), `"stage":"PARSED"`) || diagnosisStage(connection) != "PARSED" || !strings.Contains(connection.Body.String(), idx.MessageID) { /* 判断条件并选择处理分支。 */
 		t.Fatal("parsed receipt missing", connection.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	// State still traverses raw archival and parsing before updating connectivity.
@@ -192,3 +190,13 @@ func TestStandardOnboardingHTTPChain(t *testing.T) { /* 定义 TestStandardOnboa
 		t.Fatal("disabled", w.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+
+func diagnosisStage(w *httptest.ResponseRecorder) string {
+	var body struct {
+		Diagnosis struct {
+			Stage string `json:"stage"`
+		} `json:"diagnosis"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	return body.Diagnosis.Stage
+}

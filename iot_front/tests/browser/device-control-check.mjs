@@ -58,10 +58,10 @@ try { /* 执行当前语句并推进处理流程。 */
    await call('Page.navigate',{url:origin+'mapping-fixture'}) /* 等待异步操作完成。 */
    await until(()=>evaluate(`document.body.textContent.includes('设备控制')`)) /* 等待异步操作完成。 */
    assert.equal(await evaluate(`document.querySelector('.device-commands textarea')!==null`),false) /* 验证实际结果符合预期。 */
-   await evaluate(`document.querySelector('[aria-label="设备命令"]').closest('.el-select').querySelector('.n-base-selection').click()`) /* 展开命令选择器。 */
+   await evaluate(`document.querySelector('[aria-label="设备命令"]').closest('.ui-select').querySelector('.n-base-selection').click()`) /* 展开命令选择器。 */
    await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='设置参数'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 选择设置参数命令。 */
    await fill('目标数值','0') /* 等待异步操作完成。 */
-   await evaluate(`document.querySelector('[aria-label="启用"]').closest('.el-select').querySelector('.n-base-selection').click()`) /* 展开布尔参数选择器。 */
+   await evaluate(`document.querySelector('[aria-label="启用"]').closest('.ui-select').querySelector('.n-base-selection').click()`) /* 展开布尔参数选择器。 */
    await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='否（false）'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 选择 false。 */
    await click('添加参数项') /* 等待异步操作完成。 */
    await fill('扩展配置.field','test') /* 等待异步操作完成。 */

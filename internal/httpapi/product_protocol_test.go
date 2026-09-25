@@ -100,3 +100,27 @@ func TestIndependentProductAndDeviceRegistration(t *testing.T) { /* 定义 TestI
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+
+func TestNewTemplateOnVersionedReleaseIsBound(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := config.Load()
+	cfg.JWTSecret = "versioned-template-binding-test-key-32"
+	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), log)
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
+	if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "meter", Version: "1", Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED"}); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, map[string]any{"id": "meter-product", "name": "电表", "protocolPackageId": "meter@1"}, 201)
+	binding, err := repo.GetProductProtocolBinding(ctx, "tenant", "meter-product")
+	if err != nil || binding.ProtocolID != "meter" || binding.Version != "1" {
+		t.Fatalf("versioned template not bound: %+v %v", binding, err)
+	}
+	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, map[string]any{"id": "standard-product", "name": "标准", "protocolPackageId": "iot-standard@1.0.0"}, 201)
+	if _, err = repo.GetProductProtocolBinding(ctx, "tenant", "standard-product"); err == nil {
+		t.Fatal("the built-in standard protocol needs no binding")
+	}
+}

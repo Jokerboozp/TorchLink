@@ -77,18 +77,18 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	router.HandleMethodNotAllowed = true /* 更新 router.HandleMethodNotAllowed 的值。 */
 	router.RedirectTrailingSlash = false /* 更新 router.RedirectTrailingSlash 的值。 */
 	s := &Server{                        /* 更新 s 的值。 */
-		cfg:                        cfg,                                                                                             /* 执行当前语句并推进处理流程。 */
-		engine:                     engine,                                                                                          /* 执行当前语句并推进处理流程。 */
-		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs, cfg.JWTSecret), /* 执行当前语句并推进处理流程。 */
-		auth:                       auth.New(cfg.JWTSecret),                                                                         /* 执行当前语句并推进处理流程。 */
-		metrics:                    m,                                                                                               /* 执行当前语句并推进处理流程。 */
-		log:                        log,                                                                                             /* 执行当前语句并推进处理流程。 */
-		router:                     router,                                                                                          /* 执行当前语句并推进处理流程。 */
-		healthInspectionCache:      make(map[string]healthInspectionSnapshot),                                                       /* 执行当前语句并推进处理流程。 */
-		healthInspectionJobs:       make(map[string]*healthInspectionJob),                                                           /* 执行当前语句并推进处理流程。 */
-		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),                                                  /* 执行当前语句并推进处理流程。 */
-		aiAnalysisJobs:             make(map[string]*aiAnalysisJob),                                                                 /* 执行当前语句并推进处理流程。 */
-		aiAnalysisEstimateMs:       45000,                                                                                           /* 执行当前语句并推进处理流程。 */
+		cfg:                        cfg,                                                                              /* 执行当前语句并推进处理流程。 */
+		engine:                     engine,                                                                           /* 执行当前语句并推进处理流程。 */
+		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs), /* 执行当前语句并推进处理流程。 */
+		auth:                       auth.New(cfg.JWTSecret),                                                          /* 执行当前语句并推进处理流程。 */
+		metrics:                    m,                                                                                /* 执行当前语句并推进处理流程。 */
+		log:                        log,                                                                              /* 执行当前语句并推进处理流程。 */
+		router:                     router,                                                                           /* 执行当前语句并推进处理流程。 */
+		healthInspectionCache:      make(map[string]healthInspectionSnapshot),                                        /* 执行当前语句并推进处理流程。 */
+		healthInspectionJobs:       make(map[string]*healthInspectionJob),                                            /* 执行当前语句并推进处理流程。 */
+		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),                                   /* 执行当前语句并推进处理流程。 */
+		aiAnalysisJobs:             make(map[string]*aiAnalysisJob),                                                  /* 执行当前语句并推进处理流程。 */
+		aiAnalysisEstimateMs:       45000,                                                                            /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery()) /* 执行当前语句并推进处理流程。 */
 	s.routes()                                                      /* 执行当前语句并推进处理流程。 */
@@ -111,12 +111,12 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 func (s *Server) routes() { /* 定义 routes 函数。 */
 	s.accessRoutes() /* 执行当前语句并推进处理流程。 */
 	s.deletionRoutes()
-	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))                                                                         /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))                                                                              /* 执行当前语句并推进处理流程。 */
-	s.deviceOperationsRoutes()                                                                                                                                            /* 执行当前语句并推进处理流程。 */
-	s.router.GET("/api/v1/device-registry/:id/connection", s.authorize("viewer"), s.endpoint(s.deviceConnection, "id"))                                                   /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/onboarding/test", s.authorize("admin"), s.endpoint(s.onboardingTest))                                                                          /* 执行当前语句并推进处理流程。 */
-	s.router.POST("/api/v1/onboarding", s.authorize("admin"), s.endpoint(s.onboardingCreate))                                                                             /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))                       /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))                            /* 执行当前语句并推进处理流程。 */
+	s.deviceOperationsRoutes()                                                                                          /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/device-registry/:id/connection", s.authorize("viewer"), s.endpoint(s.deviceConnection, "id")) /* 执行当前语句并推进处理流程。 */
+	s.router.GET("/api/v1/onboarding/preflight", s.authorize("operator"), s.endpoint(s.onboardingPreflight))
+	s.router.POST("/api/v1/onboarding", s.authorize("operator"), s.endpoint(s.onboardingEnroll))
 	s.router.POST("/api/v1/device-ingest/standard/:tenantId/:productId/:deviceId/:kind", s.endpoint(s.standardDeviceIngest, "tenantId", "productId", "deviceId", "kind")) /* 执行当前语句并推进处理流程。 */
 	s.router.DELETE("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.disableDeviceCredential, "id"))                                         /* 执行当前语句并推进处理流程。 */
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))                                                                                                              /* 执行当前语句并推进处理流程。 */
@@ -344,10 +344,12 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) { /* 定义
 		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if newProduct && pkg.ParserType == parser.GoProtocolParserName { /* 判断条件并选择处理分支。 */
-		if _, err := s.bindProtocolRelease(r, pkg.Protocol, pkg.Version, v.ID); err != nil { /* 判断条件并选择处理分支。 */
-			problem(w, 422, err.Error()) /* 执行当前语句并推进处理流程。 */
-			return                       /* 返回当前处理结果。 */
+	// Versioned protocols are parsed by the bound release; the binding is their single source.
+	_, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
+	if newProduct && v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {
+		if _, err := s.bindProtocolRelease(r, pkg.Protocol, pkg.Version, v.ID); err != nil {
+			bindingProblem(w, err)
+			return /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 		v, err = s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID) /* 更新 err 的值。 */
 		if err != nil {                                                  /* 判断条件并选择处理分支。 */
@@ -470,27 +472,13 @@ func (s *Server) testProtocolPackage(w http.ResponseWriter, r *http.Request) { /
 func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) { /* 定义 deviceRegistry 函数。 */
 	tenantID := claims(r).TenantID       /* 更新 tenantID 的值。 */
 	pagination := parseListPagination(r) /* 更新 pagination 的值。 */
-	var items []model.ManagedDevice      /* 声明 items。 */
-	var total int                        /* 声明 total。 */
-	var err error                        /* 声明 err。 */
-	var childCounts map[string]int       /* 声明 childCounts。 */
-	if limited(r.Context()) {            /* 判断条件并选择处理分支。 */
-		// Reuse the authorized list for the page and child counts.
-		all, listErr := s.engine.Repo.ListManagedDevices(r.Context(), tenantID) /* 更新 listErr 的值。 */
-		err = listErr                                                           /* 更新 err 的值。 */
-		if err == nil {                                                         /* 判断条件并选择处理分支。 */
-			total = len(all)                                               /* 更新 total 的值。 */
-			items = pageSlice(all, pagination.PageSize, pagination.Offset) /* 更新 items 的值。 */
-			childCounts = make(map[string]int, len(items))                 /* 更新 childCounts 的值。 */
-			for _, child := range all {                                    /* 循环处理当前数据。 */
-				if child.GatewayID != "" { /* 判断条件并选择处理分支。 */
-					childCounts[child.GatewayID]++ /* 执行当前语句并推进处理流程。 */
-				} /* 结束当前表达式或代码块。 */
-			} /* 结束当前表达式或代码块。 */
-		} /* 结束当前表达式或代码块。 */
-	} else { /* 结束当前表达式或代码块。 */
-		items, total, err = s.engine.Repo.ListManagedDevicesPage(r.Context(), tenantID, pagination.PageSize, pagination.Offset) /* 更新 err 的值。 */
-	} /* 结束当前表达式或代码块。 */
+	filter, err := s.deviceFilter(r.Context(), tenantID, r.URL.Query())
+	if err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
+	// The scope-aware repository filters limited users before totals and pagination.
+	items, total, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), filter, pagination.PageSize, pagination.Offset)
 	if err != nil { /* 判断条件并选择处理分支。 */
 		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
@@ -499,12 +487,10 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) { /* 定
 	for _, item := range items {               /* 循环处理当前数据。 */
 		deviceIDs = append(deviceIDs, item.ID) /* 更新 deviceIDs 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	if childCounts == nil { /* 判断条件并选择处理分支。 */
-		childCounts, err = s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs) /* 更新 err 的值。 */
-		if err != nil {                                                                               /* 判断条件并选择处理分支。 */
-			problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
-			return                       /* 返回当前处理结果。 */
-		} /* 结束当前表达式或代码块。 */
+	childCounts, err := s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs) /* 更新 err 的值。 */
+	if err != nil {                                                                                /* 判断条件并选择处理分支。 */
+		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
+		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	productIDs := make([]string, 0, len(items)) /* 更新 productIDs 的值。 */
 	for _, item := range items {                /* 循环处理当前数据。 */
@@ -528,11 +514,28 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) { /* 定
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
+	// Parents may be on another page; resolve their names within the caller's scope.
+	parents := map[string]map[string]string{}
+	for _, v := range items {
+		if v.GatewayID == "" {
+			continue
+		}
+		if _, seen := parents[v.GatewayID]; seen {
+			continue
+		}
+		parents[v.GatewayID] = nil
+		if parent, getErr := s.engine.Repo.GetManagedDevice(r.Context(), tenantID, v.GatewayID); getErr == nil {
+			parents[v.GatewayID] = map[string]string{"id": parent.ID, "name": parent.Name}
+		}
+	}
 	out := make([]map[string]any, 0, len(items)) /* 更新 out 的值。 */
 	for _, v := range items {                    /* 循环处理当前数据。 */
 		product := products[v.ProductID]                                                                                                               /* 更新 product 的值。 */
 		row := map[string]any{"device": v.Public(product), "childCount": childCounts[v.ID], "credentialSupported": v.UsesPlatformCredentials(product)} /* 更新 row 的值。 */
-		if state, ok := states[v.ID]; ok {                                                                                                             /* 判断条件并选择处理分支。 */
+		if parent := parents[v.GatewayID]; parent != nil {
+			row["parent"] = parent
+		}
+		if state, ok := states[v.ID]; ok { /* 判断条件并选择处理分支。 */
 			row["runtimeState"] = state /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 		out = append(out, row) /* 更新 out 的值。 */
@@ -575,16 +578,14 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) { /* 
 		if v.Tags == nil {                                                                                                  /* 判断条件并选择处理分支。 */
 			v.Tags = map[string]string{} /* 更新 v.Tags 的值。 */
 		} /* 结束当前表达式或代码块。 */
-		for _, key := range []string{"onboardingRequestHash", "connector", "childType"} { /* 循环处理当前数据。 */
-			delete(v.Tags, key)                      /* 执行当前语句并推进处理流程。 */
-			if value := old.Tags[key]; value != "" { /* 判断条件并选择处理分支。 */
-				v.Tags[key] = value /* 更新 v.Tags[key] 的值。 */
-			} /* 结束当前表达式或代码块。 */
-		} /* 结束当前表达式或代码块。 */
-		for _, key := range []string{"connectorProfileId", "childAddress"} {
-			if _, supplied := v.Tags[key]; !supplied && old.Tags[key] != "" {
-				v.Tags[key] = old.Tags[key]
-			}
+		// Platform connection fields keep their stored values; the connection and
+		// child address may be re-selected but are not cleared by an edit.
+		v.Connector, v.ChildType, v.OnboardingRequestHash = old.Connector, old.ChildType, old.OnboardingRequestHash
+		if v.ConnectorProfileID == "" {
+			v.ConnectorProfileID = old.ConnectorProfileID
+		}
+		if v.ChildAddress == "" {
+			v.ChildAddress = old.ChildAddress
 		}
 		if v.RegistrationSource == "" { /* 判断条件并选择处理分支。 */
 			v.RegistrationSource = old.RegistrationSource /* 更新 v.RegistrationSource 的值。 */
@@ -623,8 +624,8 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) { /* 
 			problem(w, 422, "gateway not found") /* 执行当前语句并推进处理流程。 */
 			return                               /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		gatewayProduct, productErr := s.engine.Repo.GetProduct(r.Context(), c.TenantID, gateway.ProductID) /* 更新 productErr 的值。 */
-		if productErr != nil || gateway.DeviceRole != "GATEWAY" && gatewayProduct.Category != "gateway" {  /* 判断条件并选择处理分支。 */
+		// The parent must be registered as a gateway; the template category alone does not grant it.
+		if gateway.DeviceRole != "GATEWAY" {
 			problem(w, 422, "selected parent device is not a gateway") /* 执行当前语句并推进处理流程。 */
 			return                                                     /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
@@ -642,12 +643,12 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) { /* 
 		}
 		// A child uses its parent's physical connection; the caller cannot bind
 		// it to an unrelated tenant-wide listener.
-		if requested := v.Tags["connectorProfileId"]; requested != "" && requested != parent.Tags["connectorProfileId"] {
+		if requested := v.ConnectorProfileID; requested != "" && requested != parent.ConnectorProfileID {
 			problem(w, 422, "子设备只能继承所属主设备的连接")
 			return
 		}
-		v.Tags["connectorProfileId"] = parent.Tags["connectorProfileId"]
-	} else if requested := v.Tags["connectorProfileId"]; requested != "" {
+		v.ConnectorProfileID = parent.ConnectorProfileID
+	} else if requested := v.ConnectorProfileID; requested != "" {
 		profiles, profileErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), c.TenantID)
 		if profileErr != nil {
 			problem(w, 500, profileErr.Error())
@@ -661,18 +662,16 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) { /* 
 			}
 		}
 		if !valid {
-			problem(w, 422, "平台连接配置不可用，请重新选择当前设备模板的连接")
+			problem(w, 422, "接入点不可用，请重新选择当前设备模板的接入点")
 			return
 		}
 	}
 	if created { /* 判断条件并选择处理分支。 */
+		v.Connector, v.ChildType, v.OnboardingRequestHash = "", "", ""
 		if product.ProtocolPackageID == parser.StandardProtocolID+"@1.0.0" { /* 判断条件并选择处理分支。 */
-			if v.Tags == nil { /* 判断条件并选择处理分支。 */
-				v.Tags = map[string]string{} /* 更新 v.Tags 的值。 */
-			} /* 结束当前表达式或代码块。 */
-			v.Tags["connector"] = "MQTT"     /* 执行当前语句并推进处理流程。 */
+			v.Connector = "MQTT"             /* 执行当前语句并推进处理流程。 */
 			if product.Transport == "HTTP" { /* 判断条件并选择处理分支。 */
-				v.Tags["connector"] = "HTTP" /* 执行当前语句并推进处理流程。 */
+				v.Connector = "HTTP" /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
 		v.AccessKey = model.ProtocolDeviceAccessKey(v.TenantID, v.ID) /* 更新 v.AccessKey 的值。 */
@@ -796,6 +795,8 @@ func (s *Server) deviceIngest(w http.ResponseWriter, r *http.Request) { /* 定�
 		problem(w, 422, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	// Credential-authenticated reports are field evidence; debug ingress keeps its own source.
+	raw.Source = "device-http"
 	idx, created, err := s.engine.IngestRaw(r.Context(), raw) /* 更新 err 的值。 */
 	if err != nil {                                           /* 判断条件并选择处理分支。 */
 		problem(w, 422, err.Error()) /* 执行当前语句并推进处理流程。 */
@@ -804,7 +805,7 @@ func (s *Server) deviceIngest(w http.ResponseWriter, r *http.Request) { /* 定�
 	write(w, map[bool]int{true: 201, false: 200}[created], map[string]any{"created": created, "messageId": idx.MessageID, "receivedAt": idx.ReceivedAt}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 func (s *Server) prepareManagedRaw(ctx context.Context, raw *model.RawMessage, device model.ManagedDevice) error { /* 定义 prepareManagedRaw 函数。 */
-	if device.Tags["connector"] == "HTTP" || device.Tags["connector"] == "MQTT" { /* 判断条件并选择处理分支。 */
+	if device.Connector == "HTTP" || device.Connector == "MQTT" { /* 判断条件并选择处理分支。 */
 		return fmt.Errorf("standard devices must use the authenticated standard ingress endpoint") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	targetProductID := device.ProductID                  /* 更新 targetProductID 的值。 */
@@ -2476,7 +2477,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) { /* �
 	topic := fmt.Sprintf("/external/raw/%s/%s/%s", v.TenantID, v.ProductID, v.ID)                                                                                                                /* 更新 topic 的值。 */
 	acl := []auth.ACLRule{{Permission: "allow", Action: "publish", Topic: topic}, {Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/device/command/%s/%s", v.TenantID, v.ID)}} /* 更新 acl 的值。 */
 	ttl := 24 * time.Hour                                                                                                                                                                        /* 更新 ttl 的值。 */
-	if v.Tags["connector"] == "MQTT" || v.Tags["connector"] == "HTTP" {                                                                                                                          /* 判断条件并选择处理分支。 */
+	if v.Connector == "MQTT" || v.Connector == "HTTP" {                                                                                                                                          /* 判断条件并选择处理分支。 */
 		acl = nil                                                                       /* 更新 acl 的值。 */
 		ttl = 5 * time.Minute                                                           /* 更新 ttl 的值。 */
 		topic = fmt.Sprintf("/iot/up/%s/%s/%s/property", v.TenantID, v.ProductID, v.ID) /* 更新 topic 的值。 */
@@ -2755,7 +2756,8 @@ func (s *Server) authorize(role string) gin.HandlerFunc { /* 定义 authorize �
 			allowed = allowsRoute(permissions, c.Request.Method, c.FullPath())                                 /* 更新 allowed 的值。 */
 			scope := scopeFor(user, permissions, claimsValue.TenantID)                                         /* 更新 scope 的值。 */
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), deviceScopeKey{}, scope)) /* 更新 c.Request 的值。 */
-			if allowed {                                                                                       /* 判断条件并选择处理分支。 */
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), permissionsKey{}, permissions))
+			if allowed { /* 判断条件并选择处理分支。 */
 				allowed = s.allowScopedRequest(c, scope) /* 更新 allowed 的值。 */
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */

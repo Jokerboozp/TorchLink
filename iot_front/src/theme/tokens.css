@@ -1,0 +1,152 @@
+/*
+ * 炬联前端唯一的设计变量来源。
+ * - 页面样式只引用这里的变量，不直接写十六进制颜色。
+ * - src/theme/naive.js 在构建时读取本文件，生成 Naive UI 主题，保证组件与页面同色。
+ * - 本文件只允许出现 :root 中的变量声明，便于上述解析。
+ */
+:root {
+  /* 品牌色：深蓝用于主操作和选中，火焰橙只用于“当前位置”和告警强调。 */
+  --brand-navy: #13386c;
+  --brand-flame: #f38128;
+
+  /* 冷灰中性色阶。 */
+  --gray-0: #ffffff;
+  --gray-25: #fafbfc;
+  --gray-50: #f5f7fa;
+  --gray-100: #eef1f5;
+  --gray-150: #e5e9ef;
+  --gray-200: #d6dce4;
+  --gray-300: #b9c2ce;
+  --gray-400: #8d97a5;
+  --gray-500: #677285;
+  --gray-600: #4b5565;
+  --gray-700: #364152;
+  --gray-800: #1f2733;
+  --gray-900: #121821;
+
+  /* 表面与分隔线。 */
+  --bg: var(--gray-50);
+  --surface: var(--gray-0);
+  --surface-muted: var(--gray-25);
+  --surface-hover: var(--gray-100);
+  --border: var(--gray-150);
+  --border-strong: var(--gray-200);
+
+  /* 文字层级：正文、标题、次要、辅助、禁用。 */
+  --text: var(--gray-800);
+  --text-strong: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+  --text-disabled: var(--gray-400);
+  --text-inverse: var(--gray-0);
+
+  /* 主色。 */
+  --primary: var(--brand-navy);
+  --primary-hover: #1c4a86;
+  --primary-pressed: #0d2a52;
+  --primary-soft: #edf2f9;
+  --primary-soft-hover: #e1eaf5;
+  --primary-border: #c3d3e8;
+  --primary-text: #1b4a85;
+
+  /* 强调色（火焰橙）。 */
+  --flame: var(--brand-flame);
+  --flame-soft: #fff4eb;
+  --flame-text: #b85a0f;
+
+  /* 状态色：solid 用于图标和圆点，text 用于浅底上的文字，soft/border 用于提示底色。 */
+  --success: #16a34a;
+  --success-hover: #15913f;
+  --success-pressed: #12783a;
+  --success-text: #157a3a;
+  --success-soft: #edf8f1;
+  --success-border: #bfe3cc;
+  --warning: #d97706;
+  --warning-hover: #c26a05;
+  --warning-pressed: #a85c04;
+  --warning-text: #a6560a;
+  --warning-soft: #fff7e8;
+  --warning-border: #f3d9a4;
+  --danger: #dc2626;
+  --danger-hover: #c62020;
+  --danger-pressed: #a61b1b;
+  --danger-text: #b42318;
+  --danger-soft: #fef3f2;
+  --danger-border: #f7c9c4;
+  --info: #2f6fb3;
+  --info-hover: #28619e;
+  --info-pressed: #215286;
+  --info-text: #1f5c9e;
+  --info-soft: #eef5fc;
+  --info-border: #c7dcf1;
+  --neutral-dot: var(--gray-400);
+
+  /* 代码与报文。 */
+  --code-bg: #0f1722;
+  --code-text: #d7e3f4;
+  --code-border: #1f2a3a;
+  --code-inline-bg: #eef2f7;
+  --code-inline-text: var(--primary-text);
+
+  /* 深蓝侧栏。 */
+  --sidebar-bg: var(--brand-navy);
+  --sidebar-text: #c9d7ea;
+  --sidebar-text-active: var(--gray-0);
+  --sidebar-label: #8fa7c7;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-active: rgba(255, 255, 255, 0.14);
+  --sidebar-divider: rgba(255, 255, 255, 0.12);
+
+  /* 登录页品牌区。 */
+  --login-panel-from: #0d2d58;
+  --login-panel-to: #123f71;
+  --login-panel-text: #d6e4f3;
+  --login-panel-muted: #9fb9d6;
+  --login-panel-line: rgba(255, 255, 255, 0.14);
+  --login-highlight: #ffbc7a;
+
+  /* 遮罩、阴影与焦点。 */
+  --mask: rgba(15, 23, 34, 0.45);
+  --loading-veil: rgba(255, 255, 255, 0.64);
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.14);
+  --focus-ring: 0 0 0 3px rgba(19, 56, 108, 0.2);
+
+  /* 字体与字号：正文 14，表格 13，辅助 12。 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --line-height-tight: 1.35;
+  --line-height-normal: 1.6;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* 间距（4 的倍数）。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* 圆角：标签 4、控件 6、卡片 8、弹窗 12。 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  /* 布局。 */
+  --sidebar-width: 216px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: 56px;
+  --page-padding: 24px;
+  --page-padding-mobile: 16px;
+}

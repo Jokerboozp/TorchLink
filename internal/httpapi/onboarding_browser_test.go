@@ -95,6 +95,26 @@ func TestOnboardingBrowser(t *testing.T) { /* 定义 TestOnboardingBrowser 函�
 	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "legacy", AccessKey: "legacy-key", ProductID: "legacy-product", Name: "历史设备", Status: "ENABLED"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
+	// Modbus point tables are published protocol versions; the fixture device is added through onboarding.
+	table, _, err := core.ParseModbusPointTable("points.csv", []byte("name,functionCode,address,addressNotation,dataType,scale\ntemperature,3,0,zero_based,uint16,1\n"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := core.CompileModbusReadBlocks(table.Points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := time.Now().UnixMilli()
+	table.TenantID, table.ProtocolID, table.Version, table.CreatedAt = "tenant", "browser-modbus", "1", published
+	if err = repo.CreatePointTableRelease(ctx, table); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "browser-modbus", Version: "1", Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", PointTableVersion: "1", CreatedAt: published, PublishedAt: published, Config: map[string]any{"points": table.Points, "blocks": blocks}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "browser-modbus-product", Name: "Modbus 测试产品", Status: "ENABLED", ProtocolPackageID: "browser-modbus@1"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"listener-a", "listener-b"} { /* 循环处理当前数据。 */
 		if err := repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: id, ProductID: "legacy-product", Mode: "listener", Network: "tcp", Enabled: true}); err != nil { /* 判断条件并选择处理分支。 */
 			t.Fatal(err) /* 验证实际结果符合预期。 */

@@ -10,25 +10,34 @@ const { ref, reactive, computed, watch } = require('vue') /* 执行当前语句�
 const root = new URL('../src/views/', import.meta.url) /* 声明 root。 */
 // Execute the real setup code with Vue reactivity; replace external I/O and
 // lifecycle hooks so response ordering is deterministic without a browser.
-function component(file, api, exports, notifyError = e => { throw e }) { /* 定义 component 函数。 */
-  const source = fs.readFileSync(new URL(file, root), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '') /* 声明 source。 */
-  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams}) /* 为 Naive UI 消息入口提供无副作用替身。 */
+function component(file, api, exports, notifyError = e => { throw e }, base = root) { /* 定义 component 函数。 */
+  const source = fs.readFileSync(new URL(file, base), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '') /* 声明 source。 */
+  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
   return vm.runInContext(source + '\n;({' + exports + '})', context) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`})) /* 声明 items。 */
 
-test('产品可生成模板编号，快捷登记必须使用实际设备编号',async()=>{ /* 执行当前语句并推进处理流程。 */
- for(const [file,prefix,path] of [['ProductsView.vue','product','/api/v1/products'],['DevicesView.vue','device','/api/v1/device-registry']]) { /* 循环处理当前数据。 */
-  const requests=[] /* 声明 requests。 */
-  const c=component(file,async(url,options)=>{if(options?.method==='POST')requests.push({url,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save') /* 声明 c。 */
-  Object.assign(c.form,{name:'HTTP 演示',protocolPackageId:'protocol',productId:'product',...(prefix==='device'?{code:'real-device-01'}:{})})
-  await c.save() /* 等待异步操作完成。 */
-  assert.equal(requests.length,1) /* 验证实际结果符合预期。 */
-  assert.equal(requests[0].url,path) /* 验证实际结果符合预期。 */
-  if(prefix==='product') assert.match(requests[0].body.id,/^product_[0-9a-f]{12}$/)
-  else assert.equal(requests[0].body.id,'real-device-01')
- } /* 结束当前表达式或代码块。 */
-}) /* 结束当前表达式或代码块。 */
+test('产品可生成模板编号',async()=>{
+  const requests=[]
+  const c=component('ProductsView.vue',async(url,options)=>{if(options?.method==='POST')requests.push({url,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save')
+  Object.assign(c.form,{name:'HTTP 演示',protocolPackageId:'protocol'})
+  await c.save()
+  assert.equal(requests.length,1)
+  assert.equal(requests[0].url,'/api/v1/products')
+  assert.match(requests[0].body.id,/^product_[0-9a-f]{12}$/)
+})
+test('设备列表只编辑已有设备，新设备统一走添加向导',async()=>{
+  const requests=[]
+  const c=component('DevicesView.vue',async(url,options)=>{if(options?.method)requests.push({url,method:options.method,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save')
+  Object.assign(c.form,{name:'新设备',productId:'product-1'})
+  await c.save()
+  assert.equal(requests.length,0)
+  Object.assign(c.form,{id:'real device/01',name:'一层烟感'})
+  await c.save()
+  assert.equal(requests.length,1)
+  assert.equal(requests[0].method,'PUT')
+  assert.equal(requests[0].url,'/api/v1/device-registry/real%20device%2F01')
+})
 test('协议列表分页覆盖所有记录并在列表缩小时修正当前页',async()=>{ /* 执行当前语句并推进处理流程。 */
  const c=component('ProtocolsView.vue',async()=>({items:[]}),'protocols,protocolPage,protocolPageSize,pagedProtocols') /* 声明 c。 */
  c.protocols.value=Array.from({length:45},(_,i)=>({definition:{id:`protocol-${i+1}`},releases:[]})) /* 更新 c.protocols.value 的值。 */
@@ -107,22 +116,21 @@ test('product pagination does not discard an in-flight protocol catalog', async(
   await first /* 等待异步操作完成。 */
   assert.ok(c.protocols.value.some(item=>item.id==='late-protocol')) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
-test('child device can choose a gateway outside current registry page', async()=>{ /* 执行当前语句并推进处理流程。 */
-  const rows=Array.from({length:21},(_,i)=>({device:{id:`device-${i+1}`,deviceRole:i===20?'GATEWAY':'DIRECT'}})) /* 声明 rows。 */
-  const c=component('DevicesView.vue', async path=>{ /* 声明 c。 */
-    if (!path.includes('device-registry')) return {items:[],total:0} /* 判断条件并选择处理分支。 */
-    const query=new URL(path,'http://audit.invalid').searchParams /* 声明 query。 */
-    const size=Number(query.get('pageSize') || 20) /* 声明 size。 */
-    const start=(Number(query.get('page') || 1)-1)*size /* 声明 start。 */
-    return {items:rows.slice(start,start+size),total:rows.length} /* 返回当前处理结果。 */
-  }, 'load,gateways,registryPage') /* 结束当前表达式或代码块。 */
-  await c.load() /* 等待异步操作完成。 */
-  const firstPageGateways=c.gateways.value.length /* 声明 firstPageGateways。 */
-  c.registryPage.value=2 /* 更新 c.registryPage.value 的值。 */
-  await c.load() /* 等待异步操作完成。 */
-  assert.equal(c.gateways.value.length,1,'control: gateway is selectable on page 2') /* 验证实际结果符合预期。 */
-  assert.equal(firstPageGateways,1,'gateway on page 2 is absent from registration dialog on page 1') /* 验证实际结果符合预期。 */
-}) /* 结束当前表达式或代码块。 */
+test('child device can choose a gateway outside current registry page', async()=>{
+  const rows=Array.from({length:101},(_,i)=>({device:{id:`device-${i+1}`,deviceRole:'GATEWAY'}}))
+  const paths=[]
+  const c=component('DevicesView.vue', async path=>{
+    paths.push(path)
+    if (!path.includes('device-registry')) return {items:[],total:0}
+    const query=new URL(path,'http://audit.invalid').searchParams
+    const size=Number(query.get('pageSize') || 20)
+    const start=(Number(query.get('page') || 1)-1)*size
+    return {items:rows.slice(start,start+size),total:rows.length}
+  }, 'loadGateways,gateways')
+  await c.loadGateways()
+  assert.ok(paths.every(path=>new URL(path,'http://audit.invalid').searchParams.get('role')==='GATEWAY'))
+  assert.ok(c.gateways.value.some(item=>item.device.id==='device-101'), `only ${c.gateways.value.length}/101 gateways loaded`)
+})
 test('camera pagination retains latest requested page when responses arrive out of order', async()=>{ /* 执行当前语句并推进处理流程。 */
   const pending=[] /* 声明 pending。 */
   const c=component('CameraMappingsView.vue', path=>path.includes('device-registry') ? Promise.resolve({items:[]}) : new Promise(resolve=>pending.push(resolve)), 'load,page,cameras') /* 声明 c。 */
@@ -233,46 +241,37 @@ test('association pagination propagates a later-page failure instead of returnin
   }, '/catalog'), /catalog unavailable/) /* 结束当前表达式或代码块。 */
 }) /* 结束当前表达式或代码块。 */
 
-test('device save suppresses duplicate submission and preserves fields after failure', async()=>{ /* 执行当前语句并推进处理流程。 */
-  let rejectSave, writes=0 /* 声明 rejectSave。 */
-  const errors=[] /* 声明 errors。 */
-  const c=component('DevicesView.vue', async (path,options)=>{ /* 声明 c。 */
-    if (options?.method === 'POST') { writes++; return new Promise((_,reject)=>{rejectSave=reject}) } /* 判断条件并选择处理分支。 */
-    return {items:[],total:0} /* 返回当前处理结果。 */
-  }, 'save,form,saving,dialog', e=>errors.push(e)) /* 结束当前表达式或代码块。 */
-  Object.assign(c.form,{name:'烟感',code:'device-fixed',productId:'product-1'}) /* 执行当前语句并推进处理流程。 */
-  c.dialog.value=true /* 更新 c.dialog.value 的值。 */
-  const first=c.save() /* 声明 first。 */
-  await c.save() /* 等待异步操作完成。 */
-  assert.equal(writes,1) /* 验证实际结果符合预期。 */
-  assert.equal(c.saving.value,true) /* 验证实际结果符合预期。 */
-  rejectSave(new Error('offline')); await first /* 执行当前语句并推进处理流程。 */
-  assert.equal(c.saving.value,false) /* 验证实际结果符合预期。 */
-  assert.equal(c.dialog.value,true) /* 验证实际结果符合预期。 */
-  assert.equal(c.form.code,'device-fixed') /* 验证实际结果符合预期。 */
-  assert.equal(errors.length,1) /* 验证实际结果符合预期。 */
-}) /* 结束当前表达式或代码块。 */
+test('device save suppresses duplicate submission and preserves fields after failure', async()=>{
+  let rejectSave, writes=0
+  const errors=[]
+  const c=component('DevicesView.vue', async (path,options)=>{
+    if (options?.method === 'PUT') { writes++; return new Promise((_,reject)=>{rejectSave=reject}) }
+    return {items:[],total:0}
+  }, 'save,form,saving,dialog', e=>errors.push(e))
+  Object.assign(c.form,{id:'device-fixed',name:'烟感',productId:'product-1'})
+  c.dialog.value=true
+  const first=c.save()
+  await c.save()
+  assert.equal(writes,1)
+  assert.equal(c.saving.value,true)
+  rejectSave(new Error('offline')); await first
+  assert.equal(c.saving.value,false)
+  assert.equal(c.dialog.value,true)
+  assert.equal(c.form.name,'烟感')
+  assert.equal(errors.length,1)
+})
 
-test('device registration clears stale gateway links when the role changes', async()=>{ /* 执行当前语句并推进处理流程。 */
-  let saved /* 声明 saved。 */
-  const c=component('DevicesView.vue', async(path,options)=>{ /* 声明 c。 */
-    if (options?.method === 'POST') { saved=JSON.parse(options.body); return {} } /* 判断条件并选择处理分支。 */
-    return {items:[],total:0} /* 返回当前处理结果。 */
-  }, 'save,form') /* 结束当前表达式或代码块。 */
-  Object.assign(c.form,{name:'烟感',code:'new-device',productId:'product-1',deviceRole:'DIRECT',gatewayId:'old-gateway'}) /* 执行当前语句并推进处理流程。 */
-  await c.save() /* 等待异步操作完成。 */
-  assert.equal(saved.gatewayId,'') /* 验证实际结果符合预期。 */
-  assert.equal(saved.deviceRole,'DIRECT') /* 验证实际结果符合预期。 */
-}) /* 结束当前表达式或代码块。 */
-
-test('new device form cannot overwrite an existing identifier', async()=>{ /* 执行当前语句并推进处理流程。 */
-  let writes=0 /* 声明 writes。 */
-  const c=component('DevicesView.vue',async()=>{writes++;return {}},'save,form,registryOptions') /* 声明 c。 */
-  Object.assign(c.form,{name:'新名称',code:'existing',productId:'product-1'}) /* 执行当前语句并推进处理流程。 */
-  c.registryOptions.value=[{device:{id:'existing'}}] /* 更新 c.registryOptions.value 的值。 */
-  await c.save() /* 等待异步操作完成。 */
-  assert.equal(writes,0) /* 验证实际结果符合预期。 */
-}) /* 结束当前表达式或代码块。 */
+test('device edit clears stale gateway links when the role changes', async()=>{
+  let saved
+  const c=component('DevicesView.vue', async(path,options)=>{
+    if (options?.method === 'PUT') { saved=JSON.parse(options.body); return {} }
+    return {items:[],total:0}
+  }, 'save,form')
+  Object.assign(c.form,{id:'device-1',name:'烟感',productId:'product-1',deviceRole:'DIRECT',gatewayId:'old-gateway'})
+  await c.save()
+  assert.equal(saved.gatewayId,'')
+  assert.equal(saved.deviceRole,'DIRECT')
+})
 
 test('product creation offers a published Go version before a legacy package exists', async()=>{ /* 执行当前语句并推进处理流程。 */
   const c=component('ProductsView.vue',async path=>path==='/api/v2/protocols' ? {items:[{definition:{id:'fire',name:'消防协议'},releases:[{version:'1',status:'PUBLISHED',transport:'TCP',payloadFormat:'hex'},{version:'2',status:'VALIDATED'}]}]} : {items:[],total:0},'load,protocols') /* 声明 c。 */
@@ -283,7 +282,7 @@ test('product creation offers a published Go version before a legacy package exi
 }) /* 结束当前表达式或代码块。 */
 
 test('instance editor clears previous instance data when creating a new connection',()=>{ /* 执行当前语句并推进处理流程。 */
-  const c=component('ProtocolsView.vue',async()=>({}),'editProfile,createProfile,listener') /* 声明 c。 */
+  const c=component('AccessPointsPanel.vue',async()=>({}),'editProfile,createProfile,listener',undefined,new URL('../src/components/', import.meta.url)) /* 声明 c。 */
   c.editProfile({id:'old',mode:'poll',network:'tcp',wireFormat:'rtu_over_tcp',deviceId:'old-device',collectorId:'old-collector',connectionMode:''}) /* 执行当前语句并推进处理流程。 */
   assert.equal(c.listener.mode,'poll') /* 验证实际结果符合预期。 */
   c.createProfile() /* 执行当前语句并推进处理流程。 */
@@ -296,7 +295,7 @@ test('instance editor clears previous instance data when creating a new connecti
 
 test('late product binding response cannot change a different instance being edited',async()=>{ /* 执行当前语句并推进处理流程。 */
   let finish /* 声明 finish。 */
-  const c=component('ProtocolsView.vue',()=>new Promise(resolve=>{finish=resolve}),'selectProduct,editProfile,listener') /* 声明 c。 */
+  const c=component('AccessPointsPanel.vue',()=>new Promise(resolve=>{finish=resolve}),'selectProduct,editProfile,listener',undefined,new URL('../src/components/', import.meta.url)) /* 声明 c。 */
   const pending=c.selectProduct('old-product') /* 声明 pending。 */
   c.editProfile({id:'current',mode:'listener',productId:'new-product',protocolId:'new-protocol',protocolVersion:'2'}) /* 执行当前语句并推进处理流程。 */
   finish({protocolId:'stale-protocol',version:'1'}) /* 执行当前语句并推进处理流程。 */

@@ -52,27 +52,37 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.login-form button[type=submit]'))"))
   await evaluate("(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })) })()")
   await evaluate("document.querySelector('.login-form button[type=submit]').click()")
-  await until(() => evaluate("Boolean(document.querySelector('.menu-item[aria-label=\"协议管理\"]'))"))
-  await evaluate("document.querySelector('.menu-item[aria-label=\"协议管理\"]').click()")
+  await until(() => evaluate("Boolean(document.querySelector('.nav-item[aria-label=\"设备通信协议\"]'))"))
+  await evaluate("document.querySelector('.nav-item[aria-label=\"设备通信协议\"]').click()")
   await until(() => evaluate("document.querySelectorAll('.n-data-table-tr').length >= 4")).catch(async error => { throw new Error(`${error.message}: ${await evaluate('document.body.innerText.slice(0, 800)')}`) })
   const screenshot = await call('Page.captureScreenshot', { format: 'png' }) // 截取协议页用于视觉核对。
   await writeFile(join(tmpdir(), 'iot-naive-protocol.png'), Buffer.from(screenshot.data, 'base64')) // 截图保存在临时目录，不进入代码仓库。
 
-  // 三类版本均能打开详情，专项操作仍按制品能力分别显示。
-  const labels = await evaluate("[...document.querySelectorAll('.n-data-table-tr')].filter(row => row.querySelector('td')).map(row => row.querySelector('td:last-child')?.innerText.trim())")
-  assert.deepEqual(labels.map(label => label.includes('查看版本')), [true, true, true, false], `操作列不一致：${labels.join(' / ')}`)
-  assert.ok(labels.every(label => !label.includes('—')), `操作列仍有横线：${labels.join(' / ')}`)
-  assert.equal(labels[3], '暂无版本')
-  for (const [index, expected] of ['解析测试', '源码', '暂无可执行操作'].entries()) {
-    await evaluate(`[...document.querySelectorAll('.n-data-table-tr')].filter(row => row.querySelector('td'))[${index}].querySelector('td:last-child button').click()`)
-    await until(() => evaluate("Boolean([...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length))"))
-    const detail = await evaluate("[...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length)?.innerText || ''")
-    assert.ok(detail.includes(expected), `${fixtures[index].definition.name} 的详情缺少“${expected}”`)
-    await evaluate("[...document.querySelectorAll('.el-dialog')].find(dialog => dialog.getClientRects().length)?.querySelector('.n-base-close')?.click()")
-    await until(() => evaluate("![...document.querySelectorAll('.el-dialog')].some(dialog => dialog.getClientRects().length)"))
+  // 每个协议的行操作一致，版本详情再按制品能力显示专项操作。
+  const rows = "[...document.querySelectorAll('.n-data-table-tr')].filter(row => row.querySelector('td') && !row.closest('.ui-dialog'))"
+  const labels = await evaluate(`${rows}.map(row => row.querySelector('.row-actions')?.innerText.replace(/\\s+/g, ' ').trim())`)
+  assert.deepEqual(labels, Array(4).fill('管理版本 删除协议'), `操作列不一致：${labels.join(' / ')}`)
+  const dialog = "[...document.querySelectorAll('.ui-dialog')].find(item => item.getClientRects().length)"
+  const closeDialog = async () => {
+    await evaluate(`${dialog}?.querySelector('.n-base-close')?.click()`)
+    await until(() => evaluate(`!${dialog}`))
     await delay(120)
   }
-  console.log('PASS: 三种协议版本均显示统一入口，无版本协议显示明确状态')
+  for (const [index, expected] of ['解析测试', '源码', '暂无可执行操作', ''].entries()) {
+    await evaluate(`${rows}[${index}].querySelector('.row-actions button').click()`)
+    await until(() => evaluate(`${dialog}?.innerText.includes('版本管理')`))
+    if (!expected) {
+      assert.ok(await evaluate(`${dialog}.innerText.includes('暂无版本')`), '无版本协议未显示明确状态')
+      await closeDialog()
+      continue
+    }
+    await evaluate(`[...${dialog}.querySelectorAll('button')].find(button => button.innerText.trim() === '详情').click()`)
+    await until(() => evaluate(`${dialog}?.querySelector('.release-detail-actions')`))
+    const detail = await evaluate(`${dialog}.querySelector('.release-detail-actions').innerText`)
+    assert.ok(detail.includes(expected), `${fixtures[index].definition.name} 的版本详情缺少“${expected}”：${detail}`)
+    await closeDialog()
+  }
+  console.log('PASS: 协议行操作一致，三种版本详情按制品显示专项操作，无版本协议显示明确状态')
 } finally {
   // 清理本次临时浏览器和用户目录。
   socket?.close()

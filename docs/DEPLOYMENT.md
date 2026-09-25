@@ -168,6 +168,7 @@ API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储
 
 - `DeviceAccessProfile.edgeNodeId` 非空的旧配置不会在中心执行，也不能保存为有效实例。先确认设备网络和产品协议，再到「接入网关」重新配置；旧串口任务不能仅清空节点标识后运行。外部已部署 Agent 需由部署者停用。
 - 新库不创建 `edge_node`、`edge_read_job`、`edge_program`、`device_shadow`、`device_shadow_change` 或 `device_twin_topology`；启动迁移保留旧表与历史数据，当前 API 不再管理它们。`gatewayId` 表示业务主设备，主子设备状态和权限分别维护。
+- 启动迁移把设备标签中的 `connector`、`connectorProfileId`、`childAddress`、`childType`、`onboardingRequestHash` 移为设备字段，为空的 `deviceRole` 按 `gatewayId` 与模板分类补为 `CHILD` / `GATEWAY` / `DIRECT`，并为引用已发布协议版本但缺少绑定的模板补建绑定。迁移语句可重复执行，不删除设备。
 - 升级沿用原环境文件、Compose 项目名、数据卷、协议制品及 MQTT 接收目录；不可变协议版本不被新源码覆盖。TCP / UDP、Modbus 与子设备不使用历史内部凭据通过 HTTP / MQTT 认证。
 
 无需清空数据库完成迁移。设备数据导出不包含完整环境备份，数据库、配置和密钥需分别保管；普通用户权限按下一节处理。

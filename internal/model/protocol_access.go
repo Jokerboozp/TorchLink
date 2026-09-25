@@ -37,11 +37,11 @@ func ProtocolChildDevice(expected, current DeviceAccessProfile, parent ManagedDe
 	if name == "" {                                                    /* 判断条件并选择处理分支。 */
 		name = identity.Address /* 更新 name 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	return ManagedDevice{ID: id, TenantID: current.TenantID, ProductID: product.ID, Name: name, Status: "ENABLED", DeviceRole: "CHILD", GatewayID: parent.ID, RegistrationSource: "PROTOCOL_CHILD_AUTO", AutoRegistered: true, AccessKey: ProtocolDeviceAccessKey(current.TenantID, id), CreatedAt: now, UpdatedAt: now, Tags: map[string]string{"connector": "TCP_CHILD", "connectorProfileId": current.ID, "childAddress": identity.Address, "childType": identity.Type}}, nil /* 返回当前处理结果。 */
+	return ManagedDevice{ID: id, TenantID: current.TenantID, ProductID: product.ID, Name: name, Status: "ENABLED", DeviceRole: "CHILD", GatewayID: parent.ID, RegistrationSource: "PROTOCOL_CHILD_AUTO", AutoRegistered: true, AccessKey: ProtocolDeviceAccessKey(current.TenantID, id), CreatedAt: now, UpdatedAt: now, Connector: "TCP_CHILD", ConnectorProfileID: current.ID, ChildAddress: identity.Address, ChildType: identity.Type}, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 func ExistingProtocolChild(old, next ManagedDevice) error { /* 定义 ExistingProtocolChild 函数。 */
-	if old.TenantID != next.TenantID || old.ProductID != next.ProductID || old.GatewayID != next.GatewayID || old.DeviceRole != "CHILD" || old.Status != "ENABLED" || old.Tags["childAddress"] != next.Tags["childAddress"] || old.Tags["childType"] != next.Tags["childType"] { /* 判断条件并选择处理分支。 */
+	if old.TenantID != next.TenantID || old.ProductID != next.ProductID || old.GatewayID != next.GatewayID || old.DeviceRole != "CHILD" || old.Status != "ENABLED" || old.ChildAddress != next.ChildAddress || old.ChildType != next.ChildType { /* 判断条件并选择处理分支。 */
 		return ErrProtocolRegistration /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	return nil /* 返回当前处理结果。 */

@@ -584,3 +584,37 @@ CREATE TABLE IF NOT EXISTS platform_access (
  body jsonb NOT NULL
 -- 继续当前数据库语句。
 );
+
+-- Platform connection fields moved from device tags to top-level body keys.
+-- Existing top-level values win; the statement is idempotent.
+UPDATE device_registry SET body = (body || jsonb_strip_nulls(jsonb_build_object(
+  'connector', COALESCE(body->'connector', body->'tags'->'connector'),
+  'connectorProfileId', COALESCE(body->'connectorProfileId', body->'tags'->'connectorProfileId'),
+  'childAddress', COALESCE(body->'childAddress', body->'tags'->'childAddress'),
+  'childType', COALESCE(body->'childType', body->'tags'->'childType'),
+  'onboardingRequestHash', COALESCE(body->'onboardingRequestHash', body->'tags'->'onboardingRequestHash'))))
+  || jsonb_build_object('tags', (body->'tags') - 'connector' - 'connectorProfileId' - 'childAddress' - 'childType' - 'onboardingRequestHash')
+WHERE jsonb_typeof(body->'tags') = 'object'
+  AND body->'tags' ?| ARRAY['connector', 'connectorProfileId', 'childAddress', 'childType', 'onboardingRequestHash'];
+
+-- Device roles are stored explicitly; rows saved before the role existed get the
+-- role their template category implied. The statement is idempotent.
+UPDATE device_registry d SET body = jsonb_set(d.body, '{deviceRole}', to_jsonb(CASE
+  WHEN COALESCE(d.body->>'gatewayId', '') <> '' THEN 'CHILD'
+  WHEN EXISTS (SELECT 1 FROM iot_product p WHERE p.tenant_id = d.tenant_id AND p.id = d.product_id AND p.body->>'category' = 'gateway') THEN 'GATEWAY'
+  ELSE 'DIRECT' END))
+WHERE COALESCE(d.body->>'deviceRole', '') = '';
+
+-- Every template on a versioned protocol has a binding, the single source of the
+-- parsing version. Missing bindings are created from the template's protocol
+-- reference; existing bindings are never changed.
+INSERT INTO product_protocol_binding(tenant_id,product_id,protocol_id,version,body)
+SELECT p.tenant_id, p.id, r.protocol_id, r.version,
+  jsonb_build_object('tenantId', p.tenant_id, 'productId', p.id, 'protocolId', r.protocol_id, 'version', r.version, 'updatedAt', (extract(epoch FROM now()) * 1000)::bigint)
+FROM iot_product p
+LEFT JOIN protocol_package pkg ON pkg.tenant_id = p.tenant_id AND pkg.id = p.protocol_package_id
+JOIN protocol_release r ON r.tenant_id = p.tenant_id AND r.status = 'PUBLISHED'
+  AND ((r.protocol_id || '@' || r.version) = p.protocol_package_id
+    OR (pkg.body->>'parserType' = 'go_protocol_parser' AND r.protocol_id = pkg.body->>'protocol' AND r.version = pkg.body->>'version'))
+WHERE p.protocol_package_id <> 'iot-standard@1.0.0'
+ON CONFLICT (tenant_id, product_id) DO NOTHING;

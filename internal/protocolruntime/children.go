@@ -34,7 +34,7 @@ func (s *listenerSession) ingestChildren(p model.DeviceAccessProfile, parent mod
 		if err != nil {                                                                                      /* 判断条件并选择处理分支。 */
 			return err /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		if len(s.pending) > 0 && s.commandChild != nil && child.Address == s.commandChild.Tags["childAddress"] && product == s.commandChild.ProductID { /* 判断条件并选择处理分支。 */
+		if len(s.pending) > 0 && s.commandChild != nil && child.Address == s.commandChild.ChildAddress && product == s.commandChild.ProductID { /* 判断条件并选择处理分支。 */
 			release = s.childRelease /* 更新 release 的值。 */
 		} /* 结束当前表达式或代码块。 */
 		if release.Status != "PUBLISHED" || !strings.EqualFold(release.PayloadFormat, "hex") { /* 判断条件并选择处理分支。 */
@@ -65,13 +65,13 @@ func (s *listenerSession) encodeCommand(ctx context.Context, p model.DeviceAcces
 	if child == nil { /* 判断条件并选择处理分支。 */
 		return s.invoke(ctx, p, protocolworker.Request{Operation: "encode", Command: command}) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	empty := protocolworker.Response{}                                                                        /* 更新 empty 的值。 */
-	if child.Status != "ENABLED" || child.DeviceRole != "CHILD" || child.Tags["connectorProfileId"] != p.ID { /* 判断条件并选择处理分支。 */
+	empty := protocolworker.Response{}                                                                /* 更新 empty 的值。 */
+	if child.Status != "ENABLED" || child.DeviceRole != "CHILD" || child.ConnectorProfileID != p.ID { /* 判断条件并选择处理分支。 */
 		return empty, errors.New("子设备不可控制或不属于接入实例") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	allowed := false                          /* 更新 allowed 的值。 */
 	for _, mapping := range p.ChildProducts { /* 循环处理当前数据。 */
-		if mapping.Type == child.Tags["childType"] && mapping.ProductID == child.ProductID { /* 判断条件并选择处理分支。 */
+		if mapping.Type == child.ChildType && mapping.ProductID == child.ProductID { /* 判断条件并选择处理分支。 */
 			allowed = true /* 更新 allowed 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
@@ -107,8 +107,8 @@ func (s *listenerSession) encodeCommand(ctx context.Context, p model.DeviceAcces
 	if data, e := hex.DecodeString(inner.Reply); e != nil || len(data) == 0 { /* 判断条件并选择处理分支。 */
 		return empty, errors.New("子设备命令报文无效") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	outer, err := s.invoke(ctx, p, protocolworker.Request{Operation: "encode", Command: map[string]any{"type": "child", "address": child.Tags["childAddress"], "childType": child.Tags["childType"], "payload": inner.Reply, "correlationId": inner.CorrelationID}}) /* 更新 err 的值。 */
-	if err == nil {                                                                                                                                                                                                                                                  /* 判断条件并选择处理分支。 */
+	outer, err := s.invoke(ctx, p, protocolworker.Request{Operation: "encode", Command: map[string]any{"type": "child", "address": child.ChildAddress, "childType": child.ChildType, "payload": inner.Reply, "correlationId": inner.CorrelationID}}) /* 更新 err 的值。 */
+	if err == nil {                                                                                                                                                                                                                                  /* 判断条件并选择处理分支。 */
 		s.commandChild = child   /* 更新 s.commandChild 的值。 */
 		s.childRelease = release /* 更新 s.childRelease 的值。 */
 	} /* 结束当前表达式或代码块。 */

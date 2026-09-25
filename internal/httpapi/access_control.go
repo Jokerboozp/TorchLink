@@ -21,7 +21,7 @@ type permissionItem struct { /* 定义 permissionItem 类型。 */
 	Kind string `json:"kind"` /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设备通信协议", "products": "设备模板", "devices": "设备管理", "profiles": "平台连接配置", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限"} /* 声明 menuNames。 */
+var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设备通信协议", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限"} /* 声明 menuNames。 */
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string { /* 定义 routeMenu 函数。 */
@@ -34,7 +34,7 @@ func routeMenu(path string) string { /* 定义 routeMenu 函数。 */
 	if strings.HasSuffix(path, "/debug") { /* 判断条件并选择处理分支。 */
 		return "integration" /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	for _, v := range [][2]string{{"/access/", "access"}, {"/health-inspection", "inspection"}, {"/protocol-assistant", "protocols"}, {"/protocol", "protocols"}, {"/modbus-tcp", "protocols"}, {"/device-access-profiles", "profiles"}, {"/onboarding", "integration"}, {"/test-devices", "integration"}, {"/providers", "aiProviders"}, {"/alarm-analysis", "alarms"}, {"/ai/rule-draft", "rules"}, {"/ai/", "ai"}, {"/knowledge/", "knowledge"}, {"/products", "products"}, {"/device-registry", "devices"}, {"/devices", "devices"}, {"/device-states", "devices"}, {"/discovered-devices", "devices"}, {"/connectors", "profiles"}, {"/integrations/video", "cameras"}, {"/raw-messages", "raw"}, {"/replays", "raw"}, {"/alarms", "alarms"}, {"/rules", "rules"}, {"/backups", "backups"}, {"/dashboard", "dashboard"}} { /* 循环处理当前数据。 */
+	for _, v := range [][2]string{{"/access/", "access"}, {"/health-inspection", "inspection"}, {"/protocol-assistant", "protocols"}, {"/protocol", "protocols"}, {"/modbus-tcp", "protocols"}, {"/device-access-profiles", "profiles"}, {"/onboarding", "devices"}, {"/test-devices", "integration"}, {"/providers", "aiProviders"}, {"/alarm-analysis", "alarms"}, {"/ai/rule-draft", "rules"}, {"/ai/", "ai"}, {"/knowledge/", "knowledge"}, {"/products", "products"}, {"/device-registry", "devices"}, {"/devices", "devices"}, {"/device-states", "devices"}, {"/discovered-devices", "devices"}, {"/connectors", "profiles"}, {"/integrations/video", "cameras"}, {"/raw-messages", "raw"}, {"/replays", "raw"}, {"/alarms", "alarms"}, {"/rules", "rules"}, {"/backups", "backups"}, {"/dashboard", "dashboard"}} { /* 循环处理当前数据。 */
 		if strings.Contains(path, v[0]) { /* 判断条件并选择处理分支。 */
 			return v[1] /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
@@ -118,8 +118,9 @@ func (s *Server) permissionCatalog() []permissionItem { /* 定义 permissionCata
 		items = append(items, permissionItem{"menu:" + id, name, id, "menu"}) /* 更新 items 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, r := range s.router.Routes() { /* 循环处理当前数据。 */
-		menu := routeMenu(r.Path)                                                                                     /* 更新 menu 的值。 */
-		if menu == "" || strings.Contains(r.Path, "/device-ingest") || r.Path == "/api/v1/integrations/video/alarm" { /* 判断条件并选择处理分支。 */
+		menu := routeMenu(r.Path) /* 更新 menu 的值。 */
+		// The add-device wizard is covered by the ordinary add-device permission.
+		if menu == "" || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
 			continue /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 		if r.Method == "GET" && !protectedRead(r.Path) { /* 判断条件并选择处理分支。 */
@@ -165,6 +166,16 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 	} /* 结束当前表达式或代码块。 */
 	return p /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+type permissionsKey struct{}
+
+// requestAllows reports whether a managed user may also use another route as
+// part of the current request, such as creating a template while adding a
+// device. Built-in role tokens were checked by the route's own role.
+func requestAllows(r *http.Request, method, path string) bool {
+	p, ok := r.Context().Value(permissionsKey{}).(map[string]bool)
+	return !ok || allowsRoute(p, method, path)
+}
+
 func permissionList(p map[string]bool) []string { /* 定义 permissionList 函数。 */
 	out := []string{}       /* 更新 out 的值。 */
 	for id, ok := range p { /* 循环处理当前数据。 */
@@ -186,6 +197,9 @@ func allowsRoute(p map[string]bool, method, path string) bool { /* 定义 allows
 	if path == "/api/v1/mqtt/token" || path == "/api/v1/mqtt/load-token" { /* 判断条件并选择处理分支。 */
 		return false /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	if method == "POST" && path == "/api/v1/onboarding" {
+		path = "/api/v1/device-registry"
+	}
 	menu := routeMenu(path) /* 更新 menu 的值。 */
 	if menu == "" {         /* 判断条件并选择处理分支。 */
 		return false /* 返回当前处理结果。 */
@@ -311,6 +325,14 @@ func (s *Server) accessList(w http.ResponseWriter, r *http.Request) { /* 定义 
 	if !ok {                            /* 判断条件并选择处理分支。 */
 		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	// Stored roles may still name routes that were removed or merged.
+	known := s.knownPermissions()
+	for i := range state.Roles {
+		state.Roles[i].Permissions = keepKnown(state.Roles[i].Permissions, known)
+	}
+	for i := range state.Users {
+		state.Users[i].Permissions = keepKnown(state.Users[i].Permissions, known)
+	}
 	if strings.HasSuffix(r.URL.Path, "/roles") { /* 判断条件并选择处理分支。 */
 		if state.Roles == nil { /* 判断条件并选择处理分支。 */
 			state.Roles = []model.PlatformRole{} /* 更新 state.Roles 的值。 */
@@ -336,6 +358,22 @@ func hashPassword(password string) (string, error) { /* 定义 hashPassword 函�
 	v, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost) /* 更新 err 的值。 */
 	return string(v), err                                                       /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+func (s *Server) knownPermissions() map[string]bool {
+	known := map[string]bool{}
+	for _, v := range s.permissionCatalog() {
+		known[v.ID] = true
+	}
+	return known
+}
+func keepKnown(values []string, known map[string]bool) []string {
+	out := []string{}
+	for _, v := range values {
+		if known[v] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 func (s *Server) validPermissions(values []string) bool { /* 定义 validPermissions 函数。 */
 	known := map[string]bool{}                /* 更新 known 的值。 */
 	for _, v := range s.permissionCatalog() { /* 循环处理当前数据。 */

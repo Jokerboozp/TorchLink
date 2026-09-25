@@ -1,0 +1,6 @@
+/* 系统开启“减少动态效果”时关闭过渡与动画；这是全站唯一允许使用 !important 的位置。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

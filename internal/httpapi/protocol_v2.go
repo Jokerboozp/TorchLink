@@ -486,10 +486,10 @@ func (s *Server) bindProductProtocolV2(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil { /* 判断条件并选择处理分支。 */
 		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	binding, err := s.bindProtocolRelease(r, in.ProtocolID, in.Version, r.PathValue("id")) /* 更新 err 的值。 */
-	if err != nil {                                                                        /* 判断条件并选择处理分支。 */
-		problem(w, 422, err.Error()) /* 执行当前语句并推进处理流程。 */
-		return                       /* 返回当前处理结果。 */
+	binding, err := s.bindProtocolRelease(r, in.ProtocolID, in.Version, r.PathValue("id"))
+	if err != nil {
+		bindingProblem(w, err)
+		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	write(w, 200, binding) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
@@ -501,13 +501,21 @@ func (s *Server) rollbackProductProtocolV2(w http.ResponseWriter, r *http.Reques
 		problem(w, 409, "there is no previous protocol release to roll back to") /* 执行当前语句并推进处理流程。 */
 		return                                                                   /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	binding, err := s.bindProtocolRelease(r, firstNonBlank(current.PreviousProtocolID, current.ProtocolID), current.PreviousVersion, productID) /* 更新 err 的值。 */
-	if err != nil {                                                                                                                             /* 判断条件并选择处理分支。 */
-		problem(w, 422, err.Error()) /* 执行当前语句并推进处理流程。 */
-		return                       /* 返回当前处理结果。 */
+	binding, err := s.bindProtocolRelease(r, firstNonBlank(current.PreviousProtocolID, current.ProtocolID), current.PreviousVersion, productID)
+	if err != nil {
+		bindingProblem(w, err)
+		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	write(w, 200, binding) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
+
+func bindingProblem(w http.ResponseWriter, err error) {
+	if errors.Is(err, model.ErrBindingChanged) {
+		problem(w, 409, err.Error())
+		return
+	}
+	problem(w, 422, err.Error())
+}
 
 func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, productID string) (model.ProductProtocolBinding, error) { /* 定义 bindProtocolRelease 函数。 */
 	tenant := claims(r).TenantID                                                               /* 更新 tenant 的值。 */
@@ -539,29 +547,28 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 			return model.ProductProtocolBinding{}, errors.New("新版本不支持该产品已启用的 TCP/UDP 接入实例") /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	previous, previousProtocol := "", ""                                                                       /* 更新 previousProtocol 的值。 */
-	if old, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); getErr == nil { /* 判断条件并选择处理分支。 */
-		if old.ProtocolID == protocolID && old.Version == version { /* 判断条件并选择处理分支。 */
-			return old, nil /* 返回当前处理结果。 */
-		} /* 结束当前表达式或代码块。 */
-		previous = old.Version            /* 更新 previous 的值。 */
-		previousProtocol = old.ProtocolID /* 更新 previousProtocol 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	binding := model.ProductProtocolBinding{TenantID: tenant, ProductID: productID, ProtocolID: protocolID, Version: version, PreviousVersion: previous, PreviousProtocolID: previousProtocol, UpdatedAt: time.Now().UnixMilli()} /* 更新 binding 的值。 */
-	shim := legacyProtocolShim(release)                                                                                                                                                                                           /* 更新 shim 的值。 */
-	if err = s.engine.Repo.SaveProtocolPackage(r.Context(), shim); err != nil {                                                                                                                                                   /* 判断条件并选择处理分支。 */
-		return binding, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	product.ProtocolPackageID = shim.ID                                    /* 更新 product.ProtocolPackageID 的值。 */
-	product.Transport = release.Transport                                  /* 更新 product.Transport 的值。 */
-	product.PayloadFormat = release.PayloadFormat                          /* 更新 product.PayloadFormat 的值。 */
-	product.UpdatedAt = binding.UpdatedAt                                  /* 更新 product.UpdatedAt 的值。 */
-	if err = s.engine.Repo.SaveProduct(r.Context(), product); err != nil { /* 判断条件并选择处理分支。 */
-		return binding, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	if err = s.engine.Repo.SaveProductProtocolBinding(r.Context(), binding); err != nil { /* 判断条件并选择处理分支。 */
-		return binding, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
+	previous, previousProtocol := "", ""
+	var expected *model.ProductProtocolBinding
+	if old, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); getErr == nil {
+		if old.ProtocolID == protocolID && old.Version == version {
+			return old, nil
+		}
+		previous, previousProtocol, expected = old.Version, old.ProtocolID, &old
+	} else if !errors.Is(getErr, model.ErrNotFound) {
+		return model.ProductProtocolBinding{}, getErr
+	}
+	binding := model.ProductProtocolBinding{TenantID: tenant, ProductID: productID, ProtocolID: protocolID, Version: version, PreviousVersion: previous, PreviousProtocolID: previousProtocol, UpdatedAt: time.Now().UnixMilli()}
+	shim := legacyProtocolShim(release)
+	product.ProtocolPackageID = shim.ID
+	// A dual-network protocol keeps the network the template was narrowed to.
+	if narrowed := strings.ToUpper(product.Transport); !(strings.EqualFold(release.Transport, "TCP_UDP") && (narrowed == "TCP" || narrowed == "UDP")) {
+		product.Transport = release.Transport
+	}
+	product.PayloadFormat = release.PayloadFormat
+	product.UpdatedAt = binding.UpdatedAt
+	if err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: product, Package: shim, Binding: binding, Expected: expected}); err != nil {
+		return binding, err
+	}
 	s.audit(r, "protocol.v2.binding.switch", "product", productID, map[string]any{"protocolId": protocolID, "version": version, "previousVersion": previous}) /* 执行当前语句并推进处理流程。 */
 	return binding, nil                                                                                                                                       /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

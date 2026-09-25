@@ -10,7 +10,7 @@ import ( /* 引入当前代码需要的依赖。 */
 // Access routes execute on the process which owns transport sessions. Authentication
 // is preserved and evaluated by the same API handlers at the destination.
 func accessRoute(path string) bool { /* 定义 accessRoute 函数。 */
-	if strings.HasPrefix(path, "/api/v1/device-ingest/") || path == "/api/v1/device-mqtt/token" || path == "/api/v1/connectors" || path == "/api/v1/onboarding" || path == "/api/v1/onboarding/test" { /* 判断条件并选择处理分支。 */
+	if strings.HasPrefix(path, "/api/v1/device-ingest/") || path == "/api/v1/device-mqtt/token" || path == "/api/v1/connectors" || path == "/api/v1/onboarding" || path == "/api/v1/onboarding/preflight" { /* 判断条件并选择处理分支。 */
 		return true /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if strings.HasPrefix(path, "/api/v1/device-registry/") && (strings.HasSuffix(path, "/connection") || strings.HasSuffix(path, "/commands")) { /* 判断条件并选择处理分支。 */

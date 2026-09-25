@@ -427,6 +427,13 @@ type ManagedDevice struct { /* 定义 ManagedDevice 类型。 */
 	Tags               map[string]string `json:"tags,omitempty"`               /* 执行当前语句并推进处理流程。 */
 	CreatedAt          int64             `json:"createdAt"`                    /* 执行当前语句并推进处理流程。 */
 	UpdatedAt          int64             `json:"updatedAt"`                    /* 执行当前语句并推进处理流程。 */
+
+	// Platform-maintained connection fields; user labels stay in Tags.
+	Connector             string `json:"connector,omitempty"`
+	ConnectorProfileID    string `json:"connectorProfileId,omitempty"`
+	ChildAddress          string `json:"childAddress,omitempty"`
+	ChildType             string `json:"childType,omitempty"`
+	OnboardingRequestHash string `json:"onboardingRequestHash,omitempty"`
 } /* 结束当前表达式或代码块。 */
 
 type DeviceCredential struct { /* 定义 DeviceCredential 类型。 */

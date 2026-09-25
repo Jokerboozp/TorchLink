@@ -94,7 +94,7 @@ func (r *Repository) DeleteResource(ctx context.Context, tenant, kind, id string
 		},
 		"profile": {
 			"SELECT EXISTS(SELECT 1 FROM device_access_profile WHERE tenant_id=$1 AND id=$2 AND enabled=true)",
-			"SELECT EXISTS(SELECT 1 FROM device_registry WHERE tenant_id=$1 AND body->'tags'->>'connectorProfileId'=$2)",
+			"SELECT EXISTS(SELECT 1 FROM device_registry WHERE tenant_id=$1 AND body->>'connectorProfileId'=$2)",
 		},
 		"protocol": {
 			"SELECT EXISTS(SELECT 1 FROM product_protocol_binding WHERE tenant_id=$1 AND (protocol_id=$2 OR body->>'previousProtocolId'=$2))",

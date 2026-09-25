@@ -55,7 +55,7 @@ function changeType(row, value) { /* 定义 changeType 函数。 */
 <style scoped>
 .mapping-editor { min-width: 0; margin-bottom: 20px; } /* 定义当前元素的样式规则。 */
 .mapping-editor p { margin: 8px 0 12px; font-size: 13px; } /* 定义当前元素的样式规则。 */
-.mapping-editor :deep(.el-input-number) { width: 100%; } /* 定义当前元素的样式规则。 */
+.mapping-editor :deep(.ui-input-number) { width: 100%; } /* 定义当前元素的样式规则。 */
 .mapping-options { padding: 16px; max-width: 850px; } /* 定义当前元素的样式规则。 */
 .mapping-source { white-space: normal; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
 </style>

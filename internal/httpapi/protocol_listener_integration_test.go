@@ -23,7 +23,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/adapters/local"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/memory" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/config"          /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"       /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/metrics"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
@@ -145,15 +144,9 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) { /* 定义 TestGoProto
 	port := free.Addr().(*net.TCPAddr).Port                                                                                                                                                                                                                 /* 更新 port 的值。 */
 	_ = free.Close()                                                                                                                                                                                                                                        /* 更新 _ 的值。 */
 	profile := model.DeviceAccessProfile{ID: "gb-tcp", ProductID: "gb-product", ProtocolID: "gb26875-dahua", ProtocolVersion: "1.0.0", Mode: "listener", Network: "tcp", Host: "127.0.0.1", Port: port, TimeoutMs: 2000, Enabled: true, AutoRegister: true} /* 更新 profile 的值。 */
-	for _, kind := range []connector.Type{connector.TCP, connector.UDP} {                                                                                                                                                                                   /* 循环处理当前数据。 */
-		preview, err := api.onboarding.Test(ctx, "tenant_001", onboarding.Request{ProductID: "gb-product", DeviceID: "gb26875_123456789012", Name: "GB preview", Type: kind, Profile: profile, Payload: samples[0].Input.Payload}) /* 更新 err 的值。 */
-		if err != nil || !preview.Success || len(preview.StandardMessages) != 1 || preview.TestToken == "" {                                                                                                                       /* 判断条件并选择处理分支。 */
-			t.Fatalf("%s onboarding preview: %+v %v", kind, preview, err) /* 验证实际结果符合预期。 */
-		} /* 结束当前表达式或代码块。 */
-	} /* 结束当前表达式或代码块。 */
-	requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/device-access-profiles", token, profile, 201) /* 执行当前语句并推进处理流程。 */
-	udpFree, err := net.ListenPacket("udp", "127.0.0.1:0")                                                    /* 更新 err 的值。 */
-	if err != nil {                                                                                           /* 判断条件并选择处理分支。 */
+	requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/device-access-profiles", token, profile, 201)                                                                                                                                               /* 执行当前语句并推进处理流程。 */
+	udpFree, err := net.ListenPacket("udp", "127.0.0.1:0")                                                                                                                                                                                                  /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                                                                                         /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	udpPort := udpFree.LocalAddr().(*net.UDPAddr).Port                                                           /* 更新 udpPort 的值。 */
@@ -179,15 +172,10 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) { /* 定义 TestGoProto
 	defer conn.Close() /* 安排函数结束时执行清理。 */
 	// Add a managed device through the unified service while reusing the live
 	// listener. The existing runtime below must accept it without re-registration.
-	onboardRequest := onboarding.Request{ProductID: "gb-product", DeviceID: "gb26875_123456789012", Name: "GB onboarded", Type: connector.TCP, Profile: profile, ExistingProfileID: profile.ID, Payload: samples[0].Input.Payload} /* 更新 onboardRequest 的值。 */
-	onboardPreview, onboardErr := api.onboarding.Test(ctx, "tenant_001", onboardRequest)                                                                                                                                           /* 更新 onboardErr 的值。 */
-	if onboardErr != nil || !onboardPreview.Success {                                                                                                                                                                              /* 判断条件并选择处理分支。 */
-		t.Fatalf("reuse listener preview: %+v %v", onboardPreview, onboardErr) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	onboardRequest.TestToken = onboardPreview.TestToken                                /* 更新 onboardRequest.TestToken 的值。 */
-	if _, err = api.onboarding.Create(ctx, "tenant_001", onboardRequest); err != nil { /* 判断条件并选择处理分支。 */
-		t.Fatal("reuse listener onboarding", err) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
+	onboardRequest := onboarding.EnrollRequest{RequestID: "gb-reuse", ProductID: "gb-product", Device: onboarding.EnrollDevice{ID: "gb26875_123456789012", Name: "GB onboarded"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeListener, ProfileID: profile.ID}}
+	if _, err = api.onboarding.Enroll(ctx, "tenant_001", onboardRequest); err != nil {
+		t.Fatal("reuse listener onboarding", err)
+	}
 	profilesAfter, _ := repo.ListDeviceAccessProfiles(ctx, "tenant_001") /* 更新 _ 的值。 */
 	if len(profilesAfter) != 2 {                                         /* 判断条件并选择处理分支。 */
 		t.Fatal("onboarding duplicated the existing listener") /* 验证实际结果符合预期。 */

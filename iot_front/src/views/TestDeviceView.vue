@@ -5,6 +5,7 @@ import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依�
 import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
 import { api, formatTime, notifyError, parseJSON, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { alarmType, label, messageTypeLabel, tagType, parsers } from '../labels' /* 引入当前代码需要的依赖。 */
+import FilterBar from '../components/layout/FilterBar.vue'
 
 const emit = defineEmits(['navigate']) /* 声明 emit。 */
 
@@ -164,14 +165,15 @@ onMounted(() => {
 
 <template>
   <div class="test-device-view"> <!-- 渲染 div 界面元素。 -->
-    <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-      <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :loading="loading" @click="prepare(false)">重新准备测试设备</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <ui-button v-permission="'POST /api/v1/test-devices/provision'" plain type="warning" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <ui-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <ui-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <span v-if="can('POST /api/v1/test-devices/provision')">进入页面后自动准备测试设备；如准备失败，可点击“重新准备测试设备”重试。模拟结果不能证明现场设备已接通。</span> <!-- 渲染 span 界面元素。 -->
-      <span v-else>当前账号没有准备测试设备的权限。</span>
-    </div> <!-- 结束当前界面区域。 -->
+    <FilterBar>
+      <p class="test-device-hint">{{ can('POST /api/v1/test-devices/provision') ? '进入页面后自动准备测试设备；如准备失败，可点击“重新准备测试设备”重试。模拟结果不能证明现场设备已接通。' : '当前账号没有准备测试设备的权限。' }}</p>
+      <template #actions>
+        <ui-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</ui-button>
+        <ui-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</ui-button>
+        <ui-button v-permission="'POST /api/v1/test-devices/provision'" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button>
+        <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :loading="loading" @click="prepare(false)">重新准备测试设备</ui-button>
+      </template>
+    </FilterBar>
 
     <ui-alert v-if="device" title="设备告警直接进入告警中心" description="测试设备不会自动创建告警规则；发送报警数据会直接产生设备告警。若存在匹配规则，则按规则提供告警类型、等级和联动动作。"
       type="info" :closable="false" show-icon /> <!-- 呈现当前界面内容。 -->
@@ -266,30 +268,31 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.test-device-hint { flex: 1 1 320px; margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }
 .test-device-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); gap: 16px; align-items: start; } /* 定义当前元素的样式规则。 */
 .test-device-workbench, .test-device-side { display: grid; gap: 16px; min-width: 0; } /* 定义当前元素的样式规则。 */
 .test-device-view code { overflow-wrap: anywhere; word-break: break-word; } /* 定义当前元素的样式规则。 */
 .test-device-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; } /* 定义当前元素的样式规则。 */
-.test-device-summary > div { min-width: 0; padding: 13px; border-radius: .625rem; background: var(--surface-subtle); } /* 定义当前元素的样式规则。 */
-.test-device-summary span, .test-device-summary small, .credential-box span { display: block; color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.test-device-summary > div { min-width: 0; padding: 13px; border-radius: .625rem; background: var(--surface-muted); } /* 定义当前元素的样式规则。 */
+.test-device-summary span, .test-device-summary small, .credential-box span { display: block; color: var(--text-muted); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .test-device-summary strong { display: block; margin: 7px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; } /* 定义当前元素的样式规则。 */
-.credential-box { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--warning); border-radius: .625rem; background: var(--surface-subtle); } /* 定义当前元素的样式规则。 */
-.credential-box code { overflow-wrap: anywhere; color: var(--warning-foreground); } /* 定义当前元素的样式规则。 */
+.credential-box { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--warning); border-radius: .625rem; background: var(--surface-muted); } /* 定义当前元素的样式规则。 */
+.credential-box code { overflow-wrap: anywhere; color: var(--warning-text); } /* 定义当前元素的样式规则。 */
 .template-switcher { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 11px; } /* 定义当前元素的样式规则。 */
-.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-foreground); background: var(--card); cursor: pointer; font-size: 13px; } /* 定义当前元素的样式规则。 */
-.template-switcher button:hover, .template-switcher button.active { border-color: var(--primary); color: var(--accent-foreground); background: var(--accent); } /* 定义当前元素的样式规则。 */
-.template-editor :deep(textarea) { min-height: 330px; padding: 13px; color: var(--code-foreground); background: var(--code-background); border-color: var(--code-border); border-radius: .625rem; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; } /* 定义当前元素的样式规则。 */
+.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); background: var(--surface); cursor: pointer; font-size: 13px; } /* 定义当前元素的样式规则。 */
+.template-switcher button:hover, .template-switcher button.active { border-color: var(--primary); color: var(--text); background: var(--primary-soft); } /* 定义当前元素的样式规则。 */
+.template-editor :deep(textarea) { min-height: 330px; padding: 13px; color: var(--code-text); background: var(--code-bg); border-color: var(--code-border); border-radius: .625rem; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; } /* 定义当前元素的样式规则。 */
 .template-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; } /* 定义当前元素的样式规则。 */
-.template-actions span { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.template-actions span { color: var(--text-muted); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .quick-send-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; } /* 定义当前元素的样式规则。 */
-.quick-send { min-height: 74px; padding: 13px; display: grid; gap: 5px; text-align: left; border: 1px solid var(--border); border-radius: .625rem; background: var(--card); cursor: pointer; } /* 定义当前元素的样式规则。 */
+.quick-send { min-height: 74px; padding: 13px; display: grid; gap: 5px; text-align: left; border: 1px solid var(--border); border-radius: .625rem; background: var(--surface); cursor: pointer; } /* 定义当前元素的样式规则。 */
 .quick-send:hover:not(:disabled) { border-color: var(--primary); box-shadow: 0 2px 8px color-mix(in srgb,var(--primary) 10%,transparent); } /* 定义当前元素的样式规则。 */
 .quick-send:disabled { cursor: not-allowed; opacity: .58; } /* 定义当前元素的样式规则。 */
 .quick-send strong { font-size: 13px; } /* 定义当前元素的样式规则。 */
-.quick-send small { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
-.quick-send.normal { border-left: 3px solid var(--success); }.quick-send.danger { border-left: 3px solid var(--destructive); }.quick-send.warning { border-left: 3px solid var(--warning); }.quick-send.event { border-left: 3px solid var(--primary); } /* 定义当前元素的样式规则。 */
+.quick-send small { color: var(--text-muted); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.quick-send.normal { border-left: 3px solid var(--success); }.quick-send.danger { border-left: 3px solid var(--danger); }.quick-send.warning { border-left: 3px solid var(--warning); }.quick-send.event { border-left: 3px solid var(--primary); } /* 定义当前元素的样式规则。 */
 .send-history-item { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); } /* 定义当前元素的样式规则。 */
-.send-history-item:last-child { border-bottom: 0; }.send-history-item strong, .send-history-item small { display: block; }.send-history-item small { max-width: 190px; margin-top: 3px; overflow: hidden; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; } /* 定义当前元素的样式规则。 */
+.send-history-item:last-child { border-bottom: 0; }.send-history-item strong, .send-history-item small { display: block; }.send-history-item small { max-width: 190px; margin-top: 3px; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; } /* 定义当前元素的样式规则。 */
 .result-json { max-height: 300px; margin-top: 13px; } /* 定义当前元素的样式规则。 */
 .loading-card { min-height: 300px; display: grid; place-items: center; } /* 定义当前元素的样式规则。 */
 @media (max-width: 1050px) { .test-device-layout { grid-template-columns: 1fr; }.test-device-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }.result-card { grid-column: 1 / -1; } } /* 按屏幕条件调整样式。 */

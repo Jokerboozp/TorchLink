@@ -21,7 +21,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	mqttadapter "iot-platform/internal/adapters/mqtt" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/auth"                      /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/config"                    /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"                 /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/core"                      /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/metrics"                   /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"                     /* 执行当前语句并推进处理流程。 */
@@ -61,22 +60,21 @@ func TestStandardMQTTLiveBroker(t *testing.T) { /* 定义 TestStandardMQTTLiveBr
 	if e = engine.Start(ctx); e != nil {                                                                          /* 判断条件并选择处理分支。 */
 		t.Fatal(e) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	cfg := config.Load()                                                                                                                                                                                                                                                              /* 更新 cfg 的值。 */
-	cfg.JWTSecret = secret                                                                                                                                                                                                                                                            /* 更新 cfg.JWTSecret 的值。 */
-	cfg.DataDir = root                                                                                                                                                                                                                                                                /* 更新 cfg.DataDir 的值。 */
-	srv := New(cfg, engine, metrics.New(), log)                                                                                                                                                                                                                                       /* 更新 srv 的值。 */
-	srv.SetMQTTHealth(platform.Probe)                                                                                                                                                                                                                                                 /* 执行当前语句并推进处理流程。 */
-	srv.SetDeviceOperations(platform.Publish, nil)                                                                                                                                                                                                                                    /* 执行当前语句并推进处理流程。 */
-	request := onboarding.Request{ProductID: "product", ProductName: "temporary MQTT test", DeviceID: "device", Name: "test device", Type: connector.MQTT, MessageKind: "property", Payload: json.RawMessage(`{"id":"preview","timestamp":1788850000000,"data":{"temperature":20}}`)} /* 更新 request 的值。 */
-	preview, e := srv.onboarding.Test(ctx, tenant, request)                                                                                                                                                                                                                           /* 更新 e 的值。 */
-	if e != nil || !preview.Success {                                                                                                                                                                                                                                                 /* 判断条件并选择处理分支。 */
-		t.Fatal("onboarding preview failed", e) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	request.TestToken = preview.TestToken                     /* 更新 request.TestToken 的值。 */
-	created, e := srv.onboarding.Create(ctx, tenant, request) /* 更新 e 的值。 */
-	if e != nil {                                             /* 判断条件并选择处理分支。 */
-		t.Fatal(e) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
+	cfg := config.Load()                           /* 更新 cfg 的值。 */
+	cfg.JWTSecret = secret                         /* 更新 cfg.JWTSecret 的值。 */
+	cfg.DataDir = root                             /* 更新 cfg.DataDir 的值。 */
+	srv := New(cfg, engine, metrics.New(), log)    /* 更新 srv 的值。 */
+	srv.SetMQTTHealth(platform.Probe)              /* 执行当前语句并推进处理流程。 */
+	srv.SetDeviceOperations(platform.Publish, nil) /* 执行当前语句并推进处理流程。 */
+	draft := &onboarding.NewProduct{ID: "product", Name: "temporary MQTT test", ProtocolPackageID: onboarding.StandardPackageID, Transport: "MQTT"}
+	check, e := srv.onboarding.Preflight(ctx, tenant, "", draft, onboarding.PublicAddresses{MQTT: true})
+	if e != nil || !check.Ready || check.Checks[len(check.Checks)-1].State != "passed" {
+		t.Fatal("onboarding preflight failed", check.Checks, e)
+	}
+	created, e := srv.onboarding.Enroll(ctx, tenant, onboarding.EnrollRequest{RequestID: "mqtt-live", NewProduct: draft, Device: onboarding.EnrollDevice{ID: "device", Name: "test device"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}})
+	if e != nil {
+		t.Fatal(e)
+	}
 	failures := make(chan error, 4)                                                                           /* 更新 failures 的值。 */
 	if e = platform.SubscribeStandard(func(c context.Context, tnt, p, d, kind string, payload []byte) error { /* 判断条件并选择处理分支。 */
 		if tnt != tenant { /* 判断条件并选择处理分支。 */

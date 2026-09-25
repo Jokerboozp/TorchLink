@@ -14,7 +14,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/adapters/local"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/memory" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/config"          /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"       /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/metrics"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
@@ -75,13 +74,32 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) { /* 定义 TestModbusOnboar
 		srv.Handler().ServeHTTP(out, req)                                  /* 执行当前语句并推进处理流程。 */
 		return out                                                         /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	q := onboarding.Request{ProductID: "modbus-product", ProductName: "模拟温度产品", DeviceID: "modbus-device", Name: "模拟温度设备", Type: connector.ModbusTCP, PollIntervalSec: 1, Profile: model.DeviceAccessProfile{Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: 1, TimeoutMs: 500}, PointTableCSV: "name,functionCode,address,addressNotation,dataType,scale,bit\ntemperature,3,0,zero_based,uint16,1,\ninput6,3,0,zero_based,bits,1,5\n"} /* 更新 q 的值。 */
-	preview := call("POST", "/api/v1/onboarding/test", q)                                                                                                                                                                                                                                                                                                                                                                                                     /* 更新 preview 的值。 */
-	var tested connector.Result                                                                                                                                                                                                                                                                                                                                                                                                                               /* 声明 tested。 */
-	if err = json.Unmarshal(preview.Body.Bytes(), &tested); err != nil || preview.Code != 200 || !tested.Success || tested.Source != "network-read" {                                                                                                                                                                                                                                                                                                         /* 判断条件并选择处理分支。 */
-		t.Fatal("preview", preview.Code, preview.Body.String(), err) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	q.TestToken = tested.TestToken                   /* 更新 q.TestToken 的值。 */
+	// Modbus point tables are published protocol versions; the wizard only adds devices.
+	table, _, err := core.ParseModbusPointTable("points.csv", []byte("name,functionCode,address,addressNotation,dataType,scale,bit\ntemperature,3,0,zero_based,uint16,1,\ninput6,3,0,zero_based,bits,1,5\n"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := core.CompileModbusReadBlocks(table.Points)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UnixMilli()
+	release := model.ProtocolRelease{TenantID: "tenant", ProtocolID: "meter", Version: "1", Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED", PointTableVersion: "1", CreatedAt: now, PublishedAt: now, Config: map[string]any{"points": table.Points, "blocks": blocks}}
+	table.TenantID, table.ProtocolID, table.Version, table.CreatedAt = "tenant", "meter", "1", now
+	if err = repo.CreatePointTableRelease(ctx, table); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.CreateProtocolRelease(ctx, release); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "modbus-product", Name: "模拟温度产品", Status: "ENABLED", ProtocolPackageID: "meter@1"}); err != nil {
+		t.Fatal(err)
+	}
+	unit := 1
+	q := onboarding.EnrollRequest{RequestID: "req-modbus", ProductID: "modbus-product", Device: onboarding.EnrollDevice{ID: "modbus-device", Name: "模拟温度设备"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModePoll, Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: &unit, TimeoutMs: 500}}
+	if preflight := call("GET", "/api/v1/onboarding/preflight?productId=modbus-product", nil); preflight.Code != 200 || !bytes.Contains(preflight.Body.Bytes(), []byte(`"mode":"poll"`)) {
+		t.Fatal("preflight", preflight.Code, preflight.Body.String())
+	}
 	created := call("POST", "/api/v1/onboarding", q) /* 更新 created 的值。 */
 	if created.Code != 201 {                         /* 判断条件并选择处理分支。 */
 		t.Fatal("save", created.Code, created.Body.String()) /* 验证实际结果符合预期。 */
@@ -97,7 +115,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) { /* 定义 TestModbusOnboar
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	stored, err := repo.GetManagedDevice(ctx, "tenant", q.DeviceID)      /* 更新 err 的值。 */
+	stored, err := repo.GetManagedDevice(ctx, "tenant", q.Device.ID)     /* 更新 err 的值。 */
 	if err != nil || stored.SecretHash != "" || stored.AccessKey == "" { /* 判断条件并选择处理分支。 */
 		t.Fatal("Modbus must persist an internal identity without a secret", err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
@@ -110,7 +128,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) { /* 定义 TestModbusOnboar
 		return data /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if connection()["ingest"].(map[string]any)["rawReceived"] != false { /* 判断条件并选择处理分支。 */
-		t.Fatal("preview persisted business data") /* 验证实际结果符合预期。 */
+		t.Fatal("saving the configuration reported business data") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	runtime := protocolruntime.New(repo, func(ctx context.Context, raw model.RawMessage) error { /* 更新 runtime 的值。 */
 		_, _, err := engine.IngestRaw(ctx, raw) /* 更新 err 的值。 */

@@ -34,7 +34,7 @@ func ProtocolRegistrationDevice(expected, current DeviceAccessProfile, product P
 	if name == "" { /* 判断条件并选择处理分支。 */
 		name = id /* 更新 name 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	return ManagedDevice{ID: id, TenantID: current.TenantID, ProductID: current.ProductID, Name: name, Status: "ENABLED", DeviceRole: "DIRECT", RegistrationSource: "PROTOCOL_AUTO", AutoRegistered: true, CreatedAt: now, UpdatedAt: now, AccessKey: ProtocolDeviceAccessKey(current.TenantID, id), Tags: map[string]string{"connector": strings.ToUpper(current.Network), "connectorProfileId": current.ID}}, nil /* 返回当前处理结果。 */
+	return ManagedDevice{ID: id, TenantID: current.TenantID, ProductID: current.ProductID, Name: name, Status: "ENABLED", DeviceRole: "DIRECT", RegistrationSource: "PROTOCOL_AUTO", AutoRegistered: true, CreatedAt: now, UpdatedAt: now, AccessKey: ProtocolDeviceAccessKey(current.TenantID, id), Connector: strings.ToUpper(current.Network), ConnectorProfileID: current.ID}, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 func RegisteredProtocolDevice(existing ManagedDevice, profile DeviceAccessProfile) error { /* 定义 RegisteredProtocolDevice 函数。 */

@@ -139,8 +139,8 @@ func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCo
 	if !segment.MatchString(q.ID) || !segment.MatchString(q.Type) || q.Data == nil { /* 判断条件并选择处理分支。 */
 		return q, errors.New("valid command id, type and data object are required") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	device, e := s.Repo.GetManagedDevice(ctx, t, d)                                                              /* 更新 e 的值。 */
-	if e != nil || device.Status != "ENABLED" || device.SecretHash == "" || device.Tags["connector"] != "MQTT" { /* 判断条件并选择处理分支。 */
+	device, e := s.Repo.GetManagedDevice(ctx, t, d)                                                      /* 更新 e 的值。 */
+	if e != nil || device.Status != "ENABLED" || device.SecretHash == "" || device.Connector != "MQTT" { /* 判断条件并选择处理分支。 */
 		return q, errors.New("enabled standard MQTT device required") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	p, e := s.Repo.GetProduct(ctx, t, device.ProductID) /* 更新 e 的值。 */

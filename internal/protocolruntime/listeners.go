@@ -636,7 +636,7 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 		if s.commandChild != nil { /* 判断条件并选择处理分支。 */
 			matched := false                      /* 更新 matched 的值。 */
 			for _, c := range response.Children { /* 循环处理当前数据。 */
-				if c.Address == s.commandChild.Tags["childAddress"] && c.Type == s.commandChild.Tags["childType"] { /* 判断条件并选择处理分支。 */
+				if c.Address == s.commandChild.ChildAddress && c.Type == s.commandChild.ChildType { /* 判断条件并选择处理分支。 */
 					matched = true /* 更新 matched 的值。 */
 				} /* 结束当前表达式或代码块。 */
 			} /* 结束当前表达式或代码块。 */

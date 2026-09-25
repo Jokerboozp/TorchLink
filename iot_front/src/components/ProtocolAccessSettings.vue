@@ -52,21 +52,21 @@ function addQuery(){(props.profile.queries ||= []).push({type:'',intervalSec:10}
 </template>
 <style scoped>
 .protocol-access-settings{display:grid;gap:14px;padding:14px 0 2px}
-.access-option-section{min-width:0;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
+.access-option-section{min-width:0;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
 .access-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
-.access-section-heading h4{margin:0;color:var(--accent-foreground);font-size:14px}
-.access-section-heading p{margin:5px 0 0;color:var(--accent-foreground);font-size:12px;line-height:1.6}
-.access-section-heading>span{flex:none;padding:3px 8px;border-radius:999px;color:var(--accent-foreground);background:var(--surface-subtle);font-size:11px;white-space:nowrap}
-.access-empty{padding:15px;border:1px dashed var(--border-info);border-radius:8px;color:var(--accent-foreground);background:var(--card);font-size:12px;line-height:1.6}
-.access-config-card{padding:14px;border:1px solid var(--border);border-radius:9px;background:var(--card)}
+.access-section-heading h4{margin:0;color:var(--text);font-size:14px}
+.access-section-heading p{margin:5px 0 0;color:var(--text);font-size:12px;line-height:1.6}
+.access-section-heading>span{flex:none;padding:3px 8px;border-radius:999px;color:var(--text);background:var(--surface-muted);font-size:11px;white-space:nowrap}
+.access-empty{padding:15px;border:1px dashed var(--info-border);border-radius:8px;color:var(--text);background:var(--surface);font-size:12px;line-height:1.6}
+.access-config-card{padding:14px;border:1px solid var(--border);border-radius:9px;background:var(--surface)}
 .access-config-card+.access-config-card{margin-top:10px}
 .access-card-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
-.access-card-heading strong{color:var(--accent-foreground);font-size:13px}
+.access-card-heading strong{color:var(--text);font-size:13px}
 .access-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.access-field{display:grid;min-width:0;gap:6px;color:var(--accent-foreground);font-size:12px;font-weight:600}
+.access-field{display:grid;min-width:0;gap:6px;color:var(--text);font-size:12px;font-weight:600}
 .access-field :deep(.n-input),.access-field :deep(.n-select),.access-field :deep(.n-input-number){width:100%;min-width:0}
-.access-binding,.access-template-help{margin:10px 0 0;color:var(--accent-foreground);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
-.access-binding.binding-error{color:var(--destructive)}
+.access-binding,.access-template-help{margin:10px 0 0;color:var(--text);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.access-binding.binding-error{color:var(--danger)}
 .access-add-button{margin-top:12px}
 @media(max-width:600px){.protocol-access-settings{padding-top:10px}.access-option-section{padding:13px}.access-field-grid{grid-template-columns:1fr}.access-section-heading{flex-wrap:wrap}.access-config-card{padding:12px}}
 </style>

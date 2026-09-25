@@ -7,6 +7,7 @@ import { UiMessageBox, UiMessage } from '../ui/feedback.js' /* 引入当前代�
 import { api, formatTime, notifyError, pretty, session } from '../api' /* 引入当前代码需要的依赖。 */
 import { transportLabel, statusLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatuses, dataStatuses, businessStatuses, stateSources, messageTypeLabel, label } from '../labels' /* 引入当前代码需要的依赖。 */
+import { diagnosisTagTypes } from '../onboardingPlan'
 
 const props = defineProps({ deviceId:String }) /* 声明 props。 */
 const emit = defineEmits(['close','navigate','device']) /* 声明 emit。 */
@@ -28,6 +29,10 @@ const columns = computed(() => narrow.value ? 1 : 2) /* 声明 columns。 */
 const canEdit = computed(() => ['admin','operator'].includes(session.role)) /* 声明 canEdit。 */
 const isParent = computed(() => data.value && !data.value.parent && (data.value.device.deviceRole === 'GATEWAY' || data.value.profile?.childProducts?.length)) /* 声明 isParent。 */
 const standardAccess = computed(() => Boolean(data.value?.accessInfo && !data.value?.parent)) /* 声明 standardAccess。 */
+const httpAccess = computed(() => data.value?.accessInfo?.kind === 'managed' || data.value?.connector === 'HTTP')
+const childTypes = computed(() => data.value?.profile?.childProducts || [])
+const childDialog = ref(false), childSaving = ref(false)
+const childForm = reactive({ type:'', address:'', name:'' })
 const hasSessions = computed(() => Boolean(data.value?.parent || data.value?.profile?.mode === 'listener' || data.value?.sessions?.length)) /* 声明 hasSessions。 */
 const properties = computed(() => Object.entries(data.value?.latestProperties?.[0]?.properties || {}).map(([key,value]) => ({key,value}))) /* 声明 properties。 */
 const displayValue = value => typeof value === 'object' && value !== null ? pretty(value) : String(value ?? '—') /* 声明 displayValue。 */
@@ -123,6 +128,18 @@ async function send() { /* 定义 send 函数。 */
     commandResult.value = await api(`/api/v2/device-access-profiles/${encodeURIComponent(profileId)}/devices/${encodeURIComponent(props.deviceId)}/commands`,{method:'POST',body:JSON.stringify({...body,requestId:pendingProtocol.value.id,confirmed:true})}) /* 更新 commandResult.value 的值。 */
   }) /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+function openChildDialog() { Object.assign(childForm, { type:childTypes.value[0]?.type || '', address:'', name:'' }); childDialog.value = true }
+async function addChild() {
+  if (childSaving.value) return
+  if (!childForm.type || !childForm.address.trim()) return UiMessage.warning('请选择子设备类型并填写地址')
+  childSaving.value = true
+  try {
+    const result = await api(`${base()}/children`,{method:'POST',body:JSON.stringify({type:childForm.type,address:childForm.address.trim(),name:childForm.name.trim()})})
+    childDialog.value = false
+    UiMessage.success(result.reused ? '该地址的子设备此前已登记' : '子设备已添加')
+    await loadList('children')
+  } catch (cause) { notifyError(cause) } finally { childSaving.value = false }
+}
 watch(() => props.deviceId,() => { /* 执行当前语句并推进处理流程。 */
   data.value = null; selectedProfile.value = ''; credential.value = null; commandType.value='';commandValues.value={};newCommand() /* 更新 data.value 的值。 */
   for (const section of Object.values(lists)) Object.assign(section,{items:[],total:0,page:1,error:'',loading:false}) /* 循环处理当前数据。 */
@@ -143,6 +160,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
       <template v-if="data">
         <section class="connection-section device-summary"> <!-- 渲染 section 界面元素。 -->
           <h3>当前接入状态</h3>
+          <div v-if="data.diagnosis" class="connection-diagnosis" :class="`is-${data.diagnosis.tone}`" role="status"><ui-tag :type="diagnosisTagTypes[data.diagnosis.tone]">{{data.diagnosis.title}}</ui-tag><p>{{data.diagnosis.nextAction}}</p></div>
           <div class="connection-status-grid" role="status"><div><span>业务状态</span><strong>{{label(businessStatuses,data.connection?.businessStatus) || '未知'}}</strong></div><div><span>连接状态</span><strong>{{label(connectionStatuses,data.connection?.connectionStatus) || '未知'}}</strong></div><div><span>数据状态</span><strong>{{label(dataStatuses,data.connection?.dataStatus) || '未知'}}</strong></div><div><span>最近上报</span><strong>{{formatTime(data.connection?.lastSeenAt)}}</strong></div><div><span>原文接收</span><strong>{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</strong></div><div><span>解析状态</span><strong>{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</strong></div></div>
           <h4 class="connection-subtitle">设备与协议</h4>
           <ui-descriptions :column="columns" border> <!-- 渲染 ui-descriptions 界面元素。 -->
@@ -154,23 +172,23 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <ui-descriptions-item label="绑定版本">{{data.protocolVersion || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="最后连接">{{formatTime(data.connection?.lastConnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="最后断开">{{formatTime(data.connection?.lastDisconnectAt)}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item v-if="data.profile" label="平台连接配置">{{data.profile.id}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item v-if="data.profile" label="连接运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile" label="接入点">{{data.profile.id}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.profile" label="接入点运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.parent" label="所属主设备"><ui-button link type="primary" @click="emit('device',data.parent.id)">{{data.parent.name || data.parent.id}}</ui-button></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.tags?.childAddress || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.childAddress || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
           </ui-descriptions> <!-- 结束当前界面区域。 -->
           <ui-alert v-if="data.profile?.lastError || data.ingest?.parseError" class="section-feedback" title="最近接入异常" :description="data.profile?.lastError || data.ingest?.parseError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
           <div v-if="data.profiles?.length > 1" class="profile-picker"> <!-- 渲染 div 界面元素。 -->
-            <p>检测到多个关联的平台连接配置，请根据用途、地址和状态选择。</p> <!-- 渲染 p 界面元素。 -->
-            <ui-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择平台连接配置" @change="selectProfile"><ui-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="`${p.id} · ${p.host}:${p.port} · ${p.runtimeStatus||'待确认'}`" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
+            <p>设备关联了多个接入点，请根据用途、地址和状态选择。</p> <!-- 渲染 p 界面元素。 -->
+            <ui-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入点" @change="selectProfile"><ui-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="`${p.id} · ${p.host}:${p.port} · ${p.runtimeStatus||'待确认'}`" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
           </div> <!-- 结束当前界面区域。 -->
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="standardAccess" class="connection-section device-access-info"> <!-- 渲染 section 界面元素。 -->
           <h3>设备接入信息</h3> <!-- 渲染 h3 界面元素。 -->
           <ui-descriptions :column="1" border> <!-- 渲染 ui-descriptions 界面元素。 -->
-            <ui-descriptions-item v-if="data.connector==='HTTP'" label="上报接口"><code>{{data.accessInfo.httpUrl || '未配置平台对外 HTTP 地址'}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="httpAccess" label="上报接口"><code>{{data.accessInfo.httpUrl || '未配置平台对外 HTTP 地址'}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.connector==='MQTT'" label="消息服务地址"><code>{{data.accessInfo.mqttBroker || '未配置对外地址'}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.connector==='MQTT'" label="客户端标识"><code>{{data.accessInfo.clientId}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item label="接入密钥"><code>{{data.accessInfo.username}}</code></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
@@ -182,10 +200,11 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         </section> <!-- 结束当前界面区域。 -->
 
         <section v-if="isParent" class="connection-section device-children" v-loading="lists.children.loading"> <!-- 渲染 section 界面元素。 -->
-          <h3>子设备（{{lists.children.total}}）</h3> <!-- 渲染 h3 界面元素。 -->
+          <div class="section-heading"><h3>子设备（{{lists.children.total}}）</h3><ui-button v-if="childTypes.length && canEdit" v-permission="'POST /api/v1/device-registry/:id/children'" size="small" @click="openChildDialog">添加子设备</ui-button></div>
+          <p v-if="!childTypes.length">接入点尚未配置子设备类型。请在设备模板的“接入点”中添加子设备映射后，再按地址添加子设备。</p>
           <ui-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
           <ui-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息"> <!-- 渲染 ui-table 界面元素。 -->
-            <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.tags.childAddress" label="地址" min-width="90" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.childAddress" label="地址" min-width="90" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column prop="productName" label="设备模板" min-width="130" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="协议" min-width="150"><template #default="{row}">{{row.binding?.protocolId || '未配置'}} · {{row.binding?.version || '—'}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{formatTime(row.runtimeState?.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
@@ -198,7 +217,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         <section v-if="hasSessions" class="connection-section device-sessions"> <!-- 渲染 section 界面元素。 -->
           <h3>{{data.parent ? '主设备通信会话' : '在线会话'}}</h3> <!-- 渲染 h3 界面元素。 -->
           <ui-table :data="data.sessions || []" border empty-text="暂无已识别的在线会话"> <!-- 渲染 ui-table 界面元素。 -->
-            <ui-table-column prop="profileId" label="平台连接配置" min-width="145" /><ui-table-column prop="remoteAddress" label="远端地址" min-width="155" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="profileId" label="接入点" min-width="145" /><ui-table-column prop="remoteAddress" label="远端地址" min-width="155" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column prop="protocolId" label="会话协议" min-width="130" /><ui-table-column prop="protocolVersion" label="会话版本" min-width="100" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="最后有效报文" min-width="175"><template #default="{row}">{{formatTime(row.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
           </ui-table> <!-- 结束当前界面区域。 -->
@@ -265,7 +284,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             </ui-form> <!-- 结束当前界面区域。 -->
             <ui-button v-permission="'POST /api/v1/device-registry/:id/commands'" v-if="data.connector==='MQTT'" :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || !selectedOperation" :loading="actionBusy" @click="sendMQTT">执行命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
             <ui-button v-permission="'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'" v-else :loading="actionBusy" :disabled="loading || !data.profile.enabled || !data.sessions?.length || !selectedOperation" @click="send">执行命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-            <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前无可用连接或平台连接配置已停用，暂时不能下发命令。</p> <!-- 渲染 p 界面元素。 -->
+            <p v-if="data.connector!=='MQTT' && (!data.profile.enabled || !data.sessions?.length)">当前没有在线会话或接入点已停用，暂时不能下发命令。</p> <!-- 渲染 p 界面元素。 -->
             <ui-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand">开始一条新命令</ui-button> <!-- 渲染 ui-button 界面元素。 -->
           </template>
           <ui-alert v-if="commandResult?.lastError" :title="label(commandStatuses,String(commandResult.status || '').toUpperCase())" :description="commandResult.lastError" type="warning" :closable="false" />
@@ -287,44 +306,54 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         </section>
       </template>
     </div>
+    <ui-dialog v-model="childDialog" title="添加子设备" width="min(480px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!childSaving" :show-close="!childSaving">
+      <ui-form label-position="top" :disabled="childSaving" @submit.prevent="addChild">
+        <ui-form-item label="子设备类型" required><ui-select v-model="childForm.type" aria-label="子设备类型"><ui-option v-for="item in childTypes" :key="item.type" :value="item.type" :label="`${item.type} · 模板 ${item.productId}`" /></ui-select></ui-form-item>
+        <ui-form-item label="子设备地址" required><ui-input v-model="childForm.address" placeholder="主设备协议中的子设备地址" aria-label="子设备地址" /></ui-form-item>
+        <ui-form-item label="名称"><ui-input v-model="childForm.name" maxlength="256" placeholder="留空时按类型和地址生成" aria-label="子设备名称" /></ui-form-item>
+      </ui-form>
+      <p class="child-dialog-hint">子设备沿用主设备的连接，由主设备协议按地址识别。</p>
+      <template #footer><ui-button :disabled="childSaving" @click="childDialog=false">取消</ui-button><ui-button type="primary" :loading="childSaving" @click="addChild">添加</ui-button></template>
+    </ui-dialog>
   </ui-drawer>
 </template>
 
 <style scoped>
-:global(.device-connection-drawer .el-drawer__header) { margin-bottom:0; padding:20px 24px; border-bottom:1px solid var(--border); color:var(--accent-foreground); background:var(--card); } /* 设置  样式。 */
-:global(.device-connection-drawer .el-drawer__body) { background:var(--surface-subtle); padding:20px; } /* 设置  样式。 */
-.device-connection { min-width:0; color:var(--text-strong); font-size:13px; line-height:1.6; } /* 定义当前元素的样式规则。 */
-.connection-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; } /* 定义当前元素的样式规则。 */
-.connection-toolbar > div { min-width:0; } /* 定义当前元素的样式规则。 */
-.connection-toolbar strong { display:block; font-size:17px; color:var(--text-strong); } /* 定义当前元素的样式规则。 */
-.connection-toolbar small { display:block; overflow-wrap:anywhere; color:var(--accent-foreground); } /* 定义当前元素的样式规则。 */
-.connection-section { min-width:0; margin:0 0 16px; padding:18px; border:1px solid var(--border); border-radius:8px; background:var(--card); } /* 定义当前元素的样式规则。 */
-.connection-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:20px; }
-.connection-status-grid > div { min-width:0; padding:11px 13px; border:1px solid var(--border); border-radius:7px; background:var(--surface-subtle); }
-.connection-status-grid span { display:block; margin-bottom:4px; color:var(--accent-foreground); font-size:12px; }
-.connection-status-grid strong { display:block; color:var(--accent-foreground); font-size:14px; line-height:1.45; overflow-wrap:anywhere; }
-.connection-subtitle { margin:0 0 10px; color:var(--accent-foreground); font-size:13px; font-weight:650; }
-h3 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin:0 0 14px; font-size:14px; font-weight:650; line-height:1.5; color:var(--accent-foreground); } /* 设置 h3 { display 样式。 */
-h3 small { font-size:13px; font-weight:400; color:var(--accent-foreground); } /* 设置 h3 small { font-size 样式。 */
-p { margin:10px 0; color:var(--accent-foreground); overflow-wrap:anywhere; } /* 设置 p { margin 样式。 */
-code,.field-value { color:inherit; font:inherit; overflow-wrap:anywhere; word-break:break-word; white-space:pre-wrap; } /* 设置 code,.field-value { color 样式。 */
-pre { max-height:320px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--surface-subtle); border:1px solid var(--border); border-radius:6px; padding:12px; color:var(--accent-foreground); margin:12px 0 0; } /* 设置 pre { max-height 样式。 */
-.section-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; } /* 定义当前元素的样式规则。 */
-.section-actions :deep(.el-button + .el-button) { margin-left:0; } /* 定义当前元素的样式规则。 */
-.section-feedback,.profile-picker,.message-detail { margin-top:14px; } /* 定义当前元素的样式规则。 */
-:deep(.el-descriptions__table) { table-layout:fixed; } /* 设置  样式。 */
-:deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:120px; background:var(--surface-subtle); color:var(--accent-foreground); font-weight:500; } /* 设置  样式。 */
-:deep(.el-descriptions__content.el-descriptions__cell.is-bordered-content) { background:var(--card); color:var(--accent-foreground); overflow-wrap:anywhere; } /* 设置  样式。 */
-:deep(.el-descriptions__cell) { padding:10px 12px !important; border-color:var(--border) !important; } /* 设置  样式。 */
-:deep(.el-pagination) { margin-top:12px; justify-content:flex-end; } /* 设置  样式。 */
-:deep(.el-collapse-item__header) { font-size:13px; font-weight:600; color:var(--accent-foreground); } /* 设置  样式。 */
-@media (max-width:640px) { /* 按屏幕条件调整样式。 */
-  :global(.device-connection-drawer .el-drawer__header) { padding:16px; } /* 设置  样式。 */
-  :global(.device-connection-drawer .el-drawer__body) { padding:12px; } /* 设置  样式。 */
-  .connection-section { padding:12px; margin-bottom:12px; } /* 定义当前元素的样式规则。 */
-  .connection-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-bottom:16px; }
-  .connection-status-grid > div { padding:9px; }
-  :deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:100px; } /* 设置  样式。 */
-  :deep(.el-descriptions__cell) { padding:9px !important; } /* 设置  样式。 */
-} /* 结束当前样式规则。 */
+:global(.device-connection-drawer .n-drawer-body-content-wrapper) { background:var(--bg); }
+.device-connection { min-width:0; color:var(--text); font-size:var(--font-size-sm); line-height:var(--line-height-normal); }
+.connection-toolbar { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); margin-bottom:var(--space-4); }
+.connection-toolbar > div { min-width:0; }
+.connection-toolbar strong { display:block; color:var(--text-strong); font-size:var(--font-size-lg); font-weight:var(--font-weight-semibold); }
+.connection-toolbar small { display:block; color:var(--text-muted); font-family:var(--font-mono); font-size:var(--font-size-xs); overflow-wrap:anywhere; }
+.connection-section { min-width:0; margin:0 0 var(--space-4); padding:var(--space-4) var(--space-5); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); }
+.connection-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-2); margin-bottom:var(--space-5); }
+.connection-status-grid > div { min-width:0; padding:10px var(--space-3); background:var(--surface-muted); border:1px solid var(--border); border-radius:var(--radius-md); }
+.connection-status-grid span { display:block; margin-bottom:2px; color:var(--text-muted); font-size:var(--font-size-xs); }
+.connection-status-grid strong { display:block; color:var(--text-strong); font-size:var(--font-size-md); font-weight:var(--font-weight-semibold); line-height:var(--line-height-tight); overflow-wrap:anywhere; }
+.connection-diagnosis { display:grid; gap:var(--space-1); margin-bottom:var(--space-4); padding:var(--space-3) var(--space-4); background:var(--info-soft); border:1px solid var(--info-border); border-radius:var(--radius-md); }
+.connection-diagnosis.is-success { background:var(--success-soft); border-color:var(--success-border); }
+.connection-diagnosis.is-warning { background:var(--warning-soft); border-color:var(--warning-border); }
+.connection-diagnosis.is-error { background:var(--danger-soft); border-color:var(--danger-border); }
+.connection-diagnosis .ui-tag { justify-self:start; }
+.connection-diagnosis p { margin:0; color:var(--text); }
+.section-heading { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); }
+.section-heading h3 { margin:0; }
+.child-dialog-hint { margin:0; color:var(--text-muted); font-size:var(--font-size-xs); }
+.connection-subtitle { margin:0 0 10px; color:var(--text-strong); font-size:var(--font-size-sm); font-weight:var(--font-weight-semibold); }
+h3 { display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--space-2); margin:0 0 var(--space-3); color:var(--text-strong); font-size:var(--font-size-md); font-weight:var(--font-weight-semibold); line-height:1.5; }
+h3 small { color:var(--text-muted); font-size:var(--font-size-xs); font-weight:400; }
+p { margin:10px 0; color:var(--text-secondary); overflow-wrap:anywhere; }
+code, .field-value { overflow-wrap:anywhere; word-break:break-word; white-space:pre-wrap; }
+.field-value { color:inherit; font:inherit; }
+pre { max-height:320px; margin:var(--space-3) 0 0; }
+.section-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); margin-top:var(--space-3); }
+.section-feedback, .profile-picker, .message-detail { margin-top:var(--space-3); }
+:deep(.n-descriptions-table) { table-layout:fixed; }
+:deep(.n-descriptions-table-header) { width:120px; }
+:deep(.ui-pagination) { margin-top:var(--space-3); justify-content:flex-end; }
+@media (max-width:767px) {
+  .connection-section { padding:var(--space-3); margin-bottom:var(--space-3); }
+  .connection-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:var(--space-4); }
+  :deep(.n-descriptions-table-header) { width:96px; }
+}
 </style>

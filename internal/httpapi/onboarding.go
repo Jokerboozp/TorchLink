@@ -15,37 +15,78 @@ import ( /* 引入当前代码需要的依赖。 */
 
 func (s *Server) SetMQTTHealth(health func(context.Context) error) { s.onboarding.MQTTHealth = health } /* 定义 SetMQTTHealth 函数。 */
 
-func (s *Server) onboardingTest(w http.ResponseWriter, r *http.Request) { /* 定义 onboardingTest 函数。 */
-	var q onboarding.Request     /* 声明 q。 */
-	if decode(w, r, &q) != nil { /* 判断条件并选择处理分支。 */
-		return /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	result, err := s.onboarding.Test(r.Context(), claims(r).TenantID, q) /* 更新 err 的值。 */
-	if err != nil {                                                      /* 判断条件并选择处理分支。 */
-		write(w, 422, result) /* 执行当前语句并推进处理流程。 */
-		return                /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	write(w, 200, result) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-func (s *Server) onboardingCreate(w http.ResponseWriter, r *http.Request) { /* 定义 onboardingCreate 函数。 */
-	var q onboarding.Request     /* 声明 q。 */
-	if decode(w, r, &q) != nil { /* 判断条件并选择处理分支。 */
-		return /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	result, err := s.onboarding.Create(r.Context(), claims(r).TenantID, q) /* 更新 err 的值。 */
-	if err != nil {                                                        /* 判断条件并选择处理分支。 */
-		problem(w, 409, err.Error()) /* 执行当前语句并推进处理流程。 */
-		return                       /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	result.AccessInfo = s.deviceAccessInfo(result.Device) /* 更新 result.AccessInfo 的值。 */
-	w.Header().Set("Cache-Control", "no-store")           /* 执行当前语句并推进处理流程。 */
-	if result.Reused {                                    /* 判断条件并选择处理分支。 */
-		write(w, 200, result) /* 执行当前语句并推进处理流程。 */
-		return                /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	s.audit(r, "device.onboarding", "device", result.Device.ID, map[string]any{"connector": q.Type}) /* 执行当前语句并推进处理流程。 */
-	write(w, 201, result)                                                                            /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+func (s *Server) publicAddresses() onboarding.PublicAddresses {
+	return onboarding.PublicAddresses{HTTP: publicEndpoint(s.cfg.DeviceHTTPPublicURL) != "", MQTT: publicEndpoint(s.cfg.MQTTPublicURL) != ""}
+}
+
+func enrollProblem(w http.ResponseWriter, err error) {
+	var e *onboarding.EnrollError
+	if errors.As(err, &e) {
+		problem(w, e.Status, e.Message)
+		return
+	}
+	problem(w, 500, err.Error())
+}
+
+// onboardingPreflight evaluates a saved template, or a template draft described
+// by protocolPackageId and transport, without writing anything.
+func (s *Server) onboardingPreflight(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	productID := strings.TrimSpace(q.Get("productId"))
+	var draft *onboarding.NewProduct
+	if productID == "" {
+		draft = &onboarding.NewProduct{Category: q.Get("category"), ProtocolPackageID: q.Get("protocolPackageId"), Transport: q.Get("transport")}
+		if strings.TrimSpace(draft.ProtocolPackageID) == "" {
+			problem(w, 422, "请选择设备模板，或为新模板选择通信协议")
+			return
+		}
+	}
+	result, err := s.onboarding.Preflight(r.Context(), claims(r).TenantID, productID, draft, s.publicAddresses())
+	if err != nil {
+		enrollProblem(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	write(w, 200, result)
+}
+
+// onboardingEnroll adds one device, and optionally its template and platform
+// connection, in one transaction. Creating a template or a shared listener
+// also requires the caller's permission for those resources.
+func (s *Server) onboardingEnroll(w http.ResponseWriter, r *http.Request) {
+	var q onboarding.EnrollRequest
+	if decode(w, r, &q) != nil {
+		return
+	}
+	if q.NewProduct != nil && !requestAllows(r, "POST", "/api/v1/products") {
+		problem(w, 403, "当前账号不能新建设备模板，请选择已有模板")
+		return
+	}
+	if q.Connection.Listener != nil && !requestAllows(r, "POST", "/api/v2/device-access-profiles") {
+		problem(w, 403, "当前账号不能新建平台接入点，请选择已有接入点")
+		return
+	}
+	result, err := s.onboarding.Enroll(r.Context(), claims(r).TenantID, q)
+	if err != nil {
+		enrollProblem(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	response := struct {
+		onboarding.EnrollResult
+		AccessInfo map[string]any `json:"accessInfo,omitempty"`
+	}{result, s.deviceAccessInfo(result.Device, result.Product)}
+	if result.Reused {
+		write(w, 200, response)
+		return
+	}
+	details := map[string]any{"productId": result.Product.ID, "mode": result.Mode, "newProduct": q.NewProduct != nil}
+	if result.Profile != nil {
+		details["profileId"] = result.Profile.ID
+	}
+	s.audit(r, "device.onboarding", "device", result.Device.ID, details)
+	write(w, 201, response)
+}
 func (s *Server) standardDeviceIngest(w http.ResponseWriter, r *http.Request) { /* 定义 standardDeviceIngest 函数。 */
 	fail := func(status int, code, message string) { /* 更新 fail 的值。 */
 		write(w, status, map[string]string{"error": message, "errorCode": code}) /* 执行当前语句并推进处理流程。 */
@@ -118,20 +159,31 @@ func publicEndpoint(value string) string { /* 定义 publicEndpoint 函数。 */
 	} /* 结束当前表达式或代码块。 */
 	return "" /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
-func (s *Server) deviceAccessInfo(d model.ManagedDevice) map[string]any { /* 定义 deviceAccessInfo 函数。 */
-	if !d.UsesPlatformCredentials(model.Product{}) || (d.Tags["connector"] != "HTTP" && d.Tags["connector"] != "MQTT") { /* 判断条件并选择处理分支。 */
-		return nil /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	identity := d.TenantID + "/" + d.ProductID + "/" + d.ID /* 更新 identity 的值。 */
+// deviceAccessInfo returns what a credential device needs to report data. It
+// never includes the device secret.
+func (s *Server) deviceAccessInfo(d model.ManagedDevice, product model.Product) map[string]any {
+	if !d.UsesPlatformCredentials(product) {
+		return nil
+	}
+	endpoint := publicEndpoint(s.cfg.DeviceHTTPPublicURL)
+	if d.Connector != "HTTP" && d.Connector != "MQTT" {
+		// Managed devices post raw payloads that the template protocol parses.
+		httpURL := ""
+		if endpoint != "" {
+			httpURL = endpoint + "/api/v1/device-ingest/" + url.PathEscape(d.ID)
+		}
+		return map[string]any{"kind": "managed", "httpUrl": httpURL, "username": d.AccessKey, "sample": map[string]any{"payload": map[string]any{"temperature": 26.5}}}
+	}
+	identity := d.TenantID + "/" + d.ProductID + "/" + d.ID
 	httpURL := ""
-	if endpoint := publicEndpoint(s.cfg.DeviceHTTPPublicURL); endpoint != "" {
+	if endpoint != "" {
 		httpURL = endpoint + "/api/v1/device-ingest/standard/" + identity + "/property"
 	}
-	return map[string]any{ /* 返回当前处理结果。 */
-		"httpUrl":    httpURL,
-		"mqttBroker": publicEndpoint(s.cfg.MQTTPublicURL), "mqttWebSocket": publicEndpoint(s.cfg.MQTTWebSocketURL), /* 执行当前语句并推进处理流程。 */
-		"clientId": "device-" + d.AccessKey, "username": d.AccessKey, "tokenEndpoint": "/api/v1/device-mqtt/token", /* 执行当前语句并推进处理流程。 */
-		"upTopic": "/iot/up/" + identity + "/property", "downTopic": "/iot/down/" + identity + "/command", /* 执行当前语句并推进处理流程。 */
-		"sample": map[string]any{"version": "1.0", "id": "replace-with-unique-message-id", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"temperature": 26.5}}, /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+	return map[string]any{
+		"kind": "standard", "httpUrl": httpURL,
+		"mqttBroker": publicEndpoint(s.cfg.MQTTPublicURL), "mqttWebSocket": publicEndpoint(s.cfg.MQTTWebSocketURL),
+		"clientId": "device-" + d.AccessKey, "username": d.AccessKey, "tokenEndpoint": "/api/v1/device-mqtt/token",
+		"upTopic": "/iot/up/" + identity + "/property", "downTopic": "/iot/down/" + identity + "/command",
+		"sample": map[string]any{"version": "1.0", "id": "replace-with-unique-message-id", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"temperature": 26.5}},
+	}
+}

@@ -138,7 +138,7 @@ func (r *Repository) DeleteResource(_ context.Context, tenant, kind, id string) 
 			return model.ErrResourceInUse
 		}
 		for _, device := range r.devices {
-			if device.TenantID == tenant && device.Tags["connectorProfileId"] == id {
+			if device.TenantID == tenant && device.ConnectorProfileID == id {
 				return model.ErrResourceInUse
 			}
 		}

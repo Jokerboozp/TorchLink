@@ -35,6 +35,10 @@ func TestDeviceOnboardingBrowser(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	// Parsing runs so the wizard can confirm a real device report.
+	if err = engine.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.Load()
 	cfg.JWTSecret = "browser-device-onboarding-test-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}

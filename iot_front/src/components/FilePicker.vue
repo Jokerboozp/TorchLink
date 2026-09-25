@@ -18,9 +18,9 @@ function choose(event) { /* 定义 choose 函数。 */
 
 <style scoped>
 .file-picker { display: flex; align-items: center; gap: 10px; max-width: 100%; min-width: 0; } /* 定义当前元素的样式规则。 */
-.file-picker-button { position: relative; display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; flex: none; border: 1px solid var(--border); border-radius: 4px; color: var(--accent-foreground); background: var(--card); font-size: 13px; } /* 定义当前元素的样式规则。 */
+.file-picker-button { position: relative; display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; flex: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text); background: var(--surface); font-size: 13px; } /* 定义当前元素的样式规则。 */
 .file-picker-button:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; } /* 定义当前元素的样式规则。 */
 .file-picker-button input { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; } /* 定义当前元素的样式规则。 */
-.file-picker-name { color: var(--accent-foreground); font-size: 13px; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
+.file-picker-name { color: var(--text); font-size: 13px; overflow-wrap: anywhere; } /* 定义当前元素的样式规则。 */
 .is-disabled { opacity: .55; }.is-disabled input { cursor: not-allowed; } /* 定义当前元素的样式规则。 */
 </style>

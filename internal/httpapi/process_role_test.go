@@ -8,7 +8,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/adapters/local"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/memory" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/config"          /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"       /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/metrics"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
@@ -65,26 +64,24 @@ func TestSplitGatewayHTTPFlow(t *testing.T) { /* 定义 TestSplitGatewayHTTPFlow
 		handler.ServeHTTP(w, r)                            /* 执行当前语句并推进处理流程。 */
 		return w                                           /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	q := onboarding.Request{ProductID: "product", ProductName: "产品", DeviceID: "device", Name: "设备", Type: connector.HTTP, MessageKind: "property", Payload: json.RawMessage(`{"id":"sample","timestamp":1788850000000,"data":{"temperature":42}}`)} /* 更新 q 的值。 */
-	if r := call(gateway.Handler(), "POST", "/api/v1/auth/login", nil, "", model.DeviceCredential{}); r.Code != 404 {                                                                                                                                /* 判断条件并选择处理分支。 */
+	payload := json.RawMessage(`{"id":"sample","timestamp":1788850000000,"data":{"temperature":42}}`)
+	q := onboarding.EnrollRequest{RequestID: "req-split", NewProduct: &onboarding.NewProduct{ID: "product", Name: "产品", ProtocolPackageID: onboarding.StandardPackageID, Transport: "HTTP"}, Device: onboarding.EnrollDevice{ID: "device", Name: "设备"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}}
+	if r := call(gateway.Handler(), "POST", "/api/v1/auth/login", nil, "", model.DeviceCredential{}); r.Code != 404 { /* 判断条件并选择处理分支。 */
 		t.Fatal("gateway exposed login", r.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if r := call(api.Handler(), "POST", "/api/v1/onboarding/test", q, "", model.DeviceCredential{}); r.Code != 401 { /* 判断条件并选择处理分支。 */
-		t.Fatal("forward bypassed auth", r.Code) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	test := call(api.Handler(), "POST", "/api/v1/onboarding/test", q, token, model.DeviceCredential{}) /* 更新 test 的值。 */
-	var preview connector.Result                                                                       /* 声明 preview。 */
-	if test.Code != 200 || json.Unmarshal(test.Body.Bytes(), &preview) != nil || !preview.Success {    /* 判断条件并选择处理分支。 */
-		t.Fatal("preview", test.Code, test.Body.String()) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	q.TestToken = preview.TestToken                                                                /* 更新 q.TestToken 的值。 */
+	if r := call(api.Handler(), "POST", "/api/v1/onboarding", q, "", model.DeviceCredential{}); r.Code != 401 {
+		t.Fatal("forward bypassed auth", r.Code)
+	}
+	if r := call(api.Handler(), "GET", "/api/v1/onboarding/preflight?protocolPackageId="+onboarding.StandardPackageID, nil, token, model.DeviceCredential{}); r.Code != 200 {
+		t.Fatal("preflight forwarding", r.Code, r.Body.String())
+	}
 	saved := call(api.Handler(), "POST", "/api/v1/onboarding", q, token, model.DeviceCredential{}) /* 更新 saved 的值。 */
-	var result onboarding.Result                                                                   /* 声明 result。 */
+	var result onboarding.EnrollResult                                                             /* 声明 result。 */
 	if saved.Code != 201 || json.Unmarshal(saved.Body.Bytes(), &result) != nil {                   /* 判断条件并选择处理分支。 */
 		t.Fatal("save", saved.Code, saved.Body.String()) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	ingest := call(api.Handler(), "POST", "/api/v1/device-ingest/standard/tenant/product/device/property", q.Payload, "", result.Credential) /* 更新 ingest 的值。 */
-	if ingest.Code != 202 {                                                                                                                  /* 判断条件并选择处理分支。 */
+	ingest := call(api.Handler(), "POST", "/api/v1/device-ingest/standard/tenant/product/device/property", payload, "", result.Credential) /* 更新 ingest 的值。 */
+	if ingest.Code != 202 {                                                                                                                /* 判断条件并选择处理分支。 */
 		t.Fatal("ingest", ingest.Code, ingest.Body.String()) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	var accepted struct { /* 声明 accepted。 */
@@ -108,8 +105,8 @@ func TestSplitGatewayHTTPFlow(t *testing.T) { /* 定义 TestSplitGatewayHTTPFlow
 	if r := call(api.Handler(), "GET", "/api/v1/device-registry/device/connection", nil, token, model.DeviceCredential{}); r.Code != 200 { /* 判断条件并选择处理分支。 */
 		t.Fatal("connection forwarding", r.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	upstream.Close()                                                                                                    /* 执行当前语句并推进处理流程。 */
-	if r := call(api.Handler(), "POST", "/api/v1/onboarding/test", q, token, model.DeviceCredential{}); r.Code != 503 { /* 判断条件并选择处理分支。 */
+	upstream.Close()                                                                                                                            /* 执行当前语句并推进处理流程。 */
+	if r := call(api.Handler(), "GET", "/api/v1/onboarding/preflight?productId=product", nil, token, model.DeviceCredential{}); r.Code != 503 { /* 判断条件并选择处理分支。 */
 		t.Fatal("unavailable gateway falsely succeeded", r.Code) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */

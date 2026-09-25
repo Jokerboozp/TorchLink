@@ -1,0 +1,32 @@
+/* 页面共用的卡片、分页、工具栏与技术详情样式。 */
+.surface-card.n-card { box-shadow: var(--shadow-xs); }
+.surface-card.n-card > .n-card-header { padding: var(--space-4) var(--space-5) var(--space-3); }
+.surface-card.n-card > .n-card-content { padding: var(--space-5); }
+.table-card.n-card > .n-card-content { padding: 0; }
+.card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; }
+.card-header > div:first-child:not(:last-child) { display: grid; gap: 3px; min-width: 0; }
+.card-header small { color: var(--text-muted); font-weight: 400; }
+.list-pagination { display: flex; justify-content: flex-end; padding: var(--space-3) var(--space-4); background: var(--surface); border-top: 1px solid var(--border); }
+.list-pagination .ui-pagination { flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.section-toolbar > strong { font-size: var(--font-size-md); }
+.table-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
+.ui-table .ui-button:not(.ui-button--text) { height: 28px; min-height: 28px; padding: 0 10px; font-size: var(--font-size-sm); }
+.ui-table b { font-weight: var(--font-weight-medium); }
+.app-content .ui-alert + .ui-alert { margin-top: var(--space-3); }
+.technical-details { min-width: 0; margin-top: var(--space-4); padding: 0 var(--space-4); color: var(--text-secondary); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--font-size-sm); }
+.technical-details summary { padding: var(--space-3) 0; font-weight: var(--font-weight-semibold); cursor: pointer; }
+.technical-details[open] summary { border-bottom: 1px solid var(--border); }
+.technical-details pre,
+.technical-details ul { margin: var(--space-3) 0 var(--space-4); }
+.inner-card.n-card { background: var(--surface-muted); box-shadow: none; }
+.inner-card p,
+.inner-card small { margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); line-height: var(--line-height-normal); }
+.inner-card code { display: block; padding: var(--space-2); overflow: auto; }
+.inner-card .ui-button { justify-self: start; }
+
+@media (max-width: 767px) {
+  .card-header { flex-wrap: wrap; }
+  .card-header small { display: none; }
+  .list-pagination { padding: var(--space-3) var(--space-2); }
+}

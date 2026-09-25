@@ -32,7 +32,7 @@ test('errors give actionable Chinese feedback for network, permission and format
 }) /* 结束当前表达式或代码块。 */
 
 test('each existing navigation target has Chinese task guidance', () => { /* 执行当前语句并推进处理流程。 */
-  assert.equal(Object.keys(pageGuide).length, 15) /* 验证实际结果符合预期。 */
+  assert.equal(Object.keys(pageGuide).length, 16) /* 验证实际结果符合预期。 */
   for (const guide of Object.values(pageGuide)) { /* 循环处理当前数据。 */
     assert.equal(guide.steps.length, 3) /* 验证实际结果符合预期。 */
     assert.match(guide.title, /[\u4e00-\u9fff]/) /* 验证实际结果符合预期。 */ // Keep technical protocol names such as TCP and Modbus.

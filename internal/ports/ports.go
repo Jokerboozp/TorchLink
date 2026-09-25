@@ -139,6 +139,12 @@ type Repository interface { /* 定义 Repository 类型。 */
 	SaveAIToolCall(context.Context, model.AIToolCallLog) error                                                           /* 执行当前语句并推进处理流程。 */
 	Health(context.Context) error                                                                                        /* 执行当前语句并推进处理流程。 */
 	Close() error                                                                                                        /* 执行当前语句并推进处理流程。 */
+
+	// ListManagedDevicesFiltered filters before pagination and returns the filtered total.
+	ListManagedDevicesFiltered(context.Context, DeviceFilter, int, int) ([]model.ManagedDevice, int, error)
+	// SwitchProductProtocol writes a template's protocol binding, protocol reference
+	// and compatibility package in one transaction.
+	SwitchProductProtocol(context.Context, model.ProtocolSwitch) error
 } /* 结束当前表达式或代码块。 */
 
 type Archive interface { /* 定义 Archive 类型。 */

@@ -1,8 +1,9 @@
 package httpapi /* 声明 httpapi 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
-	"context"                              /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/model"          /* 执行当前语句并推进处理流程。 */
+	"context"                     /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"         /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/ports"          /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/protocolworker" /* 执行当前语句并推进处理流程。 */
@@ -20,13 +21,13 @@ type listenerSnapshot interface { /* 定义 listenerSnapshot 类型。 */
 
 // Match only explicit configuration or an identified session, never product alone.
 func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessions []map[string]any) bool { /* 定义 deviceUsesProfile 函数。 */
-	if d.TenantID == p.TenantID && d.GatewayID != "" && d.Tags["connectorProfileId"] == p.ID { /* 判断条件并选择处理分支。 */
+	if d.TenantID == p.TenantID && d.GatewayID != "" && d.ConnectorProfileID == p.ID { /* 判断条件并选择处理分支。 */
 		return true /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if d.TenantID != p.TenantID || d.ProductID != p.ProductID { /* 判断条件并选择处理分支。 */
 		return false /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if d.Tags["connectorProfileId"] == p.ID || p.DeviceID == d.ID { /* 判断条件并选择处理分支。 */
+	if d.ConnectorProfileID == p.ID || p.DeviceID == d.ID { /* 判断条件并选择处理分支。 */
 		return true /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, session := range sessions { /* 循环处理当前数据。 */
@@ -96,8 +97,8 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) { /* �
 		items = append(items, map[string]any{"type": kind, "profile": p, "sessions": sessions, "recentDevices": recent}) /* 更新 items 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, d := range devices { /* 循环处理当前数据。 */
-		if d.Tags["connector"] == "MQTT" || d.Tags["connector"] == "HTTP" { /* 判断条件并选择处理分支。 */
-			items = append(items, map[string]any{"type": d.Tags["connector"], "deviceId": d.ID, "profile": nil, "sessions": []any{}}) /* 更新 items 的值。 */
+		if d.Connector == "MQTT" || d.Connector == "HTTP" { /* 判断条件并选择处理分支。 */
+			items = append(items, map[string]any{"type": d.Connector, "deviceId": d.ID, "profile": nil, "sessions": []any{}}) /* 更新 items 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	write(w, 200, map[string]any{"items": items}) /* 执行当前语句并推进处理流程。 */
@@ -109,7 +110,8 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 		problem(w, 404, "device not found") /* 执行当前语句并推进处理流程。 */
 		return                              /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	p, _ := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID)                                            /* 更新 _ 的值。 */
+	p, productErr := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID)
+	isChild := d.GatewayID != "" || d.DeviceRole == "CHILD"
 	state, _ := s.engine.Repo.GetDeviceState(r.Context(), tenant, d.ID)                                           /* 更新 _ 的值。 */
 	latest, _ := s.engine.Repo.GetLatestMessage(r.Context(), tenant, d.ID)                                        /* 更新 _ 的值。 */
 	properties, _, err := s.engine.Repo.ListDeviceMessages(r.Context(), tenant, d.ID, model.PropertyReport, 1, 0) /* 更新 err 的值。 */
@@ -148,7 +150,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 	selected := r.URL.Query().Get("profileId") /* 更新 selected 的值。 */
 	if selected == "" {                        /* 判断条件并选择处理分支。 */
 		for _, candidate := range candidates { /* 循环处理当前数据。 */
-			if candidate.ID == d.Tags["connectorProfileId"] { /* 判断条件并选择处理分支。 */
+			if candidate.ID == d.ConnectorProfileID { /* 判断条件并选择处理分支。 */
 				selected = candidate.ID /* 更新 selected 的值。 */
 				break                   /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
@@ -171,7 +173,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 			sessions = append(sessions, byProfile[candidate.ID]...) /* 更新 sessions 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	kind := d.Tags["connector"]       /* 更新 kind 的值。 */
+	kind := d.Connector               /* 更新 kind 的值。 */
 	if kind == "" && profile != nil { /* 判断条件并选择处理分支。 */
 		kind = profileTransport(*profile) /* 更新 kind 的值。 */
 		if profile.Mode == "listener" {   /* 判断条件并选择处理分支。 */
@@ -180,7 +182,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 	} /* 结束当前表达式或代码块。 */
 	protocolID, version := "", "" /* 更新 version 的值。 */
 	bindingRevision := int64(0)
-	if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" { /* 判断条件并选择处理分支。 */
+	if d.Connector == "HTTP" || d.Connector == "MQTT" { /* 判断条件并选择处理分支。 */
 		protocolID, version = parser.StandardProtocolID, "1.0.0" /* 更新 version 的值。 */
 	} else if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil { /* 结束当前表达式或代码块。 */
 		protocolID, version = binding.ProtocolID, binding.Version /* 更新 version 的值。 */
@@ -234,7 +236,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 			simulationCount++
 			continue
 		}
-		if raw.Source != "standard-http" && raw.Source != "standard-mqtt" && !strings.HasPrefix(raw.Source, "go-protocol-") && raw.Source != "modbus-tcp-collector" {
+		if !fieldSource(raw.Source) {
 			continue
 		}
 		if profile != nil && raw.Metadata["profileId"] != profile.ID {
@@ -283,7 +285,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 		if olderErr == nil {
 			for _, idx := range older {
 				raw, rawErr := s.engine.GetRaw(r.Context(), idx)
-				if rawErr != nil || raw.TenantID != tenant || raw.ProductID != d.ProductID || raw.DeviceID != d.ID || (raw.Source != "standard-http" && raw.Source != "standard-mqtt" && !strings.HasPrefix(raw.Source, "go-protocol-") && raw.Source != "modbus-tcp-collector") {
+				if rawErr != nil || raw.TenantID != tenant || raw.ProductID != d.ProductID || raw.DeviceID != d.ID || !fieldSource(raw.Source) {
 					continue
 				}
 				if _, parsedErr := s.engine.Repo.GetStandardMessageByRaw(r.Context(), tenant, idx.MessageID); parsedErr == nil {
@@ -317,7 +319,8 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 
-	write(w, 200, map[string]any{"parent": parent, "accessInfo": s.deviceAccessInfo(d), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""}) /* 执行当前语句并推进处理流程。 */
+	diagnosis := s.connectionDiagnosis(r.Context(), tenant, d, p, productErr == nil, isChild, parent != nil, profile, ingest, selectedRaw)
+	write(w, 200, map[string]any{"diagnosis": diagnosis, "parent": parent, "accessInfo": s.deviceAccessInfo(d, p), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Connector == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func profileTransport(p model.DeviceAccessProfile) string { /* 定义 profileTransport 函数。 */
@@ -339,3 +342,50 @@ func profileTransport(p model.DeviceAccessProfile) string { /* 定义 profileTra
 	} /* 结束当前表达式或代码块。 */
 	return "MODBUS_TCP" /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+
+// fieldSource tells whether a raw message came from a real device connection.
+// Debug, sample, replay and management ingress are not evidence of onboarding.
+func fieldSource(source string) bool {
+	switch source {
+	case "standard-http", "standard-mqtt", "device-http", "modbus-tcp-collector":
+		return true
+	}
+	return strings.HasPrefix(source, "go-protocol-")
+}
+
+func (s *Server) connectionDiagnosis(ctx context.Context, tenant string, d model.ManagedDevice, p model.Product, productFound, isChild, parentVisible bool, profile *model.DeviceAccessProfile, ingest map[string]any, selected *model.RawArchiveIndex) onboarding.Diagnosis {
+	plan, planErr := s.onboarding.Plan(ctx, tenant, p)
+	in := onboarding.DiagnosisInput{
+		ProductEnabled:  productFound && p.Status == "ENABLED",
+		ProtocolValid:   planErr == nil && plan.Protocol.Published,
+		DeviceEnabled:   d.Status == "ENABLED",
+		UsesCredentials: d.UsesPlatformCredentials(p),
+		IsChild:         isChild,
+		ParentVisible:   parentVisible,
+		Profile:         profile,
+	}
+	address := s.cfg.DeviceHTTPPublicURL
+	if d.Connector == "MQTT" {
+		address = s.cfg.MQTTPublicURL
+	}
+	if isChild && profile == nil && d.GatewayID != "" {
+		// Children of a credential gateway report through the gateway's HTTP ingress.
+		if gateway, err := s.engine.Repo.GetManagedDevice(ctx, tenant, d.GatewayID); err == nil {
+			if gatewayProduct, err := s.engine.Repo.GetProduct(ctx, tenant, gateway.ProductID); err == nil && gateway.UsesPlatformCredentials(gatewayProduct) {
+				in.UsesCredentials, address = true, s.cfg.DeviceHTTPPublicURL
+			}
+		}
+	}
+	in.AddressReady = publicEndpoint(address) != ""
+	in.Ingest = onboarding.IngestSummary{ConfigurationSaved: true, Parsed: ingest["parsed"] == true, Stale: ingest["stale"] == true, ContinuouslyUpdating: ingest["continuouslyUpdating"] == true}
+	if selected != nil {
+		in.Ingest.RawReceived, in.Ingest.ReceivedAt = true, selected.ReceivedAt
+		if !in.Ingest.Parsed {
+			in.Ingest.ParseError = selected.ParseError
+		}
+	}
+	if at, ok := ingest["previousParsedAt"].(int64); ok {
+		in.Ingest.PreviousParsedAt = at
+	}
+	return onboarding.Diagnose(in)
+}
