@@ -21,7 +21,7 @@ function toggle(id, checked) { emit('update:modelValue', checked ? [...new Set([
       <div v-for="group in section.groups" :key="group.id" class="permission-group">
         <div class="permission-feature">
           <strong>{{ group.name }}</strong>
-          <ui-radio-group :model-value="featureLevel(group, modelValue)" :aria-label="`${group.name}权限级别`" @update:model-value="choose(group, $event)">
+          <ui-radio-group class="segmented-choice-group" :model-value="featureLevel(group, modelValue)" :aria-label="`${group.name}权限级别`" @update:model-value="choose(group, $event)">
             <ui-radio-button value="none">关闭</ui-radio-button>
             <ui-radio-button value="view">{{ group.menu === 'ai' ? '问答' : '查看' }}</ui-radio-button>
             <ui-radio-button v-if="group.actions.length" value="manage">管理</ui-radio-button>
