@@ -154,3 +154,34 @@ func TestAutomaticAlarmAnalysisUsesRestrictedSystemIdentity(t *testing.T) {
 		t.Fatalf("automatic analysis not saved from the workflow answer: %#v err=%v", saved, err)
 	}
 }
+
+// A busy Harness makes background runs wait for a free slot instead of
+// failing; the wait is bounded.
+func TestBusinessRunWaitsWhileHarnessIsBusy(t *testing.T) {
+	originalWait, originalDelay := businessRunCapacityWait, businessRunRetryDelay
+	businessRunCapacityWait, businessRunRetryDelay = time.Second, 10*time.Millisecond
+	defer func() { businessRunCapacityWait, businessRunRetryDelay = originalWait, originalDelay }()
+	busy := 2
+	e, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) {
+		if busy > 0 {
+			busy--
+			return "", ports.ErrAIWorkflowBusy
+		}
+		return "结论", nil
+	})
+	if report, err := e.GenerateReport(aitest.Context(context.Background()), "t1", "日报", 1, 2); err != nil || report != "结论" {
+		t.Fatalf("run must succeed after the Harness frees a slot: %q %v", report, err)
+	}
+	if len(workflows.Requests()) != 3 {
+		t.Fatalf("expected two busy attempts and one success, got %d", len(workflows.Requests()))
+	}
+
+	e, _, _ = newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "", ports.ErrAIWorkflowBusy })
+	started := time.Now()
+	if _, err := e.GenerateReport(aitest.Context(context.Background()), "t1", "日报", 1, 2); !errors.Is(err, ports.ErrAIWorkflowBusy) {
+		t.Fatalf("a Harness that stays busy must fail after the wait, got %v", err)
+	}
+	if time.Since(started) > 3*time.Second {
+		t.Fatal("waiting for capacity must be bounded")
+	}
+}

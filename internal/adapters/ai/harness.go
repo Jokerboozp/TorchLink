@@ -358,7 +358,10 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	} /* 结束当前表达式或代码块。 */
 	defer res.Body.Close()                             /* 安排函数结束时执行清理。 */
 	if res.StatusCode < 200 || res.StatusCode >= 300 { /* 判断条件并选择处理分支。 */
-		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))                                     /* 更新 _ 的值。 */
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096)) /* 更新 _ 的值。 */
+		if res.StatusCode == http.StatusTooManyRequests {
+			return ports.AIWorkflowResult{}, fmt.Errorf("run harness workflow: %w", ports.ErrAIWorkflowBusy)
+		}
 		return ports.AIWorkflowResult{}, fmt.Errorf("run harness workflow: status %d", res.StatusCode) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 

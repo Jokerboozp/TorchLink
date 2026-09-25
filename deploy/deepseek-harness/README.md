@@ -43,7 +43,7 @@ docker run --rm --network none --entrypoint node iot-deepseek-harness:local /har
 | `IOT_HARNESS_WORKSPACE` | `/data/workspace` | 工作目录 |
 | `IOT_HARNESS_CONVERSATION_TTL_MS` | `600000` | 空闲驻留期限 |
 | `IOT_HARNESS_MAX_CACHED_CONVERSATIONS` | `32` | 驻留会话上限 |
-| `IOT_HARNESS_MAX_CONCURRENCY` | `4` | 跨会话运行并发 |
+| `IOT_HARNESS_MAX_CONCURRENCY` | `4`（Compose 部署默认 `2`） | 跨会话运行并发；超出时返回 429，平台业务运行会退避重试 |
 | `IOT_HARNESS_RUN_TIMEOUT_MS` | `180000` | 单轮运行期限 |
 
 Compose 将平台侧 `IOT_AI_HARNESS_*` 配置映射到侧车变量；API 等待超时和侧车运行超时是不同设置。配置文件与 `/data` 按部署环境持久保存。

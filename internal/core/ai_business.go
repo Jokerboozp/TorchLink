@@ -84,7 +84,8 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	if knowledge == nil {
 		prompt += "\n\n[平台知识策略] 本次运行未授权知识库，不得调用知识库工具。"
 	}
-	result, err := e.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token}, nil)
+	request := ports.AIWorkflowRequest{RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token}
+	result, err := e.streamWhenAvailable(ctx, request)
 	if err != nil {
 		return result, fmt.Errorf("AI 工作流 %s 执行失败：%w", workflowID, err)
 	}
@@ -146,4 +147,35 @@ func (e *Engine) DraftRule(ctx context.Context, tenantID, text string) (model.Al
 	rule.TenantID, rule.Enabled, rule.Version = tenantID, false, 1
 	rule.CreatedAt, rule.UpdatedAt = now, now
 	return rule, nil
+}
+
+// businessRunCapacityWait bounds how long a business run waits for a free
+// Harness slot; interactive chat is not retried and keeps its own slot.
+var (
+	businessRunCapacityWait = 2 * time.Minute
+	businessRunRetryDelay   = time.Second
+)
+
+// streamWhenAvailable waits with backoff while the Harness reports it is at
+// its concurrency limit, instead of failing background work immediately. The
+// MCP token stays valid because it outlives the wait.
+func (e *Engine) streamWhenAvailable(ctx context.Context, request ports.AIWorkflowRequest) (ports.AIWorkflowResult, error) {
+	deadline := time.Now().Add(businessRunCapacityWait)
+	delay := businessRunRetryDelay
+	for {
+		result, err := e.AIWorkflows.StreamChat(ctx, request, nil)
+		if !errors.Is(err, ports.ErrAIWorkflowBusy) || time.Now().Add(delay).After(deadline) {
+			return result, err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return result, ctx.Err()
+		case <-timer.C:
+		}
+		if delay < 8*businessRunRetryDelay {
+			delay *= 2
+		}
+	}
 }

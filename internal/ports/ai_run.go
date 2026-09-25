@@ -2,8 +2,13 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrAIWorkflowBusy means the Harness is running as many workflows as it
+// allows; the caller may wait and retry.
+var ErrAIWorkflowBusy = errors.New("AI 工作流服务繁忙")
 
 // AIRunIdentity is the account a Harness business run acts for. Browser users
 // keep ManagedUser so the MCP endpoint re-checks their current permissions and

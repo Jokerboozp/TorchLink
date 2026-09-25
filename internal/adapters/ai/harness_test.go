@@ -1,8 +1,9 @@
 package aiadapter /* 声明 aiadapter 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
-	"context"           /* 执行当前语句并推进处理流程。 */
-	"encoding/json"     /* 执行当前语句并推进处理流程。 */
+	"context"       /* 执行当前语句并推进处理流程。 */
+	"encoding/json" /* 执行当前语句并推进处理流程。 */
+	"errors"
 	"fmt"               /* 执行当前语句并推进处理流程。 */
 	"net/http"          /* 执行当前语句并推进处理流程。 */
 	"net/http/httptest" /* 执行当前语句并推进处理流程。 */
@@ -165,3 +166,18 @@ func TestHarnessClientConfiguresSelectedProvider(t *testing.T) { /* 定义 TestH
 		t.Fatalf("unexpected DeepSeek sidecar provider payload: %#v", payload) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+
+func TestHarnessClientReportsCapacityAsBusy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"code":"CAPACITY_EXCEEDED"}}`, http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	client, err := NewHarness(server.URL, "0123456789abcdef0123456789abcdef", "https://api.example/mcp/harness", "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.StreamChat(context.Background(), ports.AIWorkflowRequest{RunID: "run-1", Question: "q", MCPToken: "token"}, nil)
+	if !errors.Is(err, ports.ErrAIWorkflowBusy) {
+		t.Fatalf("429 must be reported as busy, got %v", err)
+	}
+}

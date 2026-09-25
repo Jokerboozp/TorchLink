@@ -94,7 +94,11 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	} /* 结束当前表达式或代码块。 */
 	var bus ports.EventBus = local.NewBus() /* 声明 bus。 */
 	if len(cfg.KafkaBrokers) > 0 {          /* 判断条件并选择处理分支。 */
-		bus = kafkaadapter.New(cfg.KafkaBrokers)                                       /* 更新 bus 的值。 */
+		kafkaBus := kafkaadapter.New(cfg.KafkaBrokers)
+		// Parallel lanes keep each device's (or alarm's) messages in order;
+		// automatic alarm analysis has its own, smaller limit.
+		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 8), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 1)})
+		bus = kafkaBus
 		log.Info("event bus enabled", "adapter", "kafka", "brokers", cfg.KafkaBrokers) /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 	localRealtime := local.NewRealtime()                 /* 更新 localRealtime 的值。 */
@@ -402,3 +406,10 @@ func hostname() string { /* 定义 hostname 函数。 */
 	} /* 结束当前表达式或代码块。 */
 	return v /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+
+func positiveOr(value int64, fallback int) int {
+	if value > 0 {
+		return int(value)
+	}
+	return fallback
+}

@@ -76,3 +76,5 @@ IOT_PROCESS_ROLE	进程职责：combined、api 或 gateway
 IOT_ACCESS_GATEWAY_URL	独立接入网关的 HTTP(S) 内网地址
 IOT_ACCESS_COORDINATION	使用共享数据库协调多接入实例
 IOT_ACCESS_NODE_URL	其他实例可直达当前实例的固定 HTTP(S) 地址
+IOT_KAFKA_CONSUMER_CONCURRENCY	每个 Kafka 订阅的并行通道数（同一设备保持顺序），1 至 64
+IOT_AI_ANALYSIS_CONCURRENCY	同时进行的告警自动研判数量，建议不超过 Harness 并发，1 至 32

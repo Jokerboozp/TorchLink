@@ -19,6 +19,9 @@ type Bus struct { /* 定义 Bus 类型。 */
 	writers map[string]*kafka.Writer /* 执行当前语句并推进处理流程。 */
 	readers []*kafka.Reader          /* 执行当前语句并推进处理流程。 */
 	cancel  context.CancelFunc       /* 执行当前语句并推进处理流程。 */
+	// lanes and topicLanes bound the parallel handlers of each subscription.
+	lanes      int
+	topicLanes map[string]int
 } /* 结束当前表达式或代码块。 */
 
 func New(brokers []string) *Bus { return &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}} } /* 定义 New 函数。 */
@@ -72,40 +75,35 @@ func retryUntilSuccess(ctx context.Context, delay time.Duration, operation func(
 }
 func (b *Bus) Subscribe(ctx context.Context, topic, group string, h ports.Handler) error { /* 定义 Subscribe 函数。 */
 	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0}) /* 更新 reader 的值。 */
-	b.mu.Lock()                                                                                                                                                       /* 执行当前语句并推进处理流程。 */
-	b.readers = append(b.readers, reader)                                                                                                                             /* 更新 b.readers 的值。 */
-	b.mu.Unlock()                                                                                                                                                     /* 执行当前语句并推进处理流程。 */
-	go func() {                                                                                                                                                       /* 执行当前语句并推进处理流程。 */
-		for { /* 循环处理当前数据。 */
-			m, err := reader.FetchMessage(ctx) /* 更新 err 的值。 */
-			if err != nil {                    /* 判断条件并选择处理分支。 */
-				return /* 返回当前处理结果。 */
-			} /* 结束当前表达式或代码块。 */
-			var handleErr error                         /* 声明 handleErr。 */
-			for attempt := 1; attempt <= 3; attempt++ { /* 循环处理当前数据。 */
-				handleErr = h(ctx, m.Value) /* 更新 handleErr 的值。 */
-				if handleErr == nil {       /* 判断条件并选择处理分支。 */
-					break /* 执行当前语句并推进处理流程。 */
-				} /* 结束当前表达式或代码块。 */
-				select { /* 根据条件选择处理路径。 */
-				case <-ctx.Done(): /* 处理当前分支。 */
-					return /* 返回当前处理结果。 */
-				case <-time.After(time.Duration(attempt*attempt) * 250 * time.Millisecond): /* 处理当前分支。 */
-				} /* 结束当前表达式或代码块。 */
-			} /* 结束当前表达式或代码块。 */
-			if handleErr != nil { /* 判断条件并选择处理分支。 */
-				dlq := deadLetterPayload(topic, group, handleErr, m.Value)                                                                                         /* 更新 dlq 的值。 */
-				if err := retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return b.Publish(ctx, "iot.dlq."+group, string(m.Key), dlq) }); err != nil { /* 判断条件并选择处理分支。 */
-					return
-				} /* 结束当前表达式或代码块。 */
-			} /* 结束当前表达式或代码块。 */
-			if err := retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return reader.CommitMessages(ctx, m) }); err != nil {
-				return
-			}
-		} /* 结束当前表达式或代码块。 */
-	}() /* 结束当前表达式或代码块。 */
-	return nil /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+	b.mu.Lock()
+	b.readers = append(b.readers, reader)
+	lanes := b.lanesFor(topic)
+	b.mu.Unlock()
+	go b.consume(ctx, reader, topic, group, lanes, h)
+	return nil
+}
+
+// SetConsumerConcurrency sets the parallel lanes per subscription; perTopic
+// overrides the default for specific topics (for example alarm analysis).
+func (b *Bus) SetConsumerConcurrency(defaultLanes int, perTopic map[string]int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lanes = defaultLanes
+	b.topicLanes = map[string]int{}
+	for topic, lanes := range perTopic {
+		b.topicLanes[topic] = lanes
+	}
+}
+
+func (b *Bus) lanesFor(topic string) int {
+	if lanes, ok := b.topicLanes[topic]; ok && lanes > 0 {
+		return lanes
+	}
+	if b.lanes > 0 {
+		return b.lanes
+	}
+	return 1
+}
 func (b *Bus) Health(ctx context.Context) error { /* 定义 Health 函数。 */
 	if len(b.brokers) == 0 { /* 判断条件并选择处理分支。 */
 		return fmt.Errorf("no kafka brokers") /* 返回当前处理结果。 */
