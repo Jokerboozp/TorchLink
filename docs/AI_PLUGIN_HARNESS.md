@@ -43,7 +43,7 @@ Go API 暴露：
 - `POST /api/v1/ai/workflows`：管理员创建动态 Agent。
 - `PUT /api/v1/ai/workflows/{id}`：管理员编辑或启用/禁用动态 Agent。
 - `DELETE /api/v1/ai/workflows/{id}`：管理员删除动态 Agent。
-- `POST /api/v1/ai/chat`：兼容的非流式调用；未配置 Harness 时回退到原有本地助手。
+- `POST /api/v1/ai/chat`：兼容的非流式调用；普通用户必须配置 Harness；未配置时返回503，内置角色仍保留本地助手入口。
 - `POST /api/v1/ai/chat/stream`：SSE 流式运行插件。
 - `GET /api/v1/ai/providers/config`：读取当前模型服务（管理员可看到地址和脱敏接口密钥提示）。
 - `POST /api/v1/ai/providers/test`：管理员测试候选模型服务，可直接填写任意平台可达的 HTTP/HTTPS 地址，无需地址白名单；只发送测试请求，不修改活动配置。测试与应用统一校验根地址格式，密钥使用独立字段。
@@ -61,7 +61,9 @@ Go API 暴露：
 
 ## 用户数据范围
 
-普通用户的智能助手、巡检等全租户任务需要设备管理菜单、全部设备范围及对应菜单/操作授权。指定设备或无设备范围的用户不能通过这些入口检索其他设备，菜单隐藏与后端拒绝同时生效；目前没有将指定设备集合透传给 Harness 的细粒度数据查询模式。
+普通用户使用智能助手需对应菜单及问答操作授权。短期 MCP JWT 保留普通用户标记及登录版本；工具回调重新读取有效权限，收紧签发时的工具 scopes，并将当前设备范围写入请求上下文。设备状态、属性历史、告警及总览均按此范围读取，不能通过工具参数扩大到其他设备或租户。总览按菜单权限隐藏无权读取的业务统计；知识库及规则草稿分别要求相应菜单和操作权限。指定设备用户可以问答，但巡检、全租户报告和 Agent 管理继续要求全部设备范围。
+
+权限变更后，浏览器历史缓存和 Harness 会话 ID 按服务端 `accessVersion` 隔离，避免复用之前权限下的回答及模型上下文。具体授权规则见 [用户权限](USER_ACCESS_CONTROL.md)。
 
 单条告警详情及告警研判接口同时检查该告警所属设备范围及相应菜单/操作权限。模型管理、知识库的配置权限仍独立分配，不能因为角色名称为 operator 就推断所有操作可用。规则、设备范围及权限升级见 [用户权限](USER_ACCESS_CONTROL.md)。
 
@@ -70,7 +72,7 @@ Go API 暴露：
 - Go API 与 Harness 的固定内部令牌使用 `X-IOT-Harness-Token`；短期 MCP JWT 单独使用 `Authorization: Bearer ...`，两者不混用。
 - 专用 `/mcp/harness` 仅接受 POST，限制请求体大小，并校验 `tokenUse`、Audience、租户和每个工具的精确 scope。
 - Harness 组合会禁用 shell、文件系统、skills、jobs、goal、todo 和 subagent 的模型工具面；最终工具执行仍由平台策略 guard 再次限制。
-- 每个浏览器会话 ID 都由后端结合租户和用户派生为内部 Session ID，防止跨租户会话碰撞。
+- 每个浏览器会话 ID 都由后端结合租户、用户及普通用户的权限版本派生为内部 Session ID，防止跨租户会话碰撞。
 - 工具查询有条数上限；所有工具调用写入平台审计仓储。
 
 ## 部署与维护

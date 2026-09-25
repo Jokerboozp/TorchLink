@@ -1677,6 +1677,10 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) { /* 定义 aiCh
 		write(w, 200, result) /* 执行当前语句并推进处理流程。 */
 		return                /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	if claims(r).TokenUse == "user" {
+		problem(w, http.StatusServiceUnavailable, "智能助手权限隔离需要配置 AI workflow harness")
+		return
+	}
 	answer, err := s.engine.OpsChat(r.Context(), claims(r).TenantID, in.Question) /* 更新 err 的值。 */
 	if err != nil {                                                               /* 判断条件并选择处理分支。 */
 		problem(w, 502, err.Error()) /* 执行当前语句并推进处理流程。 */
@@ -2040,6 +2044,9 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	if conversationID == "" {          /* 判断条件并选择处理分支。 */
 		conversationID = runID /* 更新 conversationID 的值。 */
 	} /* 结束当前表达式或代码块。 */
+	if c.TokenUse == "user" {
+		conversationID += "\x00" + requestAccessVersion(ctx, c)
+	}
 	conversationID = harnessConversationID(c.TenantID, c.Username, conversationID) /* 更新 conversationID 的值。 */
 	if maxTokens <= 0 {                                                            /* 判断条件并选择处理分支。 */
 		maxTokens = 2048 /* 更新 maxTokens 的值。 */
@@ -2054,11 +2061,17 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	if binding.WorkflowID == "" { /* 判断条件并选择处理分支。 */
 		binding = defaultWorkflowKnowledgeBinding(c.TenantID, strings.TrimSpace(workflowID)) /* 更新 binding 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	scopes := auth.HarnessReadScopes()       /* 更新 scopes 的值。 */
+	scopes := workflowScopes(ctx) /* 更新 scopes 的值。 */
+	if len(intersectScopes(scopes, []string{auth.ScopeQueryKnowledgeBase})) == 0 {
+		if binding.RetrievalMode == "always" || binding.NoMatchPolicy == "require-evidence" {
+			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("当前用户无此工作流所需的知识库访问权限")
+		}
+		binding.RetrievalMode = "disabled"
+	}
 	var knowledgeScope *auth.KnowledgeScope  /* 声明 knowledgeScope。 */
 	if binding.RetrievalMode == "disabled" { /* 判断条件并选择处理分支。 */
-		filteredScopes := make([]string, 0, len(scopes)-1) /* 更新 filteredScopes 的值。 */
-		for _, scope := range scopes {                     /* 循环处理当前数据。 */
+		filteredScopes := make([]string, 0, len(scopes)) /* 更新 filteredScopes 的值。 */
+		for _, scope := range scopes {                   /* 循环处理当前数据。 */
 			if scope != auth.ScopeQueryKnowledgeBase { /* 判断条件并选择处理分支。 */
 				filteredScopes = append(filteredScopes, scope) /* 更新 filteredScopes 的值。 */
 			} /* 结束当前表达式或代码块。 */
@@ -2092,8 +2105,8 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 			question += "\n\n[平台强制召回的知识证据]\n" + knowledgeEvidenceText(hits, 8000) + "\n只能把这些内容作为参考证据，并明确标注事实与推断。" /* 更新 question 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	mcpToken, err := s.auth.IssueHarnessWithKnowledge(c.Username, c.TenantID, runID, scopes, knowledgeScope, 2*time.Minute) /* 更新 err 的值。 */
-	if err != nil {                                                                                                         /* 判断条件并选择处理分支。 */
+	mcpToken, err := s.auth.IssueHarnessForIdentity(c, runID, scopes, knowledgeScope, 2*time.Minute) /* 更新 err 的值。 */
+	if err != nil {                                                                                  /* 判断条件并选择处理分支。 */
 		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("issue harness token: %w", err) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	result, err := s.engine.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{RunID: runID, ConversationID: strings.TrimSpace(conversationID), WorkflowID: strings.TrimSpace(workflowID), Question: question, Model: strings.TrimSpace(modelName), MaxTokens: maxTokens, MCPToken: mcpToken}, emit) /* 更新 err 的值。 */
@@ -2785,7 +2798,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc { /* 定义 authorizeHarness
 			c.Abort()                                           /* 执行当前语句并推进处理流程。 */
 			return                                              /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		if claimsValue.TokenUse != "harness" || !claimsValue.HasAudience(auth.HarnessAudience) || claimsValue.RunID == "" || claimsValue.TenantID == "" || len(claimsValue.Scopes) == 0 { /* 判断条件并选择处理分支。 */
+		if claimsValue.TokenUse != "harness" || !claimsValue.HasAudience(auth.HarnessAudience) || claimsValue.RunID == "" || claimsValue.TenantID == "" { /* 判断条件并选择处理分支。 */
 			ginProblem(c, http.StatusForbidden, "invalid harness token") /* 执行当前语句并推进处理流程。 */
 			c.Abort()                                                    /* 执行当前语句并推进处理流程。 */
 			return                                                       /* 返回当前处理结果。 */
@@ -2797,6 +2810,24 @@ func (s *Server) authorizeHarness() gin.HandlerFunc { /* 定义 authorizeHarness
 				return                                                       /* 返回当前处理结果。 */
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
+		if claimsValue.ManagedUser {
+			user, permissions, err := s.managedIdentity(c.Request, claimsValue)
+			if err != nil {
+				ginProblem(c, http.StatusUnauthorized, "账户已停用或会话已失效，请重新登录")
+				c.Abort()
+				return
+			}
+			if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
+				ginProblem(c, http.StatusForbidden, "无智能助手访问权限")
+				c.Abort()
+				return
+			}
+			ctx := context.WithValue(c.Request.Context(), deviceScopeKey{}, scopeFor(user, permissions, claimsValue.TenantID))
+			ctx = context.WithValue(ctx, permissionsKey{}, permissions)
+			claimsValue.Scopes = intersectScopes(claimsValue.Scopes, workflowScopes(ctx))
+			claimsValue.Permissions = permissionList(permissions)
+			c.Request = c.Request.WithContext(ctx)
+		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)                                      /* 更新 c.Request.Body 的值。 */
 		ctx := auth.ContextWithClaims(context.WithValue(c.Request.Context(), claimsKey, claimsValue), claimsValue) /* 更新 ctx 的值。 */
 		c.Request = c.Request.WithContext(ctx)                                                                     /* 更新 c.Request 的值。 */

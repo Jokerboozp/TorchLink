@@ -455,3 +455,25 @@ func (r *deviceScopeRepository) PropertyHistoryPage(ctx context.Context, t, d, p
 	} /* 结束当前表达式或代码块。 */
 	return r.Repository.PropertyHistoryPage(ctx, t, d, p, start, end, l, o) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+
+// MCP history queries use the non-paginated repository method too.
+func (r *deviceScopeRepository) PropertyHistory(ctx context.Context, t, d, p string, start, end int64, limit int) ([]map[string]any, error) {
+	if !deviceAllowed(ctx, t, d) {
+		return nil, errDeviceScope
+	}
+	return r.Repository.PropertyHistory(ctx, t, d, p, start, end, limit)
+}
+
+func (r *deviceScopeRepository) ListVideoCameraMappings(ctx context.Context, tenant string) ([]model.VideoCameraMapping, error) {
+	rows, err := r.Repository.ListVideoCameraMappings(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	out := []model.VideoCameraMapping{}
+	for _, item := range rows {
+		if deviceAllowed(ctx, tenant, item.DeviceID) {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}

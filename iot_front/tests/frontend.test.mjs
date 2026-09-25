@@ -153,3 +153,21 @@ test('component alarm popup identifies the actual part and location', async () =
   assert.deepEqual(alertKeys(alert), ['component-alarm'])
   assert.equal(parseRealtimeAlert('/iot/parsed/t/p/d/ALARM_REPORT', { messageType:'ALARM_REPORT', event:{components:[{id:'a'},{id:'b'}]} }), null)
 })
+
+
+test('AI history cannot restore data from a previous authorization scope', async () => {
+  const { loadAIHistory, saveAIHistory } = await import('../src/aiHistory.js')
+  const values = new Map()
+  const storage = { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) }
+  const identity = { tenant:'tenant-a', user:'alice' }
+  const previous = { ...identity, accessVersion:'all-devices' }
+  const current = { ...identity, accessVersion:'device-a-only' }
+  const state = { conversationId:'old', messages:[{ text:'设备 B 的告警', status:'succeeded' }], runs:[] }
+  for (const workflow of ['', 'ops-assistant']) {
+    saveAIHistory(storage, identity, state, workflow)
+    assert.equal(loadAIHistory(storage, current, Date.now(), workflow), null)
+    saveAIHistory(storage, previous, state, workflow)
+    assert.equal(loadAIHistory(storage, current, Date.now(), workflow), null)
+    assert.equal(loadAIHistory(storage, previous, Date.now(), workflow).conversationId, 'old')
+  }
+})

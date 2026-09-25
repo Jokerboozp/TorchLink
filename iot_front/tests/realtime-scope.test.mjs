@@ -6,7 +6,7 @@ import assert from 'node:assert/strict' /* 引入当前代码需要的依赖。 
 function realtime(api, options={}){ /* 定义 realtime 函数。 */
  const timers=[],messages=[],permissionState={items:[]} /* 声明 timers。 */
  const source=fs.readFileSync(new URL('../src/realtime.js',import.meta.url),'utf8').replace(/^import .*$/gm,'').replace(/export /g,'') /* 声明 source。 */
- const context=vm.createContext({api,session:{role:options.role || 'operator',tenant:'tenant'},permissionState,refreshPermissions:async()=>{},mqtt:options.mqtt || {connect(){throw Error('managed user connected to MQTT')}},crypto:{},setTimeout(fn){timers.push(fn);return timers.length},clearTimeout(){},Map,JSON}) /* 声明 context。 */
+ const context=vm.createContext({api,session:{role:options.role || 'operator',tenant:'tenant'},permissionState,applyAccessVersion(value=''){permissionState.accessVersion=value},refreshPermissions:async()=>{},mqtt:options.mqtt || {connect(){throw Error('managed user connected to MQTT')}},crypto:{},setTimeout(fn){timers.push(fn);return timers.length},clearTimeout(){},Map,JSON}) /* 声明 context。 */
  vm.runInContext(source+'\nglobalThis.subject={startRealtime,stopRealtime}',context) /* 执行当前语句并推进处理流程。 */
  return {...context.subject,timers,messages,permissionState,start(){return context.subject.startRealtime((...args)=>messages.push(args))}} /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

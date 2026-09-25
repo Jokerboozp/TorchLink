@@ -162,38 +162,75 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 } /* 结束当前表达式或代码块。 */
 
 func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string) (map[string]any, error) { /* 定义 buildSystemOverview 函数。 */
-	products, err := engine.Repo.ListProducts(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                        /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	protocols, err := engine.Repo.ListProtocolPackages(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                                 /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	devices, err := engine.Repo.ListManagedDevices(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                             /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	states, err := engine.Repo.ListDeviceStates(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                          /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	rules, err := engine.Repo.ListRules(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                  /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	alarms, err := engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, Limit: 10000}) /* 更新 err 的值。 */
-	if err != nil {                                                                               /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	cameras, err := engine.Repo.ListVideoCameraMappings(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                                  /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	documents, err := engine.Repo.ListKnowledgeDocs(ctx, tenant) /* 更新 err 的值。 */
-	if err != nil {                                              /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
+	claims, _ := auth.ClaimsFromContext(ctx)
+	can := func(menu string) bool {
+		if !claims.ManagedUser {
+			return true
+		}
+		for _, permission := range claims.Permissions {
+			if permission == "menu:"+menu {
+				return true
+			}
+		}
+		return false
+	}
+	var err error
+	var products []model.Product
+	if can("products") {
+		products, err = engine.Repo.ListProducts(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var protocols []model.ProtocolPackage
+	if can("protocols") {
+		protocols, err = engine.Repo.ListProtocolPackages(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var devices []model.ManagedDevice
+	if can("devices") {
+		devices, err = engine.Repo.ListManagedDevices(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var states []model.DeviceState
+	if can("devices") {
+		states, err = engine.Repo.ListDeviceStates(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var rules []model.AlarmRule
+	if can("rules") {
+		rules, err = engine.Repo.ListRules(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var alarms []model.Alarm
+	if can("devices") {
+		alarms, err = engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, Limit: 10000})
+		if err != nil {
+			return nil, err
+		}
+	}
+	var cameras []model.VideoCameraMapping
+	if can("cameras") {
+		cameras, err = engine.Repo.ListVideoCameraMappings(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var documents []model.KnowledgeDoc
+	if can("knowledge") {
+		documents, err = engine.Repo.ListKnowledgeDocs(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	productStatus, productCategory := map[string]int{}, map[string]int{} /* 更新 productCategory 的值。 */
 	for _, item := range products {                                      /* 循环处理当前数据。 */
@@ -288,7 +325,7 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 			status = "DEGRADED" /* 更新 status 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	return map[string]any{ /* 返回当前处理结果。 */
+	result := map[string]any{ /* 返回当前处理结果。 */
 		"tenantId": tenant, "generatedAt": time.Now().UnixMilli(), "systemStatus": status, "components": components, /* 执行当前语句并推进处理流程。 */
 		"products":         map[string]any{"total": len(products), "byStatus": productStatus, "byCategory": productCategory},                                                                                                                                                                                                                                                                    /* 执行当前语句并推进处理流程。 */
 		"protocolPackages": map[string]any{"total": len(protocols), "byStatus": protocolStatus},                                                                                                                                                                                                                                                                                                 /* 执行当前语句并推进处理流程。 */
@@ -297,7 +334,14 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 		"rules":            map[string]any{"total": len(rules), "enabled": ruleEnabled, "disabled": len(rules) - ruleEnabled},                                                                                                                                                                                                                                                                   /* 执行当前语句并推进处理流程。 */
 		"cameras":          map[string]any{"total": len(cameras), "enabled": cameraEnabled, "linkedDevices": linkedDevices},                                                                                                                                                                                                                                                                     /* 执行当前语句并推进处理流程。 */
 		"knowledge":        map[string]any{"documents": len(documents), "indexed": indexedDocs, "chunks": chunks},                                                                                                                                                                                                                                                                               /* 执行当前语句并推进处理流程。 */
-	}, nil /* 结束当前表达式或代码块。 */
+	} /* 结束当前表达式或代码块。 */
+	for field, menu := range map[string]string{"products": "products", "protocolPackages": "protocols", "rules": "rules", "cameras": "cameras", "knowledge": "knowledge"} {
+		if !can(menu) {
+			delete(result, field)
+		}
+	}
+	return result, nil
+
 } /* 结束当前表达式或代码块。 */
 
 type healthChecker interface{ Health(context.Context) error } /* 定义 healthChecker 类型。 */

@@ -152,13 +152,18 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 	} /* 结束当前表达式或代码块。 */
 	if !p["menu:devices"] || user.DeviceScope != "all" { /* 判断条件并选择处理分支。 */
 		// These services produce tenant-wide artifacts or launch tenant-wide jobs.
-		for _, menu := range []string{"ai", "inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} { /* 循环处理当前数据。 */
+		for _, menu := range []string{"inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} { /* 循环处理当前数据。 */
 			delete(p, "menu:"+menu) /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 		for _, action := range []string{"POST /api/v1/device-registry", "POST /api/v1/device-registry/:id/children", "POST /api/v1/device-states", "POST /api/v1/raw-messages", "POST /api/v1/raw-messages/replay"} { /* 循环处理当前数据。 */
 			delete(p, action) /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
+	if !p["menu:devices"] || user.DeviceScope != "all" {
+		for _, action := range []string{"POST /api/v1/ai/reports", "GET /api/v1/ai/workflows/admin", "POST /api/v1/ai/workflows", "PUT /api/v1/ai/workflows/:id", "DELETE /api/v1/ai/workflows/:id"} {
+			delete(p, action)
+		}
+	}
 	for id := range p { /* 循环处理当前数据。 */
 		if parts := strings.SplitN(id, " ", 2); len(parts) == 2 && !p["menu:"+routeMenu(parts[1])] { /* 判断条件并选择处理分支。 */
 			delete(p, id) /* 执行当前语句并推进处理流程。 */
@@ -216,7 +221,7 @@ func allowsRoute(p map[string]bool, method, path string) bool { /* 定义 allows
 		"/api/v1/alarms":            {"dashboard", "integration"}, "/api/v1/alarms/:id": {"dashboard"}, /* 执行当前语句并推进处理流程。 */
 		"/api/v1/device-registry/:id/connection": {"integration"},                                                                                                                   /* 执行当前语句并推进处理流程。 */
 		"/api/v1/device-registry/:id/history":    {"integration"}, "/api/v1/device-registry/:id/children": {"integration"}, "/api/v1/device-registry/:id/commands": {"integration"}, /* 执行当前语句并推进处理流程。 */
-		"/api/v1/raw-messages/:id": {"integration", "devices"}, "/api/v1/rules": {"ai"}, /* 执行当前语句并推进处理流程。 */
+		"/api/v1/raw-messages/:id": {"integration", "devices"}, /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, dep := range lookups[path] { /* 循环处理当前数据。 */
 		if p["menu:"+dep] { /* 判断条件并选择处理分支。 */
@@ -284,7 +289,7 @@ func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) { /* �
 		perms = permissionList(p) /* 更新 perms 的值。 */
 		name = u.DisplayName      /* 更新 name 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	write(w, 200, map[string]any{"username": c.Username, "displayName": name, "tenantId": c.TenantID, "role": c.Role, "permissions": perms}) /* 执行当前语句并推进处理流程。 */
+	write(w, 200, map[string]any{"username": c.Username, "displayName": name, "tenantId": c.TenantID, "role": c.Role, "permissions": perms, "accessVersion": requestAccessVersion(r.Context(), c)}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) canConfigureAI(r *http.Request) bool { /* 定义 canConfigureAI 函数。 */
@@ -612,8 +617,8 @@ func (s *Server) loginManaged(w http.ResponseWriter, r *http.Request, username, 
 				problem(w, 500, "创建会话失败") /* 执行当前语句并推进处理流程。 */
 				return                    /* 返回当前处理结果。 */
 			} /* 结束当前表达式或代码块。 */
-			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(effectivePermissions(state, u)), "displayName": u.DisplayName}) /* 执行当前语句并推进处理流程。 */
-			return                                                                                                                                                                                                       /* 返回当前处理结果。 */
+			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(effectivePermissions(state, u)), "displayName": u.DisplayName, "accessVersion": accessVersion(u, effectivePermissions(state, u), tenant)}) /* 执行当前语句并推进处理流程。 */
+			return                                                                                                                                                                                                                                                                                  /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	problem(w, 401, "invalid credentials") /* 执行当前语句并推进处理流程。 */

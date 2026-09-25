@@ -1,6 +1,6 @@
 import mqtt from 'mqtt' /* 引入当前代码需要的依赖。 */
 import { api, session } from './api' /* 引入当前代码需要的依赖。 */
-import { permissionState, refreshPermissions } from './permissions' /* 引入当前代码需要的依赖。 */
+import { permissionState, refreshPermissions, applyAccessVersion } from './permissions' /* 引入当前代码需要的依赖。 */
 
 let client /* 声明 client。 */
 let pollTimer /* 声明 pollTimer。 */
@@ -42,6 +42,7 @@ export async function startRealtime(onMessage) { /* 执行当前语句并推进�
     try { /* 执行当前语句并推进处理流程。 */
       const data = await api('/api/v1/events') /* 声明 data。 */
       if (run !== generation) return /* 判断条件并选择处理分支。 */
+      applyAccessVersion(data.accessVersion)
       permissionState.items = data.permissions || [] /* 更新 permissionState.items 的值。 */
       const next = new Map() /* 声明 next。 */
       for (const [kind, values] of [['alarm', data.alarms], ['state', data.devices]]) { /* 循环处理当前数据。 */

@@ -1,7 +1,7 @@
 export const AI_HISTORY_STORAGE_PREFIX = 'iot:ai-history:v1' /* 执行当前语句并推进处理流程。 */
 
 export function aiHistoryStorageKey(session, workflowId = '') { /* 执行当前语句并推进处理流程。 */
-  const base = `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}`
+  const base = `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}${session?.accessVersion ? `:access:${encodeURIComponent(session.accessVersion)}` : ''}`
   return workflowId ? `${base}:${encodeURIComponent(workflowId)}` : base
 } /* 结束当前表达式或代码块。 */
 

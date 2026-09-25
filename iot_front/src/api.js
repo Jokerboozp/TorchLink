@@ -8,8 +8,10 @@ export const session = { /* 执行当前语句并推进处理流程。 */
   get token() { return localStorage.getItem('iot_token') || '' }, /* 执行当前语句并推进处理流程。 */
   get tenant() { return localStorage.getItem('iot_tenant') || '' }, /* 执行当前语句并推进处理流程。 */
   get user() { return localStorage.getItem('iot_user') || '' }, /* 执行当前语句并推进处理流程。 */
+  get accessVersion() { return localStorage.getItem('iot_access_version') || '' },
   get role() { return localStorage.getItem('iot_role') || '' }, /* 执行当前语句并推进处理流程。 */
   save(data, username = '') { /* 执行当前语句并推进处理流程。 */
+    localStorage.setItem('iot_access_version', data.accessVersion || '')
     localStorage.setItem('iot_token', data.accessToken) /* 执行当前语句并推进处理流程。 */
     localStorage.setItem('iot_tenant', data.tenantId || '') /* 执行当前语句并推进处理流程。 */
     localStorage.setItem('iot_user', username) /* 执行当前语句并推进处理流程。 */
@@ -17,7 +19,7 @@ export const session = { /* 执行当前语句并推进处理流程。 */
     localStorage.setItem('iot_permissions', JSON.stringify(data.permissions || (data.role === 'admin' ? ['*'] : []))) /* 执行当前语句并推进处理流程。 */
   }, /* 结束当前表达式或代码块。 */
   clear() { /* 执行当前语句并推进处理流程。 */
-    for (const key of ['iot_token', 'iot_tenant', 'iot_user', 'iot_role', 'iot_permissions']) localStorage.removeItem(key) /* 循环处理当前数据。 */
+    for (const key of ['iot_token', 'iot_tenant', 'iot_user', 'iot_role', 'iot_permissions', 'iot_access_version']) localStorage.removeItem(key) /* 循环处理当前数据。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

@@ -12,6 +12,9 @@ import ToolCallCard from '../components/ToolCallCard.vue' /* 引入当前代码�
 
 const emit = defineEmits(['navigate']) /* 声明 emit。 */
 
+// Keep delayed saves bound to the identity that mounted this conversation.
+const historyIdentity = { tenant: session.tenant, user: session.user, accessVersion: session.accessVersion }
+
 let sequence = 0 /* 声明 sequence。 */
 let abortController = null /* 声明 abortController。 */
 let scrollFrame = 0 /* 声明 scrollFrame。 */
@@ -35,17 +38,17 @@ const traceVisible = ref(false) /* 声明 traceVisible。 */
 function persistConversation() { /* 定义 persistConversation 函数。 */
   if (!activeConversationWorkflowId) return
   const state = { conversationId:conversationId.value, selectedWorkflowId:activeConversationWorkflowId, messages:messages.value, runs:runs.value }
-  saveAIHistory(localStorage, session, state, activeConversationWorkflowId)
-  saveAIHistory(localStorage, session, state)
+  saveAIHistory(localStorage, historyIdentity, state, activeConversationWorkflowId)
+  saveAIHistory(localStorage, historyIdentity, state)
 } /* 结束当前表达式或代码块。 */
 function scheduleConversationPersist() { /* 定义 scheduleConversationPersist 函数。 */
   if (historyTimer) clearTimeout(historyTimer) /* 判断条件并选择处理分支。 */
   historyTimer = setTimeout(() => { historyTimer = 0; persistConversation() }, 150) /* 更新 historyTimer 的值。 */
 } /* 结束当前表达式或代码块。 */
 function restoreConversation() { /* 定义 restoreConversation 函数。 */
-  const legacy = loadAIHistory(localStorage, session)
+  const legacy = loadAIHistory(localStorage, historyIdentity)
   if (!legacy?.selectedWorkflowId) return
-  const saved = loadAIHistory(localStorage, session, Date.now(), legacy.selectedWorkflowId) || legacy
+  const saved = loadAIHistory(localStorage, historyIdentity, Date.now(), legacy.selectedWorkflowId) || legacy
   restoringConversation = true
   activeConversationWorkflowId = saved.selectedWorkflowId
   messages.value = saved.messages.length ? saved.messages : [welcomeMessage()] /* 更新 messages.value 的值。 */
@@ -60,7 +63,7 @@ function switchConversation(workflowId) {
   if (restoringConversation || workflowId === activeConversationWorkflowId) return
   persistConversation()
   activeConversationWorkflowId = workflowId
-  const saved = workflowId ? loadAIHistory(localStorage, session, Date.now(), workflowId) : null
+  const saved = workflowId ? loadAIHistory(localStorage, historyIdentity, Date.now(), workflowId) : null
   messages.value = saved?.messages?.length ? saved.messages : [welcomeMessage()]
   runs.value = saved?.runs || []
   conversationId.value = saved?.conversationId || ''
@@ -71,7 +74,8 @@ function switchConversation(workflowId) {
   persistConversation()
 }
 
-async function refreshRuleDraftStatuses() { /* 定义 refreshRuleDraftStatuses 函数。 */
+async function refreshRuleDraftStatuses() {
+  if (!can('menu:rules')) return /* 定义 refreshRuleDraftStatuses 函数。 */
   if (!messages.value.some(message => message?.ruleDraftPersisted === true && message?.ruleDraft?.id)) return /* 判断条件并选择处理分支。 */
   try { /* 执行当前语句并推进处理流程。 */
     const response = await api('/api/v1/rules?page=1&pageSize=100') /* 声明 response。 */

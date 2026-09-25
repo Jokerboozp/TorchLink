@@ -100,7 +100,7 @@ const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('m
 const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length))
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
-watch(() => permissionState.items.join('\n'), (value, old) => {
+watch(() => permissionState.accessVersion + '\n' + permissionState.items.join('\n'), (value, old) => {
   if (!authenticated.value || value === old) return
   if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   pageKey.value++
@@ -121,6 +121,7 @@ async function login() {
     session.save(data, loginForm.value.username)
     identity.value = { tenant: data.tenantId || '', user: loginForm.value.username, role: data.role || '' }
     authenticated.value = true
+    permissionState.accessVersion = data.accessVersion || ''
     permissionState.items = data.permissions || []
     permissionState.ready = true
     active.value = firstAllowedPage()

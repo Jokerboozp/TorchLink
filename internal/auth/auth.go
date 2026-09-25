@@ -38,7 +38,9 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) { /* 定义 ClaimsFro
 	return claims, ok                                  /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
-type Claims struct { /* 定义 Claims 类型。 */
+type Claims struct {
+	ManagedUser          bool            `json:"managedUser,omitempty"`
+	Permissions          []string        `json:"permissions,omitempty"`    /* 定义 Claims 类型。 */
 	Username             string          `json:"username"`                 /* 执行当前语句并推进处理流程。 */
 	TenantID             string          `json:"tenantId"`                 /* 执行当前语句并推进处理流程。 */
 	Role                 string          `json:"role"`                     /* 执行当前语句并推进处理流程。 */
@@ -99,18 +101,30 @@ func (m *Manager) IssueUser(user, tenant string, version int64, ttl time.Duratio
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)                                                                                                                                                                                          /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (m *Manager) IssueHarnessWithKnowledge(user, tenant, runID string, scopes []string, knowledge *KnowledgeScope, ttl time.Duration) (string, error) { /* 定义 IssueHarnessWithKnowledge 函数。 */
+	return m.issueHarness(Claims{Username: user, TenantID: tenant}, runID, scopes, knowledge, ttl)
+}
+
+// IssueHarnessForIdentity preserves managed account identity across the HTTP bridge.
+func (m *Manager) IssueHarnessForIdentity(parent Claims, runID string, scopes []string, knowledge *KnowledgeScope, ttl time.Duration) (string, error) {
+	return m.issueHarness(parent, runID, scopes, knowledge, ttl)
+}
+
+func (m *Manager) issueHarness(parent Claims, runID string, scopes []string, knowledge *KnowledgeScope, ttl time.Duration) (string, error) {
+	user, tenant := parent.Username, parent.TenantID
 	if user == "" || tenant == "" || runID == "" || ttl <= 0 { /* 判断条件并选择处理分支。 */
 		return "", errors.New("user, tenant, runId and positive ttl are required") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	now := time.Now() /* 更新 now 的值。 */
 	claims := Claims{ /* 更新 claims 的值。 */
-		Username:  user,                             /* 执行当前语句并推进处理流程。 */
-		TenantID:  tenant,                           /* 执行当前语句并推进处理流程。 */
-		Role:      "viewer",                         /* 执行当前语句并推进处理流程。 */
-		Scopes:    append([]string(nil), scopes...), /* 执行当前语句并推进处理流程。 */
-		TokenUse:  "harness",                        /* 执行当前语句并推进处理流程。 */
-		RunID:     runID,                            /* 执行当前语句并推进处理流程。 */
-		Knowledge: knowledge,                        /* 执行当前语句并推进处理流程。 */
+		Username:       user,                             /* 执行当前语句并推进处理流程。 */
+		TenantID:       tenant,                           /* 执行当前语句并推进处理流程。 */
+		Role:           "viewer",                         /* 执行当前语句并推进处理流程。 */
+		Scopes:         append([]string(nil), scopes...), /* 执行当前语句并推进处理流程。 */
+		TokenUse:       "harness",                        /* 执行当前语句并推进处理流程。 */
+		RunID:          runID,                            /* 执行当前语句并推进处理流程。 */
+		Knowledge:      knowledge,
+		ManagedUser:    parent.TokenUse == "user",
+		SessionVersion: parent.SessionVersion, /* 执行当前语句并推进处理流程。 */
 		RegisteredClaims: jwt.RegisteredClaims{ /* 执行当前语句并推进处理流程。 */
 			Issuer:    m.issuer,                          /* 执行当前语句并推进处理流程。 */
 			Subject:   "harness:" + user,                 /* 执行当前语句并推进处理流程。 */

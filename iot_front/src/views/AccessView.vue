@@ -70,7 +70,7 @@ function roleActions(row) {
     <ui-form-item label="角色"><ui-select v-model="user.roleIds" multiple clearable placeholder="选择角色；可选择多个"><ui-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id"/></ui-select></ui-form-item>
     <ui-form-item label="设备访问范围"><ui-radio-group v-model="user.deviceScope" class="user-editor-scope segmented-choice-group" aria-label="设备访问范围"><ui-radio-button value="none">无设备</ui-radio-button><ui-radio-button value="selected">指定设备</ui-radio-button><ui-radio-button value="all">当前租户全部设备</ui-radio-button></ui-radio-group></ui-form-item>
     <ui-form-item v-if="user.deviceScope==='selected'" label="可访问设备"><ui-select v-model="user.deviceIds" multiple filterable clearable collapse-tags collapse-tags-tooltip placeholder="选择允许查看的设备"><ui-option v-for="d in deviceOptions" :key="d.id" :label="`${d.name}（${d.id}）`" :value="d.id"/></ui-select></ui-form-item>
-    <p class="user-editor-hint">查看设备需同时具有设备管理菜单权限。告警按设备范围过滤，主设备与子设备分别授权。智能助手、巡检、备份等全租户任务需要全部设备范围及对应菜单权限。</p>
+    <p class="user-editor-hint">查看设备需同时具有设备管理菜单权限。告警按设备范围过滤，主设备与子设备分别授权。智能助手按相同设备范围查询，需另行授权问答操作；巡检、备份等全租户任务需要全部设备范围及对应菜单权限。</p>
    </section>
    <section class="user-editor-section user-editor-permissions">
     <details><summary><span>用户单独授权 <small>在角色权限基础上增加 · 已选 {{ user.permissions.length }} 项</small></span><span class="user-editor-expand">展开设置</span></summary><PermissionPicker v-model="user.permissions" :catalog="catalog"/></details>

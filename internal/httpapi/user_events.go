@@ -38,6 +38,6 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) { /* 定义 
 			return                    /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	w.Header().Set("Cache-Control", "no-store")                                                          /* 执行当前语句并推进处理流程。 */
-	write(w, 200, map[string]any{"alarms": alarms, "devices": states, "permissions": permissionList(p)}) /* 执行当前语句并推进处理流程。 */
+	w.Header().Set("Cache-Control", "no-store")                                                                                                                 /* 执行当前语句并推进处理流程。 */
+	write(w, 200, map[string]any{"alarms": alarms, "devices": states, "permissions": permissionList(p), "accessVersion": requestAccessVersion(r.Context(), c)}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
