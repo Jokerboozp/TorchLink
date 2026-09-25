@@ -2,6 +2,7 @@
 package main /* 声明 main 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
+	"bufio"
 	"encoding/hex"  /* 执行当前语句并推进处理流程。 */
 	"encoding/json" /* 执行当前语句并推进处理流程。 */
 	"errors"        /* 执行当前语句并推进处理流程。 */
@@ -161,7 +162,7 @@ func platformDescribe(p Definition) (any, error) { /* 定义 platformDescribe �
 	return map[string]any{"metadata": map[string]any{"name": p.Name, "version": p.Version, "runtime": "go-protocol-v2", "transport": transport, "payloadFormat": "hex", "capabilities": capabilities}, "cases": cases, "operations": operations}, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
-func platformHandle() (any, error) { /* 定义 platformHandle 函数。 */
+func platformHandle(input []byte) (any, error) { /* 定义 platformHandle 函数。 */
 	var q struct { /* 声明 q。 */
 		Operation string         `json:"operation"` /* 执行当前语句并推进处理流程。 */
 		DeviceID  string         `json:"deviceId"`  /* 执行当前语句并推进处理流程。 */
@@ -175,7 +176,7 @@ func platformHandle() (any, error) { /* 定义 platformHandle 函数。 */
 			Metadata map[string]any  `json:"metadata"` /* 执行当前语句并推进处理流程。 */
 		} `json:"raw"` /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	if err := json.NewDecoder(os.Stdin).Decode(&q); err != nil { /* 判断条件并选择处理分支。 */
+	if err := json.Unmarshal(input, &q); err != nil { /* 判断条件并选择处理分支。 */
 		return nil, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	p := Protocol()                /* 更新 p 的值。 */
@@ -234,12 +235,48 @@ func platformHandle() (any, error) { /* 定义 platformHandle 函数。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
+func platformRespond(input []byte) []byte {
+	output, err := platformHandle(input)
+	if err != nil {
+		output = map[string]string{"error": err.Error()}
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		data, _ = json.Marshal(map[string]string{"error": err.Error()})
+	}
+	return data
+}
+
+// 平台以 IOT_PROTOCOL_WORKER_MODE=serve 启动常驻进程：逐行读取请求，逐行返回结果，
+// 并原样带回 requestId。请求之间不要依赖进程内存，状态统一通过 state 传递。
 func main() { /* 定义 main 函数。 */
-	output, err := platformHandle() /* 更新 err 的值。 */
-	if err != nil {                 /* 判断条件并选择处理分支。 */
-		output = map[string]string{"error": err.Error()} /* 更新 output 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil { /* 判断条件并选择处理分支。 */
+	if os.Getenv("IOT_PROTOCOL_WORKER_MODE") == "serve" {
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Buffer(make([]byte, 64<<10), 4<<20)
+		for scanner.Scan() {
+			var request struct {
+				RequestID string `json:"requestId"`
+			}
+			_ = json.Unmarshal(scanner.Bytes(), &request)
+			data := platformRespond(scanner.Bytes())
+			id, _ := json.Marshal(request.RequestID)
+			line := append([]byte(`{"requestId":`), id...)
+			if len(data) > 2 {
+				line = append(line, ',')
+			}
+			line = append(append(line, data[1:]...), '\n')
+			if _, err := os.Stdout.Write(line); err != nil {
+				os.Exit(1)
+			}
+		}
+		return
+	}
+	var input json.RawMessage
+	if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
+		input = nil
+	}
+	data := platformRespond(input)
+	if _, err := os.Stdout.Write(append(data, '\n')); err != nil { /* 判断条件并选择处理分支。 */
 		fmt.Fprintln(os.Stderr, err) /* 执行当前语句并推进处理流程。 */
 		os.Exit(1)                   /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */

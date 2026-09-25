@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -40,16 +41,34 @@ func Decode(raw RawMessage) (Message, error) {
 	}}, nil
 }
 
-// main 是平台调用入口。标准输出只写解析结果，调试日志请写 os.Stderr。
-func main() {
+func respond(input []byte) map[string]any {
 	var request struct { Version int `json:"version"`; Operation string `json:"operation"`; Raw RawMessage `json:"raw"` }
-	err := json.NewDecoder(os.Stdin).Decode(&request)
+	err := json.Unmarshal(input, &request)
 	if err == nil && (request.Version != 2 || request.Operation != "decode") { err = errors.New("expected go-protocol-v2 decode request") }
 	var message Message
 	if err == nil { message, err = Decode(request.Raw) }
-	if err != nil {
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error":err.Error()})
+	if err != nil { return map[string]any{"error": err.Error()} }
+	return map[string]any{"standardMessage": message}
+}
+
+// main 是平台调用入口。标准输出只写解析结果，调试日志请写 os.Stderr。
+// 平台以 IOT_PROTOCOL_WORKER_MODE=serve 常驻运行时逐行处理请求并带回 requestId；
+// 请求之间不要依赖进程内存。
+func main() {
+	out := json.NewEncoder(os.Stdout)
+	if os.Getenv("IOT_PROTOCOL_WORKER_MODE") == "serve" {
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Buffer(make([]byte, 64<<10), 4<<20)
+		for scanner.Scan() {
+			var id struct { RequestID string `json:"requestId"` }
+			_ = json.Unmarshal(scanner.Bytes(), &id)
+			response := respond(scanner.Bytes())
+			response["requestId"] = id.RequestID
+			if out.Encode(response) != nil { os.Exit(1) }
+		}
 		return
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"standardMessage": message})
+	var input json.RawMessage
+	_ = json.NewDecoder(os.Stdin).Decode(&input)
+	_ = out.Encode(respond(input))
 }

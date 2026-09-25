@@ -96,9 +96,10 @@ func TestGoFunctionsUploadAndListener(t *testing.T) { /* 定义 TestGoFunctionsU
 		return result.Release                              /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	// No runtime, JSON samples, metadata or module required for a single Go file.
-	upload(viewer, "protocol.go", []byte(protocolbuild.FunctionTemplate), nil, 403)                        /* 执行当前语句并推进处理流程。 */
-	first := upload(token, "protocol.go", []byte(protocolbuild.FunctionTemplate), nil, 201)                /* 更新 first 的值。 */
-	if !strings.HasPrefix(first.Version, "auto-") || first.Artifact["runtime"] != protocolworker.Runtime { /* 判断条件并选择处理分支。 */
+	upload(viewer, "protocol.go", []byte(protocolbuild.FunctionTemplate), nil, 403)         /* 执行当前语句并推进处理流程。 */
+	first := upload(token, "protocol.go", []byte(protocolbuild.FunctionTemplate), nil, 201) /* 更新 first 的值。 */
+	// The platform adapter serves repeated requests, so the release stays resident.
+	if !strings.HasPrefix(first.Version, "auto-") || first.Artifact["runtime"] != protocolworker.Runtime || first.Artifact["workerMode"] != parser.WorkerModeServe { /* 判断条件并选择处理分支。 */
 		t.Fatalf("release %+v", first) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	raw := model.RawMessage{MessageID: "raw_functions", TenantID: "tenant", ProductID: "product", DeviceID: "device", Protocol: "functions", PayloadFormat: "hex", Payload: json.RawMessage(`"AA012A"`)} /* 更新 raw 的值。 */

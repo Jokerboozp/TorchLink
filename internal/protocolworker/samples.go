@@ -59,7 +59,8 @@ func ValidateSamples(parent context.Context, root string, artifact map[string]an
 	// First execution can include OS signature/antivirus checks. Publication
 	// validation therefore gets a wider bound than the steady-state parser.
 	config := map[string]any{"artifact": artifact, "timeoutMs": 10000} /* 更新 config 的值。 */
-	for index, testCase := range cases {                               /* 循环处理当前数据。 */
+	var probeInput model.RawMessage
+	for index, testCase := range cases { /* 循环处理当前数据。 */
 		if err := ctx.Err(); err != nil { /* 判断条件并选择处理分支。 */
 			return index, fmt.Errorf("protocol sample validation canceled or exceeded 60 seconds: %w", err) /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
@@ -84,6 +85,9 @@ func ValidateSamples(parent context.Context, root string, artifact map[string]an
 		if testCase.Input.PayloadFormat == "" { /* 判断条件并选择处理分支。 */
 			testCase.Input.PayloadFormat = manifest.PayloadFormat /* 更新 testCase.Input.PayloadFormat 的值。 */
 		} /* 结束当前表达式或代码块。 */
+		if index == 0 {
+			probeInput = testCase.Input
+		}
 		message, err := runner.ParseWithContext(ctx, testCase.Input, config) /* 更新 err 的值。 */
 		if err != nil {                                                      /* 判断条件并选择处理分支。 */
 			return index, fmt.Errorf("protocol package case %q failed: %w", sampleName(testCase.Name, strconv.Itoa(index+1)), err) /* 返回当前处理结果。 */
@@ -116,7 +120,15 @@ func ValidateSamples(parent context.Context, root string, artifact map[string]an
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	operationCount, err := validateProtocolOperationCases(ctx, root, artifact, entries, manifest) /* 更新 err 的值。 */
-	return len(cases) + operationCount, err                                                       /* 返回当前处理结果。 */
+	if err == nil {
+		// Only a Worker that answers repeated requests exactly like a fresh process
+		// is kept resident; any other Worker keeps one process per call.
+		delete(artifact, "workerMode")
+		if runner.ProbeServe(ctx, config, parser.DecodeRequest(probeInput)) == nil {
+			artifact["workerMode"] = parser.WorkerModeServe
+		}
+	}
+	return len(cases) + operationCount, err /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 type protocolOperationCase struct { /* 定义 protocolOperationCase 类型。 */

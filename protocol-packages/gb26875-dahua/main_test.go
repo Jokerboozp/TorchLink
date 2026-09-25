@@ -5,8 +5,9 @@ import ( /* 引入当前代码需要的依赖。 */
 	"encoding/json"         /* 执行当前语句并推进处理流程。 */
 	"gb26875-dahua/gb26875" /* 执行当前语句并推进处理流程。 */
 	"os"                    /* 执行当前语句并推进处理流程。 */
-	"strings"               /* 执行当前语句并推进处理流程。 */
-	"testing"               /* 执行当前语句并推进处理流程。 */
+	"strconv"
+	"strings" /* 执行当前语句并推进处理流程。 */
+	"testing" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
 func TestSamplesAndWireOperations(t *testing.T) { /* 定义 TestSamplesAndWireOperations 函数。 */
@@ -114,3 +115,21 @@ func TestMultipleComponentsPreserveSeparateAlarmLocations(t *testing.T) { /* 定
 	} /* 结束当前表达式或代码块。 */
 	t.Fatal("fixture missing") /* 验证实际结果符合预期。 */
 } /* 结束当前表达式或代码块。 */
+
+func TestServeAnswersEachRequestWithItsID(t *testing.T) {
+	input := strings.NewReader(`{"requestId":"1","version":2,"operation":"encode","command":{"type":"unknown"}}` + "\n" + `{"requestId":"2","version":2,"operation":"decode"}` + "\n")
+	var output bytes.Buffer
+	if err := serve(input, &output); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("serve must answer every request on its own line: %q", output.String())
+	}
+	for index, line := range lines {
+		var response map[string]any
+		if err := json.Unmarshal([]byte(line), &response); err != nil || response["requestId"] != strconv.Itoa(index+1) {
+			t.Fatalf("response %d lost its requestId: %q err=%v", index+1, line, err)
+		}
+	}
+}

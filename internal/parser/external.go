@@ -64,9 +64,8 @@ func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMe
 	if artifact["runtime"] != "go-protocol-v2" { /* 判断条件并选择处理分支。 */
 		return nil, errors.New("protocol runtime must be go-protocol-v2") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	input := map[string]any{"version": 2, "operation": "decode", "raw": raw, "state": raw.Metadata["protocolState"], "now": raw.ReceivedAt} /* 更新 input 的值。 */
-	output, err := p.Invoke(parent, config, input)                                                                                          /* 更新 err 的值。 */
-	if err != nil {                                                                                                                         /* 判断条件并选择处理分支。 */
+	output, err := p.Invoke(parent, config, DecodeRequest(raw)) /* 更新 err 的值。 */
+	if err != nil {                                             /* 判断条件并选择处理分支。 */
 		return nil, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	message, err := decodeExternalMessage(output) /* 更新 err 的值。 */
@@ -101,6 +100,11 @@ func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMe
 	return &message, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
+// DecodeRequest is the go-protocol-v2 decode request for one raw message.
+func DecodeRequest(raw model.RawMessage) map[string]any {
+	return map[string]any{"version": 2, "operation": "decode", "raw": raw, "state": raw.Metadata["protocolState"], "now": raw.ReceivedAt}
+}
+
 // Invoke executes one protocol operation using the release's verified artifact.
 // All operations share the same process, timeout, environment and output limits.
 func (p ExternalParser) Invoke(parent context.Context, config map[string]any, request any) ([]byte, error) { /* 定义 Invoke 函数。 */
@@ -116,7 +120,14 @@ func (p ExternalParser) Invoke(parent context.Context, config map[string]any, re
 		return nil, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 
-	timeout := externalTimeout(config)                  /* 更新 timeout 的值。 */
+	timeout := externalTimeout(config) /* 更新 timeout 的值。 */
+	if artifact["workerMode"] == WorkerModeServe {
+		input, err := json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("marshal external parser input: %w", err)
+		}
+		return residentWorkers.invoke(parent, path+"@"+fmt.Sprint(artifact["sha256"]), path, timeout, input)
+	}
 	ctx, cancel := context.WithTimeout(parent, timeout) /* 更新 cancel 的值。 */
 	defer cancel()                                      /* 安排函数结束时执行清理。 */
 	cmd := exec.CommandContext(ctx, path)               /* 更新 cmd 的值。 */
