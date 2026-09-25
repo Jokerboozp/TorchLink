@@ -5,32 +5,35 @@
  * - 本文件只允许出现 :root 中的变量声明，便于上述解析。
  */
 :root {
-  /* 品牌色：深蓝用于主操作和选中，火焰橙只用于“当前位置”和告警强调。 */
-  --brand-navy: #13386c;
-  --brand-flame: #f38128;
+  /* 品牌色：参考 Claude 的暖色体系，陶土橙用于主操作和选中，火焰橙保留给 Logo 和高等级告警。 */
+  --brand-clay: #b8573a;
+  --brand-flame: #e07a3f;
 
-  /* 冷灰中性色阶。 */
+  /* 暖灰中性色阶（米白纸感，而不是冷蓝灰）。 */
   --gray-0: #ffffff;
-  --gray-25: #fafbfc;
-  --gray-50: #f5f7fa;
-  --gray-100: #eef1f5;
-  --gray-150: #e5e9ef;
-  --gray-200: #d6dce4;
-  --gray-300: #b9c2ce;
-  --gray-400: #8d97a5;
-  --gray-500: #677285;
-  --gray-600: #4b5565;
-  --gray-700: #364152;
-  --gray-800: #1f2733;
-  --gray-900: #121821;
+  --gray-25: #fcfbf8;
+  --gray-50: #faf9f5;
+  --gray-75: #f5f4ed;
+  --gray-100: #f0eee6;
+  --gray-150: #e8e6dc;
+  --gray-200: #dedcd1;
+  --gray-300: #c2c0b6;
+  --gray-400: #9c9a92;
+  --gray-500: #73726c;
+  --gray-600: #5e5d59;
+  --gray-700: #3d3d3a;
+  --gray-800: #262624;
+  --gray-900: #141413;
 
   /* 表面与分隔线。 */
   --bg: var(--gray-50);
   --surface: var(--gray-0);
   --surface-muted: var(--gray-25);
+  --surface-sunken: var(--gray-75);
   --surface-hover: var(--gray-100);
   --border: var(--gray-150);
   --border-strong: var(--gray-200);
+  --border-hover: var(--gray-300);
 
   /* 文字层级：正文、标题、次要、辅助、禁用。 */
   --text: var(--gray-800);
@@ -40,80 +43,82 @@
   --text-disabled: var(--gray-400);
   --text-inverse: var(--gray-0);
 
-  /* 主色。 */
-  --primary: var(--brand-navy);
-  --primary-hover: #1c4a86;
-  --primary-pressed: #0d2a52;
-  --primary-soft: #edf2f9;
-  --primary-soft-hover: #e1eaf5;
-  --primary-border: #c3d3e8;
-  --primary-text: #1b4a85;
+  /* 主色（陶土橙）。 */
+  --primary: var(--brand-clay);
+  --primary-hover: #a64d33;
+  --primary-pressed: #8f4029;
+  --primary-soft: #fbf1ec;
+  --primary-soft-hover: #f6e3d9;
+  --primary-border: #ebc4b3;
+  --primary-text: #9a4a2c;
 
   /* 强调色（火焰橙）。 */
   --flame: var(--brand-flame);
-  --flame-soft: #fff4eb;
-  --flame-text: #b85a0f;
+  --flame-soft: #fcefe4;
+  --flame-text: #9c4f1e;
 
-  /* 状态色：solid 用于图标和圆点，text 用于浅底上的文字，soft/border 用于提示底色。 */
-  --success: #16a34a;
-  --success-hover: #15913f;
-  --success-pressed: #12783a;
-  --success-text: #157a3a;
-  --success-soft: #edf8f1;
-  --success-border: #bfe3cc;
-  --warning: #d97706;
-  --warning-hover: #c26a05;
-  --warning-pressed: #a85c04;
-  --warning-text: #a6560a;
-  --warning-soft: #fff7e8;
-  --warning-border: #f3d9a4;
-  --danger: #dc2626;
-  --danger-hover: #c62020;
-  --danger-pressed: #a61b1b;
-  --danger-text: #b42318;
-  --danger-soft: #fef3f2;
-  --danger-border: #f7c9c4;
-  --info: #2f6fb3;
-  --info-hover: #28619e;
-  --info-pressed: #215286;
-  --info-text: #1f5c9e;
-  --info-soft: #eef5fc;
-  --info-border: #c7dcf1;
+  /* 状态色：低饱和的自然色，solid 用于图标和圆点，text 用于浅底上的文字，soft/border 用于提示底色。 */
+  --success: #2f7d4f;
+  --success-hover: #286c44;
+  --success-pressed: #215a38;
+  --success-text: #2f6b43;
+  --success-soft: #edf5ef;
+  --success-border: #c3dcca;
+  --warning: #a8650f;
+  --warning-hover: #93580d;
+  --warning-pressed: #7c4a0b;
+  --warning-text: #9a5b0b;
+  --warning-soft: #fbf3e3;
+  --warning-border: #ecd6aa;
+  --danger: #b53333;
+  --danger-hover: #9f2c2c;
+  --danger-pressed: #862525;
+  --danger-text: #a62d2d;
+  --danger-soft: #fbeeec;
+  --danger-border: #efc6c1;
+  --info: #3d6d9e;
+  --info-hover: #355f8a;
+  --info-pressed: #2d5075;
+  --info-text: #325f8c;
+  --info-soft: #edf3f9;
+  --info-border: #c6d7e9;
   --neutral-dot: var(--gray-400);
 
-  /* 代码与报文。 */
-  --code-bg: #0f1722;
-  --code-text: #d7e3f4;
-  --code-border: #1f2a3a;
-  --code-inline-bg: #eef2f7;
+  /* 代码与报文：暖炭黑底。 */
+  --code-bg: #262624;
+  --code-text: #ece9df;
+  --code-border: #33322f;
+  --code-inline-bg: var(--gray-100);
   --code-inline-text: var(--primary-text);
 
-  /* 深蓝侧栏。 */
-  --sidebar-bg: var(--brand-navy);
-  --sidebar-text: #c9d7ea;
-  --sidebar-text-active: var(--gray-0);
-  --sidebar-label: #8fa7c7;
-  --sidebar-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-active: rgba(255, 255, 255, 0.14);
-  --sidebar-divider: rgba(255, 255, 255, 0.12);
+  /* 浅色侧栏：比内容区略深的米色，选中项用暖灰胶囊。 */
+  --sidebar-bg: var(--gray-75);
+  --sidebar-border: var(--gray-150);
+  --sidebar-text: var(--gray-700);
+  --sidebar-text-active: var(--gray-900);
+  --sidebar-label: #6b6a64;
+  --sidebar-hover: var(--gray-100);
+  --sidebar-active: var(--gray-150);
+  --sidebar-divider: var(--gray-150);
 
   /* 登录页品牌区。 */
-  --login-panel-from: #0d2d58;
-  --login-panel-to: #123f71;
-  --login-panel-text: #d6e4f3;
-  --login-panel-muted: #9fb9d6;
-  --login-panel-line: rgba(255, 255, 255, 0.14);
-  --login-highlight: #ffbc7a;
+  --login-panel-bg: var(--gray-100);
+  --login-panel-text: var(--gray-600);
+  --login-panel-muted: #6b6a64;
+  --login-panel-line: var(--gray-200);
+  --login-highlight: var(--brand-clay);
 
-  /* 遮罩、阴影与焦点。 */
-  --mask: rgba(15, 23, 34, 0.45);
-  --loading-veil: rgba(255, 255, 255, 0.64);
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-lg: 0 16px 40px rgba(16, 24, 40, 0.14);
-  --focus-ring: 0 0 0 3px rgba(19, 56, 108, 0.2);
+  /* 遮罩、阴影与焦点：阴影使用暖黑，保持轻薄。 */
+  --mask: rgba(20, 20, 19, 0.32);
+  --loading-veil: rgba(250, 249, 245, 0.7);
+  --shadow-xs: 0 1px 2px rgba(20, 20, 19, 0.03);
+  --shadow-sm: 0 1px 3px rgba(20, 20, 19, 0.05), 0 4px 12px rgba(20, 20, 19, 0.03);
+  --shadow-lg: 0 12px 36px rgba(20, 20, 19, 0.12), 0 2px 6px rgba(20, 20, 19, 0.04);
+  --focus-ring: 0 0 0 3px rgba(184, 87, 58, 0.18);
 
   /* 字体与字号：正文 14，表格 13，辅助 12。 */
+  /* 标题使用衬线字体（Claude 的编辑感来源），正文与控件保持无衬线。 */
+  --font-serif: "Tiempos Headline", "Source Serif 4", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", "STSong", Georgia, serif;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   --font-size-xs: 12px;
@@ -136,15 +141,15 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* 圆角：标签 4、控件 6、卡片 8、弹窗 12。 */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  /* 圆角：标签 6、控件 8、卡片 12、弹窗 16。 */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-full: 999px;
 
   /* 布局。 */
-  --sidebar-width: 216px;
+  --sidebar-width: 232px;
   --sidebar-width-collapsed: 64px;
   --topbar-height: 56px;
   --page-padding: 24px;

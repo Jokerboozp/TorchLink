@@ -30,7 +30,8 @@ npm run build
 - `src/theme/naive.js` 在构建时读取 `tokens.css` 生成 Naive UI 主题（`src/theme/naiveTheme.js` 负责解析，`tests/theme.test.mjs` 保证变量都能解析）；组件外观通过主题配置调整，不用 `!important` 覆盖。
 - `src/styles/base.css` 放元素默认样式与包装控件的布局补充，`src/styles/shell.css` 放侧栏、顶栏、页头和登录页，`src/styles/motion.css` 处理“减少动态效果”。
 - 列表页统一使用 `src/components/layout/` 下的 `FilterBar`（筛选与操作）、`DataTableCard`（表格、分页、空与错误状态）、`StatusDot`（状态圆点加中文）和 `RowActions`（最多两个操作，其余收进“更多”）。窄屏下侧栏改为抽屉，设备列表改为卡片。
-- 深蓝 `--primary` 用于主操作和选中；火焰橙 `--flame` 只用于当前位置和告警强调。
+- 整体参考 Claude 的暖色风格：米白底 `--bg`、米色侧栏、暖灰中性色和轻薄阴影；页面标题、登录页和弹窗标题使用衬线字体 `--font-serif`，正文和控件保持无衬线。
+- 陶土橙 `--primary` 用于主操作和选中，浅底上的主色文字用 `--primary-text` 保证对比度；火焰橙 `--flame` 只用于 Logo 和告警强调；次要按钮、菜单悬停使用中性暖灰而不是主色浅底。
 - `src/styles/patterns.css` 只放多个页面共用的卡片、分页、表格操作和技术详情样式；单个页面或组件的样式写在各自 `.vue` 文件内，由 `v-html` 或传送门渲染的组件（Markdown、全局告警）使用带组件前缀的非 scoped 样式。
 - 图表按数据用途取色：设备状态与告警等级使用状态色，单一度量的柱条只用 `--primary`，统计卡片保持中性，数值与图例文字使用文字色。
 - `tests/style-rules.test.mjs` 静态检查：引用的变量都已定义、颜色值只出现在 `tokens.css`、除 `motion.css` 外不用 `!important`、不保留 `.el-` 选择器与过渡样式文件。

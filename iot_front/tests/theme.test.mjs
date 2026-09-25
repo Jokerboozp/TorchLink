@@ -7,7 +7,7 @@ const tokensCss = await readFile(new URL('../src/theme/tokens.css', import.meta.
 
 test('Naive UI 主题完全由 tokens.css 生成，品牌色与设计变量一致', () => {
   const theme = createThemeOverrides(tokensCss)
-  assert.equal(theme.common.primaryColor, '#13386c')
+  assert.equal(theme.common.primaryColor, '#b8573a')
   assert.equal(theme.common.bodyColor, resolveToken(parseTokens(tokensCss), '--bg'))
   const values = JSON.stringify(theme)
   assert.doesNotMatch(values, /var\(/, '主题中不能残留未解析的 CSS 变量')
