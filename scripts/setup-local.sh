@@ -21,6 +21,7 @@ include_deepseek=false
 include_harness=auto
 # 执行当前脚本步骤。
 include_backup=false
+include_ops=false
 # 执行当前脚本步骤。
 ollama_model=qwen3:1.7b
 # 执行当前脚本步骤。
@@ -49,6 +50,7 @@ while [ "$#" -gt 0 ]; do
     --no-harness) include_harness=false; shift ;;
     # 执行当前脚本步骤。
     --include-backup|--include-backup-service) include_backup=true; shift ;;
+    --include-ops) include_ops=true; shift ;;
     # 执行当前脚本步骤。
     --dependency-host) [ "$#" -ge 2 ] || { echo '--dependency-host 需要源码机可访问的主机名或 IPv4 地址。' >&2; exit 1; }; dependency_host="$2"; dependency_host_set=true; shift 2 ;;
     # 执行当前脚本步骤。
@@ -58,7 +60,7 @@ while [ "$#" -gt 0 ]; do
     # 执行当前脚本步骤。
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
     # 执行当前脚本步骤。
-    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness|--no-harness] [--include-backup]'; exit 0 ;;
+    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness|--no-harness] [--include-backup] [--include-ops]'; exit 0 ;;
     # 执行当前脚本步骤。
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   # 执行当前脚本步骤。
@@ -340,6 +342,38 @@ else
 fi
 
 # 执行当前脚本步骤。
+# Ops center dependencies (Prometheus, Loki, Grafana, Alertmanager, log and
+# host collectors) are optional. Rule and notification files are shared with
+# the containers through bind mounts, which only works when they run here.
+if [ "$include_ops" = true ]; then
+  set_local_env_value IOT_OPS_PROMETHEUS_URL "http://${dependency_host}:19090" true
+  set_local_env_value IOT_OPS_LOKI_URL "http://${dependency_host}:13100" true
+  set_local_env_value IOT_OPS_GRAFANA_URL "http://${dependency_host}:13000" true
+  set_local_env_value IOT_OPS_ALERTMANAGER_URL "http://${dependency_host}:19093" true
+  set_local_env_value IOT_OPS_GRAFANA_USER "$(get_deployment_env_value "$env_file" GRAFANA_ADMIN_USER)" true
+  set_local_env_value IOT_OPS_GRAFANA_PASSWORD "$(get_deployment_env_value "$env_file" GRAFANA_ADMIN_PASSWORD)" true
+  set_local_env_value IOT_LOG_LOKI_URL "http://${dependency_host}:13100" true
+  set_local_env_value IOT_LOCAL_API_HOST "$api_host" true
+  # Containers read the shared files as their own users; local files are not secret-grade storage.
+  set_local_env_value IOT_OPS_CONFIG_FILE_MODE 0644 true
+  # The containers need these files even when the API runs on another machine.
+  ops_dir="$project_root/data/ops"
+  mkdir -p "$ops_dir/prometheus-rules" "$ops_dir/loki/rules/fake" "$ops_dir/alertmanager"
+  [ -f "$ops_dir/loki/runtime.yaml" ] || printf 'overrides: {}\n' > "$ops_dir/loki/runtime.yaml"
+  [ -f "$ops_dir/alertmanager/alertmanager.yml" ] || printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' 'receivers:' '  - name: platform-null' > "$ops_dir/alertmanager/alertmanager.yml"
+  chmod 0755 "$ops_dir" "$ops_dir/prometheus-rules" "$ops_dir/loki" "$ops_dir/loki/rules" "$ops_dir/loki/rules/fake" "$ops_dir/alertmanager"
+  chmod 0644 "$ops_dir/loki/runtime.yaml" "$ops_dir/alertmanager/alertmanager.yml"
+  if [ "$dependency_host" = 127.0.0.1 ] || [ "$dependency_host" = localhost ]; then
+    set_local_env_value IOT_OPS_PROMETHEUS_RULES_DIR ./data/ops/prometheus-rules true
+    set_local_env_value IOT_OPS_LOKI_RULES_DIR ./data/ops/loki/rules/fake true
+    set_local_env_value IOT_OPS_LOKI_RUNTIME_FILE ./data/ops/loki/runtime.yaml true
+    set_local_env_value IOT_OPS_ALERTMANAGER_CONFIG_FILE ./data/ops/alertmanager/alertmanager.yml true
+  else
+    for key in IOT_OPS_PROMETHEUS_RULES_DIR IOT_OPS_LOKI_RULES_DIR IOT_OPS_LOKI_RUNTIME_FILE IOT_OPS_ALERTMANAGER_CONFIG_FILE; do set_local_env_value "$key" '' true; done
+    echo '提示：依赖运行在远程主机时，规则、保留策略和通知渠道在运维中心只能查看；需要编辑时请在依赖主机运行 API。' >&2
+  fi
+fi
+
 annotate_deployment_env_file "$env_file"
 
 # 执行当前脚本步骤。
@@ -363,6 +397,8 @@ if [ "$include_harness" = true ]; then compose+=(--profile harness); fi
 # 判断条件后执行对应操作。
 if [ "$include_backup" = true ]; then compose+=(--profile backup); fi
 # 判断条件后执行对应操作。
+if [ "$include_ops" = true ]; then compose+=(--profile ops); fi
+# 判断条件后执行对应操作。
 if [ "$include_backup" = false ]; then
   # Stop an older worker; preserve the container and all backup data.
   # 执行当前脚本步骤。
@@ -385,6 +421,11 @@ if [ "$include_ai" = true ]; then run_docker "${compose[@]}" exec -T ollama olla
 if [ "$include_backup" = true ]; then wait_deployment_http http://127.0.0.1:8092/health/ready 180; fi
 # 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then wait_deployment_http http://127.0.0.1:8091/health 180; fi
+# 判断条件后执行对应操作。
+if [ "$include_ops" = true ]; then
+  wait_deployment_http http://127.0.0.1:19090/-/ready 180
+  wait_deployment_http http://127.0.0.1:13000/api/health 180
+fi
 # 执行当前脚本步骤。
 printf '本地依赖已就绪。配置和管理员账号保存在：%s（凭据不输出）。\n' "$env_file"
 # 执行当前脚本步骤。
@@ -397,6 +438,8 @@ echo '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API
 if [ "$include_backup" = true ]; then echo '已按 --include-backup 启动备份容器；停止后可改用 VS Code 源码调试。'; fi
 # 执行当前脚本步骤。
 echo '前端：http://localhost:5173；后端：http://localhost:8081'
+# 判断条件后执行对应操作。
+if [ "$include_ops" = true ]; then echo '运维中心依赖已启动：内置管理员可在“运维中心”菜单使用；其他账号需把所在租户加入 IOT_OPS_TENANTS。'; fi
 # 判断条件后执行对应操作。
 if [ "$bind_address" = 0.0.0.0 ]; then
   # 执行当前脚本步骤。

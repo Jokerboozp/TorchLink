@@ -38,6 +38,7 @@
 | `internal/parser/` | 报文解析 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | Go 协议源码构建、版本运行与 Worker 契约 |
 | `internal/mcpserver/` | 平台 MCP 工具与访问边界 |
+| `internal/opscenter/`、`internal/adapters/observability/` | 运维中心业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
 | `internal/config/`、`internal/deploycheck/`、`internal/metrics/` | 配置、部署检查和指标 |
 | `internal/backup/`、`cmd/backup-service/` | 备份逻辑与独立备份服务 |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的完整 Go 协议 module 示例 |
@@ -98,6 +99,7 @@ npm run dev
 - 设备关系使用主子设备关联，状态来自成功解析的上报；已移除独立孪生拓扑和设备影子，不重新引入其页面、接口或状态投影。
 - 摄像头只管理元数据和设备关联：单个摄像头最多关联一个设备，设备可以关联多个摄像头。视频由外部平台提供，不擅自恢复平台拉流、代理、预览或旧多对多方案。
 - 备份操作沿用服务端权限及凭据边界；备份存在、下载成功和恢复成功是不同结论，按本次实际操作表述。
+- 运维中心数据为全平台数据，只在 `IOT_OPS_TENANTS` 运维租户中授权；浏览器只调用平台 `/api/v1/ops/*`，不接触组件地址与凭据，不提供任意上游 URL 的通用代理。组件配置写入保持“校验 → 原子写入 → 确认加载 → 失败恢复”；监控告警由 Alertmanager 统一通知，Grafana 告警保持停用，与消防业务告警分开。细节见 `docs/OPS_CENTER.md`。
 
 ## 6. 协议开发与版本发布
 
@@ -177,5 +179,6 @@ npm run dev
 - [GB26875 协议](docs/GB26875_DAHUA_V103.md)：独立协议及 TCP / UDP 接入。
 - [AI 工作流](docs/AI_PLUGIN_HARNESS.md)：Harness、Agent、MCP 及安全边界。
 - [TCP 与主子设备接入](docs/TCP_CHILD_DEVICE_ACCESS.md)：连接方向、查询调度与子设备协议。
+- [运维中心](docs/OPS_CENTER.md)：指标、日志、仪表盘、监控告警与通知的架构、权限、配置和限制。
 
 文档缺失或不一致时，按当前需求与源码推进并修正文档；不得退回要求个人知识库存在才能继续的工作方式。

@@ -37,6 +37,7 @@ export class ApiError extends Error { /* 执行当前语句并推进处理流程
     this.retryable = Boolean(details.retryable) /* 更新 this.retryable 的值。 */
     this.retryAfterMs = Number(details.retryAfterMs || 0) /* 更新 this.retryAfterMs 的值。 */
     this.fieldErrors = details.fieldErrors || [] /* 更新 this.fieldErrors 的值。 */
+    this.details = details // 保留完整错误体，例如运维中心的 reason、rolledBack、field。
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

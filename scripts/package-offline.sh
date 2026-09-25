@@ -569,6 +569,8 @@ pull_services=(
   postgres postgres-wal-init redis minio minio-dr redpanda redpanda-init
   # 执行当前脚本步骤。
   clickhouse emqx prometheus grafana loki ollama weaviate
+  # 执行当前脚本步骤。
+  ops-init alertmanager alloy node-exporter
 # 执行当前脚本步骤。
 )
 # 执行当前脚本步骤。

@@ -1,7 +1,9 @@
 <script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  Activity,
   Bell,
+  BellRing,
   Bot,
   Boxes,
   BrainCircuit,
@@ -13,13 +15,17 @@ import {
   Database,
   FileText,
   FlaskConical,
+  Gauge,
   LayoutDashboard,
+  LayoutGrid,
   Library,
+  LineChart,
   LogOut,
   Menu,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
@@ -49,6 +55,11 @@ const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
 const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
 const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue'))
 const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue'))
+const OpsOverviewView = defineAsyncComponent(() => import('./views/OpsOverviewView.vue'))
+const OpsMetricsView = defineAsyncComponent(() => import('./views/OpsMetricsView.vue'))
+const OpsLogsView = defineAsyncComponent(() => import('./views/OpsLogsView.vue'))
+const OpsDashboardsView = defineAsyncComponent(() => import('./views/OpsDashboardsView.vue'))
+const OpsAlertsView = defineAsyncComponent(() => import('./views/OpsAlertsView.vue'))
 
 const authenticated = ref(Boolean(session.token))
 const active = ref('dashboard')
@@ -84,12 +95,18 @@ const pages = {
   knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView, header: false },
   aiProviders: { ...pageGuide.aiProviders, icon: BrainCircuit, component: AiProvidersView, header: false },
   backups: { ...pageGuide.backups, icon: Database, component: BackupsView },
-  access: { ...pageGuide.access, icon: ShieldCheck, component: AccessView }
+  access: { ...pageGuide.access, icon: ShieldCheck, component: AccessView },
+  opsOverview: { ...pageGuide.opsOverview, icon: Gauge, component: OpsOverviewView },
+  opsMetrics: { ...pageGuide.opsMetrics, icon: LineChart, component: OpsMetricsView },
+  opsLogs: { ...pageGuide.opsLogs, icon: ScrollText, component: OpsLogsView },
+  opsDashboards: { ...pageGuide.opsDashboards, icon: LayoutGrid, component: OpsDashboardsView },
+  opsAlerts: { ...pageGuide.opsAlerts, icon: BellRing, component: OpsAlertsView }
 }
 const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
+  { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts'] },
   { label: '系统', items: ['backups', 'access'] }
 ]
 const current = computed(() => pages[active.value] || { title: '暂无可用功能' })

@@ -591,7 +591,8 @@ try {
         # 执行当前脚本步骤。
         "postgres", "postgres-wal-init", "redis", "minio", "minio-dr",
         "redpanda", "redpanda-init", "clickhouse", "emqx", "prometheus",
-        "grafana", "loki", "ollama", "weaviate"
+        "grafana", "loki", "ollama", "weaviate", "ops-init", "alertmanager",
+        "alloy", "node-exporter"
     # 执行当前脚本步骤。
     )
     # 执行当前脚本步骤。

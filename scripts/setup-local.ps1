@@ -7,6 +7,7 @@ param(
     [switch]$IncludeHarness,
     [switch]$NoHarness,
     [switch]$IncludeBackup,
+    [switch]$IncludeOps,
     [string]$OllamaModel = 'qwen3:1.7b',
     [string]$DeepSeekModel = 'deepseek-v4-flash'
 )
@@ -236,6 +237,29 @@ if ($useHarness) {
 # 结束当前控制块。
 }
 # 执行当前脚本步骤。
+# 运维中心依赖可选；规则与通知配置通过绑定挂载与容器共享。
+if ($IncludeOps) {
+    Set-LocalEnvValue 'IOT_OPS_PROMETHEUS_URL' 'http://127.0.0.1:19090' -Replace
+    Set-LocalEnvValue 'IOT_OPS_LOKI_URL' 'http://127.0.0.1:13100' -Replace
+    Set-LocalEnvValue 'IOT_OPS_GRAFANA_URL' 'http://127.0.0.1:13000' -Replace
+    Set-LocalEnvValue 'IOT_OPS_ALERTMANAGER_URL' 'http://127.0.0.1:19093' -Replace
+    Set-LocalEnvValue 'IOT_OPS_GRAFANA_USER' (Get-DeploymentEnvValue -Path $EnvFile -Key 'GRAFANA_ADMIN_USER') -Replace
+    Set-LocalEnvValue 'IOT_OPS_GRAFANA_PASSWORD' (Get-DeploymentEnvValue -Path $EnvFile -Key 'GRAFANA_ADMIN_PASSWORD') -Replace
+    Set-LocalEnvValue 'IOT_LOG_LOKI_URL' 'http://127.0.0.1:13100' -Replace
+    Set-LocalEnvValue 'IOT_LOCAL_API_HOST' 'host.docker.internal' -Replace
+    Set-LocalEnvValue 'IOT_OPS_CONFIG_FILE_MODE' '0644' -Replace
+    Set-LocalEnvValue 'IOT_OPS_PROMETHEUS_RULES_DIR' './data/ops/prometheus-rules' -Replace
+    Set-LocalEnvValue 'IOT_OPS_LOKI_RULES_DIR' './data/ops/loki/rules/fake' -Replace
+    Set-LocalEnvValue 'IOT_OPS_LOKI_RUNTIME_FILE' './data/ops/loki/runtime.yaml' -Replace
+    Set-LocalEnvValue 'IOT_OPS_ALERTMANAGER_CONFIG_FILE' './data/ops/alertmanager/alertmanager.yml' -Replace
+    $opsDir = Join-Path $projectRoot 'data/ops'
+    foreach ($dir in @('prometheus-rules', 'loki/rules/fake', 'alertmanager')) { [void](New-Item -ItemType Directory -Force -Path (Join-Path $opsDir $dir)) }
+    $utf8 = [Text.UTF8Encoding]::new($false)
+    $runtimeFile = Join-Path $opsDir 'loki/runtime.yaml'
+    if (-not (Test-Path -LiteralPath $runtimeFile)) { [IO.File]::WriteAllText($runtimeFile, "overrides: {}`n", $utf8) }
+    $alertmanagerFile = Join-Path $opsDir 'alertmanager/alertmanager.yml'
+    if (-not (Test-Path -LiteralPath $alertmanagerFile)) { [IO.File]::WriteAllText($alertmanagerFile, "route:`n  receiver: platform-null`n  group_by: [alertname, severity]`nreceivers:`n  - name: platform-null`n", $utf8) }
+}
 Add-DeploymentEnvComments -Path $EnvFile
 
 # 执行当前脚本步骤。
@@ -271,6 +295,8 @@ try {
     # 判断条件后执行对应操作。
     if ($IncludeBackup) { $compose += @('--profile', 'backup') }
     # 判断条件后执行对应操作。
+    if ($IncludeOps) { $compose += @('--profile', 'ops') }
+    # 判断条件后执行对应操作。
     if (-not $IncludeBackup) {
         # 执行当前脚本步骤。
         $backupCompose = @('compose', '--project-name', 'iot-platform-local', '--env-file', $EnvFile, '-f', 'compose.local.yaml', '--profile', 'backup')
@@ -292,6 +318,11 @@ try {
     if ($IncludeBackup) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/ready' -TimeoutSeconds 180 }
     # 判断条件后执行对应操作。
     if ($useHarness) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8091/health' -TimeoutSeconds 180 }
+    # 判断条件后执行对应操作。
+    if ($IncludeOps) {
+        Wait-DeploymentHttp -Url 'http://127.0.0.1:19090/-/ready' -TimeoutSeconds 180
+        Wait-DeploymentHttp -Url 'http://127.0.0.1:13000/api/health' -TimeoutSeconds 180
+    }
     # 执行当前脚本步骤。
     Write-Host "本地依赖已就绪。配置和管理员账号保存在：$EnvFile（凭据不输出）。"
     # 执行当前脚本步骤。
@@ -304,5 +335,7 @@ try {
     if ($IncludeBackup) { Write-Host '已按 -IncludeBackup 启动备份容器；停止后可改用 VS Code 源码调试。' }
     # 执行当前脚本步骤。
     Write-Host '前端：http://localhost:5173；后端：http://localhost:8081'
+    # 判断条件后执行对应操作。
+    if ($IncludeOps) { Write-Host '运维中心依赖已启动：内置管理员可在“运维中心”菜单使用；其他账号需把所在租户加入 IOT_OPS_TENANTS。' }
 # 结束当前控制块。
 } finally { Pop-Location }
