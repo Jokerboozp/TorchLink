@@ -71,7 +71,8 @@ type Config struct { /* 定义 Config 类型。 */
 	OfflineScan           time.Duration     /* 执行当前语句并推进处理流程。 */
 	ModbusAllowedCIDRs    []string          /* 执行当前语句并推进处理流程。 */
 	DevMode               bool              /* 执行当前语句并推进处理流程。 */
-	loadErr               error             /* 执行当前语句并推进处理流程。 */
+	Ops                   OpsConfig
+	loadErr               error /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func Load() Config { /* 定义 Load 函数。 */
@@ -139,7 +140,8 @@ func Load() Config { /* 定义 Load 函数。 */
 		OfflineScan:                 duration("IOT_OFFLINE_SCAN_INTERVAL", 30*time.Second),                                                          /* 执行当前语句并推进处理流程。 */
 		ModbusAllowedCIDRs:          split(get("IOT_MODBUS_ALLOWED_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128")), /* 执行当前语句并推进处理流程。 */
 		DevMode:                     devMode,                                                                                                        /* 执行当前语句并推进处理流程。 */
-		loadErr:                     devModeErr,                                                                                                     /* 执行当前语句并推进处理流程。 */
+		Ops:                         loadOps(),
+		loadErr:                     devModeErr, /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -147,6 +149,9 @@ func (c Config) Validate() error { /* 定义 Validate 函数。 */
 	if c.loadErr != nil { /* 判断条件并选择处理分支。 */
 		return c.loadErr /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	if err := c.Ops.validate(); err != nil {
+		return err
+	}
 	if c.AccessCoordination && (c.PostgresDSN == "" || c.AccessNodeURL == "") { /* 判断条件并选择处理分支。 */
 		return fmt.Errorf("access coordination requires PostgreSQL and IOT_ACCESS_NODE_URL") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */

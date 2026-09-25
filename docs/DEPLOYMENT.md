@@ -77,6 +77,8 @@ IOT_AI_HARNESS_MODEL=qwen3:1.7b
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
 | Ollama / Weaviate | `11434` / `18080` | 仅容器网络 |
 | 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
+| Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`） |
+| Loki / Alertmanager | `13100` / `19093`（`--include-ops`） | 仅容器网络 |
 
 本地依赖端口默认只绑定 `127.0.0.1`，供本机代码和模拟设备使用；传入 `--dependency-host` 时才开放到依赖机网络。API 设备上报使用运行 Go 的主机地址。Kafka 通过独立 external listener 返回源码机可访问的地址，容器间仍使用 `redpanda:9092`。
 
@@ -139,7 +141,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml log
 docker compose -p iot-platform-online --env-file .env.online -f compose.yaml down
 ```
 
-本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
+本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
@@ -168,6 +170,8 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | 普通用户登录后没有设备或告警 | 当前租户、设备管理菜单、设备访问范围及告警菜单是否均已分配；历史用户默认无设备 |
 | 编辑账户后旧登录返回401 | 修改用户、停用或重置密码会撤销旧会话，需要重新登录 |
 | 工作流失败但 Harness 健康 | API Key、模型可达性和 MCP 回调地址 |
+| 运维中心显示“未配置”或规则、通知只能查看 | API 环境中的 `IOT_OPS_*` 地址与受管文件路径；其他账号还需所在租户列入 `IOT_OPS_TENANTS`，见 [运维中心](OPS_CENTER.md#配置) |
+| 保存规则提示“未确认加载，已恢复” | Prometheus 是否带 `auto-reload-config`、Loki ruler 轮询间隔，以及 API 与组件是否挂载同一规则目录 |
 
 API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储、消息和知识库依赖。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。
 

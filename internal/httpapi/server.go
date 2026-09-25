@@ -28,8 +28,9 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/metrics"    /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"      /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/onboarding" /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/parser"     /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/ports"      /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/opscenter"
+	"iot-platform/internal/parser" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"  /* 执行当前语句并推进处理流程。 */
 
 	"github.com/gin-gonic/gin" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
@@ -57,6 +58,7 @@ type Server struct { /* 定义 Server 类型。 */
 	protocolListeners          protocolCommander         /* 执行当前语句并推进处理流程。 */
 	onboarding                 *onboarding.Service       /* 执行当前语句并推进处理流程。 */
 	events                     *eventSnapshots
+	ops                        *opscenter.Service
 } /* 结束当前表达式或代码块。 */
 
 const healthInspectionCacheTTL = 10 * time.Minute /* 声明 healthInspectionCacheTTL。 */
@@ -103,6 +105,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 func (s *Server) routes() { /* 定义 routes 函数。 */
 	s.accessRoutes() /* 执行当前语句并推进处理流程。 */
 	s.deletionRoutes()
+	s.opsRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))                       /* 执行当前语句并推进处理流程。 */
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))                            /* 执行当前语句并推进处理流程。 */
 	s.deviceOperationsRoutes()                                                                                          /* 执行当前语句并推进处理流程。 */

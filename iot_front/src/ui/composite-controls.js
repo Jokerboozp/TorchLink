@@ -1,6 +1,6 @@
 import { Comment, Fragment, defineComponent, h, ref } from 'vue' /* 从业务插槽提取选择项和菜单项。 */
 import { themeOverrides } from '../theme/naive.js' /* 全站主题由 theme/tokens.css 生成。 */
-import { NCollapse, NCollapseItem, NConfigProvider, NDrawer, NDrawerContent, NDropdown, NModal, NPagination, NSelect, NStep, NSteps, NTabPane, NTabs, NTimePicker, NUpload, NUploadDragger, zhCN, dateZhCN } from 'naive-ui' /* 复合控件全部使用 Naive UI。 */
+import { NCollapse, NCollapseItem, NConfigProvider, NDatePicker, NDrawer, NDrawerContent, NDropdown, NModal, NPagination, NSelect, NStep, NSteps, NTabPane, NTabs, NTimePicker, NUpload, NUploadDragger, zhCN, dateZhCN } from 'naive-ui' /* 复合控件全部使用 Naive UI。 */
 
 function nested(nodes, result = []) { /* 展开 Vue 条件节点与列表片段。 */
   for (const node of nodes || []) { /* 逐个访问插槽节点。 */
@@ -96,6 +96,20 @@ export const UiTimePicker = defineComponent({ /* 静默时段继续使用 HH:mm 
   emits: ['update:modelValue', 'change'], /* 保留设置保存事件。 */
   setup(props, { attrs, emit }) { return () => h(NTimePicker, { ...attrs, class: ['ui-time-picker', attrs.class], formattedValue: props.modelValue || null, format: props.format || 'HH:mm', placeholder: props.placeholder, clearable: props.clearable, disabled: props.disabled, 'onUpdate:formattedValue': value => { emit('update:modelValue', value || ''); emit('change', value || '') } }) } /* 绘制 Naive UI 时间选择器。 */
 }) /* 结束时间选择器适配。 */
+
+export const UiDateRange = defineComponent({ /* 运维中心的自定义时间范围，值为毫秒时间戳数组。 */
+  name: 'UiDateRange', inheritAttrs: false, /* 保留输入样式。 */
+  props: { modelValue: Array, clearable: Boolean, disabled: Boolean, disableFuture: Boolean }, /* 起止时间与是否禁止未来时间。 */
+  emits: ['update:modelValue', 'change'], /* 保留选择回调。 */
+  setup(props, { attrs, emit }) { return () => h(NDatePicker, { ...attrs, class: ['ui-date-range', attrs.class], type: 'datetimerange', value: props.modelValue || null, clearable: props.clearable, disabled: props.disabled, isDateDisabled: props.disableFuture ? ts => ts > Date.now() : undefined, 'onUpdate:value': value => { emit('update:modelValue', value || null); emit('change', value || null) } }) } /* 绘制 Naive UI 日期时间范围选择器。 */
+}) /* 结束日期范围适配。 */
+
+export const UiDateTime = defineComponent({ /* 单个日期时间，值为毫秒时间戳。 */
+  name: 'UiDateTime', inheritAttrs: false, /* 保留输入样式。 */
+  props: { modelValue: Number, clearable: Boolean, disabled: Boolean, disablePast: Boolean, disableFuture: Boolean, placeholder: String }, /* 时间值与可选范围限制。 */
+  emits: ['update:modelValue', 'change'], /* 保留选择回调。 */
+  setup(props, { attrs, emit }) { return () => h(NDatePicker, { ...attrs, class: ['ui-date-time', attrs.class], type: 'datetime', value: props.modelValue ?? null, clearable: props.clearable, disabled: props.disabled, placeholder: props.placeholder, isDateDisabled: props.disablePast ? ts => ts < Date.now() - 86400e3 : props.disableFuture ? ts => ts > Date.now() : undefined, 'onUpdate:value': value => { emit('update:modelValue', value ?? null); emit('change', value ?? null) } }) } /* 绘制 Naive UI 日期时间选择器。 */
+}) /* 结束日期时间适配。 */
 
 export const UiDropdownMenu = defineComponent({ name: 'UiDropdownMenu', setup() { return () => null } }) /* 菜单容器只供下拉组件读取。 */
 export const UiDropdownItem = defineComponent({ name: 'UiDropdownItem', props: { command: String, disabled: Boolean }, setup() { return () => null } }) /* 菜单项只供下拉组件读取。 */

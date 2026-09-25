@@ -1,3 +1,4 @@
+# 与 compose.yaml 中的内联配置保持一致，供其他部署方式参考。
 groups:
   - name: iot-platform
     rules:
@@ -20,8 +21,21 @@ groups:
         expr: increase(ai_analysis_failed_total[15m]) > 10
         for: 5m
         labels: {severity: warning}
-        annotations: {summary: "AI 分析失败率升高"}
+        annotations: {summary: "AI 分析失败量升高"}
       - alert: BackupFailures
-        expr: increase(backup_failed_total[24h]) > 0
+        expr: increase(backup_failed_total[30m]) > 0
+        for: 1m
         labels: {severity: critical}
-        annotations: {summary: "备份任务失败"}
+        annotations: {summary: "备份或恢复演练失败"}
+  - name: infrastructure
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "采集目标 {{ $labels.job }} / {{ $labels.instance }} 不可用"}
+      - alert: HostDiskAlmostFull
+        expr: 100 * (1 - node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) > 90
+        for: 10m
+        labels: {severity: critical}
+        annotations: {summary: "主机根分区使用率超过 90%"}

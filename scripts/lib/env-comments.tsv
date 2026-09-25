@@ -78,3 +78,20 @@ IOT_ACCESS_COORDINATION	使用共享数据库协调多接入实例
 IOT_ACCESS_NODE_URL	其他实例可直达当前实例的固定 HTTP(S) 地址
 IOT_KAFKA_CONSUMER_CONCURRENCY	每个 Kafka 订阅的并行通道数（同一设备保持顺序），1 至 64
 IOT_AI_ANALYSIS_CONCURRENCY	同时进行的告警自动研判数量，建议不超过 Harness 并发，1 至 32
+IOT_OPS_TENANTS	可授予运维中心权限的平台运维租户，多个值用逗号分隔；为空时仅内置管理员可用
+IOT_OPS_PROMETHEUS_URL	运维中心访问 Prometheus 的地址（仅服务端使用）
+IOT_OPS_LOKI_URL	运维中心访问 Loki 的地址（仅服务端使用）
+IOT_OPS_GRAFANA_URL	运维中心访问 Grafana 的地址（仅服务端使用）
+IOT_OPS_GRAFANA_USER	运维中心访问 Grafana 的账号；设置 IOT_OPS_GRAFANA_TOKEN 时优先使用令牌
+IOT_OPS_GRAFANA_PASSWORD	运维中心访问 Grafana 的密码
+IOT_OPS_GRAFANA_TOKEN	运维中心访问 Grafana 的服务账号令牌（推荐）
+IOT_OPS_ALERTMANAGER_URL	运维中心访问 Alertmanager 的地址（仅服务端使用）
+IOT_OPS_PROMETHEUS_RULES_DIR	平台写入 Prometheus 规则文件的共享目录，为空时规则只读
+IOT_OPS_LOKI_RULES_DIR	平台写入 Loki 日志规则的共享目录，为空时日志规则只读
+IOT_OPS_LOKI_RUNTIME_FILE	平台维护 Loki 保留策略的运行时配置文件，为空时保留策略只读
+IOT_OPS_ALERTMANAGER_CONFIG_FILE	平台维护的 Alertmanager 配置文件，为空时通知渠道只读
+IOT_OPS_CONFIG_FILE_MODE	平台写入 Alertmanager 配置文件的权限，源码本地调试为 0644
+IOT_LOG_LOKI_URL	源码运行时 API 直接推送自身日志的 Loki 地址；容器部署留空由采集器收集
+IOT_LOCAL_API_HOST	本地依赖容器访问源码机 API 的主机名，供 Prometheus 采集平台指标
+PROMETHEUS_BIND_ADDRESS	Prometheus 端口绑定地址，默认仅本机 127.0.0.1
+LOKI_RETENTION	Loki 默认日志保留时长，例如 744h

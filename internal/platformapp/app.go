@@ -35,6 +35,8 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/parser"                                /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/ports"                                 /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/protocolruntime"                       /* 执行当前语句并推进处理流程。 */
+
+	"iot-platform/internal/adapters/observability"
 ) /* 结束当前表达式或代码块。 */
 
 func Run(forcedRole string) { /* 定义 Run 函数。 */
@@ -48,12 +50,20 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	if forcedRole != "" { /* 判断条件并选择处理分支。 */
 		cfg.ProcessRole = forcedRole /* 更新 cfg.ProcessRole 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	fatal(log, "validate configuration", cfg.Validate())                                     /* 执行当前语句并推进处理流程。 */
+	fatal(log, "validate configuration", cfg.Validate()) /* 执行当前语句并推进处理流程。 */
+	var logPush *observability.LokiPush
+	if cfg.Ops.LogPushURL != "" {
+		// Host-run processes (local source debugging) ship their own logs; containers
+		// are collected by the log collector and leave this unset.
+		logPush = observability.NewLokiPush(cfg.Ops.LogPushURL, cfg.Ops.LogPushTenant, cfg.Ops.WithDefaults().LogServiceName)
+		log = slog.New(observability.NewTeeHandler(log.Handler(), slog.NewJSONHandler(logPush, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM) /* 更新 cancel 的值。 */
 	defer cancel()                                                                           /* 安排函数结束时执行清理。 */
 	var repo ports.Repository = memory.NewRepository()                                       /* 声明 repo。 */
-	var aiProviderStore ports.AIProviderConfigStore                                          /* 声明 aiProviderStore。 */
-	if store, ok := repo.(ports.AIProviderConfigStore); ok {                                 /* 判断条件并选择处理分支。 */
+	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
+	var aiProviderStore ports.AIProviderConfigStore          /* 声明 aiProviderStore。 */
+	if store, ok := repo.(ports.AIProviderConfigStore); ok { /* 判断条件并选择处理分支。 */
 		aiProviderStore = store /* 更新 aiProviderStore 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	var postgresRaw, clickHouseRaw ports.RawMessageDatabase /* 声明 postgresRaw。 */
@@ -61,9 +71,10 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 		postgresRaw = raw /* 更新 postgresRaw 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	if cfg.PostgresDSN != "" { /* 判断条件并选择处理分支。 */
-		r, err := postgres.New(ctx, cfg.PostgresDSN)               /* 更新 err 的值。 */
-		fatal(log, "initialize postgres", err)                     /* 执行当前语句并推进处理流程。 */
-		repo = r                                                   /* 更新 repo 的值。 */
+		r, err := postgres.New(ctx, cfg.PostgresDSN) /* 更新 err 的值。 */
+		fatal(log, "initialize postgres", err)       /* 执行当前语句并推进处理流程。 */
+		repo = r                                     /* 更新 repo 的值。 */
+		opsPrefs = r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok { /* 判断条件并选择处理分支。 */
 			aiProviderStore = store /* 更新 aiProviderStore 的值。 */
 		} /* 结束当前表达式或代码块。 */
@@ -332,7 +343,10 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	if harness != nil {                     /* 判断条件并选择处理分支。 */
 		api.SetAIWorkflowProvider(harness) /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
-	api.SetProtocolListeners(protocolListeners)                                                                                                                                                          /* 执行当前语句并推进处理流程。 */
+	api.SetProtocolListeners(protocolListeners) /* 执行当前语句并推进处理流程。 */
+	if cfg.ProcessRole != "gateway" {
+		api.SetOpsCenter(newOpsCenter(cfg, opsPrefs, log))
+	}
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute} /* 更新 server 的值。 */
 	if cfg.ProcessRole != "gateway" {                                                                                                                                                                    /* 判断条件并选择处理分支。 */
 		go func() { /* 执行当前语句并推进处理流程。 */
@@ -365,6 +379,11 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	_ = bus.Close()                                                             /* 更新 _ 的值。 */
 	_ = repo.Close()                                                            /* 更新 _ 的值。 */
 	log.Info("iot platform stopped")                                            /* 执行当前语句并推进处理流程。 */
+	if logPush != nil {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		logPush.Close(flushCtx)
+		flushCancel()
+	}
 } /* 结束当前表达式或代码块。 */
 func fatal(log *slog.Logger, msg string, err error) { /* 定义 fatal 函数。 */
 	if err != nil { /* 判断条件并选择处理分支。 */

@@ -25,6 +25,9 @@ var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string { /* 定义 routeMenu 函数。 */
+	if menu, ok := opsRouteMenu(path); ok {
+		return menu
+	}
 	if strings.Contains(path, "/knowledge-binding") { /* 判断条件并选择处理分支。 */
 		return "knowledge" /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -42,6 +45,9 @@ func routeMenu(path string) string { /* 定义 routeMenu 函数。 */
 	return "" /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func routeAction(method, path string) string { /* 定义 routeAction 函数。 */
+	if name, ok := opsActionName(method, path); ok {
+		return name
+	}
 	if method == "POST" && strings.HasSuffix(path, "/device-registry/:id/children") {
 		return "登记子设备"
 	}
@@ -110,7 +116,7 @@ func routeAction(method, path string) string { /* 定义 routeAction 函数。 *
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 func protectedRead(path string) bool { /* 定义 protectedRead 函数。 */
-	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") /* 返回当前处理结果。 */
+	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (s *Server) permissionCatalog() []permissionItem { /* 定义 permissionCatalog 函数。 */
 	items := []permissionItem{}       /* 更新 items 的值。 */
@@ -206,6 +212,9 @@ func allowsRoute(p map[string]bool, method, path string) bool { /* 定义 allows
 	if method == "POST" && path == "/api/v1/onboarding" {
 		path = "/api/v1/device-registry"
 	}
+	if opsSharedRoute(path) {
+		return hasOpsMenu(p)
+	}
 	menu := routeMenu(path) /* 更新 menu 的值。 */
 	if menu == "" {         /* 判断条件并选择处理分支。 */
 		return false /* 返回当前处理结果。 */
@@ -255,7 +264,9 @@ func (s *Server) managedIdentity(r *http.Request, c auth.Claims) (model.Platform
 	} /* 结束当前表达式或代码块。 */
 	for _, u := range state.Users { /* 循环处理当前数据。 */
 		if u.Username == c.Username && u.Enabled && u.SessionVersion == c.SessionVersion { /* 判断条件并选择处理分支。 */
-			return resolveUserDeviceScope(state, u), effectivePermissions(state, u), nil /* 返回当前处理结果。 */
+			permissions := effectivePermissions(state, u)
+			s.stripOpsPermissions(c.TenantID, permissions)
+			return resolveUserDeviceScope(state, u), permissions, nil /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	return model.PlatformUser{}, nil, errors.New("account disabled or session revoked") /* 返回当前处理结果。 */
@@ -265,7 +276,7 @@ func (s *Server) accessRoutes() { /* 定义 accessRoutes 函数。 */
 	s.router.GET("/api/v1/access/device-options", s.authorize("admin"), s.endpoint(s.accessDeviceOptions))                     /* 执行当前语句并推进处理流程。 */
 	s.router.GET("/api/v1/auth/me", s.authorize("viewer"), s.endpoint(s.currentIdentity))                                      /* 执行当前语句并推进处理流程。 */
 	s.router.GET("/api/v1/access/permissions", s.authorize("admin"), s.endpoint(func(w http.ResponseWriter, r *http.Request) { /* 执行当前语句并推进处理流程。 */
-		write(w, 200, map[string]any{"items": s.permissionCatalog()}) /* 执行当前语句并推进处理流程。 */
+		write(w, 200, map[string]any{"items": s.permissionCatalogFor(claims(r).TenantID)}) /* 执行当前语句并推进处理流程。 */
 	})) /* 结束当前表达式或代码块。 */
 	s.router.GET("/api/v1/access/users", s.authorize("admin"), s.endpoint(s.accessList))                              /* 执行当前语句并推进处理流程。 */
 	s.router.GET("/api/v1/access/roles", s.authorize("admin"), s.endpoint(s.accessList))                              /* 执行当前语句并推进处理流程。 */
@@ -332,7 +343,7 @@ func (s *Server) accessList(w http.ResponseWriter, r *http.Request) { /* 定义 
 		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	// Stored roles may still name routes that were removed or merged.
-	known := s.knownPermissions()
+	known := s.knownPermissionsFor(claims(r).TenantID)
 	for i := range state.Roles {
 		state.Roles[i].Permissions = keepKnown(state.Roles[i].Permissions, known)
 	}
@@ -435,7 +446,7 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) { /* 定
 		problem(w, 422, "用户名须为3至64位字母、数字、点、横线或下划线，且不能使用内置管理员名称") /* 执行当前语句并推进处理流程。 */
 		return                                                   /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if !s.validPermissions(in.Permissions) { /* 判断条件并选择处理分支。 */
+	if !s.validPermissionsFor(claims(r).TenantID, in.Permissions) { /* 判断条件并选择处理分支。 */
 		problem(w, 422, "存在无效权限") /* 执行当前语句并推进处理流程。 */
 		return                    /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -565,7 +576,7 @@ func (s *Server) accessSaveRole(w http.ResponseWriter, r *http.Request) { /* 定
 	if id := r.PathValue("id"); id != "" { /* 判断条件并选择处理分支。 */
 		role.ID = id /* 更新 role.ID 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	if !identityPattern.MatchString(role.ID) || strings.TrimSpace(role.Name) == "" || !s.validPermissions(role.Permissions) { /* 判断条件并选择处理分支。 */
+	if !identityPattern.MatchString(role.ID) || strings.TrimSpace(role.Name) == "" || !s.validPermissionsFor(claims(r).TenantID, role.Permissions) { /* 判断条件并选择处理分支。 */
 		problem(w, 422, "请填写有效角色标识、名称及权限") /* 执行当前语句并推进处理流程。 */
 		return                             /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
