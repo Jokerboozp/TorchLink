@@ -28,6 +28,7 @@
 | [接收可靠性](DEVICE_RECEIVE_RELIABILITY.md) | 部件告警、MQTT 持久队列和接收确认 |
 | [摄像头与视频事件](VIDEO_SDK_ADAPTER.md) | 摄像头关联与外部视频事件 |
 | [AI 工作流](AI_PLUGIN_HARNESS.md) | Harness、模型、知识检索、MCP 与权限 |
+| [容量压测方案](CAPACITY_TEST_PLAN.md) | 端到端压测场景、观测项与记录模板 |
 | [Harness 服务](../deploy/deepseek-harness/README.md) | 独立服务配置、接口与平台授权边界 |
 | [Dify 原生应用](../deploy/dify/README.md) | IoT Workflow/Chatflow、原生 Agent 与 Skills 对比及接入权限 |
 
