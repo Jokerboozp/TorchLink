@@ -40,6 +40,7 @@ bash ./scripts/setup-local.sh
 | 使用本地 Ollama 对话模型 | `-IncludeAi` | `--include-ai` |
 | 只准备依赖，不下载源码依赖 | `-SkipCodeDeps` | `--skip-code-deps` |
 | 临时运行容器版备份服务 | `-IncludeBackup` | `--include-backup` |
+| 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
 
 源码方案默认使用 DeepSeek API：在 `.env.local` 填写 `DEEPSEEK_API_KEY` 后重跑准备脚本，使 Harness 加载配置；使用本地模型则加 `--include-ai` / `-IncludeAi`。在线与离线方案默认使用 Ollama `qwen3:1.7b`，具体地址和模型切换见 [AI 配置](DEPLOYMENT.md#ai-与工作流)。
 
@@ -128,6 +129,7 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 | 添加设备、上报、凭据和命令 | [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) |
 | Go 协议与主子设备 | [协议包](GO_PROTOCOL_PACKAGES.md) · [TCP 接入](TCP_CHILD_DEVICE_ACCESS.md) |
 | 用户、角色、菜单按钮和设备范围 | [用户权限](USER_ACCESS_CONTROL.md) |
+| 指标、日志、仪表盘、监控告警与通知 | [运维中心](OPS_CENTER.md) |
 | 全部专题 | [文档索引](README.md) |
 | 拆分 API / Gateway | [独立接入进程](EDGE_AND_GATEWAY.md) |
 | 升级旧节点、拓扑和影子配置 | [旧版本迁移](DEPLOYMENT.md#旧版本迁移) |
@@ -176,6 +178,7 @@ Go 协议的 ingress、decode、encode 逐次启动 Worker；Kafka 每个订阅�
 | `cmd/iot-platform/`、`internal/platformapp/` | API 启动和依赖装配 |
 | `internal/httpapi/`、`internal/core/`、`internal/adapters/` | 接口、业务、外部存储与服务 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | 协议编译、连接运行时和 Worker |
+| `internal/opscenter/`、`internal/adapters/observability/` | [运维中心](OPS_CENTER.md) 业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
 | `iot_front/` | [Vue 管理端](../iot_front/README.md)；[列表与分页](#列表与分页) |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的协议 module |
 | `scripts/`、`deploy/`、`compose*.yaml` | 准备、部署与打包配置 |

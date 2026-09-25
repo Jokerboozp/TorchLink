@@ -1,0 +1,49 @@
+// 与 compose.yaml 中的内联配置保持一致，供其他部署方式参考。
+discovery.docker "compose" {
+  host = "unix:///var/run/docker.sock"
+  // compose.yaml 中按实际 Compose 项目名（COMPOSE_PROJECT_NAME）替换。
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=iot-platform"]
+  }
+}
+
+discovery.relabel "compose" {
+  targets = discovery.docker.compose.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "compose" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.compose.output
+  forward_to = [loki.process.levels.receiver]
+}
+
+// 统一 JSON 与 logfmt 日志的级别，作为低基数的 level 标签。
+loki.process "levels" {
+  stage.regex {
+    expression = "(?i)(?:\"level\"\\s*:\\s*\"|\\blevel=\"?)(?P<level>[a-z]+)"
+  }
+  stage.template {
+    source   = "level"
+    template = "{{ $l := ToLower .Value }}{{ if or (eq $l \"warn\") (eq $l \"warning\") }}warn{{ else if or (eq $l \"error\") (eq $l \"err\") }}error{{ else if or (eq $l \"fatal\") (eq $l \"panic\") (eq $l \"crit\") (eq $l \"critical\") }}fatal{{ else if or (eq $l \"debug\") (eq $l \"trace\") }}debug{{ else if or (eq $l \"info\") (eq $l \"notice\") }}info{{ else }}unknown{{ end }}"
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

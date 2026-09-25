@@ -17,6 +17,7 @@ import ( /* 引入当前代码需要的依赖。 */
 var ErrNotFound = model.ErrNotFound /* 声明 ErrNotFound。 */
 
 type Repository struct { /* 定义 Repository 类型。 */
+	opsItems            map[string]model.OpsUserItem
 	accessStates        map[string][]byte                         /* 执行当前语句并推进处理流程。 */
 	componentAlarms     map[string]model.ComponentAlarmState      /* 执行当前语句并推进处理流程。 */
 	rawReservations     map[string]rawReservation                 /* 执行当前语句并推进处理流程。 */

@@ -585,6 +585,20 @@ CREATE TABLE IF NOT EXISTS platform_access (
 -- 继续当前数据库语句。
 );
 
+-- Ops center preferences are private to one account in one tenant.
+CREATE TABLE IF NOT EXISTS ops_user_item (
+ tenant_id text NOT NULL,
+ username text NOT NULL,
+ kind text NOT NULL,
+ id text NOT NULL,
+ name text NOT NULL DEFAULT '',
+ body jsonb NOT NULL DEFAULT '{}'::jsonb,
+ created_at bigint NOT NULL,
+ updated_at bigint NOT NULL,
+ PRIMARY KEY (tenant_id, username, kind, id)
+);
+CREATE INDEX IF NOT EXISTS idx_ops_user_item_recent ON ops_user_item(tenant_id, username, kind, updated_at DESC);
+
 -- Platform connection fields moved from device tags to top-level body keys.
 -- Existing top-level values win; the statement is idempotent.
 UPDATE device_registry SET body = (body || jsonb_strip_nulls(jsonb_build_object(

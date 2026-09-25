@@ -65,9 +65,23 @@ services:
       IOT_WEAVIATE_URL: ${IOT_WEAVIATE_URL:-http://weaviate:8080}
       IOT_BACKUP_URL: ${IOT_BACKUP_URL:-http://backup-service:8090}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
+      # 运维中心：组件地址和凭据只在服务端使用；规则与通知配置通过共享卷交给组件加载。
+      IOT_OPS_PROMETHEUS_URL: ${IOT_OPS_PROMETHEUS_URL:-http://prometheus:9090}
+      IOT_OPS_LOKI_URL: ${IOT_OPS_LOKI_URL:-http://loki:3100}
+      IOT_OPS_GRAFANA_URL: ${IOT_OPS_GRAFANA_URL:-http://grafana:3000}
+      IOT_OPS_GRAFANA_TOKEN: ${IOT_OPS_GRAFANA_TOKEN:-}
+      IOT_OPS_GRAFANA_USER: ${GRAFANA_ADMIN_USER:-admin}
+      IOT_OPS_GRAFANA_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin-change-me}
+      IOT_OPS_ALERTMANAGER_URL: ${IOT_OPS_ALERTMANAGER_URL:-http://alertmanager:9093}
+      IOT_OPS_PROMETHEUS_RULES_DIR: /app/ops/prometheus-rules
+      IOT_OPS_LOKI_RULES_DIR: /app/ops/loki/rules/fake
+      IOT_OPS_LOKI_RUNTIME_FILE: /app/ops/loki/runtime.yaml
+      IOT_OPS_ALERTMANAGER_CONFIG_FILE: /app/ops/alertmanager/alertmanager.yml
+      IOT_OPS_TENANTS: ${IOT_OPS_TENANTS:-}
     ports: ["${IOT_API_PORT:-8081}:8080", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/tcp", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"]
-    volumes: ["platform-data:/app/data"]
+    volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager"]
     depends_on:
+      ops-init: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       minio: {condition: service_healthy}
@@ -262,15 +276,38 @@ services:
       timeout: 5s
       retries: 15
 
+  # 运维中心写入的规则、Loki 运行时配置和 Alertmanager 配置所在共享卷的初始化。
+  ops-init:
+    image: alpine:3.22
+    restart: "no"
+    networks: [iot]
+    volumes: ["prometheus-rules:/ops/prometheus-rules", "loki-ops:/ops/loki", "alertmanager-config:/ops/alertmanager"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /ops/prometheus-rules /ops/loki/rules/fake /ops/alertmanager
+        [ -f /ops/loki/runtime.yaml ] || printf 'overrides: {}\n' > /ops/loki/runtime.yaml
+        if [ ! -f /ops/alertmanager/alertmanager.yml ]; then
+          printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' '  group_wait: 30s' '  group_interval: 5m' '  repeat_interval: 4h' 'receivers:' '  - name: platform-null' > /ops/alertmanager/alertmanager.yml
+        fi
+        chown -R 65532:65532 /ops/prometheus-rules /ops/loki
+        chmod 0755 /ops/prometheus-rules /ops/loki /ops/loki/rules /ops/loki/rules/fake
+        chown -R 65532:65534 /ops/alertmanager
+        chmod 2750 /ops/alertmanager
+        chmod 0640 /ops/alertmanager/alertmanager.yml
+
   prometheus:
     <<: *service-defaults
     image: prom/prometheus:v3.5.0
-    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}"]
+    # 规则目录变化由 auto-reload-config 自动加载，不开放 /-/reload 与 /-/quit 管理接口。
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}", "--enable-feature=auto-reload-config", "--config.auto-reload-interval=5s"]
     configs:
       - {source: prometheus-main, target: /etc/prometheus/prometheus.yml}
       - {source: prometheus-alerts, target: /etc/prometheus/alerts.yml}
-    volumes: ["prometheus-data:/prometheus"]
-    ports: ["${PROMETHEUS_PORT:-9090}:9090"]
+    volumes: ["prometheus-data:/prometheus", "prometheus-rules:/etc/prometheus/rules:ro"]
+    ports: ["${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"]
+    depends_on:
+      ops-init: {condition: service_completed_successfully}
 
   grafana:
     <<: *service-defaults
@@ -279,6 +316,8 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin-change-me}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # 基础设施告警只由 Prometheus / Loki ruler 评估、Alertmanager 通知，避免重复。
+      GF_UNIFIED_ALERTING_ENABLED: "false"
     configs:
       - {source: grafana-datasources, target: /etc/grafana/provisioning/datasources/iot.yml}
     volumes: ["grafana-data:/var/lib/grafana"]
@@ -293,7 +332,42 @@ services:
     command: ["-config.file=/etc/loki/local-config.yaml"]
     configs:
       - {source: loki-main, target: /etc/loki/local-config.yaml}
-    volumes: ["loki-data:/loki"]
+    volumes: ["loki-data:/loki", "loki-ops:/etc/loki/ops:ro"]
+    depends_on:
+      ops-init: {condition: service_completed_successfully}
+
+  alertmanager:
+    <<: *service-defaults
+    image: prom/alertmanager:v0.34.1
+    command: ["--config.file=/etc/alertmanager/ops/alertmanager.yml", "--storage.path=/alertmanager", "--cluster.listen-address="]
+    volumes: ["alertmanager-config:/etc/alertmanager/ops:ro", "alertmanager-data:/alertmanager"]
+    depends_on:
+      ops-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9093/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # 采集本 Compose 项目所有容器的标准输出日志并写入 Loki。docker.sock 只读挂载，
+  # 但 Docker API 本身不区分读写，Alloy 不发布端口，仅在内部网络运行。
+  alloy:
+    <<: *service-defaults
+    image: grafana/alloy:v1.20.0
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
+    configs:
+      - {source: alloy-main, target: /etc/alloy/config.alloy}
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro", "alloy-data:/var/lib/alloy/data"]
+    depends_on:
+      loki: {condition: service_started}
+
+  node-exporter:
+    <<: *service-defaults
+    image: prom/node-exporter:v1.12.1
+    command: ["--path.rootfs=/host"]
+    pid: host
+    # 不使用 rslave 传播，兼容根挂载非 shared 的主机；容器启动后新增的挂载点不会被发现。
+    volumes: ["/:/host:ro"]
 
   backup-service:
     <<: *service-defaults
@@ -375,6 +449,11 @@ configs:
         evaluation_interval: 15s
       rule_files:
         - /etc/prometheus/alerts.yml
+        - /etc/prometheus/rules/*.yml
+      alerting:
+        alertmanagers:
+          - static_configs:
+              - targets: ["alertmanager:9093"]
       scrape_configs:
         - job_name: iot-platform
           metrics_path: /metrics
@@ -392,6 +471,24 @@ configs:
           metrics_path: /api/v5/prometheus/stats
           static_configs:
             - targets: ["emqx:18083"]
+        - job_name: prometheus
+          static_configs:
+            - targets: ["localhost:9090"]
+        - job_name: node
+          static_configs:
+            - targets: ["node-exporter:9100"]
+        - job_name: loki
+          static_configs:
+            - targets: ["loki:3100"]
+        - job_name: alertmanager
+          static_configs:
+            - targets: ["alertmanager:9093"]
+        - job_name: grafana
+          static_configs:
+            - targets: ["grafana:3000"]
+        - job_name: alloy
+          static_configs:
+            - targets: ["alloy:12345"]
   prometheus-alerts:
     content: |
       groups:
@@ -422,6 +519,18 @@ configs:
               for: 1m
               labels: {severity: critical}
               annotations: {summary: "备份或恢复演练失败"}
+        - name: infrastructure
+          rules:
+            - alert: ScrapeTargetDown
+              expr: up == 0
+              for: 2m
+              labels: {severity: warning}
+              annotations: {summary: "采集目标 {{ $$labels.job }} / {{ $$labels.instance }} 不可用"}
+            - alert: HostDiskAlmostFull
+              expr: 100 * (1 - node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) > 90
+              for: 10m
+              labels: {severity: critical}
+              annotations: {summary: "主机根分区使用率超过 90%"}
   grafana-datasources:
     content: |
       apiVersion: 1
@@ -459,6 +568,78 @@ configs:
             index:
               prefix: index_
               period: 24h
+      # 日志告警规则由运维中心写入 /etc/loki/ops/rules/fake，ruler 每 10 秒加载一次。
+      ruler:
+        storage:
+          type: local
+          local:
+            directory: /etc/loki/ops/rules
+        rule_path: /loki/rules-temp
+        alertmanager_url: http://alertmanager:9093
+        enable_api: true
+        poll_interval: 10s
+        ring:
+          kvstore:
+            store: inmemory
+      # 保留与删除由 compactor 执行；按租户覆盖的保留设置在运行时配置中维护。
+      compactor:
+        working_directory: /loki/compactor
+        retention_enabled: true
+        delete_request_store: filesystem
+      limits_config:
+        retention_period: ${LOKI_RETENTION:-744h}
+      runtime_config:
+        file: /etc/loki/ops/runtime.yaml
+        period: 10s
+  alloy-main:
+    content: |
+      discovery.docker "compose" {
+        host = "unix:///var/run/docker.sock"
+        filter {
+          name   = "label"
+          values = ["com.docker.compose.project=${COMPOSE_PROJECT_NAME:-iot-platform}"]
+        }
+      }
+
+      discovery.relabel "compose" {
+        targets = discovery.docker.compose.targets
+        rule {
+          source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+          target_label  = "service_name"
+        }
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/(.*)"
+          target_label  = "container"
+        }
+      }
+
+      loki.source.docker "compose" {
+        host       = "unix:///var/run/docker.sock"
+        targets    = discovery.relabel.compose.output
+        forward_to = [loki.process.levels.receiver]
+      }
+
+      // 统一 JSON 与 logfmt 日志的级别，作为低基数的 level 标签。
+      loki.process "levels" {
+        stage.regex {
+          expression = "(?i)(?:\"level\"\\s*:\\s*\"|\\blevel=\"?)(?P<level>[a-z]+)"
+        }
+        stage.template {
+          source   = "level"
+          template = "{{ $$l := ToLower .Value }}{{ if or (eq $$l \"warn\") (eq $$l \"warning\") }}warn{{ else if or (eq $$l \"error\") (eq $$l \"err\") }}error{{ else if or (eq $$l \"fatal\") (eq $$l \"panic\") (eq $$l \"crit\") (eq $$l \"critical\") }}fatal{{ else if or (eq $$l \"debug\") (eq $$l \"trace\") }}debug{{ else if or (eq $$l \"info\") (eq $$l \"notice\") }}info{{ else }}unknown{{ end }}"
+        }
+        stage.labels {
+          values = { level = "" }
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki:3100/loki/api/v1/push"
+        }
+      }
 
 networks:
   iot:
@@ -478,6 +659,11 @@ volumes:
   prometheus-data: {}
   grafana-data: {}
   loki-data: {}
+  loki-ops: {}
+  prometheus-rules: {}
+  alertmanager-config: {}
+  alertmanager-data: {}
+  alloy-data: {}
   backup-staging: {}
   ollama-data: {}
   weaviate-data: {}

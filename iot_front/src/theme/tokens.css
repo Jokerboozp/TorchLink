@@ -84,6 +84,20 @@
   --info-border: #c6d7e9;
   --neutral-dot: var(--gray-400);
 
+  /* 运维中心图表序列色：低饱和的暖色体系，保证相邻序列可区分。 */
+  --chart-1: #b8573a;
+  --chart-2: #3d6d9e;
+  --chart-3: #2f7d4f;
+  --chart-4: #a8650f;
+  --chart-5: #7b5ea7;
+  --chart-6: #2a8583;
+  --chart-7: #a8456a;
+  --chart-8: #6b6a64;
+  --chart-9: #7d7a2c;
+  --chart-10: #c27a4a;
+  --chart-grid: var(--gray-150);
+  --chart-axis: var(--gray-500);
+
   /* 代码与报文：暖炭黑底。 */
   --code-bg: #262624;
   --code-text: #ece9df;

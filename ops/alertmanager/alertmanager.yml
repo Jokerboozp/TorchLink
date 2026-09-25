@@ -1,0 +1,10 @@
+# 初始 Alertmanager 配置：部署时由 ops-init 写入共享卷（已存在则保留）。
+# 接收人、渠道与路由之后由运维中心“监控告警 → 通知渠道”维护。
+route:
+  receiver: platform-null
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: platform-null

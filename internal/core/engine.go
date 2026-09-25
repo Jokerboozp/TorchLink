@@ -305,6 +305,9 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error { /* 定义 hand
 		// no parsed Kafka or MQTT message is emitted.
 		return nil /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	if e.Metrics != nil {
+		e.Metrics.Inc("parse_success_total")
+	}
 	out, _ := json.Marshal(msg)        /* 更新 _ 的值。 */
 	topic := model.TopicPropertyReport /* 更新 topic 的值。 */
 	switch msg.MessageType {           /* 根据条件选择处理路径。 */

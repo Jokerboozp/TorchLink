@@ -12,6 +12,7 @@
 .section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
 .section-toolbar > strong { font-size: var(--font-size-md); }
 .table-actions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; }
+.table-actions--start { justify-content: flex-start; }
 .ui-table .ui-button:not(.ui-button--text) { height: 28px; min-height: 28px; padding: 0 10px; font-size: var(--font-size-sm); }
 .ui-table b { font-weight: var(--font-weight-medium); }
 .app-content .ui-alert + .ui-alert { margin-top: var(--space-3); }

@@ -1,10 +1,46 @@
+# 与 compose.yaml 中的内联配置保持一致，供其他部署方式参考。
 auth_enabled: false
-server: {http_listen_port: 3100}
+server:
+  http_listen_port: 3100
 common:
   path_prefix: /loki
-  storage: {filesystem: {chunks_directory: /loki/chunks, rules_directory: /loki/rules}}
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
   replication_factor: 1
-  ring: {kvstore: {store: inmemory}}
+  ring:
+    kvstore:
+      store: inmemory
 schema_config:
   configs:
-    - {from: "2024-01-01", store: tsdb, object_store: filesystem, schema: v13, index: {prefix: index_, period: 24h}}
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+# 日志告警规则由运维中心写入 /etc/loki/ops/rules/fake，ruler 每 10 秒加载一次。
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /etc/loki/ops/rules
+  rule_path: /loki/rules-temp
+  alertmanager_url: http://alertmanager:9093
+  enable_api: true
+  poll_interval: 10s
+  ring:
+    kvstore:
+      store: inmemory
+# 保留与删除由 compactor 执行；按租户覆盖的保留设置在运行时配置中维护。
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+limits_config:
+  retention_period: 744h
+runtime_config:
+  file: /etc/loki/ops/runtime.yaml
+  period: 10s

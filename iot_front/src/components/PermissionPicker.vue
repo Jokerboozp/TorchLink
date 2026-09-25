@@ -9,7 +9,7 @@ const sections = computed(() => permissionSections.map(section => ({
     const menu = props.catalog.find(item => item.kind === 'menu' && item.menu === id)
     return menu ? [{ ...menu, actions: props.catalog.filter(item => item.kind === 'action' && item.menu === id) }] : []
   })
-})))
+})).filter(section => section.groups.length))
 function choose(group, level) { emit('update:modelValue', applyFeatureLevel(group, props.modelValue, level)) }
 function toggle(id, checked) { emit('update:modelValue', checked ? [...new Set([...props.modelValue, id])] : props.modelValue.filter(value => value !== id)) }
 </script>
