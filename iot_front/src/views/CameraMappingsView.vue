@@ -131,5 +131,5 @@ onMounted(async () => { await load(); consumeNavigationAction() }) /* 执行当�
 <style scoped>
 .camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}.camera-editor-section h3{margin:0;color:var(--accent-foreground);font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:var(--accent-foreground);font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
 @media(max-width:640px){.camera-editor-section{padding:13px}}
-:deep(.el-table .camera-highlight > td) { background:var(--surface-subtle) !important; } /* 设置  样式。 */
+:deep(.ui-table .camera-highlight > td) { background:var(--surface-subtle) !important; } /* 设置  样式。 */
 </style>

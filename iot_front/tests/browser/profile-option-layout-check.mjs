@@ -47,13 +47,13 @@ try {
     return result.result.value
   }
   const clickMenu = async label => {
-    await until(() => evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(label)}]')?.getClientRects().length`), `${label}菜单`)
-    await evaluate(`document.querySelector('.menu-item[aria-label=${JSON.stringify(label)}]').click()`)
+    await until(() => evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(label)}]')?.getClientRects().length`), `${label}菜单`)
+    await evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(label)}]').click()`)
     await until(() => evaluate(`document.querySelector('.page-context h1')?.textContent === ${JSON.stringify(label)}`), `${label}页面`)
   }
   const clickButton = async label => {
-    await until(() => evaluate(`[...document.querySelectorAll('.main-content button')].some(button => button.getClientRects().length && button.textContent.trim() === ${JSON.stringify(label)})`), `${label}按钮`)
-    await evaluate(`[...document.querySelectorAll('.main-content button')].find(button => button.getClientRects().length && button.textContent.trim() === ${JSON.stringify(label)}).click()`)
+    await until(() => evaluate(`[...document.querySelectorAll('.app-content button')].some(button => button.getClientRects().length && button.textContent.trim() === ${JSON.stringify(label)})`), `${label}按钮`)
+    await evaluate(`[...document.querySelectorAll('.app-content button')].find(button => button.getClientRects().length && button.textContent.trim() === ${JSON.stringify(label)}).click()`)
     await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(item => item.getClientRects().length && getComputedStyle(item).visibility !== 'hidden'))"), `${label}弹窗`)
     await delay(400)
   }

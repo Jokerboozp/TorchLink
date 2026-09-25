@@ -291,40 +291,31 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 </template>
 
 <style scoped>
-:global(.device-connection-drawer .el-drawer__header) { margin-bottom:0; padding:20px 24px; border-bottom:1px solid var(--border); color:var(--accent-foreground); background:var(--card); } /* 设置  样式。 */
-:global(.device-connection-drawer .el-drawer__body) { background:var(--surface-subtle); padding:20px; } /* 设置  样式。 */
-.device-connection { min-width:0; color:var(--text-strong); font-size:13px; line-height:1.6; } /* 定义当前元素的样式规则。 */
-.connection-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; } /* 定义当前元素的样式规则。 */
-.connection-toolbar > div { min-width:0; } /* 定义当前元素的样式规则。 */
-.connection-toolbar strong { display:block; font-size:17px; color:var(--text-strong); } /* 定义当前元素的样式规则。 */
-.connection-toolbar small { display:block; overflow-wrap:anywhere; color:var(--accent-foreground); } /* 定义当前元素的样式规则。 */
-.connection-section { min-width:0; margin:0 0 16px; padding:18px; border:1px solid var(--border); border-radius:8px; background:var(--card); } /* 定义当前元素的样式规则。 */
-.connection-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:20px; }
-.connection-status-grid > div { min-width:0; padding:11px 13px; border:1px solid var(--border); border-radius:7px; background:var(--surface-subtle); }
-.connection-status-grid span { display:block; margin-bottom:4px; color:var(--accent-foreground); font-size:12px; }
-.connection-status-grid strong { display:block; color:var(--accent-foreground); font-size:14px; line-height:1.45; overflow-wrap:anywhere; }
-.connection-subtitle { margin:0 0 10px; color:var(--accent-foreground); font-size:13px; font-weight:650; }
-h3 { display:flex; flex-wrap:wrap; gap:8px; align-items:baseline; margin:0 0 14px; font-size:14px; font-weight:650; line-height:1.5; color:var(--accent-foreground); } /* 设置 h3 { display 样式。 */
-h3 small { font-size:13px; font-weight:400; color:var(--accent-foreground); } /* 设置 h3 small { font-size 样式。 */
-p { margin:10px 0; color:var(--accent-foreground); overflow-wrap:anywhere; } /* 设置 p { margin 样式。 */
-code,.field-value { color:inherit; font:inherit; overflow-wrap:anywhere; word-break:break-word; white-space:pre-wrap; } /* 设置 code,.field-value { color 样式。 */
-pre { max-height:320px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--surface-subtle); border:1px solid var(--border); border-radius:6px; padding:12px; color:var(--accent-foreground); margin:12px 0 0; } /* 设置 pre { max-height 样式。 */
-.section-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; } /* 定义当前元素的样式规则。 */
-.section-actions :deep(.el-button + .el-button) { margin-left:0; } /* 定义当前元素的样式规则。 */
-.section-feedback,.profile-picker,.message-detail { margin-top:14px; } /* 定义当前元素的样式规则。 */
-:deep(.el-descriptions__table) { table-layout:fixed; } /* 设置  样式。 */
-:deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:120px; background:var(--surface-subtle); color:var(--accent-foreground); font-weight:500; } /* 设置  样式。 */
-:deep(.el-descriptions__content.el-descriptions__cell.is-bordered-content) { background:var(--card); color:var(--accent-foreground); overflow-wrap:anywhere; } /* 设置  样式。 */
-:deep(.el-descriptions__cell) { padding:10px 12px !important; border-color:var(--border) !important; } /* 设置  样式。 */
-:deep(.el-pagination) { margin-top:12px; justify-content:flex-end; } /* 设置  样式。 */
-:deep(.el-collapse-item__header) { font-size:13px; font-weight:600; color:var(--accent-foreground); } /* 设置  样式。 */
-@media (max-width:640px) { /* 按屏幕条件调整样式。 */
-  :global(.device-connection-drawer .el-drawer__header) { padding:16px; } /* 设置  样式。 */
-  :global(.device-connection-drawer .el-drawer__body) { padding:12px; } /* 设置  样式。 */
-  .connection-section { padding:12px; margin-bottom:12px; } /* 定义当前元素的样式规则。 */
-  .connection-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; margin-bottom:16px; }
-  .connection-status-grid > div { padding:9px; }
-  :deep(.el-descriptions__label.el-descriptions__cell.is-bordered-label) { width:100px; } /* 设置  样式。 */
-  :deep(.el-descriptions__cell) { padding:9px !important; } /* 设置  样式。 */
-} /* 结束当前样式规则。 */
+.device-connection { min-width:0; color:var(--text); font-size:var(--font-size-sm); line-height:var(--line-height-normal); }
+.connection-toolbar { display:flex; align-items:center; justify-content:space-between; gap:var(--space-4); margin-bottom:var(--space-4); }
+.connection-toolbar > div { min-width:0; }
+.connection-toolbar strong { display:block; color:var(--text-strong); font-size:var(--font-size-lg); font-weight:var(--font-weight-semibold); }
+.connection-toolbar small { display:block; color:var(--text-muted); font-family:var(--font-mono); font-size:var(--font-size-xs); overflow-wrap:anywhere; }
+.connection-section { min-width:0; margin:0 0 var(--space-4); padding:var(--space-4) var(--space-5); background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); }
+.connection-status-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-2); margin-bottom:var(--space-5); }
+.connection-status-grid > div { min-width:0; padding:10px var(--space-3); background:var(--surface-muted); border:1px solid var(--border); border-radius:var(--radius-md); }
+.connection-status-grid span { display:block; margin-bottom:2px; color:var(--text-muted); font-size:var(--font-size-xs); }
+.connection-status-grid strong { display:block; color:var(--text-strong); font-size:var(--font-size-md); font-weight:var(--font-weight-semibold); line-height:var(--line-height-tight); overflow-wrap:anywhere; }
+.connection-subtitle { margin:0 0 10px; color:var(--text-strong); font-size:var(--font-size-sm); font-weight:var(--font-weight-semibold); }
+h3 { display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--space-2); margin:0 0 var(--space-3); color:var(--text-strong); font-size:var(--font-size-md); font-weight:var(--font-weight-semibold); line-height:1.5; }
+h3 small { color:var(--text-muted); font-size:var(--font-size-xs); font-weight:400; }
+p { margin:10px 0; color:var(--text-secondary); overflow-wrap:anywhere; }
+code, .field-value { overflow-wrap:anywhere; word-break:break-word; white-space:pre-wrap; }
+.field-value { color:inherit; font:inherit; }
+pre { max-height:320px; margin:var(--space-3) 0 0; }
+.section-actions { display:flex; flex-wrap:wrap; gap:var(--space-2); margin-top:var(--space-3); }
+.section-feedback, .profile-picker, .message-detail { margin-top:var(--space-3); }
+:deep(.n-descriptions-table) { table-layout:fixed; }
+:deep(.n-descriptions-table-header) { width:120px; }
+:deep(.ui-pagination) { margin-top:var(--space-3); justify-content:flex-end; }
+@media (max-width:767px) {
+  .connection-section { padding:var(--space-3); margin-bottom:var(--space-3); }
+  .connection-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:var(--space-4); }
+  :deep(.n-descriptions-table-header) { width:96px; }
+}
 </style>

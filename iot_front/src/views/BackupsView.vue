@@ -241,7 +241,7 @@ function removeBackup(row) { return confirmDelete({ label:row.id, path:`/api/v1/
 
 <style scoped>
 .backups-toolbar { flex-wrap: wrap; } /* 定义当前元素的样式规则。 */
-.backups-toolbar .el-select { width: 150px; } /* 定义当前元素的样式规则。 */
+.backups-toolbar .ui-select { width: 150px; } /* 定义当前元素的样式规则。 */
 .toolbar-hint { color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
 .muted-text { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; } /* 定义当前元素的样式规则。 */
@@ -250,7 +250,7 @@ function removeBackup(row) { return confirmDelete({ label:row.id, path:`/api/v1/
 .backup-stat-grid span { color: var(--foreground); font-size: 13px; font-weight: 700; line-height: 1.3; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid strong { color: var(--ink); font-size: 28px; line-height: 1.1; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid small { color: var(--accent-foreground); font-size: 12px; line-height: 1.5; } /* 定义当前元素的样式规则。 */
-.backup-table-card :deep(.el-table) { min-height: 280px; } /* 定义当前元素的样式规则。 */
+.backup-table-card :deep(.ui-table) { min-height: 280px; } /* 定义当前元素的样式规则。 */
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; } /* 定义当前元素的样式规则。 */
 .section-heading strong, .section-heading span { display: block; } /* 定义当前元素的样式规则。 */
 .section-heading span { color: var(--muted-foreground); margin-top: 4px; } /* 备份详情说明文字在白底上保持可读。 */

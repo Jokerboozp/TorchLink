@@ -10,6 +10,12 @@ import { label, parsers } from '../labels' /* 引入当前代码需要的依赖�
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, download, formatTime, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
 import { confirmDelete } from '../deleteAction'
+import { Plus, RefreshCw, Upload, Wand2 } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import FilterBar from '../components/layout/FilterBar.vue'
+import RowActions from '../components/layout/RowActions.vue'
+import StatusDot from '../components/layout/StatusDot.vue'
+import { runtimeStatusTones, tone } from '../labels'
 import { can } from '../permissions' /* 根据当前账号权限决定版本详情中的可用操作。 */
 
 const protocols = ref([]) /* 声明 protocols。 */
@@ -160,58 +166,65 @@ function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ER
 onMounted(load) /* 执行当前语句并推进处理流程。 */
 function removeProtocol(row) { return confirmDelete({ label:row.definition.name || row.definition.id, path:`/api/v2/protocols/${encodeURIComponent(row.definition.id)}`, onDeleted:load, warning:'未被引用的版本将一并删除，删除后无法恢复。', blockedHint:'协议仍被产品或平台连接配置引用，请先解除绑定。' }) }
 function removeRelease(row, release) { return confirmDelete({ label:`${row.definition.name || row.definition.id} · ${release.version}`, path:`/api/v2/protocols/${encodeURIComponent(row.definition.id)}/releases/${encodeURIComponent(release.version)}`, onDeleted:load, warning:'仅删除此版本及其独有制品，删除后无法恢复。', blockedHint:'此版本仍被设备模板、回滚记录或平台连接配置引用，请先切换关联版本。' }) }
+function protocolActions(row) {
+  return [
+    { key:'versions', label:'管理版本', onClick:() => manageVersions(row) },
+    { key:'delete', label:'删除协议', type:'danger', permission:'DELETE /api/v2/protocols/:id', onClick:() => removeProtocol(row) }
+  ]
+}
+function profileActions(row) {
+  return [
+    { key:'edit', label:'编辑', permission:'PUT /api/v2/device-access-profiles/:id', onClick:() => editProfile(row) },
+    { key:'test', label:'连接测试', permission:'POST /api/v2/device-access-profiles/:id/test', hidden:row.mode === 'listener', loading:testingId.value === row.id, onClick:() => testProfile(row) },
+    { key:'toggle', label:row.enabled ? '停用' : '启用', permission:'PUT /api/v2/device-access-profiles/:id', onClick:() => toggleProfile(row) },
+    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v2/device-access-profiles/:id', onClick:() => removeProfile(row) }
+  ]
+}
 function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2/device-access-profiles/${encodeURIComponent(row.id)}`, onDeleted:load, blockedHint:'请先停用平台连接配置，并解除关联设备后再删除。' }) }
 </script>
 
 <template>
-  <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <template v-if="props.section === 'protocols'">
-      <ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" @click="sourceOpen=true">上传源码</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" title="通过报文或 Excel / CSV 点表生成协议" @click="openAssistant()">协议生成</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <span>{{ protocols.length }} 个协议 · {{ releaseCount }} 个版本</span> <!-- 渲染 span 界面元素。 -->
+  <FilterBar>
+    <template #actions>
+      <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
+      <template v-if="props.section === 'protocols'">
+        <ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" title="通过报文或 Excel / CSV 点表生成协议" @click="openAssistant()"><Wand2 />协议生成</ui-button>
+        <ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" type="primary" @click="sourceOpen=true"><Upload />上传源码</ui-button>
+      </template>
+      <ui-button v-else v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="createProfile"><Plus />新建平台连接配置</ui-button>
     </template>
-    <template v-else>
-      <ui-button v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="createProfile">新建平台连接配置</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <span>{{ profiles.length }} 个平台连接配置</span> <!-- 渲染 span 界面元素。 -->
-    </template>
-    <ui-button :loading="loading" @click="load">刷新</ui-button>
-  </div>
-  <ui-card shadow="never" class="surface-card table-card">
-    <template v-if="props.section === 'protocols'">
-      <ui-table v-loading="loading" :data="pagedProtocols" stripe> <!-- 渲染 ui-table 界面元素。 -->
-        <ui-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="运行方式" min-width="180"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(newestRelease(row).status)" round>{{ statusText(newestRelease(row).status) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="版本数量" width="100"><template #default="{ row }">{{ row.releases?.length || 0 }}</template></ui-table-column>
-        <ui-table-column label="操作" fixed="right" width="220"><template #default="{ row }"><div class="table-actions">
-          <ui-button size="small" plain type="primary" @click="manageVersions(row)">管理版本</ui-button>
-          <ui-button v-permission="'DELETE /api/v2/protocols/:id'" size="small" plain type="danger" @click="removeProtocol(row)">删除协议</ui-button>
-        </div></template></ui-table-column> <!-- 结束当前界面区域。 -->
-      </ui-table> <!-- 结束当前界面区域。 -->
-      <div class="list-pagination"><ui-pagination v-model:current-page="protocolPage" v-model:page-size="protocolPageSize" :total="protocols.length" :page-sizes="[10,20,50,100]" layout="total, sizes, prev, pager, next, jumper" @size-change="protocolPage=1" /></div> <!-- 渲染 div 界面元素。 -->
-    </template>
-    <template v-else>
-
-      <ui-table v-loading="loading" :data="profiles" stripe row-key="id"> <!-- 渲染 ui-table 界面元素。 -->
-        <ui-table-column type="expand"><template #default="{row}"> <!-- 渲染 ui-table-column 界面元素。 -->
-          <div class="instance-details"><h4>当前在线会话</h4> <!-- 渲染 div 界面元素。 -->
-          <ui-table :data="snapshot(row.id).sessions" empty-text="暂无在线会话"><ui-table-column label="设备"><template #default="{row:session}">{{session.deviceId || '尚未识别设备'}}</template></ui-table-column><ui-table-column prop="remoteAddress" label="远端地址"/><ui-table-column prop="protocolId" label="协议"/><ui-table-column prop="protocolVersion" label="版本"/><ui-table-column label="最后有效报文"><template #default="{row:session}">{{formatTime(session.lastSeenAt)}}</template></ui-table-column></ui-table> <!-- 渲染 ui-table 界面元素。 -->
-          <h4>最近接入设备（按创建时间，最多 20 台）</h4><ui-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><ui-table-column prop="deviceId" label="设备标识"/><ui-table-column prop="name" label="名称"/><ui-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></ui-table-column></ui-table></div> <!-- 渲染 h4 界面元素。 -->
-        </template></ui-table-column> <!-- 结束当前界面区域。 -->
-        <ui-table-column label="在线会话" width="100"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="平台连接配置" min-width="190"><template #default="{ row }"><b>{{ row.id }}</b><small v-if="row.deviceId" class="subline">目标设备：{{ row.deviceId }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="关联产品" min-width="180"><template #default="{ row }">{{ products.find(p => p.id === row.productId)?.name || row.productId }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="接入地址 / 端口" min-width="200"><template #default="{ row }">{{ row.host }}:{{ row.port }}<small class="subline">{{ row.mode === 'listener' ? `${transportLabel(row.network)} · ${row.connectionMode === 'dial' ? '平台连接设备' : '设备连接平台'}` : `Modbus 采集 · 站号 ${row.unitId}` }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="状态" width="120"><template #default="{ row }"><ui-tag :type="statusType(row.runtimeStatus)" round>{{ statusText(row.runtimeStatus) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="最近成功" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="最近错误" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-        <ui-table-column label="操作" width="300" fixed="right"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'POST /api/v2/device-access-profiles/:id/test'" v-if="row.mode !== 'listener'" plain type="primary" :loading="testingId===row.id" @click="testProfile(row)">连接测试</ui-button><ui-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="editProfile(row)">编辑</ui-button><ui-button v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="toggleProfile(row)">{{ row.enabled ? '停用' : '启用' }}</ui-button><ui-button v-permission="'DELETE /api/v2/device-access-profiles/:id'" plain type="danger" @click="removeProfile(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      </ui-table> <!-- 结束当前界面区域。 -->
-
-    </template>
-  </ui-card>
+  </FilterBar>
+  <DataTableCard v-if="props.section === 'protocols'" :title="`设备通信协议 · ${protocols.length} 个协议 · ${releaseCount} 个版本`" :page="protocolPage" :page-size="protocolPageSize" :page-sizes="[10,20,50,100]" :total="protocols.length" @update:page="value => protocolPage = value" @update:page-size="value => { protocolPageSize = value; protocolPage = 1 }">
+    <ui-table :data="pagedProtocols" :loading="loading" empty-text="暂无协议，可上传 Go 源码或用报文、点表生成">
+      <ui-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></ui-table-column>
+      <ui-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></ui-table-column>
+      <ui-table-column label="运行方式" min-width="200"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></ui-table-column>
+      <ui-table-column label="状态" width="110"><template #default="{ row }"><StatusDot :tone="statusType(newestRelease(row).status) === 'success' ? 'success' : statusType(newestRelease(row).status) === 'danger' ? 'danger' : statusType(newestRelease(row).status) === 'warning' ? 'warning' : 'neutral'" :label="statusText(newestRelease(row).status)" /></template></ui-table-column>
+      <ui-table-column label="版本数量" width="100"><template #default="{ row }">{{ row.releases?.length || 0 }}</template></ui-table-column>
+      <ui-table-column label="操作" fixed="right" width="176" align="right"><template #default="{ row }"><RowActions :actions="protocolActions(row)" /></template></ui-table-column>
+    </ui-table>
+  </DataTableCard>
+  <DataTableCard v-else :title="`平台连接配置 · ${profiles.length} 个`">
+    <ui-table :data="profiles" :loading="loading" row-key="id" empty-text="暂无平台连接配置。TCP / UDP 监听或 Modbus 采集设备需要先建立连接配置">
+      <ui-table-column type="expand"><template #default="{row}">
+        <div class="instance-details">
+          <h4>当前在线会话</h4>
+          <ui-table :data="snapshot(row.id).sessions" empty-text="暂无在线会话"><ui-table-column label="设备"><template #default="{row:session}">{{session.deviceId || '尚未识别设备'}}</template></ui-table-column><ui-table-column prop="remoteAddress" label="远端地址"/><ui-table-column prop="protocolId" label="协议"/><ui-table-column prop="protocolVersion" label="版本"/><ui-table-column label="最后有效报文"><template #default="{row:session}">{{formatTime(session.lastSeenAt)}}</template></ui-table-column></ui-table>
+          <h4>最近接入设备（按创建时间，最多 20 台）</h4>
+          <ui-table :data="snapshot(row.id).recentDevices" empty-text="暂无关联设备"><ui-table-column prop="deviceId" label="设备标识"/><ui-table-column prop="name" label="名称"/><ui-table-column label="创建时间"><template #default="{row:device}">{{formatTime(device.createdAt)}}</template></ui-table-column></ui-table>
+        </div>
+      </template></ui-table-column>
+      <ui-table-column label="平台连接配置" min-width="190"><template #default="{ row }"><b>{{ row.id }}</b><small v-if="row.deviceId" class="subline">目标设备：{{ row.deviceId }}</small></template></ui-table-column>
+      <ui-table-column label="设备模板" min-width="170"><template #default="{ row }">{{ products.find(p => p.id === row.productId)?.name || row.productId }}</template></ui-table-column>
+      <ui-table-column label="协议版本" min-width="190"><template #default="{ row }">{{ row.protocolId }}@{{ row.protocolVersion }}</template></ui-table-column>
+      <ui-table-column label="地址 / 端口" min-width="210"><template #default="{ row }">{{ row.mode === 'listener' && row.connectionMode !== 'dial' && row.publicHost ? row.publicHost : row.host }}:{{ row.port }}<small class="subline">{{ row.mode === 'listener' ? `${transportLabel(row.network)} · ${row.connectionMode === 'dial' ? '平台连接设备' : '设备连接平台'}` : `Modbus 采集 · 站号 ${row.unitId}` }}</small></template></ui-table-column>
+      <ui-table-column label="在线会话" width="90"><template #default="{row}">{{snapshot(row.id).sessions?.length || 0}}</template></ui-table-column>
+      <ui-table-column label="状态" width="110"><template #default="{ row }"><StatusDot :tone="tone(runtimeStatusTones, row.runtimeStatus)" :label="statusText(row.runtimeStatus)" /></template></ui-table-column>
+      <ui-table-column label="最近成功" min-width="160"><template #default="{ row }">{{ formatTime(row.lastSuccessAt) }}</template></ui-table-column>
+      <ui-table-column label="最近错误" min-width="200" show-overflow-tooltip><template #default="{ row }">{{ row.lastError || '—' }}</template></ui-table-column>
+      <ui-table-column label="操作" width="176" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="profileActions(row)" /></template></ui-table-column>
+    </ui-table>
+  </DataTableCard>
   <ui-dialog v-model="versionsOpen" class="protocol-versions-dialog" :title="`${managedProtocol?.definition.name || '协议'} · 版本管理`" width="min(880px, 96vw)" destroy-on-close>
     <template v-if="managedProtocol">
       <p class="versions-summary">{{ managedProtocol.definition.id }} · 共 {{ managedProtocol.releases?.length || 0 }} 个版本。删除前请确认该版本未被设备模板或平台连接配置引用。</p>
@@ -337,49 +350,67 @@ function removeProfile(row) { return confirmDelete({ label:row.id, path:`/api/v2
   <details v-if="result" class="technical-details"><summary>最近操作结果</summary><pre>{{ pretty(result) }}</pre></details>
 </template>
 <style scoped>
-.instance-details { padding: 16px 24px; } /* 定义当前元素的样式规则。 */
-.versions-summary { margin:0 0 14px; color:var(--accent-foreground); font-size:13px; line-height:1.6; }
-.release-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; } /* 定义当前元素的样式规则。 */
-.release-buttons .el-button + .el-button { margin-left: 0; } /* 定义当前元素的样式规则。 */
-.release-detail-actions { align-items: center; margin-top: 18px; } /* 让专项操作在版本信息下保持整齐。 */
-.source-error { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; } /* 定义当前元素的样式规则。 */
-.source-file-field { width: 100%; min-width: 0; display: grid; gap: 7px; } /* 文件操作独占一行，避免按钮与文件名相互挤压。 */
-.source-file-field small, .source-template-panel small, .source-publish-panel small, .source-target-help, .source-compiling-help { display: block; color: var(--accent-foreground); font-size: 12px; line-height: 1.5; } /* 辅助说明换行显示并保持可读。 */
-.source-template-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin: 2px 0 16px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); } /* 将模板下载与文件上传分组。 */
-.source-template-panel strong, .source-publish-panel strong { display: block; margin-bottom: 3px; font-size: 13px; color: var(--accent-foreground); } /* 明确每组操作的用途。 */
-.source-template-actions { display: flex; flex-wrap: wrap; gap: 8px; } /* 模板按钮在窄视口自动换行。 */
-.source-compile-options { margin-bottom: 16px; } /* 编译选项与发布方式分隔。 */
-.source-target-item { margin: 8px 0 4px !important; } /* 下拉框与自身说明保持一组。 */
-.source-target-help { margin-bottom: 12px; } /* 说明独占一行，避免挤到下拉框右侧。 */
-.source-publish-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); } /* 发布行为及结果说明集中展示。 */
-.source-compiling-help { margin-top: 12px; } /* 编译耗时提示放在发布设置下方。 */
-.source-submit-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 14px; } /* 提交操作固定在弹窗页脚。 */
-.source-submit-row span { color: var(--accent-foreground); font-size: 12px; line-height: 1.5; } /* 页脚简述实际执行顺序。 */
-.source-submit-row button { flex: none; } /* 提交按钮不被说明文字压缩。 */
-.profile-editor-intro { margin: 0 0 16px; color: var(--accent-foreground); font-size: 13px; line-height: 1.6; }
-.profile-editor-section { padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
-.profile-editor-section + .profile-editor-section { margin-top: 14px; }
-.profile-section-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 17px; }
-.profile-section-heading > span { display: grid; width: 30px; height: 30px; flex: none; place-items: center; border-radius: 8px; color: var(--accent-foreground); background: var(--surface-subtle); font-size: 12px; font-weight: 700; }
-.profile-section-heading h3 { margin: 0; color: var(--accent-foreground); font-size: 15px; line-height: 1.4; }
-.profile-section-heading p { margin: 3px 0 0; color: var(--accent-foreground); font-size: 12px; line-height: 1.5; }
-.profile-field-grid, .profile-protocol-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
-.profile-field-grid > *, .profile-protocol-summary > * { min-width: 0; }
+.instance-details { display: grid; gap: var(--space-3); padding: var(--space-4) var(--space-6); }
+.instance-details h4 { margin: 0; color: var(--text-strong); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.versions-summary { margin: 0 0 var(--space-3); color: var(--text-muted); font-size: var(--font-size-sm); }
+.release-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
+.source-error { max-height: 300px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; }
+.source-file-field { display: grid; gap: var(--space-2); width: 100%; min-width: 0; }
+.source-file-field small,
+.source-template-panel small,
+.source-publish-panel small,
+.source-target-help,
+.source-compiling-help { display: block; color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.5; }
+.source-template-panel,
+.source-publish-panel { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3) var(--space-5); padding: var(--space-3) var(--space-4); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.source-template-panel { margin: 2px 0 var(--space-4); }
+.source-template-panel strong,
+.source-publish-panel strong { display: block; margin-bottom: 2px; color: var(--text-strong); font-size: var(--font-size-sm); }
+.source-template-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.source-compile-options { margin-bottom: var(--space-4); }
+.source-target-item { margin: var(--space-2) 0 var(--space-1); }
+.source-target-help { margin-bottom: var(--space-3); }
+.source-compiling-help { margin-top: var(--space-3); }
+.source-submit-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; }
+.source-submit-row span { color: var(--text-muted); font-size: var(--font-size-xs); }
+.source-submit-row button { flex: none; }
+.profile-editor-intro { margin: 0 0 var(--space-4); color: var(--text-muted); font-size: var(--font-size-sm); }
+.profile-editor-section + .profile-editor-section { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.profile-section-heading { display: flex; align-items: flex-start; gap: var(--space-3); margin-bottom: var(--space-3); }
+.profile-section-heading > span { display: grid; flex: none; place-items: center; width: 24px; height: 24px; color: var(--primary); background: var(--primary-soft); border-radius: var(--radius-md); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
+.profile-section-heading h3 { margin: 0; color: var(--text-strong); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.profile-section-heading p { margin: 2px 0 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+.profile-field-grid,
+.profile-protocol-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); }
+.profile-field-grid > *,
+.profile-protocol-summary > * { min-width: 0; }
 .profile-field-grid :deep(.n-form-item) { margin-bottom: 0; }
-.profile-field-grid :deep(.n-input), .profile-field-grid :deep(.n-select), .profile-field-grid :deep(.n-input-number) { width: 100%; }
-.profile-protocol-summary { margin-top: 16px; padding: 13px 15px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-subtle); }
-.profile-protocol-summary span, .profile-protocol-summary strong { display: block; overflow-wrap: anywhere; }
-.profile-protocol-summary span { margin-bottom: 4px; color: var(--accent-foreground); font-size: 12px; }
-.profile-protocol-summary strong { color: var(--accent-foreground); font-size: 13px; font-weight: 600; }
-.profile-mode-note, .profile-address-help { margin: 14px 0 0; padding: 10px 12px; border-radius: 8px; color: var(--accent-foreground); background: var(--surface-subtle); font-size: 12px; line-height: 1.6; }
-.profile-toggle-list { display: grid; gap: 10px; margin-top: 18px; }
-.profile-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--card); }
-.profile-toggle-row strong, .profile-toggle-row small { display: block; }
-.profile-toggle-row strong { color: var(--accent-foreground); font-size: 13px; }
-.profile-toggle-row small { margin-top: 3px; color: var(--accent-foreground); font-size: 12px; line-height: 1.5; }
+.profile-field-grid :deep(.ui-input),
+.profile-field-grid :deep(.ui-select),
+.profile-field-grid :deep(.ui-input-number) { width: 100%; }
+.profile-protocol-summary { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.profile-protocol-summary span,
+.profile-protocol-summary strong { display: block; overflow-wrap: anywhere; }
+.profile-protocol-summary span { margin-bottom: 2px; color: var(--text-muted); font-size: var(--font-size-xs); }
+.profile-protocol-summary strong { color: var(--text-strong); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.profile-mode-note,
+.profile-address-help { margin: var(--space-3) 0 0; padding: var(--space-2) var(--space-3); color: var(--info-text); background: var(--info-soft); border-radius: var(--radius-md); font-size: var(--font-size-xs); }
+.profile-toggle-list { display: grid; gap: var(--space-2); margin-top: var(--space-4); }
+.profile-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.profile-toggle-row strong,
+.profile-toggle-row small { display: block; }
+.profile-toggle-row strong { color: var(--text-strong); font-size: var(--font-size-sm); }
+.profile-toggle-row small { margin-top: 2px; color: var(--text-muted); font-size: var(--font-size-xs); }
 .profile-toggle-row :deep(.ui-switch-field) { flex: none; }
-.profile-advanced { margin-top: 18px; border-top: 1px solid var(--border); }
-.profile-editor-footer { display: flex; width: 100%; justify-content: flex-end; gap: 8px; }
-@media (max-width: 640px) { .source-template-actions, .source-template-actions button, .source-submit-row, .source-submit-row button { width: 100%; } .source-submit-row { flex-wrap: wrap; } } /* 窄屏使用单列按钮，避免横向溢出。 */
-@media (max-width: 640px) { .profile-editor-section { padding: 16px; }.profile-field-grid, .profile-protocol-summary { grid-template-columns: 1fr; }.profile-section-heading { gap: 9px; }.profile-toggle-row { padding: 11px 12px; } }
+.profile-advanced { margin-top: var(--space-4); border-top: 1px solid var(--border); }
+.profile-editor-footer { display: flex; justify-content: flex-end; gap: var(--space-2); width: 100%; }
+@media (max-width: 767px) {
+  .source-template-actions,
+  .source-template-actions button,
+  .source-submit-row,
+  .source-submit-row button { width: 100%; }
+  .source-submit-row { flex-wrap: wrap; }
+  .profile-field-grid,
+  .profile-protocol-summary { grid-template-columns: 1fr; }
+}
 </style>

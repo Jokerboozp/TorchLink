@@ -27,7 +27,7 @@ try{ /* 执行当前语句并推进处理流程。 */
  await call('Page.enable');await call('Runtime.enable');await call('Network.enable') /* 等待异步操作完成。 */
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
  const click=async text=>until(()=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&b.getClientRects().length&&!b.disabled);b?.click();return !!b})()`)) /* 声明 click。 */
- const fill=async(label,value)=>evaluate(`(()=>{const root=[...document.querySelectorAll('.el-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const e=item?.querySelector('input');if(!e)throw Error('缺少表单输入框');e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`) /* 声明 fill。 */
+ const fill=async(label,value)=>evaluate(`(()=>{const root=[...document.querySelectorAll('.ui-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const e=item?.querySelector('input');if(!e)throw Error('缺少表单输入框');e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`) /* 声明 fill。 */
  const request=async(method,path,body,token=auth.accessToken)=>{const r=await fetch('http://127.0.0.1:5173'+path,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,value:await r.json()}} /* 声明 request。 */
  const suffix=Date.now(),roleId='demo-role-'+suffix,username='demo-user-'+suffix,secret=crypto.randomUUID()+'Aa1' /* 声明 suffix。 */
  await call('Page.navigate',{url:'http://127.0.0.1:5173'}) /* 等待异步操作完成。 */
@@ -38,27 +38,27 @@ try{ /* 执行当前语句并推进处理流程。 */
  await writeFile(dir+'/screenshots/login-mobile.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
  const setSession=async(token,role,username,permissions)=>evaluate(`(()=>{const s=${JSON.stringify({iot_token:token,iot_tenant:tenant,iot_role:role,iot_user:username,iot_permissions:JSON.stringify(permissions)})};for(const [k,v] of Object.entries(s))localStorage.setItem(k,v)})()`) /* 声明 setSession。 */
- await setSession(auth.accessToken,'admin',user,['*']);await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.menu-item[aria-label="用户与权限"]')`));await delay(400) /* 等待异步操作完成。 */
- await evaluate(`document.querySelector('.collapse-button').click()`);await delay(250) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.app-aside').getBoundingClientRect().width<80`))throw Error('侧栏未折叠') /* 判断条件并选择处理分支。 */
- await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.collapse-button')`));await delay(250) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.app-aside').getBoundingClientRect().width<80`))throw Error('侧栏折叠状态未保留') /* 判断条件并选择处理分支。 */
- await evaluate(`document.querySelector('.collapse-button').click()`) /* 等待异步操作完成。 */
+ await setSession(auth.accessToken,'admin',user,['*']);await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.nav-item[aria-label="用户与权限"]')`));await delay(400) /* 等待异步操作完成。 */
+ await evaluate(`document.querySelector('.app-topbar__toggle').click()`);await delay(250) /* 等待异步操作完成。 */
+ if(!await evaluate(`document.querySelector('.app-sidebar').getBoundingClientRect().width<80`))throw Error('侧栏未折叠') /* 判断条件并选择处理分支。 */
+ await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.app-topbar__toggle')`));await delay(250) /* 等待异步操作完成。 */
+ if(!await evaluate(`document.querySelector('.app-sidebar').getBoundingClientRect().width<80`))throw Error('侧栏折叠状态未保留') /* 判断条件并选择处理分支。 */
+ await evaluate(`document.querySelector('.app-topbar__toggle').click()`) /* 等待异步操作完成。 */
  await evaluate(`document.querySelector('.account').click()`);await delay(100) /* 等待异步操作完成。 */
  if(await evaluate(`[...document.querySelectorAll('.n-dropdown-menu')].filter(e=>e.getClientRects().length).some(e=>e.innerText.includes('租户'))`))throw Error('用户下拉仍显示租户') /* 判断条件并选择处理分支。 */
  await evaluate(`document.querySelector('.account').click()`) /* 等待异步操作完成。 */
- await evaluate(`document.querySelector('.menu-item[aria-label="用户与权限"]').click()`);await delay(800) /* 等待异步操作完成。 */
+ await evaluate(`document.querySelector('.nav-item[aria-label="用户与权限"]').click()`);await delay(800) /* 等待异步操作完成。 */
  await evaluate(`document.querySelector('#tab-roles').click()`);await click('添加角色') /* 等待异步操作完成。 */
  await fill('角色标识',roleId);await fill('角色名称','演示 · 设备查看角色 '+suffix) /* 等待异步操作完成。 */
  await writeFile(dir+'/screenshots/access-role-form.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  await until(()=>evaluate(`(()=>{const group=[...document.querySelectorAll('.permission-group')].find(g=>g.querySelector('strong')?.textContent==='设备管理');const input=group?.querySelector('input');input?.click();return !!input})()`)) /* 等待异步操作完成。 */
- await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.el-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */
+ await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.ui-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */
  await evaluate(`document.querySelector('#tab-users').click()`);await click('添加用户');await fill('用户名',username);await fill('显示名称','演示 · 只读用户');await fill('初始密码',secret);await evaluate(`document.querySelector('input[value="all"]').click()`) /* 等待异步操作完成。 */
- await evaluate(`(()=>{const root=[...document.querySelectorAll('.el-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='角色');item.querySelector('.n-base-selection').click()})()`) /* 等待异步操作完成。 */
+ await evaluate(`(()=>{const root=[...document.querySelectorAll('.ui-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim()==='角色');item.querySelector('.n-base-selection').click()})()`) /* 等待异步操作完成。 */
  await delay(500) /* 等待异步操作完成。 */
  await writeFile(dir+'/screenshots/access-user-form.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  await until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()===${JSON.stringify('演示 · 设备查看角色 '+suffix)}&&e.getClientRects().length);item?.click();return !!item})()`)) /* 等待异步操作完成。 */
- await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.el-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */
+ await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.ui-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */
  await writeFile(dir+'/screenshots/access-users.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  const login=await request('POST','/api/v1/auth/login',{username,password:secret,tenantId:tenant}) /* 声明 login。 */
  if(login.status!==200)throw Error('新用户登录失败') /* 判断条件并选择处理分支。 */
@@ -66,7 +66,7 @@ try{ /* 执行当前语句并推进处理流程。 */
  if((await request('POST','/api/v1/device-registry',{},userToken)).status!==403)throw Error('未授权新增设备未拒绝') /* 判断条件并选择处理分支。 */
  if((await request('GET','/api/v1/access/users',null,userToken)).status!==403)throw Error('用户管理越权未拒绝') /* 判断条件并选择处理分支。 */
  await setSession(userToken,'operator',username,login.value.permissions);await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.device-filters')`));await delay(500) /* 等待异步操作完成。 */
- const menus=await evaluate(`[...document.querySelectorAll('.menu-item')].map(e=>e.getAttribute('aria-label'))`) /* 声明 menus。 */
+ const menus=await evaluate(`[...document.querySelectorAll('.nav-item')].map(e=>e.getAttribute('aria-label'))`) /* 声明 menus。 */
  if(JSON.stringify(menus)!==JSON.stringify(['设备管理']))throw Error('用户可见菜单不符合角色配置') /* 判断条件并选择处理分支。 */
  if(await evaluate(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='添加独立设备'&&b.getClientRects().length)`))throw Error('只读用户仍可见新增按钮') /* 判断条件并选择处理分支。 */
  await writeFile(dir+'/screenshots/access-readonly.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */

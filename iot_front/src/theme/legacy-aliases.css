@@ -1,0 +1,38 @@
+/*
+ * 旧页面仍在使用的变量名，统一映射到 tokens.css。
+ * 阶段 3 完成全部页面迁移后删除本文件。
+ */
+:root {
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --secondary: var(--surface-hover);
+  --secondary-foreground: var(--text-secondary);
+  --muted: var(--surface-hover);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--primary-soft);
+  --accent-foreground: var(--text);
+  --primary-foreground: var(--text-inverse);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--text-inverse);
+  --success-foreground: var(--success-text);
+  --warning-foreground: var(--warning-text);
+  --input: var(--border-strong);
+  --ring: var(--primary);
+  --radius: var(--radius-lg);
+  --surface-subtle: var(--surface-muted);
+  --surface-success: var(--success-soft);
+  --surface-warning: var(--warning-soft);
+  --surface-danger: var(--danger-soft);
+  --border-info: var(--info-border);
+  --border-success: var(--success-border);
+  --border-warning: var(--warning-border);
+  --border-danger: var(--danger-border);
+  --code-background: var(--code-bg);
+  --code-foreground: var(--code-text);
+  --app-font-family: var(--font-sans);
+  --ink: var(--text);
+}

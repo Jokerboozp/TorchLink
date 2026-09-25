@@ -28,7 +28,7 @@ try{ /* 执行当前语句并推进处理流程。 */
  await call('Page.enable');await call('Runtime.enable');await call('Network.enable') /* 等待异步操作完成。 */
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
  const click=async text=>until(()=>evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&b.getClientRects().length&&!b.disabled);b?.click();return !!b})()`)) /* 声明 click。 */
- const fill=async(label,value)=>evaluate(`(()=>{const root=[...document.querySelectorAll('.el-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const e=item?.querySelector('input');if(!e)throw Error('缺少表单输入框');e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`) /* 声明 fill。 */
+ const fill=async(label,value)=>evaluate(`(()=>{const root=[...document.querySelectorAll('.ui-dialog')].find(e=>e.getClientRects().length);const item=[...root.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const e=item?.querySelector('input');if(!e)throw Error('缺少表单输入框');e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()`) /* 声明 fill。 */
  const request=async(method,path,body,token=auth.accessToken)=>{const r=await fetch('http://127.0.0.1:5173'+path,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,value:await r.json()}} /* 声明 request。 */
  const suffix=Date.now(),username='demo-scope-'+suffix,secret=crypto.randomUUID()+'Aa1';scopeUser=username /* 声明 suffix。 */
  const registry=(await request('GET','/api/v1/device-registry?pageSize=100')).value.items /* 声明 registry。 */
@@ -39,17 +39,17 @@ try{ /* 执行当前语句并推进处理流程。 */
  const forbidden=registry.find(d=>d.device.id!==allowed.id).device /* 声明 forbidden。 */
  await call('Page.addScriptToEvaluateOnNewDocument',{source:'for(const [k,v] of Object.entries('+JSON.stringify({iot_token:auth.accessToken,iot_tenant:tenant,iot_role:'admin',iot_user:user,iot_permissions:'["*"]'})+'))localStorage.setItem(k,v)'}) /* 等待异步操作完成。 */
  await call('Page.navigate',{url:'http://127.0.0.1:5173'}) /* 等待异步操作完成。 */
- await until(()=>evaluate(`!!document.querySelector('.menu-item[aria-label="用户与权限"]')`)) /* 等待异步操作完成。 */
- await evaluate(`document.querySelector('.menu-item[aria-label="用户与权限"]').click()`);await delay(600) /* 等待异步操作完成。 */
+ await until(()=>evaluate(`!!document.querySelector('.nav-item[aria-label="用户与权限"]')`)) /* 等待异步操作完成。 */
+ await evaluate(`document.querySelector('.nav-item[aria-label="用户与权限"]').click()`);await delay(600) /* 等待异步操作完成。 */
  await click('添加用户');await fill('用户名',username);await fill('显示名称','演示 · 指定设备用户');await fill('初始密码',secret) /* 等待异步操作完成。 */
- if(!await evaluate(`document.querySelector('.el-dialog input[disabled]')?.value===${JSON.stringify(tenant)}`))throw Error('新增用户未显示租户') /* 判断条件并选择处理分支。 */
+ if(!await evaluate(`document.querySelector('.ui-dialog input[disabled]')?.value===${JSON.stringify(tenant)}`))throw Error('新增用户未显示租户') /* 判断条件并选择处理分支。 */
  await evaluate(`document.querySelector('input[value="selected"]').click()`) /* 等待异步操作完成。 */
- await evaluate(`(()=>{const row=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent==='可访问设备');row.querySelector('.n-base-selection').click()})()`) /* 等待异步操作完成。 */
+ await evaluate(`(()=>{const row=[...document.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent==='可访问设备');row.querySelector('.n-base-selection').click()})()`) /* 等待异步操作完成。 */
  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim().endsWith(${JSON.stringify('（'+allowed.id+'）')})&&e.getClientRects().length);e?.click();return !!e})()`)) /* 等待异步操作完成。 */
  await evaluate(`document.querySelector('.n-card-header').click()`) /* 等待异步操作完成。 */
  for(const name of ['设备管理','告警中心','运行总览'])await evaluate(`(()=>{const g=[...document.querySelectorAll('.permission-group')].find(e=>e.querySelector('strong')?.textContent===${JSON.stringify(name)});g.querySelector('input').click()})()`) /* 循环处理当前数据。 */
  await writeFile(dir+'/screenshots/device-scope-form.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
- await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.el-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */
+ await click('保存');await until(()=>evaluate(`![...document.querySelectorAll('.ui-dialog')].some(e=>e.getClientRects().length)`)) /* 等待异步操作完成。 */
  const login=await request('POST','/api/v1/auth/login',{username,password:secret,tenantId:tenant});if(login.status!==200)throw Error('范围用户登录失败') /* 声明 login。 */
  const token=login.value.accessToken /* 声明 token。 */
  for(const path of ['/api/v1/device-registry','/api/v1/alarms']){ /* 循环处理当前数据。 */
@@ -62,12 +62,12 @@ try{ /* 执行当前语句并推进处理流程。 */
  if((await request('POST','/api/v1/mqtt/token',{},token)).status!==403)throw Error('受限用户仍能获取MQTT订阅令牌') /* 判断条件并选择处理分支。 */
  // Replace the admin bootstrap for this isolated browser with the real user session.
  await call('Page.addScriptToEvaluateOnNewDocument',{source:'for(const [k,v] of Object.entries('+JSON.stringify({iot_token:token,iot_tenant:tenant,iot_role:'operator',iot_user:username,iot_permissions:JSON.stringify(login.value.permissions)})+'))localStorage.setItem(k,v)'}) /* 等待异步操作完成。 */
- await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.menu-item[aria-label="设备管理"]')`)) /* 等待异步操作完成。 */
- await evaluate(`document.querySelector('.menu-item[aria-label="设备管理"]').click()`);await delay(700) /* 等待异步操作完成。 */
+ await call('Page.reload');await until(()=>evaluate(`!!document.querySelector('.nav-item[aria-label="设备管理"]')`)) /* 等待异步操作完成。 */
+ await evaluate(`document.querySelector('.nav-item[aria-label="设备管理"]').click()`);await delay(700) /* 等待异步操作完成。 */
  const text=await evaluate(`document.querySelector('.table-card').innerText`) /* 声明 text。 */
  if(!text.includes(allowed.id)||text.includes(forbidden.id))throw Error('实际设备页面范围错误') /* 判断条件并选择处理分支。 */
  await writeFile(dir+'/screenshots/device-scope-devices.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
- await evaluate(`document.querySelector('.menu-item[aria-label="告警中心"]').click()`);await delay(700) /* 等待异步操作完成。 */
+ await evaluate(`document.querySelector('.nav-item[aria-label="告警中心"]').click()`);await delay(700) /* 等待异步操作完成。 */
  await writeFile(dir+'/screenshots/device-scope-alarms.png',Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 等待异步操作完成。 */
  // API scope has been checked above. A browser-only event verifies popup rendering.
  await evaluate(`window.dispatchEvent(new CustomEvent('iot:realtime',{detail:{topic:'/iot/alarm/raised/'+${JSON.stringify(tenant)},payload:JSON.stringify(${JSON.stringify({...allowedAlarm,alarmId:'scope-popup-fixture',triggerId:'scope-popup-trigger',status:'ACTIVE',lastTriggeredAt:Date.now()})})}}))`) /* 等待异步操作完成。 */

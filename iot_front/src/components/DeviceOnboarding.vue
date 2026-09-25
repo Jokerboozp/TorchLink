@@ -80,7 +80,7 @@ function restore() {
   catch { localStorage.removeItem(key()) }
 }
 watch(draft, persist, { deep:true })
-watch(() => draft.step, async () => { await nextTick(); const content = document.querySelector('.main-content'); if (content) content.scrollTop = 0 })
+watch(() => draft.step, async () => { await nextTick(); const content = document.querySelector('.app-content'); if (content) content.scrollTop = 0 })
 
 async function load() {
   loading.value = true; error.value = ''

@@ -3,7 +3,12 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue' /* 引
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, formatTime, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
 import { confirmDelete } from '../deleteAction'
-import { businessStatuses, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
+import { businessStatuses, businessStatusTones, categories, connectionStatuses, dataStatuses, deviceRoles, enabledStatuses, enabledStatusTones, label, tone } from '../labels'
+import { Plus, RefreshCw } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import FilterBar from '../components/layout/FilterBar.vue'
+import RowActions from '../components/layout/RowActions.vue'
+import StatusDot from '../components/layout/StatusDot.vue'
 import DeviceConnection from '../components/DeviceConnection.vue' /* 引入当前代码需要的依赖。 */
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
 const connectionDevice = ref('') /* 声明 connectionDevice。 */
@@ -121,6 +126,14 @@ async function copyCredential() { await navigator.clipboard.writeText(`X-Device-
 function hasReported(row) { return Number(row.runtimeState?.lastSeenAt || 0) > 0 } /* 定义 hasReported 函数。 */
 function openRaw(id) { emit('navigate', 'raw', { deviceId:id }) } /* 定义 openRaw 函数。 */
 function removeDevice(row) { return confirmDelete({ label:row.name || row.id, path:`/api/v1/device-registry/${encodeURIComponent(row.id)}`, onDeleted:load }) }
+function rowActions(row) {
+  return [
+    { key:'detail', label:'详情', onClick:() => { connectionDevice.value = row.device.id } },
+    { key:'raw', label:'查看数据', permission:'menu:raw', hidden:!hasReported(row), onClick:() => openRaw(row.device.id) },
+    { key:'edit', label:'编辑', permission:'PUT /api/v1/device-registry/:id', onClick:() => open(row.device) },
+    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/device-registry/:id', onClick:() => removeDevice(row.device) }
+  ]
+}
 
 const realtime = () => { updatesAvailable.value = true } /* 声明 realtime。 */
 onMounted(() => { const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}'); if (detail.onboarding) onboarding.value = true; sessionStorage.removeItem('iot:navigation-detail'); load(); window.addEventListener('iot:realtime', realtime) })
@@ -130,88 +143,119 @@ onBeforeUnmount(() => window.removeEventListener('iot:realtime', realtime)) /* �
 <template>
   <DeviceOnboarding v-if="onboarding" @close="onboarding=false;load()" @done="onboarding=false;load()" @detail="id=>{onboarding=false;connectionDevice=id;load()}" @navigate="(page,query)=>emit('navigate',page,query)" />
   <template v-else>
-  <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id=>connectionDevice=id" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" /> <!-- 渲染 DeviceConnection 界面元素。 -->
-  <section class="device-group-section" aria-labelledby="device-group-heading">
-    <div class="device-group-heading"><h2 id="device-group-heading">按接入关系查看</h2><p>选择设备与平台的连接关系</p></div>
-    <div class="device-group-options" role="group" aria-label="设备接入关系">
-      <button v-for="(group, key) in deviceGroups" :id="`tab-${key}`" :key="key" type="button" class="device-group-option" :class="{active:deviceTab===key}" :aria-pressed="deviceTab===key" @click="deviceTab=key;changeDeviceFilter()"><strong>{{ group.label }}</strong><small>{{ group.hint }}</small></button>
-    </div>
-  </section>
-  <div class="device-list-heading"><div><h3>{{ deviceGroups[deviceTab].label }}列表 <span>{{ registryTotal }} 台</span></h3><p>查看设备状态、连接详情与最近活跃时间</p></div><div class="page-toolbar"><ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="onboarding=true;connectionDevice=''">接入设备</ui-button><ui-button v-if="deviceTab!=='children'" v-permission="'POST /api/v1/device-registry'" @click="open()">快捷添加</ui-button><ui-button :loading="loading" @click="load">刷新设备</ui-button><span v-if="updatesAvailable" role="status">有新数据，点击“刷新设备”更新</span></div></div>
-  <section class="device-filter-panel" aria-label="筛选设备列表"><div class="device-filter-heading"><strong>筛选条件</strong><span>仅筛选当前的{{ deviceGroups[deviceTab].label }}列表</span></div><ui-form inline class="device-filters" @submit.prevent><ui-form-item label="设备类型"><ui-select v-model="deviceCategory" clearable placeholder="全部类型" aria-label="设备类型" class="device-category-select" @change="changeDeviceFilter"><ui-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" /></ui-select></ui-form-item><ui-form-item><ui-button :disabled="!deviceCategory" @click="deviceCategory='';changeDeviceFilter()">重置筛选</ui-button></ui-form-item></ui-form></section>
-  <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
-    <ui-table v-loading="loading" :data="registry" stripe> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column label="设备" min-width="190"><template #default="{ row }"><b>{{ row.device.name }}</b><small class="subline">{{ row.device.id }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="设备模板" min-width="160"><template #default="{ row }">{{ productName(row.device.productId) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="设备类型" min-width="130"><template #default="{ row }">{{ label(categories, categoryOf(row.device.productId)) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="运行状态" width="105"><template #default="{ row }"><ui-tag :type="tagType(row.runtimeState?.businessStatus)" round>{{ label(businessStatuses, row.runtimeState?.businessStatus || 'NEVER_SEEN') }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="启用状态" width="105"><template #default="{ row }"><span class="device-enabled-state" :class="{ 'is-enabled': row.device.status === 'ENABLED' }"><i aria-hidden="true" />{{ label(enabledStatuses, row.device.status) }}</span></template></ui-table-column> <!-- 启用状态用圆点和文字，减少重复标签。 -->
-      <ui-table-column label="接入关系" width="120"><template #default="{ row }"><span class="device-role-text">{{ label(deviceRoles, roleOf(row.device), '独立设备') }}</span><small v-if="row.device.autoRegistered" class="subline">协议子设备</small></template></ui-table-column> <!-- 设备角色使用普通文字，保留自动注册说明。 -->
-      <ui-table-column label="所属关系" min-width="150"><template #default="{ row }">{{ relation(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" fixed="right" width="350" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain @click="connectionDevice=row.device.id">连接详情</ui-button><ui-button v-if="hasReported(row)" v-permission="'menu:raw'" plain type="success" @click="openRaw(row.device.id)">查看数据</ui-button><ui-button v-permission="'PUT /api/v1/device-registry/:id'" plain @click="open(row.device)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/device-registry/:id'" plain type="danger" @click="removeDevice(row.device)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <template #empty><ui-empty description="暂无设备" /></template>
-    </ui-table> <!-- 结束当前界面区域。 -->
-    <div class="list-pagination"><ui-pagination v-model:current-page="registryPage" v-model:page-size="registryPageSize" :total="registryTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeRegistryPage" @size-change="changeRegistryPageSize" /></div> <!-- 渲染 div 界面元素。 -->
-  </ui-card> <!-- 结束当前界面区域。 -->
+    <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id=>connectionDevice=id" @close="connectionDevice=''" @navigate="(page,query)=>{connectionDevice='';emit('navigate',page,query)}" />
+    <FilterBar>
+      <ui-radio-group v-model="deviceTab" class="segmented-choice-group" aria-label="设备接入关系" @change="changeDeviceFilter">
+        <ui-radio-button v-for="(group, key) in deviceGroups" :key="key" :value="key" :title="group.hint">{{ group.label }}</ui-radio-button>
+      </ui-radio-group>
+      <ui-select v-model="deviceCategory" clearable placeholder="全部设备类型" aria-label="设备类型" @change="changeDeviceFilter">
+        <ui-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" />
+      </ui-select>
+      <span v-if="updatesAvailable" class="devices-update-hint" role="status">有新数据，点击“刷新”查看</span>
+      <template #actions>
+        <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
+        <ui-button v-if="deviceTab!=='children'" v-permission="'POST /api/v1/device-registry'" @click="open()">快捷添加</ui-button>
+        <ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="onboarding=true;connectionDevice=''"><Plus />接入设备</ui-button>
+      </template>
+    </FilterBar>
 
-  <ui-card v-if="deviceTab === 'independent' && unregisteredTotal" shadow="never" class="surface-card table-card top-gap"> <!-- 渲染 ui-card 界面元素。 -->
-    <template #header><div class="card-header"><strong>未注册设备</strong><small>{{ unregisteredTotal }} 台</small></div></template>
-    <ui-table :data="unregistered" stripe> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column prop="deviceId" label="设备标识" min-width="190" /><ui-table-column label="设备模板" min-width="150"><template #default="{ row }">{{ productName(row.productId) }}</template></ui-table-column><ui-table-column label="业务状态" width="105"><template #default="{ row }"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="连接状态" width="110"><template #default="{ row }">{{ label(connectionStatuses, row.connectionStatus) }}</template></ui-table-column><ui-table-column label="数据状态" width="110"><template #default="{ row }">{{ label(dataStatuses, row.dataStatus) }}</template></ui-table-column><ui-table-column label="最后活跃" min-width="170"><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="操作" fixed="right" width="120" align="center"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'POST /api/v1/discovered-devices/:id/register'" type="primary" plain @click="register(row.deviceId)">一键注册</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <template #empty><ui-empty description="当前没有未注册设备" /></template>
-    </ui-table> <!-- 结束当前界面区域。 -->
-    <div class="list-pagination"><ui-pagination v-model:current-page="unregisteredPage" v-model:page-size="unregisteredPageSize" :total="unregisteredTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeUnregisteredPage" @size-change="changeUnregisteredPageSize" /></div> <!-- 渲染 div 界面元素。 -->
-  </ui-card> <!-- 结束当前界面区域。 -->
+    <DataTableCard :title="`${deviceGroups[deviceTab].label} · ${registryTotal} 台`" :page="registryPage" :page-size="registryPageSize" :total="registryTotal" @update:page="changeRegistryPage" @update:page-size="changeRegistryPageSize">
+      <div class="only-desktop">
+        <ui-table v-loading="loading" :data="registry" empty-text="暂无设备，点击“接入设备”添加">
+          <ui-table-column label="设备" min-width="200"><template #default="{ row }"><button type="button" class="device-name" @click="connectionDevice=row.device.id">{{ row.device.name }}</button><small class="subline">{{ row.device.id }}</small></template></ui-table-column>
+          <ui-table-column label="设备模板" min-width="160"><template #default="{ row }">{{ productName(row.device.productId) }}</template></ui-table-column>
+          <ui-table-column label="设备类型" min-width="120"><template #default="{ row }">{{ label(categories, categoryOf(row.device.productId)) }}</template></ui-table-column>
+          <ui-table-column label="运行状态" width="110"><template #default="{ row }"><StatusDot :tone="tone(businessStatusTones, row.runtimeState?.businessStatus || 'NEVER_SEEN')" :label="label(businessStatuses, row.runtimeState?.businessStatus || 'NEVER_SEEN')" /></template></ui-table-column>
+          <ui-table-column label="启用" width="90"><template #default="{ row }"><StatusDot :tone="tone(enabledStatusTones, row.device.status)" :label="label(enabledStatuses, row.device.status)" /></template></ui-table-column>
+          <ui-table-column v-if="deviceTab !== 'independent'" label="所属关系" min-width="160"><template #default="{ row }">{{ relation(row) }}<small v-if="row.device.autoRegistered" class="subline">由协议自动登记</small></template></ui-table-column>
+          <ui-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></ui-table-column>
+          <ui-table-column label="操作" fixed="right" width="176" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+        </ui-table>
+      </div>
+      <ul class="device-cards only-mobile" :class="{ 'ui-loading': loading }">
+        <li v-for="row in registry" :key="row.device.id" class="device-card">
+          <button type="button" class="device-card__title" @click="connectionDevice=row.device.id"><strong>{{ row.device.name }}</strong><small>{{ row.device.id }}</small></button>
+          <div class="device-card__meta">
+            <StatusDot :tone="tone(businessStatusTones, row.runtimeState?.businessStatus || 'NEVER_SEEN')" :label="label(businessStatuses, row.runtimeState?.businessStatus || 'NEVER_SEEN')" />
+            <span>{{ productName(row.device.productId) }}</span>
+            <span v-if="deviceTab !== 'independent'">{{ relation(row) }}</span>
+            <span>最后活跃 {{ formatTime(row.runtimeState?.lastSeenAt) }}</span>
+          </div>
+          <RowActions :actions="rowActions(row)" />
+        </li>
+        <li v-if="!registry.length && !loading" class="device-cards__empty">暂无设备，点击“接入设备”添加</li>
+      </ul>
+    </DataTableCard>
 
-  <ui-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close> <!-- 渲染 ui-dialog 界面元素。 -->
-    <ui-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save"> <!-- 渲染 ui-form 界面元素。 -->
-      <ui-form-item label="设备模板" required> <!-- 渲染 ui-form-item 界面元素。 -->
-        <ui-select v-model="form.productId" filterable placeholder="选择设备模板"><ui-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
-        <ui-button v-permission="'menu:products'" v-if="!products.length" link @click="dialog=false;emit('navigate','products')">新建设备模板</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      </ui-form-item> <!-- 结束当前界面区域。 -->
-      <ui-form-item label="设备名称" required><ui-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item label="实际设备编号" required><ui-input v-model="form.code" :disabled="!!form.id" placeholder="填写设备实际使用的上报标识" /></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-form-item label="接入关系"><div class="device-role-choice"><ui-radio-group v-model="form.deviceRole" class="segmented-choice-group" aria-label="接入关系"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group><small>{{ deviceRoleDescriptions[form.deviceRole] }}</small></div></ui-form-item> <!-- 独立边框与说明明确区分设备关系。 -->
-      <ui-form-item v-if="form.deviceRole === 'CHILD'" label="所属主设备" required><ui-select v-model="form.gatewayId" filterable><ui-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></ui-select></ui-form-item> <!-- 渲染 ui-form-item 界面元素。 -->
-      <ui-collapse class="device-advanced"><ui-collapse-item title="更多设置（状态、标签与备注）" name="advanced"> <!-- 渲染 ui-collapse 界面元素。 -->
-        <section class="device-advanced-section"><h4>设备状态</h4><p>停用后设备保留在列表中，暂不参与正常接入。</p><ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" /></ui-form-item></section>
-        <section class="device-advanced-section"><h4>设备标签</h4><p>用名称和内容记录设备的检索线索。</p><div class="device-tag-list"><div v-for="(row,index) in form.tags" :key="index" class="device-tag-row"><label>名称<ui-input v-model="row.key" placeholder="例如楼层" /></label><label>内容<ui-input v-model="row.value" placeholder="例如一层" /></label><ui-button @click="form.tags.splice(index,1)">移除</ui-button></div><p v-if="!form.tags.length" class="device-tag-empty">尚未添加标签。</p><ui-button @click="form.tags.push({key:'',value:''})">添加标签</ui-button></div></section>
-        <section class="device-advanced-section"><h4>补充说明</h4><ui-form-item label="备注"><ui-input v-model="form.description" type="textarea" :rows="2" /></ui-form-item></section>
-      </ui-collapse-item></ui-collapse> <!-- 结束当前界面区域。 -->
-    </ui-form> <!-- 结束当前界面区域。 -->
-    <template #footer><ui-button :disabled="saving" @click="dialog = false">取消</ui-button><ui-button v-permission="['POST /api/v1/device-registry','PUT /api/v1/device-registry/:id']" type="primary" :loading="saving" @click="save">保存设备</ui-button></template>
-  </ui-dialog> <!-- 结束当前界面区域。 -->
+    <DataTableCard v-if="deviceTab === 'independent' && unregisteredTotal" class="unregistered-card" :title="`平台已收到数据、尚未登记的设备 · ${unregisteredTotal} 台`" :page="unregisteredPage" :page-size="unregisteredPageSize" :total="unregisteredTotal" @update:page="changeUnregisteredPage" @update:page-size="changeUnregisteredPageSize">
+      <ui-table :data="unregistered" empty-text="当前没有未登记设备">
+        <ui-table-column prop="deviceId" label="设备标识" min-width="190" />
+        <ui-table-column label="设备模板" min-width="150"><template #default="{ row }">{{ productName(row.productId) }}</template></ui-table-column>
+        <ui-table-column label="运行状态" width="110"><template #default="{ row }"><StatusDot :tone="tone(businessStatusTones, row.businessStatus)" :label="label(businessStatuses, row.businessStatus)" /></template></ui-table-column>
+        <ui-table-column label="连接状态" width="100"><template #default="{ row }">{{ label(connectionStatuses, row.connectionStatus) }}</template></ui-table-column>
+        <ui-table-column label="数据状态" width="100"><template #default="{ row }">{{ label(dataStatuses, row.dataStatus) }}</template></ui-table-column>
+        <ui-table-column label="最后活跃" min-width="160"><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column>
+        <ui-table-column label="操作" fixed="right" width="110" align="right"><template #default="{ row }"><ui-button v-permission="'POST /api/v1/discovered-devices/:id/register'" size="small" text type="primary" @click="register(row.deviceId)">一键登记</ui-button></template></ui-table-column>
+      </ui-table>
+    </DataTableCard>
 
-  <ui-dialog v-model="credentialDialog" title="设备凭证" @closed="credential={}" width="min(520px, 92vw)"><ui-alert title="密钥只显示这一次，请立即复制并安全保存。" type="warning" :closable="false" /><ui-descriptions class="top-gap" :column="1" border><ui-descriptions-item label="接入密钥"><code>{{ credential.accessKey }}</code></ui-descriptions-item><ui-descriptions-item label="设备密钥"><code class="break-all">{{ credential.secret }}</code></ui-descriptions-item></ui-descriptions><template #footer><ui-button @click="credentialDialog = false">关闭</ui-button><ui-button type="primary" @click="copyCredential">复制凭证</ui-button></template></ui-dialog> <!-- 渲染 ui-dialog 界面元素。 -->
+    <ui-dialog v-model="dialog" :title="form.id ? '编辑设备' : '添加设备'" width="min(560px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close>
+      <ui-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
+        <ui-form-item label="设备模板" required>
+          <ui-select v-model="form.productId" filterable placeholder="选择设备模板"><ui-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></ui-select>
+          <ui-button v-if="!products.length" v-permission="'menu:products'" link @click="dialog=false;emit('navigate','products')">新建设备模板</ui-button>
+        </ui-form-item>
+        <ui-form-item label="设备名称" required><ui-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></ui-form-item>
+        <ui-form-item label="实际设备编号" required><ui-input v-model="form.code" :disabled="!!form.id" placeholder="填写设备实际使用的上报标识" /></ui-form-item>
+        <ui-form-item label="接入关系">
+          <div class="device-role-choice">
+            <ui-radio-group v-model="form.deviceRole" class="segmented-choice-group" aria-label="接入关系"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group>
+            <small>{{ deviceRoleDescriptions[form.deviceRole] }}</small>
+          </div>
+        </ui-form-item>
+        <ui-form-item v-if="form.deviceRole === 'CHILD'" label="所属主设备" required><ui-select v-model="form.gatewayId" filterable><ui-option v-for="item in gateways" :key="item.device.id" :label="item.device.name" :value="item.device.id" /></ui-select></ui-form-item>
+        <ui-collapse class="device-advanced">
+          <ui-collapse-item title="状态、标签与备注" name="advanced">
+            <ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" active-text="已启用" inactive-text="已停用" /></ui-form-item>
+            <div class="device-tags">
+              <p class="device-tags__title">设备标签<small>用名称和内容记录楼层、区域等检索线索</small></p>
+              <div v-for="(row,index) in form.tags" :key="index" class="device-tag-row"><ui-input v-model="row.key" placeholder="名称，例如楼层" aria-label="标签名称" /><ui-input v-model="row.value" placeholder="内容，例如一层" aria-label="标签内容" /><ui-button text @click="form.tags.splice(index,1)">移除</ui-button></div>
+              <ui-button size="small" @click="form.tags.push({key:'',value:''})">添加标签</ui-button>
+            </div>
+            <ui-form-item label="备注" class="top-gap"><ui-input v-model="form.description" type="textarea" :rows="2" /></ui-form-item>
+          </ui-collapse-item>
+        </ui-collapse>
+      </ui-form>
+      <template #footer><ui-button :disabled="saving" @click="dialog = false">取消</ui-button><ui-button v-permission="['POST /api/v1/device-registry','PUT /api/v1/device-registry/:id']" type="primary" :loading="saving" @click="save">保存设备</ui-button></template>
+    </ui-dialog>
+
+    <ui-dialog v-model="credentialDialog" title="设备凭证" width="min(520px, 92vw)" @closed="credential={}">
+      <ui-alert title="密钥只显示这一次，请立即复制并安全保存。" type="warning" :closable="false" />
+      <ui-descriptions class="top-gap" :column="1" border><ui-descriptions-item label="接入密钥"><code>{{ credential.accessKey }}</code></ui-descriptions-item><ui-descriptions-item label="设备密钥"><code class="break-all">{{ credential.secret }}</code></ui-descriptions-item></ui-descriptions>
+      <template #footer><ui-button @click="credentialDialog = false">关闭</ui-button><ui-button type="primary" @click="copyCredential">复制凭证</ui-button></template>
+    </ui-dialog>
   </template>
 </template>
+
 <style scoped>
-.device-group-section{margin-bottom:28px}
-.device-group-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 16px;margin-bottom:12px}
-.device-group-heading h2{margin:0;color:var(--text-strong);font-size:17px;line-height:1.4}
-.device-group-heading p{margin:0;color:var(--muted-foreground);font-size:13px}
-.device-group-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:1040px}
-.device-group-option{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-height:76px;padding:14px 16px;border:1px solid var(--border);border-radius:9px;background:var(--card);text-align:left;cursor:pointer;transition:border-color .16s ease,background .16s ease,box-shadow .16s ease}
-.device-group-option strong{color:var(--text-strong);font-size:15px;line-height:1.3}
-.device-group-option small{color:var(--muted-foreground);font-size:12px;line-height:1.4}
-.device-group-option:hover{border-color:var(--border-info);background:var(--surface-subtle)}
-.device-group-option.active{border-color:var(--primary);background:var(--accent);box-shadow:inset 3px 0 var(--brand-flame)}
-.device-group-option.active strong{color:var(--accent-foreground)}
-.device-group-option:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-.device-list-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 20px;margin-bottom:16px}
-.device-list-heading h3{display:flex;align-items:baseline;gap:12px;margin:0;color:var(--text-strong);font-size:18px;line-height:1.4}
-.device-list-heading h3 span{color:var(--muted-foreground);font-size:13px;font-weight:500}
-.device-list-heading p{margin:3px 0 0;color:var(--muted-foreground);font-size:13px}
-.device-list-heading .page-toolbar{min-height:0;margin:0}
-.device-filter-panel{display:flex;align-items:center;flex-wrap:wrap;gap:12px 28px;margin-bottom:18px;padding:15px 18px;border:1px solid var(--border);border-radius:9px;background:var(--surface-subtle)}
-.device-filter-heading{display:flex;flex-direction:column;gap:3px}
-.device-filter-heading strong{color:var(--text-strong);font-size:14px}
-.device-filter-heading span{color:var(--muted-foreground);font-size:12px}
-.device-filters{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
-.device-category-select{width:220px}
-.device-role-choice{display:grid;gap:8px;width:100%}.device-role-choice small{color:var(--accent-foreground);font-size:12px;line-height:1.5}
-.device-advanced{margin-top:5px}.device-advanced-section{padding:13px;margin:10px 0;border:1px solid var(--border);border-radius:9px;background:var(--card)}.device-advanced-section h4{margin:0;color:var(--accent-foreground);font-size:13px}.device-advanced-section p{margin:4px 0 11px;color:var(--accent-foreground);font-size:12px;line-height:1.5}.device-advanced-section :deep(.n-form-item){margin:10px 0 0}
-.device-tag-list{width:100%}.device-tag-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:10px 0}.device-tag-row label{display:grid;min-width:0;gap:5px;color:var(--accent-foreground);font-size:12px;font-weight:600}.device-tag-row :deep(.n-input){width:100%}.device-tag-empty{padding:10px;border:1px dashed var(--border-info);border-radius:7px;background:var(--card)}
-@media(max-width:640px){.device-group-section{margin-bottom:22px}.device-group-options{grid-template-columns:1fr;gap:8px}.device-group-option{min-height:0;padding:11px 14px}.device-list-heading{align-items:stretch}.device-list-heading .page-toolbar{width:100%}.device-filter-panel{align-items:stretch;padding:14px}.device-filters{align-items:stretch}.device-category-select{width:180px}.device-tag-row{grid-template-columns:repeat(2,minmax(0,1fr))}.device-tag-row .n-button{justify-self:start}}
+.devices-update-hint { color: var(--info-text); font-size: var(--font-size-sm); }
+.unregistered-card { margin-top: var(--space-4); }
+.device-name { padding: 0; color: var(--text-strong); background: none; border: 0; font: inherit; font-weight: var(--font-weight-semibold); text-align: left; cursor: pointer; }
+.device-name:hover { color: var(--primary-text); text-decoration: underline; }
+.device-cards { position: relative; margin: 0; padding: 0; list-style: none; }
+.device-card { display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); }
+.device-card:last-child { border-bottom: 0; }
+.device-card__title { display: grid; gap: 2px; padding: 0; color: var(--text-strong); background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.device-card__title strong { font-weight: var(--font-weight-semibold); }
+.device-card__title small { color: var(--text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.device-card__meta { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); color: var(--text-secondary); font-size: var(--font-size-sm); }
+.device-card :deep(.row-actions) { justify-content: flex-start; }
+.device-cards__empty { padding: var(--space-8) var(--space-4); color: var(--text-muted); text-align: center; }
+.device-role-choice { display: grid; gap: var(--space-2); width: 100%; }
+.device-role-choice small { color: var(--text-muted); font-size: var(--font-size-xs); }
+.device-advanced { margin-top: var(--space-1); }
+.device-tags { display: grid; gap: var(--space-2); }
+.device-tags__title { display: grid; gap: 2px; margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.device-tags__title small { color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 400; }
+.device-tag-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; }
 </style>

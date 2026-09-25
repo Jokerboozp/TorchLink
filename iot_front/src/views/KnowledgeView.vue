@@ -322,7 +322,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
 .knowledge-kicker { color:var(--brand-navy); font-size:14px; font-weight:700; } /* 定义当前元素的样式规则。 */
 .knowledge-intro-copy p { max-width:650px; margin:5px 0 0; color:var(--muted-foreground); font-size:14px; } /* 定义当前元素的样式规则。 */
 .knowledge-intro-actions { display:flex; gap:8px; flex:none; } /* 定义当前元素的样式规则。 */
-.knowledge-intro-actions .el-button { margin:0; } /* 定义当前元素的样式规则。 */
+.knowledge-intro-actions .ui-button { margin:0; } /* 定义当前元素的样式规则。 */
 .knowledge-intro-actions svg { width:16px; height:16px; } /* 定义当前元素的样式规则。 */
 .knowledge-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; overflow:hidden; border-radius:var(--radius); background:var(--surface-subtle); } /* 定义当前元素的样式规则。 */
 .knowledge-stats > div { min-width:0; min-height:104px; padding:16px 18px; display:grid; align-content:space-between; background:var(--card); } /* 定义当前元素的样式规则。 */
@@ -330,9 +330,9 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
 .knowledge-stats strong { color:var(--foreground); font-size:26px; line-height:1.15; font-weight:650; font-variant-numeric:tabular-nums; } /* 定义当前元素的样式规则。 */
 .knowledge-stats .knowledge-index-state strong { color:var(--brand-navy); font-size:18px; } /* 定义当前元素的样式规则。 */
 .knowledge-tabs { min-width:0; } /* 定义当前元素的样式规则。 */
-.knowledge-tabs :deep(.el-tabs__header) { margin-bottom:14px; } /* 定义当前元素的样式规则。 */
-.knowledge-tabs :deep(.el-tabs__item) { height:42px; padding:0 22px; font-size:14px; } /* 定义当前元素的样式规则。 */
-.knowledge-tabs :deep(.el-tabs__active-bar) { height:3px; border-radius:3px; } /* 定义当前元素的样式规则。 */
+.knowledge-tabs :deep(.n-tabs-nav) { margin-bottom:14px; } /* 定义当前元素的样式规则。 */
+.knowledge-tabs :deep(.n-tabs-tab) { height:42px; padding:0 22px; font-size:14px; } /* 定义当前元素的样式规则。 */
+.knowledge-tabs :deep(.n-tabs-bar) { height:3px; border-radius:3px; } /* 定义当前元素的样式规则。 */
 .knowledge-panel { min-width:0; overflow:hidden; background:var(--card); border-radius:var(--radius); box-shadow:0 1px 2px color-mix(in srgb,var(--primary) 5%,transparent); } /* 定义当前元素的样式规则。 */
 .knowledge-panel-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:22px 24px 14px; } /* 定义当前元素的样式规则。 */
 .knowledge-panel-heading h2 { margin:0; font-size:18px; line-height:1.3; } /* 定义当前元素的样式规则。 */
@@ -353,12 +353,12 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
 .knowledge-policy-section { padding:20px 0; display:grid; grid-template-columns:minmax(170px,.8fr) minmax(0,1.2fr); align-items:start; gap:24px; border-bottom:1px solid var(--border); } /* 定义当前元素的样式规则。 */
 .knowledge-section-copy h3 { margin:0; font-size:15px; } /* 定义当前元素的样式规则。 */
 .knowledge-section-copy p { max-width:280px; margin:5px 0 0; color:var(--muted-foreground); font-size:12px; line-height:1.6; } /* 定义当前元素的样式规则。 */
-.knowledge-policy-section .el-form-item { width:100%; max-width:430px; margin:0; } /* 定义当前元素的样式规则。 */
-.knowledge-policy-section :deep(.el-radio-group),.knowledge-policy-section :deep(.el-select) { width:100%; } /* 定义当前元素的样式规则。 */
-.knowledge-policy-section :deep(.el-radio-button) { flex:1; } /* 定义当前元素的样式规则。 */
-.knowledge-policy-section :deep(.el-radio-button__inner) { width:100%; padding-inline:8px; } /* 定义当前元素的样式规则。 */
+.knowledge-policy-section .ui-form-item { width:100%; max-width:430px; margin:0; } /* 定义当前元素的样式规则。 */
+.knowledge-policy-section :deep(.ui-radio-group),.knowledge-policy-section :deep(.ui-select) { width:100%; } /* 定义当前元素的样式规则。 */
+.knowledge-policy-section :deep(.n-radio-button) { flex:1; } /* 定义当前元素的样式规则。 */
+.knowledge-policy-section :deep(.n-radio-button__label) { width:100%; padding-inline:8px; } /* 定义当前元素的样式规则。 */
 .knowledge-number-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:430px; } /* 定义当前元素的样式规则。 */
-.knowledge-number-grid :deep(.el-input-number) { width:100%; } /* 定义当前元素的样式规则。 */
+.knowledge-number-grid :deep(.ui-input-number) { width:100%; } /* 定义当前元素的样式规则。 */
 .knowledge-policy-actions { display:flex; align-items:center; justify-content:flex-end; gap:16px; padding-top:20px; } /* 定义当前元素的样式规则。 */
 .knowledge-policy-actions small { margin-right:auto; color:var(--muted-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
 .knowledge-upload-section { min-width:0; padding:0 0 20px; } /* 上传步骤各占独立区域，说明不与输入框挤在同一行。 */
@@ -396,19 +396,18 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
 .knowledge-chunk { border:1px solid var(--border); border-radius:9px; } /* 定义当前元素的样式规则。 */
 .knowledge-chunk summary { min-height:52px; padding:10px 14px; display:flex; align-items:center; gap:12px; cursor:pointer; list-style:none; font-size:13px; } /* 定义当前元素的样式规则。 */
 .knowledge-chunk summary::-webkit-details-marker { display:none; } /* 定义当前元素的样式规则。 */
-.knowledge-chunk summary .el-tag { margin-left:auto; } /* 定义当前元素的样式规则。 */
+.knowledge-chunk summary .ui-tag { margin-left:auto; } /* 定义当前元素的样式规则。 */
 .knowledge-chunk-number { width:26px; height:26px; flex:none; display:grid; place-items:center; color:var(--brand-navy); background:var(--surface-subtle); border-radius:7px; font-size:12px; font-weight:700; } /* 定义当前元素的样式规则。 */
 .knowledge-chunk-body { padding:0 14px 14px 52px; } /* 定义当前元素的样式规则。 */
 .knowledge-chunk-body p { max-height:220px; margin:0; padding:12px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--surface-subtle); border-radius:7px; font-size:13px; line-height:1.7; } /* 定义当前元素的样式规则。 */
 .knowledge-chunk-body small { display:block; margin-top:7px; color:var(--muted-foreground); font-size:12px; overflow-wrap:anywhere; } /* 定义当前元素的样式规则。 */
-:deep(.el-dialog__body) { overflow-x:hidden; } /* 设置  样式。 */
-:deep(.el-upload__text),:deep(.el-upload__tip) { color:var(--accent-foreground); } /* 设置  样式。 */
+:deep(.n-card-content) { overflow-x:hidden; } /* 设置  样式。 */
 @media (max-width:900px) { .knowledge-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.knowledge-policy-target { grid-template-columns:120px minmax(0,1fr); }.knowledge-policy-target small { grid-column:2; } } /* 按屏幕条件调整样式。 */
 @media (max-width:640px) { /* 按屏幕条件调整样式。 */
   .knowledge-page { gap:14px; } /* 定义当前元素的样式规则。 */
   .knowledge-intro { align-items:flex-start; flex-direction:column; gap:14px; } /* 定义当前元素的样式规则。 */
   .knowledge-intro-actions { width:100%; } /* 定义当前元素的样式规则。 */
-  .knowledge-intro-actions .el-button { flex:1; padding-inline:8px; } /* 定义当前元素的样式规则。 */
+  .knowledge-intro-actions .ui-button { flex:1; padding-inline:8px; } /* 定义当前元素的样式规则。 */
   .knowledge-stats > div { min-height:88px; padding:12px; } /* 定义当前元素的样式规则。 */
   .knowledge-stats strong { font-size:22px; } /* 定义当前元素的样式规则。 */
   .knowledge-stats .knowledge-index-state strong { font-size:16px; } /* 定义当前元素的样式规则。 */
@@ -425,7 +424,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
   .knowledge-mobile-document-meta span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } /* 定义当前元素的样式规则。 */
   .knowledge-mobile-document-foot small { color:var(--muted-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
   .knowledge-pagination { justify-content:center; padding:10px; } /* 定义当前元素的样式规则。 */
-  .knowledge-pagination :deep(.el-pagination__sizes),.knowledge-pagination :deep(.el-pagination__total) { display:none; } /* 定义当前元素的样式规则。 */
+  .knowledge-pagination :deep(.n-pagination-suffix),.knowledge-pagination :deep(.n-pagination-prefix) { display:none; } /* 定义当前元素的样式规则。 */
   .knowledge-policy-target { margin:0 16px; grid-template-columns:1fr; gap:7px; } /* 定义当前元素的样式规则。 */
   .knowledge-policy-target small { grid-column:1; } /* 定义当前元素的样式规则。 */
   .knowledge-policy-form { padding-inline:16px; } /* 定义当前元素的样式规则。 */

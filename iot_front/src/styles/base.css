@@ -1,0 +1,169 @@
+/* 元素默认样式与 Naive UI 包装控件的通用补充；颜色和尺寸全部来自 theme/tokens.css。 */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html,
+body,
+#app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+
+body {
+  color: var(--text);
+  background: var(--bg);
+  font: var(--font-size-md) / var(--line-height-normal) var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app > .n-config-provider { height: 100%; min-height: 0; }
+
+button,
+input,
+textarea,
+select { font-family: inherit; }
+
+button { -webkit-tap-highlight-color: transparent; }
+
+a { color: var(--primary-text); }
+
+code {
+  padding: 1px 5px;
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border-radius: var(--radius-sm);
+  font: 0.92em var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+pre {
+  max-height: 360px;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  overflow: auto;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-lg);
+  font: var(--font-size-xs) / 1.65 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+pre code { padding: 0; color: inherit; background: transparent; font: inherit; }
+
+:focus-visible { outline: none; }
+button:focus-visible,
+[role="tab"]:focus-visible,
+[tabindex]:focus-visible,
+summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-md); }
+
+/* 常用排版工具类。 */
+.subline { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--font-size-xs); line-height: var(--line-height-tight); overflow-wrap: anywhere; }
+.muted-text { color: var(--text-muted); font-size: var(--font-size-sm); }
+.break-all { word-break: break-all; }
+.top-gap { margin-top: var(--space-4); }
+.bottom-gap { margin-bottom: var(--space-4); }
+.left-gap { margin-left: var(--space-2); }
+.right-gap { margin-right: var(--space-2); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-4); }
+.form-grid > * { min-width: 0; }
+.only-mobile { display: none; }
+
+/* Naive UI 包装控件的补充布局（外观由主题配置决定）。 */
+.ui-form-item { margin-bottom: var(--space-4); }
+.ui-form-inline { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.ui-form-inline .n-form-item { margin-bottom: 0; }
+.ui-switch-field { display: inline-flex; align-items: center; gap: var(--space-2); }
+.ui-switch-label { color: var(--text-muted); font-size: var(--font-size-sm); }
+.ui-input,
+.ui-select { min-width: 0; }
+.ui-button svg { width: 14px; height: 14px; flex: none; }
+.ui-descriptions { overflow-wrap: anywhere; }
+.ui-dropdown-label { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.ui-dropdown-label svg { width: 16px; height: 16px; flex: none; }
+.n-dropdown-menu { min-width: 132px; }
+.ui-upload .n-upload-dragger { border-color: var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-muted); }
+.ui-upload .n-upload-dragger:hover { border-color: var(--primary); }
+
+/* 弹窗、抽屉只让正文区域滚动，内层卡片不截断滚轮。 */
+.n-modal.ui-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); overflow: hidden; box-shadow: var(--shadow-lg); }
+.n-modal.ui-dialog > .n-card-header { border-bottom: 1px solid var(--border); }
+.n-modal.ui-dialog > .n-card-content { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-top: var(--space-5); }
+.n-modal.ui-dialog > .n-card__footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); }
+.n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > pre { max-height: none; overflow: visible; }
+.n-drawer .n-drawer-body-content-wrapper { overflow: auto; overscroll-behavior: contain; }
+
+/* 分段单选：每个选项独立成块，选中态用主色细边。 */
+.segmented-choice-group.n-radio-group { display: flex; flex-wrap: wrap; gap: var(--space-2); max-width: 100%; }
+.segmented-choice-group .n-radio-button {
+  display: inline-flex;
+  min-height: 32px;
+  height: auto;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+.segmented-choice-group .n-radio-button__state-border { display: none; }
+.segmented-choice-group .n-radio-button__label { color: var(--text-secondary); font-weight: var(--font-weight-medium); }
+.segmented-choice-group .n-radio-button:hover { border-color: var(--primary-border); background: var(--primary-soft); }
+.segmented-choice-group .n-radio-button.n-radio-button--checked { border-color: var(--primary); background: var(--primary-soft); }
+.segmented-choice-group .n-radio-button.n-radio-button--checked .n-radio-button__label { color: var(--primary); font-weight: var(--font-weight-semibold); }
+.segmented-choice-group .n-radio-button:focus-within { box-shadow: var(--focus-ring); }
+
+/* v-loading：半透明遮罩加旋转指示。 */
+.ui-loading { position: relative; }
+.ui-loading::after { content: ""; position: absolute; z-index: 20; inset: 0; background: var(--loading-veil); pointer-events: none; }
+.ui-loading::before {
+  content: "";
+  position: absolute;
+  z-index: 21;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px;
+  border: 2px solid var(--primary-border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: ui-spin 0.75s linear infinite;
+  pointer-events: none;
+}
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+/* 原生文件选择框与平台控件保持一致。 */
+input[type="file"] {
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 6px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button {
+  min-height: 24px;
+  margin-right: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: var(--font-weight-medium) var(--font-size-sm) var(--font-sans);
+  cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover { color: var(--primary-text); background: var(--primary-soft); border-color: var(--primary-border); }
+input[type="file"]:disabled { opacity: 0.6; cursor: not-allowed; }
+
+@media (max-width: 767px) {
+  .only-desktop { display: none; }
+  .only-mobile { display: block; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .n-modal.ui-dialog { max-height: calc(100dvh - 24px); }
+  .ui-form-inline { align-items: stretch; }
+}

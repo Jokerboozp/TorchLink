@@ -34,3 +34,9 @@ export function tagType(value) { /* 执行当前语句并推进处理流程。 *
 } /* 结束当前表达式或代码块。 */
 
 export const commandStatuses = { QUEUED:'已排队，等待节点领取', DISPATCHING:'已领取，正在发送或等待应答', SENT:'已发送，执行结果未确认', ACKNOWLEDGED:'已收到协议应答', SUCCEEDED:'执行成功', FAILED:'执行失败', REJECTED:'执行前已拒绝', EXPIRED:'领取前已过期', UNKNOWN:'执行结果未知，不自动重发' } /* 执行当前语句并推进处理流程。 */
+
+// 状态圆点的色调：只用于展示，存储与接口仍使用原始状态代码。
+export const businessStatusTones = { ONLINE:'success', ALARM:'danger', SUSPECTED_OFFLINE:'warning', OFFLINE:'neutral', NEVER_SEEN:'neutral', UNKNOWN:'neutral' }
+export const enabledStatusTones = { ENABLED:'success', PUBLISHED:'success', DISABLED:'neutral', DRAFT:'info' }
+export const runtimeStatusTones = { LISTENING:'success', CONNECTED:'success', ONLINE:'success', PENDING:'info', CONNECTING:'info', ERROR:'danger', UNSUPPORTED:'danger', DISABLED:'neutral', STOPPED:'neutral' }
+export const tone = (map, value) => map[String(value ?? '').trim().toUpperCase()] || 'neutral'

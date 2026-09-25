@@ -26,7 +26,7 @@ try { /* 执行当前语句并推进处理流程。 */
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_TOKEN)});localStorage.setItem('iot_tenant','tenant');localStorage.setItem('iot_role','admin');localStorage.setItem('iot_user','browser-test');`}) /* 等待异步操作完成。 */
   await call('Page.navigate',{url:process.env.IOT_TEST_ORIGIN}) /* 等待异步操作完成。 */
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 声明 click。 */
-  const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.el-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`) /* 声明 fill。 */
+  const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`) /* 声明 fill。 */
   const request = async(path,body) => { /* 声明 request。 */
     const response = await fetch(process.env.IOT_TEST_ORIGIN+path,{method:'POST',headers:{Authorization:`Bearer ${process.env.IOT_TEST_TOKEN}`,'Content-Type':'application/json'},body:JSON.stringify(body)}) /* 声明 response。 */
     const data=await response.json(); assert.ok(response.ok,JSON.stringify(data)); return data /* 声明 data。 */
@@ -38,35 +38,35 @@ try { /* 执行当前语句并推进处理流程。 */
   await click('产品管理'); await click('新建产品') /* 等待异步操作完成。 */
   await fill('产品名称','浏览器标准产品'); await fill('产品标识','browser-standard-product') /* 等待异步操作完成。 */
   await click('保存产品') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`!document.querySelector('.el-dialog')?.getClientRects().length`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`!document.querySelector('.ui-dialog')?.getClientRects().length`)) /* 等待异步操作完成。 */
   await click('设备管理'); await click('添加设备') /* 等待异步操作完成。 */
-  assert.equal(await evaluate(`!!document.querySelector('.el-dialog .n-steps')`),false) /* 验证实际结果符合预期。 */
-  await evaluate(`document.querySelector('.el-dialog .n-base-selection').click()`) /* 等待异步操作完成。 */
+  assert.equal(await evaluate(`!!document.querySelector('.ui-dialog .n-steps')`),false) /* 验证实际结果符合预期。 */
+  await evaluate(`document.querySelector('.ui-dialog .n-base-selection').click()`) /* 等待异步操作完成。 */
   await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='浏览器标准产品'&&e.getClientRects().length);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
   await fill('设备名称','浏览器传感器修订'); await fill('设备标识','browser-device') /* 等待异步操作完成。 */
   await click('保存设备') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-dialog .n-descriptions-table-content')?.textContent`)) /* 等待异步操作完成。 */
-  const credentials=await evaluate(`Array.from(document.querySelectorAll('.el-dialog .n-descriptions-table-content')).map(e=>e.textContent.trim())`) /* 声明 credentials。 */
+  await until(()=>evaluate(`document.querySelector('.ui-dialog .n-descriptions-table-content')?.textContent`)) /* 等待异步操作完成。 */
+  const credentials=await evaluate(`Array.from(document.querySelectorAll('.ui-dialog .n-descriptions-table-content')).map(e=>e.textContent.trim())`) /* 声明 credentials。 */
   const deviceCredential=['browser-device','',credentials[0],credentials[1]] /* 声明 deviceCredential。 */
   await click('关闭') /* 等待异步操作完成。 */
   await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('browser-device'));const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-drawer')?.textContent.includes('iot-standard')`)) /* 等待异步操作完成。 */
-  assert.ok(await evaluate(`document.querySelector('.el-drawer').textContent.includes('连接与状态历史')`)) /* 验证实际结果符合预期。 */
-  assert.ok(await evaluate(`document.querySelector('.el-drawer').textContent.includes('最近事件')`)) /* 验证实际结果符合预期。 */
-  assert.ok(await evaluate(`document.querySelector('.el-drawer').textContent.includes('最近告警')`)) /* 验证实际结果符合预期。 */
-  assert.equal(await evaluate(`document.querySelector('.el-drawer').textContent.includes('设备影子') || document.querySelector('.el-drawer').textContent.includes('设备孪生与拓扑')`),false) /* 验证实际结果符合预期。 */
+  await until(()=>evaluate(`document.querySelector('.ui-drawer')?.textContent.includes('iot-standard')`)) /* 等待异步操作完成。 */
+  assert.ok(await evaluate(`document.querySelector('.ui-drawer').textContent.includes('连接与状态历史')`)) /* 验证实际结果符合预期。 */
+  assert.ok(await evaluate(`document.querySelector('.ui-drawer').textContent.includes('最近事件')`)) /* 验证实际结果符合预期。 */
+  assert.ok(await evaluate(`document.querySelector('.ui-drawer').textContent.includes('最近告警')`)) /* 验证实际结果符合预期。 */
+  assert.equal(await evaluate(`document.querySelector('.ui-drawer').textContent.includes('设备影子') || document.querySelector('.ui-drawer').textContent.includes('设备孪生与拓扑')`),false) /* 验证实际结果符合预期。 */
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
   await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-drawer').getBoundingClientRect().width<=391`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.querySelector('.ui-drawer').getBoundingClientRect().width<=391`)) /* 等待异步操作完成。 */
   await evaluate(`document.querySelector('.n-base-close').click()`) /* 等待异步操作完成。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
   await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('历史设备'));const button=[...(row?.querySelectorAll('button')||[])].find(e=>e.textContent.trim()==='连接详情');if(!button)return false;button.click();return true})()`)) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-drawer')?.textContent.includes('检测到多个关联实例')`)) /* 等待异步操作完成。 */
-  assert.ok(await evaluate(`![...document.querySelectorAll('.el-drawer button')].some(e=>e.textContent.trim()==='发送命令')`)) /* 验证实际结果符合预期。 */
-  await evaluate(`document.querySelector('.el-drawer .n-base-selection').click()`) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.querySelector('.ui-drawer')?.textContent.includes('检测到多个关联实例')`)) /* 等待异步操作完成。 */
+  assert.ok(await evaluate(`![...document.querySelectorAll('.ui-drawer button')].some(e=>e.textContent.trim()==='发送命令')`)) /* 验证实际结果符合预期。 */
+  await evaluate(`document.querySelector('.ui-drawer .n-base-selection').click()`) /* 等待异步操作完成。 */
   await until(()=>evaluate(`(()=>{const option=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.trim()==='listener-a'&&e.getClientRects().length);if(!option)return false;option.click();return true})()`)) /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-drawer .el-descriptions')?.textContent.includes('TCP')`)) /* 等待异步操作完成。 */
-  assert.ok(await evaluate(`document.querySelector('.el-drawer .el-table').textContent.includes('listener-a') && !document.querySelector('.el-drawer .el-table').textContent.includes('listener-b')`)) /* 验证实际结果符合预期。 */
+  await until(()=>evaluate(`document.querySelector('.ui-drawer .ui-descriptions')?.textContent.includes('TCP')`)) /* 等待异步操作完成。 */
+  assert.ok(await evaluate(`document.querySelector('.ui-drawer .ui-table').textContent.includes('listener-a') && !document.querySelector('.ui-drawer .ui-table').textContent.includes('listener-b')`)) /* 验证实际结果符合预期。 */
   await evaluate(`document.querySelector('.n-base-close').click()`) /* 等待异步操作完成。 */
   await click('接入网关') /* 等待异步操作完成。 */
   await until(()=>evaluate(`(()=>{const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.textContent.includes('listener-a')&&e.getClientRects().length);const expand=row?.querySelector('.n-data-table-expand-trigger');if(!expand)return false;expand.click();return true})()`)) /* 等待异步操作完成。 */
@@ -77,11 +77,11 @@ try { /* 执行当前语句并推进处理流程。 */
   await until(()=>evaluate(`!!document.querySelector('.standard-commissioning')`)) /* 等待异步操作完成。 */
   await fill('标准设备标识','browser-device');await fill('接入密钥',deviceCredential[2]);await fill('设备密钥','invalid-secret') /* 等待异步操作完成。 */
   await click('发送新消息') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.standard-commissioning .el-alert')?.textContent.includes('AUTH_FAILED')`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.querySelector('.standard-commissioning .ui-alert')?.textContent.includes('AUTH_FAILED')`)) /* 等待异步操作完成。 */
   await fill('设备密钥',deviceCredential[3]);await click('发送新消息') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.standard-commissioning .el-table')?.textContent.includes('已解析')`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.querySelector('.standard-commissioning .ui-table')?.textContent.includes('已解析')`)) /* 等待异步操作完成。 */
   await click('重发同一条消息') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.standard-commissioning .el-table')?.textContent.includes('平台已去重')`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.querySelector('.standard-commissioning .ui-table')?.textContent.includes('平台已去重')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.standard-commissioning pre').textContent.includes('temperature')`)) /* 验证实际结果符合预期。 */
   if(process.env.IOT_TEST_MQTT_WEBSOCKET) { /* 判断条件并选择处理分支。 */
     await evaluate(`([...document.querySelectorAll('.standard-commissioning .n-radio')].find(e=>e.textContent.trim()==='MQTT')).click()`) /* 等待异步操作完成。 */
@@ -91,9 +91,9 @@ try { /* 执行当前语句并推进处理流程。 */
     assert.ok(await evaluate(`!!localStorage.getItem('iot_token')`)) /* 验证实际结果符合预期。 */
     await fill('设备密钥',deviceCredential[3]) /* 等待异步操作完成。 */
     await click('连接 / 重新认证') /* 等待异步操作完成。 */
-    await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('密钥'))`));throw e}) /* 等待异步操作完成。 */
+    await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .ui-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('密钥'))`));throw e}) /* 等待异步操作完成。 */
     await click('发送新消息') /* 等待异步操作完成。 */
-    await until(()=>evaluate(`document.querySelector('.standard-commissioning .el-table')?.textContent.includes('已解析')`)) /* 等待异步操作完成。 */
+    await until(()=>evaluate(`document.querySelector('.standard-commissioning .ui-table')?.textContent.includes('已解析')`)) /* 等待异步操作完成。 */
     const outageSeconds = Number(process.env.IOT_TEST_BROWSER_OUTAGE_SECONDS || 0) /* 声明 outageSeconds。 */
     if(outageSeconds) { /* 判断条件并选择处理分支。 */
       blockDeviceToken = true /* 更新 blockDeviceToken 的值。 */
@@ -122,7 +122,7 @@ try { /* 执行当前语句并推进处理流程。 */
       console.log(`PASS: ${outageSeconds}s real elapsed device-token network outage, ${blockedTokenRequests} failed requests, automatic recovery`) /* 执行当前语句并推进处理流程。 */
     } /* 结束当前表达式或代码块。 */
     await until(()=>evaluate(`Number(document.querySelector('[data-testid=mqtt-connect-count]')?.textContent)>=2`)) /* 等待异步操作完成。 */
-    await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .el-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('密钥'))`));throw e}) /* 等待异步操作完成。 */
+    await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning p')].some(e=>e.textContent.trim()==='已连接'))`)).catch(async e=>{console.log(await evaluate(`Array.from(document.querySelectorAll('.standard-commissioning p, .standard-commissioning .ui-alert')).map(e=>e.textContent.trim()).filter(x=>!x.includes('密钥'))`));throw e}) /* 等待异步操作完成。 */
     await click('重发同一条消息') /* 等待异步操作完成。 */
     await until(()=>evaluate(`([...document.querySelectorAll('.standard-commissioning .n-data-table-tbody .n-data-table-tr')].filter(e=>e.textContent.includes('已解析')).length===2)`)) /* 等待异步操作完成。 */
     console.log('PASS: live Broker WebSocket credential rejection without operator logout, authentication, Raw parsing, injected transport loss, automatic reconnect and retransmission') /* 执行当前语句并推进处理流程。 */
@@ -137,10 +137,10 @@ try { /* 执行当前语句并推进处理流程。 */
   assert.equal(await evaluate(`document.querySelector('.standard-commissioning input[type=password]').value`), '') /* 验证实际结果符合预期。 */
   await click('摄像头映射') /* 等待异步操作完成。 */
   await click('新增摄像头') /* 等待异步操作完成。 */
-  assert.equal(await evaluate(`document.body.textContent.includes('国标视频目录') || document.querySelector('.el-dialog').textContent.includes('ONVIF')`), false) /* 验证实际结果符合预期。 */
+  assert.equal(await evaluate(`document.body.textContent.includes('国标视频目录') || document.querySelector('.ui-dialog').textContent.includes('ONVIF')`), false) /* 验证实际结果符合预期。 */
   await fill('摄像头标识','browser-camera');await fill('摄像头名称','直接登记摄像头') /* 等待异步操作完成。 */
   await click('保存') /* 等待异步操作完成。 */
-  await until(()=>evaluate(`document.querySelector('.el-table')?.textContent.includes('直接登记摄像头')`)) /* 等待异步操作完成。 */
+  await until(()=>evaluate(`document.querySelector('.ui-table')?.textContent.includes('直接登记摄像头')`)) /* 等待异步操作完成。 */
   await click('模型管理') /* 等待异步操作完成。 */
   await until(()=>evaluate(`!!document.querySelector('.provider-select .n-base-selection')`)) /* 等待异步操作完成。 */
   await evaluate(`document.querySelector('.provider-select .n-base-selection').click()`) /* 等待异步操作完成。 */
