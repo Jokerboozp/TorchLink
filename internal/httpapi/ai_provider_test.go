@@ -77,17 +77,17 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) { /* 定义 
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	runtime := &providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3:1.7b"}}                 /* 更新 runtime 的值。 */
-	workflow := &providerConfigTestWorkflow{}                                                                                                                       /* 更新 workflow 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
-	engine.AI = runtime                                                                                                                                             /* 更新 engine.AI 的值。 */
-	engine.AIPlugins = aiadapter.NewProviderRegistry()                                                                                                              /* 更新 engine.AIPlugins 的值。 */
-	api := New(config.Config{DevMode: true, AITestOllamaURL: "http://localhost:11434"}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))      /* 更新 api 的值。 */
-	api.SetAIProviderRuntime(runtime)                                                                                                                               /* 执行当前语句并推进处理流程。 */
-	api.SetAIProviderStore(repo)                                                                                                                                    /* 执行当前语句并推进处理流程。 */
-	api.SetAIWorkflowProvider(workflow)                                                                                                                             /* 执行当前语句并推进处理流程。 */
-	server := newTestHTTPServer(api)                                                                                                                                /* 更新 server 的值。 */
-	defer server.Close()                                                                                                                                            /* 安排函数结束时执行清理。 */
+	runtime := &providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3:1.7b"}}                                   /* 更新 runtime 的值。 */
+	workflow := &providerConfigTestWorkflow{}                                                                                                                                         /* 更新 workflow 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	engine.AI = runtime                                                                                                                                                               /* 更新 engine.AI 的值。 */
+	engine.AIPlugins = aiadapter.NewProviderRegistry()                                                                                                                                /* 更新 engine.AIPlugins 的值。 */
+	api := New(config.Config{DevMode: true, AITestOllamaURL: "http://localhost:11434"}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))                        /* 更新 api 的值。 */
+	api.SetAIProviderRuntime(runtime)                                                                                                                                                 /* 执行当前语句并推进处理流程。 */
+	api.SetAIProviderStore(repo)                                                                                                                                                      /* 执行当前语句并推进处理流程。 */
+	api.SetAIWorkflowProvider(workflow)                                                                                                                                               /* 执行当前语句并推进处理流程。 */
+	server := newTestHTTPServer(api)                                                                                                                                                  /* 更新 server 的值。 */
+	defer server.Close()                                                                                                                                                              /* 安排函数结束时执行清理。 */
 
 	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour) /* 检查错误并决定后续处理。 */
 	if err != nil {                                                                 /* 判断条件并选择处理分支。 */
@@ -157,11 +157,11 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) { /* 定义 
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	active := ports.AIPluginConfig{Provider: "deepseek", BaseURL: providerServer.URL, Model: "active-model", APIKey: "active-secret"}                               /* 更新 active 的值。 */
-	runtime := &providerConfigTestRuntime{config: active}                                                                                                           /* 更新 runtime 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
-	engine.AI = runtime                                                                                                                                             /* 更新 engine.AI 的值。 */
-	engine.AIPlugins = aiadapter.NewProviderRegistry()                                                                                                              /* 更新 engine.AIPlugins 的值。 */
+	active := ports.AIPluginConfig{Provider: "deepseek", BaseURL: providerServer.URL, Model: "active-model", APIKey: "active-secret"}                                                 /* 更新 active 的值。 */
+	runtime := &providerConfigTestRuntime{config: active}                                                                                                                             /* 更新 runtime 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	engine.AI = runtime                                                                                                                                                               /* 更新 engine.AI 的值。 */
+	engine.AIPlugins = aiadapter.NewProviderRegistry()                                                                                                                                /* 更新 engine.AIPlugins 的值。 */
 	// A newly supplied endpoint must work without an address allowlist.
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 api 的值。 */
 	api.SetAIProviderRuntime(runtime)                                                                               /* 执行当前语句并推进处理流程。 */

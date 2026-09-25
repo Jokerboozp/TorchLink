@@ -76,6 +76,17 @@ func (r *deviceScopeRepository) ListVideoCameraMappingsByDeviceIDs(ctx context.C
 	return r.Repository.ListVideoCameraMappingsByDeviceIDs(ctx, tenant, r.scopedIDs(ctx, tenant, ids)) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
+// ScopedRepository wraps repo with per-request device scope checks. Install it
+// before the engine starts: New replaces an unwrapped engine.Repo, which races
+// with the engine's background readers once they are running. Without a scope
+// in the request context the wrapper passes calls through unchanged.
+func ScopedRepository(repo ports.Repository) ports.Repository {
+	if _, ok := repo.(*deviceScopeRepository); ok {
+		return repo
+	}
+	return &deviceScopeRepository{Repository: repo}
+}
+
 func (s *Server) unscopedRepo() ports.Repository { /* 定义 unscopedRepo 函数。 */
 	if r, ok := s.engine.Repo.(*deviceScopeRepository); ok { /* 判断条件并选择处理分支。 */
 		return r.Repository /* 返回当前处理结果。 */

@@ -28,9 +28,9 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) { /* 定义 TestDeviceOpe
 	if e != nil {                                           /* 判断条件并选择处理分支。 */
 		t.Fatal(e) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                         /* 更新 log 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
-	if e = engine.Start(ctx); e != nil {                                                                          /* 判断条件并选择处理分支。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                           /* 更新 log 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
+	if e = engine.Start(ctx); e != nil {                                                                                            /* 判断条件并选择处理分支。 */
 		t.Fatal(e) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	cfg := config.Load()                                                                                                                                                                       /* 更新 cfg 的值。 */

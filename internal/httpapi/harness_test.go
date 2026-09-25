@@ -138,8 +138,8 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) { /* 定义 
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
-	runtime := &captureWorkflowRuntime{                                                                                                                             /* 更新 runtime 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	runtime := &captureWorkflowRuntime{                                                                                                                                               /* 更新 runtime 的值。 */
 		plugins: []ports.AIWorkflowPlugin{ /* 执行当前语句并推进处理流程。 */
 			{ID: "alarm-handler", Name: "AI Alarm Handler", Enabled: true},                     /* 执行当前语句并推进处理流程。 */
 			{ID: "device-health-inspector", Name: "AI Device Health Inspector", Enabled: true}, /* 执行当前语句并推进处理流程。 */

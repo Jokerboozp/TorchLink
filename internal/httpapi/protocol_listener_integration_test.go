@@ -46,10 +46,10 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) { /* 定义 TestGoProto
 	if err != nil {                                         /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                         /* 更新 log 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
-	engine.Metrics = metrics.New()                                                                                /* 更新 engine.Metrics 的值。 */
-	if err = engine.Start(ctx); err != nil {                                                                      /* 判断条件并选择处理分支。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                           /* 更新 log 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
+	engine.Metrics = metrics.New()                                                                                                  /* 更新 engine.Metrics 的值。 */
+	if err = engine.Start(ctx); err != nil {                                                                                        /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	cfg := config.Load()                                                                                          /* 更新 cfg 的值。 */

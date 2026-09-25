@@ -103,8 +103,12 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 		fatal(log, "initialize local archive", err)                             /* 执行当前语句并推进处理流程。 */
 		archivePort = archive                                                   /* 更新 archivePort 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	var bus ports.EventBus = local.NewBus() /* 声明 bus。 */
-	if len(cfg.KafkaBrokers) > 0 {          /* 判断条件并选择处理分支。 */
+	localBus := local.NewBus()
+	// Without Kafka, automatic alarm analysis still runs apart from the alarm
+	// path, with the same concurrency as its Kafka consumer group.
+	localBus.SetAsyncTopic(model.TopicAlarmRaised, positiveOr(cfg.AIAnalysisConcurrency, 1), 1000)
+	var bus ports.EventBus = localBus /* 声明 bus。 */
+	if len(cfg.KafkaBrokers) > 0 {    /* 判断条件并选择处理分支。 */
 		kafkaBus := kafkaadapter.New(cfg.KafkaBrokers)
 		// Parallel lanes keep each device's (or alarm's) messages in order;
 		// automatic alarm analysis has its own, smaller limit.
@@ -164,10 +168,10 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 		} /* 结束当前表达式或代码块。 */
 		log.Info("realtime enabled", "adapter", "mqtt") /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
-	parsers := parser.NewPlatformRegistry(cfg.DataDir)                 /* 更新 parsers 的值。 */
-	engine := core.New(repo, archivePort, bus, realtime, parsers, log) /* 更新 engine 的值。 */
-	var legacyRaw ports.RawMessageReader                               /* 声明 legacyRaw。 */
-	if reader, ok := archivePort.(ports.RawMessageReader); ok {        /* 判断条件并选择处理分支。 */
+	parsers := parser.NewPlatformRegistry(cfg.DataDir)                                           /* 更新 parsers 的值。 */
+	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log) /* 更新 engine 的值。 */
+	var legacyRaw ports.RawMessageReader                                                         /* 声明 legacyRaw。 */
+	if reader, ok := archivePort.(ports.RawMessageReader); ok {                                  /* 判断条件并选择处理分支。 */
 		legacyRaw = reader /* 更新 legacyRaw 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	engine.RawStore = rawstore.New(rawstore.Config{ /* 更新 engine.RawStore 的值。 */

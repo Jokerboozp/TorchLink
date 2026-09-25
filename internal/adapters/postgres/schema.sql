@@ -476,6 +476,13 @@ CREATE TABLE IF NOT EXISTS health_inspection_job (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS health_inspection_job_one_running ON health_inspection_job(tenant_id) WHERE status='running';
 CREATE INDEX IF NOT EXISTS health_inspection_job_latest ON health_inspection_job(tenant_id, started_at DESC);
+CREATE TABLE IF NOT EXISTS alarm_analysis_job (
+  tenant_id text NOT NULL, id text NOT NULL, alarm_id text NOT NULL, knowledge_scope text NOT NULL DEFAULT '',
+  status text NOT NULL, started_at bigint NOT NULL, updated_at bigint NOT NULL, body jsonb NOT NULL,
+  PRIMARY KEY(tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS alarm_analysis_job_one_running ON alarm_analysis_job(tenant_id, alarm_id, knowledge_scope) WHERE status='running';
+CREATE INDEX IF NOT EXISTS alarm_analysis_job_latest ON alarm_analysis_job(tenant_id, alarm_id, knowledge_scope, started_at DESC);
 -- 创建数据库对象。
 CREATE TABLE IF NOT EXISTS ai_knowledge_doc (
   -- 继续当前数据库语句。

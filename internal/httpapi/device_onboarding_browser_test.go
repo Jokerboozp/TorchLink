@@ -34,7 +34,7 @@ func TestDeviceOnboardingBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	// Parsing runs so the wizard can confirm a real device report.
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)

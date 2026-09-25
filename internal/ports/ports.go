@@ -135,6 +135,13 @@ type Repository interface { /* 定义 Repository 类型。 */
 	UpdateRunningHealthInspectionJob(context.Context, model.HealthInspectionJob) (bool, error)
 	// LatestHealthInspectionJob returns the newest job, optionally with status.
 	LatestHealthInspectionJob(ctx context.Context, tenantID, status string) (model.HealthInspectionJob, error)
+	// CreateAlarmAnalysisJob returns false while a job for the same alarm and
+	// knowledge scope is running; finished jobs of that alarm and scope are
+	// replaced, so only the newest result is kept.
+	CreateAlarmAnalysisJob(context.Context, model.AlarmAnalysisJob) (bool, error)
+	// UpdateRunningAlarmAnalysisJob changes a job only while it is still running.
+	UpdateRunningAlarmAnalysisJob(context.Context, model.AlarmAnalysisJob) (bool, error)
+	LatestAlarmAnalysisJob(ctx context.Context, tenantID, alarmID, knowledgeScope string) (model.AlarmAnalysisJob, error)
 	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error                                          /* 执行当前语句并推进处理流程。 */
 	ListKnowledgeDocs(context.Context, string) ([]model.KnowledgeDoc, error)                             /* 执行当前语句并推进处理流程。 */
 	ListKnowledgeDocsPage(context.Context, string, int, int) ([]model.KnowledgeDoc, int, error)          /* 执行当前语句并推进处理流程。 */

@@ -39,6 +39,7 @@ type Repository struct { /* 定义 Repository 类型。 */
 	videoRelations      map[string][]model.VideoCameraRelation /* 执行当前语句并推进处理流程。 */
 	ai                  map[string]model.AIAnalysis            /* 执行当前语句并推进处理流程。 */
 	inspectionJobs      map[string][]model.HealthInspectionJob
+	analysisJobs        map[string]model.AlarmAnalysisJob
 	knowledge           map[string]model.KnowledgeDoc             /* 执行当前语句并推进处理流程。 */
 	workflowKnowledge   map[string]model.WorkflowKnowledgeBinding /* 执行当前语句并推进处理流程。 */
 	replays             map[string]model.ReplayRequest            /* 执行当前语句并推进处理流程。 */
@@ -947,6 +948,38 @@ func (r *Repository) LatestHealthInspectionJob(_ context.Context, tenant, status
 		return latest, ErrNotFound
 	}
 	return latest, nil
+}
+func (r *Repository) CreateAlarmAnalysisJob(_ context.Context, v model.AlarmAnalysisJob) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := key(v.TenantID, v.AlarmID, v.KnowledgeScope)
+	if current, ok := r.analysisJobs[k]; ok && current.Status == "running" {
+		return false, nil
+	}
+	if r.analysisJobs == nil {
+		r.analysisJobs = map[string]model.AlarmAnalysisJob{}
+	}
+	r.analysisJobs[k] = v
+	return true, nil
+}
+func (r *Repository) UpdateRunningAlarmAnalysisJob(_ context.Context, v model.AlarmAnalysisJob) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := key(v.TenantID, v.AlarmID, v.KnowledgeScope)
+	if current, ok := r.analysisJobs[k]; !ok || current.ID != v.ID || current.Status != "running" {
+		return false, nil
+	}
+	r.analysisJobs[k] = v
+	return true, nil
+}
+func (r *Repository) LatestAlarmAnalysisJob(_ context.Context, tenant, alarmID, knowledgeScope string) (model.AlarmAnalysisJob, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	v, ok := r.analysisJobs[key(tenant, alarmID, knowledgeScope)]
+	if !ok {
+		return v, ErrNotFound
+	}
+	return v, nil
 }
 func (r *Repository) SaveKnowledgeDoc(_ context.Context, v model.KnowledgeDoc) error { /* 定义 SaveKnowledgeDoc 函数。 */
 	r.mu.Lock()                            /* 执行当前语句并推进处理流程。 */

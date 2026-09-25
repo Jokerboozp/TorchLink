@@ -26,10 +26,10 @@ func TestHealthInspectionJobCanBeLoadedWithoutJobID(t *testing.T) { /* 定义 Te
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	release := make(chan struct{})                                                                                                                                  /* 更新 release 的值。 */
-	var releaseOnce sync.Once                                                                                                                                       /* 声明 releaseOnce。 */
-	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }                                                                                              /* 更新 releaseJob 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	release := make(chan struct{})                                                                                                                                                    /* 更新 release 的值。 */
+	var releaseOnce sync.Once                                                                                                                                                         /* 声明 releaseOnce。 */
+	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }                                                                                                                /* 更新 releaseJob 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
 	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 api 的值。 */
 	server := newTestHTTPServer(api)                                                                                /* 更新 server 的值。 */
@@ -77,7 +77,7 @@ func TestHealthInspectionJobIsSharedAcrossServerInstances(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseJob()
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
 	first := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	second := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -114,7 +114,7 @@ func TestHealthInspectionStaleRunningJobIsMarkedInterrupted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := newTestHTTPServer(api)
 	defer server.Close()

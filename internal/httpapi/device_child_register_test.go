@@ -27,7 +27,7 @@ func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	cfg := config.Load()
 	cfg.JWTSecret = "child-register-test-signing-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}

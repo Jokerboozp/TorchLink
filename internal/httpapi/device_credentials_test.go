@@ -28,11 +28,11 @@ func TestProtocolDevicesHaveNoPlatformCredentials(t *testing.T) { /* 定义 Test
 	if err != nil {                        /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                                    /* 更新 log 的值。 */
-	cfg := config.Load()                                                                                                                     /* 更新 cfg 的值。 */
-	cfg.DataDir, cfg.JWTSecret = root, "credential-scope-test-key-32-characters"                                                             /* 更新 cfg.JWTSecret 的值。 */
-	api := New(cfg, core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log), metrics.New(), log) /* 更新 api 的值。 */
-	call := func(method, path, body, tenant, role, key, secret string) *httptest.ResponseRecorder {                                          /* 更新 call 的值。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                                                      /* 更新 log 的值。 */
+	cfg := config.Load()                                                                                                                                       /* 更新 cfg 的值。 */
+	cfg.DataDir, cfg.JWTSecret = root, "credential-scope-test-key-32-characters"                                                                               /* 更新 cfg.JWTSecret 的值。 */
+	api := New(cfg, core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log), metrics.New(), log) /* 更新 api 的值。 */
+	call := func(method, path, body, tenant, role, key, secret string) *httptest.ResponseRecorder {                                                            /* 更新 call 的值。 */
 		token, err := api.auth.Issue("tester", tenant, role, nil, time.Minute) /* 检查错误并决定后续处理。 */
 		if err != nil {                                                        /* 判断条件并选择处理分支。 */
 			t.Fatal(err) /* 验证实际结果符合预期。 */

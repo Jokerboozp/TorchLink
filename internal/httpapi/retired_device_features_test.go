@@ -28,7 +28,7 @@ func TestRetiredDeviceFeaturesHaveNoRoutes(t *testing.T) { /* 定义 TestRetired
 	cfg := config.Load()                                                                                                                                                /* 更新 cfg 的值。 */
 	cfg.DataDir = root                                                                                                                                                  /* 更新 cfg.DataDir 的值。 */
 	cfg.JWTSecret = "retired-feature-test-key-32-characters"                                                                                                            /* 更新 cfg.JWTSecret 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)                                                       /* 更新 engine 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)                                     /* 更新 engine 的值。 */
 	api := New(cfg, engine, metrics.New(), log)                                                                                                                         /* 更新 api 的值。 */
 	if err = repo.SaveManagedDevice(context.Background(), model.ManagedDevice{TenantID: "tenant", ID: "device", ProductID: "product", Status: "ENABLED"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */

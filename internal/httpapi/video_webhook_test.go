@@ -29,17 +29,17 @@ func TestVideoWebhookEnforcesPlatformTenantBinding(t *testing.T) { /* 定义 Tes
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
-	engine.Metrics = metrics.New()                                                                                                                                  /* 更新 engine.Metrics 的值。 */
-	cfg := config.Load()                                                                                                                                            /* 更新 cfg 的值。 */
-	cfg.DevMode = false                                                                                                                                             /* 更新 cfg.DevMode 的值。 */
-	cfg.JWTSecret = "test-secret-at-least-32-characters"                                                                                                            /* 更新 cfg.JWTSecret 的值。 */
-	cfg.VideoSecrets = map[string]string{"video-a": "secret-a"}                                                                                                     /* 更新 cfg.VideoSecrets 的值。 */
-	cfg.VideoPlatformTenants = map[string]string{"video-a": "tenant-a"}                                                                                             /* 更新 cfg.VideoPlatformTenants 的值。 */
-	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                     /* 更新 api 的值。 */
-	server := httptest.NewServer(api.Handler())                                                                                                                     /* 更新 server 的值。 */
-	defer server.Close()                                                                                                                                            /* 安排函数结束时执行清理。 */
-	if err := repo.SaveVideoCameraMapping(context.Background(), model.VideoCameraMapping{TenantID: "tenant-a", CameraID: "camera-a", Enabled: true}); err != nil {  /* 判断条件并选择处理分支。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	engine.Metrics = metrics.New()                                                                                                                                                    /* 更新 engine.Metrics 的值。 */
+	cfg := config.Load()                                                                                                                                                              /* 更新 cfg 的值。 */
+	cfg.DevMode = false                                                                                                                                                               /* 更新 cfg.DevMode 的值。 */
+	cfg.JWTSecret = "test-secret-at-least-32-characters"                                                                                                                              /* 更新 cfg.JWTSecret 的值。 */
+	cfg.VideoSecrets = map[string]string{"video-a": "secret-a"}                                                                                                                       /* 更新 cfg.VideoSecrets 的值。 */
+	cfg.VideoPlatformTenants = map[string]string{"video-a": "tenant-a"}                                                                                                               /* 更新 cfg.VideoPlatformTenants 的值。 */
+	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                       /* 更新 api 的值。 */
+	server := httptest.NewServer(api.Handler())                                                                                                                                       /* 更新 server 的值。 */
+	defer server.Close()                                                                                                                                                              /* 安排函数结束时执行清理。 */
+	if err := repo.SaveVideoCameraMapping(context.Background(), model.VideoCameraMapping{TenantID: "tenant-a", CameraID: "camera-a", Enabled: true}); err != nil {                    /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 

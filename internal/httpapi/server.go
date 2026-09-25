@@ -52,11 +52,10 @@ type Server struct { /* 定义 Server 类型。 */
 	aiProviderUpdateMu         sync.Mutex                      /* 执行当前语句并推进处理流程。 */
 	healthInspectionMu         sync.RWMutex                    // 仅保护本进程的耗时估算；任务状态保存在仓储中。
 	healthInspectionEstimateMs int64
-	aiAnalysisMu               sync.RWMutex              /* 执行当前语句并推进处理流程。 */
-	aiAnalysisJobs             map[string]*aiAnalysisJob /* 执行当前语句并推进处理流程。 */
-	aiAnalysisEstimateMs       int64                     /* 执行当前语句并推进处理流程。 */
-	protocolListeners          protocolCommander         /* 执行当前语句并推进处理流程。 */
-	onboarding                 *onboarding.Service       /* 执行当前语句并推进处理流程。 */
+	aiAnalysisMu               sync.RWMutex        /* 执行当前语句并推进处理流程。 */
+	aiAnalysisEstimateMs       int64               /* 执行当前语句并推进处理流程。 */
+	protocolListeners          protocolCommander   /* 执行当前语句并推进处理流程。 */
+	onboarding                 *onboarding.Service /* 执行当前语句并推进处理流程。 */
 	events                     *eventSnapshots
 	ops                        *opscenter.Service
 } /* 结束当前表达式或代码块。 */
@@ -65,7 +64,7 @@ const healthInspectionCacheTTL = 10 * time.Minute /* 声明 healthInspectionCach
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server { /* 定义 New 函数。 */
 	if _, ok := engine.Repo.(*deviceScopeRepository); !ok { /* 判断条件并选择处理分支。 */
-		engine.Repo = &deviceScopeRepository{Repository: engine.Repo} /* 更新 engine.Repo 的值。 */
+		engine.Repo = ScopedRepository(engine.Repo) /* 更新 engine.Repo 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	gin.SetMode(gin.ReleaseMode)         /* 执行当前语句并推进处理流程。 */
 	router := gin.New()                  /* 更新 router 的值。 */
@@ -80,7 +79,6 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		log:                        log,                                                                              /* 执行当前语句并推进处理流程。 */
 		router:                     router,                                                                           /* 执行当前语句并推进处理流程。 */
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),                                   /* 执行当前语句并推进处理流程。 */
-		aiAnalysisJobs:             make(map[string]*aiAnalysisJob),                                                  /* 执行当前语句并推进处理流程。 */
 		aiAnalysisEstimateMs:       45000,                                                                            /* 执行当前语句并推进处理流程。 */
 		events:                     newEventSnapshots(),
 	} /* 结束当前表达式或代码块。 */

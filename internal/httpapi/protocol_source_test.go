@@ -41,13 +41,13 @@ func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) { /* 定义 Tes
 	if err != nil {                                                      /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	cfg := config.Load()                                                                                                               /* 更新 cfg 的值。 */
-	cfg.DataDir = root                                                                                                                 /* 更新 cfg.DataDir 的值。 */
-	cfg.JWTSecret = "source-test-secret-at-least-32-characters"                                                                        /* 更新 cfg.JWTSecret 的值。 */
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                              /* 更新 log 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ExternalParser{Root: root}), log) /* 更新 engine 的值。 */
-	engine.Metrics = metrics.New()                                                                                                     /* 更新 engine.Metrics 的值。 */
-	if err = engine.Start(ctx); err != nil {                                                                                           /* 判断条件并选择处理分支。 */
+	cfg := config.Load()                                                                                                                                 /* 更新 cfg 的值。 */
+	cfg.DataDir = root                                                                                                                                   /* 更新 cfg.DataDir 的值。 */
+	cfg.JWTSecret = "source-test-secret-at-least-32-characters"                                                                                          /* 更新 cfg.JWTSecret 的值。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                                                /* 更新 log 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ExternalParser{Root: root}), log) /* 更新 engine 的值。 */
+	engine.Metrics = metrics.New()                                                                                                                       /* 更新 engine.Metrics 的值。 */
+	if err = engine.Start(ctx); err != nil {                                                                                                             /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), log)                 /* 更新 api 的值。 */

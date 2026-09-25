@@ -56,13 +56,13 @@ func TestLegacyDeviceConnectionResolution(t *testing.T) { /* 定义 TestLegacyDe
 	if err != nil {                        /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                         /* 更新 log 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
-	cfg := config.Load()                                                                                          /* 更新 cfg 的值。 */
-	cfg.JWTSecret = "legacy-test-key-32-characters"                                                               /* 更新 cfg.JWTSecret 的值。 */
-	srv := New(cfg, engine, metrics.New(), log)                                                                   /* 更新 srv 的值。 */
-	srv.SetProtocolListeners(connectionSnapshot{})                                                                /* 执行当前语句并推进处理流程。 */
-	must := func(err error) {                                                                                     /* 更新 must 的值。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                           /* 更新 log 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
+	cfg := config.Load()                                                                                                            /* 更新 cfg 的值。 */
+	cfg.JWTSecret = "legacy-test-key-32-characters"                                                                                 /* 更新 cfg.JWTSecret 的值。 */
+	srv := New(cfg, engine, metrics.New(), log)                                                                                     /* 更新 srv 的值。 */
+	srv.SetProtocolListeners(connectionSnapshot{})                                                                                  /* 执行当前语句并推进处理流程。 */
+	must := func(err error) {                                                                                                       /* 更新 must 的值。 */
 		t.Helper()      /* 执行当前语句并推进处理流程。 */
 		if err != nil { /* 判断条件并选择处理分支。 */
 			t.Fatal(err) /* 验证实际结果符合预期。 */

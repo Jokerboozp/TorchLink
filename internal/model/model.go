@@ -427,6 +427,27 @@ type HealthInspectionJob struct {
 	Error                string             `json:"error,omitempty"`
 }
 
+// AlarmAnalysisJob is the durable progress and result of one manual alarm
+// analysis. One job per alarm and knowledge scope may run at a time; storing it
+// keeps progress readable after a restart and from every API replica.
+type AlarmAnalysisJob struct {
+	ID                   string     `json:"jobId"`
+	TenantID             string     `json:"tenantId"`
+	AlarmID              string     `json:"alarmId"`
+	KnowledgeScope       string     `json:"knowledgeScope,omitempty"`
+	Actor                string     `json:"actor,omitempty"`
+	Status               string     `json:"status"`
+	Stage                string     `json:"stage"`
+	Message              string     `json:"message"`
+	Progress             int        `json:"progress"`
+	EstimatedRemainingMs int64      `json:"estimatedRemainingMs"`
+	StartedAt            int64      `json:"startedAt"`
+	UpdatedAt            int64      `json:"updatedAt"`
+	FinishedAt           int64      `json:"finishedAt"`
+	Analysis             AIAnalysis `json:"analysis"`
+	Error                string     `json:"error,omitempty"`
+}
+
 // ManagedDevice is the inventory/control-plane record. Runtime connectivity is
 // kept separately in DeviceState and joined by the API.
 type ManagedDevice struct { /* 定义 ManagedDevice 类型。 */

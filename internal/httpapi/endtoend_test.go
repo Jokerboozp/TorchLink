@@ -32,7 +32,7 @@ func TestHTTPWorkflow(t *testing.T) { /* 定义 TestHTTPWorkflow 函数。 */
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}, parser.JavaScriptParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}, parser.JavaScriptParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
 	installEndpointWorkflows(engine)
 	engine.AIPlugins = aiadapter.NewProviderRegistry() /* 更新 engine.AIPlugins 的值。 */
 	engine.KB = knowledge.NewLocal()                   /* 更新 engine.KB 的值。 */

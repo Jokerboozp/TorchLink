@@ -31,9 +31,9 @@ func TestSplitGatewayHTTPFlow(t *testing.T) { /* 定义 TestSplitGatewayHTTPFlow
 	bus := local.NewBus()                                 /* 更新 bus 的值。 */
 	log := slog.New(slog.NewTextHandler(io.Discard, nil)) /* 更新 log 的值。 */
 	// Separate engines, shared test repository and queue. Only the API consumes Raw.
-	gatewayEngine := core.New(repo, archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log) /* 更新 gatewayEngine 的值。 */
-	apiEngine := core.New(repo, archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)     /* 更新 apiEngine 的值。 */
-	if err = apiEngine.Start(ctx); err != nil {                                                                      /* 判断条件并选择处理分支。 */
+	gatewayEngine := core.New(ScopedRepository(repo), archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log) /* 更新 gatewayEngine 的值。 */
+	apiEngine := core.New(ScopedRepository(repo), archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)     /* 更新 apiEngine 的值。 */
+	if err = apiEngine.Start(ctx); err != nil {                                                                                        /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	cfg := config.Load()                                                        /* 更新 cfg 的值。 */

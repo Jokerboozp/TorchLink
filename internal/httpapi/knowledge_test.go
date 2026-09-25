@@ -27,13 +27,13 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) { /* 定义 TestKnowle
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
-	engine.KB = knowledge.NewLocal()                                                                                                                                /* 更新 engine.KB 的值。 */
-	cfg := config.Load()                                                                                                                                            /* 更新 cfg 的值。 */
-	cfg.JWTSecret = "test-secret-at-least-32-characters"                                                                                                            /* 更新 cfg.JWTSecret 的值。 */
-	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                          /* 更新 api 的值。 */
-	server := httptest.NewServer(api.Handler())                                                                                                                     /* 更新 server 的值。 */
-	defer server.Close()                                                                                                                                            /* 安排函数结束时执行清理。 */
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	engine.KB = knowledge.NewLocal()                                                                                                                                                  /* 更新 engine.KB 的值。 */
+	cfg := config.Load()                                                                                                                                                              /* 更新 cfg 的值。 */
+	cfg.JWTSecret = "test-secret-at-least-32-characters"                                                                                                                              /* 更新 cfg.JWTSecret 的值。 */
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                                            /* 更新 api 的值。 */
+	server := httptest.NewServer(api.Handler())                                                                                                                                       /* 更新 server 的值。 */
+	defer server.Close()                                                                                                                                                              /* 安排函数结束时执行清理。 */
 
 	operatorToken, err := api.auth.Issue("operator", "tenant-a", "operator", nil, time.Hour) /* 检查错误并决定后续处理。 */
 	if err != nil {                                                                          /* 判断条件并选择处理分支。 */
