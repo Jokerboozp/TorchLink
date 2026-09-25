@@ -20,8 +20,8 @@ import ( /* 引入当前代码需要的依赖。 */
 ) /* 结束当前表达式或代码块。 */
 
 func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) { /* 定义 runAIAlarmAnalysis 函数。 */
-	job := s.startAIAnalysisJob(claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username) /* 更新 job 的值。 */
-	write(w, http.StatusAccepted, aiAnalysisJobView(job))                                       /* 执行当前语句并推进处理流程。 */
+	job := s.startAIAnalysisJob(claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username, alarmAnalysisRunScope(r.Context())) /* 按发起人角色决定是否引用知识库。 */
+	write(w, http.StatusAccepted, aiAnalysisJobView(job))                                                                           /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) { /* 定义 healthInspection 函数。 */

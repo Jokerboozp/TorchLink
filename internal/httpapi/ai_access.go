@@ -35,6 +35,28 @@ func workflowScopes(ctx context.Context) []string {
 	return out
 }
 
+// canQueryKnowledge applies the same role rule as Agent chat: only roles that
+// may use the knowledge-base tool receive knowledge-based answers.
+func canQueryKnowledge(ctx context.Context) bool {
+	return len(intersectScopes(workflowScopes(ctx), []string{auth.ScopeQueryKnowledgeBase})) > 0
+}
+
+// alarmAnalysisRunScope is the variant produced when the caller runs analysis.
+func alarmAnalysisRunScope(ctx context.Context) string {
+	if canQueryKnowledge(ctx) {
+		return model.AlarmAnalysisWorkflowID
+	}
+	return model.AIAnalysisScopeNone
+}
+
+// alarmAnalysisViewScopes lists the stored variants the caller's role may read.
+func alarmAnalysisViewScopes(ctx context.Context) []string {
+	if canQueryKnowledge(ctx) {
+		return []string{model.AIAnalysisScopeNone, model.AlarmAnalysisWorkflowID, model.AIAnalysisScopeLegacyTenant}
+	}
+	return []string{model.AIAnalysisScopeNone}
+}
+
 func intersectScopes(issued, current []string) []string {
 	out := []string{}
 	for _, value := range issued {

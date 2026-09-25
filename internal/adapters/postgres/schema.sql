@@ -450,6 +450,24 @@ BEGIN
     ALTER TABLE alarm_ai_analysis ADD CONSTRAINT alarm_ai_analysis_pkey PRIMARY KEY(tenant_id, alarm_id);
   END IF;
 END $$;
+-- 告警研判按知识范围分开保存：'' 为未使用知识库的结果，其他值仅对有知识库权限的角色可见。
+-- 迁移前的结果曾检索整个租户的知识库，统一标记为 legacy-tenant-knowledge，避免被无知识库权限的角色看到。
+ALTER TABLE alarm_ai_analysis ADD COLUMN IF NOT EXISTS knowledge_scope text;
+UPDATE alarm_ai_analysis SET knowledge_scope='legacy-tenant-knowledge' WHERE knowledge_scope IS NULL;
+ALTER TABLE alarm_ai_analysis ALTER COLUMN knowledge_scope SET DEFAULT '';
+ALTER TABLE alarm_ai_analysis ALTER COLUMN knowledge_scope SET NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid='alarm_ai_analysis'::regclass
+      AND conname='alarm_ai_analysis_pkey'
+      AND array_length(conkey, 1)=2
+  ) THEN
+    ALTER TABLE alarm_ai_analysis DROP CONSTRAINT alarm_ai_analysis_pkey;
+    ALTER TABLE alarm_ai_analysis ADD CONSTRAINT alarm_ai_analysis_pkey PRIMARY KEY(tenant_id, alarm_id, knowledge_scope);
+  END IF;
+END $$;
 -- 创建数据库对象。
 CREATE TABLE IF NOT EXISTS ai_knowledge_doc (
   -- 继续当前数据库语句。

@@ -7,6 +7,8 @@ import ( /* 引入当前代码需要的依赖。 */
 	"testing" /* 执行当前语句并推进处理流程。 */
 	"time"    /* 执行当前语句并推进处理流程。 */
 
+	"iot-platform/internal/model"
+
 	"github.com/jackc/pgx/v5"         /* 执行当前语句并推进处理流程。 */
 	"github.com/jackc/pgx/v5/pgxpool" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
@@ -86,6 +88,41 @@ INSERT INTO alarm_ai_analysis(alarm_id,body) VALUES
 	if _, err = pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES('tenant_b','alarm_a','{}')`); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatalf("composite tenant/alarm primary key was not installed: %v", err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
+	var legacyScope string
+	if err = pool.QueryRow(ctx, `SELECT knowledge_scope FROM alarm_ai_analysis WHERE tenant_id='tenant_a' AND alarm_id='alarm_a'`).Scan(&legacyScope); err != nil {
+		t.Fatal(err)
+	}
+	if legacyScope != "legacy-tenant-knowledge" {
+		t.Fatalf("pre-scope analysis must stay restricted as tenant knowledge, got scope %q", legacyScope)
+	}
+	// The knowledge-free variant of the same alarm is stored beside the restricted one.
+	if _, err = pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,knowledge_scope,body) VALUES('tenant_a','alarm_a','','{}')`); err != nil {
+		t.Fatalf("knowledge scope was not added to the analysis primary key: %v", err)
+	}
+	repo := &Repository{pool: pool}
+	if err = repo.Migrate(ctx); err != nil {
+		t.Fatalf("analysis scope migration must be repeatable: %v", err)
+	}
+	legacyRow, err := repo.GetAIAnalysis(ctx, "tenant_a", "alarm_a", "legacy-tenant-knowledge")
+	if err != nil || legacyRow.KnowledgeScope != "legacy-tenant-knowledge" {
+		t.Fatalf("legacy analysis must report its column scope: %#v err=%v", legacyRow, err)
+	}
+	for _, v := range []model.AIAnalysis{
+		{TenantID: "tenant_b", AlarmID: "alarm_b", Summary: "base"},
+		{TenantID: "tenant_b", AlarmID: "alarm_b", Summary: "scoped", KnowledgeScope: "alarm-handler", KnowledgeDocuments: []string{"doc-1"}},
+	} {
+		if err = repo.SaveAIAnalysis(ctx, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base, err := repo.GetAIAnalysis(ctx, "tenant_b", "alarm_b", "")
+	if err != nil || base.Summary != "base" {
+		t.Fatalf("knowledge-free analysis overwritten or missing: %#v err=%v", base, err)
+	}
+	scoped, err := repo.GetAIAnalysis(ctx, "tenant_b", "alarm_b", "alarm-handler")
+	if err != nil || scoped.Summary != "scoped" || len(scoped.KnowledgeDocuments) != 1 {
+		t.Fatalf("knowledge analysis not stored separately: %#v err=%v", scoped, err)
+	}
 } /* 结束当前表达式或代码块。 */
 
 func TestMigrateDeviceSystemTagsToFields(t *testing.T) {

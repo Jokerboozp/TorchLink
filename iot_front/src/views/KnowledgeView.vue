@@ -71,7 +71,7 @@ async function load() { /* 定义 load 函数。 */
   try { /* 执行当前语句并推进处理流程。 */
     const [documentResult, agentResult] = await Promise.allSettled([ /* 执行当前语句并推进处理流程。 */
       api(`/api/v1/knowledge/documents?page=${page.value}&pageSize=${pageSize.value}`), /* 执行当前语句并推进处理流程。 */
-      api('/api/v1/ai/workflows?page=1&pageSize=100') /* 执行当前语句并推进处理流程。 */
+      api('/api/v1/ai/workflows?purpose=knowledge&page=1&pageSize=100') /* 执行当前语句并推进处理流程。 */
     ]) /* 结束当前表达式或代码块。 */
     if (version !== loadVersion) return
     if (documentResult.status === 'fulfilled') { /* 判断条件并选择处理分支。 */

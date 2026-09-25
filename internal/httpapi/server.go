@@ -1311,13 +1311,29 @@ func (s *Server) alarmAction(w http.ResponseWriter, r *http.Request) { /* 定义
 	} /* 结束当前表达式或代码块。 */
 	write(w, 200, v) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
+// aiAnalysis returns the newest analysis variant the caller's role may read.
+// Knowledge-based variants stay hidden from roles without knowledge access.
 func (s *Server) aiAnalysis(w http.ResponseWriter, r *http.Request) { /* 定义 aiAnalysis 函数。 */
-	v, err := s.engine.Repo.GetAIAnalysis(r.Context(), claims(r).TenantID, r.PathValue("alarmId")) /* 更新 err 的值。 */
-	if err != nil {                                                                                /* 判断条件并选择处理分支。 */
+	var latest model.AIAnalysis
+	found := false
+	for _, scope := range alarmAnalysisViewScopes(r.Context()) {
+		v, err := s.engine.Repo.GetAIAnalysis(r.Context(), claims(r).TenantID, r.PathValue("alarmId"), scope)
+		if errors.Is(err, model.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			problem(w, 500, err.Error())
+			return
+		}
+		if !found || v.CreatedAt > latest.CreatedAt {
+			latest, found = v, true
+		}
+	}
+	if !found {
 		problem(w, 404, "analysis not found or still pending") /* 执行当前语句并推进处理流程。 */
 		return                                                 /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	write(w, 200, v) /* 执行当前语句并推进处理流程。 */
+	}
+	write(w, 200, latest) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) { /* 定义 aiProviders 函数。 */
 	pagination := parseListPagination(r) /* 更新 pagination 的值。 */
@@ -1691,9 +1707,16 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) { /* 定义 aiCh
 
 func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) { /* 定义 aiWorkflows 函数。 */
 	pagination := parseListPagination(r) /* 更新 pagination 的值。 */
-	if s.engine.AIWorkflows == nil {     /* 判断条件并选择处理分支。 */
-		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": false, "mode": "local", "healthy": false, "healthMessage": "未配置 AI 工作流服务（Harness），智能助手问答暂不可用"}) /* 执行当前语句并推进处理流程。 */
-		return                                                                                                                                                                                    /* 返回当前处理结果。 */
+	// 知识库页除聊天智能体外，还需要为告警研判智能体上传文档和配置检索策略；告警研判不依赖 Harness。
+	forKnowledge := r.URL.Query().Get("purpose") == "knowledge"
+	if s.engine.AIWorkflows == nil { /* 判断条件并选择处理分支。 */
+		items := []ports.AIWorkflowPlugin{}
+		if forKnowledge {
+			items = append(items, alarmAnalysisWorkflowPlugin())
+		}
+		items, total := pageItems(items, pagination)
+		writeList(w, 200, items, total, pagination, map[string]any{"configured": false, "mode": "local", "healthy": false, "healthMessage": "未配置 AI 工作流服务（Harness），智能助手问答暂不可用"}) /* 执行当前语句并推进处理流程。 */
+		return                                                                                                                                                                   /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	items, err := s.engine.AIWorkflows.ListWorkflows(r.Context()) /* 更新 err 的值。 */
 	if err != nil {                                               /* 判断条件并选择处理分支。 */
@@ -1703,10 +1726,30 @@ func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) { /* 定义
 		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"}) /* 执行当前语句并推进处理流程。 */
 		return                                                                                                                                                                                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	items = chatWorkflowPlugins(items)                                                                                                                                       /* 更新 items 的值。 */
+	if forKnowledge {
+		items = knowledgeWorkflowPlugins(items)
+	} else {
+		items = chatWorkflowPlugins(items) /* 更新 items 的值。 */
+	}
 	items, total := pageItems(items, pagination)                                                                                                                             /* 更新 total 的值。 */
 	writeList(w, 200, items, total, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": true, "healthMessage": "AI workflow harness is reachable"}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
+
+func alarmAnalysisWorkflowPlugin() ports.AIWorkflowPlugin {
+	return ports.AIWorkflowPlugin{ID: model.AlarmAnalysisWorkflowID, Name: "AI 告警研判", Description: "告警详情中的智能研判；仅有知识库权限的角色手动研判时检索本智能体的文档。", Enabled: true, KnowledgeEnabled: true}
+}
+
+// knowledgeWorkflowPlugins lists the Agents that own knowledge documents: chat
+// Agents plus the alarm analysis Agent.
+func knowledgeWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin {
+	visible := chatWorkflowPlugins(items)
+	for _, item := range items {
+		if item.ID == model.AlarmAnalysisWorkflowID {
+			return append(visible, item)
+		}
+	}
+	return append(visible, alarmAnalysisWorkflowPlugin())
+}
 
 func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) { /* 定义 aiWorkflowManifests 函数。 */
 	pagination := parseListPagination(r)                               /* 更新 pagination 的值。 */
@@ -1910,10 +1953,7 @@ func boundedText(value string, maximum int) bool { /* 定义 boundedText 函数�
 } /* 结束当前表达式或代码块。 */
 
 func defaultWorkflowKnowledgeBinding(tenantID, workflowID string) model.WorkflowKnowledgeBinding { /* 定义 defaultWorkflowKnowledgeBinding 函数。 */
-	if workflowID == "system-observer" { /* 判断条件并选择处理分支。 */
-		return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "disabled", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"} /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "auto", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"} /* 返回当前处理结果。 */
+	return core.DefaultWorkflowKnowledgeBinding(tenantID, workflowID)
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request) { /* 定义 workflowKnowledgeBinding 函数。 */
@@ -2122,10 +2162,7 @@ func workflowKnowledgeInstruction(binding model.WorkflowKnowledgeBinding) string
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) searchWorkflowKnowledge(ctx context.Context, tenantID, question string, binding model.WorkflowKnowledgeBinding) ([]ports.KnowledgeHit, error) { /* 定义 searchWorkflowKnowledge 函数。 */
-	if filtered, ok := s.engine.KB.(ports.FilteredKnowledgeBase); ok { /* 判断条件并选择处理分支。 */
-		return filtered.SearchKnowledge(ctx, ports.KnowledgeSearchRequest{TenantID: tenantID, WorkflowID: binding.WorkflowID, Question: question, Limit: binding.TopK, MinScore: binding.MinScore}) /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	return nil, errors.New("workflow-bound knowledge search is not supported by the configured index") /* 返回当前处理结果。 */
+	return core.SearchWorkflowKnowledge(ctx, s.engine.KB, tenantID, question, binding)
 } /* 结束当前表达式或代码块。 */
 
 func knowledgeEvidenceText(hits []ports.KnowledgeHit, maximum int) string { /* 定义 knowledgeEvidenceText 函数。 */

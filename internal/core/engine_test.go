@@ -150,7 +150,7 @@ func TestRawToAlarmPipeline(t *testing.T) { /* 定义 TestRawToAlarmPipeline 函
 	if _, created, err := e.IngestRaw(ctx, raw); err != nil || created { /* 判断条件并选择处理分支。 */
 		t.Fatalf("duplicate created=%v err=%v", created, err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if _, err = repo.GetAIAnalysis(ctx, alarms[0].TenantID, alarms[0].ID); err != nil { /* 判断条件并选择处理分支。 */
+	if _, err = repo.GetAIAnalysis(ctx, alarms[0].TenantID, alarms[0].ID, model.AIAnalysisScopeNone); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatalf("ai analysis not saved: %v", err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if len(realtime.Messages) < 2 { /* 判断条件并选择处理分支。 */
@@ -185,15 +185,15 @@ func TestAnalyzeAlarmPersistsReadableFallbackOnProviderError(t *testing.T) { /* 
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 
-	analysis, err := e.AnalyzeAlarm(ctx, "t1", "alarm-ai-failure") /* 更新 err 的值。 */
-	if err != nil {                                                /* 判断条件并选择处理分支。 */
+	analysis, err := e.AnalyzeAlarm(ctx, "t1", "alarm-ai-failure", false) /* 更新 err 的值。 */
+	if err != nil {                                                       /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if analysis.Summary != "AI 研判暂时失败，已保留告警供人工研判。" || analysis.Model != "unavailable" || analysis.Error == "" { /* 判断条件并选择处理分支。 */
 		t.Fatalf("unexpected readable fallback: %#v", analysis) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	saved, err := repo.GetAIAnalysis(ctx, "t1", "alarm-ai-failure") /* 更新 err 的值。 */
-	if err != nil {                                                 /* 判断条件并选择处理分支。 */
+	saved, err := repo.GetAIAnalysis(ctx, "t1", "alarm-ai-failure", model.AIAnalysisScopeNone) /* 更新 err 的值。 */
+	if err != nil {                                                                            /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if saved.Summary == "" || saved.Model == "" { /* 判断条件并选择处理分支。 */

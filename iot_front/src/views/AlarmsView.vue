@@ -65,6 +65,15 @@ function handleDetailClosed() { /* 定义 handleDetailClosed 函数。 */
   analysisProgress.value = null /* 更新 analysisProgress.value 的值。 */
 } /* 结束当前表达式或代码块。 */
 
+// 研判结果按知识范围分开保存，这里说明当前显示的结果依据了哪些知识。
+function analysisKnowledgeText(item) {
+  if (item?.knowledgeScope === 'alarm-handler') {
+    const count = item.knowledgeDocuments?.length || 0
+    return count ? `知识依据：告警研判智能体知识库，引用 ${count} 篇文档` : '知识依据：告警研判智能体知识库，未检索到匹配内容'
+  }
+  if (item?.knowledgeScope === 'legacy-tenant-knowledge') return '知识依据：早期结果，曾检索全租户知识库'
+  return '知识依据：未引用知识库'
+}
 function formatRemaining(ms) { /* 定义 formatRemaining 函数。 */
   const seconds = Math.ceil(Number(ms || 0) / 1000) /* 声明 seconds。 */
   if (seconds <= 0) return '即将完成' /* 判断条件并选择处理分支。 */
@@ -236,7 +245,7 @@ function rowActions(row) {
         <small v-else>{{analysisProgress.status === 'succeeded' ? '处理完成' : analysisProgress.error || '处理失败'}}</small> <!-- 渲染 small 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
       <ui-empty v-if="!analysis && !analysisLoading" description="该告警暂无研判结果，可点击立即研判" :image-size="52" /> <!-- 渲染 ui-empty 界面元素。 -->
-      <div v-if="analysis" class="analysis-grid"><ui-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div> <!-- 渲染 div 界面元素。 -->
+      <div v-if="analysis" class="analysis-grid"><ui-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">{{analysisKnowledgeText(analysis)}}</small><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div> <!-- 渲染 div 界面元素。 -->
     </ui-card> <!-- 结束当前界面区域。 -->
     <pre>{{pretty(detail)}}</pre> <!-- 渲染 pre 界面元素。 -->
     <template #footer><ui-button @click="detailVisible = false">关闭详情</ui-button></template>

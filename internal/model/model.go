@@ -570,7 +570,23 @@ type AIAnalysis struct { /* 定义 AIAnalysis 类型。 */
 	PromptVersion   string   `json:"promptVersion"`      /* 执行当前语句并推进处理流程。 */
 	CreatedAt       int64    `json:"createdAt"`          /* 执行当前语句并推进处理流程。 */
 	Error           string   `json:"error,omitempty"`    /* 执行当前语句并推进处理流程。 */
+	// KnowledgeScope separates the analysis variants of one alarm: "" was produced
+	// without knowledge and is visible to every alarm viewer; other values used
+	// knowledge and are visible only to roles allowed to query the knowledge base.
+	KnowledgeScope     string   `json:"knowledgeScope,omitempty"`
+	KnowledgeDocuments []string `json:"knowledgeDocuments,omitempty"`
 } /* 结束当前表达式或代码块。 */
+
+const (
+	// AlarmAnalysisWorkflowID is the built-in Agent whose documents and knowledge
+	// binding define what alarm analysis may retrieve.
+	AlarmAnalysisWorkflowID = "alarm-handler"
+	// AIAnalysisScopeNone marks analysis produced without any knowledge.
+	AIAnalysisScopeNone = ""
+	// AIAnalysisScopeLegacyTenant marks results stored before scoped retrieval;
+	// they may contain tenant-wide knowledge and stay restricted.
+	AIAnalysisScopeLegacyTenant = "legacy-tenant-knowledge"
+)
 
 type KnowledgeDoc struct { /* 定义 KnowledgeDoc 类型。 */
 	ID           string         `json:"id"`                  /* 执行当前语句并推进处理流程。 */

@@ -15,10 +15,11 @@ const ( /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
 type aiAnalysisJob struct { /* 定义 aiAnalysisJob 类型。 */
-	ID                   string           /* 执行当前语句并推进处理流程。 */
-	TenantID             string           /* 执行当前语句并推进处理流程。 */
-	AlarmID              string           /* 执行当前语句并推进处理流程。 */
-	Actor                string           /* 执行当前语句并推进处理流程。 */
+	ID                   string /* 执行当前语句并推进处理流程。 */
+	TenantID             string /* 执行当前语句并推进处理流程。 */
+	AlarmID              string /* 执行当前语句并推进处理流程。 */
+	Actor                string /* 执行当前语句并推进处理流程。 */
+	KnowledgeScope       string
 	Status               string           /* 执行当前语句并推进处理流程。 */
 	Stage                string           /* 执行当前语句并推进处理流程。 */
 	Message              string           /* 执行当前语句并推进处理流程。 */
@@ -31,12 +32,14 @@ type aiAnalysisJob struct { /* 定义 aiAnalysisJob 类型。 */
 	Error                string           /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-func (s *Server) startAIAnalysisJob(tenantID, alarmID, actor string) *aiAnalysisJob { /* 定义 startAIAnalysisJob 函数。 */
-	now := time.Now()                     /* 更新 now 的值。 */
-	key := alarmJobKey(tenantID, alarmID) /* 更新 key 的值。 */
-	s.aiAnalysisMu.Lock()                 /* 执行当前语句并推进处理流程。 */
-	defer s.aiAnalysisMu.Unlock()         /* 安排函数结束时执行清理。 */
-	if s.aiAnalysisJobs == nil {          /* 判断条件并选择处理分支。 */
+// knowledgeScope is decided from the caller's role before the job leaves the
+// request; each scope runs and is polled as a separate job.
+func (s *Server) startAIAnalysisJob(tenantID, alarmID, actor, knowledgeScope string) *aiAnalysisJob { /* 定义 startAIAnalysisJob 函数。 */
+	now := time.Now()                                     /* 更新 now 的值。 */
+	key := alarmJobKey(tenantID, alarmID, knowledgeScope) /* 更新 key 的值。 */
+	s.aiAnalysisMu.Lock()                                 /* 执行当前语句并推进处理流程。 */
+	defer s.aiAnalysisMu.Unlock()                         /* 安排函数结束时执行清理。 */
+	if s.aiAnalysisJobs == nil {                          /* 判断条件并选择处理分支。 */
 		s.aiAnalysisJobs = make(map[string]*aiAnalysisJob) /* 更新 s.aiAnalysisJobs 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	for existingKey, job := range s.aiAnalysisJobs { /* 循环处理当前数据。 */
@@ -56,20 +59,23 @@ func (s *Server) startAIAnalysisJob(tenantID, alarmID, actor string) *aiAnalysis
 		TenantID:             tenantID,                  /* 执行当前语句并推进处理流程。 */
 		AlarmID:              alarmID,                   /* 执行当前语句并推进处理流程。 */
 		Actor:                actor,                     /* 执行当前语句并推进处理流程。 */
-		Status:               "running",                 /* 执行当前语句并推进处理流程。 */
-		Stage:                "preparing",               /* 执行当前语句并推进处理流程。 */
-		Message:              "正在准备告警上下文",               /* 执行当前语句并推进处理流程。 */
-		Progress:             8,                         /* 执行当前语句并推进处理流程。 */
-		EstimatedRemainingMs: estimate,                  /* 执行当前语句并推进处理流程。 */
-		StartedAt:            now.UnixMilli(),           /* 执行当前语句并推进处理流程。 */
-		UpdatedAt:            now.UnixMilli(),           /* 执行当前语句并推进处理流程。 */
+		KnowledgeScope:       knowledgeScope,
+		Status:               "running",       /* 执行当前语句并推进处理流程。 */
+		Stage:                "preparing",     /* 执行当前语句并推进处理流程。 */
+		Message:              "正在准备告警上下文",     /* 执行当前语句并推进处理流程。 */
+		Progress:             8,               /* 执行当前语句并推进处理流程。 */
+		EstimatedRemainingMs: estimate,        /* 执行当前语句并推进处理流程。 */
+		StartedAt:            now.UnixMilli(), /* 执行当前语句并推进处理流程。 */
+		UpdatedAt:            now.UnixMilli(), /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 	s.aiAnalysisJobs[key] = job     /* 更新 s.aiAnalysisJobs[key] 的值。 */
 	go s.runAIAnalysisJob(key, job) /* 执行当前语句并推进处理流程。 */
 	return cloneAIAnalysisJob(job)  /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
-func alarmJobKey(tenantID, alarmID string) string { return tenantID + "\x00" + alarmID } /* 定义 alarmJobKey 函数。 */
+func alarmJobKey(tenantID, alarmID, knowledgeScope string) string {
+	return tenantID + "\x00" + alarmID + "\x00" + knowledgeScope
+}
 
 func cloneAIAnalysisJob(job *aiAnalysisJob) *aiAnalysisJob { /* 定义 cloneAIAnalysisJob 函数。 */
 	if job == nil { /* 判断条件并选择处理分支。 */
@@ -78,7 +84,8 @@ func cloneAIAnalysisJob(job *aiAnalysisJob) *aiAnalysisJob { /* 定义 cloneAIAn
 	copy := *job                                                                           /* 更新 copy 的值。 */
 	copy.Analysis.PossibleReasons = append([]string(nil), job.Analysis.PossibleReasons...) /* 更新 copy.Analysis.PossibleReasons 的值。 */
 	copy.Analysis.Suggestions = append([]string(nil), job.Analysis.Suggestions...)         /* 更新 copy.Analysis.Suggestions 的值。 */
-	return &copy                                                                           /* 返回当前处理结果。 */
+	copy.Analysis.KnowledgeDocuments = append([]string(nil), job.Analysis.KnowledgeDocuments...)
+	return &copy /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 // runAIAnalysisJob performs the actual work. It is split from the starter so
@@ -92,8 +99,8 @@ func (s *Server) runAIAnalysisJob(key string, job *aiAnalysisJob) { /* 定义 ru
 		err      error            /* 执行当前语句并推进处理流程。 */
 	}, 1) /* 结束当前表达式或代码块。 */
 	go func() { /* 执行当前语句并推进处理流程。 */
-		analysis, err := s.engine.AnalyzeAlarm(ctx, job.TenantID, job.AlarmID) /* 更新 err 的值。 */
-		resultCh <- struct {                                                   /* 执行当前语句并推进处理流程。 */
+		analysis, err := s.engine.AnalyzeAlarm(ctx, job.TenantID, job.AlarmID, job.KnowledgeScope != model.AIAnalysisScopeNone) /* 更新 err 的值。 */
+		resultCh <- struct {                                                                                                    /* 执行当前语句并推进处理流程。 */
 			analysis model.AIAnalysis /* 执行当前语句并推进处理流程。 */
 			err      error            /* 执行当前语句并推进处理流程。 */
 		}{analysis, err} /* 结束当前表达式或代码块。 */
@@ -177,14 +184,14 @@ func (s *Server) finishAIAnalysisJob(key, jobID string, analysis model.AIAnalysi
 
 	if err == nil { /* 判断条件并选择处理分支。 */
 		_ = s.engine.Repo.SaveAudit(context.Background(), model.AuditLog{ /* 更新 _ 的值。 */
-			ID:         "audit_" + randomHex(10),                         /* 执行当前语句并推进处理流程。 */
-			TenantID:   copy.TenantID,                                    /* 执行当前语句并推进处理流程。 */
-			Actor:      copy.Actor,                                       /* 执行当前语句并推进处理流程。 */
-			Action:     "ai.alarm-analysis.run",                          /* 执行当前语句并推进处理流程。 */
-			TargetType: "alarm",                                          /* 执行当前语句并推进处理流程。 */
-			TargetID:   copy.AlarmID,                                     /* 执行当前语句并推进处理流程。 */
-			Details:    map[string]any{"manual": true, "jobId": copy.ID}, /* 执行当前语句并推进处理流程。 */
-			CreatedAt:  copy.FinishedAt,                                  /* 执行当前语句并推进处理流程。 */
+			ID:         "audit_" + randomHex(10),                                                                /* 执行当前语句并推进处理流程。 */
+			TenantID:   copy.TenantID,                                                                           /* 执行当前语句并推进处理流程。 */
+			Actor:      copy.Actor,                                                                              /* 执行当前语句并推进处理流程。 */
+			Action:     "ai.alarm-analysis.run",                                                                 /* 执行当前语句并推进处理流程。 */
+			TargetType: "alarm",                                                                                 /* 执行当前语句并推进处理流程。 */
+			TargetID:   copy.AlarmID,                                                                            /* 执行当前语句并推进处理流程。 */
+			Details:    map[string]any{"manual": true, "jobId": copy.ID, "knowledgeScope": copy.KnowledgeScope}, /* 执行当前语句并推进处理流程。 */
+			CreatedAt:  copy.FinishedAt,                                                                         /* 执行当前语句并推进处理流程。 */
 		}) /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
@@ -210,12 +217,12 @@ func (s *Server) updateAIAnalysisEstimate(elapsed int64) { /* 定义 updateAIAna
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) aiAlarmAnalysisProgress(w http.ResponseWriter, r *http.Request) { /* 定义 aiAlarmAnalysisProgress 函数。 */
-	key := alarmJobKey(claims(r).TenantID, r.PathValue("alarmId"))      /* 更新 key 的值。 */
-	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))           /* 更新 requestedJobID 的值。 */
-	s.aiAnalysisMu.RLock()                                              /* 执行当前语句并推进处理流程。 */
-	job := cloneAIAnalysisJob(s.aiAnalysisJobs[key])                    /* 更新 job 的值。 */
-	s.aiAnalysisMu.RUnlock()                                            /* 执行当前语句并推进处理流程。 */
-	if job == nil || requestedJobID != "" && job.ID != requestedJobID { /* 判断条件并选择处理分支。 */
+	key := alarmJobKey(claims(r).TenantID, r.PathValue("alarmId"), alarmAnalysisRunScope(r.Context())) /* 只能查看与本人角色相同知识范围的任务。 */
+	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))                                          /* 更新 requestedJobID 的值。 */
+	s.aiAnalysisMu.RLock()                                                                             /* 执行当前语句并推进处理流程。 */
+	job := cloneAIAnalysisJob(s.aiAnalysisJobs[key])                                                   /* 更新 job 的值。 */
+	s.aiAnalysisMu.RUnlock()                                                                           /* 执行当前语句并推进处理流程。 */
+	if job == nil || requestedJobID != "" && job.ID != requestedJobID {                                /* 判断条件并选择处理分支。 */
 		problem(w, http.StatusNotFound, "AI 研判任务不存在或已过期") /* 执行当前语句并推进处理流程。 */
 		return                                            /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */

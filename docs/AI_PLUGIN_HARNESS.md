@@ -38,7 +38,7 @@ Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可�
 
 Go API 暴露：
 
-- `GET /api/v1/ai/workflows`：列出聊天工作台可选的已启用插件；业务专用工作流不返回。
+- `GET /api/v1/ai/workflows`：列出聊天工作台可选的已启用插件；业务专用工作流不返回。带 `purpose=knowledge` 时额外返回 `alarm-handler`，供知识库页上传告警研判文档和配置检索策略；未配置 Harness 时也返回该项。
 - `GET /api/v1/ai/workflows/admin`：管理员读取聊天 Agent 管理清单；业务专用工作流不返回。
 - `POST /api/v1/ai/workflows`：管理员创建动态 Agent。
 - `PUT /api/v1/ai/workflows/{id}`：管理员编辑或启用/禁用动态 Agent。
@@ -54,6 +54,19 @@ Go API 暴露：
 - `POST /api/v1/ai/alarm-analysis/{alarmId}/run`：创建告警研判任务并立即返回任务进度。
 - `GET /api/v1/ai/alarm-analysis/{alarmId}/progress`：按告警读取当前或最近一次研判任务，重新打开详情时无需保存 job ID。
 - `GET /api/v1/ai/alarm-analysis/{alarmId}/progress/{jobId}`：读取进度、阶段、预计剩余时间和完成后的分析结果。
+- `GET /api/v1/ai/alarm-analysis/{alarmId}`：返回当前角色可见的最新研判结果，`knowledgeScope` 与 `knowledgeDocuments` 标明所用知识范围和来源文档。
+
+### 告警研判的知识范围
+
+告警研判只检索 `alarm-handler` 智能体名下的文档，并遵循该智能体在知识库页保存的检索策略（禁用、召回数量、最低相关度、无命中时是否必须有证据）；索引不支持按智能体过滤时直接失败，不回退为全租户检索。是否检索由角色决定，规则与聊天 Agent 相同：角色拥有知识库菜单（`menu:knowledge`）才可使用知识库。
+
+| 触发方式 | 是否检索知识 | 结果保存 | 可见范围 |
+| --- | --- | --- | --- |
+| 告警事件自动研判（无具体用户） | 否 | `knowledgeScope` 为空 | 能查看该告警的所有角色 |
+| 无知识库权限的角色手动研判 | 否 | `knowledgeScope` 为空，覆盖上一份不含知识的结果 | 同上 |
+| 有知识库权限的角色手动研判 | 是 | `knowledgeScope=alarm-handler`，单独保存 | 仅有知识库权限的角色 |
+
+同一告警两份结果并存（表 `alarm_ai_analysis` 主键为租户、告警和知识范围）；有知识库权限的角色读取两者中较新的一份。引用知识的结果不广播到告警实时主题，研判任务和进度也按知识范围分开，只有同一范围的角色能读取。升级前保存的结果曾检索全租户知识库，迁移时标记为 `legacy-tenant-knowledge`，同样只对有知识库权限的角色可见；无知识库权限的角色在下一次自动研判或自行手动研判前看不到这些告警的旧结果。
 
 浏览器只提交 `workflowId`、`conversationId`、`question` 和可选的 `maxTokens`。每次运行由 Go API 生成 Run ID，并签发有效期两分钟、绑定租户、用户、Run ID、Audience 和只读 scopes 的 MCP JWT。浏览器拿不到该令牌。
 

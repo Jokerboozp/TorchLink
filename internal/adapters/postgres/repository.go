@@ -1179,19 +1179,20 @@ func cleanUniqueStrings(values []string) []string { /* 定义 cleanUniqueStrings
 } /* 结束当前表达式或代码块。 */
 
 func (r *Repository) SaveAIAnalysis(ctx context.Context, v model.AIAnalysis) error { /* 定义 SaveAIAnalysis 函数。 */
-	b, _ := json.Marshal(v)                                                                                                                                                                                           /* 更新 _ 的值。 */
-	_, err := r.pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES($1,$2,$3) ON CONFLICT(tenant_id,alarm_id) DO UPDATE SET body=excluded.body,created_at=now()`, v.TenantID, v.AlarmID, b) /* 更新 err 的值。 */
-	return err                                                                                                                                                                                                        /* 返回当前处理结果。 */
+	b, _ := json.Marshal(v)                                                                                                                                                                                                                                                /* 更新 _ 的值。 */
+	_, err := r.pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,knowledge_scope,body) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,alarm_id,knowledge_scope) DO UPDATE SET body=excluded.body,created_at=now()`, v.TenantID, v.AlarmID, v.KnowledgeScope, b) /* 更新 err 的值。 */
+	return err                                                                                                                                                                                                                                                             /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
-func (r *Repository) GetAIAnalysis(ctx context.Context, tenant, id string) (model.AIAnalysis, error) { /* 定义 GetAIAnalysis 函数。 */
-	var v model.AIAnalysis                                                                                                    /* 声明 v。 */
-	var b []byte                                                                                                              /* 声明 b。 */
-	err := r.pool.QueryRow(ctx, `SELECT body FROM alarm_ai_analysis WHERE tenant_id=$1 AND alarm_id=$2`, tenant, id).Scan(&b) /* 更新 err 的值。 */
-	if errors.Is(err, pgx.ErrNoRows) {                                                                                        /* 判断条件并选择处理分支。 */
+func (r *Repository) GetAIAnalysis(ctx context.Context, tenant, id, knowledgeScope string) (model.AIAnalysis, error) { /* 定义 GetAIAnalysis 函数。 */
+	var v model.AIAnalysis                                                                                                                                           /* 声明 v。 */
+	var b []byte                                                                                                                                                     /* 声明 b。 */
+	err := r.pool.QueryRow(ctx, `SELECT body FROM alarm_ai_analysis WHERE tenant_id=$1 AND alarm_id=$2 AND knowledge_scope=$3`, tenant, id, knowledgeScope).Scan(&b) /* 更新 err 的值。 */
+	if errors.Is(err, pgx.ErrNoRows) {                                                                                                                               /* 判断条件并选择处理分支。 */
 		return v, ErrNotFound /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if err == nil { /* 判断条件并选择处理分支。 */
-		err = json.Unmarshal(b, &v) /* 更新 err 的值。 */
+		err = json.Unmarshal(b, &v)       /* 更新 err 的值。 */
+		v.KnowledgeScope = knowledgeScope // 迁移前的记录正文中没有该字段，以列值为准。
 	} /* 结束当前表达式或代码块。 */
 	return v, err /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

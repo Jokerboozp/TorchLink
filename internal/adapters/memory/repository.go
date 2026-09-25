@@ -892,16 +892,16 @@ func (r *Repository) ListVideoCameraRelationsByTarget(_ context.Context, tenant,
 	return out, nil                                                                   /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) SaveAIAnalysis(_ context.Context, v model.AIAnalysis) error { /* 定义 SaveAIAnalysis 函数。 */
-	r.mu.Lock()                          /* 执行当前语句并推进处理流程。 */
-	defer r.mu.Unlock()                  /* 安排函数结束时执行清理。 */
-	r.ai[key(v.TenantID, v.AlarmID)] = v /* 执行当前语句并推进处理流程。 */
-	return nil                           /* 返回当前处理结果。 */
+	r.mu.Lock()                                            /* 执行当前语句并推进处理流程。 */
+	defer r.mu.Unlock()                                    /* 安排函数结束时执行清理。 */
+	r.ai[key(v.TenantID, v.AlarmID, v.KnowledgeScope)] = v /* 每个知识范围单独保存。 */
+	return nil                                             /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
-func (r *Repository) GetAIAnalysis(_ context.Context, tenant, id string) (model.AIAnalysis, error) { /* 定义 GetAIAnalysis 函数。 */
-	r.mu.RLock()                   /* 执行当前语句并推进处理流程。 */
-	defer r.mu.RUnlock()           /* 安排函数结束时执行清理。 */
-	v, ok := r.ai[key(tenant, id)] /* 更新 ok 的值。 */
-	if !ok {                       /* 判断条件并选择处理分支。 */
+func (r *Repository) GetAIAnalysis(_ context.Context, tenant, id, knowledgeScope string) (model.AIAnalysis, error) { /* 定义 GetAIAnalysis 函数。 */
+	r.mu.RLock()                                   /* 执行当前语句并推进处理流程。 */
+	defer r.mu.RUnlock()                           /* 安排函数结束时执行清理。 */
+	v, ok := r.ai[key(tenant, id, knowledgeScope)] /* 更新 ok 的值。 */
+	if !ok {                                       /* 判断条件并选择处理分支。 */
 		return v, ErrNotFound /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	return v, nil /* 返回当前处理结果。 */

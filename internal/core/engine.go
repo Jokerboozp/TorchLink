@@ -1089,13 +1089,16 @@ func (e *Engine) handleAI(ctx context.Context, b []byte) error { /* 定义 handl
 	if err := json.Unmarshal(b, &alarm); err != nil { /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	_, err := e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID) /* 更新 err 的值。 */
-	return err                                              /* 返回当前处理结果。 */
+	// 自动研判没有具体用户，按“无角色”处理：不检索知识库，结果对所有能查看告警的人可见。
+	_, err := e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID, false) /* 更新 err 的值。 */
+	return err                                                     /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 // AnalyzeAlarm runs the same automatic analysis path used by alarm events and
-// is also exposed to the operator UI for a manual re-run.
-func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
+// is also exposed to the operator UI for a manual re-run. withKnowledge must be
+// decided by the caller's role: knowledge-based results are stored separately
+// and only shown to roles allowed to query the knowledge base.
+func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, withKnowledge bool) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
 	if e.AI == nil { /* 判断条件并选择处理分支。 */
 		return model.AIAnalysis{}, errors.New("AI model is not configured") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -1129,12 +1132,18 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string) (mo
 		} /* 结束当前表达式或代码块。 */
 		history = append(history, map[string]any{"contextType": "similarAlarms", "items": filtered}) /* 更新 history 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	knowledge := []string{} /* 更新 knowledge 的值。 */
-	if e.KB != nil {        /* 判断条件并选择处理分支。 */
-		knowledge, _ = e.KB.Search(ctx, alarm.TenantID, strings.Join([]string{alarm.AlarmType, alarm.DeviceType, "处置 SOP 维修"}, " "), 8) /* 更新 _ 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	analysis, err := e.AI.AnalyzeAlarm(ctx, alarm, history, knowledge) /* 更新 err 的值。 */
-	if err != nil {                                                    /* 判断条件并选择处理分支。 */
+	knowledge := []string{}
+	scope := model.AIAnalysisScopeNone
+	var documents []string
+	if withKnowledge {
+		scope = model.AlarmAnalysisWorkflowID
+		knowledge, documents, err = e.alarmAnalysisKnowledge(ctx, alarm)
+	}
+	var analysis model.AIAnalysis
+	if err == nil {
+		analysis, err = e.AI.AnalyzeAlarm(ctx, alarm, history, knowledge)
+	}
+	if err != nil { /* 判断条件并选择处理分支。 */
 		if e.Metrics != nil { /* 判断条件并选择处理分支。 */
 			e.Metrics.Inc("ai_analysis_failed_total") /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
@@ -1151,11 +1160,17 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string) (mo
 	if err == nil && e.Metrics != nil { /* 判断条件并选择处理分支。 */
 		e.Metrics.Inc("ai_analysis_success_total") /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
-	analysis.TenantID = alarm.TenantID                                   /* 更新 analysis.TenantID 的值。 */
-	analysis.AlarmID = alarm.ID                                          /* 更新 analysis.AlarmID 的值。 */
+	analysis.TenantID = alarm.TenantID /* 更新 analysis.TenantID 的值。 */
+	analysis.AlarmID = alarm.ID        /* 更新 analysis.AlarmID 的值。 */
+	analysis.KnowledgeScope = scope
+	analysis.KnowledgeDocuments = documents
 	if saveErr := e.Repo.SaveAIAnalysis(ctx, analysis); saveErr != nil { /* 判断条件并选择处理分支。 */
 		return analysis, saveErr /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	if scope != model.AIAnalysisScopeNone {
+		// 引用知识库的结果只返回给发起人，不广播到告警实时主题。
+		return analysis, nil
+	}
 	payload := mustJSON(analysis)                                                  /* 更新 payload 的值。 */
 	_ = e.Bus.Publish(ctx, model.TopicAlarmAIAnalysis, alarm.ID, payload)          /* 更新 _ 的值。 */
 	_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("ai-analysis"), payload, 1, false) /* 更新 _ 的值。 */

@@ -126,19 +126,19 @@ type Repository interface { /* 定义 Repository 类型。 */
 	ListVideoCameraRelations(context.Context, string, string) ([]model.VideoCameraRelation, error)                       /* 执行当前语句并推进处理流程。 */
 	ListVideoCameraRelationsByTarget(context.Context, string, string, string) ([]model.VideoCameraRelation, error)       /* 执行当前语句并推进处理流程。 */
 	SaveAIAnalysis(context.Context, model.AIAnalysis) error                                                              /* 执行当前语句并推进处理流程。 */
-	GetAIAnalysis(context.Context, string, string) (model.AIAnalysis, error)                                             /* 执行当前语句并推进处理流程。 */
-	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error                                                          /* 执行当前语句并推进处理流程。 */
-	ListKnowledgeDocs(context.Context, string) ([]model.KnowledgeDoc, error)                                             /* 执行当前语句并推进处理流程。 */
-	ListKnowledgeDocsPage(context.Context, string, int, int) ([]model.KnowledgeDoc, int, error)                          /* 执行当前语句并推进处理流程。 */
-	SaveWorkflowKnowledgeBinding(context.Context, model.WorkflowKnowledgeBinding) error                                  /* 执行当前语句并推进处理流程。 */
-	GetWorkflowKnowledgeBinding(context.Context, string, string) (model.WorkflowKnowledgeBinding, error)                 /* 执行当前语句并推进处理流程。 */
-	SaveReplay(context.Context, model.ReplayRequest) error                                                               /* 执行当前语句并推进处理流程。 */
-	UpdateReplay(context.Context, model.ReplayRequest) error                                                             /* 执行当前语句并推进处理流程。 */
-	GetReplay(context.Context, string) (model.ReplayRequest, error)                                                      /* 执行当前语句并推进处理流程。 */
-	SaveAudit(context.Context, model.AuditLog) error                                                                     /* 执行当前语句并推进处理流程。 */
-	SaveAIToolCall(context.Context, model.AIToolCallLog) error                                                           /* 执行当前语句并推进处理流程。 */
-	Health(context.Context) error                                                                                        /* 执行当前语句并推进处理流程。 */
-	Close() error                                                                                                        /* 执行当前语句并推进处理流程。 */
+	GetAIAnalysis(ctx context.Context, tenantID, alarmID, knowledgeScope string) (model.AIAnalysis, error)
+	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error                                          /* 执行当前语句并推进处理流程。 */
+	ListKnowledgeDocs(context.Context, string) ([]model.KnowledgeDoc, error)                             /* 执行当前语句并推进处理流程。 */
+	ListKnowledgeDocsPage(context.Context, string, int, int) ([]model.KnowledgeDoc, int, error)          /* 执行当前语句并推进处理流程。 */
+	SaveWorkflowKnowledgeBinding(context.Context, model.WorkflowKnowledgeBinding) error                  /* 执行当前语句并推进处理流程。 */
+	GetWorkflowKnowledgeBinding(context.Context, string, string) (model.WorkflowKnowledgeBinding, error) /* 执行当前语句并推进处理流程。 */
+	SaveReplay(context.Context, model.ReplayRequest) error                                               /* 执行当前语句并推进处理流程。 */
+	UpdateReplay(context.Context, model.ReplayRequest) error                                             /* 执行当前语句并推进处理流程。 */
+	GetReplay(context.Context, string) (model.ReplayRequest, error)                                      /* 执行当前语句并推进处理流程。 */
+	SaveAudit(context.Context, model.AuditLog) error                                                     /* 执行当前语句并推进处理流程。 */
+	SaveAIToolCall(context.Context, model.AIToolCallLog) error                                           /* 执行当前语句并推进处理流程。 */
+	Health(context.Context) error                                                                        /* 执行当前语句并推进处理流程。 */
+	Close() error                                                                                        /* 执行当前语句并推进处理流程。 */
 
 	// ListManagedDevicesFiltered filters before pagination and returns the filtered total.
 	ListManagedDevicesFiltered(context.Context, DeviceFilter, int, int) ([]model.ManagedDevice, int, error)
