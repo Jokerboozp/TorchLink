@@ -1,8 +1,8 @@
 package httpapi /* 声明 httpapi 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
+	"encoding/json"
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/ports" /* 执行当前语句并推进处理流程。 */
 	"net/http"                    /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
@@ -24,20 +24,35 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) { /* 定义 
 		problem(w, 403, "此接口用于已登录用户消息") /* 执行当前语句并推进处理流程。 */
 		return                          /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if p["*"] || p["menu:alarms"] || p["menu:dashboard"] { /* 判断条件并选择处理分支。 */
-		alarms, e = s.engine.Repo.(*deviceScopeRepository).scopedAlarms(r.Context(), ports.AlarmFilter{TenantID: c.TenantID, Status: "ACTIVE"}) /* 更新 e 的值。 */
-		if e != nil {                                                                                                                           /* 判断条件并选择处理分支。 */
-			problem(w, 503, "读取消息失败") /* 执行当前语句并推进处理流程。 */
-			return                    /* 返回当前处理结果。 */
-		} /* 结束当前表达式或代码块。 */
-	} /* 结束当前表达式或代码块。 */
-	if p["*"] || p["menu:devices"] || p["menu:raw"] { /* 判断条件并选择处理分支。 */
-		states, e = s.engine.Repo.ListDeviceStates(r.Context(), c.TenantID) /* 更新 e 的值。 */
-		if e != nil {                                                       /* 判断条件并选择处理分支。 */
-			problem(w, 503, "读取消息失败") /* 执行当前语句并推进处理流程。 */
-			return                    /* 返回当前处理结果。 */
-		} /* 结束当前表达式或代码块。 */
-	} /* 结束当前表达式或代码块。 */
-	w.Header().Set("Cache-Control", "no-store")                                                                                                                 /* 执行当前语句并推进处理流程。 */
-	write(w, 200, map[string]any{"alarms": alarms, "devices": states, "permissions": permissionList(p), "accessVersion": requestAccessVersion(r.Context(), c)}) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+	wantAlarms := p["*"] || p["menu:alarms"] || p["menu:dashboard"]
+	wantStates := p["*"] || p["menu:devices"] || p["menu:raw"]
+	if wantAlarms || wantStates {
+		allAlarms, allStates, err := s.events.get(r.Context(), s.unscopedRepo(), c.TenantID)
+		if err != nil {
+			problem(w, 503, "读取消息失败")
+			return
+		}
+		if wantAlarms {
+			alarms = scopedEventAlarms(r.Context(), c.TenantID, allAlarms)
+		}
+		if wantStates {
+			states = scopedEventStates(r.Context(), c.TenantID, allStates)
+		}
+	}
+	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "permissions": permissionList(p), "accessVersion": requestAccessVersion(r.Context(), c)})
+	if err != nil {
+		problem(w, 500, "读取消息失败")
+		return
+	}
+	// Pages poll every few seconds; an unchanged view answers 304 without a body.
+	tag := eventETag(body)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("ETag", tag)
+	if r.Header.Get("If-None-Match") == tag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(body, '\n'))
+}

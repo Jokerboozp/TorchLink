@@ -56,6 +56,7 @@ type Server struct { /* 定义 Server 类型。 */
 	aiAnalysisEstimateMs       int64                     /* 执行当前语句并推进处理流程。 */
 	protocolListeners          protocolCommander         /* 执行当前语句并推进处理流程。 */
 	onboarding                 *onboarding.Service       /* 执行当前语句并推进处理流程。 */
+	events                     *eventSnapshots
 } /* 结束当前表达式或代码块。 */
 
 const healthInspectionCacheTTL = 10 * time.Minute /* 声明 healthInspectionCacheTTL。 */
@@ -79,6 +80,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),                                   /* 执行当前语句并推进处理流程。 */
 		aiAnalysisJobs:             make(map[string]*aiAnalysisJob),                                                  /* 执行当前语句并推进处理流程。 */
 		aiAnalysisEstimateMs:       45000,                                                                            /* 执行当前语句并推进处理流程。 */
+		events:                     newEventSnapshots(),
 	} /* 结束当前表达式或代码块。 */
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery()) /* 执行当前语句并推进处理流程。 */
 	s.routes()                                                      /* 执行当前语句并推进处理流程。 */

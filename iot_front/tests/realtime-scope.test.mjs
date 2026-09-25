@@ -6,9 +6,12 @@ import assert from 'node:assert/strict' /* 引入当前代码需要的依赖。 
 function realtime(api, options={}){ /* 定义 realtime 函数。 */
  const timers=[],messages=[],permissionState={items:[]} /* 声明 timers。 */
  const source=fs.readFileSync(new URL('../src/realtime.js',import.meta.url),'utf8').replace(/^import .*$/gm,'').replace(/export /g,'') /* 声明 source。 */
- const context=vm.createContext({api,session:{role:options.role || 'operator',tenant:'tenant'},permissionState,applyAccessVersion(value=''){permissionState.accessVersion=value},refreshPermissions:async()=>{},mqtt:options.mqtt || {connect(){throw Error('managed user connected to MQTT')}},crypto:{},setTimeout(fn){timers.push(fn);return timers.length},clearTimeout(){},Map,JSON}) /* 声明 context。 */
+ // Mirrors the server ETag: an unchanged snapshot answers "not modified".
+ const polls={full:0}
+ const apiIfChanged=async(path,etag)=>{const data=await api(path);const tag=JSON.stringify(data);if(tag===etag)return {changed:false,etag};polls.full++;return {changed:true,etag:tag,data}}
+ const context=vm.createContext({api,apiIfChanged,session:{role:options.role || 'operator',tenant:'tenant'},permissionState,applyAccessVersion(value=''){permissionState.accessVersion=value},refreshPermissions:async()=>{},mqtt:options.mqtt || {connect(){throw Error('managed user connected to MQTT')}},crypto:{},setTimeout(fn){timers.push(fn);return timers.length},clearTimeout(){},Map,JSON}) /* 声明 context。 */
  vm.runInContext(source+'\nglobalThis.subject={startRealtime,stopRealtime}',context) /* 执行当前语句并推进处理流程。 */
- return {...context.subject,timers,messages,permissionState,start(){return context.subject.startRealtime((...args)=>messages.push(args))}} /* 返回当前处理结果。 */
+ return {...context.subject,timers,messages,permissionState,polls,start(){return context.subject.startRealtime((...args)=>messages.push(args))}} /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 const settle=()=>new Promise(resolve=>setImmediate(resolve)) /* 声明 settle。 */
 test('受限用户按服务端范围接收新告警，不重播历史告警',async()=>{ /* 执行当前语句并推进处理流程。 */
@@ -88,3 +91,10 @@ test('管理员 MQTT 消息与下一次 HTTP 快照只触发一次告警刷新',
  await r.timers.shift()() /* 等待异步操作完成。 */
  assert.equal(r.messages.length,1) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
+
+test('快照未变化时不重复处理且继续轮询',async()=>{
+ const snapshot={alarms:[{alarmId:'a',deviceId:'d'}],devices:[],permissions:['menu:alarms']}
+ const r=realtime(async()=>snapshot);await r.start();await settle()
+ await r.timers.shift()();await r.timers.shift()()
+ assert.equal(r.polls.full,1);assert.equal(r.messages.length,0);assert.equal(r.timers.length,1)
+})

@@ -1,5 +1,5 @@
 import mqtt from 'mqtt' /* 引入当前代码需要的依赖。 */
-import { api, session } from './api' /* 引入当前代码需要的依赖。 */
+import { api, apiIfChanged, session } from './api' /* 引入当前代码需要的依赖。 */
 import { permissionState, refreshPermissions, applyAccessVersion } from './permissions' /* 引入当前代码需要的依赖。 */
 
 let client /* 声明 client。 */
@@ -38,10 +38,14 @@ export async function startRealtime(onMessage) { /* 执行当前语句并推进�
   } /* 结束当前表达式或代码块。 */
   // All accounts receive authoritative alarms over the authenticated API.
   // Broker availability and token renewal must not reset this snapshot.
+  let etag = ''
   const poll = async () => { /* 声明 poll。 */
     try { /* 执行当前语句并推进处理流程。 */
-      const data = await api('/api/v1/events') /* 声明 data。 */
+      const result = await apiIfChanged('/api/v1/events', etag)
       if (run !== generation) return /* 判断条件并选择处理分支。 */
+      if (!result.changed) { pollTimer = setTimeout(poll, 3000); return }
+      etag = result.etag
+      const data = result.data /* 声明 data。 */
       applyAccessVersion(data.accessVersion)
       permissionState.items = data.permissions || [] /* 更新 permissionState.items 的值。 */
       const next = new Map() /* 声明 next。 */

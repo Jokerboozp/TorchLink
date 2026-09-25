@@ -70,6 +70,14 @@ export async function api(path, options = {}) { /* 执行当前语句并推进�
   return response.json().catch(() => ({})) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
+// Conditional GET for polled views: an unchanged response is 304 without a body.
+export async function apiIfChanged(path, etag = '') {
+  const response = await fetch(path, { cache:'no-store', headers:headersFor({ headers:etag ? { 'If-None-Match':etag } : {} }) })
+  if (response.status === 304) return { changed:false, etag }
+  if (!response.ok) throw await responseError(path, response)
+  return { changed:true, etag:response.headers.get('ETag') || '', data:await response.json().catch(() => ({})) }
+}
+
 export function apiAll(path, options = {}) { /* 执行当前语句并推进处理流程。 */
   return loadAllPages(api, path, options) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
