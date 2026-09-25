@@ -35,14 +35,24 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) { /* 定义 d
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	states, levels := map[string]int{}, map[string]int{} /* 更新 levels 的值。 */
-	products := []model.DashboardCount{}                 /* 更新 products 的值。 */
-	trend := make([]map[string]any, days)                /* 更新 trend 的值。 */
-	for i := range trend {                               /* 循环处理当前数据。 */
+	connections, dataStatuses := map[string]int{}, map[string]int{}
+	alarmStatuses, alarmTypes := map[string]int{}, map[string]int{}
+	products := []model.DashboardCount{}  /* 更新 products 的值。 */
+	trend := make([]map[string]any, days) /* 更新 trend 的值。 */
+	for i := range trend {                /* 循环处理当前数据。 */
 		trend[i] = map[string]any{"date": start.AddDate(0, 0, i).Format("2006-01-02"), "count": 0} /* 更新 trend[i] 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	devices, active, high := 0, 0, 0 /* 更新 high 的值。 */
 	for _, v := range groups {       /* 循环处理当前数据。 */
 		switch v.Kind { /* 根据条件选择处理路径。 */
+		case "connection":
+			connections[v.Key] += v.Count
+		case "dataStatus":
+			dataStatuses[v.Key] += v.Count
+		case "alarmStatus":
+			alarmStatuses[v.Key] += v.Count
+		case "alarmType":
+			alarmTypes[v.Key] += v.Count
 		case "state": /* 处理当前分支。 */
 			states[v.Key] += v.Count /* 更新 states[v.Key] 的值。 */
 			devices += v.Count       /* 更新 devices 的值。 */
@@ -67,5 +77,10 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) { /* 定义 d
 		} /* 结束当前表达式或代码块。 */
 		return products[i].Count > products[j].Count /* 返回当前处理结果。 */
 	}) /* 结束当前表达式或代码块。 */
-	write(w, 200, map[string]any{"devices": devices, "online": states["ONLINE"], "activeAlarms": active, "highAlarms": high, "states": states, "levels": levels, "products": products, "trend": trend, "days": days, "offset": offset, "updatedAt": now.UnixMilli()}) /* 执行当前语句并推进处理流程。 */
+	write(w, 200, map[string]any{
+		"devices": devices, "online": states["ONLINE"], "activeAlarms": active, "highAlarms": high,
+		"states": states, "levels": levels, "products": products, "trend": trend,
+		"connections": connections, "dataStatuses": dataStatuses, "alarmStatuses": alarmStatuses, "alarmTypes": alarmTypes,
+		"days": days, "offset": offset, "updatedAt": now.UnixMilli(),
+	})
 } /* 结束当前表达式或代码块。 */

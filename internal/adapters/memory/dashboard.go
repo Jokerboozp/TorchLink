@@ -39,7 +39,16 @@ func (r *Repository) dashboardCounts(tenant string, start, end int64, allowed ma
 		if status == "" { /* 判断条件并选择处理分支。 */
 			status = "NEVER_SEEN" /* 更新 status 的值。 */
 		} /* 结束当前表达式或代码块。 */
-		add("state", status, "")                  /* 执行当前语句并推进处理流程。 */
+		add("state", status, "") /* 执行当前语句并推进处理流程。 */
+		connection, dataStatus := state.ConnectionStatus, state.DataStatus
+		if connection == "" {
+			connection = "UNKNOWN"
+		}
+		if dataStatus == "" {
+			dataStatus = "UNKNOWN"
+		}
+		add("connection", connection, "")
+		add("dataStatus", dataStatus, "")
 		p := r.products[key(tenant, d.ProductID)] /* 更新 p 的值。 */
 		name := p.Name                            /* 更新 name 的值。 */
 		if name == "" {                           /* 判断条件并选择处理分支。 */
@@ -56,6 +65,15 @@ func (r *Repository) dashboardCounts(tenant string, start, end int64, allowed ma
 		} /* 结束当前表达式或代码块。 */
 		if a.FirstTriggeredAt >= start && a.FirstTriggeredAt <= end { /* 判断条件并选择处理分支。 */
 			add("day", strconv.FormatInt((a.FirstTriggeredAt-start)/86400000, 10), "") /* 执行当前语句并推进处理流程。 */
+			status, alarmType := a.Status, a.AlarmType
+			if status == "" {
+				status = "UNKNOWN"
+			}
+			if alarmType == "" {
+				alarmType = "UNKNOWN"
+			}
+			add("alarmStatus", status, "")
+			add("alarmType", alarmType, "")
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	out := make([]model.DashboardCount, 0, len(counts)) /* 更新 out 的值。 */

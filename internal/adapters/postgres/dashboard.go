@@ -17,11 +17,21 @@ func (r *Repository) DashboardCountsForDevices(ctx context.Context, tenant strin
 func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, end int64, scoped bool, ids []string) ([]model.DashboardCount, error) { /* 定义 dashboardCounts 函数。 */
 	rows, err := r.pool.Query(ctx, `
  WITH registered AS (
-  SELECT d.product_id, CASE WHEN s.business_status='ALARM' THEN 'ONLINE' ELSE coalesce(nullif(s.business_status,''),'NEVER_SEEN') END AS state
+  SELECT d.product_id, CASE WHEN s.business_status='ALARM' THEN 'ONLINE' ELSE coalesce(nullif(s.business_status,''),'NEVER_SEEN') END AS state,
+   coalesce(nullif(s.body->>'connectionStatus',''),'UNKNOWN') AS connection,
+   coalesce(nullif(s.body->>'dataStatus',''),'UNKNOWN') AS data_status
   FROM device_registry d LEFT JOIN device_state s ON s.tenant_id=d.tenant_id AND s.device_id=d.id
   WHERE d.tenant_id=$1 AND (NOT $4::boolean OR d.id=ANY($5::text[]))
+ ), period_alarms AS (
+  SELECT status, body FROM alarm_record
+  WHERE tenant_id=$1 AND (body->>'firstTriggeredAt')::bigint BETWEEN $2::bigint AND $3::bigint
+   AND (NOT $4::boolean OR device_id=ANY($5::text[]))
  )
  SELECT 'state', state, '', count(*) FROM registered GROUP BY state
+ UNION ALL
+ SELECT 'connection', connection, '', count(*) FROM registered GROUP BY connection
+ UNION ALL
+ SELECT 'dataStatus', data_status, '', count(*) FROM registered GROUP BY data_status
  UNION ALL
  SELECT 'product', d.product_id, coalesce(nullif(p.body->>'name',''),d.product_id), count(*)
  FROM registered d LEFT JOIN iot_product p ON p.tenant_id=$1 AND p.id=d.product_id
@@ -30,7 +40,12 @@ func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, 
  SELECT 'level', level, '', count(*) FROM alarm_record WHERE tenant_id=$1 AND status='ACTIVE' AND (NOT $4::boolean OR device_id=ANY($5::text[])) GROUP BY level
  UNION ALL
  SELECT 'day', (((body->>'firstTriggeredAt')::bigint-$2::bigint)/86400000)::text, '', count(*)
- FROM alarm_record WHERE tenant_id=$1 AND (body->>'firstTriggeredAt')::bigint BETWEEN $2::bigint AND $3::bigint AND (NOT $4::boolean OR device_id=ANY($5::text[]))
+ FROM period_alarms
+ GROUP BY 2
+ UNION ALL
+ SELECT 'alarmStatus', coalesce(nullif(status,''),'UNKNOWN'), '', count(*) FROM period_alarms GROUP BY 2
+ UNION ALL
+ SELECT 'alarmType', coalesce(nullif(body->>'alarmType',''),'UNKNOWN'), '', count(*) FROM period_alarms
  GROUP BY 2`, tenant, start, end, scoped, ids)
 	if err != nil { /* 判断条件并选择处理分支。 */
 		return nil, err /* 返回当前处理结果。 */

@@ -78,7 +78,11 @@ func checkDashboard(t *testing.T, repo ports.Repository) { /* 定义 checkDashbo
 			id := fmt.Sprint(i)                                                                                                                         /* 更新 id 的值。 */
 			must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ID: id, ProductID: "p", Status: "ENABLED", AccessKey: tenant + id})) /* 执行当前语句并推进处理流程。 */
 			if status != "" {                                                                                                                           /* 判断条件并选择处理分支。 */
-				must(repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: tenant, DeviceID: id, ProductID: "p", BusinessStatus: status, ConnectionStatus: "CONNECTED"})) /* 执行当前语句并推进处理流程。 */
+				connection, dataStatus := "CONNECTED", "ACTIVE"
+				if i >= 2 {
+					connection, dataStatus = "DISCONNECTED", "SILENT"
+				}
+				must(repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: tenant, DeviceID: id, ProductID: "p", BusinessStatus: status, ConnectionStatus: connection, DataStatus: dataStatus})) /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
 		must(repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: tenant, DeviceID: "unregistered", ProductID: "p", BusinessStatus: "ONLINE"})) /* 执行当前语句并推进处理流程。 */
@@ -104,8 +108,12 @@ func checkDashboard(t *testing.T, repo ports.Repository) { /* 定义 checkDashbo
 			if i == 5 { /* 判断条件并选择处理分支。 */
 				level = "CRITICAL" /* 更新 level 的值。 */
 			} /* 结束当前表达式或代码块。 */
-			_, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: tenant, ID: fmt.Sprint(i), DeviceID: fmt.Sprint(i), RuleID: fmt.Sprint(i), AlarmLevel: level, Status: status, FirstTriggeredAt: first, LastTriggeredAt: now.UnixMilli(), TriggerCount: 99}) /* 更新 err 的值。 */
-			must(err)                                                                                                                                                                                                                                            /* 执行当前语句并推进处理流程。 */
+			alarmType := "FIRE"
+			if i%2 == 1 {
+				alarmType = "SMOKE_DETECTED"
+			}
+			_, _, err := repo.UpsertAlarm(ctx, model.Alarm{AlarmType: alarmType, TenantID: tenant, ID: fmt.Sprint(i), DeviceID: fmt.Sprint(i), RuleID: fmt.Sprint(i), AlarmLevel: level, Status: status, FirstTriggeredAt: first, LastTriggeredAt: now.UnixMilli(), TriggerCount: 99}) /* 更新 err 的值。 */
+			must(err)                                                                                                                                                                                                                                                                  /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	scoped, err := repo.DashboardCountsForDevices(ctx, "tenant", start, now.UnixMilli(), []string{"0", "1"}) /* 更新 err 的值。 */
@@ -114,9 +122,14 @@ func checkDashboard(t *testing.T, repo ports.Repository) { /* 定义 checkDashbo
 	for _, item := range scoped {                                                                            /* 循环处理当前数据。 */
 		counts[item.Kind] += item.Count /* 更新 counts[item.Kind] 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	if counts["state"] != 2 || counts["product"] != 2 || counts["level"] != 2 || counts["day"] != 1 { /* 判断条件并选择处理分支。 */
+	if counts["state"] != 2 || counts["product"] != 2 || counts["level"] != 2 || counts["day"] != 1 || counts["connection"] != 2 || counts["dataStatus"] != 2 || counts["alarmStatus"] != 1 || counts["alarmType"] != 1 { /* 判断条件并选择处理分支。 */
 		t.Fatalf("scoped dashboard counts: %+v", scoped) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
+	emptyScope, err := repo.DashboardCountsForDevices(ctx, "tenant", start, now.UnixMilli(), []string{})
+	must(err)
+	if len(emptyScope) != 0 {
+		t.Fatalf("empty device scope leaked counts: %+v", emptyScope)
+	}
 	productsByID, err := repo.GetProductsByIDs(ctx, "tenant", []string{"p", "missing"})               /* 更新 err 的值。 */
 	must(err)                                                                                         /* 执行当前语句并推进处理流程。 */
 	statesByID, err := repo.GetDeviceStatesByIDs(ctx, "tenant", []string{"0", "missing"})             /* 更新 err 的值。 */
@@ -151,6 +164,23 @@ func checkDashboard(t *testing.T, repo ports.Repository) { /* 定义 checkDashbo
 	if states["SUSPECTED_OFFLINE"] != float64(1) || states["NEVER_SEEN"] != float64(1) { /* 判断条件并选择处理分支。 */
 		t.Fatal(states) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
+	expectedGroups := map[string]map[string]float64{
+		"connections":   {"CONNECTED": 2, "DISCONNECTED": 2, "UNKNOWN": 1},
+		"dataStatuses":  {"ACTIVE": 2, "SILENT": 2, "UNKNOWN": 1},
+		"alarmStatuses": {"ACTIVE": 121, "ACKED": 1, "RECOVERED": 1},
+		"alarmTypes":    {"FIRE": 61, "SMOKE_DETECTED": 62},
+	}
+	for field, expected := range expectedGroups {
+		actual := result[field].(map[string]any)
+		if len(actual) != len(expected) {
+			t.Fatalf("%s unexpected groups: %v", field, actual)
+		}
+		for key, value := range expected {
+			if actual[key] != value {
+				t.Fatalf("%s[%s] = %v, want %v", field, key, actual[key], value)
+			}
+		}
+	}
 	trend := result["trend"].([]any)                                                                                                                                                   /* 更新 trend 的值。 */
 	if len(trend) != 7 || trend[0].(map[string]any)["count"] != float64(122) || trend[1].(map[string]any)["count"] != float64(1) || trend[2].(map[string]any)["count"] != float64(0) { /* 判断条件并选择处理分支。 */
 		t.Fatal(trend) /* 验证实际结果符合预期。 */
@@ -168,6 +198,11 @@ func checkDashboard(t *testing.T, repo ports.Repository) { /* 定义 checkDashbo
 	if result["devices"] != float64(0) || result["activeAlarms"] != float64(0) || len(result["products"].([]any)) != 0 { /* 判断条件并选择处理分支。 */
 		t.Fatal(result) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
+	for field := range expectedGroups {
+		if len(result[field].(map[string]any)) != 0 {
+			t.Fatalf("empty tenant leaked %s: %v", field, result[field])
+		}
+	}
 	for _, query := range []string{"days=10000", "days=abc", "offset=841", "offset=-721", "offset=abc"} { /* 循环处理当前数据。 */
 		requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/dashboard?"+query, token, nil, 400) /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */

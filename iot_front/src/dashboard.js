@@ -1,4 +1,30 @@
+import { alarmStatuses, alarmTypes, connectionStatuses, dataStatuses } from './labels.js'
+
 // 运行总览的图表数据；颜色只引用 tokens.css 中的变量：设备状态用状态色，产品分布为单一度量用单色。
+export function statusSegments(values = {}, names = {}, colors = {}) {
+  const items = Object.entries(names).map(([key, name]) => ({ key, name, count:count(values[key]), color:colors[key] || 'var(--gray-400)' }))
+  const other = Object.entries(values).filter(([key]) => !names[key]).reduce((sum, [, value]) => sum + count(value), 0)
+  if (other) items.push({ key:'__other', name:'其他', count:other, color:'var(--gray-400)' })
+  return items
+}
+
+export function dashboardDistributions(stats = {}) {
+  const typeCounts = new Map()
+  for (const [key, value] of Object.entries(stats.alarmTypes || {})) {
+    const name = alarmTypes[key] || '其他告警类型'
+    typeCounts.set(name, (typeCounts.get(name) || 0) + count(value))
+  }
+  const types = [...typeCounts].map(([name, count]) => ({key:name, name, count, color:'var(--primary)'}))
+    .filter(item => item.count > 0).sort((a,b) => b.count-a.count || a.key.localeCompare(b.key))
+  const top = types.slice(0,5)
+  if (types.length > 5) top.push({key:'__remaining', name:'其余类型', count:types.slice(5).reduce((sum,item) => sum+item.count,0), color:'var(--gray-400)'})
+  return [
+    { key:'alarmStatuses', title:'告警处置分布', subtitle:'所选时段新增告警的当前处置状态', unit:'条', variant:'ring', items:statusSegments(stats.alarmStatuses, alarmStatuses, {ACTIVE:'var(--danger)', ACKED:'var(--warning)', RECOVERED:'var(--success)', CLOSED:'var(--primary)'}) },
+    { key:'alarmTypes', title:'告警类型排行', subtitle:'按新增告警记录统计，展示前五类及其余类型', unit:'条', variant:'bars', items:top },
+    { key:'connections', title:'设备连接状态', subtitle:'当前连接快照，不代表业务在线状态', unit:'台', variant:'stack', items:statusSegments(stats.connections, connectionStatuses, {CONNECTED:'var(--success)', DISCONNECTED:'var(--gray-500)'}) },
+    { key:'dataStatuses', title:'设备数据状态', subtitle:'当前上报活跃度，未产生状态的设备计入未知', unit:'台', variant:'ring', items:statusSegments(stats.dataStatuses, dataStatuses, {ACTIVE:'var(--success)', SILENT:'var(--warning)'}) },
+  ].map(item => ({...item, available:stats[item.key] != null}))
+}
 export function count(value) { return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0 } /* 执行当前语句并推进处理流程。 */
 export function deviceSegments(states = {}) { /* 执行当前语句并推进处理流程。 */
   const known = { ONLINE:['在线','var(--success)'], OFFLINE:['离线','var(--gray-500)'], SUSPECTED_OFFLINE:['疑似离线','var(--warning)'], NEVER_SEEN:['待连接','var(--gray-400)'], UNKNOWN:['未知','var(--info)'] } /* 声明 known。 */
