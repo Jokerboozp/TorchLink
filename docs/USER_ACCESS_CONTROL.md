@@ -12,6 +12,8 @@
 
 菜单权限提供对应页面及必要关联数据的读取能力；新增、编辑、删除、发布、下载、设备控制等操作另行授权。勾选操作时同时勾选其所属菜单。界面隐藏没有权限的按钮，后端按实际路由再次校验。一个页面涉及多个接口时，权限列表可能提供多个操作，例如普通问答和流式问答。运行总览只统计授权设备。智能助手、巡检、备份、接入配置、规则、摄像头及用户权限管理属于全租户任务或管理入口，需设备管理菜单、全部设备范围及对应菜单和操作权限；指定设备用户不开放这些全租户入口。受限用户的连接详情只展示自身设备数据，不展示共享接入网关配置及其他设备会话。
 
+「设备管理 → 添加设备」沿用“新增设备”操作权限，权限列表不单列向导接口；向导中同时新建设备模板还需设备模板的新增权限，新建共享监听还需「平台接入点」的新增权限。只授权部分设备的用户不能添加设备。「平台接入点」菜单在设备模板详情的“接入点”中使用；只有该菜单、没有设备模板菜单的用户仍从侧栏进入独立页面。已删除接口遗留在角色或用户上的旧权限项不再显示，重新保存后自动去除。
+
 ## 权限变更与实时提醒
 
 修改角色权限后，后续 API 请求立即使用新配置；普通用户的事件轮询也会同步有效权限，重新进入窗口或刷新同样会更新菜单和按钮。修改用户、停用用户、重置密码使原登录令牌失效，用户需重新登录。删除后重新创建同名用户不会恢复旧登录。正在使用的角色不能删除；不能删除内置管理员或当前登录账户。
@@ -53,4 +55,4 @@
 
 创建用户时先核对只读的所属租户，再分配角色、额外操作和设备范围。角色提供功能权限，设备范围直接在用户上配置，二者不能相互替代。只有设备管理及全部设备范围还不足以管理账户，仍需「用户与权限」菜单和对应操作。
 
-升级已有系统见 [部署升级](DEPLOYMENT.md#用户权限升级)。回归入口为 `go test ./internal/httpapi -run 'Test(AccessControlLifecycleAndIsolation|DeviceScopeHTTPIsolation|UserPermissionsCombineRolesAndIndividualGrants)'`；浏览器检查见 [前端说明](../iot_front/README.md)。
+升级已有系统见 [部署升级](DEPLOYMENT.md#用户权限升级)。回归入口为 `go test ./internal/httpapi -run 'Test(AccessControlLifecycleAndIsolation|DeviceScopeHTTPIsolation|UserPermissionsCombineRolesAndIndividualGrants|OnboardingFollowsDevicePermissions|DeviceRegistryFiltersBeforePagination)'`；浏览器检查见 [前端说明](../iot_front/README.md)。

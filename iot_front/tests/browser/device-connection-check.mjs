@@ -28,7 +28,7 @@ try { /* 执行当前语句并推进处理流程。 */
   await call('Page.reload') /* 等待异步操作完成。 */
   await call('Emulation.setDeviceMetricsOverride',{width:1360,height:900,deviceScaleFactor:1,mobile:false}) /* 等待异步操作完成。 */
   await click('设备管理') /* 等待异步操作完成。 */
-  await click('连接详情') /* 等待异步操作完成。 */
+  await click('详情') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.ui-drawer .ui-descriptions')`)) /* 等待异步操作完成。 */
   await delay(400) /* 等待异步操作完成。 */
   assert.equal(await evaluate(`window.__detailRequests.filter(p=>p.endsWith('/children?page=1&pageSize=20')).length`),0,'ordinary device must not request children') /* 验证实际结果符合预期。 */
@@ -37,25 +37,25 @@ try { /* 执行当前语句并推进处理流程。 */
   assert.ok(await evaluate(`document.querySelector('.device-access-info .ui-descriptions')?.textContent.includes('/api/v1/device-ingest/')`),'access information must be in structured cells') /* 验证实际结果符合预期。 */
   assert.ok(await evaluate(`document.querySelector('.device-properties .ui-table')?.textContent.includes('42')`),'properties must be in a table') /* 验证实际结果符合预期。 */
   await evaluate('window.__failHistory=true') /* 等待异步操作完成。 */
-  await click('刷新') /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.device-connection-drawer button')].find(e=>e.textContent.trim()==='刷新'&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.device-history .ui-alert')?.textContent.includes('历史服务暂时不可用')`)) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`document.querySelector('.device-properties')?.textContent.includes('42')`),'optional error must not hide device data') /* 验证实际结果符合预期。 */
   await evaluate('window.__failHistory=false') /* 等待异步操作完成。 */
-  await click('刷新') /* 等待异步操作完成。 */
+  await until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('.device-connection-drawer button')].find(e=>e.textContent.trim()==='刷新'&&!e.disabled);if(!e)return false;e.click();return true})()`)) /* 等待异步操作完成。 */
   await until(()=>evaluate(`!document.querySelector('.device-history .ui-alert')`)) /* 等待异步操作完成。 */
   if(process.env.IOT_TEST_SCREENSHOT_DIR)await writeFile(join(process.env.IOT_TEST_SCREENSHOT_DIR,'device-connection-desktop.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 判断条件并选择处理分支。 */
   await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true}) /* 等待异步操作完成。 */
   await delay(300) /* 等待异步操作完成。 */
   assert.ok(await evaluate(`(()=>{const e=document.querySelector('.n-drawer-body-content-wrapper');return e.scrollWidth<=e.clientWidth+1})()`),'drawer content must not overflow') /* 验证实际结果符合预期。 */
   assert.ok(await evaluate(`[...document.querySelectorAll('.device-summary .n-descriptions-table tr')].every(e=>e.children.length===2)`),'mobile overview must use one label/value pair per row') /* 验证实际结果符合预期。 */
-  assert.ok(await evaluate(`(()=>{const card=document.querySelector('.connection-section');return getComputedStyle(card).backgroundColor==='rgb(255, 255, 255)' && getComputedStyle(document.querySelector('.n-drawer-body-content-wrapper')).backgroundColor==='rgb(241, 244, 248)' && getComputedStyle(card).borderTopWidth!=='0px'})()`),'card boundaries must be distinct from background') /* 验证实际结果符合预期。 */
+  assert.ok(await evaluate(`(()=>{const card=document.querySelector('.connection-section');const body=getComputedStyle(document.querySelector('.device-connection-drawer .n-drawer-body-content-wrapper')).backgroundColor;return getComputedStyle(card).backgroundColor!==body && getComputedStyle(card).borderTopWidth!=='0px'})()`),'card boundaries must be distinct from background') /* 验证实际结果符合预期。 */
   if(process.env.IOT_TEST_SCREENSHOT_DIR)await writeFile(join(process.env.IOT_TEST_SCREENSHOT_DIR,'device-connection-mobile.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png'})).data,'base64')) /* 判断条件并选择处理分支。 */
   await evaluate(`localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_VIEWER_TOKEN)});localStorage.setItem('iot_role','viewer')`) /* 等待异步操作完成。 */
   // Remove the startup admin token hook before reload.
   await call('Page.navigate',{url:'about:blank'}) /* 等待异步操作完成。 */
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_VIEWER_TOKEN)});localStorage.setItem('iot_role','viewer')`}) /* 等待异步操作完成。 */
   await call('Page.navigate',{url:process.env.IOT_TEST_ORIGIN}) /* 等待异步操作完成。 */
-  await click('设备管理');await click('连接详情') /* 等待异步操作完成。 */
+  await click('设备管理');await click('详情') /* 等待异步操作完成。 */
   await until(()=>evaluate(`document.querySelector('.ui-drawer .ui-descriptions')`)) /* 等待异步操作完成。 */
   assert.equal(await evaluate(`document.querySelector('.ui-drawer').textContent.includes('重新生成凭据')`),false,'viewer must not be offered credential mutation') /* 验证实际结果符合预期。 */
   console.log('PASS: structured fields, distinct sections, mobile layout, no unrelated API requests, independent failure recovery and viewer permissions') /* 执行当前语句并推进处理流程。 */

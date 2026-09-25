@@ -1,400 +1,582 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, apiAll, formatTime, notifyError, session } from '../api'
 import { can } from '../permissions'
 import { createClientId } from '../clientId'
 import { categories } from '../labels'
+import { statusLabel, transportLabel } from '../presentation'
 import { UiMessage } from '../ui/feedback.js'
-import { CheckCircle2, Clock3, XCircle } from '@lucide/vue'
+import { CheckCircle2, CircleDashed, Copy, XCircle } from '@lucide/vue'
 import ProtocolAssistantView from '../views/ProtocolAssistantView.vue'
-import OnboardingProfileEditor from './OnboardingProfileEditor.vue'
+import { configurationText, diagnosisTagTypes, enrollRequest, fieldConfiguration, modeLabels, preflightQuery, protocolOptions, transportChoices, usesPlatformIdentity } from '../onboardingPlan'
 
 const emit = defineEmits(['close', 'done', 'navigate', 'detail'])
-const products = ref([]), packages = ref([]), releases = ref([]), profiles = ref([]), devices = ref([])
-const loading = ref(false), busy = ref(false), error = ref(''), check = ref(null), credential = ref(null)
-const children = ref([]), childrenLoading = ref(false)
-const helper = ref('')
-const fresh = () => ({ step:0, scenario:'existing', productId:'', newProductId:'product_'+createClientId().replaceAll('-','').slice(0,12), newName:'', category:'other', protocolPackageId:'', transport:'', manufacturer:'', model:'', idKind:'', idLocation:'', name:'', deviceId:'', generatedId:'device_'+createClientId().replaceAll('-','').slice(0,12), deviceRole:'DIRECT', parentId:'', childAddress:'', childType:'', profileId:'', description:'', labels:[{key:'',value:''}], createdProductId:'', createdDeviceId:'', checkSince:0 })
+const steps = [
+  { title: '选择型号', hint: '确定模板和接入方式' },
+  { title: '设备与连接', hint: '填写编号和连接参数' },
+  { title: '现场配置与验证', hint: '设备上报并确认结果' }
+]
+const randomId = prefix => `${prefix}_${createClientId().replaceAll('-', '').slice(0, 12)}`
+const blankConnection = () => ({ choice: '', transport: '', network: '', port: null, publicHost: '', bindHost: '', host: '', unitId: 1, timeoutMs: 3000 })
+const fresh = () => ({
+  step: 0, source: 'existing', productId: '',
+  newProduct: { id: randomId('product'), name: '', category: 'other', protocolPackageId: '', transport: '', manufacturer: '', model: '' },
+  device: { id: '', name: '', role: '', description: '' }, labels: [], connection: blankConnection(),
+  requestId: createClientId(), result: null, checkSince: 0
+})
 const draft = reactive(fresh())
-const key = () => `iot:device-onboarding:${session.tenant}:${session.user}`
-const product = computed(() => products.value.find(p => p.id === draft.productId))
-const parent = computed(() => devices.value.find(d => d.id === draft.parentId))
-const parentProfile = computed(() => profiles.value.find(p => p.id === parent.value?.tags?.connectorProfileId))
-const possibleParents = computed(() => devices.value.filter(d => d.deviceRole !== 'CHILD' && (d.deviceRole === 'GATEWAY' || profiles.value.some(p => p.id === d.tags?.connectorProfileId && p.childProducts?.length))))
-const childMappings = computed(() => parentProfile.value?.childProducts || [])
-const isStandard = computed(() => product.value?.protocolPackageId === 'iot-standard@1.0.0')
-const validProtocol = computed(() => isStandard.value || packages.value.some(p => p.id === product.value?.protocolPackageId) || releases.value.some(p => p.id === product.value?.protocolPackageId))
-const transport = computed(() => product.value?.transport || '')
-const connections = computed(() => profiles.value.filter(p => p.productId === draft.productId && (!p.deviceId || p.deviceId === (draft.createdDeviceId || draft.deviceId || draft.generatedId)) && (transport.value.includes('TCP') ? p.network === 'tcp' : transport.value.includes('UDP') ? p.network === 'udp' : true)))
-const chosenProfile = computed(() => connections.value.find(p => p.id === draft.profileId))
-const metadata = computed(() => product.value?.metadata || {})
-const targetId = computed(() => draft.deviceId.trim())
-const savedDevice = computed(() => devices.value.find(d => d.id === draft.createdDeviceId))
-const registered = computed(() => Boolean(draft.createdDeviceId))
-const status = computed(() => {
-  if (!check.value) return { text:'等待读取接入状态', tone:'info', next:'刷新接入检查。' }
-  const d = check.value, ingest = d.ingest || {}
-  if (d.product?.status !== 'ENABLED') return { text:'设备模板已停用或不存在', tone:'warning', next:'请在设备模板中核对状态和协议绑定。' }
-  if (!validProtocol.value) return { text:'设备通信协议已失效', tone:'warning', next:'在设备模板或协议工作区检查已发布版本。' }
-  if (d.device?.status !== 'ENABLED') return { text:'设备已停用', tone:'warning', next:'在设备日常管理中核对设备状态。' }
-  if (draft.scenario === 'child' && !d.parent) return { text:'所属主设备当前不可查看', tone:'warning', next:'检查主设备是否仍存在，以及当前账号是否有主设备权限。' }
-  if (!isStandard.value && !d.profile) return { text:'尚未关联平台连接配置', tone:'warning', next:'选择已有连接；如果没有可用连接，前往平台连接配置补齐。' }
-  if (d.profile && (!d.profile.enabled || d.profile.runtimeStatus === 'DISABLED')) return { text:'平台连接配置未启用', tone:'warning', next:'打开平台连接配置，检查启用状态。' }
-  if (d.profile && ['ERROR','UNSUPPORTED'].includes(d.profile.runtimeStatus)) return { text:'平台连接服务异常', tone:'error', next:'打开对应平台连接配置，查看运行状态和错误详情。' }
-  if (d.profile?.mode === 'listener' && d.profile.connectionMode !== 'dial' && !d.profile.publicHost && !ingest.rawReceived) return { text:'平台对外地址未配置', tone:'warning', next:'在平台连接配置填写现场设备可达的域名或 IP。' }
-  if (ingest.stage === 'PARSE_FAILED') return { text:'收到数据，解析失败', tone:'error', next:'查看原始报文，并核对已发布的协议版本与真实报文。' }
-  if (ingest.stage === 'RAW_RECEIVED') return { text:'收到数据，等待解析', tone:'info', next:'稍后刷新；持续未解析时查看原始报文处理状态。' }
-  if (ingest.stage === 'PARSED' && ingest.stale) return { text:'曾解析成功，最近没有新数据', tone:'warning', next:'核对设备供电和连接，查看最近接收时间。' }
-  if (ingest.stage === 'PARSED') return { text:ingest.continuouslyUpdating ? '本次解析成功，数据持续更新' : '本次解析成功，等待下一次上报', tone:'success', next:'可进入日常管理，继续观察设备数据。' }
-  if (isStandard.value && !d.accessInfo?.[d.connector === 'MQTT' ? 'mqttBroker' : 'httpUrl']) return { text:'平台对外地址未配置', tone:'warning', next:'请管理员配置设备接入的对外地址，再按设备端信息连接。' }
-  if (ingest.previousParsedAt) return { text:'曾接入成功，等待本次验证', tone:'info', next:`历史成功时间 ${formatTime(ingest.previousParsedAt)}；请让现场设备重新上报并刷新。` }
-  return { text:'等待本次设备上报', tone:'info', next:'按下方现场设备连接信息配置设备，然后刷新检查。' }
-})
-const checkItems = computed(() => {
-  const d = check.value, ingest = d?.ingest || {}, profile = d?.profile
-  const serviceFailed = isStandard.value
-    ? Boolean(d && !d.accessInfo?.[d.connector === 'MQTT' ? 'mqttBroker' : 'httpUrl'])
-    : Boolean(profile && (!profile.enabled || ['DISABLED','ERROR','UNSUPPORTED'].includes(profile.runtimeStatus)))
-  const serviceReady = Boolean(ingest.rawReceived || (profile?.enabled && ['LISTENING','CONNECTED','ONLINE'].includes(profile.runtimeStatus)))
-  return [
-    { label:'配置保存', state:ingest.configurationSaved ? 'passed' : 'waiting', text:ingest.configurationSaved ? '已保存' : '等待确认' },
-    { label:'接收服务', state:serviceFailed ? 'failed' : serviceReady ? 'passed' : 'waiting', text:serviceFailed ? (isStandard.value ? '对外地址未配置' : '连接服务异常或未启用') : serviceReady ? '服务已接收或运行中' : isStandard.value && d?.accessInfo ? '接口已配置，等待现场' : '等待连接配置' },
-    { label:'当前设备数据', state:ingest.rawReceived ? 'passed' : 'waiting', text:ingest.rawReceived ? `已接收 · ${formatTime(ingest.receivedAt)}` : '本次尚未收到' },
-    { label:'解析结果', state:ingest.parseError ? 'failed' : ingest.parsed ? 'passed' : 'waiting', text:ingest.parseError ? '解析失败' : ingest.parsed ? '本次解析成功' : '等待现场解析' },
-    { label:'持续更新', state:ingest.stale ? 'failed' : ingest.continuouslyUpdating ? 'passed' : 'waiting', text:ingest.stale ? '超过 15 分钟无新数据' : ingest.continuouslyUpdating ? '已有连续上报' : '等待后续上报' }
-  ]
-})
-const checkIcons = { passed:CheckCircle2, waiting:Clock3, failed:XCircle }
-const values = computed(() => Object.entries(check.value?.ingest?.standardMessage?.properties || {}).map(([id,value]) => {
-  const field = check.value?.product?.thingModel?.properties?.find(item => item.identifier === id)
-  return { name:field?.name || id, unit:field?.unit || '', value }
+const products = ref([]), protocols = ref([]), loading = ref(false), loadError = ref('')
+const preflight = ref(null), checking = ref(false), preflightError = ref('')
+const saving = ref(false), saveError = ref('')
+// 设备密钥只保存在内存中，刷新页面或离开向导后不可再读取。
+const credential = ref(null)
+const status = ref(null), statusError = ref(''), statusAt = ref(0), refreshing = ref(false)
+const protocolHelper = ref(false)
+
+const storageKey = () => `iot:device-onboarding:v2:${session.tenant}:${session.user}`
+const product = computed(() => products.value.find(item => item.id === draft.productId))
+const plan = computed(() => preflight.value?.plan || null)
+const mode = computed(() => plan.value?.mode === 'listener' && draft.connection.choice === 'dial' ? 'dial' : plan.value?.mode || '')
+const category = computed(() => draft.source === 'existing' ? product.value?.category : draft.newProduct.category)
+const templateName = computed(() => draft.source === 'existing' ? product.value?.name || draft.productId : draft.newProduct.name.trim() || '新型号')
+const selectedProtocol = computed(() => protocols.value.find(item => item.id === draft.newProduct.protocolPackageId))
+const templateTransports = computed(() => transportChoices(selectedProtocol.value?.transport))
+const canCreateTemplate = computed(() => can('POST /api/v1/products'))
+const canCreateListener = computed(() => can('POST /api/v2/device-access-profiles'))
+const listeners = computed(() => preflight.value?.profiles || [])
+const canContinue = computed(() => Boolean(preflight.value?.ready) && !checking.value && (draft.source === 'existing' ? Boolean(product.value) : Boolean(draft.newProduct.name.trim())))
+const liveProfile = computed(() => status.value?.profile || draft.result?.profile || null)
+const accessInfo = computed(() => status.value?.accessInfo || draft.result?.accessInfo || null)
+const configuration = computed(() => fieldConfiguration({ ...draft.result, profile: liveProfile.value }, accessInfo.value, credential.value))
+// 密钥只在上方提示框中显示一次；“复制全部”仍包含它。
+const visibleConfiguration = computed(() => configuration.value.filter(row => row.name !== 'Secret' && !(credential.value && row.name === 'AccessKey')))
+const diagnosis = computed(() => status.value?.diagnosis || null)
+const checkIcons = { passed: CheckCircle2, waiting: CircleDashed, failed: XCircle }
+const checkStates = { passed: '通过', waiting: '等待', failed: '未通过' }
+const values = computed(() => Object.entries(status.value?.ingest?.standardMessage?.properties || {}).map(([id, value]) => {
+  const field = status.value?.product?.thingModel?.properties?.find(item => item.identifier === id)
+  return { name: field?.name || id, unit: field?.unit || '', value: typeof value === 'object' ? JSON.stringify(value) : String(value) }
 }))
 
+function usableListener(profile) { return profile.enabled && Boolean(profile.publicHost) && (plan.value?.networks || []).includes(profile.network) }
+function listenerLabel(profile) { return `${profile.publicHost || '未配置对外地址'}:${profile.port}` }
+
 function persist() {
-  const safe = Object.fromEntries(Object.keys(draft).map(k => [k,draft[k]]))
-  safe.labels = draft.labels.filter(row => !/(secret|token|password|access.?key|密钥|令牌|密码)/i.test(row.key || ''))
-  localStorage.setItem(key(), JSON.stringify(safe))
+  const saved = JSON.parse(JSON.stringify(draft))
+  saved.labels = saved.labels.filter(row => !/(secret|token|password|access.?key|密钥|令牌|密码)/i.test(row.key || ''))
+  try { localStorage.setItem(storageKey(), JSON.stringify(saved)) } catch { /* 存储不可用时只影响草稿恢复。 */ }
 }
 function restore() {
-  try { const saved = JSON.parse(localStorage.getItem(key()) || 'null'); if (saved && typeof saved === 'object') Object.assign(draft, fresh(), saved) }
-  catch { localStorage.removeItem(key()) }
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey()) || 'null')
+    if (saved && typeof saved === 'object' && saved.requestId) Object.assign(draft, fresh(), saved, { connection: { ...blankConnection(), ...saved.connection } })
+  } catch { forget() }
 }
-watch(draft, persist, { deep:true })
-watch(() => draft.step, async () => { await nextTick(); const content = document.querySelector('.app-content'); if (content) content.scrollTop = 0 })
+function forget() { try { localStorage.removeItem(storageKey()) } catch { /* 忽略存储错误。 */ } }
+watch(draft, persist, { deep: true })
+watch(() => draft.step, async () => { await nextTick(); document.querySelector('.app-content')?.scrollTo({ top: 0 }) })
 
 async function load() {
-  loading.value = true; error.value = ''
+  loading.value = true; loadError.value = ''
   try {
-    const [p, registry, catalog, versions, access] = await Promise.all([
-      apiAll('/api/v1/products'), apiAll('/api/v1/device-registry'),
-      apiAll('/api/v1/protocol-packages'), api('/api/v2/protocols'), api('/api/v1/connectors')
-    ])
-    products.value = p.items || []
-    devices.value = (registry.items || []).map(x => x.device)
-    packages.value = (catalog.items || []).filter(x => x.status === 'PUBLISHED')
-    releases.value = (versions.items || []).flatMap(x => (x.releases || []).filter(r => r.status === 'PUBLISHED').map(r => ({id:`${x.definition.id}@${r.version}`, name:`${x.definition.name} · ${r.version}`, transport:r.transport, payloadFormat:r.payloadFormat})))
-    profiles.value = (access.items || []).map(x => x.profile).filter(Boolean)
-    if (draft.createdDeviceId) await refreshCheck()
-    if (draft.scenario === 'child' && draft.parentId) await loadChildren()
-    if (draft.createdProductId && !products.value.some(x => x.id === draft.createdProductId)) error.value = '已创建的设备模板不存在或当前账号无法查看，请重新选择模板。'
-    if (draft.productId && products.value.some(x => x.id === draft.productId && x.status !== 'ENABLED')) error.value = '所选设备模板已停用，请在设备模板中核对状态，或重新选择。'
-    if (draft.productId && product.value && !validProtocol.value) error.value = '设备模板的通信协议已失效，请检查已发布版本。'
-    if (draft.profileId && !profiles.value.some(x => x.id === draft.profileId)) error.value = '所选平台连接配置已不存在或当前账号无权查看，请重新选择连接。'
-    if (draft.createdDeviceId && !devices.value.some(x => x.id === draft.createdDeviceId)) error.value = '已登记的设备不存在或当前账号无法查看，请检查权限或重新开始。'
-  } catch (cause) { error.value = cause.message || '读取接入资料失败'; notifyError(cause) }
+    const [productData, catalog] = await Promise.all([apiAll('/api/v1/products'), api('/api/v2/protocols')])
+    products.value = productData.items || []
+    protocols.value = protocolOptions(catalog.items || [])
+    if (draft.step < 2) await runPreflight()
+    else await refreshStatus()
+  } catch (cause) { loadError.value = cause.message || '读取设备模板失败' }
   finally { loading.value = false }
 }
-function selectScenario(value) { draft.scenario = value; draft.productId = ''; draft.profileId = ''; draft.step = 0 }
-function protocolName(id) { return id === 'iot-standard@1.0.0' ? '标准设备上报' : packages.value.find(item => item.id === id)?.name || releases.value.find(item => item.id === id)?.name || id || '未配置' }
-function selectedProtocol() { return [{id:'iot-standard@1.0.0',name:'标准设备上报',transport:'MQTT_HTTP',payloadFormat:'json'}, ...packages.value.map(p => ({id:p.id,name:p.name,transport:p.transport,payloadFormat:p.payloadFormat})), ...releases.value].find(p => p.id === draft.protocolPackageId) }
-function chooseProtocol() { const p = selectedProtocol(); draft.transport = p?.transport === 'MQTT_HTTP' ? 'MQTT' : p?.transport === 'TCP_UDP' ? 'TCP' : p?.transport || ''; }
-async function makeProduct() {
-  if (!draft.newName.trim()) return UiMessage.warning('请填写设备模板名称')
-  const protocol = selectedProtocol()
-  if (!protocol) return UiMessage.warning('请选择已发布的设备通信协议')
-  if (!can('POST /api/v1/products')) return UiMessage.warning('当前账号缺少创建设备模板权限')
-  const prior = products.value.find(p => p.id === draft.newProductId)
-  if (prior) { draft.createdProductId = prior.id; draft.productId = prior.id; draft.step = 1; return }
-  busy.value = true
+
+let preflightVersion = 0
+async function runPreflight() {
+  const version = ++preflightVersion
+  preflight.value = null; preflightError.value = ''
+  if (draft.source === 'existing' ? !draft.productId : !draft.newProduct.protocolPackageId) { checking.value = false; return }
+  checking.value = true
   try {
-    const value = { id:draft.newProductId, name:draft.newName.trim(), category:draft.category, protocolPackageId:protocol.id, transport:draft.transport, payloadFormat:protocol.payloadFormat, status:'ENABLED', metadata:{manufacturer:draft.manufacturer.trim(),model:draft.model.trim(),idKind:draft.idKind.trim(),idLocation:draft.idLocation.trim()} }
-    const created = await api('/api/v1/products',{method:'POST',body:JSON.stringify(value)})
-    draft.createdProductId = created.id; draft.productId = created.id
-    products.value = [...products.value.filter(p => p.id !== created.id), created]
-    draft.step = 1
-  } catch (cause) { notifyError(cause); await load(); const recovered = products.value.find(p => p.id === draft.newProductId); if (recovered && recovered.name === draft.newName.trim()) { draft.createdProductId = recovered.id; draft.productId = recovered.id; draft.step = 1 } }
-  finally { busy.value = false }
+    const result = await api(`/api/v1/onboarding/preflight?${preflightQuery(draft)}`)
+    if (version !== preflightVersion) return
+    preflight.value = result
+    prepareConnection(result.plan)
+  } catch (cause) { if (version === preflightVersion) preflightError.value = cause.message || '接入预检失败' }
+  finally { if (version === preflightVersion) checking.value = false }
 }
-function advanceTemplate() {
-  if (draft.scenario === 'new') return makeProduct()
-  if (draft.scenario === 'child' && !draft.parentId) return UiMessage.warning('请先选择所属主设备')
-  if (!product.value || product.value.status !== 'ENABLED') return UiMessage.warning('请选择已启用的设备模板')
-  if (!validProtocol.value) return UiMessage.warning('模板的通信协议已失效，请在设备模板或协议工作区检查已发布版本')
-  if (draft.scenario === 'child' && !childMappings.value.some(m => m.productId === draft.productId)) return UiMessage.warning('主设备连接尚未配置这个子设备模板，请先补齐映射')
+function prepareConnection(p) {
+  const c = draft.connection
+  if (p.mode === 'standard' && !['MQTT', 'HTTP'].includes(c.transport)) c.transport = p.connector
+  if (p.mode === 'listener') {
+    if (!(p.networks || []).includes(c.network)) c.network = p.networks?.[0] || ''
+    const known = c.choice === 'new' || (c.choice === 'dial' && p.dial) || listeners.value.some(item => item.id === c.choice)
+    if (!known) c.choice = listeners.value.find(usableListener)?.id || (canCreateListener.value ? 'new' : p.dial ? 'dial' : '')
+  } else c.choice = ''
+  if (p.mode === 'poll' && !c.port) c.port = 502
+}
+function selectSource(value) {
+  if (value === 'new' && !canCreateTemplate.value) return UiMessage.warning('当前账号不能新建设备模板，请选择已有型号')
+  draft.source = value
+  draft.connection = blankConnection()
+  runPreflight()
+}
+function chooseProduct() { draft.connection = blankConnection(); runPreflight() }
+function chooseProtocol() {
+  draft.newProduct.transport = transportChoices(selectedProtocol.value?.transport)[0] || ''
+  draft.connection = blankConnection()
+  runPreflight()
+}
+// 模板通道决定新设备默认的上报通道。
+function changeTemplateTransport() { draft.connection.transport = ''; runPreflight() }
+function next() {
+  if (!preflight.value) return UiMessage.warning('请先选择设备型号')
+  if (!preflight.value.ready) return UiMessage.warning(plan.value?.reason || '该型号暂不能添加设备')
+  if (draft.source === 'new' && !draft.newProduct.name.trim()) return UiMessage.warning('请填写新型号的模板名称')
+  if (!draft.device.role) draft.device.role = category.value === 'gateway' ? 'GATEWAY' : 'DIRECT'
   draft.step = 1
 }
-function advanceInfo() {
-  if (!product.value || product.value.status !== 'ENABLED') return UiMessage.warning('设备模板已失效或停用，请返回上一步重新选择')
-  if (!validProtocol.value) return UiMessage.warning('模板协议已失效，请检查已发布版本')
-  if (!draft.name.trim()) return UiMessage.warning('请填写设备名称')
-  if (draft.scenario === 'child') {
-    if (!draft.childAddress.trim() || !draft.childType) return UiMessage.warning('请填写协议中的子设备地址并选择类型')
-  } else if (!targetId.value) return UiMessage.warning('请填写现场设备上报的实际编号')
-  draft.step = 2
-}
-function tags() {
-  const result = {}
-  for (const row of draft.labels) if (row.key.trim()) result[row.key.trim()] = row.value
-  if (draft.profileId) result.connectorProfileId = draft.profileId
-  return result
-}
-async function saveDevice() {
-  if (!product.value || product.value.status !== 'ENABLED') return UiMessage.warning('设备模板已失效或停用，请重新选择')
-  if (!validProtocol.value) return UiMessage.warning('模板协议已失效，请检查已发布版本')
-  if (!can(draft.scenario === 'child' ? 'POST /api/v1/device-registry/:id/children' : 'POST /api/v1/device-registry')) return UiMessage.warning('当前账号缺少设备登记权限或全部设备范围')
-  if (busy.value) return
-  if (draft.scenario !== 'child' && devices.value.some(d => d.id === targetId.value) && !draft.createdDeviceId) return UiMessage.warning('设备编号已登记，请在设备列表打开现有设备')
-  busy.value = true
-  try {
-    let result
-    if (draft.scenario === 'child') {
-      result = await api(`/api/v1/device-registry/${encodeURIComponent(draft.parentId)}/children`,{method:'POST',body:JSON.stringify({address:draft.childAddress.trim(),type:draft.childType,name:draft.name.trim()})})
-    } else {
-      result = await api('/api/v1/device-registry',{method:'POST',body:JSON.stringify({id:targetId.value,productId:draft.productId,name:draft.name.trim(),deviceRole:draft.deviceRole,status:'ENABLED',description:draft.description,tags:tags()})})
-    }
-    draft.createdDeviceId = result.device.id
-    draft.checkSince = Number(result.device.updatedAt || result.device.createdAt || Date.now())
-    devices.value = [...devices.value.filter(d => d.id !== result.device.id), result.device]
-    credential.value = result.credential?.secret ? result.credential : null
-    draft.step = 3
-    await refreshCheck()
-  } catch (cause) {
-    notifyError(cause)
-    // A lost response may follow a successful write. Reconcile by the stable ID.
-    await load()
-    const recovered = devices.value.find(d => d.id === targetId.value)
-    if (recovered && draft.scenario !== 'child') { draft.createdDeviceId = recovered.id; draft.checkSince = Number(recovered.updatedAt || Date.now()); draft.step = 3; UiMessage.warning('设备已登记；首次密钥无法重新读取，若未保存请到连接详情重新生成。') }
-  } finally { busy.value = false }
-}
-async function linkProfile() {
-  if (!savedDevice.value || !chosenProfile.value || busy.value) return
-  if (!can('PUT /api/v1/device-registry/:id')) return UiMessage.warning('缺少编辑设备权限')
-  busy.value = true
-  try {
-    const d = savedDevice.value
-    const result = await api(`/api/v1/device-registry/${encodeURIComponent(d.id)}`,{method:'PUT',body:JSON.stringify({...d,tags:{...d.tags,connectorProfileId:draft.profileId}})})
-    devices.value = [...devices.value.filter(x => x.id !== d.id), result.device]
-    draft.checkSince = Number(result.device.updatedAt || Date.now())
-    await refreshCheck()
-  } catch (cause) { notifyError(cause) }
-  finally { busy.value = false }
-}
-async function refreshCheck() {
-  if (!draft.createdDeviceId) return
-  try { check.value = await api(`/api/v1/device-registry/${encodeURIComponent(draft.createdDeviceId)}/connection?since=${encodeURIComponent(draft.checkSince || Date.now())}`); error.value = '' }
-  catch (cause) { error.value = cause.message || '检查失败'; check.value = null }
-}
-async function loadChildren() {
-  if (!draft.parentId || !childMappings.value.length) return
-  childrenLoading.value = true
-  try { const result = await api(`/api/v1/device-registry/${encodeURIComponent(draft.parentId)}/children`); children.value = result.items || [] }
-  catch { children.value = [] }
-  finally { childrenLoading.value = false }
-}
-function changeParent() { children.value = []; draft.childType = ''; draft.productId = ''; if (draft.parentId) loadChildren() }
-function inspectChild(row) { draft.createdDeviceId = row.device.id; draft.productId = row.device.productId; draft.checkSince = Date.now(); draft.step = 3; refreshCheck() }
-function navigate(page, detail) { persist(); emit('navigate', page, detail) }
-async function helperSaved() { await load(); if (draft.step === 3) await refreshCheck() }
-async function profileSaved(id) {
-  helper.value = ''
-  await load()
-  if (draft.scenario === 'child' && parent.value && parent.value.tags?.connectorProfileId !== id) {
-    if (!can('PUT /api/v1/device-registry/:id')) return UiMessage.warning('连接已保存，当前账号缺少关联主设备的权限')
-    try {
-      const d = parent.value
-      const result = await api(`/api/v1/device-registry/${encodeURIComponent(d.id)}`, {method:'PUT',body:JSON.stringify({...d,tags:{...d.tags,connectorProfileId:id}})})
-      devices.value = [...devices.value.filter(x => x.id !== d.id), result.device]
-      await loadChildren()
-    } catch (cause) { notifyError(cause) }
-  } else if (draft.scenario === 'child') {
-    await loadChildren()
-  } else if (draft.scenario !== 'child') {
-    draft.profileId = id
-    if (draft.createdDeviceId) await linkProfile()
+function usePlatformId() { draft.device.id = randomId('device') }
+const validPort = value => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 65535
+function validate() {
+  if (!draft.device.name.trim()) return '请填写设备名称'
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(draft.device.id.trim())) return '设备编号须为 1 至 128 位字母、数字、点、横线或下划线，且以字母或数字开头'
+  const c = draft.connection
+  if (mode.value === 'listener') {
+    if (!c.choice) return '请选择接入点，或新建共享监听'
+    if (c.choice === 'new' && !c.publicHost.trim()) return '请填写现场设备可访问的平台对外地址'
+    if (c.choice === 'new' && !validPort(c.port)) return '请填写 1 至 65535 之间的监听端口'
   }
+  if (mode.value === 'dial' || mode.value === 'poll') {
+    if (!c.host.trim()) return '请填写平台可以访问的设备 IP 或域名'
+    if ((mode.value === 'dial' || c.port) && !validPort(c.port)) return '请填写 1 至 65535 之间的设备端口'
+  }
+  if (mode.value === 'poll' && !(Number(c.unitId) >= 0 && Number(c.unitId) <= 255)) return '站号须在 0 至 255 之间'
+  return ''
 }
-function finish() { localStorage.removeItem(key()); emit('done') }
-function reset() { localStorage.removeItem(key()); Object.assign(draft, fresh()); credential.value = null; check.value = null; error.value = ''; children.value = [] }
-onMounted(() => { restore(); load() })
+async function submit() {
+  if (saving.value) return
+  const problem = validate()
+  if (problem) return UiMessage.warning(problem)
+  saving.value = true; saveError.value = ''
+  try {
+    const result = await api('/api/v1/onboarding', { method: 'POST', body: JSON.stringify(enrollRequest(draft, plan.value)) })
+    credential.value = result.credential?.secret ? result.credential : null
+    draft.result = { device: result.device, product: { id: result.product?.id, name: result.product?.name }, mode: result.mode, profile: result.profile || null, accessInfo: result.accessInfo || null, reused: Boolean(result.reused) }
+    draft.checkSince = Number(result.device?.createdAt || Date.now())
+    draft.step = 2
+    status.value = null
+    if (result.reused) UiMessage.info('这台设备此前已添加，已恢复接入信息；设备密钥只在首次创建时显示。')
+    await refreshStatus()
+  } catch (cause) { saveError.value = cause.message || '保存失败，请稍后重试' }
+  finally { saving.value = false }
+}
+
+let statusVersion = 0
+async function refreshStatus() {
+  const id = draft.result?.device?.id
+  if (!id) return
+  const version = ++statusVersion
+  refreshing.value = true
+  try {
+    const data = await api(`/api/v1/device-registry/${encodeURIComponent(id)}/connection?since=${encodeURIComponent(draft.checkSince || Date.now())}`)
+    if (version !== statusVersion) return
+    status.value = data; statusError.value = ''; statusAt.value = Date.now()
+  } catch (cause) { if (version === statusVersion) statusError.value = cause.message || '读取接入状态失败' }
+  finally { if (version === statusVersion) refreshing.value = false }
+}
+let timer = 0, realtimeTimer = 0
+function stopPolling() { clearInterval(timer); timer = 0 }
+function schedulePolling() {
+  stopPolling()
+  if (draft.step === 2 && draft.result) timer = setInterval(() => { if (document.visibilityState !== 'hidden') refreshStatus() }, 5000)
+}
+watch(() => [draft.step, draft.result?.device?.id], schedulePolling)
+function realtime(event) {
+  const id = draft.result?.device?.id
+  if (draft.step !== 2 || !id) return
+  const text = `${event.detail?.topic || ''} ${typeof event.detail?.payload === 'string' ? event.detail.payload : JSON.stringify(event.detail?.payload || '')}`
+  if (!text.includes(id)) return
+  clearTimeout(realtimeTimer)
+  realtimeTimer = setTimeout(refreshStatus, 800)
+}
+
+async function copy(text, message = '已复制') {
+  try { await navigator.clipboard.writeText(text); UiMessage.success(message) }
+  catch { UiMessage.warning('浏览器不允许复制，请手动选择文本') }
+}
+function copyAll() { copy(configurationText(draft.result, accessInfo.value, credential.value), '接入信息已复制') }
+function openRaw() { persist(); emit('navigate', 'raw', { deviceId: draft.result.device.id, rawMessageId: status.value?.ingest?.rawMessageId }) }
+function addAnother() {
+  const result = draft.result
+  const choice = result?.mode === 'listener' && result.profile?.id ? result.profile.id : ''
+  Object.assign(draft, { step: 1, source: 'existing', productId: result?.product?.id || draft.productId, device: { id: '', name: '', role: draft.device.role, description: '' }, labels: [], connection: { ...blankConnection(), choice, transport: draft.connection.transport }, requestId: createClientId(), result: null, checkSince: 0 })
+  credential.value = null; status.value = null; saveError.value = ''
+  load()
+}
+function close() { if (draft.step === 2) forget(); emit('close') }
+function finish() { forget(); emit('done') }
+function openDetail() { const id = draft.result?.device?.id; forget(); emit('detail', id) }
+function restart() { forget(); Object.assign(draft, fresh()); credential.value = null; status.value = null; preflight.value = null; saveError.value = ''; preflightError.value = '' }
+async function protocolSaved() { await load() }
+function navigate(page) { persist(); emit('navigate', page) }
+
+onMounted(() => { restore(); load(); window.addEventListener('iot:realtime', realtime); schedulePolling() })
+onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.removeEventListener('iot:realtime', realtime) })
 </script>
 
 <template>
-  <section class="onboarding-workspace">
-    <header class="onboarding-header">
-      <div><span class="onboarding-eyebrow">设备管理 / 接入向导</span><h2>接入现场设备</h2><p>按顺序确认模板、设备编号和连接方式，再查看真实上报结果。</p></div>
-      <div class="onboarding-header-actions"><ui-button @click="emit('close')">返回设备列表</ui-button><ui-button :loading="loading" @click="load">刷新配置</ui-button><ui-button @click="reset">重新开始</ui-button></div>
-    </header>
-    <ui-alert v-if="error" :title="error" type="warning" :closable="false" show-icon class="top-gap" />
-    <ol class="onboarding-steps" aria-label="设备接入进度"><li v-for="(title,index) in ['选择设备模板','填写设备信息','完成连接设置','检查设备数据']" :key="title" :class="{active:draft.step===index,done:draft.step>index}" :aria-current="draft.step===index ? 'step' : undefined"><span class="step-number">{{ index+1 }}</span><span class="step-copy"><strong>{{ title }}</strong><small>{{ ['确定接入方式','核对现场标识','确认连接资料','查看真实上报'][index] }}</small></span></li></ol>
-
-    <ui-card v-if="draft.step===0" class="surface-card onboarding-card" shadow="never">
-      <div class="step-intro"><span>第 1 步 / 共 4 步</span><h3>选择设备模板</h3><p>先确定设备如何接入，再选择已有模板或创建新模板。</p></div>
-      <section class="onboarding-section">
-        <div class="section-title"><h4>这次接入哪种设备？</h4><p>请选择最符合现场情况的一项。</p></div>
-        <div class="scenario-grid" role="group" aria-label="设备接入方式">
-          <button type="button" class="scenario-option" :class="{selected:draft.scenario==='existing'}" :aria-pressed="draft.scenario==='existing'" aria-label="已有型号" @click="selectScenario('existing')"><strong>已有型号</strong><small>选现成模板，登记一台设备</small></button>
-          <button type="button" class="scenario-option" :class="{selected:draft.scenario==='new'}" :aria-pressed="draft.scenario==='new'" aria-label="首次接入新型号" @click="selectScenario('new')"><strong>首次接入新型号</strong><small>先建模板，再登记设备</small></button>
-          <button type="button" class="scenario-option" :class="{selected:draft.scenario==='child'}" :aria-pressed="draft.scenario==='child'" aria-label="主设备下的子设备" @click="selectScenario('child')"><strong>主设备下的子设备</strong><small>沿用主设备的连接与映射</small></button>
-        </div>
-      </section>
-      <template v-if="draft.scenario==='child'">
-        <section class="onboarding-section"><div class="section-title"><h4>选择主设备与子设备模板</h4><p>子设备沿用主设备的网络连接，需要已有的子设备类型映射。</p></div>
-          <ui-alert v-if="!possibleParents.length" title="暂无可选主设备。请先登记主设备，再到平台连接配置中设置子设备类型映射。" type="info" :closable="false" class="top-gap" />
-          <ui-form-item label="所属主设备" required><ui-select v-model="draft.parentId" filterable placeholder="选择主设备" @change="changeParent"><ui-option v-for="d in possibleParents" :key="d.id" :value="d.id" :label="`${d.name} · ${d.id}`" /></ui-select></ui-form-item>
-          <div v-if="draft.parentId && !parentProfile" class="onboarding-helper-prompt">
-            <div><strong>主设备还没有平台连接配置</strong><p>在当前向导中补齐连接后，即可继续选择子设备模板。</p></div>
-            <div class="onboarding-helper-actions"><ui-button type="primary" @click="helper='profile'">打开连接配置抽屉</ui-button></div>
-          </div>
-          <div v-else-if="draft.parentId && !childMappings.length" class="onboarding-helper-prompt">
-            <div><strong>主设备缺少子设备类型映射</strong><p>在当前向导中编辑主设备连接配置，添加对应的子设备类型。</p></div>
-            <div class="onboarding-helper-actions"><ui-button type="primary" @click="helper='profile'">打开连接配置抽屉</ui-button></div>
-          </div>
-          <div v-else-if="childMappings.length"><ui-form-item label="子设备模板" required><ui-select v-model="draft.productId" filterable placeholder="选择映射的设备模板"><ui-option v-for="m in childMappings" :key="m.type" :value="m.productId" :label="`${products.find(p=>p.id===m.productId)?.name||m.productId} · ${m.type}`" /></ui-select></ui-form-item>
-            <div v-if="childrenLoading">正在读取已登记的子设备…</div><div v-else-if="children.length"><p>已登记的子设备（可能由协议发现或人工登记）：</p><div v-for="row in children" :key="row.device.id" class="onboarding-choice"><span>{{ row.device.name }} · 地址 {{ row.device.tags?.childAddress || '未提供' }}</span><ui-button @click="inspectChild(row)">查看接入结果</ui-button></div></div><p v-else>目前没有已登记的子设备。可以按主设备协议中的地址先行登记；此处不会伪造发现结果。</p></div>
-        </section>
-      </template>
-      <template v-else-if="draft.scenario==='existing'">
-        <section class="onboarding-section"><div class="section-title"><h4>选择现有模板</h4><p>同型号或共用通信协议的设备可以使用同一模板。</p></div>
-          <ui-form-item label="选择设备模板" required><ui-select v-model="draft.productId" filterable placeholder="按名称或型号选择"><ui-option v-for="p in products" :key="p.id" :value="p.id" :label="`${p.name} ${p.metadata?.manufacturer||''} ${p.metadata?.model||''} · ${p.transport||'通信方式未设置'}${p.status==='ENABLED'?'':' · 未启用'}`" /></ui-select></ui-form-item>
-          <div v-if="product" class="selection-summary"><strong>{{ product.name }}</strong><span>通信协议：{{ protocolName(product.protocolPackageId) }}</span><span>上报方式：{{ product.transport || '未设置' }}</span><small v-if="product.description">{{ product.description }}</small></div>
-          <p v-if="!products.length">暂无设备模板。<ui-button link @click="selectScenario('new')">首次接入新型号</ui-button></p>
-        </section>
-      </template>
-      <template v-else>
-        <section class="onboarding-section"><div class="section-title"><h4>模板基本信息</h4><p>先给同型号设备建立一套共用配置。</p></div><div class="onboarding-grid"><ui-form-item label="模板名称" required><ui-input v-model="draft.newName" placeholder="例如 厂商及型号" /></ui-form-item><ui-form-item label="设备分类"><ui-select v-model="draft.category"><ui-option v-for="(title,id) in categories" :key="id" :value="id" :label="title" /></ui-select></ui-form-item></div></section>
-        <section class="onboarding-section"><div class="section-title"><h4>通信协议</h4><p>选择与真实设备匹配的已发布协议。</p></div><div class="onboarding-grid"><ui-form-item label="设备通信协议" required><ui-select v-model="draft.protocolPackageId" filterable placeholder="选择已发布协议" @change="chooseProtocol"><ui-option value="iot-standard@1.0.0" label="标准设备上报 · HTTP / MQTT" /><ui-option v-for="p in [...packages.map(x=>({id:x.id,name:x.name})),...releases]" :key="p.id" :value="p.id" :label="p.name" /></ui-select></ui-form-item><ui-form-item v-if="selectedProtocol()?.transport==='MQTT_HTTP' || selectedProtocol()?.transport==='TCP_UDP'" label="通信方式"><ui-select v-model="draft.transport"><ui-option v-for="t in selectedProtocol()?.transport==='MQTT_HTTP'?['HTTP','MQTT']:['TCP','UDP']" :key="t" :value="t" :label="t" /></ui-select></ui-form-item></div>
-          <div class="onboarding-helper-prompt">
-            <div><strong>找不到匹配的通信协议？</strong><p>准备厂家协议说明、真实报文或点表，在向导内生成协议；复杂协议可进入独立页面开发。</p></div>
-            <div class="onboarding-helper-actions">
-              <ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" type="primary" @click="helper='protocol'">打开协议生成抽屉</ui-button>
-              <ui-button v-permission="'menu:protocols'" @click="navigate('protocols')">前往 Go 协议开发</ui-button>
-            </div>
-          </div>
-        </section>
-        <details class="onboarding-optional"><summary>补充型号与编号线索（选填）</summary><div class="onboarding-grid"><ui-form-item label="厂商"><ui-input v-model="draft.manufacturer" /></ui-form-item><ui-form-item label="型号"><ui-input v-model="draft.model" /></ui-form-item><ui-form-item label="编号类型"><ui-input v-model="draft.idKind" placeholder="例如 IMEI、序列号、设备地址" /></ui-form-item><ui-form-item label="编号位置"><ui-input v-model="draft.idLocation" placeholder="例如设备铭牌、厂家配置工具" /></ui-form-item></div></details>
-      </template>
-      <div class="onboarding-actions"><span>确认模板后，下一步填写现场设备信息。</span><ui-button type="primary" :loading="busy" @click="advanceTemplate">下一步</ui-button></div>
-    </ui-card>
-
-    <ui-card v-else-if="draft.step===1" class="surface-card onboarding-card" shadow="never">
-      <div class="step-intro"><span>第 2 步 / 共 4 步</span><h3>填写设备信息</h3><p>填写现场可识别的名称和编号。设备编号必须与上报中的标识一致。</p></div>
-      <div class="selection-summary selection-summary-compact"><strong>{{ product?.name || '设备模板不可用' }}</strong><span>通信协议：{{ protocolName(product?.protocolPackageId) }}</span><span>通信方式：{{ product?.transport || '未设置' }}</span></div>
-      <section class="onboarding-section"><div class="section-title"><h4>设备身份</h4><p>这些信息用于识别现场的这一台设备。</p></div>
-        <ui-form-item label="设备名称" required><ui-input v-model="draft.name" placeholder="例如 一层东侧烟感" /></ui-form-item>
-        <template v-if="draft.scenario==='child'"><div class="onboarding-parent-line">所属主设备：<strong>{{ parent?.name || '主设备不可用' }}</strong></div><div class="onboarding-grid"><ui-form-item label="子设备类型" required><ui-select v-model="draft.childType"><ui-option v-for="m in childMappings.filter(x=>x.productId===draft.productId)" :key="m.type" :value="m.type" :label="m.type" /></ui-select></ui-form-item><ui-form-item label="子设备地址" required><ui-input v-model="draft.childAddress" placeholder="按主设备协议填写地址" /></ui-form-item></div></template>
-        <template v-else><ui-form-item label="实际设备编号" required><ui-input v-model="draft.deviceId" :disabled="registered" :placeholder="metadata.idKind ? `填写${metadata.idKind}` : '填写设备上报的标识'" /></ui-form-item><p class="onboarding-help">{{ metadata.idKind ? `编号类型：${metadata.idKind}。` : '编号可能是 IMEI、序列号或设备地址，请以协议说明为准。' }}{{ metadata.idLocation ? `可在${metadata.idLocation}找到。` : '可查看铭牌或咨询厂家。' }}</p><div v-if="isStandard" class="onboarding-inline-note"><span>没有现场编号？可使用平台编号，并将它配置到设备的上报地址或 Topic。</span><ui-button link @click="draft.deviceId=draft.generatedId">使用平台编号</ui-button></div></template>
-      </section>
-      <section v-if="draft.scenario!=='child'" class="onboarding-section"><div class="section-title"><h4>接入关系</h4><p>如果这台设备会继续连接其他设备，请选“下接其他设备”。</p></div><ui-radio-group v-model="draft.deviceRole" class="segmented-choice-group" aria-label="接入关系"><ui-radio-button value="DIRECT">独立接入</ui-radio-button><ui-radio-button value="GATEWAY">下接其他设备</ui-radio-button></ui-radio-group></section>
-      <details v-if="draft.scenario!=='child'" class="onboarding-optional"><summary>安装位置与标签（选填）</summary><ui-form-item label="安装位置 / 备注"><ui-input v-model="draft.description" type="textarea" :rows="2" /></ui-form-item><div class="onboarding-labels"><h4>设备标签</h4><p>可用名称与内容记录楼层、区域等线索。</p><div v-for="(row,index) in draft.labels" :key="index" class="onboarding-label-row"><label>名称<ui-input v-model="row.key" placeholder="例如楼层" /></label><label>内容<ui-input v-model="row.value" placeholder="例如一层" /></label><ui-button @click="draft.labels.splice(index,1)">移除</ui-button></div><p v-if="!draft.labels.length" class="onboarding-label-empty">尚未添加标签。</p><ui-button @click="draft.labels.push({key:'',value:''})">添加标签</ui-button></div></details>
-      <div class="onboarding-actions"><ui-button @click="draft.step=0">上一步</ui-button><ui-button type="primary" @click="advanceInfo">下一步</ui-button></div>
-    </ui-card>
-
-    <ui-card v-else-if="draft.step===2" class="surface-card onboarding-card" shadow="never">
-      <div class="step-intro"><span>第 3 步 / 共 4 步</span><h3>完成连接设置</h3><p>核对设备与连接方式，然后保存并开始检查现场上报。</p></div>
-      <div class="selection-summary selection-summary-compact"><strong>{{ draft.name }}</strong><span>设备编号：{{ draft.scenario==='child' ? draft.childAddress : draft.deviceId }}</span><span>设备模板：{{ product?.name || '不可用' }}</span></div>
-      <section v-if="draft.scenario==='child'" class="onboarding-section"><div class="section-title"><h4>沿用主设备连接</h4><p>子设备由主设备协议识别，不需另建网络连接。</p></div><div class="onboarding-inline-note">主设备：<strong>{{ parent?.name || '主设备不可用' }}</strong>　子设备地址：<code>{{ draft.childAddress }}</code></div></section>
-      <section v-else-if="isStandard" class="onboarding-section"><div class="section-title"><h4>标准 {{ transport }} 接入</h4><p>平台会为这台设备生成独立凭据。</p></div><ui-alert title="保存后会显示设备端上报地址、身份信息和示例；密钥只在首次创建时显示。" type="info" :closable="false" /></section>
-      <section v-else class="onboarding-section">
-        <div class="section-title"><h4>选择平台连接配置</h4><p>共享 TCP / UDP 监听可供多台设备使用，不需为每台设备重复创建端口。</p></div>
-        <ui-form-item label="平台连接配置"><ui-select v-model="draft.profileId" clearable filterable placeholder="选择已有连接"><ui-option v-for="p in connections" :key="p.id" :value="p.id" :label="`${p.id} · ${p.host}:${p.port} · ${p.enabled?'已启用':'未启用'} · ${p.runtimeStatus||'待检查'}`" /></ui-select></ui-form-item>
-        <p v-if="chosenProfile?.mode==='poll' || chosenProfile?.connectionMode==='dial'">平台将主动连接 {{ chosenProfile.host }}:{{ chosenProfile.port }}。{{ chosenProfile.mode==='poll' ? `站号 ${chosenProfile.unitId}，采集周期由连接配置决定。` : '' }}</p>
-        <p v-else-if="chosenProfile">平台监听 {{ chosenProfile.host }}:{{ chosenProfile.port }}；现场设备应填写平台对外地址，不能填写 0.0.0.0。<strong v-if="chosenProfile.publicHost && !['0.0.0.0','::','[::]'].includes(chosenProfile.publicHost)">设备端服务器：{{ chosenProfile.publicHost }}:{{ chosenProfile.port }}</strong></p>
-        <div v-if="!connections.length || (chosenProfile && (!chosenProfile.publicHost || ['0.0.0.0','::','[::]'].includes(chosenProfile.publicHost)))" class="onboarding-helper-prompt">
-          <div><strong>{{ !connections.length ? '还没有适用的平台连接？' : '当前连接缺少对外地址' }}</strong><p>{{ !connections.length ? '在当前向导中创建连接；设备保存后可关联并检查。' : '设备端需要填写可访问的平台地址，请在当前向导中补齐。' }}</p></div>
-          <div class="onboarding-helper-actions"><ui-button v-if="!connections.length" v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="helper='profile-new'">打开连接配置抽屉</ui-button><ui-button v-else v-permission="'PUT /api/v2/device-access-profiles/:id'" type="primary" @click="helper='profile'">打开连接配置抽屉</ui-button></div>
-        </div>
-        <div v-else class="onboarding-helper-prompt onboarding-helper-prompt-quiet">
-          <div><strong>需要使用其他连接？</strong><p>在向导内新建连接，保存后会自动回到当前步骤。</p></div>
-          <div class="onboarding-helper-actions"><ui-button v-permission="'POST /api/v2/device-access-profiles'" @click="helper='profile-new'">新建连接配置（抽屉）</ui-button></div>
-        </div>
-      </section>
-      <div class="onboarding-actions"><ui-button v-if="!registered" @click="draft.step=1">上一步</ui-button><ui-button type="primary" :loading="busy" @click="registered ? (draft.step=3,refreshCheck()) : saveDevice()">{{ registered ? '进入接入检查' : '保存设备并检查' }}</ui-button></div>
-    </ui-card>
-
-    <ui-card v-else class="surface-card onboarding-card" shadow="never">
-      <div class="step-intro"><span>第 4 步 / 共 4 步</span><h3>检查设备数据</h3><p>{{ savedDevice?.name || draft.name }} · {{ draft.createdDeviceId || draft.deviceId }}</p></div>
-      <div class="onboarding-status" role="status"><div><small>当前接入结果</small><ui-tag :type="status.tone">{{ status.text }}</ui-tag></div><p>{{ status.next }}</p></div>
-      <section class="onboarding-section"><div class="section-title"><h4>检查进度</h4></div>
-        <div class="onboarding-check-grid"><div v-for="item in checkItems" :key="item.label" :class="`check-${item.state}`"><component :is="checkIcons[item.state]" class="check-icon" :aria-label="{passed:'通过',waiting:'等待',failed:'失败'}[item.state]" /><strong>{{ item.label }}</strong><p>{{ item.text }}</p></div></div>
-      </section>
-      <details class="onboarding-check-details"><summary>了解详情</summary><p>仅统计本次配置保存后、与当前设备和协议版本匹配的现场报文。保存成功、连接建立或样本校验均不代表现场解析成功；刷新只查询状态，不发送报文或产生告警。</p><p v-if="check?.ingest?.simulationCount">另有 {{ check.ingest.simulationCount }} 条模拟或管理接口上报记录，未计入本次检查。</p></details>
-      <details v-if="check?.profile?.lastError"><summary>查看连接运行错误</summary><pre>{{ check.profile.lastError }}</pre></details>
-      <details v-if="check?.ingest?.parseError"><summary>查看解析错误</summary><pre>{{ check.ingest.parseError }}</pre></details>
-      <section v-if="values.length" class="onboarding-section"><div class="section-title"><h4>最近解析的数据</h4></div><div v-for="item in values" :key="item.name" class="onboarding-choice"><span>{{ item.name }}</span><strong>{{ typeof item.value==='object' ? JSON.stringify(item.value) : item.value }}{{ item.unit ? ` ${item.unit}` : '' }}</strong></div></section>
-      <section v-if="check?.accessInfo" class="onboarding-info"><h4>在现场设备上填写</h4><div class="connection-data-list"><div v-if="check.connector==='HTTP'"><span>上报地址</span><code>{{ check.accessInfo.httpUrl || '未配置平台对外 HTTP 地址' }}</code></div><template v-if="check.connector==='MQTT'"><div><span>Broker</span><code>{{ check.accessInfo.mqttBroker || '未配置对外 MQTT 地址' }}</code></div><div><span>Client ID</span><code>{{ check.accessInfo.clientId }}</code></div><div><span>上行 Topic</span><code>{{ check.accessInfo.upTopic }}</code></div></template><div><span>设备 AccessKey</span><code>{{ check.accessInfo.username }}</code></div></div><p v-if="check.connector==='MQTT'" class="onboarding-help">先用 AccessKey 和 Secret 调用 <code>{{ check.accessInfo.tokenEndpoint }}</code> 换取短期 MQTT token，再以返回的 username / token 连接 Broker；Secret 不能直接作为 MQTT 密码。</p><p class="onboarding-help">Secret 仅在首次创建或轮换时显示。</p><details><summary>标准属性上报示例</summary><pre>{{ JSON.stringify(check.accessInfo.sample,null,2) }}</pre></details></section>
-      <section v-else-if="check?.parent" class="onboarding-info"><h4>在平台上设置</h4><p>所属主设备：{{ check.parent.name }}。子设备地址由主设备协议识别，不需独立网络连接。</p></section>
-      <section v-else-if="check?.profile" class="onboarding-info"><h4>{{ check.profile.mode==='poll' || check.profile.connectionMode==='dial' ? '在平台上设置' : '在现场设备上填写' }}</h4><p v-if="check.profile.mode==='poll' || check.profile.connectionMode==='dial'">设备地址 {{ check.profile.host }}:{{ check.profile.port }}，站号 {{ check.profile.unitId }}。</p><p v-else>服务器 {{ check.profile.publicHost ? `${check.profile.publicHost}:${check.profile.port}` : '对外地址尚未配置' }}。平台监听地址 {{ check.profile.host }} 仅用于服务端。</p></section>
-      <section v-if="!isStandard && draft.scenario!=='child'" class="onboarding-info"><h4>在平台上设置</h4><ui-form-item label="选择平台连接配置"><ui-select v-model="draft.profileId" filterable placeholder="选择适用连接"><ui-option v-for="p in connections" :key="p.id" :value="p.id" :label="`${p.id} · ${p.host}:${p.port} · ${p.enabled?'已启用':'未启用'}`" /></ui-select></ui-form-item><div class="onboarding-helper-actions"><ui-button :loading="busy" :disabled="!chosenProfile" type="primary" @click="linkProfile">关联该连接并重新检查</ui-button><ui-button v-permission="'POST /api/v2/device-access-profiles'" @click="helper='profile-new'">新建连接配置（抽屉）</ui-button><ui-button v-if="chosenProfile && !chosenProfile.publicHost" v-permission="'PUT /api/v2/device-access-profiles/:id'" @click="helper='profile'">补齐对外地址（抽屉）</ui-button></div></section>
-      <div v-if="credential" class="onboarding-info onboarding-credential"><ui-alert title="设备 Secret 只显示这一次，请安全保存。关闭或刷新后无法再读取。" type="warning" :closable="false" /><div class="connection-data-list"><div><span>AccessKey</span><code>{{ credential.accessKey }}</code></div><div><span>Secret</span><code class="break-all">{{ credential.secret }}</code></div></div><ui-button @click="credential=null">我已保存</ui-button></div>
-      <p v-else-if="isStandard && check?.credentialEnabled">首次 Secret 未保留在草稿中；若丢失，请在设备连接详情重新生成。</p>
-      <div class="onboarding-actions onboarding-actions-check"><div class="onboarding-actions-secondary"><ui-button @click="draft.step=2">返回连接设置</ui-button><ui-button :loading="loading" @click="refreshCheck">刷新接入检查</ui-button><ui-button v-if="check?.ingest?.rawMessageId" v-permission="'menu:raw'" @click="navigate('raw',{deviceId:draft.createdDeviceId,rawMessageId:check.ingest.rawMessageId})">查看原始报文</ui-button><ui-button @click="emit('detail',draft.createdDeviceId)">连接详情</ui-button></div><ui-button type="primary" @click="finish">进入日常管理</ui-button></div>
-    </ui-card>
-    <ui-drawer :model-value="helper!==''" :title="helper==='protocol'?'从报文或点表生成协议':'平台连接配置'" size="min(780px, 100vw)" @close="helper=''">
-      <div class="onboarding-helper">
-        <template v-if="helper==='protocol'"><p>保存并发布协议后，关闭抽屉即可在模板中选择。专用 Go 源码仍可从设备通信协议页面开发。</p><ProtocolAssistantView @saved="helperSaved" @navigate="helper=''" /></template>
-        <OnboardingProfileEditor v-else-if="helper.startsWith('profile')" :key="helper" :product="product" :parent="parent" :device-id="draft.createdDeviceId || draft.deviceId" :existing-ids="profiles.map(p=>p.id)" :profile="helper==='profile-new' ? null : chosenProfile || parentProfile" @saved="profileSaved" @close="helper=''" />
+  <section class="onboarding">
+    <header class="onboarding__header">
+      <div>
+        <h2>添加设备</h2>
+        <p>选择型号，填写设备编号和连接方式，再按提示在现场设备上完成配置并确认数据。</p>
       </div>
+      <div class="onboarding__header-actions">
+        <ui-button v-if="draft.step < 2" @click="restart">重新开始</ui-button>
+        <ui-button @click="close">返回设备列表</ui-button>
+      </div>
+    </header>
+
+    <ol class="onboarding__steps" aria-label="添加设备进度">
+      <li v-for="(item, index) in steps" :key="item.title" :class="{ 'is-active': draft.step === index, 'is-done': draft.step > index }" :aria-current="draft.step === index ? 'step' : undefined">
+        <span class="onboarding__step-number">{{ index + 1 }}</span>
+        <span class="onboarding__step-copy"><strong>{{ item.title }}</strong><small>{{ item.hint }}</small></span>
+      </li>
+    </ol>
+
+    <ui-alert v-if="loadError" class="onboarding__alert" :title="loadError" type="error" :closable="false" show-icon />
+
+    <!-- 第 1 步：型号与接入方式 -->
+    <section v-if="draft.step === 0" class="onboarding__card" aria-labelledby="onboarding-step-template">
+      <h3 id="onboarding-step-template" class="onboarding__title">这台设备是什么型号？</h3>
+      <ui-radio-group :model-value="draft.source" class="segmented-choice-group" aria-label="型号来源" @update:model-value="selectSource">
+        <ui-radio-button value="existing">已有型号</ui-radio-button>
+        <ui-radio-button value="new" :disabled="!canCreateTemplate" :title="canCreateTemplate ? '' : '当前账号不能新建设备模板'">新型号</ui-radio-button>
+      </ui-radio-group>
+
+      <div v-if="draft.source === 'existing'" class="onboarding__fields">
+        <ui-form-item label="设备模板" required>
+          <ui-select v-model="draft.productId" filterable placeholder="按名称选择设备模板" aria-label="设备模板" :loading="loading" @change="chooseProduct">
+            <ui-option v-for="item in products" :key="item.id" :value="item.id" :label="`${item.name || item.id}${item.status === 'ENABLED' ? '' : '（未启用）'}`" :disabled="item.status !== 'ENABLED'" />
+          </ui-select>
+        </ui-form-item>
+        <p v-if="!loading && !products.length" class="onboarding__muted">还没有设备模板。<ui-button v-if="canCreateTemplate" link type="primary" @click="selectSource('new')">新建型号</ui-button></p>
+      </div>
+
+      <div v-else class="onboarding__fields">
+        <div class="onboarding__grid">
+          <ui-form-item label="模板名称" required><ui-input v-model="draft.newProduct.name" maxlength="256" placeholder="例如 厂商 + 型号" aria-label="模板名称" /></ui-form-item>
+          <ui-form-item label="设备分类">
+            <ui-select v-model="draft.newProduct.category" aria-label="设备分类" @change="runPreflight"><ui-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" /></ui-select>
+          </ui-form-item>
+          <ui-form-item label="通信协议" required>
+            <ui-select v-model="draft.newProduct.protocolPackageId" filterable placeholder="选择已发布的协议版本" aria-label="通信协议" @change="chooseProtocol"><ui-option v-for="item in protocols" :key="item.id" :value="item.id" :label="item.name" /></ui-select>
+          </ui-form-item>
+          <ui-form-item v-if="templateTransports.length" label="上报通道">
+            <ui-radio-group v-model="draft.newProduct.transport" class="segmented-choice-group" aria-label="上报通道" @change="changeTemplateTransport"><ui-radio-button v-for="item in templateTransports" :key="item" :value="item">{{ item }}</ui-radio-button></ui-radio-group>
+          </ui-form-item>
+        </div>
+        <details class="onboarding__more">
+          <summary>型号信息与模板标识（选填）</summary>
+          <div class="onboarding__grid">
+            <ui-form-item label="厂商"><ui-input v-model="draft.newProduct.manufacturer" /></ui-form-item>
+            <ui-form-item label="型号"><ui-input v-model="draft.newProduct.model" /></ui-form-item>
+            <ui-form-item label="模板标识"><ui-input v-model="draft.newProduct.id" placeholder="创建后不可修改" /></ui-form-item>
+          </div>
+        </details>
+        <div class="onboarding__hint-row">
+          <span>找不到匹配的协议？可以用报文或点表生成，复杂协议在协议页面上传 Go 源码。</span>
+          <ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" size="small" @click="protocolHelper = true">生成协议</ui-button>
+          <ui-button v-permission="'menu:protocols'" size="small" @click="navigate('protocols')">前往协议页面</ui-button>
+        </div>
+      </div>
+
+      <section v-if="checking || preflight || preflightError" class="onboarding__preflight" aria-live="polite">
+        <p v-if="checking" class="onboarding__muted">正在检查接入条件…</p>
+        <ui-alert v-else-if="preflightError" :title="preflightError" type="warning" :closable="false" show-icon />
+        <template v-else-if="preflight">
+          <div class="onboarding__plan">
+            <span>接入方式</span>
+            <strong>{{ modeLabels[plan.mode] || plan.mode }}</strong>
+            <small v-if="plan.protocol?.id">协议 {{ plan.protocol.id }} · {{ plan.protocol.version }}</small>
+          </div>
+          <ul class="onboarding__checks">
+            <li v-for="check in preflight.checks" :key="check.key" :class="`is-${check.state}`">
+              <component :is="check.state === 'passed' ? CheckCircle2 : check.state === 'failed' ? XCircle : CircleDashed" class="onboarding__check-icon" aria-hidden="true" />
+              <span><strong>{{ check.label }}</strong>{{ check.detail }}</span>
+            </li>
+          </ul>
+        </template>
+      </section>
+
+      <footer class="onboarding__actions">
+        <ui-button type="primary" :disabled="!canContinue" @click="next">下一步</ui-button>
+      </footer>
+    </section>
+
+    <!-- 第 2 步：设备身份与连接 -->
+    <section v-else-if="draft.step === 1" class="onboarding__card" aria-labelledby="onboarding-step-device">
+      <h3 id="onboarding-step-device" class="onboarding__title">设备与连接</h3>
+      <p class="onboarding__summary"><strong>{{ templateName }}</strong><span>{{ modeLabels[mode] || '接入方式待确认' }}</span></p>
+      <ui-alert v-if="!plan" title="接入条件未确认，请返回上一步重新选择型号。" type="warning" :closable="false" show-icon />
+
+      <div class="onboarding__grid">
+        <ui-form-item label="设备名称" required><ui-input v-model="draft.device.name" maxlength="256" placeholder="例如 一层东侧烟感" aria-label="设备名称" /></ui-form-item>
+        <ui-form-item label="设备编号" required>
+          <div class="onboarding__id-field">
+            <ui-input v-model="draft.device.id" maxlength="128" placeholder="设备上报使用的编号" aria-label="设备编号" />
+            <ui-button v-if="usesPlatformIdentity(mode)" @click="usePlatformId">使用平台编号</ui-button>
+          </div>
+        </ui-form-item>
+      </div>
+      <p class="onboarding__muted">{{ usesPlatformIdentity(mode) ? '标准或 HTTP 接口上报的设备可以使用平台生成的编号；编号保存后不可修改。' : '编号须与协议从报文中识别出的设备标识一致，保存后不可修改。' }}</p>
+      <ui-form-item label="设备角色">
+        <ui-radio-group v-model="draft.device.role" class="segmented-choice-group" aria-label="设备角色">
+          <ui-radio-button value="DIRECT">独立设备</ui-radio-button>
+          <ui-radio-button value="GATEWAY">主设备（下接子设备）</ui-radio-button>
+        </ui-radio-group>
+      </ui-form-item>
+
+      <section class="onboarding__section">
+        <h4>连接方式</h4>
+        <template v-if="plan?.mode === 'standard'">
+          <ui-form-item label="上报通道">
+            <ui-radio-group v-model="draft.connection.transport" class="segmented-choice-group" aria-label="上报通道"><ui-radio-button value="MQTT">MQTT</ui-radio-button><ui-radio-button value="HTTP">HTTP</ui-radio-button></ui-radio-group>
+          </ui-form-item>
+          <p class="onboarding__muted">平台为设备签发 AccessKey 和 Secret，保存后显示设备端需要填写的地址和示例。</p>
+        </template>
+        <p v-else-if="plan?.mode === 'managed'" class="onboarding__muted">设备使用平台签发的 AccessKey 和 Secret，通过 HTTP 接口上报原始数据，平台按模板协议解析。</p>
+        <template v-else-if="plan?.mode === 'listener'">
+          <div class="onboarding__options" role="radiogroup" aria-label="接入点">
+            <label v-for="item in listeners" :key="item.id" class="onboarding__option" :class="{ 'is-selected': draft.connection.choice === item.id, 'is-disabled': !usableListener(item) }">
+              <input v-model="draft.connection.choice" type="radio" name="listener" :value="item.id" :disabled="!usableListener(item)" />
+              <span><strong>{{ listenerLabel(item) }}</strong><small>{{ transportLabel(String(item.network).toUpperCase()) }} · {{ item.enabled ? statusLabel(item.runtimeStatus || 'PENDING') : '已停用' }}<template v-if="!item.publicHost"> · 需先在接入点补齐对外地址</template></small></span>
+            </label>
+            <label v-if="canCreateListener" class="onboarding__option" :class="{ 'is-selected': draft.connection.choice === 'new' }">
+              <input v-model="draft.connection.choice" type="radio" name="listener" value="new" />
+              <span><strong>新建共享监听</strong><small>同型号的其他设备可继续使用这个端口</small></span>
+            </label>
+            <label v-if="plan.dial" class="onboarding__option" :class="{ 'is-selected': draft.connection.choice === 'dial' }">
+              <input v-model="draft.connection.choice" type="radio" name="listener" value="dial" />
+              <span><strong>平台主动连接设备</strong><small>设备作为 TCP 服务端，平台按地址连接</small></span>
+            </label>
+          </div>
+          <p v-if="!listeners.length && !canCreateListener && !plan.dial" class="onboarding__muted">该型号还没有可用接入点，请联系管理员在设备模板的“接入点”中创建。</p>
+          <div v-if="draft.connection.choice === 'new'" class="onboarding__grid">
+            <ui-form-item v-if="(plan.networks || []).length > 1" label="网络">
+              <ui-radio-group v-model="draft.connection.network" class="segmented-choice-group" aria-label="网络"><ui-radio-button v-for="item in plan.networks" :key="item" :value="item">{{ item.toUpperCase() }}</ui-radio-button></ui-radio-group>
+            </ui-form-item>
+            <ui-form-item label="平台对外地址" required><ui-input v-model="draft.connection.publicHost" placeholder="现场设备可访问的域名或 IP" aria-label="平台对外地址" /></ui-form-item>
+            <ui-form-item label="监听端口" required><ui-input-number v-model="draft.connection.port" :min="1" :max="65535" placeholder="例如 26875" aria-label="监听端口" /></ui-form-item>
+            <ui-form-item label="本机监听地址"><ui-input v-model="draft.connection.bindHost" placeholder="默认 0.0.0.0" aria-label="本机监听地址" /></ui-form-item>
+          </div>
+        </template>
+        <div v-if="mode === 'dial' || mode === 'poll'" class="onboarding__grid">
+          <ui-form-item label="设备地址" required><ui-input v-model="draft.connection.host" placeholder="平台可以访问的设备 IP 或域名" aria-label="设备地址" /></ui-form-item>
+          <ui-form-item :label="mode === 'poll' ? '端口' : '设备端口'" :required="mode === 'dial'"><ui-input-number v-model="draft.connection.port" :min="1" :max="65535" :placeholder="mode === 'poll' ? '默认 502' : ''" aria-label="设备端口" /></ui-form-item>
+          <template v-if="mode === 'poll'">
+            <ui-form-item label="站号"><ui-input-number v-model="draft.connection.unitId" :min="0" :max="255" aria-label="站号" /></ui-form-item>
+            <ui-form-item label="超时（毫秒）"><ui-input-number v-model="draft.connection.timeoutMs" :min="100" :max="10000" :step="500" aria-label="超时" /></ui-form-item>
+          </template>
+        </div>
+      </section>
+
+      <details class="onboarding__more">
+        <summary>安装位置与标签（选填）</summary>
+        <ui-form-item label="安装位置 / 备注"><ui-input v-model="draft.device.description" type="textarea" :rows="2" maxlength="1024" /></ui-form-item>
+        <div v-for="(row, index) in draft.labels" :key="index" class="onboarding__label-row">
+          <ui-input v-model="row.key" placeholder="名称，例如楼层" aria-label="标签名称" />
+          <ui-input v-model="row.value" placeholder="内容，例如一层" aria-label="标签内容" />
+          <ui-button text @click="draft.labels.splice(index, 1)">移除</ui-button>
+        </div>
+        <ui-button size="small" @click="draft.labels.push({ key: '', value: '' })">添加标签</ui-button>
+      </details>
+
+      <ui-alert v-if="saveError" class="onboarding__alert" :title="saveError" type="error" :closable="false" show-icon />
+      <footer class="onboarding__actions">
+        <ui-button :disabled="saving" @click="draft.step = 0">上一步</ui-button>
+        <ui-button type="primary" :loading="saving" :disabled="!plan" @click="submit">保存并生成接入信息</ui-button>
+      </footer>
+    </section>
+
+    <!-- 第 3 步：现场配置与验证 -->
+    <section v-else class="onboarding__card" aria-labelledby="onboarding-step-verify">
+      <h3 id="onboarding-step-verify" class="onboarding__title">现场配置与验证</h3>
+      <p class="onboarding__summary"><strong>{{ draft.result?.device?.name }}</strong><span>{{ draft.result?.device?.id }} · {{ draft.result?.product?.name }} · {{ modeLabels[draft.result?.mode] || '' }}</span></p>
+
+      <div v-if="credential" class="onboarding__secret" role="alert">
+        <p><strong>设备密钥只显示这一次</strong>请立即复制并交给现场人员，关闭或刷新页面后无法再次读取。</p>
+        <div class="onboarding__kv"><span>AccessKey</span><code>{{ credential.accessKey }}</code><ui-button text aria-label="复制 AccessKey" @click="copy(credential.accessKey)"><Copy /></ui-button></div>
+        <div class="onboarding__kv"><span>Secret</span><code>{{ credential.secret }}</code><ui-button text aria-label="复制 Secret" @click="copy(credential.secret)"><Copy /></ui-button></div>
+        <ui-button size="small" @click="credential = null">我已保存</ui-button>
+      </div>
+      <p v-else-if="accessInfo" class="onboarding__muted">设备密钥只在首次创建时显示；如已丢失，请在设备详情中重新生成凭据。</p>
+
+      <section class="onboarding__section">
+        <div class="onboarding__section-head">
+          <h4>{{ mode === 'dial' || draft.result?.mode === 'dial' || draft.result?.mode === 'poll' ? '平台连接设置' : '在现场设备上填写' }}</h4>
+          <ui-button size="small" @click="copyAll"><Copy />复制全部</ui-button>
+        </div>
+        <div class="onboarding__config">
+          <div v-for="row in visibleConfiguration" :key="row.name" class="onboarding__kv"><span>{{ row.name }}</span><code>{{ row.value }}</code></div>
+        </div>
+        <p v-if="draft.result?.mode === 'listener'" class="onboarding__muted">设备连接上述地址后，平台按协议识别设备编号 {{ draft.result?.device?.id }}。</p>
+        <p v-else-if="draft.result?.mode === 'dial' || draft.result?.mode === 'poll'" class="onboarding__muted">平台会主动连接设备，现场只需确认设备地址、端口{{ draft.result?.mode === 'poll' ? '和站号' : '' }}可达。</p>
+        <details v-if="accessInfo?.sample" class="onboarding__more"><summary>示例报文</summary><pre>{{ JSON.stringify(accessInfo.sample, null, 2) }}</pre></details>
+      </section>
+
+      <section class="onboarding__section onboarding__verify" aria-live="polite">
+        <div class="onboarding__section-head">
+          <h4>接入验证</h4>
+          <span class="onboarding__muted">每 5 秒自动刷新{{ statusAt ? ` · ${formatTime(statusAt)}` : '' }}</span>
+          <ui-button size="small" :loading="refreshing" @click="refreshStatus">立即刷新</ui-button>
+        </div>
+        <ui-alert v-if="statusError" :title="statusError" type="warning" :closable="false" show-icon />
+        <template v-if="diagnosis">
+          <div class="onboarding__diagnosis" :class="`is-${diagnosis.tone}`">
+            <ui-tag :type="diagnosisTagTypes[diagnosis.tone]">{{ diagnosis.title }}</ui-tag>
+            <p>{{ diagnosis.nextAction }}</p>
+            <small v-if="diagnosis.previousParsedAt">上次成功解析：{{ formatTime(diagnosis.previousParsedAt) }}</small>
+          </div>
+          <ol class="onboarding__progress">
+            <li v-for="check in diagnosis.checks" :key="check.key" :class="`is-${check.state}`">
+              <component :is="checkIcons[check.state]" class="onboarding__check-icon" :aria-label="checkStates[check.state]" />
+              <strong>{{ check.label }}</strong>
+              <small>{{ check.detail }}{{ check.at ? ` · ${formatTime(check.at)}` : '' }}</small>
+            </li>
+          </ol>
+        </template>
+        <p v-else-if="!statusError" class="onboarding__muted">正在读取接入状态…</p>
+        <details v-if="status?.profile?.lastError"><summary>接入点最近错误</summary><pre>{{ status.profile.lastError }}</pre></details>
+        <details v-if="status?.ingest?.parseError"><summary>解析错误</summary><pre>{{ status.ingest.parseError }}</pre></details>
+        <p v-if="status?.ingest?.simulationCount" class="onboarding__muted">另有 {{ status.ingest.simulationCount }} 条测试或管理接口上报，不计入本次验证。</p>
+        <div v-if="values.length" class="onboarding__values">
+          <h5>最近解析的数据</h5>
+          <div v-for="item in values" :key="item.name" class="onboarding__kv"><span>{{ item.name }}</span><code>{{ item.value }}{{ item.unit ? ` ${item.unit}` : '' }}</code></div>
+        </div>
+      </section>
+
+      <footer class="onboarding__actions">
+        <ui-button v-if="status?.ingest?.rawMessageId" v-permission="'menu:raw'" @click="openRaw">查看原始报文</ui-button>
+        <ui-button @click="openDetail">设备详情</ui-button>
+        <ui-button v-permission="'POST /api/v1/device-registry'" @click="addAnother">继续添加同型号设备</ui-button>
+        <ui-button type="primary" @click="finish">完成</ui-button>
+      </footer>
+    </section>
+
+    <ui-drawer :model-value="protocolHelper" title="从报文或点表生成协议" size="min(780px, 100vw)" @close="protocolHelper = false">
+      <p class="onboarding__muted">发布协议后关闭抽屉，即可在“通信协议”中选择。</p>
+      <ProtocolAssistantView v-if="protocolHelper" @saved="protocolSaved" @navigate="protocolHelper = false" />
     </ui-drawer>
   </section>
 </template>
 
 <style scoped>
-.onboarding-workspace{max-width:1060px;margin:0 auto;color:var(--foreground)}
-.onboarding-workspace p{line-height:1.6;color:var(--muted-foreground)}
-.onboarding-header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;padding:22px 26px;background:var(--card);border:1px solid var(--border);border-radius:12px}
-.onboarding-eyebrow{display:block;margin-bottom:7px;color:var(--muted-foreground);font-size:12px;font-weight:700;letter-spacing:.04em}
-.onboarding-header h2{margin:0;color:var(--text-strong);font-size:22px;line-height:1.3}
-.onboarding-header p{margin:9px 0 0;font-size:13px}
-.onboarding-header-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;flex:none}
-.onboarding-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;list-style:none;margin:16px 0 20px;padding:0}
-.onboarding-steps li{display:flex;align-items:center;gap:10px;min-width:0;padding:12px 14px;background:var(--card);border:1px solid var(--border);border-radius:9px}
-.onboarding-steps li.active{background:var(--accent);border-color:var(--border-info)}
-.onboarding-steps li.done{background:var(--surface-success);border-color:var(--border-success)}
-.step-number{display:grid;place-items:center;flex:none;width:28px;height:28px;color:var(--text-strong);background:var(--surface-subtle);border-radius:50%;font-size:13px;font-weight:700}
-.active .step-number{color:var(--foreground);background:var(--brand-flame)}.done .step-number{color:var(--success-foreground);background:var(--surface-success)}
-.step-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.step-copy strong{color:var(--text-strong);font-size:13px;line-height:1.3}.step-copy small{color:var(--muted-foreground);font-size:11px;line-height:1.3}
-.onboarding-card{border-radius:12px}.onboarding-card :deep(.n-card__content){padding:26px 30px 30px}
-.step-intro{padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--border)}.step-intro>span{color:var(--primary);font-size:12px;font-weight:700}.step-intro h3{margin:6px 0 5px;color:var(--text-strong);font-size:22px;line-height:1.3}.step-intro p{margin:0;font-size:13px}
-.onboarding-section{margin:0 0 24px}.onboarding-section+.onboarding-section{padding-top:24px;border-top:1px solid var(--border)}.section-title{margin-bottom:16px}.section-title h4{margin:0 0 4px;color:var(--text-strong);font-size:16px}.section-title p{margin:0;font-size:13px}
-.scenario-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.scenario-option{display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-height:86px;padding:17px 18px;text-align:left;background:var(--card);border:1px solid var(--border);border-radius:9px;cursor:pointer}.scenario-option strong{color:var(--text-strong);font-size:15px}.scenario-option small{color:var(--muted-foreground);font-size:12px;line-height:1.5}.scenario-option:hover{border-color:var(--border-info);background:var(--surface-subtle)}.scenario-option.selected{background:var(--accent);border-color:var(--primary);box-shadow:0 0 0 1px var(--primary)}.scenario-option.selected strong{color:var(--text-strong)}.scenario-option:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-.selection-summary{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:14px 17px;background:var(--surface-subtle);border-left:3px solid var(--primary);border-radius:5px;color:var(--text-strong);font-size:13px}.selection-summary strong{flex-basis:100%;color:var(--text-strong);font-size:15px}.selection-summary small{flex-basis:100%;color:var(--text-strong)}.selection-summary-compact{margin-bottom:24px}
-.onboarding-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}.onboarding-grid>div{min-width:0}
-.onboarding-help{margin:7px 0 0;font-size:12px}.onboarding-inline-note{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 15px;background:var(--surface-subtle);border:1px solid var(--border);border-radius:7px;color:var(--text-strong);font-size:13px}.onboarding-inline-note :deep(.n-button){margin-left:auto}.onboarding-parent-line{margin:0 0 16px;color:var(--text-strong);font-size:13px}.onboarding-parent-line strong{color:var(--text-strong)}
-.onboarding-helper-prompt{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-top:14px;padding:16px 18px;border:1px solid var(--border-info);border-left:3px solid var(--primary);border-radius:8px;background:var(--surface-subtle)}
-.onboarding-helper-prompt>div:first-child{flex:1 1 280px;min-width:0}
-.onboarding-helper-prompt strong{display:block;color:var(--text-strong);font-size:14px}
-.onboarding-helper-prompt p{margin:4px 0 0;color:var(--muted-foreground);font-size:13px;line-height:1.5}
-.onboarding-helper-prompt-quiet{border-left-color:var(--border-info)}
-.onboarding-helper-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
-.onboarding-helper-actions :deep(.n-button){min-height:34px;white-space:normal;text-align:center}
-.onboarding-optional{padding:14px 17px;margin:0 0 22px;border:1px dashed var(--border);border-radius:8px;background:var(--card)}.onboarding-optional summary{cursor:pointer;color:var(--primary);font-size:13px;font-weight:700}.onboarding-optional[open] summary{margin-bottom:18px}.onboarding-optional h4{margin:12px 0 8px;font-size:13px}.onboarding-optional .onboarding-grid{gap:0 18px}
-.onboarding-labels{padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--card)}.onboarding-labels h4{margin:0 0 3px}.onboarding-labels>p{margin:0 0 10px;font-size:12px}.onboarding-label-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin:10px 0}.onboarding-label-row label{display:grid;min-width:0;gap:5px;color:var(--text-secondary);font-size:12px;font-weight:600}.onboarding-label-row :deep(.n-input){width:100%}.onboarding-label-empty{padding:10px;border:1px dashed var(--border-info);border-radius:7px;background:var(--card)}
-.onboarding-choice{display:flex;align-items:center;gap:8px;justify-content:space-between;margin:8px 0}.onboarding-choice>*{min-width:0;overflow-wrap:anywhere}.onboarding-choice :deep(.n-input){flex:1}
-.onboarding-status{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:0 0 26px;padding:17px 20px;background:var(--surface-subtle);border:1px solid var(--border-info);border-radius:9px}.onboarding-status>div{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.onboarding-status small{color:var(--muted-foreground);font-size:12px;font-weight:700}.onboarding-status p{margin:0;color:var(--text-strong);font-size:13px}
-.onboarding-check-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.onboarding-check-grid>div{min-width:0;padding:13px 15px;background:var(--card);border:1px solid var(--border);border-radius:7px}.onboarding-check-grid strong{display:block;color:var(--muted-foreground);font-size:12px;font-weight:600}.onboarding-check-grid p{margin:5px 0 0;color:var(--text-strong);font-size:14px;font-weight:600;overflow-wrap:anywhere}
-.onboarding-check-grid>div{display:grid;grid-template-columns:20px minmax(0,1fr);column-gap:8px;align-content:start}
-.onboarding-check-grid .check-icon{grid-row:span 2;width:18px;height:18px;margin-top:1px}
-.onboarding-check-grid .check-passed .check-icon{color:var(--success)}
-.onboarding-check-grid .check-waiting .check-icon{color:var(--muted-foreground)}
-.onboarding-check-grid .check-failed .check-icon{color:var(--destructive)}
-.onboarding-check-grid .check-failed{border-color:var(--border-danger);background:var(--surface-danger)}
-.onboarding-check-grid .check-passed{border-color:var(--border-success);background:var(--surface-success)}
-.onboarding-check-grid p{grid-column:2}
-.onboarding-check-details{margin:0 0 18px;color:var(--muted-foreground);font-size:13px}
-.onboarding-check-details summary{width:max-content;cursor:pointer;color:var(--primary);font-weight:600}
-.onboarding-helper{padding:8px 20px 28px}.onboarding-helper>p{color:var(--muted-foreground);font-size:13px;line-height:1.6}
-.onboarding-info{padding:19px 21px;margin-top:20px;border:1px solid var(--border);border-radius:9px;background:var(--card);overflow-wrap:anywhere}.onboarding-info h4{margin:0 0 14px;color:var(--text-strong);font-size:16px}.onboarding-info pre{overflow:auto;max-height:240px}.onboarding-info code{overflow-wrap:anywhere}.onboarding-info details{margin-top:14px}.connection-data-list{display:grid;gap:0}.connection-data-list>div{display:grid;grid-template-columns:138px minmax(0,1fr);gap:12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border)}.connection-data-list>div:last-child{border-bottom:0}.connection-data-list span{color:var(--muted-foreground);font-size:12px}.connection-data-list code{color:var(--text-strong);font-size:12px;line-height:1.6;word-break:break-all}.onboarding-credential{background:var(--surface-subtle);border-color:var(--border-warning)}.onboarding-credential :deep(.n-button){margin-top:12px}
-.onboarding-actions{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:10px;margin-top:28px;padding-top:20px;border-top:1px solid var(--border)}.onboarding-actions>span{flex:1;color:var(--muted-foreground);font-size:12px}.onboarding-actions-secondary{display:flex;flex-wrap:wrap;gap:8px;margin-right:auto}
-@media(max-width:900px){.onboarding-header{flex-direction:column;gap:16px}.onboarding-header-actions{justify-content:flex-start}.step-copy small{display:none}.onboarding-steps li{padding:10px}.scenario-grid{gap:8px}}
-@media(max-width:640px){.onboarding-header{padding:14px 16px;gap:10px}.onboarding-eyebrow,.onboarding-header p{display:none}.onboarding-header h2{font-size:18px}.onboarding-header-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.onboarding-header-actions :deep(.n-button){min-width:0;padding-inline:4px}.onboarding-steps{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin:12px 0 16px}.onboarding-steps li{gap:7px;min-height:49px;padding:8px}.step-number{width:23px;height:23px;font-size:12px}.step-copy strong{font-size:12px}.onboarding-card :deep(.n-card__content){padding:18px 16px}.step-intro{padding-bottom:12px;margin-bottom:15px}.step-intro h3{font-size:18px}.step-intro p{font-size:12px}.scenario-grid,.onboarding-grid,.onboarding-check-grid{grid-template-columns:1fr}.scenario-option{min-height:0;padding:12px 14px;gap:3px}.onboarding-section{margin-bottom:20px}.onboarding-section+.onboarding-section{padding-top:20px}.onboarding-status{align-items:flex-start;flex-direction:column;padding:15px}.onboarding-helper-prompt{padding:14px}.onboarding-helper-actions{width:100%;flex-direction:column;align-items:stretch}.onboarding-helper-actions :deep(.n-button){width:100%}.connection-data-list>div{grid-template-columns:1fr;gap:3px}.onboarding-choice{flex-wrap:wrap}.onboarding-choice :deep(.n-input){flex-basis:calc(50% - 4px)}.onboarding-label-row{grid-template-columns:repeat(2,minmax(0,1fr))}.onboarding-label-row .n-button{justify-self:start}.onboarding-actions>span{display:none}.onboarding-actions-check{align-items:stretch;flex-direction:column}.onboarding-actions-check>.n-button{width:100%}.onboarding-actions-secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;margin:0}.onboarding-actions-secondary :deep(.n-button){min-width:0}}
+.onboarding { max-width: 960px; margin: 0 auto; color: var(--text); }
+.onboarding__header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
+.onboarding__header h2 { margin: 0; color: var(--text-strong); font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); }
+.onboarding__header p { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: var(--font-size-sm); }
+.onboarding__header-actions { display: flex; flex: none; flex-wrap: wrap; gap: var(--space-2); }
+.onboarding__steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); margin: 0 0 var(--space-4); padding: 0; list-style: none; }
+.onboarding__steps li { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.onboarding__steps li.is-active { border-color: var(--primary-border); box-shadow: inset 0 -2px 0 var(--primary); }
+.onboarding__step-number { display: grid; flex: none; place-items: center; width: 24px; height: 24px; color: var(--text-secondary); background: var(--surface-muted); border-radius: var(--radius-full); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); }
+.is-active .onboarding__step-number { color: var(--text-inverse); background: var(--primary); }
+.is-done .onboarding__step-number { color: var(--success-text); background: var(--success-soft); }
+.onboarding__step-copy { display: grid; min-width: 0; }
+.onboarding__step-copy strong { color: var(--text-strong); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.onboarding__step-copy small { color: var(--text-muted); font-size: var(--font-size-xs); }
+.onboarding__card { padding: var(--space-5) var(--space-6); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); }
+.onboarding__title { margin: 0 0 var(--space-4); color: var(--text-strong); font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
+.onboarding__fields { margin-top: var(--space-4); }
+.onboarding__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-4); }
+.onboarding__grid > * { min-width: 0; }
+.onboarding__grid :deep(.ui-input-number) { width: 100%; }
+.onboarding__muted { margin: var(--space-1) 0 var(--space-3); color: var(--text-muted); font-size: var(--font-size-sm); }
+.onboarding__alert { margin: var(--space-3) 0; }
+.onboarding__summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); background: var(--surface-muted); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
+.onboarding__summary strong { color: var(--text-strong); font-weight: var(--font-weight-semibold); }
+.onboarding__summary span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.onboarding__hint-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) 0 0; color: var(--text-muted); font-size: var(--font-size-sm); }
+.onboarding__hint-row > span { flex: 1 1 280px; }
+.onboarding__more { margin: var(--space-3) 0; }
+.onboarding__more summary { width: max-content; max-width: 100%; color: var(--primary-text); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); cursor: pointer; }
+.onboarding__more[open] summary { margin-bottom: var(--space-3); }
+.onboarding__preflight { margin-top: var(--space-4); padding: var(--space-4); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.onboarding__plan { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); margin-bottom: var(--space-3); }
+.onboarding__plan span, .onboarding__plan small { color: var(--text-muted); font-size: var(--font-size-xs); }
+.onboarding__plan strong { color: var(--text-strong); font-weight: var(--font-weight-semibold); }
+.onboarding__checks { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.onboarding__checks li { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--font-size-sm); }
+.onboarding__checks li span { color: var(--text-secondary); overflow-wrap: anywhere; }
+.onboarding__checks li strong { margin-right: var(--space-2); color: var(--text-strong); font-weight: var(--font-weight-medium); }
+.onboarding__check-icon { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--text-muted); }
+.is-passed .onboarding__check-icon { color: var(--success); }
+.is-warning .onboarding__check-icon { color: var(--warning); }
+.is-failed .onboarding__check-icon { color: var(--danger); }
+.onboarding__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.onboarding__id-field { display: flex; gap: var(--space-2); width: 100%; }
+.onboarding__id-field :deep(.ui-input) { flex: 1; min-width: 0; }
+.onboarding__section { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.onboarding__section h4 { margin: 0 0 var(--space-3); color: var(--text-strong); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.onboarding__section-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin-bottom: var(--space-3); }
+.onboarding__section-head h4 { flex: 1 1 auto; margin: 0; }
+.onboarding__section-head .onboarding__muted { margin: 0; }
+.onboarding__options { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
+.onboarding__option { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); cursor: pointer; }
+.onboarding__option:hover { background: var(--surface-hover); }
+.onboarding__option.is-selected { border-color: var(--primary-border); background: var(--primary-soft); }
+.onboarding__option.is-disabled { cursor: not-allowed; opacity: .6; }
+.onboarding__option input { margin-top: 3px; accent-color: var(--primary); }
+.onboarding__option span { display: grid; gap: 2px; min-width: 0; }
+.onboarding__option strong { color: var(--text-strong); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); overflow-wrap: anywhere; }
+.onboarding__option small { color: var(--text-muted); font-size: var(--font-size-xs); }
+.onboarding__label-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); }
+.onboarding__secret { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); padding: var(--space-4); background: var(--warning-soft); border: 1px solid var(--warning-border); border-radius: var(--radius-lg); }
+.onboarding__secret p { margin: 0; color: var(--warning-text); font-size: var(--font-size-sm); }
+.onboarding__secret p strong { display: block; margin-bottom: 2px; }
+.onboarding__secret > .ui-button { justify-self: start; }
+.onboarding__config, .onboarding__values { display: grid; }
+.onboarding__kv { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.onboarding__kv:last-child { border-bottom: 0; }
+.onboarding__kv span { color: var(--text-muted); font-size: var(--font-size-xs); }
+.onboarding__kv code { padding: 0; color: var(--text-strong); background: none; font-family: var(--font-mono); font-size: var(--font-size-xs); overflow-wrap: anywhere; word-break: break-all; }
+.onboarding__verify details { margin-top: var(--space-2); font-size: var(--font-size-sm); }
+.onboarding__verify summary { color: var(--primary-text); cursor: pointer; }
+.onboarding__diagnosis { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--info-soft); border: 1px solid var(--info-border); border-radius: var(--radius-md); }
+.onboarding__diagnosis.is-success { background: var(--success-soft); border-color: var(--success-border); }
+.onboarding__diagnosis.is-warning { background: var(--warning-soft); border-color: var(--warning-border); }
+.onboarding__diagnosis.is-error { background: var(--danger-soft); border-color: var(--danger-border); }
+.onboarding__diagnosis .ui-tag { justify-self: start; }
+.onboarding__diagnosis p { margin: 0; color: var(--text); font-size: var(--font-size-sm); }
+.onboarding__diagnosis small { color: var(--text-muted); font-size: var(--font-size-xs); }
+.onboarding__progress { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.onboarding__progress li { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--space-2); align-content: start; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.onboarding__progress li.is-passed { border-color: var(--success-border); }
+.onboarding__progress li.is-failed { border-color: var(--danger-border); background: var(--danger-soft); }
+.onboarding__progress .onboarding__check-icon { grid-row: span 2; }
+.onboarding__progress strong { color: var(--text-strong); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+.onboarding__progress small { color: var(--text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.onboarding__values { margin-top: var(--space-3); }
+.onboarding__values h5 { margin: 0 0 var(--space-1); color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
+pre { max-height: 240px; margin: var(--space-2) 0 0; overflow: auto; }
+@media (max-width: 900px) {
+  .onboarding__progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .onboarding__header { flex-direction: column; gap: var(--space-3); }
+  .onboarding__header p { display: none; }
+  .onboarding__header-actions { width: 100%; }
+  .onboarding__header-actions > * { flex: 1 1 0; }
+  .onboarding__steps { gap: var(--space-1); }
+  .onboarding__steps li { gap: var(--space-2); padding: var(--space-2); }
+  .onboarding__step-copy small { display: none; }
+  .onboarding__card { padding: var(--space-4); }
+  .onboarding__grid { grid-template-columns: 1fr; }
+  .onboarding__progress { grid-template-columns: 1fr; gap: 0; }
+  .onboarding__progress li { padding: var(--space-2) 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+  .onboarding__progress li.is-failed { padding-inline: var(--space-2); }
+  .onboarding__kv { grid-template-columns: 1fr auto; gap: 2px var(--space-2); }
+  .onboarding__kv span { grid-column: 1 / -1; }
+  .onboarding__label-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .onboarding__actions { flex-direction: column-reverse; align-items: stretch; }
+}
 </style>

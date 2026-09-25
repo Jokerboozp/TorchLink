@@ -126,8 +126,11 @@ func TestLegacyDeviceConnectionResolution(t *testing.T) { /* 定义 TestLegacyDe
 	if len(device.Tags) != 0 {                               /* 判断条件并选择处理分支。 */
 		t.Fatal("read mutated legacy device") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	code, v = call("POST", "/api/v1/onboarding/test", `{"type":"HTTP","productId":"missing","deviceId":"test","name":"test"}`) /* 更新 v 的值。 */
-	if code != 422 || v["errorCode"] != "PROTOCOL_ERROR" || v["stage"] != "validate" || v["deviceId"] != "test" {              /* 判断条件并选择处理分支。 */
-		t.Fatalf("validation result: %d %+v", code, v) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
+	code, v = call("POST", "/api/v1/onboarding", `{"requestId":"r1","productId":"missing","device":{"id":"test","name":"test"},"connection":{"mode":"standard"}}`)
+	if code != 422 || v["detail"] != "设备模板不存在或当前账号无权查看" {
+		t.Fatalf("validation result: %d %+v", code, v)
+	}
+	if _, err = repo.GetManagedDevice(ctx, "t", "test"); err == nil {
+		t.Fatal("rejected onboarding saved a device")
+	}
 } /* 结束当前表达式或代码块。 */

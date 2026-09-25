@@ -2,14 +2,13 @@ package postgres /* 声明 postgres 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
 	"context"                              /* 执行当前语句并推进处理流程。 */
-	"encoding/json"                        /* 执行当前语句并推进处理流程。 */
 	"fmt"                                  /* 执行当前语句并推进处理流程。 */
 	"github.com/jackc/pgx/v5"              /* 执行当前语句并推进处理流程。 */
 	"github.com/jackc/pgx/v5/pgxpool"      /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/connector"      /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"          /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/onboarding"     /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/parser"         /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"          /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/repositorytest" /* 执行当前语句并推进处理流程。 */
 	"os"                                   /* 执行当前语句并推进处理流程。 */
 	"testing"                              /* 执行当前语句并推进处理流程。 */
@@ -167,23 +166,25 @@ func verifyOnboardingAndParseMigration(t *testing.T, r *Repository) { /* 定义 
 	if saved.ParseError == "" {                       /* 判断条件并选择处理分支。 */
 		t.Fatal("cross tenant update") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	svc := onboarding.New(r, parser.NewPlatformRegistry(t.TempDir()), t.TempDir(), nil)                                                                                                                                                         /* 更新 svc 的值。 */
-	q := onboarding.Request{ProductID: "new-product", ProductName: "test product", DeviceID: "new-device", Name: "test", Type: connector.HTTP, MessageKind: "property", Payload: json.RawMessage(`{"id":"1","timestamp":1000,"data":{"x":1}}`)} /* 更新 q 的值。 */
-	preview, e := svc.Test(ctx, "t", q)                                                                                                                                                                                                         /* 更新 e 的值。 */
-	if e != nil || !preview.Success {                                                                                                                                                                                                           /* 判断条件并选择处理分支。 */
-		t.Fatal(e) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	q.TestToken = preview.TestToken     /* 更新 q.TestToken 的值。 */
-	first, e := svc.Create(ctx, "t", q) /* 更新 e 的值。 */
-	if e != nil || first.Reused {       /* 判断条件并选择处理分支。 */
-		t.Fatal(e) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	again, e := svc.Create(ctx, "t", q)                             /* 更新 e 的值。 */
-	if e != nil || !again.Reused || again.Credential.Secret != "" { /* 判断条件并选择处理分支。 */
-		t.Fatal("persistent idempotency failed", e) /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	q.Name = "changed"                             /* 更新 q.Name 的值。 */
-	if _, e := svc.Create(ctx, "t", q); e == nil { /* 判断条件并选择处理分支。 */
+	svc := onboarding.New(r, parser.NewPlatformRegistry(t.TempDir()), t.TempDir(), nil) /* 更新 svc 的值。 */
+	q := onboarding.EnrollRequest{RequestID: "req-1", NewProduct: &onboarding.NewProduct{ID: "new-product", Name: "test product", ProtocolPackageID: onboarding.StandardPackageID, Transport: "HTTP"}, Device: onboarding.EnrollDevice{ID: "new-device", Name: "test"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}}
+	first, e := svc.Enroll(ctx, "t", q)
+	if e != nil || first.Reused || first.Credential.Secret == "" {
+		t.Fatal(e)
+	}
+	again, e := svc.Enroll(ctx, "t", q)
+	if e != nil || !again.Reused || again.Credential.Secret != "" {
+		t.Fatal("persistent idempotency failed", e)
+	}
+	filtered, total, e := r.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: "t", Role: "DIRECT", RestrictProducts: true, ProductIDs: []string{"new-product"}, Query: "NEW-dev", Status: "ENABLED", Runtime: "NEVER_SEEN"}, 10, 0)
+	if e != nil || total != 1 || len(filtered) != 1 || filtered[0].ID != "new-device" || filtered[0].SecretHash == "" {
+		t.Fatal("filtered device list", filtered, total, e)
+	}
+	if _, total, e = r.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: "t", Query: "new_dev"}, 10, 0); e != nil || total != 0 {
+		t.Fatal("keyword wildcard was not escaped", total, e)
+	}
+	q.Device.Name = "changed"                      /* 更新 q.Name 的值。 */
+	if _, e := svc.Enroll(ctx, "t", q); e == nil { /* 判断条件并选择处理分支。 */
 		t.Fatal("different request accepted") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */

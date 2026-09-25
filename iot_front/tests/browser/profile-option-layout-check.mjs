@@ -49,7 +49,7 @@ try {
   const clickMenu = async label => {
     await until(() => evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(label)}]')?.getClientRects().length`), `${label}菜单`)
     await evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(label)}]').click()`)
-    await until(() => evaluate(`document.querySelector('.page-context h1')?.textContent === ${JSON.stringify(label)}`), `${label}页面`)
+    await until(() => evaluate(`document.querySelector('.page-header h1')?.textContent.trim() === ${JSON.stringify(label)}`), `${label}页面`)
   }
   const clickButton = async label => {
     await until(() => evaluate(`[...document.querySelectorAll('.app-content button')].some(button => button.getClientRects().length && button.textContent.trim() === ${JSON.stringify(label)})`), `${label}按钮`)
@@ -72,7 +72,7 @@ try {
         : path === '/api/v1/auth/me' ? { tenantId: 'fixture', role: 'admin', permissions: ['*'] }
         : path === '/api/v1/events' ? { permissions: ['*'], alarms: [], devices: [] }
         : path.startsWith('/api/v1/products') ? list([product])
-        : path === '/api/v1/device-registry' ? list([{ device, runtimeState: {} }])
+        : path.startsWith('/api/v1/device-registry?') ? list([{ device, runtimeState: {} }])
         : path.startsWith('/api/v1/devices?') ? list([])
         : path === '/api/v2/protocols' ? list([{ definition: { id: 'protocol-demo', name: '演示消防协议' }, releases: [{ version: '1.0.0', status: 'PUBLISHED' }] }])
         : path === '/api/v2/device-access-profiles' ? list([connection])
@@ -98,8 +98,16 @@ try {
   assert.ok(await evaluate("[...document.querySelectorAll('.n-modal .n-radio-button')].some(item => item.textContent.trim() === '主设备' && item.classList.contains('n-radio-button--checked'))"), '接入关系切换未生效')
   await evaluate("document.querySelector('.n-modal .n-base-close').click()")
 
-  await clickMenu('平台连接配置')
-  await clickButton('编辑')
+  // 接入点在设备模板详情中管理。
+  await clickMenu('设备模板')
+  await until(() => evaluate("Boolean(document.querySelector('.product-name'))"), '模板列表')
+  await evaluate("document.querySelector('.product-name').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.product-detail .n-tabs-tab')].find(tab => tab.textContent.includes('接入点')))"), '模板详情')
+  await evaluate("[...document.querySelectorAll('.product-detail .n-tabs-tab')].find(tab => tab.textContent.includes('接入点')).click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.product-detail .row-actions button')].find(button => button.textContent.trim() === '编辑'))"), '接入点编辑')
+  await evaluate("[...document.querySelectorAll('.product-detail .row-actions button')].find(button => button.textContent.trim() === '编辑').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(item => item.getClientRects().length && item.textContent.includes('保存接入点')))"), '接入点弹窗')
+  await delay(400)
   const layout = await evaluate(`(() => {
     const modal = [...document.querySelectorAll('.n-modal')].find(item => item.getClientRects().length)
     return { sections: modal?.querySelectorAll('.profile-editor-section').length || 0, summary: Boolean(modal?.querySelector('.profile-protocol-summary')), footer: Boolean(modal?.querySelector('.n-card__footer')), horizontalOverflow: modal?.scrollWidth > modal?.clientWidth + 2 }
@@ -108,7 +116,7 @@ try {
   await writeFile(join(tmpdir(), 'iot-profile-editor.png'), Buffer.from(profileShot.data, 'base64'))
   console.log(JSON.stringify({ choices, layout }))
   assert.ok(choices.count === 3 && choices.className.includes('segmented-choice-group') && choices.gap >= 6 && Number.parseFloat(choices.border) >= 1, '接入关系选项应有独立边框和间距')
-  assert.ok(layout.sections >= 4 && layout.summary && layout.footer && !layout.horizontalOverflow, '平台连接配置应按流程分区，协议摘要与保存操作应清晰可见')
+  assert.ok(layout.sections >= 4 && layout.summary && layout.footer && !layout.horizontalOverflow, '接入点表单应按流程分区，协议摘要与保存操作应清晰可见')
   await evaluate("[...document.querySelectorAll('.n-modal .n-collapse-item__header-main')].find(item => item.textContent.includes('定时读取与子设备')).click()")
   await until(() => evaluate("Boolean(document.querySelector('.protocol-access-settings')?.getClientRects().length)"), '定时读取与子设备设置')
   await delay(200)

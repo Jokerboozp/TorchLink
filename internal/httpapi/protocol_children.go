@@ -20,7 +20,7 @@ func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request)
 	}
 	profileID := parent.Tags["connectorProfileId"]
 	if profileID == "" {
-		problem(w, 422, "主设备尚未关联平台连接配置")
+		problem(w, 422, "主设备尚未关联接入点")
 		return
 	}
 	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
@@ -36,7 +36,7 @@ func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if profile.ID == "" {
-		problem(w, 422, "主设备的平台连接配置已失效")
+		problem(w, 422, "主设备的接入点已失效")
 		return
 	}
 	var identity model.ChildIdentity

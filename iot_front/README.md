@@ -18,11 +18,11 @@ npm run build
 
 测试使用 Node test runner，覆盖列表分页与请求竞态、身份隔离、告警提醒、协议生成与映射、SSE 和 Markdown 安全等行为。构建检查不等于浏览器交互验收。
 
-本地合成数据界面验收：先执行 `npm run build`，再从本目录运行 `node tests/browser/ui-preview.mjs`；另开终端运行 `node tests/browser/naive-pages-check.mjs` 与 `node tests/browser/protocol-actions-check.mjs`，用 `IOT_TEST_BROWSER` 指定 Chrome 或 Edge 可执行文件。前者覆盖全部 16 个主页面、弹层、窄屏与账户菜单，后者覆盖协议版本操作。这些脚本只连接本机夹具，不写真实业务数据。每条浏览器命令超过 30 秒未响应会直接报错；`IOT_UI_SKIP_SCREENSHOTS=1` 可跳过截图，`IOT_UI_SKIP_OVERLAYS=页面/操作,…` 可跳过指定弹层，仅用于定位环境问题。
+本地合成数据界面验收：先执行 `npm run build`，再从本目录运行 `node tests/browser/ui-preview.mjs`；另开终端运行 `node tests/browser/naive-pages-check.mjs`、`node tests/browser/onboarding-modes-check.mjs` 与 `node tests/browser/protocol-actions-check.mjs`，用 `IOT_TEST_BROWSER` 指定 Chrome 或 Edge 可执行文件。第一个覆盖侧栏全部主页面、弹层、窄屏与账户菜单；第二个覆盖添加设备向导的共享监听与标准上报；第三个覆盖协议版本操作。这些脚本只连接本机夹具，不写真实业务数据。每条浏览器命令超过 30 秒未响应会直接报错；`IOT_UI_SKIP_SCREENSHOTS=1` 可跳过截图，`IOT_UI_SKIP_OVERLAYS=页面/操作,…` 可跳过指定弹层，仅用于定位环境问题。
 
 ## 页面与权限
 
-`src/views/` 保存业务页面，`src/components/` 保存共享业务组件。16 个主菜单按“运行监控、设备与接入、智能助手、系统”四组排列，菜单名称以 `src/App.vue` 为准。
+`src/views/` 保存业务页面，`src/components/` 保存共享业务组件。16 个主菜单按“运行监控、设备与接入、智能助手、系统”四组排列，菜单名称以 `src/App.vue` 为准；有设备模板菜单权限时，“平台接入点”不在侧栏单列，改在设备模板详情的“接入点”中使用。设备管理的“添加设备”向导见 `src/components/DeviceOnboarding.vue`，请求体与设备端配置说明在 `src/onboardingPlan.js`。
 
 ## 样式规范
 

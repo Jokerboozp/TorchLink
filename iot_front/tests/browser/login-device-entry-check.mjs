@@ -58,7 +58,7 @@ try {
         const a = image.getBoundingClientRect(), b = box.getBoundingClientRect()
         return a.left >= b.left - 1 && a.right <= b.right + 1 && a.top >= b.top - 1 && a.bottom <= b.bottom + 1
       }
-      return { logo: contained('.login-mark img'), hero: ${width < 600 ? 'true' : "contained('.login-brand img')"}, overflow: document.documentElement.scrollWidth > innerWidth + 2 }
+      return { logo: contained('.login-form__logo'), hero: ${width < 600 ? 'true' : "contained('.login-brand-panel__logo')"}, overflow: document.documentElement.scrollWidth > innerWidth + 2 }
     })()`)
     assert.deepEqual(visual, { logo: true, hero: true, overflow: false }, `${width}px 登录页图片裁切或横向溢出`)
     const shot = await call('Page.captureScreenshot', { format: 'png' })
@@ -86,15 +86,15 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))"), '登录表单')
   await evaluate("(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()")
   await until(() => evaluate("document.querySelector('.nav-item[aria-label=\"设备管理\"]')?.getClientRects().length"), '设备管理菜单')
-  await evaluate("localStorage.setItem('iot:device-onboarding:fixture:admin', JSON.stringify({ step: 0, scenario: 'new', newName: '已保存的接入草稿' }))")
+  await evaluate("localStorage.setItem('iot:device-onboarding:v2:' + localStorage.getItem('iot_tenant') + ':' + localStorage.getItem('iot_user'), JSON.stringify({ step: 0, source: 'new', requestId: 'saved-draft', newProduct: { id: 'product_saved', name: '已保存的接入草稿', category: 'other', protocolPackageId: '', transport: '' } }))")
   await evaluate("document.querySelector('.nav-item[aria-label=\"设备管理\"]').click()")
-  await until(() => evaluate("document.querySelector('.page-context h1')?.textContent === '设备管理'"), '设备管理页面')
-  await until(() => evaluate("Boolean(document.querySelector('.n-data-table, .onboarding-workspace'))"), '设备页面内容')
-  assert.equal(await evaluate("Boolean(document.querySelector('.onboarding-workspace'))"), false, '有接入草稿时，设备管理仍应先显示设备列表')
+  await until(() => evaluate("document.querySelector('.page-header h1')?.textContent.trim() === '设备管理'"), '设备管理页面')
+  await until(() => evaluate("Boolean(document.querySelector('.n-data-table, .onboarding'))"), '设备页面内容')
+  assert.equal(await evaluate("Boolean(document.querySelector('.onboarding'))"), false, '有接入草稿时，设备管理仍应先显示设备列表')
   assert.equal(await evaluate("Boolean(document.querySelector('.n-data-table'))"), true, '设备列表未显示')
-  await evaluate("[...document.querySelectorAll('.app-content button')].find(button => button.textContent.trim() === '接入设备').click()")
-  await until(() => evaluate("Boolean(document.querySelector('.onboarding-workspace'))"), '主动打开接入向导')
-  assert.equal(await evaluate("document.querySelector('.onboarding-workspace input[placeholder=\"例如 厂商及型号\"]')?.value"), '已保存的接入草稿', '主动打开向导后应恢复原有草稿')
+  await evaluate("[...document.querySelectorAll('.app-content button')].find(button => button.textContent.trim() === '添加设备').click()")
+  await until(() => evaluate("Boolean(document.querySelector('.onboarding'))"), '主动打开添加设备向导')
+  assert.equal(await evaluate("document.querySelector('.onboarding input[aria-label=\"模板名称\"]')?.value"), '已保存的接入草稿', '主动打开向导后应恢复原有草稿')
   console.log('设备管理默认打开列表，主动点击后恢复接入草稿')
 } finally {
   socket?.close()

@@ -2,6 +2,7 @@
 import { createClientId } from '../clientId' /* 引入当前代码需要的依赖。 */
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
+import AccessPointsPanel from '../components/AccessPointsPanel.vue'
 import ProductProtocolBinding from '../components/ProductProtocolBinding.vue' /* 引入当前代码需要的依赖。 */
 import { transportLabel, formatLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
 import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
@@ -9,19 +10,20 @@ import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依�
 import { api, apiAll, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
 import { confirmDelete } from '../deleteAction'
 import { categories, enabledStatuses, enabledStatusTones, label, tone } from '../labels'
+import { can } from '../permissions'
 import { Plus, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 
-const bindingProduct = ref(null) /* 声明 bindingProduct。 */
+// 模板详情抽屉：基本信息、协议版本和接入点。
+const detail = ref(null), detailTab = ref('basic'), detailColumns = ref(2)
 const products = ref([]) /* 声明 products。 */
 const protocols = ref([]) /* 声明 protocols。 */
 const saving = ref(false) /* 声明 saving。 */
 const loading = ref(false) /* 声明 loading。 */
 const dialog = ref(false) /* 声明 dialog。 */
-const readonly = ref(false) /* 声明 readonly。 */
 const productPage = ref(1) /* 声明 productPage。 */
 const productPageSize = ref(20) /* 声明 productPageSize。 */
 const productTotal = ref(0) /* 声明 productTotal。 */
@@ -68,25 +70,23 @@ function reset() { /* 定义 reset 函数。 */
 
 function openCreate() { /* 定义 openCreate 函数。 */
   reset() /* 执行当前语句并推进处理流程。 */
-  readonly.value = false /* 更新 readonly.value 的值。 */
   dialog.value = true /* 更新 dialog.value 的值。 */
 } /* 结束当前表达式或代码块。 */
 
-function view(item) { /* 定义 view 函数。 */
-  Object.assign(form, { ...blank(), ...item, metadata:{...blank().metadata,...item.metadata}, code:item.id }) /* 执行当前语句并推进处理流程。 */
-  readonly.value = true /* 更新 readonly.value 的值。 */
-  dialog.value = true /* 更新 dialog.value 的值。 */
-} /* 结束当前表达式或代码块。 */
+function openDetail(item, tab = 'basic') { detailColumns.value = window.innerWidth < 768 ? 1 : 2; detail.value = item; detailTab.value = tab }
 
 function edit(item) { /* 定义 edit 函数。 */
   Object.assign(form, { ...blank(), ...item, metadata:{...blank().metadata,...item.metadata}, code:item.id }) /* 执行当前语句并推进处理流程。 */
-  readonly.value = false /* 更新 readonly.value 的值。 */
   dialog.value = true /* 更新 dialog.value 的值。 */
 } /* 结束当前表达式或代码块。 */
 
-function startEdit() { /* 定义 startEdit 函数。 */
-  readonly.value = false /* 更新 readonly.value 的值。 */
-} /* 结束当前表达式或代码块。 */
+// 协议切换会改写模板的协议引用；刷新列表后同步详情中的模板。
+async function refreshDetail() {
+  await load({ catalog:false })
+  const id = detail.value?.id
+  if (!id) return
+  detail.value = products.value.find(item => item.id === id) || (await apiAll('/api/v1/products')).items?.find(item => item.id === id) || detail.value
+}
 
 async function save() { /* 定义 save 函数。 */
   if (saving.value) return /* 判断条件并选择处理分支。 */
@@ -106,6 +106,7 @@ async function save() { /* 定义 save 函数。 */
     dialog.value = false /* 更新 dialog.value 的值。 */
     reset() /* 执行当前语句并推进处理流程。 */
     await load() /* 等待异步操作完成。 */
+    if (detail.value?.id === value.id) detail.value = products.value.find(item => item.id === value.id) || { ...detail.value, ...value }
   } catch (error) { /* 结束当前表达式或代码块。 */
     notifyError(error) /* 执行当前语句并推进处理流程。 */
   } finally { /* 结束当前表达式或代码块。 */
@@ -113,21 +114,31 @@ async function save() { /* 定义 save 函数。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
-onMounted(load) /* 执行当前语句并推进处理流程。 */
+onMounted(async () => {
+  let navigation = {}
+  try { navigation = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}') } catch { navigation = {} }
+  sessionStorage.removeItem('iot:navigation-detail')
+  await load()
+  if (navigation.productId) {
+    const item = products.value.find(p => p.id === navigation.productId) || (await apiAll('/api/v1/products').catch(() => ({ items:[] }))).items?.find(p => p.id === navigation.productId)
+    if (item) openDetail(item, navigation.tab || 'basic')
+  }
+})
 function remove(row) { return confirmDelete({ label:row.name || row.id, path:`/api/v1/products/${encodeURIComponent(row.id)}`, onDeleted:load }) }
 function protocolName(id) { return protocols.value.find(item => item.id === id)?.name || id || '未绑定' }
 function rowActions(row) {
   return [
-    { key:'view', label:'详情', onClick:() => view(row) },
+    { key:'view', label:'详情', onClick:() => openDetail(row) },
+    { key:'access', label:'接入点', permission:'menu:profiles', onClick:() => openDetail(row, 'access') },
+    { key:'binding', label:'协议版本', onClick:() => openDetail(row, 'protocol') },
     { key:'edit', label:'编辑', permission:'PUT /api/v1/products/:id', onClick:() => edit(row) },
-    { key:'binding', label:'协议版本', onClick:() => { bindingProduct.value = row } },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/products/:id', onClick:() => remove(row) }
   ]
 }
+function metadataText(item, keys) { return keys.map(key => item?.metadata?.[key]).filter(Boolean).join(' · ') || '—' }
 </script>
 
 <template>
-  <ProductProtocolBinding v-if="bindingProduct" :key="bindingProduct.id" :product="bindingProduct" @close="bindingProduct=null" @saved="load" />
   <FilterBar>
     <template #actions>
       <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
@@ -137,7 +148,7 @@ function rowActions(row) {
 
   <DataTableCard :title="`设备模板 · ${productTotal} 个`" :page="productPage" :page-size="productPageSize" :total="productTotal" @update:page="changePage" @update:page-size="changePageSize">
     <ui-table :data="products" :loading="loading" empty-text="暂无设备模板，点击“新建设备模板”创建">
-      <ui-table-column label="设备模板" min-width="220"><template #default="{ row }"><button type="button" class="product-name" @click="view(row)">{{ row.name || row.id }}</button><small class="subline">{{ row.id }}</small></template></ui-table-column>
+      <ui-table-column label="设备模板" min-width="220"><template #default="{ row }"><button type="button" class="product-name" @click="openDetail(row)">{{ row.name || row.id }}</button><small class="subline">{{ row.id }}</small></template></ui-table-column>
       <ui-table-column label="分类" min-width="120"><template #default="{ row }">{{ label(categories, row.category, '其他设备') }}</template></ui-table-column>
       <ui-table-column label="通信协议" min-width="220"><template #default="{ row }">{{ protocolName(row.protocolPackageId) }}<small class="subline">{{ transportLabel(row.transport) }} · {{ formatLabel(row.payloadFormat) }}</small></template></ui-table-column>
       <ui-table-column label="厂商 / 型号" min-width="160"><template #default="{ row }">{{ [row.metadata?.manufacturer, row.metadata?.model].filter(Boolean).join(' · ') || '—' }}</template></ui-table-column>
@@ -147,13 +158,37 @@ function rowActions(row) {
     </ui-table>
   </DataTableCard>
 
-  <ui-dialog v-model="dialog" :title="readonly ? `设备模板详情 · ${form.name || form.id}` : (form.id ? `编辑设备模板 · ${form.name}` : '新建设备模板')" width="min(720px, 94vw)" destroy-on-close>
-    <ui-form :model="form" label-position="top" :disabled="readonly">
+  <ui-drawer :model-value="Boolean(detail)" class="product-detail" :title="detail ? `设备模板 · ${detail.name || detail.id}` : ''" size="min(1040px, 100vw)" @close="detail=null">
+    <ui-tabs v-if="detail" v-model="detailTab" class="product-detail__tabs">
+      <ui-tab-pane name="basic" label="基本信息">
+        <div class="product-detail__head">
+          <StatusDot :tone="tone(enabledStatusTones, detail.status)" :label="label(enabledStatuses, detail.status)" />
+          <ui-button v-permission="'PUT /api/v1/products/:id'" size="small" @click="edit(detail)">编辑模板</ui-button>
+        </div>
+        <ui-descriptions :column="detailColumns" border>
+          <ui-descriptions-item label="模板名称">{{ detail.name }}</ui-descriptions-item>
+          <ui-descriptions-item label="模板标识"><code>{{ detail.id }}</code></ui-descriptions-item>
+          <ui-descriptions-item label="设备分类">{{ label(categories, detail.category, '其他设备') }}</ui-descriptions-item>
+          <ui-descriptions-item label="通信协议">{{ protocolName(detail.protocolPackageId) }}</ui-descriptions-item>
+          <ui-descriptions-item label="上报通道">{{ transportLabel(detail.transport) }}</ui-descriptions-item>
+          <ui-descriptions-item label="数据格式">{{ formatLabel(detail.payloadFormat) }}</ui-descriptions-item>
+          <ui-descriptions-item label="厂商 / 型号">{{ metadataText(detail, ['manufacturer','model']) }}</ui-descriptions-item>
+          <ui-descriptions-item label="编号类型 / 位置">{{ metadataText(detail, ['idKind','idLocation']) }}</ui-descriptions-item>
+          <ui-descriptions-item label="说明" :span="detailColumns">{{ detail.description || '—' }}</ui-descriptions-item>
+        </ui-descriptions>
+      </ui-tab-pane>
+      <ui-tab-pane name="protocol" label="协议版本"><ProductProtocolBinding :key="detail.id" :product="detail" @saved="refreshDetail" /></ui-tab-pane>
+      <ui-tab-pane v-if="can('menu:profiles')" name="access" label="接入点"><AccessPointsPanel :key="detail.id" :product-id="detail.id" /></ui-tab-pane>
+    </ui-tabs>
+  </ui-drawer>
+
+  <ui-dialog v-model="dialog" :title="form.id ? `编辑设备模板 · ${form.name}` : '新建设备模板'" width="min(720px, 94vw)" destroy-on-close>
+    <ui-form :model="form" label-position="top">
       <section class="editor-section">
         <header><h3>模板身份</h3><p>名称用于页面识别；模板标识创建后不可修改。</p></header>
         <div class="form-grid">
           <ui-form-item label="模板名称"><ui-input v-model="form.name" /></ui-form-item>
-          <ui-form-item label="模板标识"><ui-input v-model="form.code" :disabled="readonly || !!form.id" placeholder="留空自动生成" /></ui-form-item>
+          <ui-form-item label="模板标识"><ui-input v-model="form.code" :disabled="!!form.id" placeholder="留空自动生成" /></ui-form-item>
         </div>
       </section>
       <section class="editor-section">
@@ -190,9 +225,8 @@ function rowActions(row) {
       </ui-collapse>
     </ui-form>
     <template #footer>
-      <ui-button v-if="readonly" v-permission="'PUT /api/v1/products/:id'" type="primary" @click="startEdit">编辑</ui-button>
       <ui-button @click="dialog=false">关闭</ui-button>
-      <ui-button v-if="!readonly" v-permission="['POST /api/v1/products','PUT /api/v1/products/:id']" type="primary" :loading="saving" @click="save">保存设备模板</ui-button>
+      <ui-button v-permission="['POST /api/v1/products','PUT /api/v1/products/:id']" type="primary" :loading="saving" @click="save">保存设备模板</ui-button>
     </template>
   </ui-dialog>
 </template>
@@ -206,4 +240,9 @@ function rowActions(row) {
 .editor-section header p, .editor-advanced__hint { margin: 2px 0 0; color: var(--text-muted); font-size: var(--font-size-xs); }
 .editor-advanced { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
 .editor-advanced__hint { margin-bottom: var(--space-3); }
+.product-detail__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.product-detail__tabs :deep(.n-tab-pane) { padding-top: var(--space-4); }
+@media (max-width: 767px) {
+  .product-detail :deep(.n-descriptions-table) { table-layout: fixed; }
+}
 </style>

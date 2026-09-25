@@ -121,7 +121,7 @@ func TestCredentialOutboxAndRecovery(t *testing.T) { /* 定义 TestCredentialOut
 		t.Fatal(items) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
-func TestThingModelAndRemovedEdgeValidation(t *testing.T) { /* 定义 TestThingModelAndRemovedEdgeValidation 函数。 */
+func TestThingModelValidation(t *testing.T) { /* 定义 TestThingModelValidation 函数。 */
 	s := operationService(t)                                                                                                                                              /* 更新 s 的值。 */
 	ctx := context.Background()                                                                                                                                           /* 更新 ctx 的值。 */
 	m := &model.ThingModel{Commands: []model.ThingOperation{{Identifier: "set", Fields: []model.ThingField{{Identifier: "value", DataType: "integer", Required: true}}}}} /* 更新 m 的值。 */
@@ -137,10 +137,6 @@ func TestThingModelAndRemovedEdgeValidation(t *testing.T) { /* 定义 TestThingM
 	s.PublishCommand = func(context.Context, string, []byte, byte, bool) error { return nil }                                                           /* 检查错误并决定后续处理。 */
 	if _, e := s.SendCommand(ctx, "t", "d", model.DeviceCommand{Confirmed: true, ID: "c", Type: "set", Data: map[string]any{"value": 1.2}}); e == nil { /* 判断条件并选择处理分支。 */
 		t.Fatal("invalid integer accepted") /* 验证实际结果符合预期。 */
-	} /* 结束当前表达式或代码块。 */
-	_, _, e := s.plan(ctx, "t", Request{ProductID: "p", DeviceID: "new", Name: "new", Profile: model.DeviceAccessProfile{EdgeNodeID: "edge"}}) /* 更新 e 的值。 */
-	if e == nil {                                                                                                                              /* 判断条件并选择处理分支。 */
-		t.Fatal("removed edge assignment accepted") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 

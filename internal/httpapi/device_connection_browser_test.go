@@ -34,11 +34,12 @@ func TestDeviceConnectionBrowser(t *testing.T) { /* 定义 TestDeviceConnectionB
 	if err != nil {                                                          /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                                                                                                 /* 更新 log 的值。 */
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)                                                                         /* 更新 engine 的值。 */
-	cfg := config.Load()                                                                                                                                                                  /* 更新 cfg 的值。 */
-	cfg.DataDir = root                                                                                                                                                                    /* 更新 cfg.DataDir 的值。 */
-	cfg.JWTSecret = "device-detail-isolated-test-key-32-characters"                                                                                                                       /* 更新 cfg.JWTSecret 的值。 */
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))                                                         /* 更新 log 的值。 */
+	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log) /* 更新 engine 的值。 */
+	cfg := config.Load()                                                                                          /* 更新 cfg 的值。 */
+	cfg.DataDir = root                                                                                            /* 更新 cfg.DataDir 的值。 */
+	cfg.JWTSecret = "device-detail-isolated-test-key-32-characters"                                               /* 更新 cfg.JWTSecret 的值。 */
+	cfg.DeviceHTTPPublicURL = "https://devices.example.test"
 	api := New(cfg, engine, metrics.New(), log)                                                                                                                                           /* 更新 api 的值。 */
 	if err = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "long-product-1788991005167", Name: "本地联调产品 1788991005167", Status: "ENABLED", Transport: "HTTP"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */

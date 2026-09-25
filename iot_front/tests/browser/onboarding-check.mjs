@@ -32,9 +32,8 @@ try { /* 执行当前语句并推进处理流程。 */
     const data=await response.json(); assert.ok(response.ok,JSON.stringify(data)); return data /* 声明 data。 */
   } /* 结束当前表达式或代码块。 */
   // Legacy Modbus remains an API fixture; the UI now manages its persisted instance.
-  const nativeRequest={productId:'browser-modbus-product',productName:'Modbus 测试产品',deviceId:'browser-modbus-preview',name:'Modbus 预览',type:'MODBUS_TCP',pollIntervalSec:10,profile:{host:'127.0.0.1',port:Number(process.env.IOT_TEST_MODBUS_PORT),unitId:1,timeoutMs:3000,retries:0},pointTableCsv:'name,functionCode,address,addressNotation,dataType,scale,byteOrder,wordOrder,unit\ntemperature,3,0,zero_based,uint16,1,big,ABCD,C\n'} /* 声明 nativeRequest。 */
-  const preview=await request('/api/v1/onboarding/test',nativeRequest) /* 声明 preview。 */
-  await request('/api/v1/onboarding',{...nativeRequest,testToken:preview.testToken}) /* 等待异步操作完成。 */
+  // Modbus 协议版本由 Go 测试预先发布，这里通过统一的添加设备接口登记采集设备。
+  await request('/api/v1/onboarding',{requestId:'browser-modbus',productId:'browser-modbus-product',device:{id:'browser-modbus-preview',name:'Modbus 预览'},connection:{mode:'poll',host:'127.0.0.1',port:Number(process.env.IOT_TEST_MODBUS_PORT),unitId:1,timeoutMs:3000}})
   await click('产品管理'); await click('新建产品') /* 等待异步操作完成。 */
   await fill('产品名称','浏览器标准产品'); await fill('产品标识','browser-standard-product') /* 等待异步操作完成。 */
   await click('保存产品') /* 等待异步操作完成。 */

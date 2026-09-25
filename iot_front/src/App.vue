@@ -95,7 +95,9 @@ const menuGroups = [
 const current = computed(() => pages[active.value] || { title: '暂无可用功能' })
 const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '')
 const showHeader = computed(() => current.value.layout !== 'full' && current.value.header !== false && Boolean(current.value.component))
-const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(name => can('menu:' + name)) })).filter(group => group.items.length))
+// 接入点在设备模板详情中管理；没有模板菜单权限的账号仍保留独立入口。
+const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('menu:products'))
+const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length))
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
 watch(() => permissionState.items.join('\n'), (value, old) => {
@@ -146,6 +148,7 @@ function handleAccountCommand(command) {
 function openPage(name, detail) {
   // 旧的导航事件仍可能使用 testDevice，统一落到模拟设备测试页面。
   if (name === 'testDevice') name = 'integration'
+  if (name === 'profiles' && can('menu:products')) { name = 'products'; detail = detail && { ...detail, tab: 'access' } }
   if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
   if (active.value === name && !detail) return

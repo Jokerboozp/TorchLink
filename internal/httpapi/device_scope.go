@@ -7,7 +7,8 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/ports" /* 执行当前语句并推进处理流程。 */
 	"net/http"                    /* 执行当前语句并推进处理流程。 */
-	"strings"                     /* 执行当前语句并推进处理流程。 */
+	"sort"
+	"strings" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
 type deviceScopeKey struct{} /* 定义 deviceScopeKey 类型。 */
@@ -121,6 +122,42 @@ func (r *deviceScopeRepository) ListManagedDevicesPage(ctx context.Context, t st
 	rows, e := r.ListManagedDevices(ctx, t)    /* 更新 e 的值。 */
 	return pageSlice(rows, l, o), len(rows), e /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+// Limited users filter their authorized devices in memory so totals never count
+// devices outside the request scope.
+func (r *deviceScopeRepository) ListManagedDevicesFiltered(ctx context.Context, f ports.DeviceFilter, l, o int) ([]model.ManagedDevice, int, error) {
+	if !limited(ctx) {
+		return r.Repository.ListManagedDevicesFiltered(ctx, f, l, o)
+	}
+	rows, e := r.ListManagedDevices(ctx, f.TenantID)
+	if e != nil {
+		return nil, 0, e
+	}
+	ids := make([]string, 0, len(rows))
+	for _, v := range rows {
+		ids = append(ids, v.ID)
+	}
+	states, e := r.GetDeviceStatesByIDs(ctx, f.TenantID, ids)
+	if e != nil {
+		return nil, 0, e
+	}
+	out := []model.ManagedDevice{}
+	for _, v := range rows {
+		var state *model.DeviceState
+		if current, ok := states[v.ID]; ok {
+			state = &current
+		}
+		if f.Matches(v, state) {
+			out = append(out, v)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].UpdatedAt != out[j].UpdatedAt {
+			return out[i].UpdatedAt > out[j].UpdatedAt
+		}
+		return out[i].ID > out[j].ID
+	})
+	return pageSlice(out, l, o), len(out), nil
+}
 func (r *deviceScopeRepository) ListManagedDeviceChildren(ctx context.Context, t, id string, l, o int) ([]model.ManagedDevice, int, error) { /* 定义 ListManagedDeviceChildren 函数。 */
 	if !deviceAllowed(ctx, t, id) { /* 判断条件并选择处理分支。 */
 		return nil, 0, errDeviceScope /* 返回当前处理结果。 */
@@ -311,6 +348,10 @@ func (s *Server) allowScopedRequest(c *gin.Context, v deviceScope) bool { /* 定
 	if !v.All { /* 判断条件并选择处理分支。 */
 		// Tenant-wide jobs and configuration can expose other devices. Their menus
 		// are also removed from the effective permission list.
+		// Adding devices is limited to users who can see every device.
+		if strings.HasPrefix(path, "/api/v1/onboarding") {
+			return false
+		}
 		if strings.HasPrefix(path, "/api/v1/replays") || strings.HasSuffix(path, "/replay") { /* 判断条件并选择处理分支。 */
 			return false /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
