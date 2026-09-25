@@ -18,7 +18,7 @@ func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request)
 		problem(w, 404, "所属主设备不存在")
 		return
 	}
-	profileID := parent.Tags["connectorProfileId"]
+	profileID := parent.ConnectorProfileID
 	if profileID == "" {
 		problem(w, 422, "主设备尚未关联接入点")
 		return

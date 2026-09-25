@@ -33,15 +33,15 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) { /* 定义 TestDeviceOpe
 	if e = engine.Start(ctx); e != nil {                                                                          /* 判断条件并选择处理分支。 */
 		t.Fatal(e) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	cfg := config.Load()                                                                                                                                                                                               /* 更新 cfg 的值。 */
-	cfg.JWTSecret = "operations-test-key-32-characters"                                                                                                                                                                /* 更新 cfg.JWTSecret 的值。 */
-	srv := New(cfg, engine, metrics.New(), log)                                                                                                                                                                        /* 更新 srv 的值。 */
-	sent := 0                                                                                                                                                                                                          /* 更新 sent 的值。 */
-	srv.SetDeviceOperations(func(context.Context, string, []byte, byte, bool) error { sent++; return nil }, nil)                                                                                                       /* 检查错误并决定后续处理。 */
-	repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Status: "ENABLED"})                                                                                                                                    /* 执行当前语句并推进处理流程。 */
-	repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "t", ProtocolID: parser.StandardProtocolID, Version: "1.0.0", Status: "PUBLISHED", ParserType: parser.StandardParserName})                         /* 执行当前语句并推进处理流程。 */
-	repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: onboarding.Hash("secret"), Tags: map[string]string{"connector": "MQTT"}}) /* 执行当前语句并推进处理流程。 */
-	call := func(method, path, body, tenant, role string) *httptest.ResponseRecorder {                                                                                                                                 /* 更新 call 的值。 */
+	cfg := config.Load()                                                                                                                                                                       /* 更新 cfg 的值。 */
+	cfg.JWTSecret = "operations-test-key-32-characters"                                                                                                                                        /* 更新 cfg.JWTSecret 的值。 */
+	srv := New(cfg, engine, metrics.New(), log)                                                                                                                                                /* 更新 srv 的值。 */
+	sent := 0                                                                                                                                                                                  /* 更新 sent 的值。 */
+	srv.SetDeviceOperations(func(context.Context, string, []byte, byte, bool) error { sent++; return nil }, nil)                                                                               /* 检查错误并决定后续处理。 */
+	repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Status: "ENABLED"})                                                                                                            /* 执行当前语句并推进处理流程。 */
+	repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "t", ProtocolID: parser.StandardProtocolID, Version: "1.0.0", Status: "PUBLISHED", ParserType: parser.StandardParserName}) /* 执行当前语句并推进处理流程。 */
+	repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "key", SecretHash: onboarding.Hash("secret"), Connector: "MQTT"})    /* 执行当前语句并推进处理流程。 */
+	call := func(method, path, body, tenant, role string) *httptest.ResponseRecorder {                                                                                                         /* 更新 call 的值。 */
 		token, _ := srv.auth.Issue("test", tenant, role, nil, time.Hour)    /* 更新 _ 的值。 */
 		r := httptest.NewRequest(method, path, bytes.NewBufferString(body)) /* 更新 r 的值。 */
 		r.Header.Set("Authorization", "Bearer "+token)                      /* 执行当前语句并推进处理流程。 */
@@ -127,7 +127,7 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) { /* 定义 TestDeviceOpe
 	// Details follow the current binding even while a profile still records the
 	// original release, and the alarm preview must remain device/tenant scoped.
 	d, _ := repo.GetManagedDevice(ctx, "t", "d")                                                                                                                      /* 更新 _ 的值。 */
-	d.Tags = map[string]string{"connector": "TCP", "connectorProfileId": "profile"}                                                                                   /* 更新 d.Tags 的值。 */
+	d.Connector, d.ConnectorProfileID = "TCP", "profile"                                                                                                              /* 更新 d.Tags 的值。 */
 	repo.SaveManagedDevice(ctx, d)                                                                                                                                    /* 执行当前语句并推进处理流程。 */
 	repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "t", ID: "profile", ProductID: "p", ProtocolID: "old", ProtocolVersion: "1"})               /* 执行当前语句并推进处理流程。 */
 	repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "t", ProtocolID: "current", Version: "2", Status: "PUBLISHED", Capabilities: []string{"encode"}}) /* 执行当前语句并推进处理流程。 */

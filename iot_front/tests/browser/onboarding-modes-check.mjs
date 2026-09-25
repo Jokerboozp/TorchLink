@@ -43,7 +43,7 @@ const mocks = `
     if (path === '/api/v1/onboarding' && options?.method === 'POST') {
       const request = window.__enrollRequest = JSON.parse(options.body);
       const listener = request.connection.mode === 'listener';
-      const device = { id:request.device.id, name:request.device.name, productId:request.productId, deviceRole:request.device.deviceRole, status:'ENABLED', createdAt:Date.now(), tags:{ connector: listener ? 'TCP' : request.connection.transport } };
+      const device = { id:request.device.id, name:request.device.name, productId:request.productId, deviceRole:request.device.deviceRole, status:'ENABLED', createdAt:Date.now(), connector: listener ? 'TCP' : request.connection.transport };
       return json(listener
         ? { reused:false, mode:'listener', device, product:{ id:'product-gateway', name:'用户信息传输装置' }, profile:{ id:'gateway-new', mode:'listener', network:request.connection.listener.network, connectionMode:'listen', host:'0.0.0.0', publicHost:request.connection.listener.publicHost, port:request.connection.listener.port, enabled:true, runtimeStatus:'PENDING' } }
         : { reused:false, mode:'standard', device, product:{ id:'product-demo', name:'烟雾探测器' }, credential:{ accessKey:'fixture-access-key', secret:'fixture-device-secret' }, accessInfo:{ kind:'standard', mqttBroker:'', clientId:'device-fixture-access-key', username:'fixture-access-key', upTopic:'/iot/up/fixture/product-demo/' + device.id + '/property', downTopic:'/iot/down/fixture/product-demo/' + device.id + '/command', tokenEndpoint:'/api/v1/device-mqtt/token', sample:{ version:'1.0', data:{ temperature:22 } } } });

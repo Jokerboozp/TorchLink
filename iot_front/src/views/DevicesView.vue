@@ -31,7 +31,7 @@ const pendingTab = computed(() => deviceTab.value === 'pending')
 
 function categoryOf(productId) { return products.value.find(item => item.id === productId)?.category || 'other' }
 function productName(id) { return products.value.find(item => item.id === id)?.name || id }
-function roleOf(device) { return device.deviceRole || (categoryOf(device.productId) === 'gateway' ? 'GATEWAY' : 'DIRECT') }
+function roleOf(device) { return device.deviceRole || 'DIRECT' }
 function relation(row) {
   const role = roleOf(row.device)
   if (role === 'GATEWAY') return `${row.childCount || 0} 个子设备`
@@ -87,13 +87,12 @@ function changeUnregisteredPageSize(value) { unregisteredPageSize.value = value;
 // 编辑设备；新设备统一通过“添加设备”向导创建。
 const blank = () => ({ id: '', name: '', productId: '', deviceRole: 'DIRECT', gatewayId: '', status: 'ENABLED', tags: [{ key: '', value: '' }], description: '' })
 const form = reactive(blank())
-const systemTagKeys = new Set(['connector', 'connectorProfileId', 'childAddress', 'childType', 'onboardingRequestHash'])
 async function loadGateways() {
   try { gateways.value = ((await apiAll('/api/v1/device-registry?role=GATEWAY')).items || []).filter(item => roleOf(item.device) === 'GATEWAY') }
   catch (error) { notifyError(error) }
 }
 function open(device) {
-  const tags = Object.entries(device.tags || {}).filter(([key]) => !systemTagKeys.has(key)).map(([key, value]) => ({ key, value }))
+  const tags = Object.entries(device.tags || {}).map(([key, value]) => ({ key, value }))
   Object.assign(form, blank(), { ...device, deviceRole: device.deviceRole || roleOf(device), tags: tags.length ? tags : [{ key: '', value: '' }] })
   dialog.value = true
   loadGateways()

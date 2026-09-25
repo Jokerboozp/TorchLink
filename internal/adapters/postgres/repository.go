@@ -69,9 +69,9 @@ func (r *Repository) Migrate(ctx context.Context) error { /* 定义 Migrate 函�
 	return tx.Commit(ctx) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) SaveProduct(ctx context.Context, v model.Product) error { /* 定义 SaveProduct 函数。 */
-	b, _ := json.Marshal(v)                                                                                                                                                                                                                                                                                                            /* 更新 _ 的值。 */
-	_, err := r.pool.Exec(ctx, `INSERT INTO iot_product(tenant_id,id,status,protocol_package_id,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,id) DO UPDATE SET status=excluded.status,protocol_package_id=excluded.protocol_package_id,body=excluded.body,updated_at=now()`, v.TenantID, v.ID, v.Status, v.ProtocolPackageID, b) /* 更新 err 的值。 */
-	return err                                                                                                                                                                                                                                                                                                                         /* 返回当前处理结果。 */
+	b, _ := json.Marshal(v)                                                                        /* 更新 _ 的值。 */
+	_, err := r.pool.Exec(ctx, saveProductSQL, v.TenantID, v.ID, v.Status, v.ProtocolPackageID, b) /* 更新 err 的值。 */
+	return err                                                                                     /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) GetProduct(ctx context.Context, tenant, id string) (model.Product, error) { /* 定义 GetProduct 函数。 */
 	var v model.Product                                                                                           /* 声明 v。 */
@@ -131,9 +131,9 @@ func (r *Repository) ListProductsPage(ctx context.Context, tenant string, limit,
 	return items, total, rows.Err() /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) SaveProtocolPackage(ctx context.Context, v model.ProtocolPackage) error { /* 定义 SaveProtocolPackage 函数。 */
-	b, _ := json.Marshal(v)                                                                                                                                                                                                                                                                                  /* 更新 _ 的值。 */
-	_, err := r.pool.Exec(ctx, `INSERT INTO protocol_package(tenant_id,id,status,parser_type,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,id) DO UPDATE SET status=excluded.status,parser_type=excluded.parser_type,body=excluded.body,updated_at=now()`, v.TenantID, v.ID, v.Status, v.ParserType, b) /* 更新 err 的值。 */
-	return err                                                                                                                                                                                                                                                                                               /* 返回当前处理结果。 */
+	b, _ := json.Marshal(v)                                                                         /* 更新 _ 的值。 */
+	_, err := r.pool.Exec(ctx, saveProtocolPackageSQL, v.TenantID, v.ID, v.Status, v.ParserType, b) /* 更新 err 的值。 */
+	return err                                                                                      /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) GetProtocolPackage(ctx context.Context, tenant, id string) (model.ProtocolPackage, error) { /* 定义 GetProtocolPackage 函数。 */
 	var v model.ProtocolPackage                                                                                        /* 声明 v。 */
@@ -323,8 +323,8 @@ func (r *Repository) SaveProductProtocolBinding(ctx context.Context, v model.Pro
 	if err != nil {           /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	_, err = r.pool.Exec(ctx, `INSERT INTO product_protocol_binding(tenant_id,product_id,protocol_id,version,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,product_id) DO UPDATE SET protocol_id=excluded.protocol_id,version=excluded.version,body=excluded.body,updated_at=now()`, v.TenantID, v.ProductID, v.ProtocolID, v.Version, b) /* 更新 err 的值。 */
-	return err                                                                                                                                                                                                                                                                                                                                 /* 返回当前处理结果。 */
+	_, err = r.pool.Exec(ctx, saveBindingSQL, v.TenantID, v.ProductID, v.ProtocolID, v.Version, b) /* 更新 err 的值。 */
+	return err                                                                                     /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) GetProductProtocolBinding(ctx context.Context, tenant, productID string) (model.ProductProtocolBinding, error) { /* 定义 GetProductProtocolBinding 函数。 */
 	var v model.ProductProtocolBinding                                                                                                        /* 声明 v。 */

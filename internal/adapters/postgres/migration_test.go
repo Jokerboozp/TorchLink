@@ -87,3 +87,75 @@ INSERT INTO alarm_ai_analysis(alarm_id,body) VALUES
 		t.Fatalf("composite tenant/alarm primary key was not installed: %v", err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+
+func TestMigrateDeviceSystemTagsToFields(t *testing.T) {
+	dsn := os.Getenv("IOT_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("IOT_TEST_POSTGRES_DSN is not configured")
+	}
+	ctx := context.Background()
+	admin, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	schemaName := fmt.Sprintf("device_fields_test_%d", time.Now().UnixNano())
+	identifier := pgx.Identifier{schemaName}.Sanitize()
+	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = admin.Exec(context.Background(), "DROP SCHEMA "+identifier+" CASCADE") }()
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = schemaName
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	r := &Repository{pool: pool}
+	if err = r.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"id":"child","tenantId":"t","productId":"p","name":"子设备","status":"ENABLED","deviceRole":"CHILD","gatewayId":"gw","tags":{"floor":"1","connector":"TCP_CHILD","connectorProfileId":"gw-tcp","childAddress":"3","childType":"smoke","onboardingRequestHash":"h"}}`
+	if _, err = pool.Exec(ctx, `INSERT INTO device_registry(tenant_id,id,product_id,status,access_key,secret_hash,body) VALUES('t','child','p','ENABLED','k','',$1)`, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO iot_product(tenant_id,id,status,protocol_package_id,body) VALUES('t','gw','ENABLED','','{"id":"gw","tenantId":"t","category":"gateway"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO device_registry(tenant_id,id,product_id,status,access_key,secret_hash,body) VALUES('t','legacy-gw','gw','ENABLED','k2','','{"id":"legacy-gw","tenantId":"t","productId":"gw","status":"ENABLED"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO protocol_release(tenant_id,protocol_id,version,status,parser_type,body) VALUES('t','meter','1','PUBLISHED','modbus_tcp_parser_v2','{"protocolId":"meter","version":"1","status":"PUBLISHED"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO iot_product(tenant_id,id,status,protocol_package_id,body) VALUES('t','meter-product','ENABLED','meter@1','{"id":"meter-product","tenantId":"t","protocolPackageId":"meter@1"}')`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err = r.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var tags map[string]string
+	var connector string
+	if err = pool.QueryRow(ctx, `SELECT body->>'connector', body->'tags' FROM device_registry WHERE id='child'`).Scan(&connector, &tags); err != nil {
+		t.Fatal(err)
+	}
+	if connector != "TCP_CHILD" || len(tags) != 1 || tags["floor"] != "1" {
+		t.Fatalf("stored body not migrated: connector=%q tags=%v", connector, tags)
+	}
+	d, err := r.GetManagedDevice(ctx, "t", "child")
+	if err != nil || d.ConnectorProfileID != "gw-tcp" || d.ChildAddress != "3" || d.ChildType != "smoke" || d.OnboardingRequestHash != "h" {
+		t.Fatalf("migrated device %+v %v", d, err)
+	}
+	if gw, err := r.GetManagedDevice(ctx, "t", "legacy-gw"); err != nil || gw.DeviceRole != "GATEWAY" || d.DeviceRole != "CHILD" {
+		t.Fatalf("stored roles: gateway %+v child %q %v", gw, d.DeviceRole, err)
+	}
+	if binding, err := r.GetProductProtocolBinding(ctx, "t", "meter-product"); err != nil || binding.ProtocolID != "meter" || binding.Version != "1" {
+		t.Fatalf("missing binding was not created: %+v %v", binding, err)
+	}
+}

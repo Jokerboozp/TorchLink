@@ -29,8 +29,8 @@ func (s *Server) executionTarget(r *http.Request) string { /* 定义 executionTa
 		if err != nil {                                                                 /* 判断条件并选择处理分支。 */
 			return "" /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		profile = d.Tags["connectorProfileId"] /* 更新 profile 的值。 */
-		if profile == "" {                     /* 判断条件并选择处理分支。 */
+		profile = d.ConnectorProfileID /* 更新 profile 的值。 */
+		if profile == "" {             /* 判断条件并选择处理分支。 */
 			profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), claim.TenantID) /* 更新 err 的值。 */
 			if err != nil {                                                                      /* 判断条件并选择处理分支。 */
 				return "" /* 返回当前处理结果。 */

@@ -48,7 +48,7 @@ func TestExecutionRouteUsesTenantLeaseAndPreservesAuth(t *testing.T) { /* 定义
 	if _, ok, err := repo.AcquireExecutionLease(ctx, "tenant", "profile/profile", "remote", remote.URL, time.Minute); err != nil || !ok { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "device", Tags: map[string]string{"connectorProfileId": "profile"}}); err != nil { /* 判断条件并选择处理分支。 */
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "device", ConnectorProfileID: "profile"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	r := httptest.NewRequest("POST", "/api/v1/device-registry/device/commands", nil) /* 更新 r 的值。 */

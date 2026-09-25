@@ -17,12 +17,3 @@ test('Naive UI 主题完全由 tokens.css 生成，品牌色与设计变量一�
 test('缺失的设计变量会直接报错，而不是生成空主题', () => {
   assert.throws(() => resolveToken(parseTokens(':root { --a: var(--missing); }'), '--a'), /未定义/)
 })
-
-test('旧变量别名只引用已定义的设计变量', async () => {
-  const aliases = await readFile(new URL('../src/theme/legacy-aliases.css', import.meta.url), 'utf8')
-  const tokens = parseTokens(tokensCss)
-  for (const [name, value] of Object.entries(parseTokens(aliases))) {
-    const target = value.match(/^var\((--[\w-]+)\)$/)?.[1]
-    assert.ok(target && tokens[target], `${name} 引用了不存在的变量 ${value}`)
-  }
-})

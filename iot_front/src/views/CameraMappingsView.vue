@@ -4,6 +4,11 @@ defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
 import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
+import { Plus, RefreshCw } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import FilterBar from '../components/layout/FilterBar.vue'
+import RowActions from '../components/layout/RowActions.vue'
+import StatusDot from '../components/layout/StatusDot.vue'
 import { confirmDelete } from '../deleteAction'
 
 const cameras = ref([]) /* 声明 cameras。 */
@@ -81,29 +86,36 @@ function changePage(value) { page.value = value; load() } /* 定义 changePage �
 function changePageSize(value) { pageSize.value = value; page.value = 1; load() } /* 定义 changePageSize 函数。 */
 
 onMounted(async () => { await load(); consumeNavigationAction() }) /* 执行当前语句并推进处理流程。 */
+function rowActions(row) {
+  return [
+    { key:'edit', label:'编辑', permission:'PUT /api/v1/integrations/video/cameras/:id', onClick:() => open(row) },
+    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/integrations/video/cameras/:id', onClick:() => remove(row) }
+  ]
+}
 </script>
 
 <template>
-  <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <ui-button v-permission="'POST /api/v1/integrations/video/cameras'" type="primary" @click="open()">新增摄像头</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <ui-button @click="load">刷新</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <span>共 {{ total }} 个摄像头；一个摄像头最多关联一个设备，一个设备可以关联多个摄像头</span> <!-- 渲染 span 界面元素。 -->
-  </div> <!-- 结束当前界面区域。 -->
+  <FilterBar>
+    <p class="camera-hint">一个摄像头最多关联一个设备，一个设备可以关联多个摄像头。</p>
+    <template #actions>
+      <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
+      <ui-button v-permission="'POST /api/v1/integrations/video/cameras'" type="primary" @click="open()"><Plus />新增摄像头</ui-button>
+    </template>
+  </FilterBar>
 
-  <ui-alert title="平台只保存摄像头基础信息和设备关联，不解析、拉取或预览视频流。设备告警会带出关联摄像头信息，直播流请由外部视频平台按摄像头信息提供。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
+  <ui-alert class="camera-intro" title="平台只保存摄像头基础信息和设备关联，不解析、拉取或预览视频流。设备告警会带出关联摄像头信息，直播流请由外部视频平台按摄像头信息提供。" type="info" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
 
-  <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
-    <ui-table v-loading="loading" :data="cameras" stripe :row-class-name="rowClassName"> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column label="摄像头" min-width="180"><template #default="{ row }"><b>{{ row.cameraName }}</b><small class="subline">{{ row.cameraId }} · {{ row.brand || '品牌未填' }}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="摄像头点位" min-width="170"><template #default="{ row }">{{ row.cameraPoint || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="位置" min-width="210"><template #default="{ row }">{{ [row.building, row.floor, row.room].filter(Boolean).join(' / ') || '—' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="关联设备" min-width="180"><template #default="{ row }">{{ row.deviceId || '未关联' }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="状态" width="100" align="center"><template #default="{ row }"><ui-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '已停用' }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" width="160" align="center" fixed="right"><template #default="{ row }"><div class="table-actions"><ui-button v-permission="'PUT /api/v1/integrations/video/cameras/:id'" plain type="primary" @click="open(row)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/integrations/video/cameras/:id'" plain type="danger" @click="remove(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+  <DataTableCard :title="`摄像头 · ${total} 个`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
+    <ui-table v-loading="loading" :data="cameras" :row-class-name="rowClassName">
+      <ui-table-column label="摄像头" min-width="180"><template #default="{ row }"><b>{{ row.cameraName }}</b><small class="subline">{{ row.cameraId }} · {{ row.brand || '品牌未填' }}</small></template></ui-table-column>
+      <ui-table-column label="摄像头点位" min-width="170"><template #default="{ row }">{{ row.cameraPoint || '—' }}</template></ui-table-column>
+      <ui-table-column label="位置" min-width="210"><template #default="{ row }">{{ [row.building, row.floor, row.room].filter(Boolean).join(' / ') || '—' }}</template></ui-table-column>
+      <ui-table-column label="关联设备" min-width="180"><template #default="{ row }">{{ row.deviceId || '未关联' }}</template></ui-table-column>
+      <ui-table-column label="状态" width="100"><template #default="{ row }"><StatusDot :tone="row.enabled ? 'success' : 'neutral'" :label="row.enabled ? '已启用' : '已停用'" /></template></ui-table-column>
+      <ui-table-column label="操作" width="140" align="right" fixed="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
       <template #empty><ui-empty description="暂无摄像头信息" /></template>
-    </ui-table> <!-- 结束当前界面区域。 -->
-    <div class="list-pagination"><ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div> <!-- 渲染 div 界面元素。 -->
-  </ui-card> <!-- 结束当前界面区域。 -->
+    </ui-table>
+  </DataTableCard>
 
   <ui-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
 
@@ -129,7 +141,9 @@ onMounted(async () => { await load(); consumeNavigationAction() }) /* 执行当�
 </template>
 
 <style scoped>
-.camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}.camera-editor-section h3{margin:0;color:var(--accent-foreground);font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:var(--accent-foreground);font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
+.camera-hint { flex: 1 1 280px; margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }
+.camera-intro { margin-bottom: var(--space-4); }
+.camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.camera-editor-section h3{margin:0;color:var(--text);font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:var(--text);font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
 @media(max-width:640px){.camera-editor-section{padding:13px}}
-:deep(.ui-table .camera-highlight > td) { background:var(--surface-subtle) !important; } /* 设置  样式。 */
+:deep(.ui-table .camera-highlight > td) { --n-merged-td-color:var(--primary-soft); --n-merged-td-color-hover:var(--primary-soft-hover); } /* 设置  样式。 */
 </style>

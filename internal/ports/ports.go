@@ -142,6 +142,9 @@ type Repository interface { /* 定义 Repository 类型。 */
 
 	// ListManagedDevicesFiltered filters before pagination and returns the filtered total.
 	ListManagedDevicesFiltered(context.Context, DeviceFilter, int, int) ([]model.ManagedDevice, int, error)
+	// SwitchProductProtocol writes a template's protocol binding, protocol reference
+	// and compatibility package in one transaction.
+	SwitchProductProtocol(context.Context, model.ProtocolSwitch) error
 } /* 结束当前表达式或代码块。 */
 
 type Archive interface { /* 定义 Archive 类型。 */

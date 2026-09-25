@@ -176,7 +176,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <ui-descriptions-item v-if="data.profile" label="接入点运行状态">{{data.profile.runtimeStatus ? statusLabel(data.profile.runtimeStatus) : '待确认'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.profile?.collectorId" label="采集器">{{data.profile.collectorId}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
             <ui-descriptions-item v-if="data.parent" label="所属主设备"><ui-button link type="primary" @click="emit('device',data.parent.id)">{{data.parent.name || data.parent.id}}</ui-button></ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
-            <ui-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.tags?.childAddress || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
+            <ui-descriptions-item v-if="data.parent" label="子设备地址">{{data.device.childAddress || '—'}}</ui-descriptions-item> <!-- 渲染 ui-descriptions-item 界面元素。 -->
           </ui-descriptions> <!-- 结束当前界面区域。 -->
           <ui-alert v-if="data.profile?.lastError || data.ingest?.parseError" class="section-feedback" title="最近接入异常" :description="data.profile?.lastError || data.ingest?.parseError" type="warning" :closable="false" show-icon /> <!-- 渲染 ui-alert 界面元素。 -->
           <div v-if="data.profiles?.length > 1" class="profile-picker"> <!-- 渲染 div 界面元素。 -->
@@ -204,7 +204,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           <p v-if="!childTypes.length">接入点尚未配置子设备类型。请在设备模板的“接入点”中添加子设备映射后，再按地址添加子设备。</p>
           <ui-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" /> <!-- 渲染 ui-alert 界面元素。 -->
           <ui-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息"> <!-- 渲染 ui-table 界面元素。 -->
-            <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.tags.childAddress" label="地址" min-width="90" /> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.childAddress" label="地址" min-width="90" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column prop="productName" label="设备模板" min-width="130" /> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="协议" min-width="150"><template #default="{row}">{{row.binding?.protocolId || '未配置'}} · {{row.binding?.version || '—'}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{formatTime(row.runtimeState?.lastSeenAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->

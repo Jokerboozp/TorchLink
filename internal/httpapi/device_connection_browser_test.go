@@ -44,7 +44,7 @@ func TestDeviceConnectionBrowser(t *testing.T) { /* 定义 TestDeviceConnectionB
 	if err = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "long-product-1788991005167", Name: "本地联调产品 1788991005167", Status: "ENABLED", Transport: "HTTP"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "local-check-1788991005167", ProductID: "long-product-1788991005167", Name: "本地联调传感器", DeviceRole: "DIRECT", Status: "ENABLED", AccessKey: "fixture-key", SecretHash: "fixture-hash", Tags: map[string]string{"connector": "HTTP"}}); err != nil { /* 判断条件并选择处理分支。 */
+	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "local-check-1788991005167", ProductID: "long-product-1788991005167", Name: "本地联调传感器", DeviceRole: "DIRECT", Status: "ENABLED", AccessKey: "fixture-key", SecretHash: "fixture-hash", Connector: "HTTP"}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if err = repo.SaveStandardMessage(ctx, model.StandardMessage{MessageID: "msg_detail", RawMessageID: "raw_detail", TenantID: "tenant", ProductID: "long-product-1788991005167", DeviceID: "local-check-1788991005167", MessageType: model.PropertyReport, Timestamp: time.Now().UnixMilli(), Properties: map[string]any{"temperature": 42, "location": strings.Repeat("long-device-location/", 12)}}); err != nil { /* 判断条件并选择处理分支。 */

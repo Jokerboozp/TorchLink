@@ -191,3 +191,51 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
     </template>
   </ui-dialog>
 </template>
+
+<style>
+/* 弹窗与设置对话框传送到 body，样式以 global-alert- / alert- 前缀限定。 */
+.global-alert-popups { position: fixed; z-index: 1200; right: 22px; bottom: 22px; display: grid; gap: 10px; width: min(410px, calc(100vw - 32px)); pointer-events: none; }
+.global-alert-popup { padding: 15px; color: var(--text); background: var(--surface); border: 1px solid var(--danger-border); border-left: 4px solid var(--danger); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); pointer-events: auto; }
+.global-alert-popup.is-fault { border-color: var(--warning-border); border-left-color: var(--warning); }
+.global-alert-head { display: grid; grid-template-columns: 34px minmax(0, 1fr) 24px; align-items: start; gap: 10px; }
+.global-alert-icon { display: grid; place-items: center; width: 34px; height: 34px; color: var(--danger); background: var(--danger-soft); border-radius: var(--radius-lg); }
+.global-alert-icon svg { width: 18px; height: 18px; }
+.is-fault .global-alert-icon { color: var(--warning-text); background: var(--warning-soft); }
+.global-alert-title { min-width: 0; }
+.global-alert-kicker { display: block; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); letter-spacing: 0.08em; }
+.global-alert-title h3 { margin: 3px 0 2px; overflow: hidden; color: var(--text-strong); font-size: 15px; line-height: var(--line-height-tight); text-overflow: ellipsis; white-space: nowrap; }
+.global-alert-close { display: grid; place-items: center; width: 24px; height: 24px; color: var(--text-disabled); background: transparent; border: 0; border-radius: var(--radius-md); cursor: pointer; }
+.global-alert-close:hover { color: var(--danger); background: var(--danger-soft); }
+.global-alert-close svg { width: 15px; height: 15px; }
+.global-alert-facts { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.global-alert-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: start; gap: 9px; min-width: 0; }
+.global-alert-fact > span { color: var(--text-muted); font-size: var(--font-size-xs); line-height: var(--line-height-normal); }
+.global-alert-fact > strong { min-width: 0; color: var(--text); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); line-height: var(--line-height-normal); overflow-wrap: anywhere; }
+.global-alert-fact-content > strong { padding: 7px var(--space-2); color: var(--text-secondary); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-md); font-weight: var(--font-weight-medium); }
+.global-alert-fact .ui-tag { justify-self: start; }
+.global-alert-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 13px; }
+.global-alert-actions .ui-button { min-width: 74px; }
+.global-alert-enter-active,
+.global-alert-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.global-alert-enter-from,
+.global-alert-leave-to { opacity: 0; transform: translateY(10px); }
+.alert-settings { display: grid; gap: var(--space-3); }
+.alert-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 58px; padding: var(--space-3); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.alert-setting-row-stack { flex-direction: column; align-items: flex-start; gap: 10px; }
+.alert-setting-copy { display: grid; gap: var(--space-1); min-width: 0; }
+.alert-setting-copy strong { color: var(--text-strong); font-size: var(--font-size-sm); }
+.alert-setting-copy span { color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.55; }
+.alert-quiet-times { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
+.alert-quiet-times .ui-time-picker { width: 145px; }
+.alert-quiet-times > span { color: var(--text-muted); font-size: var(--font-size-xs); }
+.alert-sound-setting { display: flex; align-items: center; gap: 9px; }
+.alert-settings-note { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: var(--font-size-xs); }
+.alert-settings-note svg { width: 14px; height: 14px; }
+@media (max-width: 767px) {
+  .global-alert-popups { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+  .global-alert-popup { padding: 13px; }
+  .alert-setting-row:not(.alert-setting-row-stack) { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .alert-quiet-times .ui-time-picker { flex: 1; min-width: 0; width: 0; }
+  .alert-sound-setting { justify-content: space-between; width: 100%; }
+}
+</style>

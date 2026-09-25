@@ -31,7 +31,9 @@ npm run build
 - `src/styles/base.css` 放元素默认样式与包装控件的布局补充，`src/styles/shell.css` 放侧栏、顶栏、页头和登录页，`src/styles/motion.css` 处理“减少动态效果”。
 - 列表页统一使用 `src/components/layout/` 下的 `FilterBar`（筛选与操作）、`DataTableCard`（表格、分页、空与错误状态）、`StatusDot`（状态圆点加中文）和 `RowActions`（最多两个操作，其余收进“更多”）。窄屏下侧栏改为抽屉，设备列表改为卡片。
 - 深蓝 `--primary` 用于主操作和选中；火焰橙 `--flame` 只用于当前位置和告警强调。
-- `src/theme/legacy-aliases.css` 与 `src/styles/legacy-pages.css` 是尚未迁移页面的过渡样式，全部页面迁移后删除。
+- `src/styles/patterns.css` 只放多个页面共用的卡片、分页、表格操作和技术详情样式；单个页面或组件的样式写在各自 `.vue` 文件内，由 `v-html` 或传送门渲染的组件（Markdown、全局告警）使用带组件前缀的非 scoped 样式。
+- 图表按数据用途取色：设备状态与告警等级使用状态色，单一度量的柱条只用 `--primary`，统计卡片保持中性，数值与图例文字使用文字色。
+- `tests/style-rules.test.mjs` 静态检查：引用的变量都已定义、颜色值只出现在 `tokens.css`、除 `motion.css` 外不用 `!important`、不保留 `.el-` 选择器与过渡样式文件。
 
 `src/permissions.js` 根据服务端有效权限控制菜单和按钮，实际访问仍由后端校验。`src/views/AccessView.vue` 展示用户所属租户、角色、单独权限及设备范围。普通用户每3秒通过 `src/realtime.js` 读取授权范围内的事件，不签发浏览器 MQTT 凭据；初始快照不重播历史告警。内置管理员继续使用 MQTT。完整规则见 [用户权限](../docs/USER_ACCESS_CONTROL.md)。
 

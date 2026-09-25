@@ -37,7 +37,7 @@ func TestDeviceConnectionCheckUsesCurrentFieldEvidence(t *testing.T) {
 	if err := repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED", ProtocolPackageID: "iot-standard@1.0.0", Transport: "HTTP"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "device", ProductID: "product", Name: "设备", Status: "ENABLED", UpdatedAt: now - 2000, Tags: map[string]string{"connector": "HTTP"}}); err != nil {
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "device", ProductID: "product", Name: "设备", Status: "ENABLED", UpdatedAt: now - 2000, Connector: "HTTP"}); err != nil {
 		t.Fatal(err)
 	}
 	add := func(id, source string, at int64, parseError string, parsed bool) {

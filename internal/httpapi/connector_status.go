@@ -21,13 +21,13 @@ type listenerSnapshot interface { /* 定义 listenerSnapshot 类型。 */
 
 // Match only explicit configuration or an identified session, never product alone.
 func deviceUsesProfile(d model.ManagedDevice, p model.DeviceAccessProfile, sessions []map[string]any) bool { /* 定义 deviceUsesProfile 函数。 */
-	if d.TenantID == p.TenantID && d.GatewayID != "" && d.Tags["connectorProfileId"] == p.ID { /* 判断条件并选择处理分支。 */
+	if d.TenantID == p.TenantID && d.GatewayID != "" && d.ConnectorProfileID == p.ID { /* 判断条件并选择处理分支。 */
 		return true /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if d.TenantID != p.TenantID || d.ProductID != p.ProductID { /* 判断条件并选择处理分支。 */
 		return false /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if d.Tags["connectorProfileId"] == p.ID || p.DeviceID == d.ID { /* 判断条件并选择处理分支。 */
+	if d.ConnectorProfileID == p.ID || p.DeviceID == d.ID { /* 判断条件并选择处理分支。 */
 		return true /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, session := range sessions { /* 循环处理当前数据。 */
@@ -97,8 +97,8 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) { /* �
 		items = append(items, map[string]any{"type": kind, "profile": p, "sessions": sessions, "recentDevices": recent}) /* 更新 items 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, d := range devices { /* 循环处理当前数据。 */
-		if d.Tags["connector"] == "MQTT" || d.Tags["connector"] == "HTTP" { /* 判断条件并选择处理分支。 */
-			items = append(items, map[string]any{"type": d.Tags["connector"], "deviceId": d.ID, "profile": nil, "sessions": []any{}}) /* 更新 items 的值。 */
+		if d.Connector == "MQTT" || d.Connector == "HTTP" { /* 判断条件并选择处理分支。 */
+			items = append(items, map[string]any{"type": d.Connector, "deviceId": d.ID, "profile": nil, "sessions": []any{}}) /* 更新 items 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	write(w, 200, map[string]any{"items": items}) /* 执行当前语句并推进处理流程。 */
@@ -150,7 +150,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 	selected := r.URL.Query().Get("profileId") /* 更新 selected 的值。 */
 	if selected == "" {                        /* 判断条件并选择处理分支。 */
 		for _, candidate := range candidates { /* 循环处理当前数据。 */
-			if candidate.ID == d.Tags["connectorProfileId"] { /* 判断条件并选择处理分支。 */
+			if candidate.ID == d.ConnectorProfileID { /* 判断条件并选择处理分支。 */
 				selected = candidate.ID /* 更新 selected 的值。 */
 				break                   /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
@@ -173,7 +173,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 			sessions = append(sessions, byProfile[candidate.ID]...) /* 更新 sessions 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	kind := d.Tags["connector"]       /* 更新 kind 的值。 */
+	kind := d.Connector               /* 更新 kind 的值。 */
 	if kind == "" && profile != nil { /* 判断条件并选择处理分支。 */
 		kind = profileTransport(*profile) /* 更新 kind 的值。 */
 		if profile.Mode == "listener" {   /* 判断条件并选择处理分支。 */
@@ -182,7 +182,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 	} /* 结束当前表达式或代码块。 */
 	protocolID, version := "", "" /* 更新 version 的值。 */
 	bindingRevision := int64(0)
-	if d.Tags["connector"] == "HTTP" || d.Tags["connector"] == "MQTT" { /* 判断条件并选择处理分支。 */
+	if d.Connector == "HTTP" || d.Connector == "MQTT" { /* 判断条件并选择处理分支。 */
 		protocolID, version = parser.StandardProtocolID, "1.0.0" /* 更新 version 的值。 */
 	} else if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil { /* 结束当前表达式或代码块。 */
 		protocolID, version = binding.ProtocolID, binding.Version /* 更新 version 的值。 */
@@ -320,7 +320,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) { /* �
 	} /* 结束当前表达式或代码块。 */
 
 	diagnosis := s.connectionDiagnosis(r.Context(), tenant, d, p, productErr == nil, isChild, parent != nil, profile, ingest, selectedRaw)
-	write(w, 200, map[string]any{"diagnosis": diagnosis, "parent": parent, "accessInfo": s.deviceAccessInfo(d, p), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Tags["connector"] == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""}) /* 执行当前语句并推进处理流程。 */
+	write(w, 200, map[string]any{"diagnosis": diagnosis, "parent": parent, "accessInfo": s.deviceAccessInfo(d, p), "ingest": ingest, "recentAlarms": alarms, "revocations": revocations, "mqttCommandAvailable": d.Connector == "MQTT" && s.onboarding.PublishCommand != nil, "device": d.Public(p), "product": p, "connector": kind, "protocolId": protocolID, "protocolVersion": version, "canCommand": canCommand, "profile": profile, "profiles": candidates, "connection": state, "sessions": sessions, "latest": latest, "latestProperties": properties, "credentialSupported": d.UsesPlatformCredentials(p), "credentialEnabled": d.UsesPlatformCredentials(p) && d.SecretHash != ""}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func profileTransport(p model.DeviceAccessProfile) string { /* 定义 profileTransport 函数。 */
@@ -365,7 +365,7 @@ func (s *Server) connectionDiagnosis(ctx context.Context, tenant string, d model
 		Profile:         profile,
 	}
 	address := s.cfg.DeviceHTTPPublicURL
-	if d.Tags["connector"] == "MQTT" {
+	if d.Connector == "MQTT" {
 		address = s.cfg.MQTTPublicURL
 	}
 	if isChild && profile == nil && d.GatewayID != "" {

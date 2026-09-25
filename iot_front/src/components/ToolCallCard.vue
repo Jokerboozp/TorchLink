@@ -46,11 +46,11 @@ function safeSummary(value) { /* 定义 safeSummary 函数。 */
 </template>
 
 <style scoped>
-.tool-card { margin-top:10px; padding:10px 11px; background:var(--card); border:1px solid var(--border); border-left:3px solid var(--input); border-radius:4px; } /* 定义当前元素的样式规则。 */
-.tool-card.is-running { border-left-color:var(--warning); }.tool-card.is-succeeded { border-left-color:var(--success); }.tool-card.is-failed { border-left-color:var(--destructive); } /* 定义当前元素的样式规则。 */
-.tool-card header { display:flex; align-items:center; gap:9px; }.tool-icon { width:25px; height:25px; flex:0 0 25px; display:grid; place-items:center; color:var(--primary); background:var(--surface-subtle); border-radius:4px; font-size:12px; font-weight:800; } /* 定义当前元素的样式规则。 */
-.tool-title { min-width:0; flex:1; display:grid; gap:1px; }.tool-title small { color:var(--muted-foreground); font-size:12px; letter-spacing:.08em; }.tool-title strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; } /* 定义当前元素的样式规则。 */
-.tool-meta { min-height:20px; margin-top:7px; padding-left:34px; display:flex; align-items:center; gap:10px; color:var(--muted-foreground); font-size:12px; }.tool-meta .ui-button { margin-left:auto; padding:0; font-size:12px; } /* 定义当前元素的样式规则。 */
-.tool-details { margin:7px 0 0 34px; display:grid; gap:8px; }.tool-details section { display:grid; gap:4px; }.tool-details strong { color:var(--accent-foreground); font-size:12px; }.tool-details pre { max-height:180px; margin:0; padding:8px; overflow:auto; color:var(--foreground); background:var(--card); border:1px solid var(--border); border-radius:3px; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; } /* 定义当前元素的样式规则。 */
+.tool-card { margin-top:10px; padding:10px 11px; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--border-strong); border-radius:4px; } /* 定义当前元素的样式规则。 */
+.tool-card.is-running { border-left-color:var(--warning); }.tool-card.is-succeeded { border-left-color:var(--success); }.tool-card.is-failed { border-left-color:var(--danger); } /* 定义当前元素的样式规则。 */
+.tool-card header { display:flex; align-items:center; gap:9px; }.tool-icon { width:25px; height:25px; flex:0 0 25px; display:grid; place-items:center; color:var(--primary); background:var(--surface-muted); border-radius:4px; font-size:12px; font-weight:800; } /* 定义当前元素的样式规则。 */
+.tool-title { min-width:0; flex:1; display:grid; gap:1px; }.tool-title small { color:var(--text-muted); font-size:12px; letter-spacing:.08em; }.tool-title strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; } /* 定义当前元素的样式规则。 */
+.tool-meta { min-height:20px; margin-top:7px; padding-left:34px; display:flex; align-items:center; gap:10px; color:var(--text-muted); font-size:12px; }.tool-meta .ui-button { margin-left:auto; padding:0; font-size:12px; } /* 定义当前元素的样式规则。 */
+.tool-details { margin:7px 0 0 34px; display:grid; gap:8px; }.tool-details section { display:grid; gap:4px; }.tool-details strong { color:var(--text); font-size:12px; }.tool-details pre { max-height:180px; margin:0; padding:8px; overflow:auto; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:3px; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; } /* 定义当前元素的样式规则。 */
 .tool-meta .ui-button { min-height:24px; height:24px; padding:0 8px; } /* 定义当前元素的样式规则。 */
 </style>

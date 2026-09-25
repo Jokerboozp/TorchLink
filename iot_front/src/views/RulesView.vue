@@ -5,6 +5,11 @@ import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依
 import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 import { api, apiAll, notifyError, parseJSON, pretty } from '../api' /* 引入当前代码需要的依赖。 */
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
+import { Plus, RefreshCw, Wand2 } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import FilterBar from '../components/layout/FilterBar.vue'
+import RowActions from '../components/layout/RowActions.vue'
+import StatusDot from '../components/layout/StatusDot.vue'
 
 const rules = ref([]) /* 声明 rules。 */
 const products = ref([]) /* 声明 products。 */
@@ -176,35 +181,38 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
     // ignore invalid navigation detail
   } /* 结束当前表达式或代码块。 */
 }) /* 结束当前表达式或代码块。 */
+function rowActions(row) {
+  return [
+    { key:'view', label:'详情', onClick:() => view(row) },
+    { key:'edit', label:'编辑', permission:'PUT /api/v1/rules/:id', onClick:() => open(row) },
+    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/rules/:id', onClick:() => remove(row.id) }
+  ]
+}
 </script>
 
 <template>
-  <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <ui-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()">手动添加规则</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <ui-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft">智能生成规则草稿</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <ui-button :loading="loading" @click="load">刷新</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <span>共 {{ total }} 条规则，详情、编辑和删除操作位于列表右侧。</span> <!-- 渲染 span 界面元素。 -->
-  </div> <!-- 结束当前界面区域。 -->
+  <FilterBar>
+    <template #actions>
+      <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
+      <ui-button v-permission="'POST /api/v1/ai/rule-draft'" @click="openDraft"><Wand2 />智能生成规则草稿</ui-button>
+      <ui-button v-permission="'POST /api/v1/rules'" type="primary" @click="open()"><Plus />手动添加规则</ui-button>
+    </template>
+  </FilterBar>
 
-  <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
-    <ui-table v-loading="loading" :data="rules" stripe> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column label="规则" min-width="230"> <!-- 渲染 ui-table-column 界面元素。 -->
+  <DataTableCard :title="`告警规则 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
+    <ui-table v-loading="loading" :data="rules">
+      <ui-table-column label="规则" min-width="230">
         <template #default="{ row }"><b>{{ row.name }}</b><small class="subline">{{ row.id }}</small></template>
-      </ui-table-column> <!-- 结束当前界面区域。 -->
-      <ui-table-column label="告警类型" min-width="135"><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="等级" width="100" align="center"><template #default="{ row }"><ui-tag :type="tagType(row.level)" round>{{ label(alarmLevels, row.level, '未设置') }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="状态" width="100" align="center"><template #default="{ row }"><ui-tag :type="row.enabled ? 'success' : 'info'" round>{{ row.enabled ? '已启用' : '草稿' }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" width="280" fixed="right" align="center"> <!-- 渲染 ui-table-column 界面元素。 -->
-        <template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="view(row)">详情</ui-button><ui-button v-permission="'PUT /api/v1/rules/:id'" plain type="primary" @click="open(row)">编辑</ui-button><ui-button v-permission="'DELETE /api/v1/rules/:id'" plain type="danger" @click="remove(row.id)">删除</ui-button></div></template>
-      </ui-table-column> <!-- 结束当前界面区域。 -->
+      </ui-table-column>
+      <ui-table-column label="告警类型" min-width="135"><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></ui-table-column>
+      <ui-table-column label="等级" width="100" align="center"><template #default="{ row }"><ui-tag :type="tagType(row.level)" round>{{ label(alarmLevels, row.level, '未设置') }}</ui-tag></template></ui-table-column>
+      <ui-table-column label="状态" width="100"><template #default="{ row }"><StatusDot :tone="row.enabled ? 'success' : 'info'" :label="row.enabled ? '已启用' : '草稿'" /></template></ui-table-column>
+      <ui-table-column label="触发条件" min-width="220" show-overflow-tooltip><template #default="{ row }">{{ conditionText(row) }}</template></ui-table-column>
+      <ui-table-column label="联动动作" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ actionText(row) }}</template></ui-table-column>
+      <ui-table-column label="操作" width="176" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
       <template #empty><ui-empty description="暂无规则，可手动添加或使用智能生成草稿" /></template>
-    </ui-table> <!-- 结束当前界面区域。 -->
-    <div class="list-pagination"> <!-- 渲染 div 界面元素。 -->
-      <ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /> <!-- 渲染 ui-pagination 界面元素。 -->
-    </div> <!-- 结束当前界面区域。 -->
-  </ui-card> <!-- 结束当前界面区域。 -->
+    </ui-table>
+  </DataTableCard>
 
   <ui-dialog v-model="draftDialog" title="智能规则草稿" width="min(720px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
     <ui-input v-model="prompt" type="textarea" :rows="6" placeholder="例如：东区烟感温度超过八十度且检测到烟雾，触发高级别火警。" /> <!-- 渲染 ui-input 界面元素。 -->
@@ -267,13 +275,13 @@ onMounted(async () => { /* 执行当前语句并推进处理流程。 */
 </template>
 
 <style scoped>
-.rule-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--card)}
-.rule-editor-heading{margin-bottom:13px}.rule-editor-heading h3{margin:0;color:var(--accent-foreground);font-size:14px}.rule-editor-heading p{margin:5px 0 0;color:var(--accent-foreground);font-size:12px;line-height:1.6}
+.rule-editor-section{padding:16px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.rule-editor-heading{margin-bottom:13px}.rule-editor-heading h3{margin:0;color:var(--text);font-size:14px}.rule-editor-heading p{margin:5px 0 0;color:var(--text);font-size:12px;line-height:1.6}
 .rule-editor-section :deep(.n-form-item){min-width:0}.rule-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
-.rule-action-field{display:grid;width:100%;gap:7px}.rule-action-field small{color:var(--accent-foreground);font-size:12px;line-height:1.5}
-.rule-field-reference{padding:13px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card)}.rule-field-reference summary{cursor:pointer;color:var(--accent-foreground);font-size:13px;font-weight:700}.rule-field-reference summary small{margin-left:8px;color:var(--accent-foreground);font-weight:400}.rule-field-reference :deep(.n-data-table){max-width:100%}
+.rule-action-field{display:grid;width:100%;gap:7px}.rule-action-field small{color:var(--text);font-size:12px;line-height:1.5}
+.rule-field-reference{padding:13px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.rule-field-reference summary{cursor:pointer;color:var(--text);font-size:13px;font-weight:700}.rule-field-reference summary small{margin-left:8px;color:var(--text);font-weight:400}.rule-field-reference :deep(.n-data-table){max-width:100%}
 .rule-reference-scroll{max-width:100%;overflow-x:auto}
 .rule-reference-cards{display:none}
-@media(max-width:640px){.rule-editor-section{padding:13px}.rule-field-reference{padding:12px}.rule-field-reference summary small{display:block;margin:3px 0 0}.rule-reference-scroll{display:none}.rule-reference-cards{display:grid;gap:8px;margin-top:12px}.rule-reference-cards article{padding:10px;border:1px solid var(--border);border-radius:7px;background:var(--card)}.rule-reference-cards strong{display:block;color:var(--accent-foreground);font-size:12px;overflow-wrap:anywhere}.rule-reference-cards p{margin:5px 0;color:var(--accent-foreground);font-size:12px;line-height:1.55}.rule-reference-cards small{display:block;color:var(--accent-foreground);font-size:11px;line-height:1.5;overflow-wrap:anywhere}}
+@media(max-width:640px){.rule-editor-section{padding:13px}.rule-field-reference{padding:12px}.rule-field-reference summary small{display:block;margin:3px 0 0}.rule-reference-scroll{display:none}.rule-reference-cards{display:grid;gap:8px;margin-top:12px}.rule-reference-cards article{padding:10px;border:1px solid var(--border);border-radius:7px;background:var(--surface)}.rule-reference-cards strong{display:block;color:var(--text);font-size:12px;overflow-wrap:anywhere}.rule-reference-cards p{margin:5px 0;color:var(--text);font-size:12px;line-height:1.55}.rule-reference-cards small{display:block;color:var(--text);font-size:11px;line-height:1.5;overflow-wrap:anywhere}}
 .rule-help-alert { margin: 2px 0 14px; } /* 定义当前元素的样式规则。 */
 </style>

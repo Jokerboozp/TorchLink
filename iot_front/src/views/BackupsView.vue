@@ -7,6 +7,11 @@ import { UiMessage, UiMessageBox } from '../ui/feedback.js' /* 引入当前代�
 import { api, download, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
 import { confirmDelete } from '../deleteAction'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels' /* 引入当前代码需要的依赖。 */
+import { RefreshCw } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import FilterBar from '../components/layout/FilterBar.vue'
+import RowActions from '../components/layout/RowActions.vue'
+import StatusDot from '../components/layout/StatusDot.vue'
 
 const filters = reactive({ type: '', status: '' }) /* 声明 filters。 */
 const records = ref([]) /* 声明 records。 */
@@ -165,24 +170,34 @@ async function downloadArtifact(row, artifact) { /* 定义 downloadArtifact 函�
 
 onMounted(load) /* 执行当前语句并推进处理流程。 */
 function removeBackup(row) { return confirmDelete({ label:row.id, path:`/api/v1/backups/${idPath(row.id)}`, onDeleted:async () => { if (detail.value?.id === row.id) detailVisible.value = false; await load() }, warning:'备份记录、对象存储文件和本地副本将一并清理，删除后无法恢复。', blockedHint:'备份正在运行，或被文件校验记录引用；请先删除关联的校验记录。' }) }
+const statusTone = value => ({ danger:'danger', warning:'warning', success:'success', info:'info' })[statusType(value)] || 'neutral'
+function rowActions(row) {
+  return [
+    { key:'detail', label:'详情 / 文件', onClick:() => showDetail(row) },
+    { key:'drill', label:'文件校验', permission:'POST /api/v1/backups/:id/restore-drill', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `drill:${row.id}`, onClick:() => restoreDrill(row) },
+    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/backups/:id', hidden:row.status === 'RUNNING', onClick:() => removeBackup(row) }
+  ]
+}
 </script>
 
 <template>
-  <div class="page-toolbar backups-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <ui-select v-model="filters.type" clearable placeholder="备份类型" @change="load(true)"> <!-- 渲染 ui-select 界面元素。 -->
-      <ui-option v-for="(text, value) in backupTypes" :key="value" :label="text" :value="value" /> <!-- 渲染 ui-option 界面元素。 -->
-    </ui-select> <!-- 结束当前界面区域。 -->
-    <ui-select v-model="filters.status" clearable placeholder="执行状态" @change="load(true)"> <!-- 渲染 ui-select 界面元素。 -->
-      <ui-option v-for="(text, value) in backupStatuses" :key="value" :label="text" :value="value" /> <!-- 渲染 ui-option 界面元素。 -->
-    </ui-select> <!-- 结束当前界面区域。 -->
-    <ui-button :loading="loading" @click="load()">刷新记录</ui-button><ui-button :disabled="!filters.type && !filters.status" @click="filters.type = ''; filters.status = ''; load(true)">重置筛选</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <span class="toolbar-hint">仅备份设备原始报文与解析数据；每日自动备份昨日数据</span> <!-- 渲染 span 界面元素。 -->
-    <span v-if="!isAdmin" class="toolbar-hint">查看权限：当前账号不能手动触发备份或文件校验</span> <!-- 渲染 span 界面元素。 -->
-    <template v-if="isAdmin">
-      <ui-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-      <ui-button v-permission="'POST /api/v1/backups'" type="warning" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</ui-button> <!-- 渲染 ui-button 界面元素。 -->
+  <FilterBar>
+    <ui-select v-model="filters.type" clearable placeholder="全部备份类型" aria-label="备份类型" @change="load(true)">
+      <ui-option v-for="(text, value) in backupTypes" :key="value" :label="text" :value="value" />
+    </ui-select>
+    <ui-select v-model="filters.status" clearable placeholder="全部执行状态" aria-label="执行状态" @change="load(true)">
+      <ui-option v-for="(text, value) in backupStatuses" :key="value" :label="text" :value="value" />
+    </ui-select>
+    <ui-button v-if="filters.type || filters.status" text @click="filters.type = ''; filters.status = ''; load(true)">重置筛选</ui-button>
+    <template #actions>
+      <ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button>
+      <template v-if="isAdmin">
+        <ui-button v-permission="'POST /api/v1/backups'" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</ui-button>
+        <ui-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</ui-button>
+      </template>
     </template>
-  </div>
+  </FilterBar>
+  <p class="backup-hint">仅备份设备原始报文与解析数据，每日自动备份昨日数据。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
 
   <div class="backup-stat-grid">
     <ui-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></ui-card>
@@ -190,21 +205,18 @@ function removeBackup(row) { return confirmDelete({ label:row.id, path:`/api/v1/
     <ui-card shadow="never" class="surface-card"><span>最近完成</span><strong>{{ latestCompleted ? label(backupTypes, latestCompleted.type) : '暂无' }}</strong><small>{{ latestCompleted ? formatDate(latestCompleted.completedAt) : '等待首个成功任务' }}</small></ui-card>
   </div>
 
-  <ui-card shadow="never" class="surface-card table-card backup-table-card">
-    <ui-table v-loading="loading" :data="records" stripe>
+  <DataTableCard class="backup-table-card" :title="`备份记录 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
+    <ui-table v-loading="loading" :data="records">
       <ui-table-column label="类型" width="130"><template #default="{ row }"><ui-tag :type="row.type === 'FULL' ? 'primary' : row.type === 'INCREMENTAL' ? 'success' : 'info'" round>{{ label(backupTypes, row.type) }}</ui-tag></template></ui-table-column>
       <ui-table-column label="任务标识" min-width="270"><template #default="{ row }"><code>{{ row.id }}</code></template></ui-table-column>
-      <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(row.status)" round>{{ label(backupStatuses, row.status) }}</ui-tag></template></ui-table-column>
+      <ui-table-column label="状态" width="110"><template #default="{ row }"><StatusDot :tone="statusTone(row.status)" :label="label(backupStatuses, row.status)" /></template></ui-table-column>
       <ui-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></ui-table-column>
       <ui-table-column label="完成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.completedAt) }}</template></ui-table-column>
       <ui-table-column label="清单校验摘要" min-width="170"><template #default="{ row }"><ui-tooltip v-if="row.checksum" :content="row.checksum"><code>{{ row.checksum.slice(0, 12) }}…</code></ui-tooltip><span v-else>—</span></template></ui-table-column>
-      <ui-table-column label="操作" fixed="right" min-width="290" align="center"><template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="showDetail(row)">详情 / 文件</ui-button><ui-button v-permission="'POST /api/v1/backups/:id/restore-drill'" v-if="isAdmin && row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)" plain type="warning" :loading="actionLoading === `drill:${row.id}`" @click="restoreDrill(row)">文件校验</ui-button><ui-button v-permission="'DELETE /api/v1/backups/:id'" v-if="row.status !== 'RUNNING'" plain type="danger" @click="removeBackup(row)">删除</ui-button></div></template></ui-table-column>
+      <ui-table-column label="操作" fixed="right" width="200" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+      <template #empty><ui-empty description="还没有备份记录；定时任务执行后会自动出现在这里" /></template>
     </ui-table>
-    <ui-empty v-if="!loading && !records.length" description="还没有备份记录；定时任务执行后会自动出现在这里" />
-    <div class="list-pagination">
-      <ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" />
-    </div>
-  </ui-card>
+  </DataTableCard>
 
   <ui-dialog v-model="detailVisible" :title="detail ? `${label(backupTypes, detail.type)} · ${detail.id}` : '备份详情'" width="min(1080px, 94vw)">
     <ui-skeleton v-if="detailLoading" :rows="6" animated />
@@ -240,20 +252,18 @@ function removeBackup(row) { return confirmDelete({ label:row.id, path:`/api/v1/
 </template>
 
 <style scoped>
-.backups-toolbar { flex-wrap: wrap; } /* 定义当前元素的样式规则。 */
-.backups-toolbar .ui-select { width: 150px; } /* 定义当前元素的样式规则。 */
-.toolbar-hint { color: var(--muted-foreground); } /* 定义当前元素的样式规则。 */
-.muted-text { color: var(--muted-foreground); font-size: 12px; } /* 定义当前元素的样式规则。 */
+.backup-hint { margin: calc(-1 * var(--space-2)) 0 var(--space-4); color: var(--text-muted); font-size: var(--font-size-sm); }
+.muted-text { color: var(--text-muted); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; } /* 定义当前元素的样式规则。 */
-.backup-stat-grid :deep(.n-card) { border: 0; box-shadow: none; background: var(--surface-subtle); } /* 卡片样式命中当前 Naive UI 结构。 */
+.backup-stat-grid :deep(.n-card) { border: 0; box-shadow: none; background: var(--surface-muted); } /* 卡片样式命中当前 Naive UI 结构。 */
 .backup-stat-grid :deep(.n-card-content) { min-height: 116px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 7px; } /* 标题、数值和说明分行排列。 */
-.backup-stat-grid span { color: var(--foreground); font-size: 13px; font-weight: 700; line-height: 1.3; } /* 定义当前元素的样式规则。 */
-.backup-stat-grid strong { color: var(--ink); font-size: 28px; line-height: 1.1; } /* 定义当前元素的样式规则。 */
-.backup-stat-grid small { color: var(--accent-foreground); font-size: 12px; line-height: 1.5; } /* 定义当前元素的样式规则。 */
+.backup-stat-grid span { color: var(--text); font-size: 13px; font-weight: 700; line-height: 1.3; } /* 定义当前元素的样式规则。 */
+.backup-stat-grid strong { color: var(--text); font-size: 28px; line-height: 1.1; } /* 定义当前元素的样式规则。 */
+.backup-stat-grid small { color: var(--text); font-size: 12px; line-height: 1.5; } /* 定义当前元素的样式规则。 */
 .backup-table-card :deep(.ui-table) { min-height: 280px; } /* 定义当前元素的样式规则。 */
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; } /* 定义当前元素的样式规则。 */
 .section-heading strong, .section-heading span { display: block; } /* 定义当前元素的样式规则。 */
-.section-heading span { color: var(--muted-foreground); margin-top: 4px; } /* 备份详情说明文字在白底上保持可读。 */
+.section-heading span { color: var(--text-muted); margin-top: 4px; } /* 备份详情说明文字在白底上保持可读。 */
 @media (max-width: 900px) { /* 按屏幕条件调整样式。 */
   .backup-stat-grid { grid-template-columns: 1fr; } /* 定义当前元素的样式规则。 */
   .section-heading { align-items: flex-start; flex-direction: column; } /* 定义当前元素的样式规则。 */

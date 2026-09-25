@@ -17,11 +17,7 @@ func deviceFilterSQL(f ports.DeviceFilter) (string, []any) {
 	where := []string{"d.tenant_id=$1"}
 	arg := func(v any) string { args = append(args, v); return fmt.Sprintf("$%d", len(args)) }
 	if f.Role != "" {
-		gateways := f.GatewayProductIDs
-		if gateways == nil {
-			gateways = []string{}
-		}
-		where = append(where, fmt.Sprintf("COALESCE(NULLIF(d.body->>'deviceRole',''), CASE WHEN d.product_id = ANY(%s::text[]) THEN 'GATEWAY' ELSE 'DIRECT' END) = %s", arg(gateways), arg(f.Role)))
+		where = append(where, "COALESCE(NULLIF(d.body->>'deviceRole',''),'DIRECT') = "+arg(f.Role))
 	}
 	if f.RestrictProducts {
 		products := f.ProductIDs

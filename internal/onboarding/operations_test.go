@@ -19,7 +19,7 @@ func operationService(t *testing.T) *Service { /* 定义 operationService 函数
 	if e := r.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Status: "ENABLED"}); e != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(e) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	if e := r.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "old", SecretHash: Hash("secret"), Tags: map[string]string{"connector": "MQTT"}}); e != nil { /* 判断条件并选择处理分支。 */
+	if e := r.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Status: "ENABLED", AccessKey: "old", SecretHash: Hash("secret"), Connector: "MQTT"}); e != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(e) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	return New(r, nil, "", nil) /* 返回当前处理结果。 */

@@ -21,9 +21,9 @@ import ( /* 引入当前代码需要的依赖。 */
 type connectionSnapshot struct{} /* 定义 connectionSnapshot 类型。 */
 
 func TestDeviceProfileRequiresIdentityEvidence(t *testing.T) { /* 定义 TestDeviceProfileRequiresIdentityEvidence 函数。 */
-	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", Tags: map[string]string{"connectorProfileId": "listener"}} /* 更新 d 的值。 */
-	p := model.DeviceAccessProfile{TenantID: "t", ID: "listener", ProductID: "p"}                                               /* 更新 p 的值。 */
-	if !deviceUsesProfile(d, p, nil) {                                                                                          /* 判断条件并选择处理分支。 */
+	d := model.ManagedDevice{TenantID: "t", ID: "d", ProductID: "p", ConnectorProfileID: "listener"} /* 更新 d 的值。 */
+	p := model.DeviceAccessProfile{TenantID: "t", ID: "listener", ProductID: "p"}                    /* 更新 p 的值。 */
+	if !deviceUsesProfile(d, p, nil) {                                                               /* 判断条件并选择处理分支。 */
 		t.Fatal("explicit binding missing") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	for _, other := range []model.DeviceAccessProfile{{TenantID: "other", ID: "listener", ProductID: "p", DeviceID: "d"}, {TenantID: "t", ID: "listener", ProductID: "other", DeviceID: "d"}} { /* 循环处理当前数据。 */
@@ -31,7 +31,7 @@ func TestDeviceProfileRequiresIdentityEvidence(t *testing.T) { /* 定义 TestDev
 			t.Fatal("identity scope bypass") /* 验证实际结果符合预期。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	d.Tags = nil                                                                   /* 更新 d.Tags 的值。 */
+	d.ConnectorProfileID = ""
 	if deviceUsesProfile(d, p, []map[string]any{{"remoteAddress": "127.0.0.1"}}) { /* 判断条件并选择处理分支。 */
 		t.Fatal("unidentified session matched") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */

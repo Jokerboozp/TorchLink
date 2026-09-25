@@ -166,7 +166,7 @@ func (s *Server) deviceAccessInfo(d model.ManagedDevice, product model.Product) 
 		return nil
 	}
 	endpoint := publicEndpoint(s.cfg.DeviceHTTPPublicURL)
-	if d.Tags["connector"] != "HTTP" && d.Tags["connector"] != "MQTT" {
+	if d.Connector != "HTTP" && d.Connector != "MQTT" {
 		// Managed devices post raw payloads that the template protocol parses.
 		httpURL := ""
 		if endpoint != "" {

@@ -24,9 +24,6 @@ func (e *EnrollError) Error() string { return e.Message }
 func invalid(message string) error  { return &EnrollError{Status: 422, Message: message} }
 func conflict(message string) error { return &EnrollError{Status: 409, Message: message} }
 
-// reservedTags are maintained by the platform and cannot be supplied as labels.
-var reservedTags = map[string]bool{"connector": true, "connectorProfileId": true, "childAddress": true, "childType": true, "onboardingRequestHash": true}
-
 // NewProduct is a template created together with its first device.
 type NewProduct struct {
 	ID                string         `json:"id"`
@@ -105,7 +102,7 @@ func normalizeEnroll(q EnrollRequest) EnrollRequest {
 	q.Connection.Host = strings.TrimSpace(q.Connection.Host)
 	labels := map[string]string{}
 	for key, value := range q.Device.Tags {
-		if key = strings.TrimSpace(key); key != "" && !reservedTags[key] {
+		if key = strings.TrimSpace(key); key != "" && !model.SystemTag(key) {
 			labels[key] = value
 		}
 	}
@@ -162,7 +159,7 @@ func (s *Service) Enroll(ctx context.Context, tenant string, q EnrollRequest) (E
 	} else {
 		b.Device.AccessKey = model.ProtocolDeviceAccessKey(tenant, b.Device.ID)
 	}
-	b.Device.Tags["onboardingRequestHash"] = digest
+	b.Device.OnboardingRequestHash = digest
 	if err = s.Repo.SaveOnboarding(ctx, b); err != nil {
 		// A competing identical request may have committed first.
 		if existing, getErr := s.Repo.GetManagedDevice(ctx, tenant, q.Device.ID); getErr == nil {
@@ -190,7 +187,7 @@ func persistError(err error) error {
 }
 
 func (s *Service) recoverEnroll(ctx context.Context, tenant string, d model.ManagedDevice, digest string) (EnrollResult, error) {
-	if d.Tags["onboardingRequestHash"] != digest {
+	if d.OnboardingRequestHash != digest {
 		return EnrollResult{}, conflict("设备编号已登记，请在设备列表中查看或编辑该设备")
 	}
 	product, err := s.Repo.GetProduct(ctx, tenant, d.ProductID)
@@ -201,7 +198,7 @@ func (s *Service) recoverEnroll(ctx context.Context, tenant string, d model.Mana
 	if plan, err := s.Plan(ctx, tenant, product); err == nil {
 		result.Mode = plan.Mode
 	}
-	if id := d.Tags["connectorProfileId"]; id != "" {
+	if id := d.ConnectorProfileID; id != "" {
 		if p, err := s.Repo.GetDeviceAccessProfile(ctx, tenant, id); err == nil {
 			result.Profile = &p
 			if p.ConnectionMode == "dial" {
@@ -317,7 +314,7 @@ func (s *Service) planEnroll(ctx context.Context, tenant string, q EnrollRequest
 			return b, result, invalid("该模板的接入方式与所选连接方式不一致，请返回上一步重新选择")
 		}
 		if plan.Mode == ModeStandard {
-			b.Device.Tags["connector"] = connector
+			b.Device.Connector = connector
 		}
 	case ModeListener:
 		profile, reuse, err := s.listenerProfile(ctx, tenant, product, plan, release, b.Device.ID, c, now)
@@ -325,8 +322,8 @@ func (s *Service) planEnroll(ctx context.Context, tenant string, q EnrollRequest
 			return b, result, err
 		}
 		b.Profile, b.ReuseProfile = &profile, reuse
-		b.Device.Tags["connectorProfileId"] = profile.ID
-		b.Device.Tags["connector"] = strings.ToUpper(profile.Network)
+		b.Device.ConnectorProfileID = profile.ID
+		b.Device.Connector = strings.ToUpper(profile.Network)
 		result.Profile = &profile
 		if profile.ConnectionMode == "dial" {
 			result.Mode = "dial"
@@ -346,8 +343,8 @@ func (s *Service) planEnroll(ctx context.Context, tenant string, q EnrollRequest
 			return b, result, invalid(err.Error())
 		}
 		b.Profile = &profile
-		b.Device.Tags["connectorProfileId"] = profile.ID
-		b.Device.Tags["connector"] = plan.Connector
+		b.Device.ConnectorProfileID = profile.ID
+		b.Device.Connector = plan.Connector
 		result.Profile = &profile
 	}
 	return b, result, nil

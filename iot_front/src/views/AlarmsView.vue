@@ -8,6 +8,11 @@ import { confirmDelete } from '../deleteAction'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions' /* 引入当前代码需要的依赖。 */
 import { alarmNavigation, alarmQuery } from '../alarmNavigation' /* 引入当前代码需要的依赖。 */
 import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
+import { RefreshCw } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import FilterBar from '../components/layout/FilterBar.vue'
+import RowActions from '../components/layout/RowActions.vue'
+import StatusDot from '../components/layout/StatusDot.vue'
 
 const filters = reactive({ status:'', level:'', deviceId:'' }) /* 声明 filters。 */
 const items = ref([]) /* 声明 items。 */
@@ -184,29 +189,39 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
   window.clearTimeout(realtimeTimer) /* 执行当前语句并推进处理流程。 */
   window.removeEventListener('iot:realtime', realtime) /* 执行当前语句并推进处理流程。 */
 }) /* 结束当前表达式或代码块。 */
+const statusTone = value => ({ danger:'danger', warning:'warning', success:'success', info:'info' })[tagType(value)] || 'neutral'
+const filtered = computed(() => Boolean(filters.status || filters.level || filters.deviceId))
+function resetFilters() { filters.status = ''; filters.level = ''; filters.deviceId = ''; load(true) }
+function rowActions(row) {
+  const open = ['ACTIVE','ACKED'].includes(row.status)
+  return [
+    { key:'detail', label:'查看详情', onClick:() => show(row.alarmId) },
+    { key:'ack', label:'确认告警', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canAcknowledgeAlarm(row.status), loading:actionPending[row.alarmId] === 'ACKED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'ACKED') },
+    { key:'close', label:'关闭告警', type:'danger', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canCloseAlarm(row.status), loading:actionPending[row.alarmId] === 'CLOSED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'CLOSED') },
+    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/alarms/:id', hidden:open, onClick:() => removeAlarm(row) }
+  ]
+}
 </script>
 
 <template>
-  <div class="page-toolbar"> <!-- 渲染 div 界面元素。 -->
-    <ui-input v-model="filters.deviceId" clearable placeholder="按设备标识筛选" aria-label="设备标识筛选" @keyup.enter="load(true)" @clear="load(true)" /> <!-- 渲染 ui-input 界面元素。 -->
-    <ui-select v-model="filters.status" clearable placeholder="全部状态" @change="load(true)"><ui-option v-for="(text,key) in alarmStatuses" :key="key" :label="text" :value="key" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
-    <ui-select v-model="filters.level" clearable placeholder="全部等级" @change="load(true)"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select> <!-- 渲染 ui-select 界面元素。 -->
-    <ui-button type="primary" :loading="loading" @click="load()">刷新告警</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <ui-button :disabled="!filters.status && !filters.level && !filters.deviceId" @click="filters.status = ''; filters.level = ''; filters.deviceId = ''; load(true)">重置筛选</ui-button> <!-- 渲染 ui-button 界面元素。 -->
-    <span>共 {{total}} 条告警</span> <!-- 渲染 span 界面元素。 -->
-  </div> <!-- 结束当前界面区域。 -->
+  <FilterBar>
+    <ui-input v-model="filters.deviceId" clearable placeholder="按设备标识筛选" aria-label="设备标识筛选" @keyup.enter="load(true)" @clear="load(true)" />
+    <ui-select v-model="filters.status" clearable placeholder="全部状态" aria-label="告警状态" @change="load(true)"><ui-option v-for="(text,key) in alarmStatuses" :key="key" :label="text" :value="key" /></ui-select>
+    <ui-select v-model="filters.level" clearable placeholder="全部等级" aria-label="告警等级" @change="load(true)"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select>
+    <ui-button v-if="filtered" text @click="resetFilters">重置筛选</ui-button>
+    <template #actions><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
+  </FilterBar>
 
-  <ui-card shadow="never" class="surface-card table-card"> <!-- 渲染 ui-card 界面元素。 -->
-    <ui-table v-loading="loading" :data="items" stripe> <!-- 渲染 ui-table 界面元素。 -->
+  <DataTableCard :title="`告警 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
+    <ui-table v-loading="loading" :data="items" :empty-text="filtered ? '没有符合筛选条件的告警' : '暂无告警'"> <!-- 渲染 ui-table 界面元素。 -->
       <ui-table-column label="时间" min-width="170"><template #default="{row}">{{formatTime(row.lastTriggeredAt)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="设备 / 来源" min-width="190"><template #default="{row}"><b>{{row.deviceName||row.deviceId}}</b><small v-if="row.componentId" class="subline">{{row.componentName||row.componentId}} · {{row.componentLocation||row.componentId}}</small><small class="subline">{{label(alarmSources,row.source,'其他来源')}}</small></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="告警类型" min-width="150"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
       <ui-table-column label="等级" width="90"><template #default="{row}"><ui-tag :type="tagType(row.alarmLevel)" round>{{label(alarmLevels,row.alarmLevel,'未设置')}}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="状态" width="100"><template #default="{row}"><ui-tag :type="tagType(row.status)" round>{{label(alarmStatuses,row.status)}}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" fixed="right" width="380" align="center"><template #default="{row}"><div class="table-actions"><ui-button plain type="primary" @click="show(row.alarmId)">查看详情</ui-button><template v-if="['ACTIVE','ACKED'].includes(row.status)"><ui-button v-permission="'POST /api/v1/alarms/:id/actions'" v-if="canAcknowledgeAlarm(row.status)" :loading="actionPending[row.alarmId] === 'ACKED'" :disabled="Boolean(actionPending[row.alarmId])" plain type="warning" @click="action(row.alarmId,'ACKED')">确认告警</ui-button><ui-button v-permission="'POST /api/v1/alarms/:id/actions'" v-if="canCloseAlarm(row.status)" :loading="actionPending[row.alarmId] === 'CLOSED'" :disabled="Boolean(actionPending[row.alarmId])" plain type="danger" @click="action(row.alarmId,'CLOSED')">关闭告警</ui-button></template><ui-button v-permission="'DELETE /api/v1/alarms/:id'" v-else plain type="danger" @click="removeAlarm(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="状态" width="100"><template #default="{row}"><StatusDot :tone="statusTone(row.status)" :label="label(alarmStatuses,row.status)" /></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" fixed="right" width="200" align="right"><template #default="{row}"><RowActions :actions="rowActions(row)" /></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
     </ui-table> <!-- 结束当前界面区域。 -->
-    <div class="list-pagination"><ui-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20,50,100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changePage" @size-change="changePageSize" /></div> <!-- 渲染 div 界面元素。 -->
-  </ui-card> <!-- 结束当前界面区域。 -->
+  </DataTableCard>
 
   <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
     <ui-descriptions v-if="detail" :column="1" border> <!-- 渲染 ui-descriptions 界面元素。 -->
@@ -229,8 +244,10 @@ onBeforeUnmount(() => { /* 执行当前语句并推进处理流程。 */
 </template>
 
 <style scoped>
-.analysis-progress { margin: 12px 0; padding: 12px; background: var(--surface-subtle); border: 1px solid var(--border-info); border-radius: 5px; } /* 定义当前元素的样式规则。 */
+.analysis-grid { display: grid; gap: 9px; line-height: 1.65; }
+.analysis-grid :deep(ul) { margin: 5px 0 0; padding-left: 20px; color: var(--text-muted); }
+.analysis-progress { margin: 12px 0; padding: 12px; background: var(--surface-muted); border: 1px solid var(--info-border); border-radius: 5px; } /* 定义当前元素的样式规则。 */
 .analysis-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; color:var(--primary); font-size:13px; } /* 定义当前元素的样式规则。 */
 .analysis-progress-heading span { color:var(--primary); font-weight:700; } /* 定义当前元素的样式规则。 */
-.analysis-progress small { display:block; margin-top:7px; color:var(--accent-foreground); font-size:12px; } /* 定义当前元素的样式规则。 */
+.analysis-progress small { display:block; margin-top:7px; color:var(--text); font-size:12px; } /* 定义当前元素的样式规则。 */
 </style>

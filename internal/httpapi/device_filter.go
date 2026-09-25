@@ -39,20 +39,12 @@ func (s *Server) deviceFilter(ctx context.Context, tenant string, query url.Valu
 	}
 	productID := strings.TrimSpace(query.Get("productId"))
 	category := strings.TrimSpace(query.Get("category"))
-	if f.Role == "" && productID == "" && category == "" {
+	if productID == "" && category == "" {
 		return f, nil
 	}
 	products, err := s.engine.Repo.ListProducts(ctx, tenant)
 	if err != nil {
 		return f, err
-	}
-	for _, p := range products {
-		if p.Category == "gateway" {
-			f.GatewayProductIDs = append(f.GatewayProductIDs, p.ID)
-		}
-	}
-	if productID == "" && category == "" {
-		return f, nil
 	}
 	f.RestrictProducts = true
 	f.ProductIDs = []string{}

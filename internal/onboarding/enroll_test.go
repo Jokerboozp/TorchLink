@@ -83,7 +83,7 @@ func TestEnrollStandardDeviceStoresOnlySecretHash(t *testing.T) {
 	if d.SecretHash != Hash(r.Credential.Secret) || d.RegistrationSource != "ONBOARDING" || d.DeviceRole != "DIRECT" {
 		t.Fatalf("stored device %+v", d)
 	}
-	if d.Tags["connector"] != "HTTP" || d.Tags["site"] != "A" || d.Tags["onboardingRequestHash"] == "forged" || d.Tags["onboardingRequestHash"] == "" {
+	if d.Connector != "HTTP" || d.Tags["site"] != "A" || d.OnboardingRequestHash == "forged" || d.OnboardingRequestHash == "" {
 		t.Fatalf("reserved tags must come from the platform: %+v", d.Tags)
 	}
 	data, _ := json.Marshal(d)
@@ -169,8 +169,8 @@ func TestEnrollCreatesStandardTemplateAtomically(t *testing.T) {
 	if err != nil || pkg.ParserType != parser.StandardParserName {
 		t.Fatal("compatibility package missing", err)
 	}
-	if d, _ := repo.GetManagedDevice(ctx, "tenant", "device"); d.Tags["connector"] != "MQTT" {
-		t.Fatalf("connector %q", d.Tags["connector"])
+	if d, _ := repo.GetManagedDevice(ctx, "tenant", "device"); d.Connector != "MQTT" {
+		t.Fatalf("connector %q", d.Connector)
 	}
 	again := enrollRequest("device-2")
 	again.ProductID, again.NewProduct = "", &NewProduct{ID: "new-product", Name: "重复", ProtocolPackageID: StandardPackageID}
@@ -280,7 +280,7 @@ func TestEnrollListenerCreatesReusesAndDialsConnections(t *testing.T) {
 	if r.Profile == nil || r.Profile.ID != "gw-tcp-9100" || r.Profile.Host != "0.0.0.0" || r.Profile.ConnectionMode != "listen" || r.Profile.DeviceID != "" {
 		t.Fatalf("listener %+v", r.Profile)
 	}
-	if r.Credential.Secret != "" || r.Device.AccessKey != "" || r.Device.DeviceRole != "GATEWAY" || r.Device.Tags["connector"] != "TCP" || r.Device.Tags["connectorProfileId"] != "gw-tcp-9100" {
+	if r.Credential.Secret != "" || r.Device.AccessKey != "" || r.Device.DeviceRole != "GATEWAY" || r.Device.Connector != "TCP" || r.Device.ConnectorProfileID != "gw-tcp-9100" {
 		t.Fatalf("protocol device %+v", r.Device)
 	}
 	check, _ = s.Preflight(ctx, "tenant", "gw", nil, PublicAddresses{})
@@ -336,7 +336,7 @@ func TestEnrollPollCreatesDeviceConnectionAndBinding(t *testing.T) {
 	if p == nil || p.Mode != "poll" || p.Port != 502 || p.UnitID != 1 || p.TimeoutMs != 3000 || p.DeviceID != "meter-1" || p.WireFormat != "" {
 		t.Fatalf("poll profile %+v", p)
 	}
-	if r.Credential.Secret != "" || r.Device.Tags["connector"] != "MODBUS_TCP" {
+	if r.Credential.Secret != "" || r.Device.Connector != "MODBUS_TCP" {
 		t.Fatalf("device %+v", r.Device)
 	}
 	if binding, err := repo.GetProductProtocolBinding(ctx, "tenant", "meter"); err != nil || binding.ProtocolID != "meter" || binding.Version != "1" {
@@ -346,7 +346,7 @@ func TestEnrollPollCreatesDeviceConnectionAndBinding(t *testing.T) {
 	rtu := enrollRequest("rtu-1")
 	unit := 7
 	rtu.ProductID, rtu.Connection = "rtu", EnrollConnection{Mode: ModePoll, Host: "127.0.0.1", Port: 4001, UnitID: &unit}
-	if r, err = s.Enroll(ctx, "tenant", rtu); err != nil || r.Profile.WireFormat != "rtu_over_tcp" || r.Profile.UnitID != 7 || r.Device.Tags["connector"] != "MODBUS_RTU_TCP" {
+	if r, err = s.Enroll(ctx, "tenant", rtu); err != nil || r.Profile.WireFormat != "rtu_over_tcp" || r.Profile.UnitID != 7 || r.Device.Connector != "MODBUS_RTU_TCP" {
 		t.Fatalf("rtu %+v %v", r.Profile, err)
 	}
 	bad := enrollRequest("meter-2")
@@ -367,7 +367,7 @@ func TestEnrollManagedProtocolIssuesCredential(t *testing.T) {
 	q := enrollRequest("json-1")
 	q.ProductID, q.Connection.Mode = "json", ModeManaged
 	r, err := s.Enroll(context.Background(), "tenant", q)
-	if err != nil || r.Credential.Secret == "" || r.Device.Tags["connector"] != "" {
+	if err != nil || r.Credential.Secret == "" || r.Device.Connector != "" {
 		t.Fatalf("managed %+v %v", r, err)
 	}
 }

@@ -52,7 +52,7 @@ test('a new template is created in the same request', () => {
 })
 
 test('device-side configuration never includes a secret that is no longer shown', () => {
-  const result = { mode: 'standard', device: { id: 'd1', name: '烟感', tags: { connector: 'MQTT' } } }
+  const result = { mode: 'standard', device: { id: 'd1', name: '烟感', connector: 'MQTT' } }
   const accessInfo = { kind: 'standard', mqttBroker: 'mqtts://iot.example.com:8883', clientId: 'device-dk_1', upTopic: '/iot/up/t/p/d1/property', downTopic: '/iot/down/t/p/d1/command', tokenEndpoint: '/api/v1/device-mqtt/token', username: 'dk_1', sample: { version: '1.0' } }
   const withSecret = configurationText(result, accessInfo, { accessKey: 'dk_1', secret: 'ds_secret' })
   assert.match(withSecret, /Secret：ds_secret/)

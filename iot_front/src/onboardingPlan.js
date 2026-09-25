@@ -93,7 +93,7 @@ export function fieldConfiguration(result, accessInfo, credential) {
   const add = (name, value) => { if (value !== undefined && value !== null && value !== '') rows.push({ name, value: String(value) }) }
   const profile = result?.profile
   const mode = result?.mode
-  if (accessInfo?.kind === 'standard' && result?.device?.tags?.connector === 'MQTT') {
+  if (accessInfo?.kind === 'standard' && result?.device?.connector === 'MQTT') {
     add('MQTT Broker', accessInfo.mqttBroker || '未配置平台对外 MQTT 地址')
     add('Client ID', accessInfo.clientId)
     add('上行 Topic', accessInfo.upTopic)

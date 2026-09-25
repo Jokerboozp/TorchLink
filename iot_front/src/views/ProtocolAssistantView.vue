@@ -140,6 +140,12 @@ onMounted(()=>{ /* 执行当前语句并推进处理流程。 */
   </div>
 </template>
 <style scoped>
-.generator-section{padding:16px 18px;margin-bottom:13px;border:1px solid var(--border);border-radius:10px;background:var(--card)}.generator-section-heading{margin-bottom:14px}.generator-section-heading h3{margin:0;color:var(--accent-foreground);font-size:14px}.generator-section-heading p{margin:5px 0 0;color:var(--accent-foreground);font-size:12px;line-height:1.6}.generator-section :deep(.n-form-item:last-child){margin-bottom:0}
+.protocol-generator { min-width: 0; }
+.protocol-generator .generator-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.protocol-generator .generator-actions > span { font-size: var(--font-size-sm); }
+.protocol-generator .section-toolbar strong { overflow-wrap: anywhere; }
+.protocol-generator .section-toolbar small { display: block; margin: 5px 0 0; font-weight: 400; }
+.protocol-generator .bottom-gap { margin-bottom: 18px; }
+.generator-section{padding:16px 18px;margin-bottom:13px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.generator-section-heading{margin-bottom:14px}.generator-section-heading h3{margin:0;color:var(--text);font-size:14px}.generator-section-heading p{margin:5px 0 0;color:var(--text);font-size:12px;line-height:1.6}.generator-section :deep(.n-form-item:last-child){margin-bottom:0}
 @media(max-width:640px){.generator-section{padding:13px}}
 </style>

@@ -10,10 +10,8 @@ import (
 // do not restrict the result.
 type DeviceFilter struct {
 	TenantID string
-	// Role matches DIRECT, GATEWAY or CHILD. Devices without a stored role are
-	// GATEWAY when their product is listed in GatewayProductIDs, otherwise DIRECT.
-	Role              string
-	GatewayProductIDs []string
+	// Role matches the stored DIRECT, GATEWAY or CHILD role; an empty role is DIRECT.
+	Role string
 	// RestrictProducts limits the result to ProductIDs; an empty list then matches nothing.
 	RestrictProducts bool
 	ProductIDs       []string
@@ -26,15 +24,10 @@ type DeviceFilter struct {
 }
 
 func (f DeviceFilter) EffectiveRole(d model.ManagedDevice) string {
-	if d.DeviceRole != "" {
-		return d.DeviceRole
+	if d.DeviceRole == "" {
+		return "DIRECT"
 	}
-	for _, id := range f.GatewayProductIDs {
-		if id == d.ProductID {
-			return "GATEWAY"
-		}
-	}
-	return "DIRECT"
+	return d.DeviceRole
 }
 
 // Matches applies the same rules as the SQL implementation.

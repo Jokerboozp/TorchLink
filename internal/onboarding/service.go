@@ -115,7 +115,7 @@ func (s *Service) PrepareStandard(ctx context.Context, tenant, product, device, 
 	if err != nil || d.Status != "ENABLED" || d.SecretHash == "" || d.ProductID != product { /* 判断条件并选择处理分支。 */
 		return model.RawMessage{}, ErrAuth /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if d.Tags["connector"] != "MQTT" && d.Tags["connector"] != "HTTP" { /* 判断条件并选择处理分支。 */
+	if d.Connector != "MQTT" && d.Connector != "HTTP" { /* 判断条件并选择处理分支。 */
 		return model.RawMessage{}, ErrAuth /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	p, err := s.Repo.GetProduct(ctx, tenant, product)     /* 更新 err 的值。 */

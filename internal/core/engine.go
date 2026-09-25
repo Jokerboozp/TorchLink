@@ -196,11 +196,7 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 	if err != nil {                                                           /* 判断条件并选择处理分支。 */
 		return fmt.Errorf("gateway %s is not registered", raw.GatewayID) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	gatewayProduct, err := e.Repo.GetProduct(ctx, raw.TenantID, gateway.ProductID) /* 更新 err 的值。 */
-	if err != nil {                                                                /* 判断条件并选择处理分支。 */
-		return fmt.Errorf("gateway product not found") /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	if gateway.DeviceRole != "GATEWAY" && gatewayProduct.Category != "gateway" { /* 判断条件并选择处理分支。 */
+	if gateway.DeviceRole != "GATEWAY" { /* 判断条件并选择处理分支。 */
 		return fmt.Errorf("device %s is not configured as a gateway", gateway.ID) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if raw.ProductID == "" { /* 判断条件并选择处理分支。 */

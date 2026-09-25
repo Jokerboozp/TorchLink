@@ -15,20 +15,23 @@ func TestCountManagedDeviceChildrenQueryMatchesDeviceRegistrySchema(t *testing.T
 } /* 结束当前表达式或代码块。 */
 
 func TestDeviceFilterSQLBindsEveryValue(t *testing.T) {
-	where, args := deviceFilterSQL(ports.DeviceFilter{TenantID: "t", Role: "GATEWAY", GatewayProductIDs: []string{"gw"}, RestrictProducts: true, Query: `50%_a\b`, Status: "ENABLED", Runtime: "NEVER_SEEN"})
-	if len(args) != 7 || !strings.Contains(where, "$7") || strings.Contains(where, "$8") {
+	where, args := deviceFilterSQL(ports.DeviceFilter{TenantID: "t", Role: "GATEWAY", RestrictProducts: true, Query: `50%_a\b`, Status: "ENABLED", Runtime: "NEVER_SEEN"})
+	if len(args) != 6 || !strings.Contains(where, "$6") || strings.Contains(where, "$7") {
 		t.Fatalf("placeholders do not match arguments: %s %v", where, args)
 	}
-	if products, ok := args[3].([]string); !ok || products == nil || len(products) != 0 {
-		t.Fatalf("restricted empty product list must match nothing, got %#v", args[3])
+	if products, ok := args[2].([]string); !ok || products == nil || len(products) != 0 {
+		t.Fatalf("restricted empty product list must match nothing, got %#v", args[2])
 	}
-	if args[4] != `%50\%\_a\\b%` || !strings.Contains(where, `ESCAPE '\'`) {
-		t.Fatalf("keyword wildcards must be escaped: %v", args[4])
+	if args[3] != `%50\%\_a\\b%` || !strings.Contains(where, `ESCAPE '\'`) {
+		t.Fatalf("keyword wildcards must be escaped: %v", args[3])
 	}
 	for _, column := range []string{"d.body->>'deviceRole'", "d.body->>'name'", "s.business_status", "d.status", "d.product_id"} {
 		if !strings.Contains(where, column) {
 			t.Fatalf("missing %s in %s", column, where)
 		}
+	}
+	if strings.Contains(where, "category") {
+		t.Fatalf("roles must come from the stored device, not the template: %s", where)
 	}
 	if where, args = deviceFilterSQL(ports.DeviceFilter{TenantID: "t"}); where != "d.tenant_id=$1" || len(args) != 1 {
 		t.Fatalf("empty filter: %s %v", where, args)
