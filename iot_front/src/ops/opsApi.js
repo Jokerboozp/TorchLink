@@ -40,7 +40,7 @@ export function opsErrorText(error) {
   if (isAbort(error)) return '查询已取消'
   const detail = error.originalMessage || error.message || ''
   const byCode = {
-    OPS_NOT_CONFIGURED: '该功能依赖的组件未配置',
+    OPS_NOT_CONFIGURED: '运维组件未配置：请部署 Prometheus、Loki、Grafana、Alertmanager（Compose 的 ops 配置），设置对应的 IOT_OPS_*_URL 后重启平台，详见 docs/OPS_CENTER.md',
     OPS_UPSTREAM_UNAVAILABLE: '无法连接组件，请检查组件是否运行',
     OPS_UPSTREAM_TIMEOUT: '组件响应超时，请缩小时间范围或简化查询',
     OPS_UPSTREAM_AUTH: '组件拒绝了平台凭据，请检查运维中心配置'

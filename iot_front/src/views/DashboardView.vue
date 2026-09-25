@@ -89,7 +89,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
         <DashboardTrend v-if="data" :items="data.trend" /><ui-skeleton v-else :rows="5" :loading="loading" animated><ui-empty description="尚未获取趋势数据" :image-size="76" /></ui-skeleton> <!-- 渲染 DashboardTrend 界面元素。 -->
       </ui-card>
         <ui-card shadow="never" class="surface-card recent-alarms"><template #header><div class="card-header"><strong>最新活动告警</strong><ui-button v-permission="'menu:alarms'" text @click="emit('navigate','alarms')">查看全部</ui-button></div></template>
-          <p class="chart-description">当前待处理告警 · 最近 6 条</p>
+          <p class="chart-description">{{ alarms.length ? `当前待处理告警 · 最近 ${alarms.length} 条` : '当前待处理告警' }}</p>
           <ui-empty v-if="!alarms.length" :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" />
           <div v-else class="alarm-list" tabindex="0" role="region" aria-label="最新活动告警列表">
             <article v-for="alarm in alarms" :key="alarm.alarmId" class="alarm-row">

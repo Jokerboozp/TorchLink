@@ -265,7 +265,7 @@ onBeforeUnmount(() => { runner.cancel(); exploreRunner.cancel(); catalogRunner.c
 </template>
 
 <style scoped>
-.ops-page { display: grid; gap: var(--space-4); min-width: 0; }
+.ops-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .query-panel, .explore__main { display: grid; gap: var(--space-3); min-width: 0; }
 .query-toolbar, .query-actions, .targets-toolbar, .explore__head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
 .query-actions__left, .query-actions__right, .explore__controls { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }

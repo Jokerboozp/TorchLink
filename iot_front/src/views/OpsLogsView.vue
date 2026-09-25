@@ -395,7 +395,7 @@ onBeforeUnmount(() => { stopTail(); runner.cancel(); moreRunner.cancel(); volume
 </template>
 
 <style scoped>
-.ops-page { display: grid; gap: var(--space-4); min-width: 0; }
+.ops-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .log-search { display: grid; gap: var(--space-3); min-width: 0; }
 .log-toolbar, .log-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
 .log-actions__left, .log-actions__right { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }

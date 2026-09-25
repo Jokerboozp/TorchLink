@@ -171,7 +171,7 @@ onBeforeUnmount(() => { runner.cancel(); clearTimeout(searchTimer) })
 </template>
 
 <style scoped>
-.ops-page { display: grid; gap: var(--space-4); min-width: 0; }
+.ops-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .dash-list { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .folders { display: grid; align-content: start; gap: 2px; min-width: 0; }
 .folders__head { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-3); padding: 0 var(--space-2); color: var(--text-muted); font-size: var(--font-size-xs); }
@@ -183,7 +183,7 @@ onBeforeUnmount(() => { runner.cancel(); clearTimeout(searchTimer) })
 .folder-row .folder-item { padding-left: 0; background: none; }
 .folder-row__actions { display: none; }
 .folder-row:hover .folder-row__actions, .folder-row:focus-within .folder-row__actions { display: inline-flex; }
-.dash-list__main { display: grid; align-content: start; gap: var(--space-3); min-width: 0; }
+.dash-list__main { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--space-3); min-width: 0; }
 .list-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .list-toolbar__search { width: 260px; }
 .list-toolbar__tag { width: 160px; }
