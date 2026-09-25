@@ -132,6 +132,7 @@ func (s *Server) permissionCatalog() []permissionItem { /* 定义 permissionCata
 	return items                                                                /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func effectivePermissions(state model.AccessState, user model.PlatformUser) map[string]bool { /* 定义 effectivePermissions 函数。 */
+	user = resolveUserDeviceScope(state, user)
 	p := map[string]bool{}               /* 更新 p 的值。 */
 	for _, v := range user.Permissions { /* 循环处理当前数据。 */
 		p[v] = true /* 更新 p[v] 的值。 */
@@ -254,7 +255,7 @@ func (s *Server) managedIdentity(r *http.Request, c auth.Claims) (model.Platform
 	} /* 结束当前表达式或代码块。 */
 	for _, u := range state.Users { /* 循环处理当前数据。 */
 		if u.Username == c.Username && u.Enabled && u.SessionVersion == c.SessionVersion { /* 判断条件并选择处理分支。 */
-			return u, effectivePermissions(state, u), nil /* 返回当前处理结果。 */
+			return resolveUserDeviceScope(state, u), effectivePermissions(state, u), nil /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	return model.PlatformUser{}, nil, errors.New("account disabled or session revoked") /* 返回当前处理结果。 */
@@ -414,7 +415,7 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) { /* 定
 	if in.DeviceScope == "" { /* 判断条件并选择处理分支。 */
 		in.DeviceScope = "none" /* 更新 in.DeviceScope 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	if in.DeviceScope != "none" && in.DeviceScope != "selected" && in.DeviceScope != "all" { /* 判断条件并选择处理分支。 */
+	if in.DeviceScope != "none" && in.DeviceScope != "selected" && in.DeviceScope != "all" && in.DeviceScope != "inherit" { /* 判断条件并选择处理分支。 */
 		problem(w, 422, "设备范围无效") /* 执行当前语句并推进处理流程。 */
 		return                    /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -541,6 +542,23 @@ func (s *Server) accessSaveRole(w http.ResponseWriter, r *http.Request) { /* 定
 	if decode(w, r, &role) != nil { /* 判断条件并选择处理分支。 */
 		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	if role.DeviceScope == "" {
+		role.DeviceScope = "none"
+	}
+	if role.DeviceScope != "none" && role.DeviceScope != "selected" && role.DeviceScope != "all" {
+		problem(w, 422, "设备范围无效")
+		return
+	}
+	if role.DeviceIDs == nil || role.DeviceScope != "selected" {
+		role.DeviceIDs = []string{}
+	}
+	for _, id := range role.DeviceIDs {
+		if _, err := s.unscopedRepo().GetManagedDevice(r.Context(), claims(r).TenantID, id); err != nil {
+			problem(w, 422, "设备不存在或不属于当前租户")
+			return
+		}
+	}
+
 	if role.Permissions == nil { /* 判断条件并选择处理分支。 */
 		role.Permissions = []string{} /* 更新 role.Permissions 的值。 */
 	} /* 结束当前表达式或代码块。 */
@@ -617,8 +635,8 @@ func (s *Server) loginManaged(w http.ResponseWriter, r *http.Request, username, 
 				problem(w, 500, "创建会话失败") /* 执行当前语句并推进处理流程。 */
 				return                    /* 返回当前处理结果。 */
 			} /* 结束当前表达式或代码块。 */
-			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(effectivePermissions(state, u)), "displayName": u.DisplayName, "accessVersion": accessVersion(u, effectivePermissions(state, u), tenant)}) /* 执行当前语句并推进处理流程。 */
-			return                                                                                                                                                                                                                                                                                  /* 返回当前处理结果。 */
+			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(effectivePermissions(state, u)), "displayName": u.DisplayName, "accessVersion": accessVersion(resolveUserDeviceScope(state, u), effectivePermissions(state, u), tenant)}) /* 执行当前语句并推进处理流程。 */
+			return                                                                                                                                                                                                                                                                                                                 /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	problem(w, 401, "invalid credentials") /* 执行当前语句并推进处理流程。 */

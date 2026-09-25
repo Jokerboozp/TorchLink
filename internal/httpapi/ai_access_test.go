@@ -21,6 +21,16 @@ import (
 )
 
 func TestAssistantUsesCurrentUserPermissionsAndDeviceScope(t *testing.T) {
+	for _, inherited := range []bool{false, true} {
+		name := "user"
+		if inherited {
+			name = "role"
+		}
+		t.Run(name, func(t *testing.T) { testAssistantDeviceScope(t, inherited) })
+	}
+}
+
+func testAssistantDeviceScope(t *testing.T, inherited bool) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
 	must := func(err error) {
@@ -54,8 +64,18 @@ func TestAssistantUsesCurrentUserPermissionsAndDeviceScope(t *testing.T) {
 	root := login("root", cfg.AdminPassword)["accessToken"].(string)
 	base := []string{"menu:devices", "menu:ai", "POST /api/v1/ai/chat", "POST /api/v1/ai/chat/stream"}
 	role := map[string]any{"id": "reader", "name": "设备查看", "permissions": append(append([]string{}, base...), "menu:alarms", "menu:dashboard")}
+	if inherited {
+		role["deviceScope"], role["deviceIds"] = "selected", []string{"foreign"}
+		req("POST", "/api/v1/access/roles", root, role, 422)
+		role["deviceScope"] = "inherit"
+		req("POST", "/api/v1/access/roles", root, role, 422)
+		role["deviceScope"], role["deviceIds"] = "selected", []string{"allowed"}
+	}
 	req("POST", "/api/v1/access/roles", root, role, 200)
 	user := map[string]any{"username": "reader", "password": "scope-reader-password", "enabled": true, "roleIds": []string{"reader"}, "deviceScope": "selected", "deviceIds": []string{"allowed"}}
+	if inherited {
+		user["deviceScope"] = "inherit"
+	}
 	req("POST", "/api/v1/access/users", root, user, 200)
 	identity := login("reader", "scope-reader-password")
 	token := identity["accessToken"].(string)
@@ -145,6 +165,26 @@ func TestAssistantUsesCurrentUserPermissionsAndDeviceScope(t *testing.T) {
 	req("GET", "/api/v1/alarms/alarm-hidden", token, nil, 403)
 	req("POST", "/api/v1/ai/reports", token, nil, 403)
 	req("GET", "/api/v1/rules", token, nil, 403)
+	if inherited {
+		// Same browser and MCP tokens must observe a role's device change immediately.
+		role["deviceIds"] = []string{"hidden"}
+		req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+		tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, true)
+		tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": "hidden"}, false)
+		if text := tool(first.MCPToken, "query_alarm_list", nil, false); strings.Contains(text, "allowed") || !strings.Contains(text, "alarm-hidden") {
+			t.Fatal("role scope not reloaded", text)
+		}
+		req("GET", "/api/v1/device-registry/allowed/history", token, nil, 403)
+		if req("GET", "/api/v1/auth/me", token, nil, 200)["accessVersion"] == identity["accessVersion"] {
+			t.Fatal("role scope must invalidate browser history")
+		}
+		if chat(token).ConversationID == first.ConversationID {
+			t.Fatal("role scope must invalidate model history")
+		}
+		role["deviceIds"] = []string{"allowed"}
+		req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+	}
+
 	// A role edit applies to already issued MCP credentials and starts fresh context.
 	role["permissions"] = base
 	req("PUT", "/api/v1/access/roles/reader", root, role, 200)

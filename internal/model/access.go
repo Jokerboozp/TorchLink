@@ -22,4 +22,6 @@ type PlatformRole struct { /* 定义 PlatformRole 类型。 */
 	Name        string   `json:"name"`        /* 执行当前语句并推进处理流程。 */
 	Description string   `json:"description"` /* 执行当前语句并推进处理流程。 */
 	Permissions []string `json:"permissions"` /* 执行当前语句并推进处理流程。 */
+	DeviceScope string   `json:"deviceScope"`
+	DeviceIDs   []string `json:"deviceIds"`
 } /* 结束当前表达式或代码块。 */

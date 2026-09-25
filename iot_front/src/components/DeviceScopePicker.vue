@@ -9,7 +9,9 @@ const props = defineProps({
   loading: Boolean,
   error: { type: String, default: '' },
   disabled: Boolean,
-  canViewDevices: Boolean
+  canViewDevices: Boolean,
+  allowInherit: Boolean,
+  inheritedLabel: { type: String, default: '无设备' }
 })
 const emit = defineEmits(['update:scope', 'update:deviceIds', 'retry', 'enable-device-menu'])
 const query = ref('')
@@ -39,11 +41,13 @@ function toggle(id, checked) {
 <template>
   <section class="device-scope-picker" aria-label="设备授权设置">
     <ui-radio-group :model-value="scope" :disabled="disabled" class="device-scope-options segmented-choice-group" aria-label="设备访问范围" @update:model-value="emit('update:scope', $event)">
+      <ui-radio-button v-if="allowInherit" value="inherit">继承角色</ui-radio-button>
       <ui-radio-button value="none">无设备</ui-radio-button>
       <ui-radio-button value="selected">指定设备</ui-radio-button>
       <ui-radio-button value="all">当前租户全部设备</ui-radio-button>
     </ui-radio-group>
-    <p v-if="scope === 'none'" class="scope-note">此用户不能查看任何设备，也不会收到设备告警。</p>
+    <p v-if="scope === 'inherit'" class="scope-note">随角色自动更新：{{ inheritedLabel }}。多个角色的设备范围合并；未分配角色或角色未授权设备时无设备可见。</p>
+    <p v-else-if="scope === 'none'" class="scope-note">不允许查看任何设备，也不会收到设备告警。</p>
     <p v-else-if="scope === 'all'" class="scope-note">允许查看当前租户的全部设备，包含以后新增的设备。</p>
     <template v-else>
       <div class="device-scope-search">
@@ -65,7 +69,7 @@ function toggle(id, checked) {
       <p class="scope-note">未勾选的设备不可见；主设备与子设备需分别勾选。未选择任何设备时，与“无设备”相同。</p>
     </template>
     <div v-if="scope !== 'none' && !canViewDevices" class="device-scope-permission" role="status">
-      <p>该用户尚未获得设备管理查看权限，仅保存设备范围还不能查看设备。</p>
+      <p>尚未获得设备管理查看权限，仅保存设备范围还不能查看设备。</p>
       <ui-button :disabled="disabled" @click="emit('enable-device-menu')">开通设备管理查看权限</ui-button>
     </div>
     <p v-else-if="scope !== 'none'" class="scope-note">已具备设备管理查看权限。告警、原始报文和智能助手还需各自的功能权限，数据均受此设备范围限制。</p>
