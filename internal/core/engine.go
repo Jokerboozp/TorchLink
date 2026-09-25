@@ -21,7 +21,8 @@ import ( /* 引入当前代码需要的依赖。 */
 const directAlarmRulePrefix = "device-report:" /* 声明 directAlarmRulePrefix。 */
 
 type Engine struct { /* 定义 Engine 类型。 */
-	stateLocks  [64]sync.Mutex          /* 执行当前语句并推进处理流程。 */
+	stateLocks  [64]sync.Mutex /* 执行当前语句并推进处理流程。 */
+	rules       ruleCache
 	ingestLocks [256]sync.Mutex         /* 执行当前语句并推进处理流程。 */
 	Repo        ports.Repository        /* 执行当前语句并推进处理流程。 */
 	Archive     ports.Archive           /* 执行当前语句并推进处理流程。 */
@@ -358,8 +359,8 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error { /* 定义
 	if err := e.touchState(ctx, msg); err != nil { /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	rules, err := e.Repo.ListRules(ctx, msg.TenantID) /* 更新 err 的值。 */
-	if err != nil {                                   /* 判断条件并选择处理分支。 */
+	rules, err := e.tenantRules(ctx, msg.TenantID) /* 短时缓存，避免每条消息读取全部规则。 */
+	if err != nil {                                /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	ruleAlarmHandled := false    /* 更新 ruleAlarmHandled 的值。 */
@@ -779,6 +780,7 @@ func (e *Engine) DeleteRule(ctx context.Context, tenant, ruleID string) error { 
 	if err := e.Repo.DeleteRule(ctx, tenant, ruleID); err != nil { /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	e.RulesChanged(tenant)
 	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil { /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -788,6 +790,7 @@ func (e *Engine) DeleteRule(ctx context.Context, tenant, ruleID string) error { 
 // DisableRule clears duration state and closes active/acknowledged alarms
 // before a rule is switched off. Historical alarm rows remain available.
 func (e *Engine) DisableRule(ctx context.Context, tenant, ruleID string) error { /* 定义 DisableRule 函数。 */
+	defer e.RulesChanged(tenant)
 	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil { /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -1115,19 +1118,7 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	if device, deviceErr := e.Repo.GetManagedDevice(ctx, alarm.TenantID, alarm.DeviceID); deviceErr == nil { /* 判断条件并选择处理分支。 */
 		history = append(history, map[string]any{"contextType": "deviceMetadata", "device": device}) /* 更新 history 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	properties := []string{"temperature", "smoke", "water_pressure", "voltage", "current", "gas"} /* 更新 properties 的值。 */
-	for _, property := range properties {                                                         /* 循环处理当前数据。 */
-		for _, window := range []struct { /* 循环处理当前数据。 */
-			name  string /* 执行当前语句并推进处理流程。 */
-			ms    int64  /* 执行当前语句并推进处理流程。 */
-			limit int    /* 执行当前语句并推进处理流程。 */
-		}{{"10m", 10 * 60 * 1000, 200}, {"1h", 60 * 60 * 1000, 500}, {"24h", 24 * 60 * 60 * 1000, 1000}} { /* 结束当前表达式或代码块。 */
-			items, historyErr := e.Repo.PropertyHistory(ctx, alarm.TenantID, alarm.DeviceID, property, alarm.LastTriggeredAt-window.ms, alarm.LastTriggeredAt, window.limit) /* 更新 historyErr 的值。 */
-			if historyErr == nil && len(items) > 0 {                                                                                                                         /* 判断条件并选择处理分支。 */
-				history = append(history, map[string]any{"contextType": "propertyHistory", "property": property, "window": window.name, "items": items}) /* 更新 history 的值。 */
-			} /* 结束当前表达式或代码块。 */
-		} /* 结束当前表达式或代码块。 */
-	} /* 结束当前表达式或代码块。 */
+	history = append(history, e.alarmPropertyHistory(ctx, alarm)...)                                                                                        // 每个属性只查询一次最近 24 小时并压缩为摘要。
 	if similar, similarErr := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Limit: 20}); similarErr == nil { /* 判断条件并选择处理分支。 */
 		filtered := []model.Alarm{}    /* 更新 filtered 的值。 */
 		for _, item := range similar { /* 循环处理当前数据。 */

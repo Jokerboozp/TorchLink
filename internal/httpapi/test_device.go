@@ -229,6 +229,7 @@ func (s *Server) removeLegacyTestAlarmRule(ctx context.Context, tenantID, id, pr
 		if err := s.engine.Repo.DeleteRule(ctx, tenantID, id); err != nil { /* 判断条件并选择处理分支。 */
 			return false, err /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
+		s.engine.RulesChanged(tenantID)
 		return true, nil /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	return false, nil /* 返回当前处理结果。 */

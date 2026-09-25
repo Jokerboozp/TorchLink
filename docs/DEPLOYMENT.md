@@ -143,6 +143,17 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
+## 高可用边界
+
+默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、MinIO、Weaviate、Ollama、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
+
+- 容器自动重启只在进程退出后拉起同一实例，不能在宿主机、磁盘或数据卷故障时切换。
+- MQTT 持久队列（`IOT_DATA_DIR/mqtt-inbox/`）保证已确认报文在本机磁盘上重启后可继续处理，不复制到其他节点。
+- 备份用于事后恢复数据，恢复需要停机与人工操作，不是故障切换；备份存在不等于已验证可恢复。
+- 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
+
+需要高可用时，至少要为 Redpanda（三节点，主题 `--replicas 3`）、PostgreSQL（主备复制与自动切换）、ClickHouse（副本）、EMQX（集群）、MinIO（分布式或外部对象存储）和多副本 API / Harness（前置负载均衡）分别设计，并在目标环境演练节点故障与切换；这些不在默认 Compose 的范围内，也未经本仓库验证。
+
 ## 排查入口
 
 | 现象 | 先检查 |

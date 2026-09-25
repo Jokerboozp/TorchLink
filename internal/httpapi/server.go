@@ -1218,6 +1218,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) { /* 定义 sa
 		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	s.engine.RulesChanged(c.TenantID)
 	s.audit(r, "rule.save", "rule", v.ID, map[string]any{"version": v.Version, "enabled": v.Enabled}) /* 执行当前语句并推进处理流程。 */
 	write(w, status, v)                                                                               /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */

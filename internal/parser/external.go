@@ -13,8 +13,9 @@ import ( /* 引入当前代码需要的依赖。 */
 	"os/exec"       /* 执行当前语句并推进处理流程。 */
 	"path/filepath" /* 执行当前语句并推进处理流程。 */
 	"strconv"       /* 执行当前语句并推进处理流程。 */
-	"strings"       /* 执行当前语句并推进处理流程。 */
-	"time"          /* 执行当前语句并推进处理流程。 */
+	"strings"
+	"sync" /* 执行当前语句并推进处理流程。 */
+	"time" /* 执行当前语句并推进处理流程。 */
 
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
@@ -201,6 +202,9 @@ func verifyExternalArtifact(path string, artifact map[string]any) error { /* 定
 		return fmt.Errorf("protocol artifact size must be between 1 and %d bytes", maxExternalArtifact) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if expected, ok := artifact["sha256"].(string); ok && strings.TrimSpace(expected) != "" { /* 判断条件并选择处理分支。 */
+		if verifiedArtifacts.fresh(path, expected, info) {
+			return nil
+		}
 		file, err := os.Open(path) /* 更新 err 的值。 */
 		if err != nil {            /* 判断条件并选择处理分支。 */
 			return fmt.Errorf("open protocol artifact: %w", err) /* 返回当前处理结果。 */
@@ -218,9 +222,47 @@ func verifyExternalArtifact(path string, artifact map[string]any) error { /* 定
 		if !strings.EqualFold(actual, strings.TrimSpace(expected)) { /* 判断条件并选择处理分支。 */
 			return fmt.Errorf("protocol artifact checksum mismatch: got %s, want %s", actual, expected) /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
+		verifiedArtifacts.remember(path, expected, info)
 	} /* 结束当前表达式或代码块。 */
 	return nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+
+// artifactVerificationTTL bounds how long a verified hash is trusted without
+// re-reading the file, even when size and modification time are unchanged.
+const artifactVerificationTTL = 5 * time.Minute
+
+// artifactVerifications remembers binaries whose SHA-256 already matched, so
+// every protocol call does not re-read and hash a multi-megabyte Worker. Any
+// change of expected hash, size or modification time forces a full re-check.
+type artifactVerifications struct {
+	mu      sync.Mutex
+	entries map[string]artifactVerification
+}
+
+type artifactVerification struct {
+	sha256     string
+	size       int64
+	modTime    time.Time
+	verifiedAt time.Time
+}
+
+var verifiedArtifacts = &artifactVerifications{entries: map[string]artifactVerification{}}
+
+func (v *artifactVerifications) fresh(path, expected string, info os.FileInfo) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	entry, ok := v.entries[path]
+	return ok && strings.EqualFold(entry.sha256, strings.TrimSpace(expected)) && entry.size == info.Size() && entry.modTime.Equal(info.ModTime()) && time.Since(entry.verifiedAt) < artifactVerificationTTL
+}
+
+func (v *artifactVerifications) remember(path, expected string, info os.FileInfo) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if len(v.entries) >= 1024 {
+		v.entries = map[string]artifactVerification{}
+	}
+	v.entries[path] = artifactVerification{sha256: strings.TrimSpace(expected), size: info.Size(), modTime: info.ModTime(), verifiedAt: time.Now()}
+}
 
 func externalTimeout(config map[string]any) time.Duration { /* 定义 externalTimeout 函数。 */
 	if config == nil { /* 判断条件并选择处理分支。 */

@@ -149,6 +149,7 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 				now := time.Now().UnixMilli()           /* 更新 now 的值。 */
 				v.CreatedAt, v.UpdatedAt = now, now     /* 更新 v.UpdatedAt 的值。 */
 				draftErr = engine.Repo.SaveRule(ctx, v) /* 更新 draftErr 的值。 */
+				engine.RulesChanged(tenant)
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
 		output := map[string]any{"kind": "ruleDraft", "draft": v, "persisted": draftErr == nil, "requiresHumanApproval": true} /* 更新 output 的值。 */
