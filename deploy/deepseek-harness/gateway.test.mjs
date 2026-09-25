@@ -300,6 +300,34 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
   assert.ok(factorySpec.harnessHome.endsWith(`\\${factorySpec.sessionId}`) || factorySpec.harnessHome.endsWith(`/${factorySpec.sessionId}`)) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
 
+test('workflow token ceiling caps provider output limits when switching assistants', async () => {
+  const specs = []
+  const { baseUrl } = await startGateway(async spec => {
+    specs.push(spec)
+    return { run: async () => result('状态查询完成'), close: async () => {} }
+  })
+  const cases = [
+    { workflowId: 'ops-assistant', maxTokens: 8192, expected: 8192 },
+    { workflowId: 'system-observer', maxTokens: 8192, expected: 4096 },
+    { workflowId: 'system-observer', maxTokens: 1024, expected: 1024 },
+    { workflowId: 'system-observer', maxTokens: undefined, expected: 4096 },
+  ]
+  for (const [index, { workflowId, maxTokens, expected }] of cases.entries()) {
+    const response = await chat(baseUrl, requestBody({ runId: `token-limit-${index}`, workflowId, maxTokens }))
+    assert.equal(response.status, 200)
+    const { events } = await ndjson(response)
+    assert.equal(events.at(-1).type, 'run.completed')
+    assert.equal(specs.at(-1).maxTokens, expected)
+  }
+  const factoryCalls = specs.length
+  for (const maxTokens of [0, -1, 1.5, '8192', 262145]) {
+    const response = await chat(baseUrl, requestBody({ workflowId: 'system-observer', maxTokens }))
+    assert.equal(response.status, 422)
+    assert.equal((await response.json()).error.code, 'MAX_TOKENS_INVALID')
+  }
+  assert.equal(specs.length, factoryCalls)
+})
+
 test('upstream MCP path is exactly /mcp/harness', async () => { /* 执行当前语句并推进处理流程。 */
   let factoryCalls = 0 /* 声明 factoryCalls。 */
   const { baseUrl } = await startGateway(async () => { /* 执行当前语句并推进处理流程。 */

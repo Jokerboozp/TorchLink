@@ -82,7 +82,7 @@ Compose 将平台侧 `IOT_AI_HARNESS_*` 配置映射到侧车变量；API 等待
 
 ## 插件与权限
 
-工作流由 `plugins/*.json` 按 `workflowId` 选择。Manifest 提供 `schemaVersion`、`id`、名称、说明、版本、`enabled`、`persona`、`defaultModel`、`maxTokens`、`capabilities` 和 `allowedTools`。使用现有 JSON 文件作为模板：
+工作流由 `plugins/*.json` 按 `workflowId` 选择。Manifest 提供 `schemaVersion`、`id`、名称、说明、版本、`enabled`、`persona`、`defaultModel`、`maxTokens`、`capabilities` 和 `allowedTools`。请求的 `maxTokens` 必须是 1–262144 的整数；省略时使用 Manifest 值，超过当前插件上限时自动收紧到该上限，避免共享模型配置导致切换助手后请求失败。使用现有 JSON 文件作为模板：
 
 - `ops-assistant`：设备、告警、趋势与知识检索，供聊天工作台使用。
 - `alarm-handler`：告警研判。

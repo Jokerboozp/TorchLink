@@ -301,8 +301,8 @@ function validatedBody(raw, plugins, allowedOrigins, modelOverride) { /* 定义 
   const maxTokens = raw.maxTokens === undefined || raw.maxTokens === null /* 声明 maxTokens。 */
     ? plugin.maxTokens /* 执行当前语句并推进处理流程。 */
     : raw.maxTokens /* 执行当前语句并推进处理流程。 */
-  if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > plugin.maxTokens) { /* 判断条件并选择处理分支。 */
-    throw new HttpError(422, 'MAX_TOKENS_INVALID', `maxTokens must be from 1 to the plugin ceiling ${plugin.maxTokens}`) /* 抛出当前错误。 */
+  if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 262144) { /* 判断条件并选择处理分支。 */
+    throw new HttpError(422, 'MAX_TOKENS_INVALID', 'maxTokens must be an integer from 1 to 262144') /* 抛出当前错误。 */
   } /* 结束当前表达式或代码块。 */
   return { /* 返回当前处理结果。 */
     runId, /* 执行当前语句并推进处理流程。 */
@@ -311,7 +311,8 @@ function validatedBody(raw, plugins, allowedOrigins, modelOverride) { /* 定义 
     question, /* 执行当前语句并推进处理流程。 */
     mcpUrl: validatedMcpUrl(raw.mcpUrl, allowedOrigins), /* 执行当前语句并推进处理流程。 */
     model, /* 执行当前语句并推进处理流程。 */
-    maxTokens, /* 执行当前语句并推进处理流程。 */
+    // Provider settings are shared across workflows; each plugin retains its ceiling.
+    maxTokens: Math.min(maxTokens, plugin.maxTokens),
     plugin, /* 执行当前语句并推进处理流程。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
