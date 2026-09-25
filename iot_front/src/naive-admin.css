@@ -146,7 +146,7 @@ a { color: var(--primary); } /* 设置后台页面的布局与视觉样式。 */
 } /* 结束当前样式分组。 */
 @media (max-width: 640px) { /* 按屏幕宽度调整后台布局。 */
   .app-shell { padding-bottom: 66px; } /* 设置后台页面的布局与视觉样式。 */
-  .app-shell .app-aside { width: 100% !important; height: 66px; padding: 6px 8px; background: var(--brand-navy); } /* 手机底部导航保留深蓝主题。 */
+  .app-shell .app-aside { width: 100% !important; height: 66px; padding: 6px 8px; background: var(--brand-navy); transition: none; } /* 手机底部导航保留深蓝主题，切换宽度时不做过渡，避免只铺满半屏。 */
   .app-shell .menu-item { min-height: 48px; } /* 设置后台页面的布局与视觉样式。 */
   .topbar { height: 58px; flex-basis: 58px; padding-inline: 12px; } /* 设置后台页面的布局与视觉样式。 */
   .app-tabs { min-height: 40px; padding-inline: 8px; } /* 设置后台页面的布局与视觉样式。 */

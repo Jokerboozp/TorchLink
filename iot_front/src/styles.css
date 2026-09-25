@@ -165,8 +165,6 @@ pre { max-height: 360px; overflow: auto; padding: 14px; color: #dbeafe; backgrou
 .topbar { height: 60px; flex: 0 0 60px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; position: relative; z-index: 15; background: var(--background); border-bottom: 0; } /* 定义当前元素的样式规则。 */
 .title-area, .top-actions, .card-header { display: flex; align-items: center; } /* 定义当前元素的样式规则。 */
 .title-area { gap: 14px; } /* 定义当前元素的样式规则。 */
-.title-area > div > span { display: flex; align-items: center; gap: 5px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; } /* 定义当前元素的样式规则。 */
-.title-area > div > span::before { content: ""; width: 5px; height: 5px; display: inline-block; background: var(--primary); border-radius: 999px; } /* 定义当前元素的样式规则。 */
 .title-area h2 { margin: 3px 0 0; color: var(--foreground); font-size: 18px; line-height: 1.2; font-weight: 700; letter-spacing: -.025em; } /* 定义当前元素的样式规则。 */
 .title-area p { display: none; } /* 定义当前元素的样式规则。 */
 .collapse-button { width: 34px; height: 34px; display: grid; place-items: center; color: var(--muted-foreground); border: 1px solid transparent; border-radius: .5rem; } /* 定义当前元素的样式规则。 */
@@ -366,7 +364,6 @@ input[type="file"]:disabled { opacity: .6; cursor: not-allowed; } /* 设置 inpu
   .topbar { height: 68px; flex-basis: 68px; } /* 定义当前元素的样式规则。 */
   .top-actions { gap: 6px; } /* 定义当前元素的样式规则。 */
   .title-area h2 { font-size: 16px; } /* 定义当前元素的样式规则。 */
-  .title-area > div > span { font-size: 12px; } /* 定义当前元素的样式规则。 */
   .app-shell .page-toolbar { padding: 0; } /* 定义当前元素的样式规则。 */
   .app-shell .page-toolbar > span:not(.el-tag) { flex-basis: auto; } /* 定义当前元素的样式规则。 */
   .alarm-row { grid-template-columns: 8px minmax(0, 1fr) auto; } /* 定义当前元素的样式规则。 */
