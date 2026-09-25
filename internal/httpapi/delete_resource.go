@@ -31,6 +31,7 @@ func (s *Server) deleteProtocolRelease(w http.ResponseWriter, r *http.Request) {
 	}
 	tenant := claims(r).TenantID
 	err := s.engine.Repo.DeleteProtocolRelease(r.Context(), tenant, id, version)
+	s.engine.ProtocolsChanged(tenant)
 	switch {
 	case errors.Is(err, model.ErrNotFound):
 		problem(w, http.StatusNotFound, "protocol version not found")

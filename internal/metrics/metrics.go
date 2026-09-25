@@ -21,8 +21,8 @@ type rate struct { /* 定义 rate 类型。 */
 } /* 结束当前表达式或代码块。 */
 
 func New() *Registry { /* 定义 New 函数。 */
-	counters := map[string]uint64{}                                                                                                                                                                                                                                                                                                                                                      /* 更新 counters 的值。 */
-	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total"} { /* 循环处理当前数据。 */
+	counters := map[string]uint64{}                                                                                                                                                                                                                                                                                                                                                                                   /* 更新 counters 的值。 */
+	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_skipped_total"} { /* 循环处理当前数据。 */
 		counters[name] = 0 /* 更新 counters[name] 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	gauges := map[string]float64{"storage_latency_ms": 0, "mqtt_inflight_messages": 0, "mqtt_subscription_count": 0, "mqtt_ws_client_count": 0, "kafka_lag": 0} /* 更新 gauges 的值。 */

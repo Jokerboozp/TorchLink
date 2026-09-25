@@ -153,6 +153,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 - MQTT 持久队列（`IOT_DATA_DIR/mqtt-inbox/`）保证已确认报文在本机磁盘上重启后可继续处理，不复制到其他节点。
 - 备份用于事后恢复数据，恢复需要停机与人工操作，不是故障切换；备份存在不等于已验证可恢复。
 - 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
+- 运维中心依赖（`--profile ops` 的 Prometheus、Loki、Grafana、Alertmanager）同样各一个实例；它们停止时接入与告警链路不受影响，但期间的监控数据、日志与告警通知会缺失。
 
 需要高可用时，至少要为 Redpanda（三节点，主题 `--replicas 3`）、PostgreSQL（主备复制与自动切换）、ClickHouse（副本）、EMQX（集群）、MinIO（分布式或外部对象存储）和多副本 API / Harness（前置负载均衡）分别设计，并在目标环境演练节点故障与切换；这些不在默认 Compose 的范围内，也未经本仓库验证。
 

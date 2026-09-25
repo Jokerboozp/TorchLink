@@ -185,3 +185,37 @@ func TestBusinessRunWaitsWhileHarnessIsBusy(t *testing.T) {
 		t.Fatal("waiting for capacity must be bounded")
 	}
 }
+
+// Queued automatic analyses skip alarms resolved while waiting and alarms that
+// a redelivered event already analysed.
+func TestAutomaticAnalysisSkipsResolvedAndAnalysedAlarms(t *testing.T) {
+	e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil })
+	ctx := context.Background()
+	resolved := model.Alarm{ID: "alarm-resolved", TenantID: "t1", DeviceID: "d1", AlarmType: "SMOKE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
+	if _, _, err := repo.UpsertAlarm(ctx, resolved); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.GetAlarm(ctx, "t1", "alarm-resolved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Status = "RECOVERED"
+	if err = repo.UpdateAlarm(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.handleAI(ctx, mustJSON(resolved)); err != nil || len(workflows.Requests()) != 0 {
+		t.Fatalf("a recovered alarm must not be analysed: runs=%d err=%v", len(workflows.Requests()), err)
+	}
+	active := model.Alarm{ID: "alarm-active", TenantID: "t1", DeviceID: "d1", AlarmType: "SMOKE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
+	if _, _, err = repo.UpsertAlarm(ctx, active); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err = e.handleAI(ctx, mustJSON(active)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(workflows.Requests()) != 1 {
+		t.Fatalf("a redelivered alarm must be analysed once, got %d runs", len(workflows.Requests()))
+	}
+}

@@ -472,6 +472,7 @@ func (s *Server) publishProtocolReleaseV2(w http.ResponseWriter, r *http.Request
 		problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	s.engine.ProtocolsChanged(tenant)
 	release.Status = "PUBLISHED"                                                      /* 更新 release.Status 的值。 */
 	release.PublishedAt = now                                                         /* 更新 release.PublishedAt 的值。 */
 	s.audit(r, "protocol.v2.release.publish", "protocolRelease", id+"@"+version, nil) /* 执行当前语句并推进处理流程。 */
@@ -569,6 +570,7 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	if err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: product, Package: shim, Binding: binding, Expected: expected}); err != nil {
 		return binding, err
 	}
+	s.engine.ProtocolsChanged(tenant)
 	s.audit(r, "protocol.v2.binding.switch", "product", productID, map[string]any{"protocolId": protocolID, "version": version, "previousVersion": previous}) /* 执行当前语句并推进处理流程。 */
 	return binding, nil                                                                                                                                       /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */

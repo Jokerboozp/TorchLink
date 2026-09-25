@@ -51,6 +51,7 @@ func (s *Server) saveGeneratedProtocol(w http.ResponseWriter, r *http.Request, i
 			problem(w, 422, "样本解析失败："+err.Error()) /* 执行当前语句并推进处理流程。 */
 			return                                 /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
+		s.engine.ProtocolsChanged(release.TenantID)
 		release.Status = "VALIDATED" /* 更新 release.Status 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	definition, err := s.engine.Repo.GetProtocolDefinition(r.Context(), tenant, id) /* 更新 err 的值。 */
@@ -148,6 +149,7 @@ func (s *Server) previewGeneratedRelease(w http.ResponseWriter, r *http.Request)
 			problem(w, 500, err.Error()) /* 执行当前语句并推进处理流程。 */
 			return                       /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
+		s.engine.ProtocolsChanged(release.TenantID)
 		release.Status = "VALIDATED" /* 更新 release.Status 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	s.audit(r, "protocol.generated.preview", "protocolRelease", release.ProtocolID+"@"+release.Version, map[string]any{"status": release.Status}) /* 执行当前语句并推进处理流程。 */

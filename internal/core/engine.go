@@ -23,6 +23,7 @@ const directAlarmRulePrefix = "device-report:" /* 声明 directAlarmRulePrefix�
 type Engine struct { /* 定义 Engine 类型。 */
 	stateLocks  [64]sync.Mutex /* 执行当前语句并推进处理流程。 */
 	rules       ruleCache
+	protocols   protocolCache
 	ingestLocks [256]sync.Mutex         /* 执行当前语句并推进处理流程。 */
 	Repo        ports.Repository        /* 执行当前语句并推进处理流程。 */
 	Archive     ports.Archive           /* 执行当前语句并推进处理流程。 */
@@ -80,9 +81,9 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 	lock.Lock()                                                            /* 执行当前语句并推进处理流程。 */
 	defer lock.Unlock()                                                    /* 安排函数结束时执行清理。 */
 	if raw.ProtocolID == "" || raw.ProtocolVersion == "" {                 /* 判断条件并选择处理分支。 */
-		if binding, err := e.Repo.GetProductProtocolBinding(ctx, raw.TenantID, raw.ProductID); err == nil { /* 判断条件并选择处理分支。 */
-			raw.ProtocolID, raw.ProtocolVersion = binding.ProtocolID, binding.Version                                                        /* 更新 raw.ProtocolVersion 的值。 */
-			if release, releaseErr := e.Repo.GetProtocolRelease(ctx, raw.TenantID, binding.ProtocolID, binding.Version); releaseErr == nil { /* 判断条件并选择处理分支。 */
+		if binding, err := e.productBinding(ctx, raw.TenantID, raw.ProductID); err == nil { /* 判断条件并选择处理分支。 */
+			raw.ProtocolID, raw.ProtocolVersion = binding.ProtocolID, binding.Version                                                /* 更新 raw.ProtocolVersion 的值。 */
+			if release, releaseErr := e.protocolRelease(ctx, raw.TenantID, binding.ProtocolID, binding.Version); releaseErr == nil { /* 判断条件并选择处理分支。 */
 				raw.PointTableVersion = release.PointTableVersion /* 更新 raw.PointTableVersion 的值。 */
 			} /* 结束当前表达式或代码块。 */
 		} /* 结束当前表达式或代码块。 */
@@ -256,13 +257,13 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error { /* 定义 hand
 	var err error                                                      /* 声明 err。 */
 	protocolID, protocolVersion := raw.ProtocolID, raw.ProtocolVersion /* 更新 protocolVersion 的值。 */
 	if protocolID == "" || protocolVersion == "" {                     /* 判断条件并选择处理分支。 */
-		if binding, bindingErr := e.Repo.GetProductProtocolBinding(ctx, raw.TenantID, raw.ProductID); bindingErr == nil { /* 判断条件并选择处理分支。 */
+		if binding, bindingErr := e.productBinding(ctx, raw.TenantID, raw.ProductID); bindingErr == nil { /* 判断条件并选择处理分支。 */
 			protocolID, protocolVersion = binding.ProtocolID, binding.Version /* 更新 protocolVersion 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
 	if protocolID != "" && protocolVersion != "" { /* 判断条件并选择处理分支。 */
-		release, releaseErr := e.Repo.GetProtocolRelease(ctx, raw.TenantID, protocolID, protocolVersion) /* 更新 releaseErr 的值。 */
-		if releaseErr != nil {                                                                           /* 判断条件并选择处理分支。 */
+		release, releaseErr := e.protocolRelease(ctx, raw.TenantID, protocolID, protocolVersion) /* 更新 releaseErr 的值。 */
+		if releaseErr != nil {                                                                   /* 判断条件并选择处理分支。 */
 			err = fmt.Errorf("protocol release %s@%s not found: %w", protocolID, protocolVersion, releaseErr) /* 验证实际结果符合预期。 */
 		} else if release.Status == "REVOKED" { /* 结束当前表达式或代码块。 */
 			err = fmt.Errorf("protocol release %s@%s is revoked", protocolID, protocolVersion) /* 验证实际结果符合预期。 */
@@ -1101,9 +1102,25 @@ func (e *Engine) handleAI(ctx context.Context, b []byte) error { /* 定义 handl
 	// 自动研判没有具体用户，按“无角色”处理：不检索知识库，结果对所有能查看告警的人可见；
 	// 系统身份只能查询告警、属性历史和相似告警。
 	ctx = ports.WithAIRunIdentity(ctx, AlarmAnalysisSystemIdentity())
+	// During an alarm storm analyses queue up; skip alarms that were resolved
+	// while waiting, and alarms a redelivered event has already analysed.
+	if current, err := e.Repo.GetAlarm(ctx, alarm.TenantID, alarm.ID); err == nil && (current.Status == "RECOVERED" || current.Status == "CLOSED") {
+		e.countAISkip()
+		return nil
+	}
+	if existing, err := e.Repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); err == nil && existing.Error == "" {
+		e.countAISkip()
+		return nil
+	}
 	_, err := e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID, false) /* 更新 err 的值。 */
 	return err                                                     /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+
+func (e *Engine) countAISkip() {
+	if e.Metrics != nil {
+		e.Metrics.Inc("ai_analysis_skipped_total")
+	}
+}
 
 // AnalyzeAlarm runs the same automatic analysis path used by alarm events and
 // is also exposed to the operator UI for a manual re-run. withKnowledge must be
