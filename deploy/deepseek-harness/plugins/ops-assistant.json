@@ -9,6 +9,7 @@
   "defaultModel": "qwen3:1.7b",
   "maxTokens": 8192,
   "capabilities": [
+    "设备与告警总体统计",
     "设备实时状态查询",
     "活动告警研判",
     "属性历史趋势分析",
@@ -17,6 +18,7 @@
     "自动化规则草稿生成"
   ],
   "allowedTools": [
+    "mcp__iot__query_system_overview",
     "mcp__iot__query_device_latest",
     "mcp__iot__query_alarm_list",
     "mcp__iot__query_property_history",

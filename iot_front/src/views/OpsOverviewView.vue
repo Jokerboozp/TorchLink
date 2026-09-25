@@ -136,7 +136,7 @@ onBeforeUnmount(() => { snapshot.cancel(); series.cancel() })
 </template>
 
 <style scoped>
-.ops-page { display: grid; gap: var(--space-4); min-width: 0; }
+.ops-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
 .ops-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
 .ops-toolbar__meta, .ops-muted { color: var(--text-muted); font-size: var(--font-size-xs); }
 .component-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }

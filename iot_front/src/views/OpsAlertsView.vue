@@ -307,8 +307,8 @@ onBeforeUnmount(() => { clearInterval(alertTimer); clearTimeout(filterTimer); al
 </template>
 
 <style scoped>
-.ops-page { display: grid; gap: var(--space-4); min-width: 0; }
-.alert-panel { display: grid; gap: var(--space-3); min-width: 0; }
+.ops-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
+.alert-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .alert-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
 .alert-toolbar__right { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .alert-summary { display: flex; flex-wrap: wrap; gap: var(--space-3); color: var(--text-secondary); font-size: var(--font-size-sm); }
