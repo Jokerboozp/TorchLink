@@ -53,7 +53,7 @@ const PROVIDER_KEYS = new Set(['provider', 'baseUrl', 'model', 'apiKey']) /* 声
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/ /* 声明 ID_PATTERN。 */
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/ /* 声明 MODEL_PATTERN。 */
 const CAPABILITY_PATTERN = /^[^\u0000-\u001f\u007f]{1,64}$/u /* 声明 CAPABILITY_PATTERN。 */
-const BUILTIN_PLUGIN_IDS = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant']) /* 声明 BUILTIN_PLUGIN_IDS。 */
+const BUILTIN_PLUGIN_IDS = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter']) /* 声明 BUILTIN_PLUGIN_IDS。 */
 
 class HttpError extends Error { /* 定义 HttpError 类。 */
   constructor(status, code, message) { /* 执行当前语句并推进处理流程。 */

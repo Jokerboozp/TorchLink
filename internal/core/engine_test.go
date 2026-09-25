@@ -9,27 +9,14 @@ import ( /* 引入当前代码需要的依赖。 */
 	"testing"       /* 执行当前语句并推进处理流程。 */
 	"time"          /* 执行当前语句并推进处理流程。 */
 
-	aiadapter "iot-platform/internal/adapters/ai" /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/adapters/knowledge"    /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/adapters/local"        /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/adapters/memory"       /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/model"                 /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/parser"                /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/ports"                 /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/knowledge" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/local"     /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/memory"    /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/model"  /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/parser" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"  /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
-
-type failingAlarmAI struct{} /* 定义 failingAlarmAI 类型。 */
-
-func (failingAlarmAI) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
-	return model.AIAnalysis{}, errors.New("provider response invalid") /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-func (failingAlarmAI) Chat(context.Context, string, string) (string, error) { /* 定义 Chat 函数。 */
-	return "", errors.New("provider response invalid") /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-func (failingAlarmAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) { /* 定义 RuleDraft 函数。 */
-	return model.AlarmRule{}, errors.New("provider response invalid") /* 返回当前处理结果。 */
-}                                                   /* 结束当前表达式或代码块。 */
-func (failingAlarmAI) Health(context.Context) error { return errors.New("provider response invalid") } /* 定义 Health 函数。 */
 
 type recordingBus struct { /* 定义 recordingBus 类型。 */
 	*local.Bus          /* 执行当前语句并推进处理流程。 */
@@ -111,9 +98,10 @@ func TestRawToAlarmPipeline(t *testing.T) { /* 定义 TestRawToAlarmPipeline 函
 	bus := local.NewBus()                                                                                                           /* 更新 bus 的值。 */
 	realtime := local.NewRealtime()                                                                                                 /* 更新 realtime 的值。 */
 	e := New(repo, archive, bus, realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 e 的值。 */
-	e.AI = aiadapter.NoopAI{}                                                                                                       /* 更新 e.AI 的值。 */
-	e.KB = knowledge.NewLocal()                                                                                                     /* 更新 e.KB 的值。 */
-	if err = e.Start(ctx); err != nil {                                                                                             /* 判断条件并选择处理分支。 */
+	e.AIWorkflows = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil }}
+	e.HarnessTokens = aitest.Tokens()
+	e.KB = knowledge.NewLocal()         /* 更新 e.KB 的值。 */
+	if err = e.Start(ctx); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{ID: "device_1", TenantID: "t1", ProductID: "json_sensor", Name: "一号烟感", Status: "ENABLED", AccessKey: "device-1-key"}); err != nil { /* 判断条件并选择处理分支。 */
@@ -179,14 +167,15 @@ func TestAnalyzeAlarmPersistsReadableFallbackOnProviderError(t *testing.T) { /* 
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                                           /* 更新 e 的值。 */
-	e.AI = failingAlarmAI{}                                                                                                                                                                                                         /* 更新 e.AI 的值。 */
+	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 e 的值。 */
+	e.AIWorkflows = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return "", errors.New("provider response invalid") }}
+	e.HarnessTokens = aitest.Tokens()
 	if _, _, err = repo.UpsertAlarm(ctx, model.Alarm{ID: "alarm-ai-failure", TenantID: "t1", DeviceID: "device-1", AlarmType: "FIRE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}); err != nil { /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 
-	analysis, err := e.AnalyzeAlarm(ctx, "t1", "alarm-ai-failure", false) /* 更新 err 的值。 */
-	if err != nil {                                                       /* 判断条件并选择处理分支。 */
+	analysis, err := e.AnalyzeAlarm(aitest.Context(ctx), "t1", "alarm-ai-failure", false) /* 更新 err 的值。 */
+	if err != nil {                                                                       /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if analysis.Summary != "AI 研判暂时失败，已保留告警供人工研判。" || analysis.Model != "unavailable" || analysis.Error == "" { /* 判断条件并选择处理分支。 */

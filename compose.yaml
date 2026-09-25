@@ -57,7 +57,8 @@ services:
       IOT_AI_API_KEY: ${IOT_AI_API_KEY:-}
       IOT_AI_OLLAMA_URL: ${IOT_AI_OLLAMA_URL:-http://ollama:11434}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
-      IOT_AI_HARNESS_URL: ${IOT_AI_HARNESS_URL:-}
+      # AI 工作流服务（Harness）为必装组件，业务智能功能都通过它运行。
+      IOT_AI_HARNESS_URL: ${IOT_AI_HARNESS_URL:-http://deepseek-harness:8091}
       IOT_AI_HARNESS_TOKEN: ${IOT_AI_HARNESS_TOKEN:-local-harness-gateway-token-change-me-now}
       IOT_AI_HARNESS_MCP_URL: ${IOT_AI_HARNESS_MCP_URL:-http://platform-api:8080/mcp/harness}
       IOT_AI_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-qwen3:1.7b}
@@ -90,7 +91,6 @@ services:
 
   deepseek-harness:
     <<: *service-defaults
-    profiles: [harness]
     image: ${IOT_DEEPSEEK_HARNESS_IMAGE:-iot-deepseek-harness:local}
     build:
       context: .

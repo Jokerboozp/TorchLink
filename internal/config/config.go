@@ -155,6 +155,16 @@ func (c Config) Validate() error { /* 定义 Validate 函数。 */
 	default: /* 处理当前分支。 */
 		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api or gateway") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
+	// Every business AI feature runs as a Harness workflow; only the access
+	// gateway, which serves no AI features, may run without it.
+	if c.ProcessRole != "gateway" {
+		if c.AIHarnessURL == "" {
+			return fmt.Errorf("IOT_AI_HARNESS_URL is required: the AI workflow Harness is a mandatory component")
+		}
+		if u, err := url.Parse(c.AIHarnessURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+			return fmt.Errorf("IOT_AI_HARNESS_URL must be an HTTP(S) URL without credentials")
+		}
+	}
 	for _, origin := range []string{c.AccessGatewayURL, c.AccessNodeURL} { /* 循环处理当前数据。 */
 		if origin == "" { /* 判断条件并选择处理分支。 */
 			continue /* 执行当前语句并推进处理流程。 */

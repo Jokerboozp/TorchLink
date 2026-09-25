@@ -11,7 +11,6 @@ services:
     <<: *service-defaults
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:8091:8091"
-    profiles: [harness]
     image: ${IOT_DEEPSEEK_HARNESS_IMAGE:-iot-deepseek-harness:local}
     build:
       context: .

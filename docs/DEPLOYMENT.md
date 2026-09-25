@@ -28,7 +28,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ## AI 与工作流
 
-在线和离线方案默认使用本地 Ollama `qwen3:1.7b`，Harness 默认启动。告警自动研判、规则辅助和 AI 工作流使用同一模型，不需要 API Key。默认配置为：
+在线和离线方案默认使用本地 Ollama `qwen3:1.7b`。AI 工作流服务（Harness）为必装组件，所有部署都会启动；告警研判、巡检、报告、协议助手和规则草稿都通过它运行，使用同一模型，不需要 API Key。默认配置为：
 
 ```dotenv
 IOT_OLLAMA_URL=http://ollama:11434
@@ -43,7 +43,7 @@ IOT_AI_HARNESS_CONTEXT_WINDOW=8192
 IOT_AI_HARNESS_MODEL=qwen3:1.7b
 ```
 
-自动研判使用 Ollama 原生地址，所以 `IOT_AI_BASE_URL` 不带 `/v1`；Harness 使用 OpenAI 兼容接口，所以 `IOT_AI_HARNESS_OLLAMA_BASE_URL` 必须带 `/v1`。修改模型时应同步 `IOT_OLLAMA_MODEL`、`IOT_AI_MODEL` 和 `IOT_AI_HARNESS_MODEL`。将 `IOT_AI_HARNESS_ENABLED` 设为 `false` 并重跑脚本可关闭 Harness。
+自动研判使用 Ollama 原生地址，所以 `IOT_AI_BASE_URL` 不带 `/v1`；Harness 使用 OpenAI 兼容接口，所以 `IOT_AI_HARNESS_OLLAMA_BASE_URL` 必须带 `/v1`。修改模型时应同步 `IOT_OLLAMA_MODEL`、`IOT_AI_MODEL` 和 `IOT_AI_HARNESS_MODEL`。Harness 不能关闭：脚本拒绝 `--no-harness` / `-NoHarness`，已有配置中的 `IOT_AI_HARNESS_ENABLED=false` 会在重跑脚本时改回 `true`；API 未配置 `IOT_AI_HARNESS_URL` 时拒绝启动（接入网关角色除外）。
 
 ### 本地 Ollama 对话模型
 
@@ -61,7 +61,7 @@ IOT_AI_HARNESS_MODEL=qwen3:1.7b
 
 ### AI 工作流 Harness
 
-本地和在线脚本获取锁定的上游源码并构建侧车，需要 Git 和网络；离线包携带已构建镜像。已有配置需重新启用时，可向部署脚本传 `--include-harness` / `-IncludeHarness`。
+本地和在线脚本获取锁定的上游源码并构建侧车，需要 Git 和网络；离线包携带已构建镜像。`--include-harness` / `-IncludeHarness` 仅为兼容保留，Harness 始终启动；Compose 中已不再使用 `harness` profile。
 
 脚本准备内部令牌、侧车 URL 和 MCP 回调。Harness 健康只证明运行时就绪，模型实际调用与 MCP 回调需分别确认；源码版本与内部接口见 [侧车开发说明](../deploy/deepseek-harness/README.md)。
 
@@ -107,8 +107,8 @@ Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命�
 查看、停止依赖仍在 Mac 仓库根目录执行，停止不会删除卷：
 
 ```bash
-orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml --profile harness ps
-orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml --profile harness stop
+orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml ps
+orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml stop
 ```
 
 ### ARM64 与 x86_64
@@ -139,7 +139,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml log
 docker compose -p iot-platform-online --env-file .env.online -f compose.yaml down
 ```
 
-本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用 Harness 时，在子命令 `ps` / `logs` / `down` 前加 `--profile harness`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
+本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 

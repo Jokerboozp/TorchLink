@@ -1683,21 +1683,12 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) { /* 定义 aiCh
 		write(w, 200, result) /* 执行当前语句并推进处理流程。 */
 		return                /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if claims(r).TokenUse == "user" {
-		problem(w, http.StatusServiceUnavailable, "智能助手权限隔离需要配置 AI workflow harness")
-		return
-	}
-	answer, err := s.engine.OpsChat(r.Context(), claims(r).TenantID, in.Question) /* 更新 err 的值。 */
-	if err != nil {                                                               /* 判断条件并选择处理分支。 */
-		problem(w, 502, err.Error()) /* 执行当前语句并推进处理流程。 */
-		return                       /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	write(w, 200, map[string]string{"answer": answer}) /* 执行当前语句并推进处理流程。 */
+	problem(w, http.StatusServiceUnavailable, core.ErrAIWorkflowsUnavailable.Error())
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) { /* 定义 aiWorkflows 函数。 */
 	pagination := parseListPagination(r) /* 更新 pagination 的值。 */
-	// 知识库页除聊天智能体外，还需要为告警研判智能体上传文档和配置检索策略；告警研判不依赖 Harness。
+	// 知识库页除聊天智能体外，还需要为告警研判智能体上传文档和配置检索策略；Harness 暂不可用时仍可管理这些文档。
 	forKnowledge := r.URL.Query().Get("purpose") == "knowledge"
 	if s.engine.AIWorkflows == nil { /* 判断条件并选择处理分支。 */
 		items := []ports.AIWorkflowPlugin{}
@@ -1855,7 +1846,7 @@ func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) { /* �
 		problem(w, http.StatusUnprocessableEntity, "workflow id has an invalid format") /* 执行当前语句并推进处理流程。 */
 		return                                                                          /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant") { /* 判断条件并选择处理分支。 */
+	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") { /* 判断条件并选择处理分支。 */
 		problem(w, http.StatusConflict, "built-in Agent ids cannot be deleted") /* 执行当前语句并推进处理流程。 */
 		return                                                                  /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -1874,7 +1865,7 @@ func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error { /* �
 	if manifest.SchemaVersion != 1 || !validWorkflowIdentifier(manifest.ID) { /* 判断条件并选择处理分支。 */
 		return errors.New("schemaVersion must be 1 and id must contain only letters, numbers, dot, underscore, colon or hyphen") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant") { /* 判断条件并选择处理分支。 */
+	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") { /* 判断条件并选择处理分支。 */
 		return errors.New("built-in Agent ids cannot be overwritten") /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if !boundedText(manifest.Name, 128) || !boundedText(manifest.Description, 1024) || !boundedText(manifest.Version, 64) || !boundedText(manifest.Persona, 16384) || !validWorkflowModel(manifest.DefaultModel) { /* 判断条件并选择处理分支。 */
@@ -2242,8 +2233,8 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) { /* 定义
 	if decode(w, r, &in) != nil { /* 判断条件并选择处理分支。 */
 		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	rule, err := s.engine.AI.RuleDraft(r.Context(), claims(r).TenantID, in.Text) /* 更新 err 的值。 */
-	if err != nil {                                                              /* 判断条件并选择处理分支。 */
+	rule, err := s.engine.DraftRule(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Text) /* 由 rule-drafter 工作流生成。 */
+	if err != nil {                                                                                    /* 判断条件并选择处理分支。 */
 		problem(w, 502, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -2294,8 +2285,8 @@ func (s *Server) aiReport(w http.ResponseWriter, r *http.Request) { /* 定义 ai
 	if in.Period == "" { /* 判断条件并选择处理分支。 */
 		in.Period = "日报" /* 更新 in.Period 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	report, err := s.engine.GenerateReport(r.Context(), claims(r).TenantID, in.Period, in.Start, in.End) /* 更新 err 的值。 */
-	if err != nil {                                                                                      /* 判断条件并选择处理分支。 */
+	report, err := s.engine.GenerateReport(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Period, in.Start, in.End) /* 更新 err 的值。 */
+	if err != nil {                                                                                                               /* 判断条件并选择处理分支。 */
 		problem(w, 502, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                       /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -2844,7 +2835,13 @@ func (s *Server) authorizeHarness() gin.HandlerFunc { /* 定义 authorizeHarness
 				c.Abort()
 				return
 			}
-			if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
+			if claimsValue.Workflow != "" {
+				if !businessWorkflowAllowed(permissions, claimsValue.Workflow) {
+					ginProblem(c, http.StatusForbidden, "无此智能功能的访问权限")
+					c.Abort()
+					return
+				}
+			} else if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
 				ginProblem(c, http.StatusForbidden, "无智能助手访问权限")
 				c.Abort()
 				return
@@ -3000,7 +2997,7 @@ func cleanStringList(values []string, maximum, maxLength int) []string { /* 定�
 // invoked by their dedicated business pages/services and must not be treated
 // as user-selectable chatbots or configurable chat Agents.
 func isChatWorkflowID(id string) bool { /* 定义 isChatWorkflowID 函数。 */
-	return !oneOf(strings.TrimSpace(id), "alarm-handler", "device-health-inspector", "protocol-assistant") /* 返回当前处理结果。 */
+	return !oneOf(strings.TrimSpace(id), core.BusinessWorkflowIDs()...) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 func chatWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin { /* 定义 chatWorkflowPlugins 函数。 */

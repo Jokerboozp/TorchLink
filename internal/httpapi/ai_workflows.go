@@ -20,15 +20,15 @@ import ( /* 引入当前代码需要的依赖。 */
 ) /* 结束当前表达式或代码块。 */
 
 func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) { /* 定义 runAIAlarmAnalysis 函数。 */
-	job := s.startAIAnalysisJob(claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username, alarmAnalysisRunScope(r.Context())) /* 按发起人角色决定是否引用知识库。 */
-	write(w, http.StatusAccepted, aiAnalysisJobView(job))                                                                           /* 执行当前语句并推进处理流程。 */
+	job := s.startAIAnalysisJob(claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username, alarmAnalysisRunScope(r.Context()), aiRunIdentity(r.Context(), claims(r))) /* 按发起人角色决定是否引用知识库。 */
+	write(w, http.StatusAccepted, aiAnalysisJobView(job))                                                                                                                  /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) { /* 定义 healthInspection 函数。 */
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)       /* 更新 cancel 的值。 */
-	defer cancel()                                                       /* 安排函数结束时执行清理。 */
-	report, err := s.engine.InspectDeviceHealth(ctx, claims(r).TenantID) /* 更新 err 的值。 */
-	if err != nil {                                                      /* 判断条件并选择处理分支。 */
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)                                /* 更新 cancel 的值。 */
+	defer cancel()                                                                                /* 安排函数结束时执行清理。 */
+	report, err := s.engine.InspectDeviceHealth(aiRunContext(ctx, claims(r)), claims(r).TenantID) /* 更新 err 的值。 */
+	if err != nil {                                                                               /* 判断条件并选择处理分支。 */
 		problem(w, http.StatusBadGateway, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                                         /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
@@ -46,9 +46,9 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) { /
 			problem(w, http.StatusConflict, "智能巡检仍在进行，请等待任务完成后再下载报告") /* 执行当前语句并推进处理流程。 */
 			return                                                    /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		var err error                                             /* 声明 err。 */
-		report, err = s.engine.InspectDeviceHealth(ctx, tenantID) /* 更新 err 的值。 */
-		if err != nil {                                           /* 判断条件并选择处理分支。 */
+		var err error                                                                      /* 声明 err。 */
+		report, err = s.engine.InspectDeviceHealth(aiRunContext(ctx, claims(r)), tenantID) /* 更新 err 的值。 */
+		if err != nil {                                                                    /* 判断条件并选择处理分支。 */
 			problem(w, http.StatusBadGateway, err.Error()) /* 执行当前语句并推进处理流程。 */
 			return                                         /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
@@ -134,10 +134,10 @@ func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Reques
 		problem(w, 422, "sample payload exceeds 1 MiB") /* 执行当前语句并推进处理流程。 */
 		return                                          /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)                   /* 更新 cancel 的值。 */
-	defer cancel()                                                                   /* 安排函数结束时执行清理。 */
-	draft, err := s.engine.GenerateProtocolAssistant(ctx, claims(r).TenantID, input) /* 更新 err 的值。 */
-	if err != nil {                                                                  /* 判断条件并选择处理分支。 */
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)                                            /* 更新 cancel 的值。 */
+	defer cancel()                                                                                            /* 安排函数结束时执行清理。 */
+	draft, err := s.engine.GenerateProtocolAssistant(aiRunContext(ctx, claims(r)), claims(r).TenantID, input) /* 更新 err 的值。 */
+	if err != nil {                                                                                           /* 判断条件并选择处理分支。 */
 		status := http.StatusBadGateway            /* 更新 status 的值。 */
 		if errors.Is(err, core.ErrProtocolInput) { /* 判断条件并选择处理分支。 */
 			status = http.StatusUnprocessableEntity /* 更新 status 的值。 */

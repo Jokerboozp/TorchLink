@@ -11,9 +11,22 @@ Web AI 工作台
           -> 租户绑定的只读 MCP 工具
 ```
 
-Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可追踪、可选插件的交互式工作流。在线和离线部署默认把两条链路都指向 Ollama 的 `qwen3:1.7b`，因此所有 AI 功能共用同一个本地模型。
+Harness 是必装组件，所有使用模型的业务功能都作为 Harness 工作流运行，共用同一套 Agent 角色、工具白名单、MCP 权限校验和运行记录；只有接入网关角色（`IOT_PROCESS_ROLE=gateway`）不需要 Harness，其余角色未配置 `IOT_AI_HARNESS_URL` 时拒绝启动。在线和离线部署默认使用 Ollama 的 `qwen3:1.7b`。
 
-模型测试、切换及持久化配置见 [部署维护](DEPLOYMENT.md#在界面切换-ai-模型服务)。Harness 健康与模型 Provider 可用性需分别核对。
+| 功能 | 工作流 | 发起身份 | 可用工具 |
+| --- | --- | --- | --- |
+| 告警自动研判 | `alarm-handler` | 系统身份 `system:alarm-analysis` | 告警列表、属性历史、相似告警 |
+| 告警手动研判 | `alarm-handler` | 发起人 | 同上；角色有知识库权限时加 `alarm-handler` 知识 |
+| 智能巡检建议 | `device-health-inspector` | 发起人 | 总览、设备状态、告警、属性历史，知识按该 Agent 绑定 |
+| 运维报告 | `ops-assistant` | 发起人 | 设备状态、告警、属性历史、相似告警，知识按该 Agent 绑定；不能保存规则草稿 |
+| 协议助手（AI 生成） | `protocol-assistant` | 发起人 | 知识按该 Agent 绑定 |
+| 规则智能草稿 | `rule-drafter` | 发起人 | 系统总览；只返回草稿 JSON，由平台校验，不保存 |
+
+平台先在 Go 侧准备核实过的上下文（告警、历史、巡检快照、报表数据等）写入提示，再由工作流补充查询并按规定格式输出；告警研判和规则草稿的结构化结果由 `internal/aioutput` 解析，格式无效时按失败处理。每次运行签发五分钟有效、绑定租户、Run ID 和工作流（`workflow` 声明）的 MCP 令牌，工具范围取“该功能所需”与“发起人可用”的交集。浏览器用户的令牌保留登录版本，MCP 每次调用重新读取其最新权限与设备范围，并按该功能的操作权限（而不是智能助手问答权限）放行；系统身份不属于任何用户，只能使用上表列出的工具，也不能检索知识库。
+
+容量与限制：每次业务运行都会在侧车中启动一个独立会话，受 `IOT_HARNESS_MAX_CONCURRENCY`（默认 4）与 `IOT_HARNESS_MAX_CACHED_CONVERSATIONS`（默认 32）限制，API 等待上限为 `IOT_AI_HARNESS_TIMEOUT`（默认 90 秒）；告警集中爆发时自动研判会排队或失败并留下可读的失败记录。侧车 `/data/sessions` 与运行时目录中的会话记录目前不会自动清理，需要按磁盘容量定期维护。
+
+模型 Provider 仍负责“模型管理”页的连接测试、健康检查和配置同步：应用新配置时同步到 Harness，业务功能实际调用的是 Harness 中的同一模型。模型测试、切换及持久化配置见 [部署维护](DEPLOYMENT.md#在界面切换-ai-模型服务)。Provider 连接正常不代表 Harness 工作流可用，反之亦然，排查时两者分别核对。
 
 也可在独立 Dify 工作区使用五个 IoT Workflow/Chatflow、两个原生 Agent 对比版及五个可复用 Skills，部署与边界见 [Dify 接入说明](../deploy/dify/README.md)。Dify 自行执行模型规划与对话，复用平台业务工具及 Agent 知识绑定；这是额外入口，平台页面和后台自动研判仍沿用上述链路。
 
@@ -30,7 +43,7 @@ Eino/Provider 链路负责告警自动分析和规则草稿；Harness 负责可�
 | `device-health-inspector` | 智能巡检：设备健康与异常分析 |
 | `protocol-assistant` | 协议助手：解释资料，生成报文字段映射；JSON 报文与 Modbus 点表可无需 AI 直接生成协议 |
 
-只有交互式聊天 Agent 出现在聊天工作台。告警研判与智能巡检返回后台任务，重新打开页面可读取进度和结果；预计剩余时间是估算值。生成的字段映射须通过真实样本预览并发布；专用 Go 协议须通过源码编译及样例校验后发布。
+只有交互式聊天 Agent 出现在聊天工作台；`alarm-handler`、`device-health-inspector`、`protocol-assistant`、`rule-drafter` 为业务专用工作流。`create_rule_draft` 工具不再调用第二次模型：聊天 Agent 按工具说明自行写出规则 JSON 作为 `ruleJson` 传入，工具只归一化、校验并保存禁用草稿。告警研判与智能巡检返回后台任务，重新打开页面可读取进度和结果；预计剩余时间是估算值。生成的字段映射须通过真实样本预览并发布；专用 Go 协议须通过源码编译及样例校验后发布。
 
 内置 Manifest 只读，自定义聊天 Agent 通过管理员接口创建、编辑或停用，知识范围统一在知识库设置。新增 Agent 的工具白名单只能选取平台允许的只读工具，不能扩大权限。Manifest 格式、上游版本和内部接口集中在 [侧车开发说明](../deploy/deepseek-harness/README.md)。
 
@@ -43,7 +56,7 @@ Go API 暴露：
 - `POST /api/v1/ai/workflows`：管理员创建动态 Agent。
 - `PUT /api/v1/ai/workflows/{id}`：管理员编辑或启用/禁用动态 Agent。
 - `DELETE /api/v1/ai/workflows/{id}`：管理员删除动态 Agent。
-- `POST /api/v1/ai/chat`：兼容的非流式调用；普通用户必须配置 Harness；未配置时返回503，内置角色仍保留本地助手入口。
+- `POST /api/v1/ai/chat`：兼容的非流式调用；Harness 不可用时返回 503，不再提供绕过 Harness 的本地助手。
 - `POST /api/v1/ai/chat/stream`：SSE 流式运行插件。
 - `GET /api/v1/ai/providers/config`：读取当前模型服务（管理员可看到地址和脱敏接口密钥提示）。
 - `POST /api/v1/ai/providers/test`：管理员测试候选模型服务，可直接填写任意平台可达的 HTTP/HTTPS 地址，无需地址白名单；只发送测试请求，不修改活动配置。测试与应用统一校验根地址格式，密钥使用独立字段。

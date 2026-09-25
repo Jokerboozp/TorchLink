@@ -150,7 +150,7 @@ const quickQuestions = computed(() => {
   return prompts.slice(0, 3)
 })
 
-const nonChatWorkflowIds = new Set(['alarm-handler', 'device-health-inspector', 'protocol-assistant']) /* 声明 nonChatWorkflowIds。 */
+const nonChatWorkflowIds = new Set(['alarm-handler', 'device-health-inspector', 'protocol-assistant', 'rule-drafter']) /* 声明 nonChatWorkflowIds。 */
 const workflowItems = computed(() => (workflows.value.items || []).filter(item => item.enabled !== false && isChatWorkflow(item))) /* 声明 workflowItems。 */
 const selectedWorkflow = computed(() => workflowItems.value.find(item => workflowKey(item) === selectedWorkflowId.value)) /* 声明 selectedWorkflow。 */
 const selectedRun = computed(() => runs.value.find(run => run.id === selectedRunKey.value) || null) /* 声明 selectedRun。 */
@@ -288,7 +288,7 @@ async function loadRuntime() { /* 定义 loadRuntime 函数。 */
   } /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
-const builtinWorkflowIds = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant']) /* 声明 builtinWorkflowIds。 */
+const builtinWorkflowIds = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter']) /* 声明 builtinWorkflowIds。 */
 function isBuiltinWorkflow(item) { return builtinWorkflowIds.has(workflowKey(item)) } /* 定义 isBuiltinWorkflow 函数。 */
 function isChatWorkflow(item) { return !nonChatWorkflowIds.has(workflowKey(item)) } /* 定义 isChatWorkflow 函数。 */
 

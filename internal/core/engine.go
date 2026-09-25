@@ -21,16 +21,19 @@ import ( /* 引入当前代码需要的依赖。 */
 const directAlarmRulePrefix = "device-report:" /* 声明 directAlarmRulePrefix。 */
 
 type Engine struct { /* 定义 Engine 类型。 */
-	stateLocks                [64]sync.Mutex           /* 执行当前语句并推进处理流程。 */
-	ingestLocks               [256]sync.Mutex          /* 执行当前语句并推进处理流程。 */
-	Repo                      ports.Repository         /* 执行当前语句并推进处理流程。 */
-	Archive                   ports.Archive            /* 执行当前语句并推进处理流程。 */
-	RawStore                  ports.RawMessageStore    /* 执行当前语句并推进处理流程。 */
-	Bus                       ports.EventBus           /* 执行当前语句并推进处理流程。 */
-	Realtime                  ports.RealtimePublisher  /* 执行当前语句并推进处理流程。 */
-	AI                        ports.AIClient           /* 执行当前语句并推进处理流程。 */
-	AIPlugins                 ports.AIPluginRegistry   /* 执行当前语句并推进处理流程。 */
-	AIWorkflows               ports.AIWorkflowRuntime  /* 执行当前语句并推进处理流程。 */
+	stateLocks  [64]sync.Mutex          /* 执行当前语句并推进处理流程。 */
+	ingestLocks [256]sync.Mutex         /* 执行当前语句并推进处理流程。 */
+	Repo        ports.Repository        /* 执行当前语句并推进处理流程。 */
+	Archive     ports.Archive           /* 执行当前语句并推进处理流程。 */
+	RawStore    ports.RawMessageStore   /* 执行当前语句并推进处理流程。 */
+	Bus         ports.EventBus          /* 执行当前语句并推进处理流程。 */
+	Realtime    ports.RealtimePublisher /* 执行当前语句并推进处理流程。 */
+	AI          ports.AIClient          /* 执行当前语句并推进处理流程。 */
+	AIPlugins   ports.AIPluginRegistry  /* 执行当前语句并推进处理流程。 */
+	AIWorkflows ports.AIWorkflowRuntime /* 执行当前语句并推进处理流程。 */
+	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
+	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
+	HarnessTokens             ports.HarnessTokenIssuer
 	KB                        ports.KnowledgeBase      /* 执行当前语句并推进处理流程。 */
 	Parsers                   *parser.Registry         /* 执行当前语句并推进处理流程。 */
 	Clock                     ports.Clock              /* 执行当前语句并推进处理流程。 */
@@ -1082,14 +1085,16 @@ func cameraSummary(v model.VideoCameraMapping) model.CameraSummary { /* 定义 c
 	return model.CameraSummary{CameraID: v.CameraID, Brand: v.Brand, CameraName: v.CameraName, CameraPoint: v.CameraPoint, DeviceID: v.DeviceID, Building: v.Building, Floor: v.Floor, Room: v.Room, Enabled: v.Enabled} /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (e *Engine) handleAI(ctx context.Context, b []byte) error { /* 定义 handleAI 函数。 */
-	if e.AI == nil { /* 判断条件并选择处理分支。 */
+	if !e.AIWorkflowsReady() { /* 判断条件并选择处理分支。 */
 		return nil /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	var alarm model.Alarm                             /* 声明 alarm。 */
 	if err := json.Unmarshal(b, &alarm); err != nil { /* 判断条件并选择处理分支。 */
 		return err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	// 自动研判没有具体用户，按“无角色”处理：不检索知识库，结果对所有能查看告警的人可见。
+	// 自动研判没有具体用户，按“无角色”处理：不检索知识库，结果对所有能查看告警的人可见；
+	// 系统身份只能查询告警、属性历史和相似告警。
+	ctx = ports.WithAIRunIdentity(ctx, AlarmAnalysisSystemIdentity())
 	_, err := e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID, false) /* 更新 err 的值。 */
 	return err                                                     /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
@@ -1099,8 +1104,8 @@ func (e *Engine) handleAI(ctx context.Context, b []byte) error { /* 定义 handl
 // decided by the caller's role: knowledge-based results are stored separately
 // and only shown to roles allowed to query the knowledge base.
 func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, withKnowledge bool) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
-	if e.AI == nil { /* 判断条件并选择处理分支。 */
-		return model.AIAnalysis{}, errors.New("AI model is not configured") /* 返回当前处理结果。 */
+	if !e.AIWorkflowsReady() { /* 判断条件并选择处理分支。 */
+		return model.AIAnalysis{}, ErrAIWorkflowsUnavailable /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	alarm, err := e.Repo.GetAlarm(ctx, tenantID, alarmID) /* 更新 err 的值。 */
 	if err != nil {                                       /* 判断条件并选择处理分支。 */
@@ -1141,7 +1146,7 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	}
 	var analysis model.AIAnalysis
 	if err == nil {
-		analysis, err = e.AI.AnalyzeAlarm(ctx, alarm, history, knowledge)
+		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, history, knowledge, withKnowledge)
 	}
 	if err != nil { /* 判断条件并选择处理分支。 */
 		if e.Metrics != nil { /* 判断条件并选择处理分支。 */

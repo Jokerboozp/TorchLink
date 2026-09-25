@@ -5,41 +5,25 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"iot-platform/internal/adapters/knowledge"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 )
 
-type knowledgeCaptureAI struct {
-	mu        sync.Mutex
-	knowledge [][]string
-}
+const analysisAnswer = `{"summary":"研判完成","possibleReasons":["现场存在烟雾"],"suggestions":["核实现场"],"riskLevel":"HIGH","confidence":0.8}`
 
-func (a *knowledgeCaptureAI) AnalyzeAlarm(_ context.Context, alarm model.Alarm, _ []map[string]any, knowledge []string) (model.AIAnalysis, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.knowledge = append(a.knowledge, append([]string(nil), knowledge...))
-	return model.AIAnalysis{AlarmID: alarm.ID, Summary: "研判完成", RiskLevel: alarm.AlarmLevel, CreatedAt: time.Now().UnixMilli()}, nil
-}
-func (a *knowledgeCaptureAI) Chat(context.Context, string, string) (string, error) { return "", nil }
-func (a *knowledgeCaptureAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
-	return model.AlarmRule{}, nil
-}
-func (a *knowledgeCaptureAI) Health(context.Context) error { return nil }
-func (a *knowledgeCaptureAI) last() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.knowledge[len(a.knowledge)-1]
-}
+// lastPrompt returns the prompt of the latest alarm analysis run.
+func lastPrompt(w *aitest.Workflows) string { return w.Last().Question }
 
-func newAlarmKnowledgeEngine(t *testing.T) (*Engine, *memory.Repository, *local.Realtime, *knowledgeCaptureAI) {
+func newAlarmKnowledgeEngine(t *testing.T) (*Engine, *memory.Repository, *local.Realtime, *aitest.Workflows) {
 	t.Helper()
 	ctx := context.Background()
 	repo := memory.NewRepository()
@@ -49,8 +33,8 @@ func newAlarmKnowledgeEngine(t *testing.T) (*Engine, *memory.Repository, *local.
 	}
 	realtime := local.NewRealtime()
 	e := New(repo, archive, local.NewBus(), realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	ai := &knowledgeCaptureAI{}
-	e.AI = ai
+	ai := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil }}
+	e.AIWorkflows, e.HarnessTokens = ai, aitest.Tokens()
 	kb := knowledge.NewLocal()
 	e.KB = kb
 	for _, doc := range []struct{ workflow, id, text string }{
@@ -68,15 +52,22 @@ func newAlarmKnowledgeEngine(t *testing.T) (*Engine, *memory.Repository, *local.
 }
 
 func TestAlarmAnalysisKnowledgeUsesOnlyAlarmAgentDocuments(t *testing.T) {
-	ctx := context.Background()
+	ctx := aitest.Context(context.Background())
 	e, repo, realtime, ai := newAlarmKnowledgeEngine(t)
 
 	base, err := e.AnalyzeAlarm(ctx, "t1", "alarm-kb", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ai.last()) != 0 || base.KnowledgeScope != model.AIAnalysisScopeNone {
-		t.Fatalf("analysis without a knowledge role must not retrieve knowledge: knowledge=%v scope=%q", ai.last(), base.KnowledgeScope)
+	claims, err := aitest.Claims(ai.Last())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(lastPrompt(ai), "先核实现场烟雾") || claims.HasScope(auth.ScopeQueryKnowledgeBase) || claims.Knowledge != nil || base.KnowledgeScope != model.AIAnalysisScopeNone {
+		t.Fatalf("analysis without a knowledge role must not retrieve knowledge: scopes=%v scope=%q", claims.Scopes, base.KnowledgeScope)
+	}
+	if ai.Last().WorkflowID != model.AlarmAnalysisWorkflowID || claims.Workflow != model.AlarmAnalysisWorkflowID || base.Summary != "研判完成" {
+		t.Fatalf("alarm analysis must run the alarm-handler workflow: %#v %#v", ai.Last(), base)
 	}
 	published := len(realtime.Messages)
 
@@ -84,9 +75,12 @@ func TestAlarmAnalysisKnowledgeUsesOnlyAlarmAgentDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(ai.last(), "\n")
+	got := lastPrompt(ai)
 	if !strings.Contains(got, "先核实现场烟雾") || strings.Contains(got, "运维助手专用") {
 		t.Fatalf("alarm analysis must search only alarm-handler documents, got %q", got)
+	}
+	if claims, err = aitest.Claims(ai.Last()); err != nil || !claims.HasScope(auth.ScopeQueryKnowledgeBase) || claims.Knowledge == nil || claims.Knowledge.WorkflowID != model.AlarmAnalysisWorkflowID {
+		t.Fatalf("knowledge run must bind the knowledge tool to alarm-handler: %#v err=%v", claims, err)
 	}
 	if scoped.KnowledgeScope != model.AlarmAnalysisWorkflowID || len(scoped.KnowledgeDocuments) != 1 || scoped.KnowledgeDocuments[0] != "doc-alarm" {
 		t.Fatalf("unexpected knowledge metadata: %#v", scoped)
@@ -106,7 +100,7 @@ func TestAlarmAnalysisKnowledgeUsesOnlyAlarmAgentDocuments(t *testing.T) {
 }
 
 func TestAlarmAnalysisKnowledgeHonorsAgentBinding(t *testing.T) {
-	ctx := context.Background()
+	ctx := aitest.Context(context.Background())
 	e, repo, _, ai := newAlarmKnowledgeEngine(t)
 
 	if err := repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "t1", WorkflowID: model.AlarmAnalysisWorkflowID, RetrievalMode: "disabled", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"}); err != nil {
@@ -115,19 +109,19 @@ func TestAlarmAnalysisKnowledgeHonorsAgentBinding(t *testing.T) {
 	if _, err := e.AnalyzeAlarm(ctx, "t1", "alarm-kb", true); err != nil {
 		t.Fatal(err)
 	}
-	if len(ai.last()) != 0 {
-		t.Fatalf("disabled binding must skip retrieval, got %v", ai.last())
+	if claims, err := aitest.Claims(ai.Last()); err != nil || strings.Contains(lastPrompt(ai), "先核实现场烟雾") || claims.HasScope(auth.ScopeQueryKnowledgeBase) {
+		t.Fatalf("disabled binding must skip retrieval and the knowledge tool: scopes=%v err=%v", claims.Scopes, err)
 	}
 
 	if err := repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "t1", WorkflowID: model.AlarmAnalysisWorkflowID, RetrievalMode: "auto", TopK: 5, MinScore: 1.1, NoMatchPolicy: "require-evidence"}); err != nil {
 		t.Fatal(err)
 	}
-	calls := len(ai.knowledge)
+	calls := len(ai.Requests())
 	analysis, err := e.AnalyzeAlarm(ctx, "t1", "alarm-kb", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ai.knowledge) != calls || analysis.Error == "" || analysis.KnowledgeScope != model.AlarmAnalysisWorkflowID {
+	if len(ai.Requests()) != calls || analysis.Error == "" || analysis.KnowledgeScope != model.AlarmAnalysisWorkflowID {
 		t.Fatalf("required evidence without hits must fail instead of analysing without knowledge: %#v", analysis)
 	}
 }
@@ -141,14 +135,14 @@ func (unscopedKnowledgeBase) Search(context.Context, string, string, int) ([]str
 func (unscopedKnowledgeBase) Health(context.Context) error { return nil }
 
 func TestAlarmAnalysisKnowledgeRejectsUnscopedIndex(t *testing.T) {
-	ctx := context.Background()
+	ctx := aitest.Context(context.Background())
 	e, _, _, ai := newAlarmKnowledgeEngine(t)
 	e.KB = unscopedKnowledgeBase{}
 	analysis, err := e.AnalyzeAlarm(ctx, "t1", "alarm-kb", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ai.knowledge) != 0 || analysis.Error == "" {
+	if len(ai.Requests()) != 0 || analysis.Error == "" {
 		t.Fatalf("an index without Agent filtering must not fall back to tenant-wide search: %#v", analysis)
 	}
 }

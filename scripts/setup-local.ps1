@@ -62,7 +62,7 @@ if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeek
 # 判断条件后执行对应操作。
 if ($IncludeAi -and $IncludeDeepSeek) { throw 'IncludeAi 与 IncludeDeepSeek 只能二选一。' }
 # 判断条件后执行对应操作。
-if ($IncludeHarness -and $NoHarness) { throw 'IncludeHarness 与 NoHarness 不能同时使用。' }
+if ($NoHarness) { throw 'AI 工作流服务（Harness）是必装组件，不能使用 -NoHarness。' }
 # 执行当前脚本步骤。
 $npmCommand = if ($env:OS -eq 'Windows_NT') { 'npm.cmd' } else { 'npm' }
 # 判断条件后执行对应操作。
@@ -212,15 +212,12 @@ if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -eq 'deepseek
 # 结束当前控制块。
 }
 # 判断条件后执行对应操作。
-if ($IncludeHarness) { Set-LocalEnvValue 'IOT_AI_HARNESS_ENABLED' 'true' -Replace }
-# 判断条件后执行对应操作。
-if ($NoHarness) { Set-LocalEnvValue 'IOT_AI_HARNESS_ENABLED' 'false' -Replace }
+# AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
+if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
 # 执行当前脚本步骤。
-$useHarnessText = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED'
-# 判断条件后执行对应操作。
-if ($useHarnessText -notin @('true', 'false')) { throw 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' }
+Set-LocalEnvValue 'IOT_AI_HARNESS_ENABLED' 'true' -Replace
 # 执行当前脚本步骤。
-$useHarness = $useHarnessText -eq 'true'
+$useHarness = $true
 # 判断条件后执行对应操作。
 if ($useHarness) {
     # 执行当前脚本步骤。
@@ -229,10 +226,6 @@ if ($useHarness) {
     if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-LocalEnvValue 'IOT_AI_HARNESS_URL' 'http://127.0.0.1:8091' -Replace }
     # 执行当前脚本步骤。
     Set-LocalEnvValue 'IOT_AI_HARNESS_MCP_URL' 'http://host.docker.internal:8081/mcp/harness' -Replace
-# 结束当前控制块。
-} else {
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_URL' '' -Replace
 # 结束当前控制块。
 }
 # 执行当前脚本步骤。
@@ -266,8 +259,6 @@ try {
     }
     # 执行当前脚本步骤。
     $compose = @('compose', '--project-name', 'iot-platform-local', '--env-file', $EnvFile, '-f', 'compose.local.yaml')
-    # 判断条件后执行对应操作。
-    if ($useHarness) { $compose += @('--profile', 'harness') }
     # 判断条件后执行对应操作。
     if ($IncludeBackup) { $compose += @('--profile', 'backup') }
     # 判断条件后执行对应操作。

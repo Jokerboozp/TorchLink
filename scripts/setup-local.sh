@@ -18,7 +18,7 @@ include_ai=false
 # 执行当前脚本步骤。
 include_deepseek=false
 # 执行当前脚本步骤。
-include_harness=auto
+include_harness=true
 # 执行当前脚本步骤。
 include_backup=false
 # 执行当前脚本步骤。
@@ -46,7 +46,7 @@ while [ "$#" -gt 0 ]; do
     # 执行当前脚本步骤。
     --include-harness) include_harness=true; shift ;;
     # 执行当前脚本步骤。
-    --no-harness) include_harness=false; shift ;;
+    --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1 ;;
     # 执行当前脚本步骤。
     --include-backup|--include-backup-service) include_backup=true; shift ;;
     # 执行当前脚本步骤。
@@ -58,7 +58,7 @@ while [ "$#" -gt 0 ]; do
     # 执行当前脚本步骤。
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
     # 执行当前脚本步骤。
-    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness|--no-harness] [--include-backup]'; exit 0 ;;
+    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness] [--include-backup]'; exit 0 ;;
     # 执行当前脚本步骤。
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   # 执行当前脚本步骤。
@@ -307,17 +307,10 @@ if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; the
 # 结束当前控制块。
 fi
 # 执行当前脚本步骤。
-case "$include_harness" in
-  # 执行当前脚本步骤。
-  true) set_local_env_value IOT_AI_HARNESS_ENABLED true true;;
-  # 执行当前脚本步骤。
-  false) set_local_env_value IOT_AI_HARNESS_ENABLED false true;;
+# AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
+if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
 # 执行当前脚本步骤。
-esac
-# 执行当前脚本步骤。
-include_harness="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)"
-# 执行当前脚本步骤。
-case "$include_harness" in true|false) ;; *) echo 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' >&2; exit 1;; esac
+set_local_env_value IOT_AI_HARNESS_ENABLED true true
 # 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then
   # 执行当前脚本步骤。
@@ -332,10 +325,6 @@ if [ "$include_harness" = true ]; then
   set_local_env_value IOT_AI_HARNESS_MCP_URL "http://${api_host}:8081/mcp/harness" true
   # 执行当前脚本步骤。
   set_local_env_value IOT_HARNESS_MCP_ALLOWED_ORIGINS "http://${api_host}:8081" true
-# 执行当前脚本步骤。
-else
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_URL '' true
 # 结束当前控制块。
 fi
 
@@ -359,7 +348,6 @@ fi
 # 执行当前脚本步骤。
 compose=(compose --project-name iot-platform-local --env-file "$env_file" -f compose.local.yaml)
 # 判断条件后执行对应操作。
-if [ "$include_harness" = true ]; then compose+=(--profile harness); fi
 # 判断条件后执行对应操作。
 if [ "$include_backup" = true ]; then compose+=(--profile backup); fi
 # 判断条件后执行对应操作。

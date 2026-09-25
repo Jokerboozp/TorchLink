@@ -7,9 +7,9 @@ builds the application, downloads the knowledge embedding model, and checks HTTP
 .PARAMETER IncludeAi
 Force an older environment to use the bundled local Ollama model.
 .PARAMETER IncludeHarness
-Explicitly enable the AI workflow Harness, which is enabled by default.
+Compatibility switch; the AI workflow Harness is mandatory and always started.
 .PARAMETER NoHarness
-Disable the AI workflow Harness and persist that choice in the environment file.
+Rejected: the AI workflow Harness is a mandatory component.
 .PARAMETER EnvFile
 Environment file, relative to platform/. Credentials are never replaced.
 #>
@@ -37,7 +37,7 @@ if ($ProjectName -notmatch '^[a-z0-9][a-z0-9_-]*$') { throw 'ProjectName 必须�
 # 判断条件后执行对应操作。
 if ($HealthTimeoutSeconds -lt 1) { throw 'HealthTimeoutSeconds 必须大于 0。' }
 # 判断条件后执行对应操作。
-if ($IncludeHarness -and $NoHarness) { throw 'IncludeHarness 与 NoHarness 不能同时使用。' }
+if ($NoHarness) { throw 'AI 工作流服务（Harness）是必装组件，不能使用 -NoHarness。' }
 # 判断条件后执行对应操作。
 if (-not [IO.Path]::IsPathRooted($EnvFile)) { $EnvFile = Join-Path $projectRoot $EnvFile }
 # 执行当前脚本步骤。
@@ -91,23 +91,12 @@ if ($provider -eq 'ollama') {
 # 结束当前控制块。
 }
 # 判断条件后执行对应操作。
-if ($IncludeHarness) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true' }
-# 判断条件后执行对应操作。
-if ($NoHarness) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false' }
+# AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
+if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
 # 执行当前脚本步骤。
-$useHarnessText = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED'
-# 判断条件后执行对应操作。
-if (-not $useHarnessText) {
-    # 执行当前脚本步骤。
-    $useHarnessText = 'true'
-    # 执行当前脚本步骤。
-    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value $useHarnessText
-# 结束当前控制块。
-}
-# 判断条件后执行对应操作。
-if ($useHarnessText -notin @('true', 'false')) { throw 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' }
+Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true'
 # 执行当前脚本步骤。
-$useHarness = $useHarnessText -eq 'true'
+$useHarness = $true
 # 判断条件后执行对应操作。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -eq 'deepseek') {
     # 执行当前脚本步骤。
@@ -135,10 +124,6 @@ if ($useHarness) {
     # 判断条件后执行对应操作。
     if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL' -Value 'http://platform-api:8080/mcp/harness' }
 # 结束当前控制块。
-} else {
-    # 执行当前脚本步骤。
-    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value ''
-# 结束当前控制块。
 }
 # 执行当前脚本步骤。
 Add-DeploymentEnvComments -Path $EnvFile
@@ -148,8 +133,6 @@ $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, 
 $buildServices = @('platform-api', 'platform-web', 'backup-service')
 # 判断条件后执行对应操作。
 if ($useHarness) {
-    # 执行当前脚本步骤。
-    $compose += @('--profile', 'harness')
     # 执行当前脚本步骤。
     $buildServices += 'deepseek-harness'
     # 执行当前脚本步骤。

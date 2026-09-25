@@ -10,6 +10,7 @@ import ( /* 引入当前代码需要的依赖。 */
 	"sync/atomic"       /* 执行当前语句并推进处理流程。 */
 	"testing"           /* 执行当前语句并推进处理流程。 */
 
+	"iot-platform/internal/aioutput"
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/ports" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
@@ -182,8 +183,8 @@ func TestOpenAICompatibleLimitsSameOriginRedirects(t *testing.T) { /* 定义 Tes
 } /* 结束当前表达式或代码块。 */
 
 func TestDecodeRuleDraftNormalizesObjectShapedModelOutput(t *testing.T) { /* 定义 TestDecodeRuleDraftNormalizesObjectShapedModelOutput 函数。 */
-	rule, err := decodeRuleDraft(`{"name":"smoke_detector_high_alarm","alarmType":"smoke","level":"high","match":{"deviceType":"smoke_detector"},"conditions":{"smoke":true},"durationSeconds":0,"recovery":{"event":"smoke_clear"},"actions":{"type":"open_camera","cameraId":"camera-001"}}`) /* 更新 err 的值。 */
-	if err != nil {                                                                                                                                                                                                                                                                             /* 判断条件并选择处理分支。 */
+	rule, err := aioutput.DecodeRuleDraft(`{"name":"smoke_detector_high_alarm","alarmType":"smoke","level":"high","match":{"deviceType":"smoke_detector"},"conditions":{"smoke":true},"durationSeconds":0,"recovery":{"event":"smoke_clear"},"actions":{"type":"open_camera","cameraId":"camera-001"}}`) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                                                                                                                                      /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if rule.AlarmType != "SMOKE_DETECTED" || rule.Level != "HIGH" || rule.Match != "all" { /* 判断条件并选择处理分支。 */

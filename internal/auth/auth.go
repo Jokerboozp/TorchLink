@@ -7,6 +7,8 @@ import ( /* 引入当前代码需要的依赖。 */
 	"strings" /* 执行当前语句并推进处理流程。 */
 	"time"    /* 执行当前语句并推进处理流程。 */
 
+	"iot-platform/internal/ports"
+
 	"github.com/golang-jwt/jwt/v5" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
@@ -39,18 +41,21 @@ func ClaimsFromContext(ctx context.Context) (Claims, bool) { /* 定义 ClaimsFro
 } /* 结束当前表达式或代码块。 */
 
 type Claims struct {
-	ManagedUser          bool            `json:"managedUser,omitempty"`
-	Permissions          []string        `json:"permissions,omitempty"`    /* 定义 Claims 类型。 */
-	Username             string          `json:"username"`                 /* 执行当前语句并推进处理流程。 */
-	TenantID             string          `json:"tenantId"`                 /* 执行当前语句并推进处理流程。 */
-	Role                 string          `json:"role"`                     /* 执行当前语句并推进处理流程。 */
-	Scopes               []string        `json:"scopes,omitempty"`         /* 执行当前语句并推进处理流程。 */
-	ACL                  []ACLRule       `json:"acl,omitempty"`            /* 执行当前语句并推进处理流程。 */
-	TokenUse             string          `json:"tokenUse,omitempty"`       /* 执行当前语句并推进处理流程。 */
-	SessionVersion       int64           `json:"sessionVersion,omitempty"` /* 执行当前语句并推进处理流程。 */
-	RunID                string          `json:"runId,omitempty"`          /* 执行当前语句并推进处理流程。 */
-	Knowledge            *KnowledgeScope `json:"knowledge,omitempty"`      /* 执行当前语句并推进处理流程。 */
-	jwt.RegisteredClaims                 /* 执行当前语句并推进处理流程。 */
+	ManagedUser    bool            `json:"managedUser,omitempty"`
+	Permissions    []string        `json:"permissions,omitempty"`    /* 定义 Claims 类型。 */
+	Username       string          `json:"username"`                 /* 执行当前语句并推进处理流程。 */
+	TenantID       string          `json:"tenantId"`                 /* 执行当前语句并推进处理流程。 */
+	Role           string          `json:"role"`                     /* 执行当前语句并推进处理流程。 */
+	Scopes         []string        `json:"scopes,omitempty"`         /* 执行当前语句并推进处理流程。 */
+	ACL            []ACLRule       `json:"acl,omitempty"`            /* 执行当前语句并推进处理流程。 */
+	TokenUse       string          `json:"tokenUse,omitempty"`       /* 执行当前语句并推进处理流程。 */
+	SessionVersion int64           `json:"sessionVersion,omitempty"` /* 执行当前语句并推进处理流程。 */
+	RunID          string          `json:"runId,omitempty"`          /* 执行当前语句并推进处理流程。 */
+	Knowledge      *KnowledgeScope `json:"knowledge,omitempty"`      /* 执行当前语句并推进处理流程。 */
+	// Workflow marks a Harness business run (alarm analysis, inspection, ...);
+	// the MCP endpoint then checks that feature's permission instead of chat.
+	Workflow             string `json:"workflow,omitempty"`
+	jwt.RegisteredClaims        /* 执行当前语句并推进处理流程。 */
 }                            /* 结束当前表达式或代码块。 */
 type KnowledgeScope struct { /* 定义 KnowledgeScope 类型。 */
 	WorkflowID string  `json:"workflowId,omitempty"` /* 执行当前语句并推进处理流程。 */
@@ -109,6 +114,22 @@ func (m *Manager) IssueHarnessForIdentity(parent Claims, runID string, scopes []
 	return m.issueHarness(parent, runID, scopes, knowledge, ttl)
 }
 
+// IssueBusinessRunToken implements ports.HarnessTokenIssuer.
+func (m *Manager) IssueBusinessRunToken(tenantID string, identity ports.AIRunIdentity, runID, workflowID string, scopes []string, knowledge *ports.AIKnowledgeRunScope, ttl time.Duration) (string, error) {
+	if strings.TrimSpace(workflowID) == "" {
+		return "", errors.New("business workflow is required")
+	}
+	parent := Claims{Username: identity.Username, TenantID: tenantID, SessionVersion: identity.SessionVersion, Workflow: workflowID}
+	if identity.ManagedUser {
+		parent.TokenUse = "user"
+	}
+	var scope *KnowledgeScope
+	if knowledge != nil {
+		scope = &KnowledgeScope{WorkflowID: knowledge.WorkflowID, TopK: knowledge.TopK, MinScore: knowledge.MinScore}
+	}
+	return m.issueHarness(parent, runID, scopes, scope, ttl)
+}
+
 func (m *Manager) issueHarness(parent Claims, runID string, scopes []string, knowledge *KnowledgeScope, ttl time.Duration) (string, error) {
 	user, tenant := parent.Username, parent.TenantID
 	if user == "" || tenant == "" || runID == "" || ttl <= 0 { /* 判断条件并选择处理分支。 */
@@ -123,6 +144,7 @@ func (m *Manager) issueHarness(parent Claims, runID string, scopes []string, kno
 		TokenUse:       "harness",                        /* 执行当前语句并推进处理流程。 */
 		RunID:          runID,                            /* 执行当前语句并推进处理流程。 */
 		Knowledge:      knowledge,
+		Workflow:       parent.Workflow,
 		ManagedUser:    parent.TokenUse == "user",
 		SessionVersion: parent.SessionVersion, /* 执行当前语句并推进处理流程。 */
 		RegisteredClaims: jwt.RegisteredClaims{ /* 执行当前语句并推进处理流程。 */

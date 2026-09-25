@@ -243,7 +243,10 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 				log.Warn("AI workflow provider synchronization deferred", "error", harnessErr) /* 执行当前语句并推进处理流程。 */
 				go retryHarnessProvider(ctx, runtimeAI, harness, log)                          /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
-			engine.AIWorkflows = harness                                                                    /* 更新 engine.AIWorkflows 的值。 */
+			engine.AIWorkflows = harness /* 更新 engine.AIWorkflows 的值。 */
+			// Business AI runs (alarm analysis, inspection, reports, protocol
+			// assistant, rule drafts) sign their MCP credentials with the API secret.
+			engine.HarnessTokens = auth.New(cfg.JWTSecret)
 			log.Info("AI workflow harness enabled", "url", cfg.AIHarnessURL, "model", providerConfig.Model) /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 

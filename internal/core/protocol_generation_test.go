@@ -1,16 +1,19 @@
 package core /* 声明 core 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
-	"context"                     /* 执行当前语句并推进处理流程。 */
-	"errors"                      /* 执行当前语句并推进处理流程。 */
+	"context" /* 执行当前语句并推进处理流程。 */
+	"errors"  /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/aitest"
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
-	"testing"                     /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"
+	"testing" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
 
 func TestGenerateMessageWithoutAI(t *testing.T) { /* 定义 TestGenerateMessageWithoutAI 函数。 */
-	engine := &Engine{}                                                                                                                                                                                                                                                      /* 更新 engine 的值。 */
-	draft, err := engine.GenerateProtocolAssistant(context.Background(), "tenant", ProtocolAssistantInput{InputKind: "sample", DocumentText: `{"messageType":"ALARM_REPORT","data":{"smoke":true},"event":{"alarmType":"FIRE"}}`, Transport: "HTTP", PayloadFormat: "json"}) /* 更新 err 的值。 */
-	if err != nil {                                                                                                                                                                                                                                                          /* 判断条件并选择处理分支。 */
+	engine := &Engine{}                                                                                                                                                                                                                                                                      /* 更新 engine 的值。 */
+	draft, err := engine.GenerateProtocolAssistant(aitest.Context(context.Background()), "tenant", ProtocolAssistantInput{InputKind: "sample", DocumentText: `{"messageType":"ALARM_REPORT","data":{"smoke":true},"event":{"alarmType":"FIRE"}}`, Transport: "HTTP", PayloadFormat: "json"}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                                                                                                                          /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if draft.Preview.MessageType != model.AlarmReport || draft.Preview.Event["alarmType"] != "FIRE" { /* 判断条件并选择处理分支。 */
@@ -79,9 +82,11 @@ func (hexMappingAI) GenerateJSON(context.Context, string, string, string) (strin
 	return `{"name":"HEX temperature","protocol":"temp","transport":"MQTT","payloadFormat":"hex","parserType":"configurable_hex_parser","messageType":"PROPERTY_REPORT","config":{"startHex":"AA","fields":[{"name":"temperature","offset":1,"length":2,"type":"uint16","endian":"big","scale":0.1}]},"fields":[{"name":"temperature"}]}`, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func TestGenerateFixedHexMappingAndPreview(t *testing.T) { /* 定义 TestGenerateFixedHexMappingAndPreview 函数。 */
-	engine := &Engine{AI: hexMappingAI{}}                                                                                                                                                                                                                  /* 更新 engine 的值。 */
-	draft, err := engine.GenerateProtocolAssistant(context.Background(), "tenant", ProtocolAssistantInput{InputKind: "sample", PayloadFormat: "hex", SamplePayload: "AA 00 FA", PointTable: "temperature starts at byte 1, uint16 big endian, scale 0.1"}) /* 更新 err 的值。 */
-	if err != nil {                                                                                                                                                                                                                                        /* 判断条件并选择处理分支。 */
+	engine := &Engine{AIWorkflows: &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) {
+		return hexMappingAI{}.GenerateJSON(context.Background(), "", "", "")
+	}}, HarnessTokens: aitest.Tokens(), Repo: memory.NewRepository()}
+	draft, err := engine.GenerateProtocolAssistant(aitest.Context(context.Background()), "tenant", ProtocolAssistantInput{InputKind: "sample", PayloadFormat: "hex", SamplePayload: "AA 00 FA", PointTable: "temperature starts at byte 1, uint16 big endian, scale 0.1"}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                                                                                                        /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if draft.Preview == nil || draft.Preview.Properties["temperature"] != float64(25) { /* 判断条件并选择处理分支。 */

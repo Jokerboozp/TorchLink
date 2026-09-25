@@ -11,6 +11,7 @@ import ( /* 引入当前代码需要的依赖。 */
 	"github.com/mark3labs/mcp-go/mcp"    /* 执行当前语句并推进处理流程。 */
 	"github.com/mark3labs/mcp-go/server" /* 执行当前语句并推进处理流程。 */
 
+	"iot-platform/internal/aioutput"
 	"iot-platform/internal/auth"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/core"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
@@ -112,7 +113,10 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 		} /* 结束当前表达式或代码块。 */
 		return auditedResult(ctx, engine, "query_knowledge_base", input, nil, fmt.Errorf("workflow-bound knowledge search is not supported by the configured index")) /* 返回当前处理结果。 */
 	}) /* 结束当前表达式或代码块。 */
-	s.AddTool(mcp.NewTool("create_rule_draft", mcp.WithDescription("把自然语言条件与页面动作转换为规则，并自动保存为禁用草稿；不会启用或执行，必须由用户人工确认"), mcp.WithString("inputText", mcp.Required())), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) { /* 执行当前语句并推进处理流程。 */
+	// The calling Agent already is the model: it writes the rule JSON itself and
+	// this tool only normalises, validates and saves it as a disabled draft, so
+	// no second model run is started inside a Harness run.
+	s.AddTool(mcp.NewTool("create_rule_draft", mcp.WithDescription("把你按规定格式写好的规则 JSON 保存为禁用草稿；不会启用或执行，必须由用户人工确认。格式要求："+aioutput.RuleDraftInstructions), mcp.WithString("ruleJson", mcp.Required(), mcp.Description("规则 JSON 对象文本")), mcp.WithString("inputText", mcp.Description("用户原始需求，用于审计"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeCreateRuleDraft, harness) /* 更新 err 的值。 */
 		if !harness {                                                         /* 判断条件并选择处理分支。 */
 			tenant, err = tenantFrom(ctx) /* 更新 err 的值。 */
@@ -120,14 +124,18 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 		if err != nil { /* 判断条件并选择处理分支。 */
 			return mcp.NewToolResultError(err.Error()), nil /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		inputText := strings.TrimSpace(req.GetString("inputText", "")) /* 更新 inputText 的值。 */
-		if inputText == "" {                                           /* 判断条件并选择处理分支。 */
-			return mcp.NewToolResultError("inputText is required"), nil /* 返回当前处理结果。 */
-		} /* 结束当前表达式或代码块。 */
-		v, draftErr := engine.AI.RuleDraft(ctx, tenant, inputText) /* 更新 draftErr 的值。 */
-		if draftErr == nil {                                       /* 判断条件并选择处理分支。 */
-			v.TenantID, v.Enabled = tenant, false /* 更新 v.Enabled 的值。 */
-			if v.ID == "" {                       /* 判断条件并选择处理分支。 */
+		ruleJSON := strings.TrimSpace(req.GetString("ruleJson", ""))
+		inputText := strings.TrimSpace(req.GetString("inputText", ""))
+		if ruleJSON == "" {
+			return mcp.NewToolResultError("ruleJson is required"), nil
+		}
+		if len(ruleJSON) > 65536 {
+			return mcp.NewToolResultError("ruleJson exceeds 65536 bytes"), nil
+		}
+		v, draftErr := aioutput.DecodeRuleDraft(ruleJSON)
+		if draftErr == nil {
+			v.TenantID, v.Enabled, v.Expression = tenant, false, ""
+			if v.ID == "" { /* 判断条件并选择处理分支。 */
 				v.ID = fmt.Sprintf("rule_draft_%d", time.Now().UnixNano()) /* 更新 v.ID 的值。 */
 			} /* 结束当前表达式或代码块。 */
 			if v.Match == "" { /* 判断条件并选择处理分支。 */

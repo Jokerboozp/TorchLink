@@ -7,7 +7,7 @@ description: 在设备状态、运维排障、连续追问，或用户明确要�
 
 使用绑定的工作流工具 **iot_ops**，workflowId 为 **ops-assistant**。
 
-先识别用户指的设备。状态字段与属性值是不同数据，查询温度等属性时继续调用 query_property_history，不因 query_device_latest 没有属性就结束。需要规则草稿时调用 create_rule_draft，question 保留本轮用户完整原话。展示返回的草稿 ID、条件、enabled=false；指出设备范围是否缺失。不要重复创建同一草稿。
+先识别用户指的设备。状态字段与属性值是不同数据，查询温度等属性时继续调用 query_property_history，不因 query_device_latest 没有属性就结束。需要规则草稿时调用 create_rule_draft，arguments.ruleJson 为按平台格式自行写好的规则 JSON 文本，question 保留本轮用户完整原话；工具只校验并保存禁用草稿，校验失败时按错误修正。展示返回的草稿 ID、条件、enabled=false；指出设备范围是否缺失。不要重复创建同一草稿。
 
 ## 取数与执行
 

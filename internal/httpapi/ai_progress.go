@@ -7,6 +7,7 @@ import ( /* 引入当前代码需要的依赖。 */
 	"time"     /* 执行当前语句并推进处理流程。 */
 
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"
 ) /* 结束当前表达式或代码块。 */
 
 const ( /* 执行当前语句并推进处理流程。 */
@@ -20,6 +21,7 @@ type aiAnalysisJob struct { /* 定义 aiAnalysisJob 类型。 */
 	AlarmID              string /* 执行当前语句并推进处理流程。 */
 	Actor                string /* 执行当前语句并推进处理流程。 */
 	KnowledgeScope       string
+	Identity             ports.AIRunIdentity
 	Status               string           /* 执行当前语句并推进处理流程。 */
 	Stage                string           /* 执行当前语句并推进处理流程。 */
 	Message              string           /* 执行当前语句并推进处理流程。 */
@@ -34,7 +36,7 @@ type aiAnalysisJob struct { /* 定义 aiAnalysisJob 类型。 */
 
 // knowledgeScope is decided from the caller's role before the job leaves the
 // request; each scope runs and is polled as a separate job.
-func (s *Server) startAIAnalysisJob(tenantID, alarmID, actor, knowledgeScope string) *aiAnalysisJob { /* 定义 startAIAnalysisJob 函数。 */
+func (s *Server) startAIAnalysisJob(tenantID, alarmID, actor, knowledgeScope string, identity ports.AIRunIdentity) *aiAnalysisJob { /* 定义 startAIAnalysisJob 函数。 */
 	now := time.Now()                                     /* 更新 now 的值。 */
 	key := alarmJobKey(tenantID, alarmID, knowledgeScope) /* 更新 key 的值。 */
 	s.aiAnalysisMu.Lock()                                 /* 执行当前语句并推进处理流程。 */
@@ -60,6 +62,7 @@ func (s *Server) startAIAnalysisJob(tenantID, alarmID, actor, knowledgeScope str
 		AlarmID:              alarmID,                   /* 执行当前语句并推进处理流程。 */
 		Actor:                actor,                     /* 执行当前语句并推进处理流程。 */
 		KnowledgeScope:       knowledgeScope,
+		Identity:             identity,
 		Status:               "running",       /* 执行当前语句并推进处理流程。 */
 		Stage:                "preparing",     /* 执行当前语句并推进处理流程。 */
 		Message:              "正在准备告警上下文",     /* 执行当前语句并推进处理流程。 */
@@ -91,10 +94,10 @@ func cloneAIAnalysisJob(job *aiAnalysisJob) *aiAnalysisJob { /* 定义 cloneAIAn
 // runAIAnalysisJob performs the actual work. It is split from the starter so
 // tests and the progress updater can keep the tenant/alarm identity explicit.
 func (s *Server) runAIAnalysisJob(key string, job *aiAnalysisJob) { /* 定义 runAIAnalysisJob 函数。 */
-	started := time.UnixMilli(job.StartedAt)                                /* 更新 started 的值。 */
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute) /* 更新 cancel 的值。 */
-	defer cancel()                                                          /* 安排函数结束时执行清理。 */
-	resultCh := make(chan struct {                                          /* 更新 resultCh 的值。 */
+	started := time.UnixMilli(job.StartedAt)                                                                       /* 更新 started 的值。 */
+	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), job.Identity), 3*time.Minute) /* 以发起人的身份运行告警研判工作流。 */
+	defer cancel()                                                                                                 /* 安排函数结束时执行清理。 */
+	resultCh := make(chan struct {                                                                                 /* 更新 resultCh 的值。 */
 		analysis model.AIAnalysis /* 执行当前语句并推进处理流程。 */
 		err      error            /* 执行当前语句并推进处理流程。 */
 	}, 1) /* 结束当前表达式或代码块。 */

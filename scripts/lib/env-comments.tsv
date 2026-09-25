@@ -45,7 +45,7 @@ IOT_AI_API_KEY	远程模型专用 API Key；使用本地 Ollama 时留空
 IOT_AI_OLLAMA_URL	AI 页面访问 Ollama 沙箱的地址
 DEEPSEEK_API_KEY	DeepSeek 远程 API Key；仅在 Provider 设为 deepseek 时填写
 DEEPSEEK_BASE_URL	DeepSeek Harness 调用的模型 API 地址
-IOT_AI_HARNESS_ENABLED	是否由部署脚本启动 DeepSeek Harness
+IOT_AI_HARNESS_ENABLED	DeepSeek Harness 为必装组件，部署脚本始终启动并保持为 true
 IOT_AI_HARNESS_URL	Go API 访问 DeepSeek Harness 的地址
 IOT_AI_HARNESS_MCP_URL	DeepSeek Harness 回调平台 MCP 接口的地址
 IOT_AI_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址

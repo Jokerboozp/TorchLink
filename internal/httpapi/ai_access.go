@@ -8,7 +8,9 @@ import (
 	"sort"
 
 	"iot-platform/internal/auth"
+	"iot-platform/internal/core"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 )
 
 // Tool permissions are derived from the same routes used by the browser.
@@ -33,6 +35,35 @@ func workflowScopes(ctx context.Context) []string {
 		}
 	}
 	return out
+}
+
+// aiRunContext makes the caller the identity of a Harness business run. The
+// MCP endpoint re-checks managed users' permissions and device scope on every
+// tool call, so the run can never read more than the caller.
+func aiRunContext(ctx context.Context, c auth.Claims) context.Context {
+	return ports.WithAIRunIdentity(ctx, aiRunIdentity(ctx, c))
+}
+
+func aiRunIdentity(ctx context.Context, c auth.Claims) ports.AIRunIdentity {
+	return ports.AIRunIdentity{Username: c.Username, ManagedUser: c.TokenUse == "user", SessionVersion: c.SessionVersion, Scopes: workflowScopes(ctx)}
+}
+
+// businessWorkflowAllowed checks the feature permission behind a business run
+// token; chat tokens keep requiring the assistant permission instead.
+func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
+	switch workflow {
+	case core.WorkflowAlarmAnalysis:
+		return allowsRoute(p, "POST", "/api/v1/ai/alarm-analysis/:alarmId/run")
+	case core.WorkflowHealthInspection:
+		return allowsRoute(p, "POST", "/api/v1/ai/health-inspection/run") || allowsRoute(p, "POST", "/api/v1/ai/health-inspection") || allowsRoute(p, "POST", "/api/v1/ai/health-inspection/pdf")
+	case core.WorkflowOpsReport:
+		return allowsRoute(p, "POST", "/api/v1/ai/reports")
+	case core.WorkflowProtocolAssist:
+		return allowsRoute(p, "POST", "/api/v1/ai/protocol-assistant/generate")
+	case core.WorkflowRuleDraft:
+		return allowsRoute(p, "POST", "/api/v1/ai/rule-draft")
+	}
+	return false
 }
 
 // canQueryKnowledge applies the same role rule as Agent chat: only roles that

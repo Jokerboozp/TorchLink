@@ -12,24 +12,14 @@ import (
 	"iot-platform/internal/adapters/knowledge"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
-
-type scopeCaptureAI struct{ knowledge chan []string }
-
-func (a scopeCaptureAI) AnalyzeAlarm(_ context.Context, alarm model.Alarm, _ []map[string]any, knowledge []string) (model.AIAnalysis, error) {
-	a.knowledge <- append([]string(nil), knowledge...)
-	return model.AIAnalysis{AlarmID: alarm.ID, Summary: "手动研判", RiskLevel: alarm.AlarmLevel, CreatedAt: time.Now().UnixMilli()}, nil
-}
-func (scopeCaptureAI) Chat(context.Context, string, string) (string, error) { return "", nil }
-func (scopeCaptureAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
-	return model.AlarmRule{}, nil
-}
-func (scopeCaptureAI) Health(context.Context) error { return nil }
 
 // Alarm analysis follows the caller's role: knowledge-based results are stored
 // beside the knowledge-free one and only roles with knowledge access read them.
@@ -47,8 +37,13 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 	must(err)
 	kb := knowledge.NewLocal()
 	must(kb.IndexKnowledge(ctx, ports.KnowledgeIndexInput{TenantID: "tenant-a", WorkflowID: model.AlarmAnalysisWorkflowID, DocumentID: "doc-alarm", ChunkID: "doc-alarm-0", Content: []byte("烟感处置 SOP 维修：核实现场")}))
-	captured := make(chan []string, 4)
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), AI: scopeCaptureAI{knowledge: captured}, KB: kb}
+	captured := make(chan string, 4)
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), KB: kb}
+	engine.AIWorkflows = &aitest.Workflows{Answer: func(req ports.AIWorkflowRequest) (string, error) {
+		captured <- req.Question
+		return strings.Replace(testAnalysisAnswer, "研判完成", "手动研判", 1), nil
+	}}
+	engine.HarnessTokens = aitest.Tokens()
 
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword = "root", "scope-root-password"
@@ -84,6 +79,25 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 		t.Fatalf("knowledge page must offer the alarm analysis Agent: %v", items)
 	}
 
+	// Harness business runs are authorised by the feature's permission, not by
+	// the chat assistant permission this role does not have.
+	plainClaims, err := api.auth.Parse(plain)
+	must(err)
+	identity := ports.AIRunIdentity{Username: "plain", ManagedUser: true, SessionVersion: plainClaims.SessionVersion, Scopes: []string{auth.ScopeQueryAlarmList}}
+	callTool := func(token string, status int) {
+		t.Helper()
+		requestJSON(t, srv.Client(), "POST", srv.URL+"/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "query_alarm_list", "arguments": map[string]any{}}}, status)
+	}
+	businessToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-business", core.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(businessToken, 200)
+	chatToken, err := api.auth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(chatToken, 403)
+	draftToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-draft", core.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(draftToken, 403)
+
 	// A knowledge-based result alone is invisible to a role without knowledge access.
 	must(repo.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "tenant-a", AlarmID: "alarm-a", Summary: "引用知识", KnowledgeScope: model.AlarmAnalysisWorkflowID, CreatedAt: 2000}))
 	req("GET", "/api/v1/ai/alarm-analysis/alarm-a", plain, nil, 404)
@@ -100,10 +114,10 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 		t.Fatalf("legacy tenant-knowledge results must stay hidden from plain roles, got %v", got)
 	}
 
-	run := func(token string) (map[string]any, []string) {
+	run := func(token string) (map[string]any, string) {
 		t.Helper()
 		job := req("POST", "/api/v1/ai/alarm-analysis/alarm-a/run", token, map[string]any{}, 202)
-		var knowledge []string
+		var knowledge string
 		select {
 		case knowledge = <-captured:
 		case <-time.After(2 * time.Second):
@@ -116,14 +130,14 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 			}
 		}
 		t.Fatal("analysis job did not finish")
-		return nil, nil
+		return nil, ""
 	}
 	progress, knowledge := run(plain)
-	if len(knowledge) != 0 || progress["analysis"].(map[string]any)["knowledgeScope"] != nil {
+	if strings.Contains(knowledge, "核实现场") || progress["analysis"].(map[string]any)["knowledgeScope"] != nil {
 		t.Fatalf("plain role run must not use knowledge: knowledge=%v progress=%v", knowledge, progress)
 	}
 	progress, knowledge = run(expert)
-	if !strings.Contains(strings.Join(knowledge, "\n"), "核实现场") || progress["analysis"].(map[string]any)["knowledgeScope"] != model.AlarmAnalysisWorkflowID {
+	if !strings.Contains(knowledge, "核实现场") || progress["analysis"].(map[string]any)["knowledgeScope"] != model.AlarmAnalysisWorkflowID {
 		t.Fatalf("knowledge role run must use alarm-handler knowledge: knowledge=%v progress=%v", knowledge, progress)
 	}
 	if got := req("GET", "/api/v1/ai/alarm-analysis/alarm-a", plain, nil, 200)["summary"]; got != "手动研判" {

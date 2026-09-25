@@ -16,7 +16,7 @@ project_name='iot-platform-online'
 # 执行当前脚本步骤。
 include_ai=0
 # 执行当前脚本步骤。
-include_harness=auto
+include_harness=true
 # 执行当前脚本步骤。
 health_timeout=180
 # 遍历数据并执行循环体。
@@ -34,9 +34,9 @@ while [ "$#" -gt 0 ]; do
     # 执行当前脚本步骤。
     --include-ai) include_ai=1; shift;;
     # 执行当前脚本步骤。
-    --include-harness) include_harness=1; shift;;
+    --include-harness) shift;;
     # 执行当前脚本步骤。
-    --no-harness) include_harness=0; shift;;
+    --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1;;
     # 执行当前脚本步骤。
     -h|--help)
       # 执行当前脚本步骤。
@@ -45,8 +45,7 @@ while [ "$#" -gt 0 ]; do
   --env-file PATH       配置文件（默认 platform/.env.online；已有凭据保留）
   --project-name NAME   Docker Compose 项目（默认 iot-platform-online）
   --include-ai          强制改用本地 Ollama（兼容旧配置）
-  --include-harness     显式启用默认启动的 AI 工作流 Harness
-  --no-harness          不启动 AI 工作流 Harness，并将配置开关设为 false
+  --include-harness     兼容参数；AI 工作流 Harness 为必装组件，始终启动
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
 默认拉取运行镜像、构建应用、启动全部服务，并下载 qwen3:1.7b 与 nomic-embed-text。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
@@ -122,19 +121,10 @@ if [ "$provider" = ollama ]; then
 # 结束当前控制块。
 fi
 # 执行当前脚本步骤。
-case "$include_harness" in
-  # 执行当前脚本步骤。
-  1) set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true;;
-  # 执行当前脚本步骤。
-  0) set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED false;;
+# AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
+if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
 # 执行当前脚本步骤。
-esac
-# 执行当前脚本步骤。
-include_harness="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)"
-# 判断条件后执行对应操作。
-if [ -z "$include_harness" ]; then include_harness=true; set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true; fi
-# 执行当前脚本步骤。
-case "$include_harness" in true|false) ;; *) echo 'IOT_AI_HARNESS_ENABLED 只能是 true 或 false。' >&2; exit 1;; esac
+set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true
 # 判断条件后执行对应操作。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; then
   # 执行当前脚本步骤。
@@ -157,10 +147,6 @@ if [ "$include_harness" = true ]; then
   [ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_URL http://deepseek-harness:8091
   # 执行当前脚本步骤。
   [ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL http://platform-api:8080/mcp/harness
-# 执行当前脚本步骤。
-else
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_HARNESS_URL ''
 # 结束当前控制块。
 fi
 # 执行当前脚本步骤。
@@ -172,9 +158,7 @@ build_services=(platform-api platform-web backup-service)
 # 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then
   # 执行当前脚本步骤。
-  command -v git >/dev/null 2>&1 || { echo '默认启用 Harness，需要安装 Git；也可在配置中设置 IOT_AI_HARNESS_ENABLED=false。' >&2; exit 1; }
-  # 执行当前脚本步骤。
-  compose+=(--profile harness)
+  command -v git >/dev/null 2>&1 || { echo 'AI 工作流服务（Harness）为必装组件，构建需要安装 Git。' >&2; exit 1; }
   # 执行当前脚本步骤。
   build_services+=(deepseek-harness)
   # 执行当前脚本步骤。

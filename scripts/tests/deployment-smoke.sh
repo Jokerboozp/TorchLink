@@ -134,7 +134,9 @@ grep -q "^IOT_BACKUP_URL='http://127.0.0.1:8092'$" "$test_root/.env.local"
 # 执行当前脚本步骤。
 assert_commented_env "$test_root/.env.local"
 # 执行当前脚本步骤。
-assert_call '--profile harness up -d --build --wait'
+assert_call 'compose.local.yaml up -d --build --wait'
+# 执行当前脚本步骤。
+assert_no_call '--profile harness'
 # 判断条件后执行对应操作。
 if grep -Eq ' up .*backup-service' "$TEST_CALLS"; then echo 'Local setup unexpectedly started backup-service' >&2; exit 1; fi
 # 执行当前脚本步骤。
@@ -165,11 +167,15 @@ mv "$test_root/no-harness.tmp" "$no_harness_env"
 # 执行当前脚本步骤。
 bash "$scripts/setup-local.sh" --env-file "$no_harness_env" --skip-code-deps
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_HARNESS_URL=''$" "$no_harness_env"
+grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$no_harness_env"
 # 执行当前脚本步骤。
-assert_no_call '--profile harness'
+grep -q "^IOT_AI_HARNESS_URL='http://127.0.0.1:8091'$" "$no_harness_env"
 # 执行当前脚本步骤。
-echo 'PASS local configuration: Harness can be disabled in the environment file'
+assert_call 'compose.local.yaml up -d --build --wait'
+# 判断条件后执行对应操作。
+if bash "$scripts/setup-local.sh" --env-file "$no_harness_env" --skip-code-deps --no-harness 2>/dev/null; then echo 'setup-local accepted --no-harness' >&2; exit 1; fi
+# 执行当前脚本步骤。
+echo 'PASS local configuration: Harness is mandatory and a disabled flag is switched back on'
 
 # 执行当前脚本步骤。
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.remote" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1
@@ -188,7 +194,7 @@ grep -q "^IOT_HARNESS_MCP_ALLOWED_ORIGINS='http://192.168.24.1:8081'$" "$test_ro
 # 执行当前脚本步骤。
 remote_compose="$test_root/remote-compose.yaml"
 # 执行当前脚本步骤。
-"$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" --profile harness config > "$remote_compose"
+"$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" config > "$remote_compose"
 # 执行当前脚本步骤。
 grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 # 执行当前脚本步骤。

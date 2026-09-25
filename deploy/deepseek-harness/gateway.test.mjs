@@ -79,7 +79,7 @@ async function ndjson(response) { /* 定义 ndjson 函数。 */
 
 test('catalog is manifest-driven and exposes capabilities without policy internals', async () => { /* 执行当前语句并推进处理流程。 */
   const plugins = await loadPluginCatalog(join(deploymentDir, 'plugins')) /* 声明 plugins。 */
-  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'device-health-inspector', 'ops-assistant', 'protocol-assistant', 'system-observer']) /* 验证实际结果符合预期。 */
+  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'device-health-inspector', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'system-observer']) /* 验证实际结果符合预期。 */
   assert.ok(plugins.every(plugin => plugin.capabilities.length > 0)) /* 验证实际结果符合预期。 */
 
   const { baseUrl } = await startGateway(async () => ({ run: async () => result(), close: async () => {} })) /* 执行当前语句并推进处理流程。 */
@@ -90,7 +90,7 @@ test('catalog is manifest-driven and exposes capabilities without policy interna
   }) /* 结束当前表达式或代码块。 */
   assert.equal(response.status, 200) /* 验证实际结果符合预期。 */
   const body = await response.json() /* 声明 body。 */
-  assert.equal(body.items.length, 5) /* 验证实际结果符合预期。 */
+  assert.equal(body.items.length, 6) /* 验证实际结果符合预期。 */
   assert.ok(body.items.every(plugin => Array.isArray(plugin.capabilities))) /* 验证实际结果符合预期。 */
   assert.ok(body.items.every(plugin => plugin.persona === undefined && plugin.allowedTools === undefined)) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */

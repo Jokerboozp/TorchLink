@@ -11,6 +11,7 @@ import ( /* 引入当前代码需要的依赖。 */
 	"strings"       /* 执行当前语句并推进处理流程。 */
 	"time"          /* 执行当前语句并推进处理流程。 */
 
+	"iot-platform/internal/aioutput"
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/ports" /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
@@ -107,7 +108,7 @@ func (o *Ollama) AnalyzeAlarm(ctx context.Context, a model.Alarm, history []map[
 	if err != nil {                                                                                                                            /* 判断条件并选择处理分支。 */
 		return model.AIAnalysis{}, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	return decodeAIAnalysis(content, a.ID, o.model) /* 返回当前处理结果。 */
+	return aioutput.DecodeAlarmAnalysis(content, a.ID, o.model) /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (o *Ollama) Chat(ctx context.Context, tenant, question string) (string, error) { /* 定义 Chat 函数。 */
 	return o.call(ctx, "你是消防物联网运维助手。回答必须基于提供的受控平台数据；缺少数据时明确说明，不能编造，也不能直接控制设备。租户："+tenant, question) /* 返回当前处理结果。 */
@@ -153,12 +154,12 @@ func (o *Ollama) callJSON(ctx context.Context, system, user string) (string, err
 	return out.Message.Content, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (o *Ollama) RuleDraft(ctx context.Context, tenant, text string) (model.AlarmRule, error) { /* 定义 RuleDraft 函数。 */
-	content, err := o.call(ctx, ruleDraftSystemPrompt+"租户："+tenant, text) /* 更新 err 的值。 */
-	if err != nil {                                                       /* 判断条件并选择处理分支。 */
+	content, err := o.call(ctx, aioutput.RuleDraftInstructions+"租户："+tenant, text) /* 更新 err 的值。 */
+	if err != nil {                                                                /* 判断条件并选择处理分支。 */
 		return model.AlarmRule{}, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	rule, err := decodeRuleDraft(content) /* 更新 err 的值。 */
-	if err != nil {                       /* 判断条件并选择处理分支。 */
+	rule, err := aioutput.DecodeRuleDraft(content) /* 更新 err 的值。 */
+	if err != nil {                                /* 判断条件并选择处理分支。 */
 		return rule, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	rule.TenantID = tenant                  /* 更新 rule.TenantID 的值。 */
@@ -188,16 +189,7 @@ func (o *Ollama) Health(ctx context.Context) error { /* 定义 Health 函数。 
 } /* 结束当前表达式或代码块。 */
 func (o *Ollama) ProviderInfo() ports.AIPluginInfo { /* 定义 ProviderInfo 函数。 */
 	return ports.AIPluginInfo{ID: "ollama", Name: "Ollama", Description: "Local Ollama model provider plugin", DefaultBaseURL: o.baseURL, DefaultModel: o.model, Model: o.model, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "local-model"}} /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-func extractJSON(s string) string { /* 定义 extractJSON 函数。 */
-	start := strings.Index(s, "{")   /* 更新 start 的值。 */
-	end := strings.LastIndex(s, "}") /* 更新 end 的值。 */
-	if start >= 0 && end > start {   /* 判断条件并选择处理分支。 */
-		return s[start : end+1] /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	return s /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-
+}                    /* 结束当前表达式或代码块。 */
 type NoopAI struct{} /* 定义 NoopAI 类型。 */
 
 func (NoopAI) AnalyzeAlarm(_ context.Context, a model.Alarm, _ []map[string]any, _ []string) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */

@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises' /* 引入当前代
 import { resolve } from 'node:path' /* 引入当前代码需要的依赖。 */
 
 const profiles = [ /* 声明 profiles。 */
-  ['ops-assistant', 'iot_ops', 'iot-operations', '运维排障', '设备状态、运维排障、连续追问，或用户明确要求保存禁用规则草稿', '先识别用户指的设备。状态字段与属性值是不同数据，查询温度等属性时继续调用 query_property_history，不因 query_device_latest 没有属性就结束。需要规则草稿时调用 create_rule_draft，question 保留本轮用户完整原话。展示返回的草稿 ID、条件、enabled=false；指出设备范围是否缺失。不要重复创建同一草稿。'], /* 执行当前语句并推进处理流程。 */
+  ['ops-assistant', 'iot_ops', 'iot-operations', '运维排障', '设备状态、运维排障、连续追问，或用户明确要求保存禁用规则草稿', '先识别用户指的设备。状态字段与属性值是不同数据，查询温度等属性时继续调用 query_property_history，不因 query_device_latest 没有属性就结束。需要规则草稿时调用 create_rule_draft，arguments.ruleJson 为按平台格式自行写好的规则 JSON 文本，question 保留本轮用户完整原话；工具只校验并保存禁用草稿，校验失败时按错误修正。展示返回的草稿 ID、条件、enabled=false；指出设备范围是否缺失。不要重复创建同一草稿。'], /* 执行当前语句并推进处理流程。 */
   ['alarm-handler', 'iot_alarm', 'iot-alarm-analysis', '告警研判', '指定告警或最近活动告警的风险、原因、证据及人工处置建议', '先核对告警 ID、设备 ID、状态、等级、原始上报时间。根据告警中的真实属性查询历史，必要时查询相似告警。知识只采用与目标设备和情景匹配的内容。输出 summary、possibleReasons、suggestions、riskLevel、confidence、evidence、pendingConfirmation；缺少证据时明确降低置信度，不把未知当成安全。'], /* 执行当前语句并推进处理流程。 */
   ['device-health-inspector', 'iot_health', 'iot-device-health', '设备健康巡检', '设备健康巡检、离线排查、异常优先级及巡检报告', '先读系统概览，区分启用、连接、数据和业务状态，不能把 ENABLED 当作在线。核对总量、已加载数量、截断标志与未上报设备。按活动高风险告警、离线、数据静默等证据选取设备继续查询，报告总体结论、统计时间、优先设备、事实、建议及数据局限。'], /* 执行当前语句并推进处理流程。 */
   ['protocol-assistant', 'iot_protocol', 'iot-protocol-draft', '协议接入', '解释实际报文、字段资料并生成协议字段映射草稿', '先识别用户给出的报文格式及已知字段单位。缺少样例时只给待补资料，不编造偏移、校验算法、端序或字段。使用协议 Agent 的绑定知识辅助解释。输出 name、payloadFormat、fields（name/sourcePath/dataType/unit/description）、assumptions、pendingConfirmation、sampleExplanation。协议仅为草稿，说明仍需实际样本校验。'], /* 执行当前语句并推进处理流程。 */

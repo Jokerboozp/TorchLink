@@ -68,6 +68,7 @@ func TestAdminTenantAllowlist(t *testing.T) { /* 定义 TestAdminTenantAllowlist
 } /* 结束当前表达式或代码块。 */
 
 func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) { /* 定义 TestProductionConfigRequiresExplicitStrongJWTSecret 函数。 */
+	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
 	t.Setenv("IOT_DEV_MODE", "false")         /* 执行当前语句并推进处理流程。 */
 	t.Setenv("IOT_JWT_SECRET", "")            /* 执行当前语句并推进处理流程。 */
 	t.Setenv("IOT_ADMIN_PASSWORD", "")        /* 执行当前语句并推进处理流程。 */
@@ -83,6 +84,7 @@ func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) { /* 定�
 } /* 结束当前表达式或代码块。 */
 
 func TestDevelopmentConfigAllowsLocalFallbacks(t *testing.T) { /* 定义 TestDevelopmentConfigAllowsLocalFallbacks 函数。 */
+	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
 	t.Setenv("IOT_DEV_MODE", "true")          /* 执行当前语句并推进处理流程。 */
 	t.Setenv("IOT_JWT_SECRET", "")            /* 执行当前语句并推进处理流程。 */
 	t.Setenv("IOT_ADMIN_PASSWORD", "")        /* 执行当前语句并推进处理流程。 */
@@ -108,15 +110,15 @@ func TestProductionConfigRejectsPlaceholderSecretsAndInvalidMode(t *testing.T) {
 } /* 结束当前表达式或代码块。 */
 
 func TestExplicitConfigValueCanBeValidatedWithoutEnvironmentProvenance(t *testing.T) { /* 定义 TestExplicitConfigValueCanBeValidatedWithoutEnvironmentProvenance 函数。 */
-	cfg := Config{DevMode: false, JWTSecret: strings.Repeat("j", 48), AdminPassword: strings.Repeat("p", 20)} /* 更新 cfg 的值。 */
-	if err := cfg.Validate(); err != nil {                                                                    /* 判断条件并选择处理分支。 */
+	cfg := Config{DevMode: false, JWTSecret: strings.Repeat("j", 48), AdminPassword: strings.Repeat("p", 20), AIHarnessURL: testHarnessURL} /* 更新 cfg 的值。 */
+	if err := cfg.Validate(); err != nil {                                                                                                  /* 判断条件并选择处理分支。 */
 		t.Fatalf("explicit configuration values were rejected: %v", err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
 
 func TestSplitRolesRequireSharedDependencies(t *testing.T) { /* 定义 TestSplitRolesRequireSharedDependencies 函数。 */
-	cfg := Config{DevMode: true, ProcessRole: "api"} /* 更新 cfg 的值。 */
-	if cfg.Validate() == nil {                       /* 判断条件并选择处理分支。 */
+	cfg := Config{DevMode: true, ProcessRole: "api", AIHarnessURL: testHarnessURL} /* 更新 cfg 的值。 */
+	if cfg.Validate() == nil {                                                     /* 判断条件并选择处理分支。 */
 		t.Fatal("split mode accepted process-local storage") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	cfg.PostgresDSN = "test-dsn"               /* 更新 cfg.PostgresDSN 的值。 */
@@ -144,7 +146,8 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) { /* 定义 TestSplit
 } /* 结束当前表达式或代码块。 */
 
 func TestProductionConfigAllowsCustomAdminPasswords(t *testing.T) { /* 定义 TestProductionConfigAllowsCustomAdminPasswords 函数。 */
-	t.Setenv("IOT_DEV_MODE", "false")                                                                   /* 执行当前语句并推进处理流程。 */
+	t.Setenv("IOT_DEV_MODE", "false") /* 执行当前语句并推进处理流程。 */
+	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
 	t.Setenv("IOT_JWT_SECRET", strings.Repeat("j", 48))                                                 /* 执行当前语句并推进处理流程。 */
 	for _, password := range []string{"", "admin123", "1", "自定义密码", "a $!#'", "change-this-password"} { /* 循环处理当前数据。 */
 		t.Run(password, func(t *testing.T) { /* 执行当前语句并推进处理流程。 */
@@ -168,3 +171,20 @@ func TestProductionConfigAllowsCustomAdminPasswords(t *testing.T) { /* 定义 Te
 		t.Fatal("explicit empty admin password accepted") /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 } /* 结束当前表达式或代码块。 */
+
+const testHarnessURL = "http://deepseek-harness:8091"
+
+func TestHarnessIsRequiredExceptForAccessGateway(t *testing.T) {
+	cfg := Config{DevMode: true}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "IOT_AI_HARNESS_URL") {
+		t.Fatalf("combined role accepted a missing Harness: %v", err)
+	}
+	cfg.AIHarnessURL = "ftp://harness"
+	if cfg.Validate() == nil {
+		t.Fatal("non-HTTP Harness URL was accepted")
+	}
+	gateway := Config{DevMode: true, ProcessRole: "gateway", PostgresDSN: "dsn", KafkaBrokers: []string{"broker:9092"}}
+	if err := gateway.Validate(); err != nil {
+		t.Fatalf("access gateway must not require Harness: %v", err)
+	}
+}

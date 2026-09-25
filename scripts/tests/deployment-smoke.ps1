@@ -73,7 +73,8 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://127.0.0.1:8091') 'Local Harness URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_BACKUP_URL') -eq 'http://127.0.0.1:8092') 'Local backup URL is not pointed at the source host'
     Assert-CommentedEnv $localEnv
-    Assert (Contains-Call '--profile harness up -d --build --wait') 'Local setup did not start the default Harness profile'
+    Assert (Contains-Call 'compose.local.yaml up -d --build --wait') 'Local setup did not start the local services'
+    Assert (-not (Contains-Call '--profile harness')) 'Local setup still selects the removed Harness profile'
     Assert (-not (Contains-Call ' up .*backup-service')) 'Local setup unexpectedly started backup-service'
     Assert (Contains-Call 'go mod download') 'Local setup omitted Go dependencies'
     Assert (Contains-Call 'npm ci') 'Local setup omitted npm dependencies'
@@ -104,9 +105,12 @@ try {
     Set-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false'
     $global:IotTest_calls.Clear()
     & (Join-Path $scripts 'setup-local.ps1') -EnvFile $noHarnessEnv -SkipCodeDeps
-    Assert ((Get-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_URL') -eq '') 'Disabled Harness retained an active URL'
-    Assert (-not (Contains-Call '--profile harness')) 'Environment file did not disable the Harness profile'
-    Write-Host 'PASS local configuration: Harness can be disabled in the environment file'
+    Assert ((Get-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'A disabled Harness flag was not switched back on'
+    Assert ((Get-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://127.0.0.1:8091') 'Mandatory Harness lost its URL'
+    $rejected = $false
+    try { & (Join-Path $scripts 'setup-local.ps1') -EnvFile $noHarnessEnv -SkipCodeDeps -NoHarness } catch { $rejected = $true }
+    Assert $rejected 'setup-local accepted -NoHarness'
+    Write-Host 'PASS local configuration: Harness is mandatory and a disabled flag is switched back on'
 
     $deepSeekEnv = Join-Path $testRoot '.env.deepseek'
     Copy-Item -LiteralPath $localEnv -Destination $deepSeekEnv

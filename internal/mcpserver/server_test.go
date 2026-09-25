@@ -2,7 +2,6 @@ package mcpserver /* 声明 mcpserver 包。 */
 
 import ( /* 引入当前代码需要的依赖。 */
 	"context"           /* 执行当前语句并推进处理流程。 */
-	"errors"            /* 执行当前语句并推进处理流程。 */
 	"net/http"          /* 执行当前语句并推进处理流程。 */
 	"net/http/httptest" /* 执行当前语句并推进处理流程。 */
 	"strings"           /* 执行当前语句并推进处理流程。 */
@@ -16,19 +15,6 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
 ) /* 结束当前表达式或代码块。 */
-
-type draftAI struct{} /* 定义 draftAI 类型。 */
-
-func (draftAI) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
-	return model.AIAnalysis{}, errors.New("not used") /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-func (draftAI) Chat(context.Context, string, string) (string, error) { /* 定义 Chat 函数。 */
-	return "", errors.New("not used") /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-func (draftAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) { /* 定义 RuleDraft 函数。 */
-	return model.AlarmRule{Name: "高温打开告警中心", AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "temperature", Operator: "gt", Value: float64(80)}}, Actions: []model.RuleAction{{Type: "OPEN_PAGE", Page: "alarms"}}}, nil /* 返回当前处理结果。 */
-}                                            /* 结束当前表达式或代码块。 */
-func (draftAI) Health(context.Context) error { return nil } /* 定义 Health 函数。 */
 
 func TestHarnessToolSurfaceIsReadOnlyAndScopeChecked(t *testing.T) { /* 定义 TestHarnessToolSurfaceIsReadOnlyAndScopeChecked 函数。 */
 	handler := NewHarness(&core.Engine{}) /* 更新 handler 的值。 */
@@ -71,17 +57,17 @@ func TestHarnessToolSurfaceIsReadOnlyAndScopeChecked(t *testing.T) { /* 定义 T
 } /* 结束当前表达式或代码块。 */
 
 func TestHarnessCreateRuleDraftPersistsDisabledRule(t *testing.T) { /* 定义 TestHarnessCreateRuleDraftPersistsDisabledRule 函数。 */
-	repo := memory.NewRepository()                                                                                                                                                                                                                 /* 更新 repo 的值。 */
-	engine := &core.Engine{Repo: repo, AI: draftAI{}}                                                                                                                                                                                              /* 更新 engine 的值。 */
-	handler := NewHarness(engine)                                                                                                                                                                                                                  /* 更新 handler 的值。 */
-	claims := auth.Claims{Username: "alice", TenantID: "tenant-a", TokenUse: "harness", RunID: "run-draft", Scopes: []string{auth.ScopeCreateRuleDraft}, RegisteredClaims: jwt.RegisteredClaims{Audience: jwt.ClaimStrings{auth.HarnessAudience}}} /* 更新 claims 的值。 */
-	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_rule_draft","arguments":{"inputText":"如果 temperature 超过 80，打开告警中心"}}}`                                                                                         /* 更新 body 的值。 */
-	req := httptest.NewRequest(http.MethodPost, "http://localhost/mcp/harness", strings.NewReader(body))                                                                                                                                           /* 更新 req 的值。 */
-	req.Header.Set("Content-Type", "application/json")                                                                                                                                                                                             /* 执行当前语句并推进处理流程。 */
-	req = req.WithContext(auth.ContextWithClaims(context.Background(), claims))                                                                                                                                                                    /* 更新 req 的值。 */
-	response := httptest.NewRecorder()                                                                                                                                                                                                             /* 更新 response 的值。 */
-	handler.ServeHTTP(response, req)                                                                                                                                                                                                               /* 执行当前语句并推进处理流程。 */
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `\"persisted\":true`) {                                                                                                                                         /* 判断条件并选择处理分支。 */
+	repo := memory.NewRepository()                                                                                                                                                                                                                                                                                                                                                                         /* 更新 repo 的值。 */
+	engine := &core.Engine{Repo: repo}                                                                                                                                                                                                                                                                                                                                                                     /* 更新 engine 的值。 */
+	handler := NewHarness(engine)                                                                                                                                                                                                                                                                                                                                                                          /* 更新 handler 的值。 */
+	claims := auth.Claims{Username: "alice", TenantID: "tenant-a", TokenUse: "harness", RunID: "run-draft", Scopes: []string{auth.ScopeCreateRuleDraft}, RegisteredClaims: jwt.RegisteredClaims{Audience: jwt.ClaimStrings{auth.HarnessAudience}}}                                                                                                                                                         /* 更新 claims 的值。 */
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_rule_draft","arguments":{"inputText":"如果 temperature 超过 80，打开告警中心","ruleJson":"{\"name\":\"高温\",\"alarmType\":\"HIGH_TEMPERATURE\",\"level\":\"HIGH\",\"match\":\"all\",\"conditions\":[{\"field\":\"temperature\",\"operator\":\"gt\",\"value\":80}],\"actions\":[{\"type\":\"OPEN_PAGE\",\"page\":\"alarms\"}]}"}}}` /* 更新 body 的值。 */
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/mcp/harness", strings.NewReader(body))                                                                                                                                                                                                                                                                                                   /* 更新 req 的值。 */
+	req.Header.Set("Content-Type", "application/json")                                                                                                                                                                                                                                                                                                                                                     /* 执行当前语句并推进处理流程。 */
+	req = req.WithContext(auth.ContextWithClaims(context.Background(), claims))                                                                                                                                                                                                                                                                                                                            /* 更新 req 的值。 */
+	response := httptest.NewRecorder()                                                                                                                                                                                                                                                                                                                                                                     /* 更新 response 的值。 */
+	handler.ServeHTTP(response, req)                                                                                                                                                                                                                                                                                                                                                                       /* 执行当前语句并推进处理流程。 */
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `\"persisted\":true`) {                                                                                                                                                                                                                                                                                                 /* 判断条件并选择处理分支。 */
 		t.Fatalf("draft was not returned as persisted: status=%d body=%s", response.Code, response.Body.String()) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	rules, err := repo.ListRules(context.Background(), "tenant-a")                                 /* 更新 err 的值。 */

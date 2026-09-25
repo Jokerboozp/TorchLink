@@ -8,6 +8,7 @@ import ( /* 引入当前代码需要的依赖。 */
 	"time"     /* 执行当前语句并推进处理流程。 */
 
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"
 ) /* 结束当前表达式或代码块。 */
 
 const ( /* 执行当前语句并推进处理流程。 */
@@ -21,7 +22,7 @@ const ( /* 执行当前语句并推进处理流程。 */
 // 任务进度与结果保存在仓储中：服务重启后可继续读取，多个 API 副本看到同一任务；执行仍在发起任务的进程内进行。
 
 func (s *Server) runHealthInspection(w http.ResponseWriter, r *http.Request) { /* 定义 runHealthInspection 函数。 */
-	job, err := s.startHealthInspectionJob(r.Context(), claims(r).TenantID, claims(r).Username) /* 更新 job 的值。 */
+	job, err := s.startHealthInspectionJob(r.Context(), claims(r).TenantID, claims(r).Username, aiRunIdentity(r.Context(), claims(r))) /* 更新 job 的值。 */
 	if err != nil {
 		problem(w, http.StatusInternalServerError, err.Error())
 		return
@@ -29,7 +30,8 @@ func (s *Server) runHealthInspection(w http.ResponseWriter, r *http.Request) { /
 	write(w, http.StatusAccepted, healthInspectionJobView(job)) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
-func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor string) (model.HealthInspectionJob, error) { /* 定义 startHealthInspectionJob 函数。 */
+// identity is the caller; the job keeps it for its Harness advice run.
+func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor string, identity ports.AIRunIdentity) (model.HealthInspectionJob, error) { /* 定义 startHealthInspectionJob 函数。 */
 	if existing, found, err := s.loadHealthInspectionJob(ctx, tenantID); err != nil || found && existing.Status == "running" {
 		return existing, err
 	}
@@ -59,8 +61,8 @@ func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor s
 		}
 		return existing, loadErr
 	}
-	go s.runHealthInspectionJob(job) /* 执行当前语句并推进处理流程。 */
-	return job, nil                  /* 返回当前处理结果。 */
+	go s.runHealthInspectionJob(job, identity) /* 执行当前语句并推进处理流程。 */
+	return job, nil                            /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 // loadHealthInspectionJob returns the tenant's newest job. A running job whose
@@ -89,11 +91,11 @@ func (s *Server) loadHealthInspectionJob(ctx context.Context, tenantID string) (
 	return job, true, nil
 }
 
-func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob) { /* 定义 runHealthInspectionJob 函数。 */
-	started := time.UnixMilli(job.StartedAt)                                /* 更新 started 的值。 */
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute) /* 更新 cancel 的值。 */
-	defer cancel()                                                          /* 安排函数结束时执行清理。 */
-	resultCh := make(chan struct {                                          /* 更新 resultCh 的值。 */
+func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity ports.AIRunIdentity) { /* 定义 runHealthInspectionJob 函数。 */
+	started := time.UnixMilli(job.StartedAt)                                                                   /* 更新 started 的值。 */
+	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), 3*time.Minute) /* 更新 cancel 的值。 */
+	defer cancel()                                                                                             /* 安排函数结束时执行清理。 */
+	resultCh := make(chan struct {                                                                             /* 更新 resultCh 的值。 */
 		report model.DeviceHealthReport /* 执行当前语句并推进处理流程。 */
 		err    error                    /* 执行当前语句并推进处理流程。 */
 	}, 1) /* 结束当前表达式或代码块。 */

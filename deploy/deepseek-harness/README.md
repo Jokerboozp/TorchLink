@@ -88,6 +88,7 @@ Compose 将平台侧 `IOT_AI_HARNESS_*` 配置映射到侧车变量；API 等待
 - `alarm-handler`：告警研判。
 - `device-health-inspector`：设备巡检。
 - `protocol-assistant`：协议资料与点表辅助。
+- `rule-drafter`：把自然语言告警要求转换为规则 JSON 草稿（规则页“智能草稿”），不保存、不启用。
 
 后面三类由对应业务页面调用。内置 Manifest 只读，自定义插件通过管理员入口管理；知识范围在平台知识库配置。
 

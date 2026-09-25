@@ -11,31 +11,14 @@ import ( /* 引入当前代码需要的依赖。 */
 
 	"iot-platform/internal/adapters/local"  /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/memory" /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/config"          /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/core"            /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/metrics"         /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/model"           /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/parser"          /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/config"  /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/core"    /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/metrics" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model"   /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/parser"  /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"
 ) /* 结束当前表达式或代码块。 */
-
-type progressInspectionAI struct { /* 定义 progressInspectionAI 类型。 */
-	release <-chan struct{} /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-
-func (p progressInspectionAI) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) { /* 定义 AnalyzeAlarm 函数。 */
-	return model.AIAnalysis{}, nil /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-
-func (p progressInspectionAI) Chat(context.Context, string, string) (string, error) { /* 定义 Chat 函数。 */
-	<-p.release           /* 执行当前语句并推进处理流程。 */
-	return "巡检建议已生成", nil /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-
-func (progressInspectionAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) { /* 定义 RuleDraft 函数。 */
-	return model.AlarmRule{}, nil /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
-
-func (progressInspectionAI) Health(context.Context) error { return nil } /* 定义 Health 函数。 */
 
 func TestHealthInspectionJobCanBeLoadedWithoutJobID(t *testing.T) { /* 定义 TestHealthInspectionJobCanBeLoadedWithoutJobID 函数。 */
 	repo := memory.NewRepository()                /* 更新 repo 的值。 */
@@ -47,13 +30,13 @@ func TestHealthInspectionJobCanBeLoadedWithoutJobID(t *testing.T) { /* 定义 Te
 	var releaseOnce sync.Once                                                                                                                                       /* 声明 releaseOnce。 */
 	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }                                                                                              /* 更新 releaseJob 的值。 */
 	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
-	engine.AI = progressInspectionAI{release: release}                                                                                                              /* 更新 engine.AI 的值。 */
-	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))                                                 /* 更新 api 的值。 */
-	server := newTestHTTPServer(api)                                                                                                                                /* 更新 server 的值。 */
-	defer server.Close()                                                                                                                                            /* 安排函数结束时执行清理。 */
-	defer releaseJob()                                                                                                                                              /* 安排函数结束时执行清理。 */
-	token, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)                                                                                    /* 检查错误并决定后续处理。 */
-	if err != nil {                                                                                                                                                 /* 判断条件并选择处理分支。 */
+	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 api 的值。 */
+	server := newTestHTTPServer(api)                                                                                /* 更新 server 的值。 */
+	defer server.Close()                                                                                            /* 安排函数结束时执行清理。 */
+	defer releaseJob()                                                                                              /* 安排函数结束时执行清理。 */
+	token, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)                                    /* 检查错误并决定后续处理。 */
+	if err != nil {                                                                                                 /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	started := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/health-inspection/run", token, map[string]any{}, http.StatusAccepted) /* 更新 started 的值。 */
@@ -95,7 +78,7 @@ func TestHealthInspectionJobIsSharedAcrossServerInstances(t *testing.T) {
 	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseJob()
 	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	engine.AI = progressInspectionAI{release: release}
+	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
 	first := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	second := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	firstServer, secondServer := newTestHTTPServer(first), newTestHTTPServer(second)

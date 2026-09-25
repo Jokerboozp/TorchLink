@@ -9,8 +9,10 @@ import ( /* 引入当前代码需要的依赖。 */
 	aiadapter "iot-platform/internal/adapters/ai" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/local"        /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/adapters/memory"       /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/model"                 /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/parser"                /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/model"  /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/parser" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/ports"
 ) /* 结束当前表达式或代码块。 */
 
 type protocolAssistantAI struct{} /* 定义 protocolAssistantAI 类型。 */
@@ -53,10 +55,13 @@ func TestGenerateProtocolAssistant(t *testing.T) { /* 定义 TestGenerateProtoco
 	if err != nil {                               /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
-	engine := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))      /* 更新 engine 的值。 */
-	engine.AI = protocolAssistantAI{}                                                                                                                                     /* 更新 engine.AI 的值。 */
-	draft, err := engine.GenerateProtocolAssistant(context.Background(), "tenant-test", ProtocolAssistantInput{PointTable: "温度：第 2 字节，单位 0.1 度", SamplePayload: "01 2A"}) /* 更新 err 的值。 */
-	if err != nil {                                                                                                                                                       /* 判断条件并选择处理分支。 */
+	engine := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))) /* 更新 engine 的值。 */
+	engine.AIWorkflows = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) {
+		return protocolAssistantAI{}.GenerateJSON(context.Background(), "", "", "")
+	}}
+	engine.HarnessTokens = aitest.Tokens()
+	draft, err := engine.GenerateProtocolAssistant(aitest.Context(context.Background()), "tenant-test", ProtocolAssistantInput{PointTable: "温度：第 2 字节，单位 0.1 度", SamplePayload: "01 2A"}) /* 更新 err 的值。 */
+	if err != nil {                                                                                                                                                                       /* 判断条件并选择处理分支。 */
 		t.Fatal(err) /* 验证实际结果符合预期。 */
 	} /* 结束当前表达式或代码块。 */
 	if draft.Source != "" || draft.ParserType != parser.ModbusCoilParserName || len(draft.Fields) != 1 || draft.Preview != nil { /* 判断条件并选择处理分支。 */
