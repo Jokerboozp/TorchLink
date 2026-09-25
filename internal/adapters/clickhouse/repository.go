@@ -10,7 +10,8 @@ import ( /* 引入当前代码需要的依赖。 */
 	"net/url"       /* 执行当前语句并推进处理流程。 */
 	"regexp"        /* 执行当前语句并推进处理流程。 */
 	"strings"       /* 执行当前语句并推进处理流程。 */
-	"time"          /* 执行当前语句并推进处理流程。 */
+	"sync"
+	"time" /* 执行当前语句并推进处理流程。 */
 
 	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
 	"iot-platform/internal/ports" /* 执行当前语句并推进处理流程。 */
@@ -21,6 +22,9 @@ type Repository struct { /* 定义 Repository 类型。 */
 	ports.Repository              /* 执行当前语句并推进处理流程。 */
 	base             string       /* 执行当前语句并推进处理流程。 */
 	http             *http.Client /* 执行当前语句并推进处理流程。 */
+	batchOnce        sync.Once
+	telemetryBatch   *insertBatcher
+	rawBatch         *insertBatcher
 } /* 结束当前表达式或代码块。 */
 
 var propertyCodePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`) /* 声明 propertyCodePattern。 */
@@ -90,7 +94,7 @@ func (r *Repository) ensureTelemetry(ctx context.Context, v model.StandardMessag
 	row := map[string]any{"tenant_id": v.TenantID, "device_id": v.DeviceID, "product_id": v.ProductID, "message_id": v.MessageID, "ts": time.UnixMilli(v.Timestamp).UTC().Format("2006-01-02 15:04:05.000"), "properties": v.Properties} /* 更新 row 的值。 */
 	b, _ := json.Marshal(row)                                                                                                                                                                                                            /* 更新 _ 的值。 */
 	b = append(b, '\n')                                                                                                                                                                                                                  /* 更新 b 的值。 */
-	_, err := r.query(ctx, "INSERT INTO iot_telemetry FORMAT JSONEachRow", b)                                                                                                                                                            /* 更新 err 的值。 */
+	err := r.batches().telemetry.add(ctx, b)                                                                                                                                                                                             /* 更新 err 的值。 */
 	return err                                                                                                                                                                                                                           /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -117,7 +121,7 @@ func (r *Repository) SaveRawMessage(ctx context.Context, v model.RawMessage) err
 	row := map[string]any{"tenant_id": v.TenantID, "message_id": v.MessageID, "product_id": v.ProductID, "device_id": v.DeviceID, "protocol": v.Protocol, "payload_format": v.PayloadFormat, "payload_hash": v.PayloadHash(), "payload_size": len(v.Payload), "received_at": v.ReceivedAt, "body": string(body)} /* 更新 row 的值。 */
 	data, _ := json.Marshal(row)                                                                                                                                                                                                                                                                                 /* 更新 _ 的值。 */
 	data = append(data, '\n')                                                                                                                                                                                                                                                                                    /* 更新 data 的值。 */
-	_, err = r.query(ctx, "INSERT INTO iot_raw_message FORMAT JSONEachRow", data)                                                                                                                                                                                                                                /* 更新 err 的值。 */
+	err = r.batches().raw.add(ctx, data)                                                                                                                                                                                                                                                                         /* 更新 err 的值。 */
 	return err                                                                                                                                                                                                                                                                                                   /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -255,5 +259,23 @@ func (r *Repository) query(ctx context.Context, q string, body []byte) ([]byte, 
 		return nil, fmt.Errorf("clickhouse %s: %s", resp.Status, string(out)) /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	return out, nil /* 返回当前处理结果。 */
-}                           /* 结束当前表达式或代码块。 */
+} /* 结束当前表达式或代码块。 */
+type batchers struct{ telemetry, raw *insertBatcher }
+
+// batches lazily creates one batcher per table so concurrent writes share
+// INSERT requests.
+func (r *Repository) batches() batchers {
+	r.batchOnce.Do(func() {
+		r.telemetryBatch = newInsertBatcher(func(ctx context.Context, body []byte) error {
+			_, err := r.query(ctx, "INSERT INTO iot_telemetry FORMAT JSONEachRow", body)
+			return err
+		})
+		r.rawBatch = newInsertBatcher(func(ctx context.Context, body []byte) error {
+			_, err := r.query(ctx, "INSERT INTO iot_raw_message FORMAT JSONEachRow", body)
+			return err
+		})
+	})
+	return batchers{telemetry: r.telemetryBatch, raw: r.rawBatch}
+}
+
 func quote(v string) string { return "'" + strings.ReplaceAll(v, "'", "''") + "'" } /* 定义 quote 函数。 */
