@@ -1,5 +1,6 @@
 /* 页面共用的卡片、分页、工具栏与技术详情样式。 */
 .surface-card.n-card { box-shadow: var(--shadow-xs); }
+.surface-card.n-card > .n-card-header .n-card-header__main { letter-spacing: -0.005em; }
 .surface-card.n-card > .n-card-header { padding: var(--space-4) var(--space-5) var(--space-3); }
 .surface-card.n-card > .n-card-content { padding: var(--space-5); }
 .table-card.n-card > .n-card-content { padding: 0; }
@@ -14,12 +15,12 @@
 .ui-table .ui-button:not(.ui-button--text) { height: 28px; min-height: 28px; padding: 0 10px; font-size: var(--font-size-sm); }
 .ui-table b { font-weight: var(--font-weight-medium); }
 .app-content .ui-alert + .ui-alert { margin-top: var(--space-3); }
-.technical-details { min-width: 0; margin-top: var(--space-4); padding: 0 var(--space-4); color: var(--text-secondary); background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--font-size-sm); }
+.technical-details { min-width: 0; margin-top: var(--space-4); padding: 0 var(--space-4); color: var(--text-secondary); background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-lg); font-size: var(--font-size-sm); }
 .technical-details summary { padding: var(--space-3) 0; font-weight: var(--font-weight-semibold); cursor: pointer; }
 .technical-details[open] summary { border-bottom: 1px solid var(--border); }
 .technical-details pre,
 .technical-details ul { margin: var(--space-3) 0 var(--space-4); }
-.inner-card.n-card { background: var(--surface-muted); box-shadow: none; }
+.inner-card.n-card { background: var(--surface-sunken); box-shadow: none; }
 .inner-card p,
 .inner-card small { margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); line-height: var(--line-height-normal); }
 .inner-card code { display: block; padding: var(--space-2); overflow: auto; }

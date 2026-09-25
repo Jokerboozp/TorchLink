@@ -756,4 +756,24 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
 .message-row.user .message-avatar,.chat-message.user { color:var(--text-inverse); background:var(--primary); }
 .chat-message.user.is-failed { color:var(--text); background:var(--surface-muted); }
 .quick-prompts button:hover:not(:disabled) { color:var(--text); background:var(--primary-soft); }
+
+/* 对话区参考 Claude：助手回答不加气泡、正文舒展；用户消息为暖灰气泡；输入框为圆角整体。 */
+.chat-log { padding:20px 4px 8px; }
+.message-row { gap:12px; }
+.message-avatar { width:28px; height:28px; flex:0 0 28px; color:var(--text-inverse); background:var(--primary); border-radius:50%; font-size:11px; font-weight:var(--font-weight-semibold); }
+.message-row.user .message-avatar { display:none; }
+.message-content { margin-bottom:22px; }
+.chat-message.assistant { padding:3px 0 0; color:var(--text-strong); background:transparent; border-radius:0; font-size:14px; line-height:1.8; }
+.message-row.user .chat-message,.chat-message.user { padding:10px 16px; color:var(--text-strong); background:var(--surface-hover); border-radius:var(--radius-lg); font-size:14px; }
+.chat-message.assistant.is-failed { padding:10px 14px; background:var(--danger-soft); border:1px solid var(--danger-border); border-radius:var(--radius-lg); }
+.chat-message.user.is-failed { color:var(--text); background:var(--surface-muted); border:1px solid var(--danger-border); }
+.quick-prompts button,.quick-prompts button:disabled { padding:6px 12px; color:var(--text-secondary); background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-full); }
+.quick-prompts button:hover:not(:disabled) { color:var(--text-strong); background:var(--surface-hover); border-color:var(--border-hover); }
+.message-meta button { color:var(--text-secondary); background:var(--surface); border-color:var(--border-strong); border-radius:var(--radius-full); }
+.message-meta button:hover { color:var(--text-strong); background:var(--surface-hover); border-color:var(--border-hover); }
+.chat-compose { align-items:flex-end; margin-top:4px; padding:10px 10px 10px 6px; background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-xl); box-shadow:var(--shadow-sm); transition:border-color .15s ease; }
+.chat-compose:focus-within { border-color:var(--border-hover); }
+.chat-compose :deep(.n-input) { background-color:transparent; box-shadow:none; }
+.chat-compose :deep(.n-input .n-input__border),.chat-compose :deep(.n-input .n-input__state-border) { display:none; }
+.chat-compose .ui-button { border-radius:var(--radius-md); }
 </style>

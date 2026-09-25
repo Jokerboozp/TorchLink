@@ -96,17 +96,17 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   ` }) /* 注入仅供界面检查使用的身份与权限。 */
   await call('Page.navigate', { url: origin }) /* 打开合成数据前端。 */
   await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))")).catch(async error => { throw new Error(`${error.message}；表单=${await evaluate("document.querySelector('.login-form')?.innerHTML.slice(0,500)")}；异常=${failures.slice(0,2).join(' | ')}；警告=${warnings.slice(0,3).join(' | ')}`) }) /* 等待登录页并报告首屏脚本异常。 */
-  const loginBrand = await evaluate("(() => {const root=getComputedStyle(document.documentElement),button=document.querySelector('.login-submit');return {navy:root.getPropertyValue('--brand-navy').trim(),primary:root.getPropertyValue('--primary').trim(),button:getComputedStyle(button).backgroundColor}})()") /* 读取最终计算后的登录页主色。 */
-  assert.ok(loginBrand.navy==='#13386c' && loginBrand.primary==='#13386c' && loginBrand.button==='rgb(19, 56, 108)', `登录页未使用品牌深蓝主色：${JSON.stringify(loginBrand)}`) /* 登录按钮与主题变量都应采用品牌深蓝。 */
+  const loginBrand = await evaluate("(() => {const root=getComputedStyle(document.documentElement),button=document.querySelector('.login-submit');return {clay:root.getPropertyValue('--brand-clay').trim(),primary:root.getPropertyValue('--primary').trim(),button:getComputedStyle(button).backgroundColor}})()") /* 读取最终计算后的登录页主色。 */
+  assert.ok(loginBrand.clay==='#b8573a' && loginBrand.primary==='#b8573a' && loginBrand.button==='rgb(184, 87, 58)', `登录页未使用品牌陶土主色：${JSON.stringify(loginBrand)}`) /* 登录按钮与主题变量都应采用品牌陶土色。 */
   const loginCapture = await call('Page.captureScreenshot', { format:'png' }) /* 留存登录页视觉检查截图。 */
   await writeFile(join(tmpdir(), 'iot-brand-login.png'), Buffer.from(loginCapture.data, 'base64')) /* 保存登录页截图。 */
   await evaluate("(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()") /* 完成夹具登录。 */
   await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15")) /* 确认全部主菜单可见。 */
   const asideBrand = await evaluate("(() => {const aside=document.querySelector('.app-sidebar'),menu=aside.querySelector('.nav-item:not(.is-active)'),logo=aside.querySelector('.app-sidebar__brand img');return {background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color,logo:logo?.naturalWidth||0}})()") /* 读取实际渲染的导航颜色。 */
-  assert.ok(asideBrand.background==='rgb(19, 56, 108)' && asideBrand.menu==='rgb(201, 215, 234)' && asideBrand.logo>0, `深蓝侧栏、浅色菜单或品牌标识未生效：${JSON.stringify(asideBrand)}`) /* 检查导航可读性及品牌标识。 */
+  assert.ok(asideBrand.background==='rgb(245, 244, 237)' && asideBrand.menu==='rgb(61, 61, 58)' && asideBrand.logo>0, `米色侧栏、深色菜单或品牌标识未生效：${JSON.stringify(asideBrand)}`) /* 检查导航可读性及品牌标识。 */
   await evaluate("document.querySelector('.app-topbar__toggle').click()") /* 验证折叠导航。 */
   await delay(300)
-  assert.ok(await evaluate("(() => {const shell=document.querySelector('.app-shell'),menu=document.querySelector('.nav-item:not(.is-active)');return shell.classList.contains('is-collapsed') && menu.getBoundingClientRect().width>0 && menu.getAttribute('aria-label') && getComputedStyle(menu).color==='rgb(201, 215, 234)'})()"), '折叠态导航图标不可见或缺少名称') /* 折叠后仍保留可读菜单。 */
+  assert.ok(await evaluate("(() => {const shell=document.querySelector('.app-shell'),menu=document.querySelector('.nav-item:not(.is-active)');return shell.classList.contains('is-collapsed') && menu.getBoundingClientRect().width>0 && menu.getAttribute('aria-label') && getComputedStyle(menu).color==='rgb(61, 61, 58)'})()"), '折叠态导航图标不可见或缺少名称') /* 折叠后仍保留可读菜单。 */
   await evaluate("document.querySelector('.app-topbar__toggle').click()") /* 恢复完整侧栏。 */
   await delay(300)
   for (const name of pages) { /* 逐页检查标题、正文和脚本异常。 */
@@ -264,7 +264,7 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   await evaluate("document.querySelector('.app-topbar__toggle').click()")
   await delay(300)
   const mobileBrand = await evaluate("(() => {const aside=document.querySelector('.app-sidebar'),menu=aside.querySelector('.nav-item:not(.is-active)'),r=aside.getBoundingClientRect();return {left:r.left,right:r.right,viewport:innerWidth,mask:Boolean(document.querySelector('.app-sidebar-mask')),background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color}})()") /* 读取抽屉导航的尺寸与颜色。 */
-  assert.ok(mobileBrand.left>=-1 && mobileBrand.right<=mobileBrand.viewport && mobileBrand.mask && mobileBrand.background==='rgb(19, 56, 108)' && mobileBrand.menu==='rgb(201, 215, 234)', `手机抽屉导航未沿用品牌色或布局溢出：${JSON.stringify(mobileBrand)}`) /* 窄屏仍可读取导航入口。 */
+  assert.ok(mobileBrand.left>=-1 && mobileBrand.right<=mobileBrand.viewport && mobileBrand.mask && mobileBrand.background==='rgb(245, 244, 237)' && mobileBrand.menu==='rgb(61, 61, 58)', `手机抽屉导航未沿用品牌色或布局溢出：${JSON.stringify(mobileBrand)}`) /* 窄屏仍可读取导航入口。 */
   await evaluate("document.querySelector('.app-sidebar-mask').click()")
   await until(() => evaluate("!document.querySelector('.app-sidebar-mask')"))
   await openPage('用户与权限')

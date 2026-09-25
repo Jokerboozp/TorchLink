@@ -84,17 +84,18 @@ summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-rad
 .ui-dropdown-label svg { width: 16px; height: 16px; flex: none; }
 .n-dropdown-menu { min-width: 132px; }
 .ui-upload .n-upload-dragger { border-color: var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-muted); }
-.ui-upload .n-upload-dragger:hover { border-color: var(--primary); }
+.ui-upload .n-upload-dragger:hover { border-color: var(--border-hover); background: var(--surface-sunken); }
 
 /* 弹窗、抽屉只让正文区域滚动，内层卡片不截断滚轮。 */
 .n-modal.ui-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); overflow: hidden; box-shadow: var(--shadow-lg); }
+.n-modal.ui-dialog > .n-card-header .n-card-header__main { font-family: var(--font-serif); font-size: 18px; font-weight: var(--font-weight-medium); }
 .n-modal.ui-dialog > .n-card-header { border-bottom: 1px solid var(--border); }
 .n-modal.ui-dialog > .n-card-content { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-top: var(--space-5); }
 .n-modal.ui-dialog > .n-card__footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border); }
 .n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > pre { max-height: none; overflow: visible; }
 .n-drawer .n-drawer-body-content-wrapper { overflow: auto; overscroll-behavior: contain; }
 
-/* 分段单选：每个选项独立成块，选中态用主色细边。 */
+/* 分段单选：每个选项独立成块，悬停为暖灰，选中态用主色细边和浅陶土底。 */
 .segmented-choice-group.n-radio-group { display: flex; flex-wrap: wrap; gap: var(--space-2); max-width: 100%; }
 .segmented-choice-group .n-radio-button {
   display: inline-flex;
@@ -110,9 +111,9 @@ summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-rad
 }
 .segmented-choice-group .n-radio-button__state-border { display: none; }
 .segmented-choice-group .n-radio-button__label { color: var(--text-secondary); font-weight: var(--font-weight-medium); }
-.segmented-choice-group .n-radio-button:hover { border-color: var(--primary-border); background: var(--primary-soft); }
+.segmented-choice-group .n-radio-button:hover { border-color: var(--border-hover); background: var(--surface-hover); }
 .segmented-choice-group .n-radio-button.n-radio-button--checked { border-color: var(--primary); background: var(--primary-soft); }
-.segmented-choice-group .n-radio-button.n-radio-button--checked .n-radio-button__label { color: var(--primary); font-weight: var(--font-weight-semibold); }
+.segmented-choice-group .n-radio-button.n-radio-button--checked .n-radio-button__label { color: var(--primary-text); font-weight: var(--font-weight-semibold); }
 .segmented-choice-group .n-radio-button:focus-within { box-shadow: var(--focus-ring); }
 
 /* v-loading：半透明遮罩加旋转指示。 */
