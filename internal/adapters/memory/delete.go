@@ -203,7 +203,11 @@ func (r *Repository) DeleteResource(_ context.Context, tenant, kind, id string) 
 			return model.ErrResourceInUse
 		}
 		delete(r.alarms, k)
-		delete(r.ai, k)
+		for analysisKey := range r.ai { // 研判结果按知识范围分开保存，逐一删除。
+			if strings.HasPrefix(analysisKey, k+"\x00") {
+				delete(r.ai, analysisKey)
+			}
+		}
 		for stateKey, state := range r.componentAlarms {
 			if strings.HasPrefix(stateKey, tenant+"\x00") && state.AlarmID == id {
 				delete(r.componentAlarms, stateKey)

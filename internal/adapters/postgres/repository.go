@@ -1196,6 +1196,29 @@ func (r *Repository) GetAIAnalysis(ctx context.Context, tenant, id, knowledgeSco
 	} /* 结束当前表达式或代码块。 */
 	return v, err /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+func (r *Repository) CreateHealthInspectionJob(ctx context.Context, v model.HealthInspectionJob) (bool, error) {
+	b, _ := json.Marshal(v)
+	// The partial unique index on running jobs turns a concurrent start into a no-op.
+	tag, err := r.pool.Exec(ctx, `INSERT INTO health_inspection_job(tenant_id,id,status,started_at,updated_at,body) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, v.TenantID, v.ID, v.Status, v.StartedAt, v.UpdatedAt, b)
+	return err == nil && tag.RowsAffected() == 1, err
+}
+func (r *Repository) UpdateRunningHealthInspectionJob(ctx context.Context, v model.HealthInspectionJob) (bool, error) {
+	b, _ := json.Marshal(v)
+	tag, err := r.pool.Exec(ctx, `UPDATE health_inspection_job SET status=$3,updated_at=$4,body=$5 WHERE tenant_id=$1 AND id=$2 AND status='running'`, v.TenantID, v.ID, v.Status, v.UpdatedAt, b)
+	return err == nil && tag.RowsAffected() == 1, err
+}
+func (r *Repository) LatestHealthInspectionJob(ctx context.Context, tenant, status string) (model.HealthInspectionJob, error) {
+	var v model.HealthInspectionJob
+	var b []byte
+	err := r.pool.QueryRow(ctx, `SELECT body FROM health_inspection_job WHERE tenant_id=$1 AND ($2='' OR status=$2) ORDER BY started_at DESC, updated_at DESC LIMIT 1`, tenant, status).Scan(&b)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return v, ErrNotFound
+	}
+	if err == nil {
+		err = json.Unmarshal(b, &v)
+	}
+	return v, err
+}
 func (r *Repository) SaveKnowledgeDoc(ctx context.Context, v model.KnowledgeDoc) error { /* 定义 SaveKnowledgeDoc 函数。 */
 	b, _ := json.Marshal(v.Metadata)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                /* 更新 _ 的值。 */
 	_, err := r.pool.Exec(ctx, `INSERT INTO ai_knowledge_doc(id,tenant_id,workflow_id,product_id,category,tags,object_bucket,object_key,filename,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO UPDATE SET workflow_id=excluded.workflow_id,product_id=excluded.product_id,category=excluded.category,tags=excluded.tags,status=excluded.status,metadata=excluded.metadata`, v.ID, v.TenantID, v.WorkflowID, v.ProductID, v.Category, v.Tags, v.ObjectBucket, v.ObjectKey, v.Filename, v.Status, b) /* 更新 err 的值。 */

@@ -468,6 +468,14 @@ BEGIN
     ALTER TABLE alarm_ai_analysis ADD CONSTRAINT alarm_ai_analysis_pkey PRIMARY KEY(tenant_id, alarm_id, knowledge_scope);
   END IF;
 END $$;
+-- 智能巡检任务的进度与结果：服务重启后可继续读取，多个 API 副本共享；每个租户同时最多一个运行中的任务。
+CREATE TABLE IF NOT EXISTS health_inspection_job (
+  tenant_id text NOT NULL, id text NOT NULL, status text NOT NULL,
+  started_at bigint NOT NULL, updated_at bigint NOT NULL, body jsonb NOT NULL,
+  PRIMARY KEY(tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS health_inspection_job_one_running ON health_inspection_job(tenant_id) WHERE status='running';
+CREATE INDEX IF NOT EXISTS health_inspection_job_latest ON health_inspection_job(tenant_id, started_at DESC);
 -- 创建数据库对象。
 CREATE TABLE IF NOT EXISTS ai_knowledge_doc (
   -- 继续当前数据库语句。

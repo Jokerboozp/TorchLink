@@ -17,26 +17,27 @@ import ( /* 引入当前代码需要的依赖。 */
 var ErrNotFound = model.ErrNotFound /* 声明 ErrNotFound。 */
 
 type Repository struct { /* 定义 Repository 类型。 */
-	accessStates        map[string][]byte                         /* 执行当前语句并推进处理流程。 */
-	componentAlarms     map[string]model.ComponentAlarmState      /* 执行当前语句并推进处理流程。 */
-	rawReservations     map[string]rawReservation                 /* 执行当前语句并推进处理流程。 */
-	leases              map[string]model.ExecutionLease           /* 执行当前语句并推进处理流程。 */
-	revocations         map[string]model.CredentialRevocation     /* 执行当前语句并推进处理流程。 */
-	commands            map[string]model.DeviceCommand            /* 执行当前语句并推进处理流程。 */
-	mu                  sync.RWMutex                              /* 执行当前语句并推进处理流程。 */
-	raw                 map[string]model.RawArchiveIndex          /* 执行当前语句并推进处理流程。 */
-	rawMessages         map[string]model.RawMessage               /* 执行当前语句并推进处理流程。 */
-	standard            map[string]model.StandardMessage          /* 执行当前语句并推进处理流程。 */
-	standardProcessed   map[string]bool                           /* 执行当前语句并推进处理流程。 */
-	rulePending         map[string]int64                          /* 执行当前语句并推进处理流程。 */
-	states              map[string]model.DeviceState              /* 执行当前语句并推进处理流程。 */
-	stateEvents         []model.DeviceStateEvent                  /* 执行当前语句并推进处理流程。 */
-	rules               map[string]model.AlarmRule                /* 执行当前语句并推进处理流程。 */
-	alarms              map[string]model.Alarm                    /* 执行当前语句并推进处理流程。 */
-	video               map[string]model.VideoAlarmEvent          /* 执行当前语句并推进处理流程。 */
-	videoMappings       map[string]model.VideoCameraMapping       /* 执行当前语句并推进处理流程。 */
-	videoRelations      map[string][]model.VideoCameraRelation    /* 执行当前语句并推进处理流程。 */
-	ai                  map[string]model.AIAnalysis               /* 执行当前语句并推进处理流程。 */
+	accessStates        map[string][]byte                      /* 执行当前语句并推进处理流程。 */
+	componentAlarms     map[string]model.ComponentAlarmState   /* 执行当前语句并推进处理流程。 */
+	rawReservations     map[string]rawReservation              /* 执行当前语句并推进处理流程。 */
+	leases              map[string]model.ExecutionLease        /* 执行当前语句并推进处理流程。 */
+	revocations         map[string]model.CredentialRevocation  /* 执行当前语句并推进处理流程。 */
+	commands            map[string]model.DeviceCommand         /* 执行当前语句并推进处理流程。 */
+	mu                  sync.RWMutex                           /* 执行当前语句并推进处理流程。 */
+	raw                 map[string]model.RawArchiveIndex       /* 执行当前语句并推进处理流程。 */
+	rawMessages         map[string]model.RawMessage            /* 执行当前语句并推进处理流程。 */
+	standard            map[string]model.StandardMessage       /* 执行当前语句并推进处理流程。 */
+	standardProcessed   map[string]bool                        /* 执行当前语句并推进处理流程。 */
+	rulePending         map[string]int64                       /* 执行当前语句并推进处理流程。 */
+	states              map[string]model.DeviceState           /* 执行当前语句并推进处理流程。 */
+	stateEvents         []model.DeviceStateEvent               /* 执行当前语句并推进处理流程。 */
+	rules               map[string]model.AlarmRule             /* 执行当前语句并推进处理流程。 */
+	alarms              map[string]model.Alarm                 /* 执行当前语句并推进处理流程。 */
+	video               map[string]model.VideoAlarmEvent       /* 执行当前语句并推进处理流程。 */
+	videoMappings       map[string]model.VideoCameraMapping    /* 执行当前语句并推进处理流程。 */
+	videoRelations      map[string][]model.VideoCameraRelation /* 执行当前语句并推进处理流程。 */
+	ai                  map[string]model.AIAnalysis            /* 执行当前语句并推进处理流程。 */
+	inspectionJobs      map[string][]model.HealthInspectionJob
 	knowledge           map[string]model.KnowledgeDoc             /* 执行当前语句并推进处理流程。 */
 	workflowKnowledge   map[string]model.WorkflowKnowledgeBinding /* 执行当前语句并推进处理流程。 */
 	replays             map[string]model.ReplayRequest            /* 执行当前语句并推进处理流程。 */
@@ -906,6 +907,46 @@ func (r *Repository) GetAIAnalysis(_ context.Context, tenant, id, knowledgeScope
 	} /* 结束当前表达式或代码块。 */
 	return v, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
+func (r *Repository) CreateHealthInspectionJob(_ context.Context, v model.HealthInspectionJob) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, job := range r.inspectionJobs[v.TenantID] {
+		if job.ID == v.ID || v.Status == "running" && job.Status == "running" {
+			return false, nil
+		}
+	}
+	if r.inspectionJobs == nil {
+		r.inspectionJobs = map[string][]model.HealthInspectionJob{}
+	}
+	r.inspectionJobs[v.TenantID] = append(r.inspectionJobs[v.TenantID], v)
+	return true, nil
+}
+func (r *Repository) UpdateRunningHealthInspectionJob(_ context.Context, v model.HealthInspectionJob) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for index, job := range r.inspectionJobs[v.TenantID] {
+		if job.ID == v.ID && job.Status == "running" {
+			r.inspectionJobs[v.TenantID][index] = v
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (r *Repository) LatestHealthInspectionJob(_ context.Context, tenant, status string) (model.HealthInspectionJob, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var latest model.HealthInspectionJob
+	found := false
+	for _, job := range r.inspectionJobs[tenant] {
+		if (status == "" || job.Status == status) && (!found || job.StartedAt >= latest.StartedAt) {
+			latest, found = job, true
+		}
+	}
+	if !found {
+		return latest, ErrNotFound
+	}
+	return latest, nil
+}
 func (r *Repository) SaveKnowledgeDoc(_ context.Context, v model.KnowledgeDoc) error { /* 定义 SaveKnowledgeDoc 函数。 */
 	r.mu.Lock()                            /* 执行当前语句并推进处理流程。 */
 	defer r.mu.Unlock()                    /* 安排函数结束时执行清理。 */

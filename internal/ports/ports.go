@@ -127,6 +127,14 @@ type Repository interface { /* 定义 Repository 类型。 */
 	ListVideoCameraRelationsByTarget(context.Context, string, string, string) ([]model.VideoCameraRelation, error)       /* 执行当前语句并推进处理流程。 */
 	SaveAIAnalysis(context.Context, model.AIAnalysis) error                                                              /* 执行当前语句并推进处理流程。 */
 	GetAIAnalysis(ctx context.Context, tenantID, alarmID, knowledgeScope string) (model.AIAnalysis, error)
+	// CreateHealthInspectionJob returns false when the tenant already has a
+	// running inspection; at most one runs per tenant across all replicas.
+	CreateHealthInspectionJob(context.Context, model.HealthInspectionJob) (bool, error)
+	// UpdateRunningHealthInspectionJob changes a job only while the stored copy
+	// is still running, so a job already marked interrupted is not revived.
+	UpdateRunningHealthInspectionJob(context.Context, model.HealthInspectionJob) (bool, error)
+	// LatestHealthInspectionJob returns the newest job, optionally with status.
+	LatestHealthInspectionJob(ctx context.Context, tenantID, status string) (model.HealthInspectionJob, error)
 	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error                                          /* 执行当前语句并推进处理流程。 */
 	ListKnowledgeDocs(context.Context, string) ([]model.KnowledgeDoc, error)                             /* 执行当前语句并推进处理流程。 */
 	ListKnowledgeDocsPage(context.Context, string, int, int) ([]model.KnowledgeDoc, int, error)          /* 执行当前语句并推进处理流程。 */

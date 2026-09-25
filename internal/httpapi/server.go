@@ -39,31 +39,23 @@ type ctxKey string /* 定义 ctxKey 类型。 */
 const claimsKey ctxKey = "claims" /* 声明 claimsKey。 */
 
 type Server struct { /* 定义 Server 类型。 */
-	cfg                        config.Config                       /* 执行当前语句并推进处理流程。 */
-	engine                     *core.Engine                        /* 执行当前语句并推进处理流程。 */
-	auth                       *auth.Manager                       /* 执行当前语句并推进处理流程。 */
-	metrics                    *metrics.Registry                   /* 执行当前语句并推进处理流程。 */
-	log                        *slog.Logger                        /* 执行当前语句并推进处理流程。 */
-	router                     *gin.Engine                         /* 执行当前语句并推进处理流程。 */
-	aiProviderRuntime          ports.AIProviderRuntime             /* 执行当前语句并推进处理流程。 */
-	aiProviderStore            ports.AIProviderConfigStore         /* 执行当前语句并推进处理流程。 */
-	aiWorkflowProvider         ports.AIWorkflowProviderRuntime     /* 执行当前语句并推进处理流程。 */
-	aiProviderUpdateMu         sync.Mutex                          /* 执行当前语句并推进处理流程。 */
-	healthInspectionMu         sync.RWMutex                        /* 执行当前语句并推进处理流程。 */
-	healthInspectionCache      map[string]healthInspectionSnapshot /* 执行当前语句并推进处理流程。 */
-	healthInspectionJobsMu     sync.RWMutex                        /* 执行当前语句并推进处理流程。 */
-	healthInspectionJobs       map[string]*healthInspectionJob     /* 执行当前语句并推进处理流程。 */
-	healthInspectionEstimateMs int64                               /* 执行当前语句并推进处理流程。 */
-	aiAnalysisMu               sync.RWMutex                        /* 执行当前语句并推进处理流程。 */
-	aiAnalysisJobs             map[string]*aiAnalysisJob           /* 执行当前语句并推进处理流程。 */
-	aiAnalysisEstimateMs       int64                               /* 执行当前语句并推进处理流程。 */
-	protocolListeners          protocolCommander                   /* 执行当前语句并推进处理流程。 */
-	onboarding                 *onboarding.Service                 /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-
-type healthInspectionSnapshot struct { /* 定义 healthInspectionSnapshot 类型。 */
-	report    model.DeviceHealthReport /* 执行当前语句并推进处理流程。 */
-	expiresAt time.Time                /* 执行当前语句并推进处理流程。 */
+	cfg                        config.Config                   /* 执行当前语句并推进处理流程。 */
+	engine                     *core.Engine                    /* 执行当前语句并推进处理流程。 */
+	auth                       *auth.Manager                   /* 执行当前语句并推进处理流程。 */
+	metrics                    *metrics.Registry               /* 执行当前语句并推进处理流程。 */
+	log                        *slog.Logger                    /* 执行当前语句并推进处理流程。 */
+	router                     *gin.Engine                     /* 执行当前语句并推进处理流程。 */
+	aiProviderRuntime          ports.AIProviderRuntime         /* 执行当前语句并推进处理流程。 */
+	aiProviderStore            ports.AIProviderConfigStore     /* 执行当前语句并推进处理流程。 */
+	aiWorkflowProvider         ports.AIWorkflowProviderRuntime /* 执行当前语句并推进处理流程。 */
+	aiProviderUpdateMu         sync.Mutex                      /* 执行当前语句并推进处理流程。 */
+	healthInspectionMu         sync.RWMutex                    // 仅保护本进程的耗时估算；任务状态保存在仓储中。
+	healthInspectionEstimateMs int64
+	aiAnalysisMu               sync.RWMutex              /* 执行当前语句并推进处理流程。 */
+	aiAnalysisJobs             map[string]*aiAnalysisJob /* 执行当前语句并推进处理流程。 */
+	aiAnalysisEstimateMs       int64                     /* 执行当前语句并推进处理流程。 */
+	protocolListeners          protocolCommander         /* 执行当前语句并推进处理流程。 */
+	onboarding                 *onboarding.Service       /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 const healthInspectionCacheTTL = 10 * time.Minute /* 声明 healthInspectionCacheTTL。 */
@@ -84,8 +76,6 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		metrics:                    m,                                                                                /* 执行当前语句并推进处理流程。 */
 		log:                        log,                                                                              /* 执行当前语句并推进处理流程。 */
 		router:                     router,                                                                           /* 执行当前语句并推进处理流程。 */
-		healthInspectionCache:      make(map[string]healthInspectionSnapshot),                                        /* 执行当前语句并推进处理流程。 */
-		healthInspectionJobs:       make(map[string]*healthInspectionJob),                                            /* 执行当前语句并推进处理流程。 */
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),                                   /* 执行当前语句并推进处理流程。 */
 		aiAnalysisJobs:             make(map[string]*aiAnalysisJob),                                                  /* 执行当前语句并推进处理流程。 */
 		aiAnalysisEstimateMs:       45000,                                                                            /* 执行当前语句并推进处理流程。 */

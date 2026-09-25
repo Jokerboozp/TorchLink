@@ -32,17 +32,17 @@ func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) { /* �
 		problem(w, http.StatusBadGateway, err.Error()) /* 执行当前语句并推进处理流程。 */
 		return                                         /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
-	s.rememberHealthInspection(claims(r).TenantID, report) /* 执行当前语句并推进处理流程。 */
-	write(w, http.StatusOK, report)                        /* 执行当前语句并推进处理流程。 */
+	s.rememberHealthInspection(ctx, claims(r).TenantID, claims(r).Username, report) /* 执行当前语句并推进处理流程。 */
+	write(w, http.StatusOK, report)                                                 /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) { /* 定义 healthInspectionPDF 函数。 */
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute) /* 更新 cancel 的值。 */
 	defer cancel()                                                 /* 安排函数结束时执行清理。 */
 	tenantID := claims(r).TenantID                                 /* 更新 tenantID 的值。 */
-	report, ok := s.recentHealthInspection(tenantID)               /* 更新 ok 的值。 */
+	report, ok := s.recentHealthInspection(ctx, tenantID)          /* 更新 ok 的值。 */
 	if !ok {                                                       /* 判断条件并选择处理分支。 */
-		if job := s.currentHealthInspectionJob(tenantID); job != nil && job.Status == "running" { /* 判断条件并选择处理分支。 */
+		if job, found, _ := s.loadHealthInspectionJob(ctx, tenantID); found && job.Status == "running" { /* 判断条件并选择处理分支。 */
 			problem(w, http.StatusConflict, "智能巡检仍在进行，请等待任务完成后再下载报告") /* 执行当前语句并推进处理流程。 */
 			return                                                    /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
@@ -52,7 +52,7 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) { /
 			problem(w, http.StatusBadGateway, err.Error()) /* 执行当前语句并推进处理流程。 */
 			return                                         /* 返回当前处理结果。 */
 		} /* 结束当前表达式或代码块。 */
-		s.rememberHealthInspection(tenantID, report) /* 执行当前语句并推进处理流程。 */
+		s.rememberHealthInspection(ctx, tenantID, claims(r).Username, report) /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
 	data, err := core.RenderHealthInspectionPDF(report) /* 更新 err 的值。 */
 	if err != nil {                                     /* 判断条件并选择处理分支。 */
@@ -68,28 +68,25 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) { /
 	_, _ = w.Write(data)                                                                                                                                                /* 更新 _ 的值。 */
 } /* 结束当前表达式或代码块。 */
 
-func (s *Server) rememberHealthInspection(tenantID string, report model.DeviceHealthReport) { /* 定义 rememberHealthInspection 函数。 */
-	s.healthInspectionMu.Lock()         /* 执行当前语句并推进处理流程。 */
-	defer s.healthInspectionMu.Unlock() /* 安排函数结束时执行清理。 */
-	if s.healthInspectionCache == nil { /* 判断条件并选择处理分支。 */
-		s.healthInspectionCache = make(map[string]healthInspectionSnapshot) /* 更新 s.healthInspectionCache 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	s.healthInspectionCache[tenantID] = healthInspectionSnapshot{report: report, expiresAt: time.Now().Add(healthInspectionCacheTTL)} /* 更新 s.healthInspectionCache[tenantID] 的值。 */
+// rememberHealthInspection stores a report produced outside a background job
+// (synchronous inspection or PDF regeneration) as a completed job, so the PDF
+// download on any replica reuses it.
+func (s *Server) rememberHealthInspection(ctx context.Context, tenantID, actor string, report model.DeviceHealthReport) { /* 定义 rememberHealthInspection 函数。 */
+	now := time.Now().UnixMilli()
+	job := model.HealthInspectionJob{ID: "inspection_job_" + randomHex(10), TenantID: tenantID, Actor: actor, Status: "succeeded", Stage: "completed", Message: "智能巡检已完成", Progress: 100, StartedAt: now, UpdatedAt: now, FinishedAt: now, Report: report}
+	if _, err := s.engine.Repo.CreateHealthInspectionJob(ctx, job); err != nil && s.log != nil {
+		s.log.Warn("save health inspection report failed", "tenant", tenantID, "error", err)
+	}
 } /* 结束当前表达式或代码块。 */
 
-func (s *Server) recentHealthInspection(tenantID string) (model.DeviceHealthReport, bool) { /* 定义 recentHealthInspection 函数。 */
-	s.healthInspectionMu.RLock()                      /* 执行当前语句并推进处理流程。 */
-	snapshot, ok := s.healthInspectionCache[tenantID] /* 更新 ok 的值。 */
-	s.healthInspectionMu.RUnlock()                    /* 执行当前语句并推进处理流程。 */
-	if !ok || time.Now().After(snapshot.expiresAt) {  /* 判断条件并选择处理分支。 */
-		if ok { /* 判断条件并选择处理分支。 */
-			s.healthInspectionMu.Lock()               /* 执行当前语句并推进处理流程。 */
-			delete(s.healthInspectionCache, tenantID) /* 执行当前语句并推进处理流程。 */
-			s.healthInspectionMu.Unlock()             /* 执行当前语句并推进处理流程。 */
-		} /* 结束当前表达式或代码块。 */
-		return model.DeviceHealthReport{}, false /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	return snapshot.report, true /* 返回当前处理结果。 */
+// recentHealthInspection returns the newest completed report that is still
+// fresh enough to download without inspecting again.
+func (s *Server) recentHealthInspection(ctx context.Context, tenantID string) (model.DeviceHealthReport, bool) { /* 定义 recentHealthInspection 函数。 */
+	job, err := s.engine.Repo.LatestHealthInspectionJob(ctx, tenantID, "succeeded")
+	if err != nil || time.Since(time.UnixMilli(job.FinishedAt)) > healthInspectionCacheTTL {
+		return model.DeviceHealthReport{}, false
+	}
+	return job.Report, true /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
 func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Request) { /* 定义 generateProtocolAssistant 函数。 */

@@ -408,6 +408,25 @@ type DeviceHealthReport struct { /* 定义 DeviceHealthReport 类型。 */
 	Warnings    []string           `json:"warnings,omitempty"` /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
+// HealthInspectionJob is the durable progress and result of one inspection run.
+// It is stored so progress and the latest report survive restarts and are
+// visible from every API replica.
+type HealthInspectionJob struct {
+	ID                   string             `json:"jobId"`
+	TenantID             string             `json:"tenantId"`
+	Actor                string             `json:"actor,omitempty"`
+	Status               string             `json:"status"`
+	Stage                string             `json:"stage"`
+	Message              string             `json:"message"`
+	Progress             int                `json:"progress"`
+	EstimatedRemainingMs int64              `json:"estimatedRemainingMs"`
+	StartedAt            int64              `json:"startedAt"`
+	UpdatedAt            int64              `json:"updatedAt"`
+	FinishedAt           int64              `json:"finishedAt"`
+	Report               DeviceHealthReport `json:"report"`
+	Error                string             `json:"error,omitempty"`
+}
+
 // ManagedDevice is the inventory/control-plane record. Runtime connectivity is
 // kept separately in DeviceState and joined by the API.
 type ManagedDevice struct { /* 定义 ManagedDevice 类型。 */

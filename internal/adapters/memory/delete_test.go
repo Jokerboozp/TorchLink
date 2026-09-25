@@ -99,3 +99,31 @@ func TestDeleteProtocolReleaseKeepsOtherVersionsAndBlocksBindings(t *testing.T) 
 		t.Fatalf("repeat delete: %v", err)
 	}
 }
+
+func TestDeleteAlarmRemovesEveryAnalysisScope(t *testing.T) {
+	ctx := context.Background()
+	repo := NewRepository()
+	if _, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: "t1", ID: "alarm-1", Status: "CLOSED"}); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []string{model.AIAnalysisScopeNone, model.AlarmAnalysisWorkflowID, model.AIAnalysisScopeLegacyTenant}
+	for _, scope := range scopes {
+		if err := repo.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "t1", AlarmID: "alarm-1", KnowledgeScope: scope}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "t1", AlarmID: "alarm-10"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteResource(ctx, "t1", "alarm", "alarm-1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range scopes {
+		if _, err := repo.GetAIAnalysis(ctx, "t1", "alarm-1", scope); err == nil {
+			t.Fatalf("analysis scope %q survived alarm deletion", scope)
+		}
+	}
+	if _, err := repo.GetAIAnalysis(ctx, "t1", "alarm-10", model.AIAnalysisScopeNone); err != nil {
+		t.Fatalf("deleting alarm-1 removed another alarm's analysis: %v", err)
+	}
+}
