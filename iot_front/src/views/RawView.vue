@@ -124,9 +124,9 @@ function rowActions(row) {
   <DataTableCard :title="`原始报文 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
     <p class="raw-hint">保留原文证据链；详情同时展示标准解析结果。</p>
     <ui-table v-loading="loading" :data="items" :empty-text="query ? '没有该设备的原始报文' : '暂无原始报文'" @selection-change="selection = $event"> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column type="selection" width="48" /><ui-table-column label="接收时间" min-width="170"><template #default="{ row }">{{ formatTime(row.receivedAt) }}</template></ui-table-column><ui-table-column prop="messageId" label="消息标识" min-width="220" /><ui-table-column prop="productId" label="产品" min-width="150" /><ui-table-column prop="deviceId" label="设备" min-width="170" /><ui-table-column prop="protocol" label="协议" width="100" /> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="解析状态" width="145"><template #default="{ row }"><StatusDot :tone="row.parsed ? 'success' : 'neutral'" :label="row.parsed ? `已解析 · ${messageTypeLabel(row.parsedMessageType)}` : '待解析/未匹配'" /></template></ui-table-column><ui-table-column label="大小" width="90"><template #default="{ row }">{{ row.payloadSize }} 字节</template></ui-table-column><ui-table-column label="校验摘要" min-width="140"><template #default="{ row }"><ui-tooltip :content="row.payloadHash"><code>{{ row.payloadHash?.slice(0, 12) }}…</code></ui-tooltip></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" fixed="right" width="130" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column type="selection" width="48" /><ui-table-column label="接收时间" width="160"><template #default="{ row }">{{ formatTime(row.receivedAt) }}</template></ui-table-column><ui-table-column prop="messageId" label="消息标识" min-width="200" show-overflow-tooltip /><ui-table-column label="设备 / 产品" min-width="220"><template #default="{ row }"><span class="raw-id" :title="row.deviceId">{{ row.deviceId }}</span><small class="subline raw-id" :title="row.productId">{{ row.productId }}</small></template></ui-table-column><ui-table-column prop="protocol" label="协议" min-width="130" show-overflow-tooltip /> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="解析状态" width="145"><template #default="{ row }"><StatusDot :tone="row.parsed ? 'success' : 'neutral'" :label="row.parsed ? `已解析 · ${messageTypeLabel(row.parsedMessageType)}` : '待解析/未匹配'" /></template></ui-table-column><ui-table-column label="大小" width="90"><template #default="{ row }">{{ row.payloadSize }} 字节</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+      <ui-table-column label="操作" fixed="right" width="110" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
     </ui-table> <!-- 结束当前界面区域。 -->
   </DataTableCard>
   <ui-dialog v-model="detailVisible" title="报文详情与解析结果" width="min(900px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
@@ -137,5 +137,6 @@ function rowActions(row) {
 </template>
 
 <style scoped>
+.raw-id { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .raw-hint { margin: 0; padding: var(--space-2) var(--space-4); color: var(--text-muted); font-size: var(--font-size-xs); border-bottom: 1px solid var(--border); }
 </style>

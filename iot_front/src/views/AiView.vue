@@ -597,7 +597,7 @@ onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(fals
         </div>
       </template>
       <ui-alert v-if="workflowError" class="chat-workflow-error" :title="workflowError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert>
-      <ui-empty v-if="!runtimeLoading && !workflowItems.length" class="chat-workflow-empty" description="暂无可用工作流" :image-size="62" />
+      <ui-alert v-if="!runtimeLoading && !workflowItems.length && !workflowError" class="chat-workflow-empty" title="暂无可用工作流：需由管理员配置 AI 工作流服务后才能提问。" type="info" :closable="false" show-icon />
       <div v-if="quickQuestions.length" class="quick-prompts"><span class="quick-prompts-label">快捷提问</span><div class="quick-prompts-list"><button v-for="item in quickQuestions" :key="item" :disabled="sending || !workflowItems.length" @click="send(item)">{{ item }}</button></div></div> <!-- 渲染 div 界面元素。 -->
       <div ref="log" class="chat-log" aria-live="polite"> <!-- 渲染 div 界面元素。 -->
         <div v-for="message in messages" :key="message.id" class="message-row" :class="message.role"> <!-- 渲染 div 界面元素。 -->

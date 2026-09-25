@@ -1,5 +1,10 @@
-import { Comment, Fragment, defineComponent, h } from 'vue' /* 使用 Vue 节点保留各页面的单元格插槽。 */
+import { Comment, Fragment, defineComponent, h, ref } from 'vue' /* 使用 Vue 节点保留各页面的单元格插槽。 */
 import { NDataTable, NEmpty } from 'naive-ui' /* 表格绘制、固定列与选择能力由 Naive UI 提供。 */
+
+// 窄屏不固定列：固定的操作列会遮住大半内容，改为随表格横向滚动。
+const narrowQuery = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 767px)') : null
+const narrow = ref(Boolean(narrowQuery?.matches))
+narrowQuery?.addEventListener?.('change', event => { narrow.value = event.matches })
 
 export const UiTableColumn = defineComponent({ /* 列声明只向父表格提供配置，不单独产生页面节点。 */
   name: 'UiTableColumn', /* 供父表格识别列节点。 */
@@ -45,10 +50,10 @@ export const UiTable = defineComponent({ /* 把页面列插槽转换为 Naive UI
         const column = { /* 生成普通列的显示参数。 */
           key: field.prop || `column-${index}`, /* 给 Naive UI 稳定的列标识。 */
           title: field.label || '', /* 保留表头文字。 */
-          width: field.width ? Number(field.width) : undefined, /* 保留固定宽度。 */
+          width: field.width ? Number(field.width) : field.minWidth ? Number(field.minWidth) : undefined, /* 自动布局会忽略 min-width，把最小宽度作为列的基准宽度，避免短列被挤成多行。 */
           minWidth: field.minWidth ? Number(field.minWidth) : undefined, /* 保留最小宽度。 */
           align: field.align || 'left', /* 保留对齐方式。 */
-          fixed: field.fixed || undefined, /* 保留固定操作列。 */
+          fixed: narrow.value ? undefined : field.fixed || undefined, /* 宽屏保留固定操作列。 */
           ellipsis: field.showOverflowTooltip ? { tooltip: true } : undefined, /* 长文本显示悬浮提示。 */
           render: (row, rowIndex) => node.children?.default ? node.children.default({ row, $index: rowIndex }) : readCell(row, field.prop) /* 保留业务单元格插槽。 */
         } /* 结束普通列配置。 */
@@ -65,6 +70,7 @@ export const UiTable = defineComponent({ /* 把页面列插槽转换为 Naive UI
         maxHeight: props.maxHeight, /* 限制长表格高度。 */
         size: props.size === 'small' ? 'small' : 'medium', /* 保持紧凑的管理页密度。 */
         scrollX, /* 保证窄屏仍可访问所有列。 */
+        tableLayout: 'fixed', /* 按列声明的宽度布局，长标识不再挤压短列。 */
         rowKey: row => typeof props.rowKey === 'function' ? props.rowKey(row) : row?.[props.rowKey || 'id'] ?? row?.messageId ?? props.data.indexOf(row), /* 保留行标识。 */
         rowClassName: props.rowClassName ? (row, index) => props.rowClassName({ row, rowIndex: index }) : undefined, /* 兼容业务行样式回调。 */
         'onUpdate:checkedRowKeys': (keys, rows) => emit('selection-change', rows || props.data.filter(row => keys.includes(row?.[props.rowKey || 'id'] ?? row?.messageId))), /* 将选择键还原为业务行。 */

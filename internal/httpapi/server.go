@@ -1692,7 +1692,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) { /* 定义 aiCh
 func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) { /* 定义 aiWorkflows 函数。 */
 	pagination := parseListPagination(r) /* 更新 pagination 的值。 */
 	if s.engine.AIWorkflows == nil {     /* 判断条件并选择处理分支。 */
-		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": false, "mode": "local", "healthy": false, "healthMessage": "AI workflow harness is not configured"}) /* 执行当前语句并推进处理流程。 */
+		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": false, "mode": "local", "healthy": false, "healthMessage": "未配置 AI 工作流服务（Harness），智能助手问答暂不可用"}) /* 执行当前语句并推进处理流程。 */
 		return                                                                                                                                                                                         /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	items, err := s.engine.AIWorkflows.ListWorkflows(r.Context()) /* 更新 err 的值。 */
@@ -1976,7 +1976,7 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) { /* 定�
 		return /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	if s.engine.AIWorkflows == nil { /* 判断条件并选择处理分支。 */
-		problem(w, http.StatusServiceUnavailable, "AI workflow harness is not configured") /* 执行当前语句并推进处理流程。 */
+		problem(w, http.StatusServiceUnavailable, "未配置 AI 工作流服务（Harness），智能助手问答暂不可用") /* 执行当前语句并推进处理流程。 */
 		return                                                                             /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	flusher, ok := w.(http.Flusher) /* 更新 ok 的值。 */

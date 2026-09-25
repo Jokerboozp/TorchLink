@@ -18,6 +18,8 @@ const records = ref([]) /* 声明 records。 */
 const total = ref(0) /* 声明 total。 */
 const loading = ref(false) /* 声明 loading。 */
 const actionLoading = ref('') /* 声明 actionLoading。 */
+// 部署未启用备份服务时明确提示，并停用触发入口，而不是弹出通用错误。
+const serviceMissing = ref(false)
 const detailVisible = ref(false) /* 声明 detailVisible。 */
 const detailLoading = ref(false) /* 声明 detailLoading。 */
 const detail = ref(null) /* 声明 detail。 */
@@ -68,10 +70,13 @@ async function load(resetPage = false) { /* 定义 load 函数。 */
     if (filters.status) query.set('status', filters.status) /* 判断条件并选择处理分支。 */
     const data = await api(`/api/v1/backups?${query.toString()}`) /* 声明 data。 */
     if (version !== loadVersion) return
+    serviceMissing.value = false
     records.value = data.items || [] /* 更新 records.value 的值。 */
     total.value = Number(data.total ?? data.count ?? records.value.length) /* 更新 total.value 的值。 */
   } catch (error) { /* 结束当前表达式或代码块。 */
-    if (version === loadVersion) notifyError(error) /* 执行当前语句并推进处理流程。 */
+    if (version !== loadVersion) return
+    serviceMissing.value = error?.status === 503 && /not configured/i.test(error.originalMessage || '')
+    if (!serviceMissing.value) notifyError(error) /* 执行当前语句并推进处理流程。 */
   } finally { /* 结束当前表达式或代码块。 */
     if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
   } /* 结束当前表达式或代码块。 */
@@ -192,11 +197,12 @@ function rowActions(row) {
     <template #actions>
       <ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button>
       <template v-if="isAdmin">
-        <ui-button v-permission="'POST /api/v1/backups'" :loading="actionLoading === 'run:DEVICE_DAILY'" @click="runBackup('DEVICE_DAILY')">备份昨日数据</ui-button>
-        <ui-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" @click="runBackup('FULL')">立即备份设备数据</ui-button>
+        <ui-button v-permission="'POST /api/v1/backups'" :loading="actionLoading === 'run:DEVICE_DAILY'" :disabled="serviceMissing" @click="runBackup('DEVICE_DAILY')">备份昨日数据</ui-button>
+        <ui-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" :disabled="serviceMissing" @click="runBackup('FULL')">立即备份设备数据</ui-button>
       </template>
     </template>
   </FilterBar>
+  <ui-alert v-if="serviceMissing" class="backup-missing" title="当前部署未启用备份服务" description="备份记录与手动备份暂不可用。请在部署配置中启用备份服务（IOT_BACKUP_URL）后刷新。" type="warning" :closable="false" show-icon />
   <p class="backup-hint">仅备份设备原始报文与解析数据，每日自动备份昨日数据。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
 
   <div class="backup-stat-grid">
@@ -252,6 +258,7 @@ function rowActions(row) {
 </template>
 
 <style scoped>
+.backup-missing { margin-bottom: var(--space-4); }
 .backup-hint { margin: calc(-1 * var(--space-2)) 0 var(--space-4); color: var(--text-muted); font-size: var(--font-size-sm); }
 .muted-text { color: var(--text-muted); font-size: 12px; } /* 定义当前元素的样式规则。 */
 .backup-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; } /* 定义当前元素的样式规则。 */

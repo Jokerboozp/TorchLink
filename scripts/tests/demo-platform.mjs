@@ -14,7 +14,7 @@ async function req(path,{method='GET',body,device=false,raw=false,binary=false,a
  if(device){delete headers.Authorization;headers['X-Device-Key']=credential.accessKey;headers['X-Device-Secret']=credential.secret} /* 判断条件并选择处理分支。 */
  if(body!==undefined && !(body instanceof FormData))headers['Content-Type']='application/json' /* 判断条件并选择处理分支。 */
  const response=await fetch(origin+path,{method,headers,redirect:'error',body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(240000)}) /* 声明 response。 */
- if(!response.ok){const failure=new Error(`${method} ${path}: HTTP ${response.status}`);failure.status=response.status;throw failure} /* 判断条件并选择处理分支。 */
+ if(!response.ok){const text=await response.text().catch(()=>'');let reason='';try{const v=JSON.parse(text);reason=v.detail||v.error||v.title||''}catch{reason=text.slice(0,160)}const failure=new Error(`${method} ${path}: HTTP ${response.status}${reason?' · '+reason:''}`);failure.status=response.status;throw failure} /* 判断条件并选择处理分支。 */
  return binary?Buffer.from(await response.arrayBuffer()):raw?response.text():response.json() /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 async function check(name,action){ /* 定义 check 函数。 */
@@ -40,7 +40,7 @@ if(stage==='business'){ /* 判断条件并选择处理分支。 */
  state.ids.productId=productId;state.ids.deviceId=deviceId /* 更新 state.ids.productId 的值。 */
  await check('演示产品与设备登记',async()=>{ /* 等待异步操作完成。 */
   try{await req(`/api/v1/device-registry/${deviceId}/connection`);const v=await req(`/api/v1/device-registry/${deviceId}/credentials`,{method:'POST'});credential=v.credential} /* 执行当前语句并推进处理流程。 */
-  catch(e){if(e.status!==404)throw e;const draft={productId,productName:'演示 · 消防环境监测',deviceId,name:'演示 · 一层温湿度传感器',type:'HTTP',messageKind:'property',payload:{id:`demo-setup-${stamp}`,timestamp:stamp,data:{temperature:26.5,humidity:48}}};const preview=await req('/api/v1/onboarding/test',{method:'POST',body:draft});assert.equal(preview.success,true);const v=await req('/api/v1/onboarding',{method:'POST',body:{...draft,testToken:preview.testToken}});credential=v.credential} /* 验证实际结果符合预期。 */
+  catch(e){if(e.status!==404)throw e;const v=await req('/api/v1/onboarding',{method:'POST',body:{requestId:randomUUID(),newProduct:{id:productId,name:'演示 · 消防环境监测',category:'other',protocolPackageId:'iot-standard@1.0.0',transport:'HTTP'},device:{id:deviceId,name:'演示 · 一层温湿度传感器',deviceRole:'DIRECT'},connection:{mode:'standard',transport:'HTTP'}}});credential=v.credential} /* 统一添加设备接口同时创建模板与设备。 */
   assert.ok(credential?.secret);return deviceId /* 验证实际结果符合预期。 */
  }) /* 结束当前表达式或代码块。 */
  const base=`/api/v1/device-ingest/standard/${tenant}/${productId}/${deviceId}/` /* 声明 base。 */
@@ -167,7 +167,7 @@ if(stage==='refine' || stage==='children'){ /* 判断条件并选择处理分支
 if(stage==='mqtt')await check('MQTT 上报、设备控制及命令回执',async()=>{ /* 判断条件并选择处理分支。 */
  const deviceId=`${prefix}-mqtt-sensor`,productId=`${prefix}-mqtt-product`,stamp=Date.now() /* 声明 deviceId。 */
  try{await req(`/api/v1/device-registry/${deviceId}/connection`);credential=(await req(`/api/v1/device-registry/${deviceId}/credentials`,{method:'POST'})).credential} /* 执行当前语句并推进处理流程。 */
- catch(e){if(e.status!==404)throw e;const draft={deviceId,productId,productName:'演示 · MQTT 可控设备',name:'演示 · MQTT 温控器',type:'MQTT',messageKind:'property',payload:{id:`demo-mqtt-setup-${stamp}`,timestamp:stamp,data:{temperature:25}}};const v=await req('/api/v1/onboarding/test',{method:'POST',body:draft});assert.equal(v.success,true);credential=(await req('/api/v1/onboarding',{method:'POST',body:{...draft,testToken:v.testToken}})).credential} /* 验证实际结果符合预期。 */
+ catch(e){if(e.status!==404)throw e;credential=(await req('/api/v1/onboarding',{method:'POST',body:{requestId:randomUUID(),newProduct:{id:productId,name:'演示 · MQTT 可控设备',category:'other',protocolPackageId:'iot-standard@1.0.0',transport:'MQTT'},device:{id:deviceId,name:'演示 · MQTT 温控器',deviceRole:'DIRECT'},connection:{mode:'standard',transport:'MQTT'}}})).credential} /* 统一添加设备接口同时创建模板与设备。 */
  const products=await list('/api/v1/products');const product=products.items.find(x=>x.id===productId) /* 声明 products。 */
  await req(`/api/v1/products/${productId}`,{method:'PUT',body:{...product,thingModel:{properties:[{identifier:'temperature',name:'温度',dataType:'number',unit:'℃'}],events:[],commands:[{identifier:'set-temperature',name:'设置目标温度',fields:[{identifier:'value',name:'目标温度',dataType:'integer',required:true,unit:'℃'}]}]}}}) /* 等待异步操作完成。 */
  const auth=await req('/api/v1/device-mqtt/token',{method:'POST',device:true}) /* 声明 auth。 */

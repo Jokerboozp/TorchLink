@@ -133,7 +133,7 @@ function protocolActions(row) {
   <DataTableCard :title="`设备通信协议 · ${protocols.length} 个协议 · ${releaseCount} 个版本`" :page="protocolPage" :page-size="protocolPageSize" :page-sizes="[10,20,50,100]" :total="protocols.length" @update:page="value => protocolPage = value" @update:page-size="value => { protocolPageSize = value; protocolPage = 1 }">
     <ui-table :data="pagedProtocols" :loading="loading" empty-text="暂无协议，可上传 Go 源码或用报文、点表生成">
       <ui-table-column label="协议" min-width="230"><template #default="{ row }"><b>{{ row.definition.name }}</b><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template></ui-table-column>
-      <ui-table-column label="最新版本" width="130"><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></ui-table-column>
+      <ui-table-column label="最新版本" width="170" show-overflow-tooltip><template #default="{ row }">{{ newestRelease(row).version || '—' }}</template></ui-table-column>
       <ui-table-column label="运行方式" min-width="200"><template #default="{ row }">{{ transportLabel(newestRelease(row).transport) }} · {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template></ui-table-column>
       <ui-table-column label="状态" width="110"><template #default="{ row }"><StatusDot :tone="statusType(newestRelease(row).status) === 'success' ? 'success' : statusType(newestRelease(row).status) === 'danger' ? 'danger' : statusType(newestRelease(row).status) === 'warning' ? 'warning' : 'neutral'" :label="statusText(newestRelease(row).status)" /></template></ui-table-column>
       <ui-table-column label="版本数量" width="100"><template #default="{ row }">{{ row.releases?.length || 0 }}</template></ui-table-column>
@@ -148,7 +148,7 @@ function protocolActions(row) {
         <ui-table-column label="状态" width="110"><template #default="{ row }"><ui-tag :type="statusType(row.status)" round>{{ statusText(row.status) }}</ui-tag></template></ui-table-column>
         <ui-table-column label="运行方式" min-width="185"><template #default="{ row }">{{ transportLabel(row.transport) }} · {{ label(parsers, row.parserType, '自定义协议程序') }}</template></ui-table-column>
         <ui-table-column label="创建时间" min-width="170"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column>
-        <ui-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><div class="table-actions"><ui-button size="small" plain @click="viewRelease(managedProtocol, row)">详情</ui-button><ui-button v-permission="'DELETE /api/v2/protocols/:id/releases/:version'" size="small" plain type="danger" @click="removeRelease(managedProtocol, row)">删除</ui-button></div></template></ui-table-column>
+        <ui-table-column label="操作" width="120" align="right"><template #default="{ row }"><RowActions :actions="[{ key:'detail', label:'详情', onClick:() => viewRelease(managedProtocol, row) }, { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v2/protocols/:id/releases/:version', onClick:() => removeRelease(managedProtocol, row) }]" /></template></ui-table-column>
       </ui-table>
     </template>
   </ui-dialog>

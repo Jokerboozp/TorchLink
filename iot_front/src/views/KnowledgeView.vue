@@ -6,6 +6,7 @@ import { FileText, Upload } from '@lucide/vue' /* 引入当前代码需要的依
 import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
 
 import { api, formatTime, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
+import RowActions from '../components/layout/RowActions.vue'
 import { confirmDelete } from '../deleteAction'
 
 const emit = defineEmits(['navigate']) /* 声明 emit。 */
@@ -203,7 +204,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
   <div class="knowledge-page"> <!-- 渲染 div 界面元素。 -->
     <header class="knowledge-intro"> <!-- 渲染 header 界面元素。 -->
       <div class="knowledge-intro-copy"> <!-- 渲染 div 界面元素。 -->
-        <span class="knowledge-kicker">智能体知识</span> <!-- 渲染 span 界面元素。 -->
+        <span class="knowledge-kicker">知识库</span> <!-- 渲染 span 界面元素。 -->
         <p>上传设备手册与处置规范，按智能体管理文档和检索方式。</p> <!-- 渲染 p 界面元素。 -->
       </div> <!-- 结束当前界面区域。 -->
       <div class="knowledge-intro-actions"> <!-- 渲染 div 界面元素。 -->
@@ -236,7 +237,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
             <ui-table-column label="索引状态" width="110"><template #default="{ row }"><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="内容分片" width="100" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <ui-table-column label="上传时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-            <ui-table-column label="操作" width="170" align="right"><template #default="{ row }"><div class="table-actions"><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button><ui-button v-permission="'DELETE /api/v1/knowledge/documents/:id'" plain type="danger" @click="removeDocument(row)">删除</ui-button></div></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
+            <ui-table-column label="操作" width="140" align="right"><template #default="{ row }"><RowActions :actions="[{ key:'detail', label:'查看详情', onClick:() => showDocument(row) }, { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/knowledge/documents/:id', onClick:() => removeDocument(row) }]" /></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
             <template #empty><ui-empty description="还没有知识文档" /></template>
           </ui-table> <!-- 结束当前界面区域。 -->
 

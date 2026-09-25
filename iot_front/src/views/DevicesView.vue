@@ -131,7 +131,7 @@ function removeDevice(row) { return confirmDelete({ label: row.name || row.id, p
 function rowActions(row) {
   return [
     { key: 'detail', label: '详情', onClick: () => { connectionDevice.value = row.device.id } },
-    { key: 'raw', label: '查看数据', permission: 'menu:raw', hidden: !hasReported(row), onClick: () => openRaw(row.device.id) },
+    { key: 'raw', label: '查看数据', permission: 'menu:raw', disabled: !hasReported(row), onClick: () => openRaw(row.device.id) }, // 未上报时禁用而不隐藏，各行操作位置保持一致。
     { key: 'edit', label: '编辑', permission: 'PUT /api/v1/device-registry/:id', onClick: () => open(row.device) },
     { key: 'delete', label: '删除', type: 'danger', permission: 'DELETE /api/v1/device-registry/:id', onClick: () => removeDevice(row.device) }
   ]
