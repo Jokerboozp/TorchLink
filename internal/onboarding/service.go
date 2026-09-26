@@ -63,7 +63,10 @@ func (s *Service) Authenticate(ctx context.Context, key, secret string) (model.M
 	}
 	return d, nil
 }
-func (s *Service) Allow(key string) bool {
+func (s *Service) Allow(key string) bool { return s.AllowRate(key, 20) }
+
+// AllowRate applies a per-process fixed one-second window of perSecond requests.
+func (s *Service) AllowRate(key string, perSecond int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -71,7 +74,7 @@ func (s *Service) Allow(key string) bool {
 	if now.Sub(b.At) >= time.Second {
 		b = bucket{At: now}
 	}
-	if b.Count >= 20 {
+	if b.Count >= perSecond {
 		return false
 	}
 	if len(s.rates) >= 10000 {

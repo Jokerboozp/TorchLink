@@ -105,6 +105,9 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 	case "event":
 		m.MessageType = model.EventReport
 		m.Event = body.Data
+	case "alarm":
+		m.MessageType = model.AlarmReport
+		m.Event = body.Data
 	case "state":
 		m.MessageType = model.StateChange
 		m.Properties = body.Data
@@ -112,7 +115,7 @@ func (StandardParser) Parse(raw model.RawMessage) (*model.StandardMessage, error
 			return nil, errors.New("connectionStatus must be CONNECTED, DISCONNECTED or UNKNOWN")
 		}
 	default:
-		return nil, errors.New("message kind must be property, event, state or command-reply")
+		return nil, errors.New("message kind must be property, event, alarm, state or command-reply")
 	}
 	if err := json.Unmarshal(raw.Payload, &m.Raw); err != nil {
 		return nil, err

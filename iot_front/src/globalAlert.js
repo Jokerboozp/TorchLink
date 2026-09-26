@@ -155,8 +155,8 @@ function detailText(data, kind) {
   const nestedEvent = asObject(nested?.event)
   const videoEvent = asObject(details?.videoEvent)
   const candidate = kind === 'fault'
-    ? firstText(event?.message, event?.description, event?.name, event?.type, data.message, data.description, data.alarmContent, data.content, data.alarmName, details?.description, details?.reason, nestedEvent?.message, nestedEvent?.description, nestedEvent?.name, nestedEvent?.type, videoEvent?.alarmName, videoEvent?.description)
-    : firstText(data.alarmContent, data.alarm_content, data.content, data.message, data.description, data.reason, data.alarmReason, data.alarmName, details?.description, details?.reason, details?.ruleName, event?.message, event?.description, nestedEvent?.message, nestedEvent?.description, nestedEvent?.name, nestedEvent?.type, videoEvent?.alarmName, videoEvent?.description)
+    ? firstText(event?.message, event?.description, event?.name, event?.type, data.message, data.description, data.alarmContent, data.content, data.alarmName, details?.description, details?.reason, nestedEvent?.alarmContent, nestedEvent?.content, nestedEvent?.message, nestedEvent?.description, nestedEvent?.name, nestedEvent?.type, videoEvent?.alarmName, videoEvent?.description)
+    : firstText(data.alarmContent, data.alarm_content, data.content, data.message, data.description, data.reason, data.alarmReason, data.alarmName, details?.description, details?.reason, details?.ruleName, event?.message, event?.description, nestedEvent?.alarmContent, nestedEvent?.content, nestedEvent?.message, nestedEvent?.description, nestedEvent?.name, nestedEvent?.type, videoEvent?.alarmName, videoEvent?.description)
   return candidate && !['FAULT', 'ALARM'].includes(upper(candidate)) ? candidate : ''
 }
 

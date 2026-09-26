@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -58,6 +59,9 @@ func routeAction(method, path string) string {
 		resource := "角色"
 		if strings.Contains(path, "/users") {
 			resource = "用户"
+		}
+		if strings.Contains(path, "/api-keys") {
+			resource = "开放接口密钥"
 		}
 		switch method {
 		case "POST":
@@ -126,7 +130,8 @@ func (s *Server) permissionCatalog() []permissionItem {
 	for _, r := range s.router.Routes() {
 		menu := routeMenu(r.Path)
 		// The add-device wizard is covered by the ordinary add-device permission.
-		if menu == "" || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
+		// Open API routes authenticate API keys and reuse console permissions.
+		if menu == "" || strings.HasPrefix(r.Path, "/api/open/") || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
 			continue
 		}
 		if r.Method == "GET" && !protectedRead(r.Path) {
@@ -498,6 +503,8 @@ func (s *Server) accessDeleteUser(w http.ResponseWriter, r *http.Request) {
 	for i, u := range state.Users {
 		if u.Username == id {
 			state.Users = append(state.Users[:i], state.Users[i+1:]...)
+			// A user recreated with the same name must not inherit old API keys.
+			state.APIKeys = slices.DeleteFunc(state.APIKeys, func(k model.APIKey) bool { return k.Username == id })
 			s.commitAccess(w, r, store, state)
 			return
 		}

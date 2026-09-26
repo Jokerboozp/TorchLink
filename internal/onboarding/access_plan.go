@@ -51,6 +51,27 @@ func standardRelease(tenant string, now int64) model.ProtocolRelease {
 	return model.ProtocolRelease{TenantID: tenant, ProtocolID: parser.StandardProtocolID, Version: "1.0.0", Transport: "MQTT_HTTP", PayloadFormat: "json", ParserType: parser.StandardParserName, Status: "PUBLISHED", CreatedAt: now, PublishedAt: now}
 }
 
+// EnsureStandardRelease creates the tenant's built-in standard protocol release
+// on first use, so standard envelopes parse even when no template uses it yet.
+func (s *Service) EnsureStandardRelease(ctx context.Context, tenant string) error {
+	release, err := s.Repo.GetProtocolRelease(ctx, tenant, parser.StandardProtocolID, "1.0.0")
+	if errors.Is(err, model.ErrNotFound) {
+		if err = s.Repo.CreateProtocolRelease(ctx, standardRelease(tenant, time.Now().UnixMilli())); err != nil {
+			// Another request may have initialized the same tenant's release.
+			release, err = s.Repo.GetProtocolRelease(ctx, tenant, parser.StandardProtocolID, "1.0.0")
+		} else {
+			return nil
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if release.Status != "PUBLISHED" || release.ParserType != parser.StandardParserName {
+		return errors.New("standard protocol release is unavailable")
+	}
+	return nil
+}
+
 func splitPackageID(id string) (string, string, bool) {
 	index := strings.LastIndex(id, "@")
 	if index <= 0 || index == len(id)-1 {

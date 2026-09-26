@@ -102,6 +102,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 
 func (s *Server) routes() {
 	s.accessRoutes()
+	s.openAPIRoutes()
 	s.deletionRoutes()
 	s.opsRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))
@@ -2498,7 +2499,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 		ttl = 5 * time.Minute
 		topic = fmt.Sprintf("/iot/up/%s/%s/%s/property", v.TenantID, v.ProductID, v.ID)
 	}
-	for _, kind := range []string{"property", "event", "state", "command-reply"} {
+	for _, kind := range []string{"property", "event", "alarm", "state", "command-reply"} {
 		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "publish", Topic: fmt.Sprintf("/iot/up/%s/%s/%s/%s", v.TenantID, v.ProductID, v.ID, kind)})
 	}
 	acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/down/%s/%s/%s/command", v.TenantID, v.ProductID, v.ID)})

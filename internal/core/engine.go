@@ -1223,6 +1223,14 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 		}
 		a.Status = status
 		a.AckedAt = now
+	case "RECOVERED":
+		// An external system may assert recovery for alarm types that no
+		// clearing property describes.
+		if a.Status != "ACTIVE" && a.Status != "ACKED" {
+			return a, fmt.Errorf("only active or acknowledged alarms can be recovered")
+		}
+		a.Status = status
+		a.RecoveredAt = now
 	case "CLOSED":
 		a.Status = status
 		a.ClosedAt = now
@@ -1239,6 +1247,11 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 	}
 	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm." + strings.ToLower(status), TargetType: "alarm", TargetID: alarmID, CreatedAt: now})
 	payload := mustJSON(a)
+	if status == "RECOVERED" {
+		_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
+		_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
+		return a, nil
+	}
 	_ = e.Bus.Publish(ctx, model.TopicAlarmConfirmed, a.ID, payload)
 	_ = e.Realtime.Publish(ctx, a.MQTTTopic("confirmed"), payload, 1, false)
 	return a, nil

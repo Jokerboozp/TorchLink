@@ -56,6 +56,10 @@
 | `POST /api/v1/access/users/:id/password` | 重置密码并撤销旧登录 |
 | `GET/POST /api/v1/access/roles` | 角色列表、新增角色 |
 | `PUT/DELETE /api/v1/access/roles/:id` | 编辑、删除角色 |
+| `GET/POST /api/v1/access/api-keys` | 开放接口密钥列表、新建密钥（明文只返回一次） |
+| `PUT/DELETE /api/v1/access/api-keys/:id` | 编辑、停用、删除开放接口密钥 |
+
+开放接口密钥绑定用户，外部系统按该用户的权限和设备范围访问，详见[对外开放接口](OPEN_API.md)。
 
 配置入口属于管理员权限。受委托的管理用户也必须拥有「用户与权限」菜单及对应管理操作授权；授予用户或角色管理权限意味着允许其分配其他业务权限，应由负责账户管理的人员持有。
 

@@ -9,6 +9,7 @@
 | [项目首页](../README.md) | 功能、架构和运行入口 |
 | [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) | 协议、设备模板、设备、接入点、模拟设备测试、凭据及命令 |
 | [用户与权限](USER_ACCESS_CONTROL.md) | 所属租户、角色与操作、设备范围、告警可见性及实时提醒 |
+| [对外开放接口](OPEN_API.md) | 外部系统用密钥查询与上报告警、上报设备消息、查询设备数据及智能问答 |
 | [配置驱动协议](CONFIGURABLE_PROTOCOLS.md) | 上传报文或 Excel/CSV 点表、字段输入映射、预览与发布 |
 | [生成演示数据](DEMO_DATA.md) | 可指定服务器的一键脚本、样例文件与运行报告 |
 | [运维中心](OPS_CENTER.md) | Prometheus、Loki、Grafana、Alertmanager 的原生指标、日志、仪表盘、监控告警与通知；权限、配置与限制 |

@@ -66,6 +66,7 @@
 | --- | --- | --- |
 | `property` | 非空对象 `data` | `PROPERTY_REPORT` |
 | `event` | 顶层 `event` 名称，可附 `data` | `EVENT_REPORT` |
+| `alarm` | 非空对象 `data`，建议含 `alarmType`、`alarmLevel`、`content` | `ALARM_REPORT` |
 | `state` | 顶层 `online` 布尔值 | `STATE_CHANGE` |
 | `command-reply` | 顶层 `commandId`、布尔 `success`，可附 `data` | `COMMAND_REPLY` |
 
@@ -83,9 +84,13 @@
 {"version":"1.0","id":"event-001","timestamp":1789000000000,"event":"self-test","data":{"result":"ok"}}
 ```
 
+```json
+{"version":"1.0","id":"alarm-001","timestamp":1789000000000,"data":{"alarmType":"FIRE","alarmLevel":"CRITICAL","content":"3 层烟感报警"}}
+```
+
 请求体最多 64 KiB、嵌套最多 16 层；重复 JSON 键、未知 version 和超前平台时间五分钟以上的设备时间被拒绝。历史时间可用于补传，晚到消息不回退最新状态。不带 version 的旧 `data.connectionStatus`、`data.commandId` / `data.success` 格式仍可读取；顶层和 data 同时提供的对应字段不能冲突。
 
-普通 event 名称不会自动变为设备告警。协议直接输出 `ALARM_REPORT` 时可形成设备来源告警；部件状态使用 `data.components`，具体火警、故障与恢复契约见 [部件告警](DEVICE_RECEIVE_RELIABILITY.md#部件状态契约)。
+普通 event 名称不会自动变为设备告警。`alarm` 上报或协议直接输出 `ALARM_REPORT` 时形成设备来源告警：匹配规则时按规则处理，未匹配规则也保留告警；`alarmLevel` 取 `CRITICAL`、`HIGH`、`MEDIUM`、`LOW`、`INFO`，缺省为 `HIGH`，`alarmType` 缺省为 `MANUAL_ALARM`。恢复按告警类型读取属性：`FIRE` 用 `fireAlarm:false`，`SMOKE_DETECTED` 用 `smoke` / `smokeDetected`，`DEVICE_FAULT` 用 `fault` 等故障项，`DEVICE_OFFLINE` 用 `offline`，`MANUAL_ALARM` 用 `alarm`；其他类型没有对应恢复属性，须通过[开放接口](OPEN_API.md)的 `RECOVERED` 处置或在控制台关闭。部件状态使用 `data.components`，具体火警、故障与恢复契约见 [部件告警](DEVICE_RECEIVE_RELIABILITY.md#部件状态契约)。
 
 ### HTTP 上报
 
@@ -108,6 +113,7 @@ X-Device-Secret: <设备 Secret>
 | --- | --- |
 | 属性 | `/iot/up/{tenant}/{product}/{device}/property` |
 | 事件 | `/iot/up/{tenant}/{product}/{device}/event` |
+| 告警 | `/iot/up/{tenant}/{product}/{device}/alarm` |
 | 状态 | `/iot/up/{tenant}/{product}/{device}/state` |
 | 命令回执 | `/iot/up/{tenant}/{product}/{device}/command-reply` |
 | 订阅下行 | `/iot/down/{tenant}/{product}/{device}/command` |
