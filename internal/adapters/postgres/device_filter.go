@@ -26,6 +26,13 @@ func deviceFilterSQL(f ports.DeviceFilter) (string, []any) {
 		}
 		where = append(where, fmt.Sprintf("d.product_id = ANY(%s::text[])", arg(products)))
 	}
+	if f.RestrictDevices {
+		devices := f.DeviceIDs
+		if devices == nil {
+			devices = []string{}
+		}
+		where = append(where, fmt.Sprintf("d.id = ANY(%s::text[])", arg(devices)))
+	}
 	if q := strings.TrimSpace(f.Query); q != "" {
 		pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
 		p := arg(pattern)

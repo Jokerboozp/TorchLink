@@ -15,6 +15,10 @@ type DeviceFilter struct {
 	// RestrictProducts limits the result to ProductIDs; an empty list then matches nothing.
 	RestrictProducts bool
 	ProductIDs       []string
+	// RestrictDevices limits the result to DeviceIDs (a user's device grant);
+	// an empty list then matches nothing.
+	RestrictDevices bool
+	DeviceIDs       []string
 	// Query matches the device ID or name, case-insensitively.
 	Query string
 	// Status matches the enable status; Runtime matches the business status and
@@ -42,6 +46,18 @@ func (f DeviceFilter) Matches(d model.ManagedDevice, state *model.DeviceState) b
 		found := false
 		for _, id := range f.ProductIDs {
 			if id == d.ProductID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	if f.RestrictDevices {
+		found := false
+		for _, id := range f.DeviceIDs {
+			if id == d.ID {
 				found = true
 				break
 			}

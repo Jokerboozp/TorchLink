@@ -130,45 +130,37 @@ func (r *deviceScopeRepository) ListManagedDevicesPage(ctx context.Context, t st
 	if !limited(ctx) {
 		return r.Repository.ListManagedDevicesPage(ctx, t, l, o)
 	}
-	rows, e := r.ListManagedDevices(ctx, t)
-	return pageSlice(rows, l, o), len(rows), e
+	return r.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: t}, l, o)
 }
 
-// Limited users filter their authorized devices in memory so totals never count
-// devices outside the request scope.
+// grantedIDs lists the request's granted devices of tenant t in a stable order.
+func grantedIDs(ctx context.Context, t string) []string {
+	v, _ := requestScope(ctx)
+	ids := []string{}
+	if v.Tenant != t {
+		return ids
+	}
+	for id := range v.IDs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// Limited users pass their device grant to the store, which filters, counts
+// and pages in one query instead of loading the tenant's whole registry.
 func (r *deviceScopeRepository) ListManagedDevicesFiltered(ctx context.Context, f ports.DeviceFilter, l, o int) ([]model.ManagedDevice, int, error) {
 	if !limited(ctx) {
 		return r.Repository.ListManagedDevicesFiltered(ctx, f, l, o)
 	}
-	rows, e := r.ListManagedDevices(ctx, f.TenantID)
-	if e != nil {
-		return nil, 0, e
-	}
-	ids := make([]string, 0, len(rows))
-	for _, v := range rows {
-		ids = append(ids, v.ID)
-	}
-	states, e := r.GetDeviceStatesByIDs(ctx, f.TenantID, ids)
-	if e != nil {
-		return nil, 0, e
-	}
-	out := []model.ManagedDevice{}
-	for _, v := range rows {
-		var state *model.DeviceState
-		if current, ok := states[v.ID]; ok {
-			state = &current
-		}
-		if f.Matches(v, state) {
-			out = append(out, v)
+	f.RestrictDevices, f.DeviceIDs = true, grantedIDs(ctx, f.TenantID)
+	rows, total, e := r.Repository.ListManagedDevicesFiltered(ctx, f, l, o)
+	for i := range rows {
+		if !deviceAllowed(ctx, f.TenantID, rows[i].GatewayID) {
+			rows[i].GatewayID = ""
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].UpdatedAt != out[j].UpdatedAt {
-			return out[i].UpdatedAt > out[j].UpdatedAt
-		}
-		return out[i].ID > out[j].ID
-	})
-	return pageSlice(out, l, o), len(out), nil
+	return rows, total, e
 }
 func (r *deviceScopeRepository) ListManagedDeviceChildren(ctx context.Context, t, id string, l, o int) ([]model.ManagedDevice, int, error) {
 	if !deviceAllowed(ctx, t, id) {
@@ -200,13 +192,28 @@ func (r *deviceScopeRepository) CountManagedDeviceChildren(ctx context.Context, 
 	return out, e
 }
 func (r *deviceScopeRepository) ListDeviceStates(ctx context.Context, t string) ([]model.DeviceState, error) {
-	rows, e := r.Repository.ListDeviceStates(ctx, t)
-	out := []model.DeviceState{}
-	for _, v := range rows {
-		if deviceAllowed(ctx, t, v.DeviceID) {
-			out = append(out, v)
+	if !limited(ctx) {
+		rows, e := r.Repository.ListDeviceStates(ctx, t)
+		out := []model.DeviceState{}
+		for _, v := range rows {
+			if deviceAllowed(ctx, t, v.DeviceID) {
+				out = append(out, v)
+			}
 		}
+		return out, e
 	}
+	// Read only the granted devices' states, newest first like the store does.
+	states, e := r.Repository.GetDeviceStatesByIDs(ctx, t, grantedIDs(ctx, t))
+	out := make([]model.DeviceState, 0, len(states))
+	for _, v := range states {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].LastSeenAt != out[j].LastSeenAt {
+			return out[i].LastSeenAt > out[j].LastSeenAt
+		}
+		return out[i].DeviceID < out[j].DeviceID
+	})
 	return out, e
 }
 func (r *deviceScopeRepository) ListDeviceStatesPage(ctx context.Context, t string, l, o int) ([]model.DeviceState, int, error) {
