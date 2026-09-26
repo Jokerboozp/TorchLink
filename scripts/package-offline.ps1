@@ -321,13 +321,13 @@ $ollamaStarted = $false
 try {
     Invoke-Checked -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--quiet"))
     $pullServices = @(
-        "postgres", "postgres-wal-init", "redis", "minio", "minio-dr",
+        "postgres", "postgres-wal-init", "redis",
         "redpanda", "redpanda-init", "clickhouse", "emqx", "prometheus",
         "grafana", "loki", "ollama", "weaviate", "ops-init", "alertmanager",
         "alloy", "node-exporter"
     )
     Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
-    Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service"))
+    Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio"))
 
     # 只归档知识库嵌入模型；DeepSeek API 不携带模型权重。
     if (-not $SkipOllamaModel) {

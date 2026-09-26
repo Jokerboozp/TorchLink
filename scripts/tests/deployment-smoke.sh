@@ -166,6 +166,8 @@ grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$bundle/.env.offline"
 [ -f "$bundle/scripts/lib/restore-ollama-models.sh" ]
 grep -q 'ollama/ollama:' "$bundle/manifest.json"
 grep -q 'weaviate:' "$bundle/manifest.json"
+grep -q 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z' "$bundle/manifest.json"
+assert_call 'build --pull platform-api platform-web backup-service minio'
 assert_call 'exec -T ollama ollama pull nomic-embed-text'
 assert_no_call 'ollama pull qwen'
 grep -q '^IOT_AI_PROVIDER=deepseek$' "$bundle/.env.offline"

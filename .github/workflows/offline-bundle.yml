@@ -53,6 +53,21 @@ jobs:
       - name: 构建完整离线包
         run: bash scripts/package-offline-linux.sh --output-dir offline-bundles --target-os generic
 
+      - name: 验证 MinIO 运行与现有健康检查
+        run: |
+          export MINIO_ROOT_USER=ci-validation
+          export MINIO_ROOT_PASSWORD="$(openssl rand -hex 32)"
+          trap 'docker rm -f minio-package-check > /dev/null 2>&1 || true' EXIT
+          docker run -d --name minio-package-check \
+            --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD \
+            iot-platform-minio:RELEASE.2025-09-07T16-13-09Z server /data
+          for attempt in $(seq 1 30); do
+            if docker exec minio-package-check mc ready local; then exit 0; fi
+            sleep 2
+          done
+          echo 'MinIO readiness check failed' >&2
+          exit 1
+
       - name: 准备公开下载与分卷校验
         id: bundle
         run: |

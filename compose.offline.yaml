@@ -14,3 +14,12 @@ services:
 
   backup-service:
     image: iot-platform-backup:offline
+
+  # Build from checksum-pinned official binaries; upstream registry pulls fail.
+  minio:
+    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z
+    build:
+      context: ./deploy/minio
+
+  minio-dr:
+    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z

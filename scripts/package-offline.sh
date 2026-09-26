@@ -314,12 +314,12 @@ add_profile() {
 
 run_compose "${compose_profile_args[@]}" config --quiet
 pull_services=(
-  postgres postgres-wal-init redis minio minio-dr redpanda redpanda-init
+  postgres postgres-wal-init redis redpanda redpanda-init
   clickhouse emqx prometheus grafana loki ollama weaviate
   ops-init alertmanager alloy node-exporter
 )
 run_compose pull "${pull_services[@]}"
-run_compose build --pull platform-api platform-web backup-service
+run_compose build --pull platform-api platform-web backup-service minio
 
 ollama_archive=""
 ollama_volume_name=""

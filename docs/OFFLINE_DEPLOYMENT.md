@@ -18,6 +18,8 @@
 
 ## 1. 有网机器打包
 
+离线包的 MinIO 使用 `deploy/minio/Dockerfile` 从官方 GitHub Release 二进制构建：服务端仍为 `RELEASE.2025-09-07T16-13-09Z`，`mc` 为 `RELEASE.2025-08-13T08-35-41Z`，分别固定 amd64 / arm64 SHA-256，并随镜像保留许可证。2026-09-26 在 GitHub Runner 实测原 `quay.io/minio/minio` 镜像拉取返回未授权，故离线覆盖层使用 `iot-platform-minio` 自建镜像，保持原版本、命令和数据卷。构建仍需联网访问官方 GitHub 制品；目标机只导入已构建镜像。
+
 在仓库根目录执行：
 
 ```powershell

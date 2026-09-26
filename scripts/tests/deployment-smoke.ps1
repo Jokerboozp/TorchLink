@@ -178,6 +178,8 @@ try {
     Assert ($manifest.images -contains 'ollama/ollama:0.11.4') 'Default bundle omitted Ollama'
     Assert ($manifest.images -contains 'cr.weaviate.io/semitechnologies/weaviate:1.32.8') 'Default bundle omitted Weaviate'
     Assert ($manifest.images -contains 'iot-platform-backup:offline') 'Default bundle omitted backup image'
+    Assert ($manifest.images -contains 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z') 'Default bundle omitted the locally built MinIO image'
+    Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio') 'Offline packaging omitted the MinIO build'
     Assert ($manifest.ollamaEmbeddingModel -eq 'nomic-embed-text') 'Default bundle omitted embedding model'
     Assert ($null -eq $manifest.ollamaModel -and $manifest.aiProvider -eq 'deepseek' -and $manifest.aiRequiresInternet) 'Bundle still includes a chat model or omits DeepSeek metadata'
     Assert ($manifest.profiles -contains 'harness') 'Default bundle omitted Harness'
