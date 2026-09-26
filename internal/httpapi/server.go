@@ -2481,6 +2481,20 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]any{"username": c.Username, "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
 }
 
+// standardDeviceTokenTTL keeps standard device tokens short unless revoked
+// credentials can be banned and kicked at the broker at once; the broker
+// disconnects a session when its token expires, so short tokens force every
+// device to reconnect that often.
+func (s *Server) standardDeviceTokenTTL() time.Duration {
+	if s.onboarding.RevokeUsername == nil {
+		return 5 * time.Minute
+	}
+	if s.cfg.MQTTDeviceTokenTTL <= 0 {
+		return 24 * time.Hour
+	}
+	return s.cfg.MQTTDeviceTokenTTL
+}
+
 // deviceAuthUnavailable answers 503 when credentials could not be checked, so a
 // repository failure is not reported to the device as a revoked credential.
 func deviceAuthUnavailable(w http.ResponseWriter, err error) bool {
@@ -2513,7 +2527,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 	ttl := 24 * time.Hour
 	if v.Connector == "MQTT" || v.Connector == "HTTP" {
 		acl = nil
-		ttl = 5 * time.Minute
+		ttl = s.standardDeviceTokenTTL()
 		topic = fmt.Sprintf("/iot/up/%s/%s/%s/property", v.TenantID, v.ProductID, v.ID)
 	}
 	for _, kind := range []string{"property", "event", "alarm", "state", "command-reply"} {

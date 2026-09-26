@@ -79,6 +79,7 @@ IOT_ACCESS_NODE_URL	其他实例可直达当前实例的固定 HTTP(S) 地址
 IOT_KAFKA_CONSUMER_CONCURRENCY	每个 Kafka 订阅的并行通道数（同一设备保持顺序），1 至 64
 IOT_POSTGRES_MAX_CONNS	本进程 PostgreSQL 连接池上限；所有 API / 网关进程之和须小于 PostgreSQL max_connections
 IOT_PROTOCOL_LISTENER_MAX_SESSIONS	每个 TCP / UDP 接入监听同时在线的设备会话上限；超出时拒绝并计入 protocol_listener_rejected_total
+IOT_MQTT_DEVICE_TOKEN_TTL	标准 MQTT / HTTP 设备令牌有效期；仅在配置 EMQX 管理 API（可即时封禁）时生效，否则固定 5 分钟
 POSTGRES_MAX_CONNECTIONS	PostgreSQL 服务端最大连接数（Compose 部署的 postgres 容器）
 IOT_AI_ANALYSIS_CONCURRENCY	同时进行的告警自动研判数量，建议不超过 Harness 并发，1 至 32
 IOT_OPS_TENANTS	可授予运维中心权限的平台运维租户，多个值用逗号分隔；为空时仅内置管理员可用

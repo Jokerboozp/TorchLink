@@ -107,7 +107,7 @@ X-Device-Secret: <设备 Secret>
 
 ### MQTT 上报
 
-携带上述两个凭据头调用 `POST /api/v1/device-mqtt/token`，用返回的 `username` 和 `token` 作为 MQTT 用户名和 password，Client ID 使用接入指南给出的值。标准设备 JWT 有效期 300 秒，到期前重新取令牌并重连。
+携带上述两个凭据头调用 `POST /api/v1/device-mqtt/token`，用返回的 `username` 和 `token` 作为 MQTT 用户名和 password，Client ID 使用接入指南给出的值。Broker 在令牌到期时断开会话，设备须按返回的 `expiresIn` 在到期前重新取令牌并重连。未配置 EMQX 管理 API 时有效期固定 300 秒（到期是唯一的撤销方式）；配置后平台可即时封禁并断开被撤销的凭据，有效期改用 `IOT_MQTT_DEVICE_TOKEN_TTL`（默认 24 小时），避免大量设备每 5 分钟集中重连。
 
 | 用途 | Topic |
 | --- | --- |

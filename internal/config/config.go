@@ -31,6 +31,10 @@ type Config struct {
 	RedisPassword               string
 	ClickHouseURL               string
 	RawHighFrequencyIntervalSec int64
+	// MQTTDeviceTokenTTL is the lifetime of standard MQTT/HTTP device tokens
+	// when EMQX revocation (ban and kick) is configured; without it tokens
+	// stay at five minutes because expiry is the only revocation.
+	MQTTDeviceTokenTTL time.Duration
 	// ProtocolListenerMaxSessions bounds concurrent peers per TCP/UDP listener.
 	ProtocolListenerMaxSessions int64
 	// PostgresMaxConns sizes this process's PostgreSQL pool unless the DSN sets
@@ -112,6 +116,7 @@ func Load() Config {
 		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 1024),
+		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
 		AIAnalysisConcurrency:       int64Value("IOT_AI_ANALYSIS_CONCURRENCY", 1),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
 		MinIOAccessKey:              os.Getenv("IOT_MINIO_ACCESS_KEY"),
@@ -180,6 +185,9 @@ func (c Config) Validate() error {
 	}
 	if c.PostgresMaxConns < 0 || c.PostgresMaxConns > 1000 {
 		return fmt.Errorf("IOT_POSTGRES_MAX_CONNS must be between 1 and 1000 (0 uses the default 64)")
+	}
+	if c.MQTTDeviceTokenTTL != 0 && (c.MQTTDeviceTokenTTL < time.Minute || c.MQTTDeviceTokenTTL > 30*24*time.Hour) {
+		return fmt.Errorf("IOT_MQTT_DEVICE_TOKEN_TTL must be between 1m and 720h")
 	}
 	if c.ProtocolListenerMaxSessions < 0 || c.ProtocolListenerMaxSessions > 100000 {
 		return fmt.Errorf("IOT_PROTOCOL_LISTENER_MAX_SESSIONS must be between 1 and 100000 (0 uses the default 1024)")
