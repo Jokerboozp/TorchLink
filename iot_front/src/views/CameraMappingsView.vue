@@ -1,10 +1,13 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, notifyError } from '../api'
 import { Plus, RefreshCw } from '@lucide/vue'
+import CameraLiveConfig from '../components/CameraLiveConfig.vue'
+import LivePlayerDialog from '../components/LivePlayerDialog.vue'
+import { cameraLiveBadge, liveState, liveUsable, loadLiveStatus, moduleStateText, moduleStateTone } from '../liveVideo'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
@@ -23,6 +26,28 @@ const total = ref(0)
 const blank = () => ({ cameraId:'', brand:'', cameraName:'', cameraPoint:'', building:'', floor:'', room:'', deviceId:'', enabled:true })
 const camera = reactive(blank())
 let loadVersion = 0
+const liveConfigVisible = ref(false)
+const liveConfigCamera = ref(null)
+const playerVisible = ref(false)
+const playerCamera = ref(null)
+const moduleSaving = ref(false)
+const liveStatus = computed(() => liveState.status)
+const liveDeployed = computed(() => Boolean(liveStatus.value?.deployed) && liveStatus.value?.state !== 'misconfigured')
+
+function openLiveConfig(row) { liveConfigCamera.value = row; liveConfigVisible.value = true }
+function openPlayer(row) { playerCamera.value = row; playerVisible.value = true }
+
+// 平台级开关：关闭后服务端立即结束全部播放和媒体任务，保留直播配置；媒体容器不受影响。
+async function toggleModule(enabled) {
+  if (moduleSaving.value) return
+  moduleSaving.value = true
+  try {
+    await api('/api/v1/video/module', { method: 'PUT', body: JSON.stringify({ enabled }) })
+    UiMessage.success(enabled ? '直播功能已启用' : '直播功能已关闭，正在播放的画面已结束')
+    await loadLiveStatus(true)
+  } catch (error) { notifyError(error) } finally { moduleSaving.value = false }
+}
+
 async function load() {
   const version = ++loadVersion
   loading.value = true
@@ -76,7 +101,8 @@ function consumeNavigationAction() {
     const target = cameras.value.find(item => item.cameraId === detail.cameraId)
     if (!target) return UiMessage.warning(`当前列表未找到摄像头 ${detail.cameraId}`)
     highlightedCameraId.value = target.cameraId
-    UiMessage.info(`已定位摄像头：${target.cameraName || target.cameraId}。直播流由外部视频平台提供。`)
+    if (detail.play && liveUsable() && target.live?.enabled) return openPlayer(target)
+    UiMessage.info(`已定位摄像头：${target.cameraName || target.cameraId}`)
   } catch { /* ignore invalid navigation detail */ }
 }
 
@@ -85,9 +111,11 @@ function remove(row) { return confirmDelete({ label:row.cameraName || row.camera
 function changePage(value) { page.value = value; load() }
 function changePageSize(value) { pageSize.value = value; page.value = 1; load() }
 
-onMounted(async () => { await load(); consumeNavigationAction() })
+onMounted(async () => { await Promise.all([load(), loadLiveStatus(true)]); consumeNavigationAction() })
 function rowActions(row) {
   return [
+    { key:'watch', label:'观看', hidden:!liveUsable() || !row.enabled || !row.live?.enabled, onClick:() => openPlayer(row) },
+    { key:'live', label:'直播配置', permission:'PUT /api/v1/integrations/video/cameras/:id/live', hidden:!liveDeployed.value, onClick:() => openLiveConfig(row) },
     { key:'edit', label:'编辑', permission:'PUT /api/v1/integrations/video/cameras/:id', onClick:() => open(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/integrations/video/cameras/:id', onClick:() => remove(row) }
   ]
@@ -103,7 +131,14 @@ function rowActions(row) {
     </template>
   </FilterBar>
 
-  <ui-alert class="camera-intro" title="平台只保存摄像头基础信息和设备关联，不解析、拉取或预览视频流。设备告警会带出关联摄像头信息，直播流请由外部视频平台按摄像头信息提供。" type="info" :closable="false" show-icon />
+  <section class="camera-module" aria-label="直播模块状态">
+    <div class="camera-module__text">
+      <strong>摄像头直播</strong>
+      <StatusDot :tone="moduleStateTone[liveStatus?.state] || 'neutral'" :label="moduleStateText[liveStatus?.state] || '读取中'" />
+      <small>{{ liveStatus?.message || '基础资料、设备关联和告警摄像头信息始终可用；直播由可选的独立模块提供。' }}</small>
+    </div>
+    <ui-switch v-if="liveState.canManageModule && liveDeployed" :model-value="Boolean(liveStatus?.enabled)" :disabled="moduleSaving" active-text="已启用" inactive-text="已关闭" @update:model-value="toggleModule" />
+  </section>
 
   <DataTableCard :title="`摄像头 · ${total} 个`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
     <ui-table v-loading="loading" :data="cameras" :row-class-name="rowClassName">
@@ -112,7 +147,8 @@ function rowActions(row) {
       <ui-table-column label="位置" min-width="210"><template #default="{ row }">{{ [row.building, row.floor, row.room].filter(Boolean).join(' / ') || '—' }}</template></ui-table-column>
       <ui-table-column label="关联设备" min-width="180"><template #default="{ row }">{{ row.deviceId || '未关联' }}</template></ui-table-column>
       <ui-table-column label="状态" width="100"><template #default="{ row }"><StatusDot :tone="row.enabled ? 'success' : 'neutral'" :label="row.enabled ? '已启用' : '已停用'" /></template></ui-table-column>
-      <ui-table-column label="操作" width="140" align="right" fixed="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+      <ui-table-column v-if="liveDeployed" label="直播" width="130"><template #default="{ row }"><StatusDot v-bind="cameraLiveBadge(row.live)" /></template></ui-table-column>
+      <ui-table-column label="操作" width="200" align="right" fixed="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
       <template #empty><ui-empty description="暂无摄像头信息" /></template>
     </ui-table>
   </DataTableCard>
@@ -120,8 +156,8 @@ function rowActions(row) {
   <ui-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)">
 
     <ui-form :model="camera" label-position="top">
-      <section class="camera-editor-section"><h3>摄像头身份</h3><p>填写外部视频平台的标识和现场可识别的名称。</p><div class="form-grid">
-        <ui-form-item label="摄像头标识"><ui-input v-model="camera.cameraId" :disabled="!!editing" placeholder="外部视频平台摄像头标识" /></ui-form-item>
+      <section class="camera-editor-section"><h3>摄像头身份</h3><p>填写摄像头标识和现场可识别的名称。</p><div class="form-grid">
+        <ui-form-item label="摄像头标识"><ui-input v-model="camera.cameraId" :disabled="!!editing" placeholder="例如 camera-001" /></ui-form-item>
         <ui-form-item label="品牌"><ui-input v-model="camera.brand" placeholder="例如：海康、大华" /></ui-form-item>
         <ui-form-item label="摄像头名称"><ui-input v-model="camera.cameraName" placeholder="例如：一层大厅东侧" /></ui-form-item>
       </div></section>
@@ -134,15 +170,19 @@ function rowActions(row) {
       </section>
       <section class="camera-editor-section"><h3>关联与状态</h3><p>每个摄像头最多关联一台设备，同一设备可关联多个摄像头。</p><ui-form-item label="关联设备（可选）"><ui-select v-model="camera.deviceId" clearable filterable placeholder="选择一个设备"><ui-option v-for="item in devices" :key="item.id" :label="`${item.name || item.id} · ${item.id}`" :value="item.id" /></ui-select></ui-form-item>
       <ui-form-item label="摄像头状态"><ui-switch v-model="camera.enabled" active-text="启用该摄像头" /></ui-form-item>
-      <small>直播地址、开发工具包和流媒体服务不在此配置。</small></section>
+      <small>直播接入在列表的“直播配置”中单独设置，保存这里的资料不会改动直播配置。</small></section>
     </ui-form>
     <template #footer><ui-button @click="dialogVisible=false">取消</ui-button><ui-button v-permission="['POST /api/v1/integrations/video/cameras','PUT /api/v1/integrations/video/cameras/:id']" type="primary" @click="save">保存</ui-button></template>
   </ui-dialog>
+  <CameraLiveConfig v-model="liveConfigVisible" :camera="liveConfigCamera" @saved="load" />
+  <LivePlayerDialog v-model="playerVisible" :camera="playerCamera" />
 </template>
 
 <style scoped>
 .camera-hint { flex: 1 1 280px; margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }
-.camera-intro { margin-bottom: var(--space-4); }
+.camera-module { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin-bottom: var(--space-4); padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.camera-module__text { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-3); min-width: 0; }
+.camera-module__text small { flex-basis: 100%; color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.6; }
 .camera-editor-section{padding:15px 17px;margin-bottom:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.camera-editor-section h3{margin:0;color:var(--text);font-size:14px}.camera-editor-section p,.camera-editor-section small{display:block;margin:5px 0 13px;color:var(--text);font-size:12px;line-height:1.6}.camera-editor-section :deep(.n-form-item:last-of-type){margin-bottom:0}
 @media(max-width:640px){.camera-editor-section{padding:13px}}
 :deep(.ui-table .camera-highlight > td) { --n-merged-td-color:var(--primary-soft); --n-merged-td-color-hover:var(--primary-soft-hover); } /* 设置  样式。 */

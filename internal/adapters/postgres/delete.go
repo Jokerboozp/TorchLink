@@ -134,6 +134,11 @@ func (r *Repository) DeleteResource(ctx context.Context, tenant, kind, id string
 			}
 		}
 	}
+	if kind == "camera" {
+		if err = deleteCameraLiveTx(ctx, tx, tenant, id); err != nil {
+			return err
+		}
+	}
 	if kind == "alarm" {
 		if _, err = tx.Exec(ctx, "DELETE FROM alarm_ai_analysis WHERE tenant_id=$1 AND alarm_id=$2", tenant, id); err != nil {
 			return err

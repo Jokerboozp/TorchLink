@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"regexp"
@@ -29,6 +30,9 @@ func routeMenu(path string) string {
 	if menu, ok := opsRouteMenu(path); ok {
 		return menu
 	}
+	if menu, ok := videoRouteMenu(path); ok {
+		return menu
+	}
 	if strings.Contains(path, "/knowledge-binding") {
 		return "knowledge"
 	}
@@ -51,6 +55,16 @@ func routeAction(method, path string) string {
 	}
 	if method == "POST" && strings.HasSuffix(path, "/device-registry/:id/children") {
 		return "登记子设备"
+	}
+	switch method + " " + path {
+	case videoPlayPermission:
+		return "观看摄像头直播"
+	case "PUT /api/v1/integrations/video/cameras/:id/live":
+		return "配置摄像头直播"
+	case "POST /api/v1/integrations/video/cameras/:id/live/onvif-profiles":
+		return "查询 ONVIF 媒体配置"
+	case "POST /api/v1/integrations/video/cameras/:id/live/test":
+		return "直播连接测试"
 	}
 	if strings.Contains(path, "/password") {
 		return "重置用户密码"
@@ -131,7 +145,7 @@ func (s *Server) permissionCatalog() []permissionItem {
 		menu := routeMenu(r.Path)
 		// The add-device wizard is covered by the ordinary add-device permission.
 		// Open API routes authenticate API keys and reuse console permissions.
-		if menu == "" || strings.HasPrefix(r.Path, "/api/open/") || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
+		if menu == "" || videoSessionRoute(r.Path) || strings.HasPrefix(r.Path, "/api/open/") || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
 			continue
 		}
 		if r.Method == "GET" && !protectedRead(r.Path) {
@@ -220,6 +234,12 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 	}
 	if opsSharedRoute(path) {
 		return hasOpsMenu(p)
+	}
+	if path == "/api/v1/video/status" {
+		return true
+	}
+	if videoSessionRoute(path) {
+		return p["menu:devices"] && p[videoPlayPermission]
 	}
 	menu := routeMenu(path)
 	if menu == "" {
@@ -340,6 +360,11 @@ func (s *Server) commitAccess(w http.ResponseWriter, r *http.Request, store port
 	if !ok {
 		problem(w, 409, "配置已被其他操作更新，请刷新重试")
 		return
+	}
+	if s.video != nil {
+		// Users, roles and device scopes changed: end live playback that is no
+		// longer permitted now rather than at the next periodic check.
+		go s.video.RevalidateTenant(context.WithoutCancel(r.Context()), claims(r).TenantID)
 	}
 	write(w, 200, map[string]bool{"success": true})
 }

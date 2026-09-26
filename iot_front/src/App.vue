@@ -34,6 +34,8 @@ import {
 } from '@lucide/vue'
 import { UiMessage } from './ui/feedback.js'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
+import LivePlayerDialog from './components/LivePlayerDialog.vue'
+import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
 import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
@@ -153,6 +155,9 @@ async function login() {
 
 function logout() {
   stopRealtime()
+  // 先关闭直播弹窗（卸载时释放播放会话），再清除身份与直播状态缓存。
+  livePlayerVisible.value = false
+  resetLiveState()
   session.clear()
   resetPermissions()
   identity.value = { tenant: '', user: '', role: '' }
@@ -190,13 +195,33 @@ function openAlertSettings() {
   globalAlertPopup.value?.openSettings()
 }
 
+const livePlayerVisible = ref(false)
+const livePlayerCamera = ref(null)
+
+// 规则联动打开摄像头：直播可用且当前用户有权观看时直接播放，否则保留原有的资料定位。
+async function openCameraAction(cameraId, actionId) {
+  try {
+    await loadLiveStatus()
+    if (liveUsable()) {
+      const camera = await api(`/api/v1/video/cameras/${encodeURIComponent(cameraId)}`)
+      if (camera?.liveAvailable) {
+        livePlayerCamera.value = camera
+        livePlayerVisible.value = true
+        UiMessage.info(`规则联动：正在打开摄像头直播 ${camera.cameraName || cameraId}`)
+        return
+      }
+    }
+  } catch { /* 无权观看或模块不可用时退回资料定位。 */ }
+  openPage('cameras', { cameraId, actionId })
+  UiMessage.info(`规则联动：已定位摄像头信息 ${cameraId}`)
+}
+
 function handleUIAction(payload) {
   try {
     const event = JSON.parse(payload)
     const action = event?.action || {}
     if (action.type === 'OPEN_CAMERA' && typeof action.cameraId === 'string' && action.cameraId) {
-      openPage('cameras', { cameraId: action.cameraId, actionId: event.id })
-      UiMessage.info(`规则联动：已定位摄像头信息 ${action.cameraId}`)
+      void openCameraAction(action.cameraId, event.id)
       return
     }
     const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
@@ -354,5 +379,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="openPage" />
+    <LivePlayerDialog v-if="authenticated" v-model="livePlayerVisible" :camera="livePlayerCamera" />
   </ui-config-provider>
 </template>

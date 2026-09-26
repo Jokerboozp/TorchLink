@@ -51,6 +51,7 @@ bash ./scripts/package-offline.sh
 | 跳过模型归档（目标机已有模型时） | `-SkipOllamaModel` | `--skip-ollama-model` |
 | 目标为 openEuler 24.03 LTS-SP4 | `-TargetOS openeuler-24.03-lts-sp4` | `--target-os openeuler-24.03-lts-sp4` |
 | 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
+| 包含摄像头直播媒体服务 | `-IncludeVideo` | `--include-video` |
 
 已有配置保留业务地址与数据库等凭据；AI 设置统一迁移为 DeepSeek，保留已配置的 DeepSeek 密钥。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。其他服务的示例密码和空的必需密钥会被拒绝；当前管理员默认密码仍被允许，交付前必须自行修改。DeepSeek API Key 可留空，后续通过模型管理配置。
 
@@ -134,6 +135,18 @@ sudo bash ./scripts/deploy-offline-linux.sh
 ```
 
 补丁不包含 `.env.offline`、镜像、模型或业务数据。应用时需对应生成补丁所用的旧包。若安装仍报依赖冲突，保留完整 DNF 日志排查；空安装根目录测试无法代替目标机器已有软件包状态的兼容性验证。
+
+### 摄像头直播（可选）
+
+打包时加 `--include-video` / `-IncludeVideo`：构建固定版本的 ZLMediaKit 镜像（`iot-zlmediakit:offline`，内含 FFmpeg 转码依赖），在 `profiles.txt` 加入 `video`，并在 `.env.offline` 生成媒体密钥、回调密钥和摄像头凭据加密密钥（已有值不覆盖），默认允许转码。离线包同时携带 `scripts/video-module.sh` / `video-module.ps1`。
+
+目标机部署后，媒体服务随其他服务启动，直播业务开关默认关闭。WebRTC 需要浏览器可访问的服务器地址，在包目录执行：
+
+```bash
+bash scripts/video-module.sh enable --mode offline --env-file .env.offline --rtc-ip <服务器 IP>
+```
+
+未设置时浏览器使用 HLS。停用媒体服务：`bash scripts/video-module.sh disable --mode offline --env-file .env.offline`（保留密钥与配置）。未用 `--include-video` 打包的离线包不能在目标机启用直播，需要重新打包。网络、权限与排查见 [摄像头直播](VIDEO_LIVE.md)。
 
 ## 2. 目标机器一键部署
 

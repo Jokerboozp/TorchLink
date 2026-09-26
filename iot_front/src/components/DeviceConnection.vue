@@ -1,6 +1,7 @@
 <script setup>
 import { createClientId } from '../clientId'
 import CommandValueInput from './CommandValueInput.vue'
+import LinkedCameras from './LinkedCameras.vue'
 import { commandBody } from '../commandForm'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { UiMessageBox, UiMessage } from '../ui/feedback.js'
@@ -183,6 +184,11 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
             <p>设备关联了多个接入点，请根据用途、地址和状态选择。</p>
             <ui-select v-model="selectedProfile" :disabled="loading || actionBusy" placeholder="选择接入点" @change="selectProfile"><ui-option v-for="p in data.profiles" :key="p.id" :value="p.id" :label="`${p.id} · ${p.host}:${p.port} · ${p.runtimeStatus||'待确认'}`" /></ui-select>
           </div>
+        </section>
+
+        <section class="connection-section device-cameras">
+          <h3>关联摄像头</h3>
+          <LinkedCameras :device-id="data.device.id" />
         </section>
 
         <section v-if="standardAccess" class="connection-section device-access-info">

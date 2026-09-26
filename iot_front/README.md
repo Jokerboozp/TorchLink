@@ -49,4 +49,4 @@ node iot_front/tests/browser/access-management-check.mjs
 node iot_front/tests/browser/device-scope-check.mjs
 ```
 
-其他专项浏览器回归保留在 `tests/browser/`，按脚本中的 `IOT_TEST_*` 参数准备浏览器、服务和数据后运行；不包含在 `npm test` 中。历史演示数据专用脚本及仅匹配页面源码文案的断言已移除。更多文档见 [文档索引](../docs/README.md)。
+其他专项浏览器回归保留在 `tests/browser/`，按脚本中的 `IOT_TEST_*` 参数准备浏览器、服务和数据后运行；不包含在 `npm test` 中。摄像头直播的真实播放检查为 `tests/browser/camera-live-check.mjs`（需要运行中的 API、前端、媒体服务和已配置直播的摄像头；macOS 可设 `IOT_TEST_HEADFUL=1` 以屏幕外有头模式运行），覆盖 WebRTC 持续出画面、关闭释放会话、HLS 回退、窄屏、直播配置连接测试以及设备 / 告警详情入口，见 [摄像头直播](../docs/VIDEO_LIVE.md)。历史演示数据专用脚本及仅匹配页面源码文案的断言已移除。更多文档见 [文档索引](../docs/README.md)。

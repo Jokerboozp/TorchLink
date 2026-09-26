@@ -400,3 +400,26 @@ JOIN protocol_release r ON r.tenant_id = p.tenant_id AND r.status = 'PUBLISHED'
     OR (pkg.body->>'parserType' = 'go_protocol_parser' AND r.protocol_id = pkg.body->>'protocol' AND r.version = pkg.body->>'version'))
 WHERE p.protocol_package_id <> 'iot-standard@1.0.0'
 ON CONFLICT (tenant_id, product_id) DO NOTHING;
+
+-- Optional camera live module. Live access settings, sealed credentials and
+-- play sessions are kept apart from camera metadata (video_camera_mapping), so
+-- saving a camera's name or location never touches live configuration.
+CREATE TABLE IF NOT EXISTS video_module_state (
+  id text PRIMARY KEY, enabled boolean NOT NULL DEFAULT false,
+  updated_by text NOT NULL DEFAULT '', updated_at bigint NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS video_camera_live_config (
+  tenant_id text NOT NULL, camera_id text NOT NULL, enabled boolean NOT NULL DEFAULT false,
+  body jsonb NOT NULL, updated_at bigint NOT NULL,
+  PRIMARY KEY (tenant_id, camera_id)
+);
+CREATE TABLE IF NOT EXISTS video_camera_credential (
+  tenant_id text NOT NULL, camera_id text NOT NULL, key_id text NOT NULL,
+  nonce bytea NOT NULL, ciphertext bytea NOT NULL, updated_at bigint NOT NULL,
+  PRIMARY KEY (tenant_id, camera_id)
+);
+CREATE TABLE IF NOT EXISTS video_play_session (
+  id text PRIMARY KEY, tenant_id text NOT NULL, camera_id text NOT NULL,
+  expires_at bigint NOT NULL, revoked_at bigint NOT NULL DEFAULT 0, body jsonb NOT NULL
+);
+CREATE INDEX IF NOT EXISTS video_play_session_active_idx ON video_play_session(expires_at) WHERE revoked_at = 0;

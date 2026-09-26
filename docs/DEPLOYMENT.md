@@ -80,6 +80,7 @@ PostgreSQL 保存活动配置；内存模式只在当前进程生效。页面不
 | 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
 | Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`） |
 | Loki / Alertmanager | `13100` / `19093`（`--include-ops`） | 仅容器网络 |
+| 摄像头直播媒体服务（可选） | API / HLS `18580`（仅本机）；WebRTC `8000` UDP+TCP | API / HLS 仅容器网络（HLS 经 Web 的 `/media/hls/`）；WebRTC `IOT_VIDEO_RTC_PORT`（默认 `8000`）UDP+TCP 需对浏览器开放 |
 
 本地依赖端口默认只绑定 `127.0.0.1`，供本机代码和模拟设备使用；传入 `--dependency-host` 时才开放到依赖机网络。API 设备上报使用运行 Go 的主机地址。Kafka 通过独立 external listener 返回源码机可访问的地址，容器间仍使用 `redpanda:9092`。
 
@@ -143,6 +144,8 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 ```
 
 本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
+
+摄像头直播媒体服务使用 profile `video`，由 `scripts/video-module.sh` / `video-module.ps1` 的 `enable`、`disable`、`status`、`logs` 管理（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](VIDEO_LIVE.md#部署)。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 

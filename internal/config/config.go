@@ -85,6 +85,7 @@ type Config struct {
 	ModbusAllowedCIDRs    []string
 	DevMode               bool
 	Ops                   OpsConfig
+	Video                 VideoConfig
 	loadErr               error
 }
 
@@ -158,6 +159,7 @@ func Load() Config {
 		ModbusAllowedCIDRs:          split(get("IOT_MODBUS_ALLOWED_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128")),
 		DevMode:                     devMode,
 		Ops:                         loadOps(),
+		Video:                       loadVideo(),
 		loadErr:                     devModeErr,
 	}
 }

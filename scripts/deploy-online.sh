@@ -65,7 +65,12 @@ services="$(docker "${compose[@]}" config --services)"
 pull_services=()
 while IFS= read -r service; do
   service="${service%$'\r'}"
-  case "$service" in platform-api|platform-web|backup-service|deepseek-harness|'') ;; *) pull_services+=("$service");; esac
+  case "$service" in
+    platform-api|platform-web|backup-service|deepseek-harness|'') ;;
+    # 可选摄像头直播媒体服务：仅在启用 video profile 时出现，由固定 digest 的官方镜像构建。
+    zlmediakit) build_services+=(zlmediakit) ;;
+    *) pull_services+=("$service");;
+  esac
 done <<< "$services"
 echo '拉取运行依赖镜像……'
 run_docker "${compose[@]}" pull "${pull_services[@]}"

@@ -57,6 +57,7 @@ type Repository struct {
 	protocolBindings    map[string]model.ProductProtocolBinding
 	accessProfiles      map[string]model.DeviceAccessProfile
 	devices             map[string]model.ManagedDevice
+	live                videoLiveState
 }
 
 func NewRepository() *Repository {

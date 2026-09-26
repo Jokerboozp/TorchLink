@@ -55,6 +55,8 @@ if ($useHarness) {
 Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
 $allServices = @(& docker @($compose + @('config', '--services')))
 if ($LASTEXITCODE -ne 0) { throw '无法读取 Compose 服务列表。' }
+# 可选摄像头直播媒体服务：仅在启用 video profile 时出现，由固定 digest 的官方镜像构建。
+if (@($allServices | ForEach-Object { $_.Trim() }) -contains 'zlmediakit') { $buildServices += 'zlmediakit' }
 $pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices })
 Write-Host '拉取运行依赖镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('pull') + $pullServices)

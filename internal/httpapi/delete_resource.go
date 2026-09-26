@@ -75,6 +75,11 @@ func (s *Server) deleteResource(kind string) endpointHandler {
 					return
 				}
 			}
+			if kind == "camera" && s.video != nil {
+				// Live configuration and credentials were removed with the camera;
+				// end its sessions and media tasks so no stream stays reachable.
+				s.video.CameraChanged(claims(r).TenantID, id, "camera deleted")
+			}
 			s.audit(r, kind+".delete", kind, id, nil)
 			write(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
 		}

@@ -29,6 +29,7 @@
 | [独立协议示例](../protocol-packages/gb26875-dahua/README.md) | 示例 module 的打包与测试 |
 | [接收可靠性](DEVICE_RECEIVE_RELIABILITY.md) | 部件告警、MQTT 持久队列和接收确认 |
 | [摄像头与视频事件](VIDEO_SDK_ADAPTER.md) | 摄像头关联与外部视频事件 |
+| [摄像头直播](VIDEO_LIVE.md) | 可选直播模块：架构、开关、接入、转码、权限、部署、已验证范围与待实机验证 |
 | [AI 工作流](AI_PLUGIN_HARNESS.md) | Harness、模型、知识检索、MCP 与权限 |
 | [项目静态检查记录](PROJECT_REVIEW.md) | 2026-09-26 部署与文档核对、待修问题及未验证范围 |
 | [容量压测方案](CAPACITY_TEST_PLAN.md) | 端到端压测场景、观测项与记录模板 |

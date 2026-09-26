@@ -168,4 +168,11 @@
   --topbar-height: 56px;
   --page-padding: 24px;
   --page-padding-mobile: 16px;
+
+  /* 直播播放器：画面区域固定为深色，与主题无关。 */
+  --media-stage-bg: #000000;
+  --media-overlay-bg: rgba(0, 0, 0, 0.55);
+  --media-overlay-text: #e5e7eb;
+  --media-spinner-track: rgba(255, 255, 255, 0.3);
+  --media-spinner-head: #ffffff;
 }

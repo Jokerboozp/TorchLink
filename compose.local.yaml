@@ -362,6 +362,38 @@ services:
     pid: host
     volumes: ["/:/host:ro"]
 
+  # Optional camera live media server (profile "video"). The API on the host
+  # reaches its HTTP API at 127.0.0.1:18580; browsers reach WebRTC media on
+  # IOT_VIDEO_RTC_PORT (UDP/TCP) and HLS through the Vite dev proxy.
+  zlmediakit:
+    <<: *service-defaults
+    profiles: [video]
+    image: ${IOT_ZLMEDIAKIT_IMAGE:-iot-zlmediakit:local}
+    build:
+      context: deploy/zlmediakit
+    environment:
+      IOT_VIDEO_MEDIA_SECRET: ${IOT_VIDEO_MEDIA_SECRET:-}
+      IOT_VIDEO_HOOK_SECRET: ${IOT_VIDEO_HOOK_SECRET:-}
+      IOT_VIDEO_MEDIA_SERVER_ID: ${IOT_VIDEO_MEDIA_SERVER_ID:-torchlink-media-1}
+      IOT_VIDEO_HOOK_BASE: http://${IOT_LOCAL_API_HOST:-host.docker.internal}:8081/api/v1/video/hooks
+      IOT_VIDEO_RTC_PORT: ${IOT_VIDEO_RTC_PORT:-8000}
+      IOT_VIDEO_RTC_EXTERN_IP: ${IOT_VIDEO_RTC_EXTERN_IP:-127.0.0.1}
+      IOT_VIDEO_TRANSCODE_THREADS: ${IOT_VIDEO_TRANSCODE_THREADS:-2}
+    ports:
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18580:80"
+      - "${IOT_VIDEO_RTC_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTC_PORT:-8000}:${IOT_VIDEO_RTC_PORT:-8000}/udp"
+      - "${IOT_VIDEO_RTC_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTC_PORT:-8000}:${IOT_VIDEO_RTC_PORT:-8000}/tcp"
+    tmpfs: ["/opt/media/hls:size=256m"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    cpus: ${IOT_VIDEO_MEDIA_CPUS:-2}
+    mem_limit: ${IOT_VIDEO_MEDIA_MEMORY:-1g}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1/index/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
 networks:
   iot:
     driver: bridge

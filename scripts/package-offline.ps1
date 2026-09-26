@@ -5,6 +5,8 @@ param(
     [switch]$Full,
     [switch]$IncludeAi = $true,
     [switch]$IncludeHarness = $true,
+    # 打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）。
+    [switch]$IncludeVideo,
     [string]$OllamaModel = "",
     [string]$DeepSeekModel = "deepseek-flash",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
@@ -248,6 +250,22 @@ function New-OfflineEnv {
     foreach ($item in $imageValues.GetEnumerator()) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $item.Key -Value $item.Value)
     }
+    if ($IncludeVideo) {
+        # 摄像头直播：密钥只在缺失时生成；WebRTC 地址须在目标机上填写 IOT_VIDEO_RTC_EXTERN_IP。
+        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_ZLMEDIAKIT_IMAGE' -Value 'iot-zlmediakit:offline')
+        foreach ($key in @('IOT_VIDEO_MEDIA_SECRET', 'IOT_VIDEO_HOOK_SECRET')) {
+            if (-not ($lines -match ('^\s*' + $key + '\s*=\s*\S'))) { $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $key -Value (New-DeploymentSecret)) }
+        }
+        if (-not ($lines -match '^\s*IOT_VIDEO_CREDENTIAL_KEY\s*=\s*\S')) {
+            $keyBytes = New-Object byte[] 32
+            $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+            try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+            $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_CREDENTIAL_KEY' -Value ([Convert]::ToBase64String($keyBytes)))
+        }
+        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value 'http://zlmediakit:80')
+        if (-not ($lines -match '^\s*IOT_VIDEO_TRANSCODE_ENABLED\s*=')) { $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_TRANSCODE_ENABLED' -Value 'true') }
+        if (-not ($lines -match '^\s*IOT_VIDEO_RTC_EXTERN_IP\s*=')) { $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_RTC_EXTERN_IP' -Value '') }
+    }
     if ($UseHarness) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
     } elseif (-not ($lines -match '^\s*IOT_AI_HARNESS_ENABLED\s*=')) {
@@ -308,6 +326,7 @@ $composeBase = @(
 
 $profiles = New-Object 'System.Collections.Generic.List[string]'
 if ($IncludeHarness) { [void]$profiles.Add("harness") }
+if ($IncludeVideo) { [void]$profiles.Add("video") }
 $profileArguments = New-Object 'System.Collections.Generic.List[string]'
 foreach ($profile in $profiles) {
     [void]$profileArguments.Add("--profile")
@@ -328,6 +347,7 @@ try {
     )
     Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio"))
+    if ($IncludeVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
 
     # 只归档知识库嵌入模型；DeepSeek API 不携带模型权重。
     if (-not $SkipOllamaModel) {
@@ -372,6 +392,10 @@ try {
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null
     Copy-Item -LiteralPath (Join-Path $scriptDir "lib/docker-bootstrap.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
     Copy-Item -LiteralPath (Join-Path $scriptDir "lib/restore-ollama-models.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
+    # 视频模块启停脚本及其依赖的配置工具。
+    foreach ($libName in @("deployment.sh", "deployment.ps1", "env-comments.sh", "env-comments.tsv")) {
+        Copy-Item -LiteralPath (Join-Path $scriptDir "lib/$libName") -Destination (Join-Path $bundleRoot "scripts/lib")
+    }
     if (-not $SkipDockerRuntime) {
         $runtimeArch = (& docker info --format '{{.Architecture}}').Trim()
         if ($LASTEXITCODE -ne 0) { throw '无法获取打包用 Docker 架构。' }
@@ -389,6 +413,8 @@ try {
         }
     }
     foreach ($runtimeScript in @(
+        "video-module.sh",
+        "video-module.ps1",
         "deploy-offline.ps1",
         "deploy-offline-windows.ps1",
         "deploy-offline.sh",
@@ -398,6 +424,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $scriptDir $runtimeScript) -Destination (Join-Path $bundleRoot "scripts")
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot "docs\OFFLINE_DEPLOYMENT.md") -Destination (Join-Path $bundleRoot "OFFLINE_DEPLOYMENT.md")
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs\VIDEO_LIVE.md") -Destination (Join-Path $bundleRoot "VIDEO_LIVE.md")
 
     $images = @(Invoke-Captured -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--images")) | Sort-Object -Unique)
     if ($images.Count -eq 0) { throw "没有解析出可导出的镜像。" }

@@ -11,6 +11,7 @@ output_dir="offline-bundles"
 env_file=""
 include_ai=1
 include_harness=1
+include_video=0
 full=0
 deepseek_model="deepseek-flash"
 ollama_embedding_model="nomic-embed-text"
@@ -29,6 +30,7 @@ usage() {
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
   --include-ai           兼容参数；统一使用 DeepSeek API，不携带对话模型
   --include-harness      兼容参数；默认已经打包 AI 工作流 Harness
+  --include-video        打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）
   --deepseek-model MODEL DeepSeek API 模型，默认 deepseek-flash
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过嵌入模型；仅用于目标机已有 nomic-embed-text
@@ -230,6 +232,16 @@ EOF
   elif [[ -z "$(env_value IOT_AI_HARNESS_ENABLED "$destination")" ]]; then
     set_env_value "$destination" IOT_AI_HARNESS_ENABLED false
   fi
+  if (( include_video )); then
+    # 摄像头直播：密钥只在缺失时生成；WebRTC 地址须在目标机上填写 IOT_VIDEO_RTC_EXTERN_IP。
+    set_env_value "$destination" IOT_ZLMEDIAKIT_IMAGE iot-zlmediakit:offline
+    [[ -n "$(env_value IOT_VIDEO_MEDIA_SECRET "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_MEDIA_SECRET "$(random_hex 32)"
+    [[ -n "$(env_value IOT_VIDEO_HOOK_SECRET "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_HOOK_SECRET "$(random_hex 32)"
+    [[ -n "$(env_value IOT_VIDEO_CREDENTIAL_KEY "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_CREDENTIAL_KEY "$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+    set_env_value "$destination" IOT_VIDEO_MEDIA_API_URL http://zlmediakit:80
+    [[ -n "$(env_value IOT_VIDEO_TRANSCODE_ENABLED "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_TRANSCODE_ENABLED true
+    [[ -n "$(env_value IOT_VIDEO_RTC_EXTERN_IP "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_RTC_EXTERN_IP ''
+  fi
   configure_deepseek_env "$destination" "$deepseek_model"
   annotate_deployment_env_file "$destination"
 
@@ -249,6 +261,7 @@ while [[ $# -gt 0 ]]; do
     --env-file) env_file="${2:-}"; shift 2 ;;
     --include-ai) include_ai=1; shift ;;
     --include-harness) include_harness=1; shift ;;
+    --include-video) include_video=1; shift ;;
     --ollama-model) die '已取消打包本地对话模型，请使用 DeepSeek API' ;;
     --deepseek-model) deepseek_model="${2:-}"; shift 2 ;;
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
@@ -311,6 +324,7 @@ add_profile() {
   compose_profile_args+=(--profile "$1")
 }
 (( include_harness )) && add_profile harness
+(( include_video )) && add_profile video
 
 run_compose "${compose_profile_args[@]}" config --quiet
 pull_services=(
@@ -320,6 +334,7 @@ pull_services=(
 )
 run_compose pull "${pull_services[@]}"
 run_compose build --pull platform-api platform-web backup-service minio
+if (( include_video )); then run_compose --profile video build --pull zlmediakit; fi
 
 ollama_archive=""
 ollama_volume_name=""
@@ -383,7 +398,12 @@ cp "$project_root/docs/EDGE_AND_GATEWAY.md" "$bundle_root/"
 cp "$project_root/docs/DEPLOYMENT.md" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
 cp "$project_root/docs/OFFLINE_DEPLOYMENT.md" "$bundle_root/"
-for script_name in deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do
+cp "$project_root/docs/VIDEO_LIVE.md" "$bundle_root/"
+# 视频模块启停脚本及其依赖的配置工具（在目标机上开启 / 关闭直播媒体服务）。
+for lib_name in deployment.sh deployment.ps1 env-comments.sh env-comments.tsv; do
+  cp "$script_dir/lib/$lib_name" "$bundle_root/scripts/lib/"
+done
+for script_name in video-module.sh video-module.ps1 deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do
   cp "$script_dir/$script_name" "$bundle_root/scripts/"
 done
 if [[ -n "$ollama_volume_name" ]]; then

@@ -194,6 +194,7 @@ func (r *Repository) DeleteResource(_ context.Context, tenant, kind, id string) 
 			}
 		}
 		delete(r.videoMappings, k)
+		r.deleteCameraLiveLocked(tenant, id)
 	case "alarm":
 		alarm, ok := r.alarms[k]
 		if !ok {

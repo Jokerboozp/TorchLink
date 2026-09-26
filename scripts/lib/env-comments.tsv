@@ -100,3 +100,26 @@ IOT_LOG_LOKI_URL	源码运行时 API 直接推送自身日志的 Loki 地址；�
 IOT_LOCAL_API_HOST	本地依赖容器访问源码机 API 的主机名，供 Prometheus 采集平台指标
 PROMETHEUS_BIND_ADDRESS	Prometheus 端口绑定地址，默认仅本机 127.0.0.1
 LOKI_RETENTION	Loki 默认日志保留时长，例如 744h
+COMPOSE_PROFILES	启用的可选 Compose 组件，多个值用逗号分隔；包含 video 时部署摄像头直播媒体服务
+IOT_VIDEO_MEDIA_API_URL	摄像头直播媒体服务 API 地址；为空表示直播模块未部署，其余业务不受影响
+IOT_VIDEO_MEDIA_SECRET	媒体服务管理 API 密钥，仅服务端使用，首次启用直播时自动生成
+IOT_VIDEO_HOOK_SECRET	媒体服务回调平台时携带的密钥，首次启用直播时自动生成
+IOT_VIDEO_CREDENTIAL_KEY	摄像头密码加密密钥（32 字节 base64）；生成后不要更换，否则已保存的摄像头密码需重新填写
+IOT_VIDEO_MEDIA_SERVER_ID	媒体服务节点标识，回调时用于校验来源
+IOT_VIDEO_RTC_EXTERN_IP	浏览器访问媒体服务使用的主机 IP（WebRTC 候选地址），多个用逗号分隔
+IOT_VIDEO_RTC_PORT	WebRTC 媒体 UDP/TCP 端口，需对浏览器所在网络开放
+IOT_VIDEO_RTC_BIND_ADDRESS	WebRTC 媒体端口监听地址，默认 0.0.0.0
+IOT_VIDEO_ALLOWED_CIDRS	允许平台访问的摄像头网段，逗号分隔；云元数据与链路本地地址始终禁止
+IOT_VIDEO_ALLOWED_PORTS	允许访问的摄像头 RTSP / ONVIF 端口，逗号分隔
+IOT_VIDEO_TRANSCODE_ENABLED	是否允许转码（H.265 转 H.264 等），默认 false
+IOT_VIDEO_TRANSCODE_MAX	同时运行的转码任务上限
+IOT_VIDEO_TRANSCODE_THREADS	每个转码任务使用的编码线程数
+IOT_VIDEO_TRANSCODE_HWACCEL	硬件加速预留配置，当前只支持 none
+IOT_VIDEO_MAX_SESSIONS	同时存在的播放会话上限
+IOT_VIDEO_MAX_SOURCE_STREAMS	同时拉流的摄像头码流上限
+IOT_VIDEO_SESSION_LEASE	播放会话租约，浏览器按约三分之一间隔续期；超时自动回收
+IOT_VIDEO_IDLE_GRACE	最后一位观看者离开后保留拉流和转码的宽限期
+IOT_VIDEO_MEDIA_CPUS	媒体服务容器 CPU 上限
+IOT_VIDEO_MEDIA_MEMORY	媒体服务容器内存上限
+IOT_VIDEO_HLS_TMPFS_SIZE	HLS 临时分片内存盘大小
+IOT_ZLMEDIAKIT_IMAGE	媒体服务镜像名称

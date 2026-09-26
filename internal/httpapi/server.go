@@ -32,6 +32,7 @@ import (
 	"iot-platform/internal/opscenter"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/video"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/singleflight"
@@ -63,6 +64,7 @@ type Server struct {
 	onboarding                 *onboarding.Service
 	events                     *eventSnapshots
 	ops                        *opscenter.Service
+	video                      *video.Service
 }
 
 const healthInspectionCacheTTL = 10 * time.Minute
@@ -112,6 +114,7 @@ func (s *Server) routes() {
 	s.openAPIRoutes()
 	s.deletionRoutes()
 	s.opsRoutes()
+	s.videoRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
 	s.deviceOperationsRoutes()
@@ -1279,7 +1282,9 @@ func (s *Server) alarms(w http.ResponseWriter, r *http.Request) {
 	cameras, err := s.engine.ListCameraSummariesForDevices(r.Context(), claims(r).TenantID, deviceIDs)
 	if err == nil {
 		for index := range items {
-			items[index].Cameras = cameras[items[index].DeviceID]
+			if linked := cameras[items[index].DeviceID]; len(linked) > 0 || items[index].Source != "video" {
+				items[index].Cameras = linked
+			}
 		}
 	} else {
 		for index := range items {
@@ -1296,7 +1301,9 @@ func (s *Server) alarm(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "alarm not found")
 		return
 	}
-	if cameras, cameraErr := s.engine.ListCameraSummaries(r.Context(), v.TenantID, v.DeviceID); cameraErr == nil {
+	if cameras, cameraErr := s.engine.ListCameraSummaries(r.Context(), v.TenantID, v.DeviceID); cameraErr == nil && (len(cameras) > 0 || v.Source != "video") {
+		// Video analysis alarms name the camera itself as their source; keep
+		// the camera summary recorded with the alarm when no device is linked.
 		v.Cameras = cameras
 	}
 	write(w, 200, v)
@@ -2698,7 +2705,7 @@ func (s *Server) videoCameras(w http.ResponseWriter, r *http.Request) {
 		items[index].StreamConfigured = false
 		items[index].PreviewEligible = false
 	}
-	writeList(w, 200, items, total, pagination, nil)
+	writeList(w, 200, s.attachLiveSummaries(r, items), total, pagination, nil)
 }
 func (s *Server) videoRelations(w http.ResponseWriter, r *http.Request) {
 	relationType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("relationType")))
@@ -2763,8 +2770,12 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 	v.DistrictCode = ""
 	v.AreaID = ""
 	v.VideoPlatformID = ""
-	if previous, err := s.engine.Repo.GetVideoCameraMapping(r.Context(), c.TenantID, v.CameraID); err == nil && strings.HasPrefix(previous.VideoPlatformID, "gb28181/") {
-		v.VideoPlatformID = previous.VideoPlatformID
+	var previousCamera *model.VideoCameraMapping
+	if previous, err := s.engine.Repo.GetVideoCameraMapping(r.Context(), c.TenantID, v.CameraID); err == nil {
+		previousCamera = &previous
+		if strings.HasPrefix(previous.VideoPlatformID, "gb28181/") {
+			v.VideoPlatformID = previous.VideoPlatformID
+		}
 	}
 	v.StreamURL = ""
 	v.StreamType = ""
@@ -2776,6 +2787,9 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
+	// Live configuration is stored separately and is never touched here; only
+	// playback that depended on the old association is ended.
+	s.videoCameraChanged(previousCamera, v)
 	s.audit(r, "video.camera.save", "video-camera", v.CameraID, map[string]any{"deviceId": v.DeviceID, "enabled": v.Enabled})
 	write(w, map[bool]int{true: 200, false: 201}[r.Method == http.MethodPut], v)
 }

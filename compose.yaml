@@ -84,6 +84,21 @@ services:
       IOT_OPS_LOKI_RUNTIME_FILE: /app/ops/loki/runtime.yaml
       IOT_OPS_ALERTMANAGER_CONFIG_FILE: /app/ops/alertmanager/alertmanager.yml
       IOT_OPS_TENANTS: ${IOT_OPS_TENANTS:-}
+      # 摄像头直播（可选模块）：IOT_VIDEO_MEDIA_API_URL 为空表示未部署，其余业务不受影响。
+      # 启用方式见 scripts/video-module.sh / video-module.ps1 与 docs/VIDEO_LIVE.md。
+      IOT_VIDEO_MEDIA_API_URL: ${IOT_VIDEO_MEDIA_API_URL:-}
+      IOT_VIDEO_MEDIA_SECRET: ${IOT_VIDEO_MEDIA_SECRET:-}
+      IOT_VIDEO_HOOK_SECRET: ${IOT_VIDEO_HOOK_SECRET:-}
+      IOT_VIDEO_CREDENTIAL_KEY: ${IOT_VIDEO_CREDENTIAL_KEY:-}
+      IOT_VIDEO_MEDIA_SERVER_ID: ${IOT_VIDEO_MEDIA_SERVER_ID:-torchlink-media-1}
+      IOT_VIDEO_ALLOWED_CIDRS: ${IOT_VIDEO_ALLOWED_CIDRS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      IOT_VIDEO_ALLOWED_PORTS: ${IOT_VIDEO_ALLOWED_PORTS:-80,443,554,8000,8080,8554,8899,10554,2020,5000,37777}
+      IOT_VIDEO_TRANSCODE_ENABLED: ${IOT_VIDEO_TRANSCODE_ENABLED:-false}
+      IOT_VIDEO_TRANSCODE_MAX: ${IOT_VIDEO_TRANSCODE_MAX:-2}
+      IOT_VIDEO_MAX_SESSIONS: ${IOT_VIDEO_MAX_SESSIONS:-64}
+      IOT_VIDEO_MAX_SOURCE_STREAMS: ${IOT_VIDEO_MAX_SOURCE_STREAMS:-32}
+      IOT_VIDEO_SESSION_LEASE: ${IOT_VIDEO_SESSION_LEASE:-45s}
+      IOT_VIDEO_IDLE_GRACE: ${IOT_VIDEO_IDLE_GRACE:-20s}
     ports: ["${IOT_API_PORT:-8081}:8080", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/tcp", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"]
     volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager"]
     depends_on:
@@ -419,6 +434,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 18
+      start_period: 10s
+
+  # 摄像头直播媒体服务（可选，profile "video"）。HTTP API、Hook 与 HLS 只在内部网络使用，
+  # 浏览器经 platform-web 的 /media/hls/ 鉴权代理取 HLS；WebRTC 媒体端口需对浏览器开放。
+  zlmediakit:
+    <<: *service-defaults
+    profiles: [video]
+    image: ${IOT_ZLMEDIAKIT_IMAGE:-iot-zlmediakit:local}
+    build:
+      context: ./deploy/zlmediakit
+    environment:
+      IOT_VIDEO_MEDIA_SECRET: ${IOT_VIDEO_MEDIA_SECRET:-}
+      IOT_VIDEO_HOOK_SECRET: ${IOT_VIDEO_HOOK_SECRET:-}
+      IOT_VIDEO_MEDIA_SERVER_ID: ${IOT_VIDEO_MEDIA_SERVER_ID:-torchlink-media-1}
+      IOT_VIDEO_HOOK_BASE: http://platform-api:8080/api/v1/video/hooks
+      IOT_VIDEO_RTC_PORT: ${IOT_VIDEO_RTC_PORT:-8000}
+      IOT_VIDEO_RTC_EXTERN_IP: ${IOT_VIDEO_RTC_EXTERN_IP:-}
+      IOT_VIDEO_TRANSCODE_THREADS: ${IOT_VIDEO_TRANSCODE_THREADS:-2}
+    ports:
+      - "${IOT_VIDEO_RTC_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTC_PORT:-8000}:${IOT_VIDEO_RTC_PORT:-8000}/udp"
+      - "${IOT_VIDEO_RTC_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTC_PORT:-8000}:${IOT_VIDEO_RTC_PORT:-8000}/tcp"
+    tmpfs: ["/opt/media/hls:size=${IOT_VIDEO_HLS_TMPFS_SIZE:-512m}"]
+    cpus: ${IOT_VIDEO_MEDIA_CPUS:-2}
+    mem_limit: ${IOT_VIDEO_MEDIA_MEMORY:-2g}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1/index/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
       start_period: 10s
 
   ollama:

@@ -39,6 +39,7 @@ import (
 
 	"iot-platform/internal/adapters/observability"
 	"iot-platform/internal/opscenter"
+	"iot-platform/internal/video"
 )
 
 func Run(forcedRole string) {
@@ -68,6 +69,7 @@ func Run(forcedRole string) {
 	defer cancel()
 	var repo ports.Repository = memory.NewRepository()
 	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
+	videoStore, _ := repo.(ports.VideoStore)
 	var aiProviderStore ports.AIProviderConfigStore
 	if store, ok := repo.(ports.AIProviderConfigStore); ok {
 		aiProviderStore = store
@@ -81,6 +83,7 @@ func Run(forcedRole string) {
 		fatal(log, "initialize postgres", err)
 		repo = r
 		opsPrefs = r
+		videoStore = r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
 			aiProviderStore = store
 		}
@@ -473,6 +476,19 @@ func Run(forcedRole string) {
 	api.SetProtocolListeners(protocolListeners)
 	if cfg.ProcessRole != "gateway" {
 		api.SetOpsCenter(opsService)
+	}
+	if cfg.ProcessRole != "gateway" {
+		// The live module is optional: when the media server is absent,
+		// misconfigured or down, only live features report that state.
+		if problem := cfg.Video.Problem(); cfg.Video.Deployed() && problem != nil {
+			log.Error("camera live module configuration is invalid; live view stays unavailable", "error", problem)
+		}
+		liveVideo := video.New(cfg.Video, videoStore, api.VideoCameraLookup, api.VideoAuthorize, log)
+		api.SetVideo(liveVideo)
+		liveVideo.Start(ctx)
+		if cfg.Video.Deployed() {
+			log.Info("camera live module configured", "mediaApi", cfg.Video.MediaAPIURL, "transcode", cfg.Video.Transcode)
+		}
 	}
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute}
 	if cfg.ProcessRole != "gateway" {

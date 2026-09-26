@@ -27,7 +27,7 @@
 
 ## 3. 项目定位与源码入口
 
-平台为独立 Go API 与 Vue 管理端，覆盖设备接入、协议源码发布、报文归档与回放、规则告警、摄像头元数据、知识库、AI 辅助运维及备份管理。保持独立平台方向，不重新引入已移除的 ThingsPanel 集成，也不把 JetLinks Java 协议包作为平台依赖。
+平台为独立 Go API 与 Vue 管理端，覆盖设备接入、协议源码发布、报文归档与回放、规则告警、摄像头资料与可选直播、知识库、AI 辅助运维及备份管理。保持独立平台方向，不重新引入已移除的 ThingsPanel 集成，也不把 JetLinks Java 协议包作为平台依赖。
 
 | 路径 | 职责 |
 |---|---|
@@ -41,6 +41,7 @@
 | `internal/opscenter/`、`internal/adapters/observability/` | 运维中心业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
 | `internal/config/`、`internal/deploycheck/`、`internal/metrics/` | 配置、部署检查和指标 |
 | `internal/backup/`、`cmd/backup-service/` | 备份逻辑与独立备份服务 |
+| `internal/video/`、`deploy/zlmediakit/` | 可选摄像头直播模块：直播配置、连接测试、播放会话与媒体任务生命周期；固定版本 ZLMediaKit 媒体服务 |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的完整 Go 协议 module 示例 |
 | `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/`、`cmd/capacity-test/` | 专用网关、虚拟设备、负载与分阶梯容量压测工具；按任务使用 |
 | `iot_front/` | Vue 3、Vite 管理端，复用现有 Naive UI、Tailwind CSS 和 Lucide 图标 |
@@ -97,7 +98,7 @@ npm run dev
 - 只有成功解析的数据才能对外发布解析结果；失败保留未解析状态和可追溯原文，不能伪造标准消息或将内部原始队列当作对外解析通道。
 - 设备主动上报 `ALARM_REPORT` 即使没有匹配规则，也应保留设备来源告警；匹配规则时沿规则链路处理，不自动创建测试规则。确认、恢复和关闭须正确重算设备状态及剩余活动告警。
 - 设备关系使用主子设备关联，状态来自成功解析的上报；已移除独立孪生拓扑和设备影子，不重新引入其页面、接口或状态投影。
-- 摄像头只管理元数据和设备关联：单个摄像头最多关联一个设备，设备可以关联多个摄像头。视频由外部平台提供，不擅自恢复平台拉流、代理、预览或旧多对多方案。
+- 基础摄像头管理（资料、位置、设备关联）始终可用：单个摄像头最多关联一个设备，设备可以关联多个摄像头，不恢复旧多对多方案。直播由可选独立模块提供（ZLMediaKit 媒体服务，Compose profile `video`，默认关闭）；模块未部署、关闭或故障不得影响摄像头资料、设备关联、告警摄像头信息和 API 启动 / 就绪。视频数据只在摄像头、媒体服务和浏览器之间传输，API 不搬运视频、不执行转码；取流目标受网段与端口白名单约束，不提供任意 URL 代理；观看需单独权限并受设备范围约束，播放会话随权限变化撤销。细节见 `docs/VIDEO_LIVE.md`。
 - 对外开放接口 `/api/open/v1` 使用绑定平台用户的密钥，按该用户的权限和设备范围执行，能力项只能收窄；外部上报经标准协议进入原始报文链路。不新增绕过用户权限、可自选租户或跳过原始归档的外部入口。细节见 `docs/OPEN_API.md`。
 - 备份操作沿用服务端权限及凭据边界；备份存在、下载成功和恢复成功是不同结论，按本次实际操作表述。
 - 运维中心数据为全平台数据，只在 `IOT_OPS_TENANTS` 运维租户中授权；浏览器只调用平台 `/api/v1/ops/*`，不接触组件地址与凭据，不提供任意上游 URL 的通用代理。组件配置写入保持“校验 → 原子写入 → 确认加载 → 失败恢复”；监控告警由 Alertmanager 统一通知，Grafana 告警保持停用，与消防业务告警分开。细节见 `docs/OPS_CENTER.md`。
@@ -183,5 +184,6 @@ npm run dev
 - [AI 工作流](docs/AI_PLUGIN_HARNESS.md)：Harness、Agent、MCP 及安全边界。
 - [TCP 与主子设备接入](docs/TCP_CHILD_DEVICE_ACCESS.md)：连接方向、查询调度与子设备协议。
 - [运维中心](docs/OPS_CENTER.md)：指标、日志、仪表盘、监控告警与通知的架构、权限、配置和限制。
+- [摄像头直播](docs/VIDEO_LIVE.md)：可选直播模块的架构、开关、接入、转码、权限、部署、已验证范围与待实机验证。
 
 文档缺失或不一致时，按当前需求与源码推进并修正文档；不得退回要求个人知识库存在才能继续的工作方式。
