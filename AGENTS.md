@@ -42,7 +42,7 @@
 | `internal/config/`、`internal/deploycheck/`、`internal/metrics/` | 配置、部署检查和指标 |
 | `internal/backup/`、`cmd/backup-service/` | 备份逻辑与独立备份服务 |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的完整 Go 协议 module 示例 |
-| `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/` | 专用网关、虚拟设备和负载工具；按任务使用 |
+| `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/`、`cmd/capacity-test/` | 专用网关、虚拟设备、负载与分阶梯容量压测工具；按任务使用 |
 | `iot_front/` | Vue 3、Vite 管理端，复用现有 Naive UI、Tailwind CSS 和 Lucide 图标 |
 | `scripts/`、`compose*.yaml`、`deploy/` | 本地准备、部署、离线打包和服务配置 |
 

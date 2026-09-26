@@ -1,6 +1,6 @@
 # 端到端容量压测方案与记录模板
 
-本文用于在目标硬件上取得可复核的容量数据。仓库目前**没有**任何实测容量记录；源码限额见 [技术详情 · 容量边界](TECHNICAL_DETAILS.md#容量边界)，不能代替本方案的结果。完成压测前，不对外承诺“支持多少万设备”或“每秒多少万条”。
+本文用于在目标硬件上取得可复核的容量数据。已有一次单机实测记录见 [容量压测报告](CAPACITY_TEST_REPORT.md)（2026-09-26，本地隔离环境，只对其硬件与配置成立）；源码限额见 [技术详情 · 容量边界](TECHNICAL_DETAILS.md#容量边界)，不能代替本方案的结果。完成压测前，不对外承诺“支持多少万设备”或“每秒多少万条”。
 
 ## 1. 结论口径
 
@@ -74,6 +74,43 @@ go run ./cmd/loadgen -url http://<平台地址>:8081 -token "$TOKEN" -transport 
 ```
 
 `loadgen` 的 `-max-error-rate`、`-max-p95-ms`、`-min-qps` 只判定发送端，通过不代表端到端通过。
+
+### 分阶梯压测工具 `cmd/capacity-test`
+
+`cmd/capacity-test` 使用**设备凭据**上报，覆盖 S1–S7 中 `loadgen` 不能代替的部分：设备登记、HTTP / MQTT / GB26875 TCP 上报、MQTT 连接规模、管理接口、端到端延迟探针。每个阶梯同时读取平台 `/metrics`，输出本档的归档/秒、解析/秒、告警/秒和 Kafka 积压起止值，并每 500 ms 探测一个管理接口（`-probe`）观察互相影响。`-levels` 为闭环并发，`-rates` 为开环速率；错误率超过 `-stop-err` 或吞吐跌到峰值的 `-stop-drop` 以下时自动停止。结果写入 `-out` 指定的 JSON。
+
+在仓库根目录执行（地址、产品和文件名按实际替换；令牌文件由第 2 节的登录命令保存，不要写进命令行历史）：
+
+```bash
+# 1. 在已有标准协议产品下批量登记设备，同时测登记吞吐；凭据以 0600 权限写入文件
+go run ./cmd/capacity-test -mode provision -token @token.txt -product <产品> -prefix st-http -count 5000 -par 16 -devices devices.json
+
+# 2. 设备凭据 HTTP 上报：开环恒定速率找端到端可持续值（看每档 lag 是否增长）
+go run ./cmd/capacity-test -mode ingest -token @token.txt -devices devices.json -rates 25,50,100,150 -step 60s -out s1.json
+
+# 3. 同一链路闭环加并发直到失败；-alarm-frac 0.5 表示一半报文带 stressAlarm=1（配合“stressAlarm eq 1 触发、eq 0 恢复”的测试规则）
+go run ./cmd/capacity-test -mode ingest -token @token.txt -devices devices.json -levels 256,1024,4096 -step 40s -stop-drop 0
+
+# 4. 管理接口阶梯（可用 | 分隔多个路径轮询）
+go run ./cmd/capacity-test -mode http -token @token.txt -path "/api/v1/alarms?page=1&pageSize=20&status=ACTIVE" -levels 1,4,16,64,256 -step 15s
+
+# 5. MQTT：先取令牌（令牌 5 分钟失效，取完立即测），再测连接规模或发布速率
+go run ./cmd/capacity-test -mode mqtttok -devices mqtt-devices.json -out tokens.json
+go run ./cmd/capacity-test -mode mqttconn -mqtt-tokens tokens.json -conn-step 2000 -hold 7m
+go run ./cmd/capacity-test -mode mqttpub -token @token.txt -mqtt-tokens tokens.json -conn-step 2000 -rates 50,200,800 -step 40s
+
+# 6. GB26875 TCP：-levels 为连接数，每个连接一台设备，等待平台归档后的 ACK
+go run ./cmd/capacity-test -mode tcp -token @token.txt -tcp <平台地址>:26875 -levels 8,32,128 -step 30s
+
+# 7. 端到端延迟探针与指标采样（各开一个终端，Ctrl+C 结束）
+go run ./cmd/capacity-test -mode canary -token @token.txt -devices devices.json > canary.csv
+go run ./cmd/capacity-test -mode sample -interval 5s > metrics.csv
+```
+
+- 设备凭据与 MQTT 令牌文件含秘密，测试结束后删除。
+- 宿主机单个客户端受临时端口数量限制（macOS 约 1.6 万）；更大的 MQTT 连接规模需在多台机器或多个容器中分片运行（`-mqtt tcp://emqx:1883`），并确认 EMQX 容器的 `nofile` 足够。
+- `mqttpub` 的 PUBACK 只表示 Broker 已接收；是否到达平台以 `archived/s` 和 `docker compose exec emqx /opt/emqx/bin/emqx ctl clients list` 中平台会话的 `dropped_msgs` 为准。
+- `canary` 每秒查询原文详情，高频设备的原文位于 ClickHouse，查询开销大，本身会给 ClickHouse 加压；只在需要端到端延迟时开启。
 
 ## 5. 记录模板
 
