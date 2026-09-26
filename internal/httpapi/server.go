@@ -7,6 +7,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -52,6 +53,7 @@ type Server struct {
 	aiProviderUpdateMu         sync.Mutex
 	healthInspectionMu         sync.RWMutex // 仅保护本进程的耗时估算；任务状态保存在仓储中。
 	healthInspectionEstimateMs int64
+	logins                     *loginLimiter
 	aiAnalysisMu               sync.RWMutex
 	aiAnalysisEstimateMs       int64
 	protocolListeners          protocolCommander
@@ -79,6 +81,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		log:                        log,
 		router:                     router,
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),
+		logins:                     newLoginLimiter(),
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
 	}
@@ -242,14 +245,27 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if in.TenantID == "" {
 		in.TenantID = "tenant_001"
 	}
-	if in.Username != s.cfg.AdminUser {
-		s.loginManaged(w, r, in.Username, in.Password, in.TenantID)
+	account := in.TenantID + "\x00" + in.Username
+	if wait := s.logins.retryAfter(account); wait > 0 {
+		lockedOut(w, wait)
 		return
 	}
-	if in.Password != s.cfg.AdminPassword {
+	if in.Username != s.cfg.AdminUser {
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		s.loginManaged(recorder, r, in.Username, in.Password, in.TenantID)
+		// Only a wrong password counts; an unavailable user store does not.
+		if recorder.status == http.StatusOK || recorder.status == http.StatusUnauthorized {
+			s.logins.record(account, recorder.status == http.StatusOK)
+		}
+		return
+	}
+	given, want := sha256.Sum256([]byte(in.Password)), sha256.Sum256([]byte(s.cfg.AdminPassword))
+	if subtle.ConstantTimeCompare(given[:], want[:]) != 1 {
+		s.logins.record(account, false)
 		problem(w, 401, "invalid credentials")
 		return
 	}
+	s.logins.record(account, true)
 	if !adminTenantAllowed(s.cfg.AdminTenants, in.TenantID) {
 		problem(w, http.StatusForbidden, "admin tenant is not allowed")
 		return
