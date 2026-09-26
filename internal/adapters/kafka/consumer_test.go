@@ -2,6 +2,7 @@ package kafkaadapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -44,6 +45,8 @@ func (f *fakeSource) CommitMessages(_ context.Context, messages ...kafka.Message
 	f.commits = append(f.commits, messages...)
 	return nil
 }
+
+func (f *fakeSource) Close() error { return nil }
 
 func (f *fakeSource) lastCommit(partition int) int64 {
 	f.mu.Lock()
@@ -176,5 +179,62 @@ func TestOffsetTrackerTracksPartitionsIndependently(t *testing.T) {
 	ready = tracker.ready()
 	if len(ready) != 1 || ready[0].Offset != 6 {
 		t.Fatalf("partition 0 must advance to offset 6: %v", ready)
+	}
+}
+
+// brokenSource fails its first fetch as a lost broker connection would.
+type brokenSource struct{ fakeSource }
+
+func (b *brokenSource) FetchMessage(context.Context) (kafka.Message, error) {
+	return kafka.Message{}, errors.New("dial tcp: connect: cannot assign requested address")
+}
+
+// A reader whose fetch fails is replaced instead of leaving the topic
+// unconsumed; Health reports the failure until the new reader fetches.
+func TestSupervisorReplacesFailedReader(t *testing.T) {
+	healthy := &fakeSource{messages: messages([]string{"a", "b"}), exhausted: make(chan struct{}, 1)}
+	var created atomic.Int32
+	bus := New([]string{"unused:9092"})
+	bus.newSource = func(string, string) messageSource {
+		if created.Add(1) == 1 {
+			return &brokenSource{}
+		}
+		return healthy
+	}
+	var handled atomic.Int32
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		bus.supervise(ctx, "t", "g", 2, func(context.Context, []byte) error { handled.Add(1); return nil })
+		close(done)
+	}()
+	failure := func() error {
+		bus.mu.Lock()
+		defer bus.mu.Unlock()
+		return bus.consumerErrors["g"]
+	}
+	deadline := time.Now().Add(time.Second / 2)
+	for failure() == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if failure() == nil {
+		t.Fatal("a failed reader must be reported")
+	}
+	select {
+	case <-healthy.exhausted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the failed reader was not replaced")
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for handled.Load() != 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if handled.Load() != 2 || failure() != nil {
+		t.Fatalf("replacement must consume and clear the failure: handled=%d failure=%v", handled.Load(), failure())
+	}
+	cancel()
+	<-done
+	if created.Load() != 2 {
+		t.Fatalf("readers created: %d", created.Load())
 	}
 }

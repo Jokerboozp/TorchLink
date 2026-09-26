@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,8 +19,15 @@ type Bus struct {
 	brokers []string
 	mu      sync.Mutex
 	writers map[string]*kafka.Writer
-	readers []*kafka.Reader
-	cancel  context.CancelFunc
+	// readers holds the live reader of each running subscription.
+	readers map[messageSource]struct{}
+	closed  bool
+	// consumerErrors records subscriptions whose reader failed and is being
+	// replaced; Health reports them until they fetch again.
+	consumerErrors map[string]error
+	log            *slog.Logger
+	// newSource creates a subscription reader; tests replace it.
+	newSource func(topic, group string) messageSource
 	// lanes and topicLanes bound the parallel handlers of each subscription.
 	lanes      int
 	topicLanes map[string]int
@@ -26,7 +35,57 @@ type Bus struct {
 	subscriptions []subscription
 }
 
-func New(brokers []string) *Bus { return &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}} }
+func New(brokers []string) *Bus {
+	b := &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}}
+	b.newSource = func(topic, group string) messageSource {
+		return kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0})
+	}
+	return b
+}
+
+// SetLogger sets the logger for consumer failures; slog.Default is used otherwise.
+func (b *Bus) SetLogger(log *slog.Logger) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.log = log
+}
+
+func (b *Bus) logger() *slog.Logger {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.log != nil {
+		return b.log
+	}
+	return slog.Default()
+}
+
+func (b *Bus) trackReader(source messageSource, live bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if live {
+		b.readers[source] = struct{}{}
+	} else {
+		delete(b.readers, source)
+	}
+}
+
+func (b *Bus) setConsumerError(group string, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err == nil {
+		delete(b.consumerErrors, group)
+		return
+	}
+	if !b.closed {
+		b.consumerErrors[group] = err
+	}
+}
+
+func (b *Bus) isClosed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.closed
+}
 func (b *Bus) writer(topic string) *kafka.Writer {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -76,13 +135,11 @@ func retryUntilSuccess(ctx context.Context, delay time.Duration, operation func(
 	}
 }
 func (b *Bus) Subscribe(ctx context.Context, topic, group string, h ports.Handler) error {
-	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0})
 	b.mu.Lock()
-	b.readers = append(b.readers, reader)
 	b.subscriptions = append(b.subscriptions, subscription{topic: topic, group: "iot-platform-" + group})
 	lanes := b.lanesFor(topic)
 	b.mu.Unlock()
-	go b.consume(ctx, reader, topic, group, lanes, h)
+	go b.supervise(ctx, topic, group, lanes, h)
 	return nil
 }
 
@@ -111,6 +168,16 @@ func (b *Bus) Health(ctx context.Context) error {
 	if len(b.brokers) == 0 {
 		return fmt.Errorf("no kafka brokers")
 	}
+	b.mu.Lock()
+	failed := make([]string, 0, len(b.consumerErrors))
+	for group, err := range b.consumerErrors {
+		failed = append(failed, group+": "+err.Error())
+	}
+	b.mu.Unlock()
+	if len(failed) > 0 {
+		sort.Strings(failed)
+		return fmt.Errorf("kafka consumer restarting: %s", strings.Join(failed, "; "))
+	}
 	conn, err := kafka.DialContext(ctx, "tcp", b.brokers[0])
 	if err != nil {
 		return err
@@ -122,8 +189,9 @@ func (b *Bus) Health(ctx context.Context) error {
 func (b *Bus) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.closed = true
 	var errs []string
-	for _, r := range b.readers {
+	for r := range b.readers {
 		if err := r.Close(); err != nil {
 			errs = append(errs, err.Error())
 		}

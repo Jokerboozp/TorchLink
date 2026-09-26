@@ -14,6 +14,7 @@ import (
 type messageSource interface {
 	FetchMessage(context.Context) (kafka.Message, error)
 	CommitMessages(context.Context, ...kafka.Message) error
+	Close() error
 }
 
 const commitInterval = 100 * time.Millisecond
@@ -23,7 +24,11 @@ const commitInterval = 100 * time.Millisecond
 // the same lane, so their order is preserved; different keys run in parallel.
 // Offsets are committed only up to the highest contiguous finished message of
 // each partition, so a crash can redeliver but never skip a message.
-func (b *Bus) consume(ctx context.Context, source messageSource, topic, group string, lanes int, h ports.Handler) {
+//
+// It returns nil when ctx ends and the fetch error otherwise, after the
+// already fetched messages are handled and their offsets committed where the
+// broker still accepts it; the caller then starts a new reader.
+func (b *Bus) consume(ctx context.Context, source messageSource, topic, group string, lanes int, h ports.Handler) error {
 	if lanes < 1 {
 		lanes = 1
 	}
@@ -43,6 +48,10 @@ func (b *Bus) consume(ctx context.Context, source messageSource, topic, group st
 			}
 		}(queues[i])
 	}
+	// Periodic commits stop with the consumer; the final commit below uses
+	// its own short context because ctx may already be cancelled.
+	loopCtx, stopLoop := context.WithCancel(ctx)
+	defer stopLoop()
 	commitCtx, stopCommits := context.WithCancel(context.Background())
 	committed := make(chan struct{})
 	go func() {
@@ -52,22 +61,22 @@ func (b *Bus) consume(ctx context.Context, source messageSource, topic, group st
 		for {
 			select {
 			case <-commitCtx.Done():
-				// Commit finished work once more on shutdown; the consumer
-				// context is already cancelled, so use a short separate one.
 				final, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				commitReady(final, source, tracker)
 				cancel()
 				return
 			case <-ticker.C:
-				if !commitReady(ctx, source, tracker) {
-					return
-				}
+				commitReady(loopCtx, source, tracker)
 			}
 		}
 	}()
+	var fetchErr error
 	for {
 		m, err := source.FetchMessage(ctx)
 		if err != nil {
+			if ctx.Err() == nil {
+				fetchErr = err
+			}
 			break
 		}
 		tracker.start(m)
@@ -83,8 +92,54 @@ func (b *Bus) consume(ctx context.Context, source messageSource, topic, group st
 		close(queue)
 	}
 	workers.Wait()
+	stopLoop()
 	stopCommits()
 	<-committed
+	return fetchErr
+}
+
+// supervise keeps a subscription consuming until ctx ends. A reader that fails
+// is closed and replaced after an increasing delay, instead of leaving the
+// topic silently unconsumed; the failure is logged and reported by Health
+// until a new reader fetches again.
+func (b *Bus) supervise(ctx context.Context, topic, group string, lanes int, h ports.Handler) {
+	delay := time.Second
+	for ctx.Err() == nil {
+		source := b.newSource(topic, group)
+		b.trackReader(source, true)
+		err := b.consume(ctx, &healthySource{messageSource: source, onFetch: func() { b.setConsumerError(group, nil) }}, topic, group, lanes, h)
+		b.trackReader(source, false)
+		_ = source.Close()
+		if err == nil || ctx.Err() != nil || b.isClosed() {
+			return
+		}
+		b.setConsumerError(group, err)
+		b.logger().Error("kafka consumer stopped; restarting", "topic", topic, "group", group, "retryIn", delay.String(), "error", err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		delay = min(delay*2, maxRestartDelay)
+	}
+}
+
+const maxRestartDelay = 30 * time.Second
+
+// healthySource clears a subscription's recorded failure once it fetches again.
+type healthySource struct {
+	messageSource
+	onFetch func()
+}
+
+func (s *healthySource) FetchMessage(ctx context.Context) (kafka.Message, error) {
+	m, err := s.messageSource.FetchMessage(ctx)
+	if err == nil {
+		s.onFetch()
+	}
+	return m, err
 }
 
 // handle runs the handler with the existing retry and dead-letter policy. It

@@ -113,6 +113,7 @@ func Run(forcedRole string) {
 	var kafkaBus *kafkaadapter.Bus
 	if len(cfg.KafkaBrokers) > 0 {
 		kafkaBus = kafkaadapter.New(cfg.KafkaBrokers)
+		kafkaBus.SetLogger(log)
 		// Parallel lanes keep each device's (or alarm's) messages in order;
 		// automatic alarm analysis has its own, smaller limit.
 		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 8), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 1)})
