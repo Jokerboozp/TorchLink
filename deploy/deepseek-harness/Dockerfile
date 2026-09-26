@@ -1,22 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
-# 执行当前脚本步骤。
 FROM node:24-bookworm-slim AS build
 
-# 执行当前脚本步骤。
 ARG DSH_REVISION=fb2c4b9e698e30edb738bca4cf0618587db7d203
-# 执行当前脚本步骤。
 WORKDIR /harness
 
-# 执行当前脚本步骤。
 RUN npm install --global pnpm@11.7.0
-# 执行当前脚本步骤。
 COPY upstream/deepseek-harness/ /harness/
-# 执行当前脚本步骤。
 COPY upstream/deepseek-harness.revision /tmp/deepseek-harness.revision
-# 执行当前脚本步骤。
 RUN test "$(tr -d '\r\n' < /tmp/deepseek-harness.revision)" = "$DSH_REVISION"
-# 执行当前脚本步骤。
 RUN CI=1 pnpm install --frozen-lockfile
 # Dependencies were installed explicitly above. pnpm 11 otherwise reinstalls
 # optional CLI binaries before every run, including nested workspace builds.
@@ -24,19 +16,14 @@ RUN printf '\nverifyDepsBeforeRun: false\n' >> pnpm-workspace.yaml \
     && test "$(pnpm config get verifyDepsBeforeRun)" = false
 # The Docker context intentionally excludes the upstream .git directory. The
 # full build accepts this explicit revision for its embedded client metadata.
-# 执行当前脚本步骤。
 ENV DSH_CLIENT_COMMIT_HASH=$DSH_REVISION
 # Upstream builds the host Node-API flock addon before its TypeScript packages.
 # The Node image supplies headers; keep the C toolchain in the build stage only.
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
-# 执行当前脚本步骤。
 RUN --network=none pnpm run build
-# 执行当前脚本步骤。
 COPY deploy/deepseek-harness/prepare-runtime-manifest.mjs /tmp/prepare-runtime-manifest.mjs
-# 执行当前脚本步骤。
 COPY deploy/deepseek-harness/prepare-runtime-carrier.mjs /tmp/prepare-runtime-carrier.mjs
-# 执行当前脚本步骤。
 RUN node /tmp/prepare-runtime-manifest.mjs /harness/python/sdk-runtime/package.json
 RUN CI=1 pnpm --filter dsh-python-runtime-closure deploy \
     --legacy \
@@ -45,26 +32,17 @@ RUN CI=1 pnpm --filter dsh-python-runtime-closure deploy \
     --config.auto-install-peers=false \
     --config.link-workspace-packages=true \
     /harness/runtime-node
-# 执行当前脚本步骤。
 RUN node /tmp/prepare-runtime-carrier.mjs /harness /harness/runtime-node
 
-# 执行当前脚本步骤。
 COPY deploy/deepseek-harness/ /harness/examples/iot-ops-agent/
-# 执行当前脚本步骤。
 RUN sed -i 's/\r$//' /harness/examples/iot-ops-agent/*.sh
-# 执行当前脚本步骤。
 RUN test "$(tr -d '\r\n' < /harness/examples/iot-ops-agent/REVISION)" = "$DSH_REVISION"
-# 执行当前脚本步骤。
 RUN node --test /harness/examples/iot-ops-agent/gateway.test.mjs
-# 执行当前脚本步骤。
 RUN node --input-type=module -e "await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-sdk-minimal/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-tools/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js')"
-# 执行当前脚本步骤。
 RUN node /harness/examples/iot-ops-agent/runtime-smoke.mjs
 
-# 执行当前脚本步骤。
 FROM node:24-bookworm-slim AS runtime
 
-# 执行当前脚本步骤。
 ARG DSH_REVISION=fb2c4b9e698e30edb738bca4cf0618587db7d203
 LABEL org.opencontainers.image.title="IoT DeepSeek Harness sidecar" \
       org.opencontainers.image.revision="$DSH_REVISION" \
@@ -84,11 +62,8 @@ ENV NODE_ENV=production \
     DSH_RUNTIME_BIN=/harness/runtime-node/node_modules/@deepseek-ai/dsh/lib/bin.js \
     DSH_SDK_CLIENT_MODULE=/harness/runtime-node/node_modules/@deepseek-ai/dsh-sdk-client/lib/index.js
 
-# 执行当前脚本步骤。
 WORKDIR /harness/examples/iot-ops-agent
-# 执行当前脚本步骤。
 COPY --from=build /harness/runtime-node /harness/runtime-node
-# 执行当前脚本步骤。
 COPY --from=build /harness/examples/iot-ops-agent /harness/examples/iot-ops-agent
 # pnpm staging / copied packages may retain root-only directory permissions.
 # Keep program files root-owned but readable/traversable by the runtime user.
@@ -97,16 +72,11 @@ RUN chmod a+rx /harness \
     && mkdir -p /data/sessions /data/runtime-home /data/workspace \
     && chown -R node:node /data
 
-# 执行当前脚本步骤。
 USER node
 # The build-stage root smoke alone cannot detect unreadable runtime packages.
-# 执行当前脚本步骤。
 RUN --network=none node /harness/examples/iot-ops-agent/runtime-smoke.mjs
-# 执行当前脚本步骤。
 EXPOSE 8091
-# 执行当前脚本步骤。
 VOLUME ["/data"]
 HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=4 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8091/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-# 执行当前脚本步骤。
 ENTRYPOINT ["sh", "/harness/examples/iot-ops-agent/start.sh"]

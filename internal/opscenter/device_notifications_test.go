@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,8 +52,17 @@ func enqueueAlarm(t *testing.T, n *DeviceNotifications, a model.Alarm) {
 		t.Fatal(err)
 	}
 }
+func spoolFiles(t *testing.T, dir, ext string) int {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*"+ext))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(files)
+}
 func TestDeviceNotificationsDistinctAndDurable(t *testing.T) {
 	n, am, now := notificationFixture(t)
+	ctx := context.Background()
 	a := notificationAlarm(*now)
 	enqueueAlarm(t, n, a)
 	enqueueAlarm(t, n, a)
@@ -60,7 +70,7 @@ func TestDeviceNotificationsDistinctAndDurable(t *testing.T) {
 	enqueueAlarm(t, n, a)
 	a.TenantID = "tenant-2"
 	enqueueAlarm(t, n, a)
-	if err := n.flush(context.Background()); err != nil {
+	if err := n.flush(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if len(am.posted) != 3 {
@@ -69,11 +79,7 @@ func TestDeviceNotificationsDistinctAndDurable(t *testing.T) {
 	identities := map[string]bool{}
 	for _, alert := range am.posted {
 		labels := alert["labels"].(map[string]any)
-		key := labels["tenant_id"].(string) + labels["alarm_id"].(string)
-		if identities[key] {
-			t.Fatal("events grouped across tenant/alarm identity")
-		}
-		identities[key] = true
+		identities[labels["tenant_id"].(string)+labels["alarm_id"].(string)] = true
 		detail := alert["annotations"].(map[string]any)["description"].(string)
 		for _, want := range []string{"一楼烟感", "回路 1", "大厅", "火警", "烟雾浓度超限"} {
 			if !strings.Contains(detail, want) {
@@ -84,32 +90,35 @@ func TestDeviceNotificationsDistinctAndDurable(t *testing.T) {
 			t.Fatal("raw content exposed")
 		}
 	}
-	if err := n.flush(context.Background()); err != nil {
-		t.Fatal(err)
+	if len(identities) != 3 {
+		t.Fatal("events grouped across tenant/alarm identity")
 	}
-	if len(am.posted) != 3 {
-		t.Fatal("posted again before refresh interval")
+	if err := n.flush(ctx); err != nil || len(am.posted) != 3 {
+		t.Fatal("posted again before refresh interval", err)
 	}
+	// A restarted worker refreshes the same alerts with identical timestamps.
 	original, _ := json.Marshal(am.posted)
-	// A fresh worker recovers the persisted alerts with the same fingerprints and
-	// timestamps, allowing Alertmanager to deduplicate even after API restart.
 	restarted := &DeviceNotifications{service: n.service, dir: n.dir, wake: make(chan struct{}, 1), lastPost: map[string]time.Time{}}
 	am.posted = nil
-	if err := restarted.flush(context.Background()); err != nil {
+	if err := restarted.flush(ctx); err != nil {
 		t.Fatal(err)
 	}
-	recovered, _ := json.Marshal(am.posted)
-	if string(original) != string(recovered) {
+	if recovered, _ := json.Marshal(am.posted); string(original) != string(recovered) {
 		t.Fatal("restart changed notification identity or timestamps")
 	}
-	*now = now.Add(49 * time.Hour)
-	if err := restarted.flush(context.Background()); err != nil {
+	// After the window only receipts remain, and they still reject replays.
+	*now = now.Add(deviceNotificationWindow)
+	am.posted = nil
+	if err := restarted.flush(ctx); err != nil {
 		t.Fatal(err)
 	}
 	enqueueAlarm(t, restarted, a)
-	files, _ := os.ReadDir(n.dir)
-	if len(files) != 0 {
-		t.Fatal("expired receipt retained or replayed")
+	if len(am.posted) != 0 || spoolFiles(t, n.dir, ".json") != 0 || spoolFiles(t, n.dir, ".done") != 3 {
+		t.Fatal("expired notification retained or replayed")
+	}
+	*now = now.Add(deviceNotificationRetention + time.Hour)
+	if err := restarted.flush(ctx); err != nil || spoolFiles(t, n.dir, ".done") != 0 {
+		t.Fatal("receipts not purged after retention", err)
 	}
 }
 
@@ -126,6 +135,7 @@ func (f *failingNotificationBackend) PostAlerts(ctx context.Context, alerts []ma
 }
 func TestDeviceNotificationsRetryAndFiltering(t *testing.T) {
 	n, am, now := notificationFixture(t)
+	ctx := context.Background()
 	failing := &failingNotificationBackend{fakeAlertmanager: am, failed: true}
 	n.service.Alerts = failing
 	a := notificationAlarm(*now)
@@ -135,42 +145,42 @@ func TestDeviceNotificationsRetryAndFiltering(t *testing.T) {
 	video := a
 	video.Source = "video"
 	enqueueAlarm(t, n, video)
-	files, _ := os.ReadDir(n.dir)
-	if len(files) != 0 {
+	if spoolFiles(t, n.dir, ".json") != 0 {
 		t.Fatal("historical or video alarm enqueued")
 	}
 	enqueueAlarm(t, n, a)
-	if err := n.flush(context.Background()); err == nil {
+	if err := n.flush(ctx); err == nil {
 		t.Fatal("failure hidden")
 	}
+	// An outage longer than the delivery window must not drop the report.
+	*now = now.Add(3 * deviceNotificationWindow)
 	failing.failed = false
-	if err := n.flush(context.Background()); err != nil {
+	if err := n.flush(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if len(am.posted) != 1 {
-		t.Fatal("pending event lost")
+		t.Fatal("pending event lost after a long outage")
 	}
-	cfg, _ := n.service.NotificationConfig(context.Background())
+	if ends, _ := time.Parse(time.RFC3339Nano, am.posted[0]["endsAt"].(string)); !ends.Equal(now.Add(deviceNotificationWindow)) {
+		t.Fatal("delivery window must start at the first accepted post", ends)
+	}
+	cfg, _ := n.service.NotificationConfig(ctx)
 	cfg.DeviceAlarmReceiver = ""
 	for i := range cfg.Receivers {
 		cfg.Receivers[i].OriginalName = cfg.Receivers[i].Name
 	}
-	if _, err := n.service.SaveNotificationConfig(context.Background(), cfg, "test"); err != nil {
+	if _, err := n.service.SaveNotificationConfig(ctx, cfg, "test"); err != nil {
 		t.Fatal(err)
 	}
 	*now = now.Add(time.Minute)
-	if err := n.flush(context.Background()); err != nil {
+	if err := n.flush(ctx); err != nil {
 		t.Fatal(err)
 	}
 	a.ID = "disabled-alarm"
 	a.LastTriggeredAt = now.UnixMilli()
 	enqueueAlarm(t, n, a)
-	if len(am.posted) != 1 {
-		t.Fatal("disabled notification still sent")
-	}
-	files, _ = os.ReadDir(n.dir)
-	if len(files) != 1 {
-		t.Fatal("disabled notification enqueued")
+	if len(am.posted) != 1 || spoolFiles(t, n.dir, ".json") != 0 {
+		t.Fatal("disabled notification still pending or sent")
 	}
 }
 

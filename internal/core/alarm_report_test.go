@@ -76,19 +76,31 @@ func TestAlarmReportsIncludeRepeatedTriggers(t *testing.T) {
 	}
 }
 
-type failedAlarmReportBus struct{ *local.Bus }
+type failingReportBus struct {
+	*local.Bus
+	failed bool
+}
 
-func (b failedAlarmReportBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
-	if topic == model.TopicAlarmReported {
+func (b *failingReportBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
+	if b.failed && topic == model.TopicAlarmReported {
 		return errors.New("report stream unavailable")
 	}
 	return b.Bus.Publish(ctx, topic, key, payload)
 }
 
-func TestAlarmReportPublishFailureIsRetryable(t *testing.T) {
-	e := New(memory.NewRepository(), nil, failedAlarmReportBus{local.NewBus()}, local.NewRealtime(), nil, nil)
-	_, _, err := e.raiseDirectAlarm(context.Background(), model.StandardMessage{TenantID: "t", DeviceID: "d", MessageID: "m", MessageType: model.AlarmReport})
-	if err == nil {
-		t.Fatal("notification stream failure was silently acknowledged")
+func TestAlarmReportSurvivesPublishFailure(t *testing.T) {
+	ctx := context.Background()
+	bus := &failingReportBus{Bus: local.NewBus(), failed: true}
+	e := New(memory.NewRepository(), nil, bus, local.NewRealtime(), nil, nil)
+	reports := 0
+	_ = bus.Subscribe(ctx, model.TopicAlarmReported, "test", func(context.Context, []byte) error { reports++; return nil })
+	if _, _, err := e.raiseDirectAlarm(ctx, model.StandardMessage{TenantID: "t", DeviceID: "d", MessageID: "m", MessageType: model.AlarmReport}); err != nil {
+		t.Fatal(err)
+	}
+	bus.failed = false
+	e.flushOutbox(ctx)
+	e.flushOutbox(ctx)
+	if reports != 1 {
+		t.Fatalf("want the committed report published once after recovery, got %d", reports)
 	}
 }

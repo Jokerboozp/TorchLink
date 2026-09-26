@@ -1,11 +1,11 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
-import { transportLabel, formatLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
-import { computed, onMounted, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api, download, formatTime, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
-import { messageTypeLabel, messageTypes } from '../labels' /* 引入当前代码需要的依赖。 */
+defineEmits(['navigate'])
+import { transportLabel, formatLabel } from '../presentation'
+import { computed, onMounted, ref } from 'vue'
+import { UiMessage } from '../ui/feedback.js'
+import { api, download, formatTime, notifyError, pretty } from '../api'
+import { messageTypeLabel, messageTypes } from '../labels'
 import { Download, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -21,47 +21,47 @@ const parseStatuses = { PARSED: '已解析', FAILED: '解析失败', UNPARSED: '
 const hasFilters = computed(() => Object.values(filters.value).some(Boolean) || Object.values(appliedFilters.value).some(Boolean))
 const advancedCount = computed(() => ['productId', 'protocol', 'payloadFormat', 'messageType', 'parser'].filter(key => filters.value[key]).length)
 const activeFilterCount = computed(() => Object.values(appliedFilters.value).filter(Boolean).length)
-const items = ref([]) /* 声明 items。 */
-const selection = ref([]) /* 声明 selection。 */
-const loading = ref(false) /* 声明 loading。 */
-const detail = ref(null) /* 声明 detail。 */
-const detailVisible = ref(false) /* 声明 detailVisible。 */
+const items = ref([])
+const selection = ref([])
+const loading = ref(false)
+const detail = ref(null)
+const detailVisible = ref(false)
 const detailTab = ref('parsed') /* 每次查看报文都从解析结果开始，并显式同步页签状态。 */
-const page = ref(1) /* 声明 page。 */
-const pageSize = ref(20) /* 声明 pageSize。 */
-const total = ref(0) /* 声明 total。 */
-const selectedIds = computed(() => selection.value.map(item => item.messageId)) /* 声明 selectedIds。 */
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+const selectedIds = computed(() => selection.value.map(item => item.messageId))
 let loadVersion = 0
 
-async function load() { /* 定义 load 函数。 */
+async function load() {
   const version = ++loadVersion
   loading.value = true
   loadError.value = ''
-  selection.value = [] /* 更新 loading.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) }) /* 声明 params。 */
+  selection.value = []
+  try {
+    const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) })
     for (const [key, value] of Object.entries(appliedFilters.value)) {
       if (key !== 'range' && value) params.set(key, value)
     }
     if (appliedFilters.value.range) {
       params.set('start', String(appliedFilters.value.range[0]))
       params.set('end', String(appliedFilters.value.range[1]))
-    } /* 判断条件并选择处理分支。 */
-    const data = await api(`/api/v1/raw-messages?${params.toString()}`) /* 声明 data。 */
+    }
+    const data = await api(`/api/v1/raw-messages?${params.toString()}`)
     if (version !== loadVersion) return
-    items.value = data.items || [] /* 更新 items.value 的值。 */
-    total.value = Number(data.total ?? data.count ?? items.value.length) /* 更新 total.value 的值。 */
-    selection.value = [] /* 更新 selection.value 的值。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
+    items.value = data.items || []
+    total.value = Number(data.total ?? data.count ?? items.value.length)
+    selection.value = []
+  } catch (error) {
     if (version === loadVersion) {
       items.value = []; total.value = 0
       loadError.value = error?.message || '原始报文查询失败'
       notifyError(error)
-    } /* 执行当前语句并推进处理流程。 */
-  } finally { /* 结束当前表达式或代码块。 */
-    if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+    }
+  } finally {
+    if (version === loadVersion) loading.value = false
+  }
+}
 
 async function search() {
   const next = Object.fromEntries(Object.entries(filters.value).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))
@@ -70,9 +70,9 @@ async function search() {
     return
   }
   appliedFilters.value = { ...next, range: next.range ? [...next.range] : null }
-  page.value = 1 /* 更新 page.value 的值。 */
-  await load() /* 等待异步操作完成。 */
-} /* 结束当前表达式或代码块。 */
+  page.value = 1
+  await load()
+}
 
 function resetFilters() {
   filters.value = emptyFilters()
@@ -88,63 +88,63 @@ function parseState(row) {
   return row.parseError ? { tone: 'danger', label: '解析失败' } : { tone: 'neutral', label: '待解析 / 未匹配' }
 }
 
-function changePage(value) { /* 定义 changePage 函数。 */
-  page.value = value /* 更新 page.value 的值。 */
-  load() /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+function changePage(value) {
+  page.value = value
+  load()
+}
 
-function changePageSize(value) { /* 定义 changePageSize 函数。 */
-  pageSize.value = value /* 更新 pageSize.value 的值。 */
-  page.value = 1 /* 更新 page.value 的值。 */
-  load() /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+function changePageSize(value) {
+  pageSize.value = value
+  page.value = 1
+  load()
+}
 
-async function show(id) { /* 定义 show 函数。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    detail.value = await api(`/api/v1/raw-messages/${encodeURIComponent(id)}`) /* 更新 detail.value 的值。 */
+async function show(id) {
+  try {
+    detail.value = await api(`/api/v1/raw-messages/${encodeURIComponent(id)}`)
     detailTab.value = 'parsed'
-    detailVisible.value = true /* 更新 detailVisible.value 的值。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    notifyError(error) /* 执行当前语句并推进处理流程。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+    detailVisible.value = true
+  } catch (error) {
+    notifyError(error)
+  }
+}
 
-async function downloadOne(id) { /* 定义 downloadOne 函数。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    await download(`/api/v1/raw-messages/${encodeURIComponent(id)}/download`, `${id}.json`) /* 等待异步操作完成。 */
-    UiMessage.success('报文已下载') /* 执行当前语句并推进处理流程。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    notifyError(error) /* 执行当前语句并推进处理流程。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+async function downloadOne(id) {
+  try {
+    await download(`/api/v1/raw-messages/${encodeURIComponent(id)}/download`, `${id}.json`)
+    UiMessage.success('报文已下载')
+  } catch (error) {
+    notifyError(error)
+  }
+}
 
-async function downloadBatch() { /* 定义 downloadBatch 函数。 */
-  if (!selectedIds.value.length) return /* 判断条件并选择处理分支。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14) /* 声明 stamp。 */
-    await download('/api/v1/raw-messages/download', `原始报文_${stamp}_${selectedIds.value.length}条.zip`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageIds: selectedIds.value }) }) /* 等待异步操作完成。 */
-    UiMessage.success(`已将 ${selectedIds.value.length} 条报文整合为压缩包`) /* 执行当前语句并推进处理流程。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    notifyError(error) /* 执行当前语句并推进处理流程。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+async function downloadBatch() {
+  if (!selectedIds.value.length) return
+  try {
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+    await download('/api/v1/raw-messages/download', `原始报文_${stamp}_${selectedIds.value.length}条.zip`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageIds: selectedIds.value }) })
+    UiMessage.success(`已将 ${selectedIds.value.length} 条报文整合为压缩包`)
+  } catch (error) {
+    notifyError(error)
+  }
+}
 
-onMounted(async () => { /* 执行当前语句并推进处理流程。 */
-  let navigation = {} /* 声明 navigation。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const raw = sessionStorage.getItem('iot:navigation-detail') /* 声明 raw。 */
-    if (raw) { /* 判断条件并选择处理分支。 */
-      navigation = JSON.parse(raw) /* 更新 navigation 的值。 */
+onMounted(async () => {
+  let navigation = {}
+  try {
+    const raw = sessionStorage.getItem('iot:navigation-detail')
+    if (raw) {
+      navigation = JSON.parse(raw)
       filters.value.deviceId = navigation.deviceId || ''
       appliedFilters.value = { ...filters.value }
-      sessionStorage.removeItem('iot:navigation-detail') /* 执行当前语句并推进处理流程。 */
-    } /* 结束当前表达式或代码块。 */
-  } catch { /* 结束当前表达式或代码块。 */
+      sessionStorage.removeItem('iot:navigation-detail')
+    }
+  } catch {
     // Ignore malformed navigation state.
-  } /* 结束当前表达式或代码块。 */
-  await load() /* 等待异步操作完成。 */
-  if (navigation.messageId) await show(navigation.messageId) /* 判断条件并选择处理分支。 */
-}) /* 结束当前表达式或代码块。 */
+  }
+  await load()
+  if (navigation.messageId) await show(navigation.messageId)
+})
 function rowActions(row) {
   return [
     { key:'detail', label:'详情', onClick:() => show(row.messageId) },
@@ -182,17 +182,17 @@ function rowActions(row) {
   <ui-alert v-if="loadError" title="查询失败" :description="loadError" type="error" :closable="false" class="raw-query-error" />
   <DataTableCard :title="`原始报文 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
     <p class="raw-hint">{{ activeFilterCount ? `已应用 ${activeFilterCount} 项筛选；` : '' }}保留原文证据链；详情同时展示标准解析结果。</p>
-    <ui-table v-loading="loading" :data="items" :empty-text="loadError ? '查询失败，请重试' : activeFilterCount ? '没有符合筛选条件的原始报文' : '暂无原始报文'" @selection-change="selection = $event"> <!-- 渲染 ui-table 界面元素。 -->
-      <ui-table-column type="selection" width="48" /><ui-table-column label="接收时间" width="160"><template #default="{ row }">{{ formatTime(row.receivedAt) }}</template></ui-table-column><ui-table-column prop="messageId" label="消息标识" min-width="200" show-overflow-tooltip /><ui-table-column label="设备 / 产品" min-width="220"><template #default="{ row }"><span class="raw-id" :title="row.deviceId">{{ row.deviceId }}</span><small class="subline raw-id" :title="row.productId">{{ row.productId }}</small></template></ui-table-column><ui-table-column prop="protocol" label="协议" min-width="130" show-overflow-tooltip /> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="解析状态" width="145"><template #default="{ row }"><StatusDot :tone="parseState(row).tone" :label="parseState(row).label" /></template></ui-table-column><ui-table-column label="大小" width="90"><template #default="{ row }">{{ row.payloadSize }} 字节</template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-      <ui-table-column label="操作" fixed="right" width="110" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column> <!-- 渲染 ui-table-column 界面元素。 -->
-    </ui-table> <!-- 结束当前界面区域。 -->
+    <ui-table v-loading="loading" :data="items" :empty-text="loadError ? '查询失败，请重试' : activeFilterCount ? '没有符合筛选条件的原始报文' : '暂无原始报文'" @selection-change="selection = $event">
+      <ui-table-column type="selection" width="48" /><ui-table-column label="接收时间" width="160"><template #default="{ row }">{{ formatTime(row.receivedAt) }}</template></ui-table-column><ui-table-column prop="messageId" label="消息标识" min-width="200" show-overflow-tooltip /><ui-table-column label="设备 / 产品" min-width="220"><template #default="{ row }"><span class="raw-id" :title="row.deviceId">{{ row.deviceId }}</span><small class="subline raw-id" :title="row.productId">{{ row.productId }}</small></template></ui-table-column><ui-table-column prop="protocol" label="协议" min-width="130" show-overflow-tooltip />
+      <ui-table-column label="解析状态" width="145"><template #default="{ row }"><StatusDot :tone="parseState(row).tone" :label="parseState(row).label" /></template></ui-table-column><ui-table-column label="大小" width="90"><template #default="{ row }">{{ row.payloadSize }} 字节</template></ui-table-column>
+      <ui-table-column label="操作" fixed="right" width="110" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+    </ui-table>
   </DataTableCard>
-  <ui-dialog v-model="detailVisible" title="报文详情与解析结果" width="min(900px, 94vw)"> <!-- 渲染 ui-dialog 界面元素。 -->
-    <ui-descriptions v-if="detail" :column="2" border><ui-descriptions-item label="消息标识">{{ detail.message?.messageId }}</ui-descriptions-item><ui-descriptions-item label="解析状态"><ui-tag :type="detail.parseStatus === 'PARSED' ? 'success' : 'info'" round>{{ detail.parseStatus === 'PARSED' ? '已解析' : detail.parseStatus === 'FAILED' ? '解析失败' : '待解析/未匹配' }}</ui-tag></ui-descriptions-item><ui-descriptions-item label="设备 / 产品">{{ detail.message?.deviceId }} / {{ detail.message?.productId }}</ui-descriptions-item><ui-descriptions-item label="接收时间">{{ formatTime(detail.message?.receivedAt) }}</ui-descriptions-item><ui-descriptions-item label="协议 / 格式">{{ transportLabel(detail.message?.protocol) }} / {{ formatLabel(detail.message?.payloadFormat) }}</ui-descriptions-item><ui-descriptions-item label="解析器">{{ detail.standardMessage?.parser || '—' }} {{ detail.standardMessage?.parserVersion || '' }}</ui-descriptions-item><ui-descriptions-item label="完整性校验摘要" :span="2"><code class="break-all">{{ detail.archive?.payloadHash }}</code></ui-descriptions-item></ui-descriptions> <!-- 渲染 ui-descriptions 界面元素。 -->
-    <ui-alert v-if="detail.parseStatus !== 'PARSED'" class="top-gap" title="当前没有可展示的标准解析结果" :description="detail.parseError || '可能仍在异步处理，或该协议包没有匹配的解析器。请检查协议开发中的样本调试结果。'" type="warning" :closable="false" show-icon /><pre v-if="detail.parseStatus !== 'PARSED'">{{pretty(detail.message)}}</pre><ui-tabs v-else v-model="detailTab" class="top-gap"><ui-tab-pane name="parsed" label="标准解析结果"><pre>{{ pretty(detail?.standardMessage) }}</pre></ui-tab-pane><ui-tab-pane name="raw" label="原始报文"><pre>{{ pretty(detail?.message) }}</pre></ui-tab-pane></ui-tabs> <!-- 渲染 ui-alert 界面元素。 -->
+  <ui-dialog v-model="detailVisible" title="报文详情与解析结果" width="min(900px, 94vw)">
+    <ui-descriptions v-if="detail" :column="2" border><ui-descriptions-item label="消息标识">{{ detail.message?.messageId }}</ui-descriptions-item><ui-descriptions-item label="解析状态"><ui-tag :type="detail.parseStatus === 'PARSED' ? 'success' : 'info'" round>{{ detail.parseStatus === 'PARSED' ? '已解析' : detail.parseStatus === 'FAILED' ? '解析失败' : '待解析/未匹配' }}</ui-tag></ui-descriptions-item><ui-descriptions-item label="设备 / 产品">{{ detail.message?.deviceId }} / {{ detail.message?.productId }}</ui-descriptions-item><ui-descriptions-item label="接收时间">{{ formatTime(detail.message?.receivedAt) }}</ui-descriptions-item><ui-descriptions-item label="协议 / 格式">{{ transportLabel(detail.message?.protocol) }} / {{ formatLabel(detail.message?.payloadFormat) }}</ui-descriptions-item><ui-descriptions-item label="解析器">{{ detail.standardMessage?.parser || '—' }} {{ detail.standardMessage?.parserVersion || '' }}</ui-descriptions-item><ui-descriptions-item label="完整性校验摘要" :span="2"><code class="break-all">{{ detail.archive?.payloadHash }}</code></ui-descriptions-item></ui-descriptions>
+    <ui-alert v-if="detail.parseStatus !== 'PARSED'" class="top-gap" title="当前没有可展示的标准解析结果" :description="detail.parseError || '可能仍在异步处理，或该协议包没有匹配的解析器。请检查协议开发中的样本调试结果。'" type="warning" :closable="false" show-icon /><pre v-if="detail.parseStatus !== 'PARSED'">{{pretty(detail.message)}}</pre><ui-tabs v-else v-model="detailTab" class="top-gap"><ui-tab-pane name="parsed" label="标准解析结果"><pre>{{ pretty(detail?.standardMessage) }}</pre></ui-tab-pane><ui-tab-pane name="raw" label="原始报文"><pre>{{ pretty(detail?.message) }}</pre></ui-tab-pane></ui-tabs>
     <template #footer><ui-button @click="detailVisible = false">关闭</ui-button><ui-button v-permission="'GET /api/v1/raw-messages/:id/download'" type="primary" @click="downloadOne(detail.message.messageId)">下载原始报文</ui-button></template>
-  </ui-dialog> <!-- 结束当前界面区域。 -->
+  </ui-dialog>
 </template>
 
 <style scoped>

@@ -16,21 +16,32 @@ import (
 	"iot-platform/internal/ports"
 )
 
+const (
+	// deviceNotificationWindow keeps an accepted alert firing so Alertmanager
+	// can retry SMTP across restarts. It starts at the first successful post;
+	// records that were never accepted keep retrying without a deadline.
+	deviceNotificationWindow = 24 * time.Hour
+	// deviceNotificationRetention bounds replay deduplication. Receipts are
+	// purged after it, so older source events are not accepted.
+	deviceNotificationRetention = 30 * 24 * time.Hour
+)
+
 // DeviceNotifications transports per-report receipt events, not business alarm
-// state. Its spool must be on persistent storage, just like Alertmanager data.
-// Stable identity and timestamps let Alertmanager deduplicate retries/restarts.
+// state. Its spool must be on persistent storage, just like Alertmanager data:
+// <key>.json is pending or within its window, <key>.done is an empty receipt.
 type DeviceNotifications struct {
-	service  *Service
-	dir      string
-	mu       sync.Mutex
-	wake     chan struct{}
-	lastPost map[string]time.Time
+	service   *Service
+	dir       string
+	mu        sync.Mutex
+	wake      chan struct{}
+	lastPost  map[string]time.Time
+	lastPurge time.Time
 }
 
 type deviceNotification struct {
 	Epoch       int64          `json:"epoch"`
 	TriggeredAt int64          `json:"triggeredAt"`
-	EndsAt      time.Time      `json:"endsAt"`
+	PostedAt    time.Time      `json:"postedAt"`
 	Alert       map[string]any `json:"alert"`
 }
 
@@ -69,27 +80,37 @@ func (n *DeviceNotifications) enqueue(ctx context.Context, payload []byte) error
 	if err != nil {
 		return err
 	}
-	now := s.now()
-	if cfg.DeviceAlarmReceiver == "" || alarm.LastTriggeredAt < cfg.DeviceAlarmSince || alarm.LastTriggeredAt <= now.Add(-48*time.Hour).UnixMilli() {
+	if cfg.DeviceAlarmReceiver == "" || alarm.LastTriggeredAt < cfg.DeviceAlarmSince || alarm.LastTriggeredAt <= s.now().Add(-deviceNotificationRetention).UnixMilli() {
 		return nil
 	}
 	key := fmt.Sprintf("%x", sha256.Sum256([]byte(alarm.TenantID+"\x00"+alarm.ID+"\x00"+alarm.TriggerID)))
-	file := filepath.Join(n.dir, key+".json")
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if _, err := os.Stat(file); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
+	for _, name := range []string{key + ".json", key + ".done"} {
+		if _, err := os.Stat(filepath.Join(n.dir, name)); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	item := deviceNotification{Epoch: cfg.DeviceAlarmSince, TriggeredAt: alarm.LastTriggeredAt, Alert: deviceNotificationAlert(alarm, cfg.DeviceAlarmSince)}
+	if err := n.write(key+".json", item); err != nil {
 		return err
 	}
-	ends := now.Add(24 * time.Hour)
-	item := deviceNotification{Epoch: cfg.DeviceAlarmSince, TriggeredAt: alarm.LastTriggeredAt, EndsAt: ends,
-		Alert: deviceNotificationAlert(alarm, cfg.DeviceAlarmSince, now, ends)}
+	select {
+	case n.wake <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// write replaces a record via temporary file + sync + rename, so a partial
+// record is never acknowledged.
+func (n *DeviceNotifications) write(name string, item deviceNotification) error {
 	data, err := json.Marshal(item)
 	if err != nil {
 		return err
 	}
-	// A temporary file + sync + rename avoids acknowledging a partial record.
 	tmp, err := os.CreateTemp(n.dir, ".pending-")
 	if err != nil {
 		return err
@@ -98,21 +119,22 @@ func (n *DeviceNotifications) enqueue(ctx context.Context, payload []byte) error
 	if _, err = tmp.Write(data); err == nil {
 		err = tmp.Sync()
 	}
-	closeErr := tmp.Close()
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if err := os.Rename(tmp.Name(), file); err != nil {
+	return os.Rename(tmp.Name(), filepath.Join(n.dir, name))
+}
+
+// finish leaves an empty receipt first, so replay deduplication never has a gap.
+func (n *DeviceNotifications) finish(name string) error {
+	delete(n.lastPost, name)
+	if err := os.WriteFile(filepath.Join(n.dir, strings.TrimSuffix(name, ".json")+".done"), nil, 0o600); err != nil {
 		return err
 	}
-	select {
-	case n.wake <- struct{}{}:
-	default:
-	}
-	return nil
+	return os.Remove(filepath.Join(n.dir, name))
 }
 
 func (n *DeviceNotifications) run(ctx context.Context) {
@@ -136,17 +158,30 @@ func (n *DeviceNotifications) flush(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	now := n.service.now()
+	purge := now.Sub(n.lastPurge) >= time.Hour
+	if purge {
+		n.lastPurge = now
+	}
 	var firstErr error
 	for _, entry := range entries {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
+		name := entry.Name()
+		switch {
+		case entry.IsDir():
+		case strings.HasSuffix(name, ".json"):
+			err = n.deliver(ctx, name)
+		case purge && strings.HasSuffix(name, ".done"):
+			if info, infoErr := entry.Info(); infoErr == nil && now.Sub(info.ModTime()) > deviceNotificationRetention {
+				err = os.Remove(filepath.Join(n.dir, name))
+			}
 		}
-		if err := n.deliver(ctx, entry.Name()); err != nil && firstErr == nil {
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
+		err = nil
 	}
 	return firstErr
 }
@@ -162,17 +197,10 @@ func (n *DeviceNotifications) deliver(ctx context.Context, name string) error {
 	}
 	s := n.service
 	now := s.now()
-	// Keep expired records long enough to reject replay, without retaining device
-	// details indefinitely. Older source events are also rejected at enqueue.
-	if now.UnixMilli() > item.TriggeredAt+(48*time.Hour).Milliseconds() && now.After(item.EndsAt) {
-		delete(n.lastPost, name)
-		return os.Remove(filepath.Join(n.dir, name))
+	if !item.PostedAt.IsZero() && !now.Before(item.PostedAt.Add(deviceNotificationWindow)) {
+		return n.finish(name)
 	}
-	labels, _ := item.Alert["labels"].(map[string]any)
-	if labels["trigger_id"] == nil {
-		return nil
-	}
-	if !now.Before(item.EndsAt) || now.Sub(n.lastPost[name]) < time.Minute {
+	if now.Sub(n.lastPost[name]) < time.Minute {
 		return nil
 	}
 	s.amMu.Lock()
@@ -181,17 +209,29 @@ func (n *DeviceNotifications) deliver(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	// Disabling or switching the receiver starts a new epoch; earlier reports
+	// are dropped rather than sent to the new channel.
 	if cfg.DeviceAlarmReceiver == "" || cfg.DeviceAlarmSince != item.Epoch {
-		return nil
+		return n.finish(name)
 	}
+	first := item.PostedAt.IsZero()
+	if first {
+		item.PostedAt = now
+	}
+	item.Alert["startsAt"] = item.PostedAt.UTC().Format(time.RFC3339Nano)
+	item.Alert["endsAt"] = item.PostedAt.Add(deviceNotificationWindow).UTC().Format(time.RFC3339Nano)
 	if err := s.Alerts.PostAlerts(ctx, []map[string]any{item.Alert}); err != nil {
 		return err
 	}
 	n.lastPost[name] = now
+	if first {
+		// Persist the window so a restarted worker refreshes the same alert.
+		return n.write(name, item)
+	}
 	return nil
 }
 
-func deviceNotificationAlert(a model.Alarm, epoch int64, start, end time.Time) map[string]any {
+func deviceNotificationAlert(a model.Alarm, epoch int64) map[string]any {
 	name := a.DeviceName
 	if name == "" {
 		name = a.DeviceID
@@ -233,7 +273,6 @@ func deviceNotificationAlert(a model.Alarm, epoch int64, start, end time.Time) m
 	return map[string]any{
 		"labels":      map[string]string{"alertname": "TorchLinkDeviceAlarm", deviceNotificationLabel: strconv.FormatInt(epoch, 10), "tenant_id": a.TenantID, "alarm_id": a.ID, "trigger_id": a.TriggerID},
 		"annotations": annotations,
-		"startsAt":    start.UTC().Format(time.RFC3339Nano), "endsAt": end.UTC().Format(time.RFC3339Nano),
 	}
 }
 

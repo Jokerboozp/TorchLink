@@ -22,6 +22,9 @@ func rawFilterSQL(f ports.RawFilter) (string, []any) {
 			add(field.column+"=$%d", field.value)
 		}
 	}
+	if f.DeviceIDs != nil {
+		add("r.device_id=ANY($%d)", f.DeviceIDs)
+	}
 	if f.Protocol != "" {
 		add("lower(r.protocol)=lower($%d)", f.Protocol)
 	}

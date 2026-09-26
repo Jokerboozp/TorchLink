@@ -2,48 +2,14 @@ package postgres
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"iot-platform/internal/model"
 )
 
 func TestAlarmAnalysisJobStore(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("IOT_TEST_POSTGRES_DSN is not configured")
-	}
 	ctx := context.Background()
-	admin, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	schemaName := fmt.Sprintf("analysis_job_test_%d", time.Now().UnixNano())
-	identifier := pgx.Identifier{schemaName}.Sanitize()
-	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _, _ = admin.Exec(context.Background(), "DROP SCHEMA "+identifier+" CASCADE") }()
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = schemaName
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	r := &Repository{pool: pool}
-	if err = r.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	r := testRepository(t)
 
 	running := model.AlarmAnalysisJob{ID: "job-1", TenantID: "t1", AlarmID: "a1", Status: "running", StartedAt: 1000, UpdatedAt: 1000}
 	if created, createErr := r.CreateAlarmAnalysisJob(ctx, running); createErr != nil || !created {
@@ -73,7 +39,7 @@ func TestAlarmAnalysisJobStore(t *testing.T) {
 		t.Fatalf("rerun: %v %v", created, createErr)
 	}
 	var rows int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM alarm_analysis_job WHERE tenant_id='t1' AND alarm_id='a1' AND knowledge_scope=''`).Scan(&rows); err != nil || rows != 1 {
+	if err = r.pool.QueryRow(ctx, `SELECT count(*) FROM alarm_analysis_job WHERE tenant_id='t1' AND alarm_id='a1' AND knowledge_scope=''`).Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("finished jobs must be replaced: rows=%d err=%v", rows, err)
 	}
 	if _, err = r.LatestAlarmAnalysisJob(ctx, "t1", "missing", ""); err != ErrNotFound {

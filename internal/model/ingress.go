@@ -1,7 +1,7 @@
-package model /* 声明 model 包。 */
+package model
 
-import "errors" /* 引入当前代码需要的依赖。 */
+import "errors"
 
-var ErrNotFound = errors.New("not found") /* 声明 ErrNotFound。 */
+var ErrNotFound = errors.New("not found")
 var ErrResourceInUse = errors.New("resource is referenced")
-var ErrInvalidIngress = errors.New("invalid ingress message") /* 声明 ErrInvalidIngress。 */
+var ErrInvalidIngress = errors.New("invalid ingress message")

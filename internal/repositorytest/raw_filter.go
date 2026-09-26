@@ -49,6 +49,8 @@ func RawFilters(t *testing.T, repo ports.Repository) {
 		{"parsed-old-error", ports.RawFilter{ParseStatus: "PARSED"}, []string{"r4", "r1"}},
 		{"latest-only", ports.RawFilter{MessageType: "EVENT_REPORT"}, []string{}},
 		{"message", ports.RawFilter{MessageID: "r2"}, []string{"r2"}},
+		{"device-set", ports.RawFilter{DeviceIDs: []string{"d2", "missing"}}, []string{"r4", "r3"}},
+		{"empty-device-set", ports.RawFilter{DeviceIDs: []string{}}, []string{}},
 		{"product", ports.RawFilter{ProductID: "p2"}, []string{"r4", "r3"}},
 		{"protocol", ports.RawFilter{Protocol: "TCP"}, []string{"r2"}},
 		{"format", ports.RawFilter{PayloadFormat: "hex"}, []string{"r2"}},

@@ -3,6 +3,7 @@ package memory
 import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"slices"
 	"strings"
 )
 
@@ -27,6 +28,9 @@ func (r *Repository) rawFilterStandards(f ports.RawFilter) map[string]model.Stan
 
 func matchesRawFilter(v model.RawArchiveIndex, message model.StandardMessage, f ports.RawFilter) bool {
 	if f.TenantID != "" && v.TenantID != f.TenantID || f.ProductID != "" && v.ProductID != f.ProductID || f.DeviceID != "" && v.DeviceID != f.DeviceID || f.MessageID != "" && v.MessageID != f.MessageID || f.Start > 0 && v.ReceivedAt < f.Start || f.End > 0 && v.ReceivedAt > f.End {
+		return false
+	}
+	if f.DeviceIDs != nil && !slices.Contains(f.DeviceIDs, v.DeviceID) {
 		return false
 	}
 	if f.Protocol != "" && !strings.EqualFold(v.Protocol, f.Protocol) || f.PayloadFormat != "" && !strings.EqualFold(v.PayloadFormat, f.PayloadFormat) {

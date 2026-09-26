@@ -1,20 +1,10 @@
-# 执行当前脚本步骤。
 FROM golang:1.26-alpine AS build
-# 执行当前脚本步骤。
 WORKDIR /src
-# 执行当前脚本步骤。
 COPY go.mod go.sum ./
-# 执行当前脚本步骤。
 RUN go mod download
-# 执行当前脚本步骤。
 COPY . .
-# 执行当前脚本步骤。
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/backup-service ./cmd/backup-service
-# 执行当前脚本步骤。
 FROM alpine:3.22
-# 执行当前脚本步骤。
 RUN apk add --no-cache ca-certificates tzdata
-# 执行当前脚本步骤。
 COPY --from=build /out/backup-service /usr/local/bin/backup-service
-# 执行当前脚本步骤。
 ENTRYPOINT ["backup-service"]

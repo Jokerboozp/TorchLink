@@ -1,14 +1,14 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-const emit = defineEmits(['navigate']) /* 声明 emit。 */
+const emit = defineEmits(['navigate'])
 import AccessPointsPanel from '../components/AccessPointsPanel.vue'
-import ProtocolAssistantView from './ProtocolAssistantView.vue' /* 引入当前代码需要的依赖。 */
-import FilePicker from '../components/FilePicker.vue' /* 引入当前代码需要的依赖。 */
-import { transportLabel, statusLabel, platformLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
-import { computed, onMounted, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { label, parsers } from '../labels' /* 引入当前代码需要的依赖。 */
-import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api, download, formatTime, notifyError, pretty } from '../api' /* 引入当前代码需要的依赖。 */
+import ProtocolAssistantView from './ProtocolAssistantView.vue'
+import FilePicker from '../components/FilePicker.vue'
+import { transportLabel, statusLabel, platformLabel } from '../presentation'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { label, parsers } from '../labels'
+import { UiMessage } from '../ui/feedback.js'
+import { api, download, formatTime, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { RefreshCw, Upload, Wand2 } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -17,22 +17,22 @@ import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { can } from '../permissions' /* 根据当前账号权限决定版本详情中的可用操作。 */
 
-const protocols = ref([]) /* 声明 protocols。 */
-const protocolPage = ref(1), protocolPageSize = ref(20) /* 声明 protocolPage。 */
-const pagedProtocols = computed(() => protocols.value.slice((protocolPage.value - 1) * protocolPageSize.value, protocolPage.value * protocolPageSize.value)) /* 声明 pagedProtocols。 */
-watch(() => protocols.value.length, total => { protocolPage.value = Math.min(protocolPage.value, Math.max(1, Math.ceil(total / protocolPageSize.value))) }) /* 执行当前语句并推进处理流程。 */
-const loading = ref(false) /* 声明 loading。 */
-const result = ref(null) /* 声明 result。 */
-const sourceFile = ref(null) /* 声明 sourceFile。 */
-const targetPlatforms = ref([]) /* 声明 targetPlatforms。 */
-const compiling = ref(false) /* 声明 compiling。 */
-const sourceError = ref('') /* 声明 sourceError。 */
-const sourceTemplate = ref(null) /* 声明 sourceTemplate。 */
-const products = ref([]) /* 声明 products。 */
-const switching = ref(false) /* 声明 switching。 */
-const source = reactive({ protocolId:'', name:'', version:'', productId:'', transport:'', publish:true }) /* 声明 source。 */
-const props = defineProps({ section: { type: String, default: 'protocols' } }) /* 声明 props。 */
-const sourceOpen = ref(false), assistantOpen = ref(false) /* 声明 sourceOpen。 */
+const protocols = ref([])
+const protocolPage = ref(1), protocolPageSize = ref(20)
+const pagedProtocols = computed(() => protocols.value.slice((protocolPage.value - 1) * protocolPageSize.value, protocolPage.value * protocolPageSize.value))
+watch(() => protocols.value.length, total => { protocolPage.value = Math.min(protocolPage.value, Math.max(1, Math.ceil(total / protocolPageSize.value))) })
+const loading = ref(false)
+const result = ref(null)
+const sourceFile = ref(null)
+const targetPlatforms = ref([])
+const compiling = ref(false)
+const sourceError = ref('')
+const sourceTemplate = ref(null)
+const products = ref([])
+const switching = ref(false)
+const source = reactive({ protocolId:'', name:'', version:'', productId:'', transport:'', publish:true })
+const props = defineProps({ section: { type: String, default: 'protocols' } })
+const sourceOpen = ref(false), assistantOpen = ref(false)
 const releaseOpen = ref(false), selectedProtocol = ref(null), selectedRelease = ref(null) /* 保存当前查看的协议及版本。 */
 const versionsOpen = ref(false), managedProtocolId = ref('')
 const managedProtocol = computed(() => protocols.value.find(item => item.definition.id === managedProtocolId.value) || null)
@@ -42,72 +42,72 @@ const hasReleaseActions = computed(() => { /* 仅在版本能力和账号权限�
   const release = selectedRelease.value /* 读取当前版本。 */
   return Boolean(release && ((release.artifact?.generatedMapping && can('POST /api/v2/protocols/:id/releases/:version/preview')) || (release.status === 'VALIDATED' && can('POST /api/v2/protocols/:id/releases/:version/publish')) || (release.artifact?.build?.kind === 'go-source' && can('GET /api/v2/protocols/:id/releases/:version/source')))) /* 返回可用操作状态。 */
 }) /* 结束版本操作判断。 */
-const assistantRelease = ref(null), assistantName = ref('') /* 声明 assistantRelease。 */
+const assistantRelease = ref(null), assistantName = ref('')
 function openAssistant(release = null, name = '') { releaseOpen.value=false;assistantRelease.value=release;assistantName.value=name;assistantOpen.value=true } /* 从版本详情进入解析测试时关闭原弹窗。 */
-function assistantNavigate(page) { assistantOpen.value=false;emit('navigate',page) } /* 定义 assistantNavigate 函数。 */
-const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0)) /* 声明 releaseCount。 */
+function assistantNavigate(page) { assistantOpen.value=false;emit('navigate',page) }
+const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0))
 let loadVersion = 0
 
-async function loadProducts() { /* 定义 loadProducts 函数。 */
-  const items = [] /* 声明 items。 */
-  for (let page = 1; ; page += 1) { /* 循环处理当前数据。 */
-    const result = await api(`/api/v1/products?page=${page}&pageSize=100`) /* 声明 result。 */
-    items.push(...(result.items || [])) /* 执行当前语句并推进处理流程。 */
-    if (!result.items?.length || items.length >= Number(result.total ?? result.count ?? items.length)) return items /* 判断条件并选择处理分支。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+async function loadProducts() {
+  const items = []
+  for (let page = 1; ; page += 1) {
+    const result = await api(`/api/v1/products?page=${page}&pageSize=100`)
+    items.push(...(result.items || []))
+    if (!result.items?.length || items.length >= Number(result.total ?? result.count ?? items.length)) return items
+  }
+}
 
-async function load() { /* 定义 load 函数。 */
+async function load() {
   const version = ++loadVersion
-  loading.value = true /* 更新 loading.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const [catalog, productList, template] = await Promise.all([api('/api/v2/protocols'), loadProducts(), api('/api/v2/protocol-source-template')]) /* 执行当前语句并推进处理流程。 */
+  loading.value = true
+  try {
+    const [catalog, productList, template] = await Promise.all([api('/api/v2/protocols'), loadProducts(), api('/api/v2/protocol-source-template')])
     if (version !== loadVersion) return
-    protocols.value = catalog.items || [] /* 更新 protocols.value 的值。 */
-    products.value = productList /* 更新 products.value 的值。 */
-    sourceTemplate.value = template /* 更新 sourceTemplate.value 的值。 */
-  } catch (error) { if (version === loadVersion) notifyError(error) } finally { if (version === loadVersion) loading.value = false } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+    protocols.value = catalog.items || []
+    products.value = productList
+    sourceTemplate.value = template
+  } catch (error) { if (version === loadVersion) notifyError(error) } finally { if (version === loadVersion) loading.value = false }
+}
 
-function chooseSourceFile(event) { sourceFile.value = event.target.files?.[0] || null; sourceError.value = '' } /* 定义 chooseSourceFile 函数。 */
-async function downloadSourceTemplate(kind = '') { /* 定义 downloadSourceTemplate 函数。 */
-  try { await download(`/api/v2/protocol-source-template?format=go-functions&kind=${kind}`, kind === 'tcp' ? 'go-tcp-protocol.zip' : 'go-protocol.zip') } /* 执行当前语句并推进处理流程。 */
-  catch (error) { notifyError(error) } /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-async function uploadSource() { /* 定义 uploadSource 函数。 */
-  if (!sourceFile.value || !source.protocolId) return UiMessage.warning('请选择 Go 源码并填写协议标识') /* 判断条件并选择处理分支。 */
-  if (sourceFile.value.size > 32 * 1024 * 1024) return UiMessage.warning('源码文件不能超过 32 兆字节') /* 判断条件并选择处理分支。 */
-  compiling.value = true /* 更新 compiling.value 的值。 */
-  sourceError.value = '' /* 更新 sourceError.value 的值。 */
-  result.value = null /* 更新 result.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const body = new FormData() /* 声明 body。 */
-    body.append('file', sourceFile.value) /* 执行当前语句并推进处理流程。 */
-    if (targetPlatforms.value.length) body.append('targetPlatforms', JSON.stringify(targetPlatforms.value)) /* 判断条件并选择处理分支。 */
-    for (const [key, value] of Object.entries(source)) body.append(key, key === 'productId' && !source.publish ? '' : String(value)) /* 循环处理当前数据。 */
-    result.value = await api(`/api/v2/protocols/${encodeURIComponent(source.protocolId)}/source-releases`, { method:'POST', body }) /* 更新 result.value 的值。 */
-    UiMessage.success(result.value.binding ? '编译与样例测试通过，产品已切换到新版本' : source.publish ? '编译与样例测试通过，协议已发布，可绑定产品使用' : '编译与样例测试通过，已保存校验版本') /* 执行当前语句并推进处理流程。 */
-    sourceOpen.value = false /* 更新 sourceOpen.value 的值。 */
-    await load() /* 等待异步操作完成。 */
-  } catch (error) { sourceError.value = error?.message || String(error) } /* 结束当前表达式或代码块。 */
-  finally { compiling.value = false } /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-async function publishRelease(protocolId, version) { /* 定义 publishRelease 函数。 */
-  switching.value = true /* 更新 switching.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    await api(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(version)}/publish`, { method:'POST', body:'{}' }) /* 等待异步操作完成。 */
-    UiMessage.success('版本已发布，可绑定产品使用') /* 执行当前语句并推进处理流程。 */
+function chooseSourceFile(event) { sourceFile.value = event.target.files?.[0] || null; sourceError.value = '' }
+async function downloadSourceTemplate(kind = '') {
+  try { await download(`/api/v2/protocol-source-template?format=go-functions&kind=${kind}`, kind === 'tcp' ? 'go-tcp-protocol.zip' : 'go-protocol.zip') }
+  catch (error) { notifyError(error) }
+}
+async function uploadSource() {
+  if (!sourceFile.value || !source.protocolId) return UiMessage.warning('请选择 Go 源码并填写协议标识')
+  if (sourceFile.value.size > 32 * 1024 * 1024) return UiMessage.warning('源码文件不能超过 32 兆字节')
+  compiling.value = true
+  sourceError.value = ''
+  result.value = null
+  try {
+    const body = new FormData()
+    body.append('file', sourceFile.value)
+    if (targetPlatforms.value.length) body.append('targetPlatforms', JSON.stringify(targetPlatforms.value))
+    for (const [key, value] of Object.entries(source)) body.append(key, key === 'productId' && !source.publish ? '' : String(value))
+    result.value = await api(`/api/v2/protocols/${encodeURIComponent(source.protocolId)}/source-releases`, { method:'POST', body })
+    UiMessage.success(result.value.binding ? '编译与样例测试通过，产品已切换到新版本' : source.publish ? '编译与样例测试通过，协议已发布，可绑定产品使用' : '编译与样例测试通过，已保存校验版本')
+    sourceOpen.value = false
+    await load()
+  } catch (error) { sourceError.value = error?.message || String(error) }
+  finally { compiling.value = false }
+}
+async function publishRelease(protocolId, version) {
+  switching.value = true
+  try {
+    await api(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(version)}/publish`, { method:'POST', body:'{}' })
+    UiMessage.success('版本已发布，可绑定产品使用')
     releaseOpen.value = false /* 发布后关闭旧状态的版本详情。 */
-    await load() /* 等待异步操作完成。 */
-  } catch (error) { notifyError(error) } finally { switching.value = false } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
-async function downloadSourceRelease(protocolId, release) { /* 定义 downloadSourceRelease 函数。 */
-  try { await download(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(release.version)}/source`, `${protocolId}-${release.version}-source.${release.artifact?.filename?.toLowerCase().endsWith('.go') ? 'go' : 'zip'}`) } /* 执行当前语句并推进处理流程。 */
-  catch (error) { notifyError(error) } /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-function newestRelease(item) { return item.releases?.[0] || {} } /* 定义 newestRelease 函数。 */
-function statusText(value) { return ({ LISTENING:'监听中', DISABLED:'已停用', DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销', PENDING:'待启动', ONLINE:'在线采集', ERROR:'采集异常' })[value] || statusLabel(value) } /* 定义 statusText 函数。 */
-function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ERROR:'danger', REVOKED:'danger', VALIDATED:'warning', PENDING:'info' })[value] || 'info' } /* 定义 statusType 函数。 */
+    await load()
+  } catch (error) { notifyError(error) } finally { switching.value = false }
+}
+async function downloadSourceRelease(protocolId, release) {
+  try { await download(`/api/v2/protocols/${encodeURIComponent(protocolId)}/releases/${encodeURIComponent(release.version)}/source`, `${protocolId}-${release.version}-source.${release.artifact?.filename?.toLowerCase().endsWith('.go') ? 'go' : 'zip'}`) }
+  catch (error) { notifyError(error) }
+}
+function newestRelease(item) { return item.releases?.[0] || {} }
+function statusText(value) { return ({ LISTENING:'监听中', DISABLED:'已停用', DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销', PENDING:'待启动', ONLINE:'在线采集', ERROR:'采集异常' })[value] || statusLabel(value) }
+function statusType(value) { return ({ PUBLISHED:'success', ONLINE:'success', ERROR:'danger', REVOKED:'danger', VALIDATED:'warning', PENDING:'info' })[value] || 'info' }
 
 onMounted(() => { if (props.section !== 'profiles') load() })
 function removeProtocol(row) { return confirmDelete({ label:row.definition.name || row.definition.id, path:`/api/v2/protocols/${encodeURIComponent(row.definition.id)}`, onDeleted:load, warning:'未被引用的版本将一并删除，删除后无法恢复。', blockedHint:'协议仍被设备模板或接入点引用，请先解除绑定。' }) }

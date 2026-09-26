@@ -1,13 +1,13 @@
 <script setup>
-import { createClientId } from '../clientId' /* 引入当前代码需要的依赖。 */
+import { createClientId } from '../clientId'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
+defineEmits(['navigate'])
 import AccessPointsPanel from '../components/AccessPointsPanel.vue'
-import ProductProtocolBinding from '../components/ProductProtocolBinding.vue' /* 引入当前代码需要的依赖。 */
-import { transportLabel, formatLabel } from '../presentation' /* 引入当前代码需要的依赖。 */
-import { onMounted, reactive, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api, apiAll, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
+import ProductProtocolBinding from '../components/ProductProtocolBinding.vue'
+import { transportLabel, formatLabel } from '../presentation'
+import { onMounted, reactive, ref } from 'vue'
+import { UiMessage } from '../ui/feedback.js'
+import { api, apiAll, notifyError } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { categories, enabledStatuses, enabledStatusTones, label, tone } from '../labels'
 import { can } from '../permissions'
@@ -19,66 +19,66 @@ import StatusDot from '../components/layout/StatusDot.vue'
 
 // 模板详情抽屉：基本信息、协议版本和接入点。
 const detail = ref(null), detailTab = ref('basic'), detailColumns = ref(2)
-const products = ref([]) /* 声明 products。 */
-const protocols = ref([]) /* 声明 protocols。 */
-const saving = ref(false) /* 声明 saving。 */
-const loading = ref(false) /* 声明 loading。 */
-const dialog = ref(false) /* 声明 dialog。 */
-const productPage = ref(1) /* 声明 productPage。 */
-const productPageSize = ref(20) /* 声明 productPageSize。 */
-const productTotal = ref(0) /* 声明 productTotal。 */
+const products = ref([])
+const protocols = ref([])
+const saving = ref(false)
+const loading = ref(false)
+const dialog = ref(false)
+const productPage = ref(1)
+const productPageSize = ref(20)
+const productTotal = ref(0)
 
-const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackageId:'iot-standard@1.0.0', transport:'MQTT', payloadFormat:'json', status:'ENABLED', description:'', thingModel:null, metadata:{manufacturer:'',model:'',idKind:'',idLocation:''} }) /* 声明 blank。 */
-const form = reactive(blank()) /* 声明 form。 */
+const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackageId:'iot-standard@1.0.0', transport:'MQTT', payloadFormat:'json', status:'ENABLED', description:'', thingModel:null, metadata:{manufacturer:'',model:'',idKind:'',idLocation:''} })
+const form = reactive(blank())
 
-let loadVersion = 0 /* 声明 loadVersion。 */
-let catalogVersion = 0 /* 声明 catalogVersion。 */
-async function load({ catalog = true } = {}) { /* 定义 load 函数。 */
-  const version = ++loadVersion /* 声明 version。 */
-  const currentCatalog = catalog ? ++catalogVersion : 0 /* 声明 currentCatalog。 */
-  loading.value = true /* 更新 loading.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const [p, pk] = await Promise.all([ /* 执行当前语句并推进处理流程。 */
-      api(`/api/v1/products?page=${productPage.value}&pageSize=${productPageSize.value}`), /* 执行当前语句并推进处理流程。 */
-      catalog ? Promise.all([apiAll('/api/v1/protocol-packages'), api('/api/v2/protocols')]) : null /* 执行当前语句并推进处理流程。 */
-    ]) /* 结束当前表达式或代码块。 */
-    if (pk && currentCatalog === catalogVersion) protocols.value = [...new Map([{ id:'iot-standard@1.0.0', name:'标准设备上报', transport:'MQTT_HTTP', payloadFormat:'json' }, ...(pk[0].items || []).filter(p => p.status === 'PUBLISHED'), ...(pk[1].items || []).flatMap(p => (p.releases || []).filter(r => r.status === 'PUBLISHED').map(r => ({ id:`${p.definition.id}@${r.version}`, name:`${p.definition.name} · ${r.version}`, transport:r.transport, payloadFormat:r.payloadFormat })))].map(p => [p.id, p])).values()] /* 判断条件并选择处理分支。 */
-    if (version !== loadVersion) return /* 判断条件并选择处理分支。 */
-    products.value = p.items || [] /* 更新 products.value 的值。 */
-    productTotal.value = Number(p.total ?? p.count ?? products.value.length) /* 更新 productTotal.value 的值。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    if (version === loadVersion) notifyError(error) /* 判断条件并选择处理分支。 */
-  } finally { /* 结束当前表达式或代码块。 */
-    if (version === loadVersion) loading.value = false /* 判断条件并选择处理分支。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+let loadVersion = 0
+let catalogVersion = 0
+async function load({ catalog = true } = {}) {
+  const version = ++loadVersion
+  const currentCatalog = catalog ? ++catalogVersion : 0
+  loading.value = true
+  try {
+    const [p, pk] = await Promise.all([
+      api(`/api/v1/products?page=${productPage.value}&pageSize=${productPageSize.value}`),
+      catalog ? Promise.all([apiAll('/api/v1/protocol-packages'), api('/api/v2/protocols')]) : null
+    ])
+    if (pk && currentCatalog === catalogVersion) protocols.value = [...new Map([{ id:'iot-standard@1.0.0', name:'标准设备上报', transport:'MQTT_HTTP', payloadFormat:'json' }, ...(pk[0].items || []).filter(p => p.status === 'PUBLISHED'), ...(pk[1].items || []).flatMap(p => (p.releases || []).filter(r => r.status === 'PUBLISHED').map(r => ({ id:`${p.definition.id}@${r.version}`, name:`${p.definition.name} · ${r.version}`, transport:r.transport, payloadFormat:r.payloadFormat })))].map(p => [p.id, p])).values()]
+    if (version !== loadVersion) return
+    products.value = p.items || []
+    productTotal.value = Number(p.total ?? p.count ?? products.value.length)
+  } catch (error) {
+    if (version === loadVersion) notifyError(error)
+  } finally {
+    if (version === loadVersion) loading.value = false
+  }
+}
 
-function changePage(value) { /* 定义 changePage 函数。 */
-  productPage.value = value /* 更新 productPage.value 的值。 */
-  load({ catalog:false }) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+function changePage(value) {
+  productPage.value = value
+  load({ catalog:false })
+}
 
-function changePageSize(value) { /* 定义 changePageSize 函数。 */
-  productPageSize.value = value /* 更新 productPageSize.value 的值。 */
-  productPage.value = 1 /* 更新 productPage.value 的值。 */
-  load({ catalog:false }) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+function changePageSize(value) {
+  productPageSize.value = value
+  productPage.value = 1
+  load({ catalog:false })
+}
 
-function reset() { /* 定义 reset 函数。 */
-  Object.assign(form, blank()) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+function reset() {
+  Object.assign(form, blank())
+}
 
-function openCreate() { /* 定义 openCreate 函数。 */
-  reset() /* 执行当前语句并推进处理流程。 */
-  dialog.value = true /* 更新 dialog.value 的值。 */
-} /* 结束当前表达式或代码块。 */
+function openCreate() {
+  reset()
+  dialog.value = true
+}
 
 function openDetail(item, tab = 'basic') { detailColumns.value = window.innerWidth < 768 ? 1 : 2; detail.value = item; detailTab.value = tab }
 
-function edit(item) { /* 定义 edit 函数。 */
-  Object.assign(form, { ...blank(), ...item, metadata:{...blank().metadata,...item.metadata}, code:item.id }) /* 执行当前语句并推进处理流程。 */
-  dialog.value = true /* 更新 dialog.value 的值。 */
-} /* 结束当前表达式或代码块。 */
+function edit(item) {
+  Object.assign(form, { ...blank(), ...item, metadata:{...blank().metadata,...item.metadata}, code:item.id })
+  dialog.value = true
+}
 
 // 协议切换会改写模板的协议引用；刷新列表后同步详情中的模板。
 async function refreshDetail() {
@@ -88,31 +88,31 @@ async function refreshDetail() {
   detail.value = products.value.find(item => item.id === id) || (await apiAll('/api/v1/products')).items?.find(item => item.id === id) || detail.value
 }
 
-async function save() { /* 定义 save 函数。 */
-  if (saving.value) return /* 判断条件并选择处理分支。 */
+async function save() {
+  if (saving.value) return
   if (!form.name.trim() || !form.protocolPackageId) return UiMessage.warning('请填写设备模板名称并选择已发布的通信协议')
-  saving.value = true /* 更新 saving.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}` /* 判断条件并选择处理分支。 */
+  saving.value = true
+  try {
+    if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}`
     // 编辑页不暴露物模型 JSON，但提交时保留已加载的模型，避免意外清空命令定义。
-    const value = { ...form, id:form.id || form.code } /* 声明 value。 */
-    delete value.code /* 执行当前语句并推进处理流程。 */
-    const editing = Boolean(form.id) /* 声明 editing。 */
-    await api(editing ? `/api/v1/products/${encodeURIComponent(value.id)}` : '/api/v1/products', { /* 等待异步操作完成。 */
-      method: editing ? 'PUT' : 'POST', /* 执行当前语句并推进处理流程。 */
-      body: JSON.stringify(value) /* 执行当前语句并推进处理流程。 */
-    }) /* 结束当前表达式或代码块。 */
+    const value = { ...form, id:form.id || form.code }
+    delete value.code
+    const editing = Boolean(form.id)
+    await api(editing ? `/api/v1/products/${encodeURIComponent(value.id)}` : '/api/v1/products', {
+      method: editing ? 'PUT' : 'POST',
+      body: JSON.stringify(value)
+    })
     UiMessage.success('设备模板已保存')
-    dialog.value = false /* 更新 dialog.value 的值。 */
-    reset() /* 执行当前语句并推进处理流程。 */
-    await load() /* 等待异步操作完成。 */
+    dialog.value = false
+    reset()
+    await load()
     if (detail.value?.id === value.id) detail.value = products.value.find(item => item.id === value.id) || { ...detail.value, ...value }
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    notifyError(error) /* 执行当前语句并推进处理流程。 */
-  } finally { /* 结束当前表达式或代码块。 */
-    saving.value = false /* 更新 saving.value 的值。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+  } catch (error) {
+    notifyError(error)
+  } finally {
+    saving.value = false
+  }
+}
 
 onMounted(async () => {
   let navigation = {}

@@ -1,18 +1,18 @@
-package httpapi /* 声明 httpapi 包。 */
+package httpapi
 
-import ( /* 引入当前代码需要的依赖。 */
-	"context"  /* 执行当前语句并推进处理流程。 */
-	"errors"   /* 执行当前语句并推进处理流程。 */
-	"net/http" /* 执行当前语句并推进处理流程。 */
-	"strings"  /* 执行当前语句并推进处理流程。 */
-	"time"     /* 执行当前语句并推进处理流程。 */
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"time"
 
-	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
-) /* 结束当前表达式或代码块。 */
+)
 
-const ( /* 执行当前语句并推进处理流程。 */
-	healthInspectionEstimateDefault = 45 * time.Second /* 更新 healthInspectionEstimateDefault 的值。 */
+const (
+	healthInspectionEstimateDefault = 45 * time.Second
 	// A running job refreshes updatedAt every tick. Without a refresh for this
 	// long its process has stopped, so readers mark the job interrupted.
 	healthInspectionStaleAfter   = 30 * time.Second
@@ -21,34 +21,34 @@ const ( /* 执行当前语句并推进处理流程。 */
 
 // 任务进度与结果保存在仓储中：服务重启后可继续读取，多个 API 副本看到同一任务；执行仍在发起任务的进程内进行。
 
-func (s *Server) runHealthInspection(w http.ResponseWriter, r *http.Request) { /* 定义 runHealthInspection 函数。 */
-	job, err := s.startHealthInspectionJob(r.Context(), claims(r).TenantID, claims(r).Username, aiRunIdentity(r.Context(), claims(r))) /* 更新 job 的值。 */
+func (s *Server) runHealthInspection(w http.ResponseWriter, r *http.Request) {
+	job, err := s.startHealthInspectionJob(r.Context(), claims(r).TenantID, claims(r).Username, aiRunIdentity(r.Context(), claims(r)))
 	if err != nil {
 		problem(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	write(w, http.StatusAccepted, healthInspectionJobView(job)) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+	write(w, http.StatusAccepted, healthInspectionJobView(job))
+}
 
 // identity is the caller; the job keeps it for its Harness advice run.
-func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor string, identity ports.AIRunIdentity) (model.HealthInspectionJob, error) { /* 定义 startHealthInspectionJob 函数。 */
+func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor string, identity ports.AIRunIdentity) (model.HealthInspectionJob, error) {
 	if existing, found, err := s.loadHealthInspectionJob(ctx, tenantID); err != nil || found && existing.Status == "running" {
 		return existing, err
 	}
-	now := time.Now()                        /* 更新 now 的值。 */
-	estimate := s.healthInspectionEstimate() /* 更新 estimate 的值。 */
-	job := model.HealthInspectionJob{        /* 更新 job 的值。 */
-		ID:                   "inspection_job_" + randomHex(10), /* 执行当前语句并推进处理流程。 */
-		TenantID:             tenantID,                          /* 执行当前语句并推进处理流程。 */
-		Actor:                actor,                             /* 执行当前语句并推进处理流程。 */
-		Status:               "running",                         /* 执行当前语句并推进处理流程。 */
-		Stage:                "preparing",                       /* 执行当前语句并推进处理流程。 */
-		Message:              "正在准备设备健康快照",                      /* 执行当前语句并推进处理流程。 */
-		Progress:             8,                                 /* 执行当前语句并推进处理流程。 */
-		EstimatedRemainingMs: estimate,                          /* 执行当前语句并推进处理流程。 */
-		StartedAt:            now.UnixMilli(),                   /* 执行当前语句并推进处理流程。 */
-		UpdatedAt:            now.UnixMilli(),                   /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
+	now := time.Now()
+	estimate := s.healthInspectionEstimate()
+	job := model.HealthInspectionJob{
+		ID:                   "inspection_job_" + randomHex(10),
+		TenantID:             tenantID,
+		Actor:                actor,
+		Status:               "running",
+		Stage:                "preparing",
+		Message:              "正在准备设备健康快照",
+		Progress:             8,
+		EstimatedRemainingMs: estimate,
+		StartedAt:            now.UnixMilli(),
+		UpdatedAt:            now.UnixMilli(),
+	}
 	created, err := s.engine.Repo.CreateHealthInspectionJob(ctx, job)
 	if err != nil {
 		return job, err
@@ -61,9 +61,9 @@ func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor s
 		}
 		return existing, loadErr
 	}
-	go s.runHealthInspectionJob(job, identity) /* 执行当前语句并推进处理流程。 */
-	return job, nil                            /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+	go s.runHealthInspectionJob(job, identity)
+	return job, nil
+}
 
 // loadHealthInspectionJob returns the tenant's newest job. A running job whose
 // heartbeat stopped is marked interrupted instead of staying running forever.
@@ -91,41 +91,41 @@ func (s *Server) loadHealthInspectionJob(ctx context.Context, tenantID string) (
 	return job, true, nil
 }
 
-func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity ports.AIRunIdentity) { /* 定义 runHealthInspectionJob 函数。 */
-	started := time.UnixMilli(job.StartedAt)                                                                   /* 更新 started 的值。 */
-	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), 3*time.Minute) /* 更新 cancel 的值。 */
-	defer cancel()                                                                                             /* 安排函数结束时执行清理。 */
-	resultCh := make(chan struct {                                                                             /* 更新 resultCh 的值。 */
-		report model.DeviceHealthReport /* 执行当前语句并推进处理流程。 */
-		err    error                    /* 执行当前语句并推进处理流程。 */
-	}, 1) /* 结束当前表达式或代码块。 */
-	go func() { /* 执行当前语句并推进处理流程。 */
-		report, err := s.engine.InspectDeviceHealth(ctx, job.TenantID) /* 更新 err 的值。 */
-		resultCh <- struct {                                           /* 执行当前语句并推进处理流程。 */
-			report model.DeviceHealthReport /* 执行当前语句并推进处理流程。 */
-			err    error                    /* 执行当前语句并推进处理流程。 */
-		}{report, err} /* 结束当前表达式或代码块。 */
-	}() /* 结束当前表达式或代码块。 */
-	ticker := time.NewTicker(500 * time.Millisecond) /* 更新 ticker 的值。 */
-	defer ticker.Stop()                              /* 安排函数结束时执行清理。 */
-	for {                                            /* 循环处理当前数据。 */
-		select { /* 根据条件选择处理路径。 */
-		case result := <-resultCh: /* 处理当前分支。 */
-			elapsed := time.Since(started).Milliseconds() /* 更新 elapsed 的值。 */
-			s.updateHealthInspectionEstimate(elapsed)     /* 执行当前语句并推进处理流程。 */
+func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity ports.AIRunIdentity) {
+	started := time.UnixMilli(job.StartedAt)
+	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), 3*time.Minute)
+	defer cancel()
+	resultCh := make(chan struct {
+		report model.DeviceHealthReport
+		err    error
+	}, 1)
+	go func() {
+		report, err := s.engine.InspectDeviceHealth(ctx, job.TenantID)
+		resultCh <- struct {
+			report model.DeviceHealthReport
+			err    error
+		}{report, err}
+	}()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case result := <-resultCh:
+			elapsed := time.Since(started).Milliseconds()
+			s.updateHealthInspectionEstimate(elapsed)
 			s.finishHealthInspectionJob(job, result.report, result.err)
-			return /* 返回当前处理结果。 */
-		case now := <-ticker.C: /* 处理当前分支。 */
-			elapsed := now.Sub(started).Milliseconds()                  /* 更新 elapsed 的值。 */
-			estimate := s.healthInspectionEstimate()                    /* 更新 estimate 的值。 */
-			progress := 12 + int(float64(elapsed)/float64(estimate)*76) /* 更新 progress 的值。 */
-			if progress > 88 {                                          /* 判断条件并选择处理分支。 */
-				progress = 88 /* 更新 progress 的值。 */
-			} /* 结束当前表达式或代码块。 */
-			job.Stage, job.Message = "preparing", "正在准备设备健康快照" /* 更新 message 的值。 */
-			if elapsed >= 1500 {                               /* 判断条件并选择处理分支。 */
-				job.Stage, job.Message = "calling_model", "正在生成 AI 巡检建议" /* 更新 message 的值。 */
-			} /* 结束当前表达式或代码块。 */
+			return
+		case now := <-ticker.C:
+			elapsed := now.Sub(started).Milliseconds()
+			estimate := s.healthInspectionEstimate()
+			progress := 12 + int(float64(elapsed)/float64(estimate)*76)
+			if progress > 88 {
+				progress = 88
+			}
+			job.Stage, job.Message = "preparing", "正在准备设备健康快照"
+			if elapsed >= 1500 {
+				job.Stage, job.Message = "calling_model", "正在生成 AI 巡检建议"
+			}
 			job.Progress = progress
 			job.EstimatedRemainingMs = maxInt64(0, estimate-elapsed)
 			job.UpdatedAt = now.UnixMilli()
@@ -133,9 +133,9 @@ func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity 
 				// The stored job was marked interrupted; stop working on it.
 				return
 			}
-		} /* 结束当前表达式或代码块。 */
-	} /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+		}
+	}
+}
 
 // storeRunningHealthInspectionJob saves a progress heartbeat. A transient store
 // error keeps the job running; it is only abandoned once marked interrupted.
@@ -152,18 +152,18 @@ func (s *Server) storeRunningHealthInspectionJob(job model.HealthInspectionJob) 
 	return updated
 }
 
-func (s *Server) finishHealthInspectionJob(job model.HealthInspectionJob, report model.DeviceHealthReport, err error) { /* 定义 finishHealthInspectionJob 函数。 */
+func (s *Server) finishHealthInspectionJob(job model.HealthInspectionJob, report model.DeviceHealthReport, err error) {
 	finished := time.Now().UnixMilli()
 	job.UpdatedAt, job.FinishedAt, job.EstimatedRemainingMs, job.Progress = finished, finished, 0, 100
 	job.Report = report
-	if err != nil { /* 判断条件并选择处理分支。 */
+	if err != nil {
 		job.Status, job.Stage, job.Message = "failed", "failed", "智能巡检失败"
-		job.Error = strings.TrimSpace(err.Error()) /* 更新 job.Error 的值。 */
-	} else { /* 结束当前表达式或代码块。 */
+		job.Error = strings.TrimSpace(err.Error())
+	} else {
 		job.Status, job.Stage, job.Message = "succeeded", "completed", "智能巡检已完成"
-	} /* 结束当前表达式或代码块。 */
+	}
 	s.storeRunningHealthInspectionJob(job)
-} /* 结束当前表达式或代码块。 */
+}
 
 func (s *Server) healthInspectionEstimate() int64 {
 	s.healthInspectionMu.RLock()
@@ -174,57 +174,57 @@ func (s *Server) healthInspectionEstimate() int64 {
 	return s.healthInspectionEstimateMs
 }
 
-func (s *Server) updateHealthInspectionEstimate(elapsed int64) { /* 定义 updateHealthInspectionEstimate 函数。 */
-	if elapsed <= 0 { /* 判断条件并选择处理分支。 */
-		return /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	s.healthInspectionMu.Lock()             /* 执行当前语句并推进处理流程。 */
-	defer s.healthInspectionMu.Unlock()     /* 安排函数结束时执行清理。 */
-	current := s.healthInspectionEstimateMs /* 更新 current 的值。 */
-	if current <= 0 {                       /* 判断条件并选择处理分支。 */
-		current = healthInspectionEstimateDefault.Milliseconds() /* 更新 current 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	updated := (current*3 + elapsed) / 4 /* 更新 updated 的值。 */
-	if updated < 5000 {                  /* 判断条件并选择处理分支。 */
-		updated = 5000 /* 更新 updated 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	if updated > 180000 { /* 判断条件并选择处理分支。 */
-		updated = 180000 /* 更新 updated 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	s.healthInspectionEstimateMs = updated /* 更新 s.healthInspectionEstimateMs 的值。 */
-} /* 结束当前表达式或代码块。 */
+func (s *Server) updateHealthInspectionEstimate(elapsed int64) {
+	if elapsed <= 0 {
+		return
+	}
+	s.healthInspectionMu.Lock()
+	defer s.healthInspectionMu.Unlock()
+	current := s.healthInspectionEstimateMs
+	if current <= 0 {
+		current = healthInspectionEstimateDefault.Milliseconds()
+	}
+	updated := (current*3 + elapsed) / 4
+	if updated < 5000 {
+		updated = 5000
+	}
+	if updated > 180000 {
+		updated = 180000
+	}
+	s.healthInspectionEstimateMs = updated
+}
 
-func (s *Server) healthInspectionProgress(w http.ResponseWriter, r *http.Request) { /* 定义 healthInspectionProgress 函数。 */
-	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))                     /* 更新 requestedJobID 的值。 */
-	job, found, err := s.loadHealthInspectionJob(r.Context(), claims(r).TenantID) /* 更新 job 的值。 */
+func (s *Server) healthInspectionProgress(w http.ResponseWriter, r *http.Request) {
+	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))
+	job, found, err := s.loadHealthInspectionJob(r.Context(), claims(r).TenantID)
 	if err != nil {
 		problem(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !found || requestedJobID != "" && job.ID != requestedJobID { /* 判断条件并选择处理分支。 */
-		problem(w, http.StatusNotFound, "智能巡检任务不存在或已过期") /* 执行当前语句并推进处理流程。 */
-		return                                           /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	write(w, http.StatusOK, healthInspectionJobView(job)) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+	if !found || requestedJobID != "" && job.ID != requestedJobID {
+		problem(w, http.StatusNotFound, "智能巡检任务不存在或已过期")
+		return
+	}
+	write(w, http.StatusOK, healthInspectionJobView(job))
+}
 
-func healthInspectionJobView(job model.HealthInspectionJob) map[string]any { /* 定义 healthInspectionJobView 函数。 */
-	view := map[string]any{ /* 更新 view 的值。 */
-		"jobId":                job.ID,                   /* 执行当前语句并推进处理流程。 */
-		"status":               job.Status,               /* 执行当前语句并推进处理流程。 */
-		"stage":                job.Stage,                /* 执行当前语句并推进处理流程。 */
-		"message":              job.Message,              /* 执行当前语句并推进处理流程。 */
-		"progress":             job.Progress,             /* 执行当前语句并推进处理流程。 */
-		"estimatedRemainingMs": job.EstimatedRemainingMs, /* 执行当前语句并推进处理流程。 */
-		"startedAt":            job.StartedAt,            /* 执行当前语句并推进处理流程。 */
-		"updatedAt":            job.UpdatedAt,            /* 执行当前语句并推进处理流程。 */
-		"finishedAt":           job.FinishedAt,           /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-	if job.Status == "succeeded" { /* 判断条件并选择处理分支。 */
-		view["report"] = job.Report /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-	if job.Error != "" { /* 判断条件并选择处理分支。 */
-		view["error"] = job.Error /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-	return view /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+func healthInspectionJobView(job model.HealthInspectionJob) map[string]any {
+	view := map[string]any{
+		"jobId":                job.ID,
+		"status":               job.Status,
+		"stage":                job.Stage,
+		"message":              job.Message,
+		"progress":             job.Progress,
+		"estimatedRemainingMs": job.EstimatedRemainingMs,
+		"startedAt":            job.StartedAt,
+		"updatedAt":            job.UpdatedAt,
+		"finishedAt":           job.FinishedAt,
+	}
+	if job.Status == "succeeded" {
+		view["report"] = job.Report
+	}
+	if job.Error != "" {
+		view["error"] = job.Error
+	}
+	return view
+}

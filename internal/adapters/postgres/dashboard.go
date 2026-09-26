@@ -1,20 +1,20 @@
-package postgres /* 声明 postgres 包。 */
+package postgres
 
-import ( /* 引入当前代码需要的依赖。 */
-	"context"                     /* 执行当前语句并推进处理流程。 */
-	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
-) /* 结束当前表达式或代码块。 */
+import (
+	"context"
+	"iot-platform/internal/model"
+)
 
 // One statement gives a consistent snapshot and keeps full records in storage.
-func (r *Repository) DashboardCounts(ctx context.Context, tenant string, start, end int64) ([]model.DashboardCount, error) { /* 定义 DashboardCounts 函数。 */
-	return r.dashboardCounts(ctx, tenant, start, end, false, nil) /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+func (r *Repository) DashboardCounts(ctx context.Context, tenant string, start, end int64) ([]model.DashboardCount, error) {
+	return r.dashboardCounts(ctx, tenant, start, end, false, nil)
+}
 
-func (r *Repository) DashboardCountsForDevices(ctx context.Context, tenant string, start, end int64, ids []string) ([]model.DashboardCount, error) { /* 定义 DashboardCountsForDevices 函数。 */
-	return r.dashboardCounts(ctx, tenant, start, end, true, ids) /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+func (r *Repository) DashboardCountsForDevices(ctx context.Context, tenant string, start, end int64, ids []string) ([]model.DashboardCount, error) {
+	return r.dashboardCounts(ctx, tenant, start, end, true, ids)
+}
 
-func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, end int64, scoped bool, ids []string) ([]model.DashboardCount, error) { /* 定义 dashboardCounts 函数。 */
+func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, end int64, scoped bool, ids []string) ([]model.DashboardCount, error) {
 	rows, err := r.pool.Query(ctx, `
  WITH registered AS (
   SELECT d.product_id, CASE WHEN s.business_status='ALARM' THEN 'ONLINE' ELSE coalesce(nullif(s.business_status,''),'NEVER_SEEN') END AS state,
@@ -47,17 +47,17 @@ func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, 
  UNION ALL
  SELECT 'alarmType', coalesce(nullif(body->>'alarmType',''),'UNKNOWN'), '', count(*) FROM period_alarms
  GROUP BY 2`, tenant, start, end, scoped, ids)
-	if err != nil { /* 判断条件并选择处理分支。 */
-		return nil, err /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	defer rows.Close()              /* 安排函数结束时执行清理。 */
-	out := []model.DashboardCount{} /* 更新 out 的值。 */
-	for rows.Next() {               /* 循环处理当前数据。 */
-		var v model.DashboardCount                                            /* 声明 v。 */
-		if err := rows.Scan(&v.Kind, &v.Key, &v.Name, &v.Count); err != nil { /* 判断条件并选择处理分支。 */
-			return nil, err /* 返回当前处理结果。 */
-		} /* 结束当前表达式或代码块。 */
-		out = append(out, v) /* 更新 out 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	return out, rows.Err() /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.DashboardCount{}
+	for rows.Next() {
+		var v model.DashboardCount
+		if err := rows.Scan(&v.Kind, &v.Key, &v.Name, &v.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -221,10 +220,6 @@ func humanDuration(d time.Duration) string {
 // isCanceled reports whether the caller went away; handlers skip responses.
 func isCanceled(err error) bool {
 	return errors.Is(err, context.Canceled)
-}
-
-func actorName(tenantID, username string) string {
-	return strings.TrimSpace(username) + "@" + strings.TrimSpace(tenantID)
 }
 
 func randomID() string {

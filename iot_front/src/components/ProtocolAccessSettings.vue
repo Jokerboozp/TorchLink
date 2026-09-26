@@ -1,21 +1,21 @@
 <script setup>
-import { computed, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { api } from '../api' /* 引入当前代码需要的依赖。 */
-const props=defineProps({profile:{type:Object,required:true},products:{type:Array,default:()=>[]},productId:String,canPoll:{type:Boolean,default:true}}) /* 声明 props。 */
-const bindings=ref({}), errors=ref({}) /* 声明 bindings。 */
+import { computed, ref, watch } from 'vue'
+import { api } from '../api'
+const props=defineProps({profile:{type:Object,required:true},products:{type:Array,default:()=>[]},productId:String,canPoll:{type:Boolean,default:true}})
+const bindings=ref({}), errors=ref({})
 const childTemplates=computed(()=>props.products.filter(x=>x.id!==props.productId && x.status==='ENABLED'))
-let revision=0 /* 声明 revision。 */
-watch(()=>props.profile.childProducts?.map(x=>x.productId).join('|'),async()=>{ /* 执行当前语句并推进处理流程。 */
- const current=++revision /* 声明 current。 */
- const result=await Promise.all((props.profile.childProducts||[]).filter(x=>x.productId).map(async x=>{ /* 声明 result。 */
-  try{return [x.productId,await api(`/api/v2/products/${encodeURIComponent(x.productId)}/protocol-binding`),'']} /* 执行当前语句并推进处理流程。 */
-  catch(e){return [x.productId,null,e.message||'读取协议失败']} /* 执行当前语句并推进处理流程。 */
- })) /* 结束当前表达式或代码块。 */
- if(current!==revision)return /* 判断条件并选择处理分支。 */
- bindings.value=Object.fromEntries(result.map(x=>[x[0],x[1]]));errors.value=Object.fromEntries(result.map(x=>[x[0],x[2]])) /* 更新 bindings.value 的值。 */
-},{immediate:true}) /* 结束当前表达式或代码块。 */
-function addChild(){(props.profile.childProducts ||= []).push({type:'',productId:''})} /* 定义 addChild 函数。 */
-function addQuery(){(props.profile.queries ||= []).push({type:'',intervalSec:10})} /* 定义 addQuery 函数。 */
+let revision=0
+watch(()=>props.profile.childProducts?.map(x=>x.productId).join('|'),async()=>{
+ const current=++revision
+ const result=await Promise.all((props.profile.childProducts||[]).filter(x=>x.productId).map(async x=>{
+  try{return [x.productId,await api(`/api/v2/products/${encodeURIComponent(x.productId)}/protocol-binding`),'']}
+  catch(e){return [x.productId,null,e.message||'读取协议失败']}
+ }))
+ if(current!==revision)return
+ bindings.value=Object.fromEntries(result.map(x=>[x[0],x[1]]));errors.value=Object.fromEntries(result.map(x=>[x[0],x[2]]))
+},{immediate:true})
+function addChild(){(props.profile.childProducts ||= []).push({type:'',productId:''})}
+function addQuery(){(props.profile.queries ||= []).push({type:'',intervalSec:10})}
 </script>
 <template>
 <div class="protocol-access-settings">

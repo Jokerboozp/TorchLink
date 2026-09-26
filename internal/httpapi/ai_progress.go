@@ -1,23 +1,23 @@
-package httpapi /* 声明 httpapi 包。 */
+package httpapi
 
-import ( /* 引入当前代码需要的依赖。 */
-	"context" /* 执行当前语句并推进处理流程。 */
+import (
+	"context"
 	"errors"
-	"net/http" /* 执行当前语句并推进处理流程。 */
-	"strings"  /* 执行当前语句并推进处理流程。 */
-	"time"     /* 执行当前语句并推进处理流程。 */
+	"net/http"
+	"strings"
+	"time"
 
-	"iot-platform/internal/model" /* 执行当前语句并推进处理流程。 */
+	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
-) /* 结束当前表达式或代码块。 */
+)
 
-const ( /* 执行当前语句并推进处理流程。 */
-	aiAnalysisEstimateDefault = 45 * time.Second /* 更新 aiAnalysisEstimateDefault 的值。 */
+const (
+	aiAnalysisEstimateDefault = 45 * time.Second
 	// The running job stores progress at this interval; without a refresh for
 	// aiAnalysisStaleAfter its process has stopped.
 	aiAnalysisHeartbeat  = 2 * time.Second
 	aiAnalysisStaleAfter = 30 * time.Second
-) /* 结束当前表达式或代码块。 */
+)
 
 // 手动研判任务的进度与结果保存在仓储中：服务重启后仍可读取，多个 API 副本看到同一任务；
 // 执行仍在发起任务的进程内进行，心跳停止的任务标记为中断。
@@ -176,27 +176,27 @@ func (s *Server) aiAnalysisEstimate() int64 {
 	return s.aiAnalysisEstimateMs
 }
 
-func (s *Server) updateAIAnalysisEstimate(elapsed int64) { /* 定义 updateAIAnalysisEstimate 函数。 */
-	if elapsed <= 0 { /* 判断条件并选择处理分支。 */
-		return /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	s.aiAnalysisMu.Lock()             /* 执行当前语句并推进处理流程。 */
-	defer s.aiAnalysisMu.Unlock()     /* 安排函数结束时执行清理。 */
-	current := s.aiAnalysisEstimateMs /* 更新 current 的值。 */
-	if current <= 0 {                 /* 判断条件并选择处理分支。 */
-		current = aiAnalysisEstimateDefault.Milliseconds() /* 更新 current 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	updated := (current*3 + elapsed) / 4 /* 更新 updated 的值。 */
-	if updated < 5000 {                  /* 判断条件并选择处理分支。 */
-		updated = 5000 /* 更新 updated 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	if updated > 180000 { /* 判断条件并选择处理分支。 */
-		updated = 180000 /* 更新 updated 的值。 */
-	} /* 结束当前表达式或代码块。 */
-	s.aiAnalysisEstimateMs = updated /* 更新 s.aiAnalysisEstimateMs 的值。 */
-} /* 结束当前表达式或代码块。 */
+func (s *Server) updateAIAnalysisEstimate(elapsed int64) {
+	if elapsed <= 0 {
+		return
+	}
+	s.aiAnalysisMu.Lock()
+	defer s.aiAnalysisMu.Unlock()
+	current := s.aiAnalysisEstimateMs
+	if current <= 0 {
+		current = aiAnalysisEstimateDefault.Milliseconds()
+	}
+	updated := (current*3 + elapsed) / 4
+	if updated < 5000 {
+		updated = 5000
+	}
+	if updated > 180000 {
+		updated = 180000
+	}
+	s.aiAnalysisEstimateMs = updated
+}
 
-func (s *Server) aiAlarmAnalysisProgress(w http.ResponseWriter, r *http.Request) { /* 定义 aiAlarmAnalysisProgress 函数。 */
+func (s *Server) aiAlarmAnalysisProgress(w http.ResponseWriter, r *http.Request) {
 	// 只能查看与本人角色相同知识范围的任务。
 	job, found, err := s.loadAIAnalysisJob(r.Context(), claims(r).TenantID, r.PathValue("alarmId"), alarmAnalysisRunScope(r.Context()))
 	if err != nil {
@@ -205,37 +205,37 @@ func (s *Server) aiAlarmAnalysisProgress(w http.ResponseWriter, r *http.Request)
 	}
 	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))
 	if !found || requestedJobID != "" && job.ID != requestedJobID {
-		problem(w, http.StatusNotFound, "AI 研判任务不存在或已过期") /* 执行当前语句并推进处理流程。 */
-		return                                            /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	write(w, http.StatusOK, aiAnalysisJobView(job)) /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
+		problem(w, http.StatusNotFound, "AI 研判任务不存在或已过期")
+		return
+	}
+	write(w, http.StatusOK, aiAnalysisJobView(job))
+}
 
-func aiAnalysisJobView(job model.AlarmAnalysisJob) map[string]any { /* 定义 aiAnalysisJobView 函数。 */
-	view := map[string]any{ /* 更新 view 的值。 */
-		"jobId":                job.ID,                   /* 执行当前语句并推进处理流程。 */
-		"alarmId":              job.AlarmID,              /* 执行当前语句并推进处理流程。 */
-		"status":               job.Status,               /* 执行当前语句并推进处理流程。 */
-		"stage":                job.Stage,                /* 执行当前语句并推进处理流程。 */
-		"message":              job.Message,              /* 执行当前语句并推进处理流程。 */
-		"progress":             job.Progress,             /* 执行当前语句并推进处理流程。 */
-		"estimatedRemainingMs": job.EstimatedRemainingMs, /* 执行当前语句并推进处理流程。 */
-		"startedAt":            job.StartedAt,            /* 执行当前语句并推进处理流程。 */
-		"updatedAt":            job.UpdatedAt,            /* 执行当前语句并推进处理流程。 */
-		"finishedAt":           job.FinishedAt,           /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-	if job.Status == "succeeded" { /* 判断条件并选择处理分支。 */
-		view["analysis"] = job.Analysis /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-	if job.Error != "" { /* 判断条件并选择处理分支。 */
-		view["error"] = job.Error /* 执行当前语句并推进处理流程。 */
-	} /* 结束当前表达式或代码块。 */
-	return view /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+func aiAnalysisJobView(job model.AlarmAnalysisJob) map[string]any {
+	view := map[string]any{
+		"jobId":                job.ID,
+		"alarmId":              job.AlarmID,
+		"status":               job.Status,
+		"stage":                job.Stage,
+		"message":              job.Message,
+		"progress":             job.Progress,
+		"estimatedRemainingMs": job.EstimatedRemainingMs,
+		"startedAt":            job.StartedAt,
+		"updatedAt":            job.UpdatedAt,
+		"finishedAt":           job.FinishedAt,
+	}
+	if job.Status == "succeeded" {
+		view["analysis"] = job.Analysis
+	}
+	if job.Error != "" {
+		view["error"] = job.Error
+	}
+	return view
+}
 
-func maxInt64(left, right int64) int64 { /* 定义 maxInt64 函数。 */
-	if left > right { /* 判断条件并选择处理分支。 */
-		return left /* 返回当前处理结果。 */
-	} /* 结束当前表达式或代码块。 */
-	return right /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
+}

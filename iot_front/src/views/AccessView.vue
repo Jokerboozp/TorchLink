@@ -1,26 +1,26 @@
 <script setup>
-import {computed,onMounted,reactive,ref} from 'vue' /* 引入当前代码需要的依赖。 */
-import {UiMessage,UiMessageBox} from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import {api,notifyError,session} from '../api' /* 引入当前代码需要的依赖。 */
+import {computed,onMounted,reactive,ref} from 'vue'
+import {UiMessage,UiMessageBox} from '../ui/feedback.js'
+import {api,notifyError,session} from '../api'
 import DeviceScopePicker from '../components/DeviceScopePicker.vue'
 import { userAccessPayload } from '../userAccess'
 import { roleDeviceScope } from '../permissionPresets'
 import { createClientId } from '../clientId'
-import PermissionPicker from '../components/PermissionPicker.vue' /* 引入当前代码需要的依赖。 */
+import PermissionPicker from '../components/PermissionPicker.vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
-defineEmits(['navigate']) /* 执行当前语句并推进处理流程。 */
-const tab=ref('roles'),users=ref([]),roles=ref([]),catalog=ref([]),loading=ref(false),saving=ref(false),dialog=ref(''),editing=ref(false) /* 声明 tab。 */
-const user=reactive(userAccessPayload()) /* 声明 user。 */
-const role=reactive({id:'',name:'',description:'',permissions:[],deviceScope:'none',deviceIds:[]}) /* 声明 role。 */
-const tenantId=ref(session.tenant),deviceOptions=ref([]),devicesLoading=ref(false),devicesError=ref('') /* 声明 tenantId。 */
-const plainScopeLabel=value=>value.deviceScope==='all'?'当前租户全部设备':value.deviceScope==='selected'?`指定 ${value.deviceIds?.length||0} 台设备`:'无设备' /* 声明 scopeLabel。 */
+defineEmits(['navigate'])
+const tab=ref('roles'),users=ref([]),roles=ref([]),catalog=ref([]),loading=ref(false),saving=ref(false),dialog=ref(''),editing=ref(false)
+const user=reactive(userAccessPayload())
+const role=reactive({id:'',name:'',description:'',permissions:[],deviceScope:'none',deviceIds:[]})
+const tenantId=ref(session.tenant),deviceOptions=ref([]),devicesLoading=ref(false),devicesError=ref('')
+const plainScopeLabel=value=>value.deviceScope==='all'?'当前租户全部设备':value.deviceScope==='selected'?`指定 ${value.deviceIds?.length||0} 台设备`:'无设备'
 const scopeLabel = value => value.deviceScope === 'inherit' ? `继承角色 · ${plainScopeLabel(roleDeviceScope(value.roleIds || [], roles.value))}` : plainScopeLabel(value)
 const inheritedLabel = computed(() => plainScopeLabel(roleDeviceScope(user.roleIds, roles.value)))
-const password=reactive({username:'',value:''}) /* 声明 password。 */
+const password=reactive({username:'',value:''})
 let loadVersion=0
 const canViewDevices = computed(() => user.permissions.includes('menu:devices') || roles.value.some(role => user.roleIds.includes(role.id) && role.permissions.includes('menu:devices')))
 const deviceSelectionPending = computed(() => (dialog.value === 'role' ? role.deviceScope : user.deviceScope) === 'selected' && (devicesLoading.value || !!devicesError.value))
@@ -61,11 +61,11 @@ function editRole(value) {
  dialog.value='role'
  void loadDevices()
 }
-async function save(){if(saving.value||deviceSelectionPending.value)return;saving.value=true;try{const isUser=dialog.value==='user',value=isUser?userAccessPayload(user):role;const base=isUser?'/api/v1/access/users':'/api/v1/access/roles';await api(base+(editing.value?'/'+encodeURIComponent(isUser?user.username:role.id):''),{method:editing.value?'PUT':'POST',body:JSON.stringify(value)});dialog.value='';user.password='';await load();UiMessage.success('已保存')}catch(e){notifyError(e)}finally{saving.value=false}} /* 定义 save 函数。 */
-async function remove(kind,value){try{await UiMessageBox.confirm(`确认删除${kind==='users'?'用户':'角色'}“${value.displayName||value.name||value.username}”？`,'删除确认',{type:'warning'});await api(`/api/v1/access/${kind}/${encodeURIComponent(value.username||value.id)}`,{method:'DELETE'});await load()}catch(e){if(e!=='cancel'&&e!=='close')notifyError(e)}} /* 定义 remove 函数。 */
-function reset(value){password.username=value.username;password.value='';dialog.value='password'} /* 定义 reset 函数。 */
-async function savePassword(){saving.value=true;try{await api(`/api/v1/access/users/${encodeURIComponent(password.username)}/password`,{method:'POST',body:JSON.stringify({password:password.value})});password.value='';dialog.value='';UiMessage.success('密码已重置，旧登录已失效')}catch(e){notifyError(e)}finally{saving.value=false}} /* 定义 savePassword 函数。 */
-onMounted(load) /* 执行当前语句并推进处理流程。 */
+async function save(){if(saving.value||deviceSelectionPending.value)return;saving.value=true;try{const isUser=dialog.value==='user',value=isUser?userAccessPayload(user):role;const base=isUser?'/api/v1/access/users':'/api/v1/access/roles';await api(base+(editing.value?'/'+encodeURIComponent(isUser?user.username:role.id):''),{method:editing.value?'PUT':'POST',body:JSON.stringify(value)});dialog.value='';user.password='';await load();UiMessage.success('已保存')}catch(e){notifyError(e)}finally{saving.value=false}}
+async function remove(kind,value){try{await UiMessageBox.confirm(`确认删除${kind==='users'?'用户':'角色'}“${value.displayName||value.name||value.username}”？`,'删除确认',{type:'warning'});await api(`/api/v1/access/${kind}/${encodeURIComponent(value.username||value.id)}`,{method:'DELETE'});await load()}catch(e){if(e!=='cancel'&&e!=='close')notifyError(e)}}
+function reset(value){password.username=value.username;password.value='';dialog.value='password'}
+async function savePassword(){saving.value=true;try{await api(`/api/v1/access/users/${encodeURIComponent(password.username)}/password`,{method:'POST',body:JSON.stringify({password:password.value})});password.value='';dialog.value='';UiMessage.success('密码已重置，旧登录已失效')}catch(e){notifyError(e)}finally{saving.value=false}}
+onMounted(load)
 function userActions(row) {
   const self = row.username === session.user
   return [
@@ -82,7 +82,7 @@ function roleActions(row) {
 }
 </script>
 <template>
- <ui-tabs v-model="tab"><ui-tab-pane label="角色管理" name="roles"/><ui-tab-pane label="用户管理" name="users"/><ui-tab-pane label="权限说明" name="permissions"/></ui-tabs> <!-- 渲染 ui-tabs 界面元素。 -->
+ <ui-tabs v-model="tab"><ui-tab-pane label="角色管理" name="roles"/><ui-tab-pane label="用户管理" name="users"/><ui-tab-pane label="权限说明" name="permissions"/></ui-tabs>
  <FilterBar>
   <p class="access-tenant">当前租户：{{tenantId}}。先为角色配置功能和设备，再给用户分配角色。</p>
   <template #actions>
@@ -93,8 +93,8 @@ function roleActions(row) {
  </FilterBar>
  <DataTableCard v-if="tab==='users'" :title="`用户 · ${users.length} 个`"><ui-table v-loading="loading" :data="users" empty-text="暂无用户，点击添加用户创建登录账户"><ui-table-column prop="username" label="用户名"/><ui-table-column prop="displayName" label="姓名 / 显示名称"/><ui-table-column label="设备访问范围"><template #default="{row}">{{scopeLabel(row)}}</template></ui-table-column><ui-table-column label="角色"><template #default="{row}">{{row.roleIds.map(id=>roles.find(r=>r.id===id)?.name||id).join('、')||'未分配'}}</template></ui-table-column><ui-table-column label="状态" width="100"><template #default="{row}"><StatusDot :tone="row.enabled?'success':'neutral'" :label="row.enabled?'启用':'停用'" /></template></ui-table-column><ui-table-column label="操作" width="240" fixed="right" align="right"><template #default="{row}"><RowActions :actions="userActions(row)" /></template></ui-table-column></ui-table></DataTableCard>
  <DataTableCard v-if="tab==='roles'" :title="`角色 · ${roles.length} 个`"><ui-table v-loading="loading" :data="roles" empty-text="暂无角色，点击添加角色配置权限"><ui-table-column prop="name" label="角色名称"/><ui-table-column label="说明"><template #default="{row}">{{row.description||'—'}}</template></ui-table-column><ui-table-column label="可用功能"><template #default="{row}">{{row.permissions.filter(p=>p.startsWith('menu:')).length}} 项功能</template></ui-table-column><ui-table-column label="设备访问范围"><template #default="{row}">{{scopeLabel(row)}}</template></ui-table-column><ui-table-column label="操作" width="160" fixed="right" align="right"><template #default="{row}"><RowActions :actions="roleActions(row)" /></template></ui-table-column></ui-table></DataTableCard>
- <ui-card v-if="tab==='permissions'" class="top-gap"><h3>通过角色统一授权</h3><p>角色同时配置可用功能和可见设备。用户默认继承角色的设备范围，多个角色取并集；功能选择“查看 / 问答”或“管理”，仅特殊需要才展开细项。</p><p>用户的“单独设置”会替代角色设备范围，适用于例外情况。已有用户保留原设备范围，可在编辑时切换为“继承角色”。后端每次请求均使用最新配置。</p><p>修改用户、停用用户或重置密码会使旧登录失效。角色被用户使用时不能删除。</p><p>设备列表、告警、原始报文、总览和实时提醒按用户设备范围过滤；没有设备管理权限时不返回设备及告警。全租户任务仅向拥有全部设备范围及相应菜单权限的用户开放。</p></ui-card> <!-- 渲染 ui-card 界面元素。 -->
- <ui-dialog :model-value="dialog==='user'||dialog==='role'" :title="`${editing?'编辑':'添加'}${dialog==='user'?'用户':'角色'}`" width="min(850px,94vw)" :close-on-click-modal="false" @close="dialog='';user.password=''"> <!-- 渲染 ui-dialog 界面元素。 -->
+ <ui-card v-if="tab==='permissions'" class="top-gap"><h3>通过角色统一授权</h3><p>角色同时配置可用功能和可见设备。用户默认继承角色的设备范围，多个角色取并集；功能选择“查看 / 问答”或“管理”，仅特殊需要才展开细项。</p><p>用户的“单独设置”会替代角色设备范围，适用于例外情况。已有用户保留原设备范围，可在编辑时切换为“继承角色”。后端每次请求均使用最新配置。</p><p>修改用户、停用用户或重置密码会使旧登录失效。角色被用户使用时不能删除。</p><p>设备列表、告警、原始报文、总览和实时提醒按用户设备范围过滤；没有设备管理权限时不返回设备及告警。全租户任务仅向拥有全部设备范围及相应菜单权限的用户开放。</p></ui-card>
+ <ui-dialog :model-value="dialog==='user'||dialog==='role'" :title="`${editing?'编辑':'添加'}${dialog==='user'?'用户':'角色'}`" width="min(850px,94vw)" :close-on-click-modal="false" @close="dialog='';user.password=''">
   <ui-form v-if="dialog==='user'" class="user-editor" label-position="top" :disabled="saving">
    <section class="user-editor-section">
     <div class="user-editor-heading"><h3>账户信息</h3><p>用户登录时需填写所属租户、用户名和密码。</p></div>
@@ -123,8 +123,8 @@ function roleActions(row) {
    <section class="role-editor-section"><h3>可查看的设备</h3><p>分配此角色并选择“继承角色”的用户，共享此设备范围。主设备与子设备分别授权。</p><DeviceScopePicker v-model:scope="role.deviceScope" v-model:device-ids="role.deviceIds" :devices="deviceOptions" :loading="devicesLoading" :error="devicesError" :disabled="saving" :can-view-devices="role.permissions.includes('menu:devices')" @retry="loadDevices" @enable-device-menu="enableDeviceMenu"/><p v-if="editing">保存后立即影响继承此角色的 {{ users.filter(u=>u.deviceScope==='inherit' && u.roleIds.includes(role.id)).length }} 个用户。</p><p>巡检、备份、告警规则等全租户功能，以及设备新增操作，还需要“全部设备”范围。</p></section>
   </ui-form>
   <template #footer><ui-button :disabled="saving" @click="dialog='';user.password=''">取消</ui-button><ui-button type="primary" :loading="saving" :disabled="deviceSelectionPending" @click="save">{{ editing ? '保存修改' : dialog==='user' ? '创建用户' : '创建角色' }}</ui-button></template>
- </ui-dialog> <!-- 结束当前界面区域。 -->
- <ui-dialog :model-value="dialog==='password'" title="重置密码" width="min(460px,94vw)" @close="dialog='';password.value=''"><ui-form label-position="top"><ui-form-item :label="`用户：${password.username}`"><ui-input v-model="password.value" type="password" show-password autocomplete="new-password" placeholder="至少10位，最长72字节"/></ui-form-item></ui-form><template #footer><ui-button type="primary" :loading="saving" @click="savePassword">重置密码</ui-button></template></ui-dialog> <!-- 渲染 ui-dialog 界面元素。 -->
+ </ui-dialog>
+ <ui-dialog :model-value="dialog==='password'" title="重置密码" width="min(460px,94vw)" @close="dialog='';password.value=''"><ui-form label-position="top"><ui-form-item :label="`用户：${password.username}`"><ui-input v-model="password.value" type="password" show-password autocomplete="new-password" placeholder="至少10位，最长72字节"/></ui-form-item></ui-form><template #footer><ui-button type="primary" :loading="saving" @click="savePassword">重置密码</ui-button></template></ui-dialog>
 </template>
 <style scoped>
 .access-tenant { flex: 1 1 320px; margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }

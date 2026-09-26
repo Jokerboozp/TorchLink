@@ -16,7 +16,7 @@ func TestDeviceEmailTemplate(t *testing.T) {
 	now := time.Date(2026, 9, 26, 3, 0, 0, 0, time.UTC)
 	a := notificationAlarm(now)
 	a.BuildingID, a.AreaID = "A 栋", "一层公共区域"
-	alert := deviceNotificationAlert(a, 1, now, now.Add(time.Hour))
+	alert := deviceNotificationAlert(a, 1)
 	tmpl, err := template.New("email").Parse(deviceEmailHTML)
 	if err != nil {
 		t.Fatal(err)

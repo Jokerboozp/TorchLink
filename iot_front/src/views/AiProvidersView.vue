@@ -1,182 +1,182 @@
 <script setup>
-import { can } from '../permissions' /* 引入当前代码需要的依赖。 */
-import { aiProviderOptions as providerOptions } from '../presentation' /* 引入当前代码需要的依赖。 */
-import { computed, onMounted, reactive, ref, watch } from 'vue' /* 引入当前代码需要的依赖。 */
-import { UiMessage } from '../ui/feedback.js' /* 引入当前代码需要的依赖。 */
-import { api } from '../api' /* 引入当前代码需要的依赖。 */
+import { can } from '../permissions'
+import { aiProviderOptions as providerOptions } from '../presentation'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { UiMessage } from '../ui/feedback.js'
+import { api } from '../api'
 
-const emit = defineEmits(['navigate']) /* 声明 emit。 */
+const emit = defineEmits(['navigate'])
 
-const runtime = ref({ items:[], active:{ id:'disabled', name:'未启用', enabled:false }, config:null, healthy:false, healthMessage:'正在读取模型服务状态' }) /* 声明 runtime。 */
-const loading = ref(false) /* 声明 loading。 */
-const testing = ref(false) /* 声明 testing。 */
-const applying = ref(false) /* 声明 applying。 */
-const loadError = ref('') /* 声明 loadError。 */
-const providerError = ref('') /* 声明 providerError。 */
-const testResult = ref(null) /* 声明 testResult。 */
-const testedFingerprint = ref('') /* 声明 testedFingerprint。 */
-const providerForm = reactive({ provider:'deepseek', baseUrl:'https://api.deepseek.com', model:'deepseek-flash', apiKey:'', maxTokens:2048 }) /* 声明 providerForm。 */
+const runtime = ref({ items:[], active:{ id:'disabled', name:'未启用', enabled:false }, config:null, healthy:false, healthMessage:'正在读取模型服务状态' })
+const loading = ref(false)
+const testing = ref(false)
+const applying = ref(false)
+const loadError = ref('')
+const providerError = ref('')
+const testResult = ref(null)
+const testedFingerprint = ref('')
+const providerForm = reactive({ provider:'deepseek', baseUrl:'https://api.deepseek.com', model:'deepseek-flash', apiKey:'', maxTokens:2048 })
 let loadVersion = 0
 
-const capabilityLabels = { /* 声明 capabilityLabels。 */
-  chat:'对话', /* 执行当前语句并推进处理流程。 */
-  'alarm-analysis':'告警研判', /* 执行当前语句并推进处理流程。 */
-  'rule-draft':'规则草稿', /* 执行当前语句并推进处理流程。 */
-  'json-output':'JSON 输出', /* 执行当前语句并推进处理流程。 */
-  'local-model':'本地模型', /* 执行当前语句并推进处理流程。 */
-  fallback:'降级响应' /* 执行当前语句并推进处理流程。 */
-} /* 结束当前表达式或代码块。 */
-const capabilities = [ /* 声明 capabilities。 */
-  { title:'智能告警研判', description:'告警详情中的风险分析、原因判断和人工处置建议。', page:'alarms', label:'告警中心' }, /* 执行当前语句并推进处理流程。 */
-  { title:'智能助手对话', description:'通过受控工具查询设备、告警、趋势和运维知识。', page:'ai', label:'工作流' }, /* 执行当前语句并推进处理流程。 */
-  { title:'智能巡检', description:'生成设备健康巡检结论，并标记数据局限和优先处理设备。', page:'inspection', label:'智能巡检' }, /* 执行当前语句并推进处理流程。 */
-  { title:'告警规则草稿', description:'根据自然语言生成待人工复核的自动化规则草稿。', page:'rules', label:'告警规则' }, /* 执行当前语句并推进处理流程。 */
-  { title:'协议助手与运维报告', description:'协议配置辅助、结构化输出和平台运维报告共用当前模型服务。', page:'protocols', label:'设备接入' } /* 执行当前语句并推进处理流程。 */
-] /* 结束当前表达式或代码块。 */
+const capabilityLabels = {
+  chat:'对话',
+  'alarm-analysis':'告警研判',
+  'rule-draft':'规则草稿',
+  'json-output':'JSON 输出',
+  'local-model':'本地模型',
+  fallback:'降级响应'
+}
+const capabilities = [
+  { title:'智能告警研判', description:'告警详情中的风险分析、原因判断和人工处置建议。', page:'alarms', label:'告警中心' },
+  { title:'智能助手对话', description:'通过受控工具查询设备、告警、趋势和运维知识。', page:'ai', label:'工作流' },
+  { title:'智能巡检', description:'生成设备健康巡检结论，并标记数据局限和优先处理设备。', page:'inspection', label:'智能巡检' },
+  { title:'告警规则草稿', description:'根据自然语言生成待人工复核的自动化规则草稿。', page:'rules', label:'告警规则' },
+  { title:'协议助手与运维报告', description:'协议配置辅助、结构化输出和平台运维报告共用当前模型服务。', page:'protocols', label:'设备接入' }
+]
 
-const isAdmin = computed(() => can(['PUT /api/v1/ai/providers/config','POST /api/v1/ai/providers/test'])) /* 声明 isAdmin。 */
-const selectedProviderOption = computed(() => providerOptions.find(item => item.id === providerForm.provider) || providerOptions[0]) /* 声明 selectedProviderOption。 */
-const activeProvider = computed(() => runtime.value.config?.provider || runtime.value.active?.id || 'disabled') /* 声明 activeProvider。 */
-const activeProviderName = computed(() => providerOptions.find(item => item.id === activeProvider.value)?.label || runtime.value.active?.name || '未配置') /* 声明 activeProviderName。 */
-const activeModel = computed(() => runtime.value.config?.model || runtime.value.active?.model || '未设置') /* 声明 activeModel。 */
-const activeStatusType = computed(() => runtime.value.healthy ? 'success' : activeProvider.value === 'disabled' ? 'info' : 'warning') /* 声明 activeStatusType。 */
-const activeStatusLabel = computed(() => runtime.value.healthy ? '连接正常' : runtime.value.healthMessage || '连接异常') /* 声明 activeStatusLabel。 */
-const busy = computed(() => testing.value || applying.value) /* 声明 busy。 */
-const candidateFingerprint = computed(() => [providerForm.provider.trim(), providerForm.baseUrl.trim(), providerForm.model.trim(), providerForm.apiKey.trim(), providerForm.maxTokens].join('\u0000')) /* 声明 candidateFingerprint。 */
-const canApply = computed(() => Boolean(testResult.value?.success && testedFingerprint.value === candidateFingerprint.value)) /* 声明 canApply。 */
+const isAdmin = computed(() => can(['PUT /api/v1/ai/providers/config','POST /api/v1/ai/providers/test']))
+const selectedProviderOption = computed(() => providerOptions.find(item => item.id === providerForm.provider) || providerOptions[0])
+const activeProvider = computed(() => runtime.value.config?.provider || runtime.value.active?.id || 'disabled')
+const activeProviderName = computed(() => providerOptions.find(item => item.id === activeProvider.value)?.label || runtime.value.active?.name || '未配置')
+const activeModel = computed(() => runtime.value.config?.model || runtime.value.active?.model || '未设置')
+const activeStatusType = computed(() => runtime.value.healthy ? 'success' : activeProvider.value === 'disabled' ? 'info' : 'warning')
+const activeStatusLabel = computed(() => runtime.value.healthy ? '连接正常' : runtime.value.healthMessage || '连接异常')
+const busy = computed(() => testing.value || applying.value)
+const candidateFingerprint = computed(() => [providerForm.provider.trim(), providerForm.baseUrl.trim(), providerForm.model.trim(), providerForm.apiKey.trim(), providerForm.maxTokens].join('\u0000'))
+const canApply = computed(() => Boolean(testResult.value?.success && testedFingerprint.value === candidateFingerprint.value))
 
-function providerLabel(provider) { /* 定义 providerLabel 函数。 */
-  return providerOptions.find(item => item.id === provider)?.label || (provider === 'disabled' ? '未启用' : provider) || '未配置' /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+function providerLabel(provider) {
+  return providerOptions.find(item => item.id === provider)?.label || (provider === 'disabled' ? '未启用' : provider) || '未配置'
+}
 
-function providerDescription(item) { /* 定义 providerDescription 函数。 */
-  return providerOptions.find(option => option.id === item?.id)?.description || item?.description || '模型服务插件' /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+function providerDescription(item) {
+  return providerOptions.find(option => option.id === item?.id)?.description || item?.description || '模型服务插件'
+}
 
-function capabilityLabel(value) { /* 定义 capabilityLabel 函数。 */
-  return capabilityLabels[value] || '扩展能力' /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+function capabilityLabel(value) {
+  return capabilityLabels[value] || '扩展能力'
+}
 
-function syncProviderForm(value) { /* 定义 syncProviderForm 函数。 */
-  const config = value?.config /* 声明 config。 */
-  if (!config) return /* 判断条件并选择处理分支。 */
-  if (providerOptions.some(item => item.id === config.provider)) providerForm.provider = config.provider /* 判断条件并选择处理分支。 */
-  providerForm.baseUrl = config.baseUrl || providerForm.baseUrl /* 更新 providerForm.baseUrl 的值。 */
-  providerForm.model = config.model || providerForm.model /* 更新 providerForm.model 的值。 */
+function syncProviderForm(value) {
+  const config = value?.config
+  if (!config) return
+  if (providerOptions.some(item => item.id === config.provider)) providerForm.provider = config.provider
+  providerForm.baseUrl = config.baseUrl || providerForm.baseUrl
+  providerForm.model = config.model || providerForm.model
   providerForm.maxTokens = config.maxTokens || 2048
-  providerForm.apiKey = '' /* 更新 providerForm.apiKey 的值。 */
-} /* 结束当前表达式或代码块。 */
+  providerForm.apiKey = ''
+}
 
-function providerChanged(provider) { /* 定义 providerChanged 函数。 */
-  if (provider === 'ollama') { /* 判断条件并选择处理分支。 */
-    if (!providerForm.baseUrl || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = 'http://localhost:11434' /* 判断条件并选择处理分支。 */
-    if (!providerForm.model || providerForm.model.startsWith('deepseek')) providerForm.model = '' /* 判断条件并选择处理分支。 */
-    return /* 返回当前处理结果。 */
-  } /* 结束当前表达式或代码块。 */
-  if (provider === 'deepseek') { /* 判断条件并选择处理分支。 */
-    if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434')) providerForm.baseUrl = 'https://api.deepseek.com' /* 判断条件并选择处理分支。 */
-    if (!providerForm.model || providerForm.model.startsWith('qwen')) providerForm.model = 'deepseek-flash' /* 判断条件并选择处理分支。 */
-    return /* 返回当前处理结果。 */
-  } /* 结束当前表达式或代码块。 */
-  if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434') || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = '' /* 判断条件并选择处理分支。 */
-  if (!providerForm.model || providerForm.model.startsWith('qwen') || providerForm.model.startsWith('deepseek')) providerForm.model = '' /* 判断条件并选择处理分支。 */
-} /* 结束当前表达式或代码块。 */
+function providerChanged(provider) {
+  if (provider === 'ollama') {
+    if (!providerForm.baseUrl || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = 'http://localhost:11434'
+    if (!providerForm.model || providerForm.model.startsWith('deepseek')) providerForm.model = ''
+    return
+  }
+  if (provider === 'deepseek') {
+    if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434')) providerForm.baseUrl = 'https://api.deepseek.com'
+    if (!providerForm.model || providerForm.model.startsWith('qwen')) providerForm.model = 'deepseek-flash'
+    return
+  }
+  if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434') || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = ''
+  if (!providerForm.model || providerForm.model.startsWith('qwen') || providerForm.model.startsWith('deepseek')) providerForm.model = ''
+}
 
-async function loadRuntime() { /* 定义 loadRuntime 函数。 */
+async function loadRuntime() {
   const version = ++loadVersion
-  loading.value = true /* 更新 loading.value 的值。 */
-  loadError.value = '' /* 更新 loadError.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const value = await api('/api/v1/ai/providers?page=1&pageSize=100') /* 声明 value。 */
+  loading.value = true
+  loadError.value = ''
+  try {
+    const value = await api('/api/v1/ai/providers?page=1&pageSize=100')
     if (version !== loadVersion) return
-    runtime.value = value /* 更新 runtime.value 的值。 */
-    syncProviderForm(value) /* 执行当前语句并推进处理流程。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    if (version === loadVersion) loadError.value = error.message || '模型服务状态读取失败' /* 更新 loadError.value 的值。 */
-  } finally { /* 结束当前表达式或代码块。 */
-    if (version === loadVersion) loading.value = false /* 更新 loading.value 的值。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+    runtime.value = value
+    syncProviderForm(value)
+  } catch (error) {
+    if (version === loadVersion) loadError.value = error.message || '模型服务状态读取失败'
+  } finally {
+    if (version === loadVersion) loading.value = false
+  }
+}
 
-function candidateConfig() { /* 定义 candidateConfig 函数。 */
-  providerError.value = '' /* 更新 providerError.value 的值。 */
-  const provider = providerForm.provider.trim() /* 声明 provider。 */
-  const baseUrl = providerForm.baseUrl.trim() /* 声明 baseUrl。 */
-  const model = providerForm.model.trim() /* 声明 model。 */
-  const apiKey = providerForm.apiKey.trim() /* 声明 apiKey。 */
+function candidateConfig() {
+  providerError.value = ''
+  const provider = providerForm.provider.trim()
+  const baseUrl = providerForm.baseUrl.trim()
+  const model = providerForm.model.trim()
+  const apiKey = providerForm.apiKey.trim()
   const maxTokens = Number(providerForm.maxTokens)
-  if (!provider || !baseUrl || !model) { /* 判断条件并选择处理分支。 */
-    providerError.value = '请填写模型来源、服务地址和模型名称' /* 更新 providerError.value 的值。 */
-    return null /* 返回当前处理结果。 */
-  } /* 结束当前表达式或代码块。 */
-  if (provider !== 'ollama' && !apiKey && (activeProvider.value !== provider || !runtime.value.config?.apiKeyConfigured)) { /* 判断条件并选择处理分支。 */
-    providerError.value = '切换到云端或兼容接口模型时必须填写接口密钥' /* 更新 providerError.value 的值。 */
-    return null /* 返回当前处理结果。 */
-  } /* 结束当前表达式或代码块。 */
+  if (!provider || !baseUrl || !model) {
+    providerError.value = '请填写模型来源、服务地址和模型名称'
+    return null
+  }
+  if (provider !== 'ollama' && !apiKey && (activeProvider.value !== provider || !runtime.value.config?.apiKeyConfigured)) {
+    providerError.value = '切换到云端或兼容接口模型时必须填写接口密钥'
+    return null
+  }
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 128 || maxTokens > 8192) {
     providerError.value = '最大输出词元必须在 128 到 8192 之间'
     return null
   }
-  const body = { provider, baseUrl, model, maxTokens } /* 声明 body。 */
-  if (apiKey) body.apiKey = apiKey /* 判断条件并选择处理分支。 */
-  return { body, fingerprint: [provider, baseUrl, model, apiKey, maxTokens].join('\u0000') } /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+  const body = { provider, baseUrl, model, maxTokens }
+  if (apiKey) body.apiKey = apiKey
+  return { body, fingerprint: [provider, baseUrl, model, apiKey, maxTokens].join('\u0000') }
+}
 
-async function testProviderConfig() { /* 定义 testProviderConfig 函数。 */
-  if (!isAdmin.value || busy.value) return /* 判断条件并选择处理分支。 */
-  const candidate = candidateConfig() /* 声明 candidate。 */
-  if (!candidate) return /* 判断条件并选择处理分支。 */
-  testing.value = true /* 更新 testing.value 的值。 */
-  testResult.value = null /* 更新 testResult.value 的值。 */
-  testedFingerprint.value = '' /* 更新 testedFingerprint.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const result = await api('/api/v1/ai/providers/test', { method:'POST', body:JSON.stringify(candidate.body) }) /* 声明 result。 */
-    testResult.value = { ...result, fingerprint:candidate.fingerprint } /* 更新 testResult.value 的值。 */
-    if (!result.success) { /* 判断条件并选择处理分支。 */
-      providerError.value = result.error || '模型服务测试失败，请检查地址、模型和接口密钥' /* 更新 providerError.value 的值。 */
-      return /* 返回当前处理结果。 */
-    } /* 结束当前表达式或代码块。 */
-    testedFingerprint.value = candidate.fingerprint /* 更新 testedFingerprint.value 的值。 */
-    UiMessage.success('配置测试通过。确认无误后可点击“应用配置”') /* 执行当前语句并推进处理流程。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    providerError.value = error.message || '模型服务测试失败' /* 更新 providerError.value 的值。 */
-  } finally { /* 结束当前表达式或代码块。 */
-    testing.value = false /* 更新 testing.value 的值。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+async function testProviderConfig() {
+  if (!isAdmin.value || busy.value) return
+  const candidate = candidateConfig()
+  if (!candidate) return
+  testing.value = true
+  testResult.value = null
+  testedFingerprint.value = ''
+  try {
+    const result = await api('/api/v1/ai/providers/test', { method:'POST', body:JSON.stringify(candidate.body) })
+    testResult.value = { ...result, fingerprint:candidate.fingerprint }
+    if (!result.success) {
+      providerError.value = result.error || '模型服务测试失败，请检查地址、模型和接口密钥'
+      return
+    }
+    testedFingerprint.value = candidate.fingerprint
+    UiMessage.success('配置测试通过。确认无误后可点击“应用配置”')
+  } catch (error) {
+    providerError.value = error.message || '模型服务测试失败'
+  } finally {
+    testing.value = false
+  }
+}
 
-async function applyProviderConfig() { /* 定义 applyProviderConfig 函数。 */
-  if (!isAdmin.value || busy.value) return /* 判断条件并选择处理分支。 */
-  const candidate = candidateConfig() /* 声明 candidate。 */
-  if (!candidate) return /* 判断条件并选择处理分支。 */
-  if (!canApply.value || testedFingerprint.value !== candidate.fingerprint) { /* 判断条件并选择处理分支。 */
-    providerError.value = '请先测试当前配置；修改任一配置后需要重新测试' /* 更新 providerError.value 的值。 */
-    return /* 返回当前处理结果。 */
-  } /* 结束当前表达式或代码块。 */
-  applying.value = true /* 更新 applying.value 的值。 */
-  providerError.value = '' /* 更新 providerError.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const result = await api('/api/v1/ai/providers/config', { method:'PUT', body:JSON.stringify(candidate.body) }) /* 声明 result。 */
-    syncProviderForm({ config:result }) /* 执行当前语句并推进处理流程。 */
-    await loadRuntime() /* 等待异步操作完成。 */
-    testResult.value = null /* 更新 testResult.value 的值。 */
-    testedFingerprint.value = '' /* 更新 testedFingerprint.value 的值。 */
-    UiMessage.success(`已应用${providerLabel(candidate.body.provider)}，所有智能功能立即生效`) /* 执行当前语句并推进处理流程。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    providerError.value = error.message || '模型服务应用失败' /* 更新 providerError.value 的值。 */
-  } finally { /* 结束当前表达式或代码块。 */
-    applying.value = false /* 更新 applying.value 的值。 */
-  } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
+async function applyProviderConfig() {
+  if (!isAdmin.value || busy.value) return
+  const candidate = candidateConfig()
+  if (!candidate) return
+  if (!canApply.value || testedFingerprint.value !== candidate.fingerprint) {
+    providerError.value = '请先测试当前配置；修改任一配置后需要重新测试'
+    return
+  }
+  applying.value = true
+  providerError.value = ''
+  try {
+    const result = await api('/api/v1/ai/providers/config', { method:'PUT', body:JSON.stringify(candidate.body) })
+    syncProviderForm({ config:result })
+    await loadRuntime()
+    testResult.value = null
+    testedFingerprint.value = ''
+    UiMessage.success(`已应用${providerLabel(candidate.body.provider)}，所有智能功能立即生效`)
+  } catch (error) {
+    providerError.value = error.message || '模型服务应用失败'
+  } finally {
+    applying.value = false
+  }
+}
 
-watch(candidateFingerprint, () => { /* 执行当前语句并推进处理流程。 */
-  if (testResult.value && testedFingerprint.value !== candidateFingerprint.value) { /* 判断条件并选择处理分支。 */
-    testResult.value = null /* 更新 testResult.value 的值。 */
-    testedFingerprint.value = '' /* 更新 testedFingerprint.value 的值。 */
-  } /* 结束当前表达式或代码块。 */
-}) /* 结束当前表达式或代码块。 */
+watch(candidateFingerprint, () => {
+  if (testResult.value && testedFingerprint.value !== candidateFingerprint.value) {
+    testResult.value = null
+    testedFingerprint.value = ''
+  }
+})
 
-onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
+onMounted(loadRuntime)
 </script>
 
 <template>

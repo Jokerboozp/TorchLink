@@ -1,34 +1,34 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue' /* 引入当前代码需要的依赖。 */
-import { api, formatTime, notifyError } from '../api' /* 引入当前代码需要的依赖。 */
-import { alarmLevels, alarmType, label, tagType } from '../labels' /* 引入当前代码需要的依赖。 */
-import { RefreshCw } from '@lucide/vue' /* 引入当前代码需要的依赖。 */
-import DashboardTrend from '../components/DashboardTrend.vue' /* 引入当前代码需要的依赖。 */
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { api, formatTime, notifyError } from '../api'
+import { alarmLevels, alarmType, label, tagType } from '../labels'
+import { RefreshCw } from '@lucide/vue'
+import DashboardTrend from '../components/DashboardTrend.vue'
 import { deviceSegments, ringSegments, productBars, dashboardDistributions } from '../dashboard.js'
 import DashboardDistribution from '../components/DashboardDistribution.vue'
-import StatusDot from '../components/layout/StatusDot.vue' /* 引入当前代码需要的依赖。 */
+import StatusDot from '../components/layout/StatusDot.vue'
 
-const emit = defineEmits(['navigate']) /* 声明 emit。 */
-const data = ref(null) /* 声明 data。 */
-const alarms = ref([]) /* 声明 alarms。 */
-const days = ref(7) /* 声明 days。 */
-const detail = ref(null) /* 声明 detail。 */
-const detailVisible = ref(false) /* 声明 detailVisible。 */
-const loading = ref(false) /* 声明 loading。 */
-const loadError = ref('') /* 声明 loadError。 */
+const emit = defineEmits(['navigate'])
+const data = ref(null)
+const alarms = ref([])
+const days = ref(7)
+const detail = ref(null)
+const detailVisible = ref(false)
+const loading = ref(false)
+const loadError = ref('')
 const distributions = computed(() => dashboardDistributions(data.value || {}))
 const alarmDistributions = computed(() => distributions.value.filter(chart => chart.unit === '条'))
 const deviceDistributions = computed(() => distributions.value.filter(chart => chart.unit === '台'))
-const stats = computed(() => data.value || {}) /* 声明 stats。 */
-const rate = computed(() => stats.value.devices ? Math.round(stats.value.online / stats.value.devices * 100) : 0) /* 声明 rate。 */
-const states = computed(() => ringSegments(deviceSegments(stats.value.states))) /* 声明 states。 */
-const products = computed(() => productBars(stats.value.products)) /* 声明 products。 */
-const productMax = computed(() => Math.max(1,...products.value.map(item => item.count))) /* 声明 productMax。 */
-const levels = computed(() => { /* 声明 levels。 */
-  const known = Object.entries(alarmLevels).map(([key,name],index) => ({ key,name,count:stats.value.levels?.[key] || 0,color:['var(--danger)','var(--flame)','var(--warning)','var(--info)','var(--gray-500)'][index] })) /* 声明 known。 */
-  const other = Object.entries(stats.value.levels || {}).filter(([key]) => !alarmLevels[key]).reduce((sum,[,n]) => sum+n,0) /* 声明 other。 */
-  return other ? [...known,{key:'OTHER',name:'未设置',count:other,color:'var(--gray-300)'}] : known /* 返回当前处理结果。 */
-}) /* 结束当前表达式或代码块。 */
+const stats = computed(() => data.value || {})
+const rate = computed(() => stats.value.devices ? Math.round(stats.value.online / stats.value.devices * 100) : 0)
+const states = computed(() => ringSegments(deviceSegments(stats.value.states)))
+const products = computed(() => productBars(stats.value.products))
+const productMax = computed(() => Math.max(1,...products.value.map(item => item.count)))
+const levels = computed(() => {
+  const known = Object.entries(alarmLevels).map(([key,name],index) => ({ key,name,count:stats.value.levels?.[key] || 0,color:['var(--danger)','var(--flame)','var(--warning)','var(--info)','var(--gray-500)'][index] }))
+  const other = Object.entries(stats.value.levels || {}).filter(([key]) => !alarmLevels[key]).reduce((sum,[,n]) => sum+n,0)
+  return other ? [...known,{key:'OTHER',name:'未设置',count:other,color:'var(--gray-300)'}] : known
+})
 const kpis = computed(() => [
   { label:'设备总数', value:stats.value.devices, note:'已登记设备' },
   { label:'在线设备', value:stats.value.online, note:`在线率 ${rate.value}%` },
@@ -41,34 +41,34 @@ const ring = computed(() => {
   const gap = shown.length > 1 ? 0.5 : 0
   return shown.map(item => ({ ...item, dash:`${Math.max(item.percent - gap, 0.1)} ${100 - Math.max(item.percent - gap, 0.1)}` }))
 })
-let controller, revision = 0, timer, disposed = false /* 声明 controller。 */
-async function load() { /* 定义 load 函数。 */
-  const current = ++revision /* 声明 current。 */
-  controller?.abort() /* 执行当前语句并推进处理流程。 */
-  controller = new AbortController() /* 更新 controller 的值。 */
-  const options = { signal:controller.signal } /* 声明 options。 */
-  loading.value = true /* 更新 loading.value 的值。 */
-  try { /* 执行当前语句并推进处理流程。 */
-    const [overview, active] = await Promise.all([api(`/api/v1/dashboard?days=${days.value}&offset=${-new Date().getTimezoneOffset()}`,options), api('/api/v1/alarms?status=ACTIVE&limit=6',options)]) /* 执行当前语句并推进处理流程。 */
-    if (disposed || current !== revision) return /* 判断条件并选择处理分支。 */
-    data.value = overview /* 更新 data.value 的值。 */
-    alarms.value = active.items || [] /* 更新 alarms.value 的值。 */
-    loadError.value = '' /* 更新 loadError.value 的值。 */
-  } catch (error) { /* 结束当前表达式或代码块。 */
-    if (disposed || current !== revision || error?.name === 'AbortError') return /* 判断条件并选择处理分支。 */
-    loadError.value = data.value ? '刷新失败，当前显示上次成功获取的数据。' : '统计读取失败，请重试。' /* 更新 loadError.value 的值。 */
-    notifyError(error) /* 执行当前语句并推进处理流程。 */
-  } finally { if (!disposed && current === revision) loading.value = false } /* 结束当前表达式或代码块。 */
-} /* 结束当前表达式或代码块。 */
-async function showDetail(id) { try { detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`); if (!disposed) detailVisible.value = true } catch (e) { if (!disposed) notifyError(e) } } /* 定义 showDetail 函数。 */
-const realtime = event => { /* 声明 realtime。 */
-  const topic = event?.detail?.topic || '' /* 声明 topic。 */
-  if (!topic.includes('/alarm/') && !topic.includes('/device/state/')) return /* 判断条件并选择处理分支。 */
-  if (timer || disposed) return /* 判断条件并选择处理分支。 */
-  timer = setTimeout(() => { timer = null; if (loading.value) realtime(event); else load() }, 5000) /* 更新 timer 的值。 */
-} /* 结束当前表达式或代码块。 */
-onMounted(() => { load(); window.addEventListener('iot:realtime', realtime) }) /* 执行当前语句并推进处理流程。 */
-onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer); window.removeEventListener('iot:realtime', realtime) }) /* 执行当前语句并推进处理流程。 */
+let controller, revision = 0, timer, disposed = false
+async function load() {
+  const current = ++revision
+  controller?.abort()
+  controller = new AbortController()
+  const options = { signal:controller.signal }
+  loading.value = true
+  try {
+    const [overview, active] = await Promise.all([api(`/api/v1/dashboard?days=${days.value}&offset=${-new Date().getTimezoneOffset()}`,options), api('/api/v1/alarms?status=ACTIVE&limit=6',options)])
+    if (disposed || current !== revision) return
+    data.value = overview
+    alarms.value = active.items || []
+    loadError.value = ''
+  } catch (error) {
+    if (disposed || current !== revision || error?.name === 'AbortError') return
+    loadError.value = data.value ? '刷新失败，当前显示上次成功获取的数据。' : '统计读取失败，请重试。'
+    notifyError(error)
+  } finally { if (!disposed && current === revision) loading.value = false }
+}
+async function showDetail(id) { try { detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`); if (!disposed) detailVisible.value = true } catch (e) { if (!disposed) notifyError(e) } }
+const realtime = event => {
+  const topic = event?.detail?.topic || ''
+  if (!topic.includes('/alarm/') && !topic.includes('/device/state/')) return
+  if (timer || disposed) return
+  timer = setTimeout(() => { timer = null; if (loading.value) realtime(event); else load() }, 5000)
+}
+onMounted(() => { load(); window.addEventListener('iot:realtime', realtime) })
+onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer); window.removeEventListener('iot:realtime', realtime) })
 </script>
 
 <template>
@@ -85,8 +85,8 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
     </div>
     <section class="dashboard-section" aria-labelledby="alarm-section-title">
       <div class="section-heading"><div><h2 id="alarm-section-title">告警分析</h2><span>发生趋势与处置进展</span></div><ui-radio-group v-model="days" size="small" class="segmented-choice-group" aria-label="告警统计时段" @change="load"><ui-radio-button :value="7">近 7 天</ui-radio-button><ui-radio-button :value="30">近 30 天</ui-radio-button></ui-radio-group></div>
-      <div class="dashboard-primary"><ui-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><span class="chart-meta">近 {{ stats.days || days }} 天</span></div></template> <!-- 渲染 ui-card 界面元素。 -->
-        <DashboardTrend v-if="data" :items="data.trend" /><ui-skeleton v-else :rows="5" :loading="loading" animated><ui-empty description="尚未获取趋势数据" :image-size="76" /></ui-skeleton> <!-- 渲染 DashboardTrend 界面元素。 -->
+      <div class="dashboard-primary"><ui-card shadow="never" class="surface-card trend-card"><template #header><div class="card-header"><strong>告警趋势</strong><span class="chart-meta">近 {{ stats.days || days }} 天</span></div></template>
+        <DashboardTrend v-if="data" :items="data.trend" /><ui-skeleton v-else :rows="5" :loading="loading" animated><ui-empty description="尚未获取趋势数据" :image-size="76" /></ui-skeleton>
       </ui-card>
         <ui-card shadow="never" class="surface-card recent-alarms"><template #header><div class="card-header"><strong>最新活动告警</strong><ui-button v-permission="'menu:alarms'" text @click="emit('navigate','alarms')">查看全部</ui-button></div></template>
           <p class="chart-description">{{ alarms.length ? `当前待处理告警 · 最近 ${alarms.length} 条` : '当前待处理告警' }}</p>
@@ -100,10 +100,10 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
           </div>
         </ui-card>
       </div>
-      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card level-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta">{{ data ? `${stats.activeAlarms.toLocaleString()} 条` : '—' }}</span></div></template> <!-- 渲染 ui-card 界面元素。 -->
+      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card level-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta">{{ data ? `${stats.activeAlarms.toLocaleString()} 条` : '—' }}</span></div></template>
         <p class="chart-description">当前活动告警的风险等级分布</p>
-        <div v-if="data && stats.activeAlarms" class="horizontal-chart"><div v-for="item in levels" :key="item.key" class="bar-row"><div><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>条</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / stats.activeAlarms * 100}%`, background:item.color }" /></div></div></div> <!-- 渲染 div 界面元素。 -->
-        <ui-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" /> <!-- 渲染 ui-empty 界面元素。 -->
+        <div v-if="data && stats.activeAlarms" class="horizontal-chart"><div v-for="item in levels" :key="item.key" class="bar-row"><div><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>条</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / stats.activeAlarms * 100}%`, background:item.color }" /></div></div></div>
+        <ui-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" />
       </ui-card>
         <ui-card v-for="chart in alarmDistributions" :key="chart.key" shadow="never" class="surface-card insight-card">
           <template #header><div class="card-header"><strong>{{ chart.title }}</strong><span class="chart-meta">{{ chart.unit === '台' ? '当前快照' : `近 ${stats.days || days} 天` }}</span></div></template>
@@ -114,13 +114,13 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
     </section>
     <section class="dashboard-section" aria-labelledby="device-section-title">
       <div class="section-heading"><div><h2 id="device-section-title">设备概况</h2><span>在线、连接与数据活跃情况</span></div><span class="chart-meta">当前快照</span></div>
-      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><ui-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->
+      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card"><template #header><div class="card-header"><strong>设备状态</strong><ui-button v-permission="'menu:devices'" text @click="emit('navigate','devices')">管理设备</ui-button></div></template>
         <p class="chart-description">已登记设备的当前业务状态</p>
-        <div v-if="data && stats.devices" class="device-chart"> <!-- 渲染 div 界面元素。 -->
-          <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="var(--surface-hover)" stroke-width="14" /><circle v-for="item in ring" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="14" pathLength="100" :stroke-dasharray="item.dash" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div> <!-- 渲染 div 界面元素。 -->
-          <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }}</b></div></div> <!-- 渲染 div 界面元素。 -->
-        </div> <!-- 结束当前界面区域。 -->
-        <ui-empty v-else :description="data ? '暂无已登记设备' : loading ? '正在读取设备' : '尚未获取设备数据'" :image-size="76" /> <!-- 渲染 ui-empty 界面元素。 -->
+        <div v-if="data && stats.devices" class="device-chart">
+          <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="var(--surface-hover)" stroke-width="14" /><circle v-for="item in ring" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="14" pathLength="100" :stroke-dasharray="item.dash" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div>
+          <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }}</b></div></div>
+        </div>
+        <ui-empty v-else :description="data ? '暂无已登记设备' : loading ? '正在读取设备' : '尚未获取设备数据'" :image-size="76" />
       </ui-card>
         <ui-card v-for="chart in deviceDistributions" :key="chart.key" shadow="never" class="surface-card insight-card">
           <template #header><div class="card-header"><strong>{{ chart.title }}</strong><span class="chart-meta">{{ chart.unit === '台' ? '当前快照' : `近 ${stats.days || days} 天` }}</span></div></template>
@@ -128,9 +128,9 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
           <DashboardDistribution :items="chart.items" :title="chart.title" :unit="chart.unit" :variant="chart.variant" :available="chart.available" :loading="loading" />
         </ui-card>
       </div>
-      <ui-card shadow="never" class="surface-card product-card"><template #header><div class="card-header"><strong>产品设备分布</strong><ui-button v-permission="'menu:products'" text @click="emit('navigate','products')">管理产品</ui-button></div></template> <!-- 渲染 ui-card 界面元素。 -->
-        <div v-if="products.length" class="horizontal-chart product-chart"><div v-for="item in products" :key="item.key" class="bar-row"><div><span :title="item.name">{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>台</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / productMax * 100}%`, background:item.color }" /></div></div></div> <!-- 渲染 div 界面元素。 -->
-        <ui-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" /> <!-- 渲染 ui-empty 界面元素。 -->
+      <ui-card shadow="never" class="surface-card product-card"><template #header><div class="card-header"><strong>产品设备分布</strong><ui-button v-permission="'menu:products'" text @click="emit('navigate','products')">管理产品</ui-button></div></template>
+        <div v-if="products.length" class="horizontal-chart product-chart"><div v-for="item in products" :key="item.key" class="bar-row"><div><span :title="item.name">{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>台</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / productMax * 100}%`, background:item.color }" /></div></div></div>
+        <ui-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" />
       </ui-card>
     </section>
       <ui-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"><ui-descriptions v-if="detail" :column="1" border><ui-descriptions-item label="告警编号">{{ detail.alarmId }}</ui-descriptions-item><ui-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</ui-descriptions-item><ui-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</ui-descriptions-item></ui-descriptions><details class="technical-details"><summary>查看原始记录</summary><pre>{{ JSON.stringify(detail,null,2) }}</pre></details><template #footer><ui-button @click="detailVisible = false">关闭</ui-button><ui-button v-permission="'menu:alarms'" type="primary" @click="emit('navigate', 'alarms', { alarmId: detail?.alarmId })">前往告警处置</ui-button></template></ui-dialog>

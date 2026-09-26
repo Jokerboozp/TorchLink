@@ -2,49 +2,15 @@ package postgres
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
-	"time"
 
 	"iot-platform/internal/model"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Set IOT_TEST_POSTGRES_DSN to run against a disposable PostgreSQL database.
 func TestHealthInspectionJobStore(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("IOT_TEST_POSTGRES_DSN is not configured")
-	}
 	ctx := context.Background()
-	admin, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	schemaName := fmt.Sprintf("inspection_job_test_%d", time.Now().UnixNano())
-	identifier := pgx.Identifier{schemaName}.Sanitize()
-	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _, _ = admin.Exec(context.Background(), "DROP SCHEMA "+identifier+" CASCADE") }()
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = schemaName
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	r := &Repository{pool: pool}
-	if err = r.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	r := testRepository(t)
 
 	running := model.HealthInspectionJob{ID: "job-1", TenantID: "tenant-a", Status: "running", Progress: 8, StartedAt: 1000, UpdatedAt: 1000}
 	if created, createErr := r.CreateHealthInspectionJob(ctx, running); createErr != nil || !created {

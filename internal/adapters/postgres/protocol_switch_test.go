@@ -3,48 +3,16 @@ package postgres
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
-	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"iot-platform/internal/model"
 )
 
 // Uses only its own temporary schema in an explicitly configured test database.
 func TestSwitchProductProtocolDetectsChangedBinding(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_POSTGRES_DSN")
-	if dsn == "" {
-		t.Skip("IOT_TEST_POSTGRES_DSN is not configured")
-	}
 	ctx := context.Background()
-	admin, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close()
-	name := fmt.Sprintf("protocol_switch_test_%d", time.Now().UnixNano())
-	ident := pgx.Identifier{name}.Sanitize()
-	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+ident); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _, _ = admin.Exec(context.Background(), "DROP SCHEMA "+ident+" CASCADE") }()
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = name
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	r := &Repository{pool: pool}
-	if err = r.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	r := testRepository(t)
+	var err error
 
 	product := model.Product{TenantID: "t", ID: "p", Name: "模板", Status: "ENABLED", ProtocolPackageID: "fire@1"}
 	switchTo := func(version string, expected *model.ProductProtocolBinding) error {

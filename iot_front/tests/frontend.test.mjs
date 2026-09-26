@@ -4,79 +4,79 @@ import test from 'node:test'
 
 const root = new URL('..', import.meta.url)
 
-test('alarm levels normalize lowercase and missing values', async () => { /* 执行当前语句并推进处理流程。 */
-  const labels = await import('../src/labels.js') /* 声明 labels。 */
-  assert.equal(labels.alarmLevel('CRITICAL'), '紧急') /* 验证实际结果符合预期。 */
-  assert.equal(labels.alarmLevel('high'), '高') /* 验证实际结果符合预期。 */
-  assert.equal(labels.alarmLevel(''), '未设置') /* 验证实际结果符合预期。 */
+test('alarm levels normalize lowercase and missing values', async () => {
+  const labels = await import('../src/labels.js')
+  assert.equal(labels.alarmLevel('CRITICAL'), '紧急')
+  assert.equal(labels.alarmLevel('high'), '高')
+  assert.equal(labels.alarmLevel(''), '未设置')
 })
 
-test('realtime alarms, fault events and quiet settings stay tenant scoped', async () => { /* 执行当前语句并推进处理流程。 */
-  const alerts = await import('../src/globalAlert.js') /* 声明 alerts。 */
+test('realtime alarms, fault events and quiet settings stay tenant scoped', async () => {
+  const alerts = await import('../src/globalAlert.js')
 
-  const raised = alerts.parseRealtimeAlert( /* 声明 raised。 */
-    '/iot/alarm/raised/city-1/district-1/building-1/smoke/device-1', /* 执行当前语句并推进处理流程。 */
-    JSON.stringify({ alarmId:'alarm-1', triggerId:'message-1', deviceId:'device-1', deviceName:'东区烟感', alarmType:'FIRE_RISK', alarmLevel:'CRITICAL', source:'device', lastTriggeredAt:1760000000000 }) /* 执行当前语句并推进处理流程。 */
-  ) /* 结束当前表达式或代码块。 */
-  assert.equal(raised.kind, 'alarm') /* 验证实际结果符合预期。 */
-  assert.equal(raised.alarmId, 'alarm-1') /* 验证实际结果符合预期。 */
-  assert.equal(raised.deviceName, '东区烟感') /* 验证实际结果符合预期。 */
-  assert.equal(raised.detail, '检测到设备异常报警，请及时处理。') /* 验证实际结果符合预期。 */
-  assert.deepEqual(alerts.alertKeys(raised), ['alarm-1', 'message-1']) /* 验证实际结果符合预期。 */
+  const raised = alerts.parseRealtimeAlert(
+    '/iot/alarm/raised/city-1/district-1/building-1/smoke/device-1',
+    JSON.stringify({ alarmId:'alarm-1', triggerId:'message-1', deviceId:'device-1', deviceName:'东区烟感', alarmType:'FIRE_RISK', alarmLevel:'CRITICAL', source:'device', lastTriggeredAt:1760000000000 })
+  )
+  assert.equal(raised.kind, 'alarm')
+  assert.equal(raised.alarmId, 'alarm-1')
+  assert.equal(raised.deviceName, '东区烟感')
+  assert.equal(raised.detail, '检测到设备异常报警，请及时处理。')
+  assert.deepEqual(alerts.alertKeys(raised), ['alarm-1', 'message-1'])
   assert.equal(alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/ALARM_REPORT', { messageId:'message-1', messageType:'ALARM_REPORT', deviceId:'device-1' }), null) /* 正式告警由 raised 事件通知，解析消息不再重复弹窗。 */
 
-  const fault = alerts.parseRealtimeAlert( /* 声明 fault。 */
-    '/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', /* 执行当前语句并推进处理流程。 */
-    { messageId:'message-fault', rawMessageId:'raw-message-fault', messageType:'EVENT_REPORT', deviceId:'device-1', event:{ type:'FAULT', description:'主电源故障' } } /* 执行当前语句并推进处理流程。 */
-  ) /* 结束当前表达式或代码块。 */
-  assert.equal(fault.kind, 'fault') /* 验证实际结果符合预期。 */
-  assert.equal(fault.messageId, 'raw-message-fault') /* 验证实际结果符合预期。 */
-  assert.equal(fault.alarmType, 'DEVICE_FAULT') /* 验证实际结果符合预期。 */
-  assert.equal(fault.detail, '主电源故障') /* 验证实际结果符合预期。 */
-  assert.equal(alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', { messageType:'EVENT_REPORT', event:{ type:'HEARTBEAT' } }), null) /* 验证实际结果符合预期。 */
+  const fault = alerts.parseRealtimeAlert(
+    '/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT',
+    { messageId:'message-fault', rawMessageId:'raw-message-fault', messageType:'EVENT_REPORT', deviceId:'device-1', event:{ type:'FAULT', description:'主电源故障' } }
+  )
+  assert.equal(fault.kind, 'fault')
+  assert.equal(fault.messageId, 'raw-message-fault')
+  assert.equal(fault.alarmType, 'DEVICE_FAULT')
+  assert.equal(fault.detail, '主电源故障')
+  assert.equal(alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', { messageType:'EVENT_REPORT', event:{ type:'HEARTBEAT' } }), null)
 
-  const values = new Map() /* 声明 values。 */
-  const storage = { getItem:key => values.get(key) ?? null, setItem:(key, value) => values.set(key, value) } /* 声明 storage。 */
-  const saved = alerts.saveAlertSettings(storage, { tenant:'tenant-a', user:'operator' }, { popupEnabled:false, soundEnabled:false, quietStart:'22:00', quietEnd:'07:00' }) /* 声明 saved。 */
-  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-a', user:'operator' }).popupEnabled, false) /* 验证实际结果符合预期。 */
-  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-b', user:'operator' }).popupEnabled, true) /* 验证实际结果符合预期。 */
-  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 23, 30), saved), true) /* 验证实际结果符合预期。 */
-  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 12, 0), saved), false) /* 验证实际结果符合预期。 */
+  const values = new Map()
+  const storage = { getItem:key => values.get(key) ?? null, setItem:(key, value) => values.set(key, value) }
+  const saved = alerts.saveAlertSettings(storage, { tenant:'tenant-a', user:'operator' }, { popupEnabled:false, soundEnabled:false, quietStart:'22:00', quietEnd:'07:00' })
+  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-a', user:'operator' }).popupEnabled, false)
+  assert.equal(alerts.loadAlertSettings(storage, { tenant:'tenant-b', user:'operator' }).popupEnabled, true)
+  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 23, 30), saved), true)
+  assert.equal(alerts.isWithinQuietHours(new Date(2026, 0, 1, 12, 0), saved), false)
 })
 
-test('AI answers render safe Markdown in chat and health inspection', async () => { /* 执行当前语句并推进处理流程。 */
-  const markdown = await import('../src/markdown.js') /* 声明 markdown。 */
-  const html = markdown.renderMarkdown('# 标题\n\n- **重点**\n\n`code`') /* 声明 html。 */
-  assert.match(html, /<h1>标题<\/h1>/) /* 验证实际结果符合预期。 */
-  assert.match(html, /<ul>[\s\S]*<strong>重点<\/strong>[\s\S]*<\/ul>/) /* 验证实际结果符合预期。 */
-  assert.match(html, /<code>code<\/code>/) /* 验证实际结果符合预期。 */
-  const unsafeHtml = markdown.renderMarkdown('<script>alert(1)</script>') /* 声明 unsafeHtml。 */
-  assert.match(unsafeHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/) /* 验证实际结果符合预期。 */
-  assert.doesNotMatch(unsafeHtml, /<script>/) /* 验证实际结果符合预期。 */
+test('AI answers render safe Markdown in chat and health inspection', async () => {
+  const markdown = await import('../src/markdown.js')
+  const html = markdown.renderMarkdown('# 标题\n\n- **重点**\n\n`code`')
+  assert.match(html, /<h1>标题<\/h1>/)
+  assert.match(html, /<ul>[\s\S]*<strong>重点<\/strong>[\s\S]*<\/ul>/)
+  assert.match(html, /<code>code<\/code>/)
+  const unsafeHtml = markdown.renderMarkdown('<script>alert(1)</script>')
+  assert.match(unsafeHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+  assert.doesNotMatch(unsafeHtml, /<script>/)
 })
 
-test('health inspection report survives menu-driven view recreation and stays tenant scoped', async () => { /* 执行当前语句并推进处理流程。 */
-  const { HEALTH_INSPECTION_STORAGE_PREFIX, healthInspectionStorageKey, saveHealthInspection, loadHealthInspection } = await import('../src/healthInspectionState.js') /* 执行当前语句并推进处理流程。 */
-  const values = new Map() /* 声明 values。 */
-  const storage = { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) } /* 声明 storage。 */
-  const session = { tenant:'tenant-a', user:'alice' } /* 声明 session。 */
-  const report = { generatedAt:1760000000000, summary:'巡检完成', counts:{ total:3, healthy:2 }, items:[], aiAdvice:'需要复核一台设备。' } /* 声明 report。 */
-  assert.equal(saveHealthInspection(storage, session, report), true) /* 验证实际结果符合预期。 */
-  assert.ok([...values.keys()][0].startsWith(HEALTH_INSPECTION_STORAGE_PREFIX)) /* 验证实际结果符合预期。 */
-  assert.deepEqual(loadHealthInspection(storage, session), report) /* 验证实际结果符合预期。 */
-  assert.equal(loadHealthInspection(storage, { tenant:'tenant-b', user:'alice' }), null) /* 验证实际结果符合预期。 */
-  assert.equal(loadHealthInspection(storage, { tenant:'tenant-a', user:'bob' }), null) /* 验证实际结果符合预期。 */
-  values.set(healthInspectionStorageKey(session), '{invalid') /* 执行当前语句并推进处理流程。 */
-  assert.equal(loadHealthInspection(storage, session), null) /* 验证实际结果符合预期。 */
-  assert.equal(values.has(healthInspectionStorageKey(session)), false) /* 验证实际结果符合预期。 */
+test('health inspection report survives menu-driven view recreation and stays tenant scoped', async () => {
+  const { HEALTH_INSPECTION_STORAGE_PREFIX, healthInspectionStorageKey, saveHealthInspection, loadHealthInspection } = await import('../src/healthInspectionState.js')
+  const values = new Map()
+  const storage = { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) }
+  const session = { tenant:'tenant-a', user:'alice' }
+  const report = { generatedAt:1760000000000, summary:'巡检完成', counts:{ total:3, healthy:2 }, items:[], aiAdvice:'需要复核一台设备。' }
+  assert.equal(saveHealthInspection(storage, session, report), true)
+  assert.ok([...values.keys()][0].startsWith(HEALTH_INSPECTION_STORAGE_PREFIX))
+  assert.deepEqual(loadHealthInspection(storage, session), report)
+  assert.equal(loadHealthInspection(storage, { tenant:'tenant-b', user:'alice' }), null)
+  assert.equal(loadHealthInspection(storage, { tenant:'tenant-a', user:'bob' }), null)
+  values.set(healthInspectionStorageKey(session), '{invalid')
+  assert.equal(loadHealthInspection(storage, session), null)
+  assert.equal(values.has(healthInspectionStorageKey(session)), false)
 })
 
-test('alarm acknowledgement action is unavailable after the alarm is acknowledged', async () => { /* 执行当前语句并推进处理流程。 */
-  const actions = await import('../src/alarmActions.js') /* 声明 actions。 */
-  assert.equal(actions.canAcknowledgeAlarm('ACTIVE'), true) /* 验证实际结果符合预期。 */
-  assert.equal(actions.canAcknowledgeAlarm('ACKED'), false) /* 验证实际结果符合预期。 */
-  assert.equal(actions.canAcknowledgeAlarm('CLOSED'), false) /* 验证实际结果符合预期。 */
-  assert.equal(actions.canCloseAlarm('ACKED'), true) /* 验证实际结果符合预期。 */
+test('alarm acknowledgement action is unavailable after the alarm is acknowledged', async () => {
+  const actions = await import('../src/alarmActions.js')
+  assert.equal(actions.canAcknowledgeAlarm('ACTIVE'), true)
+  assert.equal(actions.canAcknowledgeAlarm('ACKED'), false)
+  assert.equal(actions.canAcknowledgeAlarm('CLOSED'), false)
+  assert.equal(actions.canCloseAlarm('ACKED'), true)
 })
 
 test('AI conversation history survives view recreation and stays tenant scoped', async () => {
