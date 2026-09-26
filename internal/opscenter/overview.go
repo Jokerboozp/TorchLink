@@ -78,24 +78,59 @@ type Overview struct {
 	CheckedAt  int64                      `json:"checkedAt"`
 }
 
+// Overview checks the components and evaluates every KPI in one response.
+// The overview page requests the same data in parts (Component, OverviewKPIs)
+// so that one slow component does not hold back the rest of the page.
 func (s *Service) Overview(ctx context.Context) Overview {
 	now := s.now()
-	out := Overview{Jobs: map[string]JobHealth{}, CheckedAt: now.UnixMilli()}
+	out := Overview{CheckedAt: now.UnixMilli()}
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		out.Components = s.Components(ctx)
 	}()
-	out.KPIs = make([]KPIValue, len(overviewKPIs))
+	group := s.evaluateKPIs(ctx, overviewKPIs, now)
+	out.KPIs, out.Jobs = group.KPIs, group.Jobs
+	wg.Wait()
+	return out
+}
+
+// KPIGroup is one overview section's indicators together with the scrape job
+// health they were judged against.
+type KPIGroup struct {
+	Group     string               `json:"group"`
+	KPIs      []KPIValue           `json:"kpis"`
+	Jobs      map[string]JobHealth `json:"jobs"`
+	CheckedAt int64                `json:"checkedAt"`
+}
+
+// OverviewKPIs evaluates the indicators of one overview group.
+func (s *Service) OverviewKPIs(ctx context.Context, group string) (KPIGroup, error) {
+	selected := []KPI{}
+	for _, k := range overviewKPIs {
+		if k.Group == group {
+			selected = append(selected, k)
+		}
+	}
+	if len(selected) == 0 {
+		return KPIGroup{}, invalid("group", "未知的指标分组")
+	}
+	now := s.now()
+	out := s.evaluateKPIs(ctx, selected, now)
+	out.Group = group
+	return out, nil
+}
+
+func (s *Service) evaluateKPIs(ctx context.Context, kpis []KPI, now time.Time) KPIGroup {
+	out := KPIGroup{KPIs: make([]KPIValue, len(kpis)), Jobs: map[string]JobHealth{}, CheckedAt: now.UnixMilli()}
 	if !configured(s.Metrics) {
-		for i, k := range overviewKPIs {
+		for i, k := range kpis {
 			out.KPIs[i] = KPIValue{KPI: k, Status: "unconfigured", Message: "未配置 Prometheus"}
 		}
-		wg.Wait()
 		return out
 	}
-	targets, targetErr := s.Metrics.Targets(ctx)
+	targets, targetErr := s.overviewTargets(ctx)
 	for _, t := range targets {
 		job := out.Jobs[t.Job]
 		job.Total++
@@ -106,7 +141,8 @@ func (s *Service) Overview(ctx context.Context) Overview {
 		}
 		out.Jobs[t.Job] = job
 	}
-	for i, k := range overviewKPIs {
+	var wg sync.WaitGroup
+	for i, k := range kpis {
 		wg.Add(1)
 		go func(i int, k KPI) {
 			defer wg.Done()
@@ -115,6 +151,68 @@ func (s *Service) Overview(ctx context.Context) Overview {
 	}
 	wg.Wait()
 	return out
+}
+
+const (
+	// overviewTargetsTTL lets the overview's parallel requests and concurrent
+	// viewers share one scrape target listing; it is shorter than the default
+	// scrape interval.
+	overviewTargetsTTL = 10 * time.Second
+	// overviewTargetsTimeout bounds the listing so a slow Prometheus cannot hold
+	// the overview for the full query timeout.
+	overviewTargetsTimeout = 5 * time.Second
+)
+
+type targetsCache struct {
+	mu    sync.Mutex
+	at    time.Time
+	items []model.ScrapeTarget
+	call  *targetsCall
+}
+
+type targetsCall struct {
+	done  chan struct{}
+	items []model.ScrapeTarget
+	err   error
+}
+
+// overviewTargets returns the scrape targets used to judge KPI job health.
+// Concurrent callers share one in-flight request; a successful result is
+// reused for overviewTargetsTTL. Failures are not cached.
+func (s *Service) overviewTargets(ctx context.Context) ([]model.ScrapeTarget, error) {
+	c := &s.targets
+	c.mu.Lock()
+	if c.call == nil && !c.at.IsZero() && time.Since(c.at) < overviewTargetsTTL {
+		items := c.items
+		c.mu.Unlock()
+		return items, nil
+	}
+	call := c.call
+	if call == nil {
+		call = &targetsCall{done: make(chan struct{})}
+		c.call = call
+		// The shared request must not be cancelled by whichever caller started it.
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), overviewTargetsTimeout)
+		go func() {
+			defer cancel()
+			items, err := s.Metrics.Targets(fetchCtx)
+			c.mu.Lock()
+			call.items, call.err = items, err
+			if err == nil {
+				c.items, c.at = items, time.Now()
+			}
+			c.call = nil
+			c.mu.Unlock()
+			close(call.done)
+		}()
+	}
+	c.mu.Unlock()
+	select {
+	case <-call.done:
+		return call.items, call.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (s *Service) evaluateKPI(ctx context.Context, k KPI, jobs map[string]JobHealth, targetErr error, now time.Time) KPIValue {

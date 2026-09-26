@@ -28,6 +28,8 @@ func (s *Server) opsRoutes() {
 	r.GET("/api/v1/ops/status", a, e(s.opsStatus))
 	r.GET("/api/v1/ops/overview", a, e(s.opsOverview))
 	r.GET("/api/v1/ops/overview/series", a, e(s.opsOverviewSeries))
+	r.GET("/api/v1/ops/overview/components/:id", a, e(s.opsOverviewComponent, "id"))
+	r.GET("/api/v1/ops/overview/kpis", a, e(s.opsOverviewKPIs))
 
 	r.GET("/api/v1/ops/metrics/catalog", a, e(s.opsMetricCatalog))
 	r.GET("/api/v1/ops/metrics/labels", a, e(s.opsMetricLabels))
@@ -211,6 +213,32 @@ func (s *Server) opsOverview(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// opsOverviewComponent and opsOverviewKPIs let the overview page load each
+// component card and KPI group independently.
+func (s *Server) opsOverviewComponent(w http.ResponseWriter, r *http.Request) {
+	ops := s.opsService(w)
+	if ops == nil {
+		return
+	}
+	status, ok := ops.Component(r.Context(), r.PathValue("id"))
+	if !ok {
+		s.opsError(w, r, ports.ErrOpsNotFound)
+		return
+	}
+	write(w, 200, status)
+}
+func (s *Server) opsOverviewKPIs(w http.ResponseWriter, r *http.Request) {
+	ops := s.opsService(w)
+	if ops == nil {
+		return
+	}
+	group, err := ops.OverviewKPIs(r.Context(), r.URL.Query().Get("group"))
+	if err != nil {
+		s.opsError(w, r, err)
+		return
+	}
+	write(w, 200, group)
+}
 func (s *Server) opsOverviewSeries(w http.ResponseWriter, r *http.Request) {
 	ops := s.opsService(w)
 	if ops == nil {

@@ -122,6 +122,17 @@ func TestOpsCenterPermissionBoundaryAndAudit(t *testing.T) {
 	req("POST", "/api/v1/ops/metrics/query", viewer, map[string]any{"query": "up", "instant": true}, 403)
 	req("GET", "/api/v1/ops/dashboards", viewer, nil, 403)
 	req("GET", "/api/v1/ops/logs/tail?query=%7Ba%3D%22b%22%7D", viewer, nil, 403)
+	// The overview parts follow the overview menu.
+	req("GET", "/api/v1/ops/overview/components/prometheus", viewer, nil, 403)
+	req("GET", "/api/v1/ops/overview/kpis?group=host", viewer, nil, 403)
+	if body := req("GET", "/api/v1/ops/overview/components/grafana", rootOps, nil, 200); body["id"] != "grafana" {
+		t.Fatalf("component = %v", body)
+	}
+	req("GET", "/api/v1/ops/overview/components/unknown", rootOps, nil, 404)
+	if body := req("GET", "/api/v1/ops/overview/kpis?group=host", rootOps, nil, 200); len(body["kpis"].([]any)) != 3 {
+		t.Fatalf("host kpis = %v", body["kpis"])
+	}
+	req("GET", "/api/v1/ops/overview/kpis?group=nope", rootOps, nil, 422)
 	// Logs are not wired in this server: the component is reported as unconfigured.
 	if body := req("GET", "/api/v1/ops/logs/labels", viewer, nil, 503); body["code"] != "OPS_NOT_CONFIGURED" {
 		t.Fatalf("unconfigured code = %v", body["code"])

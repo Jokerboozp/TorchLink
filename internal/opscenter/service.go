@@ -49,6 +49,8 @@ type Service struct {
 	lokiMu sync.Mutex
 	amMu   sync.Mutex
 	rtMu   sync.Mutex
+
+	targets targetsCache
 }
 
 // ValidationError is a user input problem (HTTP 422).
@@ -139,29 +141,34 @@ func (s *Service) Capabilities() Capabilities {
 	}
 }
 
+// componentIDs lists the components in display order.
+var componentIDs = []string{"prometheus", "loki", "grafana", "alertmanager"}
+
+// Component checks one component; ok is false for an unknown id.
+func (s *Service) Component(ctx context.Context, id string) (model.OpsComponentStatus, bool) {
+	switch id {
+	case "prometheus":
+		return statusOf(ctx, s.Metrics, "prometheus", "Prometheus"), true
+	case "loki":
+		return statusOf(ctx, s.Logs, "loki", "Loki"), true
+	case "grafana":
+		return statusOf(ctx, s.Dashboards, "grafana", "Grafana"), true
+	case "alertmanager":
+		return statusOf(ctx, s.Alerts, "alertmanager", "Alertmanager"), true
+	}
+	return model.OpsComponentStatus{}, false
+}
+
 // Components checks every component concurrently.
 func (s *Service) Components(ctx context.Context) []model.OpsComponentStatus {
-	type statusFn func(context.Context) model.OpsComponentStatus
-	checks := []statusFn{
-		func(c context.Context) model.OpsComponentStatus {
-			return statusOf(c, s.Metrics, "prometheus", "Prometheus")
-		},
-		func(c context.Context) model.OpsComponentStatus { return statusOf(c, s.Logs, "loki", "Loki") },
-		func(c context.Context) model.OpsComponentStatus {
-			return statusOf(c, s.Dashboards, "grafana", "Grafana")
-		},
-		func(c context.Context) model.OpsComponentStatus {
-			return statusOf(c, s.Alerts, "alertmanager", "Alertmanager")
-		},
-	}
-	out := make([]model.OpsComponentStatus, len(checks))
+	out := make([]model.OpsComponentStatus, len(componentIDs))
 	var wg sync.WaitGroup
-	for i, check := range checks {
+	for i, id := range componentIDs {
 		wg.Add(1)
-		go func(i int, check statusFn) {
+		go func(i int, id string) {
 			defer wg.Done()
-			out[i] = check(ctx)
-		}(i, check)
+			out[i], _ = s.Component(ctx, id)
+		}(i, id)
 	}
 	wg.Wait()
 	return out

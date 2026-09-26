@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"iot-platform/internal/model"
@@ -74,14 +75,31 @@ func (p *Prometheus) Status(ctx context.Context) model.OpsComponentStatus {
 		return status
 	}
 	status.State = "ok"
+	// Build info, runtime state and targets are independent; fetch them in
+	// parallel so the card waits for the slowest one rather than their sum.
 	var build struct {
 		Version string `json:"version"`
 	}
-	if _, err := p.call(ctx, http.MethodGet, "/api/v1/status/buildinfo", nil, 0, &build); err == nil {
+	var (
+		wg                   sync.WaitGroup
+		buildErr, runtimeErr error
+		targetsErr           error
+		runtime              ports.PrometheusRuntime
+		targets              []model.ScrapeTarget
+	)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		_, buildErr = p.call(ctx, http.MethodGet, "/api/v1/status/buildinfo", nil, 0, &build)
+	}()
+	go func() { defer wg.Done(); runtime, runtimeErr = p.Runtime(ctx) }()
+	go func() { defer wg.Done(); targets, targetsErr = p.Targets(ctx) }()
+	wg.Wait()
+	if buildErr == nil {
 		status.Version = build.Version
 	}
 	details := map[string]any{}
-	if runtime, err := p.Runtime(ctx); err == nil {
+	if runtimeErr == nil {
 		details["reloadConfigSuccess"] = runtime.ReloadSuccess
 		details["lastConfigTime"] = runtime.LastConfig.UnixMilli()
 		details["storageRetention"] = runtime.Retention
@@ -89,7 +107,7 @@ func (p *Prometheus) Status(ctx context.Context) model.OpsComponentStatus {
 			status.State, status.Message = "degraded", "最近一次配置或规则加载失败"
 		}
 	}
-	if targets, err := p.Targets(ctx); err == nil {
+	if targetsErr == nil {
 		up := 0
 		for _, target := range targets {
 			if target.Health == "up" {
