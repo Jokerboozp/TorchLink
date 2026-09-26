@@ -59,7 +59,7 @@ func configureDeviceNotifications(route, receivers *yaml.Node, in, current model
 		}
 		for _, email := range selected.Emails {
 			if email.SendResolved {
-				return invalid("deviceAlarmReceiver", "设备告警逐条通知不发送恢复邮件，请关闭该接收人的恢复通知")
+				return invalid("deviceAlarmReceiver", "设备告警邮件不发送恢复通知，请关闭该接收人的恢复通知")
 			}
 		}
 	}

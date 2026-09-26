@@ -26,8 +26,8 @@ const (
 	deviceNotificationRetention = 30 * 24 * time.Hour
 )
 
-// DeviceNotifications transports per-report receipt events, not business alarm
-// state. Its spool must be on persistent storage, just like Alertmanager data:
+// DeviceNotifications transports the first report of each business alarm.
+// Its spool must be on persistent storage, just like Alertmanager data:
 // <key>.json is pending or within its window, <key>.done is an empty receipt.
 type DeviceNotifications struct {
 	service   *Service
@@ -53,6 +53,9 @@ func (s *Service) StartDeviceNotifications(ctx context.Context, bus ports.EventB
 		return err
 	}
 	n := &DeviceNotifications{service: s, dir: dir, wake: make(chan struct{}, 1), lastPost: map[string]time.Time{}}
+	if err := n.coalescePending(); err != nil {
+		return err
+	}
 	if err := bus.Subscribe(ctx, model.TopicAlarmReported, "device-alarm-notifications", n.enqueue); err != nil {
 		return err
 	}
@@ -66,6 +69,13 @@ func (n *DeviceNotifications) enqueue(ctx context.Context, payload []byte) error
 		return fmt.Errorf("decode device alarm notification: %w", err)
 	}
 	if alarm.Source != "device" {
+		return nil
+	}
+	// The transactional outbox snapshots the persisted trigger count. Only the
+	// first report may notify, even after receipt expiry, restart or a receiver
+	// change. ACKED is still the same alarm; recovery/closure creates a new ID
+	// with count 1 on the next trigger. Do not use timestamps (they can collide).
+	if alarm.TriggerCount != 1 || alarm.Status != "ACTIVE" {
 		return nil
 	}
 	if alarm.ID == "" || alarm.TenantID == "" || alarm.DeviceID == "" || alarm.TriggerID == "" || alarm.LastTriggeredAt <= 0 {
@@ -100,6 +110,63 @@ func (n *DeviceNotifications) enqueue(ctx context.Context, payload []byte) error
 	select {
 	case n.wake <- struct{}{}:
 	default:
+	}
+	return nil
+}
+
+// coalescePending upgrades the former per-report spool before subscribing or
+// delivering. Prefer an already posted notification (preserving its Alertmanager
+// fingerprint and retry window), otherwise the earliest report. Old posted
+// duplicates are no longer refreshed and expire within their original window.
+func (n *DeviceNotifications) coalescePending() error {
+	entries, err := os.ReadDir(n.dir)
+	if err != nil {
+		return err
+	}
+	type pending struct {
+		name string
+		item deviceNotification
+	}
+	kept := map[string]pending{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(n.dir, entry.Name()))
+		if err != nil {
+			return err
+		}
+		var item deviceNotification
+		if json.Unmarshal(data, &item) != nil {
+			continue // flush reports corrupt records without blocking other alarms.
+		}
+		labels, _ := item.Alert["labels"].(map[string]any)
+		tenant, _ := labels["tenant_id"].(string)
+		alarm, _ := labels["alarm_id"].(string)
+		if tenant == "" || alarm == "" {
+			continue
+		}
+		key := tenant + "\x00" + alarm
+		next := pending{name: entry.Name(), item: item}
+		previous, exists := kept[key]
+		if !exists {
+			kept[key] = next
+			continue
+		}
+		preferNext := item.TriggeredAt < previous.item.TriggeredAt
+		if item.PostedAt.IsZero() != previous.item.PostedAt.IsZero() {
+			preferNext = !item.PostedAt.IsZero()
+		} else if !item.PostedAt.IsZero() && !item.PostedAt.Equal(previous.item.PostedAt) {
+			preferNext = item.PostedAt.Before(previous.item.PostedAt)
+		}
+		discard := next.name
+		if preferNext {
+			kept[key] = next
+			discard = previous.name
+		}
+		if err := n.finish(discard); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -267,7 +334,7 @@ func deviceNotificationAlert(a model.Alarm, epoch int64) map[string]any {
 			}
 		}
 	}
-	detail = append(detail, "设备编号："+a.DeviceID, "告警编号："+a.ID, "租户："+a.TenantID, "报文编号："+a.TriggerID, "本次报警上报单独通知，确认与恢复状态请查看平台告警中心。")
+	detail = append(detail, "设备编号："+a.DeviceID, "告警编号："+a.ID, "租户："+a.TenantID, "报文编号："+a.TriggerID, "同一告警仅通知一次，恢复或关闭后再次告警才重新通知；处理状态请查看平台告警中心。")
 	annotations["summary"] = name + " · " + kind + "（" + level + "）"
 	annotations["description"] = strings.Join(detail, "\n")
 	return map[string]any{

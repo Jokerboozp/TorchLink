@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ receivers:
 	return &DeviceNotifications{service: svc, dir: t.TempDir(), wake: make(chan struct{}, 1), lastPost: map[string]time.Time{}}, am, &now
 }
 func notificationAlarm(now time.Time) model.Alarm {
-	return model.Alarm{ID: "alarm-1", TriggerID: "report-1", LastTriggeredAt: now.UnixMilli(), TenantID: "tenant-1", DeviceID: "device-1", DeviceName: "一楼烟感", ComponentName: "回路 1", ComponentLocation: "大厅", AlarmType: "FIRE", AlarmLevel: "HIGH", Source: "device", Status: "ACTIVE", FirstTriggeredAt: now.UnixMilli(), Details: map[string]any{"message": map[string]any{"event": map[string]any{"description": "烟雾浓度超限"}, "raw": map[string]any{"secret": "do-not-send"}}}}
+	return model.Alarm{ID: "alarm-1", TriggerID: "report-1", LastTriggeredAt: now.UnixMilli(), TenantID: "tenant-1", DeviceID: "device-1", DeviceName: "一楼烟感", ComponentName: "回路 1", ComponentLocation: "大厅", AlarmType: "FIRE", AlarmLevel: "HIGH", Source: "device", Status: "ACTIVE", TriggerCount: 1, FirstTriggeredAt: now.UnixMilli(), Details: map[string]any{"message": map[string]any{"event": map[string]any{"description": "烟雾浓度超限"}, "raw": map[string]any{"secret": "do-not-send"}}}}
 }
 func enqueueAlarm(t *testing.T, n *DeviceNotifications, a model.Alarm) {
 	t.Helper()
@@ -265,36 +266,91 @@ func TestDeviceRouteCannotStandInForTestRoute(t *testing.T) {
 	}
 }
 
-func TestRepeatedActiveAlarmReportsSendSeparately(t *testing.T) {
+func TestRepeatedActiveAlarmReportsNotifyOnlyOnce(t *testing.T) {
 	n, am, now := notificationFixture(t)
 	a := notificationAlarm(*now)
-	// The alarm began before notification was enabled; this report is new.
-	a.FirstTriggeredAt = now.Add(-time.Hour).UnixMilli()
 	enqueueAlarm(t, n, a)
+	// Distinct reports can share a millisecond timestamp; count defines the lifecycle.
 	a.TriggerID = "report-2"
-	a.LastTriggeredAt++
-	a.Details = map[string]any{"message": map[string]any{"event": map[string]any{"description": "第二次报警内容"}}}
+	a.TriggerCount = 2
 	enqueueAlarm(t, n, a)
+	a.Status = "ACKED"
+	a.TriggerID = "report-3"
+	a.TriggerCount = 3
 	enqueueAlarm(t, n, a)
 	if err := n.flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(am.posted) != 2 {
-		t.Fatalf("want 2 emails for 2 reports of one active alarm, got %d", len(am.posted))
+	if len(am.posted) != 1 {
+		t.Fatalf("want 1 notification for active/acked alarm, got %d", len(am.posted))
 	}
-	triggers := map[string]bool{}
-	for _, alert := range am.posted {
-		labels := alert["labels"].(map[string]any)
-		trigger := labels["trigger_id"].(string)
-		triggers[trigger] = true
-		if labels["alarm_id"] != a.ID {
-			t.Fatal("changed business alarm identity")
-		}
-		if trigger == "report-2" && !strings.Contains(alert["annotations"].(map[string]any)["description"].(string), "第二次报警内容") {
-			t.Fatal("repeated report lost its current details")
-		}
+	if am.posted[0]["labels"].(map[string]any)["trigger_id"] != "report-1" {
+		t.Fatal("lost first report")
 	}
-	if !triggers["report-1"] || !triggers["report-2"] {
-		t.Fatal("reports were merged")
+	// A long-lived alarm must not notify again after disk receipts have expired.
+	*now = now.Add(deviceNotificationRetention + 2*time.Hour)
+	if err := n.flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(deviceNotificationRetention + 2*time.Hour)
+	if err := n.flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if spoolFiles(t, n.dir, ".done") != 0 {
+		t.Fatal("receipt not expired")
+	}
+	a.LastTriggeredAt = now.UnixMilli()
+	a.Status = "ACTIVE"
+	a.TriggerID = "report-4"
+	a.TriggerCount = 4
+	restarted := &DeviceNotifications{service: n.service, dir: n.dir, wake: make(chan struct{}, 1), lastPost: map[string]time.Time{}}
+	enqueueAlarm(t, restarted, a)
+	if err := restarted.flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(am.posted) != 1 {
+		t.Fatal("repeated alarm notified after restart and receipt expiry")
+	}
+}
+
+func TestDeviceNotificationsCoalesceLegacySpool(t *testing.T) {
+	for _, posted := range []bool{false, true} {
+		t.Run(fmt.Sprint("posted=", posted), func(t *testing.T) {
+			n, am, now := notificationFixture(t)
+			cfg, err := n.service.NotificationConfig(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := 1; i <= 3; i++ {
+				a := notificationAlarm(*now)
+				a.TriggerID = fmt.Sprintf("report-%d", i)
+				item := deviceNotification{Epoch: cfg.DeviceAlarmSince, TriggeredAt: now.UnixMilli() + int64(i), Alert: deviceNotificationAlert(a, cfg.DeviceAlarmSince)}
+				if posted && i == 2 {
+					item.PostedAt = *now
+				}
+				if err := n.write(fmt.Sprintf("old-%d.json", i), item); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := n.coalescePending(); err != nil {
+				t.Fatal(err)
+			}
+			if err := n.coalescePending(); err != nil {
+				t.Fatal(err)
+			}
+			if spoolFiles(t, n.dir, ".json") != 1 || spoolFiles(t, n.dir, ".done") != 2 {
+				t.Fatal("legacy duplicates retained")
+			}
+			if err := n.flush(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			want := "report-1"
+			if posted {
+				want = "report-2"
+			}
+			if len(am.posted) != 1 || am.posted[0]["labels"].(map[string]any)["trigger_id"] != want {
+				t.Fatalf("wrong retained notification: %+v", am.posted)
+			}
+		})
 	}
 }

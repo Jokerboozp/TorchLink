@@ -53,7 +53,7 @@ func TestDeviceMailIntegration(t *testing.T) {
 			go captureSMTP(conn, messages)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	file := filepath.Join(dir, "alertmanager.yml")
 	initial := []byte("route:\n  receiver: discard\nreceivers:\n  - name: discard\n")
@@ -85,62 +85,75 @@ func TestDeviceMailIntegration(t *testing.T) {
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for i := 1; i <= 2; i++ {
-		id := fmt.Sprintf("mail-device-%d", i)
-		if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "mail-test", ID: id, AccessKey: id, ProductID: "json_sensor", Name: fmt.Sprintf("邮件测试烟感%d", i), Status: "ENABLED"}); err != nil {
-			t.Fatal(err)
-		}
-		raw := model.RawMessage{MessageID: fmt.Sprintf("mail-raw-%d", i), TenantID: "mail-test", DeviceID: id, ProductID: "json_sensor", Protocol: "json", PayloadFormat: "json", ReceivedAt: time.Now().UnixMilli(), Payload: json.RawMessage(`{"messageType":"ALARM_REPORT","event":{"alarmType":"FIRE","alarmLevel":"HIGH","description":"烟雾浓度超限"}}`)}
-		if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
-			t.Fatal(err)
-		}
-		// A distinct report for the same active alarm must generate another mail.
-		raw.MessageID += "-repeat"
-		if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
-			t.Fatal(err)
-		}
-		// The same raw message retried still produces just one receipt.
-		if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
-			t.Fatal(err)
-		}
-	}
-	alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "mail-test"})
-	if err != nil || len(alarms) != 2 {
-		t.Fatalf("expected two business alarms: %d %v", len(alarms), err)
-	}
 	bodies := map[string]bool{}
-	for range 4 {
+	for phase := 0; phase < 2; phase++ {
+		for i := 1; i <= 2; i++ {
+			id := fmt.Sprintf("mail-device-%d", i)
+			if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "mail-test", ID: id, AccessKey: id, ProductID: "json_sensor", Name: fmt.Sprintf("邮件测试烟感%d", i), Status: "ENABLED"}); err != nil {
+				t.Fatal(err)
+			}
+			raw := model.RawMessage{MessageID: fmt.Sprintf("mail-raw-%d-%d", phase, i), TenantID: "mail-test", DeviceID: id, ProductID: "json_sensor", Protocol: "json", PayloadFormat: "json", ReceivedAt: time.Now().UnixMilli(), Payload: json.RawMessage(`{"messageType":"ALARM_REPORT","event":{"alarmType":"FIRE","alarmLevel":"HIGH","description":"烟雾浓度超限"}}`)}
+			if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
+				t.Fatal(err)
+			}
+			// Distinct reports of the same active alarm must not generate more mail.
+			raw.MessageID += "-repeat"
+			if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
+				t.Fatal(err)
+			}
+			// The same raw message retried still produces just one receipt.
+			if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
+				t.Fatal(err)
+			}
+		}
+		alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "mail-test"})
+		if err != nil || len(alarms) != (phase+1)*2 {
+			t.Fatalf("unexpected business alarm count: %d %v", len(alarms), err)
+		}
+		for range 2 {
+			select {
+			case raw := <-messages:
+				message, err := mail.ReadMessage(strings.NewReader(raw))
+				if err != nil {
+					t.Fatal(err)
+				}
+				subject, err := new(mime.WordDecoder).DecodeHeader(message.Header.Get("Subject"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := io.ReadAll(quotedprintable.NewReader(message.Body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(subject, "邮件测试烟感") || !strings.Contains(string(body), "烟雾浓度超限") || !strings.Contains(string(body), "告警编号") || !strings.Contains(string(body), "记录信息") || !strings.Contains(string(body), "本次上报时间") {
+					t.Fatalf("missing mail detail: %s %s", subject, body)
+				}
+				if bodies[string(body)] {
+					t.Fatalf("duplicate mail: %s", subject)
+				}
+				bodies[string(body)] = true
+			case <-ctx.Done():
+				t.Fatal("mail delivery timed out")
+			}
+		}
 		select {
 		case raw := <-messages:
-			message, err := mail.ReadMessage(strings.NewReader(raw))
-			if err != nil {
-				t.Fatal(err)
+			t.Fatalf("unexpected extra mail: %.100s", raw)
+		case <-time.After(2 * time.Second):
+		}
+		if phase == 0 {
+			for i, alarm := range alarms {
+				status := "RECOVERED"
+				if i == 1 {
+					status = "CLOSED"
+				}
+				if _, err := engine.SetAlarmStatus(ctx, alarm.TenantID, alarm.ID, status, "integration-test"); err != nil {
+					t.Fatal(err)
+				}
 			}
-			subject, err := new(mime.WordDecoder).DecodeHeader(message.Header.Get("Subject"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			body, err := io.ReadAll(quotedprintable.NewReader(message.Body))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(subject, "邮件测试烟感") || !strings.Contains(string(body), "烟雾浓度超限") || !strings.Contains(string(body), "告警编号") || !strings.Contains(string(body), "记录信息") || !strings.Contains(string(body), "本次上报时间") {
-				t.Fatalf("missing mail detail: %s %s", subject, body)
-			}
-			if bodies[string(body)] {
-				t.Fatalf("duplicate mail: %s", subject)
-			}
-			bodies[string(body)] = true
-		case <-ctx.Done():
-			t.Fatal("mail delivery timed out")
 		}
 	}
-	select {
-	case raw := <-messages:
-		t.Fatalf("unexpected extra mail: %.100s", raw)
-	case <-time.After(2 * time.Second):
-	}
-	t.Log("Four alarm reports produced four separate SMTP emails for two business alarms; exact retries produced no extra email")
+	t.Log("Each alarm produced one SMTP email despite repeated reports; recovery and closure allowed new alarm emails")
 }
 
 func captureSMTP(conn net.Conn, messages chan<- string) {

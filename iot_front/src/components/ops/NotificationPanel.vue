@@ -128,8 +128,8 @@ onMounted(load)
 
     <template v-if="draft">
       <section class="notify__section">
-        <h3>设备告警逐条邮件</h3>
-        <p class="muted">启用后，每次设备报警上报都单独发送邮件，包含设备、部件、类型、等级、时间及告警内容。同一活动告警再次上报也会通知，无需先恢复；相同报文重试不重复发信，启用前的历史上报不补发。此设置覆盖全平台设备，请使用授权的运维邮箱。</p>
+        <h3>设备告警邮件</h3>
+        <p class="muted">启用后，每条新告警只发送一次邮件，包含设备、部件、类型、等级、时间及告警内容。同一告警持续上报或确认后不重复发送；恢复或关闭后再次告警才重新通知，启用前已有告警不补发。此设置覆盖全平台设备，请使用授权的运维邮箱。</p>
         <div class="device-notification-controls">
           <ui-select v-model="draft.deviceAlarmReceiver" :disabled="!canSave" size="small" placeholder="关闭设备告警邮件" aria-label="设备告警邮件接收人"><ui-option v-for="option in deviceReceiverOptions" :key="option.value" :value="option.value" :label="option.label" /></ui-select>
           <ui-button v-if="canSave" size="small" @click="addDeviceEmail"><Plus />新增设备告警邮件</ui-button>
