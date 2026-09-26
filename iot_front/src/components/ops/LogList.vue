@@ -1,5 +1,7 @@
 <script setup>
 // 日志行列表：级别着色、展开查看字段与标签、复制、查看相邻上下文。
+// 数据多时的性能：每行的键、级别、时间和截断后的正文按条目缓存；行用 v-memo 只在展开状态或高亮词变化时重渲染，
+// 屏幕外的行由 content-visibility 跳过布局和绘制。
 import { ref } from 'vue'
 import { ChevronRight, Copy, ListTree } from '@lucide/vue'
 import { UiMessage } from '../../ui/feedback.js'
@@ -9,11 +11,23 @@ import { copyText } from '../../ops/opsApi.js'
 const props = defineProps({ entries: { type: Array, default: () => [] }, wrap: { type: Boolean, default: true }, showService: { type: Boolean, default: true }, contextEnabled: { type: Boolean, default: true }, highlight: { type: String, default: '' }, maxHeight: { type: String, default: '' } })
 const emit = defineEmits(['context'])
 const expanded = ref(new Set())
+// 列表行只显示前 LINE_LIMIT 个字符，完整原文在展开后的详情中。
+const LINE_LIMIT = 2000
 
-const key = entry => `${entry.ts}\u0000${entry.line}\u0000${JSON.stringify(entry.labels)}`
+const views = new WeakMap()
+function view(entry) {
+  let item = views.get(entry)
+  if (!item) {
+    const level = entryLevel(entry)
+    const line = String(entry.line ?? '')
+    item = { key: `${entry.ts}\u0000${line}\u0000${JSON.stringify(entry.labels)}`, level, tone: logLevelTone[level], time: nsToLocal(entry.ts), line: line.length > LINE_LIMIT ? `${line.slice(0, LINE_LIMIT)} …（共 ${line.length} 字符，展开查看完整原文）` : line }
+    views.set(entry, item)
+  }
+  return item
+}
 function toggle(entry) {
   const next = new Set(expanded.value)
-  const k = key(entry)
+  const k = view(entry).key
   next.has(k) ? next.delete(k) : next.add(k)
   expanded.value = next
 }
@@ -39,15 +53,15 @@ function parts(line) {
 
 <template>
   <div class="log-list" :class="{ 'is-nowrap': !wrap, 'no-service': !showService }" :style="maxHeight ? { maxHeight } : undefined" role="list">
-    <article v-for="entry in entries" :key="key(entry)" class="log-row" :class="[`log-row--${logLevelTone[entryLevel(entry)]}`, { 'is-current': entry.current }]" role="listitem">
-      <button type="button" class="log-row__main" :aria-expanded="expanded.has(key(entry))" @click="toggle(entry)">
-        <ChevronRight class="log-row__chevron" :class="{ 'is-open': expanded.has(key(entry)) }" />
-        <time>{{ nsToLocal(entry.ts) }}</time>
-        <span class="log-row__level">{{ logLevelName[entryLevel(entry)] }}</span>
+    <article v-for="entry in entries" :key="view(entry).key" v-memo="[expanded.has(view(entry).key), highlight, showService, contextEnabled, entry.current]" class="log-row" :class="[`log-row--${view(entry).tone}`, { 'is-current': entry.current, 'is-open': expanded.has(view(entry).key) }]" role="listitem">
+      <button type="button" class="log-row__main" :aria-expanded="expanded.has(view(entry).key)" @click="toggle(entry)">
+        <ChevronRight class="log-row__chevron" :class="{ 'is-open': expanded.has(view(entry).key) }" />
+        <time>{{ view(entry).time }}</time>
+        <span class="log-row__level">{{ logLevelName[view(entry).level] }}</span>
         <span v-if="showService" class="log-row__service" :title="entry.labels?.service_name">{{ entry.labels?.service_name || '—' }}</span>
-        <span class="log-row__line"><template v-for="(part, i) in parts(entry.line)" :key="i"><mark v-if="part.mark">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></span>
+        <span class="log-row__line"><template v-for="(part, i) in parts(view(entry).line)" :key="i"><mark v-if="part.mark">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></span>
       </button>
-      <div v-if="expanded.has(key(entry))" class="log-detail">
+      <div v-if="expanded.has(view(entry).key)" class="log-detail">
         <div class="log-detail__actions">
           <ui-button size="small" @click="copy(entry.line)"><Copy />复制原文</ui-button>
           <ui-button v-if="contextEnabled" size="small" @click="emit('context', entry)"><ListTree />查看上下文</ui-button>
@@ -67,7 +81,8 @@ function parts(line) {
 
 <style scoped>
 .log-list { display: grid; min-width: 0; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); font: var(--font-size-xs) var(--font-mono); }
-.log-row { border-bottom: 1px solid var(--border); border-left: 3px solid transparent; }
+.log-row { border-bottom: 1px solid var(--border); border-left: 3px solid transparent; content-visibility: auto; contain-intrinsic-size: auto 30px; }
+.log-row.is-open { content-visibility: visible; }
 .log-row--danger { border-left-color: var(--danger); }
 .log-row--warning { border-left-color: var(--warning); }
 .log-row--info { border-left-color: var(--info-border); }

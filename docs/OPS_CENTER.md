@@ -200,6 +200,7 @@ API 进程读取以下环境变量；未配置的组件在页面显示“未配�
 | `IOT_OPS_MAX_METRIC_RANGE` / `IOT_OPS_MAX_LOG_RANGE` | `744h` / `168h` | 指标、日志查询的最大时间范围 |
 | `IOT_OPS_TENANTS` | 空 | 可授予运维权限的租户，逗号分隔 |
 | `IOT_LOG_LOKI_URL` / `IOT_LOG_LOKI_TENANT` / `IOT_LOG_SERVICE_NAME` | 空 / 空 / `platform-api` | 源码运行时 API 直接推送自身日志；容器部署留空，由 Alloy 采集 |
+| `IOT_LOG_LEVEL` | `info` | API 日志级别（`debug` / `info` / `warn` / `error`）；`info` 只记录失败（4xx 为 info、5xx 为 warn）和超过 3 秒的 HTTP 请求，`debug` 记录全部请求 |
 
 组件版本固定为 Prometheus v3.5.0、Loki 3.5.3、Grafana 12.1.0、Alertmanager v0.34.1、Alloy v1.20.0、node-exporter v1.12.1。升级组件版本前需重新核对所用 API 与本页的写入 / 加载确认机制。
 
@@ -242,6 +243,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1 -IncludeOps
 
 查看与停止沿用 [部署维护](DEPLOYMENT.md#查看状态日志与停止) 中的命令，本地加 `--profile ops`。
 
+### 日志量
+
+Alloy 采集 Compose 项目内全部容器的标准输出，组件自身的日志也会进入 Loki。为避免空闲时日志持续增长和“查询越多日志越多”：
+
+- Loki、Alloy 的日志级别设为 `warn`。Loki 在 `info` 级别为每次查询及其按时间拆分的子查询写多行日志（实测一次 24 小时的日志检索加日志量统计约 220 行），这些日志又被采回 Loki。
+- API 默认只记录失败和慢请求（见 `IOT_LOG_LEVEL`），Prometheus 抓取、页面轮询等成功请求不再写日志；`platform-web` 的 nginx 只记录非 2xx / 3xx 请求。
+- 实时追踪结束时平台以正常关闭帧断开 Loki WebSocket，Loki 不再为每次停止追踪记录客户端异常。
+
+已有部署需重跑部署脚本（或 `docker compose up -d`）使新的组件配置生效。定位仍然偏多的来源，可在日志中心 LogQL 中执行：
+
+```logql
+sum by (service_name) (count_over_time({service_name=~".+"}[5m]))
+```
+
 ## 验证记录
 
 2026-09-25，开发容器（Linux x86_64，Docker Engine + Compose v5.1.1），组件由 `compose.yaml` 启动（附加仅用于本机端口映射的覆盖文件），平台 API 以源码构建在宿主机运行，前端为 Vite 开发服务器。
@@ -256,6 +271,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1 -IncludeOps
 | 部署脚本 | `bash scripts/tests/deployment-smoke.sh <docker-compose>`（真实 Compose 解析、模拟 Docker 操作）；Compose 2.24.4 与 5.1.1 渲染项目名替换 | 通过；未在目标服务器部署，未验证离线包在目标机的实际运行 |
 
 未验证：PowerShell 脚本（环境无 `pwsh`）、邮件渠道真实发送、多副本 API、Loki 多租户、Grafana 服务账户令牌方式、ARM64 镜像。
+
+2026-09-26，macOS arm64，Docker 中运行 Loki 3.5.3、Alloy v1.20.0、Prometheus v3.5.0（配置取自 `compose.local.yaml`），宿主机源码运行 API（内存存储），日志生成容器约 400 行/秒；前端为 Vite 开发服务器，内置浏览器 1440×900。
+
+| 类型 | 内容 | 结论 |
+| --- | --- | --- |
+| 日志量 | 同一次 24 小时日志检索 + 日志量统计：Loki 自身日志 220 行 → 2 行；Prometheus 抓取与成功的运维接口请求不再产生 API 日志，422 请求仍记录；停止实时追踪时 Loki 只剩 1 行内部取消日志 | 通过 |
+| 浏览器 | 日志中心加载 2190 行后：展开一行 74 → 15 ms，切换自动换行 130 → 15 ms，关键词框每次输入 78 → 约 10 ms（脚本耗时，本机性能较高，普通办公电脑成比例更长）；查询后关键词高亮、展开详情正常 | 通过 |
+
+未验证：该次未启动 Grafana、ClickHouse、Redpanda 等其他容器，其默认日志量未实测；未在目标服务器部署。
 
 ## 限制
 

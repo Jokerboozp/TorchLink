@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -279,9 +280,18 @@ func (l *Loki) Tail(ctx context.Context, query string, start time.Time, limit in
 		}
 		return networkError(ctx, err)
 	}
-	defer conn.Close()
+	// A normal close frame lets Loki end the tail quietly; dropping the TCP
+	// connection makes Loki log two errors each time a viewer stops tailing.
+	var closeOnce sync.Once
+	closeConn := func() {
+		closeOnce.Do(func() {
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+			_ = conn.Close()
+		})
+	}
+	defer closeConn()
 	conn.SetReadLimit(16 << 20)
-	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	stop := context.AfterFunc(ctx, closeConn)
 	defer stop()
 	for {
 		var message struct {

@@ -1,7 +1,7 @@
 <script setup>
 // 日志中心：结构化筛选（查看权限即可使用）与 LogQL（需单独授权）、日志量分布、实时追踪、
 // 上下文、有限导出；以及日志告警规则、保留策略和删除请求。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { BookMarked, CheckCircle2, Download, Pause, Play, Radio, Save, Search, Square } from '@lucide/vue'
 import { can } from '../permissions'
 import { UiMessage } from '../ui/feedback.js'
@@ -45,8 +45,8 @@ async function loadOptions() {
 }
 const loadLabelValues = async label => (await opsGet('/api/v1/ops/logs/label-values', { label })).items || []
 
-// 查询
-const entries = ref([])
+// 查询。日志行只整体替换、不逐条修改，用 shallowRef 避免为成千上万条日志建立深层响应式代理。
+const entries = shallowRef([])
 const result = ref(null)
 const metric = ref(null)
 const volume = ref(null)
@@ -55,6 +55,9 @@ const error = ref('')
 const loading = ref(false)
 const loadingMore = ref(false)
 const searched = ref(null)
+// 高亮已执行查询的关键词；输入框每次按键不触发整个列表重渲染。
+const highlightWord = ref('')
+const appliedHighlight = () => { highlightWord.value = mode.value === 'filter' && !filter.value.regex ? filter.value.keyword : '' }
 const wrap = ref(true)
 const runner = latest()
 const moreRunner = latest()
@@ -69,6 +72,7 @@ async function run() {
   moreRunner.cancel()
   const { from, to } = resolveRange(range.value)
   searched.value = mode.value === 'logql' ? { mode: 'logql', query: logql.value.trim(), from, to } : { mode: 'filter', filter: cleanFilter(), from, to }
+  appliedHighlight()
   loading.value = true
   error.value = ''
   if (searched.value.mode === 'filter') loadVolume()
@@ -141,7 +145,8 @@ watch(logql, value => {
 // 切换到 LogQL 时带入当前筛选条件生成的语句，便于在此基础上修改。
 watch(mode, value => { if (value === 'logql' && !logql.value.trim() && searched.value?.mode === 'filter' && result.value?.query) logql.value = result.value.query })
 
-// 实时追踪：批量合并 SSE 分片后再更新列表，断线按退避重连，服务端 10 分钟结束后自动续接。
+// 实时追踪：批量合并 SSE 分片后每秒最多更新一次列表，断线按退避重连，服务端 10 分钟结束后自动续接。
+const TAIL_FLUSH_MS = 1000
 const tailing = ref(false)
 const tailState = ref('')
 const tailError = ref('')
@@ -182,7 +187,7 @@ function onTail(event) {
   }
   if (buffer.length > TAIL_KEEP) buffer = buffer.slice(-TAIL_KEEP)
   pending.value = buffer.length
-  if (!flushTimer) flushTimer = setTimeout(flush, 300)
+  if (!flushTimer) flushTimer = setTimeout(flush, TAIL_FLUSH_MS)
 }
 async function startTail() {
   if (mode.value === 'logql' && !logql.value.trim()) return
@@ -200,6 +205,7 @@ async function startTail() {
   paused.value = false
   tailSince = ''
   recent.clear()
+  appliedHighlight()
   tailing.value = true
   let failures = 0
   while (!controller.signal.aborted) {
@@ -365,7 +371,7 @@ onBeforeUnmount(() => { stopTail(); runner.cancel(); moreRunner.cancel(); volume
               <span v-if="result.stats?.execTime">· 用时 {{ formatValue(result.stats.execTime, 's') }}</span>
               <code v-if="result.query" class="query-code query-code--inline" :title="result.query">{{ result.query }}</code>
             </div>
-            <LogList :entries="entries" :wrap="wrap" :highlight="mode === 'filter' && !filter.regex ? filter.keyword : ''" max-height="calc(100vh - 360px)" @context="openContext" />
+            <LogList :entries="entries" :wrap="wrap" :highlight="highlightWord" max-height="calc(100vh - 360px)" @context="openContext" />
             <div v-if="result?.nextCursor && !tailing" class="log-more"><ui-button :loading="loadingMore" @click="loadMore">加载更早的 {{ PAGE }} 行</ui-button></div>
             <p v-else-if="result && !tailing" class="muted log-more">已到达所选时间范围的起点</p>
           </template>

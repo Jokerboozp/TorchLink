@@ -560,6 +560,9 @@ configs:
       auth_enabled: false
       server:
         http_listen_port: 3100
+        # Loki 在 info 级别为每次查询及其拆分的子查询写多行日志，这些日志又被 Alloy 采回 Loki，
+        # 查询越多日志越多；只保留 warn 及以上。
+        log_level: warn
       common:
         path_prefix: /loki
         storage:
@@ -604,6 +607,11 @@ configs:
         period: 10s
   alloy-main:
     content: |
+      // Alloy 自身只记录 warn 及以上，避免采集器日志占用日志量。
+      logging {
+        level = "warn"
+      }
+
       discovery.docker "compose" {
         host = "unix:///var/run/docker.sock"
         filter {

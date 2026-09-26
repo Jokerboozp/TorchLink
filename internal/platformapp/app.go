@@ -44,10 +44,14 @@ import (
 func Run(forcedRole string) {
 	envFile := flag.String("env-file", "", "load a KEY=VALUE configuration file (existing environment variables take precedence)")
 	flag.Parse()
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logLevel := new(slog.LevelVar)
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 	if *envFile != "" {
 		fatal(log, "load environment file", config.LoadEnvFile(*envFile))
 	}
+	level, err := config.LogLevel()
+	fatal(log, "validate configuration", err)
+	logLevel.Set(level)
 	cfg := config.Load()
 	if forcedRole != "" {
 		cfg.ProcessRole = forcedRole
@@ -58,7 +62,7 @@ func Run(forcedRole string) {
 		// Host-run processes (local source debugging) ship their own logs; containers
 		// are collected by the log collector and leave this unset.
 		logPush = observability.NewLokiPush(cfg.Ops.LogPushURL, cfg.Ops.LogPushTenant, cfg.Ops.WithDefaults().LogServiceName)
-		log = slog.New(observability.NewTeeHandler(log.Handler(), slog.NewJSONHandler(logPush, &slog.HandlerOptions{Level: slog.LevelInfo})))
+		log = slog.New(observability.NewTeeHandler(log.Handler(), slog.NewJSONHandler(logPush, &slog.HandlerOptions{Level: logLevel})))
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

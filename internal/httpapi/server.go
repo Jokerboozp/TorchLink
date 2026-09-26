@@ -2950,13 +2950,32 @@ func (s *Server) cors() gin.HandlerFunc {
 	}
 }
 
+// slowRequest is the duration above which a successful request is still
+// logged at info level. Event streams are long-lived by design and excluded.
+const slowRequest = 3 * time.Second
+
+// accessLog records failed and slow requests at info level or above.
+// Routine successful requests (page polling, Prometheus scrapes, health
+// checks) are debug records so they do not flood the collected logs; set
+// IOT_LOG_LEVEL=debug to see every request.
 func (s *Server) accessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
-		if s.log != nil {
-			s.log.Info("http request", "method", c.Request.Method, "path", c.Request.URL.Path, "route", c.FullPath(), "status", c.Writer.Status(), "duration", time.Since(start).String())
+		if s.log == nil {
+			return
 		}
+		status, duration := c.Writer.Status(), time.Since(start)
+		level := slog.LevelDebug
+		switch {
+		case status >= 500:
+			level = slog.LevelWarn
+		case status >= 400:
+			level = slog.LevelInfo
+		case duration >= slowRequest && !strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream"):
+			level = slog.LevelInfo
+		}
+		s.log.Log(c.Request.Context(), level, "http request", "method", c.Request.Method, "path", c.Request.URL.Path, "route", c.FullPath(), "status", status, "duration", duration.String())
 	}
 }
 
