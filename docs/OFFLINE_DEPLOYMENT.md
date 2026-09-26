@@ -8,7 +8,9 @@
 
 ## GitHub 自动生成部署包
 
-推送到 `main` 后，`.github/workflows/offline-bundle.yml` 自动在 GitHub 的 Linux x86_64 Runner 上运行现有打包脚本。也可在仓库 **Actions → Linux x86_64 离线部署包 → Run workflow** 手动触发。成功后在仓库 **Releases** 生成独立的 `build-运行编号-重试编号-提交号` 预发布版本，包含平台、依赖和 Harness 镜像、Linux Docker / Compose / Buildx 安装文件、`nomic-embed-text` 模型，以及部署脚本。这里的“预发布”表示自动构建产物，尚未在目标服务器完成部署验收。
+推送到 `main` 后，`.github/workflows/offline-bundle.yml` 自动在 GitHub 的 Linux x86_64 Runner 上运行现有打包脚本。也可在仓库 **Actions → Linux x86_64 离线部署包 → Run workflow** 手动触发。成功后在仓库 **Releases** 发布正式版本并标记为 **Latest**，标题与标签统一为 `v1.0.0`、`v1.0.1` 等版本号，下载分卷命名为 `v1.0.0.tar.gz.part-000` 等。每次构建按已有正式格式版本号递增最后一位，草稿和独立标签占用的版本也会跳过；旧 `build-*` 名称不参与计算。发布串行执行，避免不同分支手动触发时同时占用版本号。
+
+包内包含平台、依赖和 Harness 镜像、Linux Docker / Compose / Buildx 安装文件、`nomic-embed-text` 模型，以及部署脚本。正式 Release 表示可下载的完整构建产物，不代替目标服务器部署验收。
 
 下载同一个 Release 中的全部 `.tar.gz.part-*`、`SHA256SUMS` 和 `DEPLOY.txt`，按 `DEPLOY.txt` 校验、合并解压、运行部署入口。不要把 GitHub 自动附带的 Source code 当作部署包。归档按 1900 MiB 分卷，以满足 [GitHub 单个 Release 附件小于 2 GiB 的限制](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas)。每次构建保留提交号和 `manifest.json`，失败时不会发布未完成的下载包；上传中断可能留下草稿，可由维护者删除后重新运行。
 

@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: offline-bundle-${{ github.ref }}
+  group: offline-bundle-release
   cancel-in-progress: false
 
 jobs:
@@ -34,8 +34,22 @@ jobs:
 
       - name: 验证公开包凭据初始化
         run: |
+          python3 scripts/tests/release-version-test.py
           python3 scripts/tests/public-bundle-test.py
           pwsh -NoProfile -File scripts/tests/public-bundle-test.ps1
+
+      - name: 确定版本号
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          versions="$RUNNER_TEMP/release-versions.txt"
+          # Include drafts and standalone tags so their versions are not reused.
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' > "$versions"
+          gh api --paginate "repos/$GH_REPO/tags?per_page=100" --jq '.[].name' >> "$versions"
+          version="$(python3 scripts/next-release-version.py < "$versions")"
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          printf '本次部署包版本：%s\n' "$version"
 
       - name: 验证部署脚本和 Compose 配置
         run: |
@@ -75,7 +89,7 @@ jobs:
           test "${#bundles[@]}" -eq 1
           bundle="${bundles[0]}"
           python3 scripts/prepare-public-bundle.py "$bundle"
-          name="torchlink-linux-amd64-${GITHUB_SHA:0:12}"
+          name="$RELEASE_VERSION"
           mv "$bundle" "offline-bundles/$name"
           mkdir -p offline-bundles/release
           # Stream compression to avoid a second full-sized tar on runner disk.
@@ -88,7 +102,8 @@ jobs:
           下载本 Release 的全部 .part-* 分卷和 SHA256SUMS 到同一个目录。
           在 Linux 目标机器运行：
             sha256sum -c SHA256SUMS
-            cat $name.tar.gz.part-* | tar -xz
+            mkdir -p $name
+            cat $name.tar.gz.part-* | tar -xz --strip-components=1 -C $name
             cd $name
             sudo bash scripts/deploy-offline-linux.sh
           首次部署自动生成独立密码，管理员密码见 .env.offline 的 IOT_ADMIN_PASSWORD。
@@ -104,7 +119,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           BUNDLE_NAME: ${{ steps.bundle.outputs.name }}
         run: |
-          tag="build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA:0:12}"
+          tag="$RELEASE_VERSION"
           notes="$RUNNER_TEMP/release-notes.md"
           {
             printf '提交：`%s`\n\n' "$GITHUB_SHA"
@@ -112,9 +127,9 @@ jobs:
             printf '下载全部分卷、SHA256SUMS 和 DEPLOY.txt，按 DEPLOY.txt 校验、解压和部署。首次部署在目标机生成独立密码；升级前保留原 .env.offline。\n\n'
             printf 'AI 使用 DeepSeek API，需自行配置 Key 并保持联网。构建通过不代表目标服务器部署验收。\n'
           } > "$notes"
-          gh release create "$tag" --target "$GITHUB_SHA" --draft --prerelease \
-            --title "$BUNDLE_NAME" --notes-file "$notes"
+          gh release create "$tag" --target "$GITHUB_SHA" --draft \
+            --title "$tag" --notes-file "$notes"
           gh release upload "$tag" offline-bundles/release/*
-          gh release edit "$tag" --draft=false --latest=false
+          gh release edit "$tag" --draft=false --prerelease=false --latest
           url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
           printf '部署包已发布：[下载 %s](%s)\n' "$BUNDLE_NAME" "$url" >> "$GITHUB_STEP_SUMMARY"
