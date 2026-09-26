@@ -107,3 +107,41 @@ func testTelemetryMessage() model.StandardMessage {
 		MessageType: model.PropertyReport, Properties: map[string]any{"temperature": 25.0},
 	}
 }
+
+// Raw and telemetry lookups by message ID include the device, so ClickHouse
+// reads one device's range of the sort key instead of the whole tenant.
+func TestMessageLookupsNarrowToDevice(t *testing.T) {
+	var queries []string
+	server := newClickHouseTestServer(t, func(query string, w http.ResponseWriter) bool {
+		if strings.Contains(query, "FROM iot_raw_message") || strings.Contains(query, "FROM iot_telemetry") {
+			queries = append(queries, query)
+			if strings.Contains(query, "count()") {
+				_ = json.NewEncoder(w).Encode(map[string]int{"total": 1})
+			} else {
+				body, _ := json.Marshal(model.RawMessage{TenantID: "tenant-a", MessageID: "raw-1", DeviceID: "device-a"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"body": string(body)})
+			}
+			return true
+		}
+		return false
+	})
+	defer server.Close()
+	repo, err := New(context.Background(), server.URL, memory.NewRepository())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.GetDeviceRawMessage(context.Background(), "tenant-a", "device-a", "raw-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.telemetryExists(context.Background(), "tenant-a", "device-a", "message-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(queries) != 2 {
+		t.Fatalf("queries: %v", queries)
+	}
+	for _, q := range queries {
+		if !strings.Contains(q, "device_id='device-a'") {
+			t.Fatalf("lookup does not use the device prefix: %s", q)
+		}
+	}
+}

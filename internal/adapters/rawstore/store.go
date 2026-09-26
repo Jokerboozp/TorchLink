@@ -97,6 +97,12 @@ func (s *Store) PutRaw(ctx context.Context, value model.RawMessage) (model.RawAr
 	}, nil
 }
 
+// deviceRawReader is implemented by stores whose lookup is cheaper when the
+// device of a message is known (ClickHouse sorts raw rows by device).
+type deviceRawReader interface {
+	GetDeviceRawMessage(ctx context.Context, tenant, device, messageID string) (model.RawMessage, error)
+}
+
 func (s *Store) GetRaw(ctx context.Context, index model.RawArchiveIndex) (model.RawMessage, error) {
 	switch index.ObjectBucket {
 	case PostgreSQLBucket:
@@ -107,6 +113,9 @@ func (s *Store) GetRaw(ctx context.Context, index model.RawArchiveIndex) (model.
 	case ClickHouseBucket:
 		if s.clickhouse == nil {
 			return model.RawMessage{}, fmt.Errorf("clickhouse raw message store is not configured")
+		}
+		if byDevice, ok := s.clickhouse.(deviceRawReader); ok && index.DeviceID != "" {
+			return byDevice.GetDeviceRawMessage(ctx, index.TenantID, index.DeviceID, index.MessageID)
 		}
 		return s.clickhouse.GetRawMessage(ctx, index.TenantID, index.MessageID)
 	default:

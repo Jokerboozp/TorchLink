@@ -57,6 +57,14 @@ func New(ctx context.Context, base string, repo ports.Repository) (*Repository, 
 	if _, err = r.query(ctx, rawSchema, nil); err != nil {
 		return nil, err
 	}
+	// Lookups by message ID carry the device ID so the sort key prunes; the
+	// bloom filter covers lookups that know only the message ID. Existing
+	// parts get the index as they merge.
+	for _, table := range []string{"iot_raw_message", "iot_telemetry"} {
+		if _, err = r.query(ctx, "ALTER TABLE "+table+" ADD INDEX IF NOT EXISTS idx_message_id message_id TYPE bloom_filter(0.01) GRANULARITY 1", nil); err != nil {
+			return nil, err
+		}
+	}
 	return r, nil
 }
 func (r *Repository) SaveStandardMessage(ctx context.Context, v model.StandardMessage) error {
@@ -83,7 +91,7 @@ func (r *Repository) ensureTelemetry(ctx context.Context, v model.StandardMessag
 		return nil
 	}
 	if !created {
-		exists, err := r.telemetryExists(ctx, v.TenantID, v.MessageID)
+		exists, err := r.telemetryExists(ctx, v.TenantID, v.DeviceID, v.MessageID)
 		if err != nil {
 			return err
 		}
@@ -98,8 +106,8 @@ func (r *Repository) ensureTelemetry(ctx context.Context, v model.StandardMessag
 	return err
 }
 
-func (r *Repository) telemetryExists(ctx context.Context, tenantID, messageID string) (bool, error) {
-	query := fmt.Sprintf(`SELECT count() AS total FROM iot_telemetry WHERE tenant_id=%s AND message_id=%s FORMAT JSONEachRow`, quote(tenantID), quote(messageID))
+func (r *Repository) telemetryExists(ctx context.Context, tenantID, deviceID, messageID string) (bool, error) {
+	query := fmt.Sprintf(`SELECT count() AS total FROM iot_telemetry WHERE tenant_id=%s AND device_id=%s AND message_id=%s FORMAT JSONEachRow`, quote(tenantID), quote(deviceID), quote(messageID))
 	body, err := r.query(ctx, query, nil)
 	if err != nil {
 		return false, err
@@ -126,7 +134,17 @@ func (r *Repository) SaveRawMessage(ctx context.Context, v model.RawMessage) err
 }
 
 func (r *Repository) GetRawMessage(ctx context.Context, tenant, messageID string) (model.RawMessage, error) {
-	data, err := r.query(ctx, fmt.Sprintf(`SELECT body FROM iot_raw_message WHERE tenant_id=%s AND message_id=%s LIMIT 1 FORMAT JSONEachRow`, quote(tenant), quote(messageID)), nil)
+	return r.GetDeviceRawMessage(ctx, tenant, "", messageID)
+}
+
+// GetDeviceRawMessage reads one raw message; a known device ID narrows the
+// read to that device's range of the sort key instead of the whole tenant.
+func (r *Repository) GetDeviceRawMessage(ctx context.Context, tenant, device, messageID string) (model.RawMessage, error) {
+	filter := fmt.Sprintf("tenant_id=%s AND message_id=%s", quote(tenant), quote(messageID))
+	if device != "" {
+		filter = fmt.Sprintf("tenant_id=%s AND device_id=%s AND message_id=%s", quote(tenant), quote(device), quote(messageID))
+	}
+	data, err := r.query(ctx, `SELECT body FROM iot_raw_message WHERE `+filter+` LIMIT 1 FORMAT JSONEachRow`, nil)
 	if err != nil {
 		return model.RawMessage{}, err
 	}
