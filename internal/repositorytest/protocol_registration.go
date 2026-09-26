@@ -52,6 +52,13 @@ func ProtocolRegistration(t *testing.T, r ports.Repository) {
 	if err != nil || !created || first.AccessKey == second.AccessKey {
 		t.Fatal("second identity key collision", second, err)
 	}
+	squatter := model.ManagedDevice{TenantID: tenant, ID: "squatter", ProductID: product.ID, Status: "ENABLED", AccessKey: model.ProtocolDeviceAccessKey(tenant, "collide")}
+	if err = r.SaveManagedDevice(ctx, squatter); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = r.RegisterProtocolDevice(ctx, p, "collide", ""); !errors.Is(err, model.ErrProtocolRegistration) {
+		t.Fatal("access key held by another device was not rejected", err)
+	}
 	first.Name, first.AccessKey, first.SecretHash = "Operator edited", "existing-access", "existing-secret-hash"
 	if err = r.SaveManagedDevice(ctx, first); err != nil {
 		t.Fatal(err)

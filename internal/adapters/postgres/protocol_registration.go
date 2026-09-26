@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"iot-platform/internal/model"
 	"time"
 )
@@ -40,13 +42,17 @@ func (r *Repository) RegisterProtocolDevice(ctx context.Context, expected model.
 	if err != nil {
 		return empty, false, err
 	}
-	result, err := tx.Exec(ctx, `INSERT INTO device_registry(tenant_id,id,product_id,status,access_key,secret_hash,body) VALUES($1,$2,$3,$4,$5,'',$6) ON CONFLICT(tenant_id,id) DO NOTHING`, d.TenantID, d.ID, d.ProductID, d.Status, d.AccessKey, body)
+	result, err := tx.Exec(ctx, `INSERT INTO device_registry(tenant_id,id,product_id,status,access_key,secret_hash,body) VALUES($1,$2,$3,$4,$5,'',$6) ON CONFLICT DO NOTHING`, d.TenantID, d.ID, d.ProductID, d.Status, d.AccessKey, body)
 	if err != nil {
 		return empty, false, err
 	}
 	created := result.RowsAffected() == 1
 	if !created {
+		// 无仲裁列的 DO NOTHING 同时吸收主键与 access_key 冲突；并发注册同一设备时两者都可能先被检测到。
 		d, err = r.scanManagedDevice(tx.QueryRow(ctx, `SELECT body,secret_hash FROM device_registry WHERE tenant_id=$1 AND id=$2 FOR SHARE`, d.TenantID, d.ID))
+		if errors.Is(err, ErrNotFound) {
+			return empty, false, fmt.Errorf("%w: access key is already assigned to another device", model.ErrProtocolRegistration)
+		}
 		if err != nil {
 			return empty, false, err
 		}
