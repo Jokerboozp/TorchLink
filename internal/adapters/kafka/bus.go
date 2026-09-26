@@ -22,6 +22,8 @@ type Bus struct { /* 定义 Bus 类型。 */
 	// lanes and topicLanes bound the parallel handlers of each subscription.
 	lanes      int
 	topicLanes map[string]int
+	// subscriptions lists the consumer groups whose backlog ConsumerLag reports.
+	subscriptions []subscription
 } /* 结束当前表达式或代码块。 */
 
 func New(brokers []string) *Bus { return &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}} } /* 定义 New 函数。 */
@@ -77,6 +79,7 @@ func (b *Bus) Subscribe(ctx context.Context, topic, group string, h ports.Handle
 	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0}) /* 更新 reader 的值。 */
 	b.mu.Lock()
 	b.readers = append(b.readers, reader)
+	b.subscriptions = append(b.subscriptions, subscription{topic: topic, group: "iot-platform-" + group})
 	lanes := b.lanesFor(topic)
 	b.mu.Unlock()
 	go b.consume(ctx, reader, topic, group, lanes, h)

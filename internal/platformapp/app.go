@@ -9,10 +9,11 @@ import ( /* 引入当前代码需要的依赖。 */
 	"net/http"               /* 执行当前语句并推进处理流程。 */
 	"os"                     /* 执行当前语句并推进处理流程。 */
 	"os/signal"              /* 执行当前语句并推进处理流程。 */
-	"path/filepath"          /* 执行当前语句并推进处理流程。 */
-	"strconv"                /* 执行当前语句并推进处理流程。 */
-	"syscall"                /* 执行当前语句并推进处理流程。 */
-	"time"                   /* 执行当前语句并推进处理流程。 */
+	"path/filepath"
+	"strconv" /* 执行当前语句并推进处理流程。 */
+	"strings" /* 执行当前语句并推进处理流程。 */
+	"syscall" /* 执行当前语句并推进处理流程。 */
+	"time"    /* 执行当前语句并推进处理流程。 */
 
 	aiadapter "iot-platform/internal/adapters/ai"                 /* 执行当前语句并推进处理流程。 */
 	clickhouseadapter "iot-platform/internal/adapters/clickhouse" /* 执行当前语句并推进处理流程。 */
@@ -108,8 +109,9 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	// path, with the same concurrency as its Kafka consumer group.
 	localBus.SetAsyncTopic(model.TopicAlarmRaised, positiveOr(cfg.AIAnalysisConcurrency, 1), 1000)
 	var bus ports.EventBus = localBus /* 声明 bus。 */
-	if len(cfg.KafkaBrokers) > 0 {    /* 判断条件并选择处理分支。 */
-		kafkaBus := kafkaadapter.New(cfg.KafkaBrokers)
+	var kafkaBus *kafkaadapter.Bus
+	if len(cfg.KafkaBrokers) > 0 { /* 判断条件并选择处理分支。 */
+		kafkaBus = kafkaadapter.New(cfg.KafkaBrokers)
 		// Parallel lanes keep each device's (or alarm's) messages in order;
 		// automatic alarm analysis has its own, smaller limit.
 		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 8), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 1)})
@@ -119,8 +121,34 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	localRealtime := local.NewRealtime()                 /* 更新 localRealtime 的值。 */
 	var realtime ports.RealtimePublisher = localRealtime /* 声明 realtime。 */
 	registry := metrics.New()                            /* 更新 registry 的值。 */
-	var mqttClient *mqttadapter.Client                   /* 声明 mqttClient。 */
-	if cfg.MQTTBroker != "" {                            /* 判断条件并选择处理分支。 */
+	if kafkaBus != nil {
+		// kafka_lag is the total backlog of this process's consumer groups;
+		// kafka_lag_<group> breaks it down. Sampling errors keep the last value.
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					lags, err := kafkaBus.ConsumerLag(ctx)
+					if err != nil {
+						log.Warn("sample kafka consumer lag", "error", err)
+						continue
+					}
+					var total int64
+					for group, lag := range lags {
+						total += lag
+						registry.Set("kafka_lag_"+strings.NewReplacer("iot-platform-", "", "-", "_", ".", "_").Replace(group), float64(lag))
+					}
+					registry.Set("kafka_lag", float64(total))
+				}
+			}
+		}()
+	}
+	var mqttClient *mqttadapter.Client /* 声明 mqttClient。 */
+	if cfg.MQTTBroker != "" {          /* 判断条件并选择处理分支。 */
 		credentials := func() (string, string) { return cfg.MQTTUsername, cfg.MQTTPassword } /* 更新 credentials 的值。 */
 		if cfg.MQTTPassword == "" {                                                          /* 判断条件并选择处理分支。 */
 			manager := auth.New(cfg.JWTSecret) /* 更新 manager 的值。 */

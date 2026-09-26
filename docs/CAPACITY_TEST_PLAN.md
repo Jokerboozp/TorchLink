@@ -38,7 +38,7 @@ TOKEN=$(curl -s -X POST http://<平台地址>:8081/api/v1/auth/login \
 | 接收与归档 | `raw_archive_success_total`、`raw_archive_failed_total`、`raw_publish_failed_total` 的增量 | `curl http://<平台地址>:8081/metrics` |
 | 解析与告警 | `parse_failed_total`、`alarm_trigger_total`、`ai_analysis_success_total`、`ai_analysis_failed_total` 的增量 | 同上 |
 | MQTT 持久队列 | `mqtt_inbox_pending`、`mqtt_inbox_rejected`、`mqtt_inbox_corrupt` | 同上；`pending` 持续上升即不可持续 |
-| Kafka 积压 | 各消费组 `iot-platform-*` 的 LAG | `docker compose exec redpanda rpk group describe <组名>`，先用 `rpk group list` 列出 |
+| Kafka 积压 | 各消费组 `iot-platform-*` 的 LAG | 平台 `/metrics` 每 15 秒采样：`kafka_lag` 为本进程全部消费组的总积压，`kafka_lag_storage`、`kafka_lag_parser` 等为分组积压；可用 `docker compose exec redpanda rpk group describe <组名>` 复核 |
 | 入库核对 | 测试时段内原始报文条数、标准消息条数 | 按 `internal/adapters/rawstore/` 的实际路由，在 PostgreSQL 或 ClickHouse 中按租户与时间范围计数 |
 | 资源 | 各容器 CPU、内存、磁盘 IO、网络；PostgreSQL 连接数与慢查询 | `docker stats`、宿主机监控、`pg_stat_activity` / `pg_stat_statements` |
 | 管理端 | 设备列表、告警列表、运行总览接口的 P95 / P99 | 压测期间用独立脚本按固定频率请求并记录耗时 |
