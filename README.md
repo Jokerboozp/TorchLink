@@ -69,7 +69,7 @@ npm run dev
 | `protocol-packages/gb26875-dahua/` | 完整 Go 协议 module 示例 |
 | `dev/` | 六个独立消防协议包源码与样例测试，见 [协议包说明](dev/README.md) |
 | `scripts/` | 环境准备、部署、打包、演示数据与部署冒烟测试 |
-| `deploy/`、`ops/` | Harness / Dify 扩展、容器与监控配置 |
+| `deploy/`、`ops/` | DeepSeek Harness、容器与监控配置 |
 | `docs/` | 当前开发、接入和运维指南，见 [文档索引](docs/README.md) |
 
 ```text
