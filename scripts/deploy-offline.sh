@@ -20,6 +20,9 @@ done
 bundle_dir="$(CDPATH= cd -- "$bundle_dir" && pwd)"
 
 env_file="$bundle_dir/.env.offline"
+if [[ ! -f "$env_file" && -f "$bundle_dir/.env.offline.template" ]]; then
+  bash "$script_dir/init-offline-env.sh" "$bundle_dir"
+fi
 compose_file="$bundle_dir/compose.yaml"
 offline_compose_file="$bundle_dir/compose.offline.yaml"
 archive_file="$bundle_dir/images.tar"

@@ -42,6 +42,10 @@ if (-not (Test-Path -LiteralPath $BundleDir -PathType Container)) {
     throw "离线包目录不存在：$BundleDir"
 }
 $envPath = Join-Path $BundleDir ".env.offline"
+if (-not (Test-Path -LiteralPath $envPath -PathType Leaf) -and
+    (Test-Path -LiteralPath (Join-Path $BundleDir '.env.offline.template') -PathType Leaf)) {
+    & (Join-Path $scriptDir 'init-offline-env.ps1') -BundleDir $BundleDir
+}
 $composePath = Join-Path $BundleDir "compose.yaml"
 $offlineComposePath = Join-Path $BundleDir "compose.offline.yaml"
 $archivePath = Join-Path $BundleDir "images.tar"

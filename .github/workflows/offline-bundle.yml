@@ -1,0 +1,102 @@
+name: Linux x86_64 离线部署包
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: 检查打包环境
+        run: |
+          test "$(uname -m)" = x86_64
+          docker info > /dev/null
+          docker compose version
+          # Only remove unused preinstalled SDKs on this disposable GitHub runner.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h . /var/lib/docker
+
+      - name: 验证公开包凭据初始化
+        run: |
+          python3 scripts/tests/public-bundle-test.py
+          pwsh -NoProfile -File scripts/tests/public-bundle-test.ps1
+
+      - name: 验证部署脚本和 Compose 配置
+        run: |
+          compose="$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "compose"}}{{.Path}}{{end}}{{end}}')"
+          test -x "$compose"
+          bash scripts/tests/deployment-smoke.sh "$compose"
+          pwsh -NoProfile -File scripts/tests/deployment-smoke.ps1 -ComposeExe "$compose"
+
+      - name: 构建完整离线包
+        run: bash scripts/package-offline-linux.sh --output-dir offline-bundles --target-os generic
+
+      - name: 准备公开下载与分卷校验
+        id: bundle
+        run: |
+          bundles=(offline-bundles/iot-platform-offline-*)
+          test "${#bundles[@]}" -eq 1
+          bundle="${bundles[0]}"
+          python3 scripts/prepare-public-bundle.py "$bundle"
+          name="torchlink-linux-amd64-${GITHUB_SHA:0:12}"
+          mv "$bundle" "offline-bundles/$name"
+          mkdir -p offline-bundles/release
+          # Stream compression to avoid a second full-sized tar on runner disk.
+          tar -C offline-bundles -czf - "$name" |
+            split -b 1900m -d -a 3 - "offline-bundles/release/$name.tar.gz.part-"
+          cd offline-bundles/release
+          sha256sum "$name".tar.gz.part-* > SHA256SUMS
+          cp "../$name/manifest.json" manifest.json
+          cat > DEPLOY.txt <<EOF
+          下载本 Release 的全部 .part-* 分卷和 SHA256SUMS 到同一个目录。
+          在 Linux 目标机器运行：
+            sha256sum -c SHA256SUMS
+            cat $name.tar.gz.part-* | tar -xz
+            cd $name
+            sudo bash scripts/deploy-offline-linux.sh
+          首次部署自动生成独立密码，管理员密码见 .env.offline 的 IOT_ADMIN_PASSWORD。
+          升级已有部署：启动前先复制原 .env.offline，保持原项目、数据卷和凭据。
+          AI 功能需在模型管理填写 DeepSeek API Key 并联网访问 DeepSeek。
+          通用包不含特定发行版 RPM/DEB；目标机需满足 OFFLINE_DEPLOYMENT.md 的系统依赖。
+          EOF
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: 发布 GitHub 部署包
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUNDLE_NAME: ${{ steps.bundle.outputs.name }}
+        run: |
+          tag="build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA:0:12}"
+          notes="$RUNNER_TEMP/release-notes.md"
+          {
+            printf '提交：`%s`\n\n' "$GITHUB_SHA"
+            printf 'Linux x86_64 完整离线包，包含应用、依赖镜像、Docker 安装文件及 nomic-embed-text 嵌入模型。\n\n'
+            printf '下载全部分卷、SHA256SUMS 和 DEPLOY.txt，按 DEPLOY.txt 校验、解压和部署。首次部署在目标机生成独立密码；升级前保留原 .env.offline。\n\n'
+            printf 'AI 使用 DeepSeek API，需自行配置 Key 并保持联网。构建通过不代表目标服务器部署验收。\n'
+          } > "$notes"
+          gh release create "$tag" --target "$GITHUB_SHA" --draft --prerelease \
+            --title "$BUNDLE_NAME" --notes-file "$notes"
+          gh release upload "$tag" offline-bundles/release/*
+          gh release edit "$tag" --draft=false --latest=false
+          url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+          printf '部署包已发布：[下载 %s](%s)\n' "$BUNDLE_NAME" "$url" >> "$GITHUB_STEP_SUMMARY"

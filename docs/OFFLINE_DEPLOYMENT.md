@@ -6,6 +6,16 @@
 
 打包机操作系统与目标系统可以不同：CentOS/Linux、Windows 或 macOS 都可以通过 Docker 准备 openEuler 离线包。`--target-os` / `-TargetOS` 指定的是目标部署系统，打包机无需安装为 openEuler。
 
+## GitHub 自动生成部署包
+
+推送到 `main` 后，`.github/workflows/offline-bundle.yml` 自动在 GitHub 的 Linux x86_64 Runner 上运行现有打包脚本。也可在仓库 **Actions → Linux x86_64 离线部署包 → Run workflow** 手动触发。成功后在仓库 **Releases** 生成独立的 `build-运行编号-重试编号-提交号` 预发布版本，包含平台、依赖和 Harness 镜像、Linux Docker / Compose / Buildx 安装文件、`nomic-embed-text` 模型，以及部署脚本。这里的“预发布”表示自动构建产物，尚未在目标服务器完成部署验收。
+
+下载同一个 Release 中的全部 `.tar.gz.part-*`、`SHA256SUMS` 和 `DEPLOY.txt`，按 `DEPLOY.txt` 校验、合并解压、运行部署入口。不要把 GitHub 自动附带的 Source code 当作部署包。归档按 1900 MiB 分卷，以满足 [GitHub 单个 Release 附件小于 2 GiB 的限制](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas)。每次构建保留提交号和 `manifest.json`，失败时不会发布未完成的下载包；上传中断可能留下草稿，可由维护者删除后重新运行。
+
+**公开下载包不含部署密码或 API Key。** 包内只有 `.env.offline.template`，首次运行部署脚本时在目标机器生成 `.env.offline`；管理员密码也随机生成，请查看其中的 `IOT_ADMIN_USER` / `IOT_ADMIN_PASSWORD`。可提前运行 `bash scripts/init-offline-env.sh .` 生成配置并调整端口。Windows 使用 `powershell -ExecutionPolicy Bypass -File .\scripts\init-offline-env.ps1 -BundleDir .`。已有配置不会被覆盖；**升级时须先将原 `.env.offline` 复制到新包根目录**，沿用原项目和数据卷。DeepSeek API Key 在部署后的模型管理页填写。
+
+自动包目标为 `generic` / `linux/amd64`，不包含 openEuler 等特定发行版的 RPM/DEB 系统依赖，目标机的基础工具要求见本文后续说明。ARM64、openEuler 专用依赖或带原现场配置的包仍使用下面的手工打包入口。工作流使用仓库自带的 `GITHUB_TOKEN` 发布 Release，无需额外保存个人令牌或 DeepSeek Key；仓库需启用 Actions 并允许工作流写入仓库内容。新推送会排队，不中断正在生成的包。
+
 ## 1. 有网机器打包
 
 在仓库根目录执行：

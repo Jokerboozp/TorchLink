@@ -187,6 +187,18 @@ grep -q '离线包缺少镜像：' "$test_root/missing-image.log"
 if grep -q 'unbound variable' "$test_root/missing-image.log"; then echo 'Missing image diagnostic failed'; exit 1; fi
 assert_no_call ' up '
 TEST_MISSING_IMAGE=0
+python3 "$scripts/prepare-public-bundle.py" "$bundle"
+[ ! -e "$bundle/.env.offline" ]
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
+[ -s "$bundle/.env.offline" ]
+if grep -q '__TORCHLINK_RANDOM_HEX__' "$bundle/.env.offline"; then echo 'Public template was not initialized'; exit 1; fi
+assert_call 'up -d --no-build --pull never'
+assert_no_call ' build |ollama pull| compose .* pull '
+cp "$bundle/.env.offline" "$test_root/public-original"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
+cmp "$test_root/public-original" "$bundle/.env.offline"
+echo 'PASS public bundle: target credentials, real Compose parsing and unchanged configuration on rerun'
 printf 'corruption' >> "$bundle/images.tar"
 : > "$TEST_CALLS"
 if bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"; then echo 'Corrupt archive accepted' >&2; exit 1; fi
