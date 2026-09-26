@@ -5,7 +5,8 @@ param(
     [switch]$Full,
     [switch]$IncludeAi = $true,
     [switch]$IncludeHarness = $true,
-    [string]$OllamaModel = "qwen3:1.7b",
+    [string]$OllamaModel = "",
+    [string]$DeepSeekModel = "deepseek-flash",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel,
     [switch]$SkipDockerRuntime,
@@ -43,6 +44,9 @@ if ($Full) {
     $IncludeHarness = $true
 # 结束当前控制块。
 }
+
+# Harness 为所有模型工作流必装组件，保留参数仅兼容旧调用。
+$IncludeHarness = $true
 
 # 定义可复用的脚本函数。
 function Invoke-Checked {
@@ -293,7 +297,7 @@ function New-OfflineEnv {
         # 执行当前脚本步骤。
         $ollamaUrl = "http://ollama:11434"
         # 执行当前脚本步骤。
-        $aiProvider = "ollama"
+        $aiProvider = "deepseek"
         # 执行当前脚本步骤。
         $weaviateUrl = "http://weaviate:8080"
         # 执行当前脚本步骤。
@@ -319,10 +323,9 @@ function New-OfflineEnv {
             "IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$videoSecret",
             "IOT_VIDEO_MEDIA_ALLOWED_HOSTS=",
             "IOT_OLLAMA_URL=$ollamaUrl",
-            "IOT_OLLAMA_MODEL=$OllamaModel",
             "IOT_AI_PROVIDER=$aiProvider",
-            "IOT_AI_BASE_URL=http://ollama:11434",
-            "IOT_AI_MODEL=$OllamaModel",
+            "IOT_AI_BASE_URL=https://api.deepseek.com",
+            "IOT_AI_MODEL=$DeepSeekModel",
             "IOT_AI_API_KEY=",
             "IOT_AI_OLLAMA_URL=http://ollama:11434",
             "DEEPSEEK_API_KEY=",
@@ -330,10 +333,8 @@ function New-OfflineEnv {
             "IOT_AI_HARNESS_URL=$harnessUrl",
             "IOT_AI_HARNESS_TOKEN=$harnessToken",
             "IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness",
-            "IOT_AI_HARNESS_PROVIDER=ollama",
-            "IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1",
-            "IOT_AI_HARNESS_CONTEXT_WINDOW=8192",
-            "IOT_AI_HARNESS_MODEL=$OllamaModel",
+            "IOT_AI_HARNESS_PROVIDER=deepseek-official",
+            "IOT_AI_HARNESS_MODEL=$DeepSeekModel",
             "IOT_AI_HARNESS_TIMEOUT=90s",
             "IOT_WEAVIATE_URL=$weaviateUrl",
             "IOT_BACKUP_ADMIN_TOKEN=$backupToken",
@@ -409,49 +410,8 @@ function New-OfflineEnv {
     # 结束当前控制块。
     }
     # 执行当前脚本步骤。
-    $entries = @{}
-    # 遍历数据并执行循环体。
-    foreach ($line in $lines) {
-        # 判断条件后执行对应操作。
-        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') {
-            # 执行当前脚本步骤。
-            $entries[$matches[1]] = $matches[2].Trim().Trim("'`"")
-        # 结束当前控制块。
-        }
-    # 结束当前控制块。
-    }
-    # 判断条件后执行对应操作。
-    if ([string]$entries['IOT_AI_PROVIDER'] -eq 'ollama') {
-        # 执行当前脚本步骤。
-        $selectedModel = [string]$entries['IOT_AI_MODEL']
-        # 判断条件后执行对应操作。
-        if ([string]::IsNullOrWhiteSpace($selectedModel)) { $selectedModel = [string]$entries['IOT_OLLAMA_MODEL'] }
-        # 判断条件后执行对应操作。
-        if ([string]::IsNullOrWhiteSpace($selectedModel)) { $selectedModel = $OllamaModel }
-        # 判断条件后执行对应操作。
-        if ($selectedModel -eq 'qwen3:8b' -and $OllamaModel -ne 'qwen3:8b') { $selectedModel = $OllamaModel }
-        # 遍历数据并执行循环体。
-        foreach ($setting in ([ordered]@{
-            # 执行当前脚本步骤。
-            IOT_OLLAMA_URL='http://ollama:11434'; IOT_OLLAMA_MODEL=$selectedModel;
-            # 执行当前脚本步骤。
-            IOT_AI_BASE_URL='http://ollama:11434'; IOT_AI_MODEL=$selectedModel;
-            # 执行当前脚本步骤。
-            IOT_AI_HARNESS_PROVIDER='ollama'; IOT_AI_HARNESS_OLLAMA_BASE_URL='http://ollama:11434/v1';
-            # 执行当前脚本步骤。
-            IOT_AI_HARNESS_CONTEXT_WINDOW='8192'; IOT_AI_HARNESS_MODEL=$selectedModel
-        # 结束当前控制块。
-        }).GetEnumerator()) {
-            # 执行当前脚本步骤。
-            $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $setting.Key -Value ([string]$setting.Value))
-        # 结束当前控制块。
-        }
-    # 结束当前控制块。
-    }
-
-    # 执行当前脚本步骤。
     Write-Utf8NoBom -Path $Destination -Lines $lines
-    # 执行当前脚本步骤。
+    Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
     Add-DeploymentEnvComments -Path $Destination
     # 执行当前脚本步骤。
     $credentialPath = Join-Path (Split-Path -Parent $Destination) "OFFLINE-CREDENTIALS.txt"
@@ -484,13 +444,9 @@ if ($OllamaEmbeddingModel -ne "nomic-embed-text") {
 # 结束当前控制块。
 }
 # 判断条件后执行对应操作。
-if ($IncludeAi -and $OllamaModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') {
-    # 执行当前脚本步骤。
-    throw "OllamaModel 不是有效的模型名称。"
-# 结束当前控制块。
-}
+if ($OllamaModel) { throw '已取消打包本地对话模型，请使用 DeepSeek API。' }
+if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeek 模型名称无效。' }
 
-# 判断条件后执行对应操作。
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     # 执行当前脚本步骤。
     throw "找不到 docker 命令。请在安装并启动 Docker Engine/Desktop 的有网打包机执行。"
@@ -534,22 +490,6 @@ $envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv -UseAi:$Inc
 $runtimeHarnessEnabled = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_HARNESS_ENABLED'
 # 判断条件后执行对应操作。
 if ($runtimeHarnessEnabled -eq 'true') { $IncludeHarness = $true }
-# 执行当前脚本步骤。
-$runtimeProvider = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_PROVIDER'
-# 判断条件后执行对应操作。
-if ($runtimeProvider -eq 'ollama' -or (-not $runtimeProvider -and (Get-DeploymentEnvValue -Path $envPath -Key 'IOT_OLLAMA_URL'))) {
-    # 执行当前脚本步骤。
-    $IncludeAi = $true
-    # 执行当前脚本步骤。
-    $configuredModel = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_MODEL'
-    # 判断条件后执行对应操作。
-    if (-not $configuredModel) { $configuredModel = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_OLLAMA_MODEL' }
-    # 判断条件后执行对应操作。
-    if ($configuredModel) { $OllamaModel = $configuredModel }
-# 结束当前控制块。
-}
-# 判断条件后执行对应操作。
-if ($IncludeAi -and $OllamaModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw '配置中的 Ollama 模型名称无效。' }
 # 执行当前脚本步骤。
 $composeBase = @(
     # 执行当前脚本步骤。
@@ -600,7 +540,7 @@ try {
     # 执行当前脚本步骤。
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service"))
 
-    # 知识库和默认本地 AI 都随离线包准备；SkipOllamaModel 才会跳过模型归档。
+    # 只归档知识库嵌入模型；DeepSeek API 不携带模型权重。
     # 判断条件后执行对应操作。
     if (-not $SkipOllamaModel) {
         # 执行当前脚本步骤。
@@ -624,12 +564,6 @@ try {
         # 执行当前脚本步骤。
         Invoke-Checked -Arguments ($composeBase + @("exec", "-T", "ollama", "ollama", "pull", $OllamaEmbeddingModel))
         # 判断条件后执行对应操作。
-        if ($IncludeAi -and $OllamaModel -ne $OllamaEmbeddingModel) {
-            # 执行当前脚本步骤。
-            Invoke-Checked -Arguments ($composeBase + @("exec", "-T", "ollama", "ollama", "pull", $OllamaModel))
-        # 结束当前控制块。
-        }
-        # 执行当前脚本步骤。
         $ollamaSourceVolume = "iot-platform-offline-build_ollama-data"
         # 执行当前脚本步骤。
         $ollamaVolumeName = "iot-platform_ollama-data"
@@ -639,7 +573,8 @@ try {
             "run", "--rm", "--pull", "never",
             "--mount", "type=volume,source=$ollamaSourceVolume,target=/src,readonly",
             "--mount", "type=bind,source=$bundleRoot,target=/backup",
-            "alpine:3.22", "sh", "-ec", "tar -czf /backup/ollama-data.tgz -C /src models"
+            "--mount", "type=bind,source=$scriptDir/lib,target=/helpers,readonly",
+            "alpine:3.22", "sh", "/helpers/export-embedding-model.sh", "/src", "/backup/ollama-data.tgz"
         # 执行当前脚本步骤。
         )
         # 执行当前脚本步骤。
@@ -801,7 +736,10 @@ try {
         # 执行当前脚本步骤。
         composeFiles = @("compose.yaml", "compose.offline.yaml")
         # 执行当前脚本步骤。
-        ollamaModel = if ($ollamaArchive -and $IncludeAi) { $OllamaModel } else { $null }
+        aiProvider = "deepseek"
+        aiModel = $DeepSeekModel
+        aiRequiresInternet = $true
+        ollamaModel = $null
         # 执行当前脚本步骤。
         ollamaEmbeddingModel = if ($ollamaArchive) { $OllamaEmbeddingModel } else { $null }
         # 执行当前脚本步骤。

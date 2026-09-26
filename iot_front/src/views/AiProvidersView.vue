@@ -15,7 +15,7 @@ const loadError = ref('') /* 声明 loadError。 */
 const providerError = ref('') /* 声明 providerError。 */
 const testResult = ref(null) /* 声明 testResult。 */
 const testedFingerprint = ref('') /* 声明 testedFingerprint。 */
-const providerForm = reactive({ provider:'ollama', baseUrl:'http://localhost:11434', model:'qwen3:1.7b', apiKey:'', maxTokens:2048 }) /* 声明 providerForm。 */
+const providerForm = reactive({ provider:'deepseek', baseUrl:'https://api.deepseek.com', model:'deepseek-flash', apiKey:'', maxTokens:2048 }) /* 声明 providerForm。 */
 let loadVersion = 0
 
 const capabilityLabels = { /* 声明 capabilityLabels。 */
@@ -70,12 +70,12 @@ function syncProviderForm(value) { /* 定义 syncProviderForm 函数。 */
 function providerChanged(provider) { /* 定义 providerChanged 函数。 */
   if (provider === 'ollama') { /* 判断条件并选择处理分支。 */
     if (!providerForm.baseUrl || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = 'http://localhost:11434' /* 判断条件并选择处理分支。 */
-    if (!providerForm.model || providerForm.model.startsWith('deepseek')) providerForm.model = 'qwen3:1.7b' /* 判断条件并选择处理分支。 */
+    if (!providerForm.model || providerForm.model.startsWith('deepseek')) providerForm.model = '' /* 判断条件并选择处理分支。 */
     return /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
   if (provider === 'deepseek') { /* 判断条件并选择处理分支。 */
     if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434')) providerForm.baseUrl = 'https://api.deepseek.com' /* 判断条件并选择处理分支。 */
-    if (!providerForm.model || providerForm.model.startsWith('qwen')) providerForm.model = 'deepseek-v4-flash' /* 判断条件并选择处理分支。 */
+    if (!providerForm.model || providerForm.model.startsWith('qwen')) providerForm.model = 'deepseek-flash' /* 判断条件并选择处理分支。 */
     return /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
   if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434') || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = '' /* 判断条件并选择处理分支。 */
@@ -109,7 +109,7 @@ function candidateConfig() { /* 定义 candidateConfig 函数。 */
     providerError.value = '请填写模型来源、服务地址和模型名称' /* 更新 providerError.value 的值。 */
     return null /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
-  if (provider !== 'ollama' && !apiKey && activeProvider.value !== provider) { /* 判断条件并选择处理分支。 */
+  if (provider !== 'ollama' && !apiKey && (activeProvider.value !== provider || !runtime.value.config?.apiKeyConfigured)) { /* 判断条件并选择处理分支。 */
     providerError.value = '切换到云端或兼容接口模型时必须填写接口密钥' /* 更新 providerError.value 的值。 */
     return null /* 返回当前处理结果。 */
   } /* 结束当前表达式或代码块。 */
@@ -207,13 +207,13 @@ onMounted(loadRuntime) /* 执行当前语句并推进处理流程。 */
             </section>
             <section class="config-section">
               <div class="config-section-heading"><span>02</span><div><strong>填写连接信息</strong><small>地址必须能从平台服务器访问</small></div></div>
-              <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" placeholder="例如 http://ollama:11434 或 https://api.deepseek.com" /></ui-form-item>
-              <p v-if="providerForm.provider === 'ollama'" class="provider-field-hint">Docker 内置 Ollama 通常使用 http://ollama:11434。</p>
+              <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" placeholder="https://api.deepseek.com" /></ui-form-item>
+              <p v-if="providerForm.provider === 'ollama'" class="provider-field-hint">内置 Ollama 仅提供知识库嵌入；外部对话模型需自行准备。</p>
               <template v-if="providerForm.provider !== 'ollama'"><ui-form-item class="cloud-key-field" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="填写 API Key；留空沿用已保存的密钥" /></ui-form-item><p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">已保存密钥 {{ runtime.config.apiKeyHint || '***' }}，留空测试或应用会继续使用。</p></template>
             </section>
             <section class="config-section">
               <div class="config-section-heading"><span>03</span><div><strong>设置模型与输出</strong><small>选择实际可用的模型，设置助手回复长度</small></div></div>
-              <div class="config-field-grid"><ui-form-item label="模型名称"><ui-input v-model="providerForm.model" placeholder="例如 qwen3:1.7b" /></ui-form-item><div><ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item><p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p></div></div>
+              <div class="config-field-grid"><ui-form-item label="模型名称"><ui-input v-model="providerForm.model" placeholder="例如 deepseek-flash" /></ui-form-item><div><ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item><p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p></div></div>
             </section>
             <div class="provider-actions"><span :class="{ ready:canApply }">{{ canApply ? '测试通过，点击应用后生效' : '请先测试当前填写的配置' }}</span><div><ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</ui-button><ui-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="!canApply" @click="applyProviderConfig">应用配置</ui-button></div></div>
           </ui-form>

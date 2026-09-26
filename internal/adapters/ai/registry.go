@@ -24,18 +24,18 @@ func NewProviderRegistry() *ProviderRegistry { /* 定义 NewProviderRegistry 函
 		build: func(ports.AIPluginConfig) (ports.AIClient, error) { return NoopAI{}, nil },                                           /* 检查错误并决定后续处理。 */
 	}) /* 结束当前表达式或代码块。 */
 	r.register(providerFactory{ /* 执行当前语句并推进处理流程。 */
-		info: ports.AIPluginInfo{ID: "deepseek", Name: "DeepSeek", Description: "DeepSeek 官方 OpenAI-compatible API。", DefaultBaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-v4-flash", RequiresAPIKey: true, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output"}}, /* 执行当前语句并推进处理流程。 */
+		info: ports.AIPluginInfo{ID: "deepseek", Name: "DeepSeek", Description: "DeepSeek 官方 OpenAI-compatible API。", DefaultBaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-flash", RequiresAPIKey: true, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output"}}, /* 执行当前语句并推进处理流程。 */
 		build: func(cfg ports.AIPluginConfig) (ports.AIClient, error) { /* 执行当前语句并推进处理流程。 */
 			if strings.TrimSpace(cfg.APIKey) == "" { /* 判断条件并选择处理分支。 */
 				return nil, fmt.Errorf("DeepSeek API Key is required") /* 返回当前处理结果。 */
 			} /* 结束当前表达式或代码块。 */
-			return NewOpenAICompatible("deepseek", "DeepSeek", valueOr(cfg.BaseURL, "https://api.deepseek.com"), valueOr(cfg.Model, "deepseek-v4-flash"), cfg.APIKey) /* 返回当前处理结果。 */
+			return NewOpenAICompatible("deepseek", "DeepSeek", valueOr(cfg.BaseURL, "https://api.deepseek.com"), valueOr(cfg.Model, "deepseek-flash"), cfg.APIKey) /* 返回当前处理结果。 */
 		}, /* 结束当前表达式或代码块。 */
 	}) /* 结束当前表达式或代码块。 */
 	r.register(providerFactory{ /* 执行当前语句并推进处理流程。 */
-		info: ports.AIPluginInfo{ID: "ollama", Name: "Ollama", Description: "连接本地或私有网络中的 Ollama 模型服务。", DefaultBaseURL: "http://localhost:11434", DefaultModel: "qwen3:1.7b", Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output", "local-model"}}, /* 执行当前语句并推进处理流程。 */
+		info: ports.AIPluginInfo{ID: "ollama", Name: "Ollama", Description: "连接本地或私有网络中的 Ollama 模型服务。", DefaultBaseURL: "http://localhost:11434", Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output", "local-model"}}, /* 执行当前语句并推进处理流程。 */
 		build: func(cfg ports.AIPluginConfig) (ports.AIClient, error) { /* 执行当前语句并推进处理流程。 */
-			return NewOllama(valueOr(cfg.BaseURL, "http://localhost:11434"), valueOr(cfg.Model, "qwen3:1.7b")) /* 返回当前处理结果。 */
+			return NewOllama(valueOr(cfg.BaseURL, "http://localhost:11434"), cfg.Model) /* 返回当前处理结果。 */
 		}, /* 结束当前表达式或代码块。 */
 	}) /* 结束当前表达式或代码块。 */
 	r.register(providerFactory{ /* 执行当前语句并推进处理流程。 */

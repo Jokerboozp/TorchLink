@@ -58,7 +58,7 @@ docker() {
     # 执行当前脚本步骤。
     printf 'mock images' > "$3"
   # 执行当前脚本步骤。
-  elif [ "$1" = run ] && [[ "${!#}" == 'tar -czf'* ]]; then
+  elif [ "$1" = run ] && [[ "$*" == *'/helpers/export-embedding-model.sh'* ]]; then
     # 执行当前脚本步骤。
     local argument destination
     # 遍历数据并执行循环体。
@@ -120,11 +120,11 @@ assert_commented_env() {
 # 执行当前脚本步骤。
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local"
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_PROVIDER='deepseek'$" "$test_root/.env.local"
+grep -q "^IOT_AI_PROVIDER=deepseek$" "$test_root/.env.local"
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$test_root/.env.local"
+grep -q "^IOT_AI_BASE_URL=https://api.deepseek.com$" "$test_root/.env.local"
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$test_root/.env.local"
+grep -q "^IOT_AI_MODEL=deepseek-flash$" "$test_root/.env.local"
 # 执行当前脚本步骤。
 grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$test_root/.env.local"
 # 执行当前脚本步骤。
@@ -223,11 +223,11 @@ printf "IOT_AI_API_KEY='smoke-test-key'\n" >> "$deepseek_env"
 # 执行当前脚本步骤。
 bash "$scripts/setup-local.sh" --env-file "$deepseek_env" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1 --include-deepseek
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_PROVIDER='deepseek'$" "$deepseek_env"
+grep -q "^IOT_AI_PROVIDER=deepseek$" "$deepseek_env"
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_BASE_URL='https://api.deepseek.com'$" "$deepseek_env"
+grep -q "^IOT_AI_BASE_URL=https://api.deepseek.com$" "$deepseek_env"
 # 执行当前脚本步骤。
-grep -q "^IOT_AI_MODEL='deepseek-v4-flash'$" "$deepseek_env"
+grep -q "^IOT_AI_MODEL=deepseek-flash$" "$deepseek_env"
 # 执行当前脚本步骤。
 grep -q "^DEEPSEEK_API_KEY='smoke-test-key'$" "$deepseek_env"
 # 判断条件后执行对应操作。
@@ -238,21 +238,20 @@ echo 'PASS local deepseek: provider enabled without local chat model download'
 # 执行当前脚本步骤。
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_PROVIDER=ollama$' "$test_root/.env.online"
+grep -q '^IOT_AI_PROVIDER=deepseek$' "$test_root/.env.online"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_BASE_URL=http://ollama:11434$' "$test_root/.env.online"
+grep -q '^IOT_AI_BASE_URL=https://api.deepseek.com$' "$test_root/.env.online"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_MODEL=qwen3:1.7b$' "$test_root/.env.online"
+grep -q '^IOT_AI_MODEL=deepseek-flash$' "$test_root/.env.online"
 # 执行当前脚本步骤。
 grep -q '^IOT_AI_HARNESS_ENABLED=true$' "$test_root/.env.online"
 # 执行当前脚本步骤。
 grep -q '^IOT_AI_HARNESS_URL=http://deepseek-harness:8091$' "$test_root/.env.online"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_HARNESS_PROVIDER=ollama$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_PROVIDER=deepseek-official$' "$test_root/.env.online"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_HARNESS_MODEL=qwen3:1.7b$' "$test_root/.env.online"
+grep -q '^IOT_AI_HARNESS_MODEL=deepseek-flash$' "$test_root/.env.online"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1$' "$test_root/.env.online"
 # 执行当前脚本步骤。
 assert_commented_env "$test_root/.env.online"
 # 执行当前脚本步骤。
@@ -260,7 +259,8 @@ grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$test_root/.env.online"
 # 执行当前脚本步骤。
 assert_call 'build --pull platform-api platform-web backup-service deepseek-harness'
 # 执行当前脚本步骤。
-assert_call 'exec -T ollama ollama pull qwen3:1.7b'
+assert_no_call 'ollama pull qwen'
+assert_call 'exec -T ollama ollama pull nomic-embed-text'
 # 执行当前脚本步骤。
 cp "$test_root/.env.online" "$test_root/online-original"
 # 执行当前脚本步骤。
@@ -276,7 +276,7 @@ grep -q '8092/health/ready' "$TEST_HTTP"
 # 执行当前脚本步骤。
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online" --include-ai
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_PROVIDER=ollama$' "$test_root/.env.online"
+grep -q '^IOT_AI_PROVIDER=deepseek$' "$test_root/.env.online"
 # 执行当前脚本步骤。
 cmp <(grep '^IOT_ADMIN_PASSWORD=' "$test_root/online-original") <(grep '^IOT_ADMIN_PASSWORD=' "$test_root/.env.online")
 # 执行当前脚本步骤。
@@ -322,14 +322,13 @@ grep -q 'ollama/ollama:' "$bundle/manifest.json"
 grep -q 'weaviate:' "$bundle/manifest.json"
 # 执行当前脚本步骤。
 assert_call 'exec -T ollama ollama pull nomic-embed-text'
+assert_no_call 'ollama pull qwen'
 # 执行当前脚本步骤。
-assert_call 'exec -T ollama ollama pull qwen3:1.7b'
+grep -q '^IOT_AI_PROVIDER=deepseek$' "$bundle/.env.offline"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_PROVIDER=ollama$' "$bundle/.env.offline"
+grep -q '^IOT_AI_MODEL=deepseek-flash$' "$bundle/.env.offline"
 # 执行当前脚本步骤。
-grep -q '^IOT_AI_MODEL=qwen3:1.7b$' "$bundle/.env.offline"
-# 执行当前脚本步骤。
-grep -q '^IOT_AI_HARNESS_PROVIDER=ollama$' "$bundle/.env.offline"
+grep -q '^IOT_AI_HARNESS_PROVIDER=deepseek-official$' "$bundle/.env.offline"
 # 执行当前脚本步骤。
 grep -qx 'harness' "$bundle/profiles.txt"
 # 执行当前脚本步骤。

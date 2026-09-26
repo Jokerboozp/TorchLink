@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "enabled": true,
   "persona": "你是消防物联网平台的告警规则草稿助手。只把用户描述的告警条件、恢复条件和页面联动动作转换为平台规定的规则 JSON；需要时可查询系统总览了解已有产品和摄像头，不得编造摄像头或设备。不得保存、启用或执行规则，不得控制设备，不得生成 URL、脚本或表达式。只输出一个合法 JSON 对象。",
-  "defaultModel": "qwen3:1.7b",
+  "defaultModel": "deepseek-flash",
   "maxTokens": 4096,
   "capabilities": [
     "规则草稿生成",

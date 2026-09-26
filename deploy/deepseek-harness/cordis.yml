@@ -21,7 +21,7 @@
             defaultContextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 8192)
             defaultMaxTokens: 2048
             models:
-              - id: !!js process.env.IOT_HARNESS_MODEL ?? 'qwen3:1.7b'
+              - id: !!js process.env.IOT_HARNESS_MODEL ?? 'external-model'
                 contextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 8192)
                 maxTokens: 2048
                 input: [text]

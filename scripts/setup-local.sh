@@ -23,9 +23,8 @@ include_harness=true
 include_backup=false
 include_ops=false
 # 执行当前脚本步骤。
-ollama_model=qwen3:1.7b
 # 执行当前脚本步骤。
-deepseek_model=deepseek-v4-flash
+deepseek_model=deepseek-flash
 # 执行当前脚本步骤。
 dependency_host=127.0.0.1
 # 执行当前脚本步骤。
@@ -56,11 +55,11 @@ while [ "$#" -gt 0 ]; do
     # 执行当前脚本步骤。
     --api-host) [ "$#" -ge 2 ] || { echo '--api-host 需要依赖容器可访问的源码机主机名或 IPv4 地址。' >&2; exit 1; }; api_host="$2"; shift 2 ;;
     # 执行当前脚本步骤。
-    --ollama-model) [ "$#" -ge 2 ] || { echo '--ollama-model 需要模型名。' >&2; exit 1; }; ollama_model="$2"; shift 2 ;;
+    --ollama-model) echo '已取消部署本地对话模型，请填写 DEEPSEEK_API_KEY。' >&2; exit 1 ;;
     # 执行当前脚本步骤。
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
     # 执行当前脚本步骤。
-    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--ollama-model MODEL] [--deepseek-model MODEL] [--include-harness] [--include-backup] [--include-ops]'; exit 0 ;;
+    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--deepseek-model MODEL] [--include-harness] [--include-backup] [--include-ops]'; exit 0 ;;
     # 执行当前脚本步骤。
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   # 执行当前脚本步骤。
@@ -125,7 +124,6 @@ ensure_deployment_docker online
 # 执行当前脚本步骤。
 assert_docker_available
 # 执行当前脚本步骤。
-[[ "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || { echo 'Ollama 模型名称无效。' >&2; exit 1; }
 # 执行当前脚本步骤。
 [[ "$deepseek_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || { echo 'DeepSeek 模型名称无效。' >&2; exit 1; }
 # 执行当前脚本步骤。
@@ -133,7 +131,6 @@ assert_docker_available
 # 执行当前脚本步骤。
 [[ "$api_host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || { echo '源码机必须是主机名或 IPv4 地址。' >&2; exit 1; }
 # 执行当前脚本步骤。
-[ "$include_ai" = false ] || [ "$include_deepseek" = false ] || { echo '--include-ai 与 --include-deepseek 只能二选一。' >&2; exit 1; }
 # 执行当前脚本步骤。
 command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; exit 1; }
 # 判断条件后执行对应操作。
@@ -247,67 +244,8 @@ set_local_env_value IOT_BACKUP_HTTP_ADDR ':8092'
 # 判断条件后执行对应操作。
 if [ "$include_backup" = true ]; then set_local_env_value IOT_BACKUP_URL "http://${dependency_host}:8092" true; fi
 # 判断条件后执行对应操作。
-if [ "$include_ai" = true ]; then
-  # 判断条件后执行对应操作。
-  if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = ollama ]; then
-    # 执行当前脚本步骤。
-    configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
-    # 执行当前脚本步骤。
-    ollama_model="${configured_model:-$ollama_model}"
-  # 结束当前控制块。
-  fi
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_PROVIDER ollama true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_OLLAMA_MODEL "$ollama_model" true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_MODEL "$ollama_model" true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_BASE_URL "http://${dependency_host}:11434" true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_PROVIDER ollama true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_OLLAMA_BASE_URL 'http://ollama:11434/v1' true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_CONTEXT_WINDOW 8192 true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_MODEL "$ollama_model" true
-# 结束当前控制块。
-fi
-# 判断条件后执行对应操作。
-if [ "$include_deepseek" = true ]; then
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_PROVIDER deepseek true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_BASE_URL "https://api.deepseek.com" true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_MODEL "$deepseek_model" true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_PROVIDER deepseek-official true
-  # 执行当前脚本步骤。
-  set_local_env_value IOT_AI_HARNESS_MODEL "$deepseek_model" true
-# 结束当前控制块。
-fi
-# 判断条件后执行对应操作。
-if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; then
-  # 执行当前脚本步骤。
-  deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"
-  # 判断条件后执行对应操作。
-  if [ -z "$deepseek_key" ]; then deepseek_key="$(get_deployment_env_value "$env_file" IOT_AI_API_KEY)"; fi
-  # 判断条件后执行对应操作。
-  if [ -n "$deepseek_key" ] && [ -z "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ]; then set_local_env_value DEEPSEEK_API_KEY "$deepseek_key" true; fi
-  # 执行当前脚本步骤。
-  deepseek_base_url="$(get_deployment_env_value "$env_file" DEEPSEEK_BASE_URL)"
-  # 执行当前脚本步骤。
-  deepseek_base_url="${deepseek_base_url:-https://api.deepseek.com}"
-  # 执行当前脚本步骤。
-  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_BASE_URL)" ] || set_local_env_value IOT_AI_BASE_URL "$deepseek_base_url" true
-  # 执行当前脚本步骤。
-  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_MODEL)" ] || set_local_env_value IOT_AI_MODEL "$deepseek_model" true
-  # 判断条件后执行对应操作。
-  if [ -z "$deepseek_key" ]; then echo '提示：请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' >&2; fi
-# 结束当前控制块。
-fi
+configure_deepseek_env "$env_file" "$deepseek_model"
+
 # 执行当前脚本步骤。
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
@@ -404,7 +342,6 @@ wait_deployment_http http://127.0.0.1:11434/api/tags 180
 # 执行当前脚本步骤。
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
 # 判断条件后执行对应操作。
-if [ "$include_ai" = true ]; then run_docker "${compose[@]}" exec -T ollama ollama pull "$ollama_model"; fi
 # 判断条件后执行对应操作。
 if [ "$include_backup" = true ]; then wait_deployment_http http://127.0.0.1:8092/health/ready 180; fi
 # 判断条件后执行对应操作。

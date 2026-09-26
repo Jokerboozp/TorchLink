@@ -56,20 +56,17 @@ IOT_HTTP_ADDR=:8081
 IOT_WEB_PORT=8080
 IOT_API_PORT=8081
 IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173
-IOT_OLLAMA_MODEL=qwen3:1.7b
-IOT_AI_PROVIDER=ollama
-IOT_AI_BASE_URL=http://ollama:11434
-IOT_AI_MODEL=qwen3:1.7b
+IOT_AI_PROVIDER=deepseek
+IOT_AI_BASE_URL=https://api.deepseek.com
+IOT_AI_MODEL=deepseek-flash
 IOT_AI_API_KEY=
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 IOT_AI_HARNESS_ENABLED=true
 IOT_AI_HARNESS_URL=http://deepseek-harness:8091
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
-IOT_AI_HARNESS_PROVIDER=ollama
-IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
-IOT_AI_HARNESS_CONTEXT_WINDOW=8192
-IOT_AI_HARNESS_MODEL=qwen3:1.7b
+IOT_AI_HARNESS_PROVIDER=deepseek-official
+IOT_AI_HARNESS_MODEL=deepseek-flash
 IOT_BACKUP_TIME=00:05
 IOT_BACKUP_ENABLED=true
 IOT_BACKUP_TIMEZONE=Asia/Shanghai
@@ -116,8 +113,9 @@ set_deployment_env_value() {
   if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
     echo '环境变量名称或值包含不支持的字符。' >&2; return 1
   fi
-  # Only used for explicit feature settings; credentials are never changed.
-  updated="$(awk -v key="$key" -v value="$value" '
+  # Keep values literal, including backslashes; never evaluate dotenv content.
+  updated="$(DEPLOYMENT_ENV_VALUE="$value" awk -v key="$key" '
+    BEGIN { value=ENVIRON["DEPLOYMENT_ENV_VALUE"] }
     # 执行当前脚本步骤。
     { clean=$0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", clean) }
     # 执行当前脚本步骤。
@@ -153,4 +151,29 @@ wait_deployment_http() {
   done
   printf '健康检查超时：%s。请用相同的 Compose 项目和配置参数检查 ps / logs。\n' "$url" >&2
   return 1
+}
+
+# Deployment inference always uses DeepSeek; Ollama is reserved for embeddings.
+configure_deepseek_env() {
+  local env_path="$1" model="${2:-deepseek-flash}" old_provider key
+  old_provider="$(get_deployment_env_value "$env_path" IOT_AI_PROVIDER)"
+  key="$(get_deployment_env_value "$env_path" DEEPSEEK_API_KEY)"
+  if [ -z "$key" ] && [ "$old_provider" = deepseek ]; then
+    key="$(get_deployment_env_value "$env_path" IOT_AI_API_KEY)"
+  fi
+  if [[ "$key" == *"'"* || "$key" == *$'\n'* || "$key" == *$'\r'* ]]; then
+    echo 'DeepSeek API Key 含不支持的引号或换行。' >&2; return 1
+  fi
+  set_deployment_env_value "$env_path" DEEPSEEK_API_KEY "'$key'"
+  set_deployment_env_value "$env_path" IOT_AI_API_KEY ''
+  set_deployment_env_value "$env_path" DEEPSEEK_BASE_URL https://api.deepseek.com
+  set_deployment_env_value "$env_path" IOT_AI_PROVIDER deepseek
+  set_deployment_env_value "$env_path" IOT_AI_BASE_URL https://api.deepseek.com
+  set_deployment_env_value "$env_path" IOT_AI_MODEL "$model"
+  set_deployment_env_value "$env_path" IOT_AI_HARNESS_PROVIDER deepseek-official
+  set_deployment_env_value "$env_path" IOT_AI_HARNESS_MODEL "$model"
+  set_deployment_env_value "$env_path" IOT_OLLAMA_MODEL ''
+  if [ -z "$key" ]; then
+    echo '提示：请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥、测试并应用；未配置前 AI 功能不可用。' >&2
+  fi
 }

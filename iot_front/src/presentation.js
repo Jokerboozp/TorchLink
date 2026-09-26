@@ -6,8 +6,8 @@ export const transportNames = { /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 export const formatNames = { JSON:'JSON', HEX:'HEX（十六进制）', BINARY:'Binary（二进制）', TEXT:'Text（纯文本）', BASE64:'Base64' } /* 执行当前语句并推进处理流程。 */
 export const aiProviderOptions = [ /* 执行当前语句并推进处理流程。 */
-  { id:'ollama', label:'Ollama', description:'连接部署在服务器或本机的 Ollama 模型服务，不需要 API Key。' }, /* 执行当前语句并推进处理流程。 */
-  { id:'deepseek', label:'DeepSeek', description:'使用 DeepSeek 云端模型和 API Key。' }, /* 执行当前语句并推进处理流程。 */
+  { id:'deepseek', label:'DeepSeek', description:'默认模型服务，填写 API Key 即可使用。' },
+  { id:'ollama', label:'Ollama', description:'连接自行准备的外部 Ollama 对话模型，部署包不包含对话模型。' }, /* 执行当前语句并推进处理流程。 */
   { id:'openai-compatible', label:'OpenAI 兼容 API', description:'连接兼容 OpenAI Chat Completions API 的模型服务。' } /* 执行当前语句并推进处理流程。 */
 ] /* 结束当前表达式或代码块。 */
 export const statusNames = { /* 执行当前语句并推进处理流程。 */

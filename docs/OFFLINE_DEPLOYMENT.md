@@ -22,7 +22,9 @@ bash ./scripts/package-offline-linux.sh
 bash ./scripts/package-offline.sh
 ```
 
-默认打包平台、存储、消息、备份、监控、Ollama、Weaviate、AI 工作流 Harness、`qwen3:1.7b` 对话模型，以及知识库必需的 `nomic-embed-text` 嵌入模型。无须预先创建 `.env`；脚本先生成独立的 `.env.offline`，平台管理员默认 `admin` / `admin123`，其他服务凭据随机生成，再构建镜像。告警研判和 AI 工作流默认共用 `qwen3:1.7b`，整个运行过程不访问外网。
+默认打包平台、存储、消息、备份、运维中心、Ollama、Weaviate、必装 Harness，以及知识库必需的 `nomic-embed-text` 嵌入模型。**不再携带 Qwen 或其他对话模型权重**；AI 统一调用 DeepSeek API，默认 `deepseek-flash`。脚本生成独立的 `.env.offline`，平台管理员仍默认为 `admin` / `admin123`，其他服务凭据随机生成，再构建镜像。部署后应先修改管理员密码配置。
+
+安装可离线完成，AI 功能仍需 API 和 Harness 访问 `https://api.deepseek.com`。部署后在“模型管理”填写 API Key、测试并应用，或在目标机 `.env.offline` 填 `DEEPSEEK_API_KEY` 后重新部署。完全断网时设备接入和规则仍可运行，AI 不可用；健康检查不验证真实模型调用。详见 [AI 与工作流](DEPLOYMENT.md#ai-与工作流)。
 
 生成目录：`offline-bundles/iot-platform-offline-时间戳/`。将整个目录复制到目标机器，包括隐藏文件 `.env.offline`。镜像、模型文件、配置和部署脚本必须一起传输。
 
@@ -31,16 +33,16 @@ bash ./scripts/package-offline.sh
 | 用途 | PowerShell | Bash |
 | --- | --- | --- |
 | 使用已有配置 | `-EnvFile .\.env.production` | `--env-file ./.env.production` |
-| 选择对话模型（默认 `qwen3:1.7b`） | `-OllamaModel qwen3:4b` | `--ollama-model qwen3:4b` |
+| 选择 DeepSeek API 模型（默认无需传入） | `-DeepSeekModel deepseek-flash` | `--deepseek-model deepseek-flash` |
 | 跳过模型归档（目标机已有模型时） | `-SkipOllamaModel` | `--skip-ollama-model` |
 | 目标为 openEuler 24.03 LTS-SP4 | `-TargetOS openeuler-24.03-lts-sp4` | `--target-os openeuler-24.03-lts-sp4` |
 | 输出父目录 | `-OutputDir D:\offline-bundles` | `--output-dir /data/offline-bundles` |
 
-已有配置会保留业务地址和模型设置；如果配置已启用 Ollama，会自动携带实际配置的对话模型（`IOT_AI_MODEL` 优先于 `IOT_OLLAMA_MODEL`），并让 Harness 使用同一模型。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。示例密码和空的必需密钥会被拒绝。
+已有配置保留业务地址与数据库等凭据；AI 设置统一迁移为 DeepSeek，保留已配置的 DeepSeek 密钥。使用 `-EnvFile` 时仍需确保内网地址和所选组件匹配。其他服务的示例密码和空的必需密钥会被拒绝；当前管理员默认密码仍被允许，交付前必须自行修改。DeepSeek API Key 可留空，后续通过模型管理配置。
 
-`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机的 `iot-platform_ollama-data` 卷已经包含所需模型；部署默认会检查模型是否存在。当前知识库使用 `nomic-embed-text`，替换嵌入模型需同时考虑向量维度与重新索引；更换对话模型前评估目标环境内存与响应时间。
+`-SkipOllamaModel` / `--skip-ollama-model` 仅适用于目标机的 `iot-platform_ollama-data` 卷已经包含所需模型；部署默认会检查模型是否存在。当前知识库使用 `nomic-embed-text`，替换嵌入模型需同时考虑向量维度与重新索引；DeepSeek 模型不在目标机占用推理内存。
 
-打包时模型缓存保存在 `iot-platform-offline-build_ollama-data` 卷，完成后停止打包用 Ollama；不操作已有 `iot-platform` 部署。模型归档仅包含模型文件，不包含 Ollama 身份密钥。重复打包可复用缓存；曾下载的其他模型也可能保留在归档中。
+打包时模型缓存保存在 `iot-platform-offline-build_ollama-data` 卷，完成后停止打包用 Ollama；不操作已有 `iot-platform` 部署。归档只包含 `nomic-embed-text:latest` 的 manifest 和其引用的 blobs，并逐个检查内容哈希，不包含 Ollama 身份密钥或缓存中的其他模型。重复打包复用缓存，但不会把历史 Qwen 权重带入新包。`manifest.json` 标记 `aiProvider=deepseek`、`aiRequiresInternet=true`、`ollamaModel=null`。
 
 ## openEuler 24.03 LTS-SP4 专用离线包
 
@@ -250,9 +252,9 @@ curl -fsS http://127.0.0.1:8080/health/ready
 
 镜像构建后的回归入口：`bash scripts/tests/platform-data-permissions-smoke.sh iot-platform-api:offline`，需要本地已有 API 和 `alpine:3.22` 镜像。测试使用独立容器及匿名卷，检查非 root 身份下 MQTT 目录创建和持久化读写，结束后清理测试资源。
 
-### AI 助手 RUNTIME_ERROR 与模型列表为空
+### 旧镜像的 AI 助手 RUNTIME_ERROR 与嵌入模型缺失
 
-模型服务地址和旧白名单处理见 [模型配置](DEPLOYMENT.md#在界面切换-ai-模型服务)；旧镜像需按 [更新已有部署](#更新已有部署) 升级，修改环境变量不能改变旧代码。
+模型服务地址和旧白名单处理见 [模型配置](DEPLOYMENT.md#模型管理与工作流服务)；旧镜像需按 [更新已有部署](#更新已有部署) 升级，修改环境变量不能改变旧代码。
 
 `Harness runtime request failed / RUNTIME_ERROR` 是网关的通用异常提示。若以默认用户执行 `runtime-smoke.mjs` 明确报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，说明运行用户无法读取镜像内的依赖。旧构建阶段以 root 测试，未覆盖最终 `node` 用户的权限。修复后的 Harness 镜像显式设置程序目录可读、可遍历，并在最终 `USER node` 后执行同一运行时测试。
 
@@ -266,7 +268,9 @@ sudo docker exec iot-platform-deepseek-harness-1 \
 sudo docker restart iot-platform-deepseek-harness-1
 ```
 
-测试应输出 `DeepSeek Harness runtime smoke passed`。它使用临时目录、模拟模型和 MCP，不证明真实 Ollama 模型已就绪。如果 `sudo docker exec iot-platform-ollama-1 ollama list` 只有表头，说明当前服务没有可列出的模型，仍需恢复模型后才能调用。
+测试应输出 `DeepSeek Harness runtime smoke passed`。它使用临时目录、模拟模型和 MCP，不证明 DeepSeek 密钥和真实工作流可用。当前版本的 AI 助手使用 DeepSeek API；出现 `API_KEY_REQUIRED` 时在模型管理中配置密钥，并检查 API / Harness 的外网连接。
+
+以下模型恢复步骤只解决知识库嵌入缺失。如果 `sudo docker exec iot-platform-ollama-1 ollama list` 只有表头，说明嵌入模型未就绪，不能通过恢复 Qwen 解决新版 AI 助手问题。
 
 在**含 `ollama-data.tgz` 和 `.sha256` 的离线包目录**执行下列命令。旧包需先把更新后仓库的 `scripts/lib/restore-ollama-models.sh` 复制到包内同名路径，新包自动携带。使用当前 Ollama 容器的实际挂载卷，临时解压后仅补齐缺失文件，保留已有模型。临时容器可写层还需容纳一份解压后的模型；目标卷也需足够空间。
 
@@ -281,11 +285,11 @@ sudo docker restart iot-platform-ollama-1
 sudo docker exec iot-platform-ollama-1 ollama list
 ```
 
-若模型归档缺失或校验失败，应从原打包机补传匹配归档及校验文件。恢复脚本会拒绝没有模型 manifests 的归档；仅有 blobs 不能提供可列出的模型。恢复后确认平台所配置的模型名称在列表中，再重试 AI 助手。
+若模型归档缺失或校验失败，应从原打包机补传匹配归档及校验文件。恢复脚本会拒绝没有模型 manifests 的归档；仅有 blobs 不能提供可列出的模型。恢复后确认列表包含 `nomic-embed-text`，再重试知识库索引或检索。
 
-不要恢复旧的 `cp -an /tmp/restore/. /dst/` 命令：BusyBox 会跳过已存在的目标目录。回归入口 `scripts/tests/ollama-restore-smoke.sh` 使用 BusyBox 的 sh/cp/tar 检查补齐文件、保留旧文件、重复恢复及缺少索引的失败路径；目标环境仍需确认模型列表和实际 AI 请求。
+不要恢复旧的 `cp -an /tmp/restore/. /dst/` 命令：BusyBox 会跳过已存在的目标目录。回归入口 `scripts/tests/ollama-restore-smoke.sh` 使用 BusyBox 的 sh/cp/tar 检查补齐文件、保留旧文件、重复恢复及缺少索引的失败路径；目标环境仍需确认嵌入模型列表与实际知识库请求；DeepSeek 工作流另行验收。
 
-### 协议、产品、接入网关页面出现 route not found
+### 旧版本协议、产品、接入网关页面出现 route not found
 
 这三个页面都读取 `/api/v2/protocols`。旧 Nginx 使用带末尾斜杠的前缀 `location /api/v2/protocols/`，会把集合请求自动 301 到 `/api/v2/protocols/`，后端只注册无末尾斜杠的集合路由，因此返回 JSON `route not found`。这是 [Nginx 的前缀 location 自动重定向行为](https://nginx.org/en/docs/http/ngx_http_core_module.html#location)，并非协议数据丢失。修复后的配置匹配集合及其子路径，同时将已有浏览器缓存跳转产生的集合末尾斜杠在代理内部规范化；保留请求方法、参数、认证头及协议上传限制。
 

@@ -9,7 +9,7 @@ script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # 执行当前脚本步骤。
 project_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
 # 执行当前脚本步骤。
-source "$script_dir/lib/env-comments.sh"
+source "$script_dir/lib/deployment.sh"
 # 执行当前脚本步骤。
 source "$script_dir/lib/docker-bootstrap.sh"
 
@@ -24,7 +24,7 @@ include_harness=1
 # 执行当前脚本步骤。
 full=0
 # 执行当前脚本步骤。
-ollama_model="qwen3:1.7b"
+deepseek_model="deepseek-flash"
 # 执行当前脚本步骤。
 ollama_embedding_model="nomic-embed-text"
 # 执行当前脚本步骤。
@@ -46,11 +46,11 @@ usage() {
 选项：
   --output-dir DIR       输出父目录，默认 offline-bundles
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
-  --include-ai           兼容参数；默认已经打包并启用本地对话模型
+  --include-ai           兼容参数；统一使用 DeepSeek API，不携带对话模型
   --include-harness      兼容参数；默认已经打包 AI 工作流 Harness
-  --ollama-model MODEL   需要一起打包的 Ollama 对话模型，默认 qwen3:1.7b
+  --deepseek-model MODEL DeepSeek API 模型，默认 deepseek-flash
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
-  --skip-ollama-model    跳过全部模型；仅用于目标机已准备模型的情况
+  --skip-ollama-model    跳过嵌入模型；仅用于目标机已有 nomic-embed-text
   --skip-docker-runtime 不携带 Docker 安装文件（目标机须已有 Docker 和 Compose）
   --target-os OS        generic（默认）或 openeuler-24.03-lts-sp4；后者自动准备容器策略及系统依赖
   --docker-packages-dir DIR  可选：匹配目标系统的系统工具/SELinux 及依赖 RPM/DEB 目录
@@ -244,7 +244,7 @@ write_env() {
     # 执行当前脚本步骤。
     local ollama_url="http://ollama:11434"
     # 执行当前脚本步骤。
-    local ai_provider="ollama"
+    local ai_provider="deepseek"
     # 执行当前脚本步骤。
     local weaviate_url="http://weaviate:8080"
     # 执行当前脚本步骤。
@@ -256,7 +256,7 @@ write_env() {
       # 执行当前脚本步骤。
       ollama_url="http://ollama:11434"
       # 执行当前脚本步骤。
-      ai_provider="ollama"
+      ai_provider="deepseek"
       # 执行当前脚本步骤。
       weaviate_url="http://weaviate:8080"
     # 结束当前控制块。
@@ -286,10 +286,9 @@ IOT_ADMIN_TENANTS=tenant_001
 IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$video_secret
 IOT_VIDEO_MEDIA_ALLOWED_HOSTS=
 IOT_OLLAMA_URL=$ollama_url
-IOT_OLLAMA_MODEL=$ollama_model
 IOT_AI_PROVIDER=$ai_provider
-IOT_AI_BASE_URL=http://ollama:11434
-IOT_AI_MODEL=$ollama_model
+IOT_AI_BASE_URL=https://api.deepseek.com
+IOT_AI_MODEL=$deepseek_model
 IOT_AI_API_KEY=
 IOT_AI_OLLAMA_URL=http://ollama:11434
 DEEPSEEK_API_KEY=
@@ -297,10 +296,8 @@ IOT_AI_HARNESS_ENABLED=$harness_enabled
 IOT_AI_HARNESS_URL=$harness_url
 IOT_AI_HARNESS_TOKEN=$harness_token
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
-IOT_AI_HARNESS_PROVIDER=ollama
-IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
-IOT_AI_HARNESS_CONTEXT_WINDOW=8192
-IOT_AI_HARNESS_MODEL=$ollama_model
+IOT_AI_HARNESS_PROVIDER=deepseek-official
+IOT_AI_HARNESS_MODEL=$deepseek_model
 IOT_AI_HARNESS_TIMEOUT=90s
 IOT_WEAVIATE_URL=$weaviate_url
 IOT_BACKUP_ADMIN_TOKEN=$backup_token
@@ -359,36 +356,7 @@ EOF
   # 结束当前控制块。
   fi
   # 判断条件后执行对应操作。
-  if [[ "$(env_value IOT_AI_PROVIDER "$destination")" == ollama ]]; then
-    # 执行当前脚本步骤。
-    local selected_model
-    # 执行当前脚本步骤。
-    selected_model="$(env_value IOT_AI_MODEL "$destination")"
-    # 执行当前脚本步骤。
-    [[ -n "$selected_model" ]] || selected_model="$(env_value IOT_OLLAMA_MODEL "$destination")"
-    # 执行当前脚本步骤。
-    selected_model="${selected_model:-$ollama_model}"
-    # 执行当前脚本步骤。
-    [[ "$selected_model" != qwen3:8b || "$ollama_model" == qwen3:8b ]] || selected_model="$ollama_model"
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_OLLAMA_URL http://ollama:11434
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_OLLAMA_MODEL "$selected_model"
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_AI_BASE_URL http://ollama:11434
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_AI_MODEL "$selected_model"
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_AI_HARNESS_PROVIDER ollama
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_AI_HARNESS_OLLAMA_BASE_URL http://ollama:11434/v1
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_AI_HARNESS_CONTEXT_WINDOW 8192
-    # 执行当前脚本步骤。
-    set_env_value "$destination" IOT_AI_HARNESS_MODEL "$selected_model"
-  # 结束当前控制块。
-  fi
-  # 执行当前脚本步骤。
+  configure_deepseek_env "$destination" "$deepseek_model"
   annotate_deployment_env_file "$destination"
 
   # 判断条件后执行对应操作。
@@ -420,7 +388,8 @@ while [[ $# -gt 0 ]]; do
     # 执行当前脚本步骤。
     --include-harness) include_harness=1; shift ;;
     # 执行当前脚本步骤。
-    --ollama-model) ollama_model="${2:-}"; shift 2 ;;
+    --ollama-model) die '已取消打包本地对话模型，请使用 DeepSeek API' ;;
+    --deepseek-model) deepseek_model="${2:-}"; shift 2 ;;
     # 执行当前脚本步骤。
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
     # 执行当前脚本步骤。
@@ -454,12 +423,8 @@ fi
 # 执行当前脚本步骤。
 [[ "$ollama_embedding_model" == nomic-embed-text ]] || die "当前知识库使用 nomic-embed-text，嵌入模型必须与其一致"
 # 判断条件后执行对应操作。
-if (( include_ai )); then
-  # 执行当前脚本步骤。
-  [[ "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "Ollama 模型名称无效"
-# 结束当前控制块。
-fi
-# 执行当前脚本步骤。
+[[ "$deepseek_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "DeepSeek 模型名称无效"
+
 command -v docker >/dev/null 2>&1 || die "找不到 docker 命令"
 # 执行当前脚本步骤。
 docker info >/dev/null || die "Docker Engine 不可用，请先启动 Docker"
@@ -497,28 +462,6 @@ mkdir -p "$bundle_root"
 
 # 执行当前脚本步骤。
 generated_credentials="$(write_env "$bundle_root/.env.offline")"
-# 执行当前脚本步骤。
-runtime_provider="$(env_value IOT_AI_PROVIDER "$bundle_root/.env.offline")"
-# 执行当前脚本步骤。
-runtime_ollama_url="$(env_value IOT_OLLAMA_URL "$bundle_root/.env.offline")"
-# 执行当前脚本步骤。
-runtime_harness_enabled="$(env_value IOT_AI_HARNESS_ENABLED "$bundle_root/.env.offline")"
-# 执行当前脚本步骤。
-[[ "$runtime_harness_enabled" != true ]] || include_harness=1
-# 判断条件后执行对应操作。
-if [[ "$runtime_provider" == ollama || ( -z "$runtime_provider" && -n "$runtime_ollama_url" ) ]]; then
-  # 执行当前脚本步骤。
-  include_ai=1
-  # 执行当前脚本步骤。
-  configured_model="$(env_value IOT_AI_MODEL "$bundle_root/.env.offline")"
-  # 判断条件后执行对应操作。
-  if [[ -z "$configured_model" ]]; then configured_model="$(env_value IOT_OLLAMA_MODEL "$bundle_root/.env.offline")"; fi
-  # 执行当前脚本步骤。
-  ollama_model="${configured_model:-$ollama_model}"
-# 结束当前控制块。
-fi
-# 判断条件后执行对应操作。
-if (( include_ai )); then [[ "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "配置中的 Ollama 模型名称无效"; fi
 # 执行当前脚本步骤。
 compose=(docker compose --project-name iot-platform-offline-build --env-file "$bundle_root/.env.offline"
   # 执行当前脚本步骤。
@@ -609,17 +552,12 @@ if (( ! skip_ollama_model )); then
   # 执行当前脚本步骤。
   run_compose exec -T ollama ollama pull "$ollama_embedding_model"
   # 判断条件后执行对应操作。
-  if (( include_ai )) && [[ "$ollama_model" != "$ollama_embedding_model" ]]; then
-    # 执行当前脚本步骤。
-    run_compose exec -T ollama ollama pull "$ollama_model"
-  # 结束当前控制块。
-  fi
-  # 执行当前脚本步骤。
   ollama_volume_name="iot-platform_ollama-data"
   run_docker run --rm --pull never \
     --mount "type=volume,source=iot-platform-offline-build_ollama-data,target=/src,readonly" \
     --mount "type=bind,source=$bundle_root,target=/backup" \
-    alpine:3.22 sh -ec 'tar -czf /backup/ollama-data.tgz -C /src models'
+    --mount "type=bind,source=$script_dir/lib,target=/helpers,readonly" \
+    alpine:3.22 sh /helpers/export-embedding-model.sh /src /backup/ollama-data.tgz
   # 执行当前脚本步骤。
   ollama_archive="ollama-data.tgz"
   # 执行当前脚本步骤。
@@ -767,7 +705,6 @@ profiles_json="$(json_array "${profiles[@]}")"
 # 执行当前脚本步骤。
 images_json="$(json_array "${images[@]}")"
 # 执行当前脚本步骤。
-ollama_model_json="null"
 # 执行当前脚本步骤。
 ollama_archive_json="null"
 # 执行当前脚本步骤。
@@ -775,7 +712,6 @@ ollama_volume_json="null"
 # 判断条件后执行对应操作。
 if [[ -n "$ollama_archive" ]]; then
   # 判断条件后执行对应操作。
-  if (( include_ai )); then ollama_model_json="\"$ollama_model\""; fi
   # 执行当前脚本步骤。
   ollama_archive_json="\"$ollama_archive\""
   # 执行当前脚本步骤。
@@ -796,7 +732,10 @@ cat > "$bundle_root/manifest.json" <<EOF
   "imageArchiveSha256": "$archive_hash",
   "envFile": ".env.offline",
   "composeFiles": ["compose.yaml", "compose.offline.yaml"],
-  "ollamaModel": $ollama_model_json,
+  "aiProvider": "deepseek",
+  "aiModel": "$deepseek_model",
+  "aiRequiresInternet": true,
+  "ollamaModel": null,
   "ollamaEmbeddingModel": $(if [[ -n "$ollama_archive" ]]; then printf '"%s"' "$ollama_embedding_model"; else printf 'null'; fi),
   "ollamaArchive": $ollama_archive_json,
   "ollamaVolume": $ollama_volume_json,

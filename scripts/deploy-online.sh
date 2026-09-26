@@ -44,10 +44,10 @@ while [ "$#" -gt 0 ]; do
 用法：bash scripts/deploy-online.sh [选项]
   --env-file PATH       配置文件（默认 platform/.env.online；已有凭据保留）
   --project-name NAME   Docker Compose 项目（默认 iot-platform-online）
-  --include-ai          强制改用本地 Ollama（兼容旧配置）
+  --include-ai          兼容参数；统一使用 DeepSeek API，不下载对话模型
   --include-harness     兼容参数；AI 工作流 Harness 为必装组件，始终启动
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
-默认拉取运行镜像、构建应用、启动全部服务，并下载 qwen3:1.7b 与 nomic-embed-text。
+默认拉取运行镜像、构建应用、启动全部服务，并仅下载知识库嵌入模型 nomic-embed-text。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
       # 返回结果或结束当前脚本。
@@ -75,72 +75,15 @@ command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安�
 # 执行当前脚本步骤。
 ensure_deployment_env "$env_file"
 # 执行当前脚本步骤。
-provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
-# 执行当前脚本步骤。
-configured_model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
-# 判断条件后执行对应操作。
-if [ "$include_ai" -eq 1 ] || [ -z "$provider" ] || [ "$provider" = disabled ] || { [ "$provider" = deepseek ] && [ "$configured_model" = deepseek-v4-flash ]; } || { [ "$provider" = ollama ] && [ "$configured_model" = qwen3:8b ]; }; then
-  # 判断条件后执行对应操作。
-  if [ "$provider" = ollama ]; then model="$configured_model"; else model="$(get_deployment_env_value "$env_file" IOT_OLLAMA_MODEL)"; fi
-  # 执行当前脚本步骤。
-  case "$model" in ''|qwen3:8b|deepseek-v4-flash) model=qwen3:1.7b;; esac
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_PROVIDER ollama
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_OLLAMA_URL http://ollama:11434
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_OLLAMA_MODEL "$model"
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_BASE_URL http://ollama:11434
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_MODEL "$model"
-# 结束当前控制块。
-fi
-# 执行当前脚本步骤。
-provider="$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)"
-# 判断条件后执行对应操作。
-if [ "$provider" = ollama ]; then
-  # 执行当前脚本步骤。
-  model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"; model="${model:-qwen3:1.7b}"
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_OLLAMA_URL http://ollama:11434
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_OLLAMA_MODEL "$model"
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_BASE_URL http://ollama:11434
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_MODEL "$model"
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_HARNESS_PROVIDER ollama
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_HARNESS_OLLAMA_BASE_URL http://ollama:11434/v1
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_HARNESS_CONTEXT_WINDOW 8192
-  # 执行当前脚本步骤。
-  set_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL "$model"
-# 结束当前控制块。
-fi
+configure_deepseek_env "$env_file"
+
 # 执行当前脚本步骤。
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
 # 执行当前脚本步骤。
 set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true
 # 判断条件后执行对应操作。
-if [ "$(get_deployment_env_value "$env_file" IOT_AI_PROVIDER)" = deepseek ]; then
-  # 执行当前脚本步骤。
-  deepseek_key="$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)"
-  # 判断条件后执行对应操作。
-  if [ -z "$deepseek_key" ]; then deepseek_key="$(get_deployment_env_value "$env_file" IOT_AI_API_KEY)"; fi
-  # 判断条件后执行对应操作。
-  if [ -n "$deepseek_key" ] && [ -z "$(get_deployment_env_value "$env_file" DEEPSEEK_API_KEY)" ]; then set_deployment_env_value "$env_file" DEEPSEEK_API_KEY "$deepseek_key"; fi
-  # 执行当前脚本步骤。
-  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_BASE_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_BASE_URL https://api.deepseek.com
-  # 执行当前脚本步骤。
-  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_MODEL)" ] || set_deployment_env_value "$env_file" IOT_AI_MODEL deepseek-v4-flash
-  # 判断条件后执行对应操作。
-  if [ -z "$deepseek_key" ]; then echo '提示：请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' >&2; fi
-# 结束当前控制块。
-fi
+
 # 判断条件后执行对应操作。
 if [ "$include_harness" = true ]; then
   # 执行当前脚本步骤。
@@ -196,15 +139,7 @@ echo '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时
 # 执行当前脚本步骤。
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
 # 判断条件后执行对应操作。
-if [ "$provider" = ollama ]; then
-  # 执行当前脚本步骤。
-  model="$(get_deployment_env_value "$env_file" IOT_AI_MODEL)"
-  # 执行当前脚本步骤。
-  echo "下载统一 AI 模型 ${model:-qwen3:1.7b}（告警研判与工作流共用）……"
-  # 执行当前脚本步骤。
-  run_docker "${compose[@]}" exec -T ollama ollama pull "${model:-qwen3:1.7b}"
-# 结束当前控制块。
-fi
+
 # 执行当前脚本步骤。
 api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api_port:-8081}"
 # 执行当前脚本步骤。

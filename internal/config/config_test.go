@@ -188,3 +188,14 @@ func TestHarnessIsRequiredExceptForAccessGateway(t *testing.T) {
 		t.Fatalf("access gateway must not require Harness: %v", err)
 	}
 }
+
+func TestDefaultDeepSeekDoesNotRequireKeyAtConfigLoad(t *testing.T) {
+	t.Setenv("IOT_AI_PROVIDER", "")
+	t.Setenv("IOT_AI_API_KEY", "")
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	t.Setenv("IOT_OLLAMA_MODEL", "")
+	cfg := Load()
+	if cfg.AIProvider != "deepseek" || cfg.AIAPIKey != "" || cfg.OllamaModel != "" {
+		t.Fatal("first installation must select DeepSeek without a bundled chat model or key")
+	}
+}

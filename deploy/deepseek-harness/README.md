@@ -4,6 +4,8 @@
 
 当前固定上游预发布版本 [v0.1.5-rc.2](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.5-rc.2)，提交为 `fb2c4b9e698e30edb738bca4cf0618587db7d203`。
 
+默认提供方为 `deepseek-official`，默认模型为 `deepseek-flash`。设置 `DEEPSEEK_API_KEY`，或通过平台模型管理测试并应用。未配置密钥不影响 `/health`，工作流会返回 `API_KEY_REQUIRED`；健康不代表模型可用。不随镜像携带 Qwen 权重，外部 Ollama 接口兼容能力不等于部署本地对话模型。
+
 ## 构建与检查
 
 上游源码由 `scripts/fetch-deepseek-harness.sh` 获取到 Git 忽略的 `upstream/deepseek-harness`，版本以本目录 `REVISION` 为准。构建上下文必须是仓库根目录：
@@ -24,7 +26,7 @@ Dockerfile 校验上游版本标记，用固定 pnpm 版本和 `--frozen-lockfil
 docker run --rm --network none --entrypoint node iot-deepseek-harness:local /harness/examples/iot-ops-agent/runtime-smoke.mjs
 ```
 
-已运行的旧镜像如果报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，恢复步骤见 [离线部署故障处理](../../docs/OFFLINE_DEPLOYMENT.md#ai-助手-runtime_error-与模型列表为空)。2026-09-15 用户在目标服务器以实际运行用户执行上述测试，复现依赖读取失败；本机无 Docker，新增的最终镜像非 root 构建检查尚待联网打包机执行，不将源码核对视为镜像验证通过。
+已运行的旧镜像如果报 `Cannot read package config .../dsh-sdk-client/package.json: permission denied`，恢复步骤见 [离线部署故障处理](../../docs/OFFLINE_DEPLOYMENT.md#旧镜像的-ai-助手-runtime_error-与嵌入模型缺失)。2026-09-15 用户在目标服务器以实际运行用户执行上述测试，复现依赖读取失败；本机无 Docker，新增的最终镜像非 root 构建检查尚待联网打包机执行，不将源码核对视为镜像验证通过。
 
 `v0.1.5` 的提示词配置使用 `personaPrefix`；实时文本从 `agent/assistant-stream` 发布，不再作为逐片会话日志事件。IoT 插件仅转发文本为私有 JSON-RPC 通知 `iot.text.delta`，网关校验所属会话后转换成已有的 `text.delta`。推理和工具原始内容不转发，持久日志仍由上游保存完整消息。
 
@@ -71,7 +73,7 @@ Compose 将平台侧 `IOT_AI_HARNESS_*` 配置映射到侧车变量；API 等待
   "workflowId":"ops-assistant",
   "question":"当前有哪些高等级活动告警？",
   "mcpUrl":"http://platform-api:8080/mcp/harness",
-  "model":"qwen3:1.7b",
+  "model":"deepseek-flash",
   "maxTokens":1200
 }
 ```

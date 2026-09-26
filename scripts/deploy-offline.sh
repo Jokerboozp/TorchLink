@@ -214,17 +214,7 @@ if (( ! skip_health_check )); then
   # 执行当前脚本步骤。
   "${compose[@]}" exec -T ollama ollama show nomic-embed-text
   # 判断条件后执行对应操作。
-  if [[ "$(env_value IOT_AI_PROVIDER)" == ollama ]]; then
-    # 执行当前脚本步骤。
-    chat_model="$(env_value IOT_AI_MODEL)"
-    # 判断条件后执行对应操作。
-    if [[ -z "$chat_model" ]]; then chat_model="$(env_value IOT_OLLAMA_MODEL)"; fi
-    # 执行当前脚本步骤。
-    "${compose[@]}" exec -T ollama ollama show "${chat_model:-qwen3:1.7b}"
-  # 结束当前控制块。
-  fi
-  # 执行当前脚本步骤。
-  echo "平台健康检查与本地模型检查通过：$health_url"
+  echo "平台健康检查与知识库嵌入模型检查通过：$health_url"
   # 执行当前脚本步骤。
   check_web_port="$(env_value IOT_WEB_PORT)"
   # 执行当前脚本步骤。

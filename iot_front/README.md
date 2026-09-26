@@ -24,6 +24,8 @@ npm run build
 
 `src/views/` 保存业务页面，`src/components/` 保存共享业务组件。21 个主菜单按“运行监控、设备与接入、智能助手、运维中心、系统”五组排列，菜单名称以 `src/App.vue` 为准；有设备模板菜单权限时，“平台接入点”不在侧栏单列，改在设备模板详情的“接入点”中使用。设备管理的“添加设备”向导见 `src/components/DeviceOnboarding.vue`，请求体与设备端配置说明在 `src/onboardingPlan.js`。运维中心页面为 `src/views/Ops*View.vue`，共享组件在 `src/components/ops/`，请求封装、时间范围、数据帧与仪表盘布局在 `src/ops/`，说明见 [运维中心](../docs/OPS_CENTER.md)。
 
+模型管理默认预填 DeepSeek 地址与模型，管理员只需填写 API Key、测试并应用。未填写时显示待配置，不阻断设备业务；内置 Ollama 只提供知识库嵌入。配置的持久化、升级和联网边界见 [模型管理](../docs/DEPLOYMENT.md#模型管理与工作流服务)。原始报文支持设备、接入方式、解析状态、时间及报文标识等组合条件，权限仍由后端设备范围校验。
+
 ## 样式规范
 
 - `src/theme/tokens.css` 是颜色、字号、间距、圆角和阴影的唯一来源；页面样式只引用这里的变量，不直接写十六进制颜色。

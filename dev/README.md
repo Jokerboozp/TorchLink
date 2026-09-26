@@ -13,7 +13,9 @@
 
 六个包都使用新版标准消息。FB2018、FB2024 的一帧多对象放在 `properties.objects`，避免只取第一对象。FB2018 的系统/部件火警、故障与恢复、FB2024 的传输装置电源故障与恢复放在 `event.components`，这类消息使用平台要求的 `STATE_CHANGE` 类型。FB2024 的开关量、模拟量保留原始类型和值；旧代码没有可靠的火警状态映射，不能把非零值一律当成火警。液压/液位报警与恢复也使用 `event.components`。`kuka-modbus`、`sp-cannon` 对每个查询点输出独立部件状态；旧程序的固定设备 ID、MQTT 发布、用户名密码、目标 IP 不写进协议包，由平台产品、设备、接入网关配置管理。
 
-## 接入网关配置
+## 模板接入点配置
+
+在“设备模板 → 模板详情 → 接入点”维护以下配置；这里描述的是连接配置，不是额外部署一个独立网关服务。
 
 - FB2018、FB2024、液压、液位：配置 `network=tcp`、`connectionMode=listen`，设备侧把上报地址指向平台监听端口。按产品分别创建实例；不同协议不能共用同一监听端口。液压/液位会校验 RTU CRC，支持先带 IMEI 再连续发送多个 RTU 帧以及后续裸 RTU 上报。下行参数为旧命令名：`setDetectionTime`、`setChangeAlarmValue`、`setUploadTime`、`setOffset` 的 `value`，或 `setMultipleParams` 的 `collectionTime`、`alarmLowerLimit`、`alarmUpperLimit`。数值沿用旧代码的原始寄存器单位（压力/液位及阈值均为百分之一单位）。
 - KUKA：配置 `network=tcp`、`connectionMode=dial`、设备目标地址/端口及预先登记的设备 ID。`queries` 添加六条不同的 `type`：`coil-0`、`coil-3001`、`coil-3002`、`coil-3003`、`coil-3013`、`coil-3042`，周期按现场要求配置。旧程序使用 Modbus TCP 线圈功能码 `0x01`、站号 1。

@@ -12,7 +12,7 @@
 
 脚本显式选择配置和 Compose 文件，在线/离线部署不会自动加载用于旧版本地调试的 `compose.override.yaml`。
 
-首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留已有值并补齐说明。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
+首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留业务凭据并补齐说明；AI 配置会按下文统一迁移为 DeepSeek。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
 
 **已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
 
@@ -28,42 +28,43 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ## AI 与工作流
 
-在线和离线方案默认使用本地 Ollama `qwen3:1.7b`。AI 工作流服务（Harness）为必装组件，所有部署都会启动；告警研判、巡检、报告、协议助手和规则草稿都通过它运行，使用同一模型，不需要 API Key。默认配置为：
+本地、在线和离线包统一使用 **DeepSeek API**，默认模型为 `deepseek-flash`，不再下载、启动或归档 Qwen 对话模型。模型标识以 [DeepSeek 官方接口文档](https://api-docs.deepseek.com/zh-cn/) 为依据（2026-09-26 核对），可在模型管理中调整。Harness 为必装组件，承担告警研判、巡检、报告、协议助手、规则草稿和对话。
+
+### 首次配置
+
+最简单的方式是先完成部署，登录“模型管理”，保持预填的 DeepSeek 地址和模型，填写自己的 API Key，点击“测试配置”后“应用配置”。未配置密钥时平台仍可启动和接收设备数据，AI 状态显示待配置，AI 请求返回明确错误；不会自动下载本地模型或伪造分析结果。
+
+也可在对应环境文件中填写：
 
 ```dotenv
-IOT_OLLAMA_URL=http://ollama:11434
-IOT_OLLAMA_MODEL=qwen3:1.7b
-IOT_AI_PROVIDER=ollama
-IOT_AI_BASE_URL=http://ollama:11434
-IOT_AI_MODEL=qwen3:1.7b
+IOT_AI_PROVIDER=deepseek
+IOT_AI_BASE_URL=https://api.deepseek.com
+IOT_AI_MODEL=deepseek-flash
+IOT_AI_API_KEY=
+DEEPSEEK_API_KEY=填写自己的密钥
+DEEPSEEK_BASE_URL=https://api.deepseek.com
 IOT_AI_HARNESS_ENABLED=true
-IOT_AI_HARNESS_PROVIDER=ollama
-IOT_AI_HARNESS_OLLAMA_BASE_URL=http://ollama:11434/v1
-IOT_AI_HARNESS_CONTEXT_WINDOW=8192
-IOT_AI_HARNESS_MODEL=qwen3:1.7b
+IOT_AI_HARNESS_PROVIDER=deepseek-official
+IOT_AI_HARNESS_MODEL=deepseek-flash
 ```
 
-自动研判使用 Ollama 原生地址，所以 `IOT_AI_BASE_URL` 不带 `/v1`；Harness 使用 OpenAI 兼容接口，所以 `IOT_AI_HARNESS_OLLAMA_BASE_URL` 必须带 `/v1`。修改模型时应同步 `IOT_OLLAMA_MODEL`、`IOT_AI_MODEL` 和 `IOT_AI_HARNESS_MODEL`。Harness 不能关闭：脚本拒绝 `--no-harness` / `-NoHarness`，已有配置中的 `IOT_AI_HARNESS_ENABLED=false` 会在重跑脚本时改回 `true`；API 未配置 `IOT_AI_HARNESS_URL` 时拒绝启动（接入网关角色除外）。
+本地读取 `.env.local`，在线读取 `.env.online`，离线包读取 `.env.offline`。修改环境配置后，下次运行对应部署脚本并重启源码 API / 重建应用容器使其生效；不要只重启旧二进制。日常在模型管理中应用配置会同步 Provider 和 Harness，无需重启 API。已有数据库活动配置优先于环境文件；若已有 DeepSeek 配置，请在页面更新密钥。API 升级时在部署选择 DeepSeek 的前提下，不再恢复旧的 Ollama/Qwen 活动选择，待填写密钥并应用后保存新的活动配置。其他手工配置的外部模型保留，由管理员在模型管理中切换。
 
-### 本地 Ollama 对话模型
+部署脚本会把旧环境中的本地对话模型设置迁移为 DeepSeek，保留 `DEEPSEEK_API_KEY`；只在旧提供方明确为 DeepSeek 时兼容迁移 `IOT_AI_API_KEY`，避免把其他服务密钥发送到 DeepSeek。`--include-ai` / `-IncludeAi`、`--include-deepseek` / `-IncludeDeepSeek` 为兼容参数，不再切换到本地推理；旧 `--ollama-model` / `-OllamaModel` 参数会明确报错。脚本不会删除已下载的旧模型或正在使用的数据卷。
 
-本地源码运行使用 `setup-local.sh --include-ai` 或 `setup-local.ps1 -IncludeAi` 准备 Ollama；完整命令见 [首次准备](TECHNICAL_DETAILS.md#首次准备)。`--include-deepseek` 与 `--include-ai` 只能二选一。在线脚本的 `IncludeAi` 参数用于把已有配置切回本地模型，新配置默认启用。
+### 知识库嵌入与联网边界
 
-知识库使用 `nomic-embed-text`，与对话模型分开。更换对话模型时测试结构化输出、工具调用、响应时间和内存占用；更换嵌入模型需考虑向量维度与重新索引。
+Ollama **仅用于**知识库的 `nomic-embed-text` 嵌入；Weaviate 保存向量与文档。嵌入模型与 DeepSeek 对话 API 作用不同，不能直接把向量接口指向 Chat Completions。离线包只归档该模型的 manifest 及引用的 blobs，历史 Qwen 缓存不会混入包中；不包含 Ollama 身份密钥。
 
-### 在界面切换 AI 模型服务
+“离线部署”表示安装依赖、镜像和嵌入模型可以离线完成。使用 AI 时，API（配置测试）和 Harness（工作流）仍须通过 HTTPS 访问 `api.deepseek.com:443`，账户需有可用额度；完全隔离网络中 AI 不可用。设备接入、规则、报文和已准备好的知识库不依赖 DeepSeek。离线包体积的实际减少量取决于旧模型与镜像缓存，本次没有重新打包测量。
 
-具有相应管理权限的用户打开“模型管理”，选择 Ollama、DeepSeek 或兼容接口，直接填写平台服务器可达的 HTTP/HTTPS 地址与模型，无需配置地址白名单。先“测试配置”，成功后“应用配置”；地址、模型或密钥改变后重新测试。Ollama 使用服务根地址，Docker 内置服务为 `http://ollama:11434`，其他服务填写实际地址；兼容接口须支持 Chat Completions。地址使用纯文本，接口密钥单独填写，不能把 Markdown 链接或带凭据、查询参数、片段的 URL 当作服务根地址。
+### 模型管理与工作流服务
 
-旧的 `IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS` 已停用，升级后的 API 不再读取它，现有环境文件中保留该项也不会限制模型地址。已有部署需要更新 API 二进制或镜像才能生效，单独修改环境变量或重启旧镜像不能取消旧代码中的校验。模型配置权限、密钥脱敏和测试审计保持原有约束。
+模型管理默认预填 DeepSeek；仍保留显式接入外部 Ollama / 兼容接口的能力，不随部署分发它们的对话权重。输入服务根地址与模型，密钥单独填写；地址、模型或密钥改变后重新测试。Ollama 使用原生根地址，兼容接口须支持 Chat Completions；不能把 Markdown 链接、带账号密码、查询或片段的 URL 当作根地址。旧 `IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS` 不再读取。
 
-应用会同步 Provider 与 Harness，无需重启 API；正在运行的工作流结束后使用新配置。PostgreSQL 保存活动配置，内存模式仅当前进程有效。页面不返回明文接口密钥，同一服务留空可复用已存密钥。业务工作流和后台任务见 [AI 工作流](AI_PLUGIN_HARNESS.md)。
+PostgreSQL 保存活动配置；内存模式只在当前进程生效。页面不返回明文密钥，同一服务留空可复用已存密钥。Provider 和 Harness 配置作用于整个部署，应只向可信管理员授予模型配置权限。密钥在服务端持久化，数据库备份也属于敏感材料。
 
-### AI 工作流 Harness
-
-本地和在线脚本获取锁定的上游源码并构建侧车，需要 Git 和网络；离线包携带已构建镜像。`--include-harness` / `-IncludeHarness` 仅为兼容保留，Harness 始终启动；Compose 中已不再使用 `harness` profile。
-
-脚本准备内部令牌、侧车 URL 和 MCP 回调。Harness 健康只证明运行时就绪，模型实际调用与 MCP 回调需分别确认；源码版本与内部接口见 [侧车开发说明](../deploy/deepseek-harness/README.md)。
+本地和在线脚本获取锁定的上游源码并构建 Harness，需要 Git 和网络；离线包携带已构建镜像。`--include-harness` / `-IncludeHarness` 仅为兼容参数，Harness 始终启动；脚本拒绝关闭它。API / combined 角色必须配置 `IOT_AI_HARNESS_URL`，gateway 角色除外。Harness 健康只证明进程就绪，不证明 API Key、模型调用或 MCP 回调成功。实现和模型配置详情见 [AI 工作流](AI_PLUGIN_HARNESS.md) 与 [侧车开发](../deploy/deepseek-harness/README.md)。
 
 ## 端口与地址
 
@@ -92,13 +93,13 @@ IOT_AI_HARNESS_MODEL=qwen3:1.7b
 
 ```bash
 orb list
-orb -m develop sudo bash scripts/setup-local.sh --skip-code-deps --include-ai \
+orb -m develop sudo bash scripts/setup-local.sh --skip-code-deps --include-ops \
   --dependency-host 127.0.0.1 --api-host host.orb.internal
 go mod download
 (cd iot_front && npm ci)
 ```
 
-`--skip-code-deps` 使虚拟机无需安装 Go/Node，`--include-ai` 配置本地对话模型。Mac 可直接使用共享目录中的 `.env.local`；第二套依赖环境应指定独立 `--env-file`，并避免同时占用相同转发端口。
+`--skip-code-deps` 使虚拟机无需安装 Go/Node，`--include-ops` 启动运维中心依赖；AI 通过 DeepSeek API 配置。Mac 可直接使用共享目录中的 `.env.local`；第二套依赖环境应指定独立 `--env-file`，并避免同时占用相同转发端口。
 
 Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命令不依赖虚拟机 IP 或 VPN 对内网 IP 的路由。确保 Mac 和其他虚拟机没有占用相同端口；同时测试两套依赖时先停掉其中一套，避免连接到错误的环境。`host.orb.internal` 是 OrbStack 提供的 Mac 回调地址；`host.docker.internal` 在虚拟机内安装的 Docker 中指向虚拟机，不能用于此处的 Mac API 回调。地址机制参见 [OrbStack 网络文档](https://docs.orbstack.dev/machines/network)。
 
@@ -182,7 +183,7 @@ API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储
 
 旧现场 Agent、节点登记、现场任务与程序分发入口已移除，设备继续通过中心 MQTT / HTTP、Modbus、Go TCP / UDP、独立 Access Gateway 及主子设备关系接入。
 
-- `DeviceAccessProfile.edgeNodeId` 非空的旧配置不会在中心执行，也不能保存为有效实例。先确认设备网络和产品协议，再到「接入网关」重新配置；旧串口任务不能仅清空节点标识后运行。外部已部署 Agent 需由部署者停用。
+- `DeviceAccessProfile.edgeNodeId` 非空的旧配置不会在中心执行，也不能保存为有效实例。先确认设备网络和产品协议，再到「设备模板 → 接入点」重新配置；旧串口任务不能仅清空节点标识后运行。外部已部署 Agent 需由部署者停用。
 - 新库不创建 `edge_node`、`edge_read_job`、`edge_program`、`device_shadow`、`device_shadow_change` 或 `device_twin_topology`；启动迁移保留旧表与历史数据，当前 API 不再管理它们。`gatewayId` 表示业务主设备，主子设备状态和权限分别维护。
 - 启动迁移把设备标签中的 `connector`、`connectorProfileId`、`childAddress`、`childType`、`onboardingRequestHash` 移为设备字段，为空的 `deviceRole` 按 `gatewayId` 与模板分类补为 `CHILD` / `GATEWAY` / `DIRECT`，并为引用已发布协议版本但缺少绑定的模板补建绑定。迁移语句可重复执行，不删除设备。
 - 升级沿用原环境文件、Compose 项目名、数据卷、协议制品及 MQTT 接收目录；不可变协议版本不被新源码覆盖。TCP / UDP、Modbus 与子设备不使用历史内部凭据通过 HTTP / MQTT 认证。

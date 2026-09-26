@@ -20,6 +20,11 @@ type RuntimeProvider struct { /* 定义 RuntimeProvider 类型。 */
 } /* 结束当前表达式或代码块。 */
 
 func NewRuntimeProvider(registry ports.AIPluginRegistry, config ports.AIPluginConfig) (*RuntimeProvider, error) { /* 定义 NewRuntimeProvider 函数。 */
+	// First installation must remain usable so an administrator can enter the key.
+	// Configure and registry.Create still require a valid key before activation.
+	if normalizeProvider(config.Provider) == "deepseek" && strings.TrimSpace(config.APIKey) == "" {
+		return &RuntimeProvider{registry: registry, client: unconfiguredDeepSeek{}, config: normalizeConfig(config)}, nil
+	}
 	client, err := registry.Create(config) /* 更新 err 的值。 */
 	if err != nil {                        /* 判断条件并选择处理分支。 */
 		return nil, err /* 返回当前处理结果。 */

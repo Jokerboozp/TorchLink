@@ -15,12 +15,12 @@
 | 设备与接入 | 产品、设备、主子设备关系；HTTP / MQTT、TCP / UDP、Modbus 接入；主动连接与定时查询 |
 | 协议开发 | Go 源码上传、离线编译、样例验证、版本发布及回滚；JSON / HEX 映射和 Excel / CSV 点表生成 |
 | 报文与告警 | 原文归档、诊断、下载及回放；规则与设备主动告警、部件状态、确认和恢复 |
-| AI 与知识库 | 告警研判、设备巡检、规则草稿、协议辅助和对话；Ollama、DeepSeek 及兼容接口 |
+| AI 与知识库 | 告警研判、设备巡检、规则草稿、协议辅助和对话；默认 DeepSeek API，填写 API Key 即可启用 |
 | 运维与权限 | 用户、角色、菜单和操作授权、用户设备范围、健康检查、审计及设备数据备份 |
 | 运维中心 | 平台内原生查看与管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警与通知，见 [运维中心](docs/OPS_CENTER.md) |
 | 视频集成 | 摄像头元数据、设备关联与外部视频事件；视频服务由外部平台提供 |
 
-典型流程：发布协议 → 创建产品 → 登记设备和配置接入网关 → 上报并核对原文、解析与告警 → 配置规则及用户权限。普通用户需分配设备范围，主设备与子设备分别授权。
+典型流程：发布协议 → 创建产品 → 登记设备和配置模板接入点 → 上报并核对原文、解析与告警 → 配置规则及用户权限。普通用户需分配设备范围，主设备与子设备分别授权。
 
 ## 快速运行
 
@@ -51,6 +51,8 @@ npm run dev
 
 访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
 
+所有部署方式都不再下载 Qwen 对话模型。登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key、测试并应用即可启用 AI；未填密钥可先使用设备接入等功能。离线包可离线安装，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
+
 | 环境 | 配置与操作入口 |
 | --- | --- |
 | 本地开发 | `compose.local.yaml`、`.env.local`、`scripts/setup-local.*` |
@@ -76,7 +78,7 @@ npm run dev
                                                    管理端 / AI 工作流
 ```
 
-PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存备份制品，Ollama、Weaviate 和 Harness 提供模型、知识检索与工作流。
+PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存备份制品，DeepSeek API 提供对话与推理，Ollama 仅提供知识库嵌入，Weaviate 与 Harness 提供检索与工作流。
 
 原文先归档再解析，只有成功解析的数据才对外发布结果。Go Worker 以服务账户权限运行，协议源码应来自可信开发者；AI 规则草稿默认禁用，确认后启用。设备数据导出不替代数据库、配置及凭据备份。
 

@@ -626,14 +626,14 @@ export function createGateway(options = {}) { /* 执行当前语句并推进处�
   const allowedOrigins = configuredOrigins( /* 声明 allowedOrigins。 */
     options.allowedMcpOrigins ?? process.env.IOT_HARNESS_MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ORIGINS, /* 执行当前语句并推进处理流程。 */
   ) /* 结束当前表达式或代码块。 */
-  let modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'ollama' /* 声明 modelProvider。 */
+  let modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'deepseek-official' /* 声明 modelProvider。 */
   if (!['deepseek-official', 'ollama'].includes(modelProvider)) { /* 判断条件并选择处理分支。 */
     throw new Error('IOT_HARNESS_PROVIDER must be deepseek-official or ollama') /* 抛出当前错误。 */
   } /* 结束当前表达式或代码块。 */
   let configuredModel = options.model /* 声明 configuredModel。 */
     ?? process.env.IOT_HARNESS_MODEL /* 执行当前语句并推进处理流程。 */
     ?? process.env.IOT_AI_HARNESS_MODEL /* 执行当前语句并推进处理流程。 */
-    ?? 'qwen3:1.7b' /* 执行当前语句并推进处理流程。 */
+    ?? 'deepseek-flash' /* 执行当前语句并推进处理流程。 */
   if (typeof configuredModel !== 'string' || !MODEL_PATTERN.test(configuredModel.trim())) { /* 判断条件并选择处理分支。 */
     throw new Error('IOT_HARNESS_MODEL must contain a valid model name') /* 抛出当前错误。 */
   } /* 结束当前表达式或代码块。 */
@@ -954,6 +954,9 @@ export function createGateway(options = {}) { /* 执行当前语句并推进处�
       allowedOrigins, /* 执行当前语句并推进处理流程。 */
       configuredModel, /* 执行当前语句并推进处理流程。 */
     ) /* 结束当前表达式或代码块。 */
+    if (modelProvider === 'deepseek-official' && !configuredAPIKey) {
+      throw new HttpError(503, 'API_KEY_REQUIRED', '请在模型管理中填写 DeepSeek API Key，测试并应用后启用 AI 功能')
+    }
     const cacheKey = run.conversationId /* 声明 cacheKey。 */
     if (reservedRunIds.has(run.runId)) throw new HttpError(409, 'RUN_ALREADY_ACTIVE', 'runId is already active') /* 判断条件并选择处理分支。 */
     reservedRunIds.add(run.runId) /* 执行当前语句并推进处理流程。 */

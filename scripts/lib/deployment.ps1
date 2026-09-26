@@ -122,13 +122,12 @@ function Ensure-DeploymentEnv {
         # 执行当前脚本步骤。
         IOT_CORS_ALLOWED_ORIGINS = 'http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,http://127.0.0.1:5173'
         # 执行当前脚本步骤。
-        IOT_OLLAMA_MODEL = 'qwen3:1.7b'
         # 执行当前脚本步骤。
-        IOT_AI_PROVIDER = 'ollama'
+        IOT_AI_PROVIDER = 'deepseek'
         # 执行当前脚本步骤。
-        IOT_AI_BASE_URL = 'http://ollama:11434'
+        IOT_AI_BASE_URL = 'https://api.deepseek.com'
         # 执行当前脚本步骤。
-        IOT_AI_MODEL = 'qwen3:1.7b'
+        IOT_AI_MODEL = 'deepseek-flash'
         # 执行当前脚本步骤。
         IOT_AI_API_KEY = ''
         # 执行当前脚本步骤。
@@ -142,13 +141,11 @@ function Ensure-DeploymentEnv {
         # 执行当前脚本步骤。
         IOT_AI_HARNESS_MCP_URL = 'http://platform-api:8080/mcp/harness'
         # 执行当前脚本步骤。
-        IOT_AI_HARNESS_PROVIDER = 'ollama'
+        IOT_AI_HARNESS_PROVIDER = 'deepseek-official'
         # 执行当前脚本步骤。
-        IOT_AI_HARNESS_OLLAMA_BASE_URL = 'http://ollama:11434/v1'
         # 执行当前脚本步骤。
-        IOT_AI_HARNESS_CONTEXT_WINDOW = '8192'
         # 执行当前脚本步骤。
-        IOT_AI_HARNESS_MODEL = 'qwen3:1.7b'
+        IOT_AI_HARNESS_MODEL = 'deepseek-flash'
         # 执行当前脚本步骤。
         IOT_BACKUP_TIME = '00:05'
         # 执行当前脚本步骤。
@@ -404,4 +401,18 @@ function Wait-DeploymentHttp {
     # 执行当前脚本步骤。
     throw "健康检查超时：$Url。请用相同的 Compose 项目和配置参数检查 ps / logs。"
 # 结束当前控制块。
+}
+
+function Set-DeepSeekDeploymentEnv {
+    param([string]$Path, [string]$Model = 'deepseek-flash')
+    $oldProvider = Get-DeploymentEnvValue -Path $Path -Key 'IOT_AI_PROVIDER'
+    $key = Get-DeploymentEnvValue -Path $Path -Key 'DEEPSEEK_API_KEY'
+    if (-not $key -and $oldProvider -eq 'deepseek') { $key = Get-DeploymentEnvValue -Path $Path -Key 'IOT_AI_API_KEY' }
+    if ($key -match "['`r`n]") { throw 'DeepSeek API Key 含不支持的引号或换行。' }
+    foreach ($setting in ([ordered]@{
+        DEEPSEEK_API_KEY="'$key'"; IOT_AI_API_KEY=''; DEEPSEEK_BASE_URL='https://api.deepseek.com';
+        IOT_AI_PROVIDER='deepseek'; IOT_AI_BASE_URL='https://api.deepseek.com'; IOT_AI_MODEL=$Model;
+        IOT_AI_HARNESS_PROVIDER='deepseek-official'; IOT_AI_HARNESS_MODEL=$Model; IOT_OLLAMA_MODEL=''
+    }).GetEnumerator()) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value ([string]$setting.Value) }
+    if (-not $key) { Write-Warning '请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥、测试并应用；未配置前 AI 功能不可用。' }
 }

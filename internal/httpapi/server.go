@@ -1351,9 +1351,12 @@ func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) { /* 定义
 	if provider, ok := s.engine.AI.(ports.AIInspectable); ok {                /* 判断条件并选择处理分支。 */
 		active = provider.ProviderInfo() /* 更新 active 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	healthy := false                           /* 更新 healthy 的值。 */
-	healthMessage := "AI provider is disabled" /* 更新 healthMessage 的值。 */
-	if active.Enabled && s.engine.AI != nil {  /* 判断条件并选择处理分支。 */
+	healthy := false /* 更新 healthy 的值。 */
+	healthMessage := "AI 尚未启用"
+	if active.ID == "deepseek" && !active.Enabled {
+		healthMessage = "待配置 DeepSeek API Key"
+	}
+	if active.Enabled && s.engine.AI != nil { /* 判断条件并选择处理分支。 */
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second) /* 更新 cancel 的值。 */
 		defer cancel()                                                 /* 安排函数结束时执行清理。 */
 		if err := s.engine.AI.Health(ctx); err != nil {                /* 判断条件并选择处理分支。 */

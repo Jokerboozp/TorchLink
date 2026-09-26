@@ -5,7 +5,7 @@ Build and deploy the platform with internet access (Docker + Compose v2 required
 Creates .env.online once with random credentials, pulls dependency images,
 builds the application, downloads the knowledge embedding model, and checks HTTP readiness.
 .PARAMETER IncludeAi
-Force an older environment to use the bundled local Ollama model.
+Compatibility switch; inference uses DeepSeek API without a bundled chat model.
 .PARAMETER IncludeHarness
 Compatibility switch; the AI workflow Harness is mandatory and always started.
 .PARAMETER NoHarness
@@ -47,49 +47,8 @@ Assert-DockerAvailable
 # 执行当前脚本步骤。
 Ensure-DeploymentEnv -Path $EnvFile
 # 执行当前脚本步骤。
-$provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
-# 执行当前脚本步骤。
-$configuredModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
-# 判断条件后执行对应操作。
-if ($IncludeAi -or -not $provider -or $provider -eq 'disabled' -or ($provider -eq 'deepseek' -and $configuredModel -eq 'deepseek-v4-flash') -or ($provider -eq 'ollama' -and $configuredModel -eq 'qwen3:8b')) {
-    # 判断条件后执行对应操作。
-    if ($provider -eq 'ollama') { $model = $configuredModel } else { $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OLLAMA_MODEL' }
-    # 判断条件后执行对应操作。
-    if (-not $model -or $model -in @('qwen3:8b', 'deepseek-v4-flash')) { $model = 'qwen3:1.7b' }
-    # 遍历数据并执行循环体。
-    foreach ($setting in @{'IOT_AI_PROVIDER'='ollama'; 'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_OLLAMA_MODEL'=$model; 'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model}.GetEnumerator()) {
-        # 执行当前脚本步骤。
-        Set-DeploymentEnvValue -Path $EnvFile -Key $setting.Key -Value $setting.Value
-    # 结束当前控制块。
-    }
-# 结束当前控制块。
-}
-# 执行当前脚本步骤。
-$provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
-# 判断条件后执行对应操作。
-if ($provider -eq 'ollama') {
-    # 执行当前脚本步骤。
-    $model = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
-    # 判断条件后执行对应操作。
-    if (-not $model) { $model = 'qwen3:1.7b' }
-    # 遍历数据并执行循环体。
-    foreach ($setting in @{
-        # 执行当前脚本步骤。
-        'IOT_OLLAMA_URL'='http://ollama:11434'; 'IOT_OLLAMA_MODEL'=$model;
-        # 执行当前脚本步骤。
-        'IOT_AI_BASE_URL'='http://ollama:11434'; 'IOT_AI_MODEL'=$model;
-        # 执行当前脚本步骤。
-        'IOT_AI_HARNESS_PROVIDER'='ollama'; 'IOT_AI_HARNESS_OLLAMA_BASE_URL'='http://ollama:11434/v1';
-        # 执行当前脚本步骤。
-        'IOT_AI_HARNESS_CONTEXT_WINDOW'='8192'; 'IOT_AI_HARNESS_MODEL'=$model
-    # 结束当前控制块。
-    }.GetEnumerator()) {
-        # 执行当前脚本步骤。
-        Set-DeploymentEnvValue -Path $EnvFile -Key $setting.Key -Value $setting.Value
-    # 结束当前控制块。
-    }
-# 结束当前控制块。
-}
+Set-DeepSeekDeploymentEnv -Path $EnvFile
+
 # 判断条件后执行对应操作。
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
@@ -98,25 +57,7 @@ Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true
 # 执行当前脚本步骤。
 $useHarness = $true
 # 判断条件后执行对应操作。
-if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -eq 'deepseek') {
-    # 执行当前脚本步骤。
-    $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_API_KEY' }
-    # 判断条件后执行对应操作。
-    if (-not [string]::IsNullOrWhiteSpace($deepSeekKey) -and [string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'))) {
-        # 执行当前脚本步骤。
-        Set-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY' -Value $deepSeekKey
-    # 结束当前控制块。
-    }
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_BASE_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_BASE_URL' -Value 'https://api.deepseek.com' }
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL' -Value 'deepseek-v4-flash' }
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { Write-Warning '请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' }
-# 结束当前控制块。
-}
+
 # 判断条件后执行对应操作。
 if ($useHarness) {
     # 判断条件后执行对应操作。
@@ -164,15 +105,7 @@ Write-Host '下载知识库嵌入模型 nomic-embed-text（首次可能需要较
 # 执行当前脚本步骤。
 Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
 # 判断条件后执行对应操作。
-if ($provider -eq 'ollama') {
-    # 判断条件后执行对应操作。
-    if (-not $model) { $model = 'qwen3:1.7b' }
-    # 执行当前脚本步骤。
-    Write-Host "下载统一 AI 模型 $model（告警研判与工作流共用）……"
-    # 执行当前脚本步骤。
-    Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', $model))
-# 结束当前控制块。
-}
+
 # 执行当前脚本步骤。
 $apiPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_API_PORT'
 # 执行当前脚本步骤。

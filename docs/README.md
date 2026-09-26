@@ -7,7 +7,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [项目首页](../README.md) | 功能、架构和运行入口 |
-| [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) | 协议、产品、设备、接入网关、接入测试、凭据及命令 |
+| [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md) | 协议、设备模板、设备、接入点、模拟设备测试、凭据及命令 |
 | [用户与权限](USER_ACCESS_CONTROL.md) | 所属租户、角色与操作、设备范围、告警可见性及实时提醒 |
 | [配置驱动协议](CONFIGURABLE_PROTOCOLS.md) | 上传报文或 Excel/CSV 点表、字段输入映射、预览与发布 |
 | [生成演示数据](DEMO_DATA.md) | 可指定服务器的一键脚本、样例文件与运行报告 |
@@ -29,6 +29,7 @@
 | [接收可靠性](DEVICE_RECEIVE_RELIABILITY.md) | 部件告警、MQTT 持久队列和接收确认 |
 | [摄像头与视频事件](VIDEO_SDK_ADAPTER.md) | 摄像头关联与外部视频事件 |
 | [AI 工作流](AI_PLUGIN_HARNESS.md) | Harness、模型、知识检索、MCP 与权限 |
+| [项目静态检查记录](PROJECT_REVIEW.md) | 2026-09-26 部署与文档核对、待修问题及未验证范围 |
 | [容量压测方案](CAPACITY_TEST_PLAN.md) | 端到端压测场景、观测项与记录模板 |
 | [Harness 服务](../deploy/deepseek-harness/README.md) | 独立服务配置、接口与平台授权边界 |
 | [Dify 原生应用](../deploy/dify/README.md) | IoT Workflow/Chatflow、原生 Agent 与 Skills 对比及接入权限 |
@@ -39,8 +40,8 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [部署配置与维护](DEPLOYMENT.md) | 配置、端口、数据库、旧版本迁移、用户权限升级和备份 |
-| [离线部署](OFFLINE_DEPLOYMENT.md) | CentOS/Linux、Windows、macOS 打包；openEuler 本地 RPM 源、旧包修复补丁、镜像与模型交付 |
+| [部署配置与维护](DEPLOYMENT.md) | 三种部署配置、DeepSeek API Key、端口、数据库、升级和备份 |
+| [离线部署](OFFLINE_DEPLOYMENT.md) | CentOS/Linux、Windows、macOS 打包；openEuler 本地 RPM 源、旧包修复补丁、镜像与嵌入模型交付、AI 联网边界 |
 | [EMQX 认证与授权](../ops/emqx/PRODUCTION_SECURITY.md) | 设备及管理端 MQTT 身份、ACL 和旧会话撤销 |
 | [网关部署边界](EDGE_AND_GATEWAY.md) | 进程部署与管理页面中不同网关概念 |
 

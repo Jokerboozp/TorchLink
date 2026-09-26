@@ -95,7 +95,7 @@ const creatingAgent = ref(false) /* 声明 creatingAgent。 */
 const agentTemplate = { /* 声明 agentTemplate。 */
   schemaVersion:1, id:'my-status-agent', name:'我的状态助手', description:'回答当前租户的系统统计和设备状态问题。', version:'1.0.0', enabled:true, /* 执行当前语句并推进处理流程。 */
   persona:'你是物联网系统状态助手。回答统计问题前必须调用 query_system_overview；询问具体设备时调用 query_device_latest。只依据工具结果回答，不得执行控制或修改操作。回答使用简洁中文。', /* 执行当前语句并推进处理流程。 */
-  defaultModel:'qwen3:1.7b', maxTokens:4096, /* 执行当前语句并推进处理流程。 */
+  defaultModel:'deepseek-flash', maxTokens:4096, /* 执行当前语句并推进处理流程。 */
   capabilities:['系统状态统计','设备状态查询'], /* 执行当前语句并推进处理流程。 */
   allowedTools:['mcp__iot__query_system_overview','mcp__iot__query_device_latest'] /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */

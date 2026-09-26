@@ -8,8 +8,8 @@ param(
     [switch]$NoHarness,
     [switch]$IncludeBackup,
     [switch]$IncludeOps,
-    [string]$OllamaModel = 'qwen3:1.7b',
-    [string]$DeepSeekModel = 'deepseek-v4-flash'
+    [string]$OllamaModel = '',
+    [string]$DeepSeekModel = 'deepseek-flash'
 )
 
 # 执行当前脚本步骤。
@@ -57,11 +57,10 @@ function Set-LocalEnvValue {
 # 执行当前脚本步骤。
 Assert-DockerAvailable
 # 判断条件后执行对应操作。
-if ($OllamaModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'OllamaModel 不是有效的模型名称。' }
+if ($OllamaModel) { throw '已取消部署本地对话模型，请填写 DEEPSEEK_API_KEY。' }
 # 判断条件后执行对应操作。
 if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeekModel 不是有效的模型名称。' }
 # 判断条件后执行对应操作。
-if ($IncludeAi -and $IncludeDeepSeek) { throw 'IncludeAi 与 IncludeDeepSeek 只能二选一。' }
 # 判断条件后执行对应操作。
 if ($NoHarness) { throw 'AI 工作流服务（Harness）是必装组件，不能使用 -NoHarness。' }
 # 执行当前脚本步骤。
@@ -149,69 +148,8 @@ Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace
 # 执行当前脚本步骤。
 Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
 # 判断条件后执行对应操作。
-if ($IncludeAi) {
-    # 执行当前脚本步骤。
-    $provider = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER'
-    # 判断条件后执行对应操作。
-    if ($provider -eq 'ollama') {
-        # 执行当前脚本步骤。
-        $configuredModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'
-        # 判断条件后执行对应操作。
-        if ($configuredModel) { $OllamaModel = $configuredModel }
-    # 结束当前控制块。
-    }
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_PROVIDER' 'ollama' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_OLLAMA_MODEL' $OllamaModel -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_MODEL' $OllamaModel -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_BASE_URL' 'http://127.0.0.1:11434' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_PROVIDER' 'ollama' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_OLLAMA_BASE_URL' 'http://ollama:11434/v1' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_CONTEXT_WINDOW' '8192' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_MODEL' $OllamaModel -Replace
-# 结束当前控制块。
-}
-# 判断条件后执行对应操作。
-if ($IncludeDeepSeek) {
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_PROVIDER' 'deepseek' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_BASE_URL' 'https://api.deepseek.com' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_MODEL' $DeepSeekModel -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_PROVIDER' 'deepseek-official' -Replace
-    # 执行当前脚本步骤。
-    Set-LocalEnvValue 'IOT_AI_HARNESS_MODEL' $DeepSeekModel -Replace
-# 结束当前控制块。
-}
-# 判断条件后执行对应操作。
-if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_PROVIDER') -eq 'deepseek') {
-    # 执行当前脚本步骤。
-    $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { $deepSeekKey = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_API_KEY' }
-    # 判断条件后执行对应操作。
-    if (-not [string]::IsNullOrWhiteSpace($deepSeekKey) -and [string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_API_KEY'))) { Set-LocalEnvValue 'DEEPSEEK_API_KEY' $deepSeekKey -Replace }
-    # 执行当前脚本步骤。
-    $baseUrl = Get-DeploymentEnvValue -Path $EnvFile -Key 'DEEPSEEK_BASE_URL'
-    # 判断条件后执行对应操作。
-    if (-not $baseUrl) { $baseUrl = 'https://api.deepseek.com' }
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_BASE_URL'))) { Set-LocalEnvValue 'IOT_AI_BASE_URL' $baseUrl -Replace }
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_MODEL'))) { Set-LocalEnvValue 'IOT_AI_MODEL' $DeepSeekModel -Replace }
-    # 判断条件后执行对应操作。
-    if ([string]::IsNullOrWhiteSpace($deepSeekKey)) { Write-Warning '请在配置文件中填写 DEEPSEEK_API_KEY，自动研判和 AI 工作流将共用该密钥。' }
-# 结束当前控制块。
-}
+Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
+
 # 判断条件后执行对应操作。
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
@@ -304,7 +242,6 @@ try {
     # 执行当前脚本步骤。
     Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
     # 判断条件后执行对应操作。
-    if ($IncludeAi) { Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', $OllamaModel)) }
     # 判断条件后执行对应操作。
     if ($IncludeBackup) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/ready' -TimeoutSeconds 180 }
     # 判断条件后执行对应操作。

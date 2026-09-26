@@ -216,12 +216,12 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	var runtimeAI *aiadapter.RuntimeProvider            /* 声明 runtimeAI。 */
 	var harness *aiadapter.HarnessClient                /* 声明 harness。 */
 	if cfg.ProcessRole != "gateway" {                   /* 判断条件并选择处理分支。 */
-		aiPlugins := aiadapter.NewProviderRegistry()               /* 更新 aiPlugins 的值。 */
-		engine.AIPlugins = aiPlugins                               /* 更新 engine.AIPlugins 的值。 */
-		providerID := cfg.AIProvider                               /* 更新 providerID 的值。 */
-		if providerID == "" && os.Getenv("IOT_OLLAMA_URL") != "" { /* 判断条件并选择处理分支。 */
-			providerID = "ollama" /* 更新 providerID 的值。 */
-		} /* 结束当前表达式或代码块。 */
+		aiPlugins := aiadapter.NewProviderRegistry() /* 更新 aiPlugins 的值。 */
+		engine.AIPlugins = aiPlugins                 /* 更新 engine.AIPlugins 的值。 */
+		providerID := cfg.AIProvider                 /* 更新 providerID 的值。 */
+		if providerID == "" {
+			providerID = "deepseek"
+		}
 		providerConfig := ports.AIPluginConfig{Provider: providerID, BaseURL: cfg.AIBaseURL, Model: cfg.AIModel, APIKey: cfg.AIAPIKey} /* 更新 providerConfig 的值。 */
 		if providerID == "ollama" {                                                                                                    /* 判断条件并选择处理分支。 */
 			if providerConfig.BaseURL == "" { /* 判断条件并选择处理分支。 */
@@ -234,7 +234,7 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 		if aiProviderStore != nil { /* 判断条件并选择处理分支。 */
 			if persisted, found, err := aiProviderStore.LoadAIProviderConfig(ctx); err != nil { /* 判断条件并选择处理分支。 */
 				log.Warn("load persisted AI provider config", "error", err) /* 执行当前语句并推进处理流程。 */
-			} else if found { /* 结束当前表达式或代码块。 */
+			} else if found && !(cfg.AIProvider == "deepseek" && persisted.Provider == "ollama" && strings.HasPrefix(strings.ToLower(persisted.Model), "qwen")) { /* Retire the previously bundled Qwen selection; keep explicitly configured external providers. */
 				providerConfig = persisted                                                                                     /* 更新 providerConfig 的值。 */
 				log.Info("restored persisted AI provider", "provider", providerConfig.Provider, "model", providerConfig.Model) /* 执行当前语句并推进处理流程。 */
 			} /* 结束当前表达式或代码块。 */
@@ -282,9 +282,13 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 			harness, harnessErr = aiadapter.NewHarness(cfg.AIHarnessURL, cfg.AIHarnessToken, cfg.AIHarnessMCPURL, harnessModel, cfg.AIHarnessTimeout) /* 更新 harnessErr 的值。 */
 			fatal(log, "initialize AI workflow harness", harnessErr)                                                                                  /* 执行当前语句并推进处理流程。 */
 			configureCtx, configureCancel := context.WithTimeout(ctx, 20*time.Second)                                                                 /* 更新 configureCancel 的值。 */
-			harnessErr = harness.ConfigureProvider(configureCtx, providerConfig)                                                                      /* 更新 harnessErr 的值。 */
-			configureCancel()                                                                                                                         /* 执行当前语句并推进处理流程。 */
-			if harnessErr != nil {                                                                                                                    /* 判断条件并选择处理分支。 */
+			if providerConfig.Provider != "deepseek" || strings.TrimSpace(providerConfig.APIKey) != "" {
+				harnessErr = harness.ConfigureProvider(configureCtx, providerConfig)
+			} else {
+				log.Warn("DeepSeek API key is not configured; enter it in model management")
+			} /* 更新 harnessErr 的值。 */
+			configureCancel()      /* 执行当前语句并推进处理流程。 */
+			if harnessErr != nil { /* 判断条件并选择处理分支。 */
 				// Compose starts the Harness sidecar after the API so it can call the
 				// platform MCP endpoint. Do not make API startup depend on that
 				// ordering; retry in the background until the sidecar is ready.

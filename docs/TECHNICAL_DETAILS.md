@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | 本地开发 | 本机运行 Go API 和 Vue，容器运行依赖 | Go、Node.js；本机或可达的依赖机 | `http://localhost:5173` |
 | 在线部署 | 目标机构建并运行容器 | Docker、网络；Linux 脚本可自动安装缺失组件 | `http://服务器IP:8080` |
-| 离线部署 | 有网打包，目标机导入容器及模型 | 与目标 CPU 架构匹配的完整离线包 | `http://服务器IP:8080` |
+| 离线部署 | 有网打包，目标机导入容器及嵌入模型；AI 调用仍需联网 | 与目标 CPU 架构匹配的完整离线包 | `http://服务器IP:8080` |
 
 - Go **1.25.5**，以 [go.mod](../go.mod) 为准；Node.js **`^20.19.0 || >=22.12.0`**，以 [package.json](../iot_front/package.json) 为准。前端使用 npm 和仓库锁文件。
 - Windows / macOS 容器部署需先启动 Docker Desktop，使用 Linux 容器；macOS 本地依赖也可运行在 OrbStack。
@@ -37,12 +37,12 @@ bash ./scripts/setup-local.sh
 
 | 需求 | PowerShell 参数 | Bash 参数 |
 | --- | --- | --- |
-| 使用本地 Ollama 对话模型 | `-IncludeAi` | `--include-ai` |
+| 自定义 DeepSeek API 模型（默认无需传入） | `-DeepSeekModel deepseek-flash` | `--deepseek-model deepseek-flash` |
 | 只准备依赖，不下载源码依赖 | `-SkipCodeDeps` | `--skip-code-deps` |
 | 临时运行容器版备份服务 | `-IncludeBackup` | `--include-backup` |
 | 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
 
-源码方案默认使用 DeepSeek API：在 `.env.local` 填写 `DEEPSEEK_API_KEY` 后重跑准备脚本，使 Harness 加载配置；使用本地模型则加 `--include-ai` / `-IncludeAi`。在线与离线方案默认使用 Ollama `qwen3:1.7b`，具体地址和模型切换见 [AI 配置](DEPLOYMENT.md#ai-与工作流)。
+所有部署方式统一使用 DeepSeek API。启动后在“模型管理”填写 API Key、测试并应用即可；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动；不再下载 Qwen 对话模型，Ollama 只准备知识库嵌入模型。完整配置、升级与离线联网边界见 [AI 配置](DEPLOYMENT.md#ai-与工作流)。
 
 依赖容器与源码分开运行时，在 Linux 依赖机执行：
 
@@ -101,7 +101,7 @@ Windows PowerShell：
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 ```
 
-脚本生成 `.env.online`，构建镜像，准备本地模型，启动并检查服务。首次需要访问镜像、Go/npm 依赖、Harness 源码和模型源；服务器无需预装 Go 或 Node.js。更新源码后重跑同一脚本，沿用原配置、Compose 项目和数据卷。使用自定义旧环境时，先按 [配置与数据归属](DEPLOYMENT.md#配置与数据归属) 指定原参数。
+脚本生成 `.env.online`，构建镜像，仅准备知识库嵌入模型，启动并检查服务。首次需要访问镜像、Go/npm 依赖、Harness 源码和模型源；服务器无需预装 Go 或 Node.js。更新源码后重跑同一脚本，沿用原配置、Compose 项目和数据卷。使用自定义旧环境时，先按 [配置与数据归属](DEPLOYMENT.md#配置与数据归属) 指定原参数。
 
 ## 离线部署
 

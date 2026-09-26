@@ -254,21 +254,7 @@ if (-not $SkipHealthCheck) {
     # 执行当前脚本步骤。
     Invoke-Checked -Arguments ($composeArguments + @("exec", "-T", "ollama", "ollama", "show", "nomic-embed-text"))
     # 执行当前脚本步骤。
-    $aiProvider = Get-EnvValue -Path $envPath -Key "IOT_AI_PROVIDER"
-    # 判断条件后执行对应操作。
-    if ($aiProvider -eq "ollama") {
-        # 执行当前脚本步骤。
-        $chatModel = Get-EnvValue -Path $envPath -Key "IOT_AI_MODEL"
-        # 判断条件后执行对应操作。
-        if ([string]::IsNullOrWhiteSpace($chatModel)) { $chatModel = Get-EnvValue -Path $envPath -Key "IOT_OLLAMA_MODEL" }
-        # 判断条件后执行对应操作。
-        if ([string]::IsNullOrWhiteSpace($chatModel)) { $chatModel = "qwen3:1.7b" }
-        # 执行当前脚本步骤。
-        Invoke-Checked -Arguments ($composeArguments + @("exec", "-T", "ollama", "ollama", "show", $chatModel))
-    # 结束当前控制块。
-    }
-    # 执行当前脚本步骤。
-    Write-Host "平台健康检查与本地模型检查通过：$healthUrl" -ForegroundColor Green
+    Write-Host "平台健康检查与知识库嵌入模型检查通过：$healthUrl" -ForegroundColor Green
     # 执行当前脚本步骤。
     $checkWebPort = Get-EnvValue -Path $envPath -Key "IOT_WEB_PORT"
     # 判断条件后执行对应操作。

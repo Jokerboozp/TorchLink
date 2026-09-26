@@ -19,6 +19,8 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 
 可选容器拆分：`docker compose -p iot-platform-online --env-file .env.online -f compose.yaml -f compose.access.yaml config --quiet` 先检查渲染结果；实际启动再运行相同参数的 `up -d --build`。已有部署须替换为原项目名。覆盖层将 TCP/UDP 端口从 API 移到 Gateway，默认 Gateway HTTP 端口为 8082。覆盖层使用 `!override`，要求 Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/)。
 
+拆分部署同样使用 DeepSeek API；密钥由 API 的模型管理和 Harness 使用，Gateway 不承担模型推理，也不需要部署对话模型。
+
 ## 执行所有权
 
 启用 `IOT_ACCESS_COORDINATION=true`，并将 `IOT_ACCESS_NODE_URL` 设置为其他实例可达且精确指向本实例的 HTTP(S) 地址。不要使用随机负载均衡地址冒充固定执行节点。
@@ -33,6 +35,6 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 
 ## 管理界面与用户范围
 
-「接入网关」菜单管理 `DeviceAccessProfile` 软件连接配置；「主设备」标签管理现场设备台账；`cmd/iot-access-gateway` 是部署进程，三者含义不同。API 和 Gateway 都需要使用包含设备权限校验的同版代码，转发保留原用户身份，并在目标服务重新校验。
+「设备模板 → 接入点」管理 `DeviceAccessProfile` 软件连接配置；「主设备」标签管理现场设备台账；`cmd/iot-access-gateway` 是部署进程，三者含义不同。API 和 Gateway 都需要使用包含设备权限校验的同版代码，转发保留原用户身份，并在目标服务重新校验。
 
 普通用户的全租户接入配置需要全部设备范围和相应菜单/按钮权限。指定设备用户的连接详情不暴露共享网关配置及其他设备会话。用户设备和告警范围见 [用户权限](USER_ACCESS_CONTROL.md)。

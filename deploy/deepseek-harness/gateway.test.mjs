@@ -39,6 +39,8 @@ async function startGateway(factory, options = {}) { /* 定义 startGateway 函�
     workspace: deploymentDir, /* 执行当前语句并推进处理流程。 */
     sessionRoot: join(tmpdir(), 'iot-harness-test-sessions'), /* 执行当前语句并推进处理流程。 */
     proxyPort: 0, /* 执行当前语句并推进处理流程。 */
+    modelProvider: 'ollama',
+    model: 'qwen3:1.7b',
     harnessFactory: factory, /* 执行当前语句并推进处理流程。 */
     ...options, /* 执行当前语句并推进处理流程。 */
   }) /* 结束当前表达式或代码块。 */
@@ -415,3 +417,18 @@ test('requests sharing a conversation are serialized through one resident runtim
   assert.equal(maximumRunning, 1) /* 验证实际结果符合预期。 */
   assert.equal(factoryCalls, 1) /* 验证实际结果符合预期。 */
 }) /* 结束当前表达式或代码块。 */
+
+test('DeepSeek without a key stays healthy but rejects workflows before launching a runtime', async () => {
+  let launched = false
+  const { baseUrl } = await startGateway(async () => { launched = true }, {
+    modelProvider: 'deepseek-official', model: 'deepseek-flash',
+    baseURL: 'https://api.deepseek.com', apiKey: '',
+  })
+  const health = await fetch(`${baseUrl}/health`)
+  assert.equal(health.status, 200)
+  assert.equal((await health.json()).deepseekConfigured, false)
+  const response = await chat(baseUrl, requestBody({ model: 'deepseek-flash' }))
+  assert.equal(response.status, 503)
+  assert.match(await response.text(), /API_KEY_REQUIRED/)
+  assert.equal(launched, false)
+})

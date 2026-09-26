@@ -79,7 +79,7 @@ func Load() Config { /* 定义 Load 函数。 */
 	devMode, devModeErr := strictBoolValue("IOT_DEV_MODE", true)                   /* 更新 devModeErr 的值。 */
 	aiProvider := strings.ToLower(strings.TrimSpace(os.Getenv("IOT_AI_PROVIDER"))) /* 更新 aiProvider 的值。 */
 	deepSeekAPIKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))             /* 更新 deepSeekAPIKey 的值。 */
-	if aiProvider == "" && deepSeekAPIKey != "" {                                  /* 判断条件并选择处理分支。 */
+	if aiProvider == "" {                                                          /* 判断条件并选择处理分支。 */
 		aiProvider = "deepseek" /* 更新 aiProvider 的值。 */
 	} /* 结束当前表达式或代码块。 */
 	aiAPIKey := strings.TrimSpace(os.Getenv("IOT_AI_API_KEY")) /* 更新 aiAPIKey 的值。 */
@@ -120,7 +120,7 @@ func Load() Config { /* 定义 Load 函数。 */
 		MQTTPublicURL:               os.Getenv("IOT_DEVICE_MQTT_PUBLIC_URL"),                                                                        /* 执行当前语句并推进处理流程。 */
 		DeviceHTTPPublicURL:         os.Getenv("IOT_DEVICE_HTTP_PUBLIC_URL"),                                                                        /* 执行当前语句并推进处理流程。 */
 		OllamaURL:                   get("IOT_OLLAMA_URL", "http://localhost:11434"),                                                                /* 执行当前语句并推进处理流程。 */
-		OllamaModel:                 get("IOT_OLLAMA_MODEL", "qwen3:1.7b"),                                                                          /* 执行当前语句并推进处理流程。 */
+		OllamaModel:                 strings.TrimSpace(os.Getenv("IOT_OLLAMA_MODEL")),                                                               /* 执行当前语句并推进处理流程。 */
 		AIProvider:                  aiProvider,                                                                                                     /* 执行当前语句并推进处理流程。 */
 		AIBaseURL:                   strings.TrimRight(os.Getenv("IOT_AI_BASE_URL"), "/"),                                                           /* 执行当前语句并推进处理流程。 */
 		AIModel:                     strings.TrimSpace(os.Getenv("IOT_AI_MODEL")),                                                                   /* 执行当前语句并推进处理流程。 */

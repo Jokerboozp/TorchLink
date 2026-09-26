@@ -11,7 +11,7 @@ Web AI 工作台
           -> 租户绑定的只读 MCP 工具
 ```
 
-Harness 是必装组件，所有使用模型的业务功能都作为 Harness 工作流运行，共用同一套 Agent 角色、工具白名单、MCP 权限校验和运行记录；只有接入网关角色（`IOT_PROCESS_ROLE=gateway`）不需要 Harness，其余角色未配置 `IOT_AI_HARNESS_URL` 时拒绝启动。在线和离线部署默认使用 Ollama 的 `qwen3:1.7b`。
+Harness 是必装组件，所有使用模型的业务功能都作为 Harness 工作流运行，共用同一套 Agent 角色、工具白名单、MCP 权限校验和运行记录；只有接入网关角色（`IOT_PROCESS_ROLE=gateway`）不需要 Harness，其余角色未配置 `IOT_AI_HARNESS_URL` 时拒绝启动。所有部署统一使用 DeepSeek API（默认 `deepseek-flash`），不再分发 Qwen 对话权重。首次无密钥时平台可启动，在模型管理中填写 API Key、测试并应用；Ollama 只承担知识库嵌入。离线安装与 AI 联网边界见 [部署配置](DEPLOYMENT.md#ai-与工作流)。
 
 | 功能 | 工作流 | 发起身份 | 可用工具 |
 | --- | --- | --- | --- |
@@ -26,7 +26,7 @@ Harness 是必装组件，所有使用模型的业务功能都作为 Harness 工
 
 容量与限制：每次业务运行都会在侧车中启动一个独立会话，受 `IOT_HARNESS_MAX_CONCURRENCY`（部署默认 2，侧车代码默认 4）与 `IOT_HARNESS_MAX_CACHED_CONVERSATIONS`（默认 32）限制，API 等待上限为 `IOT_AI_HARNESS_TIMEOUT`（默认 90 秒）。侧车达到并发上限时直接拒绝（HTTP 429）；业务运行会退避重试最多 2 分钟等待空位，交互式问答不重试。告警自动研判同时最多运行 `IOT_AI_ANALYSIS_CONCURRENCY`（默认 1）个，为问答和手动操作留出空位；调大前应确认模型服务的实际并行能力。告警集中爆发时自动研判会排队，超时后留下可读的失败记录。侧车 `/data/sessions` 与运行时目录中的会话记录目前不会自动清理，需要按磁盘容量定期维护。
 
-模型 Provider 仍负责“模型管理”页的连接测试、健康检查和配置同步：应用新配置时同步到 Harness，业务功能实际调用的是 Harness 中的同一模型。模型测试、切换及持久化配置见 [部署维护](DEPLOYMENT.md#在界面切换-ai-模型服务)。Provider 连接正常不代表 Harness 工作流可用，反之亦然，排查时两者分别核对。
+模型 Provider 仍负责“模型管理”页的连接测试、健康检查和配置同步：应用新配置时同步到 Harness，业务功能实际调用的是 Harness 中的同一模型。模型测试、切换及持久化配置见 [部署维护](DEPLOYMENT.md#模型管理与工作流服务)。Provider 连接正常不代表 Harness 工作流可用，反之亦然，排查时两者分别核对。
 
 也可在独立 Dify 工作区使用五个 IoT Workflow/Chatflow、两个原生 Agent 对比版及五个可复用 Skills，部署与边界见 [Dify 接入说明](../deploy/dify/README.md)。Dify 自行执行模型规划与对话，复用平台业务工具及 Agent 知识绑定；这是额外入口，平台页面和后台自动研判仍沿用上述链路。
 
