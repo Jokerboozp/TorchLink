@@ -31,9 +31,6 @@ jobs:
           test "$(uname -m)" = x86_64
           docker info > /dev/null
           docker compose version
-          # Only remove unused preinstalled SDKs on this disposable GitHub runner.
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
-          df -h . /var/lib/docker
 
       - name: 验证公开包凭据初始化
         run: |
@@ -46,6 +43,12 @@ jobs:
           test -x "$compose"
           bash scripts/tests/deployment-smoke.sh "$compose"
           pwsh -NoProfile -File scripts/tests/deployment-smoke.ps1 -ComposeExe "$compose"
+
+      - name: 准备磁盘空间
+        run: |
+          # Only remove unused preinstalled SDKs on this disposable GitHub runner.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h . /var/lib/docker
 
       - name: 构建完整离线包
         run: bash scripts/package-offline-linux.sh --output-dir offline-bundles --target-os generic

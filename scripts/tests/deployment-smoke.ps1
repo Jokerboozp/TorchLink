@@ -44,6 +44,7 @@ function global:Invoke-WebRequest {
 }
 function global:go { $global:IotTest_calls.Add(@('go') + $args); $global:LASTEXITCODE = 0 }
 function global:npm.cmd { $global:IotTest_calls.Add(@('npm') + $args); $global:LASTEXITCODE = 0 }
+function global:npm { $global:IotTest_calls.Add(@('npm') + $args); $global:LASTEXITCODE = 0 }
 function Contains-Call([string]$Pattern) { return @($global:IotTest_calls | Where-Object { ($_ -join ' ') -match $Pattern }).Count -gt 0 }
 function Assert-CommentedEnv([string]$Path) {
     $previous = ''
@@ -215,7 +216,7 @@ try {
     Write-Host 'Deployment smoke tests PASS (Docker operations mocked; Compose parsing real).'
 } finally {
     foreach ($key in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($key, $savedEnv[$key], 'Process') }
-    Remove-Item Function:\docker,Function:\Invoke-WebRequest,Function:\go,Function:\npm.cmd -ErrorAction SilentlyContinue
+    Remove-Item Function:\docker,Function:\Invoke-WebRequest,Function:\go,Function:\npm.cmd,Function:\npm -ErrorAction SilentlyContinue
     # Test fixtures contain random credentials, never real environment values.
     $resolved = [IO.Path]::GetFullPath($testRoot)
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
