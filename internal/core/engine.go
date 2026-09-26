@@ -536,6 +536,9 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 		_ = e.Bus.Publish(ctx, model.TopicAlarmRaised, saved.ID, payload)         /* 更新 _ 的值。 */
 		_ = e.Realtime.Publish(ctx, saved.MQTTTopic("raised"), payload, 1, false) /* 更新 _ 的值。 */
 	} /* 结束当前表达式或代码块。 */
+	if err := e.publishAlarmReport(ctx, saved, a); err != nil {
+		return saved, created, err
+	}
 	return saved, created, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 
@@ -744,6 +747,9 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 		_ = e.Bus.Publish(ctx, model.TopicAlarmRaised, saved.ID, payload)         /* 更新 _ 的值。 */
 		_ = e.Realtime.Publish(ctx, saved.MQTTTopic("raised"), payload, 1, false) /* 更新 _ 的值。 */
 	} /* 结束当前表达式或代码块。 */
+	if err := e.publishAlarmReport(ctx, saved, a); err != nil {
+		return saved, created, err
+	}
 	// Alarm records are deduplicated while ACTIVE/ACKED, but a new matching
 	// message must still execute the rule actions. Exact duplicate messages
 	// keep the original trigger ID and must not execute actions twice.

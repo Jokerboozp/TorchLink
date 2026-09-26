@@ -223,3 +223,58 @@ func TestUnsupportedRouteFieldsMakeRouteReadOnly(t *testing.T) {
 		t.Fatalf("receiver edits must keep the read-only route intact:\n%s", saved)
 	}
 }
+
+func TestRepeatedReceiverTestsHaveIndependentNotificationGroups(t *testing.T) {
+	svc, am, file := newAMService(t, baseAMConfig)
+	cfg, err := svc.NotificationConfig(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range cfg.Receivers {
+		cfg.Receivers[i].OriginalName = cfg.Receivers[i].Name
+	}
+	if _, err := svc.SaveNotificationConfig(context.Background(), cfg, "test"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := svc.TestReceiver(context.Background(), "ops", "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := am.posted[0]["labels"].(map[string]string)
+	second := am.posted[1]["labels"].(map[string]string)
+	if first[testIDLabel] == "" || first[testIDLabel] == second[testIDLabel] {
+		t.Fatal("repeated tests must not share Alertmanager's deduplication identity")
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Route amRoute `yaml:"route"`
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range config.Route.Routes {
+		if r.Receiver == "ops" && isTestRoute(r) {
+			for _, group := range r.GroupBy {
+				if group == testIDLabel {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("test IDs must create separate notification groups")
+	}
+	// Older route configuration requires an explicit save so tests cannot be
+	// silently merged into one notification after upgrading the API.
+	if err := os.WriteFile(file, []byte(strings.ReplaceAll(string(data), "      - "+testIDLabel+"\n", "")), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.TestReceiver(context.Background(), "ops", "test"); err == nil {
+		t.Fatal("legacy test grouping should require a config refresh")
+	}
+}

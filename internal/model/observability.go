@@ -244,14 +244,16 @@ type OpsRoute struct {
 }
 
 type OpsNotificationConfig struct {
-	Revision     string        `json:"revision"`
-	Writable     bool          `json:"writable"`
-	Route        OpsRoute      `json:"route"`
-	Receivers    []OpsReceiver `json:"receivers"`
-	InhibitRules int           `json:"inhibitRules"`
-	Preserved    []string      `json:"preserved,omitempty"`
-	UpdatedAt    int64         `json:"updatedAt,omitempty"`
-	UpdatedBy    string        `json:"updatedBy,omitempty"`
+	DeviceAlarmReceiver string        `json:"deviceAlarmReceiver"`
+	DeviceAlarmSince    int64         `json:"deviceAlarmSince,omitempty"`
+	Revision            string        `json:"revision"`
+	Writable            bool          `json:"writable"`
+	Route               OpsRoute      `json:"route"`
+	Receivers           []OpsReceiver `json:"receivers"`
+	InhibitRules        int           `json:"inhibitRules"`
+	Preserved           []string      `json:"preserved,omitempty"`
+	UpdatedAt           int64         `json:"updatedAt,omitempty"`
+	UpdatedBy           string        `json:"updatedBy,omitempty"`
 }
 
 type OpsDashboardSummary struct {

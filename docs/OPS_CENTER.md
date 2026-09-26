@@ -52,7 +52,7 @@
 | 日志告警评估 | Loki ruler | 只支持告警规则；表达式必须是统计查询 |
 | 分组、抑制、静默、通知 | Alertmanager | 唯一发送通知的组件 |
 | Grafana 告警 | 已停用 | `GF_UNIFIED_ALERTING_ENABLED=false`，避免重复评估和重复通知 |
-| 消防业务告警 | 平台告警中心 | 设备上报与业务规则告警，与本页无关 |
+| 消防业务告警 | 平台告警中心 | 设备上报与业务规则告警；处理状态留在告警中心，可将每次报警上报事件通过本页配置为逐条邮件 |
 
 ## 功能对照
 
@@ -150,6 +150,31 @@
 - 没有“查看数据源配置”权限时，数据源列表不含地址与连接参数。
 
 审计：规则组（含失败）、保留策略（含失败）、日志删除与取消、日志导出、仪表盘新建 / 修改 / 复制 / 删除 / 导入、文件夹、数据源、静默、通知配置（含失败）与测试通知都会写入审计日志，动作名以 `ops.` 开头。
+
+## 设备告警逐条邮件
+
+在“监控告警 → 通知路由”点击“新增设备告警邮件”，填写收件人、发件人、SMTP 服务器、用户名和客户端授权码，并在“设备告警邮件接收人”中选择该接收人，保存并重新加载。选择“关闭设备告警邮件”并保存即可停止接入。此项使用现有运维租户及通知配置权限，覆盖全平台设备，只能配置授权的全局运维邮箱。
+
+163 普通邮箱可以使用 `smtp.163.com:465`（SSL/TLS），SMTP 用户名和发件人为完整邮箱地址。在 163 网页邮箱“设置 → POP/SMTP/IMAP”开启 SMTP 服务后，使用客户端授权码作为 SMTP 密码。平台“使用 163 邮箱配置”按钮填写服务器并从发件人复制用户名；授权码只写服务端受管配置，API 读取时脱敏。不要将授权码写入仓库。服务端须能访问该邮箱服务器。端口 465 的隐式 TLS 由当前 Alertmanager v0.34.1 自动识别，仍校验服务器证书。参考 [SMTP 配置](https://publications.lexmark.com/publications/lexmark_hardware/CX331_MC3224_MC3326/UG/html/sc/configuring-smtp-server-for-e-mail-topic.html)、[客户端授权码操作](https://consumer.huawei.com/cn/support/content/zh-cn15872099/)、[Alertmanager 邮件配置](https://prometheus.io/docs/alerting/latest/configuration/#email_config)。
+
+事件链路为 `报警上报持久化 → iot.alarm.reported → 本地通知队列 → Alertmanager → SMTP`。接入直接上报、业务规则、部件的设备报警上报，不接入摄像头告警；同一活动告警再次上报也发送邮件，无需先恢复；同一报文重试或重放不重复发信。每个通知按 `tenant_id + alarm_id + trigger_id` 独立分组，默认等待 1 秒；邮件标题展示设备、类型和等级，正文包含时间、部件位置、可用的告警描述、规则及关联编号，不转发完整原始报文。默认邮件使用暖白卡片布局，突出设备、告警等级、类型和本次上报时间，正文分为告警内容、可用的位置与来源、记录信息；全部采用内联样式且不依赖外部图片。保存通知配置时会将旧版内置简易模板升级为新版，自定义 HTML 模板保持不变；旧队列通知与渠道测试使用摘要正文布局。
+
+开启边界与接收人一起原子写入 Alertmanager 配置，加载失败一起恢复。普通编辑保留边界，关闭后重新开启或切换接收人重新开始；以本次上报处理时间判断启用边界，旧告警在启用后再次上报也会通知；启用前历史不补发。平台保留 `torchlink_device_notification` 标签和 `torchlink-device-discard` 接收人：专用路由先匹配设备报警上报，关闭或切换后遗留通知进入丢弃路由，避免落入基础设施默认渠道。
+
+这是每次报警上报收到时的通知事件，不是业务状态同步。通知事件存活 24 小时，恢复通知强制关闭，重复通知间隔 48 小时；业务告警的确认、恢复、关闭仍以告警中心为准。既有 Alertmanager 静默、抑制、SMTP 失败及邮箱限流仍可能延迟或阻止投递，“保存成功”或“测试已提交”不能证明邮件已到达收件箱。每次点击“测试”使用独立测试标识并单独分组，避免相同接收人的多次测试被去重；升级后若提示测试路由需要更新，先保存一次通知配置。
+
+队列位于 `IOT_DATA_DIR/ops-state/device-notifications`，进程在返回事件消费成功前写入文件并同步，API 重启后继续读取。失败每 30 秒重试，成功每分钟刷新同一个 Alertmanager 事件以跨越组件重启，不产生新的分组；24 小时后停止投递，去重记录至少保留到本次上报处理后 48 小时，超出 48 小时的旧事件不接入。必须持久化 API 数据目录和 Alertmanager 数据目录。该机制不能保证 SMTP 的严格恰好一次，业务保存与事件发布也不是数据库事务发件箱；队列写入或上游发布失败需检查 API 日志 / Kafka 死信。多实例应保留各实例通知队列，不能在队列尚未送达时删除副本数据卷。
+
+可选真实邮件链路测试 `TestDeviceMailIntegration` 使用临时 SMTP 接收端验证同一告警多次上报分别成信、详情内容及同一报文重试去重，不向真实邮箱发信。先准备**专用、可丢弃** Alertmanager，将其配置目录挂载为 `/etc/alertmanager` 并绑定独立端口，然后在仓库根目录执行：
+
+```bash
+IOT_TEST_ALERTMANAGER_URL=http://127.0.0.1:19094 \
+IOT_TEST_ALERTMANAGER_DIR=/absolute/path/to/disposable-config \
+IOT_TEST_SMTP_HOST=host.orb.internal \
+go test ./internal/opscenter -run TestDeviceMailIntegration -v -count=1
+```
+
+测试会覆盖该目录内 `alertmanager.yml`，不得指向运行环境受管目录。`IOT_TEST_SMTP_HOST` 是测试 Alertmanager 可达的 Go 测试进程所在主机地址；测试自动分配临时 SMTP 端口。未设置测试环境变量时默认跳过。
 
 ## 配置
 

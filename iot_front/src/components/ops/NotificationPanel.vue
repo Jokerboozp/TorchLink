@@ -33,8 +33,8 @@ function routeToApi(r) {
   return out
 }
 // originalName 让后端找到原接收人，保留未编辑的字段和未修改的凭据。
-function fromApi(c) { return c ? { route: routeFromApi(c.route || {}), receivers: JSON.parse(JSON.stringify(c.receivers || [])).map(r => ({ ...r, originalName: r.name })) } : null }
-function toApi(d) { return { route: routeToApi(d.route), receivers: d.receivers } }
+function fromApi(c) { return c ? { deviceAlarmReceiver: c.deviceAlarmReceiver || '', route: routeFromApi(c.route || {}), receivers: JSON.parse(JSON.stringify(c.receivers || [])).map(r => ({ ...r, originalName: r.name })) } : null }
+function toApi(d) { return { deviceAlarmReceiver: d.deviceAlarmReceiver || '', route: routeToApi(d.route), receivers: d.receivers } }
 
 async function load() {
   loading.value = true
@@ -53,13 +53,34 @@ function renameReceiver(receiver) {
   if (!from || from === to || draft.value.receivers.filter(r => r.name.trim() === to).length > 1) return
   const walk = route => { if (route.receiver === from) route.receiver = to; (route.routes || []).forEach(walk) }
   walk(draft.value.route)
+  if (draft.value.deviceAlarmReceiver === from) draft.value.deviceAlarmReceiver = to
 }
 function addReceiver() { draft.value.receivers.push({ name: `receiver-${draft.value.receivers.length + 1}`, webhooks: [], emails: [] }) }
 function addWebhook(receiver) { receiver.webhooks.push({ url: { set: false, mode: 'replace', value: '' }, bearerToken: { set: false }, sendResolved: true, maxAlerts: 0, timeout: '' }) }
 function addEmail(receiver) { receiver.emails.push({ to: '', from: '', smarthost: '', authUsername: '', authPassword: { set: false }, sendResolved: false }) }
+function addDeviceEmail() {
+  let name = '设备告警邮件'
+  let suffix = 2
+  while (draft.value.receivers.some(r => r.name === name)) name = `设备告警邮件-${suffix++}`
+  const receiver = { name, webhooks: [], emails: [] }
+  addEmail(receiver)
+  receiver.emails[0].smarthost = 'smtp.163.com:465'
+  receiver.emails[0].requireTLS = true
+  draft.value.receivers.push(receiver)
+  draft.value.deviceAlarmReceiver = name
+}
+function use163(mail) {
+  mail.smarthost = 'smtp.163.com:465'
+  mail.requireTLS = true
+  if (mail.from) mail.authUsername = mail.from
+}
+const deviceReceiverOptions = computed(() => [
+  { label: '关闭设备告警邮件', value: '' },
+  ...(draft.value?.receivers || []).filter(r => r.name && r.emails?.length && !r.webhooks?.length && !r.readOnly?.length).map(r => ({ label: r.name, value: r.name })),
+])
 function removeReceiver(index) {
   const name = draft.value.receivers[index].name
-  const used = JSON.stringify(routeToApi(draft.value.route)).includes(`"receiver":${JSON.stringify(name)}`)
+  const used = draft.value.deviceAlarmReceiver === name || JSON.stringify(routeToApi(draft.value.route)).includes(`"receiver":${JSON.stringify(name)}`)
   if (used) { UiMessage.warning(`接收人“${name}”仍被路由使用，请先修改路由`); return }
   draft.value.receivers.splice(index, 1)
 }
@@ -93,7 +114,7 @@ onMounted(load)
 <template>
   <div class="notify">
     <div class="notify__toolbar">
-      <p>监控告警只由 Alertmanager 发送通知；Grafana 告警已停用，消防业务告警仍在平台告警中心处理。<span v-if="config?.updatedBy">最近由 {{ config.updatedBy }} {{ relativeTime(config.updatedAt) }}修改。</span></p>
+      <p>监控通知和设备告警邮件由 Alertmanager 统一发送；设备告警的处理状态仍由平台告警中心管理。<span v-if="config?.updatedBy">最近由 {{ config.updatedBy }} {{ relativeTime(config.updatedAt) }}修改。</span></p>
       <div>
         <ui-button size="small" :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
         <ui-button v-if="canSave" size="small" :disabled="!dirty || saving" @click="draft = fromApi(config)">还原</ui-button>
@@ -107,7 +128,16 @@ onMounted(load)
 
     <template v-if="draft">
       <section class="notify__section">
-        <h3>通知路由</h3>
+        <h3>设备告警逐条邮件</h3>
+        <p class="muted">启用后，每次设备报警上报都单独发送邮件，包含设备、部件、类型、等级、时间及告警内容。同一活动告警再次上报也会通知，无需先恢复；相同报文重试不重复发信，启用前的历史上报不补发。此设置覆盖全平台设备，请使用授权的运维邮箱。</p>
+        <div class="device-notification-controls">
+          <ui-select v-model="draft.deviceAlarmReceiver" :disabled="!canSave" size="small" placeholder="关闭设备告警邮件" aria-label="设备告警邮件接收人"><ui-option v-for="option in deviceReceiverOptions" :key="option.value" :value="option.value" :label="option.label" /></ui-select>
+          <ui-button v-if="canSave" size="small" @click="addDeviceEmail"><Plus />新增设备告警邮件</ui-button>
+        </div>
+        <p class="muted">设备告警邮件接收人需关闭“发送恢复通知”。保存后生效；确认、恢复和关闭仍在告警中心处理。</p>
+      </section>
+      <section class="notify__section">
+        <h3>监控通知路由</h3>
         <RouteNode :route="draft.route" :receivers="receiverNames" :labels="labels" top :disabled="!canSave" />
       </section>
       <section class="notify__section">
@@ -140,7 +170,8 @@ onMounted(load)
               <label>SMTP 服务器<ui-input v-model="mail.smarthost" size="small" :disabled="!canSave" placeholder="smtp.example.com:587，留空使用全局配置" /></label>
               <label>SMTP 用户名<ui-input v-model="mail.authUsername" size="small" :disabled="!canSave" autocomplete="off" /></label>
             </div>
-            <label>SMTP 密码<SecretField v-model="mail.authPassword" label="SMTP 密码" placeholder="可选" /></label>
+            <label>SMTP 密码 / 客户端授权码<SecretField v-model="mail.authPassword" label="SMTP 密码 / 客户端授权码" placeholder="163 邮箱填写客户端授权码" /></label>
+            <div class="channel__row"><ui-button v-if="canSave" size="small" text @click="use163(mail)">使用 163 邮箱配置</ui-button><p class="muted">163：smtp.163.com:465（SSL/TLS），用户名为完整发件邮箱。请在邮箱“设置 → POP/SMTP/IMAP”开启 SMTP，填写客户端授权码。</p></div>
             <ui-checkbox v-model="mail.sendResolved" :disabled="!canSave">发送恢复通知</ui-checkbox>
           </div>
           <div v-if="canSave" class="receiver__add"><ui-button size="small" text type="primary" @click="addWebhook(receiver)"><Plus />Webhook</ui-button><ui-button size="small" text type="primary" @click="addEmail(receiver)"><Plus />邮件</ui-button></div>
@@ -169,6 +200,8 @@ onMounted(load)
 .channel__head { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-size-sm); }
 .channel__row { display: flex; align-items: end; flex-wrap: wrap; gap: var(--space-3); }
 .channel__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.device-notification-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.device-notification-controls > :first-child { width: min(100%, 320px); }
 .receiver__add { display: flex; gap: var(--space-2); }
 @media (max-width: 767px) {
   .channel__grid { grid-template-columns: minmax(0, 1fr); }

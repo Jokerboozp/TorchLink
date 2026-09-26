@@ -28,6 +28,13 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 			if err != nil {                                                                                                                                                              /* 判断条件并选择处理分支。 */
 				return err /* 返回当前处理结果。 */
 			} /* 结束当前表达式或代码块。 */
+			// Stale component reports return the previous trigger; only accepted
+			// active reports (including retry) enter the notification stream.
+			if component.Alarms[kind] && saved.TriggerID == msg.MessageID && (saved.Status == "ACTIVE" || saved.Status == "ACKED") {
+				if err := e.publishAlarmReport(ctx, saved, a); err != nil {
+					return err
+				}
+			}
 			if event != "" { /* 判断条件并选择处理分支。 */
 				topic := model.TopicAlarmRaised /* 更新 topic 的值。 */
 				if event == "recovered" {       /* 判断条件并选择处理分支。 */

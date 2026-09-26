@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>炬联设备告警</title></head>
+<body style="margin:0;padding:0;background:#f4f1ec;color:#292524;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{{ .CommonAnnotations.summary }}{{ with .CommonAnnotations.occurred_at }} · {{ . }}{{ end }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f1ec;"><tr><td align="center" style="padding:28px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;background:#ffffff;border:1px solid #e7e1d9;border-radius:12px;overflow:hidden;">
+<tr><td style="padding:20px 24px;border-top:4px solid #b85c38;border-bottom:1px solid #eee9e2;">
+  <div style="font-size:20px;line-height:28px;font-weight:700;letter-spacing:2px;color:#49352b;">炬联 <span style="font-size:11px;letter-spacing:1px;color:#8c7c70;font-weight:500;">TORCHLINK</span></div>
+  <div style="margin-top:4px;font-size:12px;line-height:20px;color:#78716c;">设备监控 · 报警通知</div>
+</td></tr>
+<tr><td style="padding:26px 24px 24px;">
+{{ if .CommonAnnotations.device_name }}
+  <div style="font-size:12px;line-height:20px;font-weight:600;color:#9a4930;letter-spacing:1px;">收到设备报警</div>
+  <h1 style="margin:8px 0 18px;font-size:26px;line-height:36px;font-weight:700;word-break:break-word;overflow-wrap:anywhere;">{{ .CommonAnnotations.device_name }}</h1>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#faf7f3;border:1px solid #ede6dd;border-radius:8px;">
+    <tr><td style="padding:16px 18px;">
+      <div style="font-size:18px;line-height:28px;font-weight:650;word-break:break-word;">{{ .CommonAnnotations.alarm_type }}</div>
+      <div style="margin-top:8px;"><span style="display:inline-block;padding:3px 9px;border-radius:4px;font-size:12px;line-height:20px;font-weight:600;{{ if or (eq .CommonAnnotations.alarm_level_code "HIGH") (eq .CommonAnnotations.alarm_level_code "CRITICAL") }}background:#fce8e4;color:#a33226;{{ else }}background:#f5ecd8;color:#815b19;{{ end }}">告警等级 · {{ .CommonAnnotations.alarm_level }}</span></div>
+      <div style="margin-top:12px;font-size:13px;line-height:22px;color:#78716c;">本次上报时间<br><span style="color:#44403c;">{{ .CommonAnnotations.occurred_at }}（北京时间）</span></div>
+    </td></tr>
+  </table>
+  <h2 style="margin:24px 0 10px;font-size:14px;line-height:22px;font-weight:650;color:#57534e;">告警内容</h2>
+  <div style="font-size:15px;line-height:26px;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ if .CommonAnnotations.alarm_content }}{{ .CommonAnnotations.alarm_content }}{{ else }}设备上报了{{ .CommonAnnotations.alarm_type }}，请结合现场情况核查。{{ end }}</div>
+{{ if or .CommonAnnotations.component_name .CommonAnnotations.component_location .CommonAnnotations.building .CommonAnnotations.area .CommonAnnotations.rule_name }}
+  <h2 style="margin:24px 0 10px;font-size:14px;line-height:22px;font-weight:650;color:#57534e;">位置与来源</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-size:13px;line-height:22px;table-layout:fixed;">
+    {{ with .CommonAnnotations.component_name }}<tr><td width="72" valign="top" style="padding:6px 0;color:#78716c;">部件</td><td style="padding:6px 0;word-break:break-all;">{{ . }}</td></tr>{{ end }}
+    {{ with .CommonAnnotations.component_location }}<tr><td width="72" valign="top" style="padding:6px 0;color:#78716c;">部件位置</td><td style="padding:6px 0;word-break:break-all;">{{ . }}</td></tr>{{ end }}
+    {{ with .CommonAnnotations.building }}<tr><td width="72" valign="top" style="padding:6px 0;color:#78716c;">建筑</td><td style="padding:6px 0;word-break:break-all;">{{ . }}</td></tr>{{ end }}
+    {{ with .CommonAnnotations.area }}<tr><td width="72" valign="top" style="padding:6px 0;color:#78716c;">区域</td><td style="padding:6px 0;word-break:break-all;">{{ . }}</td></tr>{{ end }}
+    {{ with .CommonAnnotations.rule_name }}<tr><td width="72" valign="top" style="padding:6px 0;color:#78716c;">触发规则</td><td style="padding:6px 0;word-break:break-all;">{{ . }}</td></tr>{{ end }}
+  </table>
+{{ end }}
+  <div style="margin-top:24px;padding:14px 16px;background:#f6f5f2;border-left:3px solid #c6b6a5;font-size:13px;line-height:23px;color:#62584f;">请前往平台「告警中心」核查并处理。<br>本邮件对应一次报警上报，最新确认、恢复及关闭状态以平台记录为准。</div>
+  <h2 style="margin:24px 0 10px;font-size:12px;line-height:20px;font-weight:600;color:#8c8177;">记录信息</h2>
+  <div style="font-size:11px;line-height:20px;color:#8c8177;word-break:break-all;">设备编号：{{ .CommonAnnotations.device_id }}<br>告警编号：{{ .CommonLabels.alarm_id }}<br>报文编号：{{ .CommonLabels.trigger_id }}<br>租户：{{ .CommonLabels.tenant_id }}</div>
+{{ else }}
+  <h1 style="margin:0 0 16px;font-size:24px;line-height:34px;font-weight:700;word-break:break-word;">{{ .CommonAnnotations.summary }}</h1>
+  <div style="padding:18px;background:#faf7f3;border:1px solid #ede6dd;border-radius:8px;font-size:14px;line-height:25px;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;">{{ .CommonAnnotations.description }}</div>
+{{ end }}
+</td></tr>
+<tr><td style="padding:16px 24px;background:#fcfbf9;border-top:1px solid #eee9e2;font-size:11px;line-height:20px;color:#93867b;">炬联 · 消防 IoT 平台<br>此邮件由系统自动发送，无需回复。</td></tr>
+</table>
+</td></tr></table>
+</body></html>

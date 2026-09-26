@@ -24,6 +24,7 @@ import (
 // cannot edit are exposed read-only instead of being rewritten lossy.
 
 const testLabel = "torchlink_test_receiver"
+const testIDLabel = "torchlink_test_id"
 
 var supportedRouteKeys = map[string]bool{"receiver": true, "group_by": true, "continue": true, "match": true, "match_re": true, "matchers": true, "group_wait": true, "group_interval": true, "repeat_interval": true, "mute_time_intervals": true, "routes": true}
 
@@ -200,7 +201,7 @@ func routeModel(node *yaml.Node, unsupported map[string]bool) model.OpsRoute {
 	if routes := mapGet(node, "routes"); routes != nil && routes.Kind == yaml.SequenceNode {
 		for _, child := range routes.Content {
 			var decoded amRoute
-			if child.Decode(&decoded) == nil && isTestRoute(decoded) {
+			if child.Decode(&decoded) == nil && isManagedNotificationRoute(decoded) {
 				continue
 			}
 			out.Routes = append(out.Routes, routeModel(child, unsupported))
@@ -294,11 +295,15 @@ func (s *Service) NotificationConfig(ctx context.Context) (model.OpsNotification
 	}
 	unsupported := map[string]bool{}
 	out := model.OpsNotificationConfig{Revision: file.Revision, Writable: true, Route: routeModel(mapGet(root, "route"), unsupported), Receivers: []model.OpsReceiver{}, UpdatedBy: headerValue(file.Content, "updated-by")}
+	out.DeviceAlarmReceiver, out.DeviceAlarmSince = deviceNotificationRoute(mapGet(root, "route"))
 	if t, err := time.Parse(time.RFC3339Nano, headerValue(file.Content, "updated-at")); err == nil {
 		out.UpdatedAt = t.UnixMilli()
 	}
 	if receivers := mapGet(root, "receivers"); receivers != nil {
 		for _, r := range receivers.Content {
+			if name := mapGet(r, "name"); name != nil && name.Value == deviceDiscardReceiver {
+				continue
+			}
 			out.Receivers = append(out.Receivers, receiverModel(r))
 		}
 	}
@@ -364,6 +369,9 @@ func (s *Service) SaveNotificationConfig(ctx context.Context, in model.OpsNotifi
 		if r.Name == "" || len([]rune(r.Name)) > 100 || strings.ContainsAny(r.Name, "\n\r") {
 			return model.OpsNotificationConfig{}, invalid(field+".name", "接收人名称为 1～100 个字符")
 		}
+		if r.Name == deviceDiscardReceiver {
+			return model.OpsNotificationConfig{}, invalid(field+".name", "此名称由设备通知保留")
+		}
 		if names[r.Name] {
 			return model.OpsNotificationConfig{}, invalid(field+".name", "接收人名称重复：%s", r.Name)
 		}
@@ -397,7 +405,10 @@ func (s *Service) SaveNotificationConfig(ctx context.Context, in model.OpsNotifi
 		if err := validateRoute("route", current.Route, names, true); err != nil {
 			return model.OpsNotificationConfig{}, invalid("receivers", "路由由部署配置维护且仍引用了接收人：%s", err.Error())
 		}
-		stripTestRoutes(routeNode)
+		stripManagedNotificationRoutes(routeNode)
+	}
+	if err := configureDeviceNotifications(routeNode, receiversNode, in, current, s.now()); err != nil {
+		return model.OpsNotificationConfig{}, err
 	}
 	injectTestRoutes(routeNode, names)
 	mapSet(root, "route", routeNode)
@@ -595,8 +606,8 @@ func validateRoute(field string, r model.OpsRoute, receivers map[string]bool, to
 		if err := op.validate(); err != nil {
 			return err
 		}
-		if m.Name == testLabel {
-			return invalid(field+".matchers", "标签 %s 由测试通知保留", testLabel)
+		if m.Name == testLabel || m.Name == testIDLabel || m.Name == deviceNotificationLabel {
+			return invalid(field+".matchers", "标签 %s 由平台通知保留", m.Name)
 		}
 	}
 	for _, label := range r.GroupBy {
@@ -661,7 +672,7 @@ func buildRoute(r model.OpsRoute) *yaml.Node {
 	return node
 }
 
-func stripTestRoutes(route *yaml.Node) {
+func stripManagedNotificationRoutes(route *yaml.Node) {
 	routes := mapGet(route, "routes")
 	if routes == nil {
 		return
@@ -669,7 +680,7 @@ func stripTestRoutes(route *yaml.Node) {
 	kept := routes.Content[:0]
 	for _, child := range routes.Content {
 		var decoded amRoute
-		if child.Decode(&decoded) == nil && isTestRoute(decoded) {
+		if child.Decode(&decoded) == nil && isManagedNotificationRoute(decoded) {
 			continue
 		}
 		kept = append(kept, child)
@@ -687,7 +698,7 @@ func injectTestRoutes(route *yaml.Node, receivers map[string]bool) {
 	sort.Strings(names)
 	tests := []*yaml.Node{}
 	for _, name := range names {
-		tests = append(tests, buildRoute(model.OpsRoute{Receiver: name, Matchers: []model.OpsMatcher{{Name: testLabel, Value: name, IsEqual: true}}, GroupBy: []string{"alertname", testLabel}, GroupWait: "1s", GroupInterval: "1m", RepeatInterval: "24h"}))
+		tests = append(tests, buildRoute(model.OpsRoute{Receiver: name, Matchers: []model.OpsMatcher{{Name: testLabel, Value: name, IsEqual: true}}, GroupBy: []string{"alertname", testLabel, testIDLabel}, GroupWait: "1s", GroupInterval: "1m", RepeatInterval: "24h"}))
 	}
 	routes := mapGet(route, "routes")
 	if routes == nil {
@@ -733,16 +744,20 @@ func (s *Service) TestReceiver(ctx context.Context, name, actor string) error {
 		for _, child := range routes.Content {
 			var decoded amRoute
 			if child.Decode(&decoded) == nil && decoded.Receiver == name && isTestRoute(decoded) {
-				hasRoute = true
+				for _, label := range decoded.GroupBy {
+					if label == testIDLabel || label == "..." {
+						hasRoute = true
+					}
+				}
 			}
 		}
 	}
 	if !hasRoute {
-		return invalid("receiver", "测试路由尚未生成，请先在平台中保存一次通知配置")
+		return invalid("receiver", "测试路由尚未生成或需要更新，请先在平台中保存一次通知配置")
 	}
 	now := s.now().UTC()
 	return s.Alerts.PostAlerts(ctx, []map[string]any{{
-		"labels":      map[string]string{"alertname": "TorchLinkNotificationTest", testLabel: name, "severity": "info"},
+		"labels":      map[string]string{"alertname": "TorchLinkNotificationTest", testLabel: name, testIDLabel: randomID(), "severity": "info"},
 		"annotations": map[string]string{"summary": "炬联运维中心通知测试", "description": "由 " + actor + " 于 " + now.Format(time.RFC3339) + " 发起，仅用于验证通知渠道，可忽略。"},
 		"startsAt":    now.Format(time.RFC3339),
 		"endsAt":      now.Add(5 * time.Minute).Format(time.RFC3339),

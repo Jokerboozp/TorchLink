@@ -38,6 +38,7 @@ import ( /* 引入当前代码需要的依赖。 */
 	"iot-platform/internal/protocolruntime"                       /* 执行当前语句并推进处理流程。 */
 
 	"iot-platform/internal/adapters/observability"
+	"iot-platform/internal/opscenter"
 ) /* 结束当前表达式或代码块。 */
 
 func Run(forcedRole string) { /* 定义 Run 函数。 */
@@ -303,6 +304,11 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	} else { /* 结束当前表达式或代码块。 */
 		engine.KB = knowledge.NewLocal() /* 更新 engine.KB 的值。 */
 	} /* 结束当前表达式或代码块。 */
+	var opsService *opscenter.Service
+	if cfg.ProcessRole != "gateway" {
+		opsService = newOpsCenter(cfg, opsPrefs, log)
+		fatal(log, "start device alarm notifications", opsService.StartDeviceNotifications(ctx, bus, filepath.Join(cfg.DataDir, "ops-state", "device-notifications")))
+	}
 	if cfg.ProcessRole != "gateway" { /* 判断条件并选择处理分支。 */
 		fatal(log, "start engine", engine.Start(ctx)) /* 执行当前语句并推进处理流程。 */
 	} /* 结束当前表达式或代码块。 */
@@ -377,7 +383,7 @@ func Run(forcedRole string) { /* 定义 Run 函数。 */
 	} /* 结束当前表达式或代码块。 */
 	api.SetProtocolListeners(protocolListeners) /* 执行当前语句并推进处理流程。 */
 	if cfg.ProcessRole != "gateway" {
-		api.SetOpsCenter(newOpsCenter(cfg, opsPrefs, log))
+		api.SetOpsCenter(opsService)
 	}
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute} /* 更新 server 的值。 */
 	if cfg.ProcessRole != "gateway" {                                                                                                                                                                    /* 判断条件并选择处理分支。 */

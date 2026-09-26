@@ -22,6 +22,7 @@ const ( /* 执行当前语句并推进处理流程。 */
 	TopicEventReport     = "iot.event.report"      /* 更新 TopicEventReport 的值。 */
 	TopicDeviceState     = "iot.device.state"      /* 更新 TopicDeviceState 的值。 */
 	TopicVideoAlarm      = "iot.video.alarm"       /* 更新 TopicVideoAlarm 的值。 */
+	TopicAlarmReported   = "iot.alarm.reported"    // Every accepted alarm report, including repeated active alarms.
 	TopicAlarmRaised     = "iot.alarm.raised"      /* 更新 TopicAlarmRaised 的值。 */
 	TopicAlarmRecovered  = "iot.alarm.recovered"   /* 更新 TopicAlarmRecovered 的值。 */
 	TopicAlarmConfirmed  = "iot.alarm.confirmed"   /* 更新 TopicAlarmConfirmed 的值。 */

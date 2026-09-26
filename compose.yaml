@@ -227,7 +227,7 @@ services:
     entrypoint: ["/bin/bash", "-ec"]
     command:
       - |
-        for topic in iot.raw.message iot.parse.failed iot.parsed.message iot.property.report iot.event.report iot.device.state iot.video.alarm iot.alarm.raised iot.alarm.recovered iot.alarm.confirmed iot.alarm.ai-analysis iot.ui-action iot.replay.request; do
+        for topic in iot.raw.message iot.parse.failed iot.parsed.message iot.property.report iot.event.report iot.device.state iot.video.alarm iot.alarm.raised iot.alarm.reported iot.alarm.recovered iot.alarm.confirmed iot.alarm.ai-analysis iot.ui-action iot.replay.request; do
           rpk -X brokers=redpanda:9092 topic create "$$topic" --partitions 12 --replicas 1 || true
         done
     networks: [iot]
