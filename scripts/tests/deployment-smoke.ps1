@@ -167,7 +167,10 @@ try {
 
     $global:IotTest_calls.Clear()
     $bundleParent = Join-Path $testRoot 'bundles'
-    & (Join-Path $scripts 'package-offline-windows.ps1') -OutputDir $bundleParent
+    # Exercise Windows wrappers on Windows; PowerShell Core also runs on Linux CI.
+    $packageEntry = if ($env:OS -eq 'Windows_NT') { 'package-offline-windows.ps1' } else { 'package-offline.ps1' }
+    $deployEntry = if ($env:OS -eq 'Windows_NT') { 'deploy-offline-windows.ps1' } else { 'deploy-offline.ps1' }
+    & (Join-Path $scripts $packageEntry) -OutputDir $bundleParent
     $bundle = @(Get-ChildItem -LiteralPath $bundleParent -Directory)[0].FullName
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
@@ -189,7 +192,7 @@ try {
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'deepseek-official') 'Offline Harness does not use DeepSeek'
     $bundleHash = (Get-FileHash (Join-Path $bundle '.env.offline')).Hash
     $global:IotTest_calls.Clear()
-    & (Join-Path $scripts 'deploy-offline-windows.ps1') -BundleDir $bundle
+    & (Join-Path $scripts $deployEntry) -BundleDir $bundle
     & (Join-Path $scripts 'deploy-offline.ps1') -BundleDir $bundle
     Assert ((Get-FileHash (Join-Path $bundle '.env.offline')).Hash -eq $bundleHash) 'Offline deploy rewrote credentials'
     Assert (Contains-Call 'up -d --no-build --pull never') 'Offline up may build or pull'
@@ -212,7 +215,7 @@ try {
     $global:IotTest_calls.Clear()
     & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'existing-config') -EnvFile $onlineEnv
     Assert (-not (Contains-Call 'ollama pull qwen')) 'Deployment attempted a Qwen model download'
-    Write-Host 'PASS offline: complete default bundle, Windows parameter forwarding, no network, repeatability, missing/corrupt archives'
+    Write-Host 'PASS offline: complete default bundle, host entry points, no network, repeatability, missing/corrupt archives'
     Write-Host 'Deployment smoke tests PASS (Docker operations mocked; Compose parsing real).'
 } finally {
     foreach ($key in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($key, $savedEnv[$key], 'Process') }
