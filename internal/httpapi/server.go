@@ -845,14 +845,19 @@ func (s *Server) ingestRaw(w http.ResponseWriter, r *http.Request) { /* 定义 i
 	write(w, map[bool]int{true: 201, false: 200}[created], map[string]any{"created": created, "archive": idx}) /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) { /* 定义 listRaw 函数。 */
-	c := claims(r)                                                                                                                                                                                                         /* 更新 c 的值。 */
-	q := r.URL.Query()                                                                                                                                                                                                     /* 更新 q 的值。 */
-	pagination := parseListPagination(r)                                                                                                                                                                                   /* 更新 pagination 的值。 */
-	filter := ports.RawFilter{TenantID: c.TenantID, ProductID: q.Get("productId"), DeviceID: q.Get("deviceId"), Start: i64(q.Get("start")), End: i64(q.Get("end")), Limit: pagination.PageSize, Offset: pagination.Offset} /* 更新 filter 的值。 */
-	var items []model.RawArchiveIndex                                                                                                                                                                                      /* 声明 items。 */
-	var total int                                                                                                                                                                                                          /* 声明 total。 */
-	var err error                                                                                                                                                                                                          /* 声明 err。 */
-	if limited(r.Context()) {                                                                                                                                                                                              /* 判断条件并选择处理分支。 */
+	c := claims(r)                       /* 更新 c 的值。 */
+	q := r.URL.Query()                   /* 更新 q 的值。 */
+	pagination := parseListPagination(r) /* 更新 pagination 的值。 */
+	filter, filterErr := parseRawFilter(q)
+	if filterErr != nil {
+		problem(w, http.StatusBadRequest, filterErr.Error())
+		return
+	}
+	filter.TenantID, filter.Limit, filter.Offset = c.TenantID, pagination.PageSize, pagination.Offset
+	var items []model.RawArchiveIndex /* 声明 items。 */
+	var total int                     /* 声明 total。 */
+	var err error                     /* 声明 err。 */
+	if limited(r.Context()) {         /* 判断条件并选择处理分支。 */
 		all, scanErr := s.engine.Repo.(*deviceScopeRepository).scopedRaw(r.Context(), filter) /* 更新 scanErr 的值。 */
 		err = scanErr                                                                         /* 更新 err 的值。 */
 		if err == nil {                                                                       /* 判断条件并选择处理分支。 */

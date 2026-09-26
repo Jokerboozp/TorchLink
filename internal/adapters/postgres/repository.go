@@ -544,13 +544,16 @@ func (r *Repository) GetRawIndex(ctx context.Context, tenant, messageID string) 
 	return v, err /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]model.RawArchiveIndex, error) { /* 定义 ListRawIndexes 函数。 */
-	q := `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE ($1='' OR tenant_id=$1) AND ($2='' OR product_id=$2) AND ($3='' OR device_id=$3) AND ($4::bigint=0 OR received_at >= $4) AND ($5::bigint=0 OR received_at <= $5) ORDER BY received_at DESC LIMIT $6 OFFSET $7` /* 更新 q 的值。 */
-	limit := f.Limit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    /* 更新 limit 的值。 */
-	if limit <= 0 {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     /* 判断条件并选择处理分支。 */
+	from, args := rawFilterSQL(f)
+	q := `SELECT r.message_id,r.tenant_id,r.product_id,r.device_id,r.protocol,r.payload_format,r.object_bucket,r.object_key,r.object_offset,r.payload_hash,r.payload_size,r.received_at,r.archived_at,r.published_at,r.publish_attempts,r.last_publish_error,r.parse_attempted_at,r.parse_error FROM ` + from
+	limit := f.Limit /* 更新 limit 的值。 */
+	if limit <= 0 {  /* 判断条件并选择处理分支。 */
 		limit = 100 /* 更新 limit 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	rows, err := r.pool.Query(ctx, q, f.TenantID, f.ProductID, f.DeviceID, f.Start, f.End, limit, f.Offset) /* 更新 err 的值。 */
-	if err != nil {                                                                                         /* 判断条件并选择处理分支。 */
+	args = append(args, limit, f.Offset)
+	q += fmt.Sprintf(" ORDER BY r.received_at DESC,r.message_id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	rows, err := r.pool.Query(ctx, q, args...) /* 更新 err 的值。 */
+	if err != nil {                            /* 判断条件并选择处理分支。 */
 		return nil, err /* 返回当前处理结果。 */
 	} /* 结束当前表达式或代码块。 */
 	defer rows.Close()               /* 安排函数结束时执行清理。 */
@@ -564,11 +567,13 @@ func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]m
 	} /* 结束当前表达式或代码块。 */
 	return out, rows.Err() /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
-func (r *Repository) CountRawIndexes(ctx context.Context, f ports.RawFilter) (int, error) { /* 定义 CountRawIndexes 函数。 */
-	var total int                                                                                                                                                                                                                                                                                                  /* 声明 total。 */
-	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM raw_archive_index WHERE ($1='' OR tenant_id=$1) AND ($2='' OR product_id=$2) AND ($3='' OR device_id=$3) AND ($4::bigint=0 OR received_at >= $4) AND ($5::bigint=0 OR received_at <= $5)`, f.TenantID, f.ProductID, f.DeviceID, f.Start, f.End).Scan(&total) /* 更新 err 的值。 */
-	return total, err                                                                                                                                                                                                                                                                                              /* 返回当前处理结果。 */
-} /* 结束当前表达式或代码块。 */
+func (r *Repository) CountRawIndexes(ctx context.Context, f ports.RawFilter) (int, error) {
+	from, args := rawFilterSQL(f)
+	var total int
+	err := r.pool.QueryRow(ctx, "SELECT count(*) FROM "+from, args...).Scan(&total)
+	return total, err
+}
+
 func (r *Repository) SaveStandardMessage(ctx context.Context, v model.StandardMessage) error { /* 定义 SaveStandardMessage 函数。 */
 	_, err := r.SaveStandardMessageIfAbsent(ctx, v) /* 更新 err 的值。 */
 	return err                                      /* 返回当前处理结果。 */

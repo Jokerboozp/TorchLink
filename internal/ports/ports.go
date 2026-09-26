@@ -9,9 +9,10 @@ import ( /* 引入当前代码需要的依赖。 */
 ) /* 结束当前表达式或代码块。 */
 
 type RawFilter struct { /* 定义 RawFilter 类型。 */
-	TenantID, ProductID, DeviceID string /* 执行当前语句并推进处理流程。 */
-	Start, End                    int64  /* 执行当前语句并推进处理流程。 */
-	Limit, Offset                 int    /* 执行当前语句并推进处理流程。 */
+	TenantID, ProductID, DeviceID                                        string /* 执行当前语句并推进处理流程。 */
+	MessageID, Protocol, PayloadFormat, ParseStatus, MessageType, Parser string
+	Start, End                                                           int64 /* 执行当前语句并推进处理流程。 */
+	Limit, Offset                                                        int   /* 执行当前语句并推进处理流程。 */
 } /* 结束当前表达式或代码块。 */
 
 type AlarmFilter struct { /* 定义 AlarmFilter 类型。 */

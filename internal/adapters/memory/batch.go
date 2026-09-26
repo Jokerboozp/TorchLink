@@ -48,7 +48,7 @@ func (r *Repository) GetStandardMessagesByRawIDs(_ context.Context, tenant strin
 		if value.TenantID != tenant || !wanted[value.RawMessageID] { /* 判断条件并选择处理分支。 */
 			continue /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
-		if previous, ok := out[value.RawMessageID]; !ok || value.Timestamp > previous.Timestamp { /* 判断条件并选择处理分支。 */
+		if previous, ok := out[value.RawMessageID]; !ok || value.Timestamp > previous.Timestamp || value.Timestamp == previous.Timestamp && value.MessageID > previous.MessageID { /* 判断条件并选择处理分支。 */
 			out[value.RawMessageID] = clone(value) /* 更新 out[value.RawMessageID] 的值。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */

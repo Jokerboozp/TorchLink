@@ -90,7 +90,7 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) { /* 定义 TestDeviceScopeHTTPI
 			t.Fatal("ungranted device returned") /* 验证实际结果符合预期。 */
 		} /* 结束当前表达式或代码块。 */
 	} /* 结束当前表达式或代码块。 */
-	for _, path := range []string{"/api/v1/alarms", "/api/v1/raw-messages", "/api/v1/devices"} { /* 循环处理当前数据。 */
+	for _, path := range []string{"/api/v1/alarms", "/api/v1/raw-messages", "/api/v1/raw-messages?parseStatus=UNPARSED", "/api/v1/devices"} { /* 循环处理当前数据。 */
 		v := req("GET", path, token, nil, 200) /* 更新 v 的值。 */
 		if v["total"].(float64) != 23 {        /* 判断条件并选择处理分支。 */
 			t.Fatalf("%s total=%v", path, v["total"]) /* 验证实际结果符合预期。 */

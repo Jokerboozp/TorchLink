@@ -411,24 +411,31 @@ func (r *Repository) GetRawIndex(_ context.Context, tenant, messageID string) (m
 	return v, nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) ListRawIndexes(_ context.Context, f ports.RawFilter) ([]model.RawArchiveIndex, error) { /* 定义 ListRawIndexes 函数。 */
-	r.mu.RLock()                            /* 执行当前语句并推进处理流程。 */
-	defer r.mu.RUnlock()                    /* 安排函数结束时执行清理。 */
+	r.mu.RLock()         /* 执行当前语句并推进处理流程。 */
+	defer r.mu.RUnlock() /* 安排函数结束时执行清理。 */
+	standards := r.rawFilterStandards(f)
 	out := make([]model.RawArchiveIndex, 0) /* 更新 out 的值。 */
 	for _, v := range r.raw {               /* 循环处理当前数据。 */
-		if f.TenantID != "" && v.TenantID != f.TenantID || f.ProductID != "" && v.ProductID != f.ProductID || f.DeviceID != "" && v.DeviceID != f.DeviceID || f.Start > 0 && v.ReceivedAt < f.Start || f.End > 0 && v.ReceivedAt > f.End { /* 判断条件并选择处理分支。 */
+		if !matchesRawFilter(v, standards[key(v.TenantID, v.MessageID)], f) { /* 判断条件并选择处理分支。 */
 			continue /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 		out = append(out, v) /* 更新 out 的值。 */
 	} /* 结束当前表达式或代码块。 */
-	sort.Slice(out, func(i, j int) bool { return out[i].ReceivedAt > out[j].ReceivedAt }) /* 执行当前语句并推进处理流程。 */
-	return page(out, f.Offset, f.Limit), nil                                              /* 返回当前处理结果。 */
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ReceivedAt == out[j].ReceivedAt {
+			return out[i].MessageID > out[j].MessageID
+		}
+		return out[i].ReceivedAt > out[j].ReceivedAt
+	}) /* 执行当前语句并推进处理流程。 */
+	return page(out, f.Offset, f.Limit), nil /* 返回当前处理结果。 */
 } /* 结束当前表达式或代码块。 */
 func (r *Repository) CountRawIndexes(_ context.Context, f ports.RawFilter) (int, error) { /* 定义 CountRawIndexes 函数。 */
-	r.mu.RLock()              /* 执行当前语句并推进处理流程。 */
-	defer r.mu.RUnlock()      /* 安排函数结束时执行清理。 */
+	r.mu.RLock()         /* 执行当前语句并推进处理流程。 */
+	defer r.mu.RUnlock() /* 安排函数结束时执行清理。 */
+	standards := r.rawFilterStandards(f)
 	count := 0                /* 更新 count 的值。 */
 	for _, v := range r.raw { /* 循环处理当前数据。 */
-		if f.TenantID != "" && v.TenantID != f.TenantID || f.ProductID != "" && v.ProductID != f.ProductID || f.DeviceID != "" && v.DeviceID != f.DeviceID || f.Start > 0 && v.ReceivedAt < f.Start || f.End > 0 && v.ReceivedAt > f.End { /* 判断条件并选择处理分支。 */
+		if !matchesRawFilter(v, standards[key(v.TenantID, v.MessageID)], f) { /* 判断条件并选择处理分支。 */
 			continue /* 执行当前语句并推进处理流程。 */
 		} /* 结束当前表达式或代码块。 */
 		count++ /* 执行当前语句并推进处理流程。 */
