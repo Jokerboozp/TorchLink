@@ -41,7 +41,9 @@ func (b *Bus) consume(ctx context.Context, source messageSource, topic, group st
 		go func(queue <-chan kafka.Message) {
 			defer workers.Done()
 			for m := range queue {
-				if !b.handle(ctx, topic, group, h, m) {
+				settled := b.handle(ctx, topic, group, h, m)
+				b.finishedMessage(group)
+				if !settled {
 					return
 				}
 				tracker.finish(m)
@@ -80,9 +82,11 @@ func (b *Bus) consume(ctx context.Context, source messageSource, topic, group st
 			break
 		}
 		tracker.start(m)
+		b.startedMessage(group)
 		select {
 		case queues[laneFor(m, lanes)] <- m:
 		case <-ctx.Done():
+			b.finishedMessage(group)
 		}
 		if ctx.Err() != nil {
 			break

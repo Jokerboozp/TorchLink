@@ -175,7 +175,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | 运维中心显示“未配置”或规则、通知只能查看 | API 环境中的 `IOT_OPS_*` 地址与受管文件路径；其他账号还需所在租户列入 `IOT_OPS_TENANTS`，见 [运维中心](OPS_CENTER.md#配置) |
 | 保存规则提示“未确认加载，已恢复” | Prometheus 是否带 `auto-reload-config`、Loki ruler 轮询间隔，以及 API 与组件是否挂载同一规则目录 |
 
-API `/health/live` 检查进程存活，`/health/ready` 检查已配置的存储、消息和知识库依赖。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。
+API `/health/live` 只检查进程存活，依赖故障时仍返回 200，避免编排器因依赖抖动重启 API；`/health/ready` 检查已配置的存储、消息和知识库依赖（每项 3 秒超时，响应过慢即判失败），并在 Kafka 消费者读取失败正在重建，或某消费组有报文在处理却 2 分钟没有任何报文完成时返回失败。负载均衡与告警应以 `/health/ready` 为准。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。
 
 维护部署脚本时，可运行 `scripts/tests/deployment-smoke.ps1 -ComposeExe <独立Compose程序路径>` 或 `bash scripts/tests/deployment-smoke.sh <独立Compose程序路径>`。它们使用真实 Compose 解析配置，模拟 Docker 和 HTTP 操作，检查一键流程与失败分支，不会启动服务。
 

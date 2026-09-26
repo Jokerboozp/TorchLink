@@ -28,6 +28,10 @@ type Bus struct {
 	log            *slog.Logger
 	// newSource creates a subscription reader; tests replace it.
 	newSource func(topic, group string) messageSource
+	// progress tracks, per consumer group, messages in flight and the last
+	// completion, so Health can report a consumer that stopped finishing work.
+	progress map[string]*groupProgress
+	now      func() time.Time
 	// lanes and topicLanes bound the parallel handlers of each subscription.
 	lanes      int
 	topicLanes map[string]int
@@ -36,7 +40,7 @@ type Bus struct {
 }
 
 func New(brokers []string) *Bus {
-	b := &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}}
+	b := &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}, progress: map[string]*groupProgress{}, now: time.Now}
 	b.newSource = func(topic, group string) messageSource {
 		return kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0})
 	}
@@ -78,6 +82,39 @@ func (b *Bus) setConsumerError(group string, err error) {
 	}
 	if !b.closed {
 		b.consumerErrors[group] = err
+	}
+}
+
+// consumerStallAfter is how long fetched messages may wait without any of the
+// group's messages finishing before Health reports the group as stalled.
+const consumerStallAfter = 2 * time.Minute
+
+type groupProgress struct {
+	inFlight int64
+	lastDone time.Time
+}
+
+func (b *Bus) startedMessage(group string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	p := b.progress[group]
+	if p == nil {
+		p = &groupProgress{lastDone: b.now()}
+		b.progress[group] = p
+	}
+	if p.inFlight == 0 {
+		// Idle time before this message is not a stall.
+		p.lastDone = b.now()
+	}
+	p.inFlight++
+}
+
+func (b *Bus) finishedMessage(group string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if p := b.progress[group]; p != nil {
+		p.inFlight--
+		p.lastDone = b.now()
 	}
 }
 
@@ -173,10 +210,16 @@ func (b *Bus) Health(ctx context.Context) error {
 	for group, err := range b.consumerErrors {
 		failed = append(failed, group+": "+err.Error())
 	}
+	now := b.now()
+	for group, p := range b.progress {
+		if p.inFlight > 0 && now.Sub(p.lastDone) > consumerStallAfter {
+			failed = append(failed, fmt.Sprintf("%s: %d messages without progress for %s", group, p.inFlight, now.Sub(p.lastDone).Round(time.Second)))
+		}
+	}
 	b.mu.Unlock()
 	if len(failed) > 0 {
 		sort.Strings(failed)
-		return fmt.Errorf("kafka consumer restarting: %s", strings.Join(failed, "; "))
+		return fmt.Errorf("kafka consumer unhealthy: %s", strings.Join(failed, "; "))
 	}
 	conn, err := kafka.DialContext(ctx, "tcp", b.brokers[0])
 	if err != nil {

@@ -238,3 +238,31 @@ func TestSupervisorReplacesFailedReader(t *testing.T) {
 		t.Fatalf("readers created: %d", created.Load())
 	}
 }
+
+// A consumer whose handler stops finishing messages is reported by Health,
+// while an idle consumer is not.
+func TestHealthReportsStalledConsumer(t *testing.T) {
+	now := time.Unix(1000, 0)
+	bus := New([]string{"unused:9092"})
+	bus.now = func() time.Time { return now }
+	bus.startedMessage("g")
+	now = now.Add(consumerStallAfter + time.Second)
+	bus.mu.Lock()
+	p := bus.progress["g"]
+	stalled := p.inFlight > 0 && now.Sub(p.lastDone) > consumerStallAfter
+	bus.mu.Unlock()
+	if !stalled {
+		t.Fatal("pending work without progress must count as stalled")
+	}
+	if err := bus.Health(context.Background()); err == nil || !strings.Contains(err.Error(), "without progress") {
+		t.Fatalf("Health must report the stall, got %v", err)
+	}
+	bus.finishedMessage("g")
+	now = now.Add(time.Hour)
+	bus.mu.Lock()
+	idle := bus.progress["g"].inFlight == 0
+	bus.mu.Unlock()
+	if !idle {
+		t.Fatal("finished work must leave the group idle")
+	}
+}
