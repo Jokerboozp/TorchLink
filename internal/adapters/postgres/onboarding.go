@@ -13,9 +13,13 @@ func (r *Repository) SaveOnboarding(ctx context.Context, b model.OnboardingBundl
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Serialize onboarding across replicas, including listener port reservation.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(728194601)`); err != nil {
-		return err
+	// Only reserving a listener port needs serializing, across tenants and
+	// replicas; other rows are guarded by their keys, so plain device
+	// enrollment runs in parallel.
+	if v := b.Profile; v != nil && !b.ReuseProfile && v.ConnectionMode != "dial" && v.Mode == "listener" {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(728194601)`); err != nil {
+			return err
+		}
 	}
 	exec := func(sql string, args ...any) error { _, e := tx.Exec(ctx, sql, args...); return e }
 	body := func(v any) []byte { data, _ := json.Marshal(v); return data }
@@ -30,7 +34,9 @@ func (r *Repository) SaveOnboarding(ctx context.Context, b model.OnboardingBundl
 			return err
 		}
 	}
-	if err = tx.QueryRow(ctx, `SELECT status FROM iot_product WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, b.Device.TenantID, b.Device.ProductID).Scan(&status); err != nil {
+	// A shared lock keeps the product from being disabled until commit without
+	// serializing enrollments into the same product.
+	if err = tx.QueryRow(ctx, `SELECT status FROM iot_product WHERE tenant_id=$1 AND id=$2 FOR SHARE`, b.Device.TenantID, b.Device.ProductID).Scan(&status); err != nil {
 		return err
 	}
 	if status != "ENABLED" {
