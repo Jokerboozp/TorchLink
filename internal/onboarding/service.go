@@ -41,6 +41,7 @@ type Service struct {
 	AllowedCIDRs   []string
 	mu             sync.Mutex
 	rates          map[string]bucket
+	lastSweep      time.Time
 	ListenerStatus func(string, string) (string, string, int64)
 	MQTTHealth     func(context.Context) error
 }
@@ -79,6 +80,10 @@ func (s *Service) Authenticate(ctx context.Context, key, secret string) (model.M
 }
 func (s *Service) Allow(key string) bool { return s.AllowRate(key, 20) }
 
+// rateTableLimit bounds the keys tracked at once; keys expire with their
+// one-second window, so it limits distinct callers per second, not per minute.
+const rateTableLimit = 100000
+
 // AllowRate applies a per-process fixed one-second window of perSecond requests.
 func (s *Service) AllowRate(key string, perSecond int) bool {
 	s.mu.Lock()
@@ -91,13 +96,18 @@ func (s *Service) AllowRate(key string, perSecond int) bool {
 	if b.Count >= perSecond {
 		return false
 	}
-	if len(s.rates) >= 10000 {
-		for k, v := range s.rates {
-			if now.Sub(v.At) > time.Minute {
-				delete(s.rates, k)
+	if len(s.rates) >= rateTableLimit {
+		// A key whose one-second window has ended equals an absent key, so
+		// only keys active in the current second occupy the table.
+		if now.Sub(s.lastSweep) >= time.Second {
+			for k, v := range s.rates {
+				if now.Sub(v.At) >= time.Second {
+					delete(s.rates, k)
+				}
 			}
+			s.lastSweep = now
 		}
-		if _, ok := s.rates[key]; !ok && len(s.rates) >= 10000 {
+		if _, ok := s.rates[key]; !ok && len(s.rates) >= rateTableLimit {
 			return false
 		}
 	}

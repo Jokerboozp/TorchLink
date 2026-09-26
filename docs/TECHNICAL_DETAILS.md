@@ -169,7 +169,7 @@ RPM 依赖通过包内软件源按包名安装，保留签名校验和引导包�
 
 | 链路 | 限额与实现 |
 | --- | --- |
-| 标准 HTTP / MQTT 上报 | `internal/onboarding/service.go`：每设备每秒 20 条；进程限流表最多 10,000 个设备键，表满时只清理超过约 1 分钟未更新的键 |
+| 标准 HTTP / MQTT 上报 | `internal/onboarding/service.go`：每设备每秒 20 条；进程限流表最多 100,000 个键，表满时清理一秒窗口已结束的键（每秒最多清理一次），即每进程每秒最多限流 10 万个不同设备 |
 | 自定义 TCP 监听 | `internal/protocolruntime/listeners.go`：每个 Profile 最多 128 个会话，每进程 32 个 Worker 操作槽 |
 | MQTT 持久接收 | 每实例 50,000 条 / 1 GiB，均分 32 个分片，各分片并行落盘与处理；热点可先填满。平台会话在 EMQX 的队列上限 100,000 条，满则丢弃，保障见 [接收可靠性](DEVICE_RECEIVE_RELIABILITY.md) |
 
