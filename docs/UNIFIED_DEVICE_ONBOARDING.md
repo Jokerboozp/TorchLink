@@ -103,7 +103,7 @@ X-Device-Secret: <设备 Secret>
 
 成功返回 202、`messageId`、`created` 和 `status:ACCEPTED`，表示原始接收链路接受请求，异步解析和规则结果须继续查询。标准凭据不能通过旧 RawMessage 接口自选租户、Parser 或协议。
 
-同一租户、产品、设备、kind 和消息 ID 的重试须保持正文逐字节一致；HTTP/MQTT 重传使用同一原文 ID。不同正文返回 `409 MESSAGE_CONFLICT`，新的读数使用新 ID。每进程每设备上报限流为每秒 20 次，多副本不共享额度。
+同一租户、产品、设备、kind 和消息 ID 的重试须保持正文逐字节一致；HTTP/MQTT 重传使用同一原文 ID。不同正文返回 `409 MESSAGE_CONFLICT`，新的读数使用新 ID。每进程每设备上报限流为每秒 20 次，多副本不共享额度。平台解析与存储积压超过 `IOT_INGEST_MAX_BACKLOG`（默认 50000）时暂停接收新原文，HTTP 返回 `429 BACKPRESSURE` 与 `Retry-After`，积压降到 80% 以下恢复。
 
 ### MQTT 上报
 

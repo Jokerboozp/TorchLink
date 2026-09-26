@@ -123,6 +123,11 @@ func (s *Server) standardDeviceIngest(w http.ResponseWriter, r *http.Request) {
 	raw.RemoteAddress = r.RemoteAddr
 	idx, created, err := s.engine.IngestRaw(r.Context(), raw)
 	if err != nil {
+		if errors.Is(err, model.ErrBackpressure) {
+			w.Header().Set("Retry-After", "15")
+			fail(429, "BACKPRESSURE", err.Error())
+			return
+		}
 		if errors.Is(err, model.ErrRawConflict) {
 			fail(409, "MESSAGE_CONFLICT", err.Error())
 			return

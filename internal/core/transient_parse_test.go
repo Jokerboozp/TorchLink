@@ -39,3 +39,22 @@ func TestRepositoryOutageDuringParseIsRetriedNotMarkedFailed(t *testing.T) {
 		t.Fatalf("the raw message must not be marked as a parse failure, marked=%d", repo.marked)
 	}
 }
+
+// While paused by backpressure, ingest refuses new messages with a retryable
+// error and archives nothing; after resuming it accepts them again.
+func TestIngestPausedRefusesThenResumes(t *testing.T) {
+	repo := memory.NewRepository()
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
+	raw := model.RawMessage{MessageID: "raw-paused", TenantID: "tenant-a", ProductID: "sensor", DeviceID: "device-a", Protocol: "json", PayloadFormat: "json", Payload: json.RawMessage(`{"temperature":20}`)}
+	e.SetIngestPaused(true)
+	if _, _, err := e.IngestRaw(context.Background(), raw); !errors.Is(err, model.ErrBackpressure) {
+		t.Fatalf("paused ingest must return ErrBackpressure, got %v", err)
+	}
+	if _, err := repo.GetRawIndex(context.Background(), raw.TenantID, raw.MessageID); err == nil {
+		t.Fatal("a refused message must not be archived")
+	}
+	e.SetIngestPaused(false)
+	if _, _, err := e.IngestRaw(context.Background(), raw); errors.Is(err, model.ErrBackpressure) {
+		t.Fatalf("resumed ingest must not refuse: %v", err)
+	}
+}

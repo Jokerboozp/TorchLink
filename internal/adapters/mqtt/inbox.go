@@ -225,7 +225,11 @@ func (d *durableInbox) start(c *Client) {
 				d.pending[index] = err
 				d.mu.Unlock()
 				if err != nil {
-					c.logger().Warn("MQTT receive remains pending", "messageId", raw.MessageID, "error", err)
+					// Backpressure is expected and brief; keep the record without
+					// logging each retry of every shard.
+					if !errors.Is(err, model.ErrBackpressure) {
+						c.logger().Warn("MQTT receive remains pending", "messageId", raw.MessageID, "error", err)
+					}
 					if !c.pause(time.Second) {
 						return
 					}

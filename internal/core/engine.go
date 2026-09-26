@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"iot-platform/internal/model"
@@ -45,6 +46,7 @@ type Engine struct {
 	Metrics                   interface{ Inc(string) }
 	VideoMediaAllowedHosts    []string
 	RequireVideoCameraMapping bool
+	ingestPaused              atomic.Bool
 }
 
 func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realtime ports.RealtimePublisher, parsers *parser.Registry, log *slog.Logger) *Engine {
@@ -77,7 +79,15 @@ func (e *Engine) Start(ctx context.Context) error {
 	go e.retryPendingVideoMedia(ctx)
 	return nil
 }
+
+// SetIngestPaused makes IngestRaw refuse new messages with model.ErrBackpressure
+// while the processing backlog is too large.
+func (e *Engine) SetIngestPaused(paused bool) { e.ingestPaused.Store(paused) }
+
 func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.RawArchiveIndex, bool, error) {
+	if e.ingestPaused.Load() {
+		return model.RawArchiveIndex{}, false, model.ErrBackpressure
+	}
 	raw.Normalize(e.Clock.Now())
 	digest := sha256.Sum256([]byte(raw.TenantID + "\x00" + raw.MessageID))
 	lock := &e.ingestLocks[digest[0]]

@@ -224,6 +224,50 @@ func Run(forcedRole string) {
 	}
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
+	if kafkaBus != nil {
+		// Backpressure: stop taking new raw messages while parsing and storage
+		// are far behind, so ingest does not starve them of database capacity.
+		if cfg.IngestMaxBacklog > 0 {
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				paused := false
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						parserLag, err := kafkaBus.GroupLag(ctx, "parser", model.TopicRaw)
+						if err != nil {
+							continue
+						}
+						storageLag, err := kafkaBus.GroupLag(ctx, "storage", model.TopicPropertyReport, model.TopicEventReport, model.TopicParsed)
+						if err != nil {
+							continue
+						}
+						backlog := parserLag + storageLag
+						registry.Set("pipeline_backlog", float64(backlog))
+						next := paused
+						if !paused && backlog > cfg.IngestMaxBacklog {
+							next = true
+						} else if paused && backlog < cfg.IngestMaxBacklog*8/10 {
+							next = false
+						}
+						if next != paused {
+							paused = next
+							engine.SetIngestPaused(paused)
+							if paused {
+								log.Error("raw ingest paused: processing backlog above limit", "backlog", backlog, "limit", cfg.IngestMaxBacklog)
+							} else {
+								log.Info("raw ingest resumed", "backlog", backlog)
+							}
+						}
+						registry.Set("ingest_paused", map[bool]float64{true: 1, false: 0}[paused])
+					}
+				}
+			}()
+		}
+	}
 	var legacyRaw ports.RawMessageReader
 	if reader, ok := archivePort.(ports.RawMessageReader); ok {
 		legacyRaw = reader

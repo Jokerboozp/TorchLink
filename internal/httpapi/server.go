@@ -779,6 +779,9 @@ func (s *Server) debugDeviceIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	idx, created, err := s.engine.IngestRaw(r.Context(), raw)
+	if ingestBusy(w, err) {
+		return
+	}
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -811,6 +814,9 @@ func (s *Server) deviceIngest(w http.ResponseWriter, r *http.Request) {
 	// Credential-authenticated reports are field evidence; debug ingress keeps its own source.
 	raw.Source = "device-http"
 	idx, created, err := s.engine.IngestRaw(r.Context(), raw)
+	if ingestBusy(w, err) {
+		return
+	}
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -857,6 +863,9 @@ func (s *Server) ingestRaw(w http.ResponseWriter, r *http.Request) {
 	idx, created, err := s.engine.IngestRaw(r.Context(), v)
 	s.metrics.ObserveMS("raw_archive_latency_ms", start)
 	s.metrics.ObserveMS("storage_latency_ms", start)
+	if ingestBusy(w, err) {
+		return
+	}
 	if err != nil {
 		s.metrics.Inc("raw_archive_failed_total")
 		problem(w, 422, err.Error())
@@ -2509,6 +2518,16 @@ func (s *Server) standardDeviceTokenTTL() time.Duration {
 		return 24 * time.Hour
 	}
 	return s.cfg.MQTTDeviceTokenTTL
+}
+
+// ingestBusy answers 429 with Retry-After while ingest is paused by backpressure.
+func ingestBusy(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, model.ErrBackpressure) {
+		return false
+	}
+	w.Header().Set("Retry-After", "15")
+	problem(w, http.StatusTooManyRequests, err.Error())
+	return true
 }
 
 // deviceAuthUnavailable answers 503 when credentials could not be checked, so a

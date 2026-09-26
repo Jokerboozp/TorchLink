@@ -35,6 +35,9 @@ type Config struct {
 	// when EMQX revocation (ban and kick) is configured; without it tokens
 	// stay at five minutes because expiry is the only revocation.
 	MQTTDeviceTokenTTL time.Duration
+	// IngestMaxBacklog pauses new raw ingest while the parser plus storage
+	// backlog exceeds it; ingest resumes below 80%. Zero disables the pause.
+	IngestMaxBacklog int64
 	// ProtocolListenerMaxSessions bounds concurrent peers per TCP/UDP listener.
 	ProtocolListenerMaxSessions int64
 	// PostgresMaxConns sizes this process's PostgreSQL pool unless the DSN sets
@@ -117,6 +120,7 @@ func Load() Config {
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 1024),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
+		IngestMaxBacklog:            int64Value("IOT_INGEST_MAX_BACKLOG", 50000),
 		AIAnalysisConcurrency:       int64Value("IOT_AI_ANALYSIS_CONCURRENCY", 1),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
 		MinIOAccessKey:              os.Getenv("IOT_MINIO_ACCESS_KEY"),
@@ -188,6 +192,9 @@ func (c Config) Validate() error {
 	}
 	if c.MQTTDeviceTokenTTL != 0 && (c.MQTTDeviceTokenTTL < time.Minute || c.MQTTDeviceTokenTTL > 30*24*time.Hour) {
 		return fmt.Errorf("IOT_MQTT_DEVICE_TOKEN_TTL must be between 1m and 720h")
+	}
+	if c.IngestMaxBacklog < 0 {
+		return fmt.Errorf("IOT_INGEST_MAX_BACKLOG must not be negative (0 disables ingest backpressure)")
 	}
 	if c.ProtocolListenerMaxSessions < 0 || c.ProtocolListenerMaxSessions > 100000 {
 		return fmt.Errorf("IOT_PROTOCOL_LISTENER_MAX_SESSIONS must be between 1 and 100000 (0 uses the default 1024)")

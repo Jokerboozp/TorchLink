@@ -106,3 +106,19 @@ func topicLag(ctx context.Context, client *kafka.Client, s subscription) (int64,
 	}
 	return lag, nil
 }
+
+// GroupLag returns the total backlog of the given consumer group on the given
+// topics, whether or not this process consumes them; an ingest-only process
+// uses it to see the backlog the processing replicas face.
+func (b *Bus) GroupLag(ctx context.Context, group string, topics ...string) (int64, error) {
+	client := &kafka.Client{Addr: kafka.TCP(b.brokers...), Timeout: 10 * time.Second}
+	var total int64
+	for _, topic := range topics {
+		lag, err := topicLag(ctx, client, subscription{topic: topic, group: "iot-platform-" + group})
+		if err != nil {
+			return 0, fmt.Errorf("consumer lag of %s on %s: %w", group, topic, err)
+		}
+		total += lag
+	}
+	return total, nil
+}

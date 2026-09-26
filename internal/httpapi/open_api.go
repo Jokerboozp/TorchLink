@@ -217,7 +217,7 @@ type openIngestResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-var openIngestStatus = map[string]int{"DEVICE_NOT_FOUND": 404, "DEVICE_DISABLED": 422, "INVALID_MESSAGE": 422, "RATE_LIMITED": 429, "MESSAGE_CONFLICT": 409, "INGEST_FAILED": 503}
+var openIngestStatus = map[string]int{"DEVICE_NOT_FOUND": 404, "DEVICE_DISABLED": 422, "INVALID_MESSAGE": 422, "RATE_LIMITED": 429, "BACKPRESSURE": 429, "MESSAGE_CONFLICT": 409, "INGEST_FAILED": 503}
 
 // ingestOpenMessage sends one external message through the standard protocol,
 // so it is archived, parsed and evaluated by rules like any device report.
@@ -270,6 +270,9 @@ func (s *Server) ingestOpenMessage(r *http.Request, index int, in openDeviceMess
 	if errors.Is(err, model.ErrRawConflict) {
 		return reject("MESSAGE_CONFLICT", err.Error())
 	}
+	if errors.Is(err, model.ErrBackpressure) {
+		return reject("BACKPRESSURE", err.Error())
+	}
 	if err != nil {
 		return reject("INGEST_FAILED", err.Error())
 	}
@@ -299,7 +302,7 @@ func (s *Server) openReportMessages(w http.ResponseWriter, r *http.Request) {
 		result := s.ingestOpenMessage(r, index, message)
 		if result.Status == "ACCEPTED" {
 			accepted++
-		} else if result.ErrorCode == "RATE_LIMITED" {
+		} else if result.ErrorCode == "RATE_LIMITED" || result.ErrorCode == "BACKPRESSURE" {
 			rateLimited++
 		}
 		results = append(results, result)
@@ -350,6 +353,9 @@ func (s *Server) openReportAlarm(w http.ResponseWriter, r *http.Request) {
 	if result.Status != "ACCEPTED" {
 		if result.ErrorCode == "RATE_LIMITED" {
 			w.Header().Set("Retry-After", "1")
+		}
+		if result.ErrorCode == "BACKPRESSURE" {
+			w.Header().Set("Retry-After", "15")
 		}
 		write(w, openIngestStatus[result.ErrorCode], map[string]any{"type": "about:blank", "status": openIngestStatus[result.ErrorCode], "errorCode": result.ErrorCode, "detail": result.Error})
 		return

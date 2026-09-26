@@ -45,7 +45,7 @@ Content-Type: application/json
 - 设备须已在平台登记、已启用、模板已启用，且在绑定用户的设备范围内。外部系统不能自行指定租户、协议或解析器。
 - 消息按内置标准协议写入原始报文，经解析、存储、规则和告警链路处理，原文来源记为 `open-api`。
 - `id` 在同一设备和 `kind` 下唯一：相同内容重试返回 `created:false`，同一 `id` 换内容返回 `MESSAGE_CONFLICT`。
-- 全部接受返回 202；部分接受返回 207；全部被拒绝返回 422（全部限流时返回 429）。`results` 逐条给出 `status`、`messageId` 或 `errorCode`，错误码包括 `INVALID_MESSAGE`、`DEVICE_NOT_FOUND`、`DEVICE_DISABLED`、`RATE_LIMITED`、`MESSAGE_CONFLICT`、`INGEST_FAILED`。
+- 全部接受返回 202；部分接受返回 207；全部被拒绝返回 422（全部限流或暂停接收时返回 429）。`results` 逐条给出 `status`、`messageId` 或 `errorCode`，错误码包括 `INVALID_MESSAGE`、`DEVICE_NOT_FOUND`、`DEVICE_DISABLED`、`RATE_LIMITED`、`BACKPRESSURE`（平台处理积压超过上限，稍后重试）、`MESSAGE_CONFLICT`、`INGEST_FAILED`。
 - 202 表示已进入原始接收链路，解析与告警为异步处理。
 
 ## 上报告警
