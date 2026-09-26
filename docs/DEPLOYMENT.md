@@ -146,6 +146,22 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
+## 容量相关配置
+
+默认值按单机压测结果设定（见 [容量压测报告](CAPACITY_TEST_REPORT.md)），多副本时按下表核对：
+
+| 配置 | 默认 | 说明 |
+| --- | --- | --- |
+| `IOT_POSTGRES_MAX_CONNS` | 64 | 每个 API / 网关进程的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
+| `POSTGRES_MAX_CONNECTIONS` | 300 | Compose 中 PostgreSQL 的 `max_connections` |
+| `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
+| `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与存储积压超过该值时暂停接收新原文，0 关闭 |
+| `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
+| `IOT_MQTT_DEVICE_TOKEN_TTL` | 24h | 标准设备 MQTT 令牌有效期，仅在配置 EMQX 管理 API 时生效，否则 5 分钟 |
+| `IOT_EMQX_MAX_MQUEUE_LEN` / `IOT_EMQX_MAX_INFLIGHT` | 100000 / 128 | EMQX 会话队列与在途窗口；队列满时 Broker 丢弃报文 |
+
+EMQX 容器的文件句柄上限在 Compose 中设为 1048576，每条 MQTT 连接占一个句柄；自行部署 EMQX 时须同样放开。配置 `IOT_EMQX_API_URL`、`IOT_EMQX_API_KEY`、`IOT_EMQX_API_SECRET` 后平台可即时撤销设备凭据，并采集 `mqtt_broker_dropped` 以发现 Broker 丢弃。
+
 ## 高可用边界
 
 默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、MinIO、Weaviate、Ollama、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
