@@ -1,13 +1,14 @@
 <script setup>
 // 监控告警：Prometheus 与 Loki ruler 评估规则，Alertmanager 负责分组、静默与通知。
 // 本页查看当前告警、规则状态和历史，管理静默与通知路由；消防业务告警不在此处理。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { BellOff, LineChart, RefreshCw } from '@lucide/vue'
 import { can } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { formatDuration, relativeTime } from '../ops/format.js'
 import { latest, opsErrorText, opsGet, opsSend, takeNavigation } from '../ops/opsApi.js'
 import { refreshOptions, resolveRange } from '../ops/timeRange.js'
+import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../ops/alerts.js'
 import StatusDot from '../components/layout/StatusDot.vue'
 import MatcherEditor from '../components/ops/MatcherEditor.vue'
 import NotificationPanel from '../components/ops/NotificationPanel.vue'
@@ -26,8 +27,10 @@ const canMetrics = computed(() => can('menu:opsMetrics') && can('POST /api/v1/op
 const otherLabels = labels => Object.entries(labels || {}).filter(([k]) => !['alertname', 'severity'].includes(k))
 
 // 当前告警
-const alerts = ref([])
-const groups = ref([])
+const alerts = shallowRef([])
+const groups = shallowRef([])
+const alertPage = ref(1)
+const alertPageSize = ref(20)
 const grouped = ref(false)
 const filters = ref([])
 const showSilenced = ref(true)
@@ -39,25 +42,63 @@ const autoRefresh = ref(30e3)
 const alertRunner = latest()
 let alertTimer = null
 let filterTimer = null
-const receivers = computed(() => [...new Set(alerts.value.flatMap(a => a.receivers || []))].sort())
-const summary = computed(() => ({ total: alerts.value.length, active: alerts.value.filter(a => a.state === 'active').length, suppressed: alerts.value.filter(a => a.state === 'suppressed').length, critical: alerts.value.filter(a => a.labels?.severity === 'critical').length }))
+const alertStats = shallowRef(summarizeAlerts([]))
+const receivers = computed(() => alertStats.value.receivers)
+const summary = computed(() => alertStats.value.summary)
+const alertTotal = computed(() => grouped.value ? groups.value.reduce((total, group) => total + group.alerts.length, 0) : alerts.value.length)
+const visibleAlerts = computed(() => alerts.value.slice((alertPage.value - 1) * alertPageSize.value, alertPage.value * alertPageSize.value))
+const visibleGroups = computed(() => pageAlertGroups(groups.value, alertPage.value, alertPageSize.value))
+let alertRequest = 0
 
 async function loadAlerts() {
+  const request = ++alertRequest
+  const byGroup = grouped.value
   alertsLoading.value = true
   const params = { matchers: filters.value.filter(m => m.name), silenced: showSilenced.value, inhibited: showInhibited.value, receiver: receiver.value }
   try {
-    const [a, g] = await alertRunner.run(signal => Promise.all([opsGet('/api/v1/ops/alerts', params, signal), grouped.value ? opsGet('/api/v1/ops/alerts/groups', params, signal) : Promise.resolve({ items: groups.value })]))
-    alerts.value = (a.items || []).sort((x, y) => Date.parse(y.startsAt) - Date.parse(x.startsAt))
-    groups.value = g.items || []
+    const data = await alertRunner.run(signal => opsGet(byGroup ? '/api/v1/ops/alerts/groups' : '/api/v1/ops/alerts', params, signal))
+    if (request !== alertRequest) return
+    if (byGroup) {
+      groups.value = prepareAlertGroups(data.items || [])
+      alerts.value = []
+      const stats = summarizeAlerts(groups.value.flatMap(group => group.alerts))
+      stats.receivers = [...new Set([...stats.receivers, ...groups.value.map(group => group.receiver).filter(Boolean)])].sort()
+      alertStats.value = stats
+    } else {
+      alerts.value = sortAlerts(data.items || [])
+      groups.value = []
+      alertStats.value = summarizeAlerts(alerts.value)
+    }
+    alertPage.value = clampAlertPage(alertPage.value, alertTotal.value, alertPageSize.value)
     alertsError.value = ''
-  } catch (e) { if (e?.name !== 'AbortError') alertsError.value = opsErrorText(e) } finally { alertsLoading.value = false }
+  } catch (e) {
+    if (request === alertRequest && e?.name !== 'AbortError') alertsError.value = opsErrorText(e)
+  } finally {
+    if (request === alertRequest) alertsLoading.value = false
+  }
 }
+function resetAlerts() {
+  clearTimeout(filterTimer)
+  filterTimer = null
+  alertPage.value = 1
+  // Immediately cancel stale filters, including the debounce interval.
+  alertRequest++
+  alertRunner.cancel()
+  alertsLoading.value = false
+  alerts.value = []
+  groups.value = []
+}
+function reloadAlerts() { resetAlerts(); loadAlerts() }
 function scheduleAlerts() {
   clearInterval(alertTimer)
-  if (autoRefresh.value > 0) alertTimer = setInterval(() => { if (!document.hidden && tab.value === 'current') loadAlerts() }, autoRefresh.value)
+  if (autoRefresh.value > 0) alertTimer = setInterval(() => { if (!document.hidden && tab.value === 'current' && !alertsLoading.value && !filterTimer) loadAlerts() }, autoRefresh.value)
 }
-watch([showSilenced, showInhibited, receiver, grouped], loadAlerts)
-watch(filters, () => { clearTimeout(filterTimer); filterTimer = setTimeout(loadAlerts, 500) }, { deep: true })
+watch([showSilenced, showInhibited, receiver, grouped], reloadAlerts)
+watch(filters, () => {
+  resetAlerts()
+  filterTimer = setTimeout(() => { filterTimer = null; loadAlerts() }, 500)
+}, { deep: true })
+watch(alertPageSize, () => { alertPage.value = 1 })
 watch(autoRefresh, scheduleAlerts)
 function openExpr(alert) { emit('navigate', 'opsMetrics', { query: alert.expr, range: { from: 'now-6h', to: 'now' } }) }
 function filterBy(name, value) { filters.value = [...filters.value.filter(m => m.name !== name), { name, op: '=', value }] }
@@ -151,6 +192,7 @@ watch(tab, value => {
   if (value === 'history' && !history.value.length) loadHistory()
   if (value === 'silences') loadSilences()
   if (value === 'current') loadAlerts()
+  else { clearTimeout(filterTimer); filterTimer = null; alertRequest++; alertRunner.cancel(); alertsLoading.value = false }
 })
 onMounted(() => {
   const nav = takeNavigation()
@@ -188,7 +230,7 @@ onBeforeUnmount(() => { clearInterval(alertTimer); clearTimeout(filterTimer); al
           <ui-alert v-if="alertsError" type="error" :title="alertsError" :closable="false" show-icon />
 
           <template v-if="!grouped">
-            <ui-table :data="alerts" size="small" row-key="fingerprint" :empty-text="alertsLoading ? '正在读取…' : '当前没有监控告警'">
+            <ui-table :data="visibleAlerts" size="small" row-key="fingerprint" :empty-text="alertsLoading ? '正在读取…' : '当前没有监控告警'">
               <ui-table-column label="级别" width="80"><template #default="{ row }"><StatusDot :tone="severityTone[row.labels.severity] || 'neutral'" :label="severityText[row.labels.severity] || row.labels.severity || '—'" /></template></ui-table-column>
               <ui-table-column label="告警" min-width="260">
                 <template #default="{ row }">
@@ -212,8 +254,8 @@ onBeforeUnmount(() => { clearInterval(alertTimer); clearTimeout(filterTimer); al
           </template>
           <template v-else>
             <ui-empty v-if="!groups.length && !alertsLoading" description="当前没有监控告警" :image-size="64" />
-            <ui-card v-for="(group, index) in groups" :key="index" shadow="never" class="surface-card">
-              <template #header><div class="card-header"><div><strong>{{ Object.entries(group.labels).map(([k, v]) => `${k}=${v}`).join('，') || '未分组' }}</strong><small>接收人 {{ group.receiver }} · {{ group.alerts.length }} 条告警</small></div></div></template>
+            <ui-card v-for="group in visibleGroups" :key="group.key" shadow="never" class="surface-card">
+              <template #header><div class="card-header"><div><strong>{{ Object.entries(group.labels).map(([k, v]) => `${k}=${v}`).join('，') || '未分组' }}</strong><small>接收人 {{ group.receiver }} · {{ group.total }} 条告警<span v-if="group.total !== group.alerts.length"> · 本页 {{ group.alerts.length }} 条</span></small></div></div></template>
               <div v-for="alert in group.alerts" :key="alert.fingerprint" class="group-alert">
                 <StatusDot :tone="severityTone[alert.labels.severity] || 'neutral'" :label="alert.labels.alertname" />
                 <span class="labels"><ui-tag v-for="[k, v] in otherLabels(alert.labels)" :key="k" size="small">{{ k }}={{ v }}</ui-tag></span>
@@ -221,6 +263,10 @@ onBeforeUnmount(() => { clearInterval(alertTimer); clearTimeout(filterTimer); al
               </div>
             </ui-card>
           </template>
+          <div class="alert-pagination">
+            <span class="muted">{{ grouped ? '通知分组内' : '' }}共 {{ alertTotal }} 条，每页最多 {{ alertPageSize }} 条</span>
+            <ui-pagination v-model:current-page="alertPage" v-model:page-size="alertPageSize" :total="alertTotal" :page-sizes="[20, 50, 100]" layout="sizes, prev, pager, next" :disabled="alertsLoading" aria-label="当前告警分页" />
+          </div>
         </div>
       </ui-tab-pane>
 
@@ -312,6 +358,7 @@ onBeforeUnmount(() => { clearInterval(alertTimer); clearTimeout(filterTimer); al
 .alert-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
 .alert-toolbar__right { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .alert-summary { display: flex; flex-wrap: wrap; gap: var(--space-3); color: var(--text-secondary); font-size: var(--font-size-sm); }
+.alert-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
 .w-120 { width: 120px; }
 .w-160 { width: 160px; }
 .link { padding: 0; color: var(--primary-text); font-weight: var(--font-weight-semibold); background: none; border: 0; cursor: pointer; }
