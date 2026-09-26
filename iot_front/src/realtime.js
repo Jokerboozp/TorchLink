@@ -39,16 +39,25 @@ export async function startRealtime(onMessage) {
   // All accounts receive authoritative alarms over the authenticated API.
   // Broker availability and token renewal must not reset this snapshot.
   let etag = ''
+  // The server answers only rows changed since this cursor (delta) and falls
+  // back to the full snapshot when it cannot use the cursor.
+  let cursor = ''
+  let polls = 0
   const poll = async () => {
     try {
-      const result = await apiIfChanged('/api/v1/events', etag)
+      // Deltas never list rows that left the snapshot; a periodic full
+      // snapshot drops them so the comparison map stays bounded.
+      if (++polls % 100 === 0) cursor = ''
+      const path = cursor ? `/api/v1/events?since=${encodeURIComponent(cursor)}` : '/api/v1/events'
+      const result = await apiIfChanged(path, etag)
       if (run !== generation) return
       if (!result.changed) { pollTimer = setTimeout(poll, 3000); return }
       etag = result.etag
       const data = result.data
+      cursor = data.cursor || ''
       applyAccessVersion(data.accessVersion)
       permissionState.items = data.permissions || []
-      const next = new Map()
+      const next = data.delta && previous ? new Map(previous) : new Map()
       for (const [kind, values] of [['alarm', data.alarms], ['state', data.devices]]) {
         for (const value of values || []) {
           const key = kind + ':' + (value.alarmId || value.deviceId)

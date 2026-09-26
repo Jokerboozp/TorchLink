@@ -26,20 +26,31 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	wantAlarms := p["*"] || p["menu:alarms"] || p["menu:dashboard"]
 	wantStates := p["*"] || p["menu:devices"] || p["menu:raw"]
+	permissions := permissionList(p)
+	accessVersion := requestAccessVersion(r.Context(), c)
+	access := eventAccess(accessVersion, permissions)
+	// With a valid cursor the page receives only rows changed since it; any
+	// other request receives the full snapshot.
+	since, delta := s.events.revisions.since(r.URL.Query().Get("since"), access)
+	var seq int64
 	if wantAlarms || wantStates {
-		allAlarms, allStates, err := s.events.get(r.Context(), s.unscopedRepo(), c.TenantID)
+		snapshot, err := s.events.snapshot(r.Context(), s.unscopedRepo(), c.TenantID)
 		if err != nil {
 			problem(w, 503, "读取消息失败")
 			return
 		}
+		seq = snapshot.seq
+		if delta && since > seq {
+			delta = false
+		}
 		if wantAlarms {
-			alarms = scopedEventAlarms(r.Context(), c.TenantID, allAlarms)
+			alarms = scopedEventAlarms(r.Context(), c.TenantID, changedRows(snapshot.alarms, snapshot.alarmRevs, since, delta))
 		}
 		if wantStates {
-			states = scopedEventStates(r.Context(), c.TenantID, allStates)
+			states = scopedEventStates(r.Context(), c.TenantID, changedRows(snapshot.states, snapshot.stateRevs, since, delta))
 		}
 	}
-	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "permissions": permissionList(p), "accessVersion": requestAccessVersion(r.Context(), c)})
+	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "permissions": permissions, "accessVersion": accessVersion, "delta": delta, "cursor": s.events.revisions.cursor(seq, access)})
 	if err != nil {
 		problem(w, 500, "读取消息失败")
 		return
@@ -55,4 +66,18 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(append(body, '\n'))
+}
+
+// changedRows keeps the rows whose revision is newer than since in delta mode.
+func changedRows[T any](rows []T, revs []int64, since int64, delta bool) []T {
+	if !delta {
+		return rows
+	}
+	out := []T{}
+	for i, row := range rows {
+		if i < len(revs) && revs[i] > since {
+			out = append(out, row)
+		}
+	}
+	return out
 }

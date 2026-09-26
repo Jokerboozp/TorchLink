@@ -98,3 +98,19 @@ test('快照未变化时不重复处理且继续轮询',async()=>{
  await r.timers.shift()();await r.timers.shift()()
  assert.equal(r.polls.full,1);assert.equal(r.messages.length,0);assert.equal(r.timers.length,1)
 })
+
+test('增量快照只含变化的告警，按游标请求并保留此前的快照',async()=>{
+ const paths=[]
+ const r=realtime(async path=>{
+  paths.push(path)
+  if(!path.includes('since='))return {alarms:[{alarmId:'a',status:'ACTIVE'},{alarmId:'b',status:'ACTIVE'}],devices:[],permissions:['menu:alarms'],delta:false,cursor:'p.1.x'}
+  if(paths.length===2)return {alarms:[{alarmId:'b',status:'ACKED'}],devices:[],permissions:['menu:alarms'],delta:true,cursor:'p.2.x'}
+  return {alarms:[],devices:[],permissions:['menu:alarms'],delta:true,cursor:'p.2.x'}
+ })
+ await r.start();await settle();assert.equal(r.messages.length,0)
+ await r.timers.shift()()
+ assert.equal(paths[1],'/api/v1/events?since=p.1.x')
+ assert.equal(r.messages.length,1);assert.equal(JSON.parse(r.messages[0][1]).alarmId,'b')
+ // An empty delta keeps the earlier rows, so an unchanged alarm is not re-announced.
+ await r.timers.shift()();assert.equal(r.messages.length,1)
+})

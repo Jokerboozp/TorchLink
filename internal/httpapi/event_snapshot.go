@@ -18,27 +18,42 @@ import (
 const eventSnapshotTTL = 2 * time.Second
 
 type eventSnapshot struct {
-	alarms   []model.Alarm
-	states   []model.DeviceState
-	err      error
-	loadedAt time.Time
-	ready    chan struct{}
+	alarms []model.Alarm
+	states []model.DeviceState
+	// alarmRevs and stateRevs hold each row's revision; seq is the tenant's
+	// revision when the snapshot loaded.
+	alarmRevs []int64
+	stateRevs []int64
+	seq       int64
+	err       error
+	loadedAt  time.Time
+	ready     chan struct{}
 }
 
 type eventSnapshots struct {
-	mu      sync.Mutex
-	tenants map[string]*eventSnapshot
-	now     func() time.Time
+	mu        sync.Mutex
+	tenants   map[string]*eventSnapshot
+	now       func() time.Time
+	revisions *eventRevisions
 }
 
 func newEventSnapshots() *eventSnapshots {
-	return &eventSnapshots{tenants: map[string]*eventSnapshot{}, now: time.Now}
+	return &eventSnapshots{tenants: map[string]*eventSnapshot{}, now: time.Now, revisions: newEventRevisions()}
 }
 
 // get returns the tenant's unscoped active alarms and device states. Only one
 // request per tenant reloads an expired snapshot; the others wait for it. The
 // returned slices are shared and must not be modified.
 func (c *eventSnapshots) get(ctx context.Context, repo ports.Repository, tenant string) ([]model.Alarm, []model.DeviceState, error) {
+	entry, err := c.snapshot(ctx, repo, tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry.alarms, entry.states, nil
+}
+
+// snapshot returns the tenant's shared snapshot with row revisions.
+func (c *eventSnapshots) snapshot(ctx context.Context, repo ports.Repository, tenant string) (*eventSnapshot, error) {
 	c.mu.Lock()
 	entry := c.tenants[tenant]
 	if entry != nil {
@@ -46,7 +61,7 @@ func (c *eventSnapshots) get(ctx context.Context, repo ports.Repository, tenant 
 		case <-entry.ready:
 			if entry.err == nil && c.now().Sub(entry.loadedAt) < eventSnapshotTTL {
 				c.mu.Unlock()
-				return entry.alarms, entry.states, nil
+				return entry, nil
 			}
 			entry = nil
 		default:
@@ -60,6 +75,9 @@ func (c *eventSnapshots) get(ctx context.Context, repo ports.Repository, tenant 
 		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		entry.alarms, entry.states, entry.err = loadEventSnapshot(loadCtx, repo, tenant)
 		cancel()
+		if entry.err == nil {
+			entry.alarmRevs, entry.stateRevs, entry.seq = c.revisions.observe(tenant, entry.alarms, entry.states)
+		}
 		entry.loadedAt = c.now()
 		close(entry.ready)
 	} else {
@@ -67,9 +85,9 @@ func (c *eventSnapshots) get(ctx context.Context, repo ports.Repository, tenant 
 	}
 	select {
 	case <-entry.ready:
-		return entry.alarms, entry.states, entry.err
+		return entry, entry.err
 	case <-ctx.Done():
-		return nil, nil, ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 

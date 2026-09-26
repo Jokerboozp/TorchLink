@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -107,5 +108,52 @@ func TestUserEventsAnswerNotModifiedForSameView(t *testing.T) {
 	}
 	if resp := poll(`"stale"`); resp.StatusCode != 200 {
 		t.Fatalf("a different ETag must receive the full view, got %d", resp.StatusCode)
+	}
+}
+
+// A page holding the snapshot receives only rows changed since its cursor;
+// an unknown cursor (another replica or an old view) gets the full snapshot.
+func TestUserEventsReturnOnlyChangesSinceCursor(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	for _, id := range []string{"device-a", "device-b"} {
+		if err := repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "tenant-a", DeviceID: id, BusinessStatus: "ONLINE"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "events-root-password"
+	cfg.AdminTenants = []string{"tenant-a"}
+	cfg.JWTSecret = "user-events-delta-secret-at-least-32-bytes"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	now := time.Now()
+	api.events.now = func() time.Time { return now }
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token := requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant-a"}, 200)["accessToken"].(string)
+	poll := func(since string) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/events?since="+url.QueryEscape(since), token, nil, 200)
+	}
+	full := poll("")
+	if full["delta"] != false || len(full["devices"].([]any)) != 2 {
+		t.Fatalf("first poll must be the full snapshot: %v", full)
+	}
+	cursor := full["cursor"].(string)
+	if err := repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "tenant-a", DeviceID: "device-b", BusinessStatus: "ALARM"}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(eventSnapshotTTL)
+	changed := poll(cursor)
+	devices := changed["devices"].([]any)
+	if changed["delta"] != true || len(devices) != 1 || devices[0].(map[string]any)["deviceId"] != "device-b" {
+		t.Fatalf("delta must hold only the changed device: %v", changed)
+	}
+	if unchanged := poll(changed["cursor"].(string)); unchanged["delta"] != true || len(unchanged["devices"].([]any)) != 0 {
+		t.Fatalf("no change must return an empty delta: %v", unchanged)
+	}
+	if foreign := poll("otherprocess.1.abc"); foreign["delta"] != false || len(foreign["devices"].([]any)) != 2 {
+		t.Fatalf("an unknown cursor must return the full snapshot: %v", foreign)
 	}
 }
