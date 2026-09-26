@@ -209,3 +209,39 @@ func TestDisableRuleRecoversActiveAlarmsAndClearsPending(t *testing.T) {
 		t.Fatalf("disabled rule did not retain recovered history: alarms=%#v err=%v", recovered, err)
 	}
 }
+
+type ruleQueryCountingRepository struct {
+	ports.Repository
+	pendingDeletes, alarmLists int
+}
+
+func (r *ruleQueryCountingRepository) DeleteRulePending(ctx context.Context, tenant, rule, device string) error {
+	r.pendingDeletes++
+	return r.Repository.DeleteRulePending(ctx, tenant, rule, device)
+}
+
+func (r *ruleQueryCountingRepository) ListAlarms(ctx context.Context, f ports.AlarmFilter) ([]model.Alarm, error) {
+	r.alarmLists++
+	return r.Repository.ListAlarms(ctx, f)
+}
+
+// A message pays no rule queries for other products' rules or for pending
+// durations that only duration rules create.
+func TestRulesOfOtherProductsCostNoQueries(t *testing.T) {
+	ctx := context.Background()
+	repo := &ruleQueryCountingRepository{Repository: memory.NewRepository()}
+	for _, product := range []string{"other-a", "other-b"} {
+		if err := repo.SaveRule(ctx, model.AlarmRule{ID: "rule-" + product, TenantID: "tenant-a", ProductID: product, Name: product, AlarmType: "FIRE", Level: "HIGH", Enabled: true, Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Recovery: []model.RuleCondition{{Field: "temperature", Operator: "<", Value: 100}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
+	baseline := repo.alarmLists
+	if err := e.handleStandard(ctx, standardRuleMessage("message-1", 1000000)); err != nil {
+		t.Fatal(err)
+	}
+	// Only the device business-status check lists alarms (active and acknowledged).
+	if repo.pendingDeletes != 0 || repo.alarmLists-baseline != 2 {
+		t.Fatalf("unexpected rule queries: pendingDeletes=%d alarmLists=%d", repo.pendingDeletes, repo.alarmLists-baseline)
+	}
+}

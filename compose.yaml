@@ -37,7 +37,8 @@ services:
       IOT_REDIS_PASSWORD: ${REDIS_PASSWORD:-local-iot-redis-change-me}
       IOT_CLICKHOUSE_URL: http://iot:${CLICKHOUSE_PASSWORD:-local-iot-clickhouse-change-me}@clickhouse:8123?database=iot
       IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC: ${IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC:-60}
-      IOT_KAFKA_CONSUMER_CONCURRENCY: ${IOT_KAFKA_CONSUMER_CONCURRENCY:-8}
+      IOT_KAFKA_CONSUMER_CONCURRENCY: ${IOT_KAFKA_CONSUMER_CONCURRENCY:-64}
+      IOT_POSTGRES_MAX_CONNS: ${IOT_POSTGRES_MAX_CONNS:-64}
       IOT_AI_ANALYSIS_CONCURRENCY: ${IOT_AI_ANALYSIS_CONCURRENCY:-1}
       IOT_MODBUS_ALLOWED_CIDRS: ${IOT_MODBUS_ALLOWED_CIDRS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128}
       IOT_MINIO_ENDPOINT: minio:9000
@@ -143,7 +144,8 @@ services:
   postgres:
     <<: *service-defaults
     image: postgres:17-alpine3.22
-    command: ["postgres", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
+    # Each API/gateway process keeps up to IOT_POSTGRES_MAX_CONNS (default 64).
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
     environment:
       POSTGRES_DB: iot
       POSTGRES_USER: iot

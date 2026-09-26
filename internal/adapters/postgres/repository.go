@@ -38,8 +38,20 @@ func normalizePage(limit, offset int) (int, int) {
 	return limit, offset
 }
 
-func New(ctx context.Context, dsn string) (*Repository, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+func New(ctx context.Context, dsn string) (*Repository, error) { return NewWithMaxConns(ctx, dsn, 0) }
+
+// NewWithMaxConns sizes the pool to maxConns unless the DSN sets
+// pool_max_conns. pgx's own default (max(4, CPU count)) serializes the
+// ingest and consumer paths on small machines.
+func NewWithMaxConns(ctx context.Context, dsn string, maxConns int32) (*Repository, error) {
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	if maxConns > 0 && !strings.Contains(dsn, "pool_max_conns") {
+		config.MaxConns = maxConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err
 	}

@@ -73,7 +73,7 @@ func Run(forcedRole string) {
 		postgresRaw = raw
 	}
 	if cfg.PostgresDSN != "" {
-		r, err := postgres.New(ctx, cfg.PostgresDSN)
+		r, err := postgres.NewWithMaxConns(ctx, cfg.PostgresDSN, int32(positiveOr(cfg.PostgresMaxConns, 64)))
 		fatal(log, "initialize postgres", err)
 		repo = r
 		opsPrefs = r
@@ -116,7 +116,7 @@ func Run(forcedRole string) {
 		kafkaBus.SetLogger(log)
 		// Parallel lanes keep each device's (or alarm's) messages in order;
 		// automatic alarm analysis has its own, smaller limit.
-		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 8), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 1)})
+		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 1)})
 		bus = kafkaBus
 		log.Info("event bus enabled", "adapter", "kafka", "brokers", cfg.KafkaBrokers)
 	}

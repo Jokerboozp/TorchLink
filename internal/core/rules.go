@@ -13,8 +13,14 @@ import (
 	"iot-platform/internal/model"
 )
 
+// ruleCovers reports whether a rule's tenant and product scope includes the
+// message. Disabled rules stay covered so their open alarms can still recover.
+func ruleCovers(rule model.AlarmRule, msg model.StandardMessage) bool {
+	return (rule.TenantID == "" || rule.TenantID == msg.TenantID) && (rule.ProductID == "" || rule.ProductID == msg.ProductID)
+}
+
 func MatchRule(rule model.AlarmRule, msg model.StandardMessage) bool {
-	if !rule.Enabled || rule.TenantID != "" && rule.TenantID != msg.TenantID || rule.ProductID != "" && rule.ProductID != msg.ProductID {
+	if !rule.Enabled || !ruleCovers(rule, msg) {
 		return false
 	}
 	if strings.TrimSpace(rule.Expression) != "" {

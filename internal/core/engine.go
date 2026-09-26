@@ -386,6 +386,11 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	}
 	ruleAlarmHandled := false
 	for _, rule := range rules {
+		// Rules of other products can neither raise nor recover this device's
+		// alarms; skip their per-message queries.
+		if !ruleCovers(rule, msg) {
+			continue
+		}
 		if MatchRule(rule, msg) {
 			if rule.DurationSeconds > 0 {
 				satisfied, durationErr := e.durationSatisfied(ctx, rule, msg)
@@ -437,7 +442,12 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	return e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID)
 }
 
+// clearDuration forgets a duration rule's first match; rules without a
+// duration never store one, so they cost no query per message.
 func (e *Engine) clearDuration(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) error {
+	if rule.DurationSeconds <= 0 {
+		return nil
+	}
 	return e.Repo.DeleteRulePending(ctx, rule.TenantID, rule.ID, msg.DeviceID)
 }
 func (e *Engine) durationSatisfied(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) (bool, error) {

@@ -31,6 +31,10 @@ type Config struct {
 	RedisPassword               string
 	ClickHouseURL               string
 	RawHighFrequencyIntervalSec int64
+	// PostgresMaxConns sizes this process's PostgreSQL pool unless the DSN sets
+	// pool_max_conns. The sum over all processes must stay below the server's
+	// max_connections.
+	PostgresMaxConns int64
 	// KafkaConsumerConcurrency is the parallel lanes per Kafka subscription;
 	// messages of one device keep their order within a lane.
 	KafkaConsumerConcurrency int64
@@ -103,7 +107,8 @@ func Load() Config {
 		RedisPassword:               os.Getenv("IOT_REDIS_PASSWORD"),
 		ClickHouseURL:               os.Getenv("IOT_CLICKHOUSE_URL"),
 		RawHighFrequencyIntervalSec: int64Value("IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC", 60),
-		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 8),
+		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
+		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
 		AIAnalysisConcurrency:       int64Value("IOT_AI_ANALYSIS_CONCURRENCY", 1),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
 		MinIOAccessKey:              os.Getenv("IOT_MINIO_ACCESS_KEY"),
@@ -168,7 +173,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api or gateway")
 	}
 	if c.KafkaConsumerConcurrency < 0 || c.KafkaConsumerConcurrency > 64 {
-		return fmt.Errorf("IOT_KAFKA_CONSUMER_CONCURRENCY must be between 1 and 64 (0 uses the default 8)")
+		return fmt.Errorf("IOT_KAFKA_CONSUMER_CONCURRENCY must be between 1 and 64 (0 uses the default 64)")
+	}
+	if c.PostgresMaxConns < 0 || c.PostgresMaxConns > 1000 {
+		return fmt.Errorf("IOT_POSTGRES_MAX_CONNS must be between 1 and 1000 (0 uses the default 64)")
 	}
 	if c.AIAnalysisConcurrency < 0 || c.AIAnalysisConcurrency > 32 {
 		return fmt.Errorf("IOT_AI_ANALYSIS_CONCURRENCY must be between 1 and 32 (0 uses the default 1)")

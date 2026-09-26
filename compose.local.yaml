@@ -48,7 +48,8 @@ services:
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:15432:5432"
     image: postgres:17-alpine3.22
-    command: ["postgres", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
+    # Each API/gateway process keeps up to IOT_POSTGRES_MAX_CONNS (default 64).
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
     environment:
       POSTGRES_DB: iot
       POSTGRES_USER: iot
