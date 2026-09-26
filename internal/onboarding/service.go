@@ -23,6 +23,11 @@ var segment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 var ErrAuth = errors.New("invalid or disabled device credential")
 var ErrRate = errors.New("device rate limit exceeded")
 
+// ErrUnavailable reports that credentials could not be checked because the
+// repository failed; callers answer 503 so devices retry instead of treating
+// a working credential as revoked.
+var ErrUnavailable = errors.New("device credential check temporarily unavailable")
+
 type bucket struct {
 	At    time.Time
 	Count int
@@ -53,11 +58,20 @@ func Credential() (model.DeviceCredential, error) {
 	return model.DeviceCredential{AccessKey: "dk_" + hex.EncodeToString(b[:8]), Secret: "ds_" + hex.EncodeToString(b[8:])}, nil
 }
 func (s *Service) Authenticate(ctx context.Context, key, secret string) (model.ManagedDevice, error) {
+	if key == "" || secret == "" {
+		return model.ManagedDevice{}, ErrAuth
+	}
 	d, err := s.Repo.GetManagedDeviceByAccessKey(ctx, key)
-	if err != nil || secret == "" || d.Status != "ENABLED" || !hmac.Equal([]byte(d.SecretHash), []byte(Hash(secret))) {
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return model.ManagedDevice{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	if err != nil || d.Status != "ENABLED" || !hmac.Equal([]byte(d.SecretHash), []byte(Hash(secret))) {
 		return model.ManagedDevice{}, ErrAuth
 	}
 	p, err := s.Repo.GetProduct(ctx, d.TenantID, d.ProductID)
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return model.ManagedDevice{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
 	if err != nil || !d.UsesPlatformCredentials(p) {
 		return model.ManagedDevice{}, ErrAuth
 	}

@@ -92,6 +92,11 @@ func (s *Server) standardDeviceIngest(w http.ResponseWriter, r *http.Request) {
 		write(w, status, map[string]string{"error": message, "errorCode": code})
 	}
 	d, err := s.onboarding.Authenticate(r.Context(), r.Header.Get("X-Device-Key"), r.Header.Get("X-Device-Secret"))
+	if errors.Is(err, onboarding.ErrUnavailable) {
+		w.Header().Set("Retry-After", "5")
+		fail(503, "UNAVAILABLE", "device credential check temporarily unavailable")
+		return
+	}
 	if err != nil || d.TenantID != r.PathValue("tenantId") || d.ProductID != r.PathValue("productId") || d.ID != r.PathValue("deviceId") {
 		fail(401, "AUTH_FAILED", "invalid or disabled device credential")
 		return

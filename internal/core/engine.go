@@ -259,13 +259,21 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	var msg *model.StandardMessage
 	var err error
 	protocolID, protocolVersion := raw.ProtocolID, raw.ProtocolVersion
+	// Repository failures are returned for redelivery; only a missing binding,
+	// release or product is a parse result recorded on the raw message.
 	if protocolID == "" || protocolVersion == "" {
-		if binding, bindingErr := e.productBinding(ctx, raw.TenantID, raw.ProductID); bindingErr == nil {
+		binding, bindingErr := e.productBinding(ctx, raw.TenantID, raw.ProductID)
+		if bindingErr == nil {
 			protocolID, protocolVersion = binding.ProtocolID, binding.Version
+		} else if !errors.Is(bindingErr, model.ErrNotFound) {
+			return fmt.Errorf("load protocol binding of %s: %w", raw.ProductID, bindingErr)
 		}
 	}
 	if protocolID != "" && protocolVersion != "" {
 		release, releaseErr := e.protocolRelease(ctx, raw.TenantID, protocolID, protocolVersion)
+		if releaseErr != nil && !errors.Is(releaseErr, model.ErrNotFound) {
+			return fmt.Errorf("load protocol release %s@%s: %w", protocolID, protocolVersion, releaseErr)
+		}
 		if releaseErr != nil {
 			err = fmt.Errorf("protocol release %s@%s not found: %w", protocolID, protocolVersion, releaseErr)
 		} else if release.Status == "REVOKED" {
@@ -279,8 +287,14 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 		}
 	}
 	product, productErr := e.Repo.GetProduct(ctx, raw.TenantID, raw.ProductID)
+	if productErr != nil && !errors.Is(productErr, model.ErrNotFound) {
+		return fmt.Errorf("load product %s: %w", raw.ProductID, productErr)
+	}
 	if msg == nil && err == nil && productErr == nil && product.ProtocolPackageID != "" {
 		pkg, pkgErr := e.Repo.GetProtocolPackage(ctx, raw.TenantID, product.ProtocolPackageID)
+		if pkgErr != nil && !errors.Is(pkgErr, model.ErrNotFound) {
+			return fmt.Errorf("load protocol package %s: %w", product.ProtocolPackageID, pkgErr)
+		}
 		if pkgErr == nil && pkg.Status == "PUBLISHED" {
 			msg, err = e.Parsers.ParseVersionWithConfig(pkg.ParserType, raw.ParserVersion, pkg.Config, raw)
 		}

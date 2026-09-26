@@ -773,6 +773,9 @@ func (s *Server) debugDeviceIngest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deviceIngest(w http.ResponseWriter, r *http.Request) {
 	accessKey, secret := r.Header.Get("X-Device-Key"), r.Header.Get("X-Device-Secret")
 	v, err := s.onboarding.Authenticate(r.Context(), accessKey, secret)
+	if deviceAuthUnavailable(w, err) {
+		return
+	}
 	if err != nil || v.ID != r.PathValue("deviceId") {
 		problem(w, 401, "invalid or disabled device credential")
 		return
@@ -2478,9 +2481,23 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]any{"username": c.Username, "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
 }
 
+// deviceAuthUnavailable answers 503 when credentials could not be checked, so a
+// repository failure is not reported to the device as a revoked credential.
+func deviceAuthUnavailable(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, onboarding.ErrUnavailable) {
+		return false
+	}
+	w.Header().Set("Retry-After", "5")
+	problem(w, http.StatusServiceUnavailable, "device credential check temporarily unavailable")
+	return true
+}
+
 func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 	accessKey, secret := r.Header.Get("X-Device-Key"), r.Header.Get("X-Device-Secret")
 	v, err := s.onboarding.Authenticate(r.Context(), accessKey, secret)
+	if deviceAuthUnavailable(w, err) {
+		return
+	}
 	if err != nil {
 		problem(w, 401, "invalid device credentials")
 		return
