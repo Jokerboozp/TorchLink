@@ -359,6 +359,19 @@ func Run(forcedRole string) {
 		return err
 	}, log)
 	protocolListeners.SetAllowedCIDRs(cfg.ModbusAllowedCIDRs)
+	protocolListeners.SetMaxSessions(int(cfg.ProtocolListenerMaxSessions))
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				registry.Set("protocol_listener_rejected_total", float64(protocolListeners.RejectedSessions()))
+			}
+		}
+	}()
 	protocolListeners.SetConnectionReporter(engine.ReportConnection)
 	protocolListeners.SetCoordinator(coordinator)
 	if cfg.ProcessRole != "api" {

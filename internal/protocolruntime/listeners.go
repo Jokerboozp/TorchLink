@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"iot-platform/internal/model"
@@ -21,11 +22,13 @@ import (
 )
 
 const (
-	listenerMaxBuffer    = protocolworker.MaxFrameBytes
-	listenerMaxState     = 64 << 10
-	listenerMaxSessions  = 128
-	listenerIdle         = 2 * time.Minute
-	listenerFrameTimeout = 30 * time.Second
+	listenerMaxBuffer = protocolworker.MaxFrameBytes
+	listenerMaxState  = 64 << 10
+	// DefaultListenerMaxSessions bounds concurrent devices per listener; one
+	// fire-alarm transmission device holds one session.
+	DefaultListenerMaxSessions = 1024
+	listenerIdle               = 2 * time.Minute
+	listenerFrameTimeout       = 30 * time.Second
 )
 
 type listenerCall func(context.Context, string, model.ProtocolRelease, protocolworker.Request) (protocolworker.Response, error)
@@ -51,6 +54,39 @@ type Listeners struct {
 	failures           map[string]string
 	registerMu         sync.Mutex
 	once               sync.Once
+	maxSessions        int
+	// rejected counts connections and datagram peers refused at the session limit.
+	rejected     atomic.Int64
+	lastRejectAt atomic.Int64
+}
+
+// SetMaxSessions sets the per-listener session limit; values below 1 keep the default.
+func (r *Listeners) SetMaxSessions(n int) {
+	if n > 0 {
+		r.maxSessions = n
+	}
+}
+
+// RejectedSessions is the number of peers refused because a listener was full.
+func (r *Listeners) RejectedSessions() int64 { return r.rejected.Load() }
+
+func (r *Listeners) sessionLimit() int {
+	if r.maxSessions > 0 {
+		return r.maxSessions
+	}
+	return DefaultListenerMaxSessions
+}
+
+// refuse records a peer turned away at the session limit, logging at most
+// once every ten seconds so a connection storm does not flood the log.
+func (r *Listeners) refuse(p model.DeviceAccessProfile, remote string) {
+	total := r.rejected.Add(1)
+	now := time.Now().UnixMilli()
+	last := r.lastRejectAt.Load()
+	if now-last < 10_000 || !r.lastRejectAt.CompareAndSwap(last, now) || r.log == nil {
+		return
+	}
+	r.log.Warn("protocol listener is full; refusing new peers", "profile", p.ID, "network", p.Network, "port", p.Port, "maxSessions", r.sessionLimit(), "remote", remote, "rejectedTotal", total)
 }
 
 type protocolListener struct {
@@ -315,8 +351,14 @@ func (h *protocolListener) accept() {
 			return
 		}
 		h.mu.Lock()
-		if len(h.sessions) >= listenerMaxSessions || h.ctx.Err() != nil {
+		if h.ctx.Err() != nil {
 			h.mu.Unlock()
+			_ = conn.Close()
+			continue
+		}
+		if len(h.sessions) >= h.owner.sessionLimit() {
+			h.mu.Unlock()
+			h.owner.refuse(h.profile, conn.RemoteAddr().String())
 			_ = conn.Close()
 			continue
 		}
@@ -420,13 +462,19 @@ func (h *protocolListener) receiveUDP() {
 		}
 		h.mu.Lock()
 		s := h.sessions[addr.String()]
-		if s == nil && len(h.sessions) < listenerMaxSessions {
+		full := false
+		if s == nil && len(h.sessions) < h.owner.sessionLimit() {
 			s = h.newSession(addr.String(), nil, addr)
 			s.packets = make(chan []byte, 16)
 			h.sessions[s.remote] = s
 			go s.processUDP()
+		} else if s == nil {
+			full = true
 		}
 		h.mu.Unlock()
+		if full {
+			h.owner.refuse(h.profile, addr.String())
+		}
 		if s != nil {
 			select {
 			case s.packets <- append([]byte(nil), buffer[:n]...):

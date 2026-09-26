@@ -200,3 +200,37 @@ func TestListenerStatusRetainsAcceptedFrameAfterDisconnect(t *testing.T) {
 		t.Fatal("rejected frame reported success", last)
 	}
 }
+
+// Peers beyond the session limit are closed and counted instead of vanishing.
+func TestListenerCountsPeersRefusedAtSessionLimit(t *testing.T) {
+	r, _, first, p := listenerFixture(t, func(context.Context, model.RawMessage) error { return nil })
+	r.SetMaxSessions(1)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		r.mu.Lock()
+		h := r.hosts[listenerKey(p.TenantID, p.ID)]
+		r.mu.Unlock()
+		h.mu.Lock()
+		n := len(h.sessions)
+		h.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first session not registered")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	second, err := net.Dial("tcp", first.RemoteAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	second.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err = second.Read(make([]byte, 1)); err == nil {
+		t.Fatal("a peer beyond the limit must be closed")
+	}
+	if got := r.RejectedSessions(); got != 1 {
+		t.Fatalf("refused peers must be counted, got %d", got)
+	}
+}
