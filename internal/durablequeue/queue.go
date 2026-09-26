@@ -25,9 +25,10 @@ type Queue struct {
 	mu             sync.Mutex
 	root           string
 	maxBytes, used int64
-	maxItems       int
-	lock           *os.File
-	closed         bool
+	// items counts active, rejected and corrupt entries, which all use capacity.
+	maxItems, items int
+	lock            *os.File
+	closed          bool
 }
 
 func OpenQueue(root string, maxBytes int64, maxItems int) (*Queue, error) {
@@ -57,6 +58,7 @@ func OpenQueue(root string, maxBytes int64, maxItems int) (*Queue, error) {
 			return nil, errors.New("invalid queue entry")
 		}
 		q.used += info.Size()
+		q.items++
 	}
 	return q, nil
 }
@@ -125,27 +127,19 @@ func (q *Queue) put(raw model.RawMessage, stamp bool) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	entries, err := os.ReadDir(q.root)
-	if err != nil {
-		return err
-	}
-	items := 0
-	for _, entry := range entries {
-		if queueEntry(entry.Name()) {
-			items++
-		}
-	}
-	if items >= q.maxItems || q.used+int64(len(b)) > q.maxBytes {
+	if q.items >= q.maxItems || q.used+int64(len(b)) > q.maxBytes {
 		return ErrQueueFull
 	}
 	if err := atomicFile(target, b); err != nil {
 		// Keep capacity accounting correct after a post-rename flush failure.
 		if info, statErr := os.Stat(target); statErr == nil {
 			q.used += info.Size()
+			q.items++
 		}
 		return err
 	}
 	q.used += int64(len(b))
+	q.items++
 	return nil
 }
 func (q *Queue) entries() ([]string, error) {
@@ -237,6 +231,7 @@ func (q *Queue) Ack(raw model.RawMessage) error {
 		return err
 	}
 	q.used -= info.Size()
+	q.items--
 	return syncDirectory(q.root)
 }
 func (q *Queue) Depth() int { q.mu.Lock(); defer q.mu.Unlock(); v, _ := q.entries(); return len(v) }

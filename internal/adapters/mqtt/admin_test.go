@@ -86,3 +86,17 @@ func TestAdminRejectsUnexpectedClientAndRedirect(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminSessionQueueReadsBrokerDrops(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" || r.URL.Path != "/api/v5/clients/iot-inbox-1" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"clientid": "iot-inbox-1", "mqueue_len": 1000, "mqueue_dropped": 4639})
+	}))
+	defer s.Close()
+	queued, dropped, err := (&Admin{URL: s.URL, Key: "api", Secret: "secret"}).SessionQueue(context.Background(), "iot-inbox-1")
+	if err != nil || queued != 1000 || dropped != 4639 {
+		t.Fatal(queued, dropped, err)
+	}
+}

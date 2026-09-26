@@ -150,6 +150,12 @@ func Run(forcedRole string) {
 		}()
 	}
 	var mqttClient *mqttadapter.Client
+	// The EMQX management API is optional: it enables immediate credential
+	// revocation and broker-side drop counters for the platform session.
+	var emqxAdmin *mqttadapter.Admin
+	if cfg.EMQXAPIURL != "" && cfg.EMQXAPIKey != "" && cfg.EMQXAPISecret != "" {
+		emqxAdmin = &mqttadapter.Admin{URL: cfg.EMQXAPIURL, Key: cfg.EMQXAPIKey, Secret: cfg.EMQXAPISecret}
+	}
 	if cfg.MQTTBroker != "" {
 		credentials := func() (string, string) { return cfg.MQTTUsername, cfg.MQTTPassword }
 		if cfg.MQTTPassword == "" {
@@ -177,7 +183,8 @@ func Run(forcedRole string) {
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
-			for {
+			var lastDropped int64 = -1
+			for tick := 0; ; tick++ {
 				select {
 				case <-ctx.Done():
 					return
@@ -186,6 +193,23 @@ func Run(forcedRole string) {
 					registry.Set("mqtt_inbox_pending", float64(pending))
 					registry.Set("mqtt_inbox_rejected", float64(rejected))
 					registry.Set("mqtt_inbox_corrupt", float64(corrupt))
+					// Messages the broker drops for this session never reach the
+					// inbox although devices got PUBACK; only the broker can count them.
+					if emqxAdmin == nil || tick%3 != 0 {
+						continue
+					}
+					sampleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+					queued, dropped, sampleErr := emqxAdmin.SessionQueue(sampleCtx, mqttConnection.ClientID())
+					cancel()
+					if sampleErr != nil {
+						continue
+					}
+					registry.Set("mqtt_broker_queue", float64(queued))
+					registry.Set("mqtt_broker_dropped", float64(dropped))
+					if lastDropped >= 0 && dropped > lastDropped {
+						log.Error("MQTT broker dropped messages for the platform session; ingestion is slower than devices publish", "dropped", dropped-lastDropped, "brokerQueue", queued)
+					}
+					lastDropped = dropped
 				}
 			}
 		}()
@@ -370,9 +394,8 @@ func Run(forcedRole string) {
 		publishCommand = mqttClient.Publish
 	}
 	var revokeUsername func(context.Context, string) error
-	if cfg.EMQXAPIURL != "" && cfg.EMQXAPIKey != "" && cfg.EMQXAPISecret != "" {
-		admin := &mqttadapter.Admin{URL: cfg.EMQXAPIURL, Key: cfg.EMQXAPIKey, Secret: cfg.EMQXAPISecret}
-		revokeUsername = admin.RevokeUsername
+	if emqxAdmin != nil {
+		revokeUsername = emqxAdmin.RevokeUsername
 	}
 	api.SetDeviceOperations(publishCommand, revokeUsername)
 	if cfg.ProcessRole != "gateway" {

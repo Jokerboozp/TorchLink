@@ -265,3 +265,30 @@ func TestInboxReadFailureIsVisibleAndRecovers(t *testing.T) {
 	}
 	eventually(t, func() bool { return d.health() == nil })
 }
+
+// With intake writers running, deliveries of different shards are persisted
+// concurrently and each is acknowledged only after its durable write.
+func TestDurableIntakeAcknowledgesAfterPersisting(t *testing.T) {
+	d, err := openInbox(t.TempDir(), 8<<20, 8000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := inboxClient(t, d)
+	d.startIntake(c)
+	messages := make([]*receivedMessage, 200)
+	for i := range messages {
+		messages[i] = &receivedMessage{topic: fmt.Sprintf("/iot/up/t/p/device-%d/property", i), payload: []byte(fmt.Sprintf(`{"id":"m-%d"}`, i))}
+		c.receive(messages[i])
+	}
+	eventually(t, func() bool {
+		for _, m := range messages {
+			if !m.acked.Load() {
+				return false
+			}
+		}
+		return true
+	})
+	if got := inboxDepth(d); got != len(messages) {
+		t.Fatalf("every acknowledged delivery must be on disk, depth=%d", got)
+	}
+}

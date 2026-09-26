@@ -27,6 +27,7 @@ type Client struct {
 	reconnecting atomic.Bool
 	sharedGroup  string
 	broker       string
+	clientID     string
 	credentials  mqtt.CredentialsProvider
 	client       mqtt.Client
 	log          *slog.Logger
@@ -56,7 +57,10 @@ func newClient(broker, clientID string, credentials mqtt.CredentialsProvider, in
 		adapter.startDispatch()
 	} else {
 		adapter.stop = make(chan struct{})
+		// A persistent session may deliver queued messages as soon as it connects.
+		inbox.startIntake(adapter)
 	}
+	adapter.clientID = clientID
 	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(clientID).SetCredentialsProvider(credentials).SetConnectRetry(false).SetAutoReconnect(true).SetMaxReconnectInterval(5 * time.Second).SetOrderMatters(true).SetCleanSession(inbox == nil).SetAutoAckDisabled(inbox != nil)
 	opts.SetCustomOpenConnectionFn(adapter.openConnection)
 	opts.SetDefaultPublishHandler(func(_ mqtt.Client, m mqtt.Message) { adapter.receive(m) })
@@ -76,6 +80,10 @@ func newClient(broker, clientID string, credentials mqtt.CredentialsProvider, in
 	}
 	return adapter, nil
 }
+
+// ClientID is the broker session identity, used to read its broker-side counters.
+func (c *Client) ClientID() string { return c.clientID }
+
 func (c *Client) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
 	token := c.client.Publish(topic, qos, retained, payload)
 	done := token.Done()

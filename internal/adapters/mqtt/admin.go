@@ -112,3 +112,21 @@ func (a *Admin) RevokeUsername(ctx context.Context, username string) error {
 	}
 	return errors.New("EMQX client cleanup limit reached")
 }
+
+// SessionQueue returns the broker-side queue length of a client session and
+// how many messages the broker dropped because that queue was full. For the
+// platform's own inbox session a growing drop count means devices received
+// PUBACK for messages the platform never got.
+func (a *Admin) SessionQueue(ctx context.Context, clientID string) (queued, dropped int64, err error) {
+	if a.Key == "" || a.Secret == "" {
+		return 0, 0, errors.New("EMQX API credentials unavailable")
+	}
+	var info struct {
+		MqueueLen     int64 `json:"mqueue_len"`
+		MqueueDropped int64 `json:"mqueue_dropped"`
+	}
+	if _, err = a.request(ctx, "GET", "/clients/"+url.PathEscape(clientID), nil, &info); err != nil {
+		return 0, 0, err
+	}
+	return info.MqueueLen, info.MqueueDropped, nil
+}

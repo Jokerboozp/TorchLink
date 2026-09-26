@@ -244,6 +244,10 @@ services:
 
   emqx:
     <<: *service-defaults
+    # One file descriptor per MQTT connection; the default 20480 crashes the
+    # broker at about 20,000 devices (emfile). See docs/CAPACITY_TEST_REPORT.md.
+    ulimits:
+      nofile: {soft: 1048576, hard: 1048576}
     image: emqx/emqx:5.8.8
     entrypoint: ["/bin/sh", "-ec"]
     command:
@@ -259,6 +263,11 @@ services:
       ERL_FLAGS: ${IOT_EMQX_ERL_FLAGS:-}
       IOT_JWT_SECRET: ${IOT_JWT_SECRET:?IOT_JWT_SECRET must be set}
       EMQX_AUTHORIZATION__NO_MATCH: deny
+      # The platform's persistent inbox session buffers deliveries here while it
+      # catches up; at the default of 1000 the broker silently drops the rest
+      # although devices already received PUBACK.
+      EMQX_MQTT__MAX_MQUEUE_LEN: ${IOT_EMQX_MAX_MQUEUE_LEN:-100000}
+      EMQX_MQTT__MAX_INFLIGHT: ${IOT_EMQX_MAX_INFLIGHT:-128}
       EMQX_AUTHORIZATION__DENY_ACTION: ignore
       EMQX_DASHBOARD__DEFAULT_USERNAME: ${EMQX_DASHBOARD_USER:-admin}
       EMQX_DASHBOARD__DEFAULT_PASSWORD: ${EMQX_DASHBOARD_PASSWORD:-public-change-me}

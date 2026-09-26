@@ -85,12 +85,9 @@ func (c *Client) receive(m mqtt.Message) {
 		return
 	}
 	if c.inbox != nil {
-		if err := c.inbox.put(m.Topic(), m.Payload()); err != nil {
-			c.logger().Error("MQTT durable receive failed; no acknowledgement", "topic", m.Topic(), "error", err)
-			c.retryConnection()
-			return
+		if !c.inbox.enqueue(c, m) {
+			c.persist(m)
 		}
-		m.Ack()
 		return
 	}
 	// Preserve the legacy embedded/test constructor semantics. Production uses
@@ -102,6 +99,16 @@ func (c *Client) receive(m mqtt.Message) {
 			c.logger().Warn("non-durable MQTT handler failed", "topic", topic, "error", err)
 		}
 	})
+}
+
+// persist acknowledges a delivery only after it is durably in the inbox.
+func (c *Client) persist(m mqtt.Message) {
+	if err := c.inbox.put(m.Topic(), m.Payload()); err != nil {
+		c.logger().Error("MQTT durable receive failed; no acknowledgement", "topic", m.Topic(), "error", err)
+		c.retryConnection()
+		return
+	}
+	m.Ack()
 }
 
 type receptionKey struct{}
