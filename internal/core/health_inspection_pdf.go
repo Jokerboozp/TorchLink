@@ -152,7 +152,14 @@ func inspectionPDFPages(report model.DeviceHealthReport) []*inspectionPDFCanvas 
 
 	current := inspectionPDFNewDetailPage(report)
 	y := inspectionPDFDetailTableTop - 28
-	for _, item := range report.Items {
+	items := report.Items
+	omitted := 0
+	if len(items) > InspectionPDFMaxDevices {
+		// Items are sorted by severity, so the rows kept are the ones that
+		// need attention; the full list stays in the inspection result.
+		items, omitted = items[:InspectionPDFMaxDevices], len(items)-InspectionPDFMaxDevices
+	}
+	for _, item := range items {
 		rowHeight := inspectionPDFDeviceRowHeight(item)
 		if y-rowHeight < 52 {
 			pages = append(pages, current)
@@ -162,9 +169,22 @@ func inspectionPDFPages(report model.DeviceHealthReport) []*inspectionPDFCanvas 
 		drawInspectionDeviceRow(current, item, y, rowHeight)
 		y -= rowHeight + 6
 	}
+	if omitted > 0 {
+		if y-24 < 52 {
+			pages = append(pages, current)
+			current = inspectionPDFNewDetailPage(report)
+			y = inspectionPDFDetailTableTop - 28
+		}
+		current.mixedText(50, y-14, fmt.Sprintf("另有 %d 台设备未逐台列出：本报告按严重程度列出前 %d 台，完整清单请在智能巡检页面查看。", omitted, InspectionPDFMaxDevices), 9, inspectionPDFMuted, "F2")
+	}
 	pages = append(pages, current)
 	return pages
 }
+
+// InspectionPDFMaxDevices bounds the per-device rows of the PDF report; a
+// report of every device of a large tenant runs to thousands of pages and
+// hundreds of megabytes rendered in memory.
+const InspectionPDFMaxDevices = 2000
 
 func drawInspectionOverview(c *inspectionPDFCanvas, report model.DeviceHealthReport) {
 	drawInspectionHeader(c, report, false)

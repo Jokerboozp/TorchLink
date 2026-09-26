@@ -34,6 +34,7 @@ import (
 	"iot-platform/internal/ports"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/singleflight"
 )
 
 type ctxKey string
@@ -54,6 +55,8 @@ type Server struct {
 	healthInspectionMu         sync.RWMutex // 仅保护本进程的耗时估算；任务状态保存在仓储中。
 	healthInspectionEstimateMs int64
 	logins                     *loginLimiter
+	inspectionPDFs             *inspectionPDFCache
+	inspectionRuns             singleflight.Group
 	aiAnalysisMu               sync.RWMutex
 	aiAnalysisEstimateMs       int64
 	protocolListeners          protocolCommander
@@ -82,6 +85,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		router:                     router,
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),
 		logins:                     newLoginLimiter(),
+		inspectionPDFs:             newInspectionPDFCache(),
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
 	}

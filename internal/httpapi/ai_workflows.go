@@ -50,15 +50,27 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
 			problem(w, http.StatusConflict, "智能巡检仍在进行，请等待任务完成后再下载报告")
 			return
 		}
-		var err error
-		report, err = s.engine.InspectDeviceHealth(aiRunContext(ctx, claims(r)), tenantID)
+		// Concurrent downloads after the cached report expired share one
+		// inspection instead of each running the whole tenant again.
+		value, err, _ := s.inspectionRuns.Do(tenantID, func() (any, error) {
+			fresh, inspectErr := s.engine.InspectDeviceHealth(aiRunContext(ctx, claims(r)), tenantID)
+			if inspectErr == nil {
+				s.rememberHealthInspection(ctx, tenantID, claims(r).Username, fresh)
+			}
+			return fresh, inspectErr
+		})
 		if err != nil {
 			problem(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		s.rememberHealthInspection(ctx, tenantID, claims(r).Username, report)
+		report = value.(model.DeviceHealthReport)
 	}
-	data, err := core.RenderHealthInspectionPDF(report)
+	data, err := s.inspectionPDFs.render(ctx, tenantID, report)
+	if errors.Is(err, errPDFBusy) {
+		w.Header().Set("Retry-After", "10")
+		problem(w, http.StatusTooManyRequests, "巡检报告正在生成的数量已达上限，请稍后重试")
+		return
+	}
 	if err != nil {
 		problem(w, http.StatusInternalServerError, err.Error())
 		return

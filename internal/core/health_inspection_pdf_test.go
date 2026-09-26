@@ -79,3 +79,31 @@ func TestRenderHealthInspectionPDFStandardLayout(t *testing.T) {
 		t.Fatalf("standard PDF should contain overview and detail pages, got %d", reader.NumPage())
 	}
 }
+
+// A tenant with more devices than the PDF lists gets the most severe rows and
+// a note of how many were left out, not thousands of pages.
+func TestRenderHealthInspectionPDFBoundsDeviceRows(t *testing.T) {
+	items := make([]model.DeviceHealthItem, InspectionPDFMaxDevices+500)
+	for i := range items {
+		items[i] = model.DeviceHealthItem{DeviceID: "device-" + strconv.Itoa(i), ProductID: "smoke", BusinessStatus: "NEVER_SEEN", Severity: "HIGH", Findings: []string{"设备尚未收到有效上报"}}
+	}
+	bounded, err := RenderHealthInspectionPDF(model.DeviceHealthReport{GeneratedAt: 1700000000000, Items: items})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit, err := RenderHealthInspectionPDF(model.DeviceHealthReport{GeneratedAt: 1700000000000, Items: items[:InspectionPDFMaxDevices]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := pdf.NewReader(bytes.NewReader(bounded), int64(len(bounded)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	limitReader, err := pdf.NewReader(bytes.NewReader(limit), int64(len(limit)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reader.NumPage() > limitReader.NumPage()+1 {
+		t.Fatalf("rows beyond the limit were rendered: %d pages vs %d", reader.NumPage(), limitReader.NumPage())
+	}
+}
