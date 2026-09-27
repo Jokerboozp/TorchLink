@@ -36,6 +36,7 @@ import (
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolruntime"
+	"iot-platform/internal/ratelimit"
 
 	"iot-platform/internal/adapters/observability"
 	"iot-platform/internal/opscenter"
@@ -97,10 +98,16 @@ func Run(forcedRole string) {
 		clickHouseRaw = r
 		log.Info("telemetry storage enabled", "adapter", "clickhouse")
 	}
+	// Rate budgets are shared through Redis when configured; otherwise (or
+	// during a Redis outage) each process enforces budget/IOT_CLUSTER_INSTANCES.
+	var sharedLimits ratelimit.Limiter
 	if cfg.RedisAddr != "" || (cfg.RedisMasterName != "" && len(cfg.RedisSentinels) > 0) {
-		repo = redisadapter.New(repo, redisadapter.NewClient(redisadapter.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, MasterName: cfg.RedisMasterName, Sentinels: cfg.RedisSentinels}))
+		redisClient := redisadapter.NewClient(redisadapter.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, MasterName: cfg.RedisMasterName, Sentinels: cfg.RedisSentinels})
+		repo = redisadapter.New(repo, redisClient)
+		sharedLimits = redisadapter.NewRateLimiter(redisClient)
 		log.Info("hot state cache enabled", "adapter", "redis")
 	}
+	limits := ratelimit.NewCluster(sharedLimits, int(cfg.ClusterInstances))
 	var archivePort ports.Archive
 	if cfg.MinIOEndpoint != "" {
 		m, err := minioadapter.New(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOUseTLS)
@@ -240,6 +247,7 @@ func Run(forcedRole string) {
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
 	engine.SetIdentity(cfg.InstanceID)
+	engine.Limiter = limits
 	engine.PublishExternalTopics = cfg.PublishExternalTopics
 	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID)
 	engine.ConfigureAutomaticAnalysis(cfg.AIAnalysisTimeout, cfg.AIAnalysisMaxWait, cfg.AIAnalysisRPM)
@@ -302,7 +310,7 @@ func Run(forcedRole string) {
 	engine.RequireVideoCameraMapping = !cfg.DevMode
 	engine.Metrics = registry
 	var runtimeAI *aiadapter.RuntimeProvider
-	var harness *aiadapter.HarnessClient
+	var harness *aiadapter.HarnessPool
 	if cfg.Runs(config.ComponentAIRuntime) {
 		aiPlugins := aiadapter.NewProviderRegistry()
 		engine.AIPlugins = aiPlugins
@@ -367,7 +375,7 @@ func Run(forcedRole string) {
 				harnessModel = providerConfig.Model
 			}
 			var harnessErr error
-			harness, harnessErr = aiadapter.NewHarness(cfg.AIHarnessURL, cfg.AIHarnessToken, cfg.AIHarnessMCPURL, harnessModel, cfg.AIHarnessTimeout)
+			harness, harnessErr = aiadapter.NewHarnessPool(cfg.AIHarnessURL, cfg.AIHarnessToken, cfg.AIHarnessMCPURL, harnessModel, cfg.AIHarnessTimeout)
 			fatal(log, "initialize AI workflow harness", harnessErr)
 			configureCtx, configureCancel := context.WithTimeout(ctx, 20*time.Second)
 			if providerConfig.Provider != "deepseek" || strings.TrimSpace(providerConfig.APIKey) != "" {
@@ -387,7 +395,7 @@ func Run(forcedRole string) {
 			// Business AI runs (alarm analysis, inspection, reports, protocol
 			// assistant, rule drafts) sign their MCP credentials with the API secret.
 			engine.HarnessTokens = auth.New(cfg.JWTSecret)
-			log.Info("AI workflow harness enabled", "url", cfg.AIHarnessURL, "model", providerConfig.Model)
+			log.Info("AI workflow harness enabled", "urls", cfg.AIHarnessURL, "instances", harness.Size(), "model", providerConfig.Model)
 		}
 
 	}
@@ -451,6 +459,7 @@ func Run(forcedRole string) {
 	}
 	if cfg.Runs(config.ComponentAccess) && mqttClient != nil {
 		standardIngress := onboarding.New(repo, parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs)
+		standardIngress.Limiter = limits
 		fatal(log, "subscribe standard mqtt", mqttClient.SubscribeStandard(func(c context.Context, tenant, product, device, kind string, payload []byte) error {
 			raw, err := standardIngress.PrepareStandard(c, tenant, product, device, kind, "MQTT", payload)
 			if err != nil {
@@ -470,6 +479,19 @@ func Run(forcedRole string) {
 		}))
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	api.SetRateLimiter(limits)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				registry.Set("rate_limit_shared_errors", float64(limits.SharedErrors()))
+			}
+		}
+	}()
 	var publishCommand func(context.Context, string, []byte, byte, bool) error
 	if mqttClient != nil {
 		publishCommand = mqttClient.Publish
@@ -500,9 +522,25 @@ func Run(forcedRole string) {
 		if problem := cfg.Video.Problem(); cfg.Video.Deployed() && problem != nil {
 			log.Error("camera live module configuration is invalid; live view stays unavailable", "error", problem)
 		}
-		liveVideo := video.New(cfg.Video, videoStore, api.VideoCameraLookup, api.VideoAuthorize, log)
-		api.SetVideo(liveVideo)
-		liveVideo.Start(ctx)
+		newVideo := func() *video.Service {
+			return video.New(cfg.Video, videoStore, api.VideoCameraLookup, api.VideoAuthorize, log)
+		}
+		if cfg.NodeURL == "" {
+			liveVideo := newVideo()
+			api.SetVideo(liveVideo)
+			liveVideo.Start(ctx)
+		} else {
+			// Several API instances: one holds video/control and runs the
+			// module; the others forward live routes to it.
+			api.SetVideo(newVideo())
+			control := &videoControl{}
+			api.SetVideoRouting(control.state)
+			go control.run(ctx, repo, cfg.InstanceID+"-"+uuid.NewString(), cfg.NodeURL, func(leaderCtx context.Context) {
+				live := newVideo()
+				api.SetVideo(live)
+				live.Start(leaderCtx)
+			}, func() { api.SetVideo(newVideo()) }, log, videoControlRenew)
+		}
 		if cfg.Video.Deployed() {
 			log.Info("camera live module configured", "mediaApi", cfg.Video.MediaAPIURL, "transcode", cfg.Video.Transcode)
 		}
@@ -536,7 +574,7 @@ func fatal(log *slog.Logger, msg string, err error) {
 	}
 }
 
-func retryHarnessProvider(ctx context.Context, runtimeAI ports.AIProviderRuntime, harness *aiadapter.HarnessClient, log *slog.Logger) {
+func retryHarnessProvider(ctx context.Context, runtimeAI ports.AIProviderRuntime, harness *aiadapter.HarnessPool, log *slog.Logger) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {

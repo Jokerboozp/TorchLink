@@ -17,6 +17,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/ratelimit"
 )
 
 const directAlarmRulePrefix = "device-report:"
@@ -51,6 +52,8 @@ type Engine struct {
 	ingestPaused              atomic.Bool
 	identity                  string
 	identityOnce              sync.Once
+	// Limiter, when set, makes the automatic AI request budget cluster-wide.
+	Limiter ratelimit.Limiter
 	// PublishExternalTopics keeps publishing parsed messages to the
 	// property/event/parsed topics for external subscribers.
 	PublishExternalTopics bool

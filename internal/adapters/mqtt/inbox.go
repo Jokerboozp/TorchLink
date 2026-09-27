@@ -22,6 +22,7 @@ import (
 // These RawMessage values are private transport envelopes, never parsed or
 // inserted into business storage directly.
 type durableInbox struct {
+	lock      *os.File
 	queues    []*durablequeue.Queue
 	wg        sync.WaitGroup
 	mu        sync.Mutex
@@ -53,8 +54,20 @@ func NewDurableWithCredentials(broker, root string, credentials mqtt.Credentials
 	}
 	return c, err
 }
+
+// ErrInboxInUse means another process already owns this inbox directory; two
+// processes sharing one inbox would also share one MQTT client identity.
+var ErrInboxInUse = errors.New("MQTT inbox directory is used by another process; give each instance its own IOT_INSTANCE_ID or data directory")
+
 func openInbox(root string, maxBytes int64, maxItems int) (*durableInbox, error) {
-	d := &durableInbox{pending: map[int]error{}}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := lockDirectory(filepath.Join(root, "inbox.lock"))
+	if err != nil {
+		return nil, err
+	}
+	d := &durableInbox{pending: map[int]error{}, lock: lock}
 	for i := 0; i < inboxShards; i++ {
 		q, err := durablequeue.OpenQueue(filepath.Join(root, fmt.Sprint(i)), max(1, maxBytes/inboxShards), max(1, maxItems/inboxShards))
 		if err != nil {
@@ -201,6 +214,10 @@ func (d *durableInbox) close() {
 	d.wg.Wait()
 	for _, q := range d.queues {
 		_ = q.Close()
+	}
+	if d.lock != nil {
+		unlockDirectory(d.lock)
+		d.lock = nil
 	}
 }
 

@@ -41,7 +41,7 @@ func TestAuthenticateSeparatesOutageFromInvalidCredential(t *testing.T) {
 // rejecting every device beyond the limit for a minute.
 func TestRateTableReleasesEndedWindows(t *testing.T) {
 	s := New(memory.NewRepository(), nil, "", nil)
-	for i := 0; i < rateTableLimit; i++ {
+	for i := 0; i < 100000; i++ {
 		if !s.Allow(fmt.Sprintf("tenant\x00device-%d", i)) {
 			t.Fatalf("device %d rejected before the table was full", i)
 		}

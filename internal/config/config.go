@@ -20,6 +20,9 @@ type Config struct {
 	// InstanceIDExplicit is true when IOT_INSTANCE_ID was set; only then do
 	// durable per-instance paths (MQTT inbox) include the ID.
 	InstanceIDExplicit bool
+	// ClusterInstances is the replica count used to split budgets when the
+	// shared rate-limit store is unavailable (1 = single process).
+	ClusterInstances int64
 	// APIEmbeddedWorkers keeps parser/processor/ai/jobs inside the api role.
 	APIEmbeddedWorkers bool
 	// PublishExternalTopics keeps publishing parsed messages to the external
@@ -27,18 +30,21 @@ type Config struct {
 	PublishExternalTopics bool
 	AccessCoordination    bool
 	AccessNodeURL         string
-	ProcessRole           string
-	AccessGatewayURL      string
-	HTTPAddr              string
-	CORSAllowedOrigins    []string
-	DataDir               string
-	JWTSecret             string
-	AdminUser             string
-	AdminPassword         string
-	AdminTenants          []string
-	PostgresDSN           string
-	RedisAddr             string
-	RedisPassword         string
+	// NodeURL is this API instance's own reachable origin; setting it on
+	// several API instances elects one to run live video control.
+	NodeURL            string
+	ProcessRole        string
+	AccessGatewayURL   string
+	HTTPAddr           string
+	CORSAllowedOrigins []string
+	DataDir            string
+	JWTSecret          string
+	AdminUser          string
+	AdminPassword      string
+	AdminTenants       []string
+	PostgresDSN        string
+	RedisAddr          string
+	RedisPassword      string
 	// RedisMasterName and RedisSentinels select Sentinel failover instead of
 	// the single RedisAddr.
 	RedisMasterName             string
@@ -121,10 +127,12 @@ func Load() Config {
 	return Config{
 		InstanceID:                  instance,
 		InstanceIDExplicit:          explicitInstance,
+		ClusterInstances:            int64Value("IOT_CLUSTER_INSTANCES", 1),
 		APIEmbeddedWorkers:          boolValue("IOT_API_EMBEDDED_WORKERS", true),
 		PublishExternalTopics:       boolValue("IOT_PUBLISH_EXTERNAL_TOPICS", true),
 		AccessCoordination:          boolValue("IOT_ACCESS_COORDINATION", false),
 		AccessNodeURL:               strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
+		NodeURL:                     strings.TrimRight(os.Getenv("IOT_NODE_URL"), "/"),
 		ProcessRole:                 strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),
 		AccessGatewayURL:            strings.TrimRight(os.Getenv("IOT_ACCESS_GATEWAY_URL"), "/"),
 		HTTPAddr:                    get("IOT_HTTP_ADDR", ":8080"),
@@ -232,11 +240,17 @@ func (c Config) Validate() error {
 		if c.AIHarnessURL == "" {
 			return fmt.Errorf("IOT_AI_HARNESS_URL is required: the AI workflow Harness is a mandatory component")
 		}
-		if u, err := url.Parse(c.AIHarnessURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-			return fmt.Errorf("IOT_AI_HARNESS_URL must be an HTTP(S) URL without credentials")
+		// Several comma-separated instances are routed by conversation.
+		for _, raw := range split(c.AIHarnessURL) {
+			if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+				return fmt.Errorf("IOT_AI_HARNESS_URL must be one or more comma-separated HTTP(S) URLs without credentials")
+			}
 		}
 	}
-	for _, origin := range []string{c.AccessGatewayURL, c.AccessNodeURL} {
+	if c.NodeURL != "" && c.PostgresDSN == "" {
+		return fmt.Errorf("IOT_NODE_URL (live video control election) requires shared PostgreSQL")
+	}
+	for _, origin := range []string{c.AccessGatewayURL, c.AccessNodeURL, c.NodeURL} {
 		if origin == "" {
 			continue
 		}

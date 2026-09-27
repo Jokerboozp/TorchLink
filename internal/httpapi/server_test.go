@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,7 +125,7 @@ func TestBuiltinAdminCanUseConfiguredTenant(t *testing.T) {
 // limit clears the count, and the lock ends on its own.
 func TestLoginLimiterLocksAccountAfterRepeatedFailures(t *testing.T) {
 	now := time.Unix(1000, 0)
-	l := newLoginLimiter()
+	l := newLoginLimiter(nil)
 	l.now = func() time.Time { return now }
 	for i := 0; i < loginMaxFailures-1; i++ {
 		l.record("tenant\x00admin", false)
@@ -487,5 +488,51 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		if _, ok := ready.Checks["knowledge"]; ok && role != config.RoleAI {
 			t.Fatal(role, "readiness checks an unused dependency")
 		}
+	}
+}
+
+func TestVideoRoutesFollowTheControlOwner(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	server := New(config.Load(), engine, metrics.New(), log)
+	var forwarded atomic.Int32
+	owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Iot-Gateway-Hops") != "1" || r.Header.Get("Authorization") != "Bearer user-token" {
+			t.Error("forward lost auth or hop bound")
+		}
+		forwarded.Add(1)
+		w.WriteHeader(201)
+	}))
+	defer owner.Close()
+	local, endpoint := false, owner.URL
+	server.SetVideoRouting(func() (bool, string) { return local, endpoint })
+	call := func(path string) int {
+		r := httptest.NewRequest("POST", path, nil)
+		r.Header.Set("Authorization", "Bearer user-token")
+		w := httptest.NewRecorder()
+		server.Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+	if code := call("/api/v1/video/cameras/c1/play-sessions"); code != 201 || forwarded.Load() != 1 {
+		t.Fatal("live route not forwarded to the owner", code)
+	}
+	if code := call("/api/v1/video/hooks/on_play"); code != 201 || forwarded.Load() != 2 {
+		t.Fatal("media hook not forwarded", code)
+	}
+	if code := call("/api/v1/devices"); forwarded.Load() != 2 || code == 201 {
+		t.Fatal("non-video route forwarded")
+	}
+	endpoint = ""
+	if code := call("/api/v1/video/status"); code != 503 {
+		t.Fatal("no owner must be reported as unavailable", code)
+	}
+	local = true
+	if code := call("/api/v1/video/status"); code == 503 || forwarded.Load() != 2 {
+		t.Fatal("owner did not serve its own live routes", code)
 	}
 }

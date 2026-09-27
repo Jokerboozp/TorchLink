@@ -175,3 +175,25 @@ func TestProcessorOnlyEngineConsumesBusinessStream(t *testing.T) {
 		t.Fatal("business stream not processed", err)
 	}
 }
+
+func TestReplayWithoutHeartbeatIsReportedInterrupted(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	e := quietEngine(repo)
+	now := time.Now()
+	running := model.ReplayRequest{ID: "r1", TenantID: "t", Mode: "DRY_RUN", Status: "RUNNING", CreatedAt: now.Add(-5 * time.Minute).UnixMilli(), HeartbeatAt: now.Add(-2 * time.Minute).UnixMilli(), Owner: "gone"}
+	if err := repo.SaveReplay(ctx, running); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.RefreshReplay(ctx, running); got.Status != "INTERRUPTED" || got.CompletedAt == 0 {
+		t.Fatalf("stale replay not interrupted: %+v", got)
+	}
+	if stored, _ := repo.GetReplay(ctx, "r1"); stored.Status != "INTERRUPTED" {
+		t.Fatal("interruption not persisted")
+	}
+	alive := running
+	alive.ID, alive.HeartbeatAt = "r2", now.UnixMilli()
+	if got := e.RefreshReplay(ctx, alive); got.Status != "RUNNING" {
+		t.Fatal("live replay interrupted")
+	}
+}

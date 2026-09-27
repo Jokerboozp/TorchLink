@@ -11,12 +11,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/ratelimit"
 )
 
 var segment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -28,10 +28,6 @@ var ErrRate = errors.New("device rate limit exceeded")
 // a working credential as revoked.
 var ErrUnavailable = errors.New("device credential check temporarily unavailable")
 
-type bucket struct {
-	At    time.Time
-	Count int
-}
 type Service struct {
 	RevokeUsername func(context.Context, string) error
 	PublishCommand func(context.Context, string, []byte, byte, bool) error
@@ -39,15 +35,15 @@ type Service struct {
 	Parsers        *parser.Registry
 	Root           string
 	AllowedCIDRs   []string
-	mu             sync.Mutex
-	rates          map[string]bucket
-	lastSweep      time.Time
+	// Limiter holds per-device and per-key budgets; a cluster shares it so
+	// replicas do not multiply the allowance.
+	Limiter        ratelimit.Limiter
 	ListenerStatus func(string, string) (string, string, int64)
 	MQTTHealth     func(context.Context) error
 }
 
 func New(repo ports.Repository, p *parser.Registry, root string, cidrs []string) *Service {
-	return &Service{Repo: repo, Parsers: p, Root: root, AllowedCIDRs: cidrs, rates: map[string]bucket{}}
+	return &Service{Repo: repo, Parsers: p, Root: root, AllowedCIDRs: cidrs, Limiter: ratelimit.NewLocal()}
 }
 
 func Hash(secret string) string { h := sha256.Sum256([]byte(secret)); return hex.EncodeToString(h[:]) }
@@ -80,40 +76,13 @@ func (s *Service) Authenticate(ctx context.Context, key, secret string) (model.M
 }
 func (s *Service) Allow(key string) bool { return s.AllowRate(key, 20) }
 
-// rateTableLimit bounds the keys tracked at once; keys expire with their
-// one-second window, so it limits distinct callers per second, not per minute.
-const rateTableLimit = 100000
-
-// AllowRate applies a per-process fixed one-second window of perSecond requests.
+// AllowRate applies a fixed one-second window of perSecond requests to key,
+// shared by all replicas when the limiter is cluster-wide.
 func (s *Service) AllowRate(key string, perSecond int) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	b := s.rates[key]
-	if now.Sub(b.At) >= time.Second {
-		b = bucket{At: now}
-	}
-	if b.Count >= perSecond {
-		return false
-	}
-	if len(s.rates) >= rateTableLimit {
-		// A key whose one-second window has ended equals an absent key, so
-		// only keys active in the current second occupy the table.
-		if now.Sub(s.lastSweep) >= time.Second {
-			for k, v := range s.rates {
-				if now.Sub(v.At) >= time.Second {
-					delete(s.rates, k)
-				}
-			}
-			s.lastSweep = now
-		}
-		if _, ok := s.rates[key]; !ok && len(s.rates) >= rateTableLimit {
-			return false
-		}
-	}
-	b.Count++
-	s.rates[key] = b
-	return true
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	ok, err := s.Limiter.Allow(ctx, "rate\x00"+key, perSecond, time.Second)
+	return err == nil && ok
 }
 
 // StandardRaw never accepts tenant/device identity or parser metadata from a payload.

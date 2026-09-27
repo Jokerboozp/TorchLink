@@ -22,7 +22,10 @@ const videoPlayPermission = "POST /api/v1/video/cameras/:id/play-sessions"
 var videoHookEvents = map[string]bool{"on_play": true, "on_publish": true, "on_stream_none_reader": true, "on_stream_not_found": true, "on_server_started": true, "on_server_keepalive": true, "on_stream_changed": true, "on_rtp_server_timeout": true}
 
 // SetVideo installs the live module service.
-func (s *Server) SetVideo(v *video.Service) { s.video = v }
+func (s *Server) SetVideo(v *video.Service) { s.video.Store(v) }
+
+// liveVideo is the current live module service (swapped on control handover).
+func (s *Server) liveVideo() *video.Service { return s.video.Load() }
 
 func (s *Server) videoRoutes() {
 	r, e := s.router, s.endpoint
@@ -76,11 +79,11 @@ func videoSessionRoute(path string) bool {
 }
 
 func (s *Server) videoService(w http.ResponseWriter) *video.Service {
-	if s.video == nil {
+	if s.liveVideo() == nil {
 		write(w, http.StatusServiceUnavailable, map[string]any{"status": 503, "code": "VIDEO_NOT_DEPLOYED", "detail": "直播模块未部署"})
 		return nil
 	}
-	return s.video
+	return s.liveVideo()
 }
 
 func videoProblem(w http.ResponseWriter, err error) {
@@ -185,10 +188,10 @@ func (s *Server) VideoAuthorize(ctx context.Context, tenant string, viewer video
 
 func (s *Server) videoStatus(w http.ResponseWriter, r *http.Request) {
 	var st video.Status
-	if s.video == nil {
+	if s.liveVideo() == nil {
 		st = video.Status{State: video.StateNotDeployed, Message: "直播模块未部署；摄像头资料与设备关联不受影响。"}
 	} else {
-		st = s.video.Status(r.Context())
+		st = s.liveVideo().Status(r.Context())
 	}
 	c := claims(r)
 	canWatch := c.TokenUse != "user" || requestAllows(r, http.MethodPost, "/api/v1/video/cameras/:id/play-sessions")
@@ -243,8 +246,8 @@ func (s *Server) videoDeviceCameras(w http.ResponseWriter, r *http.Request) {
 	out := make([]cameraLiveBrief, 0, len(items))
 	for _, item := range items {
 		brief := cameraLiveBrief{CameraSummary: item}
-		if s.video != nil && item.Enabled {
-			brief.LiveAvailable = s.video.CameraAvailable(r.Context(), tenant, item.CameraID)
+		if s.liveVideo() != nil && item.Enabled {
+			brief.LiveAvailable = s.liveVideo().CameraAvailable(r.Context(), tenant, item.CameraID)
 		}
 		out = append(out, brief)
 	}
@@ -262,8 +265,8 @@ func (s *Server) videoCameraSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	brief := cameraLiveBrief{CameraSummary: model.CameraSummary{CameraID: camera.CameraID, Brand: camera.Brand, CameraName: camera.CameraName, CameraPoint: camera.CameraPoint, DeviceID: camera.DeviceID, Building: camera.Building, Floor: camera.Floor, Room: camera.Room, Enabled: camera.Enabled}}
-	if s.video != nil && camera.Enabled {
-		brief.LiveAvailable = s.video.CameraAvailable(r.Context(), tenant, camera.CameraID)
+	if s.liveVideo() != nil && camera.Enabled {
+		brief.LiveAvailable = s.liveVideo().CameraAvailable(r.Context(), tenant, camera.CameraID)
 	}
 	write(w, http.StatusOK, brief)
 }
@@ -457,7 +460,7 @@ func (s *Server) videoONVIFProfiles(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) videoHook(w http.ResponseWriter, r *http.Request) {
 	event := r.PathValue("event")
-	if s.video == nil || !videoHookEvents[event] || !s.video.VerifyHookSecret(r.URL.Query().Get("secret")) {
+	if s.liveVideo() == nil || !videoHookEvents[event] || !s.liveVideo().VerifyHookSecret(r.URL.Query().Get("secret")) {
 		write(w, http.StatusForbidden, map[string]any{"code": -1, "msg": "forbidden"})
 		return
 	}
@@ -473,11 +476,11 @@ func (s *Server) videoHook(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusBadRequest, map[string]any{"code": -1, "msg": "invalid body"})
 		return
 	}
-	write(w, http.StatusOK, s.video.Hook(r.Context(), event, body))
+	write(w, http.StatusOK, s.liveVideo().Hook(r.Context(), event, body))
 }
 
 func (s *Server) videoMediaAuth(w http.ResponseWriter, r *http.Request) {
-	if s.video != nil && s.video.MediaAuth(r.Context(), r.Header.Get("X-Original-URI")) {
+	if s.liveVideo() != nil && s.liveVideo().MediaAuth(r.Context(), r.Header.Get("X-Original-URI")) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -488,11 +491,11 @@ func (s *Server) videoMediaAuth(w http.ResponseWriter, r *http.Request) {
 // videoCameraChanged ends playback when a saved camera's authorization
 // inputs changed: another device, or the camera was disabled.
 func (s *Server) videoCameraChanged(previous *model.VideoCameraMapping, current model.VideoCameraMapping) {
-	if s.video == nil || previous == nil {
+	if s.liveVideo() == nil || previous == nil {
 		return
 	}
 	if previous.DeviceID != current.DeviceID || (previous.Enabled && !current.Enabled) {
-		s.video.CameraChanged(current.TenantID, current.CameraID, "camera association changed")
+		s.liveVideo().CameraChanged(current.TenantID, current.CameraID, "camera association changed")
 	}
 }
 
@@ -503,14 +506,14 @@ type liveCameraItem struct {
 }
 
 func (s *Server) attachLiveSummaries(r *http.Request, items []model.VideoCameraMapping) any {
-	if s.video == nil || len(items) == 0 {
+	if s.liveVideo() == nil || len(items) == 0 {
 		return items
 	}
 	ids := make([]string, 0, len(items))
 	for _, item := range items {
 		ids = append(ids, item.CameraID)
 	}
-	live := s.video.LiveSummaries(r.Context(), claims(r).TenantID, ids)
+	live := s.liveVideo().LiveSummaries(r.Context(), claims(r).TenantID, ids)
 	out := make([]liveCameraItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, liveCameraItem{VideoCameraMapping: item, Live: live[item.CameraID]})

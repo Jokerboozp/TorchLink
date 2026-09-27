@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ratelimit"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +12,12 @@ import (
 func (s *Server) SetDeviceOperations(publish func(context.Context, string, []byte, byte, bool) error, revoke func(context.Context, string) error) {
 	s.onboarding.PublishCommand = publish
 	s.onboarding.RevokeUsername = revoke
+}
+
+// SetRateLimiter shares device, open API and login budgets across replicas.
+func (s *Server) SetRateLimiter(l ratelimit.Limiter) {
+	s.onboarding.Limiter = l
+	s.logins = newLoginLimiter(l)
 }
 
 // RetryCredentialRevocationsOnce retries pending broker revocations once.

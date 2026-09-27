@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"iot-platform/internal/auth"
@@ -64,7 +65,8 @@ type Server struct {
 	onboarding                 *onboarding.Service
 	events                     *eventSnapshots
 	ops                        *opscenter.Service
-	video                      *video.Service
+	video                      atomic.Pointer[video.Service]
+	videoOwner                 func() (local bool, endpoint string)
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
@@ -84,7 +86,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		log:                        log,
 		router:                     router,
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),
-		logins:                     newLoginLimiter(),
+		logins:                     newLoginLimiter(nil),
 		inspectionPDFs:             newInspectionPDFCache(),
 		inspectionRequests:         make(chan struct{}, 8),
 		aiAnalysisEstimateMs:       45000,
@@ -94,7 +96,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s.routes()
 	return s
 }
-func (s *Server) Handler() http.Handler { return s.roleHandler() }
+func (s *Server) Handler() http.Handler { return s.videoRouting(s.roleHandler()) }
 
 func (s *Server) SetAIProviderRuntime(runtime ports.AIProviderRuntime) {
 	s.aiProviderRuntime = runtime
@@ -1109,7 +1111,7 @@ func (s *Server) getReplay(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "replay not found")
 		return
 	}
-	write(w, 200, v)
+	write(w, 200, s.engine.RefreshReplay(r.Context(), v))
 }
 func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)

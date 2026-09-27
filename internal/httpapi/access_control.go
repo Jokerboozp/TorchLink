@@ -367,10 +367,10 @@ func (s *Server) commitAccess(w http.ResponseWriter, r *http.Request, store port
 		problem(w, 409, "配置已被其他操作更新，请刷新重试")
 		return
 	}
-	if s.video != nil {
+	if s.liveVideo() != nil {
 		// Users, roles and device scopes changed: end live playback that is no
 		// longer permitted now rather than at the next periodic check.
-		go s.video.RevalidateTenant(context.WithoutCancel(r.Context()), claims(r).TenantID)
+		go s.liveVideo().RevalidateTenant(context.WithoutCancel(r.Context()), claims(r).TenantID)
 	}
 	write(w, 200, map[string]bool{"success": true})
 }

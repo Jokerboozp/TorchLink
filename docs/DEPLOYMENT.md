@@ -312,7 +312,8 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | `IOT_POSTGRES_MAX_CONNS` | 64 | 每个进程（含各 Worker 角色）的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
 | `POSTGRES_MAX_CONNECTIONS` | 300 | Compose 中 PostgreSQL 的 `max_connections` |
 | `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
-| `IOT_AI_ANALYSIS_CONCURRENCY` / `IOT_AI_ANALYSIS_RPM` | 2 / 12 | 每进程自动研判并发与请求/分钟，所有副本合计不能超过模型配额 |
+| `IOT_AI_ANALYSIS_CONCURRENCY` / `IOT_AI_ANALYSIS_RPM` | 2 / 12 | 自动研判并发（每进程）与请求/分钟；配置 Redis 时请求/分钟为全集群总额，否则为每进程额度 |
+| `IOT_CLUSTER_INSTANCES` | 1 | 共享限额存储（Redis）不可用时，各进程按“额度 ÷ 实例数”退化执行，避免总额度放大 |
 | `IOT_AI_ANALYSIS_TIMEOUT` / `IOT_AI_ANALYSIS_MAX_WAIT` | 90s / 10m | 含额度等待的执行期限 / 告警事件最长等待年龄；恢复时取消 |
 | `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与业务流（`processor` 组）积压超过该值时暂停接收新原文，0 关闭 |
 | `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
@@ -419,6 +420,16 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 - 每条标准消息先原子领取（60 秒租约、领取代次），只有最新代次能写入完成标记；再均衡时新消费者等待旧持有者完成或租约到期，旧实例迟到的完成被拒绝并计入 `standard_claim_fenced_total`。
 - 告警确认/恢复/关闭、规则停用、离线扫描、连接状态和设备状态写入都基于行版本做乐观并发，冲突时重读重试（`alarm_conflict_total`、`device_state_conflict_total`），不会用旧快照覆盖新上报。
 - 规则与协议缓存在各实例本地保留最多 2 秒，跨实例生效时间以此为上界；权限每次请求读取数据库，撤销立即生效。
+- 设备上报 20 条/秒、开放 API 密钥 100 次/秒、登录失败锁定（15 分钟窗口内 10 次）与自动研判请求/分钟在配置 Redis 后由所有实例共享同一额度（固定时间窗口，窗口按 Unix 时间对齐）；Redis 故障时按 `IOT_CLUSTER_INSTANCES` 退化，并计入 `rate_limit_shared_errors`。
+- Redis 支持 Sentinel：设置 `IOT_REDIS_MASTER_NAME` 与 `IOT_REDIS_SENTINELS`（逗号分隔）后跟随主节点切换；设备状态缓存按行版本写入，旧写入不会覆盖新缓存。
+- 回放任务记录执行实例与心跳；执行进程退出后，超过 60 秒无心跳的任务在查询时标为 `INTERRUPTED`，不会永久停在运行中。
+- MQTT 持久队列目录加进程独占锁，同一目录被第二个进程打开时启动失败，避免两个实例共用一个 client ID。
+
+### 多 API 实例：视频控制与 Harness
+
+- 多个 API 实例都设置 `IOT_NODE_URL`（本实例可被其他实例访问的 HTTP 地址）后，通过 `video/control` 租约选出一个实例运行直播模块（SIP 服务、播放会话、媒体任务与清理）；其他实例把 `/api/v1/video/*`、`/api/v1/integrations/video/*`（含媒体服务器回调与 HLS 鉴权）带原用户凭据转发到持有者，由持有者重新校验。持有者续租失败立即停止模块，租约过期后备用实例接管并从数据库恢复播放会话；现有 SIP 连接与 WebRTC 播放需要设备重新注册、浏览器重新点播。单实例部署不设置该变量时行为不变。
+- 媒体服务器回调地址、SIP 端口映射须指向当前持有者或能转发到它的入口；权限变化由持有者每 15 秒复核一次后撤销播放。
+- `IOT_AI_HARNESS_URL` 可填多个逗号分隔地址。同一会话按会话 ID 固定路由到同一 Harness 实例（多轮上下文保存在该实例）；该实例不可达时改由下一实例开始新会话。模型配置与动态智能体同步到全部实例，任一实例健康即视为可用。
 
 **从旧版本升级**：旧版由 `storage` 消费组处理 property/event/parsed 主题，新版改为 `processor` 组处理业务流，两者不能同时产生副作用。升级顺序：
 

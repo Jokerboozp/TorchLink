@@ -732,23 +732,27 @@ type WorkflowKnowledgeBinding struct {
 }
 
 type ReplayRequest struct {
-	ID            string         `json:"id"`
-	TenantID      string         `json:"tenantId"`
-	ProductID     string         `json:"productId,omitempty"`
-	DeviceID      string         `json:"deviceId,omitempty"`
-	Start         int64          `json:"start"`
-	End           int64          `json:"end"`
-	ParserVersion string         `json:"parserVersion,omitempty"`
-	Mode          string         `json:"mode"`
-	RatePerSecond int            `json:"ratePerSecond"`
-	Status        string         `json:"status"`
-	Processed     int            `json:"processed"`
-	Failed        int            `json:"failed"`
-	CreatedBy     string         `json:"createdBy"`
-	CreatedAt     int64          `json:"createdAt"`
-	CompletedAt   int64          `json:"completedAt,omitempty"`
-	DiffSummary   map[string]int `json:"diffSummary,omitempty"`
-	Diffs         []ReplayDiff   `json:"diffs,omitempty"`
+	ID            string `json:"id"`
+	TenantID      string `json:"tenantId"`
+	ProductID     string `json:"productId,omitempty"`
+	DeviceID      string `json:"deviceId,omitempty"`
+	Start         int64  `json:"start"`
+	End           int64  `json:"end"`
+	ParserVersion string `json:"parserVersion,omitempty"`
+	Mode          string `json:"mode"`
+	RatePerSecond int    `json:"ratePerSecond"`
+	Status        string `json:"status"`
+	Processed     int    `json:"processed"`
+	Failed        int    `json:"failed"`
+	CreatedBy     string `json:"createdBy"`
+	CreatedAt     int64  `json:"createdAt"`
+	CompletedAt   int64  `json:"completedAt,omitempty"`
+	// Owner and HeartbeatAt identify the process running the replay; a
+	// RUNNING task whose heartbeat stopped is reported INTERRUPTED.
+	Owner       string         `json:"owner,omitempty"`
+	HeartbeatAt int64          `json:"heartbeatAt,omitempty"`
+	DiffSummary map[string]int `json:"diffSummary,omitempty"`
+	Diffs       []ReplayDiff   `json:"diffs,omitempty"`
 }
 
 type ReplayDiff struct {

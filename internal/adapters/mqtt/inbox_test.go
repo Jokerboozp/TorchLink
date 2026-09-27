@@ -600,3 +600,20 @@ func TestExistingBrokerDisconnectDuringDurableCallback(t *testing.T) {
 	eventually(t, func() bool { pending, _, _ := sub.InboxCounts(); return pending >= 2 })
 	t.Log("broker disconnected during callback; durable receipt survived and subsequent delivery succeeded")
 }
+
+func TestInboxDirectoryIsExclusiveToOneProcess(t *testing.T) {
+	root := t.TempDir()
+	first, err := openInbox(root, 1<<20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = openInbox(root, 1<<20, 100); !errors.Is(err, ErrInboxInUse) {
+		t.Fatal("a second owner opened the same inbox", err)
+	}
+	first.close()
+	again, err := openInbox(root, 1<<20, 100)
+	if err != nil {
+		t.Fatal("inbox not released on close", err)
+	}
+	again.close()
+}

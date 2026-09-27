@@ -18,8 +18,9 @@ type aiCapacity struct {
 	requestsPerMinute int64
 }
 
-// ConfigureAutomaticAnalysis is called before consumers start. Budgets are per
-// process; cluster planning must sum them against the provider/Harness quotas.
+// ConfigureAutomaticAnalysis is called before consumers start. Without a
+// cluster limiter budgets are per process and cluster planning must sum them
+// against the provider/Harness quotas; with one, rpm is the cluster total.
 func (e *Engine) ConfigureAutomaticAnalysis(timeout, maxWait time.Duration, rpm int64) {
 	e.aiCapacity.timeout = timeout
 	e.aiCapacity.maxWait = maxWait
@@ -57,6 +58,9 @@ func (e *Engine) waitAutomaticBudget(ctx context.Context, alarm model.Alarm) err
 	if e.aiCapacity.requestsPerMinute <= 0 {
 		return nil
 	}
+	if e.Limiter != nil {
+		return e.waitClusterBudget(ctx, alarm)
+	}
 	e.aiCapacity.mu.Lock()
 	at := e.aiCapacity.next
 	if at.Before(time.Now()) {
@@ -88,4 +92,29 @@ func (e *Engine) skipAutomaticAnalysis(ctx context.Context, alarm model.Alarm, r
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	return e.Repo.SaveAIAnalysis(saveCtx, model.AIAnalysis{TenantID: alarm.TenantID, AlarmID: alarm.ID, KnowledgeScope: model.AIAnalysisScopeNone, Status: "skipped", Summary: cause.Error(), RiskLevel: alarm.AlarmLevel, CreatedAt: e.Clock.Now().UnixMilli(), Error: cause.Error()})
+}
+
+// waitClusterBudget takes one request from the cluster-wide per-minute budget,
+// waiting for the next window while the alarm is still within maxWait.
+func (e *Engine) waitClusterBudget(ctx context.Context, alarm model.Alarm) error {
+	for {
+		ok, err := e.Limiter.Allow(ctx, "ai\x00automatic", int(e.aiCapacity.requestsPerMinute), time.Minute)
+		if err == nil && ok {
+			return nil
+		}
+		wait := time.Second
+		if _, reset, hitsErr := e.Limiter.Hits(ctx, "ai\x00automatic", time.Minute); hitsErr == nil && reset > 0 {
+			wait = reset
+		}
+		if e.aiCapacity.maxWait > 0 && alarm.LastTriggeredAt > 0 && e.Clock.Now().Add(wait).Sub(time.UnixMilli(alarm.LastTriggeredAt)) > e.aiCapacity.maxWait {
+			return errAIWaitExpired
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return context.Cause(ctx)
+		case <-timer.C:
+		}
+	}
 }

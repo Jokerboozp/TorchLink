@@ -40,9 +40,42 @@ func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (mode
 	go e.runReplay(context.Background(), req)
 	return req, nil
 }
+
+// replayHeartbeat is how often a running replay proves it is alive;
+// replayStale is when a silent RUNNING task is reported INTERRUPTED.
+const (
+	replayHeartbeat = 5 * time.Second
+	replayStale     = 60 * time.Second
+)
+
+// RefreshReplay reports a RUNNING or PENDING replay whose owner stopped
+// heartbeating (process exit, node loss) as INTERRUPTED and persists it.
+func (e *Engine) RefreshReplay(ctx context.Context, req model.ReplayRequest) model.ReplayRequest {
+	if req.Status != "RUNNING" && req.Status != "PENDING" {
+		return req
+	}
+	last := max(req.HeartbeatAt, req.CreatedAt)
+	now := e.Clock.Now().UnixMilli()
+	if now-last <= replayStale.Milliseconds() {
+		return req
+	}
+	req.Status = "INTERRUPTED"
+	req.CompletedAt = now
+	_ = e.Repo.UpdateReplay(ctx, req)
+	return req
+}
+
 func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 	req.Status = "RUNNING"
+	req.Owner = e.Identity()
+	req.HeartbeatAt = e.Clock.Now().UnixMilli()
 	_ = e.Repo.UpdateReplay(ctx, req)
+	beat := func() {
+		if now := e.Clock.Now().UnixMilli(); now-req.HeartbeatAt >= replayHeartbeat.Milliseconds() {
+			req.HeartbeatAt = now
+			_ = e.Repo.UpdateReplay(ctx, req)
+		}
+	}
 	ticker := time.NewTicker(time.Second / time.Duration(req.RatePerSecond))
 	defer ticker.Stop()
 	offset := 0
@@ -61,6 +94,7 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 		}
 		for _, idx := range indexes {
 			<-ticker.C
+			beat()
 			raw, err := e.GetRaw(ctx, idx)
 			if err != nil {
 				e.Log.Error("read replay archive", "replayId", req.ID, "messageId", idx.MessageID, "bucket", idx.ObjectBucket, "key", idx.ObjectKey, "error", err)
@@ -74,7 +108,7 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 					var b []byte
 					b, err = json.Marshal(raw)
 					if err == nil {
-						err = e.Bus.Publish(ctx, model.TopicRaw, raw.DeviceID, b)
+						err = e.Bus.Publish(ctx, model.TopicRaw, model.DeviceKey(raw.TenantID, raw.DeviceID), b)
 					}
 				}
 			case "DRY_RUN":
@@ -116,6 +150,7 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 			}
 		}
 		offset += len(indexes)
+		req.HeartbeatAt = e.Clock.Now().UnixMilli()
 		_ = e.Repo.UpdateReplay(ctx, req)
 		if len(indexes) < 500 {
 			req.Status = "COMPLETED"
