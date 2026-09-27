@@ -149,6 +149,59 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 	}, 403)
 }
 
+func TestAIProviderConfigSavesWithoutSuccessfulConnectionTest(t *testing.T) {
+	var providerRequests atomic.Int32
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		providerRequests.Add(1)
+		http.Error(w, "provider unavailable", http.StatusServiceUnavailable)
+	}))
+	defer providerServer.Close()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := aiadapter.NewProviderRegistry()
+	runtime, err := aiadapter.NewRuntimeProvider(registry, ports.AIPluginConfig{Provider: "disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	engine.AIPlugins = registry
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(repo)
+	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := map[string]any{"provider": "deepseek", "baseUrl": providerServer.URL, "model": "test-model", "apiKey": "test-key", "maxTokens": 2048}
+	for _, scenario := range []string{"untested", "failed-test"} {
+		t.Run(scenario, func(t *testing.T) {
+			if scenario == "failed-test" {
+				result := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, candidate, http.StatusOK)
+				if result["success"] != false {
+					t.Fatal("unavailable provider must fail the optional connection test")
+				}
+				candidate["model"] = "updated-model"
+			}
+			before := providerRequests.Load()
+			requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, candidate, http.StatusOK)
+			if providerRequests.Load() != before {
+				t.Fatal("saving configuration contacted the model provider")
+			}
+			saved, found, err := repo.LoadAIProviderConfig(context.Background())
+			if err != nil || !found || saved.Model != candidate["model"] || saved != runtime.CurrentConfig() {
+				t.Fatal("saved configuration and active runtime do not match")
+			}
+		})
+	}
+}
+
 func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {

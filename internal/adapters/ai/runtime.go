@@ -59,16 +59,13 @@ func (r *RuntimeProvider) CurrentConfig() ports.AIPluginConfig {
 	return r.config
 }
 
-// Configure validates the new client and checks its health before swapping it
-// into service. The caller controls the timeout, which keeps an unavailable
-// remote endpoint from blocking the API indefinitely.
-func (r *RuntimeProvider) Configure(ctx context.Context, config ports.AIPluginConfig) error {
+// Configure validates and installs the client without contacting the provider.
+// Connection tests and health checks are explicit operations, so an unavailable
+// model endpoint does not prevent saving its configuration.
+func (r *RuntimeProvider) Configure(_ context.Context, config ports.AIPluginConfig) error {
 	config = normalizeConfig(config)
 	client, err := r.registry.Create(config)
 	if err != nil {
-		return err
-	}
-	if err := client.Health(ctx); err != nil {
 		return err
 	}
 	r.mu.Lock()

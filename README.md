@@ -56,7 +56,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
 
-所有部署方式都不再下载 Qwen 对话模型。登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key、测试并应用即可启用 AI；未填密钥可先使用设备接入等功能。离线包可离线安装，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
+所有部署方式都不再下载 Qwen 对话模型。登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。离线包可离线安装，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
 
 | 环境 | 配置与操作入口 |
 | --- | --- |

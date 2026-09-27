@@ -1512,7 +1512,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	configureCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	if err := s.aiProviderRuntime.Configure(configureCtx, candidate); err != nil {
-		problem(w, http.StatusBadGateway, "模型服务健康检查失败，请检查地址、模型和接口密钥")
+		problem(w, http.StatusBadGateway, "模型服务配置无效，请检查地址、模型和接口密钥")
 		return
 	}
 	if s.aiWorkflowProvider != nil {

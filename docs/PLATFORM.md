@@ -30,7 +30,7 @@ Compose 使用 HS256 JWT、令牌 ACL、文件规则兜底拒绝与匿名拒绝�
 
 ## AI 与知识库
 
-Harness 必装，所有业务模型调用作为工作流执行；Provider 仅负责模型管理的连接测试、健康及配置同步。只有 Gateway 角色可不配 Harness。DeepSeek Key 可首次留空，后续测试并应用；Ollama 只为知识库提供 `nomic-embed-text`，离线安装不代表 AI 断网可用。
+Harness 必装，所有业务模型调用作为工作流执行；Provider 仅负责模型管理的连接测试、健康及配置同步。只有 Gateway 角色可不配 Harness。DeepSeek Key 可首次留空，后续在模型管理填写并直接保存；连接测试为可选操作，未测试、测试失败或测试后修改配置均不阻止保存。保存保留字段校验、权限检查与 Harness 配置同步，不调用模型服务做健康检查；Ollama 只为知识库提供 `nomic-embed-text`，离线安装不代表 AI 断网可用。
 
 | 功能 | 工作流 | 发起身份 | 可用工具 |
 | --- | --- | --- | --- |

@@ -8,7 +8,7 @@ import (
 	"iot-platform/internal/ports"
 )
 
-var errDeepSeekKeyRequired = errors.New("请在模型管理中填写 DeepSeek API Key，测试并应用后启用 AI 功能")
+var errDeepSeekKeyRequired = errors.New("请在模型管理中填写并保存 DeepSeek API Key 后启用 AI 功能")
 
 type unconfiguredDeepSeek struct{}
 

@@ -3,6 +3,7 @@ import vm from 'node:vm'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { loadAllPages } from '../src/listPagination.js'
+import { aiProviderOptions as providerOptions } from '../src/presentation.js'
 import { createClientId } from '../src/clientId.js'
 import { computed, reactive, ref, watch } from 'vue'
 import { readFile } from 'node:fs/promises'
@@ -14,7 +15,7 @@ const root = new URL('../src/views/', import.meta.url)
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(file, api, exports, notifyError = e => { throw e }, base = root) {
   const source = fs.readFileSync(new URL(file, base), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
-  const context = vm.createContext({ref, reactive, computed, watch, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
+  const context = vm.createContext({ref, reactive, computed, watch, providerOptions, can:()=>true, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
@@ -532,3 +533,24 @@ test('通知窗口溢出不伪报新设备，不重载设备表格',()=>{
  assert.equal(c.updatesAvailable.value,true,'授权范围内出现新设备时应提示手动刷新')
  assert.equal(calls,0)
 })
+
+for (const scenario of ['untested', 'failed-test', 'changed-after-test']) {
+  test(`model configuration saves when ${scenario}`, async () => {
+    const requests = []
+    const c = component('AiProvidersView.vue', async (url, options) => {
+      requests.push({url, options})
+      if (url.endsWith('/test')) return {success:scenario === 'changed-after-test', error:'unavailable'}
+      if (options?.method === 'PUT') return JSON.parse(options.body)
+      return {items:[], active:{id:'deepseek'}, config:{provider:'deepseek', model:'saved-model', apiKeyConfigured:true}}
+    }, 'providerForm,testProviderConfig,applyProviderConfig,providerError')
+    c.providerForm.apiKey = 'test-key'
+    if (scenario !== 'untested') await c.testProviderConfig()
+    if (scenario === 'changed-after-test') c.providerForm.model = 'updated-model'
+    const model = c.providerForm.model
+    await c.applyProviderConfig()
+    const saves = requests.filter(request => request.options?.method === 'PUT')
+    assert.equal(saves.length, 1)
+    assert.equal(JSON.parse(saves[0].options.body).model, model)
+    assert.equal(c.providerError.value, '')
+  })
+}
