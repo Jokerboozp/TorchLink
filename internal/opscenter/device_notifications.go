@@ -196,9 +196,16 @@ func (n *DeviceNotifications) write(name string, item deviceNotification) error 
 }
 
 // finish leaves an empty receipt first, so replay deduplication never has a gap.
+// Its mtime is the receipt time that flush compares against retention, so it is
+// taken from the service clock rather than the filesystem.
 func (n *DeviceNotifications) finish(name string) error {
 	delete(n.lastPost, name)
-	if err := os.WriteFile(filepath.Join(n.dir, strings.TrimSuffix(name, ".json")+".done"), nil, 0o600); err != nil {
+	receipt := filepath.Join(n.dir, strings.TrimSuffix(name, ".json")+".done")
+	if err := os.WriteFile(receipt, nil, 0o600); err != nil {
+		return err
+	}
+	at := n.service.now()
+	if err := os.Chtimes(receipt, at, at); err != nil {
 		return err
 	}
 	return os.Remove(filepath.Join(n.dir, name))

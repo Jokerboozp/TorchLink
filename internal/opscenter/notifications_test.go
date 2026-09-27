@@ -393,6 +393,13 @@ func TestDeviceEmailTemplateMigrationKeepsCustomHTML(t *testing.T) {
 
 func notificationFixture(t *testing.T) (*DeviceNotifications, *fakeAlertmanager, *time.Time) {
 	t.Helper()
+	return notificationFixtureAt(t, time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC))
+}
+
+// notificationFixtureAt drives the service from a fake clock starting at start,
+// independent of the wall clock.
+func notificationFixtureAt(t *testing.T, start time.Time) (*DeviceNotifications, *fakeAlertmanager, *time.Time) {
+	t.Helper()
 	svc, am, _ := newAMService(t, `route:
   receiver: ops
 receivers:
@@ -404,7 +411,7 @@ receivers:
         smarthost: smtp.example.com:587
         send_resolved: false
 `)
-	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	now := start
 	svc.Now = func() time.Time { return now }
 	cfg, _ := svc.NotificationConfig(context.Background())
 	cfg.DeviceAlarmReceiver = "device-mail"
@@ -439,64 +446,77 @@ func spoolFiles(t *testing.T, dir, ext string) int {
 	return len(files)
 }
 func TestDeviceNotificationsDistinctAndDurable(t *testing.T) {
-	n, am, now := notificationFixture(t)
-	ctx := context.Background()
-	a := notificationAlarm(*now)
-	enqueueAlarm(t, n, a)
-	enqueueAlarm(t, n, a)
-	a.ID = "alarm-2"
-	enqueueAlarm(t, n, a)
-	a.TenantID = "tenant-2"
-	enqueueAlarm(t, n, a)
-	if err := n.flush(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(am.posted) != 3 {
-		t.Fatalf("want 3 unique notifications, got %d", len(am.posted))
-	}
-	identities := map[string]bool{}
-	for _, alert := range am.posted {
-		labels := alert["labels"].(map[string]any)
-		identities[labels["tenant_id"].(string)+labels["alarm_id"].(string)] = true
-		detail := alert["annotations"].(map[string]any)["description"].(string)
-		for _, want := range []string{"一楼烟感", "回路 1", "大厅", "火警", "烟雾浓度超限"} {
-			if !strings.Contains(detail, want) {
-				t.Fatalf("missing %s", want)
+	for _, start := range []time.Time{
+		time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2090, 6, 15, 23, 0, 0, 0, time.UTC),
+	} {
+		t.Run(start.Format("2006-01-02"), func(t *testing.T) {
+			n, am, now := notificationFixtureAt(t, start)
+			ctx := context.Background()
+			a := notificationAlarm(*now)
+			enqueueAlarm(t, n, a)
+			enqueueAlarm(t, n, a)
+			a.ID = "alarm-2"
+			enqueueAlarm(t, n, a)
+			a.TenantID = "tenant-2"
+			enqueueAlarm(t, n, a)
+			if err := n.flush(ctx); err != nil {
+				t.Fatal(err)
 			}
-		}
-		if strings.Contains(detail, "do-not-send") {
-			t.Fatal("raw content exposed")
-		}
-	}
-	if len(identities) != 3 {
-		t.Fatal("events grouped across tenant/alarm identity")
-	}
-	if err := n.flush(ctx); err != nil || len(am.posted) != 3 {
-		t.Fatal("posted again before refresh interval", err)
-	}
-	// A restarted worker refreshes the same alerts with identical timestamps.
-	original, _ := json.Marshal(am.posted)
-	restarted := &DeviceNotifications{service: n.service, dir: n.dir, wake: make(chan struct{}, 1), lastPost: map[string]time.Time{}}
-	am.posted = nil
-	if err := restarted.flush(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if recovered, _ := json.Marshal(am.posted); string(original) != string(recovered) {
-		t.Fatal("restart changed notification identity or timestamps")
-	}
-	// After the window only receipts remain, and they still reject replays.
-	*now = now.Add(deviceNotificationWindow)
-	am.posted = nil
-	if err := restarted.flush(ctx); err != nil {
-		t.Fatal(err)
-	}
-	enqueueAlarm(t, restarted, a)
-	if len(am.posted) != 0 || spoolFiles(t, n.dir, ".json") != 0 || spoolFiles(t, n.dir, ".done") != 3 {
-		t.Fatal("expired notification retained or replayed")
-	}
-	*now = now.Add(deviceNotificationRetention + time.Hour)
-	if err := restarted.flush(ctx); err != nil || spoolFiles(t, n.dir, ".done") != 0 {
-		t.Fatal("receipts not purged after retention", err)
+			if len(am.posted) != 3 {
+				t.Fatalf("want 3 unique notifications, got %d", len(am.posted))
+			}
+			identities := map[string]bool{}
+			for _, alert := range am.posted {
+				labels := alert["labels"].(map[string]any)
+				identities[labels["tenant_id"].(string)+labels["alarm_id"].(string)] = true
+				detail := alert["annotations"].(map[string]any)["description"].(string)
+				for _, want := range []string{"一楼烟感", "回路 1", "大厅", "火警", "烟雾浓度超限"} {
+					if !strings.Contains(detail, want) {
+						t.Fatalf("missing %s", want)
+					}
+				}
+				if strings.Contains(detail, "do-not-send") {
+					t.Fatal("raw content exposed")
+				}
+			}
+			if len(identities) != 3 {
+				t.Fatal("events grouped across tenant/alarm identity")
+			}
+			if err := n.flush(ctx); err != nil || len(am.posted) != 3 {
+				t.Fatal("posted again before refresh interval", err)
+			}
+			// A restarted worker refreshes the same alerts with identical timestamps.
+			original, _ := json.Marshal(am.posted)
+			restarted := &DeviceNotifications{service: n.service, dir: n.dir, wake: make(chan struct{}, 1), lastPost: map[string]time.Time{}}
+			am.posted = nil
+			if err := restarted.flush(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if recovered, _ := json.Marshal(am.posted); string(original) != string(recovered) {
+				t.Fatal("restart changed notification identity or timestamps")
+			}
+			// After the window only receipts remain, and they still reject replays.
+			*now = now.Add(deviceNotificationWindow)
+			am.posted = nil
+			if err := restarted.flush(ctx); err != nil {
+				t.Fatal(err)
+			}
+			enqueueAlarm(t, restarted, a)
+			if len(am.posted) != 0 || spoolFiles(t, n.dir, ".json") != 0 || spoolFiles(t, n.dir, ".done") != 3 {
+				t.Fatal("expired notification retained or replayed")
+			}
+			// Retention counts from the receipt time on the service clock, not the
+			// wall clock, so the fixture dates are chosen far from the real time.
+			*now = now.Add(deviceNotificationRetention - time.Hour)
+			if err := restarted.flush(ctx); err != nil || spoolFiles(t, n.dir, ".done") != 3 {
+				t.Fatal("receipts purged before retention", err)
+			}
+			*now = now.Add(2 * time.Hour)
+			if err := restarted.flush(ctx); err != nil || spoolFiles(t, n.dir, ".done") != 0 {
+				t.Fatal("receipts not purged after retention", err)
+			}
+		})
 	}
 }
 
