@@ -3,6 +3,7 @@
 #
 #   bash scripts/cluster-up.sh                                   # wizard: nodes, SSH passwords, service password
 #   bash scripts/cluster-up.sh --name torchlink                  # upgrade a cluster deployed before (no questions)
+#   bash scripts/cluster-up.sh --name torchlink --capacity on    # capacity-test module on (or off)
 #   bash scripts/cluster-up.sh --inventory deploy/cluster/my.yaml   # hand-written inventory
 #   bash scripts/cluster-up.sh --name torchlink --bundle cluster-images.tar   # online machine: save all images
 #   bash scripts/cluster-up.sh --name torchlink --images cluster-images.tar   # offline controller
@@ -32,6 +33,7 @@ inventory=""
 name=""
 nodes_arg=""
 video=""
+capacity=""
 ssh_user=""
 ssh_key=""
 ssh_port=""
@@ -43,13 +45,14 @@ build=1
 dry_run=0
 assume_yes=0
 
-usage() { sed -n '2,31p' "$0"; }
+usage() { sed -n '2,32p' "$0"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --inventory) inventory="$2"; shift 2;;
     --name) name="$2"; shift 2;;
     --nodes) nodes_arg="$2"; shift 2;;
     --video) video="$2"; shift 2;;
+    --capacity) capacity="$2"; shift 2;;
     --ssh-user) ssh_user="$2"; shift 2;;
     --ssh-key) ssh_key="$2"; shift 2;;
     --ssh-port) ssh_port="$2"; shift 2;;
@@ -65,6 +68,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$video" in ""|on|off) ;; *) echo "--video must be on or off" >&2; exit 2;; esac
+case "$capacity" in ""|on|off) ;; *) echo "--capacity must be on or off" >&2; exit 2;; esac
 
 say() { printf '\n== %s\n' "$*"; }
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -136,6 +140,10 @@ else
       if [ -z "$video" ]; then
         ask answer "部署摄像头直播模块？(y/n)" y
         case "$answer" in n|N|no) video=off;; *) video=on;; esac
+      fi
+      if [ -z "$capacity" ]; then
+        ask answer "部署容量测试模块？（用于压测，平时可关闭）(y/n)" n
+        case "$answer" in y|Y|yes) capacity=on;; *) capacity=off;; esac
       fi
     else
       fail "no cluster named $name yet: run interactively, or pass --nodes IP,IP,IP (or --inventory)"
@@ -257,7 +265,11 @@ tool() { image_tool cluster-render -inventory "/in/inventory/$(basename "$invent
 if [ -n "$generate_nodes" ]; then
   say "generating inventory $inventory"
   video_flag=true; [ "$video" = off ] && video_flag=false
-  image_tool cluster-render -generate -name "$name" -nodes "$generate_nodes" -video="$video_flag" -inventory "/in/inventory/$(basename "$inventory")" < /dev/null
+  capacity_flag=false; [ "$capacity" = on ] && capacity_flag=true
+  image_tool cluster-render -generate -name "$name" -nodes "$generate_nodes" -video="$video_flag" -capacity="$capacity_flag" -inventory "/in/inventory/$(basename "$inventory")" < /dev/null
+elif [ -n "$capacity" ]; then
+  # Module switch on an existing cluster: only the inventory entry changes.
+  image_tool cluster-render -set-capacity "$capacity" -inventory "/in/inventory/$(basename "$inventory")" < /dev/null
 fi
 printf 'user=%s\nport=%s\n' "$ssh_user" "$ssh_port" > "$ssh_conf"
 image_list="$(tool -print-images)"

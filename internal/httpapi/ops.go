@@ -97,6 +97,7 @@ func (s *Server) opsRoutes() {
 	r.PUT("/api/v1/ops/notifications", a, e(s.opsSaveNotifications))
 	r.POST("/api/v1/ops/notifications/receivers/:name/test", a, e(s.opsTestReceiver, "name"))
 
+	r.GET("/api/v1/ops/capacity/status", a, e(s.capacityModuleStatus))
 	r.GET("/api/v1/ops/capacity/environments", a, e(s.capacityEnvironments))
 	r.POST("/api/v1/ops/capacity/plans/validate", a, e(s.capacityValidate))
 	r.GET("/api/v1/ops/capacity/runs", a, e(s.capacityRuns))

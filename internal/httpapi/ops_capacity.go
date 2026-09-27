@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"iot-platform/internal/capacity"
 )
 
 // The capacity page drives the capacity controller service (capacity-test
@@ -23,7 +26,7 @@ func (s *Server) capacityEnvironments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) capacityValidate(w http.ResponseWriter, r *http.Request) {
-	body, ok := capacityPlanBody(w, r)
+	body, ok := s.capacityPlanBody(w, r, false)
 	if ok {
 		s.proxyCapacity(w, r, http.MethodPost, "/v1/plans/validate", body, 30*time.Second)
 	}
@@ -34,7 +37,7 @@ func (s *Server) capacityRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) capacityStart(w http.ResponseWriter, r *http.Request) {
-	body, ok := capacityPlanBody(w, r)
+	body, ok := s.capacityPlanBody(w, r, true)
 	if !ok {
 		return
 	}
@@ -125,17 +128,63 @@ func capacityID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
-func capacityPlanBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+// capacityPlanBody forwards the browser's environment and plan text and adds
+// what only the platform may decide: the caller's tenant (fixtures.tenant is
+// always overridden) and, when starting, a token issued for the caller so the
+// run acts with exactly that user's permissions and device scope. A managed
+// user's token dies with a session change (password, permissions, disable).
+func (s *Server) capacityPlanBody(w http.ResponseWriter, r *http.Request, start bool) ([]byte, bool) {
 	var req struct {
-		Environment string `json:"environment"`
-		Plan        string `json:"plan"`
+		Environment   string `json:"environment"`
+		Plan          string `json:"plan"`
+		Tenant        string `json:"tenant"`
+		OperatorToken string `json:"operatorToken,omitempty"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 300<<10)).Decode(&req); err != nil || strings.TrimSpace(req.Plan) == "" {
 		problem(w, http.StatusBadRequest, "请求需要 environment 与 plan（YAML 文本，最大 256 KiB）")
 		return nil, false
 	}
+	c := claims(r)
+	req.Tenant, req.OperatorToken = c.TenantID, ""
+	if start {
+		ttl := 24 * time.Hour
+		if p, err := capacity.ParsePlan([]byte(req.Plan)); err == nil && p.Budget.MaximumWallTime.D() > 0 {
+			ttl = min(ttl, p.Budget.MaximumWallTime.D()+30*time.Minute)
+		}
+		var token string
+		var err error
+		if c.TokenUse == "user" {
+			token, err = s.auth.IssueUser(c.Username, c.TenantID, c.SessionVersion, ttl)
+		} else {
+			token, err = s.auth.Issue(c.Username, c.TenantID, c.Role, nil, ttl)
+		}
+		if err != nil {
+			problem(w, http.StatusInternalServerError, "无法为容量测试签发操作凭据")
+			return nil, false
+		}
+		req.OperatorToken = token
+	}
 	b, _ := json.Marshal(req)
 	return b, true
+}
+
+// capacityStatus reports whether the capacity module is deployed; the page
+// hides itself when it is not.
+func (s *Server) capacityModuleStatus(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg.Ops
+	enabled := cfg.CapacityURL != "" && cfg.CapacityToken != ""
+	out := map[string]any{"enabled": enabled, "reachable": false}
+	if enabled {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.CapacityURL, "/")+"/health", nil); err == nil {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				resp.Body.Close()
+				out["reachable"] = resp.StatusCode == http.StatusOK
+			}
+		}
+	}
+	write(w, http.StatusOK, out)
 }
 
 func (s *Server) proxyCapacity(w http.ResponseWriter, r *http.Request, method, path string, body []byte, timeout time.Duration) {

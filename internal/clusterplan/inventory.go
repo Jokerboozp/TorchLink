@@ -137,7 +137,7 @@ var Ports = map[string][]int{
 	"ollama": {11434}, "weaviate": {8085, 50051}, "video": {80, 8000},
 	"backup": {8090}, "prometheus": {9090}, "node-exporter": {9100}, "web": {8080},
 	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "ai": {8103}, "jobs": {8104},
-	"lb": {LBAPIPort, LBGatewayPort},
+	"lb": {LBAPIPort, LBGatewayPort}, "capacity": {7080},
 }
 
 // Local load balancer ports (bound to 127.0.0.1 on every node).
@@ -264,6 +264,7 @@ func (inv *Inventory) Placement() map[string][]string {
 	add("video", inv.Video.Node)
 	add("backup", inv.Backup.Node)
 	add("prometheus", inv.Monitoring.Node)
+	add("capacity", inv.Capacity.Node)
 	for _, n := range inv.Nodes {
 		add("node-exporter", n.Name)
 		if inv.AutoLB() {

@@ -2,6 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1                    # wizard
 #   ... -Name torchlink                                  # upgrade a cluster deployed before (no questions)
+#   ... -Name torchlink -Capacity on                     # capacity-test module on (or off)
 #   ... -Inventory deploy\cluster\my.yaml                # hand-written inventory
 #   ... -Name torchlink -Bundle cluster-images.tar       # online machine: build + pull, save all images, stop
 #   ... -Name torchlink -Images cluster-images.tar       # offline controller
@@ -23,6 +24,7 @@ param(
     [string]$Name = "",
     [string]$Nodes = "",
     [ValidateSet("", "on", "off")][string]$Video = "",
+    [ValidateSet("", "on", "off")][string]$Capacity = "",
     [string]$SshUser = "",
     [string]$SshKey = "",
     [int]$SshPort = 0,
@@ -97,6 +99,7 @@ if ($Inventory) {
             }
             $generateNodes = $addresses -join ','
             if (-not $Video) { $Video = if ((Ask "部署摄像头直播模块？(y/n)" "y") -match '^(n|no)$') { "off" } else { "on" } }
+            if (-not $Capacity) { $Capacity = if ((Ask "部署容量测试模块？（用于压测，平时可关闭）(y/n)" "n") -match '^(y|yes)$') { "on" } else { "off" } }
         } else { throw "no cluster named $Name yet: run interactively, or pass -Nodes IP,IP,IP (or -Inventory)" }
     }
 }
@@ -216,8 +219,13 @@ function Invoke-Tool([string[]]$ToolArgs) {
 if ($generateNodes) {
     Say "generating inventory $Inventory"
     $videoFlag = if ($Video -eq "off") { "-video=false" } else { "-video=true" }
-    Invoke-ImageTool "cluster-render" @("-generate", "-name", $name, "-nodes", $generateNodes, $videoFlag, "-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)")
+    $capacityFlag = if ($Capacity -eq "on") { "-capacity=true" } else { "-capacity=false" }
+    Invoke-ImageTool "cluster-render" @("-generate", "-name", $name, "-nodes", $generateNodes, $videoFlag, $capacityFlag, "-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)")
     if ($script:ToolExit -ne 0) { throw "generating the inventory failed" }
+} elseif ($Capacity) {
+    # Module switch on an existing cluster: only the inventory entry changes.
+    Invoke-ImageTool "cluster-render" @("-set-capacity", $Capacity, "-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)")
+    if ($script:ToolExit -ne 0) { throw "switching the capacity module failed" }
 }
 Set-Content -Path $sshConf -Value @("user=$SshUser", "port=$SshPort")
 $inventoryLines = Get-Content $Inventory

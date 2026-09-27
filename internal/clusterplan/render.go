@@ -34,6 +34,8 @@ type Secrets struct {
 	EMQXCookie                  string `yaml:"emqxCookie"`
 	EMQXDashboardPassword       string `yaml:"emqxDashboardPassword"`
 	BackupToken                 string `yaml:"backupToken"`
+	// CapacityToken is shared by the platform and the capacity module.
+	CapacityToken string `yaml:"capacityToken,omitempty"`
 	// BackupRestoreTargetDSN is an optional separate database for restore checks.
 	BackupRestoreTargetDSN string `yaml:"backupRestoreTargetDSN"`
 	DeepSeekAPIKey         string `yaml:"deepseekApiKey"`
@@ -73,6 +75,9 @@ func (s Secrets) validate(inv *Inventory) error {
 	if inv.Video.Node != "" {
 		required["videoMediaSecret"], required["videoHookSecret"], required["videoCredentialKey"] = s.VideoMediaSecret, s.VideoHookSecret, s.VideoCredentialKey
 	}
+	if inv.Capacity.Node != "" {
+		required["capacityToken"] = s.CapacityToken
+	}
 	var missing []string
 	for k, v := range required {
 		if strings.TrimSpace(v) == "" || strings.Contains(strings.ToLower(v), "change-me") {
@@ -110,7 +115,7 @@ var serviceStage = map[string]string{
 	"postgres": "data", "redpanda": "data", "clickhouse": "data", "emqx": "data",
 	"harness": "support", "ollama": "support", "weaviate": "support", "video": "support", "backup": "support",
 	"parser": "workers", "processor": "workers", "ai": "workers", "jobs": "workers",
-	"api": "edge", "gateway": "edge", "web": "edge",
+	"api": "edge", "gateway": "edge", "web": "edge", "capacity": "edge",
 }
 
 // Summary is cluster.json: placement, endpoints, budget and start order.
@@ -229,6 +234,10 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	switch role {
 	case "api":
 		env["IOT_ACCESS_GATEWAY_URL"] = inv.GatewayURL()
+		if inv.Capacity.Node != "" {
+			env["IOT_OPS_CAPACITY_URL"] = "http://" + r.ip(inv.Capacity.Node) + ":7080"
+			env["IOT_OPS_CAPACITY_TOKEN"] = "${IOT_OPS_CAPACITY_TOKEN}"
+		}
 		// Elects the single live video controller among API instances.
 		env["IOT_NODE_URL"] = "http://" + r.ip(node) + ":8081"
 		env["IOT_GB28181_SIP_HOST"] = r.ip(node)
@@ -359,6 +368,19 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		case "prometheus":
 			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig())
 			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"}}), "prometheus-data")
+		case "capacity":
+			add(kind, "capacity", service(inv.Images.Platform, map[string]any{
+				"entrypoint": []string{"/app/capacity-test"},
+				"command":    []string{"serve", "--self", "--listen", ":7080", "--results", "/app/data/capacity-results"},
+				"environment": map[string]string{
+					"IOT_CAPACITY_API_URL": inv.APIURL(), "IOT_CAPACITY_MQTT_URL": "tcp://" + r.ip(inv.EMQX.Nodes[0]) + ":1883",
+					"IOT_CAPACITY_WEB_URL": "http://" + r.ip(inv.Platform.Web.Nodes[0]) + ":8080", "IOT_CAPACITY_METRICS": r.capacityMetrics(),
+					"IOT_CAPACITY_NODES": r.capacityNodes(), "IOT_CAPACITY_POSTGRES_DSN": r.postgresDSN("prefer-standby"),
+					"IOT_CAPACITY_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_CAPACITY_SERVICE_TOKEN": "${IOT_OPS_CAPACITY_TOKEN}",
+				},
+				"volumes": []string{"capacity-data:/app/data"},
+			}), "capacity-data")
+			env["POSTGRES_PASSWORD"], env["CLICKHOUSE_PASSWORD"], env["IOT_OPS_CAPACITY_TOKEN"] = r.s.PostgresPassword, r.s.ClickHousePassword, r.s.CapacityToken
 		case "lb":
 			files[node+"/lb/haproxy.cfg"] = []byte(r.haproxyConfig())
 			add(kind, "lb", service(inv.Images.LB, map[string]any{"volumes": []string{"./lb/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"}}))
@@ -385,6 +407,9 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			if inv.Video.Node != "" {
 				env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"], env["IOT_VIDEO_CREDENTIAL_KEY"] = r.s.VideoMediaSecret, r.s.VideoHookSecret, r.s.VideoCredentialKey
 			}
+			if inv.Capacity.Node != "" {
+				env["IOT_OPS_CAPACITY_TOKEN"] = r.s.CapacityToken
+			}
 		}
 	}
 	compose := map[string]any{"name": inv.Name, "services": svcs}
@@ -395,6 +420,26 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		sort.Strings(list)
 	}
 	return compose, env, stages
+}
+
+// capacityMetrics lists every platform process for the capacity module as
+// role@instance=url (instances match the Prometheus labels).
+func (r renderer) capacityMetrics() string {
+	var out []string
+	for _, role := range RoleNames {
+		for _, n := range r.inv.Platform.Roles[role].Nodes {
+			out = append(out, fmt.Sprintf("%s@%s-%s=http://%s:%d/metrics", role, role, n, r.ip(n), rolePort[role]))
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+func (r renderer) capacityNodes() string {
+	var out []string
+	for _, n := range r.inv.Nodes {
+		out = append(out, fmt.Sprintf("%s=http://%s:9100/metrics", n.Name, n.Address))
+	}
+	return strings.Join(out, ",")
 }
 
 // haproxyConfig balances the local API and gateway origins across every

@@ -467,6 +467,7 @@ func TestClusterUpWizardAsksNodesPasswordsAndServicePassword(t *testing.T) {
 		"2", "3", // two nodes are refused, then three
 		"10.0.0.1", "10.0.0.1", "10.0.0.2", "bad", "10.0.0.3", // duplicate and invalid addresses are asked again
 		"n",    // no video module
+		"y",    // capacity module on
 		"", "", // SSH user root, port 22
 		"2", // one password per node
 		"Node-One-Pw", "Node-Two-Pw", "Node-Three-Pw",
@@ -484,7 +485,7 @@ func TestClusterUpWizardAsksNodesPasswordsAndServicePassword(t *testing.T) {
 		}
 	}
 	inv, err := Load(filepath.Join(state, "inventory.yaml"))
-	if err != nil || inv.Name != "torchlink" || len(inv.Nodes) != 3 || inv.Nodes[2].Address != "10.0.0.3" || inv.Video.Node != "" {
+	if err != nil || inv.Name != "torchlink" || len(inv.Nodes) != 3 || inv.Nodes[2].Address != "10.0.0.3" || inv.Video.Node != "" || inv.Capacity.Node != "n3" {
 		t.Fatalf("generated inventory: %v %+v", err, inv)
 	}
 	stdin, _ := os.ReadFile(filepath.Join(fake, "ssh-stdin.log"))
@@ -520,6 +521,16 @@ func TestClusterUpWizardAsksNodesPasswordsAndServicePassword(t *testing.T) {
 	again, _ := LoadSecrets(filepath.Join(state, "secrets.yaml"))
 	if again != s {
 		t.Fatal("upgrade changed the secrets")
+	}
+	// The module switch edits the inventory and re-renders without questions.
+	if out, err = up("", "--name", "torchlink", "--no-build", "--capacity", "off"); err != nil {
+		t.Fatal(err, out)
+	}
+	if inv, _ = Load(filepath.Join(state, "inventory.yaml")); inv.Capacity.Node != "" {
+		t.Fatal("capacity module still on")
+	}
+	if b, _ := os.ReadFile(filepath.Join(state, "rendered", "n3", "compose.yaml")); strings.Contains(string(b), "capacity-test") {
+		t.Fatal("capacity service still rendered")
 	}
 	// Unattended: a new cluster from --nodes needs the passwords in the environment.
 	other := filepath.Join(fake, "other")
@@ -587,5 +598,51 @@ func TestUnifiedServicePasswordRules(t *testing.T) {
 	}
 	if _, err := EnsureSecretsWith(path, SecretInputs{ServicePassword: "another-pass"}); !errors.Is(err, ErrServicePasswordConflict) {
 		t.Fatal("a different service password must be refused", err)
+	}
+}
+
+func TestCapacityModuleRendersBesideThePlatform(t *testing.T) {
+	inv := example(t)
+	s := testSecrets()
+	files, err := Render(inv, s)
+	if err != nil || strings.Contains(string(files["n4/compose.yaml"]), "capacity-test") || strings.Contains(string(files["n1/compose.yaml"]), "IOT_OPS_CAPACITY_URL") {
+		t.Fatal("capacity module must be off by default", err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "inv.yaml")
+	src, _ := os.ReadFile(filepath.Join("..", "..", "deploy", "cluster", "inventory.example.yaml"))
+	_ = os.WriteFile(path, src, 0o600)
+	if node, err := SetCapacity(path, true); err != nil || node != "n4" {
+		t.Fatal(node, err)
+	}
+	edited, _ := os.ReadFile(path)
+	if !strings.Contains(string(edited), "# Cluster inventory: the single source") || !strings.HasSuffix(string(edited), "capacity: {node: n4}\n") {
+		t.Fatal("switch must keep comments and add one entry")
+	}
+	on, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err = Render(on, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n4 := string(files["n4/compose.yaml"])
+	for _, want := range []string{"/app/capacity-test", "--self", "IOT_CAPACITY_SERVICE_TOKEN: ${IOT_OPS_CAPACITY_TOKEN}", "api@api-n1=http://10.0.0.11:8081/metrics", "processor@processor-n3=http://10.0.0.13:8102/metrics", "n4=http://10.0.0.14:9100/metrics", "IOT_CAPACITY_API_URL: http://127.0.0.1:18181"} {
+		if !strings.Contains(n4, want) {
+			t.Fatalf("capacity service lacks %q:\n%s", want, n4)
+		}
+	}
+	if !strings.Contains(string(files["n1/compose.yaml"]), "IOT_OPS_CAPACITY_URL: http://10.0.0.14:7080") || !strings.Contains(string(files["n1/.env"]), "IOT_OPS_CAPACITY_TOKEN="+s.CapacityToken) || !strings.Contains(string(files["n4/.env"]), "IOT_OPS_CAPACITY_TOKEN=") {
+		t.Fatal("api instances need the module address and token")
+	}
+	if strings.Contains(n4, s.CapacityToken) || strings.Contains(n4, s.PostgresPassword) {
+		t.Fatal("secrets leaked into compose.yaml")
+	}
+	if _, err = SetCapacity(path, false); err != nil {
+		t.Fatal(err)
+	}
+	if off, _ := Load(path); off.Capacity.Node != "" {
+		t.Fatal("switch off")
 	}
 }

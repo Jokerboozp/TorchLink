@@ -98,7 +98,18 @@ type Fixtures struct {
 	// sequence. AlarmRecovers states the rule recovers on stressAlarm=0.
 	AlarmRuleID   string `yaml:"alarmRuleId" json:"alarmRuleId"`
 	AlarmRecovers bool   `yaml:"alarmRecovers" json:"alarmRecovers"`
+	// AutoProvision creates or reuses the test product (standard protocol)
+	// and, with alarmFraction > 0, the stressAlarm test rule through the
+	// platform API before the run. Defaults: product cap-standard, rule
+	// cap-stress-alarm (recovers on stressAlarm=0).
+	AutoProvision bool `yaml:"autoProvision" json:"autoProvision"`
 }
+
+// Names used by fixtures.autoProvision when the plan leaves them empty.
+const (
+	AutoProductID = "cap-standard"
+	AutoRuleID    = "cap-stress-alarm"
+)
 
 type Load struct {
 	IngressShare             map[string]float64 `yaml:"ingressShare" json:"ingressShare"`
@@ -337,6 +348,14 @@ func ParsePlan(b []byte) (*Plan, error) {
 	if p.Search.CandidateHold == 0 {
 		p.Search.CandidateHold = p.Search.Measure
 	}
+	if f := &p.Fixtures; f.AutoProvision {
+		if f.Product == "" {
+			f.Product = AutoProductID
+		}
+		if f.AlarmFraction > 0 && f.AlarmRuleID == "" {
+			f.AlarmRuleID, f.AlarmRecovers = AutoRuleID, true
+		}
+	}
 	return &p, nil
 }
 
@@ -408,9 +427,6 @@ func (p *Plan) Validate() error {
 	case PresetQuick, PresetCapacity, PresetSoak, PresetResilience:
 	default:
 		bad("preset must be quick, capacity, soak or resilience")
-	}
-	if p.Credentials.OperatorSecretRef == "" {
-		bad("credentials.operatorSecretRef is required")
 	}
 	f := p.Fixtures
 	if !identifier.MatchString(f.Tenant) || !identifier.MatchString(f.Product) || !identifier.MatchString(f.DevicePrefix) {

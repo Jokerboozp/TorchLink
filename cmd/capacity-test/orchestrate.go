@@ -29,6 +29,7 @@ const subcommandUsage = `capacity-test one-click orchestration (docs/DEVELOPMENT
   capacity-test report --run <runId> [--secrets <file>] [--results capacity-results]
   capacity-test compare --runs <id,id,...> [--instances id=n,...] [--results capacity-results] [--out <dir>]
   capacity-test serve --listen 127.0.0.1:7080 --inventories <dir> --token-ref <name> [--secrets <file>] [--results capacity-results] [--fault-allow <file>]
+  capacity-test serve --self --listen :7080 --results <dir>     # capacity module: settings from IOT_CAPACITY_* variables
   capacity-test agent --listen :7070 --token-ref <name> [--secrets <file>] [--name <agent>] [--fault-allow <file>]
 
 Legacy single-mode usage (-mode ...) is unchanged; run with -h for its flags.
@@ -290,6 +291,7 @@ func serveCmd(args []string) error {
 	fs := newFlags("serve")
 	listen := fs.String("listen", "127.0.0.1:7080", "listen address (keep it private: only the platform API calls it)")
 	invDir := fs.String("inventories", "", "directory of trusted inventory files (<environment>.yaml)")
+	self := fs.Bool("self", false, "capacity module mode: one environment \"self\" from IOT_CAPACITY_* variables, service token from IOT_CAPACITY_SERVICE_TOKEN; no inventory or secrets file")
 	results := fs.String("results", "capacity-results", "results directory")
 	secretsPath := fs.String("secrets", "", "private secrets file used by runs")
 	tokenRef := fs.String("token-ref", "", "secret reference of the service token shared with the platform")
@@ -297,22 +299,31 @@ func serveCmd(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *invDir == "" {
-		return errors.New("--inventories is required")
+	opt := capacity.ServeOptions{InventoryDir: *invDir, ResultsDir: *results, SecretsPath: *secretsPath, SourceCommit: sourceCommit(), Log: os.Stdout}
+	if *self {
+		env, err := capacity.SelfEnvironmentFromEnv(os.Getenv)
+		if err != nil {
+			return err
+		}
+		opt.Self = &env
+		opt.Token = strings.TrimSpace(os.Getenv("IOT_CAPACITY_SERVICE_TOKEN"))
+	} else {
+		if *invDir == "" {
+			return errors.New("--inventories is required (or --self for the capacity module)")
+		}
+		s, err := capacity.LoadSecrets(*secretsPath)
+		if err != nil {
+			return err
+		}
+		if opt.Token, err = s.Get(*tokenRef); err != nil {
+			return err
+		}
 	}
-	s, err := capacity.LoadSecrets(*secretsPath)
-	if err != nil {
-		return err
-	}
-	token, err := s.Get(*tokenRef)
-	if err != nil {
-		return err
-	}
-	if len(token) < 32 {
+	if len(opt.Token) < 32 {
 		return errors.New("the service token must have at least 32 characters")
 	}
-	opt := capacity.ServeOptions{InventoryDir: *invDir, ResultsDir: *results, SecretsPath: *secretsPath, Token: token, SourceCommit: sourceCommit(), Log: os.Stdout}
 	if *faultAllow != "" {
+		var err error
 		if opt.FaultAllow, err = capacity.LoadFaultAllowlist(*faultAllow); err != nil {
 			return err
 		}
@@ -327,11 +338,15 @@ func serveCmd(args []string) error {
 		svc.Shutdown(10 * time.Minute)
 		_ = srv.Close()
 	}()
-	fmt.Printf("capacity controller service on %s (environments %s, results %s)\n", *listen, *invDir, *results)
-	if err = srv.ListenAndServe(); errors.Is(err, http.ErrServerClosed) {
-		return nil
+	where := *invDir
+	if *self {
+		where = "self (this platform)"
 	}
-	return err
+	fmt.Printf("capacity controller service on %s (environments %s, results %s)\n", *listen, where, *results)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // compareCmd lines up finished runs and, when their workloads match, writes

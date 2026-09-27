@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,6 +36,11 @@ type fakePlatform struct {
 	dropAlarms bool
 	// downFile, while it exists, makes ingest answer 503 (fault injection).
 	downFile string
+	// products, when non-nil, lists the products that exist; onboarding
+	// preflight answers 404 for others (auto-provisioning tests).
+	products map[string]bool
+	rules    map[string]string
+	mu       sync.Mutex
 }
 
 func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *fakePlatform)) *fakePlatform {
@@ -59,7 +65,46 @@ func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *f
 	mux.HandleFunc("GET /api/v1/alarms", authed(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"items":[{"id":"alarm-1"}],"total":1}`))
 	}))
-	mux.HandleFunc("GET /api/v1/onboarding/preflight", authed(ok))
+	mux.HandleFunc("GET /api/v1/onboarding/preflight", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.products != nil && !f.products[r.URL.Query().Get("productId")] {
+			w.WriteHeader(404)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	}))
+	mux.HandleFunc("PUT /api/v1/products/{id}", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.products == nil {
+			f.products = map[string]bool{}
+		}
+		f.products[r.PathValue("id")] = true
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	mux.HandleFunc("PUT /api/v1/rules/{id}", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if _, ok := f.rules[r.PathValue("id")]; !ok {
+			w.WriteHeader(404)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		f.rules[r.PathValue("id")] = string(b)
+	}))
+	mux.HandleFunc("POST /api/v1/rules", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		b, _ := io.ReadAll(r.Body)
+		var v struct{ ID string }
+		_ = json.Unmarshal(b, &v)
+		if f.rules == nil {
+			f.rules = map[string]string{}
+		}
+		f.rules[v.ID] = string(b)
+		w.WriteHeader(201)
+	}))
 	mux.HandleFunc("POST /api/v1/onboarding", authed(func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			Device struct{ ID string } `json:"device"`
@@ -677,5 +722,102 @@ func TestEndToEndResumeReplaysCompletedStepsWithNextGeneration(t *testing.T) {
 	}
 	if _, err = resume(); err == nil || !strings.Contains(err.Error(), "already finished") {
 		t.Fatal("a finished run cannot be resumed", err)
+	}
+}
+
+func TestSelfModuleRunsWithoutInventoryOrSecretsAndProvisionsFixtures(t *testing.T) {
+	t.Parallel()
+	f := newFakePlatform(t, 0, func(_ *http.ServeMux, f *fakePlatform) { f.products = map[string]bool{} })
+	env := map[string]string{
+		"IOT_CAPACITY_API_URL":      f.srv.URL,
+		"IOT_CAPACITY_METRICS":      "combined@platform-api=" + f.srv.URL + "/metrics",
+		"IOT_CAPACITY_POSTGRES_DSN": "postgres://observer:self-pg-secret@db/iot",
+	}
+	if _, err := SelfEnvironmentFromEnv(func(k string) string { return map[string]string{"IOT_CAPACITY_API_URL": f.srv.URL}[k] }); err == nil {
+		t.Fatal("a module environment without metrics and database must be rejected")
+	}
+	self, err := SelfEnvironmentFromEnv(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := t.TempDir()
+	token := strings.Repeat("m", 40)
+	svc := NewService(ServeOptions{Self: &self, ResultsDir: results, Token: token,
+		NewStore: func(context.Context, string, string) (Store, error) { return f.store, nil }})
+	srv := httptest.NewServer(svc.Handler())
+	t.Cleanup(srv.Close)
+	call := func(method, path string, body any) (int, []byte) {
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest(method, srv.URL+path, bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, out
+	}
+	status, body := call("GET", "/v1/environments", nil)
+	if status != 200 || !strings.Contains(string(body), `"name":"self"`) || !strings.Contains(string(body), "本平台") || strings.Contains(string(body), f.srv.URL) {
+		t.Fatalf("%d %s", status, body)
+	}
+	// The page sends no tenant, credentials or product: the platform adds
+	// tenant and token, the module provisions the product and rule.
+	plan := "schemaVersion: 1\nname: ui-quick\npreset: quick\nfixtures: {deviceCount: 5, reuseDevices: true, messageBytes: 200, alarmFraction: 0.3, autoProvision: true}\nload: {ingressShare: {http: 1}, initialMessagesPerSecond: 10}\nsearch: {rates: [10], measure: 10s, warmup: 0s, drainTimeout: 10s, cooldown: 1s, observeInterval: 1s}\nbudget: {maximumWallTime: 5m, maximumMessagesPerSecond: 100, maximumEvidenceGiB: 1}\n"
+	req := map[string]string{"environment": "self", "plan": plan, "tenant": "t1", "operatorToken": f.token}
+	if status, body = call("POST", "/v1/plans/validate", req); status != 200 || !strings.Contains(string(body), `"valid":true`) {
+		t.Fatalf("%d %s", status, body)
+	}
+	status, body = call("POST", "/v1/runs", req)
+	if status != 202 {
+		t.Fatalf("%d %s", status, body)
+	}
+	var started struct{ RunID string }
+	_ = json.Unmarshal(body, &started)
+	var info RunInfo
+	for deadline := time.Now().Add(90 * time.Second); ; {
+		_, body = call("GET", "/v1/runs/"+started.RunID, nil)
+		_ = json.Unmarshal(body, &info)
+		if !info.Active && info.Verdict != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run did not finish: %s", body)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	dir := filepath.Join(results, started.RunID)
+	s := readSummary(t, dir)
+	if s.Verdict != VerdictPassed {
+		b, _ := os.ReadFile(filepath.Join(dir, "preflight.json"))
+		t.Fatalf("%+v\n%s", s, b)
+	}
+	f.mu.Lock()
+	created, rule := f.products[AutoProductID], f.rules[AutoRuleID]
+	f.mu.Unlock()
+	if !created || !strings.Contains(rule, `"field":"stressAlarm"`) || !strings.Contains(rule, `"productId":"cap-standard"`) {
+		t.Fatalf("auto-provisioning: product %v rule %s", created, rule)
+	}
+	sanitized, _ := os.ReadFile(filepath.Join(dir, "plan.sanitized.yaml"))
+	if !strings.Contains(string(sanitized), "tenant: t1") || !strings.Contains(string(sanitized), "alarmRuleId: cap-stress-alarm") {
+		t.Fatal(string(sanitized))
+	}
+	var rec PhaseRecord
+	b, _ := os.ReadFile(filepath.Join(dir, "phases", s.Phases[0].PhaseID+".json"))
+	_ = json.Unmarshal(b, &rec)
+	if rec.Integrity.AlarmDevicesChecked == 0 {
+		t.Fatal("the provisioned rule must be reconciled")
+	}
+	manifest, _ := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if !strings.Contains(string(manifest), "自动创建的产品 cap-standard") {
+		t.Fatal("the report must say what was created", string(manifest))
+	}
+	if err := checkNoSecrets(dir, []string{f.token, "self-pg-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	// Wrong environments are refused in module mode.
+	if status, body = call("POST", "/v1/plans/validate", map[string]string{"environment": "other", "plan": plan, "tenant": "t1"}); !strings.Contains(string(body), "请选择已登记的测试环境") {
+		t.Fatal(status, string(body))
 	}
 }

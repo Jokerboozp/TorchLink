@@ -37,12 +37,31 @@ func main() {
 	name := flag.String("name", "torchlink", "-generate：集群名称")
 	nodes := flag.String("nodes", "", "-generate：节点 IP，逗号分隔，按 n1、n2… 顺序")
 	video := flag.Bool("video", true, "-generate：部署摄像头直播媒体服务")
+	capacityOn := flag.Bool("capacity", false, "-generate：部署容量测试模块")
+	setCapacity := flag.String("set-capacity", "", "on|off：在 -inventory 中开启或关闭容量测试模块后退出")
 	printNodes := flag.Bool("print-nodes", false, "按“名称 地址”逐行输出清单中的节点后退出")
 	secretsStdin := flag.Bool("secrets-stdin", false, "-init-secrets：从标准输入读取 servicePassword=… 与 deepseekApiKey=…（不经命令行）")
 	flag.Parse()
 	clusterplan.CheckSecretsMode = !*noModeCheck
+	if *setCapacity != "" {
+		if *setCapacity != "on" && *setCapacity != "off" {
+			fmt.Fprintln(os.Stderr, "error: -set-capacity must be on or off")
+			os.Exit(2)
+		}
+		node, err := clusterplan.SetCapacity(*inventory, *setCapacity == "on")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		if node != "" {
+			fmt.Printf("capacity module on (node %s)\n", node)
+		} else {
+			fmt.Println("capacity module off")
+		}
+		return
+	}
 	if *generate {
-		if err := generateInventory(*inventory, *name, *nodes, *video); err != nil {
+		if err := generateInventory(*inventory, *name, *nodes, *video, *capacityOn); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -90,7 +109,7 @@ func main() {
 	}
 }
 
-func generateInventory(path, name, nodes string, video bool) error {
+func generateInventory(path, name, nodes string, video, capacity bool) error {
 	if path == "" {
 		return fmt.Errorf("-inventory names the file to write")
 	}
@@ -103,7 +122,7 @@ func generateInventory(path, name, nodes string, video bool) error {
 			addresses = append(addresses, a)
 		}
 	}
-	inv, err := clusterplan.GenerateInventory(clusterplan.GenerateOptions{Name: name, Addresses: addresses, Video: video})
+	inv, err := clusterplan.GenerateInventory(clusterplan.GenerateOptions{Name: name, Addresses: addresses, Video: video, Capacity: capacity})
 	if err != nil {
 		return err
 	}

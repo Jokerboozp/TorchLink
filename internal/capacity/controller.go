@@ -53,6 +53,15 @@ type RunOptions struct {
 	FaultAllow FaultAllowlist
 	// OnStart receives the run ID once the evidence directory exists.
 	OnStart func(runID string)
+	// Inventory replaces InventoryPath (the capacity module builds it from
+	// its environment); ExtraSecrets are in-memory secrets it references.
+	Inventory    *Inventory
+	ExtraSecrets map[string]string
+	// OperatorToken, when set, is used instead of credentials.operatorSecretRef:
+	// the platform issues it for the user who started the run.
+	OperatorToken string
+	// Tenant overrides fixtures.tenant (the caller's tenant).
+	Tenant string
 	// ResumeRunID continues an interrupted run in ResultsDir: completed
 	// steps are replayed from phases/, agents are prepared again with the
 	// next generation and the search continues where it stopped.
@@ -185,6 +194,8 @@ type controller struct {
 	agentResults map[string]AgentPhaseResult
 	openAPIKey   string
 	nodes        *Collector
+	// provisioned lists test objects created by fixtures.autoProvision.
+	provisioned []string
 	// replay holds completed steps of a resumed run, in search order.
 	replay  []PhaseRecord
 	resumed bool
@@ -204,23 +215,31 @@ func Run(ctx context.Context, opt RunOptions) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if opt.Tenant != "" {
+		plan.Fixtures.Tenant = opt.Tenant
+	}
 	if err = plan.Validate(); err != nil {
 		return "", fmt.Errorf("plan is invalid:\n%w", err)
 	}
-	invPath := opt.InventoryPath
-	if invPath == "" {
-		invPath = ResolveRef(opt.PlanPath, plan.Target.InventoryRef)
-	}
-	if invPath == "" {
-		return "", errors.New("no inventory: set target.inventoryRef or --inventory")
-	}
-	inv, err := LoadInventory(invPath)
-	if err != nil {
-		return "", err
+	inv := opt.Inventory
+	if inv == nil {
+		invPath := opt.InventoryPath
+		if invPath == "" {
+			invPath = ResolveRef(opt.PlanPath, plan.Target.InventoryRef)
+		}
+		if invPath == "" {
+			return "", errors.New("no inventory: set target.inventoryRef or --inventory")
+		}
+		if inv, err = LoadInventory(invPath); err != nil {
+			return "", err
+		}
 	}
 	secrets, err := LoadSecrets(opt.SecretsPath)
 	if err != nil {
 		return "", err
+	}
+	for ref, v := range opt.ExtraSecrets {
+		secrets.Set(ref, v)
 	}
 	if opt.ResultsDir == "" {
 		opt.ResultsDir = "capacity-results"
@@ -436,7 +455,14 @@ func (c *controller) execute(parent context.Context) error {
 	c.state.StopReason = firstNonEmpty(result.StopReason, c.state.StopReason)
 	c.state.Result = finalStatus
 	c.setStatus(StatusReporting, "")
-	if rerr := GenerateReport(c.dir, c.secrets.Values(c.secretRefs()...)); rerr != nil {
+	leakCheck := c.secrets.Values(c.secretRefs()...)
+	if c.opt.OperatorToken != "" {
+		leakCheck = append(leakCheck, c.opt.OperatorToken)
+	}
+	for _, v := range c.opt.ExtraSecrets {
+		leakCheck = append(leakCheck, v)
+	}
+	if rerr := GenerateReport(c.dir, leakCheck); rerr != nil {
 		c.event("error", "", "", "report: "+rerr.Error())
 		finalStatus = StatusFailed
 		err = errors.Join(err, rerr)
@@ -486,8 +512,15 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 		ok = ok && good
 	}
 	var err error
-	if c.opToken, err = c.secrets.Get(c.plan.Credentials.OperatorSecretRef); err != nil {
-		add("操作员凭据", false, err.Error())
+	switch {
+	case c.opt.OperatorToken != "":
+		c.opToken = c.opt.OperatorToken
+	case c.plan.Credentials.OperatorSecretRef == "":
+		add("操作员凭据", false, "计划需要 credentials.operatorSecretRef（或由平台容量测试模块代为提供）")
+	default:
+		if c.opToken, err = c.secrets.Get(c.plan.Credentials.OperatorSecretRef); err != nil {
+			add("操作员凭据", false, err.Error())
+		}
 	}
 	needAgentToken := false
 	for _, a := range c.inv.Agents {
@@ -531,6 +564,11 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 	add("平台就绪", err == nil && status == 200, fmt.Sprintf("GET /health/ready → %d %s", status, errText(err)))
 	status, _, err = c.get(ctx, "/api/v1/devices?page=1&pageSize=1", c.opToken)
 	add("操作员权限", err == nil && status == 200, fmt.Sprintf("设备列表 → %d %s", status, errText(err)))
+	if c.plan.Fixtures.AutoProvision {
+		for _, chk := range c.provision(ctx) {
+			add(chk.Name, chk.OK, chk.Detail)
+		}
+	}
 	status, body, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+c.plan.Fixtures.Product, c.opToken)
 	add("测试产品", err == nil && status == 200, fmt.Sprintf("产品 %s 接入预检 → %d %s %s", c.plan.Fixtures.Product, status, errText(err), clip(string(body), 160)))
 	col, _ := NewCollector(c.inv.Metrics, time.Second, "")
@@ -798,6 +836,9 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 	}
 	m.Retained = []string{fmt.Sprintf("测试设备 %d 台保留在租户 %s 产品 %s（前缀 %s），凭据在工作目录，可供复测", f.DeviceCount, f.Tenant, f.Product, prefix)}
 	m.Cleanup = []string{"压测结束已释放 Agent 连接与租约", "未删除测试设备与测试数据；如需清理请按前缀在设备管理中处理"}
+	for _, p := range c.provisioned {
+		m.Retained = append(m.Retained, "自动创建的"+p+"保留，可供复测；不再需要时在对应页面删除")
+	}
 	for _, d := range out {
 		if d.Secret == "" {
 			return nil, m, fmt.Errorf("device enrolment incomplete (%d/%d); results: %s", f.DeviceCount-len(missing)+len(m.DevicesCreated), f.DeviceCount, codeSummary(failures))

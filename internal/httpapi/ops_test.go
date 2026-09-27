@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -184,12 +185,21 @@ func TestOpsCenterUnavailableWithoutService(t *testing.T) {
 		t.Fatalf("code = %v", body["code"])
 	}
 	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ops/overview", "", nil, 401)
+	// Without the capacity module the page learns it is off (and hides itself).
+	if body := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ops/capacity/status", token, nil, 200); body["enabled"] != false {
+		t.Fatalf("capacity status = %v", body)
+	}
 }
 
 func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 	var calls []string
+	var startBody []byte
 	var mu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer capacity-service-token-for-tests-000" {
 			w.WriteHeader(401)
 			return
@@ -205,6 +215,9 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 		case r.URL.Path == "/v1/runs" && r.Method == http.MethodGet:
 			_, _ = w.Write([]byte(`{"items":[]}`))
 		case r.URL.Path == "/v1/runs" && r.Method == http.MethodPost:
+			mu.Lock()
+			startBody, _ = io.ReadAll(r.Body)
+			mu.Unlock()
 			w.WriteHeader(202)
 			_, _ = w.Write([]byte(`{"runId":"cap-20260928-120000-abcdef"}`))
 		case r.URL.Path == "/v1/runs/cap-20260928-120000-abcdef/stop":
@@ -238,11 +251,26 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": tenant}, 200)["accessToken"].(string)
 	}
 	root := login("root", cfg.AdminPassword, "tenant_ops")
-	plan := map[string]any{"environment": "lab", "plan": "schemaVersion: 1\n"}
+	if body := req("GET", "/api/v1/ops/capacity/status", root, nil, 200); body["enabled"] != true || body["reachable"] != true {
+		t.Fatalf("module status %v", body)
+	}
+	plan := map[string]any{"environment": "lab", "plan": "schemaVersion: 1\nbudget: {maximumWallTime: 1h}\n", "tenant": "tenant_biz", "operatorToken": "forged"}
 	req("GET", "/api/v1/ops/capacity/environments", root, nil, 200)
 	req("POST", "/api/v1/ops/capacity/plans/validate", root, plan, 200)
 	if body := req("POST", "/api/v1/ops/capacity/runs", root, plan, 202); body["runId"] != "cap-20260928-120000-abcdef" {
 		t.Fatal(body)
+	}
+	// The platform decides tenant and operator identity; browser values are ignored.
+	var forwarded struct {
+		Tenant        string `json:"tenant"`
+		OperatorToken string `json:"operatorToken"`
+	}
+	mu.Lock()
+	_ = json.Unmarshal(startBody, &forwarded)
+	mu.Unlock()
+	delegated, err := api.auth.Parse(forwarded.OperatorToken)
+	if forwarded.Tenant != "tenant_ops" || err != nil || delegated.Username != "root" || delegated.TenantID != "tenant_ops" || delegated.ExpiresAt.Time.After(time.Now().Add(91*time.Minute)) {
+		t.Fatalf("forwarded identity %+v %v %+v", forwarded.Tenant, err, delegated)
 	}
 	req("POST", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/stop", root, map[string]any{}, 202)
 	req("GET", "/api/v1/ops/capacity/runs/..%2Fetc", root, nil, 404)
@@ -268,6 +296,7 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 	viewer := login("cap_user", "cap-password-test", "tenant_ops")
 	req("GET", "/api/v1/ops/capacity/runs", viewer, nil, 200)
 	req("POST", "/api/v1/ops/capacity/runs", viewer, plan, 403)
+	req("GET", "/api/v1/ops/capacity/status", viewer, nil, 200)
 	req("POST", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/stop", viewer, map[string]any{}, 403)
 	req("GET", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/report", viewer, nil, 403)
 	// Business tenants cannot be granted the capacity menu at all.

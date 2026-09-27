@@ -30,6 +30,9 @@ type ServeOptions struct {
 	SecretsPath  string
 	Token        string
 	FaultAllow   FaultAllowlist
+	// Self, when set, replaces InventoryDir with the single environment
+	// "self": the platform the capacity module is deployed with.
+	Self         *SelfEnvironment
 	SourceCommit string
 	Log          io.Writer
 	// Test seams passed to Run.
@@ -70,6 +73,16 @@ type Environment struct {
 }
 
 func (s *Service) environments() []Environment {
+	if s.opt.Self != nil {
+		e := Environment{Name: SelfEnvironmentName, Title: "本平台"}
+		if inv, err := s.opt.Self.Inventory(); err != nil {
+			e.Error = clip(err.Error(), 200)
+		} else {
+			e.Agents, e.Metrics = len(inv.Agents), len(inv.Metrics)
+			e.MQTT, e.Web, e.Observer = inv.MQTT != "", inv.Web != "", inv.Observers.ClickHouseSecretRef != ""
+		}
+		return []Environment{e}
+	}
 	entries, _ := os.ReadDir(s.opt.InventoryDir)
 	var out []Environment
 	for _, e := range entries {
@@ -98,6 +111,27 @@ func envName(file string) (string, bool) {
 	}
 	name := strings.TrimSuffix(file, ext)
 	return name, identifier.MatchString(name) && !strings.HasPrefix(name, ".")
+}
+
+// resolve returns the inventory of an environment and, for inventory
+// directories, its file path.
+func (s *Service) resolve(name string) (*Inventory, string, error) {
+	if s.opt.Self != nil {
+		if name != SelfEnvironmentName && name != "" {
+			return nil, "", errors.New("unknown environment")
+		}
+		inv, err := s.opt.Self.Inventory()
+		return inv, "", err
+	}
+	path, err := s.inventoryPath(name)
+	if err != nil {
+		return nil, "", err
+	}
+	inv, err := LoadInventory(path)
+	if err != nil {
+		return nil, path, fmt.Errorf("环境清单无效：%w", err)
+	}
+	return inv, path, nil
 }
 
 func (s *Service) inventoryPath(name string) (string, error) {
@@ -130,34 +164,41 @@ type PlanCheck struct {
 type planRequest struct {
 	Environment string `json:"environment"`
 	Plan        string `json:"plan"`
+	// Set by the platform proxy, never by browsers: the caller's tenant and a
+	// token issued for the caller, used as the run's operator identity.
+	Tenant        string `json:"tenant,omitempty"`
+	OperatorToken string `json:"operatorToken,omitempty"`
 }
 
-func (s *Service) check(req planRequest) (PlanCheck, *Plan, string) {
+func (s *Service) check(req planRequest) (PlanCheck, *Plan, *Inventory, string) {
 	out := PlanCheck{Errors: []string{}, Modules: []string{}}
-	invPath, err := s.inventoryPath(req.Environment)
+	inv, invPath, err := s.resolve(req.Environment)
 	if err != nil {
-		out.Errors = append(out.Errors, "请选择已登记的测试环境")
+		if strings.HasPrefix(err.Error(), "环境清单无效") {
+			out.Errors = append(out.Errors, err.Error())
+		} else {
+			out.Errors = append(out.Errors, "请选择已登记的测试环境")
+		}
 	}
 	if len(req.Plan) > 256<<10 {
 		out.Errors = append(out.Errors, "计划超过 256 KiB")
-		return out, nil, ""
+		return out, nil, nil, ""
 	}
 	p, perr := ParsePlan([]byte(req.Plan))
 	if perr != nil {
 		out.Errors = append(out.Errors, perr.Error())
-		return out, nil, ""
+		return out, nil, nil, ""
+	}
+	if req.Tenant != "" {
+		p.Fixtures.Tenant = req.Tenant
 	}
 	if verr := p.Validate(); verr != nil {
 		out.Errors = append(out.Errors, strings.Split(verr.Error(), "\n")...)
 	}
-	if invPath != "" {
-		if inv, ierr := LoadInventory(invPath); ierr != nil {
-			out.Errors = append(out.Errors, "环境清单无效："+ierr.Error())
-		} else {
-			for _, f := range p.Faults.Actions {
-				if !inventoryHasAgent(inv, f.Agent) {
-					out.Errors = append(out.Errors, fmt.Sprintf("故障动作引用的 Agent %s 不在环境 %s 中", f.Agent, req.Environment))
-				}
+	if inv != nil {
+		for _, f := range p.Faults.Actions {
+			if !inventoryHasAgent(inv, f.Agent) {
+				out.Errors = append(out.Errors, fmt.Sprintf("故障动作引用的 Agent %s 不在环境 %s 中", f.Agent, req.Environment))
 			}
 		}
 	}
@@ -172,7 +213,7 @@ func (s *Service) check(req planRequest) (PlanCheck, *Plan, string) {
 	out.Faults = len(p.Faults.Actions)
 	out.MaxWall = p.Budget.MaximumWallTime.D().String()
 	out.Valid = len(out.Errors) == 0
-	return out, p, invPath
+	return out, p, inv, invPath
 }
 
 func inventoryHasAgent(inv *Inventory, name string) bool {
@@ -189,7 +230,7 @@ var ErrRunActive = errors.New("a capacity run is already active")
 // Start saves the plan under the results directory and starts it; it returns
 // once the run has an ID (or failed before creating evidence).
 func (s *Service) Start(req planRequest) (string, PlanCheck, error) {
-	chk, _, invPath := s.check(req)
+	chk, _, inv, invPath := s.check(req)
 	if !chk.Valid {
 		return "", chk, errors.New("plan is invalid")
 	}
@@ -218,12 +259,16 @@ func (s *Service) Start(req planRequest) (string, PlanCheck, error) {
 	s.cancel, s.done = cancel, done
 	s.mu.Unlock()
 	opt := RunOptions{PlanPath: planPath, InventoryPath: invPath, SecretsPath: s.opt.SecretsPath, ResultsDir: s.opt.ResultsDir, SourceCommit: s.opt.SourceCommit, Log: s.opt.Log, FaultAllow: s.opt.FaultAllow, NewStore: s.opt.NewStore, NewAgent: s.opt.NewAgent,
+		Tenant: req.Tenant, OperatorToken: req.OperatorToken,
 		OnStart: func(id string) {
 			s.mu.Lock()
 			s.active = id
 			s.mu.Unlock()
 			started <- id
 		}}
+	if s.opt.Self != nil {
+		opt.Inventory, opt.ExtraSecrets = inv, s.opt.Self.secrets()
+	}
 	errc := make(chan error, 1)
 	go func() {
 		defer close(done)
@@ -458,7 +503,7 @@ func (s *Service) Handler() http.Handler {
 	}))
 	mux.HandleFunc("POST /v1/plans/validate", auth(func(w http.ResponseWriter, r *http.Request) {
 		if req, ok := decode(w, r); ok {
-			chk, _, _ := s.check(req)
+			chk, _, _, _ := s.check(req)
 			serveJSON(w, 200, chk)
 		}
 	}))

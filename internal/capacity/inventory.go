@@ -173,6 +173,15 @@ func (s *Secrets) Get(ref string) (string, error) {
 	return "", fmt.Errorf("secret %q is not set (use %s or the secrets file)", ref, SecretEnvName(ref))
 }
 
+// Set adds a named secret held only in memory (for example the observer DSN
+// of the capacity module, taken from its environment).
+func (s *Secrets) Set(ref, value string) {
+	if s.file == nil {
+		s.file = map[string]string{}
+	}
+	s.file[ref] = value
+}
+
 // AllValues lists every secret from the file and TORCHLINK_CAPACITY_SECRET_*
 // variables, for leak checks when the plan is not at hand.
 func (s *Secrets) AllValues() []string {
