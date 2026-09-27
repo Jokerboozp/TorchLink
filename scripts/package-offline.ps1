@@ -102,7 +102,7 @@ function Set-OrAdd-EnvLine {
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Lines,
         [Parameter(Mandatory)][string]$Key,
-        [Parameter(Mandatory)][string]$Value
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Value
     )
 
     $pattern = '^\s*' + [Regex]::Escape($Key) + '\s*='

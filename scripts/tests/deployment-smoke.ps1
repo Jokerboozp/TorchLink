@@ -190,6 +190,7 @@ try {
     $deployEntry = if ($env:OS -eq 'Windows_NT') { 'deploy-offline-windows.ps1' } else { 'deploy-offline.ps1' }
     & (Join-Path $scripts $packageEntry) -OutputDir $bundleParent
     $bundle = @(Get-ChildItem -LiteralPath $bundleParent -Directory)[0].FullName
+    Assert ((Get-Content (Join-Path $bundle '.env.offline')) -contains 'IOT_VIDEO_RTC_EXTERN_IP=') 'Unconfigured WebRTC address must be written as an empty value'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
@@ -232,9 +233,24 @@ try {
     Assert $rejected 'Corrupted archive was accepted'
     Assert (-not (Contains-Call '^load ')) 'Loaded archive before checksum verification'
     Set-DeploymentEnvValue -Path $onlineEnv -Key IOT_AI_MODEL -Value 'qwen3:4b'
+    Set-DeploymentEnvValue -Path $onlineEnv -Key IOT_VIDEO_MODULE -Value 'off'
     $global:IotTest_calls.Clear()
     & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'existing-config') -EnvFile $onlineEnv
     Assert (-not (Contains-Call 'ollama pull qwen')) 'Deployment attempted a Qwen model download'
+    $disabledBundle = @(Get-ChildItem (Join-Path $testRoot 'existing-config') -Directory)[0].FullName
+    $disabledEnv = Get-Content (Join-Path $disabledBundle '.env.offline')
+    Assert ($disabledEnv -contains 'IOT_VIDEO_MODULE=off') 'Packaging lost the source video opt-out'
+    Assert ($disabledEnv -contains 'IOT_VIDEO_MEDIA_API_URL=') 'Packaging did not clear the disabled media URL'
+    $disabledManifest = Get-Content (Join-Path $disabledBundle 'manifest.json') -Raw | ConvertFrom-Json
+    Assert ($disabledManifest.images -contains 'iot-zlmediakit:offline') 'Source opt-out should retain the video image for later enablement'
+
+    & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'without-video') -WithoutVideo -SkipDockerRuntime -SkipOllamaModel
+    $noVideoBundle = @(Get-ChildItem (Join-Path $testRoot 'without-video') -Directory)[0].FullName
+    $noVideoEnv = Get-Content (Join-Path $noVideoBundle '.env.offline')
+    Assert ($noVideoEnv -contains 'IOT_VIDEO_MODULE=off') 'WithoutVideo did not disable the module'
+    Assert ($noVideoEnv -contains 'IOT_VIDEO_MEDIA_API_URL=') 'WithoutVideo did not write an empty media URL'
+    $noVideoManifest = Get-Content (Join-Path $noVideoBundle 'manifest.json') -Raw | ConvertFrom-Json
+    Assert ($noVideoManifest.profiles -notcontains 'video' -and $noVideoManifest.images -notcontains 'iot-zlmediakit:offline') 'WithoutVideo still packages the video module'
     Write-Host 'PASS offline: complete default bundle, host entry points, no network, repeatability, missing/corrupt archives'
     Write-Host 'Deployment smoke tests PASS (Docker operations mocked; Compose parsing real).'
 } finally {
