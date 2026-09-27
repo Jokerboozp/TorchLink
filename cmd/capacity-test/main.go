@@ -51,31 +51,32 @@ type Device struct {
 
 // Level is the result of one load step.
 type Level struct {
-	Label       string         `json:"label"`
-	Concurrency int            `json:"concurrency"`
-	TargetRate  float64        `json:"targetRate,omitempty"`
-	DurationSec float64        `json:"durationSec"`
-	Total       int64          `json:"total"`
-	OK          int64          `json:"ok"`
-	Fail        int64          `json:"fail"`
-	Codes       map[string]int `json:"codes"`
-	QPS         float64        `json:"okQps"`
-	ErrRate     float64        `json:"errRate"`
-	P50         float64        `json:"p50ms"`
-	P95         float64        `json:"p95ms"`
-	P99         float64        `json:"p99ms"`
-	Max         float64        `json:"maxms"`
-	Bytes       int64          `json:"bytes"`
-	ProbeP95    float64        `json:"probeP95ms"`
-	ProbeFail   int64          `json:"probeFail"`
-	ProbeN      int64          `json:"probeN"`
-	Note        string         `json:"note,omitempty"`
-	LagStart    float64        `json:"lagStart"`
-	LagEnd      float64        `json:"lagEnd"`
-	StorageLag  float64        `json:"storageLagEnd"`
-	ArchivedPS  float64        `json:"archivedPerSec"`
-	ParsedPS    float64        `json:"parsedPerSec"`
-	AlarmsPS    float64        `json:"alarmsPerSec"`
+	Label        string         `json:"label"`
+	Concurrency  int            `json:"concurrency"`
+	TargetRate   float64        `json:"targetRate,omitempty"`
+	DurationSec  float64        `json:"durationSec"`
+	Total        int64          `json:"total"`
+	OK           int64          `json:"ok"`
+	Fail         int64          `json:"fail"`
+	Codes        map[string]int `json:"codes"`
+	QPS          float64        `json:"okQps"`
+	ErrRate      float64        `json:"errRate"`
+	P50          float64        `json:"p50ms"`
+	P95          float64        `json:"p95ms"`
+	P99          float64        `json:"p99ms"`
+	Max          float64        `json:"maxms"`
+	Bytes        int64          `json:"bytes"`
+	ProbeP95     float64        `json:"probeP95ms"`
+	ProbeFail    int64          `json:"probeFail"`
+	ProbeN       int64          `json:"probeN"`
+	Note         string         `json:"note,omitempty"`
+	LagStart     float64        `json:"lagStart"`
+	LagEnd       float64        `json:"lagEnd"`
+	StorageLag   float64        `json:"storageLagEnd"`
+	ArchivedPS   float64        `json:"archivedPerSec"`
+	ParsedPS     float64        `json:"parsedPerSec"`
+	AlarmsPS     float64        `json:"alarmsPerSec"`
+	MetricsValid bool           `json:"metricsValid"`
 }
 
 var (
@@ -97,6 +98,7 @@ var (
 	kind      = flag.String("kind", "property", "ingest: standard message kind")
 	alarmFrac = flag.Float64("alarm-frac", 0, "fraction of reports with stressAlarm=1 (others carry 0) or, for tcp, fire-alarm frames")
 	fields    = flag.Int("fields", 6, "telemetry fields per report")
+	dataJSON  = flag.String("data", "", "ingest/mqttpub: extra JSON data fields, or @file (for example fault/clear reports)")
 	probe     = flag.String("probe", "/api/v1/devices?page=1&pageSize=20", "management path requested every 500ms during each step ('' disables)")
 	keepAlive = flag.Bool("keepalive", true, "reuse HTTP connections")
 	maxConns  = flag.Int("max-conns", 0, "HTTP connections per host (0 = step concurrency + 16)")
@@ -138,6 +140,8 @@ func rid() string {
 }
 
 var seq atomic.Int64
+
+var extraData map[string]any
 
 func subst(t string) string {
 	if !strings.Contains(t, "{") {
@@ -248,8 +252,11 @@ func doReq(ctx context.Context, c *http.Client, m, url string, body []byte, hdr 
 	if err != nil {
 		return false, shortErr(err.Error()), 0
 	}
-	n, _ := io.Copy(io.Discard, resp.Body)
+	n, readErr := io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
+	if readErr != nil {
+		return false, "body-" + shortErr(readErr.Error()), n
+	}
 	return resp.StatusCode/100 == 2 || resp.StatusCode == http.StatusNotModified, strconv.Itoa(resp.StatusCode), n
 }
 
@@ -263,6 +270,8 @@ func shortErr(e string) string {
 		return "refused"
 	case strings.Contains(e, "reset"):
 		return "reset"
+	case strings.Contains(e, "broken pipe"):
+		return "broken-pipe"
 	case strings.Contains(e, "EOF"):
 		return "eof"
 	case strings.Contains(e, "assign requested address"):
@@ -325,6 +334,7 @@ func runLevels(fn reqFn) []Level {
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
+	defer signal.Stop(sig)
 	for i := 0; i < steps; i++ {
 		conc, rate := 0, 0.0
 		if openLoop {
@@ -336,6 +346,10 @@ func runLevels(fn reqFn) []Level {
 		c := httpClient(conc)
 		r := &rec{}
 		p := &prober{}
+		// A slow or unavailable metrics endpoint must not consume the load
+		// window or accumulate rate tokens before workers start.
+		m0 := scrape()
+		start := time.Now()
 		ctx, cancel := context.WithTimeout(context.Background(), *stepDur)
 		pctx, pcancel := context.WithCancel(context.Background())
 		go p.run(pctx)
@@ -364,8 +378,6 @@ func runLevels(fn reqFn) []Level {
 				}
 			}()
 		}
-		m0 := scrape()
-		start := time.Now()
 		var wg sync.WaitGroup
 		for w := 0; w < conc; w++ {
 			wg.Add(1)
@@ -406,7 +418,12 @@ func runLevels(fn reqFn) []Level {
 		m1 := scrape()
 		perSec := func(k string) float64 { return math.Round((m1[k]-m0[k])/el.Seconds()*10) / 10 }
 		l.LagStart, l.LagEnd, l.StorageLag = m0["kafka_lag"], m1["kafka_lag"], m1["kafka_lag_storage"]
-		l.ArchivedPS, l.ParsedPS, l.AlarmsPS = perSec("raw_archive_success_total"), perSec("parse_success_total"), perSec("alarm_trigger_total")
+		l.MetricsValid = validCounterSamples(m0, m1)
+		if l.MetricsValid {
+			l.ArchivedPS, l.ParsedPS, l.AlarmsPS = perSec("raw_archive_success_total"), perSec("parse_success_total"), perSec("alarm_trigger_total")
+		} else {
+			l.Note = "pipeline metric sample unavailable or counters reset; throughput deltas are unknown"
+		}
 		p.mu.Lock()
 		ps := append([]float64(nil), p.lat...)
 		p.mu.Unlock()
@@ -432,6 +449,17 @@ func runLevels(fn reqFn) []Level {
 		time.Sleep(3 * time.Second)
 	}
 	return out
+}
+
+func validCounterSamples(start, end map[string]float64) bool {
+	for _, key := range []string{"raw_archive_success_total", "parse_success_total", "alarm_trigger_total"} {
+		a, startOK := start[key]
+		b, endOK := end[key]
+		if !startOK || !endOK || b < a || math.IsNaN(a) || math.IsNaN(b) || math.IsInf(a, 0) || math.IsInf(b, 0) {
+			return false
+		}
+	}
+	return true
 }
 
 func save(v any) {
@@ -503,12 +531,21 @@ func telemetry(alarm bool) map[string]any {
 	if alarm {
 		data["stressAlarm"] = 1
 	}
+	for key, value := range extraData {
+		data[key] = value
+	}
 	return data
 }
 
 func main() {
 	flag.Parse()
 	*token = readArg(*token)
+	if strings.TrimSpace(*dataJSON) != "" {
+		must(json.Unmarshal([]byte(readArg(*dataJSON)), &extraData))
+		if extraData == nil {
+			must(fmt.Errorf("-data must be a JSON object"))
+		}
+	}
 	switch *mode {
 	case "http":
 		ps := strings.Split(*paths, "|")

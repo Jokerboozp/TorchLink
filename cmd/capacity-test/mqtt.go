@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	mrand "math/rand/v2"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,15 +18,18 @@ import (
 )
 
 var (
-	mqttAddr  = flag.String("mqtt", "tcp://127.0.0.1:1883", "MQTT broker address")
-	tokFile   = flag.String("mqtt-tokens", "", "MQTT token file written by -mode mqtttok")
-	connStep  = flag.Int("conn-step", 2000, "mqttconn: connections added per step; mqttpub: publisher connections")
-	connPar   = flag.Int("conn-par", 200, "parallel MQTT connect attempts")
-	connMax   = flag.Int("conn-max", 1000000, "mqttconn: stop after this many connections")
-	holdDur   = flag.Duration("hold", 30*time.Second, "mqttconn: how long to hold the connections after the ramp")
-	cidSuffix = flag.String("cid-suffix", "", "mqttconn: client ID suffix, to open extra connections per token for broker-only tests")
-	qos       = flag.Int("qos", 1, "mqttpub: QoS")
+	mqttAddr     = flag.String("mqtt", "tcp://127.0.0.1:1883", "MQTT broker address")
+	tokFile      = flag.String("mqtt-tokens", "", "MQTT token file written by -mode mqtttok")
+	connStep     = flag.Int("conn-step", 2000, "mqttconn: connections added per step; mqttpub: publisher connections")
+	connPar      = flag.Int("conn-par", 200, "parallel MQTT connect attempts")
+	connMax      = flag.Int("conn-max", 1000000, "mqttconn: stop after this many connections")
+	holdDur      = flag.Duration("hold", 30*time.Second, "mqttconn: how long to hold the connections after the ramp")
+	cidSuffix    = flag.String("cid-suffix", "", "mqttconn: client ID suffix, to open extra connections per token for broker-only tests")
+	qos          = flag.Int("qos", 1, "mqttpub: QoS")
+	mqttLocalIPs = flag.String("mqtt-local-ips", "", "comma-separated local source IPs for MQTT TCP load generators (addresses must be valid on the generator)")
 )
+
+var mqttDialSeq atomic.Uint64
 
 type mqttToken struct {
 	Username string `json:"username"`
@@ -75,6 +80,9 @@ func mqttTokens() {
 	b, _ := json.Marshal(out)
 	must(os.WriteFile(*outFile, b, 0o600))
 	fmt.Printf("tokens=%d fails=%d elapsed=%s rate=%.1f/s\n", len(devs), fails.Load(), time.Since(st).Round(time.Millisecond), float64(len(devs))/time.Since(st).Seconds())
+	if fails.Load() > 0 {
+		must(fmt.Errorf("%d MQTT tokens could not be issued; refresh the token file before publishing", fails.Load()))
+	}
 }
 
 func loadTokens() []mqttToken {
@@ -98,6 +106,15 @@ func newMQTT(t mqttToken, clientID string) mqtt.Client {
 	o := mqtt.NewClientOptions().AddBroker(*mqttAddr).SetClientID(clientID).SetUsername(t.Username).SetPassword(t.Token).
 		SetAutoReconnect(false).SetConnectRetry(false).SetConnectTimeout(*timeout).SetWriteTimeout(*timeout).
 		SetKeepAlive(120 * time.Second).SetCleanSession(true)
+	if *mqttLocalIPs != "" {
+		addresses := strings.Split(*mqttLocalIPs, ",")
+		address := strings.TrimSpace(addresses[(mqttDialSeq.Add(1)-1)%uint64(len(addresses))])
+		ip := net.ParseIP(address)
+		if ip == nil {
+			must(fmt.Errorf("invalid MQTT local source IP %q", address))
+		}
+		o.SetDialer(&net.Dialer{Timeout: *timeout, LocalAddr: &net.TCPAddr{IP: ip}})
+	}
 	return mqtt.NewClient(o)
 }
 
@@ -182,7 +199,10 @@ func mqttConn() {
 // broker's dropped counters for the platform subscriber to see what arrived.
 func mqttPub() {
 	toks := loadTokens()
-	n := min(*connStep, len(toks))
+	n := *connStep
+	if n <= 0 || len(toks) < n {
+		must(fmt.Errorf("requested %d MQTT publishers but only %d valid tokens are available", n, len(toks)))
+	}
 	var clients []mqtt.Client
 	var topics []string
 	var mu sync.Mutex
@@ -203,8 +223,11 @@ func mqttPub() {
 		}(t)
 	}
 	wg.Wait()
-	if len(clients) == 0 {
-		must(fmt.Errorf("no publisher connected"))
+	if len(clients) != n {
+		for _, c := range clients {
+			c.Disconnect(10)
+		}
+		must(fmt.Errorf("only %d/%d MQTT publishers connected; refusing to measure a different device population", len(clients), n))
 	}
 	fmt.Printf("[%s] connected %d publishers\n", *name, len(clients))
 	var rr atomic.Int64

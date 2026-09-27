@@ -16,6 +16,7 @@ import (
 )
 
 var tcpAddr = flag.String("tcp", "127.0.0.1:26875", "tcp: GB26875 listener address")
+var gbNetwork = flag.String("network", "tcp", "tcp mode: tcp or udp transport")
 
 // GB26875 devices send BCD times without a zone; the protocol reads them as UTC+08:00.
 var gbLocation = time.FixedZone("UTC+8", 8*60*60)
@@ -28,6 +29,17 @@ type tcpDevice struct {
 }
 
 func readGBFrame(c net.Conn) ([]byte, error) {
+	if c.RemoteAddr().Network() == "udp" {
+		frame := make([]byte, 1024)
+		n, err := c.Read(frame)
+		if err != nil {
+			return nil, err
+		}
+		if n < 30 || int(binary.LittleEndian.Uint16(frame[24:26]))+30 != n {
+			return nil, errors.New("invalid UDP frame length")
+		}
+		return frame[:n], nil
+	}
 	head := make([]byte, 27)
 	if _, err := io.ReadFull(c, head); err != nil {
 		return nil, err
@@ -47,6 +59,9 @@ func readGBFrame(c net.Conn) ([]byte, error) {
 // registers once, then sends component status frames and waits for the ACK the
 // platform returns after archiving the raw frame. -levels is the connection count.
 func tcpMode() {
+	if *gbNetwork != "tcp" && *gbNetwork != "udp" {
+		must(errors.New("-network must be tcp or udp"))
+	}
 	var mu sync.Mutex
 	devices := map[int]*tcpDevice{}
 	save(runLevels(func(ctx context.Context, _ *http.Client, w int) (bool, string, int64) {
@@ -59,7 +74,7 @@ func tcpMode() {
 		}
 		mu.Unlock()
 		if d.conn == nil {
-			c, err := net.DialTimeout("tcp", *tcpAddr, *timeout)
+			c, err := net.DialTimeout(*gbNetwork, *tcpAddr, *timeout)
 			if err != nil {
 				time.Sleep(200 * time.Millisecond)
 				return false, shortErr(err.Error()), 0
