@@ -35,12 +35,54 @@ func placeholder(v string) bool {
 	return strings.TrimSpace(v) == "" || strings.Contains(strings.ToLower(v), "change-me")
 }
 
+// unifiedSecrets are the human-facing service passwords that one operator
+// chosen password may set. Tokens and keys with length or format rules
+// (JWT, Harness, video credential key, service-to-service tokens) stay random.
+var unifiedSecrets = map[string]bool{
+	"postgresPassword": true, "postgresSuperuserPassword": true, "postgresReplicationPassword": true,
+	"redisPassword": true, "clickhousePassword": true, "minioRootPassword": true,
+	"adminPassword": true, "emqxDashboardPassword": true,
+}
+
+// ErrServicePasswordConflict means the secrets file already holds different
+// service passwords: the deployed databases use those, so they are kept.
+var ErrServicePasswordConflict = errors.New("the secrets file already holds different service passwords; the deployed services use them, so the new password is not applied (changing database passwords is a separate operation)")
+
+// ValidateServicePassword checks a unified service password: it is embedded
+// in connection URLs and MinIO needs at least 8 characters.
+func ValidateServicePassword(p string) error {
+	if len(p) < 8 || !urlSafe.MatchString(p) {
+		return errors.New("the service password needs at least 8 characters from letters, digits and . _ ~ -")
+	}
+	return nil
+}
+
 // EnsureSecrets creates or completes the private secrets file: every missing
 // or placeholder value gets a random one (letters and digits, safe inside
 // connection URLs). Existing values are never replaced, so re-running a
 // deployment keeps the passwords the cluster was initialised with. The file
 // is written with mode 0600. It returns the names of generated values.
 func EnsureSecrets(path string) ([]string, error) {
+	return EnsureSecretsWith(path, SecretInputs{})
+}
+
+// SecretInputs are operator-supplied values from the deployment wizard.
+type SecretInputs struct {
+	// ServicePassword sets every unset human-facing service password.
+	ServicePassword string
+	// DeepSeekAPIKey is stored when the file has none yet.
+	DeepSeekAPIKey string
+}
+
+// EnsureSecretsWith is EnsureSecrets with wizard inputs applied to the
+// values that are still unset.
+func EnsureSecretsWith(path string, in SecretInputs) ([]string, error) {
+	servicePassword := in.ServicePassword
+	if servicePassword != "" {
+		if err := ValidateServicePassword(servicePassword); err != nil {
+			return nil, err
+		}
+	}
 	var s Secrets
 	if _, err := os.Stat(path); err == nil {
 		if s, err = LoadSecrets(path); err != nil {
@@ -54,15 +96,21 @@ func EnsureSecrets(path string) ([]string, error) {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		key := strings.Split(t.Field(i).Tag.Get("yaml"), ",")[0]
-		if optionalSecrets[key] || !placeholder(v.Field(i).String()) {
+		current := v.Field(i).String()
+		if servicePassword != "" && unifiedSecrets[key] && !placeholder(current) && current != servicePassword {
+			return nil, ErrServicePasswordConflict
+		}
+		if optionalSecrets[key] || !placeholder(current) {
 			continue
 		}
 		var value string
 		var err error
-		switch key {
-		case "minioRootUser":
+		switch {
+		case servicePassword != "" && unifiedSecrets[key]:
+			value = servicePassword
+		case key == "minioRootUser":
 			value = "iotadmin"
-		case "videoCredentialKey":
+		case key == "videoCredentialKey":
 			raw := make([]byte, 32)
 			if _, err = rand.Read(raw); err == nil {
 				value = base64.StdEncoding.EncodeToString(raw)
@@ -75,6 +123,13 @@ func EnsureSecrets(path string) ([]string, error) {
 		}
 		v.Field(i).SetString(value)
 		generated = append(generated, key)
+	}
+	if key := strings.TrimSpace(in.DeepSeekAPIKey); key != "" && s.DeepSeekAPIKey == "" {
+		if strings.ContainsAny(key, "\n\r\"'$`\\ ") {
+			return nil, errors.New("the DeepSeek API key contains characters that are not allowed")
+		}
+		s.DeepSeekAPIKey = key
+		generated = append(generated, "deepseekApiKey")
 	}
 	if len(generated) == 0 {
 		return nil, nil

@@ -38,7 +38,8 @@ while [ $# -gt 0 ]; do
     --cluster-init) cluster_init="$2"; shift 2;;
     --health-timeout) health_timeout="$2"; shift 2;;
     --init-attempts) init_attempts="$2"; shift 2;;
-    --ssh-key) ssh_opts+=(-i "$2"); shift 2;;
+    --ssh-key) ssh_opts+=(-i "$2" -o IdentitiesOnly=yes); shift 2;;
+    --known-hosts) ssh_opts+=(-o "UserKnownHostsFile=$2" -o StrictHostKeyChecking=accept-new); shift 2;;
     --ssh-port) ssh_port="$2"; shift 2;;
     --dry-run) dry_run=1; shift;;
     -h|--help) usage; exit 0;;

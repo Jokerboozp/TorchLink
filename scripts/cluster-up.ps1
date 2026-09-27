@@ -1,21 +1,29 @@
-# One-click cluster deployment and upgrade from a cluster inventory (Windows).
+# One-click cluster deployment and upgrade (Windows controller).
 #
-#   powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1 -Inventory deploy\cluster\my-cluster.yaml -SshUser deploy
-#   ... -Bundle cluster-images.tar      # online machine: build + pull, save all images, stop
-#   ... -Images cluster-images.tar      # offline bundle instead of building
+#   powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1                    # wizard
+#   ... -Name torchlink                                  # upgrade a cluster deployed before (no questions)
+#   ... -Inventory deploy\cluster\my.yaml                # hand-written inventory
+#   ... -Name torchlink -Bundle cluster-images.tar       # online machine: build + pull, save all images, stop
+#   ... -Name torchlink -Images cluster-images.tar       # offline controller
 #   ... -DryRun
 #
-# Steps: build the platform images (or load an offline bundle) → generate
-# missing secrets → render every node → check the nodes over SSH (Docker,
-# Compose, disk, clock, free ports) → send each node only the images it lacks
-# → start stages in order, initialise databases and topics, check readiness.
-# Running it again upgrades in place with the same secrets; the previous
-# rendering is kept for rollback (cluster-deploy.ps1 -Rendered <state>\rendered.prev).
+# The wizard asks for the node count and addresses, the SSH user (root by
+# default), whether all nodes share one SSH password or each has its own, the
+# unified service password (databases, Redis, ClickHouse, MinIO, EMQX console,
+# platform administrator) and the video module. Passwords stay in memory: SSH
+# passwords are used once to install a deployment key (.cluster\<name>\deploy_key).
+# Unattended: -Nodes IP,IP,IP plus TORCHLINK_SSH_PASSWORD and
+# TORCHLINK_SERVICE_PASSWORD in the environment.
+# Then: build images → install the deployment key → secrets → render → check
+# nodes → send missing images → start stages, initialise, check readiness.
 # Requirements: Docker Desktop with Compose v2 and the OpenSSH client here;
 # on every node Docker with Compose v2, usable by the SSH user without sudo.
 param(
-    [Parameter(Mandatory = $true)][string]$Inventory,
-    [string]$SshUser = $env:USERNAME,
+    [string]$Inventory = "",
+    [string]$Name = "",
+    [string]$Nodes = "",
+    [ValidateSet("", "on", "off")][string]$Video = "",
+    [string]$SshUser = "",
     [string]$SshKey = "",
     [int]$SshPort = 0,
     [string]$Secrets = "",
@@ -28,8 +36,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-if (-not (Test-Path $Inventory)) { throw "-Inventory must point at a cluster inventory file" }
-$Inventory = (Resolve-Path $Inventory).Path
+$interactive = (-not [Console]::IsInputRedirected)
 
 function Say([string]$Text) { Write-Output ""; Write-Output "== $Text" }
 function Invoke-Native([string[]]$Command) {
@@ -37,41 +44,63 @@ function Invoke-Native([string[]]$Command) {
     & $Command[0] $Command[1..($Command.Length - 1)]
     if ($LASTEXITCODE -ne 0) { throw ("failed: " + ($Command -join ' ')) }
 }
-$sshOpts = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
-if ($SshKey) { $sshOpts += @("-i", $SshKey) }
-if ($SshPort -gt 0) { $sshOpts += @("-p", "$SshPort") }
-function Invoke-Remote([string]$Address, [string]$RemoteCommand) {
-    # Windows PowerShell turns redirected native stderr into errors under "Stop".
-    $ErrorActionPreference = "Continue"
-    $out = & ssh -n @sshOpts "$SshUser@$Address" $RemoteCommand 2>&1
-    return [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0); Output = ($out | ForEach-Object { "$_" } | Out-String) }
+function Ask([string]$Question, [string]$Default = "") {
+    $prompt = if ($Default) { "$Question [$Default]" } else { $Question }
+    $v = Read-Host $prompt
+    if (-not $v) { return $Default }
+    return $v.Trim()
 }
+function Ask-Secret([string]$Question) {
+    $secure = Read-Host $Question -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+}
+function Test-IP([string]$Value) { $ip = $null; return [Net.IPAddress]::TryParse($Value, [ref]$ip) -and $Value -match '[.:]' }
 # Test-Quiet runs a command line through cmd with all output discarded.
 function Test-Quiet([string]$CommandLine) {
     & cmd /c "$CommandLine >nul 2>&1"
     return ($LASTEXITCODE -eq 0)
 }
 
-# Top-level scalar or images.<key> from the inventory, without a YAML parser.
-$inventoryLines = Get-Content $Inventory
-function Get-Top([string]$Key) {
-    foreach ($l in $inventoryLines) { if ($l -match "^${Key}:\s*([^\s#]+)") { return $Matches[1].Trim('"', "'") } }
-    return ""
-}
-function Get-Image([string]$Key) {
-    $in = $false
-    foreach ($l in $inventoryLines) {
-        if ($l -match '^images:') { $in = $true; continue }
-        if ($in -and $l -match '^[^\s#]') { break }
-        if ($in -and $l -match "^\s+${Key}:\s*([^\s#]+)") { return $Matches[1].Trim('"', "'") }
+# 0. Which cluster: a hand-written inventory, a cluster deployed before, or
+# the wizard for a new one.
+$generateNodes = ""
+if ($Inventory) {
+    if (-not (Test-Path $Inventory)) { throw "-Inventory must point at a cluster inventory file" }
+    $Inventory = (Resolve-Path $Inventory).Path
+    foreach ($l in (Get-Content $Inventory)) { if ($l -match '^name:\s*([^\s#]+)') { $Name = $Matches[1].Trim('"', "'"); break } }
+    if (-not $Name) { throw "inventory has no name" }
+} else {
+    if (-not $Name) { $Name = if ($interactive) { Ask "集群名称" "torchlink" } else { "torchlink" } }
+    if ($Name -notmatch '^[a-z][a-z0-9-]*$') { throw "集群名称只能包含小写字母、数字和短横线，并以字母开头" }
+    if (-not $StateDir) { $StateDir = Join-Path $projectRoot ".cluster\$Name" }
+    $Inventory = Join-Path $StateDir "inventory.yaml"
+    if (-not (Test-Path $Inventory)) {
+        if ($Nodes) { $generateNodes = $Nodes }
+        elseif ($interactive) {
+            Say "新集群 $Name"
+            while ($true) {
+                $count = Ask "节点数量（至少 3 台）" "3"
+                if ($count -eq "1") { throw "单台服务器请使用单机部署：scripts\deploy-online.ps1（离线为 scripts\deploy-offline.ps1）" }
+                if ($count -eq "2") { Write-Warning "2 个节点无法形成数据库与消息的仲裁，请输入 3 或更多"; continue }
+                if ($count -match '^\d+$' -and [int]$count -ge 3) { break }
+                Write-Warning "请输入不小于 3 的整数"
+            }
+            $addresses = @()
+            for ($i = 1; $i -le [int]$count; $i++) {
+                while ($true) {
+                    $ip = Ask "第 $i 个节点的 IP"
+                    if (-not (Test-IP $ip)) { Write-Warning "不是有效的 IP 地址"; continue }
+                    if ($addresses -contains $ip) { Write-Warning "该 IP 已输入过"; continue }
+                    $addresses += $ip; break
+                }
+            }
+            $generateNodes = $addresses -join ','
+            if (-not $Video) { $Video = if ((Ask "部署摄像头直播模块？(y/n)" "y") -match '^(n|no)$') { "off" } else { "on" } }
+        } else { throw "no cluster named $Name yet: run interactively, or pass -Nodes IP,IP,IP (or -Inventory)" }
     }
-    return ""
 }
-$name = Get-Top "name"
-if (-not $name) { throw "inventory has no name" }
-$platformImage = Get-Image "platform"
-if (-not $platformImage) { throw "inventory has no images.platform" }
-if (-not $StateDir) { $StateDir = Join-Path $projectRoot ".cluster\$name" }
+if (-not $StateDir) { $StateDir = Join-Path $projectRoot ".cluster\$Name" }
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
 $StateDir = (Resolve-Path $StateDir).Path
 if (-not $Secrets) { $Secrets = Join-Path $StateDir "secrets.yaml" }
@@ -79,12 +108,80 @@ New-Item -ItemType Directory -Force -Path (Split-Path $Secrets) | Out-Null
 $Secrets = Join-Path (Resolve-Path (Split-Path $Secrets)).Path (Split-Path $Secrets -Leaf)
 $renderedName = if ($DryRun) { "rendered.dry-run" } else { "rendered" }
 $rendered = Join-Path $StateDir $renderedName
+$name = $Name
+
+# SSH user and port are remembered per cluster (not secret).
+$sshConf = Join-Path $StateDir "ssh.conf"
+if (Test-Path $sshConf) {
+    foreach ($l in (Get-Content $sshConf)) {
+        if (-not $SshUser -and $l -match '^user=(.+)$') { $SshUser = $Matches[1] }
+        if ($SshPort -le 0 -and $l -match '^port=(\d+)$') { $SshPort = [int]$Matches[1] }
+    }
+} elseif ($generateNodes -and $interactive) {
+    if (-not $SshUser) { $SshUser = Ask "SSH 用户名" "root" }
+    if ($SshPort -le 0) { $SshPort = [int](Ask "SSH 端口" "22") }
+}
+if (-not $SshUser) { $SshUser = "root" }
+if ($SshPort -le 0) { $SshPort = 22 }
+$knownHosts = Join-Path $StateDir "known_hosts"
+$deployKey = if ($SshKey) { $SshKey } else { Join-Path $StateDir "deploy_key" }
+
+# SSH passwords: asked up front for a new cluster; for an existing one only
+# when the deployment key no longer logs in (checked after the image build).
+$sshDefaultPassword = $env:TORCHLINK_SSH_PASSWORD
+$sshNodePasswords = @()
+$sshPasswordsReady = [bool]$sshDefaultPassword
+function Get-SshPasswords([string[]]$List) {
+    if ($script:sshDefaultPassword) { $script:sshPasswordsReady = $true; return }
+    if (-not $interactive) { throw "SSH 登录需要密码：交互运行，或设置 TORCHLINK_SSH_PASSWORD" }
+    Write-Output "SSH 登录方式：1) 所有节点统一密码  2) 每个节点独立密码"
+    if ((Ask "请选择" "1") -eq "2") {
+        foreach ($ip in $List) {
+            $pw = Ask-Secret "$SshUser@$ip 的 SSH 密码"
+            if (-not $pw) { throw "密码不能为空" }
+            $script:sshNodePasswords += "$ip=$pw"
+        }
+    } else {
+        $script:sshDefaultPassword = Ask-Secret "所有节点的 SSH 密码（$SshUser）"
+        if (-not $script:sshDefaultPassword) { throw "密码不能为空" }
+    }
+    $script:sshPasswordsReady = $true
+}
+if ($generateNodes -and -not $SshKey -and -not (Test-Path $deployKey) -and -not $DryRun) { Get-SshPasswords ($generateNodes -split ',') }
+
+# Unified service password and DeepSeek key: only when the secrets file is
+# created; an existing cluster keeps the passwords it was initialised with.
+$servicePassword = $env:TORCHLINK_SERVICE_PASSWORD
+$deepseekKey = ""
+if (-not (Test-Path $Secrets) -and -not $DryRun -and $interactive) {
+    if (-not $servicePassword) {
+        Write-Output "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -"
+        while ($true) {
+            $servicePassword = Ask-Secret "服务统一密码（直接回车则为每项随机生成）"
+            if (-not $servicePassword) { break }
+            if ($servicePassword.Length -lt 8 -or $servicePassword -notmatch '^[A-Za-z0-9._~-]+$') { Write-Warning "密码不符合要求，请重新输入"; continue }
+            if ((Ask-Secret "再次输入服务统一密码") -eq $servicePassword) { break }
+            Write-Warning "两次输入不一致，请重新输入"
+        }
+    }
+    $deepseekKey = Ask-Secret "DeepSeek API Key（可留空，部署后也可在“模型管理”填写）"
+}
 
 Say "local tools"
 foreach ($tool in @("docker", "ssh", "scp")) { if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is not installed on this machine" } }
 if (-not (Test-Quiet "docker info")) { throw "Docker is not running" }
 if (-not (Test-Quiet "docker compose version")) { throw "Docker Compose v2 (docker compose) is required" }
 
+# The platform image name comes from the inventory, or the generator's default.
+$platformImage = "iot-platform-api:offline"
+if (Test-Path $Inventory) {
+    $in = $false
+    foreach ($l in (Get-Content $Inventory)) {
+        if ($l -match '^images:') { $in = $true; continue }
+        if ($in -and $l -match '^[^\s#]') { break }
+        if ($in -and $l -match '^\s+platform:\s*([^\s#]+)') { $platformImage = $Matches[1].Trim('"', "'") }
+    }
+}
 $ownKeys = @("platform", "web", "harness", "backup", "video")
 if ($Images) {
     Say "loading offline image bundle $Images"
@@ -98,15 +195,34 @@ if (-not (Test-Quiet "docker image inspect $platformImage")) {
     throw "platform image $platformImage is missing (build it, or pass -Images)"
 }
 
-function Invoke-Tool([string[]]$ToolArgs) {
-    # cluster-render runs from the platform image; no Go toolchain is needed.
-    # Windows bind mounts show every file as mode 0777, so the POSIX mode
-    # check is replaced by the ACL set on the secrets file below.
-    $mounts = @("-v", "$(Split-Path $Inventory):/in/inventory:ro", "-v", "$(Split-Path $Secrets):/in/secrets", "-v", "${StateDir}:/state")
-    & docker run --rm @mounts --entrypoint /app/cluster-render $platformImage -inventory "/in/inventory/$(Split-Path $Inventory -Leaf)" -no-mode-check @ToolArgs
-    if ($LASTEXITCODE -ne 0) { throw "cluster-render failed" }
+# Tools run from the platform image; no Go toolchain is needed. Windows bind
+# mounts show every file as mode 0777, so the POSIX mode check is replaced by
+# the ACL set on the secrets file below. Input lines go to the tool's stdin.
+function Invoke-ImageTool([string]$Entry, [string[]]$ToolArgs, [string[]]$InputLines = @()) {
+    $mounts = @("-v", "$(Split-Path $Inventory):/in/inventory", "-v", "$(Split-Path $Secrets):/in/secrets", "-v", "${StateDir}:/state")
+    if ($InputLines.Count -gt 0) {
+        $out = $InputLines | & docker run --rm -i @mounts --entrypoint "/app/$Entry" $platformImage @ToolArgs
+    } else {
+        $out = & docker run --rm @mounts --entrypoint "/app/$Entry" $platformImage @ToolArgs
+    }
+    $script:ToolExit = $LASTEXITCODE
+    return $out
 }
+function Invoke-Tool([string[]]$ToolArgs) {
+    $out = Invoke-ImageTool "cluster-render" (@("-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)", "-no-mode-check") + $ToolArgs)
+    if ($script:ToolExit -ne 0) { throw "cluster-render failed" }
+    return $out
+}
+if ($generateNodes) {
+    Say "generating inventory $Inventory"
+    $videoFlag = if ($Video -eq "off") { "-video=false" } else { "-video=true" }
+    Invoke-ImageTool "cluster-render" @("-generate", "-name", $name, "-nodes", $generateNodes, $videoFlag, "-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)")
+    if ($script:ToolExit -ne 0) { throw "generating the inventory failed" }
+}
+Set-Content -Path $sshConf -Value @("user=$SshUser", "port=$SshPort")
+$inventoryLines = Get-Content $Inventory
 $imageList = @(Invoke-Tool @("-print-images") | ForEach-Object { $p = $_ -split ' ', 2; [pscustomobject]@{ Key = $p[0]; Image = $p[1] } })
+$nodeAddresses = (@(Invoke-Tool @("-print-nodes") | ForEach-Object { ($_ -split ' ')[1] }) -join ',')
 
 if (-not $Images -and -not $NoBuild) {
     $buildServices = @()
@@ -139,8 +255,42 @@ if ($missing.Count -gt 0) {
 if ($Bundle) {
     Say "saving every cluster image into $Bundle"
     Invoke-Native (@("docker", "save", "-o", $Bundle) + @($imageList | ForEach-Object { $_.Image } | Sort-Object -Unique))
-    Write-Output "copy $Bundle, the checkout and the inventory to the offline controller and run with -Images $Bundle"
+    Write-Output "copy $Bundle, the checkout and $StateDir to the offline controller and run with -Images $Bundle"
     exit 0
+}
+
+# SSH: install the deployment key with the passwords (once), or confirm the
+# existing key still works. A key passed with -SshKey is used as is.
+if (-not $SshKey) {
+    Say "preparing SSH access ($SshUser, port $SshPort)"
+    $keyArgs = @("-key", "/state/deploy_key", "-known-hosts", "/state/known_hosts", "-user", $SshUser, "-port", "$SshPort", "-comment", "torchlink-deploy@$name")
+    if ($DryRun) { Write-Output "DRY-RUN cluster-ssh bootstrap -nodes $nodeAddresses (passwords on stdin)" }
+    else {
+        $check = Invoke-ImageTool "cluster-ssh" (@("check") + $keyArgs + @("-nodes", $nodeAddresses))
+        if ($script:ToolExit -ne 0) {
+            if (-not $sshPasswordsReady) {
+                $need = @($check | Where-Object { $_ -match '^fail ' } | ForEach-Object { (($_ -split ' ')[1]).TrimEnd(':') })
+                Write-Output "部署密钥尚不能登录：$($need -join ' ')"
+                Get-SshPasswords $need
+            }
+            $lines = @()
+            if ($sshDefaultPassword) { $lines += "default=$sshDefaultPassword" }
+            $lines += $sshNodePasswords
+            $result = Invoke-ImageTool "cluster-ssh" (@("bootstrap") + $keyArgs + @("-nodes", $nodeAddresses)) $lines
+            $result | ForEach-Object { Write-Output $_ }
+            if ($script:ToolExit -ne 0) { throw "SSH preparation failed on the nodes above (/state/known_hosts above is $knownHosts)" }
+        }
+    }
+    # The private key must be readable by the current user only.
+    if (Test-Path $deployKey) { & icacls $deployKey /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null }
+}
+$sshDefaultPassword = ""; $sshNodePasswords = @()
+$sshOpts = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "IdentitiesOnly=yes", "-i", $deployKey, "-o", "UserKnownHostsFile=$knownHosts", "-o", "StrictHostKeyChecking=accept-new", "-p", "$SshPort")
+function Invoke-Remote([string]$Address, [string]$RemoteCommand) {
+    # Windows PowerShell turns redirected native stderr into errors under "Stop".
+    $ErrorActionPreference = "Continue"
+    $out = & ssh -n @sshOpts "$SshUser@$Address" $RemoteCommand 2>&1
+    return [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0); Output = ($out | ForEach-Object { "$_" } | Out-String) }
 }
 
 Say "rendering $name into $rendered"
@@ -149,7 +299,13 @@ elseif (Test-Path $rendered) {
     Remove-Item -Recurse -Force "$rendered.prev" -ErrorAction SilentlyContinue
     Move-Item $rendered "$rendered.prev"
 }
-Invoke-Tool @("-secrets", "/in/secrets/$(Split-Path $Secrets -Leaf)", "-init-secrets", "-out", "/state/$renderedName")
+$secretLines = @()
+if ($servicePassword) { $secretLines += "servicePassword=$servicePassword" }
+if ($deepseekKey) { $secretLines += "deepseekApiKey=$deepseekKey" }
+if ($secretLines.Count -eq 0) { $secretLines = @("none=") }
+Invoke-ImageTool "cluster-render" @("-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)", "-no-mode-check", "-secrets", "/in/secrets/$(Split-Path $Secrets -Leaf)", "-init-secrets", "-secrets-stdin", "-out", "/state/$renderedName") $secretLines
+if ($script:ToolExit -ne 0) { throw "cluster-render failed" }
+$servicePassword = ""; $deepseekKey = ""
 # Only the current user may read the secrets file.
 & icacls $Secrets /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
 $planPath = Join-Path $rendered "deploy-plan.txt"
@@ -222,9 +378,7 @@ foreach ($line in $plan | Where-Object { $_ -match '^images ' }) {
     if ($LASTEXITCODE -ne 0) { throw "sending images to $node failed" }
 }
 
-$deployArgs = @{ Rendered = $rendered; SshUser = $SshUser }
-if ($SshKey) { $deployArgs.SshKey = $SshKey }
-if ($SshPort -gt 0) { $deployArgs.SshPort = $SshPort }
+$deployArgs = @{ Rendered = $rendered; SshUser = $SshUser; SshKey = $deployKey; KnownHosts = $knownHosts; SshPort = $SshPort }
 if ($DryRun) { $deployArgs.DryRun = $true }
 & (Join-Path $PSScriptRoot "cluster-deploy.ps1") @deployArgs
 
@@ -248,6 +402,7 @@ if ($DryRun) {
 Say "cluster $name is up"
 foreach ($line in $plan | Where-Object { $_ -match '^entry ' }) { $f = $line -split ' '; Write-Output ("  {0,-12} {1}" -f $f[1], $f[2]) }
 Write-Output "  Put DNS, a VIP or an external load balancer in front of each group above."
-Write-Output "  Administrator: $adminUser; password is adminPassword in $Secrets"
-Write-Output "  Back up $Secrets — the cluster's databases were initialised with these values."
-Write-Output "  Rollback: .\scripts\cluster-deploy.ps1 -Rendered $rendered.prev -SshUser $SshUser"
+Write-Output "  Administrator: $adminUser; password is adminPassword in $Secrets (the service password when you set one)"
+Write-Output "  Back up $StateDir — the databases were initialised with these secrets; deploy_key logs in to the nodes."
+Write-Output "  Upgrade: .\scripts\cluster-up.ps1 -Name $name"
+Write-Output "  Rollback: .\scripts\cluster-deploy.ps1 -Rendered $rendered.prev -SshUser $SshUser -SshKey $deployKey -KnownHosts $knownHosts -SshPort $SshPort"

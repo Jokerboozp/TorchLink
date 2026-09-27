@@ -355,41 +355,53 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ### 一键部署与升级
 
-复制 `deploy/cluster/inventory.example.yaml` 并按实际节点修改（节点地址、故障域、各组件与角色放在哪些节点），然后在仓库根目录执行一条命令：
+在仓库根目录执行（不带参数即进入向导）：
 
 ```bash
-bash scripts/cluster-up.sh --inventory deploy/cluster/<清单>.yaml --ssh-user <用户>
+bash scripts/cluster-up.sh
 ```
 
 Windows 控制机（PowerShell，需 Docker Desktop 与 OpenSSH 客户端）：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1 -Inventory deploy\cluster\<清单>.yaml -SshUser <用户>
+powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 ```
+
+向导在开始时一次问完，之后无人值守执行：
+
+1. 集群名称（默认 `torchlink`）与**节点数量**（至少 3 台；1 台请用单机部署，2 台无法形成仲裁）。
+2. 每个节点的 IP；SSH 用户名（默认 `root`）与端口（默认 22）。
+3. **SSH 登录方式**：所有节点统一密码（输入一次）或每个节点独立密码（逐个输入）。密码隐藏输入、只在内存中使用：脚本用它登录一次，记录主机密钥（`.cluster/<名称>/known_hosts`，首次信任，之后变化即拒绝），并把部署专用公钥写入各节点 `~/.ssh/authorized_keys`（注释为 `torchlink-deploy@<名称>`，可据此撤销）；此后所有操作用私钥 `.cluster/<名称>/deploy_key` 登录，升级时不再询问密码。
+4. **服务统一密码**：用于 PostgreSQL（应用、超级用户、复制）、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 `admin`；至少 8 位，只能包含字母、数字与 `. _ ~ -`（要嵌入连接串）。直接回车则每项随机生成。JWT 密钥、Harness 令牌、摄像头凭据密钥和服务间令牌始终随机生成（有长度或格式要求）。服务统一密码只在首次部署时设置；再次执行沿用已有秘密，若指定了不同的密码会拒绝（修改数据库密码需单独操作）。
+5. 是否部署摄像头直播模块；DeepSeek API Key（可留空，部署后可在“模型管理”填写）。
+
+节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、知识库、视频、备份与监控放在最后一台；api、gateway、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
+
+无人值守：`bash scripts/cluster-up.sh --name <名称> --nodes IP1,IP2,IP3 --yes`，SSH 密码与服务统一密码经环境变量 `TORCHLINK_SSH_PASSWORD`、`TORCHLINK_SERVICE_PASSWORD` 提供（PowerShell 为 `-Name`、`-Nodes`、`-Yes`）。
 
 脚本依次完成：
 
-1. **镜像**：用当前源码构建平台、Web、Harness、备份与媒体镜像（清单中写成 `镜像@sha256:` 的改为拉取），拉取其余第三方镜像。控制机不需要 Go：渲染与初始化工具随平台镜像提供。
-2. **秘密**：在 `.cluster/<名称>/secrets.yaml`（0600，已被 Git 忽略；可用 `--secrets` 指定）生成缺失的密码与令牌，已有值保持不变。`deepseekApiKey`、`backupRestoreTargetDSN` 需要时自行填写，也可部署后在“模型管理”配置模型密钥。
+1. **镜像**：用当前源码构建平台、Web、Harness、备份与媒体镜像（清单中写成 `镜像@sha256:` 的改为拉取），拉取其余第三方镜像。控制机不需要 Go：渲染、初始化与 SSH 准备工具随平台镜像提供。
+2. **SSH 与秘密**：按上述方式安装部署密钥；在 `.cluster/<名称>/secrets.yaml`（0600，已被 Git 忽略；可用 `--secrets` 指定）生成缺失的密码与令牌，设置了服务统一密码的项使用它，已有值保持不变。`deepseekApiKey`、`backupRestoreTargetDSN` 需要时自行填写，也可部署后在“模型管理”配置模型密钥。
 3. **渲染**：生成各节点的 Compose 项目到 `.cluster/<名称>/rendered`，上一版改名为 `rendered.prev` 用于回滚。
 4. **节点预检**：经 SSH 检查每个节点的 Docker 与 Compose v2、Docker 可用空间（至少 20 GiB）、与控制机的时钟差（不超过 5 秒）；首次部署时检查所需端口未被其他程序占用。任一问题都会在改动节点之前列出并停止。
 5. **下发镜像**：按镜像 ID 比较，只把节点缺少或版本不同的镜像以 `docker save | gzip | ssh docker load` 方式发送。
 6. **启动与初始化**：按阶段启动（coordination → data → init → support → workers → edge），每阶段等待容器健康；init 在第一个 API 节点上用平台镜像运行 `cluster-init`，创建应用库、迁移结构、创建主题并核验 ClickHouse 表，数据库选主期间自动重试；最后逐实例检查 `/health/ready`。
 7. **结果**：输出 Web、MQTT、设备 HTTP 与 TCP 入口地址，以及管理员账号和密码所在位置。
 
-交互终端下，脚本在下发前会显示“首次部署/升级”和节点数并请求确认，`--yes`（`-Yes`）跳过确认。`--dry-run` 只渲染到 `rendered.dry-run` 并打印将执行的命令，不改动任何节点。SSH 使用免密登录（`--ssh-key`、`--ssh-port` 可指定），节点上的 SSH 用户须能直接执行 `docker`（加入 docker 组）。
+交互终端下，脚本在下发前会显示“首次部署/升级”和节点数并请求确认，`--yes`（`-Yes`）跳过确认。`--dry-run` 只渲染到 `rendered.dry-run` 并打印将执行的命令，不改动任何节点，也不询问密码。节点上的 SSH 用户须能直接执行 `docker`（root 或 docker 组成员），sshd 需允许密码登录一次以安装部署密钥。
 
-**离线环境**：在可联网的机器上执行 `bash scripts/cluster-up.sh --inventory <清单> --bundle cluster-images.tar`，构建并拉取全部镜像后写入一个归档；把源码、清单和归档带到离线控制机，执行时加 `--images cluster-images.tar`（PowerShell 为 `-Bundle` / `-Images`）。
+**离线环境**：在可联网的机器上执行 `bash scripts/cluster-up.sh --name <名称> --bundle cluster-images.tar`（或 `--inventory <清单>`），构建并拉取全部镜像后写入一个归档，这一步不连接节点；把源码、`.cluster/<名称>/` 和归档带到离线控制机，执行时加 `--images cluster-images.tar`（PowerShell 为 `-Bundle` / `-Images`）。
 
 **内部负载均衡**：清单中 `platform.internalURL`、`gatewayURL` 留空时，每个节点运行一个只监听 `127.0.0.1` 的 HAProxy（`18181` 转发到全部 API 实例，`18182` 转发到全部 Gateway，按 `/health/ready` 摘除故障实例），Web 代理、Harness 回调、媒体回调和 API 到 Gateway 的转发都走本机负载均衡，不需要额外的负载均衡设备。如已有负载均衡器，两个地址同时填写即可，此时不渲染 HAProxy。面向用户和设备的入口（Web、EMQX、Gateway 节点）仍需由 DNS、VIP 或外部负载均衡器统一，脚本结束时会列出各组地址。
 
-**升级与回滚**：修改源码或清单后重新执行同一命令即为升级，秘密沿用，只发送变化的镜像，容器按阶段重建。回滚：
+**升级与回滚**：修改源码或清单后执行 `bash scripts/cluster-up.sh --name <名称>` 即为升级，不再询问问题，秘密沿用，只发送变化的镜像，容器按阶段重建。回滚：
 
 ```bash
-bash scripts/cluster-deploy.sh --rendered .cluster/<名称>/rendered.prev --ssh-user <用户>
+bash scripts/cluster-deploy.sh --rendered .cluster/<名称>/rendered.prev --ssh-user root --ssh-key .cluster/<名称>/deploy_key --known-hosts .cluster/<名称>/known_hosts
 ```
 
-秘密文件决定已初始化数据库的密码，务必另行备份；丢失后重新生成的值无法连接已有数据。
+`.cluster/<名称>/` 中的秘密文件决定已初始化数据库的密码，`deploy_key` 用于登录节点，务必另行备份；丢失秘密后重新生成的值无法连接已有数据。
 
 ### 分步执行
 

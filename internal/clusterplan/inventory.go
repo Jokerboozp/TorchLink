@@ -20,25 +20,27 @@ import (
 
 // Inventory is the operator-maintained cluster manifest.
 type Inventory struct {
-	SchemaVersion int               `yaml:"schemaVersion"`
-	Name          string            `yaml:"name"`
-	DataRoot      string            `yaml:"dataRoot"`
-	Images        Images            `yaml:"images"`
-	Nodes         []Node            `yaml:"nodes"`
-	Redpanda      RedpandaSpec      `yaml:"redpanda"`
-	EMQX          GroupSpec         `yaml:"emqx"`
-	Etcd          GroupSpec         `yaml:"etcd"`
-	Postgres      PostgresSpec      `yaml:"postgres"`
-	Redis         RedisSpec         `yaml:"redis"`
-	ClickHouse    ClickHouseSpec    `yaml:"clickhouse"`
-	MinIO         SingleSpec        `yaml:"minio"`
-	Harness       GroupSpec         `yaml:"harness"`
-	Knowledge     SingleSpec        `yaml:"knowledge"`
-	Video         SingleSpec        `yaml:"video"`
-	Backup        SingleSpec        `yaml:"backup"`
-	Monitoring    SingleSpec        `yaml:"monitoring"`
-	Platform      PlatformSpec      `yaml:"platform"`
-	Env           map[string]string `yaml:"env"`
+	SchemaVersion int            `yaml:"schemaVersion"`
+	Name          string         `yaml:"name"`
+	DataRoot      string         `yaml:"dataRoot,omitempty"`
+	Images        Images         `yaml:"images"`
+	Nodes         []Node         `yaml:"nodes"`
+	Redpanda      RedpandaSpec   `yaml:"redpanda"`
+	EMQX          GroupSpec      `yaml:"emqx"`
+	Etcd          GroupSpec      `yaml:"etcd"`
+	Postgres      PostgresSpec   `yaml:"postgres"`
+	Redis         RedisSpec      `yaml:"redis"`
+	ClickHouse    ClickHouseSpec `yaml:"clickhouse"`
+	MinIO         SingleSpec     `yaml:"minio"`
+	Harness       GroupSpec      `yaml:"harness"`
+	Knowledge     SingleSpec     `yaml:"knowledge,omitempty"`
+	Video         SingleSpec     `yaml:"video,omitempty"`
+	Backup        SingleSpec     `yaml:"backup,omitempty"`
+	Monitoring    SingleSpec     `yaml:"monitoring,omitempty"`
+	// Capacity places the capacity-test module (capacity-test serve); empty = off.
+	Capacity SingleSpec        `yaml:"capacity,omitempty"`
+	Platform PlatformSpec      `yaml:"platform"`
+	Env      map[string]string `yaml:"env,omitempty"`
 }
 
 type Images struct {
@@ -119,9 +121,9 @@ type PlatformSpec struct {
 	// (Harness MCP callbacks, web proxy); GatewayURL balances the gateways.
 	// Leave both empty to render a local HAProxy on every node instead
 	// (127.0.0.1:18181 → api instances, 127.0.0.1:18182 → gateways).
-	InternalURL string              `yaml:"internalURL"`
-	GatewayURL  string              `yaml:"gatewayURL"`
-	PublicURL   string              `yaml:"publicURL"`
+	InternalURL string              `yaml:"internalURL,omitempty"`
+	GatewayURL  string              `yaml:"gatewayURL,omitempty"`
+	PublicURL   string              `yaml:"publicURL,omitempty"`
 	Roles       map[string]RoleSpec `yaml:"roles"`
 	Web         GroupSpec           `yaml:"web"`
 }

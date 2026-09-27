@@ -14,6 +14,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Rendered,
     [string]$SshUser = $env:USERNAME,
     [string]$SshKey = "",
+    [string]$KnownHosts = "",
     [int]$SshPort = 0,
     [string]$RemoteDir = "",
     [ValidateSet("all", "coordination", "data", "init", "support", "workers", "edge")][string]$Stage = "all",
@@ -35,7 +36,8 @@ if (-not $RemoteDir) { $RemoteDir = "/opt/$name" }
 $nodeFilter = @($Nodes -split ',' | Where-Object { $_ })
 $sshOpts = @("-n", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
 $scpOpts = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
-if ($SshKey) { $sshOpts += @("-i", $SshKey); $scpOpts += @("-i", $SshKey) }
+if ($SshKey) { $sshOpts += @("-i", $SshKey, "-o", "IdentitiesOnly=yes"); $scpOpts += @("-i", $SshKey, "-o", "IdentitiesOnly=yes") }
+if ($KnownHosts) { $sshOpts += @("-o", "UserKnownHostsFile=$KnownHosts", "-o", "StrictHostKeyChecking=accept-new"); $scpOpts += @("-o", "UserKnownHostsFile=$KnownHosts", "-o", "StrictHostKeyChecking=accept-new") }
 if ($SshPort -gt 0) { $sshOpts += @("-p", "$SshPort"); $scpOpts += @("-P", "$SshPort") }
 
 # With -NoThrow the outcome is left in $script:StepOk instead of throwing.

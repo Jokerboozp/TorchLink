@@ -6,12 +6,16 @@
 //	go run ./cmd/cluster-render -inventory <清单> -secrets <0600 秘密文件> -out dist/cluster
 //	go run ./cmd/cluster-render -inventory <清单> -secrets <文件> -init-secrets   # 缺失的秘密随机生成
 //	go run ./cmd/cluster-render -inventory <清单> -print-images                   # 每行“键 镜像”
+//	go run ./cmd/cluster-render -generate -name torchlink -nodes 10.0.0.11,10.0.0.12,10.0.0.13 -inventory <输出清单>
+//	printf 'servicePassword=%s\n' "$pw" | go run ./cmd/cluster-render ... -init-secrets -secrets-stdin
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -29,8 +33,32 @@ func main() {
 	initSecrets := flag.Bool("init-secrets", false, "秘密文件不存在或有缺项时随机生成（已有值不变），再渲染")
 	printImages := flag.Bool("print-images", false, "按“键 镜像”逐行输出清单中的镜像后退出")
 	noModeCheck := flag.Bool("no-mode-check", false, "不检查秘密文件的 POSIX 权限（Windows 绑定挂载显示为 0777，由脚本改用 ACL 保护）")
+	generate := flag.Bool("generate", false, "按 -nodes 生成默认布局的清单并写入 -inventory（文件已存在则拒绝）")
+	name := flag.String("name", "torchlink", "-generate：集群名称")
+	nodes := flag.String("nodes", "", "-generate：节点 IP，逗号分隔，按 n1、n2… 顺序")
+	video := flag.Bool("video", true, "-generate：部署摄像头直播媒体服务")
+	printNodes := flag.Bool("print-nodes", false, "按“名称 地址”逐行输出清单中的节点后退出")
+	secretsStdin := flag.Bool("secrets-stdin", false, "-init-secrets：从标准输入读取 servicePassword=… 与 deepseekApiKey=…（不经命令行）")
 	flag.Parse()
 	clusterplan.CheckSecretsMode = !*noModeCheck
+	if *generate {
+		if err := generateInventory(*inventory, *name, *nodes, *video); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *printNodes {
+		inv, err := clusterplan.Load(*inventory)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		for _, n := range inv.Nodes {
+			fmt.Printf("%s %s\n", n.Name, n.Address)
+		}
+		return
+	}
 	if *printImages {
 		if err := listImages(*inventory); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -39,7 +67,15 @@ func main() {
 		return
 	}
 	if *initSecrets {
-		generated, err := clusterplan.EnsureSecrets(*secretsPath)
+		var in clusterplan.SecretInputs
+		if *secretsStdin {
+			var err error
+			if in, err = readSecretInputs(os.Stdin); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+		}
+		generated, err := clusterplan.EnsureSecretsWith(*secretsPath, in)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
@@ -52,6 +88,57 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func generateInventory(path, name, nodes string, video bool) error {
+	if path == "" {
+		return fmt.Errorf("-inventory names the file to write")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists; edit it or remove it to generate a new layout", path)
+	}
+	var addresses []string
+	for _, a := range strings.Split(nodes, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			addresses = append(addresses, a)
+		}
+	}
+	inv, err := clusterplan.GenerateInventory(clusterplan.GenerateOptions{Name: name, Addresses: addresses, Video: video})
+	if err != nil {
+		return err
+	}
+	b, err := clusterplan.MarshalInventory(inv)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err = os.WriteFile(path, b, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("generated inventory %s: %d nodes\n", path, len(addresses))
+	return nil
+}
+
+// readSecretInputs reads name=value lines; values never pass through argv.
+func readSecretInputs(r io.Reader) (clusterplan.SecretInputs, error) {
+	var in clusterplan.SecretInputs
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		line := strings.TrimRight(sc.Text(), "\r")
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "servicePassword":
+			in.ServicePassword = v
+		case "deepseekApiKey":
+			in.DeepSeekAPIKey = v
+		}
+	}
+	return in, sc.Err()
 }
 
 func listImages(inventory string) error {

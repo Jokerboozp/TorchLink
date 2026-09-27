@@ -4,8 +4,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # Cluster tools ship in the same image so a deployment needs no Go toolchain:
-# cluster-render (controller), cluster-init and clickhouse-migrate (on a node).
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway ./cmd/cluster-render ./cmd/cluster-init ./cmd/clickhouse-migrate
+# cluster-render and cluster-ssh (controller), cluster-init and
+# clickhouse-migrate (on a node).
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway ./cmd/cluster-render ./cmd/cluster-init ./cmd/clickhouse-migrate ./cmd/cluster-ssh
 RUN mkdir -p /runtime-data && chmod 0750 /runtime-data
 
 FROM gcr.io/distroless/static-debian12:nonroot

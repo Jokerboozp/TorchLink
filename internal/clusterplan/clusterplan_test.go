@@ -2,6 +2,8 @@ package clusterplan
 
 import (
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -242,7 +244,7 @@ case "$1" in
       case "$1" in
         -v) mounts+=("$2"); shift 2;;
         --entrypoint) entry="$2"; shift 2;;
-        --rm) shift;;
+        --rm|-i) shift;;
         --user|--network|--env-file) shift 2;;
         *) break;;
       esac
@@ -253,6 +255,20 @@ case "$1" in
       args+=("$a")
     done
     [ "$entry" = /app/cluster-render ] && exec "$FAKE/cluster-render" "${args[@]}"
+    if [ "$entry" = /app/cluster-ssh ]; then
+      nodes="" key=""
+      for ((j=0; j<${#args[@]}; j++)); do
+        [ "${args[$j]}" = -nodes ] && nodes="${args[$((j+1))]}"
+        [ "${args[$j]}" = -key ] && key="${args[$((j+1))]}"
+      done
+      if [ "${args[0]}" = check ]; then
+        [ -f "$key" ] || { for n in ${nodes//,/ }; do echo "fail $n: no deployment key yet"; done; exit 1; }
+        for n in ${nodes//,/ }; do echo "ok $n"; done; exit 0
+      fi
+      cat >> "$FAKE/ssh-stdin.log"
+      echo "-----BEGIN OPENSSH PRIVATE KEY-----" > "$key"; chmod 600 "$key"
+      for n in ${nodes//,/ }; do echo "ok $n"; done; exit 0
+    fi
     exit 0;;
 esac
 exit 0
@@ -278,7 +294,7 @@ exit 0
 			t.Fatal(err)
 		}
 	}
-	env := append(os.Environ(), "FAKE="+fake, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	env := append(os.Environ(), "FAKE="+fake, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "TORCHLINK_SSH_PASSWORD=Fake-Ssh-Pass", "TORCHLINK_SERVICE_PASSWORD=", "TORCHLINK_FORCE_INTERACTIVE=")
 	return fake, env
 }
 
@@ -321,7 +337,7 @@ func TestClusterUpRunsTheWholeDeploymentAgainstFakeNodes(t *testing.T) {
 	}
 	// Every node of every stage is started: ssh must not swallow the plan.
 	for _, addr := range []string{"10.0.0.11", "10.0.0.12", "10.0.0.13", "10.0.0.14"} {
-		if !strings.Contains(log, "ssh -n -o BatchMode=yes -o ConnectTimeout=10 deploy@"+addr+" cd '/opt/iot-cluster' && docker compose -p iot-cluster --env-file .env up -d --no-build --pull never") {
+		if !strings.Contains(log, "deploy@"+addr+" cd '/opt/iot-cluster' && docker compose -p iot-cluster --env-file .env up -d --no-build --pull never") || !strings.Contains(log, "ssh -n -o BatchMode=yes -o ConnectTimeout=10 -i "+filepath.Join(state, "deploy_key")+" -o IdentitiesOnly=yes -o UserKnownHostsFile="+filepath.Join(state, "known_hosts")) {
 			t.Fatalf("node %s was not started:\n%s", addr, log)
 		}
 	}
@@ -353,7 +369,7 @@ func TestClusterUpRunsTheWholeDeploymentAgainstFakeNodes(t *testing.T) {
 	// An online machine can save every image for an offline controller.
 	env = cmdEnv
 	_ = os.Remove(filepath.Join(fake, "calls.log"))
-	if out, err = up("--no-build", "--bundle", filepath.Join(fake, "bundle.tar")); err != nil || !strings.Contains(calls(), "saved -o "+filepath.Join(fake, "bundle.tar")+" clickhouse/clickhouse-keeper:25.7-alpine") || strings.Contains(calls(), "ssh ") {
+	if out, err = up("--no-build", "--bundle", filepath.Join(fake, "bundle.tar")); err != nil || !strings.Contains(calls(), "saved -o "+filepath.Join(fake, "bundle.tar")+" clickhouse/clickhouse-keeper:25.7-alpine") || strings.Contains(calls(), "ssh ") || strings.Contains(calls(), "cluster-ssh") {
 		t.Fatal("bundle", err, out, calls())
 	}
 }
@@ -429,5 +445,147 @@ func TestEnsureSecretsFillsOnlyMissingValues(t *testing.T) {
 	}
 	if generated, _ = EnsureSecrets(path); generated != nil {
 		t.Fatal("a complete file is left untouched", generated)
+	}
+}
+
+func TestClusterUpWizardAsksNodesPasswordsAndServicePassword(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil || runtime.GOOS == "windows" {
+		t.Skip("bash shims")
+	}
+	root, _ := filepath.Abs(filepath.Join("..", ".."))
+	fake, env := fakeTools(t, root)
+	state := filepath.Join(fake, "state")
+	env = append(env, "TORCHLINK_SSH_PASSWORD=", "TORCHLINK_FORCE_INTERACTIVE=1")
+	up := func(stdin string, extra ...string) (string, error) {
+		cmd := exec.Command("bash", append([]string{filepath.Join(root, "scripts", "cluster-up.sh"), "--state-dir", state, "--yes"}, extra...)...)
+		cmd.Env, cmd.Dir, cmd.Stdin = env, root, strings.NewReader(stdin)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	answers := strings.Join([]string{
+		"",       // cluster name: torchlink
+		"2", "3", // two nodes are refused, then three
+		"10.0.0.1", "10.0.0.1", "10.0.0.2", "bad", "10.0.0.3", // duplicate and invalid addresses are asked again
+		"n",    // no video module
+		"", "", // SSH user root, port 22
+		"2", // one password per node
+		"Node-One-Pw", "Node-Two-Pw", "Node-Three-Pw",
+		"short",                            // rejected service password
+		"Svc-Unified-42", "Svc-Unified-42", // unified service password, confirmed
+		"", // no DeepSeek key
+	}, "\n") + "\n"
+	out, err := up(answers)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	for _, want := range []string{"2 个节点无法形成", "该 IP 已输入过", "不是有效的 IP 地址", "密码不符合要求"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("wizard output lacks %q", want)
+		}
+	}
+	inv, err := Load(filepath.Join(state, "inventory.yaml"))
+	if err != nil || inv.Name != "torchlink" || len(inv.Nodes) != 3 || inv.Nodes[2].Address != "10.0.0.3" || inv.Video.Node != "" {
+		t.Fatalf("generated inventory: %v %+v", err, inv)
+	}
+	stdin, _ := os.ReadFile(filepath.Join(fake, "ssh-stdin.log"))
+	if string(stdin) != "10.0.0.1=Node-One-Pw\n10.0.0.2=Node-Two-Pw\n10.0.0.3=Node-Three-Pw\n" {
+		t.Fatalf("per-node passwords on stdin: %q", stdin)
+	}
+	s, err := LoadSecrets(filepath.Join(state, "secrets.yaml"))
+	if err != nil || s.PostgresPassword != "Svc-Unified-42" || s.RedisPassword != "Svc-Unified-42" || s.ClickHousePassword != "Svc-Unified-42" || s.MinIORootPassword != "Svc-Unified-42" || s.AdminPassword != "Svc-Unified-42" || s.EMQXDashboardPassword != "Svc-Unified-42" || s.JWTSecret == "Svc-Unified-42" || len(s.JWTSecret) < 32 {
+		t.Fatalf("service passwords: %v %+v", err, s)
+	}
+	conf, _ := os.ReadFile(filepath.Join(state, "ssh.conf"))
+	if string(conf) != "user=root\nport=22\n" {
+		t.Fatalf("ssh.conf %q", conf)
+	}
+	calls, _ := os.ReadFile(filepath.Join(fake, "calls.log"))
+	for _, secret := range []string{"Node-One-Pw", "Svc-Unified-42"} {
+		if strings.Contains(string(calls), secret) || strings.Contains(out, secret) {
+			t.Fatalf("%s leaked into a command line or the output", secret)
+		}
+	}
+	if !strings.Contains(string(calls), "deploy@10.0.0.2 cd '/opt/torchlink'") && !strings.Contains(string(calls), "root@10.0.0.2 cd '/opt/torchlink'") {
+		t.Fatalf("nodes were not deployed as root:\n%s", calls)
+	}
+	// Upgrading the same cluster asks nothing: the key logs in, secrets exist.
+	_ = os.Remove(filepath.Join(fake, "ssh-stdin.log"))
+	env = append(env, "TORCHLINK_FORCE_INTERACTIVE=")
+	if out, err = up("", "--name", "torchlink", "--no-build"); err != nil {
+		t.Fatal(err, out)
+	}
+	if _, err = os.Stat(filepath.Join(fake, "ssh-stdin.log")); err == nil {
+		t.Fatal("an upgrade must not ask for SSH passwords again")
+	}
+	again, _ := LoadSecrets(filepath.Join(state, "secrets.yaml"))
+	if again != s {
+		t.Fatal("upgrade changed the secrets")
+	}
+	// Unattended: a new cluster from --nodes needs the passwords in the environment.
+	other := filepath.Join(fake, "other")
+	cmd := exec.Command("bash", filepath.Join(root, "scripts", "cluster-up.sh"), "--name", "second", "--state-dir", other, "--nodes", "10.1.0.1,10.1.0.2,10.1.0.3", "--yes", "--no-build")
+	cmd.Env, cmd.Dir = append(env, "TORCHLINK_SSH_PASSWORD="), root
+	if b, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(b), "TORCHLINK_SSH_PASSWORD") {
+		t.Fatal("unattended run without SSH password must explain what is missing", string(b))
+	}
+}
+
+func TestGenerateInventoryLaysOutValidClusters(t *testing.T) {
+	if !reflect.DeepEqual(DefaultImages(), example(t).Images) {
+		t.Fatal("generated inventories must use the example's pinned images")
+	}
+	for n := 3; n <= 8; n++ {
+		var addrs []string
+		for i := 1; i <= n; i++ {
+			addrs = append(addrs, fmt.Sprintf("192.168.1.%d", 10+i))
+		}
+		inv, err := GenerateInventory(GenerateOptions{Name: "torchlink", Addresses: addrs, Video: true, Capacity: true})
+		if err != nil {
+			t.Fatalf("%d nodes: %v", n, err)
+		}
+		files, err := Render(inv, testSecrets())
+		if err != nil {
+			t.Fatalf("%d nodes render: %v", n, err)
+		}
+		wantReplicas := map[bool]int{true: 3, false: 2}[n == 3 || n >= 6]
+		if len(inv.ClickHouse.Shards[0]) != wantReplicas || inv.Video.Node != fmt.Sprintf("n%d", n) || len(files) == 0 {
+			t.Fatalf("%d nodes layout: %+v", n, inv.ClickHouse)
+		}
+		b, _ := MarshalInventory(inv)
+		dir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(dir, "i.yaml"), b, 0o600)
+		back, err := Load(filepath.Join(dir, "i.yaml"))
+		if err != nil || !reflect.DeepEqual(back.Nodes, inv.Nodes) || back.Platform.Roles["processor"].Nodes == nil {
+			t.Fatalf("%d nodes round trip: %v", n, err)
+		}
+	}
+	for _, bad := range [][]string{{"10.0.0.1", "10.0.0.2"}, {"10.0.0.1", "10.0.0.1", "10.0.0.2"}, {"10.0.0.1", "10.0.0.2", "host"}} {
+		if _, err := GenerateInventory(GenerateOptions{Name: "x", Addresses: bad}); err == nil {
+			t.Fatal("accepted", bad)
+		}
+	}
+}
+
+func TestUnifiedServicePasswordRules(t *testing.T) {
+	for _, bad := range []string{"short", "has space1", "quote'pass1", "dollar$pass1"} {
+		if ValidateServicePassword(bad) == nil {
+			t.Fatal("accepted", bad)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "secrets.yaml")
+	if _, err := EnsureSecretsWith(path, SecretInputs{ServicePassword: "jokerboozp", DeepSeekAPIKey: "sk-abc"}); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := LoadSecrets(path)
+	if s.PostgresSuperuserPassword != "jokerboozp" || s.PostgresReplicationPassword != "jokerboozp" || s.DeepSeekAPIKey != "sk-abc" || s.BackupToken == "jokerboozp" || s.HarnessToken == "jokerboozp" {
+		t.Fatalf("%+v", s)
+	}
+	// The same password again is fine; a different one would not reach the
+	// deployed databases, so it is refused.
+	if _, err := EnsureSecretsWith(path, SecretInputs{ServicePassword: "jokerboozp"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EnsureSecretsWith(path, SecretInputs{ServicePassword: "another-pass"}); !errors.Is(err, ErrServicePasswordConflict) {
+		t.Fatal("a different service password must be refused", err)
 	}
 }
