@@ -2,11 +2,11 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档状态 | 设计方案；P1 一键测量闭环已实现，其余阶段待实施 |
+| 文档状态 | 设计方案；P1–P4 已在仓库内实现并通过单元、模拟集成与部署渲染验证，P5 待目标环境执行 |
 | 编制日期 | 2026-09-27 |
 | 源码基线 | `main`，`3c273909` |
 | 本次工作 | 核对当前源码、配置、既有工具和文档，编写方案 |
-| 实施状态 | P1 已实现：`capacity-test plan validate/run/status/stop/report/agent`（`internal/capacity`）与 Gateway `/metrics`，见 [第 17.4 节实施记录](#174-实施记录)。新角色、集群拓扑、存储迁移、故障注入、运维页面仍未实现或验收 |
+| 实施状态 | P1–P4 已实现（角色拆分与跨实例一致性、集群存储与按节点渲染部署、业务模块场景、故障注入、管理页、续跑与比较），见 [第 17.4 节实施记录](#174-实施记录)。真实多机集群部署、中间件故障切换与目标硬件容量（P5）尚未执行，步骤见 [容量验收执行手册](CAPACITY_RUNBOOK.md) |
 | 容量数字 | 除明确标为历史记录的数据外，参数均为设计起点或计算示例，不是实测承诺 |
 
 ## 阅读导航
@@ -561,7 +561,7 @@ Controller 给 Agent 分配不重叠的设备/逻辑消息序号范围，以及�
 
 第一次配置目标清单、测试身份、预算和功能范围；随后一次启动自动执行所有已配置步骤。认证失效时在前置检查阶段指出具体缺项，不运行一半才发现没有业务权限。
 
-CLI 语义如下，P1 已实现（另有 `capacity-test agent` 启动远程 Agent），用法见 [开发与测试](DEVELOPMENT.md#一键容量测量)：
+CLI 语义如下，均已实现（另有 `capacity-test agent` 启动远程 Agent），用法见 [开发与测试](DEVELOPMENT.md#一键容量测量)：
 
 | 拟定入口 | 行为 |
 | --- | --- |
@@ -570,8 +570,11 @@ CLI 语义如下，P1 已实现（另有 `capacity-test agent` 启动远程 Agen
 | `capacity-test status --run <runId>` | 显示真实阶段、负载、Agent、已完成量和当前限制 |
 | `capacity-test stop --run <runId>` | 停止加压并进入有限排空、核对和报告流程 |
 | `capacity-test report --run <runId>` | 从已有证据重新生成报告，不重新发压 |
+| `capacity-test run --plan <计划> --resume <runId>` | 控制器中断后续跑：回放已完成档位，Agent 代次加一 |
+| `capacity-test compare --runs <id,...>` | 并列多个运行；条件一致时计算扩容效率 E(n) |
+| `capacity-test serve` | 供运维中心“容量测试”页调用的控制服务 |
 
-CLI 和管理页提交相同的计划对象；Linux Agent 承担主要发压，Windows/macOS 可以作为控制端。后续脚本入口应兼顾 PowerShell/Bash。管理页尚未实现。
+CLI 和管理页提交相同的计划对象；Linux Agent 承担主要发压，Windows/macOS 可以作为控制端。后续脚本入口应兼顾 PowerShell/Bash。管理页经平台 `/api/v1/ops/capacity/*` 调用控制服务。
 
 ### 11.2 预设模式
 
@@ -1105,7 +1108,27 @@ P1 给出测量基础；P2/P3 使用 P1 持续比较。界面不能早于可独�
 
 验证：`go test ./internal/capacity`（含 race 检测）覆盖计划校验、直方图合并、计数器重置、判定分类、搜索（已知边界、不稳定、首档失败、预算与发压受限）、Agent 租约到期停发、核对分类，以及用模拟平台、进程内与远程 Agent 完成的端到端运行（正常、完整性失败、中途停止）。真实 PostgreSQL 核对查询测试需设置 `IOT_TEST_POSTGRES_DSN`，未在本次运行。未对真实平台、中间件集群或设备执行容量测量，本文不因此给出新的容量数字。
 
-仍待实施：P2–P5 全部内容；P1 范围内的告警预期序列核对、实时推送/导出/AI/视频/备份场景、PNG/PDF、主机资源采集、Controller 重启续跑。
+2026-09-28，P2–P4 与 P1 缺口（提交 `a36a335d`、`4b5fda94`、`a985ebd0`、`893b2e95`、`1e0c79e1`、`85e8bee4`、`09113d35`、`f61fd384`）：
+
+| 工作包 | 状态 | 主要源码 |
+| --- | --- | --- |
+| W01/W02 角色与健康 | 已实现 `parser`、`processor`、`ai`、`jobs` 角色，`IOT_API_EMBEDDED_WORKERS`、`IOT_INSTANCE_ID`、按角色 readiness 与 `process_info` | `internal/config/roles.go`、`internal/core/components.go`、`internal/platformapp/app.go` |
+| W03/W04 业务流与 fencing | 已实现按设备分区的 `iot.device.business`、带租约与令牌的标准消息领取、告警与设备状态乐观并发 | `internal/core/engine.go`、`consistency.go`、postgres/memory/redis 适配器、`internal/repositorytest` |
+| W05 接入身份 | 已实现 MQTT inbox 按实例目录与独占文件锁 | `internal/adapters/mqtt/inbox_lock_*.go` |
+| W06 全局限额 | 已实现 Redis 固定窗口限额（设备、开放 API、登录失败、AI RPM），Redis 不可用时按 `IOT_CLUSTER_INSTANCES` 分摊 | `internal/ratelimit`、`internal/adapters/redis/ratelimit.go` |
+| W07 单例任务与会话 | 已实现周期任务数据库租约单执行者、回放心跳与中断标记、Harness 多实例会话哈希路由 | `internal/core/singleton.go`、`replay.go`、`internal/adapters/ai/harness_pool.go` |
+| W08 ClickHouse 集群 | 已实现 ReplicatedMergeTree + Distributed、quorum 写入、批次在途上限、单节点表拒绝启动与 `clickhouse-migrate` | `internal/adapters/clickhouse/`、`cmd/clickhouse-migrate` |
+| W09 PostgreSQL/Redis 高可用接入 | 已实现多主机 DSN 写入口、池参数、只读副本（按延迟回退主库）、Sentinel | `internal/adapters/postgres/replica.go`、redis 适配器 |
+| W10 视频控制归属 | 已实现 `video/control` 租约单执行者与非持有实例转发 | `internal/platformapp/video_control.go`、`internal/httpapi/video_owner.go` |
+| W11 集群部署 | 已实现清单校验（故障域、仲裁、端口、连接预算）、按节点渲染 Compose、`cluster-init` 主题与表核验、分阶段部署脚本 | `internal/clusterplan`、`cmd/cluster-render`、`cmd/cluster-init`、`scripts/cluster-deploy.*` |
+| P4 业务场景 | 已实现 AI（real/mock，`cmd/harness-mock`）、知识库上传、视频会话与 HLS 首片、备份下载校验与恢复到独立库、实时推送、导出与回放、开放 API；告警预期序列核对 | `internal/capacity/scenario_modules.go`、`controller_ops.go`、`internal/backup/restore.go` |
+| P4 故障注入 | 已实现 Agent 本地白名单、`resilience` 预设、恢复时间判定与 `recovery.svg` | `internal/capacity/fault.go` |
+| P4 管理入口 | 已实现 `capacity-test serve`、平台 `/api/v1/ops/capacity/*` 代理（运维租户、分项授权与审计）与运维中心“容量测试”页 | `internal/capacity/serve.go`、`internal/httpapi/ops_capacity.go`、`iot_front/src/views/OpsCapacityView.vue` |
+| P1 缺口 | 已实现 node-exporter 主机资源图、PNG 图表、`run --resume` 续跑、`compare` 与扩容效率 E(n) | `collector.go`、`charts_png.go`、`controller.go`、`compare.go` |
+
+验证（2026-09-28，本机 macOS）：`go test ./cmd/... ./internal/...` 全部通过，`internal/core`、`internal/capacity` 加 `-race` 通过；前端 `npm test`（120 项）与 `npm run build` 通过；`scripts/tests/deployment-smoke.sh` 使用独立 docker-compose 通过（Compose 解析真实，变更操作模拟）；`cluster-render` 生成的各节点 Compose 经 `docker compose config` 解析通过；容量测试页用本地模拟接口在浏览器中验证校验、启动、进度、结束、详情与窄屏。容量控制器、模块场景、故障注入、续跑与控制服务均以模拟平台端到端测试验证。
+
+未验证：真实多机集群部署与滚动升级、Spilo/Patroni、Redis Sentinel、ClickHouse Keeper 与 Redpanda 的实际故障切换，真实 PostgreSQL/Redis 的可选集成测试（`IOT_TEST_POSTGRES_DSN`、`IOT_TEST_REDIS_ADDR` 未设置），PowerShell 部署脚本（本机无 pwsh），真实平台上的容量测量与任何新容量数字。P5 按 [容量验收执行手册](CAPACITY_RUNBOOK.md) 在目标环境执行后在此登记运行 ID 与结论。
 
 ### 17.5 最终完成标准
 
@@ -1139,4 +1162,4 @@ P1 给出测量基础；P2/P3 使用 P1 持续比较。界面不能早于可独�
 
 官方文档用于核对组件设计原理和限制，不代表当前仓库锁定版本已经具备文档中的所有新特性。实施时按最终版本重新确认配置、支持期和实际功能，升级作为单独可验证变更管理。
 
-编写本方案时的验收仅包括文档完整性、源码入口/链接核对和内容一致性。之后 P1 的实现与验证范围见第 17.4 节；新角色、集群配置和部署拓扑仍未实施，也没有测得新的性能数字。
+编写本方案时的验收仅包括文档完整性、源码入口/链接核对和内容一致性。之后 P1–P4 的实现与验证范围见第 17.4 节；目标环境部署与 P5 容量验收尚未执行，也没有测得新的性能数字。

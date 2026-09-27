@@ -114,7 +114,7 @@ TCP/UDP 默认 29075/29076，须已映射且空闲；可用 `--tcp-port`、`--ud
 
 ## 容量验证
 
-设计与验收口径见 [集群部署与一键全系统容量测试方案](CLUSTER_AND_CAPACITY_PLAN.md)。其中 P1 一键测量闭环已实现（下一小节）；集群角色拆分、存储集群、故障注入、AI/视频等场景适配和运维中心页面尚未实现。
+设计与验收口径见 [集群部署与一键全系统容量测试方案](CLUSTER_AND_CAPACITY_PLAN.md)。一键测量、业务模块场景、故障注入、管理页、续跑与跨运行比较已实现（下列小节）；集群角色与部署见 [部署文档](DEPLOYMENT.md#集群部署)。目标环境上的扩容曲线、长稳与故障验收按 [容量验收执行手册](CAPACITY_RUNBOOK.md) 执行，仓库内尚无这些实测结果。
 
 ### 一键容量测量
 
@@ -126,17 +126,53 @@ go run ./cmd/capacity-test run --plan cmd/capacity-test/examples/core-mixed.yaml
 go run ./cmd/capacity-test status --run <runId>
 go run ./cmd/capacity-test stop --run <runId>          # 追加 --force 跳过排空
 go run ./cmd/capacity-test report --run <runId>        # 只读证据重新生成报告
+go run ./cmd/capacity-test run --plan <同一计划> --resume <runId>   # 控制器中断后续跑
+go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比较与扩容效率 E(n)
 ```
 
-- **计划**：示例见 `cmd/capacity-test/examples/`。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）或 `soak`（单档长持有）；`resilience`、`faults` 和 AI/视频/知识/备份模块会被校验拒绝。`suite: full` 时这些模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
-- **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 都要列，Gateway 现已开放 `/metrics`）、Agent 与核对库的秘密引用。控制器只访问清单中的地址。
+- **计划**：示例见 `cmd/capacity-test/examples/`（`core-mixed`、`quick-local`、`full-system`、`resilience`）。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）、`soak`（单档长持有）或 `resilience`（固定背景负载 + 故障注入）。`suite: full` 时未启用的业务模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
+- **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 及 `parser`/`processor`/`ai`/`jobs` 等拆分角色都要列）、Agent 与核对库的秘密引用。可选 `web`（管理端地址，视频场景经其拉取 HLS）与 `nodes`（各主机 node-exporter 地址，报告生成主机 CPU/内存/磁盘图 `hosts.svg`，瓶颈归类识别主机饱和）。控制器只访问清单中的地址。
 - **秘密**：计划与清单只写引用名；值来自环境变量 `TORCHLINK_CAPACITY_SECRET_<名称>`（`-`、`.` 换成 `_`，大写）或权限 0600 的 `--secrets` YAML 文件。需要：操作员 Bearer 令牌、核对用 PostgreSQL DSN（建议只读账户）、可选 ClickHouse URL、远程 Agent 共享令牌。报告生成时会检查秘密值没有出现在任何证据文件中。
 - **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下创建，前缀区分；`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束不删除设备，清理清单写在 `manifest.json`。
 - **远程 Agent**：负载机执行 `capacity-test agent --listen :7070 --token-ref capacity-agent --secrets <文件>`，并在清单 `agents` 中登记 URL。Agent 持有 20 秒租约，控制器失联后自动停发；旧运行或旧代次的指令被拒绝。
 - **判定**：每档检查实发达成率（未发出记为发压不足，不是服务失败）、入口成功率（429 为策略限制）、查询与业务完成 P95/P99（样本不足不输出分位）、积压趋势、排空与 ID 核对。业务完成时延取标准消息 `processed_at`（毫秒完成时间）与预定发送时刻之差，经数据库和 Agent 时钟偏差校正。结论写成“稳定通过 L、在 U 失败”“至少 L 尚未找到上限”或 inconclusive，并给出结构化停止原因。
-- **产物**：`capacity-results/<runId>/` 下有 `summary.json`、`phases.csv`、`report.md`、离线可打开的 `report.html`、`charts/*.svg`、`plan.sanitized.yaml`、`environment.json`、`manifest.json`、各档 `phases/`、`verification/`、`ledgers/`（gzip JSONL 发送账本）、`observations/metrics.jsonl`、`events.jsonl`、`checksums.txt`。缺测在表格和图中显示为空，不填 0。
+- **产物**：`capacity-results/<runId>/` 下有 `summary.json`、`phases.csv`、`report.md`、离线可打开的 `report.html`、`charts/*.svg`（`outputs.formats` 含 `png` 时另有同名 PNG，英文标签、UTC 时间）、`plan.sanitized.yaml`、`environment.json`、`manifest.json`、各档 `phases/`、`verification/`、`ledgers/`（gzip JSONL 发送账本）、`observations/metrics.jsonl`（及 `nodes.jsonl`）、`events.jsonl`、`checksums.txt`。缺测在表格和图中显示为空，不填 0。
+- **告警序列**：`fixtures.alarmRuleId` 指定一条在 `stressAlarm=1` 时触发的现有规则（`alarmRecovers: true` 表示 `stressAlarm=0` 时恢复），核对阶段按设备比对上报序列与告警记录：有告警上报必须触发、最后一条为告警时必须处于活动状态、恢复规则最后一条正常时必须已恢复；不符计为完整性失败并给出样例设备。未指定时只观测 `alarm_trigger_total`。
+- **续跑与比较**：控制器进程中断后，用同一计划执行 `run --resume <runId>`：已完成档位按原搜索顺序回放，Agent 以下一代次重新准备并复用已登记设备，中断的那一档重新执行；最近 30 秒仍有心跳或已完成的运行会被拒绝。`compare` 读取多个运行的摘要，负载组合（报文、查询、模块与 SLO）一致且都有确认通过档时计算 E(n) = (C(n)/C(n₀)) ÷ (n/n₀) 并输出 `scaling.svg`；实例数默认取各运行的平台指标目标数，可用 `--instances id=n` 指定；条件不一致时只并列并写明原因。
 
-当前边界：告警只观测计数，未按预期序列核对；TCP（GB26875）只有协议 ACK 层证据；PNG/PDF 导出、主机 CPU/磁盘采集和运维中心页面未实现。核对查询可在临时 schema 中用 `IOT_TEST_POSTGRES_DSN=... go test ./internal/capacity -run PGStore` 验证。
+当前边界：TCP（GB26875）只有协议 ACK 层证据；PDF 导出未实现；重复业务副作用未测量。核对查询可在临时 schema 中用 `IOT_TEST_POSTGRES_DSN=... go test ./internal/capacity -run PGStore` 验证。
+
+### 业务模块场景
+
+计划 `modules` 中启用的模块由 Agent 以固定背景速率（按分钟或秒）与设备负载同时执行，各自记录成功率与时延（`p95` 设为 0 表示只记录不判定），并进入覆盖表：
+
+| 模块 | 执行内容 | 前提 |
+| --- | --- | --- |
+| `ai` | 对测试租户的活动告警发起手动研判并轮询完成；`maxRuns` 为整次运行的硬预算 | `mode: mock` 时平台 `IOT_AI_HARNESS_URL` 指向 `cmd/harness-mock`（只测平台调度，报告明确标注）；`real` 会消耗模型额度 |
+| `knowledge` | 上传生成的 Markdown 文档到指定 `workflowId` 并等待入库响应 | 知识库与嵌入服务可用 |
+| `video` | 建立并释放 HLS 播放会话；清单有 `web` 时拉取播放列表和首个分片近似首帧 | 测试摄像头在直播白名单内；WebRTC 未覆盖 |
+| `backup` | 每档在测量窗口内执行一次备份、逐文件下载校验 SHA-256；`restore: true` 时恢复到独立库并核对条数 | 备份服务配置 `IOT_BACKUP_RESTORE_TARGET_DSN`（与业务库不同） |
+| `realtime` | 按页面方式取 MQTT 令牌并订阅告警与设备状态推送，测送达时延 | 清单有 `mqtt`；订阅者分摊到各 Agent |
+| `exports` | 原文批量下载、回放 DRY_RUN 任务、巡检并导出 PDF | 测试租户已有原文 |
+| `openapi` | 用绑定用户的 API Key 查询开放接口 | `keySecretRef` 指向秘密文件中的密钥 |
+
+`harness-mock` 用法：`IOT_AI_HARNESS_TOKEN=<平台同一令牌> go run ./cmd/harness-mock -listen :8091 -latency 2s -jitter 1s -concurrency 4`，超过并发返回 429，与真实网关一致。
+
+### 故障注入（resilience）
+
+故障命令只在 Agent 主机本地登记：`capacity-test agent --fault-allow faults.yaml`（进程内 Agent 用 `run --fault-allow`），文件权限须为 0600，格式见 `cmd/capacity-test/examples/faults.example.yaml`（动作名 → `inject`/`recover` 的 argv，不经 shell）。计划的 `faults.actions` 只能按名称引用，预检确认动作确实登记在对应 Agent；释放运行或控制器租约过期时 Agent 自动执行未完成的恢复。
+
+`resilience` 档在测量窗口内按 `at`/`duration` 注入并恢复。常规 SLO 改为“仅记录”，完整性、排空和恢复时间决定结论：恢复时间从恢复命令完成起算，直到解析成功速率回到注入前基线的 90% 且积压回到基线附近，超过 `faults.maxRecovery` 判为失败。报告包含故障表与 `recovery.svg`。
+
+### 管理页与控制服务
+
+运维中心“容量测试”页通过平台调用控制机上的控制服务：
+
+```bash
+go run ./cmd/capacity-test serve --listen 127.0.0.1:7080 --inventories <受信任清单目录> --token-ref capacity-service --secrets capacity-secrets.yaml --results capacity-results
+```
+
+清单目录中每个 `<环境名>.yaml` 即一个可选环境；页面只提交环境名与计划文本，秘密、地址与故障命令留在控制机。平台设置 `IOT_OPS_CAPACITY_URL`（控制服务地址，只让平台 API 可达）与 `IOT_OPS_CAPACITY_TOKEN`（与秘密文件中 `capacity-service` 相同，至少 32 个字符）。菜单 `opsCapacity` 只在 `IOT_OPS_TENANTS` 中授予，查看、校验、启动、停止、下载分别授权；同一时间只运行一个测试，控制服务收到终止信号时会先软停止当前运行并写出报告。
 
 ### 单项工具
 

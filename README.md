@@ -113,4 +113,4 @@ go test ./...
 | [设备接入与协议](docs/INTEGRATION.md) | HTTP/MQTT、TCP/Modbus、Go Worker、点表、部件告警、开放 API 与厂商示例 |
 | [平台功能与边界](docs/PLATFORM.md) | 用户权限、AI/知识库、运维中心、摄像头直播与视频事件 |
 
-设计方案：[集群部署与一键全系统容量测试](docs/CLUSTER_AND_CAPACITY_PLAN.md)。包含目标拓扑、必要改造、压测编排、容量判定、报告图表和分阶段验收。其中一键容量测量（P1）已实现，用法见 [开发与测试](docs/DEVELOPMENT.md#一键容量测量)；集群部分仍为待实施设计，不代表已部署或已验证容量。
+设计方案：[集群部署与一键全系统容量测试](docs/CLUSTER_AND_CAPACITY_PLAN.md)。包含目标拓扑、必要改造、压测编排、容量判定、报告图表和分阶段验收。角色拆分、集群部署渲染与一键容量测试（含业务场景、故障注入、管理页）已实现，用法见 [部署](docs/DEPLOYMENT.md#集群部署) 与 [开发与测试](docs/DEVELOPMENT.md#容量验证)；目标环境上的扩容、长稳与故障验收按 [容量验收执行手册](docs/CAPACITY_RUNBOOK.md) 执行，尚无实测结果，不代表已部署或已验证容量。
