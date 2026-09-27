@@ -24,3 +24,4 @@ iot_front/.idea/
 # capacity-test run evidence, fixture credentials and agent ledgers
 /capacity-results/
 /capacity-agent/
+/dist/

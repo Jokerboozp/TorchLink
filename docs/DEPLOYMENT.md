@@ -337,6 +337,60 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 输出区分配置预算通过、阻塞、未验证及模型估算。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由和模型 token 配额仍须在目标集群验证。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
 
+## 集群部署
+
+多节点部署由**集群清单**统一描述，`cmd/cluster-render` 为每个节点生成独立的 Compose 项目（主机网络、固定端口），`scripts/cluster-deploy.sh` / `.ps1` 按阶段下发与启动。Compose 只管理本节点；跨节点布局、故障域和连接预算由清单校验。拓扑设计依据见 [集群方案](CLUSTER_AND_CAPACITY_PLAN.md#4-部署拓扑与资源规划)。
+
+| 组件 | 集群形态（示例清单 `deploy/cluster/inventory.example.yaml`） |
+| --- | --- |
+| Redpanda | 3 节点，业务主题与死信主题复制因子 3，关闭自动建主题 |
+| PostgreSQL | Spilo（Patroni）3 成员 + etcd 3 节点，可选同步备库；平台使用多主机 DSN `target_session_attrs=read-write` 连接当前主库，历史查询使用 `prefer-standby` 只读 DSN |
+| ClickHouse | 2 分片 × 2 副本 + Keeper 3 节点，`*_local` 复制表与同名 Distributed 表，插入按法定副本确认 |
+| Redis | 主 + 2 副本 + Sentinel 3 个，平台经 Sentinel 跟随主节点 |
+| EMQX | 3 节点静态集群 |
+| 平台 | api、gateway、parser、processor、ai、jobs 各自多实例；API 之间选举视频控制实例；Harness 多实例按会话路由 |
+| 监控 | Prometheus 按实例抓取所有平台进程、Redpanda、EMQX 与各节点 node-exporter |
+
+校验规则：节点须写明故障域（独立主机/供电/机柜；同一宿主上的虚拟机属于同一故障域）；仲裁组（etcd、Patroni、Redpanda、Keeper、Sentinel）为奇数成员且任一故障域不占多数；同一 ClickHouse 分片的副本、Redis 主从、EMQX 成员跨故障域；同一节点端口不冲突；各角色 PostgreSQL 连接池合计（含一次滚动升级额外实例、备份与初始化连接及预留）不超过 `max_connections`。
+
+在仓库根目录：
+
+```bash
+go run ./cmd/cluster-render -inventory deploy/cluster/inventory.example.yaml -check
+```
+
+```bash
+go run ./cmd/cluster-render -inventory <清单> -secrets <0600 秘密文件> -out dist/cluster/<名称>
+```
+
+```bash
+bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用户>
+```
+
+- 秘密文件模板为 `deploy/cluster/secrets.example.yaml`；嵌入连接串的密码只能用字母、数字与 `. _ ~ -`。秘密只写入需要它的节点的 `.env`（0600）与本机 `init.env`，`compose.yaml` 和配置文件只含变量引用。
+- 部署顺序：coordination（etcd、Keeper、Redis/Sentinel、MinIO、监控）→ data（PostgreSQL、Redpanda、ClickHouse、EMQX）→ **init**（`cmd/cluster-init`：创建应用角色与数据库、结构迁移、按清单创建主题并核验副本、核验各节点 ClickHouse 表结构）→ support（Harness、知识库、视频、备份）→ workers → edge（api、gateway、web）。每阶段等待容器健康后继续，最后逐实例检查 `/health/ready`。`--dry-run` 只打印命令。
+- 负载均衡不由渲染生成：`platform.internalURL` 指向 API 实例（Harness 回调与 Web 代理使用），`platform.gatewayURL` 指向 Gateway 实例；对外 MQTT、HTTP 与 TCP 入口按 [执行所有权](#执行所有权) 配置，被动 TCP 监听只能发往当前持有该 Profile 的 Gateway。
+- 离线环境：`dist/cluster/<名称>/images.txt` 列出全部镜像，在有网机器执行 `docker save $(cat images.txt) -o cluster-images.tar`，部署时加 `--images cluster-images.tar`（PowerShell 为 `-Images`）。
+
+**扩缩容与升级**：修改清单后重新渲染，只对变化的阶段和节点执行，例如 `--stage workers --nodes n5`。扩容前先看渲染输出的连接预算。升级按 workers → edge 逐角色滚动；processor/parser 缩容时进程先停止领取，未完成消息的领取租约到期后由其他实例接管。Redpanda、ClickHouse 扩容涉及数据重分布，按组件文档限制重建流量，并把重建期间纳入容量测试。
+
+**回滚**：保留上一版渲染目录，用它重新执行部署脚本即可回到旧配置；不删除数据卷。已写入新集群的数据不会因切回配置而回退，涉及存储迁移的回滚按下方迁移检查点处理。
+
+**从单节点迁移**：
+
+1. 在单节点上排空旧 `storage`/`parser` 积压（见 [业务流升级](#按设备业务流与跨实例一致性)），停止设备接入或让设备保留未确认报文，记录 PostgreSQL 备份点与 Kafka 偏移。
+2. 渲染并按阶段启动集群到 init 完成；PostgreSQL 数据用 `pg_dump`/`pg_restore` 导入新主库后再运行 `cluster-init -execute`。
+3. ClickHouse 用迁移工具按月分区回填并核对（默认只输出计划）：
+
+   ```bash
+   go run ./cmd/clickhouse-migrate -source <单节点 URL> -target <集群节点 URL> -cluster iot_cluster
+   ```
+
+   计划无误后追加 `-execute`；部分填充的目标分区会被阻止，须检查后删除再重跑。核对使用行数、唯一消息数与消息 ID 校验和。
+4. 启动 workers 与 edge，用少量设备核对原文、解析、状态、告警与权限，再切换入口并逐步放量。旧环境保留到新集群通过核对与容量快速回归。
+
+渲染与脚本的仓库内验证覆盖清单校验、端口与连接预算、生成文件的 `docker compose config` 解析及部署脚本的阶段顺序（`--dry-run`）；目标机上的镜像拉取、Patroni/Sentinel/Keeper 实际选主与切换须在目标环境演练并记录。
+
 ## 高可用边界
 
 默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、MinIO、Weaviate、Ollama、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
@@ -347,7 +401,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 - 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
 - 运维中心依赖（`--profile ops` 的 Prometheus、Loki、Grafana、Alertmanager）同样各一个实例；它们停止时接入与告警链路不受影响，但期间的监控数据、日志与告警通知会缺失。
 
-需要高可用时，至少要为 Redpanda（三节点，主题 `--replicas 3`）、PostgreSQL（主备复制与自动切换）、ClickHouse（副本）、EMQX（集群）、MinIO（分布式或外部对象存储）和多副本 API / Harness（前置负载均衡）分别设计，并在目标环境演练节点故障与切换；这些不在默认 Compose 的范围内，也未经本仓库验证。
+需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO、知识库、视频媒体与 Prometheus 在示例清单中仍为单实例，需要时改用分布式/外部服务。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
 
 ### 排查与迁移
 

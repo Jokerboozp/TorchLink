@@ -6,6 +6,9 @@ COPY . .
 RUN npm run build
 
 FROM nginx:1.27-alpine
+# Upstreams are substituted at start (nginx template envsubst); a cluster sets
+# them to the API load balancer and the media node.
+ENV IOT_API_UPSTREAM=platform-api:8080 IOT_VIDEO_UPSTREAM=zlmediakit:80
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

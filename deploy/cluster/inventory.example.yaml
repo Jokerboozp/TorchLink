@@ -1,0 +1,67 @@
+# Cluster inventory: the single source for a multi-node deployment.
+# Render per-node Compose projects with:
+#   go run ./cmd/cluster-render -inventory deploy/cluster/inventory.example.yaml -secrets <0600 secrets file>
+# Every node uses host networking; ports are fixed per service (see internal/clusterplan).
+# Replicas of one shard/quorum must sit in different fault domains
+# (a fault domain is a separate physical host, power feed or rack; VMs on one host share one).
+schemaVersion: 1
+name: iot-cluster
+images:
+  # Pin digests from your build/offline bundle (image@sha256:...).
+  platform: iot-platform-api:offline
+  web: iot-platform-web:offline
+  harness: iot-deepseek-harness:offline
+  backup: iot-platform-backup:offline
+  video: iot-zlmediakit:offline
+  redpanda: redpandadata/redpanda:v25.2.11
+  emqx: emqx/emqx:5.8.8
+  etcd: quay.io/coreos/etcd:v3.5.21
+  postgres: ghcr.io/zalando/spilo-17:4.0-p2
+  redis: redis:7.4-alpine
+  clickhouse: clickhouse/clickhouse-server:25.7-alpine
+  keeper: clickhouse/clickhouse-keeper:25.7-alpine
+  minio: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+  ollama: ollama/ollama:0.11.4
+  weaviate: cr.weaviate.io/semitechnologies/weaviate:1.32.8
+  prometheus: prom/prometheus:v3.5.0
+  nodeExporter: prom/node-exporter:v1.12.1
+nodes:
+  - {name: n1, address: 10.0.0.11, faultDomain: rack-a}
+  - {name: n2, address: 10.0.0.12, faultDomain: rack-b}
+  - {name: n3, address: 10.0.0.13, faultDomain: rack-c}
+  - {name: n4, address: 10.0.0.14, faultDomain: rack-a}
+etcd: {nodes: [n1, n2, n3]}
+postgres: {nodes: [n1, n2, n3], maxConnections: 300, reserved: 40, synchronous: true}
+redpanda: {nodes: [n1, n2, n3], partitions: 24, replication: 3, smp: 2, memory: 4G}
+emqx: {nodes: [n1, n2, n3]}
+redis: {master: n1, replicas: [n2, n3], sentinels: [n1, n2, n3], quorum: 2}
+clickhouse:
+  cluster: iot_cluster
+  # Validation start: 2 shards x 2 replicas. For single-node-loss writes with
+  # two-replica acknowledgement use 3 replicas per shard (plan §6.3).
+  shards: [[n1, n2], [n3, n4]]
+  keeper: [n2, n3, n4]
+  insertQuorum: "2"
+minio: {node: n4}
+harness: {nodes: [n2, n3]}
+knowledge: {node: n4}
+video: {node: n4}
+backup: {node: n4}
+monitoring: {node: n4}
+platform:
+  # Load balancers in front of the api and gateway instances (not rendered).
+  internalURL: http://10.0.0.10:8081
+  gatewayURL: http://10.0.0.10:8082
+  publicURL: https://iot.example.com
+  roles:
+    api: {nodes: [n1, n2], poolMax: 12}
+    gateway: {nodes: [n2, n3], poolMax: 12}
+    parser: {nodes: [n1, n2, n3], poolMax: 16}
+    processor: {nodes: [n1, n2, n3], poolMax: 24}
+    ai: {nodes: [n3, n4], poolMax: 4}
+    jobs: {nodes: [n1, n4], poolMax: 4}
+  web: {nodes: [n1, n2]}
+# Non-secret platform settings applied to every role instance.
+env:
+  IOT_ADMIN_TENANTS: tenant_001
+  IOT_OPS_TENANTS: tenant_001

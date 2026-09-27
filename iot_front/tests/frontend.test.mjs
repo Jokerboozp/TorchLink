@@ -126,7 +126,9 @@ test('AI rule draft cards reconcile persisted snapshots with current rule state'
 test('reverse proxy preserves backend routes and unbuffered AI streaming', async () => {
   const nginx = await readFile(new URL('nginx.conf', root), 'utf8')
   for (const route of ['/api/', '/health/', '/mcp']) assert.ok(nginx.includes(route), `nginx is missing ${route}`)
-  assert.ok(nginx.includes('platform-api:8080'))
+  assert.ok(nginx.includes('http://${IOT_API_UPSTREAM}'))
+  const dockerfile = await readFile(new URL('Dockerfile', root), 'utf8')
+  assert.match(dockerfile, /ENV IOT_API_UPSTREAM=platform-api:8080 IOT_VIDEO_UPSTREAM=zlmediakit:80/)
   assert.match(nginx, /location = \/api\/v1\/ai\/chat\/stream\s*\{[\s\S]*?proxy_buffering off;[\s\S]*?proxy_cache off;[\s\S]*?gzip off;[\s\S]*?proxy_read_timeout 3600s;[\s\S]*?proxy_set_header Connection "";/)
   assert.doesNotMatch(nginx, /IOT_VIDEO_PREVIEW_CSP_SOURCES/)
   assert.doesNotMatch(nginx, /connect-src[^;]*\bhttp:\s+https:/)

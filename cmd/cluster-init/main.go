@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,11 +19,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/segmentio/kafka-go"
 
 	"iot-platform/internal/adapters/postgres"
@@ -167,11 +170,21 @@ func main() {
 	partitions := flag.Int("partitions", 12, "每个主题的分区数（不少于业务消费者实例数×通道）")
 	replication := flag.Int("replication", 3, "主题复制因子；集群为 3")
 	execute := flag.Bool("execute", false, "创建缺失主题并执行 PostgreSQL 结构迁移；默认只检查")
+	bootstrap := flag.Bool("bootstrap-postgres", false, "用 IOT_POSTGRES_ADMIN_DSN 创建应用角色 iot 与数据库 iot（密码取 IOT_POSTGRES_APP_PASSWORD），已存在则跳过")
 	flag.Parse()
 	if *envFile != "" {
 		if err := config.LoadEnvFile(*envFile); err != nil {
 			fmt.Fprintln(os.Stderr, "cannot read environment file")
 			os.Exit(2)
+		}
+	}
+	// The rendered init.env carries the inventory's topic layout.
+	set := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	for name, target := range map[string]*int{"partitions": partitions, "replication": replication} {
+		env := map[string]string{"partitions": "IOT_CLUSTER_KAFKA_PARTITIONS", "replication": "IOT_CLUSTER_KAFKA_REPLICATION"}[name]
+		if v, err := strconv.Atoi(os.Getenv(env)); !set[name] && err == nil && v > 0 {
+			*target = v
 		}
 	}
 	cfg := config.Load()
@@ -216,6 +229,13 @@ func main() {
 		}
 		report["topics"] = plan
 	}
+	if *bootstrap && *execute {
+		c := check{Name: "postgresql application database", OK: true, Detail: "role and database present"}
+		if err := bootstrapPostgres(ctx, os.Getenv("IOT_POSTGRES_ADMIN_DSN"), os.Getenv("IOT_POSTGRES_APP_PASSWORD")); err != nil {
+			c.OK, c.Detail, ok = false, err.Error(), false
+		}
+		checks = append(checks, c)
+	}
 	if cfg.PostgresDSN == "" {
 		checks = append(checks, check{Name: "postgresql schema", Detail: "IOT_POSTGRES_DSN not set"})
 		ok = false
@@ -244,4 +264,36 @@ func main() {
 	if !ok {
 		os.Exit(1)
 	}
+}
+
+var appPasswordPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{8,}$`)
+
+// bootstrapPostgres creates the application role and database on a fresh
+// Patroni cluster. The password charset is restricted, so quoting it into
+// the utility statement (which takes no bind parameters) is safe.
+func bootstrapPostgres(ctx context.Context, adminDSN, password string) error {
+	if adminDSN == "" || !appPasswordPattern.MatchString(password) {
+		return errors.New("IOT_POSTGRES_ADMIN_DSN and an IOT_POSTGRES_APP_PASSWORD of letters, digits and . _ ~ - (8+) are required")
+	}
+	conn, err := pgx.Connect(ctx, adminDSN)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+	var exists bool
+	if err = conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='iot')`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err = conn.Exec(ctx, `CREATE ROLE iot LOGIN PASSWORD '`+password+`'`); err != nil {
+			return err
+		}
+	}
+	if err = conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname='iot')`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		_, err = conn.Exec(ctx, `CREATE DATABASE iot OWNER iot`)
+	}
+	return err
 }
