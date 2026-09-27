@@ -2,11 +2,13 @@ import fs from 'node:fs'
 import vm from 'node:vm'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRequire } from 'node:module'
 import { loadAllPages } from '../src/listPagination.js'
 import { createClientId } from '../src/clientId.js'
-const require = createRequire(import.meta.url)
-const { ref, reactive, computed, watch } = require('vue')
+import { computed, reactive, ref, watch } from 'vue'
+import { readFile } from 'node:fs/promises'
+import { alarmNavigation, alarmQuery } from '../src/alarmNavigation.js'
+import { dashboardDistributions, deviceSegments, productBars, ringSegments, statusSegments, trendGeometry } from '../src/dashboard.js'
+
 const root = new URL('../src/views/', import.meta.url)
 // Execute the real setup code with Vue reactivity; replace external I/O and
 // lifecycle hooks so response ordering is deterministic without a browser.
@@ -302,4 +304,194 @@ test('late product binding response cannot change a different instance being edi
   await pending
   assert.equal(c.listener.protocolId,'new-protocol')
   assert.equal(c.listener.protocolVersion,'2')
+})
+
+async function devicesView(globals) {
+ const source=await readFile(new URL('../src/views/DevicesView.vue',import.meta.url),'utf8')
+ const script=source.split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm,'')
+ const context=vm.createContext({ref:value=>({value}),reactive:v=>v,computed:fn=>({get value(){return fn()}}),defineEmits:()=>()=>{},pretty:JSON.stringify,onMounted:()=>{},onBeforeUnmount:()=>{},window:{addEventListener(){}},sessionStorage:{getItem:()=>null,removeItem(){}},notifyError:e=>{throw e},setTimeout,clearTimeout,URLSearchParams,...globals})
+ vm.runInContext(script+'\nglobalThis.state={load,loading,deviceTab,filters,registryPage,registryTotal,registry,unregistered,pendingCount,changeFilter,changeRegistryPage};',context)
+ return context
+}
+
+test('实时消息不重载设备列表，手动刷新仍读取最新数据',async()=>{
+ let mounted,requests=0;const events=new Map()
+ const context=await devicesView({onMounted:fn=>mounted=fn,window:{addEventListener:(k,fn)=>events.set(k,fn)},api:async()=>{requests++;return{items:[]}},apiAll:async()=>{requests++;return{items:[]}}})
+ mounted();await new Promise(r=>setTimeout(r,0));const initial=requests
+ for(let i=0;i<10;i++)events.get('iot:realtime')({detail:{topic:'device.state',payload:{deviceId:'demo'}}})
+ await new Promise(r=>setTimeout(r,0))
+ assert.equal(requests,initial,'实时上报不应重新请求整张设备列表')
+ assert.equal(context.state.loading.value,false)
+ await context.state.load();assert.ok(requests>initial,'手动刷新必须仍然有效')
+})
+
+test('设备分组、类型、关键字和运行状态交给服务端筛选，切换筛选回到第一页',async()=>{
+ const requests=[]
+ const context=await devicesView({
+  api:async path=>{requests.push(path);return path.startsWith('/api/v1/devices')?{items:[{deviceId:'raw-1'}],total:3}:{items:[{device:{id:'d1'}}],total:41}},
+  apiAll:async()=>({items:[{id:'smoke',category:'smoke'}]})
+ })
+ const s=context.state
+ const registryQuery=()=>new URL(requests.filter(path=>path.startsWith('/api/v1/device-registry')).at(-1),'http://audit.invalid').searchParams
+ await s.load()
+ assert.equal(s.registryTotal.value,41);assert.equal(s.pendingCount.value,3)
+ assert.equal(registryQuery().get('role'),null);assert.equal(registryQuery().get('page'),'1')
+ s.changeRegistryPage(3);await new Promise(r=>setTimeout(r,0))
+ assert.equal(registryQuery().get('page'),'3')
+ s.deviceTab.value='CHILD';s.filters.category='smoke';s.filters.runtime='ALARM';s.filters.q=' 一层 '
+ s.changeFilter();await new Promise(r=>setTimeout(r,0))
+ const query=registryQuery()
+ assert.equal(s.registryPage.value,1);assert.equal(query.get('page'),'1')
+ assert.equal(query.get('role'),'CHILD');assert.equal(query.get('category'),'smoke');assert.equal(query.get('runtime'),'ALARM');assert.equal(query.get('q'),'一层')
+ s.deviceTab.value='pending';s.changeFilter();await new Promise(r=>setTimeout(r,0))
+ assert.match(requests.at(-1),/^\/api\/v1\/devices\?unregistered=true&page=1&pageSize=20$/)
+ assert.equal(s.unregistered.value[0].deviceId,'raw-1')
+})
+
+function fixture(api) {
+  const source = fs.readFileSync(new URL('../src/views/RawView.vue', import.meta.url), 'utf8')
+  const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const warnings = []
+  const context = vm.createContext({ ref, computed, defineEmits() {}, onMounted() {}, api, URLSearchParams, UiMessage: { warning: text => warnings.push(text) }, notifyError() {}, messageTypeLabel: x => x })
+  return { ...vm.runInContext(script + '\n;({filters, appliedFilters, page, items, total, selection, load, search, resetFilters, recentHours, changePage, parseState, loadError})', context), warnings }
+}
+
+test('raw filters combine criteria, preserve applied filters on pagination and reset all fields', async () => {
+  const requests = []
+  const f = fixture(async url => { requests.push(new URL(url, 'http://test').searchParams); return { items: [], total: 0 } })
+  Object.assign(f.filters.value, { deviceId: ' d ', messageId: 'raw-1', productId: 'p', protocol: 'json', payloadFormat: 'json', parseStatus: 'PARSED', messageType: 'ALARM_REPORT', parser: 'json_parser', range: [100, 200] })
+  f.page.value = 3
+  await f.search()
+  const q = requests.at(-1)
+  assert.equal(q.get('deviceId'), 'd')
+  assert.equal(q.get('page'), '1')
+  for (const key of ['messageId','productId','protocol','payloadFormat','parseStatus','messageType','parser']) assert.equal(q.get(key), f.filters.value[key])
+  assert.equal(q.get('start'), '100'); assert.equal(q.get('end'), '200')
+  f.filters.value.deviceId = 'not-applied'
+  f.filters.value.range[0] = 50
+  f.changePage(2)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(requests.at(-1).get('deviceId'), 'd')
+  assert.equal(requests.at(-1).get('start'), '100')
+  assert.equal(requests.at(-1).get('page'), '2')
+  await f.resetFilters()
+  assert.deepEqual([...requests.at(-1).keys()].sort(), ['page','pageSize'])
+  assert.equal(f.page.value, 1)
+  f.filters.value.range = [300,100]
+  const count = requests.length
+  await f.search()
+  assert.equal(requests.length, count)
+  assert.equal(f.warnings.length, 1)
+  await f.recentHours(24)
+  assert.equal(Number(requests.at(-1).get('end')) - Number(requests.at(-1).get('start')), 86400000)
+})
+
+test('late raw responses cannot overwrite a newer filter result; failed queries clear stale rows', async () => {
+  const pending = []
+  const f = fixture(() => new Promise((resolve, reject) => pending.push({ resolve, reject })))
+  f.filters.value.deviceId = 'old'; const old = f.search()
+  f.filters.value.deviceId = 'new'; const current = f.search()
+  pending[1].resolve({ items: [{ messageId:'new' }], total:1 }); await current
+  pending[0].resolve({ items: [{ messageId:'old' }], total:99 }); await old
+  assert.equal(f.items.value[0].messageId, 'new')
+  assert.equal(f.total.value, 1)
+  f.selection.value = [{messageId:'new'}]
+  const failed = f.load()
+  assert.equal(f.selection.value.length, 0)
+  pending[2].reject(new Error('offline')); await failed
+  assert.equal(f.items.value.length, 0)
+  assert.equal(f.loadError.value, 'offline')
+  assert.equal(f.parseState({parseError:'invalid'}).label, '解析失败')
+  assert.equal(f.parseState({parsed:true, parseError:'old error', parsedMessageType:'ALARM_REPORT'}).tone, 'success')
+})
+
+test('alarm list batches alarm events and ignores device state events', async () => {
+  const source = fs.readFileSync(new URL('../src/views/AlarmsView.vue', import.meta.url), 'utf8')
+  const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const timers = []
+  let requests = 0
+  const context = vm.createContext({
+    ref, reactive, computed,
+    defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount() {},
+    api: async () => { requests++; return { items: [], total: 0 } },
+    alarmQuery: () => '', notifyError: error => { throw error },
+    window: { setTimeout: callback => { timers.push(callback); return timers.length }, clearTimeout() {} }
+  })
+  const { realtime } = vm.runInContext(script + '\n;({realtime})', context)
+  realtime({ detail: { topic: '/iot/device/state/tenant/product/device' } })
+  assert.equal(timers.length, 0)
+  realtime({ detail: { topic: '/iot/alarm/raised/tenant/product/device' } })
+  realtime({ detail: { topic: '/iot/alarm/recovered/tenant/product/device' } })
+  assert.equal(timers.length, 1)
+  timers[0]()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(requests, 1)
+})
+
+test('设备详情跳转保留设备范围，分页和状态筛选不会扩大查询范围', () => {
+  const navigation = alarmNavigation('{"deviceId":"device-a"}')
+  const query = alarmQuery({ ...navigation, status: 'CLOSED', level: 'LOW' }, 2, 20)
+  assert.equal(query.get('deviceId'), 'device-a')
+  assert.equal(query.get('status'), 'CLOSED')
+  assert.equal(query.get('page'), '2')
+  assert.equal(alarmQuery({}, 1, 20).has('deviceId'), false)
+})
+
+test('告警详情跳转与无效导航数据兼容', () => {
+  assert.deepEqual(alarmNavigation('{"alarmId":"alarm-a"}'), { deviceId: '', alarmId: 'alarm-a' })
+  for (const raw of [null, '{broken', 'null', '{"deviceId":{}}']) {
+    assert.deepEqual(alarmNavigation(raw), { deviceId: '', alarmId: '' })
+  }
+})
+
+test('device ring preserves all states including future unknown codes', () => {
+  const rows=ringSegments(deviceSegments({ONLINE:2,OFFLINE:1,SUSPECTED_OFFLINE:3,NEVER_SEEN:4,FUTURE:2}))
+  assert.equal(rows.reduce((sum,v)=>sum+v.count,0),12)
+  assert.equal(Math.round(rows.reduce((sum,v)=>sum+v.percent,0)),100)
+  assert.equal(rows.find(v=>v.key==='SUSPECTED_OFFLINE').name,'疑似离线')
+  assert.ok(ringSegments(deviceSegments()).every(v=>v.percent===0 && v.offset===0))
+})
+test('product chart keeps top five and accounts for every remaining product',()=>{
+  const products=Array.from({length:9},(_,i)=>({key:String(i),name:`Product ${i}`,count:i+1}))
+  const bars=productBars(products)
+  assert.equal(bars.length,6);assert.equal(bars[0].count,9);assert.equal(bars[5].count,10)
+  assert.equal(bars.reduce((sum,v)=>sum+v.count,0),45)
+})
+test('trend handles no alarms, small counts and spikes without fractional count ticks',()=>{
+  for (const values of [[],[0,0],[1,0,1],[0,12001,0]]) {
+    const chart=trendGeometry(values.map((count,i)=>({date:String(i),count})))
+    assert.ok(chart.ticks.every(t=>Number.isInteger(t.value)))
+    assert.ok(chart.points.every(p=>Number.isFinite(p.x)&&p.y>=32&&p.y<=204))
+  }
+})
+function dashboardSetup(api) {
+  const script=fs.readFileSync(new URL('../src/views/DashboardView.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
+  let cleanup
+  const context=vm.createContext({ref,computed,api,deviceSegments,ringSegments,productBars,dashboardDistributions,alarmLevels:{},AbortController,setTimeout,clearTimeout,notifyError(){},defineEmits:()=>()=>{},onMounted(){},onBeforeUnmount(fn){cleanup=fn},window:{removeEventListener(){}}})
+  return {...vm.runInContext(script+'\n;({load,data,days,loading,loadError})',context),cleanup:()=>cleanup()}
+}
+test('range switching rejects late responses and retains last good snapshot on failure',async()=>{
+  const requests=[]
+  const c=dashboardSetup(path=>path.includes('/alarms?')?Promise.resolve({items:[]}):new Promise((resolve,reject)=>requests.push({resolve,reject})))
+  const first=c.load();c.days.value=30;const second=c.load()
+  requests[1].resolve({days:30});await second;requests[0].resolve({days:7});await first
+  assert.equal(c.data.value.days,30)
+  const failed=c.load();requests[2].reject(new Error('offline'));await failed
+  assert.equal(c.data.value.days,30);assert.match(c.loadError.value,/刷新失败/);assert.equal(c.loading.value,false)
+  const pending=c.load();c.cleanup();requests[3].resolve({days:7});await pending;assert.equal(c.data.value.days,30)
+})
+
+
+test('new distributions preserve totals, unknown codes and type ranking overflow', () => {
+  const source = { alarmStatuses:{ACTIVE:7, ACKED:2, FUTURE:1}, connections:{CONNECTED:3, UNKNOWN:1}, dataStatuses:{ACTIVE:2,SILENT:2}, alarmTypes:{FIRE:9,SMOKE_DETECTED:8,DEVICE_FAULT:7,DEVICE_OFFLINE:6,HIGH_TEMPERATURE:5,GAS_LEAK:4,WATER_PRESSURE_LOW:3,FUTURE:2,UNKNOWN:1} }
+  const charts = dashboardDistributions(source)
+  assert.ok(charts.every(chart => chart.available))
+  assert.deepEqual(charts.map(chart => chart.items.reduce((sum,item) => sum+item.count,0)), [10,45,4,4])
+  assert.equal(charts[0].items.at(-1).name, '其他')
+  assert.equal(charts[1].items.length, 6)
+  assert.equal(charts[1].items.at(-1).count, 10)
+  assert.equal(charts[1].items[0].name, '火灾告警')
+  assert.ok(dashboardDistributions().every(chart => !chart.available))
+  assert.ok(dashboardDistributions({alarmStatuses:{},alarmTypes:{},connections:{},dataStatuses:{}}).every(chart => chart.available && chart.items.every(item => item.count === 0)))
+  assert.equal(statusSegments({ACTIVE:-1,FUTURE:'bad'}, {ACTIVE:'活跃'})[0].count,0)
 })

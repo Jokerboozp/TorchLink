@@ -22,7 +22,7 @@ import (
 
 // GoProtocolParserName is the runtime adapter for a compiled Go protocol
 // package. The package is an executable that implements the line-oriented JSON
-// contract documented in docs/GO_PROTOCOL_PACKAGES.md. It is intentionally
+// contract documented in docs/INTEGRATION.md. It is intentionally
 // executed out of process so a parser cannot corrupt the API process or block
 // the parser goroutine forever.
 const GoProtocolParserName = "go_protocol_parser"

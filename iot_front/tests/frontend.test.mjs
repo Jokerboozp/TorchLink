@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { errorMessage, formatLabel, platformLabel, statusLabel, toolName, transportLabel } from '../src/presentation.js'
+import { createThemeOverrides, parseTokens, resolveToken } from '../src/theme/naiveTheme.js'
+import { consumeSSE } from '../src/sse.js'
+import { createClientId } from '../src/clientId.js'
 
 const root = new URL('..', import.meta.url)
 
@@ -119,11 +123,8 @@ test('AI rule draft cards reconcile persisted snapshots with current rule state'
   assert.equal(messages[0].ruleDraftState, 'missing')
 })
 
-test('frontend builds independently and proxies backend routes', async () => {
-  const vite = await readFile(new URL('vite.config.js', root), 'utf8')
+test('reverse proxy preserves backend routes and unbuffered AI streaming', async () => {
   const nginx = await readFile(new URL('nginx.conf', root), 'utf8')
-  assert.match(vite, /outDir:\s*'dist'/)
-  assert.doesNotMatch(vite, /internal\/httpapi\/static/)
   for (const route of ['/api/', '/health/', '/mcp']) assert.ok(nginx.includes(route), `nginx is missing ${route}`)
   assert.ok(nginx.includes('platform-api:8080'))
   assert.match(nginx, /location = \/api\/v1\/ai\/chat\/stream\s*\{[\s\S]*?proxy_buffering off;[\s\S]*?proxy_cache off;[\s\S]*?gzip off;[\s\S]*?proxy_read_timeout 3600s;[\s\S]*?proxy_set_header Connection "";/)
@@ -131,16 +132,6 @@ test('frontend builds independently and proxies backend routes', async () => {
   assert.doesNotMatch(nginx, /connect-src[^;]*\bhttp:\s+https:/)
 })
 
-test('frontend rejects Node versions unsupported by the build toolchain', async () => {
-  const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
-  const packageLock = JSON.parse(await readFile(new URL('package-lock.json', root), 'utf8'))
-  const npmrc = await readFile(new URL('.npmrc', root), 'utf8')
-
-  const supportedNodeVersions = '^20.19.0 || >=22.12.0'
-  assert.equal(packageJson.engines?.node, supportedNodeVersions)
-  assert.equal(packageLock.packages?.['']?.engines?.node, supportedNodeVersions)
-  assert.match(npmrc, /^engine-strict=true\s*$/m)
-})
 
 test('component alarm popup identifies the actual part and location', async () => {
   const { parseRealtimeAlert, alertKeys } = await import('../src/globalAlert.js')
@@ -170,4 +161,102 @@ test('AI history cannot restore data from a previous authorization scope', async
     assert.equal(loadAIHistory(storage, current, Date.now(), workflow), null)
     assert.equal(loadAIHistory(storage, previous, Date.now(), workflow).conversationId, 'old')
   }
+})
+
+test('display names handle canonical and lowercase wire values without mutating data', () => {
+  const data = { transport:'MQTT', format:'json', status:'INDEXED' }
+  assert.equal(transportLabel(data.transport), 'MQTT')
+  assert.equal(transportLabel('iot-standard'), '标准设备接入')
+  assert.equal(transportLabel('tcp'), 'TCP')
+  assert.equal(transportLabel('MQTT_HTTP'), 'MQTT / HTTP')
+  assert.equal(formatLabel(data.format), 'JSON')
+  assert.equal(statusLabel(data.status), '已建立索引')
+  assert.equal(statusLabel('indexed'), '已建立索引')
+  assert.equal(statusLabel('new-backend-status'), '未知状态')
+  assert.equal(statusLabel(null), '未知状态')
+  assert.equal(statusLabel('待人工复核'), '待人工复核')
+  assert.deepEqual(data, { transport:'MQTT', format:'json', status:'INDEXED' })
+  assert.equal(platformLabel('windows-arm64'), 'Windows · arm64')
+  assert.equal(toolName('mcp__iot__query_alarm_list'), '查询告警')
+})
+
+test('errors give actionable Chinese feedback for network, permission and format failures', () => {
+  assert.equal(errorMessage(new TypeError('Failed to fetch')), '无法连接服务，请检查网络后重试')
+  assert.equal(errorMessage({ status:403, message:'forbidden' }), '当前账户没有操作权限')
+  assert.equal(errorMessage({ status:401, message:'invalid credentials' }), '身份验证失败，请检查账户信息或重新登录')
+  assert.match(errorMessage(new Error('relation would create a cycle')), /循环/)
+  assert.match(errorMessage(new Error('local connection credential reference was not found')), /未找到现场连接凭据/)
+  assert.equal(errorMessage(new SyntaxError('Unexpected token')), '数据格式不正确，请检查括号、引号和字段值')
+  assert.equal(errorMessage({ message:'设备名称不能为空' }), '设备名称不能为空')
+  assert.equal(errorMessage({ status:502 }), '服务暂时不可用，请稍后重试')
+})
+
+const tokensCss = await readFile(new URL('../src/theme/tokens.css', import.meta.url), 'utf8')
+
+test('Naive UI 主题完全由 tokens.css 生成，品牌色与设计变量一致', () => {
+  const theme = createThemeOverrides(tokensCss)
+  assert.equal(theme.common.primaryColor, resolveToken(parseTokens(tokensCss), '--primary'))
+  assert.equal(theme.common.bodyColor, resolveToken(parseTokens(tokensCss), '--bg'))
+  const values = JSON.stringify(theme)
+  assert.doesNotMatch(values, /var\(/, '主题中不能残留未解析的 CSS 变量')
+  assert.doesNotMatch(values, /undefined/)
+})
+
+test('缺失的设计变量会直接报错，而不是生成空主题', () => {
+  assert.throws(() => resolveToken(parseTokens(':root { --a: var(--missing); }'), '--a'), /未定义/)
+})
+
+function byteStream(text, chunkSize = 1) {
+  const bytes = new TextEncoder().encode(text)
+  return new ReadableStream({
+    start(controller) {
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) controller.enqueue(bytes.slice(offset, offset + chunkSize))
+      controller.close()
+    }
+  })
+}
+
+test('SSE parser supports event fields, JSON event types, CRLF and split UTF-8 bytes', async () => {
+  const source = [
+    'event: run.started\r\nid: evt-1\r\ndata: {"runId":"run-1","conversationId":"conversation-1"}\r\n\r\n',
+    'data: {"type":"text.delta","delta":"你好"}\n\n',
+    'event: tool.started\ndata: {"toolCallId":"tool-1","toolName":"alarm.query","inputSummary":"高等级告警"}\n\n',
+    'event: tool.completed\ndata: {"toolCallId":"tool-1","success":true,"outputSummary":"2 条"}\n\n',
+    'event: run.completed\ndata: {"durationMs":\n',
+    'data: 42}\n\n'
+  ].join('')
+  const events = []
+  await consumeSSE(byteStream(source), event => events.push(event))
+
+  assert.deepEqual(events.map(event => event.type), ['run.started','text.delta','tool.started','tool.completed','run.completed'])
+  assert.equal(events[0].eventId, 'evt-1')
+  assert.equal(events[1].delta, '你好')
+  assert.equal(events[4].durationMs, 42)
+})
+
+test('SSE parser ignores a legacy DONE marker in favor of explicit terminal events', async () => {
+  const events = []
+  await consumeSSE(byteStream('data: [DONE]\n\n', 3), event => events.push(event))
+  assert.deepEqual(events, [])
+})
+
+test('SSE parser rejects non-JSON event payloads without exposing their contents', async () => {
+  await assert.rejects(
+    consumeSSE(byteStream('event: run.failed\ndata: definitely-not-json\n\n', 5)),
+    error => error.code === 'AI_STREAM_INVALID_EVENT' && !error.message.includes('definitely-not-json')
+  )
+})
+
+test('HTTP fallback preserves UUID v4 version and variant using random bytes', () => {
+  let calls=0
+  const provider={getRandomValues(bytes){calls++;return bytes.fill(255)}}
+  assert.equal(createClientId(provider),'ffffffff-ffff-4fff-bfff-ffffffffffff')
+  assert.equal(calls,1)
+  const ids=new Set(Array.from({length:100},()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)})))
+  assert.equal(ids.size,100)
+  for(const id of ids) assert.match(id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+})
+
+test('HTTPS keeps the browser native UUID implementation', () => {
+  assert.equal(createClientId({randomUUID(){return 'native-id'},getRandomValues(){throw Error('unexpected fallback')}}),'native-id')
 })

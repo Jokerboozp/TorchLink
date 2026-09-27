@@ -1,6 +1,6 @@
 ; TorchLink camera live module - ZLMediaKit configuration template.
 ; Rendered by entrypoint.sh from IOT_VIDEO_* environment variables at start.
-; Keys follow the pinned ZLMediaKit revision 10268396 (see docs/VIDEO_LIVE.md).
+; Keys follow the pinned ZLMediaKit revision 10268396 (see docs/PLATFORM.md).
 
 [api]
 apiDebug=0

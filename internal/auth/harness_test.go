@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"iot-platform/internal/ports"
 )
 
 func TestIssueHarnessCreatesRestrictedShortLivedToken(t *testing.T) {
@@ -30,5 +33,16 @@ func TestIssueHarnessCreatesRestrictedShortLivedToken(t *testing.T) {
 	remaining := time.Until(claims.ExpiresAt.Time)
 	if remaining <= time.Minute || remaining > 2*time.Minute+time.Second {
 		t.Fatalf("unexpected harness TTL: %s", remaining)
+	}
+}
+
+// Business runs name tools through ports.MCPToolScope; it must produce the
+// same scopes the MCP endpoint checks.
+func TestPortsToolScopesMatchHarnessScopes(t *testing.T) {
+	for _, scope := range HarnessReadScopes() {
+		tool := strings.TrimPrefix(scope, "mcp:tool:")
+		if ports.MCPToolScope(tool) != scope {
+			t.Fatalf("ports.MCPToolScope(%q) = %q, want %q", tool, ports.MCPToolScope(tool), scope)
+		}
 	}
 }

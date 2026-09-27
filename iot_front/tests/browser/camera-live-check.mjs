@@ -1,6 +1,6 @@
 // Camera live playback in real Chrome against a running API, Vite dev server
 // and media server with a configured, live-enabled camera. Not part of
-// `npm test`: it needs the video module deployed (see docs/VIDEO_LIVE.md).
+// `npm test`: it needs the video module deployed (see docs/PLATFORM.md).
 //
 // IOT_TEST_BROWSER   Chrome/Chromium executable
 // IOT_TEST_ORIGIN    front-end origin, e.g. http://127.0.0.1:5173

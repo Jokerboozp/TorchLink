@@ -164,3 +164,83 @@ func TestSmokeHexParser(t *testing.T) {
 		t.Fatalf("unexpected message: %#v", m)
 	}
 }
+
+func TestPlatformRegistryRequiresExplicitLegacyBinding(t *testing.T) {
+	r := NewPlatformRegistry(t.TempDir())
+	raw := model.RawMessage{Protocol: "gb26875-dahua-v1.03", PayloadFormat: "hex", Payload: json.RawMessage(`"4040"`)}
+	if _, err := r.Parse(raw); err == nil {
+		t.Fatal("automatically selected a specialized parser")
+	}
+	frame := BuildGB26875RegistrationFrame(1, [6]byte{1, 2, 3, 4, 5, 6}, time.Now())
+	// Existing bindings and historical replay still resolve the old parser.
+	raw.Payload, _ = json.Marshal(hex.EncodeToString(frame))
+	if _, err := r.ParseWith((GB26875Parser{}).Name(), raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{(GB26875Parser{}).Name(), ModbusTCPParserName, ModbusCoilParserName, JavaScriptParserName} {
+		if ManagedParserType(name) {
+			t.Fatalf("legacy parser offered for new packages: %s", name)
+		}
+	}
+}
+
+func TestStandardVersionOneAndLegacy(t *testing.T) {
+	for _, tc := range []struct {
+		kind, payload string
+		valid         bool
+	}{
+		{"property", `{"id":"1","version":"1.0","timestamp":1000,"data":{"temperature":26.5}}`, true},
+		{"event", `{"id":"1","version":"1.0","timestamp":1000,"event":"fire_alarm","data":{"zone":3}}`, true},
+		{"state", `{"id":"1","version":"1.0","timestamp":1000,"online":true}`, true},
+		{"command-reply", `{"id":"1","version":"1.0","timestamp":1000,"commandId":"c","success":false,"data":{}}`, true},
+		{"state", `{"id":"1","timestamp":1000,"data":{"connectionStatus":"CONNECTED"}}`, true},
+		{"property", `{"id":"1","version":"2.0","timestamp":1000,"data":{"x":1}}`, false},
+		{"event", `{"id":"1","version":"1.0","timestamp":1000,"data":{"zone":3}}`, false},
+		{"property", `{"id":"1","id":"2","timestamp":1000,"data":{"x":1}}`, false},
+		{"state", `{"id":"1","timestamp":1000,"online":true,"data":{"connectionStatus":"DISCONNECTED"}}`, false},
+		{"command-reply", `{"id":"1","timestamp":1000,"commandId":"c","success":"true"}`, false},
+		{"property", `{"id":"1","timestamp":999999999999999,"data":{"x":1}}`, false},
+		{"property", `{"id":"1","timestamp":1000,"data":{"x":` + strings.Repeat("[", 17) + "1" + strings.Repeat("]", 17) + `}}`, false},
+	} {
+		t.Run(tc.kind+tc.payload, func(t *testing.T) {
+			raw := model.RawMessage{Payload: json.RawMessage(tc.payload), ReceivedAt: 2000, Headers: map[string]string{"messageKind": tc.kind}, TenantID: "trusted", DeviceID: "device"}
+			m, err := (StandardParser{}).Parse(raw)
+			if (err == nil) != tc.valid {
+				t.Fatalf("valid=%v error=%v", tc.valid, err)
+			}
+			if !tc.valid && m != nil {
+				t.Fatal("invalid input produced business message")
+			}
+			if tc.valid && (m.TenantID != "trusted" || m.DeviceID != "device" || m.MessageType == model.AlarmReport) {
+				t.Fatal("identity or alarm semantics changed")
+			}
+		})
+	}
+}
+
+func TestGeneratedHexRejectsInvalidBounds(t *testing.T) {
+	raw := model.RawMessage{Payload: json.RawMessage(`"01 02 03"`)}
+	for _, config := range []map[string]any{
+		{"checksum": "sum8", "checksumStartOffset": -1},
+		{"checksum": "sum8", "checksumStartOffset": 9},
+		{"fields": []any{map[string]any{"name": "overflow", "offset": int(^uint(0) >> 1), "length": 2, "type": "uint16"}}},
+	} {
+		if _, err := (ConfigurableHexParser{}).ParseWithConfig(raw, config); err == nil {
+			t.Fatal("invalid bounds accepted")
+		}
+	}
+}
+
+func TestGeneratedHexRejectsUnknownChecksum(t *testing.T) {
+	// The pressure-history document requires CRC16. A mapping must not
+	// silently skip that integrity requirement when the parser lacks it.
+	raw := model.RawMessage{Payload: json.RawMessage(`"0146001900050a66da8098000000000023f60b"`)}
+	for _, checksum := range []string{"crc16", "crc16-modbus", "sum16", "typo"} {
+		t.Run(checksum, func(t *testing.T) {
+			config := map[string]any{"checksum": checksum, "fields": []any{map[string]any{"name": "pressure", "offset": 13, "length": 4, "type": "int32", "endian": "big", "scale": 0.01}}}
+			if _, err := (ConfigurableHexParser{}).ParseWithConfig(raw, config); err == nil {
+				t.Fatal("unsupported checksum was silently ignored")
+			}
+		})
+	}
+}

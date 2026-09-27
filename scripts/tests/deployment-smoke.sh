@@ -5,8 +5,118 @@ test_root="$(mktemp -d "${TMPDIR:-/tmp}/iot-deploy-test.XXXXXX")"
 test_root="$(cd "$test_root" && pwd)"
 trap 'rm -rf -- "$test_root"' EXIT
 scripts="$(cd "$(dirname "$0")/.." && pwd)"
-bash "$scripts/tests/git-compat-smoke.sh"
-bash "$scripts/tests/local-bootstrap-smoke.sh"
+# git-compat
+(
+# Verifies deployment scripts against the Git version shipped by CentOS 7,
+# which supports `git -c` but not the later global `git -C` option.
+set -Eeuo pipefail
+
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/iot-git-compat-test.XXXXXX")"
+trap 'rm -rf -- "$test_root"' EXIT
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+fixture="$test_root/project"
+expected_revision="$(tr -d '\r\n' < "$project_root/deploy/deepseek-harness/REVISION")"
+
+mkdir -p \
+  "$fixture/scripts" \
+  "$fixture/deploy/deepseek-harness" \
+  "$fixture/upstream/deepseek-harness/.git" \
+  "$test_root/bin"
+cp "$project_root/scripts/fetch-deepseek-harness.sh" "$fixture/scripts/"
+cp "$project_root/deploy/deepseek-harness/REVISION" "$fixture/deploy/deepseek-harness/"
+
+cat > "$test_root/bin/git" <<'EOF'
+#!/usr/bin/env sh
+if [ "${1:-}" = "-C" ]; then
+  echo "Unknown option: -C" >&2
+  exit 129
+fi
+case "${1:-} ${2:-}" in
+  "status --porcelain")
+    if [ -f .fresh-clone-dirty ]; then
+      printf ' M package.json\n'
+      exit 0
+    fi
+    if [ -n "${FAKE_GIT_DIRTY_FLAG:-}" ] && [ -f "$FAKE_GIT_DIRTY_FLAG" ]; then
+      rm -f "$FAKE_GIT_DIRTY_FLAG"
+      printf ' M package.json\n'
+    fi
+    exit 0 ;;
+  "rev-parse HEAD") printf '%s\n' "$EXPECTED_REVISION" ;;
+  "config core.autocrlf"|"config core.fileMode"|"clean -fd") exit 0 ;;
+  "reset --hard") rm -f .fresh-clone-dirty; exit 0 ;;
+  "-c http.version=HTTP/1.1")
+    destination=''
+    for argument in "$@"; do destination="$argument"; done
+    mkdir -p "$destination/.git"
+    touch "$destination/.fresh-clone-dirty"
+    exit 0 ;;
+  *) echo "Unexpected git invocation: $*" >&2; exit 2 ;;
+esac
+EOF
+chmod +x "$test_root/bin/git"
+
+PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" \
+  sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/output.log"
+
+grep -qx "$expected_revision" "$fixture/upstream/deepseek-harness.revision"
+grep -q "DeepSeek Harness ready: $expected_revision" "$test_root/output.log"
+
+# Re-running setup must not rewrite an unchanged Docker COPY input.
+touch -t 200001010000 "$fixture/upstream/deepseek-harness.revision"
+touch -t 200001010001 "$test_root/marker-cutoff"
+PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" \
+  sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/rerun-output.log"
+if [ "$fixture/upstream/deepseek-harness.revision" -nt "$test_root/marker-cutoff" ]; then
+  echo 'Unchanged Harness revision marker was rewritten' >&2
+  exit 1
+fi
+
+touch "$test_root/dirty.flag"
+PATH="$test_root/bin:$PATH" EXPECTED_REVISION="$expected_revision" FAKE_GIT_DIRTY_FLAG="$test_root/dirty.flag" \
+  sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/dirty-output.log"
+backup_count="$(find "$fixture/upstream" -maxdepth 1 -type d -name 'deepseek-harness.backup-*' | wc -l | tr -d ' ')"
+[ "$backup_count" = 1 ]
+[ -d "$fixture/upstream/deepseek-harness/.git" ]
+[ ! -e "$fixture/upstream/deepseek-harness/.fresh-clone-dirty" ]
+grep -q '源码目录存在修改，已备份到：' "$test_root/dirty-output.log"
+
+if grep -En 'git[[:space:]]+-C' \
+  "$project_root/scripts/fetch-deepseek-harness.sh" \
+  "$project_root/scripts/package-offline.sh"; then
+  echo "部署脚本仍使用 CentOS 7 Git 不支持的全局 -C 参数" >&2
+  exit 1
+fi
+
+echo 'PASS git compatibility: deployment scripts work without global git -C'
+)
+# local-bootstrap
+(
+# Exercise setup-local's bootstrap ordering without installing host software.
+set -Eeuo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+test_root="$(mktemp -d)"
+trap 'rm -rf -- "$test_root"' EXIT
+mkdir -p "$test_root/scripts/lib"
+cp "$project_root/scripts/setup-local.sh" "$test_root/scripts/"
+cp "$project_root/scripts/lib/"*.sh "$test_root/scripts/lib/"
+export LOCAL_BOOTSTRAP_MARKER="$test_root/bootstrapped"
+cat >> "$test_root/scripts/lib/docker-bootstrap.sh" <<'EOF'
+ensure_deployment_docker() {
+  [ "$1" = online ] || exit 93
+  touch "$LOCAL_BOOTSTRAP_MARKER"
+}
+EOF
+cat >> "$test_root/scripts/lib/deployment.sh" <<'EOF'
+assert_docker_available() {
+  [ -f "$LOCAL_BOOTSTRAP_MARKER" ] || { echo 'FAIL: local setup did not bootstrap missing Docker' >&2; exit 94; }
+  # Stop before generating credentials or starting containers.
+  exit 0
+}
+EOF
+bash "$test_root/scripts/setup-local.sh" --skip-code-deps
+echo 'PASS local setup bootstraps Docker before checking availability'
+)
 export TEST_COMPOSE="${1:?Pass the standalone docker-compose executable path}"
 export TEST_CALLS="$test_root/calls.log" TEST_HTTP="$test_root/http.log"
 export TEST_FAIL_BUILD=0 TEST_MISSING_IMAGE=0

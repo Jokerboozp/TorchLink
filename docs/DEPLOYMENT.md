@@ -1,70 +1,96 @@
-# 部署配置与维护
+# 部署与本地调试
 
-首次运行命令见 [技术详情](TECHNICAL_DETAILS.md)，项目功能见 [README](../README.md)。本文用于选择可选组件、修改配置和维护已有环境。
+[本地](#本地运行) · [在线](#在线部署) · [离线](#离线部署) · [摄像头](#摄像头部署) · [维护](#配置与维护) · [拆分 Gateway](#独立接入进程)
 
-## 配置与数据归属
+命令默认在源码仓库根目录执行；离线安装命令在离线包根目录执行。Go、Node 版本以 `go.mod`、`iot_front/package.json` 为准。源码调试时，API、Vue 和备份服务在本机运行，虚拟机只提供基础环境。
 
-| 方案 | 配置文件 | Compose 文件 | 项目名 / 数据卷前缀 |
-|---|---|---|---|
-| 本地运行 | `.env.local` | `compose.local.yaml` | `iot-platform-local` |
-| 在线部署 | `.env.online` | `compose.yaml` | `iot-platform-online` |
-| 离线部署 | 离线包内 `.env.offline` | `compose.yaml` + `compose.offline.yaml` | `iot-platform` |
+## 本地运行
 
-脚本显式选择配置和 Compose 文件，在线/离线部署不会自动加载用于旧版本地调试的 `compose.override.yaml`。
+### 首次准备
 
-首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留业务凭据并补齐说明；AI 配置会按下文统一迁移为 DeepSeek。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
-
-**已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
+Windows PowerShell：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -EnvFile .env -ProjectName iot-platform
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1
+```
+
+Linux / macOS：
+
+```bash
+bash ./scripts/setup-local.sh
+```
+
+脚本生成 `.env.local`，设置管理员默认值并随机生成其他服务凭据，启动依赖与 Harness，准备知识库模型，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
+
+| 需求 | PowerShell 参数 | Bash 参数 |
+| --- | --- | --- |
+| 自定义 DeepSeek API 模型（默认无需传入） | `-DeepSeekModel deepseek-flash` | `--deepseek-model deepseek-flash` |
+| 只准备依赖，不下载源码依赖 | `-SkipCodeDeps` | `--skip-code-deps` |
+| Linux 虚拟机部署全部基础环境，源码在本机运行 | 在 Linux 虚拟机执行右侧命令 | `--dependencies-only` |
+| 临时运行容器版备份服务 | `-IncludeBackup` | `--include-backup` |
+| 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
+| 开启 / 关闭摄像头直播媒体服务，省略则保留现状 | `-Video on` / `-Video off` | `--video on` / `--video off` |
+
+所有部署方式统一使用 DeepSeek API。启动后在“模型管理”填写 API Key、测试并应用即可；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动；不再下载 Qwen 对话模型，Ollama 只准备知识库嵌入模型。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
+
+依赖容器与源码分开运行时，在 Linux 依赖机执行：
+
+```bash
+sudo bash ./scripts/setup-local.sh --dependencies-only \
+  --dependency-host <源码机可访问的依赖机地址> \
+  --api-host <依赖容器可访问的源码机地址>
+```
+
+安全复制生成的 `.env.local` 到源码机仓库根目录，并在源码机执行 `go mod download`、在 `iot_front` 执行 `npm ci`。此模式包含运维组件，备份服务默认与 API、前端一起在源码机调试。依赖端口开放给可信网络；Kafka 公告地址和 Harness 回调须从各自调用端可达。OrbStack 可直接在 Mac 仓库执行 `orb -m develop sudo bash scripts/setup-local.sh --dependencies-only`，共用配置文件。详细网络配置和摄像头开关见 [端口与地址](#端口与地址)。
+
+### 日常运行代码
+
+API、前端和备份服务默认都在源码机运行，在三个独立终端启动；虚拟机仅提供基础环境：
+
+```bash
+# 终端一：API
+go run ./cmd/iot-platform --env-file .env.local
 ```
 
 ```bash
-bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
+# 终端二：前端
+cd iot_front
+npm run dev
 ```
 
-已有自定义 Compose 覆盖文件、外部数据卷或外部数据库时，先核对原部署参数；上述命令只使用 `compose.yaml`。
-
-## AI 与工作流
-
-本地、在线和离线包统一使用 **DeepSeek API**，默认模型为 `deepseek-flash`，不再下载、启动或归档 Qwen 对话模型。模型标识以 [DeepSeek 官方接口文档](https://api-docs.deepseek.com/zh-cn/) 为依据（2026-09-26 核对），可在模型管理中调整。Harness 为必装组件，承担告警研判、巡检、报告、协议助手、规则草稿和对话。
-
-### 首次配置
-
-最简单的方式是先完成部署，登录“模型管理”，保持预填的 DeepSeek 地址和模型，填写自己的 API Key，点击“测试配置”后“应用配置”。未配置密钥时平台仍可启动和接收设备数据，AI 状态显示待配置，AI 请求返回明确错误；不会自动下载本地模型或伪造分析结果。
-
-也可在对应环境文件中填写：
-
-```dotenv
-IOT_AI_PROVIDER=deepseek
-IOT_AI_BASE_URL=https://api.deepseek.com
-IOT_AI_MODEL=deepseek-flash
-IOT_AI_API_KEY=
-DEEPSEEK_API_KEY=填写自己的密钥
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-IOT_AI_HARNESS_ENABLED=true
-IOT_AI_HARNESS_PROVIDER=deepseek-official
-IOT_AI_HARNESS_MODEL=deepseek-flash
+```bash
+# 终端三：备份源码服务
+go run ./cmd/backup-service --env-file .env.local
 ```
 
-本地读取 `.env.local`，在线读取 `.env.online`，离线包读取 `.env.offline`。修改环境配置后，下次运行对应部署脚本并重启源码 API / 重建应用容器使其生效；不要只重启旧二进制。日常在模型管理中应用配置会同步 Provider 和 Harness，无需重启 API。已有数据库活动配置优先于环境文件；若已有 DeepSeek 配置，请在页面更新密钥。API 升级时在部署选择 DeepSeek 的前提下，不再恢复旧的 Ollama/Qwen 活动选择，待填写密钥并应用后保存新的活动配置。其他手工配置的外部模型保留，由管理员在模型管理中切换。
+访问 **http://localhost:5173**。Vite 默认代理到 API `8081`，可通过 `VITE_API_PROXY_TARGET` 修改；备份服务监听 `8092`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。
 
-部署脚本会把旧环境中的本地对话模型设置迁移为 DeepSeek，保留 `DEEPSEEK_API_KEY`；只在旧提供方明确为 DeepSeek 时兼容迁移 `IOT_AI_API_KEY`，避免把其他服务密钥发送到 DeepSeek。`--include-ai` / `-IncludeAi`、`--include-deepseek` / `-IncludeDeepSeek` 为兼容参数，不再切换到本地推理；旧 `--ollama-model` / `-OllamaModel` 参数会明确报错。脚本不会删除已下载的旧模型或正在使用的数据卷。
+### IDE 调试
 
-### 知识库嵌入与联网边界
+- **GoLand**：工作目录为仓库根目录，运行 `cmd/iot-platform`，程序参数 `--env-file .env.local`。
+- **WebStorm**：工作目录为 `iot_front`，运行 npm 的 `dev` 脚本。
+- **VS Code**：安装 Go 扩展，使用 [launch.json](../.vscode/launch.json) 中的 `IoT Platform (API + Web)` 或 `IoT Platform (API + Web + Backup)` 组合，按 F5 启动。
 
-Ollama **仅用于**知识库的 `nomic-embed-text` 嵌入；Weaviate 保存向量与文档。嵌入模型与 DeepSeek 对话 API 作用不同，不能直接把向量接口指向 Chat Completions。离线包只归档该模型的 manifest 及引用的 blobs，历史 Qwen 缓存不会混入包中；不包含 Ollama 身份密钥。
+进程环境变量优先于环境文件；IDE 中的旧地址和密码可能覆盖 `.env.local`。macOS 调试需要 Delve 和系统“开发者工具访问”授权，停在 `debugserver` 时先检查授权窗口；服务就绪以 `http://localhost:8081/health/ready` 为准。
 
-“离线部署”表示安装依赖、镜像和嵌入模型可以离线完成。使用 AI 时，API（配置测试）和 Harness（工作流）仍须通过 HTTPS 访问 `api.deepseek.com:443`，账户需有可用额度；完全隔离网络中 AI 不可用。设备接入、规则、报文和已准备好的知识库不依赖 DeepSeek。离线包体积的实际减少量取决于旧模型与镜像缓存，本次没有重新打包测量。
+## 在线部署
 
-### 模型管理与工作流服务
+在有网目标机的仓库根目录执行：
 
-模型管理默认预填 DeepSeek；仍保留显式接入外部 Ollama / 兼容接口的能力，不随部署分发它们的对话权重。输入服务根地址与模型，密钥单独填写；地址、模型或密钥改变后重新测试。Ollama 使用原生根地址，兼容接口须支持 Chat Completions；不能把 Markdown 链接、带账号密码、查询或片段的 URL 当作根地址。旧 `IOT_AI_PROVIDER_TEST_ALLOWED_ORIGINS` 不再读取。
+```bash
+# Linux；已使用 root 登录可省略 sudo
+sudo bash ./scripts/deploy-online.sh
+# macOS；先启动 Docker Desktop
+bash ./scripts/deploy-online.sh
+```
 
-PostgreSQL 保存活动配置；内存模式只在当前进程生效。页面不返回明文密钥，同一服务留空可复用已存密钥。Provider 和 Harness 配置作用于整个部署，应只向可信管理员授予模型配置权限。密钥在服务端持久化，数据库备份也属于敏感材料。
+Windows PowerShell：
 
-本地和在线脚本获取锁定的上游源码并构建 Harness，需要 Git 和网络；离线包携带已构建镜像。`--include-harness` / `-IncludeHarness` 仅为兼容参数，Harness 始终启动；脚本拒绝关闭它。API / combined 角色必须配置 `IOT_AI_HARNESS_URL`，gateway 角色除外。Harness 健康只证明进程就绪，不证明 API Key、模型调用或 MCP 回调成功。实现和模型配置详情见 [AI 工作流](AI_PLUGIN_HARNESS.md) 与 [侧车开发](../deploy/deepseek-harness/README.md)。
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
+```
+
+脚本生成 `.env.online`，构建镜像，仅准备知识库嵌入模型，启动并检查服务。首次需要访问镜像、Go/npm 依赖、Harness 源码和模型源；服务器无需预装 Go 或 Node.js。更新源码后重跑同一脚本，沿用原配置、Compose 项目和数据卷。使用自定义旧环境时，先按 [配置与数据归属](#配置与维护) 指定原参数。
 
 ## 端口与地址
 
@@ -129,7 +155,7 @@ Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命�
 
 需要其他源码机直接访问虚拟机时，可把 `--dependency-host` 换成 `orb -m develop hostname -I` 返回的 IPv4 或 `<机器名>.orb.local`，并确保 VPN/路由允许直连。该模式会开放依赖端口；虚拟机 IP 改变后重跑完整命令更新地址，凭据和数据保留。
 
-随后在 Mac 启动 API、Vite 和备份源码服务；VS Code 选择 `IoT Platform (API + Web + Backup)`。命令见 [技术详情](TECHNICAL_DETAILS.md#日常运行代码)。IDE 与终端均须选择符合 `iot_front/package.json` 的 Node.js。
+随后在 Mac 启动 API、Vite 和备份源码服务；VS Code 选择 `IoT Platform (API + Web + Backup)`。命令见 [日常运行代码](#日常运行代码)。IDE 与终端均须选择符合 `iot_front/package.json` 的 Node.js。
 
 查看、停止依赖仍在 Mac 仓库根目录执行，停止不会删除卷：
 
@@ -145,6 +171,106 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 在 ARM Mac 上通过 OrbStack 模拟 x86 Ubuntu 时，EMQX 的 Erlang JIT 默认双重内存映射可能导致 QUIC 模块报 `nif_library_not_loaded`。仅对此类模拟环境，在对应环境文件加入 `IOT_EMQX_ERL_FLAGS="+JMsingle true"` 后重跑部署命令。该参数保留 QUIC 功能，改用单一可读写执行的内存映射；原生 ARM64 和 x86_64 不需要设置，默认保持 Erlang 的内存保护行为。参数语义见 [Erlang JIT 文档](https://erlang.org/documentation/doc-14/erts-14.0/doc/html/erl.html)。
 
 在线/离线默认提供 HTTP 服务。公网 HTTPS 由现有反向代理终结 TLS 并转发到 Web 端口，脚本不管理域名或证书。
+
+## 离线部署
+
+打包机需联网、Docker 和 Compose 2.24.4+，CPU 架构须与目标一致。Linux 目标机可从包内安装 Docker；Windows/macOS 须先安装 Docker Desktop。目标机无需 Go、Node 或源码。包内包含应用、基础环境、备份、运维组件、Harness 和 `nomic-embed-text`，不含对话模型权重；AI 使用 DeepSeek API，仍需联网。
+
+### 获取或制作离线包
+
+推送 `main` 会触发 `.github/workflows/offline-bundle.yml` 构建 Linux amd64 包，成功后发布到 Releases；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。GitHub 的 Source code 不是部署包。公开包不含密码或 API Key，首次安装在目标机生成配置和随机管理员密码。
+
+手工打包（可带现有私有配置）：
+
+```bash
+bash scripts/package-offline-linux.sh
+# openEuler 目标追加：--target-os openeuler-24.03-lts-sp4
+# 沿用已有配置追加：--env-file /path/to/.env.offline
+# 需要直播追加：--include-video
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
+# 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -IncludeVideo
+```
+
+macOS 使用 `bash scripts/package-offline.sh`。输出为 `offline-bundles/iot-platform-offline-*`，需整体复制（含隐藏配置）。手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
+
+### 安装与升级
+
+升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新随机凭据直接连接旧数据库。在包根目录执行：
+
+```bash
+sudo bash scripts/deploy-offline-linux.sh
+# macOS：bash scripts/deploy-offline-macos.sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
+```
+
+脚本校验哈希、导入镜像、补齐嵌入模型、启动并检查服务，使用 `--no-build --pull never`。默认项目为 `iot-platform`，Web 为 `http://服务器IP:8080`。重复部署保留已有配置与数据；模型先恢复 blobs 再恢复 manifests，原子补齐缺失文件，不清空模型卷。部署包不含业务数据库备份。
+
+仅替换 API/Web 镜像时，使用相同标签构建、导出与校验，在原包目录导入后依次重建 API、Web（让 nginx 重新解析地址）。此方式不更新 Compose、Harness 或模型；这些组件变化时交付完整新包，不能再用旧 `images.tar` 覆盖更新。
+
+### Linux 与 openEuler
+
+Linux 自动安装要求 systemd、tar、iptables、xz、ps；健康检查另需 curl。已有 Docker/Compose 可用则复用，不自动更换 daemon 配置、清理数据或升级 Engine。在线补齐缺失工具；离线只从包内 `docker-runtime/` 校验安装。精简发行版须携带匹配系统、版本和架构的 RPM/DEB 及依赖，参数为 `--docker-packages-dir` / `-DockerPackagesDir`。
+
+openEuler 24.03 LTS-SP4 用专用目标参数打包，准备容器内生成本地 RPM 源、索引和公钥，不把 RPM 安装到打包机。目标机保留签名与受保护包检查，按包名解析依赖，修复受管 Docker 的 SELinux 标签；不关闭 SELinux、不删 Docker 数据。专用目标不能同时跳过 Docker runtime 或混用其他发行版依赖。
+
+旧专用包出现 `protected packages: grub2-pc` 时，在联网源码机运行 `bash scripts/repair-offline-openeuler.sh <旧包路径>`，校验输出补丁后解压到对应旧包，再运行部署。补丁只含引导脚本、RPM 索引及公钥；不使用 `--allowerasing` 或关闭引导包保护。缺失、损坏 RPM 需重新打包。
+
+## 摄像头部署
+
+本地统一使用 `setup-local.sh --video on|off`（PowerShell：`-Video on|off`），默认关闭，省略则保留当前配置。虚拟机依赖模式同时传 `--dependencies-only`；OrbStack 命令见上文。切换后重启本机 API。备份仍默认在本机源码调试。
+
+在线部署追加 `--include-video` / `-IncludeVideo`；离线包须在打包时包含该选项，目标机不能临时下载缺失的媒体镜像。部署后在平台摄像头页打开业务开关。在线/离线也可用独立模块入口：
+
+```bash
+bash scripts/video-module.sh enable --mode offline --env-file .env.offline --rtc-ip <浏览器可达IP>
+bash scripts/video-module.sh disable --mode offline --env-file .env.offline
+```
+
+WebRTC 需要浏览器可达的 `IOT_VIDEO_RTC_EXTERN_IP` 和 RTC UDP/TCP 端口（默认 8000）；跨 NAT 时配置转发，未设置外部地址时使用 HLS。API 需能访问媒体 HTTP API，媒体 Hook 需能回调 API；HLS 经 Web 代理，内部媒体 API 不对外开放。需要重编码时显式开启 `--transcode`，资源上限见 `internal/config/video.go`。摄像头网段/端口用 `IOT_VIDEO_ALLOWED_CIDRS`、`IOT_VIDEO_ALLOWED_PORTS` 限制。
+
+媒体、Hook、凭据加密密钥由脚本生成并保留；`IOT_VIDEO_CREDENTIAL_KEY` 不能随意更换，否则已存密码无法解密。停止媒体容器保留摄像头资料和配置；平台内业务开关关闭会撤销播放与拉流。功能、权限与生命周期见 [平台功能](PLATFORM.md#摄像头)。
+
+## 配置与维护
+
+### 环境与数据
+
+| 方案 | 配置文件 | Compose 文件 | 项目名 / 数据卷前缀 |
+|---|---|---|---|
+| 本地运行 | `.env.local` | `compose.local.yaml` | `iot-platform-local` |
+| 在线部署 | `.env.online` | `compose.yaml` | `iot-platform-online` |
+| 离线部署 | 离线包内 `.env.offline` | `compose.yaml` + `compose.offline.yaml` | `iot-platform` |
+
+脚本显式选择配置和 Compose 文件，在线/离线部署不会自动加载用于旧版本地调试的 `compose.override.yaml`。
+
+首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留业务凭据并补齐说明；AI 配置会按下文统一迁移为 DeepSeek。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
+
+**已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1 -EnvFile .env -ProjectName iot-platform
+```
+
+```bash
+bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
+```
+
+已有自定义 Compose 覆盖文件、外部数据卷或外部数据库时，先核对原部署参数；上述命令只使用 `compose.yaml`。
+
+### AI 与工作流
+
+本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”测试并应用，或写入对应环境文件后重启。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
+
+源码 API 到 Harness 使用 `IOT_AI_HARNESS_URL/TOKEN`；容器回调使用 `IOT_AI_HARNESS_MCP_URL`，必须能到达源码 API，OrbStack 为 `host.orb.internal`。旧 Provider 数据、IDE 进程变量可能覆盖环境文件，排查时核对实际运行配置。工作流和权限见 [平台功能](PLATFORM.md#ai-与知识库)。
+
+### 运维组件
+
+`--dependencies-only` 包含运维基础环境，普通本地准备可加 `--include-ops` / `-IncludeOps`。源码与容器共用 `IOT_LOCAL_OPS_DIR`（默认 `data/ops`）；源码 API 须能写、组件须能读。普通远程虚拟机没有共享目录时，规则与通知配置为只读。将 `IOT_OPS_TENANTS` 设置为可授权运维的租户；Grafana 告警关闭，统一使用 Alertmanager。
 
 ## 查看状态、日志与停止
 
@@ -166,15 +292,15 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml log
 docker compose -p iot-platform-online --env-file .env.online -f compose.yaml down
 ```
 
-本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
+本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](#离线部署)。
 
-摄像头直播媒体服务使用 profile `video`。本地用 `setup-local.sh --video on|off`（PowerShell 为 `-Video on|off`）；虚拟机模式同时加 `--dependencies-only`。在线/离线仍使用 `scripts/video-module.sh` / `video-module.ps1`，也可用它查看 `status`、`logs`（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](VIDEO_LIVE.md#部署)。
+摄像头直播媒体服务使用 profile `video`。本地用 `setup-local.sh --video on|off`（PowerShell 为 `-Video on|off`）；虚拟机模式同时加 `--dependencies-only`。在线/离线仍使用 `scripts/video-module.sh` / `video-module.ps1`，也可用它查看 `status`、`logs`（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](PLATFORM.md#摄像头)。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
 ## 容量相关配置
 
-默认值按单机压测结果设定（见 [容量压测报告](CAPACITY_TEST_REPORT.md)），多副本时按下表核对：
+默认值参考历史压测瓶颈调整（见 [历史基线](DEVELOPMENT.md#容量验证)），不代表当前吞吐已复测。多副本时按下表核对：
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
@@ -200,48 +326,18 @@ EMQX 容器的文件句柄上限在 Compose 中设为 1048576，每条 MQTT 连�
 
 需要高可用时，至少要为 Redpanda（三节点，主题 `--replicas 3`）、PostgreSQL（主备复制与自动切换）、ClickHouse（副本）、EMQX（集群）、MinIO（分布式或外部对象存储）和多副本 API / Harness（前置负载均衡）分别设计，并在目标环境演练节点故障与切换；这些不在默认 Compose 的范围内，也未经本仓库验证。
 
-## 排查入口
+### 排查与迁移
 
-| 现象 | 先检查 |
-|---|---|
-| 提示找不到 Docker / Engine 不可用 | Docker 是否安装、启动并使用 Linux 容器 |
-| 容器端口被占用 | 是否同时运行旧环境或另一套部署；先停止冲突实例 |
-| 数据库认证失败 | 当前项目名、数据卷与配置文件是否来自同一环境 |
-| 本地 Kafka 无法连接 | 是否运行 `compose.local.yaml`，API 是否读取 `.env.local` |
-| API 启动后前端无法访问 | `8081` 端口、Vite 代理、旧 IDE 环境变量覆盖 |
-| 知识库索引失败 | Ollama 模型下载是否完成，Weaviate 与 Ollama 日志 |
-| “立即备份设备数据”返回 502 | 先看平台 API 返回的具体备份错误；源码调试时确认 `Backup Service` 已启动、`IOT_BACKUP_URL=http://127.0.0.1:8092`，并确认数据库及 MinIO 地址可达 |
-| 普通用户登录后没有设备或告警 | 当前租户、设备管理菜单、设备访问范围及告警菜单是否均已分配；历史用户默认无设备 |
-| 编辑账户后旧登录返回401 | 修改用户、停用或重置密码会撤销旧会话，需要重新登录 |
-| 工作流失败但 Harness 健康 | API Key、模型可达性和 MCP 回调地址 |
-| 运维中心显示“未配置”或规则、通知只能查看 | API 环境中的 `IOT_OPS_*` 地址与受管文件路径；其他账号还需所在租户列入 `IOT_OPS_TENANTS`，见 [运维中心](OPS_CENTER.md#配置) |
-| 保存规则提示“未确认加载，已恢复” | Prometheus 是否带 `auto-reload-config`、Loki ruler 轮询间隔，以及 API 与组件是否挂载同一规则目录 |
+| 现象 | 检查入口 |
+| --- | --- |
+| 地址或密码似乎未生效 | IDE 进程变量优先；确认原环境文件、Compose 项目和已有数据库密码 |
+| API 存活但业务不可用 | `/health/ready`、消费者积压、数据库及 `docker compose logs`；live 只表示进程存活 |
+| 镜像/模型哈希不符或缺失 | 在有网机器重做完整包，不在离线目标机拉取、不删除模型卷 |
+| Harness `RUNTIME_ERROR` | 用镜像内 `runtime-smoke.mjs` 检查运行用户依赖权限，再分别检查 Key、模型请求和 MCP 回调 |
+| 媒体不可播放 | `/api/v1/video/status`、连接测试、目标白名单、RTC 地址、编码及播放权限 |
+| openEuler 镜像导入 `mknod` 失败 | 检查 `container-selinux`、受管程序/数据标签和 Docker 进程域 |
 
-API `/health/live` 只检查进程存活，依赖故障时仍返回 200，避免编排器因依赖抖动重启 API；`/health/ready` 检查已配置的存储、消息和知识库依赖（每项 3 秒超时，响应过慢即判失败），并在 Kafka 消费者读取失败正在重建，或某消费组有报文在处理却 2 分钟没有任何报文完成时返回失败。负载均衡与告警应以 `/health/ready` 为准。脚本和配置校验通过不等于真实设备、生产容量或目标离线环境已经验收。
-
-维护部署脚本时，可运行 `scripts/tests/deployment-smoke.ps1 -ComposeExe <独立Compose程序路径>` 或 `bash scripts/tests/deployment-smoke.sh <独立Compose程序路径>`。它们使用真实 Compose 解析配置，模拟 Docker 和 HTTP 操作，检查一键流程与失败分支，不会启动服务。
-
-## 旧版本迁移
-
-旧现场 Agent、节点登记、现场任务与程序分发入口已移除，设备继续通过中心 MQTT / HTTP、Modbus、Go TCP / UDP、独立 Access Gateway 及主子设备关系接入。
-
-- `DeviceAccessProfile.edgeNodeId` 非空的旧配置不会在中心执行，也不能保存为有效实例。先确认设备网络和产品协议，再到「设备模板 → 接入点」重新配置；旧串口任务不能仅清空节点标识后运行。外部已部署 Agent 需由部署者停用。
-- 新库不创建 `edge_node`、`edge_read_job`、`edge_program`、`device_shadow`、`device_shadow_change` 或 `device_twin_topology`；启动迁移保留旧表与历史数据，当前 API 不再管理它们。`gatewayId` 表示业务主设备，主子设备状态和权限分别维护。
-- 启动迁移把设备标签中的 `connector`、`connectorProfileId`、`childAddress`、`childType`、`onboardingRequestHash` 移为设备字段，为空的 `deviceRole` 按 `gatewayId` 与模板分类补为 `CHILD` / `GATEWAY` / `DIRECT`，并为引用已发布协议版本但缺少绑定的模板补建绑定。迁移语句可重复执行，不删除设备。
-- 升级沿用原环境文件、Compose 项目名、数据卷、协议制品及 MQTT 接收目录；不可变协议版本不被新源码覆盖。TCP / UDP、Modbus 与子设备不使用历史内部凭据通过 HTTP / MQTT 认证。
-
-无需清空数据库完成迁移。设备数据导出不包含完整环境备份，数据库、配置和密钥需分别保管；普通用户权限按下一节处理。
-
-## 用户权限升级
-
-升级时前端与 API/Gateway 使用同一版源码，沿用原 PostgreSQL 数据。启动迁移自动创建 `platform_access`；账户、角色、密码哈希和设备范围均保存在该表，不在浏览器持久保存密码。
-
-1. 使用内置管理员登录原租户，核对「用户与权限」中显示的所属租户。
-2. 为角色配置功能及设备范围，用户选择“继承角色”；已有用户保留单独范围，需明确切换才继承。历史未配置范围的账户默认「无设备」，不要批量自动提升为全部设备。主子设备分别授权。
-3. 普通用户从 `/api/v1/events` 每3秒获取授权范围内的状态及活动告警；不再签发浏览器 MQTT 或压测令牌。升级前旧 MQTT 令牌最长15分钟有效，切换时应撤销旧普通用户的 Broker 会话和重连资格，或等旧令牌全部过期后再开放使用；不要误断开设备或管理员连接。
-4. 使用两个不同设备范围的用户核对列表、总数、总览、详情和提醒，再恢复日常使用。验证入口见 [用户权限](USER_ACCESS_CONTROL.md)。
-
-`platform_access` 不在下面的设备数据导出范围内，需随完整数据库备份保管。备份中心、巡检等全租户功能仅向具备全部设备范围及相应菜单/按钮权限的用户开放。
+旧现场节点配置与协议分发已移除；迁移为 `combined` 或 `api+gateway`，逐项核对共享存储、协议制品和执行节点。已退役的影子/拓扑表不再创建或读取，迁移不删其旧数据。升级权限模型后，未配置设备范围的用户默认无设备；旧普通用户 MQTT 会话须断开或等待旧令牌过期，不以隐藏按钮代替撤销。
 
 ## 设备数据备份
 
@@ -265,12 +361,43 @@ IOT_BACKUP_DIR=./data/backups
 
 Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 CentOS。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
 
-## 设备接入对外地址与执行边界
+## 独立接入进程
 
-设备向导的 `IOT_DEVICE_HTTP_PUBLIC_URL`、`IOT_DEVICE_MQTT_PUBLIC_URL` 分别配置设备可达的 HTTPS 根地址和 MQTT TLS Broker；留空时 HTTP 使用相对路径，MQTT 明确未配置，不使用容器名或固定 localhost 冒充外部地址。WebSocket 沿用 `IOT_MQTT_WEBSOCKET_PUBLIC_URL`。本地 `.env.local`、在线 `.env.online`、离线 `.env.offline` 分别设置，不能互相替代。监听端口仍需实际容器映射与网络连通。
+当前保留中心 API 与独立 Access Gateway。旧现场节点配置的迁移见 [旧版本迁移](#配置与维护)。
 
-默认采用单实例；可选独立 Gateway 与执行协调见 [接入进程](EDGE_AND_GATEWAY.md)。旧现场配置处理见 [旧版本迁移](#旧版本迁移)。EMQX 要求 username claim 匹配及到期断连，已有动态认证器配置需核实实际生效。设备认证与验证命令见 [统一设备接入](UNIFIED_DEVICE_ONBOARDING.md)。
+### 进程职责
 
-## MQTT 接收目录
+- `cmd/iot-platform` 默认 `IOT_PROCESS_ROLE=combined`，保留单进程入口。
+- `IOT_PROCESS_ROLE=api` 不启动 Modbus、Listener 或外部 MQTT 上行订阅；保留 Raw 消费、Parser、规则及管理接口。
+- `cmd/iot-access-gateway` 强制 gateway 角色：执行通信、鉴权和 Raw 归档，发布到共享 Kafka；不启动 Raw 业务消费者。HTTP 只开放接入与健康相关路由，管理用户身份在目标接口重新校验。
+- api/gateway 两个进程必须配置同一个 PostgreSQL、Kafka 及一致的 Raw 分层存储。协议制品目录也必须共享；不能让两个进程各自使用内存仓库或本地消息总线。
+- API 通过 `IOT_ACCESS_GATEWAY_URL` 转发添加设备的预检与保存、标准上报、设备连接详情与命令；Gateway 不可达返回 503，不将请求已发送视为操作成功。
 
-平台接收 MQTT 报文后先写 `IOT_DATA_DIR/mqtt-inbox/<processRole>/`，再确认投递。该目录及其中的 `client-id` 必须随实例持久保存；多个活跃副本不可共用或复制同一份客户端身份。扩容、迁移及队列隔离处理边界见 [部件告警与 MQTT 持久接收](DEVICE_RECEIVE_RELIABILITY.md)。
+本地运行示例（在仓库根目录，凭据来自各自环境文件）：
+
+```bash
+go run ./cmd/iot-platform --env-file .env.api
+go run ./cmd/iot-access-gateway --env-file .env.gateway
+```
+
+可选容器拆分：`docker compose -p iot-platform-online --env-file .env.online -f compose.yaml -f compose.access.yaml config --quiet` 先检查渲染结果；实际启动再运行相同参数的 `up -d --build`。已有部署须替换为原项目名。覆盖层将 TCP/UDP 端口从 API 移到 Gateway，默认 Gateway HTTP 端口为 8082。覆盖层使用 `!override`，要求 Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/)。
+
+拆分部署同样使用 DeepSeek API；密钥由 API 的模型管理和 Harness 使用，Gateway 不承担模型推理，也不需要部署对话模型。
+
+### 执行所有权
+
+启用 `IOT_ACCESS_COORDINATION=true`，并将 `IOT_ACCESS_NODE_URL` 设置为其他实例可达且精确指向本实例的 HTTP(S) 地址。不要使用随机负载均衡地址冒充固定执行节点。
+
+共享 PostgreSQL 的 `execution_lease` 以租户和 Profile 为资源键。租约 10 秒，节点本地取消期限短于数据库期限，续租失败即取消旧执行；接管提升 fencing token。运行时在归档前检查所有权和当前配置。配置停止被扫描时释放租约。
+
+可确定 Profile 的请求按租约中的节点地址转发，保留原用户授权并限制转发次数。设备级路由依赖明确的实例标签或唯一的设备配置关联，不能据此推断所有历史设备、子设备及任意多副本部署均可自动路由。该实现提供互斥执行与接管，不宣称已有按负载最优调度、跨节点迁移现有 TCP 会话或数据库之外的强制 OS 隔离。
+
+### 验证入口
+
+`go test ./internal/platformapp ./internal/httpapi ./internal/protocolruntime` 覆盖进程职责、认证转发与执行协调；环境相关集成测试的实际执行条件见各测试。源码入口为 `internal/httpapi/process_role.go`、`internal/httpapi/execution_route.go` 和 `internal/protocolruntime/coordinator.go`。
+
+### 管理界面与用户范围
+
+「设备模板 → 接入点」管理 `DeviceAccessProfile` 软件连接配置；「主设备」标签管理现场设备台账；`cmd/iot-access-gateway` 是部署进程，三者含义不同。API 和 Gateway 都需要使用包含设备权限校验的同版代码，转发保留原用户身份，并在目标服务重新校验。
+
+普通用户的全租户接入配置需要全部设备范围和相应菜单/按钮权限。指定设备用户的连接详情不暴露共享网关配置及其他设备会话。用户设备和告警范围见 [用户权限](PLATFORM.md#权限与设备范围)。

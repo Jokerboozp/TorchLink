@@ -2,17 +2,30 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"iot-platform/internal/adapters/knowledge"
+	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
-	"log/slog"
-	"net/http/httptest"
-	"regexp"
-	"strings"
-	"testing"
+	"iot-platform/internal/onboarding"
+	"iot-platform/internal/ports"
 )
 
 func TestAccessControlLifecycleAndIsolation(t *testing.T) {
@@ -112,5 +125,635 @@ func TestUserPermissionsCombineRolesAndIndividualGrants(t *testing.T) {
 	}
 	if !allowsRoute(effectivePermissions(state, editor), "GET", "/api/v1/device-registry") {
 		t.Fatal("role menu missing")
+	}
+}
+
+func TestRoleDeviceScopeResolution(t *testing.T) {
+	state := model.AccessState{Roles: []model.PlatformRole{
+		{ID: "east", DeviceScope: "selected", DeviceIDs: []string{"east", "shared"}},
+		{ID: "west", DeviceScope: "selected", DeviceIDs: []string{"west", "shared"}},
+		{ID: "admin", DeviceScope: "all"},
+		{ID: "legacy"},
+	}}
+	for _, tc := range []struct {
+		name, scope string
+		roles, ids  []string
+		want        string
+		wantIDs     []string
+	}{
+		{"union", "inherit", []string{"east", "west"}, nil, "selected", []string{"east", "shared", "west"}},
+		{"all", "inherit", []string{"east", "admin"}, nil, "all", []string{}},
+		{"missing role", "inherit", []string{"missing", "legacy"}, []string{"stale"}, "none", []string{}},
+		{"unassigned", "inherit", nil, nil, "none", []string{}},
+		{"legacy", "", []string{"admin"}, nil, "", nil},
+		{"explicit none", "none", []string{"admin"}, nil, "none", nil},
+		{"explicit selected", "selected", []string{"admin"}, []string{"own"}, "selected", []string{"own"}},
+		{"explicit all", "all", []string{"east"}, nil, "all", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user := model.PlatformUser{RoleIDs: tc.roles, DeviceScope: tc.scope, DeviceIDs: tc.ids}
+			got := resolveUserDeviceScope(state, user)
+			if got.DeviceScope != tc.want || !reflect.DeepEqual(got.DeviceIDs, tc.wantIDs) {
+				t.Fatalf("scope=%s ids=%v", got.DeviceScope, got.DeviceIDs)
+			}
+			if user.DeviceScope != tc.scope || !reflect.DeepEqual(user.DeviceIDs, tc.ids) {
+				t.Fatal("stored user mutated")
+			}
+		})
+	}
+	// Tenant-wide menus require the resolved all-device scope, not the raw inherit value.
+	user := model.PlatformUser{DeviceScope: "inherit", RoleIDs: []string{"admin"}, Permissions: []string{"menu:devices", "menu:backups"}}
+	if !effectivePermissions(state, user)["menu:backups"] {
+		t.Fatal("inherited all-device menu lost")
+	}
+	user.RoleIDs = []string{"east"}
+	if effectivePermissions(state, user)["menu:backups"] {
+		t.Fatal("limited scope grants tenant-wide menu")
+	}
+}
+
+func TestDeviceScopeHTTPIsolation(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	cfg := config.Load()
+	cfg.AdminUser = "root"
+	cfg.AdminPassword = "scope-root-test"
+	cfg.AdminTenants = []string{"tenant_a", "tenant_b"}
+	cfg.JWTSecret = "scope-test-secret-at-least-32-bytes"
+	cfg.DevMode = true
+	must := func(e error) {
+		t.Helper()
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	must(repo.SaveProduct(ctx, model.Product{TenantID: "tenant_a", ID: "product", Name: "演示产品"}))
+	for i := 0; i < 46; i++ {
+		id := fmt.Sprintf("device-%02d", i)
+		must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant_a", ID: id, AccessKey: id, Name: id, ProductID: "product", DeviceRole: "DIRECT"}))
+		must(repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "tenant_a", DeviceID: id, ProductID: "product", BusinessStatus: "ONLINE"}))
+		_, _, e := repo.UpsertAlarm(ctx, model.Alarm{TenantID: "tenant_a", ID: "alarm-" + id, DeviceID: id, RuleID: id, Status: "ACTIVE", AlarmLevel: "HIGH", FirstTriggeredAt: now, LastTriggeredAt: now})
+		must(e)
+		_, e = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "tenant_a", MessageID: "raw-" + id, DeviceID: id, ReceivedAt: now})
+		must(e)
+	}
+	must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant_b", ID: "foreign-device", AccessKey: "foreign-key", Name: "其他租户设备"}))
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}}
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	login := func(name string) string {
+		t.Helper()
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": name, "password": "scope-password-test", "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	}
+	root := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	_, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: "tenant_b", ID: "foreign-alarm", DeviceID: "foreign-device", RuleID: "foreign", Status: "ACTIVE"})
+	must(err)
+	adminEvents := req("GET", "/api/v1/events", root, nil, 200)
+	if len(adminEvents["alarms"].([]any)) != 46 || len(adminEvents["devices"].([]any)) != 46 {
+		t.Fatal("administrator events must contain only the current tenant's data", adminEvents)
+	}
+	if permissions := adminEvents["permissions"].([]any); len(permissions) != 1 || permissions[0] != "*" {
+		t.Fatal("administrator permissions changed", permissions)
+	}
+	for _, item := range adminEvents["alarms"].([]any) {
+		if item.(map[string]any)["tenantId"] != "tenant_a" {
+			t.Fatal("administrator events leak another tenant")
+		}
+	}
+	perms := []string{"menu:devices", "menu:alarms", "menu:dashboard", "menu:raw", "menu:ai", "menu:inspection", "menu:backups", "POST /api/v1/alarms/:id/actions"}
+	ids := []string{}
+	for i := 0; i < 46; i += 2 {
+		ids = append(ids, fmt.Sprintf("device-%02d", i))
+	}
+	u := map[string]any{"username": "scope-user", "password": "scope-password-test", "enabled": true, "permissions": perms, "deviceScope": "selected", "deviceIds": ids}
+	req("POST", "/api/v1/access/users", root, u, 200)
+	token := login("scope-user")
+	list := req("GET", "/api/v1/device-registry?page=2&pageSize=20", token, nil, 200)
+	if list["total"].(float64) != 23 || len(list["items"].([]any)) != 3 {
+		t.Fatalf("scope pagination: %v", list)
+	}
+	for _, item := range list["items"].([]any) {
+		id := item.(map[string]any)["device"].(map[string]any)["id"].(string)
+		n := 0
+		fmt.Sscanf(id, "device-%d", &n)
+		if n%2 != 0 {
+			t.Fatal("ungranted device returned")
+		}
+	}
+	for _, path := range []string{"/api/v1/alarms", "/api/v1/raw-messages", "/api/v1/raw-messages?parseStatus=UNPARSED", "/api/v1/devices"} {
+		v := req("GET", path, token, nil, 200)
+		if v["total"].(float64) != 23 {
+			t.Fatalf("%s total=%v", path, v["total"])
+		}
+	}
+	req("GET", "/api/v1/device-registry/device-01/connection", token, nil, 403)
+	req("GET", "/api/v1/devices/device-01/properties/history?property=x", token, nil, 403)
+	req("GET", "/api/v1/alarms/alarm-device-01", token, nil, 403)
+	req("POST", "/api/v1/alarms/alarm-device-01/actions", token, map[string]string{"action": "ACK"}, 403)
+	req("GET", "/api/v1/raw-messages/raw-device-01", token, nil, 404)
+	req("GET", "/api/v1/alarms/alarm-device-00", token, nil, 200)
+	v := req("GET", "/api/v1/alarms?deviceId=device-01", token, nil, 200)
+	if v["total"].(float64) != 0 {
+		t.Fatal("query bypass")
+	}
+	v = req("GET", "/api/v1/dashboard", token, nil, 200)
+	if v["devices"].(float64) != 23 || v["activeAlarms"].(float64) != 23 {
+		t.Fatal("dashboard leaks outside scope", v)
+	}
+	v = req("GET", "/api/v1/events", token, nil, 200)
+	if len(v["alarms"].([]any)) != 23 || len(v["devices"].([]any)) != 23 {
+		t.Fatal("events leak scope")
+	}
+	req("POST", "/api/v1/mqtt/token", token, nil, 403)
+	req("POST", "/api/v1/mqtt/load-token", token, nil, 403)
+	req("GET", "/api/v1/backups", token, nil, 403)
+	req("POST", "/api/v1/ai/chat", token, map[string]string{"question": "列出所有设备"}, 403)
+	// Even a broad dashboard/alarms grant cannot replace device access.
+	u["permissions"] = []string{"menu:alarms", "menu:dashboard"}
+	u["deviceScope"] = "all"
+	req("PUT", "/api/v1/access/users/scope-user", root, u, 200)
+	req("GET", "/api/v1/events", token, nil, 401)
+	token = login("scope-user")
+	v = req("GET", "/api/v1/events", token, nil, 200)
+	if len(v["alarms"].([]any)) != 0 || len(v["devices"].([]any)) != 0 {
+		t.Fatal("missing device menu must mean no device data")
+	}
+	v = req("GET", "/api/v1/dashboard", token, nil, 200)
+	if v["devices"].(float64) != 0 || v["activeAlarms"].(float64) != 0 {
+		t.Fatal("dashboard ignores device menu")
+	}
+	// Cross-tenant grants rejected by storage lookup, not only the picker.
+	u["deviceScope"] = "selected"
+	u["deviceIds"] = []string{"foreign-device"}
+	req("PUT", "/api/v1/access/users/scope-user", root, u, 422)
+	// Existing users with no explicit data grant fail closed.
+	u["permissions"] = perms
+	delete(u, "deviceScope")
+	delete(u, "deviceIds")
+	req("PUT", "/api/v1/access/users/scope-user", root, u, 200)
+	token = login("scope-user")
+	v = req("GET", "/api/v1/device-registry", token, nil, 200)
+	if v["total"].(float64) != 0 {
+		t.Fatal("missing scope defaults to all")
+	}
+	v = req("GET", "/api/v1/device-registry", root, nil, 200)
+	if v["total"].(float64) != 46 {
+		t.Fatal("request scope contaminated administrator")
+	}
+	rows, e := engine.Repo.ListManagedDevices(ctx, "tenant_a")
+	must(e)
+	if len(rows) != 46 {
+		t.Fatal("request scope contaminated background ingest")
+	}
+}
+
+func TestOnboardingFollowsDevicePermissions(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "root-password-test"
+	cfg.AdminTenants = []string{"tenant_a"}
+	cfg.JWTSecret = "test-only-secret-for-onboarding-access"
+	cfg.DevMode = true
+	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
+	}
+	login := func(user, password string) string {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	}
+	if err := repo.SaveProduct(ctx, model.Product{TenantID: "tenant_a", ID: "product", Name: "温度", Status: "ENABLED", ProtocolPackageID: onboarding.StandardPackageID, Transport: "HTTP"}); err != nil {
+		t.Fatal(err)
+	}
+	enroll := func(id string, newProduct bool) map[string]any {
+		body := map[string]any{"requestId": "req-" + id, "productId": "product", "device": map[string]any{"id": id, "name": id}, "connection": map[string]any{"mode": "standard"}}
+		if newProduct {
+			delete(body, "productId")
+			body["newProduct"] = map[string]any{"id": "template-" + id, "name": "新模板", "protocolPackageId": onboarding.StandardPackageID}
+		}
+		return body
+	}
+	root := login("root", cfg.AdminPassword)
+	role := map[string]any{"id": "installer", "name": "安装人员", "permissions": []string{"menu:devices", "POST /api/v1/device-registry"}}
+	req("POST", "/api/v1/access/roles", root, role, 200)
+	user := map[string]any{"username": "installer", "displayName": "安装人员", "password": "installer-password", "enabled": true, "roleIds": []string{"installer"}, "permissions": []string{}, "deviceScope": "all"}
+	req("POST", "/api/v1/access/users", root, user, 200)
+	token := login("installer", "installer-password")
+
+	// Adding a device uses the ordinary add-device permission.
+	req("GET", "/api/v1/onboarding/preflight?productId=product", token, nil, 200)
+	req("POST", "/api/v1/onboarding", token, enroll("device-1", false), 201)
+	req("POST", "/api/v1/onboarding", token, enroll("device-2", true), 403)
+	role["permissions"] = []string{"menu:devices", "POST /api/v1/device-registry", "menu:products", "POST /api/v1/products"}
+	req("PUT", "/api/v1/access/roles/installer", root, role, 200)
+	req("POST", "/api/v1/onboarding", token, enroll("device-2", true), 201)
+	listener := enroll("device-3", false)
+	listener["connection"] = map[string]any{"mode": "listener", "listener": map[string]any{"publicHost": "iot.example.com", "port": 9100}}
+	req("POST", "/api/v1/onboarding", token, listener, 403)
+
+	role["permissions"] = []string{"menu:devices"}
+	req("PUT", "/api/v1/access/roles/installer", root, role, 200)
+	req("POST", "/api/v1/onboarding", token, enroll("device-4", false), 403)
+
+	// Users limited to selected devices cannot add devices or inspect templates here.
+	role["permissions"] = []string{"menu:devices", "POST /api/v1/device-registry"}
+	req("PUT", "/api/v1/access/roles/installer", root, role, 200)
+	user["deviceScope"], user["deviceIds"] = "selected", []string{"device-1"}
+	req("PUT", "/api/v1/access/users/installer", root, user, 200)
+	limited := login("installer", "installer-password")
+	req("GET", "/api/v1/onboarding/preflight?productId=product", limited, nil, 403)
+	req("POST", "/api/v1/onboarding", limited, enroll("device-5", false), 403)
+	if _, err := repo.GetManagedDevice(ctx, "tenant_a", "device-5"); err == nil {
+		t.Fatal("limited user added a device")
+	}
+
+	// The wizard has no separate grant, and removed routes are hidden from saved roles.
+	for _, item := range api.permissionCatalog() {
+		if strings.Contains(item.ID, "/onboarding") {
+			t.Fatalf("catalog lists %s", item.ID)
+		}
+	}
+	state, err := repo.LoadAccessState(ctx, "tenant_a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Roles[0].Permissions = append(state.Roles[0].Permissions, "POST /api/v1/onboarding/test")
+	if ok, err := repo.SaveAccessState(ctx, "tenant_a", state); err != nil || !ok {
+		t.Fatal("seed stale permission", err)
+	}
+	for _, item := range req("GET", "/api/v1/access/roles", root, nil, 200)["items"].([]any) {
+		permissions := []string{}
+		for _, v := range item.(map[string]any)["permissions"].([]any) {
+			permissions = append(permissions, v.(string))
+		}
+		if slices.Contains(permissions, "POST /api/v1/onboarding/test") || !slices.Contains(permissions, "POST /api/v1/device-registry") {
+			t.Fatalf("role permissions %v", permissions)
+		}
+	}
+}
+
+func TestAssistantUsesCurrentUserPermissionsAndDeviceScope(t *testing.T) {
+	for _, inherited := range []bool{false, true} {
+		name := "user"
+		if inherited {
+			name = "role"
+		}
+		t.Run(name, func(t *testing.T) { testAssistantDeviceScope(t, inherited) })
+	}
+}
+
+func testAssistantDeviceScope(t *testing.T, inherited bool) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, d := range []struct{ tenant, id string }{{"tenant-a", "allowed"}, {"tenant-a", "hidden"}, {"tenant-b", "foreign"}} {
+		must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: d.tenant, ID: d.id, AccessKey: d.id, Name: d.id}))
+		must(repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: d.tenant, DeviceID: d.id, BusinessStatus: "ONLINE"}))
+		_, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: d.tenant, ID: "alarm-" + d.id, DeviceID: d.id, RuleID: d.id, Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
+		must(err)
+	}
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "scope-root-password"
+	cfg.AdminTenants = []string{"tenant-a", "tenant-b"}
+	cfg.JWTSecret = "scope-assistant-secret-at-least-32-bytes"
+	runtime := &captureWorkflowRuntime{}
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, AIWorkflows: runtime}
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	login := func(user, password string) map[string]any {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": "tenant-a"}, 200)
+	}
+	root := login("root", cfg.AdminPassword)["accessToken"].(string)
+	base := []string{"menu:devices", "menu:ai", "POST /api/v1/ai/chat", "POST /api/v1/ai/chat/stream"}
+	role := map[string]any{"id": "reader", "name": "设备查看", "permissions": append(append([]string{}, base...), "menu:alarms", "menu:dashboard")}
+	if inherited {
+		role["deviceScope"], role["deviceIds"] = "selected", []string{"foreign"}
+		req("POST", "/api/v1/access/roles", root, role, 422)
+		role["deviceScope"] = "inherit"
+		req("POST", "/api/v1/access/roles", root, role, 422)
+		role["deviceScope"], role["deviceIds"] = "selected", []string{"allowed"}
+	}
+	req("POST", "/api/v1/access/roles", root, role, 200)
+	user := map[string]any{"username": "reader", "password": "scope-reader-password", "enabled": true, "roleIds": []string{"reader"}, "deviceScope": "selected", "deviceIds": []string{"allowed"}}
+	if inherited {
+		user["deviceScope"] = "inherit"
+	}
+	req("POST", "/api/v1/access/users", root, user, 200)
+	identity := login("reader", "scope-reader-password")
+	token := identity["accessToken"].(string)
+	if identity["accessVersion"] == "" || identity["accessVersion"] != req("GET", "/api/v1/auth/me", token, nil, 200)["accessVersion"] {
+		t.Fatal("inconsistent authorization version")
+	}
+	chat := func(token string) ports.AIWorkflowRequest {
+		t.Helper()
+		req("POST", "/api/v1/ai/chat", token, map[string]any{"question": "查询所有设备和告警", "workflowId": "system-observer", "conversationId": "same-browser-conversation"}, 200)
+		runtime.mu.Lock()
+		defer runtime.mu.Unlock()
+		return runtime.requests[len(runtime.requests)-1]
+	}
+	tool := func(token, name string, args map[string]any, wantError bool) string {
+		t.Helper()
+		reply := req("POST", "/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}}, 200)
+		result, ok := reply["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("invalid MCP reply: %v", reply)
+		}
+		failed, _ := result["isError"].(bool)
+		if failed != wantError {
+			t.Fatalf("%s error=%v want=%v: %v", name, failed, wantError, result)
+		}
+		content := result["content"].([]any)
+		return content[0].(map[string]any)["text"].(string)
+	}
+	first := chat(token)
+	streamReq, err := http.NewRequest("POST", srv.URL+"/api/v1/ai/chat/stream", strings.NewReader(`{"question":"查询告警","workflowId":"system-observer","conversationId":"stream-conversation"}`))
+	must(err)
+	streamReq.Header.Set("Authorization", "Bearer "+token)
+	streamReq.Header.Set("Content-Type", "application/json")
+	streamResp, err := srv.Client().Do(streamReq)
+	must(err)
+	streamBody, err := io.ReadAll(streamResp.Body)
+	must(err)
+	streamResp.Body.Close()
+	if streamResp.StatusCode != 200 || !strings.Contains(string(streamBody), "run.completed") {
+		t.Fatalf("stream failed: %s", streamBody)
+	}
+	runtime.mu.Lock()
+	streamed := runtime.requests[len(runtime.requests)-1]
+	runtime.mu.Unlock()
+	if text := tool(streamed.MCPToken, "query_alarm_list", nil, false); strings.Contains(text, "hidden") {
+		t.Fatal("streaming authority leaked", text)
+	}
+
+	c, err := api.auth.Parse(first.MCPToken)
+	must(err)
+	if !c.ManagedUser || c.SessionVersion == 0 || c.HasScope(auth.ScopeCreateRuleDraft) || c.HasScope(auth.ScopeQueryKnowledgeBase) {
+		t.Fatal("assistant token does not retain user authority")
+	}
+	for _, name := range []string{"query_alarm_list", "query_similar_alarms"} {
+		text := tool(first.MCPToken, name, map[string]any{}, false)
+		if !strings.Contains(text, "alarm-allowed") || strings.Contains(text, "hidden") || strings.Contains(text, "foreign") {
+			t.Fatalf("%s leaked data: %s", name, text)
+		}
+		if text = tool(first.MCPToken, name, map[string]any{"deviceId": "hidden"}, false); text != "[]" {
+			t.Fatal("device filter bypass", text)
+		}
+	}
+	tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, false)
+	for _, id := range []string{"hidden", "foreign"} {
+		tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": id}, true)
+		tool(first.MCPToken, "query_property_history", map[string]any{"deviceId": id, "propertyCode": "temperature", "start": 0, "end": time.Now().UnixMilli()}, true)
+	}
+	overview := map[string]any{}
+	must(json.Unmarshal([]byte(tool(first.MCPToken, "query_system_overview", nil, false)), &overview))
+	if overview["devices"].(map[string]any)["total"] != float64(1) || overview["alarms"].(map[string]any)["loaded"] != float64(1) {
+		t.Fatal("overview leaked device scope", overview)
+	}
+	for _, field := range []string{"rules", "products", "protocolPackages", "cameras", "knowledge"} {
+		if _, ok := overview[field]; ok {
+			t.Fatal("overview bypassed menu permission", field)
+		}
+	}
+	tool(first.MCPToken, "create_rule_draft", map[string]any{"inputText": "创建规则"}, true)
+	tool(first.MCPToken, "query_knowledge_base", map[string]any{"question": "秘密", "workflowId": "other"}, true)
+	alarms := req("GET", "/api/v1/alarms?pageSize=1", token, nil, 200)
+	if alarms["total"] != float64(1) || len(alarms["items"].([]any)) != 1 {
+		t.Fatal("alarm scope", alarms)
+	}
+	events := req("GET", "/api/v1/events", token, nil, 200)
+	if len(events["alarms"].([]any)) != 1 {
+		t.Fatal("events scope", events)
+	}
+	req("GET", "/api/v1/alarms/alarm-hidden", token, nil, 403)
+	req("POST", "/api/v1/ai/reports", token, nil, 403)
+	req("GET", "/api/v1/rules", token, nil, 403)
+	if inherited {
+		// Same browser and MCP tokens must observe a role's device change immediately.
+		role["deviceIds"] = []string{"hidden"}
+		req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+		tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, true)
+		tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": "hidden"}, false)
+		if text := tool(first.MCPToken, "query_alarm_list", nil, false); strings.Contains(text, "allowed") || !strings.Contains(text, "alarm-hidden") {
+			t.Fatal("role scope not reloaded", text)
+		}
+		req("GET", "/api/v1/device-registry/allowed/history", token, nil, 403)
+		if req("GET", "/api/v1/auth/me", token, nil, 200)["accessVersion"] == identity["accessVersion"] {
+			t.Fatal("role scope must invalidate browser history")
+		}
+		if chat(token).ConversationID == first.ConversationID {
+			t.Fatal("role scope must invalidate model history")
+		}
+		role["deviceIds"] = []string{"allowed"}
+		req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+	}
+
+	// A role edit applies to already issued MCP credentials and starts fresh context.
+	role["permissions"] = base
+	req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+	tool(first.MCPToken, "query_alarm_list", nil, true)
+	tool(first.MCPToken, "query_system_overview", nil, true)
+	req("GET", "/api/v1/alarms", token, nil, 403)
+	second := chat(token)
+	if first.ConversationID == second.ConversationID {
+		t.Fatal("old privileged model conversation reused")
+	}
+	if req("GET", "/api/v1/auth/me", token, nil, 200)["accessVersion"] == identity["accessVersion"] {
+		t.Fatal("browser history authorization unchanged")
+	}
+	// All-device access still does not grant alarm or knowledge menus.
+	user["deviceScope"] = "all"
+	req("PUT", "/api/v1/access/users/reader", root, user, 200)
+	req("POST", "/mcp/harness", first.MCPToken, map[string]any{}, 401)
+	token = login("reader", "scope-reader-password")["accessToken"].(string)
+	all := chat(token)
+	tool(all.MCPToken, "query_device_latest", map[string]any{"deviceId": "hidden"}, false)
+	tool(all.MCPToken, "query_alarm_list", nil, true)
+	// No device grant remains empty even when the dashboard is assigned.
+	role["permissions"] = append(append([]string{}, base...), "menu:dashboard")
+	req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+	user["deviceScope"] = "none"
+	req("PUT", "/api/v1/access/users/reader", root, user, 200)
+	token = login("reader", "scope-reader-password")["accessToken"].(string)
+	none := chat(token)
+	if text := tool(none.MCPToken, "query_alarm_list", nil, false); text != "[]" {
+		t.Fatal("missing scope leaks alarms", text)
+	}
+	tool(none.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, true)
+
+	// AI-only users may chat, but cannot invoke any data tool.
+	role["permissions"] = []string{"menu:ai", "POST /api/v1/ai/chat", "POST /api/v1/ai/chat/stream"}
+	req("PUT", "/api/v1/access/roles/reader", root, role, 200)
+	aiOnly := chat(token)
+	tool(aiOnly.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, true)
+	tool(aiOnly.MCPToken, "query_alarm_list", nil, true)
+	// Required knowledge evidence must not trigger an unauthorized prefetch.
+	must(repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "tenant-a", WorkflowID: "required-kb", RetrievalMode: "always", NoMatchPolicy: "require-evidence", TopK: 5}))
+	req("POST", "/api/v1/ai/chat", token, map[string]any{"question": "查询知识", "workflowId": "required-kb"}, 502)
+	// Disabling a user invalidates the already issued MCP credential.
+	user["enabled"] = false
+	req("PUT", "/api/v1/access/users/reader", root, user, 200)
+	req("POST", "/mcp/harness", aiOnly.MCPToken, map[string]any{}, 401)
+	// Neither user requests nor the MCP bridge contaminate administrators/background work.
+	admin := chat(root)
+	if text := tool(admin.MCPToken, "query_alarm_list", nil, false); !strings.Contains(text, "hidden") || strings.Contains(text, "foreign") {
+		t.Fatal("administrator tenant scope", text)
+	}
+	// Managed users cannot fall back to the legacy, tenant-wide knowledge path.
+	engine.AIWorkflows = nil
+	user["enabled"] = true
+	req("PUT", "/api/v1/access/users/reader", root, user, 200)
+	token = login("reader", "scope-reader-password")["accessToken"].(string)
+	req("POST", "/api/v1/ai/chat", token, map[string]any{"question": "查询告警"}, 503)
+	rows, err := engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a"})
+	must(err)
+	if len(rows) != 2 {
+		t.Fatal("background repository scope contaminated")
+	}
+}
+
+// Alarm analysis follows the caller's role: knowledge-based results are stored
+// beside the knowledge-free one and only roles with knowledge access read them.
+func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant-a", ID: "device-a", AccessKey: "device-a", Name: "一层烟感"}))
+	_, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: "tenant-a", ID: "alarm-a", DeviceID: "device-a", RuleID: "rule-a", AlarmType: "SMOKE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
+	must(err)
+	kb := knowledge.NewLocal()
+	must(kb.IndexKnowledge(ctx, ports.KnowledgeIndexInput{TenantID: "tenant-a", WorkflowID: model.AlarmAnalysisWorkflowID, DocumentID: "doc-alarm", ChunkID: "doc-alarm-0", Content: []byte("烟感处置 SOP 维修：核实现场")}))
+	captured := make(chan string, 4)
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), KB: kb}
+	engine.AIWorkflows = &aitest.Workflows{Answer: func(req ports.AIWorkflowRequest) (string, error) {
+		captured <- req.Question
+		return strings.Replace(testAnalysisAnswer, "研判完成", "手动研判", 1), nil
+	}}
+	engine.HarnessTokens = aitest.Tokens()
+
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "scope-root-password"
+	cfg.AdminTenants = []string{"tenant-a"}
+	cfg.JWTSecret = "alarm-analysis-scope-secret-at-least-32-bytes"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	login := func(user, password string) string {
+		t.Helper()
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": "tenant-a"}, 200)["accessToken"].(string)
+	}
+	root := login("root", cfg.AdminPassword)
+	alarmPermissions := []string{"menu:devices", "menu:alarms", "POST /api/v1/ai/alarm-analysis/:alarmId/run"}
+	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "alarm-only", "name": "告警处置", "permissions": alarmPermissions}, 200)
+	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "alarm-knowledge", "name": "告警与知识库", "permissions": append(append([]string{}, alarmPermissions...), "menu:knowledge")}, 200)
+	for user, role := range map[string]string{"plain": "alarm-only", "expert": "alarm-knowledge"} {
+		req("POST", "/api/v1/access/users", root, map[string]any{"username": user, "password": user + "-scope-password", "enabled": true, "roleIds": []string{role}, "deviceScope": "selected", "deviceIds": []string{"device-a"}}, 200)
+	}
+	plain, expert := login("plain", "plain-scope-password"), login("expert", "expert-scope-password")
+
+	// Without Harness the chat list stays empty, but the knowledge page can still
+	// manage documents for the alarm analysis Agent.
+	if items := req("GET", "/api/v1/ai/workflows", root, nil, 200)["items"].([]any); len(items) != 0 {
+		t.Fatalf("chat workbench must not list business Agents: %v", items)
+	}
+	items := req("GET", "/api/v1/ai/workflows?purpose=knowledge", root, nil, 200)["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["id"] != model.AlarmAnalysisWorkflowID {
+		t.Fatalf("knowledge page must offer the alarm analysis Agent: %v", items)
+	}
+
+	// Harness business runs are authorised by the feature's permission, not by
+	// the chat assistant permission this role does not have.
+	plainClaims, err := api.auth.Parse(plain)
+	must(err)
+	identity := ports.AIRunIdentity{Username: "plain", ManagedUser: true, SessionVersion: plainClaims.SessionVersion, Scopes: []string{auth.ScopeQueryAlarmList}}
+	callTool := func(token string, status int) {
+		t.Helper()
+		requestJSON(t, srv.Client(), "POST", srv.URL+"/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "query_alarm_list", "arguments": map[string]any{}}}, status)
+	}
+	businessToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-business", core.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(businessToken, 200)
+	chatToken, err := api.auth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(chatToken, 403)
+	draftToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-draft", core.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(draftToken, 403)
+
+	// A knowledge-based result alone is invisible to a role without knowledge access.
+	must(repo.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "tenant-a", AlarmID: "alarm-a", Summary: "引用知识", KnowledgeScope: model.AlarmAnalysisWorkflowID, CreatedAt: 2000}))
+	req("GET", "/api/v1/ai/alarm-analysis/alarm-a", plain, nil, 404)
+	if got := req("GET", "/api/v1/ai/alarm-analysis/alarm-a", expert, nil, 200)["summary"]; got != "引用知识" {
+		t.Fatalf("knowledge role must read the knowledge variant, got %v", got)
+	}
+	must(repo.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "tenant-a", AlarmID: "alarm-a", Summary: "未引用知识", CreatedAt: 1000}))
+	if got := req("GET", "/api/v1/ai/alarm-analysis/alarm-a", plain, nil, 200)["summary"]; got != "未引用知识" {
+		t.Fatalf("plain role must read the knowledge-free variant, got %v", got)
+	}
+	// Results stored before scoped retrieval may hold tenant-wide knowledge.
+	must(repo.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "tenant-a", AlarmID: "alarm-a", Summary: "历史结果", KnowledgeScope: model.AIAnalysisScopeLegacyTenant, CreatedAt: 3000}))
+	if got := req("GET", "/api/v1/ai/alarm-analysis/alarm-a", plain, nil, 200)["summary"]; got != "未引用知识" {
+		t.Fatalf("legacy tenant-knowledge results must stay hidden from plain roles, got %v", got)
+	}
+
+	run := func(token string) (map[string]any, string) {
+		t.Helper()
+		job := req("POST", "/api/v1/ai/alarm-analysis/alarm-a/run", token, map[string]any{}, 202)
+		var knowledge string
+		select {
+		case knowledge = <-captured:
+		case <-time.After(2 * time.Second):
+			t.Fatal("analysis job did not call the model")
+		}
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			progress := req("GET", "/api/v1/ai/alarm-analysis/alarm-a/progress/"+job["jobId"].(string), token, nil, 200)
+			if progress["status"] != "running" {
+				return progress, knowledge
+			}
+		}
+		t.Fatal("analysis job did not finish")
+		return nil, ""
+	}
+	progress, knowledge := run(plain)
+	if strings.Contains(knowledge, "核实现场") || progress["analysis"].(map[string]any)["knowledgeScope"] != nil {
+		t.Fatalf("plain role run must not use knowledge: knowledge=%v progress=%v", knowledge, progress)
+	}
+	progress, knowledge = run(expert)
+	if !strings.Contains(knowledge, "核实现场") || progress["analysis"].(map[string]any)["knowledgeScope"] != model.AlarmAnalysisWorkflowID {
+		t.Fatalf("knowledge role run must use alarm-handler knowledge: knowledge=%v progress=%v", knowledge, progress)
+	}
+	if got := req("GET", "/api/v1/ai/alarm-analysis/alarm-a", plain, nil, 200)["summary"]; got != "手动研判" {
+		t.Fatalf("plain role should see its own newest knowledge-free run, got %v", got)
+	}
+	saved, err := repo.GetAIAnalysis(ctx, "tenant-a", "alarm-a", model.AlarmAnalysisWorkflowID)
+	must(err)
+	if strings.Join(saved.KnowledgeDocuments, ",") != "doc-alarm" {
+		t.Fatalf("knowledge run did not record its source documents: %#v", saved)
 	}
 }

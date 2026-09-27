@@ -1,0 +1,1146 @@
+package httpapi
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	aiadapter "iot-platform/internal/adapters/ai"
+	"iot-platform/internal/adapters/knowledge"
+	"iot-platform/internal/adapters/local"
+	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/aitest"
+	"iot-platform/internal/auth"
+	"iot-platform/internal/config"
+	"iot-platform/internal/core"
+	"iot-platform/internal/metrics"
+	"iot-platform/internal/model"
+	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
+)
+
+type providerConfigTestRuntime struct {
+	mu      sync.Mutex
+	config  ports.AIPluginConfig
+	updates []ports.AIPluginConfig
+}
+
+func (r *providerConfigTestRuntime) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) {
+	return model.AIAnalysis{}, nil
+}
+func (r *providerConfigTestRuntime) Chat(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (r *providerConfigTestRuntime) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
+	return model.AlarmRule{}, nil
+}
+func (r *providerConfigTestRuntime) Health(context.Context) error { return nil }
+func (r *providerConfigTestRuntime) CurrentConfig() ports.AIPluginConfig {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.config
+}
+func (r *providerConfigTestRuntime) Configure(_ context.Context, config ports.AIPluginConfig) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.config = config
+	r.updates = append(r.updates, config)
+	return nil
+}
+func (r *providerConfigTestRuntime) ProviderInfo() ports.AIPluginInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	name := r.config.Provider
+	if name == "deepseek" {
+		name = "DeepSeek"
+	}
+	return ports.AIPluginInfo{ID: r.config.Provider, Name: name, Model: r.config.Model, Enabled: true}
+}
+
+type providerConfigTestWorkflow struct {
+	mu      sync.Mutex
+	updates []ports.AIPluginConfig
+}
+
+func (w *providerConfigTestWorkflow) ConfigureProvider(_ context.Context, config ports.AIPluginConfig) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.updates = append(w.updates, config)
+	return nil
+}
+
+func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3:1.7b"}}
+	workflow := &providerConfigTestWorkflow{}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	engine.AIPlugins = aiadapter.NewProviderRegistry()
+	api := New(config.Config{DevMode: true, AITestOllamaURL: "http://localhost:11434"}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(repo)
+	api.SetAIWorkflowProvider(workflow)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+
+	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/providers/config", adminToken, map[string]any{
+		"provider":  "deepseek",
+		"baseUrl":   "https://api.deepseek.com",
+		"model":     "deepseek-chat",
+		"apiKey":    "provider-secret",
+		"maxTokens": 3072,
+	}, 200)
+	if updated["provider"] != "deepseek" || updated["model"] != "deepseek-chat" || updated["maxTokens"] != float64(3072) || updated["apiKeyConfigured"] != true || updated["apiKeyHint"] != "prov***" {
+		t.Fatalf("unexpected redacted provider response: %#v", updated)
+	}
+	if _, leaked := updated["apiKey"]; leaked {
+		t.Fatalf("provider key leaked in response: %#v", updated)
+	}
+	if got := runtime.CurrentConfig(); got.Provider != "deepseek" || got.APIKey != "provider-secret" || got.MaxTokens != 3072 {
+		t.Fatalf("runtime was not updated: %#v", got)
+	}
+	if got, found, loadErr := repo.LoadAIProviderConfig(context.Background()); loadErr != nil || !found || got != runtime.CurrentConfig() {
+		t.Fatalf("provider config was not persisted: %#v found=%v err=%v", got, found, loadErr)
+	}
+	workflow.mu.Lock()
+	if len(workflow.updates) != 1 || workflow.updates[0].Provider != "deepseek" {
+		t.Fatalf("workflow provider was not updated: %#v", workflow.updates)
+	}
+	workflow.mu.Unlock()
+	viewer := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/providers/config", viewerToken, nil, 200)
+	if viewer["provider"] != "deepseek" || viewer["maxTokens"] != float64(3072) || viewer["apiKeyConfigured"] != true {
+		t.Fatalf("unexpected viewer provider response: %#v", viewer)
+	}
+	if _, exposed := viewer["baseUrl"]; exposed {
+		t.Fatalf("viewer response exposed provider address: %#v", viewer)
+	}
+	if _, exposed := viewer["apiKeyHint"]; exposed {
+		t.Fatalf("viewer response exposed provider key hint: %#v", viewer)
+	}
+	requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/providers/config", viewerToken, map[string]any{
+		"provider": "ollama",
+		"baseUrl":  "http://localhost:11434",
+		"model":    "qwen3:1.7b",
+	}, 403)
+}
+
+func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer active-secret" {
+			http.Error(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"测试成功"}}]}`)
+	}))
+	defer providerServer.Close()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := ports.AIPluginConfig{Provider: "deepseek", BaseURL: providerServer.URL, Model: "active-model", APIKey: "active-secret"}
+	runtime := &providerConfigTestRuntime{config: active}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	engine.AIPlugins = aiadapter.NewProviderRegistry()
+	// A newly supplied endpoint must work without an address allowlist.
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{
+		"provider": "deepseek",
+		"baseUrl":  providerServer.URL,
+		"model":    "active-model",
+		"question": "连接测试",
+	}, http.StatusOK)
+	if result["success"] != true || result["answer"] != "测试成功" {
+		t.Fatalf("unexpected provider test response: %#v", result)
+	}
+	if got := runtime.CurrentConfig(); got != active {
+		t.Fatalf("testing changed active provider: got %#v want %#v", got, active)
+	}
+	for _, invalidURL := range []string{"file:///etc/passwd", "http://user:secret@example.test", "http://example.test?key=secret", "[http://ollama:11434](http://ollama:11434)"} {
+		requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{
+			"provider": "deepseek", "baseUrl": invalidURL, "model": "active-model",
+		}, http.StatusUnprocessableEntity)
+	}
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", viewerToken, map[string]any{
+		"provider": "deepseek", "baseUrl": providerServer.URL, "model": "active-model",
+	}, http.StatusForbidden)
+}
+
+func newTestHTTPServer(api *Server) *httptest.Server {
+	return httptest.NewServer(api.Handler())
+}
+
+var _ ports.AIProviderRuntime = (*providerConfigTestRuntime)(nil)
+var _ ports.AIWorkflowProviderRuntime = (*providerConfigTestWorkflow)(nil)
+
+func TestAIAnalysisJobReportsProgressAndPersistsResult(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return testAnalysisAnswer, nil }}, aitest.Tokens()
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := api.startAIAnalysisJob(context.Background(), "tenant-a", "alarm-progress", "operator", model.AIAnalysisScopeNone, testRunIdentity("operator"))
+	if err != nil || job.Status != "running" || job.Progress != 8 || job.EstimatedRemainingMs <= 0 {
+		t.Fatalf("unexpected initial progress: %#v", aiAnalysisJobView(job))
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		// A second API instance on the same store stands in for a restart or replica.
+		current, found, loadErr := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).loadAIAnalysisJob(context.Background(), "tenant-a", "alarm-progress", model.AIAnalysisScopeNone)
+		if loadErr != nil || !found {
+			t.Fatalf("stored job not readable: found=%v err=%v", found, loadErr)
+		}
+		if current.Status != "running" {
+			if current.Status != "succeeded" || current.Progress != 100 || current.Analysis.Summary != "研判完成" {
+				t.Fatalf("unexpected completed progress: %#v", aiAnalysisJobView(current))
+			}
+			if saved, getErr := repo.GetAIAnalysis(context.Background(), "tenant-a", "alarm-progress", model.AIAnalysisScopeNone); getErr != nil || saved.Summary != "研判完成" {
+				t.Fatalf("analysis was not persisted: %#v err=%v", saved, getErr)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("AI analysis job did not complete")
+}
+
+func TestAIAnalysisProgressCanBeLoadedWithoutJobID(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.KB = knowledge.NewLocal()
+	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return testAnalysisAnswer, nil }}, aitest.Tokens()
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress-resume", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := api.startAIAnalysisJob(context.Background(), "tenant-a", "alarm-progress-resume", "operator", model.AlarmAnalysisWorkflowID, testRunIdentity("operator")) // 未托管的测试令牌拥有知识库权限，进度按同一知识范围查询。
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	defer close(release)
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/alarm-analysis/alarm-progress-resume/progress", viewerToken, nil, 200)
+	if progress["jobId"] != job.ID || progress["status"] != "running" {
+		t.Fatalf("unexpected resumable progress: %#v", progress)
+	}
+}
+
+// A running job whose process stopped heartbeating is reported as interrupted,
+// and a new run can start for that alarm.
+func TestStaleAIAnalysisJobIsMarkedInterrupted(t *testing.T) {
+	repo := memory.NewRepository()
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	old := time.Now().Add(-time.Minute).UnixMilli()
+	stale := model.AlarmAnalysisJob{ID: "ai_job_stale", TenantID: "tenant-a", AlarmID: "alarm-stale", Status: "running", Stage: "calling_model", StartedAt: old, UpdatedAt: old}
+	if created, err := repo.CreateAlarmAnalysisJob(context.Background(), stale); err != nil || !created {
+		t.Fatalf("seed job: %v %v", created, err)
+	}
+	job, found, err := api.loadAIAnalysisJob(context.Background(), "tenant-a", "alarm-stale", model.AIAnalysisScopeNone)
+	if err != nil || !found || job.Status != "failed" || job.Error == "" {
+		t.Fatalf("stale job must be interrupted: %#v found=%v err=%v", job, found, err)
+	}
+	if created, err := repo.CreateAlarmAnalysisJob(context.Background(), model.AlarmAnalysisJob{ID: "ai_job_new", TenantID: "tenant-a", AlarmID: "alarm-stale", Status: "running"}); err != nil || !created {
+		t.Fatalf("a new run must be allowed after the interruption: %v %v", created, err)
+	}
+}
+
+func TestProtocolAssistantExcelUploadDoesNotRequireAI(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.Metrics = metrics.New()
+	if err = engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Load()
+	cfg.DevMode = true
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	login := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123", "tenantId": "tenant_001"}, http.StatusOK)
+	token := login["accessToken"].(string)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("name", "Excel 火花探测器")
+	_ = writer.WriteField("transport", "MODBUS_TCP")
+	_ = writer.WriteField("payloadFormat", "hex")
+	file, _ := writer.CreateFormFile("file", "变量地址表.xlsx")
+	_, _ = file.Write(protocolAssistantXLSXFixture(t))
+	_ = writer.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/generate", &body)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var draft model.ProtocolAssistantDraft
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&draft) != nil {
+		t.Fatalf("Excel generate status=%d", response.StatusCode)
+	}
+	if draft.ParserType != parser.ModbusCoilParserName || len(draft.Fields) != 2 || draft.Source != "" {
+		t.Fatalf("unexpected Excel draft %#v", draft)
+	}
+}
+
+func protocolAssistantXLSXFixture(t *testing.T) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	zw := zip.NewWriter(&data)
+	shared, err := zw.Create("xl/sharedStrings.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = shared.Write([]byte(`<sst><si><t>序号</t></si><si><t>变量名称</t></si><si><t>PLC 线圈地址</t></si><si><t>Modbus地址（十进制）</t></si><si><t>数据类型</t></si><si><t>无报出状态</t></si><si><t>报出状态</t></si><si><t>备注</t></si><si><t>通讯心跳测试</t></si><si><t>M100</t></si><si><t>BOOL</t></si><si><t>火花探测组1报警</t></si><si><t>M3001</t></si></sst>`))
+	sheet, err := zw.Create("xl/worksheets/sheet1.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = sheet.Write([]byte(`<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="s"><v>3</v></c><c r="E1" t="s"><v>4</v></c><c r="F1" t="s"><v>5</v></c><c r="G1" t="s"><v>6</v></c><c r="H1" t="s"><v>7</v></c></row><row r="2"><c r="A2"><v>1</v></c><c r="B2" t="s"><v>8</v></c><c r="C2" t="s"><v>9</v></c><c r="D2"><v>100</v></c><c r="E2" t="s"><v>10</v></c><c r="F2"><v>0</v></c><c r="G2"><v>1</v></c></row><row r="3"><c r="A3"><v>2</v></c><c r="B3" t="s"><v>11</v></c><c r="C3" t="s"><v>12</v></c><c r="D3"><v>3001</v></c><c r="E3" t="s"><v>10</v></c><c r="F3"><v>0</v></c><c r="G3"><v>1</v></c></row></sheetData></worksheet>`))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
+}
+
+type protocolEndpointAI struct{}
+
+func (protocolEndpointAI) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) {
+	return model.AIAnalysis{}, nil
+}
+func (protocolEndpointAI) Chat(context.Context, string, string) (string, error) { return "ok", nil }
+func (protocolEndpointAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
+	return model.AlarmRule{
+		Name:        "AI 高温烟雾规则",
+		Description: "温度持续过高且烟雾信号出现时提示人工处置",
+		AlarmType:   "FIRE_RISK",
+		Level:       "HIGH",
+		Match:       "all",
+		Conditions: []model.RuleCondition{
+			{Field: "properties.temperature", Operator: ">", Value: 80},
+			{Field: "properties.smoke", Operator: "eq", Value: true},
+		},
+		Recovery: []model.RuleCondition{{Field: "properties.temperature", Operator: "lt", Value: 70}},
+		Actions:  []model.RuleAction{{Type: "OPEN_PAGE", Page: "alarms"}},
+	}, nil
+}
+func (protocolEndpointAI) Health(context.Context) error { return nil }
+func (protocolEndpointAI) GenerateJSON(context.Context, string, string, string) (string, error) {
+	return `{"name":"端点测试协议","protocol":"endpoint-modbus","transport":"MODBUS_TCP","payloadFormat":"hex","parserType":"modbus_coil_parser","messageType":"PROPERTY_REPORT","config":{"frame":"tcp","startAddress":0,"functionCode":1,"fields":[{"name":"smoke","coilAddress":0}]},"fields":[{"name":"smoke","label":"烟雾","type":"boolean","coilAddress":0,"dataType":"BOOL"}]}`, nil
+}
+
+func TestAIRuleDraftReturnsAnnotatedJSONAndCommentedGengine(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	installEndpointWorkflows(engine)
+	engine.Metrics = metrics.New()
+	if err = engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Load()
+	cfg.DevMode = true
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	login := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123", "tenantId": "tenant_001"}, http.StatusOK)
+	token := login["accessToken"].(string)
+	result := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/rule-draft", token, map[string]any{"text": "温度超过 80 且烟雾出现"}, http.StatusOK)
+
+	draft := result["draft"].(map[string]any)
+	if draft["enabled"] != false || draft["expression"] != nil || draft["tenantId"] != "tenant_001" {
+		t.Fatalf("AI rule draft was not kept as a safe tenant draft: %#v", draft)
+	}
+	presentation := result["presentation"].(map[string]any)
+	var executableJSON map[string]any
+	if err := json.Unmarshal([]byte(presentation["json"].(string)), &executableJSON); err != nil {
+		t.Fatalf("presentation JSON is not executable JSON: %v", err)
+	}
+	if presentation["gengine"].(string) == "" || !strings.HasPrefix(strings.TrimSpace(presentation["genginePlaceholder"].(string)), "//") {
+		t.Fatalf("Gengine presentation is not an explicitly commented alternative: %#v", presentation)
+	}
+	descriptions := presentation["fieldDescriptions"].([]any)
+	needed := map[string]bool{"conditions[].field": false, "recovery[].value": false, "actions[].page": false}
+	for _, item := range descriptions {
+		field := item.(map[string]any)["field"].(string)
+		if _, ok := needed[field]; ok {
+			needed[field] = true
+		}
+	}
+	for field, found := range needed {
+		if !found {
+			t.Fatalf("missing nested field description %q", field)
+		}
+	}
+}
+
+func TestProtocolAssistantEndpoints(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	installEndpointWorkflows(engine)
+	engine.Metrics = metrics.New()
+	if err = engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Load()
+	cfg.DevMode = true
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	login := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123", "tenantId": "tenant_001"}, http.StatusOK)
+	token := login["accessToken"].(string)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("pointTable", "smoke = M0")
+	_ = writer.WriteField("transport", "MODBUS_TCP")
+	_ = writer.WriteField("samplePayload", "00 01 00 00 00 04 01 01 01 01")
+	file, _ := writer.CreateFormFile("file", "protocol.csv")
+	_, _ = file.Write([]byte("address,name\n0,smoke\n"))
+	_ = writer.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/generate", &body)
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft model.ProtocolAssistantDraft
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&draft) != nil {
+		response.Body.Close()
+		t.Fatalf("generate protocol assistant status=%d", response.StatusCode)
+	}
+	response.Body.Close()
+	if draft.Source != "" || draft.ParserType != parser.ModbusCoilParserName || len(draft.Fields) != 1 {
+		t.Fatalf("unexpected generated draft %#v", draft)
+	}
+	draft.Fields[0].Name = "smoke_alarm"
+	draft.Config["fields"] = []any{map[string]any{"name": "smoke_alarm", "coilAddress": 0}}
+	preview := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/preview", token, map[string]any{"draft": draft, "payload": "00 01 00 00 00 04 01 01 01 01", "payloadFormat": "hex"}, http.StatusOK)
+	if preview["success"] != true || preview["standardMessage"].(map[string]any)["properties"].(map[string]any)["smoke_alarm"] != true {
+		t.Fatalf("unexpected preview %#v", preview)
+	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/publish", token, map[string]any{"draft": draft, "status": "PUBLISHED"}, http.StatusUnprocessableEntity)
+	published := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/protocol-assistant/publish", token, map[string]any{"draft": draft, "payload": "00 01 00 00 00 04 01 01 01 01", "payloadFormat": "hex", "status": "DRAFT"}, http.StatusCreated)
+	pkg := published["package"].(map[string]any)
+	if pkg["parserType"] != parser.ModbusCoilParserName || pkg["status"] != "DRAFT" {
+		t.Fatalf("unexpected published package %#v", pkg)
+	}
+	if _, ok := pkg["config"].(map[string]any)["fields"]; !ok {
+		t.Fatalf("published package did not persist edited field: %#v", pkg)
+	}
+}
+
+func TestHealthInspectionPDFDownload(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.Metrics = metrics.New()
+	if err = engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Load()
+	cfg.DevMode = true
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	login := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123", "tenantId": "tenant_001"}, http.StatusOK)
+	report := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/health-inspection", login["accessToken"].(string), map[string]any{}, http.StatusOK)
+	generatedAt, ok := report["generatedAt"].(float64)
+	if !ok || generatedAt <= 0 {
+		t.Fatalf("health inspection generatedAt = %#v", report["generatedAt"])
+	}
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/health-inspection/pdf", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+login["accessToken"].(string))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "application/pdf" || !bytes.Contains([]byte(response.Header.Get("Content-Disposition")), []byte(fmt.Sprintf("health-inspection-%d.pdf", int64(generatedAt)))) || !bytes.HasPrefix(data, []byte("%PDF-1.4")) {
+		t.Fatalf("PDF response status=%d type=%q disposition=%q prefix=%q", response.StatusCode, response.Header.Get("Content-Type"), response.Header.Get("Content-Disposition"), data[:min(len(data), 8)])
+	}
+}
+
+// Repeated downloads of one report render it once; when every render slot is
+// taken the caller gets errPDFBusy instead of queueing without bound.
+func TestInspectionPDFCacheRendersOnceAndBoundsConcurrency(t *testing.T) {
+	c := newInspectionPDFCache()
+	var renders atomic.Int32
+	release := make(chan struct{})
+	c.renderPDF = func(report model.DeviceHealthReport) ([]byte, error) {
+		renders.Add(1)
+		if report.GeneratedAt == 2 {
+			<-release
+		}
+		return []byte("pdf"), nil
+	}
+	report := model.DeviceHealthReport{GeneratedAt: 1}
+	for i := 0; i < 3; i++ {
+		if _, err := c.render(context.Background(), "tenant", report); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if renders.Load() != 1 {
+		t.Fatalf("the same report must render once, rendered %d times", renders.Load())
+	}
+	for i := 0; i < pdfRenderSlots; i++ {
+		go c.render(context.Background(), "tenant-"+string(rune('a'+i)), model.DeviceHealthReport{GeneratedAt: 2})
+	}
+	for len(c.slots) < pdfRenderSlots {
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := c.render(ctx, "tenant-z", model.DeviceHealthReport{GeneratedAt: 3}); !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, errPDFBusy) {
+		t.Fatalf("a full renderer must not start another render, got %v", err)
+	}
+	close(release)
+}
+
+func TestHealthInspectionJobCanBeLoadedWithoutJobID(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	defer releaseJob()
+	token, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/health-inspection/run", token, map[string]any{}, http.StatusAccepted)
+	if started["status"] != "running" || started["progress"] != float64(8) {
+		t.Fatalf("unexpected initial inspection progress: %#v", started)
+	}
+	progress := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/health-inspection/progress", token, nil, http.StatusOK)
+	if progress["jobId"] != started["jobId"] || progress["status"] != "running" {
+		t.Fatalf("unexpected resumable inspection progress: %#v", progress)
+	}
+	releaseJob()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		progress = requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/health-inspection/progress", token, nil, http.StatusOK)
+		if progress["status"] == "succeeded" {
+			if progress["progress"] != float64(100) {
+				t.Fatalf("unexpected completed inspection progress: %#v", progress)
+			}
+			if progress["report"] == nil {
+				t.Fatalf("completed inspection did not include report: %#v", progress)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("health inspection job did not complete")
+}
+
+// Inspection progress and results live in the repository, so a restarted
+// process or another replica sees the same job and the running-job guard.
+func TestHealthInspectionJobIsSharedAcrossServerInstances(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }
+	defer releaseJob()
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
+	first := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	second := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	firstServer, secondServer := newTestHTTPServer(first), newTestHTTPServer(second)
+	defer firstServer.Close()
+	defer secondServer.Close()
+	token, err := first.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := requestJSON(t, firstServer.Client(), http.MethodPost, firstServer.URL+"/api/v1/ai/health-inspection/run", token, map[string]any{}, http.StatusAccepted)
+	again := requestJSON(t, secondServer.Client(), http.MethodPost, secondServer.URL+"/api/v1/ai/health-inspection/run", token, map[string]any{}, http.StatusAccepted)
+	if again["jobId"] != started["jobId"] {
+		t.Fatalf("second instance started a duplicate inspection: first=%v second=%v", started["jobId"], again["jobId"])
+	}
+	releaseJob()
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		progress := requestJSON(t, secondServer.Client(), http.MethodGet, secondServer.URL+"/api/v1/ai/health-inspection/progress/"+started["jobId"].(string), token, nil, http.StatusOK)
+		if progress["status"] == "succeeded" && progress["report"] != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("other instance did not observe the finished job: %v", progress)
+		}
+	}
+	if _, ok := second.recentHealthInspection(context.Background(), "tenant-a"); !ok {
+		t.Fatal("PDF download on another instance cannot reuse the finished report")
+	}
+}
+
+func TestHealthInspectionStaleRunningJobIsMarkedInterrupted(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A job left running by a process that stopped heartbeating.
+	old := time.Now().Add(-2 * healthInspectionStaleAfter).UnixMilli()
+	if _, err = repo.CreateHealthInspectionJob(context.Background(), model.HealthInspectionJob{ID: "inspection_job_orphan", TenantID: "tenant-a", Status: "running", Progress: 40, StartedAt: old, UpdatedAt: old}); err != nil {
+		t.Fatal(err)
+	}
+	progress := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/health-inspection/progress", token, nil, http.StatusOK)
+	if progress["jobId"] != "inspection_job_orphan" || progress["status"] != "failed" || progress["error"] == nil {
+		t.Fatalf("orphaned job must be reported as interrupted: %v", progress)
+	}
+	started := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/health-inspection/run", token, map[string]any{}, http.StatusAccepted)
+	if started["jobId"] == "inspection_job_orphan" || started["status"] != "running" {
+		t.Fatalf("a new inspection must start after the interrupted one: %v", started)
+	}
+}
+
+const testAnalysisAnswer = `{"summary":"研判完成","possibleReasons":["现场存在烟雾"],"suggestions":["核实现场"],"riskLevel":"HIGH","confidence":0.9}`
+
+// installEndpointWorkflows answers every business workflow through the Harness
+// fake: rule drafts and protocol drafts reuse protocolEndpointAI's content.
+func installEndpointWorkflows(engine *core.Engine) *aitest.Workflows {
+	workflows := &aitest.Workflows{Answer: func(req ports.AIWorkflowRequest) (string, error) {
+		switch req.WorkflowID {
+		case core.WorkflowRuleDraft:
+			rule, err := protocolEndpointAI{}.RuleDraft(context.Background(), "", "")
+			if err != nil {
+				return "", err
+			}
+			body, err := json.Marshal(rule)
+			return string(body), err
+		case core.WorkflowProtocolAssist:
+			return protocolEndpointAI{}.GenerateJSON(context.Background(), "", "", "")
+		case core.WorkflowHealthInspection, core.WorkflowOpsReport:
+			return "巡检建议已生成", nil
+		}
+		return testAnalysisAnswer, nil
+	}}
+	engine.AIWorkflows, engine.HarnessTokens = workflows, aitest.Tokens()
+	return workflows
+}
+
+// testRunIdentity is an unmanaged caller allowed every Harness tool scope.
+func testRunIdentity(username string) ports.AIRunIdentity {
+	return ports.AIRunIdentity{Username: username, Scopes: auth.HarnessReadScopes()}
+}
+
+type captureWorkflowRuntime struct {
+	mu        sync.Mutex
+	requests  []ports.AIWorkflowRequest
+	plugins   []ports.AIWorkflowPlugin
+	manifests []ports.AIWorkflowManifest
+	fail      bool
+}
+
+func (f *captureWorkflowRuntime) ListWorkflows(context.Context) ([]ports.AIWorkflowPlugin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ports.AIWorkflowPlugin{{ID: "ops-assistant", Name: "Ops", Enabled: true}}, f.plugins...), nil
+}
+
+func (f *captureWorkflowRuntime) SaveWorkflow(_ context.Context, manifest ports.AIWorkflowManifest) (ports.AIWorkflowPlugin, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	knowledge := false
+	for _, tool := range manifest.AllowedTools {
+		if tool == "mcp__iot__query_knowledge_base" {
+			knowledge = true
+		}
+	}
+	plugin := ports.AIWorkflowPlugin{SchemaVersion: manifest.SchemaVersion, ID: manifest.ID, Name: manifest.Name, Description: manifest.Description, Version: manifest.Version, DefaultModel: manifest.DefaultModel, MaxTokens: manifest.MaxTokens, Enabled: manifest.Enabled, Capabilities: manifest.Capabilities, KnowledgeEnabled: knowledge}
+	updated := false
+	for index := range f.plugins {
+		if f.plugins[index].ID == plugin.ID {
+			f.plugins[index] = plugin
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		f.plugins = append(f.plugins, plugin)
+	}
+	updated = false
+	for index := range f.manifests {
+		if f.manifests[index].ID == manifest.ID {
+			f.manifests[index] = manifest
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		f.manifests = append(f.manifests, manifest)
+	}
+	return plugin, nil
+}
+
+func (f *captureWorkflowRuntime) ListWorkflowManifests(context.Context) ([]ports.AIWorkflowManifest, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ports.AIWorkflowManifest(nil), f.manifests...), nil
+}
+
+func (f *captureWorkflowRuntime) DeleteWorkflow(_ context.Context, workflowID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for index, manifest := range f.manifests {
+		if manifest.ID != workflowID {
+			continue
+		}
+		f.manifests = append(f.manifests[:index], f.manifests[index+1:]...)
+		for pluginIndex, plugin := range f.plugins {
+			if plugin.ID == workflowID {
+				f.plugins = append(f.plugins[:pluginIndex], f.plugins[pluginIndex+1:]...)
+				break
+			}
+		}
+		return nil
+	}
+	return errors.New("workflow not found")
+}
+
+func (f *captureWorkflowRuntime) StreamChat(_ context.Context, in ports.AIWorkflowRequest, emit func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
+	f.mu.Lock()
+	f.requests = append(f.requests, in)
+	f.mu.Unlock()
+	if f.fail {
+		if emit != nil {
+			_ = emit(ports.AIWorkflowEvent{Type: "run.started", RunID: in.RunID})
+			_ = emit(ports.AIWorkflowEvent{Type: "run.failed", RunID: in.RunID, Code: "HARNESS_FAILED", Message: "Harness runtime request failed"})
+		}
+		return ports.AIWorkflowResult{RunID: in.RunID}, errors.New("sensitive internal runtime error")
+	}
+	for _, event := range []ports.AIWorkflowEvent{
+		{Type: "run.started", RunID: in.RunID, WorkflowID: in.WorkflowID, Data: map[string]any{
+			"conversationId": in.ConversationID,
+			"visible":        "ok",
+			"nested": map[string]any{
+				"sessionId": "internal-session",
+				"items":     []any{map[string]any{"api_key": "internal-api-key", "safe": "nested-ok"}},
+			},
+		}},
+		{Type: "text.delta", RunID: in.RunID, Delta: "safe "},
+		{Type: "run.completed", RunID: in.RunID, WorkflowID: in.WorkflowID, Answer: "safe answer"},
+	} {
+		if emit != nil {
+			if err := emit(event); err != nil {
+				return ports.AIWorkflowResult{RunID: in.RunID}, err
+			}
+		}
+	}
+	return ports.AIWorkflowResult{RunID: in.RunID, WorkflowID: in.WorkflowID, Answer: "safe answer"}, nil
+}
+
+func (*captureWorkflowRuntime) Health(context.Context) error { return nil }
+
+func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	runtime := &captureWorkflowRuntime{
+		plugins: []ports.AIWorkflowPlugin{
+			{ID: "alarm-handler", Name: "AI Alarm Handler", Enabled: true},
+			{ID: "device-health-inspector", Name: "AI Device Health Inspector", Enabled: true},
+			{ID: "protocol-assistant", Name: "AI Protocol Assistant", Enabled: true},
+		},
+		manifests: []ports.AIWorkflowManifest{
+			{ID: "alarm-handler", Name: "AI Alarm Handler"},
+			{ID: "device-health-inspector", Name: "AI Device Health Inspector"},
+			{ID: "protocol-assistant", Name: "AI Protocol Assistant"},
+		},
+	}
+	engine.AIWorkflows = runtime
+	registry := metrics.New()
+	cfg := config.Load()
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, registry, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token, err := api.auth.Issue("alice", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorToken, err := api.auth.Issue("operator", "tenant-a", "operator", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workflows := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows", token, nil, http.StatusOK)
+	if workflows["configured"] != true || workflows["healthy"] != true || workflows["count"].(float64) != 1 {
+		t.Fatalf("unexpected workflows response: %#v", workflows)
+	}
+	manifest := map[string]any{"schemaVersion": 1, "id": "custom-status", "name": "Custom Status", "description": "Status statistics", "version": "1.0.0", "enabled": true, "persona": "Always query the system overview before answering status questions.", "defaultModel": "deepseek-v4-flash", "maxTokens": 2048, "capabilities": []string{"status"}, "allowedTools": []string{"mcp__iot__query_system_overview"}}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/workflows", operatorToken, manifest, http.StatusForbidden)
+	unsafe := map[string]any{}
+	for key, value := range manifest {
+		unsafe[key] = value
+	}
+	unsafe["id"] = "unsafe-agent"
+	unsafe["allowedTools"] = []string{"mcp__iot__control_device"}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/workflows", adminToken, unsafe, http.StatusUnprocessableEntity)
+	createdAgent := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/workflows", adminToken, manifest, http.StatusCreated)
+	if createdAgent["id"] != "custom-status" || createdAgent["name"] != "Custom Status" {
+		t.Fatalf("unexpected dynamic Agent: %#v", createdAgent)
+	}
+	managed := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows/admin", adminToken, nil, http.StatusOK)
+	if managed["count"] != float64(1) || managed["items"].([]any)[0].(map[string]any)["persona"] != manifest["persona"] {
+		t.Fatalf("unexpected managed Agent catalog: %#v", managed)
+	}
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows/admin", token, nil, http.StatusForbidden)
+	updatedManifest := map[string]any{}
+	for key, value := range manifest {
+		updatedManifest[key] = value
+	}
+	updatedManifest["enabled"] = false
+	updated := requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/workflows/custom-status", adminToken, updatedManifest, http.StatusOK)
+	if updated["enabled"] != false {
+		t.Fatalf("workflow update did not persist enabled=false: %#v", updated)
+	}
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/workflows/custom-status", adminToken, nil, http.StatusOK)
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/workflows/ops-assistant", adminToken, nil, http.StatusConflict)
+	defaultBinding := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows/ops-assistant/knowledge-binding", token, nil, http.StatusOK)
+	if defaultBinding["retrievalMode"] != "auto" || defaultBinding["topK"] != float64(5) {
+		t.Fatalf("unexpected default knowledge binding: %#v", defaultBinding)
+	}
+	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/workflows/ops-assistant/knowledge-binding", token, map[string]any{"retrievalMode": "disabled", "topK": 5, "minScore": .2, "noMatchPolicy": "allow-model"}, http.StatusForbidden)
+	savedBinding := requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/workflows/ops-assistant/knowledge-binding", operatorToken, map[string]any{"retrievalMode": "auto", "topK": 3, "minScore": .4, "noMatchPolicy": "allow-model"}, http.StatusOK)
+	if savedBinding["workflowId"] != "ops-assistant" || savedBinding["topK"] != float64(3) {
+		t.Fatalf("unexpected saved knowledge binding: %#v", savedBinding)
+	}
+	chat := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "status?", "workflowId": "ops-assistant", "conversationId": "browser-controlled", "model": "deepseek-chat", "maxTokens": 99999}, http.StatusOK)
+	if chat["answer"] != "safe answer" || !strings.HasPrefix(chat["runId"].(string), "ai_run_") {
+		t.Fatalf("unexpected rich chat response: %#v", chat)
+	}
+	if _, leaked := chat["mcpToken"]; leaked {
+		t.Fatalf("MCP credential leaked to browser: %#v", chat)
+	}
+
+	runtime.mu.Lock()
+	captured := runtime.requests[0]
+	runtime.mu.Unlock()
+	claims, err := api.auth.Parse(captured.MCPToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claims.TokenUse != "harness" || claims.RunID != captured.RunID || !claims.HasAudience(auth.HarnessAudience) || len(claims.Scopes) != len(auth.HarnessReadScopes()) {
+		t.Fatalf("unsafe harness token: %#v", claims)
+	}
+	if claims.Knowledge == nil || claims.Knowledge.WorkflowID != "ops-assistant" || claims.Knowledge.TopK != 3 || claims.Knowledge.MinScore != .4 {
+		t.Fatalf("knowledge binding was not enforced in harness token: %#v", claims.Knowledge)
+	}
+	if !strings.Contains(captured.Question, "平台知识策略") || !strings.Contains(captured.Question, "ops-assistant") {
+		t.Fatalf("knowledge policy was not supplied to harness: %q", captured.Question)
+	}
+	if captured.ConversationID == "browser-controlled" || captured.ConversationID != harnessConversationID("tenant-a", "alice", "browser-controlled") {
+		t.Fatalf("conversation ID was not tenant scoped: %q", captured.ConversationID)
+	}
+	if captured.MaxTokens != 8192 {
+		t.Fatalf("maxTokens was not clamped: %d", captured.MaxTokens)
+	}
+	if captured.Model != "deepseek-chat" {
+		t.Fatalf("model was not passed to harness: %q", captured.Model)
+	}
+
+	engine.KB = knowledge.NewLocal()
+	if err = engine.KB.(ports.FilteredKnowledgeBase).IndexKnowledge(context.Background(), ports.KnowledgeIndexInput{TenantID: "tenant-a", WorkflowID: "ops-assistant", ProductID: "fire-smoke", Category: "alarm-sop", Tags: []string{"certified"}, DocumentID: "doc-1", ChunkID: "chunk-1", Content: []byte("烟雾 告警 处置 需要 现场 复核")}); err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/workflows/ops-assistant/knowledge-binding", operatorToken, map[string]any{"retrievalMode": "always", "topK": 3, "minScore": .5, "noMatchPolicy": "require-evidence"}, http.StatusOK)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "烟雾 告警", "workflowId": "ops-assistant"}, http.StatusOK)
+	runtime.mu.Lock()
+	forced := runtime.requests[len(runtime.requests)-1]
+	runtime.mu.Unlock()
+	if !strings.Contains(forced.Question, "平台强制召回的知识证据") || !strings.Contains(forced.Question, "现场 复核") {
+		t.Fatalf("forced knowledge evidence was not supplied to Harness: %q", forced.Question)
+	}
+
+	api.SetAIProviderRuntime(&providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "deepseek", Model: "deepseek-chat", MaxTokens: 3072}})
+	streamReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/chat/stream", bytes.NewBufferString(`{"question":"stream?","conversationId":"browser-controlled"}`))
+	streamReq.Header.Set("Authorization", "Bearer "+token)
+	streamReq.Header.Set("Content-Type", "application/json")
+	streamResp, err := server.Client().Do(streamReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamBody, _ := io.ReadAll(streamResp.Body)
+	streamResp.Body.Close()
+	if streamResp.StatusCode != http.StatusOK || !strings.Contains(string(streamBody), "event: run.started") || !strings.Contains(string(streamBody), "event: text.delta") || !strings.Contains(string(streamBody), "event: run.completed") {
+		t.Fatalf("unexpected SSE response: status=%d body=%s", streamResp.StatusCode, streamBody)
+	}
+	if strings.Contains(string(streamBody), "conv_") || strings.Contains(string(streamBody), "internal-session") || strings.Contains(string(streamBody), "internal-api-key") || !strings.Contains(string(streamBody), `"visible":"ok"`) || !strings.Contains(string(streamBody), `"safe":"nested-ok"`) {
+		t.Fatalf("SSE leaked internal conversation/session data: %s", streamBody)
+	}
+	runtime.mu.Lock()
+	streamRequest := runtime.requests[len(runtime.requests)-1]
+	runtime.mu.Unlock()
+	if streamRequest.MaxTokens != 3072 {
+		t.Fatalf("configured maxTokens was not used by stream chat: %d", streamRequest.MaxTokens)
+	}
+
+	runtime.fail = true
+	failedSync := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "fail?"}, http.StatusBadGateway)
+	if errorMessage, _ := failedSync["detail"].(string); errorMessage != "AI workflow request failed" || strings.Contains(errorMessage, "sensitive internal runtime error") {
+		t.Fatalf("sync workflow leaked an internal error: %#v", failedSync)
+	}
+	failedReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/chat/stream", bytes.NewBufferString(`{"question":"fail?"}`))
+	failedReq.Header.Set("Authorization", "Bearer "+token)
+	failedReq.Header.Set("Content-Type", "application/json")
+	failedResp, err := server.Client().Do(failedReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedBody, _ := io.ReadAll(failedResp.Body)
+	failedResp.Body.Close()
+	if count := strings.Count(string(failedBody), "event: run.failed"); count != 1 || strings.Contains(string(failedBody), "sensitive internal runtime error") {
+		t.Fatalf("unsafe or duplicate terminal event: %s", failedBody)
+	}
+
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/mcp/harness", token, map[string]any{}, http.StatusForbidden)
+	getMCP, _ := http.NewRequest(http.MethodGet, server.URL+"/mcp/harness", nil)
+	getMCP.Header.Set("Authorization", "Bearer "+token)
+	getMCPResp, err := server.Client().Do(getMCP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getMCPResp.Body.Close()
+	if getMCPResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /mcp/harness status=%d", getMCPResp.StatusCode)
+	}
+	harnessToken, err := api.auth.IssueHarness("alice", "tenant-a", "run-x", auth.HarnessReadScopes(), 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows", harnessToken, nil, http.StatusForbidden)
+}
+
+func TestHarnessConversationIDIsStableAndTenantScoped(t *testing.T) {
+	a := harnessConversationID("tenant-a", "alice", "conversation-1")
+	if a != harnessConversationID("tenant-a", "alice", "conversation-1") {
+		t.Fatal("conversation derivation is not stable")
+	}
+	if a == harnessConversationID("tenant-b", "alice", "conversation-1") || a == harnessConversationID("tenant-a", "bob", "conversation-1") {
+		t.Fatal("conversation derivation is not tenant/user scoped")
+	}
+	if !strings.HasPrefix(a, "conv_") || strings.Contains(a, "tenant-a") || strings.Contains(a, "alice") {
+		t.Fatalf("conversation derivation leaks identity: %q", a)
+	}
+}
+
+func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.KB = knowledge.NewLocal()
+	cfg := config.Load()
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+
+	operatorToken, err := api.auth.Issue("operator", "tenant-a", "operator", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerToken, err := api.auth.Issue("viewer", "tenant-a", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherTenantToken, err := api.auth.Issue("viewer", "tenant-b", "viewer", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err = form.WriteField("workflowId", "ops-assistant"); err != nil {
+		t.Fatal(err)
+	}
+	if err = form.WriteField("productId", "fire-smoke"); err != nil {
+		t.Fatal(err)
+	}
+	if err = form.WriteField("category", "alarm-sop"); err != nil {
+		t.Fatal(err)
+	}
+	if err = form.WriteField("tags", "smoke,certified"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := form.CreateFormFile("file", "fire-sop.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.Copy(file, strings.NewReader("高温烟雾告警处置：先核对设备状态，再通知现场人员复核。")); err != nil {
+		t.Fatal(err)
+	}
+	if err = form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/v1/knowledge/documents", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+operatorToken)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var uploaded map[string]any
+	if err = json.NewDecoder(resp.Body).Decode(&uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated || uploaded["status"] != "INDEXED" || uploaded["filename"] != "fire-sop.txt" {
+		t.Fatalf("unexpected upload response status=%d body=%#v", resp.StatusCode, uploaded)
+	}
+
+	listed := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents", viewerToken, nil, http.StatusOK)
+	if listed["count"] != float64(1) || listed["persistentIndex"] != false || listed["indexMode"] != "local-memory" {
+		t.Fatalf("unexpected knowledge list %#v", listed)
+	}
+	items := listed["items"].([]any)
+	item := items[0].(map[string]any)
+	if item["tenantId"] != "tenant-a" || item["workflowId"] != "ops-assistant" || item["productId"] != "fire-smoke" || item["category"] != "alarm-sop" || item["filename"] != "fire-sop.txt" {
+		t.Fatalf("unexpected knowledge item %#v", item)
+	}
+	tags := item["tags"].([]any)
+	if len(tags) != 2 || tags[0] != "smoke" || tags[1] != "certified" {
+		t.Fatalf("unexpected knowledge tags %#v", tags)
+	}
+	detail := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents/"+item["id"].(string), viewerToken, nil, http.StatusOK)
+	indexDetails := detail["index"].(map[string]any)
+	if indexDetails["mode"] != "local-memory" || indexDetails["chunkCount"] != float64(1) {
+		t.Fatalf("unexpected knowledge index details %#v", detail)
+	}
+	chunking := indexDetails["chunking"].(map[string]any)
+	if chunking["size"] != float64(1200) || chunking["overlap"] != float64(200) {
+		t.Fatalf("unexpected chunking policy %#v", chunking)
+	}
+	detailChunks := detail["chunks"].([]any)
+	if len(detailChunks) != 1 || detailChunks[0].(map[string]any)["content"] != "高温烟雾告警处置：先核对设备状态，再通知现场人员复核。" || detailChunks[0].(map[string]any)["vectorized"] != false {
+		t.Fatalf("unexpected knowledge chunks %#v", detailChunks)
+	}
+
+	isolated := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents", otherTenantToken, nil, http.StatusOK)
+	if isolated["count"] != float64(0) {
+		t.Fatalf("knowledge documents leaked across tenants: %#v", isolated)
+	}
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents/"+item["id"].(string), otherTenantToken, nil, http.StatusNotFound)
+}

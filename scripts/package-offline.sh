@@ -394,11 +394,9 @@ fi
 cp "$project_root/compose.yaml" "$bundle_root/"
 cp "$project_root/compose.offline.yaml" "$bundle_root/"
 cp "$project_root/compose.access.yaml" "$bundle_root/"
-cp "$project_root/docs/EDGE_AND_GATEWAY.md" "$bundle_root/"
 cp "$project_root/docs/DEPLOYMENT.md" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
-cp "$project_root/docs/OFFLINE_DEPLOYMENT.md" "$bundle_root/"
-cp "$project_root/docs/VIDEO_LIVE.md" "$bundle_root/"
+cp "$project_root/docs/PLATFORM.md" "$bundle_root/"
 # 视频模块启停脚本及其依赖的配置工具（在目标机上开启 / 关闭直播媒体服务）。
 for lib_name in deployment.sh deployment.ps1 env-comments.sh env-comments.tsv; do
   cp "$script_dir/lib/$lib_name" "$bundle_root/scripts/lib/"

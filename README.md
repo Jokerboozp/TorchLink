@@ -17,15 +17,15 @@
 | 报文与告警 | 原文归档、诊断、下载及回放；规则与设备主动告警、部件状态、确认和恢复 |
 | AI 与知识库 | 告警研判、设备巡检、规则草稿、协议辅助和对话；默认 DeepSeek API，填写 API Key 即可启用 |
 | 运维与权限 | 用户、角色、菜单和操作授权、用户设备范围、健康检查、审计及设备数据备份 |
-| 运维中心 | 平台内原生查看与管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警与通知，见 [运维中心](docs/OPS_CENTER.md) |
-| 视频集成 | 摄像头资料、设备关联与外部视频事件；可选直播模块（ZLMediaKit，ONVIF / RTSP 接入，WebRTC / HLS 播放，可选转码），见 [摄像头直播](docs/VIDEO_LIVE.md) |
-| 对外开放 | 外部系统用密钥查询与上报告警、上报设备消息、查询设备数据及智能问答，见 [对外开放接口](docs/OPEN_API.md) |
+| 运维中心 | 平台内原生查看与管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警与通知，见 [运维中心](docs/PLATFORM.md#运维中心) |
+| 视频集成 | 摄像头资料、设备关联与外部视频事件；可选直播模块（ZLMediaKit，ONVIF / RTSP 接入，WebRTC / HLS 播放，可选转码），见 [摄像头直播](docs/PLATFORM.md#摄像头) |
+| 对外开放 | 外部系统用密钥查询与上报告警、上报设备消息、查询设备数据及智能问答，见 [对外开放接口](docs/INTEGRATION.md#开放接口) |
 
 典型流程：发布协议 → 创建产品 → 登记设备和配置模板接入点 → 上报并核对原文、解析与告警 → 配置规则及用户权限。普通用户需分配设备范围，主设备与子设备分别授权。
 
 ## 快速运行
 
-要求 Go 1.25.5 或更高版本；Node.js 版本须满足 `^20.19.0 || >=22.12.0`。准备脚本会检查运行依赖、安装 Go/npm 依赖并准备本地环境；Docker 准备行为及远程依赖模式见 [技术详情](docs/TECHNICAL_DETAILS.md)。以下命令均从本仓库根目录执行。
+Go 和 Node.js 版本分别以 `go.mod`、`iot_front/package.json` 为准。准备脚本会检查运行依赖、安装 Go/npm 依赖并准备本地环境；Docker 准备行为及虚拟机依赖模式见 [部署与本地调试](docs/DEPLOYMENT.md#本地运行)。以下命令均从本仓库根目录执行。
 
 Windows 首次准备：
 
@@ -39,7 +39,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-准备完成后，在两个终端分别启动后端和前端：
+准备完成后，在独立终端分别启动 API、前端和备份源码服务：
 
 ```bash
 go run ./cmd/iot-platform --env-file .env.local
@@ -50,6 +50,10 @@ cd iot_front
 npm run dev
 ```
 
+```bash
+go run ./cmd/backup-service --env-file .env.local
+```
+
 访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
 
 所有部署方式都不再下载 Qwen 对话模型。登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key、测试并应用即可启用 AI；未填密钥可先使用设备接入等功能。离线包可离线安装，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
@@ -58,7 +62,7 @@ npm run dev
 | --- | --- |
 | 本地开发 | `compose.local.yaml`、`.env.local`、`scripts/setup-local.*` |
 | 在线部署 | `compose.yaml`、`.env.online`、`scripts/deploy-online.*`；见 [部署维护](docs/DEPLOYMENT.md) |
-| 离线交付 | `scripts/package-offline.*`、`scripts/deploy-offline.*`、包内 `.env.offline`；见 [离线部署](docs/OFFLINE_DEPLOYMENT.md) |
+| 离线交付 | `scripts/package-offline.*`、`scripts/deploy-offline.*`、包内 `.env.offline`；见 [离线部署](docs/DEPLOYMENT.md#离线部署) |
 
 ## 目录与架构
 
@@ -68,10 +72,10 @@ npm run dev
 | `internal/` | HTTP API、业务逻辑、协议运行时、存储适配器及后端回归测试 |
 | `iot_front/` | Vue 管理端、公共组件和前端行为测试 |
 | `protocol-packages/gb26875-dahua/` | 完整 Go 协议 module 示例 |
-| `dev/` | 六个独立消防协议包源码与样例测试，见 [协议包说明](dev/README.md) |
+| `dev/` | 六个独立消防协议包源码与样例测试，见 [协议包说明](docs/INTEGRATION.md#内置协议示例) |
 | `scripts/` | 环境准备、部署、打包、演示数据与部署冒烟测试 |
 | `deploy/`、`ops/` | DeepSeek Harness、容器与监控配置 |
-| `docs/` | 当前开发、接入和运维指南，见 [文档索引](docs/README.md) |
+| `docs/` | 当前开发、接入和运维指南，见 [文档索引](#文档入口) |
 
 ```text
 设备 → 接入 → 原文归档 / 幂等索引 → 内部队列 → 解析 → 属性 / 事件 → 规则 / 告警
@@ -94,6 +98,17 @@ cd protocol-packages/gb26875-dahua
 go test ./...
 ```
 
-前端在 `iot_front` 中运行 `npm test` 和 `npm run build`；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [技术详情](docs/TECHNICAL_DETAILS.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
+前端在 `iot_front` 中运行 `npm test` 和 `npm run build`；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [开发与测试](docs/DEVELOPMENT.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
 
 仓库保留可复用指南与行为回归，历史验收报告、一次性检查脚本和生成 ZIP 不作为源码维护；旧版本可从 Git 历史查找。协作约定见 [AGENTS.md](AGENTS.md)。
+
+## 文档入口
+
+仓库只维护以下四份指南；协作约束见 [AGENTS.md](AGENTS.md)。同一主题在对应章节补充，不再单开专题或阶段报告。
+
+| 指南 | 内容 |
+| --- | --- |
+| [部署与本地调试](docs/DEPLOYMENT.md) | 本机源码、虚拟机基础环境、在线/离线部署、摄像头开关、维护与备份 |
+| [开发与测试](docs/DEVELOPMENT.md) | 源码入口、前端约定、查询契约、回归、演示工具与容量验证 |
+| [设备接入与协议](docs/INTEGRATION.md) | HTTP/MQTT、TCP/Modbus、Go Worker、点表、部件告警、开放 API 与厂商示例 |
+| [平台功能与边界](docs/PLATFORM.md) | 用户权限、AI/知识库、运维中心、摄像头直播与视频事件 |

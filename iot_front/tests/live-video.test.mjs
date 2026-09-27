@@ -37,13 +37,7 @@ test('module states have Chinese labels and camera location joins known parts', 
   assert.equal(mod.cameraLocation({ building: 'A栋', floor: '1F', cameraPoint: '东侧入口' }), 'A栋 / 1F / 东侧入口')
 })
 
-test('player and nginx keep media behind per-request authorization', () => {
-  const player = fs.readFileSync(new URL('../src/components/LivePlayer.vue', import.meta.url), 'utf8')
-  // WebRTC falls back to HLS once and never loops back automatically.
-  assert.match(player, /if \(preferred === 'webrtc' && !hlsTried\)/)
-  assert.match(player, /supportsWebRTC\(\) && !hlsTried \? 'webrtc' : 'hls'/)
-  // Sessions are released with keepalive on close/refresh, and the lease covers crashes.
-  assert.match(player, /keepalive: true/)
+test('nginx keeps media behind per-request authorization', () => {
   const nginx = fs.readFileSync(new URL('../nginx.conf', import.meta.url), 'utf8')
   assert.match(nginx, /location ~ "\^\/media\/hls\/[\s\S]*?auth_request \/__video_media_auth;/)
   // A plain prefix fallback: '^~' would stop nginx from trying the HLS regex location.

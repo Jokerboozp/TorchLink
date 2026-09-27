@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -315,5 +316,273 @@ func TestLateMessageCannotRollBackDeviceConnectivity(t *testing.T) {
 	actual, _ := repo.GetDeviceState(ctx, "t", "d")
 	if actual.LastSeenAt != 2000 || actual.ConnectionStatus != "CONNECTED" {
 		t.Fatal("late message rolled back status", actual)
+	}
+}
+
+type releaseOutageRepository struct {
+	ports.Repository
+	marked int
+}
+
+func (r *releaseOutageRepository) GetProtocolRelease(context.Context, string, string, string) (model.ProtocolRelease, error) {
+	return model.ProtocolRelease{}, errors.New("failed to connect: too many clients already")
+}
+
+func (r *releaseOutageRepository) MarkRawParseResult(ctx context.Context, tenant, id string, at int64, parseError string) error {
+	r.marked++
+	return r.Repository.MarkRawParseResult(ctx, tenant, id, at, parseError)
+}
+
+// A database outage while loading the protocol version is retried through the
+// bus instead of being stored as a permanent parse failure.
+func TestRepositoryOutageDuringParseIsRetriedNotMarkedFailed(t *testing.T) {
+	repo := &releaseOutageRepository{Repository: memory.NewRepository()}
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
+	raw, _ := json.Marshal(model.RawMessage{MessageID: "raw-1", TenantID: "tenant-a", ProductID: "sensor", DeviceID: "device-a", ProtocolID: "vendor", ProtocolVersion: "1.0.0", PayloadFormat: "json", Payload: json.RawMessage(`{"temperature":20}`)})
+	if err := e.handleRaw(context.Background(), raw); err == nil {
+		t.Fatal("a repository outage must be returned for redelivery")
+	}
+	if repo.marked != 0 {
+		t.Fatalf("the raw message must not be marked as a parse failure, marked=%d", repo.marked)
+	}
+}
+
+// While paused by backpressure, ingest refuses new messages with a retryable
+// error and archives nothing; after resuming it accepts them again.
+func TestIngestPausedRefusesThenResumes(t *testing.T) {
+	repo := memory.NewRepository()
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
+	raw := model.RawMessage{MessageID: "raw-paused", TenantID: "tenant-a", ProductID: "sensor", DeviceID: "device-a", Protocol: "json", PayloadFormat: "json", Payload: json.RawMessage(`{"temperature":20}`)}
+	e.SetIngestPaused(true)
+	if _, _, err := e.IngestRaw(context.Background(), raw); !errors.Is(err, model.ErrBackpressure) {
+		t.Fatalf("paused ingest must return ErrBackpressure, got %v", err)
+	}
+	if _, err := repo.GetRawIndex(context.Background(), raw.TenantID, raw.MessageID); err == nil {
+		t.Fatal("a refused message must not be archived")
+	}
+	e.SetIngestPaused(false)
+	if _, _, err := e.IngestRaw(context.Background(), raw); errors.Is(err, model.ErrBackpressure) {
+		t.Fatalf("resumed ingest must not refuse: %v", err)
+	}
+}
+
+func TestLargePropertyReportStillTriggersRules(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	properties := map[string]any{}
+	for i := 0; i < 257; i++ {
+		properties[fmt.Sprint(i)] = float64(i)
+	}
+	properties["temperature"] = float64(90)
+	if err := repo.SaveRule(ctx, model.AlarmRule{ID: "rule", TenantID: "tenant", Name: "temperature", AlarmType: "FIRE", Level: "HIGH", Enabled: true, Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}}); err != nil {
+		t.Fatal(err)
+	}
+	msg := model.StandardMessage{TenantID: "tenant", DeviceID: "device", ProductID: "product", MessageID: "oversized", MessageType: model.PropertyReport, Properties: properties, Timestamp: time.Now().UnixMilli()}
+	data, _ := json.Marshal(msg)
+	if err := e.handleStandard(ctx, data); err != nil {
+		t.Fatal("property processing failed", err)
+	}
+	shouldProcess, _, err := repo.ClaimStandardMessage(ctx, msg)
+	if err != nil || shouldProcess {
+		t.Fatal("message not completed", err)
+	}
+	alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant", DeviceID: "device", Limit: 10})
+	if err != nil || len(alarms) != 1 {
+		t.Fatal("property report did not trigger rule alarm", alarms, err)
+	}
+}
+
+func TestAlarmReportsIncludeRepeatedTriggers(t *testing.T) {
+	for _, kind := range []string{"direct", "rule", "component"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			repo, bus := memory.NewRepository(), local.NewBus()
+			e := New(repo, nil, bus, local.NewRealtime(), nil, nil)
+			var reports []model.Alarm
+			if err := bus.Subscribe(ctx, model.TopicAlarmReported, "test", func(_ context.Context, b []byte) error {
+				var a model.Alarm
+				if err := json.Unmarshal(b, &a); err != nil {
+					return err
+				}
+				reports = append(reports, a)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "rule" {
+				if err := repo.SaveRule(ctx, model.AlarmRule{ID: "r", TenantID: "t", Name: "烟雾规则", Enabled: true, AlarmType: "FIRE", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "smoke", Operator: "eq", Value: true}}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			send := func(id string, at int64, active bool, description string) {
+				t.Helper()
+				msg := model.StandardMessage{TenantID: "t", ProductID: "p", DeviceID: "d", MessageID: id, Timestamp: at, MessageType: model.AlarmReport, Properties: map[string]any{"smoke": active}, Event: map[string]any{"alarmType": "FIRE", "description": description}}
+				if !active {
+					msg.MessageType = model.PropertyReport
+				}
+				if kind == "component" {
+					msg.MessageType = model.StateChange
+					msg.Event["components"] = []model.ComponentStatus{{ID: "c", Name: "探测器", Location: "一楼", Alarms: map[string]bool{"FIRE": active}}}
+				}
+				if err := e.handleStandard(ctx, mustJSON(msg)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			send("m1", 1000, true, "首次报警")
+			send("m2", 2000, true, "再次报警")
+			send("m2", 2000, true, "再次报警")
+			if kind == "component" {
+				send("stale", 500, true, "乱序旧报文")
+			}
+			if len(reports) != 2 {
+				t.Fatalf("want 2 report events, got %d", len(reports))
+			}
+			if reports[0].ID != reports[1].ID || reports[0].TriggerID != "m1" || reports[1].TriggerID != "m2" {
+				t.Fatalf("incorrect report identity: %+v", reports)
+			}
+			message := reports[1].Details["message"].(map[string]any)
+			if message["event"].(map[string]any)["description"] != "再次报警" {
+				t.Fatal("retained old alarm details")
+			}
+			alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "t", Status: "ACTIVE"})
+			if err != nil || len(alarms) != 1 || alarms[0].TriggerCount != 2 {
+				t.Fatalf("changed alarm aggregation: %+v %v", alarms, err)
+			}
+			send("normal", 3000, false, "恢复")
+			if len(reports) != 2 {
+				t.Fatal("recovery must not send an alarm receipt")
+			}
+		})
+	}
+}
+
+type failingReportBus struct {
+	*local.Bus
+	failed bool
+}
+
+func (b *failingReportBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
+	if b.failed && topic == model.TopicAlarmReported {
+		return errors.New("report stream unavailable")
+	}
+	return b.Bus.Publish(ctx, topic, key, payload)
+}
+
+func TestAlarmReportSurvivesPublishFailure(t *testing.T) {
+	ctx := context.Background()
+	bus := &failingReportBus{Bus: local.NewBus(), failed: true}
+	e := New(memory.NewRepository(), nil, bus, local.NewRealtime(), nil, nil)
+	reports := 0
+	_ = bus.Subscribe(ctx, model.TopicAlarmReported, "test", func(context.Context, []byte) error { reports++; return nil })
+	if _, _, err := e.raiseDirectAlarm(ctx, model.StandardMessage{TenantID: "t", DeviceID: "d", MessageID: "m", MessageType: model.AlarmReport}); err != nil {
+		t.Fatal(err)
+	}
+	bus.failed = false
+	e.flushOutbox(ctx)
+	e.flushOutbox(ctx)
+	if reports != 1 {
+		t.Fatalf("want the committed report published once after recovery, got %d", reports)
+	}
+}
+
+func TestComponentAlarmLifecycleAndRecoveryIsolation(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	archive, _ := local.NewArchive(t.TempDir())
+	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	send := func(id string, at int64, components ...model.ComponentStatus) {
+		t.Helper()
+		m := model.StandardMessage{MessageID: id, TenantID: "t", ProductID: "p", DeviceID: "controller", MessageType: model.StateChange, Timestamp: at, Event: map[string]any{"components": components}}
+		b, _ := json.Marshal(m)
+		if err := e.handleStandard(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := func(id string, fire, fault bool) model.ComponentStatus {
+		return model.ComponentStatus{ID: id, Name: "探测器", Location: "二楼走廊", Alarms: map[string]bool{"FIRE": fire, "DEVICE_FAULT": fault}}
+	}
+	active := func(n int) {
+		t.Helper()
+		alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "t", DeviceID: "controller", Status: "ACTIVE", Limit: 100})
+		if err != nil || len(alarms) != n {
+			t.Fatalf("active=%+v err=%v want=%d", alarms, err, n)
+		}
+	}
+	send("m1", 1000, c("A", false, false), c("B", true, true))
+	active(2)
+	send("normal-A", 2000, c("A", false, false))
+	active(2)
+	// Registration/connection status cannot recover either component.
+	b, _ := json.Marshal(model.StandardMessage{MessageID: "online", TenantID: "t", ProductID: "p", DeviceID: "controller", MessageType: model.StateChange, Timestamp: 2500, Properties: map[string]any{"connectionStatus": "CONNECTED"}})
+	if err := e.handleStandard(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	active(2)
+	// Recovery of one category must leave the other category active.
+	send("recover-fire", 3000, model.ComponentStatus{ID: "B", Alarms: map[string]bool{"FIRE": false}})
+	active(1)
+	send("old-alarm", 1500, c("B", true, true))
+	active(1)
+	send("same-time-alarm", 3000, model.ComponentStatus{ID: "B", Alarms: map[string]bool{"FIRE": true}})
+	active(2)
+	send("same-time-normal", 3000, c("B", false, false))
+	active(1)
+	send("recover-all", 4000, c("B", false, false))
+	active(0)
+	send("late-replay", 1000, c("B", true, true))
+	active(0)
+	send("new-cycle", 5000, c("B", true, false))
+	active(1)
+	send("new-cycle", 5000, c("B", true, false))
+	active(1)
+	alarms, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "t", Status: "ACTIVE", Limit: 100})
+	a := alarms[0]
+	if a.ComponentID != "B" || a.ComponentLocation != "二楼走廊" || a.TriggerCount != 1 {
+		t.Fatalf("bad component alarm %+v", a)
+	}
+	a.Status = "ACKED"
+	if err := repo.UpdateAlarm(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	send("acked-recovery", 6000, c("B", false, false))
+	active(0)
+	got, _ := repo.GetAlarm(ctx, "t", a.ID)
+	if got.Status != "RECOVERED" {
+		t.Fatal(got)
+	}
+	// More than the old 100-row recovery limit, each addressed independently.
+	for batch := 0; batch < 2; batch++ {
+		items := []model.ComponentStatus{}
+		for i := 0; i < 80; i++ {
+			items = append(items, c(fmt.Sprintf("many-%d-%d", batch, i), true, false))
+		}
+		send(fmt.Sprint("many", batch), 7000, items...)
+	}
+	for batch := 0; batch < 2; batch++ {
+		items := []model.ComponentStatus{}
+		for i := 0; i < 80; i++ {
+			items = append(items, c(fmt.Sprintf("many-%d-%d", batch, i), false, false))
+		}
+		send(fmt.Sprint("clear", batch), 8000, items...)
+	}
+	active(0)
+}
+
+func TestInvalidComponentsAndPlainStateCannotClearFire(t *testing.T) {
+	for _, value := range []any{nil, []any{}, []any{map[string]any{"id": "x", "alarms": map[string]any{"FIRE": nil}}}, []any{map[string]any{"id": "x", "alarms": map[string]any{"FIRE": "false"}}}, []model.ComponentStatus{{ID: "x", Alarms: map[string]bool{"FIRE": true}}, {ID: "x", Alarms: map[string]bool{"FIRE": false}}}} {
+		if _, err := model.MessageComponents(model.StandardMessage{MessageType: model.AlarmReport, Timestamp: 1000, Event: map[string]any{"components": value}}); err == nil {
+			t.Fatalf("accepted invalid %#v", value)
+		}
+	}
+	if directAlarmCleared(model.StandardMessage{MessageType: model.StateChange, Properties: map[string]any{"connectionStatus": "CONNECTED"}}) {
+		t.Fatal("connection cleared alarm")
+	}
+	if directAlarmTypeCleared(model.StandardMessage{Properties: map[string]any{"fault": false}}, "FIRE") {
+		t.Fatal("fault recovery cleared fire")
 	}
 }

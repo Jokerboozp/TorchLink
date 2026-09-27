@@ -1,8 +1,7 @@
 // Command capacity-test drives step loads against a running platform and
 // records, per step, client-side results together with the platform's own
 // pipeline counters (archived / parsed per second and Kafka backlog). It is the
-// tool behind docs/CAPACITY_TEST_REPORT.md; scenarios and flags are described
-// in docs/CAPACITY_TEST_PLAN.md.
+// tool described in docs/DEVELOPMENT.md.
 //
 // Modes:
 //

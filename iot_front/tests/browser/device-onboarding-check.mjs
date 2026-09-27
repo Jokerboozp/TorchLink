@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 
-// 由 internal/httpapi/device_onboarding_browser_test.go 启动：隔离的 Go API、真实浏览器、合成设备上报。
+// 由 internal/httpapi/onboarding_test.go 启动：隔离的 Go API、真实浏览器、合成设备上报。
 const profile = await mkdtemp(join(tmpdir(), 'iot-device-flow-'))
 const child = spawn(process.env.IOT_TEST_BROWSER, ['--headless=new','--no-first-run','--no-default-browser-check','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {windowsHide:true,stdio:'ignore'})
 let socket
