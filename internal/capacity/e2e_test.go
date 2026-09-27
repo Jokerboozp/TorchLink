@@ -3,6 +3,8 @@ package capacity
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,9 +27,11 @@ type fakePlatform struct {
 	loseN    int64 // accept but never archive every Nth report (0 = never)
 	seen     atomic.Int64
 	srv      *httptest.Server
+	// dropAlarms simulates a rule that never fires.
+	dropAlarms bool
 }
 
-func newFakePlatform(t *testing.T, loseN int64) *fakePlatform {
+func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *fakePlatform)) *fakePlatform {
 	f := &fakePlatform{store: newMemStore(), token: "operator-token-e2e", loseN: loseN}
 	mux := http.NewServeMux()
 	authed := func(h http.HandlerFunc) http.HandlerFunc {
@@ -46,7 +50,9 @@ func newFakePlatform(t *testing.T, loseN int64) *fakePlatform {
 	})
 	ok := func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"items":[]}`)) }
 	mux.HandleFunc("GET /api/v1/devices", authed(ok))
-	mux.HandleFunc("GET /api/v1/alarms", authed(ok))
+	mux.HandleFunc("GET /api/v1/alarms", authed(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[{"id":"alarm-1"}],"total":1}`))
+	}))
 	mux.HandleFunc("GET /api/v1/onboarding/preflight", authed(ok))
 	mux.HandleFunc("POST /api/v1/onboarding", authed(func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
@@ -64,17 +70,27 @@ func newFakePlatform(t *testing.T, loseN int64) *fakePlatform {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var v struct {
-			ID string `json:"id"`
+			ID        string `json:"id"`
+			Timestamp int64  `json:"timestamp"`
+			Data      struct {
+				StressAlarm int `json:"stressAlarm"`
+			} `json:"data"`
 		}
 		_ = json.Unmarshal(body, &v)
 		raw := StandardRawID(r.PathValue("tenant"), r.PathValue("product"), device, r.PathValue("kind"), v.ID)
 		if n := f.seen.Add(1); f.loseN == 0 || n%f.loseN != 0 {
 			f.store.archive(raw, payloadHash(body), time.Now().Add(20*time.Millisecond).UnixMilli())
+			if !f.dropAlarms {
+				f.store.report(device, v.Timestamp, v.Data.StressAlarm == 1)
+			}
 			f.archived.Add(1)
 		}
 		w.WriteHeader(202)
 		fmt.Fprintf(w, `{"messageId":%q,"created":true,"status":"ACCEPTED"}`, raw)
 	})
+	for _, fn := range extra {
+		fn(mux, f)
+	}
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -85,10 +101,24 @@ type e2eEnv struct {
 	platform                        *fakePlatform
 }
 
-func newE2E(t *testing.T, loseN int64, preset, search string) e2eEnv {
+// e2eExtra adds plan/inventory/secret lines and platform handlers.
+type e2eExtra struct {
+	plan, inventory, secrets, fixtures string
+	handlers                           func(*http.ServeMux, *fakePlatform)
+}
+
+func newE2E(t *testing.T, loseN int64, preset, search string, extra ...e2eExtra) e2eEnv {
 	t.Helper()
 	dir := t.TempDir()
-	f := newFakePlatform(t, loseN)
+	var x e2eExtra
+	if len(extra) > 0 {
+		x = extra[0]
+	}
+	var hooks []func(*http.ServeMux, *fakePlatform)
+	if x.handlers != nil {
+		hooks = append(hooks, x.handlers)
+	}
+	f := newFakePlatform(t, loseN, hooks...)
 	agentToken := "agent-token-e2e"
 	remote := httptest.NewServer(AgentHandler(NewWorker("remote", filepath.Join(dir, "remote-agent")), agentToken))
 	t.Cleanup(remote.Close)
@@ -100,7 +130,7 @@ agents:
   - {name: local}
   - {name: remote, url: %s}
 observers: {postgresSecretRef: pg}
-`, f.srv.URL, f.srv.URL, remote.URL)
+`, f.srv.URL, f.srv.URL, remote.URL) + strings.ReplaceAll(x.inventory, "{{api}}", f.srv.URL)
 	plan := fmt.Sprintf(`schemaVersion: 1
 name: e2e
 preset: %s
@@ -115,9 +145,10 @@ load:
   queryMix: {devices: 0.5, alarms: 0.5}
 search: {%s, warmup: 0s, drainTimeout: 10s, cooldown: 1s, observeInterval: 1s}
 budget: {maximumWallTime: 5m, maximumMessagesPerSecond: 100, maximumEvidenceGiB: 1}
-`, preset, search)
+`, preset, search) + x.plan
+	plan = strings.Replace(plan, "messageBytes: 200}", "messageBytes: 200"+x.fixtures+"}", 1)
 	e := e2eEnv{dir: dir, planPath: filepath.Join(dir, "plan.yaml"), secrets: filepath.Join(dir, "secrets.yaml"), results: filepath.Join(dir, "results"), platform: f}
-	for path, body := range map[string]string{filepath.Join(dir, "inv.yaml"): inv, e.planPath: plan, e.secrets: "op: " + f.token + "\nag: " + agentToken + "\npg: postgres://observer:pg-secret-e2e@db/iot\n"} {
+	for path, body := range map[string]string{filepath.Join(dir, "inv.yaml"): inv, e.planPath: plan, e.secrets: "op: " + f.token + "\nag: " + agentToken + "\npg: postgres://observer:pg-secret-e2e@db/iot\n" + x.secrets} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -254,5 +285,134 @@ func TestEndToEndStopProducesPartialReport(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(dir, "report.html")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// moduleHandlers imitate the business APIs module streams call.
+func moduleHandlers(mux *http.ServeMux, f *fakePlatform) {
+	auth := func(h http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer "+f.token {
+				w.WriteHeader(401)
+				return
+			}
+			h(w, r)
+		}
+	}
+	reply := func(status int, body string) http.HandlerFunc {
+		return auth(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(body))
+		})
+	}
+	mux.HandleFunc("POST /api/v1/ai/alarm-analysis/{id}/run", reply(202, `{"jobId":"job-1"}`))
+	mux.HandleFunc("GET /api/v1/ai/alarm-analysis/{id}/progress/{job}", reply(200, `{"status":"succeeded"}`))
+	mux.HandleFunc("POST /api/v1/knowledge/documents", auth(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil || r.FormValue("workflowId") != "wf-cap" {
+			w.WriteHeader(400)
+			return
+		}
+		w.WriteHeader(201)
+	}))
+	mux.HandleFunc("POST /api/v1/video/cameras/{id}/play-sessions", reply(201, `{"sessionId":"s-1","hlsUrl":"/live/cam.m3u8"}`))
+	mux.HandleFunc("DELETE /api/v1/video/play-sessions/{id}", reply(204, ""))
+	mux.HandleFunc("GET /live/cam.m3u8", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:2,\nseg-1.ts\n"))
+	})
+	mux.HandleFunc("GET /live/seg-1.ts", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(bytes.Repeat([]byte{0x47}, 188)) })
+	mux.HandleFunc("GET /api/v1/raw-messages", reply(200, `{"items":[{"messageId":"raw-1"}]}`))
+	mux.HandleFunc("POST /api/v1/raw-messages/download", reply(200, "zip-bytes"))
+	mux.HandleFunc("POST /api/v1/raw-messages/replay", reply(202, `{"id":"replay-1"}`))
+	mux.HandleFunc("GET /api/v1/replays/{id}", reply(200, `{"status":"COMPLETED"}`))
+	mux.HandleFunc("POST /api/v1/ai/health-inspection/run", reply(202, `{"jobId":"insp-1"}`))
+	mux.HandleFunc("GET /api/v1/ai/health-inspection/progress/{job}", reply(200, `{"status":"succeeded"}`))
+	mux.HandleFunc("POST /api/v1/ai/health-inspection/pdf", reply(200, "%PDF-1.4"))
+	mux.HandleFunc("GET /api/open/v1/devices", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-API-Key") != "open-key-secret-e2e" {
+			w.WriteHeader(401)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	})
+	file := []byte("backup-file")
+	sum := sha256.Sum256(file)
+	mux.HandleFunc("POST /api/v1/backups", reply(200, `{"id":"b-1","artifacts":[{"filename":"raw-messages.jsonl.gz"}]}`))
+	mux.HandleFunc("GET /api/v1/backups/{id}/files/{name}", auth(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Checksum-SHA256", hex.EncodeToString(sum[:]))
+		_, _ = w.Write(file)
+	}))
+	mux.HandleFunc("POST /api/v1/backups/{id}/restore", reply(200, `{"status":"COMPLETED"}`))
+}
+
+func TestEndToEndBusinessModulesAndAlarmSequence(t *testing.T) {
+	t.Parallel()
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s", e2eExtra{
+		fixtures:  ", alarmFraction: 0.2, alarmRuleId: rule-stress, alarmRecovers: true",
+		inventory: "web: {{api}}\n",
+		secrets:   "openkey: open-key-secret-e2e\n",
+		handlers:  moduleHandlers,
+		plan: `modules:
+  ai: {enabled: true, mode: mock, runsPerMinute: 120, maxRuns: 4, timeout: 20s, p95: 0s}
+  knowledge: {enabled: true, uploadsPerMinute: 60, workflowId: wf-cap, documentBytes: 2048, p95: 0s}
+  video: {enabled: true, cameras: [cam-1], sessionsPerMinute: 60, timeout: 5s, p95: 0s}
+  backup: {enabled: true, restore: true, timeout: 1m}
+  exports: {enabled: true, rawDownloadsPerMinute: 60, replaysPerMinute: 30, inspectionsPerMinute: 30, timeout: 30s, p95: 0s}
+  openapi: {enabled: true, keySecretRef: openkey, requestsPerSecond: 2, p95: 0s}
+`,
+	})
+	runID, err := e.run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.results, runID)
+	s := readSummary(t, dir)
+	var rec PhaseRecord
+	b, _ := os.ReadFile(filepath.Join(dir, "phases", s.Phases[0].PhaseID+".json"))
+	_ = json.Unmarshal(b, &rec)
+	if s.Verdict != VerdictPassed {
+		t.Fatalf("%+v\n%s", s, b)
+	}
+	for _, stream := range []string{"ai", "knowledge", "video", "export_raw", "export_replay", "export_inspection", "openapi"} {
+		st := rec.Streams[stream]
+		if st == nil || st.OK == 0 {
+			t.Errorf("module stream %s produced no successful operations: %+v", stream, st)
+		}
+	}
+	if ai := rec.Streams["ai"]; ai != nil && ai.OK > 4 {
+		t.Errorf("AI runs exceed the maxRuns budget: %d", ai.OK)
+	}
+	if len(rec.Operations) != 1 || !rec.Operations[0].OK || rec.Operations[0].Steps["restore"] != "COMPLETED" {
+		t.Fatalf("backup operation %+v", rec.Operations)
+	}
+	if rec.Integrity.AlarmDevicesChecked == 0 || rec.Integrity.AlarmMismatches != 0 {
+		t.Fatalf("alarm sequence %+v", rec.Integrity)
+	}
+	report, _ := os.ReadFile(filepath.Join(dir, "report.md"))
+	for _, want := range []string{"harness-mock", "rule-stress"} {
+		if !strings.Contains(string(report), want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+	if err = checkNoSecrets(dir, []string{"open-key-secret-e2e", e.platform.token}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEndToEndAlarmSequenceMismatchFailsIntegrity(t *testing.T) {
+	t.Parallel()
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s", e2eExtra{
+		fixtures: ", alarmFraction: 0.3, alarmRuleId: rule-stress",
+		handlers: func(_ *http.ServeMux, f *fakePlatform) { f.dropAlarms = true },
+	})
+	runID, err := e.run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := readSummary(t, filepath.Join(e.results, runID))
+	var rec PhaseRecord
+	b, _ := os.ReadFile(filepath.Join(e.results, runID, "phases", s.Phases[0].PhaseID+".json"))
+	_ = json.Unmarshal(b, &rec)
+	if s.Verdict != VerdictFailed || s.VerdictReason != ReasonIntegrity || rec.Integrity.AlarmMismatches == 0 || len(rec.Integrity.AlarmSamples) == 0 {
+		t.Fatalf("%+v %+v", s, rec.Integrity)
 	}
 }

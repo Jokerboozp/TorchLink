@@ -249,6 +249,7 @@ services:
       IOT_BACKUP_TIME: ${IOT_BACKUP_TIME:-00:05}
       IOT_BACKUP_TIMEZONE: ${IOT_BACKUP_TIMEZONE:-Asia/Shanghai}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
+      IOT_BACKUP_RESTORE_TARGET_DSN: ${IOT_BACKUP_RESTORE_TARGET_DSN:-}
     volumes:
       - backup-staging:/app/data/backups
     depends_on:

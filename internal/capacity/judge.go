@@ -65,30 +65,65 @@ type Drain struct {
 }
 
 type PhaseRecord struct {
-	PhaseID                 string                  `json:"phaseId"`
-	Index                   int                     `json:"index"`
-	Kind                    string                  `json:"kind"`
-	TargetMessagesPerSec    float64                 `json:"targetMessagesPerSecond"`
-	TargetQueriesPerSec     float64                 `json:"targetQueriesPerSecond"`
-	StartedAt               int64                   `json:"startedAt"`
-	MeasureFrom             int64                   `json:"measureFrom"`
-	MeasureTo               int64                   `json:"measureTo"`
-	EndedAt                 int64                   `json:"endedAt"`
-	WarmupSeconds           float64                 `json:"warmupSeconds"`
-	MeasureSeconds          float64                 `json:"measureSeconds"`
-	Streams                 map[string]*StreamStats `json:"streams"`
-	Agents                  []AgentPhaseSummary     `json:"agents"`
-	Pipeline                Pipeline                `json:"pipeline"`
-	Drain                   Drain                   `json:"drain"`
-	Integrity               Integrity               `json:"integrity"`
-	Verdict                 string                  `json:"verdict"`
-	StopReason              string                  `json:"stopReason,omitempty"`
-	Checks                  []Check                 `json:"checks"`
-	Cancelled               bool                    `json:"cancelled,omitempty"`
-	BusinessCompletedPerSec *float64                `json:"businessCompletedPerSecond"`
+	PhaseID              string                  `json:"phaseId"`
+	Index                int                     `json:"index"`
+	Kind                 string                  `json:"kind"`
+	TargetMessagesPerSec float64                 `json:"targetMessagesPerSecond"`
+	TargetQueriesPerSec  float64                 `json:"targetQueriesPerSecond"`
+	StartedAt            int64                   `json:"startedAt"`
+	MeasureFrom          int64                   `json:"measureFrom"`
+	MeasureTo            int64                   `json:"measureTo"`
+	EndedAt              int64                   `json:"endedAt"`
+	WarmupSeconds        float64                 `json:"warmupSeconds"`
+	MeasureSeconds       float64                 `json:"measureSeconds"`
+	Streams              map[string]*StreamStats `json:"streams"`
+	Agents               []AgentPhaseSummary     `json:"agents"`
+	Pipeline             Pipeline                `json:"pipeline"`
+	Drain                Drain                   `json:"drain"`
+	Integrity            Integrity               `json:"integrity"`
+	Verdict              string                  `json:"verdict"`
+	StopReason           string                  `json:"stopReason,omitempty"`
+	Checks               []Check                 `json:"checks"`
+	Cancelled            bool                    `json:"cancelled,omitempty"`
+	// Operations are single business operations run during the step
+	// (backup, download, restore); Faults are injected failures.
+	Operations              []Operation   `json:"operations,omitempty"`
+	Faults                  []FaultEvent  `json:"faults,omitempty"`
+	Recovery                *RecoveryInfo `json:"recovery,omitempty"`
+	BusinessCompletedPerSec *float64      `json:"businessCompletedPerSecond"`
 }
 
 var messageStreams = []string{"http", "mqtt", "tcp"}
+
+var moduleLabel = map[string]string{"ai": "AI 研判", "knowledge": "知识库上传", "video": "视频播放", "export_raw": "原文下载", "export_replay": "报文回放", "export_inspection": "巡检与 PDF", "openapi": "开放 API"}
+
+// Operation is one business operation measured during a step.
+type Operation struct {
+	Name    string            `json:"name"`
+	OK      bool              `json:"ok"`
+	Seconds float64           `json:"seconds"`
+	Detail  string            `json:"detail"`
+	Steps   map[string]string `json:"steps,omitempty"`
+}
+
+// FaultEvent records an injected failure and its recovery.
+type FaultEvent struct {
+	Agent      string `json:"agent"`
+	Action     string `json:"action"`
+	InjectedAt int64  `json:"injectedAt"`
+	RecoverAt  int64  `json:"recoveredAt"`
+	InjectOK   bool   `json:"injectOk"`
+	RecoverOK  bool   `json:"recoverOk"`
+	Output     string `json:"output,omitempty"`
+}
+
+// RecoveryInfo summarises a resilience step.
+type RecoveryInfo struct {
+	RecoverySeconds *float64 `json:"recoverySeconds"`
+	BaselinePerSec  *float64 `json:"baselinePerSecond"`
+	DuringPerSec    *float64 `json:"duringFaultPerSecond"`
+	Detail          string   `json:"detail"`
+}
 
 // MessageTotals merges the device-message streams of a phase.
 func (r *PhaseRecord) MessageTotals() StreamStats {
@@ -116,7 +151,7 @@ func Judge(p *Plan, r *PhaseRecord) {
 		}
 	}
 	// 1. Generator: the planned load must actually have been offered.
-	for _, name := range append(append([]string{}, messageStreams...), "query") {
+	for _, name := range append(append(append([]string{}, messageStreams...), "query"), ModuleStreamNames...) {
 		s := r.Streams[name]
 		if s == nil || s.Scheduled == 0 {
 			continue
@@ -156,6 +191,51 @@ func Judge(p *Plan, r *PhaseRecord) {
 		}
 		latencyCheck(add, "查询时延", q.Latency, slo.QueryP95.D().Seconds()*1000, slo.QueryP99.D().Seconds()*1000)
 	}
+	// Business modules: each keeps its own success and latency targets.
+	for _, name := range ModuleStreamNames {
+		st := r.Streams[name]
+		if st == nil || st.Sent == 0 {
+			continue
+		}
+		label := moduleLabel[name]
+		capped := st.Codes["budget_exhausted"]
+		if n := st.Codes["no_active_alarm"]; n > 0 {
+			add(label, VerdictInconclusive, ReasonObservability, "%d 次没有可研判的活动告警（设备负载需产生告警）", n)
+			continue
+		}
+		attempted := st.Sent - capped
+		if attempted == 0 {
+			add(label, VerdictInconclusive, ReasonBudget, "请求预算已用完，本档未执行")
+			continue
+		}
+		ratio := float64(st.OK) / float64(attempted)
+		if ratio < slo.SuccessRatio {
+			reason := ReasonService
+			if st.Codes["429"]*2 > st.Fail {
+				reason = ReasonPolicy
+			}
+			add(label, VerdictFailed, reason, "成功率 %.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(st.Codes))
+		} else {
+			add(label, VerdictPassed, "", "成功 %d/%d（预算截止 %d）", st.OK, attempted, capped)
+		}
+		if limit := p.ModuleP95(name); limit > 0 {
+			latencyCheck(add, label+"时延", st.Latency, limit.Seconds()*1000, limit.Seconds()*1000*2.5)
+		}
+	}
+	if rt := r.Streams["realtime"]; rt != nil {
+		if rt.OK == 0 {
+			add("实时推送", VerdictInconclusive, ReasonObservability, "测量窗口内订阅者未收到告警或状态推送")
+		} else if limit := p.ModuleP95("realtime"); limit > 0 {
+			latencyCheck(add, "实时推送时延", rt.Latency, limit.Seconds()*1000, limit.Seconds()*1000*2.5)
+		}
+	}
+	for _, op := range r.Operations {
+		if op.OK {
+			add("业务操作 "+op.Name, VerdictPassed, "", "%s（%.0f 秒）", op.Detail, op.Seconds)
+		} else {
+			add("业务操作 "+op.Name, VerdictFailed, ReasonService, "%s（%.0f 秒）", op.Detail, op.Seconds)
+		}
+	}
 	// 4. Integrity and drain.
 	in := r.Integrity
 	if in.UniqueSent > 0 {
@@ -164,6 +244,8 @@ func Judge(p *Plan, r *PhaseRecord) {
 			add("数据完整性", VerdictFailed, ReasonIntegrity, "已确认消息缺失/冲突/解析失败 %d 条（允许 %d）；状态 %s", in.Unaccounted, slo.MaximumUnaccountedConfirmedMessage, codeSummary(in.States))
 		case in.Pending > 0:
 			add("排空", VerdictFailed, ReasonService, "排空时限内仍有 %d 条未完成业务处理", in.Pending)
+		case in.AlarmMismatches > 0:
+			add("告警序列", VerdictFailed, ReasonIntegrity, "%d/%d 台设备的告警与上报序列不符：%s", in.AlarmMismatches, in.AlarmDevicesChecked, strings.Join(in.AlarmSamples, "；"))
 		default:
 			add("数据完整性", VerdictPassed, "", "唯一消息 %d，业务完成 %d，结果未知 %d，入口拒绝 %d", in.UniqueSent, in.UniqueBusinessDone, in.Unknown, in.States[StateRejected])
 		}

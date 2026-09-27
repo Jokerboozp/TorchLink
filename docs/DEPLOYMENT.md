@@ -424,6 +424,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 - **备份昨日数据**：按配置时区导出前一个自然日的数据。
 - **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
 - 每个备份包含原始数据、解析数据两个 gzip JSONL 文件及清单，保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
+- **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。该操作证明备份可读回数据库，不替换现网数据；同一时间只运行一个备份或恢复。
 
 ```dotenv
 # 是否开启每日自动备份；关闭后仍可手动备份
@@ -434,6 +435,8 @@ IOT_BACKUP_TIME=00:05
 IOT_BACKUP_TIMEZONE=Asia/Shanghai
 # 压缩文件暂存目录
 IOT_BACKUP_DIR=./data/backups
+# 恢复验证用的独立库（须与业务库不同，例如同实例的 iot_restore_check 库）；留空则不提供
+IOT_BACKUP_RESTORE_TARGET_DSN=
 ```
 
 Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 CentOS。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。

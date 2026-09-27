@@ -195,6 +195,7 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/backups/:id/files/:filename", s.authorize("admin"), s.endpoint(s.downloadBackupFile, "id", "filename"))
 	s.router.GET("/api/v1/backups/:id/files", s.authorize("viewer"), s.endpoint(s.backupFiles, "id"))
 	s.router.POST("/api/v1/backups/:id/restore-drill", s.authorize("admin"), s.endpoint(s.restoreBackup, "id"))
+	s.router.POST("/api/v1/backups/:id/restore", s.authorize("admin"), s.endpoint(s.restoreBackupToTarget, "id"))
 	s.router.GET("/api/v1/backups/:id", s.authorize("viewer"), s.endpoint(s.getBackup, "id"))
 	s.router.GET("/api/v1/backups", s.authorize("viewer"), s.endpoint(s.listBackups))
 	s.router.POST("/api/v1/backups", s.authorize("admin"), s.endpoint(s.runBackup))

@@ -32,6 +32,7 @@ type AgentConfig struct {
 	AlarmFraction  float64            `json:"alarmFraction"`
 	Seed           int64              `json:"seed"`
 	QueryMix       map[string]float64 `json:"queryMix,omitempty"`
+	Modules        ModuleConfig       `json:"modules,omitempty"`
 }
 
 type DeviceCredential struct {
@@ -53,11 +54,12 @@ type PrepareRequest struct {
 }
 
 type PrepareResult struct {
-	MQTTConnected int               `json:"mqttConnected"`
-	MQTTFailed    int               `json:"mqttFailed"`
-	Failures      map[string]uint64 `json:"failures,omitempty"`
-	HTTPDevices   int               `json:"httpDevices"`
-	TCPDevices    int               `json:"tcpDevices"`
+	RealtimeSubscribers int               `json:"realtimeSubscribers"`
+	MQTTConnected       int               `json:"mqttConnected"`
+	MQTTFailed          int               `json:"mqttFailed"`
+	Failures            map[string]uint64 `json:"failures,omitempty"`
+	HTTPDevices         int               `json:"httpDevices"`
+	TCPDevices          int               `json:"tcpDevices"`
 }
 
 // PhaseAssignment gives this agent its share of one load step. StartAt is in
@@ -144,6 +146,7 @@ type workerRun struct {
 	tcp        []*tcpDevice
 	phases     map[string]*workerPhase
 	current    *workerPhase
+	modules    *moduleState
 }
 
 // httpClients separates device load from management queries so a saturated
@@ -259,6 +262,13 @@ func (w *Worker) Prepare(ctx context.Context, req PrepareRequest) (PrepareResult
 		run.tcp = append(run.tcp, d)
 	}
 	res.TCPDevices = len(run.tcp)
+	w.prepareModules(ctx, run)
+	if run.modules.realtime != nil {
+		res.RealtimeSubscribers = len(run.modules.realtime.clients)
+		if f := run.modules.realtime.failures; f > 0 {
+			res.Failures["realtime_subscribe"] += uint64(f)
+		}
+	}
 	// Opening many connections can outlast the lease; the lease counts from
 	// the end of preparation, when the controller starts heartbeats.
 	w.mu.Lock()
@@ -452,6 +462,9 @@ func (w *Worker) releaseLocked() {
 		if r.http != nil {
 			r.http.close()
 		}
+		if r.modules != nil {
+			r.modules.realtime.close()
+		}
 		_ = os.RemoveAll(filepath.Join(w.dir, r.req.RunID))
 	}()
 }
@@ -479,7 +492,7 @@ func (w *Worker) execute(ctx, hardCtx context.Context, r *workerRun, ph *workerP
 	recs := map[string]*streamRecorder{}
 	picker := newQueryPicker(cfg.QueryMix)
 	short := a.RunID[max(0, len(a.RunID)-6):]
-	for _, stream := range []string{"http", "mqtt", "tcp", "query"} {
+	for _, stream := range sortedKeys(a.Rates) {
 		rate := a.Rates[stream]
 		if rate <= 0 {
 			continue
@@ -518,7 +531,7 @@ func (w *Worker) execute(ctx, hardCtx context.Context, r *workerRun, ph *workerP
 				case sem <- struct{}{}:
 				default:
 					rec.notSent(measured)
-					if stream != "query" {
+					if isMessageStream(stream) {
 						entry.Result = "not_sent"
 						ledger.Write(entry)
 					}
@@ -533,8 +546,28 @@ func (w *Worker) execute(ctx, hardCtx context.Context, r *workerRun, ph *workerP
 			}
 		}(stream, rate, rec)
 	}
+	// Realtime subscribers count pushes delivered during the measure window.
+	var rt *realtimeSubscribers
+	if r.modules != nil && r.modules.realtime != nil {
+		rt = r.modules.realtime
+		rt.rec = &streamRecorder{}
+		go func() {
+			if d := time.Until(measureFrom); d > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(d):
+				}
+			}
+			rt.measure.Store(true)
+		}()
+	}
 	streams.Wait()
 	inflight.Wait()
+	if rt != nil {
+		rt.measure.Store(false)
+		res.Streams["realtime"] = rt.rec.snapshot()
+	}
 	info, lerr := ledger.Close()
 	res.Ledger = info
 	for k, rec := range recs {
@@ -605,12 +638,21 @@ func (w *Worker) send(ctx context.Context, r *workerRun, ph *workerPhase, stream
 		rctx, cancel := context.WithTimeout(ctx, timeout)
 		res = sendQuery(rctx, r.http.query, cfg.API, cfg.OperatorToken, path)
 		cancel()
+	default:
+		res = w.sendModule(ctx, r, stream, k)
 	}
 	responded := w.now()
 	rec.done(e.Measured, res.ok, res.code, float64(responded.Sub(dispatched).Microseconds())/1000, lateness, res.attempts, res.bytes)
-	if stream == "query" {
+	if !isMessageStream(stream) {
 		return
 	}
+	e.Alarm = alarm
 	e.Responded, e.Attempts, e.Result, e.OK, e.RawID = responded.UnixMicro(), res.attempts, res.code, res.ok, res.rawID
 	ledger.Write(e)
+}
+
+// isMessageStream reports device-message streams, which are ledgered and
+// reconciled by raw message ID; queries and modules only keep statistics.
+func isMessageStream(stream string) bool {
+	return stream == "http" || stream == "mqtt" || stream == "tcp"
 }

@@ -40,9 +40,18 @@ type Store interface {
 	Standards(ctx context.Context, tenant string, rawIDs []string) (map[string][]StandardRecord, error)
 	TelemetryConfigured() bool
 	Telemetry(ctx context.Context, tenant string, messageIDs []string) (map[string]int, error)
+	// RuleAlarms lists alarm records of rule for devices triggered since
+	// (Unix ms), keyed by device.
+	RuleAlarms(ctx context.Context, tenant, rule string, devices []string, since int64) (map[string][]AlarmRecord, error)
 	// ClockOffset is database clock minus local clock.
 	ClockOffset(ctx context.Context) (offset, uncertainty time.Duration, err error)
 	Close()
+}
+
+// AlarmRecord is the reconciliation view of one alarm.
+type AlarmRecord struct {
+	Status          string
+	LastTriggeredAt int64
 }
 
 // Message verification states. confirmed/conflict/parse_failed are final;
@@ -68,6 +77,7 @@ type trackedMessage struct {
 	ingressOK   bool
 	result      string
 	scheduledUS int64 // controller clock
+	alarm       bool
 	state       string
 	processedAt int64
 	copies      int
@@ -113,7 +123,7 @@ func (v *Verifier) Track(path, phase string, agentOffset time.Duration) error {
 			v.duplicates[phase]++
 			return nil
 		}
-		v.msgs[e.RawID] = &trackedMessage{phase: phase, measured: e.Measured, stream: e.Stream, device: e.Device, hash: e.Hash, ingressOK: e.OK, result: e.Result, scheduledUS: e.Scheduled - agentOffset.Microseconds(), state: StatePending}
+		v.msgs[e.RawID] = &trackedMessage{phase: phase, measured: e.Measured, stream: e.Stream, device: e.Device, hash: e.Hash, ingressOK: e.OK, result: e.Result, scheduledUS: e.Scheduled - agentOffset.Microseconds(), alarm: e.Alarm, state: StatePending}
 		return nil
 	})
 }
@@ -272,6 +282,9 @@ type Integrity struct {
 	BusinessLatency        Histogram         `json:"businessLatency"`
 	BusinessLatencyValid   bool              `json:"businessLatencyValid"`
 	ClockUncertaintyMS     float64           `json:"clockUncertaintyMs"`
+	AlarmDevicesChecked    int               `json:"alarmDevicesChecked,omitempty"`
+	AlarmMismatches        int               `json:"alarmMismatches,omitempty"`
+	AlarmSamples           []string          `json:"alarmSamples,omitempty"`
 	Note                   string            `json:"note,omitempty"`
 }
 
@@ -329,6 +342,83 @@ func (v *Verifier) PhaseIntegrity(phase string, agentUncertainty time.Duration) 
 		in.VerificationMode = "ack_only"
 	}
 	return in
+}
+
+// CheckAlarms reconciles the rule's alarms with each device's reports in the
+// phase: a device that reported stressAlarm=1 must have a triggered alarm,
+// and its final alarm state must follow its last report (open after an
+// alarm report; recovered after a normal report when the rule recovers).
+// Devices with an unreconciled message are skipped, not guessed.
+func (v *Verifier) CheckAlarms(ctx context.Context, phase, rule string, recovers bool, since int64) (checked, mismatches int, samples []string, err error) {
+	type seq struct {
+		any, last bool
+		lastAt    int64
+		complete  bool
+	}
+	v.mu.Lock()
+	devices := map[string]*seq{}
+	for _, m := range v.msgs {
+		if m.phase != phase || m.stream == "tcp" {
+			continue
+		}
+		d := devices[m.device]
+		if d == nil {
+			d = &seq{complete: true}
+			devices[m.device] = d
+		}
+		if m.state != StateConfirmed {
+			d.complete = false
+		}
+		if m.alarm {
+			d.any = true
+		}
+		if m.scheduledUS >= d.lastAt {
+			d.lastAt, d.last = m.scheduledUS, m.alarm
+		}
+	}
+	v.mu.Unlock()
+	var ids []string
+	for id, d := range devices {
+		if d.complete {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	for i := 0; i < len(ids); i += v.batch {
+		chunk := ids[i:min(i+v.batch, len(ids))]
+		alarms, qerr := v.store.RuleAlarms(ctx, v.tenant, rule, chunk, since)
+		if qerr != nil {
+			return checked, mismatches, samples, qerr
+		}
+		for _, id := range chunk {
+			d := devices[id]
+			checked++
+			open := false
+			for _, a := range alarms[id] {
+				if a.Status == "ACTIVE" || a.Status == "ACKED" {
+					open = true
+				}
+			}
+			problem := ""
+			switch {
+			case d.any && len(alarms[id]) == 0:
+				problem = "alarm report did not trigger the rule"
+			case !d.any && len(alarms[id]) > 0:
+				problem = "alarm triggered without an alarm report"
+			case d.last && !open:
+				problem = "last report is an alarm but no alarm is open"
+			case recovers && d.any && !d.last && open:
+				problem = "last report is normal but the alarm is still open"
+			}
+			if problem != "" {
+				mismatches++
+				if len(samples) < 5 {
+					samples = append(samples, "device="+id+" "+problem)
+				}
+			}
+		}
+	}
+	return checked, mismatches, samples, nil
 }
 
 // redactID keeps enough of an ID to locate it without printing it in full.
@@ -434,6 +524,24 @@ func (s *PGCHStore) Standards(ctx context.Context, tenant string, rawIDs []strin
 }
 
 func (s *PGCHStore) TelemetryConfigured() bool { return s.chURL != "" }
+
+func (s *PGCHStore) RuleAlarms(ctx context.Context, tenant, rule string, devices []string, since int64) (map[string][]AlarmRecord, error) {
+	rows, err := s.pool.Query(ctx, `SELECT device_id,status,last_triggered_at FROM alarm_record WHERE tenant_id=$1 AND rule_id=$2 AND device_id=ANY($3) AND last_triggered_at>=$4`, tenant, rule, devices, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]AlarmRecord{}
+	for rows.Next() {
+		var device string
+		var a AlarmRecord
+		if err = rows.Scan(&device, &a.Status, &a.LastTriggeredAt); err != nil {
+			return nil, err
+		}
+		out[device] = append(out[device], a)
+	}
+	return out, rows.Err()
+}
 
 func (s *PGCHStore) Telemetry(ctx context.Context, tenant string, ids []string) (map[string]int, error) {
 	return s.chCounts(ctx, "iot_telemetry", tenant, ids)

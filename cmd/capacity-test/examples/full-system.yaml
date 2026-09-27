@@ -1,0 +1,95 @@
+# Full-system capacity search: device load plus every business module at
+# fixed background rates. Modules run against real platform APIs on the test
+# tenant; prepare the referenced rule, knowledge workflow, test cameras and
+# OpenAPI key beforehand (docs/CAPACITY_RUNBOOK.md).
+schemaVersion: 1
+name: full-system-capacity
+suite: full
+preset: capacity
+seed: 20260928
+target:
+  inventoryRef: inventory.local.yaml
+  environmentClass: dedicated-test
+  deployment: single-node
+credentials:
+  operatorSecretRef: capacity-operator
+fixtures:
+  tenant: tenant_001
+  product: cap-standard
+  devicePrefix: cap
+  deviceCount: 200
+  reuseDevices: true
+  messageBytes: 512
+  fields: 6
+  alarmFraction: 0.02
+  alarmRuleId: rule_cap_stress          # fires on stressAlarm=1
+  alarmRecovers: true                   # recovers on stressAlarm=0
+load:
+  ingressShare: {http: 0.4, mqtt: 0.6}
+  initialMessagesPerSecond: 50
+  mqttConnections: 100
+  queryRequestsPerSecond: 2
+  queryMix: {devices: 0.4, alarms: 0.2, rawMessages: 0.2, dashboard: 0.2}
+  scaleQueries: true
+modules:
+  ai:
+    enabled: true
+    mode: mock            # mock: IOT_AI_HARNESS_URL points at cmd/harness-mock; real costs model quota
+    runsPerMinute: 6
+    maxRuns: 200          # hard budget across the whole run
+    timeout: 2m
+    p95: 60s
+  knowledge:
+    enabled: true
+    uploadsPerMinute: 2
+    workflowId: alarm-analysis
+    documentBytes: 65536
+    p95: 30s
+  video:
+    enabled: false        # needs test cameras in the whitelist and the video module
+    cameras: [cam_cap_001]
+    sessionsPerMinute: 6
+    timeout: 20s
+    p95: 8s
+  backup:
+    enabled: true
+    restore: true         # needs IOT_BACKUP_RESTORE_TARGET_DSN on backup-service
+    timeout: 30m
+  realtime:
+    enabled: true
+    subscribers: 20
+    p95: 3s
+  exports:
+    enabled: true
+    rawDownloadsPerMinute: 2
+    replaysPerMinute: 1
+    inspectionsPerMinute: 0.5
+    timeout: 5m
+    p95: 60s
+  openapi:
+    enabled: true
+    keySecretRef: capacity-openapi
+    requestsPerSecond: 2
+    p95: 500ms
+search:
+  rampFactor: 1.5
+  warmup: 30s
+  measure: 3m
+  candidateHold: 10m
+  repeats: 3
+  boundaryRelativeWidth: 0.05
+  drainTimeout: 5m
+slo:
+  successRatio: 0.999
+  queryP95: 500ms
+  queryP99: 1500ms
+  businessP95: 2s
+  businessP99: 5s
+  maximumUnaccountedConfirmedMessages: 0
+budget:
+  maximumWallTime: 6h
+  maximumMessagesPerSecond: 3000
+  maximumDevices: 1000
+  maximumEvidenceGiB: 10
+outputs:
+  formats: [html, markdown, json, csv, svg]

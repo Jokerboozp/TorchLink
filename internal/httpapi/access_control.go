@@ -123,7 +123,7 @@ func routeAction(method, path string) string {
 	if method == "DELETE" && strings.Contains(path, "/protocols/:id/releases/:version") {
 		return "删除协议版本"
 	}
-	for _, v := range [][2]string{{"/credentials", "管理设备凭据"}, {"/commands", "设备控制"}, {"/source-releases", "上传源码"}, {"/package-releases", "上传制品"}, {"/source", "下载源码"}, {"/package", "下载制品"}, {"/publish", "发布"}, {"/preview", "解析测试"}, {"/generate", "生成协议"}, {"/rollback", "回滚"}, {"/protocol-binding", "绑定协议"}, {"/restore-drill", "校验备份"}, {"/files/", "下载备份"}, {"/download", "下载报文"}, {"/replay", "回放报文"}, {"/debug", "发送测试报文"}, {"/test", "连接测试"}, {"/actions", "处置告警"}, {"/pdf", "下载报告"}, {"/run", "执行巡检"}, {"/chat", "发送提问"}, {"/password", "重置密码"}, {"/provision", "准备测试设备"}} {
+	for _, v := range [][2]string{{"/credentials", "管理设备凭据"}, {"/commands", "设备控制"}, {"/source-releases", "上传源码"}, {"/package-releases", "上传制品"}, {"/source", "下载源码"}, {"/package", "下载制品"}, {"/publish", "发布"}, {"/preview", "解析测试"}, {"/generate", "生成协议"}, {"/rollback", "回滚"}, {"/protocol-binding", "绑定协议"}, {"/restore-drill", "校验备份"}, {"/restore", "恢复到独立库"}, {"/files/", "下载备份"}, {"/download", "下载报文"}, {"/replay", "回放报文"}, {"/debug", "发送测试报文"}, {"/test", "连接测试"}, {"/actions", "处置告警"}, {"/pdf", "下载报告"}, {"/run", "执行巡检"}, {"/chat", "发送提问"}, {"/password", "重置密码"}, {"/provision", "准备测试设备"}} {
 		if strings.Contains(path, v[0]) {
 			return v[1]
 		}

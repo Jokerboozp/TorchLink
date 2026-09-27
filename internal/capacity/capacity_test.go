@@ -51,7 +51,7 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 	if err := validPlan().Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"core-mixed.yaml", "quick-local.yaml"} {
+	for _, name := range []string{"core-mixed.yaml", "quick-local.yaml", "full-system.yaml"} {
 		p, err := LoadPlan(filepath.Join("..", "..", "cmd", "capacity-test", "examples", name))
 		if err != nil || p.Validate() != nil {
 			t.Fatalf("example %s must stay valid: %v %v", name, err, p.Validate())
@@ -63,8 +63,8 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 	cases := map[string]func(p *Plan){
 		"sum to 1":              func(p *Plan) { p.Load.IngressShare["http"] = 0.7 },
 		"resilience":            func(p *Plan) { p.Preset = PresetResilience },
-		"no load adapter":       func(p *Plan) { p.Modules.AI.Enabled = true },
-		"fault injection":       func(p *Plan) { p.Faults.Enabled = true },
+		"hard maxRuns budget":   func(p *Plan) { p.Modules.AI.Enabled = true; p.Modules.AI.Mode = "mock" },
+		"only by) preset":       func(p *Plan) { p.Faults.Enabled = true },
 		"png":                   func(p *Plan) { p.Outputs.Formats = []string{"png"} },
 		"perDeviceMaxPerSecond": func(p *Plan) { p.Load.InitialMessagesPerSecond = 3000; p.Budget.MaximumMessagesPerSecond = 5000 },
 		"maximumMessagesPerSec": func(p *Plan) { p.Load.InitialMessagesPerSecond = 900 },
@@ -446,10 +446,14 @@ type memStore struct {
 	std       map[string][]StandardRecord
 	telemetry map[string]int
 	offset    time.Duration
+	// alarm state per device as a rule firing on stressAlarm=1 and
+	// recovering on stressAlarm=0 would leave it (order independent).
+	alarmLast map[string][2]int64 // device -> {latest report ms, alarm 0/1}
+	alarmAt   map[string]int64
 }
 
 func newMemStore() *memStore {
-	return &memStore{raws: map[string]RawRecord{}, bodies: map[string]int{}, std: map[string][]StandardRecord{}, telemetry: map[string]int{}}
+	return &memStore{raws: map[string]RawRecord{}, bodies: map[string]int{}, std: map[string][]StandardRecord{}, telemetry: map[string]int{}, alarmLast: map[string][2]int64{}, alarmAt: map[string]int64{}}
 }
 
 func pick[V any](m map[string]V, ids []string) map[string]V {
@@ -487,6 +491,33 @@ func (s *memStore) ClockOffset(context.Context) (time.Duration, time.Duration, e
 	return s.offset, time.Millisecond, nil
 }
 func (s *memStore) Close() {}
+func (s *memStore) RuleAlarms(_ context.Context, _, _ string, devices []string, since int64) (map[string][]AlarmRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string][]AlarmRecord{}
+	for _, d := range devices {
+		if at, ok := s.alarmAt[d]; ok && at >= since {
+			status := "RECOVERED"
+			if s.alarmLast[d][1] == 1 {
+				status = "ACTIVE"
+			}
+			out[d] = append(out[d], AlarmRecord{Status: status, LastTriggeredAt: at})
+		}
+	}
+	return out, nil
+}
+
+// report applies a device report to the simulated rule.
+func (s *memStore) report(device string, tsMS int64, alarm bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last, ok := s.alarmLast[device]; !ok || tsMS >= last[0] {
+		s.alarmLast[device] = [2]int64{tsMS, int64(boolInt(alarm))}
+	}
+	if alarm && tsMS > s.alarmAt[device] {
+		s.alarmAt[device] = tsMS
+	}
+}
 
 // archive records a message the way the platform pipeline would.
 func (s *memStore) archive(rawID, hash string, processedAt int64) {

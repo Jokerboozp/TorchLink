@@ -171,6 +171,7 @@ type controller struct {
 	lastDrain time.Duration
 	// agentResults keeps each agent's phase result by "phase/agent".
 	agentResults map[string]AgentPhaseResult
+	openAPIKey   string
 }
 
 func newRunID(now time.Time) string {
@@ -399,7 +400,7 @@ func (c *controller) execute(parent context.Context) error {
 }
 
 func (c *controller) secretRefs() []string {
-	return []string{c.plan.Credentials.OperatorSecretRef, c.plan.Credentials.AgentSecretRef, c.inv.Observers.PostgresSecretRef, c.inv.Observers.ClickHouseSecretRef}
+	return []string{c.plan.Credentials.OperatorSecretRef, c.plan.Credentials.AgentSecretRef, c.inv.Observers.PostgresSecretRef, c.inv.Observers.ClickHouseSecretRef, c.plan.Modules.OpenAPI.KeySecretRef}
 }
 
 func (c *controller) environment(planHash string) map[string]any {
@@ -451,6 +452,14 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 		} else if c.agentTok, err = c.secrets.Get(c.plan.Credentials.AgentSecretRef); err != nil {
 			add("Agent 凭据", false, err.Error())
 		}
+	}
+	if ref := c.plan.Modules.OpenAPI.KeySecretRef; c.plan.Modules.OpenAPI.Enabled {
+		if c.openAPIKey, err = c.secrets.Get(ref); err != nil {
+			add("开放 API 密钥", false, err.Error())
+		}
+	}
+	if c.plan.Modules.Realtime.Enabled && c.inv.MQTT == "" {
+		add("实时推送", false, "实时推送场景需要清单的 mqtt 地址")
 	}
 	if c.plan.Load.IngressShare["mqtt"] > 0 && c.inv.MQTT == "" {
 		add("MQTT 入口", false, "计划包含 MQTT 份额但清单没有 mqtt 地址")
@@ -559,6 +568,22 @@ func (c *controller) prepare(ctx context.Context) error {
 	cfg := AgentConfig{API: strings.TrimRight(c.inv.API, "/"), MQTT: c.inv.MQTT, TCP: c.inv.TCP, OperatorToken: c.opToken, Tenant: c.plan.Fixtures.Tenant, Product: c.plan.Fixtures.Product,
 		RequestTimeout: c.plan.Load.RequestTimeout, ReceiptWait: c.plan.Load.ReceiptWait, ReceiptRetries: c.plan.Load.ReceiptRetries, MaxInflight: max(1, c.plan.Load.MaxInflight/n),
 		Fields: c.plan.Fixtures.Fields, MessageBytes: c.plan.Fixtures.MessageBytes, AlarmFraction: c.plan.Fixtures.AlarmFraction, Seed: c.plan.Seed, QueryMix: c.plan.Load.QueryMix}
+	m := c.plan.Modules
+	if m.AI.Enabled {
+		cfg.Modules.AIMaxRuns, cfg.Modules.AITimeout = (m.AI.MaxRuns+n-1)/n, m.AI.Timeout
+	}
+	if m.Knowledge.Enabled {
+		cfg.Modules.KnowledgeWorkflow, cfg.Modules.KnowledgeBytes = m.Knowledge.WorkflowID, m.Knowledge.DocumentBytes
+	}
+	if m.Video.Enabled {
+		cfg.Modules.VideoCameras, cfg.Modules.VideoTimeout, cfg.Modules.WebURL = m.Video.Cameras, m.Video.Timeout, strings.TrimRight(c.inv.Web, "/")
+	}
+	if m.Exports.Enabled {
+		cfg.Modules.ExportTimeout = m.Exports.Timeout
+	}
+	if m.OpenAPI.Enabled {
+		cfg.Modules.OpenAPIKey = c.openAPIKey
+	}
 	var errs []string
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -566,6 +591,10 @@ func (c *controller) prepare(ctx context.Context) error {
 		wg.Add(1)
 		go func(h *agentHandle) {
 			defer wg.Done()
+			cfg := cfg
+			if m.Realtime.Enabled {
+				cfg.Modules.RealtimeSubs = m.Realtime.Subscribers/n + boolInt(h.index < m.Realtime.Subscribers%n)
+			}
 			res, err := h.agent.Prepare(ctx, PrepareRequest{RunID: c.runID, Generation: c.gen, Agent: h.target.Name, AgentIndex: h.index, Lease: Duration(20 * time.Second), Config: cfg, HTTPDevices: h.http, MQTTDevices: h.mqtt, TCPConnections: h.tcp})
 			c.sampleClock(ctx, h)
 			mu.Lock()
@@ -798,6 +827,10 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 	for _, s := range messageStreams {
 		rates[s] = rate * p.Load.IngressShare[s]
 	}
+	// Business modules run at their own fixed rates alongside the load.
+	for s, r := range p.ModuleStreams() {
+		rates[s] = r
+	}
 	warmup := p.Search.Warmup.D()
 	start := time.Now().Add(3 * time.Second)
 	rec.StartedAt, rec.MeasureFrom, rec.MeasureTo = start.UnixMilli(), start.Add(warmup).UnixMilli(), start.Add(warmup+hold).UnixMilli()
@@ -835,6 +868,15 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 			c.event("agent_error", "", rec.PhaseID, h.target.Name+": "+err.Error())
 			rec.Agents = append(rec.Agents, AgentPhaseSummary{Name: h.target.Name, Interrupted: true, Reason: "start: " + err.Error()})
 		}
+	}
+	// One backup per step runs under the measured load.
+	var backup chan Operation
+	if p.Modules.Backup.Enabled {
+		backup = make(chan Operation, 1)
+		go func() {
+			time.Sleep(time.Until(time.UnixMilli(rec.MeasureFrom)))
+			backup <- c.backupOperation(p.Modules.Backup)
+		}()
 	}
 	// Wait for the load window, reacting to a stop request.
 	end := start.Add(warmup + hold)
@@ -899,8 +941,19 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 			rec.Integrity.VerificationMode = "incomplete"
 		} else {
 			rec.Integrity = c.verifier.PhaseIntegrity(rec.PhaseID, worstUnc)
+			if rule := p.Fixtures.AlarmRuleID; rule != "" {
+				// The alarm window starts with the step (minus clock slack).
+				checked, mismatches, samples, err := c.verifier.CheckAlarms(vctx, rec.PhaseID, rule, p.Fixtures.AlarmRecovers, rec.StartedAt-60_000)
+				if err != nil {
+					rec.Integrity.Note = firstNonEmpty(rec.Integrity.Note, "alarm reconciliation failed: "+err.Error())
+				}
+				rec.Integrity.AlarmDevicesChecked, rec.Integrity.AlarmMismatches, rec.Integrity.AlarmSamples = checked, mismatches, samples
+			}
 		}
 		cancel()
+	}
+	if backup != nil {
+		rec.Operations = append(rec.Operations, <-backup)
 	}
 	_ = writeJSONAtomic(filepath.Join(c.dir, "verification", rec.PhaseID+".json"), rec.Integrity)
 	rec.Pipeline = PipelineFor(c.collector.Rounds(rec.MeasureFrom, rec.MeasureTo), rec.MeasureSeconds)

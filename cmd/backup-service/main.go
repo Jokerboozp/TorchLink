@@ -36,8 +36,9 @@ func main() {
 	service, err := backup.New(ctx, backup.Config{
 		PostgresDSN: os.Getenv("IOT_POSTGRES_DSN"), BackupDir: env("IOT_BACKUP_DIR", "./data/backups"), BackupBucket: env("IOT_BACKUP_BUCKET", "iot-backups"),
 		MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"), MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: boolean("IOT_MINIO_USE_TLS"),
-		ClickHouseURL:  os.Getenv("IOT_CLICKHOUSE_URL"),
-		BackupTimezone: env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"),
+		ClickHouseURL:    os.Getenv("IOT_CLICKHOUSE_URL"),
+		RestoreTargetDSN: os.Getenv("IOT_BACKUP_RESTORE_TARGET_DSN"),
+		BackupTimezone:   env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"),
 	})
 	if err != nil {
 		log.Error("initialize backup service", "error", err)
@@ -81,6 +82,16 @@ func main() {
 	mux.HandleFunc("POST /restore/drill", protected(adminToken, func(w http.ResponseWriter, r *http.Request) {
 		result, runErr := service.Verify(r.Context(), r.URL.Query().Get("backupId"))
 		respond(w, result, runErr)
+	}))
+	mux.HandleFunc("POST /restore", protected(adminToken, func(w http.ResponseWriter, r *http.Request) {
+		result, restoreErr := service.Restore(r.Context(), r.URL.Query().Get("backupId"))
+		if errors.Is(restoreErr, backup.ErrRestoreNotConfigured) || errors.Is(restoreErr, backup.ErrRestoreTargetUnsafe) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusPreconditionFailed)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": restoreErr.Error()})
+			return
+		}
+		respond(w, result, restoreErr)
 	}))
 	mux.HandleFunc("GET /backups", protected(adminToken, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()

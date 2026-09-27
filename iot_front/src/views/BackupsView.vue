@@ -31,7 +31,7 @@ const page = ref(1)
 const pageSize = ref(20)
 let loadVersion = 0
 
-const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','GET /api/v1/backups/:id/files/:filename','DELETE /api/v1/backups/:id']))
+const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','POST /api/v1/backups/:id/restore','GET /api/v1/backups/:id/files/:filename','DELETE /api/v1/backups/:id']))
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length)
 const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type)))
 
@@ -160,6 +160,26 @@ async function restoreDrill(row) {
   }
 }
 
+async function restoreToTarget(row) {
+  try {
+    await UiMessageBox.confirm(`将把“${row.id}”恢复到备份服务配置的独立恢复库并核对条数，不会写入当前业务库。是否继续？`, '恢复验证', { type: 'warning', confirmButtonText: '开始恢复', cancelButtonText: '取消' })
+  } catch {
+    return
+  }
+  actionLoading.value = `restore:${row.id}`
+  try {
+    const result = await api(`/api/v1/backups/${idPath(row.id)}/restore`, { method: 'POST' })
+    const kinds = Object.values(result.kinds || {})
+    const restored = kinds.reduce((sum, item) => sum + (item.restored || 0), 0)
+    UiMessage.success(`恢复验证完成：写入独立库 ${restored} 条，${result.status === 'COMPLETED' ? '与备份清单一致' : '与备份清单不一致'}`)
+    await load()
+  } catch (error) {
+    notifyError(error)
+  } finally {
+    actionLoading.value = ''
+  }
+}
+
 async function downloadArtifact(row, artifact) {
   const key = `${row.id}:${artifact.filename}`
   actionLoading.value = `download:${key}`
@@ -180,6 +200,7 @@ function rowActions(row) {
   return [
     { key:'detail', label:'详情 / 文件', onClick:() => showDetail(row) },
     { key:'drill', label:'文件校验', permission:'POST /api/v1/backups/:id/restore-drill', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `drill:${row.id}`, onClick:() => restoreDrill(row) },
+    { key:'restore', label:'恢复验证', permission:'POST /api/v1/backups/:id/restore', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `restore:${row.id}`, onClick:() => restoreToTarget(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/backups/:id', hidden:row.status === 'RUNNING', onClick:() => removeBackup(row) }
   ]
 }

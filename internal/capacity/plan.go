@@ -93,6 +93,11 @@ type Fixtures struct {
 	// AlarmFraction sets stressAlarm=1 on that share of reports; alarm
 	// outcomes are observed, not reconciled, in P1.
 	AlarmFraction float64 `yaml:"alarmFraction" json:"alarmFraction"`
+	// AlarmRuleID names an existing rule that fires on stressAlarm=1; when
+	// set, every device's alarms are reconciled against its message
+	// sequence. AlarmRecovers states the rule recovers on stressAlarm=0.
+	AlarmRuleID   string `yaml:"alarmRuleId" json:"alarmRuleId"`
+	AlarmRecovers bool   `yaml:"alarmRecovers" json:"alarmRecovers"`
 }
 
 type Load struct {
@@ -143,19 +148,145 @@ type Budget struct {
 	MaximumEvidenceGiB       float64  `yaml:"maximumEvidenceGiB" json:"maximumEvidenceGiB"`
 }
 
-type Module struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
-}
-
+// Modules are business scenarios offered alongside device load. Rates are
+// per minute across all agents; P95 is the module's own latency SLO.
 type Modules struct {
-	AI        Module `yaml:"ai" json:"ai"`
-	Video     Module `yaml:"video" json:"video"`
-	Backup    Module `yaml:"backup" json:"backup"`
-	Knowledge Module `yaml:"knowledge" json:"knowledge"`
+	AI        AIModule        `yaml:"ai" json:"ai"`
+	Video     VideoModule     `yaml:"video" json:"video"`
+	Backup    BackupModule    `yaml:"backup" json:"backup"`
+	Knowledge KnowledgeModule `yaml:"knowledge" json:"knowledge"`
+	Realtime  RealtimeModule  `yaml:"realtime" json:"realtime"`
+	Exports   ExportsModule   `yaml:"exports" json:"exports"`
+	OpenAPI   OpenAPIModule   `yaml:"openapi" json:"openapi"`
 }
 
+// AIModule runs manual alarm analyses on active alarms of the test tenant.
+// Mode "mock" states that the platform uses cmd/harness-mock; "real" needs
+// explicit request and time budgets because each run costs model quota.
+type AIModule struct {
+	Enabled       bool     `yaml:"enabled" json:"enabled"`
+	Mode          string   `yaml:"mode" json:"mode"`
+	RunsPerMinute float64  `yaml:"runsPerMinute" json:"runsPerMinute"`
+	MaxRuns       int      `yaml:"maxRuns" json:"maxRuns"`
+	Timeout       Duration `yaml:"timeout" json:"timeout"`
+	P95           Duration `yaml:"p95" json:"p95"`
+}
+
+type KnowledgeModule struct {
+	Enabled          bool     `yaml:"enabled" json:"enabled"`
+	UploadsPerMinute float64  `yaml:"uploadsPerMinute" json:"uploadsPerMinute"`
+	WorkflowID       string   `yaml:"workflowId" json:"workflowId"`
+	DocumentBytes    int      `yaml:"documentBytes" json:"documentBytes"`
+	P95              Duration `yaml:"p95" json:"p95"`
+}
+
+// VideoModule opens and closes HLS play sessions on listed test cameras;
+// with inventory.web set it also fetches the playlist and first segment.
+type VideoModule struct {
+	Enabled           bool     `yaml:"enabled" json:"enabled"`
+	Cameras           []string `yaml:"cameras" json:"cameras"`
+	SessionsPerMinute float64  `yaml:"sessionsPerMinute" json:"sessionsPerMinute"`
+	Timeout           Duration `yaml:"timeout" json:"timeout"`
+	P95               Duration `yaml:"p95" json:"p95"`
+}
+
+// BackupModule runs one backup per step under load, downloads and checks
+// every file, and optionally restores it into the independent target.
+type BackupModule struct {
+	Enabled bool     `yaml:"enabled" json:"enabled"`
+	Restore bool     `yaml:"restore" json:"restore"`
+	Timeout Duration `yaml:"timeout" json:"timeout"`
+}
+
+// RealtimeModule holds MQTT subscribers like browser pages and measures
+// alarm and state push delivery.
+type RealtimeModule struct {
+	Enabled     bool     `yaml:"enabled" json:"enabled"`
+	Subscribers int      `yaml:"subscribers" json:"subscribers"`
+	P95         Duration `yaml:"p95" json:"p95"`
+}
+
+type ExportsModule struct {
+	Enabled               bool     `yaml:"enabled" json:"enabled"`
+	RawDownloadsPerMinute float64  `yaml:"rawDownloadsPerMinute" json:"rawDownloadsPerMinute"`
+	ReplaysPerMinute      float64  `yaml:"replaysPerMinute" json:"replaysPerMinute"`
+	InspectionsPerMinute  float64  `yaml:"inspectionsPerMinute" json:"inspectionsPerMinute"`
+	Timeout               Duration `yaml:"timeout" json:"timeout"`
+	P95                   Duration `yaml:"p95" json:"p95"`
+}
+
+type OpenAPIModule struct {
+	Enabled           bool     `yaml:"enabled" json:"enabled"`
+	KeySecretRef      string   `yaml:"keySecretRef" json:"keySecretRef"`
+	RequestsPerSecond float64  `yaml:"requestsPerSecond" json:"requestsPerSecond"`
+	P95               Duration `yaml:"p95" json:"p95"`
+}
+
+// ModuleStreams maps enabled modules to agent streams with rates per
+// second (across all agents).
+func (p *Plan) ModuleStreams() map[string]float64 {
+	m := p.Modules
+	out := map[string]float64{}
+	if m.AI.Enabled {
+		out["ai"] = m.AI.RunsPerMinute / 60
+	}
+	if m.Knowledge.Enabled {
+		out["knowledge"] = m.Knowledge.UploadsPerMinute / 60
+	}
+	if m.Video.Enabled {
+		out["video"] = m.Video.SessionsPerMinute / 60
+	}
+	if m.Exports.Enabled {
+		out["export_raw"] = m.Exports.RawDownloadsPerMinute / 60
+		out["export_replay"] = m.Exports.ReplaysPerMinute / 60
+		out["export_inspection"] = m.Exports.InspectionsPerMinute / 60
+	}
+	if m.OpenAPI.Enabled {
+		out["openapi"] = m.OpenAPI.RequestsPerSecond
+	}
+	for k, v := range out {
+		if v <= 0 {
+			delete(out, k)
+		}
+	}
+	return out
+}
+
+// ModuleP95 is the latency SLO of a module stream (0 = none).
+func (p *Plan) ModuleP95(stream string) time.Duration {
+	m := p.Modules
+	switch stream {
+	case "ai":
+		return m.AI.P95.D()
+	case "knowledge":
+		return m.Knowledge.P95.D()
+	case "video":
+		return m.Video.P95.D()
+	case "export_raw", "export_replay", "export_inspection":
+		return m.Exports.P95.D()
+	case "openapi":
+		return m.OpenAPI.P95.D()
+	case "realtime":
+		return m.Realtime.P95.D()
+	}
+	return 0
+}
+
+// Faults name actions registered on agents (capacity-test agent -fault-allow);
+// the plan can only reference them, never supply commands.
 type Faults struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
+	Enabled bool          `yaml:"enabled" json:"enabled"`
+	Actions []FaultAction `yaml:"actions" json:"actions"`
+	// MaxRecovery bounds the time from recovery until the pipeline is back
+	// to normal (backlog drained, success restored).
+	MaxRecovery Duration `yaml:"maxRecovery" json:"maxRecovery"`
+}
+
+type FaultAction struct {
+	Agent    string   `yaml:"agent" json:"agent"`
+	Action   string   `yaml:"action" json:"action"`
+	At       Duration `yaml:"at" json:"at"`
+	Duration Duration `yaml:"duration" json:"duration"`
 }
 
 type Outputs struct {
@@ -244,6 +375,16 @@ func defaultPlan() Plan {
 			MaxClockUncertainty:   Duration(100 * time.Millisecond),
 		},
 		Outputs: Outputs{Formats: []string{"html", "markdown", "json", "csv", "svg"}},
+		Modules: Modules{
+			AI:        AIModule{Mode: "mock", Timeout: Duration(3 * time.Minute), P95: Duration(2 * time.Minute)},
+			Knowledge: KnowledgeModule{DocumentBytes: 16 << 10, P95: Duration(30 * time.Second)},
+			Video:     VideoModule{Timeout: Duration(20 * time.Second), P95: Duration(5 * time.Second)},
+			Backup:    BackupModule{Timeout: Duration(30 * time.Minute)},
+			Realtime:  RealtimeModule{P95: Duration(3 * time.Second)},
+			Exports:   ExportsModule{Timeout: Duration(5 * time.Minute), P95: Duration(60 * time.Second)},
+			OpenAPI:   OpenAPIModule{P95: Duration(500 * time.Millisecond)},
+		},
+		Faults: Faults{MaxRecovery: Duration(5 * time.Minute)},
 	}
 }
 
@@ -264,11 +405,9 @@ func (p *Plan) Validate() error {
 		bad("suite must be full, core or custom")
 	}
 	switch p.Preset {
-	case PresetQuick, PresetCapacity, PresetSoak:
-	case PresetResilience:
-		bad("preset resilience needs fault injection, which is not implemented in this version")
+	case PresetQuick, PresetCapacity, PresetSoak, PresetResilience:
 	default:
-		bad("preset must be quick, capacity or soak")
+		bad("preset must be quick, capacity, soak or resilience")
 	}
 	if p.Credentials.OperatorSecretRef == "" {
 		bad("credentials.operatorSecretRef is required")
@@ -360,7 +499,7 @@ func (p *Plan) Validate() error {
 			bad("search.rates must be positive")
 		}
 	}
-	if p.Preset == PresetSoak && len(s.Rates) != 1 {
+	if (p.Preset == PresetSoak || p.Preset == PresetResilience) && len(s.Rates) != 1 {
 		bad("preset soak needs exactly one rate in search.rates")
 	}
 	o := p.SLO
@@ -382,11 +521,45 @@ func (p *Plan) Validate() error {
 			bad("%s", msg)
 		}
 	}
-	if p.Modules.AI.Enabled || p.Modules.Video.Enabled || p.Modules.Backup.Enabled || p.Modules.Knowledge.Enabled {
-		bad("modules ai/video/backup/knowledge have no load adapter in this version; disable them (a full suite reports them as not_covered)")
+	m := p.Modules
+	if m.AI.Enabled {
+		if m.AI.Mode != "real" && m.AI.Mode != "mock" {
+			bad("modules.ai.mode must be real or mock (mock = the platform points IOT_AI_HARNESS_URL at cmd/harness-mock)")
+		}
+		if m.AI.RunsPerMinute <= 0 || m.AI.MaxRuns < 1 {
+			bad("modules.ai needs runsPerMinute and a hard maxRuns budget")
+		}
+	}
+	if m.Knowledge.Enabled && (m.Knowledge.UploadsPerMinute <= 0 || m.Knowledge.WorkflowID == "" || m.Knowledge.DocumentBytes < 0 || m.Knowledge.DocumentBytes > 8<<20) {
+		bad("modules.knowledge needs uploadsPerMinute, workflowId and documentBytes up to 8 MiB")
+	}
+	if m.Video.Enabled && (len(m.Video.Cameras) == 0 || m.Video.SessionsPerMinute <= 0) {
+		bad("modules.video needs test cameras and sessionsPerMinute")
+	}
+	if m.Realtime.Enabled && (m.Realtime.Subscribers < 1 || m.Realtime.Subscribers > 1000) {
+		bad("modules.realtime.subscribers must be 1-1000")
+	}
+	if m.Exports.Enabled && m.Exports.RawDownloadsPerMinute+m.Exports.ReplaysPerMinute+m.Exports.InspectionsPerMinute <= 0 {
+		bad("modules.exports needs at least one positive rate")
+	}
+	if m.OpenAPI.Enabled && (m.OpenAPI.KeySecretRef == "" || m.OpenAPI.RequestsPerSecond <= 0) {
+		bad("modules.openapi needs keySecretRef and requestsPerSecond")
+	}
+	if p.Faults.Enabled != (p.Preset == PresetResilience) {
+		bad("faults are used by (and only by) preset resilience")
 	}
 	if p.Faults.Enabled {
-		bad("fault injection is not implemented in this version")
+		if len(p.Faults.Actions) == 0 {
+			bad("faults.actions must list at least one registered agent action")
+		}
+		for i, a := range p.Faults.Actions {
+			if !identifier.MatchString(a.Agent) || !identifier.MatchString(a.Action) || a.At < 0 || a.Duration <= 0 || a.At+a.Duration > p.Search.Measure {
+				bad("faults.actions[%d] needs agent, action, at >= 0 and duration > 0 within search.measure", i)
+			}
+		}
+		if len(p.Search.Rates) != 1 {
+			bad("preset resilience needs exactly one background rate in search.rates")
+		}
 	}
 	for _, format := range p.Outputs.Formats {
 		switch format {

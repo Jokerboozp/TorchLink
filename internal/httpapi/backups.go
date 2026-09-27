@@ -118,6 +118,20 @@ func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// restoreBackupToTarget loads a backup into the independent restore database
+// configured on the backup service and checks counts against the manifest.
+func (s *Server) restoreBackupToTarget(w http.ResponseWriter, r *http.Request) {
+	id, err := backupPathSegment(r.PathValue("id"), "backup id")
+	if err != nil {
+		problem(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	query := url.Values{"backupId": []string{id}}
+	if s.proxyBackupJSON(w, r, http.MethodPost, "/restore", query, nil, 60*time.Minute) {
+		s.audit(r, "backup.restore", "backup", id, map[string]any{"backupId": id})
+	}
+}
+
 // proxyBackupJSON keeps the backup admin token on the server side. Browsers
 // only receive the platform API response and never connect to backup-service
 // directly.

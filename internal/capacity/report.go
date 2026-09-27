@@ -287,14 +287,44 @@ func (d *reportData) coverage() []Coverage {
 	add("mqtt_standard_ingest", share["mqtt"] > 0, "MQTT QoS1 + 应用归档回执，原文 ID 全量核对")
 	add("tcp_gb26875", share["tcp"] > 0, "GB26875 TCP，仅协议 ACK 层证据，未做原文核对")
 	add("management_queries", d.plan.Load.QueryRequestsPerSecond > 0, "固定查询组合的开环请求，非真实用户会话")
-	out = append(out, Coverage{Module: "rules_and_alarms", Status: VerdictNotCovered, Detail: "告警结果只观测 alarm_trigger_total，未按预期序列核对"})
-	why := "P1 无负载适配器"
-	if d.plan.Suite != "full" {
-		why = "suite=" + d.plan.Suite + " 未纳入；P1 无负载适配器"
+	m := d.plan.Modules
+	off := "计划未启用"
+	if d.plan.Suite == "full" {
+		off = "suite=full 但计划未启用，全系统结论不成立"
 	}
-	for _, m := range []string{"ai_workflows", "knowledge_base", "video_live", "backup_restore", "realtime_push", "exports_and_replay", "open_api", "fault_injection", "browser_ui"} {
-		out = append(out, Coverage{Module: m, Status: VerdictNotCovered, Detail: why})
+	module := func(name string, on bool, detail string) {
+		if on {
+			out = append(out, Coverage{Module: name, Status: "measured", Detail: detail})
+		} else {
+			out = append(out, Coverage{Module: name, Status: VerdictNotCovered, Detail: off})
+		}
 	}
+	if d.plan.Fixtures.AlarmRuleID != "" {
+		out = append(out, Coverage{Module: "rules_and_alarms", Status: "measured", Detail: "按设备上报序列核对规则 " + d.plan.Fixtures.AlarmRuleID + " 的触发与最终状态"})
+	} else {
+		out = append(out, Coverage{Module: "rules_and_alarms", Status: VerdictNotCovered, Detail: "未指定 fixtures.alarmRuleId，只观测 alarm_trigger_total"})
+	}
+	aiDetail := "手动告警研判（真实 Harness 与模型，受 maxRuns 预算限制）"
+	if m.AI.Mode == "mock" {
+		aiDetail = "手动告警研判，平台连接 harness-mock：只测平台调度，不代表模型与供应商容量"
+	}
+	module("ai_workflows", m.AI.Enabled, aiDetail)
+	module("knowledge_base", m.Knowledge.Enabled, "文档上传、解析、分块与索引；检索只经 AI 工作流间接覆盖")
+	videoDetail := "播放会话建立与释放（控制面）"
+	if d.env != nil && m.Video.Enabled {
+		videoDetail += "；配置 inventory.web 时拉取 HLS 播放列表与首个分片，WebRTC 未覆盖"
+	}
+	module("video_live", m.Video.Enabled, videoDetail)
+	backupDetail := "负载下备份并逐文件校验"
+	if m.Backup.Restore {
+		backupDetail += "，恢复到独立库并核对条数"
+	}
+	module("backup_restore", m.Backup.Enabled, backupDetail)
+	module("realtime_push", m.Realtime.Enabled, "MQTT 订阅告警与设备状态推送，测送达时延")
+	module("exports_and_replay", m.Exports.Enabled, "原文批量下载、回放 DRY_RUN、巡检与 PDF")
+	module("open_api", m.OpenAPI.Enabled, "开放 API 密钥查询")
+	module("fault_injection", d.plan.Faults.Enabled, "Agent 白名单故障动作，记录注入/恢复与恢复时间")
+	out = append(out, Coverage{Module: "browser_ui", Status: VerdictNotCovered, Detail: "负载不经浏览器；页面交互另用少量真实浏览器会话检查"})
 	return out
 }
 

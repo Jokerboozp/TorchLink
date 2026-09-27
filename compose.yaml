@@ -445,6 +445,7 @@ services:
       IOT_BACKUP_TIME: ${IOT_BACKUP_TIME:-00:05}
       IOT_BACKUP_TIMEZONE: ${IOT_BACKUP_TIMEZONE:-Asia/Shanghai}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
+      IOT_BACKUP_RESTORE_TARGET_DSN: ${IOT_BACKUP_RESTORE_TARGET_DSN:-}
     ports: ["127.0.0.1:${IOT_BACKUP_HTTP_PORT:-8092}:8090"]
     volumes:
       - backup-staging:/app/data/backups

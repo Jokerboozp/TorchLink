@@ -65,6 +65,7 @@ IOT_MODBUS_ALLOWED_CIDRS	允许主动 Modbus 采集访问的网段
 IOT_BACKUP_TIME	每天设备数据备份时间（HH:mm），备份前一天原始报文及解析数据
 IOT_BACKUP_ENABLED	是否启用每日自动设备数据备份；true 开启、false 关闭，手动备份不受影响
 IOT_BACKUP_TIMEZONE	每日备份使用的时区
+IOT_BACKUP_RESTORE_TARGET_DSN	恢复验证使用的独立 PostgreSQL 库连接串，不能与业务库相同；留空时不提供恢复到独立库
 IOT_PROTOCOL_PORTS	通用 TCP/UDP 协议监听端口或端口范围
 IOT_PLATFORM_API_IMAGE	离线部署使用的平台 API 镜像
 IOT_PLATFORM_WEB_IMAGE	离线部署使用的平台 Web 镜像

@@ -1,6 +1,7 @@
 # Core IoT mixed capacity search (HTTP + MQTT + management queries).
-# AI, video, knowledge and backup have no load adapter yet; with suite: full
-# they are reported as not_covered and the run cannot be a full-system pass.
+# Business modules (AI, video, knowledge, backup, realtime, exports, OpenAPI)
+# are off here; see full-system.yaml. With suite: full every disabled module
+# is reported as not_covered and the run cannot be a full-system pass.
 schemaVersion: 1
 name: core-mixed-capacity
 suite: core
@@ -21,7 +22,9 @@ fixtures:
   reuseDevices: true
   messageBytes: 512
   fields: 6
-  alarmFraction: 0.01                        # sets stressAlarm=1; alarms are observed, not reconciled
+  alarmFraction: 0.01                        # sets stressAlarm=1
+  # alarmRuleId: rule_xxx                    # rule firing on stressAlarm=1: reconciles alarms per device
+  # alarmRecovers: true                      # the rule recovers on stressAlarm=0
 load:
   ingressShare: {http: 0.4, mqtt: 0.6}
   initialMessagesPerSecond: 50

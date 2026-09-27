@@ -17,10 +17,12 @@ import (
 // Inventory is the operator-registered target. The controller only contacts
 // addresses listed here; a plan cannot introduce arbitrary hosts.
 type Inventory struct {
-	Name      string          `yaml:"name" json:"name"`
-	API       string          `yaml:"api" json:"api"`
-	MQTT      string          `yaml:"mqtt,omitempty" json:"mqtt,omitempty"`
-	TCP       string          `yaml:"tcp,omitempty" json:"tcp,omitempty"`
+	Name string `yaml:"name" json:"name"`
+	API  string `yaml:"api" json:"api"`
+	MQTT string `yaml:"mqtt,omitempty" json:"mqtt,omitempty"`
+	TCP  string `yaml:"tcp,omitempty" json:"tcp,omitempty"`
+	// Web is the management web origin (HLS playback goes through its proxy).
+	Web       string          `yaml:"web,omitempty" json:"web,omitempty"`
 	Metrics   []MetricsTarget `yaml:"metrics" json:"metrics"`
 	Agents    []AgentTarget   `yaml:"agents" json:"agents"`
 	Observers Observers       `yaml:"observers" json:"observers"`

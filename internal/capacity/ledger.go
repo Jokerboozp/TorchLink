@@ -43,6 +43,8 @@ type LedgerEntry struct {
 	Attempts   int    `json:"a,omitempty"`
 	Result     string `json:"x"`
 	OK         bool   `json:"ok,omitempty"`
+	// Alarm is the stressAlarm flag the report carried (alarm sequence check).
+	Alarm bool `json:"al,omitempty"`
 }
 
 // LedgerWriter appends gzip JSONL through one goroutine so request goroutines

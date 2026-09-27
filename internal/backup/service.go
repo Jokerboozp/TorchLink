@@ -26,7 +26,9 @@ import (
 type Config struct {
 	PostgresDSN, BackupDir, BackupBucket, MinIOEndpoint, MinIOAccessKey, MinIOSecretKey string
 	ClickHouseURL, BackupTimezone                                                       string
-	MinIOUseTLS                                                                         bool
+	// RestoreTargetDSN is a separate PostgreSQL database for restore checks.
+	RestoreTargetDSN string
+	MinIOUseTLS      bool
 }
 
 type Artifact struct {
