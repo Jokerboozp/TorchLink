@@ -239,7 +239,7 @@ func (d *reportData) summarize() {
 		s.Verdict, s.VerdictReason = VerdictFailed, ReasonIntegrity
 	case res.Classification == ClassNoPass:
 		s.Verdict, s.VerdictReason = VerdictFailed, res.FailureMode
-	case res.Classification == ClassRegression || res.Classification == ClassSoak:
+	case res.Classification == ClassRegression || res.Classification == ClassSoak || res.Classification == ClassResilience:
 		s.Verdict = VerdictPassed
 		for _, p := range d.phases {
 			if p.Verdict == VerdictFailed {
@@ -568,7 +568,47 @@ func (d *reportData) charts() map[string]string {
 		res = append(res, chartSeries{Name: inst + " heap MiB", Points: toXY(pts)})
 	}
 	out["resources"] = renderChart(chartSpec{Title: "平台实例资源（Go 堆内存）", XLabel: "时间", YLabel: "MiB", TimeAxis: true, Bands: tbands, Series: res, Note: "主机 CPU/磁盘需由节点监控补充"})
+	if svg := d.recoveryChart(toXY); svg != "" {
+		out["recovery"] = svg
+	}
 	return out
+}
+
+// recoveryChart plots processing rate and backlog around injected faults.
+func (d *reportData) recoveryChart(toXY func([]Point) []xy) string {
+	var bands []chartBand
+	for _, p := range d.phases {
+		for _, f := range p.Faults {
+			if f.InjectedAt > 0 {
+				to := f.RecoverAt
+				if to == 0 {
+					to = p.MeasureTo
+				}
+				bands = append(bands, chartBand{From: float64(f.InjectedAt), To: float64(to), Label: "故障 " + f.Action, Fill: "#fee2e2"})
+			}
+		}
+	}
+	if len(bands) == 0 {
+		return ""
+	}
+	var rate []Point
+	for i := 1; i < len(d.rounds); i++ {
+		pt := Point{At: d.rounds[i].At}
+		if v, ok := CounterIncrease(d.rounds[i-1:i+1], "parse_success_total"); ok {
+			if dt := float64(d.rounds[i].At-d.rounds[i-1].At) / 1000; dt > 0 {
+				pt.Value, pt.Valid = v/dt, true
+			}
+		}
+		rate = append(rate, pt)
+	}
+	var lines []chartLine
+	for _, p := range d.phases {
+		if p.Recovery != nil && p.Recovery.BaselinePerSec != nil {
+			lines = append(lines, chartLine{Label: p.PhaseID + " 基线", Y: *p.Recovery.BaselinePerSec})
+		}
+	}
+	return renderChart(chartSpec{Title: "故障与恢复（解析成功速率与积压）", XLabel: "时间（红色为故障持续区间）", YLabel: "条/秒 · 条目", TimeAxis: true, Bands: bands, Lines: lines, Series: []chartSeries{
+		{Name: "解析成功/秒", Points: toXY(rate)}, {Name: "合计积压", Points: toXY(BacklogSeries(d.rounds)), Dashed: true}}, Note: "恢复用时从最后一次恢复命令完成起算"})
 }
 
 func instances(rounds []Round) []string {
@@ -588,8 +628,8 @@ func instances(rounds []Round) []string {
 
 // --- text reports -----------------------------------------------------------
 
-var verdictText = map[string]string{VerdictPassed: "通过", VerdictFailed: "失败", VerdictInconclusive: "证据不足", VerdictNotCovered: "未覆盖", "measured": "已测"}
-var classText = map[string]string{ClassBounded: "已找到边界", ClassWide: "已找到边界（区间未收敛到目标精度）", ClassLowerOnly: "至少达到下界，尚未找到上限", ClassNoPass: "首档即失败", ClassInconclusive: "证据不足", ClassRegression: "回归（不认证最大容量）", ClassSoak: "长稳", ClassUnmeasured: "未测量"}
+var verdictText = map[string]string{VerdictPassed: "通过", VerdictFailed: "失败", VerdictInconclusive: "证据不足", VerdictNotCovered: "未覆盖", "measured": "已测", StatusRecorded: "仅记录"}
+var classText = map[string]string{ClassBounded: "已找到边界", ClassWide: "已找到边界（区间未收敛到目标精度）", ClassLowerOnly: "至少达到下界，尚未找到上限", ClassNoPass: "首档即失败", ClassInconclusive: "证据不足", ClassRegression: "回归（不认证最大容量）", ClassSoak: "长稳", ClassResilience: "故障恢复", ClassUnmeasured: "未测量"}
 var reasonText = map[string]string{ReasonService: "服务能力上限", ReasonPolicy: "配额/保护策略", ReasonGenerator: "发压能力不足", ReasonObservability: "观测缺失", ReasonIntegrity: "数据完整性失败", ReasonBudget: "预算上限", ReasonCancel: "人工停止", ReasonInfrastructure: "测试基础设施故障", "coverage_incomplete": "覆盖不完整（full 套件含未适配模块）", "evidence_incomplete": "证据不完整", "boundary_unstable": "边界不稳定", "candidate_not_confirmed": "候选档未完成复测"}
 
 func tr(m map[string]string, k string) string {
@@ -613,10 +653,47 @@ func (d *reportData) conclusion() string {
 		return fmt.Sprintf("至少达到 %s%s，尚未找到上限（停止原因：%s）。", fmtNum(*r.LowerPassedBound), unit, tr(reasonText, r.StopReason))
 	case r.Classification == ClassNoPass && r.UpperFailedBound != nil:
 		return fmt.Sprintf("首档 %s%s 即未通过（%s），本次没有通过档。", fmtNum(*r.UpperFailedBound), unit, tr(reasonText, r.FailureMode))
+	case r.Classification == ClassResilience:
+		return fmt.Sprintf("故障恢复预设：%s结论为「%s」，不认证最大容量。", d.recoveryText(), tr(verdictText, d.summary.Verdict))
 	case r.Classification == ClassRegression || r.Classification == ClassSoak:
 		return fmt.Sprintf("%s预设：结论为「%s」，不认证最大容量。", d.plan.Preset, tr(verdictText, d.summary.Verdict))
 	}
 	return fmt.Sprintf("结论为 inconclusive：%s，不填 0、不标记通过。", tr(reasonText, firstNonEmpty(r.StopReason, d.summary.VerdictReason)))
+}
+
+// recoveryText summarises fault steps in one sentence.
+func (d *reportData) recoveryText() string {
+	var parts []string
+	for _, p := range d.phases {
+		if p.Recovery == nil {
+			continue
+		}
+		names := make([]string, 0, len(p.Faults))
+		for _, f := range p.Faults {
+			names = append(names, f.Agent+"/"+f.Action)
+		}
+		parts = append(parts, fmt.Sprintf("%s 在 %s msg/s 背景负载下注入 %s，%s。", p.PhaseID, fmtNum(p.TargetMessagesPerSec), strings.Join(names, "、"), p.Recovery.Detail))
+	}
+	return strings.Join(parts, "")
+}
+
+// faultRows lists every injected failure for the report tables.
+func (d *reportData) faultRows() [][]string {
+	var rows [][]string
+	for _, p := range d.phases {
+		for _, f := range p.Faults {
+			held := "—"
+			if f.RecoverAt > 0 && f.InjectedAt > 0 {
+				held = fmt.Sprintf("%.0f", float64(f.RecoverAt-f.InjectedAt)/1000)
+			}
+			rec := "—"
+			if p.Recovery != nil && p.Recovery.RecoverySeconds != nil {
+				rec = fmtNum(*p.Recovery.RecoverySeconds)
+			}
+			rows = append(rows, []string{p.PhaseID, f.Agent + "/" + f.Action, fmt.Sprint(f.InjectOK), fmt.Sprint(f.RecoverOK), held, rec, clip(f.Output, 120)})
+		}
+	}
+	return rows
 }
 
 func (d *reportData) markdown() string {
@@ -641,7 +718,17 @@ func (d *reportData) markdown() string {
 	for _, row := range d.phaseRows() {
 		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s %s |\n", row[0], row[2], row[6], row[7], row[8], dash(row[12]), dash(row[20]), dash(row[21]), dash(row[17]), row[24], row[25], row[26], tr(verdictText, row[34]), tr(reasonText, row[35]))
 	}
-	b.WriteString("\n## 5. 图表\n\n图表位于 `charts/`：throughput.svg、latency.svg、backlog.svg、resources.svg。\n\n")
+	if rows := d.faultRows(); len(rows) > 0 {
+		b.WriteString("\n故障注入：\n\n| 阶段 | 动作 | 注入成功 | 恢复成功 | 持续秒 | 恢复用时秒 | 输出 |\n| --- | --- | --- | --- | ---: | ---: | --- |\n")
+		for _, r := range rows {
+			fmt.Fprintf(&b, "| %s |\n", strings.Join(r, " | "))
+		}
+	}
+	charts := "throughput.svg、latency.svg、backlog.svg、resources.svg"
+	if len(d.faultRows()) > 0 {
+		charts += "、recovery.svg"
+	}
+	fmt.Fprintf(&b, "\n## 5. 图表\n\n图表位于 `charts/`：%s。\n\n", charts)
 	b.WriteString("## 6. 数据完整性\n\n")
 	in := s.Integrity
 	fmt.Fprintf(&b, "核对方式：%s。唯一消息 %s，归档确认 %s，业务完成 %s，缺失 %s，结果未知 %s，待完成 %s，原文物理重复行 %s，TCP 仅 ACK %d。重复业务副作用：未测量。\n\n",
@@ -785,9 +872,22 @@ func (d *reportData) html(charts map[string]string) string {
 		}
 		b.WriteString("</tbody></table></div></details>")
 	}
+	if rows := d.faultRows(); len(rows) > 0 {
+		b.WriteString("<div class=\"card\"><b>故障注入</b><div class=\"scroll\"><table><thead><tr><th>阶段</th><th>动作</th><th>注入成功</th><th>恢复成功</th><th>持续秒</th><th>恢复用时秒</th><th>输出</th></tr></thead><tbody>")
+		for _, r := range rows {
+			b.WriteString("<tr>")
+			for _, c := range r {
+				fmt.Fprintf(&b, "<td>%s</td>", e(c))
+			}
+			b.WriteString("</tr>")
+		}
+		b.WriteString("</tbody></table></div></div>")
+	}
 	b.WriteString("<h2>5. 图表</h2>")
-	for _, name := range []string{"throughput", "latency", "backlog", "resources"} {
-		fmt.Fprintf(&b, "<div class=\"chart\">%s</div>", charts[name])
+	for _, name := range []string{"throughput", "latency", "backlog", "resources", "recovery"} {
+		if charts[name] != "" {
+			fmt.Fprintf(&b, "<div class=\"chart\">%s</div>", charts[name])
+		}
 	}
 	in := s.Integrity
 	b.WriteString("<h2>6. 数据完整性</h2><div class=\"card\">")

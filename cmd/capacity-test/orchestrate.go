@@ -20,11 +20,11 @@ import (
 const subcommandUsage = `capacity-test one-click orchestration (docs/DEVELOPMENT.md#容量验证):
 
   capacity-test plan validate --plan <plan.yaml> [--inventory <inventory.yaml>]
-  capacity-test run --plan <plan.yaml> [--inventory <file>] [--secrets <file>] [--results capacity-results]
+  capacity-test run --plan <plan.yaml> [--inventory <file>] [--secrets <file>] [--results capacity-results] [--fault-allow <file>]
   capacity-test status --run <runId> [--results capacity-results]
   capacity-test stop --run <runId> [--force] [--results capacity-results]
   capacity-test report --run <runId> [--secrets <file>] [--results capacity-results]
-  capacity-test agent --listen :7070 --token-ref <name> [--secrets <file>] [--name <agent>]
+  capacity-test agent --listen :7070 --token-ref <name> [--secrets <file>] [--name <agent>] [--fault-allow <file>]
 
 Legacy single-mode usage (-mode ...) is unchanged; run with -h for its flags.
 `
@@ -123,8 +123,16 @@ func runCmd(args []string) error {
 	fs.StringVar(&opt.SecretsPath, "secrets", "", "private secrets file (name: value, mode 0600)")
 	fs.StringVar(&opt.ResultsDir, "results", "capacity-results", "results directory")
 	fs.StringVar(&opt.WorkDir, "work-dir", "", "private work directory for fixture credentials (default <results>/.work)")
+	faultAllow := fs.String("fault-allow", "", "fault allowlist for in-process agents (resilience preset)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *faultAllow != "" {
+		allow, err := capacity.LoadFaultAllowlist(*faultAllow)
+		if err != nil {
+			return err
+		}
+		opt.FaultAllow = allow
 	}
 	opt.SourceCommit = sourceCommit()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -255,6 +263,7 @@ func agentCmd(args []string) error {
 	secretsPath := fs.String("secrets", "", "private secrets file")
 	name := fs.String("name", "", "agent name (default hostname)")
 	workDir := fs.String("work-dir", "capacity-agent", "local ledger directory")
+	faultAllow := fs.String("fault-allow", "", "allowlist of fault actions this agent may run (name -> inject/recover argv, mode 0600)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -270,6 +279,14 @@ func agentCmd(args []string) error {
 		*name, _ = os.Hostname()
 	}
 	w := capacity.NewWorker(*name, *workDir)
+	if *faultAllow != "" {
+		allow, err := capacity.LoadFaultAllowlist(*faultAllow)
+		if err != nil {
+			return err
+		}
+		w.SetFaults(allow)
+		fmt.Printf("fault actions allowed: %s\n", strings.Join(allow.Names(), ", "))
+	}
 	srv := &http.Server{Addr: *listen, Handler: capacity.AgentHandler(w, token), ReadHeaderTimeout: 10 * time.Second}
 	fmt.Printf("capacity agent %s listening on %s (ledgers in %s)\n", *name, *listen, *workDir)
 	return srv.ListenAndServe()

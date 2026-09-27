@@ -41,6 +41,7 @@ const (
 	ClassInconclusive = "inconclusive"
 	ClassRegression   = "regression" // quick preset: fixed steps, no capacity claim
 	ClassSoak         = "soak"
+	ClassResilience   = "resilience"
 	ClassUnmeasured   = "unmeasured"
 )
 
@@ -68,6 +69,8 @@ func Search(ctx context.Context, p *Plan, run StepRunner) (SearchResult, error) 
 		err = s.fixed(ctx, "quick", p.Search.Measure.D(), ClassRegression)
 	case PresetSoak:
 		err = s.fixed(ctx, "soak", p.Search.CandidateHold.D(), ClassSoak)
+	case PresetResilience:
+		err = s.fixed(ctx, PresetResilience, p.Search.Measure.D(), ClassResilience)
 	default:
 		err = s.capacity(ctx)
 	}
@@ -189,7 +192,7 @@ func (s *searcher) finish() {
 			}
 		}
 	}
-	if r.Classification == ClassRegression || r.Classification == ClassSoak {
+	if r.Classification == ClassRegression || r.Classification == ClassSoak || r.Classification == ClassResilience {
 		if len(s.passes) > 0 {
 			v := maxOf(s.passes)
 			r.LowerPassedBound = &v

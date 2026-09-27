@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,7 +52,7 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 	if err := validPlan().Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"core-mixed.yaml", "quick-local.yaml", "full-system.yaml"} {
+	for _, name := range []string{"core-mixed.yaml", "quick-local.yaml", "full-system.yaml", "resilience.yaml"} {
 		p, err := LoadPlan(filepath.Join("..", "..", "cmd", "capacity-test", "examples", name))
 		if err != nil || p.Validate() != nil {
 			t.Fatalf("example %s must stay valid: %v %v", name, err, p.Validate())
@@ -738,5 +739,101 @@ func TestPGStoreQueriesAgainstMigratedSchema(t *testing.T) {
 	}
 	if _, unc, err := store.ClockOffset(ctx); err != nil || unc <= 0 {
 		t.Fatal(unc, err)
+	}
+}
+
+func TestFaultAllowlistIsLocalStrictAndRecoveredOnRelease(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fault commands use /bin/sh")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "faults.yaml")
+	mark := filepath.Join(dir, "injected")
+	body := "actions:\n  mark:\n    inject: [/bin/sh, -c, 'touch " + mark + "']\n    recover: [/bin/sh, -c, 'rm -f " + mark + "']\n"
+	if err := os.WriteFile(path, []byte(body), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(path, 0o666)
+	if _, err := LoadFaultAllowlist(path); err == nil {
+		t.Fatal("group/world writable allowlist accepted")
+	}
+	_ = os.Chmod(path, 0o600)
+	allow, err := LoadFaultAllowlist(path)
+	if err != nil || allow["mark"].Timeout.D() != time.Minute {
+		t.Fatal(err, allow)
+	}
+	bad := filepath.Join(dir, "bad.yaml")
+	_ = os.WriteFile(bad, []byte("actions:\n  x: {inject: [], recover: [true]}\n"), 0o600)
+	if _, err = LoadFaultAllowlist(bad); err == nil {
+		t.Fatal("empty inject accepted")
+	}
+	w := NewWorker("a", filepath.Join(dir, "w"))
+	w.SetFaults(allow)
+	if st, _ := w.Status(context.Background()); len(st.Faults) != 1 || st.Faults[0] != "mark" {
+		t.Fatal("status must list allowlisted names", st.Faults)
+	}
+	ctx := context.Background()
+	if _, err = w.Fault(ctx, FaultRequest{RunID: "r", Generation: 1, Action: "mark", Op: FaultInject}); !errors.Is(err, ErrStaleGeneration) {
+		t.Fatal("fault outside a leased run", err)
+	}
+	if _, err = w.Prepare(ctx, PrepareRequest{RunID: "r", Generation: 1, Config: AgentConfig{API: "http://127.0.0.1:1", RequestTimeout: Duration(time.Second)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = w.Fault(ctx, FaultRequest{RunID: "r", Generation: 1, Action: "rm -rf /", Op: FaultInject}); !errors.Is(err, ErrUnknownFault) {
+		t.Fatal("unlisted action must be refused", err)
+	}
+	res, err := w.Fault(ctx, FaultRequest{RunID: "r", Generation: 1, Action: "mark", Op: FaultInject})
+	if err != nil || !res.OK {
+		t.Fatal(err, res)
+	}
+	if _, err = os.Stat(mark); err != nil {
+		t.Fatal("inject did not run")
+	}
+	// Releasing the run undoes a fault the controller never recovered.
+	if err = w.Release(ctx, RunRef{RunID: "r", Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err = os.Stat(mark); os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("release did not recover the injected fault")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestComputeRecoveryFindsReturnToBaseline(t *testing.T) {
+	// 1 round/s: 10/s before, 0/s during the fault (t=5..8), catch-up after.
+	var rounds []Round
+	total := 0.0
+	lag := 0.0
+	for i := 0; i <= 20; i++ {
+		at := int64(i * 1000)
+		switch {
+		case i > 5 && i <= 8:
+			lag += 10
+		case i > 8 && lag > 0:
+			total += 20
+			lag -= 10
+		default:
+			total += 10
+		}
+		if i == 0 {
+			total = 0
+		}
+		rounds = append(rounds, Round{At: at, Instances: []InstanceSample{{Instance: "a", OK: true, Values: map[string]float64{"parse_success_total": total, "kafka_lag": lag}}}})
+	}
+	info := computeRecovery(rounds, []FaultEvent{{InjectedAt: 5000, RecoverAt: 8000, InjectOK: true, RecoverOK: true}}, 0, 20000)
+	if info.BaselinePerSec == nil || *info.BaselinePerSec != 10 || info.DuringPerSec == nil || *info.DuringPerSec != 0 || info.RecoverySeconds == nil {
+		t.Fatalf("%+v", info)
+	}
+	if *info.RecoverySeconds < 1 || *info.RecoverySeconds > 6 {
+		t.Fatalf("recovery seconds %v", *info.RecoverySeconds)
+	}
+	if info := computeRecovery(rounds, []FaultEvent{{InjectedAt: 500, RecoverAt: 8000}}, 0, 20000); info.RecoverySeconds != nil || info.BaselinePerSec != nil {
+		t.Fatal("no baseline before the fault must not produce a recovery time", info)
 	}
 }

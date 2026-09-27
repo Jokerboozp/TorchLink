@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -29,6 +30,8 @@ type fakePlatform struct {
 	srv      *httptest.Server
 	// dropAlarms simulates a rule that never fires.
 	dropAlarms bool
+	// downFile, while it exists, makes ingest answer 503 (fault injection).
+	downFile string
 }
 
 func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *fakePlatform)) *fakePlatform {
@@ -64,6 +67,12 @@ func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *f
 	}))
 	mux.HandleFunc("POST /api/v1/device-ingest/standard/{tenant}/{product}/{device}/{kind}", func(w http.ResponseWriter, r *http.Request) {
 		device := r.PathValue("device")
+		if f.downFile != "" {
+			if _, err := os.Stat(f.downFile); err == nil {
+				w.WriteHeader(503)
+				return
+			}
+		}
 		if r.Header.Get("X-Device-Secret") != "sec-"+device {
 			w.WriteHeader(401)
 			return
@@ -99,6 +108,7 @@ func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *f
 type e2eEnv struct {
 	dir, planPath, secrets, results string
 	platform                        *fakePlatform
+	faultAllow                      FaultAllowlist
 }
 
 // e2eExtra adds plan/inventory/secret lines and platform handlers.
@@ -157,7 +167,7 @@ budget: {maximumWallTime: 5m, maximumMessagesPerSecond: 100, maximumEvidenceGiB:
 }
 
 func (e e2eEnv) run(ctx context.Context) (string, error) {
-	return Run(ctx, RunOptions{PlanPath: e.planPath, SecretsPath: e.secrets, ResultsDir: e.results, SourceCommit: "test",
+	return Run(ctx, RunOptions{PlanPath: e.planPath, SecretsPath: e.secrets, ResultsDir: e.results, SourceCommit: "test", FaultAllow: e.faultAllow,
 		NewStore: func(context.Context, string, string) (Store, error) { return e.platform.store, nil }})
 }
 
@@ -414,5 +424,55 @@ func TestEndToEndAlarmSequenceMismatchFailsIntegrity(t *testing.T) {
 	_ = json.Unmarshal(b, &rec)
 	if s.Verdict != VerdictFailed || s.VerdictReason != ReasonIntegrity || rec.Integrity.AlarmMismatches == 0 || len(rec.Integrity.AlarmSamples) == 0 {
 		t.Fatalf("%+v %+v", s, rec.Integrity)
+	}
+}
+
+func TestEndToEndResilienceInjectsRecoversAndMeasuresRecovery(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fault commands use /bin/sh")
+	}
+	t.Parallel()
+	down := filepath.Join(t.TempDir(), "down")
+	e := newE2E(t, 0, "resilience", "rates: [20], measure: 12s", e2eExtra{
+		handlers: func(_ *http.ServeMux, f *fakePlatform) { f.downFile = down },
+		plan: `faults:
+  enabled: true
+  maxRecovery: 30s
+  actions:
+    - {agent: local, action: ingest-down, at: 4s, duration: 3s}
+`,
+	})
+	e.faultAllow = FaultAllowlist{"ingest-down": {Inject: []string{"/bin/sh", "-c", "touch " + down}, Recover: []string{"/bin/sh", "-c", "rm -f " + down}, Timeout: Duration(10 * time.Second)}}
+	runID, err := e.run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.results, runID)
+	s := readSummary(t, dir)
+	var rec PhaseRecord
+	b, _ := os.ReadFile(filepath.Join(dir, "phases", s.Phases[0].PhaseID+".json"))
+	_ = json.Unmarshal(b, &rec)
+	if len(rec.Faults) != 1 || !rec.Faults[0].InjectOK || !rec.Faults[0].RecoverOK || rec.Faults[0].RecoverAt-rec.Faults[0].InjectedAt < 2500 {
+		t.Fatalf("fault events %+v", rec.Faults)
+	}
+	if _, err = os.Stat(down); err == nil {
+		t.Fatal("fault left injected")
+	}
+	if rec.Recovery == nil || rec.Recovery.RecoverySeconds == nil || rec.Recovery.BaselinePerSec == nil || *rec.Recovery.DuringPerSec >= *rec.Recovery.BaselinePerSec {
+		t.Fatalf("recovery %+v", rec.Recovery)
+	}
+	// 503s during the fault are recorded, not an SLO failure; nothing confirmed was lost.
+	m := rec.MessageTotals()
+	if m.Codes["503"] == 0 || s.Verdict != VerdictPassed || s.Capacity["mixedBusinessMessagesPerSecond"].Classification != ClassResilience {
+		t.Fatalf("verdict %s codes %v\n%s", s.Verdict, m.Codes, b)
+	}
+	for _, name := range []string{"charts/recovery.svg"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Error("missing", name)
+		}
+	}
+	md, _ := os.ReadFile(filepath.Join(dir, "report.md"))
+	if !strings.Contains(string(md), "local/ingest-down") || !strings.Contains(string(md), "故障恢复预设") {
+		t.Fatal(string(md))
 	}
 }

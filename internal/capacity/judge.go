@@ -106,6 +106,9 @@ type Operation struct {
 	Steps   map[string]string `json:"steps,omitempty"`
 }
 
+// StatusRecorded marks a check kept for information only (resilience steps).
+const StatusRecorded = "recorded"
+
 // FaultEvent records an injected failure and its recovery.
 type FaultEvent struct {
 	Agent      string `json:"agent"`
@@ -142,6 +145,19 @@ func Judge(p *Plan, r *PhaseRecord) {
 		r.Checks = append(r.Checks, Check{Name: name, Status: status, Reason: reason, Detail: fmt.Sprintf(format, a...)})
 	}
 	slo := p.SLO
+	// A resilience step measures behaviour under an injected failure: the
+	// normal SLOs are recorded, recovery and integrity decide.
+	resilience := r.Kind == PresetResilience
+	sloAdd := add
+	if resilience {
+		sloAdd = func(name, status, reason, format string, a ...any) {
+			if status == VerdictPassed {
+				add(name, status, reason, format, a...)
+				return
+			}
+			add(name, StatusRecorded, "", "故障期间仅记录："+format, a...)
+		}
+	}
 	if r.Cancelled {
 		add("停止", VerdictInconclusive, ReasonCancel, "本档被人工停止，结果不完整")
 	}
@@ -160,11 +176,11 @@ func Judge(p *Plan, r *PhaseRecord) {
 		late, _ := s.Lateness.Quantile(0.95)
 		switch {
 		case short > slo.SendTolerance:
-			add("实发达成 "+name, VerdictInconclusive, ReasonGenerator, "计划 %d 条，未发出 %d 条（%.2f%%，容差 %.2f%%）", s.Scheduled, s.NotSent, short*100, slo.SendTolerance*100)
+			sloAdd("实发达成 "+name, VerdictInconclusive, ReasonGenerator, "计划 %d 条，未发出 %d 条（%.2f%%，容差 %.2f%%）", s.Scheduled, s.NotSent, short*100, slo.SendTolerance*100)
 		case late > 1000:
-			add("配速准确 "+name, VerdictInconclusive, ReasonGenerator, "调度迟到 P95 %.0fms，超过 1000ms", late)
+			sloAdd("配速准确 "+name, VerdictInconclusive, ReasonGenerator, "调度迟到 P95 %.0fms，超过 1000ms", late)
 		default:
-			add("实发达成 "+name, VerdictPassed, "", "计划 %d 条，实发 %d 条，调度迟到 P95 %.1fms", s.Scheduled, s.Sent, late)
+			sloAdd("实发达成 "+name, VerdictPassed, "", "计划 %d 条，实发 %d 条，调度迟到 P95 %.1fms", s.Scheduled, s.Sent, late)
 		}
 	}
 	// 2. Ingress success of device messages.
@@ -172,24 +188,24 @@ func Judge(p *Plan, r *PhaseRecord) {
 	if m.Sent > 0 {
 		ratio := float64(m.OK) / float64(m.Sent)
 		if ratio >= slo.SuccessRatio {
-			add("入口成功率", VerdictPassed, "", "%.4f ≥ %.4f（%d/%d）", ratio, slo.SuccessRatio, m.OK, m.Sent)
+			sloAdd("入口成功率", VerdictPassed, "", "%.4f ≥ %.4f（%d/%d）", ratio, slo.SuccessRatio, m.OK, m.Sent)
 		} else {
 			reason := ReasonService
 			if m.Codes["429"]*2 > m.Fail {
 				reason = ReasonPolicy
 			}
-			add("入口成功率", VerdictFailed, reason, "%.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(m.Codes))
+			sloAdd("入口成功率", VerdictFailed, reason, "%.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(m.Codes))
 		}
 	}
 	// 3. Management queries.
 	if q := r.Streams["query"]; q != nil && q.Sent > 0 {
 		ratio := float64(q.OK) / float64(q.Sent)
 		if ratio < slo.SuccessRatio {
-			add("查询成功率", VerdictFailed, ReasonService, "%.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(q.Codes))
+			sloAdd("查询成功率", VerdictFailed, ReasonService, "%.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(q.Codes))
 		} else {
-			add("查询成功率", VerdictPassed, "", "%.4f（%d/%d）", ratio, q.OK, q.Sent)
+			sloAdd("查询成功率", VerdictPassed, "", "%.4f（%d/%d）", ratio, q.OK, q.Sent)
 		}
-		latencyCheck(add, "查询时延", q.Latency, slo.QueryP95.D().Seconds()*1000, slo.QueryP99.D().Seconds()*1000)
+		latencyCheck(sloAdd, "查询时延", q.Latency, slo.QueryP95.D().Seconds()*1000, slo.QueryP99.D().Seconds()*1000)
 	}
 	// Business modules: each keeps its own success and latency targets.
 	for _, name := range ModuleStreamNames {
@@ -214,12 +230,12 @@ func Judge(p *Plan, r *PhaseRecord) {
 			if st.Codes["429"]*2 > st.Fail {
 				reason = ReasonPolicy
 			}
-			add(label, VerdictFailed, reason, "成功率 %.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(st.Codes))
+			sloAdd(label, VerdictFailed, reason, "成功率 %.4f < %.4f；结果码 %s", ratio, slo.SuccessRatio, codeSummary(st.Codes))
 		} else {
 			add(label, VerdictPassed, "", "成功 %d/%d（预算截止 %d）", st.OK, attempted, capped)
 		}
 		if limit := p.ModuleP95(name); limit > 0 {
-			latencyCheck(add, label+"时延", st.Latency, limit.Seconds()*1000, limit.Seconds()*1000*2.5)
+			latencyCheck(sloAdd, label+"时延", st.Latency, limit.Seconds()*1000, limit.Seconds()*1000*2.5)
 		}
 	}
 	if rt := r.Streams["realtime"]; rt != nil {
@@ -252,29 +268,32 @@ func Judge(p *Plan, r *PhaseRecord) {
 		// 5. Business completion latency.
 		switch {
 		case !in.BusinessLatencyValid:
-			add("业务完成时延", VerdictInconclusive, ReasonObservability, "无法计算：%s", firstNonEmpty(in.Note, "测量窗口内没有完成的消息"))
+			sloAdd("业务完成时延", VerdictInconclusive, ReasonObservability, "无法计算：%s", firstNonEmpty(in.Note, "测量窗口内没有完成的消息"))
 		case in.ClockUncertaintyMS > slo.MaxClockUncertainty.D().Seconds()*1000:
-			add("业务完成时延", VerdictInconclusive, ReasonObservability, "时钟误差 %.1fms 超过 %.0fms，端到端时延无效", in.ClockUncertaintyMS, slo.MaxClockUncertainty.D().Seconds()*1000)
+			sloAdd("业务完成时延", VerdictInconclusive, ReasonObservability, "时钟误差 %.1fms 超过 %.0fms，端到端时延无效", in.ClockUncertaintyMS, slo.MaxClockUncertainty.D().Seconds()*1000)
 		default:
-			latencyCheck(add, "业务完成时延", in.BusinessLatency, slo.BusinessP95.D().Seconds()*1000, slo.BusinessP99.D().Seconds()*1000)
+			latencyCheck(sloAdd, "业务完成时延", in.BusinessLatency, slo.BusinessP95.D().Seconds()*1000, slo.BusinessP99.D().Seconds()*1000)
 		}
 	} else if in.TCPAckOnly > 0 {
-		add("数据完整性", VerdictPassed, "", "仅 TCP 协议 ACK 证据 %d 条；未做原文 ID 核对", in.TCPAckOnly)
+		sloAdd("数据完整性", VerdictPassed, "", "仅 TCP 协议 ACK 证据 %d 条；未做原文 ID 核对", in.TCPAckOnly)
 	}
 	// 6. Pipeline backlog must not keep growing during the window.
 	if m.Sent > 0 {
 		pl := r.Pipeline
 		if pl.BacklogSlopePerSec == nil {
-			add("管道积压趋势", VerdictInconclusive, ReasonObservability, "积压指标不足（有效点 %d），无法判断是否持续增长", pl.BacklogPoints)
+			sloAdd("管道积压趋势", VerdictInconclusive, ReasonObservability, "积压指标不足（有效点 %d），无法判断是否持续增长", pl.BacklogPoints)
 		} else {
 			growth := *pl.BacklogSlopePerSec * r.MeasureSeconds
 			limit := math.Max(50, slo.MaxBacklogGrowthRatio*float64(m.Sent))
 			if growth > limit {
-				add("管道积压趋势", VerdictFailed, ReasonService, "测量窗口内积压约增长 %.0f（斜率 %.2f/s），超过 %.0f", growth, *pl.BacklogSlopePerSec, limit)
+				sloAdd("管道积压趋势", VerdictFailed, ReasonService, "测量窗口内积压约增长 %.0f（斜率 %.2f/s），超过 %.0f", growth, *pl.BacklogSlopePerSec, limit)
 			} else {
-				add("管道积压趋势", VerdictPassed, "", "窗口内趋势 %.2f/s，估算增长 %.0f（上限 %.0f）", *pl.BacklogSlopePerSec, growth, limit)
+				sloAdd("管道积压趋势", VerdictPassed, "", "窗口内趋势 %.2f/s，估算增长 %.0f（上限 %.0f）", *pl.BacklogSlopePerSec, growth, limit)
 			}
 		}
+	}
+	if resilience {
+		judgeFaults(p, r, add)
 	}
 	r.Verdict, r.StopReason = VerdictPassed, ""
 	order := []string{ReasonIntegrity, ReasonService, ReasonPolicy}
@@ -295,6 +314,43 @@ func Judge(p *Plan, r *PhaseRecord) {
 	}
 	if r.Verdict == VerdictPassed && m.Sent == 0 && (r.Streams["query"] == nil || r.Streams["query"].Sent == 0) {
 		r.Verdict, r.StopReason = VerdictInconclusive, ReasonGenerator
+	}
+}
+
+func judgeFaults(p *Plan, r *PhaseRecord, add func(name, status, reason, format string, a ...any)) {
+	injected := true
+	for _, f := range r.Faults {
+		name := "故障 " + f.Agent + "/" + f.Action
+		switch {
+		case !f.InjectOK:
+			injected = false
+			add(name, VerdictInconclusive, ReasonInfrastructure, "注入未成功：%s", firstNonEmpty(f.Output, "无输出"))
+		case !f.RecoverOK:
+			add(name, VerdictInconclusive, ReasonInfrastructure, "恢复命令未成功，须人工确认环境：%s", firstNonEmpty(f.Output, "无输出"))
+		default:
+			add(name, VerdictPassed, "", "已注入并恢复，持续 %.0f 秒", float64(f.RecoverAt-f.InjectedAt)/1000)
+		}
+	}
+	if len(r.Faults) == 0 || !injected {
+		return
+	}
+	rc := r.Recovery
+	limit := p.Faults.MaxRecovery.D().Seconds()
+	switch {
+	case rc == nil || rc.RecoverySeconds == nil:
+		detail := "未观测到恢复"
+		if rc != nil {
+			detail = rc.Detail
+		}
+		if rc != nil && rc.BaselinePerSec == nil {
+			add("恢复时间", VerdictInconclusive, ReasonObservability, "%s", detail)
+		} else {
+			add("恢复时间", VerdictFailed, ReasonService, "%s", detail)
+		}
+	case *rc.RecoverySeconds > limit:
+		add("恢复时间", VerdictFailed, ReasonService, "%s；超过上限 %.0f 秒", rc.Detail, limit)
+	default:
+		add("恢复时间", VerdictPassed, "", "%s；上限 %.0f 秒", rc.Detail, limit)
 	}
 }
 

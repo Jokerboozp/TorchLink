@@ -1,0 +1,14 @@
+# Agent-local fault allowlist (capacity-test agent --fault-allow <file>).
+# Copy to the agent host, adjust, chmod 600. The controller and plan can only
+# name these actions; commands never travel over the network. Each command is
+# an argv list run without a shell. recover must undo inject and is also run
+# automatically when the run is released or the controller lease expires.
+actions:
+  stop-parser:
+    inject: [docker, stop, iot-parser-1]
+    recover: [docker, start, iot-parser-1]
+    timeout: 60s
+  pause-redis:
+    inject: [docker, pause, iot-redis]
+    recover: [docker, unpause, iot-redis]
+    timeout: 30s

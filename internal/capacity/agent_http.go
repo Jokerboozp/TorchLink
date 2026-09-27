@@ -96,6 +96,19 @@ func AgentHandler(w *Worker, token string) http.Handler {
 		rw.Header().Set("Content-Type", "application/gzip")
 		_, _ = rw.Write(buf.Bytes())
 	}))
+	mux.HandleFunc("POST /v1/fault", auth(func(rw http.ResponseWriter, r *http.Request) {
+		var req FaultRequest
+		if decode(r, &req) != nil {
+			agentError(rw, 400, "bad_request", "invalid fault request")
+			return
+		}
+		res, err := w.Fault(r.Context(), req)
+		if err != nil {
+			writeAgentErr(rw, err)
+			return
+		}
+		writeAgentJSON(rw, res)
+	}))
 	for _, path := range []string{"stop", "release"} {
 		path := path
 		mux.HandleFunc("POST /v1/"+path, auth(func(rw http.ResponseWriter, r *http.Request) {
@@ -140,6 +153,7 @@ var agentErrorCodes = []struct {
 	{ErrStaleGeneration, http.StatusConflict, "stale"},
 	{ErrNoPhase, http.StatusNotFound, "no_phase"},
 	{ErrPhaseRunning, http.StatusConflict, "running"},
+	{ErrUnknownFault, http.StatusForbidden, "fault_not_allowed"},
 }
 
 func writeAgentErr(rw http.ResponseWriter, err error) {
@@ -238,6 +252,10 @@ func (a *RemoteAgent) FetchLedger(ctx context.Context, ref RunRef, phaseID strin
 }
 func (a *RemoteAgent) Stop(ctx context.Context, ref RunRef) error {
 	return a.call(ctx, http.MethodPost, "/v1/stop", ref, nil, nil)
+}
+func (a *RemoteAgent) Fault(ctx context.Context, req FaultRequest) (r FaultResult, err error) {
+	err = a.call(ctx, http.MethodPost, "/v1/fault", req, &r, nil)
+	return
 }
 func (a *RemoteAgent) Release(ctx context.Context, ref RunRef) error {
 	return a.call(ctx, http.MethodPost, "/v1/release", ref, nil, nil)

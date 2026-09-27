@@ -1,0 +1,46 @@
+# Resilience: fixed background load, one or more allowlisted faults inside the
+# measure window, then recovery. Normal SLOs are recorded only; integrity and
+# recovery time (faults.maxRecovery) decide. Run with an agent that loaded the
+# matching allowlist (faults.example.yaml).
+schemaVersion: 1
+name: resilience-parser-restart
+suite: core
+preset: resilience
+seed: 20260928
+target:
+  inventoryRef: inventory.local.yaml
+  environmentClass: dedicated-test
+  deployment: single-node
+credentials:
+  operatorSecretRef: capacity-operator
+fixtures:
+  tenant: tenant_001
+  product: cap-standard
+  devicePrefix: cap
+  deviceCount: 200
+  reuseDevices: true
+  messageBytes: 512
+  fields: 6
+load:
+  ingressShare: {http: 0.4, mqtt: 0.6}
+  initialMessagesPerSecond: 100
+  mqttConnections: 100
+  queryRequestsPerSecond: 1
+  queryMix: {devices: 0.5, alarms: 0.5}
+search:
+  rates: [100]              # background load, e.g. 50-70% of the measured capacity
+  warmup: 30s
+  measure: 5m
+  drainTimeout: 10m
+faults:
+  enabled: true
+  maxRecovery: 3m
+  actions:
+    - {agent: local, action: stop-parser, at: 60s, duration: 90s}
+budget:
+  maximumWallTime: 1h
+  maximumMessagesPerSecond: 3000
+  maximumDevices: 1000
+  maximumEvidenceGiB: 5
+outputs:
+  formats: [html, markdown, json, csv, svg]

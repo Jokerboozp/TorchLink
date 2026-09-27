@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +48,9 @@ type RunOptions struct {
 	WorkDir       string
 	SourceCommit  string
 	Log           io.Writer
+	// FaultAllow is the fault allowlist of in-process agents (remote agents
+	// load their own with capacity-test agent -fault-allow).
+	FaultAllow FaultAllowlist
 	// Test seams.
 	NewStore func(ctx context.Context, pgDSN, chURL string) (Store, error)
 	NewAgent func(t AgentTarget, token, workDir string) Agent
@@ -219,7 +223,13 @@ func Run(ctx context.Context, opt RunOptions) (string, error) {
 		opt.NewStore = func(ctx context.Context, pg, ch string) (Store, error) { return NewPGCHStore(ctx, pg, ch) }
 	}
 	if opt.NewAgent == nil {
-		opt.NewAgent = defaultAgent
+		opt.NewAgent = func(t AgentTarget, token, workDir string) Agent {
+			a := defaultAgent(t, token, workDir)
+			if w, ok := a.(*Worker); ok && opt.FaultAllow != nil {
+				w.SetFaults(opt.FaultAllow)
+			}
+			return a
+		}
 	}
 	now := time.Now()
 	c := &controller{opt: opt, plan: plan, inv: inv, secrets: secrets, runID: newRunID(now), started: now, gen: 1, stop: make(chan string, 1),
@@ -510,6 +520,18 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 			add("Agent "+t.Name, false, "正被运行 "+st.RunID+" 占用，租约未到期")
 		default:
 			add("Agent "+t.Name, true, fmt.Sprintf("可用，goroutines=%d", st.Goroutines))
+		}
+		if err == nil {
+			for _, f := range c.plan.Faults.Actions {
+				if f.Agent == t.Name && !slices.Contains(st.Faults, f.Action) {
+					add("故障动作 "+f.Agent+"/"+f.Action, false, "Agent 白名单（-fault-allow）中没有该动作")
+				}
+			}
+		}
+	}
+	for _, f := range c.plan.Faults.Actions {
+		if !slices.ContainsFunc(c.inv.Agents, func(a AgentTarget) bool { return a.Name == f.Agent }) {
+			add("故障动作 "+f.Agent+"/"+f.Action, false, "清单中没有该 Agent")
 		}
 	}
 	return checks, ok
@@ -878,6 +900,24 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 			backup <- c.backupOperation(p.Modules.Backup)
 		}()
 	}
+	// Injected failures run at their offsets within the measure window and
+	// are always recovered, also when the step is stopped early.
+	var faultWG sync.WaitGroup
+	faultEvents := make([]FaultEvent, len(p.Faults.Actions))
+	if p.Faults.Enabled {
+		for i, fa := range p.Faults.Actions {
+			h := c.agentByName(fa.Agent)
+			if h == nil {
+				faultEvents[i] = FaultEvent{Agent: fa.Agent, Action: fa.Action, Output: "agent not in this step"}
+				continue
+			}
+			faultWG.Add(1)
+			go func(i int, fa FaultAction, h *agentHandle) {
+				defer faultWG.Done()
+				faultEvents[i] = c.runFault(ctx, h, fa, rec.PhaseID, time.UnixMilli(rec.MeasureFrom).Add(fa.At.D()))
+			}(i, fa, h)
+		}
+	}
 	// Wait for the load window, reacting to a stop request.
 	end := start.Add(warmup + hold)
 	measuring := false
@@ -899,6 +939,10 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 	if rec.Cancelled {
 		rec.MeasureTo = min(rec.MeasureTo, time.Now().UnixMilli())
 		rec.MeasureSeconds = math.Max(0, float64(rec.MeasureTo-rec.MeasureFrom)/1000)
+	}
+	faultWG.Wait()
+	if p.Faults.Enabled {
+		rec.Faults = faultEvents
 	}
 	// Collect agent results and ledgers.
 	settle := p.Load.RequestTimeout.D() + p.Load.ReceiptWait.D()*time.Duration(p.Load.ReceiptRetries+1) + 30*time.Second
@@ -957,6 +1001,10 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 	}
 	_ = writeJSONAtomic(filepath.Join(c.dir, "verification", rec.PhaseID+".json"), rec.Integrity)
 	rec.Pipeline = PipelineFor(c.collector.Rounds(rec.MeasureFrom, rec.MeasureTo), rec.MeasureSeconds)
+	if p.Faults.Enabled {
+		// Recovery is observed through the drain, when backlog must return.
+		rec.Recovery = computeRecovery(c.collector.Rounds(rec.MeasureFrom, time.Now().UnixMilli()), rec.Faults, rec.MeasureFrom, rec.MeasureTo)
+	}
 	if rec.MeasureSeconds > 0 && rec.Integrity.BusinessLatency.N > 0 {
 		v := math.Round(float64(rec.Integrity.BusinessLatency.N)/rec.MeasureSeconds*10) / 10
 		rec.BusinessCompletedPerSec = &v
@@ -981,6 +1029,60 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 		c.cooldown()
 	}
 	return rec, nil
+}
+
+func (c *controller) agentByName(name string) *agentHandle {
+	for _, h := range c.agents {
+		if h.target.Name == name {
+			return h
+		}
+	}
+	return nil
+}
+
+// runFault injects at the planned time and recovers after the duration (or
+// at once when the step is stopped). Times are converted to controller clock.
+func (c *controller) runFault(ctx context.Context, h *agentHandle, fa FaultAction, phaseID string, at time.Time) FaultEvent {
+	ev := FaultEvent{Agent: fa.Agent, Action: fa.Action}
+	select {
+	case <-ctx.Done():
+		ev.Output = "step stopped before injection"
+		return ev
+	case <-time.After(time.Until(at)):
+	}
+	req := FaultRequest{RunID: c.runID, Generation: c.gen, Action: fa.Action, Op: FaultInject}
+	off, _ := h.clock()
+	offMS := off.Milliseconds()
+	c.event("fault", "inject", phaseID, fa.Agent+"/"+fa.Action)
+	res, err := h.agent.Fault(context.Background(), req)
+	ev.InjectedAt = time.Now().UnixMilli()
+	if err == nil {
+		ev.InjectOK, ev.Output = res.OK, res.Output
+		ev.InjectedAt = res.StartedAt - offMS
+	} else {
+		ev.Output = err.Error()
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(fa.Duration.D()):
+	}
+	req.Op = FaultRecover
+	// Recovery is retried: a failure left in place would poison later steps.
+	for attempt := 0; attempt < 3; attempt++ {
+		res, err = h.agent.Fault(context.Background(), req)
+		if err == nil && res.OK {
+			ev.RecoverOK, ev.RecoverAt = true, res.FinishedAt-offMS
+			break
+		}
+		if err != nil {
+			ev.Output = clip(ev.Output+"; recover: "+err.Error(), 400)
+		} else {
+			ev.Output = clip(ev.Output+"; recover: "+res.Output, 400)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	c.event("fault", map[bool]string{true: "recovered", false: "recover_failed"}[ev.RecoverOK], phaseID, fa.Agent+"/"+fa.Action)
+	return ev
 }
 
 func (c *controller) agentsWith(stream string) int {

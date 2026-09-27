@@ -91,6 +91,8 @@ type AgentStatus struct {
 	AgentTime  int64  `json:"agentTime"` // Unix microseconds
 	HeapBytes  uint64 `json:"heapBytes"`
 	Goroutines int    `json:"goroutines"`
+	// Faults lists the allowlisted fault actions (names only).
+	Faults []string `json:"faults,omitempty"`
 }
 
 type AgentPhaseResult struct {
@@ -117,6 +119,7 @@ type Agent interface {
 	FetchLedger(ctx context.Context, ref RunRef, phaseID string, w io.Writer) error
 	Stop(ctx context.Context, ref RunRef) error
 	Release(ctx context.Context, ref RunRef) error
+	Fault(ctx context.Context, req FaultRequest) (FaultResult, error)
 }
 
 var (
@@ -134,7 +137,8 @@ type Worker struct {
 	mu   sync.Mutex
 	run  *workerRun
 	// now is replaceable in tests.
-	now func() time.Time
+	now    func() time.Time
+	faults *faultState
 }
 
 type workerRun struct {
@@ -189,7 +193,7 @@ func (w *Worker) Status(context.Context) (AgentStatus, error) {
 func (w *Worker) statusLocked() AgentStatus {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	s := AgentStatus{Agent: w.name, AgentTime: w.now().UnixMicro(), HeapBytes: mem.HeapInuse, Goroutines: runtime.NumGoroutine()}
+	s := AgentStatus{Agent: w.name, AgentTime: w.now().UnixMicro(), HeapBytes: mem.HeapInuse, Goroutines: runtime.NumGoroutine(), Faults: w.faultNames()}
 	if r := w.run; r != nil {
 		s.RunID, s.Generation, s.LeaseValid = r.req.RunID, r.req.Generation, w.now().Before(r.leaseUntil)
 		if r.current != nil {
@@ -300,6 +304,8 @@ func (w *Worker) watchLease(ctx context.Context, run *workerRun) {
 				ph.leaseExpired.Store(true)
 				ph.cancel()
 			}
+			// Injected failures are undone without the controller.
+			go w.recoverAllFaults()
 		}
 		w.mu.Unlock()
 	}
@@ -441,6 +447,7 @@ func (w *Worker) releaseLocked() {
 	}
 	w.run = nil
 	r.cancel()
+	go w.recoverAllFaults()
 	if ph := r.current; ph != nil {
 		ph.cancel()
 		ph.hardCancel()
