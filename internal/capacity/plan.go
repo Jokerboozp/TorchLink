@@ -563,9 +563,7 @@ func (p *Plan) Validate() error {
 	}
 	for _, format := range p.Outputs.Formats {
 		switch format {
-		case "html", "markdown", "json", "csv", "svg":
-		case "png":
-			bad("outputs.formats png is not supported; SVG charts are embedded in HTML and written to charts/")
+		case "html", "markdown", "json", "csv", "svg", "png":
 		default:
 			bad("outputs.formats %q is unknown", format)
 		}

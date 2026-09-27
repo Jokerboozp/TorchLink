@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image/png"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -562,5 +565,117 @@ func TestServiceRunsPlansAgainstTrustedEnvironments(t *testing.T) {
 	}
 	if status, _ = call("GET", "/v1/runs/..%2f..%2fetc/report", nil); status != 404 {
 		t.Fatal("path traversal in run id", status)
+	}
+}
+
+// nodeExporter imitates node-exporter counters that grow with time.
+func nodeExporter(mux *http.ServeMux, _ *fakePlatform) {
+	start := time.Now()
+	mux.HandleFunc("GET /node/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		t := time.Since(start).Seconds()
+		fmt.Fprintf(w, "# TYPE node_cpu_seconds_total counter\n")
+		for cpu := 0; cpu < 2; cpu++ {
+			fmt.Fprintf(w, "node_cpu_seconds_total{cpu=\"%d\",mode=\"idle\"} %f\nnode_cpu_seconds_total{cpu=\"%d\",mode=\"user\"} %f\nnode_cpu_seconds_total{cpu=\"%d\",mode=\"iowait\"} %f\n", cpu, 100+t*0.6, cpu, 50+t*0.3, cpu, 5+t*0.1)
+		}
+		fmt.Fprintf(w, "node_memory_MemTotal_bytes 8e+09\nnode_memory_MemAvailable_bytes 6e+09\n")
+		fmt.Fprintf(w, "node_disk_io_time_seconds_total{device=\"sda\"} %f\nnode_disk_io_time_seconds_total{device=\"loop0\"} %f\n", t*0.25, t)
+		fmt.Fprintf(w, "node_filesystem_avail_bytes{device=\"/dev/sda1\",fstype=\"ext4\",mountpoint=\"/\"} 5e+10\nnode_filesystem_size_bytes{device=\"/dev/sda1\",fstype=\"ext4\",mountpoint=\"/\"} 1e+11\n")
+		fmt.Fprintf(w, "node_network_receive_bytes_total{device=\"eth0\"} %f\nnode_network_transmit_bytes_total{device=\"eth0\"} %f\nnode_network_receive_bytes_total{device=\"lo\"} %f\n", t*1e6, t*2e6, t*9e9)
+	})
+}
+
+func TestEndToEndHostChartsAndPNGOutput(t *testing.T) {
+	t.Parallel()
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s", e2eExtra{
+		handlers:  nodeExporter,
+		inventory: "nodes:\n  - {name: host-a, url: {{api}}/node/metrics}\n",
+		plan:      "outputs: {formats: [html, markdown, json, csv, svg, png]}\n",
+	})
+	runID, err := e.run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.results, runID)
+	for _, name := range []string{"charts/hosts.svg", "charts/hosts.png", "charts/throughput.png", "charts/latency.png", "observations/nodes.jsonl"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Error("missing", name)
+		}
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "charts", "throughput.png"))
+	img, err := png.Decode(bytes.NewReader(b))
+	if err != nil || img.Bounds().Dx() != chartW*2 {
+		t.Fatal("png", err)
+	}
+	rounds, _ := LoadRounds(filepath.Join(dir, "observations", "nodes.jsonl"))
+	hosts := HostSeries(rounds)["host-a"]
+	var cpu, disk []float64
+	for _, p := range hosts {
+		if p.CPUValid {
+			cpu = append(cpu, p.CPU)
+		}
+		if p.DiskValid {
+			disk = append(disk, p.Disk)
+		}
+		if p.MemValid && math.Abs(p.Memory-25) > 0.01 {
+			t.Fatal("memory used %", p.Memory)
+		}
+	}
+	// user 0.3 of (0.6 idle + 0.3 user + 0.1 iowait) per CPU → 30% busy; sda 25%, loop ignored.
+	if len(cpu) == 0 || math.Abs(cpu[len(cpu)-1]-30) > 2 || len(disk) == 0 || math.Abs(disk[len(disk)-1]-25) > 3 {
+		t.Fatalf("cpu %v disk %v", cpu, disk)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "observations", "nodes.jsonl")); bytes.Contains(raw, []byte("node_cpu_seconds_total")) {
+		t.Fatal("node rounds must keep only reduced values")
+	}
+}
+
+func TestEndToEndResumeReplaysCompletedStepsWithNextGeneration(t *testing.T) {
+	t.Parallel()
+	e := newE2E(t, 0, "quick", "rates: [10, 20], measure: 10s")
+	runID, err := e.run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.results, runID)
+	first := readSummary(t, dir)
+	if len(first.Phases) != 2 {
+		t.Fatal(first.Phases)
+	}
+	// Simulate a controller that died during the second step.
+	_ = os.Remove(filepath.Join(dir, "phases", first.Phases[1].PhaseID+".json"))
+	_ = os.Remove(filepath.Join(dir, "summary.json"))
+	st, _ := ReadState(e.results, runID)
+	st.Status, st.Result, st.UpdatedAt = StatusRunning, "", time.Now().Add(-time.Minute).UnixMilli()
+	_ = writeJSONAtomic(filepath.Join(dir, "state.json"), st)
+	resume := func() (string, error) {
+		return Run(context.Background(), RunOptions{PlanPath: e.planPath, SecretsPath: e.secrets, ResultsDir: e.results, ResumeRunID: runID,
+			NewStore: func(context.Context, string, string) (Store, error) { return e.platform.store, nil }})
+	}
+	fresh := st
+	fresh.UpdatedAt = time.Now().UnixMilli()
+	_ = writeJSONAtomic(filepath.Join(dir, "state.json"), fresh)
+	if _, err = resume(); !errors.Is(err, ErrRunStillActive) {
+		t.Fatal("a recently updated run must not be resumed", err)
+	}
+	_ = writeJSONAtomic(filepath.Join(dir, "state.json"), st)
+	onboarded := e.platform.seen.Load()
+	got, err := resume()
+	if err != nil || got != runID {
+		t.Fatal(got, err)
+	}
+	s := readSummary(t, dir)
+	after, _ := ReadState(e.results, runID)
+	if len(s.Phases) != 2 || s.Phases[0].PhaseID != first.Phases[0].PhaseID || s.Phases[1].PhaseID != first.Phases[1].PhaseID || after.Generation != 2 || after.Status != StatusFinished {
+		t.Fatalf("phases %+v state %+v", s.Phases, after)
+	}
+	if e.platform.seen.Load()-onboarded < 150 || e.platform.seen.Load()-onboarded > 260 {
+		t.Fatal("only the interrupted step is sent again", e.platform.seen.Load()-onboarded)
+	}
+	events, _ := os.ReadFile(filepath.Join(dir, "events.jsonl"))
+	if !bytes.Contains(events, []byte(`"type":"resume"`)) || !bytes.Contains(events, []byte("replayed from the interrupted run")) {
+		t.Fatal(string(events))
+	}
+	if _, err = resume(); err == nil || !strings.Contains(err.Error(), "already finished") {
+		t.Fatal("a finished run cannot be resumed", err)
 	}
 }

@@ -9,6 +9,8 @@ metrics:
   # List every platform process (combined, api, gateway) so counters and
   # backlog are read per instance, never through a load balancer.
   - {role: combined, instance: api-local, url: http://127.0.0.1:8081/metrics}
+# nodes:                              # node-exporter per host: host CPU/memory/disk charts
+#   - {name: app-1, url: http://10.0.0.11:9100/metrics}
 agents:
   - {name: local}                      # no url: runs inside the controller
   # - {name: lg-1, url: http://10.0.0.21:7070}

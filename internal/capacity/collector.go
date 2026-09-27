@@ -82,6 +82,8 @@ type Collector struct {
 	rounds   []Round
 	out      *os.File
 	now      func() time.Time
+	// reduce shrinks a scrape before it is kept (node-exporter hosts).
+	reduce func(map[string]float64) map[string]float64
 }
 
 func NewCollector(targets []MetricsTarget, interval time.Duration, path string) (*Collector, error) {
@@ -135,6 +137,9 @@ func (c *Collector) Scrape(ctx context.Context) Round {
 				} else if v, perr := ParsePrometheus(resp.Body); perr != nil {
 					s.Error = "parse"
 				} else {
+					if c.reduce != nil {
+						v = c.reduce(v)
+					}
 					s.OK, s.Values = true, v
 				}
 				resp.Body.Close()
@@ -338,4 +343,132 @@ func Trend(points []Point) (slope float64, n int, ok bool) {
 		return 0, n, false
 	}
 	return num / den, n, true
+}
+
+// NewNodeCollector samples node-exporter hosts, keeping only the values the
+// host charts need (CPU, memory, disk busy time, root filesystem, network).
+func NewNodeCollector(nodes []NodeTarget, interval time.Duration, path string) (*Collector, error) {
+	targets := make([]MetricsTarget, len(nodes))
+	for i, n := range nodes {
+		targets[i] = MetricsTarget{Role: "node", Instance: n.Name, URL: n.URL}
+	}
+	c, err := NewCollector(targets, interval, path)
+	if err == nil {
+		c.reduce = reduceNodeMetrics
+	}
+	return c, err
+}
+
+// seriesLabel returns a label value from a series key such as
+// name{a="x",b="y"}.
+func seriesLabel(key, label string) string {
+	i := strings.Index(key, label+`="`)
+	if i < 0 {
+		return ""
+	}
+	rest := key[i+len(label)+2:]
+	if j := strings.IndexByte(rest, '"'); j >= 0 {
+		return rest[:j]
+	}
+	return ""
+}
+
+func physicalDisk(dev string) bool {
+	for _, p := range []string{"loop", "ram", "sr", "fd", "dm-", "md", "zram", "nbd"} {
+		if strings.HasPrefix(dev, p) {
+			return false
+		}
+	}
+	return dev != ""
+}
+
+func reduceNodeMetrics(in map[string]float64) map[string]float64 {
+	out := map[string]float64{}
+	for key, v := range in {
+		name, _, _ := strings.Cut(key, "{")
+		switch name {
+		case "node_cpu_seconds_total":
+			out["cpu_total"] += v
+			if seriesLabel(key, "mode") == "idle" || seriesLabel(key, "mode") == "iowait" {
+				out["cpu_idle"] += v
+			}
+		case "node_memory_MemTotal_bytes":
+			out["mem_total"] = v
+		case "node_memory_MemAvailable_bytes":
+			out["mem_available"] = v
+		case "node_disk_io_time_seconds_total":
+			if dev := seriesLabel(key, "device"); physicalDisk(dev) {
+				out["disk_io:"+dev] = v
+			}
+		case "node_filesystem_avail_bytes", "node_filesystem_size_bytes":
+			if seriesLabel(key, "mountpoint") == "/" {
+				out[strings.TrimPrefix(name, "node_filesystem_")+"_root"] = v
+			}
+		case "node_network_receive_bytes_total", "node_network_transmit_bytes_total":
+			if dev := seriesLabel(key, "device"); dev != "lo" && !strings.HasPrefix(dev, "veth") && !strings.HasPrefix(dev, "docker") && !strings.HasPrefix(dev, "br-") {
+				out[strings.TrimSuffix(strings.TrimPrefix(name, "node_network_"), "_total")] += v
+			}
+		}
+	}
+	return out
+}
+
+// HostPoint is one host's utilisation between two node samples.
+type HostPoint struct {
+	At         int64
+	CPU        float64 // busy %, excluding idle and iowait
+	Memory     float64 // used % (MemTotal - MemAvailable)
+	Disk       float64 // busiest physical disk busy %
+	CPUValid   bool
+	MemValid   bool
+	DiskValid  bool
+	NetMBps    float64
+	NetValid   bool
+	RootFreePc float64
+}
+
+// HostSeries derives per-host utilisation from reduced node rounds.
+func HostSeries(rounds []Round) map[string][]HostPoint {
+	out := map[string][]HostPoint{}
+	prev := map[string]InstanceSample{}
+	prevAt := map[string]int64{}
+	for _, r := range rounds {
+		for _, s := range r.Instances {
+			p := HostPoint{At: r.At}
+			if s.OK {
+				v := s.Values
+				if v["mem_total"] > 0 {
+					p.Memory, p.MemValid = 100*(1-v["mem_available"]/v["mem_total"]), true
+				}
+				if v["size_bytes_root"] > 0 {
+					p.RootFreePc = 100 * v["avail_bytes_root"] / v["size_bytes_root"]
+				}
+				if last, ok := prev[s.Instance]; ok && last.OK {
+					dt := float64(r.At-prevAt[s.Instance]) / 1000
+					if dTotal := v["cpu_total"] - last.Values["cpu_total"]; dTotal > 0 {
+						p.CPU, p.CPUValid = math.Max(0, math.Min(100, 100*(1-(v["cpu_idle"]-last.Values["cpu_idle"])/dTotal))), true
+					}
+					if dt > 0 {
+						for k, x := range v {
+							if strings.HasPrefix(k, "disk_io:") {
+								if d := x - last.Values[k]; d >= 0 {
+									p.Disk, p.DiskValid = math.Max(p.Disk, math.Min(100, 100*d/dt)), true
+								}
+							}
+						}
+						rx := v["receive_bytes"] - last.Values["receive_bytes"]
+						tx := v["transmit_bytes"] - last.Values["transmit_bytes"]
+						if rx >= 0 && tx >= 0 {
+							p.NetMBps, p.NetValid = (rx+tx)/dt/1e6, true
+						}
+					}
+				}
+				prev[s.Instance], prevAt[s.Instance] = s, r.At
+			} else {
+				delete(prev, s.Instance)
+			}
+			out[s.Instance] = append(out[s.Instance], p)
+		}
+	}
+	return out
 }

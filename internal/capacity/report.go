@@ -76,7 +76,18 @@ type reportData struct {
 	manifest  *Manifest
 	phases    []PhaseRecord
 	rounds    []Round
+	nodes     []Round
 	summary   Summary
+	specs     map[string]chartSpec
+}
+
+// chart renders an SVG and keeps the spec for PNG output.
+func (d *reportData) chart(name string, s chartSpec) string {
+	if d.specs == nil {
+		d.specs = map[string]chartSpec{}
+	}
+	d.specs[name] = s
+	return renderChart(s)
 }
 
 // GenerateReport rebuilds every report file from the evidence in dir. It
@@ -99,6 +110,11 @@ func GenerateReport(dir string, secrets []string) error {
 	if formats["svg"] {
 		for name, svg := range charts {
 			files[filepath.Join("charts", name+".svg")] = []byte(svg)
+		}
+	}
+	if formats["png"] {
+		for name, spec := range d.specs {
+			files[filepath.Join("charts", name+".png")] = renderPNG(spec)
 		}
 	}
 	if formats["csv"] {
@@ -160,6 +176,7 @@ func (d *reportData) load() error {
 	}
 	sort.Slice(d.phases, func(i, j int) bool { return d.phases[i].Index < d.phases[j].Index })
 	d.rounds, _ = LoadRounds(filepath.Join(d.dir, "observations", "metrics.jsonl"))
+	d.nodes, _ = LoadRounds(filepath.Join(d.dir, "observations", "nodes.jsonl"))
 	return nil
 }
 
@@ -411,6 +428,27 @@ func (d *reportData) bottlenecks() []Bottleneck {
 	} else if c := failedCheck("业务完成时延"); c != nil && c.Status == VerdictFailed {
 		add("业务处理时延", c.Detail+"；各消费组积压未见明显增长", "对照解析与存储耗时，剖析规则与状态写入")
 	}
+	// Host saturation from node-exporter during the failing window.
+	for host, pts := range HostSeries(d.nodes) {
+		var cpu, disk, n, nd float64
+		for _, pt := range pts {
+			if pt.At < target.MeasureFrom || pt.At > target.MeasureTo {
+				continue
+			}
+			if pt.CPUValid {
+				cpu, n = cpu+pt.CPU, n+1
+			}
+			if pt.DiskValid {
+				disk, nd = disk+pt.Disk, nd+1
+			}
+		}
+		if n > 0 && cpu/n >= 85 {
+			add("主机 CPU 饱和", fmt.Sprintf("%s 测量窗口平均 CPU %.0f%%", host, cpu/n), "确认该主机上的进程分布，拆分角色或扩容后重测")
+		}
+		if nd > 0 && disk/nd >= 80 {
+			add("主机磁盘繁忙", fmt.Sprintf("%s 测量窗口最忙磁盘平均繁忙 %.0f%%", host, disk/nd), "检查 fsync、WAL、ClickHouse 合并与日志写入，考虑更快磁盘或分离数据盘")
+		}
+	}
 	if c := failedCheck("管道积压"); c != nil && len(gs) == 0 {
 		add("管道积压（来源未知）", c.Detail, "补齐 kafka_lag_<group> 与 inbox 指标采集后重测")
 	}
@@ -529,12 +567,12 @@ func (d *reportData) charts() map[string]string {
 		}
 		bands = append(bands, chartBand{From: float64(i) - 0.45, To: float64(i) + 0.45, Label: p.PhaseID + " " + p.Verdict, Fill: fill})
 	}
-	out["throughput"] = renderChart(chartSpec{Title: "负载与吞吐（每档测量窗口）", XLabel: "阶段与目标速率（绿=通过 红=失败 灰=证据不足）", YLabel: "消息/秒", Ticks: ticks, Bands: bands, Markers: true, Series: []chartSeries{
-		{Name: "计划速率", Points: target, Dashed: true}, {Name: "实发", Points: sent}, {Name: "入口确认", Points: okRate}, {Name: "业务完成", Points: done}}})
+	out["throughput"] = d.chart("throughput", chartSpec{Title: "负载与吞吐（每档测量窗口）", ENTitle: "Load and throughput per step", ENYLabel: "msg/s", XLabel: "阶段与目标速率（绿=通过 红=失败 灰=证据不足）", YLabel: "消息/秒", Ticks: ticks, Bands: bands, Markers: true, Series: []chartSeries{
+		{Name: "计划速率", En: "planned", Points: target, Dashed: true}, {Name: "实发", En: "sent", Points: sent}, {Name: "入口确认", En: "accepted", Points: okRate}, {Name: "业务完成", En: "completed", Points: done}}})
 	slo := d.plan.SLO
-	out["latency"] = renderChart(chartSpec{Title: "时延拐点", XLabel: "阶段与目标速率", YLabel: "毫秒", Ticks: ticks, Bands: bands, Markers: true,
-		Lines:  []chartLine{{Label: "业务 P95 SLO", Y: slo.BusinessP95.D().Seconds() * 1000}, {Label: "查询 P95 SLO", Y: slo.QueryP95.D().Seconds() * 1000}},
-		Series: []chartSeries{{Name: "入口确认 P95", Points: ackP95}, {Name: "业务完成 P95", Points: bizP95}, {Name: "业务完成 P99", Points: bizP99, Dashed: true}, {Name: "查询 P95", Points: qP95}}})
+	out["latency"] = d.chart("latency", chartSpec{Title: "时延拐点", ENTitle: "Latency by step", ENYLabel: "ms", XLabel: "阶段与目标速率", YLabel: "毫秒", Ticks: ticks, Bands: bands, Markers: true,
+		Lines:  []chartLine{{Label: "业务 P95 SLO", En: "business P95 SLO", Y: slo.BusinessP95.D().Seconds() * 1000}, {Label: "查询 P95 SLO", En: "query P95 SLO", Y: slo.QueryP95.D().Seconds() * 1000}},
+		Series: []chartSeries{{Name: "入口确认 P95", En: "ack P95", Points: ackP95}, {Name: "业务完成 P95", En: "business P95", Points: bizP95}, {Name: "业务完成 P99", En: "business P99", Points: bizP99, Dashed: true}, {Name: "查询 P95", En: "query P95", Points: qP95}}})
 	var tbands []chartBand
 	for _, p := range d.phases {
 		tbands = append(tbands, chartBand{From: float64(p.MeasureFrom), To: float64(p.MeasureTo), Label: p.PhaseID + " 测量窗口", Fill: "#eff6ff"})
@@ -555,8 +593,8 @@ func (d *reportData) charts() map[string]string {
 			}
 		}
 	}
-	out["backlog"] = renderChart(chartSpec{Title: "管道积压（Kafka 消费组 lag + MQTT inbox）", XLabel: "时间（蓝色为各档测量窗口，灰色为缺测）", YLabel: "条目（未完成工作量）", TimeAxis: true, Bands: tbands, Series: []chartSeries{
-		{Name: "合计积压", Points: toXY(BacklogSeries(d.rounds))}, {Name: "kafka_lag_parser", Points: toXY(GaugeSeries(d.rounds, "kafka_lag_parser")), Dashed: true},
+	out["backlog"] = d.chart("backlog", chartSpec{Title: "管道积压（Kafka 消费组 lag + MQTT inbox）", ENTitle: "Pipeline backlog (Kafka lag + MQTT inbox)", ENYLabel: "items", XLabel: "时间（蓝色为各档测量窗口，灰色为缺测）", YLabel: "条目（未完成工作量）", TimeAxis: true, Bands: tbands, Series: []chartSeries{
+		{Name: "合计积压", En: "total backlog", Points: toXY(BacklogSeries(d.rounds))}, {Name: "kafka_lag_parser", Points: toXY(GaugeSeries(d.rounds, "kafka_lag_parser")), Dashed: true},
 		{Name: "kafka_lag_storage", Points: toXY(GaugeSeries(d.rounds, "kafka_lag_storage")), Dashed: true}, {Name: "mqtt_inbox_pending", Points: toXY(GaugeSeries(d.rounds, "mqtt_inbox_pending")), Dashed: true}},
 		Note: "lag 由平台约每 15 秒采样"})
 	var res []chartSeries
@@ -567,7 +605,25 @@ func (d *reportData) charts() map[string]string {
 		}
 		res = append(res, chartSeries{Name: inst + " heap MiB", Points: toXY(pts)})
 	}
-	out["resources"] = renderChart(chartSpec{Title: "平台实例资源（Go 堆内存）", XLabel: "时间", YLabel: "MiB", TimeAxis: true, Bands: tbands, Series: res, Note: "主机 CPU/磁盘需由节点监控补充"})
+	resNote := "主机 CPU/磁盘需由节点监控补充（清单 nodes）"
+	if len(d.nodes) > 0 {
+		resNote = "主机 CPU/内存/磁盘见 hosts.svg"
+	}
+	out["resources"] = d.chart("resources", chartSpec{Title: "平台实例资源（Go 堆内存）", ENTitle: "Platform instances (Go heap)", ENYLabel: "MiB", XLabel: "时间", YLabel: "MiB", TimeAxis: true, Bands: tbands, Series: res, Note: resNote})
+	if len(d.nodes) > 0 {
+		var hs []chartSeries
+		hosts := HostSeries(d.nodes)
+		for _, host := range sortedKeys(hosts) {
+			var cpu, mem, disk []xy
+			for _, pt := range hosts[host] {
+				cpu = append(cpu, xy{float64(pt.At), pt.CPU, pt.CPUValid})
+				mem = append(mem, xy{float64(pt.At), pt.Memory, pt.MemValid})
+				disk = append(disk, xy{float64(pt.At), pt.Disk, pt.DiskValid})
+			}
+			hs = append(hs, chartSeries{Name: host + " CPU", Points: cpu}, chartSeries{Name: host + " 内存", En: host + " mem", Points: mem, Dashed: true}, chartSeries{Name: host + " 磁盘繁忙", En: host + " disk", Points: disk, Dashed: true})
+		}
+		out["hosts"] = d.chart("hosts", chartSpec{Title: "主机资源（node-exporter）", ENTitle: "Hosts (node-exporter): CPU / memory / disk busy", ENYLabel: "%", XLabel: "时间（蓝色为各档测量窗口）", YLabel: "%", TimeAxis: true, Bands: tbands, Series: hs, Lines: []chartLine{{Label: "85%", En: "85%", Y: 85}}, Note: "CPU 不含 idle/iowait；磁盘为最忙物理盘的繁忙时间占比"})
+	}
 	if svg := d.recoveryChart(toXY); svg != "" {
 		out["recovery"] = svg
 	}
@@ -604,11 +660,11 @@ func (d *reportData) recoveryChart(toXY func([]Point) []xy) string {
 	var lines []chartLine
 	for _, p := range d.phases {
 		if p.Recovery != nil && p.Recovery.BaselinePerSec != nil {
-			lines = append(lines, chartLine{Label: p.PhaseID + " 基线", Y: *p.Recovery.BaselinePerSec})
+			lines = append(lines, chartLine{Label: p.PhaseID + " 基线", En: p.PhaseID + " baseline", Y: *p.Recovery.BaselinePerSec})
 		}
 	}
-	return renderChart(chartSpec{Title: "故障与恢复（解析成功速率与积压）", XLabel: "时间（红色为故障持续区间）", YLabel: "条/秒 · 条目", TimeAxis: true, Bands: bands, Lines: lines, Series: []chartSeries{
-		{Name: "解析成功/秒", Points: toXY(rate)}, {Name: "合计积压", Points: toXY(BacklogSeries(d.rounds)), Dashed: true}}, Note: "恢复用时从最后一次恢复命令完成起算"})
+	return d.chart("recovery", chartSpec{Title: "故障与恢复（解析成功速率与积压）", ENTitle: "Fault and recovery (parsed/s and backlog)", ENYLabel: "per s / items", XLabel: "时间（红色为故障持续区间）", YLabel: "条/秒 · 条目", TimeAxis: true, Bands: bands, Lines: lines, Series: []chartSeries{
+		{Name: "解析成功/秒", En: "parsed/s", Points: toXY(rate)}, {Name: "合计积压", En: "backlog", Points: toXY(BacklogSeries(d.rounds)), Dashed: true}}, Note: "恢复用时从最后一次恢复命令完成起算"})
 }
 
 func instances(rounds []Round) []string {
@@ -725,6 +781,9 @@ func (d *reportData) markdown() string {
 		}
 	}
 	charts := "throughput.svg、latency.svg、backlog.svg、resources.svg"
+	if len(d.nodes) > 0 {
+		charts += "、hosts.svg"
+	}
 	if len(d.faultRows()) > 0 {
 		charts += "、recovery.svg"
 	}
@@ -884,7 +943,7 @@ func (d *reportData) html(charts map[string]string) string {
 		b.WriteString("</tbody></table></div></div>")
 	}
 	b.WriteString("<h2>5. 图表</h2>")
-	for _, name := range []string{"throughput", "latency", "backlog", "resources", "recovery"} {
+	for _, name := range []string{"throughput", "latency", "backlog", "resources", "hosts", "recovery"} {
 		if charts[name] != "" {
 			fmt.Fprintf(&b, "<div class=\"chart\">%s</div>", charts[name])
 		}

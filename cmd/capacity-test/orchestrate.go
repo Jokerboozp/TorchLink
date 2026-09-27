@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,10 +23,11 @@ import (
 const subcommandUsage = `capacity-test one-click orchestration (docs/DEVELOPMENT.md#容量验证):
 
   capacity-test plan validate --plan <plan.yaml> [--inventory <inventory.yaml>]
-  capacity-test run --plan <plan.yaml> [--inventory <file>] [--secrets <file>] [--results capacity-results] [--fault-allow <file>]
+  capacity-test run --plan <plan.yaml> [--inventory <file>] [--secrets <file>] [--results capacity-results] [--fault-allow <file>] [--resume <runId>]
   capacity-test status --run <runId> [--results capacity-results]
   capacity-test stop --run <runId> [--force] [--results capacity-results]
   capacity-test report --run <runId> [--secrets <file>] [--results capacity-results]
+  capacity-test compare --runs <id,id,...> [--instances id=n,...] [--results capacity-results] [--out <dir>]
   capacity-test serve --listen 127.0.0.1:7080 --inventories <dir> --token-ref <name> [--secrets <file>] [--results capacity-results] [--fault-allow <file>]
   capacity-test agent --listen :7070 --token-ref <name> [--secrets <file>] [--name <agent>] [--fault-allow <file>]
 
@@ -57,6 +60,8 @@ func subcommand(args []string) bool {
 		err = agentCmd(args[1:])
 	case "serve":
 		err = serveCmd(args[1:])
+	case "compare":
+		err = compareCmd(args[1:])
 	case "help", "--help":
 		fmt.Print(subcommandUsage)
 	default:
@@ -128,6 +133,7 @@ func runCmd(args []string) error {
 	fs.StringVar(&opt.ResultsDir, "results", "capacity-results", "results directory")
 	fs.StringVar(&opt.WorkDir, "work-dir", "", "private work directory for fixture credentials (default <results>/.work)")
 	faultAllow := fs.String("fault-allow", "", "fault allowlist for in-process agents (resilience preset)")
+	fs.StringVar(&opt.ResumeRunID, "resume", "", "continue an interrupted run (same plan): completed steps are replayed, agents get the next generation")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -139,21 +145,20 @@ func runCmd(args []string) error {
 		opt.FaultAllow = allow
 	}
 	opt.SourceCommit = sourceCommit()
+	var current atomic.Value
+	opt.OnStart = func(id string) { current.Store(id) }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sig := make(chan os.Signal, 2)
 	signal.Notify(sig, os.Interrupt)
 	defer signal.Stop(sig)
-	started := time.Now()
 	go func() {
 		<-sig
 		fmt.Println("stopping: no new load, finishing in-flight requests, drain, verify, report (Ctrl-C again to skip the drain)")
 		cancel()
 		<-sig
-		// The run ID is only returned when Run ends; the newest run directory
-		// created after this command started is ours.
-		if dir := newestRun(opt.ResultsDir, started); dir != "" {
-			_ = os.WriteFile(filepath.Join(dir, capacity.StopFile), []byte("force\n"), 0o640)
+		if id, _ := current.Load().(string); id != "" {
+			_ = capacity.RequestStop(opt.ResultsDir, id, true)
 		}
 	}()
 	runID, err := capacity.Run(ctx, opt)
@@ -168,24 +173,6 @@ func runCmd(args []string) error {
 		}
 	}
 	return err
-}
-
-func newestRun(results string, after time.Time) string {
-	entries, err := os.ReadDir(results)
-	if err != nil {
-		return ""
-	}
-	best := ""
-	for _, e := range entries {
-		info, err := e.Info()
-		if err == nil && e.IsDir() && strings.HasPrefix(e.Name(), "cap-") && e.Name() > best && !info.ModTime().Before(after.Add(-time.Second)) {
-			best = e.Name()
-		}
-	}
-	if best == "" {
-		return ""
-	}
-	return filepath.Join(results, best)
 }
 
 func statusCmd(args []string) error {
@@ -345,4 +332,46 @@ func serveCmd(args []string) error {
 		return nil
 	}
 	return err
+}
+
+// compareCmd lines up finished runs and, when their workloads match, writes
+// the scaling curve E(n).
+func compareCmd(args []string) error {
+	fs := newFlags("compare")
+	results := fs.String("results", "capacity-results", "results directory")
+	runs := fs.String("runs", "", "comma-separated run IDs")
+	inst := fs.String("instances", "", "instance count per run, e.g. cap-...=1,cap-...=2 (default: platform metrics targets)")
+	out := fs.String("out", "", "output directory (default <results>/compare-<time>)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	ids := strings.Split(*runs, ",")
+	instances := map[string]int{}
+	for _, kv := range strings.Split(*inst, ",") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(kv), "="); ok {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("invalid instance count %q", kv)
+			}
+			instances[k] = n
+		}
+	}
+	c, err := capacity.Compare(*results, ids, instances)
+	if err != nil {
+		return err
+	}
+	if *out == "" {
+		*out = filepath.Join(*results, "compare-"+time.Now().UTC().Format("20060102-150405"))
+	}
+	if err = capacity.WriteComparison(*out, c); err != nil {
+		return err
+	}
+	fmt.Printf("comparison written to %s (comparable=%v)\n", *out, c.Comparable)
+	for _, p := range c.Scaling {
+		fmt.Printf("  n=%d capacity=%.1f speedup=%.2fx efficiency=%.0f%%\n", p.Instances, p.Capacity, p.Speedup, p.Efficiency*100)
+	}
+	for _, r := range c.Reasons {
+		fmt.Println("  -", r)
+	}
+	return nil
 }

@@ -66,7 +66,7 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 		"resilience":            func(p *Plan) { p.Preset = PresetResilience },
 		"hard maxRuns budget":   func(p *Plan) { p.Modules.AI.Enabled = true; p.Modules.AI.Mode = "mock" },
 		"only by) preset":       func(p *Plan) { p.Faults.Enabled = true },
-		"png":                   func(p *Plan) { p.Outputs.Formats = []string{"png"} },
+		"is unknown":            func(p *Plan) { p.Outputs.Formats = []string{"gif"} },
 		"perDeviceMaxPerSecond": func(p *Plan) { p.Load.InitialMessagesPerSecond = 3000; p.Budget.MaximumMessagesPerSecond = 5000 },
 		"maximumMessagesPerSec": func(p *Plan) { p.Load.InitialMessagesPerSecond = 900 },
 		"allowed query": func(p *Plan) {
@@ -835,5 +835,54 @@ func TestComputeRecoveryFindsReturnToBaseline(t *testing.T) {
 	}
 	if info := computeRecovery(rounds, []FaultEvent{{InjectedAt: 500, RecoverAt: 8000}}, 0, 20000); info.RecoverySeconds != nil || info.BaselinePerSec != nil {
 		t.Fatal("no baseline before the fault must not produce a recovery time", info)
+	}
+}
+
+func TestCompareComputesScalingOnlyForSameWorkload(t *testing.T) {
+	dir := t.TempDir()
+	write := func(id string, instances int, lower float64, mutate func(*Plan)) {
+		p := validPlan()
+		p.Preset = PresetCapacity
+		if mutate != nil {
+			mutate(p)
+		}
+		b, _, _ := p.Sanitized()
+		run := filepath.Join(dir, id)
+		_ = os.MkdirAll(run, 0o750)
+		_ = os.WriteFile(filepath.Join(run, "plan.sanitized.yaml"), b, 0o640)
+		targets := make([]MetricsTarget, instances)
+		for i := range targets {
+			targets[i] = MetricsTarget{Role: "processor", Instance: fmt.Sprint("p", i)}
+		}
+		_ = writeJSONAtomic(filepath.Join(run, "environment.json"), map[string]any{"deployment": "cluster", "metricsTargets": targets})
+		up := lower * 1.5
+		_ = writeJSONAtomic(filepath.Join(run, "summary.json"), Summary{RunID: id, Verdict: VerdictPassed, EvidenceComplete: true,
+			Capacity: map[string]SearchResult{"mixedBusinessMessagesPerSecond": {Classification: ClassBounded, LowerPassedBound: &lower, UpperFailedBound: &up}}})
+	}
+	write("cap-20260101-000000-000001", 1, 100, nil)
+	write("cap-20260101-000000-000002", 2, 190, nil)
+	write("cap-20260101-000000-000003", 3, 240, nil)
+	write("cap-20260101-000000-000004", 2, 300, func(p *Plan) { p.Fixtures.MessageBytes = 2048 })
+	c, err := Compare(dir, []string{"cap-20260101-000000-000003", "cap-20260101-000000-000001", "cap-20260101-000000-000002"}, nil)
+	if err != nil || !c.Comparable || len(c.Scaling) != 3 {
+		t.Fatal(err, c)
+	}
+	if c.Scaling[0].Instances != 1 || c.Scaling[1].Efficiency != 0.95 || c.Scaling[2].Efficiency != 0.8 {
+		t.Fatalf("%+v", c.Scaling)
+	}
+	out := filepath.Join(dir, "cmp")
+	if err = WriteComparison(out, c); err != nil {
+		t.Fatal(err)
+	}
+	md, _ := os.ReadFile(filepath.Join(out, "compare.md"))
+	if _, err = os.Stat(filepath.Join(out, "scaling.svg")); err != nil || !strings.Contains(string(md), "95%") {
+		t.Fatal(err, string(md))
+	}
+	c, err = Compare(dir, []string{"cap-20260101-000000-000001", "cap-20260101-000000-000004"}, map[string]int{"cap-20260101-000000-000004": 4})
+	if err != nil || c.Comparable || len(c.Scaling) != 0 || c.Runs[1].Instances != 4 || !strings.Contains(strings.Join(c.Reasons, ";"), "负载组合") {
+		t.Fatal(err, c)
+	}
+	if _, err = Compare(dir, []string{"cap-20260101-000000-000001", "../etc"}, nil); err == nil {
+		t.Fatal("invalid run id accepted")
 	}
 }

@@ -53,6 +53,10 @@ type RunOptions struct {
 	FaultAllow FaultAllowlist
 	// OnStart receives the run ID once the evidence directory exists.
 	OnStart func(runID string)
+	// ResumeRunID continues an interrupted run in ResultsDir: completed
+	// steps are replayed from phases/, agents are prepared again with the
+	// next generation and the search continues where it stopped.
+	ResumeRunID string
 	// Test seams.
 	NewStore func(ctx context.Context, pgDSN, chURL string) (Store, error)
 	NewAgent func(t AgentTarget, token, workDir string) Agent
@@ -88,6 +92,8 @@ type RunState struct {
 	Completed     []PhaseBrief `json:"completed"`
 	Agents        []AgentClock `json:"agents"`
 	StopReason    string       `json:"stopReason,omitempty"`
+	// Generation increases on every resume; agents refuse older generations.
+	Generation int64 `json:"generation,omitempty"`
 	// Result is the execution outcome decided before the report is written.
 	Result string `json:"result,omitempty"`
 }
@@ -178,6 +184,10 @@ type controller struct {
 	// agentResults keeps each agent's phase result by "phase/agent".
 	agentResults map[string]AgentPhaseResult
 	openAPIKey   string
+	nodes        *Collector
+	// replay holds completed steps of a resumed run, in search order.
+	replay  []PhaseRecord
+	resumed bool
 }
 
 func newRunID(now time.Time) string {
@@ -236,6 +246,12 @@ func Run(ctx context.Context, opt RunOptions) (string, error) {
 	now := time.Now()
 	c := &controller{opt: opt, plan: plan, inv: inv, secrets: secrets, runID: newRunID(now), started: now, gen: 1, stop: make(chan string, 1),
 		httpc: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}}}
+	var prior *RunState
+	if opt.ResumeRunID != "" {
+		if prior, err = c.loadResume(opt.ResumeRunID, now); err != nil {
+			return opt.ResumeRunID, err
+		}
+	}
 	c.dir = filepath.Join(opt.ResultsDir, c.runID)
 	for _, d := range []string{c.dir, filepath.Join(c.dir, "phases"), filepath.Join(c.dir, "ledgers"), filepath.Join(c.dir, "observations"), filepath.Join(c.dir, "verification"), opt.WorkDir} {
 		if err = os.MkdirAll(d, 0o750); err != nil {
@@ -247,7 +263,12 @@ func Run(ctx context.Context, opt RunOptions) (string, error) {
 	}
 	defer c.events.Close()
 	c.logf("run %s evidence → %s", c.runID, c.dir)
-	c.state = RunState{SchemaVersion: SchemaVersion, RunID: c.runID, PID: os.Getpid(), StartedAt: now.UnixMilli(), Completed: []PhaseBrief{}}
+	c.state = RunState{SchemaVersion: SchemaVersion, RunID: c.runID, PID: os.Getpid(), StartedAt: now.UnixMilli(), Completed: []PhaseBrief{}, Generation: c.gen}
+	if prior != nil {
+		c.state.StartedAt = prior.StartedAt
+		_ = os.Remove(filepath.Join(c.dir, StopFile))
+		c.event("resume", "", "", fmt.Sprintf("generation %d, replaying %d completed steps", c.gen, len(c.replay)))
+	}
 	c.setStatus(StatusQueued, "")
 	if opt.OnStart != nil {
 		opt.OnStart(c.runID)
@@ -273,8 +294,9 @@ func (c *controller) event(typ, status, phase, detail string) {
 
 func (c *controller) setStatus(status, message string) {
 	c.stateMu.Lock()
-	c.state.Status, c.state.Message, c.state.UpdatedAt = status, message, time.Now().UnixMilli()
-	c.state.Agents = c.state.Agents[:0]
+	c.state.Status, c.state.Message, c.state.UpdatedAt, c.state.Generation = status, message, time.Now().UnixMilli(), c.gen
+	// A fresh slice keeps snapshots taken by touch() immutable.
+	c.state.Agents = make([]AgentClock, 0, len(c.agents))
 	for _, h := range c.agents {
 		off, unc := h.clock()
 		h.mu.Lock()
@@ -383,6 +405,16 @@ func (c *controller) execute(parent context.Context) error {
 		}
 		colCtx, stopCol := context.WithCancel(context.Background())
 		go c.collector.Run(colCtx)
+		if len(c.inv.Nodes) > 0 {
+			nodes, nerr := NewNodeCollector(c.inv.Nodes, c.plan.Search.ObserveInterval.D(), filepath.Join(c.dir, "observations", "nodes.jsonl"))
+			if nerr != nil {
+				stopCol()
+				return nerr
+			}
+			c.nodes = nodes
+			go nodes.Run(colCtx)
+			defer nodes.Close()
+		}
 		hbCtx, stopHB := context.WithCancel(context.Background())
 		go c.heartbeats(hbCtx)
 		result, err = Search(searchCtx, c.plan, c)
@@ -505,6 +537,16 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 	round := col.Scrape(ctx)
 	for _, s := range round.Instances {
 		add("指标 "+s.Instance, s.OK, firstNonEmpty(s.Error, fmt.Sprintf("%d 个序列", len(s.Values))))
+	}
+	if len(c.inv.Nodes) > 0 {
+		nodes, _ := NewNodeCollector(c.inv.Nodes, time.Second, "")
+		for _, s := range nodes.Scrape(ctx).Instances {
+			detail := firstNonEmpty(s.Error, "node-exporter 可读")
+			if s.OK && s.Values["cpu_total"] == 0 {
+				s.OK, detail = false, "没有 node_cpu_seconds_total，确认是 node-exporter 地址"
+			}
+			add("主机 "+s.Instance, s.OK, detail)
+		}
 	}
 	if store, err := c.opt.NewStore(ctx, pg, ch); err != nil {
 		add("核对数据库", false, err.Error())
@@ -668,7 +710,8 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 	m := Manifest{RunID: c.runID, Tenant: f.Tenant, Product: f.Product, DevicePrefix: f.DevicePrefix, DevicesCreated: []string{}}
 	credPath := filepath.Join(c.opt.WorkDir, "fixtures", fmt.Sprintf("%s-%s-%s.json", f.Tenant, f.Product, f.DevicePrefix))
 	var have []DeviceCredential
-	if f.ReuseDevices {
+	// A resumed run reuses the devices it enrolled before the interruption.
+	if f.ReuseDevices || c.resumed {
 		if b, err := os.ReadFile(credPath); err == nil {
 			_ = json.Unmarshal(b, &have)
 		}
@@ -776,7 +819,80 @@ func (c *controller) heartbeats(ctx context.Context) {
 		for _, h := range c.agents {
 			c.sampleClock(ctx, h)
 		}
+		c.touch()
 	}
+}
+
+// touch refreshes state.json so a resume can tell a live controller from a
+// crashed one.
+func (c *controller) touch() {
+	c.stateMu.Lock()
+	c.state.UpdatedAt = time.Now().UnixMilli()
+	st := c.state
+	c.stateMu.Unlock()
+	_ = writeJSONAtomic(filepath.Join(c.dir, "state.json"), st)
+}
+
+// ErrRunStillActive refuses to resume a run whose controller is alive.
+var ErrRunStillActive = errors.New("run is still active (state updated in the last 30 seconds)")
+
+func (c *controller) loadResume(runID string, now time.Time) (*RunState, error) {
+	st, err := ReadState(c.opt.ResultsDir, runID)
+	if err != nil {
+		return nil, fmt.Errorf("run %s not found under %s", runID, c.opt.ResultsDir)
+	}
+	if st.Result != "" || st.Status == StatusFinished {
+		return nil, fmt.Errorf("run %s already finished (%s); start a new run instead", runID, firstNonEmpty(st.Result, st.Status))
+	}
+	if now.UnixMilli()-st.UpdatedAt < 30_000 {
+		return nil, ErrRunStillActive
+	}
+	dir := filepath.Join(c.opt.ResultsDir, runID)
+	var env struct {
+		PlanHash string `json:"planHash"`
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "environment.json")); err == nil {
+		_ = json.Unmarshal(b, &env)
+	}
+	if _, hash, err := c.plan.Sanitized(); err != nil || env.PlanHash == "" || hash != env.PlanHash {
+		return nil, fmt.Errorf("plan differs from the one run %s started with; resume needs the same plan", runID)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "phases"))
+	for _, e := range entries {
+		var rec PhaseRecord
+		if b, err := os.ReadFile(filepath.Join(dir, "phases", e.Name())); err == nil && json.Unmarshal(b, &rec) == nil && !rec.Cancelled {
+			c.replay = append(c.replay, rec)
+		}
+	}
+	sort.Slice(c.replay, func(i, j int) bool { return c.replay[i].Index < c.replay[j].Index })
+	c.runID, c.resumed, c.gen = runID, true, max(st.Generation, 1)+1
+	// Wall-time budget counts the time the run was active before it stopped.
+	c.started = now.Add(-time.Duration(max(st.UpdatedAt-st.StartedAt, 0)) * time.Millisecond)
+	return &st, nil
+}
+
+// replayStep returns the recorded result when the resumed search asks for
+// the same step it ran before; the first difference ends the replay.
+func (c *controller) replayStep(rate float64, kind string) (PhaseRecord, bool) {
+	if len(c.replay) == 0 {
+		return PhaseRecord{}, false
+	}
+	rec := c.replay[0]
+	if rec.TargetMessagesPerSec != rate || rec.Kind != kind {
+		c.event("resume", "diverged", rec.PhaseID, fmt.Sprintf("search asked for %s %g; later recorded steps are ignored", kind, rate))
+		for _, r := range c.replay {
+			c.phaseN = max(c.phaseN, r.Index)
+		}
+		c.replay = nil
+		return PhaseRecord{}, false
+	}
+	c.replay = c.replay[1:]
+	c.phaseN = rec.Index
+	c.stateMu.Lock()
+	c.state.Completed = append(c.state.Completed, PhaseBrief{PhaseID: rec.PhaseID, Kind: rec.Kind, Rate: rec.TargetMessagesPerSec, Verdict: rec.Verdict, StopReason: rec.StopReason})
+	c.stateMu.Unlock()
+	c.event("phase", rec.Verdict, rec.PhaseID, "replayed from the interrupted run")
+	return rec, true
 }
 
 func (c *controller) sampleClock(ctx context.Context, h *agentHandle) {
@@ -847,6 +963,9 @@ func dirSize(dir string) int64 {
 // results and ledgers are collected, the pipeline is drained and every
 // message is reconciled before the step is judged.
 func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hold time.Duration) (PhaseRecord, error) {
+	if rec, ok := c.replayStep(rate, kind); ok {
+		return rec, nil
+	}
 	c.phaseN++
 	p := c.plan
 	rec := PhaseRecord{PhaseID: fmt.Sprintf("p%02d-%s-%s", c.phaseN, kind, strings.ReplaceAll(fmt.Sprintf("%g", rate), ".", "_")), Index: c.phaseN, Kind: kind, TargetMessagesPerSec: rate, TargetQueriesPerSec: p.QueryRate(rate), Streams: map[string]*StreamStats{}}

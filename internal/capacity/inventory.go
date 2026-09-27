@@ -22,16 +22,24 @@ type Inventory struct {
 	MQTT string `yaml:"mqtt,omitempty" json:"mqtt,omitempty"`
 	TCP  string `yaml:"tcp,omitempty" json:"tcp,omitempty"`
 	// Web is the management web origin (HLS playback goes through its proxy).
-	Web       string          `yaml:"web,omitempty" json:"web,omitempty"`
-	Metrics   []MetricsTarget `yaml:"metrics" json:"metrics"`
-	Agents    []AgentTarget   `yaml:"agents" json:"agents"`
-	Observers Observers       `yaml:"observers" json:"observers"`
+	Web     string          `yaml:"web,omitempty" json:"web,omitempty"`
+	Metrics []MetricsTarget `yaml:"metrics" json:"metrics"`
+	// Nodes are node-exporter endpoints of the hosts under test; they are
+	// sampled separately into observations/nodes.jsonl for host charts.
+	Nodes     []NodeTarget  `yaml:"nodes,omitempty" json:"nodes,omitempty"`
+	Agents    []AgentTarget `yaml:"agents" json:"agents"`
+	Observers Observers     `yaml:"observers" json:"observers"`
 }
 
 type MetricsTarget struct {
 	Role     string `yaml:"role" json:"role"`
 	Instance string `yaml:"instance" json:"instance"`
 	URL      string `yaml:"url" json:"url"`
+}
+
+type NodeTarget struct {
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url" json:"url"`
 }
 
 // AgentTarget with an empty URL runs in the controller process.
@@ -73,6 +81,13 @@ func (inv *Inventory) Validate() error {
 		if u, err := url.Parse(inv.MQTT); err != nil || (u.Scheme != "tcp" && u.Scheme != "ssl" && u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
 			bad("inventory mqtt must be tcp://, ssl://, ws:// or wss://")
 		}
+	}
+	seenNode := map[string]bool{}
+	for i, n := range inv.Nodes {
+		if !identifier.MatchString(n.Name) || seenNode[n.Name] || !httpURL(n.URL) {
+			bad("nodes[%d] needs a unique name and an http(s) node-exporter URL", i)
+		}
+		seenNode[n.Name] = true
 	}
 	if inv.TCP != "" {
 		if _, _, err := net.SplitHostPort(inv.TCP); err != nil {

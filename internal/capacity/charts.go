@@ -21,6 +21,7 @@ type xy struct {
 
 type chartSeries struct {
 	Name   string
+	En     string // PNG label (ASCII)
 	Points []xy
 	Dashed bool
 	Color  string
@@ -28,6 +29,7 @@ type chartSeries struct {
 
 type chartLine struct {
 	Label string
+	En    string
 	Y     float64
 }
 
@@ -44,6 +46,7 @@ type chartTick struct {
 
 type chartSpec struct {
 	Title, XLabel, YLabel string
+	ENTitle, ENYLabel     string // PNG labels (the bitmap font is ASCII only)
 	Series                []chartSeries
 	Lines                 []chartLine // horizontal reference lines (SLO)
 	Bands                 []chartBand // shaded x ranges
@@ -61,7 +64,17 @@ const (
 	chartInk, chartMuted, chartGridCol = "#1f2937", "#6b7280", "#e5e7eb"
 )
 
-func renderChart(s chartSpec) string {
+// chartLayout is the geometry shared by the SVG and PNG renderers.
+type chartLayout struct {
+	minX, maxX, yMax float64
+	anyValid         bool
+	ticks            []chartTick
+}
+
+func (l chartLayout) px(x float64) float64 { return padL + (x-l.minX)/(l.maxX-l.minX)*plotW }
+func (l chartLayout) py(y float64) float64 { return padT + plotH - y/l.yMax*plotH }
+
+func layoutChart(s chartSpec) chartLayout {
 	minX, maxX := math.Inf(1), math.Inf(-1)
 	maxY := 0.0
 	anyValid := false
@@ -96,8 +109,24 @@ func renderChart(s chartSpec) string {
 	if yMax <= 0 {
 		yMax = 1
 	}
-	px := func(x float64) float64 { return padL + (x-minX)/(maxX-minX)*plotW }
-	py := func(y float64) float64 { return padT + plotH - y/yMax*plotH }
+	l := chartLayout{minX: minX, maxX: maxX, yMax: yMax, anyValid: anyValid, ticks: s.Ticks}
+	if l.ticks == nil {
+		for i := 0; i <= 5; i++ {
+			x := minX + (maxX-minX)*float64(i)/5
+			label := fmtAxis(x)
+			if s.TimeAxis {
+				label = time.UnixMilli(int64(x)).Format("15:04:05")
+			}
+			l.ticks = append(l.ticks, chartTick{X: x, Label: label})
+		}
+	}
+	return l
+}
+
+func renderChart(s chartSpec) string {
+	l := layoutChart(s)
+	yMax, anyValid := l.yMax, l.anyValid
+	px, py := l.px, l.py
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="100%%" role="img" aria-label="%s" %s font-size="12">`, chartW, chartH, html.EscapeString(s.Title), chartFont)
 	fmt.Fprintf(&b, `<rect width="%d" height="%d" fill="#ffffff" rx="8"/>`, chartW, chartH)
@@ -116,18 +145,7 @@ func renderChart(s chartSpec) string {
 		fmt.Fprintf(&b, `<text x="%d" y="%.1f" text-anchor="end" fill="%s">%s</text>`, padL-8, py(y)+4, chartMuted, fmtAxis(y))
 	}
 	fmt.Fprintf(&b, `<text transform="translate(16 %d) rotate(-90)" text-anchor="middle" fill="%s">%s</text>`, padT+plotH/2, chartMuted, html.EscapeString(s.YLabel))
-	ticks := s.Ticks
-	if ticks == nil {
-		for i := 0; i <= 5; i++ {
-			x := minX + (maxX-minX)*float64(i)/5
-			label := fmtAxis(x)
-			if s.TimeAxis {
-				label = time.UnixMilli(int64(x)).Format("15:04:05")
-			}
-			ticks = append(ticks, chartTick{X: x, Label: label})
-		}
-	}
-	for _, t := range ticks {
+	for _, t := range l.ticks {
 		fmt.Fprintf(&b, `<text x="%.1f" y="%d" text-anchor="middle" fill="%s">%s</text>`, px(t.X), padT+plotH+18, chartMuted, html.EscapeString(t.Label))
 	}
 	fmt.Fprintf(&b, `<text x="%d" y="%d" text-anchor="middle" fill="%s">%s</text>`, padL+plotW/2, padT+plotH+38, chartMuted, html.EscapeString(s.XLabel))
