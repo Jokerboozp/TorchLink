@@ -58,7 +58,7 @@ export function trendGeometry(trend = []) {
   const ceiling = Math.ceil(max / magnitude) * magnitude
   const step = Math.max(1, Math.ceil(ceiling / 4))
   const top = step * 4
-  const labels = Array.from({length:5},(_,i) => step*i < 1e4 ? String(step*i) : compactCount(step*i, 2))
+  const labels = Array.from({length:5},(_,i) => compactCount(step*i, 2))
   // 纵轴刻度文字右对齐在绘图区左侧 14 处，按最长刻度估算宽度，避免大数刻度超出图表左边界。
   const left = Math.max(44, 18 + Math.ceil(Math.max(...labels.map(text => [...text].reduce((sum, ch) => sum + (/[\u4e00-\u9fff]/.test(ch) ? 12 : 7), 0)))))
   const width = 672 - left

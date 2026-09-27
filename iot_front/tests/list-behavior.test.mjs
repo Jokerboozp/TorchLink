@@ -466,6 +466,7 @@ test('trend handles no alarms, small counts and spikes without fractional count 
   const spike=trendGeometry([{date:'a',count:0},{date:'b',count:99999999}])
   assert.deepEqual(spike.ticks.map(t=>t.label),['0','2,500万','5,000万','7,500万','1亿'])
   assert.ok(spike.left>44)
+  assert.deepEqual(trendGeometry([{date:'a',count:9999}]).ticks.map(t=>t.label),['0','2,500','5,000','7,500','1万'])
 })
 test('dashboard counts abbreviate large values so cards and ring centers stay inside their bounds',()=>{
   assert.deepEqual([0,9999,12345,99996,12345678,99995000,123456789,-3,'bad'].map(v=>compactCount(v)),['0','9,999','1.2万','10万','1,235万','1亿','1.2亿','0','0'])
