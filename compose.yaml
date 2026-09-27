@@ -87,6 +87,9 @@ services:
       IOT_OPS_LOKI_RUNTIME_FILE: /app/ops/loki/runtime.yaml
       IOT_OPS_ALERTMANAGER_CONFIG_FILE: /app/ops/alertmanager/alertmanager.yml
       IOT_OPS_TENANTS: ${IOT_OPS_TENANTS:-}
+      # 容量测试页：指向控制机上的 capacity-test serve；为空时页面提示未配置。
+      IOT_OPS_CAPACITY_URL: ${IOT_OPS_CAPACITY_URL:-}
+      IOT_OPS_CAPACITY_TOKEN: ${IOT_OPS_CAPACITY_TOKEN:-}
       # 摄像头直播：部署脚本默认启用；IOT_VIDEO_MEDIA_API_URL 为空表示未部署，其余业务不受影响。
       # 开关见 scripts/video-module.sh / video-module.ps1 与 docs/PLATFORM.md。
       IOT_VIDEO_MEDIA_API_URL: ${IOT_VIDEO_MEDIA_API_URL:-}

@@ -271,3 +271,31 @@ test('筛选防抖期间废弃旧数据，自动刷新不叠加请求，离开�
   assert.equal(p.alerts.value.length, 0)
   assert.equal(p.alertsLoading.value, false)
 })
+
+test('容量测试进度只按真实测量窗口计算，结束的运行停止轮询', async () => {
+  const { boundText, isFinished, phaseSummary, pollDelay, statusTone, windowProgress } = await import('../src/ops/capacity.js')
+  const run = { measureFrom: 1000, measureTo: 11000 }
+  assert.equal(windowProgress(run, 500), 0)
+  assert.equal(windowProgress(run, 6000), 50)
+  assert.equal(windowProgress(run, 20000), 100)
+  assert.equal(windowProgress({ status: 'DRAINING' }, 6000), null)
+  assert.equal(pollDelay([{ status: 'FINISHED', active: false }]), 0)
+  assert.equal(pollDelay([{ status: 'FINISHED' }, { status: 'RUNNING', active: true }]), 3000)
+  assert.equal(pollDelay([{ status: 'VERIFYING', active: false }]), 3000)
+  assert.equal(isFinished('CANCELLED'), true)
+  assert.equal(statusTone('FINISHED', 'passed'), 'success')
+  assert.equal(statusTone('FINISHED', 'inconclusive'), 'info')
+  assert.equal(statusTone('RUNNING'), 'warning')
+  assert.equal(boundText(null), '—')
+  assert.match(boundText(1234.5), /1,234\.5 条\/秒/)
+  assert.deepEqual(phaseSummary([{ verdict: 'passed' }, { verdict: 'failed' }, { verdict: 'passed' }]), { passed: 2, failed: 1, inconclusive: 0 })
+})
+
+test('容量测试页只调用平台运维接口，并在菜单与权限预设中登记', () => {
+  const view = readFileSync(new URL('../src/views/OpsCapacityView.vue', import.meta.url), 'utf8')
+  for (const path of view.match(/\/api\/v1\/[^`'"?$]+/g)) assert.ok(path.startsWith('/api/v1/ops/capacity/'), path)
+  const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  assert.match(app, /'opsAlerts', 'opsCapacity'\]/)
+  const presets = readFileSync(new URL('../src/permissionPresets.js', import.meta.url), 'utf8')
+  assert.match(presets, /'opsCapacity'/)
+})

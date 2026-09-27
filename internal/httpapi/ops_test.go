@@ -185,3 +185,97 @@ func TestOpsCenterUnavailableWithoutService(t *testing.T) {
 	}
 	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ops/overview", "", nil, 401)
 }
+
+func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
+	var calls []string
+	var mu sync.Mutex
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer capacity-service-token-for-tests-000" {
+			w.WriteHeader(401)
+			return
+		}
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.RequestURI())
+		mu.Unlock()
+		switch {
+		case r.URL.Path == "/v1/environments":
+			_, _ = w.Write([]byte(`{"items":[{"name":"lab","agents":1}]}`))
+		case r.URL.Path == "/v1/plans/validate":
+			_, _ = w.Write([]byte(`{"valid":true,"errors":[]}`))
+		case r.URL.Path == "/v1/runs" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"items":[]}`))
+		case r.URL.Path == "/v1/runs" && r.Method == http.MethodPost:
+			w.WriteHeader(202)
+			_, _ = w.Write([]byte(`{"runId":"cap-20260928-120000-abcdef"}`))
+		case r.URL.Path == "/v1/runs/cap-20260928-120000-abcdef/stop":
+			w.WriteHeader(202)
+			_, _ = w.Write([]byte(`{"runId":"cap-20260928-120000-abcdef","force":false}`))
+		case r.URL.Path == "/v1/runs/cap-20260928-120000-abcdef/report":
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="r.md"`)
+			_, _ = w.Write([]byte("# 容量测试报告"))
+		default:
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(`{"error":"run not found"}`))
+		}
+	}))
+	defer upstream.Close()
+	repo := &auditingRepo{Repository: memory.NewRepository()}
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "root-password-test"
+	cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
+	cfg.JWTSecret = "test-only-secret-for-ops-at-least-32"
+	cfg.DevMode = true
+	cfg.Ops.Tenants = []string{"tenant_ops"}
+	cfg.Ops.CapacityURL, cfg.Ops.CapacityToken = upstream.URL, "capacity-service-token-for-tests-000"
+	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
+	}
+	login := func(user, password, tenant string) string {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": tenant}, 200)["accessToken"].(string)
+	}
+	root := login("root", cfg.AdminPassword, "tenant_ops")
+	plan := map[string]any{"environment": "lab", "plan": "schemaVersion: 1\n"}
+	req("GET", "/api/v1/ops/capacity/environments", root, nil, 200)
+	req("POST", "/api/v1/ops/capacity/plans/validate", root, plan, 200)
+	if body := req("POST", "/api/v1/ops/capacity/runs", root, plan, 202); body["runId"] != "cap-20260928-120000-abcdef" {
+		t.Fatal(body)
+	}
+	req("POST", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/stop", root, map[string]any{}, 202)
+	req("GET", "/api/v1/ops/capacity/runs/..%2Fetc", root, nil, 404)
+	req("GET", "/api/v1/ops/capacity/runs/cap-20260928-120000-000000", root, nil, 404)
+	resp, err := func() (*http.Response, error) {
+		r, _ := http.NewRequest("GET", server.URL+"/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/report?format=markdown", nil)
+		r.Header.Set("Authorization", "Bearer "+root)
+		return server.Client().Do(r)
+	}()
+	if err != nil || resp.StatusCode != 200 || resp.Header.Get("Content-Disposition") == "" {
+		t.Fatal("report download", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+	actions := strings.Join(repo.actions(), ",")
+	for _, want := range []string{"capacity.run.start@tenant_ops", "capacity.run.stop@tenant_ops", "capacity.report.download@tenant_ops"} {
+		if !strings.Contains(actions, want) {
+			t.Fatalf("audits %s lack %s", actions, want)
+		}
+	}
+	// A viewer with only the capacity menu can list but not start, stop or download.
+	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "cap_viewer", "name": "容量查看", "permissions": []string{"menu:opsCapacity"}}, 200)
+	req("POST", "/api/v1/access/users", root, map[string]any{"username": "cap_user", "displayName": "容量", "password": "cap-password-test", "enabled": true, "roleIds": []string{"cap_viewer"}, "permissions": []string{}, "deviceScope": "none"}, 200)
+	viewer := login("cap_user", "cap-password-test", "tenant_ops")
+	req("GET", "/api/v1/ops/capacity/runs", viewer, nil, 200)
+	req("POST", "/api/v1/ops/capacity/runs", viewer, plan, 403)
+	req("POST", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/stop", viewer, map[string]any{}, 403)
+	req("GET", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/report", viewer, nil, 403)
+	// Business tenants cannot be granted the capacity menu at all.
+	rootBiz := login("root", cfg.AdminPassword, "tenant_biz")
+	req("POST", "/api/v1/access/roles", rootBiz, map[string]any{"id": "cap", "name": "x", "permissions": []string{"menu:opsCapacity"}}, 422)
+	for _, c := range calls {
+		if strings.Contains(c, "..") {
+			t.Fatal("traversal reached the controller", c)
+		}
+	}
+}

@@ -140,7 +140,7 @@ func routeAction(method, path string) string {
 	}
 }
 func protectedRead(path string) bool {
-	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid"
+	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report"
 }
 func (s *Server) permissionCatalog() []permissionItem {
 	items := []permissionItem{}

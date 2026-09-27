@@ -97,6 +97,14 @@ func (s *Server) opsRoutes() {
 	r.PUT("/api/v1/ops/notifications", a, e(s.opsSaveNotifications))
 	r.POST("/api/v1/ops/notifications/receivers/:name/test", a, e(s.opsTestReceiver, "name"))
 
+	r.GET("/api/v1/ops/capacity/environments", a, e(s.capacityEnvironments))
+	r.POST("/api/v1/ops/capacity/plans/validate", a, e(s.capacityValidate))
+	r.GET("/api/v1/ops/capacity/runs", a, e(s.capacityRuns))
+	r.POST("/api/v1/ops/capacity/runs", a, e(s.capacityStart))
+	r.GET("/api/v1/ops/capacity/runs/:id", a, e(s.capacityRun, "id"))
+	r.POST("/api/v1/ops/capacity/runs/:id/stop", a, e(s.capacityStop, "id"))
+	r.GET("/api/v1/ops/capacity/runs/:id/report", a, e(s.capacityReport, "id"))
+
 	r.GET("/api/v1/ops/preferences/saved-queries", a, e(s.opsSavedQueries))
 	r.POST("/api/v1/ops/preferences/saved-queries", a, e(s.opsSaveQuery))
 	r.DELETE("/api/v1/ops/preferences/saved-queries/:id", a, e(s.opsDeleteSavedQuery, "id"))

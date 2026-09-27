@@ -6,7 +6,7 @@ export const permissionSections = [
   { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras'] },
   { name: '运维管理', menus: ['inspection', 'rules', 'knowledge'] },
   { name: '系统管理', menus: ['aiProviders', 'backups', 'access'] },
-  { name: '运维中心', menus: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts'] }
+  { name: '运维中心', menus: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] }
 ]
 export function featureGrants(group, level) {
   if (level === 'none') return []

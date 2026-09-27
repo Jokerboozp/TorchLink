@@ -51,6 +51,8 @@ type RunOptions struct {
 	// FaultAllow is the fault allowlist of in-process agents (remote agents
 	// load their own with capacity-test agent -fault-allow).
 	FaultAllow FaultAllowlist
+	// OnStart receives the run ID once the evidence directory exists.
+	OnStart func(runID string)
 	// Test seams.
 	NewStore func(ctx context.Context, pgDSN, chURL string) (Store, error)
 	NewAgent func(t AgentTarget, token, workDir string) Agent
@@ -247,6 +249,9 @@ func Run(ctx context.Context, opt RunOptions) (string, error) {
 	c.logf("run %s evidence → %s", c.runID, c.dir)
 	c.state = RunState{SchemaVersion: SchemaVersion, RunID: c.runID, PID: os.Getpid(), StartedAt: now.UnixMilli(), Completed: []PhaseBrief{}}
 	c.setStatus(StatusQueued, "")
+	if opt.OnStart != nil {
+		opt.OnStart(c.runID)
+	}
 	return c.runID, c.execute(ctx)
 }
 

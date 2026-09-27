@@ -84,6 +84,8 @@ IOT_MQTT_DEVICE_TOKEN_TTL	标准 MQTT / HTTP 设备令牌有效期；仅在配�
 IOT_INGEST_MAX_BACKLOG	解析与存储积压超过该条数时暂停接收新原始报文（HTTP 返回 429，MQTT 留在磁盘队列，TCP 不应答），降到 80% 以下恢复；0 关闭
 POSTGRES_MAX_CONNECTIONS	PostgreSQL 服务端最大连接数（Compose 部署的 postgres 容器）
 IOT_AI_ANALYSIS_CONCURRENCY	同时进行的告警自动研判数量，建议不超过 Harness 并发，1 至 32
+IOT_OPS_CAPACITY_URL	容量测试控制服务（capacity-test serve）地址，仅平台 API 访问；为空时容量测试页提示未配置
+IOT_OPS_CAPACITY_TOKEN	平台访问容量测试控制服务的令牌（至少 32 个字符），与控制机秘密文件中的服务令牌一致
 IOT_OPS_TENANTS	可授予运维中心权限的平台运维租户，多个值用逗号分隔；为空时仅内置管理员可用
 IOT_OPS_PROMETHEUS_URL	运维中心访问 Prometheus 的地址（仅服务端使用）
 IOT_OPS_LOKI_URL	运维中心访问 Loki 的地址（仅服务端使用）

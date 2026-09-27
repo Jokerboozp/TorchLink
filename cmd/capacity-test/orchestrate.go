@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"iot-platform/internal/capacity"
@@ -24,6 +25,7 @@ const subcommandUsage = `capacity-test one-click orchestration (docs/DEVELOPMENT
   capacity-test status --run <runId> [--results capacity-results]
   capacity-test stop --run <runId> [--force] [--results capacity-results]
   capacity-test report --run <runId> [--secrets <file>] [--results capacity-results]
+  capacity-test serve --listen 127.0.0.1:7080 --inventories <dir> --token-ref <name> [--secrets <file>] [--results capacity-results] [--fault-allow <file>]
   capacity-test agent --listen :7070 --token-ref <name> [--secrets <file>] [--name <agent>] [--fault-allow <file>]
 
 Legacy single-mode usage (-mode ...) is unchanged; run with -h for its flags.
@@ -53,6 +55,8 @@ func subcommand(args []string) bool {
 		err = reportCmd(args[1:])
 	case "agent":
 		err = agentCmd(args[1:])
+	case "serve":
+		err = serveCmd(args[1:])
 	case "help", "--help":
 		fmt.Print(subcommandUsage)
 	default:
@@ -290,4 +294,55 @@ func agentCmd(args []string) error {
 	srv := &http.Server{Addr: *listen, Handler: capacity.AgentHandler(w, token), ReadHeaderTimeout: 10 * time.Second}
 	fmt.Printf("capacity agent %s listening on %s (ledgers in %s)\n", *name, *listen, *workDir)
 	return srv.ListenAndServe()
+}
+
+// serveCmd runs the controller service used by the platform's ops page
+// (/api/v1/ops/capacity/*). Environments are the inventories in a trusted
+// directory; the service token is shared with IOT_OPS_CAPACITY_TOKEN.
+func serveCmd(args []string) error {
+	fs := newFlags("serve")
+	listen := fs.String("listen", "127.0.0.1:7080", "listen address (keep it private: only the platform API calls it)")
+	invDir := fs.String("inventories", "", "directory of trusted inventory files (<environment>.yaml)")
+	results := fs.String("results", "capacity-results", "results directory")
+	secretsPath := fs.String("secrets", "", "private secrets file used by runs")
+	tokenRef := fs.String("token-ref", "", "secret reference of the service token shared with the platform")
+	faultAllow := fs.String("fault-allow", "", "fault allowlist for in-process agents")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *invDir == "" {
+		return errors.New("--inventories is required")
+	}
+	s, err := capacity.LoadSecrets(*secretsPath)
+	if err != nil {
+		return err
+	}
+	token, err := s.Get(*tokenRef)
+	if err != nil {
+		return err
+	}
+	if len(token) < 32 {
+		return errors.New("the service token must have at least 32 characters")
+	}
+	opt := capacity.ServeOptions{InventoryDir: *invDir, ResultsDir: *results, SecretsPath: *secretsPath, Token: token, SourceCommit: sourceCommit(), Log: os.Stdout}
+	if *faultAllow != "" {
+		if opt.FaultAllow, err = capacity.LoadFaultAllowlist(*faultAllow); err != nil {
+			return err
+		}
+	}
+	svc := capacity.NewService(opt)
+	srv := &http.Server{Addr: *listen, Handler: svc.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		fmt.Println("stopping: the active run is asked to stop and write its report")
+		svc.Shutdown(10 * time.Minute)
+		_ = srv.Close()
+	}()
+	fmt.Printf("capacity controller service on %s (environments %s, results %s)\n", *listen, *invDir, *results)
+	if err = srv.ListenAndServe(); errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }

@@ -476,3 +476,91 @@ func TestEndToEndResilienceInjectsRecoversAndMeasuresRecovery(t *testing.T) {
 		t.Fatal(string(md))
 	}
 }
+
+func TestServiceRunsPlansAgainstTrustedEnvironments(t *testing.T) {
+	t.Parallel()
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s")
+	invDir := filepath.Join(e.dir, "environments")
+	_ = os.MkdirAll(invDir, 0o750)
+	inv, _ := os.ReadFile(filepath.Join(e.dir, "inv.yaml"))
+	_ = os.WriteFile(filepath.Join(invDir, "lab.yaml"), inv, 0o600)
+	plan, _ := os.ReadFile(e.planPath)
+	token := strings.Repeat("s", 40)
+	svc := NewService(ServeOptions{InventoryDir: invDir, ResultsDir: e.results, SecretsPath: e.secrets, Token: token,
+		NewStore: func(context.Context, string, string) (Store, error) { return e.platform.store, nil }})
+	srv := httptest.NewServer(svc.Handler())
+	t.Cleanup(srv.Close)
+	call := func(method, path string, body any) (int, []byte) {
+		var rd io.Reader
+		if body != nil {
+			b, _ := json.Marshal(body)
+			rd = bytes.NewReader(b)
+		}
+		req, _ := http.NewRequest(method, srv.URL+path, rd)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, b
+	}
+	if resp, _ := http.Get(srv.URL + "/v1/environments"); resp.StatusCode != 401 {
+		t.Fatal("environments without token", resp.StatusCode)
+	}
+	status, body := call("GET", "/v1/environments", nil)
+	if status != 200 || !strings.Contains(string(body), `"name":"lab"`) || strings.Contains(string(body), e.platform.srv.URL) {
+		t.Fatalf("environments must list names without addresses: %s", body)
+	}
+	status, body = call("POST", "/v1/plans/validate", map[string]string{"environment": "../etc/passwd", "plan": "schemaVersion: 1\nnme: x\n"})
+	if status != 200 || !strings.Contains(string(body), `"valid":false`) || !strings.Contains(string(body), "请选择已登记的测试环境") {
+		t.Fatalf("%d %s", status, body)
+	}
+	status, body = call("POST", "/v1/plans/validate", map[string]string{"environment": "lab", "plan": string(plan)})
+	if status != 200 || !strings.Contains(string(body), `"valid":true`) {
+		t.Fatalf("%d %s", status, body)
+	}
+	status, body = call("POST", "/v1/runs", map[string]string{"environment": "lab", "plan": string(plan)})
+	if status != 202 {
+		t.Fatalf("%d %s", status, body)
+	}
+	var started struct{ RunID string }
+	_ = json.Unmarshal(body, &started)
+	if status, _ = call("POST", "/v1/runs", map[string]string{"environment": "lab", "plan": string(plan)}); status != 409 {
+		t.Fatal("a second run must be refused while one is active", status)
+	}
+	var info RunInfo
+	for deadline := time.Now().Add(90 * time.Second); ; {
+		status, body = call("GET", "/v1/runs/"+started.RunID, nil)
+		_ = json.Unmarshal(body, &info)
+		if status == 200 && !info.Active && info.Verdict != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run did not finish: %s", body)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	if info.Status != StatusFinished || info.Verdict != VerdictPassed || info.Conclusion == "" || len(info.Reports) < 4 || info.Preset != "quick" {
+		t.Fatalf("%+v", info)
+	}
+	status, body = call("GET", "/v1/runs", nil)
+	if status != 200 || !strings.Contains(string(body), started.RunID) {
+		t.Fatal(string(body))
+	}
+	status, body = call("GET", "/v1/runs/"+started.RunID+"/report?format=markdown", nil)
+	if status != 200 || !strings.Contains(string(body), "容量测试报告") {
+		t.Fatal(status)
+	}
+	status, body = call("GET", "/v1/runs/"+started.RunID+"/report?format=zip", nil)
+	if status != 200 || !bytes.HasPrefix(body, []byte("PK")) {
+		t.Fatal("zip", status)
+	}
+	if status, _ = call("POST", "/v1/runs/cap-20200101-000000-000000/stop", nil); status != 404 {
+		t.Fatal("stop of an unknown run", status)
+	}
+	if status, _ = call("GET", "/v1/runs/..%2f..%2fetc/report", nil); status != 404 {
+		t.Fatal("path traversal in run id", status)
+	}
+}

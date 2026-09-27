@@ -36,7 +36,11 @@ type OpsConfig struct {
 	LogPushURL         string
 	LogPushTenant      string
 	LogServiceName     string
-	loadErr            error
+	// CapacityURL/CapacityToken reach the capacity controller service
+	// (capacity-test serve); empty disables the capacity page.
+	CapacityURL   string
+	CapacityToken string
+	loadErr       error
 }
 
 func loadOps() OpsConfig {
@@ -64,6 +68,8 @@ func loadOps() OpsConfig {
 		LogPushURL:         trimURL(os.Getenv("IOT_LOG_LOKI_URL")),
 		LogPushTenant:      strings.TrimSpace(os.Getenv("IOT_LOG_LOKI_TENANT")),
 		LogServiceName:     get("IOT_LOG_SERVICE_NAME", "platform-api"),
+		CapacityURL:        trimURL(os.Getenv("IOT_OPS_CAPACITY_URL")),
+		CapacityToken:      strings.TrimSpace(os.Getenv("IOT_OPS_CAPACITY_TOKEN")),
 		ConfigFileMode:     0o640,
 	}
 	if raw := strings.TrimSpace(os.Getenv("IOT_OPS_CONFIG_FILE_MODE")); raw != "" {

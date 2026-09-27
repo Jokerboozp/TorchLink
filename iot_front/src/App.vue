@@ -62,6 +62,7 @@ const OpsMetricsView = defineAsyncComponent(() => import('./views/OpsMetricsView
 const OpsLogsView = defineAsyncComponent(() => import('./views/OpsLogsView.vue'))
 const OpsDashboardsView = defineAsyncComponent(() => import('./views/OpsDashboardsView.vue'))
 const OpsAlertsView = defineAsyncComponent(() => import('./views/OpsAlertsView.vue'))
+const OpsCapacityView = defineAsyncComponent(() => import('./views/OpsCapacityView.vue'))
 
 const authenticated = ref(Boolean(session.token))
 const active = ref('dashboard')
@@ -102,13 +103,14 @@ const pages = {
   opsMetrics: { ...pageGuide.opsMetrics, icon: LineChart, component: OpsMetricsView },
   opsLogs: { ...pageGuide.opsLogs, icon: ScrollText, component: OpsLogsView },
   opsDashboards: { ...pageGuide.opsDashboards, icon: LayoutGrid, component: OpsDashboardsView },
-  opsAlerts: { ...pageGuide.opsAlerts, icon: BellRing, component: OpsAlertsView }
+  opsAlerts: { ...pageGuide.opsAlerts, icon: BellRing, component: OpsAlertsView },
+  opsCapacity: { ...pageGuide.opsCapacity, icon: Activity, component: OpsCapacityView }
 }
 const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
-  { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts'] },
+  { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
   { label: '系统', items: ['backups', 'access'] }
 ]
 const current = computed(() => pages[active.value] || { title: '暂无可用功能' })
