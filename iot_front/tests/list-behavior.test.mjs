@@ -7,7 +7,7 @@ import { createClientId } from '../src/clientId.js'
 import { computed, reactive, ref, watch } from 'vue'
 import { readFile } from 'node:fs/promises'
 import { alarmNavigation, alarmQuery } from '../src/alarmNavigation.js'
-import { dashboardDistributions, deviceSegments, productBars, ringSegments, statusSegments, trendGeometry } from '../src/dashboard.js'
+import { compactCount, dashboardDistributions, deviceSegments, productBars, ringSegments, statusSegments, trendGeometry } from '../src/dashboard.js'
 
 const root = new URL('../src/views/', import.meta.url)
 // Execute the real setup code with Vue reactivity; replace external I/O and
@@ -461,8 +461,14 @@ test('trend handles no alarms, small counts and spikes without fractional count 
   for (const values of [[],[0,0],[1,0,1],[0,12001,0]]) {
     const chart=trendGeometry(values.map((count,i)=>({date:String(i),count})))
     assert.ok(chart.ticks.every(t=>Number.isInteger(t.value)))
-    assert.ok(chart.points.every(p=>Number.isFinite(p.x)&&p.y>=32&&p.y<=204))
+    assert.ok(chart.points.every(p=>Number.isFinite(p.x)&&p.x>=chart.left&&p.x<=672&&p.y>=32&&p.y<=204))
   }
+  const spike=trendGeometry([{date:'a',count:0},{date:'b',count:99999999}])
+  assert.deepEqual(spike.ticks.map(t=>t.label),['0','2,500万','5,000万','7,500万','1亿'])
+  assert.ok(spike.left>44)
+})
+test('dashboard counts abbreviate large values so cards and ring centers stay inside their bounds',()=>{
+  assert.deepEqual([0,9999,12345,99996,12345678,99995000,123456789,-3,'bad'].map(v=>compactCount(v)),['0','9,999','1.2万','10万','1,235万','1亿','1.2亿','0','0'])
 })
 function dashboardSetup(api) {
   const script=fs.readFileSync(new URL('../src/views/DashboardView.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
