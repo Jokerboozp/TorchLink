@@ -235,9 +235,9 @@ function handleUIAction(payload) {
 }
 
 function connect() {
-  startRealtime((topic, payload) => {
+  startRealtime((topic, payload, meta) => {
     if (topic.includes('/ui-action/')) handleUIAction(payload)
-    window.dispatchEvent(new CustomEvent('iot:realtime', { detail: { topic, payload } }))
+    window.dispatchEvent(new CustomEvent('iot:realtime', { detail: { topic, payload, added: Boolean(meta?.added) } }))
   })
 }
 

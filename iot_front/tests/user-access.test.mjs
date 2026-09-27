@@ -143,6 +143,14 @@ test('管理员 MQTT 消息与下一次 HTTP 快照只触发一次告警刷新',
  assert.equal(r.messages.length,1)
 })
 
+test('设备状态行新出现时标记为新设备，已有设备的更新不标记',async()=>{
+ let snapshot={alarms:[],devices:[{deviceId:'d1',lastSeenAt:1}],permissions:['menu:devices']}
+ const r=realtime(async()=>snapshot);await r.start();await settle()
+ snapshot={...snapshot,devices:[{deviceId:'d1',lastSeenAt:2}]};await r.timers.shift()()
+ snapshot={...snapshot,devices:[{deviceId:'d1',lastSeenAt:2},{deviceId:'d2',lastSeenAt:3}]};await r.timers.shift()()
+ assert.deepEqual(r.messages.map(message=>[JSON.parse(message[1]).deviceId,message[2].added]),[['d1',false],['d2',true]])
+})
+
 test('快照未变化时不重复处理且继续轮询',async()=>{
  const snapshot={alarms:[{alarmId:'a',deviceId:'d'}],devices:[],permissions:['menu:alarms']}
  const r=realtime(async()=>snapshot);await r.start();await settle()

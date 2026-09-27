@@ -65,7 +65,10 @@ export async function startRealtime(onMessage) {
           next.set(key, payload)
           if (previous && previous.get(key) !== payload) {
             const delivered = brokerDelivered.get(key)
-            if (delivered?.payload !== payload || delivered.expiresAt <= Date.now()) onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload)
+            // A state row absent from the previous snapshot is a newly visible
+            // device; the broker cannot tell this, so it is announced again.
+            const added = kind === 'state' && !previous.has(key)
+            if (added || delivered?.payload !== payload || delivered.expiresAt <= Date.now()) onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload, { added })
           }
         }
       }

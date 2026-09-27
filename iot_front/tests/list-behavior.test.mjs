@@ -311,7 +311,7 @@ async function devicesView(globals) {
  const source=await readFile(new URL('../src/views/DevicesView.vue',import.meta.url),'utf8')
  const script=source.split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm,'')
  const context=vm.createContext({ref:value=>({value}),reactive:v=>v,computed:fn=>({get value(){return fn()}}),defineEmits:()=>()=>{},pretty:JSON.stringify,onMounted:()=>{},onBeforeUnmount:()=>{},window:{addEventListener(){}},sessionStorage:{getItem:()=>null,removeItem(){}},notifyError:e=>{throw e},setTimeout,clearTimeout,URLSearchParams,...globals})
- vm.runInContext(script+'\nglobalThis.state={load,loading,deviceTab,filters,registryPage,registryTotal,registry,unregistered,pendingCount,changeFilter,changeRegistryPage};',context)
+ vm.runInContext(script+'\nglobalThis.state={load,loading,deviceTab,filters,registryPage,registryTotal,registry,unregistered,pendingCount,changeFilter,changeRegistryPage,updatesAvailable,realtime};',context)
  return context
 }
 
@@ -324,6 +324,24 @@ test('实时消息不重载设备列表，手动刷新仍读取最新数据',asy
  assert.equal(requests,initial,'实时上报不应重新请求整张设备列表')
  assert.equal(context.state.loading.value,false)
  await context.state.load();assert.ok(requests>initial,'手动刷新必须仍然有效')
+})
+
+test('设备心跳只更新最后活跃时间，运行状态变化或新设备才提示有新数据',async()=>{
+ const context=await devicesView({api:async()=>({items:[]}),apiAll:async()=>({items:[]})})
+ const s=context.state,state=(value,extra={})=>({detail:{topic:'/iot/device/state/tenant',payload:JSON.stringify({deviceId:'d1',businessStatus:'ONLINE',connectionStatus:'ONLINE',dataStatus:'NORMAL',lastSeenAt:value}),...extra}})
+ s.registry.value=[{device:{id:'d1'},runtimeState:{deviceId:'d1',businessStatus:'ONLINE',lastSeenAt:1}}]
+ s.realtime(state(2));s.realtime({detail:{topic:'/iot/parsed/tenant/p/d1/PROPERTY_REPORT',payload:'{}'}})
+ assert.equal(s.updatesAvailable.value,false,'心跳和解析报文不应提示刷新')
+ assert.equal(s.registry.value[0].runtimeState.lastSeenAt,2)
+ s.realtime({detail:{topic:'/iot/device/state/tenant',payload:{deviceId:'other',businessStatus:'OFFLINE'}}})
+ assert.equal(s.updatesAvailable.value,false,'不在当前页且不影响筛选的设备不提示')
+ s.realtime({detail:{topic:'/iot/device/state/tenant',payload:{deviceId:'d1',businessStatus:'ALARM'}}})
+ assert.equal(s.updatesAvailable.value,true)
+ s.updatesAvailable.value=false;s.realtime(state(3,{added:true}))
+ assert.equal(s.updatesAvailable.value,true,'新出现的设备需要提示')
+ s.updatesAvailable.value=false;s.filters.runtime='OFFLINE'
+ s.realtime({detail:{topic:'/iot/device/state/tenant',payload:{deviceId:'other',businessStatus:'OFFLINE'}}})
+ assert.equal(s.updatesAvailable.value,true,'可能进入运行状态筛选结果的设备需要提示')
 })
 
 test('设备分组、类型、关键字和运行状态交给服务端筛选，切换筛选回到第一页',async()=>{

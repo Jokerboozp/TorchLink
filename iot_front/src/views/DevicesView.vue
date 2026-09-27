@@ -139,7 +139,28 @@ function rowActions(row) {
 function startOnboarding() { connectionDevice.value = ''; onboarding.value = true }
 function leaveOnboarding(id = '') { onboarding.value = false; connectionDevice.value = id; load() }
 
-const realtime = () => { updatesAvailable.value = true }
+// 设备每次上报都会刷新最后活跃时间：可见行就地更新时间，只有运行状态变化或出现新设备才提示刷新。
+function realtime(event) {
+  const detail = event?.detail || {}
+  if (!String(detail.topic || '').includes('/device/state/')) return
+  let state = detail.payload
+  try { if (typeof state === 'string') state = JSON.parse(state) } catch { return }
+  const id = state?.deviceId
+  if (!id) return
+  if (detail.added) { updatesAvailable.value = true; return }
+  const row = registry.value.find(item => item.device?.id === id)
+  const pending = unregistered.value.find(item => item.deviceId === id)
+  if (row) {
+    if (!row.runtimeState || row.runtimeState.businessStatus !== state.businessStatus) updatesAvailable.value = true
+    else row.runtimeState = { ...row.runtimeState, ...state }
+  }
+  if (pending) {
+    if (['businessStatus', 'connectionStatus', 'dataStatus'].some(key => pending[key] !== state[key])) updatesAvailable.value = true
+    else Object.assign(pending, state)
+  }
+  // 不在当前页的设备只在可能进入运行状态筛选结果时提示。
+  if (!row && !pending && !pendingTab.value && filters.runtime && state.businessStatus === filters.runtime) updatesAvailable.value = true
+}
 onMounted(() => {
   let detail = {}
   try { detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}') } catch { detail = {} }
