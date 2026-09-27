@@ -3,7 +3,7 @@
 defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, notifyError } from '../api'
+import { api, notifyError } from '../api'
 import { Plus, RadioTower, RefreshCw } from '@lucide/vue'
 import CameraLiveConfig from '../components/CameraLiveConfig.vue'
 import GBDevicesDialog from '../components/GBDevicesDialog.vue'
@@ -17,6 +17,7 @@ import { confirmDelete } from '../deleteAction'
 
 const cameras = ref([])
 const devices = ref([])
+const devicesLoading = ref(false)
 const loading = ref(false)
 const dialogVisible = ref(false)
 const editing = ref('')
@@ -54,13 +55,9 @@ async function load() {
   const version = ++loadVersion
   loading.value = true
   try {
-    const [data, deviceData] = await Promise.all([
-      api(`/api/v1/integrations/video/cameras?page=${page.value}&pageSize=${pageSize.value}`),
-      apiAll('/api/v1/device-registry')
-    ])
+    const data = await api(`/api/v1/integrations/video/cameras?page=${page.value}&pageSize=${pageSize.value}`)
     if (version !== loadVersion) return
     cameras.value = data.items || []
-    devices.value = (deviceData.items || []).map(item => item.device || item).filter(item => item.id)
     total.value = Number(data.total ?? data.count ?? cameras.value.length)
   } catch (error) {
     if (version === loadVersion) notifyError(error)
@@ -69,10 +66,38 @@ async function load() {
   }
 }
 
+// 关联设备按关键字向服务端检索，不预先加载全部设备：设备量大时整表拉取会让页面长时间停在加载中。
+let deviceSearchVersion = 0
+let deviceSearchTimer = 0
+async function searchDevices(keyword = '') {
+  const version = ++deviceSearchVersion
+  devicesLoading.value = true
+  try {
+    const query = new URLSearchParams({ page:'1', pageSize:'50' })
+    if (keyword.trim()) query.set('q', keyword.trim())
+    const data = await api(`/api/v1/device-registry?${query}`)
+    if (version !== deviceSearchVersion) return
+    const found = (data.items || []).map(item => item.device || item).filter(item => item.id)
+    // 已选设备不在检索结果中时仍保留选项，避免只显示编号或被清空。
+    if (camera.deviceId && !found.some(item => item.id === camera.deviceId)) found.unshift({ id:camera.deviceId, name:camera.deviceId })
+    devices.value = found
+  } catch (error) {
+    if (version === deviceSearchVersion) notifyError(error)
+  } finally {
+    if (version === deviceSearchVersion) devicesLoading.value = false
+  }
+}
+function onDeviceSearch(keyword) {
+  clearTimeout(deviceSearchTimer)
+  deviceSearchTimer = setTimeout(() => searchDevices(keyword), 300)
+}
+
 function open(value) {
   Object.assign(camera, blank(), value ? { ...value, deviceId:value.deviceId || value.relatedDeviceIds?.[0] || '' } : {})
   editing.value = value?.cameraId || ''
+  devices.value = camera.deviceId ? [{ id:camera.deviceId, name:camera.deviceId }] : []
   dialogVisible.value = true
+  searchDevices()
 }
 
 async function save() {
@@ -171,7 +196,7 @@ function rowActions(row) {
         <ui-form-item label="房间"><ui-input v-model="camera.room" /></ui-form-item>
       </div>
       </section>
-      <section class="camera-editor-section"><h3>关联与状态</h3><p>每个摄像头最多关联一台设备，同一设备可关联多个摄像头。</p><ui-form-item label="关联设备（可选）"><ui-select v-model="camera.deviceId" clearable filterable placeholder="选择一个设备"><ui-option v-for="item in devices" :key="item.id" :label="`${item.name || item.id} · ${item.id}`" :value="item.id" /></ui-select></ui-form-item>
+      <section class="camera-editor-section"><h3>关联与状态</h3><p>每个摄像头最多关联一台设备，同一设备可关联多个摄像头。</p><ui-form-item label="关联设备（可选）"><ui-select v-model="camera.deviceId" clearable filterable remote :loading="devicesLoading" placeholder="输入设备名称或编号搜索" @search="onDeviceSearch"><ui-option v-for="item in devices" :key="item.id" :label="`${item.name || item.id} · ${item.id}`" :value="item.id" /></ui-select></ui-form-item>
       <ui-form-item label="摄像头状态"><ui-switch v-model="camera.enabled" active-text="启用该摄像头" /></ui-form-item>
       <small>直播接入在列表的“直播配置”中单独设置，保存这里的资料不会改动直播配置。</small></section>
     </ui-form>

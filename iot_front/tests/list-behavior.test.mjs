@@ -55,10 +55,17 @@ function paginated(path) {
   const start = (Number(url.searchParams.get('page') || 1)-1)*size
   return {items:items.slice(start,start+size),total:items.length}
 }
-test('camera association offers device 101', async()=>{
-  const c=component('CameraMappingsView.vue', async path=>path.includes('device-registry') ? paginated(path) : {items:[],total:0}, 'load,devices')
+test('camera association searches devices on the server instead of loading the whole registry', async()=>{
+  const requests=[]
+  const c=component('CameraMappingsView.vue', async path=>{requests.push(path); if(!path.includes('device-registry')) return {items:[],total:0}; const q=new URL(path,'http://x').searchParams.get('q'); return {items:items.filter(x=>!q||x.id.includes(q)).slice(0,50),total:items.length}}, 'load,open,camera,devices,searchDevices')
   await c.load()
-  assert.ok(c.devices.value.some(x=>x.id==='item-101'), `only ${c.devices.value.length}/101 device options loaded`)
+  assert.ok(!requests.some(path=>path.includes('device-registry')), 'the camera list must not wait for the device registry')
+  await c.searchDevices('item-101')
+  assert.ok(c.devices.value.some(x=>x.id==='item-101'), 'a device beyond the first pages must be reachable by search')
+  assert.ok(requests.every(path=>!path.includes('device-registry') || /pageSize=50/.test(path)), 'searches stay bounded')
+  c.open({cameraId:'cam',deviceId:'far-away-device'})
+  await c.searchDevices('')
+  assert.ok(c.devices.value.some(x=>x.id==='far-away-device'), 'the linked device stays selectable when it is not in the results')
 })
 test('rule editor offers product 101', async()=>{
   const c=component('RulesView.vue', async path=>path.includes('/products') ? paginated(path) : {items:[],total:0}, 'load,products')
@@ -163,12 +170,6 @@ test('stale failure does not notify or stop the current camera loading state', a
   await current
   assert.equal(errors.length,1)
   assert.equal(c.loading.value,false)
-})
-test('controls: camera list handles 100 available devices and backend fixture exposes page 2', async()=>{
-  const c=component('CameraMappingsView.vue', async path=>path.includes('device-registry') ? {items:items.slice(0,100),total:100} : {items:[],total:0}, 'load,devices')
-  await c.load()
-  assert.equal(c.devices.value.length,100)
-  assert.equal(paginated('/api/v1/device-registry?page=2&pageSize=100').items[0].id,'item-101')
 })
 test('control: camera page remains correct when responses arrive in order', async()=>{
   const pending=[]
