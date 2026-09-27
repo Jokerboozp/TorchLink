@@ -24,6 +24,7 @@ func (r *Repository) ApplyComponentAlarm(_ context.Context, candidate model.Alar
 	state.AlarmID = alarm.ID
 	state.Event = event
 	if alarm.ID != "" {
+		alarm.Version = r.alarms[key(alarm.TenantID, alarm.ID)].Version + 1
 		r.alarms[key(alarm.TenantID, alarm.ID)] = cloneAlarm(alarm)
 		if state.Active {
 			r.addOutbox(model.AlarmReportEvent(alarm, candidate))

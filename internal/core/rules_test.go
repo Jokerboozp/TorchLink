@@ -78,12 +78,12 @@ type failFirstStateRepository struct {
 	fail bool
 }
 
-func (r *failFirstStateRepository) UpsertDeviceState(ctx context.Context, state model.DeviceState) error {
+func (r *failFirstStateRepository) UpsertDeviceStateIf(ctx context.Context, state model.DeviceState) (bool, error) {
 	if r.fail {
 		r.fail = false
-		return errors.New("simulated state write failure")
+		return false, errors.New("simulated state write failure")
 	}
-	return r.Repository.UpsertDeviceState(ctx, state)
+	return r.Repository.UpsertDeviceStateIf(ctx, state)
 }
 
 func newRuleTestEngine(t *testing.T, repo ports.Repository, clock *ruleTestClock) *Engine {

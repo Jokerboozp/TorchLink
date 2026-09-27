@@ -32,6 +32,7 @@ type Repository struct {
 	rawMessages         map[string]model.RawMessage
 	standard            map[string]model.StandardMessage
 	standardProcessed   map[string]bool
+	claims              map[string]memoryClaim
 	rulePending         map[string]int64
 	states              map[string]model.DeviceState
 	stateEvents         []model.DeviceStateEvent
@@ -61,7 +62,7 @@ type Repository struct {
 }
 
 func NewRepository() *Repository {
-	return &Repository{raw: map[string]model.RawArchiveIndex{}, rawMessages: map[string]model.RawMessage{}, standard: map[string]model.StandardMessage{}, standardProcessed: map[string]bool{}, rulePending: map[string]int64{}, states: map[string]model.DeviceState{}, rules: map[string]model.AlarmRule{}, alarms: map[string]model.Alarm{}, video: map[string]model.VideoAlarmEvent{}, videoMappings: map[string]model.VideoCameraMapping{}, videoRelations: map[string][]model.VideoCameraRelation{}, ai: map[string]model.AIAnalysis{}, knowledge: map[string]model.KnowledgeDoc{}, workflowKnowledge: map[string]model.WorkflowKnowledgeBinding{}, replays: map[string]model.ReplayRequest{}, products: map[string]model.Product{}, protocols: map[string]model.ProtocolPackage{}, protocolDefinitions: map[string]model.ProtocolDefinition{}, protocolReleases: map[string]model.ProtocolRelease{}, pointTables: map[string]model.PointTableRelease{}, protocolBindings: map[string]model.ProductProtocolBinding{}, accessProfiles: map[string]model.DeviceAccessProfile{}, devices: map[string]model.ManagedDevice{}}
+	return &Repository{raw: map[string]model.RawArchiveIndex{}, rawMessages: map[string]model.RawMessage{}, standard: map[string]model.StandardMessage{}, standardProcessed: map[string]bool{}, claims: map[string]memoryClaim{}, rulePending: map[string]int64{}, states: map[string]model.DeviceState{}, rules: map[string]model.AlarmRule{}, alarms: map[string]model.Alarm{}, video: map[string]model.VideoAlarmEvent{}, videoMappings: map[string]model.VideoCameraMapping{}, videoRelations: map[string][]model.VideoCameraRelation{}, ai: map[string]model.AIAnalysis{}, knowledge: map[string]model.KnowledgeDoc{}, workflowKnowledge: map[string]model.WorkflowKnowledgeBinding{}, replays: map[string]model.ReplayRequest{}, products: map[string]model.Product{}, protocols: map[string]model.ProtocolPackage{}, protocolDefinitions: map[string]model.ProtocolDefinition{}, protocolReleases: map[string]model.ProtocolRelease{}, pointTables: map[string]model.PointTableRelease{}, protocolBindings: map[string]model.ProductProtocolBinding{}, accessProfiles: map[string]model.DeviceAccessProfile{}, devices: map[string]model.ManagedDevice{}}
 }
 
 func key(parts ...string) string { return strings.Join(parts, "\x00") }
@@ -484,23 +485,43 @@ func (r *Repository) SaveStandardMessageIfAbsent(_ context.Context, v model.Stan
 	r.standardProcessed[k] = false
 	return true, nil
 }
-func (r *Repository) ClaimStandardMessage(_ context.Context, v model.StandardMessage) (bool, bool, error) {
+
+type memoryClaim struct {
+	owner   string
+	token   int64
+	expires time.Time
+}
+
+func (r *Repository) ClaimStandardMessage(_ context.Context, v model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := key(v.TenantID, v.MessageID)
+	created := false
 	if _, exists := r.standard[k]; !exists {
 		r.standard[k] = v
 		r.standardProcessed[k] = false
-		return true, true, nil
+		created = true
 	}
-	return !r.standardProcessed[k], false, nil
+	if r.standardProcessed[k] {
+		return model.StandardClaim{Created: created}, nil
+	}
+	c, now := r.claims[k], time.Now()
+	if c.owner != "" && c.owner != owner && now.Before(c.expires) {
+		return model.StandardClaim{Created: created, Busy: true, HeldBy: c.owner, RetryAfter: c.expires.Sub(now)}, nil
+	}
+	c = memoryClaim{owner: owner, token: c.token + 1, expires: now.Add(lease)}
+	r.claims[k] = c
+	return model.StandardClaim{ShouldProcess: true, Created: created, Token: c.token}, nil
 }
-func (r *Repository) MarkStandardMessageProcessed(_ context.Context, tenant, messageID string) error {
+func (r *Repository) MarkStandardMessageProcessed(_ context.Context, tenant, messageID string, token int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := key(tenant, messageID)
 	if _, exists := r.standard[k]; !exists {
 		return ErrNotFound
+	}
+	if r.standardProcessed[k] || r.claims[k].token != token {
+		return model.ErrStaleClaim
 	}
 	r.standardProcessed[k] = true
 	return nil
@@ -575,8 +596,25 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 func (r *Repository) UpsertDeviceState(_ context.Context, v model.DeviceState) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.states[key(v.TenantID, v.DeviceID)] = v
+	k := key(v.TenantID, v.DeviceID)
+	v.Version = r.states[k].Version + 1
+	r.states[k] = v
 	return nil
+}
+func (r *Repository) UpsertDeviceStateIf(_ context.Context, v model.DeviceState) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := key(v.TenantID, v.DeviceID)
+	old, exists := r.states[k]
+	if (v.Version == 0 && exists) || (v.Version != 0 && (!exists || old.Version != v.Version)) {
+		return false, nil
+	}
+	v.Version++
+	r.states[k] = v
+	return true, nil
+}
+func (r *Repository) GetDeviceStateFresh(ctx context.Context, tenant, device string) (model.DeviceState, error) {
+	return r.GetDeviceState(ctx, tenant, device)
 }
 func (r *Repository) GetDeviceState(_ context.Context, tenant, device string) (model.DeviceState, error) {
 	r.mu.RLock()
@@ -742,11 +780,13 @@ func (r *Repository) UpsertAlarm(_ context.Context, v model.Alarm) (model.Alarm,
 			if v.Confidence > a.Confidence {
 				a.Confidence = v.Confidence
 			}
+			a.Version++
 			r.alarms[k] = cloneAlarm(a)
 			r.addOutbox(model.AlarmReportEvent(a, v))
 			return cloneAlarm(a), false, nil
 		}
 	}
+	v.Version = 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
 	r.addOutbox(model.AlarmReportEvent(v, v))
 	return cloneAlarm(v), true, nil
@@ -824,11 +864,27 @@ func matchesAlarmFilter(v model.Alarm, f ports.AlarmFilter) bool {
 func (r *Repository) UpdateAlarm(_ context.Context, v model.Alarm) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.alarms[key(v.TenantID, v.ID)]; !ok {
+	old, ok := r.alarms[key(v.TenantID, v.ID)]
+	if !ok {
 		return ErrNotFound
 	}
+	v.Version = old.Version + 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
 	return nil
+}
+func (r *Repository) UpdateAlarmIf(_ context.Context, v model.Alarm) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	old, ok := r.alarms[key(v.TenantID, v.ID)]
+	if !ok {
+		return false, ErrNotFound
+	}
+	if old.Version != v.Version {
+		return false, nil
+	}
+	v.Version++
+	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
+	return true, nil
 }
 func (r *Repository) SaveVideoEvent(_ context.Context, v model.VideoAlarmEvent) (bool, error) {
 	r.mu.Lock()

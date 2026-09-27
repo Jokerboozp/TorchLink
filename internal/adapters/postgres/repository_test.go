@@ -166,6 +166,8 @@ func TestDeviceOperationsMigrationAndAtomicity(t *testing.T) {
 	verifyOnboardingAndParseMigration(t, r)
 	repositorytest.AccessStatus(t, r)
 	repositorytest.ExecutionLease(t, r)
+	repositorytest.StandardClaim(t, r)
+	repositorytest.VersionedWrites(t, r)
 	repositorytest.RawReservation(t, r)
 	repositorytest.ProtocolRegistration(t, r)
 	repositorytest.ProtocolChildren(t, r)

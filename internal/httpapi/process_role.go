@@ -19,6 +19,17 @@ func accessRoute(path string) bool {
 	return strings.HasPrefix(path, "/api/v2/device-access-profiles/") && (strings.HasSuffix(path, "/commands") || strings.HasSuffix(path, "/sessions") || strings.HasSuffix(path, "/test"))
 }
 func (s *Server) roleHandler() http.Handler {
+	if s.cfg.IsWorkerRole() {
+		// Worker processes serve no business routes, only their own health
+		// and metrics for per-instance observation.
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, "/health/") && r.URL.Path != "/metrics" {
+				problem(w, 404, "route is not served by "+s.cfg.ProcessRole+" worker")
+				return
+			}
+			s.router.ServeHTTP(w, r)
+		})
+	}
 	if s.cfg.ProcessRole != "api" && s.cfg.ProcessRole != "gateway" && !s.cfg.AccessCoordination {
 		return s.router
 	}

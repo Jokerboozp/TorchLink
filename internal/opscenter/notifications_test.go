@@ -800,7 +800,7 @@ func TestDeviceNotificationAlarmLifecycle(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := bus.Publish(ctx, model.TopicParsed, msg.MessageID, b); err != nil {
+					if err := bus.Publish(ctx, model.TopicDeviceBusiness, model.DeviceKey(msg.TenantID, msg.DeviceID), b); err != nil {
 						t.Fatal(err)
 					}
 					// The outbox relay may deliver on its background goroutine.

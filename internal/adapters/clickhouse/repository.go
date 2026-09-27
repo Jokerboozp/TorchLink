@@ -166,13 +166,12 @@ func (r *Repository) GetDeviceRawMessage(ctx context.Context, tenant, device, me
 	return model.RawMessage{}, fmt.Errorf("raw message not found")
 }
 
-func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage) (bool, bool, error) {
-	shouldProcess, created, err := r.Repository.ClaimStandardMessage(ctx, v)
-	if err != nil || !shouldProcess {
-		return shouldProcess, created, err
+func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error) {
+	claim, err := r.Repository.ClaimStandardMessage(ctx, v, owner, lease)
+	if err != nil || !claim.ShouldProcess {
+		return claim, err
 	}
-	err = r.ensureTelemetry(ctx, v, created)
-	return shouldProcess, created, err
+	return claim, r.ensureTelemetry(ctx, v, claim.Created)
 }
 
 func (r *Repository) Health(ctx context.Context) error {

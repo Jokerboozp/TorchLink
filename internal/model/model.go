@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,7 +30,34 @@ const (
 	TopicAlarmAIAnalysis = "iot.alarm.ai-analysis"
 	TopicUIAction        = "iot.ui-action"
 	TopicReplayRequest   = "iot.replay.request"
+	// TopicDeviceBusiness is the internal, device-partitioned stream of parsed
+	// messages. One processor handles a device's messages in stream order;
+	// the property/event/parsed topics remain the external contracts.
+	TopicDeviceBusiness = "iot.device.business"
 )
+
+// DeviceKey is the partition key of device-ordered topics. The tenant length
+// prefix keeps ("a","bc") and ("ab","c") distinct.
+func DeviceKey(tenant, device string) string {
+	return strconv.Itoa(len(tenant)) + ":" + tenant + device
+}
+
+// DLQTopic is the dead-letter topic of a consumer group.
+func DLQTopic(group string) string { return "iot.dlq." + group }
+
+// ConsumerGroups lists every platform consumer group (without the
+// "iot-platform-" prefix); each has a dead-letter topic.
+var ConsumerGroups = []string{"parser", "processor", "state", "ai", "device-alarm-notifications"}
+
+// AllTopics is the formal topic inventory used to pre-create and verify
+// topics, including every dead-letter topic.
+func AllTopics() []string {
+	topics := []string{TopicRaw, TopicParseFailed, TopicParsed, TopicPropertyReport, TopicEventReport, TopicDeviceState, TopicVideoAlarm, TopicAlarmReported, TopicAlarmRaised, TopicAlarmRecovered, TopicAlarmConfirmed, TopicAlarmAIAnalysis, TopicUIAction, TopicReplayRequest, TopicDeviceBusiness}
+	for _, g := range ConsumerGroups {
+		topics = append(topics, DLQTopic(g))
+	}
+	return topics
+}
 
 // ErrRawConflict indicates reuse of a message identity with different content.
 var ErrRawConflict = errors.New("message id already exists with different content")
@@ -163,6 +191,9 @@ func (m StandardMessage) MQTTTopic() string {
 }
 
 type DeviceState struct {
+	// Version is the optimistic-concurrency version of the stored row; it is
+	// not part of the API or cached JSON (repositories read it from storage).
+	Version             int64  `json:"-"`
 	TenantID            string `json:"tenantId"`
 	ProductID           string `json:"productId"`
 	DeviceID            string `json:"deviceId"`
@@ -537,6 +568,8 @@ type UIActionEvent struct {
 }
 
 type Alarm struct {
+	// Version is the optimistic-concurrency version of the stored row.
+	Version           int64           `json:"-"`
 	ComponentID       string          `json:"componentId,omitempty"`
 	ComponentName     string          `json:"componentName,omitempty"`
 	ComponentLocation string          `json:"componentLocation,omitempty"`

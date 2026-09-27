@@ -93,8 +93,13 @@ type Repository interface {
 	CountRawIndexes(context.Context, RawFilter) (int, error)
 	SaveStandardMessage(context.Context, model.StandardMessage) error
 	SaveStandardMessageIfAbsent(context.Context, model.StandardMessage) (bool, error)
-	ClaimStandardMessage(context.Context, model.StandardMessage) (shouldProcess bool, created bool, err error)
-	MarkStandardMessageProcessed(context.Context, string, string) error
+	// ClaimStandardMessage stores the message if absent and claims it for
+	// owner for lease. Another live holder yields Busy; a processed message
+	// yields ShouldProcess=false.
+	ClaimStandardMessage(ctx context.Context, msg model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error)
+	// MarkStandardMessageProcessed records completion only for the latest
+	// claim token; a taken-over claim returns model.ErrStaleClaim.
+	MarkStandardMessageProcessed(ctx context.Context, tenant, messageID string, token int64) error
 	GetStandardMessageByRaw(context.Context, string, string) (model.StandardMessage, error)
 	GetStandardMessagesByRawIDs(context.Context, string, []string) (map[string]model.StandardMessage, error)
 	GetLatestMessage(context.Context, string, string) (model.StandardMessage, error)
@@ -102,6 +107,11 @@ type Repository interface {
 	PropertyHistoryPage(context.Context, string, string, string, int64, int64, int, int) ([]map[string]any, int, error)
 	UpsertDeviceState(context.Context, model.DeviceState) error
 	GetDeviceState(context.Context, string, string) (model.DeviceState, error)
+	// GetDeviceStateFresh reads the stored row with its Version, bypassing caches.
+	GetDeviceStateFresh(context.Context, string, string) (model.DeviceState, error)
+	// UpsertDeviceStateIf writes only if the stored version equals v.Version
+	// (0 = insert if absent) and reports whether it wrote.
+	UpsertDeviceStateIf(context.Context, model.DeviceState) (bool, error)
 	GetDeviceStatesByIDs(context.Context, string, []string) (map[string]model.DeviceState, error)
 	ListDeviceStates(context.Context, string) ([]model.DeviceState, error)
 	ListDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
@@ -128,6 +138,8 @@ type Repository interface {
 	CountAlarms(context.Context, AlarmFilter) (int, error)
 	HasOpenAlarm(context.Context, string, string) (bool, error)
 	UpdateAlarm(context.Context, model.Alarm) error
+	// UpdateAlarmIf writes only if the stored version equals v.Version.
+	UpdateAlarmIf(context.Context, model.Alarm) (bool, error)
 	SaveVideoEvent(context.Context, model.VideoAlarmEvent) (bool, error)
 	UpdateVideoEvent(context.Context, model.VideoAlarmEvent) error
 	ListPendingVideoEvents(context.Context, int) ([]model.VideoAlarmEvent, error)

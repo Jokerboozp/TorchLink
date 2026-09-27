@@ -39,6 +39,8 @@ func TestAccessStatusDoesNotOverwriteConfiguration(t *testing.T) {
 }
 
 func TestExecutionLeaseOwnership(t *testing.T) { repositorytest.ExecutionLease(t, NewRepository()) }
+func TestStandardClaimFencing(t *testing.T)    { repositorytest.StandardClaim(t, NewRepository()) }
+func TestVersionedWrites(t *testing.T)         { repositorytest.VersionedWrites(t, NewRepository()) }
 
 func TestRawReservationBeforeArchive(t *testing.T) { repositorytest.RawReservation(t, NewRepository()) }
 

@@ -675,14 +675,15 @@ func TestPGStoreQueriesAgainstMigratedSchema(t *testing.T) {
 	exec(`INSERT INTO S.raw_message_log(tenant_id,message_id,product_id,device_id,payload_hash,payload_size,received_at,stored_at,body) VALUES('t','raw-1','p','d','h1',1,1,1,'{}')`)
 	before := time.Now().UnixMilli()
 	msg := model.StandardMessage{TenantID: "t", MessageID: "std-1", RawMessageID: "raw-1", ProductID: "p", DeviceID: "d", MessageType: "PROPERTY_REPORT", Properties: map[string]any{"temperature": 1}}
-	if _, err = repo.SaveStandardMessageIfAbsent(ctx, msg); err != nil {
+	claim, err := repo.ClaimStandardMessage(ctx, msg, "worker-a", time.Minute)
+	if err != nil || !claim.ShouldProcess {
+		t.Fatal(claim, err)
+	}
+	if err = repo.MarkStandardMessageProcessed(ctx, "t", "std-1", claim.Token); err != nil {
 		t.Fatal(err)
 	}
-	if err = repo.MarkStandardMessageProcessed(ctx, "t", "std-1"); err != nil {
-		t.Fatal(err)
-	}
-	if should, _, err := repo.ClaimStandardMessage(ctx, msg); err != nil || should {
-		t.Fatal("a processed message must not be claimed again", should, err)
+	if again, err := repo.ClaimStandardMessage(ctx, msg, "worker-b", time.Minute); err != nil || again.ShouldProcess || again.Busy {
+		t.Fatal("a processed message must not be claimed again", again, err)
 	}
 	store, err := NewPGCHStore(ctx, u.String(), "")
 	if err != nil {

@@ -50,10 +50,11 @@ func TestClaimRetriesMissingTelemetryAfterTransientInsertFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := testTelemetryMessage()
-	if _, _, err = repo.ClaimStandardMessage(context.Background(), message); err == nil {
+	if _, err = repo.ClaimStandardMessage(context.Background(), message, "w", time.Minute); err == nil {
 		t.Fatal("first ClickHouse insert unexpectedly succeeded")
 	}
-	shouldProcess, _, err := repo.ClaimStandardMessage(context.Background(), message)
+	claim, err := repo.ClaimStandardMessage(context.Background(), message, "w", time.Minute)
+	shouldProcess := claim.ShouldProcess
 	if err != nil || !shouldProcess {
 		t.Fatalf("retry claim failed: shouldProcess=%v err=%v", shouldProcess, err)
 	}
@@ -81,11 +82,11 @@ func TestClaimDoesNotDuplicateExistingTelemetryDuringBusinessRetry(t *testing.T)
 		t.Fatal(err)
 	}
 	message := testTelemetryMessage()
-	if shouldProcess, _, claimErr := repo.ClaimStandardMessage(context.Background(), message); claimErr != nil || !shouldProcess {
-		t.Fatalf("initial claim failed: shouldProcess=%v err=%v", shouldProcess, claimErr)
+	if claim, claimErr := repo.ClaimStandardMessage(context.Background(), message, "w", time.Minute); claimErr != nil || !claim.ShouldProcess {
+		t.Fatalf("initial claim failed: shouldProcess=%v err=%v", claim.ShouldProcess, claimErr)
 	}
-	if shouldProcess, _, claimErr := repo.ClaimStandardMessage(context.Background(), message); claimErr != nil || !shouldProcess {
-		t.Fatalf("business retry claim failed: shouldProcess=%v err=%v", shouldProcess, claimErr)
+	if claim, claimErr := repo.ClaimStandardMessage(context.Background(), message, "w", time.Minute); claimErr != nil || !claim.ShouldProcess {
+		t.Fatalf("business retry claim failed: shouldProcess=%v err=%v", claim.ShouldProcess, claimErr)
 	}
 	if got := telemetryRows.Load(); got != 1 {
 		t.Fatalf("business retry duplicated telemetry: rows=%d want=1", got)

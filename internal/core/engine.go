@@ -49,10 +49,15 @@ type Engine struct {
 	VideoMediaAllowedHosts    []string
 	RequireVideoCameraMapping bool
 	ingestPaused              atomic.Bool
+	identity                  string
+	identityOnce              sync.Once
+	// PublishExternalTopics keeps publishing parsed messages to the
+	// property/event/parsed topics for external subscribers.
+	PublishExternalTopics bool
 }
 
 func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realtime ports.RealtimePublisher, parsers *parser.Registry, log *slog.Logger) *Engine {
-	engine := &Engine{Repo: repo, Archive: archive, Bus: bus, Realtime: realtime, Parsers: parsers, Clock: ports.RealClock{}, Log: log, outboxWake: make(chan struct{}, 1)}
+	engine := &Engine{Repo: repo, Archive: archive, Bus: bus, Realtime: realtime, Parsers: parsers, Clock: ports.RealClock{}, Log: log, outboxWake: make(chan struct{}, 1), PublishExternalTopics: true}
 	if rawStore, ok := archive.(ports.RawMessageStore); ok {
 		engine.RawStore = rawStore
 	}
@@ -64,22 +69,6 @@ func (e *Engine) GetRaw(ctx context.Context, index model.RawArchiveIndex) (model
 		return model.RawMessage{}, errors.New("raw message store is not configured")
 	}
 	return e.RawStore.GetRaw(ctx, index)
-}
-
-func (e *Engine) Start(ctx context.Context) error {
-	subs := []struct {
-		topic, group string
-		h            ports.Handler
-	}{{model.TopicRaw, "parser", e.handleRaw}, {model.TopicPropertyReport, "storage", e.handleStandard}, {model.TopicEventReport, "storage", e.handleStandard}, {model.TopicParsed, "storage", e.handleStandard}, {model.TopicDeviceState, "state", e.handleState}, {model.TopicAlarmRaised, "ai", e.handleAI}}
-	for _, s := range subs {
-		if err := e.Bus.Subscribe(ctx, s.topic, s.group, s.h); err != nil {
-			return err
-		}
-	}
-	go e.retryPendingRaw(ctx)
-	go e.relayOutbox(ctx)
-	go e.retryPendingVideoMedia(ctx)
-	return nil
 }
 
 // SetIngestPaused makes IngestRaw refuse new messages with model.ErrBackpressure
@@ -168,7 +157,7 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 
 func (e *Engine) publishArchivedRaw(ctx context.Context, idx model.RawArchiveIndex, raw model.RawMessage) error {
 	b, _ := json.Marshal(raw)
-	if err := e.Bus.Publish(ctx, model.TopicRaw, raw.DeviceID, b); err != nil {
+	if err := e.Bus.Publish(ctx, model.TopicRaw, model.DeviceKey(raw.TenantID, raw.DeviceID), b); err != nil {
 		_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, 0, err.Error())
 		if e.Metrics != nil {
 			e.Metrics.Inc("raw_publish_failed_total")
@@ -181,31 +170,24 @@ func (e *Engine) publishArchivedRaw(ctx context.Context, idx model.RawArchiveInd
 	return nil
 }
 
-func (e *Engine) retryPendingRaw(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			indexes, err := e.Repo.ListPendingRawIndexes(ctx, 200)
-			if err != nil {
-				e.Log.Error("list pending raw", "error", err)
-				continue
-			}
-			for _, idx := range indexes {
-				raw, readErr := e.GetRaw(ctx, idx)
-				if readErr != nil {
-					_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, 0, readErr.Error())
-					continue
-				}
-				if publishErr := e.publishArchivedRaw(ctx, idx, raw); publishErr != nil {
-					e.Log.Warn("retry pending raw", "messageId", idx.MessageID, "error", publishErr)
-				}
-			}
+// retryPendingRawOnce republishes archived raw messages whose queue publish
+// failed. It runs as a cluster singleton job.
+func (e *Engine) retryPendingRawOnce(ctx context.Context) error {
+	indexes, err := e.Repo.ListPendingRawIndexes(ctx, 200)
+	if err != nil {
+		return fmt.Errorf("list pending raw: %w", err)
+	}
+	for _, idx := range indexes {
+		raw, readErr := e.GetRaw(ctx, idx)
+		if readErr != nil {
+			_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, 0, readErr.Error())
+			continue
+		}
+		if publishErr := e.publishArchivedRaw(ctx, idx, raw); publishErr != nil && e.Log != nil {
+			e.Log.Warn("retry pending raw", "messageId", idx.MessageID, "error", publishErr)
 		}
 	}
+	return nil
 }
 
 func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) error {
@@ -343,17 +325,23 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 		e.Metrics.Inc("parse_success_total")
 	}
 	out, _ := json.Marshal(msg)
-	topic := model.TopicPropertyReport
-	switch msg.MessageType {
-	case model.EventReport, model.AlarmReport:
-		topic = model.TopicEventReport
-	case model.PropertyReport:
-		topic = model.TopicPropertyReport
-	default:
-		topic = model.TopicParsed
+	// The business stream is published first: a redelivered raw message
+	// republishes it, and the processor's claim makes that idempotent.
+	key := model.DeviceKey(msg.TenantID, msg.DeviceID)
+	if err := e.Bus.Publish(ctx, model.TopicDeviceBusiness, key, out); err != nil {
+		return fmt.Errorf("publish parsed message to device business stream: %w", err)
 	}
-	if err := e.Bus.Publish(ctx, topic, msg.DeviceID, out); err != nil {
-		return fmt.Errorf("publish parsed message to kafka topic %s: %w", topic, err)
+	if e.PublishExternalTopics {
+		topic := model.TopicParsed
+		switch msg.MessageType {
+		case model.EventReport, model.AlarmReport:
+			topic = model.TopicEventReport
+		case model.PropertyReport:
+			topic = model.TopicPropertyReport
+		}
+		if err := e.Bus.Publish(ctx, topic, key, out); err != nil {
+			return fmt.Errorf("publish parsed message to kafka topic %s: %w", topic, err)
+		}
 	}
 	if e.Realtime == nil {
 		return nil
@@ -379,11 +367,11 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if err != nil {
 		return err
 	}
-	shouldProcess, _, err := e.Repo.ClaimStandardMessage(ctx, msg)
+	claim, err := e.claimStandard(ctx, msg)
 	if err != nil {
 		return err
 	}
-	if !shouldProcess {
+	if !claim.ShouldProcess {
 		return nil
 	}
 	if msg.MessageType == model.CommandReply && msg.Parser == parser.StandardParserName {
@@ -452,7 +440,20 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if err := e.applyMessageState(ctx, msg, true); err != nil {
 		return err
 	}
-	return e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID)
+	if err := e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID, claim.Token); err != nil {
+		if errors.Is(err, model.ErrStaleClaim) {
+			// Our lease expired and another worker took the message over; it
+			// records completion. Side effects above are idempotent per
+			// trigger identity and state writes are version-checked.
+			e.count("standard_claim_fenced_total")
+			if e.Log != nil {
+				e.Log.Warn("standard message claim was taken over; completion left to the new owner", "messageId", msg.MessageID)
+			}
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // clearDuration forgets a duration rule's first match; rules without a
@@ -483,89 +484,87 @@ func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) erro
 func (e *Engine) applyMessageState(ctx context.Context, msg model.StandardMessage, reconcile bool) error {
 	unlock := e.lockDeviceState(msg.TenantID, msg.DeviceID)
 	defer unlock()
-	state, err := e.Repo.GetDeviceState(ctx, msg.TenantID, msg.DeviceID)
-	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		return err
-	}
-	if err != nil {
-		state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
-	}
-	// Late retransmissions remain archived but must not roll back current state.
-	late := msg.Timestamp < state.LastSeenAt
-	if late && !reconcile {
-		return nil
-	}
-	previous := state
-	old := state.BusinessStatus
-	oldConnection := state.ConnectionStatus
-	state.DataStatus = "ACTIVE"
-	if msg.MessageType == model.AlarmReport || strings.EqualFold(old, "ALARM") {
-		state.BusinessStatus = "ALARM"
-	} else {
-		state.BusinessStatus = "ONLINE"
-	}
-	state.LastSeenAt = msg.Timestamp
-	state.LastMessageID = msg.MessageID
-	state.StatusSource = "RAW_MESSAGE"
-	if msg.MessageType == model.StateChange && msg.Parser == parser.StandardParserName {
-		if status, ok := msg.Properties["connectionStatus"].(string); ok && (status == "CONNECTED" || status == "DISCONNECTED" || status == "UNKNOWN") {
-			state.ConnectionStatus = status
-			if status == "CONNECTED" {
-				state.LastConnectAt = msg.Timestamp
-			} else if status == "DISCONNECTED" {
-				state.LastDisconnectAt = msg.Timestamp
+	before, after, written, err := e.mutateDeviceState(ctx, msg.TenantID, msg.DeviceID, func(state *model.DeviceState, found bool) (bool, error) {
+		if !found {
+			*state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
+		}
+		// Late retransmissions remain archived but must not roll back current state.
+		late := msg.Timestamp < state.LastSeenAt
+		if late && !reconcile {
+			return false, nil
+		}
+		previous := *state
+		old := state.BusinessStatus
+		state.DataStatus = "ACTIVE"
+		if msg.MessageType == model.AlarmReport || strings.EqualFold(old, "ALARM") {
+			state.BusinessStatus = "ALARM"
+		} else {
+			state.BusinessStatus = "ONLINE"
+		}
+		state.LastSeenAt = msg.Timestamp
+		state.LastMessageID = msg.MessageID
+		state.StatusSource = "RAW_MESSAGE"
+		if msg.MessageType == model.StateChange && msg.Parser == parser.StandardParserName {
+			if status, ok := msg.Properties["connectionStatus"].(string); ok && (status == "CONNECTED" || status == "DISCONNECTED" || status == "UNKNOWN") {
+				state.ConnectionStatus = status
+				if status == "CONNECTED" {
+					state.LastConnectAt = msg.Timestamp
+				} else if status == "DISCONNECTED" {
+					state.LastDisconnectAt = msg.Timestamp
+				}
 			}
 		}
-	}
-	if late {
-		state = previous
-	}
-	if reconcile {
-		open, err := e.Repo.HasOpenAlarm(ctx, msg.TenantID, msg.DeviceID)
-		if err != nil {
-			return err
+		if late {
+			*state = previous
 		}
-		if open {
-			state.BusinessStatus = "ALARM"
-			state.StatusSource = "ACTIVE_ALARM"
-			state.Reason = "存在活动告警"
-		} else if !late || state.BusinessStatus == "ALARM" {
-			state.BusinessStatus = "ONLINE"
-			state.StatusSource = "RAW_MESSAGE"
-			state.Reason = ""
+		if reconcile {
+			open, err := e.Repo.HasOpenAlarm(ctx, msg.TenantID, msg.DeviceID)
+			if err != nil {
+				return false, err
+			}
+			if open {
+				state.BusinessStatus = "ALARM"
+				state.StatusSource = "ACTIVE_ALARM"
+				state.Reason = "存在活动告警"
+			} else if !late || state.BusinessStatus == "ALARM" {
+				state.BusinessStatus = "ONLINE"
+				state.StatusSource = "RAW_MESSAGE"
+				state.Reason = ""
+			}
 		}
+		return true, nil
+	})
+	if err == nil && written {
+		e.publishStateChange(ctx, before, after)
 	}
-	if err := e.Repo.UpsertDeviceState(ctx, state); err != nil {
-		return err
-	}
-	if old != state.BusinessStatus || oldConnection != state.ConnectionStatus {
-		_ = e.Repo.SaveDeviceStateEvent(ctx, state)
-		payload, _ := json.Marshal(state)
-		_ = e.Realtime.Publish(ctx, fmt.Sprintf("/iot/device/state/%s/%s/%s", state.TenantID, state.ProductID, state.DeviceID), payload, 1, true)
-	}
-	return nil
+	return err
 }
 
 func (e *Engine) syncDeviceBusinessStatus(ctx context.Context, tenant, product, device string) error {
-	state, err := e.Repo.GetDeviceState(ctx, tenant, device)
-	if err != nil {
-		return nil
+	unlock := e.lockDeviceState(tenant, device)
+	defer unlock()
+	before, after, written, err := e.mutateDeviceState(ctx, tenant, device, func(state *model.DeviceState, found bool) (bool, error) {
+		if !found {
+			return false, nil
+		}
+		open, err := e.hasOpenAlarm(ctx, tenant, device)
+		if err != nil {
+			return false, err
+		}
+		nextStatus, source, reason := "ONLINE", "RAW_MESSAGE", ""
+		if open {
+			nextStatus, source, reason = "ALARM", "ACTIVE_ALARM", "存在活动告警"
+		}
+		if state.ProductID == "" {
+			state.ProductID = product
+		}
+		state.BusinessStatus, state.StatusSource, state.Reason = nextStatus, source, reason
+		return true, nil
+	})
+	if err == nil && written {
+		e.publishStateChange(ctx, before, after)
 	}
-	open, err := e.hasOpenAlarm(ctx, tenant, device)
-	if err != nil {
-		return err
-	}
-	nextStatus, source, reason := "ONLINE", "RAW_MESSAGE", ""
-	if open {
-		nextStatus, source, reason = "ALARM", "ACTIVE_ALARM", "存在活动告警"
-	}
-	if state.ProductID == "" {
-		state.ProductID = product
-	}
-	state.BusinessStatus = nextStatus
-	state.StatusSource = source
-	state.Reason = reason
-	return e.UpdateDeviceState(ctx, state)
+	return err
 }
 
 func (e *Engine) hasOpenAlarm(ctx context.Context, tenant, device string) (bool, error) {
@@ -773,18 +772,26 @@ func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMess
 		if err != nil {
 			return err
 		}
-		for _, alarm := range alarms {
-			if alarm.ComponentID != "" || !strings.HasPrefix(alarm.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, alarm.AlarmType) {
+		for _, listed := range alarms {
+			if listed.ComponentID != "" || !strings.HasPrefix(listed.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, listed.AlarmType) {
 				continue
 			}
-			alarm.Status = "RECOVERED"
-			alarm.RecoveredAt = e.Clock.Now().UnixMilli()
-			if err := e.Repo.UpdateAlarm(ctx, alarm); err != nil {
+			alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
+				if a.Status != "ACTIVE" && a.Status != "ACKED" {
+					return false, nil
+				}
+				a.Status = "RECOVERED"
+				a.RecoveredAt = e.Clock.Now().UnixMilli()
+				return true, nil
+			})
+			if err != nil {
 				return err
 			}
-			payload := mustJSON(alarm)
-			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
-			_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
+			if written {
+				payload := mustJSON(alarm)
+				_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
+				_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
+			}
 		}
 	}
 	return nil
@@ -824,18 +831,26 @@ func (e *Engine) recoverRuleAlarm(ctx context.Context, rule model.AlarmRule, msg
 	if err != nil {
 		return err
 	}
-	for _, a := range alarms {
-		if a.RuleID != rule.ID {
+	for _, listed := range alarms {
+		if listed.RuleID != rule.ID {
 			continue
 		}
-		a.Status = "RECOVERED"
-		a.RecoveredAt = e.Clock.Now().UnixMilli()
-		if err := e.Repo.UpdateAlarm(ctx, a); err != nil {
+		a, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
+			if a.Status != "ACTIVE" {
+				return false, nil
+			}
+			a.Status = "RECOVERED"
+			a.RecoveredAt = e.Clock.Now().UnixMilli()
+			return true, nil
+		})
+		if err != nil {
 			return err
 		}
-		payload, _ := json.Marshal(a)
-		_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
-		_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
+		if written {
+			payload, _ := json.Marshal(a)
+			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
+			_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
+		}
 	}
 	return nil
 }
@@ -877,14 +892,23 @@ func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID string) err
 				break
 			}
 			changed := false
-			for _, alarm := range alarms {
-				if alarm.RuleID != ruleID {
+			for _, listed := range alarms {
+				if listed.RuleID != ruleID {
 					continue
 				}
-				alarm.Status = "RECOVERED"
-				alarm.RecoveredAt = e.Clock.Now().UnixMilli()
-				if err := e.Repo.UpdateAlarm(ctx, alarm); err != nil {
+				alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
+					if a.Status != "ACTIVE" && a.Status != "ACKED" {
+						return false, nil
+					}
+					a.Status = "RECOVERED"
+					a.RecoveredAt = e.Clock.Now().UnixMilli()
+					return true, nil
+				})
+				if err != nil {
 					return err
+				}
+				if !written {
+					continue
 				}
 				affectedDevices[alarm.DeviceID] = struct{}{}
 				payload := mustJSON(alarm)
@@ -924,42 +948,64 @@ func (e *Engine) UpdateDeviceState(ctx context.Context, state model.DeviceState)
 	defer unlock()
 	return e.updateDeviceState(ctx, state)
 }
+
+// updateDeviceState replaces the stored state with state (keeping the last
+// seen time when state has none), version-checked against concurrent writers.
 func (e *Engine) updateDeviceState(ctx context.Context, state model.DeviceState) error {
-	old, _ := e.Repo.GetDeviceState(ctx, state.TenantID, state.DeviceID)
-	if state.LastSeenAt == 0 {
-		state.LastSeenAt = old.LastSeenAt
+	before, after, written, err := e.mutateDeviceState(ctx, state.TenantID, state.DeviceID, func(current *model.DeviceState, _ bool) (bool, error) {
+		next := state
+		if next.LastSeenAt == 0 {
+			next.LastSeenAt = current.LastSeenAt
+		}
+		*current = next
+		return true, nil
+	})
+	if err == nil && written {
+		e.publishStateChange(ctx, before, after)
 	}
-	if err := e.Repo.UpsertDeviceState(ctx, state); err != nil {
-		return err
-	}
-	if old.BusinessStatus != state.BusinessStatus || old.ConnectionStatus != state.ConnectionStatus {
-		_ = e.Repo.SaveDeviceStateEvent(ctx, state)
-		b, _ := json.Marshal(state)
-		return e.Realtime.Publish(ctx, fmt.Sprintf("/iot/device/state/%s/%s/%s", state.TenantID, state.ProductID, state.DeviceID), b, 1, true)
-	}
-	return nil
+	return err
 }
+
+// ScanOffline marks silent devices offline. Each device is re-evaluated on
+// its freshest state inside a version-checked write, so a report that arrived
+// after the listing is never overwritten by the stale snapshot.
 func (e *Engine) ScanOffline(ctx context.Context) error {
 	states, err := e.Repo.ListDeviceStates(ctx, "")
 	if err != nil {
 		return err
 	}
 	now := e.Clock.Now().UnixMilli()
-	for _, s := range states {
+	expired := func(s model.DeviceState) (int64, bool) {
 		deadline := s.LastSeenAt + (s.ReportIntervalSec+s.OfflineToleranceSec)*1000
-		if s.LastSeenAt == 0 || deadline >= now {
+		return deadline, s.LastSeenAt != 0 && deadline < now
+	}
+	for _, listed := range states {
+		if _, ok := expired(listed); !ok || ctx.Err() != nil {
 			continue
 		}
-		s.DataStatus = "SILENT"
-		if s.ConnectionStatus == "CONNECTED" {
-			s.BusinessStatus = "SUSPECTED_OFFLINE"
-		} else {
-			s.BusinessStatus = "OFFLINE"
+		unlock := e.lockDeviceState(listed.TenantID, listed.DeviceID)
+		before, after, written, err := e.mutateDeviceState(ctx, listed.TenantID, listed.DeviceID, func(s *model.DeviceState, found bool) (bool, error) {
+			deadline, ok := expired(*s)
+			if !found || !ok {
+				return false, nil
+			}
+			status := "OFFLINE"
+			if s.ConnectionStatus == "CONNECTED" {
+				status = "SUSPECTED_OFFLINE"
+			}
+			if s.DataStatus == "SILENT" && s.BusinessStatus == status && s.OfflineAt == deadline {
+				return false, nil
+			}
+			s.DataStatus, s.BusinessStatus = "SILENT", status
+			s.OfflineAt = deadline
+			s.OfflineDetectedAt = now
+			s.StatusSource = "RAW_MESSAGE_TIMEOUT"
+			return true, nil
+		})
+		unlock()
+		if err == nil && written {
+			e.publishStateChange(ctx, before, after)
 		}
-		s.OfflineAt = deadline
-		s.OfflineDetectedAt = now
-		s.StatusSource = "RAW_MESSAGE_TIMEOUT"
-		_ = e.UpdateDeviceState(ctx, s)
 	}
 	return nil
 }
@@ -1056,36 +1102,45 @@ func (e *Engine) fuseVideoAlarm(ctx context.Context, incoming model.Alarm) (mode
 			continue
 		}
 		if existing.Source == "video" && existing.AlarmType == incoming.AlarmType {
-			existing.LastTriggeredAt = incoming.LastTriggeredAt
-			existing.TriggerCount++
-			if incoming.Confidence > existing.Confidence {
-				existing.Confidence = incoming.Confidence
-			}
-			if existing.Details == nil {
-				existing.Details = map[string]any{}
-			}
-			existing.Details["latestVideoEvent"] = incoming.Details["videoEvent"]
-			if err = e.Repo.UpdateAlarm(ctx, existing); err != nil {
+			fused, written, err := e.mutateAlarm(ctx, existing.TenantID, existing.ID, func(a *model.Alarm) (bool, error) {
+				if a.Status != "ACTIVE" {
+					return false, nil
+				}
+				a.LastTriggeredAt = incoming.LastTriggeredAt
+				a.TriggerCount++
+				if incoming.Confidence > a.Confidence {
+					a.Confidence = incoming.Confidence
+				}
+				if a.Details == nil {
+					a.Details = map[string]any{}
+				}
+				a.Details["latestVideoEvent"] = incoming.Details["videoEvent"]
+				return true, nil
+			})
+			if err != nil {
 				return incoming, false, err
 			}
-			payload := mustJSON(existing)
-			_ = e.Realtime.Publish(ctx, existing.MQTTTopic("raised"), payload, 1, false)
-			return existing, true, nil
+			if written {
+				payload := mustJSON(fused)
+				_ = e.Realtime.Publish(ctx, fused.MQTTTopic("raised"), payload, 1, false)
+				return fused, true, nil
+			}
+			continue
 		}
 		if existing.Source != "video" && relatedFireAlarm(existing.AlarmType, incoming.AlarmType) {
 			incoming.MultiSource = true
-			existing.MultiSource = true
 			if incoming.AlarmLevel != "CRITICAL" {
 				incoming.AlarmLevel = "CRITICAL"
 			}
-			if existing.AlarmLevel != "CRITICAL" {
-				existing.AlarmLevel = "CRITICAL"
-			}
-			if existing.Details == nil {
-				existing.Details = map[string]any{}
-			}
-			existing.Details["videoConfirmation"] = incoming.Details["videoEvent"]
-			_ = e.Repo.UpdateAlarm(ctx, existing)
+			_, _, _ = e.mutateAlarm(ctx, existing.TenantID, existing.ID, func(a *model.Alarm) (bool, error) {
+				a.MultiSource = true
+				a.AlarmLevel = "CRITICAL"
+				if a.Details == nil {
+					a.Details = map[string]any{}
+				}
+				a.Details["videoConfirmation"] = incoming.Details["videoEvent"]
+				return true, nil
+			})
 		}
 	}
 	return incoming, false, nil
@@ -1299,35 +1354,34 @@ func aiModelName(client ports.AIClient) string {
 	return "unavailable"
 }
 func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, actor string) (model.Alarm, error) {
-	a, err := e.Repo.GetAlarm(ctx, tenant, alarmID)
-	if err != nil {
-		return a, err
-	}
 	now := e.Clock.Now().UnixMilli()
-	switch status {
-	case "ACKED":
-		if a.Status != "ACTIVE" {
-			return a, fmt.Errorf("only active alarms can be acknowledged")
+	a, _, err := e.mutateAlarm(ctx, tenant, alarmID, func(a *model.Alarm) (bool, error) {
+		switch status {
+		case "ACKED":
+			if a.Status != "ACTIVE" {
+				return false, fmt.Errorf("only active alarms can be acknowledged")
+			}
+			a.Status = status
+			a.AckedAt = now
+		case "RECOVERED":
+			// An external system may assert recovery for alarm types that no
+			// clearing property describes.
+			if a.Status != "ACTIVE" && a.Status != "ACKED" {
+				return false, fmt.Errorf("only active or acknowledged alarms can be recovered")
+			}
+			a.Status = status
+			a.RecoveredAt = now
+		case "CLOSED":
+			a.Status = status
+			a.ClosedAt = now
+		case "SUPPRESSED":
+			a.Status = status
+		default:
+			return false, fmt.Errorf("unsupported status %s", status)
 		}
-		a.Status = status
-		a.AckedAt = now
-	case "RECOVERED":
-		// An external system may assert recovery for alarm types that no
-		// clearing property describes.
-		if a.Status != "ACTIVE" && a.Status != "ACKED" {
-			return a, fmt.Errorf("only active or acknowledged alarms can be recovered")
-		}
-		a.Status = status
-		a.RecoveredAt = now
-	case "CLOSED":
-		a.Status = status
-		a.ClosedAt = now
-	case "SUPPRESSED":
-		a.Status = status
-	default:
-		return a, fmt.Errorf("unsupported status %s", status)
-	}
-	if err := e.Repo.UpdateAlarm(ctx, a); err != nil {
+		return true, nil
+	})
+	if err != nil {
 		return a, err
 	}
 	if err := e.syncDeviceBusinessStatus(ctx, a.TenantID, "", a.DeviceID); err != nil {

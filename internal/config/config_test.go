@@ -145,6 +145,55 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) {
 	if cfg.Validate() == nil {
 		t.Fatal("unknown role accepted")
 	}
+	// Worker roles need the shared stores but only the ai role needs Harness.
+	for _, role := range []string{RoleParser, RoleProcessor, RoleJobs} {
+		worker := Config{DevMode: true, ProcessRole: role, PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}}
+		if err := worker.Validate(); err != nil {
+			t.Fatal(role, err)
+		}
+		worker.KafkaBrokers = nil
+		if worker.Validate() == nil {
+			t.Fatal(role, "accepted process-local queue")
+		}
+	}
+	if (Config{DevMode: true, ProcessRole: RoleAI, PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}}).Validate() == nil {
+		t.Fatal("ai role accepted without Harness")
+	}
+	if (Config{DevMode: true, ProcessRole: RoleParser, PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}, InstanceID: "bad id!"}).Validate() == nil {
+		t.Fatal("invalid instance ID accepted")
+	}
+}
+
+func TestRoleComponents(t *testing.T) {
+	type want struct{ access, management, parser, processor, ai, jobs, aiRuntime bool }
+	cases := map[string]struct {
+		cfg  Config
+		want want
+	}{
+		"combined":     {Config{ProcessRole: RoleCombined}, want{true, true, true, true, true, true, true}},
+		"default":      {Config{}, want{true, true, true, true, true, true, true}},
+		"api embedded": {Config{ProcessRole: RoleAPI, APIEmbeddedWorkers: true}, want{false, true, true, true, true, true, true}},
+		"api only":     {Config{ProcessRole: RoleAPI}, want{false, true, false, false, false, false, true}},
+		"gateway":      {Config{ProcessRole: RoleGateway, APIEmbeddedWorkers: true}, want{true, false, false, false, false, false, false}},
+		"parser":       {Config{ProcessRole: RoleParser}, want{false, false, true, false, false, false, false}},
+		"processor":    {Config{ProcessRole: RoleProcessor}, want{false, false, false, true, false, false, false}},
+		"ai":           {Config{ProcessRole: RoleAI}, want{false, false, false, false, true, false, true}},
+		"jobs":         {Config{ProcessRole: RoleJobs}, want{false, false, false, false, false, true, false}},
+	}
+	for name, c := range cases {
+		got := want{c.cfg.Runs(ComponentAccess), c.cfg.Runs(ComponentManagement), c.cfg.Runs(ComponentParser), c.cfg.Runs(ComponentProcessor), c.cfg.Runs(ComponentAI), c.cfg.Runs(ComponentJobs), c.cfg.Runs(ComponentAIRuntime)}
+		if got != c.want {
+			t.Errorf("%s: got %+v want %+v", name, got, c.want)
+		}
+	}
+	t.Setenv("IOT_INSTANCE_ID", "")
+	if cfg := Load(); !cfg.APIEmbeddedWorkers || cfg.InstanceIDExplicit || cfg.InstanceID == "" || !cfg.PublishExternalTopics {
+		t.Fatalf("defaults must keep existing deployments unchanged: %+v", cfg)
+	}
+	t.Setenv("IOT_INSTANCE_ID", "gw-2")
+	if cfg := Load(); cfg.InstanceID != "gw-2" || !cfg.InstanceIDExplicit {
+		t.Fatal("explicit instance ID ignored")
+	}
 }
 
 func TestProductionConfigAllowsCustomAdminPasswords(t *testing.T) {

@@ -109,27 +109,24 @@ func (s *Service) revoke(ctx context.Context, v model.CredentialRevocation) mode
 	}
 	return v
 }
-func (s *Service) RetryRevocations(ctx context.Context) {
-	tick := time.NewTicker(30 * time.Second)
-	defer tick.Stop()
-	for {
-		if s.RevokeUsername != nil {
-			items, e := s.Repo.ListCredentialRevocations(ctx, "", "", true)
-			if e == nil {
-				for _, v := range items {
-					if ctx.Err() != nil {
-						return
-					}
-					s.revoke(ctx, v)
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
+
+// RetryRevocationsOnce retries pending broker revocations once; the jobs
+// role runs it as a cluster singleton.
+func (s *Service) RetryRevocationsOnce(ctx context.Context) error {
+	if s.RevokeUsername == nil {
+		return nil
 	}
+	items, e := s.Repo.ListCredentialRevocations(ctx, "", "", true)
+	if e != nil {
+		return e
+	}
+	for _, v := range items {
+		if ctx.Err() != nil {
+			return nil
+		}
+		s.revoke(ctx, v)
+	}
+	return nil
 }
 
 func (s *Service) SendCommand(ctx context.Context, t, d string, q model.DeviceCommand) (model.DeviceCommand, error) {

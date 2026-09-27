@@ -97,8 +97,8 @@ func Run(forcedRole string) {
 		clickHouseRaw = r
 		log.Info("telemetry storage enabled", "adapter", "clickhouse")
 	}
-	if cfg.RedisAddr != "" {
-		repo = redisadapter.New(repo, cfg.RedisAddr, cfg.RedisPassword)
+	if cfg.RedisAddr != "" || (cfg.RedisMasterName != "" && len(cfg.RedisSentinels) > 0) {
+		repo = redisadapter.New(repo, redisadapter.NewClient(redisadapter.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, MasterName: cfg.RedisMasterName, Sentinels: cfg.RedisSentinels}))
 		log.Info("hot state cache enabled", "adapter", "redis")
 	}
 	var archivePort ports.Archive
@@ -184,10 +184,10 @@ func Run(forcedRole string) {
 				return "iot-platform", token
 			}
 		}
-		mqttConnection, err := mqttadapter.NewDurableWithCredentials(cfg.MQTTBroker, filepath.Join(cfg.DataDir, "mqtt-inbox", cfg.ProcessRole), credentials)
+		mqttConnection, err := mqttadapter.NewDurableWithCredentials(cfg.MQTTBroker, mqttInboxDir(cfg), credentials)
 		fatal(log, "connect mqtt", err)
 		mqttClient = mqttConnection
-		if cfg.ProcessRole != "api" {
+		if cfg.Runs(config.ComponentAccess) {
 			registry.Set("mqtt_ingress_enabled", 1)
 		}
 		go func() {
@@ -239,6 +239,9 @@ func Run(forcedRole string) {
 	}
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
+	engine.SetIdentity(cfg.InstanceID)
+	engine.PublishExternalTopics = cfg.PublishExternalTopics
+	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID)
 	engine.ConfigureAutomaticAnalysis(cfg.AIAnalysisTimeout, cfg.AIAnalysisMaxWait, cfg.AIAnalysisRPM)
 	if kafkaBus != nil {
 		// Backpressure: stop taking new raw messages while parsing and storage
@@ -257,11 +260,11 @@ func Run(forcedRole string) {
 						if err != nil {
 							continue
 						}
-						storageLag, err := kafkaBus.GroupLag(ctx, "storage", model.TopicPropertyReport, model.TopicEventReport, model.TopicParsed)
+						processorLag, err := kafkaBus.GroupLag(ctx, core.GroupProcessor, model.TopicDeviceBusiness)
 						if err != nil {
 							continue
 						}
-						backlog := parserLag + storageLag
+						backlog := parserLag + processorLag
 						registry.Set("pipeline_backlog", float64(backlog))
 						next := paused
 						if !paused && backlog > cfg.IngestMaxBacklog {
@@ -300,7 +303,7 @@ func Run(forcedRole string) {
 	engine.Metrics = registry
 	var runtimeAI *aiadapter.RuntimeProvider
 	var harness *aiadapter.HarnessClient
-	if cfg.ProcessRole != "gateway" {
+	if cfg.Runs(config.ComponentAIRuntime) {
 		aiPlugins := aiadapter.NewProviderRegistry()
 		engine.AIPlugins = aiPlugins
 		providerID := cfg.AIProvider
@@ -358,7 +361,7 @@ func Run(forcedRole string) {
 		einoAI, einoErr := aiadapter.NewEino(ctx, runtimeAI)
 		fatal(log, "initialize Eino AI workflows", einoErr)
 		engine.AI = einoAI
-		if cfg.ProcessRole != "gateway" && cfg.AIHarnessURL != "" {
+		if cfg.AIHarnessURL != "" {
 			harnessModel := cfg.AIHarnessModel
 			if providerConfig.Model != "" {
 				harnessModel = providerConfig.Model
@@ -388,23 +391,30 @@ func Run(forcedRole string) {
 		}
 
 	}
-	if cfg.ProcessRole != "gateway" && cfg.WeaviateURL != "" {
+	if (cfg.Runs(config.ComponentManagement) || cfg.Runs(config.ComponentAI)) && cfg.WeaviateURL != "" {
 		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL)
 	} else {
 		engine.KB = knowledge.NewLocal()
 	}
 	var opsService *opscenter.Service
-	if cfg.ProcessRole != "gateway" {
+	if cfg.Runs(config.ComponentManagement) || cfg.Runs(config.ComponentJobs) {
 		opsService = newOpsCenter(cfg, opsPrefs, log)
+	}
+	if cfg.Runs(config.ComponentManagement) {
+		// Dashboard provisioning is an idempotent upsert by UID.
 		go opsService.RunDefaultDashboards(ctx)
+	}
+	if cfg.Runs(config.ComponentJobs) {
+		// Alertmanager deduplicates identical alerts, so a notification
+		// resent by another jobs replica after a rebalance has no effect.
 		fatal(log, "start device alarm notifications", opsService.StartDeviceNotifications(ctx, bus, filepath.Join(cfg.DataDir, "ops-state", "device-notifications")))
 	}
-	if cfg.ProcessRole != "gateway" {
-		fatal(log, "start engine", engine.Start(ctx))
-	}
+	components := core.Components{Parser: cfg.Runs(config.ComponentParser), Processor: cfg.Runs(config.ComponentProcessor), AI: cfg.Runs(config.ComponentAI), Jobs: cfg.Runs(config.ComponentJobs), OfflineScan: cfg.OfflineScan}
+	fatal(log, "start engine", engine.StartWith(ctx, components))
+	log.Info("process role started", "role", cfg.ProcessRole, "instance", cfg.InstanceID, "parser", components.Parser, "processor", components.Processor, "ai", components.AI, "jobs", components.Jobs, "access", cfg.Runs(config.ComponentAccess), "management", cfg.Runs(config.ComponentManagement))
 	var coordinator *protocolruntime.Coordinator
-	if cfg.AccessCoordination && cfg.ProcessRole != "api" {
-		coordinator = protocolruntime.NewCoordinator(repo, hostname()+"-"+strconv.Itoa(os.Getpid())+"-"+uuid.NewString(), cfg.AccessNodeURL)
+	if cfg.AccessCoordination && cfg.Runs(config.ComponentAccess) {
+		coordinator = protocolruntime.NewCoordinator(repo, cfg.InstanceID+"-"+strconv.Itoa(os.Getpid())+"-"+uuid.NewString(), cfg.AccessNodeURL)
 		go coordinator.Run(ctx)
 	}
 	protocolRuntime := protocolruntime.New(repo, func(c context.Context, raw model.RawMessage) error {
@@ -412,7 +422,7 @@ func Run(forcedRole string) {
 		return err
 	}, log, cfg.ModbusAllowedCIDRs...)
 	protocolRuntime.SetCoordinator(coordinator)
-	if cfg.ProcessRole != "api" {
+	if cfg.Runs(config.ComponentAccess) {
 		protocolRuntime.Start(ctx)
 	}
 	protocolListeners := protocolruntime.NewListeners(repo, cfg.DataDir, func(c context.Context, raw model.RawMessage) error {
@@ -435,13 +445,11 @@ func Run(forcedRole string) {
 	}()
 	protocolListeners.SetConnectionReporter(engine.ReportConnection)
 	protocolListeners.SetCoordinator(coordinator)
-	if cfg.ProcessRole != "api" {
+	if cfg.Runs(config.ComponentAccess) {
 		protocolListeners.Start(ctx)
-	}
-	if cfg.ProcessRole != "api" {
 		log.Info("active protocol runtime enabled", "transports", []string{"TCP", "UDP", "MODBUS_TCP (legacy)"})
 	}
-	if cfg.ProcessRole != "api" && mqttClient != nil {
+	if cfg.Runs(config.ComponentAccess) && mqttClient != nil {
 		standardIngress := onboarding.New(repo, parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs)
 		fatal(log, "subscribe standard mqtt", mqttClient.SubscribeStandard(func(c context.Context, tenant, product, device, kind string, payload []byte) error {
 			raw, err := standardIngress.PrepareStandard(c, tenant, product, device, kind, "MQTT", payload)
@@ -471,8 +479,8 @@ func Run(forcedRole string) {
 		revokeUsername = emqxAdmin.RevokeUsername
 	}
 	api.SetDeviceOperations(publishCommand, revokeUsername)
-	if cfg.ProcessRole != "gateway" {
-		go api.RunCredentialRevocations(ctx)
+	if cfg.Runs(config.ComponentJobs) {
+		engine.RunSingleton(ctx, "credential-revocation", 30*time.Second, api.RetryCredentialRevocationsOnce)
 	}
 	if mqttClient != nil {
 		api.SetMQTTHealth(mqttClient.Probe)
@@ -483,10 +491,10 @@ func Run(forcedRole string) {
 		api.SetAIWorkflowProvider(harness)
 	}
 	api.SetProtocolListeners(protocolListeners)
-	if cfg.ProcessRole != "gateway" {
+	if cfg.Runs(config.ComponentManagement) {
 		api.SetOpsCenter(opsService)
 	}
-	if cfg.ProcessRole != "gateway" {
+	if cfg.Runs(config.ComponentManagement) {
 		// The live module is optional: when the media server is absent,
 		// misconfigured or down, only live features report that state.
 		if problem := cfg.Video.Problem(); cfg.Video.Deployed() && problem != nil {
@@ -500,22 +508,6 @@ func Run(forcedRole string) {
 		}
 	}
 	server := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 15 * time.Minute, IdleTimeout: 2 * time.Minute}
-	if cfg.ProcessRole != "gateway" {
-		go func() {
-			ticker := time.NewTicker(cfg.OfflineScan)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					if err := engine.ScanOffline(ctx); err != nil {
-						log.Error("offline scan failed", "error", err)
-					}
-				}
-			}
-		}()
-	}
 	go func() {
 		log.Info("iot platform started", "addr", cfg.HTTPAddr, "devMode", cfg.DevMode)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -570,12 +562,18 @@ func retryHarnessProvider(ctx context.Context, runtimeAI ports.AIProviderRuntime
 	}
 }
 
-func hostname() string {
-	v, err := os.Hostname()
-	if err != nil {
-		return "unknown"
+// mqttInboxDir keeps the historical per-role path unless IOT_INSTANCE_ID is
+// set, so upgrading a single instance never orphans unacknowledged messages.
+// Replicas of one role must each set a distinct IOT_INSTANCE_ID.
+func mqttInboxDir(cfg config.Config) string {
+	role := cfg.ProcessRole
+	if role == "" {
+		role = config.RoleCombined
 	}
-	return v
+	if cfg.InstanceIDExplicit {
+		return filepath.Join(cfg.DataDir, "mqtt-inbox", role, cfg.InstanceID)
+	}
+	return filepath.Join(cfg.DataDir, "mqtt-inbox", role)
 }
 
 func positiveOr(value int64, fallback int) int {

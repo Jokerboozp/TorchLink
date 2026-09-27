@@ -1,5 +1,7 @@
-// dlq-replay recovers explicitly selected storage failures through the original
-// consumer path. It neither deletes dead letters nor changes consumer offsets.
+// dlq-replay recovers explicitly selected business-processing failures through
+// the device business stream. It reads the processor dead letters (or the
+// legacy storage group's, left from before the business stream existed) and
+// neither deletes dead letters nor changes consumer offsets.
 package main
 
 import (
@@ -24,13 +26,13 @@ type deadLetter struct {
 	PayloadEncoding string          `json:"payloadEncoding"`
 }
 
-func selectMessage(body []byte, tenant, source string, ids map[string]bool) (model.StandardMessage, []byte, error) {
+func selectMessage(body []byte, group, tenant, source string, ids map[string]bool) (model.StandardMessage, []byte, error) {
 	var dlq deadLetter
 	var msg model.StandardMessage
 	if err := json.Unmarshal(body, &dlq); err != nil {
 		return msg, nil, err
 	}
-	if dlq.ConsumerGroup != "storage" || dlq.SourceTopic != source || dlq.PayloadEncoding != "" {
+	if dlq.ConsumerGroup != group || dlq.SourceTopic != source || dlq.PayloadEncoding != "" {
 		return msg, nil, nil
 	}
 	if err := json.Unmarshal(dlq.Payload, &msg); err != nil {
@@ -48,15 +50,28 @@ func run() error {
 	envFile := flag.String("env-file", ".env.local", "环境文件")
 	tenant := flag.String("tenant", "", "必须明确指定租户")
 	file := flag.String("ids-file", "", "待恢复标准消息 ID 的 JSON 数组文件，最多 10000 条")
-	source := flag.String("source-topic", model.TopicPropertyReport, "原业务主题：property / event / parsed")
+	group := flag.String("group", "processor", "死信所属消费组：processor（业务流），或升级前遗留的 storage")
+	source := flag.String("source-topic", "", "原主题；processor 默认业务流，storage 须指定 property / event / parsed")
 	execute := flag.Bool("execute", false, "实际重新发布；默认仅核对，不写数据")
 	maxScan := flag.Int("max-scan", 10000, "最大读取死信条数；超出则整批拒绝发布")
 	flag.Parse()
 	if *tenant == "" || *file == "" || *maxScan < 1 {
 		return errors.New("tenant, ids-file and positive max-scan are required")
 	}
-	if *source != model.TopicPropertyReport && *source != model.TopicEventReport && *source != model.TopicParsed {
-		return errors.New("unsupported storage source topic")
+	switch *group {
+	case "processor":
+		if *source == "" {
+			*source = model.TopicDeviceBusiness
+		}
+		if *source != model.TopicDeviceBusiness {
+			return errors.New("processor dead letters come from the device business stream")
+		}
+	case "storage":
+		if *source != model.TopicPropertyReport && *source != model.TopicEventReport && *source != model.TopicParsed {
+			return errors.New("storage dead letters need -source-topic property / event / parsed")
+		}
+	default:
+		return errors.New("group must be processor or storage")
 	}
 	b, err := os.ReadFile(*file)
 	if err != nil {
@@ -96,7 +111,7 @@ func run() error {
 	selected := map[string]kafka.Message{}
 	scanned, matched, partitions := 0, 0, 0
 	for _, p := range parts {
-		if p.Topic != "iot.dlq.storage" {
+		if p.Topic != model.DLQTopic(*group) {
 			continue
 		}
 		partitions++
@@ -132,7 +147,7 @@ func run() error {
 				reader.Close()
 				return errors.New("max-scan exceeded; no messages published")
 			}
-			msg, payload, e := selectMessage(m.Value, *tenant, *source, ids)
+			msg, payload, e := selectMessage(m.Value, *group, *tenant, *source, ids)
 			if e != nil {
 				reader.Close()
 				return e
@@ -143,7 +158,7 @@ func run() error {
 					reader.Close()
 					return errors.New("conflicting dead letters for one message ID")
 				}
-				selected[msg.MessageID] = kafka.Message{Key: []byte(msg.DeviceID), Value: payload}
+				selected[msg.MessageID] = kafka.Message{Key: []byte(model.DeviceKey(msg.TenantID, msg.DeviceID)), Value: payload}
 			}
 			if m.Offset+1 >= last {
 				break
@@ -152,14 +167,15 @@ func run() error {
 		reader.Close()
 	}
 	if partitions == 0 {
-		return errors.New("storage DLQ topic does not exist")
+		return fmt.Errorf("DLQ topic %s does not exist", model.DLQTopic(*group))
 	}
 	if len(selected) != len(ids) {
 		return fmt.Errorf("only %d/%d selected IDs found; no messages published", len(selected), len(ids))
 	}
 	published := 0
 	if *execute {
-		writer := kafka.Writer{Addr: kafka.TCP(cfg.KafkaBrokers...), Topic: *source, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, AllowAutoTopicCreation: false}
+		// All business processing now consumes the device business stream.
+		writer := kafka.Writer{Addr: kafka.TCP(cfg.KafkaBrokers...), Topic: model.TopicDeviceBusiness, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, AllowAutoTopicCreation: false}
 		defer writer.Close()
 		order := make([]string, 0, len(selected))
 		for id := range selected {

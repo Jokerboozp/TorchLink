@@ -296,7 +296,7 @@ func TestEnrollThroughProductionRepositoryDecorators(t *testing.T) {
 	telemetry := &clickhouse.Repository{Repository: repo}
 	// Onboarding must be forwarded without touching the external cache or
 	// telemetry service. This is the same nesting as the production wiring.
-	s.Repo = redisadapter.New(telemetry, "127.0.0.1:1", "")
+	s.Repo = redisadapter.New(telemetry, redisadapter.NewClient(redisadapter.Options{Addr: "127.0.0.1:1"}))
 	if _, err := s.Enroll(context.Background(), "tenant", enrollRequest("device")); err != nil {
 		t.Fatal(err)
 	}

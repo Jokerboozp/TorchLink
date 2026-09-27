@@ -449,3 +449,43 @@ func TestExecutionRouteUsesTenantLeaseAndPreservesAuth(t *testing.T) {
 		t.Fatal("route loop not bounded", w.Code)
 	}
 }
+
+func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, role := range []string{config.RoleParser, config.RoleProcessor, config.RoleAI, config.RoleJobs} {
+		engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+		cfg := config.Load()
+		cfg.ProcessRole, cfg.InstanceID = role, role+"-1"
+		registry := metrics.New()
+		registry.SetProcessInfo(role, cfg.InstanceID)
+		server := New(cfg, engine, registry, log)
+		call := func(path string) *httptest.ResponseRecorder {
+			w := httptest.NewRecorder()
+			server.Handler().ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+			return w
+		}
+		if w := call("/api/v1/devices"); w.Code != 404 {
+			t.Fatal(role, "worker served a business route", w.Code)
+		}
+		if w := call("/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), `process_info{role="`+role+`",instance="`+role+`-1"} 1`) {
+			t.Fatal(role, "worker metrics not attributable", w.Code)
+		}
+		w := call("/health/ready")
+		var ready struct {
+			Role   string            `json:"role"`
+			Checks map[string]string `json:"checks"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &ready)
+		if ready.Role != role {
+			t.Fatal(role, "readiness does not name the role", w.Body.String())
+		}
+		if _, ok := ready.Checks["knowledge"]; ok && role != config.RoleAI {
+			t.Fatal(role, "readiness checks an unused dependency")
+		}
+	}
+}

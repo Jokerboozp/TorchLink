@@ -9,6 +9,7 @@ import (
 )
 
 type Registry struct {
+	info     string
 	mu       sync.RWMutex
 	counters map[string]uint64
 	gauges   map[string]float64
@@ -38,6 +39,15 @@ func (r *Registry) Inc(name string) {
 	}
 	r.mu.Unlock()
 }
+
+// SetProcessInfo exposes process_info{role,instance} 1 so per-instance
+// scrapes can be attributed without per-device labels.
+func (r *Registry) SetProcessInfo(role, instance string) {
+	q := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", "")
+	r.mu.Lock()
+	r.info = fmt.Sprintf("# TYPE process_info gauge\nprocess_info{role=\"%s\",instance=\"%s\"} 1\n", q.Replace(role), q.Replace(instance))
+	r.mu.Unlock()
+}
 func (r *Registry) Add(name string, v uint64)  { r.mu.Lock(); r.counters[name] += v; r.mu.Unlock() }
 func (r *Registry) Set(name string, v float64) { r.mu.Lock(); r.gauges[name] = v; r.mu.Unlock() }
 func (r *Registry) ObserveMS(name string, start time.Time) {
@@ -47,6 +57,7 @@ func (r *Registry) Prometheus() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var b strings.Builder
+	b.WriteString(r.info)
 	for k, v := range r.counters {
 		fmt.Fprintf(&b, "# TYPE %s counter\n%s %d\n", k, k, v)
 	}

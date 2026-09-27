@@ -67,7 +67,7 @@ func main() {
 					}
 				}
 				plan.MinPartitions, plan.MinReplication = 1<<30, 1<<30
-				for _, topic := range []string{model.TopicRaw, model.TopicPropertyReport, model.TopicEventReport, model.TopicParsed, model.TopicAlarmRaised} {
+				for _, topic := range []string{model.TopicRaw, model.TopicDeviceBusiness, model.TopicPropertyReport, model.TopicEventReport, model.TopicParsed, model.TopicAlarmRaised} {
 					plan.MinPartitions = min(plan.MinPartitions, counts[topic])
 					plan.MinReplication = min(plan.MinReplication, repl[topic])
 				}

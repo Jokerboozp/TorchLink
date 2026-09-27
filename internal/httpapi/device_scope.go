@@ -435,6 +435,31 @@ func (r *deviceScopeRepository) UpsertDeviceState(ctx context.Context, v model.D
 	return r.Repository.UpsertDeviceState(ctx, v)
 }
 
+func (r *deviceScopeRepository) GetDeviceStateFresh(ctx context.Context, t, id string) (model.DeviceState, error) {
+	v, e := r.Repository.GetDeviceStateFresh(ctx, t, id)
+	if e != nil {
+		return v, e
+	}
+	if !deviceAllowed(ctx, t, v.DeviceID) {
+		return model.DeviceState{}, errDeviceScope
+	}
+	return v, nil
+}
+
+func (r *deviceScopeRepository) UpsertDeviceStateIf(ctx context.Context, v model.DeviceState) (bool, error) {
+	if !deviceAllowed(ctx, v.TenantID, v.DeviceID) {
+		return false, errDeviceScope
+	}
+	return r.Repository.UpsertDeviceStateIf(ctx, v)
+}
+
+func (r *deviceScopeRepository) UpdateAlarmIf(ctx context.Context, v model.Alarm) (bool, error) {
+	if !deviceAllowed(ctx, v.TenantID, v.DeviceID) {
+		return false, errDeviceScope
+	}
+	return r.Repository.UpdateAlarmIf(ctx, v)
+}
+
 func (r *deviceScopeRepository) UpdateAlarm(ctx context.Context, v model.Alarm) error {
 	if !deviceAllowed(ctx, v.TenantID, v.DeviceID) {
 		return errDeviceScope

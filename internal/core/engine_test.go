@@ -387,8 +387,8 @@ func TestLargePropertyReportStillTriggersRules(t *testing.T) {
 	if err := e.handleStandard(ctx, data); err != nil {
 		t.Fatal("property processing failed", err)
 	}
-	shouldProcess, _, err := repo.ClaimStandardMessage(ctx, msg)
-	if err != nil || shouldProcess {
+	claim, err := repo.ClaimStandardMessage(ctx, msg, "check", time.Minute)
+	if err != nil || claim.ShouldProcess {
 		t.Fatal("message not completed", err)
 	}
 	alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant", DeviceID: "device", Limit: 10})
@@ -592,13 +592,13 @@ type countedStateRepo struct {
 	reads, writes, alarmReads int
 }
 
-func (r *countedStateRepo) GetDeviceState(ctx context.Context, t, d string) (model.DeviceState, error) {
+func (r *countedStateRepo) GetDeviceStateFresh(ctx context.Context, t, d string) (model.DeviceState, error) {
 	r.reads++
-	return r.Repository.GetDeviceState(ctx, t, d)
+	return r.Repository.GetDeviceStateFresh(ctx, t, d)
 }
-func (r *countedStateRepo) UpsertDeviceState(ctx context.Context, v model.DeviceState) error {
+func (r *countedStateRepo) UpsertDeviceStateIf(ctx context.Context, v model.DeviceState) (bool, error) {
 	r.writes++
-	return r.Repository.UpsertDeviceState(ctx, v)
+	return r.Repository.UpsertDeviceStateIf(ctx, v)
 }
 func (r *countedStateRepo) ListAlarms(ctx context.Context, f ports.AlarmFilter) ([]model.Alarm, error) {
 	r.alarmReads++

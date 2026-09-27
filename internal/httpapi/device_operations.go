@@ -12,7 +12,11 @@ func (s *Server) SetDeviceOperations(publish func(context.Context, string, []byt
 	s.onboarding.PublishCommand = publish
 	s.onboarding.RevokeUsername = revoke
 }
-func (s *Server) RunCredentialRevocations(ctx context.Context) { s.onboarding.RetryRevocations(ctx) }
+
+// RetryCredentialRevocationsOnce retries pending broker revocations once.
+func (s *Server) RetryCredentialRevocationsOnce(ctx context.Context) error {
+	return s.onboarding.RetryRevocationsOnce(ctx)
+}
 func (s *Server) deviceOperationsRoutes() {
 	s.router.GET("/api/v1/device-registry/:id/history", s.authorize("viewer"), s.endpoint(s.deviceHistory, "id"))
 	s.router.GET("/api/v1/device-registry/:id/commands", s.authorize("viewer"), s.endpoint(s.listDeviceCommands, "id"))

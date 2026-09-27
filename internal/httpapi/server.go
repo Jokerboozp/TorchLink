@@ -285,8 +285,12 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	checks := map[string]string{}
 	status := 200
-	checksToRun := map[string]func(context.Context) error{"repository": s.engine.Repo.Health, "archive": s.engine.Archive.Health, "eventBus": s.engine.Bus.Health, "realtime": s.engine.Realtime.Health}
-	if s.engine.KB != nil {
+	// Each role is ready when the dependencies of its own components are.
+	checksToRun := map[string]func(context.Context) error{"repository": s.engine.Repo.Health, "eventBus": s.engine.Bus.Health, "realtime": s.engine.Realtime.Health}
+	if s.cfg.Runs(config.ComponentAccess) || s.cfg.Runs(config.ComponentParser) || s.cfg.Runs(config.ComponentManagement) {
+		checksToRun["archive"] = s.engine.Archive.Health
+	}
+	if s.engine.KB != nil && (s.cfg.Runs(config.ComponentManagement) || s.cfg.Runs(config.ComponentAI)) {
 		checksToRun["knowledge"] = s.engine.KB.Health
 	}
 	for name, check := range checksToRun {
@@ -297,7 +301,11 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 			checks[name] = "ok"
 		}
 	}
-	write(w, status, map[string]any{"status": map[bool]string{true: "ok", false: "degraded"}[status == 200], "checks": checks})
+	role := s.cfg.ProcessRole
+	if role == "" {
+		role = config.RoleCombined
+	}
+	write(w, status, map[string]any{"status": map[bool]string{true: "ok", false: "degraded"}[status == 200], "checks": checks, "role": role, "instance": s.cfg.InstanceID})
 }
 func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)

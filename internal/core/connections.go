@@ -8,20 +8,25 @@ import (
 func (e *Engine) ReportConnection(ctx context.Context, tenant, product, device string, connected bool, at int64) error {
 	unlock := e.lockDeviceState(tenant, device)
 	defer unlock()
-	state, err := e.Repo.GetDeviceState(ctx, tenant, device)
-	if err != nil {
-		state = model.DeviceState{TenantID: tenant, ProductID: product, DeviceID: device, DataStatus: "UNKNOWN", BusinessStatus: "UNKNOWN", ReportIntervalSec: 300, OfflineToleranceSec: 60}
+	before, after, written, err := e.mutateDeviceState(ctx, tenant, device, func(state *model.DeviceState, found bool) (bool, error) {
+		if !found {
+			*state = model.DeviceState{TenantID: tenant, ProductID: product, DeviceID: device, DataStatus: "UNKNOWN", BusinessStatus: "UNKNOWN", ReportIntervalSec: 300, OfflineToleranceSec: 60}
+		}
+		state.ConnectionStatus = "DISCONNECTED"
+		if !connected {
+			state.LastDisconnectAt = at
+		}
+		if connected {
+			state.ConnectionStatus = "CONNECTED"
+			state.LastConnectAt = at
+		}
+		state.StatusSource = "LISTENER_SESSION"
+		return true, nil
+	})
+	if err == nil && written {
+		e.publishStateChange(ctx, before, after)
 	}
-	state.ConnectionStatus = "DISCONNECTED"
-	if !connected {
-		state.LastDisconnectAt = at
-	}
-	if connected {
-		state.ConnectionStatus = "CONNECTED"
-		state.LastConnectAt = at
-	}
-	state.StatusSource = "LISTENER_SESSION"
-	return e.updateDeviceState(ctx, state)
+	return err
 }
 
 // Bound the lock set without retaining an entry for every device ever seen.

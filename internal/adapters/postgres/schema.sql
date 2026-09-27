@@ -447,3 +447,13 @@ ON CONFLICT DO NOTHING;
 UPDATE health_inspection_job SET body=jsonb_set(body,'{report}',
  ((body->'report') - 'items') || jsonb_build_object('reportId',id,'totalItems',jsonb_array_length(body#>'{report,items}')))
 WHERE jsonb_typeof(body#>'{report,items}')='array';
+
+-- Cross-worker business processing: a message is claimed for a lease and only
+-- the latest claim token may record completion (fencing). Alarms and device
+-- states carry optimistic-concurrency versions for read-modify-write paths.
+ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS claim_owner text NOT NULL DEFAULT '';
+ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS claim_token bigint NOT NULL DEFAULT 0;
+ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS claim_expires_at bigint NOT NULL DEFAULT 0;
+ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE alarm_record ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;
+ALTER TABLE device_state ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;

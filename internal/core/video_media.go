@@ -79,34 +79,31 @@ func (e *Engine) updateVideoAlarmMedia(ctx context.Context, event model.VideoAla
 	if err != nil {
 		return
 	}
-	for _, alarm := range alarms {
-		if alarm.Source != "video" || alarm.DeviceID != event.CameraID || alarm.RuleID != "video:"+event.AlarmType {
+	for _, listed := range alarms {
+		if listed.Source != "video" || listed.DeviceID != event.CameraID || listed.RuleID != "video:"+event.AlarmType {
 			continue
 		}
-		if alarm.Details == nil {
-			alarm.Details = map[string]any{}
-		}
-		alarm.Details["videoEvent"] = event
-		_ = e.Repo.UpdateAlarm(ctx, alarm)
+		_, _, _ = e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(alarm *model.Alarm) (bool, error) {
+			if alarm.Details == nil {
+				alarm.Details = map[string]any{}
+			}
+			alarm.Details["videoEvent"] = event
+			return true, nil
+		})
 	}
 }
-func (e *Engine) retryPendingVideoMedia(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			items, err := e.Repo.ListPendingVideoEvents(ctx, 100)
-			if err != nil {
-				continue
-			}
-			for _, item := range items {
-				e.processVideoMedia(ctx, item)
-			}
-		}
+
+// retryPendingVideoMediaOnce retries media transfers of video alarms; it runs
+// as a cluster singleton job.
+func (e *Engine) retryPendingVideoMediaOnce(ctx context.Context) error {
+	items, err := e.Repo.ListPendingVideoEvents(ctx, 100)
+	if err != nil {
+		return err
 	}
+	for _, item := range items {
+		e.processVideoMedia(ctx, item)
+	}
+	return nil
 }
 func (e *Engine) transferVideoURL(ctx context.Context, v model.VideoAlarmEvent, rawURL, kind string) (string, error) {
 	u, err := url.Parse(rawURL)

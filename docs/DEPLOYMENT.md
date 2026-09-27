@@ -309,12 +309,12 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
-| `IOT_POSTGRES_MAX_CONNS` | 64 | 每个 API / 网关进程的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
+| `IOT_POSTGRES_MAX_CONNS` | 64 | 每个进程（含各 Worker 角色）的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
 | `POSTGRES_MAX_CONNECTIONS` | 300 | Compose 中 PostgreSQL 的 `max_connections` |
 | `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
 | `IOT_AI_ANALYSIS_CONCURRENCY` / `IOT_AI_ANALYSIS_RPM` | 2 / 12 | 每进程自动研判并发与请求/分钟，所有副本合计不能超过模型配额 |
 | `IOT_AI_ANALYSIS_TIMEOUT` / `IOT_AI_ANALYSIS_MAX_WAIT` | 90s / 10m | 含额度等待的执行期限 / 告警事件最长等待年龄；恢复时取消 |
-| `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与存储积压超过该值时暂停接收新原文，0 关闭 |
+| `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与业务流（`processor` 组）积压超过该值时暂停接收新原文，0 关闭 |
 | `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
 | `IOT_MQTT_DEVICE_TOKEN_TTL` | 24h | 标准设备 MQTT 令牌有效期，仅在配置 EMQX 管理 API 时生效，否则 5 分钟 |
 | `IOT_EMQX_MAX_MQUEUE_LEN` / `IOT_EMQX_MAX_INFLIGHT` | 100000 / 128 | EMQX 会话队列与在途窗口；队列满时 Broker 丢弃报文 |
@@ -386,7 +386,18 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
 ### 进程职责
 
 - `cmd/iot-platform` 默认 `IOT_PROCESS_ROLE=combined`，保留单进程入口。
-- `IOT_PROCESS_ROLE=api` 不启动 Modbus、Listener 或外部 MQTT 上行订阅；保留 Raw 消费、Parser、规则及管理接口。
+- `IOT_PROCESS_ROLE=api` 不启动 Modbus、Listener 或外部 MQTT 上行订阅；默认仍内嵌解析、业务处理、AI 研判消费与后台任务（`IOT_API_EMBEDDED_WORKERS=true`）。设为 `false` 后 API 只提供管理接口、运维中心和视频控制，必须同时部署下列 Worker 角色，否则上报不会被解析和处理。
+- Worker 角色（同一镜像与入口，设置 `IOT_PROCESS_ROLE`）：
+
+  | 角色 | 运行内容 | 扩容依据 |
+  | --- | --- | --- |
+  | `parser` | 消费 `iot.raw.message`，解析并发布到内部业务流 `iot.device.business`（及对外 property/event/parsed 主题） | 原文积压、解析耗时 |
+  | `processor` | 按设备顺序消费 `iot.device.business`：规则、告警、设备状态、完成标记、outbox 转发 | 业务流积压、数据库等待 |
+  | `ai` | 消费 `iot.alarm.raised` 做自动研判，需要 Harness | 任务年龄、模型额度 |
+  | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试、设备告警通知；每项任务以数据库租约保证全集群只有一个实例执行，多实例互为备用 | 待执行量 |
+
+  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`、`ai`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。
+- `IOT_INSTANCE_ID` 为实例名（默认主机名），用于指标、租约所有者和日志。显式设置后 MQTT 持久队列目录变为 `mqtt-inbox/<角色>/<实例>`；同一数据卷上运行同角色多副本时每个副本必须设置不同值。未设置时沿用旧目录，升级不会遗留未确认报文。
 - `cmd/iot-access-gateway` 强制 gateway 角色：执行通信、鉴权和 Raw 归档，发布到共享 Kafka；不启动 Raw 业务消费者。HTTP 只开放接入与健康相关路由，管理用户身份在目标接口重新校验。
 - api/gateway 两个进程必须配置同一个 PostgreSQL、Kafka 及一致的 Raw 分层存储。协议制品目录也必须共享；不能让两个进程各自使用内存仓库或本地消息总线。
 - API 通过 `IOT_ACCESS_GATEWAY_URL` 转发添加设备的预检与保存、标准上报、设备连接详情与命令；Gateway 不可达返回 503，不将请求已发送视为操作成功。
@@ -401,6 +412,19 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 可选容器拆分：`docker compose -p iot-platform-online --env-file .env.online -f compose.yaml -f compose.access.yaml config --quiet` 先检查渲染结果；实际启动再运行相同参数的 `up -d --build`。已有部署须替换为原项目名。覆盖层将 TCP/UDP 端口从 API 移到 Gateway，默认 Gateway HTTP 端口为 8082。覆盖层使用 `!override`，要求 Compose 2.24.4 或更新版本，见 [Docker 合并规则](https://docs.docker.com/reference/compose-file/merge/)。
 
 拆分部署同样使用 DeepSeek API；密钥由 API 的模型管理和 Harness 使用，Gateway 不承担模型推理，也不需要部署对话模型。
+
+### 按设备业务流与跨实例一致性
+
+- 解析结果按 `(租户, 设备)` 键写入内部主题 `iot.device.business`，由 `processor` 消费组按设备顺序处理；不同设备并行。原 `iot.property.report`、`iot.event.report`、`iot.parsed.message` 继续发布供外部订阅（`IOT_PUBLISH_EXTERNAL_TOPICS=false` 可关闭），平台内部不再消费。
+- 每条标准消息先原子领取（60 秒租约、领取代次），只有最新代次能写入完成标记；再均衡时新消费者等待旧持有者完成或租约到期，旧实例迟到的完成被拒绝并计入 `standard_claim_fenced_total`。
+- 告警确认/恢复/关闭、规则停用、离线扫描、连接状态和设备状态写入都基于行版本做乐观并发，冲突时重读重试（`alarm_conflict_total`、`device_state_conflict_total`），不会用旧快照覆盖新上报。
+- 规则与协议缓存在各实例本地保留最多 2 秒，跨实例生效时间以此为上界；权限每次请求读取数据库，撤销立即生效。
+
+**从旧版本升级**：旧版由 `storage` 消费组处理 property/event/parsed 主题，新版改为 `processor` 组处理业务流，两者不能同时产生副作用。升级顺序：
+
+1. 在旧版本上确认 `kafka_lag_storage` 与 `kafka_lag_parser` 为 0（可短暂停止设备接入或等待积压排空）。
+2. 停止全部旧 API/Worker 进程，再启动新版本；Compose 初始化会创建 `iot.device.business` 与各消费组死信主题，自建 Kafka 需先创建（分区数与 `iot.raw.message` 一致）。
+3. 旧 `iot.dlq.storage` 中的死信用 `go run ./cmd/dlq-replay -group storage -source-topic <原主题> ...` 核对后重新送入业务流；新死信使用默认 `-group processor`。
 
 ### 执行所有权
 

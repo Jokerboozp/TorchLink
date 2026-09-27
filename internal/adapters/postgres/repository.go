@@ -601,27 +601,51 @@ func (r *Repository) SaveStandardMessageIfAbsent(ctx context.Context, v model.St
 	tag, err := r.pool.Exec(ctx, `INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body)
 	return tag.RowsAffected() == 1, err
 }
-func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage) (bool, bool, error) {
+
+const nowMS = `(extract(epoch FROM clock_timestamp())*1000)::bigint`
+
+func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error) {
 	created, err := r.SaveStandardMessageIfAbsent(ctx, v)
-	if err != nil || created {
-		return created, created, err
+	if err != nil {
+		return model.StandardClaim{}, err
 	}
-	var processed int64
-	err = r.pool.QueryRow(ctx, `SELECT processed_at FROM standard_message WHERE tenant_id=$1 AND message_id=$2`, v.TenantID, v.MessageID).Scan(&processed)
+	// Claim when unprocessed and the previous lease expired, or when this
+	// owner reclaims (a retry). The token grows on every claim, fencing any
+	// earlier attempt's completion.
+	var token int64
+	err = r.pool.QueryRow(ctx, `UPDATE standard_message SET claim_owner=$3,claim_token=claim_token+1,claim_expires_at=`+nowMS+`+$4,attempts=attempts+1 WHERE tenant_id=$1 AND message_id=$2 AND processed_at=0 AND (claim_expires_at<=`+nowMS+` OR claim_owner=$3) RETURNING claim_token`, v.TenantID, v.MessageID, owner, lease.Milliseconds()).Scan(&token)
+	if err == nil {
+		return model.StandardClaim{ShouldProcess: true, Created: created, Token: token}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return model.StandardClaim{}, err
+	}
+	var processed, remaining int64
+	var holder string
+	err = r.pool.QueryRow(ctx, `SELECT processed_at,claim_owner,claim_expires_at-`+nowMS+` FROM standard_message WHERE tenant_id=$1 AND message_id=$2`, v.TenantID, v.MessageID).Scan(&processed, &holder, &remaining)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, false, ErrNotFound
+		return model.StandardClaim{}, ErrNotFound
 	}
-	return processed == 0, false, err
+	if err != nil || processed > 0 {
+		return model.StandardClaim{Created: created}, err
+	}
+	return model.StandardClaim{Created: created, Busy: true, HeldBy: holder, RetryAfter: time.Duration(max(remaining, 1)) * time.Millisecond}, nil
 }
 
 // processed_at stores the completion time in Unix milliseconds; 0 still means
 // pending. Capacity verification and backup windows read it as a time.
-func (r *Repository) MarkStandardMessageProcessed(ctx context.Context, tenant, messageID string) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE standard_message SET processed_at=GREATEST((extract(epoch FROM clock_timestamp())*1000)::bigint,1) WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
+func (r *Repository) MarkStandardMessageProcessed(ctx context.Context, tenant, messageID string, token int64) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE standard_message SET processed_at=GREATEST(`+nowMS+`,1),claim_expires_at=0 WHERE tenant_id=$1 AND message_id=$2 AND claim_token=$3 AND processed_at=0`, tenant, messageID, token)
+	if err != nil || tag.RowsAffected() == 1 {
+		return err
 	}
-	return err
+	var current int64
+	if err = r.pool.QueryRow(ctx, `SELECT claim_token FROM standard_message WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	return model.ErrStaleClaim
 }
 func (r *Repository) getStandard(ctx context.Context, query string, args ...any) (model.StandardMessage, error) {
 	var v model.StandardMessage
@@ -701,20 +725,41 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 }
 func (r *Repository) UpsertDeviceState(ctx context.Context, v model.DeviceState) error {
 	b, _ := json.Marshal(v)
-	_, err := r.pool.Exec(ctx, `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,device_id) DO UPDATE SET product_id=excluded.product_id,business_status=excluded.business_status,last_seen_at=excluded.last_seen_at,body=excluded.body,updated_at=now()`, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b)
+	_, err := r.pool.Exec(ctx, `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT(tenant_id,device_id) DO UPDATE SET product_id=excluded.product_id,business_status=excluded.business_status,last_seen_at=excluded.last_seen_at,body=excluded.body,updated_at=now(),version=device_state.version+1`, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b)
 	return err
+}
+
+// UpsertDeviceStateIf inserts when v.Version is 0 and the row is absent, or
+// updates only the row version v.Version.
+func (r *Repository) UpsertDeviceStateIf(ctx context.Context, v model.DeviceState) (bool, error) {
+	b, _ := json.Marshal(v)
+	var sql string
+	args := []any{v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b}
+	if v.Version == 0 {
+		sql = `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT(tenant_id,device_id) DO NOTHING`
+	} else {
+		sql = `UPDATE device_state SET product_id=$3,business_status=$4,last_seen_at=$5,body=$6,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND device_id=$2 AND version=$7`
+		args = append(args, v.Version)
+	}
+	tag, err := r.pool.Exec(ctx, sql, args...)
+	return err == nil && tag.RowsAffected() == 1, err
 }
 func (r *Repository) GetDeviceState(ctx context.Context, tenant, device string) (model.DeviceState, error) {
 	var v model.DeviceState
 	var b []byte
-	err := r.pool.QueryRow(ctx, `SELECT body FROM device_state WHERE tenant_id=$1 AND device_id=$2`, tenant, device).Scan(&b)
+	var version int64
+	err := r.pool.QueryRow(ctx, `SELECT body,version FROM device_state WHERE tenant_id=$1 AND device_id=$2`, tenant, device).Scan(&b, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, ErrNotFound
 	}
 	if err == nil {
 		err = json.Unmarshal(b, &v)
+		v.Version = version
 	}
 	return v, err
+}
+func (r *Repository) GetDeviceStateFresh(ctx context.Context, tenant, device string) (model.DeviceState, error) {
+	return r.GetDeviceState(ctx, tenant, device)
 }
 func (r *Repository) ListDeviceStates(ctx context.Context, tenant string) ([]model.DeviceState, error) {
 	rows, err := r.pool.Query(ctx, `SELECT body FROM device_state WHERE ($1='' OR tenant_id=$1)`, tenant)
@@ -908,7 +953,7 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			old.Confidence = v.Confidence
 		}
 		body, _ = json.Marshal(old)
-		_, err = tx.Exec(ctx, `UPDATE alarm_record SET last_triggered_at=$3,body=$4 WHERE tenant_id=$1 AND id=$2`, old.TenantID, old.ID, old.LastTriggeredAt, body)
+		_, err = tx.Exec(ctx, `UPDATE alarm_record SET last_triggered_at=$3,body=$4,version=version+1 WHERE tenant_id=$1 AND id=$2`, old.TenantID, old.ID, old.LastTriggeredAt, body)
 		if err == nil {
 			err = insertOutbox(ctx, tx, model.AlarmReportEvent(old, v))
 		}
@@ -981,12 +1026,14 @@ func (r *Repository) DrainOutbox(ctx context.Context, limit int, publish func(mo
 func (r *Repository) GetAlarm(ctx context.Context, tenant, id string) (model.Alarm, error) {
 	var v model.Alarm
 	var b []byte
-	err := r.pool.QueryRow(ctx, `SELECT body FROM alarm_record WHERE tenant_id=$1 AND id=$2`, tenant, id).Scan(&b)
+	var version int64
+	err := r.pool.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND id=$2`, tenant, id).Scan(&b, &version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, ErrNotFound
 	}
 	if err == nil {
 		err = json.Unmarshal(b, &v)
+		v.Version = version
 	}
 	return v, err
 }
@@ -1070,11 +1117,25 @@ func (r *Repository) CountAlarms(ctx context.Context, f ports.AlarmFilter) (int,
 }
 func (r *Repository) UpdateAlarm(ctx context.Context, v model.Alarm) error {
 	b, _ := json.Marshal(v)
-	tag, err := r.pool.Exec(ctx, `UPDATE alarm_record SET status=$3,level=$4,last_triggered_at=$5,body=$6 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Status, v.AlarmLevel, v.LastTriggeredAt, b)
+	tag, err := r.pool.Exec(ctx, `UPDATE alarm_record SET status=$3,level=$4,last_triggered_at=$5,body=$6,version=version+1 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Status, v.AlarmLevel, v.LastTriggeredAt, b)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
 	return err
+}
+
+// UpdateAlarmIf writes only the stored version v.Version.
+func (r *Repository) UpdateAlarmIf(ctx context.Context, v model.Alarm) (bool, error) {
+	b, _ := json.Marshal(v)
+	tag, err := r.pool.Exec(ctx, `UPDATE alarm_record SET status=$3,level=$4,last_triggered_at=$5,body=$6,version=version+1 WHERE tenant_id=$1 AND id=$2 AND version=$7`, v.TenantID, v.ID, v.Status, v.AlarmLevel, v.LastTriggeredAt, b, v.Version)
+	if err != nil || tag.RowsAffected() == 1 {
+		return err == nil, err
+	}
+	var exists bool
+	if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM alarm_record WHERE tenant_id=$1 AND id=$2)`, v.TenantID, v.ID).Scan(&exists); err == nil && !exists {
+		err = ErrNotFound
+	}
+	return false, err
 }
 func (r *Repository) SaveVideoEvent(ctx context.Context, v model.VideoAlarmEvent) (bool, error) {
 	b, _ := json.Marshal(v)

@@ -15,20 +15,34 @@ const (
 )
 
 type Config struct {
-	AccessCoordination          bool
-	AccessNodeURL               string
-	ProcessRole                 string
-	AccessGatewayURL            string
-	HTTPAddr                    string
-	CORSAllowedOrigins          []string
-	DataDir                     string
-	JWTSecret                   string
-	AdminUser                   string
-	AdminPassword               string
-	AdminTenants                []string
-	PostgresDSN                 string
-	RedisAddr                   string
-	RedisPassword               string
+	// InstanceID names this process in metrics, leases and durable paths.
+	InstanceID string
+	// InstanceIDExplicit is true when IOT_INSTANCE_ID was set; only then do
+	// durable per-instance paths (MQTT inbox) include the ID.
+	InstanceIDExplicit bool
+	// APIEmbeddedWorkers keeps parser/processor/ai/jobs inside the api role.
+	APIEmbeddedWorkers bool
+	// PublishExternalTopics keeps publishing parsed messages to the external
+	// property/event/parsed topics in addition to the internal business stream.
+	PublishExternalTopics bool
+	AccessCoordination    bool
+	AccessNodeURL         string
+	ProcessRole           string
+	AccessGatewayURL      string
+	HTTPAddr              string
+	CORSAllowedOrigins    []string
+	DataDir               string
+	JWTSecret             string
+	AdminUser             string
+	AdminPassword         string
+	AdminTenants          []string
+	PostgresDSN           string
+	RedisAddr             string
+	RedisPassword         string
+	// RedisMasterName and RedisSentinels select Sentinel failover instead of
+	// the single RedisAddr.
+	RedisMasterName             string
+	RedisSentinels              []string
 	ClickHouseURL               string
 	RawHighFrequencyIntervalSec int64
 	// MQTTDeviceTokenTTL is the lifetime of standard MQTT/HTTP device tokens
@@ -103,7 +117,12 @@ func Load() Config {
 	if aiAPIKey == "" && aiProvider == "deepseek" {
 		aiAPIKey = deepSeekAPIKey
 	}
+	instance, explicitInstance := instanceID()
 	return Config{
+		InstanceID:                  instance,
+		InstanceIDExplicit:          explicitInstance,
+		APIEmbeddedWorkers:          boolValue("IOT_API_EMBEDDED_WORKERS", true),
+		PublishExternalTopics:       boolValue("IOT_PUBLISH_EXTERNAL_TOPICS", true),
 		AccessCoordination:          boolValue("IOT_ACCESS_COORDINATION", false),
 		AccessNodeURL:               strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
 		ProcessRole:                 strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),
@@ -118,6 +137,8 @@ func Load() Config {
 		PostgresDSN:                 os.Getenv("IOT_POSTGRES_DSN"),
 		RedisAddr:                   os.Getenv("IOT_REDIS_ADDR"),
 		RedisPassword:               os.Getenv("IOT_REDIS_PASSWORD"),
+		RedisMasterName:             strings.TrimSpace(os.Getenv("IOT_REDIS_MASTER_NAME")),
+		RedisSentinels:              split(os.Getenv("IOT_REDIS_SENTINELS")),
 		ClickHouseURL:               os.Getenv("IOT_CLICKHOUSE_URL"),
 		RawHighFrequencyIntervalSec: int64Value("IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC", 60),
 		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
@@ -180,17 +201,8 @@ func (c Config) Validate() error {
 	if c.AccessCoordination && (c.PostgresDSN == "" || c.AccessNodeURL == "") {
 		return fmt.Errorf("access coordination requires PostgreSQL and IOT_ACCESS_NODE_URL")
 	}
-	switch c.ProcessRole {
-	case "", "combined":
-	case "api", "gateway":
-		if c.PostgresDSN == "" || len(c.KafkaBrokers) == 0 {
-			return fmt.Errorf("split process roles require shared IOT_POSTGRES_DSN and IOT_KAFKA_BROKERS")
-		}
-		if c.ProcessRole == "api" && c.AccessGatewayURL == "" {
-			return fmt.Errorf("api role requires IOT_ACCESS_GATEWAY_URL")
-		}
-	default:
-		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api or gateway")
+	if err := c.validateRole(); err != nil {
+		return err
 	}
 	if c.KafkaConsumerConcurrency < 0 || c.KafkaConsumerConcurrency > 64 {
 		return fmt.Errorf("IOT_KAFKA_CONSUMER_CONCURRENCY must be between 1 and 64 (0 uses the default 64)")
@@ -214,9 +226,9 @@ func (c Config) Validate() error {
 	if c.AIAnalysisConcurrency < 0 || c.AIAnalysisConcurrency > 32 {
 		return fmt.Errorf("IOT_AI_ANALYSIS_CONCURRENCY must be between 1 and 32 (0 uses the default 2)")
 	}
-	// Every business AI feature runs as a Harness workflow; only the access
-	// gateway, which serves no AI features, may run without it.
-	if c.ProcessRole != "gateway" {
+	// Every business AI feature runs as a Harness workflow; roles that run no
+	// AI feature (gateway, parser, processor, jobs) may run without it.
+	if c.Runs(ComponentAIRuntime) {
 		if c.AIHarnessURL == "" {
 			return fmt.Errorf("IOT_AI_HARNESS_URL is required: the AI workflow Harness is a mandatory component")
 		}
