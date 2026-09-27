@@ -32,14 +32,15 @@ import (
 )
 
 type receivedMessage struct {
-	topic   string
-	payload []byte
-	acked   atomic.Bool
+	retained bool
+	topic    string
+	payload  []byte
+	acked    atomic.Bool
 }
 
 func (m *receivedMessage) Duplicate() bool   { return false }
 func (m *receivedMessage) Qos() byte         { return 1 }
-func (m *receivedMessage) Retained() bool    { return false }
+func (m *receivedMessage) Retained() bool    { return m.retained }
 func (m *receivedMessage) Topic() string     { return m.topic }
 func (m *receivedMessage) MessageID() uint16 { return 1 }
 func (m *receivedMessage) Payload() []byte   { return m.payload }
@@ -68,6 +69,54 @@ func inboxDepth(d *durableInbox) int {
 		n += q.Depth()
 	}
 	return n
+}
+
+func TestReceiveRetainedStateSnapshotAndRejectionReasons(t *testing.T) {
+	stateTopic := "/iot/device/state/tenant_001/cap-20260927-standard/cap-20260927-005409"
+	for _, tc := range []struct {
+		name     string
+		topic    string
+		retained bool
+		payload  []byte
+		reason   string
+		depth    int
+	}{
+		{name: "historical state is quietly ignored", topic: stateTopic, retained: true, payload: []byte(`{"businessStatus":"normal"}`)},
+		{name: "live state still enters inbox", topic: stateTopic, payload: []byte(`{"businessStatus":"normal"}`), depth: 1},
+		{name: "retained uplink remains rejected", topic: "/iot/up/t/p/d/event", retained: true, reason: "retained"},
+		{name: "malformed retained state is not quiet", topic: "/iot/device/state/t/p", retained: true, reason: "retained"},
+		{name: "unknown topic", topic: "/unknown/topic", reason: "unknown_topic"},
+		{name: "oversized retained state", topic: stateTopic, retained: true, payload: make([]byte, (128<<10)+1), reason: "payload_too_large"},
+		{name: "oversized uplink", topic: "/iot/up/t/p/d/event", payload: make([]byte, (128<<10)+1), reason: "payload_too_large"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := openInbox(t.TempDir(), 8<<20, 80)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := inboxClient(t, d)
+			var logs bytes.Buffer
+			c.log = slog.New(slog.NewJSONHandler(&logs, nil))
+			m := &receivedMessage{topic: tc.topic, retained: tc.retained, payload: tc.payload}
+			c.receive(m)
+			if !m.acked.Load() || inboxDepth(d) != tc.depth {
+				t.Fatalf("unexpected receipt: ack=%v depth=%d", m.acked.Load(), inboxDepth(d))
+			}
+			if tc.reason == "" {
+				if logs.Len() != 0 {
+					t.Fatalf("normal state delivery generated a warning: %s", logs.String())
+				}
+				return
+			}
+			var entry map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+				t.Fatal("missing rejection diagnostic", err)
+			}
+			if entry["level"] != "WARN" || entry["reason"] != tc.reason || entry["topic"] != tc.topic {
+				t.Fatalf("unexpected rejection diagnostic: %v", entry)
+			}
+		})
+	}
 }
 
 func TestDurableReceiveRestartRetryAndQuarantine(t *testing.T) {

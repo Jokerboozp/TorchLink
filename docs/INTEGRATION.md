@@ -409,7 +409,7 @@ return Frame{
 
 API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 
-1. Broker 按现有 JWT/账号和 ACL 完成身份、主题授权；平台继续拒绝 retained、超限及未知路由消息。
+1. Broker 按现有 JWT/账号和 ACL 完成身份、主题授权；平台继续拒绝 retained、超限及未知路由消息。平台自身发布的 `/iot/device/state/{tenant}/{product}/{device}` retained 状态快照在重新订阅时仅确认并忽略，记录为调试日志，不作为新上报入队或刷新设备状态；其他拒收警告通过 `reason` 区分 `retained`、`payload_too_large` 和 `unknown_topic`。
 2. 入站原始字节和实际主题写入 `IOT_DATA_DIR/mqtt-inbox/<processRole>/`。文件刷新并原子落盘后才向 Broker 确认此投递；内存入队不构成成功接收。
 3. 后台按原路径执行设备/产品状态校验、Raw 归档、幂等索引及内部消息发布。数据库或队列暂时失败时保留磁盘记录并重试。第一次接收时间保存在队列中，补传不改成重试时间。
 4. 完成处理后删除并刷新队列目录；进程在删除前退出可能重试，因此业务仍必须幂等。标准报文使用已有 `id`，原始 MQTT 信封必须提供 `messageId`，视频信封必须提供 `eventId`，不得依赖平台每次生成随机 ID。

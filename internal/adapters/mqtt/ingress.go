@@ -88,8 +88,25 @@ func (c *Client) receive(m mqtt.Message) {
 	if c.ctx.Err() != nil {
 		return
 	}
-	if m.Retained() || route(m.Topic()) == "" || len(m.Payload()) > 128<<10 {
-		c.logger().Warn("MQTT ingress rejected: retained, unknown topic or oversized payload", "topic", m.Topic())
+	reason := ""
+	switch {
+	case route(m.Topic()) == "":
+		reason = "unknown_topic"
+	case len(m.Payload()) > 128<<10:
+		reason = "payload_too_large"
+	case m.Retained():
+		if applyStateTopicIdentity(m.Topic(), &model.DeviceState{}) == nil {
+			// The platform publishes retained state for realtime subscribers.
+			// Resubscription replays these snapshots; never ingest them as new
+			// device reports or warn once per historical device at startup.
+			c.logger().Debug("MQTT retained device state snapshot ignored", "topic", m.Topic())
+			m.Ack()
+			return
+		}
+		reason = "retained"
+	}
+	if reason != "" {
+		c.logger().Warn("MQTT ingress rejected", "topic", m.Topic(), "reason", reason)
 		m.Ack()
 		return
 	}
