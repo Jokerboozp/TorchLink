@@ -310,6 +310,139 @@ func TestReplaceInputsAndExternalExportRoundTrip(t *testing.T) {
 	}
 }
 
+type defaultDashboardGrafana struct {
+	ports.DashboardsBackend
+	dashboards map[string]map[string]any
+	sources    []model.OpsDataSource
+	getError   error
+	saveError  error
+	saves      int
+}
+
+func (f *defaultDashboardGrafana) Configured() bool { return true }
+func (f *defaultDashboardGrafana) GetDashboard(_ context.Context, uid string) (map[string]any, map[string]any, error) {
+	if f.getError != nil {
+		return nil, nil, f.getError
+	}
+	if dash, ok := f.dashboards[uid]; ok {
+		return deepCopy(dash), nil, nil
+	}
+	return nil, nil, ports.ErrOpsNotFound
+}
+func (f *defaultDashboardGrafana) DataSources(context.Context) ([]model.OpsDataSource, error) {
+	return f.sources, nil
+}
+func (f *defaultDashboardGrafana) SearchDashboards(_ context.Context, q ports.DashboardSearch) ([]model.OpsDashboardSummary, error) {
+	var hits []model.OpsDashboardSummary
+	for _, uid := range q.UIDs {
+		if dash, ok := f.dashboards[uid]; ok {
+			hits = append(hits, model.OpsDashboardSummary{UID: uid, Title: strv(dash["title"])})
+		}
+	}
+	return hits, nil
+}
+func (f *defaultDashboardGrafana) SaveDashboard(_ context.Context, dash map[string]any, _, _ string, overwrite bool) (ports.DashboardSaveResult, error) {
+	f.saves++
+	if overwrite {
+		return ports.DashboardSaveResult{}, errors.New("defaults must be imported without overwriting existing dashboards")
+	}
+	uid := strv(dash["uid"])
+	if f.saveError != nil {
+		return ports.DashboardSaveResult{}, f.saveError
+	}
+	if _, ok := f.dashboards[uid]; ok {
+		return ports.DashboardSaveResult{}, ports.ErrOpsConflict
+	}
+	f.dashboards[uid] = deepCopy(dash)
+	return ports.DashboardSaveResult{UID: uid, Version: 1}, nil
+}
+
+func defaultDashboardService() (*Service, *defaultDashboardGrafana) {
+	cacheMu.Lock()
+	cache = map[string]cacheEntry{}
+	cacheMu.Unlock()
+	index, _ := testIndex()
+	g := &defaultDashboardGrafana{
+		dashboards: map[string]map[string]any{},
+		sources:    []model.OpsDataSource{index["prom"], index["loki"]},
+	}
+	return &Service{Dashboards: g}, g
+}
+
+func TestDefaultDashboardsCreateAndPreserveEdits(t *testing.T) {
+	s, g := defaultDashboardService()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	s.RunDefaultDashboards(ctx)
+	if ctx.Err() != nil {
+		t.Fatalf("initialization did not finish: %v", ctx.Err())
+	}
+	if len(g.dashboards) != len(templateCatalog) || g.saves != len(templateCatalog) {
+		t.Fatalf("created %d dashboards with %d saves", len(g.dashboards), g.saves)
+	}
+	index, def := testIndex()
+	for uid, dash := range g.dashboards {
+		if report := AnalyzeDashboard(dash, index, def); report.Level != "full" {
+			t.Fatalf("%s unsupported: %+v", uid, report)
+		}
+		dash["title"], dash["version"], dash["panels"] = "用户修改", float64(7), []any{}
+	}
+	before := canonicalJSON(g.dashboards)
+	if err := s.ensureDefaultDashboards(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if g.saves != len(templateCatalog) || canonicalJSON(g.dashboards) != before {
+		t.Fatal("repeated startup changed an existing dashboard")
+	}
+	delete(g.dashboards, "torchlink-host")
+	if err := s.ensureDefaultDashboards(ctx); err != nil || g.saves != len(templateCatalog)+1 || len(g.dashboards) != len(templateCatalog) {
+		t.Fatalf("missing dashboard was not restored: saves=%d err=%v", g.saves, err)
+	}
+}
+
+func TestDefaultDashboardsRetryMissingDataSourceIndependently(t *testing.T) {
+	s, g := defaultDashboardService()
+	g.sources = g.sources[1:] // Loki is ready before Prometheus.
+	if err := s.ensureDefaultDashboards(context.Background()); err == nil {
+		t.Fatal("missing Prometheus should keep initialization pending")
+	}
+	if len(g.dashboards) != 1 || g.dashboards["torchlink-logs"] == nil {
+		t.Fatal("missing Prometheus should not block the logs dashboard or create broken queries")
+	}
+	index, _ := testIndex()
+	g.sources = append(g.sources, index["prom"])
+	if err := s.ensureDefaultDashboards(context.Background()); err != nil || g.saves != len(templateCatalog) {
+		t.Fatalf("retry did not complete all dashboards: saves=%d err=%v", g.saves, err)
+	}
+}
+
+func TestDefaultDashboardsPropagateErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		getError, saveError error
+		wantSaves           int
+	}{
+		{"read unavailable", ports.ErrOpsUnavailable, nil, 0},
+		{"write conflict", nil, ports.ErrOpsConflict, len(templateCatalog)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, g := defaultDashboardService()
+			g.getError, g.saveError = tc.getError, tc.saveError
+			err := s.ensureDefaultDashboards(context.Background())
+			wantErr := tc.getError
+			if wantErr == nil {
+				wantErr = tc.saveError
+			}
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("upstream failure was lost: %v", err)
+			}
+			if g.saves != tc.wantSaves || len(g.dashboards) != 0 {
+				t.Fatal("upstream failure changed dashboard state")
+			}
+		})
+	}
+}
+
 func TestSelectorQuotesValuesSoTheyCannotEscapeTheMatcher(t *testing.T) {
 	sel, err := Selector("up", []Matcher{{Name: "job", Op: "=", Value: `x"} or vector(1) or up{a="`}})
 	if err != nil {

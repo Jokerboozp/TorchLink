@@ -387,6 +387,7 @@ func Run(forcedRole string) {
 	var opsService *opscenter.Service
 	if cfg.ProcessRole != "gateway" {
 		opsService = newOpsCenter(cfg, opsPrefs, log)
+		go opsService.RunDefaultDashboards(ctx)
 		fatal(log, "start device alarm notifications", opsService.StartDeviceNotifications(ctx, bus, filepath.Join(cfg.DataDir, "ops-state", "device-notifications")))
 	}
 	if cfg.ProcessRole != "gateway" {

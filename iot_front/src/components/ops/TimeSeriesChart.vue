@@ -9,6 +9,7 @@ import { formatValue } from '../../ops/format.js'
 const props = defineProps({
   times: { type: Array, default: () => [] },
   series: { type: Array, default: () => [] },
+  timeRange: { type: Object, default: null },
   unit: { type: String, default: 'short' },
   decimals: { type: [Number, String], default: undefined },
   height: { type: Number, default: 240 },
@@ -71,7 +72,11 @@ function build() {
     cursor: { sync: props.syncKey ? { key: props.syncKey } : undefined, drag: { x: true, y: false } },
     select: { show: true },
     legend: { show: props.legend, live: true },
-    scales: { x: { time: true }, y: { range: (u, min, max) => [props.min ?? (min > 0 ? 0 : min), props.max ?? (max === min ? max + 1 : max)] } },
+    scales: {
+      // 单个样本也使用查询时间窗，避免时间轴被自动扩展到数年。
+      x: { time: true, range: props.timeRange ? () => [props.timeRange.from / 1000, props.timeRange.to / 1000] : undefined },
+      y: { range: (u, min, max) => [props.min ?? (min > 0 ? 0 : min), props.max ?? (max === min ? max + 1 : max)] }
+    },
     axes: [
       { stroke: axis, font, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, values: (u, ticks) => ticks.map(timeTick(u)) },
       { stroke: axis, font, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, size: 80, values: (u, ticks) => ticks.map(fmt) }
@@ -95,7 +100,7 @@ function build() {
     }
   }
   chart = new uPlot(options, chartData(), host.value)
-  signature = props.series.map(s => s.name).join('\u0000') + '|' + props.unit + '|' + props.height + '|' + props.bars
+  signature = chartSignature()
 }
 
 // 堆叠柱状图：第 i 个系列绘制前 i 个系列之和，后绘制的较矮柱覆盖在较高柱上。
@@ -112,8 +117,12 @@ function ordered() {
   return props.bars ? items.reverse() : items
 }
 
+function chartSignature() {
+  return props.series.map(s => s.name).join('\u0000') + '|' + props.unit + '|' + props.height + '|' + props.bars + '|' + Boolean(props.timeRange)
+}
+
 function update() {
-  const next = props.series.map(s => s.name).join('\u0000') + '|' + props.unit + '|' + props.height + '|' + props.bars
+  const next = chartSignature()
   if (!chart || next !== signature || !props.times.length) { build(); return }
   chart.setData(chartData())
 }
@@ -123,7 +132,7 @@ function destroy() {
   chart = null
 }
 
-watch(() => [props.times, props.series, props.unit, props.height, props.fill, props.bars], update)
+watch(() => [props.times, props.series, props.timeRange?.from, props.timeRange?.to, props.unit, props.height, props.fill, props.bars], update)
 
 onMounted(() => {
   build()

@@ -159,7 +159,7 @@ async function fetchPanel(panel) {
       data = await opsGet(`/api/v1/ops/dashboards/${encodeURIComponent(view.value.dashboard.uid)}/panels/${panel.id}/data`, { from, to, vars: varsParam(), maxDataPoints }, controller.signal)
     }
     if (controllers.get(panel.id) !== controller) return
-    panelState[panel.id] = { data, loading: false, error: '' }
+    panelState[panel.id] = { data: { ...data, timeRange: { from, to } }, loading: false, error: '' }
   } catch (e) {
     if (controllers.get(panel.id) !== controller || isAbort(e)) return
     panelState[panel.id] = { data: null, loading: false, error: opsErrorText(e) }

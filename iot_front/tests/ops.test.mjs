@@ -6,7 +6,7 @@ import { alignSeries, framesToChart, framesToLogs, framesToTable, metricResultTo
 import { addPanel, compact, dependsOn, duplicatePanel, movePanel, newPanel, normalizeLayout, removePanel, sections, toggleRow } from '../src/ops/dashboard.js'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
-import { computed, isReactive, nextTick, ref, shallowRef, watch } from 'vue'
+import { computed, isReactive, nextTick, reactive, ref, shallowRef, watch } from 'vue'
 import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../src/ops/alerts.js'
 
 test('运维数值按 Grafana 单位格式化，空值显示为占位', () => {
@@ -43,6 +43,36 @@ test('相对时间范围按查询时刻计算', () => {
   const range = resolveRange({ from: 'now-6h', to: 'now' }, now)
   assert.equal(range.to - range.from, 6 * 3600e3)
   assert.equal(rangeLabel({ from: 'now-24h', to: 'now' }), '近 24 小时')
+})
+
+test('仪表盘单点和稀疏时序固定到查询时间窗，刷新和缩放更新坐标轴', async () => {
+  const source = readFileSync(new URL('../src/components/ops/TimeSeriesChart.vue', import.meta.url), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const to = Date.UTC(2026, 8, 27, 10)
+  const from = to - 3600e3
+  const props = reactive({ times: [to - 1800e3], series: [{ name: 'errors', values: [2] }], timeRange: { from, to }, height: 240, unit: 'short' })
+  let plot
+  class Plot {
+    constructor(options, data) { this.options = options; plot = this; this.setData(data) }
+    setData(data) { this.data = data; this.range = this.options.scales.x.range?.(this, data[0][0], data[0].at(-1)) }
+    destroy() {}
+  }
+  let cleanup
+  const context = vm.createContext({ ref, watch, defineProps: () => props, defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount: fn => { cleanup = fn }, uPlot: Plot, formatValue, document: { documentElement: {} }, getComputedStyle: () => ({ getPropertyValue: () => '' }) })
+  const chart = vm.runInContext(source + '\n;({host,build})', context)
+  chart.host.value = { clientWidth: 800 }
+  chart.build()
+  assert.deepEqual(Array.from(plot.range), [from / 1000, to / 1000])
+  assert.equal(plot.data[0].length, 1)
+
+  props.timeRange = { from: from + 60e3, to: to + 60e3 }
+  await nextTick()
+  assert.deepEqual(Array.from(plot.range), [(from + 60e3) / 1000, (to + 60e3) / 1000])
+  props.timeRange = { from: to - 2400e3, to: to - 1200e3 }
+  props.times = [to - 2200e3, to - 1800e3]
+  props.series = [{ name: 'errors', values: [1, 2] }]
+  await nextTick()
+  assert.deepEqual(Array.from(plot.range), [(to - 2400e3) / 1000, (to - 1200e3) / 1000])
+  cleanup()
 })
 
 test('多条序列按时间对齐，缺失点保持空值', () => {

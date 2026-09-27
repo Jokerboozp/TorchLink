@@ -91,7 +91,9 @@ async function runPreview() {
   previewError.value = ''
   try {
     const dashboard = { ...props.dashboard, panels: [draft.value] }
-    preview.value = await runner.run(signal => opsSend('POST', '/api/v1/ops/dashboards/preview', { dashboard, panel: draft.value, from: props.range.from, to: props.range.to, vars: props.vars, maxDataPoints: 600 }, signal))
+    const { from, to } = props.range
+    const data = await runner.run(signal => opsSend('POST', '/api/v1/ops/dashboards/preview', { dashboard, panel: draft.value, from, to, vars: props.vars, maxDataPoints: 600 }, signal))
+    preview.value = { ...data, timeRange: { from, to } }
   } catch (e) {
     if (e?.name !== 'AbortError') { previewError.value = opsErrorText(e); preview.value = null }
   } finally { previewing.value = false }

@@ -120,7 +120,7 @@ onBeforeUnmount(() => observer?.disconnect())
         <pre v-else class="dash-panel__text dash-panel__pre">{{ textContent }}</pre>
       </template>
 
-      <TimeSeriesChart v-else-if="type === 'timeseries' || type === 'graph'" :times="chart.times" :series="chart.series" :unit="unit" :decimals="decimals" :min="min" :max="max" :legend="showLegend" :bars="drawBars" :fill="(defaults.custom?.fillOpacity ?? 10) > 0" :height="Math.max(80, bodyHeight - (showLegend ? 34 : 4))" :sync-key="syncKey" empty-text="无数据" @zoom="value => emit('zoom', value)" />
+      <TimeSeriesChart v-else-if="type === 'timeseries' || type === 'graph'" :times="chart.times" :series="chart.series" :time-range="data?.timeRange" :unit="unit" :decimals="decimals" :min="min" :max="max" :legend="showLegend" :bars="drawBars" :fill="(defaults.custom?.fillOpacity ?? 10) > 0" :height="Math.max(80, bodyHeight - (showLegend ? 34 : 4))" :sync-key="syncKey" empty-text="无数据" @zoom="value => emit('zoom', value)" />
 
       <div v-else-if="type === 'stat'" class="stat-grid" :class="{ 'is-single': reduced.length === 1 }">
         <div v-for="item in reduced" :key="item.name" class="stat-item" :style="statStyle(item.value)">

@@ -813,6 +813,60 @@ var templateCatalog = []DashboardTemplate{
 
 func DashboardTemplates() []DashboardTemplate { return templateCatalog }
 
+// Only missing UIDs are imported; existing dashboards are never overwritten.
+func (s *Service) ensureDefaultDashboards(ctx context.Context) error {
+	if !configured(s.Dashboards) {
+		return nil
+	}
+	var failures []error
+	for _, template := range templateCatalog {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		dash, err := dashboardTemplate(template.ID)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		uid := strv(dash["uid"])
+		_, _, err = s.Dashboards.GetDashboard(ctx, uid)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, ports.ErrOpsNotFound) {
+			_, err = s.ImportDashboard(ctx, ImportInput{Dashboard: dash})
+		}
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", template.ID, err))
+		}
+	}
+	return errors.Join(failures...)
+}
+
+// RunDefaultDashboards retries startup initialization until success or shutdown.
+func (s *Service) RunDefaultDashboards(ctx context.Context) {
+	timeout := s.Limits.QueryTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	for delay := 30 * time.Second; ctx.Err() == nil; delay = min(delay*2, 5*time.Minute) {
+		attempt, cancel := context.WithTimeout(ctx, timeout)
+		err := s.ensureDefaultDashboards(attempt)
+		cancel()
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+		s.logger().Warn("default ops dashboards initialization failed; will retry", "error", err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
 func dashboardTemplate(id string) (map[string]any, error) {
 	for _, t := range templateCatalog {
 		if t.ID == id {

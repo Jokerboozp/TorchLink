@@ -86,6 +86,8 @@ Manifest 位于 `deploy/deepseek-harness/plugins/`，包含 schemaVersion、id�
 | 仪表盘 | Grafana 数据帧和变量查询，平台布局/编辑/收藏；未支持的面板、转换、重复、注释、库面板不渲染 |
 | 告警 | Prometheus/Loki 规则、Alertmanager 静默及通知；历史只含指标告警，Grafana 统一告警关闭 |
 
+API 启动时自动补齐全部内置仪表盘（炬联平台运行、主机资源、服务日志概览），保留已有修改；手动删除的仪表盘会在下次启动时补齐。Grafana 或对应数据源未就绪时后台重试，不阻塞启动。
+
 平台只创建/编辑 Prometheus 和 Loki 数据源，其他类型只读。日志告警仅支持 Loki 本地 ruler 规则；删除由 compactor 异步处理，取消期后不可撤回。通知编辑支持 Webhook 与邮件，无法完整表示的路由只读；其他渠道、时间段、抑制和模板原样保留。
 
 ### 配置写入与通知
