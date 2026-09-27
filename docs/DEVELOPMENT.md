@@ -164,9 +164,21 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 
 `resilience` 档在测量窗口内按 `at`/`duration` 注入并恢复。常规 SLO 改为“仅记录”，完整性、排空和恢复时间决定结论：恢复时间从恢复命令完成起算，直到解析成功速率回到注入前基线的 90% 且积压回到基线附近，超过 `faults.maxRecovery` 判为失败。报告包含故障表与 `recovery.svg`。
 
-### 管理页与控制服务
+### 容量测试模块
 
-运维中心“容量测试”页通过平台调用控制机上的控制服务：
+平台部署时开启容量测试模块后（见 [部署文档](DEPLOYMENT.md#容量测试模块)），运维中心“容量测试”页直接选择测试类型运行：页面把表单生成计划（`iot_front/src/ops/capacity.js`，`fixtures.autoProvision: true`），平台补上调用者租户与为其签发的令牌，模块 `capacity-test serve --self` 从环境变量取得本平台的地址与核对库（`IOT_CAPACITY_API_URL`、`IOT_CAPACITY_METRICS`、`IOT_CAPACITY_POSTGRES_DSN` 等，含义见 `internal/capacity/self.go`），自动准备测试产品与规则后执行。页面“高级”开关可直接编辑计划 YAML。`internal/capacity/uiplan_test.go` 用 Go 规则校验表单能生成的全部计划。
+
+本地源码调试时可手动运行模块（使用本地测试账号与本地依赖地址）：
+
+```bash
+IOT_CAPACITY_API_URL=http://127.0.0.1:8081 IOT_CAPACITY_METRICS=combined@local=http://127.0.0.1:8081/metrics IOT_CAPACITY_POSTGRES_DSN=<本地核对库 DSN> IOT_CAPACITY_SERVICE_TOKEN=<32 位以上随机值> go run ./cmd/capacity-test serve --self --listen 127.0.0.1:7080
+```
+
+并给本地 API 设置同一 `IOT_OPS_CAPACITY_TOKEN` 与 `IOT_OPS_CAPACITY_URL=http://127.0.0.1:7080`。
+
+### 独立压测环境的控制服务
+
+对独立的受测环境（远程 Agent、故障白名单等），在控制机运行控制服务，页面按清单名称选择环境：
 
 ```bash
 go run ./cmd/capacity-test serve --listen 127.0.0.1:7080 --inventories <受信任清单目录> --token-ref capacity-service --secrets capacity-secrets.yaml --results capacity-results

@@ -462,6 +462,27 @@ services:
       start_period: 10s
 
   # 摄像头直播媒体服务（可选，profile "video"）。HTTP API、Hook 与 HLS 只在内部网络使用，
+  # 容量测试模块（profile capacity，默认关闭）：与平台同一镜像，只在内部网络监听。
+  # 开关与令牌由 scripts/capacity-module.sh（.ps1）或部署脚本的 --capacity on|off 管理。
+  capacity:
+    <<: *service-defaults
+    profiles: [capacity]
+    image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
+    entrypoint: ["/app/capacity-test"]
+    command: ["serve", "--self", "--listen", ":7080", "--results", "/app/data/capacity-results"]
+    environment:
+      IOT_CAPACITY_API_URL: http://platform-api:8080
+      IOT_CAPACITY_MQTT_URL: tcp://emqx:1883
+      IOT_CAPACITY_WEB_URL: http://platform-web:8080
+      IOT_CAPACITY_METRICS: combined@platform-api=http://platform-api:8080/metrics
+      IOT_CAPACITY_NODES: host=http://node-exporter:9100/metrics
+      IOT_CAPACITY_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-local-iot-postgres-change-me}@postgres:5432/iot?sslmode=disable
+      IOT_CAPACITY_CLICKHOUSE_URL: http://iot:${CLICKHOUSE_PASSWORD:-local-iot-clickhouse-change-me}@clickhouse:8123?database=iot
+      IOT_CAPACITY_SERVICE_TOKEN: ${IOT_OPS_CAPACITY_TOKEN:-}
+    volumes: ["capacity-data:/app/data"]
+    depends_on:
+      platform-api: {condition: service_started}
+
   # 浏览器经 platform-web 的 /media/hls/ 鉴权代理取 HLS；WebRTC 媒体端口需对浏览器开放。
   zlmediakit:
     <<: *service-defaults
@@ -781,3 +802,4 @@ volumes:
   ollama-data: {}
   weaviate-data: {}
   deepseek-harness-data: {}
+  capacity-data: {}

@@ -5,13 +5,15 @@ script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 bundle_dir="$(dirname -- "$script_dir")"
 skip_hash_check=0
 skip_health_check=0
+capacity=keep
 die() { echo "错误：$*" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --bundle-dir) [[ $# -ge 2 ]] || die "--bundle-dir 缺少目录"; bundle_dir="$2"; shift 2 ;;
     --skip-hash-check) skip_hash_check=1; shift ;;
     --skip-health-check) skip_health_check=1; shift ;;
-    -h|--help) echo "用法：deploy-offline.sh [离线包目录] [--bundle-dir DIR] [--skip-hash-check] [--skip-health-check]"; exit 0 ;;
+    --capacity) [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--capacity 需要 on 或 off"; capacity="$2"; shift 2 ;;
+    -h|--help) echo "用法：deploy-offline.sh [离线包目录] [--bundle-dir DIR] [--skip-hash-check] [--skip-health-check] [--capacity on|off]"; exit 0 ;;
     -*) die "未知参数：$1" ;;
     *) bundle_dir="$1"; shift ;;
   esac
@@ -58,7 +60,18 @@ if (( ! skip_hash_check )); then
   echo "镜像和模型包 SHA256 校验通过。"
 fi
 
+# Capacity-test module: off unless chosen here or earlier (IOT_CAPACITY_MODULE=on).
+if [[ "$capacity" == on ]]; then
+  bash "$script_dir/capacity-module.sh" prepare --mode offline --env-file "$env_file"
+elif [[ "$capacity" == off ]]; then
+  bash "$script_dir/capacity-module.sh" unprepare --mode offline --env-file "$env_file"
+fi
 compose=(docker compose --project-name iot-platform --env-file "$env_file" -f "$compose_file" -f "$offline_compose_file")
+if grep -Eq "^[[:space:]]*IOT_CAPACITY_MODULE[[:space:]]*=[[:space:]]*[\"']?on" "$env_file" 2>/dev/null; then
+  compose+=(--profile capacity)
+else
+  capacity_off=1
+fi
 if [[ -f "$profiles_file" ]]; then
   while IFS= read -r profile || [[ -n "$profile" ]]; do
     profile="${profile%$'\r'}"
@@ -90,6 +103,8 @@ if [[ -f "$ollama_archive" ]]; then
   echo "Ollama 模型已恢复（保留已有文件）。"
 fi
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180
+# up does not remove profile services; drop a capacity service left from an earlier choice.
+if [[ "${capacity_off:-0}" == 1 ]]; then "${compose[@]}" --profile capacity rm -sf capacity >/dev/null 2>&1 || true; fi
 "${compose[@]}" ps
 
 env_value() {

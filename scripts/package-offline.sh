@@ -411,11 +411,11 @@ cp "$project_root/compose.access.yaml" "$bundle_root/"
 cp "$project_root/docs/DEPLOYMENT.md" "$bundle_root/"
 cp -R "$project_root/deploy" "$bundle_root/"
 cp "$project_root/docs/PLATFORM.md" "$bundle_root/"
-# 视频模块启停脚本及其依赖的配置工具（在目标机上开启 / 关闭直播媒体服务）。
+# 视频与容量测试模块启停脚本及其依赖的配置工具（在目标机上开启 / 关闭）。
 for lib_name in deployment.sh deployment.ps1 env-comments.sh env-comments.tsv; do
   cp "$script_dir/lib/$lib_name" "$bundle_root/scripts/lib/"
 done
-for script_name in video-module.sh video-module.ps1 deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do
+for script_name in video-module.sh video-module.ps1 capacity-module.sh capacity-module.ps1 deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do
   cp "$script_dir/$script_name" "$bundle_root/scripts/"
 done
 if [[ -n "$ollama_volume_name" ]]; then

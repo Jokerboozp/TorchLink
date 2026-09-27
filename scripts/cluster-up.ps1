@@ -1,4 +1,4 @@
-# One-click cluster deployment and upgrade (Windows controller).
+﻿# One-click cluster deployment and upgrade (Windows controller).
 #
 #   powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1                    # wizard
 #   ... -Name torchlink                                  # upgrade a cluster deployed before (no questions)

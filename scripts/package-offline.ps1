@@ -428,6 +428,8 @@ try {
     foreach ($runtimeScript in @(
         "video-module.sh",
         "video-module.ps1",
+        "capacity-module.sh",
+        "capacity-module.ps1",
         "deploy-offline.ps1",
         "deploy-offline-windows.ps1",
         "deploy-offline.sh",

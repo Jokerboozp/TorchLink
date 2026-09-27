@@ -15,6 +15,9 @@ Environment file, relative to platform/. Credentials are never replaced.
 .PARAMETER Video
 on/off deploys or removes the camera live media server; keep (default) reuses the
 last choice, and new environments deploy it.
+.PARAMETER Capacity
+on/off deploys or removes the capacity-test module (运维中心 → 容量测试); keep (default)
+reuses the last choice, and new environments leave it off.
 #>
 [CmdletBinding()]
 param(
@@ -24,7 +27,8 @@ param(
     [switch]$IncludeHarness,
     [switch]$NoHarness,
     [int]$HealthTimeoutSeconds = 180,
-    [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep'
+    [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
+    [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -60,6 +64,10 @@ if ($Video -eq 'on') {
     $profiles = @(@("$(Get-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'video' })
     Set-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
 }
+# The capacity-test module is off unless chosen; an earlier choice is kept.
+if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'on') { 'on' } else { 'off' } }
+$capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
+& (Join-Path $scriptDir 'capacity-module.ps1') $capacityAction -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
 Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
 $buildServices = @('platform-api', 'platform-web', 'backup-service')
@@ -72,7 +80,8 @@ $allServices = @(& docker @($compose + @('config', '--services')))
 if ($LASTEXITCODE -ne 0) { throw '无法读取 Compose 服务列表。' }
 # 摄像头直播媒体服务（video profile，默认启用），由固定 digest 的官方镜像构建。
 if (@($allServices | ForEach-Object { $_.Trim() }) -contains 'zlmediakit') { $buildServices += 'zlmediakit' }
-$pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices })
+# The capacity module runs from the platform image built here; it is never pulled.
+$pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices -and $_ -ne 'capacity' })
 Write-Host '拉取运行依赖镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('pull') + $pullServices)
 Write-Host '构建 API、前端和备份服务镜像……'
@@ -82,6 +91,9 @@ Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-build', '--pull'
 if ($Video -eq 'off') {
     # Profile services are not removed by up; stop a media server left from an earlier deployment.
     Invoke-DockerChecked -Arguments ($compose + @('--profile', 'video', 'rm', '-sf', 'zlmediakit'))
+}
+if ($Capacity -eq 'off') {
+    Invoke-DockerChecked -Arguments ($compose + @('--profile', 'capacity', 'rm', '-sf', 'capacity'))
 }
 Write-Host '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时间）……'
 Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
@@ -105,3 +117,4 @@ if ($useHarness) {
 }
 Invoke-DockerChecked -Arguments ($compose + @('ps'))
 Write-Host "在线部署完成：http://127.0.0.1:$webPort/；登录账号和密码查看 $EnvFile 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。"
+if ($Capacity -eq 'on') { Write-Host '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 -Capacity off 或 scripts\capacity-module.ps1 disable。' }

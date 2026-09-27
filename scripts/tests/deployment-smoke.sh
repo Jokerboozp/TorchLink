@@ -452,4 +452,54 @@ assert_no_call ' pull .*zlmediakit'
 grep -q 'published: "5060"' "$test_root/video-online.yaml"
 grep -q 'published: "30063"' "$test_root/video-online.yaml"
 echo 'PASS video module: default on, GB28181 ports, offline packaging, opt-out kept and online toggle'
+
+# Capacity-test module: off by default; --capacity on runs it from the platform
+# image with a generated token; the choice is kept; the module script toggles it.
+cp "$test_root/.env.online" "$test_root/.env.online-capacity"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=off$' "$test_root/.env.online-capacity"
+grep -q '^IOT_OPS_CAPACITY_URL=$' "$test_root/.env.online-capacity"
+assert_call '--profile capacity rm -sf capacity'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" --capacity on > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=on$' "$test_root/.env.online-capacity"
+grep -q '^IOT_OPS_CAPACITY_URL=http://capacity:7080$' "$test_root/.env.online-capacity"
+grep -Eq '^IOT_OPS_CAPACITY_TOKEN=.{32,}$' "$test_root/.env.online-capacity"
+grep -Eq '^COMPOSE_PROFILES=(video,capacity|capacity,video)$' "$test_root/.env.online-capacity"
+assert_no_call ' pull .*capacity'
+assert_no_call 'rm -sf capacity'
+assert_commented_env "$test_root/.env.online-capacity"
+capacity_token="$(grep '^IOT_OPS_CAPACITY_TOKEN=' "$test_root/.env.online-capacity" | cut -d= -f2-)"
+"$TEST_COMPOSE" --env-file "$test_root/.env.online-capacity" -f "$scripts/../compose.yaml" config > "$test_root/capacity-online.yaml"
+grep -q '/app/capacity-test' "$test_root/capacity-online.yaml"
+grep -q "IOT_CAPACITY_SERVICE_TOKEN: $capacity_token" "$test_root/capacity-online.yaml"
+grep -q "IOT_OPS_CAPACITY_TOKEN: $capacity_token" "$test_root/capacity-online.yaml"
+if grep -q 'published: "7080"' "$test_root/capacity-online.yaml"; then echo 'Capacity service must not publish a host port' >&2; exit 1; fi
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=on$' "$test_root/.env.online-capacity"
+[ "$capacity_token" = "$(grep '^IOT_OPS_CAPACITY_TOKEN=' "$test_root/.env.online-capacity" | cut -d= -f2-)" ] || { echo 'Capacity token was rotated' >&2; exit 1; }
+: > "$TEST_CALLS"
+bash "$scripts/capacity-module.sh" disable --mode online --env-file "$test_root/.env.online-capacity" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=off$' "$test_root/.env.online-capacity"
+grep -q '^IOT_OPS_CAPACITY_URL=$' "$test_root/.env.online-capacity"
+assert_call 'rm -f capacity'
+assert_call 'up -d --no-deps --no-build platform-api'
+: > "$TEST_CALLS"
+bash "$scripts/capacity-module.sh" enable --mode online --env-file "$test_root/.env.online-capacity" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=on$' "$test_root/.env.online-capacity"
+assert_call 'up -d --no-build --pull never capacity'
+if bash "$scripts/capacity-module.sh" enable --mode local --env-file "$test_root/.env.online-capacity" >/dev/null 2>&1; then echo 'Capacity module accepted local mode' >&2; exit 1; fi
+if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" --capacity maybe >/dev/null 2>&1; then echo 'Accepted invalid capacity switch' >&2; exit 1; fi
+[ -f "$vbundle/scripts/capacity-module.sh" ] && [ -f "$vbundle/scripts/capacity-module.ps1" ]
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" --capacity on > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=on$' "$vbundle/.env.offline"
+assert_call '--profile capacity'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" --capacity off > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=off$' "$vbundle/.env.offline"
+assert_call '--profile capacity rm -sf capacity'
+echo 'PASS capacity module: default off, generated token, choice kept, module toggle and offline switch'
 echo 'Bash deployment smoke tests PASS (mutations mocked; Compose parsing real).'

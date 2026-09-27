@@ -6,7 +6,7 @@
 | 状态 | 工具、预设与步骤已就绪；**尚未在目标硬件上执行**，仓库内没有 P5 实测结果 |
 | 工具 | `cmd/capacity-test`（run / resume / compare / serve / agent）、`cmd/harness-mock`、`cmd/cluster-render`、`scripts/cluster-deploy.*` |
 
-本手册只描述在目标环境上如何执行和留证。命令用法细节见 [开发与测试](DEVELOPMENT.md#容量验证)，集群部署见 [部署文档](DEPLOYMENT.md#集群部署)。执行结果按实测填写，不得用本文的示例数字代替。
+日常快速检查可直接使用平台的容量测试模块（部署时 `--capacity on`，见 [部署文档](DEPLOYMENT.md#容量测试模块)）；本手册的多机扩容、长稳与故障验收需要独立发压机，使用控制服务或命令行执行。本手册只描述在目标环境上如何执行和留证。命令用法细节见 [开发与测试](DEVELOPMENT.md#容量验证)，集群部署见 [部署文档](DEPLOYMENT.md#集群部署)。执行结果按实测填写，不得用本文的示例数字代替。
 
 ## 1. 执行前准备
 
@@ -17,7 +17,7 @@
 | 时钟 | 被测节点、负载机、数据库 NTP 同步 | 报告中时钟误差 ≤ `slo.maxClockUncertainty` |
 | 清单 | 列出全部平台进程 `/metrics`（每个角色的每个实例）、各主机 node-exporter（`nodes`）、Agent 地址、只读核对账户 | `capacity-test plan validate --plan <计划> --inventory <清单>` |
 | 秘密 | 操作员令牌、Agent 令牌、只读 PostgreSQL / ClickHouse、OpenAPI Key 写入 0600 秘密文件 | 报告生成时的秘密泄漏检查 |
-| 测试数据 | 专用测试租户与标准协议产品；一条 `stressAlarm=1` 触发、`=0` 恢复的规则；测试摄像头（启用视频时） | 计划 `fixtures.alarmRuleId` |
+| 测试数据 | 专用测试租户；标准协议产品与 `stressAlarm` 规则可由 `fixtures.autoProvision: true` 自动准备（容量测试模块页面默认如此）；测试摄像头（启用视频时）需手工登记 | 预检中的“自动准备测试产品/规则” |
 | AI | 先用 `harness-mock` 测平台调度；真实模型单独执行并设置 `maxRuns` 预算 | 报告覆盖表标注 mock / real |
 | 备份恢复 | 备份服务配置独立的 `IOT_BACKUP_RESTORE_TARGET_DSN` | 备份页“恢复验证”手动试一次 |
 | 故障命令 | 在执行故障的 Agent 主机上登记白名单（0600），命令只作用于测试环境 | 预检“故障动作”项 |

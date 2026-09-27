@@ -11,6 +11,7 @@ include_ai=0
 include_harness=true
 health_timeout=180
 video=keep
+capacity=keep
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file|--project-name|--health-timeout)
@@ -18,6 +19,7 @@ while [ "$#" -gt 0 ]; do
       case "$1" in --env-file) env_file="$2";; --project-name) project_name="$2";; --health-timeout) health_timeout="$2";; esac
       shift 2;;
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2;;
+    --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2;;
     --include-ai) include_ai=1; shift;;
     --include-harness) shift;;
     --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1;;
@@ -30,6 +32,7 @@ while [ "$#" -gt 0 ]; do
   --include-harness     兼容参数；AI 工作流 Harness 为必装组件，始终启动
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
   --video on|off        部署或关闭摄像头直播媒体服务；省略时沿用上次选择，新环境默认开启
+  --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认关闭
 默认拉取运行镜像、构建应用、启动全部服务，并仅下载知识库嵌入模型 nomic-embed-text。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
@@ -40,6 +43,7 @@ done
 [[ "$project_name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo '项目名只能包含小写字母、数字、下划线和短横线，且以字母或数字开头。' >&2; exit 1; }
 [[ "$health_timeout" =~ ^[1-9][0-9]*$ ]] || { echo '健康检查超时必须是正整数。' >&2; exit 1; }
 case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
+case "$capacity" in keep|on|off) ;; *) echo '--capacity 只能是 on 或 off。' >&2; exit 1;; esac
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
 source "$script_dir/lib/docker-bootstrap.sh"
 ensure_deployment_docker online
@@ -70,6 +74,19 @@ else
   profiles="$(get_deployment_env_value "$env_file" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx video | paste -sd, - || true)"
   set_deployment_env_value "$env_file" COMPOSE_PROFILES "$profiles"
 fi
+# The capacity-test module is off unless chosen; an earlier choice is kept.
+if [ "$capacity" = keep ]; then
+  capacity=off
+  [ "$(get_deployment_env_value "$env_file" IOT_CAPACITY_MODULE)" = on ] && capacity=on
+fi
+if [ "$capacity" = on ]; then
+  bash "$script_dir/capacity-module.sh" prepare --mode online --env-file "$env_file" --project-name "$project_name"
+else
+  set_deployment_env_value "$env_file" IOT_OPS_CAPACITY_URL ''
+  set_deployment_env_value "$env_file" IOT_CAPACITY_MODULE off
+  profiles="$(get_deployment_env_value "$env_file" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx capacity | paste -sd, - || true)"
+  set_deployment_env_value "$env_file" COMPOSE_PROFILES "$profiles"
+fi
 annotate_deployment_env_file "$env_file"
 compose=(compose --project-name "$project_name" --env-file "$env_file" -f "$project_root/compose.yaml")
 build_services=(platform-api platform-web backup-service)
@@ -87,6 +104,8 @@ while IFS= read -r service; do
     platform-api|platform-web|backup-service|deepseek-harness|'') ;;
     # 摄像头直播媒体服务（video profile，默认启用），由固定 digest 的官方镜像构建。
     zlmediakit) build_services+=(zlmediakit) ;;
+    # 容量测试模块使用平台镜像，不单独拉取。
+    capacity) ;;
     *) pull_services+=("$service");;
   esac
 done <<< "$services"
@@ -99,6 +118,9 @@ run_docker "${compose[@]}" up -d --no-build --pull never
 if [ "$video" = off ]; then
   # Profile services are not removed by up; stop a media server left from an earlier deployment.
   run_docker "${compose[@]}" --profile video rm -sf zlmediakit
+fi
+if [ "$capacity" = off ]; then
+  run_docker "${compose[@]}" --profile capacity rm -sf capacity
 fi
 echo '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时间）……'
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
@@ -117,3 +139,5 @@ if [ "$include_harness" = true ]; then
 fi
 run_docker "${compose[@]}" ps
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"
+[ "$capacity" = on ] && echo '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 --capacity off 或 scripts/capacity-module.sh disable。'
+true

@@ -1,21 +1,27 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RefreshCw } from '@lucide/vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { download, formatTime } from '../api'
 import { can } from '../permissions'
 import { opsErrorText, opsGet, opsSend } from '../ops/opsApi'
-import { boundText, classText, isFinished, phaseSummary, planTemplate, pollDelay, presetText, reportFormats, runStatusText, statusTone, verdictText, windowProgress } from '../ops/capacity'
+import { boundText, buildPlan, classText, defaultForm, formProblems, isFinished, perDeviceLimit, phaseSummary, pollDelay, presetDefaults, presetText, rateCeiling, reportFormats, runStatusText, statusTone, verdictText, windowProgress } from '../ops/capacity'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 
+const moduleStatus = ref(null)
 const environments = ref([])
 const environment = ref('')
-const plan = ref(planTemplate)
+const form = reactive(defaultForm('quick'))
+// 高级模式直接编辑计划 YAML；进入时以当前表单生成的计划为起点。
+const advanced = ref(false)
+const planText = ref('')
+const problems = computed(() => formProblems(form))
+const plan = computed(() => advanced.value ? planText.value : buildPlan(form))
 const check = ref(null)
 const runs = ref([])
 const loading = ref(false)
@@ -31,6 +37,24 @@ const canRun = computed(() => can('POST /api/v1/ops/capacity/runs'))
 const canValidate = computed(() => can('POST /api/v1/ops/capacity/plans/validate'))
 const activeRun = computed(() => runs.value.find(run => run.active))
 const selectedEnv = computed(() => environments.value.find(env => env.name === environment.value))
+// 容量测试模块只有“本平台”一个环境时不需要选择。
+const selfOnly = computed(() => environments.value.length === 1 && environments.value[0].name === 'self')
+const moduleOff = computed(() => moduleStatus.value?.enabled === false)
+
+function choosePreset(preset) {
+  Object.assign(form, presetDefaults[preset])
+}
+watch(advanced, on => { if (on) planText.value = buildPlan(form) })
+watch(() => [JSON.stringify(form), planText.value, advanced.value], () => { check.value = null })
+
+async function loadStatus() {
+  try {
+    moduleStatus.value = await opsGet('/api/v1/ops/capacity/status')
+  } catch (error) {
+    moduleStatus.value = null
+    if (error?.status !== 403) UiMessage.error(opsErrorText(error))
+  }
+}
 
 function schedule() {
   clearTimeout(timer)
@@ -77,6 +101,7 @@ async function loadRuns(silent = false) {
 
 async function validate() {
   if (!environment.value) return UiMessage.warning('请先选择测试环境')
+  if (!advanced.value && problems.value.length) return UiMessage.warning(problems.value[0])
   busy.value = 'validate'
   try {
     check.value = await opsSend('POST', '/api/v1/ops/capacity/plans/validate', { environment: environment.value, plan: plan.value })
@@ -90,8 +115,10 @@ async function validate() {
 
 async function start() {
   if (!environment.value) return UiMessage.warning('请先选择测试环境')
+  if (!advanced.value && problems.value.length) return UiMessage.warning(problems.value[0])
   try {
-    await UiMessageBox.confirm(`将在环境“${environment.value}”上按计划施加真实负载并创建测试设备，测试期间平台性能会受影响。是否开始？`, '启动容量测试', { type: 'warning', confirmButtonText: '开始测试', cancelButtonText: '取消' })
+    const where = selfOnly.value ? '本平台' : `环境“${environment.value}”`
+    await UiMessageBox.confirm(`将在${where}上施加真实负载，并以你的账号自动准备测试产品、测试规则与测试设备；测试期间平台性能会受影响。是否开始？`, '启动容量测试', { type: 'warning', confirmButtonText: '开始测试', cancelButtonText: '取消' })
   } catch {
     return
   }
@@ -153,30 +180,80 @@ function stateLabel(run) {
   return runStatusText[run.status] || run.status
 }
 
-onMounted(() => { loadEnvironments(); loadRuns() })
+onMounted(async () => {
+  await loadStatus()
+  if (moduleOff.value) return
+  loadEnvironments()
+  loadRuns()
+})
 onBeforeUnmount(() => clearTimeout(timer))
 </script>
 
 <template>
-  <ui-alert v-if="notConfigured" class="cap-gap" type="warning" title="容量测试控制服务未配置" :description="notConfigured" :closable="false" show-icon />
+  <section v-if="moduleOff" class="cap-off">
+    <h2>容量测试模块未部署</h2>
+    <p>容量测试是可选模块，默认关闭。需要时由运维在部署机上开启；开启后本页直接选择测试类型即可运行，无需编写清单或配置凭据：</p>
+    <ul>
+      <li>单机在线部署：<code>bash scripts/capacity-module.sh enable</code>（或部署时加 <code>--capacity on</code>）</li>
+      <li>单机离线部署：<code>bash scripts/capacity-module.sh enable --mode offline</code></li>
+      <li>集群部署：<code>bash scripts/cluster-up.sh --name &lt;集群名称&gt; --capacity on</code></li>
+    </ul>
+    <p class="cap-sub">Windows 使用对应的 .ps1 脚本；关闭时用 disable 或 --capacity off。</p>
+  </section>
+  <template v-else>
+  <ui-alert v-if="notConfigured" class="cap-gap" type="warning" title="容量测试服务未配置" :description="notConfigured" :closable="false" show-icon />
+  <ui-alert v-else-if="moduleStatus && !moduleStatus.reachable" class="cap-gap" type="warning" title="容量测试服务暂不可达" description="模块已部署但服务未响应，请在部署机查看 capacity 容器状态（scripts/capacity-module.sh status）。" :closable="false" show-icon />
 
   <section class="cap-editor surface-panel">
     <FilterBar>
-      <ui-select v-model="environment" placeholder="选择测试环境" aria-label="测试环境" :disabled="Boolean(notConfigured)" class="cap-env">
-        <ui-option v-for="env in environments" :key="env.name" :label="env.title ? `${env.name}（${env.title}）` : env.name" :value="env.name" :disabled="Boolean(env.error)" />
-      </ui-select>
-      <span v-if="selectedEnv" class="cap-env-meta">Agent {{ selectedEnv.agents }} 个 · 指标目标 {{ selectedEnv.metricsTargets }} 个{{ selectedEnv.mqtt ? ' · MQTT' : '' }}{{ selectedEnv.tcp ? ' · TCP' : '' }}{{ selectedEnv.web ? ' · Web' : '' }}</span>
+      <span v-if="selfOnly" class="cap-env-meta">测试环境：本平台（{{ selectedEnv?.metricsTargets || 0 }} 个平台进程指标{{ selectedEnv?.mqtt ? ' · MQTT' : '' }}）</span>
+      <template v-else>
+        <ui-select v-model="environment" placeholder="选择测试环境" aria-label="测试环境" :disabled="Boolean(notConfigured)" class="cap-env">
+          <ui-option v-for="env in environments" :key="env.name" :label="env.title ? `${env.name}（${env.title}）` : env.name" :value="env.name" :disabled="Boolean(env.error)" />
+        </ui-select>
+        <span v-if="selectedEnv" class="cap-env-meta">Agent {{ selectedEnv.agents }} 个 · 指标目标 {{ selectedEnv.metricsTargets }} 个{{ selectedEnv.mqtt ? ' · MQTT' : '' }}{{ selectedEnv.tcp ? ' · TCP' : '' }}{{ selectedEnv.web ? ' · Web' : '' }}</span>
+      </template>
       <template #actions>
-        <ui-button v-if="canValidate" :loading="busy === 'validate'" :disabled="Boolean(notConfigured)" @click="validate">校验计划</ui-button>
+        <ui-button v-if="canValidate" :loading="busy === 'validate'" :disabled="Boolean(notConfigured)" @click="validate">校验</ui-button>
         <ui-button v-if="canRun" type="primary" :loading="busy === 'start'" :disabled="Boolean(notConfigured) || Boolean(activeRun)" @click="start">启动测试</ui-button>
       </template>
     </FilterBar>
-    <p class="cap-hint">环境由控制机上的受信任清单登记，页面只能选择名称；秘密、地址与故障命令不经过浏览器。<template v-if="activeRun">当前运行 {{ activeRun.runId }} 结束前不能启动新的测试。</template><template v-if="!canRun">当前账号只能查看运行与结论。</template></p>
-    <ui-input v-if="canValidate || canRun" v-model="plan" type="textarea" :rows="14" spellcheck="false" aria-label="容量测试计划 YAML" class="cap-plan" />
+    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测。<template v-if="activeRun">当前运行 {{ activeRun.runId }} 结束前不能启动新的测试。</template><template v-if="!canRun">当前账号只能查看运行与结论。</template></p>
+    <template v-if="canValidate || canRun">
+      <div v-if="!advanced" class="cap-form">
+        <div class="cap-field cap-field--wide">
+          <span>测试类型</span>
+          <ui-radio-group v-model="form.preset" size="small" class="segmented-choice-group" aria-label="测试类型" @change="choosePreset">
+            <ui-radio-button value="quick">快速检查</ui-radio-button>
+            <ui-radio-button value="capacity">容量搜索</ui-radio-button>
+            <ui-radio-button value="soak">长稳</ui-radio-button>
+          </ui-radio-group>
+          <small>{{ { quick: '固定速率跑一档，确认链路正常，不给出最大容量', capacity: '从起始速率逐步加压并二分，找出稳定通过的最高速率', soak: '固定速率长时间运行，观察积压、时延和资源是否稳定' }[form.preset] }}</small>
+        </div>
+        <label class="cap-field"><span>测试设备数</span><ui-input-number v-model="form.devices" :min="1" :max="10000" controls-position="right" /></label>
+        <label class="cap-field"><span>{{ form.preset === 'capacity' ? '起始速率（条/秒）' : '速率（条/秒）' }}</span><ui-input-number v-model="form.startRate" :min="1" controls-position="right" /></label>
+        <label class="cap-field"><span>速率上限（条/秒）</span><ui-input-number v-model="form.maxRate" :min="1" controls-position="right" /><small>单台设备限速 {{ perDeviceLimit }} 条/秒，最多 {{ rateCeiling(form) }}</small></label>
+        <label class="cap-field"><span>{{ form.preset === 'soak' ? '持续时长（分钟）' : '每档测量时长（分钟）' }}</span><ui-input-number v-model="form.measureMinutes" :min="1" :max="1440" controls-position="right" /></label>
+        <div class="cap-field cap-field--wide">
+          <span>同时测试</span>
+          <div class="cap-checks">
+            <ui-checkbox v-model="form.alarms">告警触发与恢复核对</ui-checkbox>
+            <ui-checkbox v-model="form.queries">管理查询</ui-checkbox>
+            <ui-checkbox v-model="form.mqtt" :disabled="Boolean(selectedEnv && !selectedEnv.mqtt)">一半设备走 MQTT</ui-checkbox>
+            <ui-checkbox v-model="form.realtime" :disabled="Boolean(selectedEnv && !selectedEnv.mqtt)">实时推送</ui-checkbox>
+            <ui-checkbox v-model="form.exports">原文下载与回放</ui-checkbox>
+            <ui-checkbox v-model="form.ai">AI 研判（真实模型，最多 20 次）</ui-checkbox>
+          </div>
+        </div>
+        <ul v-if="problems.length" class="cap-problems"><li v-for="item in problems" :key="item">{{ item }}</li></ul>
+      </div>
+      <ui-input v-else v-model="planText" type="textarea" :rows="16" spellcheck="false" aria-label="容量测试计划 YAML" class="cap-plan" />
+      <div class="cap-advanced"><ui-switch v-model="advanced" size="small" /><span>高级：直接编辑计划 YAML</span></div>
+    </template>
     <div v-if="check" class="cap-check" :class="check.valid ? 'is-ok' : 'is-bad'">
       <template v-if="check.valid">
         <strong>校验通过</strong>
-        <span>{{ check.name }} · {{ presetText[check.preset] || check.preset }} · 套件 {{ check.suite }} · 设备 {{ check.deviceCount }} 台<template v-if="check.rates?.length"> · 档位 {{ check.rates.join(' / ') }} 条/秒</template> · 时长上限 {{ check.maximumWallTime }}</span>
+        <span>{{ presetText[check.preset] || check.preset }} · 设备 {{ check.deviceCount }} 台<template v-if="check.rates?.length"> · 速率 {{ check.rates.join(' / ') }} 条/秒</template> · 时长上限 {{ check.maximumWallTime }}</span>
         <span v-if="check.modules?.length">业务场景：{{ check.modules.join('、') }}</span>
         <span v-if="check.faults">故障动作 {{ check.faults }} 个</span>
       </template>
@@ -237,6 +314,7 @@ onBeforeUnmount(() => clearTimeout(timer))
     </template>
     <template #footer><ui-button @click="detail = null">关闭</ui-button></template>
   </ui-dialog>
+  </template>
 </template>
 
 <style scoped>
@@ -253,10 +331,25 @@ onBeforeUnmount(() => clearTimeout(timer))
 .cap-check ul { margin: 0; padding-left: 18px; }
 .cap-sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
 .cap-conclusion { margin: 0 0 var(--space-3); line-height: 1.6; }
+.cap-off { padding: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); line-height: 1.7; }
+.cap-off h2 { margin: 0 0 var(--space-2); font-size: 16px; }
+.cap-off code { font-size: 12px; overflow-wrap: anywhere; }
+.cap-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); margin-top: var(--space-2); }
+.cap-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: var(--font-size-sm); }
+.cap-field > span { font-weight: 600; }
+.cap-field small { color: var(--text-muted); font-size: 12px; }
+.cap-field--wide { grid-column: 1 / -1; }
+.cap-checks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.cap-problems { grid-column: 1 / -1; margin: 0; padding-left: 18px; color: var(--danger-text, #b91c1c); font-size: var(--font-size-sm); }
+.cap-advanced { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-3); color: var(--text-muted); font-size: var(--font-size-sm); }
 .cap-downloads { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-4); }
 .cap-table :deep(.data-table-card__header) h2 { margin: 0; font-size: 15px; }
 @media (max-width: 767px) {
+  .cap-form { grid-template-columns: 1fr 1fr; }
   .cap-env { min-width: 0; width: 100%; }
   .cap-editor { padding: var(--space-3); }
+}
+@media (max-width: 480px) {
+  .cap-form { grid-template-columns: 1fr; }
 }
 </style>

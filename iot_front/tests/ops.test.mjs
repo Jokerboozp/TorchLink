@@ -299,3 +299,28 @@ test('容量测试页只调用平台运维接口，并在菜单与权限预设�
   const presets = readFileSync(new URL('../src/permissionPresets.js', import.meta.url), 'utf8')
   assert.match(presets, /'opsCapacity'/)
 })
+
+test('容量测试表单生成的计划只含受控字段，并按单台设备限速检查速率上限', async () => {
+  const { buildPlan, defaultForm, formProblems, rateCeiling } = await import('../src/ops/capacity.js')
+  const form = defaultForm('capacity')
+  const plan = buildPlan(form)
+  assert.match(plan, /preset: capacity/)
+  assert.match(plan, /autoProvision: true/)
+  assert.doesNotMatch(plan, /tenant|operatorSecretRef|operatorToken/)
+  assert.deepEqual(formProblems(form), [])
+  assert.equal(rateCeiling({ devices: 3 }), 60)
+  assert.ok(formProblems({ ...form, devices: 3, maxRate: 100 }).some(p => p.includes('单台设备限速')))
+  assert.ok(formProblems({ ...form, startRate: 50, maxRate: 10 }).some(p => p.includes('起始速率')))
+  const soak = buildPlan({ ...defaultForm('soak'), measureMinutes: 90, mqtt: true })
+  assert.match(soak, /rates: \[50\]/)
+  assert.match(soak, /maximumWallTime: 150m/)
+  assert.match(soak, /mqttConnections: 50/)
+})
+
+test('容量测试模块未部署时菜单隐藏，页面给出启用方法', () => {
+  const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  assert.match(app, /name === 'opsCapacity' && !capacityModuleOn\.value/)
+  const view = readFileSync(new URL('../src/views/OpsCapacityView.vue', import.meta.url), 'utf8')
+  assert.match(view, /capacity-module\.sh enable/)
+  assert.match(view, /--capacity on/)
+})

@@ -73,31 +73,67 @@ export const reportFormats = [
   { value: 'zip', label: '完整证据 ZIP', ext: 'zip' }
 ]
 
-export const planTemplate = `schemaVersion: 1
-name: quick-check
-suite: core
-preset: quick
-seed: 1
-credentials:
-  operatorSecretRef: capacity-operator
-fixtures:
-  tenant: tenant_001
-  product: cap-standard
-  deviceCount: 20
-  reuseDevices: true
-  messageBytes: 512
-load:
-  ingressShare: {http: 1}
-  initialMessagesPerSecond: 10
-  queryRequestsPerSecond: 1
-  queryMix: {devices: 0.5, alarms: 0.5}
-search:
-  rates: [10, 20]
-  warmup: 10s
-  measure: 30s
-  drainTimeout: 2m
-budget:
-  maximumWallTime: 30m
-  maximumMessagesPerSecond: 200
-  maximumEvidenceGiB: 1
-`
+// 预设表单的默认值：设备数、速率与时长都保持在单机可承受的起点。
+export const presetDefaults = {
+  quick: { devices: 20, startRate: 10, maxRate: 200, measureMinutes: 1 },
+  capacity: { devices: 100, startRate: 20, maxRate: 1000, measureMinutes: 2 },
+  soak: { devices: 100, startRate: 50, maxRate: 1000, measureMinutes: 60 }
+}
+
+export function defaultForm(preset = 'quick') {
+  return { preset, ...presetDefaults[preset], mqtt: false, alarms: true, queries: true, realtime: false, exports: false, ai: false }
+}
+
+// 平台对单台设备限速 20 条/秒，速率上限不能超过设备数 × 20，否则测到的是限速策略。
+export const perDeviceLimit = 20
+export const rateCeiling = form => Math.max(1, Math.floor(form.devices) * perDeviceLimit)
+
+export function formProblems(form) {
+  const problems = []
+  if (!(form.devices >= 1 && form.devices <= 10000)) problems.push('设备数需在 1–10000 之间')
+  if (!(form.startRate >= 1)) problems.push('起始速率至少 1 条/秒')
+  if (form.startRate > form.maxRate) problems.push('起始速率不能高于速率上限')
+  if (form.maxRate > rateCeiling(form)) problems.push(`速率上限不能超过设备数 × ${perDeviceLimit} = ${rateCeiling(form)} 条/秒（单台设备限速）`)
+  if (!(form.measureMinutes >= 1)) problems.push('测量时长至少 1 分钟')
+  return problems
+}
+
+// buildPlan 把表单转成计划 YAML；租户、操作员身份由平台补充，测试产品与规则由模块自动准备。
+export function buildPlan(form) {
+  const measure = `${Math.round(form.measureMinutes)}m`
+  const devices = Math.round(form.devices)
+  const mqttConnections = form.mqtt ? Math.max(1, Math.floor(devices / 2)) : 0
+  const share = form.mqtt ? '{http: 0.5, mqtt: 0.5}' : '{http: 1}'
+  const wall = { quick: '30m', capacity: '4h', soak: `${Math.round(form.measureMinutes) + 60}m` }[form.preset]
+  const lines = [
+    'schemaVersion: 1',
+    `name: ui-${form.preset}`,
+    'suite: core',
+    `preset: ${form.preset}`,
+    'seed: 1',
+    'fixtures:',
+    `  deviceCount: ${devices}`,
+    '  reuseDevices: true',
+    '  messageBytes: 512',
+    '  fields: 6',
+    '  autoProvision: true',
+    `  alarmFraction: ${form.alarms ? 0.02 : 0}`,
+    'load:',
+    `  ingressShare: ${share}`,
+    `  initialMessagesPerSecond: ${form.startRate}`
+  ]
+  if (mqttConnections) lines.push(`  mqttConnections: ${mqttConnections}`)
+  if (form.queries) lines.push('  queryRequestsPerSecond: 1', '  queryMix: {devices: 0.4, alarms: 0.3, rawMessages: 0.3}')
+  const modules = []
+  if (form.realtime) modules.push('  realtime: {enabled: true, subscribers: 5}')
+  if (form.exports) modules.push('  exports: {enabled: true, rawDownloadsPerMinute: 2, replaysPerMinute: 1, inspectionsPerMinute: 0}')
+  if (form.ai) modules.push('  ai: {enabled: true, mode: real, runsPerMinute: 2, maxRuns: 20}')
+  if (modules.length) lines.push('modules:', ...modules)
+  lines.push('search:')
+  if (form.preset === 'capacity') lines.push('  rampFactor: 1.5', '  warmup: 30s', `  measure: ${measure}`)
+  else lines.push(`  rates: [${form.startRate}]`, '  warmup: 10s', `  measure: ${measure}`)
+  lines.push('  drainTimeout: 5m', 'budget:', `  maximumWallTime: ${wall}`, `  maximumMessagesPerSecond: ${form.maxRate}`, `  maximumDevices: ${devices}`, '  maximumEvidenceGiB: 5')
+  return lines.join('\n') + '\n'
+}
+
+export const planTemplate = buildPlan(defaultForm('quick'))

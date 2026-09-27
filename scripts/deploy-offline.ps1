@@ -2,7 +2,8 @@
 param(
     [string]$BundleDir = "",
     [switch]$SkipHashCheck,
-    [switch]$SkipHealthCheck
+    [switch]$SkipHealthCheck,
+    [ValidateSet("keep", "on", "off")][string]$Capacity = "keep"
 )
 
 Set-StrictMode -Version Latest
@@ -80,6 +81,12 @@ if (-not $SkipHashCheck) {
     Write-Host "镜像和模型包 SHA256 校验通过。" -ForegroundColor Green
 }
 
+# Capacity-test module: off unless chosen here or earlier (IOT_CAPACITY_MODULE=on).
+if ($Capacity -ne "keep") {
+    $capacityAction = if ($Capacity -eq "on") { "prepare" } else { "unprepare" }
+    & (Join-Path $scriptDir "capacity-module.ps1") $capacityAction -Mode offline -EnvFile $envPath
+}
+$capacityOn = (Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'on'
 $composeArguments = @(
     "compose", "--project-name", "iot-platform",
     "--env-file", $envPath,
@@ -94,6 +101,7 @@ if (Test-Path -LiteralPath $profilesPath -PathType Leaf) {
         $composeArguments += @("--profile", $profile.Trim())
     }
 }
+if ($capacityOn) { $composeArguments += @("--profile", "capacity") }
 Invoke-Checked -Arguments ($composeArguments + @("config", "--quiet"))
 Invoke-Checked -Arguments @("load", "-i", $archivePath)
 $images = @(& docker @($composeArguments + @("config", "--images")))
@@ -121,6 +129,11 @@ if (Test-Path -LiteralPath $ollamaArchive -PathType Leaf) {
 }
 
 Invoke-Checked -Arguments ($composeArguments + @("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180"))
+# up does not remove profile services; drop a capacity service left from an earlier choice.
+if (-not $capacityOn) {
+    # Windows PowerShell turns redirected native stderr into errors under "Stop".
+    & { $ErrorActionPreference = "Continue"; & docker @($composeArguments + @("--profile", "capacity", "rm", "-sf", "capacity")) *> $null }
+}
 Invoke-Checked -Arguments ($composeArguments + @("ps"))
 
 if (-not $SkipHealthCheck) {

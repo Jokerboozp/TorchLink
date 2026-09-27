@@ -117,7 +117,13 @@ const current = computed(() => pages[active.value] || { title: '暂无可用功�
 const currentGroup = computed(() => menuGroups.find(group => group.items.includes(active.value))?.label || '')
 const showHeader = computed(() => current.value.layout !== 'full' && current.value.header !== false && Boolean(current.value.component))
 // 接入点在设备模板详情中管理；没有模板菜单权限的账号仍保留独立入口。
-const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('menu:products'))
+// 容量测试是可选部署模块：未部署时菜单不出现（直接打开页面会显示启用方法）。
+const capacityModuleOn = ref(true)
+async function refreshModules() {
+  if (!authenticated.value || !can('menu:opsCapacity')) return
+  try { capacityModuleOn.value = (await api('/api/v1/ops/capacity/status')).enabled !== false } catch { capacityModuleOn.value = true }
+}
+const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
 const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length))
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
@@ -133,6 +139,7 @@ async function syncIdentity() {
     await refreshPermissions()
     if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   } catch (error) { notifyError(error) }
+  refreshModules()
 }
 
 async function login() {
@@ -146,6 +153,7 @@ async function login() {
     permissionState.items = data.permissions || []
     permissionState.ready = true
     active.value = firstAllowedPage()
+    refreshModules()
     loginForm.value.password = ''
     if (can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
   } catch (error) {
