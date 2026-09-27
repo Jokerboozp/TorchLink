@@ -45,13 +45,19 @@ try {
   }
 
   const payload = { id: `property-${stamp}`, timestamp: stamp, data: { temperature: 26.5 } }
-  const draft = { productId: `local-product-${stamp}`, productName: `本地联调产品 ${stamp}`, deviceId, name: '本地联调传感器', type: 'HTTP', messageKind: 'property', payload }
-  const preview = await request('/api/v1/onboarding/test', { method: 'POST', body: draft })
-  assert.equal(preview.success, true)
-  created = await request('/api/v1/onboarding', { method: 'POST', body: { ...draft, testToken: preview.testToken }, expected: 201 })
+  const protocolPackageId = 'iot-standard@1.0.0'
+  const preflight = await request(`/api/v1/onboarding/preflight?protocolPackageId=${encodeURIComponent(protocolPackageId)}&transport=HTTP`)
+  assert.equal(preflight.ready, true)
+  const draft = {
+    requestId: `local-request-${stamp}`,
+    newProduct: { id: `local-product-${stamp}`, name: `本地联调产品 ${stamp}`, protocolPackageId, transport: 'HTTP' },
+    device: { id: deviceId, name: '本地联调传感器' },
+    connection: { mode: 'standard', transport: 'HTTP' },
+  }
+  created = await request('/api/v1/onboarding', { method: 'POST', body: draft, expected: 201 })
   credential = created.credential
   assert.ok(credential?.secret)
-  pass('接入样例测试、产品与设备持久化')
+  pass('接入预检、产品与设备持久化')
 
   const base = `/api/v1/device-ingest/standard/${tenantId}/${created.device.productId}/${deviceId}/`
   const received = await request(base + 'property', { method: 'POST', body: payload, device: true, expected: 202 })

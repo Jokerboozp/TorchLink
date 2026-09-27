@@ -85,6 +85,8 @@ try {
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-web') 'Local setup starts Web container'
     Assert ($localModel.services.postgres.image -eq 'postgres:17-alpine3.22') 'Local PostgreSQL image is not pinned to the CentOS 7 compatible Alpine release'
+    Assert ($localModel.services.minio.image -eq 'iot-platform-minio:local') 'Local MinIO still requires the unavailable public registry image'
+    Assert ($localModel.services.minio.build.context -match 'deploy[/\\]minio$') 'Local MinIO does not reuse the pinned binary build'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'backup-service') 'Local default Compose includes backup-service'
     $localBackupModel = & $global:IotTest_composeParser --project-name iot-platform-local --env-file $localEnv -f (Join-Path $scripts '../compose.local.yaml') --profile backup config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Local backup Compose model failed'
@@ -100,6 +102,22 @@ try {
     & (Join-Path $scripts 'setup-local.ps1') -EnvFile $localEnv -SkipCodeDeps
     Assert ((Get-FileHash $localEnv).Hash -eq $localHash) 'Local rerun changed configuration'
     Write-Host 'PASS local: code dependencies, isolated services, Kafka listener, stable credentials'
+
+    $videoEnv = Join-Path $testRoot '.env.local-video'
+    Copy-Item -LiteralPath $localEnv -Destination $videoEnv
+    $sharedOps = Join-Path $testRoot 'shared ops'
+    Set-DeploymentEnvValue -Path $videoEnv -Key 'IOT_LOCAL_OPS_DIR' -Value $sharedOps
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $videoEnv -SkipCodeDeps -IncludeOps -Video on -RtcIp 127.0.0.1 -Transcode
+    Assert (Test-Path (Join-Path $sharedOps 'alertmanager/alertmanager.yml')) 'Setup did not initialize the shared ops directory'
+    Assert ((Get-DeploymentEnvValue -Path $videoEnv -Key 'IOT_OPS_ALERTMANAGER_CONFIG_FILE') -eq "$sharedOps/alertmanager/alertmanager.yml") 'API and Compose use different ops configuration directories'
+    Assert ((Get-DeploymentEnvValue -Path $videoEnv -Key 'IOT_VIDEO_MEDIA_API_URL') -eq 'http://127.0.0.1:18580') 'Setup did not configure local video'
+    Assert (Contains-Call 'build --pull zlmediakit') 'Setup did not build media service'
+    $videoKey = Get-DeploymentEnvValue -Path $videoEnv -Key 'IOT_VIDEO_CREDENTIAL_KEY'
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $videoEnv -SkipCodeDeps -Video off
+    Assert (-not (Get-DeploymentEnvValue -Path $videoEnv -Key 'IOT_VIDEO_MEDIA_API_URL')) 'Setup did not disable video'
+    Assert ((Get-DeploymentEnvValue -Path $videoEnv -Key 'IOT_VIDEO_CREDENTIAL_KEY') -eq $videoKey) 'Disabling video changed the camera credential key'
+    Assert (Contains-Call 'stop zlmediakit') 'Setup did not stop media service'
+    Write-Host 'PASS local setup video switch: enable, disable and stable credential key'
 
     $noHarnessEnv = Join-Path $testRoot '.env.no-harness'
     Copy-Item -LiteralPath $localEnv -Destination $noHarnessEnv

@@ -39,24 +39,26 @@ bash ./scripts/setup-local.sh
 | --- | --- | --- |
 | 自定义 DeepSeek API 模型（默认无需传入） | `-DeepSeekModel deepseek-flash` | `--deepseek-model deepseek-flash` |
 | 只准备依赖，不下载源码依赖 | `-SkipCodeDeps` | `--skip-code-deps` |
+| Linux 虚拟机部署全部基础环境，源码在本机运行 | 在 Linux 虚拟机执行右侧命令 | `--dependencies-only` |
 | 临时运行容器版备份服务 | `-IncludeBackup` | `--include-backup` |
 | 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
+| 开启 / 关闭摄像头直播媒体服务，省略则保留现状 | `-Video on` / `-Video off` | `--video on` / `--video off` |
 
 所有部署方式统一使用 DeepSeek API。启动后在“模型管理”填写 API Key、测试并应用即可；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动；不再下载 Qwen 对话模型，Ollama 只准备知识库嵌入模型。完整配置、升级与离线联网边界见 [AI 配置](DEPLOYMENT.md#ai-与工作流)。
 
 依赖容器与源码分开运行时，在 Linux 依赖机执行：
 
 ```bash
-sudo bash ./scripts/setup-local.sh --skip-code-deps \
+sudo bash ./scripts/setup-local.sh --dependencies-only \
   --dependency-host <源码机可访问的依赖机地址> \
   --api-host <依赖容器可访问的源码机地址>
 ```
 
-安全复制生成的 `.env.local` 到源码机仓库根目录。此模式会开放依赖端口，供可信网络使用；Kafka 公告地址和 Harness 回调须从各自调用端可达。详细网络配置和 OrbStack 示例见 [端口与地址](DEPLOYMENT.md#端口与地址)。
+安全复制生成的 `.env.local` 到源码机仓库根目录，并在源码机执行 `go mod download`、在 `iot_front` 执行 `npm ci`。此模式包含运维组件，备份服务默认与 API、前端一起在源码机调试。依赖端口开放给可信网络；Kafka 公告地址和 Harness 回调须从各自调用端可达。OrbStack 可直接在 Mac 仓库执行 `orb -m develop sudo bash scripts/setup-local.sh --dependencies-only`，共用配置文件。详细网络配置和摄像头开关见 [端口与地址](DEPLOYMENT.md#端口与地址)。
 
 ### 日常运行代码
 
-在三个独立终端运行：
+API、前端和备份服务默认都在源码机运行，在三个独立终端启动；虚拟机仅提供基础环境：
 
 ```bash
 # 终端一：API
@@ -70,7 +72,7 @@ npm run dev
 ```
 
 ```bash
-# 终端三：需要备份功能时启动
+# 终端三：备份源码服务
 go run ./cmd/backup-service --env-file .env.local
 ```
 

@@ -136,6 +136,8 @@
 
 ## 部署
 
+本地源码调试统一通过 `setup-local.sh --video on|off` 开关媒体服务，PowerShell 对应 `setup-local.ps1 -Video on|off`；虚拟机全部依赖模式同时传 `--dependencies-only`。OrbStack 命令、远程地址和转码参数见 [本地调试部署](DEPLOYMENT.md#orbstack-虚拟机本地调试)。切换后重启本机 API，首次开启后仍需管理员在摄像头页打开业务直播开关。
+
 在线部署（仓库根目录，Linux / macOS）：
 
 ```bash

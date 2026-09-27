@@ -7,6 +7,9 @@ project_root="$(dirname -- "$script_dir")"
 source "$script_dir/lib/deployment.sh"
 env_file="$project_root/.env.local"
 skip_code_deps=false
+dependencies_only=false
+video=keep
+video_args=()
 include_ai=false
 include_deepseek=false
 include_harness=true
@@ -15,11 +18,15 @@ include_ops=false
 deepseek_model=deepseek-flash
 dependency_host=127.0.0.1
 dependency_host_set=false
-api_host=host.docker.internal
+api_host=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file) [ "$#" -ge 2 ] || { echo '--env-file 需要路径。' >&2; exit 1; }; env_file="$2"; shift 2 ;;
     --skip-code-deps) skip_code_deps=true; shift ;;
+    --dependencies-only) dependencies_only=true; shift ;;
+    --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2 ;;
+    --rtc-ip|--rtc-port|--allowed-cidrs) [ "$#" -ge 2 ] || { echo "$1 需要值。" >&2; exit 1; }; video_args+=("$1" "$2"); shift 2 ;;
+    --transcode|--no-transcode) video_args+=("$1"); shift ;;
     --include-ai) include_ai=true; shift ;;
     --include-deepseek) include_deepseek=true; shift ;;
     --include-harness) include_harness=true; shift ;;
@@ -30,14 +37,36 @@ while [ "$#" -gt 0 ]; do
     --api-host) [ "$#" -ge 2 ] || { echo '--api-host 需要依赖容器可访问的源码机主机名或 IPv4 地址。' >&2; exit 1; }; api_host="$2"; shift 2 ;;
     --ollama-model) echo '已取消部署本地对话模型，请填写 DEEPSEEK_API_KEY。' >&2; exit 1 ;;
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
-    -h|--help) echo 'Usage: bash scripts/setup-local.sh [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--deepseek-model MODEL] [--include-harness] [--include-backup] [--include-ops]'; exit 0 ;;
+    -h|--help)
+      echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--deepseek-model MODEL] [--include-harness] [--include-backup] [--include-ops] [--video on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
+      echo '--dependencies-only：仅在 Linux 部署全部基础环境（含运维），不安装源码依赖；API、Vue 和备份服务在源码机调试。OrbStack 自动使用 Mac 回调地址。'
+      echo '--video：on 启用直播媒体服务，off 关闭；省略保留现状，新环境默认关闭。'
+      exit 0 ;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   esac
 done
+case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
+if [ "${#video_args[@]}" -gt 0 ] && [ "$video" != on ]; then echo '媒体选项需要同时指定 --video on。' >&2; exit 1; fi
+if [ "$dependencies_only" = true ]; then
+  [ "$(uname -s)" = Linux ] || { echo '--dependencies-only 请在 Linux 虚拟机内执行；OrbStack 使用 orb -m develop sudo bash scripts/setup-local.sh --dependencies-only。' >&2; exit 1; }
+  skip_code_deps=true
+  include_ops=true
+fi
 case "$env_file" in /*|[A-Za-z]:/*) ;; *) env_file="$project_root/$env_file" ;; esac
 mkdir -p -- "$(dirname -- "$env_file")"
 env_file="$(cd -- "$(dirname -- "$env_file")" && pwd)/$(basename -- "$env_file")"
 [ "$env_file" != "$project_root/.env" ] || { echo '本地环境请使用 .env.local，不能覆盖在线部署的 .env。' >&2; exit 1; }
+# Reusing the setup entry point to switch video must retain the dependency
+# addresses. OrbStack containers call the Mac through host.orb.internal.
+if [ "$dependency_host_set" = false ] && [ -f "$env_file" ]; then
+  dependency_host="$(get_deployment_env_value "$env_file" IOT_LOCAL_ADVERTISED_HOST)"
+  dependency_host="${dependency_host:-127.0.0.1}"
+fi
+if [ -z "$api_host" ]; then
+  if [ -f "$env_file" ]; then api_host="$(get_deployment_env_value "$env_file" IOT_LOCAL_API_HOST)"; fi
+  if [ -z "$api_host" ] && [ -d /opt/orbstack-guest ]; then api_host=host.orb.internal; fi
+  api_host="${api_host:-host.docker.internal}"
+fi
 
 set_local_env_value() {
   local key="$1" value="$2" replace="${3:-false}" updated
@@ -89,6 +118,7 @@ if [ "$dependency_host" != 127.0.0.1 ] && [ "$dependency_host" != localhost ]; t
 defaults=(
   "IOT_LOCAL_BIND_ADDRESS=$bind_address"
   "IOT_LOCAL_ADVERTISED_HOST=$dependency_host"
+  "IOT_LOCAL_API_HOST=$api_host"
   'IOT_HTTP_ADDR=:8081'
   'IOT_DEV_MODE=false'
   'IOT_DATA_DIR=./data'
@@ -125,11 +155,17 @@ for entry in "${defaults[@]}"; do
   fi
   set_local_env_value "$key" "${entry#*=}" "$replace"
 done
+set_local_env_value IOT_LOCAL_API_HOST "$api_host" true
 # The source-debugged API and backup worker run on the same host. Keep the
 # worker endpoint local even when middleware containers are remote.
 set_local_env_value IOT_BACKUP_URL 'http://127.0.0.1:8092' true
 set_local_env_value IOT_BACKUP_HTTP_ADDR ':8092'
 if [ "$include_backup" = true ]; then set_local_env_value IOT_BACKUP_URL "http://${dependency_host}:8092" true; fi
+if [ "$include_backup" = true ]; then
+  set_local_env_value IOT_LOCAL_BACKUP_METRICS_TARGET 'backup-service:8090' true
+else
+  set_local_env_value IOT_LOCAL_BACKUP_METRICS_TARGET "${api_host}:8092" true
+fi
 configure_deepseek_env "$env_file" "$deepseek_model"
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
@@ -159,17 +195,20 @@ if [ "$include_ops" = true ]; then
   # Containers read the shared files as their own users; local files are not secret-grade storage.
   set_local_env_value IOT_OPS_CONFIG_FILE_MODE 0644 true
   # The containers need these files even when the API runs on another machine.
-  ops_dir="$project_root/data/ops"
+  ops_path="$(get_deployment_env_value "$env_file" IOT_LOCAL_OPS_DIR)"
+  ops_path="${ops_path:-./data/ops}"
+  ops_dir="$ops_path"
+  case "$ops_dir" in /*) ;; *) ops_dir="$project_root/$ops_dir";; esac
   mkdir -p "$ops_dir/prometheus-rules" "$ops_dir/loki/rules/fake" "$ops_dir/alertmanager"
   [ -f "$ops_dir/loki/runtime.yaml" ] || printf 'overrides: {}\n' > "$ops_dir/loki/runtime.yaml"
   [ -f "$ops_dir/alertmanager/alertmanager.yml" ] || printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' 'receivers:' '  - name: platform-null' > "$ops_dir/alertmanager/alertmanager.yml"
   chmod 0755 "$ops_dir" "$ops_dir/prometheus-rules" "$ops_dir/loki" "$ops_dir/loki/rules" "$ops_dir/loki/rules/fake" "$ops_dir/alertmanager"
   chmod 0644 "$ops_dir/loki/runtime.yaml" "$ops_dir/alertmanager/alertmanager.yml"
   if [ "$dependency_host" = 127.0.0.1 ] || [ "$dependency_host" = localhost ]; then
-    set_local_env_value IOT_OPS_PROMETHEUS_RULES_DIR ./data/ops/prometheus-rules true
-    set_local_env_value IOT_OPS_LOKI_RULES_DIR ./data/ops/loki/rules/fake true
-    set_local_env_value IOT_OPS_LOKI_RUNTIME_FILE ./data/ops/loki/runtime.yaml true
-    set_local_env_value IOT_OPS_ALERTMANAGER_CONFIG_FILE ./data/ops/alertmanager/alertmanager.yml true
+    set_local_env_value IOT_OPS_PROMETHEUS_RULES_DIR "$ops_path/prometheus-rules" true
+    set_local_env_value IOT_OPS_LOKI_RULES_DIR "$ops_path/loki/rules/fake" true
+    set_local_env_value IOT_OPS_LOKI_RUNTIME_FILE "$ops_path/loki/runtime.yaml" true
+    set_local_env_value IOT_OPS_ALERTMANAGER_CONFIG_FILE "$ops_path/alertmanager/alertmanager.yml" true
   else
     for key in IOT_OPS_PROMETHEUS_RULES_DIR IOT_OPS_LOKI_RULES_DIR IOT_OPS_LOKI_RUNTIME_FILE IOT_OPS_ALERTMANAGER_CONFIG_FILE; do set_local_env_value "$key" '' true; done
     echo '提示：依赖运行在远程主机时，规则、保留策略和通知渠道在运维中心只能查看；需要编辑时请在依赖主机运行 API。' >&2
@@ -188,6 +227,9 @@ fi
 compose=(compose --project-name iot-platform-local --env-file "$env_file" -f compose.local.yaml)
 if [ "$include_backup" = true ]; then compose+=(--profile backup); fi
 if [ "$include_ops" = true ]; then compose+=(--profile ops); fi
+if [ "$video" = off ]; then
+  bash "$script_dir/video-module.sh" disable --mode local --env-file "$env_file"
+fi
 if [ "$include_backup" = false ]; then
   # Stop an older worker; preserve the container and all backup data.
   backup_compose=(compose --project-name iot-platform-local --env-file "$env_file" -f compose.local.yaml --profile backup)
@@ -202,12 +244,21 @@ if [ "$include_harness" = true ]; then wait_deployment_http http://127.0.0.1:809
 if [ "$include_ops" = true ]; then
   wait_deployment_http http://127.0.0.1:19090/-/ready 180
   wait_deployment_http http://127.0.0.1:13000/api/health 180
+  wait_deployment_http http://127.0.0.1:13100/ready 180
+  wait_deployment_http http://127.0.0.1:19093/-/ready 180
 fi
+if [ "$video" = on ]; then
+  bash "$script_dir/video-module.sh" enable --mode local --env-file "$env_file" ${video_args[@]+"${video_args[@]}"}
+fi
+annotate_deployment_env_file "$env_file"
 printf '本地依赖已就绪。配置和管理员账号保存在：%s（凭据不输出）。\n' "$env_file"
-printf '在 platform 目录启动后端：go run ./cmd/iot-platform --env-file %q\n' "$env_file"
-echo '在 platform/iot_front 目录启动前端：npm run dev'
-echo '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API + Web + Backup)”进行源码调试。'
-if [ "$include_backup" = true ]; then echo '已按 --include-backup 启动备份容器；停止后可改用 VS Code 源码调试。'; fi
+echo '在源码机仓库根目录启动后端：go run ./cmd/iot-platform --env-file .env.local'
+echo '在源码机 iot_front 目录启动前端：npm run dev'
+if [ "$include_backup" = true ]; then
+  echo '备份服务已在依赖机运行；VS Code 选择“IoT Platform (API + Web)”，不要重复启动本机备份服务。'
+else
+  echo '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API + Web + Backup)”进行源码调试。'
+fi
 echo '前端：http://localhost:5173；后端：http://localhost:8081'
 if [ "$include_ops" = true ]; then echo '运维中心依赖已启动：内置管理员可在“运维中心”菜单使用；其他账号需把所在租户加入 IOT_OPS_TENANTS。'; fi
 if [ "$bind_address" = 0.0.0.0 ]; then

@@ -88,7 +88,11 @@ services:
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19000:9000"
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19002:9001"
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Reuse the pinned official binaries already used by offline packaging;
+    # the former registry image is no longer publicly pullable.
+    image: iot-platform-minio:local
+    build:
+      context: ./deploy/minio
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-iotadmin}
@@ -104,7 +108,9 @@ services:
     <<: *service-defaults
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19001:9000"
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: iot-platform-minio:local
+    build:
+      context: ./deploy/minio
     command: server /data
     environment:
       MINIO_ROOT_USER: ${MINIO_DR_ROOT_USER:-iotdradmin}
@@ -439,7 +445,7 @@ configs:
         - job_name: backup-service
           metrics_path: /metrics
           static_configs:
-            - targets: ["${IOT_LOCAL_API_HOST:-host.docker.internal}:8092"]
+            - targets: ["${IOT_LOCAL_BACKUP_METRICS_TARGET:-host.docker.internal:8092}"]
         - job_name: redpanda
           metrics_path: /public_metrics
           static_configs:

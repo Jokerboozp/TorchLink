@@ -8,11 +8,19 @@ param(
     [switch]$NoHarness,
     [switch]$IncludeBackup,
     [switch]$IncludeOps,
+    [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
+    [string]$RtcIp = '',
+    [string]$RtcPort = '',
+    [string]$AllowedCidrs = '',
+    [switch]$Transcode,
+    [switch]$NoTranscode,
     [string]$OllamaModel = '',
     [string]$DeepSeekModel = 'deepseek-flash'
 )
 
 $ErrorActionPreference = 'Stop'
+if (($RtcIp -or $RtcPort -or $AllowedCidrs -or $Transcode -or $NoTranscode) -and $Video -ne 'on') { throw '媒体选项需要同时指定 -Video on。' }
+if ($Transcode -and $NoTranscode) { throw '-Transcode 与 -NoTranscode 不能同时使用。' }
 . (Join-Path $PSScriptRoot 'lib/deployment.ps1')
 $projectRoot = Split-Path $PSScriptRoot -Parent
 if (-not [IO.Path]::IsPathRooted($EnvFile)) { $EnvFile = Join-Path $projectRoot $EnvFile }
@@ -81,6 +89,7 @@ foreach ($key in $defaults.Keys) { Set-LocalEnvValue -Key $key -Value $defaults[
 # worker endpoint local even when middleware containers are remote.
 Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace
 Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
+Set-LocalEnvValue 'IOT_LOCAL_BACKUP_METRICS_TARGET' $(if ($IncludeBackup) { 'backup-service:8090' } else { 'host.docker.internal:8092' }) -Replace
 Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
@@ -103,11 +112,13 @@ if ($IncludeOps) {
     Set-LocalEnvValue 'IOT_LOG_LOKI_URL' 'http://127.0.0.1:13100' -Replace
     Set-LocalEnvValue 'IOT_LOCAL_API_HOST' 'host.docker.internal' -Replace
     Set-LocalEnvValue 'IOT_OPS_CONFIG_FILE_MODE' '0644' -Replace
-    Set-LocalEnvValue 'IOT_OPS_PROMETHEUS_RULES_DIR' './data/ops/prometheus-rules' -Replace
-    Set-LocalEnvValue 'IOT_OPS_LOKI_RULES_DIR' './data/ops/loki/rules/fake' -Replace
-    Set-LocalEnvValue 'IOT_OPS_LOKI_RUNTIME_FILE' './data/ops/loki/runtime.yaml' -Replace
-    Set-LocalEnvValue 'IOT_OPS_ALERTMANAGER_CONFIG_FILE' './data/ops/alertmanager/alertmanager.yml' -Replace
-    $opsDir = Join-Path $projectRoot 'data/ops'
+    $opsPath = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_LOCAL_OPS_DIR'
+    if (-not $opsPath) { $opsPath = './data/ops' }
+    Set-LocalEnvValue 'IOT_OPS_PROMETHEUS_RULES_DIR' "$opsPath/prometheus-rules" -Replace
+    Set-LocalEnvValue 'IOT_OPS_LOKI_RULES_DIR' "$opsPath/loki/rules/fake" -Replace
+    Set-LocalEnvValue 'IOT_OPS_LOKI_RUNTIME_FILE' "$opsPath/loki/runtime.yaml" -Replace
+    Set-LocalEnvValue 'IOT_OPS_ALERTMANAGER_CONFIG_FILE' "$opsPath/alertmanager/alertmanager.yml" -Replace
+    $opsDir = if ([IO.Path]::IsPathRooted($opsPath)) { $opsPath } else { Join-Path $projectRoot $opsPath }
     foreach ($dir in @('prometheus-rules', 'loki/rules/fake', 'alertmanager')) { [void](New-Item -ItemType Directory -Force -Path (Join-Path $opsDir $dir)) }
     $utf8 = [Text.UTF8Encoding]::new($false)
     $runtimeFile = Join-Path $opsDir 'loki/runtime.yaml'
@@ -133,6 +144,7 @@ try {
     $compose = @('compose', '--project-name', 'iot-platform-local', '--env-file', $EnvFile, '-f', 'compose.local.yaml')
     if ($IncludeBackup) { $compose += @('--profile', 'backup') }
     if ($IncludeOps) { $compose += @('--profile', 'ops') }
+    if ($Video -eq 'off') { & (Join-Path $PSScriptRoot 'video-module.ps1') disable -Mode local -EnvFile $EnvFile }
     if (-not $IncludeBackup) {
         $backupCompose = @('compose', '--project-name', 'iot-platform-local', '--env-file', $EnvFile, '-f', 'compose.local.yaml', '--profile', 'backup')
         Invoke-DockerChecked -Arguments ($backupCompose + @('stop', 'backup-service'))
@@ -146,7 +158,13 @@ try {
     if ($IncludeOps) {
         Wait-DeploymentHttp -Url 'http://127.0.0.1:19090/-/ready' -TimeoutSeconds 180
         Wait-DeploymentHttp -Url 'http://127.0.0.1:13000/api/health' -TimeoutSeconds 180
+        Wait-DeploymentHttp -Url 'http://127.0.0.1:13100/ready' -TimeoutSeconds 180
+        Wait-DeploymentHttp -Url 'http://127.0.0.1:19093/-/ready' -TimeoutSeconds 180
     }
+    if ($Video -eq 'on') {
+        & (Join-Path $PSScriptRoot 'video-module.ps1') enable -Mode local -EnvFile $EnvFile -RtcIp $RtcIp -RtcPort $RtcPort -AllowedCidrs $AllowedCidrs -Transcode:$Transcode -NoTranscode:$NoTranscode
+    }
+    Add-DeploymentEnvComments -Path $EnvFile
     Write-Host "本地依赖已就绪。配置和管理员账号保存在：$EnvFile（凭据不输出）。"
     Write-Host "在 platform 目录启动后端：go run ./cmd/iot-platform --env-file `"$EnvFile`""
     Write-Host '在 platform/iot_front 目录启动前端：npm run dev'

@@ -105,12 +105,62 @@ remote_compose="$test_root/remote-compose.yaml"
 grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 grep -q 'external://192.168.24.133:19092' "$remote_compose"
 grep -q 'image: postgres:17-alpine3.22' "$remote_compose"
+grep -q 'image: iot-platform-minio:local' "$remote_compose"
+grep -q 'context: .*/deploy/minio' "$remote_compose"
 grep -q 'IOT_HARNESS_MCP_ALLOWED_ORIGINS: http://192.168.24.1:8081' "$remote_compose"
 if grep -q '^  backup-service:' "$remote_compose"; then echo 'Local default Compose unexpectedly includes backup-service' >&2; exit 1; fi
 backup_compose="$test_root/remote-backup-compose.yaml"
 "$TEST_COMPOSE" --project-name iot-platform-local --env-file "$test_root/.env.remote" -f "$scripts/../compose.local.yaml" --profile backup config > "$backup_compose"
 grep -A80 '^  backup-service:' "$backup_compose" | grep -q 'IOT_CLICKHOUSE_URL'
 echo 'PASS local remote-host: published dependencies and advertised addresses'
+
+# The VM preset includes middleware and ops; backup remains host-side source.
+uname() { if [ "${1:-}" = -s ]; then echo Linux; else command uname "$@"; fi; }
+export -f uname
+: > "$TEST_CALLS"
+vm_env="$test_root/.env.vm"
+bash "$scripts/setup-local.sh" --env-file "$vm_env" --dependencies-only --dependency-host 192.168.24.133 --api-host 192.168.24.1 --video on --rtc-ip 192.168.24.133 --transcode
+assert_call '--profile ops up -d --build --wait'
+assert_call 'stop backup-service'
+assert_no_call 'go mod download|npm ci|--profile backup .*up '
+grep -q "^IOT_BACKUP_URL='http://127.0.0.1:8092'$" "$vm_env"
+grep -q "^IOT_LOCAL_API_HOST='192.168.24.1'$" "$vm_env"
+grep -q "^IOT_LOCAL_BACKUP_METRICS_TARGET='192.168.24.1:8092'$" "$vm_env"
+grep -q '^IOT_VIDEO_MEDIA_API_URL=http://192.168.24.133:18580$' "$vm_env"
+assert_call 'build --pull zlmediakit'
+cp "$vm_env" "$test_root/vm-enabled"
+bash "$scripts/setup-local.sh" --env-file "$vm_env" --dependencies-only --video off
+grep -q "^IOT_BACKUP_URL='http://127.0.0.1:8092'$" "$vm_env"
+grep -q "^IOT_LOCAL_API_HOST='192.168.24.1'$" "$vm_env"
+grep -q '^IOT_VIDEO_MEDIA_API_URL=$' "$vm_env"
+assert_call 'stop zlmediakit'
+assert_call 'rm -f zlmediakit'
+for key in POSTGRES_PASSWORD IOT_VIDEO_MEDIA_SECRET IOT_VIDEO_HOOK_SECRET IOT_VIDEO_CREDENTIAL_KEY; do
+  diff <(grep "^$key=" "$test_root/vm-enabled") <(grep "^$key=" "$vm_env")
+done
+printf "IOT_LOCAL_OPS_DIR='%s/shared ops'\n" "$test_root" >> "$vm_env"
+bash "$scripts/setup-local.sh" --env-file "$vm_env" --dependencies-only --dependency-host 127.0.0.1 --api-host host.orb.internal
+test -f "$test_root/shared ops/alertmanager/alertmanager.yml"
+grep -Fq "IOT_OPS_ALERTMANAGER_CONFIG_FILE='$test_root/shared ops/alertmanager/alertmanager.yml'" "$vm_env"
+"$TEST_COMPOSE" --env-file "$vm_env" -f "$scripts/../compose.local.yaml" --profile ops config > "$test_root/vm-ops.yaml"
+grep -Fq "$test_root/shared ops/alertmanager" "$test_root/vm-ops.yaml"
+if grep -q '^  backup-service:' "$test_root/vm-ops.yaml"; then echo 'VM dependencies unexpectedly include backup-service' >&2; exit 1; fi
+grep -q "^IOT_LOCAL_BACKUP_METRICS_TARGET='host.orb.internal:8092'$" "$vm_env"
+# Containers remain an explicit opt-in; rerunning the default releases its port.
+: > "$TEST_CALLS"
+bash "$scripts/setup-local.sh" --env-file "$vm_env" --dependencies-only --include-backup
+assert_call '--profile backup --profile ops up -d --build --wait'
+assert_no_call 'stop backup-service'
+grep -q "^IOT_LOCAL_BACKUP_METRICS_TARGET='backup-service:8090'$" "$vm_env"
+: > "$TEST_CALLS"
+bash "$scripts/setup-local.sh" --env-file "$vm_env" --dependencies-only
+assert_call 'stop backup-service'
+assert_no_call '--profile backup .*up '
+grep -q "^IOT_LOCAL_BACKUP_METRICS_TARGET='host.orb.internal:8092'$" "$vm_env"
+if bash "$scripts/setup-local.sh" --video invalid >/dev/null 2>&1; then echo 'Accepted invalid video switch' >&2; exit 1; fi
+if bash "$scripts/setup-local.sh" --video off --transcode >/dev/null 2>&1; then echo 'Accepted media options without video on' >&2; exit 1; fi
+unset -f uname
+echo 'PASS VM preset: source backup by default, explicit container opt-in, video toggle and stable configuration'
 
 deepseek_env="$test_root/.env.deepseek"
 cp "$test_root/.env.remote" "$deepseek_env"

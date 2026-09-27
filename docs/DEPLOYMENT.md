@@ -86,33 +86,56 @@ PostgreSQL 保存活动配置；内存模式只在当前进程生效。页面不
 
 本地 API 默认参数写在 `.env.local`；修改 API 端口时同步修改前端 `VITE_API_PROXY_TARGET`，使用 Harness 时还需同步其 MCP 回调和允许的 Origin。`--env-file` 读取字面的 `KEY=VALUE`，支持注释和单/双引号，不展开 `${变量}` 或执行 shell；已有进程环境变量优先。
 
-依赖容器与源码分处两台机器时，在 Linux 依赖机执行 `sudo bash ./scripts/setup-local.sh --skip-code-deps --dependency-host <源码机可访问的依赖机地址> --api-host <依赖容器可访问的源码机地址>`。脚本将 Compose 端口绑定到 `0.0.0.0`，并把 Kafka 的外部公告地址、Harness 地址及回调地址写入 `.env.local`；备份服务地址固定为源码机本地 `8092`，不会在依赖机启动。把该文件复制到源码机后启动 Go API、前端和备份服务；再次显式传入 `--dependency-host 127.0.0.1` 可恢复仅本机访问。
+依赖容器与源码分处两台机器时，先把仓库克隆或复制到 Linux 依赖机，再在其仓库根目录执行：
+
+```bash
+sudo bash scripts/setup-local.sh --dependencies-only \
+  --dependency-host <源码机可访问的依赖机地址> \
+  --api-host <依赖容器可访问的源码机地址> --video off
+```
+
+`--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO 主库/备库、Ollama（仅 `nomic-embed-text`）、Weaviate、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness 和 MinIO 镜像、下载嵌入模型；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
+
+本地 MinIO 复用 `deploy/minio/Dockerfile` 的官方二进制构建，版本仍为 `RELEASE.2025-09-07T16-13-09Z`，校验固定的 amd64/arm64 SHA-256。原 `quay.io/minio/minio` 已无法公开拉取，首次构建需要访问 GitHub Release。
+
+脚本将依赖端口绑定到 `0.0.0.0`，并配置 Kafka 公告地址、Harness 地址和 API 回调；`IOT_BACKUP_URL` 保持 `http://127.0.0.1:8092`，指向源码机的备份进程，Prometheus 从源码机采集备份指标。安全复制 `.env.local` 到源码机仓库根目录；安装 Go/Node 并准备源码依赖后，在本机启动 Go API、前端和备份服务。普通虚拟机需让源码机能够访问依赖机，且容器能反向访问源码机 `8081` 和备份指标 `8092`；源码机防火墙需允许这些访问。两台机器没有共享文件目录时，运维指标、日志和组件状态可用，依赖本地配置文件的规则/通知编辑保持只读。只有显式追加 `--include-backup` 才启动备份容器；恢复默认命令会停止旧备份容器，保留备份数据。
 
 ### OrbStack 虚拟机本地调试
 
 依赖使用 Ubuntu 虚拟机自己的 Docker Engine。Mac 安装 Go 和符合 `iot_front/package.json` 的 Node.js，使用共享的仓库目录编辑、运行和调试源码。以下命令均在 **Mac 仓库根目录**运行，`develop` 替换为 `orb list` 中的虚拟机名称：
 
 ```bash
-orb list
-orb -m develop sudo bash scripts/setup-local.sh --skip-code-deps --include-ops \
-  --dependency-host 127.0.0.1 --api-host host.orb.internal
+# 仅首次创建；已有 develop 时跳过，不删除原机器
+orb create ubuntu:24.04 develop
+orb -m develop sudo bash scripts/setup-local.sh --dependencies-only --video off
 go mod download
 (cd iot_front && npm ci)
 ```
 
-`--skip-code-deps` 使虚拟机无需安装 Go/Node，`--include-ops` 启动运维中心依赖；AI 通过 DeepSeek API 配置。Mac 可直接使用共享目录中的 `.env.local`；第二套依赖环境应指定独立 `--env-file`，并避免同时占用相同转发端口。
+也可以进入 `develop` 的共享仓库目录，直接运行 `sudo bash scripts/setup-local.sh --dependencies-only --video off`。脚本识别 OrbStack，并自动把 API 回调设为 `host.orb.internal`；新配置使用 `127.0.0.1` 连接依赖，已有配置保留依赖地址，显式 `--dependency-host 127.0.0.1` 可切回本机转发。Mac 直接使用共享目录中的 `.env.local`，运维配置文件也通过共享目录生效。AI 通过 DeepSeek API 配置。第二套环境须指定独立 `--env-file`，并避免同时占用相同转发端口。
+
+运维规则与通知配置默认在共享的 `data/ops`；可在 `.env.local` 设置 `IOT_LOCAL_OPS_DIR=./data/local-develop/ops` 指定单独目录，脚本同步 Compose 挂载和 API 配置路径。重建虚拟机不会删除 Mac 共享目录：需要干净运维配置时使用新的目录，旧规则和通知文件仍保留。
+
+摄像头直播也使用同一入口；不传 `--video` 保留现状，新配置默认关闭：
+
+```bash
+orb -m develop sudo bash scripts/setup-local.sh --dependencies-only --video on
+orb -m develop sudo bash scripts/setup-local.sh --dependencies-only --video off
+```
+
+切换后重启本机 API 加载配置。开启会生成并保留媒体密钥；关闭仅移除媒体容器，保留摄像头资料与密钥。需要转码时加 `--transcode`，普通虚拟机启用直播还需 `--rtc-ip <浏览器可访问的虚拟机IP>`；允许的摄像头网段可用 `--allowed-cidrs` 指定。平台内仍由管理员控制直播权限与业务开关。
 
 Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命令不依赖虚拟机 IP 或 VPN 对内网 IP 的路由。确保 Mac 和其他虚拟机没有占用相同端口；同时测试两套依赖时先停掉其中一套，避免连接到错误的环境。`host.orb.internal` 是 OrbStack 提供的 Mac 回调地址；`host.docker.internal` 在虚拟机内安装的 Docker 中指向虚拟机，不能用于此处的 Mac API 回调。地址机制参见 [OrbStack 网络文档](https://docs.orbstack.dev/machines/network)。
 
 需要其他源码机直接访问虚拟机时，可把 `--dependency-host` 换成 `orb -m develop hostname -I` 返回的 IPv4 或 `<机器名>.orb.local`，并确保 VPN/路由允许直连。该模式会开放依赖端口；虚拟机 IP 改变后重跑完整命令更新地址，凭据和数据保留。
 
-随后在 Mac 启动 API、Vite 和备份服务，命令及依赖检查入口见 [技术详情](TECHNICAL_DETAILS.md#日常运行代码)。IDE 与终端均须选择符合 `iot_front/package.json` 的 Node.js。
+随后在 Mac 启动 API、Vite 和备份源码服务；VS Code 选择 `IoT Platform (API + Web + Backup)`。命令见 [技术详情](TECHNICAL_DETAILS.md#日常运行代码)。IDE 与终端均须选择符合 `iot_front/package.json` 的 Node.js。
 
 查看、停止依赖仍在 Mac 仓库根目录执行，停止不会删除卷：
 
 ```bash
-orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml ps
-orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml stop
+orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml --profile ops ps
+orb -m develop sudo docker compose --project-name iot-platform-local --env-file .env.local -f compose.local.yaml --profile ops stop
 ```
 
 ### ARM64 与 x86_64
@@ -145,7 +168,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](OFFLINE_DEPLOYMENT.md)。
 
-摄像头直播媒体服务使用 profile `video`，由 `scripts/video-module.sh` / `video-module.ps1` 的 `enable`、`disable`、`status`、`logs` 管理（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](VIDEO_LIVE.md#部署)。
+摄像头直播媒体服务使用 profile `video`。本地用 `setup-local.sh --video on|off`（PowerShell 为 `-Video on|off`）；虚拟机模式同时加 `--dependencies-only`。在线/离线仍使用 `scripts/video-module.sh` / `video-module.ps1`，也可用它查看 `status`、`logs`（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](VIDEO_LIVE.md#部署)。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
