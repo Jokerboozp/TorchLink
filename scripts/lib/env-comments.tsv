@@ -103,6 +103,16 @@ IOT_LOCAL_API_HOST	本地依赖容器访问源码机 API 的主机名，供 Prom
 PROMETHEUS_BIND_ADDRESS	Prometheus 端口绑定地址，默认仅本机 127.0.0.1
 LOKI_RETENTION	Loki 默认日志保留时长，例如 744h
 COMPOSE_PROFILES	启用的可选 Compose 组件，多个值用逗号分隔；包含 video 时部署摄像头直播媒体服务
+IOT_VIDEO_MODULE	摄像头直播媒体服务部署开关：on 默认部署，off 表示显式关闭且后续部署保持关闭
+IOT_VIDEO_RTP_PORT_MIN	GB28181 RTP 接收端口范围起点（UDP/TCP），需对摄像头网络开放
+IOT_VIDEO_RTP_PORT_MAX	GB28181 RTP 接收端口范围终点，每路国标流占用两个端口
+IOT_VIDEO_RTP_BIND_ADDRESS	GB28181 RTP 端口监听地址
+IOT_GB28181_ENABLED	是否启用 GB28181 接入（平台作为 SIP 服务器），false 不影响 ONVIF / RTSP
+IOT_GB28181_SERVER_ID	平台 SIP 服务器编号（20 位），填写到设备的平台接入配置
+IOT_GB28181_DOMAIN	SIP 域（10 位），为空时取服务器编号前 10 位
+IOT_GB28181_SIP_PORT	SIP 信令端口（UDP/TCP），需对摄像头网络开放
+IOT_GB28181_SIP_HOST	设备回连平台 SIP 的地址；为空时在线/离线取 IOT_VIDEO_RTC_EXTERN_IP，本地按路由自动选择
+IOT_GB28181_MEDIA_IP	设备发送 RTP 的媒体服务地址；为空时取 IOT_VIDEO_RTC_EXTERN_IP 的第一个地址
 IOT_VIDEO_MEDIA_API_URL	摄像头直播媒体服务 API 地址；为空表示直播模块未部署，其余业务不受影响
 IOT_VIDEO_MEDIA_SECRET	媒体服务管理 API 密钥，仅服务端使用，首次启用直播时自动生成
 IOT_VIDEO_HOOK_SECRET	媒体服务回调平台时携带的密钥，首次启用直播时自动生成
@@ -116,7 +126,6 @@ IOT_VIDEO_ALLOWED_PORTS	允许访问的摄像头 RTSP / ONVIF 端口，逗号分
 IOT_VIDEO_TRANSCODE_ENABLED	是否允许转码（H.265 转 H.264 等），默认 false
 IOT_VIDEO_TRANSCODE_MAX	同时运行的转码任务上限
 IOT_VIDEO_TRANSCODE_THREADS	每个转码任务使用的编码线程数
-IOT_VIDEO_TRANSCODE_HWACCEL	硬件加速预留配置，当前只支持 none
 IOT_VIDEO_MAX_SESSIONS	同时存在的播放会话上限
 IOT_VIDEO_MAX_SOURCE_STREAMS	同时拉流的摄像头码流上限
 IOT_VIDEO_SESSION_LEASE	播放会话租约，浏览器按约三分之一间隔续期；超时自动回收

@@ -65,7 +65,7 @@ func newLiveEnv(t *testing.T, deployed bool) *liveEnv {
 		env.media = videotest.New("media-secret-0123456789abcdef")
 		t.Cleanup(env.media.Close)
 		_, lan, _ := net.ParseCIDR("10.0.0.0/8")
-		vc := config.VideoConfig{MediaAPIURL: env.media.URL, MediaSecret: "media-secret-0123456789abcdef", MediaServerID: "torchlink-media-1", HookSecret: "hook-secret-0123456789abcdef0", CredentialKey: []byte(strings.Repeat("k", 32)), CredentialKeyID: "k1", AllowedCIDRs: []*net.IPNet{lan}, AllowedPorts: map[int]bool{554: true}, HLSPublicPath: "/media/hls", LeaseTTL: 45 * time.Second, IdleGrace: 20 * time.Second, StartTimeout: 2 * time.Second, MaxSessions: 50, MaxSourceStreams: 8, Transcode: true, MaxTranscodes: 2, HWAccel: "none"}
+		vc := config.VideoConfig{MediaAPIURL: env.media.URL, MediaSecret: "media-secret-0123456789abcdef", MediaServerID: "torchlink-media-1", HookSecret: "hook-secret-0123456789abcdef0", CredentialKey: []byte(strings.Repeat("k", 32)), CredentialKeyID: "k1", AllowedCIDRs: []*net.IPNet{lan}, AllowedPorts: map[int]bool{554: true}, HLSPublicPath: "/media/hls", LeaseTTL: 45 * time.Second, IdleGrace: 20 * time.Second, StartTimeout: 2 * time.Second, MaxSessions: 50, MaxSourceStreams: 8, Transcode: true, MaxTranscodes: 2}
 		svc := video.New(vc, repo, api.VideoCameraLookup, api.VideoAuthorize, nil)
 		svc.Start(ctx)
 		api.SetVideo(svc)
@@ -369,3 +369,38 @@ func postSignedVideo(t *testing.T, baseURL string, body []byte, platform, secret
 }
 
 func fmtInt64(v int64) string { return strconv.FormatInt(v, 10) }
+
+func TestVideoGBDeviceAPI(t *testing.T) {
+	e := newLiveEnv(t, true)
+	id := "34020000001320000001"
+	d := e.req("PUT", "/api/v1/integrations/video/gb28181/devices/"+id, e.root, map[string]any{"name": "东门 NVR", "enabled": true, "password": "gb-secret"}, 200)
+	if _, leaked := d["password"]; leaked || d["hasPassword"] != true || d["online"] != false || d["streamTransport"] != "UDP" {
+		t.Fatalf("device view: %v", d)
+	}
+	e.req("PUT", "/api/v1/integrations/video/gb28181/devices/123", e.root, map[string]any{"enabled": true, "password": "x"}, 422)
+	e.req("PUT", "/api/v1/integrations/video/gb28181/devices/34020000001320000002", e.root, map[string]any{"enabled": true}, 422)
+	// Keeping the password: an update without one leaves it in place.
+	e.req("PUT", "/api/v1/integrations/video/gb28181/devices/"+id, e.root, map[string]any{"name": "东门", "enabled": true, "streamTransport": "tcp"}, 200)
+	list := e.req("GET", "/api/v1/integrations/video/gb28181/devices", e.root, nil, 200)
+	items := list["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["name"] != "东门" || items[0].(map[string]any)["streamTransport"] != "TCP" {
+		t.Fatalf("list: %v", list)
+	}
+	// Another tenant cannot see, take over or delete the device.
+	other := e.req("POST", "/api/v1/auth/login", "", map[string]any{"username": "root", "password": "live-root-test", "tenantId": "tenant_b"}, 200)["accessToken"].(string)
+	if items := e.req("GET", "/api/v1/integrations/video/gb28181/devices", other, nil, 200)["items"].([]any); len(items) != 0 {
+		t.Fatalf("devices leaked across tenants: %v", items)
+	}
+	e.req("PUT", "/api/v1/integrations/video/gb28181/devices/"+id, other, map[string]any{"enabled": true, "password": "x"}, 409)
+	e.req("DELETE", "/api/v1/integrations/video/gb28181/devices/"+id, other, nil, 404)
+	// A camera can use the device; a device-scoped user without the camera menu cannot manage devices.
+	e.req("POST", "/api/v1/integrations/video/cameras", e.root, map[string]any{"cameraId": "gbcam", "cameraName": "国标", "deviceId": "d1", "enabled": true}, 201)
+	cfg := e.req("PUT", "/api/v1/integrations/video/cameras/gbcam/live", e.root, map[string]any{"enabled": true, "accessMode": "GB28181", "gbDeviceId": id, "gbChannelId": "34020000001310000001"}, 200)
+	if cfg["accessMode"] != "GB28181" || cfg["gbChannelId"] != "34020000001310000001" {
+		t.Fatalf("camera live config: %v", cfg)
+	}
+	e.req("POST", "/api/v1/access/users", e.root, map[string]any{"username": "viewer", "password": "live-password-test", "enabled": true, "permissions": []string{"menu:devices", videoPlayPermission}, "deviceScope": "all"}, 200)
+	e.req("GET", "/api/v1/integrations/video/gb28181/devices", e.login("viewer"), nil, 403)
+	e.req("DELETE", "/api/v1/integrations/video/gb28181/devices/"+id, e.root, nil, 200)
+	e.req("GET", "/api/v1/integrations/video/gb28181/devices", e.root, nil, 200)
+}

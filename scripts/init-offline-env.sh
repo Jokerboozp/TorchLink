@@ -18,6 +18,10 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
     line="${line//__TORCHLINK_RANDOM_HEX__/$secret}"
   fi
+  if [[ "$line" == *'__TORCHLINK_RANDOM_BASE64_32__'* ]]; then
+    secret="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+    line="${line//__TORCHLINK_RANDOM_BASE64_32__/$secret}"
+  fi
   printf '%s\n' "$line"
 done < "$template" > "$temporary"
 # Atomic publication without overwriting an existing or concurrently created file.

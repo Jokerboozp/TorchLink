@@ -84,8 +84,8 @@ services:
       IOT_OPS_LOKI_RUNTIME_FILE: /app/ops/loki/runtime.yaml
       IOT_OPS_ALERTMANAGER_CONFIG_FILE: /app/ops/alertmanager/alertmanager.yml
       IOT_OPS_TENANTS: ${IOT_OPS_TENANTS:-}
-      # 摄像头直播（可选模块）：IOT_VIDEO_MEDIA_API_URL 为空表示未部署，其余业务不受影响。
-      # 启用方式见 scripts/video-module.sh / video-module.ps1 与 docs/PLATFORM.md。
+      # 摄像头直播：部署脚本默认启用；IOT_VIDEO_MEDIA_API_URL 为空表示未部署，其余业务不受影响。
+      # 开关见 scripts/video-module.sh / video-module.ps1 与 docs/PLATFORM.md。
       IOT_VIDEO_MEDIA_API_URL: ${IOT_VIDEO_MEDIA_API_URL:-}
       IOT_VIDEO_MEDIA_SECRET: ${IOT_VIDEO_MEDIA_SECRET:-}
       IOT_VIDEO_HOOK_SECRET: ${IOT_VIDEO_HOOK_SECRET:-}
@@ -99,7 +99,19 @@ services:
       IOT_VIDEO_MAX_SOURCE_STREAMS: ${IOT_VIDEO_MAX_SOURCE_STREAMS:-32}
       IOT_VIDEO_SESSION_LEASE: ${IOT_VIDEO_SESSION_LEASE:-45s}
       IOT_VIDEO_IDLE_GRACE: ${IOT_VIDEO_IDLE_GRACE:-20s}
-    ports: ["${IOT_API_PORT:-8081}:8080", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/tcp", "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"]
+      # GB28181 信令：设备向平台注册的 SIP 端口；媒体经 ZLMediaKit 的 RTP 端口范围接收。
+      IOT_GB28181_ENABLED: ${IOT_GB28181_ENABLED:-true}
+      IOT_GB28181_SERVER_ID: ${IOT_GB28181_SERVER_ID:-34020000002000000001}
+      IOT_GB28181_DOMAIN: ${IOT_GB28181_DOMAIN:-}
+      IOT_GB28181_SIP_PORT: ${IOT_GB28181_SIP_PORT:-5060}
+      IOT_GB28181_SIP_HOST: ${IOT_GB28181_SIP_HOST:-${IOT_VIDEO_RTC_EXTERN_IP:-}}
+      IOT_GB28181_MEDIA_IP: ${IOT_GB28181_MEDIA_IP:-${IOT_VIDEO_RTC_EXTERN_IP:-}}
+    ports:
+      - "${IOT_API_PORT:-8081}:8080"
+      - "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/tcp"
+      - "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"
+      - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/udp"
+      - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/tcp"
     volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager"]
     depends_on:
       ops-init: {condition: service_completed_successfully}
@@ -452,9 +464,14 @@ services:
       IOT_VIDEO_RTC_PORT: ${IOT_VIDEO_RTC_PORT:-8000}
       IOT_VIDEO_RTC_EXTERN_IP: ${IOT_VIDEO_RTC_EXTERN_IP:-}
       IOT_VIDEO_TRANSCODE_THREADS: ${IOT_VIDEO_TRANSCODE_THREADS:-2}
+      IOT_VIDEO_RTP_PORT_MIN: ${IOT_VIDEO_RTP_PORT_MIN:-30000}
+      IOT_VIDEO_RTP_PORT_MAX: ${IOT_VIDEO_RTP_PORT_MAX:-30063}
     ports:
       - "${IOT_VIDEO_RTC_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTC_PORT:-8000}:${IOT_VIDEO_RTC_PORT:-8000}/udp"
       - "${IOT_VIDEO_RTC_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTC_PORT:-8000}:${IOT_VIDEO_RTC_PORT:-8000}/tcp"
+      # GB28181 RTP receive ports (UDP and TCP), reachable from camera networks.
+      - "${IOT_VIDEO_RTP_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTP_PORT_MIN:-30000}-${IOT_VIDEO_RTP_PORT_MAX:-30063}:${IOT_VIDEO_RTP_PORT_MIN:-30000}-${IOT_VIDEO_RTP_PORT_MAX:-30063}/udp"
+      - "${IOT_VIDEO_RTP_BIND_ADDRESS:-0.0.0.0}:${IOT_VIDEO_RTP_PORT_MIN:-30000}-${IOT_VIDEO_RTP_PORT_MAX:-30063}:${IOT_VIDEO_RTP_PORT_MIN:-30000}-${IOT_VIDEO_RTP_PORT_MAX:-30063}/tcp"
     tmpfs: ["/opt/media/hls:size=${IOT_VIDEO_HLS_TMPFS_SIZE:-512m}"]
     cpus: ${IOT_VIDEO_MEDIA_CPUS:-2}
     mem_limit: ${IOT_VIDEO_MEDIA_MEMORY:-2g}

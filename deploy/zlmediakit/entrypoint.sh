@@ -19,6 +19,9 @@ require IOT_VIDEO_MEDIA_SERVER_ID "${IOT_VIDEO_MEDIA_SERVER_ID:-torchlink-media-
 require IOT_VIDEO_HOOK_BASE "${IOT_VIDEO_HOOK_BASE:-}" 'https?://[A-Za-z0-9._:-]+(/[A-Za-z0-9._/-]*)?'
 require IOT_VIDEO_RTC_PORT "${IOT_VIDEO_RTC_PORT:-8000}" '[0-9]{2,5}'
 require IOT_VIDEO_TRANSCODE_THREADS "${IOT_VIDEO_TRANSCODE_THREADS:-2}" '[1-9][0-9]?'
+require IOT_VIDEO_RTP_PORT_MIN "${IOT_VIDEO_RTP_PORT_MIN:-30000}" '[0-9]{4,5}'
+require IOT_VIDEO_RTP_PORT_MAX "${IOT_VIDEO_RTP_PORT_MAX:-30063}" '[0-9]{4,5}'
+if [ "${IOT_VIDEO_RTP_PORT_MIN:-30000}" -ge "${IOT_VIDEO_RTP_PORT_MAX:-30063}" ]; then echo "invalid RTP port range" >&2; exit 64; fi
 extern_ip="${IOT_VIDEO_RTC_EXTERN_IP:-}"
 if [ -n "$extern_ip" ]; then require IOT_VIDEO_RTC_EXTERN_IP "$extern_ip" '[0-9A-Fa-f.:,]{2,200}'; fi
 
@@ -30,6 +33,8 @@ sed \
   -e "s|__IOT_VIDEO_RTC_PORT__|${IOT_VIDEO_RTC_PORT:-8000}|g" \
   -e "s|__IOT_VIDEO_RTC_EXTERN_IP__|${extern_ip}|g" \
   -e "s|__IOT_VIDEO_TRANSCODE_THREADS__|${IOT_VIDEO_TRANSCODE_THREADS:-2}|g" \
+  -e "s|__IOT_VIDEO_RTP_PORT_MIN__|${IOT_VIDEO_RTP_PORT_MIN:-30000}|g" \
+  -e "s|__IOT_VIDEO_RTP_PORT_MAX__|${IOT_VIDEO_RTP_PORT_MAX:-30063}|g" \
   "$template" > "$target.tmp"
 chmod 600 "$target.tmp"
 mv "$target.tmp" "$target"

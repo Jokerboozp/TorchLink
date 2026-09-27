@@ -20,6 +20,13 @@ type Proxy struct {
 	URL, User, Password string
 }
 
+// RTPServer is an open GB28181 receiver.
+type RTPServer struct {
+	Port int
+	TCP  bool
+	SSRC string
+}
+
 type FFmpeg struct {
 	Key, CmdKey, Src, Dst, Cmd string
 }
@@ -30,21 +37,23 @@ type Fake struct {
 	Secret string
 
 	mu        sync.Mutex
-	Proxies   map[string]Proxy  // app/stream
-	FFmpegs   map[string]FFmpeg // key
-	Media     map[string]string // app/stream -> video codec
-	Calls     map[string]int    // api name -> count
-	Deleted   []string          // delete_webrtc queries
-	Codec     map[string]string // source URL -> codec (default H264)
-	FailURL   map[string]bool   // source URLs that fail to pull
-	Templates map[string]string // cmd key -> command (missing key uses the default command)
+	Proxies   map[string]Proxy     // app/stream
+	FFmpegs   map[string]FFmpeg    // key
+	Media     map[string]string    // app/stream -> video codec
+	Calls     map[string]int       // api name -> count
+	Deleted   []string             // delete_webrtc queries
+	Codec     map[string]string    // source URL -> codec (default H264)
+	FailURL   map[string]bool      // source URLs that fail to pull
+	Templates map[string]string    // cmd key -> command (missing key uses the default command)
+	RTP       map[string]RTPServer // app/stream -> receiver
+	nextPort  int
 	Down      bool
 	Delay     time.Duration
 }
 
 // New starts a fake media server with the platform's transcode templates.
 func New(secret string) *Fake {
-	f := &Fake{Secret: secret, Proxies: map[string]Proxy{}, FFmpegs: map[string]FFmpeg{}, Media: map[string]string{}, Calls: map[string]int{}, Codec: map[string]string{}, FailURL: map[string]bool{}, Templates: map[string]string{
+	f := &Fake{Secret: secret, RTP: map[string]RTPServer{}, nextPort: 30000, Proxies: map[string]Proxy{}, FFmpegs: map[string]FFmpeg{}, Media: map[string]string{}, Calls: map[string]int{}, Codec: map[string]string{}, FailURL: map[string]bool{}, Templates: map[string]string{
 		"ffmpeg.iot_h264_1080p": "%s -i %s -c:v libx264 -c:a aac -f rtsp %s",
 		"ffmpeg.iot_h264_720p":  "%s -i %s -c:v libx264 -c:a aac -f rtsp %s",
 		"ffmpeg.iot_h264_480p":  "%s -i %s -c:v libx264 -c:a aac -f rtsp %s",
@@ -85,7 +94,45 @@ func (f *Fake) SetDown(down bool) {
 func (f *Fake) Restart() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.Proxies, f.FFmpegs, f.Media = map[string]Proxy{}, map[string]FFmpeg{}, map[string]string{}
+	f.Proxies, f.FFmpegs, f.Media, f.RTP = map[string]Proxy{}, map[string]FFmpeg{}, map[string]string{}, map[string]RTPServer{}
+}
+
+// Receiver returns the RTP receiver opened for app/stream.
+func (f *Fake) Receiver(key string) (RTPServer, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.RTP[key]
+	return r, ok
+}
+
+// Receivers counts open RTP receivers.
+func (f *Fake) Receivers() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.RTP)
+}
+
+// FeedPort simulates a device sending media with the given SSRC to a
+// receiver port. Media registers only when the receiver exists and its SSRC
+// filter matches, like ZLMediaKit's RTP server.
+func (f *Fake) FeedPort(port int, ssrc, codec string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for key, r := range f.RTP {
+		if r.Port == port && (r.SSRC == "" || strings.TrimLeft(r.SSRC, "0") == strings.TrimLeft(ssrc, "0")) {
+			f.Media[key] = codec
+			return true
+		}
+	}
+	return false
+}
+
+// StopFeed simulates a device that stopped sending: the receiver times out.
+func (f *Fake) StopFeed(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.Media, key)
+	delete(f.RTP, key)
 }
 
 // AddOrphan adds a proxy the platform does not know about.
@@ -199,6 +246,39 @@ func (f *Fake) handle(w http.ResponseWriter, r *http.Request) {
 		}}}})
 	case "close_streams":
 		f.reply(w, map[string]any{"count_hit": 0, "count_closed": 0})
+	case "openRtpServer":
+		k := args.Get("app") + "/" + args.Get("stream_id")
+		if _, ok := f.RTP[k]; ok {
+			f.reply(w, map[string]any{"code": -300, "msg": "This stream already exists"})
+			return
+		}
+		port := f.nextPort
+		f.nextPort += 2
+		f.RTP[k] = RTPServer{Port: port, TCP: args.Get("tcp_mode") == "1", SSRC: args.Get("ssrc")}
+		f.reply(w, map[string]any{"port": port})
+	case "updateRtpServerSSRC":
+		k := args.Get("app") + "/" + args.Get("stream_id")
+		r, ok := f.RTP[k]
+		if !ok {
+			f.reply(w, map[string]any{"code": -500, "msg": "RtpServer not found by stream_id"})
+			return
+		}
+		r.SSRC = args.Get("ssrc")
+		f.RTP[k] = r
+		f.reply(w, map[string]any{})
+	case "closeRtpServer":
+		k := args.Get("app") + "/" + args.Get("stream_id")
+		_, ok := f.RTP[k]
+		delete(f.RTP, k)
+		delete(f.Media, k)
+		f.reply(w, map[string]any{"hit": map[bool]int{true: 1, false: 0}[ok]})
+	case "listRtpServer":
+		rows := []map[string]any{}
+		for k, r := range f.RTP {
+			app, stream, _ := strings.Cut(k, "/")
+			rows = append(rows, map[string]any{"vhost": "__defaultVhost__", "app": app, "stream_id": stream, "port": r.Port, "ssrc": r.SSRC})
+		}
+		f.reply(w, map[string]any{"data": rows})
 	case "whep":
 		body, _ := io.ReadAll(r.Body)
 		if _, ok := f.Media[r.URL.Query().Get("app")+"/"+r.URL.Query().Get("stream")]; !ok || !strings.HasPrefix(string(body), "v=0") {

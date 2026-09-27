@@ -4,8 +4,9 @@ defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, notifyError } from '../api'
-import { Plus, RefreshCw } from '@lucide/vue'
+import { Plus, RadioTower, RefreshCw } from '@lucide/vue'
 import CameraLiveConfig from '../components/CameraLiveConfig.vue'
+import GBDevicesDialog from '../components/GBDevicesDialog.vue'
 import LivePlayerDialog from '../components/LivePlayerDialog.vue'
 import { cameraLiveBadge, liveState, liveUsable, loadLiveStatus, moduleStateText, moduleStateTone } from '../liveVideo'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -31,6 +32,7 @@ const liveConfigCamera = ref(null)
 const playerVisible = ref(false)
 const playerCamera = ref(null)
 const moduleSaving = ref(false)
+const gbVisible = ref(false)
 const liveStatus = computed(() => liveState.status)
 const liveDeployed = computed(() => Boolean(liveStatus.value?.deployed) && liveStatus.value?.state !== 'misconfigured')
 
@@ -127,6 +129,7 @@ function rowActions(row) {
     <p class="camera-hint">一个摄像头最多关联一个设备，一个设备可以关联多个摄像头。</p>
     <template #actions>
       <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
+      <ui-button v-if="liveDeployed" v-permission="'PUT /api/v1/integrations/video/gb28181/devices/:deviceId'" @click="gbVisible = true"><RadioTower />国标设备</ui-button>
       <ui-button v-permission="'POST /api/v1/integrations/video/cameras'" type="primary" @click="open()"><Plus />新增摄像头</ui-button>
     </template>
   </FilterBar>
@@ -135,7 +138,7 @@ function rowActions(row) {
     <div class="camera-module__text">
       <strong>摄像头直播</strong>
       <StatusDot :tone="moduleStateTone[liveStatus?.state] || 'neutral'" :label="moduleStateText[liveStatus?.state] || '读取中'" />
-      <small>{{ liveStatus?.message || '基础资料、设备关联和告警摄像头信息始终可用；直播由可选的独立模块提供。' }}</small>
+      <small>{{ liveStatus?.message || '基础资料、设备关联和告警摄像头信息始终可用；直播默认启用，未配置直播的摄像头只保留资料。' }}</small>
     </div>
     <ui-switch v-if="liveState.canManageModule && liveDeployed" :model-value="Boolean(liveStatus?.enabled)" :disabled="moduleSaving" active-text="已启用" inactive-text="已关闭" @update:model-value="toggleModule" />
   </section>
@@ -176,6 +179,7 @@ function rowActions(row) {
   </ui-dialog>
   <CameraLiveConfig v-model="liveConfigVisible" :camera="liveConfigCamera" @saved="load" />
   <LivePlayerDialog v-model="playerVisible" :camera="playerCamera" />
+  <GBDevicesDialog v-if="liveDeployed" v-model="gbVisible" />
 </template>
 
 <style scoped>

@@ -41,11 +41,21 @@ var (
 	errLimitSession = errors.New("播放会话数量已达上限")
 )
 
-// sourceSpec describes how to pull one camera stream. The URL is pinned to a
-// validated IP and never contains credentials.
+// sourceSpec describes how to obtain one camera stream: an RTSP pull (the URL
+// is pinned to a validated IP and never contains credentials) or a GB28181
+// channel the device is asked to send.
 type sourceSpec struct {
 	URL  string
 	Cred Credentials
+	GB   *gbTarget
+}
+
+// gbMedia runs GB28181 calls: a receiver on the media server plus the SIP
+// dialog asking the device to send to it.
+type gbMedia interface {
+	start(ctx context.Context, app, stream string, target gbTarget) error
+	stop(app, stream string)
+	owns(key string) bool
 }
 
 // task is one media server object: a pull proxy (source) or an FFmpeg
@@ -68,6 +78,10 @@ type task struct {
 	failures     int
 	backoffUntil time.Time
 	info         mediaInfo
+	// gb marks a source received from a GB28181 device instead of pulled.
+	gb bool
+	// seq orders the last state change against reconcile listings.
+	seq uint64
 }
 
 func (t *task) key() string { return t.app + "/" + t.stream }
@@ -110,6 +124,8 @@ type manager struct {
 	tasks    map[string]*task
 	flights  map[string]*flight
 	probing  map[string]bool
+	gb       gbMedia
+	seq      uint64
 }
 
 func newManager(cfg managerConfig, media mediaServer, store ports.VideoStore, log *slog.Logger) *manager {
@@ -165,6 +181,18 @@ func (m *manager) ensureSource(ctx context.Context, tenant, camera, variant stri
 	return m.ensure(appSource+"/"+stream, func() *task {
 		return &task{app: appSource, stream: stream, kind: "source", tenant: tenant, camera: camera, variant: variant, profile: profileDirect}
 	}, func(c context.Context, t *task) error {
+		m.mu.Lock()
+		t.gb = spec.GB != nil
+		m.mu.Unlock()
+		if spec.GB != nil {
+			if m.gb == nil {
+				return errGBUnavailable
+			}
+			if err := m.gb.start(c, appSource, stream, *spec.GB); err != nil {
+				return err
+			}
+			return m.waitReady(c, t)
+		}
 		if err := m.media.AddStreamProxy(c, appSource, stream, spec.URL, spec.Cred, proxyOptions{HLS: true, RTC: true, RetryCount: 3, Timeout: 10 * time.Second}); err != nil {
 			return err
 		}
@@ -240,7 +268,8 @@ func (m *manager) ensure(key string, create func() *task, start func(context.Con
 		}
 		m.tasks[key] = t
 	}
-	t.state, t.zeroSince = taskStarting, m.now()
+	m.setStateLocked(t, taskStarting, t.lastErr)
+	t.zeroSince = m.now()
 	f := &flight{done: make(chan struct{})}
 	m.flights[key] = f
 	m.mu.Unlock()
@@ -253,14 +282,15 @@ func (m *manager) ensure(key string, create func() *task, start func(context.Con
 	m.mu.Lock()
 	delete(m.flights, key)
 	if err != nil {
-		t.state, t.lastErr = taskFailed, redactText(err.Error())
+		m.setStateLocked(t, taskFailed, redactText(err.Error()))
 		t.failures++
 		backoff := m.cfg.FailureBackoff << min(t.failures-1, 6)
 		t.backoffUntil = m.now().Add(min(backoff, m.cfg.MaxBackoff))
 		f.err = err
 		m.log.Warn("video task start failed", "task", key, "failures", t.failures, "error", t.lastErr)
 	} else {
-		t.state, t.lastErr, t.failures, t.backoffUntil = taskRunning, "", 0, time.Time{}
+		m.setStateLocked(t, taskRunning, "")
+		t.failures, t.backoffUntil = 0, time.Time{}
 		t.zeroSince = m.now()
 	}
 	close(f.done)
@@ -331,6 +361,11 @@ func (m *manager) stopTask(t *task) {
 				m.log.Warn("stop transcode failed", "task", t.key(), "error", redactText(err.Error()))
 			}
 		}
+		_ = m.media.CloseStreams(ctx, t.app, t.stream)
+		return
+	}
+	if t.gb && m.gb != nil {
+		m.gb.stop(t.app, t.stream)
 		_ = m.media.CloseStreams(ctx, t.app, t.stream)
 		return
 	}
@@ -537,6 +572,12 @@ func (m *manager) reap() {
 // tasks the media server lost (restart, give-up after retries) are marked so
 // the next heartbeat restarts them.
 func (m *manager) reconcile(ctx context.Context) error {
+	// The listing is a snapshot: tasks that changed state after it was taken
+	// (started, restarted, marked lost by a media restart) are left alone, so
+	// a slow reconcile can never undo newer state.
+	m.mu.Lock()
+	listedSeq := m.seq
+	m.mu.Unlock()
 	proxies, err := m.media.ListStreamProxies(ctx)
 	if err != nil {
 		return err
@@ -544,6 +585,12 @@ func (m *manager) reconcile(ctx context.Context) error {
 	sources, err := m.media.ListFFmpegSources(ctx)
 	if err != nil {
 		return err
+	}
+	var receivers []string
+	if m.gb != nil {
+		if receivers, err = m.media.ListRTPServers(ctx); err != nil {
+			return err
+		}
 	}
 	present := map[string]bool{}
 	m.mu.Lock()
@@ -558,6 +605,23 @@ func (m *manager) reconcile(ctx context.Context) error {
 		present[k] = true
 		if _, ok := m.tasks[k]; !ok && m.flights[k] == nil && !m.probing[k] {
 			orphanProxies = append(orphanProxies, k)
+		}
+	}
+	// A GB28181 receiver only counts when this process holds its call; after
+	// an API restart the dialog is gone, so the receiver is closed and the
+	// next heartbeat INVITEs again.
+	orphanReceivers := []string{}
+	for _, k := range receivers {
+		if !strings.HasPrefix(k, appSource+"/") && !strings.HasPrefix(k, appTest+"/") {
+			continue
+		}
+		if m.flights[k] != nil || m.probing[k] {
+			continue
+		}
+		if m.gb.owns(k) {
+			present[k] = true
+		} else {
+			orphanReceivers = append(orphanReceivers, k)
 		}
 	}
 	orphanFFmpeg := []string{}
@@ -580,10 +644,13 @@ func (m *manager) reconcile(ctx context.Context) error {
 		}
 	}
 	for k, t := range m.tasks {
+		if t.seq > listedSeq {
+			continue
+		}
 		if t.state == taskRunning && !present[k] {
-			t.state, t.lastErr = taskLost, "媒体服务上的任务已不存在"
+			m.setStateLocked(t, taskLost, "媒体服务上的任务已不存在")
 		} else if t.state == taskLost && present[k] {
-			t.state = taskRunning
+			m.setStateLocked(t, taskRunning, "")
 		}
 	}
 	m.mu.Unlock()
@@ -596,7 +663,27 @@ func (m *manager) reconcile(ctx context.Context) error {
 		m.log.Info("removing orphan transcode", "key", key)
 		_ = m.media.DelFFmpegSource(ctx, key)
 	}
+	for _, k := range orphanReceivers {
+		app, stream, _ := strings.Cut(k, "/")
+		m.log.Info("removing orphan GB28181 receiver", "task", k)
+		m.gb.stop(app, stream)
+	}
 	return nil
+}
+
+// markLost marks a task whose media ended (device BYE, receiver timeout) so
+// the next heartbeat restarts it.
+func (m *manager) markLost(app, stream, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if t := m.tasks[app+"/"+stream]; t != nil && t.state == taskRunning {
+		m.setStateLocked(t, taskLost, reason)
+	}
+}
+
+func (m *manager) setStateLocked(t *task, state, lastErr string) {
+	m.seq++
+	t.state, t.lastErr, t.seq = state, lastErr, m.seq
 }
 
 // markAllLost is used when the media server reports a restart.
@@ -605,7 +692,7 @@ func (m *manager) markAllLost() {
 	defer m.mu.Unlock()
 	for _, t := range m.tasks {
 		if t.state == taskRunning {
-			t.state, t.lastErr = taskLost, "媒体服务已重启"
+			m.setStateLocked(t, taskLost, "媒体服务已重启")
 		}
 	}
 }
@@ -714,13 +801,26 @@ func (m *manager) probe(ctx context.Context, spec sourceSpec, timeout time.Durat
 	m.mu.Unlock()
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = m.media.DelStreamProxy(cleanup, appTest, stream)
+		if spec.GB != nil {
+			if m.gb != nil {
+				m.gb.stop(appTest, stream)
+			}
+		} else {
+			_ = m.media.DelStreamProxy(cleanup, appTest, stream)
+		}
 		cancel()
 		m.mu.Lock()
 		delete(m.probing, key)
 		m.mu.Unlock()
 	}()
-	if err := m.media.AddStreamProxy(ctx, appTest, stream, spec.URL, spec.Cred, proxyOptions{RetryCount: 0, Timeout: timeout}); err != nil {
+	if spec.GB != nil {
+		if m.gb == nil {
+			return mediaInfo{}, errGBUnavailable
+		}
+		if err := m.gb.start(ctx, appTest, stream, *spec.GB); err != nil {
+			return mediaInfo{}, err
+		}
+	} else if err := m.media.AddStreamProxy(ctx, appTest, stream, spec.URL, spec.Cred, proxyOptions{RetryCount: 0, Timeout: timeout}); err != nil {
 		return mediaInfo{}, err
 	}
 	t := &task{app: appTest, stream: stream}

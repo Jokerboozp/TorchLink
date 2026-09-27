@@ -40,13 +40,13 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--deepseek-model MODEL] [--include-harness] [--include-backup] [--include-ops] [--video on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
       echo '--dependencies-only：仅在 Linux 部署全部基础环境（含运维），不安装源码依赖；API、Vue 和备份服务在源码机调试。OrbStack 自动使用 Mac 回调地址。'
-      echo '--video：on 启用直播媒体服务，off 关闭；省略保留现状，新环境默认关闭。'
+      echo '--video：on 部署直播媒体服务，off 关闭并在后续运行中保持关闭；省略时沿用上次选择，新环境默认开启。'
       exit 0 ;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   esac
 done
 case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
-if [ "${#video_args[@]}" -gt 0 ] && [ "$video" != on ]; then echo '媒体选项需要同时指定 --video on。' >&2; exit 1; fi
+if [ "${#video_args[@]}" -gt 0 ] && [ "$video" = off ]; then echo '媒体选项不能与 --video off 同时使用。' >&2; exit 1; fi
 if [ "$dependencies_only" = true ]; then
   [ "$(uname -s)" = Linux ] || { echo '--dependencies-only 请在 Linux 虚拟机内执行；OrbStack 使用 orb -m develop sudo bash scripts/setup-local.sh --dependencies-only。' >&2; exit 1; }
   skip_code_deps=true
@@ -111,6 +111,11 @@ fi
 new_env=false
 [ -f "$env_file" ] || new_env=true
 ensure_deployment_env "$env_file"
+# Live video is deployed by default; an earlier --video off is kept.
+if [ "$video" = keep ]; then
+  video=on
+  [ "$(get_deployment_env_value "$env_file" IOT_VIDEO_MODULE)" = off ] && video=off
+fi
 postgres_password="$(urlencode "$(get_deployment_env_value "$env_file" POSTGRES_PASSWORD)")"
 clickhouse_password="$(urlencode "$(get_deployment_env_value "$env_file" CLICKHOUSE_PASSWORD)")"
 bind_address=127.0.0.1

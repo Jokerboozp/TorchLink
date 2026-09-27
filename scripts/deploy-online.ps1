@@ -12,6 +12,9 @@ Compatibility switch; the AI workflow Harness is mandatory and always started.
 Rejected: the AI workflow Harness is a mandatory component.
 .PARAMETER EnvFile
 Environment file, relative to platform/. Credentials are never replaced.
+.PARAMETER Video
+on/off deploys or removes the camera live media server; keep (default) reuses the
+last choice, and new environments deploy it.
 #>
 [CmdletBinding()]
 param(
@@ -20,7 +23,8 @@ param(
     [switch]$IncludeAi,
     [switch]$IncludeHarness,
     [switch]$NoHarness,
-    [int]$HealthTimeoutSeconds = 180
+    [int]$HealthTimeoutSeconds = 180,
+    [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -45,6 +49,16 @@ if ($useHarness) {
     if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value 'http://deepseek-harness:8091' }
     if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL' -Value 'http://platform-api:8080/mcp/harness' }
 }
+# Live video is deployed by default; an earlier -Video off is kept.
+if ($Video -eq 'keep') { $Video = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE') -eq 'off') { 'off' } else { 'on' } }
+if ($Video -eq 'on') {
+    & (Join-Path $scriptDir 'video-module.ps1') prepare -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
+} else {
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MEDIA_API_URL' -Value ''
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE' -Value 'off'
+    $profiles = @(@("$(Get-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'video' })
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
+}
 Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
 $buildServices = @('platform-api', 'platform-web', 'backup-service')
@@ -55,7 +69,7 @@ if ($useHarness) {
 Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
 $allServices = @(& docker @($compose + @('config', '--services')))
 if ($LASTEXITCODE -ne 0) { throw '无法读取 Compose 服务列表。' }
-# 可选摄像头直播媒体服务：仅在启用 video profile 时出现，由固定 digest 的官方镜像构建。
+# 摄像头直播媒体服务（video profile，默认启用），由固定 digest 的官方镜像构建。
 if (@($allServices | ForEach-Object { $_.Trim() }) -contains 'zlmediakit') { $buildServices += 'zlmediakit' }
 $pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices })
 Write-Host '拉取运行依赖镜像……'
@@ -64,6 +78,10 @@ Write-Host '构建 API、前端和备份服务镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('build', '--pull') + $buildServices)
 Write-Host '启动服务……'
 Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-build', '--pull', 'never'))
+if ($Video -eq 'off') {
+    # Profile services are not removed by up; stop a media server left from an earlier deployment.
+    Invoke-DockerChecked -Arguments ($compose + @('--profile', 'video', 'rm', '-sf', 'zlmediakit'))
+}
 Write-Host '下载知识库嵌入模型 nomic-embed-text（首次可能需要较长时间）……'
 Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
 

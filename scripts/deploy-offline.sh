@@ -63,6 +63,8 @@ if [[ -f "$profiles_file" ]]; then
   while IFS= read -r profile || [[ -n "$profile" ]]; do
     profile="${profile%$'\r'}"
     [[ -n "$profile" ]] || continue
+    # The media image is always packaged; IOT_VIDEO_MODULE=off keeps it undeployed.
+    if [[ "$profile" == video ]] && grep -Eq "^[[:space:]]*IOT_VIDEO_MODULE[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null; then continue; fi
     case "$profile" in harness|gb26875|video) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
   done < "$profiles_file"
 fi
@@ -134,9 +136,9 @@ fi
 web_port="$(env_value IOT_WEB_PORT)"
 echo "离线部署完成。Web 地址：http://127.0.0.1:${web_port:-8080}"
 echo "管理员凭据：$bundle_dir/OFFLINE-CREDENTIALS.txt"
-if [[ -f "$profiles_file" ]] && grep -qx video "$profiles_file"; then
+if [[ -f "$profiles_file" ]] && grep -qx video "$profiles_file" && [[ "$(env_value IOT_VIDEO_MODULE)" != off ]]; then
   if [[ -z "$(env_value IOT_VIDEO_RTC_EXTERN_IP)" ]]; then
     echo "提示：已部署摄像头直播媒体服务，但未设置 IOT_VIDEO_RTC_EXTERN_IP；浏览器将使用 HLS。设置方法：bash scripts/video-module.sh enable --mode offline --env-file .env.offline --rtc-ip <服务器 IP>"
   fi
-  echo "直播模块默认关闭：平台内置管理员在“摄像头映射”页打开直播开关后生效。"
+  echo "摄像头直播默认启用：为摄像头配置 ONVIF / RTSP / GB28181 接入后即可观看；GB28181 设备需能访问 SIP 端口（默认 5060）与 RTP 端口范围（默认 30000-30063）。"
 fi

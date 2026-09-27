@@ -89,6 +89,8 @@ $composeArguments = @(
 if (Test-Path -LiteralPath $profilesPath -PathType Leaf) {
     foreach ($profile in @(Get-Content -LiteralPath $profilesPath -Encoding UTF8 | Where-Object { $_.Trim() })) {
         if ($profile.Trim() -notin @("harness", "gb26875", "video")) { throw "离线包包含未知 profile：$profile" }
+        # The media image is always packaged; IOT_VIDEO_MODULE=off keeps it undeployed.
+        if ($profile.Trim() -eq 'video' -and (Get-EnvValue -Path $envPath -Key 'IOT_VIDEO_MODULE') -eq 'off') { continue }
         $composeArguments += @("--profile", $profile.Trim())
     }
 }
@@ -165,9 +167,9 @@ $webPort = Get-EnvValue -Path $envPath -Key "IOT_WEB_PORT"
 if ([string]::IsNullOrWhiteSpace($webPort)) { $webPort = "8080" }
 Write-Host "离线部署完成。Web 地址：http://127.0.0.1:$webPort" -ForegroundColor Green
 Write-Host "管理员凭据：$(Join-Path $BundleDir 'OFFLINE-CREDENTIALS.txt')"
-if ((Test-Path -LiteralPath $profilesPath -PathType Leaf) -and (@(Get-Content -LiteralPath $profilesPath -Encoding UTF8 | ForEach-Object { $_.Trim() }) -contains 'video')) {
+if ((Test-Path -LiteralPath $profilesPath -PathType Leaf) -and (@(Get-Content -LiteralPath $profilesPath -Encoding UTF8 | ForEach-Object { $_.Trim() }) -contains 'video') -and (Get-EnvValue -Path $envPath -Key 'IOT_VIDEO_MODULE') -ne 'off') {
     if ([string]::IsNullOrWhiteSpace((Get-EnvValue -Path $envPath -Key 'IOT_VIDEO_RTC_EXTERN_IP'))) {
         Write-Warning '已部署摄像头直播媒体服务，但未设置 IOT_VIDEO_RTC_EXTERN_IP；浏览器将使用 HLS。可运行 scripts\video-module.ps1 enable -Mode offline -EnvFile .env.offline -RtcIp <服务器 IP>'
     }
-    Write-Host '直播模块默认关闭：平台内置管理员在“摄像头映射”页打开直播开关后生效。'
+    Write-Host '摄像头直播默认启用：为摄像头配置 ONVIF / RTSP / GB28181 接入后即可观看；GB28181 设备需能访问 SIP 端口（默认 5060）与 RTP 端口范围（默认 30000-30063）。'
 }

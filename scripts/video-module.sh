@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Deploy-level switch for the optional camera live module (ZLMediaKit media
-# server, Compose profile "video"). The business switch (who may watch, and
-# whether live is on) is operated by the platform administrator in the UI.
+# Deploy-level switch for the camera live module (ZLMediaKit media server,
+# Compose profile "video"). It is deployed by default; IOT_VIDEO_MODULE=off in
+# the environment file records an explicit opt-out that later setup and deploy
+# runs keep. Who may watch is decided in the platform UI.
 set -Eeuo pipefail
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(dirname -- "$script_dir")"
@@ -10,9 +11,10 @@ source "$script_dir/lib/deployment.sh"
 
 usage() {
   cat <<'EOF'
-用法：bash scripts/video-module.sh <enable|disable|status|logs> [选项]
+用法：bash scripts/video-module.sh <enable|disable|prepare|status|logs> [选项]
   enable    部署并启动媒体服务，向 API 写入直播配置（首次生成媒体密钥和凭据加密密钥）
-  disable   停止并移除媒体服务容器，API 回到“未部署”；保留密钥、凭据和直播配置
+  disable   停止并移除媒体服务容器，API 回到“未部署”；保留密钥、凭据和直播配置，后续部署保持关闭
+  prepare   只写入直播配置（与 enable 相同的密钥和地址），不操作容器；供部署脚本调用
   status    查看媒体服务容器与配置状态
   logs      查看媒体服务最近日志（日志可能含摄像头地址，请勿公开）
 选项：
@@ -40,7 +42,7 @@ while [ "$#" -gt 0 ]; do
     *) printf '未知参数：%s\n' "$1" >&2; usage >&2; exit 1;;
   esac
 done
-case "$action" in enable|disable|status|logs) ;; *) usage >&2; exit 1;; esac
+case "$action" in enable|disable|prepare|status|logs) ;; *) usage >&2; exit 1;; esac
 
 compose_files=(-f "$project_root/compose.yaml")
 case "$mode" in
@@ -94,25 +96,32 @@ api_url() {
   esac
 }
 
+prepare_config() {
+  for key in IOT_VIDEO_MEDIA_SECRET IOT_VIDEO_HOOK_SECRET IOT_VIDEO_CREDENTIAL_KEY; do ensure_secret "$key"; done
+  [ -n "$rtc_ip" ] && set_deployment_env_value "$env_file" IOT_VIDEO_RTC_EXTERN_IP "$rtc_ip"
+  if [ -z "$(get_deployment_env_value "$env_file" IOT_VIDEO_RTC_EXTERN_IP)" ]; then
+    if [ "$mode" = local ]; then set_deployment_env_value "$env_file" IOT_VIDEO_RTC_EXTERN_IP 127.0.0.1
+    else echo '提示：未设置 --rtc-ip，浏览器可能无法建立 WebRTC 连接，播放器会改用 HLS。' >&2; fi
+  fi
+  [ -n "$rtc_port" ] && set_deployment_env_value "$env_file" IOT_VIDEO_RTC_PORT "$rtc_port"
+  [ -n "$transcode" ] && set_deployment_env_value "$env_file" IOT_VIDEO_TRANSCODE_ENABLED "$transcode"
+  [ -n "$cidrs" ] && set_deployment_env_value "$env_file" IOT_VIDEO_ALLOWED_CIDRS "$cidrs"
+  set_deployment_env_value "$env_file" IOT_VIDEO_MEDIA_API_URL "$(api_url)"
+  set_deployment_env_value "$env_file" IOT_VIDEO_MODULE on
+  set_profile on
+  annotate_deployment_env_file "$env_file"
+}
+
 case "$action" in
+  prepare)
+    prepare_config;;
   enable)
     assert_docker_available
-    for key in IOT_VIDEO_MEDIA_SECRET IOT_VIDEO_HOOK_SECRET IOT_VIDEO_CREDENTIAL_KEY; do ensure_secret "$key"; done
-    [ -n "$rtc_ip" ] && set_deployment_env_value "$env_file" IOT_VIDEO_RTC_EXTERN_IP "$rtc_ip"
-    if [ -z "$(get_deployment_env_value "$env_file" IOT_VIDEO_RTC_EXTERN_IP)" ]; then
-      if [ "$mode" = local ]; then set_deployment_env_value "$env_file" IOT_VIDEO_RTC_EXTERN_IP 127.0.0.1
-      else echo '提示：未设置 --rtc-ip，浏览器可能无法建立 WebRTC 连接，播放器会改用 HLS。' >&2; fi
-    fi
-    [ -n "$rtc_port" ] && set_deployment_env_value "$env_file" IOT_VIDEO_RTC_PORT "$rtc_port"
-    [ -n "$transcode" ] && set_deployment_env_value "$env_file" IOT_VIDEO_TRANSCODE_ENABLED "$transcode"
-    [ -n "$cidrs" ] && set_deployment_env_value "$env_file" IOT_VIDEO_ALLOWED_CIDRS "$cidrs"
-    set_deployment_env_value "$env_file" IOT_VIDEO_MEDIA_API_URL "$(api_url)"
-    set_profile on
-    annotate_deployment_env_file "$env_file"
+    prepare_config
     run_docker "${compose[@]}" config --quiet
     if [ "$mode" = offline ]; then
       image="$(get_deployment_env_value "$env_file" IOT_ZLMEDIAKIT_IMAGE)"
-      docker image inspect "${image:-iot-zlmediakit:offline}" >/dev/null 2>&1 || { echo '离线包未包含媒体服务镜像，请用 --include-video 重新打包。' >&2; exit 1; }
+      docker image inspect "${image:-iot-zlmediakit:offline}" >/dev/null 2>&1 || { echo '离线包未包含媒体服务镜像，请重新打包（不要使用 --without-video）。' >&2; exit 1; }
       run_docker "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 120 zlmediakit
     else
       run_docker "${compose[@]}" build --pull zlmediakit
@@ -124,10 +133,11 @@ case "$action" in
       # Recreate the API so it reads the new IOT_VIDEO_* settings.
       run_docker "${compose[@]}" up -d --no-deps --no-build platform-api
     fi
-    echo '直播模块已部署。平台内置管理员登录后在“摄像头映射”页打开直播开关，再为摄像头配置接入。';;
+    echo '直播模块已部署并默认启用。为摄像头配置 ONVIF / RTSP / GB28181 接入后即可观看；未配置的摄像头只保留资料。';;
   disable)
     assert_docker_available
     set_deployment_env_value "$env_file" IOT_VIDEO_MEDIA_API_URL ''
+    set_deployment_env_value "$env_file" IOT_VIDEO_MODULE off
     set_profile off
     run_docker "${compose[@]}" stop zlmediakit || true
     run_docker "${compose[@]}" rm -f zlmediakit || true

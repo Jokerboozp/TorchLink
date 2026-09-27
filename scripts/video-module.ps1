@@ -1,21 +1,22 @@
 ﻿<#
 .SYNOPSIS
-Deploy-level switch for the optional camera live module (ZLMediaKit, Compose profile "video").
+Deploy-level switch for the camera live module (ZLMediaKit, Compose profile "video").
+It is deployed by default; IOT_VIDEO_MODULE=off records an explicit opt-out.
 .DESCRIPTION
 enable  builds/starts the media server and writes IOT_VIDEO_* settings for the API
         (media secrets and the camera credential key are generated once and never rotated).
 disable stops and removes the media server; camera data, live configuration, sealed
-        credentials and keys are kept.
+        credentials and keys are kept, and later setup/deploy runs keep it off.
+prepare writes the same IOT_VIDEO_* settings as enable without touching containers.
 status  shows the container and configuration state.
 logs    prints recent media server logs (may contain camera addresses; do not publish).
-The business switch (whether live is on, who may watch) is set by the platform
-administrator on the camera page.
+Who may watch is decided in the platform UI.
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File .\scripts\video-module.ps1 enable -RtcIp 192.168.10.20 -Transcode
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory, Position = 0)][ValidateSet('enable', 'disable', 'status', 'logs')][string]$Action,
+    [Parameter(Mandatory, Position = 0)][ValidateSet('enable', 'disable', 'prepare', 'status', 'logs')][string]$Action,
     [ValidateSet('online', 'local', 'offline')][string]$Mode = 'online',
     [string]$EnvFile = '',
     [string]$ProjectName = '',
@@ -76,28 +77,34 @@ function Get-VideoApiUrl {
     return 'http://zlmediakit:80'
 }
 
+function Write-VideoConfig {
+    foreach ($key in @('IOT_VIDEO_MEDIA_SECRET', 'IOT_VIDEO_HOOK_SECRET', 'IOT_VIDEO_CREDENTIAL_KEY')) { Ensure-VideoSecret $key }
+    if ($RtcIp) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_EXTERN_IP' -Value $RtcIp }
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_EXTERN_IP'))) {
+        if ($Mode -eq 'local') { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_EXTERN_IP' -Value '127.0.0.1' }
+        else { Write-Warning '未设置 -RtcIp，浏览器可能无法建立 WebRTC 连接，播放器会改用 HLS。' }
+    }
+    if ($RtcPort) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_PORT' -Value $RtcPort }
+    if ($Transcode) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_TRANSCODE_ENABLED' -Value 'true' }
+    if ($NoTranscode) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_TRANSCODE_ENABLED' -Value 'false' }
+    if ($AllowedCidrs) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_ALLOWED_CIDRS' -Value $AllowedCidrs }
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MEDIA_API_URL' -Value (Get-VideoApiUrl)
+    Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE' -Value 'on'
+    Set-VideoProfile $true
+    Add-DeploymentEnvComments -Path $EnvFile
+}
+
 switch ($Action) {
+    'prepare' { Write-VideoConfig }
     'enable' {
         Assert-DockerAvailable
-        foreach ($key in @('IOT_VIDEO_MEDIA_SECRET', 'IOT_VIDEO_HOOK_SECRET', 'IOT_VIDEO_CREDENTIAL_KEY')) { Ensure-VideoSecret $key }
-        if ($RtcIp) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_EXTERN_IP' -Value $RtcIp }
-        if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_EXTERN_IP'))) {
-            if ($Mode -eq 'local') { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_EXTERN_IP' -Value '127.0.0.1' }
-            else { Write-Warning '未设置 -RtcIp，浏览器可能无法建立 WebRTC 连接，播放器会改用 HLS。' }
-        }
-        if ($RtcPort) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_RTC_PORT' -Value $RtcPort }
-        if ($Transcode) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_TRANSCODE_ENABLED' -Value 'true' }
-        if ($NoTranscode) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_TRANSCODE_ENABLED' -Value 'false' }
-        if ($AllowedCidrs) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_ALLOWED_CIDRS' -Value $AllowedCidrs }
-        Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MEDIA_API_URL' -Value (Get-VideoApiUrl)
-        Set-VideoProfile $true
-        Add-DeploymentEnvComments -Path $EnvFile
+        Write-VideoConfig
         Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
         if ($Mode -eq 'offline') {
             $image = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_ZLMEDIAKIT_IMAGE'
             if ([string]::IsNullOrWhiteSpace($image)) { $image = 'iot-zlmediakit:offline' }
             & docker image inspect $image *> $null
-            if ($LASTEXITCODE -ne 0) { throw '离线包未包含媒体服务镜像，请用 -IncludeVideo 重新打包。' }
+            if ($LASTEXITCODE -ne 0) { throw '离线包未包含媒体服务镜像，请重新打包（不要使用 -WithoutVideo）。' }
             Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', '120', 'zlmediakit'))
         } else {
             Invoke-DockerChecked -Arguments ($compose + @('build', '--pull', 'zlmediakit'))
@@ -108,11 +115,12 @@ switch ($Action) {
         } else {
             Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-deps', '--no-build', 'platform-api'))
         }
-        Write-Host '直播模块已部署。平台内置管理员登录后在“摄像头映射”页打开直播开关，再为摄像头配置接入。'
+        Write-Host '直播模块已部署并默认启用。为摄像头配置 ONVIF / RTSP / GB28181 接入后即可观看；未配置的摄像头只保留资料。'
     }
     'disable' {
         Assert-DockerAvailable
         Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MEDIA_API_URL' -Value ''
+        Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE' -Value 'off'
         Set-VideoProfile $false
         & docker @($compose + @('stop', 'zlmediakit'))
         & docker @($compose + @('rm', '-f', 'zlmediakit'))

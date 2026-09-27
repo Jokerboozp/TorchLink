@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -33,8 +34,25 @@ type VideoConfig struct {
 	MaxSourceStreams int
 	Transcode        bool
 	MaxTranscodes    int
-	HWAccel          string
+	GB28181          GB28181Config
 	loadErr          error
+}
+
+// GB28181Config is the platform's SIP server for GB/T 28181 devices. It runs
+// with the live module; a problem here only affects GB28181 cameras.
+type GB28181Config struct {
+	Enabled bool
+	// ServerID is the platform's 20-digit SIP ID; Domain the 10-digit realm.
+	ServerID string
+	Domain   string
+	// Listen is the UDP/TCP listen address; SIPPort the port devices use.
+	Listen  string
+	SIPPort int
+	// SIPHost is the address devices reach the platform at (Contact). Empty
+	// uses the local address that routes to each device.
+	SIPHost string
+	// MediaIP is the media server address devices send RTP to.
+	MediaIP string
 }
 
 // Deployed reports whether the media service was configured for this API.
@@ -54,8 +72,25 @@ func loadVideo() VideoConfig {
 		MaxSourceStreams: intValue("IOT_VIDEO_MAX_SOURCE_STREAMS", 32),
 		Transcode:        boolValue("IOT_VIDEO_TRANSCODE_ENABLED", false),
 		MaxTranscodes:    intValue("IOT_VIDEO_TRANSCODE_MAX", 2),
-		HWAccel:          strings.ToLower(get("IOT_VIDEO_TRANSCODE_HWACCEL", "none")),
 		AllowedPorts:     map[int]bool{},
+	}
+	cfg.GB28181 = GB28181Config{
+		Enabled:  boolValue("IOT_GB28181_ENABLED", true),
+		ServerID: get("IOT_GB28181_SERVER_ID", "34020000002000000001"),
+		Domain:   strings.TrimSpace(os.Getenv("IOT_GB28181_DOMAIN")),
+		SIPPort:  intValue("IOT_GB28181_SIP_PORT", 5060),
+		SIPHost:  strings.TrimSpace(os.Getenv("IOT_GB28181_SIP_HOST")),
+		MediaIP:  strings.TrimSpace(os.Getenv("IOT_GB28181_MEDIA_IP")),
+	}
+	if cfg.GB28181.Domain == "" && len(cfg.GB28181.ServerID) >= 10 {
+		cfg.GB28181.Domain = cfg.GB28181.ServerID[:10]
+	}
+	cfg.GB28181.Listen = ":" + strconv.Itoa(cfg.GB28181.SIPPort)
+	if cfg.GB28181.MediaIP == "" {
+		// Devices usually reach the media server at the same address as browsers.
+		if ips := split(os.Getenv("IOT_VIDEO_RTC_EXTERN_IP")); len(ips) > 0 {
+			cfg.GB28181.MediaIP = ips[0]
+		}
 	}
 	if raw := strings.TrimSpace(os.Getenv("IOT_VIDEO_CREDENTIAL_KEY")); raw != "" {
 		key, err := base64.StdEncoding.DecodeString(raw)
@@ -122,13 +157,39 @@ func (c VideoConfig) Problem() error {
 	if c.MaxTranscodes > 64 || c.MaxSessions > 10000 || c.MaxSourceStreams > 1000 {
 		problems = append(problems, "video limits are out of range")
 	}
-	// Hardware encoders need device passthrough and an image with the matching
-	// FFmpeg build; neither is part of the verified default deployment.
-	if c.HWAccel != "none" {
-		problems = append(problems, "IOT_VIDEO_TRANSCODE_HWACCEL currently only supports none")
-	}
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid video module configuration: %s", strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+var gbCode = regexp.MustCompile(`^[0-9]+$`)
+
+// Problem reports a GB28181 configuration error. RTSP and ONVIF cameras keep
+// working when it is not nil.
+func (c GB28181Config) Problem() error {
+	if !c.Enabled {
+		return nil
+	}
+	var problems []string
+	if len(c.ServerID) != 20 || !gbCode.MatchString(c.ServerID) {
+		problems = append(problems, "IOT_GB28181_SERVER_ID must be 20 digits")
+	}
+	if len(c.Domain) != 10 || !gbCode.MatchString(c.Domain) {
+		problems = append(problems, "IOT_GB28181_DOMAIN must be 10 digits")
+	}
+	// 0 binds an ephemeral port (tests); deployments use a fixed port.
+	if c.SIPPort < 0 || c.SIPPort > 65535 {
+		problems = append(problems, "IOT_GB28181_SIP_PORT must be a port number")
+	}
+	if c.SIPHost != "" && net.ParseIP(c.SIPHost) == nil {
+		problems = append(problems, "IOT_GB28181_SIP_HOST must be an IP address")
+	}
+	if c.MediaIP != "" && net.ParseIP(c.MediaIP) == nil {
+		problems = append(problems, "IOT_GB28181_MEDIA_IP must be an IP address")
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("invalid GB28181 configuration: %s", strings.Join(problems, "; "))
 	}
 	return nil
 }

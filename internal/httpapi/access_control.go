@@ -65,6 +65,12 @@ func routeAction(method, path string) string {
 		return "查询 ONVIF 媒体配置"
 	case "POST /api/v1/integrations/video/cameras/:id/live/test":
 		return "直播连接测试"
+	case "PUT /api/v1/integrations/video/gb28181/devices/:deviceId":
+		return "配置国标设备"
+	case "DELETE /api/v1/integrations/video/gb28181/devices/:deviceId":
+		return "删除国标设备"
+	case "POST /api/v1/integrations/video/gb28181/devices/:deviceId/refresh":
+		return "刷新国标设备目录"
 	}
 	if strings.Contains(path, "/password") {
 		return "重置用户密码"

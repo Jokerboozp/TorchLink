@@ -41,7 +41,7 @@ on_record_ts=
 on_shell_login=
 on_server_exited=
 on_send_rtp_stopped=
-on_rtp_server_timeout=
+on_rtp_server_timeout=__IOT_VIDEO_HOOK_BASE__/on_rtp_server_timeout?secret=__IOT_VIDEO_HOOK_SECRET__
 timeoutSec=5
 alive_interval=10.0
 retry=1
@@ -95,6 +95,8 @@ signalingPort=0
 signalingSslPort=0
 icePort=0
 iceTcpPort=0
+; The built-in TURN relay (on by default upstream) is not used: browsers that
+; cannot reach the WebRTC port fall back to HLS through the web proxy.
 enableTurn=0
 timeoutSec=15
 preferredCodecA=PCMA,PCMU,opus
@@ -121,7 +123,12 @@ sslport=0
 port=0
 
 [rtp_proxy]
+; GB28181 media: the API opens one RTP receiver per camera stream through
+; openRtpServer, taking ports from this range (published with the same
+; numbers). The shared single-port receiver stays off.
 port=0
+port_range=__IOT_VIDEO_RTP_PORT_MIN__-__IOT_VIDEO_RTP_PORT_MAX__
+timeoutSec=15
 
 [shell]
 port=0

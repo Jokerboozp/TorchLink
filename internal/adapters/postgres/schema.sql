@@ -423,3 +423,11 @@ CREATE TABLE IF NOT EXISTS video_play_session (
   expires_at bigint NOT NULL, revoked_at bigint NOT NULL DEFAULT 0, body jsonb NOT NULL
 );
 CREATE INDEX IF NOT EXISTS video_play_session_active_idx ON video_play_session(expires_at) WHERE revoked_at = 0;
+-- GB28181 devices. device_id is the SIP identity and therefore global; body is
+-- administrator-owned, state is written by the signalling server.
+CREATE TABLE IF NOT EXISTS video_gb_device (
+  device_id text PRIMARY KEY, tenant_id text NOT NULL, body jsonb NOT NULL,
+  state jsonb NOT NULL DEFAULT '{}'::jsonb, key_id text NOT NULL DEFAULT '',
+  nonce bytea, ciphertext bytea, updated_at bigint NOT NULL
+);
+CREATE INDEX IF NOT EXISTS video_gb_device_tenant_idx ON video_gb_device(tenant_id);

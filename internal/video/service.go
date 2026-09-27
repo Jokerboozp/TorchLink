@@ -23,6 +23,7 @@ import (
 	"iot-platform/internal/config"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/video/gb28181"
 )
 
 // Module states reported to the UI.
@@ -67,6 +68,7 @@ type Service struct {
 	authorize Authorizer
 	media     mediaServer
 	mgr       *manager
+	gb        *gbGateway
 	guard     targetGuard
 	seal      sealer
 	log       *slog.Logger
@@ -101,8 +103,29 @@ func New(cfg config.VideoConfig, store ports.VideoStore, cameras CameraLookup, a
 		s.media = newZLM(cfg.MediaAPIURL, cfg.MediaSecret)
 		s.transcodeCap = cfg.Transcode
 		s.mgr = newManager(managerConfig{HookSecret: cfg.HookSecret, LeaseTTL: cfg.LeaseTTL, IdleGrace: cfg.IdleGrace, StartTimeout: cfg.StartTimeout, MaxSessions: cfg.MaxSessions, MaxSources: cfg.MaxSourceStreams, MaxTranscodes: cfg.MaxTranscodes}, s.media, store, log)
+		s.newGB()
 	}
 	return s
+}
+
+// newGB prepares the GB28181 SIP server. A configuration problem only
+// disables GB28181 access; RTSP and ONVIF cameras are unaffected.
+func (s *Service) newGB() {
+	c := s.cfg.GB28181
+	if !c.Enabled || c.Problem() != nil {
+		return
+	}
+	g := &gbGateway{cfg: c, store: s.store, seal: s.seal, guard: s.guard, media: s.media, log: s.log, now: func() time.Time { return s.now() }, calls: map[string]gbCall{}, pending: map[string]bool{}, catalogs: map[string]*catalogBuffer{}}
+	mac := hmac.New(sha256.New, []byte(s.cfg.HookSecret))
+	mac.Write([]byte("gb28181-nonce-key"))
+	srv, err := gb28181.New(gb28181.Config{ServerID: c.ServerID, Domain: c.Domain, Listen: c.Listen, SIPHost: c.SIPHost, SIPPort: c.SIPPort, NonceKey: mac.Sum(nil), Log: s.log}, g)
+	if err != nil {
+		s.log.Warn("GB28181 server not created", "error", err)
+		return
+	}
+	g.sip = srv
+	g.onLost = func(app, stream string) { s.mgr.markLost(app, stream, "国标设备已停止发送视频") }
+	s.gb, s.mgr.gb = g, g
 }
 
 func (s *Service) active() bool { return s.mgr != nil }
@@ -113,6 +136,16 @@ func (s *Service) Start(ctx context.Context) {
 		return
 	}
 	s.started = true
+	if s.gb != nil {
+		err := s.gb.sip.Start(ctx)
+		s.gb.mu.Lock()
+		s.gb.running = err == nil
+		if err != nil {
+			s.gb.startErr = "SIP 端口监听失败，请检查端口占用：" + err.Error()
+			s.log.Warn("GB28181 SIP server failed to start", "error", err)
+		}
+		s.gb.mu.Unlock()
+	}
 	if err := s.mgr.restore(ctx); err != nil {
 		s.log.Warn("restore video sessions failed", "error", err)
 	}
@@ -236,6 +269,7 @@ type Status struct {
 	ActiveTranscodes   int              `json:"activeTranscodes"`
 	MaxTranscodes      int              `json:"maxTranscodes,omitempty"`
 	HeartbeatSeconds   int              `json:"heartbeatSeconds,omitempty"`
+	GB28181            *GBStatus        `json:"gb28181,omitempty"`
 }
 
 func (s *Service) Status(ctx context.Context) Status {
@@ -244,6 +278,7 @@ func (s *Service) Status(ctx context.Context) Status {
 		return st
 	}
 	st.Deployed = true
+	st.GB28181 = s.gbStatus()
 	if problem := s.cfg.Problem(); problem != nil || s.store == nil {
 		st.State, st.Message = StateMisconfigured, "直播模块部署配置无效，请检查 IOT_VIDEO_* 配置。"
 		return st
@@ -308,6 +343,8 @@ type LiveConfigInput struct {
 	Password         string `json:"password"`
 	ClearPassword    bool   `json:"clearPassword"`
 	Stream           string `json:"stream,omitempty"`
+	GBDeviceID       string `json:"gbDeviceId"`
+	GBChannelID      string `json:"gbChannelId"`
 }
 
 // ValidationError is a user-correctable input problem.
@@ -338,6 +375,16 @@ func (s *Service) GetConfig(ctx context.Context, tenant, camera string) (model.C
 	return cfg, nil
 }
 
+// liveConfigured reports whether a configuration names a stream source.
+func liveConfigured(cfg model.CameraLiveConfig) bool {
+	if cfg.AccessMode == accessGB {
+		return cfg.GBDeviceID != "" && cfg.GBChannelID != ""
+	}
+	return cfg.MainStreamURL != ""
+}
+
+const accessGB = "GB28181"
+
 // LiveSummaries returns safe per-camera live state for list views.
 func (s *Service) LiveSummaries(ctx context.Context, tenant string, cameras []string) map[string]map[string]any {
 	out := map[string]map[string]any{}
@@ -349,7 +396,7 @@ func (s *Service) LiveSummaries(ctx context.Context, tenant string, cameras []st
 		return out
 	}
 	for id, cfg := range rows {
-		item := map[string]any{"configured": cfg.MainStreamURL != "", "enabled": cfg.Enabled, "accessMode": cfg.AccessMode, "transcodeMode": cfg.TranscodeMode}
+		item := map[string]any{"configured": liveConfigured(cfg), "enabled": cfg.Enabled, "accessMode": cfg.AccessMode, "transcodeMode": cfg.TranscodeMode}
 		if cfg.LastTest != nil {
 			item["testStatus"], item["testedAt"] = cfg.LastTest.Status, cfg.LastTest.TestedAt
 		}
@@ -450,8 +497,25 @@ func (s *Service) resolveInput(ctx context.Context, tenant, camera string, in Li
 			}
 			cfg.SubStreamURL, _ = buildTemplateURL(cfg.BrandTemplate, cfg.Host, cfg.RTSPPort, cfg.Channel, true)
 		}
+	case accessGB:
+		cfg.GBDeviceID, cfg.GBChannelID = strings.TrimSpace(in.GBDeviceID), strings.TrimSpace(in.GBChannelID)
+		if cfg.GBChannelID == "" {
+			cfg.GBChannelID = cfg.GBDeviceID
+		}
+		if !gb28181.ValidID(cfg.GBDeviceID) || !gb28181.ValidID(cfg.GBChannelID) {
+			return cfg, cred, invalid("请选择国标设备和通道（20 位编号）")
+		}
+		device, err := s.store.GetGBDevice(ctx, cfg.GBDeviceID)
+		if err != nil || device.TenantID != tenant {
+			return cfg, cred, invalid("国标设备不存在，请先在“国标设备”中添加")
+		}
+		// The device authenticates at registration; cameras keep no account.
+		cred = Credentials{}
+		cfg.BrandTemplate, cfg.Host, cfg.RTSPPort, cfg.ONVIFPort, cfg.Channel, cfg.NVR = "", "", 0, 0, 0, false
+		cfg.DefaultStream = "main"
+		return cfg, cred, nil
 	default:
-		return cfg, cred, invalid("接入方式须为 ONVIF 或 RTSP")
+		return cfg, cred, invalid("接入方式须为 ONVIF、RTSP 或 GB28181")
 	}
 	for _, raw := range []string{cfg.MainStreamURL, cfg.SubStreamURL} {
 		if raw == "" {
@@ -583,6 +647,9 @@ func (s *Service) Test(ctx context.Context, tenant, camera string, in *LiveConfi
 			return model.CameraLiveTest{}, err
 		}
 	}
+	if cfg.AccessMode == accessGB {
+		return s.finishTest(tenant, camera, cfg, cred, s.testGB(ctx, tenant, cfg), in == nil), nil
+	}
 	raw := cfg.MainStreamURL
 	if variant == "sub" && cfg.SubStreamURL != "" {
 		raw = cfg.SubStreamURL
@@ -617,6 +684,12 @@ func (s *Service) Test(ctx context.Context, tenant, camera string, in *LiveConfi
 		result.Status, result.Message = StatusMediaFailed, "摄像头应答正常，但媒体服务未能取到画面："+truncate(redactText(err.Error()), 160)
 		return s.finishTest(tenant, camera, cfg, cred, result, in == nil), nil
 	}
+	s.classify(&result, info, cfg)
+	return s.finishTest(tenant, camera, cfg, cred, result, in == nil), nil
+}
+
+// classify reports playability from the media server's view of the stream.
+func (s *Service) classify(result *model.CameraLiveTest, info mediaInfo, cfg model.CameraLiveConfig) {
 	result.MediaVerified = true
 	if v, ok := info.video(); ok {
 		result.VideoCodec, result.Width, result.Height, result.FPS = v.Codec, v.Width, v.Height, v.FPS
@@ -647,7 +720,50 @@ func (s *Service) Test(ctx context.Context, tenant, camera string, in *LiveConfi
 			result.Status, result.Message = StatusCodecIncompatible, "源视频编码 "+result.VideoCodec+" 浏览器无法直接播放"
 		}
 	}
-	return s.finishTest(tenant, camera, cfg, cred, result, in == nil), nil
+}
+
+// testGB checks a GB28181 channel: the device must be registered and online,
+// accept the INVITE, and its media must reach the media server.
+func (s *Service) testGB(ctx context.Context, tenant string, cfg model.CameraLiveConfig) model.CameraLiveTest {
+	result := model.CameraLiveTest{Stream: "main", TestedAt: s.now().UnixMilli()}
+	if s.gb == nil {
+		result.Status, result.Message = StatusMediaUnavailable, errGBUnavailable.Error()
+		return result
+	}
+	d, err := s.store.GetGBDevice(ctx, cfg.GBDeviceID)
+	switch {
+	case err != nil || d.TenantID != tenant:
+		result.Status, result.Message = StatusTargetDenied, errGBMissing.Error()
+		return result
+	case !d.Enabled:
+		result.Status, result.Message = StatusTargetDenied, errGBDisabled.Error()
+		return result
+	case !gbOnline(d, s.now()):
+		result.Status, result.Message = StatusUnreachable, errGBOffline.Error()
+		return result
+	case !s.mediaHealthy():
+		result.Status, result.Message = StatusMediaUnavailable, "国标设备在线，但媒体服务不可用，无法确认画面"
+		return result
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, s.cfg.StartTimeout+15*time.Second)
+	info, err := s.mgr.probe(probeCtx, sourceSpec{GB: &gbTarget{Tenant: tenant, DeviceID: cfg.GBDeviceID, ChannelID: cfg.GBChannelID}}, s.cfg.StartTimeout)
+	cancel()
+	var inviteErr *gb28181.InviteError
+	switch {
+	case errors.As(err, &inviteErr) && inviteErr.Status == 404:
+		result.Status, result.Message = StatusStreamNotFound, "设备没有该通道："+inviteErr.Error()
+	case errors.As(err, &inviteErr) && (inviteErr.Status == 401 || inviteErr.Status == 403):
+		result.Status, result.Message = StatusAuthFailed, inviteErr.Error()
+	case errors.As(err, &inviteErr):
+		result.Status, result.Message = StatusProtocolError, inviteErr.Error()
+	case errors.Is(err, errGBNoMediaIP):
+		result.Status, result.Message = StatusMediaUnavailable, err.Error()
+	case err != nil:
+		result.Status, result.Message = StatusMediaFailed, "设备已应答点播，但媒体服务未收到画面："+truncate(redactText(err.Error()), 120)+"；请检查 IOT_GB28181_MEDIA_IP 以及 RTP 端口范围是否对设备开放"
+	default:
+		s.classify(&result, info, cfg)
+	}
+	return result
 }
 
 func (s *Service) finishTest(tenant, camera string, cfg model.CameraLiveConfig, cred Credentials, result model.CameraLiveTest, stored bool) model.CameraLiveTest {
@@ -673,7 +789,7 @@ func (s *Service) memo(tenant, camera string) (testMemo, bool) {
 // fingerprint identifies the connection-relevant part of a configuration.
 func fingerprint(cfg model.CameraLiveConfig, cred Credentials) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%t\x00%s", cfg.AccessMode, cfg.MainStreamURL, cfg.SubStreamURL, cfg.TranscodeMode, cfg.TranscodeProfile, cred.Username, cfg.SourceBFrames, cred.Password)
+	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%t\x00%s\x00%s\x00%s", cfg.AccessMode, cfg.MainStreamURL, cfg.SubStreamURL, cfg.TranscodeMode, cfg.TranscodeProfile, cred.Username, cfg.SourceBFrames, cred.Password, cfg.GBDeviceID, cfg.GBChannelID)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -731,7 +847,7 @@ func (s *Service) CameraAvailable(ctx context.Context, tenant, camera string) bo
 		return false
 	}
 	cfg, err := s.store.GetCameraLiveConfig(ctx, tenant, camera)
-	return err == nil && cfg.Enabled && cfg.MainStreamURL != ""
+	return err == nil && cfg.Enabled && liveConfigured(cfg)
 }
 
 // CreateSession authorizes the viewer, starts or joins the media tasks and
@@ -748,33 +864,23 @@ func (s *Service) CreateSession(ctx context.Context, tenant string, viewer Viewe
 		return PlayGrant{}, ErrForbidden
 	}
 	cfg, err := s.store.GetCameraLiveConfig(ctx, tenant, cameraID)
-	if err != nil || !cfg.Enabled || cfg.MainStreamURL == "" {
+	if err != nil || !cfg.Enabled || !liveConfigured(cfg) {
 		return PlayGrant{}, ErrNotConfigured
-	}
-	cred, err := s.credentials(ctx, tenant, cameraID)
-	if err != nil {
-		return PlayGrant{}, invalid("摄像头凭据不可用：%v", err)
 	}
 	variant := req.Stream
 	if variant != "main" && variant != "sub" {
 		variant = cfg.DefaultStream
 	}
-	raw := cfg.MainStreamURL
-	if variant == "sub" && cfg.SubStreamURL != "" {
-		raw = cfg.SubStreamURL
-	} else {
-		variant = "main"
-	}
 	protocol := req.Protocol
 	if protocol != "hls" {
 		protocol = "webrtc"
 	}
-	// Re-validate the target at play time (DNS may have changed).
-	pinned, err := s.guard.pinnedRTSP(ctx, raw)
+	spec, variant, err := s.source(ctx, tenant, cameraID, cfg, variant)
 	if err != nil {
-		return PlayGrant{}, invalid("摄像头地址未通过目标地址校验")
+		return PlayGrant{}, err
 	}
-	source, err := s.mgr.ensureSource(ctx, tenant, cameraID, variant, sourceSpec{URL: pinned.String(), Cred: cred})
+	cred := spec.Cred
+	source, err := s.mgr.ensureSource(ctx, tenant, cameraID, variant, spec)
 	if err != nil {
 		return PlayGrant{}, scrubSecret(fmt.Errorf("取流失败：%w", err), cred.Password)
 	}
@@ -814,7 +920,7 @@ func (s *Service) CreateSession(ctx context.Context, tenant string, viewer Viewe
 		s.log.Warn("persist video session failed", "session", sess.ID, "error", err)
 	}
 	streams := []string{"main"}
-	if cfg.SubStreamURL != "" {
+	if cfg.SubStreamURL != "" && cfg.AccessMode != accessGB {
 		streams = append(streams, "sub")
 	}
 	audioCodec := audioTrack.Codec
@@ -826,6 +932,29 @@ func (s *Service) CreateSession(ctx context.Context, tenant string, viewer Viewe
 		VideoCodec: videoTrack.Codec, AudioCodec: audioCodec, AudioNote: audioNote(audioCodec, profileID, protocol),
 		ExpiresAt: sess.ExpiresAt, HeartbeatSeconds: max(5, int(s.cfg.LeaseTTL.Seconds()/3)),
 	}, nil
+}
+
+// source resolves where a camera variant comes from. RTSP targets are
+// validated again at use time, since DNS may have changed since saving.
+func (s *Service) source(ctx context.Context, tenant, camera string, cfg model.CameraLiveConfig, variant string) (sourceSpec, string, error) {
+	if cfg.AccessMode == accessGB {
+		return sourceSpec{GB: &gbTarget{Tenant: tenant, DeviceID: cfg.GBDeviceID, ChannelID: cfg.GBChannelID}}, "main", nil
+	}
+	cred, err := s.credentials(ctx, tenant, camera)
+	if err != nil {
+		return sourceSpec{}, variant, invalid("摄像头凭据不可用：%v", err)
+	}
+	raw := cfg.MainStreamURL
+	if variant == "sub" && cfg.SubStreamURL != "" {
+		raw = cfg.SubStreamURL
+	} else {
+		variant = "main"
+	}
+	pinned, err := s.guard.pinnedRTSP(ctx, raw)
+	if err != nil {
+		return sourceSpec{}, variant, invalid("摄像头地址未通过目标地址校验")
+	}
+	return sourceSpec{URL: pinned.String(), Cred: cred}, variant, nil
 }
 
 // waitHLS waits briefly for the first HLS segment so the player's first
@@ -935,24 +1064,16 @@ func (s *Service) Heartbeat(ctx context.Context, tenant string, viewer Viewer, i
 
 func (s *Service) restart(ctx context.Context, sess model.VideoPlaySession) error {
 	cfg, err := s.store.GetCameraLiveConfig(ctx, sess.TenantID, sess.CameraID)
-	if err != nil || !cfg.Enabled {
+	if err != nil || !cfg.Enabled || !liveConfigured(cfg) {
 		return ErrNotConfigured
 	}
-	cred, err := s.credentials(ctx, sess.TenantID, sess.CameraID)
+	spec, _, err := s.source(ctx, sess.TenantID, sess.CameraID, cfg, sess.Stream)
 	if err != nil {
 		return err
 	}
-	raw := cfg.MainStreamURL
-	if sess.Stream == "sub" && cfg.SubStreamURL != "" {
-		raw = cfg.SubStreamURL
-	}
-	pinned, err := s.guard.pinnedRTSP(ctx, raw)
+	source, err := s.mgr.ensureSource(ctx, sess.TenantID, sess.CameraID, sess.Stream, spec)
 	if err != nil {
-		return err
-	}
-	source, err := s.mgr.ensureSource(ctx, sess.TenantID, sess.CameraID, sess.Stream, sourceSpec{URL: pinned.String(), Cred: cred})
-	if err != nil {
-		return err
+		return scrubSecret(err, spec.Cred.Password)
 	}
 	if sess.App == appTranscode {
 		profile, _ := findProfile(sess.Profile)
@@ -1037,9 +1158,14 @@ func (s *Service) Hook(ctx context.Context, event string, body HookBody) map[str
 		}
 		return deny("play not authorized")
 	case "on_publish":
-		// Only the module's own FFmpeg output may publish, from loopback.
-		if body.App == appTranscode && loopback(body.IP) && s.mgr.validInternalToken(body.App, body.Stream, params.Get("vt")) {
-			return map[string]any{"code": 0, "msg": "success", "enable_hls": true, "enable_rtsp": true, "enable_rtmp": false, "enable_ts": false, "enable_fmp4": false, "enable_mp4": false, "enable_audio": true, "add_mute_audio": false, "auto_close": false}
+		// Only the module's own FFmpeg output (from loopback) and GB28181
+		// streams the platform INVITEd may publish.
+		allowed := body.App == appTranscode && loopback(body.IP) && s.mgr.validInternalToken(body.App, body.Stream, params.Get("vt"))
+		if !allowed && s.gb != nil && (body.App == appSource || body.App == appTest) {
+			allowed = s.gb.expects(body.App + "/" + body.Stream)
+		}
+		if allowed {
+			return map[string]any{"code": 0, "msg": "success", "enable_hls": body.App != appTest, "enable_rtsp": true, "enable_rtmp": false, "enable_ts": false, "enable_fmp4": false, "enable_mp4": false, "enable_audio": true, "add_mute_audio": false, "auto_close": false}
 		}
 		return deny("publish not authorized")
 	case "on_stream_none_reader":
@@ -1057,6 +1183,10 @@ func (s *Service) Hook(ctx context.Context, event string, body HookBody) map[str
 		s.healthMu.Lock()
 		s.keepaliveAt = s.now()
 		s.healthMu.Unlock()
+		return ok
+	case "on_rtp_server_timeout":
+		// A GB28181 device stopped sending; reconcile marks the task lost.
+		go s.reconcile(context.Background())
 		return ok
 	case "on_stream_changed":
 		go s.reconcile(context.Background())

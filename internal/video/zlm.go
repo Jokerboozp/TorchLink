@@ -28,6 +28,11 @@ type mediaServer interface {
 	CloseStreams(ctx context.Context, app, stream string) error
 	WHEP(ctx context.Context, app, stream, token, offer string) (answer, deleteQuery string, err error)
 	DeleteWebRTC(ctx context.Context, deleteQuery string) error
+	// GB28181 receivers: one RTP port per stream, filtered by SSRC.
+	OpenRTPServer(ctx context.Context, app, stream string, tcp bool, ssrc string) (int, error)
+	UpdateRTPServerSSRC(ctx context.Context, app, stream, ssrc string) error
+	CloseRTPServer(ctx context.Context, app, stream string) error
+	ListRTPServers(ctx context.Context) ([]string, error)
 }
 
 type proxyOptions struct {
@@ -103,6 +108,12 @@ func (e *errMediaAPI) Error() string {
 }
 
 func (z *zlmClient) call(ctx context.Context, path string, args url.Values, out any) error {
+	return z.request(ctx, path, args, out, nil)
+}
+
+// request calls the API; out receives "data", top the whole reply (some
+// APIs, such as openRtpServer, answer with top-level fields).
+func (z *zlmClient) request(ctx context.Context, path string, args url.Values, out, top any) error {
 	if args == nil {
 		args = url.Values{}
 	}
@@ -131,6 +142,11 @@ func (z *zlmClient) call(ctx context.Context, path string, args url.Values, out 
 	}
 	if envelope.Code != 0 {
 		return &errMediaAPI{Code: envelope.Code, Msg: envelope.Msg}
+	}
+	if top != nil {
+		if err := json.Unmarshal(body, top); err != nil {
+			return err
+		}
 	}
 	if out != nil && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
 		return json.Unmarshal(envelope.Data, out)
@@ -307,6 +323,50 @@ func (z *zlmClient) DeleteWebRTC(ctx context.Context, deleteQuery string) error 
 		return nil
 	}
 	return fmt.Errorf("关闭 WebRTC 连接失败（HTTP %d）", resp.StatusCode)
+}
+
+// OpenRTPServer opens a GB28181 receiver for app/stream on a port from the
+// configured range and returns that port. tcp selects TCP passive mode.
+func (z *zlmClient) OpenRTPServer(ctx context.Context, app, stream string, tcp bool, ssrc string) (int, error) {
+	var reply struct {
+		Port int `json:"port"`
+	}
+	mode := "0"
+	if tcp {
+		mode = "1"
+	}
+	args := url.Values{"vhost": {zlmVhost}, "app": {app}, "stream_id": {stream}, "port": {"0"}, "tcp_mode": {mode}, "ssrc": {ssrc}}
+	if err := z.request(ctx, "/index/api/openRtpServer", args, nil, &reply); err != nil {
+		return 0, err
+	}
+	if reply.Port <= 0 {
+		return 0, errors.New("媒体服务未分配 RTP 端口")
+	}
+	return reply.Port, nil
+}
+
+func (z *zlmClient) UpdateRTPServerSSRC(ctx context.Context, app, stream, ssrc string) error {
+	return z.call(ctx, "/index/api/updateRtpServerSSRC", url.Values{"vhost": {zlmVhost}, "app": {app}, "stream_id": {stream}, "ssrc": {ssrc}}, nil)
+}
+
+func (z *zlmClient) CloseRTPServer(ctx context.Context, app, stream string) error {
+	return z.call(ctx, "/index/api/closeRtpServer", url.Values{"vhost": {zlmVhost}, "app": {app}, "stream_id": {stream}}, nil)
+}
+
+// ListRTPServers returns open receivers as app/stream keys.
+func (z *zlmClient) ListRTPServers(ctx context.Context) ([]string, error) {
+	var rows []struct {
+		App    string `json:"app"`
+		Stream string `json:"stream_id"`
+	}
+	if err := z.call(ctx, "/index/api/listRtpServer", nil, &rows); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.App+"/"+r.Stream)
+	}
+	return out, nil
 }
 
 func boolArg(v bool) string {

@@ -11,22 +11,27 @@ import (
 // videoLiveState keeps the optional live module records for development and
 // tests. Maps are created on first write so the zero value is ready to use.
 type videoLiveState struct {
-	module      model.VideoModuleState
+	module      *model.VideoModuleState
 	configs     map[string]model.CameraLiveConfig
 	credentials map[string]model.CameraCredential
 	sessions    map[string]model.VideoPlaySession
+	gbDevices   map[string]model.GBDevice
 }
 
 func (r *Repository) GetVideoModuleState(context.Context) (model.VideoModuleState, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.live.module, nil
+	if r.live.module == nil {
+		// Never switched: live is on by default, matching the PostgreSQL store.
+		return model.VideoModuleState{Enabled: true}, nil
+	}
+	return *r.live.module, nil
 }
 
 func (r *Repository) SaveVideoModuleState(_ context.Context, v model.VideoModuleState) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.live.module = v
+	r.live.module = &v
 	return nil
 }
 
@@ -137,4 +142,76 @@ func (r *Repository) deleteCameraLiveLocked(tenant, camera string) {
 			r.live.sessions[id] = v
 		}
 	}
+}
+
+func (r *Repository) ListGBDevices(_ context.Context, tenant string) ([]model.GBDevice, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := []model.GBDevice{}
+	for _, v := range r.live.gbDevices {
+		if v.TenantID == tenant {
+			out = append(out, cloneGBDevice(v))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DeviceID < out[j].DeviceID })
+	return out, nil
+}
+
+func (r *Repository) GetGBDevice(_ context.Context, deviceID string) (model.GBDevice, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	v, ok := r.live.gbDevices[deviceID]
+	if !ok {
+		return v, model.ErrNotFound
+	}
+	return cloneGBDevice(v), nil
+}
+
+func (r *Repository) SaveGBDevice(_ context.Context, v model.GBDevice) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.live.gbDevices == nil {
+		r.live.gbDevices = map[string]model.GBDevice{}
+	}
+	current, exists := r.live.gbDevices[v.DeviceID]
+	if exists && current.TenantID != v.TenantID {
+		return model.ErrGBDeviceTaken
+	}
+	v.State, v.Online, v.HasPassword = current.State, false, false
+	r.live.gbDevices[v.DeviceID] = cloneGBDevice(v)
+	return nil
+}
+
+func (r *Repository) SaveGBDeviceState(_ context.Context, deviceID string, state model.GBDeviceState) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.live.gbDevices[deviceID]
+	if !ok {
+		return model.ErrNotFound
+	}
+	v.State = state
+	r.live.gbDevices[deviceID] = cloneGBDevice(v)
+	return nil
+}
+
+func (r *Repository) DeleteGBDevice(_ context.Context, tenant, deviceID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if v, ok := r.live.gbDevices[deviceID]; !ok || v.TenantID != tenant {
+		return model.ErrNotFound
+	}
+	delete(r.live.gbDevices, deviceID)
+	return nil
+}
+
+// cloneGBDevice deep-copies a device; the JSON clone would drop the sealed
+// password, which is never serialized.
+func cloneGBDevice(v model.GBDevice) model.GBDevice {
+	password := v.Password
+	v = clone(v)
+	if password != nil {
+		sealed := *password
+		v.Password = &sealed
+	}
+	return v
 }

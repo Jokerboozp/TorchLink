@@ -16,6 +16,11 @@ $lines = foreach ($line in [IO.File]::ReadAllLines($template)) {
         try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
         $secret = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
         $line.Replace('__TORCHLINK_RANDOM_HEX__', $secret)
+    } elseif ($line.Contains('__TORCHLINK_RANDOM_BASE64_32__')) {
+        $bytes = New-Object byte[] 32
+        $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
+        $line.Replace('__TORCHLINK_RANDOM_BASE64_32__', [Convert]::ToBase64String($bytes))
     } else { $line }
 }
 $temporary = Join-Path $BundleDir ('.env.offline.tmp.' + [guid]::NewGuid().ToString('N'))

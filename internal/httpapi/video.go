@@ -19,7 +19,7 @@ import (
 
 const videoPlayPermission = "POST /api/v1/video/cameras/:id/play-sessions"
 
-var videoHookEvents = map[string]bool{"on_play": true, "on_publish": true, "on_stream_none_reader": true, "on_stream_not_found": true, "on_server_started": true, "on_server_keepalive": true, "on_stream_changed": true}
+var videoHookEvents = map[string]bool{"on_play": true, "on_publish": true, "on_stream_none_reader": true, "on_stream_not_found": true, "on_server_started": true, "on_server_keepalive": true, "on_stream_changed": true, "on_rtp_server_timeout": true}
 
 // SetVideo installs the live module service.
 func (s *Server) SetVideo(v *video.Service) { s.video = v }
@@ -44,12 +44,22 @@ func (s *Server) videoRoutes() {
 	r.PUT("/api/v1/integrations/video/cameras/:id/live", s.authorize("operator"), e(s.videoSaveLiveConfig, "id"))
 	r.POST("/api/v1/integrations/video/cameras/:id/live/test", s.authorize("operator"), e(s.videoTestLive, "id"))
 	r.POST("/api/v1/integrations/video/cameras/:id/live/onvif-profiles", s.authorize("operator"), e(s.videoONVIFProfiles, "id"))
+
+	r.GET("/api/v1/integrations/video/gb28181/devices", s.authorize("operator"), e(s.videoListGBDevices))
+	r.PUT("/api/v1/integrations/video/gb28181/devices/:deviceId", s.authorize("operator"), e(s.videoSaveGBDevice, "deviceId"))
+	r.DELETE("/api/v1/integrations/video/gb28181/devices/:deviceId", s.authorize("operator"), e(s.videoDeleteGBDevice, "deviceId"))
+	r.POST("/api/v1/integrations/video/gb28181/devices/:deviceId/refresh", s.authorize("operator"), e(s.videoRefreshGBDevice, "deviceId"))
 }
 
 // videoRouteMenu maps live routes. Status and module switch are shared; the
 // viewer routes belong to device data, since device-scoped users reach
 // cameras from devices and alarms rather than from the camera directory.
 func videoRouteMenu(path string) (string, bool) {
+	// GB28181 device management belongs to the camera directory; matched here
+	// because the generic "/devices" rule would claim it for device data.
+	if strings.HasPrefix(path, "/api/v1/integrations/video/gb28181/") {
+		return "cameras", true
+	}
 	if !strings.HasPrefix(path, "/api/v1/video/") {
 		return "", false
 	}
@@ -89,6 +99,10 @@ func videoProblem(w http.ResponseWriter, err error) {
 		status, code = http.StatusForbidden, "VIDEO_FORBIDDEN"
 	case errors.Is(err, video.ErrSessionGone):
 		status, code = http.StatusGone, "VIDEO_SESSION_GONE"
+	case errors.Is(err, model.ErrGBDeviceTaken):
+		status, code = http.StatusConflict, "VIDEO_GB_DEVICE_TAKEN"
+	case errors.Is(err, model.ErrNotFound):
+		status, code = http.StatusNotFound, "VIDEO_NOT_FOUND"
 	case errors.As(err, &validation):
 		status, code = http.StatusUnprocessableEntity, "VIDEO_INVALID"
 	case video.IsLimit(err):
@@ -502,4 +516,66 @@ func (s *Server) attachLiveSummaries(r *http.Request, items []model.VideoCameraM
 		out = append(out, liveCameraItem{VideoCameraMapping: item, Live: live[item.CameraID]})
 	}
 	return out
+}
+
+// GB28181 devices register to the platform's SIP server. Device IDs are
+// global SIP identities; every handler stays within the caller's tenant.
+
+func (s *Server) videoListGBDevices(w http.ResponseWriter, r *http.Request) {
+	v := s.videoService(w)
+	if v == nil {
+		return
+	}
+	items, err := v.ListGBDevices(r.Context(), claims(r).TenantID)
+	if err != nil {
+		videoProblem(w, err)
+		return
+	}
+	write(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) videoSaveGBDevice(w http.ResponseWriter, r *http.Request) {
+	v := s.videoService(w)
+	if v == nil {
+		return
+	}
+	var in video.GBDeviceInput
+	if decode(w, r, &in) != nil {
+		return
+	}
+	d, err := v.SaveGBDevice(r.Context(), claims(r).TenantID, r.PathValue("deviceId"), in)
+	if err != nil {
+		videoProblem(w, err)
+		return
+	}
+	s.audit(r, "video.gb28181.device.save", "video-gb-device", d.DeviceID, map[string]any{"enabled": d.Enabled, "streamTransport": d.StreamTransport, "passwordChanged": in.Password != ""})
+	write(w, http.StatusOK, d)
+}
+
+func (s *Server) videoDeleteGBDevice(w http.ResponseWriter, r *http.Request) {
+	v := s.videoService(w)
+	if v == nil {
+		return
+	}
+	id := r.PathValue("deviceId")
+	if err := v.DeleteGBDevice(r.Context(), claims(r).TenantID, id); err != nil {
+		videoProblem(w, err)
+		return
+	}
+	s.audit(r, "video.gb28181.device.delete", "video-gb-device", id, nil)
+	write(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) videoRefreshGBDevice(w http.ResponseWriter, r *http.Request) {
+	v := s.videoService(w)
+	if v == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	if err := v.RefreshGBDevice(ctx, claims(r).TenantID, r.PathValue("deviceId")); err != nil {
+		videoProblem(w, err)
+		return
+	}
+	write(w, http.StatusAccepted, map[string]bool{"requested": true})
 }

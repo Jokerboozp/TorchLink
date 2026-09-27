@@ -29,7 +29,7 @@ bash ./scripts/setup-local.sh
 | Linux 虚拟机部署全部基础环境，源码在本机运行 | 在 Linux 虚拟机执行右侧命令 | `--dependencies-only` |
 | 临时运行容器版备份服务 | `-IncludeBackup` | `--include-backup` |
 | 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
-| 开启 / 关闭摄像头直播媒体服务，省略则保留现状 | `-Video on` / `-Video off` | `--video on` / `--video off` |
+| 开启 / 关闭摄像头直播媒体服务（默认开启，省略沿用上次选择） | `-Video on` / `-Video off` | `--video on` / `--video off` |
 
 所有部署方式统一使用 DeepSeek API。启动后在“模型管理”填写 API Key、测试并应用即可；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动；不再下载 Qwen 对话模型，Ollama 只准备知识库嵌入模型。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
 
@@ -106,7 +106,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
 | Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`） |
 | Loki / Alertmanager | `13100` / `19093`（`--include-ops`） | 仅容器网络 |
-| 摄像头直播媒体服务（可选） | API / HLS `18580`（仅本机）；WebRTC `8000` UDP+TCP | API / HLS 仅容器网络（HLS 经 Web 的 `/media/hls/`）；WebRTC `IOT_VIDEO_RTC_PORT`（默认 `8000`）UDP+TCP 需对浏览器开放 |
+| 摄像头直播媒体服务 | API / HLS `18580`；WebRTC `8000`；GB28181 RTP `30000-30063`（均按本地绑定地址） | API / HLS 仅容器网络（HLS 经 Web 的 `/media/hls/`）；WebRTC `IOT_VIDEO_RTC_PORT`（默认 `8000`）UDP+TCP 对浏览器开放；RTP 端口范围 UDP+TCP 对摄像头网络开放 |
+| GB28181 SIP | `5060` UDP+TCP（本机 Go API） | `IOT_GB28181_SIP_PORT`（默认 `5060`）UDP+TCP，对摄像头网络开放 |
 
 本地依赖端口默认只绑定 `127.0.0.1`，供本机代码和模拟设备使用；传入 `--dependency-host` 时才开放到依赖机网络。API 设备上报使用运行 Go 的主机地址。Kafka 通过独立 external listener 返回源码机可访问的地址，容器间仍使用 `redpanda:9092`。
 
@@ -117,7 +118,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 ```bash
 sudo bash scripts/setup-local.sh --dependencies-only \
   --dependency-host <源码机可访问的依赖机地址> \
-  --api-host <依赖容器可访问的源码机地址> --video off
+  --api-host <依赖容器可访问的源码机地址>
 ```
 
 `--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO 主库/备库、Ollama（仅 `nomic-embed-text`）、Weaviate、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness 和 MinIO 镜像、下载嵌入模型；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
@@ -133,23 +134,23 @@ sudo bash scripts/setup-local.sh --dependencies-only \
 ```bash
 # 仅首次创建；已有 develop 时跳过，不删除原机器
 orb create ubuntu:24.04 develop
-orb -m develop sudo bash scripts/setup-local.sh --dependencies-only --video off
+orb -m develop sudo bash scripts/setup-local.sh --dependencies-only
 go mod download
 (cd iot_front && npm ci)
 ```
 
-也可以进入 `develop` 的共享仓库目录，直接运行 `sudo bash scripts/setup-local.sh --dependencies-only --video off`。脚本识别 OrbStack，并自动把 API 回调设为 `host.orb.internal`；新配置使用 `127.0.0.1` 连接依赖，已有配置保留依赖地址，显式 `--dependency-host 127.0.0.1` 可切回本机转发。Mac 直接使用共享目录中的 `.env.local`，运维配置文件也通过共享目录生效。AI 通过 DeepSeek API 配置。第二套环境须指定独立 `--env-file`，并避免同时占用相同转发端口。
+也可以进入 `develop` 的共享仓库目录，直接运行 `sudo bash scripts/setup-local.sh --dependencies-only`。脚本识别 OrbStack，并自动把 API 回调设为 `host.orb.internal`；新配置使用 `127.0.0.1` 连接依赖，已有配置保留依赖地址，显式 `--dependency-host 127.0.0.1` 可切回本机转发。Mac 直接使用共享目录中的 `.env.local`，运维配置文件也通过共享目录生效。AI 通过 DeepSeek API 配置。第二套环境须指定独立 `--env-file`，并避免同时占用相同转发端口。
 
 运维规则与通知配置默认在共享的 `data/ops`；可在 `.env.local` 设置 `IOT_LOCAL_OPS_DIR=./data/local-develop/ops` 指定单独目录，脚本同步 Compose 挂载和 API 配置路径。重建虚拟机不会删除 Mac 共享目录：需要干净运维配置时使用新的目录，旧规则和通知文件仍保留。
 
-摄像头直播也使用同一入口；不传 `--video` 保留现状，新配置默认关闭：
+摄像头直播默认随依赖一起部署；不传 `--video` 沿用上次选择，需要关闭或重新开启时：
 
 ```bash
 orb -m develop sudo bash scripts/setup-local.sh --dependencies-only --video on
 orb -m develop sudo bash scripts/setup-local.sh --dependencies-only --video off
 ```
 
-切换后重启本机 API 加载配置。开启会生成并保留媒体密钥；关闭仅移除媒体容器，保留摄像头资料与密钥。需要转码时加 `--transcode`，普通虚拟机启用直播还需 `--rtc-ip <浏览器可访问的虚拟机IP>`；允许的摄像头网段可用 `--allowed-cidrs` 指定。平台内仍由管理员控制直播权限与业务开关。
+切换后重启本机 API 加载配置。开启会生成并保留媒体密钥；关闭仅移除媒体容器，保留摄像头资料与密钥。需要转码时加 `--transcode`，普通虚拟机还需 `--rtc-ip <浏览器可访问的虚拟机IP>`；允许的摄像头网段可用 `--allowed-cidrs` 指定。接入真实 GB28181 设备时，设备须能访问源码机的 SIP 端口 5060 与虚拟机的 RTP 端口范围，并在 `.env.local` 设置 `IOT_GB28181_MEDIA_IP=<设备可访问的虚拟机IP>`（OrbStack 的 localhost 转发只对本机可用）。观看权限在平台内分配。
 
 Mac 使用 OrbStack 自动提供的 `localhost` 端口转发，因此上述命令不依赖虚拟机 IP 或 VPN 对内网 IP 的路由。确保 Mac 和其他虚拟机没有占用相同端口；同时测试两套依赖时先停掉其中一套，避免连接到错误的环境。`host.orb.internal` 是 OrbStack 提供的 Mac 回调地址；`host.docker.internal` 在虚拟机内安装的 Docker 中指向虚拟机，不能用于此处的 Mac API 回调。地址机制参见 [OrbStack 网络文档](https://docs.orbstack.dev/machines/network)。
 
@@ -186,12 +187,12 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 bash scripts/package-offline-linux.sh
 # openEuler 目标追加：--target-os openeuler-24.03-lts-sp4
 # 沿用已有配置追加：--env-file /path/to/.env.offline
-# 需要直播追加：--include-video
+# 不打包直播媒体服务：--without-video
 ```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
-# 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -IncludeVideo
+# 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -WithoutVideo
 ```
 
 macOS 使用 `bash scripts/package-offline.sh`。输出为 `offline-bundles/iot-platform-offline-*`，需整体复制（含隐藏配置）。手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
@@ -223,16 +224,18 @@ openEuler 24.03 LTS-SP4 用专用目标参数打包，准备容器内生成本�
 
 ## 摄像头部署
 
-本地统一使用 `setup-local.sh --video on|off`（PowerShell：`-Video on|off`），默认关闭，省略则保留当前配置。虚拟机依赖模式同时传 `--dependencies-only`；OrbStack 命令见上文。切换后重启本机 API。备份仍默认在本机源码调试。
+直播媒体服务默认随部署启动，平台业务开关默认开启；只登记摄像头资料不影响使用，只是没有视频。显式关闭会在环境文件写入 `IOT_VIDEO_MODULE=off`，之后不带参数的准备和部署都保持关闭。
 
-在线部署追加 `--include-video` / `-IncludeVideo`；离线包须在打包时包含该选项，目标机不能临时下载缺失的媒体镜像。部署后在平台摄像头页打开业务开关。在线/离线也可用独立模块入口：
+本地使用 `setup-local.sh --video on|off`（PowerShell：`-Video on|off`），省略时沿用上次选择、新环境开启。虚拟机依赖模式同时传 `--dependencies-only`；OrbStack 命令见上文。切换后重启本机 API。在线部署同样支持 `--video on|off`（`-Video on|off`）。离线包默认包含媒体镜像（`--without-video` / `-WithoutVideo` 不打包）；目标机不能临时下载缺失的媒体镜像，环境文件为 `IOT_VIDEO_MODULE=off` 时离线部署不启动它。在线/离线也可用独立模块入口：
 
 ```bash
 bash scripts/video-module.sh enable --mode offline --env-file .env.offline --rtc-ip <浏览器可达IP>
 bash scripts/video-module.sh disable --mode offline --env-file .env.offline
 ```
 
-WebRTC 需要浏览器可达的 `IOT_VIDEO_RTC_EXTERN_IP` 和 RTC UDP/TCP 端口（默认 8000）；跨 NAT 时配置转发，未设置外部地址时使用 HLS。API 需能访问媒体 HTTP API，媒体 Hook 需能回调 API；HLS 经 Web 代理，内部媒体 API 不对外开放。需要重编码时显式开启 `--transcode`，资源上限见 `internal/config/video.go`。摄像头网段/端口用 `IOT_VIDEO_ALLOWED_CIDRS`、`IOT_VIDEO_ALLOWED_PORTS` 限制。
+WebRTC 需要浏览器可达的 `IOT_VIDEO_RTC_EXTERN_IP` 和 RTC UDP/TCP 端口（默认 8000）；跨 NAT 时配置转发，未设置外部地址时使用 HLS。媒体服务自带的 TURN 中继保持关闭（`enableTurn=0`）：它只在浏览器无法直连 WebRTC 端口时中转媒体，而这种情况播放器已自动改用经 Web 代理的 HLS，开启只会多暴露一组端口。
+
+GB28181 需要两类端口对摄像头网络开放：API 的 SIP 端口 `IOT_GB28181_SIP_PORT`（默认 5060，UDP+TCP），以及媒体服务的 RTP 端口范围 `IOT_VIDEO_RTP_PORT_MIN`–`IOT_VIDEO_RTP_PORT_MAX`（默认 30000–30063，UDP+TCP，每路流占两个端口）。`IOT_GB28181_MEDIA_IP` 是设备发送 RTP 的目标地址，默认取 `IOT_VIDEO_RTC_EXTERN_IP` 的第一个地址；`IOT_GB28181_SIP_HOST` 是设备回连平台的地址（在线/离线默认同上，本地源码 API 为空时按路由自动选择）。服务器编号与域用 `IOT_GB28181_SERVER_ID`（默认 `34020000002000000001`）和 `IOT_GB28181_DOMAIN`（默认取编号前 10 位）；`IOT_GB28181_ENABLED=false` 关闭国标接入而不影响 ONVIF/RTSP。本地依赖端口默认只绑定 `127.0.0.1`，真实设备接入需用 `--dependency-host` 开放。API 需能访问媒体 HTTP API，媒体 Hook 需能回调 API；HLS 经 Web 代理，内部媒体 API 不对外开放。需要重编码时显式开启 `--transcode`，资源上限见 `internal/config/video.go`。摄像头网段/端口用 `IOT_VIDEO_ALLOWED_CIDRS`、`IOT_VIDEO_ALLOWED_PORTS` 限制。
 
 媒体、Hook、凭据加密密钥由脚本生成并保留；`IOT_VIDEO_CREDENTIAL_KEY` 不能随意更换，否则已存密码无法解密。停止媒体容器保留摄像头资料和配置；平台内业务开关关闭会撤销播放与拉流。功能、权限与生命周期见 [平台功能](PLATFORM.md#摄像头)。
 
@@ -294,7 +297,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](#离线部署)。
 
-摄像头直播媒体服务使用 profile `video`。本地用 `setup-local.sh --video on|off`（PowerShell 为 `-Video on|off`）；虚拟机模式同时加 `--dependencies-only`。在线/离线仍使用 `scripts/video-module.sh` / `video-module.ps1`，也可用它查看 `status`、`logs`（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](PLATFORM.md#摄像头)。
+摄像头直播媒体服务使用 profile `video`，默认启用。本地用 `setup-local.sh --video on|off`（PowerShell 为 `-Video on|off`）；虚拟机模式同时加 `--dependencies-only`。在线部署用 `--video on|off`，也可使用 `scripts/video-module.sh` / `video-module.ps1`，也可用它查看 `status`、`logs`（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](PLATFORM.md#摄像头)。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 

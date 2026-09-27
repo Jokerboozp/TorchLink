@@ -22,4 +22,11 @@ type VideoStore interface {
 	SaveVideoPlaySession(context.Context, model.VideoPlaySession) error
 	ListActiveVideoPlaySessions(context.Context, int64) ([]model.VideoPlaySession, error)
 	PruneVideoPlaySessions(context.Context, int64) error
+	// GB28181 devices. Device IDs are unique across tenants; GetGBDevice looks
+	// a device up by its SIP identity alone.
+	ListGBDevices(context.Context, string) ([]model.GBDevice, error)
+	GetGBDevice(context.Context, string) (model.GBDevice, error)
+	SaveGBDevice(context.Context, model.GBDevice) error
+	SaveGBDeviceState(context.Context, string, model.GBDeviceState) error
+	DeleteGBDevice(context.Context, string, string) error
 }

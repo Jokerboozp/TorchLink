@@ -19,7 +19,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if (($RtcIp -or $RtcPort -or $AllowedCidrs -or $Transcode -or $NoTranscode) -and $Video -ne 'on') { throw '媒体选项需要同时指定 -Video on。' }
+if (($RtcIp -or $RtcPort -or $AllowedCidrs -or $Transcode -or $NoTranscode) -and $Video -eq 'off') { throw '媒体选项不能与 -Video off 同时使用。' }
 if ($Transcode -and $NoTranscode) { throw '-Transcode 与 -NoTranscode 不能同时使用。' }
 . (Join-Path $PSScriptRoot 'lib/deployment.ps1')
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -54,6 +54,8 @@ if (-not $SkipCodeDeps) {
 }
 $newEnv = -not (Test-Path -LiteralPath $EnvFile)
 Ensure-DeploymentEnv -Path $EnvFile
+# Live video is deployed by default; an earlier -Video off is kept.
+if ($Video -eq 'keep') { $Video = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE') -eq 'off') { 'off' } else { 'on' } }
 $postgresPassword = [Uri]::EscapeDataString((Get-DeploymentEnvValue -Path $EnvFile -Key 'POSTGRES_PASSWORD'))
 $clickhousePassword = [Uri]::EscapeDataString((Get-DeploymentEnvValue -Path $EnvFile -Key 'CLICKHOUSE_PASSWORD'))
 $defaults = [ordered]@{

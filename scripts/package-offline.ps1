@@ -6,7 +6,7 @@ param(
     [switch]$IncludeAi = $true,
     [switch]$IncludeHarness = $true,
     # 打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）。
-    [switch]$IncludeVideo,
+    [switch]$WithoutVideo,
     [string]$OllamaModel = "",
     [string]$DeepSeekModel = "deepseek-flash",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
@@ -250,7 +250,7 @@ function New-OfflineEnv {
     foreach ($item in $imageValues.GetEnumerator()) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $item.Key -Value $item.Value)
     }
-    if ($IncludeVideo) {
+    if (-not $WithoutVideo) {
         # 摄像头直播：密钥只在缺失时生成；WebRTC 地址须在目标机上填写 IOT_VIDEO_RTC_EXTERN_IP。
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_ZLMEDIAKIT_IMAGE' -Value 'iot-zlmediakit:offline')
         foreach ($key in @('IOT_VIDEO_MEDIA_SECRET', 'IOT_VIDEO_HOOK_SECRET')) {
@@ -262,9 +262,19 @@ function New-OfflineEnv {
             try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
             $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_CREDENTIAL_KEY' -Value ([Convert]::ToBase64String($keyBytes)))
         }
-        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value 'http://zlmediakit:80')
         if (-not ($lines -match '^\s*IOT_VIDEO_TRANSCODE_ENABLED\s*=')) { $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_TRANSCODE_ENABLED' -Value 'true') }
         if (-not ($lines -match '^\s*IOT_VIDEO_RTC_EXTERN_IP\s*=')) { $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_RTC_EXTERN_IP' -Value '') }
+        # An explicit opt-out in the source configuration is kept; the image is
+        # still packaged so video-module.ps1 enable works on the target later.
+        if ($lines -match "^\s*IOT_VIDEO_MODULE\s*=\s*['""]?off") {
+            $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value '')
+        } else {
+            $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value 'http://zlmediakit:80')
+            $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MODULE' -Value 'on')
+        }
+    } else {
+        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value '')
+        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MODULE' -Value 'off')
     }
     if ($UseHarness) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
@@ -326,7 +336,7 @@ $composeBase = @(
 
 $profiles = New-Object 'System.Collections.Generic.List[string]'
 if ($IncludeHarness) { [void]$profiles.Add("harness") }
-if ($IncludeVideo) { [void]$profiles.Add("video") }
+if (-not $WithoutVideo) { [void]$profiles.Add("video") }
 $profileArguments = New-Object 'System.Collections.Generic.List[string]'
 foreach ($profile in $profiles) {
     [void]$profileArguments.Add("--profile")
@@ -347,7 +357,7 @@ try {
     )
     Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio"))
-    if ($IncludeVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
+    if (-not $WithoutVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
 
     # 只归档知识库嵌入模型；DeepSeek API 不携带模型权重。
     if (-not $SkipOllamaModel) {

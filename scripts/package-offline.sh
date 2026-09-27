@@ -11,7 +11,7 @@ output_dir="offline-bundles"
 env_file=""
 include_ai=1
 include_harness=1
-include_video=0
+include_video=1
 full=0
 deepseek_model="deepseek-flash"
 ollama_embedding_model="nomic-embed-text"
@@ -30,7 +30,7 @@ usage() {
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
   --include-ai           兼容参数；统一使用 DeepSeek API，不携带对话模型
   --include-harness      兼容参数；默认已经打包 AI 工作流 Harness
-  --include-video        打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）
+  --without-video        不打包摄像头直播媒体服务（默认打包固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）
   --deepseek-model MODEL DeepSeek API 模型，默认 deepseek-flash
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过嵌入模型；仅用于目标机已有 nomic-embed-text
@@ -238,9 +238,19 @@ EOF
     [[ -n "$(env_value IOT_VIDEO_MEDIA_SECRET "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_MEDIA_SECRET "$(random_hex 32)"
     [[ -n "$(env_value IOT_VIDEO_HOOK_SECRET "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_HOOK_SECRET "$(random_hex 32)"
     [[ -n "$(env_value IOT_VIDEO_CREDENTIAL_KEY "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_CREDENTIAL_KEY "$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
-    set_env_value "$destination" IOT_VIDEO_MEDIA_API_URL http://zlmediakit:80
     [[ -n "$(env_value IOT_VIDEO_TRANSCODE_ENABLED "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_TRANSCODE_ENABLED true
     [[ -n "$(env_value IOT_VIDEO_RTC_EXTERN_IP "$destination")" ]] || set_env_value "$destination" IOT_VIDEO_RTC_EXTERN_IP ''
+    # An explicit opt-out in the source configuration is kept; the image is
+    # still packaged so video-module.sh enable works on the target later.
+    if [[ "$(env_value IOT_VIDEO_MODULE "$destination")" == off ]]; then
+      set_env_value "$destination" IOT_VIDEO_MEDIA_API_URL ''
+    else
+      set_env_value "$destination" IOT_VIDEO_MEDIA_API_URL http://zlmediakit:80
+      set_env_value "$destination" IOT_VIDEO_MODULE on
+    fi
+  else
+    set_env_value "$destination" IOT_VIDEO_MEDIA_API_URL ''
+    set_env_value "$destination" IOT_VIDEO_MODULE off
   fi
   configure_deepseek_env "$destination" "$deepseek_model"
   annotate_deployment_env_file "$destination"
@@ -261,7 +271,7 @@ while [[ $# -gt 0 ]]; do
     --env-file) env_file="${2:-}"; shift 2 ;;
     --include-ai) include_ai=1; shift ;;
     --include-harness) include_harness=1; shift ;;
-    --include-video) include_video=1; shift ;;
+    --without-video) include_video=0; shift ;;
     --ollama-model) die '已取消打包本地对话模型，请使用 DeepSeek API' ;;
     --deepseek-model) deepseek_model="${2:-}"; shift 2 ;;
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;

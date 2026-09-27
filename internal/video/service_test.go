@@ -32,7 +32,7 @@ func newFixture(t *testing.T, mutate ...func(*config.VideoConfig)) *fixture {
 	f := &fixture{media: videotest.New(testSecret), store: memory.NewRepository(), cameras: map[string]model.VideoCameraMapping{}, denied: map[string]bool{}}
 	t.Cleanup(f.media.Close)
 	_, lan, _ := net.ParseCIDR("10.0.0.0/8")
-	cfg := config.VideoConfig{MediaAPIURL: f.media.URL, MediaSecret: testSecret, MediaServerID: "torchlink-media-1", HookSecret: testHook, CredentialKey: []byte(strings.Repeat("k", 32)), CredentialKeyID: "k1", AllowedCIDRs: []*net.IPNet{lan}, AllowedPorts: map[int]bool{554: true}, HLSPublicPath: "/media/hls", LeaseTTL: 45 * time.Second, IdleGrace: 20 * time.Second, StartTimeout: 2 * time.Second, MaxSessions: 50, MaxSourceStreams: 8, Transcode: true, MaxTranscodes: 1, HWAccel: "none"}
+	cfg := config.VideoConfig{MediaAPIURL: f.media.URL, MediaSecret: testSecret, MediaServerID: "torchlink-media-1", HookSecret: testHook, CredentialKey: []byte(strings.Repeat("k", 32)), CredentialKeyID: "k1", AllowedCIDRs: []*net.IPNet{lan}, AllowedPorts: map[int]bool{554: true}, HLSPublicPath: "/media/hls", LeaseTTL: 45 * time.Second, IdleGrace: 20 * time.Second, StartTimeout: 2 * time.Second, MaxSessions: 50, MaxSourceStreams: 8, Transcode: true, MaxTranscodes: 1}
 	for _, m := range mutate {
 		m(&cfg)
 	}
@@ -468,4 +468,15 @@ func TestNotDeployedReportsState(t *testing.T) {
 		t.Fatalf("play: %v", err)
 	}
 	s.CameraChanged("t1", "cam", "x") // must be a no-op
+}
+
+func TestModuleIsOnUntilAnAdministratorSwitchesIt(t *testing.T) {
+	store := memory.NewRepository()
+	if st, _ := store.GetVideoModuleState(context.Background()); !st.Enabled {
+		t.Fatal("live must be on by default")
+	}
+	_ = store.SaveVideoModuleState(context.Background(), model.VideoModuleState{Enabled: false, UpdatedBy: "admin"})
+	if st, _ := store.GetVideoModuleState(context.Background()); st.Enabled {
+		t.Fatal("an explicit switch-off must be kept")
+	}
 }

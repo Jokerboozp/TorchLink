@@ -351,10 +351,13 @@ assert_no_call ' up '
 TEST_MISSING_IMAGE=0
 python3 "$scripts/prepare-public-bundle.py" "$bundle"
 [ ! -e "$bundle/.env.offline" ]
+# Camera and GB28181 passwords are sealed with a key generated on the target.
+grep -q '^IOT_VIDEO_CREDENTIAL_KEY=__TORCHLINK_RANDOM_BASE64_32__$' "$bundle/.env.offline.template"
 : > "$TEST_CALLS"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 [ -s "$bundle/.env.offline" ]
-if grep -q '__TORCHLINK_RANDOM_HEX__' "$bundle/.env.offline"; then echo 'Public template was not initialized'; exit 1; fi
+if grep -q '__TORCHLINK_RANDOM_' "$bundle/.env.offline"; then echo 'Public template was not initialized'; exit 1; fi
+grep -Eq '^IOT_VIDEO_CREDENTIAL_KEY=[A-Za-z0-9+/]{43}=$' "$bundle/.env.offline"
 assert_call 'up -d --no-build --pull never'
 assert_no_call ' build |ollama pull| compose .* pull '
 cp "$bundle/.env.offline" "$test_root/public-original"
@@ -367,10 +370,13 @@ if bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"; then echo 'Corrupt 
 assert_no_call '^load '
 echo 'PASS offline: complete bundle, no network, repeatability and corrupt/missing image checks'
 
-# Optional camera live module: absent by default, packaged and toggled on request.
-assert_no_call 'zlmediakit'
+# Camera live module: packaged and deployed by default; an explicit opt-out is kept.
+grep -qx 'video' "$bundle/profiles.txt"
+grep -q '^IOT_VIDEO_MODULE=on$' "$test_root/offline-original"
+grep -q '^COMPOSE_PROFILES=video$' "$test_root/.env.online"
+grep -q '^IOT_VIDEO_MEDIA_API_URL=http://zlmediakit:80$' "$test_root/.env.online"
 : > "$TEST_CALLS"
-bash "$scripts/package-offline.sh" --output-dir "$test_root/video-bundles" --include-video --skip-ollama-model --skip-docker-runtime
+bash "$scripts/package-offline.sh" --output-dir "$test_root/video-bundles" --skip-ollama-model --skip-docker-runtime
 vbundles=("$test_root"/video-bundles/iot-platform-offline-*)
 vbundle="${vbundles[0]}"
 grep -qx 'video' "$vbundle/profiles.txt"
@@ -387,19 +393,42 @@ grep -q 'IOT_VIDEO_RTC_EXTERN_IP' "$test_root/video-deploy.log"
 video_key="$(grep '^IOT_VIDEO_CREDENTIAL_KEY=' "$vbundle/.env.offline")"
 bash "$vbundle/scripts/video-module.sh" disable --mode offline --env-file "$vbundle/.env.offline" > /dev/null
 grep -q '^IOT_VIDEO_MEDIA_API_URL=$' "$vbundle/.env.offline"
+grep -q '^IOT_VIDEO_MODULE=off$' "$vbundle/.env.offline"
 assert_call 'rm -f zlmediakit'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
+assert_no_call '--profile video'
 bash "$vbundle/scripts/video-module.sh" enable --mode offline --env-file "$vbundle/.env.offline" --rtc-ip 192.0.2.10 > /dev/null
 grep -q '^IOT_VIDEO_RTC_EXTERN_IP=192.0.2.10$' "$vbundle/.env.offline"
 grep -q '^IOT_VIDEO_MEDIA_API_URL=http://zlmediakit:80$' "$vbundle/.env.offline"
+grep -q '^IOT_VIDEO_MODULE=on$' "$vbundle/.env.offline"
 [ "$video_key" = "$(grep '^IOT_VIDEO_CREDENTIAL_KEY=' "$vbundle/.env.offline")" ] || { echo 'Camera credential key was rotated' >&2; exit 1; }
 assert_call 'up -d --no-build --pull never --wait --wait-timeout 120 zlmediakit'
 : > "$TEST_CALLS"
+bash "$scripts/package-offline.sh" --output-dir "$test_root/novideo-bundles" --without-video --skip-ollama-model --skip-docker-runtime > /dev/null
+nbundles=("$test_root"/novideo-bundles/iot-platform-offline-*)
+if grep -qx 'video' "${nbundles[0]}/profiles.txt"; then echo 'Opt-out bundle includes video' >&2; exit 1; fi
+grep -q '^IOT_VIDEO_MODULE=off$' "${nbundles[0]}/.env.offline"
+assert_no_call 'zlmediakit'
+# Online: --video off is kept by later default deployments; --video on restores it.
 cp "$test_root/.env.online" "$test_root/.env.online-video"
-bash "$scripts/video-module.sh" enable --env-file "$test_root/.env.online-video" --rtc-ip 192.0.2.20 > /dev/null
-grep -q '^COMPOSE_PROFILES=video$' "$test_root/.env.online-video"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video off > /dev/null
+grep -q '^IOT_VIDEO_MEDIA_API_URL=$' "$test_root/.env.online-video"
+grep -q '^COMPOSE_PROFILES=$' "$test_root/.env.online-video"
+assert_call '--profile video rm -sf zlmediakit'
+assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" > /dev/null
+grep -q '^IOT_VIDEO_MODULE=off$' "$test_root/.env.online-video"
+assert_no_call 'build --pull .*zlmediakit'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video on > /dev/null
+grep -q '^COMPOSE_PROFILES=video$' "$test_root/.env.online-video"
 assert_call 'build --pull platform-api platform-web backup-service deepseek-harness zlmediakit'
 assert_no_call ' pull .*zlmediakit'
-echo 'PASS video module: default off, offline packaging, module toggle and online profile'
+"$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
+grep -q 'published: "5060"' "$test_root/video-online.yaml"
+grep -q 'published: "30063"' "$test_root/video-online.yaml"
+echo 'PASS video module: default on, GB28181 ports, offline packaging, opt-out kept and online toggle'
 echo 'Bash deployment smoke tests PASS (mutations mocked; Compose parsing real).'
