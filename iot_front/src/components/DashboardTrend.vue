@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { trendGeometry } from '../dashboard.js'
+import { compactCount, trendGeometry } from '../dashboard.js'
 const props = defineProps({ items:{type:Array, default:() => []} })
 const chart = computed(() => trendGeometry(props.items))
 const selected = ref(null)
@@ -9,11 +9,11 @@ const selectedPoint = computed(() => props.items.find(item => item.date === sele
 const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length-1)/2), props.items.length-1]))
 </script>
 <template>
-  <div class="trend-caption"><strong>{{ total.toLocaleString() }} <small>条新增告警</small></strong><span aria-live="polite">{{ selectedPoint ? `${selectedPoint.date} · ${selectedPoint.count} 条` : '按首次发生时间统计' }}</span></div>
+  <div class="trend-caption"><strong :title="`${total.toLocaleString()} 条新增告警`">{{ compactCount(total) }} <small>条新增告警</small></strong><span aria-live="polite">{{ selectedPoint ? `${selectedPoint.date} · ${selectedPoint.count.toLocaleString()} 条` : '按首次发生时间统计' }}</span></div>
   <div v-if="total" class="trend-plot">
     <svg viewBox="0 0 700 245" role="group" aria-label="每日新增告警趋势">
       <defs><linearGradient id="dashboard-trend-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--primary)" stop-opacity=".16" /><stop offset="100%" stop-color="var(--primary)" stop-opacity=".01" /></linearGradient></defs> <!-- 趋势面积使用品牌深蓝渐变。 -->
-      <g v-for="tick in chart.ticks" :key="tick.value"><line x1="44" x2="672" :y1="tick.y" :y2="tick.y" stroke="var(--border)" stroke-dasharray="3 5" /><text x="30" :y="tick.y+4" text-anchor="end">{{ tick.value }}</text></g>
+      <g v-for="tick in chart.ticks" :key="tick.value"><line :x1="chart.left" x2="672" :y1="tick.y" :y2="tick.y" stroke="var(--border)" stroke-dasharray="3 5" /><text :x="chart.left-14" :y="tick.y+4" text-anchor="end">{{ tick.label }}</text></g>
       <polygon :points="chart.area" fill="url(#dashboard-trend-fill)" />
       <polyline :points="chart.line" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" /> <!-- 趋势线使用品牌深蓝。 -->
       <g v-for="(point,index) in chart.points" :key="point.date">
@@ -27,8 +27,8 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length-1
 </template>
 
 <style scoped>
-.trend-caption { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
-.trend-caption > strong { color: var(--text-strong); font-size: 26px; font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
+.trend-caption { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.trend-caption > strong { white-space: nowrap; color: var(--text-strong); font-size: 26px; font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
 .trend-caption small { color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 400; }
 .trend-caption > span { color: var(--text-muted); font-size: var(--font-size-xs); }
 .trend-plot svg { display: block; width: 100%; min-height: 200px; overflow: visible; }

@@ -26,6 +26,14 @@ export function dashboardDistributions(stats = {}) {
   ].map(item => ({...item, available:stats[item.key] != null}))
 }
 export function count(value) { return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0 }
+// 大数按“万 / 亿”缩写，避免撑破统计卡片、环形图中心和坐标轴；完整数值由调用处放在 title 中。
+export function compactCount(value, digits = 1) {
+  const n = count(value)
+  if (n < 1e4) return Math.round(n).toLocaleString('zh-CN')
+  let scaled = n / 1e4, unit = '万'
+  if (Math.round(scaled) >= 1e4) { scaled = n / 1e8; unit = '亿' }
+  return `${Number(scaled.toFixed(scaled < 100 ? digits : 0)).toLocaleString('zh-CN')}${unit}`
+}
 export function deviceSegments(states = {}) {
   const known = { ONLINE:['在线','var(--success)'], OFFLINE:['离线','var(--gray-500)'], SUSPECTED_OFFLINE:['疑似离线','var(--warning)'], NEVER_SEEN:['待连接','var(--gray-400)'], UNKNOWN:['未知','var(--info)'] }
   return Object.entries(known).map(([key, [name, color]]) => ({ key, name, color, count:count(states[key]) }))
@@ -50,6 +58,10 @@ export function trendGeometry(trend = []) {
   const ceiling = Math.ceil(max / magnitude) * magnitude
   const step = Math.max(1, Math.ceil(ceiling / 4))
   const top = step * 4
-  const points = trend.map((item, i) => ({ ...item, count:count(item.count), x:44 + i * 628 / Math.max(1,trend.length-1), y:204-count(item.count)/top*172 }))
-  return { points, top, ticks:Array.from({length:5},(_,i) => ({ value:step*i, y:204-i*43 })), line:points.map(p => `${p.x},${p.y}`).join(' '), area:points.length ? `44,204 ${points.map(p => `${p.x},${p.y}`).join(' ')} ${points.at(-1).x},204` : '' }
+  const labels = Array.from({length:5},(_,i) => compactCount(step*i, 2))
+  // 纵轴刻度文字右对齐在绘图区左侧 14 处，按最长刻度估算宽度，避免大数刻度超出图表左边界。
+  const left = Math.max(44, 18 + Math.ceil(Math.max(...labels.map(text => [...text].reduce((sum, ch) => sum + (/[\u4e00-\u9fff]/.test(ch) ? 12 : 7), 0)))))
+  const width = 672 - left
+  const points = trend.map((item, i) => ({ ...item, count:count(item.count), x:left + i * width / Math.max(1,trend.length-1), y:204-count(item.count)/top*172 }))
+  return { points, top, left, ticks:labels.map((label,i) => ({ value:step*i, label, y:204-i*43 })), line:points.map(p => `${p.x},${p.y}`).join(' '), area:points.length ? `${left},204 ${points.map(p => `${p.x},${p.y}`).join(' ')} ${points.at(-1).x},204` : '' }
 }

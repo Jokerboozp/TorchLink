@@ -4,7 +4,7 @@ import { api, formatTime, notifyError } from '../api'
 import { alarmLevels, alarmType, label, tagType } from '../labels'
 import { RefreshCw } from '@lucide/vue'
 import DashboardTrend from '../components/DashboardTrend.vue'
-import { deviceSegments, ringSegments, productBars, dashboardDistributions } from '../dashboard.js'
+import { compactCount, deviceSegments, ringSegments, productBars, dashboardDistributions } from '../dashboard.js'
 import DashboardDistribution from '../components/DashboardDistribution.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 
@@ -77,7 +77,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
     <div class="dashboard-toolbar"><span>当前运行快照</span><div><span>{{ loading ? '正在更新…' : data ? `更新于 ${formatTime(data.updatedAt)}` : '尚未获取数据' }}</span><ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button></div></div>
     <div class="stats-grid">
       <section v-for="item in kpis" :key="item.label" class="stat-card" :class="item.tone && `stat-${item.tone}`">
-        <span>{{ item.label }}</span><strong>{{ data ? (item.value ?? 0).toLocaleString() : '—' }}</strong>
+        <span>{{ item.label }}</span><strong :title="data ? (item.value ?? 0).toLocaleString() : ''">{{ data ? compactCount(item.value) : '—' }}</strong>
         <small v-if="!data">等待更新</small>
         <StatusDot v-else-if="item.tone" :tone="item.tone" :label="item.note" />
         <small v-else>{{ item.note }}</small>
@@ -100,9 +100,9 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
           </div>
         </ui-card>
       </div>
-      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card level-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta">{{ data ? `${stats.activeAlarms.toLocaleString()} 条` : '—' }}</span></div></template>
+      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card level-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta" :title="data ? `${stats.activeAlarms.toLocaleString()} 条` : ''">{{ data ? `${compactCount(stats.activeAlarms)} 条` : '—' }}</span></div></template>
         <p class="chart-description">当前活动告警的风险等级分布</p>
-        <div v-if="data && stats.activeAlarms" class="horizontal-chart"><div v-for="item in levels" :key="item.key" class="bar-row"><div><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>条</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / stats.activeAlarms * 100}%`, background:item.color }" /></div></div></div>
+        <div v-if="data && stats.activeAlarms" class="horizontal-chart"><div v-for="item in levels" :key="item.key" class="bar-row"><div><span>{{ item.name }}</span><b :title="`${item.count.toLocaleString()} 条`">{{ compactCount(item.count) }} <small>条</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / stats.activeAlarms * 100}%`, background:item.color }" /></div></div></div>
         <ui-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" />
       </ui-card>
         <ui-card v-for="chart in alarmDistributions" :key="chart.key" shadow="never" class="surface-card insight-card">
@@ -118,7 +118,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
         <p class="chart-description">已登记设备的当前业务状态</p>
         <div v-if="data && stats.devices" class="device-chart">
           <div class="device-ring"><svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`"><circle cx="90" cy="90" r="72" fill="none" stroke="var(--surface-hover)" stroke-width="14" /><circle v-for="item in ring" :key="item.key" cx="90" cy="90" r="72" fill="none" :stroke="item.color" stroke-width="14" pathLength="100" :stroke-dasharray="item.dash" :stroke-dashoffset="-item.offset" transform="rotate(-90 90 90)"><title>{{ item.name }} {{ item.count }} 台</title></circle></svg><div><strong>{{ rate }}<small>%</small></strong><span>在线率</span></div></div>
-          <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b>{{ item.count.toLocaleString() }}</b></div></div>
+          <div class="chart-legend"><div v-for="item in states" :key="item.key"><i :style="{background:item.color}" /><span>{{ item.name }}</span><b :title="`${item.count.toLocaleString()} 台`">{{ compactCount(item.count) }}</b></div></div>
         </div>
         <ui-empty v-else :description="data ? '暂无已登记设备' : loading ? '正在读取设备' : '尚未获取设备数据'" :image-size="76" />
       </ui-card>
@@ -129,7 +129,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
         </ui-card>
       </div>
       <ui-card shadow="never" class="surface-card product-card"><template #header><div class="card-header"><strong>产品设备分布</strong><ui-button v-permission="'menu:products'" text @click="emit('navigate','products')">管理产品</ui-button></div></template>
-        <div v-if="products.length" class="horizontal-chart product-chart"><div v-for="item in products" :key="item.key" class="bar-row"><div><span :title="item.name">{{ item.name }}</span><b>{{ item.count.toLocaleString() }} <small>台</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / productMax * 100}%`, background:item.color }" /></div></div></div>
+        <div v-if="products.length" class="horizontal-chart product-chart"><div v-for="item in products" :key="item.key" class="bar-row"><div><span :title="item.name">{{ item.name }}</span><b :title="`${item.count.toLocaleString()} 台`">{{ compactCount(item.count) }} <small>台</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / productMax * 100}%`, background:item.color }" /></div></div></div>
         <ui-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" />
       </ui-card>
     </section>
@@ -141,9 +141,9 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
 .dashboard-page { display:grid; gap:16px; min-width:0; }
 .dashboard-toolbar,.dashboard-toolbar > div { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--text-muted); font-size:12px; }
 .stats-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
-.stat-card { display:grid; align-content:center; gap:8px; padding:16px 20px; min-height:104px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); }
+.stat-card { display:grid; align-content:center; gap:8px; min-width:0; padding:16px 20px; min-height:104px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); }
 .stat-card > span { color:var(--text-secondary); font-size:13px; }
-.stat-card > strong { color:var(--text-strong); font-size:30px; line-height:1; font-weight:600; font-variant-numeric:tabular-nums; }
+.stat-card > strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-strong); font-size:30px; line-height:1.2; font-weight:600; font-variant-numeric:tabular-nums; }
 .stat-card > small,.stat-card .status-dot { color:var(--text-secondary); font-size:12px; }
 .stat-danger > strong { color:var(--danger); }
 .stat-warning > strong { color:var(--warning); }
@@ -183,9 +183,10 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
 .device-ring small { margin-left:2px; font-size:14px; }
 .device-ring span { margin-top:4px; color:var(--text-muted); font-size:12px; }
 .chart-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 16px; width:100%; }
-.chart-legend > div { display:flex; align-items:center; gap:7px; color:var(--text-secondary); font-size:12px; }
+.chart-legend > div { display:flex; align-items:center; gap:7px; min-width:0; color:var(--text-secondary); font-size:12px; }
 .chart-legend i { flex-shrink:0; width:8px; height:8px; border-radius:50%; }
-.chart-legend b { margin-left:auto; color:var(--text); font-weight:500; font-variant-numeric:tabular-nums; }
+.chart-legend span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chart-legend b { margin-left:auto; white-space:nowrap; color:var(--text); font-weight:500; font-variant-numeric:tabular-nums; }
 .horizontal-chart { display:flex; flex-direction:column; gap:18px; min-height:240px; justify-content:center; }
 .bar-row > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; font-size:13px; }
 .bar-row span { overflow:hidden; color:var(--text-secondary); text-overflow:ellipsis; white-space:nowrap; }
