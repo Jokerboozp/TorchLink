@@ -288,7 +288,7 @@ func TestDurableIntakeAcknowledgesAfterPersisting(t *testing.T) {
 	d.startIntake(c)
 	messages := make([]*receivedMessage, 200)
 	for i := range messages {
-		messages[i] = &receivedMessage{topic: fmt.Sprintf("/iot/up/t/p/device-%d/property", i), payload: []byte(fmt.Sprintf(`{"id":"m-%d"}`, i))}
+		messages[i] = &receivedMessage{topic: fmt.Sprintf("/iot/up/t/p/device-%d/property", i), payload: fmt.Appendf(nil, `{"id":"m-%d"}`, i)}
 		c.receive(messages[i])
 	}
 	eventually(t, func() bool {

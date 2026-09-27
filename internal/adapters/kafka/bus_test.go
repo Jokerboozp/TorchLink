@@ -140,7 +140,7 @@ func (f *fakeSource) lastCommit(partition int) int64 {
 func messages(keys []string) []kafka.Message {
 	out := make([]kafka.Message, 0, len(keys))
 	for i, key := range keys {
-		out = append(out, kafka.Message{Topic: "t", Partition: 0, Offset: int64(i), Key: []byte(key), Value: []byte(fmt.Sprintf("%s:%d", key, i))})
+		out = append(out, kafka.Message{Topic: "t", Partition: 0, Offset: int64(i), Key: []byte(key), Value: fmt.Appendf(nil, "%s:%d", key, i)})
 	}
 	return out
 }

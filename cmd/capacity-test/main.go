@@ -488,6 +488,9 @@ func scrape() map[string]float64 {
 			out[f[0]] = v
 		}
 	}
+	if sc.Err() != nil {
+		return map[string]float64{}
+	}
 	return out
 }
 

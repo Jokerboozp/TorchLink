@@ -138,7 +138,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 		body, _ := json.Marshal(map[string]any{"id": "reply-1", "timestamp": time.Now().UnixMilli(), "data": map[string]any{"commandId": command.ID, "success": true}})
 		device.Publish(prefix+"command-reply", 1, false, body)
 	}))
-	property := []byte(fmt.Sprintf(`{"id":"property-1","timestamp":%d,"data":{"temperature":26.5}}`, time.Now().UnixMilli()))
+	property := fmt.Appendf(nil, `{"id":"property-1","timestamp":%d,"data":{"temperature":26.5}}`, time.Now().UnixMilli())
 	wait(t, device.Publish(prefix+"property", 1, false, property))
 	until := func(t *testing.T, check func() bool) {
 		t.Helper()

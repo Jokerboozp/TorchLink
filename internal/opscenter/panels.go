@@ -906,7 +906,8 @@ func promDuration(d time.Duration) string {
 		size   time.Duration
 	}{{"d", 24 * time.Hour}, {"h", time.Hour}, {"m", time.Minute}, {"s", time.Second}, {"ms", time.Millisecond}} {
 		if n := d / unit.size; n > 0 {
-			b.WriteString(strconv.FormatInt(int64(n), 10) + unit.suffix)
+			b.WriteString(strconv.FormatInt(int64(n), 10))
+			b.WriteString(unit.suffix)
 			d -= n * unit.size
 		}
 	}

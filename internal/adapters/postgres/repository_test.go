@@ -642,6 +642,7 @@ func TestDistributedCollectionProcessFailover(t *testing.T) {
 					}
 				}
 			}
+			_ = scanner.Err() // 子进程被终止时读取中断属预期。
 		}()
 		return command
 	}

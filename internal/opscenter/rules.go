@@ -309,8 +309,11 @@ func renderRuleFile(group ruleGroupYAML, actor string, now time.Time) ([]byte, e
 func withHeader(body []byte, actor string, now time.Time) []byte {
 	var b bytes.Buffer
 	b.WriteString(managedHeader + "\n")
-	b.WriteString("# updated-by: " + strings.ReplaceAll(actor, "\n", " ") + "\n")
-	b.WriteString("# updated-at: " + now.UTC().Format(time.RFC3339Nano) + "\n")
+	b.WriteString("# updated-by: ")
+	b.WriteString(strings.ReplaceAll(actor, "\n", " "))
+	b.WriteString("\n# updated-at: ")
+	b.WriteString(now.UTC().Format(time.RFC3339Nano))
+	b.WriteString("\n")
 	b.Write(stripHeader(body))
 	return b.Bytes()
 }

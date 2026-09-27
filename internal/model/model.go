@@ -60,7 +60,7 @@ type RawMessage struct {
 
 func (m *RawMessage) Normalize(now time.Time) {
 	if m.MessageID == "" {
-		h := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%d:%s", m.TenantID, m.DeviceID, now.UnixNano(), m.Payload)))
+		h := sha256.Sum256(fmt.Appendf(nil, "%s:%s:%d:%s", m.TenantID, m.DeviceID, now.UnixNano(), m.Payload))
 		m.MessageID = "raw_" + hex.EncodeToString(h[:12])
 	}
 	if m.Source == "" {

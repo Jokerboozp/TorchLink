@@ -545,7 +545,7 @@ func TestHealthInspectionPDFDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "application/pdf" || !bytes.Contains([]byte(response.Header.Get("Content-Disposition")), []byte(fmt.Sprintf("health-inspection-%d.pdf", int64(generatedAt)))) || !bytes.HasPrefix(data, []byte("%PDF-1.4")) {
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "application/pdf" || !bytes.Contains([]byte(response.Header.Get("Content-Disposition")), fmt.Appendf(nil, "health-inspection-%d.pdf", int64(generatedAt))) || !bytes.HasPrefix(data, []byte("%PDF-1.4")) {
 		t.Fatalf("PDF response status=%d type=%q disposition=%q prefix=%q", response.StatusCode, response.Header.Get("Content-Type"), response.Header.Get("Content-Disposition"), data[:min(len(data), 8)])
 	}
 }

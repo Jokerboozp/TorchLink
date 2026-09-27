@@ -383,11 +383,9 @@ func lookupPath(root any, path string) (any, bool) {
 		return root, true
 	}
 	if strings.HasPrefix(path, "$.") {
-		path = strings.TrimPrefix(path, "$")
+		path = path[1:]
 	}
-	if strings.HasPrefix(path, ".") {
-		path = strings.TrimPrefix(path, ".")
-	}
+	path = strings.TrimPrefix(path, ".")
 	current := root
 	for len(path) > 0 {
 		part := path
@@ -425,9 +423,7 @@ func lookupPath(root any, path string) (any, bool) {
 			}
 			current = array[index]
 			path = path[end+1:]
-			if strings.HasPrefix(path, ".") {
-				path = strings.TrimPrefix(path, ".")
-			}
+			path = strings.TrimPrefix(path, ".")
 			continue
 		}
 		if path != "" {
