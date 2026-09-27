@@ -15,19 +15,49 @@ const (
 	batchMaxRows  = 1000
 	batchMaxBytes = 4 << 20
 	batchTimeout  = 30 * time.Second
+	// batchMaxInflight bounds concurrent INSERTs per table; further full
+	// batches wait, which pushes back on writers instead of piling up parts.
+	batchMaxInflight = 8
 )
 
 type insertBatcher struct {
-	mu      sync.Mutex
-	insert  func(context.Context, []byte) error
-	rows    [][]byte
-	waiters []chan error
-	size    int
-	timer   *time.Timer
+	mu       sync.Mutex
+	insert   func(context.Context, []byte) error
+	rows     [][]byte
+	waiters  []chan error
+	size     int
+	timer    *time.Timer
+	inflight chan struct{}
+	counters BatchStats
+}
+
+// BatchStats are cumulative insert batching counters.
+type BatchStats struct {
+	Batches, Rows, Bytes, Failed uint64
+	MaxRows                      int
+	Inflight                     int
+}
+
+func (a BatchStats) add(b BatchStats) BatchStats {
+	a.Batches += b.Batches
+	a.Rows += b.Rows
+	a.Bytes += b.Bytes
+	a.Failed += b.Failed
+	a.MaxRows = max(a.MaxRows, b.MaxRows)
+	a.Inflight += b.Inflight
+	return a
 }
 
 func newInsertBatcher(insert func(context.Context, []byte) error) *insertBatcher {
-	return &insertBatcher{insert: insert}
+	return &insertBatcher{insert: insert, inflight: make(chan struct{}, batchMaxInflight)}
+}
+
+func (b *insertBatcher) stats() BatchStats {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s := b.counters
+	s.Inflight = len(b.inflight)
+	return s
 }
 
 // add queues one JSONEachRow line and waits for its batch to be written.
@@ -78,9 +108,21 @@ func (b *insertBatcher) flush(rows [][]byte, waiters []chan error) {
 	if len(rows) == 0 {
 		return
 	}
+	b.inflight <- struct{}{}
+	defer func() { <-b.inflight }()
 	ctx, cancel := context.WithTimeout(context.Background(), batchTimeout)
 	defer cancel()
-	err := b.insert(ctx, bytes.Join(rows, nil))
+	body := bytes.Join(rows, nil)
+	err := b.insert(ctx, body)
+	b.mu.Lock()
+	b.counters.Batches++
+	b.counters.Rows += uint64(len(rows))
+	b.counters.Bytes += uint64(len(body))
+	b.counters.MaxRows = max(b.counters.MaxRows, len(rows))
+	if err != nil {
+		b.counters.Failed++
+	}
+	b.mu.Unlock()
 	for _, waiter := range waiters {
 		waiter <- err
 	}

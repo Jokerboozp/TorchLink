@@ -302,3 +302,59 @@ func TestDecodeCountContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestClusterModeCreatesReplicatedTablesAndQuorumInserts(t *testing.T) {
+	var mu sync.Mutex
+	var queries []string
+	server := newClickHouseTestServer(t, func(query string, w http.ResponseWriter) bool {
+		mu.Lock()
+		queries = append(queries, query)
+		mu.Unlock()
+		return false
+	})
+	defer server.Close()
+	repo, err := NewWithOptions(context.Background(), server.URL+"?database=iot", memory.NewRepository(), Options{Cluster: "iot_cluster", InsertQuorum: "2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.ClaimStandardMessage(context.Background(), testTelemetryMessage(), "w", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(queries, "\n")
+	for _, want := range []string{
+		"CREATE DATABASE IF NOT EXISTS iot ON CLUSTER iot_cluster",
+		"CREATE TABLE IF NOT EXISTS iot_telemetry_local ON CLUSTER iot_cluster",
+		"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/iot_telemetry_local','{replica}')",
+		"CREATE TABLE IF NOT EXISTS iot_telemetry ON CLUSTER iot_cluster AS iot_telemetry_local ENGINE=Distributed(iot_cluster, currentDatabase(), iot_telemetry_local, cityHash64(tenant_id, device_id))",
+		"CREATE TABLE IF NOT EXISTS iot_raw_message ON CLUSTER iot_cluster AS iot_raw_message_local",
+		"INSERT INTO iot_telemetry SETTINGS insert_distributed_sync=1, insert_quorum=2, insert_quorum_parallel=1 FORMAT JSONEachRow",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "ENGINE=MergeTree") {
+		t.Fatal("cluster mode created single-node tables")
+	}
+	if st := repo.BatchStats(); st.Batches == 0 || st.Rows == 0 {
+		t.Fatal("batch stats not recorded", st)
+	}
+}
+
+func TestClusterModeRefusesUnmigratedSingleNodeTables(t *testing.T) {
+	server := newClickHouseTestServer(t, func(query string, w http.ResponseWriter) bool {
+		if strings.Contains(query, "FROM system.tables") {
+			_, _ = w.Write([]byte(`{"name":"iot_telemetry","engine":"MergeTree"}` + "\n"))
+			return true
+		}
+		return false
+	})
+	defer server.Close()
+	_, err := NewWithOptions(context.Background(), server.URL, memory.NewRepository(), Options{Cluster: "iot_cluster"})
+	if err == nil || !strings.Contains(err.Error(), "clickhouse-migrate") {
+		t.Fatal("cluster mode accepted single-node tables", err)
+	}
+	if _, err = NewWithOptions(context.Background(), server.URL, memory.NewRepository(), Options{Cluster: "bad name"}); err == nil {
+		t.Fatal("invalid cluster name accepted")
+	}
+}

@@ -28,3 +28,18 @@ func TestCapacityPlanMissingObservationsAreUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestRoleConnectionBudgetIncludesRollingSurge(t *testing.T) {
+	roles := []RolePool{{"api", 3, 12}, {"gateway", 3, 12}, {"parser", 3, 16}, {"processor", 3, 24}, {"ai", 2, 4}, {"jobs", 2, 4}}
+	b, c := AssessConnectionBudget(roles, 40, 300)
+	// Plan §4.3: steady 36+36+48+72+8+8 = 208, one extra processor = 232.
+	if b.Steady != 208 || b.Surge != 24 || b.SurgeRole != "processor" || b.Headroom != 300-208-24-40 || c.Status != "passed" {
+		t.Fatalf("%+v %+v", b, c)
+	}
+	if _, c = AssessConnectionBudget(roles, 40, 250); c.Status != "blocked" {
+		t.Fatal("over-budget plan passed")
+	}
+	if _, c = AssessConnectionBudget(roles, 40, 0); c.Status != "unverified" {
+		t.Fatal("unknown limit must not pass")
+	}
+}

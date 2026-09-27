@@ -319,6 +319,10 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
 | `IOT_MQTT_DEVICE_TOKEN_TTL` | 24h | 标准设备 MQTT 令牌有效期，仅在配置 EMQX 管理 API 时生效，否则 5 分钟 |
 | `IOT_EMQX_MAX_MQUEUE_LEN` / `IOT_EMQX_MAX_INFLIGHT` | 100000 / 128 | EMQX 会话队列与在途窗口；队列满时 Broker 丢弃报文 |
+| `IOT_CLICKHOUSE_CLUSTER` / `IOT_CLICKHOUSE_INSERT_QUORUM` | 空 / 空 | 设置集群名后使用各分片 `*_local` 复制表与同名 `Distributed` 表，插入同步写入分片并按法定副本数确认（如 `2` 或 `auto`）；旧单节点表须先用 `cmd/clickhouse-migrate` 迁移，平台检测到未迁移时拒绝启动 |
+| `IOT_POSTGRES_MAX_CONN_LIFETIME` / `IOT_POSTGRES_HEALTH_CHECK_PERIOD` / `IOT_POSTGRES_CONNECT_TIMEOUT` | 30m / 15s / 5s | 连接回收与探活；配合多主机 DSN（`host=a,b,c target_session_attrs=read-write`）在主备切换后连到新主库 |
+| `IOT_POSTGRES_READ_DSN` / `IOT_POSTGRES_MAX_REPLICA_LAG` | 空 / 5s | 可选只读副本，仅用于原文列表、历史曲线、设备消息与状态历史、总览统计；副本不可达或延迟超限时回主库。权限、告警与业务状态始终读主库 |
+| `IOT_KAFKA_AUTO_CREATE_TOPICS` | true | 集群设为 `false`，主题由 `cmd/cluster-init` 按正式清单创建，避免自动建出单副本主题 |
 
 EMQX 容器的文件句柄上限在 Compose 中设为 1048576，每条 MQTT 连接占一个句柄；自行部署 EMQX 时须同样放开。配置 `IOT_EMQX_API_URL`、`IOT_EMQX_API_KEY`、`IOT_EMQX_API_SECRET` 后平台可即时撤销设备凭据，并采集 `mqtt_broker_dropped` 以发现 Broker 丢弃。
 

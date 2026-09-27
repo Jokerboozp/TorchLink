@@ -8,11 +8,11 @@ import (
 
 func (r *Repository) ListDeviceStateEvents(ctx context.Context, t, d string, limit, offset int) ([]model.DeviceStateEvent, int, error) {
 	var total int
-	e := r.pool.QueryRow(ctx, `SELECT count(*) FROM device_state_event WHERE tenant_id=$1 AND device_id=$2`, t, d).Scan(&total)
+	e := r.reader().QueryRow(ctx, `SELECT count(*) FROM device_state_event WHERE tenant_id=$1 AND device_id=$2`, t, d).Scan(&total)
 	if e != nil {
 		return nil, 0, e
 	}
-	rows, e := r.pool.Query(ctx, `SELECT body,(extract(epoch from created_at)*1000)::bigint FROM device_state_event WHERE tenant_id=$1 AND device_id=$2 ORDER BY id DESC LIMIT $3 OFFSET $4`, t, d, limit, offset)
+	rows, e := r.reader().Query(ctx, `SELECT body,(extract(epoch from created_at)*1000)::bigint FROM device_state_event WHERE tenant_id=$1 AND device_id=$2 ORDER BY id DESC LIMIT $3 OFFSET $4`, t, d, limit, offset)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -33,11 +33,11 @@ func (r *Repository) ListDeviceStateEvents(ctx context.Context, t, d string, lim
 }
 func (r *Repository) ListDeviceMessages(ctx context.Context, t, d string, kind model.MessageType, limit, offset int) ([]model.StandardMessage, int, error) {
 	var total int
-	e := r.pool.QueryRow(ctx, `SELECT count(*) FROM standard_message WHERE tenant_id=$1 AND device_id=$2 AND ($3='' OR message_type=$3)`, t, d, string(kind)).Scan(&total)
+	e := r.reader().QueryRow(ctx, `SELECT count(*) FROM standard_message WHERE tenant_id=$1 AND device_id=$2 AND ($3='' OR message_type=$3)`, t, d, string(kind)).Scan(&total)
 	if e != nil {
 		return nil, 0, e
 	}
-	rows, e := r.pool.Query(ctx, `SELECT body FROM standard_message WHERE tenant_id=$1 AND device_id=$2 AND ($3='' OR message_type=$3) ORDER BY ts DESC,message_id DESC LIMIT $4 OFFSET $5`, t, d, string(kind), limit, offset)
+	rows, e := r.reader().Query(ctx, `SELECT body FROM standard_message WHERE tenant_id=$1 AND device_id=$2 AND ($3='' OR message_type=$3) ORDER BY ts DESC,message_id DESC LIMIT $4 OFFSET $5`, t, d, string(kind), limit, offset)
 	if e != nil {
 		return nil, 0, e
 	}

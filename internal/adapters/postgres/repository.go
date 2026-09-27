@@ -21,7 +21,11 @@ var schema string
 
 var ErrNotFound = model.ErrNotFound
 
-type Repository struct{ pool *pgxpool.Pool }
+type Repository struct {
+	pool    *pgxpool.Pool
+	replica *replica
+	stop    context.CancelFunc
+}
 
 const countManagedDeviceChildrenSQL = `SELECT body->>'gatewayId' AS gateway_id,count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId' = ANY($2::text[]) AND ($3::text[] IS NULL OR id = ANY($3::text[])) GROUP BY body->>'gatewayId'`
 
@@ -44,13 +48,15 @@ func New(ctx context.Context, dsn string) (*Repository, error) { return NewWithM
 // pool_max_conns. pgx's own default (max(4, CPU count)) serializes the
 // ingest and consumer paths on small machines.
 func NewWithMaxConns(ctx context.Context, dsn string, maxConns int32) (*Repository, error) {
+	return NewWithOptions(ctx, dsn, PoolOptions{MaxConns: maxConns})
+}
+
+func NewWithOptions(ctx context.Context, dsn string, o PoolOptions) (*Repository, error) {
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	if maxConns > 0 && !strings.Contains(dsn, "pool_max_conns") {
-		config.MaxConns = maxConns
-	}
+	applyPoolOptions(config, dsn, o)
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, err
@@ -63,6 +69,28 @@ func NewWithMaxConns(ctx context.Context, dsn string, maxConns int32) (*Reposito
 	if err = r.Migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err
+	}
+	if o.ReadDSN != "" {
+		readConfig, err := pgxpool.ParseConfig(o.ReadDSN)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		applyPoolOptions(readConfig, o.ReadDSN, PoolOptions{MaxConns: max(o.MaxConns/2, 2), MaxConnLifetime: o.MaxConnLifetime, HealthCheckPeriod: o.HealthCheckPeriod, ConnectTimeout: o.ConnectTimeout})
+		readPool, err := pgxpool.NewWithConfig(ctx, readConfig)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		maxLag := o.MaxReplicaLag
+		if maxLag <= 0 {
+			maxLag = 5 * time.Second
+		}
+		r.replica = &replica{pool: readPool, maxLag: maxLag}
+		watchCtx, cancel := context.WithCancel(context.Background())
+		r.stop = cancel
+		r.replica.sample(ctx)
+		go r.replica.watch(watchCtx)
 	}
 	return r, nil
 }
@@ -567,7 +595,7 @@ func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]m
 	}
 	args = append(args, limit, f.Offset)
 	q += fmt.Sprintf(" ORDER BY r.received_at DESC,r.message_id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
-	rows, err := r.pool.Query(ctx, q, args...)
+	rows, err := r.reader().Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +613,7 @@ func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]m
 func (r *Repository) CountRawIndexes(ctx context.Context, f ports.RawFilter) (int, error) {
 	from, args := rawFilterSQL(f)
 	var total int
-	err := r.pool.QueryRow(ctx, "SELECT count(*) FROM "+from, args...).Scan(&total)
+	err := r.reader().QueryRow(ctx, "SELECT count(*) FROM "+from, args...).Scan(&total)
 	return total, err
 }
 
@@ -669,7 +697,7 @@ func (r *Repository) PropertyHistory(ctx context.Context, tenant, device, proper
 	if limit <= 0 {
 		limit = 1000
 	}
-	rows, err := r.pool.Query(ctx, `SELECT ts, properties -> $3, message_id FROM standard_message WHERE tenant_id=$1 AND device_id=$2 AND properties ? $3 AND ts >= $4::bigint AND ($5::bigint=0 OR ts <= $5) ORDER BY ts DESC LIMIT $6`, tenant, device, property, start, end, limit)
+	rows, err := r.reader().Query(ctx, `SELECT ts, properties -> $3, message_id FROM standard_message WHERE tenant_id=$1 AND device_id=$2 AND properties ? $3 AND ts >= $4::bigint AND ($5::bigint=0 OR ts <= $5) ORDER BY ts DESC LIMIT $6`, tenant, device, property, start, end, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -695,10 +723,10 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 	limit, offset = normalizePage(limit, offset)
 	where := `WHERE tenant_id=$1 AND device_id=$2 AND properties ? $3 AND ts >= $4::bigint AND ($5::bigint=0 OR ts <= $5)`
 	var total int
-	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM standard_message `+where, tenant, device, property, start, end).Scan(&total); err != nil {
+	if err := r.reader().QueryRow(ctx, `SELECT count(*) FROM standard_message `+where, tenant, device, property, start, end).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.pool.Query(ctx, `SELECT ts, properties -> $3, message_id FROM standard_message `+where+` ORDER BY ts DESC, message_id DESC LIMIT $6 OFFSET $7`, tenant, device, property, start, end, limit, offset)
+	rows, err := r.reader().Query(ctx, `SELECT ts, properties -> $3, message_id FROM standard_message `+where+` ORDER BY ts DESC, message_id DESC LIMIT $6 OFFSET $7`, tenant, device, property, start, end, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1559,7 +1587,16 @@ func (r *Repository) SaveAIProviderConfig(ctx context.Context, v ports.AIPluginC
 	return err
 }
 func (r *Repository) Health(ctx context.Context) error { return r.pool.Ping(ctx) }
-func (r *Repository) Close() error                     { r.pool.Close(); return nil }
+func (r *Repository) Close() error {
+	if r.stop != nil {
+		r.stop()
+	}
+	if r.replica != nil {
+		r.replica.pool.Close()
+	}
+	r.pool.Close()
+	return nil
+}
 
 var _ = fmt.Sprintf
 var _ = strings.Builder{}

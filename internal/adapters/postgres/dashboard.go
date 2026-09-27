@@ -15,7 +15,7 @@ func (r *Repository) DashboardCountsForDevices(ctx context.Context, tenant strin
 }
 
 func (r *Repository) dashboardCounts(ctx context.Context, tenant string, start, end int64, scoped bool, ids []string) ([]model.DashboardCount, error) {
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.reader().Query(ctx, `
  WITH registered AS (
   SELECT d.product_id, CASE WHEN s.business_status='ALARM' THEN 'ONLINE' ELSE coalesce(nullif(s.business_status,''),'NEVER_SEEN') END AS state,
    coalesce(nullif(s.body->>'connectionStatus',''),'UNKNOWN') AS connection,

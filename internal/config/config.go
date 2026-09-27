@@ -47,9 +47,21 @@ type Config struct {
 	RedisPassword      string
 	// RedisMasterName and RedisSentinels select Sentinel failover instead of
 	// the single RedisAddr.
-	RedisMasterName             string
-	RedisSentinels              []string
-	ClickHouseURL               string
+	RedisMasterName string
+	RedisSentinels  []string
+	ClickHouseURL   string
+	// ClickHouseCluster enables replicated/distributed tables on that
+	// cluster; ClickHouseInsertQuorum sets the replica acknowledgement.
+	ClickHouseCluster      string
+	ClickHouseInsertQuorum string
+	// Postgres pool and replica tuning (see postgres.PoolOptions).
+	PostgresMaxConnLifetime   time.Duration
+	PostgresHealthCheckPeriod time.Duration
+	PostgresConnectTimeout    time.Duration
+	PostgresReadDSN           string
+	PostgresMaxReplicaLag     time.Duration
+	// KafkaAutoCreateTopics lets publishing create missing topics (local).
+	KafkaAutoCreateTopics       bool
 	RawHighFrequencyIntervalSec int64
 	// MQTTDeviceTokenTTL is the lifetime of standard MQTT/HTTP device tokens
 	// when EMQX revocation (ban and kick) is configured; without it tokens
@@ -148,6 +160,14 @@ func Load() Config {
 		RedisMasterName:             strings.TrimSpace(os.Getenv("IOT_REDIS_MASTER_NAME")),
 		RedisSentinels:              split(os.Getenv("IOT_REDIS_SENTINELS")),
 		ClickHouseURL:               os.Getenv("IOT_CLICKHOUSE_URL"),
+		ClickHouseCluster:           strings.TrimSpace(os.Getenv("IOT_CLICKHOUSE_CLUSTER")),
+		ClickHouseInsertQuorum:      strings.TrimSpace(os.Getenv("IOT_CLICKHOUSE_INSERT_QUORUM")),
+		PostgresMaxConnLifetime:     duration("IOT_POSTGRES_MAX_CONN_LIFETIME", 30*time.Minute),
+		PostgresHealthCheckPeriod:   duration("IOT_POSTGRES_HEALTH_CHECK_PERIOD", 15*time.Second),
+		PostgresConnectTimeout:      duration("IOT_POSTGRES_CONNECT_TIMEOUT", 5*time.Second),
+		PostgresReadDSN:             os.Getenv("IOT_POSTGRES_READ_DSN"),
+		PostgresMaxReplicaLag:       duration("IOT_POSTGRES_MAX_REPLICA_LAG", 5*time.Second),
+		KafkaAutoCreateTopics:       boolValue("IOT_KAFKA_AUTO_CREATE_TOPICS", true),
 		RawHighFrequencyIntervalSec: int64Value("IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC", 60),
 		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),

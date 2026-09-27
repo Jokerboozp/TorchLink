@@ -80,7 +80,7 @@ func Run(forcedRole string) {
 		postgresRaw = raw
 	}
 	if cfg.PostgresDSN != "" {
-		r, err := postgres.NewWithMaxConns(ctx, cfg.PostgresDSN, int32(positiveOr(cfg.PostgresMaxConns, 64)))
+		r, err := postgres.NewWithOptions(ctx, cfg.PostgresDSN, postgres.PoolOptions{MaxConns: int32(positiveOr(cfg.PostgresMaxConns, 64)), MaxConnLifetime: cfg.PostgresMaxConnLifetime, HealthCheckPeriod: cfg.PostgresHealthCheckPeriod, ConnectTimeout: cfg.PostgresConnectTimeout, ReadDSN: cfg.PostgresReadDSN, MaxReplicaLag: cfg.PostgresMaxReplicaLag})
 		fatal(log, "initialize postgres", err)
 		repo = r
 		opsPrefs = r
@@ -92,7 +92,7 @@ func Run(forcedRole string) {
 		log.Info("repository enabled", "adapter", "postgres")
 	}
 	if cfg.ClickHouseURL != "" {
-		r, clickErr := clickhouseadapter.New(ctx, cfg.ClickHouseURL, repo)
+		r, clickErr := clickhouseadapter.NewWithOptions(ctx, cfg.ClickHouseURL, repo, clickhouseadapter.Options{Cluster: cfg.ClickHouseCluster, InsertQuorum: cfg.ClickHouseInsertQuorum})
 		fatal(log, "initialize clickhouse", clickErr)
 		repo = r
 		clickHouseRaw = r
@@ -128,6 +128,7 @@ func Run(forcedRole string) {
 	if len(cfg.KafkaBrokers) > 0 {
 		kafkaBus = kafkaadapter.New(cfg.KafkaBrokers)
 		kafkaBus.SetLogger(log)
+		kafkaBus.SetAutoCreateTopics(cfg.KafkaAutoCreateTopics)
 		// Parallel lanes keep each device's (or alarm's) messages in order;
 		// automatic alarm analysis has its own, smaller limit.
 		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 2)})
@@ -480,6 +481,22 @@ func Run(forcedRole string) {
 	}
 	api := httpapi.New(cfg, engine, registry, log)
 	api.SetRateLimiter(limits)
+	storageStats := func() {
+		if ch, ok := clickHouseRaw.(*clickhouseadapter.Repository); ok {
+			st := ch.BatchStats()
+			registry.Set("clickhouse_insert_batches", float64(st.Batches))
+			registry.Set("clickhouse_insert_rows", float64(st.Rows))
+			registry.Set("clickhouse_insert_failed", float64(st.Failed))
+			registry.Set("clickhouse_insert_max_rows", float64(st.MaxRows))
+			registry.Set("clickhouse_insert_inflight", float64(st.Inflight))
+		}
+		if pg, ok := postgresRaw.(*postgres.Repository); ok {
+			if lag, usable := pg.ReplicaLag(); lag >= 0 || usable {
+				registry.Set("postgres_replica_lag_ms", float64(lag))
+				registry.Set("postgres_replica_reads", map[bool]float64{true: 1, false: 0}[usable])
+			}
+		}
+	}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
@@ -489,6 +506,7 @@ func Run(forcedRole string) {
 				return
 			case <-ticker.C:
 				registry.Set("rate_limit_shared_errors", float64(limits.SharedErrors()))
+				storageStats()
 			}
 		}
 	}()

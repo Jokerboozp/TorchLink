@@ -37,6 +37,17 @@ type Bus struct {
 	topicLanes map[string]int
 	// subscriptions lists the consumer groups whose backlog ConsumerLag reports.
 	subscriptions []subscription
+	// noAutoCreate makes publishing to a missing topic fail instead of
+	// creating it with the broker defaults (for example one replica).
+	noAutoCreate bool
+}
+
+// SetAutoCreateTopics controls whether publishing may create a missing topic.
+// Clusters disable it and create topics from model.AllTopics (cluster-init).
+func (b *Bus) SetAutoCreateTopics(enabled bool) {
+	b.mu.Lock()
+	b.noAutoCreate = !enabled
+	b.mu.Unlock()
 }
 
 func New(brokers []string) *Bus {
@@ -129,7 +140,7 @@ func (b *Bus) writer(topic string) *kafka.Writer {
 	if w := b.writers[topic]; w != nil {
 		return w
 	}
-	w := &kafka.Writer{Addr: kafka.TCP(b.brokers...), Topic: topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, Async: false, AllowAutoTopicCreation: true, BatchSize: 500, BatchBytes: 4 << 20, BatchTimeout: 10 * time.Millisecond}
+	w := &kafka.Writer{Addr: kafka.TCP(b.brokers...), Topic: topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, Async: false, AllowAutoTopicCreation: !b.noAutoCreate, BatchSize: 500, BatchBytes: 4 << 20, BatchTimeout: 10 * time.Millisecond}
 	b.writers[topic] = w
 	return w
 }

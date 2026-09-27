@@ -23,15 +23,72 @@ type Repository struct {
 	ports.Repository
 	base           string
 	http           *http.Client
+	opts           Options
 	batchOnce      sync.Once
 	telemetryBatch *insertBatcher
 	rawBatch       *insertBatcher
 }
 
+// Options select the storage topology. An empty Cluster keeps the single-node
+// MergeTree tables. With a cluster name, each shard stores replicated
+// *_local tables and the original table names become Distributed tables, so
+// every query keeps its table name.
+type Options struct {
+	Cluster string
+	// InsertQuorum is the replica acknowledgement required per insert
+	// ("", "auto" or a number). Empty keeps ClickHouse's default (local write).
+	InsertQuorum string
+}
+
+var clusterNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var quorumPattern = regexp.MustCompile(`^(auto|[1-9])$`)
+
+// storageTables are the telemetry and raw payload tables with their columns
+// and ordering; the definitions are shared by both topologies.
+var storageTables = []struct{ name, columns, partition, order string }{
+	{"iot_telemetry", "tenant_id String, device_id String, product_id String, message_id String, ts DateTime64(3), properties JSON", "toYYYYMM(ts)", "(tenant_id,device_id,ts,message_id)"},
+	{"iot_raw_message", "tenant_id String, message_id String, product_id String, device_id String, protocol String, payload_format String, payload_hash String, payload_size UInt64, received_at Int64, body String", "toYYYYMM(fromUnixTimestamp64Milli(received_at))", "(tenant_id,device_id,received_at,message_id)"},
+}
+
+// SchemaStatements returns the DDL for a topology; exported so migration and
+// cluster initialization tools create exactly what the platform expects.
+func SchemaStatements(cluster string) []string {
+	var out []string
+	for _, t := range storageTables {
+		if cluster == "" {
+			out = append(out, fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s) ENGINE=MergeTree PARTITION BY %s ORDER BY %s", t.name, t.columns, t.partition, t.order))
+			// Lookups by message ID carry the device ID so the sort key
+			// prunes; the bloom filter covers lookups that know only the
+			// message ID. Existing parts get the index as they merge.
+			out = append(out, "ALTER TABLE "+t.name+" ADD INDEX IF NOT EXISTS idx_message_id message_id TYPE bloom_filter(0.01) GRANULARITY 1")
+			continue
+		}
+		local := t.name + "_local"
+		out = append(out,
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s ON CLUSTER %s (%s) ENGINE=ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}') PARTITION BY %s ORDER BY %s", local, cluster, t.columns, local, t.partition, t.order),
+			"ALTER TABLE "+local+" ON CLUSTER "+cluster+" ADD INDEX IF NOT EXISTS idx_message_id message_id TYPE bloom_filter(0.01) GRANULARITY 1",
+			// One device's rows stay on one shard, so per-device history
+			// queries and ordering stay local to a shard.
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s ON CLUSTER %s AS %s ENGINE=Distributed(%s, currentDatabase(), %s, cityHash64(tenant_id, device_id))", t.name, cluster, local, cluster, local),
+		)
+	}
+	return out
+}
+
 var propertyCodePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func New(ctx context.Context, base string, repo ports.Repository) (*Repository, error) {
-	r := &Repository{Repository: repo, base: strings.TrimRight(base, "/"), http: &http.Client{Timeout: 30 * time.Second}}
+	return NewWithOptions(ctx, base, repo, Options{})
+}
+
+func NewWithOptions(ctx context.Context, base string, repo ports.Repository, opts Options) (*Repository, error) {
+	if opts.Cluster != "" && !clusterNamePattern.MatchString(opts.Cluster) {
+		return nil, fmt.Errorf("invalid clickhouse cluster name %q", opts.Cluster)
+	}
+	if opts.InsertQuorum != "" && !quorumPattern.MatchString(opts.InsertQuorum) {
+		return nil, fmt.Errorf("clickhouse insert quorum must be auto or 1-9")
+	}
+	r := &Repository{Repository: repo, base: strings.TrimRight(base, "/"), http: &http.Client{Timeout: 30 * time.Second}, opts: opts}
 	u, err := url.Parse(r.base)
 	if err != nil {
 		return nil, err
@@ -46,27 +103,68 @@ func New(ctx context.Context, base string, repo ports.Repository) (*Repository, 
 		params.Del("database")
 		bootstrapURL.RawQuery = params.Encode()
 		bootstrap := &Repository{Repository: repo, base: strings.TrimRight(bootstrapURL.String(), "/"), http: r.http}
-		if _, err = bootstrap.query(ctx, "CREATE DATABASE IF NOT EXISTS "+database, nil); err != nil {
+		create := "CREATE DATABASE IF NOT EXISTS " + database
+		if opts.Cluster != "" {
+			create += " ON CLUSTER " + opts.Cluster
+		}
+		if _, err = bootstrap.query(ctx, create, nil); err != nil {
 			return nil, err
 		}
 	}
-	schema := `CREATE TABLE IF NOT EXISTS iot_telemetry (tenant_id String, device_id String, product_id String, message_id String, ts DateTime64(3), properties JSON) ENGINE=MergeTree PARTITION BY toYYYYMM(ts) ORDER BY (tenant_id,device_id,ts,message_id)`
-	if _, err = r.query(ctx, schema, nil); err != nil {
-		return nil, err
+	if opts.Cluster != "" {
+		if err = r.checkClusterSchema(ctx); err != nil {
+			return nil, err
+		}
 	}
-	rawSchema := `CREATE TABLE IF NOT EXISTS iot_raw_message (tenant_id String, message_id String, product_id String, device_id String, protocol String, payload_format String, payload_hash String, payload_size UInt64, received_at Int64, body String) ENGINE=MergeTree PARTITION BY toYYYYMM(fromUnixTimestamp64Milli(received_at)) ORDER BY (tenant_id,device_id,received_at,message_id)`
-	if _, err = r.query(ctx, rawSchema, nil); err != nil {
-		return nil, err
-	}
-	// Lookups by message ID carry the device ID so the sort key prunes; the
-	// bloom filter covers lookups that know only the message ID. Existing
-	// parts get the index as they merge.
-	for _, table := range []string{"iot_raw_message", "iot_telemetry"} {
-		if _, err = r.query(ctx, "ALTER TABLE "+table+" ADD INDEX IF NOT EXISTS idx_message_id message_id TYPE bloom_filter(0.01) GRANULARITY 1", nil); err != nil {
+	for _, statement := range SchemaStatements(opts.Cluster) {
+		if _, err = r.query(ctx, statement, nil); err != nil {
 			return nil, err
 		}
 	}
 	return r, nil
+}
+
+// checkClusterSchema refuses cluster mode on a database that still holds the
+// single-node tables: CREATE ... IF NOT EXISTS would silently keep them.
+func (r *Repository) checkClusterSchema(ctx context.Context) error {
+	body, err := r.query(ctx, "SELECT name, engine FROM system.tables WHERE database=currentDatabase() AND name IN ('iot_telemetry','iot_raw_message') FORMAT JSONEachRow", nil)
+	if err != nil {
+		return err
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(body), []byte("\n")) {
+		var row struct{ Name, Engine string }
+		if len(line) == 0 || json.Unmarshal(line, &row) != nil {
+			continue
+		}
+		if row.Engine != "Distributed" {
+			return fmt.Errorf("clickhouse table %s uses %s; migrate the single-node tables with cmd/clickhouse-migrate before enabling IOT_CLICKHOUSE_CLUSTER", row.Name, row.Engine)
+		}
+	}
+	return nil
+}
+
+// insertStatement writes through the Distributed table synchronously, so the
+// acknowledgement covers the shard replicas required by InsertQuorum instead
+// of only the local forwarding queue.
+func (r *Repository) insertStatement(table string) string {
+	if r.opts.Cluster == "" {
+		return "INSERT INTO " + table + " FORMAT JSONEachRow"
+	}
+	settings := []string{"insert_distributed_sync=1"}
+	if r.opts.InsertQuorum != "" {
+		quorum := r.opts.InsertQuorum
+		if quorum == "auto" {
+			quorum = "'auto'"
+		}
+		settings = append(settings, "insert_quorum="+quorum, "insert_quorum_parallel=1")
+	}
+	return "INSERT INTO " + table + " SETTINGS " + strings.Join(settings, ", ") + " FORMAT JSONEachRow"
+}
+
+// BatchStats reports insert batching for metrics.
+func (r *Repository) BatchStats() BatchStats {
+	b := r.batches()
+	return b.telemetry.stats().add(b.raw.stats())
 }
 func (r *Repository) SaveStandardMessage(ctx context.Context, v model.StandardMessage) error {
 	_, err := r.SaveStandardMessageIfAbsent(ctx, v)
@@ -277,11 +375,11 @@ type batchers struct{ telemetry, raw *insertBatcher }
 func (r *Repository) batches() batchers {
 	r.batchOnce.Do(func() {
 		r.telemetryBatch = newInsertBatcher(func(ctx context.Context, body []byte) error {
-			_, err := r.query(ctx, "INSERT INTO iot_telemetry FORMAT JSONEachRow", body)
+			_, err := r.query(ctx, r.insertStatement("iot_telemetry"), body)
 			return err
 		})
 		r.rawBatch = newInsertBatcher(func(ctx context.Context, body []byte) error {
-			_, err := r.query(ctx, "INSERT INTO iot_raw_message FORMAT JSONEachRow", body)
+			_, err := r.query(ctx, r.insertStatement("iot_raw_message"), body)
 			return err
 		})
 	})
