@@ -42,13 +42,18 @@ type Secrets struct {
 	VideoCredentialKey     string `yaml:"videoCredentialKey"`
 }
 
+// CheckSecretsMode rejects secrets files readable by group or others. The
+// Windows deployment script turns it off for Docker bind mounts, which show
+// every file as 0777, and restricts the file with an ACL instead.
+var CheckSecretsMode = true
+
 func LoadSecrets(path string) (Secrets, error) {
 	var s Secrets
 	info, err := os.Stat(path)
 	if err != nil {
 		return s, err
 	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+	if CheckSecretsMode && runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		return s, errors.New("secrets file must not be readable by group or others (chmod 600)")
 	}
 	b, err := os.ReadFile(path)
@@ -101,7 +106,7 @@ var urlSafe = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 var Stages = []string{"coordination", "data", "support", "workers", "edge"}
 
 var serviceStage = map[string]string{
-	"etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "minio": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
+	"lb": "coordination", "etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "minio": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
 	"postgres": "data", "redpanda": "data", "clickhouse": "data", "emqx": "data",
 	"harness": "support", "ollama": "support", "weaviate": "support", "video": "support", "backup": "support",
 	"parser": "workers", "processor": "workers", "ai": "workers", "jobs": "workers",
@@ -195,7 +200,7 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 		"IOT_EMQX_API_SECRET":          "${IOT_EMQX_API_SECRET}",
 		"IOT_AI_HARNESS_URL":           harnessURLs(r),
 		"IOT_AI_HARNESS_TOKEN":         "${IOT_AI_HARNESS_TOKEN}",
-		"IOT_AI_HARNESS_MCP_URL":       strings.TrimRight(inv.Platform.InternalURL, "/") + "/mcp/harness",
+		"IOT_AI_HARNESS_MCP_URL":       inv.APIURL() + "/mcp/harness",
 		"DEEPSEEK_API_KEY":             "${DEEPSEEK_API_KEY}",
 		"IOT_BACKUP_URL":               "http://" + r.ip(inv.Backup.Node) + ":8090",
 		"IOT_BACKUP_ADMIN_TOKEN":       "${IOT_BACKUP_ADMIN_TOKEN}",
@@ -223,7 +228,7 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	}
 	switch role {
 	case "api":
-		env["IOT_ACCESS_GATEWAY_URL"] = strings.TrimRight(inv.Platform.GatewayURL, "/")
+		env["IOT_ACCESS_GATEWAY_URL"] = inv.GatewayURL()
 		// Elects the single live video controller among API instances.
 		env["IOT_NODE_URL"] = "http://" + r.ip(node) + ":8081"
 		env["IOT_GB28181_SIP_HOST"] = r.ip(node)
@@ -334,7 +339,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			add(kind, "minio", service(inv.Images.MinIO, map[string]any{"command": []string{"server", "/data", "--address", ":9002", "--console-address", ":9003"}, "environment": map[string]string{"MINIO_ROOT_USER": "${MINIO_ROOT_USER}", "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}"}, "volumes": []string{"minio-data:/data"}}), "minio-data")
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"] = r.s.MinIORootUser, r.s.MinIORootPassword
 		case "harness":
-			origins := []string{strings.TrimRight(inv.Platform.InternalURL, "/")}
+			origins := []string{inv.APIURL()}
 			for _, n := range inv.Platform.Roles["api"].Nodes {
 				origins = append(origins, "http://"+r.ip(n)+":8081")
 			}
@@ -345,7 +350,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		case "weaviate":
 			add(kind, "weaviate", service(inv.Images.Weaviate, map[string]any{"command": []string{"--host", "0.0.0.0", "--port", "8085", "--scheme", "http"}, "environment": map[string]string{"QUERY_DEFAULTS_LIMIT": "25", "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true", "PERSISTENCE_DATA_PATH": "/var/lib/weaviate", "DEFAULT_VECTORIZER_MODULE": "text2vec-ollama", "ENABLE_MODULES": "text2vec-ollama,backup-filesystem", "OLLAMA_APIENDPOINT": "http://127.0.0.1:11434", "BACKUP_FILESYSTEM_PATH": "/var/lib/weaviate/backups", "CLUSTER_HOSTNAME": node, "GRPC_PORT": "50051"}, "volumes": []string{"weaviate-data:/var/lib/weaviate"}}), "weaviate-data")
 		case "video":
-			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": inv.Name + "-media-1", "IOT_VIDEO_HOOK_BASE": strings.TrimRight(inv.Platform.InternalURL, "/") + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
+			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": inv.Name + "-media-1", "IOT_VIDEO_HOOK_BASE": inv.APIURL() + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
 			env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"] = r.s.VideoMediaSecret, r.s.VideoHookSecret
 		case "backup":
 			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.ip(inv.MinIO.Node) + ":9002", "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
@@ -354,11 +359,14 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		case "prometheus":
 			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig())
 			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"}}), "prometheus-data")
+		case "lb":
+			files[node+"/lb/haproxy.cfg"] = []byte(r.haproxyConfig())
+			add(kind, "lb", service(inv.Images.LB, map[string]any{"volumes": []string{"./lb/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"}}))
 		case "node-exporter":
 			add(kind, "node-exporter", service(inv.Images.NodeExporter, map[string]any{"command": []string{"--path.rootfs=/host"}, "pid": "host", "volumes": []string{"/:/host:ro"}}))
 		case "web":
-			api := strings.TrimPrefix(strings.TrimPrefix(strings.TrimRight(inv.Platform.InternalURL, "/"), "http://"), "https://")
-			if contains(inv.Platform.Roles["api"].Nodes, node) {
+			api := strings.TrimPrefix(strings.TrimPrefix(inv.APIURL(), "http://"), "https://")
+			if contains(inv.Platform.Roles["api"].Nodes, node) && !inv.AutoLB() {
 				api = "127.0.0.1:8081"
 			}
 			videoUpstream := "127.0.0.1:1"
@@ -387,6 +395,37 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		sort.Strings(list)
 	}
 	return compose, env, stages
+}
+
+// haproxyConfig balances the local API and gateway origins across every
+// instance with readiness checks. It binds to 127.0.0.1 only: it serves the
+// node's own services (web proxy, Harness callbacks, media hooks), not users.
+func (r renderer) haproxyConfig() string {
+	var b strings.Builder
+	b.WriteString(`global
+  maxconn 20000
+defaults
+  mode http
+  option httpchk GET /health/ready
+  option redispatch
+  retries 2
+  timeout connect 5s
+  timeout client 10m
+  timeout server 10m
+  timeout tunnel 1h
+  default-server check inter 3s fall 3 rise 2
+`)
+	for _, fe := range []struct {
+		name string
+		port int
+		role string
+	}{{"api", LBAPIPort, "api"}, {"gateway", LBGatewayPort, "gateway"}} {
+		fmt.Fprintf(&b, "frontend %s\n  bind 127.0.0.1:%d\n  default_backend %s\nbackend %s\n  balance roundrobin\n", fe.name, fe.port, fe.name, fe.name)
+		for _, n := range r.inv.Platform.Roles[fe.role].Nodes {
+			fmt.Fprintf(&b, "  server %s-%s %s:%d\n", fe.role, n, r.ip(n), rolePort[fe.role])
+		}
+	}
+	return b.String()
 }
 
 const emqxEntrypoint = `umask 077
@@ -503,11 +542,20 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	summary := Summary{Name: inv.Name, Nodes: inv.Nodes, Services: map[string]map[string][]string{}, Budget: budget, Endpoints: map[string]string{
 		"postgresWriter": r.postgresDSN("read-write"), "kafka": r.hostList(inv.Redpanda.Nodes, 9092, ","), "redisSentinels": r.hostList(inv.Redis.Sentinels, 26379, ","),
-		"clickhouse": r.hostList(r.chNodes(), 8123, ","), "internalAPI": inv.Platform.InternalURL, "gateways": inv.Platform.GatewayURL,
+		"clickhouse": r.hostList(r.chNodes(), 8123, ","), "internalAPI": inv.APIURL(), "gateways": inv.GatewayURL(),
 	}}
 	placement := inv.Placement()
+	nodeImages := map[string][]string{}
 	for _, n := range inv.Nodes {
 		compose, env, stages := r.nodeCompose(n.Name, placement[n.Name], files)
+		seen := map[string]bool{}
+		for _, svc := range compose["services"].(map[string]any) {
+			if img, _ := svc.(map[string]any)["image"].(string); img != "" && !seen[img] {
+				seen[img] = true
+				nodeImages[n.Name] = append(nodeImages[n.Name], img)
+			}
+		}
+		sort.Strings(nodeImages[n.Name])
 		b, err := yaml.Marshal(compose)
 		if err != nil {
 			return nil, err
@@ -516,7 +564,7 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 		files[n.Name+"/.env"] = envFile(env)
 		summary.Services[n.Name] = stages
 	}
-	files["deploy-plan.txt"] = deployPlan(inv, summary)
+	files["deploy-plan.txt"] = deployPlan(inv, summary, nodeImages)
 	files["images.txt"] = imageList(inv)
 	files["init.env"] = envFile(map[string]string{
 		"IOT_POSTGRES_DSN":              strings.ReplaceAll(r.postgresDSN("read-write"), "${POSTGRES_PASSWORD}", s.PostgresPassword),
@@ -551,9 +599,23 @@ func envFile(env map[string]string) []byte {
 // deployPlan is a line-oriented plan for the deploy scripts (no JSON parser
 // needed on the operator machine): "service <stage> <node> <address> <compose services...>"
 // and "health <node> <url>" lines, stages in start order.
-func deployPlan(inv *Inventory, summary Summary) []byte {
+func deployPlan(inv *Inventory, summary Summary, nodeImages map[string][]string) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# name %s\n", inv.Name)
+	fmt.Fprintf(&b, "# platform-image %s\n", inv.Images.Platform)
+	placement := inv.Placement()
+	for _, n := range inv.Nodes {
+		// images: what the node must have loaded; ports: host ports its
+		// services bind (checked free before the first start).
+		fmt.Fprintf(&b, "images %s %s %s\n", n.Name, n.Address, strings.Join(nodeImages[n.Name], " "))
+		var ports []string
+		for _, svc := range placement[n.Name] {
+			for _, p := range Ports[svc] {
+				ports = append(ports, strconv.Itoa(p))
+			}
+		}
+		fmt.Fprintf(&b, "ports %s %s %s\n", n.Name, n.Address, strings.Join(ports, " "))
+	}
 	for _, stage := range Stages {
 		for _, n := range inv.Nodes {
 			if list := summary.Services[n.Name][stage]; len(list) > 0 {
@@ -567,6 +629,18 @@ func deployPlan(inv *Inventory, summary Summary) []byte {
 			fmt.Fprintf(&b, "health %s http://%s:%d/health/ready\n", node, n.Address, rolePort[role])
 		}
 	}
+	// entry: addresses users and devices connect to (put DNS, a VIP or an
+	// external load balancer in front of each group).
+	entry := func(kind, scheme string, nodes []string, port int) {
+		for _, node := range nodes {
+			n, _ := inv.node(node)
+			fmt.Fprintf(&b, "entry %s %s%s:%d\n", kind, scheme, n.Address, port)
+		}
+	}
+	entry("web", "http://", inv.Platform.Web.Nodes, 8080)
+	entry("mqtt", "tcp://", inv.EMQX.Nodes, 1883)
+	entry("device-http", "http://", inv.Platform.Roles["gateway"].Nodes, 8082)
+	entry("device-tcp", "", inv.Platform.Roles["gateway"].Nodes, 26875)
 	return []byte(b.String())
 }
 

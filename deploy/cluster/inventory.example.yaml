@@ -1,5 +1,7 @@
 # Cluster inventory: the single source for a multi-node deployment.
-# Render per-node Compose projects with:
+# One-click deployment (secrets, images, render, preflight, start, init, checks):
+#   bash scripts/cluster-up.sh --inventory <this file> --ssh-user <user>
+# Render only:
 #   go run ./cmd/cluster-render -inventory deploy/cluster/inventory.example.yaml -secrets <0600 secrets file>
 # Every node uses host networking; ports are fixed per service (see internal/clusterplan).
 # Replicas of one shard/quorum must sit in different fault domains
@@ -25,6 +27,7 @@ images:
   weaviate: cr.weaviate.io/semitechnologies/weaviate:1.32.8
   prometheus: prom/prometheus:v3.5.0
   nodeExporter: prom/node-exporter:v1.12.1
+  lb: haproxy:3.0-alpine          # per-node internal load balancer (see platform below)
 nodes:
   - {name: n1, address: 10.0.0.11, faultDomain: rack-a}
   - {name: n2, address: 10.0.0.12, faultDomain: rack-b}
@@ -49,9 +52,12 @@ video: {node: n4}
 backup: {node: n4}
 monitoring: {node: n4}
 platform:
-  # Load balancers in front of the api and gateway instances (not rendered).
-  internalURL: http://10.0.0.10:8081
-  gatewayURL: http://10.0.0.10:8082
+  # internalURL / gatewayURL left empty: every node runs a local HAProxy
+  # (127.0.0.1:18181 → api instances, 127.0.0.1:18182 → gateways) for the
+  # web proxy, Harness callbacks and media hooks. To use your own load
+  # balancers instead, set both, e.g. http://10.0.0.10:8081 / :8082.
+  # Users and devices still need DNS, a VIP or an external load balancer in
+  # front of the web / EMQX / gateway nodes (the deploy prints the addresses).
   publicURL: https://iot.example.com
   roles:
     api: {nodes: [n1, n2], poolMax: 12}

@@ -339,7 +339,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ## 集群部署
 
-多节点部署由**集群清单**统一描述，`cmd/cluster-render` 为每个节点生成独立的 Compose 项目（主机网络、固定端口），`scripts/cluster-deploy.sh` / `.ps1` 按阶段下发与启动。Compose 只管理本节点；跨节点布局、故障域和连接预算由清单校验。拓扑设计依据见 [集群方案](CLUSTER_AND_CAPACITY_PLAN.md#4-部署拓扑与资源规划)。
+多节点部署由**集群清单**统一描述，`scripts/cluster-up.sh` / `.ps1` 一条命令完成镜像、秘密、渲染、节点预检、下发、按阶段启动、初始化与就绪检查；其中 `cmd/cluster-render` 为每个节点生成独立的 Compose 项目（主机网络、固定端口），`scripts/cluster-deploy.sh` / `.ps1` 按阶段下发与启动。Compose 只管理本节点；跨节点布局、故障域和连接预算由清单校验。拓扑设计依据见 [集群方案](CLUSTER_AND_CAPACITY_PLAN.md#4-部署拓扑与资源规划)。
 
 | 组件 | 集群形态（示例清单 `deploy/cluster/inventory.example.yaml`） |
 | --- | --- |
@@ -353,28 +353,67 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 校验规则：节点须写明故障域（独立主机/供电/机柜；同一宿主上的虚拟机属于同一故障域）；仲裁组（etcd、Patroni、Redpanda、Keeper、Sentinel）为奇数成员且任一故障域不占多数；同一 ClickHouse 分片的副本、Redis 主从、EMQX 成员跨故障域；同一节点端口不冲突；各角色 PostgreSQL 连接池合计（含一次滚动升级额外实例、备份与初始化连接及预留）不超过 `max_connections`。
 
-在仓库根目录：
+### 一键部署与升级
+
+复制 `deploy/cluster/inventory.example.yaml` 并按实际节点修改（节点地址、故障域、各组件与角色放在哪些节点），然后在仓库根目录执行一条命令：
+
+```bash
+bash scripts/cluster-up.sh --inventory deploy/cluster/<清单>.yaml --ssh-user <用户>
+```
+
+Windows 控制机（PowerShell，需 Docker Desktop 与 OpenSSH 客户端）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1 -Inventory deploy\cluster\<清单>.yaml -SshUser <用户>
+```
+
+脚本依次完成：
+
+1. **镜像**：用当前源码构建平台、Web、Harness、备份与媒体镜像（清单中写成 `镜像@sha256:` 的改为拉取），拉取其余第三方镜像。控制机不需要 Go：渲染与初始化工具随平台镜像提供。
+2. **秘密**：在 `.cluster/<名称>/secrets.yaml`（0600，已被 Git 忽略；可用 `--secrets` 指定）生成缺失的密码与令牌，已有值保持不变。`deepseekApiKey`、`backupRestoreTargetDSN` 需要时自行填写，也可部署后在“模型管理”配置模型密钥。
+3. **渲染**：生成各节点的 Compose 项目到 `.cluster/<名称>/rendered`，上一版改名为 `rendered.prev` 用于回滚。
+4. **节点预检**：经 SSH 检查每个节点的 Docker 与 Compose v2、Docker 可用空间（至少 20 GiB）、与控制机的时钟差（不超过 5 秒）；首次部署时检查所需端口未被其他程序占用。任一问题都会在改动节点之前列出并停止。
+5. **下发镜像**：按镜像 ID 比较，只把节点缺少或版本不同的镜像以 `docker save | gzip | ssh docker load` 方式发送。
+6. **启动与初始化**：按阶段启动（coordination → data → init → support → workers → edge），每阶段等待容器健康；init 在第一个 API 节点上用平台镜像运行 `cluster-init`，创建应用库、迁移结构、创建主题并核验 ClickHouse 表，数据库选主期间自动重试；最后逐实例检查 `/health/ready`。
+7. **结果**：输出 Web、MQTT、设备 HTTP 与 TCP 入口地址，以及管理员账号和密码所在位置。
+
+交互终端下，脚本在下发前会显示“首次部署/升级”和节点数并请求确认，`--yes`（`-Yes`）跳过确认。`--dry-run` 只渲染到 `rendered.dry-run` 并打印将执行的命令，不改动任何节点。SSH 使用免密登录（`--ssh-key`、`--ssh-port` 可指定），节点上的 SSH 用户须能直接执行 `docker`（加入 docker 组）。
+
+**离线环境**：在可联网的机器上执行 `bash scripts/cluster-up.sh --inventory <清单> --bundle cluster-images.tar`，构建并拉取全部镜像后写入一个归档；把源码、清单和归档带到离线控制机，执行时加 `--images cluster-images.tar`（PowerShell 为 `-Bundle` / `-Images`）。
+
+**内部负载均衡**：清单中 `platform.internalURL`、`gatewayURL` 留空时，每个节点运行一个只监听 `127.0.0.1` 的 HAProxy（`18181` 转发到全部 API 实例，`18182` 转发到全部 Gateway，按 `/health/ready` 摘除故障实例），Web 代理、Harness 回调、媒体回调和 API 到 Gateway 的转发都走本机负载均衡，不需要额外的负载均衡设备。如已有负载均衡器，两个地址同时填写即可，此时不渲染 HAProxy。面向用户和设备的入口（Web、EMQX、Gateway 节点）仍需由 DNS、VIP 或外部负载均衡器统一，脚本结束时会列出各组地址。
+
+**升级与回滚**：修改源码或清单后重新执行同一命令即为升级，秘密沿用，只发送变化的镜像，容器按阶段重建。回滚：
+
+```bash
+bash scripts/cluster-deploy.sh --rendered .cluster/<名称>/rendered.prev --ssh-user <用户>
+```
+
+秘密文件决定已初始化数据库的密码，务必另行备份；丢失后重新生成的值无法连接已有数据。
+
+### 分步执行
+
+需要只校验清单、只渲染或只操作部分节点时，可单独使用各步骤：
 
 ```bash
 go run ./cmd/cluster-render -inventory deploy/cluster/inventory.example.yaml -check
 ```
 
 ```bash
-go run ./cmd/cluster-render -inventory <清单> -secrets <0600 秘密文件> -out dist/cluster/<名称>
+go run ./cmd/cluster-render -inventory <清单> -secrets <0600 秘密文件> -init-secrets -out dist/cluster/<名称>
 ```
 
 ```bash
 bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用户>
 ```
 
-- 秘密文件模板为 `deploy/cluster/secrets.example.yaml`；嵌入连接串的密码只能用字母、数字与 `. _ ~ -`。秘密只写入需要它的节点的 `.env`（0600）与本机 `init.env`，`compose.yaml` 和配置文件只含变量引用。
-- 部署顺序：coordination（etcd、Keeper、Redis/Sentinel、MinIO、监控）→ data（PostgreSQL、Redpanda、ClickHouse、EMQX）→ **init**（`cmd/cluster-init`：创建应用角色与数据库、结构迁移、按清单创建主题并核验副本、核验各节点 ClickHouse 表结构）→ support（Harness、知识库、视频、备份）→ workers → edge（api、gateway、web）。每阶段等待容器健康后继续，最后逐实例检查 `/health/ready`。`--dry-run` 只打印命令。
-- 负载均衡不由渲染生成：`platform.internalURL` 指向 API 实例（Harness 回调与 Web 代理使用），`platform.gatewayURL` 指向 Gateway 实例；对外 MQTT、HTTP 与 TCP 入口按 [执行所有权](#执行所有权) 配置，被动 TCP 监听只能发往当前持有该 Profile 的 Gateway。
-- 离线环境：`dist/cluster/<名称>/images.txt` 列出全部镜像，在有网机器执行 `docker save $(cat images.txt) -o cluster-images.tar`，部署时加 `--images cluster-images.tar`（PowerShell 为 `-Images`）。
+- 秘密文件模板为 `deploy/cluster/secrets.example.yaml`，`-init-secrets` 会补齐缺项；嵌入连接串的密码只能用字母、数字与 `. _ ~ -`。秘密只写入需要它的节点的 `.env`（0600）与本机 `init.env`，`compose.yaml` 和配置文件只含变量引用。
+- `cluster-deploy` 不负责镜像：节点需已有镜像，或用 `--images <归档>` 让每个节点整体导入。`--stage`、`--nodes` 可只执行指定阶段和节点，`--dry-run` 只打印命令；`--cluster-init "go run ./cmd/cluster-init"` 改为在控制机本地运行初始化。
+- 部署顺序与每阶段内容同上一小节第 6 步。
 
-**扩缩容与升级**：修改清单后重新渲染，只对变化的阶段和节点执行，例如 `--stage workers --nodes n5`。扩容前先看渲染输出的连接预算。升级按 workers → edge 逐角色滚动；processor/parser 缩容时进程先停止领取，未完成消息的领取租约到期后由其他实例接管。Redpanda、ClickHouse 扩容涉及数据重分布，按组件文档限制重建流量，并把重建期间纳入容量测试。
+**扩缩容与升级**：修改清单后重新执行 `cluster-up`；新节点需先满足预检要求。只想操作部分节点时，用 `cluster-deploy` 对变化的阶段和节点执行，例如 `--stage workers --nodes n5`。扩容前先看渲染输出的连接预算。升级按 workers → edge 逐角色滚动；processor/parser 缩容时进程先停止领取，未完成消息的领取租约到期后由其他实例接管。Redpanda、ClickHouse 扩容涉及数据重分布，按组件文档限制重建流量，并把重建期间纳入容量测试。
 
-**回滚**：保留上一版渲染目录，用它重新执行部署脚本即可回到旧配置；不删除数据卷。已写入新集群的数据不会因切回配置而回退，涉及存储迁移的回滚按下方迁移检查点处理。
+**回滚**：`cluster-up` 自动保留上一版渲染（`rendered.prev`），用它重新执行部署脚本即可回到旧配置；不删除数据卷。已写入新集群的数据不会因切回配置而回退，涉及存储迁移的回滚按下方迁移检查点处理。
 
 **从单节点迁移**：
 
@@ -389,7 +428,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
    计划无误后追加 `-execute`；部分填充的目标分区会被阻止，须检查后删除再重跑。核对使用行数、唯一消息数与消息 ID 校验和。
 4. 启动 workers 与 edge，用少量设备核对原文、解析、状态、告警与权限，再切换入口并逐步放量。旧环境保留到新集群通过核对与容量快速回归。
 
-渲染与脚本的仓库内验证覆盖清单校验、端口与连接预算、生成文件的 `docker compose config` 解析及部署脚本的阶段顺序（`--dry-run`）；目标机上的镜像拉取、Patroni/Sentinel/Keeper 实际选主与切换须在目标环境演练并记录。
+渲染与脚本的仓库内验证覆盖清单校验、端口与连接预算、生成文件的 `docker compose config` 解析、部署脚本的阶段顺序（`--dry-run`），以及用模拟的 `docker`/`ssh` 走完一键部署全流程（首次部署、升级、预检拦截、离线归档）；目标机上的真实启动、Patroni/Sentinel/Keeper 实际选主与切换须在目标环境演练并记录。
 
 ## 高可用边界
 

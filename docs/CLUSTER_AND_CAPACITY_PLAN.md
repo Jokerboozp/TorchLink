@@ -1120,7 +1120,7 @@ P1 给出测量基础；P2/P3 使用 P1 持续比较。界面不能早于可独�
 | W08 ClickHouse 集群 | 已实现 ReplicatedMergeTree + Distributed、quorum 写入、批次在途上限、单节点表拒绝启动与 `clickhouse-migrate` | `internal/adapters/clickhouse/`、`cmd/clickhouse-migrate` |
 | W09 PostgreSQL/Redis 高可用接入 | 已实现多主机 DSN 写入口、池参数、只读副本（按延迟回退主库）、Sentinel | `internal/adapters/postgres/replica.go`、redis 适配器 |
 | W10 视频控制归属 | 已实现 `video/control` 租约单执行者与非持有实例转发 | `internal/platformapp/video_control.go`、`internal/httpapi/video_owner.go` |
-| W11 集群部署 | 已实现清单校验（故障域、仲裁、端口、连接预算）、按节点渲染 Compose、`cluster-init` 主题与表核验、分阶段部署脚本 | `internal/clusterplan`、`cmd/cluster-render`、`cmd/cluster-init`、`scripts/cluster-deploy.*` |
+| W11 集群部署 | 已实现清单校验（故障域、仲裁、端口、连接预算）、按节点渲染 Compose、`cluster-init` 主题与表核验、分阶段部署脚本；一键部署 `cluster-up`（秘密生成、构建与按需下发镜像、节点预检、节点上初始化、每节点本机 HAProxy 内部负载均衡、离线归档） | `internal/clusterplan`、`cmd/cluster-render`、`cmd/cluster-init`、`scripts/cluster-up.*`、`scripts/cluster-deploy.*` |
 | P4 业务场景 | 已实现 AI（real/mock，`cmd/harness-mock`）、知识库上传、视频会话与 HLS 首片、备份下载校验与恢复到独立库、实时推送、导出与回放、开放 API；告警预期序列核对 | `internal/capacity/scenario_modules.go`、`controller_ops.go`、`internal/backup/restore.go` |
 | P4 故障注入 | 已实现 Agent 本地白名单、`resilience` 预设、恢复时间判定与 `recovery.svg` | `internal/capacity/fault.go` |
 | P4 管理入口 | 已实现 `capacity-test serve`、平台 `/api/v1/ops/capacity/*` 代理（运维租户、分项授权与审计）与运维中心“容量测试”页 | `internal/capacity/serve.go`、`internal/httpapi/ops_capacity.go`、`iot_front/src/views/OpsCapacityView.vue` |

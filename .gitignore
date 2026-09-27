@@ -25,3 +25,5 @@ iot_front/.idea/
 /capacity-results/
 /capacity-agent/
 /dist/
+# Cluster state from scripts/cluster-up.*: generated secrets and renderings.
+/.cluster/

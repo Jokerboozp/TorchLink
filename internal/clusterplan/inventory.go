@@ -59,6 +59,9 @@ type Images struct {
 	Weaviate     string `yaml:"weaviate"`
 	Prometheus   string `yaml:"prometheus"`
 	NodeExporter string `yaml:"nodeExporter"`
+	// LB is the HAProxy image of the per-node internal load balancers used
+	// when platform.internalURL/gatewayURL are left empty.
+	LB string `yaml:"lb"`
 }
 
 type Node struct {
@@ -114,6 +117,8 @@ type RoleSpec struct {
 type PlatformSpec struct {
 	// InternalURL is the load-balanced API origin other services use
 	// (Harness MCP callbacks, web proxy); GatewayURL balances the gateways.
+	// Leave both empty to render a local HAProxy on every node instead
+	// (127.0.0.1:18181 → api instances, 127.0.0.1:18182 → gateways).
 	InternalURL string              `yaml:"internalURL"`
 	GatewayURL  string              `yaml:"gatewayURL"`
 	PublicURL   string              `yaml:"publicURL"`
@@ -130,6 +135,34 @@ var Ports = map[string][]int{
 	"ollama": {11434}, "weaviate": {8085, 50051}, "video": {80, 8000},
 	"backup": {8090}, "prometheus": {9090}, "node-exporter": {9100}, "web": {8080},
 	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "ai": {8103}, "jobs": {8104},
+	"lb": {LBAPIPort, LBGatewayPort},
+}
+
+// Local load balancer ports (bound to 127.0.0.1 on every node).
+const (
+	LBAPIPort     = 18181
+	LBGatewayPort = 18182
+)
+
+// AutoLB reports whether the renderer provides the internal load balancers.
+func (inv *Inventory) AutoLB() bool {
+	return inv.Platform.InternalURL == "" && inv.Platform.GatewayURL == ""
+}
+
+// APIURL is the API origin used inside the cluster.
+func (inv *Inventory) APIURL() string {
+	if inv.AutoLB() {
+		return fmt.Sprintf("http://127.0.0.1:%d", LBAPIPort)
+	}
+	return strings.TrimRight(inv.Platform.InternalURL, "/")
+}
+
+// GatewayURL is the gateway origin used inside the cluster.
+func (inv *Inventory) GatewayURL() string {
+	if inv.AutoLB() {
+		return fmt.Sprintf("http://127.0.0.1:%d", LBGatewayPort)
+	}
+	return strings.TrimRight(inv.Platform.GatewayURL, "/")
 }
 
 // RoleNames lists the platform roles a cluster may place.
@@ -231,6 +264,9 @@ func (inv *Inventory) Placement() map[string][]string {
 	add("prometheus", inv.Monitoring.Node)
 	for _, n := range inv.Nodes {
 		add("node-exporter", n.Name)
+		if inv.AutoLB() {
+			add("lb", n.Name)
+		}
 	}
 	add("web", inv.Platform.Web.Nodes...)
 	for _, role := range RoleNames {
@@ -344,9 +380,15 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 	if len(inv.Platform.Web.Nodes) == 0 {
 		bad("platform.web needs at least one node")
 	}
-	for _, u := range []string{inv.Platform.InternalURL, inv.Platform.GatewayURL} {
-		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-			bad("platform.internalURL and platform.gatewayURL must be load-balanced http(s) origins")
+	if inv.AutoLB() {
+		if inv.Images.LB == "" {
+			bad("images.lb (HAProxy) is required when platform.internalURL and gatewayURL are empty")
+		}
+	} else {
+		for _, u := range []string{inv.Platform.InternalURL, inv.Platform.GatewayURL} {
+			if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+				bad("platform.internalURL and platform.gatewayURL must both be load-balanced http(s) origins, or both empty for the built-in local load balancers")
+			}
 		}
 	}
 	// Ports on each node must not collide under host networking.
