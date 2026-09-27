@@ -1,0 +1,53 @@
+# Core IoT mixed capacity search (HTTP + MQTT + management queries).
+# AI, video, knowledge and backup have no load adapter yet; with suite: full
+# they are reported as not_covered and the run cannot be a full-system pass.
+schemaVersion: 1
+name: core-mixed-capacity
+suite: core
+preset: capacity          # quick | capacity | soak
+seed: 20260927
+target:
+  inventoryRef: inventory.local.yaml
+  environmentClass: dedicated-test
+  deployment: single-node
+credentials:
+  operatorSecretRef: capacity-operator      # management bearer token
+  # agentSecretRef: capacity-agent          # required when inventory lists remote agents
+fixtures:
+  tenant: tenant_001
+  product: cap-standard                      # existing enabled standard-protocol product
+  devicePrefix: cap
+  deviceCount: 200
+  reuseDevices: true
+  messageBytes: 512
+  fields: 6
+  alarmFraction: 0.01                        # sets stressAlarm=1; alarms are observed, not reconciled
+load:
+  ingressShare: {http: 0.4, mqtt: 0.6}
+  initialMessagesPerSecond: 50
+  mqttConnections: 100
+  queryRequestsPerSecond: 2
+  queryMix: {devices: 0.4, alarms: 0.2, rawMessages: 0.2, dashboard: 0.2}
+  scaleQueries: true
+search:
+  rampFactor: 1.5
+  warmup: 30s
+  measure: 2m
+  candidateHold: 5m
+  repeats: 3
+  boundaryRelativeWidth: 0.05
+  drainTimeout: 5m
+slo:
+  successRatio: 0.999
+  queryP95: 500ms
+  queryP99: 1500ms
+  businessP95: 2s
+  businessP99: 5s
+  maximumUnaccountedConfirmedMessages: 0
+budget:
+  maximumWallTime: 4h
+  maximumMessagesPerSecond: 3000
+  maximumDevices: 1000
+  maximumEvidenceGiB: 5
+outputs:
+  formats: [html, markdown, json, csv, svg]

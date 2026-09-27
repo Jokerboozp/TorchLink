@@ -20,3 +20,7 @@ offline-bundles/
 iot_front/.idea/
 .gitignore
 .DS_Store
+
+# capacity-test run evidence, fixture credentials and agent ledgers
+/capacity-results/
+/capacity-agent/

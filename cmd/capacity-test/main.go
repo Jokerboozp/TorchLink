@@ -3,6 +3,10 @@
 // pipeline counters (archived / parsed per second and Kafka backlog). It is the
 // tool described in docs/DEVELOPMENT.md.
 //
+// Subcommands plan validate | run | status | stop | report | agent run the
+// one-click measurement loop in internal/capacity (see orchestrate.go). The
+// single-purpose modes below remain for targeted checks.
+//
 // Modes:
 //
 //	provision  enroll standard-protocol devices and save their credentials
@@ -541,6 +545,9 @@ func telemetry(alarm bool) map[string]any {
 }
 
 func main() {
+	if subcommand(os.Args[1:]) {
+		return
+	}
 	flag.Parse()
 	*token = readArg(*token)
 	if strings.TrimSpace(*dataJSON) != "" {

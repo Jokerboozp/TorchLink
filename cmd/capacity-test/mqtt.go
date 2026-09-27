@@ -15,6 +15,8 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+
+	"iot-platform/internal/capacity"
 )
 
 var (
@@ -213,7 +215,7 @@ func mqttPub() {
 	}
 	var clients []mqtt.Client
 	var topics []string
-	var receipts []*mqttReceipts
+	var receipts []*capacity.MQTTReceipts
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, *connPar)
@@ -225,13 +227,13 @@ func mqttPub() {
 			defer func() { <-sem }()
 			c := newMQTT(t, t.Username+"-pub")
 			if tk := c.Connect(); tk.WaitTimeout(*timeout) && tk.Error() == nil {
-				tracker := newMQTTReceipts()
+				tracker := capacity.NewMQTTReceipts()
 				if *receiptConfirm {
 					if t.ReceiptTopic == "" {
 						c.Disconnect(10)
 						return
 					}
-					sub := c.Subscribe(t.ReceiptTopic, 1, tracker.receive)
+					sub := c.Subscribe(t.ReceiptTopic, 1, tracker.Receive)
 					if !sub.WaitTimeout(*timeout) || sub.Error() != nil {
 						c.Disconnect(10)
 						return
@@ -257,7 +259,8 @@ func mqttPub() {
 		i := int(rr.Add(1)) % len(clients)
 		b, _ := json.Marshal(map[string]any{"id": "mq-" + rid(), "timestamp": time.Now().UnixMilli(), "data": telemetry(mrand.Float64() < *alarmFrac)})
 		if *receiptConfirm {
-			return receipts[i].publish(ctx, clients[i], topics[i], b)
+			r := receipts[i].Publish(ctx, clients[i], topics[i], b, byte(*qos), *receiptWait, *receiptRetries)
+			return r.OK, r.Code, r.Bytes
 		}
 		tk := clients[i].Publish(topics[i], byte(*qos), false, b)
 		select {

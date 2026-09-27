@@ -1,0 +1,16 @@
+# Trusted target inventory. The controller only contacts these addresses.
+# Secrets are referenced by name: TORCHLINK_CAPACITY_SECRET_<NAME> or --secrets.
+name: local
+api: http://127.0.0.1:8081
+mqtt: tcp://127.0.0.1:1883
+# tcp: 127.0.0.1:26875
+metrics:
+  # List every platform process (combined, api, gateway) so counters and
+  # backlog are read per instance, never through a load balancer.
+  - {role: combined, instance: api-local, url: http://127.0.0.1:8081/metrics}
+agents:
+  - {name: local}                      # no url: runs inside the controller
+  # - {name: lg-1, url: http://10.0.0.21:7070}
+observers:
+  postgresSecretRef: capacity-postgres       # read-only DSN recommended
+  clickhouseSecretRef: capacity-clickhouse   # optional; enables raw/telemetry row checks

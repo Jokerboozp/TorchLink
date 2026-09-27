@@ -346,6 +346,9 @@ func TestSplitGatewayHTTPFlow(t *testing.T) {
 	if r := call(gateway.Handler(), "POST", "/api/v1/auth/login", nil, "", model.DeviceCredential{}); r.Code != 404 {
 		t.Fatal("gateway exposed login", r.Code)
 	}
+	if r := call(gateway.Handler(), "GET", "/metrics", nil, "", model.DeviceCredential{}); r.Code != 200 || !strings.Contains(r.Body.String(), "raw_archive_success_total") {
+		t.Fatal("gateway metrics are not scrapeable per instance", r.Code)
+	}
 	if r := call(api.Handler(), "POST", "/api/v1/onboarding", q, "", model.DeviceCredential{}); r.Code != 401 {
 		t.Fatal("forward bypassed auth", r.Code)
 	}

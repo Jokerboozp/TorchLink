@@ -114,6 +114,32 @@ TCP/UDP 默认 29075/29076，须已映射且空闲；可用 `--tcp-port`、`--ud
 
 ## 容量验证
 
+设计与验收口径见 [集群部署与一键全系统容量测试方案](CLUSTER_AND_CAPACITY_PLAN.md)。其中 P1 一键测量闭环已实现（下一小节）；集群角色拆分、存储集群、故障注入、AI/视频等场景适配和运维中心页面尚未实现。
+
+### 一键容量测量
+
+一条命令完成：计划校验 → 前置检查 → 准备测试设备 → 多 Agent 开环配速发压 → 逐实例采集 `/metrics` → 排空 → 按原文 ID 全量核对 → 边界搜索 → 报告。停止、失败也会写出部分报告。实现位于 `internal/capacity`，入口仍是 `cmd/capacity-test`。
+
+```bash
+go run ./cmd/capacity-test plan validate --plan cmd/capacity-test/examples/core-mixed.yaml
+go run ./cmd/capacity-test run --plan cmd/capacity-test/examples/core-mixed.yaml --secrets capacity-secrets.yaml
+go run ./cmd/capacity-test status --run <runId>
+go run ./cmd/capacity-test stop --run <runId>          # 追加 --force 跳过排空
+go run ./cmd/capacity-test report --run <runId>        # 只读证据重新生成报告
+```
+
+- **计划**：示例见 `cmd/capacity-test/examples/`。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）或 `soak`（单档长持有）；`resilience`、`faults` 和 AI/视频/知识/备份模块会被校验拒绝。`suite: full` 时这些模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
+- **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 都要列，Gateway 现已开放 `/metrics`）、Agent 与核对库的秘密引用。控制器只访问清单中的地址。
+- **秘密**：计划与清单只写引用名；值来自环境变量 `TORCHLINK_CAPACITY_SECRET_<名称>`（`-`、`.` 换成 `_`，大写）或权限 0600 的 `--secrets` YAML 文件。需要：操作员 Bearer 令牌、核对用 PostgreSQL DSN（建议只读账户）、可选 ClickHouse URL、远程 Agent 共享令牌。报告生成时会检查秘密值没有出现在任何证据文件中。
+- **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下创建，前缀区分；`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束不删除设备，清理清单写在 `manifest.json`。
+- **远程 Agent**：负载机执行 `capacity-test agent --listen :7070 --token-ref capacity-agent --secrets <文件>`，并在清单 `agents` 中登记 URL。Agent 持有 20 秒租约，控制器失联后自动停发；旧运行或旧代次的指令被拒绝。
+- **判定**：每档检查实发达成率（未发出记为发压不足，不是服务失败）、入口成功率（429 为策略限制）、查询与业务完成 P95/P99（样本不足不输出分位）、积压趋势、排空与 ID 核对。业务完成时延取标准消息 `processed_at`（毫秒完成时间）与预定发送时刻之差，经数据库和 Agent 时钟偏差校正。结论写成“稳定通过 L、在 U 失败”“至少 L 尚未找到上限”或 inconclusive，并给出结构化停止原因。
+- **产物**：`capacity-results/<runId>/` 下有 `summary.json`、`phases.csv`、`report.md`、离线可打开的 `report.html`、`charts/*.svg`、`plan.sanitized.yaml`、`environment.json`、`manifest.json`、各档 `phases/`、`verification/`、`ledgers/`（gzip JSONL 发送账本）、`observations/metrics.jsonl`、`events.jsonl`、`checksums.txt`。缺测在表格和图中显示为空，不填 0。
+
+当前边界：告警只观测计数，未按预期序列核对；TCP（GB26875）只有协议 ACK 层证据；PNG/PDF 导出、主机 CPU/磁盘采集和运维中心页面未实现。核对查询可在临时 schema 中用 `IOT_TEST_POSTGRES_DSN=... go test ./internal/capacity -run PGStore` 验证。
+
+### 单项工具
+
 在隔离环境使用实际设备凭据与代表性报文。HTTP 202、MQTT PUBACK、TCP ACK 只代表各自接收阶段，不代表解析、存储与告警完成；持续增长的积压说明当前速率不可持续。
 
 ```bash

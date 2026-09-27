@@ -613,8 +613,11 @@ func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardM
 	}
 	return processed == 0, false, err
 }
+
+// processed_at stores the completion time in Unix milliseconds; 0 still means
+// pending. Capacity verification and backup windows read it as a time.
 func (r *Repository) MarkStandardMessageProcessed(ctx context.Context, tenant, messageID string) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE standard_message SET processed_at=1 WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID)
+	tag, err := r.pool.Exec(ctx, `UPDATE standard_message SET processed_at=GREATEST((extract(epoch FROM clock_timestamp())*1000)::bigint,1) WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

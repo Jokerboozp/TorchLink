@@ -303,6 +303,8 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 ## 容量相关配置
 
+集群部署的目标拓扑、角色拆分、存储迁移和验收安排见 [集群部署与一键全系统容量测试方案](CLUSTER_AND_CAPACITY_PLAN.md)。该文档为待实施设计；本节说明当前配置与检查入口。
+
 默认值参考历史压测瓶颈调整（见 [历史基线](DEVELOPMENT.md#容量验证)），不代表当前吞吐已复测。多副本时按下表核对：
 
 | 配置 | 默认 | 说明 |

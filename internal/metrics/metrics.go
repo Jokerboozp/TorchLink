@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -61,5 +62,11 @@ func (r *Registry) Prometheus() string {
 		}
 		fmt.Fprintf(&b, "# TYPE %s gauge\n%s %g\n", name, name, value.value)
 	}
+	// Process gauges let capacity runs chart each instance's resources.
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	fmt.Fprintf(&b, "# TYPE go_goroutines gauge\ngo_goroutines %d\n", runtime.NumGoroutine())
+	fmt.Fprintf(&b, "# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", mem.HeapInuse)
+	fmt.Fprintf(&b, "# TYPE go_memstats_sys_bytes gauge\ngo_memstats_sys_bytes %d\n", mem.Sys)
 	return b.String()
 }

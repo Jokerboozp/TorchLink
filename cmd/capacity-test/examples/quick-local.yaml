@@ -1,0 +1,34 @@
+# 15-minute style regression: fixed low steps, no maximum-capacity claim.
+schemaVersion: 1
+name: quick-local
+suite: core
+preset: quick
+seed: 1
+target:
+  inventoryRef: inventory.local.yaml
+  deployment: single-node
+credentials:
+  operatorSecretRef: capacity-operator
+fixtures:
+  tenant: tenant_001
+  product: cap-standard
+  devicePrefix: capq
+  deviceCount: 20
+  reuseDevices: true
+  messageBytes: 256
+load:
+  ingressShare: {http: 0.5, mqtt: 0.5}
+  initialMessagesPerSecond: 10
+  mqttConnections: 10
+  queryRequestsPerSecond: 1
+  queryMix: {devices: 0.5, alarms: 0.5}
+search:
+  rates: [10, 20]
+  warmup: 10s
+  measure: 30s
+  drainTimeout: 2m
+  cooldown: 5s
+budget:
+  maximumWallTime: 30m
+  maximumMessagesPerSecond: 100
+  maximumEvidenceGiB: 1

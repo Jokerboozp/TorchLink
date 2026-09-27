@@ -31,7 +31,9 @@ func (s *Server) roleHandler() http.Handler {
 	})
 	if s.cfg.ProcessRole == "gateway" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !accessRoute(r.URL.Path) && !strings.HasPrefix(r.URL.Path, "/health/") {
+			// Health and metrics stay reachable so each gateway instance can be
+			// observed directly instead of through a load-balanced API.
+			if !accessRoute(r.URL.Path) && !strings.HasPrefix(r.URL.Path, "/health/") && r.URL.Path != "/metrics" {
 				problem(w, 404, "route is not served by access gateway")
 				return
 			}

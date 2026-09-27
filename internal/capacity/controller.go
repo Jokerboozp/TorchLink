@@ -1,0 +1,1133 @@
+package capacity
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"math"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Execution states (plan §10.2). Capacity verdicts are recorded separately.
+const (
+	StatusQueued     = "QUEUED"
+	StatusPreflight  = "PREFLIGHT"
+	StatusPreparing  = "PREPARING"
+	StatusWarmup     = "WARMUP"
+	StatusRunning    = "RUNNING"
+	StatusDraining   = "DRAINING"
+	StatusVerifying  = "VERIFYING"
+	StatusReporting  = "REPORTING"
+	StatusFinished   = "FINISHED"
+	StatusCancelling = "CANCELLING"
+	StatusCancelled  = "CANCELLED"
+	StatusFailed     = "FAILED"
+)
+
+// StopFile is created by `capacity-test stop`; "force" skips the drain.
+const StopFile = "STOP"
+
+type RunOptions struct {
+	PlanPath      string
+	InventoryPath string
+	SecretsPath   string
+	ResultsDir    string
+	WorkDir       string
+	SourceCommit  string
+	Log           io.Writer
+	// Test seams.
+	NewStore func(ctx context.Context, pgDSN, chURL string) (Store, error)
+	NewAgent func(t AgentTarget, token, workDir string) Agent
+}
+
+type PhaseBrief struct {
+	PhaseID    string  `json:"phaseId"`
+	Kind       string  `json:"kind"`
+	Rate       float64 `json:"rate"`
+	Verdict    string  `json:"verdict"`
+	StopReason string  `json:"stopReason,omitempty"`
+}
+
+type AgentClock struct {
+	Name          string  `json:"name"`
+	Lost          bool    `json:"lost"`
+	OffsetMS      float64 `json:"offsetMs"`
+	UncertaintyMS float64 `json:"uncertaintyMs"`
+}
+
+type RunState struct {
+	SchemaVersion int          `json:"schemaVersion"`
+	RunID         string       `json:"runId"`
+	Status        string       `json:"status"`
+	PID           int          `json:"pid"`
+	StartedAt     int64        `json:"startedAt"`
+	UpdatedAt     int64        `json:"updatedAt"`
+	Message       string       `json:"message,omitempty"`
+	PhaseID       string       `json:"phaseId,omitempty"`
+	TargetRate    float64      `json:"targetRate,omitempty"`
+	MeasureFrom   int64        `json:"measureFrom,omitempty"`
+	MeasureTo     int64        `json:"measureTo,omitempty"`
+	Completed     []PhaseBrief `json:"completed"`
+	Agents        []AgentClock `json:"agents"`
+	StopReason    string       `json:"stopReason,omitempty"`
+	// Result is the execution outcome decided before the report is written.
+	Result string `json:"result,omitempty"`
+}
+
+type Event struct {
+	At      int64  `json:"at"`
+	Type    string `json:"type"`
+	Status  string `json:"status,omitempty"`
+	PhaseID string `json:"phaseId,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+}
+
+// PreflightCheck records one readiness check before any load is offered.
+type PreflightCheck struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+type Manifest struct {
+	RunID          string   `json:"runId"`
+	Tenant         string   `json:"tenant"`
+	Product        string   `json:"product"`
+	DevicePrefix   string   `json:"devicePrefix"`
+	DevicesCreated []string `json:"devicesCreated"`
+	DevicesReused  int      `json:"devicesReused"`
+	Retained       []string `json:"retained"`
+	Cleanup        []string `json:"cleanup"`
+}
+
+type agentHandle struct {
+	target  AgentTarget
+	agent   Agent
+	index   int
+	http    []DeviceCredential
+	mqtt    []DeviceCredential
+	tcp     int
+	mu      sync.Mutex
+	clocks  []clockSample
+	lost    bool
+	lostWhy string
+}
+
+type clockSample struct {
+	at          time.Time
+	offset, unc time.Duration
+}
+
+func (h *agentHandle) clock() (time.Duration, time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	best := clockSample{unc: time.Duration(math.MaxInt64)}
+	for _, c := range h.clocks {
+		if c.unc < best.unc {
+			best = c
+		}
+	}
+	if best.unc == time.Duration(math.MaxInt64) {
+		return 0, time.Second
+	}
+	return best.offset, best.unc
+}
+
+type controller struct {
+	opt       RunOptions
+	plan      *Plan
+	inv       *Inventory
+	secrets   *Secrets
+	runID     string
+	dir       string
+	started   time.Time
+	state     RunState
+	stateMu   sync.Mutex
+	events    *os.File
+	agents    []*agentHandle
+	collector *Collector
+	verifier  *Verifier
+	store     Store
+	opToken   string
+	agentTok  string
+	httpc     *http.Client
+	gen       int64
+	phaseN    int
+	stop      chan string // "soft" or "force"
+	stopOnce  sync.Once
+	forced    bool
+	lastDrain time.Duration
+	// agentResults keeps each agent's phase result by "phase/agent".
+	agentResults map[string]AgentPhaseResult
+}
+
+func newRunID(now time.Time) string {
+	b := make([]byte, 3)
+	_, _ = rand.Read(b)
+	return "cap-" + now.Format("20060102-150405") + "-" + hex.EncodeToString(b)
+}
+
+// Run executes a plan end to end and always tries to leave a report, also
+// when preflight fails or the run is stopped. The returned error is a
+// controller failure; capacity outcomes live in the report.
+func Run(ctx context.Context, opt RunOptions) (string, error) {
+	plan, err := LoadPlan(opt.PlanPath)
+	if err != nil {
+		return "", err
+	}
+	if err = plan.Validate(); err != nil {
+		return "", fmt.Errorf("plan is invalid:\n%w", err)
+	}
+	invPath := opt.InventoryPath
+	if invPath == "" {
+		invPath = ResolveRef(opt.PlanPath, plan.Target.InventoryRef)
+	}
+	if invPath == "" {
+		return "", errors.New("no inventory: set target.inventoryRef or --inventory")
+	}
+	inv, err := LoadInventory(invPath)
+	if err != nil {
+		return "", err
+	}
+	secrets, err := LoadSecrets(opt.SecretsPath)
+	if err != nil {
+		return "", err
+	}
+	if opt.ResultsDir == "" {
+		opt.ResultsDir = "capacity-results"
+	}
+	if opt.WorkDir == "" {
+		opt.WorkDir = filepath.Join(opt.ResultsDir, ".work")
+	}
+	if opt.Log == nil {
+		opt.Log = io.Discard
+	}
+	if opt.NewStore == nil {
+		opt.NewStore = func(ctx context.Context, pg, ch string) (Store, error) { return NewPGCHStore(ctx, pg, ch) }
+	}
+	if opt.NewAgent == nil {
+		opt.NewAgent = defaultAgent
+	}
+	now := time.Now()
+	c := &controller{opt: opt, plan: plan, inv: inv, secrets: secrets, runID: newRunID(now), started: now, gen: 1, stop: make(chan string, 1),
+		httpc: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: nil}}}
+	c.dir = filepath.Join(opt.ResultsDir, c.runID)
+	for _, d := range []string{c.dir, filepath.Join(c.dir, "phases"), filepath.Join(c.dir, "ledgers"), filepath.Join(c.dir, "observations"), filepath.Join(c.dir, "verification"), opt.WorkDir} {
+		if err = os.MkdirAll(d, 0o750); err != nil {
+			return "", err
+		}
+	}
+	if c.events, err = os.OpenFile(filepath.Join(c.dir, "events.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640); err != nil {
+		return "", err
+	}
+	defer c.events.Close()
+	c.logf("run %s evidence → %s", c.runID, c.dir)
+	c.state = RunState{SchemaVersion: SchemaVersion, RunID: c.runID, PID: os.Getpid(), StartedAt: now.UnixMilli(), Completed: []PhaseBrief{}}
+	c.setStatus(StatusQueued, "")
+	return c.runID, c.execute(ctx)
+}
+
+func defaultAgent(t AgentTarget, token, workDir string) Agent {
+	if t.URL == "" {
+		return NewWorker(t.Name, filepath.Join(workDir, "agent-"+t.Name))
+	}
+	return NewRemoteAgent(t.Name, t.URL, token)
+}
+
+func (c *controller) logf(format string, a ...any) {
+	fmt.Fprintf(c.opt.Log, "[%s] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, a...))
+}
+
+func (c *controller) event(typ, status, phase, detail string) {
+	b, _ := json.Marshal(Event{At: time.Now().UnixMilli(), Type: typ, Status: status, PhaseID: phase, Detail: detail})
+	_, _ = c.events.Write(append(b, '\n'))
+}
+
+func (c *controller) setStatus(status, message string) {
+	c.stateMu.Lock()
+	c.state.Status, c.state.Message, c.state.UpdatedAt = status, message, time.Now().UnixMilli()
+	c.state.Agents = c.state.Agents[:0]
+	for _, h := range c.agents {
+		off, unc := h.clock()
+		h.mu.Lock()
+		c.state.Agents = append(c.state.Agents, AgentClock{Name: h.target.Name, Lost: h.lost, OffsetMS: ms(off), UncertaintyMS: ms(unc)})
+		h.mu.Unlock()
+	}
+	st := c.state
+	c.stateMu.Unlock()
+	_ = writeJSONAtomic(filepath.Join(c.dir, "state.json"), st)
+	c.event("status", status, st.PhaseID, message)
+	c.logf("%s %s", status, message)
+}
+
+func ms(d time.Duration) float64 { return math.Round(float64(d.Microseconds())/10) / 100 }
+
+func (c *controller) requestStop(kind string) {
+	c.stopOnce.Do(func() { c.stop <- kind })
+}
+
+// watchStop turns the STOP file and ctx cancellation into a stop request. A
+// second signal (ctx after STOP, or STOP containing "force") forces.
+func (c *controller) watchStop(ctx context.Context, done <-chan struct{}) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	soft := false
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			if soft {
+				c.forced = true
+			}
+			c.requestStop("soft")
+			soft = true
+			ctx = context.Background()
+		case <-t.C:
+			if b, err := os.ReadFile(filepath.Join(c.dir, StopFile)); err == nil {
+				if strings.Contains(string(b), "force") {
+					c.forced = true
+				}
+				if !soft {
+					soft = true
+					c.requestStop("soft")
+				}
+			}
+		}
+	}
+}
+
+func (c *controller) stopped() bool {
+	select {
+	case k := <-c.stop:
+		c.stop <- k
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *controller) execute(parent context.Context) error {
+	done := make(chan struct{})
+	defer close(done)
+	go c.watchStop(parent, done)
+	// searchCtx ends on a stop request; evidence handling uses its own contexts.
+	searchCtx, cancelSearch := context.WithCancel(context.Background())
+	defer cancelSearch()
+	go func() {
+		select {
+		case <-done:
+		case k := <-c.stop:
+			c.stop <- k
+			cancelSearch()
+		}
+	}()
+
+	sanitized, planHash, err := c.plan.Sanitized()
+	if err == nil {
+		err = os.WriteFile(filepath.Join(c.dir, "plan.sanitized.yaml"), sanitized, 0o640)
+	}
+	if err != nil {
+		return err
+	}
+	_ = writeJSONAtomic(filepath.Join(c.dir, "environment.json"), c.environment(planHash))
+
+	c.setStatus(StatusPreflight, "")
+	checks, ok := c.preflight(searchCtx)
+	_ = writeJSONAtomic(filepath.Join(c.dir, "preflight.json"), checks)
+	defer c.release()
+	result := SearchResult{Preset: c.plan.Preset, Classification: ClassUnmeasured}
+	finalStatus := StatusFinished
+	if !ok {
+		result.StopReason = ReasonInfrastructure
+		finalStatus = StatusFailed
+		c.state.StopReason = ReasonInfrastructure
+		c.setStatus(StatusFailed, "preflight failed; see preflight.json")
+	} else if err = c.prepare(searchCtx); err != nil {
+		result.StopReason = ReasonInfrastructure
+		finalStatus = StatusFailed
+		c.state.StopReason = ReasonInfrastructure
+		c.setStatus(StatusFailed, "prepare failed: "+err.Error())
+	} else {
+		obs := filepath.Join(c.dir, "observations", "metrics.jsonl")
+		if c.collector, err = NewCollector(c.inv.Metrics, c.plan.Search.ObserveInterval.D(), obs); err != nil {
+			return err
+		}
+		colCtx, stopCol := context.WithCancel(context.Background())
+		go c.collector.Run(colCtx)
+		hbCtx, stopHB := context.WithCancel(context.Background())
+		go c.heartbeats(hbCtx)
+		result, err = Search(searchCtx, c.plan, c)
+		stopHB()
+		stopCol()
+		c.collector.Close()
+		if err != nil {
+			c.event("error", "", "", err.Error())
+			finalStatus = StatusFailed
+		}
+		if c.stopped() {
+			finalStatus = StatusCancelled
+			if result.StopReason == "" || result.StopReason == ReasonInfrastructure && err == nil {
+				result.StopReason = ReasonCancel
+			}
+		}
+	}
+	_ = writeJSONAtomic(filepath.Join(c.dir, "search.json"), result)
+	c.state.StopReason = firstNonEmpty(result.StopReason, c.state.StopReason)
+	c.state.Result = finalStatus
+	c.setStatus(StatusReporting, "")
+	if rerr := GenerateReport(c.dir, c.secrets.Values(c.secretRefs()...)); rerr != nil {
+		c.event("error", "", "", "report: "+rerr.Error())
+		finalStatus = StatusFailed
+		err = errors.Join(err, rerr)
+	}
+	c.state.Result = finalStatus
+	c.setStatus(finalStatus, "")
+	return err
+}
+
+func (c *controller) secretRefs() []string {
+	return []string{c.plan.Credentials.OperatorSecretRef, c.plan.Credentials.AgentSecretRef, c.inv.Observers.PostgresSecretRef, c.inv.Observers.ClickHouseSecretRef}
+}
+
+func (c *controller) environment(planHash string) map[string]any {
+	host, _ := os.Hostname()
+	agents := make([]map[string]string, 0, len(c.inv.Agents))
+	for _, a := range c.inv.Agents {
+		mode := "remote"
+		if a.URL == "" {
+			mode = "in-process"
+		}
+		agents = append(agents, map[string]string{"name": a.Name, "mode": mode})
+	}
+	return map[string]any{
+		"schemaVersion":    SchemaVersion,
+		"runId":            c.runID,
+		"planHash":         planHash,
+		"sourceCommit":     c.opt.SourceCommit,
+		"controllerHost":   host,
+		"controllerOS":     runtime.GOOS + "/" + runtime.GOARCH,
+		"goVersion":        runtime.Version(),
+		"inventory":        c.inv.Name,
+		"deployment":       c.plan.Target.Deployment,
+		"environmentClass": c.plan.Target.EnvironmentClass,
+		"metricsTargets":   c.inv.Metrics,
+		"agents":           agents,
+		"observers":        map[string]bool{"postgres": c.inv.Observers.PostgresSecretRef != "", "clickhouse": c.inv.Observers.ClickHouseSecretRef != ""},
+		"note":             "硬件、镜像摘要与中间件拓扑由清单登记方补充；此文件不含秘密值",
+	}
+}
+
+func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
+	var checks []PreflightCheck
+	ok := true
+	add := func(name string, good bool, detail string) {
+		checks = append(checks, PreflightCheck{Name: name, OK: good, Detail: detail})
+		ok = ok && good
+	}
+	var err error
+	if c.opToken, err = c.secrets.Get(c.plan.Credentials.OperatorSecretRef); err != nil {
+		add("操作员凭据", false, err.Error())
+	}
+	needAgentToken := false
+	for _, a := range c.inv.Agents {
+		needAgentToken = needAgentToken || a.URL != ""
+	}
+	if needAgentToken {
+		if c.plan.Credentials.AgentSecretRef == "" {
+			add("Agent 凭据", false, "远程 Agent 需要 credentials.agentSecretRef")
+		} else if c.agentTok, err = c.secrets.Get(c.plan.Credentials.AgentSecretRef); err != nil {
+			add("Agent 凭据", false, err.Error())
+		}
+	}
+	if c.plan.Load.IngressShare["mqtt"] > 0 && c.inv.MQTT == "" {
+		add("MQTT 入口", false, "计划包含 MQTT 份额但清单没有 mqtt 地址")
+	}
+	if c.plan.Load.IngressShare["tcp"] > 0 && c.inv.TCP == "" {
+		add("TCP 入口", false, "计划包含 TCP 份额但清单没有 tcp 地址")
+	}
+	pg, err := c.secrets.Get(c.inv.Observers.PostgresSecretRef)
+	if err != nil {
+		add("核对数据库凭据", false, err.Error())
+	}
+	ch := ""
+	if c.inv.Observers.ClickHouseSecretRef != "" {
+		if ch, err = c.secrets.Get(c.inv.Observers.ClickHouseSecretRef); err != nil {
+			add("ClickHouse 核对凭据", false, err.Error())
+		}
+	}
+	if !ok {
+		return checks, false
+	}
+	status, _, err := c.get(ctx, "/health/ready", "")
+	add("平台就绪", err == nil && status == 200, fmt.Sprintf("GET /health/ready → %d %s", status, errText(err)))
+	status, _, err = c.get(ctx, "/api/v1/devices?page=1&pageSize=1", c.opToken)
+	add("操作员权限", err == nil && status == 200, fmt.Sprintf("设备列表 → %d %s", status, errText(err)))
+	status, body, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+c.plan.Fixtures.Product, c.opToken)
+	add("测试产品", err == nil && status == 200, fmt.Sprintf("产品 %s 接入预检 → %d %s %s", c.plan.Fixtures.Product, status, errText(err), clip(string(body), 160)))
+	col, _ := NewCollector(c.inv.Metrics, time.Second, "")
+	round := col.Scrape(ctx)
+	for _, s := range round.Instances {
+		add("指标 "+s.Instance, s.OK, firstNonEmpty(s.Error, fmt.Sprintf("%d 个序列", len(s.Values))))
+	}
+	if store, err := c.opt.NewStore(ctx, pg, ch); err != nil {
+		add("核对数据库", false, err.Error())
+	} else {
+		c.store = store
+		off, unc, cerr := store.ClockOffset(ctx)
+		add("数据库时钟", cerr == nil, fmt.Sprintf("偏差 %.1fms ± %.1fms %s", ms(off), ms(unc), errText(cerr)))
+		c.verifier = NewVerifier(store, c.plan.Fixtures.Tenant)
+	}
+	for i, t := range c.inv.Agents {
+		h := &agentHandle{target: t, agent: c.opt.NewAgent(t, c.agentTok, c.opt.WorkDir), index: i}
+		c.agents = append(c.agents, h)
+		st, err := h.agent.Status(ctx)
+		switch {
+		case err != nil:
+			add("Agent "+t.Name, false, err.Error())
+		case st.RunID != "" && st.LeaseValid:
+			add("Agent "+t.Name, false, "正被运行 "+st.RunID+" 占用，租约未到期")
+		default:
+			add("Agent "+t.Name, true, fmt.Sprintf("可用，goroutines=%d", st.Goroutines))
+		}
+	}
+	return checks, ok
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func clip(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
+func (c *controller) get(ctx context.Context, path, token string) (int, []byte, error) {
+	hdr := map[string]string{}
+	if token != "" {
+		hdr["Authorization"] = "Bearer " + token
+	}
+	return doHTTP(ctx, c.httpc, http.MethodGet, strings.TrimRight(c.inv.API, "/")+path, nil, hdr)
+}
+
+// prepare provisions or reuses fixture devices, splits them across agents and
+// has every agent open its connections. A smaller device population than
+// planned is refused rather than measured.
+func (c *controller) prepare(ctx context.Context) error {
+	c.setStatus(StatusPreparing, "")
+	devices, manifest, err := c.fixtures(ctx)
+	_ = writeJSONAtomic(filepath.Join(c.dir, "manifest.json"), manifest)
+	if err != nil {
+		return err
+	}
+	var mqttDevs, httpDevs []DeviceCredential
+	if c.plan.Load.IngressShare["mqtt"] > 0 {
+		mqttDevs, httpDevs = devices[:c.plan.Load.MQTTConnections], devices[c.plan.Load.MQTTConnections:]
+	} else {
+		httpDevs = devices
+	}
+	if c.plan.Load.IngressShare["http"] == 0 {
+		httpDevs = nil
+	}
+	n := len(c.agents)
+	for i, h := range c.agents {
+		h.mqtt = chunk(mqttDevs, i, n)
+		h.http = chunk(httpDevs, i, n)
+		if c.plan.Load.IngressShare["tcp"] > 0 {
+			h.tcp = c.plan.Load.TCPConnections/n + boolInt(i < c.plan.Load.TCPConnections%n)
+		}
+	}
+	cfg := AgentConfig{API: strings.TrimRight(c.inv.API, "/"), MQTT: c.inv.MQTT, TCP: c.inv.TCP, OperatorToken: c.opToken, Tenant: c.plan.Fixtures.Tenant, Product: c.plan.Fixtures.Product,
+		RequestTimeout: c.plan.Load.RequestTimeout, ReceiptWait: c.plan.Load.ReceiptWait, ReceiptRetries: c.plan.Load.ReceiptRetries, MaxInflight: max(1, c.plan.Load.MaxInflight/n),
+		Fields: c.plan.Fixtures.Fields, MessageBytes: c.plan.Fixtures.MessageBytes, AlarmFraction: c.plan.Fixtures.AlarmFraction, Seed: c.plan.Seed, QueryMix: c.plan.Load.QueryMix}
+	var errs []string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, h := range c.agents {
+		wg.Add(1)
+		go func(h *agentHandle) {
+			defer wg.Done()
+			res, err := h.agent.Prepare(ctx, PrepareRequest{RunID: c.runID, Generation: c.gen, Agent: h.target.Name, AgentIndex: h.index, Lease: Duration(20 * time.Second), Config: cfg, HTTPDevices: h.http, MQTTDevices: h.mqtt, TCPConnections: h.tcp})
+			c.sampleClock(ctx, h)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err != nil:
+				errs = append(errs, h.target.Name+": "+err.Error())
+			case res.MQTTFailed > 0:
+				errs = append(errs, fmt.Sprintf("%s: MQTT 连接 %d/%d 成功，失败 %s；拒绝以不同设备规模测量", h.target.Name, res.MQTTConnected, len(h.mqtt), codeSummary(res.Failures)))
+			default:
+				c.event("agent_prepared", "", "", fmt.Sprintf("%s http=%d mqtt=%d tcp=%d", h.target.Name, res.HTTPDevices, res.MQTTConnected, res.TCPDevices))
+			}
+		}(h)
+	}
+	wg.Wait()
+	if len(errs) > 0 {
+		sort.Strings(errs)
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func chunk[T any](v []T, i, n int) []T {
+	if len(v) == 0 {
+		return nil
+	}
+	size := (len(v) + n - 1) / n
+	lo, hi := min(i*size, len(v)), min((i+1)*size, len(v))
+	return v[lo:hi]
+}
+
+// fixtures loads reusable credentials from the private work directory or
+// enrolls devices through the normal onboarding API. Credentials never enter
+// the run directory; the manifest lists device IDs only.
+func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest, error) {
+	f := c.plan.Fixtures
+	m := Manifest{RunID: c.runID, Tenant: f.Tenant, Product: f.Product, DevicePrefix: f.DevicePrefix, DevicesCreated: []string{}}
+	credPath := filepath.Join(c.opt.WorkDir, "fixtures", fmt.Sprintf("%s-%s-%s.json", f.Tenant, f.Product, f.DevicePrefix))
+	var have []DeviceCredential
+	if f.ReuseDevices {
+		if b, err := os.ReadFile(credPath); err == nil {
+			_ = json.Unmarshal(b, &have)
+		}
+	}
+	prefix := f.DevicePrefix
+	if !f.ReuseDevices {
+		prefix += "-" + c.runID[len(c.runID)-6:]
+	}
+	byID := map[string]DeviceCredential{}
+	for _, d := range have {
+		byID[d.ID] = d
+	}
+	out := make([]DeviceCredential, f.DeviceCount)
+	var missing []int
+	for i := range out {
+		id := fmt.Sprintf("%s-%06d", prefix, i)
+		if d, ok := byID[id]; ok && d.Secret != "" {
+			out[i] = d
+			m.DevicesReused++
+		} else {
+			out[i].ID = id
+			missing = append(missing, i)
+		}
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 16)
+	failures := map[string]uint64{}
+	for _, i := range missing {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			id := out[i].ID
+			body, _ := json.Marshal(map[string]any{"requestId": "req-" + id, "productId": f.Product, "device": map[string]any{"id": id, "name": "容量测试 " + id}, "connection": map[string]any{"mode": "standard"}})
+			for attempt := 0; attempt < 4; attempt++ {
+				status, resp, err := doHTTP(ctx, c.httpc, http.MethodPost, strings.TrimRight(c.inv.API, "/")+"/api/v1/onboarding", body, map[string]string{"Authorization": "Bearer " + c.opToken})
+				var v struct {
+					Credential struct {
+						AccessKey string `json:"accessKey"`
+						Secret    string `json:"secret"`
+					} `json:"credential"`
+				}
+				if err == nil && status == http.StatusCreated && json.Unmarshal(resp, &v) == nil && v.Credential.Secret != "" {
+					mu.Lock()
+					out[i] = DeviceCredential{ID: id, Key: v.Credential.AccessKey, Secret: v.Credential.Secret}
+					m.DevicesCreated = append(m.DevicesCreated, id)
+					mu.Unlock()
+					return
+				}
+				code := ShortError(err)
+				if err == nil {
+					code = fmt.Sprint(status)
+				}
+				mu.Lock()
+				failures[code]++
+				mu.Unlock()
+				if err == nil && status/100 == 4 && status != 429 {
+					return
+				}
+				time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			}
+		}(i)
+	}
+	wg.Wait()
+	sort.Strings(m.DevicesCreated)
+	all := append(have[:0:0], have...)
+	for _, d := range out {
+		if d.Secret != "" {
+			if _, ok := byID[d.ID]; !ok {
+				all = append(all, d)
+			}
+		}
+	}
+	if len(m.DevicesCreated) > 0 || f.ReuseDevices {
+		if err := os.MkdirAll(filepath.Dir(credPath), 0o700); err == nil {
+			b, _ := json.Marshal(all)
+			_ = os.WriteFile(credPath, b, 0o600)
+		}
+	}
+	m.Retained = []string{fmt.Sprintf("测试设备 %d 台保留在租户 %s 产品 %s（前缀 %s），凭据在工作目录，可供复测", f.DeviceCount, f.Tenant, f.Product, prefix)}
+	m.Cleanup = []string{"压测结束已释放 Agent 连接与租约", "未删除测试设备与测试数据；如需清理请按前缀在设备管理中处理"}
+	for _, d := range out {
+		if d.Secret == "" {
+			return nil, m, fmt.Errorf("device enrolment incomplete (%d/%d); results: %s", f.DeviceCount-len(missing)+len(m.DevicesCreated), f.DeviceCount, codeSummary(failures))
+		}
+	}
+	return out, m, nil
+}
+
+// heartbeats renew agent leases and sample clock offsets every 5 seconds.
+func (c *controller) heartbeats(ctx context.Context) {
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		for _, h := range c.agents {
+			c.sampleClock(ctx, h)
+		}
+	}
+}
+
+func (c *controller) sampleClock(ctx context.Context, h *agentHandle) {
+	hctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	t0 := time.Now()
+	st, err := h.agent.Heartbeat(hctx, RunRef{RunID: c.runID, Generation: c.gen})
+	t1 := time.Now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err != nil {
+		if errors.Is(err, ErrStaleGeneration) && !h.lost {
+			h.lost, h.lostWhy = true, "lease lost: "+err.Error()
+			c.event("agent_lost", "", "", h.target.Name+" "+err.Error())
+		}
+		return
+	}
+	mid := t0.Add(t1.Sub(t0) / 2)
+	h.clocks = append(h.clocks, clockSample{at: t1, offset: time.UnixMicro(st.AgentTime).Sub(mid), unc: t1.Sub(t0)/2 + 500*time.Microsecond})
+	if len(h.clocks) > 12 {
+		h.clocks = h.clocks[len(h.clocks)-12:]
+	}
+}
+
+func (c *controller) release() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, h := range c.agents {
+		_ = h.agent.Release(ctx, RunRef{RunID: c.runID, Generation: c.gen})
+	}
+	if c.store != nil {
+		c.store.Close()
+	}
+}
+
+// Affordable checks the wall-time and evidence budgets before a step.
+func (c *controller) Affordable(hold time.Duration) bool {
+	drain := c.lastDrain
+	if drain == 0 {
+		drain = min(c.plan.Search.DrainTimeout.D(), 30*time.Second)
+	}
+	need := time.Since(c.started) + c.plan.Search.Warmup.D() + hold + drain + c.plan.Search.Cooldown.D() + 30*time.Second
+	if need > c.plan.Budget.MaximumWallTime.D() {
+		c.event("budget", "", "", fmt.Sprintf("wall time budget: next step needs %s", need.Round(time.Second)))
+		return false
+	}
+	if size := dirSize(c.dir); float64(size) > c.plan.Budget.MaximumEvidenceGiB*(1<<30)*0.9 {
+		c.event("budget", "", "", fmt.Sprintf("evidence budget: %d bytes used", size))
+		return false
+	}
+	return true
+}
+
+func dirSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if info, e := d.Info(); e == nil {
+				n += info.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+// RunStep offers one load step and settles it: all agents start together,
+// results and ledgers are collected, the pipeline is drained and every
+// message is reconciled before the step is judged.
+func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hold time.Duration) (PhaseRecord, error) {
+	c.phaseN++
+	p := c.plan
+	rec := PhaseRecord{PhaseID: fmt.Sprintf("p%02d-%s-%s", c.phaseN, kind, strings.ReplaceAll(fmt.Sprintf("%g", rate), ".", "_")), Index: c.phaseN, Kind: kind, TargetMessagesPerSec: rate, TargetQueriesPerSec: p.QueryRate(rate), Streams: map[string]*StreamStats{}}
+	rates := map[string]float64{"query": rec.TargetQueriesPerSec}
+	for _, s := range messageStreams {
+		rates[s] = rate * p.Load.IngressShare[s]
+	}
+	warmup := p.Search.Warmup.D()
+	start := time.Now().Add(3 * time.Second)
+	rec.StartedAt, rec.MeasureFrom, rec.MeasureTo = start.UnixMilli(), start.Add(warmup).UnixMilli(), start.Add(warmup+hold).UnixMilli()
+	rec.WarmupSeconds, rec.MeasureSeconds = warmup.Seconds(), hold.Seconds()
+	c.stateMu.Lock()
+	c.state.PhaseID, c.state.TargetRate, c.state.MeasureFrom, c.state.MeasureTo = rec.PhaseID, rate, rec.MeasureFrom, rec.MeasureTo
+	c.stateMu.Unlock()
+	c.setStatus(StatusWarmup, fmt.Sprintf("%s rate=%g msg/s query=%g/s", rec.PhaseID, rate, rec.TargetQueriesPerSec))
+
+	ref := RunRef{RunID: c.runID, Generation: c.gen}
+	var active []*agentHandle
+	for _, h := range c.agents {
+		h.mu.Lock()
+		lost := h.lost
+		h.mu.Unlock()
+		if !lost {
+			active = append(active, h)
+		}
+	}
+	if len(active) < len(c.agents) {
+		// Redistributing a lost agent's share would silently change the
+		// device population; the step is marked incomplete instead.
+		rec.Agents = append(rec.Agents, AgentPhaseSummary{Name: "(lost)", Interrupted: true, Reason: "an agent lost its lease earlier in the run"})
+	}
+	for _, h := range active {
+		share := map[string]float64{}
+		for stream, r := range rates {
+			if n := c.agentsWith(stream); n > 0 && c.hasStream(h, stream) {
+				share[stream] = r / float64(n)
+			}
+		}
+		off, _ := h.clock()
+		a := PhaseAssignment{RunID: c.runID, Generation: c.gen, PhaseID: rec.PhaseID, PhaseIndex: c.phaseN, StartAt: start.Add(off).UnixMilli(), Warmup: Duration(warmup), Measure: Duration(hold), Rates: share}
+		if err := h.agent.StartPhase(context.Background(), a); err != nil {
+			c.event("agent_error", "", rec.PhaseID, h.target.Name+": "+err.Error())
+			rec.Agents = append(rec.Agents, AgentPhaseSummary{Name: h.target.Name, Interrupted: true, Reason: "start: " + err.Error()})
+		}
+	}
+	// Wait for the load window, reacting to a stop request.
+	end := start.Add(warmup + hold)
+	measuring := false
+	for time.Now().Before(end) {
+		if !measuring && time.Now().UnixMilli() >= rec.MeasureFrom {
+			measuring = true
+			c.setStatus(StatusRunning, rec.PhaseID)
+		}
+		if ctx.Err() != nil {
+			rec.Cancelled = true
+			c.setStatus(StatusCancelling, "stopping new load")
+			for _, h := range active {
+				_ = h.agent.Stop(context.Background(), RunRef{RunID: c.runID, Generation: c.gen, Hard: c.forced})
+			}
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if rec.Cancelled {
+		rec.MeasureTo = min(rec.MeasureTo, time.Now().UnixMilli())
+		rec.MeasureSeconds = math.Max(0, float64(rec.MeasureTo-rec.MeasureFrom)/1000)
+	}
+	// Collect agent results and ledgers.
+	settle := p.Load.RequestTimeout.D() + p.Load.ReceiptWait.D()*time.Duration(p.Load.ReceiptRetries+1) + 30*time.Second
+	for _, h := range active {
+		sum := c.collectAgent(h, ref, rec.PhaseID, settle)
+		rec.Agents = append(rec.Agents, sum)
+		if res, ok := c.agentResults[rec.PhaseID+"/"+h.target.Name]; ok {
+			for k, s := range res.Streams {
+				if rec.Streams[k] == nil {
+					rec.Streams[k] = &StreamStats{}
+				}
+				rec.Streams[k].Merge(s)
+			}
+		}
+	}
+	rec.EndedAt = time.Now().UnixMilli()
+	// Drain and reconcile.
+	c.setStatus(StatusDraining, rec.PhaseID)
+	drainStart := time.Now()
+	drainLimit := p.Search.DrainTimeout.D()
+	if c.forced {
+		drainLimit = 0
+	} else if rec.Cancelled {
+		drainLimit = min(drainLimit, time.Minute)
+	}
+	rec.Drain.Completed = c.drain(rec.PhaseID, drainLimit)
+	rec.Drain.Seconds = time.Since(drainStart).Seconds()
+	c.lastDrain = time.Since(drainStart)
+	c.setStatus(StatusVerifying, rec.PhaseID)
+	var worstUnc time.Duration
+	for _, h := range active {
+		if _, unc := h.clock(); unc > worstUnc {
+			worstUnc = unc
+		}
+	}
+	if c.verifier != nil {
+		vctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		if err := c.verifier.Pass(vctx, true); err != nil {
+			rec.Integrity.Note = "final reconciliation failed: " + err.Error()
+			rec.Integrity.VerificationMode = "incomplete"
+		} else {
+			rec.Integrity = c.verifier.PhaseIntegrity(rec.PhaseID, worstUnc)
+		}
+		cancel()
+	}
+	_ = writeJSONAtomic(filepath.Join(c.dir, "verification", rec.PhaseID+".json"), rec.Integrity)
+	rec.Pipeline = PipelineFor(c.collector.Rounds(rec.MeasureFrom, rec.MeasureTo), rec.MeasureSeconds)
+	if rec.MeasureSeconds > 0 && rec.Integrity.BusinessLatency.N > 0 {
+		v := math.Round(float64(rec.Integrity.BusinessLatency.N)/rec.MeasureSeconds*10) / 10
+		rec.BusinessCompletedPerSec = &v
+	}
+	if rec.Integrity.VerificationMode == "incomplete" {
+		rec.Checks = append(rec.Checks, Check{Name: "核对", Status: VerdictInconclusive, Reason: ReasonObservability, Detail: rec.Integrity.Note})
+	}
+	Judge(p, &rec)
+	if rec.Integrity.VerificationMode == "incomplete" && rec.Verdict == VerdictPassed {
+		rec.Verdict, rec.StopReason = VerdictInconclusive, ReasonObservability
+	}
+	if err := writeJSONAtomic(filepath.Join(c.dir, "phases", rec.PhaseID+".json"), rec); err != nil {
+		return rec, err
+	}
+	c.stateMu.Lock()
+	c.state.Completed = append(c.state.Completed, PhaseBrief{PhaseID: rec.PhaseID, Kind: kind, Rate: rate, Verdict: rec.Verdict, StopReason: rec.StopReason})
+	c.state.PhaseID = ""
+	c.stateMu.Unlock()
+	c.event("phase", rec.Verdict, rec.PhaseID, rec.StopReason)
+	c.logf("%s verdict=%s %s", rec.PhaseID, rec.Verdict, rec.StopReason)
+	if !rec.Cancelled && ctx.Err() == nil {
+		c.cooldown()
+	}
+	return rec, nil
+}
+
+func (c *controller) agentsWith(stream string) int {
+	n := 0
+	for _, h := range c.agents {
+		if c.hasStream(h, stream) {
+			n++
+		}
+	}
+	return n
+}
+
+func (c *controller) hasStream(h *agentHandle, stream string) bool {
+	switch stream {
+	case "http":
+		return len(h.http) > 0
+	case "mqtt":
+		return len(h.mqtt) > 0
+	case "tcp":
+		return h.tcp > 0
+	}
+	return true
+}
+
+func (c *controller) collectAgent(h *agentHandle, ref RunRef, phaseID string, settle time.Duration) AgentPhaseSummary {
+	off, unc := h.clock()
+	sum := AgentPhaseSummary{Name: h.target.Name, ClockOffsetMS: ms(off), ClockUncertaintyMS: ms(unc)}
+	deadline := time.Now().Add(settle)
+	var res AgentPhaseResult
+	var err error
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		res, err = h.agent.PhaseResult(ctx, ref, phaseID)
+		cancel()
+		if err == nil || !errors.Is(err, ErrPhaseRunning) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if err != nil {
+		sum.Interrupted, sum.Reason = true, "result: "+err.Error()
+		return sum
+	}
+	if c.agentResults == nil {
+		c.agentResults = map[string]AgentPhaseResult{}
+	}
+	c.agentResults[phaseID+"/"+h.target.Name] = res
+	sum.Interrupted, sum.LeaseExpired, sum.Reason, sum.HeapBytes, sum.Goroutines, sum.Ledger = res.Interrupted, res.LeaseExpired, res.Reason, res.HeapBytes, res.Goroutines, res.Ledger
+	path := filepath.Join(c.dir, "ledgers", phaseID, h.target.Name+".jsonl.gz")
+	if err = os.MkdirAll(filepath.Dir(path), 0o750); err == nil {
+		var f *os.File
+		if f, err = os.Create(path); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			err = h.agent.FetchLedger(ctx, ref, phaseID, f)
+			cancel()
+			err = errors.Join(err, f.Close())
+		}
+	}
+	if err == nil {
+		var digest string
+		if digest, _, err = fileDigest(path); err == nil && digest != res.Ledger.SHA256 {
+			err = errors.New("ledger digest mismatch")
+		}
+	}
+	if err == nil && c.verifier != nil {
+		err = c.verifier.Track(path, phaseID, off)
+	}
+	if err != nil {
+		sum.Interrupted, sum.Reason = true, "ledger: "+err.Error()
+	}
+	return sum
+}
+
+// drain waits until every message of the phase reached a final state and the
+// pipeline backlog is empty, or until limit.
+func (c *controller) drain(phaseID string, limit time.Duration) bool {
+	deadline := time.Now().Add(limit)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		err := c.verifier.Pass(ctx, false)
+		cancel()
+		open := c.verifier.Open(phaseID)
+		round := c.collector.Scrape(context.Background())
+		backlog := BacklogSeries([]Round{round})
+		empty := len(backlog) == 1 && backlog[0].Valid && backlog[0].Value == 0
+		if err == nil && open == 0 && empty {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			c.event("drain_timeout", "", phaseID, fmt.Sprintf("open=%d backlogEmpty=%v %s", open, empty, errText(err)))
+			return err == nil && open == 0
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// cooldown waits for readiness between steps so the next step starts from a
+// recovered system.
+func (c *controller) cooldown() {
+	deadline := time.Now().Add(2 * time.Minute)
+	time.Sleep(c.plan.Search.Cooldown.D())
+	for time.Now().Before(deadline) && !c.stopped() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		status, _, err := c.get(ctx, "/health/ready", "")
+		cancel()
+		if err == nil && status == 200 {
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+	c.event("cooldown", "", "", "platform not ready within 2 minutes after step")
+}
+
+// PipelineFor summarises platform metrics over a measurement window.
+func PipelineFor(rounds []Round, seconds float64) Pipeline {
+	pl := Pipeline{Rounds: len(rounds)}
+	for _, r := range rounds {
+		for _, s := range r.Instances {
+			if !s.OK {
+				pl.FailedScrapes++
+			}
+		}
+	}
+	rate := func(name string) *float64 {
+		v, ok := CounterIncrease(rounds, name)
+		if !ok || seconds <= 0 || len(rounds) < 2 {
+			return nil
+		}
+		span := float64(rounds[len(rounds)-1].At-rounds[0].At) / 1000
+		if span <= 0 {
+			return nil
+		}
+		x := math.Round(v/span*10) / 10
+		return &x
+	}
+	pl.ArchivedPerSec, pl.ParsedPerSec, pl.AlarmsPerSec = rate("raw_archive_success_total"), rate("parse_success_total"), rate("alarm_trigger_total")
+	pl.MetricsValid = pl.ArchivedPerSec != nil && pl.ParsedPerSec != nil
+	backlog := BacklogSeries(rounds)
+	for _, pt := range backlog {
+		if pt.Valid {
+			v := pt.Value
+			if pl.BacklogStart == nil {
+				pl.BacklogStart = &v
+			}
+			pl.BacklogEnd = &v
+		}
+	}
+	if slope, n, ok := Trend(backlog); ok {
+		s := math.Round(slope*100) / 100
+		pl.BacklogSlopePerSec, pl.BacklogPoints = &s, n
+	} else {
+		pl.BacklogPoints = n
+	}
+	return pl
+}
+
+// Open counts phase messages that are not in a final state yet.
+func (v *Verifier) Open(phase string) int {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	n := 0
+	for _, m := range v.msgs {
+		if m.phase == phase && m.state == StatePending {
+			n++
+		}
+	}
+	return n
+}
+
+func writeJSONAtomic(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err = os.WriteFile(tmp, append(b, '\n'), 0o640); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// ReadState reads a run's state for `capacity-test status`.
+func ReadState(resultsDir, runID string) (RunState, error) {
+	var s RunState
+	b, err := os.ReadFile(filepath.Join(resultsDir, runID, "state.json"))
+	if err != nil {
+		return s, err
+	}
+	return s, json.Unmarshal(b, &s)
+}
+
+// RequestStop asks a running controller to stop; force skips the drain.
+func RequestStop(resultsDir, runID string, force bool) error {
+	dir := filepath.Join(resultsDir, runID)
+	if _, err := os.Stat(filepath.Join(dir, "state.json")); err != nil {
+		return fmt.Errorf("run %s not found under %s", runID, resultsDir)
+	}
+	content := []byte("soft\n")
+	if force {
+		content = []byte("force\n")
+	}
+	return os.WriteFile(filepath.Join(dir, StopFile), content, 0o640)
+}

@@ -1,0 +1,500 @@
+// Package capacity implements the one-click capacity measurement loop described
+// in docs/CLUSTER_AND_CAPACITY_PLAN.md (phase P1): plan validation, distributed
+// open-loop load, per-instance observation, drain, ID reconciliation, boundary
+// search and deterministic reports. The CLI and any later management page share
+// this single schema and statistics implementation.
+package capacity
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// SchemaVersion is the only plan and summary schema this package reads.
+const SchemaVersion = 1
+
+// Duration is a time.Duration written as "90s" / "2m" in plans and results.
+type Duration time.Duration
+
+func (d Duration) D() time.Duration { return time.Duration(d) }
+func (d Duration) String() string   { return time.Duration(d).String() }
+func (d Duration) MarshalYAML() (any, error) {
+	return time.Duration(d).String(), nil
+}
+func (d *Duration) UnmarshalYAML(n *yaml.Node) error {
+	v, err := time.ParseDuration(strings.TrimSpace(n.Value))
+	if err != nil {
+		return fmt.Errorf("line %d: invalid duration %q", n.Line, n.Value)
+	}
+	*d = Duration(v)
+	return nil
+}
+func (d Duration) MarshalJSON() ([]byte, error) { return []byte(`"` + d.String() + `"`), nil }
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	v, err := time.ParseDuration(strings.Trim(string(b), `"`))
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
+type Plan struct {
+	SchemaVersion int         `yaml:"schemaVersion" json:"schemaVersion"`
+	Name          string      `yaml:"name" json:"name"`
+	Suite         string      `yaml:"suite" json:"suite"`
+	Preset        string      `yaml:"preset" json:"preset"`
+	Seed          int64       `yaml:"seed" json:"seed"`
+	Target        Target      `yaml:"target" json:"target"`
+	Credentials   Credentials `yaml:"credentials" json:"credentials"`
+	Fixtures      Fixtures    `yaml:"fixtures" json:"fixtures"`
+	Load          Load        `yaml:"load" json:"load"`
+	Search        SearchSpec  `yaml:"search" json:"search"`
+	SLO           SLO         `yaml:"slo" json:"slo"`
+	Budget        Budget      `yaml:"budget" json:"budget"`
+	Modules       Modules     `yaml:"modules" json:"modules"`
+	Faults        Faults      `yaml:"faults" json:"faults"`
+	Outputs       Outputs     `yaml:"outputs" json:"outputs"`
+}
+
+type Target struct {
+	InventoryRef     string `yaml:"inventoryRef" json:"inventoryRef"`
+	EnvironmentClass string `yaml:"environmentClass" json:"environmentClass"`
+	Deployment       string `yaml:"deployment" json:"deployment"`
+}
+
+// Credentials only name secrets; values are resolved at run time and never
+// written to evidence.
+type Credentials struct {
+	OperatorSecretRef string `yaml:"operatorSecretRef" json:"operatorSecretRef"`
+	AgentSecretRef    string `yaml:"agentSecretRef,omitempty" json:"agentSecretRef,omitempty"`
+}
+
+type Fixtures struct {
+	Tenant       string `yaml:"tenant" json:"tenant"`
+	Product      string `yaml:"product" json:"product"`
+	DevicePrefix string `yaml:"devicePrefix" json:"devicePrefix"`
+	DeviceCount  int    `yaml:"deviceCount" json:"deviceCount"`
+	ReuseDevices bool   `yaml:"reuseDevices" json:"reuseDevices"`
+	MessageBytes int    `yaml:"messageBytes" json:"messageBytes"`
+	Fields       int    `yaml:"fields" json:"fields"`
+	// AlarmFraction sets stressAlarm=1 on that share of reports; alarm
+	// outcomes are observed, not reconciled, in P1.
+	AlarmFraction float64 `yaml:"alarmFraction" json:"alarmFraction"`
+}
+
+type Load struct {
+	IngressShare             map[string]float64 `yaml:"ingressShare" json:"ingressShare"`
+	InitialMessagesPerSecond float64            `yaml:"initialMessagesPerSecond" json:"initialMessagesPerSecond"`
+	QueryRequestsPerSecond   float64            `yaml:"queryRequestsPerSecond" json:"queryRequestsPerSecond"`
+	QueryMix                 map[string]float64 `yaml:"queryMix" json:"queryMix"`
+	ScaleQueries             bool               `yaml:"scaleQueries" json:"scaleQueries"`
+	MQTTConnections          int                `yaml:"mqttConnections" json:"mqttConnections"`
+	TCPConnections           int                `yaml:"tcpConnections" json:"tcpConnections"`
+	PerDeviceMaxPerSecond    float64            `yaml:"perDeviceMaxPerSecond" json:"perDeviceMaxPerSecond"`
+	RequestTimeout           Duration           `yaml:"requestTimeout" json:"requestTimeout"`
+	MaxInflight              int                `yaml:"maxInflight" json:"maxInflight"`
+	ReceiptWait              Duration           `yaml:"receiptWait" json:"receiptWait"`
+	ReceiptRetries           int                `yaml:"receiptRetries" json:"receiptRetries"`
+}
+
+type SearchSpec struct {
+	Rates                 []float64 `yaml:"rates,omitempty" json:"rates,omitempty"`
+	RampFactor            float64   `yaml:"rampFactor" json:"rampFactor"`
+	Warmup                Duration  `yaml:"warmup" json:"warmup"`
+	Measure               Duration  `yaml:"measure" json:"measure"`
+	BoundaryRelativeWidth float64   `yaml:"boundaryRelativeWidth" json:"boundaryRelativeWidth"`
+	CandidateHold         Duration  `yaml:"candidateHold" json:"candidateHold"`
+	Repeats               int       `yaml:"repeats" json:"repeats"`
+	DrainTimeout          Duration  `yaml:"drainTimeout" json:"drainTimeout"`
+	Cooldown              Duration  `yaml:"cooldown" json:"cooldown"`
+	MaxSteps              int       `yaml:"maxSteps" json:"maxSteps"`
+	ObserveInterval       Duration  `yaml:"observeInterval" json:"observeInterval"`
+}
+
+type SLO struct {
+	SuccessRatio                       float64  `yaml:"successRatio" json:"successRatio"`
+	SendTolerance                      float64  `yaml:"sendTolerance" json:"sendTolerance"`
+	QueryP95                           Duration `yaml:"queryP95" json:"queryP95"`
+	QueryP99                           Duration `yaml:"queryP99" json:"queryP99"`
+	BusinessP95                        Duration `yaml:"businessP95" json:"businessP95"`
+	BusinessP99                        Duration `yaml:"businessP99" json:"businessP99"`
+	MaximumUnaccountedConfirmedMessage int      `yaml:"maximumUnaccountedConfirmedMessages" json:"maximumUnaccountedConfirmedMessages"`
+	MaxBacklogGrowthRatio              float64  `yaml:"maxBacklogGrowthRatio" json:"maxBacklogGrowthRatio"`
+	MaxClockUncertainty                Duration `yaml:"maxClockUncertainty" json:"maxClockUncertainty"`
+}
+
+type Budget struct {
+	MaximumWallTime          Duration `yaml:"maximumWallTime" json:"maximumWallTime"`
+	MaximumMessagesPerSecond float64  `yaml:"maximumMessagesPerSecond" json:"maximumMessagesPerSecond"`
+	MaximumDevices           int      `yaml:"maximumDevices" json:"maximumDevices"`
+	MaximumEvidenceGiB       float64  `yaml:"maximumEvidenceGiB" json:"maximumEvidenceGiB"`
+}
+
+type Module struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
+type Modules struct {
+	AI        Module `yaml:"ai" json:"ai"`
+	Video     Module `yaml:"video" json:"video"`
+	Backup    Module `yaml:"backup" json:"backup"`
+	Knowledge Module `yaml:"knowledge" json:"knowledge"`
+}
+
+type Faults struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
+type Outputs struct {
+	Formats []string `yaml:"formats" json:"formats"`
+}
+
+const (
+	PresetQuick      = "quick"
+	PresetCapacity   = "capacity"
+	PresetSoak       = "soak"
+	PresetResilience = "resilience"
+)
+
+// Streams accepted in load.ingressShare. TCP is GB26875 over TCP and only
+// yields protocol ACK evidence (see verifier).
+var ingressStreams = []string{"http", "mqtt", "tcp"}
+
+// QueryEndpoints is the fixed management-query allowlist; plans choose a mix
+// but cannot supply arbitrary paths.
+var QueryEndpoints = map[string]string{
+	"devices":     "/api/v1/devices?page=1&pageSize=20",
+	"alarms":      "/api/v1/alarms?page=1&pageSize=20",
+	"dashboard":   "/api/v1/dashboard",
+	"rawMessages": "/api/v1/raw-messages?page=1&pageSize=20",
+}
+
+var identifier = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// LoadPlan reads a plan file strictly: unknown fields are errors so a typo
+// never silently becomes a default.
+func LoadPlan(path string) (*Plan, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlan(b)
+}
+
+func ParsePlan(b []byte) (*Plan, error) {
+	// Defaults are filled before decoding so an explicit zero (warmup: 0s)
+	// stays zero instead of being mistaken for "unset".
+	p := defaultPlan()
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&p); err != nil {
+		return nil, fmt.Errorf("plan: %w", err)
+	}
+	if p.Search.CandidateHold == 0 {
+		p.Search.CandidateHold = p.Search.Measure
+	}
+	return &p, nil
+}
+
+func defaultPlan() Plan {
+	return Plan{
+		Suite:    "core",
+		Preset:   PresetCapacity,
+		Fixtures: Fixtures{DevicePrefix: "cap", Fields: 6},
+		Load: Load{
+			// Current per-device standard ingest allowance (onboarding.Service.Allow).
+			PerDeviceMaxPerSecond: 20,
+			RequestTimeout:        Duration(10 * time.Second),
+			MaxInflight:           2048,
+			ReceiptWait:           Duration(5 * time.Second),
+			ReceiptRetries:        2,
+		},
+		Search: SearchSpec{
+			RampFactor:            1.5,
+			Warmup:                Duration(2 * time.Minute),
+			Measure:               Duration(10 * time.Minute),
+			BoundaryRelativeWidth: 0.05,
+			Repeats:               3,
+			DrainTimeout:          Duration(10 * time.Minute),
+			Cooldown:              Duration(10 * time.Second),
+			MaxSteps:              20,
+			ObserveInterval:       Duration(5 * time.Second),
+		},
+		SLO: SLO{
+			SuccessRatio:          0.999,
+			SendTolerance:         0.02,
+			QueryP95:              Duration(500 * time.Millisecond),
+			QueryP99:              Duration(1500 * time.Millisecond),
+			BusinessP95:           Duration(2 * time.Second),
+			BusinessP99:           Duration(5 * time.Second),
+			MaxBacklogGrowthRatio: 0.05,
+			MaxClockUncertainty:   Duration(100 * time.Millisecond),
+		},
+		Outputs: Outputs{Formats: []string{"html", "markdown", "json", "csv", "svg"}},
+	}
+}
+
+// Validate reports every problem at once. Modules and actions that P1 does not
+// implement are rejected instead of being reported as covered.
+func (p *Plan) Validate() error {
+	var errs []string
+	bad := func(format string, a ...any) { errs = append(errs, fmt.Sprintf(format, a...)) }
+	if p.SchemaVersion != SchemaVersion {
+		bad("schemaVersion must be %d", SchemaVersion)
+	}
+	if !identifier.MatchString(p.Name) {
+		bad("name must match %s", identifier)
+	}
+	switch p.Suite {
+	case "full", "core", "custom":
+	default:
+		bad("suite must be full, core or custom")
+	}
+	switch p.Preset {
+	case PresetQuick, PresetCapacity, PresetSoak:
+	case PresetResilience:
+		bad("preset resilience needs fault injection, which is not implemented in this version")
+	default:
+		bad("preset must be quick, capacity or soak")
+	}
+	if p.Credentials.OperatorSecretRef == "" {
+		bad("credentials.operatorSecretRef is required")
+	}
+	f := p.Fixtures
+	if !identifier.MatchString(f.Tenant) || !identifier.MatchString(f.Product) || !identifier.MatchString(f.DevicePrefix) {
+		bad("fixtures.tenant, fixtures.product and fixtures.devicePrefix must be plain identifiers")
+	}
+	if f.DeviceCount < 1 {
+		bad("fixtures.deviceCount must be at least 1")
+	}
+	if p.Budget.MaximumDevices > 0 && f.DeviceCount > p.Budget.MaximumDevices {
+		bad("fixtures.deviceCount %d exceeds budget.maximumDevices %d", f.DeviceCount, p.Budget.MaximumDevices)
+	}
+	if f.MessageBytes < 0 || f.MessageBytes > 60<<10 {
+		bad("fixtures.messageBytes must be between 0 and 61440 (standard ingest accepts 64 KiB)")
+	}
+	if f.Fields < 1 || f.Fields > 100 {
+		bad("fixtures.fields must be between 1 and 100")
+	}
+	if f.AlarmFraction < 0 || f.AlarmFraction > 1 {
+		bad("fixtures.alarmFraction must be between 0 and 1")
+	}
+	l := p.Load
+	sum := 0.0
+	for k, v := range l.IngressShare {
+		if !contains(ingressStreams, k) {
+			bad("load.ingressShare.%s is not a supported stream (http, mqtt, tcp)", k)
+		}
+		if v < 0 {
+			bad("load.ingressShare.%s must not be negative", k)
+		}
+		sum += v
+	}
+	if math.Abs(sum-1) > 1e-6 {
+		bad("load.ingressShare must sum to 1 (got %.4f)", sum)
+	}
+	if l.InitialMessagesPerSecond <= 0 && len(p.Search.Rates) == 0 {
+		bad("load.initialMessagesPerSecond must be positive")
+	}
+	if l.QueryRequestsPerSecond < 0 {
+		bad("load.queryRequestsPerSecond must not be negative")
+	}
+	if l.QueryRequestsPerSecond > 0 {
+		qs := 0.0
+		for k, v := range l.QueryMix {
+			if _, ok := QueryEndpoints[k]; !ok {
+				bad("load.queryMix.%s is not an allowed query (%s)", k, strings.Join(sortedKeys(QueryEndpoints), ", "))
+			}
+			if v < 0 {
+				bad("load.queryMix.%s must not be negative", k)
+			}
+			qs += v
+		}
+		if math.Abs(qs-1) > 1e-6 {
+			bad("load.queryMix must sum to 1 (got %.4f)", qs)
+		}
+	}
+	if l.IngressShare["mqtt"] > 0 && (l.MQTTConnections < 1 || l.MQTTConnections > f.DeviceCount) {
+		bad("load.mqttConnections must be between 1 and fixtures.deviceCount when MQTT has a share")
+	}
+	if l.IngressShare["tcp"] > 0 && (l.TCPConnections < 1 || l.TCPConnections > 65535) {
+		bad("load.tcpConnections must be between 1 and 65535 when TCP has a share")
+	}
+	if l.IngressShare["http"] > 0 && f.DeviceCount-l.MQTTConnections < 1 && l.IngressShare["mqtt"] > 0 {
+		bad("fixtures.deviceCount must leave at least one device for HTTP after MQTT publishers")
+	}
+	if l.PerDeviceMaxPerSecond <= 0 || l.MaxInflight < 1 || l.RequestTimeout <= 0 || l.ReceiptWait <= 0 || l.ReceiptRetries < 0 || l.ReceiptRetries > 10 {
+		bad("load limits (perDeviceMaxPerSecond, maxInflight, requestTimeout, receiptWait, receiptRetries 0-10) are invalid")
+	}
+	s := p.Search
+	if s.RampFactor <= 1 || s.RampFactor > 4 {
+		bad("search.rampFactor must be in (1, 4]")
+	}
+	if s.Warmup < 0 || s.Measure < Duration(10*time.Second) || s.CandidateHold < s.Measure {
+		bad("search.measure must be at least 10s, warmup non-negative, candidateHold >= measure")
+	}
+	if s.BoundaryRelativeWidth <= 0 || s.BoundaryRelativeWidth > 1 {
+		bad("search.boundaryRelativeWidth must be in (0, 1]")
+	}
+	if s.Repeats < 1 || s.Repeats > 10 || s.MaxSteps < 1 || s.MaxSteps > 200 {
+		bad("search.repeats must be 1-10 and search.maxSteps 1-200")
+	}
+	if s.DrainTimeout < Duration(10*time.Second) || s.ObserveInterval < Duration(time.Second) {
+		bad("search.drainTimeout must be at least 10s and observeInterval at least 1s")
+	}
+	for _, r := range s.Rates {
+		if r <= 0 {
+			bad("search.rates must be positive")
+		}
+	}
+	if p.Preset == PresetSoak && len(s.Rates) != 1 {
+		bad("preset soak needs exactly one rate in search.rates")
+	}
+	o := p.SLO
+	if o.SuccessRatio <= 0 || o.SuccessRatio > 1 || o.SendTolerance <= 0 || o.SendTolerance >= 1 || o.MaximumUnaccountedConfirmedMessage < 0 || o.MaxBacklogGrowthRatio <= 0 {
+		bad("slo ratios are out of range")
+	}
+	if o.QueryP95 <= 0 || o.QueryP99 < o.QueryP95 || o.BusinessP95 <= 0 || o.BusinessP99 < o.BusinessP95 {
+		bad("slo latency limits must be positive and P99 >= P95")
+	}
+	b := p.Budget
+	if b.MaximumWallTime <= 0 || b.MaximumMessagesPerSecond <= 0 || b.MaximumEvidenceGiB <= 0 {
+		bad("budget.maximumWallTime, maximumMessagesPerSecond and maximumEvidenceGiB are required")
+	}
+	for _, r := range p.planRates() {
+		if r > b.MaximumMessagesPerSecond {
+			bad("rate %.0f exceeds budget.maximumMessagesPerSecond %.0f", r, b.MaximumMessagesPerSecond)
+		}
+		if msg := p.perDeviceViolation(r); msg != "" {
+			bad("%s", msg)
+		}
+	}
+	if p.Modules.AI.Enabled || p.Modules.Video.Enabled || p.Modules.Backup.Enabled || p.Modules.Knowledge.Enabled {
+		bad("modules ai/video/backup/knowledge have no load adapter in this version; disable them (a full suite reports them as not_covered)")
+	}
+	if p.Faults.Enabled {
+		bad("fault injection is not implemented in this version")
+	}
+	for _, format := range p.Outputs.Formats {
+		switch format {
+		case "html", "markdown", "json", "csv", "svg":
+		case "png":
+			bad("outputs.formats png is not supported; SVG charts are embedded in HTML and written to charts/")
+		default:
+			bad("outputs.formats %q is unknown", format)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "\n"))
+	}
+	return nil
+}
+
+// planRates are the explicit rates that can be checked before running.
+func (p *Plan) planRates() []float64 {
+	if len(p.Search.Rates) > 0 {
+		return p.Search.Rates
+	}
+	return []float64{p.Load.InitialMessagesPerSecond}
+}
+
+// perDeviceViolation flags a rate that would exceed the platform's per-device
+// allowance; the result would measure the policy, not capacity.
+func (p *Plan) perDeviceViolation(rate float64) string {
+	for _, stream := range []string{"http", "mqtt"} {
+		share := p.Load.IngressShare[stream]
+		if share == 0 {
+			continue
+		}
+		devices := p.streamDevices(stream)
+		if devices > 0 && rate*share/float64(devices) > p.Load.PerDeviceMaxPerSecond {
+			return fmt.Sprintf("rate %.0f puts %.1f msg/s on each of %d %s devices, above load.perDeviceMaxPerSecond %.0f", rate, rate*share/float64(devices), devices, stream, p.Load.PerDeviceMaxPerSecond)
+		}
+	}
+	return ""
+}
+
+// MaxRateForDevices is the highest total rate the per-device allowance permits.
+func (p *Plan) MaxRateForDevices() float64 {
+	limit := math.Inf(1)
+	for _, stream := range []string{"http", "mqtt"} {
+		if share := p.Load.IngressShare[stream]; share > 0 {
+			limit = math.Min(limit, p.Load.PerDeviceMaxPerSecond*float64(p.streamDevices(stream))/share)
+		}
+	}
+	return limit
+}
+
+// streamDevices is how many fixture devices publish on a stream: MQTT uses the
+// first mqttConnections devices, HTTP the rest (or all when MQTT is unused).
+func (p *Plan) streamDevices(stream string) int {
+	switch stream {
+	case "mqtt":
+		return p.Load.MQTTConnections
+	case "http":
+		if p.Load.IngressShare["mqtt"] > 0 {
+			return p.Fixtures.DeviceCount - p.Load.MQTTConnections
+		}
+		return p.Fixtures.DeviceCount
+	}
+	return 0
+}
+
+// QueryRate is the management query rate used together with message rate r.
+func (p *Plan) QueryRate(r float64) float64 {
+	q := p.Load.QueryRequestsPerSecond
+	if p.Load.ScaleQueries && p.Load.InitialMessagesPerSecond > 0 {
+		q *= r / p.Load.InitialMessagesPerSecond
+	}
+	return q
+}
+
+// Sanitized returns YAML with secret references kept as names only and a hash
+// computed over that content.
+func (p *Plan) Sanitized() ([]byte, string, error) {
+	b, err := yaml.Marshal(p)
+	if err != nil {
+		return nil, "", err
+	}
+	h := sha256.Sum256(b)
+	return b, hex.EncodeToString(h[:]), nil
+}
+
+// ResolveRef resolves a file reference relative to the plan's directory.
+func ResolveRef(planPath, ref string) string {
+	if ref == "" || filepath.IsAbs(ref) {
+		return ref
+	}
+	return filepath.Join(filepath.Dir(planPath), ref)
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
