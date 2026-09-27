@@ -127,7 +127,7 @@ go run ./cmd/capacity-test -mode canary -token @token.txt -devices devices.json
 | 场景 | 工具模式与观测 |
 | --- | --- |
 | HTTP 持续/突发/故障恢复 | `ingest`，用 `-data '{"fault":true}'` 或 `-data @file.json` 添加真实业务字段；分别记录接收与归档、解析、存储吞吐，长时间确认积压平稳 |
-| MQTT 连接及发布 | 先 `mqtttok`，再 `mqttconn` / `mqttpub`；令牌按有效期使用，记录平台会话 `dropped_msgs`；令牌签发不完整或实际发布连接少于 `-conn-step` 时工具报错退出 |
+| MQTT 连接及发布 | 先 `mqtttok`，再 `mqttconn` / `mqttpub`；后者默认等待应用归档确认并原文重试，`-mqtt-confirm=false` 才只测 PUBACK；令牌按有效期使用，记录平台会话 `dropped_msgs`；令牌签发不完整或实际发布连接少于 `-conn-step` 时工具报错退出 |
 | GB26875 TCP / UDP | `tcp -network tcp` 或 `tcp -network udp`，并发发送方数量由 `-levels` 控制；结合协议 ACK 与下游入库 |
 | 管理查询与并发 | `http -path <接口>`，记录 P95/P99 以及对上报链路的影响 |
 | 端到端与资源 | `canary`、`sample`、`docker stats`；按消息 ID 核对原文、标准消息与告警 |
@@ -139,3 +139,23 @@ go run ./cmd/capacity-test -mode canary -token @token.txt -devices devices.json
 本次本地全链路实测见 [2026-09-27 全系统容量压测报告](CAPACITY_TEST_REPORT_2026-09-27.md)，含真实模型、MQTT 进程故障、PDF / 查询过载、数据完整性核对和条件集群估算。该结果只适用于报告中的环境、数据规模和业务配比，不是生产容量承诺。
 
 模型供应商配额、跨副本、磁盘写满和生产长稳运行仍需独立实测，不从源码限额推算生产承诺。
+
+### 容量修复回归与死信恢复
+
+[容量报告第 11 节](CAPACITY_TEST_REPORT_2026-09-27.md#11-第八节问题的源码复核与修复复测) 保存第八节问题的修复、复测数据及仍存在的容量边界。现有 Broker 断开回归可指定环境文件运行，不创建容器：
+
+```bash
+IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -run TestExistingBrokerDisconnectDuringDurableCallback -count=1
+```
+
+该测试只断开自己创建的临时订阅客户端，使用独立主题和临时目录。真实 PostgreSQL 测试使用 `IOT_TEST_POSTGRES_DSN` 指定数据库，在临时 schema 中建表并清理，不应把完整连接串写入终端历史。未配置时相应测试跳过。
+
+存储死信恢复工具默认只读审计，显式指定租户、源业务主题和待恢复标准消息 ID 数组文件，核对全部 ID 后再追加 `-execute`：
+
+```bash
+go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json
+# 核对后重新送入原存储消费链，不删除 DLQ、不重置消费者 offset
+go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json -execute
+```
+
+重复死信按 messageId 合并，矛盾正文会拒绝整批发布。重新发布成功只代表 Kafka 收到；必须再核对 PostgreSQL `processed_at`、ClickHouse 行数/唯一 ID 和实际告警状态。发布途中失败可重跑同一 ID 列表，仍由原业务幂等处理。

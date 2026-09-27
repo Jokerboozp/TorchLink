@@ -320,7 +320,14 @@ func (r *Repository) ListManagedDevicesPage(ctx context.Context, tenant string, 
 	}
 	return page(items, offset, limit), len(items), nil
 }
-func (r *Repository) CountManagedDeviceChildren(_ context.Context, tenant string, ids []string) (map[string]int, error) {
+func (r *Repository) CountManagedDeviceChildren(ctx context.Context, tenant string, ids []string) (map[string]int, error) {
+	return r.CountManagedDeviceChildrenForDevices(ctx, tenant, ids, nil)
+}
+func (r *Repository) CountManagedDeviceChildrenForDevices(_ context.Context, tenant string, ids, children []string) (map[string]int, error) {
+	allowed := make(map[string]bool, len(children))
+	for _, child := range children {
+		allowed[child] = true
+	}
 	counts := make(map[string]int, len(ids))
 	if len(ids) == 0 {
 		return counts, nil
@@ -334,7 +341,7 @@ func (r *Repository) CountManagedDeviceChildren(_ context.Context, tenant string
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, device := range r.devices {
-		if device.TenantID == tenant && device.GatewayID != "" {
+		if device.TenantID == tenant && device.GatewayID != "" && (children == nil || allowed[device.ID]) {
 			if _, ok := wanted[device.GatewayID]; ok {
 				counts[device.GatewayID]++
 			}
@@ -788,6 +795,10 @@ func (r *Repository) ListAlarms(_ context.Context, f ports.AlarmFilter) ([]model
 		if !matchesAlarmFilter(v, f) {
 			continue
 		}
+		if f.Summary {
+			v.Details = nil
+			v.Cameras = nil
+		}
 		out = append(out, cloneAlarm(v))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastTriggeredAt > out[j].LastTriggeredAt })
@@ -1217,4 +1228,30 @@ func (r *Repository) UpdateDeviceAccessStatus(_ context.Context, expected model.
 	}
 	r.accessProfiles[k] = current
 	return true, nil
+}
+
+func (r *Repository) ListDeviceStatesForDevicesPage(ctx context.Context, tenant string, ids []string, limit, offset int) ([]model.DeviceState, int, error) {
+	rows, err := r.ListDeviceStates(ctx, tenant)
+	allowed := map[string]bool{}
+	for _, id := range ids {
+		allowed[id] = true
+	}
+	out := []model.DeviceState{}
+	for _, v := range rows {
+		if ids == nil || allowed[v.DeviceID] {
+			out = append(out, v)
+		}
+	}
+	return page(out, offset, limit), len(out), err
+}
+
+func (r *Repository) HasOpenAlarm(_ context.Context, tenant, device string) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, v := range r.alarms {
+		if v.TenantID == tenant && v.DeviceID == device && (v.Status == "ACTIVE" || v.Status == "ACKED") {
+			return true, nil
+		}
+	}
+	return false, nil
 }

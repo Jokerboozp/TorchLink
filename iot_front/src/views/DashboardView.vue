@@ -63,7 +63,7 @@ async function load() {
 async function showDetail(id) { try { detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`); if (!disposed) detailVisible.value = true } catch (e) { if (!disposed) notifyError(e) } }
 const realtime = event => {
   const topic = event?.detail?.topic || ''
-  if (!topic.includes('/alarm/') && !topic.includes('/device/state/')) return
+  if (!topic.includes('/alarm/') && !topic.includes('/device/state/') && !topic.includes('/snapshot/refresh/')) return
   if (timer || disposed) return
   timer = setTimeout(() => { timer = null; if (loading.value) realtime(event); else load() }, 5000)
 }

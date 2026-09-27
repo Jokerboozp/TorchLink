@@ -49,6 +49,9 @@ type Config struct {
 	KafkaConsumerConcurrency int64
 	// AIAnalysisConcurrency bounds automatic alarm analyses running at once.
 	AIAnalysisConcurrency int64
+	AIAnalysisTimeout     time.Duration
+	AIAnalysisMaxWait     time.Duration
+	AIAnalysisRPM         int64
 	MinIOEndpoint         string
 	MinIOAccessKey        string
 	MinIOSecretKey        string
@@ -122,7 +125,10 @@ func Load() Config {
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 1024),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
 		IngestMaxBacklog:            int64Value("IOT_INGEST_MAX_BACKLOG", 50000),
-		AIAnalysisConcurrency:       int64Value("IOT_AI_ANALYSIS_CONCURRENCY", 1),
+		AIAnalysisConcurrency:       int64Value("IOT_AI_ANALYSIS_CONCURRENCY", 2),
+		AIAnalysisTimeout:           duration("IOT_AI_ANALYSIS_TIMEOUT", 90*time.Second),
+		AIAnalysisMaxWait:           duration("IOT_AI_ANALYSIS_MAX_WAIT", 10*time.Minute),
+		AIAnalysisRPM:               int64Value("IOT_AI_ANALYSIS_RPM", 12),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
 		MinIOAccessKey:              os.Getenv("IOT_MINIO_ACCESS_KEY"),
 		MinIOSecretKey:              os.Getenv("IOT_MINIO_SECRET_KEY"),
@@ -201,8 +207,12 @@ func (c Config) Validate() error {
 	if c.ProtocolListenerMaxSessions < 0 || c.ProtocolListenerMaxSessions > 100000 {
 		return fmt.Errorf("IOT_PROTOCOL_LISTENER_MAX_SESSIONS must be between 1 and 100000 (0 uses the default 1024)")
 	}
+	if c.AIAnalysisRPM < 0 || c.AIAnalysisRPM > 60000 || c.AIAnalysisTimeout < 0 || c.AIAnalysisTimeout > 5*time.Minute || c.AIAnalysisMaxWait < 0 || c.AIAnalysisMaxWait > 24*time.Hour {
+		return fmt.Errorf("invalid automatic AI request/time budget")
+	}
+
 	if c.AIAnalysisConcurrency < 0 || c.AIAnalysisConcurrency > 32 {
-		return fmt.Errorf("IOT_AI_ANALYSIS_CONCURRENCY must be between 1 and 32 (0 uses the default 1)")
+		return fmt.Errorf("IOT_AI_ANALYSIS_CONCURRENCY must be between 1 and 32 (0 uses the default 2)")
 	}
 	// Every business AI feature runs as a Harness workflow; only the access
 	// gateway, which serves no AI features, may run without it.

@@ -115,7 +115,7 @@ func Run(forcedRole string) {
 	localBus := local.NewBus()
 	// Without Kafka, automatic alarm analysis still runs apart from the alarm
 	// path, with the same concurrency as its Kafka consumer group.
-	localBus.SetAsyncTopic(model.TopicAlarmRaised, positiveOr(cfg.AIAnalysisConcurrency, 1), 1000)
+	localBus.SetAsyncTopic(model.TopicAlarmRaised, positiveOr(cfg.AIAnalysisConcurrency, 2), 1000)
 	var bus ports.EventBus = localBus
 	var kafkaBus *kafkaadapter.Bus
 	if len(cfg.KafkaBrokers) > 0 {
@@ -123,7 +123,7 @@ func Run(forcedRole string) {
 		kafkaBus.SetLogger(log)
 		// Parallel lanes keep each device's (or alarm's) messages in order;
 		// automatic alarm analysis has its own, smaller limit.
-		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 1)})
+		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 2)})
 		bus = kafkaBus
 		log.Info("event bus enabled", "adapter", "kafka", "brokers", cfg.KafkaBrokers)
 	}
@@ -187,6 +187,9 @@ func Run(forcedRole string) {
 		mqttConnection, err := mqttadapter.NewDurableWithCredentials(cfg.MQTTBroker, filepath.Join(cfg.DataDir, "mqtt-inbox", cfg.ProcessRole), credentials)
 		fatal(log, "connect mqtt", err)
 		mqttClient = mqttConnection
+		if cfg.ProcessRole != "api" {
+			registry.Set("mqtt_ingress_enabled", 1)
+		}
 		go func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
@@ -196,21 +199,28 @@ func Run(forcedRole string) {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
+					registry.Set("mqtt_subscription_count", float64(mqttConnection.SubscriptionCount()))
 					pending, rejected, corrupt := mqttConnection.InboxCounts()
 					registry.Set("mqtt_inbox_pending", float64(pending))
 					registry.Set("mqtt_inbox_rejected", float64(rejected))
 					registry.Set("mqtt_inbox_corrupt", float64(corrupt))
 					// Messages the broker drops for this session never reach the
 					// inbox although devices got PUBACK; only the broker can count them.
-					if emqxAdmin == nil || tick%3 != 0 {
+					if emqxAdmin == nil {
+						registry.Set("mqtt_broker_observation_ok", 0)
+						continue
+					}
+					if tick%3 != 0 {
 						continue
 					}
 					sampleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 					queued, dropped, sampleErr := emqxAdmin.SessionQueue(sampleCtx, mqttConnection.ClientID())
 					cancel()
 					if sampleErr != nil {
+						registry.Set("mqtt_broker_observation_ok", 0)
 						continue
 					}
+					registry.Set("mqtt_broker_observation_ok", 1)
 					registry.Set("mqtt_broker_queue", float64(queued))
 					registry.Set("mqtt_broker_dropped", float64(dropped))
 					if lastDropped >= 0 && dropped > lastDropped {
@@ -224,13 +234,12 @@ func Run(forcedRole string) {
 			fatal(log, "configure shared MQTT ingestion", mqttClient.ConfigureSharedSubscriptions("iot-access"))
 		}
 		realtime = mqttClient
-		if cfg.ProcessRole != "api" {
-			registry.Set("mqtt_subscription_count", 4)
-		}
+
 		log.Info("realtime enabled", "adapter", "mqtt")
 	}
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
+	engine.ConfigureAutomaticAnalysis(cfg.AIAnalysisTimeout, cfg.AIAnalysisMaxWait, cfg.AIAnalysisRPM)
 	if kafkaBus != nil {
 		// Backpressure: stop taking new raw messages while parsing and storage
 		// are far behind, so ingest does not starve them of database capacity.
@@ -443,10 +452,9 @@ func Run(forcedRole string) {
 				return err
 			}
 			raw.ReceivedAt = mqttadapter.ReceivedAt(c)
-			_, _, err = engine.IngestRaw(c, raw)
-			return err
+			return engine.IngestMQTT(c, raw)
 		}))
-		fatal(log, "subscribe raw mqtt", mqttClient.SubscribeRaw(func(c context.Context, v model.RawMessage) error { _, _, err := engine.IngestRaw(c, v); return err }))
+		fatal(log, "subscribe raw mqtt", mqttClient.SubscribeRaw(engine.IngestMQTT))
 		fatal(log, "subscribe device state mqtt", mqttClient.SubscribeDeviceState(engine.UpdateDeviceState))
 		fatal(log, "subscribe video mqtt", mqttClient.SubscribeVideo(func(c context.Context, v model.VideoAlarmEvent) error {
 			_, _, err := engine.IngestVideo(c, v)

@@ -1,0 +1,982 @@
+{
+  "recordedAt": "2026-09-27T18:55:50.892535+08:00",
+  "baselineCommit": "76d5d814",
+  "environment": {
+    "apiBuild": "go build ./cmd/iot-platform (Darwin arm64, default optimizations)",
+    "host": "Apple M1 Pro, 8 logical CPU, 16 GiB RAM",
+    "dependencies": "existing OrbStack develop, 7 vCPU, 8004 MiB RAM",
+    "newContainers": 0,
+    "registeredDevices": 101129,
+    "mqttPublishers": 32
+  },
+  "interpretation": [
+    "This is a targeted fix regression, not a renewed maximum-capacity certification.",
+    "The 50/s MQTT stage partly overlapped Go race compilation; early scoped reads overlapped MQTT draining.",
+    "Old measurements used a debug build; these runs used a default optimized build. Do not calculate a causal speedup ratio.",
+    "MQTT archived confirmation proves raw archive completion, not parsing or alarm completion. Database audits separately verify downstream work.",
+    "Timeouts are unknown client outcomes; after draining, every issued unique telemetry message was present and processed.",
+    "PDF steps reuse one immutable 3198188-byte PDF on loopback. HTTP 429 responses are failures for capacity acceptance; the test did not back off.",
+    "Each final API restart resets process counters. Compare metrics only within a process lifetime.",
+    "mqtt_inbox_rejected=4 existed before this regression and did not increase."
+  ],
+  "tests": {
+    "backend": "go test ./cmd/... ./internal/... passed; affected HTTP and config packages checked again after final edits",
+    "postgres": "existing PostgreSQL: temporary schema migration, paginated inspection, scoped child aggregation passed",
+    "mqttDisconnect": "existing EMQX test disconnects only its own test subscriber during a durable callback; passed",
+    "race": "MQTT/core/HTTP targeted races passed, including snapshot and dashboard caches",
+    "frontendTests": {
+      "passed": 115,
+      "failed": 0
+    },
+    "frontendBuild": "passed, existing chunk-size warning",
+    "deployment": "Bash deployment smoke passed (mocked mutations, real Compose parsing); promtool validated 11 rules",
+    "powershell": "not executed: pwsh unavailable",
+    "browser": "real Chrome: inspection page 2 and final page displayed bounded rows; dashboard remained available"
+  },
+  "provision": {
+    "at": "2026-09-27T18:27:05+08:00",
+    "levels": [
+      {
+        "label": "provision",
+        "concurrency": 4,
+        "durationSec": 0.225791959,
+        "total": 32,
+        "ok": 32,
+        "fail": 0,
+        "codes": {
+          "201": 32
+        },
+        "okQps": 141.7,
+        "errRate": 0,
+        "p50ms": 21.1,
+        "p95ms": 71,
+        "p99ms": 71,
+        "maxms": 71.045,
+        "bytes": 0,
+        "probeP95ms": 0,
+        "probeFail": 0,
+        "probeN": 0,
+        "lagStart": 0,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": false
+      }
+    ],
+    "method": "GET",
+    "mode": "provision",
+    "name": "run",
+    "path": "/api/v1/devices?page=1&pageSize=20"
+  },
+  "mqttConfirmed": {
+    "at": "2026-09-27T18:30:59+08:00",
+    "levels": [
+      {
+        "label": "rate=50",
+        "concurrency": 187,
+        "targetRate": 50,
+        "durationSec": 30.117502458,
+        "total": 1497,
+        "ok": 1497,
+        "fail": 0,
+        "codes": {
+          "archived": 1493,
+          "archived_retry": 4
+        },
+        "okQps": 49.7,
+        "errRate": 0,
+        "p50ms": 176.6,
+        "p95ms": 893.9,
+        "p99ms": 1939.8,
+        "maxms": 4476.269,
+        "bytes": 266821,
+        "probeP95ms": 149.8,
+        "probeFail": 0,
+        "probeN": 60,
+        "lagStart": 0,
+        "lagEnd": 5,
+        "storageLagEnd": 2,
+        "archivedPerSec": 49.7,
+        "parsedPerSec": 49.9,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      },
+      {
+        "label": "rate=100",
+        "concurrency": 375,
+        "targetRate": 100,
+        "durationSec": 38.988125625,
+        "total": 1925,
+        "ok": 1007,
+        "fail": 918,
+        "codes": {
+          "archived": 716,
+          "archived_retry": 291,
+          "receipt_timeout": 918
+        },
+        "okQps": 25.8,
+        "errRate": 0.4769,
+        "p50ms": 7749,
+        "p95ms": 9045.4,
+        "p99ms": 9561.3,
+        "maxms": 10128.724,
+        "bytes": 179531,
+        "probeP95ms": 299.7,
+        "probeFail": 0,
+        "probeN": 77,
+        "lagStart": 5,
+        "lagEnd": 33,
+        "storageLagEnd": 23,
+        "archivedPerSec": 46.3,
+        "parsedPerSec": 46.6,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      }
+    ],
+    "method": "GET",
+    "mode": "mqttpub",
+    "name": "mqtt-archive-confirmed",
+    "path": "/api/v1/devices?page=1&pageSize=20"
+  },
+  "scopedRegistry": {
+    "at": "2026-09-27T18:31:46+08:00",
+    "levels": [
+      {
+        "label": "rate=10",
+        "concurrency": 64,
+        "targetRate": 10,
+        "durationSec": 20.000668875,
+        "total": 199,
+        "ok": 199,
+        "fail": 0,
+        "codes": {
+          "200": 199
+        },
+        "okQps": 9.9,
+        "errRate": 0,
+        "p50ms": 12.6,
+        "p95ms": 62,
+        "p99ms": 136.7,
+        "maxms": 288.29,
+        "bytes": 3249869,
+        "probeP95ms": 0,
+        "probeFail": 0,
+        "probeN": 0,
+        "lagStart": 25,
+        "lagEnd": 33,
+        "storageLagEnd": 23,
+        "archivedPerSec": 64.7,
+        "parsedPerSec": 66.1,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      },
+      {
+        "label": "rate=30",
+        "concurrency": 75,
+        "targetRate": 30,
+        "durationSec": 20.000530875,
+        "total": 598,
+        "ok": 598,
+        "fail": 0,
+        "codes": {
+          "200": 598
+        },
+        "okQps": 29.9,
+        "errRate": 0,
+        "p50ms": 4.4,
+        "p95ms": 11.5,
+        "p99ms": 21.3,
+        "maxms": 58.98,
+        "bytes": 9765938,
+        "probeP95ms": 0,
+        "probeFail": 0,
+        "probeN": 0,
+        "lagStart": 33,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      },
+      {
+        "label": "rate=50",
+        "concurrency": 125,
+        "targetRate": 50,
+        "durationSec": 20.001899,
+        "total": 998,
+        "ok": 998,
+        "fail": 0,
+        "codes": {
+          "200": 998
+        },
+        "okQps": 49.9,
+        "errRate": 0,
+        "p50ms": 4.1,
+        "p95ms": 7.6,
+        "p99ms": 13.5,
+        "maxms": 32.849,
+        "bytes": 16298338,
+        "probeP95ms": 0,
+        "probeFail": 0,
+        "probeN": 0,
+        "lagStart": 0,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      }
+    ],
+    "method": "GET",
+    "mode": "http",
+    "name": "scoped-100-devices",
+    "path": "/api/open/v1/devices?page=1&pageSize=20"
+  },
+  "pdf": {
+    "at": "2026-09-27T18:33:17+08:00",
+    "levels": [
+      {
+        "label": "c=1",
+        "concurrency": 1,
+        "durationSec": 10.000989458,
+        "total": 3068,
+        "ok": 3068,
+        "fail": 0,
+        "codes": {
+          "200": 3068
+        },
+        "okQps": 306.8,
+        "errRate": 0,
+        "p50ms": 2.8,
+        "p95ms": 5.3,
+        "p99ms": 8.3,
+        "maxms": 186.336,
+        "bytes": 9812040784,
+        "probeP95ms": 87.2,
+        "probeFail": 0,
+        "probeN": 19,
+        "lagStart": 0,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      },
+      {
+        "label": "c=4",
+        "concurrency": 4,
+        "durationSec": 10.002572416,
+        "total": 8752,
+        "ok": 8752,
+        "fail": 0,
+        "codes": {
+          "200": 8752
+        },
+        "okQps": 875,
+        "errRate": 0,
+        "p50ms": 4.4,
+        "p95ms": 6.3,
+        "p99ms": 8.5,
+        "maxms": 33.776,
+        "bytes": 27990541376,
+        "probeP95ms": 56.7,
+        "probeFail": 0,
+        "probeN": 19,
+        "lagStart": 0,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      },
+      {
+        "label": "c=16",
+        "concurrency": 16,
+        "durationSec": 10.005340833,
+        "total": 136407,
+        "ok": 7531,
+        "fail": 128876,
+        "codes": {
+          "200": 7531,
+          "429": 128876
+        },
+        "okQps": 752.7,
+        "errRate": 0.9448,
+        "p50ms": 0.3,
+        "p95ms": 8.5,
+        "p99ms": 15.2,
+        "maxms": 54.976,
+        "bytes": 24100761196,
+        "probeP95ms": 81.1,
+        "probeFail": 0,
+        "probeN": 19,
+        "lagStart": 0,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      },
+      {
+        "label": "c=64",
+        "concurrency": 64,
+        "durationSec": 10.006395,
+        "total": 190879,
+        "ok": 1686,
+        "fail": 189193,
+        "codes": {
+          "200": 1686,
+          "429": 189193
+        },
+        "okQps": 168.5,
+        "errRate": 0.9912,
+        "p50ms": 1.6,
+        "p95ms": 9,
+        "p99ms": 28.4,
+        "maxms": 769.726,
+        "bytes": 5414469742,
+        "probeP95ms": 1212.1,
+        "probeFail": 0,
+        "probeN": 19,
+        "lagStart": 0,
+        "lagEnd": 0,
+        "storageLagEnd": 0,
+        "archivedPerSec": 0,
+        "parsedPerSec": 0,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      }
+    ],
+    "method": "POST",
+    "mode": "http",
+    "name": "pdf-101097-devices",
+    "path": "/api/v1/ai/health-inspection/pdf"
+  },
+  "mixedIngest": {
+    "at": "2026-09-27T18:35:54+08:00",
+    "levels": [
+      {
+        "label": "rate=50",
+        "concurrency": 125,
+        "targetRate": 50,
+        "durationSec": 90.251802292,
+        "total": 4491,
+        "ok": 4491,
+        "fail": 0,
+        "codes": {
+          "202": 4491
+        },
+        "okQps": 49.8,
+        "errRate": 0,
+        "p50ms": 65.7,
+        "p95ms": 288,
+        "p99ms": 667.7,
+        "maxms": 1487.631,
+        "bytes": 413172,
+        "probeP95ms": 157.6,
+        "probeFail": 0,
+        "probeN": 180,
+        "lagStart": 0,
+        "lagEnd": 4,
+        "storageLagEnd": 3,
+        "archivedPerSec": 49.8,
+        "parsedPerSec": 50,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      }
+    ],
+    "method": "GET",
+    "mode": "ingest",
+    "name": "mixed-http-ingest",
+    "path": "/api/v1/devices?page=1&pageSize=20"
+  },
+  "mixedPDF": {
+    "at": "2026-09-27T18:35:54+08:00",
+    "levels": [
+      {
+        "label": "rate=5",
+        "concurrency": 64,
+        "targetRate": 5,
+        "durationSec": 90.0573755,
+        "total": 449,
+        "ok": 449,
+        "fail": 0,
+        "codes": {
+          "200": 449
+        },
+        "okQps": 5,
+        "errRate": 0,
+        "p50ms": 11.1,
+        "p95ms": 75.2,
+        "p99ms": 195.5,
+        "maxms": 652.693,
+        "bytes": 1435986412,
+        "probeP95ms": 0,
+        "probeFail": 0,
+        "probeN": 0,
+        "lagStart": 0,
+        "lagEnd": 4,
+        "storageLagEnd": 3,
+        "archivedPerSec": 49.8,
+        "parsedPerSec": 50.1,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      }
+    ],
+    "method": "POST",
+    "mode": "http",
+    "name": "mixed-pdf",
+    "path": "/api/v1/ai/health-inspection/pdf"
+  },
+  "mixedManagement": {
+    "at": "2026-09-27T18:35:54+08:00",
+    "levels": [
+      {
+        "label": "rate=20",
+        "concurrency": 64,
+        "targetRate": 20,
+        "durationSec": 90.001913833,
+        "total": 1797,
+        "ok": 1797,
+        "fail": 0,
+        "codes": {
+          "200": 1797
+        },
+        "okQps": 20,
+        "errRate": 0,
+        "p50ms": 1.5,
+        "p95ms": 187.3,
+        "p99ms": 483.6,
+        "maxms": 1540.422,
+        "bytes": 32792136,
+        "probeP95ms": 0,
+        "probeFail": 0,
+        "probeN": 0,
+        "lagStart": 0,
+        "lagEnd": 4,
+        "storageLagEnd": 3,
+        "archivedPerSec": 49.8,
+        "parsedPerSec": 50.1,
+        "alarmsPerSec": 0,
+        "metricsValid": true
+      }
+    ],
+    "method": "GET",
+    "mode": "http",
+    "name": "mixed-management",
+    "path": "/api/v1/events|/api/v1/dashboard|/api/v1/device-registry?page=1&pageSize=20"
+  },
+  "inspectionPagination": {
+    "totalItems": 101097,
+    "inlineItems": 0,
+    "pageOffset": 99950,
+    "pageItems": 50,
+    "pageSeconds": 0.0652,
+    "pageBytes": 25224
+  },
+  "newInspection": {
+    "status": "succeeded",
+    "elapsedSeconds": 18.087,
+    "totalItems": 101129,
+    "inlineItems": 0,
+    "reportId": "inspection_job_7671751d43df9f4392fb",
+    "aiAdviceCharacters": 2447,
+    "error": ""
+  },
+  "aiReport": {
+    "status": 200,
+    "elapsedSeconds": 19.502,
+    "reportCharacters": 2133
+  },
+  "faultRecovery": {
+    "metricsBefore": {
+      "ai_analysis_started_total": 0.0,
+      "ai_analysis_success_total": 0.0,
+      "ai_analysis_skipped_total": 0.0,
+      "ai_analysis_skipped_unavailable_total": 0.0,
+      "ai_analysis_skipped_duplicate_total": 0.0,
+      "ai_analysis_skipped_resolved_total": 0.0,
+      "ai_analysis_skipped_cancelled_total": 0.0,
+      "ai_analysis_skipped_expired_total": 0.0,
+      "ai_analysis_failed_total": 0.0,
+      "ai_analysis_timeout_total": 0.0
+    },
+    "stateBefore": {
+      "businessStatus": "OFFLINE",
+      "lastSeenAt": 1790505351452
+    },
+    "alarmsBefore": [],
+    "faultAccepted": {
+      "status": 202,
+      "response": {
+        "created": true,
+        "messageId": "raw_std_c3e66513bee8570a2149ee91cfc0cb84",
+        "status": "ACCEPTED"
+      }
+    },
+    "alarmStartedAfterSeconds": 0.979,
+    "stateAtAlarm": {
+      "businessStatus": "ALARM",
+      "lastSeenAt": 1790505980047
+    },
+    "alarmsAtStart": [
+      {
+        "id": "alarm_56ae526eef451ac10efb6e42",
+        "status": "ACTIVE",
+        "type": "DEVICE_FAULT",
+        "triggerCount": "1"
+      }
+    ],
+    "metricsAtStart": {
+      "ai_analysis_failed_total": 0.0,
+      "ai_analysis_timeout_total": 0.0,
+      "ai_analysis_started_total": 1.0,
+      "ai_analysis_success_total": 0.0,
+      "ai_analysis_skipped_total": 0.0,
+      "ai_analysis_skipped_unavailable_total": 0.0,
+      "ai_analysis_skipped_duplicate_total": 0.0,
+      "ai_analysis_skipped_resolved_total": 0.0,
+      "ai_analysis_skipped_cancelled_total": 0.0,
+      "ai_analysis_skipped_expired_total": 0.0
+    },
+    "recoveryAccepted": {
+      "status": 202,
+      "response": {
+        "created": true,
+        "messageId": "raw_std_5f7ae5e21223dc6f20b12673b2e268bf",
+        "status": "ACCEPTED"
+      }
+    },
+    "recoveredAfterSeconds": 0.67,
+    "stateAfter": {
+      "businessStatus": "ONLINE",
+      "lastSeenAt": 1790505981025
+    },
+    "alarmsAfter": [
+      {
+        "id": "alarm_56ae526eef451ac10efb6e42",
+        "status": "RECOVERED",
+        "type": "DEVICE_FAULT",
+        "triggerCount": "1"
+      }
+    ],
+    "metricsAfter": {
+      "ai_analysis_success_total": 0.0,
+      "ai_analysis_skipped_total": 1.0,
+      "ai_analysis_skipped_unavailable_total": 0.0,
+      "ai_analysis_skipped_duplicate_total": 0.0,
+      "ai_analysis_skipped_resolved_total": 0.0,
+      "ai_analysis_skipped_cancelled_total": 1.0,
+      "ai_analysis_skipped_expired_total": 0.0,
+      "ai_analysis_failed_total": 0.0,
+      "ai_analysis_timeout_total": 0.0,
+      "ai_analysis_started_total": 1.0,
+      "ai_analysis_latency_ms": 1003.012
+    },
+    "analysis": [
+      {
+        "status": "skipped",
+        "error": "告警已恢复，已取消自动研判"
+      }
+    ]
+  },
+  "auditBeforeFault": {
+    "postgres": {
+      "raw": 7913,
+      "standard": 7913,
+      "unprocessed": 0
+    },
+    "clickhouse": {
+      "rows": "7913",
+      "uniqueMessages": "7913"
+    },
+    "expectedUnique": 7913
+  },
+  "auditAfterFault": {
+    "postgres": {
+      "raw": 7915,
+      "standard": 7915,
+      "unprocessed": 0
+    },
+    "clickhouse": {
+      "rows": "7915",
+      "uniqueMessages": "7915"
+    },
+    "expectedUnique": 7915
+  },
+  "clusterThreeProcesses": {
+    "checks": [
+      {
+        "name": "ClickHouse iot_raw_message",
+        "status": "observed",
+        "detail": "当前表引擎：MergeTree"
+      },
+      {
+        "name": "ClickHouse iot_telemetry",
+        "status": "observed",
+        "detail": "当前表引擎：MergeTree"
+      },
+      {
+        "name": "PostgreSQL 连接预算",
+        "status": "passed",
+        "detail": "3 进程 × 64 连接 + 32 预留，对比实测 max_connections=300；其他应用连接需计入预留"
+      },
+      {
+        "name": "Kafka 消费副本",
+        "status": "passed",
+        "detail": "业务主题最少 12 分区，计划 3 消费副本；跨主题、跨副本的同设备顺序仍需实测"
+      },
+      {
+        "name": "Kafka 副本容错",
+        "status": "blocked",
+        "detail": "业务分区最小复制因子=1；多节点容错计划要求至少 3，仍需验证 ISR/min.insync.replicas 和故障恢复"
+      },
+      {
+        "name": "接入会话路由",
+        "status": "blocked",
+        "detail": "多副本必须启用 PostgreSQL 租约、各节点独立可达的 IOT_ACCESS_NODE_URL 与 MQTT 共享订阅；运行中的 TCP/SIP 连接仍需重连演练"
+      },
+      {
+        "name": "MQTT Broker 观测",
+        "status": "passed",
+        "detail": "需要成功读取平台会话管理数据；监控不可用时不能将 Broker 丢弃数解释为零"
+      },
+      {
+        "name": "模型请求预算",
+        "status": "unverified",
+        "detail": "尚未提供模型供应商为本系统分配的请求配额，不能判定集群预算通过"
+      },
+      {
+        "name": "存储分片与高可用",
+        "status": "unverified",
+        "detail": "当前应用连接一个 PostgreSQL 写入口及一个 ClickHouse HTTP 入口；须验证目标集群的副本、分布式表、路由、故障切换和一致性，不能按 API 节点数乘算吞吐"
+      },
+      {
+        "name": "本地持久队列",
+        "status": "unverified",
+        "detail": "每个接入进程须有独立稳定的 data/mqtt-inbox 与 protocol 队列目录；fsync 与锁保证本地重启，不保证节点磁盘丢失后的恢复；须演练故障卷重挂载与设备重发"
+      },
+      {
+        "name": "会话与模型故障演练",
+        "status": "unverified",
+        "detail": "验证 TCP/MQTT/SIP 重连、命令回执路由、API 权限变化、Harness 并发与模型 token 预算，再执行相同设备群的端到端阶梯压测"
+      }
+    ],
+    "clusterCapacityVerified": false,
+    "measuredAt": "2026-09-27T18:48:02+08:00"
+  },
+  "clusterFiveProcesses": {
+    "checks": [
+      {
+        "name": "ClickHouse iot_raw_message",
+        "status": "observed",
+        "detail": "当前表引擎：MergeTree"
+      },
+      {
+        "name": "ClickHouse iot_telemetry",
+        "status": "observed",
+        "detail": "当前表引擎：MergeTree"
+      },
+      {
+        "name": "PostgreSQL 连接预算",
+        "status": "blocked",
+        "detail": "5 进程 × 64 连接 + 32 预留，对比实测 max_connections=300；其他应用连接需计入预留"
+      },
+      {
+        "name": "Kafka 消费副本",
+        "status": "passed",
+        "detail": "业务主题最少 12 分区，计划 5 消费副本；跨主题、跨副本的同设备顺序仍需实测"
+      },
+      {
+        "name": "Kafka 副本容错",
+        "status": "blocked",
+        "detail": "业务分区最小复制因子=1；多节点容错计划要求至少 3，仍需验证 ISR/min.insync.replicas 和故障恢复"
+      },
+      {
+        "name": "接入会话路由",
+        "status": "blocked",
+        "detail": "多副本必须启用 PostgreSQL 租约、各节点独立可达的 IOT_ACCESS_NODE_URL 与 MQTT 共享订阅；运行中的 TCP/SIP 连接仍需重连演练"
+      },
+      {
+        "name": "MQTT Broker 观测",
+        "status": "passed",
+        "detail": "需要成功读取平台会话管理数据；监控不可用时不能将 Broker 丢弃数解释为零"
+      },
+      {
+        "name": "模型请求预算",
+        "status": "unverified",
+        "detail": "尚未提供模型供应商为本系统分配的请求配额，不能判定集群预算通过"
+      },
+      {
+        "name": "存储分片与高可用",
+        "status": "unverified",
+        "detail": "当前应用连接一个 PostgreSQL 写入口及一个 ClickHouse HTTP 入口；须验证目标集群的副本、分布式表、路由、故障切换和一致性，不能按 API 节点数乘算吞吐"
+      },
+      {
+        "name": "本地持久队列",
+        "status": "unverified",
+        "detail": "每个接入进程须有独立稳定的 data/mqtt-inbox 与 protocol 队列目录；fsync 与锁保证本地重启，不保证节点磁盘丢失后的恢复；须演练故障卷重挂载与设备重发"
+      },
+      {
+        "name": "会话与模型故障演练",
+        "status": "unverified",
+        "detail": "验证 TCP/MQTT/SIP 重连、命令回执路由、API 权限变化、Harness 并发与模型 token 预算，再执行相同设备群的端到端阶梯压测"
+      }
+    ],
+    "clusterCapacityVerified": false,
+    "measuredAt": "2026-09-27T18:48:02+08:00"
+  },
+  "runtimeBeforeFinalRestart": {
+    "at": "2026-09-27T18:52:20.435162+08:00",
+    "containers": [
+      {
+        "name": "/iot-platform-local-zlmediakit-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-prometheus-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-deepseek-harness-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-emqx-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-grafana-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-alloy-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-weaviate-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-postgres-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-minio-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-minio-dr-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-loki-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-redis-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-redpanda-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-ollama-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-clickhouse-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-node-exporter-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      },
+      {
+        "name": "/iot-platform-local-alertmanager-1",
+        "status": "running",
+        "oomKilled": "false",
+        "restartCount": "0"
+      }
+    ],
+    "metrics": {
+      "mqtt_archive_receipt_total": 3455.0,
+      "mqtt_broker_dropped": 0.0,
+      "mqtt_inbox_rejected": 4.0,
+      "kafka_lag_state": 0.0,
+      "mqtt_inflight_messages": 0.0,
+      "mqtt_subscription_count": 5.0,
+      "mqtt_ingress_enabled": 1.0,
+      "mqtt_inbox_corrupt": 0.0,
+      "mqtt_broker_observation_ok": 1.0,
+      "kafka_lag_parser": 0.0,
+      "kafka_lag_storage": 0.0,
+      "mqtt_ws_client_count": 0.0,
+      "mqtt_inbox_pending": 0.0,
+      "mqtt_broker_queue": 0.0,
+      "kafka_lag_device_alarm_notifications": 0.0,
+      "kafka_lag_ai": 0.0,
+      "kafka_lag": 0.0,
+      "mqtt_ingest_qps": 0.0
+    }
+  },
+  "finalState": {
+    "at": "2026-09-27T18:59:15.864831+08:00",
+    "ready": {
+      "checks": {
+        "archive": "ok",
+        "eventBus": "ok",
+        "knowledge": "ok",
+        "realtime": "ok",
+        "repository": "ok"
+      },
+      "status": "ok"
+    },
+    "testProductStatus": "DISABLED",
+    "temporaryAPIKeyDeleted": true,
+    "temporaryUserDeleted": true,
+    "testActiveAlarms": 0,
+    "eventSnapshot": {
+      "devices": 100,
+      "alarms": 0,
+      "deviceTotal": 60035,
+      "truncated": true
+    },
+    "metrics": {
+      "mqtt_archive_receipt_total": 0.0,
+      "kafka_lag": 0.0,
+      "mqtt_inbox_pending": 0.0,
+      "mqtt_broker_observation_ok": 1.0,
+      "kafka_lag_state": 0.0,
+      "mqtt_inbox_corrupt": 0.0,
+      "mqtt_ingress_enabled": 1.0,
+      "mqtt_broker_queue": 0.0,
+      "mqtt_broker_dropped": 0.0,
+      "kafka_lag_storage": 0.0,
+      "mqtt_subscription_count": 5.0,
+      "mqtt_inbox_rejected": 4.0,
+      "kafka_lag_device_alarm_notifications": 0.0,
+      "kafka_lag_parser": 0.0,
+      "kafka_lag_ai": 0.0,
+      "mqtt_inflight_messages": 0.0,
+      "mqtt_ws_client_count": 0.0,
+      "mqtt_ingest_qps": 0.0
+    },
+    "managementStatuses": {
+      "events": 200,
+      "dashboard": 200,
+      "registry": 200,
+      "inspection": 200
+    }
+  },
+  "dlqRecovery": {
+    "before": {
+      "postgres": {
+        "total": 36,
+        "unprocessed": 36,
+        "tenants": [
+          "tenant_001"
+        ]
+      },
+      "clickhouse": {
+        "rows": "28",
+        "uniqueMessages": "28"
+      }
+    },
+    "after": {
+      "postgres": {
+        "total": 36,
+        "unprocessed": 0,
+        "tenants": [
+          "tenant_001"
+        ]
+      },
+      "clickhouse": {
+        "rows": "36",
+        "uniqueMessages": "36"
+      }
+    },
+    "selectedStandardMessageIds": [
+      "msg_raw_std_4f10beb7321097cd6592d66e8c7f5d6f",
+      "msg_raw_std_62a8a584e9c25de5edd9c4222a0b3bbc",
+      "msg_raw_std_4f78efaf01a177f91f4e036d8d4bfbab",
+      "msg_raw_std_fe56bb32e57b414f8f5ca382b77d82c2",
+      "msg_raw_std_3ee272468f9ced8e8ad00a8851b69dde",
+      "msg_raw_std_5007a3e902830be66bea7b3cbb8b0d20",
+      "msg_raw_std_8cf920cb02f960eefb8e59a0d2a63302",
+      "msg_raw_std_ddba33541f9ee07499e3cd8a23415946",
+      "msg_raw_std_b26bb7b2554e1f38a52d83fcddae607c",
+      "msg_raw_std_b4496b5352bd73fd548f59bf0490b25a",
+      "msg_raw_std_6402bf0af6bb9b76e5bb7423026844b6",
+      "msg_raw_std_e8e7966ea9f51b2426616b9d1af9e6d0",
+      "msg_raw_std_47707c2a9f3c8c143d8e6b69b91b26a5",
+      "msg_raw_std_10a442a3e90e94a166e2fadb53574a6d",
+      "msg_raw_std_b83a6ca21663144f39412a1357a586e4",
+      "msg_raw_std_54fb23888960b9b0c2cbdaea9a95c201",
+      "msg_raw_std_888cfd542d4e41bc5cd697de4bf0e918",
+      "msg_raw_std_7f5e08226d22d95b2f273dce7b60e560",
+      "msg_raw_std_11d5429adc0e1e12f3ff5bd6c4b99ac7",
+      "msg_raw_std_d252fad458dd2f39cb6b7af2c46d0f15",
+      "msg_raw_std_807e824c675cc37850c6886921134f51",
+      "msg_raw_std_857416e6e57672fba6e680819e0d890b",
+      "msg_raw_std_0a2ee299e8b72177f8084ca6723e6dc5",
+      "msg_raw_std_5ed78424466fc5b3e192a305084f910c",
+      "msg_raw_std_b6939ea28ec30a444be62e2a281b4378",
+      "msg_raw_std_0b2949c8636b6d1243fc350992f260ec",
+      "msg_raw_std_e341a1ae979a7982e2fe4d37fb32f778",
+      "msg_raw_std_73d559721ec7c94a952f57f84ff61083",
+      "msg_raw_std_f87df6e0f8d6bffd54c84428924e1099",
+      "msg_raw_std_8639bdc747d696f8b3d56402b8911ced",
+      "msg_raw_std_d1d11a4043b0814327c22a7455ee07a3",
+      "msg_raw_std_e03a11ee7395af95d4519a704e657d0f",
+      "msg_raw_std_c3187ce9bda0212b605cb4f89a7af8bd",
+      "msg_raw_std_49eeae3d2fe61bc0001c0c7705d2d752",
+      "msg_raw_std_4bd8c6f5c7ebe08f60815397e4389cdc",
+      "msg_raw_std_9aa7d3a879f248dd8329824b4e1676d3"
+    ],
+    "deadLettersMatched": 65,
+    "uniqueMessagesRepublished": 36,
+    "deadLettersDeleted": 0,
+    "consumerOffsetsReset": false
+  }
+}

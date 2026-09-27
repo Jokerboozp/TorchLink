@@ -35,7 +35,6 @@ import (
 	"iot-platform/internal/video"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/sync/singleflight"
 )
 
 type ctxKey string
@@ -43,6 +42,7 @@ type ctxKey string
 const claimsKey ctxKey = "claims"
 
 type Server struct {
+	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
 	auth                       *auth.Manager
@@ -57,7 +57,7 @@ type Server struct {
 	healthInspectionEstimateMs int64
 	logins                     *loginLimiter
 	inspectionPDFs             *inspectionPDFCache
-	inspectionRuns             singleflight.Group
+	inspectionRequests         chan struct{}
 	aiAnalysisMu               sync.RWMutex
 	aiAnalysisEstimateMs       int64
 	protocolListeners          protocolCommander
@@ -66,8 +66,6 @@ type Server struct {
 	ops                        *opscenter.Service
 	video                      *video.Service
 }
-
-const healthInspectionCacheTTL = 10 * time.Minute
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
 	if _, ok := engine.Repo.(*deviceScopeRepository); !ok {
@@ -88,6 +86,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		healthInspectionEstimateMs: healthInspectionEstimateDefault.Milliseconds(),
 		logins:                     newLoginLimiter(),
 		inspectionPDFs:             newInspectionPDFCache(),
+		inspectionRequests:         make(chan struct{}, 8),
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
 	}
@@ -204,6 +203,7 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/ai/health-inspection", s.authorize("viewer"), s.endpoint(s.healthInspection))
 	s.router.POST("/api/v1/ai/health-inspection/run", s.authorize("viewer"), s.endpoint(s.runHealthInspection))
 	s.router.GET("/api/v1/ai/health-inspection/progress", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress))
+	s.router.GET("/api/v1/ai/health-inspection/reports/:jobId", s.authorize("viewer"), s.endpoint(s.healthInspectionPage, "jobId"))
 	s.router.GET("/api/v1/ai/health-inspection/progress/:jobId", s.authorize("viewer"), s.endpoint(s.healthInspectionProgress, "jobId"))
 	s.router.POST("/api/v1/ai/health-inspection/pdf", s.authorize("viewer"), s.endpoint(s.healthInspectionPDF))
 	s.router.POST("/api/v1/ai/protocol-assistant/generate", s.authorize("operator"), s.endpoint(s.generateProtocolAssistant))
@@ -2581,12 +2581,15 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 	}
 	acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: fmt.Sprintf("/iot/down/%s/%s/%s/command", v.TenantID, v.ProductID, v.ID)})
 
+	receiptTopic := fmt.Sprintf("/iot/down/%s/%s/%s/receipt", v.TenantID, v.ProductID, v.ID)
+	acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: receiptTopic})
+
 	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, ttl)
 	if err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
-	response := map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "websocketUrl": s.mqttWebSocketURL(r)}
+	response := map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "receiptTopic": receiptTopic, "websocketUrl": s.mqttWebSocketURL(r)}
 	write(w, 200, response)
 }
 

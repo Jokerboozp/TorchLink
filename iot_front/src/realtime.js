@@ -32,6 +32,7 @@ export async function startRealtime(onMessage) {
         const delivered = brokerDelivered.get(key)
         if (previous?.get(key) === normalized || delivered?.payload === normalized && delivered.expiresAt > Date.now()) return
         brokerDelivered.set(key, { payload: normalized, expiresAt: Date.now() + 10000 })
+        while (brokerDelivered.size > 1000) brokerDelivered.delete(brokerDelivered.keys().next().value)
       }
     } catch { /* Other MQTT topics do not use the event snapshot. */ }
     onMessage?.(topic, body)
@@ -43,6 +44,8 @@ export async function startRealtime(onMessage) {
   // back to the full snapshot when it cannot use the cursor.
   let cursor = ''
   let polls = 0
+  let overflow = false
+  let deviceTotal
   const poll = async () => {
     try {
       // Deltas never list rows that left the snapshot; a periodic full
@@ -51,12 +54,23 @@ export async function startRealtime(onMessage) {
       const path = cursor ? `/api/v1/events?since=${encodeURIComponent(cursor)}` : '/api/v1/events'
       const result = await apiIfChanged(path, etag)
       if (run !== generation) return
-      if (!result.changed) { pollTimer = setTimeout(poll, 3000); return }
+      if (!result.changed) {
+        // Changes outside the bounded window still require occasional list invalidation.
+        if (overflow && polls % 10 === 0) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
+        pollTimer = setTimeout(poll, 3000); return
+      }
       etag = result.etag
       const data = result.data
       cursor = data.cursor || ''
+      overflow = Boolean(data.truncated)
       applyAccessVersion(data.accessVersion)
       permissionState.items = data.permissions || []
+      // Count comes from the same scoped page query. Window rotation is not a
+      // new device, but population growth must still notify a large registry.
+      if (data.truncated && deviceTotal !== undefined && data.deviceTotal > deviceTotal) {
+        onMessage?.(`/iot/device/added/${session.tenant}`, JSON.stringify({ total: data.deviceTotal }))
+      }
+      deviceTotal = data.deviceTotal
       const next = data.delta && previous ? new Map(previous) : new Map()
       for (const [kind, values] of [['alarm', data.alarms], ['state', data.devices]]) {
         for (const value of values || []) {
@@ -65,13 +79,16 @@ export async function startRealtime(onMessage) {
           next.set(key, payload)
           if (previous && previous.get(key) !== payload) {
             const delivered = brokerDelivered.get(key)
-            // A state row absent from the previous snapshot is a newly visible
-            // device; the broker cannot tell this, so it is announced again.
-            const added = kind === 'state' && !previous.has(key)
+            // Only an untruncated snapshot proves that an absent row is new.
+            const added = kind === 'state' && !previous.has(key) && !data.truncated
             if (added || delivered?.payload !== payload || delivered.expiresAt <= Date.now()) onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload, { added })
           }
         }
       }
+      // The snapshot is a bounded notification window. Lists remain the source
+      // of truth; overflow invalidates them instead of inventing missing rows.
+      if (data.truncated && previous) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
+      while (next.size > 1000) next.delete(next.keys().next().value)
       previous = next
       for (const [key, delivered] of brokerDelivered) {
         if (delivered.expiresAt <= Date.now()) brokerDelivered.delete(key)

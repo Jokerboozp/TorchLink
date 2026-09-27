@@ -38,6 +38,7 @@ if (-not [IO.Path]::IsPathRooted($EnvFile)) { $EnvFile = Join-Path $projectRoot 
 $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 Assert-DockerAvailable
 Ensure-DeploymentEnv -Path $EnvFile
+Ensure-EmqxAdminEnv -Path $EnvFile -DefaultUrl 'http://emqx:18083'
 Set-DeepSeekDeploymentEnv -Path $EnvFile
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。

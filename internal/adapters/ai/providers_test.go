@@ -453,3 +453,17 @@ func TestHarnessClientReportsCapacityAsBusy(t *testing.T) {
 		t.Fatalf("429 must be reported as busy, got %v", err)
 	}
 }
+
+func TestHarnessRejectsOversizedBodyBeforeNetwork(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(413) }))
+	defer server.Close()
+	client, err := NewHarness(server.URL, "0123456789abcdef0123456789abcdef", "https://api.example/mcp/harness", "", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.StreamChat(context.Background(), ports.AIWorkflowRequest{RunID: "r", Question: strings.Repeat("设", 11000), MCPToken: "token"}, nil)
+	if err == nil || calls != 0 {
+		t.Fatal("oversized body reached Harness", calls, err)
+	}
+}

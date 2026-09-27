@@ -293,8 +293,8 @@ func TestRulesOfOtherProductsCostNoQueries(t *testing.T) {
 	if err := e.handleStandard(ctx, standardRuleMessage("message-1", 1000000)); err != nil {
 		t.Fatal(err)
 	}
-	// Only the device business-status check lists alarms (active and acknowledged).
-	if repo.pendingDeletes != 0 || repo.alarmLists-baseline != 2 {
+	// Business-state reconciliation uses EXISTS; unrelated rules load no alarm rows.
+	if repo.pendingDeletes != 0 || repo.alarmLists-baseline != 0 {
 		t.Fatalf("unexpected rule queries: pendingDeletes=%d alarmLists=%d", repo.pendingDeletes, repo.alarmLists-baseline)
 	}
 }

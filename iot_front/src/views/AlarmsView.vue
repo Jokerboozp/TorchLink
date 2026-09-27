@@ -182,7 +182,7 @@ function removeAlarm(row) { return confirmDelete({ label:row.alarmType || row.al
 
 let realtimeTimer = 0
 const realtime = event => {
-  if (!event?.detail?.topic?.includes('/alarm/') || realtimeTimer) return
+  if ((!event?.detail?.topic?.includes('/alarm/') && !event?.detail?.topic?.includes('/snapshot/refresh/')) || realtimeTimer) return
   realtimeTimer = window.setTimeout(() => { realtimeTimer = 0; void load() }, 300)
 }
 onMounted(async () => {

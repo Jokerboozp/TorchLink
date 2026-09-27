@@ -18,24 +18,28 @@ import (
 )
 
 var (
-	mqttAddr     = flag.String("mqtt", "tcp://127.0.0.1:1883", "MQTT broker address")
-	tokFile      = flag.String("mqtt-tokens", "", "MQTT token file written by -mode mqtttok")
-	connStep     = flag.Int("conn-step", 2000, "mqttconn: connections added per step; mqttpub: publisher connections")
-	connPar      = flag.Int("conn-par", 200, "parallel MQTT connect attempts")
-	connMax      = flag.Int("conn-max", 1000000, "mqttconn: stop after this many connections")
-	holdDur      = flag.Duration("hold", 30*time.Second, "mqttconn: how long to hold the connections after the ramp")
-	cidSuffix    = flag.String("cid-suffix", "", "mqttconn: client ID suffix, to open extra connections per token for broker-only tests")
-	qos          = flag.Int("qos", 1, "mqttpub: QoS")
-	mqttLocalIPs = flag.String("mqtt-local-ips", "", "comma-separated local source IPs for MQTT TCP load generators (addresses must be valid on the generator)")
+	receiptConfirm = flag.Bool("mqtt-confirm", true, "mqttpub: wait for platform archive receipt, retry the same message; false measures broker PUBACK only")
+	receiptWait    = flag.Duration("receipt-wait", 5*time.Second, "mqttpub: time before retrying an unconfirmed message")
+	receiptRetries = flag.Int("receipt-retries", 2, "mqttpub: same-message retry attempts after a missing archive receipt")
+	mqttAddr       = flag.String("mqtt", "tcp://127.0.0.1:1883", "MQTT broker address")
+	tokFile        = flag.String("mqtt-tokens", "", "MQTT token file written by -mode mqtttok")
+	connStep       = flag.Int("conn-step", 2000, "mqttconn: connections added per step; mqttpub: publisher connections")
+	connPar        = flag.Int("conn-par", 200, "parallel MQTT connect attempts")
+	connMax        = flag.Int("conn-max", 1000000, "mqttconn: stop after this many connections")
+	holdDur        = flag.Duration("hold", 30*time.Second, "mqttconn: how long to hold the connections after the ramp")
+	cidSuffix      = flag.String("cid-suffix", "", "mqttconn: client ID suffix, to open extra connections per token for broker-only tests")
+	qos            = flag.Int("qos", 1, "mqttpub: QoS")
+	mqttLocalIPs   = flag.String("mqtt-local-ips", "", "comma-separated local source IPs for MQTT TCP load generators (addresses must be valid on the generator)")
 )
 
 var mqttDialSeq atomic.Uint64
 
 type mqttToken struct {
-	Username string `json:"username"`
-	Token    string `json:"token"`
-	Topic    string `json:"topic"`
-	Device   string `json:"device"`
+	Username     string `json:"username"`
+	Token        string `json:"token"`
+	Topic        string `json:"topic"`
+	Device       string `json:"device"`
+	ReceiptTopic string `json:"receiptTopic"`
 }
 
 // mqttTokens fetches POST /api/v1/device-mqtt/token for every device in
@@ -68,12 +72,13 @@ func mqttTokens() {
 				Username     string `json:"username"`
 				Token        string `json:"token"`
 				PublishTopic string `json:"publishTopic"`
+				ReceiptTopic string `json:"receiptTopic"`
 			}
 			if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&v) != nil {
 				fails.Add(1)
 				return
 			}
-			out[i] = mqttToken{v.Username, v.Token, v.PublishTopic, d.Device}
+			out[i] = mqttToken{Username: v.Username, Token: v.Token, Topic: v.PublishTopic, Device: d.Device, ReceiptTopic: v.ReceiptTopic}
 		}(i, d)
 	}
 	wg.Wait()
@@ -198,6 +203,9 @@ func mqttConn() {
 // PUBACK only proves the broker accepted a message; compare archived/s and the
 // broker's dropped counters for the platform subscriber to see what arrived.
 func mqttPub() {
+	if *receiptWait <= 0 || *receiptRetries < 0 || *receiptRetries > 10 {
+		must(fmt.Errorf("receipt-wait must be positive and receipt-retries between 0 and 10"))
+	}
 	toks := loadTokens()
 	n := *connStep
 	if n <= 0 || len(toks) < n {
@@ -205,6 +213,7 @@ func mqttPub() {
 	}
 	var clients []mqtt.Client
 	var topics []string
+	var receipts []*mqttReceipts
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, *connPar)
@@ -216,7 +225,20 @@ func mqttPub() {
 			defer func() { <-sem }()
 			c := newMQTT(t, t.Username+"-pub")
 			if tk := c.Connect(); tk.WaitTimeout(*timeout) && tk.Error() == nil {
+				tracker := newMQTTReceipts()
+				if *receiptConfirm {
+					if t.ReceiptTopic == "" {
+						c.Disconnect(10)
+						return
+					}
+					sub := c.Subscribe(t.ReceiptTopic, 1, tracker.receive)
+					if !sub.WaitTimeout(*timeout) || sub.Error() != nil {
+						c.Disconnect(10)
+						return
+					}
+				}
 				mu.Lock()
+				receipts = append(receipts, tracker)
 				clients, topics = append(clients, c), append(topics, t.Topic)
 				mu.Unlock()
 			}
@@ -234,6 +256,9 @@ func mqttPub() {
 	save(runLevels(func(ctx context.Context, _ *http.Client, _ int) (bool, string, int64) {
 		i := int(rr.Add(1)) % len(clients)
 		b, _ := json.Marshal(map[string]any{"id": "mq-" + rid(), "timestamp": time.Now().UnixMilli(), "data": telemetry(mrand.Float64() < *alarmFrac)})
+		if *receiptConfirm {
+			return receipts[i].publish(ctx, clients[i], topics[i], b)
+		}
 		tk := clients[i].Publish(topics[i], byte(*qos), false, b)
 		select {
 		case <-ctx.Done():

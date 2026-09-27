@@ -3,75 +3,105 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"sync"
-	"time"
-
+	"golang.org/x/sync/singleflight"
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
+	"sync"
+	"time"
 )
 
-// Rendering holds a whole PDF in memory, so only a few run at once; a caller
-// waits up to pdfRenderWait for a slot. The last PDF of each tenant is kept
-// until its report changes, so repeated downloads do not render again.
 const (
-	pdfRenderSlots = 2
-	pdfRenderWait  = 30 * time.Second
+	pdfRenderSlots  = 2
+	pdfCacheBytes   = 64 << 20
+	pdfCacheEntries = 16
 )
 
 var errPDFBusy = errors.New("inspection PDF rendering is busy")
 
 type cachedInspectionPDF struct {
-	generatedAt int64
-	data        []byte
+	id   string
+	data []byte
+	used time.Time
 }
-
 type inspectionPDFCache struct {
 	slots     chan struct{}
 	mu        sync.Mutex
 	latest    map[string]cachedInspectionPDF
+	runs      singleflight.Group
 	renderPDF func(model.DeviceHealthReport) ([]byte, error)
 }
 
 func newInspectionPDFCache() *inspectionPDFCache {
 	return &inspectionPDFCache{slots: make(chan struct{}, pdfRenderSlots), latest: map[string]cachedInspectionPDF{}, renderPDF: core.RenderHealthInspectionPDF}
 }
-
-func (c *inspectionPDFCache) cached(tenantID string, generatedAt int64) ([]byte, bool) {
+func (c *inspectionPDFCache) cached(tenant, id string) ([]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry, ok := c.latest[tenantID]
-	return entry.data, ok && entry.generatedAt == generatedAt
+	v, ok := c.latest[tenant]
+	if ok && v.id == id {
+		v.used = time.Now()
+		c.latest[tenant] = v
+		return v.data, true
+	}
+	return nil, false
 }
 
-// render returns the PDF of report, from the cache when that report was
-// already rendered, and errPDFBusy when no render slot frees up in time.
-func (c *inspectionPDFCache) render(ctx context.Context, tenantID string, report model.DeviceHealthReport) ([]byte, error) {
-	if c == nil {
-		return core.RenderHealthInspectionPDF(report)
-	}
-	if data, ok := c.cached(tenantID, report.GeneratedAt); ok {
+// Metadata is read first; only a cache miss acquires a render slot and reads a
+// bounded detail page. Concurrent downloads of the same immutable ID share work.
+func (c *inspectionPDFCache) load(ctx context.Context, tenant, id string, loader func(context.Context) (model.DeviceHealthReport, error)) ([]byte, error) {
+	if data, ok := c.cached(tenant, id); ok {
 		return data, nil
 	}
-	timer := time.NewTimer(pdfRenderWait)
-	defer timer.Stop()
+	result := c.runs.DoChan(tenant+"\x00"+id, func() (any, error) {
+		if data, ok := c.cached(tenant, id); ok {
+			return data, nil
+		}
+		select {
+		case c.slots <- struct{}{}:
+		default:
+			return nil, errPDFBusy
+		}
+		defer func() { <-c.slots }()
+		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		report, err := loader(loadCtx)
+		if err != nil {
+			return nil, err
+		}
+		data, err := c.renderPDF(report)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) <= pdfCacheBytes {
+			c.mu.Lock()
+			delete(c.latest, tenant)
+			for {
+				size := len(data)
+				oldest := ""
+				var at time.Time
+				for key, v := range c.latest {
+					size += len(v.data)
+					if oldest == "" || v.used.Before(at) {
+						oldest, at = key, v.used
+					}
+				}
+				if size <= pdfCacheBytes && len(c.latest) < pdfCacheEntries {
+					break
+				}
+				delete(c.latest, oldest)
+			}
+			c.latest[tenant] = cachedInspectionPDF{id: id, data: data, used: time.Now()}
+			c.mu.Unlock()
+		}
+		return data, nil
+	})
 	select {
-	case c.slots <- struct{}{}:
-	case <-timer.C:
-		return nil, errPDFBusy
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case v := <-result:
+		if v.Err != nil {
+			return nil, v.Err
+		}
+		return v.Val.([]byte), nil
 	}
-	defer func() { <-c.slots }()
-	// Another request may have rendered the same report while this one waited.
-	if data, ok := c.cached(tenantID, report.GeneratedAt); ok {
-		return data, nil
-	}
-	data, err := c.renderPDF(report)
-	if err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	c.latest[tenantID] = cachedInspectionPDF{generatedAt: report.GeneratedAt, data: data}
-	c.mu.Unlock()
-	return data, nil
 }

@@ -46,6 +46,7 @@ ensure_deployment_docker online
 assert_docker_available
 command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; exit 1; }
 ensure_deployment_env "$env_file"
+ensure_emqx_admin_env "$env_file" "http://emqx:18083"
 configure_deepseek_env "$env_file"
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。

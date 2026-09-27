@@ -69,7 +69,7 @@ func TestClaimDoesNotDuplicateExistingTelemetryDuringBusinessRetry(t *testing.T)
 		case strings.Contains(query, "INSERT INTO iot_telemetry"):
 			telemetryRows.Add(1)
 		case strings.Contains(query, "SELECT count() AS total FROM iot_telemetry"):
-			_ = json.NewEncoder(w).Encode(map[string]int32{"total": telemetryRows.Load()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"total": fmt.Sprint(telemetryRows.Load())})
 			return true
 		}
 		return false
@@ -100,7 +100,7 @@ func newClickHouseTestServer(t *testing.T, handle func(string, http.ResponseWrit
 			return
 		}
 		if strings.Contains(query, "SELECT count() AS total FROM iot_telemetry") {
-			_ = json.NewEncoder(w).Encode(map[string]int{"total": 0})
+			_ = json.NewEncoder(w).Encode(map[string]string{"total": "0"})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -263,5 +263,41 @@ func TestFullBatchFlushesImmediately(t *testing.T) {
 	}
 	if len(got) != 1 || len(got[0]) != batchMaxBytes {
 		t.Fatalf("unexpected batches: %d", len(got))
+	}
+}
+
+func TestPropertyHistoryPageDecodesQuotedTotal(t *testing.T) {
+	server := newClickHouseTestServer(t, func(query string, w http.ResponseWriter) bool {
+		if strings.Contains(query, "SELECT count()") {
+			fmt.Fprintln(w, `{"total":"42"}`)
+			return true
+		}
+		if strings.Contains(query, "SELECT toUnixTimestamp64Milli") {
+			fmt.Fprintln(w, `{"timestamp":"1700000000000","value":25,"messageId":"m"}`)
+			return true
+		}
+		return false
+	})
+	defer server.Close()
+	repo, err := New(context.Background(), server.URL, memory.NewRepository())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, total, err := repo.PropertyHistoryPage(context.Background(), "tenant-test", "device-test", "temperature", 1, 2, 20, 0)
+	if err != nil || total != 42 || len(rows) != 1 {
+		t.Fatalf("ClickHouse count lost: total=%d rows=%d err=%v", total, len(rows), err)
+	}
+}
+
+func TestDecodeCountContracts(t *testing.T) {
+	for _, input := range []string{`{"total":42}`, `{"total":"42"}`} {
+		if total, err := decodeCount([]byte(input)); err != nil || total != 42 {
+			t.Fatalf("%s: %d %v", input, total, err)
+		}
+	}
+	for _, input := range []string{`{}`, `{"total":null}`, `{"total":"bad"}`, `{"total":-1}`, `{"total":1.5}`, `{"total":"18446744073709551615"}`} {
+		if _, err := decodeCount([]byte(input)); err == nil {
+			t.Fatalf("accepted invalid count %s", input)
+		}
 	}
 }

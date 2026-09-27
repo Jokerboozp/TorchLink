@@ -134,3 +134,9 @@ IOT_VIDEO_MEDIA_CPUS	媒体服务容器 CPU 上限
 IOT_VIDEO_MEDIA_MEMORY	媒体服务容器内存上限
 IOT_VIDEO_HLS_TMPFS_SIZE	HLS 临时分片内存盘大小
 IOT_ZLMEDIAKIT_IMAGE	媒体服务镜像名称
+IOT_AI_ANALYSIS_RPM	本进程自动研判每分钟请求预算；多副本须合计不超过模型配额，0 不限速
+IOT_AI_ANALYSIS_TIMEOUT	单个自动研判占用并发的最长时间（含限流等待），默认 90s
+IOT_AI_ANALYSIS_MAX_WAIT	自动研判事件的最大等待时间，超期保留跳过原因并允许手动研判，默认 10m
+IOT_EMQX_API_URL	EMQX 管理 API 根地址（不含 /api/v5），用于队列丢弃观测及设备凭据撤销
+IOT_EMQX_API_KEY	平台专用 EMQX 管理 API Key，首次部署自动生成，后续保留
+IOT_EMQX_API_SECRET	平台专用 EMQX 管理 API Secret，仅后端读取，不发送给浏览器

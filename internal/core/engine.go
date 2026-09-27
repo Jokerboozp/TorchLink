@@ -22,20 +22,22 @@ import (
 const directAlarmRulePrefix = "device-report:"
 
 type Engine struct {
-	stateLocks  [64]sync.Mutex
-	rules       ruleCache
-	protocols   protocolCache
-	ingestLocks [256]sync.Mutex
-	outboxMu    sync.Mutex
-	outboxWake  chan struct{}
-	Repo        ports.Repository
-	Archive     ports.Archive
-	RawStore    ports.RawMessageStore
-	Bus         ports.EventBus
-	Realtime    ports.RealtimePublisher
-	AI          ports.AIClient
-	AIPlugins   ports.AIPluginRegistry
-	AIWorkflows ports.AIWorkflowRuntime
+	aiCapacity    aiCapacity
+	standardLocks [256]sync.Mutex
+	stateLocks    [64]sync.Mutex
+	rules         ruleCache
+	protocols     protocolCache
+	ingestLocks   [256]sync.Mutex
+	outboxMu      sync.Mutex
+	outboxWake    chan struct{}
+	Repo          ports.Repository
+	Archive       ports.Archive
+	RawStore      ports.RawMessageStore
+	Bus           ports.EventBus
+	Realtime      ports.RealtimePublisher
+	AI            ports.AIClient
+	AIPlugins     ports.AIPluginRegistry
+	AIWorkflows   ports.AIWorkflowRuntime
 	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
 	HarnessTokens             ports.HarnessTokenIssuer
@@ -369,6 +371,10 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if err := json.Unmarshal(b, &msg); err != nil {
 		return err
 	}
+	digest := sha256.Sum256([]byte(msg.TenantID + "\x00" + msg.DeviceID))
+	serial := &e.standardLocks[digest[0]]
+	serial.Lock()
+	defer serial.Unlock()
 	components, err := model.MessageComponents(msg)
 	if err != nil {
 		return err
@@ -386,9 +392,6 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 				return err
 			}
 		}
-	}
-	if err := e.touchState(ctx, msg); err != nil {
-		return err
 	}
 	rules, err := e.tenantRules(ctx, msg.TenantID) /* 短时缓存，避免每条消息读取全部规则。 */
 	if err != nil {
@@ -446,7 +449,7 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 			return err
 		}
 	}
-	if err := e.syncDeviceBusinessStatus(ctx, msg.TenantID, msg.ProductID, msg.DeviceID); err != nil {
+	if err := e.applyMessageState(ctx, msg, true); err != nil {
 		return err
 	}
 	return e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID)
@@ -472,16 +475,27 @@ func (e *Engine) durationSatisfied(ctx context.Context, rule model.AlarmRule, ms
 	return now-since >= rule.DurationSeconds, nil
 }
 func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) error {
+	return e.applyMessageState(ctx, msg, false)
+}
+
+// Reconcile after alarm processing so one message persists only its final
+// state. Raw archive/claim/alarm ordering and the processed marker are retained.
+func (e *Engine) applyMessageState(ctx context.Context, msg model.StandardMessage, reconcile bool) error {
 	unlock := e.lockDeviceState(msg.TenantID, msg.DeviceID)
 	defer unlock()
 	state, err := e.Repo.GetDeviceState(ctx, msg.TenantID, msg.DeviceID)
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return err
+	}
 	if err != nil {
 		state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
 	}
 	// Late retransmissions remain archived but must not roll back current state.
-	if msg.Timestamp < state.LastSeenAt {
+	late := msg.Timestamp < state.LastSeenAt
+	if late && !reconcile {
 		return nil
 	}
+	previous := state
 	old := state.BusinessStatus
 	oldConnection := state.ConnectionStatus
 	state.DataStatus = "ACTIVE"
@@ -501,6 +515,24 @@ func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) erro
 			} else if status == "DISCONNECTED" {
 				state.LastDisconnectAt = msg.Timestamp
 			}
+		}
+	}
+	if late {
+		state = previous
+	}
+	if reconcile {
+		open, err := e.Repo.HasOpenAlarm(ctx, msg.TenantID, msg.DeviceID)
+		if err != nil {
+			return err
+		}
+		if open {
+			state.BusinessStatus = "ALARM"
+			state.StatusSource = "ACTIVE_ALARM"
+			state.Reason = "存在活动告警"
+		} else if !late || state.BusinessStatus == "ALARM" {
+			state.BusinessStatus = "ONLINE"
+			state.StatusSource = "RAW_MESSAGE"
+			state.Reason = ""
 		}
 	}
 	if err := e.Repo.UpsertDeviceState(ctx, state); err != nil {
@@ -537,16 +569,7 @@ func (e *Engine) syncDeviceBusinessStatus(ctx context.Context, tenant, product, 
 }
 
 func (e *Engine) hasOpenAlarm(ctx context.Context, tenant, device string) (bool, error) {
-	for _, status := range []string{"ACTIVE", "ACKED"} {
-		items, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: device, Status: status, Limit: 1})
-		if err != nil {
-			return false, err
-		}
-		if len(items) > 0 {
-			return true, nil
-		}
-	}
-	return false, nil
+	return e.Repo.HasOpenAlarm(ctx, tenant, device)
 }
 
 func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage) (model.Alarm, bool, error) {
@@ -1131,27 +1154,46 @@ func cameraSummary(v model.VideoCameraMapping) model.CameraSummary {
 	return model.CameraSummary{CameraID: v.CameraID, Brand: v.Brand, CameraName: v.CameraName, CameraPoint: v.CameraPoint, DeviceID: v.DeviceID, Building: v.Building, Floor: v.Floor, Room: v.Room, Enabled: v.Enabled}
 }
 func (e *Engine) handleAI(ctx context.Context, b []byte) error {
-	if !e.AIWorkflowsReady() {
-		return nil
-	}
 	var alarm model.Alarm
 	if err := json.Unmarshal(b, &alarm); err != nil {
 		return err
 	}
-	// 自动研判没有具体用户，按“无角色”处理：不检索知识库，结果对所有能查看告警的人可见；
-	// 系统身份只能查询告警、属性历史和相似告警。
+	if !e.AIWorkflowsReady() {
+		return e.skipAutomaticAnalysis(ctx, alarm, "unavailable", nil)
+	}
 	ctx = ports.WithAIRunIdentity(ctx, AlarmAnalysisSystemIdentity())
-	// During an alarm storm analyses queue up; skip alarms that were resolved
-	// while waiting, and alarms a redelivered event has already analysed.
-	if current, err := e.Repo.GetAlarm(ctx, alarm.TenantID, alarm.ID); err == nil && (current.Status == "RECOVERED" || current.Status == "CLOSED") {
-		e.countAISkip()
-		return nil
+	current, err := e.Repo.GetAlarm(ctx, alarm.TenantID, alarm.ID)
+	if err != nil {
+		return err
+	}
+	if current.Status == "RECOVERED" || current.Status == "CLOSED" {
+		return e.skipAutomaticAnalysis(ctx, alarm, "resolved", nil)
 	}
 	if existing, err := e.Repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); err == nil && existing.Error == "" {
-		e.countAISkip()
-		return nil
+		return e.skipAutomaticAnalysis(ctx, alarm, "duplicate", nil)
 	}
-	_, err := e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID, false)
+	ctx, cancel := e.automaticAnalysisContext(ctx, alarm)
+	defer cancel()
+	if err := e.waitAutomaticBudget(ctx, alarm); err != nil {
+		if errors.Is(err, errAIWaitExpired) {
+			return e.skipAutomaticAnalysis(ctx, alarm, "expired", err)
+		}
+		if errors.Is(err, errAIAlarmResolved) {
+			return e.skipAutomaticAnalysis(ctx, alarm, "cancelled", err)
+		}
+		return err
+	}
+	if e.Metrics != nil {
+		e.Metrics.Inc("ai_analysis_started_total")
+	}
+	started := time.Now()
+	_, err = e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID, false)
+	if m, ok := e.Metrics.(interface{ ObserveMS(string, time.Time) }); ok {
+		m.ObserveMS("ai_analysis_latency_ms", started)
+	}
+	if errors.Is(context.Cause(ctx), errAIAlarmResolved) {
+		return e.skipAutomaticAnalysis(ctx, alarm, "cancelled", errAIAlarmResolved)
+	}
 	return err
 }
 
@@ -1198,7 +1240,13 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	if err == nil {
 		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, history, knowledge, withKnowledge)
 	}
+	if errors.Is(context.Cause(ctx), errAIAlarmResolved) {
+		return analysis, errAIAlarmResolved
+	}
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && e.Metrics != nil {
+			e.Metrics.Inc("ai_analysis_timeout_total")
+		}
 		if e.Metrics != nil {
 			e.Metrics.Inc("ai_analysis_failed_total")
 		}
@@ -1215,11 +1263,17 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	if err == nil && e.Metrics != nil {
 		e.Metrics.Inc("ai_analysis_success_total")
 	}
+	analysis.Status = "succeeded"
+	if err != nil {
+		analysis.Status = "failed"
+	}
 	analysis.TenantID = alarm.TenantID
 	analysis.AlarmID = alarm.ID
 	analysis.KnowledgeScope = scope
 	analysis.KnowledgeDocuments = documents
-	if saveErr := e.Repo.SaveAIAnalysis(ctx, analysis); saveErr != nil {
+	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer saveCancel()
+	if saveErr := e.Repo.SaveAIAnalysis(saveCtx, analysis); saveErr != nil {
 		return analysis, saveErr
 	}
 	if scope != model.AIAnalysisScopeNone {

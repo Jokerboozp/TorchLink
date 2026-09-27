@@ -16,6 +16,7 @@ import (
 )
 
 type Client struct {
+	subscribed   atomic.Int64
 	conn         net.Conn
 	connMu       sync.Mutex
 	inbox        *durableInbox
@@ -57,14 +58,13 @@ func newClient(broker, clientID string, credentials mqtt.CredentialsProvider, in
 		adapter.startDispatch()
 	} else {
 		adapter.stop = make(chan struct{})
-		// A persistent session may deliver queued messages as soon as it connects.
-		inbox.startIntake(adapter)
 	}
 	adapter.clientID = clientID
 	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(clientID).SetCredentialsProvider(credentials).SetConnectRetry(false).SetAutoReconnect(true).SetMaxReconnectInterval(5 * time.Second).SetOrderMatters(true).SetCleanSession(inbox == nil).SetAutoAckDisabled(inbox != nil)
 	opts.SetCustomOpenConnectionFn(adapter.openConnection)
 	opts.SetDefaultPublishHandler(func(_ mqtt.Client, m mqtt.Message) { adapter.receive(m) })
-	opts.SetOnConnectHandler(func(client mqtt.Client) { adapter.resubscribe(client) })
+	opts.SetOnConnectHandler(func(client mqtt.Client) { adapter.subscribed.Store(0); adapter.resubscribe(client) })
+	opts.SetConnectionLostHandler(func(mqtt.Client, error) { adapter.subscribed.Store(0) })
 	adapter.client = mqtt.NewClient(opts)
 	token := adapter.client.Connect()
 	if !token.WaitTimeout(10 * time.Second) {
@@ -242,4 +242,11 @@ func (c *Client) subscription(topic string) string {
 		return topic
 	}
 	return "$share/" + c.sharedGroup + "/" + topic
+}
+
+func (c *Client) SubscriptionCount() int64 {
+	if c.client == nil || !c.client.IsConnectionOpen() {
+		return 0
+	}
+	return c.subscribed.Load()
 }

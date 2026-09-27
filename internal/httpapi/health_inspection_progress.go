@@ -68,7 +68,7 @@ func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor s
 // loadHealthInspectionJob returns the tenant's newest job. A running job whose
 // heartbeat stopped is marked interrupted instead of staying running forever.
 func (s *Server) loadHealthInspectionJob(ctx context.Context, tenantID string) (model.HealthInspectionJob, bool, error) {
-	job, err := s.engine.Repo.LatestHealthInspectionJob(ctx, tenantID, "")
+	job, err := s.engine.Repo.LatestHealthInspectionSummary(ctx, tenantID, "")
 	if errors.Is(err, model.ErrNotFound) {
 		return job, false, nil
 	}
@@ -84,7 +84,7 @@ func (s *Server) loadHealthInspectionJob(ctx context.Context, tenantID string) (
 			return job, true, err
 		}
 		// A concurrent writer may have finished the job first; read the stored state.
-		if job, err = s.engine.Repo.LatestHealthInspectionJob(ctx, tenantID, ""); err != nil {
+		if job, err = s.engine.Repo.LatestHealthInspectionSummary(ctx, tenantID, ""); err != nil {
 			return job, true, err
 		}
 	}

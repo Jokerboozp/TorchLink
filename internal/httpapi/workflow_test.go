@@ -657,9 +657,9 @@ func (r *countingEventRepo) ListAlarms(ctx context.Context, f ports.AlarmFilter)
 	return r.Repository.ListAlarms(ctx, f)
 }
 
-func (r *countingEventRepo) ListDeviceStates(ctx context.Context, tenant string) ([]model.DeviceState, error) {
+func (r *countingEventRepo) ListDeviceStatesPage(ctx context.Context, tenant string, l, o int) ([]model.DeviceState, int, error) {
 	r.stateReads.Add(1)
-	return r.Repository.ListDeviceStates(ctx, tenant)
+	return r.Repository.ListDeviceStatesPage(ctx, tenant, l, o)
 }
 
 // Concurrent polls of one tenant share a single read, and the snapshot is read
@@ -1213,4 +1213,51 @@ func backupJSONRequest(t *testing.T, client *http.Client, method, endpoint, toke
 		t.Fatalf("%s status=%d want=%d body=%#v", endpoint, response.StatusCode, wantStatus, result)
 	}
 	return result
+}
+
+func TestEventSnapshotBoundsPopulationAndDetails(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	for i := 0; i < 600; i++ {
+		id := fmt.Sprint(i)
+		_ = repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t", DeviceID: id, LastSeenAt: int64(i)})
+		_, _, _ = repo.UpsertAlarm(ctx, model.Alarm{ID: id, TenantID: "t", DeviceID: id, RuleID: id, Status: "ACTIVE", Details: map[string]any{"raw": strings.Repeat("x", 1024)}})
+	}
+	alarms, states, total, err := loadEventSnapshot(ctx, repo, "t")
+	body, _ := json.Marshal(map[string]any{"alarms": alarms, "states": states})
+	if err != nil || total != 600 || len(alarms) != eventSnapshotLimit || len(states) != eventSnapshotLimit || len(body) > 256<<10 {
+		t.Fatalf("unbounded snapshot alarms=%d states=%d bytes=%d err=%v", len(alarms), len(states), len(body), err)
+	}
+}
+
+func TestDashboardCacheSharesOnlyTheSameAuthorizedView(t *testing.T) {
+	var cache dashboardCache
+	var calls atomic.Int32
+	load := func(context.Context) ([]model.DashboardCount, error) {
+		calls.Add(1)
+		time.Sleep(10 * time.Millisecond)
+		return []model.DashboardCount{{Kind: "state", Key: "ONLINE", Count: 1}}, nil
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := cache.get(context.Background(), "tenant/user/version1", load); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if calls.Load() != 1 {
+		t.Fatal("identical view not coalesced", calls.Load())
+	}
+	for _, key := range []string{"tenant/other/version1", "tenant/user/version2", "other/user/version1"} {
+		if _, err := cache.get(context.Background(), key, load); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 4 {
+		t.Fatal("users, tenants or permission versions shared data", calls.Load())
+	}
 }

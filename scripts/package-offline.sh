@@ -111,7 +111,7 @@ validate_env() {
     MINIO_ROOT_PASSWORD MINIO_DR_ROOT_PASSWORD IOT_JWT_SECRET
     IOT_ADMIN_USER IOT_ADMIN_PASSWORD IOT_ADMIN_TENANTS
     IOT_VIDEO_PLATFORM_SECRETS IOT_BACKUP_ADMIN_TOKEN
-    EMQX_DASHBOARD_USER EMQX_DASHBOARD_PASSWORD
+    EMQX_DASHBOARD_USER EMQX_DASHBOARD_PASSWORD IOT_EMQX_API_URL IOT_EMQX_API_KEY IOT_EMQX_API_SECRET
     GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
   )
   (( include_harness )) && required_keys+=(IOT_AI_HARNESS_TOKEN)
@@ -204,6 +204,9 @@ IOT_API_PORT=8081
 IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 EMQX_DASHBOARD_USER=admin
 EMQX_DASHBOARD_PASSWORD=$emqx_password
+IOT_EMQX_API_URL=http://emqx:18083
+IOT_EMQX_API_KEY=$(random_hex 32)
+IOT_EMQX_API_SECRET=$(random_hex 32)
 GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=$grafana_password
 EOF
@@ -252,6 +255,7 @@ EOF
     set_env_value "$destination" IOT_VIDEO_MEDIA_API_URL ''
     set_env_value "$destination" IOT_VIDEO_MODULE off
   fi
+  ensure_emqx_admin_env "$destination" "http://emqx:18083"
   configure_deepseek_env "$destination" "$deepseek_model"
   annotate_deployment_env_file "$destination"
 

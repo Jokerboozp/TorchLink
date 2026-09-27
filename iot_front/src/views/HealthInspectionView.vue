@@ -13,6 +13,10 @@ const report = ref(loadHealthInspection(inspectionStorage, session))
 const progress = ref(null)
 const loading = ref(false)
 const downloading = ref(false)
+const page = ref(1)
+const pageSize = 50
+const pageLoading = ref(false)
+let pageGeneration = 0
 const error = ref('')
 const progressPercentage = computed(() => Math.max(0, Math.min(100, Number(progress.value?.progress || 0))))
 const progressStatus = computed(() => progress.value?.status === 'failed' ? 'exception' : progress.value?.status === 'succeeded' ? 'success' : undefined)
@@ -55,7 +59,9 @@ function handleProgress(value, token, announce = false) {
   stopProgressPolling()
   if (value.status === 'succeeded' && value.report) {
     report.value = value.report
+    page.value = 1
     saveHealthInspection(inspectionStorage, session, value.report)
+    void loadReportPage(1)
     if (announce && previous?.status === 'running') UiMessage.success('设备健康巡检已完成')
   }
   if (value.status === 'failed') {
@@ -108,12 +114,31 @@ async function run() {
   }
 }
 
+async function loadReportPage(nextPage = page.value) {
+  const id = report.value?.reportId || progress.value?.jobId
+  if (!id) return
+  const generation = ++pageGeneration
+  const view = viewToken
+  pageLoading.value = true
+  try {
+    const value = await api(`/api/v1/ai/health-inspection/reports/${encodeURIComponent(id)}?limit=${pageSize}&offset=${(nextPage - 1) * pageSize}`)
+    if (generation !== pageGeneration || view !== viewToken) return
+    page.value = nextPage
+    report.value = value
+    saveHealthInspection(inspectionStorage, session, { ...value, items: [] })
+  } catch (exception) {
+    if (generation === pageGeneration && view === viewToken) notifyError(exception)
+  } finally {
+    if (generation === pageGeneration) pageLoading.value = false
+  }
+}
+
 async function downloadPDF() {
   if (!report.value || downloading.value || inspectionRunning.value) return
   downloading.value = true
   try {
     const stamp = new Date(Number(report.value.generatedAt || Date.now())).toISOString().replace(/[:.]/g, '-')
-    await download('/api/v1/ai/health-inspection/pdf', `智能巡检结果_${stamp}.pdf`, { method:'POST', body:'{}' })
+    await download(`/api/v1/ai/health-inspection/pdf?jobId=${encodeURIComponent(report.value.reportId || progress.value?.jobId || '')}`, `智能巡检结果_${stamp}.pdf`, { method:'POST', body:'{}' })
     UiMessage.success('巡检结果文档已下载')
   } catch (exception) {
     notifyError(exception)
@@ -151,7 +176,8 @@ onBeforeUnmount(() => {
         <div class="inspection-counts top-gap"><div><span>设备总数</span><strong>{{ counts.total || 0 }}</strong></div><div class="healthy"><span>状态正常</span><strong>{{ counts.healthy || 0 }}</strong></div><div class="attention"><span>需关注</span><strong>{{ counts.attention || 0 }}</strong></div><div class="critical"><span>高风险</span><strong>{{ counts.critical || 0 }}</strong></div><div class="offline"><span>离线/疑似离线</span><strong>{{ counts.offline || 0 }}</strong></div><div><span>活动告警</span><strong>{{ counts.activeAlarms || 0 }}</strong></div></div>
         <ui-card v-if="report.aiAdvice" shadow="never" class="inner-card top-gap"><template #header><strong>智能巡检建议</strong></template><MarkdownContent class="report-text" :source="report.aiAdvice" /></ui-card>
         <ui-alert v-for="warning in report.warnings || []" :key="warning" class="top-gap" :title="warning" type="warning" :closable="false" />
-        <ui-table class="top-gap" :data="report.items || []" stripe><ui-table-column label="设备" min-width="190"><template #default="{row}"><b>{{ row.deviceName || row.deviceId }}</b><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template></ui-table-column><ui-table-column label="业务状态" width="130"><template #default="{row}"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="活动告警" width="100"><template #default="{row}">{{ row.activeAlarmCount }}</template></ui-table-column><ui-table-column label="巡检结论" min-width="280"><template #default="{row}"><ui-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</ui-tag><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template></ui-table-column></ui-table>
+        <ui-table class="top-gap" v-loading="pageLoading" :data="report.items || []" stripe><ui-table-column label="设备" min-width="190"><template #default="{row}"><b>{{ row.deviceName || row.deviceId }}</b><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template></ui-table-column><ui-table-column label="业务状态" width="130"><template #default="{row}"><ui-tag :type="tagType(row.businessStatus)" round>{{ label(businessStatuses, row.businessStatus, row.businessStatus) }}</ui-tag></template></ui-table-column><ui-table-column label="最近上报" min-width="170"><template #default="{row}">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column><ui-table-column label="活动告警" width="100"><template #default="{row}">{{ row.activeAlarmCount }}</template></ui-table-column><ui-table-column label="巡检结论" min-width="280"><template #default="{row}"><ui-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</ui-tag><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template></ui-table-column></ui-table>
+        <ui-pagination class="top-gap" :current-page="page" :page-size="pageSize" :total="report.totalItems || 0" @current-change="loadReportPage" />
       </template>
       <div v-else class="inspection-empty"><strong>尚无巡检结果</strong><p>点击上方“立即巡检”开始检查，结果会显示在这里。</p></div>
     </ui-card>

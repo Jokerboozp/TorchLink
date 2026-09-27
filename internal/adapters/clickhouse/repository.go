@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -112,13 +113,8 @@ func (r *Repository) telemetryExists(ctx context.Context, tenantID, deviceID, me
 	if err != nil {
 		return false, err
 	}
-	var result struct {
-		Total int64 `json:"total"`
-	}
-	if err = json.Unmarshal(bytes.TrimSpace(body), &result); err != nil {
-		return false, fmt.Errorf("decode clickhouse telemetry existence: %w", err)
-	}
-	return result.Total > 0, nil
+	total, err := decodeCount(body)
+	return total > 0, err
 }
 
 func (r *Repository) SaveRawMessage(ctx context.Context, v model.RawMessage) error {
@@ -233,13 +229,9 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 	if err != nil {
 		return r.Repository.PropertyHistoryPage(ctx, tenant, device, property, start, end, limit, offset)
 	}
-	var countRow struct {
-		Total int `json:"total"`
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(countBody)), "\n") {
-		if line != "" && json.Unmarshal([]byte(line), &countRow) == nil {
-			break
-		}
+	total, err := decodeCount(countBody)
+	if err != nil {
+		return nil, 0, err
 	}
 	data, err := r.query(ctx, fmt.Sprintf(`SELECT toUnixTimestamp64Milli(ts) AS timestamp, properties.%s AS value, message_id AS messageId FROM iot_telemetry WHERE %s ORDER BY ts DESC, message_id DESC LIMIT %d OFFSET %d FORMAT JSONEachRow`, property, where, limit, offset), nil)
 	if err != nil {
@@ -253,7 +245,7 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 			items = append(items, item)
 		}
 	}
-	return items, countRow.Total, nil
+	return items, total, nil
 }
 func (r *Repository) query(ctx context.Context, q string, body []byte) ([]byte, error) {
 	u, err := url.Parse(r.base)
@@ -298,3 +290,20 @@ func (r *Repository) batches() batchers {
 }
 
 func quote(v string) string { return "'" + strings.ReplaceAll(v, "'", "''") + "'" }
+
+// ClickHouse quotes UInt64 JSON counters by default. json.Number accepts both
+// quoted and unquoted integers without the precision loss of float64. Missing,
+// fractional, negative and overflowing counts are errors, never an empty page.
+func decodeCount(body []byte) (int, error) {
+	var row struct {
+		Total json.Number `json:"total"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(body), &row); err != nil {
+		return 0, fmt.Errorf("decode clickhouse count: %w", err)
+	}
+	total, err := strconv.Atoi(row.Total.String())
+	if err != nil || total < 0 {
+		return 0, fmt.Errorf("invalid clickhouse count %q", row.Total)
+	}
+	return total, nil
+}

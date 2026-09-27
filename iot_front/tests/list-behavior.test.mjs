@@ -521,3 +521,14 @@ test('new distributions preserve totals, unknown codes and type ranking overflow
   assert.ok(dashboardDistributions({alarmStatuses:{},alarmTypes:{},connections:{},dataStatuses:{}}).every(chart => chart.available && chart.items.every(item => item.count === 0)))
   assert.equal(statusSegments({ACTIVE:-1,FUTURE:'bad'}, {ACTIVE:'活跃'})[0].count,0)
 })
+
+test('通知窗口溢出不伪报新设备，不重载设备表格',()=>{
+ let calls=0
+ const c=component('DevicesView.vue',async()=>{calls++;return {items:[],total:0}},'realtime,updatesAvailable')
+ c.realtime({detail:{topic:'/iot/snapshot/refresh/tenant',payload:'{}'}})
+ assert.equal(c.updatesAvailable.value,false)
+ assert.equal(calls,0)
+ c.realtime({detail:{topic:'/iot/device/added/tenant',payload:'{"total":601}'}})
+ assert.equal(c.updatesAvailable.value,true,'授权范围内出现新设备时应提示手动刷新')
+ assert.equal(calls,0)
+})

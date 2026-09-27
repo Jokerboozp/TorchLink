@@ -182,14 +182,7 @@ func (r *deviceScopeRepository) CountManagedDeviceChildren(ctx context.Context, 
 	if !limited(ctx) {
 		return r.Repository.CountManagedDeviceChildren(ctx, t, ids)
 	}
-	rows, e := r.ListManagedDevices(ctx, t)
-	out := map[string]int{}
-	for _, v := range rows {
-		if v.GatewayID != "" {
-			out[v.GatewayID]++
-		}
-	}
-	return out, e
+	return r.Repository.CountManagedDeviceChildrenForDevices(ctx, t, r.scopedIDs(ctx, t, ids), grantedIDs(ctx, t))
 }
 func (r *deviceScopeRepository) ListDeviceStates(ctx context.Context, t string) ([]model.DeviceState, error) {
 	if !limited(ctx) {
@@ -220,8 +213,7 @@ func (r *deviceScopeRepository) ListDeviceStatesPage(ctx context.Context, t stri
 	if !limited(ctx) {
 		return r.Repository.ListDeviceStatesPage(ctx, t, l, o)
 	}
-	rows, e := r.ListDeviceStates(ctx, t)
-	return pageSlice(rows, l, o), len(rows), e
+	return r.Repository.ListDeviceStatesForDevicesPage(ctx, t, grantedIDs(ctx, t), l, o)
 }
 func (r *deviceScopeRepository) ListUnregisteredDeviceStatesPage(ctx context.Context, t string, l, o int) ([]model.DeviceState, int, error) {
 	if !limited(ctx) {
@@ -477,4 +469,33 @@ func (r *deviceScopeRepository) ListVideoCameraMappings(ctx context.Context, ten
 		}
 	}
 	return out, nil
+}
+
+func (r *deviceScopeRepository) CountManagedDeviceChildrenForDevices(ctx context.Context, tenant string, parents, children []string) (map[string]int, error) {
+	if limited(ctx) {
+		if children == nil {
+			children = grantedIDs(ctx, tenant)
+		} else {
+			children = r.scopedIDs(ctx, tenant, children)
+		}
+	}
+	return r.Repository.CountManagedDeviceChildrenForDevices(ctx, tenant, r.scopedIDs(ctx, tenant, parents), children)
+}
+
+func (r *deviceScopeRepository) ListDeviceStatesForDevicesPage(ctx context.Context, t string, ids []string, l, o int) ([]model.DeviceState, int, error) {
+	if limited(ctx) {
+		if ids == nil {
+			ids = grantedIDs(ctx, t)
+		} else {
+			ids = r.scopedIDs(ctx, t, ids)
+		}
+	}
+	return r.Repository.ListDeviceStatesForDevicesPage(ctx, t, ids, l, o)
+}
+
+func (r *deviceScopeRepository) HasOpenAlarm(ctx context.Context, tenant, device string) (bool, error) {
+	if !deviceAllowed(ctx, tenant, device) {
+		return false, errDeviceScope
+	}
+	return r.Repository.HasOpenAlarm(ctx, tenant, device)
 }

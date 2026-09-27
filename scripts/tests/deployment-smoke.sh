@@ -125,6 +125,27 @@ while IFS= read -r key; do
   case "$key" in IOT_*|COMPOSE_*|POSTGRES_*|REDIS_*|CLICKHOUSE_*|MINIO_*|EMQX_*|GRAFANA_*|DEEPSEEK_*) unset "$key";; esac
 done < <(compgen -e)
 
+# Adding management observation must preserve existing credentials, and must
+# reject incomplete pairs before making a previously working environment worse.
+(
+  source "$scripts/lib/deployment.sh"
+  observation_env="$test_root/.env.observation"
+  : > "$observation_env"
+  ensure_emqx_admin_env "$observation_env" 'http://emqx:18083'
+  test -n "$(get_deployment_env_value "$observation_env" IOT_EMQX_API_KEY)"
+  test -n "$(get_deployment_env_value "$observation_env" IOT_EMQX_API_SECRET)"
+  cp "$observation_env" "$observation_env.before"
+  ensure_emqx_admin_env "$observation_env" 'http://different-host:18083'
+  cmp "$observation_env.before" "$observation_env"
+  printf 'IOT_EMQX_API_KEY=existing-test-key\n' > "$observation_env"
+  cp "$observation_env" "$observation_env.before"
+  if ensure_emqx_admin_env "$observation_env" 'http://emqx:18083' >/dev/null 2>&1; then
+    echo 'Accepted an incomplete EMQX credential pair' >&2; exit 1
+  fi
+  cmp "$observation_env.before" "$observation_env"
+)
+echo 'PASS EMQX management credentials: generate once, preserve and reject incomplete pairs'
+
 docker() {
   printf '%s\n' "$*" >> "$TEST_CALLS"
   if [ "$1" = info ] && [[ " $* " == *' --format '* ]]; then

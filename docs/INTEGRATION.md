@@ -80,11 +80,18 @@ X-Device-Secret: <设备 Secret>
 | 告警 | `/iot/up/{tenant}/{product}/{device}/alarm` |
 | 状态 | `/iot/up/{tenant}/{product}/{device}/state` |
 | 命令回执 | `/iot/up/{tenant}/{product}/{device}/command-reply` |
-| 订阅下行 | `/iot/down/{tenant}/{product}/{device}/command` |
+| 订阅命令 | `/iot/down/{tenant}/{product}/{device}/command` |
+| 订阅归档确认 | `/iot/down/{tenant}/{product}/{device}/receipt` |
 
 标准设备 ACL 只授予自身上行与下行主题；平台拒绝 retained 上行，并重新检查设备和产品启用状态。HTTP/MQTT 的设备连接状态来自标准 state 上报，不是 Broker 实时在线查询。
 
-设备收到 PUBACK 只表示 Broker 接收。平台运行连接先写本机持久队列再确认投递，随后归档与解析；队列容量、隔离记录和磁盘持久性见 [MQTT 接收保障](#mqtt-接收保障)。
+设备收到 PUBACK 只表示 Broker 接收。先订阅令牌响应的 `receiptTopic`，再以 QoS 1 发布。平台完成原文持久归档和索引后，在本设备的 receipt 主题发送 QoS 1、非 retained 确认：
+
+```json
+{"id":"设备原始消息ID","rawMessageId":"raw_std_...","payloadHash":"原上行JSON字节的SHA256十六进制摘要","status":"archived","archivedAt":1790000000000}
+```
+
+设备用 `id + payloadHash` 关联确认，保存尚未确认的消息；超时或重连后重发完全相同的字节、ID 和 timestamp，使用退避并限制重试速率。收到确认后才能从设备待发队列移除。重复确认允许出现；同 ID 不同正文会被拒绝。`archived` 不表示解析、入库、告警或 AI 已完成，后续按 `rawMessageId` 查询。原始报文入口 `/external/raw/...` 的摘要针对 RawMessage 的 Payload 字节。没有匹配应用确认时，设备必须保留“结果未知”，不能用 PUBACK 代替。队列容量、隔离记录和磁盘持久性见 [MQTT 接收保障](#mqtt-接收保障)。
 
 ## 凭据与命令
 
@@ -407,13 +414,15 @@ API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 3. 后台按原路径执行设备/产品状态校验、Raw 归档、幂等索引及内部消息发布。数据库或队列暂时失败时保留磁盘记录并重试。第一次接收时间保存在队列中，补传不改成重试时间。
 4. 完成处理后删除并刷新队列目录；进程在删除前退出可能重试，因此业务仍必须幂等。标准报文使用已有 `id`，原始 MQTT 信封必须提供 `messageId`，视频信封必须提供 `eventId`，不得依赖平台每次生成随机 ID。
 
-队列使用公共 `internal/durablequeue` 的文件锁、原子写入和隔离机制，32 个固定分片，默认总上限 1 GiB / 50000 项，均分到各分片；热点主题可能先达到分片上限。每个分片有一个接收写入协程和一个处理协程：Paho 回调只把投递交给所属分片（每分片最多缓冲 64 条，满时阻塞回调，后续报文留在 Broker），各分片并行落盘并各自 ACK，处理也按分片并行。同一分片内按文件名顺序处理，不保证同一设备的报文顺序。主题和原文字节的摘要用于接收队列去重，不替代业务消息 ID。满容量、写入错误或损坏隔离导致无法确认时，不 ACK，并通过重连请求 Broker 重投；没有启动无界 goroutine 或无限内存队列。
+队列使用公共 `internal/durablequeue` 的文件锁、原子写入和隔离机制，32 个固定分片，默认总上限 1 GiB / 50000 项，均分到各分片；热点主题可能先达到分片上限。接收回调在自身生命周期内完成 fsync 和 ACK，不能先返回再异步调用旧连接的 ACK。Paho 保持有序回调；每个分片的后台处理仍并行运行。回调被磁盘阻塞时，由 Broker 会话队列承接等待，设备仍须等待应用确认。同一分片内按文件名顺序处理，不保证同一设备的报文顺序。主题和原文字节的摘要用于接收队列去重，不替代业务消息 ID。满容量、写入错误或损坏隔离导致无法确认时，不 ACK，并通过重连请求 Broker 重投；没有启动无界 goroutine 或无限内存队列。
 
 平台持久会话尚未取走的报文由 EMQX 按会话队列缓存。Compose 将 `max_mqueue_len` 设为 100000（`IOT_EMQX_MAX_MQUEUE_LEN`）、`max_inflight` 设为 128（`IOT_EMQX_MAX_INFLIGHT`）；队列满时 Broker 会丢弃报文，而设备已经收到 PUBACK。
 
 不可解析的磁盘记录保留为 `.corrupt`；业务明确拒收的记录保留为 `.rejected`，都计入容量。未知错误默认可重试；数据库读取失败不能冒充设备认证失败而永久隔离。隔离原文仅供受信任运维人员检查，不能作为有效标准消息发布。目前没有队列管理页面；不得直接删除文件来宣称补传完成。
 
 客户端 ID 保存在同一目录的 `client-id`，跨进程重启保持不变，使用持久会话并在重连时恢复订阅。每个运行实例必须拥有独立且持久的目录；同一目录的文件锁禁止并发占用。扩副本不能复制同一个 `client-id` 供多个活跃进程使用。共享订阅继续按既有配置工作，各实例对自己接收并确认的报文负责。
+
+`mqtt_subscription_count` 只统计当前连接已成功恢复的订阅；`mqtt_broker_observation_ok=0` 表示未配置、断连或管理查询失败，此时旧的 Broker 数值不能解释为当前零丢弃。`mqtt_archive_receipt_total` 包含重试确认，不等于唯一归档数；唯一归档以 `raw_archive_success_total` 和数据库 message ID 审计为准。
 
 可观测性：`mqtt_inbox_pending`、`mqtt_inbox_rejected`、`mqtt_inbox_corrupt` 每五秒投影到既有指标；配置 `IOT_EMQX_API_URL`、`IOT_EMQX_API_KEY`、`IOT_EMQX_API_SECRET` 后，每 15 秒读取 Broker 上平台会话的 `mqtt_broker_queue`（排队数）与 `mqtt_broker_dropped`（累计丢弃数），丢弃数增加时记错误日志，表示接收速度低于设备发布速度且已有报文丢失；写入和处理失败记入健康检查与日志。隔离数量独立展示；已隔离记录本身不会让整个服务退出就绪状态，也不被计作处理成功。
 

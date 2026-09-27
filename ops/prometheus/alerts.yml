@@ -12,6 +12,26 @@ groups:
         for: 1m
         labels: {severity: critical}
         annotations: {summary: "原始报文归档失败"}
+      - alert: MQTTSubscriptionLost
+        expr: (mqtt_subscription_count == 0) and (mqtt_ingress_enabled == 1)
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "MQTT 平台接入订阅已中断"}
+      - alert: MQTTBrokerObservationMissing
+        expr: (mqtt_broker_observation_ok == 0) and (mqtt_ingress_enabled == 1)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "MQTT Broker 管理观测不可用，无法判断消息丢弃"}
+      - alert: MQTTDeliveryLoss
+        expr: (delta(mqtt_broker_dropped[5m]) > 0) or (delta(mqtt_inbox_rejected[5m]) > 0) or (mqtt_inbox_corrupt > 0)
+        for: 0m
+        labels: {severity: critical}
+        annotations: {summary: "MQTT 消息出现丢弃、拒收或持久队列损坏"}
+      - alert: MQTTInboxBacklog
+        expr: mqtt_inbox_pending > 10000
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: "MQTT 持久队列积压超过一万条"}
       - alert: ParseFailureSpike
         expr: increase(parse_failed_total[5m]) > 100
         for: 2m

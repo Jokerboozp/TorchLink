@@ -370,6 +370,71 @@ func TestHealthInspectionJobStore(t *testing.T) {
 	}
 }
 
+func TestInspectionPagesAndLegacyMigration(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	job := model.HealthInspectionJob{ID: "legacy", TenantID: "t", Status: "succeeded", StartedAt: 1, Report: model.DeviceHealthReport{GeneratedAt: 1}}
+	for i := 0; i < 205; i++ {
+		job.Report.Items = append(job.Report.Items, model.DeviceHealthItem{DeviceID: fmt.Sprint(i)})
+	}
+	body, _ := json.Marshal(job)
+	if _, err := r.pool.Exec(ctx, `INSERT INTO health_inspection_job(tenant_id,id,status,started_at,updated_at,body) VALUES('t','legacy','succeeded',1,1,$1)`, body); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := r.Migrate(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := r.LatestHealthInspectionSummary(ctx, "t", "succeeded")
+	if err != nil || len(summary.Report.Items) != 0 || summary.Report.TotalItems != 205 || summary.Report.ReportID != "legacy" {
+		t.Fatal(summary, err)
+	}
+	page, err := r.HealthInspectionPage(ctx, "t", "legacy", 100, 100)
+	if err != nil || len(page.Report.Items) != 100 || page.Report.Items[0].DeviceID != "100" || page.Report.Items[99].DeviceID != "199" {
+		t.Fatal(page, err)
+	}
+	if _, err = r.HealthInspectionPage(ctx, "other", "legacy", 100, 0); err != ErrNotFound {
+		t.Fatal("cross-tenant report", err)
+	}
+	full, err := r.LatestHealthInspectionJob(ctx, "t", "succeeded")
+	if err != nil || len(full.Report.Items) != 205 {
+		t.Fatal(len(full.Report.Items), err)
+	}
+	job.ID = "new"
+	job.StartedAt = 2
+	if created, err := r.CreateHealthInspectionJob(ctx, job); err != nil || !created {
+		t.Fatal(created, err)
+	}
+	if changed, err := r.UpdateRunningHealthInspectionJob(ctx, job); err != nil || changed {
+		t.Fatal("finished report mutated", changed, err)
+	}
+	page, err = r.HealthInspectionPage(ctx, "t", "new", 100, 200)
+	if err != nil || len(page.Report.Items) != 5 || page.Report.TotalItems != 205 {
+		t.Fatal(page, err)
+	}
+}
+
+func TestScopedChildCountsInPostgres(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	for _, d := range []model.ManagedDevice{{TenantID: "t", ID: "a", GatewayID: "p"}, {TenantID: "t", ID: "b", GatewayID: "p"}, {TenantID: "other", ID: "a", GatewayID: "p"}} {
+		d.AccessKey = d.TenantID + "-" + d.ID
+		if err := r.SaveManagedDevice(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		ids  []string
+		want int
+	}{{nil, 2}, {[]string{}, 0}, {[]string{"a"}, 1}, {[]string{"missing"}, 0}} {
+		got, err := r.CountManagedDeviceChildrenForDevices(ctx, "t", []string{"p"}, test.ids)
+		if err != nil || got["p"] != test.want {
+			t.Fatal(test, got, err)
+		}
+	}
+}
+
 // Plain enrollments into one product run in parallel, while two tenants that
 // reserve the same listener port at once still get exactly one reservation.
 func TestOnboardingParallelEnrollmentAndExclusivePort(t *testing.T) {

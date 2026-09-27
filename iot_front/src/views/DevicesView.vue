@@ -142,6 +142,7 @@ function leaveOnboarding(id = '') { onboarding.value = false; connectionDevice.v
 // 设备每次上报都会刷新最后活跃时间：可见行就地更新时间，只有运行状态变化或出现新设备才提示刷新。
 function realtime(event) {
   const detail = event?.detail || {}
+  if (String(detail.topic || '').includes('/device/added/')) { updatesAvailable.value = true; return }
   if (!String(detail.topic || '').includes('/device/state/')) return
   let state = detail.payload
   try { if (typeof state === 'string') state = JSON.parse(state) } catch { return }

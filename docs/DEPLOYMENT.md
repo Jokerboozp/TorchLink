@@ -310,12 +310,25 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | `IOT_POSTGRES_MAX_CONNS` | 64 | 每个 API / 网关进程的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
 | `POSTGRES_MAX_CONNECTIONS` | 300 | Compose 中 PostgreSQL 的 `max_connections` |
 | `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
+| `IOT_AI_ANALYSIS_CONCURRENCY` / `IOT_AI_ANALYSIS_RPM` | 2 / 12 | 每进程自动研判并发与请求/分钟，所有副本合计不能超过模型配额 |
+| `IOT_AI_ANALYSIS_TIMEOUT` / `IOT_AI_ANALYSIS_MAX_WAIT` | 90s / 10m | 含额度等待的执行期限 / 告警事件最长等待年龄；恢复时取消 |
 | `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与存储积压超过该值时暂停接收新原文，0 关闭 |
 | `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
 | `IOT_MQTT_DEVICE_TOKEN_TTL` | 24h | 标准设备 MQTT 令牌有效期，仅在配置 EMQX 管理 API 时生效，否则 5 分钟 |
 | `IOT_EMQX_MAX_MQUEUE_LEN` / `IOT_EMQX_MAX_INFLIGHT` | 100000 / 128 | EMQX 会话队列与在途窗口；队列满时 Broker 丢弃报文 |
 
 EMQX 容器的文件句柄上限在 Compose 中设为 1048576，每条 MQTT 连接占一个句柄；自行部署 EMQX 时须同样放开。配置 `IOT_EMQX_API_URL`、`IOT_EMQX_API_KEY`、`IOT_EMQX_API_SECRET` 后平台可即时撤销设备凭据，并采集 `mqtt_broker_dropped` 以发现 Broker 丢弃。
+
+本地准备、在线部署和离线打包会补齐空的 EMQX 管理凭据，保留已有密钥；仅填写 Key 或 Secret 会报错。Compose 通过 EMQX 5.8 的 `api_key.bootstrap_file` 引导文件加载专用 API 凭据。源码机 URL 为可达的 Broker 管理根地址（不带 `/api/v5`）；在线/离线默认为 `http://emqx:18083`。管理端口不得公开到不受信任网络。既有运行环境可通过 EMQX 管理 API 创建专用 Key，保存到环境文件后重启平台；只编辑文件不等于已在 Broker 创建 Key。详情参见 [EMQX REST API](https://docs.emqx.com/en/emqx/latest/guides/api.html)。
+
+集群规划先运行只读检查，不创建主题或实例：
+
+```bash
+go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 32
+# 有真实供应商额度和实测平均延迟时，再填入 provider-rpm 与 model-latency
+```
+
+输出区分配置预算通过、阻塞、未验证及模型估算。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由和模型 token 配额仍须在目标集群验证。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
 
 ## 高可用边界
 

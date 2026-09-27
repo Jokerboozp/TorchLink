@@ -218,7 +218,7 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 	_, _, err := repo.UpsertAlarm(ctx, model.Alarm{TenantID: "tenant_b", ID: "foreign-alarm", DeviceID: "foreign-device", RuleID: "foreign", Status: "ACTIVE"})
 	must(err)
 	adminEvents := req("GET", "/api/v1/events", root, nil, 200)
-	if len(adminEvents["alarms"].([]any)) != 46 || len(adminEvents["devices"].([]any)) != 46 {
+	if len(adminEvents["alarms"].([]any)) != 46 || len(adminEvents["devices"].([]any)) != 46 || adminEvents["deviceTotal"] != float64(46) {
 		t.Fatal("administrator events must contain only the current tenant's data", adminEvents)
 	}
 	if permissions := adminEvents["permissions"].([]any); len(permissions) != 1 || permissions[0] != "*" {
@@ -270,7 +270,7 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 		t.Fatal("dashboard leaks outside scope", v)
 	}
 	v = req("GET", "/api/v1/events", token, nil, 200)
-	if len(v["alarms"].([]any)) != 23 || len(v["devices"].([]any)) != 23 {
+	if len(v["alarms"].([]any)) != 23 || len(v["devices"].([]any)) != 23 || v["deviceTotal"] != float64(23) {
 		t.Fatal("events leak scope")
 	}
 	req("POST", "/api/v1/mqtt/token", token, nil, 403)
@@ -758,5 +758,26 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 	must(err)
 	if strings.Join(saved.KnowledgeDocuments, ",") != "doc-alarm" {
 		t.Fatalf("knowledge run did not record its source documents: %#v", saved)
+	}
+}
+
+type noFullRegistryRepo struct {
+	*memory.Repository
+	fullReads int
+}
+
+func (r *noFullRegistryRepo) ListManagedDevices(ctx context.Context, tenant string) ([]model.ManagedDevice, error) {
+	r.fullReads++
+	return r.Repository.ListManagedDevices(ctx, tenant)
+}
+func TestScopedChildCountsStayInStorage(t *testing.T) {
+	base := &noFullRegistryRepo{Repository: memory.NewRepository()}
+	ctx := context.WithValue(context.Background(), deviceScopeKey{}, deviceScope{Tenant: "t", IDs: map[string]bool{"g": true, "c": true, "x": true}})
+	for _, d := range []model.ManagedDevice{{TenantID: "t", ID: "c", GatewayID: "g"}, {TenantID: "t", ID: "hidden", GatewayID: "g"}, {TenantID: "t", ID: "x", GatewayID: "other"}} {
+		_ = base.SaveManagedDevice(ctx, d)
+	}
+	counts, err := ScopedRepository(base).CountManagedDeviceChildren(ctx, "t", []string{"g"})
+	if err != nil || counts["g"] != 1 || len(counts) != 1 || base.fullReads != 0 {
+		t.Fatalf("counts=%v fullRegistryReads=%d err=%v", counts, base.fullReads, err)
 	}
 }

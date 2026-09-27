@@ -225,6 +225,9 @@ function New-OfflineEnv {
             "IOT_CORS_ALLOWED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080",
             "EMQX_DASHBOARD_USER=admin",
             "EMQX_DASHBOARD_PASSWORD=$emqxPassword",
+            "IOT_EMQX_API_URL=http://emqx:18083",
+            "IOT_EMQX_API_KEY=$(New-RandomHex -Bytes 32)",
+            "IOT_EMQX_API_SECRET=$(New-RandomHex -Bytes 32)",
             "GRAFANA_ADMIN_USER=admin",
             "GRAFANA_ADMIN_PASSWORD=$grafanaPassword"
         )
@@ -282,6 +285,7 @@ function New-OfflineEnv {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false')
     }
     Write-Utf8NoBom -Path $Destination -Lines $lines
+    Ensure-EmqxAdminEnv -Path $Destination -DefaultUrl "http://emqx:18083"
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
     Add-DeploymentEnvComments -Path $Destination
     $credentialPath = Join-Path (Split-Path -Parent $Destination) "OFFLINE-CREDENTIALS.txt"

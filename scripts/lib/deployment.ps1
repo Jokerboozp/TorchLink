@@ -220,3 +220,18 @@ function Set-DeepSeekDeploymentEnv {
     }).GetEnumerator()) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value ([string]$setting.Value) }
     if (-not $key) { Write-Warning '请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥、测试并应用；未配置前 AI 功能不可用。' }
 }
+
+function Ensure-EmqxAdminEnv {
+    param([string]$Path, [string]$DefaultUrl)
+    $apiKey = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_KEY'
+    $apiSecret = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_SECRET'
+    if ([string]::IsNullOrWhiteSpace($apiKey) -and [string]::IsNullOrWhiteSpace($apiSecret)) {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_KEY' -Value (New-DeploymentSecret)
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_SECRET' -Value (New-DeploymentSecret)
+    } elseif ([string]::IsNullOrWhiteSpace($apiKey) -or [string]::IsNullOrWhiteSpace($apiSecret)) {
+        throw 'EMQX 管理凭据不完整，请同时配置 IOT_EMQX_API_KEY 和 IOT_EMQX_API_SECRET。'
+    }
+    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_URL'))) {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_URL' -Value $DefaultUrl
+    }
+}

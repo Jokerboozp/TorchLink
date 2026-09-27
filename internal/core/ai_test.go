@@ -522,3 +522,104 @@ func TestRenderHealthInspectionPDFBoundsDeviceRows(t *testing.T) {
 		t.Fatalf("rows beyond the limit were rendered: %d pages vs %d", reader.NumPage(), limitReader.NumPage())
 	}
 }
+
+func TestOpsReportBoundsContextAtLargeDevicePopulation(t *testing.T) {
+	e, repo, workflows := newBusinessEngine(t, func(req ports.AIWorkflowRequest) (string, error) {
+		if len(req.Question) > 20000 {
+			t.Errorf("ops report exceeds Harness input budget: %d bytes", len(req.Question))
+		}
+		return "报告", nil
+	})
+	ctx := aitest.Context(context.Background())
+	for i := 0; i < 500; i++ {
+		_ = repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t1", DeviceID: strconv.Itoa(i), BusinessStatus: "ONLINE", Reason: strings.Repeat("设备详情", 100)})
+	}
+	if _, err := e.GenerateReport(ctx, "t1", "日报", 1, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if len(workflows.Requests()) != 1 {
+		t.Fatal("report did not run")
+	}
+}
+
+type cancellableAI struct {
+	aitest.Workflows
+	started chan struct{}
+}
+
+func (w *cancellableAI) StreamChat(ctx context.Context, req ports.AIWorkflowRequest, _ func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
+	close(w.started)
+	<-ctx.Done()
+	return ports.AIWorkflowResult{}, ctx.Err()
+}
+func TestAutomaticAnalysisCancelsResolvedInFlightAlarm(t *testing.T) {
+	e, repo, _ := newBusinessEngine(t, nil)
+	runtime := &cancellableAI{started: make(chan struct{})}
+	e.AIWorkflows = runtime
+	alarm := model.Alarm{TenantID: "t", ID: "a", DeviceID: "d", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
+	_, _, _ = repo.UpsertAlarm(context.Background(), alarm)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- e.handleAI(ctx, mustJSON(alarm)) }()
+	<-runtime.started
+	alarm.Status = "RECOVERED"
+	_ = repo.UpdateAlarm(context.Background(), alarm)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2200 * time.Millisecond):
+		t.Fatal("resolved alarm continues consuming model capacity")
+	}
+}
+
+func TestAutomaticAnalysisBudgetsAndOutcomes(t *testing.T) {
+	for _, kind := range []string{"expired", "timeout"} {
+		t.Run(kind, func(t *testing.T) {
+			e, repo, w := newBusinessEngine(t, nil)
+			alarm := model.Alarm{TenantID: "t", ID: "a", DeviceID: "d", Status: "ACTIVE", LastTriggeredAt: time.Now().Add(-time.Minute).UnixMilli()}
+			_, _, _ = repo.UpsertAlarm(context.Background(), alarm)
+			if kind == "expired" {
+				e.ConfigureAutomaticAnalysis(time.Second, time.Second, 12)
+			} else {
+				e.ConfigureAutomaticAnalysis(30*time.Millisecond, 0, 0)
+				e.AIWorkflows = &cancellableAI{started: make(chan struct{})}
+			}
+			if err := e.handleAI(context.Background(), mustJSON(alarm)); err != nil {
+				t.Fatal(err)
+			}
+			saved, err := repo.GetAIAnalysis(context.Background(), "t", "a", model.AIAnalysisScopeNone)
+			want := "skipped"
+			if kind == "timeout" {
+				want = "failed"
+			}
+			if err != nil || saved.Status != want || saved.Error == "" {
+				t.Fatal(saved, err)
+			}
+			if kind == "expired" && len(w.Requests()) != 0 {
+				t.Fatal("expired work called model")
+			}
+		})
+	}
+	e, _, _ := newBusinessEngine(t, nil)
+	e.ConfigureAutomaticAnalysis(time.Second, 0, 600)
+	ctx := context.Background()
+	alarm := model.Alarm{}
+	if err := e.waitAutomaticBudget(ctx, alarm); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := e.waitAutomaticBudget(ctx, alarm); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) < 80*time.Millisecond {
+		t.Fatal("request rate budget was not applied")
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := e.waitAutomaticBudget(cancelled, alarm); !errors.Is(err, context.Canceled) {
+		t.Fatal("rate wait ignored cancellation", err)
+	}
+}

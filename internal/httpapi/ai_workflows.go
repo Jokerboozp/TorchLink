@@ -36,73 +36,111 @@ func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	s.rememberHealthInspection(ctx, claims(r).TenantID, claims(r).Username, report)
-	write(w, http.StatusOK, report)
+	job, err := s.rememberHealthInspection(ctx, claims(r).TenantID, claims(r).Username, report)
+	if err != nil {
+		problem(w, 503, "保存巡检报告失败")
+		return
+	}
+	job.Report.Items = job.Report.Items[:min(100, len(job.Report.Items))]
+	write(w, http.StatusOK, job.Report)
 }
 
+// A PDF download never starts a new inspection or loads all device rows.
 func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	tenantID := claims(r).TenantID
-	report, ok := s.recentHealthInspection(ctx, tenantID)
-	if !ok {
-		if job, found, _ := s.loadHealthInspectionJob(ctx, tenantID); found && job.Status == "running" {
-			problem(w, http.StatusConflict, "智能巡检仍在进行，请等待任务完成后再下载报告")
-			return
-		}
-		// Concurrent downloads after the cached report expired share one
-		// inspection instead of each running the whole tenant again.
-		value, err, _ := s.inspectionRuns.Do(tenantID, func() (any, error) {
-			fresh, inspectErr := s.engine.InspectDeviceHealth(aiRunContext(ctx, claims(r)), tenantID)
-			if inspectErr == nil {
-				s.rememberHealthInspection(ctx, tenantID, claims(r).Username, fresh)
-			}
-			return fresh, inspectErr
-		})
-		if err != nil {
-			problem(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		report = value.(model.DeviceHealthReport)
+	select {
+	case s.inspectionRequests <- struct{}{}:
+	default:
+		w.Header().Set("Retry-After", "3")
+		problem(w, 429, "巡检报告下载繁忙，请稍后重试")
+		return
 	}
-	data, err := s.inspectionPDFs.render(ctx, tenantID, report)
-	if errors.Is(err, errPDFBusy) {
-		w.Header().Set("Retry-After", "10")
-		problem(w, http.StatusTooManyRequests, "巡检报告正在生成的数量已达上限，请稍后重试")
+	defer func() { <-s.inspectionRequests }()
+	ctx := r.Context()
+	tenant := claims(r).TenantID
+	var job model.HealthInspectionJob
+	var err error
+	if id := r.URL.Query().Get("jobId"); id != "" {
+		job, err = s.engine.Repo.HealthInspectionPage(ctx, tenant, id, 1, 0)
+	} else {
+		job, err = s.engine.Repo.LatestHealthInspectionSummary(ctx, tenant, "succeeded")
+	}
+	if errors.Is(err, model.ErrNotFound) {
+		problem(w, 409, "请先完成一次智能巡检再下载报告")
 		return
 	}
 	if err != nil {
-		problem(w, http.StatusInternalServerError, err.Error())
+		problem(w, 503, "读取巡检报告失败")
 		return
 	}
-	filename := fmt.Sprintf("health-inspection-%d.pdf", report.GeneratedAt)
+	if job.Status != "succeeded" {
+		problem(w, 409, "智能巡检尚未完成")
+		return
+	}
+	data, err := s.inspectionPDFs.load(ctx, tenant, job.ID, func(loadCtx context.Context) (model.DeviceHealthReport, error) {
+		page, e := s.engine.Repo.HealthInspectionPage(loadCtx, tenant, job.ID, core.InspectionPDFMaxDevices, 0)
+		if e == nil && page.Report.TotalItems > len(page.Report.Items) {
+			page.Report.Warnings = append(page.Report.Warnings, fmt.Sprintf("PDF 仅展示前 %d 台设备明细，完整 %d 台设备请在巡检页面分页查看。", len(page.Report.Items), page.Report.TotalItems))
+		}
+		return page.Report, e
+	})
+	if errors.Is(err, errPDFBusy) {
+		w.Header().Set("Retry-After", "3")
+		problem(w, 429, "巡检报告生成繁忙，请稍后重试")
+		return
+	}
+	if err != nil {
+		problem(w, 500, "生成巡检报告失败")
+		return
+	}
+	filename := fmt.Sprintf("health-inspection-%d.pdf", job.Report.GeneratedAt)
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, filename, url.QueryEscape("智能巡检结果.pdf")))
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	s.audit(r, "ai.health-inspection.download", "device-health", fmt.Sprintf("inspection_%d", report.GeneratedAt), map[string]any{"format": "pdf", "bytes": len(data)})
-	w.WriteHeader(http.StatusOK)
+	s.audit(r, "ai.health-inspection.download", "device-health", job.ID, map[string]any{"format": "pdf", "bytes": len(data)})
+	w.WriteHeader(200)
 	_, _ = w.Write(data)
 }
 
-// rememberHealthInspection stores a report produced outside a background job
-// (synchronous inspection or PDF regeneration) as a completed job, so the PDF
-// download on any replica reuses it.
-func (s *Server) rememberHealthInspection(ctx context.Context, tenantID, actor string, report model.DeviceHealthReport) {
+func (s *Server) rememberHealthInspection(ctx context.Context, tenantID, actor string, report model.DeviceHealthReport) (model.HealthInspectionJob, error) {
 	now := time.Now().UnixMilli()
 	job := model.HealthInspectionJob{ID: "inspection_job_" + randomHex(10), TenantID: tenantID, Actor: actor, Status: "succeeded", Stage: "completed", Message: "智能巡检已完成", Progress: 100, StartedAt: now, UpdatedAt: now, FinishedAt: now, Report: report}
-	if _, err := s.engine.Repo.CreateHealthInspectionJob(ctx, job); err != nil && s.log != nil {
-		s.log.Warn("save health inspection report failed", "tenant", tenantID, "error", err)
-	}
+	job.Report.ReportID, job.Report.TotalItems = job.ID, len(report.Items)
+	_, err := s.engine.Repo.CreateHealthInspectionJob(ctx, job)
+	return job, err
 }
 
-// recentHealthInspection returns the newest completed report that is still
-// fresh enough to download without inspecting again.
-func (s *Server) recentHealthInspection(ctx context.Context, tenantID string) (model.DeviceHealthReport, bool) {
-	job, err := s.engine.Repo.LatestHealthInspectionJob(ctx, tenantID, "succeeded")
-	if err != nil || time.Since(time.UnixMilli(job.FinishedAt)) > healthInspectionCacheTTL {
-		return model.DeviceHealthReport{}, false
+func (s *Server) healthInspectionPage(w http.ResponseWriter, r *http.Request) {
+	limit, offset := 100, 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, e := strconv.Atoi(v)
+		if e != nil || n < 1 || n > 100 {
+			problem(w, 400, "limit 必须为 1 到 100")
+			return
+		}
+		limit = n
 	}
-	return job.Report, true
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, e := strconv.Atoi(v)
+		if e != nil || n < 0 {
+			problem(w, 400, "offset 必须是非负整数")
+			return
+		}
+		offset = n
+	}
+	job, err := s.engine.Repo.HealthInspectionPage(r.Context(), claims(r).TenantID, r.PathValue("jobId"), limit, offset)
+	if errors.Is(err, model.ErrNotFound) {
+		problem(w, 404, "巡检报告不存在")
+		return
+	}
+	if err != nil {
+		problem(w, 503, "读取巡检报告失败")
+		return
+	}
+	if job.Status != "succeeded" {
+		problem(w, 409, "巡检尚未完成")
+		return
+	}
+	write(w, 200, job.Report)
 }
 
 func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Request) {

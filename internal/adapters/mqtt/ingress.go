@@ -57,7 +57,13 @@ func (c *Client) register(kind string, topics []string, handler ingressHandler) 
 	if !token.WaitTimeout(10 * time.Second) {
 		return errors.New("MQTT subscription timeout")
 	}
-	return token.Error()
+	if err := token.Error(); err != nil {
+		return err
+	}
+	c.routeMu.RLock()
+	c.subscribed.Store(int64(len(c.filters)))
+	c.routeMu.RUnlock()
+	return nil
 }
 func (c *Client) resubscribe(client mqtt.Client) {
 	c.routeMu.RLock()
@@ -72,8 +78,11 @@ func (c *Client) resubscribe(client mqtt.Client) {
 	token := client.SubscribeMultiple(filters, func(_ mqtt.Client, m mqtt.Message) { c.receive(m) })
 	if !token.WaitTimeout(10*time.Second) || token.Error() != nil {
 		c.logger().Error("MQTT resubscription failed")
+		c.subscribed.Store(0)
 		c.retryConnection()
+		return
 	}
+	c.subscribed.Store(int64(len(filters)))
 }
 func (c *Client) receive(m mqtt.Message) {
 	if c.ctx.Err() != nil {
@@ -85,9 +94,11 @@ func (c *Client) receive(m mqtt.Message) {
 		return
 	}
 	if c.inbox != nil {
-		if !c.inbox.enqueue(c, m) {
-			c.persist(m)
-		}
+		// Paho v1's ACK closure belongs to this delivery callback's connection.
+		// Keep the callback alive through fsync + ACK: after it returns the
+		// router may close its ACK channel during disconnect/reconnect.
+		// Business processing still runs on the durable queue's parallel lanes.
+		c.persist(m)
 		return
 	}
 	// Preserve the legacy embedded/test constructor semantics. Production uses

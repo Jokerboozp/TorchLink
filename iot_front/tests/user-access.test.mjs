@@ -173,3 +173,18 @@ test('增量快照只含变化的告警，按游标请求并保留此前的快�
  // An empty delta keeps the earlier rows, so an unchanged alarm is not re-announced.
  await r.timers.shift()();assert.equal(r.messages.length,1)
 })
+
+test('截断窗口轮转不伪报新设备，窗口不变时仍定期提示刷新列表',async()=>{
+ let snapshot={alarms:[],devices:[{deviceId:'d1'}],deviceTotal:600,permissions:['menu:devices'],truncated:true}
+ const r=realtime(async()=>snapshot);await r.start();await settle()
+ snapshot={...snapshot,devices:[{deviceId:'d2'}]};await r.timers.shift()()
+ const state=r.messages.find(m=>m[0].includes('/device/state/'))
+ assert.equal(state[2].added,false)
+ assert.ok(r.messages.some(m=>m[0].includes('/snapshot/refresh/')))
+ r.messages.length=0
+ for(let i=0;i<8;i++)await r.timers.shift()()
+ assert.equal(r.messages.length,1)
+ assert.match(r.messages[0][0],/snapshot\/refresh/)
+ snapshot={...snapshot,deviceTotal:601,devices:[{deviceId:'brand-new'}]};await r.timers.shift()()
+ assert.equal(r.messages.filter(m=>m[0].includes('/device/added/')).length,1,'新设备总数增加必须继续提示')
+})

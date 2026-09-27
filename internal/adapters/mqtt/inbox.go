@@ -27,9 +27,6 @@ type durableInbox struct {
 	mu        sync.Mutex
 	lastError error
 	pending   map[int]error
-	// intake holds, per shard, deliveries waiting to be persisted and
-	// acknowledged by that shard's writer; nil until startIntake.
-	intake []chan mqtt.Message
 }
 
 // Inbox sizing: shards are drained in parallel, so their number bounds how
@@ -38,7 +35,6 @@ const (
 	inboxShards   = 32
 	inboxMaxItems = 50000
 	inboxMaxBytes = 1 << 30
-	intakeBuffer  = 64
 )
 
 func NewDurableWithCredentials(broker, root string, credentials mqtt.CredentialsProvider) (*Client, error) {
@@ -147,43 +143,6 @@ func (d *durableInbox) health() error {
 		return fmt.Errorf("MQTT receive inbox: %w", err)
 	}
 	return nil
-}
-
-// startIntake persists deliveries on one writer per shard, so the durable
-// write and PUBACK of different shards overlap instead of the whole session
-// waiting on one disk flush at a time. A full shard channel blocks Paho's
-// delivery, which leaves further messages queued at the broker.
-func (d *durableInbox) startIntake(c *Client) {
-	d.intake = make([]chan mqtt.Message, len(d.queues))
-	for i := range d.intake {
-		d.intake[i] = make(chan mqtt.Message, intakeBuffer)
-		d.wg.Add(1)
-		go func(in <-chan mqtt.Message) {
-			defer d.wg.Done()
-			for {
-				select {
-				case <-c.ctx.Done():
-					// Unacknowledged deliveries are redelivered by the broker session.
-					return
-				case m := <-in:
-					c.persist(m)
-				}
-			}
-		}(d.intake[i])
-	}
-}
-
-// enqueue hands a delivery to its shard writer; false means the inbox is not
-// taking deliveries asynchronously and the caller persists it directly.
-func (d *durableInbox) enqueue(c *Client, m mqtt.Message) bool {
-	if d.intake == nil {
-		return false
-	}
-	select {
-	case d.intake[d.shard(m.Topic())] <- m:
-	case <-c.ctx.Done():
-	}
-	return true
 }
 
 func (d *durableInbox) start(c *Client) {

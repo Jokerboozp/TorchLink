@@ -586,3 +586,85 @@ func TestInvalidComponentsAndPlainStateCannotClearFire(t *testing.T) {
 		t.Fatal("fault recovery cleared fire")
 	}
 }
+
+type countedStateRepo struct {
+	*memory.Repository
+	reads, writes, alarmReads int
+}
+
+func (r *countedStateRepo) GetDeviceState(ctx context.Context, t, d string) (model.DeviceState, error) {
+	r.reads++
+	return r.Repository.GetDeviceState(ctx, t, d)
+}
+func (r *countedStateRepo) UpsertDeviceState(ctx context.Context, v model.DeviceState) error {
+	r.writes++
+	return r.Repository.UpsertDeviceState(ctx, v)
+}
+func (r *countedStateRepo) ListAlarms(ctx context.Context, f ports.AlarmFilter) ([]model.Alarm, error) {
+	r.alarmReads++
+	return r.Repository.ListAlarms(ctx, f)
+}
+func TestStandardMessageWritesFinalStateOnce(t *testing.T) {
+	repo := &countedStateRepo{Repository: memory.NewRepository()}
+	e := New(repo, nil, local.NewBus(), local.NewRealtime(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	msg := model.StandardMessage{TenantID: "t", DeviceID: "d", ProductID: "p", MessageID: "m", Timestamp: 1000, MessageType: model.PropertyReport, Properties: map[string]any{"temperature": 22}}
+	if err := e.handleStandard(context.Background(), mustJSON(msg)); err != nil {
+		t.Fatal(err)
+	}
+	if repo.writes != 1 || repo.reads > 1 || repo.alarmReads != 0 {
+		t.Fatalf("per-message operations: state writes=%d reads=%d alarm list reads=%d", repo.writes, repo.reads, repo.alarmReads)
+	}
+	if err := e.handleStandard(context.Background(), mustJSON(msg)); err != nil {
+		t.Fatal(err)
+	}
+	if repo.writes != 1 {
+		t.Fatal("duplicate rewrote processed state")
+	}
+}
+
+type flakyReceiptPublisher struct {
+	ports.RealtimePublisher
+	calls int
+	body  []byte
+}
+
+func (p *flakyReceiptPublisher) Publish(_ context.Context, topic string, body []byte, qos byte, retained bool) error {
+	if topic != "/iot/down/t/p/d/receipt" || qos != 1 || retained {
+		return fmt.Errorf("unexpected receipt route: %s", topic)
+	}
+	p.calls++
+	p.body = append([]byte{}, body...)
+	if p.calls == 1 {
+		return errors.New("receipt connection lost")
+	}
+	return nil
+}
+func TestMQTTArchiveReceiptRetryAndConflict(t *testing.T) {
+	e, repo, _ := newBusinessEngine(t, nil)
+	p := &flakyReceiptPublisher{RealtimePublisher: local.NewRealtime()}
+	e.Realtime = p
+	raw := model.RawMessage{MessageID: "raw-r", TenantID: "t", ProductID: "p", DeviceID: "d", Protocol: "json", PayloadFormat: "json", ReceivedAt: 1, Payload: json.RawMessage(`{"id":"device-r","properties":{"value":1}}`), Metadata: map[string]any{"clientMessageId": "device-r"}}
+	if err := e.IngestMQTT(context.Background(), raw); err == nil {
+		t.Fatal("missing receipt must retry")
+	}
+	if _, err := repo.GetRawIndex(context.Background(), "t", "raw-r"); err != nil {
+		t.Fatal("archive must precede receipt", err)
+	}
+	if err := e.IngestMQTT(context.Background(), raw); err != nil {
+		t.Fatal(err)
+	}
+	var receipt struct{ ID, Status, PayloadHash, RawMessageID string }
+	if err := json.Unmarshal(p.body, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.ID != "device-r" || receipt.Status != "archived" || receipt.PayloadHash != raw.PayloadHash() || receipt.RawMessageID != "raw-r" {
+		t.Fatal(receipt)
+	}
+	raw.Payload = json.RawMessage(`{"id":"device-r","properties":{"value":2}}`)
+	if err := e.IngestMQTT(context.Background(), raw); err == nil {
+		t.Fatal("same archive ID changed payload was accepted")
+	}
+	if p.calls != 2 {
+		t.Fatal("conflict emitted a receipt", p.calls)
+	}
+}

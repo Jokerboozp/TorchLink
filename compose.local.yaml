@@ -186,10 +186,16 @@ services:
         umask 077
         jwt_secret_b64="$$(printf '%s' "$$IOT_JWT_SECRET" | base64 | tr -d '\n')"
         printf 'authentication = [{mechanism = jwt, from = password, algorithm = "hmac-based", use_jwks = false, secret = "%s", secret_base64_encoded = true, acl_claim_name = "acl", verify_claims = [{name = "username", value = "$${username}"}], disconnect_after_expire = true}]\n' "$$jwt_secret_b64" > /opt/emqx/etc/base.hocon
+        if [ -n "$$IOT_EMQX_API_KEY" ] && [ -n "$$IOT_EMQX_API_SECRET" ]; then
+          printf '%s:%s:administrator\n' "$$IOT_EMQX_API_KEY" "$$IOT_EMQX_API_SECRET" > /opt/emqx/etc/platform-api-keys
+          printf '\napi_key.bootstrap_file = "/opt/emqx/etc/platform-api-keys"\n' >> /opt/emqx/etc/base.hocon
+        fi
         sed -i 's/{allow, all}\./{deny, all}./' /opt/emqx/etc/acl.conf
         exec /usr/bin/docker-entrypoint.sh /opt/emqx/bin/emqx foreground
     environment:
       EMQX_NAME: iot-emqx
+      IOT_EMQX_API_KEY: ${IOT_EMQX_API_KEY:-}
+      IOT_EMQX_API_SECRET: ${IOT_EMQX_API_SECRET:-}
       # Optional Erlang JIT compatibility flags for x86 emulation; native hosts use defaults.
       ERL_FLAGS: ${IOT_EMQX_ERL_FLAGS:-}
       IOT_JWT_SECRET: ${IOT_JWT_SECRET:?IOT_JWT_SECRET must be set}
@@ -481,6 +487,28 @@ configs:
   prometheus-local-alerts:
     content: |
       groups:
+        - name: mqtt-capacity
+          rules:
+            - alert: MQTTSubscriptionLost
+              expr: (mqtt_subscription_count == 0) and (mqtt_ingress_enabled == 1)
+              for: 1m
+              labels: {severity: critical}
+              annotations: {summary: "MQTT 平台接入订阅已中断"}
+            - alert: MQTTBrokerObservationMissing
+              expr: (mqtt_broker_observation_ok == 0) and (mqtt_ingress_enabled == 1)
+              for: 5m
+              labels: {severity: warning}
+              annotations: {summary: "MQTT Broker 管理观测不可用，无法判断消息丢弃"}
+            - alert: MQTTDeliveryLoss
+              expr: (delta(mqtt_broker_dropped[5m]) > 0) or (delta(mqtt_inbox_rejected[5m]) > 0) or (mqtt_inbox_corrupt > 0)
+              for: 0m
+              labels: {severity: critical}
+              annotations: {summary: "MQTT 消息出现丢弃、拒收或持久队列损坏"}
+            - alert: MQTTInboxBacklog
+              expr: mqtt_inbox_pending > 10000
+              for: 2m
+              labels: {severity: warning}
+              annotations: {summary: "MQTT 持久队列积压超过一万条"}
         - name: infrastructure
           rules:
             - alert: ScrapeTargetDown

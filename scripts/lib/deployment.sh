@@ -156,3 +156,18 @@ configure_deepseek_env() {
     echo '提示：请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥、测试并应用；未配置前 AI 功能不可用。' >&2
   fi
 }
+
+# Add the platform's own management credentials once; never rotate an existing key.
+ensure_emqx_admin_env() {
+  local env_path="$1" default_url="$2" api_key api_secret
+  api_key="$(get_deployment_env_value "$env_path" IOT_EMQX_API_KEY)"
+  api_secret="$(get_deployment_env_value "$env_path" IOT_EMQX_API_SECRET)"
+  if [ -z "$api_key" ] && [ -z "$api_secret" ]; then
+    set_deployment_env_value "$env_path" IOT_EMQX_API_KEY "$(deployment_secret)"
+    set_deployment_env_value "$env_path" IOT_EMQX_API_SECRET "$(deployment_secret)"
+  elif [ -z "$api_key" ] || [ -z "$api_secret" ]; then
+    echo 'EMQX 管理凭据不完整，请同时配置 IOT_EMQX_API_KEY 和 IOT_EMQX_API_SECRET。' >&2
+    return 1
+  fi
+  [ -n "$(get_deployment_env_value "$env_path" IOT_EMQX_API_URL)" ] || set_deployment_env_value "$env_path" IOT_EMQX_API_URL "$default_url"
+}

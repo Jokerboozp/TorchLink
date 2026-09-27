@@ -344,6 +344,9 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	if err != nil {
 		return ports.AIWorkflowResult{}, err
 	}
+	if len(payload) > 32768 {
+		return ports.AIWorkflowResult{}, errors.New("AI 工作流输入超过 32 KiB，请缩小范围或使用分页查询")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+"/v1/chat/stream", bytes.NewReader(payload))
 	if err != nil {
 		return ports.AIWorkflowResult{}, err

@@ -23,7 +23,7 @@ var ErrNotFound = model.ErrNotFound
 
 type Repository struct{ pool *pgxpool.Pool }
 
-const countManagedDeviceChildrenSQL = `SELECT body->>'gatewayId' AS gateway_id,count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId' = ANY($2::text[]) GROUP BY body->>'gatewayId'`
+const countManagedDeviceChildrenSQL = `SELECT body->>'gatewayId' AS gateway_id,count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId' = ANY($2::text[]) AND ($3::text[] IS NULL OR id = ANY($3::text[])) GROUP BY body->>'gatewayId'`
 
 func normalizePage(limit, offset int) (int, int) {
 	if limit <= 0 {
@@ -462,11 +462,14 @@ func (r *Repository) ListManagedDevicesPage(ctx context.Context, tenant string, 
 	return items, total, rows.Err()
 }
 func (r *Repository) CountManagedDeviceChildren(ctx context.Context, tenant string, ids []string) (map[string]int, error) {
+	return r.CountManagedDeviceChildrenForDevices(ctx, tenant, ids, nil)
+}
+func (r *Repository) CountManagedDeviceChildrenForDevices(ctx context.Context, tenant string, ids, children []string) (map[string]int, error) {
 	counts := make(map[string]int, len(ids))
 	if len(ids) == 0 {
 		return counts, nil
 	}
-	rows, err := r.pool.Query(ctx, countManagedDeviceChildrenSQL, tenant, ids)
+	rows, err := r.pool.Query(ctx, countManagedDeviceChildrenSQL, tenant, ids, children)
 	if err != nil {
 		return nil, err
 	}
@@ -731,12 +734,15 @@ func (r *Repository) ListDeviceStates(ctx context.Context, tenant string) ([]mod
 	return out, rows.Err()
 }
 func (r *Repository) ListDeviceStatesPage(ctx context.Context, tenant string, limit, offset int) ([]model.DeviceState, int, error) {
+	return r.ListDeviceStatesForDevicesPage(ctx, tenant, nil, limit, offset)
+}
+func (r *Repository) ListDeviceStatesForDevicesPage(ctx context.Context, tenant string, ids []string, limit, offset int) ([]model.DeviceState, int, error) {
 	limit, offset = normalizePage(limit, offset)
 	var total int
-	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM device_state WHERE ($1='' OR tenant_id=$1)`, tenant).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM device_state WHERE tenant_id=$1 AND ($2::text[] IS NULL OR device_id=ANY($2::text[]))`, tenant, ids).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.pool.Query(ctx, `SELECT body FROM device_state WHERE ($1='' OR tenant_id=$1) ORDER BY last_seen_at DESC,device_id LIMIT $2 OFFSET $3`, tenant, limit, offset)
+	rows, err := r.pool.Query(ctx, `SELECT body FROM device_state WHERE tenant_id=$1 AND ($2::text[] IS NULL OR device_id=ANY($2::text[])) ORDER BY last_seen_at DESC,device_id LIMIT $3 OFFSET $4`, tenant, ids, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1030,7 +1036,11 @@ func (r *Repository) ListAlarms(ctx context.Context, f ports.AlarmFilter) ([]mod
 	}
 	where, args := alarmFilterSQL(f)
 	args = append(args, limit, f.Offset)
-	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT body FROM alarm_record%s ORDER BY last_triggered_at DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
+	projection := "body"
+	if f.Summary {
+		projection = "body - 'details' - 'cameras'"
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`SELECT %s FROM alarm_record%s ORDER BY last_triggered_at DESC,id DESC LIMIT $%d OFFSET $%d`, projection, where, len(args)-1, len(args)), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1306,29 +1316,6 @@ func (r *Repository) GetAIAnalysis(ctx context.Context, tenant, id, knowledgeSco
 	}
 	return v, err
 }
-func (r *Repository) CreateHealthInspectionJob(ctx context.Context, v model.HealthInspectionJob) (bool, error) {
-	b, _ := json.Marshal(v)
-	// The partial unique index on running jobs turns a concurrent start into a no-op.
-	tag, err := r.pool.Exec(ctx, `INSERT INTO health_inspection_job(tenant_id,id,status,started_at,updated_at,body) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, v.TenantID, v.ID, v.Status, v.StartedAt, v.UpdatedAt, b)
-	return err == nil && tag.RowsAffected() == 1, err
-}
-func (r *Repository) UpdateRunningHealthInspectionJob(ctx context.Context, v model.HealthInspectionJob) (bool, error) {
-	b, _ := json.Marshal(v)
-	tag, err := r.pool.Exec(ctx, `UPDATE health_inspection_job SET status=$3,updated_at=$4,body=$5 WHERE tenant_id=$1 AND id=$2 AND status='running'`, v.TenantID, v.ID, v.Status, v.UpdatedAt, b)
-	return err == nil && tag.RowsAffected() == 1, err
-}
-func (r *Repository) LatestHealthInspectionJob(ctx context.Context, tenant, status string) (model.HealthInspectionJob, error) {
-	var v model.HealthInspectionJob
-	var b []byte
-	err := r.pool.QueryRow(ctx, `SELECT body FROM health_inspection_job WHERE tenant_id=$1 AND ($2='' OR status=$2) ORDER BY started_at DESC, updated_at DESC LIMIT 1`, tenant, status).Scan(&b)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return v, ErrNotFound
-	}
-	if err == nil {
-		err = json.Unmarshal(b, &v)
-	}
-	return v, err
-}
 func (r *Repository) CreateAlarmAnalysisJob(ctx context.Context, v model.AlarmAnalysisJob) (bool, error) {
 	b, _ := json.Marshal(v)
 	tx, err := r.pool.Begin(ctx)
@@ -1535,4 +1522,10 @@ func (r *Repository) UpdateDeviceAccessStatus(ctx context.Context, expected mode
 	}
 	result, err := r.pool.Exec(ctx, `UPDATE device_access_profile SET body=body || $4::jsonb WHERE tenant_id=$1 AND id=$2 AND (body - ARRAY['runtimeStatus','lastError','lastSuccessAt','lastErrorAt']) = ($3::jsonb - ARRAY['runtimeStatus','lastError','lastSuccessAt','lastErrorAt'])`, expected.TenantID, expected.ID, snapshot, change)
 	return result.RowsAffected() == 1, err
+}
+
+func (r *Repository) HasOpenAlarm(ctx context.Context, tenant, device string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND status IN ('ACTIVE','ACKED'))`, tenant, device).Scan(&exists)
+	return exists, err
 }

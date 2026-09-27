@@ -26,7 +26,7 @@ def prepare(bundle: Path) -> None:
         elif key == 'IOT_VIDEO_CREDENTIAL_KEY':
             # 32 random bytes (base64) that seal camera and GB28181 device passwords.
             value = '__TORCHLINK_RANDOM_BASE64_32__'
-        elif key.endswith(('_PASSWORD', '_TOKEN', '_SECRET', '_SECRETS')):
+        elif key == 'IOT_EMQX_API_KEY' or key.endswith(('_PASSWORD', '_TOKEN', '_SECRET', '_SECRETS')):
             value = '__TORCHLINK_RANDOM_HEX__'
         public_lines.append(f'{key}={value}')
     (bundle / '.env.offline.template').write_text('\n'.join(public_lines) + '\n')

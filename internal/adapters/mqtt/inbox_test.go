@@ -21,6 +21,8 @@ import (
 
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/auth"
+	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/durablequeue"
 	"iot-platform/internal/model"
@@ -277,28 +279,24 @@ func TestInboxReadFailureIsVisibleAndRecovers(t *testing.T) {
 	eventually(t, func() bool { return d.health() == nil })
 }
 
-// With intake writers running, deliveries of different shards are persisted
-// concurrently and each is acknowledged only after its durable write.
-func TestDurableIntakeAcknowledgesAfterPersisting(t *testing.T) {
+// The durable ACK must complete before the Paho delivery callback returns.
+// Business processing remains on the asynchronous durable queue.
+func TestDurableReceiveAcknowledgesWithinCallback(t *testing.T) {
 	d, err := openInbox(t.TempDir(), 8<<20, 8000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := inboxClient(t, d)
-	d.startIntake(c)
 	messages := make([]*receivedMessage, 200)
 	for i := range messages {
 		messages[i] = &receivedMessage{topic: fmt.Sprintf("/iot/up/t/p/device-%d/property", i), payload: fmt.Appendf(nil, `{"id":"m-%d"}`, i)}
 		c.receive(messages[i])
 	}
-	eventually(t, func() bool {
-		for _, m := range messages {
-			if !m.acked.Load() {
-				return false
-			}
+	for _, m := range messages {
+		if !m.acked.Load() {
+			t.Fatal("delivery callback returned before durable ACK; Paho may close this connection's ACK channel")
 		}
-		return true
-	})
+	}
 	if got := inboxDepth(d); got != len(messages) {
 		t.Fatalf("every acknowledged delivery must be on disk, depth=%d", got)
 	}
@@ -526,4 +524,79 @@ func TestDurableMQTTRealBrokerAuthenticationRestartAndOfflineDelivery(t *testing
 		}
 	}
 
+}
+
+// Opt-in against an existing broker only. This never creates a container and
+// uses an isolated exact topic and temporary durable inbox. It disconnects only
+// the subscriber created by this test while its delivery callback is active.
+func TestExistingBrokerDisconnectDuringDurableCallback(t *testing.T) {
+	env := os.Getenv("IOT_TEST_EXISTING_MQTT_ENV")
+	if env == "" {
+		t.Skip("set IOT_TEST_EXISTING_MQTT_ENV to an existing broker environment file")
+	}
+	if err := config.LoadEnvFile(env); err != nil {
+		t.Fatal("read test environment")
+	}
+	cfg := config.Load()
+	manager := auth.New(cfg.JWTSecret)
+	topic := fmt.Sprintf("/_torchlink_ack_regression/%d", time.Now().UnixNano())
+	credentials := func() (string, string) {
+		token, err := manager.IssueWithACL("torchlink-regression", "system", "service", nil, []auth.ACLRule{{Permission: "allow", Action: "all", Topic: topic}}, time.Minute)
+		if err != nil {
+			t.Error("issue test credential")
+		}
+		return "torchlink-regression", token
+	}
+	sub, err := NewDurableWithCredentials(cfg.MQTTBroker, t.TempDir(), credentials)
+	if err != nil {
+		t.Fatal("subscriber connection failed")
+	}
+	defer sub.Close()
+	pub, err := NewWithCredentials(cfg.MQTTBroker, fmt.Sprintf("receipt-regression-%d", time.Now().UnixNano()), credentials)
+	if err != nil {
+		t.Fatal("publisher connection failed")
+	}
+	defer pub.Close()
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	var first atomic.Bool
+	callback := func(_ mqtt.Client, m mqtt.Message) {
+		if first.CompareAndSwap(false, true) {
+			entered <- struct{}{}
+			<-release
+		}
+		sub.persist(m)
+	}
+	subscribe := func() {
+		token := sub.client.Subscribe(topic, 1, callback)
+		if !token.WaitTimeout(5*time.Second) || token.Error() != nil {
+			t.Fatal("test subscription failed")
+		}
+	}
+	subscribe()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err = pub.Publish(ctx, topic, []byte(`{"id":"before-disconnect"}`), 1, false); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		close(release)
+		t.Fatal("delivery callback never entered")
+	}
+	admin := Admin{URL: cfg.EMQXAPIURL, Key: cfg.EMQXAPIKey, Secret: cfg.EMQXAPISecret}
+	_, err = admin.request(ctx, "DELETE", "/clients/"+sub.ClientID(), nil, nil)
+	// The callback still owns the ACK closure during broker-side disconnection.
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+	if err != nil {
+		t.Fatal("disconnect test client", err)
+	}
+	eventually(t, func() bool { return sub.client.IsConnectionOpen() })
+	subscribe()
+	if err = pub.Publish(ctx, topic, []byte(`{"id":"after-reconnect"}`), 1, false); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { pending, _, _ := sub.InboxCounts(); return pending >= 2 })
+	t.Log("broker disconnected during callback; durable receipt survived and subsequent delivery succeeded")
 }

@@ -565,7 +565,7 @@ func TestInspectionPDFCacheRendersOnceAndBoundsConcurrency(t *testing.T) {
 	}
 	report := model.DeviceHealthReport{GeneratedAt: 1}
 	for i := 0; i < 3; i++ {
-		if _, err := c.render(context.Background(), "tenant", report); err != nil {
+		if _, err := c.load(context.Background(), "tenant", "job-1", func(context.Context) (model.DeviceHealthReport, error) { return report, nil }); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -573,14 +573,18 @@ func TestInspectionPDFCacheRendersOnceAndBoundsConcurrency(t *testing.T) {
 		t.Fatalf("the same report must render once, rendered %d times", renders.Load())
 	}
 	for i := 0; i < pdfRenderSlots; i++ {
-		go c.render(context.Background(), "tenant-"+string(rune('a'+i)), model.DeviceHealthReport{GeneratedAt: 2})
+		go c.load(context.Background(), "tenant-"+string(rune('a'+i)), "job-2", func(context.Context) (model.DeviceHealthReport, error) {
+			return model.DeviceHealthReport{GeneratedAt: 2}, nil
+		})
 	}
 	for len(c.slots) < pdfRenderSlots {
 		time.Sleep(time.Millisecond)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if _, err := c.render(ctx, "tenant-z", model.DeviceHealthReport{GeneratedAt: 3}); !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, errPDFBusy) {
+	if _, err := c.load(ctx, "tenant-z", "job-3", func(context.Context) (model.DeviceHealthReport, error) {
+		return model.DeviceHealthReport{GeneratedAt: 3}, nil
+	}); !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, errPDFBusy) {
 		t.Fatalf("a full renderer must not start another render, got %v", err)
 	}
 	close(release)
@@ -669,7 +673,7 @@ func TestHealthInspectionJobIsSharedAcrossServerInstances(t *testing.T) {
 			t.Fatalf("other instance did not observe the finished job: %v", progress)
 		}
 	}
-	if _, ok := second.recentHealthInspection(context.Background(), "tenant-a"); !ok {
+	if _, err := second.engine.Repo.LatestHealthInspectionSummary(context.Background(), "tenant-a", "succeeded"); err != nil {
 		t.Fatal("PDF download on another instance cannot reuse the finished report")
 	}
 }
@@ -1143,4 +1147,67 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
 		t.Fatalf("knowledge documents leaked across tenants: %#v", isolated)
 	}
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents/"+item["id"].(string), otherTenantToken, nil, http.StatusNotFound)
+}
+
+type inspectionReadCounter struct {
+	*memory.Repository
+	fullReads int
+}
+
+func (r *inspectionReadCounter) LatestHealthInspectionJob(ctx context.Context, tenant, status string) (model.HealthInspectionJob, error) {
+	r.fullReads++
+	return r.Repository.LatestHealthInspectionJob(ctx, tenant, status)
+}
+func TestInspectionDownloadReadsMetadataBeforePDFCache(t *testing.T) {
+	repo := &inspectionReadCounter{Repository: memory.NewRepository()}
+	now := time.Now().UnixMilli()
+	items := make([]model.DeviceHealthItem, 10000)
+	_, _ = repo.CreateHealthInspectionJob(context.Background(), model.HealthInspectionJob{ID: "stable-report", TenantID: "t", Status: "succeeded", StartedAt: now, FinishedAt: now, Report: model.DeviceHealthReport{GeneratedAt: now, Items: items}})
+	e := &core.Engine{Repo: repo, Clock: ports.RealClock{}}
+	api := New(config.Config{DevMode: true}, e, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.inspectionPDFs.renderPDF = func(model.DeviceHealthReport) ([]byte, error) { return []byte("%PDF-test"), nil }
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	for i := 0; i < 2; i++ {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/ai/health-inspection/pdf", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		res, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		if res.StatusCode != 200 {
+			t.Fatalf("download %d", res.StatusCode)
+		}
+	}
+	if repo.fullReads != 0 {
+		t.Fatalf("PDF cache hit still loads entire inspection: fullReads=%d", repo.fullReads)
+	}
+}
+
+func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
+	repo := memory.NewRepository()
+	now := time.Now().UnixMilli()
+	for _, id := range []string{"report-a", "report-b"} {
+		items := make([]model.DeviceHealthItem, 205)
+		for i := range items {
+			items[i].DeviceID = fmt.Sprintf("%s-%d", id, i)
+		}
+		_, _ = repo.CreateHealthInspectionJob(context.Background(), model.HealthInspectionJob{ID: id, TenantID: "t", Status: "succeeded", StartedAt: now, Report: model.DeviceHealthReport{GeneratedAt: now, Items: items}})
+	}
+	api := New(config.Config{DevMode: true}, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	for _, id := range []string{"report-a", "report-b"} {
+		got := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/"+id+"?limit=50&offset=200", token, nil, 200)
+		items := got["items"].([]any)
+		if len(items) != 5 || got["reportId"] != id || got["totalItems"] != float64(205) || items[0].(map[string]any)["deviceId"] != id+"-200" {
+			t.Fatal(got)
+		}
+	}
+	other, _ := api.auth.Issue("admin", "other", "admin", nil, time.Hour)
+	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/report-a", other, nil, 404)
 }

@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"fmt"
 	"iot-platform/internal/model"
 	"net/http"
 	"sort"
@@ -29,7 +31,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().In(time.FixedZone("dashboard", offset*60))
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, 1-days)
-	groups, err := s.engine.Repo.DashboardCounts(r.Context(), claims(r).TenantID, start.UnixMilli(), now.UnixMilli())
+	c := claims(r)
+	key := fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%d", c.TenantID, c.Username, requestAccessVersion(r.Context(), c), start.UnixMilli(), offset)
+	groups, err := s.dashboards.get(r.Context(), key, func(ctx context.Context) ([]model.DashboardCount, error) {
+		return s.engine.Repo.DashboardCounts(ctx, c.TenantID, start.UnixMilli(), now.UnixMilli())
+	})
 	if err != nil {
 		problem(w, 500, err.Error())
 		return

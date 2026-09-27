@@ -400,6 +400,8 @@ type DeviceHealthItem struct {
 }
 
 type DeviceHealthReport struct {
+	ReportID    string             `json:"reportId,omitempty"`
+	TotalItems  int                `json:"totalItems"`
 	TenantID    string             `json:"tenantId,omitempty"`
 	GeneratedAt int64              `json:"generatedAt"`
 	Summary     string             `json:"summary"`
@@ -620,6 +622,7 @@ type VideoAlarmEvent struct {
 }
 
 type AIAnalysis struct {
+	Status          string   `json:"status,omitempty"`
 	TenantID        string   `json:"tenantId,omitempty"`
 	AlarmID         string   `json:"alarmId"`
 	Summary         string   `json:"summary"`

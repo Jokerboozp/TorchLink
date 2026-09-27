@@ -28,18 +28,21 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	wantStates := p["*"] || p["menu:devices"] || p["menu:raw"]
 	permissions := permissionList(p)
 	accessVersion := requestAccessVersion(r.Context(), c)
-	access := eventAccess(accessVersion, permissions)
+	access := eventAccess(c.TenantID+"\x00"+c.Username+"\x00"+accessVersion, permissions)
 	// With a valid cursor the page receives only rows changed since it; any
 	// other request receives the full snapshot.
 	since, delta := s.events.revisions.since(r.URL.Query().Get("since"), access)
 	var seq int64
+	deviceTotal := 0
+	truncated := false
 	if wantAlarms || wantStates {
-		snapshot, err := s.events.snapshot(r.Context(), s.unscopedRepo(), c.TenantID)
+		snapshot, err := s.events.snapshot(r.Context(), s.engine.Repo, c.TenantID, access)
 		if err != nil {
 			problem(w, 503, "读取消息失败")
 			return
 		}
 		seq = snapshot.seq
+		truncated = len(snapshot.alarms) >= eventSnapshotLimit || len(snapshot.states) >= eventSnapshotLimit
 		if delta && since > seq {
 			delta = false
 		}
@@ -47,10 +50,11 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 			alarms = scopedEventAlarms(r.Context(), c.TenantID, changedRows(snapshot.alarms, snapshot.alarmRevs, since, delta))
 		}
 		if wantStates {
+			deviceTotal = snapshot.stateTotal
 			states = scopedEventStates(r.Context(), c.TenantID, changedRows(snapshot.states, snapshot.stateRevs, since, delta))
 		}
 	}
-	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "permissions": permissions, "accessVersion": accessVersion, "delta": delta, "cursor": s.events.revisions.cursor(seq, access)})
+	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "deviceTotal": deviceTotal, "permissions": permissions, "accessVersion": accessVersion, "delta": delta, "truncated": truncated, "snapshotLimit": eventSnapshotLimit, "cursor": s.events.revisions.cursor(seq, access)})
 	if err != nil {
 		problem(w, 500, "读取消息失败")
 		return

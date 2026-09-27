@@ -431,3 +431,19 @@ CREATE TABLE IF NOT EXISTS video_gb_device (
   nonce bytea, ciphertext bytea, updated_at bigint NOT NULL
 );
 CREATE INDEX IF NOT EXISTS video_gb_device_tenant_idx ON video_gb_device(tenant_id);
+
+-- 巡检明细按不可变任务 ID 分页存储。迁移与元数据裁剪在 Migrate 的同一事务内。
+CREATE TABLE IF NOT EXISTS health_inspection_item (
+ tenant_id text NOT NULL, job_id text NOT NULL, position integer NOT NULL, body jsonb NOT NULL,
+ PRIMARY KEY (tenant_id, job_id, position),
+ FOREIGN KEY (tenant_id, job_id) REFERENCES health_inspection_job(tenant_id,id) ON DELETE CASCADE
+);
+INSERT INTO health_inspection_item(tenant_id,job_id,position,body)
+SELECT j.tenant_id,j.id,(i.ordinality-1)::integer,i.value
+FROM health_inspection_job j CROSS JOIN LATERAL jsonb_array_elements(
+ CASE WHEN jsonb_typeof(j.body#>'{report,items}')='array' THEN j.body#>'{report,items}' ELSE '[]'::jsonb END
+) WITH ORDINALITY i(value,ordinality)
+ON CONFLICT DO NOTHING;
+UPDATE health_inspection_job SET body=jsonb_set(body,'{report}',
+ ((body->'report') - 'items') || jsonb_build_object('reportId',id,'totalItems',jsonb_array_length(body#>'{report,items}')))
+WHERE jsonb_typeof(body#>'{report,items}')='array';

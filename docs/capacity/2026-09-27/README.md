@@ -13,6 +13,7 @@
 | [commands.jsonl](commands.jsonl) | CLI 各阶段命令、开始 / 结束时间、进程退出码；凭据参数只保留文件引用 |
 | [capacity-curves.png](capacity-curves.png) | 从阶梯数据生成的吞吐、积压、PDF 与查询延迟图 |
 | [test-timeline.png](test-timeline.png) | 全程队列积压、管理响应、API RSS 与 VM swap 变化 |
+| [remediation.json](remediation.json) | 后续基于 `76d5d814` 的十项修复回归：应用归档确认、混合负载、巡检/PDF、故障恢复、死信完整性与集群前置检查；与上午原始压测分开解读 |
 
 字段口径：
 
@@ -27,6 +28,7 @@
 - 开放接口 207 按 accepted / rejected 消息数统计；429 是限流，不能按请求全部成功计算。摄像头写入、备份校验等短突发未证明长稳最大吞吐。
 - 负载机 `gen-backlog`、临时端口不足、reset、timeout、响应体截断分别保留。不能全部归因于业务服务内部失败。
 - `commands.jsonl` 的退出码 0 表示脚本执行完，不表示该阶段业务全部成功。具体成功 / 拒绝 / 超时查看结果文件。
+- `remediation.json` 的 MQTT 默认成功条件为应用归档 receipt，不能与旧的 PUBACK 吞吐直接比较；优化构建、32 个发布连接、部分回归与编译重叠等限制写在 `interpretation` 中。其 PDF 高并发档的 429 不算通过，最终计数器已随 API 重启重置。
 
 无效或混杂的早期轮次（仅两个发布方的 MQTT 测试，以及前置过载 / 空闲 Kafka 错误影响的两轮总览）不进入主阶梯表；相应故障期仍保留在独立观测中。MQTT 故障轮后期旧计时逻辑导致速率不准确，报告只使用其 PUBACK 数、错误与持久化核对，不采用虚高 QPS。
 

@@ -18,6 +18,7 @@ type RawFilter struct {
 }
 
 type AlarmFilter struct {
+	Summary                                   bool // omit telemetry details/camera payloads for notifications and AI summaries
 	TenantID, DeviceID, Status, Level, Source string
 	Start, End                                int64
 	Limit, Offset                             int
@@ -81,6 +82,8 @@ type Repository interface {
 	ListManagedDevices(context.Context, string) ([]model.ManagedDevice, error)
 	ListManagedDevicesPage(context.Context, string, int, int) ([]model.ManagedDevice, int, error)
 	CountManagedDeviceChildren(context.Context, string, []string) (map[string]int, error)
+	// A nil child scope means all; a non-nil empty scope means none.
+	CountManagedDeviceChildrenForDevices(context.Context, string, []string, []string) (map[string]int, error)
 	SaveRawIndex(context.Context, model.RawArchiveIndex) (bool, error)
 	MarkRawParseResult(context.Context, string, string, int64, string) error
 	MarkRawPublished(context.Context, string, string, int64, string) error
@@ -102,6 +105,7 @@ type Repository interface {
 	GetDeviceStatesByIDs(context.Context, string, []string) (map[string]model.DeviceState, error)
 	ListDeviceStates(context.Context, string) ([]model.DeviceState, error)
 	ListDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
+	ListDeviceStatesForDevicesPage(context.Context, string, []string, int, int) ([]model.DeviceState, int, error)
 	ListUnregisteredDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
 	CountDeviceStates(context.Context, string, bool) (int, int, error)
 	SaveDeviceStateEvent(context.Context, model.DeviceState) error
@@ -122,6 +126,7 @@ type Repository interface {
 	GetAlarm(context.Context, string, string) (model.Alarm, error)
 	ListAlarms(context.Context, AlarmFilter) ([]model.Alarm, error)
 	CountAlarms(context.Context, AlarmFilter) (int, error)
+	HasOpenAlarm(context.Context, string, string) (bool, error)
 	UpdateAlarm(context.Context, model.Alarm) error
 	SaveVideoEvent(context.Context, model.VideoAlarmEvent) (bool, error)
 	UpdateVideoEvent(context.Context, model.VideoAlarmEvent) error
@@ -144,6 +149,9 @@ type Repository interface {
 	UpdateRunningHealthInspectionJob(context.Context, model.HealthInspectionJob) (bool, error)
 	// LatestHealthInspectionJob returns the newest job, optionally with status.
 	LatestHealthInspectionJob(ctx context.Context, tenantID, status string) (model.HealthInspectionJob, error)
+	// Summary never loads device detail rows. Pages address an immutable report ID.
+	LatestHealthInspectionSummary(context.Context, string, string) (model.HealthInspectionJob, error)
+	HealthInspectionPage(context.Context, string, string, int, int) (model.HealthInspectionJob, error)
 	// CreateAlarmAnalysisJob returns false while a job for the same alarm and
 	// knowledge scope is running; finished jobs of that alarm and scope are
 	// replaced, so only the newest result is kept.
