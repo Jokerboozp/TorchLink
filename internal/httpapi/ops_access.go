@@ -124,13 +124,23 @@ func isOpsPermission(id string) bool {
 	return strings.Contains(id, " "+opsPrefix)
 }
 
-// stripOpsPermissions removes ops grants for users outside ops tenants.
+// Backups contain data from every tenant, so they use the same platform
+// tenant boundary as operations data, while keeping their own menu/actions.
+func isBackupPermission(id string) bool {
+	if id == "menu:backups" {
+		return true
+	}
+	_, path, ok := strings.Cut(id, " ")
+	return ok && (path == "/api/v1/backups" || strings.HasPrefix(path, "/api/v1/backups/"))
+}
+
+// stripOpsPermissions removes platform-wide grants outside ops tenants.
 func (s *Server) stripOpsPermissions(tenantID string, p map[string]bool) {
 	if s.opsTenantAllowed(tenantID) {
 		return
 	}
 	for id := range p {
-		if isOpsPermission(id) {
+		if isOpsPermission(id) || isBackupPermission(id) {
 			delete(p, id)
 		}
 	}
@@ -143,7 +153,7 @@ func (s *Server) permissionCatalogFor(tenantID string) []permissionItem {
 	}
 	out := items[:0]
 	for _, item := range items {
-		if !isOpsPermission(item.ID) {
+		if !isOpsPermission(item.ID) && !isBackupPermission(item.ID) {
 			out = append(out, item)
 		}
 	}

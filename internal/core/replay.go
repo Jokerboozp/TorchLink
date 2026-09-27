@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -10,6 +11,9 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
+
+// MaxReplayRatePerSecond bounds requested pacing, not guaranteed throughput.
+const MaxReplayRatePerSecond = 10000
 
 func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (model.ReplayRequest, error) {
 	if req.TenantID == "" || req.Start <= 0 || req.End <= req.Start {
@@ -22,6 +26,9 @@ func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (mode
 	}
 	if req.RatePerSecond <= 0 {
 		req.RatePerSecond = 100
+	}
+	if req.RatePerSecond > MaxReplayRatePerSecond {
+		return req, fmt.Errorf("ratePerSecond must not exceed %d", MaxReplayRatePerSecond)
 	}
 	req.ID = id("replay")
 	req.Status = "PENDING"
@@ -60,11 +67,16 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 				req.Failed++
 				continue
 			}
-			raw.ParserVersion = req.ParserVersion
 			switch req.Mode {
 			case "REINGEST":
-				b, _ := json.Marshal(raw)
-				err = e.Bus.Publish(ctx, model.TopicRaw, raw.DeviceID, b)
+				raw, _, err = e.prepareReplayRaw(ctx, raw, req.ParserVersion)
+				if err == nil {
+					var b []byte
+					b, err = json.Marshal(raw)
+					if err == nil {
+						err = e.Bus.Publish(ctx, model.TopicRaw, raw.DeviceID, b)
+					}
+				}
 			case "DRY_RUN":
 				_, err = e.parseReplay(ctx, raw, req.ParserVersion)
 			case "DIFF":
@@ -115,40 +127,70 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 }
 
 func (e *Engine) parseReplay(ctx context.Context, raw model.RawMessage, version string) (*model.StandardMessage, error) {
-	protocolID, releaseVersion := raw.ProtocolID, raw.ProtocolVersion
-	if binding, bindingErr := e.Repo.GetProductProtocolBinding(ctx, raw.TenantID, raw.ProductID); bindingErr == nil {
-		if protocolID == "" {
-			protocolID = binding.ProtocolID
-		}
-		if releaseVersion == "" {
-			releaseVersion = binding.Version
-		}
+	raw, release, err := e.prepareReplayRaw(ctx, raw, version)
+	if err != nil {
+		return nil, err
 	}
-	if version != "" && protocolID != "" {
-		releaseVersion = version
-	}
-	if protocolID != "" && releaseVersion != "" {
-		release, releaseErr := e.Repo.GetProtocolRelease(ctx, raw.TenantID, protocolID, releaseVersion)
-		if releaseErr != nil {
-			return nil, releaseErr
-		}
-		if release.Status == "REVOKED" {
-			return nil, fmt.Errorf("protocol release %s@%s is revoked", protocolID, releaseVersion)
-		}
-		raw.ProtocolID, raw.ProtocolVersion, raw.PointTableVersion = protocolID, releaseVersion, release.PointTableVersion
+	if release != nil {
 		return e.Parsers.ParseWithConfig(release.ParserType, release.Config, raw)
 	}
 	product, err := e.Repo.GetProduct(ctx, raw.TenantID, raw.ProductID)
 	if err == nil && product.ProtocolPackageID != "" {
 		pkg, pkgErr := e.Repo.GetProtocolPackage(ctx, raw.TenantID, product.ProtocolPackageID)
 		if pkgErr == nil {
-			return e.Parsers.ParseVersionWithConfig(pkg.ParserType, version, pkg.Config, raw)
+			return e.Parsers.ParseVersionWithConfig(pkg.ParserType, raw.ParserVersion, pkg.Config, raw)
 		}
 	}
 	if version != "" {
 		return nil, fmt.Errorf("cannot select parser version %s without a product protocol package", version)
 	}
 	return e.Parsers.Parse(raw)
+}
+
+// Both preview and reingest select the same immutable release. Only the
+// in-memory copy changes; archived bytes and the frame's protocolState remain
+// untouched. Without an override, keep the archived point-table snapshot.
+func (e *Engine) prepareReplayRaw(ctx context.Context, raw model.RawMessage, version string) (model.RawMessage, *model.ProtocolRelease, error) {
+	if raw.ProtocolID == "" || raw.ProtocolVersion == "" {
+		binding, err := e.Repo.GetProductProtocolBinding(ctx, raw.TenantID, raw.ProductID)
+		if err != nil && !errors.Is(err, model.ErrNotFound) {
+			return raw, nil, err
+		}
+		if err == nil {
+			if raw.ProtocolID == "" {
+				raw.ProtocolID = binding.ProtocolID
+			}
+			if raw.ProtocolVersion == "" {
+				raw.ProtocolVersion = binding.Version
+			}
+		}
+	}
+	if version != "" {
+		raw.ParserVersion = version
+		if raw.ProtocolID != "" {
+			raw.ProtocolVersion = version
+		}
+	}
+	if raw.ProtocolID != "" && raw.ProtocolVersion != "" {
+		release, err := e.Repo.GetProtocolRelease(ctx, raw.TenantID, raw.ProtocolID, raw.ProtocolVersion)
+		if err != nil {
+			return raw, nil, err
+		}
+		if release.Status == "REVOKED" {
+			return raw, nil, fmt.Errorf("protocol release %s@%s is revoked", raw.ProtocolID, raw.ProtocolVersion)
+		}
+		if version != "" || raw.PointTableVersion == "" {
+			raw.PointTableVersion = release.PointTableVersion
+		}
+		return raw, &release, nil
+	}
+	if version != "" {
+		product, err := e.Repo.GetProduct(ctx, raw.TenantID, raw.ProductID)
+		if err != nil || product.ProtocolPackageID == "" {
+			return raw, nil, fmt.Errorf("cannot select parser version %s without a product protocol package", version)
+		}
+	}
+	return raw, nil, nil
 }
 func equivalentMessage(a, b model.StandardMessage) bool {
 	return a.MessageType == b.MessageType && equivalentMap(a.Properties, b.Properties) && equivalentMap(a.Event, b.Event) && equivalentTags(a.Tags, b.Tags)

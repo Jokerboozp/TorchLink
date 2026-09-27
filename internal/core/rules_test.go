@@ -364,3 +364,37 @@ func TestGeneratedGengineSpecialOperatorsValidateAndEvaluate(t *testing.T) {
 		t.Fatalf("exists expression matched=%v err=%v", matched, err)
 	}
 }
+
+func TestGengineFieldNamesAndStringLiterals(t *testing.T) {
+	msg := model.StandardMessage{TenantID: "t", Properties: map[string]any{"a-b": 90.0, "a_b": 20.0, "a.b": 5.0}, Tags: map[string]string{"a-b": "weekend"}, Event: map[string]any{"system-status": "weekend", "text": "Properties['a-b']"}}
+	for _, tc := range []struct {
+		expression string
+		want       bool
+	}{
+		{`Properties["a-b"] > 80 && Properties["a_b"] < 30 && Properties["a.b"] == 5`, true},
+		{`Properties["a_b"] > 80 || Properties["a-b"] < 30`, false},
+		{`Properties['a-b'] == 90 && Properties["a-b"] > Properties["a_b"]`, true},
+		{`Tags["a-b"] == "weekend" && Event["system-status"] == "weekend"`, true},
+		{`Contains(Event["text"], "Properties['a-b']")`, true},
+		{`Contains("weekend; system { begin }", "end")`, true},
+		{`Properties [ "a-b" ] == 90`, true},
+	} {
+		t.Run(tc.expression, func(t *testing.T) {
+			if err := ValidateGengineExpression(tc.expression); err != nil {
+				t.Fatal(err)
+			}
+			got, err := EvaluateGengineExpression(tc.expression, msg)
+			if err != nil || got != tc.want {
+				t.Fatalf("match=%v want=%v err=%v", got, tc.want, err)
+			}
+			if got := MatchRule(model.AlarmRule{TenantID: "t", Enabled: true, Expression: tc.expression}, msg); got != tc.want {
+				t.Fatalf("rule match=%v want=%v", got, tc.want)
+			}
+		})
+	}
+	for _, expression := range []string{`system("x")`, `true { MarkMatched() } end`, `true; false`, `"unterminated`, `Contains("escaped\" end", "end") { MarkMatched() }`} {
+		if err := ValidateGengineExpression(expression); err == nil {
+			t.Errorf("invalid expression accepted: %s", expression)
+		}
+	}
+}

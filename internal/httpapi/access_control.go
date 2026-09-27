@@ -666,7 +666,9 @@ func (s *Server) loginManaged(w http.ResponseWriter, r *http.Request, username, 
 				problem(w, 500, "创建会话失败")
 				return
 			}
-			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(effectivePermissions(state, u)), "displayName": u.DisplayName, "accessVersion": accessVersion(resolveUserDeviceScope(state, u), effectivePermissions(state, u), tenant)})
+			permissions := effectivePermissions(state, u)
+			s.stripOpsPermissions(tenant, permissions)
+			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(permissions), "displayName": u.DisplayName, "accessVersion": accessVersion(resolveUserDeviceScope(state, u), permissions, tenant)})
 			return
 		}
 	}

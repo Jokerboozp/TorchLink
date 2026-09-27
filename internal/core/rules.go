@@ -58,18 +58,15 @@ func evaluateGengine(expression string, msg model.StandardMessage, execute bool)
 	if expression == "" {
 		return false, fmt.Errorf("expression is empty")
 	}
-	lower := strings.ToLower(expression)
-	for _, forbidden := range []string{"rule ", "begin", "end", "{", "}", ";", "import", "exec", "system"} {
-		if strings.Contains(lower, forbidden) {
-			return false, fmt.Errorf("expression contains forbidden token %q", forbidden)
-		}
-	}
 	if len(expression) > 4096 {
 		return false, fmt.Errorf("expression exceeds 4096 bytes")
 	}
 	matched := false
 	dc := gcontext.NewDataContext()
-	expression = bindExpressionFields(expression, dc, msg)
+	expression, err := bindExpressionFields(expression, dc, msg)
+	if err != nil {
+		return false, err
+	}
 	dc.Add("Message", msg)
 	dc.Add("MarkMatched", func() { matched = true })
 	dc.Add("Contains", func(value, target any) bool {
@@ -92,18 +89,74 @@ func evaluateGengine(expression string, msg model.StandardMessage, execute bool)
 	return matched, nil
 }
 
-var expressionField = regexp.MustCompile(`(Properties|Tags|Event)\[(?:"([A-Za-z0-9_.-]+)"|'([A-Za-z0-9_.-]+)')\]`)
+var expressionField = regexp.MustCompile(`^(Properties|Tags|Event)\s*\[\s*(?:"([A-Za-z0-9_.-]+)"|'([A-Za-z0-9_.-]+)')\s*\]`)
 
-func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model.StandardMessage) string {
-	bound := map[string]bool{}
-	return expressionField.ReplaceAllStringFunc(expression, func(match string) string {
-		parts := expressionField.FindStringSubmatch(match)
+// Scan strings before identifiers so quoted business data is neither rejected
+// as a keyword nor rewritten as a field reference. Bind full field identities
+// to unique names; punctuation normalization would alias a-b, a_b and a.b.
+func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model.StandardMessage) (string, error) {
+	bound := map[string]string{}
+	var out strings.Builder
+	for i := 0; i < len(expression); {
+		ch := expression[i]
+		if ch == '"' || ch == '\'' {
+			end := i + 1
+			closed := false
+			for end < len(expression) {
+				if expression[end] == '\\' {
+					end += 2
+					continue
+				}
+				if expression[end] == ch {
+					// Gengine also accepts doubled double quotes in a string.
+					if ch == '"' && end+1 < len(expression) && expression[end+1] == '"' {
+						end += 2
+						continue
+					}
+					end++
+					closed = true
+					break
+				}
+				end++
+			}
+			if !closed {
+				return "", fmt.Errorf("unterminated expression string")
+			}
+			out.WriteString(expression[i:end])
+			i = end
+			continue
+		}
+		if strings.ContainsRune("{};", rune(ch)) {
+			return "", fmt.Errorf("expression contains forbidden token %q", string(ch))
+		}
+		if !expressionIdentifier(ch) || ch >= '0' && ch <= '9' {
+			out.WriteByte(ch)
+			i++
+			continue
+		}
+		parts := expressionField.FindStringSubmatch(expression[i:])
+		if parts == nil {
+			end := i + 1
+			for end < len(expression) && expressionIdentifier(expression[end]) {
+				end++
+			}
+			token := expression[i:end]
+			switch strings.ToLower(token) {
+			case "rule", "begin", "end", "import", "exec", "system":
+				return "", fmt.Errorf("expression contains forbidden token %q", token)
+			}
+			out.WriteString(token)
+			i = end
+			continue
+		}
 		field := parts[2]
 		if field == "" {
 			field = parts[3]
 		}
-		name := parts[1][:1] + "_" + strings.NewReplacer(".", "_", "-", "_").Replace(field)
-		if !bound[name] {
+		key := parts[1] + "\x00" + field
+		name, exists := bound[key]
+		if !exists {
+			name = "iotField" + strconv.Itoa(len(bound))
 			var value any = float64(0)
 			switch parts[1] {
 			case "Properties":
@@ -120,10 +173,16 @@ func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model
 				}
 			}
 			dc.Add(name, value)
-			bound[name] = true
+			bound[key] = name
 		}
-		return name
-	})
+		out.WriteString(name)
+		i += len(parts[0])
+	}
+	return out.String(), nil
+}
+
+func expressionIdentifier(ch byte) bool {
+	return ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_'
 }
 func MatchConditions(conditions []model.RuleCondition, msg model.StandardMessage) bool {
 	if len(conditions) == 0 {

@@ -180,6 +180,9 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 	cfg.AdminUser = "root"
 	cfg.AdminPassword = "scope-root-test"
 	cfg.AdminTenants = []string{"tenant_a", "tenant_b"}
+	// This test isolates the device-scope prerequisite, after the platform
+	// tenant prerequisite for assigning backup permissions has been met.
+	cfg.Ops.Tenants = []string{"tenant_a"}
 	cfg.JWTSecret = "scope-test-secret-at-least-32-bytes"
 	cfg.DevMode = true
 	must := func(e error) {

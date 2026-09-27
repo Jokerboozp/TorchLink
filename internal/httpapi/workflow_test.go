@@ -989,11 +989,13 @@ func TestBackupEndpointsProxyRecordsFilesAndAdminActions(t *testing.T) {
 	if list["total"] != float64(1) {
 		t.Fatalf("unexpected backup list: %#v", list)
 	}
-	detail := backupJSONRequest(t, server.Client(), http.MethodGet, server.URL+"/api/v1/backups/backup_full_1", viewerToken, nil, http.StatusOK)
+	detail := backupJSONRequest(t, server.Client(), http.MethodGet, server.URL+"/api/v1/backups/backup_full_1", adminToken, nil, http.StatusOK)
 	if detail["id"] != "backup_full_1" {
 		t.Fatalf("unexpected backup detail: %#v", detail)
 	}
-	backupJSONRequest(t, server.Client(), http.MethodGet, server.URL+"/api/v1/backups/backup_full_1/files", viewerToken, nil, http.StatusOK)
+	backupJSONRequest(t, server.Client(), http.MethodGet, server.URL+"/api/v1/backups/backup_full_1/files", adminToken, nil, http.StatusOK)
+	backupJSONRequest(t, server.Client(), http.MethodGet, server.URL+"/api/v1/backups/backup_full_1", viewerToken, nil, http.StatusForbidden)
+	backupJSONRequest(t, server.Client(), http.MethodGet, server.URL+"/api/v1/backups/backup_full_1/files", viewerToken, nil, http.StatusForbidden)
 	viewerDownloadReq, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/backups/backup_full_1/files/manifest.json", nil)
 	viewerDownloadReq.Header.Set("Authorization", "Bearer "+viewerToken)
 	viewerDownloadResp, err := server.Client().Do(viewerDownloadReq)
@@ -1033,6 +1035,122 @@ func TestBackupEndpointsProxyRecordsFilesAndAdminActions(t *testing.T) {
 	if !bytes.Contains([]byte(joined), []byte("GET /backups?limit=20&offset=0&type=FULL")) || !bytes.Contains([]byte(joined), []byte("GET /backups/backup_full_1/files?limit=20&offset=0")) || !bytes.Contains([]byte(joined), []byte("POST /backup?type=INCREMENTAL")) || !bytes.Contains([]byte(joined), []byte("POST /restore/drill?backupId=backup_full_1")) {
 		t.Fatalf("unexpected backup-service calls: %s", joined)
 	}
+}
+
+func TestBackupPlatformTenantBoundary(t *testing.T) {
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Header.Get("Authorization") != "Bearer synthetic-backup-token" {
+			http.Error(w, "missing service credential", 401)
+			return
+		}
+		write(w, 200, map[string]any{"tenantId": "other-tenant", "deviceId": "private-device"})
+	}))
+	defer upstream.Close()
+	repo := memory.NewRepository()
+	cfg := config.Config{AdminUser: "root", AdminPassword: "synthetic-root-password", AdminTenants: []string{"business", "ops"}, JWTSecret: "synthetic-backup-jwt-secret-32-characters", BackupURL: upstream.URL, BackupToken: "synthetic-backup-token"}
+	cfg.Ops.Tenants = []string{"ops"}
+	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	routes := []struct{ method, path, permission string }{
+		{"GET", "/api/v1/backups", ""},
+		{"GET", "/api/v1/backups/global", ""},
+		{"GET", "/api/v1/backups/global/files", ""},
+		{"GET", "/api/v1/backups/global/files/raw.gz", "GET /api/v1/backups/:id/files/:filename"},
+		{"POST", "/api/v1/backups", "POST /api/v1/backups"},
+		{"POST", "/api/v1/backups/global/restore-drill", "POST /api/v1/backups/:id/restore-drill"},
+		{"DELETE", "/api/v1/backups/global", "DELETE /api/v1/backups/:id"},
+	}
+	permissions := []string{"menu:devices", "menu:backups"}
+	for _, route := range routes {
+		if route.permission != "" {
+			permissions = append(permissions, route.permission)
+		}
+	}
+	// Seed old grants directly: changing policy must revoke existing tokens and
+	// grants as well as prevent new assignments in business tenants.
+	hash, err := hashPassword("synthetic-user-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tenant := range []string{"business", "ops"} {
+		state := model.AccessState{Users: []model.PlatformUser{{Username: "backup-user", PasswordHash: hash, Enabled: true, DeviceScope: "all", Permissions: permissions}}}
+		if ok, err := repo.SaveAccessState(context.Background(), tenant, state); !ok || err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	login := func(tenant string) map[string]any {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": "backup-user", "password": "synthetic-user-password", "tenantId": tenant}, 200)
+	}
+	biz := login("business")
+	bizToken := biz["accessToken"].(string)
+	for _, route := range routes {
+		req(route.method, route.path, bizToken, map[string]any{"type": "FULL"}, 403)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("business tenant reached the global backup service")
+	}
+	for _, view := range []map[string]any{biz, req("GET", "/api/v1/auth/me", bizToken, nil, 200)} {
+		for _, p := range view["permissions"].([]any) {
+			if strings.Contains(p.(string), "backups") {
+				t.Fatalf("business user was offered backup permission %v", p)
+			}
+		}
+	}
+	root, _ := api.auth.Issue("root", "business", "admin", nil, time.Hour)
+	for _, item := range req("GET", "/api/v1/access/permissions", root, nil, 200)["items"].([]any) {
+		if strings.Contains(item.(map[string]any)["id"].(string), "backups") {
+			t.Fatal("business tenant can grant platform backup access")
+		}
+	}
+	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "backup-role", "name": "backup", "permissions": permissions, "deviceScope": "all"}, 422)
+	opsToken := login("ops")["accessToken"].(string)
+	for _, route := range routes {
+		req(route.method, route.path, opsToken, map[string]any{"type": "FULL"}, 200)
+	}
+	// An ops tenant is necessary but not sufficient: retain action grants and
+	// the existing all-device prerequisite for this global artifact.
+	state, _ := repo.LoadAccessState(context.Background(), "ops")
+	state.Users[0].Permissions = []string{"menu:devices", "menu:backups"}
+	if ok, err := repo.SaveAccessState(context.Background(), "ops", state); !ok || err != nil {
+		t.Fatal("update ops permissions", err)
+	}
+	req("GET", "/api/v1/backups", opsToken, nil, 200)
+	req("GET", "/api/v1/backups/global/files/raw.gz", opsToken, nil, 403)
+	req("DELETE", "/api/v1/backups/global", opsToken, nil, 403)
+	state, _ = repo.LoadAccessState(context.Background(), "ops")
+	state.Users[0].DeviceScope = "none"
+	if ok, err := repo.SaveAccessState(context.Background(), "ops", state); !ok || err != nil {
+		t.Fatal("update ops scope", err)
+	}
+	req("GET", "/api/v1/backups", opsToken, nil, 403)
+	state, _ = repo.LoadAccessState(context.Background(), "ops")
+	state.Users[0].DeviceScope = "all"
+	if ok, err := repo.SaveAccessState(context.Background(), "ops", state); !ok || err != nil {
+		t.Fatal("restore ops scope", err)
+	}
+	// Removal from the operations tenant allowlist takes effect on the next
+	// request, without issuing a new login token.
+	api.cfg.Ops.Tenants = nil
+	req("GET", "/api/v1/backups", opsToken, nil, 403)
+	req("GET", "/api/v1/backups", root, nil, 200)
+}
+
+func TestReplayRateValidationHTTP(t *testing.T) {
+	cfg := config.Config{JWTSecret: "replay-test-secret-at-least-32-characters"}
+	api := New(cfg, &core.Engine{Repo: memory.NewRepository(), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	token, err := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/raw-messages/replay", token, map[string]any{"start": 1, "end": 2, "mode": "REINGEST", "ratePerSecond": 10001}, 422)
 }
 
 func TestBackupEndpointSurfacesUpstreamFailureDetail(t *testing.T) {

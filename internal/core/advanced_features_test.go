@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -30,6 +31,38 @@ func TestGengineExpressionAndSafety(t *testing.T) {
 	if err := ValidateGengineExpression(`system("rm")`); err == nil {
 		t.Fatal("expected unsafe expression to be rejected")
 	}
+}
+
+func TestReplayRejectsExcessiveRateBeforeSaving(t *testing.T) {
+	e := newRuleTestEngine(t, memory.NewRepository(), &ruleTestClock{now: time.Unix(1000, 0)})
+	// Avoid starting the crashing goroutine on the unfixed implementation: a
+	// repository probe records whether invalid input reaches persistence.
+	probe := &replaySaveProbe{Repository: e.Repo}
+	e.Repo = probe
+	for _, rate := range []int{10001, 1000000001, int(^uint(0) >> 1)} {
+		probe.saved = false
+		_, err := e.StartReplay(context.Background(), model.ReplayRequest{TenantID: "t", Start: 1, End: 2, Mode: "DRY_RUN", RatePerSecond: rate})
+		if err == nil || probe.saved {
+			t.Errorf("rate %d must be rejected before saving: saved=%v err=%v", rate, probe.saved, err)
+		}
+	}
+	for _, rate := range []int{0, -1, 1, 10000} {
+		probe.saved = false
+		_, _ = e.StartReplay(context.Background(), model.ReplayRequest{TenantID: "t", Start: 1, End: 2, Mode: "DRY_RUN", RatePerSecond: rate})
+		if !probe.saved {
+			t.Errorf("valid/default rate %d did not reach persistence", rate)
+		}
+	}
+}
+
+type replaySaveProbe struct {
+	ports.Repository
+	saved bool
+}
+
+func (p *replaySaveProbe) SaveReplay(context.Context, model.ReplayRequest) error {
+	p.saved = true
+	return fmt.Errorf("persistence probe")
 }
 
 func TestRuleDraftValidatesThingModelAndConflicts(t *testing.T) {
@@ -226,4 +259,102 @@ func TestVideoMediaTransferIsAsynchronousAndUpdatesAlarm(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("archived media URL was not written back to active alarm")
+}
+
+func TestReplaySelectedProtocolVersion(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
+	e.Parsers = parser.NewRegistry(parser.ConfigurableJSONParser{})
+	for version, path := range map[string]string{"1": "$.properties.temperature", "2": "$.properties.correctedTemperature"} {
+		if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "audit", ProtocolID: "custom", Version: version, PointTableVersion: "points-" + version, Status: "PUBLISHED", ParserType: "configurable_json_parser", Config: map[string]any{"properties": map[string]any{"temperature": path}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw := model.RawMessage{MessageID: "audit-raw", TenantID: "audit", ProductID: "p", DeviceID: "d", ProtocolID: "custom", ProtocolVersion: "1", PointTableVersion: "archived-points", Metadata: map[string]any{"protocolState": "frame-before-state"}, Protocol: "json", PayloadFormat: "json", ReceivedAt: 1000, Payload: json.RawMessage(`{"properties":{"temperature":42,"correctedTemperature":99}}`)}
+	if err := repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "audit", ProductID: "p", ProtocolID: "custom", Version: "2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveRule(ctx, model.AlarmRule{ID: "hot", TenantID: "audit", Enabled: true, AlarmType: "HOT", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}}); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := e.RawStore.PutRaw(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.SaveRawIndex(ctx, idx); err != nil {
+		t.Fatal(err)
+	}
+	var got model.RawMessage
+	var parsed model.StandardMessage
+	if err = e.Bus.Subscribe(ctx, model.TopicRaw, "audit", func(c context.Context, b []byte) error {
+		if err := json.Unmarshal(b, &got); err != nil {
+			return err
+		}
+		return e.handleRaw(c, b)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.Bus.Subscribe(ctx, model.TopicPropertyReport, "audit", func(c context.Context, b []byte) error {
+		if err := json.Unmarshal(b, &parsed); err != nil {
+			return err
+		}
+		return e.handleStandard(c, b)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := e.parseReplay(ctx, raw, "2")
+	if err != nil || preview.Properties["temperature"] != float64(99) {
+		t.Fatalf("dry-run control: %v %v", preview, err)
+	}
+	req := model.ReplayRequest{ID: "audit-replay", TenantID: "audit", Start: 999, End: 1001, Mode: "REINGEST", ParserVersion: "2", RatePerSecond: 1000}
+	if err = repo.SaveReplay(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	e.runReplay(ctx, req)
+	if parsed.Properties["temperature"] != float64(99) {
+		t.Fatalf("DRY_RUN version 2 yields temperature=99; REINGEST yields %v, protocolVersion=%q parserVersion=%q", parsed.Properties["temperature"], got.ProtocolVersion, got.ParserVersion)
+	}
+	if got.PointTableVersion != "points-2" || got.Metadata["protocolState"] != "frame-before-state" {
+		t.Fatalf("incorrect replay snapshot: %+v", got)
+	}
+	e.runReplay(ctx, req)
+	stored, err := repo.GetStandardMessageByRaw(ctx, raw.TenantID, raw.MessageID)
+	if err != nil || stored.Properties["temperature"] != float64(99) {
+		t.Fatalf("replayed data not persisted: %+v %v", stored, err)
+	}
+	alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "audit"})
+	if err != nil || len(alarms) != 1 || alarms[0].TriggerCount != 1 {
+		t.Fatalf("repeated replay retriggered alarms: %+v %v", alarms, err)
+	}
+	archived, err := e.GetRaw(ctx, idx)
+	if err != nil || archived.ProtocolVersion != "1" || archived.PointTableVersion != "archived-points" || archived.Metadata["protocolState"] != "frame-before-state" {
+		t.Fatalf("archived snapshot changed: %+v %v", archived, err)
+	}
+	// No override follows the archive, even after the product binding changed.
+	req.ParserVersion = ""
+	e.runReplay(ctx, req)
+	if got.ProtocolVersion != "1" || got.PointTableVersion != "archived-points" || parsed.Properties["temperature"] != float64(42) {
+		t.Fatalf("default replay did not use archive: %+v %+v", got, parsed)
+	}
+	// Successfully stored data remains idempotent even if parsed again.
+	stored, err = repo.GetStandardMessageByRaw(ctx, raw.TenantID, raw.MessageID)
+	if err != nil || stored.Properties["temperature"] != float64(99) {
+		t.Fatal("replay overwrote an already processed message", err)
+	}
+	if err := repo.UpdateProtocolReleaseStatus(ctx, "audit", "custom", "2", "REVOKED", 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"2", "missing"} {
+		req.ParserVersion = version
+		got = model.RawMessage{}
+		e.runReplay(ctx, req)
+		job, err := repo.GetReplay(ctx, req.ID)
+		if err != nil || job.Failed != 1 || got.MessageID != "" {
+			t.Fatalf("invalid version published: job=%+v raw=%+v err=%v", job, got, err)
+		}
+		if _, err := e.parseReplay(ctx, raw, version); err == nil {
+			t.Fatalf("preview accepted invalid version %s", version)
+		}
+	}
 }

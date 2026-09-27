@@ -162,6 +162,13 @@ func (s *Server) proxyBackupDownload(w http.ResponseWriter, r *http.Request, pat
 }
 
 func (s *Server) callBackup(w http.ResponseWriter, r *http.Request, method, path string, query url.Values, body io.Reader, timeout time.Duration) (*http.Response, bool) {
+	// The service returns global artifacts. Tenant-wide device access alone
+	// does not authorize them; only platform admins or granted ops users do.
+	c := claims(r)
+	if c.TokenUse == "user" && !s.opsTenantAllowed(c.TenantID) || c.TokenUse != "user" && c.Role != "admin" {
+		problem(w, http.StatusForbidden, "全平台备份仅限平台管理员或运维租户授权用户访问")
+		return nil, false
+	}
 	if strings.TrimSpace(s.cfg.BackupURL) == "" {
 		problem(w, http.StatusServiceUnavailable, "backup service is not configured")
 		return nil, false

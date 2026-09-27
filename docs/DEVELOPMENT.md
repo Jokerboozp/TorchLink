@@ -84,6 +84,14 @@ macOS 若提前结束无头 Chrome，检查系统的后台运行授权；直播�
 
 `GET /api/v1/raw-messages` 对应参数为 `deviceId`、`messageId`、`productId`、`protocol`、`payloadFormat`、`parseStatus`、`messageType`、`parser`、`start`、`end`；时间为包含端点的接收时间毫秒值。解析状态为 `PARSED`（已存在标准消息）、`FAILED`（无标准消息且记录解析错误）、`UNPARSED`（无标准消息且无解析错误）。消息类型及解析器依据该原文最新的标准消息。筛选在存储查询阶段、分页之前执行，列表总数使用相同条件，保留租户与用户设备范围限制。普通用户不因筛选获得额外设备访问权限。
 
+### 原文回放
+
+`POST /api/v1/raw-messages/replay` 的 `ratePerSecond` 省略或非正时沿用默认 100，正值上限为 10000；超限在创建任务前返回 422。该参数是请求的发送节奏，不是系统吞吐保证。
+
+`DRY_RUN`、`DIFF` 和 `REINGEST` 共用协议版本选择逻辑。默认使用原文归档的协议、点表版本及 `metadata.protocolState` 帧前快照；显式指定 `parserVersion` 时，对已绑定协议的原文选择该协议的新版本及其点表版本。不存在或已撤销的版本计为失败，不发布到原始消息队列。回放不修改原始归档。
+
+`REINGEST` 可重新解析尚未成功存储的报文；已完成处理的标准消息保留现有幂等行为，不覆盖已成功的数据，也不重复触发告警。异步消息队列发布成功只代表回放投递成功，实际解析、入库和告警结果须分别核对。
+
 ## 演示数据与功能检查
 
 `node scripts/generate-demo-data.mjs --help` 查看参数；需 Node.js 22.12+ 和前端 npm 依赖。先用 `--dry-run` 查看计划：
