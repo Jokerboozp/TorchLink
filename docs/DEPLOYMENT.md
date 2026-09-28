@@ -241,15 +241,16 @@ GB28181 需要两类端口对摄像头网络开放：API 的 SIP 端口 `IOT_GB2
 
 ## 容量测试模块
 
-容量测试模块**默认随部署启用**：运维中心出现“容量测试”页，选择测试类型（快速检查、容量搜索、长稳）并填写设备数、速率和时长即可运行，不需要编写清单、秘密文件或计划。不需要时可以关闭，关闭后页面菜单隐藏，平台其余功能不受影响。模块与平台使用同一镜像（`capacity-test serve --self`），只在内部网络监听，不对外发布端口。
+容量测试模块**默认随部署启用**：运维中心出现“容量测试”页，选择测试类型（快速检查、容量搜索、长稳）并填写设备数、速率和时长即可运行，不需要编写清单、秘密文件或计划。不需要时可以关闭，关闭后页面菜单隐藏，平台其余功能不受影响。在线、离线和集群模块与平台使用同一镜像（`capacity-test serve --self`），只在内部网络监听，不对外发布端口；本地源码模式由 combined API 进程启动本机控制器，不创建容量容器。
 
 | 部署方式 | 关闭 | 重新开启 |
 | --- | --- | --- |
 | 单机在线 | `bash scripts/deploy-online.sh --capacity off`，或已部署后 `bash scripts/capacity-module.sh disable` | `--capacity on` 或 `capacity-module.sh enable` |
+| 本地源码 | `bash scripts/setup-local.sh --capacity off` | `--capacity on`；修改后重启源码 API |
 | 单机离线 | `bash scripts/deploy-offline.sh --capacity off`，或 `bash scripts/capacity-module.sh disable --mode offline` | `--capacity on` 或 `capacity-module.sh enable --mode offline` |
 | 集群 | 向导中回答不部署，或 `bash scripts/cluster-up.sh --name <名称> --capacity off` | `--capacity on` |
 
-PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|disable`。选择写入环境文件 `IOT_CAPACITY_MODULE`（集群写入清单 `capacity: {node: ...}`），显式关闭后不带参数的部署保持关闭；离线包打包时即写入开启配置。开启时自动生成服务令牌 `IOT_OPS_CAPACITY_TOKEN` 并设置 `IOT_OPS_CAPACITY_URL`，关闭时移除服务并隐藏页面，测试结果卷与令牌保留。本地源码调试不提供该模块（需要时见 [开发与测试](DEVELOPMENT.md#容量测试模块)）。
+PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|disable`。选择写入环境文件 `IOT_CAPACITY_MODULE`（集群写入清单 `capacity: {node: ...}`），显式关闭后不带参数的部署保持关闭；离线包打包时即写入开启配置。容器部署开启时自动生成服务令牌 `IOT_OPS_CAPACITY_TOKEN` 并设置 `IOT_OPS_CAPACITY_URL`，关闭时移除服务并隐藏页面，测试结果卷与令牌保留。本地控制器使用进程内生成的令牌和动态本机端口，沿用原有 API 启动命令；旧 `.env.local` 的补充配置见 [本地容量测试](DEVELOPMENT.md#容量测试模块)。
 
 测试以发起人的账号权限运行（平台为其签发与测试时长一致的令牌，权限变更或停用即失效），自动准备标准协议测试产品 `cap-standard`、测试规则 `cap-stress-alarm` 与前缀为 `cap` 的测试设备，测试后保留以便复测。测试会给平台施加真实负载，生产环境请在低峰期运行或只用快速检查。
 

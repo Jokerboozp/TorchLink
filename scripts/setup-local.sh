@@ -9,6 +9,7 @@ env_file="$project_root/.env.local"
 skip_code_deps=false
 dependencies_only=false
 video=keep
+capacity=keep
 video_args=()
 include_backup=false
 include_ops=false
@@ -22,6 +23,7 @@ while [ "$#" -gt 0 ]; do
     --skip-code-deps) skip_code_deps=true; shift ;;
     --dependencies-only) dependencies_only=true; shift ;;
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2 ;;
+    --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2 ;;
     --rtc-ip|--rtc-port|--allowed-cidrs) [ "$#" -ge 2 ] || { echo "$1 需要值。" >&2; exit 1; }; video_args+=("$1" "$2"); shift 2 ;;
     --transcode|--no-transcode) video_args+=("$1"); shift ;;
     --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1 ;;
@@ -35,11 +37,13 @@ while [ "$#" -gt 0 ]; do
       echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--deepseek-model MODEL] [--include-backup] [--include-ops] [--video on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
       echo '--dependencies-only：仅在 Linux 部署全部基础环境（含运维），不安装源码依赖；API、Vue 和备份服务在源码机调试。OrbStack 自动使用 Mac 回调地址。'
       echo '--video：on 部署直播媒体服务，off 关闭并在后续运行中保持关闭；省略时沿用上次选择，新环境默认开启。'
+      echo '--capacity on|off：本地容量控制服务随源码 API 启停；默认开启，显式关闭后保持关闭，不创建容量容器。'
       exit 0 ;;
     *) printf '未知参数：%s\n' "$1" >&2; exit 1 ;;
   esac
 done
 case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
+case "$capacity" in keep|on|off) ;; *) echo '--capacity 只能是 on 或 off。' >&2; exit 1;; esac
 if [ "${#video_args[@]}" -gt 0 ] && [ "$video" = off ]; then echo '媒体选项不能与 --video off 同时使用。' >&2; exit 1; fi
 if [ "$dependencies_only" = true ]; then
   [ "$(uname -s)" = Linux ] || { echo '--dependencies-only 请在 Linux 虚拟机内执行；OrbStack 使用 orb -m develop sudo bash scripts/setup-local.sh --dependencies-only。' >&2; exit 1; }
@@ -168,6 +172,14 @@ else
 fi
 configure_deepseek_env "$env_file" "$deepseek_model"
 
+# The controller follows the source API lifecycle, using its local addresses.
+if [ "$capacity" = keep ]; then
+  capacity=on
+  [ "$(get_deployment_env_value "$env_file" IOT_CAPACITY_MODULE)" != off ] || capacity=off
+fi
+set_local_env_value IOT_OPS_CAPACITY_LOCAL true true
+set_local_env_value IOT_CAPACITY_MODULE "$capacity" true
+
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
 set_local_env_value IOT_AI_HARNESS_ENABLED true true
@@ -251,6 +263,7 @@ fi
 annotate_deployment_env_file "$env_file"
 printf '本地依赖已就绪。配置和管理员账号保存在：%s（凭据不输出）。\n' "$env_file"
 echo '在源码机仓库根目录启动后端：go run ./cmd/iot-platform --env-file .env.local'
+if [ "$capacity" = on ]; then echo '本地容量测试随 API 启动，在“运维中心 → 容量测试”使用；不会自动开始发压。'; fi
 echo '在源码机 iot_front 目录启动前端：npm run dev'
 if [ "$include_backup" = true ]; then
   echo '备份服务已在依赖机运行；VS Code 选择“IoT Platform (API + Web)”，不要重复启动本机备份服务。'

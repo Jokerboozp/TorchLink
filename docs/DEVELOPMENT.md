@@ -41,7 +41,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 | 入口 | 用途 |
 | --- | --- |
-| `scripts/setup-local.*` | 准备本地开发依赖，支持 VM 依赖与直播开关 |
+| `scripts/setup-local.*` | 准备本地开发依赖，支持 VM 依赖、直播与本地容量模块开关 |
 | `scripts/deploy-online.*` | 单机在线构建、部署和健康检查 |
 | `scripts/package-offline.*`、`deploy-offline.*` | 离线包生成、校验、安装与升级 |
 | `scripts/cluster-up.*`、`cluster-deploy.*` | 集群向导全流程；按已渲染配置分步部署 |
@@ -189,13 +189,16 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 
 平台部署时开启容量测试模块后（见 [部署文档](DEPLOYMENT.md#容量测试模块)），运维中心“容量测试”页直接选择测试类型运行：页面把表单生成计划（`iot_front/src/ops/capacity.js`，`fixtures.autoProvision: true`），平台补上调用者租户与为其签发的令牌，模块 `capacity-test serve --self` 从环境变量取得本平台的地址与核对库（`IOT_CAPACITY_API_URL`、`IOT_CAPACITY_METRICS`、`IOT_CAPACITY_POSTGRES_DSN` 等，含义见 `internal/capacity/self.go`），自动准备测试产品与规则后执行。页面“高级”开关可直接编辑计划 YAML。`internal/capacity/uiplan_test.go` 用 Go 规则校验表单能生成的全部计划。
 
-本地源码调试时可手动运行模块（使用本地测试账号与本地依赖地址）：
+本地 `setup-local.sh` / `.ps1` 默认设置 `IOT_OPS_CAPACITY_LOCAL=true`、`IOT_CAPACITY_MODULE=on`，容量控制器跟随 combined API 启停；IDE 和 `go run ./cmd/iot-platform --env-file .env.local` 都无需另起容量进程。旧本地配置只需补充下面两项并重启 API，无需重建依赖：
 
-```bash
-IOT_CAPACITY_API_URL=http://127.0.0.1:8081 IOT_CAPACITY_METRICS=combined@local=http://127.0.0.1:8081/metrics IOT_CAPACITY_POSTGRES_DSN=<本地核对库 DSN> IOT_CAPACITY_SERVICE_TOKEN=<32 位以上随机值> go run ./cmd/capacity-test serve --self --listen 127.0.0.1:7080
+```dotenv
+IOT_OPS_CAPACITY_LOCAL=true
+IOT_CAPACITY_MODULE=on
 ```
 
-并给本地 API 设置同一 `IOT_OPS_CAPACITY_TOKEN` 与 `IOT_OPS_CAPACITY_URL=http://127.0.0.1:7080`。
+控制器仅监听 `127.0.0.1` 的动态端口，服务令牌仅保存在进程内；复用当前 API 地址、MQTT、PostgreSQL 和 ClickHouse 配置，Web 入口为本地 Vite `127.0.0.1:5173`，结果保存在 `IOT_DATA_DIR/capacity-results/`。启动不会创建测试设备或自动发压，页面仍执行运维租户、菜单/操作权限和开始确认。`IOT_CAPACITY_MODULE=off` 显式关闭；已配置独立的 `IOT_OPS_CAPACITY_URL` / `IOT_OPS_CAPACITY_TOKEN` 时沿用独立服务，不再启动本地控制器。拆分角色使用部署模块或下方的独立控制服务。
+
+本地进程内发压与平台共享 CPU/内存，只用于功能调试，不能当作独立发压机测得的生产容量。停止 API 会同时停止控制器和正在执行的测试。
 
 ### 独立压测环境的控制服务
 

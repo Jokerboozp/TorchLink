@@ -192,10 +192,11 @@ onBeforeUnmount(() => clearTimeout(timer))
 <template>
   <section v-if="moduleOff" class="cap-off">
     <h2>容量测试模块未部署</h2>
-    <p>容量测试模块默认随部署启用，当前部署显式关闭了它。需要时由运维在部署机上重新开启；开启后本页直接选择测试类型即可运行，无需编写清单或配置凭据：</p>
+    <p>当前环境尚未启用容量测试模块。启用后重启平台，即可在本页选择测试类型运行：</p>
     <ul>
       <li>单机在线部署：<code>bash scripts/capacity-module.sh enable</code>（或部署时加 <code>--capacity on</code>）</li>
       <li>单机离线部署：<code>bash scripts/capacity-module.sh enable --mode offline</code></li>
+      <li>本地源码：在 <code>.env.local</code> 设置 <code>IOT_OPS_CAPACITY_LOCAL=true</code> 和 <code>IOT_CAPACITY_MODULE=on</code>，重启 API。</li>
       <li>集群部署：<code>bash scripts/cluster-up.sh --name &lt;集群名称&gt; --capacity on</code></li>
     </ul>
     <p class="cap-sub">Windows 使用对应的 .ps1 脚本；关闭时用 disable 或 --capacity off。</p>

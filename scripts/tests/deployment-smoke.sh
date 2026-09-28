@@ -200,6 +200,8 @@ grep -q "^IOT_AI_MODEL=deepseek-flash$" "$test_root/.env.local"
 grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$test_root/.env.local"
 grep -q "^IOT_AI_HARNESS_URL='http://127.0.0.1:8091'$" "$test_root/.env.local"
 grep -q "^IOT_BACKUP_URL='http://127.0.0.1:8092'$" "$test_root/.env.local"
+grep -q "^IOT_OPS_CAPACITY_LOCAL='true'$" "$test_root/.env.local"
+grep -q "^IOT_CAPACITY_MODULE='on'$" "$test_root/.env.local"
 assert_commented_env "$test_root/.env.local"
 assert_call 'compose.local.yaml up -d --build --wait'
 assert_no_call '--profile harness'
@@ -211,6 +213,17 @@ cp "$test_root/.env.local" "$test_root/local-original"
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local" --skip-code-deps
 cmp "$test_root/local-original" "$test_root/.env.local"
 echo 'PASS local: dependency preparation and unchanged configuration on rerun'
+
+capacity_env="$test_root/.env.local-capacity"
+cp "$test_root/.env.local" "$capacity_env"
+bash "$scripts/setup-local.sh" --env-file "$capacity_env" --skip-code-deps --capacity off
+grep -q "^IOT_CAPACITY_MODULE='off'$" "$capacity_env"
+bash "$scripts/setup-local.sh" --env-file "$capacity_env" --skip-code-deps
+grep -q "^IOT_CAPACITY_MODULE='off'$" "$capacity_env"
+bash "$scripts/setup-local.sh" --env-file "$capacity_env" --skip-code-deps --capacity on
+grep -q "^IOT_CAPACITY_MODULE='on'$" "$capacity_env"
+if bash "$scripts/setup-local.sh" --capacity invalid >/dev/null 2>&1; then echo 'Accepted invalid capacity switch' >&2; exit 1; fi
+echo 'PASS local capacity: default on, explicit opt-out kept, re-enable without a capacity container'
 
 no_harness_env="$test_root/.env.no-harness"
 cp "$test_root/.env.local" "$no_harness_env"

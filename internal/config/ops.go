@@ -40,6 +40,8 @@ type OpsConfig struct {
 	// (capacity-test serve); empty disables the capacity page.
 	CapacityURL   string
 	CapacityToken string
+	// CapacityLocal starts a loopback controller with the combined source process.
+	CapacityLocal bool
 	loadErr       error
 }
 
@@ -70,7 +72,11 @@ func loadOps() OpsConfig {
 		LogServiceName:     get("IOT_LOG_SERVICE_NAME", "platform-api"),
 		CapacityURL:        trimURL(os.Getenv("IOT_OPS_CAPACITY_URL")),
 		CapacityToken:      strings.TrimSpace(os.Getenv("IOT_OPS_CAPACITY_TOKEN")),
+		CapacityLocal:      boolValue("IOT_OPS_CAPACITY_LOCAL", false) && strings.TrimSpace(os.Getenv("IOT_CAPACITY_MODULE")) != "off",
 		ConfigFileMode:     0o640,
+	}
+	if strings.TrimSpace(os.Getenv("IOT_CAPACITY_MODULE")) == "off" {
+		cfg.CapacityURL, cfg.CapacityToken = "", ""
 	}
 	if raw := strings.TrimSpace(os.Getenv("IOT_OPS_CONFIG_FILE_MODE")); raw != "" {
 		mode, err := strconv.ParseUint(raw, 8, 32)

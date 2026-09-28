@@ -6,6 +6,7 @@ param(
     [switch]$IncludeBackup,
     [switch]$IncludeOps,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
+    [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep',
     [string]$RtcIp = '',
     [string]$RtcPort = '',
     [string]$AllowedCidrs = '',
@@ -92,6 +93,11 @@ Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
 Set-LocalEnvValue 'IOT_LOCAL_BACKUP_METRICS_TARGET' $(if ($IncludeBackup) { 'backup-service:8090' } else { 'host.docker.internal:8092' }) -Replace
 Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
 
+# The controller follows the source API lifecycle, using its local addresses.
+if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'off' } else { 'on' } }
+Set-LocalEnvValue 'IOT_OPS_CAPACITY_LOCAL' 'true' -Replace
+Set-LocalEnvValue 'IOT_CAPACITY_MODULE' $Capacity -Replace
+
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
 Set-LocalEnvValue 'IOT_AI_HARNESS_ENABLED' 'true' -Replace
@@ -164,6 +170,7 @@ try {
     Add-DeploymentEnvComments -Path $EnvFile
     Write-Host "本地依赖已就绪。配置和管理员账号保存在：$EnvFile（凭据不输出）。"
     Write-Host "在 platform 目录启动后端：go run ./cmd/iot-platform --env-file `"$EnvFile`""
+    if ($Capacity -eq 'on') { Write-Host '本地容量测试随 API 启动，在“运维中心 → 容量测试”使用；不会自动开始发压。' }
     Write-Host '在 platform/iot_front 目录启动前端：npm run dev'
     Write-Host '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API + Web + Backup)”进行源码调试。'
     if ($IncludeBackup) { Write-Host '已按 -IncludeBackup 启动备份容器；停止后可改用 VS Code 源码调试。' }

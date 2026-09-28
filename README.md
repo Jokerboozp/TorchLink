@@ -64,6 +64,8 @@ go run ./cmd/backup-service --env-file .env.local
 
 访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
 
+本地容量测试默认随源码 API 启停，在“运维中心 → 容量测试”打开；旧 `.env.local` 需按 [本地容量配置](docs/DEVELOPMENT.md#容量测试模块) 补充开关后重启，不必重新部署基础依赖。
+
 登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。离线包只携带知识库嵌入模型，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
 
 | 环境 | 配置与操作入口 |

@@ -103,6 +103,17 @@ try {
     Assert ((Get-FileHash $localEnv).Hash -eq $localHash) 'Local rerun changed configuration'
     Write-Host 'PASS local: code dependencies, isolated services, Kafka listener, stable credentials'
 
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_OPS_CAPACITY_LOCAL') -eq 'true') 'Local source controller is not enabled'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_CAPACITY_MODULE') -eq 'on') 'Local capacity is not on by default'
+    $capacityEnv = Join-Path $testRoot '.env.local-capacity'
+    Copy-Item -LiteralPath $localEnv -Destination $capacityEnv
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $capacityEnv -SkipCodeDeps -Capacity off
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $capacityEnv -SkipCodeDeps
+    Assert ((Get-DeploymentEnvValue -Path $capacityEnv -Key 'IOT_CAPACITY_MODULE') -eq 'off') 'Local rerun lost capacity opt-out'
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $capacityEnv -SkipCodeDeps -Capacity on
+    Assert ((Get-DeploymentEnvValue -Path $capacityEnv -Key 'IOT_CAPACITY_MODULE') -eq 'on') 'Local capacity could not be re-enabled'
+    Write-Host 'PASS local capacity: default on, opt-out retained and re-enable'
+
     $videoEnv = Join-Path $testRoot '.env.local-video'
     Copy-Item -LiteralPath $localEnv -Destination $videoEnv
     $sharedOps = Join-Path $testRoot 'shared ops'

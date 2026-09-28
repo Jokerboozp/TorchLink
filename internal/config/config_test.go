@@ -8,6 +8,25 @@ import (
 	"time"
 )
 
+func TestLocalCapacityConfigurationAndExplicitDisable(t *testing.T) {
+	t.Setenv("IOT_OPS_CAPACITY_LOCAL", "true")
+	t.Setenv("IOT_CAPACITY_MODULE", "on")
+	t.Setenv("IOT_OPS_CAPACITY_URL", "http://capacity:7080")
+	t.Setenv("IOT_OPS_CAPACITY_TOKEN", strings.Repeat("s", 32))
+	if ops := Load().Ops; !ops.CapacityLocal || ops.CapacityURL == "" || ops.CapacityToken == "" {
+		t.Fatal("local capacity opt-in or configured remote service was lost")
+	}
+	t.Setenv("IOT_CAPACITY_MODULE", "off")
+	if ops := Load().Ops; ops.CapacityLocal || ops.CapacityURL != "" || ops.CapacityToken != "" {
+		t.Fatal("explicit opt-out left a capacity service enabled")
+	}
+	t.Setenv("IOT_CAPACITY_MODULE", "")
+	t.Setenv("IOT_OPS_CAPACITY_LOCAL", "")
+	if Load().Ops.CapacityLocal {
+		t.Fatal("ordinary deployments must not implicitly start an in-process controller")
+	}
+}
+
 func TestAIKeyFallbackIsProviderScoped(t *testing.T) {
 	t.Setenv("IOT_AI_PROVIDER", "openai-compatible")
 	t.Setenv("IOT_AI_API_KEY", "")

@@ -479,6 +479,10 @@ func Run(forcedRole string) {
 			return err
 		}))
 	}
+	stopCapacity, capacityErr := startLocalCapacity(&cfg, log)
+	if capacityErr != nil {
+		log.Warn("local capacity controller unavailable", "error", capacityErr)
+	}
 	api := httpapi.New(cfg, engine, registry, log)
 	api.SetRateLimiter(limits)
 	storageStats := func() {
@@ -572,6 +576,7 @@ func Run(forcedRole string) {
 		}
 	}()
 	<-ctx.Done()
+	stopCapacity()
 	shutdown, stop := context.WithTimeout(context.Background(), 15*time.Second)
 	defer stop()
 	_ = server.Shutdown(shutdown)
