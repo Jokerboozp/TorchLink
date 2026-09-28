@@ -1261,8 +1261,7 @@ func (e *Engine) countAISkip() {
 	}
 }
 
-// AnalyzeAlarm runs the same automatic analysis path used by alarm events and
-// is also exposed to the operator UI for a manual re-run. withKnowledge must be
+// AnalyzeAlarm runs analysis explicitly requested by an operator. withKnowledge must be
 // decided by the caller's role: knowledge-based results are stored separately
 // and only shown to roles allowed to query the knowledge base.
 func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, withKnowledge bool) (model.AIAnalysis, error) {

@@ -139,8 +139,17 @@ func TestRawToAlarmPipeline(t *testing.T) {
 	if _, created, err := e.IngestRaw(ctx, raw); err != nil || created {
 		t.Fatalf("duplicate created=%v err=%v", created, err)
 	}
-	if _, err = repo.GetAIAnalysis(ctx, alarms[0].TenantID, alarms[0].ID, model.AIAnalysisScopeNone); err != nil {
-		t.Fatalf("ai analysis not saved: %v", err)
+	if _, err = repo.GetAIAnalysis(ctx, alarms[0].TenantID, alarms[0].ID, model.AIAnalysisScopeNone); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("alarm ingestion must not create an analysis: %v", err)
+	}
+	if requests := e.AIWorkflows.(*aitest.Workflows).Requests(); len(requests) != 0 {
+		t.Fatalf("alarm ingestion must not call a model: %#v", requests)
+	}
+	if _, err = e.AnalyzeAlarm(aitest.Context(ctx), alarms[0].TenantID, alarms[0].ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := repo.GetAIAnalysis(ctx, alarms[0].TenantID, alarms[0].ID, model.AIAnalysisScopeNone); err != nil || saved.Status != "succeeded" {
+		t.Fatalf("manual analysis not saved: %#v err=%v", saved, err)
 	}
 	if len(realtime.Messages) < 2 {
 		t.Fatalf("expected state and alarm realtime messages, got %d", len(realtime.Messages))

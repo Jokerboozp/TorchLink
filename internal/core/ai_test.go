@@ -136,6 +136,37 @@ func TestBusinessRunRequiresIdentityAndHarness(t *testing.T) {
 	}
 }
 
+func TestAlarmEventsDoNotStartAnalysis(t *testing.T) {
+	for name, components := range map[string]Components{"combined": AllComponents(), "ai": {AI: true}} {
+		t.Run(name, func(t *testing.T) {
+			e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := e.StartWith(ctx, components); err != nil {
+				t.Fatal(err)
+			}
+			alarm := model.Alarm{ID: "manual-only", TenantID: "t1", DeviceID: "device-1", Status: "ACTIVE", AlarmLevel: "HIGH"}
+			if _, _, err := repo.UpsertAlarm(ctx, alarm); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 2; i++ {
+				if err := e.Bus.Publish(ctx, model.TopicAlarmRaised, alarm.ID, mustJSON(alarm)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(workflows.Requests()) != 0 {
+				t.Fatal("alarm events must not start a workflow")
+			}
+			if _, err := repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); !errors.Is(err, model.ErrNotFound) {
+				t.Fatalf("alarm events must not persist analysis: %v", err)
+			}
+			if _, err := e.AnalyzeAlarm(aitest.Context(ctx), alarm.TenantID, alarm.ID, false); err != nil || len(workflows.Requests()) != 1 {
+				t.Fatalf("explicit analysis must still run once: %v", err)
+			}
+		})
+	}
+}
+
 // Automatic analysis has no user: it runs as a system identity limited to
 // alarm reading tools and never receives knowledge.
 func TestAutomaticAlarmAnalysisUsesRestrictedSystemIdentity(t *testing.T) {

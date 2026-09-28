@@ -231,7 +231,22 @@ func TestHTTPWorkflow(t *testing.T) {
 	if len(rules["items"].([]any)) != 0 {
 		t.Fatalf("rule not deleted %#v", rules)
 	}
-	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/alarm-analysis/"+alarmID, token, nil, 200)
+	analysisURL := server.URL + "/api/v1/ai/alarm-analysis/" + alarmID
+	requestJSON(t, server.Client(), http.MethodGet, analysisURL, token, nil, http.StatusNotFound)
+	requestJSON(t, server.Client(), http.MethodGet, analysisURL+"/progress", token, nil, http.StatusNotFound)
+	job := requestJSON(t, server.Client(), http.MethodPost, analysisURL+"/run", token, map[string]any{}, http.StatusAccepted)
+	analysisDeadline := time.Now().Add(2 * time.Second)
+	for {
+		progress := requestJSON(t, server.Client(), http.MethodGet, analysisURL+"/progress/"+job["jobId"].(string), token, nil, http.StatusOK)
+		if progress["status"] == "succeeded" {
+			break
+		}
+		if progress["status"] == "failed" || time.Now().After(analysisDeadline) {
+			t.Fatalf("manual analysis did not finish: %#v", progress)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	requestJSON(t, server.Client(), http.MethodGet, analysisURL, token, nil, http.StatusOK)
 	otherLogin := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123", "tenantId": "tenant_002"}, 200)
 	otherToken := otherLogin["accessToken"].(string)
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/alarm-analysis/"+alarmID, otherToken, nil, http.StatusNotFound)

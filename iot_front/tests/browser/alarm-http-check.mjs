@@ -13,6 +13,8 @@ const root = fileURLToPath(new URL('../../../', import.meta.url))
 let alarms = [{ alarmId:'historical', deviceId:'device', status:'ACTIVE' }]
 let polls = 0, brokerAttempts = 0
 let generationRequests = 0
+let analysisRequests = 0, analysisFinished = false
+const analysisResult = { summary:'手动研判完成', riskLevel:'HIGH', model:'fixture', createdAt:Date.now() }
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname
   if (path.startsWith('/api/')) {
@@ -23,6 +25,17 @@ const server = createServer(async (req, res) => {
     if (path === '/api/v1/mqtt/token') data = { websocketUrl:`ws://iot-alarm.test:${server.address().port}/mqtt`, subscriptions:[] }
     if (path === '/api/v1/dashboard') data = { devices:1, online:1, activeAlarms:alarms.length, highAlarms:alarms.length, trend:[], states:[], products:[] }
     if (path === '/api/v1/alarms') data = { items:alarms, total:alarms.length }
+    if (path.startsWith('/api/v1/alarms/')) data = alarms.find(alarm => alarm.alarmId === path.split('/').at(-1)) || {}
+    if (path.startsWith('/api/v1/ai/alarm-analysis/')) {
+      if (req.method === 'POST') {
+        analysisRequests++
+        data = { jobId:'manual-job', status:'running', progress:8, message:'正在准备告警上下文' }
+      } else if (path.includes('/progress')) {
+        data = analysisRequests ? { jobId:'manual-job', status:analysisFinished ? 'succeeded' : 'running', progress:analysisFinished ? 100 : 20, analysis:analysisFinished ? analysisResult : null } : { status:'idle' }
+      } else {
+        data = analysisFinished ? analysisResult : null
+      }
+    }
     if (path === '/api/v1/ai/protocol-assistant/generate') {
       let body=''
       for await (const chunk of req) body+=chunk.toString()
@@ -92,25 +105,51 @@ try {
   assert.equal(await evaluate("document.querySelectorAll('.global-alert-popup').length"),0)
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false})
   const click=async text=>until(()=>evaluate(`(()=>{const button=[...document.querySelectorAll('button')].find(item=>item.textContent.trim()===${JSON.stringify(text)} && item.getClientRects().length && !item.disabled);if(!button)return false;button.click();return true})()`))
-  await click('协议管理');await click('协议生成')
-  await until(()=>evaluate("!!document.querySelector('.protocol-generator textarea')"))
-  assert.equal(await evaluate("document.querySelector('.protocol-generator').textContent.includes('协议名称')"),true)
-  await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='点表').click()")
-  await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴 CSV 点表')"))
-  assert.equal(await evaluate("document.querySelector('.protocol-generator input[type=file]').accept"),'.xlsx,.csv')
-  await delay(500) // Wait for the dialog enter animation before visual review.
-  const inputScreenshot=await call('Page.captureScreenshot',{format:'png'})
-  await writeFile(join(output,'protocol-generator.png'),Buffer.from(inputScreenshot.data,'base64'))
-  await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='报文').click()")
-  await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴报文')"))
-  await evaluate(`(()=>{const input=document.querySelector('.protocol-generator textarea');input.value='{"temperature":25}';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
-  await click('生成协议')
-  await until(()=>evaluate("!!document.querySelector('.protocol-generator .mapping-editor input')"))
-  assert.equal(generationRequests,1)
-  assert.equal(await evaluate("document.querySelector('.mapping-editor').textContent.includes('编辑字段映射')"),true)
-  assert.deepEqual(errors,[])
-  console.log('PASS: real HTTP origin without randomUUID; MQTT handshake fails; historical alarm silent; new alarm popup arrives via polling, closes and does not repeat. API responses are fixtures.')
-  console.log('PASS: HTTP protocol generator renders report/Excel-CSV inputs and submits a report to the fixture API, then displays mapping input fields.')
+  await click('告警中心')
+  await click('查看详情')
+  await until(()=>evaluate("document.querySelector('.alarm-detail-dialog')?.textContent.includes('该告警尚未研判')"))
+  assert.equal(analysisRequests,0,'new alarms and opening details must not start analysis')
+  await click('开始研判')
+  await until(()=>analysisRequests===1)
+  assert.ok(await evaluate("[...document.querySelectorAll('.alarm-detail-dialog button')].some(button=>button.textContent.includes('研判中') && button.disabled)"),'running analysis must prevent duplicate submission')
+  await click('关闭详情')
+  await until(()=>evaluate("![...document.querySelectorAll('.alarm-detail-dialog')].some(dialog=>dialog.getClientRects().length)"))
+  await click('查看详情')
+  await until(()=>evaluate("document.querySelector('.alarm-detail-dialog')?.textContent.includes('研判中')"))
+  assert.equal(analysisRequests,1,'reopening must resume progress without starting another job')
+  analysisFinished = true
+  await until(()=>evaluate("document.querySelector('.alarm-detail-dialog')?.textContent.includes('手动研判完成')"))
+  await click('关闭详情')
+  await until(()=>evaluate("![...document.querySelectorAll('.alarm-detail-dialog')].some(dialog=>dialog.getClientRects().length)"))
+  await click('查看详情')
+  await until(()=>evaluate("document.querySelector('.alarm-detail-dialog')?.textContent.includes('手动研判完成')"))
+  assert.equal(analysisRequests,1,'viewing a saved result must not rerun analysis')
+  await click('重新研判')
+  await until(()=>analysisRequests===2)
+  await click('关闭详情')
+  await until(()=>evaluate("![...document.querySelectorAll('.alarm-detail-dialog')].some(dialog=>dialog.getClientRects().length)"))
+  console.log('PASS: alarm analysis starts only on click; running jobs prevent duplicate submission; reopening resumes progress or shows saved results; explicit rerun works. API responses are fixtures.')
+  if (!process.env.IOT_TEST_ALARM_ONLY) {
+    await click('协议管理');await click('协议生成')
+    await until(()=>evaluate("!!document.querySelector('.protocol-generator textarea')"))
+    assert.equal(await evaluate("document.querySelector('.protocol-generator').textContent.includes('协议名称')"),true)
+    await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='点表').click()")
+    await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴 CSV 点表')"))
+    assert.equal(await evaluate("document.querySelector('.protocol-generator input[type=file]').accept"),'.xlsx,.csv')
+    await delay(500) // Wait for the dialog enter animation before visual review.
+    const inputScreenshot=await call('Page.captureScreenshot',{format:'png'})
+    await writeFile(join(output,'protocol-generator.png'),Buffer.from(inputScreenshot.data,'base64'))
+    await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='报文').click()")
+    await until(()=>evaluate("document.querySelector('.protocol-generator').textContent.includes('或粘贴报文')"))
+    await evaluate(`(()=>{const input=document.querySelector('.protocol-generator textarea');input.value='{"temperature":25}';input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+    await click('生成协议')
+    await until(()=>evaluate("!!document.querySelector('.protocol-generator .mapping-editor input')"))
+    assert.equal(generationRequests,1)
+    assert.equal(await evaluate("document.querySelector('.mapping-editor').textContent.includes('编辑字段映射')"),true)
+    assert.deepEqual(errors,[])
+    console.log('PASS: real HTTP origin without randomUUID; MQTT handshake fails; historical alarm silent; new alarm popup arrives via polling, closes and does not repeat. API responses are fixtures.')
+    console.log('PASS: HTTP protocol generator renders report/Excel-CSV inputs and submits a report to the fixture API, then displays mapping input fields.')
+  }
 } finally {
   socket?.close()
   const exited = new Promise(done => { if(browser.exitCode!==null || browser.signalCode!==null) done(); else browser.once('exit',done) })

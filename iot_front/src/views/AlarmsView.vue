@@ -242,14 +242,14 @@ function rowActions(row) {
       <LinkedCameras :cameras="detail.cameras || []" />
     </ui-card>
     <ui-card shadow="never" class="top-gap">
-      <template #header><div class="card-header"><strong>智能自动研判</strong><ui-button v-permission="'POST /api/v1/ai/alarm-analysis'" size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '立即研判'}}</ui-button></div></template>
+      <template #header><div class="card-header"><strong>智能研判</strong><ui-button v-permission="'POST /api/v1/ai/alarm-analysis'" size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '开始研判'}}</ui-button></div></template>
       <div v-if="analysisProgress" class="analysis-progress" aria-live="polite">
         <div class="analysis-progress-heading"><strong>{{analysisProgress.message || '智能正在处理'}}</strong><span>{{progressPercent}}%</span></div>
         <ui-progress :percentage="progressPercent" :status="progressStatus" :stroke-width="10" />
         <small v-if="analysisProgress.status === 'running'">{{formatRemaining(analysisProgress.estimatedRemainingMs)}}</small>
         <small v-else>{{analysisProgress.status === 'succeeded' ? '处理完成' : analysisProgress.error || '处理失败'}}</small>
       </div>
-      <ui-empty v-if="!analysis && !analysisLoading" description="该告警暂无研判结果，可点击立即研判" :image-size="52" />
+      <ui-empty v-if="!analysis && !analysisLoading" description="该告警尚未研判，点击“开始研判”后执行" :image-size="52" />
       <div v-if="analysis" class="analysis-grid"><ui-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">{{analysisKnowledgeText(analysis)}}</small><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div>
     </ui-card>
     <pre>{{pretty(detail)}}</pre>

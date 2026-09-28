@@ -12,8 +12,10 @@ import (
 type Components struct {
 	Parser    bool
 	Processor bool
-	AI        bool
-	Jobs      bool
+	// AI is retained for role configuration compatibility. Alarm analysis is
+	// started explicitly by users; this flag no longer starts an alarm consumer.
+	AI   bool
+	Jobs bool
 	// OfflineScan is the device offline scan interval (jobs only).
 	OfflineScan time.Duration
 }
@@ -41,9 +43,8 @@ func (e *Engine) StartWith(ctx context.Context, c Components) error {
 	if c.Processor {
 		subs = append(subs, sub{model.TopicDeviceBusiness, GroupProcessor, e.handleStandard}, sub{model.TopicDeviceState, "state", e.handleState})
 	}
-	if c.AI {
-		subs = append(subs, sub{model.TopicAlarmRaised, "ai", e.handleAI})
-	}
+	// Alarm events remain available for notifications, but must never start
+	// analysis. Only the explicit operator API starts an analysis job.
 	for _, s := range subs {
 		if err := e.Bus.Subscribe(ctx, s.topic, s.group, s.handler); err != nil {
 			return err
