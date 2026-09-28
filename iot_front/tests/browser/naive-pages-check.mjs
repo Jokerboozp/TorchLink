@@ -1,36 +1,19 @@
 // 在隔离浏览器中打开全部主页面，检查 Naive UI 迁移后的可见结构。
+import { startBrowser, delay } from '../helpers/browser.mjs'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const browser = process.env.IOT_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' /* 使用本机 Edge 的独立会话。 */
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173' /* 只访问合成数据预览服务。 */
 const pages = ['运行总览', '设备通信协议', '设备模板', '设备管理', '模拟设备测试', '摄像头映射', '告警中心', '智能巡检', '原始报文', '告警规则', '模型管理', '智能助手', '知识库', '备份中心', '用户与权限'] /* 检查全部主菜单。 */
-const profile = await mkdtemp(join(tmpdir(), 'iot-naive-pages-')) /* 隔离浏览器本地数据。 */
-const child = spawn(browser, ['--headless=new', '--use-mock-keychain', '--password-store=basic', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-hang-monitor', '--disable-features=TabFreezing,IntensiveWakeUpThrottling,HighEfficiencyModeAvailable,BatterySaverModeAvailable', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' }) /* 启动临时浏览器。 */
-// macOS 会结束不允许后台运行的无头 Chrome（约 30 秒后正常退出），此时直接报错而不是等待 CDP 超时。
-let finished = false
-child.once('exit', (code, signal) => { if (finished) return; console.error(`浏览器进程提前退出（code=${code}, signal=${signal}）。macOS 上请在“系统设置 → 通用 → 登录项与扩展 → 允许在后台”中允许 Google Chrome，或改用 Linux 环境运行。`); process.exit(1) })
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms)) /* 给页面渲染留出短暂时间。 */
-async function until(check) { for (let i = 0; i < 100; i++) { const value = await check(); if (value) return value; await delay(100) } throw new Error('页面等待超时') } /* 等待确定的页面状态。 */
-
-let socket /* 保存本次 CDP 连接。 */
-try { /* 所有浏览器资源在 finally 中释放。 */
-  const port = await until(async () => { try { return (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0] } catch { return null } }) /* 获取临时调试端口。 */
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json() /* 查找浏览器页面。 */
-  socket = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl) /* 连接临时页面。 */
-  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject }) /* 等待连接可用。 */
-  let id = 0 /* 递增 CDP 请求标识。 */
-  const pending = new Map() /* 关联请求与响应。 */
-  const failures = [] /* 收集页面脚本错误。 */
-  const warnings = [] /* 收集框架组件警告。 */
-  socket.onmessage = event => { const message = JSON.parse(event.data); if (message.method === 'Page.javascriptDialogOpening') console.log('JS 对话框：', JSON.stringify(message.params).slice(0, 300)); if (message.method === 'Inspector.targetCrashed') console.log('页面崩溃'); if (message.method === 'Runtime.exceptionThrown') failures.push(message.params.exceptionDetails?.exception?.description || message.params.exceptionDetails?.text); if (message.method === 'Runtime.consoleAPICalled' && ['warning', 'error'].includes(message.params.type)) warnings.push(message.params.args.map(arg => arg.value || arg.description || '').join(' ')); if (!message.id) return; const entry = pending.get(message.id); pending.delete(message.id); message.error ? entry.reject(new Error(message.error.message)) : entry.resolve(message.result) } /* 分发事件和请求结果。 */
-  const skipScreenshots = process.env.IOT_UI_SKIP_SCREENSHOTS === '1' /* 仅需断言时可跳过截图。 */
+let browser
+try {
+  browser = await startBrowser({ args: ['--use-mock-keychain', '--password-store=basic', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-hang-monitor', '--disable-features=TabFreezing,IntensiveWakeUpThrottling,HighEfficiencyModeAvailable,BatterySaverModeAvailable'], onEvent: message => { if (message.method === 'Page.javascriptDialogOpening') console.log('JS 对话框：', JSON.stringify(message.params).slice(0, 300)) } })
+  const { call: browserCall, evaluate, until, errors: failures, warnings } = browser
+  const skipScreenshots = process.env.IOT_UI_SKIP_SCREENSHOTS === '1'
   const blankPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
-  const call = (method, params = {}) => skipScreenshots && method === 'Page.captureScreenshot' ? Promise.resolve({ data: blankPng }) : new Promise((resolve, reject) => { const next = ++id; const timer = setTimeout(() => { pending.delete(next); reject(new Error(`CDP ${method} 超过 30 秒未响应：${JSON.stringify(params).slice(0, 160)}`)) }, 30000); pending.set(next, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } }); socket.send(JSON.stringify({ id: next, method, params })) }) /* 发送 CDP 请求；超时即报错，避免浏览器卡死时静默退出。 */
-  const evaluate = async expression => { const value = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (value.exceptionDetails) throw new Error(value.exceptionDetails.exception?.description || value.exceptionDetails.text); return value.result.value } /* 读取页面可见状态。 */
+  const call = (method, params = {}) => skipScreenshots && method === 'Page.captureScreenshot' ? Promise.resolve({ data: blankPng }) : browserCall(method, params)
   const auditControls = async rootSelector => evaluate(`(() => {const root=[...document.querySelectorAll(${JSON.stringify(rootSelector)})].find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden');if(!root)return {missing:true};const visible=e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(e).visibility!=='hidden'};const controls=[...root.querySelectorAll('button,.n-form-item-label,.n-base-selection-label,.n-card-header__main')].filter(visible),labeled=controls.filter(e=>e.innerText?.trim());return {clipped:labeled.filter(e=>e.scrollWidth>e.clientWidth+3&&getComputedStyle(e).overflowX!=='visible').map(e=>({text:e.innerText.trim().slice(0,36),width:e.clientWidth,content:e.scrollWidth})),emptyButtons:controls.filter(e=>e.tagName==='BUTTON'&&!e.innerText.trim()&&!e.getAttribute('aria-label')&&!e.getAttribute('title')&&!e.closest('.n-input__suffix')).map(e=>e.outerHTML.slice(0,120))}})()`) /* 对每个可见界面检查文字裁切和无名按钮，略过已由输入框标注的内部步进按钮。 */
   const auditContrast = async rootSelector => evaluate(`(() => {const root=[...document.querySelectorAll(${JSON.stringify(rootSelector)})].find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden');if(!root)return [];const rgb=s=>{const m=s.match(/rgba?\\(([^)]+)\\)/);return m?m[1].split(',').slice(0,3).map(Number):null};const lum=c=>{const v=c.map(x=>{x/=255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};const ratio=(a,b)=>{const x=lum(a),y=lum(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05)};const candidates=[...root.querySelectorAll('small,p,label,.n-form-item-label')].filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&e.innerText?.trim()&&!e.closest('[aria-hidden=true]')&&!e.closest('.n-button--disabled')});return candidates.map(e=>{let parent=e,bg;while(parent){const color=getComputedStyle(parent).backgroundColor;if(color&&!color.endsWith(', 0)')&&color!=='transparent'){bg=rgb(color);break}parent=parent.parentElement}const fg=rgb(getComputedStyle(e).color);return {text:e.innerText.trim().slice(0,38),contrast:fg&&bg?Math.round(ratio(fg,bg)*10)/10:null,fg:getComputedStyle(e).color,bg:bg?.join(',')}}).filter(x=>x.contrast!==null&&x.contrast<4.5).slice(0,12)})()`) /* 排除带伪元素底色的按钮，按正文 AA 对比度检查。 */
 
@@ -506,14 +489,6 @@ try { /* 所有浏览器资源在 finally 中释放。 */
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`) /* 不接受未处理的页面错误。 */
   if (warnings.length) console.log(`页面警告 ${warnings.length} 条：${[...new Set(warnings)].slice(0, 8).join(' | ')}`) /* 输出需继续排查的框架警告。 */
   console.log(`PASS: ${pages.length} 个主页面正常渲染`) /* 报告界面检查结果。 */
-} finally { /* 清理浏览器与临时配置。 */
-  finished = true
-  socket?.close() /* 关闭调试连接。 */
-  const exited = new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve) }) /* 等待浏览器结束。 */
-  child.kill() /* 停止临时浏览器。 */
-  const forceStop = setTimeout(() => child.kill('SIGKILL'), 3000) /* 防止浏览器进程残留。 */
-  forceStop.unref() /* 不延长测试进程生命周期。 */
-  await exited /* 确认浏览器已经结束。 */
-  clearTimeout(forceStop) /* 取消强制停止定时器。 */
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) /* 清理本次用户目录。 */
-} /* 结束资源清理。 */
+} finally {
+  await browser?.close()
+}

@@ -218,7 +218,7 @@ function Set-DeepSeekDeploymentEnv {
         IOT_AI_PROVIDER='deepseek'; IOT_AI_BASE_URL='https://api.deepseek.com'; IOT_AI_MODEL=$Model;
         IOT_AI_HARNESS_PROVIDER='deepseek-official'; IOT_AI_HARNESS_MODEL=$Model; IOT_OLLAMA_MODEL=''
     }).GetEnumerator()) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value ([string]$setting.Value) }
-    if (-not $key) { Write-Warning '请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥、测试并应用；未配置前 AI 功能不可用。' }
+    if (-not $key) { Write-Warning '请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥并保存（连接测试可选）；未配置前 AI 功能不可用。' }
 }
 
 function Ensure-EmqxAdminEnv {

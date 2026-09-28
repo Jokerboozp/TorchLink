@@ -18,7 +18,6 @@ while [ "$#" -gt 0 ]; do
       shift 2;;
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2;;
     --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2;;
-    --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1;;
     -h|--help)
       cat <<'EOF'
 用法：bash scripts/deploy-online.sh [选项]

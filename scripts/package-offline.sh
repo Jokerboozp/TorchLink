@@ -262,7 +262,6 @@ while [[ $# -gt 0 ]]; do
     --output-dir) output_dir="${2:-}"; shift 2 ;;
     --env-file) env_file="${2:-}"; shift 2 ;;
     --without-video) include_video=0; shift ;;
-    --ollama-model) die '已取消打包本地对话模型，请使用 DeepSeek API' ;;
     --deepseek-model) deepseek_model="${2:-}"; shift 2 ;;
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
     --skip-ollama-model) skip_ollama_model=1; shift ;;

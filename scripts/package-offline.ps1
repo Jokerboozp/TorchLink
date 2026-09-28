@@ -4,7 +4,6 @@ param(
     [string]$EnvFile = "",
     # 打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）。
     [switch]$WithoutVideo,
-    [string]$OllamaModel = "",
     [string]$DeepSeekModel = "deepseek-flash",
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel,
@@ -291,7 +290,6 @@ function New-OfflineEnv {
 if ($OllamaEmbeddingModel -ne "nomic-embed-text") {
     throw "当前知识库使用 nomic-embed-text，OllamaEmbeddingModel 必须与其一致。"
 }
-if ($OllamaModel) { throw '已取消打包本地对话模型，请使用 DeepSeek API。' }
 if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeek 模型名称无效。' }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {

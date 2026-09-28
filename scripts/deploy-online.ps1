@@ -4,10 +4,8 @@ Build and deploy the platform with internet access (Docker + Compose v2 required
 .DESCRIPTION
 Creates .env.online once with random credentials, pulls dependency images,
 builds the application, downloads the knowledge embedding model, and checks HTTP readiness.
-.PARAMETER NoHarness
-Rejected: the AI workflow Harness is a mandatory component.
 .PARAMETER EnvFile
-Environment file, relative to platform/. Credentials are never replaced.
+Environment file, relative to the repository root. Credentials are never replaced.
 .PARAMETER Video
 on/off deploys or removes the camera live media server; keep (default) reuses the
 last choice, and new environments deploy it.
@@ -19,7 +17,6 @@ reuses the last choice, and new environments deploy it.
 param(
     [string]$EnvFile = '.env.online',
     [string]$ProjectName = 'iot-platform-online',
-    [switch]$NoHarness,
     [int]$HealthTimeoutSeconds = 180,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
     [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep'
@@ -31,7 +28,6 @@ $projectRoot = Split-Path -Parent $scriptDir
 . (Join-Path $scriptDir 'lib/deployment.ps1')
 if ($ProjectName -notmatch '^[a-z0-9][a-z0-9_-]*$') { throw 'ProjectName 必须以小写字母或数字开头，且仅包含小写字母、数字、下划线或短横线。' }
 if ($HealthTimeoutSeconds -lt 1) { throw 'HealthTimeoutSeconds 必须大于 0。' }
-if ($NoHarness) { throw 'AI 工作流服务（Harness）是必装组件，不能使用 -NoHarness。' }
 if (-not [IO.Path]::IsPathRooted($EnvFile)) { $EnvFile = Join-Path $projectRoot $EnvFile }
 $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 Assert-DockerAvailable

@@ -153,7 +153,7 @@ configure_deepseek_env() {
   set_deployment_env_value "$env_path" IOT_AI_HARNESS_MODEL "$model"
   set_deployment_env_value "$env_path" IOT_OLLAMA_MODEL ''
   if [ -z "$key" ]; then
-    echo '提示：请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥、测试并应用；未配置前 AI 功能不可用。' >&2
+    echo '提示：请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥并保存（连接测试可选）；未配置前 AI 功能不可用。' >&2
   fi
 }
 

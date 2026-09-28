@@ -2,7 +2,6 @@
 param(
     [string]$EnvFile = '.env.local',
     [switch]$SkipCodeDeps,
-    [switch]$NoHarness,
     [switch]$IncludeBackup,
     [switch]$IncludeOps,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
@@ -12,7 +11,6 @@ param(
     [string]$AllowedCidrs = '',
     [switch]$Transcode,
     [switch]$NoTranscode,
-    [string]$OllamaModel = '',
     [string]$DeepSeekModel = 'deepseek-flash'
 )
 
@@ -41,9 +39,7 @@ function Set-LocalEnvValue {
 }
 
 Assert-DockerAvailable
-if ($OllamaModel) { throw '已取消部署本地对话模型，请填写 DEEPSEEK_API_KEY。' }
 if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeekModel 不是有效的模型名称。' }
-if ($NoHarness) { throw 'AI 工作流服务（Harness）是必装组件，不能使用 -NoHarness。' }
 $npmCommand = if ($env:OS -eq 'Windows_NT') { 'npm.cmd' } else { 'npm' }
 if (-not $SkipCodeDeps) {
     foreach ($command in @('go', $npmCommand)) {
@@ -169,9 +165,9 @@ try {
     }
     Add-DeploymentEnvComments -Path $EnvFile
     Write-Host "本地依赖已就绪。配置和管理员账号保存在：$EnvFile（凭据不输出）。"
-    Write-Host "在 platform 目录启动后端：go run ./cmd/iot-platform --env-file `"$EnvFile`""
+    Write-Host "在仓库根目录启动后端：go run ./cmd/iot-platform --env-file `"$EnvFile`""
     if ($Capacity -eq 'on') { Write-Host '本地容量测试随 API 启动，在“运维中心 → 容量测试”使用；不会自动开始发压。' }
-    Write-Host '在 platform/iot_front 目录启动前端：npm run dev'
+    Write-Host '在 iot_front 目录启动前端：npm run dev'
     Write-Host '备份服务默认不启动容器；在 VS Code 选择“IoT Platform (API + Web + Backup)”进行源码调试。'
     if ($IncludeBackup) { Write-Host '已按 -IncludeBackup 启动备份容器；停止后可改用 VS Code 源码调试。' }
     Write-Host '前端：http://localhost:5173；后端：http://localhost:8081'

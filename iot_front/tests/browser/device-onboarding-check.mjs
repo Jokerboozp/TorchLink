@@ -1,29 +1,19 @@
-import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { startBrowser } from '../helpers/browser.mjs'
+import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 
 // 由 internal/httpapi/onboarding_test.go 启动：隔离的 Go API、真实浏览器、合成设备上报。
-const profile = await mkdtemp(join(tmpdir(), 'iot-device-flow-'))
-const child = spawn(process.env.IOT_TEST_BROWSER, ['--headless=new','--no-first-run','--no-default-browser-check','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {windowsHide:true,stdio:'ignore'})
-let socket
-const delay = ms => new Promise(resolve => setTimeout(resolve,ms))
-async function until(fn, note, tries = 120) { for(let i=0;i<tries;i++){const value=await fn();if(value)return value;await delay(100)}throw new Error(`Browser condition timed out: ${note}`) }
+let browser
 try {
-  const port = await until(async()=>{try{return (await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0]}catch{return null}},'Chrome debugger')
-  const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  socket = new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl)
-  await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject})
-  let id=0;const pending=new Map()
-  socket.onmessage=event=>{const value=JSON.parse(event.data);if(value.id){const p=pending.get(value.id);pending.delete(value.id);value.error?p.reject(new Error(value.error.message)):p.resolve(value.result)}}
-  const call=(method,params={})=>new Promise((resolve,reject)=>{const next=++id;pending.set(next,{resolve,reject});socket.send(JSON.stringify({id:next,method,params}))})
-  const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.text+' '+JSON.stringify(r.exceptionDetails.exception));return r.result.value}
+  browser = await startBrowser({ timeout: 12000 })
+  const { call, evaluate, until } = browser
   const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button,label')].find(e=>(e.getAttribute('aria-label')===${JSON.stringify(text)}||e.textContent.trim()===${JSON.stringify(text)})&&e.getClientRects().length&&!e.disabled&&!e.classList.contains('n-radio-button--disabled'));if(!e)return false;e.click();return true})()`),`click: ${text}`)
   const fill=async(label,value)=>until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.ui-form-item,.n-form-item')].find(e=>e.querySelector('.n-form-item-label,.ui-form-item__label,label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const input=item?.querySelector('input');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));return true})()`),`input: ${label}`)
   const select=async(label,match)=>{await until(()=>evaluate(`(()=>{const item=[...document.querySelectorAll('.ui-form-item,.n-form-item')].find(e=>e.querySelector('.n-form-item-label,.ui-form-item__label,label')?.textContent.trim().startsWith(${JSON.stringify(label)}));const control=item?.querySelector('.n-base-selection');if(!control)return false;control.click();return true})()`),`select: ${label}`);await until(()=>evaluate(`(()=>{const option=[...document.querySelectorAll('.n-base-select-option')].find(e=>e.textContent.includes(${JSON.stringify(match)})&&e.getClientRects().length);if(!option)return false;option.click();return true})()`),`option: ${match}`)}
   const text=()=>evaluate(`document.querySelector('.onboarding')?.innerText || ''`)
-  const waitText=async(value,note,tries=120)=>{let last='';try{return await until(async()=>(last=await text()).includes(value),note,tries)}catch(error){throw new Error(`${error.message}\n--- page text ---\n${last.slice(0,1500)}`)}}
+  const waitText=async(value,note,tries=120)=>{let last='';try{return await until(async()=>(last=await text()).includes(value),note,tries*100)}catch(error){throw new Error(`${error.message}\n--- page text ---\n${last.slice(0,1500)}`)}}
   const capture=async name=>{await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');assert.ok(await evaluate('document.documentElement.scrollWidth<=innerWidth+2'),`${name} horizontal overflow`);if(!name.endsWith('-bottom'))assert.ok(await evaluate("(()=>{const heading=document.querySelector('.onboarding__card .onboarding__title'),content=document.querySelector('.app-content');if(!heading||!content)return false;const h=heading.getBoundingClientRect(),c=content.getBoundingClientRect();return h.top>=c.top-1&&h.top<c.bottom})()"),`${name} step heading not visible`);const shot=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(join(tmpdir(),`iot-onboarding-${name}.png`),Buffer.from(shot.data,'base64'))}
   await call('Page.enable')
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false})
@@ -124,7 +114,5 @@ try {
   const shot=await call('Page.captureScreenshot',{format:'png'});await writeFile(join(tmpdir(),'iot-onboarding-desktop-template-access.png'),Buffer.from(shot.data,'base64'))
   console.log('PASS: isolated Go API and real browser — new and existing templates, one-time secret, field report confirmed by the backend diagnosis, MQTT information, server-side filter, draft recovery, template access points and 390px layout')
 } finally {
-  socket?.close()
-  child.kill()
-  try { await rm(profile,{recursive:true,force:true,maxRetries:10,retryDelay:200}) } catch { /* Browser teardown must not hide the assertion. */ }
+  await browser?.close()
 }

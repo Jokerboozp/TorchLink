@@ -1,7 +1,7 @@
 // 用隔离的合成 API 数据检查不同来源协议的统一版本入口。
+import { startBrowser, delay } from '../helpers/browser.mjs'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -12,25 +12,12 @@ const fixtures = [
   { definition: { id: 'legacy-fixture', name: '历史协议' }, releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'json', transport: 'HTTP', artifact: {} }] },
   { definition: { id: 'empty-fixture', name: '待创建版本的协议' }, releases: [] }
 ]
-const browser = process.env.IOT_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173'
-const profile = await mkdtemp(join(tmpdir(), 'iot-protocol-actions-'))
-const child = spawn(browser, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' })
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-async function until(check) { for (let i = 0; i < 100; i++) { const value = await check(); if (value) return value; await delay(100) } throw new Error('页面等待超时') }
 
-let socket
+let browser
 try {
-  // CDP 只连接本次创建的临时浏览器。
-  const port = await until(async () => { try { return (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0] } catch { return null } })
-  const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  socket = new WebSocket(pages.find(page => page.type === 'page').webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject })
-  let id = 0
-  const pending = new Map()
-  socket.onmessage = event => { const message = JSON.parse(event.data); if (!message.id) return; const entry = pending.get(message.id); pending.delete(message.id); message.error ? entry.reject(new Error(message.error.message)) : entry.resolve(message.result) }
-  const call = (method, params = {}) => new Promise((resolve, reject) => { const next = ++id; pending.set(next, { resolve, reject }); socket.send(JSON.stringify({ id: next, method, params })) })
-  const evaluate = async expression => { const value = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (value.exceptionDetails) throw new Error(value.exceptionDetails.exception?.description || value.exceptionDetails.text); return value.result.value }
+  browser = await startBrowser()
+  const { call, evaluate, until } = browser
 
   // 登录、权限轮询和协议目录均返回合成数据，不连接真实业务服务。
   await call('Page.enable')
@@ -84,13 +71,5 @@ try {
   }
   console.log('PASS: 协议行操作一致，三种版本详情按制品显示专项操作，无版本协议显示明确状态')
 } finally {
-  // 清理本次临时浏览器和用户目录。
-  socket?.close()
-  const exited = new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve) })
-  child.kill()
-  const forceStop = setTimeout(() => child.kill('SIGKILL'), 3000)
-  forceStop.unref()
-  await exited
-  clearTimeout(forceStop)
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  await browser?.close()
 }

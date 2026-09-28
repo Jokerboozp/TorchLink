@@ -282,7 +282,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### AI 与工作流
 
-本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在“模型管理 → 运行中的 AI 工作流”查看当前租户的任务并逐条强制停止。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
+本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
 
 升级运行管理功能需同步后端与 Harness。VMware 源码调试环境把最新源码同步到依赖机的原仓库后，在依赖机仓库根目录执行以下命令，然后重启 Windows 源码 API。重建 Harness 会中断该实例当前任务；`.env.local` 和命名卷继续沿用。
 
@@ -334,9 +334,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | `IOT_POSTGRES_MAX_CONNS` | 64 | 每个进程（含各 Worker 角色）的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
 | `POSTGRES_MAX_CONNECTIONS` | 300 | Compose 中 PostgreSQL 的 `max_connections` |
 | `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
-| `IOT_AI_ANALYSIS_CONCURRENCY` / `IOT_AI_ANALYSIS_RPM` | 2 / 12 | 历史自动研判并发 / 请求额度参数；已取消告警事件自动研判，手动任务不使用这两个参数 |
 | `IOT_CLUSTER_INSTANCES` | 1 | 共享限额存储（Redis）不可用时，各进程按“额度 ÷ 实例数”退化执行，避免总额度放大 |
-| `IOT_AI_ANALYSIS_TIMEOUT` / `IOT_AI_ANALYSIS_MAX_WAIT` | 90s / 10m | 历史自动研判执行期限 / 事件最长等待年龄；手动研判执行期限为 3 分钟 |
 | `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与业务流（`processor` 组）积压超过该值时暂停接收新原文，0 关闭 |
 | `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
 | `IOT_MQTT_DEVICE_TOKEN_TTL` | 24h | 标准设备 MQTT 令牌有效期，仅在配置 EMQX 管理 API 时生效，否则 5 分钟 |

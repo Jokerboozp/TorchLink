@@ -1,10 +1,9 @@
 // Built Vue app in a real insecure HTTP browser origin; isolated HTTP fixtures,
 // deliberately unavailable MQTT. Run after npm run build, with IOT_TEST_BROWSER.
+import { startBrowser, delay } from '../helpers/browser.mjs'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -57,32 +56,10 @@ const server = createServer(async (req, res) => {
 })
 server.on('upgrade', (req, socket) => { brokerAttempts++; socket.destroy() })
 await new Promise(done => server.listen(0, '127.0.0.1', done))
-const profile = await mkdtemp(join(tmpdir(), 'iot-alarm-http-'))
-const browser = spawn(process.env.IOT_TEST_BROWSER, ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--no-proxy-server', '--host-resolver-rules=MAP iot-alarm.test 127.0.0.1', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide:true, stdio:'ignore' })
-let socket
-const delay = ms => new Promise(done => setTimeout(done, ms))
-async function until(fn) {
-  for (let i=0; i<200; i++) { const value=await fn(); if(value) return value; await delay(100) }
-  throw Error('Browser condition timed out')
-}
+let browser
 try {
-  const port = await until(async () => { try { return (await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0] } catch { return null } })
-  const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  socket = new WebSocket(pages.find(page => page.type === 'page').webSocketDebuggerUrl)
-  await new Promise((done, fail) => { socket.onopen=done; socket.onerror=fail })
-  let id=0
-  const pending=new Map(), errors=[]
-  socket.onmessage = event => {
-    const value=JSON.parse(event.data)
-    if(value.id) { const job=pending.get(value.id); pending.delete(value.id); value.error ? job.reject(Error(value.error.message)) : job.resolve(value.result) }
-    else if(value.method==='Runtime.exceptionThrown') errors.push(value.params.exceptionDetails.text)
-  }
-  const call = (method,params={}) => new Promise((resolve,reject) => { const next=++id; pending.set(next,{resolve,reject}); socket.send(JSON.stringify({id:next,method,params})) })
-  const evaluate = async expression => {
-    const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})
-    if(result.exceptionDetails) throw Error(JSON.stringify(result.exceptionDetails))
-    return result.result.value
-  }
+  browser = await startBrowser({ timeout: 20000, args: ['--no-proxy-server', '--host-resolver-rules=MAP iot-alarm.test 127.0.0.1'] })
+  const { call, evaluate, until, errors } = browser
   await call('Page.enable'); await call('Runtime.enable')
   await call('Page.addScriptToEvaluateOnNewDocument',{source:"localStorage.setItem('iot_token','browser-fixture');localStorage.setItem('iot_role','admin');localStorage.setItem('iot_tenant','tenant');localStorage.setItem('iot_user','browser-test');"})
   await call('Page.navigate',{url:`http://iot-alarm.test:${server.address().port}`})
@@ -111,7 +88,7 @@ try {
   assert.equal(analysisRequests,0,'new alarms and opening details must not start analysis')
   await click('开始研判')
   await until(()=>analysisRequests===1)
-  assert.ok(await evaluate("[...document.querySelectorAll('.alarm-detail-dialog button')].some(button=>button.textContent.includes('研判中') && button.disabled)"),'running analysis must prevent duplicate submission')
+  assert.ok(await until(()=>evaluate("[...document.querySelectorAll('.alarm-detail-dialog button')].some(button=>button.textContent.includes('研判中') && button.disabled)"), 'running analysis must prevent duplicate submission'))
   await click('关闭详情')
   await until(()=>evaluate("![...document.querySelectorAll('.alarm-detail-dialog')].some(dialog=>dialog.getClientRects().length)"))
   await click('查看详情')
@@ -130,7 +107,7 @@ try {
   await until(()=>evaluate("![...document.querySelectorAll('.alarm-detail-dialog')].some(dialog=>dialog.getClientRects().length)"))
   console.log('PASS: alarm analysis starts only on click; running jobs prevent duplicate submission; reopening resumes progress or shows saved results; explicit rerun works. API responses are fixtures.')
   if (!process.env.IOT_TEST_ALARM_ONLY) {
-    await click('协议管理');await click('协议生成')
+    await click('设备通信协议');await click('协议生成')
     await until(()=>evaluate("!!document.querySelector('.protocol-generator textarea')"))
     assert.equal(await evaluate("document.querySelector('.protocol-generator').textContent.includes('协议名称')"),true)
     await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='点表').click()")
@@ -151,10 +128,8 @@ try {
     console.log('PASS: HTTP protocol generator renders report/Excel-CSV inputs and submits a report to the fixture API, then displays mapping input fields.')
   }
 } finally {
-  socket?.close()
-  const exited = new Promise(done => { if(browser.exitCode!==null || browser.signalCode!==null) done(); else browser.once('exit',done) })
-  browser.kill(); await exited
-  server.closeAllConnections(); await new Promise(done => server.close(done))
-  if (!resolve(profile).startsWith(resolve(tmpdir()) + sep + 'iot-alarm-http-')) throw Error('Unexpected browser profile path')
-  await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:200})
+  try { await browser?.close() } finally {
+    server.closeAllConnections()
+    await new Promise(resolve => server.close(resolve))
+  }
 }

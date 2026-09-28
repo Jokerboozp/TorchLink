@@ -9,7 +9,7 @@ function component(api, { allowed = true, confirm = async () => {} } = {}) {
   let unmount
   const context = vm.createContext({ ref, computed, api, can:() => allowed,
     UiMessageBox:{ confirm }, UiMessage:Object.fromEntries(['info','success','error'].map(type => [type,message => notices.push({type,message})])),
-    AbortController, setInterval, clearInterval, document:{hidden:false},
+    AbortController,
     onMounted(){}, onUnmounted(fn){unmount=fn},
   })
   const source = setupScript(new URL('../src/components/AiWorkflowRuns.vue', import.meta.url))

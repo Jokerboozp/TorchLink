@@ -37,7 +37,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 ### 脚本入口
 
-同一操作只保留 `.sh`（Linux / macOS）与 `.ps1`（Windows PowerShell），不再增加按操作系统命名的转发包装。原 `--include-ai`、`--include-deepseek`、`--include-harness`、`--full` 及对应 PowerShell 开关已移除，DeepSeek 配置与 Harness 始终准备；只需填写自己的 API Key。参数以脚本帮助为准，部署步骤见 [部署指南](DEPLOYMENT.md)。
+同一操作只保留 `.sh`（Linux / macOS）与 `.ps1`（Windows PowerShell），不再增加按操作系统命名的转发包装。DeepSeek 配置与 Harness 始终准备，只需填写自己的 API Key。旧 AI 可选安装、跳过 Harness、本地对话模型参数及 `--include-backup-service` 别名已移除；备份容器使用 `--include-backup` / `-IncludeBackup`。参数以脚本帮助为准，部署步骤见 [部署指南](DEPLOYMENT.md)。
 
 | 入口 | 用途 |
 | --- | --- |
@@ -65,16 +65,17 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 
 ### 浏览器验证
 
-先在 `iot_front` 执行 `npm run build`，用 `IOT_TEST_BROWSER` 指定 Chrome / Edge 可执行文件。专项脚本位于 `iot_front/tests/browser/`，不包含在 `npm test` 中：
+先在 `iot_front` 执行 `npm run build`，用 `IOT_TEST_BROWSER` 指定 Chrome / Edge 可执行文件。专项脚本位于 `iot_front/tests/browser/`，使用 Node.js 22.12+ 的原生 WebSocket，不包含在 `npm test` 中；共用 `tests/helpers/browser.mjs` 管理独立浏览器、CDP 超时和临时目录清理，场景断言留在各脚本中：
 
 | 场景 | 入口与条件 |
 | --- | --- |
 | 合成界面、弹层、窄屏 | 在 `iot_front` 启动 `node tests/browser/ui-preview.mjs`，另开终端运行 `naive-pages-check.mjs`、`onboarding-modes-check.mjs`、`protocol-actions-check.mjs`（均在 `tests/browser/`）；只访问回环夹具 |
+| 告警手动研判、AI 工作流停止 | 仓库根目录运行 `node iot_front/tests/browser/alarm-http-check.mjs`、`node iot_front/tests/browser/ai-workflow-runs-check.mjs`；各自启动合成 API，覆盖手动发起研判、停止确认、停止中状态和手动刷新，无须真实模型服务 |
 | 用户管理与设备范围 | 仓库根目录运行 `node iot_front/tests/browser/access-management-check.mjs` 或 `device-scope-check.mjs`；先启动前后端并按脚本配置管理员环境，创建后清理临时账户 |
 | 接入、通信与命令 | [接入验证](INTEGRATION.md#验证入口) 中的 Go 集成用例负责隔离 API 与浏览器生命周期 |
 | 摄像头真实播放 | `node iot_front/tests/browser/camera-live-check.mjs`；需 API、前端、媒体服务与已配置的摄像头，见 [摄像头](PLATFORM.md#摄像头) |
 
-macOS 若提前结束无头 Chrome，检查系统的后台运行授权；直播脚本可用 `IOT_TEST_HEADFUL=1`。源码测试、合成浏览器和真实设备验证分别记录，跳过项不算通过。
+macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览器脚本可用 `IOT_TEST_HEADFUL=1`。源码测试、合成浏览器和真实设备验证分别记录，跳过项不算通过。
 
 ## 首页统计
 

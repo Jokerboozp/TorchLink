@@ -26,15 +26,13 @@ while [ "$#" -gt 0 ]; do
     --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2 ;;
     --rtc-ip|--rtc-port|--allowed-cidrs) [ "$#" -ge 2 ] || { echo "$1 需要值。" >&2; exit 1; }; video_args+=("$1" "$2"); shift 2 ;;
     --transcode|--no-transcode) video_args+=("$1"); shift ;;
-    --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1 ;;
-    --include-backup|--include-backup-service) include_backup=true; shift ;;
+    --include-backup) include_backup=true; shift ;;
     --include-ops) include_ops=true; shift ;;
     --dependency-host) [ "$#" -ge 2 ] || { echo '--dependency-host 需要源码机可访问的主机名或 IPv4 地址。' >&2; exit 1; }; dependency_host="$2"; dependency_host_set=true; shift 2 ;;
     --api-host) [ "$#" -ge 2 ] || { echo '--api-host 需要依赖容器可访问的源码机主机名或 IPv4 地址。' >&2; exit 1; }; api_host="$2"; shift 2 ;;
-    --ollama-model) echo '已取消部署本地对话模型，请填写 DEEPSEEK_API_KEY。' >&2; exit 1 ;;
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
     -h|--help)
-      echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--deepseek-model MODEL] [--include-backup] [--include-ops] [--video on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
+      echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--deepseek-model MODEL] [--include-backup] [--include-ops] [--video on|off] [--capacity on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
       echo '--dependencies-only：仅在 Linux 部署全部基础环境（含运维），不安装源码依赖；API、Vue 和备份服务在源码机调试。OrbStack 自动使用 Mac 回调地址。'
       echo '--video：on 部署直播媒体服务，off 关闭并在后续运行中保持关闭；省略时沿用上次选择，新环境默认开启。'
       echo '--capacity on|off：本地容量控制服务随源码 API 启停；默认开启，显式关闭后保持关闭，不创建容量容器。'

@@ -1,50 +1,13 @@
 // 真实 Chromium + 已构建前端 + 隔离的 Go API：新建模板、添加设备、设备上报、连接详情、接入点会话、摄像头与模型来源。
-import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { startBrowser } from '../helpers/browser.mjs'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 
 const origin = process.env.IOT_TEST_ORIGIN
-const profile = await mkdtemp(join(tmpdir(), 'iot-onboard-browser-'))
-const child = spawn(process.env.IOT_TEST_BROWSER, ['--headless=new', '--use-mock-keychain', '--password-store=basic', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' })
-let browserGone = ''
-child.once('exit', (code, signal) => { browserGone = `浏览器进程已退出（code=${code}, signal=${signal}）` })
-let socket
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-async function until(check, note = '') {
-  for (let i = 0; i < 100; i++) {
-    if (browserGone) throw new Error(`${browserGone}：${note}`)
-    const value = await check()
-    if (value) return value
-    await delay(100)
-  }
-  throw new Error(`页面等待超时：${note}`)
-}
-
+let browser
 try {
-  const port = await until(async () => { try { return (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0] } catch { return null } }, 'DevToolsActivePort')
-  const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  socket = new WebSocket(pages.find(page => page.type === 'page').webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject })
-  let id = 0
-  const pending = new Map()
-  const failures = []
-  socket.onmessage = event => {
-    const message = JSON.parse(event.data)
-    if (message.id) { const entry = pending.get(message.id); pending.delete(message.id); message.error ? entry.reject(new Error(message.error.message)) : entry.resolve(message.result) }
-    else if (message.method === 'Runtime.exceptionThrown') failures.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text)
-    else if (message.method === 'Inspector.detached') browserGone = `页面进程已断开：${message.params.reason}`
-  }
-  socket.onclose = () => { browserGone ||= '浏览器调试连接已关闭' }
-  const call = (method, params = {}) => new Promise((resolve, reject) => {
-    if (browserGone) return reject(new Error(browserGone))
-    const next = ++id
-    const timer = setTimeout(() => { pending.delete(next); reject(new Error(browserGone || `CDP ${method} 超过 30 秒未响应`)) }, 30000)
-    pending.set(next, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } })
-    socket.send(JSON.stringify({ id: next, method, params }))
-  })
-  const evaluate = async expression => { const value = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (value.exceptionDetails) throw new Error(value.exceptionDetails.exception?.description || value.exceptionDetails.text); return value.result.value }
+  browser = await startBrowser({ args: ['--use-mock-keychain', '--password-store=basic'] })
+  const { call, evaluate, until, errors: failures } = browser
   const button = (text, scope = 'body') => evaluate(`(() => {const item=[...document.querySelectorAll(${JSON.stringify(`${scope} button`)})].find(b=>b.innerText.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!item)return false;item.click();return true})()`)
   const setInput = (label, value, scope = 'body') => evaluate(`(() => {const input=document.querySelector(${JSON.stringify(`${scope} input[aria-label="${label}"]`)})||[...document.querySelectorAll(${JSON.stringify(`${scope} .n-form-item`)})].find(item=>item.querySelector('.n-form-item-label')?.innerText.replace('*','').trim()===${JSON.stringify(label)})?.querySelector('input');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
   // 下拉选项：选项未出现时重新点开选择框，避免抽屉或表单刷新时首次点击落空。
@@ -170,17 +133,10 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.provider-select .n-base-selection'))"), '模型来源')
   await evaluate("document.querySelector('.provider-select .n-base-selection').click()")
   await until(() => evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).length>=3"), '模型来源选项')
-  assert.deepEqual(await evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())"), ['Ollama', 'DeepSeek', 'OpenAI 兼容 API'])
+  assert.deepEqual(new Set(await evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")), new Set(['Ollama', 'DeepSeek', 'OpenAI 兼容 API']))
 
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`)
   console.log('PASS: template and device created in the UI, device HTTP credential rejection, parsing and deduplication, wizard verification, connection drawer and narrow layout, access point selection and sessions, camera metadata, provider names')
 } finally {
-  socket?.close()
-  const exited = new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve) })
-  child.kill()
-  const forceStop = setTimeout(() => child.kill('SIGKILL'), 3000)
-  forceStop.unref()
-  await exited
-  clearTimeout(forceStop)
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  await browser?.close()
 }

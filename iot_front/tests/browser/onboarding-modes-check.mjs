@@ -1,18 +1,13 @@
 // 添加设备向导的界面验收：共享监听与标准上报两种接入方式，桌面与 390px 手机宽度。
 // 只连接本机合成夹具（tests/browser/ui-preview.mjs），接口响应在页面内模拟，不写真实业务数据。
+import { startBrowser, delay } from '../helpers/browser.mjs'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const browser = process.env.IOT_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173'
 const skipScreenshots = process.env.IOT_UI_SKIP_SCREENSHOTS === '1'
-const profile = await mkdtemp(join(tmpdir(), 'iot-onboarding-modes-'))
-const child = spawn(browser, ['--headless=new', '--use-mock-keychain', '--password-store=basic', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' })
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
-async function until(check, note) { for (let i = 0; i < 100; i++) { const value = await check(); if (value) return value; await delay(100) } throw new Error(`页面等待超时：${note}`) }
 
 // 页面内的接口替身：两个模板，一个共享监听，一个标准上报。
 const mocks = `
@@ -54,18 +49,10 @@ const mocks = `
     return json({ items:[], total:0 });
   };`
 
-let socket
+let browser
 try {
-  const port = await until(async () => { try { return (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0] } catch { return null } }, '浏览器调试端口')
-  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-  socket = new WebSocket(targets.find(target => target.type === 'page').webSocketDebuggerUrl)
-  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject })
-  let id = 0
-  const pending = new Map()
-  const failures = []
-  socket.onmessage = event => { const message = JSON.parse(event.data); if (message.method === 'Runtime.exceptionThrown') failures.push(message.params.exceptionDetails?.exception?.description || message.params.exceptionDetails?.text); if (!message.id) return; const request = pending.get(message.id); pending.delete(message.id); message.error ? request.reject(new Error(message.error.message)) : request.resolve(message.result) }
-  const call = (method, params = {}) => new Promise((resolve, reject) => { const next = ++id; const timer = setTimeout(() => { pending.delete(next); reject(new Error(`CDP ${method} 超过 30 秒未响应`)) }, 30000); pending.set(next, { resolve: value => { clearTimeout(timer); resolve(value) }, reject: error => { clearTimeout(timer); reject(error) } }); socket.send(JSON.stringify({ id: next, method, params })) })
-  const evaluate = async expression => { const value = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (value.exceptionDetails) throw new Error(value.exceptionDetails.exception?.description || value.exceptionDetails.text); return value.result.value }
+  browser = await startBrowser({ args: ['--use-mock-keychain', '--password-store=basic'] })
+  const { call, evaluate, until, errors: failures } = browser
   const setInput = (label, value) => evaluate(`(() => {const input=document.querySelector('input[aria-label=${JSON.stringify(label)}]');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
   const button = text => evaluate(`(() => {const item=[...document.querySelectorAll('.app-content button')].find(b=>b.innerText.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!item)return false;item.click();return true})()`)
   const chooseTemplate = async name => {
@@ -148,7 +135,5 @@ try {
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`)
   console.log('PASS: 添加设备向导的共享监听与标准上报在桌面和 390px 宽度下的请求、提示与布局')
 } finally {
-  socket?.close()
-  child.kill()
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => {})
+  await browser?.close()
 }
