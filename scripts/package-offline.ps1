@@ -2,9 +2,6 @@
 param(
     [string]$OutputDir = "offline-bundles",
     [string]$EnvFile = "",
-    [switch]$Full,
-    [switch]$IncludeAi = $true,
-    [switch]$IncludeHarness = $true,
     # 打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）。
     [switch]$WithoutVideo,
     [string]$OllamaModel = "",
@@ -28,14 +25,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 . (Join-Path $scriptDir 'lib/deployment.ps1')
 . (Join-Path $scriptDir 'lib/docker-runtime.ps1')
-
-if ($Full) {
-    $IncludeAi = $true
-    $IncludeHarness = $true
-}
-
-# Harness 为所有模型工作流必装组件，保留参数仅兼容旧调用。
-$IncludeHarness = $true
 
 function Invoke-Checked {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -125,9 +114,7 @@ function Set-OrAdd-EnvLine {
 function New-OfflineEnv {
     param(
         [Parameter(Mandatory)][string]$Destination,
-        [string]$Source,
-        [switch]$UseAi,
-        [switch]$UseHarness
+        [string]$Source
     )
 
     $generated = [string]::IsNullOrWhiteSpace($Source)
@@ -147,7 +134,7 @@ function New-OfflineEnv {
             "EMQX_DASHBOARD_USER", "EMQX_DASHBOARD_PASSWORD",
             "GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"
         )
-        if ($UseHarness) { $required += "IOT_AI_HARNESS_TOKEN" }
+        $required += "IOT_AI_HARNESS_TOKEN"
         foreach ($key in $required) {
             if (-not $entries.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$entries[$key])) {
                 throw "EnvFile 缺少必填安全配置：$key。请不要直接使用 .env.example 的默认值。"
@@ -279,11 +266,7 @@ function New-OfflineEnv {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value '')
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MODULE' -Value 'off')
     }
-    if ($UseHarness) {
-        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
-    } elseif (-not ($lines -match '^\s*IOT_AI_HARNESS_ENABLED\s*=')) {
-        $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false')
-    }
+    $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
     Write-Utf8NoBom -Path $Destination -Lines $lines
     Ensure-EmqxAdminEnv -Path $Destination -DefaultUrl "http://emqx:18083"
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
@@ -331,9 +314,7 @@ if (-not [string]::IsNullOrWhiteSpace($sourceEnv) -and -not [System.IO.Path]::Is
     $sourceEnv = Join-Path $projectRoot $sourceEnv
 }
 $envPath = Join-Path $bundleRoot ".env.offline"
-$envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv -UseAi:$IncludeAi -UseHarness:$IncludeHarness
-$runtimeHarnessEnabled = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_AI_HARNESS_ENABLED'
-if ($runtimeHarnessEnabled -eq 'true') { $IncludeHarness = $true }
+$envResult = New-OfflineEnv -Destination $envPath -Source $sourceEnv
 $composeBase = @(
     "compose", "--project-name", "iot-platform-offline-build",
     "--env-file", $envPath,
@@ -342,7 +323,7 @@ $composeBase = @(
 )
 
 $profiles = New-Object 'System.Collections.Generic.List[string]'
-if ($IncludeHarness) { [void]$profiles.Add("harness") }
+[void]$profiles.Add("harness")
 if (-not $WithoutVideo) { [void]$profiles.Add("video") }
 $profileArguments = New-Object 'System.Collections.Generic.List[string]'
 foreach ($profile in $profiles) {
@@ -394,10 +375,8 @@ try {
         Write-Warning "已跳过模型打包：目标机必须预先具有 nomic-embed-text；否则知识库不可用。"
     }
 
-    if ($IncludeHarness) {
-        Ensure-HarnessSource -ProjectRoot $projectRoot
-        Invoke-Checked -Arguments ($composeBase + @("--profile", "harness", "build", "--pull", "deepseek-harness"))
-    }
+    Ensure-HarnessSource -ProjectRoot $projectRoot
+    Invoke-Checked -Arguments ($composeBase + @("--profile", "harness", "build", "--pull", "deepseek-harness"))
 
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.offline.yaml") -Destination $bundleRoot
@@ -434,10 +413,7 @@ try {
         "capacity-module.sh",
         "capacity-module.ps1",
         "deploy-offline.ps1",
-        "deploy-offline-windows.ps1",
-        "deploy-offline.sh",
-        "deploy-offline-linux.sh",
-        "deploy-offline-macos.sh"
+        "deploy-offline.sh"
     )) {
         Copy-Item -LiteralPath (Join-Path $scriptDir $runtimeScript) -Destination (Join-Path $bundleRoot "scripts")
     }
@@ -493,7 +469,7 @@ try {
     Write-Host "离线包已生成：$bundleRoot" -ForegroundColor Green
     Write-Host "镜像数量：$($images.Count)"
     Write-Host "镜像包大小：$([Math]::Round((Get-Item $archivePath).Length / 1GB, 2)) GB"
-    Write-Host "部署方式：按服务器系统运行 scripts/deploy-offline-windows.ps1、deploy-offline-macos.sh 或 deploy-offline-linux.sh"
+    Write-Host "部署方式：Linux/macOS 运行 bash scripts/deploy-offline.sh；Windows 运行 powershell -ExecutionPolicy Bypass -File scripts/deploy-offline.ps1"
     if ($envResult.Generated) {
         Write-Host "自动生成的凭据：$($envResult.CredentialPath)" -ForegroundColor Yellow
     }

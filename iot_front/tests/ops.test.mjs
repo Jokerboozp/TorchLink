@@ -4,7 +4,7 @@ import { entryLevel, formatKpi, formatValue, parseLogFields, seriesName } from '
 import { parseRelative, rangeLabel, resolveRange } from '../src/ops/timeRange.js'
 import { alignSeries, framesToChart, framesToLogs, framesToTable, metricResultToChart, reduceValues, thresholdColor } from '../src/ops/frames.js'
 import { addPanel, compact, dependsOn, duplicatePanel, movePanel, newPanel, normalizeLayout, removePanel, sections, toggleRow } from '../src/ops/dashboard.js'
-import { readFileSync } from 'node:fs'
+import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
 import { computed, isReactive, nextTick, reactive, ref, shallowRef, watch } from 'vue'
 import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../src/ops/alerts.js'
@@ -46,7 +46,7 @@ test('相对时间范围按查询时刻计算', () => {
 })
 
 test('仪表盘单点和稀疏时序固定到查询时间窗，刷新和缩放更新坐标轴', async () => {
-  const source = readFileSync(new URL('../src/components/ops/TimeSeriesChart.vue', import.meta.url), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const source = setupScript(new URL('../src/components/ops/TimeSeriesChart.vue', import.meta.url))
   const to = Date.UTC(2026, 8, 27, 10)
   const from = to - 3600e3
   const props = reactive({ times: [to - 1800e3], series: [{ name: 'errors', values: [2] }], timeRange: { from, to }, height: 240, unit: 'short' })
@@ -206,7 +206,7 @@ function pageHarness() {
     },
     cancel() { version++ }
   }
-  const source = readFileSync(new URL('../src/views/OpsAlertsView.vue', import.meta.url), 'utf8').split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm, '')
+  const source = setupScript(new URL('../src/views/OpsAlertsView.vue', import.meta.url))
   const context = vm.createContext({ ref, shallowRef, computed, watch, can: () => true, defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount() {}, latest: () => runner, summarizeAlerts, sortAlerts, prepareAlertGroups, pageAlertGroups, clampAlertPage, opsErrorText: e => e.message, document: { hidden: false }, opsGet: (path, params) => new Promise((resolve, reject) => pending.push({ path, params, resolve, reject })), setInterval: fn => { poll = fn; return 1 }, clearInterval() {}, setTimeout: fn => { timers.set(++timerID, fn); return timerID }, clearTimeout: id => timers.delete(id) })
   vm.runInContext(source + '\nthis.page = {loadAlerts, grouped, alerts, visibleAlerts, visibleGroups, alertStats, alertPage, alertPageSize, alertsLoading, alertsError, filters, scheduleAlerts, tab}', context)
   return { ...context.page, pending, poll: () => poll(), debounce: () => { for (const fn of timers.values()) fn(); timers.clear() } }
@@ -291,15 +291,6 @@ test('容量测试进度只按真实测量窗口计算，结束的运行停止�
   assert.deepEqual(phaseSummary([{ verdict: 'passed' }, { verdict: 'failed' }, { verdict: 'passed' }]), { passed: 2, failed: 1, inconclusive: 0 })
 })
 
-test('容量测试页只调用平台运维接口，并在菜单与权限预设中登记', () => {
-  const view = readFileSync(new URL('../src/views/OpsCapacityView.vue', import.meta.url), 'utf8')
-  for (const path of view.match(/\/api\/v1\/[^`'"?$]+/g)) assert.ok(path.startsWith('/api/v1/ops/capacity/'), path)
-  const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
-  assert.match(app, /'opsAlerts', 'opsCapacity'\]/)
-  const presets = readFileSync(new URL('../src/permissionPresets.js', import.meta.url), 'utf8')
-  assert.match(presets, /'opsCapacity'/)
-})
-
 test('容量测试表单生成的计划只含受控字段，并按单台设备限速检查速率上限', async () => {
   const { buildPlan, defaultForm, formProblems, rateCeiling } = await import('../src/ops/capacity.js')
   const form = defaultForm('capacity')
@@ -315,12 +306,4 @@ test('容量测试表单生成的计划只含受控字段，并按单台设备�
   assert.match(soak, /rates: \[50\]/)
   assert.match(soak, /maximumWallTime: 150m/)
   assert.match(soak, /mqttConnections: 50/)
-})
-
-test('容量测试模块未部署时菜单隐藏，页面给出启用方法', () => {
-  const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
-  assert.match(app, /name === 'opsCapacity' && !capacityModuleOn\.value/)
-  const view = readFileSync(new URL('../src/views/OpsCapacityView.vue', import.meta.url), 'utf8')
-  assert.match(view, /capacity-module\.sh enable/)
-  assert.match(view, /--capacity on/)
 })

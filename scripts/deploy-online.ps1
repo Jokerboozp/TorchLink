@@ -4,10 +4,6 @@ Build and deploy the platform with internet access (Docker + Compose v2 required
 .DESCRIPTION
 Creates .env.online once with random credentials, pulls dependency images,
 builds the application, downloads the knowledge embedding model, and checks HTTP readiness.
-.PARAMETER IncludeAi
-Compatibility switch; inference uses DeepSeek API without a bundled chat model.
-.PARAMETER IncludeHarness
-Compatibility switch; the AI workflow Harness is mandatory and always started.
 .PARAMETER NoHarness
 Rejected: the AI workflow Harness is a mandatory component.
 .PARAMETER EnvFile
@@ -23,8 +19,6 @@ reuses the last choice, and new environments deploy it.
 param(
     [string]$EnvFile = '.env.online',
     [string]$ProjectName = 'iot-platform-online',
-    [switch]$IncludeAi,
-    [switch]$IncludeHarness,
     [switch]$NoHarness,
     [int]$HealthTimeoutSeconds = 180,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
@@ -48,12 +42,9 @@ Set-DeepSeekDeploymentEnv -Path $EnvFile
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
 Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true'
-$useHarness = $true
 
-if ($useHarness) {
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value 'http://deepseek-harness:8091' }
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL' -Value 'http://platform-api:8080/mcp/harness' }
-}
+if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL' -Value 'http://deepseek-harness:8091' }
+if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL'))) { Set-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MCP_URL' -Value 'http://platform-api:8080/mcp/harness' }
 # Live video is deployed by default; an earlier -Video off is kept.
 if ($Video -eq 'keep') { $Video = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE') -eq 'off') { 'off' } else { 'on' } }
 if ($Video -eq 'on') {
@@ -71,10 +62,8 @@ $capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
 Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
 $buildServices = @('platform-api', 'platform-web', 'backup-service')
-if ($useHarness) {
-    $buildServices += 'deepseek-harness'
-    Ensure-HarnessSource -ProjectRoot $projectRoot
-}
+$buildServices += 'deepseek-harness'
+Ensure-HarnessSource -ProjectRoot $projectRoot
 Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
 $allServices = @(& docker @($compose + @('config', '--services')))
 if ($LASTEXITCODE -ne 0) { throw '无法读取 Compose 服务列表。' }
@@ -108,13 +97,11 @@ Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/health/ready" -TimeoutSecond
 $backupPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_BACKUP_HTTP_PORT'
 if (-not $backupPort) { $backupPort = '8092' }
 Wait-DeploymentHttp -Url "http://127.0.0.1:$backupPort/health/ready" -TimeoutSeconds $HealthTimeoutSeconds
-if ($useHarness) {
-    $harnessPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_PORT'
-    if (-not $harnessPort) { $harnessPort = '8091' }
-    Wait-DeploymentHttp -Url "http://127.0.0.1:$harnessPort/health" -TimeoutSeconds $HealthTimeoutSeconds
-    $harnessModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MODEL'
-    Write-Host "Harness 已启动；工作流模型为 $harnessModel。"
-}
+$harnessPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_PORT'
+if (-not $harnessPort) { $harnessPort = '8091' }
+Wait-DeploymentHttp -Url "http://127.0.0.1:$harnessPort/health" -TimeoutSeconds $HealthTimeoutSeconds
+$harnessModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MODEL'
+Write-Host "Harness 已启动；工作流模型为 $harnessModel。"
 Invoke-DockerChecked -Arguments ($compose + @('ps'))
 Write-Host "在线部署完成：http://127.0.0.1:$webPort/；登录账号和密码查看 $EnvFile 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。"
 if ($Capacity -eq 'on') { Write-Host '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 -Capacity off 或 scripts\capacity-module.ps1 disable。' }

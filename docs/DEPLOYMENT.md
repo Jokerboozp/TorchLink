@@ -184,7 +184,7 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 手工打包（可带现有私有配置）：
 
 ```bash
-bash scripts/package-offline-linux.sh
+bash scripts/package-offline.sh
 # openEuler 目标追加：--target-os openeuler-24.03-lts-sp4
 # 沿用已有配置追加：--env-file /path/to/.env.offline
 # 不打包直播媒体服务：--without-video
@@ -195,15 +195,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 # 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -WithoutVideo
 ```
 
-macOS 使用 `bash scripts/package-offline.sh`。输出为 `offline-bundles/iot-platform-offline-*`，需整体复制（含隐藏配置）。手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
+Linux / macOS 共用 Bash 入口。输出为 `offline-bundles/iot-platform-offline-*`，需整体复制（含隐藏配置）。手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
 
 ### 安装与升级
 
 升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新随机凭据直接连接旧数据库。在包根目录执行：
 
 ```bash
-sudo bash scripts/deploy-offline-linux.sh
-# macOS：bash scripts/deploy-offline-macos.sh
+sudo bash scripts/deploy-offline.sh
+# macOS 使用同一脚本，省略 sudo
 ```
 
 ```powershell
@@ -317,7 +317,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 ## 容量相关配置
 
-集群部署的目标拓扑、角色拆分、存储迁移和验收安排见 [集群部署与一键全系统容量测试方案](CLUSTER_AND_CAPACITY_PLAN.md)。该文档为待实施设计；本节说明当前配置与检查入口。
+本节维护连接池、并发和限额配置；拓扑、角色与迁移见 [集群部署](#集群部署) 和 [进程职责](#进程职责)，实测流程见 [容量验证](DEVELOPMENT.md#容量验证)。
 
 默认值参考历史压测瓶颈调整（见 [历史基线](DEVELOPMENT.md#容量验证)），不代表当前吞吐已复测。多副本时按下表核对：
 
@@ -353,7 +353,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ## 集群部署
 
-多节点部署由**集群清单**统一描述，`scripts/cluster-up.sh` / `.ps1` 一条命令完成镜像、秘密、渲染、节点预检、下发、按阶段启动、初始化与就绪检查；其中 `cmd/cluster-render` 为每个节点生成独立的 Compose 项目（主机网络、固定端口），`scripts/cluster-deploy.sh` / `.ps1` 按阶段下发与启动。Compose 只管理本节点；跨节点布局、故障域和连接预算由清单校验。拓扑设计依据见 [集群方案](CLUSTER_AND_CAPACITY_PLAN.md#4-部署拓扑与资源规划)。
+多节点部署由**集群清单**统一描述，`scripts/cluster-up.sh` / `.ps1` 一条命令完成镜像、秘密、渲染、节点预检、下发、按阶段启动、初始化与就绪检查；其中 `cmd/cluster-render` 为每个节点生成独立的 Compose 项目（主机网络、固定端口），`scripts/cluster-deploy.sh` / `.ps1` 按阶段下发与启动。Compose 只管理本节点；跨节点布局、故障域和连接预算由清单校验。
 
 | 组件 | 集群形态（示例清单 `deploy/cluster/inventory.example.yaml`） |
 | --- | --- |

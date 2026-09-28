@@ -10,9 +10,6 @@ skip_code_deps=false
 dependencies_only=false
 video=keep
 video_args=()
-include_ai=false
-include_deepseek=false
-include_harness=true
 include_backup=false
 include_ops=false
 deepseek_model=deepseek-flash
@@ -27,9 +24,6 @@ while [ "$#" -gt 0 ]; do
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2 ;;
     --rtc-ip|--rtc-port|--allowed-cidrs) [ "$#" -ge 2 ] || { echo "$1 需要值。" >&2; exit 1; }; video_args+=("$1" "$2"); shift 2 ;;
     --transcode|--no-transcode) video_args+=("$1"); shift ;;
-    --include-ai) include_ai=true; shift ;;
-    --include-deepseek) include_deepseek=true; shift ;;
-    --include-harness) include_harness=true; shift ;;
     --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1 ;;
     --include-backup|--include-backup-service) include_backup=true; shift ;;
     --include-ops) include_ops=true; shift ;;
@@ -38,7 +32,7 @@ while [ "$#" -gt 0 ]; do
     --ollama-model) echo '已取消部署本地对话模型，请填写 DEEPSEEK_API_KEY。' >&2; exit 1 ;;
     --deepseek-model) [ "$#" -ge 2 ] || { echo '--deepseek-model 需要模型名。' >&2; exit 1; }; deepseek_model="$2"; shift 2 ;;
     -h|--help)
-      echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--include-ai|--include-deepseek] [--deepseek-model MODEL] [--include-harness] [--include-backup] [--include-ops] [--video on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
+      echo 'Usage: bash scripts/setup-local.sh [--dependencies-only] [--env-file PATH] [--skip-code-deps] [--dependency-host HOST] [--api-host HOST] [--deepseek-model MODEL] [--include-backup] [--include-ops] [--video on|off] [--rtc-ip IP] [--rtc-port PORT] [--allowed-cidrs LIST] [--transcode|--no-transcode]'
       echo '--dependencies-only：仅在 Linux 部署全部基础环境（含运维），不安装源码依赖；API、Vue 和备份服务在源码机调试。OrbStack 自动使用 Mac 回调地址。'
       echo '--video：on 部署直播媒体服务，off 关闭并在后续运行中保持关闭；省略时沿用上次选择，新环境默认开启。'
       exit 0 ;;
@@ -177,14 +171,12 @@ configure_deepseek_env "$env_file" "$deepseek_model"
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
 set_local_env_value IOT_AI_HARNESS_ENABLED true true
-if [ "$include_harness" = true ]; then
-  ensure_deployment_git
-  bash "$script_dir/fetch-deepseek-harness.sh"
-  harness_url="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)"
-  if [ -z "$harness_url" ] || [ "$dependency_host_set" = true ]; then set_local_env_value IOT_AI_HARNESS_URL "http://${dependency_host}:8091" true; fi
-  set_local_env_value IOT_AI_HARNESS_MCP_URL "http://${api_host}:8081/mcp/harness" true
-  set_local_env_value IOT_HARNESS_MCP_ALLOWED_ORIGINS "http://${api_host}:8081" true
-fi
+ensure_deployment_git
+bash "$script_dir/fetch-deepseek-harness.sh"
+harness_url="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)"
+if [ -z "$harness_url" ] || [ "$dependency_host_set" = true ]; then set_local_env_value IOT_AI_HARNESS_URL "http://${dependency_host}:8091" true; fi
+set_local_env_value IOT_AI_HARNESS_MCP_URL "http://${api_host}:8081/mcp/harness" true
+set_local_env_value IOT_HARNESS_MCP_ALLOWED_ORIGINS "http://${api_host}:8081" true
 
 # Ops center dependencies (Prometheus, Loki, Grafana, Alertmanager, log and
 # host collectors) are optional. Rule and notification files are shared with
@@ -246,7 +238,7 @@ run_docker "${compose[@]}" up -d --build --wait --wait-timeout 300
 wait_deployment_http http://127.0.0.1:11434/api/tags 180
 run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
 if [ "$include_backup" = true ]; then wait_deployment_http http://127.0.0.1:8092/health/ready 180; fi
-if [ "$include_harness" = true ]; then wait_deployment_http http://127.0.0.1:8091/health 180; fi
+wait_deployment_http http://127.0.0.1:8091/health 180
 if [ "$include_ops" = true ]; then
   wait_deployment_http http://127.0.0.1:19090/-/ready 180
   wait_deployment_http http://127.0.0.1:13000/api/health 180

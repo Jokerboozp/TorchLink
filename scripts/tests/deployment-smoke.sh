@@ -296,7 +296,7 @@ echo 'PASS VM preset: source backup by default, explicit container opt-in, video
 deepseek_env="$test_root/.env.deepseek"
 cp "$test_root/.env.remote" "$deepseek_env"
 printf "IOT_AI_API_KEY='smoke-test-key'\n" >> "$deepseek_env"
-bash "$scripts/setup-local.sh" --env-file "$deepseek_env" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1 --include-deepseek
+bash "$scripts/setup-local.sh" --env-file "$deepseek_env" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1
 grep -q "^IOT_AI_PROVIDER=deepseek$" "$deepseek_env"
 grep -q "^IOT_AI_BASE_URL=https://api.deepseek.com$" "$deepseek_env"
 grep -q "^IOT_AI_MODEL=deepseek-flash$" "$deepseek_env"
@@ -323,9 +323,6 @@ cmp "$test_root/online-original" "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service'
 grep -q '8081/health/ready' "$TEST_HTTP"
 grep -q '8092/health/ready' "$TEST_HTTP"
-bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online" --include-ai
-grep -q '^IOT_AI_PROVIDER=deepseek$' "$test_root/.env.online"
-cmp <(grep '^IOT_ADMIN_PASSWORD=' "$test_root/online-original") <(grep '^IOT_ADMIN_PASSWORD=' "$test_root/.env.online")
 TEST_FAIL_BUILD=1
 : > "$TEST_CALLS"
 if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"; then echo 'Build failure ignored' >&2; exit 1; fi

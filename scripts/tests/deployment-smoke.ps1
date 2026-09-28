@@ -134,7 +134,7 @@ try {
     $deepSeekEnv = Join-Path $testRoot '.env.deepseek'
     Copy-Item -LiteralPath $localEnv -Destination $deepSeekEnv
     Add-Content -LiteralPath $deepSeekEnv -Value "IOT_AI_API_KEY='smoke-test-key'"
-    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $deepSeekEnv -SkipCodeDeps -IncludeDeepSeek
+    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $deepSeekEnv -SkipCodeDeps
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'DeepSeek provider was not enabled'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'DeepSeek base URL was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-flash') 'DeepSeek model was not configured'
@@ -166,10 +166,6 @@ try {
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8081/health/ready') 'API readiness was not checked'
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8080/') 'Web was not checked'
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8092/health/ready') 'Backup was not checked'
-    $originalPassword = Get-DeploymentEnvValue -Path $onlineEnv -Key IOT_ADMIN_PASSWORD
-    & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv -IncludeAi
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key IOT_AI_PROVIDER) -eq 'deepseek') 'Explicit AI flag failed to enable DeepSeek'
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key IOT_ADMIN_PASSWORD) -eq $originalPassword) 'AI enablement rotated credentials'
     $optionalModel = & $global:IotTest_composeParser --env-file $onlineEnv -f (Join-Path $scripts '../compose.yaml') --profile '*' config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Optional Compose profiles failed to resolve'
     Assert ($optionalModel.services.'platform-api'.environment.IOT_AI_BASE_URL -eq 'https://api.deepseek.com') 'DeepSeek Provider misconfigured'
@@ -185,10 +181,7 @@ try {
 
     $global:IotTest_calls.Clear()
     $bundleParent = Join-Path $testRoot 'bundles'
-    # Exercise Windows wrappers on Windows; PowerShell Core also runs on Linux CI.
-    $packageEntry = if ($env:OS -eq 'Windows_NT') { 'package-offline-windows.ps1' } else { 'package-offline.ps1' }
-    $deployEntry = if ($env:OS -eq 'Windows_NT') { 'deploy-offline-windows.ps1' } else { 'deploy-offline.ps1' }
-    & (Join-Path $scripts $packageEntry) -OutputDir $bundleParent
+    & (Join-Path $scripts 'package-offline.ps1') -OutputDir $bundleParent
     $bundle = @(Get-ChildItem -LiteralPath $bundleParent -Directory)[0].FullName
     Assert ((Get-Content (Join-Path $bundle '.env.offline')) -contains 'IOT_VIDEO_RTC_EXTERN_IP=') 'Unconfigured WebRTC address must be written as an empty value'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
@@ -213,7 +206,7 @@ try {
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'deepseek-official') 'Offline Harness does not use DeepSeek'
     $bundleHash = (Get-FileHash (Join-Path $bundle '.env.offline')).Hash
     $global:IotTest_calls.Clear()
-    & (Join-Path $scripts $deployEntry) -BundleDir $bundle
+    & (Join-Path $scripts 'deploy-offline.ps1') -BundleDir $bundle
     & (Join-Path $scripts 'deploy-offline.ps1') -BundleDir $bundle
     Assert ((Get-FileHash (Join-Path $bundle '.env.offline')).Hash -eq $bundleHash) 'Offline deploy rewrote credentials'
     Assert (Contains-Call 'up -d --no-build --pull never') 'Offline up may build or pull'

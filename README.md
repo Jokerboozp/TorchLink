@@ -10,16 +10,24 @@
 
 ## 平台能力
 
-| 能力 | 用途 |
+| 模块 | 当前能力与文档 |
 | --- | --- |
-| 设备与接入 | 产品、设备、主子设备关系；HTTP / MQTT、TCP / UDP、Modbus 接入；主动连接与定时查询 |
-| 协议开发 | Go 源码上传、离线编译、样例验证、版本发布及回滚；JSON / HEX 映射和 Excel / CSV 点表生成 |
-| 报文与告警 | 原文归档、诊断、下载及回放；规则与设备主动告警、部件状态、确认和恢复 |
-| AI 与知识库 | 告警研判、设备巡检、规则草稿、协议辅助和对话；默认 DeepSeek API，填写 API Key 即可启用 |
-| 运维与权限 | 用户、角色、菜单和操作授权、用户设备范围、健康检查、审计及设备数据备份 |
-| 运维中心 | 平台内原生查看与管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警与通知，见 [运维中心](docs/PLATFORM.md#运维中心) |
-| 视频集成 | 摄像头资料、设备关联与外部视频事件；默认启用的直播模块（ZLMediaKit，ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放，可选转码），见 [摄像头直播](docs/PLATFORM.md#摄像头) |
-| 对外开放 | 外部系统用密钥查询与上报告警、上报设备消息、查询设备数据及智能问答，见 [对外开放接口](docs/INTEGRATION.md#开放接口) |
+| 运行总览 | 设备在线、连接与数据活跃状态，告警趋势、等级与处置分布；统计遵守设备授权范围。[统计口径](docs/DEVELOPMENT.md#首页统计) |
+| 设备模板与设备管理 | 产品物模型、主子设备、接入向导与预检、凭据、连接诊断、属性历史、命令下发及回执。[设备接入](docs/INTEGRATION.md#设备接入) |
+| 平台接入点 | HTTP / MQTT 标准上报，TCP / UDP 共享监听，主动 TCP 连接、Modbus 轮询及串口服务器接入。[接入配置](docs/INTEGRATION.md#tcp-与主子设备接入) |
+| 设备通信协议 | Go 源码离线编译、样例校验、不可变版本发布与回滚；JSON / HEX 映射、报文与 Excel / CSV 点表生成。[协议开发](docs/INTEGRATION.md#go-协议) |
+| 模拟设备测试 | 发送正常、告警、恢复、事件样例，核对原文和解析；另有演示数据、GB26875 虚拟设备及负载工具。[测试入口](docs/DEVELOPMENT.md#演示数据与功能检查) |
+| 原始报文 | 多条件筛选、解析诊断、单条与批量下载；试运行、差异比较和重新投递回放。[筛选与回放](docs/DEVELOPMENT.md#原始报文筛选) |
+| 告警中心与规则 | 设备主动告警、规则告警、部件状态、确认/恢复/关闭、实时提醒、邮件通知及 AI 研判；支持触发与恢复条件、联动动作和人工审核的 AI 规则草稿。[业务流程](docs/PLATFORM.md#设备与告警) |
+| 智能巡检 | 在线情况、上报时效和活动告警检查，后台进度、分页报告、AI 建议及 PDF 下载。[巡检报告](docs/PLATFORM.md#工作流与会话) |
+| 智能助手与模型管理 | 流式对话、运维报告、业务工作流、自定义聊天 Agent、运行轨迹和统一模型配置；通过 Harness 与受控 MCP 查询授权数据。[AI 功能](docs/PLATFORM.md#ai-与知识库) |
+| 知识库 | 文档上传、切片、嵌入索引与检索策略，按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
+| 摄像头映射与直播 | 摄像头资料、位置、设备关联、视频告警；ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放和可选转码。[摄像头](docs/PLATFORM.md#摄像头) |
+| 运维中心 | 原生管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警、静默与通知；自动补齐内置仪表盘。[运维功能](docs/PLATFORM.md#运维中心) |
+| 容量测试 | 页面预设、CLI 与多 Agent 发压，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[容量验证](docs/DEVELOPMENT.md#容量验证) |
+| 备份中心 | 手动/每日设备数据备份、制品下载、SHA-256 校验及独立库恢复验证；不替代整库和配置备份。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
+| 用户与权限 | 租户、用户、角色、菜单/操作权限、角色继承与用户设备范围；服务端、实时通知和 AI 工具统一执行授权。[权限边界](docs/PLATFORM.md#权限与设备范围) |
+| 对外开放接口 | 绑定平台用户的 API Key，按能力及设备范围查询/上报消息与告警、处置告警及智能问答。[开放 API](docs/INTEGRATION.md#开放接口) |
 
 典型流程：发布协议 → 创建产品 → 登记设备和配置模板接入点 → 上报并核对原文、解析与告警 → 配置规则及用户权限。普通用户需分配设备范围，主设备与子设备分别授权。
 
@@ -56,25 +64,29 @@ go run ./cmd/backup-service --env-file .env.local
 
 访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
 
-所有部署方式都不再下载 Qwen 对话模型。登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。离线包可离线安装，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
+登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。离线包只携带知识库嵌入模型，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
 
 | 环境 | 配置与操作入口 |
 | --- | --- |
 | 本地开发 | `compose.local.yaml`、`.env.local`、`scripts/setup-local.*` |
 | 在线部署 | `compose.yaml`、`.env.online`、`scripts/deploy-online.*`；见 [部署维护](docs/DEPLOYMENT.md) |
 | 离线交付 | `scripts/package-offline.*`、`scripts/deploy-offline.*`、包内 `.env.offline`；见 [离线部署](docs/DEPLOYMENT.md#离线部署) |
+| 多机集群 | `scripts/cluster-up.*` 向导，或按清单渲染、分阶段部署与升级；见 [集群部署](docs/DEPLOYMENT.md#集群部署) |
+
+脚本统一使用 `.sh`（Linux / macOS）和 `.ps1`（Windows PowerShell）入口。直播与容量模块的默认部署行为、关闭及重新启用方式分别见 [摄像头部署](docs/DEPLOYMENT.md#摄像头部署) 和 [容量测试模块](docs/DEPLOYMENT.md#容量测试模块)。
 
 ## 目录与架构
 
 | 目录 | 内容 |
 | --- | --- |
-| `cmd/` | API、接入网关、备份服务、设备模拟器和负载工具入口 |
-| `internal/` | HTTP API、业务逻辑、协议运行时、存储适配器及后端回归测试 |
+| `cmd/` | API、独立接入网关、备份、设备模拟器、容量测试/检查、集群渲染/初始化/SSH、ClickHouse 迁移与死信恢复入口 |
+| `internal/` | 业务与授权、协议运行时、AI/MCP、视频、存储、运维、容量编排和集群清单实现及回归测试 |
 | `iot_front/` | Vue 管理端、公共组件和前端行为测试 |
 | `protocol-packages/gb26875-dahua/` | 完整 Go 协议 module 示例 |
 | `dev/` | 六个独立消防协议包源码与样例测试，见 [协议包说明](docs/INTEGRATION.md#内置协议示例) |
 | `scripts/` | 环境准备、部署、打包、演示数据与部署冒烟测试 |
 | `deploy/`、`ops/` | DeepSeek Harness、容器与监控配置 |
+| `.github/workflows/offline-bundle.yml` | Linux amd64 离线包构建、校验和公开 Release |
 | `docs/` | 当前开发、接入和运维指南，见 [文档索引](#文档入口) |
 
 ```text
@@ -84,6 +96,8 @@ go run ./cmd/backup-service --env-file .env.local
 ```
 
 PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存备份制品，DeepSeek API 提供对话与推理，Ollama 仅提供知识库嵌入，Weaviate 与 Harness 提供检索与工作流。
+
+默认 `combined` 进程可拆分为 `api`、`gateway`、`parser`、`processor`、`ai`、`jobs`，按角色分配资源；集群工具校验故障域、端口和连接预算，生成各节点配置并部署。默认 Compose 为单节点，集群示例也有单实例组件，具体见 [进程职责](docs/DEPLOYMENT.md#进程职责) 与 [高可用边界](docs/DEPLOYMENT.md#高可用边界)。工具可用不代表目标集群已经通过容量或故障切换验收。
 
 原文先归档再解析，只有成功解析的数据才对外发布结果。Go Worker 以服务账户权限运行，协议源码应来自可信开发者；AI 规则草稿默认禁用，确认后启用。设备数据导出不替代数据库、配置及凭据备份。
 
@@ -100,17 +114,15 @@ go test ./...
 
 前端在 `iot_front` 中运行 `npm test` 和 `npm run build`；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [开发与测试](docs/DEVELOPMENT.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
 
-仓库保留可复用指南与行为回归，历史验收报告、一次性检查脚本和生成 ZIP 不作为源码维护；旧版本可从 Git 历史查找。协作约定见 [AGENTS.md](AGENTS.md)。
+仓库维护可复用指南与行为回归；一次性过程记录从 Git 历史查找。保留的 [2026-09-27 压测摘要与证据](docs/CAPACITY_TEST_REPORT_2026-09-27.md) 是历史开发环境结果，不作为当前版本或生产容量承诺。协作约定见 [AGENTS.md](AGENTS.md)。
 
 ## 文档入口
 
-日常使用与已实现行为维护在以下四份指南；协作约束见 [AGENTS.md](AGENTS.md)。同一主题的操作细节在对应章节补充。独立设计方案需标明实施状态，实现后的稳定用法归入对应指南。
+操作细节集中在以下四份指南，源码目录和测试入口在对应章节维护。
 
 | 指南 | 内容 |
 | --- | --- |
-| [部署与本地调试](docs/DEPLOYMENT.md) | 本机源码、虚拟机基础环境、在线/离线部署、摄像头开关、维护与备份 |
-| [开发与测试](docs/DEVELOPMENT.md) | 源码入口、前端约定、查询契约、回归、演示工具与容量验证 |
+| [部署与本地调试](docs/DEPLOYMENT.md) | 本机/虚拟机、在线/离线、集群与角色拆分、模块开关、迁移、维护和备份 |
+| [开发与测试](docs/DEVELOPMENT.md) | 源码与脚本入口、前端约定、查询契约、回归、演示工具、容量测试与目标环境验收 |
 | [设备接入与协议](docs/INTEGRATION.md) | HTTP/MQTT、TCP/Modbus、Go Worker、点表、部件告警、开放 API 与厂商示例 |
-| [平台功能与边界](docs/PLATFORM.md) | 用户权限、AI/知识库、运维中心、摄像头直播与视频事件 |
-
-设计方案：[集群部署与一键全系统容量测试](docs/CLUSTER_AND_CAPACITY_PLAN.md)。包含目标拓扑、必要改造、压测编排、容量判定、报告图表和分阶段验收。角色拆分、一键集群部署（`scripts/cluster-up.*`）与一键容量测试（含业务场景、故障注入、管理页）已实现，用法见 [部署](docs/DEPLOYMENT.md#集群部署) 与 [开发与测试](docs/DEVELOPMENT.md#容量验证)；目标环境上的扩容、长稳与故障验收按 [容量验收执行手册](docs/CAPACITY_RUNBOOK.md) 执行，尚无实测结果，不代表已部署或已验证容量。
+| [平台功能与边界](docs/PLATFORM.md) | 设备与告警、用户权限、AI/知识库、巡检报告、运维中心、摄像头直播与视频事件 |

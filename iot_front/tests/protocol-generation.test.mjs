@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -9,7 +9,7 @@ import { commandBody } from '../src/commandForm.js'
 import { STANDARD_PROTOCOL, configurationText, connectionMode, enrollRequest, fieldConfiguration, preflightQuery, protocolOptions, transportChoices, usesPlatformIdentity } from '../src/onboardingPlan.js'
 
 function setup(api,initialRelease=null,browserCrypto=crypto) {
- const script=fs.readFileSync(new URL('../src/views/ProtocolAssistantView.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
+ const script=setupScript(new URL('../src/views/ProtocolAssistantView.vue',import.meta.url))
  let mount,cleanup
  const context=vm.createContext({mappingRows,mappingConfig,ref,computed,reactive,api,createClientId:()=>createClientId(browserCrypto),crypto:browserCrypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},ElMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
  const c=vm.runInContext(script+'\n;({generate,save,runPreview,publish,changeKind,newVersion,updateConfig,mapping,currentDraft,addMapping,removeMapping,form,file,draft,saved,preview,busy,error,step})',context)

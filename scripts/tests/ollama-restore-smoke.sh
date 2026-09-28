@@ -10,11 +10,7 @@ printf archive-version > "$fixture/source/models/blobs/existing"
 printf preserve > "$fixture/dst/models/blobs/existing"
 printf manifest > "$fixture/source/models/manifests/registry/library/demo/latest"
 tar -czf "$fixture/models.tgz" -C "$fixture/source" models
-if [ "${1:-}" = --legacy ]; then
-  cp -an "$fixture/source/." "$fixture/dst/"
-else
-  sh "$scripts/lib/restore-ollama-models.sh" "$fixture/models.tgz" "$fixture/dst"
-fi
+sh "$scripts/lib/restore-ollama-models.sh" "$fixture/models.tgz" "$fixture/dst"
 [ -f "$fixture/dst/models/manifests/registry/library/demo/latest" ] || {
   echo 'FAIL restore returned success but Ollama manifests are absent'; exit 1;
 }

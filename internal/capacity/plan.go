@@ -1,7 +1,7 @@
 // Package capacity implements the one-click capacity measurement loop described
-// in docs/CLUSTER_AND_CAPACITY_PLAN.md (phase P1): plan validation, distributed
+// in docs/DEVELOPMENT.md: plan validation, distributed
 // open-loop load, per-instance observation, drain, ID reconciliation, boundary
-// search and deterministic reports. The CLI and any later management page share
+// search and deterministic reports. The CLI and management page share
 // this single schema and statistics implementation.
 package capacity
 

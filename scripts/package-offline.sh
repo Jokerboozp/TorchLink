@@ -9,10 +9,7 @@ source "$script_dir/lib/docker-bootstrap.sh"
 
 output_dir="offline-bundles"
 env_file=""
-include_ai=1
-include_harness=1
 include_video=1
-full=0
 deepseek_model="deepseek-flash"
 ollama_embedding_model="nomic-embed-text"
 skip_ollama_model=0
@@ -28,8 +25,6 @@ usage() {
 选项：
   --output-dir DIR       输出父目录，默认 offline-bundles
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
-  --include-ai           兼容参数；统一使用 DeepSeek API，不携带对话模型
-  --include-harness      兼容参数；默认已经打包 AI 工作流 Harness
   --without-video        不打包摄像头直播媒体服务（默认打包固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）
   --deepseek-model MODEL DeepSeek API 模型，默认 deepseek-flash
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
@@ -37,7 +32,6 @@ usage() {
   --skip-docker-runtime 不携带 Docker 安装文件（目标机须已有 Docker 和 Compose）
   --target-os OS        generic（默认）或 openeuler-24.03-lts-sp4；后者自动准备容器策略及系统依赖
   --docker-packages-dir DIR  可选：匹配目标系统的系统工具/SELinux 及依赖 RPM/DEB 目录
-  --full                 兼容参数；AI 与 Harness 已默认启用
   -h, --help             显示帮助
 EOF
 }
@@ -114,7 +108,7 @@ validate_env() {
     EMQX_DASHBOARD_USER EMQX_DASHBOARD_PASSWORD IOT_EMQX_API_URL IOT_EMQX_API_KEY IOT_EMQX_API_SECRET
     GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
   )
-  (( include_harness )) && required_keys+=(IOT_AI_HARNESS_TOKEN)
+  required_keys+=(IOT_AI_HARNESS_TOKEN)
   for key in "${required_keys[@]}"; do
     value="$(env_value "$key" "$file")"
     [[ -n "${value//[[:space:]]/}" ]] || die "EnvFile 缺少必填安全配置：$key"
@@ -149,15 +143,6 @@ write_env() {
     local weaviate_url="http://weaviate:8080"
     local harness_url="http://deepseek-harness:8091"
     local harness_enabled="true"
-    if (( include_ai )); then
-      ollama_url="http://ollama:11434"
-      ai_provider="deepseek"
-      weaviate_url="http://weaviate:8080"
-    fi
-    if (( include_harness )); then
-      harness_url="http://deepseek-harness:8091"
-      harness_enabled="true"
-    fi
     cat > "$destination" <<EOF
 # 自动生成的离线部署配置，请限制此文件权限。
 POSTGRES_PASSWORD=$postgres_password
@@ -230,11 +215,7 @@ EOF
   set_env_value "$destination" IOT_PLATFORM_WEB_IMAGE iot-platform-web:offline
   set_env_value "$destination" IOT_BACKUP_IMAGE iot-platform-backup:offline
   set_env_value "$destination" IOT_DEEPSEEK_HARNESS_IMAGE iot-deepseek-harness:offline
-  if (( include_harness )); then
-    set_env_value "$destination" IOT_AI_HARNESS_ENABLED true
-  elif [[ -z "$(env_value IOT_AI_HARNESS_ENABLED "$destination")" ]]; then
-    set_env_value "$destination" IOT_AI_HARNESS_ENABLED false
-  fi
+  set_env_value "$destination" IOT_AI_HARNESS_ENABLED true
   if (( include_video )); then
     # 摄像头直播：密钥只在缺失时生成；WebRTC 地址须在目标机上填写 IOT_VIDEO_RTC_EXTERN_IP。
     set_env_value "$destination" IOT_ZLMEDIAKIT_IMAGE iot-zlmediakit:offline
@@ -280,8 +261,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --output-dir) output_dir="${2:-}"; shift 2 ;;
     --env-file) env_file="${2:-}"; shift 2 ;;
-    --include-ai) include_ai=1; shift ;;
-    --include-harness) include_harness=1; shift ;;
     --without-video) include_video=0; shift ;;
     --ollama-model) die '已取消打包本地对话模型，请使用 DeepSeek API' ;;
     --deepseek-model) deepseek_model="${2:-}"; shift 2 ;;
@@ -290,16 +269,10 @@ while [[ $# -gt 0 ]]; do
     --skip-docker-runtime) skip_docker_runtime=1; shift ;;
     --target-os) target_os="${2:?缺少目标系统}"; shift 2 ;;
     --docker-packages-dir) docker_packages_dir="${2:?缺少系统依赖包目录}"; shift 2 ;;
-    --full) full=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "未知参数：$1；使用 --help 查看帮助" ;;
   esac
 done
-
-if (( full )); then
-  include_ai=1
-  include_harness=1
-fi
 
 [[ "$ollama_embedding_model" == nomic-embed-text ]] || die "当前知识库使用 nomic-embed-text，嵌入模型必须与其一致"
 [[ "$deepseek_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "DeepSeek 模型名称无效"
@@ -344,7 +317,7 @@ add_profile() {
   profiles+=("$1")
   compose_profile_args+=(--profile "$1")
 }
-(( include_harness )) && add_profile harness
+add_profile harness
 (( include_video )) && add_profile video
 
 run_compose "${compose_profile_args[@]}" config --quiet
@@ -385,11 +358,9 @@ else
   echo "已跳过模型打包：目标机必须预先具有 nomic-embed-text；否则知识库不可用。" >&2
 fi
 
-if (( include_harness )); then
-  command -v git >/dev/null 2>&1 || die "--include-harness 需要 Git"
-  sh "$script_dir/fetch-deepseek-harness.sh"
-  run_compose --profile harness build --pull deepseek-harness
-fi
+command -v git >/dev/null 2>&1 || die "打包 Harness 需要 Git"
+sh "$script_dir/fetch-deepseek-harness.sh"
+run_compose --profile harness build --pull deepseek-harness
 
 mkdir -p "$bundle_root/scripts"
 mkdir -p "$bundle_root/scripts/lib"
@@ -422,7 +393,7 @@ cp "$project_root/docs/PLATFORM.md" "$bundle_root/"
 for lib_name in deployment.sh deployment.ps1 env-comments.sh env-comments.tsv; do
   cp "$script_dir/lib/$lib_name" "$bundle_root/scripts/lib/"
 done
-for script_name in video-module.sh video-module.ps1 capacity-module.sh capacity-module.ps1 deploy-offline.ps1 deploy-offline-windows.ps1 deploy-offline.sh deploy-offline-linux.sh deploy-offline-macos.sh; do
+for script_name in video-module.sh video-module.ps1 capacity-module.sh capacity-module.ps1 deploy-offline.ps1 deploy-offline.sh; do
   cp "$script_dir/$script_name" "$bundle_root/scripts/"
 done
 if [[ -n "$ollama_volume_name" ]]; then
@@ -492,7 +463,7 @@ echo ""
 echo "离线包已生成：$bundle_root"
 echo "镜像数量：${#images[@]}"
 du -h "$archive_path" | awk '{print "镜像包大小：" $1}'
-echo "部署方式：按服务器系统运行 scripts/deploy-offline-windows.ps1、deploy-offline-macos.sh 或 deploy-offline-linux.sh"
+echo "部署方式：Linux/macOS 运行 bash scripts/deploy-offline.sh；Windows 运行 powershell -ExecutionPolicy Bypass -File scripts/deploy-offline.ps1"
 if [[ "$generated_credentials" = 1 ]]; then
   echo "自动生成的凭据：$bundle_root/OFFLINE-CREDENTIALS.txt"
 fi

@@ -1,7 +1,7 @@
 # Full-system capacity search: device load plus every business module at
 # fixed background rates. Modules run against real platform APIs on the test
 # tenant; prepare the referenced rule, knowledge workflow, test cameras and
-# OpenAPI key beforehand (docs/CAPACITY_RUNBOOK.md).
+# OpenAPI key beforehand (docs/DEVELOPMENT.md, target environment acceptance).
 schemaVersion: 1
 name: full-system-capacity
 suite: full

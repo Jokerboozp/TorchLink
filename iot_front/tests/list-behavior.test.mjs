@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -6,7 +6,6 @@ import { loadAllPages } from '../src/listPagination.js'
 import { aiProviderOptions as providerOptions } from '../src/presentation.js'
 import { createClientId } from '../src/clientId.js'
 import { computed, reactive, ref, watch } from 'vue'
-import { readFile } from 'node:fs/promises'
 import { alarmNavigation, alarmQuery } from '../src/alarmNavigation.js'
 import { compactCount, dashboardDistributions, deviceSegments, productBars, ringSegments, statusSegments, trendGeometry } from '../src/dashboard.js'
 
@@ -14,7 +13,7 @@ const root = new URL('../src/views/', import.meta.url)
 // Execute the real setup code with Vue reactivity; replace external I/O and
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(file, api, exports, notifyError = e => { throw e }, base = root) {
-  const source = fs.readFileSync(new URL(file, base), 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const source = setupScript(new URL(file, base))
   const context = vm.createContext({ref, reactive, computed, watch, providerOptions, can:()=>true, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
@@ -309,8 +308,7 @@ test('late product binding response cannot change a different instance being edi
 })
 
 async function devicesView(globals) {
- const source=await readFile(new URL('../src/views/DevicesView.vue',import.meta.url),'utf8')
- const script=source.split('<script setup>')[1].split('</script>')[0].replace(/^import .*$/gm,'')
+ const script=setupScript(new URL('../src/views/DevicesView.vue',import.meta.url))
  const context=vm.createContext({ref:value=>({value}),reactive:v=>v,computed:fn=>({get value(){return fn()}}),defineEmits:()=>()=>{},pretty:JSON.stringify,onMounted:()=>{},onBeforeUnmount:()=>{},window:{addEventListener(){}},sessionStorage:{getItem:()=>null,removeItem(){}},notifyError:e=>{throw e},setTimeout,clearTimeout,URLSearchParams,...globals})
  vm.runInContext(script+'\nglobalThis.state={load,loading,deviceTab,filters,registryPage,registryTotal,registry,unregistered,pendingCount,changeFilter,changeRegistryPage,updatesAvailable,realtime};',context)
  return context
@@ -369,8 +367,7 @@ test('设备分组、类型、关键字和运行状态交给服务端筛选，�
 })
 
 function fixture(api) {
-  const source = fs.readFileSync(new URL('../src/views/RawView.vue', import.meta.url), 'utf8')
-  const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const script = setupScript(new URL('../src/views/RawView.vue', import.meta.url))
   const warnings = []
   const context = vm.createContext({ ref, computed, defineEmits() {}, onMounted() {}, api, URLSearchParams, UiMessage: { warning: text => warnings.push(text) }, notifyError() {}, messageTypeLabel: x => x })
   return { ...vm.runInContext(script + '\n;({filters, appliedFilters, page, items, total, selection, load, search, resetFilters, recentHours, changePage, parseState, loadError})', context), warnings }
@@ -426,8 +423,7 @@ test('late raw responses cannot overwrite a newer filter result; failed queries 
 })
 
 test('alarm list batches alarm events and ignores device state events', async () => {
-  const source = fs.readFileSync(new URL('../src/views/AlarmsView.vue', import.meta.url), 'utf8')
-  const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
+  const script = setupScript(new URL('../src/views/AlarmsView.vue', import.meta.url))
   const timers = []
   let requests = 0
   const context = vm.createContext({
@@ -492,7 +488,7 @@ test('dashboard counts abbreviate large values so cards and ring centers stay in
   assert.deepEqual([0,9999,12345,99996,12345678,99995000,123456789,-3,'bad'].map(v=>compactCount(v)),['0','9,999','1.2万','10万','1,235万','1亿','1.2亿','0','0'])
 })
 function dashboardSetup(api) {
-  const script=fs.readFileSync(new URL('../src/views/DashboardView.vue',import.meta.url),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'')
+  const script=setupScript(new URL('../src/views/DashboardView.vue',import.meta.url))
   let cleanup
   const context=vm.createContext({ref,computed,api,deviceSegments,ringSegments,productBars,dashboardDistributions,alarmLevels:{},AbortController,setTimeout,clearTimeout,notifyError(){},defineEmits:()=>()=>{},onMounted(){},onBeforeUnmount(fn){cleanup=fn},window:{removeEventListener(){}}})
   return {...vm.runInContext(script+'\n;({load,data,days,loading,loadError})',context),cleanup:()=>cleanup()}

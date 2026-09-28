@@ -5,7 +5,7 @@ import fs from 'node:fs'
 // liveVideo.js imports the API client; load only the pure helpers here.
 const source = fs.readFileSync(new URL('../src/liveVideo.js', import.meta.url), 'utf8')
 const pure = source.replace(/^import .*$/gm, '').replace(/export const liveState[\s\S]*?export function resetLiveState\(\) \{[\s\S]*?\n\}\n/, '')
-const mod = await import('data:text/javascript,' + encodeURIComponent(pure + '\nexport const __ok = true'))
+const mod = await import('data:text/javascript,' + encodeURIComponent(pure))
 
 test('camera live badge distinguishes configuration and test states', () => {
   assert.deepEqual(mod.cameraLiveBadge(undefined), { label: '未配置', tone: 'neutral' })
@@ -32,8 +32,7 @@ test('browser capability detection never assumes H.265 support', () => {
   }
 })
 
-test('module states have Chinese labels and camera location joins known parts', () => {
-  for (const state of ['not_deployed', 'misconfigured', 'disabled', 'enabled', 'degraded']) assert.ok(mod.moduleStateText[state])
+test('camera location joins known parts', () => {
   assert.equal(mod.cameraLocation({ building: 'A栋', floor: '1F', cameraPoint: '东侧入口' }), 'A栋 / 1F / 东侧入口')
 })
 

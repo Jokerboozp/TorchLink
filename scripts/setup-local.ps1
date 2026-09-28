@@ -2,9 +2,6 @@
 param(
     [string]$EnvFile = '.env.local',
     [switch]$SkipCodeDeps,
-    [switch]$IncludeAi,
-    [switch]$IncludeDeepSeek,
-    [switch]$IncludeHarness,
     [switch]$NoHarness,
     [switch]$IncludeBackup,
     [switch]$IncludeOps,
@@ -98,12 +95,9 @@ Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
 Set-LocalEnvValue 'IOT_AI_HARNESS_ENABLED' 'true' -Replace
-$useHarness = $true
-if ($useHarness) {
-    Ensure-HarnessSource -ProjectRoot $projectRoot
-    if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-LocalEnvValue 'IOT_AI_HARNESS_URL' 'http://127.0.0.1:8091' -Replace }
-    Set-LocalEnvValue 'IOT_AI_HARNESS_MCP_URL' 'http://host.docker.internal:8081/mcp/harness' -Replace
-}
+Ensure-HarnessSource -ProjectRoot $projectRoot
+if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-LocalEnvValue 'IOT_AI_HARNESS_URL' 'http://127.0.0.1:8091' -Replace }
+Set-LocalEnvValue 'IOT_AI_HARNESS_MCP_URL' 'http://host.docker.internal:8081/mcp/harness' -Replace
 # 运维中心依赖可选；规则与通知配置通过绑定挂载与容器共享。
 if ($IncludeOps) {
     Set-LocalEnvValue 'IOT_OPS_PROMETHEUS_URL' 'http://127.0.0.1:19090' -Replace
@@ -157,7 +151,7 @@ try {
     Wait-DeploymentHttp -Url 'http://127.0.0.1:11434/api/tags' -TimeoutSeconds 180
     Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
     if ($IncludeBackup) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/ready' -TimeoutSeconds 180 }
-    if ($useHarness) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8091/health' -TimeoutSeconds 180 }
+    Wait-DeploymentHttp -Url 'http://127.0.0.1:8091/health' -TimeoutSeconds 180
     if ($IncludeOps) {
         Wait-DeploymentHttp -Url 'http://127.0.0.1:19090/-/ready' -TimeoutSeconds 180
         Wait-DeploymentHttp -Url 'http://127.0.0.1:13000/api/health' -TimeoutSeconds 180

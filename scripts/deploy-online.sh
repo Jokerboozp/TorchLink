@@ -7,8 +7,6 @@ source "$script_dir/lib/deployment.sh"
 
 env_file='.env.online'
 project_name='iot-platform-online'
-include_ai=0
-include_harness=true
 health_timeout=180
 video=keep
 capacity=keep
@@ -20,16 +18,12 @@ while [ "$#" -gt 0 ]; do
       shift 2;;
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2;;
     --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2;;
-    --include-ai) include_ai=1; shift;;
-    --include-harness) shift;;
     --no-harness) echo 'AI 工作流服务（Harness）是必装组件，不能使用 --no-harness。' >&2; exit 1;;
     -h|--help)
       cat <<'EOF'
 用法：bash scripts/deploy-online.sh [选项]
-  --env-file PATH       配置文件（默认 platform/.env.online；已有凭据保留）
+  --env-file PATH       配置文件（默认 .env.online；已有凭据保留）
   --project-name NAME   Docker Compose 项目（默认 iot-platform-online）
-  --include-ai          兼容参数；统一使用 DeepSeek API，不下载对话模型
-  --include-harness     兼容参数；AI 工作流 Harness 为必装组件，始终启动
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
   --video on|off        部署或关闭摄像头直播媒体服务；省略时沿用上次选择，新环境默认开启
   --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认开启
@@ -57,10 +51,8 @@ configure_deepseek_env "$env_file"
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
 set_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED true
 
-if [ "$include_harness" = true ]; then
-  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_URL http://deepseek-harness:8091
-  [ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL http://platform-api:8080/mcp/harness
-fi
+[ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_URL http://deepseek-harness:8091
+[ -n "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL)" ] || set_deployment_env_value "$env_file" IOT_AI_HARNESS_MCP_URL http://platform-api:8080/mcp/harness
 # Live video is deployed by default; an earlier --video off is kept.
 if [ "$video" = keep ]; then
   video=on
@@ -90,11 +82,9 @@ fi
 annotate_deployment_env_file "$env_file"
 compose=(compose --project-name "$project_name" --env-file "$env_file" -f "$project_root/compose.yaml")
 build_services=(platform-api platform-web backup-service)
-if [ "$include_harness" = true ]; then
-  command -v git >/dev/null 2>&1 || { echo 'AI 工作流服务（Harness）为必装组件，构建需要安装 Git。' >&2; exit 1; }
-  build_services+=(deepseek-harness)
-  sh "$script_dir/fetch-deepseek-harness.sh"
-fi
+command -v git >/dev/null 2>&1 || { echo 'AI 工作流服务（Harness）为必装组件，构建需要安装 Git。' >&2; exit 1; }
+build_services+=(deepseek-harness)
+sh "$script_dir/fetch-deepseek-harness.sh"
 run_docker "${compose[@]}" config --quiet
 services="$(docker "${compose[@]}" config --services)"
 pull_services=()
@@ -132,11 +122,9 @@ wait_deployment_http "http://127.0.0.1:$web_port/" "$health_timeout"
 wait_deployment_http "http://127.0.0.1:$web_port/health/ready" "$health_timeout"
 backup_port="$(get_deployment_env_value "$env_file" IOT_BACKUP_HTTP_PORT)"
 wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/ready" "$health_timeout"
-if [ "$include_harness" = true ]; then
-  harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
-  wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"
-  printf 'Harness 已启动；自动研判和工作流共用模型 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
-fi
+harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
+wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"
+printf 'Harness 已启动；自动研判和工作流共用模型 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
 run_docker "${compose[@]}" ps
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"
 [ "$capacity" = on ] && echo '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 --capacity off 或 scripts/capacity-module.sh disable。'

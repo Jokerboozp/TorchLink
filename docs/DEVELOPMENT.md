@@ -10,6 +10,9 @@
 | `internal/httpapi/`、`internal/core/`、`internal/adapters/` | 接口、业务、外部存储与服务 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | 协议编译、连接运行时和 Worker |
 | `internal/opscenter/`、`internal/adapters/observability/` | [运维中心](PLATFORM.md#运维中心) 业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
+| `internal/capacity/`、`cmd/capacity-test/` | 容量计划、Controller / Agent、采集核对、报告与控制服务 |
+| `internal/clusterplan/`、`cmd/cluster-*` | 集群清单、配置渲染、初始化与 SSH 准备 |
+| `internal/video/`、`internal/backup/` | 摄像头直播/GB28181 与设备数据备份/恢复验证 |
 | `iot_front/` | [Vue 管理端](#管理端开发)；[列表与分页](#列表与分页) |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的协议 module |
 | `scripts/`、`deploy/`、`compose*.yaml` | 准备、部署与打包配置 |
@@ -31,6 +34,24 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用，接入链路见 [接入验证](INTEGRATION.md#验证入口)。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。
 
 部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`。
+
+### 脚本入口
+
+同一操作只保留 `.sh`（Linux / macOS）与 `.ps1`（Windows PowerShell），不再增加按操作系统命名的转发包装。原 `--include-ai`、`--include-deepseek`、`--include-harness`、`--full` 及对应 PowerShell 开关已移除，DeepSeek 配置与 Harness 始终准备；只需填写自己的 API Key。参数以脚本帮助为准，部署步骤见 [部署指南](DEPLOYMENT.md)。
+
+| 入口 | 用途 |
+| --- | --- |
+| `scripts/setup-local.*` | 准备本地开发依赖，支持 VM 依赖与直播开关 |
+| `scripts/deploy-online.*` | 单机在线构建、部署和健康检查 |
+| `scripts/package-offline.*`、`deploy-offline.*` | 离线包生成、校验、安装与升级 |
+| `scripts/cluster-up.*`、`cluster-deploy.*` | 集群向导全流程；按已渲染配置分步部署 |
+| `scripts/video-module.*`、`capacity-module.*` | 已部署环境的模块开关与状态 |
+| `scripts/init-offline-env.*`、`prepare-public-bundle.py`、`next-release-version.py` | 公开离线包去除凭据、目标机初始化和 Release 版本生成 |
+| `scripts/repair-offline-openeuler.sh` | openEuler 离线 Docker / SELinux 修复 |
+| `scripts/fetch-deepseek-harness.sh`、`scripts/lib/` | 固定版本 Harness 获取及各入口复用的部署/模型/演示实现 |
+| `scripts/generate-demo-data.mjs`、`scripts/tests/` | 演示入口、协议模拟器与按场景启用的冒烟；前端浏览器用例见下节 |
+
+专项回归按对应改动运行：`python3 scripts/tests/public-bundle-test.py` 与 PowerShell 同名脚本检查公开包凭据；`python3 scripts/tests/release-version-test.py` 检查版本生成；`sh scripts/tests/ollama-restore-smoke.sh` 检查模型补齐及重跑。`nginx-protocol-routing-smoke.mjs`、`platform-data-permissions-smoke.sh` 需要真实 Docker 与本地镜像，会创建并清理自己的测试容器，不能当作纯源码检查运行。
 
 ## 管理端开发
 
@@ -114,7 +135,7 @@ TCP/UDP 默认 29075/29076，须已映射且空闲；可用 `--tcp-port`、`--ud
 
 ## 容量验证
 
-设计与验收口径见 [集群部署与一键全系统容量测试方案](CLUSTER_AND_CAPACITY_PLAN.md)。一键测量、业务模块场景、故障注入、管理页、续跑与跨运行比较已实现（下列小节）；集群角色与部署见 [部署文档](DEPLOYMENT.md#集群部署)。目标环境上的扩容曲线、长稳与故障验收按 [容量验收执行手册](CAPACITY_RUNBOOK.md) 执行，仓库内尚无这些实测结果。
+工具包含一键测量、业务模块场景、故障注入、管理页、续跑与跨运行比较；集群角色与部署见 [部署文档](DEPLOYMENT.md#集群部署)。目标环境按下方 [验收流程](#目标环境验收) 测扩容、长稳与故障容量；[历史开发环境报告](CAPACITY_TEST_REPORT_2026-09-27.md) 不代表当前版本或多机集群已验收。
 
 ### 一键容量测量
 
@@ -140,7 +161,7 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 - **告警序列**：`fixtures.alarmRuleId` 指定一条在 `stressAlarm=1` 时触发的现有规则（`alarmRecovers: true` 表示 `stressAlarm=0` 时恢复），核对阶段按设备比对上报序列与告警记录：有告警上报必须触发、最后一条为告警时必须处于活动状态、恢复规则最后一条正常时必须已恢复；不符计为完整性失败并给出样例设备。未指定时只观测 `alarm_trigger_total`。
 - **续跑与比较**：控制器进程中断后，用同一计划执行 `run --resume <runId>`：已完成档位按原搜索顺序回放，Agent 以下一代次重新准备并复用已登记设备，中断的那一档重新执行；最近 30 秒仍有心跳或已完成的运行会被拒绝。`compare` 读取多个运行的摘要，负载组合（报文、查询、模块与 SLO）一致且都有确认通过档时计算 E(n) = (C(n)/C(n₀)) ÷ (n/n₀) 并输出 `scaling.svg`；实例数默认取各运行的平台指标目标数，可用 `--instances id=n` 指定；条件不一致时只并列并写明原因。
 
-当前边界：TCP（GB26875）只有协议 ACK 层证据；PDF 导出未实现；重复业务副作用未测量。核对查询可在临时 schema 中用 `IOT_TEST_POSTGRES_DSN=... go test ./internal/capacity -run PGStore` 验证。
+当前边界：TCP（GB26875）只有协议 ACK 层证据；视频场景不覆盖 WebRTC；重复业务副作用未测量。即使已启用全部可选场景，`suite: full` 仍因这些覆盖缺口判为 inconclusive，不能报告全系统通过。核对查询可在临时 schema 中用 `IOT_TEST_POSTGRES_DSN=... go test ./internal/capacity -run PGStore` 验证。
 
 ### 业务模块场景
 
@@ -210,13 +231,41 @@ go run ./cmd/capacity-test -mode canary -token @token.txt -devices devices.json
 
 `http` 模式完整读取响应体后才计为成功，适用于 PDF / 原文 / 备份下载；HTTP 207 等业务部分成功响应仍须单独解析内容。结果中 `metricsValid=false` 表示管道指标缺失或计数器重置，归档 / 解析吞吐应标为未知，不按零吞吐或负数解读。大规模 MQTT 连接测试可用 `-mqtt-local-ips` 轮换负载机已有的源地址；先排除临时端口与文件句柄耗尽，不能将负载机限制当作 Broker 上限。
 
-本次本地全链路实测见 [2026-09-27 全系统容量压测报告](CAPACITY_TEST_REPORT_2026-09-27.md)，含真实模型、MQTT 进程故障、PDF / 查询过载、数据完整性核对和条件集群估算。该结果只适用于报告中的环境、数据规模和业务配比，不是生产容量承诺。
+### 目标环境验收
 
-模型供应商配额、跨副本、磁盘写满和生产长稳运行仍需独立实测，不从源码限额推算生产承诺。
+固定提交、镜像摘要、硬件、故障域、数据量、协议/报文比例、规则/AI 配置、SLO 和时长。被测机与发压机分开，清单列出每个角色的每个实例 `/metrics`、各主机 node-exporter、Agent 与核对库；同步时钟，给发压机保留 CPU 余量。秘密使用 0600 文件及只读核对账户，测试使用专用租户；AI 先用 `harness-mock` 验证调度，再以 `maxRuns` 预算执行真实模型。备份恢复须配置独立目标库，视频须有可用测试摄像头。
 
-### 容量修复回归与死信恢复
+| 阶段 | 操作与通过依据 |
+| --- | --- |
+| 低档基线 | `quick` 预设确认接入、业务完成、ID 核对与报告证据完整；ACK 不代替处理完成 |
+| 单实例边界 | `capacity` 搜索“稳定通过 L、在 U 失败”；未找到失败档只报告至少 L，发压受限或配额限制单列 |
+| 扩容比较 | 同一计划分别测 1 / 2 / 3 / 6 个目标角色实例，只改变实例数并更新指标清单；比较共享存储、分区与连接预算 |
+| 候选长稳 | 以候选运行速率执行 `soak`，至少 4 小时，上线前建议 24 小时；完整性、积压、业务 P95/P99 与资源趋势均达标 |
+| 故障容量 | 每种故障单独用 `resilience` 在背景负载下注入、恢复；以完整性、排空与 `faults.maxRecovery` 判定，并核对人工恢复结果 |
 
-[容量报告第 11 节](CAPACITY_TEST_REPORT_2026-09-27.md#11-第八节问题的源码复核与修复复测) 保存第八节问题的修复、复测数据及仍存在的容量边界。现有 Broker 断开回归可指定环境文件运行，不创建容器：
+扩容比较示例（运行 ID 对应实际结果目录）：
+
+```bash
+go run ./cmd/capacity-test compare --runs <n1>,<n2>,<n3>,<n6> --instances <n1>=1,<n2>=2,<n3>=3,<n6>=6
+```
+
+只有负载/SLO 一致且确认通过档、证据完整时才计算扩容效率 E(n)。原始实例数、资源增量与限制环节一并保留，不能以 API 数量乘单机吞吐代替测量。
+
+故障白名单在对应 Agent 主机登记，计划按动作名引用，格式与恢复机制见 [故障注入](#故障注入resilience)。覆盖范围至少逐项标明：
+
+| 故障对象 | 核对内容 |
+| --- | --- |
+| Parser / Processor / Jobs | 消费分区或任务租约接管、旧实例迟到写入、告警与设备状态完整性 |
+| Gateway / EMQX | 设备重连、未确认消息重投、inbox 排空及唯一消息核对 |
+| PostgreSQL / Redis / Redpanda / ClickHouse | 主备或分区切换、连接恢复、限额退化、quorum 写入及副本可读性 |
+| Harness / 视频控制实例 | 会话重建、工作流失败分类、SIP 重新注册与重新点播、权限撤销 |
+| 主机 / 磁盘 | 资源争用、磁盘写满、inbox 持久性与人工恢复边界；仅重启进程不覆盖这些故障 |
+
+报告保存到独立的 `capacity-results/<runId>/`，包含执行人、日期、提交、清单和全部证据。推荐运行值须经过长稳验证；健康状态下的 0.7 系数不能证明 N−1 容量。未测或未通过的业务/故障逐项列明，不纳入承诺；2026-09-27 的短时本地测试仅作为 [历史基线](CAPACITY_TEST_REPORT_2026-09-27.md)。
+
+### 真实依赖回归与死信恢复
+
+现有 Broker 断开回归可指定环境文件运行，不创建容器：
 
 ```bash
 IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -run TestExistingBrokerDisconnectDuringDurableCallback -count=1
