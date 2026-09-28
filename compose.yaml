@@ -462,7 +462,7 @@ services:
       start_period: 10s
 
   # 摄像头直播媒体服务（可选，profile "video"）。HTTP API、Hook 与 HLS 只在内部网络使用，
-  # 容量测试模块（profile capacity，默认关闭）：与平台同一镜像，只在内部网络监听。
+  # 容量测试模块（profile capacity，部署脚本默认启用）：与平台同一镜像，只在内部网络监听。
   # 开关与令牌由 scripts/capacity-module.sh（.ps1）或部署脚本的 --capacity on|off 管理。
   capacity:
     <<: *service-defaults

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy-level switch for the capacity-test module (Compose profile
-# "capacity"). It is off by default; IOT_CAPACITY_MODULE=on in the environment
-# file records the choice so later deployments keep it. When on, the platform
+# "capacity"). It is deployed by default; IOT_CAPACITY_MODULE=off in the
+# environment file records an explicit opt-out that later deployments keep. When on, the platform
 # shows 运维中心 → 容量测试 and tests run from there with the operator's own
 # permissions; nothing else needs configuring.
 set -Eeuo pipefail
@@ -14,7 +14,7 @@ usage() {
   cat <<'EOF'
 用法：bash scripts/capacity-module.sh <enable|disable|prepare|status|logs> [选项]
   enable    部署并启动容量测试服务，平台出现“运维中心 → 容量测试”（首次生成服务令牌）
-  disable   停止并移除容量测试服务，页面隐藏；保留测试结果卷与令牌，后续部署保持关闭
+  disable   停止并移除容量测试服务，页面隐藏；保留测试结果卷与令牌，后续部署保持关闭（默认部署）
   prepare   只写入开启配置，不操作容器；供部署脚本调用
   unprepare 只写入关闭配置，不操作容器；供部署脚本调用
   status    查看容量测试服务与配置状态

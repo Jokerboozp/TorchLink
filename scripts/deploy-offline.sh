@@ -60,7 +60,11 @@ if (( ! skip_hash_check )); then
   echo "镜像和模型包 SHA256 校验通过。"
 fi
 
-# Capacity-test module: off unless chosen here or earlier (IOT_CAPACITY_MODULE=on).
+# Capacity-test module: deployed by default; an explicit off (here or earlier) is kept.
+if [[ "$capacity" == keep ]]; then
+  capacity=on
+  grep -Eq "^[[:space:]]*IOT_CAPACITY_MODULE[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null && capacity=off
+fi
 if [[ "$capacity" == on ]]; then
   bash "$script_dir/capacity-module.sh" prepare --mode offline --env-file "$env_file"
 elif [[ "$capacity" == off ]]; then

@@ -32,7 +32,7 @@ while [ "$#" -gt 0 ]; do
   --include-harness     兼容参数；AI 工作流 Harness 为必装组件，始终启动
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
   --video on|off        部署或关闭摄像头直播媒体服务；省略时沿用上次选择，新环境默认开启
-  --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认关闭
+  --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认开启
 默认拉取运行镜像、构建应用、启动全部服务，并仅下载知识库嵌入模型 nomic-embed-text。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
@@ -74,10 +74,10 @@ else
   profiles="$(get_deployment_env_value "$env_file" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx video | paste -sd, - || true)"
   set_deployment_env_value "$env_file" COMPOSE_PROFILES "$profiles"
 fi
-# The capacity-test module is off unless chosen; an earlier choice is kept.
+# The capacity-test module is deployed by default; an earlier --capacity off is kept.
 if [ "$capacity" = keep ]; then
-  capacity=off
-  [ "$(get_deployment_env_value "$env_file" IOT_CAPACITY_MODULE)" = on ] && capacity=on
+  capacity=on
+  [ "$(get_deployment_env_value "$env_file" IOT_CAPACITY_MODULE)" = off ] && capacity=off
 fi
 if [ "$capacity" = on ]; then
   bash "$script_dir/capacity-module.sh" prepare --mode online --env-file "$env_file" --project-name "$project_name"

@@ -287,6 +287,9 @@ function New-OfflineEnv {
     Write-Utf8NoBom -Path $Destination -Lines $lines
     Ensure-EmqxAdminEnv -Path $Destination -DefaultUrl "http://emqx:18083"
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
+    # Capacity-test module: on by default (same settings deploy writes); an explicit off is kept.
+    $capacityAction = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'unprepare' } else { 'prepare' }
+    & (Join-Path $PSScriptRoot 'capacity-module.ps1') $capacityAction -Mode offline -EnvFile $Destination | Out-Null
     Add-DeploymentEnvComments -Path $Destination
     $credentialPath = Join-Path (Split-Path -Parent $Destination) "OFFLINE-CREDENTIALS.txt"
     $credentialFileLines = @(

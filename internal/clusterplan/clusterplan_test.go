@@ -604,20 +604,30 @@ func TestUnifiedServicePasswordRules(t *testing.T) {
 func TestCapacityModuleRendersBesideThePlatform(t *testing.T) {
 	inv := example(t)
 	s := testSecrets()
-	files, err := Render(inv, s)
-	if err != nil || strings.Contains(string(files["n4/compose.yaml"]), "capacity-test") || strings.Contains(string(files["n1/compose.yaml"]), "IOT_OPS_CAPACITY_URL") {
-		t.Fatal("capacity module must be off by default", err)
+	if inv.Capacity.Node != "n4" {
+		t.Fatal("the example deploys the capacity module by default")
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "inv.yaml")
 	src, _ := os.ReadFile(filepath.Join("..", "..", "deploy", "cluster", "inventory.example.yaml"))
 	_ = os.WriteFile(path, src, 0o600)
+	if node, err := SetCapacity(path, false); err != nil || node != "" {
+		t.Fatal(node, err)
+	}
+	off, err := Load(path)
+	if err != nil || off.Capacity.Node != "" {
+		t.Fatal("switch off", err)
+	}
+	files, err := Render(off, s)
+	if err != nil || strings.Contains(string(files["n4/compose.yaml"]), "capacity-test") || strings.Contains(string(files["n1/compose.yaml"]), "IOT_OPS_CAPACITY_URL") {
+		t.Fatal("a switched-off module must not render", err)
+	}
 	if node, err := SetCapacity(path, true); err != nil || node != "n4" {
 		t.Fatal(node, err)
 	}
 	edited, _ := os.ReadFile(path)
-	if !strings.Contains(string(edited), "# Cluster inventory: the single source") || !strings.HasSuffix(string(edited), "capacity: {node: n4}\n") {
-		t.Fatal("switch must keep comments and add one entry")
+	if !strings.Contains(string(edited), "# Cluster inventory: the single source") || !strings.HasSuffix(string(edited), "capacity: {node: n4}\n") || strings.Count(string(edited), "capacity:") != 1 {
+		t.Fatal("switch must keep comments and hold one entry")
 	}
 	on, err := Load(path)
 	if err != nil {

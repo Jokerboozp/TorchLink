@@ -17,7 +17,7 @@ on/off deploys or removes the camera live media server; keep (default) reuses th
 last choice, and new environments deploy it.
 .PARAMETER Capacity
 on/off deploys or removes the capacity-test module (运维中心 → 容量测试); keep (default)
-reuses the last choice, and new environments leave it off.
+reuses the last choice, and new environments deploy it.
 #>
 [CmdletBinding()]
 param(
@@ -64,8 +64,8 @@ if ($Video -eq 'on') {
     $profiles = @(@("$(Get-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'video' })
     Set-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
 }
-# The capacity-test module is off unless chosen; an earlier choice is kept.
-if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'on') { 'on' } else { 'off' } }
+# The capacity-test module is deployed by default; an earlier -Capacity off is kept.
+if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'off' } else { 'on' } }
 $capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
 & (Join-Path $scriptDir 'capacity-module.ps1') $capacityAction -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
 Add-DeploymentEnvComments -Path $EnvFile

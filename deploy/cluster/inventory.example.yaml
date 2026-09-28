@@ -51,6 +51,7 @@ knowledge: {node: n4}
 video: {node: n4}
 backup: {node: n4}
 monitoring: {node: n4}
+capacity: {node: n4}          # capacity-test module (运维中心 → 容量测试); remove the line to turn it off
 platform:
   # internalURL / gatewayURL left empty: every node runs a local HAProxy
   # (127.0.0.1:18181 → api instances, 127.0.0.1:18182 → gateways) for the

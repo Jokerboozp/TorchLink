@@ -2,7 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1                    # wizard
 #   ... -Name torchlink                                  # upgrade a cluster deployed before (no questions)
-#   ... -Name torchlink -Capacity on                     # capacity-test module on (or off)
+#   ... -Name torchlink -Capacity off                    # capacity-test module off (on by default)
 #   ... -Inventory deploy\cluster\my.yaml                # hand-written inventory
 #   ... -Name torchlink -Bundle cluster-images.tar       # online machine: build + pull, save all images, stop
 #   ... -Name torchlink -Images cluster-images.tar       # offline controller
@@ -99,7 +99,7 @@ if ($Inventory) {
             }
             $generateNodes = $addresses -join ','
             if (-not $Video) { $Video = if ((Ask "部署摄像头直播模块？(y/n)" "y") -match '^(n|no)$') { "off" } else { "on" } }
-            if (-not $Capacity) { $Capacity = if ((Ask "部署容量测试模块？（用于压测，平时可关闭）(y/n)" "n") -match '^(y|yes)$') { "on" } else { "off" } }
+            if (-not $Capacity) { $Capacity = if ((Ask "部署容量测试模块？(y/n)" "y") -match '^(n|no)$') { "off" } else { "on" } }
         } else { throw "no cluster named $Name yet: run interactively, or pass -Nodes IP,IP,IP (or -Inventory)" }
     }
 }
@@ -219,7 +219,7 @@ function Invoke-Tool([string[]]$ToolArgs) {
 if ($generateNodes) {
     Say "generating inventory $Inventory"
     $videoFlag = if ($Video -eq "off") { "-video=false" } else { "-video=true" }
-    $capacityFlag = if ($Capacity -eq "on") { "-capacity=true" } else { "-capacity=false" }
+    $capacityFlag = if ($Capacity -eq "off") { "-capacity=false" } else { "-capacity=true" }
     Invoke-ImageTool "cluster-render" @("-generate", "-name", $name, "-nodes", $generateNodes, $videoFlag, $capacityFlag, "-inventory", "/in/inventory/$(Split-Path $Inventory -Leaf)")
     if ($script:ToolExit -ne 0) { throw "generating the inventory failed" }
 } elseif ($Capacity) {

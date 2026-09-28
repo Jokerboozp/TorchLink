@@ -3,7 +3,7 @@
 #
 #   bash scripts/cluster-up.sh                                   # wizard: nodes, SSH passwords, service password
 #   bash scripts/cluster-up.sh --name torchlink                  # upgrade a cluster deployed before (no questions)
-#   bash scripts/cluster-up.sh --name torchlink --capacity on    # capacity-test module on (or off)
+#   bash scripts/cluster-up.sh --name torchlink --capacity off   # capacity-test module off (on by default)
 #   bash scripts/cluster-up.sh --inventory deploy/cluster/my.yaml   # hand-written inventory
 #   bash scripts/cluster-up.sh --name torchlink --bundle cluster-images.tar   # online machine: save all images
 #   bash scripts/cluster-up.sh --name torchlink --images cluster-images.tar   # offline controller
@@ -142,8 +142,8 @@ else
         case "$answer" in n|N|no) video=off;; *) video=on;; esac
       fi
       if [ -z "$capacity" ]; then
-        ask answer "部署容量测试模块？（用于压测，平时可关闭）(y/n)" n
-        case "$answer" in y|Y|yes) capacity=on;; *) capacity=off;; esac
+        ask answer "部署容量测试模块？(y/n)" y
+        case "$answer" in n|N|no) capacity=off;; *) capacity=on;; esac
       fi
     else
       fail "no cluster named $name yet: run interactively, or pass --nodes IP,IP,IP (or --inventory)"
@@ -265,7 +265,7 @@ tool() { image_tool cluster-render -inventory "/in/inventory/$(basename "$invent
 if [ -n "$generate_nodes" ]; then
   say "generating inventory $inventory"
   video_flag=true; [ "$video" = off ] && video_flag=false
-  capacity_flag=false; [ "$capacity" = on ] && capacity_flag=true
+  capacity_flag=true; [ "$capacity" = off ] && capacity_flag=false
   image_tool cluster-render -generate -name "$name" -nodes "$generate_nodes" -video="$video_flag" -capacity="$capacity_flag" -inventory "/in/inventory/$(basename "$inventory")" < /dev/null
 elif [ -n "$capacity" ]; then
   # Module switch on an existing cluster: only the inventory entry changes.

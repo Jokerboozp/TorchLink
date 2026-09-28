@@ -86,7 +86,7 @@ POSTGRES_MAX_CONNECTIONS	PostgreSQL 服务端最大连接数（Compose 部署的
 IOT_AI_ANALYSIS_CONCURRENCY	同时进行的告警自动研判数量，建议不超过 Harness 并发，1 至 32
 IOT_OPS_CAPACITY_URL	容量测试服务地址，由 capacity-module 自动设置（模块内为 http://capacity:7080）；为空表示模块未部署，页面隐藏
 IOT_OPS_CAPACITY_TOKEN	平台访问容量测试服务的令牌，启用模块时自动生成
-IOT_CAPACITY_MODULE	容量测试模块部署开关：on 部署，off（默认）不部署；后续部署保持该选择
+IOT_CAPACITY_MODULE	容量测试模块部署开关：on 默认部署，off 表示显式关闭且后续部署保持关闭
 IOT_OPS_TENANTS	可授予运维中心权限的平台运维租户，多个值用逗号分隔；为空时仅内置管理员可用
 IOT_OPS_PROMETHEUS_URL	运维中心访问 Prometheus 的地址（仅服务端使用）
 IOT_OPS_LOKI_URL	运维中心访问 Loki 的地址（仅服务端使用）

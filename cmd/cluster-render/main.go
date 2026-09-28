@@ -37,7 +37,7 @@ func main() {
 	name := flag.String("name", "torchlink", "-generate：集群名称")
 	nodes := flag.String("nodes", "", "-generate：节点 IP，逗号分隔，按 n1、n2… 顺序")
 	video := flag.Bool("video", true, "-generate：部署摄像头直播媒体服务")
-	capacityOn := flag.Bool("capacity", false, "-generate：部署容量测试模块")
+	capacityOn := flag.Bool("capacity", true, "-generate：部署容量测试模块（默认部署）")
 	setCapacity := flag.String("set-capacity", "", "on|off：在 -inventory 中开启或关闭容量测试模块后退出")
 	printNodes := flag.Bool("print-nodes", false, "按“名称 地址”逐行输出清单中的节点后退出")
 	secretsStdin := flag.Bool("secrets-stdin", false, "-init-secrets：从标准输入读取 servicePassword=… 与 deepseekApiKey=…（不经命令行）")

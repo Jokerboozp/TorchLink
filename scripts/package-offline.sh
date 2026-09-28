@@ -257,6 +257,13 @@ EOF
   fi
   ensure_emqx_admin_env "$destination" "http://emqx:18083"
   configure_deepseek_env "$destination" "$deepseek_model"
+  # Capacity-test module: on by default (same settings deploy writes, so a
+  # rerun leaves the file unchanged); an explicit IOT_CAPACITY_MODULE=off is kept.
+  if [[ "$(env_value IOT_CAPACITY_MODULE "$destination")" == off ]]; then
+    bash "$script_dir/capacity-module.sh" unprepare --mode offline --env-file "$destination" >/dev/null
+  else
+    bash "$script_dir/capacity-module.sh" prepare --mode offline --env-file "$destination" >/dev/null
+  fi
   annotate_deployment_env_file "$destination"
 
   if (( ! generated )); then

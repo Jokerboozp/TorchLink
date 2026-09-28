@@ -81,11 +81,10 @@ if (-not $SkipHashCheck) {
     Write-Host "镜像和模型包 SHA256 校验通过。" -ForegroundColor Green
 }
 
-# Capacity-test module: off unless chosen here or earlier (IOT_CAPACITY_MODULE=on).
-if ($Capacity -ne "keep") {
-    $capacityAction = if ($Capacity -eq "on") { "prepare" } else { "unprepare" }
-    & (Join-Path $scriptDir "capacity-module.ps1") $capacityAction -Mode offline -EnvFile $envPath
-}
+# Capacity-test module: deployed by default; an explicit off (here or earlier) is kept.
+if ($Capacity -eq "keep") { $Capacity = if ((Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'off') { "off" } else { "on" } }
+$capacityAction = if ($Capacity -eq "on") { "prepare" } else { "unprepare" }
+& (Join-Path $scriptDir "capacity-module.ps1") $capacityAction -Mode offline -EnvFile $envPath
 $capacityOn = (Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'on'
 $composeArguments = @(
     "compose", "--project-name", "iot-platform",
