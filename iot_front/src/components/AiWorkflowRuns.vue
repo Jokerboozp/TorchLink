@@ -11,7 +11,6 @@ const stopping = ref(new Set())
 const now = ref(Date.now())
 const canStop = computed(() => can('POST /api/v1/ai/runs/:id/stop'))
 const labels = { queued:'排队中', starting:'启动中', running:'运行中', stopping:'正在停止', stop_failed:'停止失败' }
-let timer
 let disposed = false
 let request
 
@@ -23,6 +22,7 @@ async function loadRuns() {
     const result = await api('/api/v1/ai/runs', { signal:request.signal })
     if (disposed) return
     items.value = result.items || []
+    now.value = Date.now()
     error.value = ''
   } catch (e) {
     if (!disposed && e.name !== 'AbortError') error.value = e.message || '运行列表读取失败'
@@ -39,7 +39,7 @@ async function stopRun(row) {
   try {
     await api(`/api/v1/ai/runs/${encodeURIComponent(row.runId)}/stop`, {method:'POST'})
     row.status = 'stopping'
-    UiMessage.success('停止请求已提交，任务退出后将从列表移除')
+    UiMessage.success('停止请求已提交，请点击刷新列表查看最终状态')
     await loadRuns()
   } catch (e) {
     if (e.status === 404) { UiMessage.info('该工作流已结束'); await loadRuns() }
@@ -55,19 +55,13 @@ function elapsed(row) {
   const seconds = Math.max(0, Math.floor((now.value - row.startedAt) / 1000))
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
 }
-onMounted(() => {
-  loadRuns()
-  timer = setInterval(() => {
-    now.value = Date.now()
-    if (!document.hidden) loadRuns()
-  }, 3000)
-})
-onUnmounted(() => { disposed = true; clearInterval(timer); request?.abort() })
+onMounted(loadRuns)
+onUnmounted(() => { disposed = true; request?.abort() })
 </script>
 
 <template>
   <ui-card shadow="never" class="surface-card workflow-runs">
-    <template #header><div class="runs-header"><div><strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 每 3 秒刷新 · {{ items.length }} 个任务</small></div><ui-button size="small" :loading="loading" @click="loadRuns">刷新列表</ui-button></div></template>
+    <template #header><div class="runs-header"><div><strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 手动刷新 · {{ items.length }} 个任务</small></div><ui-button size="small" :loading="loading" @click="loadRuns">刷新列表</ui-button></div></template>
     <p class="runs-note">切换模型前，请等待任务结束或手动停止。停止操作仅影响所选任务，已经执行的业务操作不会撤销。</p>
     <ui-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
     <ui-alert v-if="items.some(row => row.status === 'stop_failed')" title="部分任务无法确认进程退出，请联系管理员重启 Harness 服务；并发名额仍保留。" type="error" :closable="false" show-icon />

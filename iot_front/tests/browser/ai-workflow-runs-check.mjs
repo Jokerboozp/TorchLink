@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 const dist = fileURLToPath(new URL('../../dist/', import.meta.url))
 const profile = await mkdtemp(join(tmpdir(), 'iot-ai-runs-'))
 let stopRequests = 0
+let listRequests = 0
 let run = {runId:'ai_run_demo_01',tenantId:'demo',actor:'admin',workflowId:'alarm-handler',workflowName:'AI 告警研判',model:'deepseek-flash',status:'running',startedAt:Date.now()-45000}
 const server = createServer(async (req,res) => {
   const path = new URL(req.url,'http://fixture').pathname
@@ -19,7 +20,7 @@ const server = createServer(async (req,res) => {
     if(path==='/api/v1/auth/me')body={username:'admin',tenantId:'demo',role:'admin',permissions:['*']}
     if(path==='/api/v1/events')body={permissions:['*'],alarms:[],states:[],accessVersion:''}
     if(path==='/api/v1/ai/providers')body={items:[],active:{id:'deepseek',enabled:true},config:{provider:'deepseek',model:'deepseek-flash',baseUrl:'https://api.deepseek.com',apiKeyConfigured:true,maxTokens:2048},healthy:true}
-    if(path==='/api/v1/ai/runs')body={items:run?[run]:[],total:run?1:0}
+    if(path==='/api/v1/ai/runs'){listRequests++;body={items:run?[run]:[],total:run?1:0}}
     if(path==='/api/v1/ai/runs/ai_run_demo_01/stop' && req.method==='POST') {
       stopRequests++;run.status='stopping';res.statusCode=202;body={status:'stopping'}
       setTimeout(()=>{run=null},1500)
@@ -83,9 +84,15 @@ try {
   await evaluate(`[...document.querySelectorAll('.n-dialog button')].find(b=>b.innerText.trim()==='强制停止').click()`)
   await until(()=>evaluate(`document.querySelector('.workflow-runs')?.innerText.includes('正在停止')`))
   assert.equal(stopRequests,1)
+  await until(()=>run===null)
+  const requestsBeforeWait=listRequests
+  await delay(3500)
+  assert.equal(listRequests,requestsBeforeWait,'run list must not poll automatically')
+  assert.equal(await evaluate(`document.querySelector('.workflow-runs')?.innerText.includes('正在停止')`),true)
+  await evaluate(`[...document.querySelectorAll('.workflow-runs button')].find(b=>b.innerText.trim()==='刷新列表').click()`)
   await until(()=>evaluate(`document.querySelector('.workflow-runs')?.innerText.includes('当前没有运行中的 AI 工作流')`))
   assert.deepEqual(errors,[])
-  console.log(`PASS: list, confirmation cancel, forced stop, stopping state, automatic refresh. Screenshot: ${screenshotPath}`)
+  console.log(`PASS: list, confirmation cancel, forced stop, stopping state, no polling, manual refresh. Screenshot: ${screenshotPath}`)
 } finally {
   socket?.close()
   const exited=new Promise(resolve=>{if(browser.exitCode!==null)resolve();else browser.once('exit',resolve)})
