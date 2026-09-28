@@ -27,13 +27,13 @@
 
 ## 3. 项目定位与源码入口
 
-平台为独立 Go API 与 Vue 管理端，覆盖设备接入、协议源码发布、报文归档与回放、规则告警、摄像头资料与直播、知识库、AI 辅助运维及备份管理。保持独立平台方向，不重新引入已移除的 ThingsPanel 集成，也不把 JetLinks Java 协议包作为平台依赖。
+平台为独立 Go API 与 Vue 管理端，覆盖设备接入、协议源码发布、报文归档与回放、规则告警、摄像头资料与直播、知识库、AI 辅助运维、运维中心、容量测试、备份管理及集群部署。保持独立平台方向，不重新引入已移除的 ThingsPanel 集成，也不把 JetLinks Java 协议包作为平台依赖。
 
 | 路径 | 职责 |
 |---|---|
-| `cmd/iot-platform/` | API 启动与依赖装配入口 |
+| `cmd/iot-platform/`、`cmd/iot-access-gateway/`、`internal/platformapp/` | API 与独立接入网关入口；启动、进程角色与依赖装配 |
 | `internal/httpapi/`、`internal/auth/` | HTTP 接口、认证、角色与租户边界 |
-| `internal/core/`、`internal/model/`、`internal/ports/` | 业务编排、领域模型和依赖接口 |
+| `internal/core/`、`internal/onboarding/`、`internal/model/`、`internal/ports/` | 业务编排、设备接入登记、领域模型和依赖接口 |
 | `internal/adapters/` | 数据库、消息、对象存储、AI 等外部实现 |
 | `internal/parser/` | 报文解析 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | Go 协议源码构建、版本运行与 Worker 契约 |
@@ -43,7 +43,10 @@
 | `internal/backup/`、`cmd/backup-service/` | 备份逻辑与独立备份服务 |
 | `internal/video/`、`deploy/zlmediakit/` | 摄像头直播模块：直播配置、连接测试、播放会话与媒体任务生命周期；`internal/video/gb28181/` 为 GB28181 SIP 信令；固定版本 ZLMediaKit 媒体服务 |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的完整 Go 协议 module 示例 |
-| `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/`、`cmd/capacity-test/` | 专用网关、虚拟设备、负载与分阶梯容量压测工具；按任务使用 |
+| `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/` | 专用网关、虚拟设备与负载工具；按任务使用 |
+| `internal/capacity/`、`cmd/capacity-test/`、`cmd/capacity-check/`、`cmd/harness-mock/` | 容量测试模块（计划、发压 Agent、核对、报告与控制服务）、只读容量检查和 Harness 调度模拟 |
+| `internal/clusterplan/`、`cmd/cluster-render/`、`cmd/cluster-init/`、`cmd/cluster-ssh/`、`deploy/cluster/` | 集群清单校验、按节点渲染、初始化与 SSH 准备 |
+| `cmd/dlq-replay/`、`cmd/clickhouse-migrate/` | 存储死信恢复与 ClickHouse 集群迁移 |
 | `iot_front/` | Vue 3、Vite 管理端，复用现有 Naive UI、Tailwind CSS 和 Lucide 图标 |
 | `scripts/`、`compose*.yaml`、`deploy/` | 本地准备、部署、离线打包和服务配置 |
 

@@ -105,7 +105,7 @@ docker run --rm --network none --entrypoint node iot-deepseek-harness:local /har
 
 内部运行管理接口为 `GET /v1/runs`、`POST /v1/runs/:id/stop`，均额外要求 `X-IOT-Tenant-ID`，仅由平台后端携带服务令牌调用。运行归属由平台在工作流请求中的 `tenantId` / `actor` 传入；缺失归属的旧客户端任务不对租户管理页开放。升级该功能须重建 Harness 镜像并重启源码 API；旧镜像访问列表会提示升级，不能只更新前端。
 
-Manifest 位于 `deploy/deepseek-harness/plugins/`，包含 schemaVersion、id、persona、defaultModel、maxTokens、capabilities 与 allowedTools。maxTokens 为 1–262144 的整数，并收紧到插件上限；Manifest 不能扩大代码白名单。网关、Cordis 与 MCP 服务端共同拒绝 shell、文件系统、jobs、goal、skills、subagent 及设备控制工具，MCP 发现失败即拒绝创建 Agent。
+Manifest 位于 `deploy/deepseek-harness/plugins/`，包含 schemaVersion、id、persona、defaultModel、maxTokens、capabilities 与 allowedTools。Harness 接受 1–262144 的整数 maxTokens，实际取请求值与插件上限的较小值；平台创建的自定义 Agent 和单次请求上限为 8192；Manifest 不能扩大代码白名单。网关、Cordis 与 MCP 服务端共同拒绝 shell、文件系统、jobs、goal、skills、subagent 及设备控制工具，MCP 发现失败即拒绝创建 Agent。
 
 ## 运维中心
 

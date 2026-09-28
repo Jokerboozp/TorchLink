@@ -102,6 +102,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | ClickHouse / Kafka | `18123` / `19092` | 仅容器网络 |
 | MinIO 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` |
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
+| EMQX 控制台 | `18083` | `18083`（`EMQX_DASHBOARD_PORT`），只开放给可信网络 |
+| TCP / UDP 协议接入 | 本机 Go API 直接监听接入点端口 | `26875` TCP+UDP；其他监听端口写入 `IOT_PROTOCOL_PORTS`（单个端口或范围）后重跑部署，拆分 Gateway 时由 Gateway 发布 |
 | Ollama / Weaviate | `11434` / `18080` | 仅容器网络 |
 | 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
 | Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`） |
@@ -216,7 +218,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 
 ### Linux 与 openEuler
 
-Linux 自动安装要求 systemd、tar、iptables、xz、ps；健康检查另需 curl。已有 Docker/Compose 可用则复用，不自动更换 daemon 配置、清理数据或升级 Engine。在线补齐缺失工具；离线只从包内 `docker-runtime/` 校验安装。精简发行版须携带匹配系统、版本和架构的 RPM/DEB 及依赖，参数为 `--docker-packages-dir` / `-DockerPackagesDir`。
+Linux 自动安装要求 systemd、tar、iptables、xz、ps；健康检查另需 curl。已有 Docker/Compose 可用则复用，不自动更换 daemon 配置、清理数据或升级 Engine。在线补齐缺失工具；离线只从包内 `docker-runtime/` 校验安装。精简发行版须在打包时用 `--docker-packages-dir` / `-DockerPackagesDir` 携带匹配系统、版本和架构的 RPM/DEB 及依赖。
 
 openEuler 24.03 LTS-SP4 用专用目标参数打包，准备容器内生成本地 RPM 源、索引和公钥，不把 RPM 安装到打包机。目标机保留签名与受保护包检查，按包名解析依赖，修复受管 Docker 的 SELinux 标签；不关闭 SELinux、不删 Docker 数据。专用目标不能同时跳过 Docker runtime 或混用其他发行版依赖。
 
@@ -282,9 +284,9 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### AI 与工作流
 
-本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
+本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。“最大输出词元”（128–8192，默认 2048）是智能助手单次回复的默认上限。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
 
-升级运行管理功能需同步后端与 Harness。VMware 源码调试环境把最新源码同步到依赖机的原仓库后，在依赖机仓库根目录执行以下命令，然后重启 Windows 源码 API。重建 Harness 会中断该实例当前任务；`.env.local` 和命名卷继续沿用。
+Harness 源码（`deploy/deepseek-harness/`）变化时须重建 Harness 并重启 API，例如升级 AI 工作流运行管理。依赖机与源码机分离时，先把最新源码同步到依赖机的原仓库，在依赖机仓库根目录执行以下命令，再重启源码 API。重建 Harness 会中断该实例当前任务；`.env.local` 和命名卷继续沿用。
 
 ```bash
 sudo docker compose -p iot-platform-local --env-file .env.local \
@@ -327,7 +329,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本节维护连接池、并发和限额配置；拓扑、角色与迁移见 [集群部署](#集群部署) 和 [进程职责](#进程职责)，实测流程见 [容量验证](DEVELOPMENT.md#容量验证)。
 
-默认值参考历史压测瓶颈调整（见 [历史基线](DEVELOPMENT.md#容量验证)），不代表当前吞吐已复测。多副本时按下表核对：
+默认值参考历史压测瓶颈调整，不代表当前吞吐已复测。多副本时按下表核对：
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
@@ -395,7 +397,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 4. **服务统一密码**：用于 PostgreSQL（应用、超级用户、复制）、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 `admin`；至少 8 位，只能包含字母、数字与 `. _ ~ -`（要嵌入连接串）。直接回车则每项随机生成。JWT 密钥、Harness 令牌、摄像头凭据密钥和服务间令牌始终随机生成（有长度或格式要求）。服务统一密码只在首次部署时设置；再次执行沿用已有秘密，若指定了不同的密码会拒绝（修改数据库密码需单独操作）。
 5. 是否部署摄像头直播模块；DeepSeek API Key（可留空，部署后可在“模型管理”填写）。
 
-节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、知识库、视频、备份与监控放在最后一台；api、gateway、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
+节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、知识库、视频、容量测试、备份与监控放在最后一台；api、gateway、ai、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
 
 无人值守：`bash scripts/cluster-up.sh --name <名称> --nodes IP1,IP2,IP3 --yes`，SSH 密码与服务统一密码经环境变量 `TORCHLINK_SSH_PASSWORD`、`TORCHLINK_SERVICE_PASSWORD` 提供（PowerShell 为 `-Name`、`-Nodes`、`-Yes`）。
 
@@ -510,7 +512,7 @@ IOT_BACKUP_DIR=./data/backups
 IOT_BACKUP_RESTORE_TARGET_DSN=
 ```
 
-Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 CentOS。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
+Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 Linux 依赖机。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
 
 ## 独立接入进程
 
@@ -519,7 +521,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
 ### 进程职责
 
 - `cmd/iot-platform` 默认 `IOT_PROCESS_ROLE=combined`，保留单进程入口。
-- `IOT_PROCESS_ROLE=api` 不启动 Modbus、Listener 或外部 MQTT 上行订阅；默认仍内嵌解析、业务处理、AI 研判消费与后台任务（`IOT_API_EMBEDDED_WORKERS=true`）。设为 `false` 后 API 只提供管理接口、运维中心和视频控制，必须同时部署下列 Worker 角色，否则上报不会被解析和处理。
+- `IOT_PROCESS_ROLE=api` 不启动 Modbus、Listener 或外部 MQTT 上行订阅；默认仍内嵌解析、业务处理与后台任务（`IOT_API_EMBEDDED_WORKERS=true`）。设为 `false` 后 API 只提供管理接口、运维中心和视频控制，必须同时部署下列 Worker 角色，否则上报不会被解析和处理。
 - Worker 角色（同一镜像与入口，设置 `IOT_PROCESS_ROLE`）：
 
   | 角色 | 运行内容 | 扩容依据 |
@@ -527,7 +529,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
   | `parser` | 消费 `iot.raw.message`，解析并发布到内部业务流 `iot.device.business`（及对外 property/event/parsed 主题） | 原文积压、解析耗时 |
   | `processor` | 按设备顺序消费 `iot.device.business`：规则、告警、设备状态、完成标记、outbox 转发 | 业务流积压、数据库等待 |
   | `ai` | 保留角色兼容，不再消费告警事件执行自动研判；手动研判由 API 进程运行 | 无告警研判消费者 |
-  | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试、设备告警通知；每项任务以数据库租约保证全集群只有一个实例执行，多实例互为备用 | 待执行量 |
+  | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试以数据库租约保证全集群只有一个实例执行，多实例互为备用；设备告警通知按消费组分摊，重复投递由 Alertmanager 去重 | 待执行量 |
 
   Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`、`ai`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。
 - `IOT_INSTANCE_ID` 为实例名（默认主机名），用于指标、租约所有者和日志。显式设置后 MQTT 持久队列目录变为 `mqtt-inbox/<角色>/<实例>`；同一数据卷上运行同角色多副本时每个副本必须设置不同值。未设置时沿用旧目录，升级不会遗留未确认报文。

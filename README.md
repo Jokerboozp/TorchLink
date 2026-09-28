@@ -82,7 +82,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 | 目录 | 内容 |
 | --- | --- |
-| `cmd/` | API、独立接入网关、备份、设备模拟器、容量测试/检查、集群渲染/初始化/SSH、ClickHouse 迁移与死信恢复入口 |
+| `cmd/` | API、独立接入网关、GB26875 专用网关与虚拟设备、备份、负载与容量测试/检查、Harness 模拟、集群渲染/初始化/SSH、ClickHouse 迁移与死信恢复入口 |
 | `internal/` | 业务与授权、协议运行时、AI/MCP、视频、存储、运维、容量编排和集群清单实现及回归测试 |
 | `iot_front/` | Vue 管理端、公共组件和前端行为测试 |
 | `protocol-packages/gb26875-dahua/` | 完整 Go 协议 module 示例 |
@@ -117,7 +117,7 @@ go test ./...
 
 前端在 `iot_front` 中运行 `npm test` 和 `npm run build`；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [开发与测试](docs/DEVELOPMENT.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
 
-仓库维护可复用指南与行为回归；一次性过程记录从 Git 历史查找。保留的 [2026-09-27 压测摘要与证据](docs/CAPACITY_TEST_REPORT_2026-09-27.md) 是历史开发环境结果，不作为当前版本或生产容量承诺。协作约定见 [AGENTS.md](AGENTS.md)。
+仓库维护可复用指南与行为回归；历史压测报告等一次性过程记录从 Git 历史查找。协作约定见 [AGENTS.md](AGENTS.md)。
 
 ## 文档入口
 
