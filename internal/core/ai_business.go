@@ -84,7 +84,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	if knowledge == nil {
 		prompt += "\n\n[平台知识策略] 本次运行未授权知识库，不得调用知识库工具。"
 	}
-	request := ports.AIWorkflowRequest{RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token}
+	request := ports.AIWorkflowRequest{TenantID: tenantID, Actor: identity.Username, RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token}
 	result, err := e.streamWhenAvailable(ctx, request)
 	if err != nil {
 		return result, fmt.Errorf("AI 工作流 %s 执行失败：%w", workflowID, err)

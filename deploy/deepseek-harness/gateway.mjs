@@ -41,6 +41,8 @@ const MANIFEST_KEYS = new Set([
   'allowedTools',
 ])
 const BODY_KEYS = new Set([
+  'tenantId',
+  'actor',
   'runId',
   'conversationId',
   'workflowId',
@@ -306,6 +308,8 @@ function validatedBody(raw, plugins, allowedOrigins, modelOverride) {
   }
   return {
     runId,
+    tenantId: raw.tenantId === undefined ? '' : text(raw.tenantId, 'tenantId', 128, ID_PATTERN),
+    actor: raw.actor === undefined ? '' : text(raw.actor, 'actor', 256),
     conversationId,
     workflowId,
     question,
@@ -709,6 +713,7 @@ export function createGateway(options = {}) {
   )
   const harnessFactory = options.harnessFactory ?? officialHarnessFactory
   const activeRuns = new Set()
+  const managedRuns = new Map()
   const reservedRunIds = new Set()
   const activeConversations = new Set()
   const conversationLocks = new Map()
@@ -722,7 +727,8 @@ export function createGateway(options = {}) {
   let closing = false
   let sweeping = false
 
-  const acquireConversationLock = async (cacheKey) => {
+  const acquireConversationLock = async (cacheKey, signal) => {
+    signal?.throwIfAborted()
     let state = conversationLocks.get(cacheKey)
     if (state === undefined) {
       state = { locked: false, waiters: [] }
@@ -732,7 +738,16 @@ export function createGateway(options = {}) {
       if (state.waiters.length >= 8) {
         throw new HttpError(429, 'CONVERSATION_QUEUE_FULL', 'conversation queue is full')
       }
-      await new Promise(resolveWaiter => state.waiters.push(resolveWaiter))
+      await new Promise((resolveWaiter, reject) => {
+        const waiter = () => { signal?.removeEventListener('abort', abort); resolveWaiter() }
+        const abort = () => {
+          const index = state.waiters.indexOf(waiter)
+          if (index >= 0) state.waiters.splice(index, 1)
+          reject(signal.reason)
+        }
+        state.waiters.push(waiter)
+        signal?.addEventListener('abort', abort, { once: true })
+      })
     } else {
       state.locked = true
     }
@@ -750,13 +765,13 @@ export function createGateway(options = {}) {
   }
 
   const closeEntry = async (cacheKey, entry) => {
+    if (entry.closing !== undefined) return entry.closing
     if (conversations.get(cacheKey) === entry) conversations.delete(cacheKey)
     runtimeRoutes.delete(entry.routeDigest)
-    try {
-      await entry.harness.close()
-    } catch {
-      // The SDK owns its complete EOF/SIGTERM/SIGKILL reap ladder.
-    }
+    // The SDK owns its EOF/SIGTERM/SIGKILL reap ladder. Share the close promise
+    // so stopping never releases capacity before process teardown completes.
+    entry.closing = Promise.resolve().then(() => entry.harness.close()).catch(error => { entry.closeError = error })
+    return entry.closing
   }
 
   const evictOne = async () => {
@@ -875,7 +890,7 @@ export function createGateway(options = {}) {
       return
     }
     if (request.method !== 'PUT') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'method is not allowed')
-    if (activeRuns.size > 0) throw new HttpError(409, 'RUNS_ACTIVE', 'wait for active workflow runs to finish before changing the provider')
+    if (managedRuns.size > 0) throw new HttpError(409, 'RUNS_ACTIVE', 'wait for active workflow runs to finish before changing the provider')
     const candidate = validatedProviderConfig(await readJson(request, maximumBodyBytes))
     modelProvider = candidate.provider
     configuredBaseURL = candidate.baseUrl
@@ -943,6 +958,23 @@ export function createGateway(options = {}) {
     json(response, 200, { deleted: true, id: workflowID })
   }
 
+  const handleRuns = async (request, response, runId) => {
+    requireGatewayToken(request)
+    const tenant = text(request.headers['x-iot-tenant-id'], 'tenantId', 128, ID_PATTERN)
+    if (runId === undefined) {
+      const items = [...managedRuns.values()].filter(item => item.tenantId === tenant)
+        .map(({ controller, ...item }) => item)
+      json(response, 200, { items })
+      return
+    }
+    const item = managedRuns.get(runId)
+    if (item === undefined || item.tenantId !== tenant) throw new HttpError(404, 'RUN_NOT_FOUND', 'run is not active')
+    if (item.status === 'stop_failed') throw new HttpError(503, 'RUN_STOP_FAILED', 'runtime exit could not be confirmed; restart Harness')
+    item.status = 'stopping'
+    item.controller.abort(new HttpError(409, 'RUN_STOPPED', 'AI 工作流已被管理员强制停止'))
+    json(response, 202, { runId, status: 'stopping' })
+  }
+
   const handleChat = async (request, response) => {
     requireGatewayToken(request)
     const mcpToken = bearerToken(request.headers.authorization)
@@ -960,25 +992,46 @@ export function createGateway(options = {}) {
     const cacheKey = run.conversationId
     if (reservedRunIds.has(run.runId)) throw new HttpError(409, 'RUN_ALREADY_ACTIVE', 'runId is already active')
     reservedRunIds.add(run.runId)
+    const controller = new AbortController()
+    const control = { runId: run.runId, tenantId: run.tenantId, actor: run.actor,
+      workflowId: run.workflowId, workflowName: run.plugin.name, model: run.model,
+      status: 'queued', startedAt: Date.now(), controller }
+    managedRuns.set(run.runId, control)
+    let entry
+    let clientGone = false
+    let responseFinished = false
+    let stopFailed = false
+    const onClientGone = () => {
+      if (responseFinished) return
+      clientGone = true
+      controller.abort(new HttpError(409, 'RUN_ABORTED', 'client disconnected'))
+    }
+    response.on('close', onClientGone)
     let releaseConversation
-    try {
-      releaseConversation = await acquireConversationLock(cacheKey)
-    } catch (error) {
+    const clearPending = () => {
+      managedRuns.delete(run.runId)
       reservedRunIds.delete(run.runId)
+      response.removeListener('close', onClientGone)
+    }
+    try {
+      releaseConversation = await acquireConversationLock(cacheKey, controller.signal)
+    } catch (error) {
+      clearPending()
       throw error
     }
     if (closing) {
-      reservedRunIds.delete(run.runId)
+      clearPending()
       releaseConversation()
       throw new HttpError(503, 'GATEWAY_STOPPING', 'gateway is stopping')
     }
     if (activeRuns.size >= maxConcurrency) {
-      reservedRunIds.delete(run.runId)
+      clearPending()
       releaseConversation()
       throw new HttpError(429, 'CAPACITY_EXCEEDED', 'gateway concurrency limit reached')
     }
 
     activeRuns.add(run.runId)
+    if (!controller.signal.aborted) control.status = 'starting'
     activeConversations.add(cacheKey)
     response.writeHead(200, {
       'cache-control': 'no-store',
@@ -993,20 +1046,25 @@ export function createGateway(options = {}) {
       model: run.model,
       maxTokens: run.maxTokens,
     })
-    let entry
-    let clientGone = false
-    let responseFinished = false
     const calls = new Map()
     let emittedText = false
-    response.on('close', () => {
-      if (responseFinished) return
-      clientGone = true
+    let rejectStopped
+    const stopped = new Promise((_, reject) => { rejectStopped = reject })
+    // A handler is attached immediately, including while the runtime starts.
+    stopped.catch(() => {})
+    const onStopped = () => {
+      control.status = 'stopping'
       if (entry !== undefined) void closeEntry(cacheKey, entry)
-    })
+      rejectStopped(controller.signal.reason)
+    }
+    controller.signal.addEventListener('abort', onStopped, { once: true })
 
     try {
+      controller.signal.throwIfAborted()
       entry = await acquireHarness(run, mcpToken, cacheKey)
-      const result = await withTimeout(entry.harness.run(run.question, {
+      controller.signal.throwIfAborted()
+      control.status = 'running'
+      const result = await withTimeout(Promise.race([stopped, entry.harness.run(run.question, {
         sessionId: entry.sessionId,
         onNotification(notification) {
           if (notification?.method === 'iot.text.delta') {
@@ -1042,7 +1100,8 @@ export function createGateway(options = {}) {
             }
           }
         },
-      }), runTimeoutMs, () => closeEntry(cacheKey, entry))
+      })]), runTimeoutMs, () => closeEntry(cacheKey, entry))
+      controller.signal.throwIfAborted()
       entry.lastUsed = Date.now()
       if (!emittedText && result.finalResponse !== '') emit('text.delta', { delta: result.finalResponse })
       const failure = turnFailure(result)
@@ -1056,14 +1115,23 @@ export function createGateway(options = {}) {
       }
     } catch (error) {
       if (entry !== undefined) await closeEntry(cacheKey, entry)
+      stopFailed = controller.signal.aborted && entry?.closeError !== undefined
+      if (stopFailed) control.status = 'stop_failed'
       if (!clientGone) {
-        emit('run.failed', { code: safeRuntimeError(error), message: 'Harness runtime request failed' })
+        const manualStop = controller.signal.reason?.code === 'RUN_STOPPED'
+        emit('run.failed', { code: stopFailed ? 'RUN_STOP_FAILED' : manualStop ? 'RUN_STOPPED' : safeRuntimeError(error), message: stopFailed ? '无法确认工作流进程退出，请联系管理员重启 Harness' : manualStop ? 'AI 工作流已被管理员强制停止' : 'Harness runtime request failed' })
       }
     } finally {
-      activeRuns.delete(run.runId)
-      reservedRunIds.delete(run.runId)
-      activeConversations.delete(cacheKey)
-      releaseConversation()
+      // A failed process reap must not advertise a free slot or permit model
+      // changes while an unconfirmed child may still be alive.
+      if (!stopFailed) {
+        activeRuns.delete(run.runId)
+        clearPending()
+        activeConversations.delete(cacheKey)
+        releaseConversation()
+      }
+      response.removeListener('close', onClientGone)
+      controller.signal.removeEventListener('abort', onStopped)
       responseFinished = true
       if (!response.writableEnded && !response.destroyed) response.end()
     }
@@ -1073,6 +1141,14 @@ export function createGateway(options = {}) {
     const url = new URL(request.url ?? '/', 'http://gateway.invalid')
     if (url.search !== '') throw new HttpError(400, 'QUERY_NOT_ALLOWED', 'query parameters are not supported')
     if (request.method === 'GET' && url.pathname === '/health') return handleHealth(response)
+    if (request.method === 'GET' && url.pathname === '/v1/runs') return handleRuns(request, response)
+    if (request.method === 'POST' && url.pathname.startsWith('/v1/runs/') && url.pathname.endsWith('/stop')) {
+      const raw = url.pathname.slice('/v1/runs/'.length, -'/stop'.length)
+      let runId
+      try { runId = decodeURIComponent(raw) } catch { throw new HttpError(422, 'RUN_ID_INVALID', 'invalid run ID') }
+      text(runId, 'runId', 128, ID_PATTERN)
+      return handleRuns(request, response, runId)
+    }
     if (['GET', 'PUT', 'POST', 'DELETE'].includes(request.method) && url.pathname === '/v1/provider') return handleProviderConfig(request, response)
     if (request.method === 'GET' && url.pathname === '/v1/plugins/admin') return handleAdminPlugins(request, response)
     if (request.method === 'GET' && url.pathname === '/v1/plugins') return handlePlugins(request, response)
@@ -1141,6 +1217,7 @@ export function createGateway(options = {}) {
       if (closing) return
       closing = true
       clearInterval(sweepTimer)
+      for (const item of managedRuns.values()) item.controller.abort(new HttpError(503, 'GATEWAY_STOPPING', 'gateway is stopping'))
       await Promise.all([...conversations.entries()].map(([key, entry]) => closeEntry(key, entry)))
       if (server.listening) {
         await new Promise(resolveClose => server.close(() => resolveClose()))

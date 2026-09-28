@@ -149,6 +149,67 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 	}, 403)
 }
 
+func TestAIProviderConfigReportsActiveWorkflowsAndCanRetry(t *testing.T) {
+	var active atomic.Bool
+	active.Store(true)
+	harnessServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/v1/provider" {
+			http.NotFound(w, r)
+			return
+		}
+		if active.Load() {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = io.WriteString(w, `{"error":{"code":"RUNS_ACTIVE","message":"private upstream detail"}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer harnessServer.Close()
+	workflow, err := aiadapter.NewHarnessPool(harnessServer.URL, "0123456789abcdef0123456789abcdef", "http://localhost:8081/mcp/harness", "old-model", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "old-model", APIKey: "old-test-key"}
+	if err := repo.SaveAIProviderConfig(context.Background(), previous); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &providerConfigTestRuntime{config: previous}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(repo)
+	api.SetAIWorkflowProvider(workflow)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := map[string]any{"provider": "deepseek", "baseUrl": "https://api.deepseek.com", "model": "new-model", "apiKey": "new-test-key"}
+	result := requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, candidate, http.StatusConflict)
+	encoded, _ := json.Marshal(result)
+	if !strings.Contains(string(encoded), "等待任务结束后重试") || strings.Contains(string(encoded), "private upstream detail") || strings.Contains(string(encoded), "new-test-key") {
+		t.Fatalf("expected actionable, redacted conflict: %s", encoded)
+	}
+	if runtime.CurrentConfig() != previous {
+		t.Fatal("busy workflow changed the direct provider")
+	}
+	if saved, found, err := repo.LoadAIProviderConfig(context.Background()); err != nil || !found || saved != previous {
+		t.Fatal("busy workflow changed the persisted provider")
+	}
+	active.Store(false)
+	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, candidate, http.StatusOK)
+	if runtime.CurrentConfig().Model != "new-model" || workflow.CurrentConfig().Model != "new-model" {
+		t.Fatal("retry did not update both providers")
+	}
+}
+
 func TestAIProviderConfigSavesWithoutSuccessfulConnectionTest(t *testing.T) {
 	var providerRequests atomic.Int32
 	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

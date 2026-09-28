@@ -27,6 +27,9 @@ var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
+	if strings.HasPrefix(path, "/api/v1/ai/runs") {
+		return "aiProviders"
+	}
 	if menu, ok := opsRouteMenu(path); ok {
 		return menu
 	}
@@ -57,6 +60,10 @@ func routeAction(method, path string) string {
 		return "登记子设备"
 	}
 	switch method + " " + path {
+	case "GET /api/v1/ai/runs":
+		return "查看运行中的 AI 工作流"
+	case "POST /api/v1/ai/runs/:id/stop":
+		return "强制停止 AI 工作流"
 	case videoPlayPermission:
 		return "观看摄像头直播"
 	case "PUT /api/v1/integrations/video/cameras/:id/live":
@@ -140,6 +147,9 @@ func routeAction(method, path string) string {
 	}
 }
 func protectedRead(path string) bool {
+	if path == "/api/v1/ai/runs" {
+		return true
+	}
 	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report"
 }
 func (s *Server) permissionCatalog() []permissionItem {
@@ -183,6 +193,8 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 		delete(p, "menu:raw")
 	}
 	if !p["menu:devices"] || user.DeviceScope != "all" {
+		delete(p, "GET /api/v1/ai/runs")
+		delete(p, "POST /api/v1/ai/runs/:id/stop")
 		// These services produce tenant-wide artifacts or launch tenant-wide jobs.
 		for _, menu := range []string{"inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} {
 			delete(p, "menu:"+menu)

@@ -344,6 +344,8 @@ type AIWorkflowManifest struct {
 }
 
 type AIWorkflowRequest struct {
+	TenantID       string `json:"tenantId,omitempty"`
+	Actor          string `json:"actor,omitempty"`
 	RunID          string `json:"runId"`
 	ConversationID string `json:"conversationId"`
 	WorkflowID     string `json:"workflowId"`

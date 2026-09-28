@@ -70,6 +70,10 @@ PDF 请求可用 `?jobId=...` 固定报告；未指定时取最近完成报告�
 
 Harness 并发与驻留上限以 `IOT_HARNESS_MAX_CONCURRENCY`、`IOT_HARNESS_MAX_CACHED_CONVERSATIONS` 控制，业务遇到 429 退避等待，交互问答不自动重试。告警研判仅由用户手动发起，不再随告警事件自动执行。
 
+“模型管理 → 运行中的 AI 工作流”每 3 秒读取当前租户的运行、启动、排队及停止中任务，显示工作流、发起人、模型与耗时；不返回提示词、回答或凭据。管理员可逐条强制停止，受管账号还须具有当前租户全部设备范围，以及模型管理下的“查看运行中的 AI 工作流”和“强制停止 AI 工作流”权限。`GET /api/v1/ai/runs` 查询，`POST /api/v1/ai/runs/:id/stop` 请求停止；租户取自登录身份，不接受浏览器指定租户。停止接口返回 202 表示请求已接受，进程关闭并释放名额后列表才移除；已结束或其他租户的任务返回 404。停止操作写入审计，已执行的业务操作不会回滚。
+
+停止运行任务会关闭对应驻留进程与 MCP 代理路由；排队任务直接移出队列。正在初始化的任务会在初始化返回后立即关闭，不再运行提示词。原调用收到 `RUN_STOPPED` 失败事件，智能助手显示“已停止”，业务任务按失败结束且不会因为手动停止自动重试。若进程终止无法确认，保留“停止失败”记录与并发名额，提示管理员重启 Harness，避免误报停止成功。全部运行与排队任务结束后才允许切换模型。多 Harness 实例会汇总查询并定位任务；任一实例查询失败会报错，不把不完整列表当作空闲状态。
+
 会话 ID 由租户、用户及浏览器会话派生，同会话 FIFO 执行并复用驻留进程。运行时只持有随机回环代理密钥；每轮 MCP JWT 在代理内更新，不交给子进程。JSONL 留存历史不等于模型冷恢复：当前上下文连续性依赖驻留池，重启创建新会话。会话目录需要按磁盘容量维护。
 
 ### Harness 维护
@@ -86,6 +90,8 @@ docker run --rm --network none --entrypoint node iot-deepseek-harness:local /har
 构建检查模拟模型/MCP、真实 SDK 导入、白名单和最终非 root 用户的依赖权限，不代表真实 Provider 验收。`cordis.yml` 使用 `sdk-minimal`；升级核对版本、提示词和流事件契约。
 
 内部 HTTP 默认 8091，回环 MCP 代理默认 8092；除 `/health` 外需 `X-IOT-Harness-Token`，聊天另带短期 MCP JWT。`/v1/plugins` 返回公开元数据，`/v1/plugins/admin` 返回完整 Manifest，POST/DELETE 管理自定义项，`PUT /v1/provider` 同步模型，`POST /v1/chat/stream` 执行工作流。`mcpUrl` 只能匹配允许的精确 origin 与 `/mcp/harness`，不得含凭据、查询或 fragment。
+
+内部运行管理接口为 `GET /v1/runs`、`POST /v1/runs/:id/stop`，均额外要求 `X-IOT-Tenant-ID`，仅由平台后端携带服务令牌调用。运行归属由平台在工作流请求中的 `tenantId` / `actor` 传入；缺失归属的旧客户端任务不对租户管理页开放。升级该功能须重建 Harness 镜像并重启源码 API；旧镜像访问列表会提示升级，不能只更新前端。
 
 Manifest 位于 `deploy/deepseek-harness/plugins/`，包含 schemaVersion、id、persona、defaultModel、maxTokens、capabilities 与 allowedTools。maxTokens 为 1–262144 的整数，并收紧到插件上限；Manifest 不能扩大代码白名单。网关、Cordis 与 MCP 服务端共同拒绝 shell、文件系统、jobs、goal、skills、subagent 及设备控制工具，MCP 发现失败即拒绝创建 Agent。
 

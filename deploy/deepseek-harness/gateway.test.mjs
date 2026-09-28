@@ -79,6 +79,98 @@ async function ndjson(response) {
   return { payload, events: payload.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) }
 }
 
+async function waitUntil(check) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (await check()) return
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  assert.fail('condition did not become true')
+}
+
+test('run management isolates tenants and stops a hung runtime before releasing capacity', async () => {
+  let closeCount = 0
+  let releaseClose
+  const closing = new Promise(resolve => { releaseClose = resolve })
+  const { baseUrl } = await startGateway(async () => ({
+    run: () => new Promise(() => {}),
+    close: async () => { closeCount++; await closing },
+  }))
+  const headers = { 'x-iot-harness-token': gatewayToken, 'x-iot-tenant-id': 'tenant-a' }
+  const list = async () => (await fetch(`${baseUrl}/v1/runs`, { headers })).json()
+  const response = await chat(baseUrl, requestBody({ tenantId: 'tenant-a', actor: 'admin', question: 'private prompt' }))
+  await waitUntil(async () => (await list()).items[0]?.status === 'running')
+  const listed = await list()
+  assert.equal(listed.items[0].actor, 'admin')
+  assert.equal(listed.items[0].workflowName.length > 0, true)
+  assert.equal(JSON.stringify(listed).includes('private prompt'), false)
+  assert.equal(JSON.stringify(listed).includes(gatewayToken), false)
+  assert.equal((await fetch(`${baseUrl}/v1/runs`)).status, 401)
+  const other = { ...headers, 'x-iot-tenant-id': 'tenant-b' }
+  assert.deepEqual((await (await fetch(`${baseUrl}/v1/runs`, { headers: other })).json()).items, [])
+  assert.equal((await fetch(`${baseUrl}/v1/runs/run-1/stop`, { method:'POST', headers:other })).status, 404)
+  assert.equal(closeCount, 0)
+  assert.equal((await fetch(`${baseUrl}/v1/runs/run-1/stop`, { method:'POST', headers })).status, 202)
+  assert.equal((await fetch(`${baseUrl}/v1/runs/run-1/stop`, { method:'POST', headers })).status, 202)
+  await waitUntil(() => closeCount === 1)
+  assert.equal((await list()).items[0].status, 'stopping')
+  assert.equal((await (await fetch(`${baseUrl}/health`)).json()).activeRuns, 1)
+  const configure = () => fetch(`${baseUrl}/v1/provider`, { method:'PUT', headers:{...headers,'content-type':'application/json'}, body:JSON.stringify({provider:'ollama',baseUrl:'http://ollama:11434/v1',model:'new-model',apiKey:''}) })
+  assert.equal((await configure()).status, 409)
+  releaseClose()
+  const { events } = await ndjson(response)
+  assert.equal(events.at(-1).code, 'RUN_STOPPED')
+  assert.equal(events.some(event => event.type === 'run.completed'), false)
+  assert.deepEqual((await list()).items, [])
+  assert.equal((await (await fetch(`${baseUrl}/health`)).json()).activeRuns, 0)
+  assert.equal((await configure()).status, 200)
+  assert.equal((await fetch(`${baseUrl}/v1/runs/run-1/stop`, { method:'POST', headers })).status, 404)
+})
+
+test('queued runs can be stopped without interrupting another run in the conversation', async () => {
+  let executions = 0
+  const { baseUrl } = await startGateway(async () => ({run: () => { executions++; return new Promise(() => {}) }, close: async () => {}}))
+  const headers = { 'x-iot-harness-token':gatewayToken, 'x-iot-tenant-id':'tenant-a' }
+  const first = await chat(baseUrl, requestBody({tenantId:'tenant-a',actor:'user'}))
+  const queued = chat(baseUrl, requestBody({tenantId:'tenant-a',actor:'user',runId:'queued'}))
+  await waitUntil(async () => (await (await fetch(`${baseUrl}/v1/runs`,{headers})).json()).items.some(item => item.runId === 'queued' && item.status === 'queued'))
+  assert.equal((await fetch(`${baseUrl}/v1/runs/queued/stop`, {method:'POST',headers})).status, 202)
+  const queuedResponse = await queued
+  assert.equal(queuedResponse.status, 409)
+  assert.equal((await queuedResponse.json()).error.code, 'RUN_STOPPED')
+  assert.equal(executions, 1)
+  assert.equal((await (await fetch(`${baseUrl}/health`)).json()).activeRuns, 1)
+  await fetch(`${baseUrl}/v1/runs/run-1/stop`, {method:'POST',headers})
+  await ndjson(first)
+})
+
+test('stopping during runtime initialization closes the late process without running a prompt', async () => {
+  let releaseFactory
+  let closed = 0
+  let executed = 0
+  const { baseUrl } = await startGateway(() => new Promise(resolve => { releaseFactory = resolve }))
+  const headers = {'x-iot-harness-token':gatewayToken,'x-iot-tenant-id':'tenant-a'}
+  const response = await chat(baseUrl, requestBody({tenantId:'tenant-a',actor:'admin'}))
+  await waitUntil(() => releaseFactory !== undefined)
+  await fetch(`${baseUrl}/v1/runs/run-1/stop`,{method:'POST',headers})
+  assert.equal((await (await fetch(`${baseUrl}/v1/runs`,{headers})).json()).items[0].status,'stopping')
+  releaseFactory({run: async () => {executed++;return result()},close: async () => {closed++}})
+  assert.equal((await ndjson(response)).events.at(-1).code,'RUN_STOPPED')
+  assert.equal(closed,1)
+  assert.equal(executed,0)
+})
+
+test('failed process teardown stays visible and cannot falsely release model switching', async () => {
+  const { baseUrl } = await startGateway(async () => ({run:()=>new Promise(()=>{}),close:async()=>{throw new Error('process did not exit')}}))
+  const headers={'x-iot-harness-token':gatewayToken,'x-iot-tenant-id':'tenant-a'}
+  const response=await chat(baseUrl,requestBody({tenantId:'tenant-a',actor:'admin'}))
+  await waitUntil(async()=>(await(await fetch(`${baseUrl}/v1/runs`,{headers})).json()).items[0]?.status==='running')
+  await fetch(`${baseUrl}/v1/runs/run-1/stop`,{method:'POST',headers})
+  assert.equal((await ndjson(response)).events.at(-1).code,'RUN_STOP_FAILED')
+  assert.equal((await(await fetch(`${baseUrl}/v1/runs`,{headers})).json()).items[0].status,'stop_failed')
+  assert.equal((await(await fetch(`${baseUrl}/health`)).json()).activeRuns,1)
+  assert.equal((await fetch(`${baseUrl}/v1/provider`,{method:'PUT',headers:{...headers,'content-type':'application/json'},body:'{}'})).status,409)
+})
+
 test('catalog is manifest-driven and exposes capabilities without policy internals', async () => {
   const plugins = await loadPluginCatalog(join(deploymentDir, 'plugins'))
   assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'device-health-inspector', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'system-observer'])

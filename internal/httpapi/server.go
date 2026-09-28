@@ -217,6 +217,8 @@ func (s *Server) routes() {
 	s.router.PUT("/api/v1/ai/providers/config", s.authorize("admin"), s.endpoint(s.updateAIProviderConfig))
 	s.router.POST("/api/v1/ai/providers/test", s.authorize("admin"), s.endpoint(s.testAIProvider))
 	s.router.GET("/api/v1/ai/workflows", s.authorize("viewer"), s.endpoint(s.aiWorkflows))
+	s.router.GET("/api/v1/ai/runs", s.authorize("admin"), s.endpoint(s.aiWorkflowRuns))
+	s.router.POST("/api/v1/ai/runs/:id/stop", s.authorize("admin"), s.endpoint(s.stopAIWorkflowRun, "id"))
 	s.router.GET("/api/v1/ai/workflows/admin", s.authorize("admin"), s.endpoint(s.aiWorkflowManifests))
 	s.router.POST("/api/v1/ai/workflows", s.authorize("admin"), s.endpoint(s.saveAIWorkflow))
 	s.router.PUT("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.updateAIWorkflow, "id"))
@@ -1533,6 +1535,10 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 20*time.Second)
 			_ = s.aiProviderRuntime.Configure(rollbackCtx, current)
 			rollbackCancel()
+			if errors.Is(err, ports.ErrAIWorkflowRunsActive) {
+				problem(w, http.StatusConflict, "有 AI 工作流正在运行，请等待任务结束后重试；模型配置未保存，原配置继续生效")
+				return
+			}
 			problem(w, http.StatusBadGateway, "AI Workflow Harness 更新失败，Provider 未切换")
 			return
 		}
@@ -2166,7 +2172,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	if err != nil {
 		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("issue harness token: %w", err)
 	}
-	result, err := s.engine.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{RunID: runID, ConversationID: strings.TrimSpace(conversationID), WorkflowID: strings.TrimSpace(workflowID), Question: question, Model: strings.TrimSpace(modelName), MaxTokens: maxTokens, MCPToken: mcpToken}, emit)
+	result, err := s.engine.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{TenantID: c.TenantID, Actor: c.Username, RunID: runID, ConversationID: strings.TrimSpace(conversationID), WorkflowID: strings.TrimSpace(workflowID), Question: question, Model: strings.TrimSpace(modelName), MaxTokens: maxTokens, MCPToken: mcpToken}, emit)
 	if result.RunID == "" {
 		result.RunID = runID
 	}

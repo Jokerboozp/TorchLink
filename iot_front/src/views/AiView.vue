@@ -502,15 +502,16 @@ function applyStreamEvent(raw, assistant, run) {
     case 'run.failed': {
       flushAssistantText(assistant)
       const failure = normalizeError(event.error || event, '智能运行失败')
-      assistant.status = 'failed'
+      const stopped = failure.code === 'RUN_STOPPED'
+      assistant.status = stopped ? 'canceled' : 'failed'
       assistant.error = failure
       assistant.text ||= '运行未能完成。'
-      run.status = 'failed'
+      run.status = stopped ? 'canceled' : 'failed'
       run.error = failure
       run.durationMs = event.durationMs ?? Math.max(0, Date.now() - run.startedAt)
       run.finishedAt = timestamp(event.failedAt || event.createdAt)
       for (const tool of run.tools.filter(item => item.status === 'running')) tool.status = 'failed'
-      addRunEvent(run, event, '工作流服务运行失败', 'danger', failure.message)
+      addRunEvent(run, event, stopped ? '工作流已被管理员停止' : '工作流服务运行失败', stopped ? 'warning' : 'danger', failure.message)
       break
     }
   }

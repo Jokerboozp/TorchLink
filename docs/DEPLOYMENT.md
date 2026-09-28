@@ -282,7 +282,14 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### AI 与工作流
 
-本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
+本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在“模型管理 → 运行中的 AI 工作流”查看当前租户的任务并逐条强制停止。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Ollama 只提供知识库嵌入，不下载 Qwen。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
+
+升级运行管理功能需同步后端与 Harness。VMware 源码调试环境把最新源码同步到依赖机的原仓库后，在依赖机仓库根目录执行以下命令，然后重启 Windows 源码 API。重建 Harness 会中断该实例当前任务；`.env.local` 和命名卷继续沿用。
+
+```bash
+sudo docker compose -p iot-platform-local --env-file .env.local \
+  -f compose.local.yaml up -d --no-deps --build deepseek-harness
+```
 
 源码 API 到 Harness 使用 `IOT_AI_HARNESS_URL/TOKEN`；容器回调使用 `IOT_AI_HARNESS_MCP_URL`，必须能到达源码 API，OrbStack 为 `host.orb.internal`。旧 Provider 数据、IDE 进程变量可能覆盖环境文件，排查时核对实际运行配置。工作流和权限见 [平台功能](PLATFORM.md#ai-与知识库)。
 

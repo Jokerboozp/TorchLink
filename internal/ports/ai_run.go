@@ -10,6 +10,30 @@ import (
 // allows; the caller may wait and retry.
 var ErrAIWorkflowBusy = errors.New("AI 工作流服务繁忙")
 
+// ErrAIWorkflowRunsActive means provider changes must wait for running workflows.
+var ErrAIWorkflowRunsActive = errors.New("AI 工作流正在运行，暂不能切换模型")
+
+var ErrAIWorkflowRunNotFound = errors.New("AI 工作流已结束或不存在")
+var ErrAIWorkflowManagementUnavailable = errors.New("Harness 尚未支持运行管理，请更新依赖机的 Harness 镜像")
+var ErrAIWorkflowStopped = errors.New("AI 工作流已被管理员强制停止")
+
+// AIWorkflowRun contains operational metadata only, never prompts or credentials.
+type AIWorkflowRun struct {
+	RunID        string `json:"runId"`
+	TenantID     string `json:"tenantId"`
+	Actor        string `json:"actor"`
+	WorkflowID   string `json:"workflowId"`
+	WorkflowName string `json:"workflowName"`
+	Model        string `json:"model"`
+	Status       string `json:"status"`
+	StartedAt    int64  `json:"startedAt"`
+}
+
+type AIWorkflowRunManager interface {
+	ListWorkflowRuns(context.Context, string) ([]AIWorkflowRun, error)
+	StopWorkflowRun(context.Context, string, string) error
+}
+
 // AIRunIdentity is the account a Harness business run acts for. Browser users
 // keep ManagedUser so the MCP endpoint re-checks their current permissions and
 // device scope on every tool call; system runs have no user and only the tool

@@ -140,6 +140,14 @@ func (h *HarnessClient) ConfigureProvider(ctx context.Context, config ports.AIPl
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		var failure struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if res.StatusCode == http.StatusConflict && json.Unmarshal(body, &failure) == nil && failure.Error.Code == "RUNS_ACTIVE" {
+			return ports.ErrAIWorkflowRunsActive
+		}
 		return fmt.Errorf("configure AI workflow provider: status %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
 	}
 	h.mu.Lock()
@@ -333,6 +341,8 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	// Keep the short-lived MCP credential out of the JSON payload. The sidecar
 	// receives it only as Authorization and can forward it to the MCP bridge.
 	payload, err := json.Marshal(struct {
+		TenantID       string `json:"tenantId,omitempty"`
+		Actor          string `json:"actor,omitempty"`
 		RunID          string `json:"runId"`
 		ConversationID string `json:"conversationId"`
 		WorkflowID     string `json:"workflowId"`
@@ -340,7 +350,7 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 		MCPURL         string `json:"mcpUrl"`
 		Model          string `json:"model"`
 		MaxTokens      int    `json:"maxTokens"`
-	}{in.RunID, in.ConversationID, in.WorkflowID, in.Question, in.MCPURL, in.Model, in.MaxTokens})
+	}{in.TenantID, in.Actor, in.RunID, in.ConversationID, in.WorkflowID, in.Question, in.MCPURL, in.Model, in.MaxTokens})
 	if err != nil {
 		return ports.AIWorkflowResult{}, err
 	}
@@ -361,7 +371,18 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		var failure struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if res.StatusCode == http.StatusConflict && json.Unmarshal(body, &failure) == nil && failure.Error.Code == "RUN_STOPPED" {
+			if emit != nil {
+				_ = emit(ports.AIWorkflowEvent{Type: "run.failed", RunID: in.RunID, WorkflowID: in.WorkflowID, Code: "RUN_STOPPED", Message: ports.ErrAIWorkflowStopped.Error()})
+			}
+			return ports.AIWorkflowResult{RunID: in.RunID, WorkflowID: in.WorkflowID}, ports.ErrAIWorkflowStopped
+		}
 		if res.StatusCode == http.StatusTooManyRequests {
 			return ports.AIWorkflowResult{}, fmt.Errorf("run harness workflow: %w", ports.ErrAIWorkflowBusy)
 		}
@@ -409,6 +430,9 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 			}
 		}
 		if event.Type == "run.failed" {
+			if event.Code == "RUN_STOPPED" {
+				return result, ports.ErrAIWorkflowStopped
+			}
 			return result, errors.New("harness workflow failed")
 		}
 	}

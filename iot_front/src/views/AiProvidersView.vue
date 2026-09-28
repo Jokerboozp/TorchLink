@@ -4,6 +4,7 @@ import { aiProviderOptions as providerOptions } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api } from '../api'
+import AiWorkflowRuns from '../components/AiWorkflowRuns.vue'
 
 const emit = defineEmits(['navigate'])
 
@@ -184,6 +185,8 @@ onMounted(loadRuntime)
     </ui-card>
 
     <ui-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert>
+
+    <AiWorkflowRuns v-if="can('GET /api/v1/ai/runs')" />
 
     <div class="ai-management-grid">
       <ui-card shadow="never" class="surface-card ai-provider-config">
