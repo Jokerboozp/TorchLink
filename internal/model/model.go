@@ -47,7 +47,7 @@ func DLQTopic(group string) string { return "iot.dlq." + group }
 
 // ConsumerGroups lists every platform consumer group (without the
 // "iot-platform-" prefix); each has a dead-letter topic.
-var ConsumerGroups = []string{"parser", "processor", "state", "ai", "device-alarm-notifications"}
+var ConsumerGroups = []string{"parser", "processor", "state", "device-alarm-notifications"}
 
 // AllTopics is the formal topic inventory used to pre-create and verify
 // topics, including every dead-letter topic.

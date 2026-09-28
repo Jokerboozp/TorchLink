@@ -12,17 +12,14 @@ import (
 type Components struct {
 	Parser    bool
 	Processor bool
-	// AI is retained for role configuration compatibility. Alarm analysis is
-	// started explicitly by users; this flag no longer starts an alarm consumer.
-	AI   bool
-	Jobs bool
+	Jobs      bool
 	// OfflineScan is the device offline scan interval (jobs only).
 	OfflineScan time.Duration
 }
 
 // AllComponents is the single-process configuration.
 func AllComponents() Components {
-	return Components{Parser: true, Processor: true, AI: true, Jobs: true, OfflineScan: 30 * time.Second}
+	return Components{Parser: true, Processor: true, Jobs: true, OfflineScan: 30 * time.Second}
 }
 
 // Start runs every component, as a combined process does.

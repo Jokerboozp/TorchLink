@@ -32,9 +32,8 @@ type Bus struct {
 	// completion, so Health can report a consumer that stopped finishing work.
 	progress map[string]*groupProgress
 	now      func() time.Time
-	// lanes and topicLanes bound the parallel handlers of each subscription.
-	lanes      int
-	topicLanes map[string]int
+	// lanes bounds the parallel handlers of each subscription.
+	lanes int
 	// subscriptions lists the consumer groups whose backlog ConsumerLag reports.
 	subscriptions []subscription
 	// noAutoCreate makes publishing to a missing topic fail instead of
@@ -185,32 +184,17 @@ func retryUntilSuccess(ctx context.Context, delay time.Duration, operation func(
 func (b *Bus) Subscribe(ctx context.Context, topic, group string, h ports.Handler) error {
 	b.mu.Lock()
 	b.subscriptions = append(b.subscriptions, subscription{topic: topic, group: "iot-platform-" + group})
-	lanes := b.lanesFor(topic)
+	lanes := max(b.lanes, 1)
 	b.mu.Unlock()
 	go b.supervise(ctx, topic, group, lanes, h)
 	return nil
 }
 
-// SetConsumerConcurrency sets the parallel lanes per subscription; perTopic
-// overrides the default for specific topics (for example alarm analysis).
-func (b *Bus) SetConsumerConcurrency(defaultLanes int, perTopic map[string]int) {
+// SetConsumerConcurrency sets the parallel lanes per subscription.
+func (b *Bus) SetConsumerConcurrency(lanes int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.lanes = defaultLanes
-	b.topicLanes = map[string]int{}
-	for topic, lanes := range perTopic {
-		b.topicLanes[topic] = lanes
-	}
-}
-
-func (b *Bus) lanesFor(topic string) int {
-	if lanes, ok := b.topicLanes[topic]; ok && lanes > 0 {
-		return lanes
-	}
-	if b.lanes > 0 {
-		return b.lanes
-	}
-	return 1
+	b.lanes = lanes
 }
 func (b *Bus) Health(ctx context.Context) error {
 	if len(b.brokers) == 0 {

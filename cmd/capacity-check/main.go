@@ -25,10 +25,8 @@ func main() {
 	envFile := flag.String("env-file", ".env.local", "环境文件")
 	replicas := flag.Int("replicas", 1, "同等连接池的 API / 网关进程总数（保守按均消费计算）")
 	reserve := flag.Int("postgres-reserve", 32, "为其他进程及管理预留的连接")
-	rpm := flag.Int("provider-rpm", 0, "提供方分配给自动研判的请求/分钟；0 表示未知")
-	latency := flag.Duration("model-latency", 0, "实测模型平均延迟；0 表示未知")
 	flag.Parse()
-	if *replicas < 1 || *reserve < 0 || *rpm < 0 || *latency < 0 {
+	if *replicas < 1 || *reserve < 0 {
 		fmt.Fprintln(os.Stderr, "容量参数必须非负且 replicas 至少为 1")
 		os.Exit(2)
 	}
@@ -40,7 +38,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	checks := []deploycheck.CapacityCheck{}
-	plan := deploycheck.CapacityPlan{Replicas: *replicas, ReservedConnections: *reserve, PoolPerProcess: int(cfg.PostgresMaxConns), AccessCoordinated: cfg.AccessCoordination && cfg.AccessNodeURL != "" && cfg.PostgresDSN != "", AIConcurrency: int(cfg.AIAnalysisConcurrency), AIRPM: int(cfg.AIAnalysisRPM), ProviderRPM: *rpm, ModelLatency: *latency}
+	plan := deploycheck.CapacityPlan{Replicas: *replicas, ReservedConnections: *reserve, PoolPerProcess: int(cfg.PostgresMaxConns), AccessCoordinated: cfg.AccessCoordination && cfg.AccessNodeURL != "" && cfg.PostgresDSN != ""}
 	if pc, err := pgxpool.ParseConfig(cfg.PostgresDSN); err == nil && cfg.PostgresDSN != "" {
 		if strings.Contains(cfg.PostgresDSN, "pool_max_conns") {
 			plan.PoolPerProcess = int(pc.MaxConns)

@@ -137,57 +137,32 @@ func TestBusinessRunRequiresIdentityAndHarness(t *testing.T) {
 }
 
 func TestAlarmEventsDoNotStartAnalysis(t *testing.T) {
-	for name, components := range map[string]Components{"combined": AllComponents(), "ai": {AI: true}} {
-		t.Run(name, func(t *testing.T) {
-			e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil })
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			if err := e.StartWith(ctx, components); err != nil {
-				t.Fatal(err)
-			}
-			alarm := model.Alarm{ID: "manual-only", TenantID: "t1", DeviceID: "device-1", Status: "ACTIVE", AlarmLevel: "HIGH"}
-			if _, _, err := repo.UpsertAlarm(ctx, alarm); err != nil {
-				t.Fatal(err)
-			}
-			for i := 0; i < 2; i++ {
-				if err := e.Bus.Publish(ctx, model.TopicAlarmRaised, alarm.ID, mustJSON(alarm)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if len(workflows.Requests()) != 0 {
-				t.Fatal("alarm events must not start a workflow")
-			}
-			if _, err := repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); !errors.Is(err, model.ErrNotFound) {
-				t.Fatalf("alarm events must not persist analysis: %v", err)
-			}
-			if _, err := e.AnalyzeAlarm(aitest.Context(ctx), alarm.TenantID, alarm.ID, false); err != nil || len(workflows.Requests()) != 1 {
-				t.Fatalf("explicit analysis must still run once: %v", err)
-			}
-		})
-	}
-}
-
-// Automatic analysis has no user: it runs as a system identity limited to
-// alarm reading tools and never receives knowledge.
-func TestAutomaticAlarmAnalysisUsesRestrictedSystemIdentity(t *testing.T) {
 	e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil })
-	alarm := model.Alarm{ID: "alarm-auto", TenantID: "t1", DeviceID: "device-1", AlarmType: "SMOKE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
-	if _, _, err := repo.UpsertAlarm(context.Background(), alarm); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := e.StartWith(ctx, AllComponents()); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.handleAI(context.Background(), mustJSON(alarm)); err != nil {
+	alarm := model.Alarm{ID: "manual-only", TenantID: "t1", DeviceID: "device-1", Status: "ACTIVE", AlarmLevel: "HIGH"}
+	if _, _, err := repo.UpsertAlarm(ctx, alarm); err != nil {
 		t.Fatal(err)
 	}
-	claims, err := aitest.Claims(workflows.Last())
-	if err != nil {
-		t.Fatal(err)
+	for i := 0; i < 2; i++ {
+		if err := e.Bus.Publish(ctx, model.TopicAlarmRaised, alarm.ID, mustJSON(alarm)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	want := strings.Join([]string{auth.ScopeQueryAlarmList, auth.ScopeQueryPropertyHistory, auth.ScopeQuerySimilarAlarms}, ",")
-	if claims.Username != "system:alarm-analysis" || claims.ManagedUser || sortedScopes(claims) != want || claims.Knowledge != nil || claims.Workflow != WorkflowAlarmAnalysis {
-		t.Fatalf("automatic analysis identity: %#v", claims)
+	if len(workflows.Requests()) != 0 {
+		t.Fatal("alarm events must not start a workflow")
 	}
-	if saved, err := repo.GetAIAnalysis(context.Background(), "t1", "alarm-auto", model.AIAnalysisScopeNone); err != nil || saved.Summary != "研判完成" || saved.Model != "aitest-model" {
-		t.Fatalf("automatic analysis not saved from the workflow answer: %#v err=%v", saved, err)
+	if _, err := repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("alarm events must not persist analysis: %v", err)
+	}
+	if _, err := e.AnalyzeAlarm(aitest.Context(ctx), alarm.TenantID, alarm.ID, false); err != nil || len(workflows.Requests()) != 1 {
+		t.Fatalf("explicit analysis must still run once: %v", err)
+	}
+	if saved, err := repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); err != nil || saved.Summary != "研判完成" || saved.Model != "aitest-model" {
+		t.Fatalf("explicit analysis not saved from the workflow answer: %#v err=%v", saved, err)
 	}
 }
 
@@ -219,40 +194,6 @@ func TestBusinessRunWaitsWhileHarnessIsBusy(t *testing.T) {
 	}
 	if time.Since(started) > 3*time.Second {
 		t.Fatal("waiting for capacity must be bounded")
-	}
-}
-
-// Queued automatic analyses skip alarms resolved while waiting and alarms that
-// a redelivered event already analysed.
-func TestAutomaticAnalysisSkipsResolvedAndAnalysedAlarms(t *testing.T) {
-	e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil })
-	ctx := context.Background()
-	resolved := model.Alarm{ID: "alarm-resolved", TenantID: "t1", DeviceID: "d1", AlarmType: "SMOKE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
-	if _, _, err := repo.UpsertAlarm(ctx, resolved); err != nil {
-		t.Fatal(err)
-	}
-	stored, err := repo.GetAlarm(ctx, "t1", "alarm-resolved")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored.Status = "RECOVERED"
-	if err = repo.UpdateAlarm(ctx, stored); err != nil {
-		t.Fatal(err)
-	}
-	if err = e.handleAI(ctx, mustJSON(resolved)); err != nil || len(workflows.Requests()) != 0 {
-		t.Fatalf("a recovered alarm must not be analysed: runs=%d err=%v", len(workflows.Requests()), err)
-	}
-	active := model.Alarm{ID: "alarm-active", TenantID: "t1", DeviceID: "d1", AlarmType: "SMOKE", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
-	if _, _, err = repo.UpsertAlarm(ctx, active); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 2; i++ {
-		if err = e.handleAI(ctx, mustJSON(active)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(workflows.Requests()) != 1 {
-		t.Fatalf("a redelivered alarm must be analysed once, got %d runs", len(workflows.Requests()))
 	}
 }
 
@@ -570,87 +511,5 @@ func TestOpsReportBoundsContextAtLargeDevicePopulation(t *testing.T) {
 	}
 	if len(workflows.Requests()) != 1 {
 		t.Fatal("report did not run")
-	}
-}
-
-type cancellableAI struct {
-	aitest.Workflows
-	started chan struct{}
-}
-
-func (w *cancellableAI) StreamChat(ctx context.Context, req ports.AIWorkflowRequest, _ func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
-	close(w.started)
-	<-ctx.Done()
-	return ports.AIWorkflowResult{}, ctx.Err()
-}
-func TestAutomaticAnalysisCancelsResolvedInFlightAlarm(t *testing.T) {
-	e, repo, _ := newBusinessEngine(t, nil)
-	runtime := &cancellableAI{started: make(chan struct{})}
-	e.AIWorkflows = runtime
-	alarm := model.Alarm{TenantID: "t", ID: "a", DeviceID: "d", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()}
-	_, _, _ = repo.UpsertAlarm(context.Background(), alarm)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- e.handleAI(ctx, mustJSON(alarm)) }()
-	<-runtime.started
-	alarm.Status = "RECOVERED"
-	_ = repo.UpdateAlarm(context.Background(), alarm)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(2200 * time.Millisecond):
-		t.Fatal("resolved alarm continues consuming model capacity")
-	}
-}
-
-func TestAutomaticAnalysisBudgetsAndOutcomes(t *testing.T) {
-	for _, kind := range []string{"expired", "timeout"} {
-		t.Run(kind, func(t *testing.T) {
-			e, repo, w := newBusinessEngine(t, nil)
-			alarm := model.Alarm{TenantID: "t", ID: "a", DeviceID: "d", Status: "ACTIVE", LastTriggeredAt: time.Now().Add(-time.Minute).UnixMilli()}
-			_, _, _ = repo.UpsertAlarm(context.Background(), alarm)
-			if kind == "expired" {
-				e.ConfigureAutomaticAnalysis(time.Second, time.Second, 12)
-			} else {
-				e.ConfigureAutomaticAnalysis(30*time.Millisecond, 0, 0)
-				e.AIWorkflows = &cancellableAI{started: make(chan struct{})}
-			}
-			if err := e.handleAI(context.Background(), mustJSON(alarm)); err != nil {
-				t.Fatal(err)
-			}
-			saved, err := repo.GetAIAnalysis(context.Background(), "t", "a", model.AIAnalysisScopeNone)
-			want := "skipped"
-			if kind == "timeout" {
-				want = "failed"
-			}
-			if err != nil || saved.Status != want || saved.Error == "" {
-				t.Fatal(saved, err)
-			}
-			if kind == "expired" && len(w.Requests()) != 0 {
-				t.Fatal("expired work called model")
-			}
-		})
-	}
-	e, _, _ := newBusinessEngine(t, nil)
-	e.ConfigureAutomaticAnalysis(time.Second, 0, 600)
-	ctx := context.Background()
-	alarm := model.Alarm{}
-	if err := e.waitAutomaticBudget(ctx, alarm); err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	if err := e.waitAutomaticBudget(ctx, alarm); err != nil {
-		t.Fatal(err)
-	}
-	if time.Since(start) < 80*time.Millisecond {
-		t.Fatal("request rate budget was not applied")
-	}
-	cancelled, cancel := context.WithCancel(ctx)
-	cancel()
-	if err := e.waitAutomaticBudget(cancelled, alarm); !errors.Is(err, context.Canceled) {
-		t.Fatal("rate wait ignored cancellation", err)
 	}
 }

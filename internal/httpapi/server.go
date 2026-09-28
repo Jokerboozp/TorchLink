@@ -295,7 +295,7 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Runs(config.ComponentAccess) || s.cfg.Runs(config.ComponentParser) || s.cfg.Runs(config.ComponentManagement) {
 		checksToRun["archive"] = s.engine.Archive.Health
 	}
-	if s.engine.KB != nil && (s.cfg.Runs(config.ComponentManagement) || s.cfg.Runs(config.ComponentAI)) {
+	if s.engine.KB != nil && s.cfg.Runs(config.ComponentManagement) {
 		checksToRun["knowledge"] = s.engine.KB.Health
 	}
 	for name, check := range checksToRun {

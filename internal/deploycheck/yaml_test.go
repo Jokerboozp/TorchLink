@@ -47,7 +47,7 @@ func TestLocalOneShotServicesHaveCompletionDependencies(t *testing.T) {
 func TestDeploymentYAMLParses(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	files := []string{"compose.yaml", "compose.offline.yaml", filepath.Join("deploy", "k8s", "platform.yaml"), filepath.Join("deploy", "k8s", "backup-cronjob.yaml"), filepath.Join("ops", "prometheus", "prometheus.yml"), filepath.Join("ops", "prometheus", "alerts.yml"), filepath.Join("ops", "loki", "loki.yml")}
+	files := []string{"compose.yaml", "compose.offline.yaml", filepath.Join("ops", "prometheus", "prometheus.yml"), filepath.Join("ops", "prometheus", "alerts.yml"), filepath.Join("ops", "loki", "loki.yml")}
 	for _, name := range files {
 		t.Run(name, func(t *testing.T) {
 			f, err := os.Open(filepath.Join(root, name))

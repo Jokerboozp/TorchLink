@@ -164,7 +164,7 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) {
 	if cfg.Validate() == nil {
 		t.Fatal("unknown role accepted")
 	}
-	// Worker roles need the shared stores but only the ai role needs Harness.
+	// Worker roles need the shared stores but not Harness.
 	for _, role := range []string{RoleParser, RoleProcessor, RoleJobs} {
 		worker := Config{DevMode: true, ProcessRole: role, PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}}
 		if err := worker.Validate(); err != nil {
@@ -175,8 +175,9 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) {
 			t.Fatal(role, "accepted process-local queue")
 		}
 	}
-	if (Config{DevMode: true, ProcessRole: RoleAI, PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}}).Validate() == nil {
-		t.Fatal("ai role accepted without Harness")
+	// The removed automatic analysis role must fail loudly instead of idling.
+	if err := (Config{DevMode: true, ProcessRole: "ai", PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}, AIHarnessURL: testHarnessURL}).Validate(); err == nil || !strings.Contains(err.Error(), "removed") {
+		t.Fatalf("removed ai role accepted: %v", err)
 	}
 	if (Config{DevMode: true, ProcessRole: RoleParser, PostgresDSN: "dsn", KafkaBrokers: []string{"b:9092"}, InstanceID: "bad id!"}).Validate() == nil {
 		t.Fatal("invalid instance ID accepted")
@@ -184,23 +185,22 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) {
 }
 
 func TestRoleComponents(t *testing.T) {
-	type want struct{ access, management, parser, processor, ai, jobs, aiRuntime bool }
+	type want struct{ access, management, parser, processor, jobs, aiRuntime bool }
 	cases := map[string]struct {
 		cfg  Config
 		want want
 	}{
-		"combined":     {Config{ProcessRole: RoleCombined}, want{true, true, true, true, true, true, true}},
-		"default":      {Config{}, want{true, true, true, true, true, true, true}},
-		"api embedded": {Config{ProcessRole: RoleAPI, APIEmbeddedWorkers: true}, want{false, true, true, true, true, true, true}},
-		"api only":     {Config{ProcessRole: RoleAPI}, want{false, true, false, false, false, false, true}},
-		"gateway":      {Config{ProcessRole: RoleGateway, APIEmbeddedWorkers: true}, want{true, false, false, false, false, false, false}},
-		"parser":       {Config{ProcessRole: RoleParser}, want{false, false, true, false, false, false, false}},
-		"processor":    {Config{ProcessRole: RoleProcessor}, want{false, false, false, true, false, false, false}},
-		"ai":           {Config{ProcessRole: RoleAI}, want{false, false, false, false, true, false, true}},
-		"jobs":         {Config{ProcessRole: RoleJobs}, want{false, false, false, false, false, true, false}},
+		"combined":     {Config{ProcessRole: RoleCombined}, want{true, true, true, true, true, true}},
+		"default":      {Config{}, want{true, true, true, true, true, true}},
+		"api embedded": {Config{ProcessRole: RoleAPI, APIEmbeddedWorkers: true}, want{false, true, true, true, true, true}},
+		"api only":     {Config{ProcessRole: RoleAPI}, want{false, true, false, false, false, true}},
+		"gateway":      {Config{ProcessRole: RoleGateway, APIEmbeddedWorkers: true}, want{true, false, false, false, false, false}},
+		"parser":       {Config{ProcessRole: RoleParser}, want{false, false, true, false, false, false}},
+		"processor":    {Config{ProcessRole: RoleProcessor}, want{false, false, false, true, false, false}},
+		"jobs":         {Config{ProcessRole: RoleJobs}, want{false, false, false, false, true, false}},
 	}
 	for name, c := range cases {
-		got := want{c.cfg.Runs(ComponentAccess), c.cfg.Runs(ComponentManagement), c.cfg.Runs(ComponentParser), c.cfg.Runs(ComponentProcessor), c.cfg.Runs(ComponentAI), c.cfg.Runs(ComponentJobs), c.cfg.Runs(ComponentAIRuntime)}
+		got := want{c.cfg.Runs(ComponentAccess), c.cfg.Runs(ComponentManagement), c.cfg.Runs(ComponentParser), c.cfg.Runs(ComponentProcessor), c.cfg.Runs(ComponentJobs), c.cfg.Runs(ComponentAIRuntime)}
 		if got != c.want {
 			t.Errorf("%s: got %+v want %+v", name, got, c.want)
 		}
@@ -296,6 +296,31 @@ func TestLoadEnvFileLocalConfiguration(t *testing.T) {
 		if os.Getenv(key) != expected {
 			t.Errorf("unexpected value for %s", key)
 		}
+	}
+}
+
+// Env files written before alarm analysis became manual still carry the
+// automatic analysis budget; it is ignored, even with formerly invalid values.
+func TestLoadEnvFileIgnoresRetiredAutomaticAnalysisSettings(t *testing.T) {
+	var contents strings.Builder
+	for key, value := range map[string]string{"IOT_AI_ANALYSIS_CONCURRENCY": "99", "IOT_AI_ANALYSIS_RPM": "-1", "IOT_AI_ANALYSIS_TIMEOUT": "1h", "IOT_AI_ANALYSIS_MAX_WAIT": "48h"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+		contents.WriteString(key + "=" + value + "\n")
+	}
+	t.Setenv("IOT_DEV_MODE", "true")
+	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
+	path := filepath.Join(t.TempDir(), "old.env")
+	if err := os.WriteFile(path, []byte(contents.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := LoadEnvFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Load().Validate(); err != nil {
+		t.Fatalf("retired settings blocked startup: %v", err)
 	}
 }
 

@@ -95,12 +95,6 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	return result, nil
 }
 
-// AlarmAnalysisSystemIdentity is used by automatic alarm analysis, which has no
-// user: it may read alarms, property history and similar alarms only.
-func AlarmAnalysisSystemIdentity() ports.AIRunIdentity {
-	return ports.SystemAIRunIdentity("alarm-analysis", ports.MCPToolScope("query_alarm_list"), ports.MCPToolScope("query_property_history"), ports.MCPToolScope("query_similar_alarms"))
-}
-
 const alarmAnalysisOutput = `最后只输出一个 JSON 对象，不要 Markdown 或其他文字：{"summary":"一句话结论","possibleReasons":["可能原因"],"suggestions":["建议的人工处置步骤"],"riskLevel":"CRITICAL|HIGH|MEDIUM|LOW|INFO 之一","confidence":0 到 1 之间的数字}`
 
 func (e *Engine) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alarm, history []map[string]any, knowledge []string, withKnowledge bool) (model.AIAnalysis, error) {

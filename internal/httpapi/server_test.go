@@ -458,7 +458,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	for _, role := range []string{config.RoleParser, config.RoleProcessor, config.RoleAI, config.RoleJobs} {
+	for _, role := range []string{config.RoleParser, config.RoleProcessor, config.RoleJobs} {
 		engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 		cfg := config.Load()
 		cfg.ProcessRole, cfg.InstanceID = role, role+"-1"
@@ -485,7 +485,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		if ready.Role != role {
 			t.Fatal(role, "readiness does not name the role", w.Body.String())
 		}
-		if _, ok := ready.Checks["knowledge"]; ok && role != config.RoleAI {
+		if _, ok := ready.Checks["knowledge"]; ok {
 			t.Fatal(role, "readiness checks an unused dependency")
 		}
 	}

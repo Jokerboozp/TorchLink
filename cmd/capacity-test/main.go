@@ -500,7 +500,7 @@ func scrape() map[string]float64 {
 
 // sample prints selected /metrics values as CSV until interrupted.
 func sample() {
-	keys := []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_success_total", "parse_failed_total", "alarm_trigger_total", "kafka_lag", "kafka_lag_parser", "kafka_lag_storage", "kafka_lag_state", "kafka_lag_ai", "mqtt_inbox_pending", "mqtt_inbox_rejected", "mqtt_ingest_qps", "ai_analysis_failed_total", "storage_latency_ms"}
+	keys := []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_success_total", "parse_failed_total", "alarm_trigger_total", "kafka_lag", "kafka_lag_parser", "kafka_lag_storage", "kafka_lag_state", "mqtt_inbox_pending", "mqtt_inbox_rejected", "mqtt_ingest_qps", "ai_analysis_failed_total", "storage_latency_ms"}
 	fmt.Println("time," + strings.Join(keys, ","))
 	for {
 		m := scrape()

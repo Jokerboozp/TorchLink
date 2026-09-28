@@ -23,7 +23,7 @@ type Config struct {
 	// ClusterInstances is the replica count used to split budgets when the
 	// shared rate-limit store is unavailable (1 = single process).
 	ClusterInstances int64
-	// APIEmbeddedWorkers keeps parser/processor/ai/jobs inside the api role.
+	// APIEmbeddedWorkers keeps parser/processor/jobs inside the api role.
 	APIEmbeddedWorkers bool
 	// PublishExternalTopics keeps publishing parsed messages to the external
 	// property/event/parsed topics in addition to the internal business stream.
@@ -79,49 +79,44 @@ type Config struct {
 	// KafkaConsumerConcurrency is the parallel lanes per Kafka subscription;
 	// messages of one device keep their order within a lane.
 	KafkaConsumerConcurrency int64
-	// AIAnalysisConcurrency bounds automatic alarm analyses running at once.
-	AIAnalysisConcurrency int64
-	AIAnalysisTimeout     time.Duration
-	AIAnalysisMaxWait     time.Duration
-	AIAnalysisRPM         int64
-	MinIOEndpoint         string
-	MinIOAccessKey        string
-	MinIOSecretKey        string
-	MinIOUseTLS           bool
-	KafkaBrokers          []string
-	EMQXAPIURL            string
-	EMQXAPIKey            string
-	EMQXAPISecret         string
-	MQTTBroker            string
-	MQTTUsername          string
-	MQTTPassword          string
-	MQTTWebSocketURL      string
-	MQTTPublicURL         string
-	DeviceHTTPPublicURL   string
-	OllamaURL             string
-	OllamaModel           string
-	AIProvider            string
-	AIBaseURL             string
-	AIModel               string
-	AIAPIKey              string
-	AIHarnessURL          string
-	AIHarnessToken        string
-	AIHarnessMCPURL       string
-	AIHarnessModel        string
-	AIHarnessTimeout      time.Duration
-	AITestOllamaURL       string
-	WeaviateURL           string
-	BackupURL             string
-	BackupToken           string
-	VideoSecrets          map[string]string
-	VideoPlatformTenants  map[string]string
-	VideoMediaHosts       []string
-	OfflineScan           time.Duration
-	ModbusAllowedCIDRs    []string
-	DevMode               bool
-	Ops                   OpsConfig
-	Video                 VideoConfig
-	loadErr               error
+	MinIOEndpoint            string
+	MinIOAccessKey           string
+	MinIOSecretKey           string
+	MinIOUseTLS              bool
+	KafkaBrokers             []string
+	EMQXAPIURL               string
+	EMQXAPIKey               string
+	EMQXAPISecret            string
+	MQTTBroker               string
+	MQTTUsername             string
+	MQTTPassword             string
+	MQTTWebSocketURL         string
+	MQTTPublicURL            string
+	DeviceHTTPPublicURL      string
+	OllamaURL                string
+	OllamaModel              string
+	AIProvider               string
+	AIBaseURL                string
+	AIModel                  string
+	AIAPIKey                 string
+	AIHarnessURL             string
+	AIHarnessToken           string
+	AIHarnessMCPURL          string
+	AIHarnessModel           string
+	AIHarnessTimeout         time.Duration
+	AITestOllamaURL          string
+	WeaviateURL              string
+	BackupURL                string
+	BackupToken              string
+	VideoSecrets             map[string]string
+	VideoPlatformTenants     map[string]string
+	VideoMediaHosts          []string
+	OfflineScan              time.Duration
+	ModbusAllowedCIDRs       []string
+	DevMode                  bool
+	Ops                      OpsConfig
+	Video                    VideoConfig
+	loadErr                  error
 }
 
 func Load() Config {
@@ -174,10 +169,6 @@ func Load() Config {
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 1024),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
 		IngestMaxBacklog:            int64Value("IOT_INGEST_MAX_BACKLOG", 50000),
-		AIAnalysisConcurrency:       int64Value("IOT_AI_ANALYSIS_CONCURRENCY", 2),
-		AIAnalysisTimeout:           duration("IOT_AI_ANALYSIS_TIMEOUT", 90*time.Second),
-		AIAnalysisMaxWait:           duration("IOT_AI_ANALYSIS_MAX_WAIT", 10*time.Minute),
-		AIAnalysisRPM:               int64Value("IOT_AI_ANALYSIS_RPM", 12),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
 		MinIOAccessKey:              os.Getenv("IOT_MINIO_ACCESS_KEY"),
 		MinIOSecretKey:              os.Getenv("IOT_MINIO_SECRET_KEY"),
@@ -246,13 +237,6 @@ func (c Config) Validate() error {
 	}
 	if c.ProtocolListenerMaxSessions < 0 || c.ProtocolListenerMaxSessions > 100000 {
 		return fmt.Errorf("IOT_PROTOCOL_LISTENER_MAX_SESSIONS must be between 1 and 100000 (0 uses the default 1024)")
-	}
-	if c.AIAnalysisRPM < 0 || c.AIAnalysisRPM > 60000 || c.AIAnalysisTimeout < 0 || c.AIAnalysisTimeout > 5*time.Minute || c.AIAnalysisMaxWait < 0 || c.AIAnalysisMaxWait > 24*time.Hour {
-		return fmt.Errorf("invalid automatic AI request/time budget")
-	}
-
-	if c.AIAnalysisConcurrency < 0 || c.AIAnalysisConcurrency > 32 {
-		return fmt.Errorf("IOT_AI_ANALYSIS_CONCURRENCY must be between 1 and 32 (0 uses the default 2)")
 	}
 	// Every business AI feature runs as a Harness workflow; roles that run no
 	// AI feature (gateway, parser, processor, jobs) may run without it.

@@ -36,8 +36,8 @@ type AIWorkflowRunManager interface {
 
 // AIRunIdentity is the account a Harness business run acts for. Browser users
 // keep ManagedUser so the MCP endpoint re-checks their current permissions and
-// device scope on every tool call; system runs have no user and only the tool
-// scopes listed here.
+// device scope on every tool call; other accounts, such as the configured
+// administrator, have only the tool scopes listed here.
 type AIRunIdentity struct {
 	Username       string
 	ManagedUser    bool
@@ -58,12 +58,6 @@ func WithAIRunIdentity(ctx context.Context, identity AIRunIdentity) context.Cont
 func AIRunIdentityFrom(ctx context.Context) (AIRunIdentity, bool) {
 	identity, ok := ctx.Value(aiRunIdentityKey{}).(AIRunIdentity)
 	return identity, ok && identity.Username != ""
-}
-
-// SystemAIRunIdentity is used for runs without a user, such as automatic alarm
-// analysis. It can use only the listed tool scopes.
-func SystemAIRunIdentity(purpose string, scopes ...string) AIRunIdentity {
-	return AIRunIdentity{Username: "system:" + purpose, Scopes: append([]string(nil), scopes...)}
 }
 
 // MCPToolScope is the token scope that allows one platform MCP tool.

@@ -65,7 +65,6 @@ platform:
     gateway: {nodes: [n2, n3], poolMax: 12}
     parser: {nodes: [n1, n2, n3], poolMax: 16}
     processor: {nodes: [n1, n2, n3], poolMax: 24}
-    ai: {nodes: [n3, n4], poolMax: 4}
     jobs: {nodes: [n1, n4], poolMax: 4}
   web: {nodes: [n1, n2]}
 # Non-secret platform settings applied to every role instance.
