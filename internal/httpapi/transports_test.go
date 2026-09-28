@@ -618,7 +618,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) {
 func TestTCPParentChildSourceChain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	root := t.TempDir()
+	root := protocolDataDir(t)
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(root)
 	if err != nil {

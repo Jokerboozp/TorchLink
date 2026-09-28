@@ -44,6 +44,7 @@ type residentPool struct {
 // residentGroup holds the processes of one artifact. Processes are never shared
 // between artifacts, so tenants and release versions stay separated.
 type residentGroup struct {
+	path  string
 	slots chan struct{}
 	mu    sync.Mutex
 	idle  []*residentProcess
@@ -66,12 +67,12 @@ type residentLine struct {
 	err  error
 }
 
-func (p *residentPool) group(key string) *residentGroup {
+func (p *residentPool) group(key, path string) *residentGroup {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	g := p.groups[key]
 	if g == nil {
-		g = &residentGroup{slots: make(chan struct{}, residentPerArtifact)}
+		g = &residentGroup{path: path, slots: make(chan struct{}, residentPerArtifact)}
 		p.groups[key] = g
 	}
 	if !p.reaping {
@@ -85,7 +86,7 @@ func (p *residentPool) group(key string) *residentGroup {
 // none is idle. A process that fails, times out or answers out of contract is
 // killed and replaced on a later call.
 func (p *residentPool) invoke(ctx context.Context, key, path string, timeout time.Duration, input []byte) ([]byte, error) {
-	g := p.group(key)
+	g := p.group(key, path)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	select {
@@ -160,6 +161,51 @@ func (p *residentPool) reap() {
 			g.idle = kept
 			g.mu.Unlock()
 		}
+	}
+}
+
+// StopResidentWorkers stops the resident Workers of artifacts under root and
+// waits until they have exited, so root can be removed; Windows cannot delete
+// a running executable. Calls in progress finish first, and a later call
+// starts a new Worker as usual.
+func StopResidentWorkers(root string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return
+	}
+	residentWorkers.mu.Lock()
+	var groups []*residentGroup
+	for _, g := range residentWorkers.groups {
+		if inside, err := filepath.Rel(root, g.path); err == nil && inside != ".." && !strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+			groups = append(groups, g)
+		}
+	}
+	residentWorkers.mu.Unlock()
+	for _, g := range groups {
+		g.stopIdle()
+	}
+}
+
+// stopIdle holds every slot, so no process is serving a call, then stops the
+// idle processes and waits for them to exit.
+func (g *residentGroup) stopIdle() {
+	for range cap(g.slots) {
+		g.slots <- struct{}{}
+	}
+	defer func() {
+		for range cap(g.slots) {
+			<-g.slots
+		}
+	}()
+	g.mu.Lock()
+	idle := g.idle
+	g.idle = nil
+	g.mu.Unlock()
+	for _, proc := range idle {
+		proc.stop()
+	}
+	for _, proc := range idle {
+		<-proc.exited
 	}
 }
 
