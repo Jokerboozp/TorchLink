@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
 // liveVideo.js imports the API client; load only the pure helpers here.
-const source = fs.readFileSync(new URL('../src/liveVideo.js', import.meta.url), 'utf8')
+// Normalize CRLF first so the block removal below also matches core.autocrlf=true checkouts.
+const source = fs.readFileSync(new URL('../src/liveVideo.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const pure = source.replace(/^import .*$/gm, '').replace(/export const liveState[\s\S]*?export function resetLiveState\(\) \{[\s\S]*?\n\}\n/, '')
 const mod = await import('data:text/javascript,' + encodeURIComponent(pure))
 
