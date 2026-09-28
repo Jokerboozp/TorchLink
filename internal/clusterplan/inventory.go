@@ -136,7 +136,7 @@ var Ports = map[string][]int{
 	"redis": {6379}, "sentinel": {26379}, "minio": {9002, 9003}, "harness": {8091},
 	"ollama": {11434}, "weaviate": {8085, 50051}, "video": {80, 8000},
 	"backup": {8090}, "prometheus": {9090}, "node-exporter": {9100}, "web": {8080},
-	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "ai": {8103}, "jobs": {8104},
+	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
 	"lb": {LBAPIPort, LBGatewayPort}, "capacity": {7080},
 }
 
@@ -168,7 +168,7 @@ func (inv *Inventory) GatewayURL() string {
 }
 
 // RoleNames lists the platform roles a cluster may place.
-var RoleNames = []string{"api", "gateway", "parser", "processor", "ai", "jobs"}
+var RoleNames = []string{"api", "gateway", "parser", "processor", "jobs"}
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 
@@ -220,7 +220,7 @@ func (inv *Inventory) defaults() {
 	}
 	for name, r := range inv.Platform.Roles {
 		if r.PoolMax == 0 {
-			r.PoolMax = map[string]int{"api": 12, "gateway": 12, "parser": 16, "processor": 24, "ai": 4, "jobs": 4}[name]
+			r.PoolMax = map[string]int{"api": 12, "gateway": 12, "parser": 16, "processor": 24, "jobs": 4}[name]
 			inv.Platform.Roles[name] = r
 		}
 	}
@@ -370,13 +370,18 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 	if len(inv.Harness.Nodes) == 0 {
 		bad("harness needs at least one node (AI workflows are mandatory)")
 	}
-	for _, role := range []string{"api", "gateway", "parser", "processor", "ai", "jobs"} {
+	for _, role := range RoleNames {
 		if len(inv.Platform.Roles[role].Nodes) == 0 {
 			bad("platform role %s needs at least one node", role)
 		}
 	}
-	for role := range inv.Platform.Roles {
-		if !contains(RoleNames, role) {
+	for role, spec := range inv.Platform.Roles {
+		switch {
+		case role == "ai":
+			// The former automatic alarm analysis consumer; redeploying does
+			// not remove its containers (compose leaves orphans running).
+			bad("platform role ai has been removed (alarm analysis runs on request in the api role): delete platform.roles.ai, redeploy, then run docker rm -f %s-iot-ai-1 on %s", inv.Name, strings.Join(spec.Nodes, ", "))
+		case !contains(RoleNames, role):
 			bad("unknown platform role %q", role)
 		}
 	}

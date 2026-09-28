@@ -406,7 +406,7 @@ func (d *reportData) bottlenecks() []Bottleneck {
 		value float64
 	}
 	var gs []growth
-	for _, name := range []string{"kafka_lag_parser", "kafka_lag_storage", "kafka_lag_state", "kafka_lag_ai", "kafka_lag_device_alarm_notifications", "mqtt_inbox_pending"} {
+	for _, name := range []string{"kafka_lag_parser", "kafka_lag_storage", "kafka_lag_state", "kafka_lag_device_alarm_notifications", "mqtt_inbox_pending"} {
 		if slope, _, ok := Trend(GaugeSeries(rounds, name)); ok && slope > 0 {
 			gs = append(gs, growth{name, slope * target.MeasureSeconds})
 		}
@@ -420,8 +420,6 @@ func (d *reportData) bottlenecks() []Bottleneck {
 			add("归档/接收处理", ev, "检查 inbox fsync、归档仓储、共享订阅分配和网关资源")
 		case g.name == "kafka_lag_parser":
 			add("解析", ev, "调整解析资源与协议 Worker，检查分区与设备热点")
-		case g.name == "kafka_lag_ai":
-			add("模型/Harness 预算", ev, "独立报告 AI 上限，调配工作流额度与并发")
 		default:
 			add("业务存储/事务", ev, "定位 PostgreSQL 锁、WAL、连接池等待与单条消息往返，先解除共享瓶颈再扩 Worker")
 		}

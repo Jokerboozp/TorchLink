@@ -15,7 +15,6 @@ const (
 	RoleGateway   = "gateway"
 	RoleParser    = "parser"
 	RoleProcessor = "processor"
-	RoleAI        = "ai"
 	RoleJobs      = "jobs"
 )
 
@@ -25,12 +24,11 @@ const (
 	ComponentManagement = "management" // management HTTP API, ops center, video control
 	ComponentParser     = "parser"     // raw → standard message
 	ComponentProcessor  = "processor"  // device business stream, rules, alarms, state, outbox
-	ComponentAI         = "ai"         // automatic alarm analysis consumer
 	ComponentJobs       = "jobs"       // periodic scans, retries and notifications
-	ComponentAIRuntime  = "ai-runtime" // Harness/Provider clients (management + ai)
+	ComponentAIRuntime  = "ai-runtime" // Harness/Provider clients of the AI features (management)
 )
 
-var workerRoles = []string{RoleParser, RoleProcessor, RoleAI, RoleJobs}
+var workerRoles = []string{RoleParser, RoleProcessor, RoleJobs}
 
 var instanceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 
@@ -49,13 +47,11 @@ func (c Config) Runs(component string) bool {
 	case ComponentManagement:
 		return role == RoleCombined || role == RoleAPI
 	case ComponentAIRuntime:
-		return role == RoleCombined || role == RoleAPI || role == RoleAI
+		return role == RoleCombined || role == RoleAPI
 	case ComponentParser:
 		return embedded || role == RoleParser
 	case ComponentProcessor:
 		return embedded || role == RoleProcessor
-	case ComponentAI:
-		return embedded || role == RoleAI
 	case ComponentJobs:
 		return embedded || role == RoleJobs
 	}
@@ -97,15 +93,18 @@ func instanceID() (id string, explicit bool) {
 func (c Config) validateRole() error {
 	switch c.ProcessRole {
 	case "", RoleCombined:
-	case RoleAPI, RoleGateway, RoleParser, RoleProcessor, RoleAI, RoleJobs:
+	case RoleAPI, RoleGateway, RoleParser, RoleProcessor, RoleJobs:
 		if c.PostgresDSN == "" || len(c.KafkaBrokers) == 0 {
 			return fmt.Errorf("split process roles require shared IOT_POSTGRES_DSN and IOT_KAFKA_BROKERS")
 		}
 		if c.ProcessRole == RoleAPI && c.AccessGatewayURL == "" {
 			return fmt.Errorf("api role requires IOT_ACCESS_GATEWAY_URL")
 		}
+	case "ai":
+		// The former automatic alarm analysis consumer.
+		return fmt.Errorf("IOT_PROCESS_ROLE=ai has been removed: alarm analysis runs on request in the api role; delete this process")
 	default:
-		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api, gateway, parser, processor, ai or jobs")
+		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api, gateway, parser, processor or jobs")
 	}
 	if c.InstanceID != "" && !instanceIDPattern.MatchString(c.InstanceID) {
 		return fmt.Errorf("IOT_INSTANCE_ID must be 1-64 letters, digits, '.', '_' or '-'")

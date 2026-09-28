@@ -123,7 +123,7 @@ backup_port="$(get_deployment_env_value "$env_file" IOT_BACKUP_HTTP_PORT)"
 wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/ready" "$health_timeout"
 harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
 wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"
-printf 'Harness 已启动；自动研判和工作流共用模型 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
+printf 'Harness 已启动；工作流模型为 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
 run_docker "${compose[@]}" ps
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"
 [ "$capacity" = on ] && echo '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 --capacity off 或 scripts/capacity-module.sh disable。'

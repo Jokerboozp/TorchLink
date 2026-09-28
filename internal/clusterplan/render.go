@@ -114,7 +114,7 @@ var serviceStage = map[string]string{
 	"lb": "coordination", "etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "minio": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
 	"postgres": "data", "redpanda": "data", "clickhouse": "data", "emqx": "data",
 	"harness": "support", "ollama": "support", "weaviate": "support", "video": "support", "backup": "support",
-	"parser": "workers", "processor": "workers", "ai": "workers", "jobs": "workers",
+	"parser": "workers", "processor": "workers", "jobs": "workers",
 	"api": "edge", "gateway": "edge", "web": "edge", "capacity": "edge",
 }
 
@@ -172,7 +172,7 @@ func (r renderer) clickhouseURL(node string, salt int) string {
 	return "http://iot:${CLICKHOUSE_PASSWORD}@" + r.ip(r.pick(node, r.chNodes(), salt)) + ":8123?database=iot"
 }
 
-var rolePort = map[string]int{"api": 8081, "gateway": 8082, "parser": 8101, "processor": 8102, "ai": 8103, "jobs": 8104}
+var rolePort = map[string]int{"api": 8081, "gateway": 8082, "parser": 8101, "processor": 8102, "jobs": 8104}
 
 func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	inv := r.inv

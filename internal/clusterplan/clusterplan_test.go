@@ -125,6 +125,7 @@ func TestValidationRejectsUnsafeLayouts(t *testing.T) {
 		"unknown node":                                func(i *Inventory) { i.MinIO.Node = "n9" },
 		"secrets come from the secrets file":          func(i *Inventory) { i.Env["IOT_JWT_SECRET"] = "x" },
 		"needs at least one node":                     func(i *Inventory) { delete(i.Platform.Roles, "processor") },
+		"docker rm -f iot-cluster-iot-ai-1 on n3, n4": func(i *Inventory) { i.Platform.Roles["ai"] = RoleSpec{Nodes: []string{"n3", "n4"}, PoolMax: 4} },
 	}
 	for want, mutate := range cases {
 		inv := example(t)

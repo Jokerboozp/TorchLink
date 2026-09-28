@@ -97,7 +97,6 @@ func GenerateInventory(o GenerateOptions) (*Inventory, error) {
 			"gateway":   {Nodes: span(1, 2)},
 			"parser":    {Nodes: span(0, workers)},
 			"processor": {Nodes: span(0, workers)},
-			"ai":        {Nodes: span(n-2, 2)},
 			"jobs":      {Nodes: []string{names[0], last}},
 		},
 		Web: GroupSpec{Nodes: span(0, 2)},

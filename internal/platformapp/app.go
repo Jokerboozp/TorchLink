@@ -119,19 +119,14 @@ func Run(forcedRole string) {
 		fatal(log, "initialize local archive", err)
 		archivePort = archive
 	}
-	localBus := local.NewBus()
-	// Without Kafka, automatic alarm analysis still runs apart from the alarm
-	// path, with the same concurrency as its Kafka consumer group.
-	localBus.SetAsyncTopic(model.TopicAlarmRaised, positiveOr(cfg.AIAnalysisConcurrency, 2), 1000)
-	var bus ports.EventBus = localBus
+	var bus ports.EventBus = local.NewBus()
 	var kafkaBus *kafkaadapter.Bus
 	if len(cfg.KafkaBrokers) > 0 {
 		kafkaBus = kafkaadapter.New(cfg.KafkaBrokers)
 		kafkaBus.SetLogger(log)
 		kafkaBus.SetAutoCreateTopics(cfg.KafkaAutoCreateTopics)
-		// Parallel lanes keep each device's (or alarm's) messages in order;
-		// automatic alarm analysis has its own, smaller limit.
-		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64), map[string]int{model.TopicAlarmRaised: positiveOr(cfg.AIAnalysisConcurrency, 2)})
+		// Parallel lanes keep each device's messages in order.
+		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64))
 		bus = kafkaBus
 		log.Info("event bus enabled", "adapter", "kafka", "brokers", cfg.KafkaBrokers)
 	}
@@ -248,10 +243,8 @@ func Run(forcedRole string) {
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
 	engine.SetIdentity(cfg.InstanceID)
-	engine.Limiter = limits
 	engine.PublishExternalTopics = cfg.PublishExternalTopics
 	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID)
-	engine.ConfigureAutomaticAnalysis(cfg.AIAnalysisTimeout, cfg.AIAnalysisMaxWait, cfg.AIAnalysisRPM)
 	if kafkaBus != nil {
 		// Backpressure: stop taking new raw messages while parsing and storage
 		// are far behind, so ingest does not starve them of database capacity.
@@ -400,7 +393,7 @@ func Run(forcedRole string) {
 		}
 
 	}
-	if (cfg.Runs(config.ComponentManagement) || cfg.Runs(config.ComponentAI)) && cfg.WeaviateURL != "" {
+	if cfg.Runs(config.ComponentManagement) && cfg.WeaviateURL != "" {
 		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL)
 	} else {
 		engine.KB = knowledge.NewLocal()
@@ -418,9 +411,9 @@ func Run(forcedRole string) {
 		// resent by another jobs replica after a rebalance has no effect.
 		fatal(log, "start device alarm notifications", opsService.StartDeviceNotifications(ctx, bus, filepath.Join(cfg.DataDir, "ops-state", "device-notifications")))
 	}
-	components := core.Components{Parser: cfg.Runs(config.ComponentParser), Processor: cfg.Runs(config.ComponentProcessor), AI: cfg.Runs(config.ComponentAI), Jobs: cfg.Runs(config.ComponentJobs), OfflineScan: cfg.OfflineScan}
+	components := core.Components{Parser: cfg.Runs(config.ComponentParser), Processor: cfg.Runs(config.ComponentProcessor), Jobs: cfg.Runs(config.ComponentJobs), OfflineScan: cfg.OfflineScan}
 	fatal(log, "start engine", engine.StartWith(ctx, components))
-	log.Info("process role started", "role", cfg.ProcessRole, "instance", cfg.InstanceID, "parser", components.Parser, "processor", components.Processor, "ai", components.AI, "jobs", components.Jobs, "access", cfg.Runs(config.ComponentAccess), "management", cfg.Runs(config.ComponentManagement))
+	log.Info("process role started", "role", cfg.ProcessRole, "instance", cfg.InstanceID, "parser", components.Parser, "processor", components.Processor, "jobs", components.Jobs, "access", cfg.Runs(config.ComponentAccess), "management", cfg.Runs(config.ComponentManagement))
 	var coordinator *protocolruntime.Coordinator
 	if cfg.AccessCoordination && cfg.Runs(config.ComponentAccess) {
 		coordinator = protocolruntime.NewCoordinator(repo, cfg.InstanceID+"-"+strconv.Itoa(os.Getpid())+"-"+uuid.NewString(), cfg.AccessNodeURL)

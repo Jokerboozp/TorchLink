@@ -354,10 +354,9 @@ EMQX 容器的文件句柄上限在 Compose 中设为 1048576，每条 MQTT 连�
 
 ```bash
 go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 32
-# 有真实供应商额度和实测平均延迟时，再填入 provider-rpm 与 model-latency
 ```
 
-输出区分配置预算通过、阻塞、未验证及模型估算。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由和模型 token 配额仍须在目标集群验证。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
+输出区分配置预算通过、阻塞与未验证。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由、Harness 并发和模型供应商请求 / token 配额仍须在目标集群验证。原按自动研判预算推算的模型检查及 `-provider-rpm`、`-model-latency` 参数已删除。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
 
 ## 集群部署
 
@@ -370,7 +369,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 | ClickHouse | 2 分片 × 2 副本 + Keeper 3 节点，`*_local` 复制表与同名 Distributed 表，插入按法定副本确认 |
 | Redis | 主 + 2 副本 + Sentinel 3 个，平台经 Sentinel 跟随主节点 |
 | EMQX | 3 节点静态集群 |
-| 平台 | api、gateway、parser、processor、ai、jobs 各自多实例；API 之间选举视频控制实例；Harness 多实例按会话路由 |
+| 平台 | api、gateway、parser、processor、jobs 各自多实例；API 之间选举视频控制实例；Harness 多实例按会话路由 |
 | 监控 | Prometheus 按实例抓取所有平台进程、Redpanda、EMQX 与各节点 node-exporter |
 
 校验规则：节点须写明故障域（独立主机/供电/机柜；同一宿主上的虚拟机属于同一故障域）；仲裁组（etcd、Patroni、Redpanda、Keeper、Sentinel）为奇数成员且任一故障域不占多数；同一 ClickHouse 分片的副本、Redis 主从、EMQX 成员跨故障域；同一节点端口不冲突；各角色 PostgreSQL 连接池合计（含一次滚动升级额外实例、备份与初始化连接及预留）不超过 `max_connections`。
@@ -397,7 +396,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 4. **服务统一密码**：用于 PostgreSQL（应用、超级用户、复制）、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 `admin`；至少 8 位，只能包含字母、数字与 `. _ ~ -`（要嵌入连接串）。直接回车则每项随机生成。JWT 密钥、Harness 令牌、摄像头凭据密钥和服务间令牌始终随机生成（有长度或格式要求）。服务统一密码只在首次部署时设置；再次执行沿用已有秘密，若指定了不同的密码会拒绝（修改数据库密码需单独操作）。
 5. 是否部署摄像头直播模块；DeepSeek API Key（可留空，部署后可在“模型管理”填写）。
 
-节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、知识库、视频、容量测试、备份与监控放在最后一台；api、gateway、ai、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
+节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、知识库、视频、容量测试、备份与监控放在最后一台；api、gateway、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
 
 无人值守：`bash scripts/cluster-up.sh --name <名称> --nodes IP1,IP2,IP3 --yes`，SSH 密码与服务统一密码经环境变量 `TORCHLINK_SSH_PASSWORD`、`TORCHLINK_SERVICE_PASSWORD` 提供（PowerShell 为 `-Name`、`-Nodes`、`-Yes`）。
 
@@ -422,6 +421,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 ```bash
 bash scripts/cluster-deploy.sh --rendered .cluster/<名称>/rendered.prev --ssh-user root --ssh-key .cluster/<名称>/deploy_key --known-hosts .cluster/<名称>/known_hosts
 ```
+
+旧版本生成的清单若仍有 `platform.roles.ai`（已删除的自动研判角色），升级会在清单校验时停止：删除该项后重新执行 `cluster-up`，再在原 `ai` 节点执行 `docker rm -f <名称>-iot-ai-1`。部署脚本不会删除清单中已移除的服务；遗留容器会继续运行原镜像，若是改为手动研判之前的版本，还会继续自动研判。
 
 `.cluster/<名称>/` 中的秘密文件决定已初始化数据库的密码，`deploy_key` 用于登录节点，务必另行备份；丢失秘密后重新生成的值无法连接已有数据。
 
@@ -528,10 +529,9 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
   | --- | --- | --- |
   | `parser` | 消费 `iot.raw.message`，解析并发布到内部业务流 `iot.device.business`（及对外 property/event/parsed 主题） | 原文积压、解析耗时 |
   | `processor` | 按设备顺序消费 `iot.device.business`：规则、告警、设备状态、完成标记、outbox 转发 | 业务流积压、数据库等待 |
-  | `ai` | 保留角色兼容，不再消费告警事件执行自动研判；手动研判由 API 进程运行 | 无告警研判消费者 |
   | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试以数据库租约保证全集群只有一个实例执行，多实例互为备用；设备告警通知按消费组分摊，重复投递由 Alertmanager 去重 | 待执行量 |
 
-  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`、`ai`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。
+  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。原自动研判角色 `ai` 已删除，告警研判只由 API 进程按用户操作运行；`IOT_PROCESS_ROLE=ai` 启动时报错，集群清单的处理见 [升级与回滚](#一键部署与升级)。
 - `IOT_INSTANCE_ID` 为实例名（默认主机名），用于指标、租约所有者和日志。显式设置后 MQTT 持久队列目录变为 `mqtt-inbox/<角色>/<实例>`；同一数据卷上运行同角色多副本时每个副本必须设置不同值。未设置时沿用旧目录，升级不会遗留未确认报文。
 - `cmd/iot-access-gateway` 强制 gateway 角色：执行通信、鉴权和 Raw 归档，发布到共享 Kafka；不启动 Raw 业务消费者。HTTP 只开放接入与健康相关路由，管理用户身份在目标接口重新校验。
 - api/gateway 两个进程必须配置同一个 PostgreSQL、Kafka 及一致的 Raw 分层存储。协议制品目录也必须共享；不能让两个进程各自使用内存仓库或本地消息总线。

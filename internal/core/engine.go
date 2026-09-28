@@ -17,13 +17,11 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
-	"iot-platform/internal/ratelimit"
 )
 
 const directAlarmRulePrefix = "device-report:"
 
 type Engine struct {
-	aiCapacity    aiCapacity
 	standardLocks [256]sync.Mutex
 	stateLocks    [64]sync.Mutex
 	rules         ruleCache
@@ -52,8 +50,6 @@ type Engine struct {
 	ingestPaused              atomic.Bool
 	identity                  string
 	identityOnce              sync.Once
-	// Limiter, when set, makes the automatic AI request budget cluster-wide.
-	Limiter ratelimit.Limiter
 	// PublishExternalTopics keeps publishing parsed messages to the
 	// property/event/parsed topics for external subscribers.
 	PublishExternalTopics bool
@@ -1211,55 +1207,6 @@ func (e *Engine) ListCameraSummariesForDevices(ctx context.Context, tenant strin
 func cameraSummary(v model.VideoCameraMapping) model.CameraSummary {
 	return model.CameraSummary{CameraID: v.CameraID, Brand: v.Brand, CameraName: v.CameraName, CameraPoint: v.CameraPoint, DeviceID: v.DeviceID, Building: v.Building, Floor: v.Floor, Room: v.Room, Enabled: v.Enabled}
 }
-func (e *Engine) handleAI(ctx context.Context, b []byte) error {
-	var alarm model.Alarm
-	if err := json.Unmarshal(b, &alarm); err != nil {
-		return err
-	}
-	if !e.AIWorkflowsReady() {
-		return e.skipAutomaticAnalysis(ctx, alarm, "unavailable", nil)
-	}
-	ctx = ports.WithAIRunIdentity(ctx, AlarmAnalysisSystemIdentity())
-	current, err := e.Repo.GetAlarm(ctx, alarm.TenantID, alarm.ID)
-	if err != nil {
-		return err
-	}
-	if current.Status == "RECOVERED" || current.Status == "CLOSED" {
-		return e.skipAutomaticAnalysis(ctx, alarm, "resolved", nil)
-	}
-	if existing, err := e.Repo.GetAIAnalysis(ctx, alarm.TenantID, alarm.ID, model.AIAnalysisScopeNone); err == nil && existing.Error == "" {
-		return e.skipAutomaticAnalysis(ctx, alarm, "duplicate", nil)
-	}
-	ctx, cancel := e.automaticAnalysisContext(ctx, alarm)
-	defer cancel()
-	if err := e.waitAutomaticBudget(ctx, alarm); err != nil {
-		if errors.Is(err, errAIWaitExpired) {
-			return e.skipAutomaticAnalysis(ctx, alarm, "expired", err)
-		}
-		if errors.Is(err, errAIAlarmResolved) {
-			return e.skipAutomaticAnalysis(ctx, alarm, "cancelled", err)
-		}
-		return err
-	}
-	if e.Metrics != nil {
-		e.Metrics.Inc("ai_analysis_started_total")
-	}
-	started := time.Now()
-	_, err = e.AnalyzeAlarm(ctx, alarm.TenantID, alarm.ID, false)
-	if m, ok := e.Metrics.(interface{ ObserveMS(string, time.Time) }); ok {
-		m.ObserveMS("ai_analysis_latency_ms", started)
-	}
-	if errors.Is(context.Cause(ctx), errAIAlarmResolved) {
-		return e.skipAutomaticAnalysis(ctx, alarm, "cancelled", errAIAlarmResolved)
-	}
-	return err
-}
-
-func (e *Engine) countAISkip() {
-	if e.Metrics != nil {
-		e.Metrics.Inc("ai_analysis_skipped_total")
-	}
-}
 
 // AnalyzeAlarm runs analysis explicitly requested by an operator. withKnowledge must be
 // decided by the caller's role: knowledge-based results are stored separately
@@ -1296,9 +1243,6 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	var analysis model.AIAnalysis
 	if err == nil {
 		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, history, knowledge, withKnowledge)
-	}
-	if errors.Is(context.Cause(ctx), errAIAlarmResolved) {
-		return analysis, errAIAlarmResolved
 	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && e.Metrics != nil {

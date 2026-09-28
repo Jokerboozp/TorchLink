@@ -24,7 +24,7 @@ type rate struct {
 
 func New() *Registry {
 	counters := map[string]uint64{}
-	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_skipped_total", "ai_analysis_started_total", "ai_analysis_timeout_total", "ai_analysis_skipped_unavailable_total", "ai_analysis_skipped_duplicate_total", "ai_analysis_skipped_resolved_total", "ai_analysis_skipped_cancelled_total", "ai_analysis_skipped_expired_total", "mqtt_archive_receipt_total"} {
+	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_timeout_total", "mqtt_archive_receipt_total"} {
 		counters[name] = 0
 	}
 	gauges := map[string]float64{"storage_latency_ms": 0, "mqtt_inflight_messages": 0, "mqtt_subscription_count": 0, "mqtt_ws_client_count": 0, "kafka_lag": 0}

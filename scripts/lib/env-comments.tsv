@@ -83,7 +83,7 @@ IOT_PROTOCOL_LISTENER_MAX_SESSIONS	每个 TCP / UDP 接入监听同时在线的�
 IOT_MQTT_DEVICE_TOKEN_TTL	标准 MQTT / HTTP 设备令牌有效期；仅在配置 EMQX 管理 API（可即时封禁）时生效，否则固定 5 分钟
 IOT_INGEST_MAX_BACKLOG	解析与存储积压超过该条数时暂停接收新原始报文（HTTP 返回 429，MQTT 留在磁盘队列，TCP 不应答），降到 80% 以下恢复；0 关闭
 POSTGRES_MAX_CONNECTIONS	PostgreSQL 服务端最大连接数（Compose 部署的 postgres 容器）
-IOT_AI_ANALYSIS_CONCURRENCY	原告警自动研判并发数；研判已改为手动触发，保留兼容但不再生效
+IOT_AI_ANALYSIS_CONCURRENCY	已停用：原告警自动研判并发数，平台不再读取，可从环境文件删除
 IOT_OPS_CAPACITY_URL	容量测试服务地址，由 capacity-module 自动设置（模块内为 http://capacity:7080）；为空表示模块未部署，页面隐藏
 IOT_OPS_CAPACITY_TOKEN	平台访问容量测试服务的令牌，启用模块时自动生成
 IOT_OPS_CAPACITY_LOCAL	本地源码调试随 combined API 启停容量控制器；仅监听本机，复用当前依赖配置，不自动开始测试
@@ -139,9 +139,9 @@ IOT_VIDEO_MEDIA_CPUS	媒体服务容器 CPU 上限
 IOT_VIDEO_MEDIA_MEMORY	媒体服务容器内存上限
 IOT_VIDEO_HLS_TMPFS_SIZE	HLS 临时分片内存盘大小
 IOT_ZLMEDIAKIT_IMAGE	媒体服务镜像名称
-IOT_AI_ANALYSIS_RPM	原自动研判每分钟请求预算；研判已改为手动触发，保留兼容但不再生效
-IOT_AI_ANALYSIS_TIMEOUT	原自动研判超时；保留兼容但不再生效，手动研判期限固定为 3 分钟
-IOT_AI_ANALYSIS_MAX_WAIT	原自动研判最大等待时间；研判已改为手动触发，保留兼容但不再生效
+IOT_AI_ANALYSIS_RPM	已停用：原告警自动研判每分钟请求预算，平台不再读取，可从环境文件删除
+IOT_AI_ANALYSIS_TIMEOUT	已停用：原告警自动研判超时，平台不再读取，可从环境文件删除；手动研判期限固定为 3 分钟
+IOT_AI_ANALYSIS_MAX_WAIT	已停用：原告警自动研判最大等待时间，平台不再读取，可从环境文件删除
 IOT_EMQX_API_URL	EMQX 管理 API 根地址（不含 /api/v5），用于队列丢弃观测及设备凭据撤销
 IOT_EMQX_API_KEY	平台专用 EMQX 管理 API Key，首次部署自动生成，后续保留
 IOT_EMQX_API_SECRET	平台专用 EMQX 管理 API Secret，仅后端读取，不发送给浏览器
