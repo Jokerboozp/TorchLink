@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import vm from 'node:vm'
+import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
 import { errorMessage, formatLabel, platformLabel, statusLabel, toolName, transportLabel } from '../src/presentation.js'
 import { createThemeOverrides, parseTokens, resolveToken } from '../src/theme/naiveTheme.js'
 import { consumeSSE } from '../src/sse.js'
 import { createClientId } from '../src/clientId.js'
+import { loadAIHistory } from '../src/aiHistory.js'
+import { resetAIConversation, useAIConversation } from '../src/aiConversation.js'
+import { setupScript } from './helpers/vue.mjs'
 
 const root = new URL('..', import.meta.url)
 
@@ -110,6 +115,99 @@ test('AI conversations are isolated by workflow and legacy history stays readabl
   assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-a').messages[0].text, 'A 的对话')
   assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-b').messages[0].text, 'B 的对话')
   assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-c'), null)
+})
+
+function memoryStorage() {
+  const values = new Map()
+  return { getItem:key => values.get(key) ?? null, setItem:(key,value) => values.set(key,value), removeItem:key => values.delete(key) }
+}
+
+// Each call is one browser AI stream; the test pushes its SSE events by hand.
+function manualAIStream() {
+  const calls = []
+  const stream = (_path, options, onEvent) => new Promise((resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once:true })
+    calls.push({ body:JSON.parse(options.body), signal:options.signal, emit:onEvent, finish:resolve })
+  })
+  return { stream, calls }
+}
+
+// Runs the real AiView setup code with a component-like effect scope and lifecycle hooks.
+const aiViewSetup = setupScript(new URL('../src/views/AiView.vue', import.meta.url))
+function mountAiView(identity, storage, stream) {
+  const hooks = { mounted:[], beforeUnmount:[] }
+  const scope = effectScope()
+  const context = vm.createContext({
+    computed, nextTick, reactive, ref, watch, useAIConversation, session:identity, localStorage:storage, apiStream:stream,
+    onMounted:fn => hooks.mounted.push(fn), onBeforeUnmount:fn => hooks.beforeUnmount.push(fn), defineEmits:() => () => {},
+    can:() => true, providerOptions:[], capabilityName:value => value, reconcileRuleDraftMessages:() => 0,
+    UiMessage:{ info(){}, success(){}, warning(){}, error(){} }, UiMessageBox:{ confirm:async () => {} },
+    api:async path => path.startsWith('/api/v1/ai/workflows') ? { items:[{ id:'ops-assistant', name:'运维助手', enabled:true }], healthy:true } : {},
+    requestAnimationFrame:callback => { callback(); return 0 }, cancelAnimationFrame:() => {},
+  })
+  const view = scope.run(() => vm.runInContext(`${aiViewSetup}\n;({ send, messages, sending })`, context))
+  return { view, mount:() => Promise.all(hooks.mounted.map(fn => fn())), unmount:() => { hooks.beforeUnmount.forEach(fn => fn()); scope.stop() } }
+}
+
+test('AI answers keep streaming after leaving the assistant page and show on return', async t => {
+  t.after(resetAIConversation)
+  const storage = memoryStorage()
+  const identity = { tenant:'tenant-a', user:'alice', accessVersion:'v1' }
+  const { stream, calls } = manualAIStream()
+  const page = mountAiView(identity, storage, stream)
+  await page.mount()
+  const answer = page.view.send('当前有哪些告警？')
+  const [request] = calls
+  assert.equal(request.body.workflowId, 'ops-assistant')
+  request.emit({ type:'run.started', runId:'run-1' })
+  request.emit({ type:'text.delta', delta:'共有 ' })
+  page.unmount()
+  assert.equal(request.signal.aborted, false)
+
+  const running = mountAiView(identity, storage, stream)
+  await running.mount()
+  assert.equal(running.view.sending.value, true)
+  assert.equal(running.view.messages.value.at(-1).status, 'streaming')
+  running.unmount()
+  request.emit({ type:'text.delta', delta:'2 条活动告警。' })
+  request.emit({ type:'run.completed' })
+  request.finish()
+  await answer
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.equal(loadAIHistory(storage, identity, Date.now(), 'ops-assistant').messages.at(-1).text, '共有 2 条活动告警。')
+
+  const returned = mountAiView(identity, storage, stream)
+  await returned.mount()
+  assert.equal(returned.view.sending.value, false)
+  assert.equal(returned.view.messages.value.at(-1).status, 'succeeded')
+  assert.equal(returned.view.messages.value.at(-1).text, '共有 2 条活动告警。')
+  assert.equal(request.signal.aborted, false)
+  returned.unmount()
+})
+
+test('AI background runs stop when authorization changes or the user logs out', async t => {
+  t.after(resetAIConversation)
+  const storage = memoryStorage()
+  const alice = { tenant:'tenant-a', user:'alice', accessVersion:'v1' }
+  const { stream, calls } = manualAIStream()
+  const first = useAIConversation(alice, { storage, stream })
+  first.selectedWorkflowId.value = 'ops-assistant'
+  const firstRun = first.send('设备 B 的告警')
+  calls[0].emit({ type:'text.delta', delta:'设备 B 有 1 条告警' })
+  const narrowed = useAIConversation({ ...alice, accessVersion:'v2' }, { storage, stream })
+  assert.notEqual(narrowed, first)
+  assert.equal(calls[0].signal.aborted, true)
+  await firstRun
+  assert.deepEqual(narrowed.messages.value.map(message => message.id), ['welcome'])
+
+  narrowed.selectedWorkflowId.value = 'ops-assistant'
+  const secondRun = narrowed.send('当前告警')
+  resetAIConversation()
+  assert.equal(calls[1].signal.aborted, true)
+  await secondRun
+  const restored = useAIConversation(alice, { storage, stream })
+  assert.equal(restored.messages.value.at(-1).status, 'canceled')
+  assert.equal(restored.messages.value.at(-1).text, '设备 B 有 1 条告警')
 })
 
 test('AI rule draft cards reconcile persisted snapshots with current rule state', async () => {

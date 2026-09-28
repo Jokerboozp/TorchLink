@@ -34,7 +34,7 @@ export function loadAIHistory(storage, session, now = Date.now(), workflowId = '
     return {
       conversationId: typeof saved.conversationId === 'string' ? saved.conversationId : '',
       selectedWorkflowId: typeof saved.selectedWorkflowId === 'string' ? saved.selectedWorkflowId : '',
-      messages: saved.messages.slice(-50).map(message => message?.status === 'streaming' ? { ...message, status:'canceled', text:message.text || '页面切换时运行已停止。' } : message),
+      messages: saved.messages.slice(-50).map(message => message?.status === 'streaming' ? { ...message, status:'canceled', text:message.text || '运行已中断。' } : message),
       runs: saved.runs.slice(0, 30).map(run => run?.status === 'running' ? { ...run, status:'canceled', finishedAt:now } : run),
     }
   } catch {

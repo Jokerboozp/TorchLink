@@ -4,7 +4,7 @@ import { aiProviderOptions as providerOptions, capabilityName } from '../present
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, apiStream, session } from '../api'
-import { loadAIHistory, saveAIHistory } from '../aiHistory'
+import { useAIConversation } from '../aiConversation'
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus'
 import HarnessTraceDrawer from '../components/HarnessTraceDrawer.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
@@ -12,67 +12,18 @@ import ToolCallCard from '../components/ToolCallCard.vue'
 
 const emit = defineEmits(['navigate'])
 
-// Keep delayed saves bound to the identity that mounted this conversation.
-const historyIdentity = { tenant: session.tenant, user: session.user, accessVersion: session.accessVersion }
-
-let sequence = 0
-let abortController = null
 let scrollFrame = 0
 let scrollQueued = false
-let historyTimer = 0
-let activeConversationWorkflowId = ''
-let restoringConversation = false
-const pendingTextStates = new Map()
-const makeId = prefix => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${++sequence}`}`
-const welcomeMessage = () => ({ id:'welcome', role:'assistant', status:'succeeded', text:'你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；切换顶部工作流插件后，会显示该插件的对话记录。', tools:[] })
 
-const messages = ref([welcomeMessage()])
-const runs = ref([])
+// 对话和运行状态保存在页面之外：切换到其他菜单时回答继续生成，返回后接着显示。
+const conversation = useAIConversation({ tenant:session.tenant, user:session.user, accessVersion:session.accessVersion }, { storage:localStorage, stream:apiStream })
+const { messages, runs, selectedWorkflowId, sending } = conversation
+const stopConversationUpdates = conversation.onUpdate(scheduleScroll)
+
 const question = ref('')
-const sending = ref(false)
 const log = ref()
-const conversationId = ref('')
 const selectedRunKey = ref('')
 const traceVisible = ref(false)
-
-function persistConversation() {
-  if (!activeConversationWorkflowId) return
-  const state = { conversationId:conversationId.value, selectedWorkflowId:activeConversationWorkflowId, messages:messages.value, runs:runs.value }
-  saveAIHistory(localStorage, historyIdentity, state, activeConversationWorkflowId)
-  saveAIHistory(localStorage, historyIdentity, state)
-}
-function scheduleConversationPersist() {
-  if (historyTimer) clearTimeout(historyTimer)
-  historyTimer = setTimeout(() => { historyTimer = 0; persistConversation() }, 150)
-}
-function restoreConversation() {
-  const legacy = loadAIHistory(localStorage, historyIdentity)
-  if (!legacy?.selectedWorkflowId) return
-  const saved = loadAIHistory(localStorage, historyIdentity, Date.now(), legacy.selectedWorkflowId) || legacy
-  restoringConversation = true
-  activeConversationWorkflowId = saved.selectedWorkflowId
-  messages.value = saved.messages.length ? saved.messages : [welcomeMessage()]
-  runs.value = saved.runs
-  conversationId.value = saved.conversationId
-  selectedWorkflowId.value = saved.selectedWorkflowId
-  restoringConversation = false
-  persistConversation()
-}
-
-function switchConversation(workflowId) {
-  if (restoringConversation || workflowId === activeConversationWorkflowId) return
-  persistConversation()
-  activeConversationWorkflowId = workflowId
-  const saved = workflowId ? loadAIHistory(localStorage, historyIdentity, Date.now(), workflowId) : null
-  messages.value = saved?.messages?.length ? saved.messages : [welcomeMessage()]
-  runs.value = saved?.runs || []
-  conversationId.value = saved?.conversationId || ''
-  question.value = ''
-  selectedRunKey.value = ''
-  traceVisible.value = false
-  nextTick(scheduleScroll)
-  persistConversation()
-}
 
 async function refreshRuleDraftStatuses() {
   if (!can('menu:rules')) return
@@ -80,7 +31,7 @@ async function refreshRuleDraftStatuses() {
   try {
     const response = await api('/api/v1/rules?page=1&pageSize=100')
     reconcileRuleDraftMessages(messages.value, response?.items || [])
-    persistConversation()
+    conversation.persist()
   } catch { /* keep the last known card state when rule status cannot be loaded */ }
 }
 
@@ -90,7 +41,6 @@ const workflowError = ref('')
 let runtimeRequestSequence = 0
 const runtime = ref({ items:[], active:{ id:'disabled', name:'未启用', enabled:false }, config:null, healthy:false, healthMessage:'正在读取模型服务状态' })
 const workflows = ref({ items:[], healthy:false, healthMessage:'正在读取工作流状态' })
-const selectedWorkflowId = ref('')
 const creatingAgent = ref(false)
 const agentTemplate = {
   schemaVersion:1, id:'my-status-agent', name:'我的状态助手', description:'回答当前租户的系统统计和设备状态问题。', version:'1.0.0', enabled:true,
@@ -167,34 +117,6 @@ const agentPreviewJson = computed(() => agentPreview.value ? JSON.stringify(agen
 function workflowKey(item) { return item?.id || item?.workflowId || '' }
 function workflowName(item) { return item?.name || item?.label || workflowKey(item) || '未命名工作流' }
 function capabilityLabel(item) { return capabilityName(typeof item === 'string' ? item : item?.name || item?.id) }
-function timestamp(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value)
-  const parsed = value ? Date.parse(value) : Number.NaN
-  return Number.isNaN(parsed) ? Date.now() : parsed
-}
-
-function safeText(value, fallback = '') {
-  if (value == null) return fallback
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  return text.length > 1200 ? `${text.slice(0, 1200)}…` : text
-}
-
-function normalizeError(value, fallback = '智能运行失败') {
-  const error = typeof value === 'string' ? { message:value } : value || {}
-  return {
-    message:safeText(error.message || error.detail || error.text, fallback),
-    code:safeText(error.code),
-    stage:safeText(error.stage),
-    traceId:safeText(error.traceId),
-    retryable:Boolean(error.retryable)
-  }
-}
-
-function normalizeEvent(raw) {
-  const nested = raw?.data && typeof raw.data === 'object' && !Array.isArray(raw.data) ? raw.data : {}
-  return { ...raw, ...nested, type:raw?.type || nested.type || 'message' }
-}
 
 function scheduleScroll() {
   if (scrollQueued) return
@@ -212,45 +134,6 @@ function scheduleScroll() {
 function providerLabel(provider) {
   if (provider === 'disabled') return '未启用'
   return providerOptions.find(item => item.id === provider)?.label || provider || '未配置'
-}
-
-function queueAssistantText(assistant, delta) {
-  if (!delta) return
-  let state = pendingTextStates.get(assistant)
-  if (!state) {
-    state = { value:'', timer:0 }
-    pendingTextStates.set(assistant, state)
-  }
-  state.value += delta
-  if (state.timer) return
-  state.timer = setTimeout(() => {
-    state.timer = 0
-    const buffered = state.value
-    state.value = ''
-    if (buffered) {
-      assistant.text += buffered
-      scheduleScroll()
-    }
-    if (!state.value) pendingTextStates.delete(assistant)
-  }, 50)
-}
-
-function flushAssistantText(assistant, shouldScroll = true) {
-  const state = pendingTextStates.get(assistant)
-  if (!state) return
-  if (state.timer) clearTimeout(state.timer)
-  state.timer = 0
-  const buffered = state.value
-  state.value = ''
-  pendingTextStates.delete(assistant)
-  if (buffered) {
-    assistant.text += buffered
-    if (shouldScroll) scheduleScroll()
-  }
-}
-
-function flushPendingAssistantText(shouldScroll = true) {
-  for (const assistant of pendingTextStates.keys()) flushAssistantText(assistant, shouldScroll)
 }
 
 async function loadRuntime() {
@@ -420,152 +303,24 @@ async function deleteWorkflow(item) {
   finally { creatingAgent.value = false }
 }
 
-watch(selectedWorkflowId, workflowId => { switchConversation(workflowId); applyWorkflowDefaults() }, { flush:'sync' })
+// 会话切换由 conversation 完成；这里只重置当前页面的输入和轨迹面板。
+watch(selectedWorkflowId, () => { question.value = ''; selectedRunKey.value = ''; traceVisible.value = false; nextTick(scheduleScroll); applyWorkflowDefaults() }, { flush:'sync' })
 
 function applyWorkflowDefaults() {
   const workflow = selectedWorkflow.value
   runConfig.model = runtime.value.config?.model || runtime.value.active?.model || workflow?.defaultModel || workflow?.model || ''
 }
 
-function addRunEvent(run, event, label, status = 'info', detail = '') {
-  run.events.push({ id:event.eventId || makeId('event'), type:event.type, label, status, detail:safeText(detail), createdAt:timestamp(event.createdAt || event.timestamp) })
-}
-
-function toolCallKey(event) { return event.toolCallId || event.callId || event.tool?.toolCallId || event.tool?.id || event.id || '' }
-
-function findOrCreateTool(run, assistant, event) {
-  const callId = toolCallKey(event)
-  let tool = run.tools.find(item => item.toolCallId === callId)
-  if (!tool) {
-    const toolName = event.toolName || event.name || (typeof event.tool === 'string' ? event.tool : event.tool?.name) || '未命名工具'
-    run.tools.push({ id:makeId('tool'), toolCallId:callId || makeId('call'), name:toolName, status:'running', inputSummary:event.inputSummary || event.input?.summary || '', outputSummary:'', error:'', startedAt:timestamp(event.startedAt || event.createdAt), durationMs:null })
-    tool = run.tools[run.tools.length - 1]
-    assistant.tools = run.tools
-  }
-  return tool
-}
-
-function applyStreamEvent(raw, assistant, run) {
-  const event = normalizeEvent(raw)
-  if (event.messageId) assistant.serverMessageId = event.messageId
-  if (event.runId) { assistant.runId = event.runId; run.runId = event.runId }
-  if (event.traceId) { assistant.traceId = event.traceId; run.traceId = event.traceId }
-
-  switch (event.type) {
-    case 'run.started':
-      assistant.status = 'streaming'
-      run.status = 'running'
-      run.provider = event.provider || run.provider
-      run.model = event.model || run.model
-      run.startedAt = timestamp(event.startedAt || event.createdAt)
-      addRunEvent(run, event, '工作流服务开始运行', 'running', [run.provider,run.model].filter(Boolean).join(' / '))
-      break
-    case 'text.delta': {
-      const delta = event.delta ?? event.text ?? event.content ?? ''
-      if (typeof delta === 'string') queueAssistantText(assistant, delta)
-      break
-    }
-    case 'tool.started': {
-      const tool = findOrCreateTool(run, assistant, event)
-      tool.status = 'running'
-      tool.inputSummary = event.inputSummary || event.input?.summary || tool.inputSummary
-      addRunEvent(run, event, `调用工具 · ${tool.name}`, 'running', tool.inputSummary)
-      break
-    }
-    case 'tool.completed': {
-      const tool = findOrCreateTool(run, assistant, event)
-      const toolError = event.error ? normalizeError(event.error, '工具调用失败') : null
-      tool.status = event.success === false || ['failed','error'].includes(event.status) || toolError ? 'failed' : 'succeeded'
-      tool.outputSummary = event.outputSummary || event.output?.summary || ''
-      tool.error = toolError?.message || ''
-      tool.durationMs = event.durationMs ?? (event.completedAt ? Math.max(0, timestamp(event.completedAt) - tool.startedAt) : null)
-      addRunEvent(run, event, `工具${tool.status === 'failed' ? '失败' : '完成'} · ${tool.name}`, tool.status === 'failed' ? 'danger' : 'success', tool.error || tool.outputSummary)
-      if (event.clientAction?.type === 'RULE_DRAFT_READY' && event.clientAction.draft && typeof event.clientAction.draft === 'object') {
-        assistant.ruleDraft = event.clientAction.draft
-        assistant.ruleDraftPersisted = event.clientAction.persisted === true
-        assistant.ruleDraftState = assistant.ruleDraftPersisted ? 'draft' : 'unsaved'
-      }
-      break
-    }
-    case 'run.completed':
-      flushAssistantText(assistant)
-      if (!assistant.text) assistant.text = safeText(event.answer || event.text, '本次运行已完成，但没有返回文本。')
-      assistant.status = 'succeeded'
-      assistant.usage = event.usage || null
-      assistant.durationMs = event.durationMs ?? Math.max(0, Date.now() - run.startedAt)
-      run.status = 'succeeded'
-      run.usage = event.usage || null
-      run.durationMs = assistant.durationMs
-      run.finishedAt = timestamp(event.completedAt || event.createdAt)
-      addRunEvent(run, event, '工作流服务运行完成', 'success', run.durationMs != null ? `${run.durationMs} 毫秒` : '')
-      break
-    case 'run.failed': {
-      flushAssistantText(assistant)
-      const failure = normalizeError(event.error || event, '智能运行失败')
-      const stopped = failure.code === 'RUN_STOPPED'
-      assistant.status = stopped ? 'canceled' : 'failed'
-      assistant.error = failure
-      assistant.text ||= '运行未能完成。'
-      run.status = stopped ? 'canceled' : 'failed'
-      run.error = failure
-      run.durationMs = event.durationMs ?? Math.max(0, Date.now() - run.startedAt)
-      run.finishedAt = timestamp(event.failedAt || event.createdAt)
-      for (const tool of run.tools.filter(item => item.status === 'running')) tool.status = 'failed'
-      addRunEvent(run, event, stopped ? '工作流已被管理员停止' : '工作流服务运行失败', stopped ? 'warning' : 'danger', failure.message)
-      break
-    }
-  }
-}
-
-async function send(textValue) {
+function send(textValue) {
   const text = (textValue || question.value).trim()
   if (!text || sending.value) return
-  if (!conversationId.value) conversationId.value = makeId('conversation')
-  messages.value.push({ id:makeId('message'), role:'user', status:'succeeded', text, tools:[] })
-  messages.value.push({ id:makeId('message'), role:'assistant', status:'streaming', text:'', prompt:text, tools:[], error:null })
-  const assistant = messages.value[messages.value.length - 1]
-  runs.value.unshift({ id:makeId('run'), runId:'', traceId:'', status:'running', workflowId:selectedWorkflowId.value, workflowName:workflowName(selectedWorkflow.value), provider:'', model:runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || '', startedAt:Date.now(), finishedAt:null, durationMs:null, usage:null, events:[], tools:[], error:null })
-  const run = runs.value[0]
-  assistant.runKey = run.id
-  assistant.tools = run.tools
   question.value = ''
-  sending.value = true
-  scheduleScroll()
-
-  const controller = new AbortController()
-  abortController = controller
-  const body = { question:text, conversationId:conversationId.value, workflowId:selectedWorkflowId.value, model:runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || '' }
-
-  try {
-    await apiStream('/api/v1/ai/chat/stream', { method:'POST', body:JSON.stringify(body), signal:controller.signal }, event => applyStreamEvent(event, assistant, run))
-    if (assistant.status === 'streaming') {
-      const failure = normalizeError({ code:'AI_STREAM_INCOMPLETE', retryable:true }, '智能流意外结束，请重试。')
-      assistant.status = 'failed'; assistant.error = failure; assistant.text ||= '响应流未完整结束。'
-      run.status = 'failed'; run.error = failure; run.durationMs = Math.max(0, Date.now() - run.startedAt)
-      addRunEvent(run, { type:'run.failed' }, '响应流意外结束', 'danger', failure.message)
-    }
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      assistant.status = 'canceled'; assistant.text ||= '已停止生成。'; run.status = 'canceled'; run.durationMs = Math.max(0, Date.now() - run.startedAt)
-      for (const tool of run.tools.filter(item => item.status === 'running')) tool.status = 'canceled'
-      addRunEvent(run, { type:'run.canceled' }, '用户停止运行', 'info')
-    } else {
-      const failure = normalizeError(error)
-      assistant.status = 'failed'; assistant.error = failure; assistant.text ||= '运行未能完成。'
-      run.status = 'failed'; run.error = failure; run.traceId ||= failure.traceId; run.durationMs = Math.max(0, Date.now() - run.startedAt)
-      addRunEvent(run, { type:'run.failed' }, '请求失败', 'danger', failure.message)
-    }
-  } finally {
-    flushAssistantText(assistant)
-    run.finishedAt ||= Date.now()
-    if (abortController === controller) { abortController = null; sending.value = false }
-    scheduleScroll()
-  }
+  return conversation.send(text, { workflowName:workflowName(selectedWorkflow.value), model:runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || '' })
 }
 
-function stop() { abortController?.abort() }
+function stop() { conversation.stop() }
 function retry(message) { if (!sending.value) send(message.prompt) }
-function clearConversation() { abortController?.abort(); messages.value = [welcomeMessage()]; runs.value = []; conversationId.value = ''; selectedRunKey.value = ''; traceVisible.value = false; persistConversation() }
+function clearConversation() { conversation.clear(); selectedRunKey.value = ''; traceVisible.value = false }
 function openTrace(value) { selectedRunKey.value = value?.runKey || value?.id || ''; traceVisible.value = true }
 function actionSummary(action) { return action?.type === 'OPEN_CAMERA' ? `打开摄像头 ${action.cameraId}` : action?.type === 'OPEN_PAGE' ? `打开页面 ${action.page}` : action?.type || '未知动作' }
 function ruleDraftStatusLabel(message) { return message.ruleDraftState === 'enabled' ? '已启用' : message.ruleDraftState === 'missing' ? '已删除' : message.ruleDraftPersisted ? '已保存草稿' : '待人工确认' }
@@ -574,9 +329,9 @@ function ruleDraftActionLabel(message) { return message.ruleDraftState === 'enab
 function ruleDraftActionDisabled(message) { return message.ruleDraftState === 'enabled' || message.ruleDraftState === 'missing' }
 function editRuleDraft(draft, persisted, state) { if (state === 'enabled' || state === 'missing') return; emit('navigate', 'rules', { ruleDraft:draft, persisted:Boolean(persisted) }) }
 
-watch([messages, runs, conversationId, selectedWorkflowId], scheduleConversationPersist, { deep:true })
-onMounted(() => { restoreConversation(); return Promise.all([loadRuntime(), refreshRuleDraftStatuses()]) })
-onBeforeUnmount(() => { abortController?.abort(); flushPendingAssistantText(false); if (scrollFrame) cancelAnimationFrame(scrollFrame); scrollFrame = 0; scrollQueued = false; if (historyTimer) clearTimeout(historyTimer); persistConversation() })
+onMounted(() => { scheduleScroll(); return Promise.all([loadRuntime(), refreshRuleDraftStatuses()]) })
+// 离开页面只停止滚动并保存记录，不中断正在生成的回答。
+onBeforeUnmount(() => { stopConversationUpdates(); if (scrollFrame) cancelAnimationFrame(scrollFrame); scrollFrame = 0; scrollQueued = false; conversation.persist() })
 </script>
 
 <template>

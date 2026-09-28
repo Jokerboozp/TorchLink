@@ -36,6 +36,7 @@ import { UiMessage } from './ui/feedback.js'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
 import LivePlayerDialog from './components/LivePlayerDialog.vue'
 import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
+import { resetAIConversation } from './aiConversation'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
 import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
@@ -129,6 +130,8 @@ const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
 watch(() => permissionState.accessVersion + '\n' + permissionState.items.join('\n'), (value, old) => {
   if (!authenticated.value || value === old) return
+  // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
+  resetAIConversation()
   if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   pageKey.value++
 })
@@ -168,6 +171,7 @@ function logout() {
   // 先关闭直播弹窗（卸载时释放播放会话），再清除身份与直播状态缓存。
   livePlayerVisible.value = false
   resetLiveState()
+  resetAIConversation()
   session.clear()
   resetPermissions()
   identity.value = { tenant: '', user: '', role: '' }
