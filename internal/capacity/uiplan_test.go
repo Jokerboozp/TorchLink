@@ -17,8 +17,10 @@ func TestPageBuiltPlansAreValid(t *testing.T) {
 		t.Skip("node not installed")
 	}
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
+	// Windows rejects a bare absolute path in import(); a file URL works everywhere.
 	script := `
-const m = await import(process.argv[1]);
+import { pathToFileURL } from 'node:url';
+const m = await import(pathToFileURL(process.argv[1]).href);
 const out = [];
 for (const preset of ['quick', 'capacity', 'soak']) {
   for (let bits = 0; bits < 64; bits++) {

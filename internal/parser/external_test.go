@@ -186,6 +186,8 @@ func main(){var in map[string]any;_ = json.NewDecoder(os.Stdin).Decode(&in);_ = 
 func residentConfig(t *testing.T, source string, serve bool) (ExternalParser, map[string]any) {
 	t.Helper()
 	root := t.TempDir()
+	// Registered after TempDir, so it runs before the directory is removed.
+	t.Cleanup(func() { StopResidentWorkers(root) })
 	worker := buildExternalTestWorker(t, root, source)
 	artifact := map[string]any{"path": filepath.Base(worker), "sha256": fileDigest(t, worker), "runtime": "go-protocol-v2"}
 	if serve {

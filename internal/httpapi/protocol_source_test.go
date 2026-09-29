@@ -38,6 +38,16 @@ import (
 	"iot-platform/internal/protocolworker"
 )
 
+// protocolDataDir is a data directory for published protocol releases. Its
+// resident Workers are stopped before the directory is removed, because
+// Windows cannot delete a running executable.
+func protocolDataDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Cleanup(func() { parser.StopResidentWorkers(root) })
+	return root
+}
+
 func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) {
 	if !protocolbuild.Available() {
 		t.Skip("Go compiler unavailable")
@@ -47,7 +57,7 @@ func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) {
 	t.Setenv("IOT_PROTOCOL_TEST_SECRET", "must-not-reach-uploaded-code")
 	defer cancel()
 	repo := memory.NewRepository()
-	root := t.TempDir()
+	root := protocolDataDir(t)
 	archive, err := local.NewArchive(root)
 	if err != nil {
 		t.Fatal(err)
@@ -296,7 +306,7 @@ func TestSourceManifestUsesPackageMetadataAndExplicitOverrides(t *testing.T) {
 func TestGoFunctionsUploadAndListener(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	root := t.TempDir()
+	root := protocolDataDir(t)
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(root)
 	if err != nil {
@@ -761,7 +771,7 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	root := t.TempDir()
+	root := protocolDataDir(t)
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(root)
 	if err != nil {
