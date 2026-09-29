@@ -18,6 +18,7 @@ import (
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolworker"
+	"iot-platform/internal/ratelimit"
 )
 
 type credentialOutageRepository struct{ ports.Repository }
@@ -38,9 +39,12 @@ func TestAuthenticateSeparatesOutageFromInvalidCredential(t *testing.T) {
 }
 
 // A full rate table admits new devices once earlier windows end, instead of
-// rejecting every device beyond the limit for a minute.
+// rejecting every device beyond the limit for a minute. The clock is frozen
+// so the fill cannot straddle a window boundary.
 func TestRateTableReleasesEndedWindows(t *testing.T) {
 	s := New(memory.NewRepository(), nil, "", nil)
+	now := time.Unix(1000, 0)
+	s.Limiter.(*ratelimit.Local).Now = func() time.Time { return now }
 	for i := 0; i < 100000; i++ {
 		if !s.Allow(fmt.Sprintf("tenant\x00device-%d", i)) {
 			t.Fatalf("device %d rejected before the table was full", i)
@@ -49,7 +53,7 @@ func TestRateTableReleasesEndedWindows(t *testing.T) {
 	if s.Allow("tenant\x00late-device") {
 		t.Fatal("a full table must reject a new key within the same second")
 	}
-	time.Sleep(1100 * time.Millisecond)
+	now = now.Add(1100 * time.Millisecond)
 	if !s.Allow("tenant\x00late-device") {
 		t.Fatal("a new device must be admitted once earlier windows ended")
 	}
