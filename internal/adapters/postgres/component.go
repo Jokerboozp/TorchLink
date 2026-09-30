@@ -26,8 +26,9 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 		return candidate, "", err
 	}
 	var old model.Alarm
+	var oldVersion int64
 	if previous.AlarmID != "" {
-		err = tx.QueryRow(ctx, `SELECT body FROM alarm_record WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, candidate.TenantID, previous.AlarmID).Scan(&b)
+		err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, candidate.TenantID, previous.AlarmID).Scan(&b, &oldVersion)
 		if err != nil {
 			return candidate, "", err
 		}
@@ -41,15 +42,24 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 	if !state.Supersedes(previous) {
 		return old, "", tx.Commit(ctx)
 	}
+	old.Version = oldVersion
 	alarm, event := model.TransitionComponentAlarm(candidate, old, state)
 	if alarm.ID != "" {
+		alarm.Version = old.Version + 1
 		b, err = json.Marshal(alarm)
 		if err != nil {
 			return candidate, "", err
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(tenant_id,id) DO UPDATE SET status=excluded.status,last_triggered_at=excluded.last_triggered_at,body=excluded.body,version=alarm_record.version+1`, alarm.TenantID, alarm.ID, alarm.RuleID, alarm.DeviceID, alarm.Status, alarm.AlarmLevel, alarm.Source, alarm.LastTriggeredAt, b)
+		_, err = tx.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body,version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,1) ON CONFLICT(tenant_id,id) DO UPDATE SET status=excluded.status,last_triggered_at=excluded.last_triggered_at,body=excluded.body,version=alarm_record.version+1`, alarm.TenantID, alarm.ID, alarm.RuleID, alarm.DeviceID, alarm.Status, alarm.AlarmLevel, alarm.Source, alarm.LastTriggeredAt, b)
 		if err == nil && state.Active {
 			err = insertOutbox(ctx, tx, model.AlarmReportEvent(alarm, candidate))
+		}
+		if err == nil {
+			for _, ev := range model.DutyAlarmEvents(ctx, old, alarm) {
+				if err = insertDutyEvent(ctx, tx, ev); err != nil {
+					break
+				}
+			}
 		}
 		if err != nil {
 			return candidate, "", err

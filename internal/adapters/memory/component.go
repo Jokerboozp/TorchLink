@@ -5,7 +5,7 @@ import (
 	"iot-platform/internal/model"
 )
 
-func (r *Repository) ApplyComponentAlarm(_ context.Context, candidate model.Alarm, state model.ComponentAlarmState) (model.Alarm, string, error) {
+func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Alarm, state model.ComponentAlarmState) (model.Alarm, string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.componentAlarms == nil {
@@ -26,6 +26,9 @@ func (r *Repository) ApplyComponentAlarm(_ context.Context, candidate model.Alar
 	if alarm.ID != "" {
 		alarm.Version = r.alarms[key(alarm.TenantID, alarm.ID)].Version + 1
 		r.alarms[key(alarm.TenantID, alarm.ID)] = cloneAlarm(alarm)
+		for _, event := range model.DutyAlarmEvents(ctx, old, alarm) {
+			r.appendDutyEventLocked(event)
+		}
 		if state.Active {
 			r.addOutbox(model.AlarmReportEvent(alarm, candidate))
 		}

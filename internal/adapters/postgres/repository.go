@@ -752,25 +752,54 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 	return items, total, nil
 }
 func (r *Repository) UpsertDeviceState(ctx context.Context, v model.DeviceState) error {
-	b, _ := json.Marshal(v)
-	_, err := r.pool.Exec(ctx, `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT(tenant_id,device_id) DO UPDATE SET product_id=excluded.product_id,business_status=excluded.business_status,last_seen_at=excluded.last_seen_at,body=excluded.body,updated_at=now(),version=device_state.version+1`, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b)
+	_, err := r.writeDutyDeviceState(ctx, v, false)
 	return err
 }
-
-// UpsertDeviceStateIf inserts when v.Version is 0 and the row is absent, or
-// updates only the row version v.Version.
 func (r *Repository) UpsertDeviceStateIf(ctx context.Context, v model.DeviceState) (bool, error) {
-	b, _ := json.Marshal(v)
-	var sql string
-	args := []any{v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b}
-	if v.Version == 0 {
-		sql = `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT(tenant_id,device_id) DO NOTHING`
-	} else {
-		sql = `UPDATE device_state SET product_id=$3,business_status=$4,last_seen_at=$5,body=$6,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND device_id=$2 AND version=$7`
-		args = append(args, v.Version)
+	return r.writeDutyDeviceState(ctx, v, true)
+}
+func (r *Repository) writeDutyDeviceState(ctx context.Context, v model.DeviceState, conditional bool) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
 	}
-	tag, err := r.pool.Exec(ctx, sql, args...)
-	return err == nil && tag.RowsAffected() == 1, err
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,728194604))`, v.TenantID+":"+v.DeviceID); err != nil {
+		return false, err
+	}
+	var old model.DeviceState
+	var body []byte
+	var version int64
+	err = tx.QueryRow(ctx, `SELECT body,version FROM device_state WHERE tenant_id=$1 AND device_id=$2 FOR UPDATE`, v.TenantID, v.DeviceID).Scan(&body, &version)
+	exists := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	if exists {
+		if err = json.Unmarshal(body, &old); err != nil {
+			return false, err
+		}
+		old.Version = version
+	}
+	if conditional && ((v.Version == 0 && exists) || (v.Version != 0 && (!exists || old.Version != v.Version))) {
+		return false, nil
+	}
+	v.Version = old.Version + 1
+	body, err = json.Marshal(v)
+	if err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(tenant_id,device_id) DO UPDATE SET product_id=excluded.product_id,business_status=excluded.business_status,last_seen_at=excluded.last_seen_at,body=excluded.body,updated_at=now(),version=excluded.version`, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, body, v.Version)
+	if err == nil {
+		if event := model.DutyDeviceEvent(ctx, old, v); event != nil {
+			err = insertDutyEvent(ctx, tx, *event)
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+	err = tx.Commit(ctx)
+	return err == nil, err
 }
 func (r *Repository) GetDeviceState(ctx context.Context, tenant, device string) (model.DeviceState, error) {
 	var v model.DeviceState
@@ -963,7 +992,8 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	}
 	defer tx.Rollback(ctx)
 	var body []byte
-	err = tx.QueryRow(ctx, `SELECT body FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND rule_id=$3 AND status IN ('ACTIVE','ACKED') FOR UPDATE`, v.TenantID, v.DeviceID, v.RuleID).Scan(&body)
+	var version int64
+	err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND rule_id=$3 AND status IN ('ACTIVE','ACKED') FOR UPDATE`, v.TenantID, v.DeviceID, v.RuleID).Scan(&body, &version)
 	if err == nil {
 		var old model.Alarm
 		if err = json.Unmarshal(body, &old); err != nil {
@@ -975,6 +1005,9 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			}
 			return old, false, nil
 		}
+		old.Version = version
+		previous := old
+		old.Version++
 		old.LastTriggeredAt = v.LastTriggeredAt
 		old.TriggerCount++
 		if v.Confidence > old.Confidence {
@@ -984,6 +1017,13 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		_, err = tx.Exec(ctx, `UPDATE alarm_record SET last_triggered_at=$3,body=$4,version=version+1 WHERE tenant_id=$1 AND id=$2`, old.TenantID, old.ID, old.LastTriggeredAt, body)
 		if err == nil {
 			err = insertOutbox(ctx, tx, model.AlarmReportEvent(old, v))
+		}
+		if err == nil {
+			for _, event := range model.DutyAlarmEvents(ctx, previous, old) {
+				if err = insertDutyEvent(ctx, tx, event); err != nil {
+					break
+				}
+			}
 		}
 		if err != nil {
 			return v, false, err
@@ -996,10 +1036,18 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return v, false, err
 	}
+	v.Version = 1
 	body, _ = json.Marshal(v)
-	_, err = tx.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, v.TenantID, v.ID, v.RuleID, v.DeviceID, v.Status, v.AlarmLevel, v.Source, v.LastTriggeredAt, body)
+	_, err = tx.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body,version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,1)`, v.TenantID, v.ID, v.RuleID, v.DeviceID, v.Status, v.AlarmLevel, v.Source, v.LastTriggeredAt, body)
 	if err == nil {
 		err = insertOutbox(ctx, tx, model.AlarmReportEvent(v, v))
+	}
+	if err == nil {
+		for _, event := range model.DutyAlarmEvents(ctx, model.Alarm{}, v) {
+			if err = insertDutyEvent(ctx, tx, event); err != nil {
+				break
+			}
+		}
 	}
 	if err != nil {
 		return v, false, err
@@ -1144,26 +1192,53 @@ func (r *Repository) CountAlarms(ctx context.Context, f ports.AlarmFilter) (int,
 	return total, err
 }
 func (r *Repository) UpdateAlarm(ctx context.Context, v model.Alarm) error {
-	b, _ := json.Marshal(v)
-	tag, err := r.pool.Exec(ctx, `UPDATE alarm_record SET status=$3,level=$4,last_triggered_at=$5,body=$6,version=version+1 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Status, v.AlarmLevel, v.LastTriggeredAt, b)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
+	_, err := r.writeDutyAlarm(ctx, v, false)
 	return err
 }
-
-// UpdateAlarmIf writes only the stored version v.Version.
 func (r *Repository) UpdateAlarmIf(ctx context.Context, v model.Alarm) (bool, error) {
-	b, _ := json.Marshal(v)
-	tag, err := r.pool.Exec(ctx, `UPDATE alarm_record SET status=$3,level=$4,last_triggered_at=$5,body=$6,version=version+1 WHERE tenant_id=$1 AND id=$2 AND version=$7`, v.TenantID, v.ID, v.Status, v.AlarmLevel, v.LastTriggeredAt, b, v.Version)
-	if err != nil || tag.RowsAffected() == 1 {
-		return err == nil, err
+	return r.writeDutyAlarm(ctx, v, true)
+}
+func (r *Repository) writeDutyAlarm(ctx context.Context, v model.Alarm, conditional bool) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
 	}
-	var exists bool
-	if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM alarm_record WHERE tenant_id=$1 AND id=$2)`, v.TenantID, v.ID).Scan(&exists); err == nil && !exists {
-		err = ErrNotFound
+	defer tx.Rollback(ctx)
+	var old model.Alarm
+	var body []byte
+	var version int64
+	err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, v.TenantID, v.ID).Scan(&body, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
 	}
-	return false, err
+	if err != nil {
+		return false, err
+	}
+	if err = json.Unmarshal(body, &old); err != nil {
+		return false, err
+	}
+	old.Version = version
+	if conditional && version != v.Version {
+		return false, nil
+	}
+	v.Version = version + 1
+	body, err = json.Marshal(v)
+	if err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(ctx, `UPDATE alarm_record SET status=$3,level=$4,last_triggered_at=$5,body=$6,version=$7 WHERE tenant_id=$1 AND id=$2`, v.TenantID, v.ID, v.Status, v.AlarmLevel, v.LastTriggeredAt, body, v.Version)
+	if err == nil {
+		for _, event := range model.DutyAlarmEvents(ctx, old, v) {
+			if err = insertDutyEvent(ctx, tx, event); err != nil {
+				break
+			}
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+	err = tx.Commit(ctx)
+	return err == nil, err
 }
 func (r *Repository) SaveVideoEvent(ctx context.Context, v model.VideoAlarmEvent) (bool, error) {
 	b, _ := json.Marshal(v)

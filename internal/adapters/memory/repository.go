@@ -18,6 +18,9 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	dutyDocuments       map[string]model.DutyDocument
+	dutyEvents          []model.DutyBusinessEvent
+	dutyEventSeq        int64
 	opsItems            map[string]model.OpsUserItem
 	accessStates        map[string][]byte
 	componentAlarms     map[string]model.ComponentAlarmState
@@ -593,15 +596,19 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 	}
 	return items[startIndex:endIndex], total, nil
 }
-func (r *Repository) UpsertDeviceState(_ context.Context, v model.DeviceState) error {
+func (r *Repository) UpsertDeviceState(ctx context.Context, v model.DeviceState) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := key(v.TenantID, v.DeviceID)
-	v.Version = r.states[k].Version + 1
+	old := r.states[k]
+	v.Version = old.Version + 1
 	r.states[k] = v
+	if event := model.DutyDeviceEvent(ctx, old, v); event != nil {
+		r.appendDutyEventLocked(*event)
+	}
 	return nil
 }
-func (r *Repository) UpsertDeviceStateIf(_ context.Context, v model.DeviceState) (bool, error) {
+func (r *Repository) UpsertDeviceStateIf(ctx context.Context, v model.DeviceState) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := key(v.TenantID, v.DeviceID)
@@ -611,6 +618,9 @@ func (r *Repository) UpsertDeviceStateIf(_ context.Context, v model.DeviceState)
 	}
 	v.Version++
 	r.states[k] = v
+	if event := model.DutyDeviceEvent(ctx, old, v); event != nil {
+		r.appendDutyEventLocked(*event)
+	}
 	return true, nil
 }
 func (r *Repository) GetDeviceStateFresh(ctx context.Context, tenant, device string) (model.DeviceState, error) {
@@ -767,7 +777,7 @@ func (r *Repository) DeleteRulePendings(_ context.Context, tenant, ruleID string
 	}
 	return nil
 }
-func (r *Repository) UpsertAlarm(_ context.Context, v model.Alarm) (model.Alarm, bool, error) {
+func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alarm, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k, a := range r.alarms {
@@ -775,6 +785,7 @@ func (r *Repository) UpsertAlarm(_ context.Context, v model.Alarm) (model.Alarm,
 			if v.TriggerID != "" && a.TriggerID == v.TriggerID {
 				return cloneAlarm(a), false, nil
 			}
+			previous := cloneAlarm(a)
 			a.LastTriggeredAt = v.LastTriggeredAt
 			a.TriggerCount++
 			if v.Confidence > a.Confidence {
@@ -783,12 +794,18 @@ func (r *Repository) UpsertAlarm(_ context.Context, v model.Alarm) (model.Alarm,
 			a.Version++
 			r.alarms[k] = cloneAlarm(a)
 			r.addOutbox(model.AlarmReportEvent(a, v))
+			for _, event := range model.DutyAlarmEvents(ctx, previous, a) {
+				r.appendDutyEventLocked(event)
+			}
 			return cloneAlarm(a), false, nil
 		}
 	}
 	v.Version = 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
 	r.addOutbox(model.AlarmReportEvent(v, v))
+	for _, event := range model.DutyAlarmEvents(ctx, model.Alarm{}, v) {
+		r.appendDutyEventLocked(event)
+	}
 	return cloneAlarm(v), true, nil
 }
 
@@ -861,7 +878,7 @@ func matchesAlarmFilter(v model.Alarm, f ports.AlarmFilter) bool {
 		(f.Status == "" || v.Status == f.Status) && (f.Level == "" || v.AlarmLevel == f.Level) && (f.Source == "" || v.Source == f.Source) &&
 		(f.Start <= 0 || v.LastTriggeredAt >= f.Start) && (f.End <= 0 || v.LastTriggeredAt <= f.End)
 }
-func (r *Repository) UpdateAlarm(_ context.Context, v model.Alarm) error {
+func (r *Repository) UpdateAlarm(ctx context.Context, v model.Alarm) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old, ok := r.alarms[key(v.TenantID, v.ID)]
@@ -870,9 +887,12 @@ func (r *Repository) UpdateAlarm(_ context.Context, v model.Alarm) error {
 	}
 	v.Version = old.Version + 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
+	for _, event := range model.DutyAlarmEvents(ctx, old, v) {
+		r.appendDutyEventLocked(event)
+	}
 	return nil
 }
-func (r *Repository) UpdateAlarmIf(_ context.Context, v model.Alarm) (bool, error) {
+func (r *Repository) UpdateAlarmIf(ctx context.Context, v model.Alarm) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old, ok := r.alarms[key(v.TenantID, v.ID)]
@@ -884,6 +904,9 @@ func (r *Repository) UpdateAlarmIf(_ context.Context, v model.Alarm) (bool, erro
 	}
 	v.Version++
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
+	for _, event := range model.DutyAlarmEvents(ctx, old, v) {
+		r.appendDutyEventLocked(event)
+	}
 	return true, nil
 }
 func (r *Repository) SaveVideoEvent(_ context.Context, v model.VideoAlarmEvent) (bool, error) {
