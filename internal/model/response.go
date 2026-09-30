@@ -51,6 +51,7 @@ type ResponseActionEvent struct {
 	Action     string `json:"action"`
 	Reason     string `json:"reason,omitempty"`
 	Actor      string `json:"actor"`
+	OccurredAt int64  `json:"occurredAt,omitempty"`
 	RecordedAt int64  `json:"recordedAt"`
 }
 type ResponseRequestReceipt struct {

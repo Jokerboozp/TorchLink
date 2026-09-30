@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Video,
+  Wrench,
   X
 } from '@lucide/vue'
 import { UiMessage } from './ui/feedback.js'
@@ -57,6 +58,7 @@ const DataQualityView = defineAsyncComponent(() => import('./views/DataQualityVi
 const MonitoringGapsView = defineAsyncComponent(() => import('./views/MonitoringGapsView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
 const ResponseReviewView = defineAsyncComponent(() => import('./views/ResponseReviewView.vue'))
+const MaintenanceInvestmentsView = defineAsyncComponent(() => import('./views/MaintenanceInvestmentsView.vue'))
 const RuleLabView = defineAsyncComponent(() => import('./views/RuleLabView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
@@ -98,6 +100,7 @@ const pages = {
   monitoringGaps: { ...pageGuide.monitoringGaps, icon: Activity, component: MonitoringGapsView, header: false },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
   response: { ...pageGuide.response, icon: ClipboardCheck, component: ResponseReviewView, header: false },
+  maintenance: { ...pageGuide.maintenance, icon: Wrench, component: MaintenanceInvestmentsView, header: false },
   ruleLab: { ...pageGuide.ruleLab, icon: SlidersHorizontal, component: RuleLabView, header: false },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
@@ -119,7 +122,7 @@ const pages = {
   opsCapacity: { ...pageGuide.opsCapacity, icon: Activity, component: OpsCapacityView }
 }
 const menuGroups = [
-  { label: '运行监控', items: ['dashboard', 'alarms', 'duty', 'response', 'inspection', 'dataQuality', 'monitoringGaps', 'raw', 'rules'] },
+  { label: '运行监控', items: ['dashboard', 'alarms', 'duty', 'response', 'maintenance', 'inspection', 'dataQuality', 'monitoringGaps', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },

@@ -34,7 +34,7 @@ func TestAnalysisWorkflowFixedRunTokenAndKnowledgePolicy(t *testing.T) {
 	if err != nil || claims.AnalysisJobID != job.ID || claims.AnalysisLeaseToken != 7 || claims.AnalysisSnapshotID != job.SnapshotID || claims.AnalysisAccessVersion != "scope1" || claims.SessionVersion != 3 || !claims.ManagedUser {
 		t.Fatal(claims, err)
 	}
-	if !slices.Equal(claims.Scopes, []string{ports.MCPToolScope("query_analysis_snapshot")}) || claims.Knowledge != nil || !strings.Contains(request.Question, `"unknown":2`) {
+	if request.MaxTokens != 8192 || !slices.Equal(claims.Scopes, []string{ports.MCPToolScope("query_analysis_snapshot")}) || claims.Knowledge != nil || !strings.Contains(request.Question, `"unknown":2`) {
 		t.Fatal("unexpected tool scope or summary", claims, request.Question)
 	}
 	if err := repo.SaveWorkflowKnowledgeBinding(context.Background(), model.WorkflowKnowledgeBinding{TenantID: "t", WorkflowID: analytics.WorkflowDataQuality, RetrievalMode: "always", TopK: 5, MinScore: .25, NoMatchPolicy: "require-evidence"}); err != nil {

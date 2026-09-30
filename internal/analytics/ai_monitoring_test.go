@@ -55,6 +55,21 @@ func TestMonitoringAIWorkflowStrictSchemaBoundScopeAndCoverage(t *testing.T) {
 			t.Fatal("invalid monitoring result accepted", answer)
 		}
 	}
+	// Another authorized device in the run cannot be explained using a fact
+	// whose top-level device identity covers only d1. Keep the lease usable so
+	// a rejected response cannot alter either the fixed facts or the job.
+	wrongObject := strings.Replace(monitoringAnswer(), `"factIds":["interval1"],"deviceIds":["d1"]`, `"factIds":["interval1"],"deviceIds":["d2"]`, 1)
+	decoded, err := DecodeAIWorkflowResult(WorkflowMonitoring, wrongObject, current.SentFactIDs, current.DeviceIDs, input.Coverage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.FinishAnalysisAIRevision(ctx, actor.TenantID, job.ID, job.LeaseToken, decoded, "mock-harness", ""); !errors.Is(err, model.ErrAnalysisInvalid) {
+		t.Fatal("device scope widened by an unrelated cited fact", err)
+	}
+	afterRejected, err := store.GetAnalysisAIRevision(ctx, actor.TenantID, job.ID)
+	if err != nil || afterRejected.Status != model.AnalysisRunning || len(afterRejected.Interpretation) != 0 {
+		t.Fatal("rejected object reference committed a result", afterRejected, err)
+	}
 	service.Runner = func(ctx context.Context, job model.AnalysisAIRevision, _ model.AnalysisAIFacts) (ports.AIWorkflowResult, error) {
 		identity, _ := ports.AIRunIdentityFrom(ctx)
 		_, e := service.ReadBoundAnalysisFacts(ctx, identity, "findings", 5, 20)

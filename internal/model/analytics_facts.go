@@ -129,17 +129,23 @@ type RawParseOutcomeFact struct {
 	EvidenceAvailability       string `json:"evidenceAvailability"`
 }
 type BusinessEventFact struct {
-	SourceEventID   string          `json:"sourceEventId"`
-	Source          string          `json:"source"`
-	Actor           string          `json:"actor,omitempty"`
-	ActorKind       string          `json:"actorKind"`
-	ResourceID      string          `json:"resourceId"`
-	ResourceVersion int64           `json:"resourceVersion"`
-	DeviceID        string          `json:"deviceId"`
-	Type            string          `json:"type"`
-	OccurredAt      int64           `json:"occurredAt"`
-	RecordedAt      int64           `json:"recordedAt"`
-	Body            json.RawMessage `json:"body"`
+	SourceEventID   string `json:"sourceEventId"`
+	Source          string `json:"source"`
+	Actor           string `json:"actor,omitempty"`
+	ActorKind       string `json:"actorKind"`
+	ResourceID      string `json:"resourceId"`
+	ResourceVersion int64  `json:"resourceVersion"`
+	DeviceID        string `json:"deviceId"`
+	Type            string `json:"type"`
+	OccurredAt      int64  `json:"occurredAt"`
+	RecordedAt      int64  `json:"recordedAt"`
+	// EventAt is the immutable originating StandardMessage clock, when present
+	// in this transaction snapshot and bound to TriggerID. Missing stays zero;
+	// OccurredAt remains the independently recorded platform operation clock.
+	EventAt      int64           `json:"eventAt,omitempty"`
+	MessageID    string          `json:"messageId,omitempty"`
+	RawMessageID string          `json:"rawMessageId,omitempty"`
+	Body         json.RawMessage `json:"body"`
 }
 type DeviceStateIntervalFact struct {
 	DeviceID          string       `json:"deviceId"`

@@ -355,6 +355,14 @@ func (r *analyticsFactReader) businessEvents(q model.FactQuery, report bool) (mo
 		v.Source = e.Source
 		v.ResourceID = e.ResourceID
 		v.ResourceVersion = e.ResourceVersion
+		var alarm model.Alarm
+		if json.Unmarshal(e.Body, &alarm) == nil && alarm.ID == e.ResourceID && alarm.DeviceID == e.DeviceID {
+			var message model.StandardMessage
+			encoded, _ := json.Marshal(alarm.Details["message"])
+			if json.Unmarshal(encoded, &message) == nil && message.MessageID != "" && message.MessageID == alarm.TriggerID && message.DeviceID == alarm.DeviceID && (message.TenantID == "" || message.TenantID == r.tenant) && message.Timestamp > 0 {
+				v.EventAt, v.MessageID, v.RawMessageID = message.Timestamp, message.MessageID, message.RawMessageID
+			}
+		}
 		v.Body = alarmEventFactBody(e.Body)
 		v.ActorKind = "AUTOMATIC"
 		if v.Actor != "" {

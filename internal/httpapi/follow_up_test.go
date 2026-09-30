@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/analytics/maintenance"
 	"iot-platform/internal/analytics/response"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -40,6 +41,11 @@ func TestFollowUpCatalogUsesCurrentScopeBeforePaginationAndCounts(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
+		body, _ = json.Marshal(model.MaintenanceIntervention{Name: v.id + "-maintenance", People: []string{"maintainer"}, Status: "COMPLETED", Verifications: []model.MaintenanceVerification{{Result: "FAILED"}}})
+		_, err = api.analysis.Store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: v.id + "-maintenance-revision", TenantID: "t", Kind: maintenance.InterventionKind, ResourceID: v.id + "-maintenance", Scope: "SHARED", DeviceIDs: []string{v.device}, Creator: "admin", Body: body}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -54,6 +60,39 @@ func TestFollowUpCatalogUsesCurrentScopeBeforePaginationAndCounts(t *testing.T) 
 	page = requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/follow-up-sources?limit=1&offset=1", token, nil, 200)
 	if page["total"] != float64(1) || len(page["items"].([]any)) != 0 {
 		t.Fatal("count/pagination used unfiltered sources", page)
+	}
+	state, err = repo.LoadAccessState(ctx, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Users[0].Permissions = []string{"menu:devices", "menu:maintenance"}
+	if ok, err := repo.SaveAccessState(ctx, "t", state); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	page = requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/follow-up-sources?limit=1", token, nil, 200)
+	if page["total"] != float64(1) {
+		t.Fatal("maintenance-only reader required response permission or leaked a count", page)
+	}
+	row := page["items"].([]any)[0].(map[string]any)
+	if row["resourceId"] != "mine-maintenance" || row["status"] != "COMPLETED" || row["verification"] != "FAILED" || row["owner"] != "" {
+		t.Fatal("maintenance completion hid its independent failed verification", row)
+	}
+	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/follow-up-sources?sourceKind=CORRECTIVE_ACTION", token, nil, 403)
+	state, err = repo.LoadAccessState(ctx, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Users[0].Permissions = []string{"menu:devices", "menu:maintenance", "menu:response"}
+	if ok, err := repo.SaveAccessState(ctx, "t", state); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	page = requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/follow-up-sources?limit=1&offset=1", token, nil, 200)
+	if page["total"] != float64(2) || page["items"].([]any)[0].(map[string]any)["resourceId"] != "mine-maintenance" {
+		t.Fatal("combined source count/pagination used hidden or ungranted sources", page)
+	}
+	page = requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/follow-up-sources?status=COMPLETED&owner=maintainer", token, nil, 200)
+	if page["total"] != float64(0) {
+		t.Fatal("participation was mistaken for an assigned maintenance owner", page)
 	}
 	state, err = repo.LoadAccessState(ctx, "t")
 	if err != nil {

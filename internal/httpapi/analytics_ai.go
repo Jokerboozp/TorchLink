@@ -34,6 +34,12 @@ func (s *Server) analysisAIRoutes() {
 	}
 	s.ruleLabAIRoutes()
 	s.responseAIRoutes()
+	s.investmentAIRoutes()
+	p := analytics.RunCollection(analytics.KindMaintenance) + "/:id/ai-jobs"
+	s.router.POST(p, s.authorize("viewer"), s.endpoint(s.analysisAICreate(analytics.KindMaintenance), "id"))
+	s.router.GET(p, s.authorize("viewer"), s.endpoint(s.analysisAIList(analytics.KindMaintenance), "id"))
+	s.router.GET(p+"/:jobId", s.authorize("viewer"), s.endpoint(s.analysisAIGet(analytics.KindMaintenance), "id", "jobId"))
+	s.router.POST(p+"/:jobId/stop", s.authorize("viewer"), s.endpoint(s.analysisAIStop(analytics.KindMaintenance), "id", "jobId"))
 }
 func publicAnalysisAI(v model.AnalysisAIRevision) model.AnalysisAIRevision {
 	v.LeaseOwner = ""

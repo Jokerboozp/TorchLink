@@ -137,6 +137,7 @@ func (s *Server) routes() {
 	s.ruleLabRoutes()
 	s.ruleHistoryRoutes()
 	s.responseRoutes()
+	s.maintenanceRoutes()
 	s.analysisAIRoutes()
 	s.dutyRoutes()
 	s.accessRoutes()

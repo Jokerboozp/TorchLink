@@ -100,7 +100,7 @@ func (s *Service) DownloadAttachment(ctx context.Context, a analytics.Actor, rev
 	if s.Archive == nil {
 		return attachment, nil, analytics.ErrUnsupported
 	}
-	reader, err := s.Archive.GetObject(ctx, AttachmentBucket, attachment.ObjectKey)
+	reader, err := analytics.OpenVerifiedAnalysisObject(ctx, s.Analysis.Store, s.Archive, a.TenantID, AttachmentBucket, attachment.ObjectKey, attachment.SHA256, attachment.Size, AttachmentMaxBytes)
 	attachment.ObjectKey, attachment.Requests = "", nil
 	return attachment, reader, err
 }
@@ -122,7 +122,7 @@ func (s *Service) AttachmentEvidence(ctx context.Context, a analytics.Actor, ref
 	if s.Archive == nil {
 		return model.ResponseEvidenceReference{}, analytics.ErrUnsupported
 	}
-	reader, err := s.Archive.GetObject(ctx, AttachmentBucket, attachment.ObjectKey)
+	reader, err := analytics.OpenVerifiedAnalysisObject(ctx, s.Analysis.Store, s.Archive, a.TenantID, AttachmentBucket, attachment.ObjectKey, attachment.SHA256, attachment.Size, AttachmentMaxBytes)
 	if err != nil {
 		return model.ResponseEvidenceReference{}, err
 	}

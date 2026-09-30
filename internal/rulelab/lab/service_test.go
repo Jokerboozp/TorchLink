@@ -2,6 +2,8 @@ package lab
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -371,6 +373,70 @@ func TestRuleLabRestartUsesFixedManifestAndDerivedDocuments(t *testing.T) {
 	defer f.mu.Unlock()
 	if f.reads != reads {
 		t.Fatal("restart replaced frozen dataset")
+	}
+}
+
+func TestRuleLabDatasetMatchesProductionCommittedTraceSerialization(t *testing.T) {
+	s, f, repo, a, _ := setupLab(t)
+	ctx := context.Background()
+	input := f.items[1]
+	f.items = []model.RuleLabInput{input}
+	claim, err := repo.ClaimStandardMessage(ctx, input.Message, "production-fixture", time.Minute)
+	if err != nil || !claim.ShouldProcess {
+		t.Fatal(claim, err)
+	}
+	rules, err := repo.RuleEvaluationRules(ctx, "t", "a")
+	if err != nil || len(rules) != 1 {
+		t.Fatal(rules, err)
+	}
+	// This is the production encoding from Engine.evaluateRules, independent
+	// of the analysis hash helper: typed field order must remain unchanged.
+	body, err := json.Marshal(input.Message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(body)
+	messageHash := hex.EncodeToString(digest[:])
+	canonicalHash, _ := analytics.AnalysisHash(input.Message)
+	if canonicalHash == messageHash {
+		t.Fatal("fixture does not expose typed versus canonical JSON mismatch")
+	}
+	binding := model.RuleTraceBinding{TenantID: "t", MessageID: input.ID, ClaimToken: claim.Token}
+	if err = repo.BeginRuleEvaluationTrace(ctx, model.RuleEvaluationTrace{RuleTraceBinding: binding, DeviceID: "a", ProductID: "p", RawMessageID: input.Message.RawMessageID, MessageTimestamp: input.Message.Timestamp, MessageHash: messageHash, ClaimOwner: "production-fixture", Rules: rules, RuleSetHash: model.RuleSetHash(rules), SemanticsVersion: eval.RevisionV2}); err != nil {
+		t.Fatal(err)
+	}
+	durationAt := int64(100)
+	step, err := repo.CommitRuleEvaluationStep(ctx, binding, 0, func(state model.RuleEvaluationState) (model.RuleEvaluationStep, error) {
+		d, e := eval.TransitionRevision(rules[0], input.Message, eval.RuleState{Pending: state.Pending, Alarm: state.Alarm, NewAlarmID: "production-fixture-alarm"}, state.RecoveryRevision, eval.StageTimes{DurationAtSeconds: &durationAt})
+		return model.RuleEvaluationStep{RuleRevisionID: rules[0].ID, SemanticsVersion: d.SemanticsVersion, Covered: d.Covered, Matched: d.Matched, DurationSatisfied: d.DurationSatisfied, Pending: d.Pending, PendingMutation: d.PendingMutation, RuleAlarmHandled: d.RuleAlarmHandled, Alarm: d.Alarm, WriteAlarm: d.WriteAlarm, Created: d.Created, Event: d.Event, Actions: d.Actions, Times: d.Times}, e
+	})
+	if err != nil || step.Times.DurationAtSeconds == nil || step.PendingMutation != eval.SetPending {
+		t.Fatal(step, err)
+	}
+	if err = repo.RecordRuleRoutingTrace(ctx, binding, model.RuleRoutingTrace{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.MarkStandardMessageProcessed(ctx, "t", input.ID, claim.Token); err != nil {
+		t.Fatal(err)
+	}
+	traces, total, err := repo.ListRuleEvaluationTraces(ctx, "t", model.RuleTraceFilter{DeviceIDs: []string{"a"}, MessageIDs: []string{input.ID}})
+	if err != nil || total != 1 || traces[0].Status != "COMPLETE" || traces[0].ReproductionQuality != "EXACT" || len(traces[0].Steps) != 1 || traces[0].MessageHash != messageHash {
+		t.Fatal("production step/completion was not exact", traces, err)
+	}
+	cancel, done := startWorkers(s)
+	defer func() { cancel(); <-done }()
+	dataset, err := s.CreateDataset(ctx, a, model.RuleLabDatasetRequest{DeviceIDs: []string{"a"}, Start: 100000, End: 120000, WarmupStart: 90000, TimeBasis: "EVENT", ClockPolicy: "RECORDED_TRACE", InitialStatePolicy: "TRACE_INITIAL", SemanticsVersion: eval.RevisionV2, IdempotencyKey: "real-committed-trace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := await(t, s, dataset.RunID)
+	dataset, err = s.Dataset(ctx, a, dataset.ID)
+	if err != nil || dataset.ReproductionQuality != "EXACT_TRACE_AVAILABLE" || dataset.InitialStateQuality != "KNOWN_TRACE_INITIAL" || dataset.InputCount != 1 {
+		t.Fatal("dataset rejected an exact committed production trace", dataset, err)
+	}
+	frozen, err := s.loadDatasetChunk(ctx, run)
+	if err != nil || len(frozen.Inputs[0].Traces) != 1 || frozen.Inputs[0].Traces[0].MessageHash != messageHash {
+		t.Fatal("frozen trace binding changed", frozen, err)
 	}
 }
 

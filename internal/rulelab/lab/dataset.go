@@ -2,6 +2,8 @@ package lab
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,6 +65,17 @@ func addCoverage(sources []model.AnalysisSourceCoverage, c model.FactSourceCover
 	return append(sources, v)
 }
 func inputHash(v model.RuleLabInput) (string, error) { v.Hash = ""; return analytics.AnalysisHash(v) }
+
+// The production trace binds the typed StandardMessage serialization, whose
+// field order differs from the canonical JSON used for analysis manifests.
+func productionMessageHash(v model.StandardMessage) (string, error) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:]), nil
+}
 func (s *Service) processDataset(ctx context.Context, e *analytics.Execution, p model.RuleLabRunParameters) error {
 	if p.DatasetSelection == nil || p.DatasetID == "" {
 		return invalid("固定数据集选择缺失")
@@ -239,7 +252,10 @@ func (s *Service) processDataset(ctx context.Context, e *analytics.Execution, p 
 	completeTrace := len(m.Inputs) > 0
 	knownInitial := q.InitialStatePolicy == "TRACE_INITIAL"
 	for _, v := range m.Inputs {
-		messageHash, _ := analytics.AnalysisHash(v.Message)
+		messageHash, err := productionMessageHash(v.Message)
+		if err != nil {
+			return err
+		}
 		exact := false
 		for _, trace := range v.Traces {
 			if trace.Status == "COMPLETE" && trace.ReproductionQuality == "EXACT" && trace.SemanticsVersion == q.SemanticsVersion && trace.MessageHash == messageHash && len(trace.Steps) == len(trace.Rules) && trace.RuleSetHash == model.RuleSetHash(trace.Rules) {

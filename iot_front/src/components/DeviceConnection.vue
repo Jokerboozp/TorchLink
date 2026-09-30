@@ -256,7 +256,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           </ui-descriptions>
           <ui-empty v-else description="暂无已解析报文" :image-size="48" />
           <ui-collapse v-if="data.latest?.messageId" class="message-detail"><ui-collapse-item title="查看完整标准消息" name="message"><pre>{{pretty(data.latest)}}</pre></ui-collapse-item></ui-collapse>
-          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button></div>
+          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button><ui-button v-permission="'menu:maintenance'" @click="emit('navigate','maintenance',{deviceId:props.deviceId})">维护与投入</ui-button></div>
         </section>
 
         <section class="connection-section device-history" v-loading="lists.history.loading">
