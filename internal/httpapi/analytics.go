@@ -7,6 +7,7 @@ import (
 
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/analytics/dataquality"
+	"iot-platform/internal/analytics/monitoring"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -29,6 +30,12 @@ func (s *Server) setupAnalytics() {
 	if err := s.quality.Register(); err != nil {
 		panic(err)
 	}
+	s.monitoring = monitoring.NewService(s.analysis, s.analysisFacts)
+	s.monitoring.RecordLimit = s.analysis.Limits.RecordLimit
+	s.monitoring.Catalog = s.unscopedRepo()
+	if err := s.monitoring.Register(); err != nil {
+		panic(err)
+	}
 }
 
 // SetAnalysisStorage is startup wiring: decorated Repository interfaces do not
@@ -37,6 +44,7 @@ func (s *Server) SetAnalysisStorage(store ports.AnalysisStore, facts ports.Analy
 	s.analysis.Store = store
 	s.analysisFacts = facts
 	s.quality.Facts = facts
+	s.monitoring.Facts = facts
 }
 
 func (s *Server) resolveAnalysisActor(ctx context.Context, a analytics.Actor) (analytics.Actor, error) {
@@ -81,7 +89,11 @@ func (s *Server) analysisRoutes() {
 		s.router.POST(prefix+"/runs/:id/stop", s.authorize("viewer"), s.endpoint(s.analysisStop(kind), "id"))
 		s.router.GET(prefix+"/runs/:id/snapshot", s.authorize("viewer"), s.endpoint(s.analysisSnapshot(kind), "id"))
 		s.router.GET(prefix+"/runs/:id/evidence", s.authorize("viewer"), s.endpoint(s.analysisEvidence(kind), "id"))
-		for _, collection := range []string{"metrics", "findings"} {
+		collections := []string{"metrics", "findings"}
+		if kind == analytics.KindMonitoring {
+			collections = append(collections, "intervals", "dependency-groups")
+		}
+		for _, collection := range collections {
 			s.router.GET(prefix+"/runs/:id/"+collection, s.authorize("viewer"), s.endpoint(s.analysisOutputs(kind, collection), "id"))
 		}
 	}
@@ -127,6 +139,13 @@ func (s *Server) analysisCreate(kind string) endpointHandler {
 				return
 			}
 			algorithm = dataquality.AlgorithmVersion
+		}
+		if kind == analytics.KindMonitoring {
+			if err := s.monitoring.ValidateCreate(r.Context(), analysisActor(r), &q); err != nil {
+				analysisProblem(w, err)
+				return
+			}
+			algorithm = monitoring.AlgorithmVersion
 		}
 		run, err := s.analysis.Create(r.Context(), analysisActor(r), kind, algorithm, q)
 		if err != nil {

@@ -19,6 +19,9 @@ import (
 )
 
 func aiFixture(t *testing.T) (*Store, *AIService, Actor, model.AnalysisRun) {
+	return aiFixtureKind(t, KindDataQuality)
+}
+func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.AnalysisRun) {
 	t.Helper()
 	ctx := context.Background()
 	store := NewMemoryStore()
@@ -30,12 +33,12 @@ func aiFixture(t *testing.T) (*Store, *AIService, Actor, model.AnalysisRun) {
 		a.DeviceIDs = actor.DeviceIDs
 		return a, nil
 	}, func(context.Context, string, string) error { return nil })
-	request := storedRun("one", KindDataQuality)
+	request := storedRun("one", kind)
 	request.Creator = actor.Username
 	if _, err := store.CreateAnalysisRun(ctx, request, 100); err != nil {
 		t.Fatal(err)
 	}
-	run, err := store.ClaimAnalysisRun(ctx, "facts", time.Minute, []string{KindDataQuality})
+	run, err := store.ClaimAnalysisRun(ctx, "facts", time.Minute, []string{kind})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +50,12 @@ func aiFixture(t *testing.T) (*Store, *AIService, Actor, model.AnalysisRun) {
 		}
 		outputs = append(outputs, model.AnalysisOutput{ID: fmt.Sprintf("fact%02d", i), DeviceID: "d1", Kind: kind, Body: json.RawMessage(`{"unknown":true}`)})
 	}
-	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Evidence: []model.AnalysisEvidence{{ID: "proof", SourceKind: "raw", SourceID: "raw1", DeviceID: "d1", Summary: json.RawMessage(`{"parse":"unknown"}`), PermissionCategory: "devices", OriginalAvailability: "EXPIRED"}}, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"missing":4,"unknown":2}`), Limitations: []string{"起点状态未知"}}})
+	category := "devices"
+	if kind == KindMonitoring {
+		category = "monitoring-evidence"
+		outputs = append(outputs, model.AnalysisOutput{ID: "interval1", DeviceID: "d1", Kind: "intervals", Body: json.RawMessage(`{"start":1000,"end":2000,"knownUnavailableMs":500,"unknownMs":500}`)}, model.AnalysisOutput{ID: "group1", Kind: "dependency-groups", Body: json.RawMessage(`{"visibleMembers":["d1","d2"],"concentration":1}`)}, model.AnalysisOutput{ID: "private", Kind: "input-manifest", Body: json.RawMessage(`{"internalMembers":["private-source"]}`)})
+	}
+	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Evidence: []model.AnalysisEvidence{{ID: "proof", SourceKind: "raw", SourceID: "raw1", DeviceID: "d1", Summary: json.RawMessage(`{"parse":"unknown"}`), PermissionCategory: category, OriginalAvailability: "EXPIRED"}}, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"missing":4,"unknown":2}`), Limitations: []string{"起点状态未知"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

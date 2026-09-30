@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evidenceChart, evidenceRows, findingRows, metricRows, profileDraft, profilePayload, qualityChartSamples, qualityTime, ratioLabel, recordBody, runIsActive, timeMs } from '../src/quality/helpers.js'
+import { evidenceChart, evidenceRows, findingRows, metricRows, profileDraft, profilePayload, qualityChartSamples, qualityNavigationTarget, qualityTime, ratioLabel, recordBody, resolveQualityRun, runIsActive, timeMs } from '../src/quality/helpers.js'
 
 const timestamp = Date.parse('2026-10-01T00:00:00Z')
 const draft = () => ({ ...profileDraft(), deviceIds: ['b', 'a', 'a'], attributeId: ' pressure ', effectiveFrom: timestamp, scheduleAnchor: timestamp - 3600e3, periodSeconds: 10, toleranceSeconds: 2 })
@@ -140,4 +140,16 @@ test('a clock switch keeps late reception and visibility of the original event m
   assert.deepEqual(qualityChartSamples(items, 'availableAt', window).map(row => [row.id, row.eventAt]), [['late', timestamp + 3600000]])
   assert.deepEqual(qualityChartSamples(items, 'eventAt', window).map(row => row.id), ['late', 'unknown'])
   assert.deepEqual(items, before)
+})
+
+test('a linked quality revision is read exactly and never falls back to unrelated cached facts', async () => {
+  const calls = []
+  const read = async id => { calls.push(id); if (id === 'missing' || id === 'forbidden') { const error = new Error('read denied'); error.status = id === 'missing' ? 404 : 403; throw error }; return { id } }
+  assert.deepEqual(await resolveQualityRun({ requestedRunId: 'fixed', cachedRunId: 'cached', read }), { id: 'fixed' })
+  for (const requestedRunId of ['missing','forbidden']) await assert.rejects(resolveQualityRun({ requestedRunId, cachedRunId: 'cached', read }), /read denied/)
+  assert.deepEqual(calls, ['fixed','missing','forbidden'])
+  assert.deepEqual(await resolveQualityRun({ cachedRunId: 'cached', read }), { id: 'cached' })
+  assert.equal(await resolveQualityRun({ read }), null)
+  assert.deepEqual(qualityNavigationTarget({ deviceId: ' d ', runId: ' fixed ' }), { deviceId: 'd', runId: 'fixed' })
+  assert.deepEqual(qualityNavigationTarget({ deviceId: {}, runId: 4 }), { deviceId: '', runId: '' })
 })

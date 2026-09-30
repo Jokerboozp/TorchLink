@@ -19,6 +19,9 @@ import (
 )
 
 func analysisMCPFixture(t *testing.T) (*core.Engine, *analytics.AIService, auth.Claims) {
+	return analysisMCPFixtureKind(t, analytics.KindDataQuality)
+}
+func analysisMCPFixtureKind(t *testing.T, kind string) (*core.Engine, *analytics.AIService, auth.Claims) {
 	t.Helper()
 	ctx := context.Background()
 	store := analytics.NewMemoryStore()
@@ -29,7 +32,7 @@ func analysisMCPFixture(t *testing.T) (*core.Engine, *analytics.AIService, auth.
 		a.Permissions = actor.Permissions
 		return a, nil
 	}, nil)
-	run, err := store.CreateAnalysisRun(ctx, model.AnalysisRun{ID: "facts", TenantID: "t", Kind: analytics.KindDataQuality, Creator: "alice", DeviceIDs: actor.DeviceIDs, PermissionsVersion: "scope1", Start: 1000, End: 2000, ConfigurationVersion: "1", AlgorithmVersion: "1", IdempotencyKey: "facts"}, 100)
+	run, err := store.CreateAnalysisRun(ctx, model.AnalysisRun{ID: "facts", TenantID: "t", Kind: kind, Creator: "alice", DeviceIDs: actor.DeviceIDs, PermissionsVersion: "scope1", Start: 1000, End: 2000, ConfigurationVersion: "1", AlgorithmVersion: "1", IdempotencyKey: "facts"}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +40,11 @@ func analysisMCPFixture(t *testing.T) (*core.Engine, *analytics.AIService, auth.
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: []model.AnalysisOutput{{ID: "fact", Kind: "findings", DeviceID: "d1", Body: json.RawMessage(`{"unknown":true}`)}}, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"unknown":2}`), Limitations: []string{"unknown seed"}}})
+	outputs := []model.AnalysisOutput{{ID: "fact", Kind: "findings", DeviceID: "d1", Body: json.RawMessage(`{"unknown":true}`)}}
+	if kind == analytics.KindMonitoring {
+		outputs = append(outputs, model.AnalysisOutput{ID: "interval1", Kind: "intervals", DeviceID: "d1", Body: json.RawMessage(`{"unknownMs":500}`)}, model.AnalysisOutput{ID: "group1", Kind: "dependency-groups", Body: json.RawMessage(`{"visibleMembers":["d1","d2"]}`)}, model.AnalysisOutput{ID: "private", Kind: "input-manifest", Body: json.RawMessage(`{"private":true}`)})
+	}
+	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"unknown":2}`), Limitations: []string{"unknown seed"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,12 +52,34 @@ func analysisMCPFixture(t *testing.T) (*core.Engine, *analytics.AIService, auth.
 	if _, err = ai.Create(ctx, actor, run.Kind, run.ID, analytics.CreateAIRequest{ExpectedVersion: run.Version, IdempotencyKey: "ai"}); err != nil {
 		t.Fatal(err)
 	}
-	job, err := store.ClaimAnalysisAIRevision(ctx, "ai", time.Minute, 4*time.Minute, []string{analytics.WorkflowDataQuality})
+	spec, _ := analytics.AnalysisWorkflow(kind)
+	job, err := store.ClaimAnalysisAIRevision(ctx, "ai", time.Minute, 4*time.Minute, []string{spec.WorkflowID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := auth.Claims{Username: "alice", TenantID: "t", TokenUse: "harness", ManagedUser: true, SessionVersion: 1, RunID: job.HarnessRunID, Workflow: core.WorkflowDataQuality, AnalysisRunID: job.RunID, AnalysisSnapshotID: job.SnapshotID, AnalysisSnapshotVersion: 1, AnalysisJobID: job.ID, AnalysisLeaseToken: job.LeaseToken, AnalysisAccessVersion: "scope1", Scopes: []string{auth.ScopeQueryAnalysisSnapshot}, RegisteredClaims: jwt.RegisteredClaims{Audience: jwt.ClaimStrings{auth.HarnessAudience}}}
+	c := auth.Claims{Username: "alice", TenantID: "t", TokenUse: "harness", ManagedUser: true, SessionVersion: 1, RunID: job.HarnessRunID, Workflow: job.WorkflowID, AnalysisRunID: job.RunID, AnalysisSnapshotID: job.SnapshotID, AnalysisSnapshotVersion: 1, AnalysisJobID: job.ID, AnalysisLeaseToken: job.LeaseToken, AnalysisAccessVersion: "scope1", Scopes: []string{auth.ScopeQueryAnalysisSnapshot}, RegisteredClaims: jwt.RegisteredClaims{Audience: jwt.ClaimStrings{auth.HarnessAudience}}}
 	return &core.Engine{Repo: memory.NewRepository(), AnalysisAI: ai}, ai, c
+}
+
+func TestMonitoringMCPCollectionsAndCrossWorkflowProof(t *testing.T) {
+	engine, _, claims := analysisMCPFixtureKind(t, analytics.KindMonitoring)
+	for _, collection := range []string{"intervals", "dependency-groups"} {
+		out := analysisMCPCall(t, engine, claims, map[string]any{"collection": collection, "limit": 20})
+		if strings.Contains(out, `"isError":true`) || !strings.Contains(out, `\"nextOffset\":1`) || strings.Contains(out, `\"private\":true`) {
+			t.Fatal(collection, out)
+		}
+	}
+	if out := analysisMCPCall(t, engine, claims, map[string]any{"collection": "input-manifest"}); !strings.Contains(out, `"isError":true`) {
+		t.Fatal(out)
+	}
+	claims.Workflow = core.WorkflowDataQuality
+	if out := analysisMCPCall(t, engine, claims, map[string]any{}); !strings.Contains(out, `"isError":true`) {
+		t.Fatal("another built-in workflow reused fixed job proof", out)
+	}
+	bengine, _, bclaims := analysisMCPFixture(t)
+	if out := analysisMCPCall(t, bengine, bclaims, map[string]any{"collection": "dependency-groups"}); !strings.Contains(out, `"isError":true`) {
+		t.Fatal("quality job expanded its readable collections", out)
+	}
 }
 func analysisMCPCall(t *testing.T, engine *core.Engine, c auth.Claims, args map[string]any) string {
 	t.Helper()

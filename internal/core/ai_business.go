@@ -23,6 +23,7 @@ const (
 	WorkflowRuleDraft        = "rule-drafter"
 	WorkflowDutyHandover     = "duty-handover"
 	WorkflowDataQuality      = "data-quality-analyst"
+	WorkflowMonitoring       = "monitoring-continuity-reviewer"
 
 	businessRunTokenTTL = 5 * time.Minute
 )
@@ -32,7 +33,7 @@ var ErrAIWorkflowsUnavailable = errors.New("AI 工作流服务（Harness）未�
 
 // BusinessWorkflowIDs lists the non-chat Agents used by platform features.
 func BusinessWorkflowIDs() []string {
-	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover, WorkflowDataQuality}
+	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover, WorkflowDataQuality, WorkflowMonitoring}
 }
 
 // AIWorkflowsReady reports whether business AI features can run.
@@ -143,7 +144,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	}
 	runID := id("ai_run")
 	if identity.AnalysisJobID != "" {
-		if identity.AnalysisHarnessRunID == "" || identity.AnalysisLeaseToken <= 0 || workflowID != WorkflowDataQuality {
+		if identity.AnalysisHarnessRunID == "" || identity.AnalysisLeaseToken <= 0 || identity.AnalysisWorkflowID != workflowID || (workflowID != WorkflowDataQuality && workflowID != WorkflowMonitoring) {
 			return ports.AIWorkflowResult{}, errors.New("分析AI运行绑定无效")
 		}
 		runID = identity.AnalysisHarnessRunID

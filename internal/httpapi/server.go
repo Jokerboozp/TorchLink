@@ -25,6 +25,7 @@ import (
 
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/analytics/dataquality"
+	"iot-platform/internal/analytics/monitoring"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -48,6 +49,7 @@ type Server struct {
 	analysis                   *analytics.Service
 	analysisFacts              ports.AnalyticsFactStore
 	quality                    *dataquality.Service
+	monitoring                 *monitoring.Service
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -129,6 +131,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 func (s *Server) routes() {
 	s.analysisRoutes()
 	s.dataQualityRoutes()
+	s.monitoringRoutes()
 	s.analysisAIRoutes()
 	s.dutyRoutes()
 	s.accessRoutes()
@@ -2980,7 +2983,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 				return
 			}
 		}
-		if claimsValue.Workflow == core.WorkflowDataQuality {
+		if claimsValue.Workflow == core.WorkflowDataQuality || claimsValue.Workflow == core.WorkflowMonitoring {
 			if err := s.authorizeAnalysisHarness(ctx, claimsValue); err != nil {
 				ginProblem(c, http.StatusForbidden, err.Error())
 				c.Abort()

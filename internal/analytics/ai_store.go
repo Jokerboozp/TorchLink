@@ -355,7 +355,7 @@ func (s *Store) FinishAnalysisAIRevision(ctx context.Context, tenant, id string,
 		v.LeaseOwner = ""
 		v.LeaseExpiresAt = 0
 		if failure == "" {
-			ids, e := ValidateAIResult(result, v.SentFactIDs, v.DeviceIDs)
+			ids, e := ValidateAIWorkflowResult(v.WorkflowID, result, v.SentFactIDs, v.DeviceIDs)
 			if e != nil {
 				return e
 			}
@@ -363,7 +363,7 @@ func (s *Store) FinishAnalysisAIRevision(ctx context.Context, tenant, id string,
 				return e
 			}
 			v.FactIDs = ids
-			v.Interpretation, e = json.Marshal(result)
+			v.Interpretation, e = marshalAIWorkflowResult(v.WorkflowID, result)
 			if e != nil {
 				return e
 			}
@@ -386,7 +386,7 @@ func (s *Store) FinishAnalysisAIRevision(ctx context.Context, tenant, id string,
 // A selected device must belong to the cited facts, rather than merely another
 // authorized device in the same snapshot. Aggregate facts cover its full scope.
 func validateAIObjects(tx StorageTx, job model.AnalysisAIRevision, result model.AnalysisAIResult) error {
-	for _, list := range [][]model.AnalysisAIStatement{result.Interpretations, result.SuggestedVerification, result.Limitations} {
+	for _, list := range aiStatements(job.WorkflowID, result) {
 		for _, statement := range list {
 			covered := []string{}
 			for _, id := range statement.FactIDs {

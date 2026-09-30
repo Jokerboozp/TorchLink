@@ -45,7 +45,7 @@ func TestAnalyticsFactsClickHouseBatchParityAndMissingCoverage(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			base := &analyticsFactFixture{page: model.FactPage[model.MeasurementFact]{Items: []model.MeasurementFact{{MessageID: "m1", DeviceID: "a", Property: "pressure", MessageType: model.PropertyReport, Value: float64(1)}, {MessageID: "m2", DeviceID: "a", Property: "pressure", MessageType: model.AlarmReport, Value: float64(2)}}, FactPageMeta: model.FactPageMeta{Complete: true, Source: model.FactSourceCoverage{Source: "standard_message", SourceVersion: "fixed-pg-snapshot", ReadAt: 123, Complete: true}}}}
+			base := &analyticsFactFixture{page: model.FactPage[model.MeasurementFact]{Items: []model.MeasurementFact{{MessageID: "m1", DeviceID: "a", Property: "pressure", MessageType: model.PropertyReport, Value: float64(1)}, {MessageID: "m2", DeviceID: "a", Property: "pressure", MessageType: model.AlarmReport, Value: float64(2)}}, FactPageMeta: model.FactPageMeta{Complete: true, Source: model.FactSourceCoverage{Source: "standard_message", SourceVersion: "fixed-pg-snapshot", ReadAt: 123, CoverageStart: 1, CoverageEnd: 100, Status: "AVAILABLE", Complete: true}}}}
 			reader := &clickhouseFactReader{AnalyticsFactReader: base, repo: &Repository{base: server.URL, http: server.Client()}, ctx: context.Background(), tenant: "t"}
 			page, err := reader.QueryMeasurementSeries(model.FactQuery{DeviceIDs: []string{"a"}, Start: 1, End: 100})
 			if err != nil {
@@ -64,5 +64,17 @@ func TestAnalyticsFactsClickHouseBatchParityAndMissingCoverage(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+func TestAnalyticsFactsClickHouseValueCoverageIndependentOfMissingACK(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"message_id": "m1", "properties": `{"pressure":1}`})
+	}))
+	defer server.Close()
+	base := &analyticsFactFixture{page: model.FactPage[model.MeasurementFact]{Items: []model.MeasurementFact{{MessageID: "m1", DeviceID: "a", Property: "pressure", MessageType: model.PropertyReport}}, FactPageMeta: model.FactPageMeta{Complete: false, Source: model.FactSourceCoverage{Source: "standard_message", ReadAt: 123, CollectionStartedAt: 1, CoverageStart: 1, CoverageEnd: 100, Status: "AVAILABLE", Complete: false, Limitations: []string{"FIRST_AVAILABILITY_UNKNOWN"}}}}}
+	reader := &clickhouseFactReader{AnalyticsFactReader: base, repo: &Repository{base: server.URL, http: server.Client()}, ctx: context.Background(), tenant: "t"}
+	page, err := reader.QueryMeasurementSeries(model.FactQuery{DeviceIDs: []string{"a"}, Start: 1, End: 100})
+	if err != nil || page.Complete || page.Source.Complete || !page.AdditionalSources[0].Complete || page.Items[0].Value != float64(1) {
+		t.Fatal("ACK metadata deficiency became missing stored values", page, err)
 	}
 }

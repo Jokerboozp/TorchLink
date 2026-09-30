@@ -1,14 +1,11 @@
 package analytics
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,10 +34,12 @@ var _ ports.AnalysisAIReader = (*AIService)(nil)
 func NewAIService(facts *Service, runner AIRunner) *AIService {
 	s := &AIService{Facts: facts, Runner: runner, Lease: 30 * time.Second, Timeout: 4 * time.Minute, Poll: time.Second, Workers: 2, workflows: map[string]AIWorkflowSpec{}}
 	_ = s.Register(AIWorkflowSpec{KindDataQuality, WorkflowDataQuality, AnalysisAIPromptVersion})
+	_ = s.Register(AIWorkflowSpec{KindMonitoring, WorkflowMonitoring, MonitoringAIPromptVersion})
 	return s
 }
 func (s *AIService) Register(spec AIWorkflowSpec) error {
-	if Menu(spec.Kind) == "" || spec.WorkflowID == "" || spec.PromptVersion == "" {
+	known, ok := AnalysisWorkflow(spec.Kind)
+	if !ok || known != spec {
 		return model.ErrAnalysisInvalid
 	}
 	s.mu.Lock()
@@ -182,7 +181,7 @@ func AIIdentity(job model.AnalysisAIRevision) ports.AIRunIdentity {
 	if job.UseKnowledge {
 		scopes = append(scopes, ports.MCPToolScope("query_knowledge_base"))
 	}
-	return ports.AIRunIdentity{TenantID: job.TenantID, Username: job.Creator, ManagedUser: job.CreatorManaged, SessionVersion: job.CreatorSessionVersion, AccessVersion: job.PermissionVersion, AnalysisRunID: job.RunID, AnalysisSnapshotID: job.SnapshotID, AnalysisSnapshotVersion: job.SnapshotVersion, AnalysisJobID: job.ID, AnalysisLeaseToken: job.LeaseToken, AnalysisHarnessRunID: job.HarnessRunID, Scopes: scopes}
+	return ports.AIRunIdentity{TenantID: job.TenantID, Username: job.Creator, ManagedUser: job.CreatorManaged, SessionVersion: job.CreatorSessionVersion, AccessVersion: job.PermissionVersion, AnalysisRunID: job.RunID, AnalysisSnapshotID: job.SnapshotID, AnalysisSnapshotVersion: job.SnapshotVersion, AnalysisJobID: job.ID, AnalysisLeaseToken: job.LeaseToken, AnalysisHarnessRunID: job.HarnessRunID, AnalysisWorkflowID: job.WorkflowID, Scopes: scopes}
 }
 func (s *AIService) ValidateBinding(ctx context.Context, identity ports.AIRunIdentity) (model.AnalysisAIRevision, error) {
 	job, err := s.Facts.Store.GetAnalysisAIRevision(ctx, identity.TenantID, identity.AnalysisJobID)
@@ -193,7 +192,7 @@ func (s *AIService) ValidateBinding(ctx context.Context, identity ports.AIRunIde
 	if !ok || spec.WorkflowID != job.WorkflowID || spec.PromptVersion != job.PromptVersion {
 		return job, ErrForbidden
 	}
-	if job.Creator != identity.Username || job.CreatorManaged != identity.ManagedUser || job.CreatorSessionVersion != identity.SessionVersion || job.RunID != identity.AnalysisRunID || job.SnapshotID != identity.AnalysisSnapshotID || job.SnapshotVersion != identity.AnalysisSnapshotVersion || job.LeaseToken != identity.AnalysisLeaseToken || job.HarnessRunID != identity.AnalysisHarnessRunID || job.PermissionVersion != identity.AccessVersion || aiLease(job, identity.AnalysisLeaseToken, time.Now().UnixMilli()) != nil {
+	if job.WorkflowID != identity.AnalysisWorkflowID || job.Creator != identity.Username || job.CreatorManaged != identity.ManagedUser || job.CreatorSessionVersion != identity.SessionVersion || job.RunID != identity.AnalysisRunID || job.SnapshotID != identity.AnalysisSnapshotID || job.SnapshotVersion != identity.AnalysisSnapshotVersion || job.LeaseToken != identity.AnalysisLeaseToken || job.HarnessRunID != identity.AnalysisHarnessRunID || job.PermissionVersion != identity.AccessVersion || aiLease(job, identity.AnalysisLeaseToken, time.Now().UnixMilli()) != nil {
 		return job, ErrForbidden
 	}
 	a := Actor{TenantID: job.TenantID, Username: job.Creator, Managed: job.CreatorManaged, SessionVersion: job.CreatorSessionVersion}
@@ -243,12 +242,15 @@ func factsIDs(f model.AnalysisAIFacts) []string {
 	return ids
 }
 func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision, collection string, limit, offset int) (f model.AnalysisAIFacts, err error) {
+	if collection != "summary" && !slices.Contains(analysisCollections(job.WorkflowID), collection) {
+		return f, model.ErrAnalysisInvalid
+	}
 	limit, offset = NormalizeAnalysisPage(limit, offset)
 	snap, err := s.Facts.Store.GetAnalysisSnapshot(ctx, job.TenantID, job.SnapshotID)
 	if err != nil || snap.Version != job.SnapshotVersion || !slices.Equal(snap.DeviceIDs, job.DeviceIDs) {
 		return f, ErrForbidden
 	}
-	f = model.AnalysisAIFacts{SnapshotID: snap.ID, SnapshotVersion: snap.Version, SummaryFactID: snap.ID + "/summary", Collection: collection, DataCutoff: snap.DataCutoff, Outputs: []model.AnalysisOutput{}, Evidence: []model.AnalysisEvidence{}, Offset: offset, Complete: true}
+	f = model.AnalysisAIFacts{SnapshotID: snap.ID, SnapshotVersion: snap.Version, SummaryFactID: snap.ID + "/summary", Collection: collection, WindowStart: snap.Start, WindowEnd: snap.End, DataCutoff: snap.DataCutoff, Outputs: []model.AnalysisOutput{}, Evidence: []model.AnalysisEvidence{}, Offset: offset, Complete: true}
 	switch collection {
 	case "summary":
 		f.Statistics = snap.Statistics
@@ -259,7 +261,7 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 		f.UncomputableMetrics = snap.UncomputableMetrics
 		f.InitialStateQuality = snap.InitialStateQuality
 		f.Total = 1
-	case "metrics", "findings":
+	case "metrics", "findings", "intervals", "dependency-groups":
 		f.Outputs, f.Total, err = s.Facts.Store.ListAnalysisOutputs(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Kind: collection, Limit: limit, Offset: offset})
 	case "evidence":
 		f.Evidence, f.Total, err = s.Facts.Store.ListAnalysisEvidence(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Limit: limit, Offset: offset})
@@ -270,7 +272,13 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 		return f, err
 	}
 	for _, e := range f.Evidence {
-		if !slices.Contains([]string{"", "devices", "dataQuality", "data-quality", "data-quality-evidence"}, e.PermissionCategory) {
+		allowed := []string{"", "devices"}
+		if job.Kind == KindDataQuality {
+			allowed = append(allowed, "dataQuality", "data-quality", "data-quality-evidence")
+		} else if job.Kind == KindMonitoring {
+			allowed = append(allowed, "monitoring", "monitoring-gaps", "monitoring-evidence")
+		}
+		if !slices.Contains(allowed, e.PermissionCategory) {
 			return model.AnalysisAIFacts{}, ErrForbidden
 		}
 	}
@@ -311,11 +319,12 @@ func (s *AIService) BuildInput(ctx context.Context, job model.AnalysisAIRevision
 	if err != nil {
 		return f, err
 	}
-	for _, entry := range []struct {
-		kind  string
-		limit int
-	}{{"findings", 20}, {"metrics", 10}, {"evidence", 10}} {
-		part, e := s.readFacts(ctx, job, entry.kind, entry.limit, 0)
+	for _, collection := range analysisCollections(job.WorkflowID) {
+		limit := 10
+		if collection == "findings" {
+			limit = 20
+		}
+		part, e := s.readFacts(ctx, job, collection, limit, 0)
 		if e != nil {
 			return f, e
 		}
@@ -359,13 +368,13 @@ func (s *AIService) BuildInput(ctx context.Context, job model.AnalysisAIRevision
 }
 func (s *AIService) coverage(ctx context.Context, job model.AnalysisAIRevision) (v model.AnalysisAICoverage, err error) {
 	v.SummaryProvided = slices.Contains(job.SentFactIDs, job.SnapshotID+"/summary")
-	for _, kind := range []string{"outputs", "evidence"} {
+	for _, kind := range analysisCollections(job.WorkflowID) {
 		offset := 0
 		for {
 			ids := []string{}
 			var total int
-			if kind == "outputs" {
-				rows, n, e := s.Facts.Store.ListAnalysisOutputs(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Limit: 100, Offset: offset})
+			if kind != "evidence" {
+				rows, n, e := s.Facts.Store.ListAnalysisOutputs(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Kind: kind, Limit: 100, Offset: offset})
 				if e != nil {
 					return v, e
 				}
@@ -389,79 +398,23 @@ func (s *AIService) coverage(ctx context.Context, job model.AnalysisAIRevision) 
 					provided++
 				}
 			}
-			if kind == "outputs" {
+			if kind != "evidence" {
 				v.OutputCount += provided
-				v.TotalOutputs = total
 			} else {
 				v.EvidenceCount += provided
 				v.TotalEvidence = total
 			}
 			offset += len(ids)
 			if offset >= total {
+				if kind != "evidence" {
+					v.TotalOutputs += total
+				}
 				break
 			}
 		}
 	}
 	v.Truncated = v.OutputCount < v.TotalOutputs || v.EvidenceCount < v.TotalEvidence
 	return v, nil
-}
-
-func DecodeAnalysisAIResult(answer string, ids, devices []string, coverage model.AnalysisAICoverage) (model.AnalysisAIResult, error) {
-	var result model.AnalysisAIResult
-	answer = strings.TrimSpace(answer)
-	if strings.HasPrefix(answer, "```") {
-		if i := strings.IndexByte(answer, '\n'); i >= 0 {
-			answer = strings.TrimSpace(strings.TrimSuffix(answer[i+1:], "```"))
-		}
-	}
-	if len(answer) > 48<<10 {
-		return result, model.ErrAnalysisInvalid
-	}
-	decoder := json.NewDecoder(bytes.NewBufferString(answer))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&result); err != nil {
-		return result, fmt.Errorf("%w: AI structure", model.ErrAnalysisInvalid)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return result, model.ErrAnalysisInvalid
-	}
-	if result.Interpretations == nil || result.SuggestedVerification == nil || result.Limitations == nil {
-		return result, model.ErrAnalysisInvalid
-	}
-	result.Coverage = coverage
-	result.Summary = fmt.Sprintf("依据固定版本准确汇总、%d/%d 项指标与发现、%d/%d 条证据解读；未提供的资料未纳入审阅，结论须人工核实。", coverage.OutputCount, coverage.TotalOutputs, coverage.EvidenceCount, coverage.TotalEvidence)
-	_, err := ValidateAIResult(result, ids, devices)
-	return result, err
-}
-func ValidateAIResult(result model.AnalysisAIResult, ids, devices []string) ([]string, error) {
-	if result.Summary == "" || len(result.Summary) > 2000 || !result.Coverage.SummaryProvided {
-		return nil, model.ErrAnalysisInvalid
-	}
-	used := []string{}
-	for _, list := range [][]model.AnalysisAIStatement{result.Interpretations, result.SuggestedVerification, result.Limitations} {
-		if len(list) > 50 {
-			return nil, model.ErrAnalysisInvalid
-		}
-		for _, statement := range list {
-			if strings.TrimSpace(statement.Text) == "" || len(statement.Text) > 2000 || len(statement.FactIDs) == 0 || len(statement.FactIDs) > 100 {
-				return nil, model.ErrAnalysisInvalid
-			}
-			for _, id := range statement.FactIDs {
-				if !slices.Contains(ids, id) {
-					return nil, fmt.Errorf("%w: unprovided AI reference", model.ErrAnalysisInvalid)
-				}
-				used = append(used, id)
-			}
-			for _, id := range statement.DeviceIDs {
-				if !slices.Contains(devices, id) {
-					return nil, ErrForbidden
-				}
-			}
-		}
-	}
-	slices.Sort(used)
-	return slices.Compact(used), nil
 }
 
 func (s *AIService) cancelJob(ctx context.Context, job model.AnalysisAIRevision) {

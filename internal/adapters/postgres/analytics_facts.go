@@ -545,6 +545,15 @@ func (r *analyticsFactReader) GetDependencySnapshot(q model.FactQuery) (model.Fa
 	if err != nil {
 		return model.FactPage[model.DependencyFact]{}, err
 	}
+	var missingSeed bool
+	err = r.tx.QueryRow(r.ctx, `SELECT EXISTS(SELECT 1 FROM unnest($2::text[]) device(id) WHERE NOT EXISTS(SELECT 1 FROM analytics_configuration_event e WHERE e.tenant_id=$1 AND e.source='device_registry' AND e.device_id=device.id AND e.occurred_at<=$3))`, r.tenant, q.DeviceIDs, q.Start).Scan(&missingSeed)
+	if err != nil {
+		return model.FactPage[model.DependencyFact]{}, err
+	}
+	if missingSeed {
+		source.Complete = false
+		source.Limitations = appendUniqueFact(source.Limitations, "DEPENDENCY_WINDOW_SEED_MISSING")
+	}
 	rows, err := r.tx.Query(r.ctx, `WITH versioned AS(
  SELECT *,LEAD(occurred_at) OVER(PARTITION BY source,resource_id ORDER BY occurred_at,resource_version) AS effective_to FROM analytics_configuration_event WHERE tenant_id=$1 AND device_id=ANY($2::text[]) AND source IN('device_registry','raw_collector')
  ),relations AS(SELECT e.seq::text AS source_event_id,e.device_id,e.resource_version,e.recorded_at,GREATEST(e.occurred_at,$3::bigint) AS since,LEAST(COALESCE(e.effective_to,$4::bigint),$4::bigint) AS until,v.kind,e.body->>v.field AS dependency_id FROM versioned e CROSS JOIN(VALUES('gatewayId','parent-device'),('connectorProfileId','access-profile'),('collectorId','collector'))v(field,kind) WHERE e.occurred_at<$4 AND (e.effective_to IS NULL OR e.effective_to>$3))

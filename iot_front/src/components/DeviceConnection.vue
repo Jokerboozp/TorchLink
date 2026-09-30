@@ -13,6 +13,7 @@ import { diagnosisTagTypes } from '../onboardingPlan'
 
 const props = defineProps({ deviceId:String })
 const DataQualityView = defineAsyncComponent(() => import('../views/DataQualityView.vue'))
+const MonitoringGapsView = defineAsyncComponent(() => import('../views/MonitoringGapsView.vue'))
 const detailTab = ref('details')
 watch(() => props.deviceId, () => { detailTab.value = 'details' })
 const emit = defineEmits(['close','navigate','device'])
@@ -162,11 +163,13 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
       </div>
       <ui-alert v-if="error" title="设备详情加载失败" :description="error" type="error" :closable="false" show-icon />
       <ui-empty v-if="!data && !loading && !error" description="暂无设备信息" />
-      <ui-tabs v-if="data && can('menu:dataQuality')" v-model="detailTab">
+      <ui-tabs v-if="data && (can('menu:dataQuality') || can('menu:monitoringGaps'))" v-model="detailTab">
         <ui-tab-pane name="details" label="设备详情" />
-        <ui-tab-pane name="quality" label="数据质量" />
+        <ui-tab-pane v-if="can('menu:dataQuality')" name="quality" label="数据质量" />
+        <ui-tab-pane v-if="can('menu:monitoringGaps')" name="monitoring" label="监测连续性" />
       </ui-tabs>
       <DataQualityView v-if="data && detailTab === 'quality' && can('menu:dataQuality')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
+      <MonitoringGapsView v-if="data && detailTab === 'monitoring' && can('menu:monitoringGaps')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
       <template v-if="data && detailTab === 'details'">
         <section class="connection-section device-summary">
           <h3>当前接入状态</h3>

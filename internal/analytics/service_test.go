@@ -38,6 +38,50 @@ func serviceRequest(key string, ids ...string) CreateRequest {
 	return CreateRequest{DeviceIDs: ids, Start: 1000, End: 10000, ConfigurationVersion: "profile/v1", IdempotencyKey: key}
 }
 
+func TestReclaimedExpiredRunUsesPartialHandlerAfterCurrentAuthorization(t *testing.T) {
+	for _, revoke := range []bool{false, true} {
+		t.Run(map[bool]string{false: "authorized", true: "revoked"}[revoke], func(t *testing.T) {
+			s, a, mu := serviceFixture()
+			old := time.Now().Add(-time.Hour)
+			s.Store = NewMemoryStoreWithClock(func() time.Time { return old })
+			called := false
+			_ = s.Register(KindDataQuality, func(ctx context.Context, e *Execution) error {
+				called = true
+				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					t.Fatal("reclaimed run gained a new time budget")
+				}
+				return e.Commit(context.WithoutCancel(ctx), model.AnalysisBatch{ID: "partial-time-limit", Status: model.AnalysisPartial, Stage: "time-limit", Processed: e.Run.Processed, Snapshot: &model.AnalysisSnapshot{ID: e.Run.ID + "/partial", DataCutoff: old.UnixMilli(), InputHashes: []string{"fixed"}, Statistics: json.RawMessage(`{"incomplete":true}`), Limitations: []string{"RUN_TIME_BUDGET_EXHAUSTED"}}})
+			})
+			r, err := s.Create(context.Background(), *a, KindDataQuality, "v1", serviceRequest("expired", "a"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err = s.Store.ClaimAnalysisRun(context.Background(), "new-replica", time.Second, []string{KindDataQuality})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if revoke {
+				mu.Lock()
+				a.AccessVersion = "v2"
+				a.DeviceIDs = nil
+				mu.Unlock()
+			}
+			s.execute(context.Background(), r, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			saved, err := s.Store.GetAnalysisRun(context.Background(), r.TenantID, r.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if revoke {
+				if called || !TerminalAnalysisStatus(saved.Status) || saved.Status == model.AnalysisPartial {
+					t.Fatalf("revoked worker ran timeout facts: %+v", saved)
+				}
+			} else if !called || saved.Status != model.AnalysisPartial || saved.SnapshotID == "" {
+				t.Fatalf("partial handler bypassed on reclaim: %+v", saved)
+			}
+		})
+	}
+}
+
 func TestServiceScopeIdempotencyAndWholeArtifactRevocation(t *testing.T) {
 	s, a, mu := serviceFixture()
 	ctx := context.Background()

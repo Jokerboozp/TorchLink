@@ -16,10 +16,13 @@ import (
 )
 
 func sqlAIService(t *testing.T, r *Repository) (*analytics.AIService, analytics.Actor, model.AnalysisRun) {
+	return sqlAIServiceKind(t, r, analytics.KindDataQuality)
+}
+func sqlAIServiceKind(t *testing.T, r *Repository, kind string) (*analytics.AIService, analytics.Actor, model.AnalysisRun) {
 	t.Helper()
 	ctx := context.Background()
 	request := sqlAnalysisRun("facts")
-	request.Kind = analytics.KindDataQuality
+	request.Kind = kind
 	if _, err := r.CreateAnalysisRun(ctx, request, 100); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +30,11 @@ func sqlAIService(t *testing.T, r *Repository) (*analytics.AIService, analytics.
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = r.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: []model.AnalysisOutput{{ID: "fact", Kind: "findings", DeviceID: "d1", Body: json.RawMessage(`{"unknown":true}`)}}, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"unknown":2}`), Limitations: []string{"state seed unknown"}}})
+	outputs := []model.AnalysisOutput{{ID: "fact", Kind: "findings", DeviceID: "d1", Body: json.RawMessage(`{"unknown":true}`)}}
+	if kind == analytics.KindMonitoring {
+		outputs = append(outputs, model.AnalysisOutput{ID: "interval", Kind: "intervals", DeviceID: "d1", Body: json.RawMessage(`{"unknownMs":500}`)}, model.AnalysisOutput{ID: "group", Kind: "dependency-groups", Body: json.RawMessage(`{"visibleMembers":["d1","d2"]}`)}, model.AnalysisOutput{ID: "private", Kind: "input-manifest", Body: json.RawMessage(`{"private":true}`)})
+	}
+	run, err = r.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"unknown":2}`), Limitations: []string{"state seed unknown"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

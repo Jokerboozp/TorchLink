@@ -5,7 +5,7 @@ import { api, apiAll, notifyError, session } from '../api.js'
 import { can, permissionState } from '../permissions.js'
 import { createClientId } from '../clientId.js'
 import { qualityCatalog, qualityRead, qualityWrite } from '../quality/api.js'
-import { qualityStage, qualityTime, recordBody, runIsActive, stateLabel, stateTone } from '../quality/helpers.js'
+import { qualityNavigationTarget, qualityStage, qualityTime, recordBody, resolveQualityRun, runIsActive, stateLabel, stateTone } from '../quality/helpers.js'
 import QualityProfiles from '../components/data-quality/QualityProfiles.vue'
 import QualityRecords from '../components/data-quality/QualityRecords.vue'
 import QualityResults from '../components/data-quality/QualityResults.vue'
@@ -16,6 +16,7 @@ const devices = ref([]), profiles = ref([]), baselines = ref([]), calibrations =
 const runPage = ref(1), runTotal = ref(0)
 const form = reactive({ deviceIds: [], profileRevisionIds: [], baselineRevisionIds: [], range: null, idempotencyKey: '' })
 const initialDevice = ref('')
+const requestedRun = ref('')
 const viewKey = ref(0)
 const filteredDevice = computed(() => props.deviceId || initialDevice.value)
 const runOptions = computed(() => profiles.value.map(recordBody).filter(row => !form.deviceIds.length || form.deviceIds.some(id => row.deviceIds?.includes(id))))
@@ -61,9 +62,15 @@ async function load() {
     await loadRuns()
     let restored = ''
     try { restored = sessionStorage.getItem(cacheKey()) || '' } catch { /* Server lists remain available. */ }
-    if (!selectedRun.value && restored) await openRun({ id: restored })
+    if (requestedRun.value) {
+      const row = await resolveQualityRun({ requestedRunId: requestedRun.value, cachedRunId: restored, read: id => qualityRead('runs', id) })
+      if (token !== generation || disposed) return
+      if (props.deviceId && !row.deviceIds?.includes(props.deviceId)) throw new Error('关联数据质量任务不属于当前设备')
+      selectedRun.value = row; remember(row.id); schedule(); requestedRun.value = ''
+    }
+    else if (!selectedRun.value && restored) await openRun({ id: restored })
     else if (selectedRun.value) await refreshRun()
-  } catch (cause) { if (token === generation && !disposed) error.value = cause.message }
+  } catch (cause) { if (token === generation && !disposed) { error.value = requestedRun.value && [403,404].includes(cause.status) ? '关联的固定数据质量任务已不存在或超出当前授权范围。' : cause.message; if (requestedRun.value) { selectedRun.value = null; remember('') } } }
   finally { if (token === generation) loading.value = false }
 }
 function newRun(previous = null) {
@@ -100,7 +107,7 @@ watch(runPage, () => loadRuns().catch(notifyError))
 watch(() => props.deviceId, () => { resetVisible(); load() })
 watch(() => permissionState.accessVersion, () => { resetVisible(); load() })
 onMounted(() => {
-  if (!props.deviceId) try { const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}'); initialDevice.value = detail.deviceId || ''; sessionStorage.removeItem('iot:navigation-detail') } catch { /* Invalid initial selection is ignored. */ }
+  if (!props.deviceId) try { const detail = qualityNavigationTarget(JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}')); initialDevice.value = detail.deviceId; requestedRun.value = detail.runId; sessionStorage.removeItem('iot:navigation-detail') } catch { /* Invalid initial selection is ignored. */ }
   load()
 })
 onBeforeUnmount(() => { disposed = true; generation++; runGeneration++; listGeneration++; stopPolling() })

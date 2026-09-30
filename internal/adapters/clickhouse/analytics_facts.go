@@ -52,7 +52,10 @@ func (r *clickhouseFactReader) QueryMeasurementSeries(q model.FactQuery) (model.
 	slices.Sort(expected)
 	expected = slices.Compact(expected)
 	began := time.Now().UnixMilli()
-	source := model.FactSourceCoverage{Source: "clickhouse_iot_telemetry", SourceVersion: fmt.Sprintf("query:%d", began), ReadAt: began, CoverageStart: q.Start, CoverageEnd: min(q.End, began), Complete: page.Source.Complete, Status: "AVAILABLE", CollectionStartedAt: page.Source.CollectionStartedAt, BackfillStatus: page.Source.BackfillStatus, HistoricalReconstructionQuality: page.Source.HistoricalReconstructionQuality, AvailableAtSource: "IMMUTABLE_STORAGE_ACK_OR_HISTORICAL_PROCESSED_AT", Limitations: []string{"INDEPENDENT_SOURCE_READ_CUTOFF"}}
+	// Storage-value coverage is independent of missing reception/availability
+	// metadata in PostgreSQL. Its own status is then combined with the base page,
+	// so an unknown first ACK cannot erase otherwise proved reception coverage.
+	source := model.FactSourceCoverage{Source: "clickhouse_iot_telemetry", SourceVersion: fmt.Sprintf("query:%d", began), ReadAt: began, CoverageStart: page.Source.CoverageStart, CoverageEnd: min(page.Source.CoverageEnd, began), Complete: page.Source.Status == "AVAILABLE" && q.Start >= page.Source.CollectionStartedAt && q.End <= began, Status: page.Source.Status, CollectionStartedAt: page.Source.CollectionStartedAt, BackfillStatus: page.Source.BackfillStatus, HistoricalReconstructionQuality: page.Source.HistoricalReconstructionQuality, AvailableAtSource: "IMMUTABLE_STORAGE_ACK_OR_HISTORICAL_PROCESSED_AT", Limitations: []string{"INDEPENDENT_SOURCE_READ_CUTOFF"}}
 	if len(expected) == 0 {
 		page.AdditionalSources = append(page.AdditionalSources, source)
 		page.Complete = page.Source.Complete && source.Complete

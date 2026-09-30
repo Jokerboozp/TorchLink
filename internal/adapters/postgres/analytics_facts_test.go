@@ -187,6 +187,9 @@ func TestAnalyticsConfigurationHistoryAndHiddenParent(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		if dependencies.Complete || !strings.Contains(strings.Join(dependencies.Source.Limitations, ";"), "DEPENDENCY_WINDOW_SEED_MISSING") {
+			t.Fatal("missing window seed was declared historical coverage", dependencies.Source)
+		}
 		for _, v := range dependencies.Items {
 			if v.Kind == "parent-device" {
 				t.Fatal("unauthorized parent exposed", v)

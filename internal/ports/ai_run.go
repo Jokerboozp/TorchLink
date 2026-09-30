@@ -56,6 +56,7 @@ type AIRunIdentity struct {
 	AnalysisJobID           string
 	AnalysisLeaseToken      int64
 	AnalysisHarnessRunID    string
+	AnalysisWorkflowID      string
 	// Scopes are the MCP tool scopes the caller may use.
 	Scopes []string
 }

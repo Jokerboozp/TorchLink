@@ -20,10 +20,18 @@ type SeedResult struct {
 }
 
 func Seed(ctx context.Context, repo ports.Repository, tenant string, count int) (SeedResult, error) {
+	return SeedAt(ctx, repo, tenant, count, time.Now().Add(-2*time.Minute).UnixMilli())
+}
+
+// SeedAt permits whole-second UI fixture boundaries without altering the
+// actual availability acknowledgement clock of the underlying stores.
+func SeedAt(ctx context.Context, repo ports.Repository, tenant string, count int, start int64) (SeedResult, error) {
 	if count < 30 || count > 1000 {
 		return SeedResult{}, fmt.Errorf("synthetic sample count must be 30..1000")
 	}
-	start := time.Now().Add(-2 * time.Minute).UnixMilli()
+	if start <= 0 {
+		return SeedResult{}, fmt.Errorf("synthetic sample start must be positive")
+	}
 	result := SeedResult{TenantID: tenant, DeviceID: "quality-device", ProductID: "quality-product", AttributeID: "pressure", Start: start, End: start + int64(count)*1000}
 	product := model.Product{TenantID: tenant, ID: result.ProductID, Name: "隔离数据质量验证产品", Status: "ENABLED", ThingModel: &model.ThingModel{Properties: []model.ThingField{{Identifier: "pressure", Name: "压力", DataType: "number", Unit: "kPa", Required: true}}}}
 	if err := repo.SaveProduct(ctx, product); err != nil {

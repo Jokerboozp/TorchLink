@@ -127,6 +127,9 @@ func (m *Manager) IssueHarnessForIdentity(parent Claims, runID string, scopes []
 
 // IssueBusinessRunToken implements ports.HarnessTokenIssuer.
 func (m *Manager) IssueBusinessRunToken(tenantID string, identity ports.AIRunIdentity, runID, workflowID string, scopes []string, knowledge *ports.AIKnowledgeRunScope, ttl time.Duration) (string, error) {
+	if identity.AnalysisJobID != "" && (identity.AnalysisWorkflowID != workflowID || identity.AnalysisHarnessRunID != runID) {
+		return "", errors.New("analysis token workflow or run binding mismatch")
+	}
 	if strings.TrimSpace(workflowID) == "" {
 		return "", errors.New("business workflow is required")
 	}

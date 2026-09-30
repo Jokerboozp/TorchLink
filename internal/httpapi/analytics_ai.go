@@ -24,11 +24,13 @@ func (s *Server) RunAnalysisAIWorkers(ctx context.Context) {
 	}
 }
 func (s *Server) analysisAIRoutes() {
-	prefix := analytics.Prefix(analytics.KindDataQuality)
-	s.router.POST(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAICreate(analytics.KindDataQuality), "id"))
-	s.router.GET(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAIList(analytics.KindDataQuality), "id"))
-	s.router.GET(prefix+"/runs/:id/ai-jobs/:jobId", s.authorize("viewer"), s.endpoint(s.analysisAIGet(analytics.KindDataQuality), "id", "jobId"))
-	s.router.POST(prefix+"/runs/:id/ai-jobs/:jobId/stop", s.authorize("viewer"), s.endpoint(s.analysisAIStop(analytics.KindDataQuality), "id", "jobId"))
+	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring} {
+		prefix := analytics.Prefix(kind)
+		s.router.POST(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAICreate(kind), "id"))
+		s.router.GET(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAIList(kind), "id"))
+		s.router.GET(prefix+"/runs/:id/ai-jobs/:jobId", s.authorize("viewer"), s.endpoint(s.analysisAIGet(kind), "id", "jobId"))
+		s.router.POST(prefix+"/runs/:id/ai-jobs/:jobId/stop", s.authorize("viewer"), s.endpoint(s.analysisAIStop(kind), "id", "jobId"))
+	}
 }
 func publicAnalysisAI(v model.AnalysisAIRevision) model.AnalysisAIRevision {
 	v.LeaseOwner = ""
@@ -122,10 +124,10 @@ func (s *Server) authorizeAnalysisAI(ctx context.Context, identity ports.AIRunId
 	return err
 }
 func analysisHarnessIdentity(c auth.Claims) ports.AIRunIdentity {
-	return ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.ManagedUser, SessionVersion: c.SessionVersion, AccessVersion: c.AnalysisAccessVersion, AnalysisRunID: c.AnalysisRunID, AnalysisSnapshotID: c.AnalysisSnapshotID, AnalysisSnapshotVersion: c.AnalysisSnapshotVersion, AnalysisJobID: c.AnalysisJobID, AnalysisLeaseToken: c.AnalysisLeaseToken, AnalysisHarnessRunID: c.RunID}
+	return ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.ManagedUser, SessionVersion: c.SessionVersion, AccessVersion: c.AnalysisAccessVersion, AnalysisRunID: c.AnalysisRunID, AnalysisSnapshotID: c.AnalysisSnapshotID, AnalysisSnapshotVersion: c.AnalysisSnapshotVersion, AnalysisJobID: c.AnalysisJobID, AnalysisLeaseToken: c.AnalysisLeaseToken, AnalysisHarnessRunID: c.RunID, AnalysisWorkflowID: c.Workflow}
 }
 func (s *Server) authorizeAnalysisHarness(ctx context.Context, c auth.Claims) error {
-	if c.Workflow != core.WorkflowDataQuality {
+	if c.Workflow != core.WorkflowDataQuality && c.Workflow != core.WorkflowMonitoring {
 		return analytics.ErrForbidden
 	}
 	return s.authorizeAnalysisAI(ctx, analysisHarnessIdentity(c))

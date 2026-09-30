@@ -15,6 +15,13 @@ export const findingKinds = {
 }
 
 export const runIsActive = run => ['QUEUED', 'PREPARING', 'RUNNING'].includes(run?.status)
+export const qualityNavigationTarget = detail => ({ deviceId: typeof detail?.deviceId === 'string' ? detail.deviceId.trim() : '', runId: typeof detail?.runId === 'string' ? detail.runId.trim() : '' })
+// An explicit linked revision is authoritative. A failed read must propagate;
+// using a cached run instead would display unrelated facts as the reference.
+export async function resolveQualityRun({ requestedRunId, cachedRunId, read }) {
+  const id = requestedRunId || cachedRunId
+  return id ? read(id) : null
+}
 export const qualityStage = value => /^calculating:\d+$/.test(value || '') ? `正在计算第 ${value.split(':')[1]} 组测点` : ({ preparing: '读取固定输入', 'inputs-frozen': '输入已固定', complete: '事实计算完成', 'time-limit': '达到运行时限', cancelled: '已停止' }[value] || value || '等待执行')
 export const stateLabel = state => qualityStates[state] || state || '未知'
 export const stateTone = state => ['FAILED', 'issue'].includes(state) ? 'danger' : ['PARTIAL', 'partial', 'unknown', 'verification_required'].includes(state) ? 'warning' : ['SUCCEEDED', 'assessed'].includes(state) ? 'success' : 'info'

@@ -54,6 +54,7 @@ const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
 const DutyManagementView = defineAsyncComponent(() => import('./views/DutyManagementView.vue'))
 const DataQualityView = defineAsyncComponent(() => import('./views/DataQualityView.vue'))
+const MonitoringGapsView = defineAsyncComponent(() => import('./views/MonitoringGapsView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
@@ -92,6 +93,7 @@ const pages = {
   inspection: { ...pageGuide.inspection, icon: ClipboardCheck, component: HealthInspectionView, header: false },
   duty: { ...pageGuide.duty, icon: ClipboardCheck, component: DutyManagementView, header: false },
   dataQuality: { ...pageGuide.dataQuality, icon: Activity, component: DataQualityView, header: false },
+  monitoringGaps: { ...pageGuide.monitoringGaps, icon: Activity, component: MonitoringGapsView, header: false },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
@@ -113,7 +115,7 @@ const pages = {
   opsCapacity: { ...pageGuide.opsCapacity, icon: Activity, component: OpsCapacityView }
 }
 const menuGroups = [
-  { label: '运行监控', items: ['dashboard', 'alarms', 'duty', 'inspection', 'dataQuality', 'raw', 'rules'] },
+  { label: '运行监控', items: ['dashboard', 'alarms', 'duty', 'inspection', 'dataQuality', 'monitoringGaps', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },

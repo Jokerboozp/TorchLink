@@ -7,6 +7,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
@@ -14,7 +15,7 @@ import (
 )
 
 func registerAnalysisTool(s *server.MCPServer, engine *core.Engine) {
-	s.AddTool(mcp.NewTool("query_analysis_snapshot", mcp.WithDescription("分页读取本次签名 AI 任务绑定的固定分析版本。summary 是准确汇总；metrics/findings/evidence 为明细，默认20最多100。不得指定设备、任务、租户或来源查询。"), mcp.WithString("collection", mcp.Description("summary、metrics、findings 或 evidence；默认 summary")), mcp.WithNumber("limit", mcp.Description("明细页大小1到100，默认20")), mcp.WithNumber("offset", mcp.Description("明细偏移，默认0"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("query_analysis_snapshot", mcp.WithDescription("分页读取本次签名 AI 任务绑定的固定分析版本。summary 是准确汇总；metrics/findings/evidence 为明细；监测工作流另可读 intervals/dependency-groups，默认20最多100。hasMore 为真按 nextOffset 继续。不得指定设备、任务、租户或来源查询。"), mcp.WithString("collection", mcp.Description("summary、metrics、findings、evidence；监测另支持 intervals、dependency-groups。默认 summary")), mcp.WithNumber("limit", mcp.Description("明细页大小1到100，默认20")), mcp.WithNumber("offset", mcp.Description("明细偏移，默认0"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.GetArguments()
 		collection := "summary"
 		limit, offset := 20, 0
@@ -57,9 +58,9 @@ func readAnalysisSnapshot(ctx context.Context, engine *core.Engine, collection s
 		return model.AnalysisAIFacts{}, err
 	}
 	c, ok := auth.ClaimsFromContext(ctx)
-	if !ok || c.Workflow != core.WorkflowDataQuality || c.AnalysisJobID == "" || c.AnalysisSnapshotID == "" || c.AnalysisSnapshotVersion <= 0 || c.AnalysisLeaseToken <= 0 || c.AnalysisAccessVersion == "" || engine.AnalysisAI == nil {
+	if !ok || !analytics.IsAnalysisWorkflow(c.Workflow) || c.AnalysisJobID == "" || c.AnalysisSnapshotID == "" || c.AnalysisSnapshotVersion <= 0 || c.AnalysisLeaseToken <= 0 || c.AnalysisAccessVersion == "" || engine.AnalysisAI == nil {
 		return model.AnalysisAIFacts{}, errors.New("分析任务或快照未获授权")
 	}
-	identity := ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.ManagedUser, SessionVersion: c.SessionVersion, AccessVersion: c.AnalysisAccessVersion, AnalysisRunID: c.AnalysisRunID, AnalysisSnapshotID: c.AnalysisSnapshotID, AnalysisSnapshotVersion: c.AnalysisSnapshotVersion, AnalysisJobID: c.AnalysisJobID, AnalysisLeaseToken: c.AnalysisLeaseToken, AnalysisHarnessRunID: c.RunID}
+	identity := ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.ManagedUser, SessionVersion: c.SessionVersion, AccessVersion: c.AnalysisAccessVersion, AnalysisRunID: c.AnalysisRunID, AnalysisSnapshotID: c.AnalysisSnapshotID, AnalysisSnapshotVersion: c.AnalysisSnapshotVersion, AnalysisJobID: c.AnalysisJobID, AnalysisLeaseToken: c.AnalysisLeaseToken, AnalysisHarnessRunID: c.RunID, AnalysisWorkflowID: c.Workflow}
 	return engine.AnalysisAI.ReadBoundAnalysisFacts(ctx, identity, collection, limit, offset)
 }

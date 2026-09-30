@@ -19,17 +19,24 @@ import (
 )
 
 func TestAnalysisAIAPIExplicitStartStopAndWholeBodyRevocation(t *testing.T) {
+	testAnalysisAIAPI(t, analytics.KindDataQuality)
+}
+func TestMonitoringAIAPIExplicitStartStopAndWholeBodyRevocation(t *testing.T) {
+	testAnalysisAIAPI(t, analytics.KindMonitoring)
+}
+func testAnalysisAIAPI(t *testing.T, kind string) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
 	cfg := config.Config{AdminUser: "admin", AdminPassword: "test", AdminTenants: []string{"t", "other"}, JWTSecret: "analysis-ai-test-secret-at-least-32-characters", DevMode: true}
-	permissions := []string{"menu:devices", "menu:dataQuality", "POST /api/v1/data-quality/runs/:id/ai-jobs", "POST /api/v1/data-quality/runs/:id/ai-jobs/:jobId/stop"}
+	prefix := analytics.Prefix(kind)
+	permissions := []string{"menu:devices", "menu:" + analytics.Menu(kind), "POST " + prefix + "/runs/:id/ai-jobs", "POST " + prefix + "/runs/:id/ai-jobs/:jobId/stop"}
 	state := model.AccessState{Users: []model.PlatformUser{{Username: "reader", Enabled: true, SessionVersion: 1, Permissions: permissions, DeviceScope: "selected", DeviceIDs: []string{"a", "b"}}}}
 	if ok, err := repo.SaveAccessState(ctx, "t", state); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
 	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	store := api.analysis.Store
-	run, err := store.CreateAnalysisRun(ctx, model.AnalysisRun{ID: "facts", TenantID: "t", Kind: analytics.KindDataQuality, Creator: "reader", DeviceIDs: []string{"a", "b"}, PermissionsVersion: "version", Start: 1000, End: 2000, ConfigurationVersion: "1", AlgorithmVersion: "1", IdempotencyKey: "facts"}, 100)
+	run, err := store.CreateAnalysisRun(ctx, model.AnalysisRun{ID: "facts", TenantID: "t", Kind: kind, Creator: "reader", DeviceIDs: []string{"a", "b"}, PermissionsVersion: "version", Start: 1000, End: 2000, ConfigurationVersion: "1", AlgorithmVersion: "1", IdempotencyKey: "facts"}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +54,7 @@ func TestAnalysisAIAPIExplicitStartStopAndWholeBodyRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := "/api/v1/data-quality/runs/" + run.ID + "/ai-jobs"
+	path := prefix + "/runs/" + run.ID + "/ai-jobs"
 	q := map[string]any{"expectedVersion": run.Version, "idempotencyKey": "click", "useKnowledge": false}
 	job := requestJSON(t, server.Client(), "POST", server.URL+path, token, q, 202)
 	id := job["id"].(string)
@@ -55,13 +62,20 @@ func TestAnalysisAIAPIExplicitStartStopAndWholeBodyRevocation(t *testing.T) {
 	if again["id"] != id {
 		t.Fatal("repeat click created another job")
 	}
+	spec, _ := analytics.AnalysisWorkflow(kind)
+	if job["workflowId"] != spec.WorkflowID {
+		t.Fatal("application used a different workflow", job)
+	}
+	if kind == analytics.KindMonitoring {
+		requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/data-quality/runs/"+run.ID+"/ai-jobs", token, q, 403)
+	}
 	requestJSON(t, server.Client(), "GET", server.URL+path+"/"+id, token, nil, 200)
 	q["useKnowledge"] = true
 	q["idempotencyKey"] = "knowledge"
 	requestJSON(t, server.Client(), "POST", server.URL+path, token, q, 403)
 	q["useKnowledge"] = false
 	aistore := store.(ports.AnalysisAIStore)
-	claimed, err := aistore.ClaimAnalysisAIRevision(ctx, "worker", time.Minute, 4*time.Minute, []string{analytics.WorkflowDataQuality})
+	claimed, err := aistore.ClaimAnalysisAIRevision(ctx, "worker", time.Minute, 4*time.Minute, []string{spec.WorkflowID})
 	if err != nil {
 		t.Fatal(err)
 	}

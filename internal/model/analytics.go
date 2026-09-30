@@ -179,11 +179,14 @@ type AnalysisAIStatement struct {
 	DeviceIDs []string `json:"deviceIds,omitempty"`
 }
 type AnalysisAIResult struct {
-	Summary               string                `json:"summary"`
-	Interpretations       []AnalysisAIStatement `json:"interpretations"`
-	SuggestedVerification []AnalysisAIStatement `json:"suggestedVerification"`
-	Limitations           []AnalysisAIStatement `json:"limitations"`
-	Coverage              AnalysisAICoverage    `json:"coverage"`
+	Summary                string                `json:"summary"`
+	Interpretations        []AnalysisAIStatement `json:"interpretations"`
+	SuggestedVerification  []AnalysisAIStatement `json:"suggestedVerification"`
+	Limitations            []AnalysisAIStatement `json:"limitations"`
+	Coverage               AnalysisAICoverage    `json:"coverage"`
+	ObservedWeaknesses     []AnalysisAIStatement `json:"observedWeaknesses,omitempty"`
+	PrioritizedChecks      []AnalysisAIStatement `json:"prioritizedChecks,omitempty"`
+	DependencyObservations []AnalysisAIStatement `json:"dependencyObservations,omitempty"`
 }
 type AnalysisAICoverage struct {
 	SummaryProvided bool `json:"summaryProvided"`
@@ -198,6 +201,8 @@ type AnalysisAIFacts struct {
 	SnapshotVersion     int64                    `json:"snapshotVersion"`
 	SummaryFactID       string                   `json:"summaryFactId"`
 	Collection          string                   `json:"collection"`
+	WindowStart         int64                    `json:"windowStart"`
+	WindowEnd           int64                    `json:"windowEnd"`
 	Statistics          json.RawMessage          `json:"statistics,omitempty"`
 	Sources             []AnalysisSourceCoverage `json:"sources,omitempty"`
 	Limitations         []string                 `json:"limitations,omitempty"`

@@ -20,12 +20,15 @@ import (
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/adapters/rawstore"
+	"iot-platform/internal/analytics"
+	"iot-platform/internal/analytics/dataquality"
 	"iot-platform/internal/analytics/dataquality/testkit"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 )
 
 // This optional fixture serves the real API against an isolated PostgreSQL
@@ -77,14 +80,48 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	}
 	defer repo.Close()
 	const tenant = "ai-app-e2e"
-	data, err := testkit.Seed(ctx, repo, tenant, 40)
+	data, err := testkit.SeedAt(ctx, repo, tenant, 40, time.Now().Add(-2*time.Minute).Truncate(time.Second).UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{ID: "quality-device-hidden", TenantID: tenant, ProductID: data.ProductID, Name: "范围隔离验证设备", AccessKey: "fixture-hidden"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = seed.Exec(ctx, `UPDATE analytics_source_collection SET collection_started_at=$1,backfill_status='FIXTURE',historical_quality='CONTROLLED_SYNTHETIC'`, data.Start-1000); err != nil {
+	// Current-only dependency fixtures are registered records, never running
+	// collectors. Their creation cannot reconstruct the preceding sample window.
+	const profileID = "monitoring-fixture-access-profile"
+	if err = repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{ID: profileID, TenantID: tenant, DeviceID: data.DeviceID, ProductID: data.ProductID, ProtocolID: "synthetic-json", CollectorID: "monitoring-fixture-collector", Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	device, err := repo.GetManagedDevice(ctx, tenant, data.DeviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	device.ConnectorProfileID = profileID
+	device.GatewayID = "quality-device-hidden"
+	if err = repo.SaveManagedDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	const secondDevice = "monitoring-device-second"
+	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{ID: secondDevice, TenantID: tenant, ProductID: data.ProductID, Name: "隔离静默子设备", DeviceRole: "CHILD", GatewayID: data.DeviceID, ConnectorProfileID: profileID, AccessKey: "fixture-monitoring-second"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.DutyTransaction(ctx, tenant, func(tx ports.DutyTx) error {
+		for index, event := range []struct {
+			device, status string
+			at             int64
+		}{{data.DeviceID, "CONNECTED", data.Start - 1000}, {data.DeviceID, "DISCONNECTED", data.Start + 20000}, {data.DeviceID, "CONNECTED", data.Start + 30000}, {secondDevice, "CONNECTED", data.Start - 1000}} {
+			state := model.DeviceState{TenantID: tenant, DeviceID: event.device, ProductID: data.ProductID, ConnectionStatus: event.status, StatusSource: "isolated-synthetic-monitoring-test"}
+			body, _ := json.Marshal(state)
+			if err := tx.AppendEvent(model.DutyBusinessEvent{ID: fmt.Sprintf("monitoring-fixture-state-%d", index), TenantID: tenant, Type: "DEVICE_CONNECTION_CHANGED", Source: "device", ResourceID: event.device, DeviceID: event.device, OccurredAt: event.at, Body: body}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = seed.Exec(ctx, `UPDATE analytics_source_collection SET collection_started_at=$1,backfill_status='FIXTURE',historical_quality='CONTROLLED_SYNTHETIC' WHERE source<>'configuration_history'`, data.Start-5000); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Config{AdminUser: "admin", AdminPassword: password, AdminTenants: []string{tenant}, JWTSecret: "analytics-browser-fixture-secret-32-characters", DevMode: true, InstanceID: "analytics-browser-fixture", Analytics: config.AnalyticsConfig{Poll: 100 * time.Millisecond}}
@@ -98,6 +135,33 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	api.SetAnalysisStorage(repo, repo)
 	go api.RunAnalysisWorkers(ctx)
 	go api.RunAnalysisAIWorkers(ctx)
+	actor := analytics.Actor{TenantID: tenant, Username: "admin"}
+	qualityConfig, err := api.quality.SaveProfile(ctx, actor, data.ProfileRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualityParameters, _ := json.Marshal(model.QualityRunParameters{AttributeIDs: []string{data.AttributeID}, ProfileRevisionIDs: []string{qualityConfig.ID}})
+	qualityRequest := analytics.CreateRequest{DeviceIDs: []string{data.DeviceID}, Start: data.Start, End: data.End, Parameters: qualityParameters, IdempotencyKey: "fixture-fixed-quality"}
+	if err = api.quality.ValidateCreate(ctx, actor, &qualityRequest); err != nil {
+		t.Fatal(err)
+	}
+	qualityRun, err := api.analysis.Create(ctx, actor, analytics.KindDataQuality, dataquality.AlgorithmVersion, qualityRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 0; attempt < 200; attempt++ {
+		qualityRun, err = api.analysis.Get(ctx, actor, analytics.KindDataQuality, qualityRun.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if analytics.TerminalAnalysisStatus(qualityRun.Status) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if qualityRun.Status != model.AnalysisSucceeded && qualityRun.Status != model.AnalysisPartial {
+		t.Fatal("fixture fixed quality analysis failed")
+	}
 	addr := os.Getenv("IOT_TEST_ANALYTICS_BROWSER_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8092"
@@ -111,7 +175,9 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
 	if path := os.Getenv("IOT_TEST_ANALYTICS_BROWSER_INFO"); path != "" {
-		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest})
+		monitoringBody, _ := json.Marshal(model.MonitoringProfile{TargetType: "DEVICE", EffectiveFrom: data.Start, Mode: "periodic", Attributes: []model.MonitoringAttribute{{ID: data.AttributeID, ValueType: "number"}}, MessageTypes: []model.MessageType{model.PropertyReport}, Merge: "ALL", PeriodMs: 1000, ToleranceMs: 100, Importance: "人工确认的验证重点", LongGapMs: 5000, FrequentGapCount: 2})
+		monitoringInfo := map[string]any{"deviceIds": []string{data.DeviceID, secondDevice}, "start": data.Start, "end": data.End, "attributeId": data.AttributeID, "periodMs": 1000, "toleranceMs": 100, "observationStart": data.Start + 10000, "observationEnd": data.Start + 15000, "qualityRunId": qualityRun.ID, "expected": map[string]any{"synthetic": true, "connectionOnlineMs": 30000, "connectionOfflineMs": 10000, "eventExpiredBeforeAvailable": true, "connectionSecondOnlineMs": 40000}}
+		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo})
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}

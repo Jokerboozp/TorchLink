@@ -22,7 +22,7 @@ func TestAnalysisWorkflowFixedRunTokenAndKnowledgePolicy(t *testing.T) {
 	}}
 	engine.AIWorkflows = harness
 	engine.HarnessTokens = aitest.Tokens()
-	job := model.AnalysisAIRevision{ID: "job", TenantID: "t", RunID: "facts", SnapshotID: "snapshot", SnapshotVersion: 1, WorkflowID: analytics.WorkflowDataQuality, Creator: "operator", CreatorManaged: true, CreatorSessionVersion: 3, PermissionVersion: "scope1", LeaseToken: 7, HarnessRunID: "analysis_ai_fixed", DeviceIDs: []string{"d"}}
+	job := model.AnalysisAIRevision{ID: "job", TenantID: "t", Kind: analytics.KindDataQuality, PromptVersion: analytics.AnalysisAIPromptVersion, RunID: "facts", SnapshotID: "snapshot", SnapshotVersion: 1, WorkflowID: analytics.WorkflowDataQuality, Creator: "operator", CreatorManaged: true, CreatorSessionVersion: 3, PermissionVersion: "scope1", LeaseToken: 7, HarnessRunID: "analysis_ai_fixed", DeviceIDs: []string{"d"}}
 	input := model.AnalysisAIFacts{SnapshotID: job.SnapshotID, SnapshotVersion: 1, SummaryFactID: "snapshot/summary", Statistics: json.RawMessage(`{"unknown":2}`)}
 	ctx := ports.WithAIRunIdentity(context.Background(), analytics.AIIdentity(job))
 	result, err := engine.RunAnalysisWorkflow(ctx, job, input)
@@ -45,5 +45,48 @@ func TestAnalysisWorkflowFixedRunTokenAndKnowledgePolicy(t *testing.T) {
 	}
 	if len(harness.Requests()) != 1 {
 		t.Fatal("model called without required knowledge")
+	}
+}
+
+func TestMonitoringWorkflowPromptScopesAndWorkflowProof(t *testing.T) {
+	repo := memory.NewRepository()
+	engine := New(repo, nil, nil, nil, nil, nil)
+	harness := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) {
+		return `{"summary":"x","observedWeaknesses":[],"prioritizedChecks":[],"dependencyObservations":[],"limitations":[]}`, nil
+	}}
+	engine.AIWorkflows, engine.HarnessTokens = harness, aitest.Tokens()
+	job := model.AnalysisAIRevision{ID: "monitoring-job", TenantID: "t", Kind: analytics.KindMonitoring, PromptVersion: analytics.MonitoringAIPromptVersion, RunID: "monitoring-facts", SnapshotID: "snapshot", SnapshotVersion: 2, WorkflowID: WorkflowMonitoring, Creator: "operator", CreatorManaged: true, CreatorSessionVersion: 3, PermissionVersion: "scope1", LeaseToken: 7, HarnessRunID: "analysis_ai_monitoring", DeviceIDs: []string{"d"}}
+	input := model.AnalysisAIFacts{SnapshotID: job.SnapshotID, SnapshotVersion: 2, SummaryFactID: "snapshot/summary", Statistics: json.RawMessage(`{"knownUnavailableMs":500,"unknownMs":500,"currentDependencyOnly":true}`)}
+	identity := analytics.AIIdentity(job)
+	ctx := ports.WithAIRunIdentity(context.Background(), identity)
+	result, err := engine.RunAnalysisWorkflow(ctx, job, input)
+	if err != nil || result.RunID != job.HarnessRunID {
+		t.Fatal(result, err)
+	}
+	request := harness.Last()
+	claims, err := aitest.Claims(request)
+	if err != nil || claims.Workflow != WorkflowMonitoring || claims.AnalysisJobID != job.ID || claims.RunID != job.HarnessRunID || !slices.Equal(claims.Scopes, []string{ports.MCPToolScope("query_analysis_snapshot")}) {
+		t.Fatal(claims, request, err)
+	}
+	for _, text := range []string{"observedWeaknesses", "prioritizedChecks", "dependencyObservations", "intervals", "dependency-groups", "不能认定共同原因", "未知availableAt", `"knownUnavailableMs":500`} {
+		if !strings.Contains(request.Question, text) {
+			t.Fatal("monitoring prompt contract missing", text)
+		}
+	}
+	wrong := identity
+	wrong.AnalysisWorkflowID = WorkflowDataQuality
+	if _, err := engine.RunAnalysisWorkflow(ports.WithAIRunIdentity(context.Background(), wrong), job, input); err == nil {
+		t.Fatal("quality identity executed monitoring workflow")
+	}
+	wrongInput := input
+	wrongInput.SnapshotVersion++
+	if _, err := engine.RunAnalysisWorkflow(ctx, job, wrongInput); err == nil {
+		t.Fatal("wrong fixed input version sent to model")
+	}
+	if err := repo.SaveWorkflowKnowledgeBinding(context.Background(), model.WorkflowKnowledgeBinding{TenantID: "t", WorkflowID: WorkflowMonitoring, RetrievalMode: "always", TopK: 5, MinScore: .25, NoMatchPolicy: "require-evidence"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.RunAnalysisWorkflow(ctx, job, input); err == nil || len(harness.Requests()) != 1 {
+		t.Fatal("monitoring checkbox bypassed saved knowledge policy", err, len(harness.Requests()))
 	}
 }

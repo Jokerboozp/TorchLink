@@ -135,7 +135,7 @@ func (s *AIService) executeAI(parent context.Context, job model.AnalysisAIRevisi
 				finishFailure(err.Error())
 				return
 			}
-			result, err := DecodeAnalysisAIResult(outcome.run.Answer, current.SentFactIDs, current.DeviceIDs, coverage)
+			result, err := DecodeAIWorkflowResult(current.WorkflowID, outcome.run.Answer, current.SentFactIDs, current.DeviceIDs, coverage)
 			if err != nil {
 				finishFailure("AI 输出结构、对象范围或事实引用无效")
 				return

@@ -112,13 +112,14 @@ func (s *Service) execute(parent context.Context, r model.AnalysisRun, log *slog
 	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 	e := &Execution{service: s, Run: r, current: r}
-	if err := ctx.Err(); err != nil {
-		if parent.Err() == nil {
-			_, _ = s.Store.CommitAnalysisBatch(parent, r.TenantID, r.ID, r.LeaseToken, model.AnalysisBatch{ID: "timeout/" + uuid.NewString(), Checkpoint: r.Checkpoint, Processed: r.Processed, Status: model.AnalysisFailed, Stage: "FAILED", Error: err.Error()})
-		}
+	if parent.Err() != nil {
 		return
 	}
-	if err := s.authorizeWorker(ctx, r); err != nil {
+	// A reclaimed run keeps its original deadline. Authorize against the live
+	// parent before invoking an already-expired processor context, allowing
+	// application timeout handlers to preserve fixed partial facts. The shared
+	// failure path still handles processors without a partial-result policy.
+	if err := s.authorizeWorker(parent, r); err != nil {
 		s.invalidate(parent, r)
 		return
 	}
