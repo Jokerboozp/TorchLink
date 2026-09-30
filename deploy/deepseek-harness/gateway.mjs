@@ -24,6 +24,7 @@ export const READ_ONLY_TOOL_CEILING = Object.freeze([
   'mcp__iot__query_property_history',
   'mcp__iot__query_similar_alarms',
   'mcp__iot__query_knowledge_base',
+  'mcp__iot__query_duty_snapshot',
   'mcp__iot__create_rule_draft',
 ])
 
@@ -59,7 +60,7 @@ const MODEL_PROVIDERS = ['deepseek-official', 'openai-compatible']
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/
 const CAPABILITY_PATTERN = /^[^\u0000-\u001f\u007f]{1,64}$/u
-const BUILTIN_PLUGIN_IDS = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter'])
+const BUILTIN_PLUGIN_IDS = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter', 'duty-handover'])
 
 class HttpError extends Error {
   constructor(status, code, message) {

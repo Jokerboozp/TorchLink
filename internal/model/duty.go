@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	DutyReceiptKind       = "receipt"
 	DutyAttachmentKind    = "attachment"
 	DutyStationKind       = "station"
 	DutyTeamKind          = "team"
@@ -119,6 +120,7 @@ type DutyRun struct {
 	ScopeVersion       int64            `json:"scopeVersion"`
 	Status             string           `json:"status"`
 	StartedAt          int64            `json:"startedAt"`
+	StartReason        string           `json:"startReason,omitempty"`
 	EndedAt            int64            `json:"endedAt,omitempty"`
 	EndReason          string           `json:"endReason,omitempty"`
 	Attendance         []DutyAttendance `json:"attendance"`
@@ -173,6 +175,7 @@ type DutyItemEvent struct {
 	OccurredAt      int64  `json:"occurredAt"`
 }
 type DutyConfirmation struct {
+	Type           string `json:"type"`
 	UserID         string `json:"userId"`
 	At             int64  `json:"at"`
 	RevisionID     string `json:"revisionId"`
@@ -181,20 +184,22 @@ type DutyConfirmation struct {
 	Note           string `json:"note,omitempty"`
 }
 type DutyHandover struct {
-	DeviceIDs          []string                `json:"deviceIds"`
-	AcceptanceSnapshot *DutySnapshot           `json:"acceptanceSnapshot,omitempty"`
-	StationID          string                  `json:"stationId"`
-	RunID              string                  `json:"runId"`
-	NextRosterID       string                  `json:"nextRosterId"`
-	NextRunID          string                  `json:"nextRunId,omitempty"`
-	Status             string                  `json:"status"`
-	CurrentRevisionID  string                  `json:"currentRevisionId"`
-	RevisionNumber     int                     `json:"revisionNumber"`
-	Submission         *DutyConfirmation       `json:"submission,omitempty"`
-	Acceptance         *DutyConfirmation       `json:"acceptance,omitempty"`
-	ReturnReason       string                  `json:"returnReason,omitempty"`
-	VoidReason         string                  `json:"voidReason,omitempty"`
-	Amendments         []DutyHandoverAmendment `json:"amendments,omitempty"`
+	Confirmations        []DutyConfirmation      `json:"confirmations"`
+	AcceptanceRevisionID string                  `json:"acceptanceRevisionId,omitempty"`
+	DeviceIDs            []string                `json:"deviceIds"`
+	AcceptanceSnapshot   *DutySnapshot           `json:"acceptanceSnapshot,omitempty"`
+	StationID            string                  `json:"stationId"`
+	RunID                string                  `json:"runId"`
+	NextRosterID         string                  `json:"nextRosterId"`
+	NextRunID            string                  `json:"nextRunId,omitempty"`
+	Status               string                  `json:"status"`
+	CurrentRevisionID    string                  `json:"currentRevisionId"`
+	RevisionNumber       int                     `json:"revisionNumber"`
+	Submission           *DutyConfirmation       `json:"submission,omitempty"`
+	Acceptance           *DutyConfirmation       `json:"acceptance,omitempty"`
+	ReturnReason         string                  `json:"returnReason,omitempty"`
+	VoidReason           string                  `json:"voidReason,omitempty"`
+	Amendments           []DutyHandoverAmendment `json:"amendments,omitempty"`
 }
 type DutyHandoverAmendment struct {
 	ID       string   `json:"id"`
@@ -242,28 +247,33 @@ type DutySnapshot struct {
 	Alarms    []Alarm         `json:"alarms"`
 }
 type DutyHandoverRevision struct {
-	Frozen       bool                `json:"frozen"`
-	StationID    string              `json:"stationId"`
-	RunID        string              `json:"runId"`
-	HandoverID   string              `json:"handoverId"`
-	Number       int                 `json:"number"`
-	AuthorID     string              `json:"authorId"`
-	StartAt      int64               `json:"startAt"`
-	Snapshot     DutySnapshot        `json:"snapshot"`
-	SnapshotHash string              `json:"snapshotHash"`
-	Statistics   DutyStatistics      `json:"statistics"`
-	Events       []DutyBusinessEvent `json:"events"`
-	EventTotal   int                 `json:"eventTotal"`
-	Records      []DutyDocument      `json:"records"`
-	Items        []DutyDocument      `json:"items"`
-	Evidence     []DutyEvidence      `json:"evidence"`
-	HumanNotes   string              `json:"humanNotes"`
-	AI           *DutyAIResult       `json:"ai,omitempty"`
-	AIJobID      string              `json:"aiJobId,omitempty"`
+	StationName   string              `json:"stationName"`
+	LeaderID      string              `json:"leaderId"`
+	NextLeaderID  string              `json:"nextLeaderId"`
+	NextRosterID  string              `json:"nextRosterId"`
+	KnownEventIDs []string            `json:"knownEventIds"`
+	Frozen        bool                `json:"frozen"`
+	StationID     string              `json:"stationId"`
+	RunID         string              `json:"runId"`
+	HandoverID    string              `json:"handoverId"`
+	Number        int                 `json:"number"`
+	AuthorID      string              `json:"authorId"`
+	StartAt       int64               `json:"startAt"`
+	Snapshot      DutySnapshot        `json:"snapshot"`
+	SnapshotHash  string              `json:"snapshotHash"`
+	Statistics    DutyStatistics      `json:"statistics"`
+	Events        []DutyBusinessEvent `json:"events"`
+	EventTotal    int                 `json:"eventTotal"`
+	Records       []DutyDocument      `json:"records"`
+	Items         []DutyDocument      `json:"items"`
+	Evidence      []DutyEvidence      `json:"evidence"`
+	HumanNotes    string              `json:"humanNotes"`
+	AI            *DutyAIResult       `json:"ai,omitempty"`
+	AIJobID       string              `json:"aiJobId,omitempty"`
 }
 type DutyAIJob struct {
 	SessionVersion int64         `json:"sessionVersion"`
-	AccessVersion  int64         `json:"accessVersion"`
+	AccessVersion  string        `json:"accessVersion"`
 	ManagedUser    bool          `json:"managedUser"`
 	DeviceIDs      []string      `json:"deviceIds"`
 	Permissions    []string      `json:"permissions"`
@@ -387,24 +397,34 @@ func DutyAlarmEvents(ctx context.Context, old, next Alarm) []DutyBusinessEvent {
 	return out
 }
 func DutyDeviceEvent(ctx context.Context, old, next DeviceState) *DutyBusinessEvent {
-	if old.BusinessStatus == next.BusinessStatus && old.ConnectionStatus == next.ConnectionStatus {
+	if old.BusinessStatus == next.BusinessStatus && old.ConnectionStatus == next.ConnectionStatus && old.DataStatus == next.DataStatus {
 		return nil
 	}
+	now := time.Now().UnixMilli()
 	kind := "DEVICE_STATUS_CHANGED"
-	at := next.LastSeenAt
-	if next.BusinessStatus == "OFFLINE" || next.ConnectionStatus == "OFFLINE" {
+	at := now
+	if next.LastSeenAt > old.LastSeenAt {
+		at = next.LastSeenAt
+	}
+	switch next.BusinessStatus {
+	case "OFFLINE":
 		kind = "DEVICE_OFFLINE"
 		at = next.OfflineAt
 		if at == 0 {
 			at = next.LastDisconnectAt
 		}
-	} else if old.BusinessStatus == "OFFLINE" || old.ConnectionStatus == "OFFLINE" {
-		kind = "DEVICE_ONLINE"
-		at = next.LastConnectAt
+	case "SUSPECTED_OFFLINE":
+		kind = "DEVICE_SUSPECTED_OFFLINE"
+		at = next.OfflineAt
+	default:
+		if old.BusinessStatus == "OFFLINE" || old.BusinessStatus == "SUSPECTED_OFFLINE" {
+			kind = "DEVICE_ONLINE"
+			at = max(next.LastSeenAt, next.LastConnectAt)
+		}
 	}
 	if at == 0 {
-		at = time.Now().UnixMilli()
+		at = now
 	}
 	body, _ := json.Marshal(next)
-	return &DutyBusinessEvent{ID: dutyEventID(next.TenantID, next.DeviceID, kind, next.Version), TenantID: next.TenantID, Type: kind, Source: "device", ResourceID: next.DeviceID, ResourceVersion: next.Version, DeviceID: next.DeviceID, ActorID: DutyActor(ctx), OccurredAt: at, RecordedAt: time.Now().UnixMilli(), Body: body}
+	return &DutyBusinessEvent{ID: dutyEventID(next.TenantID, next.DeviceID, kind, next.Version), TenantID: next.TenantID, Type: kind, Source: "device", ResourceID: next.DeviceID, ResourceVersion: next.Version, DeviceID: next.DeviceID, ActorID: DutyActor(ctx), OccurredAt: at, RecordedAt: now, Body: body}
 }

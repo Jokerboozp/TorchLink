@@ -36,13 +36,13 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 			return candidate, "", err
 		}
 	}
+	old.Version = oldVersion
 	if state.MessageID == previous.MessageID && state.Timestamp == previous.Timestamp {
 		return old, previous.Event, tx.Commit(ctx)
 	}
 	if !state.Supersedes(previous) {
 		return old, "", tx.Commit(ctx)
 	}
-	old.Version = oldVersion
 	alarm, event := model.TransitionComponentAlarm(candidate, old, state)
 	if alarm.ID != "" {
 		alarm.Version = old.Version + 1

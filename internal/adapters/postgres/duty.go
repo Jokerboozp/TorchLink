@@ -16,7 +16,7 @@ import (
 )
 
 var _ ports.DutyStore = (*Repository)(nil)
-var dutyTables = map[string]string{model.DutyAttachmentKind: "duty_attachment", model.DutyStationKind: "duty_station", model.DutyTeamKind: "duty_team", model.DutyShiftTemplateKind: "duty_shift_template", model.DutyRosterKind: "duty_roster", model.DutyRunKind: "duty_run", model.DutyRecordKind: "duty_record", model.DutyItemKind: "duty_item", model.DutyItemEventKind: "duty_item_event", model.DutyHandoverKind: "duty_handover", model.DutyRevisionKind: "duty_handover_revision", model.DutyAIJobKind: "duty_ai_job", model.DutyNotificationKind: "duty_notification"}
+var dutyTables = map[string]string{model.DutyReceiptKind: "duty_receipt", model.DutyAttachmentKind: "duty_attachment", model.DutyStationKind: "duty_station", model.DutyTeamKind: "duty_team", model.DutyShiftTemplateKind: "duty_shift_template", model.DutyRosterKind: "duty_roster", model.DutyRunKind: "duty_run", model.DutyRecordKind: "duty_record", model.DutyItemKind: "duty_item", model.DutyItemEventKind: "duty_item_event", model.DutyHandoverKind: "duty_handover", model.DutyRevisionKind: "duty_handover_revision", model.DutyAIJobKind: "duty_ai_job", model.DutyNotificationKind: "duty_notification"}
 
 type dutyTx struct {
 	ctx      context.Context
@@ -110,7 +110,7 @@ func (t *dutyTx) Put(d model.DutyDocument, expected int64) (model.DutyDocument, 
 	if expected == 0 {
 		row = t.tx.QueryRow(t.ctx, `INSERT INTO `+table+`(tenant_id,id,version,created_at,updated_at,body) VALUES($1,$2,1,$3,$3,$4) ON CONFLICT DO NOTHING RETURNING id,tenant_id,version,created_at,updated_at,body`, t.tenant, d.ID, now, d.Body)
 	} else {
-		if slices.Contains([]string{model.DutyAttachmentKind, model.DutyRevisionKind, model.DutyItemEventKind, model.DutyRecordKind}, d.Kind) {
+		if slices.Contains([]string{model.DutyReceiptKind, model.DutyAttachmentKind, model.DutyRevisionKind, model.DutyItemEventKind, model.DutyRecordKind}, d.Kind) {
 			return d, errors.New("immutable duty document")
 		}
 		row = t.tx.QueryRow(t.ctx, `UPDATE `+table+` SET version=version+1,updated_at=$3,body=$4 WHERE tenant_id=$1 AND id=$2 AND version=$5 RETURNING id,tenant_id,version,created_at,updated_at,body`, t.tenant, d.ID, now, d.Body, expected)
@@ -129,7 +129,7 @@ func (t *dutyTx) Delete(kind, id string, expected int64) error {
 	if err != nil {
 		return err
 	}
-	if slices.Contains([]string{model.DutyAttachmentKind, model.DutyRevisionKind, model.DutyItemEventKind, model.DutyRecordKind}, kind) {
+	if slices.Contains([]string{model.DutyReceiptKind, model.DutyAttachmentKind, model.DutyRevisionKind, model.DutyItemEventKind, model.DutyRecordKind}, kind) {
 		return errors.New("immutable duty document")
 	}
 	tag, err := t.tx.Exec(t.ctx, `DELETE FROM `+table+` WHERE tenant_id=$1 AND id=$2 AND version=$3`, t.tenant, id, expected)
@@ -360,4 +360,36 @@ func (t *dutyTx) Snapshot(ids []string) (model.DutySnapshot, error) {
 	err = rows.Err()
 	rows.Close()
 	return s, err
+}
+
+func (r *Repository) DutyTenants(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT tenant_id FROM duty_station UNION SELECT tenant_id FROM duty_ai_job ORDER BY tenant_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var tenant string
+		if err = rows.Scan(&tenant); err != nil {
+			return nil, err
+		}
+		out = append(out, tenant)
+	}
+	return out, rows.Err()
+}
+
+func (t *dutyTx) Alarm(id string) (model.Alarm, error) {
+	var v model.Alarm
+	var body []byte
+	var version int64
+	err := t.tx.QueryRow(t.ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND id=$2`, t.tenant, id).Scan(&body, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return v, model.ErrNotFound
+	}
+	if err == nil {
+		err = json.Unmarshal(body, &v)
+		v.Version = version
+	}
+	return v, err
 }

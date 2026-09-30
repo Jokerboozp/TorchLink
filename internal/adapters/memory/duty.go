@@ -99,7 +99,7 @@ func (t *dutyTx) Put(d model.DutyDocument, expected int64) (model.DutyDocument, 
 	if (exists && old.Version != expected) || (!exists && expected != 0) {
 		return d, model.ErrDutyConflict
 	}
-	if exists && (d.Kind == model.DutyAttachmentKind || d.Kind == model.DutyRevisionKind || d.Kind == model.DutyItemEventKind || d.Kind == model.DutyRecordKind) {
+	if exists && (d.Kind == model.DutyReceiptKind || d.Kind == model.DutyAttachmentKind || d.Kind == model.DutyRevisionKind || d.Kind == model.DutyItemEventKind || d.Kind == model.DutyRecordKind) {
 		return d, fmt.Errorf("%s is immutable", d.Kind)
 	}
 	d.TenantID = t.tenant
@@ -124,7 +124,7 @@ func (t *dutyTx) Delete(kind, id string, expected int64) error {
 	if d.Version != expected {
 		return model.ErrDutyConflict
 	}
-	if kind == model.DutyAttachmentKind || kind == model.DutyRevisionKind || kind == model.DutyItemEventKind || kind == model.DutyRecordKind {
+	if kind == model.DutyReceiptKind || kind == model.DutyAttachmentKind || kind == model.DutyRevisionKind || kind == model.DutyItemEventKind || kind == model.DutyRecordKind {
 		return errors.New("immutable duty document")
 	}
 	delete(t.documents, key(t.tenant, kind, id))
@@ -197,7 +197,7 @@ func (t *dutyTx) Snapshot(ids []string) (model.DutySnapshot, error) {
 	return s, nil
 }
 func validDutyKind(k string) bool {
-	return slices.Contains([]string{model.DutyAttachmentKind, model.DutyStationKind, model.DutyTeamKind, model.DutyShiftTemplateKind, model.DutyRosterKind, model.DutyRunKind, model.DutyRecordKind, model.DutyItemKind, model.DutyItemEventKind, model.DutyHandoverKind, model.DutyRevisionKind, model.DutyAIJobKind, model.DutyNotificationKind}, k)
+	return slices.Contains([]string{model.DutyReceiptKind, model.DutyAttachmentKind, model.DutyStationKind, model.DutyTeamKind, model.DutyShiftTemplateKind, model.DutyRosterKind, model.DutyRunKind, model.DutyRecordKind, model.DutyItemKind, model.DutyItemEventKind, model.DutyHandoverKind, model.DutyRevisionKind, model.DutyAIJobKind, model.DutyNotificationKind}, k)
 }
 func dutyPage(l, o int) (int, int) {
 	if l <= 0 {
@@ -280,4 +280,32 @@ func (r *Repository) appendDutyEventLocked(e model.DutyBusinessEvent) {
 	r.dutyEventSeq++
 	e.Seq = r.dutyEventSeq
 	r.dutyEvents = append(r.dutyEvents, clone(e))
+}
+
+func (r *Repository) DutyTenants(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	set := map[string]bool{}
+	for _, d := range r.dutyDocuments {
+		set[d.TenantID] = true
+	}
+	out := []string{}
+	for tenant := range set {
+		if tenant != "" {
+			out = append(out, tenant)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+func (t *dutyTx) Alarm(id string) (model.Alarm, error) {
+	v, ok := t.repo.alarms[key(t.tenant, id)]
+	if !ok {
+		return v, model.ErrNotFound
+	}
+	return cloneAlarm(v), nil
 }

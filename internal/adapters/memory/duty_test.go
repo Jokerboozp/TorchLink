@@ -206,3 +206,36 @@ func TestDutyReliableAlarmLifecycleAndNoEventOnFailedCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDutyDeviceTimeoutEvidenceUsesRealPlatformStatuses(t *testing.T) {
+	r := NewRepository()
+	ctx := context.Background()
+	v := model.DeviceState{TenantID: "t", DeviceID: "d", BusinessStatus: "ONLINE", ConnectionStatus: "CONNECTED", DataStatus: "ACTIVE", LastSeenAt: 10}
+	if err := r.UpsertDeviceState(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	v.BusinessStatus = "SUSPECTED_OFFLINE"
+	v.DataStatus = "SILENT"
+	v.OfflineAt = 20
+	if err := r.UpsertDeviceState(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	v.BusinessStatus = "ONLINE"
+	v.DataStatus = "ACTIVE"
+	v.LastSeenAt = 30
+	if err := r.UpsertDeviceState(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DutyRead(ctx, "t", func(tx ports.DutyTx) error {
+		events, n, err := tx.Events(model.DutyFilter{Start: 20, End: 31})
+		if err != nil || n != 2 {
+			t.Fatal(events, n, err)
+		}
+		if events[0].Type != "DEVICE_ONLINE" || events[0].OccurredAt != 30 || events[1].Type != "DEVICE_SUSPECTED_OFFLINE" {
+			t.Fatal(events)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

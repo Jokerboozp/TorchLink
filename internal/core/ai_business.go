@@ -21,6 +21,7 @@ const (
 	WorkflowOpsReport        = "ops-assistant"
 	WorkflowProtocolAssist   = "protocol-assistant"
 	WorkflowRuleDraft        = "rule-drafter"
+	WorkflowDutyHandover     = "duty-handover"
 
 	businessRunTokenTTL = 5 * time.Minute
 )
@@ -30,7 +31,7 @@ var ErrAIWorkflowsUnavailable = errors.New("AI 工作流服务（Harness）未�
 
 // BusinessWorkflowIDs lists the non-chat Agents used by platform features.
 func BusinessWorkflowIDs() []string {
-	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft}
+	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover}
 }
 
 // AIWorkflowsReady reports whether business AI features can run.

@@ -17,6 +17,7 @@ export const READ_ONLY_TOOL_CEILING = Object.freeze([
   'mcp__iot__query_property_history',
   'mcp__iot__query_similar_alarms',
   'mcp__iot__query_knowledge_base',
+  'mcp__iot__query_duty_snapshot',
   // Draft-only tool: returns a disabled rule proposal and cannot persist,
   // enable, or execute an action without a separate human-approved API call.
   'mcp__iot__create_rule_draft',

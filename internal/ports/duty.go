@@ -11,7 +11,13 @@ type DutyStore interface {
 	DutyTransaction(context.Context, string, func(DutyTx) error) error
 	DutyRead(context.Context, string, func(DutyTx) error) error
 }
+
+// DutyTenantLister is used only by trusted lease recovery/reminder workers.
+type DutyTenantLister interface {
+	DutyTenants(context.Context) ([]string, error)
+}
 type DutyTx interface {
+	Alarm(id string) (model.Alarm, error)
 	Get(kind, id string) (model.DutyDocument, error)
 	List(model.DutyFilter) ([]model.DutyDocument, int, error)
 	Put(model.DutyDocument, int64) (model.DutyDocument, error)

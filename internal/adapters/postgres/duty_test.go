@@ -3,11 +3,14 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
+	"iot-platform/internal/duty"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"time"
 )
 
 func TestDutySQLRollbackCASImmutableAndHalfOpen(t *testing.T) {
@@ -212,6 +215,131 @@ func TestDutySQLListsAndSnapshotScoped(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDutySQLLegacyClosedAlarmLookup(t *testing.T) {
+	r := testRepository(t)
+	ctx := context.Background()
+	if _, err := r.pool.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body) VALUES('legacy','a','r','d','CLOSED','LOW','device',1,'{"alarmId":"a","tenantId":"legacy","deviceId":"d","status":"CLOSED"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DutyRead(ctx, "legacy", func(tx ports.DutyTx) error {
+		a, err := tx.Alarm("a")
+		if err != nil || a.Status != "CLOSED" || a.DeviceID != "d" {
+			t.Fatal(a, err)
+		}
+		snapshot, err := tx.Snapshot([]string{"d"})
+		if err != nil || len(snapshot.Alarms) != 0 {
+			t.Fatal("closed alarm polluted unresolved list", snapshot, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.DutyRead(ctx, "other", func(tx ports.DutyTx) error {
+		_, err := tx.Alarm("a")
+		if !errors.Is(err, model.ErrNotFound) {
+			t.Fatal(err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDutySQLCrossServiceLeaseTakeoverStopAndRestart(t *testing.T) {
+	r := testRepository(t)
+	ctx := context.Background()
+	now := time.Now()
+	if err := r.DutyTransaction(ctx, "t", func(tx ports.DutyTx) error {
+		for _, doc := range []model.DutyDocument{model.NewDutyDocument(model.DutyHandoverKind, "h", model.DutyHandover{Status: "DRAFT", CurrentRevisionID: "rev"}), model.NewDutyDocument(model.DutyAIJobKind, "job", model.DutyAIJob{Status: "QUEUED", HandoverID: "h", RevisionID: "rev"})} {
+			if _, err := tx.Put(doc, 0); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	one := duty.New(r, nil)
+	two := duty.New(&Repository{pool: r.pool}, nil)
+	one.Now = func() time.Time { return now }
+	two.Now = one.Now
+	claimed := make(chan string, 2)
+	var wg sync.WaitGroup
+	for i, svc := range []*duty.Service{one, two} {
+		wg.Add(1)
+		go func(i int, svc *duty.Service) {
+			defer wg.Done()
+			owner := fmt.Sprintf("process-%d", i)
+			_, ok, err := svc.ClaimJob(ctx, "t", "job", owner, time.Second)
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				claimed <- owner
+			}
+		}(i, svc)
+	}
+	wg.Wait()
+	close(claimed)
+	owners := []string{}
+	for owner := range claimed {
+		owners = append(owners, owner)
+	}
+	if len(owners) != 1 {
+		t.Fatal("multiple replicas owned one task", owners)
+	}
+	oldOwner := owners[0]
+	now = now.Add(2 * time.Second)
+	doc, ok, err := two.ClaimJob(ctx, "t", "job", "new-process", 30*time.Second)
+	if err != nil || !ok {
+		t.Fatal("restart did not recover expired lease", ok, err)
+	}
+	job, _ := model.DutyBody[model.DutyAIJob](doc)
+	if job.Attempt != 2 || job.LeaseOwner != "new-process" {
+		t.Fatal(job)
+	}
+	if ok, err = one.HeartbeatJob(ctx, "t", "job", oldOwner, "stale", time.Minute); err != nil || ok {
+		t.Fatal("old replica renewed lease", ok, err)
+	}
+	if _, err = one.FinishJob(ctx, "t", "job", oldOwner, nil, "", "", "stale failure"); !errors.Is(err, duty.ErrConflict) {
+		t.Fatal("old replica completed task", err)
+	}
+	if err = r.DutyTransaction(ctx, "t", func(tx ports.DutyTx) error {
+		d, err := tx.Get(model.DutyAIJobKind, "job")
+		if err != nil {
+			return err
+		}
+		j, _ := model.DutyBody[model.DutyAIJob](d)
+		j.Status = "STOP_REQUESTED"
+		d.Body = model.NewDutyDocument(d.Kind, d.ID, j).Body
+		_, err = tx.Put(d, d.Version)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err = two.HeartbeatJob(ctx, "t", "job", "new-process", "running", time.Minute); err != nil || ok {
+		t.Fatal("stop did not interrupt job", ok, err)
+	}
+	restarted := duty.New(&Repository{pool: r.pool}, nil)
+	restarted.Now = func() time.Time { return now.Add(time.Hour) }
+	if _, ok, err = restarted.ClaimJob(ctx, "t", "job", "restart", time.Minute); err != nil || ok {
+		t.Fatal("cancelled job revived after restart", ok, err)
+	}
+	if err = r.DutyRead(ctx, "t", func(tx ports.DutyTx) error {
+		d, err := tx.Get(model.DutyAIJobKind, "job")
+		if err != nil {
+			return err
+		}
+		j, _ := model.DutyBody[model.DutyAIJob](d)
+		if j.Status != "CANCELLED" || j.Attempt != 2 {
+			t.Fatal(j)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

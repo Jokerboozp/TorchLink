@@ -25,10 +25,11 @@ const (
 	ScopeQuerySimilarAlarms   = "mcp:tool:query_similar_alarms"
 	ScopeQueryKnowledgeBase   = "mcp:tool:query_knowledge_base"
 	ScopeCreateRuleDraft      = "mcp:tool:create_rule_draft"
+	ScopeQueryDutySnapshot    = "mcp:tool:query_duty_snapshot"
 )
 
 func HarnessReadScopes() []string {
-	return []string{ScopeQuerySystemOverview, ScopeQueryDeviceLatest, ScopeQueryAlarmList, ScopeQueryPropertyHistory, ScopeQuerySimilarAlarms, ScopeQueryKnowledgeBase, ScopeCreateRuleDraft}
+	return []string{ScopeQuerySystemOverview, ScopeQueryDeviceLatest, ScopeQueryAlarmList, ScopeQueryPropertyHistory, ScopeQuerySimilarAlarms, ScopeQueryKnowledgeBase, ScopeCreateRuleDraft, ScopeQueryDutySnapshot}
 }
 
 func ContextWithClaims(ctx context.Context, claims Claims) context.Context {
@@ -54,7 +55,10 @@ type Claims struct {
 	Knowledge      *KnowledgeScope `json:"knowledge,omitempty"`
 	// Workflow marks a Harness business run (alarm analysis, inspection, ...);
 	// the MCP endpoint then checks that feature's permission instead of chat.
-	Workflow string `json:"workflow,omitempty"`
+	Workflow       string `json:"workflow,omitempty"`
+	DutyRevisionID string `json:"dutyRevisionId,omitempty"`
+	DutyJobID      string `json:"dutyJobId,omitempty"`
+	DutyLeaseOwner string `json:"dutyLeaseOwner,omitempty"`
 	jwt.RegisteredClaims
 }
 type KnowledgeScope struct {
@@ -119,7 +123,7 @@ func (m *Manager) IssueBusinessRunToken(tenantID string, identity ports.AIRunIde
 	if strings.TrimSpace(workflowID) == "" {
 		return "", errors.New("business workflow is required")
 	}
-	parent := Claims{Username: identity.Username, TenantID: tenantID, SessionVersion: identity.SessionVersion, Workflow: workflowID}
+	parent := Claims{Username: identity.Username, TenantID: tenantID, SessionVersion: identity.SessionVersion, Workflow: workflowID, DutyRevisionID: identity.DutyRevisionID, DutyJobID: identity.DutyJobID, DutyLeaseOwner: identity.DutyLeaseOwner}
 	if identity.ManagedUser {
 		parent.TokenUse = "user"
 	}
@@ -145,6 +149,9 @@ func (m *Manager) issueHarness(parent Claims, runID string, scopes []string, kno
 		RunID:          runID,
 		Knowledge:      knowledge,
 		Workflow:       parent.Workflow,
+		DutyRevisionID: parent.DutyRevisionID,
+		DutyJobID:      parent.DutyJobID,
+		DutyLeaseOwner: parent.DutyLeaseOwner,
 		ManagedUser:    parent.TokenUse == "user",
 		SessionVersion: parent.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -92,6 +93,18 @@ func (s *Server) unscopedRepo() ports.Repository {
 		return r.Repository
 	}
 	return s.engine.Repo
+}
+
+// DutyRead serves resource-bound MCP snapshots. Callers must validate the
+// signed job/revision and every stored device against this request's scope.
+func (r *deviceScopeRepository) DutyRead(ctx context.Context, tenant string, fn func(ports.DutyTx) error) error {
+	reader, ok := r.Repository.(interface {
+		DutyRead(context.Context, string, func(ports.DutyTx) error) error
+	})
+	if !ok {
+		return fmt.Errorf("值班仓储不可用")
+	}
+	return reader.DutyRead(ctx, tenant, fn)
 }
 func pageSlice[T any](items []T, limit, offset int) []T {
 	if offset < 0 {

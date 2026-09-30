@@ -13,7 +13,7 @@ import (
 // DefaultWorkflowKnowledgeBinding is the retrieval policy used before an
 // administrator saves one for the Agent.
 func DefaultWorkflowKnowledgeBinding(tenantID, workflowID string) model.WorkflowKnowledgeBinding {
-	if workflowID == "system-observer" {
+	if workflowID == "system-observer" || workflowID == WorkflowDutyHandover {
 		return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "disabled", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"}
 	}
 	return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "always", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"}

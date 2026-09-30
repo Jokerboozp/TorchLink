@@ -999,13 +999,13 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		if err = json.Unmarshal(body, &old); err != nil {
 			return v, false, err
 		}
+		old.Version = version
 		if v.TriggerID != "" && old.TriggerID == v.TriggerID {
 			if err = tx.Commit(ctx); err != nil {
 				return v, false, err
 			}
 			return old, false, nil
 		}
-		old.Version = version
 		previous := old
 		old.Version++
 		old.LastTriggeredAt = v.LastTriggeredAt

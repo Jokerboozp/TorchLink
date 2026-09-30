@@ -146,7 +146,7 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 	if err != nil {
 		return fmt.Errorf("read manifest: %w", err)
 	}
-	if manifest.FormatVersion > 2 {
+	if manifest.FormatVersion > 3 {
 		return fmt.Errorf("unsupported backup manifest version %d", manifest.FormatVersion)
 	}
 	if manifest.ID != res.BackupID {
@@ -209,6 +209,9 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 		res.Kinds[kind] = summary
 	}
 	if err = s.restoreKnowledgeAndAgents(ctx, target, manifest, res); err != nil {
+		return err
+	}
+	if err = s.restoreDuty(ctx, target, manifest, res); err != nil {
 		return err
 	}
 	res.Status = "COMPLETED"

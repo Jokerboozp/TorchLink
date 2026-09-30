@@ -490,6 +490,9 @@ func Run(forcedRole string) {
 		log.Warn("local capacity controller unavailable", "error", capacityErr)
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	if cfg.Runs(config.ComponentManagement) {
+		go api.RunDutyWorkers(ctx)
+	}
 	api.SetRateLimiter(limits)
 	storageStats := func() {
 		if ch, ok := clickHouseRaw.(*clickhouseadapter.Repository); ok {

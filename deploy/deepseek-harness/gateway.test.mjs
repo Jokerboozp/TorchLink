@@ -381,7 +381,7 @@ test('failed process teardown stays visible and cannot falsely release model swi
 
 test('catalog is manifest-driven and exposes capabilities without policy internals', async () => {
   const plugins = await loadPluginCatalog(join(deploymentDir, 'plugins'))
-  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'device-health-inspector', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'system-observer'])
+  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'device-health-inspector', 'duty-handover', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'system-observer'])
   assert.ok(plugins.every(plugin => plugin.capabilities.length > 0))
 
   const { baseUrl } = await startGateway(async () => ({ run: async () => result(), close: async () => {} }))
@@ -392,7 +392,7 @@ test('catalog is manifest-driven and exposes capabilities without policy interna
   })
   assert.equal(response.status, 200)
   const body = await response.json()
-  assert.equal(body.items.length, 6)
+  assert.equal(body.items.length, 7)
   assert.ok(body.items.every(plugin => Array.isArray(plugin.capabilities)))
   assert.ok(body.items.every(plugin => plugin.persona === undefined && plugin.allowedTools === undefined))
 })
@@ -737,4 +737,26 @@ test('DeepSeek without a key stays healthy but rejects workflows before launchin
   assert.equal(response.status, 503)
   assert.match(await response.text(), /API_KEY_REQUIRED/)
   assert.equal(launched, false)
+})
+
+test('duty handover is immutable and exposes only its resource-bound snapshot and knowledge', async () => {
+  const catalog = await loadPluginCatalog(join(deploymentDir, 'plugins'))
+  const manifest = catalog.find(plugin => plugin.id === 'duty-handover')
+  assert.deepEqual(manifest.allowedTools, ['mcp__iot__query_duty_snapshot', 'mcp__iot__query_knowledge_base'])
+  const { baseUrl } = await startGateway(async () => ({ run: async () => result(), close: async () => {} }))
+  const response = await fetch(`${baseUrl}/v1/plugins`, { method: 'POST', headers: { ...controlHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ ...manifest, persona: 'overwrite built-in' }) })
+  assert.equal(response.status, 409)
+  assert.equal((await response.json()).error.code, 'BUILTIN_PLUGIN_IMMUTABLE')
+  assert.equal((await fetch(`${baseUrl}/v1/plugins/duty-handover`, { method: 'DELETE', headers: controlHeaders })).status, 409)
+})
+
+test('duty workflow runtime policy denies general device tools and all write tools', () => {
+  let guard
+  let restrict
+  const listeners = new Map()
+  applyPolicy({ tools: { guard(fn) { guard = fn } }, on(name, fn) { listeners.set(name, fn) } }, { allowedTools: ['mcp__iot__query_duty_snapshot', 'mcp__iot__query_knowledge_base'] })
+  listeners.get('agent/created')({ agent: { ctx: { tools: { restrict(value) { restrict = value } } } } })
+  assert.deepEqual(restrict.allow, ['mcp__iot__query_duty_snapshot', 'mcp__iot__query_knowledge_base'])
+  assert.equal(guard({ name: 'mcp__iot__query_duty_snapshot' }), undefined)
+  for (const name of ['mcp__iot__query_alarm_list', 'mcp__iot__create_rule_draft', 'shell', 'jobs', 'goal', 'skills', 'subagent', 'device_control']) assert.equal(guard({ name }), 'tool not allowed')
 })

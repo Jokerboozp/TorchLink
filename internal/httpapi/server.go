@@ -120,6 +120,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 }
 
 func (s *Server) routes() {
+	s.dutyRoutes()
 	s.accessRoutes()
 	s.openAPIRoutes()
 	s.deletionRoutes()
@@ -1342,7 +1343,7 @@ func (s *Server) alarmAction(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil {
 		return
 	}
-	v, err := s.engine.SetAlarmStatus(r.Context(), claims(r).TenantID, r.PathValue("id"), strings.ToUpper(in.Action), claims(r).Username)
+	v, err := s.engine.SetAlarmStatus(model.WithDutyActor(r.Context(), claims(r).Username), claims(r).TenantID, r.PathValue("id"), strings.ToUpper(in.Action), claims(r).Username)
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -1883,7 +1884,7 @@ func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnprocessableEntity, "workflow id has an invalid format")
 		return
 	}
-	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") {
+	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter", core.WorkflowDutyHandover) {
 		problem(w, http.StatusConflict, "built-in Agent ids cannot be deleted")
 		return
 	}
@@ -1902,7 +1903,7 @@ func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
 	if manifest.SchemaVersion != 1 || !validWorkflowIdentifier(manifest.ID) {
 		return errors.New("schemaVersion must be 1 and id must contain only letters, numbers, dot, underscore, colon or hyphen")
 	}
-	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") {
+	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter", core.WorkflowDutyHandover) {
 		return errors.New("built-in Agent ids cannot be overwritten")
 	}
 	if !boundedText(manifest.Name, 128) || !boundedText(manifest.Description, 1024) || !boundedText(manifest.Version, 64) || !boundedText(manifest.Persona, 16384) || !validWorkflowModel(manifest.DefaultModel) {
@@ -2962,6 +2963,13 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 		ctx := auth.ContextWithClaims(context.WithValue(c.Request.Context(), claimsKey, claimsValue), claimsValue)
+		if claimsValue.Workflow == core.WorkflowDutyHandover {
+			if err := s.authorizeDutyHarness(ctx, claimsValue); err != nil {
+				ginProblem(c, http.StatusForbidden, err.Error())
+				c.Abort()
+				return
+			}
+		}
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

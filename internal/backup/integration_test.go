@@ -53,6 +53,17 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			t.Fatalf("cannot create fixture table %s: %v", table, err)
 		}
 	}
+	// Duty schema is isolated too; it does not require changing live source tables.
+	for _, table := range dutyTables {
+		ident := pgx.Identifier{schema, table}.Sanitize()
+		definition := `tenant_id text NOT NULL,id text NOT NULL,version bigint NOT NULL,created_at bigint NOT NULL,updated_at bigint NOT NULL,body jsonb NOT NULL,PRIMARY KEY(tenant_id,id)`
+		if table == "duty_business_event" {
+			definition = `seq bigserial PRIMARY KEY,tenant_id text NOT NULL,id text NOT NULL,event_type text NOT NULL,station_id text NOT NULL,run_id text NOT NULL,device_id text NOT NULL,actor_id text NOT NULL,occurred_at bigint NOT NULL,recorded_at bigint NOT NULL,body jsonb NOT NULL,UNIQUE(tenant_id,id)`
+		}
+		if _, err = pool.Exec(ctx, "CREATE TABLE "+ident+"("+definition+")"); err != nil {
+			t.Fatalf("cannot create duty fixture table %s: %v", table, err)
+		}
+	}
 	connConfig, err := pgx.ParseConfig(source)
 	if err != nil {
 		t.Fatal("invalid source configuration")
@@ -91,6 +102,46 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 		}
 		if _, err = fixture.Exec(ctx, query, args...); err != nil {
 			t.Fatal("cannot populate knowledge fixture", err)
+		}
+	}
+	// A signed handover, carried item, record attachment, pending job and receipt
+	// exercise all duty artifacts without accessing live business rows.
+	dutyKey := schema + "/handover-photo.txt"
+	dutyOriginal := "现场检查照片的测试内容"
+	exists, err := store.BucketExists(ctx, dutyAttachmentBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		if err = store.MakeBucket(ctx, dutyAttachmentBucket, minio.MakeBucketOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = store.PutObject(ctx, dutyAttachmentBucket, dutyKey, strings.NewReader(dutyOriginal), int64(len(dutyOriginal)), minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		store.RemoveObject(context.Background(), dutyAttachmentBucket, dutyKey, minio.RemoveObjectOptions{})
+		if !exists {
+			store.RemoveBucket(context.Background(), dutyAttachmentBucket)
+		}
+	})
+	for _, table := range dutyTables {
+		body := map[string]any{"stationId": "station", "runId": "run", "handoverId": "handover", "status": "ACCEPTED"}
+		if table == "duty_attachment" {
+			body["attachment"] = map[string]any{"id": "attachment", "objectKey": dutyKey, "name": "handover-photo.txt", "size": len(dutyOriginal)}
+		}
+		if table == "duty_record" || table == "duty_handover_revision" {
+			body["attachments"] = []any{map[string]any{"id": "attachment", "objectKey": dutyKey}}
+		}
+		b, _ := json.Marshal(body)
+		ident := pgx.Identifier{schema, table}.Sanitize()
+		query := "INSERT INTO " + ident + "(tenant_id,id,version,created_at,updated_at,body) VALUES('fixture-tenant',$1,1,10,20,$2)"
+		if table == "duty_business_event" {
+			query = "INSERT INTO " + ident + "(tenant_id,id,event_type,station_id,run_id,device_id,actor_id,occurred_at,recorded_at,body) VALUES('fixture-tenant',$1,'HANDOVER_ACCEPTED','station','run','','operator',10,20,$2)"
+		}
+		if _, err = fixture.Exec(ctx, query, table, b); err != nil {
+			t.Fatalf("populate duty fixture %s: %v", table, err)
 		}
 	}
 	day := time.Now().AddDate(0, 0, -1)
@@ -140,7 +191,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			store.RemoveObject(context.Background(), objectBucket, a.ObjectKey, minio.RemoveObjectOptions{})
 		}
 	})
-	if manifest.FormatVersion != 2 || len(manifest.Artifacts) != 7 {
+	if manifest.FormatVersion != 3 || len(manifest.Artifacts) != 10 {
 		t.Fatal("FULL composition incomplete")
 	}
 	if _, err = s.Verify(ctx, manifest.ID); err != nil {
@@ -213,11 +264,46 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(cfg.RestoreHarnessDir, result.RestoreID, "instances/000/plugins/fire-operator.json")); err != nil {
 		t.Fatal("dynamic Agent manifest missing")
 	}
+	dutyRestored := result.Components["duty"].(map[string]any)["schema"].(string)
+	for _, table := range dutyTables {
+		var count int
+		if err = target.QueryRow(ctx, "SELECT count(*) FROM "+pgx.Identifier{dutyRestored, table}.Sanitize()).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("restored duty %s count=%d err=%v", table, count, err)
+		}
+	}
+	var attachmentKey string
+	if err = target.QueryRow(ctx, "SELECT body->'attachment'->>'objectKey' FROM "+pgx.Identifier{dutyRestored, "duty_attachment"}.Sanitize()).Scan(&attachmentKey); err != nil {
+		t.Fatal(err)
+	}
+	object, err = dr.GetObject(ctx, dutyAttachmentBucket, attachmentKey, minio.GetObjectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(object)
+	object.Close()
+	if err != nil || string(body) != dutyOriginal {
+		t.Fatal("restored duty attachment mismatch", err)
+	}
+	var embeddedKey string
+	if err = target.QueryRow(ctx, "SELECT body->'attachments'->0->>'objectKey' FROM "+pgx.Identifier{dutyRestored, "duty_handover_revision"}.Sanitize()).Scan(&embeddedKey); err != nil || embeddedKey != attachmentKey {
+		t.Fatal("snapshot attachment reference mismatch", err)
+	}
+	t.Cleanup(func() {
+		dr.RemoveObject(context.Background(), dutyAttachmentBucket, attachmentKey, minio.RemoveObjectOptions{})
+	})
+	// An older FULL v2 can still restore without requiring duty artifacts.
+	old := manifest
+	old.ID = manifest.ID
+	old.FormatVersion = 2
+	oldResult := RestoreResult{BackupID: manifest.ID, RestoreID: result.RestoreID + "-legacy", Components: map[string]any{}}
+	if err = s.restoreDuty(ctx, target, old, &oldResult); err != nil || oldResult.Components["duty"].(map[string]any)["status"] != "not_included" {
+		t.Fatal("old full backup rejected", err)
+	}
 	var sourceCount int
 	if err = fixture.QueryRow(ctx, "SELECT count(*) FROM ai_knowledge_doc").Scan(&sourceCount); err != nil || sourceCount != 1 {
 		t.Fatal("source knowledge changed during restore")
 	}
-	t.Logf("FULL v2 and daily verified and restored: PostgreSQL/ClickHouse messages, 4 knowledge tables, 1 original, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
+	t.Logf("FULL v3 and daily verified and restored: PostgreSQL/ClickHouse messages, 4 knowledge tables, duty tables, original and duty attachment, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
 }
 
 func TestLiveHarnessSnapshotRestoreIntegration(t *testing.T) {
