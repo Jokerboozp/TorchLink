@@ -37,6 +37,28 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 		}
 	}
 	old.Version = oldVersion
+	o := model.AlarmObservationFromAlarm(ctx, candidate)
+	o.FactKind = "CLEAR"
+	if state.Active {
+		o.FactKind = "ASSERT"
+	}
+	o.EventAt = state.Timestamp
+	o.AlarmID = old.ID
+	if o.AlarmID == "" && state.Active {
+		o.AlarmID = candidate.ID
+	}
+	o.WatermarkAt = previous.Timestamp
+	if !state.Supersedes(previous) {
+		o.Acceptance = "REJECTED"
+		o.Reason = "STALE_OR_EQUAL_STATE"
+	}
+	_, createdObservation, observationErr := recordAlarmObservation(ctx, tx, o)
+	if observationErr != nil {
+		return candidate, "", observationErr
+	}
+	if !createdObservation {
+		return old, previous.Event, tx.Commit(ctx)
+	}
 	if state.MessageID == previous.MessageID && state.Timestamp == previous.Timestamp {
 		return old, previous.Event, tx.Commit(ctx)
 	}

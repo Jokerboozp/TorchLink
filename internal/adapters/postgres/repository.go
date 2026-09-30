@@ -106,10 +106,16 @@ func (r *Repository) Migrate(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, schema); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, alarmObservationSchema); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, analyticsSchema); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, analyticsFactSchema); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, alarmGovernanceSchema); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1002,6 +1008,10 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		return v, false, err
 	}
 	defer tx.Rollback(ctx)
+	incomingObservation := model.AlarmObservationFromAlarm(ctx, v)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, incomingObservation.TenantID+"\x1f"+incomingObservation.DeviceID+"\x1f"+incomingObservation.SignalKey); err != nil {
+		return v, false, err
+	}
 	var body []byte
 	var version int64
 	err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND rule_id=$3 AND status IN ('ACTIVE','ACKED') FOR UPDATE`, v.TenantID, v.DeviceID, v.RuleID).Scan(&body, &version)
@@ -1011,6 +1021,18 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			return v, false, err
 		}
 		old.Version = version
+		o := model.AlarmObservationFromAlarm(ctx, v)
+		o.AlarmID = old.ID
+		savedObservation, createdObservation, observationErr := recordAlarmObservation(ctx, tx, o)
+		if observationErr != nil {
+			return v, false, observationErr
+		}
+		if !createdObservation {
+			return old, false, tx.Commit(ctx)
+		}
+		if observationErr = acceptAlarmSignal(ctx, tx, savedObservation); observationErr != nil {
+			return v, false, observationErr
+		}
 		if v.TriggerID != "" && old.TriggerID == v.TriggerID {
 			if err = tx.Commit(ctx); err != nil {
 				return v, false, err
@@ -1046,6 +1068,18 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return v, false, err
+	}
+	o := model.AlarmObservationFromAlarm(ctx, v)
+	o.AlarmID = v.ID
+	savedObservation, createdObservation, observationErr := recordAlarmObservation(ctx, tx, o)
+	if observationErr != nil {
+		return v, false, observationErr
+	}
+	if !createdObservation {
+		return v, false, tx.Commit(ctx)
+	}
+	if observationErr = acceptAlarmSignal(ctx, tx, savedObservation); observationErr != nil {
+		return v, false, observationErr
 	}
 	v.Version = 1
 	body, _ = json.Marshal(v)

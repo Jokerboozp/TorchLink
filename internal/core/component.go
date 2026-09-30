@@ -24,7 +24,16 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 				CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), AreaID: tag(msg, "areaId", ""), DeviceType: tag(msg, "deviceType", msg.ProductID),
 				Details: map[string]any{"message": msg, "component": component, "direct": true}}
 			a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-			saved, event, err := e.Repo.ApplyComponentAlarm(ctx, a, model.ComponentAlarmState{Timestamp: component.Timestamp, MessageID: msg.MessageID, Active: component.Alarms[kind]})
+			kindFact := "CLEAR"
+			if component.Alarms[kind] {
+				kindFact = "ASSERT"
+			}
+			o, err := e.sourceAlarmObservation(ctx, msg, "COMPONENT_STATE", "component:"+component.ID+":"+kind, kindFact, kind, component.ID, nil)
+			if err != nil {
+				return err
+			}
+			o.EventAt = component.Timestamp
+			saved, event, err := e.Repo.ApplyComponentAlarm(model.WithAlarmObservation(ctx, o), a, model.ComponentAlarmState{Timestamp: component.Timestamp, MessageID: msg.MessageID, Active: component.Alarms[kind]})
 			if err != nil {
 				return err
 			}

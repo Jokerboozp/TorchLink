@@ -14,6 +14,28 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 	k := key(candidate.TenantID, candidate.DeviceID, candidate.RuleID)
 	previous := r.componentAlarms[k]
 	old := r.alarms[key(candidate.TenantID, previous.AlarmID)]
+	o := model.AlarmObservationFromAlarm(ctx, candidate)
+	o.FactKind = "CLEAR"
+	if state.Active {
+		o.FactKind = "ASSERT"
+	}
+	o.EventAt = state.Timestamp
+	o.AlarmID = old.ID
+	if o.AlarmID == "" && state.Active {
+		o.AlarmID = candidate.ID
+	}
+	o.WatermarkAt = previous.Timestamp
+	if !state.Supersedes(previous) {
+		o.Acceptance = "REJECTED"
+		o.Reason = "STALE_OR_EQUAL_STATE"
+	}
+	_, createdObservation, observationErr := r.recordAlarmObservationLocked(o)
+	if observationErr != nil {
+		return candidate, "", observationErr
+	}
+	if !createdObservation {
+		return cloneAlarm(old), previous.Event, nil
+	}
 	if state.MessageID == previous.MessageID && state.Timestamp == previous.Timestamp {
 		return cloneAlarm(old), previous.Event, nil
 	}

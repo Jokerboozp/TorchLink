@@ -376,6 +376,7 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if !claim.ShouldProcess {
 		return nil
 	}
+	ctx = context.WithValue(ctx, alarmSourceReceiptKey{}, &alarmSourceReceipt{})
 	if msg.MessageType == model.CommandReply && msg.Parser == parser.StandardParserName {
 		if id, ok := msg.Event["commandId"].(string); ok {
 			if err := e.Repo.CompleteDeviceCommand(ctx, msg.TenantID, msg.DeviceID, id, msg.Event, e.Clock.Now().UnixMilli()); err != nil {
@@ -585,7 +586,11 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 		Details: map[string]any{"message": msg, "direct": true},
 	}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-	saved, created, err := e.Repo.UpsertAlarm(ctx, a)
+	o, err := e.sourceAlarmObservation(ctx, msg, "DEVICE_DIRECT", "device:"+alarmType, directAlarmObservationKind(msg, alarmType), alarmType, "", nil)
+	if err != nil {
+		return a, false, err
+	}
+	saved, created, err := e.Repo.UpsertAlarm(model.WithAlarmObservation(ctx, o), a)
 	if err != nil {
 		return saved, false, err
 	}
@@ -756,44 +761,33 @@ func directAlarmCleared(msg model.StandardMessage) bool {
 	}
 	found := false
 	for _, key := range []string{"alarm", "fireAlarm", "smoke", "smokeDetected", "fault", "offline", "powerFault", "openCircuit", "shortCircuit", "removed", "sensorFault", "upgradeFault"} {
-		value, ok := messageValue(msg, key)
+		_, ok := messageValue(msg, key)
 		if !ok {
 			continue
 		}
 		found = true
-		if truthy(value) {
-			return false
-		}
 	}
 	return found
 }
 
 func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMessage) error {
-	for _, status := range []string{"ACTIVE", "ACKED"} {
-		alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: msg.TenantID, DeviceID: msg.DeviceID, Status: status, Limit: 100})
+	for _, kind := range []string{"FIRE", "SMOKE_DETECTED", "DEVICE_FAULT", "DEVICE_OFFLINE", "MANUAL_ALARM"} {
+		if !directAlarmTypeCleared(msg, kind) {
+			continue
+		}
+		o, err := e.sourceAlarmObservation(ctx, msg, "DEVICE_DIRECT", "device:"+kind, "CLEAR", kind, "", nil)
 		if err != nil {
 			return err
 		}
-		for _, listed := range alarms {
-			if listed.ComponentID != "" || !strings.HasPrefix(listed.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, listed.AlarmType) {
-				continue
-			}
-			alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
-				if a.Status != "ACTIVE" && a.Status != "ACKED" {
-					return false, nil
-				}
-				a.Status = "RECOVERED"
-				a.RecoveredAt = e.Clock.Now().UnixMilli()
-				return true, nil
-			})
-			if err != nil {
-				return err
-			}
-			if written {
-				payload := mustJSON(alarm)
-				_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
-				_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
-			}
+		o.Reason = "EXPLICIT_DEVICE_NORMAL"
+		alarms, err := e.Repo.RecoverAlarmSignal(ctx, o, directAlarmRuleID(kind))
+		if err != nil {
+			return err
+		}
+		for _, alarm := range alarms {
+			payload := mustJSON(alarm)
+			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
+			_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
 		}
 	}
 	return nil
@@ -802,7 +796,11 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 	now := e.Clock.Now().UnixMilli()
 	a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, RuleID: rule.ID, TriggerID: msg.MessageID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), AlarmType: rule.AlarmType, AlarmLevel: rule.Level, Status: "ACTIVE", Source: "device", CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID), AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Details: map[string]any{"message": msg, "ruleName": rule.Name}}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-	saved, created, err := e.Repo.UpsertAlarm(ctx, a)
+	o, err := e.sourceAlarmObservation(ctx, msg, "RULE_LIFECYCLE", "rule:"+rule.ID, "ASSERT", rule.AlarmType, "", &rule)
+	if err != nil {
+		return a, false, err
+	}
+	saved, created, err := e.Repo.UpsertAlarm(model.WithAlarmObservation(ctx, o), a)
 	if err != nil {
 		return saved, false, err
 	}
@@ -829,30 +827,19 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 	return saved, created, nil
 }
 func (e *Engine) recoverRuleAlarm(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) error {
-	alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: msg.TenantID, DeviceID: msg.DeviceID, Status: "ACTIVE", Limit: 100})
+	o, err := e.sourceAlarmObservation(ctx, msg, "RULE_LIFECYCLE", "rule:"+rule.ID, "CLEAR", rule.AlarmType, "", &rule)
 	if err != nil {
 		return err
 	}
-	for _, listed := range alarms {
-		if listed.RuleID != rule.ID {
-			continue
-		}
-		a, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
-			if a.Status != "ACTIVE" {
-				return false, nil
-			}
-			a.Status = "RECOVERED"
-			a.RecoveredAt = e.Clock.Now().UnixMilli()
-			return true, nil
-		})
-		if err != nil {
-			return err
-		}
-		if written {
-			payload, _ := json.Marshal(a)
-			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
-			_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
-		}
+	o.Reason = "RULE_CONDITION_RECOVERED"
+	alarms, err := e.Repo.RecoverAlarmSignal(ctx, o, rule.ID)
+	if err != nil {
+		return err
+	}
+	for _, a := range alarms {
+		payload := mustJSON(a)
+		_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
+		_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
 	}
 	return nil
 }
@@ -867,7 +854,7 @@ func (e *Engine) DeleteRule(ctx context.Context, tenant, ruleID string) error {
 	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil {
 		return err
 	}
-	return e.closeRuleAlarms(ctx, tenant, ruleID)
+	return e.closeRuleAlarms(ctx, tenant, ruleID, "RULE_DELETED")
 }
 
 // DisableRule clears duration state and closes active/acknowledged alarms
@@ -877,10 +864,10 @@ func (e *Engine) DisableRule(ctx context.Context, tenant, ruleID string) error {
 	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil {
 		return err
 	}
-	return e.closeRuleAlarms(ctx, tenant, ruleID)
+	return e.closeRuleAlarms(ctx, tenant, ruleID, "RULE_DISABLED")
 }
 
-func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID string) error {
+func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID, reason string) error {
 	const batchSize = 1000
 	affectedDevices := make(map[string]struct{})
 	for _, status := range []string{"ACTIVE", "ACKED"} {
@@ -903,6 +890,10 @@ func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID string) err
 						return false, nil
 					}
 					a.Status = "RECOVERED"
+					if a.Details == nil {
+						a.Details = map[string]any{}
+					}
+					a.Details["recoveryReason"] = reason
 					a.RecoveredAt = e.Clock.Now().UnixMilli()
 					return true, nil
 				})

@@ -18,6 +18,9 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	alarmObservations   *alarmObservationState
+	governanceDocuments map[string]model.GovernanceDocument
+	governanceSources   map[string]int64
 	dutyDocuments       map[string]model.DutyDocument
 	dutyEvents          []model.DutyBusinessEvent
 	dutyEventSeq        int64
@@ -782,6 +785,16 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	defer r.mu.Unlock()
 	for k, a := range r.alarms {
 		if a.TenantID == v.TenantID && a.DeviceID == v.DeviceID && a.RuleID == v.RuleID && (a.Status == "ACTIVE" || a.Status == "ACKED") {
+			o := model.AlarmObservationFromAlarm(ctx, v)
+			o.AlarmID = a.ID
+			savedObservation, createdObservation, err := r.recordAlarmObservationLocked(o)
+			if err != nil {
+				return v, false, err
+			}
+			if !createdObservation {
+				return cloneAlarm(a), false, nil
+			}
+			r.acceptSignalLocked(savedObservation)
 			if v.TriggerID != "" && a.TriggerID == v.TriggerID {
 				return cloneAlarm(a), false, nil
 			}
@@ -800,6 +813,16 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			return cloneAlarm(a), false, nil
 		}
 	}
+	o := model.AlarmObservationFromAlarm(ctx, v)
+	o.AlarmID = v.ID
+	savedObservation, createdObservation, err := r.recordAlarmObservationLocked(o)
+	if err != nil {
+		return v, false, err
+	}
+	if !createdObservation {
+		return v, false, nil
+	}
+	r.acceptSignalLocked(savedObservation)
 	v.Version = 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
 	r.addOutbox(model.AlarmReportEvent(v, v))
