@@ -158,6 +158,9 @@ func (s *Server) permissionCatalog() []permissionItem {
 		items = append(items, permissionItem{"menu:" + id, name, id, "menu"})
 	}
 	for _, r := range s.router.Routes() {
+		if r.Path == capacityCleanupDataPath || strings.HasSuffix(r.Path, "/capacity/runs/:id/cleanup") {
+			continue
+		}
 		menu := routeMenu(r.Path)
 		// The add-device wizard is covered by the ordinary add-device permission.
 		// Open API routes authenticate API keys and reuse console permissions.
@@ -237,6 +240,9 @@ func permissionList(p map[string]bool) []string {
 	return out
 }
 func allowsRoute(p map[string]bool, method, path string) bool {
+	if path == capacityCleanupDataPath || path == "/api/v1/ops/capacity/runs/:id/cleanup" {
+		return p[capacityCleanupPermission] && p["menu:opsCapacity"]
+	}
 	if path == "/api/v1/auth/me" {
 		return true
 	}

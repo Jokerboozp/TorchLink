@@ -105,6 +105,9 @@ func (s *Server) opsRoutes() {
 	r.GET("/api/v1/ops/capacity/runs/:id", a, e(s.capacityRun, "id"))
 	r.POST("/api/v1/ops/capacity/runs/:id/stop", a, e(s.capacityStop, "id"))
 	r.GET("/api/v1/ops/capacity/runs/:id/report", a, e(s.capacityReport, "id"))
+	r.GET("/api/v1/ops/capacity/runs/:id/cleanup", a, e(s.capacityCleanupPreview, "id"))
+	r.DELETE("/api/v1/ops/capacity/runs/:id", a, e(s.capacityCleanup, "id"))
+	r.POST(capacityCleanupDataPath, a, e(s.capacityCleanupData))
 
 	r.GET("/api/v1/ops/preferences/saved-queries", a, e(s.opsSavedQueries))
 	r.POST("/api/v1/ops/preferences/saved-queries", a, e(s.opsSaveQuery))

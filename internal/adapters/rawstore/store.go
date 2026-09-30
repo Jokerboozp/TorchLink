@@ -59,6 +59,15 @@ func New(cfg Config) *Store {
 	}
 }
 
+func (s *Store) ForgetCapacityDevices(_ context.Context, tenant string, devices []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range devices {
+		delete(s.last, tenant+"\x00"+id)
+	}
+	return nil
+}
+
 func (s *Store) PutRaw(ctx context.Context, value model.RawMessage) (model.RawArchiveIndex, error) {
 	backend := s.chooseBackend(ctx, value)
 	database := s.postgres

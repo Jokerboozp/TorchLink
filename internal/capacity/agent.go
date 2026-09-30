@@ -651,6 +651,11 @@ func (w *Worker) send(ctx context.Context, r *workerRun, ph *workerPhase, stream
 	responded := w.now()
 	rec.done(e.Measured, res.ok, res.code, float64(responded.Sub(dispatched).Microseconds())/1000, lateness, res.attempts, res.bytes)
 	if !isMessageStream(stream) {
+		if res.resourceID != "" {
+			e.ResourceKind, e.ResourceID = res.resourceKind, res.resourceID
+			e.Responded, e.Result, e.OK = responded.UnixMicro(), res.code, res.ok
+			ledger.Write(e)
+		}
 		return
 	}
 	e.Alarm = alarm
@@ -659,7 +664,7 @@ func (w *Worker) send(ctx context.Context, r *workerRun, ph *workerPhase, stream
 }
 
 // isMessageStream reports device-message streams, which are ledgered and
-// reconciled by raw message ID; queries and modules only keep statistics.
+// reconciled by raw message ID. Module resources are also ledgered for cleanup.
 func isMessageStream(stream string) bool {
 	return stream == "http" || stream == "mqtt" || stream == "tcp"
 }

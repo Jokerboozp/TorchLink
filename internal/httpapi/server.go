@@ -1097,6 +1097,7 @@ func (s *Server) startReplay(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	v.TenantID = c.TenantID
 	v.CreatedBy = c.Username
+	v.CapacityRunID = capacityRequestRunID(r)
 	task, err := s.engine.StartReplay(r.Context(), v)
 	if err != nil {
 		problem(w, 422, err.Error())
@@ -2492,6 +2493,9 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "INDEXED", Metadata: map[string]any{"size": len(data), "contentType": h.Header.Get("Content-Type"), "chunks": len(chunks), "characters": len([]rune(textContent)), "chunking": map[string]any{"strategy": "fixed-window-overlap", "size": 1200, "overlap": 200, "unit": "unicode-code-points", "offsetConvention": "start-inclusive,end-exclusive"}}, CreatedAt: time.Now().UnixMilli()}
+	if run := capacityRequestRunID(r); run != "" {
+		doc.Metadata["capacityRunId"] = run
+	}
 	if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
 		problem(w, 500, err.Error())
 		return

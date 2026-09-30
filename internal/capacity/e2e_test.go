@@ -72,7 +72,7 @@ func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *f
 			w.WriteHeader(404)
 			return
 		}
-		_, _ = w.Write([]byte(`{"items":[]}`))
+		_, _ = w.Write([]byte(`{"product":{"status":"ENABLED"},"ready":true}`))
 	}))
 	mux.HandleFunc("PUT /api/v1/products/{id}", authed(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -358,7 +358,11 @@ func moduleHandlers(mux *http.ServeMux, f *fakePlatform) {
 		}
 	}
 	reply := func(status int, body string) http.HandlerFunc {
-		return auth(func(w http.ResponseWriter, _ *http.Request) {
+		return auth(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "POST" && (strings.Contains(r.URL.Path, "/ai/") || r.URL.Path == "/api/v1/raw-messages/replay") && !runIDPattern.MatchString(r.Header.Get("X-Capacity-Run-ID")) {
+				w.WriteHeader(400)
+				return
+			}
 			w.WriteHeader(status)
 			_, _ = w.Write([]byte(body))
 		})
@@ -366,11 +370,16 @@ func moduleHandlers(mux *http.ServeMux, f *fakePlatform) {
 	mux.HandleFunc("POST /api/v1/ai/alarm-analysis/{id}/run", reply(202, `{"jobId":"job-1"}`))
 	mux.HandleFunc("GET /api/v1/ai/alarm-analysis/{id}/progress/{job}", reply(200, `{"status":"succeeded"}`))
 	mux.HandleFunc("POST /api/v1/knowledge/documents", auth(func(w http.ResponseWriter, r *http.Request) {
+		if !runIDPattern.MatchString(r.Header.Get("X-Capacity-Run-ID")) {
+			w.WriteHeader(400)
+			return
+		}
 		if err := r.ParseMultipartForm(1 << 20); err != nil || r.FormValue("workflowId") != "wf-cap" {
 			w.WriteHeader(400)
 			return
 		}
 		w.WriteHeader(201)
+		_, _ = w.Write([]byte(`{"id":"doc-capacity"}`))
 	}))
 	mux.HandleFunc("POST /api/v1/video/cameras/{id}/play-sessions", reply(201, `{"sessionId":"s-1","hlsUrl":"/live/cam.m3u8"}`))
 	mux.HandleFunc("DELETE /api/v1/video/play-sessions/{id}", reply(204, ""))
@@ -453,6 +462,23 @@ func TestEndToEndBusinessModulesAndAlarmSequence(t *testing.T) {
 	}
 	if err = checkNoSecrets(dir, []string{"open-key-secret-e2e", e.platform.token}); err != nil {
 		t.Fatal(err)
+	}
+	resources := map[string]bool{}
+	ledgers, _ := filepath.Glob(filepath.Join(dir, "ledgers", "*", "*.jsonl.gz"))
+	for _, path := range ledgers {
+		if err = ReadLedger(path, func(_ LedgerHeader, entry LedgerEntry) error {
+			if entry.ResourceID != "" {
+				resources[entry.ResourceKind] = true
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, kind := range []string{"knowledge", "inspection", "alarm-analysis", "replay"} {
+		if !resources[kind] {
+			t.Errorf("module %s lacks cleanup ownership in ledger", kind)
+		}
 	}
 }
 

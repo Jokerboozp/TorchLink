@@ -174,6 +174,24 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	if strings.Contains(string(claimsJSON), "/external/raw/") || !strings.Contains(string(claimsJSON), "/iot/up/tenant/product/device/property") {
 		t.Fatal("standard device ACL includes raw bypass or misses topic")
 	}
+	product, err := repo.GetProduct(ctx, "tenant", "product")
+	if err != nil {
+		t.Fatal(err)
+	}
+	product.Status = "DISABLED"
+	if err := repo.SaveProduct(ctx, product); err != nil {
+		t.Fatal(err)
+	}
+	if w = call("POST", "/api/v1/device-mqtt/token", nil, created.Credential, false); w.Code != 401 || !strings.Contains(w.Body.String(), `"detail":"device product is disabled"`) {
+		t.Fatal("disabled product token diagnostic", w.Code, w.Body.String())
+	}
+	if w = call("GET", "/api/v1/onboarding/preflight?productId=product", nil, model.DeviceCredential{}, true); w.Code != 200 || !strings.Contains(w.Body.String(), `"ready":false`) {
+		t.Fatal("disabled product preflight", w.Code, w.Body.String())
+	}
+	product.Status = "ENABLED"
+	if err := repo.SaveProduct(ctx, product); err != nil {
+		t.Fatal(err)
+	}
 	w = call("POST", "/api/v1/device-registry/device/credentials", []byte(`{}`), model.DeviceCredential{}, true)
 	if w.Code != 200 {
 		t.Fatal("rotate credential", w.Code, w.Body.String())
@@ -184,6 +202,9 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &rotated)
 	if w = call("POST", path, payload, created.Credential, false); w.Code != 401 {
 		t.Fatal("rotated old credential accepted", w.Code)
+	}
+	if w = call("POST", "/api/v1/device-mqtt/token", nil, created.Credential, false); w.Code != 401 || !strings.Contains(w.Body.String(), `"detail":"invalid device credentials"`) {
+		t.Fatal("stale credential token diagnostic", w.Code, w.Body.String())
 	}
 	if w = call("POST", path, payload, rotated.Credential, false); w.Code != 202 {
 		t.Fatal("new credential rejected", w.Code, w.Body.String())

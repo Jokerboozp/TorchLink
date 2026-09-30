@@ -115,6 +115,60 @@ func testTelemetryMessage() model.StandardMessage {
 	}
 }
 
+func TestCapacityCleanupMutationsAndRetry(t *testing.T) {
+	for _, cluster := range []string{"", "test_cluster"} {
+		t.Run(cluster, func(t *testing.T) {
+			ctx := context.Background()
+			base := memory.NewRepository()
+			_, _ = base.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "raw"})
+			claim, err := base.ClaimStandardMessage(ctx, model.StandardMessage{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "standard", RawMessageID: "raw"}, "test", time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = base.MarkStandardMessageProcessed(ctx, "t", "standard", claim.Token); err != nil {
+				t.Fatal(err)
+			}
+			if err = base.MarkRawParseResult(ctx, "t", "raw", time.Now().UnixMilli(), ""); err != nil {
+				t.Fatal(err)
+			}
+			var fail atomic.Bool
+			fail.Store(true)
+			var mutations []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				query := r.URL.Query().Get("query")
+				mutations = append(mutations, query)
+				if fail.Load() {
+					w.WriteHeader(500)
+				}
+			}))
+			defer srv.Close()
+			repo := &Repository{Repository: base, base: srv.URL, http: srv.Client(), opts: Options{Cluster: cluster}}
+			q := model.CapacityCleanupBatch{Product: "p", Devices: []string{"cap"}, RawIDs: []string{"raw"}}
+			if _, err := repo.CleanupCapacityData(ctx, "t", q); err == nil {
+				t.Fatal("mutation failure reported success")
+			}
+			if _, err := base.GetRawIndex(ctx, "t", "raw"); err != nil {
+				t.Fatal("failure removed durable retry index")
+			}
+			fail.Store(false)
+			n, err := repo.CleanupCapacityData(ctx, "t", q)
+			if err != nil || n.Raw != 1 || n.Standard != 1 {
+				t.Fatalf("cleanup %+v %v", n, err)
+			}
+			for _, query := range mutations {
+				for _, part := range []string{"tenant_id='t'", "product_id='p'", "device_id IN ('cap')", "mutations_sync=2"} {
+					if !strings.Contains(query, part) {
+						t.Fatalf("unscoped mutation %s", query)
+					}
+				}
+				if cluster != "" && !strings.Contains(query, "_local ON CLUSTER test_cluster") {
+					t.Fatalf("distributed mutation used wrong table %s", query)
+				}
+			}
+		})
+	}
+}
+
 // Raw and telemetry lookups by message ID include the device, so ClickHouse
 // reads one device's range of the sort key instead of the whole tenant.
 func TestMessageLookupsNarrowToDevice(t *testing.T) {

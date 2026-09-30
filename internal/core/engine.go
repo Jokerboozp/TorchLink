@@ -1272,6 +1272,7 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	analysis.AlarmID = alarm.ID
 	analysis.KnowledgeScope = scope
 	analysis.KnowledgeDocuments = documents
+	analysis.CapacityRunID = ports.CapacityRunID(ctx)
 	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer saveCancel()
 	if saveErr := e.Repo.SaveAIAnalysis(saveCtx, analysis); saveErr != nil {

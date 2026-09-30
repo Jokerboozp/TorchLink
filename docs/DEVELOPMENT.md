@@ -156,6 +156,7 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 - **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 及 `parser`/`processor`/`jobs` 等拆分角色都要列）、Agent 与核对库的秘密引用。可选 `web`（管理端地址，视频场景经其拉取 HLS）与 `nodes`（各主机 node-exporter 地址，报告生成主机 CPU/内存/磁盘图 `hosts.svg`，瓶颈归类识别主机饱和）。控制器只访问清单中的地址。
 - **秘密**：计划与清单只写引用名；值来自环境变量 `TORCHLINK_CAPACITY_SECRET_<名称>`（`-`、`.` 换成 `_`，大写）或权限 0600 的 `--secrets` YAML 文件。需要：操作员 Bearer 令牌、核对用 PostgreSQL DSN（建议只读账户）、可选 ClickHouse URL、远程 Agent 共享令牌。报告生成时会检查秘密值没有出现在任何证据文件中。
 - **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下创建，前缀区分；`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束不删除设备，清理清单写在 `manifest.json`。
+- **MQTT 准备失败**：`token_credentials_401` 表示设备凭据被 API 拒绝，需核对设备启用状态、目标 API 和复用凭据；`token_product_disabled_401` 表示测试产品未启用，产品预检查也会拒绝 `ready:false`。页面可切换到“高级 YAML”，将 `fixtures` 下的 `reuseDevices: true` 改为 `reuseDevices: false` 后重试：这会使用带本次运行后缀的新设备，不删除或重置原设备。如果新设备仍失败，继续核对产品状态与 API 环境；不要删除数据卷或手工发送缓存文件中的密钥。`token_http_<状态码>` 保留其他 HTTP 错误的状态，`token_invalid_response` 表示成功响应缺少有效令牌或主题。准备失败发生在发压前，不能作为容量结论。
 - **远程 Agent**：负载机执行 `capacity-test agent --listen :7070 --token-ref capacity-agent --secrets <文件>`，并在清单 `agents` 中登记 URL。Agent 持有 20 秒租约，控制器失联后自动停发；旧运行或旧代次的指令被拒绝。
 - **判定**：每档检查实发达成率（未发出记为发压不足，不是服务失败）、入口成功率（429 为策略限制）、查询与业务完成 P95/P99（样本不足不输出分位）、积压趋势、排空与 ID 核对。业务完成时延取标准消息 `processed_at`（毫秒完成时间）与预定发送时刻之差，经数据库和 Agent 时钟偏差校正。结论写成“稳定通过 L、在 U 失败”“至少 L 尚未找到上限”或 inconclusive，并给出结构化停止原因。
 - **产物**：`capacity-results/<runId>/` 下有 `summary.json`、`phases.csv`、`report.md`、离线可打开的 `report.html`、`charts/*.svg`（`outputs.formats` 含 `png` 时另有同名 PNG，英文标签、UTC 时间）、`plan.sanitized.yaml`、`environment.json`、`manifest.json`、各档 `phases/`、`verification/`、`ledgers/`（gzip JSONL 发送账本）、`observations/metrics.jsonl`（及 `nodes.jsonl`）、`events.jsonl`、`checksums.txt`。缺测在表格和图中显示为空，不填 0。
@@ -209,7 +210,11 @@ IOT_CAPACITY_MODULE=on
 go run ./cmd/capacity-test serve --listen 127.0.0.1:7080 --inventories <受信任清单目录> --token-ref capacity-service --secrets capacity-secrets.yaml --results capacity-results
 ```
 
-清单目录中每个 `<环境名>.yaml` 即一个可选环境；页面只提交环境名与计划文本，秘密、地址与故障命令留在控制机。平台设置 `IOT_OPS_CAPACITY_URL`（控制服务地址，只让平台 API 可达）与 `IOT_OPS_CAPACITY_TOKEN`（与秘密文件中 `capacity-service` 相同，至少 32 个字符）。菜单 `opsCapacity` 只在 `IOT_OPS_TENANTS` 中授予，查看、校验、启动、停止、下载分别授权；同一时间只运行一个测试，控制服务收到终止信号时会先软停止当前运行并写出报告。
+清单目录中每个 `<环境名>.yaml` 即一个可选环境；页面只提交环境名与计划文本，秘密、地址与故障命令留在控制机。平台设置 `IOT_OPS_CAPACITY_URL`（控制服务地址，只让平台 API 可达）与 `IOT_OPS_CAPACITY_TOKEN`（与秘密文件中 `capacity-service` 相同，至少 32 个字符）。菜单 `opsCapacity` 只在 `IOT_OPS_TENANTS` 中授予，查看、校验、启动、停止、下载与清理分别授权；同一时间只运行一个测试，控制服务收到终止信号时会先软停止当前运行并写出报告。
+
+运行结束、失败或取消后，可在该行点击 **清理数据**。确认框先显示专用设备数、共享设备数和保留范围；清理会删除本次报文及派生告警/状态、独占测试设备、设备缓存、复用凭据、报告、账本和运行工作目录，最后一次关联运行清理时还会删除可确认由容量模块自动创建的测试产品和规则。清理后该行消失，报告不能再次下载，所需报告应先下载保存。有测试正在运行时禁止清理；存储、远程 Agent 或文件清理失败时保留运行记录，可重试已完成的步骤。
+
+清理使用 `DELETE /api/v1/ops/capacity/runs/:id` 操作权限，并要求当前账号拥有全租户设备范围；浏览器不能指定租户、设备或报文 ID。共享设备及其凭据供其他保留的运行使用，只按本次账本删除报文；已经改名为业务用途、被网关/摄像头/采集配置引用的设备会阻止删除。新运行的知识文档、AI 研判结果、巡检与回放任务会记录运行归属，完成后随该运行清理；正在处理的任务或报文须等待完成。系统审计、监控历史、消息队列按保留策略存储的历史记录、平台全量备份和独立恢复目标保留。旧运行无法证明归属的模块任务，以及 TCP 场景仅有 ACK、无法定位平台原文的数据会保留，并在确认框提示。部署需同时更新 API、Web 和容量测试模块；远程 Agent 也需更新，以支持运行工作目录清理。
 
 ### 单项工具
 

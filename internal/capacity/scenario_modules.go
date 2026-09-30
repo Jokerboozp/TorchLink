@@ -50,6 +50,9 @@ func jsonCall(ctx context.Context, c *http.Client, method, u, token string, body
 		b, _ = json.Marshal(body)
 	}
 	hdr := map[string]string{}
+	if run, ok := ctx.Value(capacityRunContextKey{}).(string); ok {
+		hdr["X-Capacity-Run-ID"] = run
+	}
 	if token != "" {
 		hdr["Authorization"] = "Bearer " + token
 	}
@@ -96,7 +99,12 @@ func poll(ctx context.Context, every time.Duration, fn func() (done bool, ok boo
 	}
 }
 
-func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k uint64) sendResult {
+type capacityRunContextKey struct{}
+
+func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k uint64) (result sendResult) {
+	ctx = context.WithValue(ctx, capacityRunContextKey{}, r.req.RunID)
+	var resourceKind, resourceID string
+	defer func() { result.resourceKind, result.resourceID = resourceKind, resourceID }()
 	cfg := r.req.Config
 	mc := cfg.Modules
 	st := r.modules
@@ -120,6 +128,7 @@ func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k 
 			JobID string `json:"jobId"`
 		}
 		_ = json.Unmarshal(body, &job)
+		resourceKind, resourceID = "alarm-analysis", job.JobID
 		ok, code := poll(rctx, 500*time.Millisecond, func() (bool, bool, string) {
 			s, b, e := jsonCall(rctx, c, http.MethodGet, cfg.API+"/api/v1/ai/alarm-analysis/"+url.PathEscape(alarm)+"/progress/"+url.PathEscape(job.JobID), cfg.OperatorToken, nil)
 			if e != nil || s != 200 {
@@ -141,7 +150,7 @@ func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k 
 		doc := knowledgeDocument(r.req.RunID, n, mc.KnowledgeBytes)
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
-		fw, _ := mw.CreateFormFile("file", fmt.Sprintf("capacity-%s-%d.md", r.req.RunID[max(0, len(r.req.RunID)-6):], n))
+		fw, _ := mw.CreateFormFile("file", fmt.Sprintf("capacity-%s-%d-%d.md", r.req.RunID, r.req.AgentIndex, n))
 		_, _ = fw.Write(doc)
 		_ = mw.WriteField("workflowId", mc.KnowledgeWorkflow)
 		_ = mw.WriteField("category", "capacity-test")
@@ -150,12 +159,17 @@ func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k 
 		defer cancel()
 		req, _ := http.NewRequestWithContext(rctx, http.MethodPost, cfg.API+"/api/v1/knowledge/documents", &buf)
 		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req.Header.Set("X-Capacity-Run-ID", r.req.RunID)
 		req.Header.Set("Authorization", "Bearer "+cfg.OperatorToken)
 		resp, err := c.Do(req)
 		if err != nil {
 			return sendResult{code: ShortError(err), attempts: 1}
 		}
-		_, _ = io.Copy(io.Discard, resp.Body)
+		var docResult struct {
+			ID string `json:"id"`
+		}
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&docResult)
+		resourceKind, resourceID = "knowledge", docResult.ID
 		resp.Body.Close()
 		return sendResult{ok: resp.StatusCode == 201, code: strconv.Itoa(resp.StatusCode), bytes: len(doc), attempts: 1}
 	case "video":
@@ -242,6 +256,7 @@ func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k 
 			ID string `json:"id"`
 		}
 		_ = json.Unmarshal(body, &task)
+		resourceKind, resourceID = "replay", task.ID
 		ok, code := poll(rctx, time.Second, func() (bool, bool, string) {
 			s, b, e := jsonCall(rctx, c, http.MethodGet, cfg.API+"/api/v1/replays/"+url.PathEscape(task.ID), cfg.OperatorToken, nil)
 			if e != nil || s != 200 {
@@ -269,6 +284,7 @@ func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k 
 			JobID string `json:"jobId"`
 		}
 		_ = json.Unmarshal(body, &job)
+		resourceKind, resourceID = "inspection", job.JobID
 		ok, code := poll(rctx, time.Second, func() (bool, bool, string) {
 			s, b, e := jsonCall(rctx, c, http.MethodGet, cfg.API+"/api/v1/ai/health-inspection/progress/"+url.PathEscape(job.JobID), cfg.OperatorToken, nil)
 			if e != nil || s != 200 {

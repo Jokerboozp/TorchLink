@@ -21,10 +21,11 @@ func (c *controller) provision(ctx context.Context) []PreflightCheck {
 	auth := map[string]string{"Authorization": "Bearer " + c.opToken}
 	var out []PreflightCheck
 
-	status, _, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+url.QueryEscape(f.Product), c.opToken)
+	status, resp, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+url.QueryEscape(f.Product), c.opToken)
 	switch {
 	case err == nil && status == http.StatusOK:
-		out = append(out, PreflightCheck{Name: "自动准备测试产品", OK: true, Detail: "复用已有产品 " + f.Product})
+		ready, detail := testProductReady(resp)
+		out = append(out, PreflightCheck{Name: "自动准备测试产品", OK: ready, Detail: "复用已有产品 " + f.Product + "：" + detail})
 	default:
 		body, _ := json.Marshal(map[string]any{
 			"id": f.Product, "name": "容量测试标准设备 " + f.Product, "category": "sensor",
@@ -52,7 +53,7 @@ func (c *controller) provision(ctx context.Context) []PreflightCheck {
 		"recovery":   []map[string]any{{"field": "stressAlarm", "operator": "eq", "value": 0}},
 	}
 	body, _ := json.Marshal(rule)
-	status, resp, err := doHTTP(ctx, c.httpc, http.MethodPut, api+"/api/v1/rules/"+url.PathEscape(f.AlarmRuleID)+"?confirmConflicts=true", body, auth)
+	status, resp, err = doHTTP(ctx, c.httpc, http.MethodPut, api+"/api/v1/rules/"+url.PathEscape(f.AlarmRuleID)+"?confirmConflicts=true", body, auth)
 	action := "更新"
 	if err == nil && status == http.StatusNotFound {
 		action = "创建"
@@ -68,4 +69,18 @@ func (c *controller) provision(ctx context.Context) []PreflightCheck {
 		c.provisioned = append(c.provisioned, "规则 "+f.AlarmRuleID)
 	}
 	return out
+}
+
+func testProductReady(body []byte) (bool, string) {
+	var check onboarding.Preflight
+	if json.Unmarshal(body, &check) != nil || check.Product.Status == "" {
+		return false, "接入预检响应无效"
+	}
+	if check.Product.Status != "ENABLED" {
+		return false, "测试产品未启用，请在设备模板中核对状态"
+	}
+	if !check.Ready {
+		return false, "测试产品未满足接入条件，请检查设备模板的接入配置"
+	}
+	return true, "接入预检通过"
 }

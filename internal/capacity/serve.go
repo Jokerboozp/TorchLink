@@ -243,7 +243,7 @@ func (s *Service) Start(req planRequest) (string, PlanCheck, error) {
 	s.mu.Unlock()
 	sum := sha256.Sum256([]byte(req.Plan))
 	planDir := filepath.Join(s.opt.ResultsDir, ".plans")
-	planPath := filepath.Join(planDir, time.Now().UTC().Format("20060102T150405Z")+"-"+hex.EncodeToString(sum[:4])+".yaml")
+	planPath := filepath.Join(planDir, time.Now().UTC().Format("20060102T150405.000000000Z")+"-"+hex.EncodeToString(sum[:4])+".yaml")
 	err := os.MkdirAll(planDir, 0o750)
 	if err == nil {
 		err = os.WriteFile(planPath, []byte(req.Plan), 0o640)
@@ -261,6 +261,7 @@ func (s *Service) Start(req planRequest) (string, PlanCheck, error) {
 	opt := RunOptions{PlanPath: planPath, InventoryPath: invPath, SecretsPath: s.opt.SecretsPath, ResultsDir: s.opt.ResultsDir, SourceCommit: s.opt.SourceCommit, Log: s.opt.Log, FaultAllow: s.opt.FaultAllow, NewStore: s.opt.NewStore, NewAgent: s.opt.NewAgent,
 		Tenant: req.Tenant, OperatorToken: req.OperatorToken,
 		OnStart: func(id string) {
+			_ = writeJSONAtomic(filepath.Join(s.opt.ResultsDir, id, "cleanup-context.json"), cleanupContext{Environment: req.Environment, APIHash: apiHash(inv.API), PlanFile: filepath.Base(planPath)})
 			s.mu.Lock()
 			s.active = id
 			s.mu.Unlock()
@@ -557,5 +558,43 @@ func (s *Service) Handler() http.Handler {
 			s.writeReport(w, id, firstNonEmpty(r.URL.Query().Get("format"), "html"))
 		}
 	}))
+	mux.HandleFunc("GET /v1/runs/{id}/cleanup", auth(func(w http.ResponseWriter, r *http.Request) {
+		if id, ok := runID(w, r); ok {
+			scope, err := s.cleanupScope(id, r.URL.Query().Get("tenant"))
+			if err != nil {
+				s.cleanupError(w, err)
+				return
+			}
+			serveJSON(w, 200, scope.preview)
+		}
+	}))
+	mux.HandleFunc("DELETE /v1/runs/{id}", auth(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := runID(w, r)
+		if !ok {
+			return
+		}
+		var req struct {
+			Tenant        string `json:"tenant"`
+			OperatorToken string `json:"operatorToken"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req) != nil || req.Tenant == "" || req.OperatorToken == "" {
+			serveError(w, 400, "bad_request", "cleanup requires operator identity")
+			return
+		}
+		result, err := s.Cleanup(r.Context(), id, req.Tenant, req.OperatorToken)
+		if err != nil {
+			s.cleanupError(w, err)
+			return
+		}
+		serveJSON(w, 200, result)
+	}))
 	return mux
+}
+
+func (s *Service) cleanupError(w http.ResponseWriter, err error) {
+	status := http.StatusConflict
+	if errors.Is(err, os.ErrNotExist) {
+		status = 404
+	}
+	serveError(w, status, "cleanup_failed", clip(err.Error(), 400))
 }

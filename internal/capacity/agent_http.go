@@ -41,6 +41,18 @@ func AgentHandler(w *Worker, token string) http.Handler {
 		s, _ := w.Status(r.Context())
 		writeAgentJSON(rw, s)
 	}))
+	mux.HandleFunc("DELETE /v1/runs/{id}", auth(func(rw http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if !runIDPattern.MatchString(id) {
+			agentError(rw, 400, "bad_request", "invalid run ID")
+			return
+		}
+		if err := w.Cleanup(r.Context(), id); err != nil {
+			writeAgentErr(rw, err)
+			return
+		}
+		writeAgentJSON(rw, map[string]bool{"deleted": true})
+	}))
 	mux.HandleFunc("POST /v1/prepare", auth(func(rw http.ResponseWriter, r *http.Request) {
 		var req PrepareRequest
 		if decode(r, &req) != nil {
@@ -259,4 +271,8 @@ func (a *RemoteAgent) Fault(ctx context.Context, req FaultRequest) (r FaultResul
 }
 func (a *RemoteAgent) Release(ctx context.Context, ref RunRef) error {
 	return a.call(ctx, http.MethodPost, "/v1/release", ref, nil, nil)
+}
+
+func (a *RemoteAgent) Cleanup(ctx context.Context, id string) error {
+	return a.call(ctx, http.MethodDelete, "/v1/runs/"+url.PathEscape(id), nil, nil, nil)
 }

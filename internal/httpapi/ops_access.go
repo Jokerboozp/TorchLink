@@ -102,6 +102,7 @@ var opsActionNames = map[string]string{
 	"POST /api/v1/ops/capacity/runs":                      "启动容量测试",
 	"POST /api/v1/ops/capacity/runs/:id/stop":             "停止容量测试",
 	"GET /api/v1/ops/capacity/runs/:id/report":            "下载容量测试报告",
+	"DELETE /api/v1/ops/capacity/runs/:id":                "清理容量测试数据和缓存",
 }
 
 func opsActionName(method, path string) (string, bool) {

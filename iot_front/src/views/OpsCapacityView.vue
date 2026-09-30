@@ -35,6 +35,7 @@ let loadVersion = 0
 
 const canRun = computed(() => can('POST /api/v1/ops/capacity/runs'))
 const canValidate = computed(() => can('POST /api/v1/ops/capacity/plans/validate'))
+const canCleanup = computed(() => can('DELETE /api/v1/ops/capacity/runs/:id'))
 const activeRun = computed(() => runs.value.find(run => run.active))
 const selectedEnv = computed(() => environments.value.find(env => env.name === environment.value))
 // 容量测试模块只有“本平台”一个环境时不需要选择。
@@ -166,12 +167,32 @@ async function downloadReport(run, format) {
   }
 }
 
+async function cleanupRun(run) {
+  if (run.active || !isFinished(run.status) || activeRun.value || busy.value) return
+  busy.value = `cleanup:${run.runId}`
+  try {
+    const preview = await opsGet(`/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}/cleanup`)
+    const warnings = (preview.warnings || []).filter(text => !text.startsWith('共享设备及其复用凭据')).join('\n')
+    try {
+      await UiMessageBox.confirm(`将清理 ${run.runId} 的测试报文、告警、${preview.devices} 个专用测试设备${preview.resources ? `、${preview.resources} 项业务任务或文档` : ''}、报告和缓存。${preview.sharedDevices ? `\n${preview.sharedDevices} 个共享设备及其凭据仍供其他运行使用，将保留。` : ''}\n${warnings}\n删除后无法恢复，请先下载需要保留的报告。`, '清理本次测试数据和缓存', { type: 'warning', confirmButtonText: '确认清理', cancelButtonText: '取消' })
+    } catch { return }
+    const result = await opsSend('DELETE', `/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}`, {})
+    if (!result.deleted) throw new Error('清理未完成，请保留运行记录后重试')
+    if (detail.value?.runId === run.runId) detail.value = null
+    runs.value = runs.value.filter(item => item.runId !== run.runId)
+    UiMessage.success('本次测试数据和缓存已清理')
+    await loadRuns(true)
+  } catch (error) { handleError(error) }
+  finally { busy.value = '' }
+}
+
 function rowActions(run) {
   const active = run.active || !isFinished(run.status)
   const actions = [{ key: 'detail', label: '详情', onClick: () => { detail.value = run } }]
   actions.push({ key: 'stop', label: '停止', permission: 'POST /api/v1/ops/capacity/runs/:id/stop', hidden: !active || run.status === 'CANCELLING', loading: busy.value === `stop:${run.runId}`, onClick: () => stop(run, false) })
   actions.push({ key: 'force', label: '强制停止', type: 'danger', permission: 'POST /api/v1/ops/capacity/runs/:id/stop', hidden: !active, onClick: () => stop(run, true) })
   if (run.reports?.includes('html')) actions.push({ key: 'html', label: '下载报告', permission: 'GET /api/v1/ops/capacity/runs/:id/report', loading: busy.value === `report:${run.runId}:html`, onClick: () => downloadReport(run, reportFormats[0]) })
+  actions.push({ key: 'cleanup', label: '清理数据', type: 'danger', permission: 'DELETE /api/v1/ops/capacity/runs/:id', hidden: active, disabled: Boolean(activeRun.value || busy.value), loading: busy.value === `cleanup:${run.runId}`, onClick: () => cleanupRun(run) })
   return actions
 }
 
@@ -219,7 +240,7 @@ onBeforeUnmount(() => clearTimeout(timer))
         <ui-button v-if="canRun" type="primary" :loading="busy === 'start'" :disabled="Boolean(notConfigured) || Boolean(activeRun)" @click="start">启动测试</ui-button>
       </template>
     </FilterBar>
-    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测。<template v-if="activeRun">当前运行 {{ activeRun.runId }} 结束前不能启动新的测试。</template><template v-if="!canRun">当前账号只能查看运行与结论。</template></p>
+    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测；不再需要时可在运行记录中清理数据和缓存。<template v-if="activeRun">当前运行 {{ activeRun.runId }} 结束前不能启动新的测试。</template><template v-if="!canRun && !canCleanup">当前账号只能查看运行与结论。</template></p>
     <template v-if="canValidate || canRun">
       <div v-if="!advanced" class="cap-form">
         <div class="cap-field cap-field--wide">

@@ -31,6 +31,7 @@ func (s *Server) startAIAnalysisJob(ctx context.Context, tenantID, alarmID, acto
 	}
 	now := time.Now().UnixMilli()
 	job := model.AlarmAnalysisJob{
+		CapacityRunID:        capacityJobRun(ctx),
 		ID:                   "ai_job_" + randomHex(10),
 		TenantID:             tenantID,
 		AlarmID:              alarmID,
@@ -90,6 +91,7 @@ func (s *Server) runAIAnalysisJob(job model.AlarmAnalysisJob, identity ports.AIR
 	started := time.UnixMilli(job.StartedAt)
 	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), 3*time.Minute) // 以发起人的身份运行告警研判工作流。
 	defer cancel()
+	ctx = ports.WithCapacityRunID(ctx, job.CapacityRunID)
 	resultCh := make(chan struct {
 		analysis model.AIAnalysis
 		err      error

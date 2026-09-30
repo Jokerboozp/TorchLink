@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -23,10 +24,378 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 )
+
+func TestPrepareExplainsRejectedCachedCredentials(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	if err := repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Status: "ENABLED", Transport: "MQTT", ProtocolPackageID: onboarding.StandardPackageID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "p", ID: "cap-000000", Status: "ENABLED", AccessKey: "new-key", SecretHash: onboarding.Hash("new-secret")}); err != nil {
+		t.Fatal(err)
+	}
+	service := onboarding.New(repo, nil, "", nil)
+	var rejected atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/onboarding" {
+			var req onboarding.EnrollRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Error(err)
+				w.WriteHeader(400)
+				return
+			}
+			result, err := service.Enroll(r.Context(), "t", req)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(422)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(result)
+			return
+		}
+		if r.URL.Path != "/api/v1/device-mqtt/token" {
+			t.Errorf("unexpected endpoint %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if _, err := service.Authenticate(r.Context(), r.Header.Get("X-Device-Key"), r.Header.Get("X-Device-Secret")); err != nil {
+			rejected.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"detail":"invalid device credentials"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"username":"device","token":"test-token","publishTopic":"/up","receiptTopic":"/receipt"}`))
+	}))
+	defer srv.Close()
+	work := t.TempDir()
+	path := filepath.Join(work, "fixtures", "t-p-cap.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var cached []DeviceCredential
+	for i := 0; i < 10; i++ {
+		cached = append(cached, DeviceCredential{ID: fmt.Sprintf("cap-%06d", i), Key: "old-key", Secret: "old-secret"})
+	}
+	b, _ := json.Marshal(cached)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := NewWorker("local", t.TempDir())
+	c := &controller{plan: validPlan(), inv: &Inventory{API: srv.URL}, opt: RunOptions{WorkDir: work, Log: io.Discard}, runID: "cap-test-123456", dir: t.TempDir(), httpc: srv.Client(), agents: []*agentHandle{{target: AgentTarget{Name: "local"}, agent: w}}}
+	t.Cleanup(c.release)
+	c.plan.Fixtures.Tenant, c.plan.Fixtures.Product, c.plan.Fixtures.DevicePrefix = "t", "p", "cap"
+	c.plan.Fixtures.DeviceCount, c.plan.Fixtures.ReuseDevices = 10, true
+	c.plan.Load.IngressShare, c.plan.Load.MQTTConnections = map[string]float64{"mqtt": 1}, 10
+	err := c.prepare(ctx)
+	if err == nil || rejected.Load() != 10 {
+		t.Fatalf("expected all 10 cached credentials to be rejected, got error=%v, 401 count=%d", err, rejected.Load())
+	}
+	if !strings.Contains(err.Error(), "token_credentials_401=10") || !strings.Contains(err.Error(), "reuseDevices: false") || !strings.Contains(err.Error(), "0/10") {
+		t.Fatalf("missing status, failure cause or recovery option: %v", err)
+	}
+	if strings.Contains(err.Error(), cached[0].Key) || strings.Contains(err.Error(), cached[0].Secret) {
+		t.Fatal("stale credential diagnostic leaked credentials")
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(b) {
+		t.Fatal("rejected cache must be retained for diagnosis")
+	}
+	// The suggested recovery enrolls fresh devices through the real onboarding
+	// service, without rotating or deleting any of the existing devices.
+	c.plan.Fixtures.ReuseDevices = false
+	fresh, manifest, err := c.fixtures(ctx)
+	if err != nil || len(manifest.DevicesCreated) != 10 || manifest.DevicesReused != 0 {
+		t.Fatalf("new-device recovery failed: %+v %v", manifest, err)
+	}
+	for _, d := range fresh {
+		if !strings.HasPrefix(d.ID, "cap-123456-") {
+			t.Fatalf("new run reused an old ID: %s", d.ID)
+		}
+		if _, _, _, _, err := mqttToken(ctx, srv.Client(), srv.URL, d); err != nil {
+			t.Fatalf("new device credential still rejected: %v", err)
+		}
+	}
+	old, err := repo.GetManagedDevice(ctx, "t", "cap-000000")
+	if err != nil || old.AccessKey != "new-key" || old.SecretHash != onboarding.Hash("new-secret") {
+		t.Fatal("new-device recovery changed the original device")
+	}
+}
+
+func TestMQTTTokenFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body, want string
+	}{
+		{"credentials", 401, `{"detail":"invalid device credentials"}`, "token_credentials_401"},
+		{"product disabled", 401, `{"detail":"device product is disabled"}`, "token_product_disabled_401"},
+		{"unknown unauthorized", 401, `{"detail":"secret-value"}`, "token_http_401"},
+		{"unavailable", 503, `{"detail":"secret-value"}`, "token_http_503"},
+		{"invalid JSON", 200, `broken`, "token_invalid_response"},
+		{"missing fields", 200, `{"token":"secret-value"}`, "token_invalid_response"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			_, failure := connectMQTT(context.Background(), srv.Client(), AgentConfig{API: srv.URL}, DeviceCredential{}, "r")
+			if failure != tc.want {
+				t.Fatalf("got %s, want %s", failure, tc.want)
+			}
+			_, _, _, _, err := mqttToken(context.Background(), srv.Client(), srv.URL, DeviceCredential{})
+			if err == nil || strings.Contains(err.Error(), "secret-value") {
+				t.Fatalf("unsafe or missing diagnostic: %v", err)
+			}
+		})
+	}
+}
+
+func TestProvisionRejectsExistingUnreadyProduct(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		ready      bool
+	}{
+		{"enabled", `{"product":{"status":"ENABLED"},"ready":true}`, true},
+		{"disabled", `{"product":{"status":"DISABLED"},"ready":false}`, false},
+		{"unsupported", `{"product":{"status":"ENABLED"},"ready":false}`, false},
+		{"invalid response", `{}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/api/v1/onboarding/preflight" {
+					t.Errorf("existing product must not be changed: %s %s", r.Method, r.URL.Path)
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			c := &controller{plan: &Plan{}, inv: &Inventory{API: srv.URL}, httpc: srv.Client()}
+			c.plan.Fixtures.Product = "p"
+			checks := c.provision(context.Background())
+			if len(checks) != 1 || checks[0].OK != tc.ready {
+				t.Fatalf("preflight ignored product readiness: %+v", checks)
+			}
+		})
+	}
+}
+
+func TestCleanupRunDataCachesAndRetry(t *testing.T) {
+	for _, tc := range []struct {
+		shared bool
+		count  int
+	}{{false, 2}, {true, 2}, {false, 1001}} {
+		shared := tc.shared
+		t.Run(fmt.Sprintf("shared=%v/devices=%d", shared, tc.count), func(t *testing.T) {
+			root := t.TempDir()
+			id := "cap-20260930-120000-abcdef"
+			other := "cap-20260930-110000-123456"
+			var fail atomic.Bool
+			fail.Store(true)
+			var requests []model.CapacityCleanupBatch
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("X-Capacity-Service-Token") != "svc" || r.Header.Get("Authorization") != "Bearer operator" {
+					t.Error("missing trusted cleanup identity")
+				}
+				var q model.CapacityCleanupBatch
+				if json.NewDecoder(r.Body).Decode(&q) != nil {
+					t.Error("invalid cleanup batch")
+				}
+				requests = append(requests, q)
+				if fail.Load() {
+					w.WriteHeader(503)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(model.CapacityCleanupCounts{Raw: int64(len(q.RawIDs)), Devices: int64(len(q.RemoveDevices))})
+			}))
+			defer api.Close()
+			service := NewService(ServeOptions{ResultsDir: root, Token: "svc", Self: &SelfEnvironment{API: api.URL, PostgresDSN: "unused", Metrics: []MetricsTarget{{Role: "combined", Instance: "a", URL: api.URL + "/metrics"}}}})
+			p := validPlan()
+			p.Fixtures.DeviceCount = tc.count
+			p.Fixtures.ReuseDevices = true
+			ds := make([]string, tc.count)
+			for i := range ds {
+				ds[i] = fmt.Sprintf("cap-%06d", i)
+			}
+			makeRun := func(run string, devices []string) {
+				t.Helper()
+				dir := filepath.Join(root, run)
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				b, _, _ := p.Sanitized()
+				if err := os.WriteFile(filepath.Join(dir, "plan.sanitized.yaml"), b, 0600); err != nil {
+					t.Fatal(err)
+				}
+				_ = writeJSONAtomic(filepath.Join(dir, "state.json"), RunState{RunID: run, Status: StatusFailed})
+				_ = writeJSONAtomic(filepath.Join(dir, "manifest.json"), Manifest{RunID: run, Tenant: p.Fixtures.Tenant, Product: p.Fixtures.Product, Devices: devices})
+				_ = writeJSONAtomic(filepath.Join(dir, "cleanup-context.json"), cleanupContext{Environment: "self", APIHash: apiHash(api.URL)})
+			}
+			makeRun(id, ds)
+			if shared {
+				makeRun(other, ds[:1])
+			}
+			cache := filepath.Join(root, ".work", "fixtures", "t1-p1-cap.json")
+			_ = os.MkdirAll(filepath.Dir(cache), 0700)
+			have := []DeviceCredential{{ID: "other-cache-device", Key: "other", Secret: "keep"}}
+			for _, id := range ds {
+				have = append(have, DeviceCredential{ID: id, Key: "test-key", Secret: "test-secret"})
+			}
+			b, _ := json.Marshal(have)
+			_ = os.WriteFile(cache, b, 0600)
+			ledger, err := NewLedgerWriter(filepath.Join(root, id, "ledgers", "p1", "local.jsonl.gz"), LedgerHeader{RunID: id, Tenant: "t1", Product: "p1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ledger.Write(LedgerEntry{Device: ds[0], RawID: "raw-test", Stream: "http", Result: "202", OK: true})
+			_, err = ledger.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			preview, err := service.cleanupScope(id, "t1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantRemove := tc.count
+			if shared {
+				wantRemove--
+			}
+			if preview.preview.Devices != wantRemove || preview.preview.RawMessages != 1 {
+				t.Fatalf("unexpected preview %+v", preview.preview)
+			}
+			if _, err = service.Cleanup(context.Background(), id, "t2", "operator"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("cross-tenant cleanup allowed", err)
+			}
+			service.active = "starting"
+			if _, err = service.Cleanup(context.Background(), id, "t1", "operator"); !errors.Is(err, ErrRunActive) {
+				t.Fatal("active cleanup allowed", err)
+			}
+			service.active = ""
+			if _, err = service.Cleanup(context.Background(), id, "t1", "operator"); err == nil {
+				t.Fatal("failed storage cleanup reported success")
+			}
+			after, _ := os.ReadFile(cache)
+			if string(after) != string(b) {
+				t.Fatal("failure discarded retry credentials")
+			}
+			if _, err = os.Stat(filepath.Join(root, id, "state.json")); err != nil {
+				t.Fatal("failure discarded run records")
+			}
+			fail.Store(false)
+			result, err := service.Cleanup(context.Background(), id, "t1", "operator")
+			if err != nil || !result.Deleted || result.Counts.Devices != int64(wantRemove) {
+				t.Fatalf("cleanup %+v %v", result, err)
+			}
+			if _, err = os.Stat(filepath.Join(root, id)); !os.IsNotExist(err) {
+				t.Fatal("run artifacts remain", err)
+			}
+			after, _ = os.ReadFile(cache)
+			var kept []DeviceCredential
+			_ = json.Unmarshal(after, &kept)
+			if len(kept) != len(have)-wantRemove {
+				t.Fatalf("wrong cached credentials kept: %d", len(kept))
+			}
+			for _, d := range kept {
+				if d.ID == ds[1] || (!shared && d.ID == ds[0]) {
+					t.Fatal("deleted fixture credential remains")
+				}
+			}
+			if shared {
+				if _, err = os.Stat(filepath.Join(root, other, "state.json")); err != nil {
+					t.Fatal("other run was removed", err)
+				}
+			}
+			for _, q := range requests {
+				if len(q.Devices) > 1000 || len(q.RawIDs) > 500 {
+					t.Fatal("unbounded cleanup batch")
+				}
+				for _, d := range q.RemoveDevices {
+					if shared && d == ds[0] {
+						t.Fatal("shared device was sent for deletion")
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCleanupRejectsActiveRunAndUnsafePaths(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(ServeOptions{ResultsDir: root})
+	if _, err := service.cleanupScope("../outside", "t"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	id := "cap-20260930-120000-abcdef"
+	_ = os.Mkdir(filepath.Join(root, id), 0700)
+	_ = writeJSONAtomic(filepath.Join(root, id, "state.json"), RunState{RunID: id, Status: StatusRunning})
+	if _, err := service.cleanupScope(id, "t"); !errors.Is(err, ErrRunActive) {
+		t.Fatal("running record was cleanable", err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err == nil {
+		if _, err = safeCleanupPath(root, "link", "file"); err == nil {
+			t.Fatal("symlink path was allowed")
+		}
+	}
+}
+
+func TestRemoteAgentCleanupRequiresAuthAndIdleWorker(t *testing.T) {
+	root := t.TempDir()
+	id := "cap-20260930-120000-abcdef"
+	other := "cap-20260930-120001-abcdef"
+	for _, run := range []string{id, other} {
+		if err := os.Mkdir(filepath.Join(root, run), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, run, "ledger"), []byte("evidence"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := NewWorker("remote", root)
+	srv := httptest.NewServer(AgentHandler(w, "agent-secret"))
+	defer srv.Close()
+	ctx := context.Background()
+	if err := NewRemoteAgent("remote", srv.URL, "forged").Cleanup(ctx, id); err == nil {
+		t.Fatal("unauthenticated cleanup allowed")
+	}
+	a := NewRemoteAgent("remote", srv.URL, "agent-secret")
+	w.run = &workerRun{req: PrepareRequest{RunID: id}, leaseUntil: time.Now().Add(time.Minute)}
+	if err := a.Cleanup(ctx, id); !errors.Is(err, ErrAgentBusy) {
+		t.Fatal("leased worker cleanup allowed", err)
+	}
+	w.mu.Lock()
+	w.run = nil
+	w.mu.Unlock()
+	if err := a.Cleanup(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, id)); !os.IsNotExist(err) {
+		t.Fatal("agent artifacts retained", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, other, "ledger")); err != nil {
+		t.Fatal("other run changed", err)
+	}
+	if err := a.Cleanup(ctx, id); err != nil {
+		t.Fatal("idempotent retry failed", err)
+	}
+	if err := w.Cleanup(ctx, "../outside"); err == nil {
+		t.Fatal("unsafe worker cleanup path allowed")
+	}
+	// An expired, idle lease from a lost controller can also be cleaned.
+	_, cancel := context.WithCancel(context.Background())
+	w.mu.Lock()
+	w.run = &workerRun{req: PrepareRequest{RunID: id}, leaseUntil: time.Now().Add(-time.Second), cancel: cancel}
+	w.mu.Unlock()
+	if err := a.Cleanup(ctx, id); err != nil {
+		t.Fatal("expired idle lease cannot be cleaned", err)
+	}
+}
 
 func validPlan() *Plan {
 	p, err := ParsePlan([]byte(`

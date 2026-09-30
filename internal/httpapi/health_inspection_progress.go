@@ -22,7 +22,7 @@ const (
 // 任务进度与结果保存在仓储中：服务重启后可继续读取，多个 API 副本看到同一任务；执行仍在发起任务的进程内进行。
 
 func (s *Server) runHealthInspection(w http.ResponseWriter, r *http.Request) {
-	job, err := s.startHealthInspectionJob(r.Context(), claims(r).TenantID, claims(r).Username, aiRunIdentity(r.Context(), claims(r)))
+	job, err := s.startHealthInspectionJob(capacityJobContext(r), claims(r).TenantID, claims(r).Username, aiRunIdentity(r.Context(), claims(r)))
 	if err != nil {
 		problem(w, http.StatusInternalServerError, err.Error())
 		return
@@ -38,6 +38,7 @@ func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor s
 	now := time.Now()
 	estimate := s.healthInspectionEstimate()
 	job := model.HealthInspectionJob{
+		CapacityRunID:        capacityJobRun(ctx),
 		ID:                   "inspection_job_" + randomHex(10),
 		TenantID:             tenantID,
 		Actor:                actor,

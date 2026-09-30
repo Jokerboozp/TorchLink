@@ -28,6 +28,10 @@ func ShortError(err error) string {
 	if err == nil {
 		return "ok"
 	}
+	var tokenErr *mqttTokenError
+	if errors.As(err, &tokenErr) {
+		return tokenErr.code
+	}
 	e := err.Error()
 	switch {
 	case errors.Is(err, context.DeadlineExceeded) || strings.Contains(e, "Timeout") || strings.Contains(e, "timeout") || strings.Contains(e, "deadline"):
@@ -89,11 +93,13 @@ func reportBody(clientID string, tsMS int64, fields, messageBytes int, alarm boo
 }
 
 type sendResult struct {
-	ok       bool
-	code     string
-	bytes    int
-	attempts int
-	rawID    string
+	ok           bool
+	code         string
+	bytes        int
+	attempts     int
+	rawID        string
+	resourceKind string
+	resourceID   string
 }
 
 func newHTTPClient(timeout time.Duration, conns int) *http.Client {
@@ -200,10 +206,38 @@ type mqttPublisher struct {
 	receipts *MQTTReceipts
 }
 
+// Keep token failures distinguishable without copying response bodies or
+// credentials into reports. Only known, non-sensitive API details are mapped.
+type mqttTokenError struct {
+	status int
+	code   string
+}
+
+func (e *mqttTokenError) Error() string {
+	return fmt.Sprintf("MQTT token HTTP %d (%s)", e.status, e.code)
+}
+
 func mqttToken(ctx context.Context, c *http.Client, api string, d DeviceCredential) (username, token, topic, receipt string, err error) {
 	status, body, err := doHTTP(ctx, c, http.MethodPost, api+"/api/v1/device-mqtt/token", nil, map[string]string{"X-Device-Key": d.Key, "X-Device-Secret": d.Secret})
 	if err != nil {
 		return "", "", "", "", err
+	}
+	if status != http.StatusOK {
+		code := fmt.Sprintf("http_%d", status)
+		if status == http.StatusUnauthorized {
+			var problem struct {
+				Detail string `json:"detail"`
+			}
+			if json.Unmarshal(body, &problem) == nil {
+				switch problem.Detail {
+				case "invalid device credentials":
+					code = "credentials_401"
+				case "device product is disabled":
+					code = "product_disabled_401"
+				}
+			}
+		}
+		return "", "", "", "", &mqttTokenError{status: status, code: code}
 	}
 	var v struct {
 		Username     string `json:"username"`
@@ -211,8 +245,8 @@ func mqttToken(ctx context.Context, c *http.Client, api string, d DeviceCredenti
 		PublishTopic string `json:"publishTopic"`
 		ReceiptTopic string `json:"receiptTopic"`
 	}
-	if status != http.StatusOK || json.Unmarshal(body, &v) != nil || v.Token == "" || v.ReceiptTopic == "" {
-		return "", "", "", "", fmt.Errorf("token status %d", status)
+	if json.Unmarshal(body, &v) != nil || v.Username == "" || v.Token == "" || v.PublishTopic == "" || v.ReceiptTopic == "" {
+		return "", "", "", "", &mqttTokenError{status: status, code: "invalid_response"}
 	}
 	return v.Username, v.Token, v.PublishTopic, v.ReceiptTopic, nil
 }

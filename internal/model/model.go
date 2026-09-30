@@ -446,6 +446,7 @@ type DeviceHealthReport struct {
 // It is stored so progress and the latest report survive restarts and are
 // visible from every API replica.
 type HealthInspectionJob struct {
+	CapacityRunID        string             `json:"capacityRunId,omitempty"`
 	ID                   string             `json:"jobId"`
 	TenantID             string             `json:"tenantId"`
 	Actor                string             `json:"actor,omitempty"`
@@ -465,6 +466,7 @@ type HealthInspectionJob struct {
 // analysis. One job per alarm and knowledge scope may run at a time; storing it
 // keeps progress readable after a restart and from every API replica.
 type AlarmAnalysisJob struct {
+	CapacityRunID        string     `json:"capacityRunId,omitempty"`
 	ID                   string     `json:"jobId"`
 	TenantID             string     `json:"tenantId"`
 	AlarmID              string     `json:"alarmId"`
@@ -655,6 +657,7 @@ type VideoAlarmEvent struct {
 }
 
 type AIAnalysis struct {
+	CapacityRunID   string   `json:"capacityRunId,omitempty"`
 	Status          string   `json:"status,omitempty"`
 	TenantID        string   `json:"tenantId,omitempty"`
 	AlarmID         string   `json:"alarmId"`
@@ -732,6 +735,7 @@ type WorkflowKnowledgeBinding struct {
 }
 
 type ReplayRequest struct {
+	CapacityRunID string `json:"capacityRunId,omitempty"`
 	ID            string `json:"id"`
 	TenantID      string `json:"tenantId"`
 	ProductID     string `json:"productId,omitempty"`

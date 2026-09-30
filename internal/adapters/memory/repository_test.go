@@ -9,6 +9,43 @@ import (
 	"iot-platform/internal/repositorytest"
 )
 
+func TestCapacityCleanupModuleOwnershipAndPending(t *testing.T) {
+	r := NewRepository()
+	ctx := context.Background()
+	id := "cap-20260930-120000-abcdef"
+	q := model.CapacityCleanupBatch{RunID: id, Product: "p", Resources: []model.CapacityCleanupResource{{Kind: "inspection", ID: "own"}, {Kind: "inspection", ID: "business"}, {Kind: "alarm-analysis", ID: "job"}, {Kind: "replay", ID: "replay"}}}
+	_, _ = r.CreateHealthInspectionJob(ctx, model.HealthInspectionJob{TenantID: "t", ID: "own", CapacityRunID: id, Status: "running"})
+	_, _ = r.CreateHealthInspectionJob(ctx, model.HealthInspectionJob{TenantID: "t", ID: "business", Status: "succeeded"})
+	if _, err := r.CapacityMessageIDs(ctx, "t", q); !errors.Is(err, model.ErrResourceInUse) {
+		t.Fatal("running module cleanup allowed", err)
+	}
+	_, _ = r.UpdateRunningHealthInspectionJob(ctx, model.HealthInspectionJob{TenantID: "t", ID: "own", CapacityRunID: id, Status: "succeeded"})
+	_, _ = r.CreateAlarmAnalysisJob(ctx, model.AlarmAnalysisJob{TenantID: "t", AlarmID: "alarm", ID: "job", CapacityRunID: id, Status: "succeeded"})
+	_ = r.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "t", AlarmID: "alarm", CapacityRunID: id})
+	_ = r.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "t", AlarmID: "alarm", KnowledgeScope: "business"})
+	_ = r.SaveReplay(ctx, model.ReplayRequest{TenantID: "t", ID: "replay", CapacityRunID: id, Status: "COMPLETED"})
+	if _, err := r.CapacityMessageIDs(ctx, "t", q); err != nil {
+		t.Fatal(err)
+	}
+	n, err := r.CleanupCapacityData(ctx, "t", q)
+	if err != nil || n.Resources != 3 {
+		t.Fatalf("cleanup %+v %v", n, err)
+	}
+	if _, err := r.GetAIAnalysis(ctx, "t", "alarm", ""); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("own AI result retained", err)
+	}
+	if _, err := r.GetAIAnalysis(ctx, "t", "alarm", "business"); err != nil {
+		t.Fatal("business result deleted", err)
+	}
+	job, err := r.LatestHealthInspectionJob(ctx, "t", "")
+	if err != nil || job.ID != "business" {
+		t.Fatal("business inspection changed", job, err)
+	}
+	if _, err := r.GetReplay(ctx, "replay"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("own replay retained", err)
+	}
+}
+
 func TestUpdateVideoEventReplacesPendingRecord(t *testing.T) {
 	repo := NewRepository()
 	event := model.VideoAlarmEvent{

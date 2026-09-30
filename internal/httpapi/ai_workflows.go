@@ -20,7 +20,7 @@ import (
 )
 
 func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) {
-	job, err := s.startAIAnalysisJob(r.Context(), claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username, alarmAnalysisRunScope(r.Context()), aiRunIdentity(r.Context(), claims(r))) /* 按发起人角色决定是否引用知识库。 */
+	job, err := s.startAIAnalysisJob(capacityJobContext(r), claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username, alarmAnalysisRunScope(r.Context()), aiRunIdentity(r.Context(), claims(r))) /* 按发起人角色决定是否引用知识库。 */
 	if err != nil {
 		problem(w, http.StatusServiceUnavailable, err.Error())
 		return

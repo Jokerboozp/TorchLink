@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -129,6 +130,7 @@ type Manifest struct {
 	DevicePrefix   string   `json:"devicePrefix"`
 	DevicesCreated []string `json:"devicesCreated"`
 	DevicesReused  int      `json:"devicesReused"`
+	Devices        []string `json:"devices,omitempty"`
 	Retained       []string `json:"retained"`
 	Cleanup        []string `json:"cleanup"`
 }
@@ -569,8 +571,9 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 			add(chk.Name, chk.OK, chk.Detail)
 		}
 	}
-	status, body, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+c.plan.Fixtures.Product, c.opToken)
-	add("测试产品", err == nil && status == 200, fmt.Sprintf("产品 %s 接入预检 → %d %s %s", c.plan.Fixtures.Product, status, errText(err), clip(string(body), 160)))
+	status, body, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+url.QueryEscape(c.plan.Fixtures.Product), c.opToken)
+	ready, detail := testProductReady(body)
+	add("测试产品", err == nil && status == 200 && ready, fmt.Sprintf("产品 %s 接入预检 → %d %s %s", c.plan.Fixtures.Product, status, errText(err), detail))
 	col, _ := NewCollector(c.inv.Metrics, time.Second, "")
 	round := col.Scrape(ctx)
 	for _, s := range round.Instances {
@@ -710,7 +713,17 @@ func (c *controller) prepare(ctx context.Context) error {
 			case err != nil:
 				errs = append(errs, h.target.Name+": "+err.Error())
 			case res.MQTTFailed > 0:
-				errs = append(errs, fmt.Sprintf("%s: MQTT 连接 %d/%d 成功，失败 %s；拒绝以不同设备规模测量", h.target.Name, res.MQTTConnected, len(h.mqtt), codeSummary(res.Failures)))
+				detail := ""
+				if res.Failures["token_product_disabled_401"] > 0 {
+					detail += "；MQTT 令牌 HTTP 401：测试产品未启用，请在设备模板中核对状态"
+				}
+				if res.Failures["token_credentials_401"] > 0 || res.Failures["token_http_401"] > 0 {
+					detail += "；MQTT 令牌 HTTP 401：设备凭据被拒绝，请核对测试设备启用状态和目标 API"
+					if manifest.DevicesReused > 0 {
+						detail += "；本次复用了缓存凭据，可将 fixtures.reuseDevices: false 创建新测试设备后重试（保留原设备）"
+					}
+				}
+				errs = append(errs, fmt.Sprintf("%s: MQTT 连接 %d/%d 成功，失败 %s；拒绝以不同设备规模测量%s", h.target.Name, res.MQTTConnected, len(h.mqtt), codeSummary(res.Failures), detail))
 			default:
 				c.event("agent_prepared", "", "", fmt.Sprintf("%s http=%d mqtt=%d tcp=%d", h.target.Name, res.HTTPDevices, res.MQTTConnected, res.TCPDevices))
 			}
@@ -766,6 +779,7 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 	var missing []int
 	for i := range out {
 		id := fmt.Sprintf("%s-%06d", prefix, i)
+		m.Devices = append(m.Devices, id)
 		if d, ok := byID[id]; ok && d.Secret != "" {
 			out[i] = d
 			m.DevicesReused++
@@ -835,9 +849,9 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 		}
 	}
 	m.Retained = []string{fmt.Sprintf("测试设备 %d 台保留在租户 %s 产品 %s（前缀 %s），凭据在工作目录，可供复测", f.DeviceCount, f.Tenant, f.Product, prefix)}
-	m.Cleanup = []string{"压测结束已释放 Agent 连接与租约", "未删除测试设备与测试数据；如需清理请按前缀在设备管理中处理"}
+	m.Cleanup = []string{"压测结束已释放 Agent 连接与租约", "测试设备与数据默认保留；运维中心容量测试页可预览并清理本次运行"}
 	for _, p := range c.provisioned {
-		m.Retained = append(m.Retained, "自动创建的"+p+"保留，可供复测；不再需要时在对应页面删除")
+		m.Retained = append(m.Retained, "自动创建的"+p+"保留，可供复测；最后一次关联运行清理时一并删除")
 	}
 	for _, d := range out {
 		if d.Secret == "" {
