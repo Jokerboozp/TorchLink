@@ -27,6 +27,9 @@ var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
+	if menu, ok := analyticsRouteMenu(path); ok {
+		return menu
+	}
 	if strings.HasPrefix(path, "/api/v1/duty/") {
 		return "duty"
 	}
@@ -56,6 +59,9 @@ func routeMenu(path string) string {
 	return ""
 }
 func routeAction(method, path string) string {
+	if name, ok := analyticsActionName(method, path); ok {
+		return name
+	}
 	if action, ok := dutyRoutePermission(method, path); ok {
 		if action == "" {
 			return "查看值班数据"
@@ -156,6 +162,9 @@ func routeAction(method, path string) string {
 	}
 }
 func protectedRead(path string) bool {
+	if analyticsProtectedRead(path) {
+		return true
+	}
 	if path == "/api/v1/ai/runs" {
 		return true
 	}
@@ -163,6 +172,9 @@ func protectedRead(path string) bool {
 }
 func (s *Server) permissionCatalog() []permissionItem {
 	items := []permissionItem{}
+	for id, name := range analyticsMenus {
+		items = append(items, permissionItem{"menu:" + id, name, id, "menu"})
+	}
 	items = append(items, permissionItem{"menu:duty", "值班管理", "duty", "menu"})
 	for id, name := range dutyActionNames {
 		items = append(items, permissionItem{"action:duty:" + id, name, "duty", "action"})

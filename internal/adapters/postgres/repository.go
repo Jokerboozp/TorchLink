@@ -106,6 +106,12 @@ func (r *Repository) Migrate(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, schema); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, analyticsSchema); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, analyticsFactSchema); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 func (r *Repository) SaveProduct(ctx context.Context, v model.Product) error {
@@ -627,6 +633,11 @@ func (r *Repository) SaveStandardMessageIfAbsent(ctx context.Context, v model.St
 	event, _ := json.Marshal(v.Event)
 	tags, _ := json.Marshal(v.Tags)
 	tag, err := r.pool.Exec(ctx, `INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body)
+	// Record only after the first successful commit acknowledgement. A crash
+	// between these commits leaves availability unknown rather than fabricated.
+	if err == nil && tag.RowsAffected() == 1 {
+		err = r.RecordMeasurementAvailability(ctx, v.TenantID, v.MessageID, "postgres_standard_commit")
+	}
 	return tag.RowsAffected() == 1, err
 }
 

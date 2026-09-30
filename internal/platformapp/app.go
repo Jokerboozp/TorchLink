@@ -71,6 +71,8 @@ func Run(forcedRole string) {
 	defer cancel()
 	var repo ports.Repository = memory.NewRepository()
 	var postgresRepo *postgres.Repository
+	var analysisStore ports.AnalysisStore
+	var analysisFacts ports.AnalyticsFactStore
 	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
@@ -87,6 +89,8 @@ func Run(forcedRole string) {
 		fatal(log, "initialize postgres", err)
 		repo = r
 		postgresRepo = r
+		analysisStore = r
+		analysisFacts = r
 		opsPrefs = r
 		videoStore = r
 		knowledgeStore = r
@@ -101,6 +105,7 @@ func Run(forcedRole string) {
 		fatal(log, "initialize clickhouse", clickErr)
 		repo = r
 		clickHouseRaw = r
+		analysisFacts = r
 		log.Info("telemetry storage enabled", "adapter", "clickhouse")
 	}
 	// Rate budgets are shared through Redis when configured; otherwise (or
@@ -490,6 +495,12 @@ func Run(forcedRole string) {
 		log.Warn("local capacity controller unavailable", "error", capacityErr)
 	}
 	api := httpapi.New(cfg, engine, registry, log)
+	if analysisStore != nil {
+		api.SetAnalysisStorage(analysisStore, analysisFacts)
+	}
+	if cfg.Runs(config.ComponentManagement) {
+		go api.RunAnalysisWorkers(ctx)
+	}
 	if cfg.Runs(config.ComponentManagement) {
 		go api.RunDutyWorkers(ctx)
 	}

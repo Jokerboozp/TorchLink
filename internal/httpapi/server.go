@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -43,6 +44,8 @@ type ctxKey string
 const claimsKey ctxKey = "claims"
 
 type Server struct {
+	analysis                   *analytics.Service
+	analysisFacts              ports.AnalyticsFactStore
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -98,6 +101,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		engine.AuthorizeAIRun = s.authorizeAIRun
 	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
+	s.setupAnalytics()
 	s.routes()
 	return s
 }
@@ -120,6 +124,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 }
 
 func (s *Server) routes() {
+	s.analysisRoutes()
 	s.dutyRoutes()
 	s.accessRoutes()
 	s.openAPIRoutes()

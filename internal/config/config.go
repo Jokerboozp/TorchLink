@@ -119,6 +119,7 @@ type Config struct {
 	DevMode                  bool
 	Ops                      OpsConfig
 	Video                    VideoConfig
+	Analytics                AnalyticsConfig
 	loadErr                  error
 }
 
@@ -135,6 +136,7 @@ func Load() Config {
 	}
 	instance, explicitInstance := instanceID()
 	return Config{
+		Analytics:                   loadAnalytics(),
 		InstanceID:                  instance,
 		InstanceIDExplicit:          explicitInstance,
 		ClusterInstances:            int64Value("IOT_CLUSTER_INSTANCES", 1),
@@ -217,6 +219,9 @@ func Load() Config {
 }
 
 func (c Config) Validate() error {
+	if err := c.Analytics.Validate(); err != nil {
+		return err
+	}
 	if c.loadErr != nil {
 		return c.loadErr
 	}

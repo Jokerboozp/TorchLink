@@ -202,6 +202,11 @@ func (r *Repository) ensureTelemetry(ctx context.Context, v model.StandardMessag
 	b, _ := json.Marshal(row)
 	b = append(b, '\n')
 	err := r.batches().telemetry.add(ctx, b)
+	if err == nil {
+		if recorder, ok := r.Repository.(ports.MeasurementAvailabilityRecorder); ok {
+			err = recorder.RecordMeasurementAvailability(ctx, v.TenantID, v.MessageID, "clickhouse_telemetry_ack")
+		}
+	}
 	return err
 }
 
