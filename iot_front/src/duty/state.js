@@ -45,34 +45,6 @@ export function rosterPayload(form) {
   if (!Number.isFinite(result.startAt) || !Number.isFinite(result.endAt) || result.endAt<=result.startAt) throw Error('结束时间必须晚于开始时间')
   return result
 }
-export function parseRosterCSV(text) {
-  // Quoted values support commas, escaped quotes and CRLF. Errors include the line.
-  const rows=[], fields=[]; let field='', quoted=false
-  for(let index=0;index<text.length;index++) {
-    const character=text[index]
-    if(character==='"') {
-      if(quoted && text[index+1]==='"'){field+='"';index++}
-      else if(quoted || !field) quoted=!quoted
-      else throw Error('CSV 引号位置不正确')
-    } else if(character===',' && !quoted){fields.push(field);field=''}
-    else if((character==='\n' || character==='\r') && !quoted){if(character==='\r' && text[index+1]==='\n')index++;fields.push(field);if(fields.some(Boolean))rows.push(fields.splice(0));else fields.length=0;field=''}
-    else field+=character
-  }
-  if(quoted)throw Error('CSV 存在未闭合的引号')
-  fields.push(field);if(fields.some(Boolean))rows.push(fields)
-  if(rows.length<2)throw Error('CSV 至少需要表头和一条排班')
-  const headers=rows.shift().map(value=>value.replace(/^\uFEFF/,'').trim())
-  const required=['stationId','startAt','endAt','memberIds','leaderId']
-  if(required.some(name=>!headers.includes(name)))throw Error('CSV 表头需包含 stationId,startAt,endAt,memberIds,leaderId')
-  if(new Set(headers).size!==headers.length)throw Error('CSV 表头不能重复')
-  return rows.map((values,index)=>{
-    if(values.length!==headers.length)throw Error(`CSV 第 ${index+2} 行列数不一致`)
-    const row=Object.fromEntries(headers.map((name,column)=>[name,values[column].trim()]))
-    const stamp=value=>/^\d+$/.test(value)?Number(value):Date.parse(value)
-    try{return {...rosterPayload({...row,startAt:stamp(row.startAt),endAt:stamp(row.endAt),memberIds:row.memberIds.split(/[;；]/).map(value=>value.trim()).filter(Boolean)}),sourceId:row.sourceId || `csv-${index+2}`}}
-    catch(error){throw Error(`CSV 第 ${index+2} 行：${error.message}`)}
-  })
-}
 export function itemPayload(form) {
   if (!form.title?.trim()) throw Error('请填写事项标题')
   if (!form.ownerId) throw Error('请选择内部主责人')

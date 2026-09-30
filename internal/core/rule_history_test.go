@@ -20,14 +20,6 @@ func historyMessage(id string, value int) []byte {
 	raw, _ := json.Marshal(model.StandardMessage{MessageID: id, RawMessageID: "raw-" + id, TenantID: "tenant-a", ProductID: "sensor", DeviceID: "device-a", MessageType: model.PropertyReport, Timestamp: 1000000, Properties: map[string]any{"temperature": value}})
 	return raw
 }
-func historyCurrent(t *testing.T, repo ports.Repository) model.AlarmRuleRevision {
-	t.Helper()
-	rows, _, err := repo.ListRuleRevisions(context.Background(), "tenant-a", "r", 20, 0)
-	if err != nil || len(rows) == 0 {
-		t.Fatal(rows, err)
-	}
-	return rows[0]
-}
 func publishHistory(t *testing.T, repo ports.Repository, rule model.AlarmRule, version int) model.AlarmRuleRevision {
 	t.Helper()
 	v, err := repo.PublishRule(context.Background(), model.RulePublishRequest{Rule: rule, ExpectedBaselineVersion: version, Reason: "isolated comparison", Actor: "operator", ExperimentID: "experiment", SemanticsVersion: eval.RevisionV2})

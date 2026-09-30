@@ -110,7 +110,8 @@ jobs:
           首次部署自动生成独立密码，管理员密码见 .env.offline 的 IOT_ADMIN_PASSWORD。
           升级已有部署：启动前先复制原 .env.offline，保持原项目、数据卷和凭据。
           AI 功能需在模型管理填写 DeepSeek API Key 并联网访问 DeepSeek。
-          通用包不含特定发行版 RPM/DEB；目标机需满足 DEPLOYMENT.md 的系统依赖。
+          通用包不含特定发行版 RPM/DEB；目标机需满足 docs/DEPLOYMENT.md 的系统依赖。
+          功能和操作说明见 docs/PLATFORM.md 及其链接的专题文档。
           EOF
           echo "name=$name" >> "$GITHUB_OUTPUT"
 

@@ -573,15 +573,6 @@ func (e *Engine) alarmDeviceName(ctx context.Context, tenantID, deviceID string)
 	return strings.TrimSpace(device.Name)
 }
 
-func firstMessageValue(msg model.StandardMessage, keys ...string) any {
-	for _, key := range keys {
-		if value, ok := messageValue(msg, key); ok {
-			return value
-		}
-	}
-	return nil
-}
-
 func messageValue(msg model.StandardMessage, key string) (any, bool) {
 	for _, source := range directMessageSources(msg) {
 		if value, ok := source[key]; ok {
@@ -626,56 +617,6 @@ func messageMap(value any) map[string]any {
 		}
 	}
 	return nil
-}
-
-func messageFlag(msg model.StandardMessage, key string) bool {
-	value, ok := messageValue(msg, key)
-	return ok && truthy(value)
-}
-
-func truthy(value any) bool {
-	switch item := value.(type) {
-	case bool:
-		return item
-	case float64:
-		return item != 0
-	case float32:
-		return item != 0
-	case int:
-		return item != 0
-	case int64:
-		return item != 0
-	case uint:
-		return item != 0
-	case uint64:
-		return item != 0
-	case string:
-		return strings.EqualFold(strings.TrimSpace(item), "true") || strings.TrimSpace(item) == "1" || strings.EqualFold(strings.TrimSpace(item), "yes") || strings.EqualFold(strings.TrimSpace(item), "on")
-	default:
-		return false
-	}
-}
-
-func normalizeAlarmToken(value any) string {
-	if value == nil {
-		return ""
-	}
-	text := strings.ToUpper(strings.TrimSpace(fmt.Sprint(value)))
-	if text == "" || text == "<NIL>" || text == "TRUE" || text == "FALSE" {
-		return ""
-	}
-	text = strings.NewReplacer(" ", "_", "-", "_").Replace(text)
-	var out strings.Builder
-	for _, r := range text {
-		if r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '.' {
-			out.WriteRune(r)
-		}
-	}
-	normalized := strings.Trim(out.String(), "_.")
-	if runes := []rune(normalized); len(runes) > 64 {
-		normalized = string(runes[:64])
-	}
-	return normalized
 }
 
 func directAlarmMetadata(msg model.StandardMessage) (string, string) { return eval.DirectMetadata(msg) }

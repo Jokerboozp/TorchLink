@@ -4,7 +4,7 @@ import vm from 'node:vm'
 import {readFileSync} from 'node:fs'
 import {computed,reactive,ref,watch} from 'vue'
 import {setupScript} from './helpers/vue.mjs'
-import {monthDays,rosterCalendar,rosterPayload,parseRosterCSV,itemPayload,handoverActionPayload,isAIRunning,dutyTime,dutyActionKey,clearDutyActionKey,dutyNoticeTarget} from '../src/duty/state.js'
+import {monthDays,rosterCalendar,rosterPayload,itemPayload,handoverActionPayload,isAIRunning,dutyTime,dutyActionKey,clearDutyActionKey,dutyNoticeTarget} from '../src/duty/state.js'
 import {createClientId} from '../src/clientId.js'
 
 test('calendar handles leap month, Monday alignment and sorted overnight roster',()=>{
@@ -12,14 +12,6 @@ test('calendar handles leap month, Monday alignment and sorted overnight roster'
   assert.equal(monthDays('2026-09')[0],null)
   const rows=[{id:'late',startAt:new Date(2026,8,30,20).getTime()},{id:'early',startAt:new Date(2026,8,30,8).getTime()}]
   assert.deepEqual(rosterCalendar(rows,'2026-09').find(day=>day.date==='2026-09-30').items.map(row=>row.id),['early','late'])
-})
-test('CSV import validates headers, quoted source, cross midnight time, member and leader relationship',()=>{
-  const csv='\uFEFFstationId,startAt,endAt,memberIds,leaderId,sourceId\r\np1,2026-09-30T20:00:00+08:00,2026-10-01T08:00:00+08:00,a;b,a,"old,12"'
-  const [row]=parseRosterCSV(csv)
-  assert.equal(row.endAt-row.startAt,12*3600e3);assert.deepEqual(row.memberIds,['a','b']);assert.equal(row.sourceId,'old,12')
-  assert.throws(()=>parseRosterCSV(csv.replace('a;b,a','a;b,c')),/第 2 行/)
-  assert.throws(()=>parseRosterCSV('stationId\na'),/表头/)
-  assert.throws(()=>parseRosterCSV(csv+'"'),/引号/)
 })
 test('real roster timestamps and accountable item transitions are required',()=>{
   assert.throws(()=>rosterPayload({stationId:'p',memberIds:['a'],leaderId:'a',startAt:30,endAt:20}),/结束时间/)

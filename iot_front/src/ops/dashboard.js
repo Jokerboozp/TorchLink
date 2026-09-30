@@ -166,17 +166,6 @@ export function movePanel(dashboard, id, direction) {
   return normalizeLayout(dashboard)
 }
 
-export function resizePanel(dashboard, id, { w, h }) {
-  const panel = findPanel(dashboard, id)
-  if (!panel) return dashboard
-  const p = pos(panel)
-  if (w != null) p.w = Math.min(GRID_COLUMNS, Math.max(2, w))
-  if (h != null) p.h = Math.min(40, Math.max(2, h))
-  p.x = Math.min(p.x, GRID_COLUMNS - p.w)
-  panel.gridPos = p
-  return normalizeLayout(dashboard)
-}
-
 // toggleRow 与 Grafana 一致：折叠时把行下面板收进 row.panels，展开时放回顶层。
 export function toggleRow(dashboard, id) {
   const index = (dashboard.panels || []).findIndex(panel => panel.id === id && panel.type === 'row')

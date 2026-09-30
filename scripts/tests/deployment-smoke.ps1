@@ -210,6 +210,13 @@ try {
         Assert ((Get-FileHash -LiteralPath $file.FullName).Hash -eq (Get-FileHash -LiteralPath $extractedFile).Hash) "Complete tar changed $relative"
     }
     Assert (Test-Path -LiteralPath (Join-Path $extractedBundle '.env.offline')) 'Complete tar omitted hidden config'
+    $sourceDocs = (Resolve-Path (Join-Path $scripts '../docs')).Path
+    foreach ($doc in @(Get-ChildItem -LiteralPath $sourceDocs -File -Recurse)) {
+        $relative = $doc.FullName.Substring($sourceDocs.Length + 1)
+        $bundledDoc = Join-Path $extractedBundle "docs/$relative"
+        Assert (Test-Path -LiteralPath $bundledDoc) "Complete tar omitted document $relative"
+        Assert ((Get-FileHash -LiteralPath $doc.FullName).Hash -eq (Get-FileHash -LiteralPath $bundledDoc).Hash) "Complete tar changed document $relative"
+    }
     & (Join-Path $scripts 'deploy-offline.ps1') -BundleDir $extractedBundle
     Write-Host 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'
     Assert ((Get-Content (Join-Path $bundle '.env.offline')) -contains 'IOT_VIDEO_RTC_EXTERN_IP=') 'Unconfigured WebRTC address must be written as an empty value'

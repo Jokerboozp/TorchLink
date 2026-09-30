@@ -3,7 +3,7 @@ import { computed,onBeforeUnmount,reactive,ref } from 'vue'
 import { apiAll } from '../../api.js'
 import { can } from '../../permissions.js'
 import { createClientId } from '../../clientId.js'
-import { maintenanceKinds,maintenanceWrite } from '../../maintenance/api.js'
+import { maintenanceWrite } from '../../maintenance/api.js'
 import { contextKinds,stateLabel,maintenanceTime,revisionEnvelope,evidencePayload,decimal,money } from '../../maintenance/helpers.js'
 import MaintenanceEvidence from './MaintenanceEvidence.vue'
 const props=defineProps({devices:Array,assets:Array,records:Array,contexts:Array,admissions:Array,faults:Array,costs:Array,deviceId:String})

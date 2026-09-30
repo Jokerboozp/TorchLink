@@ -1,7 +1,7 @@
 <script setup>
 import {computed,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import {CalendarDays,Plus,RefreshCw,Upload} from '@lucide/vue'
-import {dutyAll,dutyRead,dutySave,dutyWrite} from '../../duty/api.js'
+import {dutyAll,dutySave,dutyWrite} from '../../duty/api.js'
 import {dutyTime,localDate,rosterCalendar,rosterPayload,statusText} from '../../duty/state.js'
 import {can} from '../../permissions.js'
 import {notifyError} from '../../api.js'

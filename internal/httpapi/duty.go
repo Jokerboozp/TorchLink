@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"slices"
-	"strings"
 
 	"iot-platform/internal/auth"
 	"iot-platform/internal/duty"
@@ -338,9 +337,4 @@ func (s *Server) dutyOptions(w http.ResponseWriter, r *http.Request) {
 		options = append(options, map[string]any{"id": d.ID, "name": d.Name, "productId": d.ProductID, "gatewayId": d.GatewayID})
 	}
 	write(w, 200, map[string]any{"users": users, "devices": options, "permissions": actor.Permissions})
-}
-
-func dutyResourceFromPath(path string) string {
-	p := strings.TrimPrefix(path, "/api/v1/duty/")
-	return dutyResources[strings.Split(p, "/")[0]]
 }

@@ -10,7 +10,3 @@ export function overviewSnapshot() {
   if (!cached || cached.owner !== owner()) cached = { owner: owner(), components: {}, kpiGroups: {}, jobs: null, trends: {}, trendRange: '', checkedAt: 0 }
   return cached
 }
-
-export function clearOverviewSnapshot() {
-  cached = null
-}

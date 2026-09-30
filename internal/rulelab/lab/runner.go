@@ -2,7 +2,6 @@ package lab
 
 import (
 	"encoding/json"
-	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -569,7 +568,4 @@ func (s *branchState) finish(window model.FactRange) {
 func stepFinding(run model.AnalysisRun, key, device, kind, explanation string, values any) model.AnalysisOutput {
 	body, _ := json.Marshal(map[string]any{"id": run.ID + ":finding:" + key, "deviceId": device, "kind": kind, "explanation": explanation, "values": values, "manualState": "UNREVIEWED", "evidenceIds": []string{}})
 	return model.AnalysisOutput{ID: run.ID + ":finding:" + key, Kind: "findings", DeviceID: device, Body: body}
-}
-func outcomeSummary(v model.RuleLabOutcome) string {
-	return fmt.Sprintf("%s:%s:%s", v.Branch, v.Category, v.Status)
 }

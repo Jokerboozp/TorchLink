@@ -4,6 +4,8 @@
 
 下文路径均相对仓库根目录。具体接口和操作细节查对应源码及仓库文档；本文件不承担功能完成清单或运行环境验收记录的职责。
 
+[协作](#1-协作与任务范围) · [事实与文档](#2-事实依据与文档维护) · [源码入口](#3-项目定位与源码入口) · [环境](#4-环境与日常运行) · [业务约束](#5-后端接口与数据约束) · [协议](#6-协议开发与版本发布) · [AI](#7-ai知识检索与-mcp) · [前端](#8-前端交互) · [验证](#9-修改与验证流程) · [Git 与数据](#10-git部署与数据保护)
+
 ## 1. 协作与任务范围
 
 - 默认中文，先说结果，再给必要证据；解释长度按任务需要，避免固定风险清单和无关实现细节。
@@ -37,6 +39,8 @@
 | `internal/adapters/` | 数据库、消息、对象存储、AI 等外部实现 |
 | `internal/parser/` | 报文解析 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | Go 协议源码构建、版本运行与 Worker 契约 |
+| `internal/duty/`、`internal/alarmgovernance/` | 值班、交接及反复报警治理业务 |
+| `internal/analytics/`、`internal/rulelab/` | 数据质量、连续性、策略实验、处置复盘、维护投入及共用规则求值 |
 | `internal/mcpserver/` | 平台 MCP 工具与访问边界 |
 | `internal/opscenter/`、`internal/adapters/observability/` | 运维中心业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
 | `internal/config/`、`internal/deploycheck/`、`internal/metrics/` | 配置、部署检查和指标 |
@@ -58,9 +62,7 @@
 - Go 版本以 `go.mod` 为准；Node 要求和可用脚本以 `iot_front/package.json` 为准。沿用项目依赖与锁文件，非必要不升级或更换包管理器。
 - 本地、在线、离线是三套独立配置：本地为 `compose.local.yaml` / `.env.local`；在线为 `compose.yaml` / `.env.online`；离线为生成包中的 Compose 配置 / `.env.offline`。
 - 首次准备、构建和部署可能启动容器或下载依赖，只在任务需要时运行；单纯修改代码或文档不必重启整套服务。
-
 - 首次环境准备使用 `scripts/setup-local.sh` / `.ps1`；源码 API 为 `go run ./cmd/iot-platform --env-file .env.local`，前端在 `iot_front` 执行 `npm run dev`，备份服务为 `go run ./cmd/backup-service --env-file .env.local`。虚拟机依赖、参数和 IDE 设置统一见 `docs/DEPLOYMENT.md#本地运行`。
-
 - Windows 遇到 npm 执行策略问题时使用 `npm.cmd`。前端日常入口为 `http://localhost:5173`；Vite 默认代理 API 到 `http://localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖，具体见 `iot_front/vite.config.js`。
 - 进程环境变量优先于环境文件；排查配置时注意 IDE 遗留变量。不给用户复制硬编码凭据到 IDE 的配置方案。
 - 宿主机连接依赖须使用宿主机可达地址及已发布端口；Compose 服务名供容器内部使用。Linux 虚拟机依赖 / Windows 源码模式通过准备脚本的 `--dependency-host` 和 `--api-host` 指定地址，不固定某台机器的 IP。
@@ -79,7 +81,7 @@
 - 设备关系使用主子设备关联，状态来自成功解析的上报；已移除独立孪生拓扑和设备影子，不重新引入其页面、接口或状态投影。
 - 基础摄像头管理（资料、位置、设备关联）始终可用：单个摄像头最多关联一个设备，设备可以关联多个摄像头，不恢复旧多对多方案。直播由独立模块提供（ZLMediaKit 媒体服务，Compose profile `video`，部署脚本默认启用，`IOT_VIDEO_MODULE=off` 表示显式关闭；业务开关默认开启），接入方式为 ONVIF、RTSP 与 GB28181（平台作为 SIP 服务器，设备注册后按需 INVITE 实时流）；只配置摄像头资料时没有视频但其余功能照常。模块未部署、关闭或故障不得影响摄像头资料、设备关联、告警摄像头信息和 API 启动 / 就绪。视频数据只在摄像头、媒体服务和浏览器之间传输，API 不搬运视频、不执行转码；取流目标及 GB28181 设备来源受网段与端口白名单约束，不提供任意 URL 代理；国标设备编号全局唯一且只属于一个租户，注册密码加密保存；观看需单独权限并受设备范围约束，播放会话随权限变化撤销。细节见 `docs/PLATFORM.md`。
 - 对外开放接口 `/api/open/v1` 使用绑定平台用户的密钥，按该用户的权限和设备范围执行，能力项只能收窄；外部上报经标准协议进入原始报文链路。不新增绕过用户权限、可自选租户或跳过原始归档的外部入口。细节见 `docs/INTEGRATION.md`。
-- 备份操作沿用服务端权限及凭据边界；备份存在、下载成功和恢复成功是不同结论，按本次实际操作表述。
+- 备份操作沿用服务端权限及凭据边界；备份存在、下载成功和恢复成功是不同结论，按本次实际操作表述。完整范围与隔离恢复契约见 `docs/BACKUP.md`。
 - 运维中心数据为全平台数据，只在 `IOT_OPS_TENANTS` 运维租户中授权；浏览器只调用平台 `/api/v1/ops/*`，不接触组件地址与凭据，不提供任意上游 URL 的通用代理。组件配置写入保持“校验 → 原子写入 → 确认加载 → 失败恢复”；监控告警由 Alertmanager 统一通知，Grafana 告警保持停用，与消防业务告警分开。细节见 `docs/PLATFORM.md`。
 
 ## 6. 协议开发与版本发布

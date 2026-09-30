@@ -1,13 +1,18 @@
 # 开发与测试
 
+[源码检查](#源码与开发检查) · [专项回归](#设备与协议回归) · [管理端](#管理端开发) · [API 契约](#api-与界面契约) · [演示数据](#演示数据与功能检查) · [容量验证](#容量验证)
+
 环境准备、源码启动、IDE 调试统一见 [部署与本地调试](DEPLOYMENT.md#本地运行)。本文维护开发约定、测试入口和演示工具；命令默认在仓库根目录执行。
 
 ## 源码与开发检查
 
 | 入口 | 职责 |
 | --- | --- |
-| `cmd/iot-platform/`、`internal/platformapp/` | API 启动和依赖装配 |
+| `cmd/iot-platform/`、`cmd/iot-access-gateway/`、`internal/platformapp/` | API / Gateway 启动、进程角色和依赖装配 |
 | `internal/httpapi/`、`internal/core/`、`internal/adapters/` | 接口、业务、外部存储与服务 |
+| `internal/onboarding/`、`internal/parser/` | 接入预检、设备登记及报文解析 |
+| `internal/duty/`、`internal/alarmgovernance/` | [值班](DUTY.md)与[反复报警治理](ALARM_GOVERNANCE.md)业务 |
+| `internal/analytics/`、`internal/rulelab/` | [五项分析](ANALYTICS.md)、固定事实、实验与可重用规则求值 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | 协议编译、连接运行时和 Worker |
 | `internal/opscenter/`、`internal/adapters/observability/` | [运维中心](PLATFORM.md#运维中心) 业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
 | `internal/capacity/`、`cmd/capacity-test/` | 容量计划、Controller / Agent、采集核对、报告与控制服务 |
@@ -29,7 +34,7 @@
 
 本地集成入口：`go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 检查依赖读写；前端、API 和备份启动后，`node scripts/tests/local-business-smoke.mjs` 检查登录、接入、归档、规则及回放。业务冒烟会创建唯一测试数据，结束停用本次规则与凭据并保留记录；仅在测试环境运行。
 
-Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交原消息位点后才继续消费。读取出错的订阅按指数退避（最长 30 秒）自动重建；重建期间或在途消息 2 分钟无进展时，`/health/ready` 报告对应消费组未就绪。死信中的合法 JSON 报文保持 `payload` 原结构；非 JSON 或二进制报文放在 `payload` 的 Base64 字符串中，并带 `payloadEncoding: "base64"`，可还原原始字节。
+消息队列、死信结构与接收保障见 [接入契约](INTEGRATION.md#消息队列与存储恢复)，操作入口见 [真实依赖回归与死信恢复](#真实依赖回归与死信恢复)。
 
 真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用；接入链路见 [接入验证](INTEGRATION.md#验证入口)，知识索引和备份见 [AI 与知识库回归](#ai-与知识库回归)。未配置而跳过的用例不算联调通过。
 
@@ -55,7 +60,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 ### AI 与知识库回归
 
-源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
+源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`；镜像运行时验证用 `docker run --rm --network none --entrypoint node <当前Harness镜像> /harness/examples/iot-ops-agent/runtime-smoke.mjs`，在已有或专门构建的镜像中模拟模型/MCP，不需要真实云 API。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
 
 | 联调 | 配置与命令 | 验证范围 |
 | --- | --- | --- |
@@ -64,6 +69,73 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 | 活跃 Harness 快照 | 配置服务端快照 URL/令牌并设置 `IOT_BACKUP_LIVE_HARNESS_TEST=1`；`go test ./internal/backup -run TestLiveHarnessSnapshotRestoreIntegration -count=1` | 只读收集实例快照，在临时隔离目录核对恢复数量和内容 |
 
 私有测试环境文件须限制访问权限，不提交或输出凭据。模拟 Embedding 测试不消耗云端额度；真实云向量索引需另配可用 Key，上传后确认状态达到 `INDEXED` 并检索到对应分片。配置与索引生命周期见 [知识库与云端向量 API](DEPLOYMENT.md#知识库与云端向量-api)。
+
+### 设备与协议回归
+
+接入/协议使用 `go test -race ./internal/protocolruntime ./internal/onboarding ./internal/adapters/memory ./internal/parser`，覆盖主动连接/重连、查询互斥、RTU CRC/点表、并发注册及归属。独立协议在对应 module 执行上表的测试命令，上传构建与样例安全回归位于 `internal/protocolbuild`、`internal/protocolworker`。
+
+`go test ./internal/httpapi -run '^TestTCPParentChildSourceChain$'` 实际上传、编译及发布主子 Go 协议，通过两种 TCP 方向、归档/解析与 API 核对分层链路。配置 `IOT_TEST_BROWSER` 时执行真实浏览器操作；`TestDeviceOperationsMigrationAndAtomicity` 的 PostgreSQL 契约使用独立临时 schema，需 `IOT_TEST_POSTGRES_DSN`。模拟协议和测试环境不能替代真实设备验收。
+
+### 值班管理回归
+
+业务流程见 [值班管理](DUTY.md)。源码回归使用 `go test ./internal/duty ./internal/core ./internal/httpapi ./internal/mcpserver ./internal/backup`，前端使用 `node --test iot_front/tests/duty.test.mjs`。重点保留冻结事实、交接版本、权限、附件、租约接管与备份回归；`TestDutyHTTPWithProductionRepositoryDecorators` 同时验证 PostgreSQL → ClickHouse → Redis → 用户设备范围的实际装配契约。租约及并发回归可运行 `go test -race ./internal/duty ./internal/mcpserver -run Duty`；持久化契约使用 `go test ./internal/adapters/postgres -run Duty -count=1`，真实数据库需 `IOT_TEST_POSTGRES_DSN`。Harness 适配验证复用 [AI 与知识库回归](#ai-与知识库回归)。
+
+浏览器回归使用一次性真实 HTTP 内存适配实例。先设置临时 `DUTY_BROWSER_PASSWORD`，再在根目录运行 `DUTY_BROWSER_FIXTURE=1 go test ./internal/httpapi -run '^TestDutyBrowserFixtureServer$' -count=1 -timeout=35m`，监听 `18091`；在 `iot_front` 运行 `VITE_API_PROXY_TARGET=http://127.0.0.1:18091 npm run dev -- --port 5181 --strictPort`。为浏览器脚本设置 `IOT_TEST_DUTY_FIXTURE=1`、`IOT_TEST_BASE_URL=http://127.0.0.1:5181`、`IOT_TEST_TENANT=duty_browser`、`IOT_TEST_ADMIN_USER=root`，并将同一临时密码注入 `IOT_TEST_ADMIN_PASSWORD`，然后运行 `node tests/browser/duty-check.mjs`。账号与设备只存在于该测试进程，脚本不模拟 HTTP 响应。结束后停止自己启动的两个进程；不要指向现网环境。
+
+### 业务分析与治理回归
+
+功能契约见 [五项业务分析](ANALYTICS.md)和[反复报警治理](ALARM_GOVERNANCE.md)。源码检查覆盖固定事实、配置版本、任务租约、重算、人工核实、独立验收、资金权限、附件及恢复：
+
+```bash
+go test ./internal/analytics/... ./internal/alarmgovernance ./internal/rulelab/... ./internal/httpapi ./internal/backup ./internal/mcpserver
+go test -race ./internal/analytics ./internal/alarmgovernance
+```
+
+PostgreSQL / ClickHouse 相关用例分别按源码中的 `IOT_TEST_POSTGRES_DSN`、`IOT_TEST_CLICKHOUSE_URL` 等条件启用；未配置而跳过不算 SQL 联调。前端领域回归包含在 `npm --prefix iot_front test` 中。
+
+浏览器可使用 `TestAnalyticsBrowserFixture` 创建的真实 Go API + PostgreSQL 临时 schema；该实例不启动生产接入、消费者或定时任务。先通过私有环境注入 `IOT_TEST_POSTGRES_DSN` 和临时 `IOT_TEST_ADMIN_PASSWORD`，再在根目录执行：
+
+```bash
+mkdir -p .e2e/analytics-browser
+IOT_TEST_ANALYTICS_BROWSER=1 \
+  IOT_TEST_ANALYTICS_BROWSER_ADDR=127.0.0.1:18092 \
+  IOT_TEST_ANALYTICS_BROWSER_INFO="$PWD/.e2e/analytics-browser/info.json" \
+  IOT_TEST_ANALYTICS_BROWSER_STOP_FILE="$PWD/.e2e/analytics-browser/stop" \
+  go test ./internal/httpapi -run '^TestAnalyticsBrowserFixture$' -count=1 -timeout=35m
+```
+
+另一个终端在 `iot_front` 执行 `VITE_API_PROXY_TARGET=http://127.0.0.1:18092 npm run dev -- --port 5182 --strictPort`。等待 info 文件创建后，脚本共用 `IOT_TEST_BASE_URL=http://127.0.0.1:5182`、`IOT_TEST_ADMIN_USER=admin` 和同一临时密码；按下表设置显式夹具开关和 info 文件的绝对路径，在 `iot_front` 执行对应脚本：
+
+| 场景 | 浏览器入口 | 夹具开关 / info 路径变量 |
+| --- | --- | --- |
+| 数据质量 | `node tests/browser/data-quality-check.mjs` | `IOT_TEST_QUALITY_FIXTURE=1` / `IOT_TEST_QUALITY_INFO` |
+| 监测连续性 | `node tests/browser/monitoring-gaps-check.mjs` | `IOT_TEST_MONITORING_FIXTURE=1` / `IOT_TEST_MONITORING_INFO` |
+| 告警策略实验 | `node tests/browser/rule-lab-check.mjs` | `IOT_TEST_RULELAB_FIXTURE=1` / `IOT_TEST_RULELAB_INFO` |
+| 演练与处置复盘 | `node tests/browser/response-review-check.mjs` | `IOT_TEST_RESPONSE_FIXTURE=1` / `IOT_TEST_RESPONSE_INFO` |
+| 维护与投入 | `node tests/browser/maintenance-check.mjs` | `IOT_TEST_MAINTENANCE_FIXTURE=1` / `IOT_TEST_MAINTENANCE_INFO` |
+| 反复报警治理 | `node tests/browser/alarm-governance-check.mjs` | `IOT_TEST_GOVERNANCE_FIXTURE=1` / `IOT_TEST_ANALYTICS_BROWSER_INFO` |
+
+结束时在根目录 `touch .e2e/analytics-browser/stop`，等待 Go 测试退出并清理临时 schema，再停止本次 Vite。重跑前移除该次 stop 文件。各脚本写入配置、核实、分析和临时用户，只能指向隔离夹具；默认 Harness 为受控测试实现，真实 Harness 需另外配置测试开关/地址/令牌，成功不代表真实模型或现场数据验收。
+
+### 真实依赖回归与死信恢复
+
+现有 Broker 断开回归可指定环境文件运行，不创建容器：
+
+```bash
+IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -run TestExistingBrokerDisconnectDuringDurableCallback -count=1
+```
+
+该测试只断开自己创建的临时订阅客户端，使用独立主题和临时目录。真实 PostgreSQL 测试使用 `IOT_TEST_POSTGRES_DSN` 指定数据库，在临时 schema 中建表并清理，不应把完整连接串写入终端历史。未配置时相应测试跳过。
+
+存储死信恢复工具默认只读审计，显式指定租户、源业务主题和待恢复标准消息 ID 数组文件，核对全部 ID 后再追加 `-execute`：
+
+```bash
+go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json
+# 核对后重新送入原存储消费链，不删除 DLQ、不重置消费者 offset
+go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json -execute
+```
+
+重复死信按 messageId 合并，矛盾正文会拒绝整批发布。重新发布成功只代表 Kafka 收到；必须再核对 PostgreSQL `processed_at`、ClickHouse 行数/唯一 ID 和实际告警状态。发布途中失败可重跑同一 ID 列表，仍由原业务幂等处理。
 
 ## 管理端开发
 
@@ -77,7 +149,7 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 
 ### 浏览器验证
 
-先在 `iot_front` 执行 `npm run build`，用 `IOT_TEST_BROWSER` 指定 Chrome / Edge 可执行文件。专项脚本位于 `iot_front/tests/browser/`，使用 Node.js 22.12+ 的原生 WebSocket，不包含在 `npm test` 中；共用 `tests/helpers/browser.mjs` 管理独立浏览器、CDP 超时和临时目录清理，场景断言留在各脚本中：
+先在 `iot_front` 执行 `npm run build`，用 `IOT_TEST_BROWSER` 指定 Chrome / Edge 可执行文件。专项脚本位于 `iot_front/tests/browser/`，需要 Node.js 22.12+ 及前端 npm 依赖，不包含在 `npm test` 中；共用 `tests/helpers/browser.mjs` 管理独立浏览器、CDP 超时和临时目录清理，场景断言留在各脚本中：
 
 | 场景 | 入口与条件 |
 | --- | --- |
@@ -89,7 +161,11 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 
 macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览器脚本可用 `IOT_TEST_HEADFUL=1`。源码测试、合成浏览器和真实设备验证分别记录，跳过项不算通过。
 
-## 首页统计
+## API 与界面契约
+
+本节集中维护查询、分页和回放口径；平台使用入口见 [平台功能](PLATFORM.md)，设备上报与协议接口见 [接入指南](INTEGRATION.md)。
+
+### 首页统计
 
 首页通过 `GET /api/v1/dashboard?days=7&offset=480` 读取聚合数据。内置管理员查看当前租户；普通用户需要运行总览菜单，统计仅包含其有权访问的设备及告警，没有设备管理菜单或设备范围时返回零值。`days` 支持 7、30，`offset` 为相对 UTC 的分钟偏移（默认 480；页面使用浏览器当前偏移）。日期范围包含今天，按固定时区的自然日划分。
 
@@ -102,7 +178,7 @@ macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览�
 
 全部设备范围使用仓储聚合查询；指定设备范围经请求级设备仓储过滤后统计，不把全租户计数返回给受限用户。内存实现保持相同口径。入口为 `internal/httpapi/dashboard.go`，回归测试 `TestDashboard` 同时支持内存与 `IOT_TEST_POSTGRES_DSN` 指定的独立临时数据库 schema。
 
-## 列表与分页
+### 列表与分页
 
 采用 `internal/httpapi/pagination.go` 的接口支持 `page/pageSize`，兼容 `limit/offset`，每页默认 20 条、上限 100 条，返回 `items`、`total`、`page`、`pageSize`。正数 `page` 优先于 `offset`；超大参数收敛到整数安全上界，越界页返回空列表并保留实际总数，非数字沿用默认行为。
 
@@ -112,13 +188,13 @@ macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览�
 
 对应回归入口为 `go test ./internal/httpapi -run 'Test(OversizedPagination|PaginationArithmetic|PageItems|ParseListPagination)'` 和在 `iot_front` 中执行 `node --test tests/list-behavior.test.mjs`。
 
-### 原始报文筛选
+#### 原始报文筛选
 
 原始报文页支持设备标识、报文标识、解析状态、接收时间，以及“更多筛选”中的产品标识、协议、报文格式、消息类型和解析器；可组合查询，并提供最近 1 小时、24 小时、7 天快捷范围。标识和解析器使用完整值精确匹配，协议及格式忽略大小写。点击“查询”应用条件，翻页与刷新保留已应用条件，“重置筛选”清空全部条件并返回第一页。
 
 `GET /api/v1/raw-messages` 对应参数为 `deviceId`、`messageId`、`productId`、`protocol`、`payloadFormat`、`parseStatus`、`messageType`、`parser`、`start`、`end`；时间为包含端点的接收时间毫秒值。解析状态为 `PARSED`（已存在标准消息）、`FAILED`（无标准消息且记录解析错误）、`UNPARSED`（无标准消息且无解析错误）。消息类型及解析器依据该原文最新的标准消息。筛选在存储查询阶段、分页之前执行，列表总数使用相同条件，保留租户与用户设备范围限制。普通用户不因筛选获得额外设备访问权限。
 
-### 原文回放
+#### 原文回放
 
 `POST /api/v1/raw-messages/replay` 的 `ratePerSecond` 省略或非正时沿用默认 100，正值上限为 10000；超限在创建任务前返回 422。该参数是请求的发送节奏，不是系统吞吐保证。
 
@@ -287,29 +363,3 @@ go run ./cmd/capacity-test compare --runs <n1>,<n2>,<n3>,<n6> --instances <n1>=1
 | 主机 / 磁盘 | 资源争用、磁盘写满、inbox 持久性与人工恢复边界；仅重启进程不覆盖这些故障 |
 
 报告保存到独立的 `capacity-results/<runId>/`，包含执行人、日期、提交、清单和全部证据。推荐运行值须经过长稳验证；健康状态下的 0.7 系数不能证明 N−1 容量。未测或未通过的业务/故障逐项列明，不纳入承诺。
-
-### 真实依赖回归与死信恢复
-
-现有 Broker 断开回归可指定环境文件运行，不创建容器：
-
-```bash
-IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -run TestExistingBrokerDisconnectDuringDurableCallback -count=1
-```
-
-该测试只断开自己创建的临时订阅客户端，使用独立主题和临时目录。真实 PostgreSQL 测试使用 `IOT_TEST_POSTGRES_DSN` 指定数据库，在临时 schema 中建表并清理，不应把完整连接串写入终端历史。未配置时相应测试跳过。
-
-存储死信恢复工具默认只读审计，显式指定租户、源业务主题和待恢复标准消息 ID 数组文件，核对全部 ID 后再追加 `-execute`：
-
-```bash
-go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json
-# 核对后重新送入原存储消费链，不删除 DLQ、不重置消费者 offset
-go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json -execute
-```
-
-重复死信按 messageId 合并，矛盾正文会拒绝整批发布。重新发布成功只代表 Kafka 收到；必须再核对 PostgreSQL `processed_at`、ClickHouse 行数/唯一 ID 和实际告警状态。发布途中失败可重跑同一 ID 列表，仍由原业务幂等处理。
-
-### 值班模块验证
-
-业务及接口入口为 `internal/duty/`、`internal/httpapi/duty*.go`，前端为 `iot_front/src/components/duty/`。检查命令和事实、权限、AI 及备份边界见 [值班管理](DUTY.md#开发验证)。
-
-浏览器回归使用一次性真实 HTTP 内存适配实例。先设置临时 `DUTY_BROWSER_PASSWORD`，再在根目录运行 `DUTY_BROWSER_FIXTURE=1 go test ./internal/httpapi -run '^TestDutyBrowserFixtureServer$' -count=1 -timeout=35m`，监听 `18091`；在 `iot_front` 运行 `VITE_API_PROXY_TARGET=http://127.0.0.1:18091 npm run dev -- --port 5181 --strictPort`。为浏览器脚本设置 `IOT_TEST_DUTY_FIXTURE=1`、`IOT_TEST_BASE_URL=http://127.0.0.1:5181`、`IOT_TEST_TENANT=duty_browser`、`IOT_TEST_ADMIN_USER=root`，并将同一临时密码注入 `IOT_TEST_ADMIN_PASSWORD`，然后运行 `node tests/browser/duty-check.mjs`。账号与设备只存在于该测试进程，脚本不模拟 HTTP 响应。结束后停止自己启动的两个进程；不要指向现网环境。
