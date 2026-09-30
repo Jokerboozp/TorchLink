@@ -164,7 +164,12 @@ func (r *analyticsFactReader) QueryMeasurementSeries(q model.FactQuery) (model.F
 	if availabilitySource == "" {
 		availabilitySource = "postgres_standard_commit"
 	}
-	args = append(args, availabilitySource)
+	members := q.Members
+	if members == nil {
+		members = []model.MeasurementIdentity{}
+	}
+	memberJSON, _ := json.Marshal(members)
+	args = append(args, availabilitySource, memberJSON)
 	if q.TimeBasis == "AVAILABLE" {
 		var unknown bool
 		err = r.tx.QueryRow(r.ctx, `SELECT EXISTS(SELECT 1 FROM standard_message s LEFT JOIN measurement_availability a ON a.tenant_id=s.tenant_id AND a.message_id=s.message_id AND a.source=$3 WHERE s.tenant_id=$1 AND s.device_id=ANY($2::text[]) AND s.processed_at=0 AND a.available_at IS NULL AND jsonb_typeof(s.properties)='object' AND s.properties<>'{}'::jsonb)`, r.tenant, q.DeviceIDs, availabilitySource).Scan(&unknown)
@@ -183,7 +188,7 @@ func (r *analyticsFactReader) QueryMeasurementSeries(q model.FactQuery) (model.F
 	if q.TimeBasis == "AVAILABLE" {
 		at = `COALESCE(a.available_at,NULLIF(s.processed_at,0))`
 	}
-	query := `SELECT s.message_id,s.raw_message_id,s.device_id,s.product_id,s.message_type,s.ts,COALESCE(ri.received_at,0),COALESCE(a.available_at,NULLIF(s.processed_at,0),0),CASE WHEN a.available_at IS NOT NULL THEN a.source WHEN s.processed_at>0 THEN 'historical_processed_at' ELSE 'UNKNOWN' END,s.body,p.key,p.value,COALESCE(raw.body,reservation.metadata,'{}'::jsonb) FROM standard_message s LEFT JOIN raw_archive_index ri ON ri.tenant_id=s.tenant_id AND ri.message_id=s.raw_message_id LEFT JOIN measurement_availability a ON a.tenant_id=s.tenant_id AND a.message_id=s.message_id AND a.source=$10 LEFT JOIN raw_message_log raw ON raw.tenant_id=s.tenant_id AND raw.message_id=s.raw_message_id LEFT JOIN raw_ingest_reservation reservation ON reservation.tenant_id=s.tenant_id AND reservation.message_id=s.raw_message_id CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(s.properties)='object' THEN s.properties ELSE '{}'::jsonb END) p WHERE s.tenant_id=$1 AND s.device_id=ANY($2::text[]) AND ` + at + ` >= $3 AND ` + at + ` < $4 AND (cardinality($9::text[])=0 OR p.key=ANY($9::text[])) AND (` + at + `,s.message_id,p.key)>($6,$7,$8) ORDER BY ` + at + `,s.message_id,p.key LIMIT $5`
+	query := `SELECT s.message_id,s.raw_message_id,s.device_id,s.product_id,s.message_type,s.ts,COALESCE(ri.received_at,0),COALESCE(a.available_at,NULLIF(s.processed_at,0),0),CASE WHEN a.available_at IS NOT NULL THEN a.source WHEN s.processed_at>0 THEN 'historical_processed_at' ELSE 'UNKNOWN' END,s.body,p.key,p.value,COALESCE(raw.body,reservation.metadata,'{}'::jsonb),COALESCE(product_history.body,'{}'::jsonb),COALESCE(product_history.resource_version,0) FROM standard_message s LEFT JOIN raw_archive_index ri ON ri.tenant_id=s.tenant_id AND ri.message_id=s.raw_message_id LEFT JOIN measurement_availability a ON a.tenant_id=s.tenant_id AND a.message_id=s.message_id AND a.source=$10 LEFT JOIN raw_message_log raw ON raw.tenant_id=s.tenant_id AND raw.message_id=s.raw_message_id LEFT JOIN raw_ingest_reservation reservation ON reservation.tenant_id=s.tenant_id AND reservation.message_id=s.raw_message_id LEFT JOIN LATERAL(SELECT body,resource_version FROM analytics_configuration_event history WHERE history.tenant_id=s.tenant_id AND history.source='iot_product' AND history.resource_id=s.product_id AND history.occurred_at<=ri.received_at ORDER BY history.occurred_at DESC,history.resource_version DESC LIMIT 1)product_history ON true CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(s.properties)='object' THEN s.properties ELSE '{}'::jsonb END) p WHERE s.tenant_id=$1 AND s.device_id=ANY($2::text[]) AND ` + at + ` >= $3 AND ` + at + ` < $4 AND (cardinality($9::text[])=0 OR p.key=ANY($9::text[])) AND ($11::jsonb='[]'::jsonb OR EXISTS(SELECT 1 FROM jsonb_array_elements($11::jsonb) member WHERE member->>'messageId'=s.message_id AND member->>'property'=p.key)) AND (` + at + `,s.message_id,p.key)>($6,$7,$8) ORDER BY ` + at + `,s.message_id,p.key LIMIT $5`
 	rows, err := r.tx.Query(r.ctx, query, args...)
 	if err != nil {
 		return model.FactPage[model.MeasurementFact]{}, err
@@ -192,8 +197,9 @@ func (r *analyticsFactReader) QueryMeasurementSeries(q model.FactQuery) (model.F
 	out := []model.MeasurementFact{}
 	for rows.Next() {
 		var v model.MeasurementFact
-		var sb, value, rb []byte
-		if err = rows.Scan(&v.MessageID, &v.RawMessageID, &v.DeviceID, &v.ProductID, &v.MessageType, &v.EventAt, &v.ReceivedAt, &v.AvailableAt, &v.AvailableAtSource, &sb, &v.Property, &value, &rb); err != nil {
+		var sb, value, rb, historicalBody []byte
+		var historicalVersion int64
+		if err = rows.Scan(&v.MessageID, &v.RawMessageID, &v.DeviceID, &v.ProductID, &v.MessageType, &v.EventAt, &v.ReceivedAt, &v.AvailableAt, &v.AvailableAtSource, &sb, &v.Property, &value, &rb, &historicalBody, &historicalVersion); err != nil {
 			return model.FactPage[model.MeasurementFact]{}, err
 		}
 		v.ID = v.MessageID + ":" + v.Property
@@ -211,6 +217,23 @@ func (r *analyticsFactReader) QueryMeasurementSeries(q model.FactQuery) (model.F
 		// The current thing model is not a historical unit. Only message tags
 		// explicitly preserving the unit can supply it; otherwise it stays unknown.
 		v.Unit = sm.Tags["unit:"+v.Property]
+		v.ConfigurationVersion = sm.Tags["configurationVersion"]
+		v.OperatingCondition = sm.Tags["operatingCondition"]
+		if historicalVersion > 0 {
+			var historicalProduct model.Product
+			_ = json.Unmarshal(historicalBody, &historicalProduct)
+			if historicalProduct.ThingModel != nil {
+				for _, field := range historicalProduct.ThingModel.Properties {
+					if field.Identifier == v.Property && v.Unit == "" {
+						v.Unit = field.Unit
+						break
+					}
+				}
+			}
+			if v.ConfigurationVersion == "" {
+				v.ConfigurationVersion = fmt.Sprintf("product:%s:%d", v.ProductID, historicalVersion)
+			}
+		}
 		v.HistoricalReconstructionQuality = "RECORDED"
 		if v.AvailableAtSource == "historical_processed_at" {
 			v.HistoricalReconstructionQuality = "CONSERVATIVE_PROCESSING_STAGE"
@@ -257,7 +280,7 @@ func (r *analyticsFactReader) ListRawParseOutcomes(q model.FactQuery) (model.Fac
 	if err != nil {
 		return model.FactPage[model.RawParseOutcomeFact]{}, err
 	}
-	rows, err := r.tx.Query(r.ctx, `SELECT ri.message_id,ri.device_id,ri.product_id,ri.received_at,ri.archived_at,ri.parse_attempted_at,ri.parse_error,COALESCE(s.message_id,''),COALESCE(ri.protocol,''),ri.object_bucket,COALESCE(raw.body,reservation.metadata,'{}'::jsonb),raw.message_id IS NOT NULL FROM raw_archive_index ri LEFT JOIN LATERAL(SELECT message_id FROM standard_message s WHERE s.tenant_id=ri.tenant_id AND s.raw_message_id=ri.message_id ORDER BY ts DESC,message_id LIMIT 1)s ON true LEFT JOIN raw_message_log raw ON raw.tenant_id=ri.tenant_id AND raw.message_id=ri.message_id LEFT JOIN raw_ingest_reservation reservation ON reservation.tenant_id=ri.tenant_id AND reservation.message_id=ri.message_id WHERE ri.tenant_id=$1 AND ri.device_id=ANY($2::text[]) AND ri.received_at>=$3 AND ri.received_at<$4 AND (ri.received_at,ri.message_id)>($6,$7) ORDER BY ri.received_at,ri.message_id LIMIT $5`, args[:7]...)
+	rows, err := r.tx.Query(r.ctx, `SELECT ri.message_id,ri.device_id,ri.product_id,ri.received_at,ri.archived_at,ri.parse_attempted_at,ri.parse_error,COALESCE(s.message_id,''),COALESCE(s.standard_count,0),COALESCE(ri.protocol,''),ri.object_bucket,COALESCE(raw.body,reservation.metadata,'{}'::jsonb),raw.message_id IS NOT NULL FROM raw_archive_index ri LEFT JOIN LATERAL(SELECT count(*) standard_count,max(message_id) message_id FROM standard_message s WHERE s.tenant_id=ri.tenant_id AND s.raw_message_id=ri.message_id)s ON true LEFT JOIN raw_message_log raw ON raw.tenant_id=ri.tenant_id AND raw.message_id=ri.message_id LEFT JOIN raw_ingest_reservation reservation ON reservation.tenant_id=ri.tenant_id AND reservation.message_id=ri.message_id WHERE ri.tenant_id=$1 AND ri.device_id=ANY($2::text[]) AND ri.received_at>=$3 AND ri.received_at<$4 AND (ri.received_at,ri.message_id)>($6,$7) ORDER BY ri.received_at,ri.message_id LIMIT $5`, args[:7]...)
 	if err != nil {
 		return model.FactPage[model.RawParseOutcomeFact]{}, err
 	}
@@ -267,7 +290,7 @@ func (r *analyticsFactReader) ListRawParseOutcomes(q model.FactQuery) (model.Fac
 		var v model.RawParseOutcomeFact
 		var body []byte
 		var stored bool
-		if err = rows.Scan(&v.RawMessageID, &v.DeviceID, &v.ProductID, &v.ReceivedAt, &v.ArchivedAt, &v.ParseAttemptedAt, &v.ParseError, &v.MessageID, &v.Protocol, &v.ArchiveBackend, &body, &stored); err != nil {
+		if err = rows.Scan(&v.RawMessageID, &v.DeviceID, &v.ProductID, &v.ReceivedAt, &v.ArchivedAt, &v.ParseAttemptedAt, &v.ParseError, &v.MessageID, &v.SuccessfulStandardMessages, &v.Protocol, &v.ArchiveBackend, &body, &stored); err != nil {
 			return model.FactPage[model.RawParseOutcomeFact]{}, err
 		}
 		var raw model.RawMessage

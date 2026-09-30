@@ -22,6 +22,7 @@ import (
 const directAlarmRulePrefix = "device-report:"
 
 type Engine struct {
+	AnalysisAI    ports.AnalysisAIReader
 	standardLocks [256]sync.Mutex
 	stateLocks    [64]sync.Mutex
 	rules         ruleCache

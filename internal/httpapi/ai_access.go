@@ -22,14 +22,15 @@ func workflowScopes(ctx context.Context) []string {
 		return auth.HarnessReadScopes()
 	}
 	required := map[string]bool{
-		auth.ScopeQuerySystemOverview:  p["menu:dashboard"],
-		auth.ScopeQueryDeviceLatest:    p["menu:devices"],
-		auth.ScopeQueryPropertyHistory: p["menu:devices"],
-		auth.ScopeQueryAlarmList:       allowsRoute(p, "GET", "/api/v1/alarms"),
-		auth.ScopeQuerySimilarAlarms:   allowsRoute(p, "GET", "/api/v1/alarms"),
-		auth.ScopeQueryKnowledgeBase:   p["menu:knowledge"],
-		auth.ScopeCreateRuleDraft:      allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
-		auth.ScopeQueryDutySnapshot:    p["menu:duty"] && p["action:duty:ai"],
+		auth.ScopeQuerySystemOverview:   p["menu:dashboard"],
+		auth.ScopeQueryDeviceLatest:     p["menu:devices"],
+		auth.ScopeQueryPropertyHistory:  p["menu:devices"],
+		auth.ScopeQueryAlarmList:        allowsRoute(p, "GET", "/api/v1/alarms"),
+		auth.ScopeQuerySimilarAlarms:    allowsRoute(p, "GET", "/api/v1/alarms"),
+		auth.ScopeQueryKnowledgeBase:    p["menu:knowledge"],
+		auth.ScopeCreateRuleDraft:       allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
+		auth.ScopeQueryDutySnapshot:     p["menu:duty"] && p["action:duty:ai"],
+		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs"),
 	}
 	out := []string{}
 	for _, scope := range auth.HarnessReadScopes() {
@@ -57,6 +58,9 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 		return ctx, errors.New("AI 运行身份与租户不符")
 	}
 	if !identity.ManagedUser {
+		if workflowID == core.WorkflowDataQuality {
+			return ctx, s.authorizeAnalysisAI(ctx, identity)
+		}
 		if workflowID == core.WorkflowDutyHandover {
 			return ctx, s.authorizeDutyAI(ctx, tenantID, identity)
 		}
@@ -86,6 +90,11 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 			return ctx, err
 		}
 	}
+	if workflowID == core.WorkflowDataQuality {
+		if err := s.authorizeAnalysisAI(ctx, identity); err != nil {
+			return ctx, err
+		}
+	}
 	return ports.WithAIRunIdentity(ctx, identity), nil
 }
 
@@ -93,6 +102,8 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 // token; chat tokens keep requiring the assistant permission instead.
 func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
 	switch workflow {
+	case core.WorkflowDataQuality:
+		return p["menu:devices"] && p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")
 	case core.WorkflowDutyHandover:
 		return p["menu:duty"] && p["action:duty:ai"]
 	case core.WorkflowAlarmAnalysis:

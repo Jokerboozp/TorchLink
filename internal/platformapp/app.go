@@ -500,6 +500,7 @@ func Run(forcedRole string) {
 	}
 	if cfg.Runs(config.ComponentManagement) {
 		go api.RunAnalysisWorkers(ctx)
+		go api.RunAnalysisAIWorkers(ctx)
 	}
 	if cfg.Runs(config.ComponentManagement) {
 		go api.RunDutyWorkers(ctx)

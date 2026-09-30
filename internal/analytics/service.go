@@ -18,6 +18,7 @@ import (
 type Processor func(context.Context, *Execution) error
 
 type Service struct {
+	AI         *AIService
 	Store      ports.AnalysisStore
 	Limits     config.AnalyticsConfig
 	Resolve    ResolveActor

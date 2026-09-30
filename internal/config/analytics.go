@@ -10,20 +10,21 @@ import (
 // AnalyticsConfig bounds only the five analysis applications. These limits are
 // resource protections, not capacity or statistical acceptance claims.
 type AnalyticsConfig struct {
-	Workers    int
-	MaxDevices int
-	QueueLimit int
-	BatchSize  int
-	MaxRange   time.Duration
-	RunTimeout time.Duration
-	Lease      time.Duration
-	Poll       time.Duration
-	loadErr    error
+	Workers     int
+	MaxDevices  int
+	QueueLimit  int
+	BatchSize   int
+	RecordLimit int
+	MaxRange    time.Duration
+	RunTimeout  time.Duration
+	Lease       time.Duration
+	Poll        time.Duration
+	loadErr     error
 }
 
 func loadAnalytics() AnalyticsConfig {
-	c := AnalyticsConfig{Workers: 2, MaxDevices: 1000, QueueLimit: 100, BatchSize: 1000, MaxRange: 31 * 24 * time.Hour, RunTimeout: 30 * time.Minute, Lease: 30 * time.Second, Poll: time.Second}
-	for key, target := range map[string]*int{"IOT_ANALYTICS_WORKERS": &c.Workers, "IOT_ANALYTICS_MAX_DEVICES": &c.MaxDevices, "IOT_ANALYTICS_QUEUE_LIMIT": &c.QueueLimit, "IOT_ANALYTICS_BATCH_SIZE": &c.BatchSize} {
+	c := AnalyticsConfig{}.WithDefaults()
+	for key, target := range map[string]*int{"IOT_ANALYTICS_WORKERS": &c.Workers, "IOT_ANALYTICS_MAX_DEVICES": &c.MaxDevices, "IOT_ANALYTICS_QUEUE_LIMIT": &c.QueueLimit, "IOT_ANALYTICS_BATCH_SIZE": &c.BatchSize, "IOT_ANALYTICS_RECORD_LIMIT": &c.RecordLimit} {
 		if raw := os.Getenv(key); raw != "" {
 			n, err := strconv.Atoi(raw)
 			if err != nil || n < 1 {
@@ -47,7 +48,7 @@ func loadAnalytics() AnalyticsConfig {
 }
 
 func (c AnalyticsConfig) WithDefaults() AnalyticsConfig {
-	d := AnalyticsConfig{Workers: 2, MaxDevices: 1000, QueueLimit: 100, BatchSize: 1000, MaxRange: 31 * 24 * time.Hour, RunTimeout: 30 * time.Minute, Lease: 30 * time.Second, Poll: time.Second}
+	d := AnalyticsConfig{Workers: 2, MaxDevices: 1000, QueueLimit: 100, BatchSize: 1000, RecordLimit: 50000, MaxRange: 31 * 24 * time.Hour, RunTimeout: 30 * time.Minute, Lease: 30 * time.Second, Poll: time.Second}
 	if c.Workers == 0 {
 		c.Workers = d.Workers
 	}
@@ -59,6 +60,9 @@ func (c AnalyticsConfig) WithDefaults() AnalyticsConfig {
 	}
 	if c.BatchSize == 0 {
 		c.BatchSize = d.BatchSize
+	}
+	if c.RecordLimit == 0 {
+		c.RecordLimit = d.RecordLimit
 	}
 	if c.MaxRange == 0 {
 		c.MaxRange = d.MaxRange
@@ -80,7 +84,7 @@ func (c AnalyticsConfig) Validate() error {
 		return c.loadErr
 	}
 	c = c.WithDefaults()
-	if c.Workers < 1 || c.Workers > 64 || c.MaxDevices < 1 || c.QueueLimit < 1 || c.BatchSize < 1 || c.MaxRange <= 0 || c.RunTimeout <= 0 || c.Poll <= 0 || c.Lease < 300*time.Millisecond {
+	if c.Workers < 1 || c.Workers > 64 || c.MaxDevices < 1 || c.QueueLimit < 1 || c.BatchSize < 1 || c.RecordLimit < 1 || c.RecordLimit > 50000 || c.MaxRange <= 0 || c.RunTimeout <= 0 || c.Poll <= 0 || c.Lease < 300*time.Millisecond {
 		return fmt.Errorf("invalid analytics resource limits")
 	}
 	return nil

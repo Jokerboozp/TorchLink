@@ -157,6 +157,7 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 	})
 	if harness {
 		registerDutyTool(s, engine)
+		registerAnalysisTool(s, engine)
 	}
 	options := []server.StreamableHTTPOption{
 		server.WithStateLess(true),

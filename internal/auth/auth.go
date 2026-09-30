@@ -17,19 +17,20 @@ type contextKey string
 const claimsContextKey contextKey = "iot-auth-claims"
 
 const (
-	HarnessAudience           = "iot-platform-mcp"
-	ScopeQueryDeviceLatest    = "mcp:tool:query_device_latest"
-	ScopeQuerySystemOverview  = "mcp:tool:query_system_overview"
-	ScopeQueryAlarmList       = "mcp:tool:query_alarm_list"
-	ScopeQueryPropertyHistory = "mcp:tool:query_property_history"
-	ScopeQuerySimilarAlarms   = "mcp:tool:query_similar_alarms"
-	ScopeQueryKnowledgeBase   = "mcp:tool:query_knowledge_base"
-	ScopeCreateRuleDraft      = "mcp:tool:create_rule_draft"
-	ScopeQueryDutySnapshot    = "mcp:tool:query_duty_snapshot"
+	HarnessAudience            = "iot-platform-mcp"
+	ScopeQueryDeviceLatest     = "mcp:tool:query_device_latest"
+	ScopeQuerySystemOverview   = "mcp:tool:query_system_overview"
+	ScopeQueryAlarmList        = "mcp:tool:query_alarm_list"
+	ScopeQueryPropertyHistory  = "mcp:tool:query_property_history"
+	ScopeQuerySimilarAlarms    = "mcp:tool:query_similar_alarms"
+	ScopeQueryKnowledgeBase    = "mcp:tool:query_knowledge_base"
+	ScopeCreateRuleDraft       = "mcp:tool:create_rule_draft"
+	ScopeQueryDutySnapshot     = "mcp:tool:query_duty_snapshot"
+	ScopeQueryAnalysisSnapshot = "mcp:tool:query_analysis_snapshot"
 )
 
 func HarnessReadScopes() []string {
-	return []string{ScopeQuerySystemOverview, ScopeQueryDeviceLatest, ScopeQueryAlarmList, ScopeQueryPropertyHistory, ScopeQuerySimilarAlarms, ScopeQueryKnowledgeBase, ScopeCreateRuleDraft, ScopeQueryDutySnapshot}
+	return []string{ScopeQuerySystemOverview, ScopeQueryDeviceLatest, ScopeQueryAlarmList, ScopeQueryPropertyHistory, ScopeQuerySimilarAlarms, ScopeQueryKnowledgeBase, ScopeCreateRuleDraft, ScopeQueryDutySnapshot, ScopeQueryAnalysisSnapshot}
 }
 
 func ContextWithClaims(ctx context.Context, claims Claims) context.Context {
@@ -55,10 +56,16 @@ type Claims struct {
 	Knowledge      *KnowledgeScope `json:"knowledge,omitempty"`
 	// Workflow marks a Harness business run (alarm analysis, inspection, ...);
 	// the MCP endpoint then checks that feature's permission instead of chat.
-	Workflow       string `json:"workflow,omitempty"`
-	DutyRevisionID string `json:"dutyRevisionId,omitempty"`
-	DutyJobID      string `json:"dutyJobId,omitempty"`
-	DutyLeaseOwner string `json:"dutyLeaseOwner,omitempty"`
+	Workflow                string `json:"workflow,omitempty"`
+	DutyRevisionID          string `json:"dutyRevisionId,omitempty"`
+	DutyJobID               string `json:"dutyJobId,omitempty"`
+	DutyLeaseOwner          string `json:"dutyLeaseOwner,omitempty"`
+	AnalysisRunID           string `json:"analysisRunId,omitempty"`
+	AnalysisSnapshotID      string `json:"analysisSnapshotId,omitempty"`
+	AnalysisSnapshotVersion int64  `json:"analysisSnapshotVersion,omitempty"`
+	AnalysisJobID           string `json:"analysisJobId,omitempty"`
+	AnalysisLeaseToken      int64  `json:"analysisLeaseToken,omitempty"`
+	AnalysisAccessVersion   string `json:"analysisAccessVersion,omitempty"`
 	jwt.RegisteredClaims
 }
 type KnowledgeScope struct {
@@ -124,6 +131,7 @@ func (m *Manager) IssueBusinessRunToken(tenantID string, identity ports.AIRunIde
 		return "", errors.New("business workflow is required")
 	}
 	parent := Claims{Username: identity.Username, TenantID: tenantID, SessionVersion: identity.SessionVersion, Workflow: workflowID, DutyRevisionID: identity.DutyRevisionID, DutyJobID: identity.DutyJobID, DutyLeaseOwner: identity.DutyLeaseOwner}
+	parent.AnalysisRunID, parent.AnalysisSnapshotID, parent.AnalysisSnapshotVersion, parent.AnalysisJobID, parent.AnalysisLeaseToken, parent.AnalysisAccessVersion = identity.AnalysisRunID, identity.AnalysisSnapshotID, identity.AnalysisSnapshotVersion, identity.AnalysisJobID, identity.AnalysisLeaseToken, identity.AccessVersion
 	if identity.ManagedUser {
 		parent.TokenUse = "user"
 	}
@@ -152,6 +160,7 @@ func (m *Manager) issueHarness(parent Claims, runID string, scopes []string, kno
 		DutyRevisionID: parent.DutyRevisionID,
 		DutyJobID:      parent.DutyJobID,
 		DutyLeaseOwner: parent.DutyLeaseOwner,
+		AnalysisRunID:  parent.AnalysisRunID, AnalysisSnapshotID: parent.AnalysisSnapshotID, AnalysisSnapshotVersion: parent.AnalysisSnapshotVersion, AnalysisJobID: parent.AnalysisJobID, AnalysisLeaseToken: parent.AnalysisLeaseToken, AnalysisAccessVersion: parent.AnalysisAccessVersion,
 		ManagedUser:    parent.TokenUse == "user",
 		SessionVersion: parent.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{

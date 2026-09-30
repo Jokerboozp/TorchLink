@@ -80,7 +80,7 @@ func (b analyticsBackend) transaction(ctx context.Context, tenant string, readOn
 	return tx.Commit(ctx)
 }
 func (b analyticsBackend) WorkTenants(ctx context.Context, kinds []string) ([]string, error) {
-	rows, err := b.r.pool.Query(ctx, `SELECT DISTINCT tenant_id FROM analysis_document WHERE kind='run' AND application_kind=ANY($1::text[]) AND status IN ('QUEUED','PREPARING','RUNNING') ORDER BY tenant_id`, kinds)
+	rows, err := b.r.pool.Query(ctx, `SELECT DISTINCT tenant_id FROM analysis_document WHERE kind IN ('run','ai') AND application_kind=ANY($1::text[]) AND status IN ('QUEUED','PREPARING','RUNNING') ORDER BY tenant_id`, kinds)
 	if err != nil {
 		return nil, err
 	}
@@ -244,4 +244,25 @@ func (r *Repository) GetAnalysisAIRevision(ctx context.Context, tenant, id strin
 }
 func (r *Repository) ListAnalysisAIRevisions(ctx context.Context, tenant string, f model.AnalysisFilter) ([]model.AnalysisAIRevision, int, error) {
 	return r.analysisStore().ListAnalysisAIRevisions(ctx, tenant, f)
+}
+
+var _ ports.AnalysisAIStore = (*Repository)(nil)
+
+func (r *Repository) CreateAnalysisAIRevision(ctx context.Context, v model.AnalysisAIRevision, expected int64, limit int) (model.AnalysisAIRevision, error) {
+	return r.analysisStore().CreateAnalysisAIRevision(ctx, v, expected, limit)
+}
+func (r *Repository) ClaimAnalysisAIRevision(ctx context.Context, owner string, lease, maxDuration time.Duration, workflows []string) (model.AnalysisAIRevision, error) {
+	return r.analysisStore().ClaimAnalysisAIRevision(ctx, owner, lease, maxDuration, workflows)
+}
+func (r *Repository) RenewAnalysisAILease(ctx context.Context, tenant, id string, token int64, lease time.Duration) (model.AnalysisAIRevision, error) {
+	return r.analysisStore().RenewAnalysisAILease(ctx, tenant, id, token, lease)
+}
+func (r *Repository) RecordAnalysisAIFacts(ctx context.Context, tenant, id string, token int64, ids []string) (model.AnalysisAIRevision, error) {
+	return r.analysisStore().RecordAnalysisAIFacts(ctx, tenant, id, token, ids)
+}
+func (r *Repository) FinishAnalysisAIRevision(ctx context.Context, tenant, id string, token int64, result model.AnalysisAIResult, modelName, failure string) (model.AnalysisAIRevision, error) {
+	return r.analysisStore().FinishAnalysisAIRevision(ctx, tenant, id, token, result, modelName, failure)
+}
+func (r *Repository) StopAnalysisAIRevision(ctx context.Context, tenant, id string, expected int64) (model.AnalysisAIRevision, error) {
+	return r.analysisStore().StopAnalysisAIRevision(ctx, tenant, id, expected)
 }

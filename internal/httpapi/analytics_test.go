@@ -36,6 +36,14 @@ func TestAnalysisAPIDurableIdentityScopeAndWholeResult(t *testing.T) {
 	if err := api.AnalysisService().Register(analytics.KindDataQuality, func(context.Context, *analytics.Execution) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
+	profileBody, err := json.Marshal(model.QualityProfile{AttributeID: "pressure", Mode: "periodic", EffectiveFrom: 1, ScheduleAnchor: 1, PeriodMs: 1000, ValueType: "number", MinimumSamples: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := api.analysis.Store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "profile-fixture", TenantID: "t", Kind: model.DataQualityProfileKind, ResourceID: "pressure", Creator: "reader", Scope: "PERSONAL", DeviceIDs: []string{"a", "b"}, Body: profileBody}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	token, err := api.auth.IssueUser("reader", "t", 1, time.Hour)
@@ -45,7 +53,7 @@ func TestAnalysisAPIDurableIdentityScopeAndWholeResult(t *testing.T) {
 	req := func(method, path string, body any, status int) map[string]any {
 		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
 	}
-	q := map[string]any{"deviceIds": []string{"a", "b"}, "start": 1000, "end": 10000, "configurationVersion": "profile-v1", "idempotencyKey": "request"}
+	q := map[string]any{"deviceIds": []string{"a", "b"}, "start": 1000, "end": 10000, "idempotencyKey": "request", "parameters": model.QualityRunParameters{AttributeIDs: []string{"pressure"}, ProfileRevisionIDs: []string{profile.ID}}}
 	run := req("POST", "/api/v1/data-quality/runs", q, 202)
 	id := run["id"].(string)
 	if repeat := req("POST", "/api/v1/data-quality/runs", q, 202); repeat["id"] != id {
@@ -121,5 +129,27 @@ func TestAnalysisStorageSurvivesRepositoryDecoratorsAndServerRestart(t *testing.
 	got, err := second.AnalysisService().Get(ctx, a, analytics.KindDataQuality, run.ID)
 	if err != nil || got.ID != run.ID || got.Status != model.AnalysisQueued {
 		t.Fatal("decorated storage lost task across server instances", got, err)
+	}
+}
+
+func TestAnalysisAttachmentDownloadIsAssignableAndProtected(t *testing.T) {
+	api := New(config.Config{DevMode: true}, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	const path = "/api/v1/data-quality/calibrations/attachments/:id"
+	found := false
+	for _, item := range api.permissionCatalog() {
+		if item.ID == "GET "+path {
+			found = item.Menu == "dataQuality" && item.Name == "下载校准附件"
+		}
+	}
+	if !found {
+		t.Fatal("attachment download cannot be assigned from the real permission catalog")
+	}
+	permissions := map[string]bool{"menu:dataQuality": true, "menu:devices": true}
+	if allowsRoute(permissions, "GET", path) {
+		t.Fatal("ordinary page read granted attachment download")
+	}
+	permissions["GET "+path] = true
+	if !allowsRoute(permissions, "GET", path) {
+		t.Fatal("explicit attachment permission did not grant its route")
 	}
 }

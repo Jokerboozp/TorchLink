@@ -800,7 +800,7 @@ func (s *Store) PutAnalysisAIRevision(ctx context.Context, v model.AnalysisAIRev
 			if e != nil {
 				return e
 			}
-			if old.Version != expected || old.RunID != v.RunID || old.SnapshotID != v.SnapshotID || old.WorkflowID != v.WorkflowID || old.PromptVersion != v.PromptVersion || old.Model != v.Model || old.PermissionVersion != v.PermissionVersion || TerminalAnalysisStatus(old.Status) {
+			if old.Creator != "" || old.Version != expected || old.RunID != v.RunID || old.SnapshotID != v.SnapshotID || old.WorkflowID != v.WorkflowID || old.PromptVersion != v.PromptVersion || old.Model != v.Model || old.PermissionVersion != v.PermissionVersion || TerminalAnalysisStatus(old.Status) {
 				return model.ErrAnalysisConflict
 			}
 			if old.Status == model.AnalysisRunning && v.Status == model.AnalysisQueued {

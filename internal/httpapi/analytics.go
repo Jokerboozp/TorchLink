@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"iot-platform/internal/analytics"
+	"iot-platform/internal/analytics/dataquality"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -21,6 +22,13 @@ func (s *Server) setupAnalytics() {
 		return err
 	})
 	s.analysisFacts, _ = s.unscopedRepo().(ports.AnalyticsFactStore)
+	s.quality = dataquality.NewService(s.analysis, s.analysisFacts)
+	s.quality.RecordLimit = s.analysis.Limits.RecordLimit
+	s.quality.Catalog = s.unscopedRepo()
+	s.quality.Archive = s.engine.Archive
+	if err := s.quality.Register(); err != nil {
+		panic(err)
+	}
 }
 
 // SetAnalysisStorage is startup wiring: decorated Repository interfaces do not
@@ -28,6 +36,7 @@ func (s *Server) setupAnalytics() {
 func (s *Server) SetAnalysisStorage(store ports.AnalysisStore, facts ports.AnalyticsFactStore) {
 	s.analysis.Store = store
 	s.analysisFacts = facts
+	s.quality.Facts = facts
 }
 
 func (s *Server) resolveAnalysisActor(ctx context.Context, a analytics.Actor) (analytics.Actor, error) {
@@ -111,7 +120,15 @@ func (s *Server) analysisCreate(kind string) endpointHandler {
 		if q.IdempotencyKey == "" {
 			q.IdempotencyKey = r.Header.Get("Idempotency-Key")
 		}
-		run, err := s.analysis.Create(r.Context(), analysisActor(r), kind, "v1", q)
+		algorithm := "v1"
+		if kind == analytics.KindDataQuality {
+			if err := s.quality.ValidateCreate(r.Context(), analysisActor(r), &q); err != nil {
+				analysisProblem(w, err)
+				return
+			}
+			algorithm = dataquality.AlgorithmVersion
+		}
+		run, err := s.analysis.Create(r.Context(), analysisActor(r), kind, algorithm, q)
 		if err != nil {
 			analysisProblem(w, err)
 			return

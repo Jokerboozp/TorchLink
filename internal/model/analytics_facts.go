@@ -9,20 +9,29 @@ import (
 
 // FactQuery always operates on an explicit authorized device set. Intervals are
 // half-open; no empty set is interpreted as all devices.
+type MeasurementIdentity struct {
+	MessageID string `json:"messageId"`
+	Property  string `json:"property"`
+}
+
 type FactQuery struct {
-	DeviceIDs          []string `json:"deviceIds"`
-	Start              int64    `json:"start"`
-	End                int64    `json:"end"`
-	Properties         []string `json:"properties,omitempty"`
-	TimeBasis          string   `json:"timeBasis,omitempty"`
-	AvailabilitySource string   `json:"availabilitySource,omitempty"`
-	Kind               string   `json:"kind,omitempty"`
-	Limit              int      `json:"limit,omitempty"`
-	Cursor             string   `json:"cursor,omitempty"`
-	SourceVersion      string   `json:"sourceVersion,omitempty"`
+	Members            []MeasurementIdentity `json:"members,omitempty"`
+	DeviceIDs          []string              `json:"deviceIds"`
+	Start              int64                 `json:"start"`
+	End                int64                 `json:"end"`
+	Properties         []string              `json:"properties,omitempty"`
+	TimeBasis          string                `json:"timeBasis,omitempty"`
+	AvailabilitySource string                `json:"availabilitySource,omitempty"`
+	Kind               string                `json:"kind,omitempty"`
+	Limit              int                   `json:"limit,omitempty"`
+	Cursor             string                `json:"cursor,omitempty"`
+	SourceVersion      string                `json:"sourceVersion,omitempty"`
 }
 
 func (q FactQuery) Validate() error {
+	if len(q.Members) > 1000 {
+		return errors.New("measurement identity batch exceeds 1000")
+	}
 	if q.Start < 0 || q.End <= q.Start {
 		return errors.New("invalid fact interval")
 	}
@@ -97,24 +106,27 @@ type MeasurementFact struct {
 	ParserVersion                   string      `json:"parserVersion,omitempty"`
 	ProtocolVersion                 string      `json:"protocolVersion,omitempty"`
 	PointTableVersion               string      `json:"pointTableVersion,omitempty"`
+	ConfigurationVersion            string      `json:"configurationVersion,omitempty"`
+	OperatingCondition              string      `json:"operatingCondition,omitempty"`
 	Unit                            string      `json:"unit,omitempty"`
 	HistoricalReconstructionQuality string      `json:"historicalReconstructionQuality"`
 }
 type RawParseOutcomeFact struct {
-	RawMessageID         string `json:"rawMessageId"`
-	DeviceID             string `json:"deviceId"`
-	ProductID            string `json:"productId"`
-	ReceivedAt           int64  `json:"receivedAt"`
-	ArchivedAt           int64  `json:"archivedAt"`
-	ParseAttemptedAt     int64  `json:"parseAttemptedAt"`
-	ParseError           string `json:"parseError,omitempty"`
-	Outcome              string `json:"outcome"` // ARCHIVED_NOT_ATTEMPTED, LAST_ATTEMPT_FAILED, STANDARD_SAVED, ATTEMPT_OUTCOME_UNKNOWN
-	MessageID            string `json:"messageId,omitempty"`
-	Protocol             string `json:"protocol,omitempty"`
-	ProtocolVersion      string `json:"protocolVersion,omitempty"`
-	PointTableVersion    string `json:"pointTableVersion,omitempty"`
-	ArchiveBackend       string `json:"archiveBackend"`
-	EvidenceAvailability string `json:"evidenceAvailability"`
+	RawMessageID               string `json:"rawMessageId"`
+	DeviceID                   string `json:"deviceId"`
+	ProductID                  string `json:"productId"`
+	ReceivedAt                 int64  `json:"receivedAt"`
+	ArchivedAt                 int64  `json:"archivedAt"`
+	ParseAttemptedAt           int64  `json:"parseAttemptedAt"`
+	ParseError                 string `json:"parseError,omitempty"`
+	Outcome                    string `json:"outcome"` // ARCHIVED_NOT_ATTEMPTED, LAST_ATTEMPT_FAILED, STANDARD_SAVED, ATTEMPT_OUTCOME_UNKNOWN
+	MessageID                  string `json:"messageId,omitempty"`
+	SuccessfulStandardMessages int    `json:"successfulStandardMessages"`
+	Protocol                   string `json:"protocol,omitempty"`
+	ProtocolVersion            string `json:"protocolVersion,omitempty"`
+	PointTableVersion          string `json:"pointTableVersion,omitempty"`
+	ArchiveBackend             string `json:"archiveBackend"`
+	EvidenceAvailability       string `json:"evidenceAvailability"`
 }
 type BusinessEventFact struct {
 	SourceEventID   string          `json:"sourceEventId"`

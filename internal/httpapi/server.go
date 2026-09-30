@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"iot-platform/internal/analytics"
+	"iot-platform/internal/analytics/dataquality"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -46,6 +47,7 @@ const claimsKey ctxKey = "claims"
 type Server struct {
 	analysis                   *analytics.Service
 	analysisFacts              ports.AnalyticsFactStore
+	quality                    *dataquality.Service
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -102,6 +104,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.setupAnalytics()
+	s.setupAnalysisAI()
 	s.routes()
 	return s
 }
@@ -125,6 +128,8 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 
 func (s *Server) routes() {
 	s.analysisRoutes()
+	s.dataQualityRoutes()
+	s.analysisAIRoutes()
 	s.dutyRoutes()
 	s.accessRoutes()
 	s.openAPIRoutes()
@@ -2970,6 +2975,13 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 		ctx := auth.ContextWithClaims(context.WithValue(c.Request.Context(), claimsKey, claimsValue), claimsValue)
 		if claimsValue.Workflow == core.WorkflowDutyHandover {
 			if err := s.authorizeDutyHarness(ctx, claimsValue); err != nil {
+				ginProblem(c, http.StatusForbidden, err.Error())
+				c.Abort()
+				return
+			}
+		}
+		if claimsValue.Workflow == core.WorkflowDataQuality {
+			if err := s.authorizeAnalysisHarness(ctx, claimsValue); err != nil {
 				ginProblem(c, http.StatusForbidden, err.Error())
 				c.Abort()
 				return

@@ -381,7 +381,7 @@ test('failed process teardown stays visible and cannot falsely release model swi
 
 test('catalog is manifest-driven and exposes capabilities without policy internals', async () => {
   const plugins = await loadPluginCatalog(join(deploymentDir, 'plugins'))
-  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'device-health-inspector', 'duty-handover', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'system-observer'])
+  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'data-quality-analyst', 'device-health-inspector', 'duty-handover', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'system-observer'])
   assert.ok(plugins.every(plugin => plugin.capabilities.length > 0))
 
   const { baseUrl } = await startGateway(async () => ({ run: async () => result(), close: async () => {} }))
@@ -392,7 +392,7 @@ test('catalog is manifest-driven and exposes capabilities without policy interna
   })
   assert.equal(response.status, 200)
   const body = await response.json()
-  assert.equal(body.items.length, 7)
+  assert.equal(body.items.length, plugins.length)
   assert.ok(body.items.every(plugin => Array.isArray(plugin.capabilities)))
   assert.ok(body.items.every(plugin => plugin.persona === undefined && plugin.allowedTools === undefined))
 })
@@ -759,4 +759,20 @@ test('duty workflow runtime policy denies general device tools and all write too
   assert.deepEqual(restrict.allow, ['mcp__iot__query_duty_snapshot', 'mcp__iot__query_knowledge_base'])
   assert.equal(guard({ name: 'mcp__iot__query_duty_snapshot' }), undefined)
   for (const name of ['mcp__iot__query_alarm_list', 'mcp__iot__create_rule_draft', 'shell', 'jobs', 'goal', 'skills', 'subagent', 'device_control']) assert.equal(guard({ name }), 'tool not allowed')
+})
+
+
+test('data quality is an immutable business workflow with only bound facts and knowledge', async () => {
+  const catalog = await loadPluginCatalog(join(deploymentDir, 'plugins'))
+  const manifest = catalog.find(plugin => plugin.id === 'data-quality-analyst')
+  assert.deepEqual(manifest.allowedTools, ['mcp__iot__query_analysis_snapshot', 'mcp__iot__query_knowledge_base'])
+  const { baseUrl } = await startGateway(async () => ({ run: async () => result(), close: async () => {} }))
+  const response = await fetch(`${baseUrl}/v1/plugins`, { method: 'POST', headers: { ...controlHeaders, 'content-type': 'application/json' }, body: JSON.stringify({ ...manifest, persona: 'overwrite built-in' }) })
+  assert.equal(response.status, 409)
+  assert.equal((await fetch(`${baseUrl}/v1/plugins/data-quality-analyst`, { method: 'DELETE', headers: controlHeaders })).status, 409)
+  let guard
+  const listeners = new Map()
+  applyPolicy({ tools: { guard(fn) { guard = fn } }, on(name, fn) { listeners.set(name, fn) } }, { allowedTools: manifest.allowedTools })
+  assert.equal(guard({ name: 'mcp__iot__query_analysis_snapshot' }), undefined)
+  for (const name of ['mcp__iot__query_device_latest', 'mcp__iot__query_alarm_list', 'mcp__iot__create_rule_draft', 'shell', 'jobs', 'goal', 'skills', 'subagent', 'device_control']) assert.equal(guard({ name }), 'tool not allowed')
 })

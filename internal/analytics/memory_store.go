@@ -79,7 +79,7 @@ func (b *memoryBackend) WorkTenants(ctx context.Context, kinds []string) ([]stri
 	defer b.mu.Unlock()
 	set := map[string]bool{}
 	for _, d := range b.docs {
-		if d.Kind == "run" && slices.Contains(kinds, d.ApplicationKind) && slices.Contains([]string{model.AnalysisQueued, model.AnalysisPreparing, model.AnalysisRunning}, d.Status) {
+		if (d.Kind == "run" || d.Kind == "ai") && slices.Contains(kinds, d.ApplicationKind) && slices.Contains([]string{model.AnalysisQueued, model.AnalysisPreparing, model.AnalysisRunning}, d.Status) {
 			set[d.TenantID] = true
 		}
 	}

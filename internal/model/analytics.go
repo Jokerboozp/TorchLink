@@ -137,24 +137,83 @@ type AnalysisBatch struct {
 }
 
 type AnalysisAIRevision struct {
-	ID                string          `json:"id"`
-	TenantID          string          `json:"tenantId"`
-	RunID             string          `json:"runId"`
-	SnapshotID        string          `json:"snapshotId"`
-	SnapshotVersion   int64           `json:"snapshotVersion"`
-	WorkflowID        string          `json:"workflowId"`
-	Model             string          `json:"model"`
-	PromptVersion     string          `json:"promptVersion"`
-	Status            string          `json:"status"`
-	HarnessRunID      string          `json:"harnessRunId,omitempty"`
-	Interpretation    json.RawMessage `json:"interpretation,omitempty"`
-	FactIDs           []string        `json:"factIds"`
-	Coverage          json.RawMessage `json:"coverage,omitempty"`
-	PermissionVersion string          `json:"permissionVersion"`
-	Error             string          `json:"error,omitempty"`
-	Version           int64           `json:"version"`
-	CreatedAt         int64           `json:"createdAt"`
-	CompletedAt       int64           `json:"completedAt,omitempty"`
+	ID                    string          `json:"id"`
+	TenantID              string          `json:"tenantId"`
+	RunID                 string          `json:"runId"`
+	SnapshotID            string          `json:"snapshotId"`
+	SnapshotVersion       int64           `json:"snapshotVersion"`
+	WorkflowID            string          `json:"workflowId"`
+	Model                 string          `json:"model"`
+	PromptVersion         string          `json:"promptVersion"`
+	Status                string          `json:"status"`
+	HarnessRunID          string          `json:"harnessRunId,omitempty"`
+	Interpretation        json.RawMessage `json:"interpretation,omitempty"`
+	FactIDs               []string        `json:"factIds"`
+	Coverage              json.RawMessage `json:"coverage,omitempty"`
+	PermissionVersion     string          `json:"permissionVersion"`
+	Error                 string          `json:"error,omitempty"`
+	Version               int64           `json:"version"`
+	CreatedAt             int64           `json:"createdAt"`
+	CompletedAt           int64           `json:"completedAt,omitempty"`
+	Creator               string          `json:"creator"`
+	CreatorManaged        bool            `json:"creatorManaged"`
+	CreatorSessionVersion int64           `json:"creatorSessionVersion"`
+	DeviceIDs             []string        `json:"deviceIds"`
+	Kind                  string          `json:"kind"`
+	IdempotencyKey        string          `json:"idempotencyKey"`
+	UseKnowledge          bool            `json:"useKnowledge"`
+	Reinterpret           bool            `json:"reinterpret"`
+	LeaseOwner            string          `json:"leaseOwner,omitempty"`
+	LeaseToken            int64           `json:"leaseToken,omitempty"`
+	LeaseExpiresAt        int64           `json:"leaseExpiresAt,omitempty"`
+	StartedAt             int64           `json:"startedAt,omitempty"`
+	Deadline              int64           `json:"deadline,omitempty"`
+	SentFactIDs           []string        `json:"sentFactIds"`
+}
+
+// These sentences are interpretations only. They never update deterministic
+// findings, thresholds, reviews, device state or production alarms.
+type AnalysisAIStatement struct {
+	Text      string   `json:"text"`
+	FactIDs   []string `json:"factIds"`
+	DeviceIDs []string `json:"deviceIds,omitempty"`
+}
+type AnalysisAIResult struct {
+	Summary               string                `json:"summary"`
+	Interpretations       []AnalysisAIStatement `json:"interpretations"`
+	SuggestedVerification []AnalysisAIStatement `json:"suggestedVerification"`
+	Limitations           []AnalysisAIStatement `json:"limitations"`
+	Coverage              AnalysisAICoverage    `json:"coverage"`
+}
+type AnalysisAICoverage struct {
+	SummaryProvided bool `json:"summaryProvided"`
+	OutputCount     int  `json:"outputCount"`
+	TotalOutputs    int  `json:"totalOutputs"`
+	EvidenceCount   int  `json:"evidenceCount"`
+	TotalEvidence   int  `json:"totalEvidence"`
+	Truncated       bool `json:"truncated"`
+}
+type AnalysisAIFacts struct {
+	SnapshotID          string                   `json:"snapshotId"`
+	SnapshotVersion     int64                    `json:"snapshotVersion"`
+	SummaryFactID       string                   `json:"summaryFactId"`
+	Collection          string                   `json:"collection"`
+	Statistics          json.RawMessage          `json:"statistics,omitempty"`
+	Sources             []AnalysisSourceCoverage `json:"sources,omitempty"`
+	Limitations         []string                 `json:"limitations,omitempty"`
+	MissingSources      []string                 `json:"missingSources,omitempty"`
+	AffectedIntervals   []AnalysisSourceCoverage `json:"affectedIntervals,omitempty"`
+	UncomputableMetrics []string                 `json:"uncomputableMetrics,omitempty"`
+	InitialStateQuality string                   `json:"initialStateQuality,omitempty"`
+	DataCutoff          int64                    `json:"dataCutoff"`
+	Outputs             []AnalysisOutput         `json:"outputs"`
+	Evidence            []AnalysisEvidence       `json:"evidence"`
+	Total               int                      `json:"total"`
+	Offset              int                      `json:"offset"`
+	NextOffset          int                      `json:"nextOffset"`
+	HasMore             bool                     `json:"hasMore"`
+	Complete            bool                     `json:"complete"`
+	Coverage            AnalysisAICoverage       `json:"coverage"`
 }
 
 type AnalysisReview struct {

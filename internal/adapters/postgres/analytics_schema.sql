@@ -25,3 +25,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS analysis_document_resource_version ON analysis
   (tenant_id,application_kind,resource_id,(body->>'scope'),
    (CASE WHEN body->>'scope'='PERSONAL' THEN body->>'creator' ELSE '' END),
    ((body->>'version')::bigint)) WHERE kind='config';
+
+CREATE INDEX IF NOT EXISTS analysis_document_ai_queue ON analysis_document
+  (tenant_id,application_kind,status,created_at,id) WHERE kind='ai';

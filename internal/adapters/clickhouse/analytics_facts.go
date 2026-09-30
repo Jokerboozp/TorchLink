@@ -65,7 +65,7 @@ func (r *clickhouseFactReader) QueryMeasurementSeries(q model.FactQuery) (model.
 		}
 		return strings.Join(out, ",")
 	}
-	sql := `SELECT message_id,any(toJSONString(properties)) AS properties FROM iot_telemetry WHERE tenant_id=` + quote(r.tenant) + ` AND device_id IN (` + quoteList(q.DeviceIDs) + `) AND message_id IN (` + quoteList(expected) + `) GROUP BY message_id FORMAT JSONEachRow`
+	sql := `SELECT message_id,any(toJSONString(properties)) AS properties FROM iot_telemetry WHERE tenant_id=` + quote(r.tenant) + ` AND device_id IN (` + quoteList(q.DeviceIDs) + `) AND message_id IN (` + quoteList(expected) + `) GROUP BY message_id SETTINGS output_format_json_quote_64bit_integers=0 FORMAT JSONEachRow`
 	data, err := r.repo.query(r.ctx, sql, nil)
 	if err != nil {
 		return page, err

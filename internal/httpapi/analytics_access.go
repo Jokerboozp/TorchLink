@@ -24,6 +24,12 @@ func analyticsActionName(method, path string) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	if path == "/api/v1/data-quality/calibrations/attachments/:id" {
+		return "下载校准附件", true
+	}
+	if path == "/api/v1/data-quality/calibrations/attachments" {
+		return "上传校准附件", true
+	}
 	if strings.HasSuffix(path, "/export") || strings.HasSuffix(path, "/report") {
 		return "导出" + analyticsMenus[menu] + "报告", true
 	}
@@ -50,5 +56,5 @@ func analyticsActionName(method, path string) (string, bool) {
 
 func analyticsProtectedRead(path string) bool {
 	_, ok := analyticsRouteMenu(path)
-	return ok && (strings.HasSuffix(path, "/export") || strings.HasSuffix(path, "/report"))
+	return ok && (strings.HasSuffix(path, "/export") || strings.HasSuffix(path, "/report") || path == "/api/v1/data-quality/calibrations/attachments/:id")
 }

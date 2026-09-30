@@ -6,7 +6,7 @@ import (
 )
 
 func TestAnalyticsResourceLimits(t *testing.T) {
-	for _, key := range []string{"IOT_ANALYTICS_WORKERS", "IOT_ANALYTICS_MAX_DEVICES", "IOT_ANALYTICS_QUEUE_LIMIT", "IOT_ANALYTICS_BATCH_SIZE", "IOT_ANALYTICS_MAX_RANGE", "IOT_ANALYTICS_RUN_TIMEOUT", "IOT_ANALYTICS_LEASE", "IOT_ANALYTICS_POLL"} {
+	for _, key := range []string{"IOT_ANALYTICS_WORKERS", "IOT_ANALYTICS_MAX_DEVICES", "IOT_ANALYTICS_QUEUE_LIMIT", "IOT_ANALYTICS_BATCH_SIZE", "IOT_ANALYTICS_RECORD_LIMIT", "IOT_ANALYTICS_MAX_RANGE", "IOT_ANALYTICS_RUN_TIMEOUT", "IOT_ANALYTICS_LEASE", "IOT_ANALYTICS_POLL"} {
 		t.Setenv(key, "")
 	}
 	if c := loadAnalytics(); c.Workers != 2 || c.Validate() != nil {
@@ -29,6 +29,15 @@ func TestAnalyticsResourceLimits(t *testing.T) {
 	t.Setenv("IOT_ANALYTICS_LEASE", "30s")
 	c := loadAnalytics()
 	if c.MaxRange != 24*time.Hour || c.Validate() != nil {
+		t.Fatal(c)
+	}
+	t.Setenv("IOT_ANALYTICS_RECORD_LIMIT", "50001")
+	if loadAnalytics().Validate() == nil {
+		t.Fatal("record limit above hard materialization cap accepted")
+	}
+	t.Setenv("IOT_ANALYTICS_RECORD_LIMIT", "200")
+	c = loadAnalytics()
+	if c.RecordLimit != 200 || c.Validate() != nil {
 		t.Fatal(c)
 	}
 }

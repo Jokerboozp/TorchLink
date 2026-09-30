@@ -47,9 +47,15 @@ type AIRunIdentity struct {
 	// at request time. A changed grant invalidates the entire pending prompt.
 	AccessVersion string
 	// Duty jobs may read only their immutable revision through MCP.
-	DutyRevisionID string
-	DutyJobID      string
-	DutyLeaseOwner string
+	DutyRevisionID          string
+	DutyJobID               string
+	DutyLeaseOwner          string
+	AnalysisRunID           string
+	AnalysisSnapshotID      string
+	AnalysisSnapshotVersion int64
+	AnalysisJobID           string
+	AnalysisLeaseToken      int64
+	AnalysisHarnessRunID    string
 	// Scopes are the MCP tool scopes the caller may use.
 	Scopes []string
 }
