@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -99,15 +100,27 @@ func TestCapacityCleanupThroughPlatformAndController(t *testing.T) {
 	if preview["devices"] != float64(1) || preview["rawMessages"] != float64(1) {
 		t.Fatal(preview)
 	}
-	result := requestJSON(t, server.Client(), "DELETE", path, token, map[string]any{"tenant": "forged"}, 200)
-	if result["deleted"] != true {
+	if result := requestJSON(t, server.Client(), "DELETE", path, token, map[string]any{"tenant": "forged"}, 202); result["cleaning"] != true {
 		t.Fatal(result)
 	}
-	counts := result["counts"].(map[string]any)
-	for _, key := range []string{"rawMessages", "standardMessages", "devices", "products", "rules"} {
-		if counts[key] != float64(1) {
-			t.Fatal("unexpected cleanup count", key, counts)
+	// Cleanup continues on the controller; the run list reports its state.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		list := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ops/capacity/runs", token, nil, 200)
+		if list["cleaningRunId"] == "" {
+			if list["total"] != float64(0) {
+				t.Fatal("cleanup failed", list)
+			}
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatal("cleanup did not finish", list)
+		}
+	}
+	if _, err = repo.GetRawIndex(ctx, "t", "raw"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("raw message retained", err)
+	}
+	if _, err = repo.GetProduct(ctx, "t", "cap-standard"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("auto-provisioned product retained", err)
 	}
 	for _, path := range []string{filepath.Join(root, id), filepath.Join(root, ".work", "agent-local", id), filepath.Join(root, ".plans", "test.yaml")} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -347,7 +360,8 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 			if body.Tenant != "tenant_ops" || body.OperatorToken == "forged" || body.OperatorToken == "" {
 				t.Error("cleanup did not bind current operator")
 			}
-			_, _ = w.Write([]byte(`{"deleted":true}`))
+			w.WriteHeader(202)
+			_, _ = w.Write([]byte(`{"runId":"cap-20260928-120000-abcdef","cleaning":true}`))
 		case r.URL.Path == "/v1/runs/cap-20260928-120000-abcdef/report":
 			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 			w.Header().Set("Content-Disposition", `attachment; filename="r.md"`)
@@ -399,7 +413,8 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 	}
 	req("POST", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/stop", root, map[string]any{}, 202)
 	req("GET", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/cleanup", root, nil, 200)
-	req("DELETE", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef", root, map[string]any{"tenant": "tenant_biz", "operatorToken": "forged"}, 200)
+	req("DELETE", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef", root, map[string]any{"tenant": "tenant_biz", "operatorToken": "forged"}, 202)
+	req("GET", "/api/v1/ops/capacity/runs?page=2&pageSize=abc&tenant=x", root, nil, 200)
 	req("GET", "/api/v1/ops/capacity/runs/..%2Fetc", root, nil, 404)
 	req("GET", "/api/v1/ops/capacity/runs/cap-20260928-120000-000000", root, nil, 404)
 	resp, err := func() (*http.Response, error) {
@@ -435,6 +450,10 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 		if strings.Contains(c, "..") {
 			t.Fatal("traversal reached the controller", c)
 		}
+	}
+	// Only numeric paging parameters are forwarded to the controller.
+	if !slices.Contains(calls, "GET /v1/runs?page=2") {
+		t.Fatalf("paging was not forwarded: %v", calls)
 	}
 }
 

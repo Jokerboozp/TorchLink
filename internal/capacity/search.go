@@ -38,6 +38,7 @@ const (
 	ClassWide         = "bounded_wide"     // passed L, failed U, stopped before the target width
 	ClassLowerOnly    = "lower_bound_only" // passed L, no failing step found
 	ClassNoPass       = "no_pass"          // the first step already failed
+	ClassUnstable     = "unstable"         // every pass failed again at the same or a lower rate
 	ClassInconclusive = "inconclusive"
 	ClassRegression   = "regression" // quick preset: fixed steps, no capacity claim
 	ClassSoak         = "soak"
@@ -225,7 +226,9 @@ func (s *searcher) finish() {
 			}
 		}
 		if math.IsInf(lower, -1) {
-			r.Classification = ClassNoPass
+			// Some step passed, so this is not a first-step failure; no pass
+			// survived a retest, so there is no stable lower bound either.
+			r.Classification, r.Unstable = ClassUnstable, true
 			r.UpperFailedBound = &hi
 			return
 		}

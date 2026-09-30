@@ -31,7 +31,7 @@ func (s *Server) startAIAnalysisJob(ctx context.Context, tenantID, alarmID, acto
 	}
 	now := time.Now().UnixMilli()
 	job := model.AlarmAnalysisJob{
-		CapacityRunID:        capacityJobRun(ctx),
+		CapacityRunID:        ports.CapacityRunID(ctx),
 		ID:                   "ai_job_" + randomHex(10),
 		TenantID:             tenantID,
 		AlarmID:              alarmID,

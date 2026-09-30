@@ -27,3 +27,13 @@ type CapacityCleanupCounts struct {
 	Rules     int64 `json:"rules"`
 	Resources int64 `json:"resources"`
 }
+
+func (c *CapacityCleanupCounts) Add(o CapacityCleanupCounts) {
+	c.Raw += o.Raw
+	c.Standard += o.Standard
+	c.Alarms += o.Alarms
+	c.Devices += o.Devices
+	c.Products += o.Products
+	c.Rules += o.Rules
+	c.Resources += o.Resources
+}

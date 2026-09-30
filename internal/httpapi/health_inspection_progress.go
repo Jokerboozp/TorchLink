@@ -38,7 +38,7 @@ func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor s
 	now := time.Now()
 	estimate := s.healthInspectionEstimate()
 	job := model.HealthInspectionJob{
-		CapacityRunID:        capacityJobRun(ctx),
+		CapacityRunID:        ports.CapacityRunID(ctx),
 		ID:                   "inspection_job_" + randomHex(10),
 		TenantID:             tenantID,
 		Actor:                actor,

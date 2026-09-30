@@ -158,7 +158,7 @@ func (s *Server) permissionCatalog() []permissionItem {
 		items = append(items, permissionItem{"menu:" + id, name, id, "menu"})
 	}
 	for _, r := range s.router.Routes() {
-		if r.Path == capacityCleanupDataPath || strings.HasSuffix(r.Path, "/capacity/runs/:id/cleanup") {
+		if r.Path == capacityCleanupDataPath || r.Path == capacityCleanupPreviewPath {
 			continue
 		}
 		menu := routeMenu(r.Path)
@@ -240,7 +240,7 @@ func permissionList(p map[string]bool) []string {
 	return out
 }
 func allowsRoute(p map[string]bool, method, path string) bool {
-	if path == capacityCleanupDataPath || path == "/api/v1/ops/capacity/runs/:id/cleanup" {
+	if path == capacityCleanupDataPath || path == capacityCleanupPreviewPath {
 		return p[capacityCleanupPermission] && p["menu:opsCapacity"]
 	}
 	if path == "/api/v1/auth/me" {

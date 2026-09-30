@@ -287,6 +287,9 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 			if _, err = os.Stat(filepath.Join(root, id, "state.json")); err != nil {
 				t.Fatal("failure discarded run records")
 			}
+			if info, _ := service.runInfo(id); info.CleanupError == "" || info.Cleaning {
+				t.Fatalf("failed cleanup is not reported in the run list: %+v", info)
+			}
 			fail.Store(false)
 			result, err := service.Cleanup(context.Background(), id, "t1", "operator")
 			if err != nil || !result.Deleted || result.Counts.Devices != int64(wantRemove) {
@@ -322,6 +325,23 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestServiceRunsArePagedNewestFirst(t *testing.T) {
+	root := t.TempDir()
+	service := NewService(ServeOptions{ResultsDir: root})
+	for i := range 3 {
+		id := fmt.Sprintf("cap-20260930-12000%d-abcdef", i)
+		_ = os.Mkdir(filepath.Join(root, id), 0700)
+		_ = writeJSONAtomic(filepath.Join(root, id, "state.json"), RunState{RunID: id, Status: StatusFinished})
+	}
+	items, total := service.runs(2, 2)
+	if total != 3 || len(items) != 1 || items[0].RunID != "cap-20260930-120000-abcdef" {
+		t.Fatalf("page 2: %d %+v", total, items)
+	}
+	if items, _ = service.runs(3, 2); len(items) != 0 {
+		t.Fatalf("page past the end: %+v", items)
 	}
 }
 
@@ -685,6 +705,18 @@ func TestSearchReportsLowerBoundUnstableNoPassAndStops(t *testing.T) {
 	f = &fakeRunner{limit: 10}
 	if res, _ = Search(context.Background(), p, f); res.Classification != ClassNoPass || *res.UpperFailedBound != 100 {
 		t.Fatalf("%+v", res)
+	}
+	// The first step passes, the next fails, then the first rate fails on
+	// retest: an unstable result, not a first-step failure.
+	f = &fakeRunner{verdictFor: func(_ float64, n int, _ string) string {
+		if n == 1 {
+			return VerdictPassed
+		}
+		return VerdictFailed
+	}}
+	res, _ = Search(context.Background(), p, f)
+	if res.Classification != ClassUnstable || !res.Unstable || res.LowerPassedBound != nil || *res.UpperFailedBound != 100 || res.RecommendedOperatingValue != nil {
+		t.Fatalf("%+v %v", res, f.steps)
 	}
 	f = &fakeRunner{verdictFor: func(_ float64, n int, _ string) string {
 		if n == 2 {

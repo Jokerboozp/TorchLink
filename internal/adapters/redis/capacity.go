@@ -16,10 +16,9 @@ func (r *Repository) CapacityMessageIDs(ctx context.Context, t string, q model.C
 	return c.CapacityMessageIDs(ctx, t, q)
 }
 func (r *Repository) CleanupCapacityData(ctx context.Context, t string, q model.CapacityCleanupBatch) (model.CapacityCleanupCounts, error) {
-	var n model.CapacityCleanupCounts
 	c, ok := r.Repository.(ports.CapacityDataCleaner)
 	if !ok {
-		return n, errors.New("capacity cleanup is unsupported")
+		return model.CapacityCleanupCounts{}, errors.New("capacity cleanup is unsupported")
 	}
 	n, err := c.CleanupCapacityData(ctx, t, q)
 	if err != nil {

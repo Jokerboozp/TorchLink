@@ -192,6 +192,9 @@ type controller struct {
 	stopOnce  sync.Once
 	forced    bool
 	lastDrain time.Duration
+	// unrecovered marks that the previous step's backlog had not drained
+	// before this step started, so its result cannot be attributed to its rate.
+	unrecovered bool
 	// agentResults keeps each agent's phase result by "phase/agent".
 	agentResults map[string]AgentPhaseResult
 	openAPIKey   string
@@ -1023,6 +1026,7 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 	}
 	c.phaseN++
 	p := c.plan
+	unrecovered := c.unrecovered
 	rec := PhaseRecord{PhaseID: fmt.Sprintf("p%02d-%s-%s", c.phaseN, kind, strings.ReplaceAll(fmt.Sprintf("%g", rate), ".", "_")), Index: c.phaseN, Kind: kind, TargetMessagesPerSec: rate, TargetQueriesPerSec: p.QueryRate(rate), Streams: map[string]*StreamStats{}}
 	rates := map[string]float64{"query": rec.TargetQueriesPerSec}
 	for _, s := range messageStreams {
@@ -1195,6 +1199,10 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 	if rec.Integrity.VerificationMode == "incomplete" && rec.Verdict == VerdictPassed {
 		rec.Verdict, rec.StopReason = VerdictInconclusive, ReasonObservability
 	}
+	if unrecovered && !rec.Cancelled {
+		rec.Checks = append(rec.Checks, Check{Name: "起始状态", Status: VerdictInconclusive, Reason: ReasonNotRecovered, Detail: "上一档积压未排空即开始本档，结果不能归因于本档负载"})
+		rec.Verdict, rec.StopReason = VerdictInconclusive, ReasonNotRecovered
+	}
 	if err := writeJSONAtomic(filepath.Join(c.dir, "phases", rec.PhaseID+".json"), rec); err != nil {
 		return rec, err
 	}
@@ -1205,7 +1213,7 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 	c.event("phase", rec.Verdict, rec.PhaseID, rec.StopReason)
 	c.logf("%s verdict=%s %s", rec.PhaseID, rec.Verdict, rec.StopReason)
 	if !rec.Cancelled && ctx.Err() == nil {
-		c.cooldown()
+		c.unrecovered = !c.cooldown()
 	}
 	return rec, nil
 }
@@ -1358,21 +1366,31 @@ func (c *controller) drain(phaseID string, limit time.Duration) bool {
 	}
 }
 
-// cooldown waits for readiness between steps so the next step starts from a
-// recovered system.
-func (c *controller) cooldown() {
-	deadline := time.Now().Add(2 * time.Minute)
+// cooldown waits until the platform is ready and the step's backlog has
+// drained, so an overloaded step does not carry its backlog into the next one.
+// It reports false when the platform did not recover in time.
+func (c *controller) cooldown() bool {
+	limit := max(2*time.Minute, c.plan.Search.DrainTimeout.D())
+	deadline := time.Now().Add(limit)
 	time.Sleep(c.plan.Search.Cooldown.D())
 	for time.Now().Before(deadline) && !c.stopped() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		status, _, err := c.get(ctx, "/health/ready", "")
 		cancel()
-		if err == nil && status == 200 {
-			return
+		// Missing backlog metrics are an observability gap judged per step,
+		// not a reason to wait here.
+		backlog := BacklogSeries([]Round{c.collector.Scrape(context.Background())})
+		empty := len(backlog) != 1 || !backlog[0].Valid || backlog[0].Value == 0
+		if err == nil && status == 200 && empty {
+			return true
 		}
 		time.Sleep(2 * time.Second)
 	}
-	c.event("cooldown", "", "", "platform not ready within 2 minutes after step")
+	if c.stopped() {
+		return true
+	}
+	c.event("cooldown", "", "", fmt.Sprintf("platform not ready or backlog not drained within %s after step", limit))
+	return false
 }
 
 // PipelineFor summarises platform metrics over a measurement window.

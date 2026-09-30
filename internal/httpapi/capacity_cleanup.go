@@ -16,11 +16,16 @@ import (
 	"time"
 )
 
-const capacityCleanupPermission = "DELETE /api/v1/ops/capacity/runs/:id"
-const capacityCleanupDataPath = "/api/v1/ops/capacity/cleanup-data"
+// Preview and the controller callback are covered by the cleanup permission
+// and are not listed separately in the permission catalog.
+const (
+	capacityCleanupPermission  = "DELETE /api/v1/ops/capacity/runs/:id"
+	capacityCleanupPreviewPath = "/api/v1/ops/capacity/runs/:id/cleanup"
+	capacityCleanupDataPath    = "/api/v1/ops/capacity/cleanup-data"
+)
 
-type capacityJobContextKey struct{}
-
+// capacityRequestRunID reads the run that a capacity Agent tags its module
+// requests with, so the resulting tasks can be removed with that run.
 func capacityRequestRunID(r *http.Request) string {
 	run := r.Header.Get("X-Capacity-Run-ID")
 	if capacityRunID.MatchString(run) {
@@ -28,12 +33,9 @@ func capacityRequestRunID(r *http.Request) string {
 	}
 	return ""
 }
+
 func capacityJobContext(r *http.Request) context.Context {
-	return context.WithValue(r.Context(), capacityJobContextKey{}, capacityRequestRunID(r))
-}
-func capacityJobRun(ctx context.Context) string {
-	run, _ := ctx.Value(capacityJobContextKey{}).(string)
-	return run
+	return ports.WithCapacityRunID(r.Context(), capacityRequestRunID(r))
 }
 
 func (s *Server) capacityCleanupPreview(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +78,8 @@ func (s *Server) capacityCleanup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := json.Marshal(map[string]string{"tenant": c.TenantID, "operatorToken": token})
-	status, data, ok := s.callCapacityJSON(w, r, http.MethodDelete, "/v1/runs/"+id, body, 30*time.Minute)
+	// The controller checks the scope and cleans in the background (202).
+	status, data, ok := s.callCapacityJSON(w, r, http.MethodDelete, "/v1/runs/"+id, body, 2*time.Minute)
 	if !ok {
 		return
 	}
@@ -84,8 +87,8 @@ func (s *Server) capacityCleanup(w http.ResponseWriter, r *http.Request) {
 	writeRaw(w, status, data)
 }
 
-// Only the configured capacity controller and an authorized current operator
-// can call this callback. Browsers never choose message or fixture IDs.
+// capacityCleanupData is called only by the configured capacity controller on
+// behalf of the current operator; browsers never choose message or device IDs.
 func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 	got := r.Header.Get("X-Capacity-Service-Token")
 	if s.cfg.Ops.CapacityToken == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.Ops.CapacityToken)) != 1 || limited(r.Context()) {
@@ -127,29 +130,31 @@ func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 		capacityDataError(w, err)
 		return
 	}
-	var documentsDeleted int64
+	// Knowledge documents live outside the relational store; the adapter
+	// removes the other resource kinds with the batch.
+	knowledge := map[string]bool{}
 	for _, resource := range q.Resources {
 		if !slices.Contains([]string{"knowledge", "inspection", "alarm-analysis", "replay"}, resource.Kind) {
 			problem(w, 400, "invalid cleanup resource")
 			return
 		}
-		if resource.Kind != "knowledge" {
-			continue
+		if resource.Kind == "knowledge" {
+			knowledge[resource.ID] = true
 		}
+	}
+	var documentsDeleted int64
+	if len(knowledge) > 0 {
 		docs, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), tenant)
 		if err != nil {
 			capacityDataError(w, err)
 			return
 		}
+		index, indexed := s.engine.KB.(ports.KnowledgeDocumentDeleter)
+		objects, stored := s.engine.Archive.(ports.ObjectDeleter)
 		for _, doc := range docs {
-			if doc.ID != resource.ID {
+			if !knowledge[doc.ID] || doc.Category != "capacity-test" || doc.Metadata["capacityRunId"] != q.RunID {
 				continue
 			}
-			if doc.Category != "capacity-test" || doc.Metadata["capacityRunId"] != q.RunID {
-				continue
-			}
-			index, indexed := s.engine.KB.(ports.KnowledgeDocumentDeleter)
-			objects, stored := s.engine.Archive.(ports.ObjectDeleter)
 			if !indexed || !stored {
 				problem(w, 501, "knowledge storage does not support cleanup")
 				return

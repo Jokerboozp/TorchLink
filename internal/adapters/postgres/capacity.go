@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+// capacityDeviceInUseSQL finds references added outside testing (gateways,
+// access profiles, cameras) that protect a fixture device from deletion.
+const capacityDeviceInUseSQL = `SELECT EXISTS(SELECT 1 FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=ANY($2) UNION ALL SELECT 1 FROM device_access_profile WHERE tenant_id=$1 AND device_id=ANY($2) UNION ALL SELECT 1 FROM video_camera_mapping WHERE tenant_id=$1 AND (device_id=ANY($2) OR related_device_ids ?| $2) UNION ALL SELECT 1 FROM video_camera_relation WHERE tenant_id=$1 AND relation_type='device' AND target_id=ANY($2))`
+
 func (r *Repository) CapacityMessageIDs(ctx context.Context, tenant string, q model.CapacityCleanupBatch) ([]string, error) {
 	var pending bool
 	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM standard_message WHERE tenant_id=$1 AND product_id=$2 AND device_id=ANY($3) AND (raw_message_id=ANY($4) OR device_id=ANY($5)) AND processed_at=0 UNION ALL SELECT 1 FROM raw_archive_index WHERE tenant_id=$1 AND product_id=$2 AND device_id=ANY($3) AND (message_id=ANY($4) OR device_id=ANY($5)) AND parse_attempted_at=0)`, tenant, q.Product, q.Devices, q.RawIDs, q.RemoveDevices).Scan(&pending)
@@ -23,7 +27,7 @@ func (r *Repository) CapacityMessageIDs(ctx context.Context, tenant string, q mo
 	if pending {
 		return nil, model.ErrResourceInUse
 	}
-	if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=ANY($2) UNION ALL SELECT 1 FROM device_access_profile WHERE tenant_id=$1 AND device_id=ANY($2) UNION ALL SELECT 1 FROM video_camera_mapping WHERE tenant_id=$1 AND (device_id=ANY($2) OR related_device_ids ?| $2) UNION ALL SELECT 1 FROM video_camera_relation WHERE tenant_id=$1 AND relation_type='device' AND target_id=ANY($2))`, tenant, q.RemoveDevices).Scan(&pending); err != nil {
+	if err = r.pool.QueryRow(ctx, capacityDeviceInUseSQL, tenant, q.RemoveDevices).Scan(&pending); err != nil {
 		return nil, err
 	}
 	if pending {
@@ -66,9 +70,8 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, tenant string, q m
 		return n, err
 	}
 	defer tx.Rollback(ctx)
-	// References added outside testing protect the fixture from deletion.
 	var used bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=ANY($2) UNION ALL SELECT 1 FROM device_access_profile WHERE tenant_id=$1 AND device_id=ANY($2) UNION ALL SELECT 1 FROM video_camera_mapping WHERE tenant_id=$1 AND (device_id=ANY($2) OR related_device_ids ?| $2) UNION ALL SELECT 1 FROM video_camera_relation WHERE tenant_id=$1 AND relation_type='device' AND target_id=ANY($2))`, tenant, q.RemoveDevices).Scan(&used); err != nil {
+	if err = tx.QueryRow(ctx, capacityDeviceInUseSQL, tenant, q.RemoveDevices).Scan(&used); err != nil {
 		return n, err
 	}
 	if used {

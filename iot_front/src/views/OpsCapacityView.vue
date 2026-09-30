@@ -4,26 +4,34 @@ defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RefreshCw } from '@lucide/vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { download, formatTime } from '../api'
+import { download, formatTime, session } from '../api'
 import { can } from '../permissions'
 import { opsErrorText, opsGet, opsSend } from '../ops/opsApi'
-import { boundText, buildPlan, classText, defaultForm, formProblems, isFinished, perDeviceLimit, phaseSummary, pollDelay, presetDefaults, presetText, rateCeiling, reportFormats, runStatusText, statusTone, verdictText, windowProgress } from '../ops/capacity'
+import { boundText, buildPlan, classText, defaultForm, formProblems, isFinished, loadDraft, perDeviceLimit, phaseSummary, pollDelay, presetDefaults, presetText, rateCeiling, reportFormats, runStatusText, saveDraft, statusTone, verdictText, windowProgress } from '../ops/capacity'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 
+const draftStorage = typeof window !== 'undefined' ? window.sessionStorage : null
+const draft = loadDraft(draftStorage, session)
 const moduleStatus = ref(null)
 const environments = ref([])
-const environment = ref('')
-const form = reactive(defaultForm('quick'))
+const environment = ref(draft?.environment || '')
+const form = reactive(draft?.form || defaultForm('quick'))
 // 高级模式直接编辑计划 YAML；进入时以当前表单生成的计划为起点。
-const advanced = ref(false)
-const planText = ref('')
+const advanced = ref(draft?.advanced || false)
+const planText = ref(draft?.planText || '')
 const problems = computed(() => formProblems(form))
 const plan = computed(() => advanced.value ? planText.value : buildPlan(form))
 const check = ref(null)
 const runs = ref([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+// 运行与清理状态以控制服务为准，离开页面再回来也能看到。
+const activeRunId = ref('')
+const cleaningRunId = ref('')
 const loading = ref(false)
 const busy = ref('')
 const notConfigured = ref('')
@@ -32,11 +40,11 @@ const detail = ref(null)
 const now = ref(Date.now())
 let timer = null
 let loadVersion = 0
+let disposed = false
 
 const canRun = computed(() => can('POST /api/v1/ops/capacity/runs'))
 const canValidate = computed(() => can('POST /api/v1/ops/capacity/plans/validate'))
 const canCleanup = computed(() => can('DELETE /api/v1/ops/capacity/runs/:id'))
-const activeRun = computed(() => runs.value.find(run => run.active))
 const selectedEnv = computed(() => environments.value.find(env => env.name === environment.value))
 // 容量测试模块只有“本平台”一个环境时不需要选择。
 const selfOnly = computed(() => environments.value.length === 1 && environments.value[0].name === 'self')
@@ -47,6 +55,9 @@ function choosePreset(preset) {
 }
 watch(advanced, on => { if (on) planText.value = buildPlan(form) })
 watch(() => [JSON.stringify(form), planText.value, advanced.value], () => { check.value = null })
+watch(() => [JSON.stringify(form), planText.value, advanced.value, environment.value], () => {
+  saveDraft(draftStorage, session, { form: { ...form }, advanced: advanced.value, planText: planText.value, environment: environment.value })
+})
 
 async function loadStatus() {
   try {
@@ -59,7 +70,8 @@ async function loadStatus() {
 
 function schedule() {
   clearTimeout(timer)
-  const delay = pollDelay(runs.value)
+  if (disposed) return
+  const delay = pollDelay(runs.value, Boolean(activeRunId.value || cleaningRunId.value))
   if (delay) timer = setTimeout(() => { now.value = Date.now(); loadRuns(true) }, delay)
 }
 
@@ -75,7 +87,7 @@ async function loadEnvironments() {
   try {
     const data = await opsGet('/api/v1/ops/capacity/environments')
     environments.value = data.items || []
-    if (!environment.value && environments.value.length) environment.value = environments.value.find(env => !env.error)?.name || ''
+    if (!environments.value.some(env => env.name === environment.value && !env.error)) environment.value = environments.value.find(env => !env.error)?.name || ''
   } catch (error) {
     handleError(error)
   }
@@ -85,10 +97,20 @@ async function loadRuns(silent = false) {
   const version = ++loadVersion
   if (!silent) loading.value = true
   try {
-    const data = await opsGet('/api/v1/ops/capacity/runs')
+    const data = await opsGet('/api/v1/ops/capacity/runs', { page: page.value, pageSize: pageSize.value })
     if (version !== loadVersion) return
+    const cleaned = cleaningRunId.value
     runs.value = data.items || []
+    total.value = data.total || 0
+    activeRunId.value = data.activeRunId || ''
+    cleaningRunId.value = data.cleaningRunId || ''
     loadError.value = ''
+    if (cleaned && !cleaningRunId.value) cleanupFinished(cleaned)
+    // 清理后当前页可能已空，回到最后一个有数据的页。
+    if (!runs.value.length && page.value > 1 && total.value > 0) {
+      page.value = Math.ceil(total.value / pageSize.value)
+      return loadRuns(silent)
+    }
     if (detail.value) detail.value = runs.value.find(run => run.runId === detail.value.runId) || detail.value
   } catch (error) {
     if (version !== loadVersion) return
@@ -167,20 +189,46 @@ async function downloadReport(run, format) {
   }
 }
 
+function changePage(value) {
+  page.value = value
+  loadRuns()
+}
+
+function changePageSize(value) {
+  pageSize.value = value
+  page.value = 1
+  loadRuns()
+}
+
+// 清理结束后按运行记录判断结果：记录已删除即成功，仍在则显示失败原因。
+async function cleanupFinished(runId) {
+  try {
+    const run = await opsGet(`/api/v1/ops/capacity/runs/${encodeURIComponent(runId)}`)
+    if (run.cleanupError) UiMessage.error(`${runId} 清理未完成，已保留运行记录，可重试：${run.cleanupError}`)
+  } catch (error) {
+    if (error?.status !== 404) return
+    if (detail.value?.runId === runId) detail.value = null
+    UiMessage.success(`${runId} 的测试数据和缓存已清理`)
+  }
+}
+
 async function cleanupRun(run) {
-  if (run.active || !isFinished(run.status) || activeRun.value || busy.value) return
+  if (run.active || !isFinished(run.status) || activeRunId.value || cleaningRunId.value || busy.value) return
   busy.value = `cleanup:${run.runId}`
   try {
     const preview = await opsGet(`/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}/cleanup`)
-    const warnings = (preview.warnings || []).filter(text => !text.startsWith('共享设备及其复用凭据')).join('\n')
+    const lines = [
+      `将清理 ${run.runId} 的 ${preview.rawMessages} 条测试报文及派生告警、${preview.devices} 个专用测试设备${preview.resources ? `、${preview.resources} 项业务任务或文档` : ''}、报告和缓存。`,
+      preview.sharedDevices ? `${preview.sharedDevices} 个共享设备及其凭据仍供其他运行使用，将保留，只删除本次报文。` : '',
+      ...(preview.warnings || []),
+      '删除后无法恢复，请先下载需要保留的报告。'
+    ]
     try {
-      await UiMessageBox.confirm(`将清理 ${run.runId} 的测试报文、告警、${preview.devices} 个专用测试设备${preview.resources ? `、${preview.resources} 项业务任务或文档` : ''}、报告和缓存。${preview.sharedDevices ? `\n${preview.sharedDevices} 个共享设备及其凭据仍供其他运行使用，将保留。` : ''}\n${warnings}\n删除后无法恢复，请先下载需要保留的报告。`, '清理本次测试数据和缓存', { type: 'warning', confirmButtonText: '确认清理', cancelButtonText: '取消' })
+      await UiMessageBox.confirm(lines.filter(Boolean).join('\n'), '清理本次测试数据和缓存', { type: 'warning', confirmButtonText: '确认清理', cancelButtonText: '取消' })
     } catch { return }
-    const result = await opsSend('DELETE', `/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}`, {})
-    if (!result.deleted) throw new Error('清理未完成，请保留运行记录后重试')
-    if (detail.value?.runId === run.runId) detail.value = null
-    runs.value = runs.value.filter(item => item.runId !== run.runId)
-    UiMessage.success('本次测试数据和缓存已清理')
+    await opsSend('DELETE', `/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}`, {})
+    cleaningRunId.value = run.runId
+    UiMessage.success('已开始清理，可离开本页；完成后该记录会自动移除')
     await loadRuns(true)
   } catch (error) { handleError(error) }
   finally { busy.value = '' }
@@ -192,11 +240,12 @@ function rowActions(run) {
   actions.push({ key: 'stop', label: '停止', permission: 'POST /api/v1/ops/capacity/runs/:id/stop', hidden: !active || run.status === 'CANCELLING', loading: busy.value === `stop:${run.runId}`, onClick: () => stop(run, false) })
   actions.push({ key: 'force', label: '强制停止', type: 'danger', permission: 'POST /api/v1/ops/capacity/runs/:id/stop', hidden: !active, onClick: () => stop(run, true) })
   if (run.reports?.includes('html')) actions.push({ key: 'html', label: '下载报告', permission: 'GET /api/v1/ops/capacity/runs/:id/report', loading: busy.value === `report:${run.runId}:html`, onClick: () => downloadReport(run, reportFormats[0]) })
-  actions.push({ key: 'cleanup', label: '清理数据', type: 'danger', permission: 'DELETE /api/v1/ops/capacity/runs/:id', hidden: active, disabled: Boolean(activeRun.value || busy.value), loading: busy.value === `cleanup:${run.runId}`, onClick: () => cleanupRun(run) })
+  actions.push({ key: 'cleanup', label: run.cleaning ? '清理中' : run.cleanupError ? '重试清理' : '清理数据', type: 'danger', permission: 'DELETE /api/v1/ops/capacity/runs/:id', hidden: active, disabled: Boolean(activeRunId.value || cleaningRunId.value || busy.value), loading: run.cleaning || busy.value === `cleanup:${run.runId}`, onClick: () => cleanupRun(run) })
   return actions
 }
 
 function stateLabel(run) {
+  if (run.cleaning) return '正在清理数据'
   if (isFinished(run.status) && run.verdict) return `${runStatusText[run.status] || run.status} · ${verdictText[run.verdict] || run.verdict}`
   return runStatusText[run.status] || run.status
 }
@@ -207,7 +256,7 @@ onMounted(async () => {
   loadEnvironments()
   loadRuns()
 })
-onBeforeUnmount(() => clearTimeout(timer))
+onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
 </script>
 
 <template>
@@ -237,10 +286,10 @@ onBeforeUnmount(() => clearTimeout(timer))
       </template>
       <template #actions>
         <ui-button v-if="canValidate" :loading="busy === 'validate'" :disabled="Boolean(notConfigured)" @click="validate">校验</ui-button>
-        <ui-button v-if="canRun" type="primary" :loading="busy === 'start'" :disabled="Boolean(notConfigured) || Boolean(activeRun)" @click="start">启动测试</ui-button>
+        <ui-button v-if="canRun" type="primary" :loading="busy === 'start'" :disabled="Boolean(notConfigured || activeRunId || cleaningRunId)" @click="start">启动测试</ui-button>
       </template>
     </FilterBar>
-    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测；不再需要时可在运行记录中清理数据和缓存。<template v-if="activeRun">当前运行 {{ activeRun.runId }} 结束前不能启动新的测试。</template><template v-if="!canRun && !canCleanup">当前账号只能查看运行与结论。</template></p>
+    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测；不再需要时可在运行记录中清理数据和缓存。<template v-if="activeRunId">当前运行 {{ activeRunId }} 结束前不能启动新的测试。</template><template v-else-if="cleaningRunId">正在清理 {{ cleaningRunId }}，完成前不能启动新的测试。</template><template v-if="!canRun && !canCleanup">当前账号只能查看运行与结论。</template></p>
     <template v-if="canValidate || canRun">
       <div v-if="!advanced" class="cap-form">
         <div class="cap-field cap-field--wide">
@@ -286,14 +335,14 @@ onBeforeUnmount(() => clearTimeout(timer))
     </div>
   </section>
 
-  <DataTableCard class="cap-table" :error="loadError" @retry="loadRuns()">
+  <DataTableCard class="cap-table" :error="loadError" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize" @retry="loadRuns()">
     <template #header>
-      <h2>运行记录 · {{ runs.length }} 次</h2>
+      <h2>运行记录 · {{ total }} 次</h2>
       <ui-button size="small" :loading="loading" @click="loadRuns()"><RefreshCw />刷新</ui-button>
     </template>
     <ui-table v-loading="loading" :data="runs">
       <ui-table-column label="运行" min-width="230"><template #default="{ row }"><code>{{ row.runId }}</code><div class="cap-sub">{{ row.plan || '—' }} · {{ presetText[row.preset] || row.preset || '—' }}</div></template></ui-table-column>
-      <ui-table-column label="状态" min-width="170"><template #default="{ row }"><StatusDot :tone="statusTone(row.status, row.verdict)" :label="stateLabel(row)" /><div v-if="row.message && !isFinished(row.status)" class="cap-sub">{{ row.message }}</div></template></ui-table-column>
+      <ui-table-column label="状态" min-width="170"><template #default="{ row }"><StatusDot :tone="row.cleaning ? 'warning' : statusTone(row.status, row.verdict)" :label="stateLabel(row)" /><div v-if="row.message && !isFinished(row.status)" class="cap-sub">{{ row.message }}</div><div v-if="row.cleanupError && !row.cleaning" class="cap-sub cap-sub--danger">清理失败：{{ row.cleanupError }}</div></template></ui-table-column>
       <ui-table-column label="当前阶段" min-width="200"><template #default="{ row }">
         <template v-if="!isFinished(row.status) && row.phaseId">
           <div class="cap-sub">{{ row.phaseId }} · {{ boundText(row.targetRate) }}</div>
@@ -352,6 +401,7 @@ onBeforeUnmount(() => clearTimeout(timer))
 .cap-check.is-bad { background: var(--danger-soft, #fef2f2); }
 .cap-check ul { margin: 0; padding-left: 18px; }
 .cap-sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+.cap-sub--danger { color: var(--danger-text, #b91c1c); }
 .cap-conclusion { margin: 0 0 var(--space-3); line-height: 1.6; }
 .cap-off { padding: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); line-height: 1.7; }
 .cap-off h2 { margin: 0 0 var(--space-2); font-size: 16px; }

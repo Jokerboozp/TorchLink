@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,13 +49,17 @@ type Service struct {
 	done   chan struct{}
 	cancel context.CancelFunc
 	last   error
+	// cleaning is the run whose data is being removed; cleanupErr keeps the
+	// last failure per run so the page can show it after navigating away.
+	cleaning   string
+	cleanupErr map[string]string
 }
 
 func NewService(opt ServeOptions) *Service {
 	if opt.Log == nil {
 		opt.Log = io.Discard
 	}
-	return &Service{opt: opt}
+	return &Service{opt: opt, cleanupErr: map[string]string{}}
 }
 
 var runIDPattern = regexp.MustCompile(`^cap-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$`)
@@ -338,6 +343,8 @@ type RunInfo struct {
 	Recommended    *float64     `json:"recommendedOperatingValue,omitempty"`
 	Conclusion     string       `json:"conclusion,omitempty"`
 	Reports        []string     `json:"reports,omitempty"`
+	Cleaning       bool         `json:"cleaning,omitempty"`
+	CleanupError   string       `json:"cleanupError,omitempty"`
 }
 
 func (s *Service) runInfo(id string) (RunInfo, error) {
@@ -346,9 +353,9 @@ func (s *Service) runInfo(id string) (RunInfo, error) {
 		return RunInfo{}, err
 	}
 	s.mu.Lock()
-	active := s.active == id
+	active, cleaning, cleanupErr := s.active == id, s.cleaning == id, s.cleanupErr[id]
 	s.mu.Unlock()
-	info := RunInfo{RunID: id, Status: st.Status, Message: st.Message, StartedAt: st.StartedAt, UpdatedAt: st.UpdatedAt, PhaseID: st.PhaseID, TargetRate: st.TargetRate, MeasureFrom: st.MeasureFrom, MeasureTo: st.MeasureTo, Completed: st.Completed, Active: active}
+	info := RunInfo{RunID: id, Status: st.Status, Message: st.Message, StartedAt: st.StartedAt, UpdatedAt: st.UpdatedAt, PhaseID: st.PhaseID, TargetRate: st.TargetRate, MeasureFrom: st.MeasureFrom, MeasureTo: st.MeasureTo, Completed: st.Completed, Active: active, Cleaning: cleaning, CleanupError: cleanupErr}
 	if info.Completed == nil {
 		info.Completed = []PhaseBrief{}
 	}
@@ -379,7 +386,8 @@ func (s *Service) runInfo(id string) (RunInfo, error) {
 	return info, nil
 }
 
-func (s *Service) runs(limit int) []RunInfo {
+// runs returns one page of runs, newest first, and the total run count.
+func (s *Service) runs(page, size int) ([]RunInfo, int) {
 	entries, _ := os.ReadDir(s.opt.ResultsDir)
 	var ids []string
 	for _, e := range entries {
@@ -389,15 +397,13 @@ func (s *Service) runs(limit int) []RunInfo {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(ids)))
 	out := []RunInfo{}
-	for _, id := range ids {
-		if len(out) >= limit {
-			break
-		}
+	from := min((page-1)*size, len(ids))
+	for _, id := range ids[from:min(from+size, len(ids))] {
 		if info, err := s.runInfo(id); err == nil {
 			out = append(out, info)
 		}
 	}
-	return out
+	return out, len(ids)
 }
 
 var reportFiles = []struct{ format, file, contentType string }{
@@ -508,8 +514,21 @@ func (s *Service) Handler() http.Handler {
 			serveJSON(w, 200, chk)
 		}
 	}))
-	mux.HandleFunc("GET /v1/runs", auth(func(w http.ResponseWriter, _ *http.Request) {
-		serveJSON(w, 200, map[string]any{"items": s.runs(50)})
+	mux.HandleFunc("GET /v1/runs", auth(func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		size, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
+		if err != nil || size < 1 {
+			size = 20
+		}
+		page, size = max(page, 1), min(size, 100)
+		items, total := s.runs(page, size)
+		s.mu.Lock()
+		active, cleaning := s.active, s.cleaning
+		s.mu.Unlock()
+		if !runIDPattern.MatchString(active) {
+			active = ""
+		}
+		serveJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": size, "activeRunId": active, "cleaningRunId": cleaning})
 	}))
 	mux.HandleFunc("POST /v1/runs", auth(func(w http.ResponseWriter, r *http.Request) {
 		req, ok := decode(w, r)
@@ -581,12 +600,11 @@ func (s *Service) Handler() http.Handler {
 			serveError(w, 400, "bad_request", "cleanup requires operator identity")
 			return
 		}
-		result, err := s.Cleanup(r.Context(), id, req.Tenant, req.OperatorToken)
-		if err != nil {
+		if err := s.StartCleanup(id, req.Tenant, req.OperatorToken); err != nil {
 			s.cleanupError(w, err)
 			return
 		}
-		serveJSON(w, 200, result)
+		serveJSON(w, http.StatusAccepted, map[string]any{"runId": id, "cleaning": true})
 	}))
 	return mux
 }

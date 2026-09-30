@@ -282,6 +282,8 @@ test('容量测试进度只按真实测量窗口计算，结束的运行停止�
   assert.equal(pollDelay([{ status: 'FINISHED', active: false }]), 0)
   assert.equal(pollDelay([{ status: 'FINISHED' }, { status: 'RUNNING', active: true }]), 3000)
   assert.equal(pollDelay([{ status: 'VERIFYING', active: false }]), 3000)
+  assert.equal(pollDelay([{ status: 'FINISHED', cleaning: true }]), 3000)
+  assert.equal(pollDelay([], true), 3000)
   assert.equal(isFinished('CANCELLED'), true)
   assert.equal(statusTone('FINISHED', 'passed'), 'success')
   assert.equal(statusTone('FINISHED', 'inconclusive'), 'info')
@@ -289,6 +291,23 @@ test('容量测试进度只按真实测量窗口计算，结束的运行停止�
   assert.equal(boundText(null), '—')
   assert.match(boundText(1234.5), /1,234\.5 条\/秒/)
   assert.deepEqual(phaseSummary([{ verdict: 'passed' }, { verdict: 'failed' }, { verdict: 'passed' }]), { passed: 2, failed: 1, inconclusive: 0 })
+})
+
+test('容量测试表单草稿按租户和用户恢复，忽略损坏或越界字段', async () => {
+  const { defaultForm, draftKey, loadDraft, saveDraft } = await import('../src/ops/capacity.js')
+  const storage = new Map()
+  const store = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }
+  const alice = { tenant: 't1', user: 'alice' }
+  saveDraft(store, alice, { form: { ...defaultForm('capacity'), devices: 300, tenant: 'x' }, advanced: true, planText: 'schemaVersion: 1', environment: 'self' })
+  const draft = loadDraft(store, alice)
+  assert.equal(draft.form.preset, 'capacity')
+  assert.equal(draft.form.devices, 300)
+  assert.equal('tenant' in draft.form, false)
+  assert.equal(draft.advanced, true)
+  assert.equal(draft.planText, 'schemaVersion: 1')
+  assert.equal(loadDraft(store, { tenant: 't1', user: 'bob' }), null)
+  storage.set(draftKey(alice), '{broken')
+  assert.equal(loadDraft(store, alice), null)
 })
 
 test('容量测试表单生成的计划只含受控字段，并按单台设备限速检查速率上限', async () => {

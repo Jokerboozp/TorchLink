@@ -24,7 +24,6 @@ type CleanupPreview struct {
 	Devices       int      `json:"devices"`
 	SharedDevices int      `json:"sharedDevices"`
 	RawMessages   int64    `json:"rawMessages"`
-	ArtifactBytes int64    `json:"artifactBytes"`
 	Warnings      []string `json:"warnings"`
 }
 type CleanupResult struct {
@@ -215,27 +214,15 @@ func (s *Service) cleanupScope(id, tenant string) (cleanupScope, error) {
 			remove = append(remove, d)
 		}
 	}
-	preview := CleanupPreview{RunID: id, Devices: len(remove), SharedDevices: len(devices) - len(remove), Warnings: []string{}}
-	if preview.SharedDevices > 0 {
-		preview.Warnings = append(preview.Warnings, "共享设备及其复用凭据仍被其他运行使用，将保留；本次报文按账本清理")
-	}
-	preview.Warnings = append(preview.Warnings, "本次报告、账本及运行记录会删除；系统审计日志、监控历史和消息队列留存记录保留")
+	// Shared devices keep their credentials for other runs; only this run's
+	// ledgered messages are removed from them.
+	preview := CleanupPreview{RunID: id, Devices: len(remove), SharedDevices: len(devices) - len(remove), Warnings: []string{"系统审计日志、监控历史和消息队列留存记录保留"}}
 	out = cleanupScope{preview: preview, plan: p, inv: inv, dir: dir, devices: devices, remove: remove, source: src, sharedProduct: sharedProduct}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, e error) error {
-		if e != nil {
-			return e
-		}
-		if d.Type()&os.ModeSymlink != 0 {
+		if e == nil && d.Type()&os.ModeSymlink != 0 {
 			return errors.New("run artifacts contain a symbolic link")
 		}
-		if !d.IsDir() {
-			st, e := d.Info()
-			if e != nil {
-				return e
-			}
-			out.preview.ArtifactBytes += st.Size()
-		}
-		return nil
+		return e
 	})
 	if err != nil {
 		return out, err
@@ -317,34 +304,89 @@ func (c cleanupScope) ledgerBatches(fn func([]string, []string) error, resourceF
 	return nil
 }
 
-func (s *Service) Cleanup(ctx context.Context, id, tenant, operator string) (CleanupResult, error) {
+// cleanupTimeout bounds one background cleanup; the delegated operator token
+// is valid for an hour.
+const cleanupTimeout = 30 * time.Minute
+
+func (s *Service) beginCleanup(id string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.active != "" {
-		s.mu.Unlock()
-		return CleanupResult{}, ErrRunActive
+		return ErrRunActive
 	}
-	s.active = "cleaning"
-	s.mu.Unlock()
-	defer func() { s.mu.Lock(); s.active = ""; s.mu.Unlock() }()
-	scope, err := s.cleanupScope(id, tenant)
+	s.active, s.cleaning = "cleaning", id
+	delete(s.cleanupErr, id)
+	return nil
+}
+
+func (s *Service) endCleanup(id string, n model.CapacityCleanupCounts, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.active, s.cleaning = "", ""
 	if err != nil {
+		s.cleanupErr[id] = clip(err.Error(), 400)
+		fmt.Fprintf(s.opt.Log, "capacity cleanup %s failed: %v\n", id, err)
+		return
+	}
+	fmt.Fprintf(s.opt.Log, "capacity cleanup %s done: %+v\n", id, n)
+}
+
+// Cleanup removes one finished run's data and waits for the result.
+func (s *Service) Cleanup(ctx context.Context, id, tenant, operator string) (CleanupResult, error) {
+	if err := s.beginCleanup(id); err != nil {
 		return CleanupResult{}, err
 	}
+	scope, err := s.cleanupScope(id, tenant)
+	var result CleanupResult
+	if err == nil {
+		result, err = s.cleanup(ctx, id, tenant, operator, scope)
+	}
+	s.endCleanup(id, result.Counts, err)
+	return result, err
+}
+
+// StartCleanup checks the scope, then cleans in the background so leaving
+// the page or a proxy timeout cannot interrupt it halfway. Progress and the
+// last failure are reported through the run list.
+func (s *Service) StartCleanup(id, tenant, operator string) error {
+	if err := s.beginCleanup(id); err != nil {
+		return err
+	}
+	scope, err := s.cleanupScope(id, tenant)
+	if err != nil {
+		s.mu.Lock()
+		s.active, s.cleaning = "", ""
+		s.mu.Unlock()
+		return err
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+		result, err := s.cleanup(ctx, id, tenant, operator, scope)
+		s.endCleanup(id, result.Counts, err)
+	}()
+	return nil
+}
+
+func (s *Service) cleanup(ctx context.Context, id, tenant, operator string, scope cleanupScope) (CleanupResult, error) {
+	var err error
 	result := CleanupResult{CleanupPreview: scope.preview}
 	var remoteAgents []*RemoteAgent
+	var agentToken string
 	for _, target := range scope.inv.Agents {
 		if target.URL == "" {
 			continue
 		}
-		secrets, e := LoadSecrets(s.opt.SecretsPath)
-		if e != nil {
-			return result, e
+		if agentToken == "" {
+			secrets, e := LoadSecrets(s.opt.SecretsPath)
+			if e == nil {
+				agentToken, e = secrets.Get(scope.plan.Credentials.AgentSecretRef)
+			}
+			if e != nil {
+				return result, e
+			}
 		}
-		token, e := secrets.Get(scope.plan.Credentials.AgentSecretRef)
-		if e != nil {
-			return result, e
-		}
-		agent := NewRemoteAgent(target.Name, target.URL, token)
+		agent := NewRemoteAgent(target.Name, target.URL, agentToken)
 		status, e := agent.Status(ctx)
 		if e != nil {
 			return result, e
@@ -368,13 +410,7 @@ func (s *Service) Cleanup(ctx context.Context, id, tenant, operator string) (Cle
 		if err = json.Unmarshal(resp, &counts); err != nil {
 			return err
 		}
-		result.Counts.Raw += counts.Raw
-		result.Counts.Standard += counts.Standard
-		result.Counts.Alarms += counts.Alarms
-		result.Counts.Devices += counts.Devices
-		result.Counts.Products += counts.Products
-		result.Counts.Rules += counts.Rules
-		result.Counts.Resources += counts.Resources
+		result.Counts.Add(counts)
 		return nil
 	}
 	base := model.CapacityCleanupBatch{RunID: id, Product: scope.plan.Fixtures.Product, Devices: scope.devices}

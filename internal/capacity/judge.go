@@ -23,6 +23,7 @@ const (
 	ReasonBudget         = "budget_limit"
 	ReasonCancel         = "manual_cancel"
 	ReasonInfrastructure = "infrastructure_failure"
+	ReasonNotRecovered   = "not_recovered"
 )
 
 type Check struct {

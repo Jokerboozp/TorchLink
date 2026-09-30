@@ -22,6 +22,7 @@ export const classText = {
   bounded_wide: '已找到边界（区间较宽）',
   lower_bound_only: '至少达到下界',
   no_pass: '首档即失败',
+  unstable: '结果不稳定',
   inconclusive: '证据不足',
   regression: '回归',
   soak: '长稳',
@@ -50,9 +51,9 @@ export function windowProgress(run, now = Date.now()) {
   return Math.min(100, Math.round(((now - run.measureFrom) / (run.measureTo - run.measureFrom)) * 100))
 }
 
-// 活动运行 3 秒刷新一次，结束后停止轮询。
-export function pollDelay(runs) {
-  return (runs || []).some(run => run.active || !isFinished(run.status)) ? 3000 : 0
+// 活动运行或后台清理期间 3 秒刷新一次，结束后停止轮询；busy 覆盖不在当前页的运行。
+export function pollDelay(runs, busy = false) {
+  return busy || (runs || []).some(run => run.active || run.cleaning || !isFinished(run.status)) ? 3000 : 0
 }
 
 export function boundText(value) {
@@ -82,6 +83,26 @@ export const presetDefaults = {
 
 export function defaultForm(preset = 'quick') {
   return { preset, ...presetDefaults[preset], mqtt: false, alarms: true, queries: true, realtime: false, exports: false, ai: false }
+}
+
+// 表单草稿按租户和用户保存在 sessionStorage：切换页面后恢复，切换身份不串用。
+const draftPrefix = 'iot:capacity-draft:v1'
+export const draftKey = session => `${draftPrefix}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}`
+
+export function loadDraft(storage, session) {
+  try {
+    const saved = JSON.parse(storage?.getItem(draftKey(session)) || 'null')
+    if (!saved || !presetDefaults[saved.form?.preset]) return null
+    const form = defaultForm(saved.form.preset)
+    for (const key of Object.keys(form)) if (typeof saved.form[key] === typeof form[key]) form[key] = saved.form[key]
+    return { form, advanced: saved.advanced === true, planText: typeof saved.planText === 'string' ? saved.planText : '', environment: typeof saved.environment === 'string' ? saved.environment : '' }
+  } catch {
+    return null
+  }
+}
+
+export function saveDraft(storage, session, draft) {
+  try { storage?.setItem(draftKey(session), JSON.stringify(draft)) } catch { /* 存储不可用时只影响草稿恢复 */ }
 }
 
 // 平台对单台设备限速 20 条/秒，速率上限不能超过设备数 × 20，否则测到的是限速策略。

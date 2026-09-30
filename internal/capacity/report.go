@@ -683,8 +683,8 @@ func instances(rounds []Round) []string {
 // --- text reports -----------------------------------------------------------
 
 var verdictText = map[string]string{VerdictPassed: "通过", VerdictFailed: "失败", VerdictInconclusive: "证据不足", VerdictNotCovered: "未覆盖", "measured": "已测", StatusRecorded: "仅记录"}
-var classText = map[string]string{ClassBounded: "已找到边界", ClassWide: "已找到边界（区间未收敛到目标精度）", ClassLowerOnly: "至少达到下界，尚未找到上限", ClassNoPass: "首档即失败", ClassInconclusive: "证据不足", ClassRegression: "回归（不认证最大容量）", ClassSoak: "长稳", ClassResilience: "故障恢复", ClassUnmeasured: "未测量"}
-var reasonText = map[string]string{ReasonService: "服务能力上限", ReasonPolicy: "配额/保护策略", ReasonGenerator: "发压能力不足", ReasonObservability: "观测缺失", ReasonIntegrity: "数据完整性失败", ReasonBudget: "预算上限", ReasonCancel: "人工停止", ReasonInfrastructure: "测试基础设施故障", "coverage_incomplete": "覆盖不完整（full 套件含未适配模块）", "evidence_incomplete": "证据不完整", "boundary_unstable": "边界不稳定", "candidate_not_confirmed": "候选档未完成复测"}
+var classText = map[string]string{ClassBounded: "已找到边界", ClassWide: "已找到边界（区间未收敛到目标精度）", ClassLowerOnly: "至少达到下界，尚未找到上限", ClassNoPass: "首档即失败", ClassUnstable: "结果不稳定", ClassInconclusive: "证据不足", ClassRegression: "回归（不认证最大容量）", ClassSoak: "长稳", ClassResilience: "故障恢复", ClassUnmeasured: "未测量"}
+var reasonText = map[string]string{ReasonService: "服务能力上限", ReasonPolicy: "配额/保护策略", ReasonGenerator: "发压能力不足", ReasonObservability: "观测缺失", ReasonIntegrity: "数据完整性失败", ReasonBudget: "预算上限", ReasonCancel: "人工停止", ReasonInfrastructure: "测试基础设施故障", "coverage_incomplete": "覆盖不完整（full 套件含未适配模块）", "evidence_incomplete": "证据不完整", "boundary_unstable": "边界不稳定", "candidate_not_confirmed": "候选档未完成复测", ReasonNotRecovered: "上一档积压未排空"}
 
 func tr(m map[string]string, k string) string {
 	if v, ok := m[k]; ok {
@@ -707,6 +707,8 @@ func (d *reportData) conclusion() string {
 		return fmt.Sprintf("至少达到 %s%s，尚未找到上限（停止原因：%s）。", fmtNum(*r.LowerPassedBound), unit, tr(reasonText, r.StopReason))
 	case r.Classification == ClassNoPass && r.UpperFailedBound != nil:
 		return fmt.Sprintf("首档 %s%s 即未通过（%s），本次没有通过档。", fmtNum(*r.UpperFailedBound), unit, tr(reasonText, r.FailureMode))
+	case r.Classification == ClassUnstable && r.UpperFailedBound != nil:
+		return fmt.Sprintf("曾通过的档位复测未通过：%s%s 失败（%s），结果不稳定，本次没有稳定通过档。", fmtNum(*r.UpperFailedBound), unit, tr(reasonText, r.FailureMode))
 	case r.Classification == ClassResilience:
 		return fmt.Sprintf("故障恢复预设：%s结论为「%s」，不认证最大容量。", d.recoveryText(), tr(verdictText, d.summary.Verdict))
 	case r.Classification == ClassRegression || r.Classification == ClassSoak:

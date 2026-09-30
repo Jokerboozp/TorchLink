@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,7 +34,19 @@ func (s *Server) capacityValidate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) capacityRuns(w http.ResponseWriter, r *http.Request) {
-	s.proxyCapacity(w, r, http.MethodGet, "/v1/runs", nil, 30*time.Second)
+	query := url.Values{}
+	for _, key := range []string{"page", "pageSize"} {
+		if v, err := strconv.Atoi(r.URL.Query().Get(key)); err == nil && v > 0 {
+			query.Set(key, strconv.Itoa(v))
+		}
+	}
+	resp, ok := s.callCapacity(w, r, http.MethodGet, "/v1/runs", query, nil, 30*time.Second)
+	if !ok {
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	writeRaw(w, capacityStatus(resp.StatusCode), data)
 }
 
 func (s *Server) capacityStart(w http.ResponseWriter, r *http.Request) {
