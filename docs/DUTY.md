@@ -81,7 +81,7 @@ AI 成功后原子生成新的草稿版本，保留人工说明；若用户已�
 | revisions/:id/events、events.csv、pdf | 固定版本完整事件分页、CSV 及 PDF |
 | notifications、notifications/:id/read、options、events | 站内提醒、可选人员/设备与获授权事件 |
 
-PostgreSQL 使用独立 `duty_*` 表，内存适配供测试和开发使用；生产多副本必须共享 PostgreSQL。事务仓储与现有平台仓储保持独立能力接口，业务代码在 `internal/duty/`，HTTP 入口在 `internal/httpapi/duty*.go`。
+PostgreSQL 使用独立 `duty_*` 表，内存适配供测试和开发使用；生产多副本必须共享 PostgreSQL。`DutyStore` 与 `DutyTenantLister` 组合进统一 `Repository` 契约，ClickHouse 遥测层和 Redis 缓存层继续透传值班事务、读取及后台任务租户枚举，冻结快照仍在底层持久化事务中读取。业务代码在 `internal/duty/`，HTTP 入口在 `internal/httpapi/duty*.go`。
 
 附件原件在 MinIO 的 `iot-duty-attachments` 桶，单文件不超过 16 MiB，对象键由服务端生成。数据库保存不可变上传元数据，记录只能引用已上传且属于本人当前班次的附件，下载不接受任意对象桶或 URL。PDF 读取指定冻结版本，签署后附录单独标识；CSV 包含该版本全部事件，并处理电子表格公式注入。
 

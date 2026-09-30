@@ -17,13 +17,16 @@ import (
 	"testing"
 	"time"
 
+	clickhouseadapter "iot-platform/internal/adapters/clickhouse"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
+	redisadapter "iot-platform/internal/adapters/redis"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 )
 
 type dutyHTTPFixture struct {
@@ -98,6 +101,55 @@ func (f *dutyHTTPFixture) command(method, path, token string, version int64, bod
 func (f *dutyHTTPFixture) id(v map[string]any) string     { return v["id"].(string) }
 func (f *dutyHTTPFixture) version(v map[string]any) int64 { return int64(v["version"].(float64)) }
 func dutyHTTPBody(v map[string]any) map[string]any        { return v["body"].(map[string]any) }
+
+func TestDutyHTTPWithProductionRepositoryDecorators(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		wrap func(ports.Repository) ports.Repository
+	}{
+		{"clickhouse", func(base ports.Repository) ports.Repository { return &clickhouseadapter.Repository{Repository: base} }},
+		{"redis", func(base ports.Repository) ports.Repository { return redisadapter.New(base, nil) }},
+		{"clickhouse-and-redis", func(base ports.Repository) ports.Repository {
+			return redisadapter.New(&clickhouseadapter.Repository{Repository: base}, nil)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newDutyHTTPFixture(t, "duty_decorated", "duty-http-test-password")
+			f.api.engine.Repo = ScopedRepository(test.wrap(f.repo))
+			f.req("GET", "/api/v1/duty/stations", f.admin, nil, 200)
+			f.req("GET", "/api/v1/duty/runs/current", f.day, nil, 200)
+			record := f.command("POST", "/api/v1/duty/runs/"+f.id(f.dayRun)+"/records", f.day, 0, map[string]any{"content": "包装后的仓储仍写入持久台账"}, 201)
+			if err := f.repo.DutyRead(context.Background(), f.tenant, func(tx ports.DutyTx) error {
+				_, err := tx.Get(model.DutyRecordKind, f.id(record))
+				return err
+			}); err != nil {
+				t.Fatal("decorated duty write did not reach durable storage", err)
+			}
+			state, err := f.repo.LoadAccessState(context.Background(), f.tenant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range state.Users {
+				if state.Users[i].Username == "night" {
+					state.Users[i].DeviceIDs = []string{}
+					state.Users[i].DeviceScope = "selected"
+				}
+			}
+			if saved, err := f.repo.SaveAccessState(context.Background(), f.tenant, state); err != nil || !saved {
+				t.Fatal("revoke device scope", saved, err)
+			}
+			f.req("GET", "/api/v1/duty/records/"+f.id(record), f.night, nil, 403)
+			lister, ok := f.api.unscopedRepo().(ports.DutyTenantLister)
+			if !ok {
+				t.Fatal("production repository hides duty worker tenant discovery")
+			}
+			tenants, err := lister.DutyTenants(context.Background())
+			if err != nil || len(tenants) != 1 || tenants[0] != f.tenant {
+				t.Fatal("duty tenant discovery failed", tenants, err)
+			}
+		})
+	}
+}
 
 func TestDutyHTTPCompleteHandoverAndScopedExport(t *testing.T) {
 	f := newDutyHTTPFixture(t, "duty_http", "duty-http-test-password")
