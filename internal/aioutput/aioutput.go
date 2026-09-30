@@ -1,6 +1,5 @@
 // Package aioutput parses structured answers written by models. It is shared by
-// the Harness business workflows, MCP tools and provider adapters so every path
-// accepts the same shapes.
+// the Harness business workflows and MCP tools so both accept the same shapes.
 package aioutput
 
 import (

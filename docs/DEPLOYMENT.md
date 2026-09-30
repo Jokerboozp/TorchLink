@@ -20,7 +20,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成 `.env.local`，设置管理员默认值并随机生成其他服务凭据，启动依赖与 Harness，准备知识库模型，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
+脚本生成 `.env.local`，设置管理员默认值并随机生成其他服务凭据，启动依赖与 Harness，设置云端 Embedding 默认配置，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
 
 | 需求 | PowerShell 参数 | Bash 参数 |
 | --- | --- | --- |
@@ -33,15 +33,7 @@ bash ./scripts/setup-local.sh
 
 对话与推理默认使用 DeepSeek API。启动后在“模型管理”填写 API Key 并保存即可，连接测试可选；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动。知识库使用 PostgreSQL + pgvector，向量通过独立的云端 Embedding API 计算；“模型管理”中配置向量 API Key，未填密钥不阻止设备业务启动。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
 
-依赖容器与源码分开运行时，在 Linux 依赖机执行：
-
-```bash
-sudo bash ./scripts/setup-local.sh --dependencies-only \
-  --dependency-host <源码机可访问的依赖机地址> \
-  --api-host <依赖容器可访问的源码机地址>
-```
-
-安全复制生成的 `.env.local` 到源码机仓库根目录，并在源码机执行 `go mod download`、在 `iot_front` 执行 `npm ci`。此模式包含运维组件，备份服务默认与 API、前端一起在源码机调试。依赖端口开放给可信网络；Kafka 公告地址和 Harness 回调须从各自调用端可达。OrbStack 可直接在 Mac 仓库执行 `orb -m develop sudo bash scripts/setup-local.sh --dependencies-only`，共用配置文件。详细网络配置和摄像头开关见 [端口与地址](#端口与地址)。
+依赖部署到虚拟机时使用 `--dependencies-only`，网络与配置共享见 [端口与地址](#端口与地址)；Mac 使用 [OrbStack 调试](#orbstack-虚拟机本地调试)。
 
 ### 日常运行代码
 
@@ -217,7 +209,7 @@ cd offline-bundles
 sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 ```
 
-手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-docker-runtime` 仅用于目标机已有 Docker；旧本地模型打包参数已移除。
+手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-docker-runtime` 仅用于目标机已有 Docker。
 
 若打包在 Harness 拉取阶段提示 `Your local changes ... would be overwritten by checkout`，且新克隆目录的修改集中于图片、字体等二进制文件，检查 `git --version`；Git 2.10 以前对上游 `text=auto eol=lf` 属性的处理可能触发此问题。拉取脚本通过 `.git/info/attributes` 保留仓库原始字节，在首次检出前设置该覆盖，不修改上游源码。真实源码修改仍会整体备份到 `upstream/deepseek-harness.backup-*`。同步最新 `scripts/fetch-deepseek-harness.sh`（Windows 对应 `scripts/lib/deployment.ps1`）后，可先单独拉取 Harness，再重跑原打包命令；无需删除 Docker 镜像或数据卷。
 
@@ -236,7 +228,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 
 脚本校验哈希和 CPU 架构、导入镜像、启动并检查服务，使用 `--no-build --pull never`。默认项目为 `iot-platform`，Web 为 `http://服务器IP:8080`。重复部署保留已有配置与数据；不创建模型卷、不下载模型。离线部署包不含业务数据库备份，AI 与知识向量计算仍需联网和相应 API Key。
 
-仅替换 API/Web 镜像时，使用相同标签构建、导出与校验，在原包目录导入后依次重建 API、Web（让 nginx 重新解析地址）。此方式不更新 Compose、Harness 或模型；这些组件变化时交付完整新包，不能再用旧 `images.tar` 覆盖更新。
+仅替换 API/Web 镜像时，使用相同标签构建、导出与校验，在原包目录导入后依次重建 API、Web（让 nginx 重新解析地址）。此方式不更新 Compose 或 Harness；这些组件变化时交付完整新包，不能再用旧 `images.tar` 覆盖更新。
 
 ### Linux 与 openEuler
 
@@ -288,9 +280,9 @@ PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|dis
 | 在线部署 | `.env.online` | `compose.yaml` | `iot-platform-online` |
 | 离线部署 | 离线包内 `.env.offline` | `compose.yaml` + `compose.offline.yaml` | `iot-platform` |
 
-脚本显式选择配置和 Compose 文件，在线/离线部署不会自动加载用于旧版本地调试的 `compose.override.yaml`。
+各入口显式选择上表中的环境文件和 Compose 文件；自定义项目名须在准备、部署和日常维护时保持一致。
 
-首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留业务凭据并补齐说明；AI 配置会按下文统一迁移为 DeepSeek。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
+首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留业务凭据并补齐说明；云端 AI 配置见下文。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
 
 **已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
 
@@ -319,7 +311,7 @@ sudo docker compose -p iot-platform-local --env-file .env.local \
 
 ### 知识库与云端向量 API
 
-Harness 继续运行自定义 Agent、内置业务工作流、流式会话和受控 MCP 工具。对话模型与向量模型独立配置，统一使用外部 API；部署不再包含 Weaviate、TEI、vLLM、Ollama、GPU 配置或模型权重。
+对话模型与向量模型独立配置，统一使用外部 API；部署只保留 Harness 工作流运行时和 PostgreSQL 知识索引，不携带 GPU 配置或模型权重。Agent、MCP 与权限边界见 [AI 与知识库](PLATFORM.md#ai-与知识库)。
 
 PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存到既有 MinIO，文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。
 
@@ -338,9 +330,7 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 
 改变向量服务地址、模型、维度或查询指令会在后台建立独立候选索引，多副本共享 PostgreSQL 重建锁。已有可检索文档全部重建成功后原子激活，待索引及从未成功入库的文档由后台队列处理；失败保留完整旧索引及其配置，不混用向量空间。仅更新密钥不改变向量空间。页面显示重建进度，失败可修复配置后重试。
 
-知识预检索在首次模型请求前执行，范围由租户、Agent、产品、分类和标签共同约束；结果携带文档及分片位置。显式禁用不检索，要求证据却无匹配时拒绝执行，其余允许模型推理并提示证据不足。检索及发送模型前均复核普通用户权限，MCP 补查继续逐次复核。
-
-从旧环境更新时，新代码依据 PostgreSQL 文档记录和 MinIO 原件重建，无须读取旧 Weaviate 向量。先核对知识文档及原件完整，再停止旧向量服务；不删除旧数据卷。部署脚本不自动清理历史孤立容器。
+检索策略、首次模型请求的证据和授权校验见 [知识库使用](PLATFORM.md#ai-与知识库)。部署脚本不自动删除清单外容器或历史数据卷。
 
 ### 运维组件
 
@@ -403,7 +393,7 @@ EMQX 容器的文件句柄上限在 Compose 中设为 1048576，每条 MQTT 连�
 go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 32
 ```
 
-输出区分配置预算通过、阻塞与未验证。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由、Harness 并发和模型供应商请求 / token 配额仍须在目标集群验证。原按自动研判预算推算的模型检查及 `-provider-rpm`、`-model-latency` 参数已删除。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
+输出区分配置预算通过、阻塞与未验证。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由、Harness 并发和模型供应商请求 / token 配额仍须在目标集群验证。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
 
 ## 集群部署
 
@@ -443,14 +433,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 4. **服务统一密码**：用于 PostgreSQL（应用、超级用户、复制）、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 `admin`；至少 8 位，只能包含字母、数字与 `. _ ~ -`（要嵌入连接串）。直接回车则每项随机生成。JWT 密钥、Harness 令牌、摄像头凭据密钥和服务间令牌始终随机生成（有长度或格式要求）。服务统一密码只在首次部署时设置；再次执行沿用已有秘密，若指定了不同的密码会拒绝（修改数据库密码需单独操作）。
 5. 是否部署摄像头直播模块；DeepSeek API Key（可留空，部署后可在“模型管理”填写）。
 
-节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、知识库、视频、容量测试、备份与监控放在最后一台；api、gateway、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
+节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、视频、容量测试、备份与监控放在最后一台；api、gateway、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
 
 无人值守：`bash scripts/cluster-up.sh --name <名称> --nodes IP1,IP2,IP3 --yes`，SSH 密码与服务统一密码经环境变量 `TORCHLINK_SSH_PASSWORD`、`TORCHLINK_SERVICE_PASSWORD` 提供（PowerShell 为 `-Name`、`-Nodes`、`-Yes`）。
 
 脚本依次完成：
 
-1. **镜像**：用当前源码构建平台、Web、Harness、备份与媒体镜像（清单中写成 `镜像@sha256:` 的改为拉取），拉取其余第三方镜像。控制机不需要 Go：渲染、初始化与 SSH 准备工具随平台镜像提供。
-2. **SSH 与秘密**：按上述方式安装部署密钥；在 `.cluster/<名称>/secrets.yaml`（0600，已被 Git 忽略；可用 `--secrets` 指定）生成缺失的密码与令牌，设置了服务统一密码的项使用它，已有值保持不变。`deepseekApiKey`、`backupRestoreTargetDSN` 需要时自行填写，也可部署后在“模型管理”配置模型密钥。
+1. **镜像**：用当前源码构建平台、Web、Harness、备份、PostgreSQL pgvector 与媒体镜像（清单中写成 `镜像@sha256:` 的改为拉取），拉取其余第三方镜像。控制机不需要 Go：渲染、初始化与 SSH 准备工具随平台镜像提供。
+2. **SSH 与秘密**：按上述方式安装部署密钥；在 `.cluster/<名称>/secrets.yaml`（0600，已被 Git 忽略；可用 `--secrets` 指定）生成缺失的密码与令牌，设置了服务统一密码的项使用它，已有值保持不变。`deepseekApiKey`、`embeddingApiKey` 和独立恢复目标配置需要时自行填写，也可部署后在“模型管理”配置模型密钥。
 3. **渲染**：生成各节点的 Compose 项目到 `.cluster/<名称>/rendered`，上一版改名为 `rendered.prev` 用于回滚。
 4. **节点预检**：经 SSH 检查每个节点的 Docker 与 Compose v2、Docker 可用空间（至少 20 GiB）、与控制机的时钟差（不超过 5 秒）；首次部署时检查所需端口未被其他程序占用。任一问题都会在改动节点之前列出并停止。
 5. **下发镜像**：按镜像 ID 比较，只把节点缺少或版本不同的镜像以 `docker save | gzip | ssh docker load` 方式发送。
@@ -469,9 +459,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 bash scripts/cluster-deploy.sh --rendered .cluster/<名称>/rendered.prev --ssh-user root --ssh-key .cluster/<名称>/deploy_key --known-hosts .cluster/<名称>/known_hosts
 ```
 
-旧版本生成的清单若仍有 `platform.roles.ai`（已删除的自动研判角色），升级会在清单校验时停止：删除该项后重新执行 `cluster-up`，再在原 `ai` 节点执行 `docker rm -f <名称>-iot-ai-1`。部署脚本不会删除清单中已移除的服务；遗留容器会继续运行原镜像，若是改为手动研判之前的版本，还会继续自动研判。
-
-集群不再设置独立知识库节点。知识索引复用 PostgreSQL HA 集群，Spilo/Patroni 镜像同样包含固定版本 pgvector；各管理 API 使用同一外部 Embedding 配置及重建锁。Harness 节点保留动态 Agent 和会话持久化，备份通过受控内部 snapshot 接口收集各实例；向量 API Key 在集群秘密文件中自行填写，脚本不生成虚假的云服务密钥。
+知识索引复用 PostgreSQL HA 集群，Spilo/Patroni 镜像同样包含固定版本 pgvector；各管理 API 使用同一外部 Embedding 配置及重建锁。Harness 节点保留动态 Agent 和会话持久化，备份通过受控内部 snapshot 接口收集各实例；向量 API Key 在集群秘密文件中自行填写，脚本不生成虚假的云服务密钥。
 
 `.cluster/<名称>/` 中的秘密文件决定已初始化数据库的密码，`deploy_key` 用于登录节点，务必另行备份；丢失秘密后重新生成的值无法连接已有数据。
 
@@ -497,11 +485,11 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 **扩缩容与升级**：修改清单后重新执行 `cluster-up`；新节点需先满足预检要求。只想操作部分节点时，用 `cluster-deploy` 对变化的阶段和节点执行，例如 `--stage workers --nodes n5`。扩容前先看渲染输出的连接预算。升级按 workers → edge 逐角色滚动；processor/parser 缩容时进程先停止领取，未完成消息的领取租约到期后由其他实例接管。Redpanda、ClickHouse 扩容涉及数据重分布，按组件文档限制重建流量，并把重建期间纳入容量测试。
 
-**回滚**：`cluster-up` 自动保留上一版渲染（`rendered.prev`），用它重新执行部署脚本即可回到旧配置；不删除数据卷。已写入新集群的数据不会因切回配置而回退，涉及存储迁移的回滚按下方迁移检查点处理。
+回滚命令见 [一键部署与升级](#一键部署与升级)。切回配置不会回退已写入的数据，存储迁移需保留备份点与核对记录。
 
 **从单节点迁移**：
 
-1. 在单节点上排空旧 `storage`/`parser` 积压（见 [业务流升级](#按设备业务流与跨实例一致性)），停止设备接入或让设备保留未确认报文，记录 PostgreSQL 备份点与 Kafka 偏移。
+1. 在单节点上排空 `parser`/`processor` 积压，停止设备接入或让设备保留未确认报文，记录 PostgreSQL 备份点与 Kafka 偏移。
 2. 渲染并按阶段启动集群到 init 完成；PostgreSQL 数据用 `pg_dump`/`pg_restore` 导入新主库后再运行 `cluster-init -execute`。
 3. ClickHouse 用迁移工具按月分区回填并核对（默认只输出计划）：
 
@@ -524,9 +512,9 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 - 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
 - 运维中心依赖（`--profile ops` 的 Prometheus、Loki、Grafana、Alertmanager）同样各一个实例；它们停止时接入与告警链路不受影响，但期间的监控数据、日志与告警通知会缺失。
 
-需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO、知识库、视频媒体与 Prometheus 在示例清单中仍为单实例，需要时改用分布式/外部服务。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
+需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO、视频媒体与 Prometheus 在示例清单中仍为单实例；知识索引随 PostgreSQL HA 集群保存。单实例组件需要高可用时改用分布式或外部服务。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
 
-### 排查与迁移
+### 常见排查
 
 | 现象 | 检查入口 |
 | --- | --- |
@@ -536,8 +524,6 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 | Harness `RUNTIME_ERROR` | 用镜像内 `runtime-smoke.mjs` 检查运行用户依赖权限，再分别检查 Key、模型请求和 MCP 回调 |
 | 媒体不可播放 | `/api/v1/video/status`、连接测试、目标白名单、RTC 地址、编码及播放权限 |
 | openEuler 镜像导入 `mknod` 失败 | 检查 `container-selinux`、受管程序/数据标签和 Docker 进程域 |
-
-旧现场节点配置与协议分发已移除；迁移为 `combined` 或 `api+gateway`，逐项核对共享存储、协议制品和执行节点。已退役的影子/拓扑表不再创建或读取，迁移不删其旧数据。升级权限模型后，未配置设备范围的用户默认无设备；旧普通用户 MQTT 会话须断开或等待旧令牌过期，不以隐藏按钮代替撤销。
 
 ## 设备数据备份
 
@@ -574,7 +560,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
 
 ## 独立接入进程
 
-当前保留中心 API 与独立 Access Gateway。旧现场节点配置的迁移见 [旧版本迁移](#配置与维护)。
+中心 API 与独立 Access Gateway 共用业务存储和协议制品；可单进程运行，也可按以下职责拆分。
 
 ### 进程职责
 
@@ -588,7 +574,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
   | `processor` | 按设备顺序消费 `iot.device.business`：规则、告警、设备状态、完成标记、outbox 转发 | 业务流积压、数据库等待 |
   | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试以数据库租约保证全集群只有一个实例执行，多实例互为备用；设备告警通知按消费组分摊，重复投递由 Alertmanager 去重 | 待执行量 |
 
-  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。原自动研判角色 `ai` 已删除，告警研判只由 API 进程按用户操作运行；`IOT_PROCESS_ROLE=ai` 启动时报错，集群清单的处理见 [升级与回滚](#一键部署与升级)。
+  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。告警研判由 API 进程按用户操作运行。
 - `IOT_INSTANCE_ID` 为实例名（默认主机名），用于指标、租约所有者和日志。显式设置后 MQTT 持久队列目录变为 `mqtt-inbox/<角色>/<实例>`；同一数据卷上运行同角色多副本时每个副本必须设置不同值。未设置时沿用旧目录，升级不会遗留未确认报文。
 - `cmd/iot-access-gateway` 强制 gateway 角色：执行通信、鉴权和 Raw 归档，发布到共享 Kafka；不启动 Raw 业务消费者。HTTP 只开放接入与健康相关路由，管理用户身份在目标接口重新校验。
 - api/gateway 两个进程必须配置同一个 PostgreSQL、Kafka 及一致的 Raw 分层存储。协议制品目录也必须共享；不能让两个进程各自使用内存仓库或本地消息总线。
@@ -621,12 +607,6 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 - 多个 API 实例都设置 `IOT_NODE_URL`（本实例可被其他实例访问的 HTTP 地址）后，通过 `video/control` 租约选出一个实例运行直播模块（SIP 服务、播放会话、媒体任务与清理）；其他实例把 `/api/v1/video/*`、`/api/v1/integrations/video/*`（含媒体服务器回调与 HLS 鉴权）带原用户凭据转发到持有者，由持有者重新校验。持有者续租失败立即停止模块，租约过期后备用实例接管并从数据库恢复播放会话；现有 SIP 连接与 WebRTC 播放需要设备重新注册、浏览器重新点播。单实例部署不设置该变量时行为不变。
 - 媒体服务器回调地址、SIP 端口映射须指向当前持有者或能转发到它的入口；权限变化由持有者每 15 秒复核一次后撤销播放。
 - `IOT_AI_HARNESS_URL` 可填多个逗号分隔地址。同一会话按会话 ID 固定路由到同一 Harness 实例（多轮上下文保存在该实例）；该实例不可达时改由下一实例开始新会话。模型配置与动态智能体同步到全部实例，任一实例健康即视为可用。
-
-**从旧版本升级**：旧版由 `storage` 消费组处理 property/event/parsed 主题，新版改为 `processor` 组处理业务流，两者不能同时产生副作用。升级顺序：
-
-1. 在旧版本上确认 `kafka_lag_storage` 与 `kafka_lag_parser` 为 0（可短暂停止设备接入或等待积压排空）。
-2. 停止全部旧 API/Worker 进程，再启动新版本；Compose 初始化会创建 `iot.device.business` 与各消费组死信主题，自建 Kafka 需先创建（分区数与 `iot.raw.message` 一致）。
-3. 旧 `iot.dlq.storage` 中的死信用 `go run ./cmd/dlq-replay -group storage -source-topic <原主题> ...` 核对后重新送入业务流；新死信使用默认 `-group processor`。
 
 ### 执行所有权
 

@@ -160,7 +160,6 @@ function New-OfflineEnv {
 
         $aiProvider = "deepseek"
         $harnessUrl = "http://deepseek-harness:8091"
-        $harnessEnabled = "true"
 
         $lines = @(
             "# 自动生成的离线部署配置，请限制此文件权限。",
@@ -182,7 +181,6 @@ function New-OfflineEnv {
             "IOT_AI_MODEL=$DeepSeekModel",
             "IOT_AI_API_KEY=",
             "DEEPSEEK_API_KEY=",
-            "IOT_AI_HARNESS_ENABLED=$harnessEnabled",
             "IOT_AI_HARNESS_URL=$harnessUrl",
             "IOT_AI_HARNESS_TOKEN=$harnessToken",
             "IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness",
@@ -259,7 +257,6 @@ function New-OfflineEnv {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MEDIA_API_URL' -Value '')
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_VIDEO_MODULE' -Value 'off')
     }
-    $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key 'IOT_AI_HARNESS_ENABLED' -Value 'true')
     Write-Utf8NoBom -Path $Destination -Lines $lines
     Ensure-EmqxAdminEnv -Path $Destination -DefaultUrl "http://emqx:18083"
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel

@@ -63,7 +63,7 @@ func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*H
 
 // ConfigureProvider updates the sidecar for subsequent workflow runs.
 // DeepSeek uses the sidecar's official DeepSeek runtime; openai-compatible
-// uses its generic OpenAI Chat Completions runtime, which serves private vLLM
+// uses its generic OpenAI Chat Completions runtime, which serves compatible APIs
 // deployments (API key optional) as well as third-party APIs.
 func (h *HarnessClient) ConfigureProvider(ctx context.Context, config ports.AIPluginConfig) error {
 	h.configureMu.Lock()

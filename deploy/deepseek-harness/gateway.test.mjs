@@ -12,6 +12,8 @@ import { apply as applyPolicy, forwardAssistantText } from './iot-ops-plugin.mjs
 
 const deploymentDir = dirname(fileURLToPath(import.meta.url))
 const gatewayToken = 'test-harness-token-that-is-at-least-32-chars'
+const cloudBaseUrl = 'https://model.example/v1'
+const cloudModel = 'cloud-chat-test'
 const openedGateways = []
 const openedServers = []
 const temporaryDirectories = []
@@ -41,9 +43,9 @@ async function startGateway(factory, options = {}) {
     sessionRoot: join(tmpdir(), 'iot-harness-test-sessions'),
     proxyPort: 0,
     modelProvider: 'openai-compatible',
-    baseURL: 'http://vllm:8000/v1',
+    baseURL: cloudBaseUrl,
     apiKey: '',
-    model: 'qwen3:1.7b',
+    model: cloudModel,
     harnessFactory: factory,
     ...options,
   })
@@ -59,7 +61,7 @@ function requestBody(overrides = {}) {
     workflowId: 'ops-assistant',
     question: '检查当前高等级告警',
     mcpUrl: 'http://platform-api:8080/mcp/harness',
-    model: 'qwen3:1.7b',
+    model: cloudModel,
     maxTokens: 1200,
     ...overrides,
   }
@@ -320,7 +322,7 @@ test('run management isolates tenants and stops a hung runtime before releasing 
   await waitUntil(() => closeCount === 1)
   assert.equal((await list()).items[0].status, 'stopping')
   assert.equal((await (await fetch(`${baseUrl}/health`)).json()).activeRuns, 1)
-  const configure = () => fetch(`${baseUrl}/v1/provider`, { method:'PUT', headers:{...headers,'content-type':'application/json'}, body:JSON.stringify({provider:'openai-compatible',baseUrl:'http://vllm:8000/v1',model:'new-model',apiKey:''}) })
+  const configure = () => fetch(`${baseUrl}/v1/provider`, { method:'PUT', headers:{...headers,'content-type':'application/json'}, body:JSON.stringify({provider:'openai-compatible',baseUrl:cloudBaseUrl,model:'new-model',apiKey:''}) })
   assert.equal((await configure()).status, 409)
   releaseClose()
   const { events } = await ndjson(response)
@@ -474,8 +476,8 @@ test('provider endpoint switches the resident runtime and redacts API keys', asy
   assert.equal(initial.status, 200)
   assert.deepEqual(await initial.json(), {
     provider: 'openai-compatible',
-    baseUrl: 'http://vllm:8000/v1',
-    model: 'qwen3:1.7b',
+    baseUrl: cloudBaseUrl,
+    model: cloudModel,
     apiKeyConfigured: false,
   })
   const updated = await fetch(`${baseUrl}/v1/provider`, {
@@ -495,7 +497,7 @@ test('provider endpoint switches the resident runtime and redacts API keys', asy
   const removed = await fetch(`${baseUrl}/v1/provider`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json', 'x-iot-harness-token': gatewayToken },
-    body: JSON.stringify({ provider: 'ollama', baseUrl: 'http://ollama:11434/v1', model: 'qwen3:1.7b', apiKey: '' }),
+    body: JSON.stringify({ provider: 'unsupported', baseUrl: cloudBaseUrl, model: cloudModel, apiKey: '' }),
   })
   assert.equal(removed.status, 422)
   const response = await chat(baseUrl, requestBody({ runId: 'provider-switched', model: 'legacy-model' }))
@@ -598,7 +600,7 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
   assert.doesNotMatch(payload, /MUST_NOT_LEAK/)
   assert.equal(factorySpec.mcpToken, undefined)
   assert.equal(factorySpec.provider, 'openai-compatible')
-  assert.equal(factorySpec.model, 'qwen3:1.7b')
+  assert.equal(factorySpec.model, cloudModel)
   assert.match(factorySpec.proxyMcpUrl, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   assert.equal(factorySpec.runtimeAccessKey.length, 43)
   assert.ok(factorySpec.plugin.persona.includes('AI 运维助手'))

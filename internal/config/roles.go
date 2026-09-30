@@ -100,9 +100,6 @@ func (c Config) validateRole() error {
 		if c.ProcessRole == RoleAPI && c.AccessGatewayURL == "" {
 			return fmt.Errorf("api role requires IOT_ACCESS_GATEWAY_URL")
 		}
-	case "ai":
-		// The former automatic alarm analysis consumer.
-		return fmt.Errorf("IOT_PROCESS_ROLE=ai has been removed: alarm analysis runs on request in the api role; delete this process")
 	default:
 		return fmt.Errorf("IOT_PROCESS_ROLE must be combined, api, gateway, parser, processor or jobs")
 	}

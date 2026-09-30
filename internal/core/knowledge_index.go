@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"time"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -118,32 +117,6 @@ func (k *KnowledgeReindexer) setStatus(update func(*KnowledgeIndexStatus)) {
 	}
 }
 
-// Run checks the index once and rebuilds it when required. It retries while
-// the index or embedding service is still starting.
-func (k *KnowledgeReindexer) Run(ctx context.Context) {
-	index, ok := k.KB.(ports.RebuildableKnowledgeBase)
-	if !ok || k.Store == nil {
-		return
-	}
-	for attempt := 0; ; attempt++ {
-		err := k.runOnce(ctx, index)
-		if err == nil || ctx.Err() != nil {
-			return
-		}
-		if errors.Is(err, errRebuildElsewhere) {
-			k.setStatus(func(s *KnowledgeIndexStatus) { *s = KnowledgeIndexStatus{State: "rebuilding"} })
-		} else {
-			k.setStatus(func(s *KnowledgeIndexStatus) { s.State, s.Error = "failed", err.Error() })
-			k.Log.Warn("knowledge index rebuild check failed", "attempt", attempt+1, "error", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(min(time.Duration(attempt+1)*10*time.Second, 5*time.Minute)):
-		}
-	}
-}
-
 func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.RebuildableKnowledgeBase) error {
 	needed, err := index.NeedsRebuild(ctx)
 	if err != nil || !needed {
@@ -238,7 +211,7 @@ func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.Rebuildabl
 		})
 		return fmt.Errorf("knowledge index rebuild failed for %d documents; the active index was preserved", failed)
 	}
-	if err = index.DropLegacyIndex(ctx); err != nil {
+	if err = index.ActivateIndex(ctx); err != nil {
 		return fmt.Errorf("activate knowledge index: %w", err)
 	}
 	k.setStatus(func(s *KnowledgeIndexStatus) { s.State = "ready" })

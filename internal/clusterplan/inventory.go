@@ -368,13 +368,8 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 			bad("platform role %s needs at least one node", role)
 		}
 	}
-	for role, spec := range inv.Platform.Roles {
-		switch {
-		case role == "ai":
-			// The former automatic alarm analysis consumer; redeploying does
-			// not remove its containers (compose leaves orphans running).
-			bad("platform role ai has been removed (alarm analysis runs on request in the api role): delete platform.roles.ai, redeploy, then run docker rm -f %s-iot-ai-1 on %s", inv.Name, strings.Join(spec.Nodes, ", "))
-		case !contains(RoleNames, role):
+	for role := range inv.Platform.Roles {
+		if !contains(RoleNames, role) {
 			bad("unknown platform role %q", role)
 		}
 	}

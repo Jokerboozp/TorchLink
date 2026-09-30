@@ -301,15 +301,6 @@ func (k *KnowledgeRuntime) ListKnowledgeChunks(ctx context.Context, t, id string
 func (k *KnowledgeRuntime) DeleteKnowledgeDocument(ctx context.Context, t, id, w string) error {
 	return k.current().(ports.KnowledgeDocumentDeleter).DeleteKnowledgeDocument(ctx, t, id, w)
 }
-func (k *KnowledgeRuntime) NeedsRebuild(ctx context.Context) (bool, error) {
-	return k.current().(ports.RebuildableKnowledgeBase).NeedsRebuild(ctx)
-}
-func (k *KnowledgeRuntime) ResetIndex(ctx context.Context) error {
-	return errors.New("knowledge rebuild is managed by the background indexer")
-}
-func (k *KnowledgeRuntime) DropLegacyIndex(ctx context.Context) error {
-	return errors.New("knowledge activation is managed by the background indexer")
-}
 func (k *KnowledgeRuntime) EmbeddingModel() string {
 	return k.current().(ports.RebuildableKnowledgeBase).EmbeddingModel()
 }

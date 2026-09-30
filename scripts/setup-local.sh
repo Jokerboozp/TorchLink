@@ -144,7 +144,6 @@ defaults=(
   "IOT_BACKUP_RESTORE_MINIO_ENDPOINT=${dependency_host}:19001"
   "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_USER)"
   "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_PASSWORD)"
-  'IOT_AI_HARNESS_ENABLED=true'
   "IOT_AI_HARNESS_URL=http://${dependency_host}:8091"
   "IOT_AI_HARNESS_MCP_URL=http://${api_host}:8081/mcp/harness"
   'IOT_AI_HARNESS_PROVIDER=deepseek-official'
@@ -183,8 +182,6 @@ set_local_env_value IOT_OPS_CAPACITY_LOCAL true true
 set_local_env_value IOT_CAPACITY_MODULE "$capacity" true
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
-if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
-set_local_env_value IOT_AI_HARNESS_ENABLED true true
 ensure_deployment_git
 bash "$script_dir/fetch-deepseek-harness.sh"
 harness_url="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_URL)"

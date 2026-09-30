@@ -54,7 +54,7 @@ Harness 为必装组件，所有业务模型调用作为工作流执行；Provid
 
 每次运行的 MCP JWT 绑定租户、Run ID、工作流，工具范围取功能所需与发起人权限的交集。普通用户回调重新读取当前权限和设备范围。指定设备用户可问答，全租户巡检/报告/Agent 管理仍要求全部设备范围。
 
-知识检索使用 PostgreSQL + pgvector，平台通过外部 Embedding API 编码切片与问题，并结合中文关键词召回；SQL 强制租户及 Agent / `workflowId` 范围，产品、分类、标签进一步收窄。原件保存到 MinIO。上传返回持久任务，页面显示实际进度、失败和重试；删除立即隐藏，后台清理原件与各索引版本分片。更换向量服务、模型、维度或预处理后建立候选索引，全部文档成功才原子激活，失败继续使用旧索引。
+知识检索使用 PostgreSQL + pgvector，平台通过外部 Embedding API 编码切片与问题，并结合中文关键词召回；SQL 强制租户及 Agent / `workflowId` 范围，产品、分类、标签进一步收窄。原件保存到 MinIO。上传返回持久任务，页面显示实际进度、失败和重试；删除立即隐藏，后台清理原件与各索引版本分片。更换向量服务、模型、维度或预处理后建立候选索引，已有可检索文档全部重建成功后原子激活；待索引及从未成功入库的文档由队列处理，重建失败继续使用旧索引。
 
 绑定控制检索模式、topK、分数和无匹配策略，默认 `always`。启用知识的聊天与业务 Agent 在首次模型请求前预检索并附带来源证据；`auto` 也执行预检索，授权 MCP 工具可继续补查。`disabled` 不检索；`require-evidence` 缺少权限或匹配证据时拒绝执行，`allow-model` 无匹配时明确说明证据不足。手动研判是否使用 `alarm-handler` 知识由发起角色决定，不同知识权限结果不可串用。待发送输入绑定发起时的权限与设备范围，发送前发现变化则拒绝任务；MCP 调用继续读取实时权限。
 
@@ -62,13 +62,13 @@ Harness 为必装组件，所有业务模型调用作为工作流执行；Provid
 
 ### 告警手动研判
 
-告警入库、实时通知和打开详情均不启动研判，平台没有订阅告警事件的研判消费者。用户点击“开始研判”或“重新研判”后，由 API 以发起人身份启动后台任务；同一告警及知识范围的运行任务复用，详情打开时只读取历史结果和已有任务进度。执行期限为 3 分钟，结果标记 succeeded / failed；Harness 满载时任务在期限内退避等待空位（最多 2 分钟），并发上限见 [工作流与会话](#工作流与会话)，平台不另设研判限流。原自动研判的 `IOT_AI_ANALYSIS_*` 参数与 `ai` 进程角色已删除，旧环境文件中的这些参数不再读取。任务进度持久化到 PostgreSQL。
+告警入库、实时通知和打开详情均不启动研判，平台没有订阅告警事件的研判消费者。用户点击“开始研判”或“重新研判”后，由 API 以发起人身份启动后台任务；同一告警及知识范围的运行任务复用，详情打开时只读取历史结果和已有任务进度。执行期限为 3 分钟，结果标记 succeeded / failed；Harness 满载时任务在期限内退避等待空位（最多 2 分钟），并发上限见 [工作流与会话](#工作流与会话)，平台不另设研判限流。任务进度持久化到 PostgreSQL。
 
 ### 智能巡检与报告
 
 巡检为后台任务，进度持久化到 PostgreSQL；同租户巡检只能一个运行任务，心跳超过 30 秒视为中断，可重新发起。报告用不可变 `reportId` 保存，完成后不被进度心跳覆盖；进度接口仅返回汇总。`GET /api/v1/ai/health-inspection/reports/:jobId?limit=50&offset=0` 按保存顺序取明细，每页最多 100 条，含 `totalItems`。普通用户仍需全部设备范围和巡检权限。
 
-PDF 请求可用 `?jobId=...` 固定报告；未指定时取最近完成报告，没有报告时返回 409。下载不重新巡检，也不按报告年龄使缓存失效。PDF 展示前 2000 台及全量汇总，完整设备明细通过分页读取。每进程最多 8 个下载请求、2 个冷渲染；超过容量立即返回 429 和 Retry-After。同一租户、报告 ID 的并发共用渲染，缓存上限 64 MiB / 16 个租户。首次启动迁移会将旧报告的 items 原子移入 `health_inspection_item`；升级所有 API 实例后再恢复流量，旧版本不会读取新明细表。
+PDF 请求可用 `?jobId=...` 固定报告；未指定时取最近完成报告，没有报告时返回 409。下载不重新巡检，也不按报告年龄使缓存失效。PDF 展示前 2000 台及全量汇总，完整设备明细通过分页读取。每进程最多 8 个下载请求、2 个冷渲染；超过容量立即返回 429 和 Retry-After。同一租户、报告 ID 的并发共用渲染，缓存上限 64 MiB / 16 个租户。报告明细存于 `health_inspection_item`。
 
 运维报告仅发送授权聚合及最多 10 条告警摘要，提示词 JSON 预算 20 KB，Harness 最终请求体限制 32 KiB；详情经受控分页工具查询。
 
@@ -107,7 +107,7 @@ docker run --rm --network none --entrypoint node iot-deepseek-harness:local /har
 
 内部 HTTP 默认 8091，回环 MCP 代理默认 8092；除 `/health` 外需 `X-IOT-Harness-Token`，聊天另带短期 MCP JWT。`/v1/plugins` 返回公开元数据，`/v1/plugins/admin` 返回完整 Manifest，POST/DELETE 管理自定义项，`PUT /v1/provider` 同步模型（`deepseek-official` 或 `openai-compatible`），`POST /v1/chat/stream` 执行工作流。`mcpUrl` 只能匹配允许的精确 origin 与 `/mcp/harness`，不得含凭据、查询或 fragment。
 
-内部运行管理接口为 `GET /v1/runs`、`POST /v1/runs/:id/stop`，均额外要求 `X-IOT-Tenant-ID`，仅由平台后端携带服务令牌调用。运行归属由平台在工作流请求中的 `tenantId` / `actor` 传入；缺失归属的旧客户端任务不对租户管理页开放。升级该功能须重建 Harness 镜像并重启源码 API；旧镜像访问列表会提示升级，不能只更新前端。
+内部运行管理接口为 `GET /v1/runs`、`POST /v1/runs/:id/stop`，均额外要求 `X-IOT-Tenant-ID`，仅由平台后端携带服务令牌调用。运行归属由工作流请求中的 `tenantId` / `actor` 确定；缺失归属的任务不向租户管理页开放。`GET /v1/backup/snapshot` 以服务令牌导出允许的 Agent/会话文件，供 [FULL 备份](DEPLOYMENT.md#设备数据备份) 使用。
 
 Manifest 位于 `deploy/deepseek-harness/plugins/`，包含 schemaVersion、id、persona、defaultModel、maxTokens、capabilities 与 allowedTools。Harness 接受 1–262144 的整数 maxTokens，实际取请求值与插件上限的较小值；平台创建的自定义 Agent 和单次请求上限为 8192；Manifest 不能扩大代码白名单。网关、Cordis 与 MCP 服务端共同拒绝 shell、文件系统、jobs、goal、skills、subagent 及设备控制工具，MCP 发现失败即拒绝创建 Agent。
 

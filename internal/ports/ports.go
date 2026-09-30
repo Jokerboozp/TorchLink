@@ -243,18 +243,8 @@ type RealtimePublisher interface {
 }
 
 type AIClient interface {
-	AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error)
 	Chat(context.Context, string, string) (string, error)
-	RuleDraft(context.Context, string, string) (model.AlarmRule, error)
 	Health(context.Context) error
-}
-
-// AIJSONGenerator is an optional structured-output capability. Keeping it
-// separate from AIClient preserves compatibility with provider implementations
-// that only support ordinary chat while allowing protocol and inspection
-// workflows to request machine-readable output.
-type AIJSONGenerator interface {
-	GenerateJSON(context.Context, string, string, string) (string, error)
 }
 
 type AIPluginConfig struct {
@@ -286,10 +276,8 @@ type AIPluginRegistry interface {
 	Create(AIPluginConfig) (AIClient, error)
 }
 
-// AIProviderRuntime is the live provider selected for all Eino based AI
-// operations.  The implementation swaps the client atomically so a provider
-// change made by an administrator applies to new requests without restarting
-// the API process.
+// AIProviderRuntime supplies model connection tests and health checks. Business
+// model calls run through Harness with this provider's synchronized configuration.
 type AIProviderRuntime interface {
 	AIClient
 	AIInspectable
@@ -517,7 +505,7 @@ type BatchKnowledgeBase interface {
 type RebuildableKnowledgeBase interface {
 	NeedsRebuild(context.Context) (bool, error)
 	ResetIndex(context.Context) error
-	DropLegacyIndex(context.Context) error
+	ActivateIndex(context.Context) error
 	EmbeddingModel() string
 }
 
@@ -537,7 +525,7 @@ const (
 	EmbedDocument EmbedPurpose = "document"
 )
 
-// Embedder turns text into vectors through a private or hosted embedding
+// Embedder turns text into vectors through an external embedding
 // service. Model identifies the vector space so stored indexes can detect
 // a model change.
 type Embedder interface {

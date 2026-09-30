@@ -270,16 +270,7 @@ docker() {
     return 43
   elif [ "$1" = save ]; then
     printf 'mock images' > "$3"
-  elif [ "$1" = run ] && [[ "$*" == *'/helpers/export-model-cache.sh'* ]]; then
-    local argument destination archive
-    for argument in "$@"; do
-      case "$argument" in
-        type=bind,source=*,target=/backup)
-          destination="${argument#type=bind,source=}"; destination="${destination%,target=/backup}";;
-        /backup/*) archive="${argument#/backup/}";;
-      esac
-    done
-    printf 'mock models' > "$destination/$archive"
+
   fi
 }
 curl() {
@@ -309,7 +300,6 @@ bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local"
 grep -q "^IOT_AI_PROVIDER=deepseek$" "$test_root/.env.local"
 grep -q "^IOT_AI_BASE_URL=https://api.deepseek.com$" "$test_root/.env.local"
 grep -q "^IOT_AI_MODEL=deepseek-flash$" "$test_root/.env.local"
-grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$test_root/.env.local"
 grep -q "^IOT_AI_HARNESS_URL='http://127.0.0.1:8091'$" "$test_root/.env.local"
 grep -q "^IOT_BACKUP_URL='http://127.0.0.1:8092'$" "$test_root/.env.local"
 grep -q "^IOT_BACKUP_HARNESS_SNAPSHOT_URLS='http://127.0.0.1:8091/v1/backup/snapshot'$" "$test_root/.env.local"
@@ -324,7 +314,6 @@ assert_call 'go mod download'
 assert_call 'npm ci'
 assert_call 'compose.local.yaml up -d --build --wait --wait-timeout 900'
 grep -q '^IOT_EMBEDDING_URL=https://dashscope.aliyuncs.com/compatible-mode/v1$' "$test_root/.env.local"
-assert_no_call 'ollama'
 grep -q '^IOT_EMBEDDING_API_KEY=$' "$test_root/.env.local"
 grep -q '^IOT_EMBEDDING_DIMENSIONS=1024$' "$test_root/.env.local"
 cp "$test_root/.env.local" "$test_root/local-original"
@@ -342,18 +331,6 @@ bash "$scripts/setup-local.sh" --env-file "$capacity_env" --skip-code-deps --cap
 grep -q "^IOT_CAPACITY_MODULE='on'$" "$capacity_env"
 if bash "$scripts/setup-local.sh" --capacity invalid >/dev/null 2>&1; then echo 'Accepted invalid capacity switch' >&2; exit 1; fi
 echo 'PASS local capacity: default on, explicit opt-out kept, re-enable without a capacity container'
-
-no_harness_env="$test_root/.env.no-harness"
-cp "$test_root/.env.local" "$no_harness_env"
-sed "s/^IOT_AI_HARNESS_ENABLED=.*/IOT_AI_HARNESS_ENABLED='false'/" "$no_harness_env" > "$test_root/no-harness.tmp"
-mv "$test_root/no-harness.tmp" "$no_harness_env"
-: > "$TEST_CALLS"
-bash "$scripts/setup-local.sh" --env-file "$no_harness_env" --skip-code-deps
-grep -q "^IOT_AI_HARNESS_ENABLED='true'$" "$no_harness_env"
-grep -q "^IOT_AI_HARNESS_URL='http://127.0.0.1:8091'$" "$no_harness_env"
-assert_call 'compose.local.yaml up -d --build --wait'
-if bash "$scripts/setup-local.sh" --env-file "$no_harness_env" --skip-code-deps --no-harness 2>/dev/null; then echo 'setup-local accepted --no-harness' >&2; exit 1; fi
-echo 'PASS local configuration: Harness is mandatory and a disabled flag is switched back on'
 
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.remote" --skip-code-deps --dependency-host 192.168.24.133 --api-host 192.168.24.1
 grep -q "^IOT_LOCAL_BIND_ADDRESS='0.0.0.0'$" "$test_root/.env.remote"
@@ -434,21 +411,18 @@ grep -q "^IOT_AI_PROVIDER=deepseek$" "$deepseek_env"
 grep -q "^IOT_AI_BASE_URL=https://api.deepseek.com$" "$deepseek_env"
 grep -q "^IOT_AI_MODEL=deepseek-flash$" "$deepseek_env"
 grep -q "^DEEPSEEK_API_KEY='smoke-test-key'$" "$deepseek_env"
-assert_no_call 'ollama|vllm|weaviate|up -d --no-deps embedding|export-model-cache|restore-volume-archive'
 echo 'PASS local deepseek: provider enabled without local chat model download'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 grep -q '^IOT_AI_PROVIDER=deepseek$' "$test_root/.env.online"
 grep -q '^IOT_AI_BASE_URL=https://api.deepseek.com$' "$test_root/.env.online"
 grep -q '^IOT_AI_MODEL=deepseek-flash$' "$test_root/.env.online"
-grep -q '^IOT_AI_HARNESS_ENABLED=true$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_URL=http://deepseek-harness:8091$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_PROVIDER=deepseek-official$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_MODEL=deepseek-flash$' "$test_root/.env.online"
 assert_commented_env "$test_root/.env.online"
 grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness'
-assert_no_call 'ollama'
 grep -q '^IOT_EMBEDDING_URL=https://dashscope.aliyuncs.com/compatible-mode/v1$' "$test_root/.env.online"
 grep -q '^IOT_EMBEDDING_MODEL=text-embedding-v4$' "$test_root/.env.online"
 cp "$test_root/.env.online" "$test_root/online-original"
@@ -487,10 +461,8 @@ grep -q '"knowledgeStore": "postgres-pgvector"' "$bundle/manifest.json"
 grep -q 'iot-platform-postgres:17-pgvector-0.8.1' "$bundle/manifest.json"
 [ ! -e "$bundle/embedding-models.tgz" ]
 grep -q '"arch": "x86_64"' "$bundle/manifest.json"
-if grep -qi 'ollama' "$bundle/manifest.json" "$bundle/.env.offline"; then echo 'Offline bundle still references Ollama' >&2; exit 1; fi
 grep -q 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z' "$bundle/manifest.json"
 assert_call 'build --pull platform-api platform-web backup-service minio postgres'
-assert_no_call 'ollama|vllm|weaviate|up -d --no-deps embedding|export-model-cache|restore-volume-archive'
 if grep -qx 'llm' "$bundle/profiles.txt"; then echo 'Default bundle includes the private LLM' >&2; exit 1; fi
 grep -q '^IOT_AI_PROVIDER=deepseek$' "$bundle/.env.offline"
 grep -q '^IOT_AI_MODEL=deepseek-flash$' "$bundle/.env.offline"
@@ -502,7 +474,7 @@ bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 cmp "$test_root/offline-original" "$bundle/.env.offline"
 assert_call 'up -d --no-build --pull never --wait --wait-timeout 900'
-assert_no_call ' build |ollama| compose .* pull '
+assert_no_call ' build | compose .* pull '
 TEST_MISSING_IMAGE=1
 : > "$TEST_CALLS"
 if bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle" > "$test_root/missing-image.log" 2>&1; then echo 'Missing image ignored' >&2; exit 1; fi
@@ -521,7 +493,7 @@ bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 if grep -q '__TORCHLINK_RANDOM_' "$bundle/.env.offline"; then echo 'Public template was not initialized'; exit 1; fi
 grep -Eq '^IOT_VIDEO_CREDENTIAL_KEY=[A-Za-z0-9+/]{43}=$' "$bundle/.env.offline"
 assert_call 'up -d --no-build --pull never'
-assert_no_call ' build |ollama| compose .* pull '
+assert_no_call ' build | compose .* pull '
 cp "$bundle/.env.offline" "$test_root/public-original"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 cmp "$test_root/public-original" "$bundle/.env.offline"
@@ -666,7 +638,7 @@ assert_call '--profile capacity rm -sf capacity'
 bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
 grep -q '^IOT_CAPACITY_MODULE=off$' "$vbundle/.env.offline"
 echo 'PASS capacity module: default on, generated token, opt-out kept, module toggle and offline switch'
-# External API settings survive re-runs, while retired private-model settings are removed.
+# External API settings survive re-runs.
 cloud_env="$test_root/.env.online-cloud"
 cp "$test_root/.env.online" "$cloud_env"
 cat >> "$cloud_env" <<'EOF'
@@ -675,10 +647,6 @@ IOT_EMBEDDING_MODEL=operator-model
 IOT_EMBEDDING_API_KEY=operator-key
 IOT_EMBEDDING_DIMENSIONS=768
 IOT_EMBEDDING_BATCH_SIZE=4
-IOT_WEAVIATE_URL=http://weaviate:8080
-IOT_EMBEDDING_IMAGE=retired
-IOT_LLM_MODEL=retired
-COMPOSE_PROFILES=video,llm
 EOF
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$cloud_env" > /dev/null
@@ -687,10 +655,4 @@ grep -q '^IOT_EMBEDDING_MODEL=operator-model$' "$cloud_env"
 grep -q '^IOT_EMBEDDING_API_KEY=operator-key$' "$cloud_env"
 grep -q '^IOT_EMBEDDING_DIMENSIONS=768$' "$cloud_env"
 grep -q '^IOT_EMBEDDING_BATCH_SIZE=4$' "$cloud_env"
-if grep -Eq '^IOT_(WEAVIATE_URL|EMBEDDING_IMAGE|LLM_MODEL)=' "$cloud_env"; then echo 'Retired local model settings remain' >&2; exit 1; fi
-assert_no_call 'vllm|weaviate|--profile llm'
-for obsolete in '--private-llm on' '--with-private-llm' '--skip-embedding-model'; do
-  case "$obsolete" in --private*) entry="$scripts/deploy-online.sh";; *) entry="$scripts/package-offline.sh";; esac
-  if bash "$entry" $obsolete > /dev/null 2>&1; then echo "Accepted removed option: $obsolete" >&2; exit 1; fi
-done
-echo 'PASS cloud AI: operator settings kept; local models, GPU profiles and archives removed'
+echo 'PASS cloud AI: operator settings kept'

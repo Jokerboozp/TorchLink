@@ -22,14 +22,8 @@ import (
 
 type protocolAssistantAI struct{}
 
-func (protocolAssistantAI) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) {
-	return model.AIAnalysis{}, nil
-}
 func (protocolAssistantAI) Chat(context.Context, string, string) (string, error) {
 	return "巡检建议", nil
-}
-func (protocolAssistantAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
-	return model.AlarmRule{}, nil
 }
 func (protocolAssistantAI) Health(context.Context) error { return nil }
 func (protocolAssistantAI) GenerateJSON(context.Context, string, string, string) (string, error) {

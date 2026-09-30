@@ -83,7 +83,7 @@ func TestSplitProcessesPostgresKafkaRecovery(t *testing.T) {
 		command := exec.CommandContext(ctx, executable, "-test.run=^TestPlatformProcessHelper$")
 		command.Env = append(append([]string{}, baseEnv...), "IOT_TEST_APP_ROLE="+role, "IOT_HTTP_ADDR="+addr)
 		if role == "gateway" {
-			command.Env = append(command.Env, "IOT_AI_PROVIDER=invalid-unused-provider", "IOT_WEAVIATE_URL=http://127.0.0.1:1")
+			command.Env = append(command.Env, "IOT_AI_PROVIDER=invalid-unused-provider")
 		}
 		log, e := os.OpenFile(filepath.Join(root, role+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if e != nil {

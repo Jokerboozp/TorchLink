@@ -21,9 +21,10 @@ else if(u.pathname==='/api/v1/devices')data={...list([]),total:u.searchParams.ha
 else if(u.pathname==='/api/v1/alarms')data=list(alarms)
 else if(u.pathname==='/api/v1/alarms/alarm-demo')data=alarms[0]
 else if(u.pathname==='/api/v1/ai/providers')data={...list([]),active:{id:'disabled',name:'未启用',enabled:false},healthy:false,healthMessage:'验收环境未连接模型',config:null}
-else if(u.pathname==='/api/v1/knowledge/documents')data={...list([{id:'document-demo',filename:'消防设备手册',workflowId:'assistant',status:'INDEXED',createdAt:now,metadata:{chunks:3,size:2048}}]),persistentIndex:true,indexMode:'weaviate'}
+else if(u.pathname==='/api/v1/ai/embedding-config')data={baseUrl:'https://dashscope.aliyuncs.com/compatible-mode/v1',model:'text-embedding-v4',apiKeyConfigured:false,dimensions:1024,batchSize:10,queryInstruction:'',timeoutSeconds:60}
+else if(u.pathname==='/api/v1/knowledge/documents')data={...list([{id:'document-demo',filename:'消防设备手册',workflowId:'assistant',status:'INDEXED',createdAt:now,metadata:{chunks:3,size:2048}}]),persistentIndex:true,indexMode:'postgres-pgvector',embeddingModel:'text-embedding-v4'}
 else if(u.pathname==='/api/v1/ai/workflows')data=list([{id:'assistant',name:'运维助手',description:'查询设备和告警，检索处置知识',enabled:true,capabilities:['chat']}])
-else if(u.pathname.endsWith('/knowledge-binding'))data={retrievalMode:'auto',topK:5,minScore:0.25,noMatchPolicy:'allow-model'}
+else if(u.pathname.endsWith('/knowledge-binding'))data={retrievalMode:'always',topK:5,minScore:0.25,noMatchPolicy:'allow-model'}
 else if(u.pathname==='/api/v1/ai/health-inspection/progress')data={status:'idle'}
 else if(u.pathname==='/api/v1/connectors/types')data=list(['MQTT','HTTP','TCP','UDP','MODBUS_TCP'].map(type=>({type,name:type,supported:true})))
 res.end(JSON.stringify(data));return}

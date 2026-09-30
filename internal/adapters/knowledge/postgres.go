@@ -354,10 +354,9 @@ func (p *Postgres) ResetIndex(ctx context.Context) error {
 	return nil
 }
 
-// DropLegacyIndex is the existing rebuild completion hook. In PostgreSQL it
-// activates the completed version atomically; retired chunks are retained for
+// ActivateIndex commits the completed version atomically; retired chunks are retained for
 // in-flight readers and audit, rather than dropping any live data.
-func (p *Postgres) DropLegacyIndex(ctx context.Context) error {
+func (p *Postgres) ActivateIndex(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.pending == "" {

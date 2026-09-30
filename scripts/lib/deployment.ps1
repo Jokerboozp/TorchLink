@@ -70,7 +70,6 @@ function Ensure-DeploymentEnv {
         IOT_AI_API_KEY = ''
         DEEPSEEK_API_KEY = ''
         DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
-        IOT_AI_HARNESS_ENABLED = 'true'
         IOT_AI_HARNESS_URL = 'http://deepseek-harness:8091'
         IOT_AI_HARNESS_MCP_URL = 'http://platform-api:8080/mcp/harness'
         IOT_AI_HARNESS_PROVIDER = 'deepseek-official'
@@ -223,33 +222,12 @@ function Wait-DeploymentHttp {
     throw "健康检查超时：$Url。请用相同的 Compose 项目和配置参数检查 ps / logs。"
 }
 
-function Remove-DeploymentEnvValue {
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Key)
-    $fullPath = [IO.Path]::GetFullPath($Path)
-    $pattern = '^\s*(?:export\s+)?' + [Regex]::Escape($Key) + '\s*='
-    $lines = @([IO.File]::ReadAllLines($fullPath) | Where-Object { $_ -notmatch $pattern })
-    [IO.File]::WriteAllText($fullPath, ($lines -join "`n") + "`n", (New-Object Text.UTF8Encoding($false)))
-}
-
-# Knowledge vectors are stored in PostgreSQL; cloud API settings are retained.
+# Populate cloud defaults without rewriting operator-supplied settings.
 function Set-EmbeddingDeploymentEnv {
     param([Parameter(Mandatory)][string]$Path)
-    $url = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL'
-    if (-not $url -or $url -match '^http://(embedding:|[^/]+:18091)') {
-        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL' -Value 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL' -Value 'text-embedding-v4'
-        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY' -Value ''
-    }
-    foreach ($setting in @{ IOT_EMBEDDING_MODEL='text-embedding-v4'; IOT_EMBEDDING_DIMENSIONS='1024'; IOT_EMBEDDING_BATCH_SIZE='10' }.GetEnumerator()) {
+    foreach ($setting in @{ IOT_EMBEDDING_URL='https://dashscope.aliyuncs.com/compatible-mode/v1'; IOT_EMBEDDING_API_KEY=''; IOT_EMBEDDING_MODEL='text-embedding-v4'; IOT_EMBEDDING_DIMENSIONS='1024'; IOT_EMBEDDING_BATCH_SIZE='10' }.GetEnumerator()) {
         if (-not (Get-DeploymentEnvValue -Path $Path -Key $setting.Key)) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value $setting.Value }
     }
-    $key = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY'
-    if ($key -match 'change-this|change-me') { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY' -Value '' }
-    foreach ($key in @('IOT_WEAVIATE_URL', 'IOT_EMBEDDING_IMAGE', 'IOT_EMBEDDING_MODEL_SOURCE', 'IOT_PRIVATE_LLM', 'IOT_LLM_IMAGE', 'IOT_LLM_MODEL', 'IOT_LLM_MODEL_SOURCE', 'IOT_LLM_API_KEY', 'HF_ENDPOINT', 'HF_HUB_OFFLINE', 'IOT_OLLAMA_URL', 'IOT_OLLAMA_MODEL', 'IOT_AI_OLLAMA_URL', 'IOT_AI_HARNESS_OLLAMA_BASE_URL')) {
-        Remove-DeploymentEnvValue -Path $Path -Key $key
-    }
-    $profiles = @(@("$(Get-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'llm' })
-    Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
 }
 
 function Set-DeepSeekDeploymentEnv {

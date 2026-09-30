@@ -16,7 +16,7 @@
 - `GET /api/v1/onboarding/preflight?productId={id}` 返回已有模板的接入方式、协议摘要、可用共享监听（含运行状态）和检查项；`ready=false` 时不能添加设备。新模板用 `protocolPackageId`、`transport`、`category` 代替 `productId`。
 - `POST /api/v1/onboarding` 在一个事务中保存设备，并按需创建模板、协议绑定和接入点，任何一步失败都不留下部分资源。请求需带客户端生成的 `requestId`；`connection.mode` 取 `standard`、`managed`、`listener`、`dial` 或 `poll`，须与预检给出的接入方式一致。请求结构见 [onboarding/enroll.go](../internal/onboarding/enroll.go)。
 
-幂等按租户和设备编号判断：首次成功返回 201；相同请求重试返回 200 和 `reused:true`，不再返回 Secret；同一编号的不同请求返回 409。并发的相同请求只创建一台设备、生成一个 Secret。共享监听端口已被占用，或模板、协议绑定在保存前发生变化时返回 409，刷新后重试。主动连接和 Modbus 目标若填写 IP，须在 `IOT_MODBUS_ALLOWED_CIDRS` 允许的网段内。原 `POST /api/v1/onboarding/test` 测试令牌流程已移除。
+幂等按租户和设备编号判断：首次成功返回 201；相同请求重试返回 200 和 `reused:true`，不再返回 Secret；同一编号的不同请求返回 409。并发的相同请求只创建一台设备、生成一个 Secret。共享监听端口已被占用，或模板、协议绑定在保存前发生变化时返回 409，刷新后重试。主动连接和 Modbus 目标若填写 IP，须在 `IOT_MODBUS_ALLOWED_CIDRS` 允许的网段内。
 
 添加设备使用“新增设备”（`POST /api/v1/device-registry`）操作权限，不单列权限项。同时新建模板还需要设备模板的新增权限，新建共享监听还需要平台接入点的新增权限。只授权部分设备的账号不能添加设备，也不能调用预检。
 
@@ -186,7 +186,7 @@ Worker 有两种运行方式，请求与结果格式相同，日志都写 stderr
 - **单次调用**：未设置 `IOT_PROTOCOL_WORKER_MODE` 时，从 stdin 读取一个 JSON 请求，向 stdout 输出一个 JSON 结果并退出。
 - **常驻服务**：环境变量 `IOT_PROTOCOL_WORKER_MODE=serve` 时，逐行读取请求（每行一个 JSON），每个请求向 stdout 写一行 JSON 结果，并原样带回请求中的 `requestId`；stdin 关闭后退出。stdout 不能输出结果以外的内容，否则平台判定应答错位并重启该进程。请求之间不得依赖进程内存，状态只通过 `state` 传递；平台可能随时重启或回收进程。
 
-平台生成的函数模板适配代码、解析模板和 GB26875 示例已同时支持两种方式。发布校验在全部样例通过后，用同一 decode 请求对一个常驻进程连续调用两次，结果都与单次调用一致时才在制品上记录 `workerMode: "serve"`；未通过或本变更前发布的版本仍按单次调用启动，运行时不做猜测。常驻进程按制品路径和 SHA-256 分组，不同租户、协议或版本不共用进程；每个制品最多 4 个进程，空闲 2 分钟回收。单次请求超时、进程退出、输出超过 1 MiB 或 `requestId` 不匹配时，结束该进程并在下次调用时重新启动。
+平台生成的函数模板适配代码、解析模板和 GB26875 示例已同时支持两种方式。发布校验在全部样例通过后，用同一 decode 请求对一个常驻进程连续调用两次，结果都与单次调用一致时才在制品上记录 `workerMode: "serve"`；未声明 `workerMode: "serve"` 的版本按单次调用启动。常驻进程按制品路径和 SHA-256 分组，不同租户、协议或版本不共用进程；每个制品最多 4 个进程，空闲 2 分钟回收。单次请求超时、进程退出、输出超过 1 MiB 或 `requestId` 不匹配时，结束该进程并在下次调用时重新启动。
 
 `version` 固定为 2，操作如下：
 
@@ -249,8 +249,6 @@ Worker 有两种运行方式，请求与结果格式相同，日志都写 stderr
 
 发布前在「设备通信协议」版本详情的「解析测试」中输入样本并确认标准消息结果，再发布并在「设备模板」绑定。
 
-配置不足以描述的协议使用 Go 源码包，由平台编译、验证样例并发布。
-
 ### 从报文或点表生成协议
 
 入口为「设备通信协议 → 协议生成」，弹窗标题为「生成协议」。选择输入类型后按以下流程操作：
@@ -267,7 +265,7 @@ Worker 有两种运行方式，请求与结果格式相同，日志都写 stderr
 | --- | --- |
 | `POST /api/v1/ai/protocol-assistant/generate` | multipart 上传，`inputKind=sample\|point-table`，支持 `file`、`pointTable`、`samplePayload` |
 | `POST /api/v1/ai/protocol-assistant/preview` | 未保存映射的解析预览 |
-| `POST /api/v1/ai/protocol-assistant/publish` | 沿用历史路径名称，实际保存 v2 草稿或已校验版本 |
+| `POST /api/v1/ai/protocol-assistant/publish` | 保存 v2 草稿或已校验版本 |
 | `POST /api/v2/protocols/{id}/releases/{version}/preview` | 校验已保存版本的真实样本 |
 | `POST /api/v2/protocols/{id}/releases/{version}/publish` | 发布已经校验的版本 |
 
@@ -349,7 +347,7 @@ TCP 建立成功不等于协议注册或认证成功。协议必须真实校验�
 
 同一进程内，同一个解析后 IP/端口的多个站号串行读取。独立接入副本应将同一物理串口服务器的轮询实例部署到同一执行端；当前执行租约按实例分配，不提供跨进程的物理串口总线调度。串口服务器以 TCP 客户端向平台连接时，使用前述 Go TCP 入站协议及查询调度，按实际设备报文实现组包和校验；保留的内置 RTU 点表接入 API 使用平台主动连接。
 
-该能力不使用本机串口、不恢复 Edge Agent。平台必须与设备或串口服务器网络可达。
+平台通过 TCP 与设备或串口服务器通信，须保证网络可达。
 
 ### 首次配置主设备与子设备协议
 
@@ -394,8 +392,6 @@ return Frame{
 - `POST /api/v1/device-registry/{id}/children`：按接入点映射的类型和地址登记子设备，同一地址重试返回已有设备。
 - `GET /api/v2/products/{id}/protocol-binding`：查看产品协议绑定。
 - `POST /api/v2/device-access-profiles/{profileId}/devices/{childId}/commands`：沿主设备会话发送子设备命令，继续要求对应菜单/命令操作权限、设备范围及人工确认。
-
-迁移仅增加现有 `device_registry.body.gatewayId` 的查询索引；不删除历史数据，也不新增独立边缘节点数据库。
 
 ### TCP 与主子设备验证
 
@@ -442,7 +438,7 @@ API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 - 密钥在“用户与权限 → 开放接口”创建，需要该页面的新增、编辑、删除操作权限。
 - 每个密钥绑定一个平台用户。外部请求按该用户的菜单、操作权限和设备范围执行，与其登录控制台时一致；密钥的开放能力只能进一步收窄。停用或删除用户后，其密钥立即失效；删除用户会同时删除其密钥。
 - 建议为每个外部系统单独建用户和角色，只授予需要的功能和设备。
-- 密钥明文只在创建时返回一次，平台只保存 SHA-256 摘要，存于租户的 `platform_access` 配置中，与用户、角色一起备份。密钥可停用、设置有效期或删除；需要更换时新建密钥后删除旧密钥。
+- 密钥明文只在创建时返回一次，平台只保存 SHA-256 摘要，存于租户的 `platform_access` 配置中，需随独立整库备份保管；设备数据及 FULL 导出不包含账户和密钥。密钥可停用、设置有效期或删除；需要更换时新建密钥后删除旧密钥。
 - 密钥应只保存在对方服务端。浏览器页面中的问答机器人应由对方后端转发请求，不能把密钥下发到前端。
 
 | 能力 | 可调用的接口 | 绑定用户还需要 |
@@ -517,7 +513,7 @@ POST /api/open/v1/ai/chat
 
 - 返回 `{"runId","workflowId","model","answer"}`；`answer` 为 Markdown。`POST /ai/chat/stream` 以 SSE 返回 `run.started`、`text.delta`、`tool.started`、`tool.completed`、`run.completed`、`run.failed` 事件，每个事件为 `event: <类型>` 与 `data: <JSON>`。
 - 可选 `workflowId` 选择聊天智能体，可用列表见 `GET /ai/workflows`。模型由平台模型管理决定，请求不能覆盖。
-- 问答作为 Harness 工作流运行，工具查询受绑定用户的设备范围和知识库权限限制；Harness 未配置时返回 503。
+- 问答作为 Harness 工作流运行，启用知识时在首次模型请求前附带授权检索证据；检索和工具均受绑定用户的当前权限及设备范围限制，权限变化使待发送输入失效。Harness 不可用时返回 503，完整知识策略见 [AI 与知识库](PLATFORM.md#ai-与知识库)。
 - `conversationId` 由对方系统为其每个终端用户生成，平台按租户、绑定用户和该值隔离多轮会话；不同终端用户须使用不同值。
 
 ## 内置协议示例

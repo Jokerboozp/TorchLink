@@ -1510,7 +1510,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	} else if provider == current.Provider {
 		apiKey = current.APIKey
 	}
-	// Private OpenAI-compatible services such as vLLM may run without a key.
+	// Some compatible API services do not require an API key.
 	if provider == "deepseek" && apiKey == "" {
 		problem(w, http.StatusUnprocessableEntity, "DeepSeek 必须填写 API Key")
 		return
@@ -2202,18 +2202,6 @@ func (s *Server) searchWorkflowKnowledge(ctx context.Context, tenantID, question
 	return core.SearchWorkflowKnowledge(ctx, s.engine.KB, tenantID, question, binding)
 }
 
-func knowledgeEvidenceText(hits []ports.KnowledgeHit, maximum int) string {
-	var builder strings.Builder
-	for index, hit := range hits {
-		line := fmt.Sprintf("[%d] product=%s category=%s tags=%s score=%.3f\n%s\n", index+1, hit.ProductID, hit.Category, strings.Join(hit.Tags, ","), hit.Score, hit.Content)
-		if builder.Len()+len(line) > maximum {
-			break
-		}
-		builder.WriteString(line)
-	}
-	return builder.String()
-}
-
 func harnessConversationID(tenantID, username, conversationID string) string {
 	sum := sha256.Sum256([]byte(tenantID + "\x00" + username + "\x00" + conversationID))
 	return "conv_" + hex.EncodeToString(sum[:])
@@ -2369,7 +2357,7 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 
 // knowledgeEmbeddingModel names the vector space of the persistent index.
 func knowledgeEmbeddingModel(s *Server) string {
-	if index, ok := s.engine.KB.(ports.RebuildableKnowledgeBase); ok {
+	if index, ok := s.engine.KB.(interface{ EmbeddingModel() string }); ok {
 		return index.EmbeddingModel()
 	}
 	return ""

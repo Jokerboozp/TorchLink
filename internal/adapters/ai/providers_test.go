@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"iot-platform/internal/aioutput"
-	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
 
@@ -51,56 +49,6 @@ func TestOpenAICompatibleProvider(t *testing.T) {
 	answer, err := client.Chat(context.Background(), "tenant", "hello")
 	if err != nil || answer != "插件连接成功" {
 		t.Fatalf("answer=%q err=%v", answer, err)
-	}
-}
-
-func TestOpenAICompatibleAnalyzeAlarmAcceptsStringConfidence(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
-			http.NotFound(w, r)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []any{map[string]any{"message": map[string]any{"content": `{"summary":"温度持续升高，需现场复核。","possibleReasons":["传感器异常"],"suggestions":["现场复核设备"],"riskLevel":"HIGH","confidence":"0.86"}`}}},
-		})
-	}))
-	defer server.Close()
-
-	client, err := NewOpenAICompatible("deepseek", "DeepSeek", server.URL, "test-model", "test-key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	analysis, err := client.AnalyzeAlarm(context.Background(), model.Alarm{ID: "alarm-1", AlarmLevel: "HIGH"}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if analysis.Summary == "" || analysis.Model != "test-model" || analysis.Confidence != 0.86 {
-		t.Fatalf("unexpected decoded alarm analysis: %#v", analysis)
-	}
-}
-
-func TestOpenAICompatibleAnalyzeAlarmKeepsSummaryWhenConfidenceIsMalformed(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
-			http.NotFound(w, r)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"choices": []any{map[string]any{"message": map[string]any{"content": `{"summary":"告警事实已核对，请人工复核现场。","possibleReasons":["传感器异常"],"suggestions":["现场复核设备"],"riskLevel":"HIGH","confidence":"较高"}`}}},
-		})
-	}))
-	defer server.Close()
-
-	client, err := NewOpenAICompatible("deepseek", "DeepSeek", server.URL, "test-model", "test-key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	analysis, err := client.AnalyzeAlarm(context.Background(), model.Alarm{ID: "alarm-2", AlarmLevel: "HIGH"}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if analysis.Summary == "" || analysis.Confidence != 0 {
-		t.Fatalf("malformed confidence should not discard summary: %#v", analysis)
 	}
 }
 
@@ -185,25 +133,6 @@ func TestOpenAICompatibleLimitsSameOriginRedirects(t *testing.T) {
 	}
 }
 
-func TestDecodeRuleDraftNormalizesObjectShapedModelOutput(t *testing.T) {
-	rule, err := aioutput.DecodeRuleDraft(`{"name":"smoke_detector_high_alarm","alarmType":"smoke","level":"high","match":{"deviceType":"smoke_detector"},"conditions":{"smoke":true},"durationSeconds":0,"recovery":{"event":"smoke_clear"},"actions":{"type":"open_camera","cameraId":"camera-001"}}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rule.AlarmType != "SMOKE_DETECTED" || rule.Level != "HIGH" || rule.Match != "all" {
-		t.Fatalf("unexpected normalized rule: %#v", rule)
-	}
-	if len(rule.Conditions) != 1 || rule.Conditions[0].Field != "smoke" || rule.Conditions[0].Operator != "eq" || rule.Conditions[0].Value != true {
-		t.Fatalf("unexpected conditions: %#v", rule.Conditions)
-	}
-	if len(rule.Recovery) != 1 || rule.Recovery[0].Field != "event" || rule.Recovery[0].Value != "smoke_clear" {
-		t.Fatalf("unexpected recovery: %#v", rule.Recovery)
-	}
-	if len(rule.Actions) != 1 || rule.Actions[0].Type != "OPEN_CAMERA" || rule.Actions[0].CameraID != "camera-001" {
-		t.Fatalf("unexpected actions: %#v", rule.Actions)
-	}
-}
-
 func TestProviderRegistry(t *testing.T) {
 	registry := NewProviderRegistry()
 	items := registry.List()
@@ -217,8 +146,8 @@ func TestProviderRegistry(t *testing.T) {
 	if _, err := registry.Create(ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3"}); err == nil {
 		t.Fatal("removed Ollama provider must not be creatable")
 	}
-	if _, err := registry.Create(ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "http://vllm:8000/v1", Model: "Qwen/Qwen3-8B"}); err != nil {
-		t.Fatalf("keyless private OpenAI-compatible provider rejected: %v", err)
+	if _, err := registry.Create(ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "https://api.example/v1", Model: "remote-model"}); err != nil {
+		t.Fatalf("keyless external OpenAI-compatible provider rejected: %v", err)
 	}
 	for _, item := range items {
 		if item.ID != "disabled" && !item.Enabled {
@@ -385,21 +314,21 @@ func TestHarnessClientConfiguresSelectedProvider(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"provider": payload["provider"], "baseUrl": payload["baseUrl"], "model": payload["model"]})
 	}))
 	defer server.Close()
-	client, err := NewHarness(server.URL, serviceToken, "https://api.example/mcp/harness", "qwen3:1.7b", time.Second)
+	client, err := NewHarness(server.URL, serviceToken, "https://api.example/mcp/harness", "remote-model", time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected := ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "http://192.168.24.133:8000/v1", Model: "Qwen/Qwen3-8B"}
+	selected := ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "https://api.example/v1", Model: "remote-model"}
 	if err := client.ConfigureProvider(context.Background(), selected); err != nil {
-		t.Fatalf("keyless private vLLM endpoint must be accepted: %v", err)
+		t.Fatalf("keyless external OpenAI-compatible endpoint must be accepted: %v", err)
 	}
-	if payload["provider"] != "openai-compatible" || payload["baseUrl"] != "http://192.168.24.133:8000/v1" || payload["model"] != selected.Model || payload["apiKey"] != "" {
+	if payload["provider"] != "openai-compatible" || payload["baseUrl"] != "https://api.example/v1" || payload["model"] != selected.Model || payload["apiKey"] != "" {
 		t.Fatalf("unexpected sidecar provider payload: %#v", payload)
 	}
 	if got := client.CurrentConfig(); got != selected {
 		t.Fatalf("selected provider was not retained: %#v", got)
 	}
-	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3:1.7b"}); err == nil {
+	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "remote-model"}); err == nil {
 		t.Fatal("removed Ollama provider must be rejected")
 	}
 	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat"}); err == nil {

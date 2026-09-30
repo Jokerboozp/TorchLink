@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
@@ -18,12 +17,12 @@ import (
 )
 
 type rebuildTestIndex struct {
-	mu            sync.Mutex
-	stale         bool
-	resets        int
-	legacyDropped bool
-	indexed       []ports.KnowledgeIndexInput
-	failDocument  string
+	mu           sync.Mutex
+	stale        bool
+	resets       int
+	activated    bool
+	indexed      []ports.KnowledgeIndexInput
+	failDocument string
 }
 
 func (f *rebuildTestIndex) Index(context.Context, string, string, string, []byte) error { return nil }
@@ -43,10 +42,10 @@ func (f *rebuildTestIndex) ResetIndex(context.Context) error {
 	f.indexed = nil
 	return nil
 }
-func (f *rebuildTestIndex) DropLegacyIndex(context.Context) error {
+func (f *rebuildTestIndex) ActivateIndex(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.legacyDropped, f.stale = true, false
+	f.activated, f.stale = true, false
 	return nil
 }
 func (f *rebuildTestIndex) EmbeddingModel() string { return "Qwen/Qwen3-Embedding-0.6B" }
@@ -94,8 +93,8 @@ func TestKnowledgeReindexerRebuildsFromArchivedOriginals(t *testing.T) {
 	if status.State != "failed" || status.Total != 3 || status.Done != 3 || status.Failed != 2 {
 		t.Fatalf("unexpected rebuild status %#v", status)
 	}
-	if index.resets != 1 || index.legacyDropped {
-		t.Fatalf("failed rebuild must not activate the partial version: resets=%d legacy=%v", index.resets, index.legacyDropped)
+	if index.resets != 1 || index.activated {
+		t.Fatalf("failed rebuild must not activate the partial version: resets=%d legacy=%v", index.resets, index.activated)
 	}
 	if len(index.indexed) < 2 {
 		t.Fatalf("expected doc-a chunks, got %d", len(index.indexed))
@@ -138,18 +137,9 @@ func TestKnowledgeReindexerWaitsForAnotherReplica(t *testing.T) {
 	index := &rebuildTestIndex{stale: true}
 	repo := memory.NewRepository()
 	reindexer := &KnowledgeReindexer{KB: index, Store: lockedReindexStore{repo}, Repo: repo, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { reindexer.Run(ctx); close(done) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for reindexer.Status().State != "rebuilding" && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	if err := reindexer.runOnce(context.Background(), index); !errors.Is(err, errRebuildElsewhere) {
+		t.Fatalf("expected another replica to own the rebuild, got %v", err)
 	}
-	if status := reindexer.Status(); status.State != "rebuilding" || status.Error != "" {
-		t.Fatalf("a rebuild on another replica must be reported as rebuilding, got %#v", status)
-	}
-	cancel()
-	<-done
 	if index.resets != 0 {
 		t.Fatal("index must not be reset without holding the rebuild lock")
 	}

@@ -31,13 +31,13 @@
 
 Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交原消息位点后才继续消费。读取出错的订阅按指数退避（最长 30 秒）自动重建；重建期间或在途消息 2 分钟无进展时，`/health/ready` 报告对应消费组未就绪。死信中的合法 JSON 报文保持 `payload` 原结构；非 JSON 或二进制报文放在 `payload` 的 Base64 字符串中，并带 `payloadEncoding: "base64"`，可还原原始字节。
 
-真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用，接入链路见 [接入验证](INTEGRATION.md#验证入口)。知识库联调同时设置 `IOT_TEST_WEAVIATE_URL`、`IOT_TEST_EMBEDDING_URL`（本地 `http://127.0.0.1:18091/v1`）与 `IOT_TEST_EMBEDDING_API_KEY` 后运行 `go test ./internal/adapters/knowledge -run Live`，检查真实向量写入、检索及租户 / `workflowId` 隔离。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。
+真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用；接入链路见 [接入验证](INTEGRATION.md#验证入口)，知识索引和备份见 [AI 与知识库回归](#ai-与知识库回归)。未配置而跳过的用例不算联调通过。
 
 部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`。
 
 ### 脚本入口
 
-同一操作只保留 `.sh`（Linux / macOS）与 `.ps1`（Windows PowerShell），不再增加按操作系统命名的转发包装。DeepSeek 配置与 Harness 始终准备，只需填写自己的 API Key。旧 AI 可选安装、跳过 Harness、本地对话模型参数及 `--include-backup-service` 别名已移除；备份容器使用 `--include-backup` / `-IncludeBackup`。参数以脚本帮助为准，部署步骤见 [部署指南](DEPLOYMENT.md)。
+同一操作使用 `.sh`（Linux / macOS）与 `.ps1`（Windows PowerShell），公共逻辑放在 `scripts/lib/`。Harness 始终准备，云端模型密钥由用户配置；本地临时备份容器使用 `--include-backup` / `-IncludeBackup`。参数以脚本帮助为准，部署步骤见 [部署指南](DEPLOYMENT.md)。
 
 | 入口 | 用途 |
 | --- | --- |
@@ -51,15 +51,19 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 | `scripts/fetch-deepseek-harness.sh`、`scripts/lib/` | 固定版本 Harness 获取及各入口复用的部署/云 API/演示实现 |
 | `scripts/generate-demo-data.mjs`、`scripts/tests/` | 演示入口、协议模拟器与按场景启用的冒烟；前端浏览器用例见下节 |
 
-专项回归按对应改动运行：`python3 scripts/tests/public-bundle-test.py` 与 PowerShell 同名脚本检查公开包凭据；`python3 scripts/tests/release-version-test.py` 检查版本生成。`nginx-protocol-routing-smoke.mjs`、`platform-data-permissions-smoke.sh` 需要真实 Docker 与本地镜像，会创建并清理自己的测试容器，不能当作纯源码检查运行。
+专项回归按对应改动运行：`python3 scripts/tests/public-bundle-test.py` 与 PowerShell 同名脚本检查公开包凭据；`python3 scripts/tests/release-version-test.py` 检查版本生成。`nginx-protocol-routing-smoke.mjs` 用 `IOT_TEST_NGINX` 指定 nginx 可执行文件，启动并清理隔离 HTTP/nginx 进程；`platform-data-permissions-smoke.sh` 需要真实 Docker 与本地镜像，创建并清理自己的测试容器。它们不属于纯源码检查。
 
 ### AI 与知识库回归
 
-核心回归包括 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup` 和 `node --test deploy/deepseek-harness/gateway.test.mjs`。真实知识测试用 `IOT_TEST_POSTGRES_DSN` 指向独立测试库，测试自行创建并清理 schema；不要指向业务库。`internal/backup/full_restore_integration_test.go` 使用独立源 fixture、恢复库、MinIO 备库及隔离 Agent 目录，实际 Harness snapshot 测试只读活跃实例。测试环境文件含凭据时限制访问权限，不提交或输出内容。
+源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
 
-2026-09-30 本次验证：macOS 源码进程连接 OrbStack `develop`（Ubuntu arm64）的依赖；PostgreSQL 17 沿用原数据卷并加载 pgvector 0.8.1。真实 PostgreSQL + 模拟 Embedding HTTP 验证了持久索引、租户/Agent 隔离、进度、失败重试、重启恢复、删除、模型切换失败保留旧索引，以及跨副本配置激活和旧副本接手任务。相关用例通过 race 检查。FULL v2 在独立库与真实 MinIO 备库恢复四张知识表、向量索引与原件，并核对内容；实际 Harness 的 145 个 Agent/会话文件在隔离目录恢复通过。Bash/PowerShell 部署冒烟均使用真实 Compose 解析与模拟操作，单节点及 HA PostgreSQL 镜像在 VM 实际构建，HA 集群故障切换未执行。
+| 联调 | 配置与命令 | 验证范围 |
+| --- | --- | --- |
+| PostgreSQL 知识索引 | `IOT_TEST_POSTGRES_DSN` 指向独立测试库；`go test -race ./internal/adapters/knowledge ./internal/core -run 'Test(PostgresKnowledgePersistenceScopesAndAtomicRebuild|KnowledgeRuntimePostgresHTTPJobsRecoveryAndModelSwitch)'` | 测试自行创建并清理 schema；真实 PostgreSQL + 模拟 Embedding HTTP，涵盖持久索引、任务恢复、多副本配置激活 |
+| FULL 隔离恢复 | 用 `IOT_BACKUP_FULL_RESTORE_TEST_ENV` 指向私有测试环境文件；`go test ./internal/backup -run TestFullKnowledgeAndAgentRestoreIntegration -count=1` | 独立源 fixture、恢复数据库、MinIO 备库与 Harness 恢复目录；核对知识表、向量、原件和 Agent/会话 |
+| 活跃 Harness 快照 | 配置服务端快照 URL/令牌并设置 `IOT_BACKUP_LIVE_HARNESS_TEST=1`；`go test ./internal/backup -run TestLiveHarnessSnapshotRestoreIntegration -count=1` | 只读收集实例快照，在临时隔离目录核对恢复数量和内容 |
 
-云端 Embedding API Key 未配置，按用户要求跳过真实云调用。真实 API 页面冒烟在这个状态下验证上传 202、索引失败与重试、删除后记录和原件不可读取、Agent CRUD，桌面及 390px 窄屏检查；不消耗对话 API。后端 `go test ./cmd/... ./internal/...` 最终通过；一次已有视频异步测试的临时目录清理偶发失败，单包及最终全量复测通过。配置和使用边界见 [云端 AI 与知识库](DEPLOYMENT.md#知识库与云端向量-api)。
+私有测试环境文件须限制访问权限，不提交或输出凭据。模拟 Embedding 测试不消耗云端额度；真实云向量索引需另配可用 Key，上传后确认状态达到 `INDEXED` 并检索到对应分片。配置与索引生命周期见 [知识库与云端向量 API](DEPLOYMENT.md#知识库与云端向量-api)。
 
 ## 管理端开发
 
@@ -79,7 +83,7 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 | --- | --- |
 | 合成界面、弹层、窄屏 | 在 `iot_front` 启动 `node tests/browser/ui-preview.mjs`，另开终端运行 `naive-pages-check.mjs`、`onboarding-modes-check.mjs`、`protocol-actions-check.mjs`（均在 `tests/browser/`）；只访问回环夹具 |
 | 告警手动研判、AI 工作流停止 | 仓库根目录运行 `node iot_front/tests/browser/alarm-http-check.mjs`、`node iot_front/tests/browser/ai-workflow-runs-check.mjs`；各自启动合成 API，覆盖手动发起研判、停止确认、停止中状态和手动刷新，无须真实模型服务 |
-| 用户管理与设备范围 | 仓库根目录运行 `node iot_front/tests/browser/access-management-check.mjs` 或 `device-scope-check.mjs`；先启动前后端并按脚本配置管理员环境，创建后清理临时账户 |
+| 用户管理与设备范围 | 仓库根目录运行 `node iot_front/tests/browser/access-management-check.mjs` 或 `device-scope-check.mjs`；先启动前后端并按脚本配置管理员环境，创建后清理临时账户；设备范围用例需至少两台设备，且一个独立设备已有告警 |
 | 接入、通信与命令 | [接入验证](INTEGRATION.md#验证入口) 中的 Go 集成用例负责隔离 API 与浏览器生命周期 |
 | 摄像头真实播放 | `node iot_front/tests/browser/camera-live-check.mjs`；需 API、前端、媒体服务与已配置的摄像头，见 [摄像头](PLATFORM.md#摄像头) |
 
@@ -180,7 +184,7 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 | 模块 | 执行内容 | 前提 |
 | --- | --- | --- |
 | `ai` | 对测试租户的活动告警发起手动研判并轮询完成；`maxRuns` 为整次运行的硬预算 | `mode: mock` 时平台 `IOT_AI_HARNESS_URL` 指向 `cmd/harness-mock`（只测平台调度，报告明确标注）；`real` 会消耗模型额度 |
-| `knowledge` | 上传生成的 Markdown 文档到指定 `workflowId` 并等待入库响应 | PostgreSQL + pgvector 与已配置的外部 Embedding API 可用 |
+| `knowledge` | 上传生成的 Markdown 文档到指定 `workflowId`，轮询至 `INDEXED`；失败、删除中或超时计失败，时延包含索引等待 | PostgreSQL + pgvector 与已配置的外部 Embedding API 可用 |
 | `video` | 建立并释放 HLS 播放会话；清单有 `web` 时拉取播放列表和首个分片近似首帧 | 测试摄像头在直播白名单内；WebRTC 未覆盖 |
 | `backup` | 每档在测量窗口内执行一次备份、逐文件下载校验 SHA-256；`restore: true` 时恢复到独立库并核对条数 | 备份服务配置 `IOT_BACKUP_RESTORE_TARGET_DSN`（与业务库不同） |
 | `realtime` | 按页面方式取 MQTT 令牌并订阅告警与设备状态推送，测送达时延 | 清单有 `mqtt`；订阅者分摊到各 Agent |

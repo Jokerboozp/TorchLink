@@ -38,14 +38,8 @@ type providerConfigTestRuntime struct {
 	updates []ports.AIPluginConfig
 }
 
-func (r *providerConfigTestRuntime) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) {
-	return model.AIAnalysis{}, nil
-}
 func (r *providerConfigTestRuntime) Chat(context.Context, string, string) (string, error) {
 	return "", nil
-}
-func (r *providerConfigTestRuntime) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
-	return model.AlarmRule{}, nil
 }
 func (r *providerConfigTestRuntime) Health(context.Context) error { return nil }
 func (r *providerConfigTestRuntime) CurrentConfig() ports.AIPluginConfig {
@@ -487,9 +481,6 @@ func protocolAssistantXLSXFixture(t *testing.T) []byte {
 
 type protocolEndpointAI struct{}
 
-func (protocolEndpointAI) AnalyzeAlarm(context.Context, model.Alarm, []map[string]any, []string) (model.AIAnalysis, error) {
-	return model.AIAnalysis{}, nil
-}
 func (protocolEndpointAI) Chat(context.Context, string, string) (string, error) { return "ok", nil }
 func (protocolEndpointAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
 	return model.AlarmRule{

@@ -138,7 +138,6 @@ write_env() {
     local grafana_password="Grafana-$(random_hex 12)"
     local ai_provider="deepseek"
     local harness_url="http://deepseek-harness:8091"
-    local harness_enabled="true"
     cat > "$destination" <<EOF
 # 自动生成的离线部署配置，请限制此文件权限。
 POSTGRES_PASSWORD=$postgres_password
@@ -159,7 +158,6 @@ IOT_AI_BASE_URL=https://api.deepseek.com
 IOT_AI_MODEL=$deepseek_model
 IOT_AI_API_KEY=
 DEEPSEEK_API_KEY=
-IOT_AI_HARNESS_ENABLED=$harness_enabled
 IOT_AI_HARNESS_URL=$harness_url
 IOT_AI_HARNESS_TOKEN=$harness_token
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
@@ -208,7 +206,6 @@ EOF
   set_env_value "$destination" IOT_PLATFORM_WEB_IMAGE iot-platform-web:offline
   set_env_value "$destination" IOT_BACKUP_IMAGE iot-platform-backup:offline
   set_env_value "$destination" IOT_DEEPSEEK_HARNESS_IMAGE iot-deepseek-harness:offline
-  set_env_value "$destination" IOT_AI_HARNESS_ENABLED true
   if (( include_video )); then
     # 摄像头直播：密钥只在缺失时生成；WebRTC 地址须在目标机上填写 IOT_VIDEO_RTC_EXTERN_IP。
     set_env_value "$destination" IOT_ZLMEDIAKIT_IMAGE iot-zlmediakit:offline

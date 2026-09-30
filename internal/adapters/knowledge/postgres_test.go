@@ -326,7 +326,7 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 	if err = replacement.IndexKnowledgeBatch(ctx, []ports.KnowledgeIndexInput{inputs[0]}); err == nil {
 		t.Fatal("failed embedding was accepted")
 	}
-	if err = replacement.DropLegacyIndex(ctx); err == nil {
+	if err = replacement.ActivateIndex(ctx); err == nil {
 		t.Fatal("incomplete replacement was activated")
 	}
 	assertOne(index, "烟雾告警复位")
@@ -363,7 +363,7 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 	if err = repo.SaveEmbeddingConfig(ctx, newerConfig, false); err != nil {
 		t.Fatal(err)
 	}
-	if err = replacement.DropLegacyIndex(ctx); err == nil {
+	if err = replacement.ActivateIndex(ctx); err == nil {
 		t.Fatal("a superseded embedding configuration was activated")
 	}
 	var activeModel string
@@ -376,7 +376,7 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 	if err = repo.SaveEmbeddingConfig(ctx, newConfig, false); err != nil {
 		t.Fatal(err)
 	}
-	if err = replacement.DropLegacyIndex(ctx); err != nil {
+	if err = replacement.ActivateIndex(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if !replacement.ActiveEmbeddingConfigPersisted() {

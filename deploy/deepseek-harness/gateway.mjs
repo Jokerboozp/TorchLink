@@ -53,15 +53,15 @@ const BODY_KEYS = new Set([
   'maxTokens',
 ])
 const PROVIDER_KEYS = new Set(['provider', 'baseUrl', 'model', 'apiKey'])
-// deepseek-official: DeepSeek cloud API; openai-compatible: private vLLM or
-// other OpenAI Chat Completions services.
+// deepseek-official: DeepSeek cloud API; openai-compatible: external
+// OpenAI Chat Completions APIs.
 const MODEL_PROVIDERS = ['deepseek-official', 'openai-compatible']
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/
 const CAPABILITY_PATTERN = /^[^\u0000-\u001f\u007f]{1,64}$/u
 const BUILTIN_PLUGIN_IDS = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter'])
 
-class HttpError extends Error { /* 定义 HttpError 类。 */
+class HttpError extends Error {
   constructor(status, code, message) {
     super(message)
     this.name = 'HttpError'
@@ -704,7 +704,7 @@ function childEnvironment(spec) {
   environment.IOT_OPS_PERSONA = spec.plugin.persona
   environment.IOT_ALLOWED_TOOLS_JSON = JSON.stringify(spec.plugin.allowedTools)
   if (spec.provider === 'openai-compatible') {
-    // Private vLLM deployments may run without a key; the client still needs a value.
+    // The SDK needs an auth placeholder for compatible APIs without an API Key.
     environment.IOT_HARNESS_OPENAI_BASE_URL = spec.baseUrl
     environment.IOT_HARNESS_OPENAI_API_KEY = spec.apiKey || 'EMPTY'
   } else {
@@ -870,7 +870,6 @@ export function createGateway(options = {}) {
   const activeRuns = new Set()
   const managedRuns = new Map()
   const reservedRunIds = new Set()
-  const activeConversations = new Set()
   const conversationLocks = new Map()
   const conversations = new Map()
   const runtimeRoutes = new Map()
@@ -1223,7 +1222,6 @@ export function createGateway(options = {}) {
 
     activeRuns.add(run.runId)
     if (!controller.signal.aborted) control.status = 'starting'
-    activeConversations.add(cacheKey)
     response.writeHead(200, {
       'cache-control': 'no-store',
       'content-type': 'application/x-ndjson; charset=utf-8',
@@ -1318,7 +1316,6 @@ export function createGateway(options = {}) {
       if (!stopFailed) {
         activeRuns.delete(run.runId)
         clearPending()
-        activeConversations.delete(cacheKey)
         releaseConversation()
       }
       response.removeListener('close', onClientGone)

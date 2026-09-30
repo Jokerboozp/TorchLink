@@ -59,33 +59,9 @@
 - 本地、在线、离线是三套独立配置：本地为 `compose.local.yaml` / `.env.local`；在线为 `compose.yaml` / `.env.online`；离线为生成包中的 Compose 配置 / `.env.offline`。
 - 首次准备、构建和部署可能启动容器或下载依赖，只在任务需要时运行；单纯修改代码或文档不必重启整套服务。
 
-Windows 首次本地准备，在仓库根目录运行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1
-```
-
-Linux / macOS 对应入口：
-
-```bash
-bash ./scripts/setup-local.sh
-```
-
-准备好配置和依赖后，终端一在仓库根目录启动 API：
-
-```powershell
-go run ./cmd/iot-platform --env-file .env.local
-```
-
-终端二启动前端，以下两行依次执行：
-
-```powershell
-cd iot_front
-npm run dev
-```
+- 首次环境准备使用 `scripts/setup-local.sh` / `.ps1`；源码 API 为 `go run ./cmd/iot-platform --env-file .env.local`，前端在 `iot_front` 执行 `npm run dev`，备份服务为 `go run ./cmd/backup-service --env-file .env.local`。虚拟机依赖、参数和 IDE 设置统一见 `docs/DEPLOYMENT.md#本地运行`。
 
 - Windows 遇到 npm 执行策略问题时使用 `npm.cmd`。前端日常入口为 `http://localhost:5173`；Vite 默认代理 API 到 `http://localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖，具体见 `iot_front/vite.config.js`。
-- GoLand 后端工作目录设为仓库根目录，运行 `cmd/iot-platform`，程序参数设为 `--env-file .env.local`；WebStorm 前端工作目录设为 `iot_front`，运行 npm 的 `dev` 脚本。
 - 进程环境变量优先于环境文件；排查配置时注意 IDE 遗留变量。不给用户复制硬编码凭据到 IDE 的配置方案。
 - 宿主机连接依赖须使用宿主机可达地址及已发布端口；Compose 服务名供容器内部使用。Linux 虚拟机依赖 / Windows 源码模式通过准备脚本的 `--dependency-host` 和 `--api-host` 指定地址，不固定某台机器的 IP。
 - 项目介绍和文档索引查 README；启动、停止、升级及远程依赖查 `docs/DEPLOYMENT.md`，开发与测试查 `docs/DEVELOPMENT.md`。在线部署入口为 `scripts/deploy-online.*`，离线打包与部署入口为 `scripts/package-offline.*`、`scripts/deploy-offline.*`。
@@ -120,10 +96,10 @@ npm run dev
 ## 7. AI、知识检索与 MCP
 
 - Harness 为必装组件，所有使用模型的业务功能（告警手动研判、巡检建议、运维报告、协议助手、规则草稿）都作为 Harness 工作流运行，不再直接调用 Provider；Provider 只负责模型管理页的连接测试、健康检查与配置同步。告警仅在用户点击“开始研判”或“重新研判”后执行，收到告警和打开详情均不启动研判。排查时分别核对 Harness 工作流、Provider 连接和进程加载的配置。
-- 对话与推理默认使用 DeepSeek 云端 API，知识向量使用独立的外部 HTTPS Embedding API（默认百炼 `text-embedding-v4`、1024 维），两种密钥均由用户配置，保存不强制连接测试。知识文档、分片、向量、绑定和索引版本存于 PostgreSQL + pgvector，原件保留 MinIO。保留 Harness 和自定义 Agent，不重新部署 Weaviate、TEI、vLLM、Ollama、GPU 或模型权重；离线包仅用于安装，AI 与向量仍需联网。
+- 对话与推理默认使用 DeepSeek 云端 API，知识向量使用独立的外部 HTTPS Embedding API（默认值见 `docs/DEPLOYMENT.md`），两种密钥均由用户配置，保存不强制连接测试。知识文档、分片、向量、绑定和索引版本存于 PostgreSQL + pgvector，原件保留 MinIO。保留 Harness 和自定义 Agent，不部署本地模型、GPU 或独立向量数据库；离线包仅用于安装，AI 与向量仍需联网。
 - AI 模型切换复用现有模型管理与 Provider 配置，避免新增重复前端入口。默认模型、兼容接口地址和开关查当前部署配置，不把本机配置写成所有环境的固定前提。
 - AI 规则草稿默认禁用，经用户确认后启用；报文与点表生成的协议须经真实样本解析校验后发布，专用 Go 协议仍须通过完整源码编译、样例校验及发布流程。
-- 知识文档上传与检索保留租户及 Agent / `workflowId` 归属；产品、分类、标签筛选落实到 SQL，不静默回退全库。启用知识时首次模型调用前附带授权证据，普通用户权限或设备范围变更使待发送输入失效。上传、失败重试和删除为持久后台任务；模型空间变更全部重建成功后原子激活，失败保留旧索引。
+- 知识文档上传与检索保留租户及 Agent / `workflowId` 归属；产品、分类、标签筛选落实到 SQL，不静默回退全库。启用知识时首次模型调用前附带授权证据，普通用户权限或设备范围变更使待发送输入失效。上传、失败重试和删除为持久后台任务；模型空间变更时已有可检索文档全部重建成功后原子激活，失败保留旧索引；新待索引及从未成功入库的文档由队列处理。
 - 业务专用 Agent 与聊天 Agent 保持用途区分；内置 Manifest 只读，动态 Agent 按现有管理接口操作，知识配置集中在知识库页。
 - 平台 Harness 使用受控 MCP 只读工具与精确权限校验，禁用 shell、文件系统、jobs、goal、skills、subagent 和设备控制等越界工具。此条限制的是产品内 Harness，不是开发助手的全局工具权限。
 - 内部服务令牌、短期 MCP JWT 和浏览器登录凭据用途分开；租户、用户和会话边界由后端校验，不把服务端秘密或完整敏感工具结果传给浏览器。
@@ -143,7 +119,7 @@ npm run dev
 1. 开始编辑前检查 `git status --short`，识别用户或其他任务已有修改；不覆盖、不回滚无关工作。
 2. 按问题查找相关源码、调用方和既有测试，优先使用 `rg`；先定位共同原因，再完成影响范围内的修改。
 3. Go 改动使用 `gofmt`，沿用现有风格；接口或配置行为变化同步更新仓库说明。避免无关格式化、大规模搬移文件和生成物污染。
-4. 先运行有针对性的检查；缺陷回归覆盖真实失败场景和关键边界，同一功能优先并入既有测试文件，不按修复批次拆散。不为简单文档或低影响外观修改编写复述实现、固定文案或样式写法的测试。
+4. 先运行有针对性的检查；缺陷回归覆盖真实失败场景和关键边界，同一功能优先并入既有测试文件，不按修复批次拆散；清理仅删除无调用代码、重复测试及失效说明，保留权限、持久化和失败恢复等必要回归。不为简单文档或低影响外观修改编写复述实现、固定文案或样式写法的测试。
 5. 按影响范围运行完整测试或构建。已通过后，无新增改动、失败或疑点时不反复执行同一组检查。
 6. 交付前复核 diff 和状态，说明本次改动及实际验证；已有失败与本次引入失败分开记录。
 

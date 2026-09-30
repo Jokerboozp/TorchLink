@@ -48,7 +48,6 @@ IOT_AI_MODEL=deepseek-flash
 IOT_AI_API_KEY=
 DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
-IOT_AI_HARNESS_ENABLED=true
 IOT_AI_HARNESS_URL=http://deepseek-harness:8091
 IOT_AI_HARNESS_MCP_URL=http://platform-api:8080/mcp/harness
 IOT_AI_HARNESS_PROVIDER=deepseek-official
@@ -133,38 +132,14 @@ wait_deployment_http() {
   return 1
 }
 
-delete_deployment_env_value() {
-  local env_path="$1" key="$2" updated
-  updated="$(awk -v key="$key" '
-    { clean=$0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", clean) }
-    clean ~ "^" key "[[:space:]]*=" { next }
-    { print }
-  ' "$env_path")" || return 1
-  printf '%s\n' "$updated" > "$env_path"
-}
-
-# Knowledge vectors are stored in PostgreSQL; cloud API settings are retained.
+# Populate cloud defaults without rewriting operator-supplied settings.
 configure_embedding_env() {
-  local env_path="$1" url model key
-  url="$(get_deployment_env_value "$env_path" IOT_EMBEDDING_URL)"
-  model="$(get_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL)"
-  key="$(get_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY)"
-  case "$url" in
-    ''|http://embedding:*|http://*:18091*)
-      set_deployment_env_value "$env_path" IOT_EMBEDDING_URL https://dashscope.aliyuncs.com/compatible-mode/v1
-      set_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL text-embedding-v4
-      set_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY '' ;;
-  esac
-  [ -n "$model" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL text-embedding-v4
+  local env_path="$1"
+  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_URL)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_URL https://dashscope.aliyuncs.com/compatible-mode/v1
+  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY ''
+  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL text-embedding-v4
   [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_DIMENSIONS)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_DIMENSIONS 1024
   [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_BATCH_SIZE)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_BATCH_SIZE 10
-  case "$key" in *change-me*|*change-this*) set_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY '';; esac
-  for key in IOT_WEAVIATE_URL IOT_EMBEDDING_IMAGE IOT_EMBEDDING_MODEL_SOURCE IOT_PRIVATE_LLM IOT_LLM_IMAGE IOT_LLM_MODEL IOT_LLM_MODEL_SOURCE IOT_LLM_API_KEY HF_ENDPOINT HF_HUB_OFFLINE IOT_OLLAMA_URL IOT_OLLAMA_MODEL IOT_AI_OLLAMA_URL IOT_AI_HARNESS_OLLAMA_BASE_URL; do
-    delete_deployment_env_value "$env_path" "$key"
-  done
-  local profiles
-  profiles="$(get_deployment_env_value "$env_path" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx llm | grep -v '^$' | paste -sd, - || true)"
-  set_deployment_env_value "$env_path" COMPOSE_PROFILES "$profiles"
 }
 
 # Deployment inference defaults to the DeepSeek cloud API; another

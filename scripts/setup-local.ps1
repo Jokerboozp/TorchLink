@@ -77,7 +77,6 @@ $defaults = [ordered]@{
     IOT_BACKUP_RESTORE_MINIO_ENDPOINT = '127.0.0.1:19001'
     IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_USER')
     IOT_BACKUP_RESTORE_MINIO_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_PASSWORD')
-    IOT_AI_HARNESS_ENABLED = 'true'
     IOT_AI_HARNESS_URL = 'http://127.0.0.1:8091'
     IOT_AI_HARNESS_MCP_URL = 'http://host.docker.internal:8081/mcp/harness'
     IOT_AI_HARNESS_PROVIDER = 'deepseek-official'
@@ -99,8 +98,6 @@ Set-LocalEnvValue 'IOT_OPS_CAPACITY_LOCAL' 'true' -Replace
 Set-LocalEnvValue 'IOT_CAPACITY_MODULE' $Capacity -Replace
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
-if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
-Set-LocalEnvValue 'IOT_AI_HARNESS_ENABLED' 'true' -Replace
 Ensure-HarnessSource -ProjectRoot $projectRoot
 if ([string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_URL'))) { Set-LocalEnvValue 'IOT_AI_HARNESS_URL' 'http://127.0.0.1:8091' -Replace }
 Set-LocalEnvValue 'IOT_AI_HARNESS_MCP_URL' 'http://host.docker.internal:8081/mcp/harness' -Replace

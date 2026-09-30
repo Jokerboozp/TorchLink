@@ -42,13 +42,10 @@ IOT_AI_MODEL	AI 模型名称，默认 deepseek-flash
 IOT_AI_API_KEY	兼容外部 Provider 的密钥；标准部署留空，仅填写 DEEPSEEK_API_KEY
 DEEPSEEK_API_KEY	填写用户自己的 DeepSeek API Key；也可启动后在模型管理中填写并保存（连接测试可选）
 DEEPSEEK_BASE_URL	DeepSeek Harness 调用的模型 API 地址
-IOT_AI_HARNESS_ENABLED	DeepSeek Harness 为必装组件，部署脚本始终启动并保持为 true
 IOT_AI_HARNESS_URL	Go API 访问 DeepSeek Harness 的地址
 IOT_AI_HARNESS_MCP_URL	DeepSeek Harness 回调平台 MCP 接口的地址
-IOT_AI_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
 IOT_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
 IOT_AI_HARNESS_PROVIDER	AI 工作流提供方，标准部署为 deepseek-official
-IOT_AI_HARNESS_CONTEXT_WINDOW	仅 OpenAI 兼容 / 私有化模型使用的上下文窗口；DeepSeek 不读取此项
 IOT_AI_HARNESS_MODEL	AI 工作流的默认模型；“模型管理”中保存的模型优先
 IOT_AI_HARNESS_TIMEOUT	AI 工作流请求超时时间
 IOT_EMBEDDING_URL	外部 Embedding API 地址，使用供应商兼容 /v1 接口
@@ -82,7 +79,6 @@ IOT_PROTOCOL_LISTENER_MAX_SESSIONS	每个 TCP / UDP 接入监听同时在线的�
 IOT_MQTT_DEVICE_TOKEN_TTL	标准 MQTT / HTTP 设备令牌有效期；仅在配置 EMQX 管理 API（可即时封禁）时生效，否则固定 5 分钟
 IOT_INGEST_MAX_BACKLOG	解析与存储积压超过该条数时暂停接收新原始报文（HTTP 返回 429，MQTT 留在磁盘队列，TCP 不应答），降到 80% 以下恢复；0 关闭
 POSTGRES_MAX_CONNECTIONS	PostgreSQL 服务端最大连接数（Compose 部署的 postgres 容器）
-IOT_AI_ANALYSIS_CONCURRENCY	已停用：原告警自动研判并发数，平台不再读取，可从环境文件删除
 IOT_OPS_CAPACITY_URL	容量测试服务地址，由 capacity-module 自动设置（模块内为 http://capacity:7080）；为空表示模块未部署，页面隐藏
 IOT_OPS_CAPACITY_TOKEN	平台访问容量测试服务的令牌，启用模块时自动生成
 IOT_OPS_CAPACITY_LOCAL	本地源码调试随 combined API 启停容量控制器；仅监听本机，复用当前依赖配置，不自动开始测试
@@ -105,7 +101,6 @@ IOT_LOCAL_OPS_DIR	本地运维组件共享配置目录，默认 ./data/ops；Com
 IOT_LOG_LOKI_URL	源码运行时 API 直接推送自身日志的 Loki 地址；容器部署留空由采集器收集
 IOT_LOCAL_API_HOST	本地依赖容器访问源码机 API 的主机名，供 Prometheus 采集平台指标
 PROMETHEUS_BIND_ADDRESS	Prometheus 端口绑定地址，默认仅本机 127.0.0.1
-LOKI_RETENTION	Loki 默认日志保留时长，例如 744h
 COMPOSE_PROFILES	启用的可选 Compose 组件，多个值用逗号分隔；包含 video 时部署摄像头直播媒体服务
 IOT_VIDEO_MODULE	摄像头直播媒体服务部署开关：on 默认部署，off 表示显式关闭且后续部署保持关闭
 IOT_VIDEO_RTP_PORT_MIN	GB28181 RTP 接收端口范围起点（UDP/TCP），需对摄像头网络开放
@@ -138,9 +133,6 @@ IOT_VIDEO_MEDIA_CPUS	媒体服务容器 CPU 上限
 IOT_VIDEO_MEDIA_MEMORY	媒体服务容器内存上限
 IOT_VIDEO_HLS_TMPFS_SIZE	HLS 临时分片内存盘大小
 IOT_ZLMEDIAKIT_IMAGE	媒体服务镜像名称
-IOT_AI_ANALYSIS_RPM	已停用：原告警自动研判每分钟请求预算，平台不再读取，可从环境文件删除
-IOT_AI_ANALYSIS_TIMEOUT	已停用：原告警自动研判超时，平台不再读取，可从环境文件删除；手动研判期限固定为 3 分钟
-IOT_AI_ANALYSIS_MAX_WAIT	已停用：原告警自动研判最大等待时间，平台不再读取，可从环境文件删除
 IOT_EMQX_API_URL	EMQX 管理 API 根地址（不含 /api/v5），用于队列丢弃观测及设备凭据撤销
 IOT_EMQX_API_KEY	平台专用 EMQX 管理 API Key，首次部署自动生成，后续保留
 IOT_EMQX_API_SECRET	平台专用 EMQX 管理 API Secret，仅后端读取，不发送给浏览器

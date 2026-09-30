@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"iot-platform/internal/aioutput"
-	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
 
@@ -24,14 +22,12 @@ type OpenAICompatible struct {
 }
 
 type openAIChatRequest struct {
-	Model          string              `json:"model"`
-	Messages       []map[string]string `json:"messages"`
-	Stream         bool                `json:"stream"`
-	ResponseFormat map[string]string   `json:"response_format,omitempty"`
+	Model    string              `json:"model"`
+	Messages []map[string]string `json:"messages"`
+	Stream   bool                `json:"stream"`
 }
 
 type openAIChatResponse struct {
-	ID      string `json:"id"`
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -63,11 +59,8 @@ func NewOpenAICompatible(providerID, providerName, baseURL, model, apiKey string
 	return &OpenAICompatible{providerID: providerID, providerName: providerName, baseURL: baseURL, model: model, apiKey: strings.TrimSpace(apiKey), http: client}, nil
 }
 
-func (o *OpenAICompatible) call(ctx context.Context, system, user string, jsonOutput bool) (string, error) {
+func (o *OpenAICompatible) call(ctx context.Context, system, user string) (string, error) {
 	payload := openAIChatRequest{Model: o.model, Stream: false, Messages: []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}}}
-	if jsonOutput {
-		payload.ResponseFormat = map[string]string{"type": "json_object"}
-	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -108,38 +101,8 @@ func (o *OpenAICompatible) call(ctx context.Context, system, user string, jsonOu
 	return out.Choices[0].Message.Content, nil
 }
 
-func (o *OpenAICompatible) AnalyzeAlarm(ctx context.Context, alarm model.Alarm, history []map[string]any, knowledge []string) (model.AIAnalysis, error) {
-	input, _ := json.Marshal(map[string]any{"alarm": alarm, "recentHistory": history, "knowledge": knowledge})
-	content, err := o.call(ctx, "你是消防物联网运维专家。只能提供分析和人工处置建议，禁止自动控制设备。输出 JSON：summary、possibleReasons、suggestions、riskLevel、confidence。", string(input), true)
-	if err != nil {
-		return model.AIAnalysis{}, err
-	}
-	return aioutput.DecodeAlarmAnalysis(content, alarm.ID, o.model)
-}
-
 func (o *OpenAICompatible) Chat(ctx context.Context, tenant, question string) (string, error) {
-	return o.call(ctx, "你是消防物联网运维助手。仅依据受控平台数据回答，缺少数据时明确说明，不能直接控制设备。租户："+tenant, question, false)
-}
-
-func (o *OpenAICompatible) GenerateJSON(ctx context.Context, tenant, system, user string) (string, error) {
-	if strings.TrimSpace(system) == "" {
-		system = "你是消防物联网平台的结构化数据助手，只返回合法 JSON。"
-	}
-	return o.call(ctx, system+"\n租户："+tenant, user, true)
-}
-
-func (o *OpenAICompatible) RuleDraft(ctx context.Context, tenant, text string) (model.AlarmRule, error) {
-	content, err := o.call(ctx, aioutput.RuleDraftInstructions, text, true)
-	if err != nil {
-		return model.AlarmRule{}, err
-	}
-	rule, err := aioutput.DecodeRuleDraft(content)
-	if err != nil {
-		return rule, err
-	}
-	rule.TenantID, rule.Enabled, rule.Version = tenant, false, 1
-	rule.CreatedAt, rule.UpdatedAt = time.Now().UnixMilli(), time.Now().UnixMilli()
-	return rule, nil
+	return o.call(ctx, "你是消防物联网运维助手。仅依据受控平台数据回答，缺少数据时明确说明，不能直接控制设备。租户："+tenant, question)
 }
 
 func (o *OpenAICompatible) Health(ctx context.Context) error {

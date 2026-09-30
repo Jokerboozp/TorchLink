@@ -99,13 +99,6 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 		t.Fatal("start stages missing")
 	}
 	// Knowledge uses the replicated database and cloud embeddings on every role.
-	for name, body := range files {
-		for _, retired := range []string{"ollama", "weaviate", "text-embeddings-inference", "embedding-models", "vllm"} {
-			if strings.Contains(strings.ToLower(string(body)), retired) {
-				t.Fatalf("%s still references %s", name, retired)
-			}
-		}
-	}
 	if !strings.Contains(n1, "iot-platform-postgres-ha:17-pgvector-0.8.1") || !strings.Contains(n1, "IOT_EMBEDDING_URL: https://dashscope.aliyuncs.com/compatible-mode/v1") || !strings.Contains(n1, "IOT_EMBEDDING_DIMENSIONS: \"1024\"") || !strings.Contains(string(files["n1/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) {
 		t.Fatal("platform must use pgvector and the cloud API with its configured key")
 	}
@@ -146,7 +139,7 @@ func TestValidationRejectsUnsafeLayouts(t *testing.T) {
 		"unknown node":                                func(i *Inventory) { i.MinIO.Node = "n9" },
 		"secrets come from the secrets file":          func(i *Inventory) { i.Env["IOT_JWT_SECRET"] = "x" },
 		"needs at least one node":                     func(i *Inventory) { delete(i.Platform.Roles, "processor") },
-		"docker rm -f iot-cluster-iot-ai-1 on n3, n4": func(i *Inventory) { i.Platform.Roles["ai"] = RoleSpec{Nodes: []string{"n3", "n4"}, PoolMax: 4} },
+		"unknown platform role":                       func(i *Inventory) { i.Platform.Roles["unknown"] = RoleSpec{Nodes: []string{"n3", "n4"}, PoolMax: 4} },
 	}
 	for want, mutate := range cases {
 		inv := example(t)

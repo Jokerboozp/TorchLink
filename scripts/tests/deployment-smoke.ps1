@@ -75,7 +75,6 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'Local default AI provider is not DeepSeek'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'Local default DeepSeek URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-flash') 'Local default DeepSeek model is missing'
-    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'Local Harness is not enabled by default'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://127.0.0.1:8091') 'Local Harness URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_BACKUP_URL') -eq 'http://127.0.0.1:8092') 'Local backup URL is not pointed at the source host'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_BACKUP_HARNESS_SNAPSHOT_URLS') -eq 'http://127.0.0.1:8091/v1/backup/snapshot') 'Source backup cannot reach Harness snapshot'
@@ -87,14 +86,13 @@ try {
     Assert (Contains-Call 'go mod download') 'Local setup omitted Go dependencies'
     Assert (Contains-Call 'npm ci') 'Local setup omitted npm dependencies'
     Assert (Contains-Call 'compose.local.yaml up -d --build --wait --wait-timeout 900') 'Local setup does not wait for dependency readiness'
-    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Local embedding service URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Local embedding API URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_API_KEY') -eq '') 'Cloud API key must be operator-supplied'
-    Assert (-not (Contains-Call 'ollama')) 'Local setup still uses Ollama'
     $localModel = & $global:IotTest_composeParser --project-name iot-platform-local --env-file $localEnv -f (Join-Path $scripts '../compose.local.yaml') config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Local Compose model failed'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-web') 'Local setup starts Web container'
-    Assert ($localModel.services.postgres.image -eq 'iot-platform-postgres:17-pgvector-0.8.1') 'Local PostgreSQL image is not pinned to the CentOS 7 compatible Alpine release'
+    Assert ($localModel.services.postgres.image -eq 'iot-platform-postgres:17-pgvector-0.8.1') 'Local PostgreSQL image lacks the pinned pgvector extension'
     Assert ($localModel.services.minio.image -eq 'iot-platform-minio:local') 'Local MinIO still requires the unavailable public registry image'
     Assert ($localModel.services.minio.build.context -match 'deploy[/\\]minio$') 'Local MinIO does not reuse the pinned binary build'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'backup-service') 'Local default Compose includes backup-service'
@@ -140,18 +138,6 @@ try {
     Assert (Contains-Call 'stop zlmediakit') 'Setup did not stop media service'
     Write-Host 'PASS local setup video switch: enable, disable and stable credential key'
 
-    $noHarnessEnv = Join-Path $testRoot '.env.no-harness'
-    Copy-Item -LiteralPath $localEnv -Destination $noHarnessEnv
-    Set-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_ENABLED' -Value 'false'
-    $global:IotTest_calls.Clear()
-    & (Join-Path $scripts 'setup-local.ps1') -EnvFile $noHarnessEnv -SkipCodeDeps
-    Assert ((Get-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'A disabled Harness flag was not switched back on'
-    Assert ((Get-DeploymentEnvValue -Path $noHarnessEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://127.0.0.1:8091') 'Mandatory Harness lost its URL'
-    $rejected = $false
-    try { & (Join-Path $scripts 'setup-local.ps1') -EnvFile $noHarnessEnv -SkipCodeDeps -NoHarness } catch { $rejected = $true }
-    Assert $rejected 'setup-local accepted -NoHarness'
-    Write-Host 'PASS local configuration: Harness is mandatory and a disabled flag is switched back on'
-
     $deepSeekEnv = Join-Path $testRoot '.env.deepseek'
     Copy-Item -LiteralPath $localEnv -Destination $deepSeekEnv
     Add-Content -LiteralPath $deepSeekEnv -Value "IOT_AI_API_KEY='smoke-test-key'"
@@ -160,7 +146,6 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'DeepSeek base URL was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-flash') 'DeepSeek model was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'DEEPSEEK_API_KEY') -eq 'smoke-test-key') 'DeepSeek key was not copied for Harness'
-    Assert (-not (Contains-Call 'ollama|vllm')) 'DeepSeek setup attempted a local chat model download'
     Write-Host 'PASS local deepseek: provider enabled without local chat model download'
 
     $onlineEnv = Join-Path $testRoot '.env.online'
@@ -168,21 +153,19 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'Online default AI provider is not DeepSeek'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'Online DeepSeek URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-flash') 'Online DeepSeek model is missing'
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_ENABLED') -eq 'true') 'Online Harness is not enabled by default'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_URL') -eq 'http://deepseek-harness:8091') 'Online Harness URL is missing'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'deepseek-official') 'Online Harness does not use DeepSeek'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_MODEL') -eq 'deepseek-flash') 'Online Harness does not share the DeepSeek model'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Online default admin password is incorrect'
     Assert-CommentedEnv $onlineEnv
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service postgres deepseek-harness') 'Online omitted the default Harness image build'
-    Assert (-not (Contains-Call 'ollama')) 'Online deployment still uses Ollama'
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Online embedding service URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Online embedding API URL is missing'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
     Assert ((Get-FileHash $onlineEnv).Hash -eq $onlineHash) 'Online rerun changed configuration'
     $onlineModel = & $global:IotTest_composeParser --env-file $onlineEnv -f (Join-Path $scripts '../compose.yaml') config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Online Compose model failed'
-    Assert ($onlineModel.services.postgres.image -eq 'iot-platform-postgres:17-pgvector-0.8.1') 'Online PostgreSQL image is not pinned to the compatible Alpine release'
+    Assert ($onlineModel.services.postgres.image -eq 'iot-platform-postgres:17-pgvector-0.8.1') 'Online PostgreSQL image lacks the pinned pgvector extension'
     Assert ($onlineModel.services.postgres.PSObject.Properties.Name -notcontains 'ports') 'Online loaded the local override'
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service') 'Online omitted application image build'
     Assert ($global:IotTest_httpCalls -contains 'http://127.0.0.1:8081/health/ready') 'API readiness was not checked'
@@ -233,7 +216,6 @@ try {
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
-    Assert (@($manifest.images | Where-Object { $_ -match 'ollama' }).Count -eq 0) 'Default bundle still packages Ollama'
     Assert ($manifest.images -contains 'iot-platform-backup:offline') 'Default bundle omitted backup image'
     Assert ($manifest.images -contains 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z') 'Default bundle omitted the locally built MinIO image'
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio postgres') 'Offline packaging omitted the MinIO build'
@@ -275,7 +257,6 @@ try {
     Set-DeploymentEnvValue -Path $onlineEnv -Key IOT_VIDEO_MODULE -Value 'off'
     $global:IotTest_calls.Clear()
     & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'existing-config') -EnvFile $onlineEnv
-    Assert (-not (Contains-Call 'ollama')) 'Packaging still uses Ollama'
     $disabledBundle = @(Get-ChildItem (Join-Path $testRoot 'existing-config') -Directory)[0].FullName
     $disabledEnv = Get-Content (Join-Path $disabledBundle '.env.offline')
     Assert ($disabledEnv -contains 'IOT_VIDEO_MODULE=off') 'Packaging lost the source video opt-out'

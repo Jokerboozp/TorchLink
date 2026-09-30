@@ -318,25 +318,15 @@ func Run(forcedRole string) {
 			providerID = "deepseek"
 		}
 		providerConfig := ports.AIPluginConfig{Provider: providerID, BaseURL: cfg.AIBaseURL, Model: cfg.AIModel, APIKey: cfg.AIAPIKey}
-		if providerID == "ollama" {
-			// Environment files written before Ollama was removed.
-			log.Warn("IOT_AI_PROVIDER=ollama is no longer supported; using deepseek")
-			providerConfig = ports.AIPluginConfig{Provider: "deepseek", APIKey: os.Getenv("DEEPSEEK_API_KEY")}
-		}
 		if aiProviderStore != nil {
 			if persisted, found, err := aiProviderStore.LoadAIProviderConfig(ctx); err != nil {
 				log.Warn("load persisted AI provider config", "error", err)
-			} else if found && strings.EqualFold(strings.TrimSpace(persisted.Provider), "ollama") {
-				// The Ollama provider was removed; fall back to the configured
-				// provider (DeepSeek by default) until an administrator saves a new one.
-				log.Warn("ignoring persisted Ollama AI provider; Ollama is no longer supported", "fallbackProvider", providerConfig.Provider)
 			} else if found {
 				providerConfig = persisted
 				log.Info("restored persisted AI provider", "provider", providerConfig.Provider, "model", providerConfig.Model)
 			}
 		}
-		// Older installations may have an activity row without the newer baseUrl
-		// field. Fill only missing defaults so a persisted selection remains usable.
+		// Fill missing official provider settings from the deployment defaults.
 		if providerConfig.Provider == "deepseek" {
 			if providerConfig.BaseURL == "" {
 				providerConfig.BaseURL = cfg.AIBaseURL
@@ -359,9 +349,7 @@ func Run(forcedRole string) {
 		var providerErr error
 		runtimeAI, providerErr = aiadapter.NewRuntimeProvider(aiPlugins, providerConfig)
 		fatal(log, "initialize AI provider plugin", providerErr)
-		einoAI, einoErr := aiadapter.NewEino(ctx, runtimeAI)
-		fatal(log, "initialize Eino AI workflows", einoErr)
-		engine.AI = einoAI
+		engine.AI = runtimeAI
 		if cfg.AIHarnessURL != "" {
 			harnessModel := cfg.AIHarnessModel
 			if providerConfig.Model != "" {

@@ -22,11 +22,11 @@
 | 智能巡检 | 在线情况、上报时效和活动告警检查，后台进度、分页报告、AI 建议及 PDF 下载。[巡检报告](docs/PLATFORM.md#智能巡检与报告) |
 | 智能助手 | 流式对话、运维报告、自定义聊天 Agent、会话记录和运行轨迹；通过 Harness 与受控 MCP 查询授权数据。[AI 功能](docs/PLATFORM.md#ai-与知识库) |
 | 模型与 AI 工作流管理 | 统一模型配置、可选连接测试；查看当前租户运行/排队任务，手动刷新、逐条强制停止和停止审计，支持多 Harness 实例。[工作流管理](docs/PLATFORM.md#运行中的-ai-工作流) |
-| 知识库 | 文档上传、切片、嵌入索引与检索策略，按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
+| 知识库 | PostgreSQL + pgvector 持久检索、云端 Embedding、异步索引与重试、原子重建；按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
 | 摄像头映射与直播 | 摄像头资料、位置、设备关联、视频告警；ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放和可选转码。[摄像头](docs/PLATFORM.md#摄像头) |
 | 运维中心 | 原生管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警、静默与通知；自动补齐内置仪表盘。[运维功能](docs/PLATFORM.md#运维中心) |
 | 容量测试 | 页面预设、CLI 与多 Agent 发压，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[容量验证](docs/DEVELOPMENT.md#容量验证) |
-| 备份中心 | 手动/每日设备数据备份、制品下载、SHA-256 校验及独立库恢复验证；不替代整库和配置备份。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
+| 备份中心 | 每日设备数据备份，FULL 另含知识库与 Harness Agent/会话；制品下载、SHA-256 校验及隔离恢复验证。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
 | 用户与权限 | 租户、用户、角色、菜单/操作权限、角色继承与用户设备范围；服务端、实时通知和 AI 工具统一执行授权。[权限边界](docs/PLATFORM.md#权限与设备范围) |
 | 对外开放接口 | 绑定平台用户的 API Key，按能力及设备范围查询/上报消息与告警、处置告警及智能问答。[开放 API](docs/INTEGRATION.md#开放接口) |
 
@@ -65,7 +65,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
 
-本地容量测试默认随源码 API 启停，在“运维中心 → 容量测试”打开；旧 `.env.local` 需按 [本地容量配置](docs/DEVELOPMENT.md#容量测试模块) 补充开关后重启，不必重新部署基础依赖。
+本地容量测试默认随源码 API 启停，在“运维中心 → 容量测试”打开；配置见 [本地容量模块](docs/DEVELOPMENT.md#容量测试模块)。
 
 登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。在同一页面独立配置知识库 Embedding API。离线包不携带模型权重，AI 与向量计算需要访问外部 API，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
 
@@ -107,7 +107,7 @@ PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥�
 ## 开发检查
 
 ```bash
-# 仓库根目录：正式后端包，避免扫描 data/ 中的本地临时 Go 程序
+# 仓库根目录
 go test ./cmd/... ./internal/...
 
 # 独立协议 module（根 module 的测试不会覆盖它们）
@@ -117,7 +117,7 @@ go test ./...
 
 前端在 `iot_front` 中运行 `npm test` 和 `npm run build`；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [开发与测试](docs/DEVELOPMENT.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
 
-仓库维护可复用指南与行为回归；历史压测报告等一次性过程记录从 Git 历史查找。协作约定见 [AGENTS.md](AGENTS.md)。
+协作约定见 [AGENTS.md](AGENTS.md)，专项回归和真实依赖测试条件见 [开发与测试](docs/DEVELOPMENT.md#源码与开发检查)。
 
 ## 文档入口
 
