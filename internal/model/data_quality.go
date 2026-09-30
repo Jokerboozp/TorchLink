@@ -92,6 +92,7 @@ type QualityAttachment struct {
 	Name        string `json:"name"`
 	ContentType string `json:"contentType"`
 	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256,omitempty"`
 	ObjectKey   string `json:"-"`
 }
 type QualityAttachmentRecord struct {

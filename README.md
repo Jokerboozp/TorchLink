@@ -21,13 +21,14 @@
 | 告警中心与规则 | 设备主动告警、规则告警、部件状态、确认/恢复/关闭、实时提醒、邮件通知；点击“开始研判”或“重新研判”发起 AI 任务。支持触发与恢复条件、联动动作和人工审核的 AI 规则草稿。[业务流程](docs/PLATFORM.md#设备与告警) · [手动研判](docs/PLATFORM.md#告警手动研判) |
 | 智能巡检 | 在线情况、上报时效和活动告警检查，后台进度、分页报告、AI 建议及 PDF 下载。[巡检报告](docs/PLATFORM.md#智能巡检与报告) |
 | 值班管理 | 岗位、班组、排班导入、实际到岗、不可变交接版本、AI 整理、跨班事项、提醒、附件与 PDF/CSV 导出。[值班流程](docs/DUTY.md) |
+| 五项业务分析 | 数据质量、监测连续性、告警策略实验、演练与处置复盘、维护与投入；固定事实、人工核实、独立验收、透明排序与显式 Harness 解读。[功能与验证](docs/AI_APPLICATION_IMPLEMENTATION.md) |
 | 智能助手 | 流式对话、运维报告、自定义聊天 Agent、会话记录和运行轨迹；通过 Harness 与受控 MCP 查询授权数据。[AI 功能](docs/PLATFORM.md#ai-与知识库) |
 | 模型与 AI 工作流管理 | 统一模型配置、可选连接测试；查看当前租户运行/排队任务，手动刷新、逐条强制停止和停止审计，支持多 Harness 实例。[工作流管理](docs/PLATFORM.md#运行中的-ai-工作流) |
 | 知识库 | PostgreSQL + pgvector 持久检索、云端 Embedding、异步索引与重试、原子重建；按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
 | 摄像头映射与直播 | 摄像头资料、位置、设备关联、视频告警；ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放和可选转码。[摄像头](docs/PLATFORM.md#摄像头) |
 | 运维中心 | 原生管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警、静默与通知；自动补齐内置仪表盘。[运维功能](docs/PLATFORM.md#运维中心) |
 | 容量测试 | 页面预设、CLI 与多 Agent 发压，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[容量验证](docs/DEVELOPMENT.md#容量验证) |
-| 备份中心 | 每日设备数据备份，FULL 另含知识库、Harness Agent/会话、值班数据与附件；制品下载、SHA-256 校验及隔离恢复验证。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
+| 备份中心 | 每日设备数据备份，FULL 另含知识库、Harness Agent/会话、值班资料、固定分析及业务版本、权限关联和应用附件；制品下载、SHA-256 校验及隔离恢复验证。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
 | 用户与权限 | 租户、用户、角色、菜单/操作权限、角色继承与用户设备范围；服务端、实时通知和 AI 工具统一执行授权。[权限边界](docs/PLATFORM.md#权限与设备范围) |
 | 对外开放接口 | 绑定平台用户的 API Key，按能力及设备范围查询/上报消息与告警、处置告警及智能问答。[开放 API](docs/INTEGRATION.md#开放接口) |
 
@@ -131,3 +132,4 @@ go test ./...
 | [设备接入与协议](docs/INTEGRATION.md) | HTTP/MQTT、TCP/Modbus、Go Worker、点表、部件告警、开放 API 与厂商示例 |
 | [平台功能与边界](docs/PLATFORM.md) | 设备与告警、用户权限、手动研判、AI 工作流管理/知识库、巡检报告、运维中心、摄像头直播与视频事件 |
 | [值班管理与交接](docs/DUTY.md) | 排班导入、实际责任、固定版本交接、AI、跟进事项、提醒、权限及备份 |
+| [五项业务分析实施记录](docs/AI_APPLICATION_IMPLEMENTATION.md) | 数据质量、连续性、规则实验、处置复盘、维护与投入的功能入口、固定契约、分阶段交付和实际验证 |

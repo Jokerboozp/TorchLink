@@ -1,7 +1,10 @@
 package dataquality
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -200,14 +203,22 @@ func (s *Service) UploadAttachment(ctx context.Context, a analytics.Actor, devic
 	if s.Archive == nil {
 		return model.QualityAttachment{}, analytics.ErrUnsupported
 	}
-	id := uuid.NewString()
-	key := a.TenantID + "/" + id
-	if _, err := s.Archive.PutObject(ctx, AttachmentBucket, key, reader, size, contentType); err != nil {
+	data, err := io.ReadAll(io.LimitReader(reader, AttachmentMax+1))
+	if err != nil {
 		return model.QualityAttachment{}, err
 	}
-	record := model.QualityAttachmentRecord{QualityAttachment: model.QualityAttachment{ID: id, Name: name, Size: size, ContentType: contentType}, StorageKey: key}
+	if int64(len(data)) != size {
+		return model.QualityAttachment{}, invalid("附件实际大小与请求不一致")
+	}
+	digest := sha256.Sum256(data)
+	id := uuid.NewString()
+	key := a.TenantID + "/" + id
+	if _, err := s.Archive.PutObject(ctx, AttachmentBucket, key, bytes.NewReader(data), size, contentType); err != nil {
+		return model.QualityAttachment{}, err
+	}
+	record := model.QualityAttachmentRecord{QualityAttachment: model.QualityAttachment{ID: id, Name: name, Size: size, ContentType: contentType, SHA256: hex.EncodeToString(digest[:])}, StorageKey: key}
 	body, _ := json.Marshal(record)
-	_, err := s.Analysis.Store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: id, TenantID: a.TenantID, Kind: model.DataQualityAttachmentKind, ResourceID: id, Scope: scope, DeviceIDs: devices, Creator: a.Username, Body: body}, 0)
+	_, err = s.Analysis.Store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: id, TenantID: a.TenantID, Kind: model.DataQualityAttachmentKind, ResourceID: id, Scope: scope, DeviceIDs: devices, Creator: a.Username, Body: body}, 0)
 	if err != nil {
 		if deleter, ok := s.Archive.(ports.ObjectDeleter); ok {
 			_ = deleter.DeleteObject(ctx, AttachmentBucket, key)
@@ -234,6 +245,6 @@ func (s *Service) DownloadAttachment(ctx context.Context, a analytics.Actor, id 
 	if record.StorageKey != a.TenantID+"/"+revision.ID {
 		return record.QualityAttachment, nil, fmt.Errorf("invalid attachment storage identity")
 	}
-	reader, err := s.Archive.GetObject(ctx, AttachmentBucket, record.StorageKey)
+	reader, err := analytics.OpenVerifiedAnalysisObject(ctx, s.Analysis.Store, s.Archive, a.TenantID, AttachmentBucket, record.StorageKey, record.SHA256, record.Size, AttachmentMax)
 	return record.QualityAttachment, reader, err
 }

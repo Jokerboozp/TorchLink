@@ -128,6 +128,11 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	})
 	for _, table := range dutyTables {
 		body := map[string]any{"stationId": "station", "runId": "run", "handoverId": "handover", "status": "ACCEPTED"}
+		if table == "duty_ai_job" {
+			body["status"] = "RUNNING"
+			body["leaseOwner"] = "original-worker"
+			body["leaseUntil"] = 9999999999999
+		}
 		if table == "duty_attachment" {
 			body["attachment"] = map[string]any{"id": "attachment", "objectKey": dutyKey, "name": "handover-photo.txt", "size": len(dutyOriginal)}
 		}
@@ -144,6 +149,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			t.Fatalf("populate duty fixture %s: %v", table, err)
 		}
 	}
+	prepareApplicationFixture(t, ctx, fixture, store, schema)
 	day := time.Now().AddDate(0, 0, -1)
 	var rawBody = []byte(`{"messageId":"backup-fixture-raw"}`)
 	if _, err = fixture.Exec(ctx, `INSERT INTO raw_message_log(tenant_id,message_id,product_id,device_id,payload_hash,payload_size,received_at,stored_at,body) VALUES('fixture-tenant','raw','product','device','hash',1,$2,$2,$1)`, rawBody, day.UnixMilli()); err != nil {
@@ -191,7 +197,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			store.RemoveObject(context.Background(), objectBucket, a.ObjectKey, minio.RemoveObjectOptions{})
 		}
 	})
-	if manifest.FormatVersion != 3 || len(manifest.Artifacts) != 10 {
+	if manifest.FormatVersion != 4 || len(manifest.Artifacts) != 13 {
 		t.Fatal("FULL composition incomplete")
 	}
 	if _, err = s.Verify(ctx, manifest.ID); err != nil {
@@ -225,8 +231,8 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal("isolated full restore failed", err)
 	}
-	if result.Status != "COMPLETED" {
-		t.Fatal("full restore not completed")
+	if result.Status != "PARTIAL" {
+		t.Fatal("full restore must preserve cold-source partial coverage")
 	}
 	target, err := pgx.Connect(ctx, cfg.RestoreTargetDSN)
 	if err != nil {
@@ -291,6 +297,8 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	t.Cleanup(func() {
 		dr.RemoveObject(context.Background(), dutyAttachmentBucket, attachmentKey, minio.RemoveObjectOptions{})
 	})
+	verifyApplicationRestore(t, ctx, s, target, result)
+	verifyCorruptApplicationRollback(t, ctx, s, target, manifest, result.RestoreID)
 	// An older FULL v2 can still restore without requiring duty artifacts.
 	old := manifest
 	old.ID = manifest.ID
@@ -303,7 +311,24 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	if err = fixture.QueryRow(ctx, "SELECT count(*) FROM ai_knowledge_doc").Scan(&sourceCount); err != nil || sourceCount != 1 {
 		t.Fatal("source knowledge changed during restore")
 	}
-	t.Logf("FULL v3 and daily verified and restored: PostgreSQL/ClickHouse messages, 4 knowledge tables, duty tables, original and duty attachment, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
+	var retiredDuty string
+	if err = target.QueryRow(ctx, "SELECT body->>'status' FROM "+pgx.Identifier{dutyRestored, "duty_ai_job"}.Sanitize()).Scan(&retiredDuty); err != nil || retiredDuty != "CANCELLED" {
+		t.Fatal("restored duty model job could resume", err)
+	}
+	t.Cleanup(func() {
+		cleanup, err := pgx.Connect(context.Background(), cfg.RestoreTargetDSN)
+		if err == nil {
+			defer cleanup.Close(context.Background())
+			for _, name := range []string{restored, dutyRestored} {
+				cleanup.Exec(context.Background(), "DROP SCHEMA "+pgx.Identifier{name}.Sanitize()+" CASCADE")
+			}
+			for _, id := range []string{dailyRestore.RestoreID, result.RestoreID} {
+				cleanup.Exec(context.Background(), "DELETE FROM restored_message WHERE restore_id=$1", id)
+				cleanup.Exec(context.Background(), "DELETE FROM restore_run WHERE id=$1", id)
+			}
+		}
+	})
+	t.Logf("FULL v4 and daily verified: retained PG and CH artifacts (PARTIAL cold source), knowledge/duty/application graphs, three private attachment kinds, fixed finance/quality permissions, retired tasks, numeric legacy hashes, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
 }
 
 func TestLiveHarnessSnapshotRestoreIntegration(t *testing.T) {

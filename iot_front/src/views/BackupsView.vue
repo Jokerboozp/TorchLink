@@ -6,6 +6,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, download, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
+import { restoreSummary } from '../backupPresentation'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels'
 import { RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -18,6 +19,7 @@ const records = ref([])
 const total = ref(0)
 const loading = ref(false)
 const actionLoading = ref('')
+const restoredResult = ref(null)
 // 部署未启用备份服务时明确提示，并停用触发入口，而不是弹出通用错误。
 const serviceMissing = ref(false)
 const detailVisible = ref(false)
@@ -169,9 +171,9 @@ async function restoreToTarget(row) {
   actionLoading.value = `restore:${row.id}`
   try {
     const result = await api(`/api/v1/backups/${idPath(row.id)}/restore`, { method: 'POST' })
-    const kinds = Object.values(result.kinds || {})
-    const restored = kinds.reduce((sum, item) => sum + (item.restored || 0), 0)
-    UiMessage.success(`恢复验证完成：写入独立库 ${restored} 条，${result.status === 'COMPLETED' ? '与备份清单一致' : '与备份清单不一致'}`)
+    restoredResult.value = restoreSummary(result)
+    if (result.status === 'COMPLETED') UiMessage.success(restoredResult.value.title)
+    else UiMessage.warning(restoredResult.value.title)
     await load()
   } catch (error) {
     notifyError(error)
@@ -224,7 +226,8 @@ function rowActions(row) {
     </template>
   </FilterBar>
   <ui-alert v-if="serviceMissing" class="backup-missing" title="当前部署未启用备份服务" description="备份记录与手动备份暂不可用。请在部署配置中启用备份服务（IOT_BACKUP_URL）后刷新。" type="warning" :closable="false" show-icon />
-  <p class="backup-hint">完整备份包含设备数据、知识库与原件、Agent 和会话、值班排班与交接记录及附件；每日自动备份昨日设备数据。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
+  <p class="backup-hint">完整备份包含设备数据、知识库与原件、Agent 和会话、值班资料、固定分析及业务版本、权限关联和应用附件；每日自动备份昨日设备数据。覆盖范围以该次清单为准。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
+  <ui-alert v-if="restoredResult" class="backup-missing" :title="restoredResult.title" :description="[...restoredResult.lines, ...restoredResult.limitations].join('；')" :type="restoredResult.tone" show-icon />
 
   <div class="backup-stat-grid">
     <ui-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></ui-card>

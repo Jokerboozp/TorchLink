@@ -11,7 +11,6 @@ import (
 	"io"
 	"path/filepath"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -22,70 +21,13 @@ var dutyTables = []string{"duty_receipt", "duty_station", "duty_team", "duty_shi
 // Duty uses separate artifacts from knowledge, so previous FULL backups retain
 // their original schema and restore contract.
 func (s *Service) exportDuty(ctx context.Context, dir string, m *Manifest) ([]string, error) {
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.beginBackupRead(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	schema := knowledgeSchema{}
-	counts := map[string]int64{}
 	dataPath := filepath.Join(dir, "duty-postgres.jsonl.gz")
-	err = writeGzip(dataPath, func(w io.Writer) error {
-		enc := json.NewEncoder(w)
-		for _, table := range dutyTables {
-			t := knowledgeTable{Name: table}
-			rows, e := tx.Query(ctx, `SELECT a.attname,t.typname,a.attnotnull FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=to_regclass($1) AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum`, table)
-			if e != nil {
-				return e
-			}
-			for rows.Next() {
-				var c knowledgeColumn
-				if e = rows.Scan(&c.Name, &c.Type, &c.NotNull); e != nil {
-					rows.Close()
-					return e
-				}
-				if !backupIdentifier.MatchString(c.Name) || knowledgeSQLTypes[c.Type] == "" {
-					rows.Close()
-					return fmt.Errorf("unsupported duty column in %s", table)
-				}
-				t.Columns = append(t.Columns, c)
-			}
-			e = rows.Err()
-			rows.Close()
-			if e != nil {
-				return e
-			}
-			if len(t.Columns) == 0 {
-				return fmt.Errorf("duty table %s missing", table)
-			}
-			if e = tx.QueryRow(ctx, `SELECT array_agg(a.attname ORDER BY k.ordinality) FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid=to_regclass($1) AND c.contype='p'`, table).Scan(&t.PrimaryKey); e != nil {
-				return e
-			}
-			schema.Tables = append(schema.Tables, t)
-			rows, e = tx.Query(ctx, "SELECT to_jsonb(t) FROM "+pgx.Identifier{table}.Sanitize()+" t")
-			if e != nil {
-				return e
-			}
-			counts[table] = 0
-			for rows.Next() {
-				var b []byte
-				if e = rows.Scan(&b); e == nil {
-					e = enc.Encode(knowledgeRow{Table: table, Row: b})
-				}
-				if e != nil {
-					rows.Close()
-					return e
-				}
-				counts[table]++
-			}
-			e = rows.Err()
-			rows.Close()
-			if e != nil {
-				return e
-			}
-		}
-		return nil
-	})
+	schema, counts, err := exportDataTables(ctx, tx, dutyTables, dataPath)
 	if err != nil {
 		return nil, fmt.Errorf("duty database: %w", err)
 	}

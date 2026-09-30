@@ -587,3 +587,47 @@ func TestQualityReadCapIsDisclosedAndCannotBecomeComplete(t *testing.T) {
 		t.Fatal("cap did not retain partial fixed-input state", run.Status, run.Error)
 	}
 }
+
+func TestQualityAttachmentNewDigestAndLegacyRead(t *testing.T) {
+	svc, _, actor, _ := serviceFixture(t)
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.Archive = archive
+	attachment, err := svc.UploadAttachment(context.Background(), actor, []string{"a"}, "personal", "calibration.txt", "text/plain", 4, strings.NewReader("test"))
+	if err != nil || len(attachment.SHA256) != 64 {
+		t.Fatal("upload digest missing", err)
+	}
+	revision, err := svc.Analysis.Store.GetAnalysisConfig(context.Background(), actor.TenantID, attachment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record model.QualityAttachmentRecord
+	_ = json.Unmarshal(revision.Body, &record)
+	if _, err = archive.PutObject(context.Background(), AttachmentBucket, record.StorageKey, strings.NewReader("fake"), 4, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	if _, reader, err := svc.DownloadAttachment(context.Background(), actor, attachment.ID); !errors.Is(err, model.ErrAnalysisInvalid) || reader != nil {
+		t.Fatal("tampered attachment exposed", err)
+	}
+	if _, err = svc.UploadAttachment(context.Background(), actor, []string{"a"}, "personal", "wrong.txt", "text/plain", 4, strings.NewReader("longer")); !errors.Is(err, model.ErrAnalysisInvalid) {
+		t.Fatal("declared size mismatch accepted", err)
+	}
+	record.ID = "legacy"
+	record.StorageKey = actor.TenantID + "/legacy"
+	record.SHA256 = ""
+	body, _ := json.Marshal(record)
+	if _, err = archive.PutObject(context.Background(), AttachmentBucket, record.StorageKey, strings.NewReader("test"), 4, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Analysis.Store.PutAnalysisConfig(context.Background(), model.AnalysisConfigRevision{ID: record.ID, TenantID: actor.TenantID, Kind: model.DataQualityAttachmentKind, ResourceID: record.ID, Scope: "PERSONAL", Creator: actor.Username, DeviceIDs: []string{"a"}, Body: body}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, reader, err := svc.DownloadAttachment(context.Background(), actor, record.ID)
+	if err != nil || old.SHA256 != "" {
+		t.Fatal("legacy original digest invented", err)
+	}
+	reader.Close()
+}

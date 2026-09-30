@@ -116,6 +116,13 @@ func (s *Service) restoreDuty(ctx context.Context, target *pgx.Conn, m Manifest,
 			return err
 		}
 	}
+	retired := 0
+	if m.FormatVersion >= 4 {
+		retired, err = retireRestoredDutyJobs(ctx, tx, schemaName, res.RestoreID)
+		if err != nil {
+			return err
+		}
+	}
 	objectCount, err := s.restoreDutyObjects(ctx, tx, schemaName, paths["duty-objects.tar.gz"], stage, res.RestoreID)
 	if err != nil {
 		return err
@@ -126,7 +133,7 @@ func (s *Service) restoreDuty(ctx context.Context, target *pgx.Conn, m Manifest,
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	res.Components["duty"] = map[string]any{"status": "restored", "schema": schemaName, "tables": counts, "matches": true}
+	res.Components["duty"] = map[string]any{"status": "restored", "schema": schemaName, "tables": counts, "matches": true, "retiredModelJobs": retired}
 	res.Components["dutyObjects"] = map[string]any{"status": "restored", "objects": objectCount, "matches": true, "bucket": dutyAttachmentBucket}
 	return nil
 }
@@ -208,6 +215,10 @@ func restoreDutyRows(ctx context.Context, tx pgx.Tx, schema, path string) (map[s
 	return counts, nil
 }
 func readDutyObjects(path, stage string) (map[string]string, []knowledgeObject, error) {
+	return readPrivateObjects(path, stage, map[string]bool{dutyAttachmentBucket: true})
+}
+
+func readPrivateObjects(path, stage string, allowedBuckets map[string]bool) (map[string]string, []knowledgeObject, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -270,11 +281,11 @@ func readDutyObjects(path, stage string) (map[string]string, []knowledgeObject, 
 	seen := map[string]bool{}
 	keys := map[string]bool{}
 	for _, ref := range refs {
-		if entries[ref.Entry] == "" || seen[ref.Entry] || ref.Bucket != dutyAttachmentBucket || ref.Key == "" || keys[ref.Key] {
+		if entries[ref.Entry] == "" || seen[ref.Entry] || !allowedBuckets[ref.Bucket] || ref.Key == "" || keys[ref.Bucket+"\x00"+ref.Key] {
 			return nil, nil, errors.New("invalid duty object reference")
 		}
 		seen[ref.Entry] = true
-		keys[ref.Key] = true
+		keys[ref.Bucket+"\x00"+ref.Key] = true
 		hash, size, e := hashFile(entries[ref.Entry])
 		if e != nil {
 			return nil, nil, e
