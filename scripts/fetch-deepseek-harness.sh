@@ -14,11 +14,23 @@ target_git() {
   (CDPATH= cd -- "$target" && git "$@")
 }
 
-clone_target() {
-  mkdir -p "$project_root/upstream"
-  git -c http.version=HTTP/1.1 -c core.autocrlf=false -c core.fileMode=false clone --depth 1 "$repository" "$target"
+configure_target() {
   target_git config core.autocrlf false
   target_git config core.fileMode false
+  # Git < 2.10 treats upstream's `text=auto eol=lf` as forced text,
+  # making binary CRLF bytes look modified even after a hard reset.
+  # Keep exact repository bytes with a local override, without editing source.
+  mkdir -p "$target/.git/info"
+  attributes="$target/.git/info/attributes"
+  if [ ! -f "$attributes" ] || ! grep -qxF '# TorchLink: preserve Harness repository bytes' "$attributes"; then
+    printf '\n# TorchLink: preserve Harness repository bytes\n* -text -eol\n' >> "$attributes"
+  fi
+}
+
+clone_target() {
+  mkdir -p "$project_root/upstream"
+  git -c http.version=HTTP/1.1 -c core.autocrlf=false -c core.fileMode=false clone --no-checkout --depth 1 "$repository" "$target"
+  configure_target
   target_git reset --hard HEAD >/dev/null
   target_git clean -fd >/dev/null
 }
@@ -34,6 +46,7 @@ fi
 if [ ! -d "$target/.git" ]; then
   clone_target
 fi
+configure_target
 
 if [ -n "$(target_git status --porcelain)" ]; then
   backup="${target}.backup-$(date +%Y%m%d-%H%M%S)"

@@ -199,6 +199,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 
 Linux / macOS 共用 Bash 入口。输出为 `offline-bundles/iot-platform-offline-*`，需整体复制（含隐藏配置）。手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
 
+若打包在 Harness 拉取阶段提示 `Your local changes ... would be overwritten by checkout`，且新克隆目录的修改集中于图片、字体等二进制文件，检查 `git --version`；Git 2.10 以前对上游 `text=auto eol=lf` 属性的处理可能触发此问题。拉取脚本通过 `.git/info/attributes` 保留仓库原始字节，在首次检出前设置该覆盖，不修改上游源码。真实源码修改仍会整体备份到 `upstream/deepseek-harness.backup-*`。同步最新 `scripts/fetch-deepseek-harness.sh`（Windows 对应 `scripts/lib/deployment.ps1`）后，可先单独拉取 Harness，再重跑原打包命令；无需删除 Docker 镜像或数据卷。
+
 ### 安装与升级
 
 升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新随机凭据直接连接旧数据库。在包根目录执行：

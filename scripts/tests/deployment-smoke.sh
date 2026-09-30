@@ -90,6 +90,116 @@ fi
 
 echo 'PASS git compatibility: deployment scripts work without global git -C'
 )
+# Real Git fixture: Git before 2.10 treated `text=auto eol=lf` as
+# `text eol=lf`, including binary files. Use that equivalent attribute to
+# exercise the same conversion failure with modern Git, without the network.
+(
+set -Eeuo pipefail
+project_root="$(cd "$(dirname "$0")/../.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/iot-harness-git-test.XXXXXX")"
+trap 'rm -rf -- "$test_root"' EXIT
+fixture="$test_root/project"
+origin="$test_root/origin"
+mkdir -p "$fixture/scripts" "$fixture/deploy/deepseek-harness" "$origin"
+cp "$project_root/scripts/fetch-deepseek-harness.sh" "$fixture/scripts/"
+export GIT_CONFIG_GLOBAL="$test_root/gitconfig" GIT_CONFIG_NOSYSTEM=1
+git init -q "$origin"
+(
+  cd "$origin"
+  git config user.name 'Harness regression test'
+  git config user.email 'test@example.invalid'
+  git config core.autocrlf false
+  # Store original bytes, then simulate the legacy client's read attributes.
+  printf '* -text -eol\n' > .git/info/attributes
+  printf '* text eol=lf\n' > .gitattributes
+  printf '\211PNG\r\n\000pinned\r\n' > icon.png
+  printf 'pinned\n' > source.txt
+  git add .
+  git commit -qm pinned
+  git rev-parse HEAD > "$fixture/deploy/deepseek-harness/REVISION"
+  printf '\211PNG\r\n\000latest\r\n' > icon.png
+  printf 'latest\n' > source.txt
+  git add .
+  git commit -qm latest
+)
+origin_path="$origin"
+if command -v cygpath >/dev/null 2>&1; then origin_path="$(cygpath -m "$origin")"; fi
+git config --global "url.${origin_path}.insteadOf" 'https://github.com/deepseek-ai/deepseek-harness.git'
+sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/output.log" 2>&1 || {
+  cat "$test_root/output.log" >&2
+  echo 'FAIL: freshly cloned Harness binaries prevented pinned checkout' >&2
+  exit 1
+}
+target="$fixture/upstream/deepseek-harness"
+expected="$(cat "$fixture/deploy/deepseek-harness/REVISION")"
+(
+  cd "$target"
+  [ "$(git rev-parse HEAD)" = "$expected" ]
+  [ -z "$(git status --porcelain)" ]
+  git show HEAD:icon.png > "$test_root/expected.png"
+  cmp icon.png "$test_root/expected.png"
+)
+# Genuine user changes must still be preserved before rebuilding the source.
+printf 'user edit\n' >> "$target/source.txt"
+printf 'user file\n' > "$target/user.txt"
+sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/dirty.log" 2>&1
+backup_count=0
+for backup in "$fixture/upstream/"deepseek-harness.backup-*; do
+  [ -d "$backup" ] || continue
+  backup_count=$((backup_count + 1))
+  grep -q 'user edit' "$backup/source.txt"
+  grep -qx 'user file' "$backup/user.txt"
+done
+[ "$backup_count" = 1 ]
+sh "$fixture/scripts/fetch-deepseek-harness.sh" > "$test_root/rerun.log" 2>&1
+! grep -q '已备份' "$test_root/rerun.log"
+echo 'PASS Harness real Git: binary bytes, pinned checkout, user backup and rerun'
+# Reuse the same origin to verify the PowerShell entry point when available.
+ps_runner=''
+if command -v pwsh >/dev/null 2>&1; then ps_runner=pwsh
+elif command -v powershell.exe >/dev/null 2>&1; then ps_runner=powershell.exe
+fi
+if [ -n "$ps_runner" ]; then
+  ps_fixture="$test_root/powershell-project"
+  mkdir -p "$ps_fixture/deploy/deepseek-harness"
+  cp "$fixture/deploy/deepseek-harness/REVISION" "$ps_fixture/deploy/deepseek-harness/"
+  export HARNESS_TEST_PROJECT="$ps_fixture" HARNESS_TEST_LIB="$project_root/scripts/lib/deployment.ps1"
+  if command -v cygpath >/dev/null 2>&1; then
+    HARNESS_TEST_PROJECT="$(cygpath -m "$HARNESS_TEST_PROJECT")"
+    HARNESS_TEST_LIB="$(cygpath -m "$HARNESS_TEST_LIB")"
+  fi
+  cat > "$test_root/test-harness.ps1" <<'EOF'
+$ErrorActionPreference = 'Stop'
+. $env:HARNESS_TEST_LIB
+Ensure-HarnessSource -ProjectRoot $env:HARNESS_TEST_PROJECT
+EOF
+  ps_test="$test_root/test-harness.ps1"
+  if command -v cygpath >/dev/null 2>&1; then ps_test="$(cygpath -m "$ps_test")"; fi
+  "$ps_runner" -NoProfile -File "$ps_test" > "$test_root/powershell.log" 2>&1 || { cat "$test_root/powershell.log" >&2; exit 1; }
+  ps_target="$ps_fixture/upstream/deepseek-harness"
+  (
+    cd "$ps_target"
+    [ "$(git rev-parse HEAD)" = "$expected" ]
+    [ -z "$(git status --porcelain)" ]
+    cmp icon.png "$test_root/expected.png"
+  )
+  printf 'user edit\n' >> "$ps_target/source.txt"
+  printf 'user file\n' > "$ps_target/user.txt"
+  "$ps_runner" -NoProfile -File "$ps_test" > "$test_root/powershell-dirty.log" 2>&1 || { cat "$test_root/powershell-dirty.log" >&2; exit 1; }
+  backup_count=0
+  for backup in "$ps_fixture/upstream/"deepseek-harness.backup-*; do
+    [ -d "$backup" ] || continue
+    backup_count=$((backup_count + 1))
+    grep -q 'user edit' "$backup/source.txt"
+    grep -qx 'user file' "$backup/user.txt"
+  done
+  [ "$backup_count" = 1 ]
+  "$ps_runner" -NoProfile -File "$ps_test" > "$test_root/powershell-rerun.log" 2>&1
+  ! grep -q 'backup-' "$test_root/powershell-rerun.log"
+  echo 'PASS Harness PowerShell real Git: binary bytes, pinned checkout, user backup and rerun'
+fi
+)
+if [ "${1:-}" = --harness-git-only ]; then exit 0; fi
 # local-bootstrap
 (
 # Exercise setup-local's bootstrap ordering without installing host software.

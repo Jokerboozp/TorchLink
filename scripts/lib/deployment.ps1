@@ -137,15 +137,35 @@ function Ensure-HarnessSource {
     $revision = [IO.File]::ReadAllText((Join-Path $ProjectRoot 'deploy/deepseek-harness/REVISION')).Trim()
     if ($revision -notmatch '^[0-9a-f]{40}$') { throw 'Harness REVISION 无效。' }
     $target = Join-Path $ProjectRoot 'upstream/deepseek-harness'
-    if (-not (Test-Path -LiteralPath (Join-Path $target '.git'))) {
-        [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
-        & git -c http.version=HTTP/1.1 clone --depth 1 'https://github.com/deepseek-ai/deepseek-harness.git' $target
-        if ($LASTEXITCODE -ne 0) { throw 'Harness 源码下载失败。' }
+    $configureTarget = {
         & git -C $target config core.autocrlf false
+        if ($LASTEXITCODE -ne 0) { throw '无法配置 Harness 换行转换。' }
         & git -C $target config core.fileMode false
-        & git -C $target reset --hard HEAD *> $null
-        & git -C $target clean -fd *> $null
+        if ($LASTEXITCODE -ne 0) { throw '无法配置 Harness 文件权限检查。' }
+        # Preserve exact blobs, including with Git < 2.10's text=auto/eol bug.
+        $info = Join-Path $target '.git/info'
+        [IO.Directory]::CreateDirectory($info) | Out-Null
+        $attributes = Join-Path $info 'attributes'
+        $marker = '# TorchLink: preserve Harness repository bytes'
+        $existing = if (Test-Path -LiteralPath $attributes) { [IO.File]::ReadAllText($attributes) } else { '' }
+        if ($existing -notmatch ('(?m)^' + [Regex]::Escape($marker) + '\r?$')) {
+            [IO.File]::AppendAllText($attributes, "`n$marker`n* -text -eol`n", (New-Object Text.UTF8Encoding($false)))
+        }
     }
+    $cloneTarget = {
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
+        & git -c http.version=HTTP/1.1 -c core.autocrlf=false -c core.fileMode=false clone --no-checkout --depth 1 'https://github.com/deepseek-ai/deepseek-harness.git' $target
+        if ($LASTEXITCODE -ne 0) { throw 'Harness 源码下载失败。' }
+        & $configureTarget
+        & git -C $target reset --hard HEAD *> $null
+        if ($LASTEXITCODE -ne 0) { throw 'Harness 源码检出失败。' }
+        & git -C $target clean -fd *> $null
+        if ($LASTEXITCODE -ne 0) { throw 'Harness 新克隆目录整理失败。' }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $target '.git'))) {
+        & $cloneTarget
+    }
+    & $configureTarget
     $changes = @(& git -C $target status --porcelain)
     if ($LASTEXITCODE -ne 0) { throw '无法检查 Harness 源码状态。' }
     if ($changes.Count -gt 0) {
@@ -158,12 +178,7 @@ function Ensure-HarnessSource {
         }
         Move-Item -LiteralPath $target -Destination $backup
         Write-Host "DeepSeek Harness 源码目录存在修改，已备份到：$backup"
-        & git -c http.version=HTTP/1.1 clone --depth 1 'https://github.com/deepseek-ai/deepseek-harness.git' $target
-        if ($LASTEXITCODE -ne 0) { throw "Harness 源码重新下载失败，原目录保存在：$backup" }
-        & git -C $target config core.autocrlf false
-        & git -C $target config core.fileMode false
-        & git -C $target reset --hard HEAD *> $null
-        & git -C $target clean -fd *> $null
+        & $cloneTarget
     }
     $current = & git -C $target rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw '无法读取 Harness 提交。' }
