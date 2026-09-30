@@ -268,6 +268,9 @@ func permissionList(p map[string]bool) []string {
 	return out
 }
 func allowsRoute(p map[string]bool, method, path string) bool {
+	if method == "GET" && path == "/api/v1/follow-up-sources" {
+		return p["menu:devices"] && (p["menu:response"] || p["menu:maintenance"])
+	}
 	if allowed, ok := allowsDutyRoute(p, method, path); ok {
 		return allowed
 	}

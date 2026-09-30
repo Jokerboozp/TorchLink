@@ -37,6 +37,9 @@ func NewAIService(facts *Service, runner AIRunner) *AIService {
 	_ = s.Register(AIWorkflowSpec{KindDataQuality, WorkflowDataQuality, AnalysisAIPromptVersion})
 	_ = s.Register(AIWorkflowSpec{KindMonitoring, WorkflowMonitoring, MonitoringAIPromptVersion})
 	_ = s.Register(AIWorkflowSpec{KindRuleLab, WorkflowRulePolicy, RulePolicyAIPromptVersion})
+	_ = s.Register(AIWorkflowSpec{KindResponse, WorkflowResponse, ResponseAIPromptVersion})
+	_ = s.Register(AIWorkflowSpec{KindMaintenance, WorkflowMaintenance, MaintenanceAIPromptVersion})
+	_ = s.Register(AIWorkflowSpec{KindInvestment, WorkflowInvestment, InvestmentAIPromptVersion})
 	return s
 }
 func (s *AIService) Register(spec AIWorkflowSpec) error {
@@ -263,7 +266,7 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 		f.UncomputableMetrics = snap.UncomputableMetrics
 		f.InitialStateQuality = snap.InitialStateQuality
 		f.Total = 1
-	case "metrics", "findings", "intervals", "dependency-groups", "outcomes", "diffs", "labels":
+	case "metrics", "findings", "intervals", "dependency-groups", "outcomes", "diffs", "labels", "observations", "change-metrics", "investment-priorities", "budget-lines":
 		f.Outputs, f.Total, err = s.Facts.Store.ListAnalysisOutputs(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Kind: collection, Limit: limit, Offset: offset})
 	case "evidence":
 		f.Evidence, f.Total, err = s.Facts.Store.ListAnalysisEvidence(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Limit: limit, Offset: offset})
@@ -281,6 +284,10 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 			allowed = append(allowed, "monitoring", "monitoring-gaps", "monitoring-evidence")
 		} else if job.Kind == KindRuleLab {
 			allowed = append(allowed, "rule-lab-evidence")
+		} else if job.Kind == KindResponse {
+			allowed = append(allowed, "response")
+		} else if job.Kind == KindMaintenance || job.Kind == KindInvestment {
+			allowed = append(allowed, "maintenance-evidence")
 		}
 		if !slices.Contains(allowed, e.PermissionCategory) {
 			return model.AnalysisAIFacts{}, ErrForbidden

@@ -136,6 +136,7 @@ func (s *Server) routes() {
 	s.monitoringRoutes()
 	s.ruleLabRoutes()
 	s.ruleHistoryRoutes()
+	s.responseRoutes()
 	s.analysisAIRoutes()
 	s.dutyRoutes()
 	s.accessRoutes()
@@ -2990,7 +2991,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 				return
 			}
 		}
-		if claimsValue.Workflow == core.WorkflowDataQuality || claimsValue.Workflow == core.WorkflowMonitoring || claimsValue.Workflow == core.WorkflowRulePolicy {
+		if analytics.IsAnalysisWorkflow(claimsValue.Workflow) {
 			if err := s.authorizeAnalysisHarness(ctx, claimsValue); err != nil {
 				ginProblem(c, http.StatusForbidden, err.Error())
 				c.Abort()

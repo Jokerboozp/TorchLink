@@ -111,6 +111,48 @@ func (f *fixture) submit(h model.DutyDocument) model.DutyDocument {
 	return f.doc(f.day, model.DutyHandoverKind, "submit", h.ID, h.Version, HandoverEdit{RevisionID: v.CurrentRevisionID, SnapshotHash: rev.SnapshotHash})
 }
 
+func TestLinkedCorrectiveFollowUpIsAtomicUniqueAndKeepsSeparateLifecycle(t *testing.T) {
+	f := newFixture(t)
+	source := FollowUpSource{Kind: "CORRECTIVE_ACTION", ID: "off-duty-corrective", Version: 3, DeviceIDs: []string{"d1"}, Title: "核实到场证据", DueAt: f.now.Add(time.Hour).UnixMilli()}
+	link, err := f.s.LinkFollowUp(f.ctx, f.day, source, f.dayRun.ID, "day", "联系非当班主责人员并登记当班处理")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := f.s.LinkFollowUp(f.ctx, f.day, source, f.dayRun.ID, "day", "联系非当班主责人员并登记当班处理")
+	if err != nil || retry.DutyItemID != link.DutyItemID {
+		t.Fatalf("duplicate follow-up: %+v %v", retry, err)
+	}
+	item, err := f.s.Get(f.ctx, f.day, model.DutyItemKind, link.DutyItemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.doc(f.day, model.DutyItemKind, "complete", item.ID, item.Version, map[string]any{"result": "已联系主责人员；仍须独立整改验收"})
+	links, err := f.s.FollowUpLinks(f.ctx, f.day, source.Kind, source.ID)
+	if err != nil || len(links) != 1 || links[0].SourceVersion != 3 {
+		t.Fatalf("link lifecycle changed by duty completion: %+v %v", links, err)
+	}
+	if source.Version != 3 {
+		t.Fatal("duty operation changed source version")
+	}
+	items, err := f.s.Query(f.ctx, f.day, model.DutyFilter{Kind: model.DutyItemKind})
+	if err != nil || items.Total != 1 {
+		t.Fatalf("duplicate item: %+v %v", items, err)
+	}
+	if _, err = f.s.LinkFollowUp(f.ctx, f.night, source, f.dayRun.ID, "day", "不能从未参与班次关联"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("nonmember linked: %v", err)
+	}
+	source.DeviceIDs = []string{"d2"}
+	if _, err = f.s.LinkFollowUp(f.ctx, f.day, source, f.dayRun.ID, "day", "范围外"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("scope escape: %v", err)
+	}
+	current := f.actors["day"]
+	current.AllowedDeviceIDs = nil
+	f.actors["day"] = current
+	if links, err = f.s.FollowUpLinks(f.ctx, f.day, "CORRECTIVE_ACTION", source.ID); err != nil || len(links) != 0 {
+		t.Fatalf("revoked source visible: %+v %v", links, err)
+	}
+}
+
 func TestHandoverAtomicAcceptanceCarryAndSnapshot(t *testing.T) {
 	f := newFixture(t)
 	f.now = f.now.Add(30 * time.Minute)

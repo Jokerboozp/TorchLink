@@ -28,7 +28,7 @@ func runActor(r model.AnalysisRun) Actor {
 
 func (s *Service) authorizeWorker(ctx context.Context, r model.AnalysisRun) error {
 	a, err := s.authorize(ctx, runActor(r), r.Kind, RunCreationOperation(r.Kind, r.CreationOperation), r.DeviceIDs)
-	if err != nil || a.AccessVersion != r.PermissionsVersion {
+	if err != nil || a.AccessVersion != r.PermissionsVersion || !a.AllowsRequired(r.RequiredPermissions) {
 		return ErrForbidden
 	}
 	return nil

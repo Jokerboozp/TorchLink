@@ -4,7 +4,7 @@ const chatActions = new Set(['POST /api/v1/ai/chat', 'POST /api/v1/ai/chat/strea
 export const permissionSections = [
   { name: '日常使用', menus: ['dashboard', 'devices', 'alarms', 'duty', 'ai', 'raw'] },
   { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras'] },
-  { name: '运维管理', menus: ['inspection', 'dataQuality', 'monitoringGaps', 'ruleLab', 'rules', 'knowledge'] },
+  { name: '运维管理', menus: ['inspection', 'response', 'dataQuality', 'monitoringGaps', 'ruleLab', 'rules', 'knowledge'] },
   { name: '系统管理', menus: ['aiProviders', 'backups', 'access'] },
   { name: '运维中心', menus: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] }
 ]

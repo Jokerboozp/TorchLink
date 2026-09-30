@@ -197,7 +197,7 @@ func (t *dutyTx) Snapshot(ids []string) (model.DutySnapshot, error) {
 	return s, nil
 }
 func validDutyKind(k string) bool {
-	return slices.Contains([]string{model.DutyReceiptKind, model.DutyAttachmentKind, model.DutyStationKind, model.DutyTeamKind, model.DutyShiftTemplateKind, model.DutyRosterKind, model.DutyRunKind, model.DutyRecordKind, model.DutyItemKind, model.DutyItemEventKind, model.DutyHandoverKind, model.DutyRevisionKind, model.DutyAIJobKind, model.DutyNotificationKind}, k)
+	return slices.Contains([]string{model.DutyReceiptKind, model.DutyAttachmentKind, model.DutyStationKind, model.DutyTeamKind, model.DutyShiftTemplateKind, model.DutyRosterKind, model.DutyRunKind, model.DutyRecordKind, model.DutyItemKind, model.DutyItemEventKind, model.DutyHandoverKind, model.DutyRevisionKind, model.DutyAIJobKind, model.DutyNotificationKind, model.DutyActionLinkKind}, k)
 }
 func dutyPage(l, o int) (int, int) {
 	if l <= 0 {

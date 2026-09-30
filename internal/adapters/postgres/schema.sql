@@ -496,7 +496,7 @@ ALTER TABLE device_state ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAUL
 DO $$
 DECLARE table_name text;
 BEGIN
- FOREACH table_name IN ARRAY ARRAY['duty_receipt','duty_attachment','duty_station','duty_team','duty_shift_template','duty_roster','duty_run','duty_record','duty_item','duty_item_event','duty_handover','duty_handover_revision','duty_ai_job','duty_notification'] LOOP
+ FOREACH table_name IN ARRAY ARRAY['duty_receipt','duty_attachment','duty_station','duty_team','duty_shift_template','duty_roster','duty_run','duty_record','duty_item','duty_item_event','duty_handover','duty_handover_revision','duty_ai_job','duty_notification','duty_action_link'] LOOP
   EXECUTE format('CREATE TABLE IF NOT EXISTS %I (tenant_id text NOT NULL,id text NOT NULL,version bigint NOT NULL DEFAULT 1,created_at bigint NOT NULL,updated_at bigint NOT NULL,body jsonb NOT NULL,PRIMARY KEY(tenant_id,id))',table_name);
   EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(tenant_id,updated_at DESC,id DESC)',table_name||'_page_idx',table_name);
   EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(tenant_id,(body->>''stationId''),(body->>''status''))',table_name||'_station_status_idx',table_name);

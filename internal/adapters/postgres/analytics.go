@@ -3,8 +3,10 @@ package postgres
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -170,6 +172,17 @@ func (tx *analyticsTx) List(kind string, f model.AnalysisFilter) ([]analytics.St
 		add(`cardinality(device_ids)>0 AND device_ids <@ $%d::text[]`, ids)
 		add(`(device_id='' OR device_id=ANY($%d::text[]))`, ids)
 	}
+	if f.RequiredScopeSet && kind == "run" && !slices.Contains(f.AllowedRequiredPermissions, "*") {
+		permissions := f.AllowedRequiredPermissions
+		if permissions == nil {
+			permissions = []string{}
+		}
+		encoded, err := json.Marshal(permissions)
+		if err != nil {
+			return nil, 0, err
+		}
+		add(`COALESCE(NULLIF(body->'requiredPermissions','null'::jsonb),'[]'::jsonb) <@ $%d::jsonb`, encoded)
+	}
 	var total int
 	if err := tx.tx.QueryRow(tx.ctx, `SELECT count(*) FROM analysis_document WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -223,6 +236,10 @@ func (r *Repository) ListAnalysisOutputs(ctx context.Context, tenant string, f m
 }
 func (r *Repository) PutAnalysisConfig(ctx context.Context, v model.AnalysisConfigRevision, expected int64) (model.AnalysisConfigRevision, error) {
 	return r.analysisStore().PutAnalysisConfig(ctx, v, expected)
+}
+
+func (r *Repository) PutAnalysisConfigs(ctx context.Context, revisions []model.AnalysisConfigRevision, expected []int64) ([]model.AnalysisConfigRevision, error) {
+	return r.analysisStore().PutAnalysisConfigs(ctx, revisions, expected)
 }
 func (r *Repository) GetAnalysisConfig(ctx context.Context, tenant, id string) (model.AnalysisConfigRevision, error) {
 	return r.analysisStore().GetAnalysisConfig(ctx, tenant, id)

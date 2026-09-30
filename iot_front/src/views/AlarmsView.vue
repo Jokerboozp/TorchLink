@@ -1,7 +1,8 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate'])
+const emit = defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { can } from '../permissions.js'
 import { UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
@@ -253,7 +254,7 @@ function rowActions(row) {
       <div v-if="analysis" class="analysis-grid"><ui-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">{{analysisKnowledgeText(analysis)}}</small><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div>
     </ui-card>
     <pre>{{pretty(detail)}}</pre>
-    <template #footer><ui-button @click="detailVisible = false">关闭详情</ui-button></template>
+    <template #footer><ui-button v-if="detail && can('menu:response')" v-permission="'POST /api/v1/response-cases'" @click="detailVisible = false; emit('navigate', 'response', { alarmId: detail.alarmId, deviceId: detail.deviceId })">建立处置复盘案例</ui-button><ui-button @click="detailVisible = false">关闭详情</ui-button></template>
   </ui-dialog>
 </template>
 

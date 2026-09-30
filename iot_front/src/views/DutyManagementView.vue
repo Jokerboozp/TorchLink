@@ -8,12 +8,13 @@ import DutyRoster from '../components/duty/DutyRoster.vue'
 import DutyCurrent from '../components/duty/DutyCurrent.vue'
 import DutyItems from '../components/duty/DutyItems.vue'
 import DutyHandovers from '../components/duty/DutyHandovers.vue'
+import DutyFollowUpSources from '../components/duty/DutyFollowUpSources.vue'
 const emit=defineEmits(['navigate'])
 const tab=ref('current'),loading=ref(false),error=ref('')
 const catalog=reactive({stations:[],teams:[],templates:[],users:[],devices:[],userName:id=>catalog.users.find(user=>user.username===id)?.displayName || id || '—',stationName:id=>catalog.stations.find(station=>station.id===id)?.name || '岗位已不可见',deviceName:id=>catalog.devices.find(device=>(device.id || device.deviceId)===id)?.name || id || '—'})
 let generation=0
 async function load(){const token=++generation;loading.value=true;error.value='';try{const [stations,teams,templates,options]=await Promise.all([dutyAll('stations'),dutyAll('teams'),dutyAll('shift-templates'),dutyRead('options')]);if(token!==generation)return;Object.assign(catalog,{stations:stations.items || [],teams:teams.items || [],templates:templates.items || [],users:options.users || [],devices:options.devices || []})}catch(exception){if(token===generation)error.value=exception.message || '值班配置加载失败'}finally{if(token===generation)loading.value=false}}
-const allowedTabs=computed(()=>[{name:'current',label:'我的值班'},{name:'rosters',label:'排班日历'},{name:'handovers',label:'交接记录'},{name:'items',label:'跟进事项'},{name:'settings',label:'值班设置',allowed:can('action:duty:settings')}].filter(item=>item.allowed!==false))
+const allowedTabs=computed(()=>[{name:'current',label:'我的值班'},{name:'rosters',label:'排班日历'},{name:'handovers',label:'交接记录'},{name:'items',label:'跟进事项'},{name:'sources',label:'业务主事项',allowed:can('menu:response')||can('menu:maintenance')},{name:'settings',label:'值班设置',allowed:can('action:duty:settings')}].filter(item=>item.allowed!==false))
 const handoverId=ref('')
 function showHandover(id){handoverId.value=id;tab.value='handovers'}
 onMounted(()=>{load();try{const value=JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}');sessionStorage.removeItem('iot:navigation-detail');if(allowedTabs.value.some(item=>item.name===value.tab))tab.value=value.tab;if(value.handoverId)showHandover(value.handoverId)}catch{/* Invalid navigation detail has no effect. */}});onBeforeUnmount(()=>{generation++})
@@ -29,6 +30,7 @@ onMounted(()=>{load();try{const value=JSON.parse(sessionStorage.getItem('iot:nav
    <DutyRoster v-if="tab==='rosters'" :catalog="catalog"/>
    <DutyHandovers v-if="tab==='handovers'" :catalog="catalog" :open-id="handoverId" @clear-open="handoverId=''" @navigate="(page,detail)=>emit('navigate',page,detail)"/>
    <DutyItems v-if="tab==='items'" :catalog="catalog"/>
+   <DutyFollowUpSources v-if="tab==='sources'" :catalog="catalog" @navigate="(page,detail)=>emit('navigate',page,detail)"/>
    <DutySettings v-if="tab==='settings'" :catalog="catalog" @refresh="load"/>
   </template>
  </div>

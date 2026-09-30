@@ -69,6 +69,7 @@ func (s *Service) authorize(ctx context.Context, a Actor, kind, operation string
 type CreateRequest struct {
 	// Set only by trusted business services after validating their own DTO.
 	CreationOperation    string          `json:"-"`
+	RequiredPermissions  []string        `json:"-"`
 	DeviceIDs            []string        `json:"deviceIds"`
 	Start                int64           `json:"start"`
 	End                  int64           `json:"end"`
@@ -105,6 +106,13 @@ func (s *Service) Create(ctx context.Context, a Actor, kind, algorithm string, q
 	if err != nil {
 		return model.AnalysisRun{}, err
 	}
+	q.RequiredPermissions, err = NormalizeRequiredPermissions(kind, q.RequiredPermissions)
+	if err != nil {
+		return model.AnalysisRun{}, err
+	}
+	if !current.AllowsRequired(q.RequiredPermissions) {
+		return model.AnalysisRun{}, ErrForbidden
+	}
 	if s.Device == nil {
 		return model.AnalysisRun{}, ErrForbidden
 	}
@@ -123,9 +131,13 @@ func (s *Service) Create(ctx context.Context, a Actor, kind, algorithm string, q
 		}
 	}
 	r := model.AnalysisRun{ID: uuid.NewString(), TenantID: a.TenantID, Kind: kind, Creator: a.Username, CreatorManaged: current.Managed, CreatorSessionVersion: current.SessionVersion, PermissionsVersion: current.AccessVersion, DeviceIDs: ids, Start: q.Start, End: q.End, ConfigurationVersion: q.ConfigurationVersion, AlgorithmVersion: algorithm, Parameters: q.Parameters, PreviousRunID: q.PreviousRunID, IdempotencyKey: q.IdempotencyKey, CreationOperation: operation}
+	r.RequiredPermissions = q.RequiredPermissions
 	identity := []any{r.TenantID, r.Kind, r.Creator, r.PermissionsVersion, ids, r.Start, r.End, r.ConfigurationVersion, r.AlgorithmVersion, r.Parameters, r.PreviousRunID}
 	if operation != CreateOperation(kind) {
 		identity = append(identity, operation)
+	}
+	if len(r.RequiredPermissions) > 0 {
+		identity = append(identity, r.RequiredPermissions)
 	}
 	payload, _ := json.Marshal(identity)
 	sum := sha256.Sum256(payload)
@@ -141,8 +153,11 @@ func (s *Service) Get(ctx context.Context, a Actor, kind, id string) (model.Anal
 	if r.Kind != kind {
 		return model.AnalysisRun{}, model.ErrNotFound
 	}
-	_, err = s.authorize(ctx, a, kind, "", r.DeviceIDs)
-	return r, err
+	current, err := s.authorize(ctx, a, kind, "", r.DeviceIDs)
+	if err != nil || !current.AllowsRequired(r.RequiredPermissions) {
+		return model.AnalysisRun{}, ErrForbidden
+	}
+	return r, nil
 }
 
 func (s *Service) List(ctx context.Context, a Actor, kind string, f model.AnalysisFilter) ([]model.AnalysisRun, int, error) {
@@ -154,6 +169,8 @@ func (s *Service) List(ctx context.Context, a Actor, kind string, f model.Analys
 		return nil, 0, ErrForbidden
 	}
 	f.Kind = kind
+	f.RequiredScopeSet = !slices.Contains(current.Permissions, "*")
+	f.AllowedRequiredPermissions = slices.Clone(current.Permissions)
 	if !current.AllDevices {
 		f.DeviceScopeSet = true
 		f.DeviceIDs = current.DeviceIDs

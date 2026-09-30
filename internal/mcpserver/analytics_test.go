@@ -36,6 +36,25 @@ func analysisMCPFixtureKind(t *testing.T, kind string) (*core.Engine, *analytics
 	if kind == analytics.KindRuleLab {
 		request.Parameters = json.RawMessage(`{"phase":"EXPERIMENT","experimentRevisionId":"experiment"}`)
 	}
+	if kind == analytics.KindResponse || kind == analytics.KindMaintenance || kind == analytics.KindInvestment {
+		configKind := "RESPONSE_EXECUTION"
+		parameters := map[string]any{"executionRevisionId": "source"}
+		if kind == analytics.KindMaintenance {
+			configKind = "MAINTENANCE_RECORD"
+			parameters = map[string]any{"observation": map[string]any{"interventionRevisionId": "source"}}
+		}
+		if kind == analytics.KindInvestment {
+			configKind = "INVESTMENT_SCENARIO"
+			parameters = map[string]any{"scenarioRevisionId": "source", "useFinance": true}
+			request.RequiredPermissions = []string{analytics.FinanceReadOperation}
+		}
+		source, err := store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "source", TenantID: "t", Kind: configKind, ResourceID: "source", Creator: "alice", Scope: "SHARED", DeviceIDs: actor.DeviceIDs, Body: json.RawMessage(`{"useFinance":true}`)}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.ConfigurationVersion = source.Hash
+		request.Parameters, _ = json.Marshal(parameters)
+	}
 	run, err := store.CreateAnalysisRun(ctx, request, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +72,19 @@ func analysisMCPFixtureKind(t *testing.T, kind string) (*core.Engine, *analytics
 			outputs = append(outputs, model.AnalysisOutput{ID: collection, Kind: collection, DeviceID: "d1", Body: json.RawMessage(`{"fixed":true}`)})
 		}
 		outputs = append(outputs, model.AnalysisOutput{ID: "private", Kind: "comparison-stage", Body: json.RawMessage(`{"private":true}`)})
+	}
+	if kind == analytics.KindResponse {
+		outputs = append(outputs, model.AnalysisOutput{ID: "metrics", Kind: "metrics", DeviceID: "d1", Body: json.RawMessage(`{"fixed":true}`)})
+	}
+	if kind == analytics.KindMaintenance || kind == analytics.KindInvestment {
+		collections := []string{"observations", "change-metrics"}
+		if kind == analytics.KindInvestment {
+			collections = []string{"investment-priorities", "budget-lines"}
+		}
+		for _, collection := range collections {
+			outputs = append(outputs, model.AnalysisOutput{ID: collection, Kind: collection, DeviceID: "d1", Body: json.RawMessage(`{"fixed":true}`)})
+		}
+		outputs = append(outputs, model.AnalysisOutput{ID: "private", Kind: "calculation-stage", Body: json.RawMessage(`{"private":true}`)})
 	}
 	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"unknown":2}`), Limitations: []string{"unknown seed"}}})
 	if err != nil {
@@ -157,5 +189,37 @@ func TestRulePolicyMCPOnlyBoundPublicExperimentFacts(t *testing.T) {
 	claims.Workflow = core.WorkflowRuleDraft
 	if out := analysisMCPCall(t, engine, claims, map[string]any{}); !strings.Contains(out, `"isError":true`) {
 		t.Fatal("general rule drafter reused experimental lease", out)
+	}
+}
+
+func TestApplicationMCPBoundCollectionsAndFinancePermissionRevocation(t *testing.T) {
+	for _, kind := range []string{analytics.KindResponse, analytics.KindMaintenance, analytics.KindInvestment} {
+		t.Run(kind, func(t *testing.T) {
+			engine, ai, claims := analysisMCPFixtureKind(t, kind)
+			collections := []string{"metrics"}
+			if kind == analytics.KindMaintenance {
+				collections = []string{"observations", "change-metrics"}
+			}
+			if kind == analytics.KindInvestment {
+				collections = []string{"investment-priorities", "budget-lines"}
+			}
+			for _, collection := range collections {
+				out := analysisMCPCall(t, engine, claims, map[string]any{"collection": collection, "limit": 1})
+				if strings.Contains(out, `"isError":true`) || !strings.Contains(out, `\"fixed\":true`) {
+					t.Fatal(collection, out)
+				}
+			}
+			if out := analysisMCPCall(t, engine, claims, map[string]any{"collection": "calculation-stage"}); !strings.Contains(out, `"isError":true`) {
+				t.Fatal(out)
+			}
+			if kind == analytics.KindInvestment {
+				ai.Facts.Resolve = func(context.Context, analytics.Actor) (analytics.Actor, error) {
+					return analytics.Actor{TenantID: "t", Username: "alice", Managed: true, SessionVersion: 1, AccessVersion: "scope1", DeviceIDs: []string{"d1", "d2"}, Permissions: []string{"menu:devices", "menu:maintenance", analytics.AIStartOperation(kind)}}, nil
+				}
+				if out := analysisMCPCall(t, engine, claims, map[string]any{"collection": "summary"}); !strings.Contains(out, `"isError":true`) || strings.Contains(out, `\"unknown\":2`) {
+					t.Fatal("revoked finance tool leaked derived summary", out)
+				}
+			}
+		})
 	}
 }

@@ -147,7 +147,15 @@ func analysisProblem(w http.ResponseWriter, err error) {
 func analysisPage(r *http.Request) model.AnalysisFilter {
 	return model.AnalysisFilter{Limit: intval(r.URL.Query().Get("limit"), 20), Offset: intval(r.URL.Query().Get("offset"), 0)}
 }
-func publicAnalysisRun(run model.AnalysisRun) model.AnalysisRun { run.LeaseOwner = ""; return run }
+func publicAnalysisRun(run model.AnalysisRun) model.AnalysisRun {
+	run.LeaseOwner = ""
+	run.LeaseToken = 0
+	run.LeaseExpiresAt = 0
+	run.Checkpoint = nil
+	run.PermissionsVersion = ""
+	run.CreatorSessionVersion = 0
+	return run
+}
 
 func (s *Server) analysisCreate(kind string) endpointHandler {
 	return func(w http.ResponseWriter, r *http.Request) {

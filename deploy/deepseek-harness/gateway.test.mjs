@@ -381,7 +381,7 @@ test('failed process teardown stays visible and cannot falsely release model swi
 
 test('catalog is manifest-driven and exposes capabilities without policy internals', async () => {
   const plugins = await loadPluginCatalog(join(deploymentDir, 'plugins'))
-  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'data-quality-analyst', 'device-health-inspector', 'duty-handover', 'monitoring-continuity-reviewer', 'ops-assistant', 'protocol-assistant', 'rule-drafter', 'rule-policy-analyst', 'system-observer'])
+  assert.deepEqual(plugins.map(plugin => plugin.id), ['alarm-handler', 'data-quality-analyst', 'device-health-inspector', 'duty-handover', 'maintenance-investment-advisor', 'maintenance-outcome-reviewer', 'monitoring-continuity-reviewer', 'ops-assistant', 'protocol-assistant', 'response-reviewer', 'rule-drafter', 'rule-policy-analyst', 'system-observer'])
   assert.ok(plugins.every(plugin => plugin.capabilities.length > 0))
 
   const { baseUrl } = await startGateway(async () => ({ run: async () => result(), close: async () => {} }))
@@ -762,7 +762,7 @@ test('duty workflow runtime policy denies general device tools and all write too
 })
 
 
-for (const workflow of ['data-quality-analyst', 'monitoring-continuity-reviewer', 'rule-policy-analyst']) test(`${workflow} is an immutable business workflow with only bound facts and knowledge`, async () => {
+for (const workflow of ['data-quality-analyst', 'monitoring-continuity-reviewer', 'rule-policy-analyst', 'response-reviewer', 'maintenance-outcome-reviewer', 'maintenance-investment-advisor']) test(`${workflow} is an immutable business workflow with only bound facts and knowledge`, async () => {
   const catalog = await loadPluginCatalog(join(deploymentDir, 'plugins'))
   const manifest = catalog.find(plugin => plugin.id === workflow)
   assert.deepEqual(manifest.allowedTools, ['mcp__iot__query_analysis_snapshot', 'mcp__iot__query_knowledge_base'])

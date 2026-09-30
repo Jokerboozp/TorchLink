@@ -32,6 +32,7 @@ type AnalysisRun struct {
 	CreatorSessionVersion int64                    `json:"creatorSessionVersion"`
 	CreatorManaged        bool                     `json:"creatorManaged"`
 	CreationOperation     string                   `json:"creationOperation,omitempty"`
+	RequiredPermissions   []string                 `json:"requiredPermissions,omitempty"`
 	DeviceIDs             []string                 `json:"deviceIds"`
 	PermissionsVersion    string                   `json:"permissionsVersion"`
 	Start                 int64                    `json:"start"`
@@ -190,6 +191,13 @@ type AnalysisAIResult struct {
 	DependencyObservations   []AnalysisAIStatement   `json:"dependencyObservations,omitempty"`
 	BehaviorDifferences      []AnalysisAIStatement   `json:"behaviorDifferences,omitempty"`
 	VerificationSuggestions  []AnalysisAIStatement   `json:"verificationSuggestions,omitempty"`
+	ObservedBottlenecks      []AnalysisAIStatement   `json:"observedBottlenecks,omitempty"`
+	EvidenceGaps             []AnalysisAIStatement   `json:"evidenceGaps,omitempty"`
+	ImprovementSuggestions   []AnalysisAIStatement   `json:"improvementSuggestions,omitempty"`
+	ObservedChanges          []AnalysisAIStatement   `json:"observedChanges,omitempty"`
+	Confounders              []AnalysisAIStatement   `json:"confounders,omitempty"`
+	PriorityExplanations     []AnalysisAIStatement   `json:"priorityExplanations,omitempty"`
+	DecisionConsiderations   []AnalysisAIStatement   `json:"decisionConsiderations,omitempty"`
 	CandidateDraft           *AlarmRule              `json:"candidateDraft,omitempty"`
 	CandidateRevisionID      string                  `json:"candidateRevisionId,omitempty"`
 	PreparedCandidate        *AnalysisConfigRevision `json:"-"`
@@ -267,7 +275,10 @@ type AnalysisFilter struct {
 	DeviceID       string
 	DeviceIDs      []string
 	DeviceScopeSet bool
-	Statuses       []string
-	Limit          int
-	Offset         int
+	// Trusted service filtering must happen before pagination and total counts.
+	RequiredScopeSet           bool
+	AllowedRequiredPermissions []string
+	Statuses                   []string
+	Limit                      int
+	Offset                     int
 }

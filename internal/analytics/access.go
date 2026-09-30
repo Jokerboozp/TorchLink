@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+
+	"iot-platform/internal/model"
 )
 
 const (
@@ -17,6 +19,38 @@ const (
 
 var ErrForbidden = errors.New("无分析权限或设备范围已变化")
 var ErrUnsupported = errors.New("此分析应用尚未启用")
+
+const FinanceReadOperation = "GET /api/v1/maintenance-costs"
+const QualityReadPermission = "menu:dataQuality"
+
+func NormalizeRequiredPermissions(kind string, required []string) ([]string, error) {
+	if len(required) == 0 {
+		return nil, nil
+	}
+	if kind != KindMaintenance && kind != KindInvestment {
+		return nil, model.ErrAnalysisInvalid
+	}
+	for _, permission := range required {
+		if permission != FinanceReadOperation && permission != QualityReadPermission {
+			return nil, model.ErrAnalysisInvalid
+		}
+	}
+	out := slices.Clone(required)
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+func (a Actor) AllowsRequired(required []string) bool {
+	if slices.Contains(a.Permissions, "*") {
+		return true
+	}
+	for _, permission := range required {
+		if !slices.Contains(a.Permissions, permission) {
+			return false
+		}
+	}
+	return true
+}
 
 type Actor struct {
 	TenantID       string

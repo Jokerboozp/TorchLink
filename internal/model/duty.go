@@ -24,6 +24,7 @@ const (
 	DutyRevisionKind      = "revision"
 	DutyAIJobKind         = "ai-job"
 	DutyNotificationKind  = "notification"
+	DutyActionLinkKind    = "action-link"
 )
 
 var ErrDutyConflict = errors.New("duty version conflict")

@@ -22,6 +22,9 @@ func aiFixture(t *testing.T) (*Store, *AIService, Actor, model.AnalysisRun) {
 	return aiFixtureKind(t, KindDataQuality)
 }
 func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.AnalysisRun) {
+	return aiFixtureKindOptions(t, kind, false)
+}
+func aiFixtureKindOptions(t *testing.T, kind string, finance bool) (*Store, *AIService, Actor, model.AnalysisRun) {
 	t.Helper()
 	ctx := context.Background()
 	store := NewMemoryStore()
@@ -35,6 +38,38 @@ func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.
 	}, func(context.Context, string, string) error { return nil })
 	request := storedRun("one", kind)
 	request.Creator = actor.Username
+	if kind == KindResponse || kind == KindMaintenance || kind == KindInvestment {
+		body := json.RawMessage(`{"record":"fixed"}`)
+		if kind == KindInvestment {
+			body, _ = json.Marshal(map[string]any{"record": "fixed", "useFinance": finance})
+		}
+		sourceKind := "RESPONSE_EXECUTION"
+		if kind == KindMaintenance {
+			sourceKind = "MAINTENANCE_RECORD"
+		}
+		if kind == KindInvestment {
+			sourceKind = "INVESTMENT_SCENARIO"
+		}
+		source, err := store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "source", TenantID: "t", Kind: sourceKind, ResourceID: "business-one", Scope: "SHARED", Creator: actor.Username, DeviceIDs: request.DeviceIDs, Body: body}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.ConfigurationVersion = source.Hash
+		p := map[string]any{"useFinance": finance}
+		if kind == KindResponse {
+			p = map[string]any{"executionRevisionId": source.ID, "cutoff": 2000}
+		}
+		if kind == KindMaintenance {
+			p["observation"] = map[string]any{"interventionRevisionId": source.ID}
+		}
+		if kind == KindInvestment {
+			p["scenarioRevisionId"] = source.ID
+		}
+		request.Parameters, _ = json.Marshal(p)
+		if finance {
+			request.RequiredPermissions = []string{FinanceReadOperation}
+		}
+	}
 	if kind == KindRuleLab {
 		body, _ := json.Marshal(model.RuleLabExperiment{DatasetID: "dataset", CandidateRuleID: "policy", Candidate: model.AlarmRule{ID: "policy", TenantID: "t", ProductID: "p", Enabled: false}, CandidateEnabled: true, Hypothesis: "手算固定实验"})
 		if _, e := store.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "experiment", TenantID: "t", Kind: model.RuleLabExperimentKind, ResourceID: "experiment-policy", Scope: "PERSONAL", Creator: actor.Username, DeviceIDs: request.DeviceIDs, Body: body}, 0); e != nil {
@@ -42,6 +77,7 @@ func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.
 		}
 		request.Parameters = json.RawMessage(`{"phase":"EXPERIMENT","datasetId":"dataset","experimentRevisionId":"experiment"}`)
 	}
+
 	if _, err := store.CreateAnalysisRun(ctx, request, 100); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +101,20 @@ func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.
 	if kind == KindRuleLab {
 		category = "rule-lab-evidence"
 		outputs = append(outputs, model.AnalysisOutput{ID: "difference", Kind: "diffs", DeviceID: "d1", Body: json.RawMessage(`{"kind":"CANDIDATE_ONLY"}`)}, model.AnalysisOutput{ID: "cycle", Kind: "outcomes", DeviceID: "d1", Body: json.RawMessage(`{"branch":"CANDIDATE"}`)}, model.AnalysisOutput{ID: "label", Kind: "labels", DeviceID: "d1", Body: json.RawMessage(`{"status":"DRAFT"}`)}, model.AnalysisOutput{ID: "private", Kind: "comparison-stage", Body: json.RawMessage(`{"private":true}`)})
+	}
+	if kind == KindResponse {
+		category = "response"
+	}
+	if kind == KindMaintenance || kind == KindInvestment {
+		category = "maintenance-evidence"
+		public := []string{"observations", "change-metrics"}
+		if kind == KindInvestment {
+			public = []string{"investment-priorities", "budget-lines"}
+		}
+		for _, collection := range public {
+			outputs = append(outputs, model.AnalysisOutput{ID: collection + "-one", Kind: collection, DeviceID: "d1", Body: json.RawMessage(`{"known":false}`)})
+		}
+		outputs = append(outputs, model.AnalysisOutput{ID: "private", Kind: "calculation-stage", Body: json.RawMessage(`{"private":true}`)})
 	}
 	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Evidence: []model.AnalysisEvidence{{ID: "proof", SourceKind: "raw", SourceID: "raw1", DeviceID: "d1", Summary: json.RawMessage(`{"parse":"unknown"}`), PermissionCategory: category, OriginalAvailability: "EXPIRED"}}, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"missing":4,"unknown":2}`), Limitations: []string{"起点状态未知"}}})
 	if err != nil {

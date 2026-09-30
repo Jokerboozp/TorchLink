@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"iot-platform/internal/analytics"
 	"net/http"
 	"sort"
 
@@ -30,7 +31,7 @@ func workflowScopes(ctx context.Context) []string {
 		auth.ScopeQueryKnowledgeBase:    p["menu:knowledge"],
 		auth.ScopeCreateRuleDraft:       allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
 		auth.ScopeQueryDutySnapshot:     p["menu:duty"] && p["action:duty:ai"],
-		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")) || (p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs"))),
+		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")) || (p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs")) || (p["menu:response"] && allowsRoute(p, "POST", "/api/v1/response-runs/:id/ai-jobs")) || (p["menu:maintenance"] && (allowsRoute(p, "POST", "/api/v1/maintenance-observations/:id/ai-jobs") || allowsRoute(p, "POST", "/api/v1/investment-scenarios/:id/ai-jobs")))),
 	}
 	out := []string{}
 	for _, scope := range auth.HarnessReadScopes() {
@@ -58,7 +59,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 		return ctx, errors.New("AI 运行身份与租户不符")
 	}
 	if !identity.ManagedUser {
-		if workflowID == core.WorkflowDataQuality || workflowID == core.WorkflowMonitoring || workflowID == core.WorkflowRulePolicy {
+		if analytics.IsAnalysisWorkflow(workflowID) {
 			return ctx, s.authorizeAnalysisAI(ctx, identity)
 		}
 		if workflowID == core.WorkflowDutyHandover {
@@ -90,7 +91,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 			return ctx, err
 		}
 	}
-	if workflowID == core.WorkflowDataQuality || workflowID == core.WorkflowMonitoring || workflowID == core.WorkflowRulePolicy {
+	if analytics.IsAnalysisWorkflow(workflowID) {
 		if err := s.authorizeAnalysisAI(ctx, identity); err != nil {
 			return ctx, err
 		}
@@ -108,6 +109,12 @@ func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
 		return p["menu:devices"] && p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")
 	case core.WorkflowRulePolicy:
 		return p["menu:devices"] && p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs")
+	case core.WorkflowResponse:
+		return p["menu:devices"] && p["menu:response"] && allowsRoute(p, "POST", "/api/v1/response-runs/:id/ai-jobs")
+	case core.WorkflowMaintenance:
+		return p["menu:devices"] && p["menu:maintenance"] && allowsRoute(p, "POST", "/api/v1/maintenance-observations/:id/ai-jobs")
+	case core.WorkflowInvestment:
+		return p["menu:devices"] && p["menu:maintenance"] && allowsRoute(p, "POST", "/api/v1/investment-scenarios/:id/ai-jobs")
 	case core.WorkflowDutyHandover:
 		return p["menu:duty"] && p["action:duty:ai"]
 	case core.WorkflowAlarmAnalysis:

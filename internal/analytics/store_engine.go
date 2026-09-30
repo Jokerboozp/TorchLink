@@ -143,6 +143,9 @@ func (s *Store) CreateAnalysisRun(ctx context.Context, r model.AnalysisRun, queu
 	if r.DeviceIDs, err = explicitDevices(r.DeviceIDs); err != nil {
 		return out, err
 	}
+	if r.RequiredPermissions, err = NormalizeRequiredPermissions(r.Kind, r.RequiredPermissions); err != nil {
+		return out, err
+	}
 	if queueLimit <= 0 {
 		queueLimit = 100
 	}
@@ -159,6 +162,13 @@ func (s *Store) CreateAnalysisRun(ctx context.Context, r model.AnalysisRun, queu
 		Parameters                                                     json.RawMessage
 	}{r.Kind, r.Creator, r.PermissionsVersion, r.ConfigurationVersion, r.AlgorithmVersion, r.PreviousRunID, r.CreatorSessionVersion, r.CreatorManaged, r.DeviceIDs, r.Start, r.End, r.Parameters}
 	r.RequestHash, err = AnalysisHash(request)
+	if err == nil && (len(r.RequiredPermissions) > 0 || r.CreationOperation != "" && r.CreationOperation != CreateOperation(r.Kind)) {
+		r.RequestHash, err = AnalysisHash(struct {
+			Request             any
+			RequiredPermissions []string `json:"requiredPermissions,omitempty"`
+			CreationOperation   string   `json:"creationOperation,omitempty"`
+		}{request, r.RequiredPermissions, r.CreationOperation})
+	}
 	if err != nil {
 		return out, err
 	}

@@ -23,6 +23,25 @@ func sqlAIServiceKind(t *testing.T, r *Repository, kind string) (*analytics.AISe
 	ctx := context.Background()
 	request := sqlAnalysisRun("facts")
 	request.Kind = kind
+	if kind == analytics.KindResponse || kind == analytics.KindMaintenance || kind == analytics.KindInvestment {
+		sourceKind := "RESPONSE_EXECUTION"
+		parameters := map[string]any{"executionRevisionId": "source"}
+		if kind == analytics.KindMaintenance {
+			sourceKind = "MAINTENANCE_RECORD"
+			parameters = map[string]any{"observation": map[string]any{"interventionRevisionId": "source"}, "useFinance": false}
+		}
+		if kind == analytics.KindInvestment {
+			sourceKind = "INVESTMENT_SCENARIO"
+			parameters = map[string]any{"scenarioRevisionId": "source", "useFinance": true}
+			request.RequiredPermissions = []string{analytics.FinanceReadOperation}
+		}
+		source, err := r.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "source", TenantID: "t", Kind: sourceKind, ResourceID: "business", Scope: "SHARED", Creator: "operator", DeviceIDs: request.DeviceIDs, Body: json.RawMessage(`{"useFinance":true}`)}, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.ConfigurationVersion = source.Hash
+		request.Parameters, _ = json.Marshal(parameters)
+	}
 	if kind == analytics.KindRuleLab {
 		body, _ := json.Marshal(model.RuleLabExperiment{DatasetID: "dataset", CandidateRuleID: "rule", Candidate: model.AlarmRule{ID: "rule", TenantID: "t", ProductID: "p", Enabled: false}, CandidateEnabled: true})
 		if _, e := r.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "experiment", TenantID: "t", Kind: model.RuleLabExperimentKind, ResourceID: "policy", Scope: "PERSONAL", Creator: "operator", DeviceIDs: request.DeviceIDs, Body: body}, 0); e != nil {
@@ -48,6 +67,74 @@ func sqlAIServiceKind(t *testing.T, r *Repository, kind string) (*analytics.AISe
 	actor := analytics.Actor{TenantID: "t", Username: "operator", AccessVersion: "scope1", AllDevices: true, Permissions: []string{"*"}}
 	facts := analytics.NewService(r, config.AnalyticsConfig{}, func(context.Context, analytics.Actor) (analytics.Actor, error) { return actor, nil }, nil)
 	return analytics.NewAIService(facts, nil), actor, run
+}
+
+func TestApplicationAISQLFixedSourceStopRestartAndFinanceBoundary(t *testing.T) {
+	for _, kind := range []string{analytics.KindResponse, analytics.KindMaintenance, analytics.KindInvestment} {
+		t.Run(kind, func(t *testing.T) {
+			ctx, r := context.Background(), testRepository(t)
+			if err := r.MigrateAnalytics(ctx); err != nil {
+				t.Fatal(err)
+			}
+			service, a, run := sqlAIServiceKind(t, r, kind)
+			spec, _ := analytics.AnalysisWorkflow(kind)
+			create := func(key string) model.AnalysisAIRevision {
+				job, err := service.Create(ctx, a, kind, run.ID, analytics.CreateAIRequest{ExpectedVersion: run.Version, IdempotencyKey: key, Reinterpret: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return job
+			}
+			create("first")
+			job, err := r.ClaimAnalysisAIRevision(ctx, "replica-1", time.Minute, 4*time.Minute, []string{spec.WorkflowID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = service.BuildInput(ctx, job); err != nil {
+				t.Fatal(err)
+			}
+			current, err := r.GetAnalysisAIRevision(ctx, "t", job.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = r.StopAnalysisAIRevision(ctx, "t", job.ID, current.Version); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = r.FinishAnalysisAIRevision(ctx, "t", job.ID, job.LeaseToken, model.AnalysisAIResult{}, "late-model", "late failure"); !errors.Is(err, model.ErrAnalysisLeaseLost) {
+				t.Fatal("stale external result accepted", err)
+			}
+			queued := create("retry-explicit")
+			job, err = r.ClaimAnalysisAIRevision(ctx, "replica-2", time.Minute, 4*time.Minute, []string{spec.WorkflowID})
+			if err != nil || job.ID != queued.ID {
+				t.Fatal(job, err)
+			}
+			if kind == analytics.KindInvestment {
+				service.Facts.Resolve = func(context.Context, analytics.Actor) (analytics.Actor, error) {
+					return analytics.Actor{TenantID: "t", Username: "operator", AccessVersion: "scope1", AllDevices: true, Permissions: []string{"menu:devices", "menu:maintenance", analytics.AIStartOperation(kind)}}, nil
+				}
+				if _, err = service.BuildInput(ctx, job); !errors.Is(err, analytics.ErrForbidden) {
+					t.Fatal("fund summary leaked after revoke", err)
+				}
+				if _, err = service.Get(ctx, a, kind, run.ID, job.ID); !errors.Is(err, analytics.ErrForbidden) {
+					t.Fatal(err)
+				}
+			}
+			if _, err = r.pool.Exec(ctx, `UPDATE analysis_document SET body=jsonb_set(body,'{leaseExpiresAt}','1') WHERE tenant_id='t' AND kind='ai' AND id=$1`, job.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = r.ClaimAnalysisAIRevision(ctx, "restarted", time.Minute, 4*time.Minute, []string{spec.WorkflowID}); !errors.Is(err, model.ErrNotFound) {
+				t.Fatal("unknown external call repeated automatically", err)
+			}
+			failed, err := r.GetAnalysisAIRevision(ctx, "t", job.ID)
+			if err != nil || failed.Status != model.AnalysisFailed || len(failed.Interpretation) != 0 {
+				t.Fatal(failed, err)
+			}
+			facts, err := r.GetAnalysisRun(ctx, "t", run.ID)
+			if err != nil || facts.SnapshotID != run.SnapshotID || facts.Status != model.AnalysisPartial {
+				t.Fatal("AI restart changed facts", facts, err)
+			}
+		})
+	}
 }
 func TestAnalyticsAISQLDuplicateReplicaClaimsStopAndUnknownRestart(t *testing.T) {
 	ctx := context.Background()

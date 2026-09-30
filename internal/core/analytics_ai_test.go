@@ -48,6 +48,38 @@ func TestAnalysisWorkflowFixedRunTokenAndKnowledgePolicy(t *testing.T) {
 	}
 }
 
+func TestResponseMaintenanceInvestmentWorkflowsKeepScopedHarnessAndKnowledgeBoundary(t *testing.T) {
+	for _, kind := range []string{analytics.KindResponse, analytics.KindMaintenance, analytics.KindInvestment} {
+		t.Run(kind, func(t *testing.T) {
+			repo := memory.NewRepository()
+			engine := New(repo, nil, nil, nil, nil, nil)
+			harness := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return `{}`, nil }}
+			engine.AIWorkflows, engine.HarnessTokens = harness, aitest.Tokens()
+			spec, _ := analytics.AnalysisWorkflow(kind)
+			job := model.AnalysisAIRevision{ID: "job", TenantID: "t", Kind: kind, WorkflowID: spec.WorkflowID, PromptVersion: spec.PromptVersion, RunID: "facts", SnapshotID: "snapshot", SnapshotVersion: 2, Creator: "operator", CreatorManaged: true, CreatorSessionVersion: 3, PermissionVersion: "scope", LeaseToken: 9, HarnessRunID: "fixed-harness", DeviceIDs: []string{"d"}}
+			input := model.AnalysisAIFacts{SnapshotID: job.SnapshotID, SnapshotVersion: job.SnapshotVersion, Statistics: json.RawMessage(`{"unknown":1}`)}
+			ctx := ports.WithAIRunIdentity(context.Background(), analytics.AIIdentity(job))
+			if _, err := engine.RunAnalysisWorkflow(ctx, job, input); err != nil {
+				t.Fatal(err)
+			}
+			request := harness.Last()
+			claims, err := aitest.Claims(request)
+			if err != nil || claims.Workflow != spec.WorkflowID || claims.AnalysisLeaseToken != 9 || !slices.Equal(claims.Scopes, []string{ports.MCPToolScope("query_analysis_snapshot")}) {
+				t.Fatal(claims, err)
+			}
+			if !strings.Contains(request.Question, `"unknown":1`) || !strings.Contains(request.Question, "limitations") {
+				t.Fatal("missing accurate facts or schema")
+			}
+			if err := repo.SaveWorkflowKnowledgeBinding(context.Background(), model.WorkflowKnowledgeBinding{TenantID: "t", WorkflowID: spec.WorkflowID, RetrievalMode: "always", TopK: 5, MinScore: .25, NoMatchPolicy: "require-evidence"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := engine.RunAnalysisWorkflow(ctx, job, input); err == nil || len(harness.Requests()) != 1 {
+				t.Fatal("disabled checkbox bypassed mandatory workflow knowledge", err)
+			}
+		})
+	}
+}
+
 func TestMonitoringWorkflowPromptScopesAndWorkflowProof(t *testing.T) {
 	repo := memory.NewRepository()
 	engine := New(repo, nil, nil, nil, nil, nil)

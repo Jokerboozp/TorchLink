@@ -133,6 +133,15 @@ func (tx *memoryTx) List(kind string, f model.AnalysisFilter) ([]StorageDocument
 				continue
 			}
 		}
+		if f.RequiredScopeSet && kind == "run" {
+			var run model.AnalysisRun
+			if err := json.Unmarshal(d.Body, &run); err != nil {
+				return nil, 0, err
+			}
+			if !(Actor{Permissions: f.AllowedRequiredPermissions}).AllowsRequired(run.RequiredPermissions) {
+				continue
+			}
+		}
 		out = append(out, cloneStorage(d))
 	}
 	sort.Slice(out, func(i, j int) bool {

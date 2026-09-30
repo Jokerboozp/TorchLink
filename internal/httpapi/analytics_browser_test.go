@@ -17,14 +17,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	aiadapter "iot-platform/internal/adapters/ai"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/adapters/rawstore"
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/analytics/dataquality"
 	"iot-platform/internal/analytics/dataquality/testkit"
+	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
+	"iot-platform/internal/duty"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
@@ -125,12 +128,100 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.Config{AdminUser: "admin", AdminPassword: password, AdminTenants: []string{tenant}, JWTSecret: "analytics-browser-fixture-secret-32-characters", DevMode: true, InstanceID: "analytics-browser-fixture", Analytics: config.AnalyticsConfig{Poll: 100 * time.Millisecond}}
-	engine := &core.Engine{Repo: repo, Parsers: parser.NewPlatformRegistry(t.TempDir())}
+	engine := core.New(repo, nil, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if os.Getenv("IOT_TEST_ANALYTICS_REAL_HARNESS") == "1" {
+		// Credentials and the independently owned VM sidecar are injected by the
+		// test runner. Normal browser checks retain the unavailable-model path.
+		engine.AIWorkflows, err = aiadapter.NewHarnessPool(os.Getenv("IOT_TEST_HARNESS_URL"), os.Getenv("IOT_TEST_HARNESS_TOKEN"), "http://host.orb.internal:8092/mcp/harness", os.Getenv("IOT_TEST_HARNESS_MODEL"), 2*time.Minute)
+		if err != nil {
+			t.Fatal("isolated real Harness configuration failed")
+		}
+		engine.HarnessTokens = auth.New(cfg.JWTSecret)
+	}
 	engine.Archive, err = local.NewArchive(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	const responseAlarmID = "response-fixture-fire"
+	const responseRawID = "response-fixture-raw-fire"
+	responseAt := data.End + 1000
+	responsePayload, _ := json.Marshal(map[string]any{"alarmType": "FIRE", "alarmLevel": "HIGH", "content": "隔离夹具真实生产链记录"})
+	responseRaw := model.RawMessage{TenantID: tenant, MessageID: responseRawID, DeviceID: data.DeviceID, ProductID: data.ProductID, Source: "isolated-synthetic-response-test", Protocol: "synthetic-json", ReceivedAt: responseAt + 20, Payload: responsePayload}
+	if err = repo.SaveRawMessage(ctx, responseRaw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: tenant, MessageID: responseRawID, DeviceID: data.DeviceID, ProductID: data.ProductID, ReceivedAt: responseRaw.ReceivedAt, ArchivedAt: time.Now().UnixMilli(), ObjectBucket: "postgres", ObjectKey: responseRawID, PayloadHash: responseRaw.PayloadHash(), PayloadSize: len(responsePayload)}); err != nil {
+		t.Fatal(err)
+	}
+	responseMessage := model.StandardMessage{TenantID: tenant, MessageID: "response-fixture-standard-fire", RawMessageID: responseRawID, DeviceID: data.DeviceID, ProductID: data.ProductID, MessageType: model.AlarmReport, Timestamp: responseAt, Properties: map[string]any{"alarmType": "FIRE", "alarmLevel": "HIGH", "content": "隔离夹具真实生产链记录"}, Parser: "synthetic-json", ParserVersion: "fixture-v1"}
+	if _, err = repo.SaveStandardMessageIfAbsent(ctx, responseMessage); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = repo.UpsertAlarm(ctx, model.Alarm{ID: responseAlarmID, TenantID: tenant, DeviceID: data.DeviceID, DeviceName: "隔离样本设备", TriggerID: responseMessage.MessageID, RuleID: "device-report:FIRE", AlarmType: "FIRE", AlarmLevel: "HIGH", Status: "ACTIVE", Source: "device", FirstTriggeredAt: responseAt, LastTriggeredAt: responseAt, TriggerCount: 1, Details: map[string]any{"message": responseMessage}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = engine.SetAlarmStatus(ctx, tenant, responseAlarmID, "ACKED", "admin"); err != nil {
+		t.Fatal("fixture alarm confirmation failed", err)
+	}
+	var responseEventID, responseLifecycleID string
+	if err = repo.DutyRead(ctx, tenant, func(tx ports.DutyTx) error {
+		events, _, err := tx.Events(model.DutyFilter{DeviceIDs: []string{data.DeviceID}, Limit: 100})
+		if err != nil {
+			return err
+		}
+		for _, v := range events {
+			if v.ResourceID == responseAlarmID && v.Type == "ALARM_CREATED" {
+				responseEventID = v.ID
+			}
+			if v.ResourceID == responseAlarmID && v.Type == "ALARM_ACKNOWLEDGED" {
+				responseLifecycleID = v.ID
+			}
+		}
+		return nil
+	}); err != nil || responseEventID == "" || responseLifecycleID == "" {
+		t.Fatal("response fixture journal identity missing", err)
+	}
 	engine.RawStore = rawstore.New(rawstore.Config{PostgreSQL: repo, Resolver: repo})
+	staffPasswordHash, err := hashPassword(password)
+	if err != nil {
+		t.Fatal("fixture staff password initialization failed")
+	}
+	accessState, err := repo.LoadAccessState(ctx, tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, staff := range []string{"response-off-duty", "response-verifier"} {
+		accessState.Users = append(accessState.Users, model.PlatformUser{Username: staff, DisplayName: "隔离验证人员 " + staff, PasswordHash: staffPasswordHash, Enabled: true, SessionVersion: 1, DeviceScope: "selected", DeviceIDs: []string{data.DeviceID}, Permissions: []string{"menu:devices", "menu:response", "menu:alarms", "menu:raw", "menu:maintenance", "menu:duty", "action:duty:item"}})
+	}
+	if saved, err := repo.SaveAccessState(ctx, tenant, accessState); err != nil || !saved {
+		t.Fatal("fixture staff initialization failed", err)
+	}
+	shift := duty.New(repo, func(_ context.Context, tID, username string) (duty.Actor, error) {
+		if username != "admin" || tID != tenant {
+			return duty.Actor{}, duty.ErrForbidden
+		}
+		return duty.Actor{TenantID: tenant, Username: "admin", Admin: true, Enabled: true, AllDevices: true, Permissions: []string{"*"}}, nil
+	})
+	shiftActor := duty.Actor{TenantID: tenant, Username: "admin", Admin: true, Enabled: true, AllDevices: true, Permissions: []string{"*"}}
+	shiftCommand := func(kind, op, id string, version int64, body any) model.DutyDocument {
+		raw, _ := json.Marshal(body)
+		value, err := shift.Execute(ctx, shiftActor, duty.Command{Kind: kind, Operation: op, ID: id, ExpectedVersion: version, IdempotencyKey: "fixture-" + kind + "-" + op, Body: raw})
+		if err != nil {
+			t.Fatal("fixture duty operation failed", err)
+		}
+		encoded, _ := json.Marshal(value)
+		var doc model.DutyDocument
+		if json.Unmarshal(encoded, &doc) != nil || doc.ID == "" {
+			t.Fatal("fixture duty document missing")
+		}
+		return doc
+	}
+	station := shiftCommand(model.DutyStationKind, "create", "", 0, duty.Station{Name: "隔离浏览器验证岗位", SupervisorID: "admin", DeviceIDs: []string{data.DeviceID}, RequiredPeople: 1, Enabled: true, Timezone: "Asia/Shanghai"})
+	shiftNow := time.Now()
+	roster := shiftCommand(model.DutyRosterKind, "create", "", 0, duty.Roster{StationID: station.ID, StartAt: shiftNow.Add(-time.Minute).UnixMilli(), EndAt: shiftNow.Add(time.Hour).UnixMilli(), MemberIDs: []string{"admin"}, LeaderID: "admin"})
+	roster = shiftCommand(model.DutyRosterKind, "publish", roster.ID, roster.Version, nil)
+	shiftCommand(model.DutyRunKind, "arrive", "", 0, map[string]any{"rosterId": roster.ID})
+	shiftRun := shiftCommand(model.DutyRunKind, "open", "", 0, map[string]any{"rosterId": roster.ID, "reason": "隔离浏览器验证首次开班"})
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAnalysisStorage(repo, repo)
 	// Registration now cannot reconstruct activation during the old sample
@@ -185,9 +276,10 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
 	if path := os.Getenv("IOT_TEST_ANALYTICS_BROWSER_INFO"); path != "" {
+		time.Sleep(1100 * time.Millisecond) // Query widgets select whole seconds; include the committed fixture ACK.
 		monitoringBody, _ := json.Marshal(model.MonitoringProfile{TargetType: "DEVICE", EffectiveFrom: data.Start, Mode: "periodic", Attributes: []model.MonitoringAttribute{{ID: data.AttributeID, ValueType: "number"}}, MessageTypes: []model.MessageType{model.PropertyReport}, Merge: "ALL", PeriodMs: 1000, ToleranceMs: 100, Importance: "人工确认的验证重点", LongGapMs: 5000, FrequentGapCount: 2})
 		monitoringInfo := map[string]any{"deviceIds": []string{data.DeviceID, secondDevice}, "start": data.Start, "end": data.End, "attributeId": data.AttributeID, "periodMs": 1000, "toleranceMs": 100, "observationStart": data.Start + 10000, "observationEnd": data.Start + 15000, "qualityRunId": qualityRun.ID, "expected": map[string]any{"synthetic": true, "connectionOnlineMs": 30000, "connectionOfflineMs": 10000, "eventExpiredBeforeAvailable": true, "connectionSecondOnlineMs": 40000}}
-		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo, "ruleLab": map[string]any{"deviceIds": []string{data.DeviceID}, "start": data.Start, "end": data.End, "warmupStart": data.Start, "ruleId": ruleRevision.RuleID, "baselineRevisionId": ruleRevision.ID, "expected": map[string]any{"synthetic": true, "sourceInputCount": 40, "baselineCycles": 8, "candidateCycles": 8}}})
+		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo, "response": map[string]any{"deviceId": data.DeviceID, "deviceIds": []string{data.DeviceID}, "alarmLifecycleEventId": responseLifecycleID, "evidenceStart": data.Start, "evidenceEnd": time.Now().Truncate(time.Second).UnixMilli(), "staffUsername": "response-off-duty", "alarmId": responseAlarmID, "rawMessageId": responseRawID, "alarmReportEventId": responseEventID, "platformReceivedAt": responseRaw.ReceivedAt, "staff": []string{"admin", "response-off-duty", "response-verifier"}, "dutyRunId": shiftRun.ID, "dutyStationId": station.ID, "expected": map[string]any{"synthetic": true, "productionStatus": "ACKED"}}, "ruleLab": map[string]any{"deviceIds": []string{data.DeviceID}, "start": data.Start, "end": data.End, "warmupStart": data.Start, "ruleId": ruleRevision.RuleID, "baselineRevisionId": ruleRevision.ID, "expected": map[string]any{"synthetic": true, "sourceInputCount": 40, "baselineCycles": 8, "candidateCycles": 8}}})
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}

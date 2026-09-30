@@ -4,7 +4,6 @@ import (
 	"context"
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
-	"iot-platform/internal/core"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 	"net/http"
@@ -34,6 +33,7 @@ func (s *Server) analysisAIRoutes() {
 		s.router.POST(prefix+"/runs/:id/ai-jobs/:jobId/stop", s.authorize("viewer"), s.endpoint(s.analysisAIStop(kind), "id", "jobId"))
 	}
 	s.ruleLabAIRoutes()
+	s.responseAIRoutes()
 }
 func publicAnalysisAI(v model.AnalysisAIRevision) model.AnalysisAIRevision {
 	v.LeaseOwner = ""
@@ -130,7 +130,7 @@ func analysisHarnessIdentity(c auth.Claims) ports.AIRunIdentity {
 	return ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.ManagedUser, SessionVersion: c.SessionVersion, AccessVersion: c.AnalysisAccessVersion, AnalysisRunID: c.AnalysisRunID, AnalysisSnapshotID: c.AnalysisSnapshotID, AnalysisSnapshotVersion: c.AnalysisSnapshotVersion, AnalysisJobID: c.AnalysisJobID, AnalysisLeaseToken: c.AnalysisLeaseToken, AnalysisHarnessRunID: c.RunID, AnalysisWorkflowID: c.Workflow}
 }
 func (s *Server) authorizeAnalysisHarness(ctx context.Context, c auth.Claims) error {
-	if c.Workflow != core.WorkflowDataQuality && c.Workflow != core.WorkflowMonitoring && c.Workflow != core.WorkflowRulePolicy {
+	if !analytics.IsAnalysisWorkflow(c.Workflow) {
 		return analytics.ErrForbidden
 	}
 	return s.authorizeAnalysisAI(ctx, analysisHarnessIdentity(c))

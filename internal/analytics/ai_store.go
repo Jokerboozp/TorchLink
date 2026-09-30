@@ -33,6 +33,50 @@ func aiSnapshot(tx StorageTx, v model.AnalysisAIRevision) (model.AnalysisRun, er
 			return r, model.ErrAnalysisInvalid
 		}
 	}
+	if r.Kind == KindResponse || r.Kind == KindMaintenance || r.Kind == KindInvestment {
+		var p struct {
+			ExecutionRevisionID string `json:"executionRevisionId"`
+			ScenarioRevisionID  string `json:"scenarioRevisionId"`
+			UseFinance          bool   `json:"useFinance"`
+			Observation         struct {
+				InterventionRevisionID string `json:"interventionRevisionId"`
+			} `json:"observation"`
+		}
+		if json.Unmarshal(r.Parameters, &p) != nil {
+			return r, model.ErrAnalysisInvalid
+		}
+		sourceID, sourceKind := p.ExecutionRevisionID, "RESPONSE_EXECUTION"
+		if r.Kind == KindMaintenance {
+			sourceID, sourceKind = p.Observation.InterventionRevisionID, "MAINTENANCE_RECORD"
+		}
+		if r.Kind == KindInvestment {
+			sourceID, sourceKind = p.ScenarioRevisionID, "INVESTMENT_SCENARIO"
+		}
+		if sourceID == "" {
+			return r, model.ErrAnalysisInvalid
+		}
+		source, err := load[model.AnalysisConfigRevision](tx, "config", sourceID)
+		if err != nil {
+			return r, err
+		}
+		if source.Kind != sourceKind || !slices.Equal(source.DeviceIDs, r.DeviceIDs) {
+			return r, model.ErrAnalysisConflict
+		}
+		if r.Kind == KindResponse && source.Hash != r.ConfigurationVersion {
+			return r, model.ErrAnalysisConflict
+		}
+		if r.Kind != KindResponse && p.UseFinance != slices.Contains(r.RequiredPermissions, FinanceReadOperation) {
+			return r, model.ErrAnalysisConflict
+		}
+		if r.Kind == KindInvestment {
+			var scenario struct {
+				UseFinance bool `json:"useFinance"`
+			}
+			if json.Unmarshal(source.Body, &scenario) != nil || scenario.UseFinance != p.UseFinance {
+				return r, model.ErrAnalysisConflict
+			}
+		}
+	}
 	if (r.Status != model.AnalysisSucceeded && r.Status != model.AnalysisPartial) || r.SnapshotID != v.SnapshotID || r.Kind != v.Kind {
 		return r, model.ErrAnalysisConflict
 	}

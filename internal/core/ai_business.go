@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"iot-platform/internal/aioutput"
+	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -25,6 +26,9 @@ const (
 	WorkflowDataQuality      = "data-quality-analyst"
 	WorkflowMonitoring       = "monitoring-continuity-reviewer"
 	WorkflowRulePolicy       = "rule-policy-analyst"
+	WorkflowResponse         = "response-reviewer"
+	WorkflowMaintenance      = "maintenance-outcome-reviewer"
+	WorkflowInvestment       = "maintenance-investment-advisor"
 
 	businessRunTokenTTL = 5 * time.Minute
 )
@@ -34,7 +38,7 @@ var ErrAIWorkflowsUnavailable = errors.New("AI 工作流服务（Harness）未�
 
 // BusinessWorkflowIDs lists the non-chat Agents used by platform features.
 func BusinessWorkflowIDs() []string {
-	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover, WorkflowDataQuality, WorkflowMonitoring, WorkflowRulePolicy}
+	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover, WorkflowDataQuality, WorkflowMonitoring, WorkflowRulePolicy, WorkflowResponse, WorkflowMaintenance, WorkflowInvestment}
 }
 
 // AIWorkflowsReady reports whether business AI features can run.
@@ -145,7 +149,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	}
 	runID := id("ai_run")
 	if identity.AnalysisJobID != "" {
-		if identity.AnalysisHarnessRunID == "" || identity.AnalysisLeaseToken <= 0 || identity.AnalysisWorkflowID != workflowID || (workflowID != WorkflowDataQuality && workflowID != WorkflowMonitoring && workflowID != WorkflowRulePolicy) {
+		if identity.AnalysisHarnessRunID == "" || identity.AnalysisLeaseToken <= 0 || identity.AnalysisWorkflowID != workflowID || !analytics.IsAnalysisWorkflow(workflowID) {
 			return ports.AIWorkflowResult{}, errors.New("分析AI运行绑定无效")
 		}
 		runID = identity.AnalysisHarnessRunID

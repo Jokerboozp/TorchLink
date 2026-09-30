@@ -16,7 +16,7 @@ import (
 )
 
 var _ ports.DutyStore = (*Repository)(nil)
-var dutyTables = map[string]string{model.DutyReceiptKind: "duty_receipt", model.DutyAttachmentKind: "duty_attachment", model.DutyStationKind: "duty_station", model.DutyTeamKind: "duty_team", model.DutyShiftTemplateKind: "duty_shift_template", model.DutyRosterKind: "duty_roster", model.DutyRunKind: "duty_run", model.DutyRecordKind: "duty_record", model.DutyItemKind: "duty_item", model.DutyItemEventKind: "duty_item_event", model.DutyHandoverKind: "duty_handover", model.DutyRevisionKind: "duty_handover_revision", model.DutyAIJobKind: "duty_ai_job", model.DutyNotificationKind: "duty_notification"}
+var dutyTables = map[string]string{model.DutyReceiptKind: "duty_receipt", model.DutyAttachmentKind: "duty_attachment", model.DutyStationKind: "duty_station", model.DutyTeamKind: "duty_team", model.DutyShiftTemplateKind: "duty_shift_template", model.DutyRosterKind: "duty_roster", model.DutyRunKind: "duty_run", model.DutyRecordKind: "duty_record", model.DutyItemKind: "duty_item", model.DutyItemEventKind: "duty_item_event", model.DutyHandoverKind: "duty_handover", model.DutyRevisionKind: "duty_handover_revision", model.DutyAIJobKind: "duty_ai_job", model.DutyNotificationKind: "duty_notification", model.DutyActionLinkKind: "duty_action_link"}
 
 type dutyTx struct {
 	ctx      context.Context
