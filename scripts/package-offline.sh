@@ -14,6 +14,7 @@ deepseek_model="deepseek-flash"
 ollama_embedding_model="nomic-embed-text"
 skip_ollama_model=0
 skip_docker_runtime=0
+skip_bundle_archive=0
 docker_packages_dir=""
 target_os="generic"
 
@@ -30,6 +31,7 @@ usage() {
   --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
   --skip-ollama-model    跳过嵌入模型；仅用于目标机已有 nomic-embed-text
   --skip-docker-runtime 不携带 Docker 安装文件（目标机须已有 Docker 和 Compose）
+  --skip-bundle-archive 只输出目录，不额外生成完整 .tar 和校验文件
   --target-os OS        generic（默认）或 openeuler-24.03-lts-sp4；后者自动准备容器策略及系统依赖
   --docker-packages-dir DIR  可选：匹配目标系统的系统工具/SELinux 及依赖 RPM/DEB 目录
   -h, --help             显示帮助
@@ -266,6 +268,7 @@ while [[ $# -gt 0 ]]; do
     --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
     --skip-ollama-model) skip_ollama_model=1; shift ;;
     --skip-docker-runtime) skip_docker_runtime=1; shift ;;
+    --skip-bundle-archive) skip_bundle_archive=1; shift ;;
     --target-os) target_os="${2:?缺少目标系统}"; shift 2 ;;
     --docker-packages-dir) docker_packages_dir="${2:?缺少系统依赖包目录}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -275,6 +278,9 @@ done
 
 [[ "$ollama_embedding_model" == nomic-embed-text ]] || die "当前知识库使用 nomic-embed-text，嵌入模型必须与其一致"
 [[ "$deepseek_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "DeepSeek 模型名称无效"
+if (( ! skip_bundle_archive )); then
+  command -v tar >/dev/null 2>&1 || die "生成完整离线包需要 tar；请安装，或使用 --skip-bundle-archive 只输出目录"
+fi
 
 command -v docker >/dev/null 2>&1 || die "找不到 docker 命令"
 docker info >/dev/null || die "Docker Engine 不可用，请先启动 Docker"
@@ -303,7 +309,11 @@ run_compose() {
   "${compose[@]}" "$@"
 }
 ollama_started=0
+bundle_tar_partial=""
+bundle_hash_partial=""
 cleanup() {
+  if [[ -n "$bundle_tar_partial" ]]; then rm -f -- "$bundle_tar_partial"; fi
+  if [[ -n "$bundle_hash_partial" ]]; then rm -f -- "$bundle_hash_partial"; fi
   if (( ollama_started )); then
     "${compose[@]}" stop ollama >/dev/null 2>&1 || echo "打包用 Ollama 未能停止，请检查 iot-platform-offline-build 项目。" >&2
   fi
@@ -458,8 +468,27 @@ cat > "$bundle_root/manifest.json" <<EOF
 }
 EOF
 
+bundle_tar=""
+if (( ! skip_bundle_archive )); then
+  bundle_tar="${bundle_root}.tar"
+  bundle_tar_partial="${bundle_tar}.partial"
+  bundle_hash_partial="${bundle_tar}.sha256.partial"
+  echo "正在归档完整离线包：$bundle_tar"
+  # Include the top-level directory itself, including .env.offline; avoid globs.
+  tar -cf "$bundle_tar_partial" -C "$output_parent" "$(basename -- "$bundle_root")"
+  bundle_tar_hash="$(sha256_file "$bundle_tar_partial")"
+  printf '%s  %s\n' "$bundle_tar_hash" "$(basename -- "$bundle_tar")" > "$bundle_hash_partial"
+  mv -- "$bundle_tar_partial" "$bundle_tar"
+  mv -- "$bundle_hash_partial" "${bundle_tar}.sha256"
+fi
+
 echo ""
 echo "离线包已生成：$bundle_root"
+if [[ -n "$bundle_tar" ]]; then
+  echo "完整归档：$bundle_tar"
+  echo "归档校验：${bundle_tar}.sha256"
+  echo "上传归档和校验文件后，先校验 SHA256，再用 tar -xf 解包，进入解出的目录部署。"
+fi
 echo "镜像数量：${#images[@]}"
 du -h "$archive_path" | awk '{print "镜像包大小：" $1}'
 echo "部署方式：Linux/macOS 运行 bash scripts/deploy-offline.sh；Windows 运行 powershell -ExecutionPolicy Bypass -File scripts/deploy-offline.ps1"

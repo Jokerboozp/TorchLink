@@ -8,6 +8,7 @@ param(
     [string]$OllamaEmbeddingModel = "nomic-embed-text",
     [switch]$SkipOllamaModel,
     [switch]$SkipDockerRuntime,
+    [switch]$SkipBundleArchive,
     [string]$DockerPackagesDir = "",
     [ValidateSet("generic", "openeuler-24.03-lts-sp4")]
     [string]$TargetOS = "generic"
@@ -291,6 +292,9 @@ if ($OllamaEmbeddingModel -ne "nomic-embed-text") {
     throw "当前知识库使用 nomic-embed-text，OllamaEmbeddingModel 必须与其一致。"
 }
 if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeek 模型名称无效。' }
+if (-not $SkipBundleArchive -and -not (Get-Command tar -CommandType Application -ErrorAction SilentlyContinue)) {
+    throw '生成完整离线包需要 tar；请安装，或使用 -SkipBundleArchive 只输出目录。'
+}
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "找不到 docker 命令。请在安装并启动 Docker Engine/Desktop 的有网打包机执行。"
@@ -332,6 +336,8 @@ foreach ($profile in $profiles) {
 $ollamaArchive = $null
 $ollamaVolumeName = $null
 $ollamaStarted = $false
+$bundleTarPartial = $null
+$bundleHashPartial = $null
 
 try {
     Invoke-Checked -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--quiet"))
@@ -463,8 +469,28 @@ try {
     }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $bundleRoot "manifest.json") -Encoding UTF8
 
+    $bundleTar = $null
+    if (-not $SkipBundleArchive) {
+        $bundleTar = "$bundleRoot.tar"
+        $bundleTarPartial = "$bundleTar.partial"
+        $bundleHashPartial = "$bundleTar.sha256.partial"
+        Write-Host "正在归档完整离线包：$bundleTar"
+        # Include hidden configuration by archiving the directory, not its glob.
+        & tar -cf $bundleTarPartial -C $parentPath $bundleName
+        if ($LASTEXITCODE -ne 0) { throw '完整离线包归档失败，目录输出已保留。' }
+        $bundleTarHash = (Get-FileHash -LiteralPath $bundleTarPartial -Algorithm SHA256).Hash.ToLowerInvariant()
+        Write-Utf8NoBom -Path $bundleHashPartial -Lines @("$bundleTarHash  $bundleName.tar")
+        Move-Item -LiteralPath $bundleTarPartial -Destination $bundleTar
+        Move-Item -LiteralPath $bundleHashPartial -Destination "$bundleTar.sha256"
+    }
+
     Write-Host ""
     Write-Host "离线包已生成：$bundleRoot" -ForegroundColor Green
+    if ($bundleTar) {
+        Write-Host "完整归档：$bundleTar"
+        Write-Host "归档校验：$bundleTar.sha256"
+        Write-Host "上传归档和校验文件后，先校验 SHA256，再用 tar -xf 解包，进入解出的目录部署。"
+    }
     Write-Host "镜像数量：$($images.Count)"
     Write-Host "镜像包大小：$([Math]::Round((Get-Item $archivePath).Length / 1GB, 2)) GB"
     Write-Host "部署方式：Linux/macOS 运行 bash scripts/deploy-offline.sh；Windows 运行 powershell -ExecutionPolicy Bypass -File scripts/deploy-offline.ps1"
@@ -472,6 +498,9 @@ try {
         Write-Host "自动生成的凭据：$($envResult.CredentialPath)" -ForegroundColor Yellow
     }
 } finally {
+    foreach ($partial in @($bundleTarPartial, $bundleHashPartial)) {
+        if ($partial -and (Test-Path -LiteralPath $partial)) { Remove-Item -LiteralPath $partial -Force }
+    }
     if ($ollamaStarted) {
         & docker @($composeBase + @("stop", "ollama")) *> $null
         if ($LASTEXITCODE -ne 0) { Write-Warning "打包用 Ollama 未能停止，请检查 iot-platform-offline-build 项目。" }

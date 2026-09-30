@@ -191,9 +191,31 @@ try {
     Write-Host 'PASS online: exact Compose selection, readiness, repeatability, AI and failure handling'
 
     $global:IotTest_calls.Clear()
-    $bundleParent = Join-Path $testRoot 'bundles'
+    $bundleParent = Join-Path $testRoot 'bundles with spaces'
     & (Join-Path $scripts 'package-offline.ps1') -OutputDir $bundleParent
     $bundle = @(Get-ChildItem -LiteralPath $bundleParent -Directory)[0].FullName
+    $bundleTar = "$bundle.tar"
+    Assert (Test-Path -LiteralPath $bundleTar) 'Complete tar archive omitted'
+    $tarChecksum = ((Get-Content -LiteralPath "$bundleTar.sha256" -Raw).Trim() -split '\s+', 2)
+    Assert ($tarChecksum[0] -eq (Get-FileHash -LiteralPath $bundleTar).Hash.ToLowerInvariant()) 'Complete tar checksum mismatch'
+    Assert ($tarChecksum[1] -eq (Split-Path $bundleTar -Leaf)) 'Archive checksum uses a nonportable path'
+    $extractRoot = Join-Path $testRoot 'extracted with spaces'
+    New-Item -ItemType Directory -Path $extractRoot | Out-Null
+    & tar -xf $bundleTar -C $extractRoot
+    Assert ($LASTEXITCODE -eq 0) 'Complete tar extraction failed'
+    $extractedBundle = Join-Path $extractRoot (Split-Path $bundle -Leaf)
+    $sourceFiles = @(Get-ChildItem -LiteralPath $bundle -Recurse -Force -File)
+    $extractedFiles = @(Get-ChildItem -LiteralPath $extractedBundle -Recurse -Force -File)
+    Assert ($sourceFiles.Count -eq $extractedFiles.Count) 'Complete tar changed file count'
+    foreach ($file in $sourceFiles) {
+        $relative = $file.FullName.Substring($bundle.Length + 1)
+        $extractedFile = Join-Path $extractedBundle $relative
+        Assert (Test-Path -LiteralPath $extractedFile) "Complete tar omitted $relative"
+        Assert ((Get-FileHash -LiteralPath $file.FullName).Hash -eq (Get-FileHash -LiteralPath $extractedFile).Hash) "Complete tar changed $relative"
+    }
+    Assert (Test-Path -LiteralPath (Join-Path $extractedBundle '.env.offline')) 'Complete tar omitted hidden config'
+    & (Join-Path $scripts 'deploy-offline.ps1') -BundleDir $extractedBundle
+    Write-Host 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'
     Assert ((Get-Content (Join-Path $bundle '.env.offline')) -contains 'IOT_VIDEO_RTC_EXTERN_IP=') 'Unconfigured WebRTC address must be written as an empty value'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
@@ -248,13 +270,28 @@ try {
     $disabledManifest = Get-Content (Join-Path $disabledBundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($disabledManifest.images -contains 'iot-zlmediakit:offline') 'Source opt-out should retain the video image for later enablement'
 
-    & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'without-video') -WithoutVideo -SkipDockerRuntime -SkipOllamaModel
+    & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'without-video') -WithoutVideo -SkipDockerRuntime -SkipOllamaModel -SkipBundleArchive
     $noVideoBundle = @(Get-ChildItem (Join-Path $testRoot 'without-video') -Directory)[0].FullName
     $noVideoEnv = Get-Content (Join-Path $noVideoBundle '.env.offline')
     Assert ($noVideoEnv -contains 'IOT_VIDEO_MODULE=off') 'WithoutVideo did not disable the module'
     Assert ($noVideoEnv -contains 'IOT_VIDEO_MEDIA_API_URL=') 'WithoutVideo did not write an empty media URL'
     $noVideoManifest = Get-Content (Join-Path $noVideoBundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($noVideoManifest.profiles -notcontains 'video' -and $noVideoManifest.images -notcontains 'iot-zlmediakit:offline') 'WithoutVideo still packages the video module'
+    Assert (-not (Test-Path -LiteralPath "$noVideoBundle.tar")) 'Archive opt-out was ignored'
+    function global:tar {
+        [IO.File]::WriteAllText($args[1], 'partial archive')
+        $global:LASTEXITCODE = 48
+    }
+    try {
+        $failedTarRoot = Join-Path $testRoot 'failed-tar'
+        $rejected = $false
+        try { & (Join-Path $scripts 'package-offline.ps1') -OutputDir $failedTarRoot -SkipOllamaModel -SkipDockerRuntime } catch { $rejected = $true }
+        Assert $rejected 'Archive failure ignored'
+        Assert (@(Get-ChildItem -LiteralPath $failedTarRoot -File).Count -eq 0) 'Failed tar published an archive or left partial artifacts'
+        $failedBundle = @(Get-ChildItem -LiteralPath $failedTarRoot -Directory)[0].FullName
+        Assert (Test-Path (Join-Path $failedBundle 'manifest.json')) 'Archive failure removed the completed directory'
+    } finally { Remove-Item Function:\tar; $global:LASTEXITCODE = 0 }
+    Write-Host 'PASS complete tar: explicit opt-out and cleanup after archive failure'
     Write-Host 'PASS offline: complete default bundle, host entry points, no network, repeatability, missing/corrupt archives'
     Write-Host 'Deployment smoke tests PASS (Docker operations mocked; Compose parsing real).'
 } finally {

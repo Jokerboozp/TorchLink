@@ -65,7 +65,8 @@ jobs:
           df -h . /var/lib/docker
 
       - name: 构建完整离线包
-        run: bash scripts/package-offline.sh --output-dir offline-bundles --target-os generic
+        # Public release archives are created after removing private credentials.
+        run: bash scripts/package-offline.sh --output-dir offline-bundles --target-os generic --skip-bundle-archive
 
       - name: 验证 MinIO 运行与现有健康检查
         run: |

@@ -197,7 +197,28 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 # 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -WithoutVideo
 ```
 
-Linux / macOS 共用 Bash 入口。输出为 `offline-bundles/iot-platform-offline-*`，需整体复制（含隐藏配置）。手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
+Linux / macOS 共用 Bash 入口。默认同时输出 `offline-bundles/iot-platform-offline-*` 目录、同名 `.tar` 和 `.tar.sha256`。归档含完整顶层目录及隐藏配置，只需上传归档和校验文件；目录输出仍可用于本机检查或直接部署。`.tar` 不压缩内容，可减少逐个传输文件的开销，但会额外占用约一份部署目录的磁盘空间。只需目录时，Bash 使用 `--skip-bundle-archive`，PowerShell 使用 `-SkipBundleArchive`。GitHub 公开发布流程跳过私有归档，在清除凭据后另行压缩分卷。
+
+在 Linux 服务器上，将归档和校验文件放在同一目录，替换下面的文件名后执行：
+
+```bash
+sha256sum -c iot-platform-offline-xxxx.tar.sha256
+tar -xf iot-platform-offline-xxxx.tar
+cd iot-platform-offline-xxxx
+# 升级已有服务：部署前先复制旧包的 .env.offline 到当前目录。
+bash scripts/deploy-offline.sh
+```
+
+已有目录也可以直接归档，无需重新构建镜像；在源码仓库根目录执行：
+
+```bash
+tar -cf offline-bundles/iot-platform-offline-xxxx.tar \
+  -C offline-bundles iot-platform-offline-xxxx
+cd offline-bundles
+sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
+```
+
+手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-ollama-model` 仅用于目标卷已有嵌入模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
 
 若打包在 Harness 拉取阶段提示 `Your local changes ... would be overwritten by checkout`，且新克隆目录的修改集中于图片、字体等二进制文件，检查 `git --version`；Git 2.10 以前对上游 `text=auto eol=lf` 属性的处理可能触发此问题。拉取脚本通过 `.git/info/attributes` 保留仓库原始字节，在首次检出前设置该覆盖，不修改上游源码。真实源码修改仍会整体备份到 `upstream/deepseek-harness.backup-*`。同步最新 `scripts/fetch-deepseek-harness.sh`（Windows 对应 `scripts/lib/deployment.ps1`）后，可先单独拉取 Harness，再重跑原打包命令；无需删除 Docker 镜像或数据卷。
 

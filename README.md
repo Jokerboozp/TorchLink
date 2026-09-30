@@ -73,7 +73,7 @@ go run ./cmd/backup-service --env-file .env.local
 | --- | --- |
 | 本地开发 | `compose.local.yaml`、`.env.local`、`scripts/setup-local.*` |
 | 在线部署 | `compose.yaml`、`.env.online`、`scripts/deploy-online.*`；见 [部署维护](docs/DEPLOYMENT.md) |
-| 离线交付 | `scripts/package-offline.*`、`scripts/deploy-offline.*`、包内 `.env.offline`；见 [离线部署](docs/DEPLOYMENT.md#离线部署) |
+| 离线交付 | `scripts/package-offline.*` 默认输出完整 `.tar`、SHA256 校验文件及目录；解包后运行 `scripts/deploy-offline.*`，配置为包内 `.env.offline`；见 [离线部署](docs/DEPLOYMENT.md#离线部署) |
 | 多机集群 | `scripts/cluster-up.*` 向导，或按清单渲染、分阶段部署与升级；见 [集群部署](docs/DEPLOYMENT.md#集群部署) |
 
 脚本统一使用 `.sh`（Linux / macOS）和 `.ps1`（Windows PowerShell）入口。直播与容量模块的默认部署行为、关闭及重新启用方式分别见 [摄像头部署](docs/DEPLOYMENT.md#摄像头部署) 和 [容量测试模块](docs/DEPLOYMENT.md#容量测试模块)。

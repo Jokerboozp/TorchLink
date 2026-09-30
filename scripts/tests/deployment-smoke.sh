@@ -454,9 +454,18 @@ TEST_FAIL_BUILD=0
 echo 'PASS online: build, health checks, AI, repeatability and failure handling'
 
 : > "$TEST_CALLS"
-bash "$scripts/package-offline.sh" --output-dir "$test_root/bundles"
-bundles=("$test_root"/bundles/iot-platform-offline-*)
-bundle="${bundles[0]}"
+bash "$scripts/package-offline.sh" --output-dir "$test_root/bundles with spaces"
+bundles=("$test_root"/bundles\ with\ spaces/iot-platform-offline-*/)
+bundle="${bundles[0]%/}"
+bundle_name="$(basename "$bundle")"
+(cd "$(dirname "$bundle")" && sha256sum -c "$bundle_name.tar.sha256")
+mkdir -p "$test_root/extracted with spaces"
+tar -xf "$bundle.tar" -C "$test_root/extracted with spaces"
+extracted_bundle="$test_root/extracted with spaces/$bundle_name"
+diff -r "$bundle" "$extracted_bundle"
+[ -f "$extracted_bundle/.env.offline" ]
+bash "$scripts/deploy-offline.sh" --bundle-dir "$extracted_bundle" > "$test_root/extracted-deploy.log"
+echo 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'
 assert_commented_env "$bundle/.env.offline"
 grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$bundle/.env.offline"
 [ -s "$bundle/ollama-data.tgz.sha256" ]
@@ -548,11 +557,23 @@ grep -q '^IOT_VIDEO_MODULE=on$' "$vbundle/.env.offline"
 [ "$video_key" = "$(grep '^IOT_VIDEO_CREDENTIAL_KEY=' "$vbundle/.env.offline")" ] || { echo 'Camera credential key was rotated' >&2; exit 1; }
 assert_call 'up -d --no-build --pull never --wait --wait-timeout 120 zlmediakit'
 : > "$TEST_CALLS"
-bash "$scripts/package-offline.sh" --output-dir "$test_root/novideo-bundles" --without-video --skip-ollama-model --skip-docker-runtime > /dev/null
+bash "$scripts/package-offline.sh" --output-dir "$test_root/novideo-bundles" --without-video --skip-ollama-model --skip-docker-runtime --skip-bundle-archive > /dev/null
 nbundles=("$test_root"/novideo-bundles/iot-platform-offline-*)
 if grep -qx 'video' "${nbundles[0]}/profiles.txt"; then echo 'Opt-out bundle includes video' >&2; exit 1; fi
 grep -q '^IOT_VIDEO_MODULE=off$' "${nbundles[0]}/.env.offline"
 assert_no_call 'zlmediakit'
+[ ! -e "${nbundles[0]}.tar" ] && [ ! -e "${nbundles[0]}.tar.sha256" ]
+# A failed tar must not publish a completed archive or leave partial artifacts.
+tar() { printf 'partial archive' > "$2"; return 48; }
+export -f tar
+if bash "$scripts/package-offline.sh" --output-dir "$test_root/failed-tar" --skip-ollama-model --skip-docker-runtime > "$test_root/failed-tar.log" 2>&1; then
+  echo 'Archive failure ignored' >&2; exit 1
+fi
+unset -f tar
+failed_bundles=("$test_root"/failed-tar/iot-platform-offline-*/)
+[ -f "${failed_bundles[0]}manifest.json" ]
+[ -z "$(find "$test_root/failed-tar" -maxdepth 1 -type f -print)" ]
+echo 'PASS complete tar: explicit opt-out and cleanup after archive failure'
 # Online: --video off is kept by later default deployments; --video on restores it.
 cp "$test_root/.env.online" "$test_root/.env.online-video"
 : > "$TEST_CALLS"
