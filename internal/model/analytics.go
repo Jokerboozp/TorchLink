@@ -176,9 +176,10 @@ type AnalysisAIRevision struct {
 // These sentences are interpretations only. They never update deterministic
 // findings, thresholds, reviews, device state or production alarms.
 type AnalysisAIStatement struct {
-	Text      string   `json:"text"`
-	FactIDs   []string `json:"factIds"`
-	DeviceIDs []string `json:"deviceIds,omitempty"`
+	Text       string   `json:"text"`
+	FactIDs    []string `json:"factIds"`
+	DeviceIDs  []string `json:"deviceIds,omitempty"`
+	MetricRefs []string `json:"metricRefs,omitempty"`
 }
 type AnalysisAIResult struct {
 	Summary                  string                  `json:"summary"`
@@ -202,6 +203,12 @@ type AnalysisAIResult struct {
 	CandidateRevisionID      string                  `json:"candidateRevisionId,omitempty"`
 	PreparedCandidate        *AnalysisConfigRevision `json:"-"`
 	CandidateExpectedVersion int64                   `json:"-"`
+	Facts                    []AnalysisAIStatement   `json:"facts,omitempty"`
+	Patterns                 []AnalysisAIStatement   `json:"patterns,omitempty"`
+	Hypotheses               []AnalysisAIStatement   `json:"hypotheses,omitempty"`
+	Checks                   []AnalysisAIStatement   `json:"checks,omitempty"`
+	Measures                 []AnalysisAIStatement   `json:"measures,omitempty"`
+	Observation              []AnalysisAIStatement   `json:"observation,omitempty"`
 }
 type AnalysisAICoverage struct {
 	SummaryProvided bool `json:"summaryProvided"`

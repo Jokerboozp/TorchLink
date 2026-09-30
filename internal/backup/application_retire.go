@@ -13,7 +13,7 @@ import (
 
 // Keep an audit copy of the original execution envelope. Neither an elapsed
 // lease nor an unconfirmed external answer is resumed after a restore.
-func retireApplicationExecutions(ctx context.Context, tx pgx.Tx, schema, restoreID string, documents []applicationDocument) (int, error) {
+func retireRestoredAnalysisDocuments(ctx context.Context, tx pgx.Tx, schema, restoreID string, documents []applicationDocument) (int, error) {
 	now := time.Now().UTC().UnixMilli()
 	n := 0
 	ident := pgx.Identifier{schema, "analysis_document"}.Sanitize()
@@ -71,6 +71,16 @@ func retireApplicationExecutions(ctx context.Context, tx pgx.Tx, schema, restore
 		}
 		n++
 	}
+	return n, nil
+}
+
+func retireApplicationExecutions(ctx context.Context, tx pgx.Tx, schema, restoreID string, documents []applicationDocument) (int, error) {
+	n, err := retireRestoredAnalysisDocuments(ctx, tx, schema, restoreID, documents)
+	if err != nil {
+		return n, err
+	}
+	now := time.Now().UTC().UnixMilli()
+	ident := pgx.Identifier{schema, "analysis_document"}.Sanitize()
 	pending := pgx.Identifier{schema, "alarm_rule_revision_pending"}.Sanitize()
 	rows, err := tx.Query(ctx, "SELECT tenant_id,revision_id,device_id,to_jsonb(t) FROM "+pending+" t")
 	if err != nil {

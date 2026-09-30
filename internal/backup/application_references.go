@@ -46,6 +46,11 @@ func validateApplicationReferences(documents []applicationDocument) error {
 					if configReferenceFields[field] || (field == "baselineRevisionIds" && (d.ApplicationKind == analytics.KindDataQuality || d.ApplicationKind == model.DataQualityBaselineKind)) || (field == "attachments" && d.ApplicationKind == model.DataQualityCalibrationKind) {
 						kind = "config"
 					}
+					// Recurring profiles belong to the dedicated governance
+					// tables, checked against that restored component below.
+					if d.ApplicationKind == analytics.KindRecurring && field == "profileRevisionId" {
+						kind = ""
+					}
 					if runReferenceFields[field] {
 						kind = "run"
 					}

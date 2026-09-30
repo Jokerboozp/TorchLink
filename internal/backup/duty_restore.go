@@ -218,6 +218,10 @@ func readDutyObjects(path, stage string) (map[string]string, []knowledgeObject, 
 	return readPrivateObjects(path, stage, map[string]bool{dutyAttachmentBucket: true})
 }
 
+func readSnapshotObjects(path, stage, bucket string) (map[string]string, []knowledgeObject, error) {
+	return readPrivateObjects(path, stage, map[string]bool{bucket: true})
+}
+
 func readPrivateObjects(path, stage string, allowedBuckets map[string]bool) (map[string]string, []knowledgeObject, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -390,6 +394,9 @@ func (s *Service) restoreDutyObjects(ctx context.Context, tx pgx.Tx, schema, pat
 	return int64(len(refs)), nil
 }
 func rewriteDutyObjectKeys(body []byte, remap map[string]string) ([]byte, bool, error) {
+	return rewriteSnapshotObjectKeys(body, remap, "objectKey")
+}
+func rewriteSnapshotObjectKeys(body []byte, remap map[string]string, field string) ([]byte, bool, error) {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
@@ -402,7 +409,7 @@ func rewriteDutyObjectKeys(body []byte, remap map[string]string) ([]byte, bool, 
 		switch x := v.(type) {
 		case map[string]any:
 			for k, child := range x {
-				if k == "objectKey" {
+				if k == field {
 					if old, ok := child.(string); ok {
 						if next, found := remap[old]; found {
 							x[k] = next

@@ -24,6 +24,7 @@ type AIService struct {
 	Runner               AIRunner
 	StopRunner           func(context.Context, string, string) error
 	PrepareCandidate     func(context.Context, Actor, string, model.AlarmRule) (model.AnalysisConfigRevision, int64, error)
+	ValidateSnapshot     func(context.Context, model.AnalysisRun) error
 	Lease, Timeout, Poll time.Duration
 	Workers              int
 	mu                   sync.RWMutex
@@ -40,6 +41,7 @@ func NewAIService(facts *Service, runner AIRunner) *AIService {
 	_ = s.Register(AIWorkflowSpec{KindResponse, WorkflowResponse, ResponseAIPromptVersion})
 	_ = s.Register(AIWorkflowSpec{KindMaintenance, WorkflowMaintenance, MaintenanceAIPromptVersion})
 	_ = s.Register(AIWorkflowSpec{KindInvestment, WorkflowInvestment, InvestmentAIPromptVersion})
+	_ = s.Register(AIWorkflowSpec{KindRecurring, WorkflowRecurring, RecurringAIPromptVersion})
 	return s
 }
 func (s *AIService) Register(spec AIWorkflowSpec) error {
@@ -98,6 +100,14 @@ func (s *AIService) Create(ctx context.Context, a Actor, kind, runID string, q C
 	if err != nil {
 		return model.AnalysisAIRevision{}, err
 	}
+	if kind == KindRecurring {
+		var mode struct {
+			JobMode string `json:"jobMode"`
+		}
+		if json.Unmarshal(run.Parameters, &mode) != nil || mode.JobMode != "" {
+			return model.AnalysisAIRevision{}, model.ErrAnalysisInvalid
+		}
+	}
 	current, err := s.Facts.authorize(ctx, a, kind, AIStartOperation(kind), run.DeviceIDs)
 	if err != nil {
 		return model.AnalysisAIRevision{}, err
@@ -107,6 +117,11 @@ func (s *AIService) Create(ctx context.Context, a Actor, kind, runID string, q C
 	}
 	if run.SnapshotID == "" || (run.Status != model.AnalysisSucceeded && run.Status != model.AnalysisPartial) {
 		return model.AnalysisAIRevision{}, model.ErrAnalysisConflict
+	}
+	if s.ValidateSnapshot != nil {
+		if err = s.ValidateSnapshot(ctx, run); err != nil {
+			return model.AnalysisAIRevision{}, err
+		}
 	}
 	snapshot, err := s.Facts.Store.GetAnalysisSnapshot(ctx, a.TenantID, run.SnapshotID)
 	if err != nil {
@@ -209,6 +224,11 @@ func (s *AIService) ValidateBinding(ctx context.Context, identity ports.AIRunIde
 	if err != nil || run.SnapshotID != job.SnapshotID || !slices.Equal(run.DeviceIDs, job.DeviceIDs) {
 		return job, ErrForbidden
 	}
+	if s.ValidateSnapshot != nil {
+		if err = s.ValidateSnapshot(ctx, run); err != nil {
+			return job, ErrForbidden
+		}
+	}
 	return job, nil
 }
 
@@ -266,7 +286,7 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 		f.UncomputableMetrics = snap.UncomputableMetrics
 		f.InitialStateQuality = snap.InitialStateQuality
 		f.Total = 1
-	case "metrics", "findings", "intervals", "dependency-groups", "outcomes", "diffs", "labels", "observations", "change-metrics", "investment-priorities", "budget-lines":
+	case "metrics", "findings", "intervals", "dependency-groups", "outcomes", "diffs", "labels", "observations", "change-metrics", "investment-priorities", "budget-lines", "cycles", "verifications", "activities", "coverages", "measures", "observation-results", "activity-candidates":
 		f.Outputs, f.Total, err = s.Facts.Store.ListAnalysisOutputs(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Kind: collection, Limit: limit, Offset: offset})
 	case "evidence":
 		f.Evidence, f.Total, err = s.Facts.Store.ListAnalysisEvidence(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Limit: limit, Offset: offset})

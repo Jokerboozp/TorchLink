@@ -400,16 +400,22 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 		if event.Answer != "" && event.Type == "run.completed" {
 			result.Answer = event.Answer
 		}
+		var failure error
+		if event.Type == "run.failed" {
+			code, message, err := harnessWorkflowFailure(event.Code)
+			// The runtime's message and any accompanying fields may contain
+			// provider responses or credentials. Emit only trusted identity and
+			// the gateway's known failure categories with local diagnostic text.
+			event = ports.AIWorkflowEvent{Type: "run.failed", RunID: in.RunID, WorkflowID: in.WorkflowID, Model: in.Model, Code: code, Message: message}
+			failure = err
+		}
 		if emit != nil {
 			if err = emit(event); err != nil {
 				return result, err
 			}
 		}
-		if event.Type == "run.failed" {
-			if event.Code == "RUN_STOPPED" {
-				return result, ports.ErrAIWorkflowStopped
-			}
-			return result, errors.New("harness workflow failed")
+		if failure != nil {
+			return result, failure
 		}
 	}
 	if err = scanner.Err(); err != nil {
@@ -419,6 +425,42 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 		result.Answer = streamed.String()
 	}
 	return result, nil
+}
+
+func harnessWorkflowFailure(code string) (string, string, error) {
+	if code == "RUN_STOPPED" {
+		return code, ports.ErrAIWorkflowStopped.Error(), ports.ErrAIWorkflowStopped
+	}
+	message := "工作流未能完成，请检查 Harness 运行状态"
+	switch code {
+	case "MODEL_ERROR":
+		message = "模型调用失败，请检查当前模型配置与服务状态"
+	case "RUNTIME_TIMEOUT":
+		message = "Harness 运行请求超时"
+	case "RUNTIME_CLOSED":
+		message = "Harness 运行连接已关闭"
+	case "RUNTIME_REJECTED":
+		message = "Harness 运行请求被拒绝"
+	case "RUNTIME_PROTOCOL_ERROR":
+		message = "Harness 运行协议响应异常"
+	case "RUNTIME_ERROR":
+		message = "Harness 运行过程异常"
+	case "RUN_ABORTED":
+		message = "工作流执行已中止"
+	case "RUN_BLOCKED":
+		message = "工作流执行受阻"
+	case "MAX_TOKENS":
+		message = "工作流达到模型输出长度限制"
+	case "RUN_INTERRUPTED":
+		message = "工作流执行被中断"
+	case "RUN_STOP_FAILED":
+		message = "无法确认工作流进程停止，请联系管理员检查 Harness"
+	case "RUN_FAILED":
+	default:
+		code = "RUN_FAILED"
+	}
+	err := fmt.Errorf("AI 工作流执行失败（%s）：%s", code, message)
+	return code, err.Error(), err
 }
 
 func (h *HarnessClient) Health(ctx context.Context) error {

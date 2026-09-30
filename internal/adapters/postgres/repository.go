@@ -106,6 +106,9 @@ func (r *Repository) Migrate(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, schema); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, alarmObservationSchema); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, analyticsSchema); err != nil {
 		return err
 	}
@@ -113,6 +116,9 @@ func (r *Repository) Migrate(ctx context.Context) error {
 		return err
 	}
 	if _, err = tx.Exec(ctx, ruleHistorySchema); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, alarmGovernanceSchema); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1005,6 +1011,13 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	if err = checkRoutingTrace(ctx, tx, v.TenantID, v.DeviceID); err != nil {
 		return v, false, err
 	}
+	// Synthetic legacy calls retain V1 aggregation semantics. Only an explicit
+	// incoming observation supplies the identity fence for production reports.
+	_, explicitObservation := model.AlarmObservationFromContext(ctx)
+	incomingObservation := model.AlarmObservationFromAlarm(ctx, v)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, incomingObservation.TenantID+"\x1f"+incomingObservation.DeviceID+"\x1f"+incomingObservation.SignalKey); err != nil {
+		return v, false, err
+	}
 	var body []byte
 	var version int64
 	err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND rule_id=$3 AND status IN ('ACTIVE','ACKED') FOR UPDATE`, v.TenantID, v.DeviceID, v.RuleID).Scan(&body, &version)
@@ -1014,6 +1027,23 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			return v, false, err
 		}
 		old.Version = version
+		o := model.AlarmObservationFromAlarm(ctx, v)
+		o.AlarmID = old.ID
+		savedObservation, createdObservation, observationErr := recordAlarmObservation(ctx, tx, o)
+		if observationErr != nil {
+			return v, false, observationErr
+		}
+		if !createdObservation && explicitObservation {
+			if err = appendRoutingTrace(ctx, tx, routingRaiseStep(v, old, old, false)); err != nil {
+				return v, false, err
+			}
+			return old, false, tx.Commit(ctx)
+		}
+		if createdObservation {
+			if observationErr = acceptAlarmSignal(ctx, tx, savedObservation); observationErr != nil {
+				return v, false, observationErr
+			}
+		}
 		if v.TriggerID != "" && old.TriggerID == v.TriggerID {
 			if err = appendRoutingTrace(ctx, tx, routingRaiseStep(v, old, old, false)); err != nil {
 				return v, false, err
@@ -1055,6 +1085,23 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return v, false, err
+	}
+	o := model.AlarmObservationFromAlarm(ctx, v)
+	o.AlarmID = v.ID
+	savedObservation, createdObservation, observationErr := recordAlarmObservation(ctx, tx, o)
+	if observationErr != nil {
+		return v, false, observationErr
+	}
+	if !createdObservation && explicitObservation {
+		if err = appendRoutingTrace(ctx, tx, routingRaiseStep(v, model.Alarm{}, model.Alarm{}, false)); err != nil {
+			return v, false, err
+		}
+		return v, false, tx.Commit(ctx)
+	}
+	if createdObservation {
+		if observationErr = acceptAlarmSignal(ctx, tx, savedObservation); observationErr != nil {
+			return v, false, observationErr
+		}
 	}
 	v.Version = 1
 	body, _ = json.Marshal(v)
@@ -1276,12 +1323,12 @@ func (r *Repository) writeDutyAlarm(ctx context.Context, v model.Alarm, conditio
 }
 func (r *Repository) SaveVideoEvent(ctx context.Context, v model.VideoAlarmEvent) (bool, error) {
 	b, _ := json.Marshal(v)
-	tag, err := r.pool.Exec(ctx, `INSERT INTO video_alarm_event(tenant_id,event_id,camera_id,alarm_type,event_time,body) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, v.TenantID, v.EventID, v.CameraID, v.AlarmType, v.EventTime, b)
+	tag, err := r.pool.Exec(ctx, `INSERT INTO video_alarm_event(tenant_id,event_id,camera_id,alarm_type,event_time,body) VALUES($1,$2,$3,$4,$5,jsonb_set($6::jsonb,'{raw}',COALESCE($6::jsonb->'raw','{}'::jsonb)-'governanceDeviceId'||jsonb_build_object('governanceDeviceId',COALESCE((SELECT device_id FROM video_camera_mapping WHERE tenant_id=$1 AND camera_id=$3),'')),true)) ON CONFLICT DO NOTHING`, v.TenantID, v.EventID, v.CameraID, v.AlarmType, v.EventTime, b)
 	return tag.RowsAffected() == 1, err
 }
 func (r *Repository) UpdateVideoEvent(ctx context.Context, v model.VideoAlarmEvent) error {
 	b, _ := json.Marshal(v)
-	_, err := r.pool.Exec(ctx, `UPDATE video_alarm_event SET body=$3,alarm_type=$4,event_time=$5 WHERE tenant_id=$1 AND event_id=$2`, v.TenantID, v.EventID, b, v.AlarmType, v.EventTime)
+	_, err := r.pool.Exec(ctx, `UPDATE video_alarm_event SET body=jsonb_set($3::jsonb,'{raw}',COALESCE($3::jsonb->'raw','{}'::jsonb)-'governanceDeviceId'||jsonb_build_object('governanceDeviceId',COALESCE(body->'raw'->>'governanceDeviceId','')),true),alarm_type=$4,event_time=$5 WHERE tenant_id=$1 AND event_id=$2`, v.TenantID, v.EventID, b, v.AlarmType, v.EventTime)
 	return err
 }
 func (r *Repository) ListPendingVideoEvents(ctx context.Context, limit int) ([]model.VideoAlarmEvent, error) {

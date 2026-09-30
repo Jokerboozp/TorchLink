@@ -227,6 +227,21 @@ func (r *Repository) CommitRuleEvaluationStep(ctx context.Context, binding model
 	if err != nil {
 		return step, err
 	}
+	if capture, ok := model.AlarmObservationCaptureFromContext(ctx); ok && capture.Observation != nil {
+		o := *capture.Observation
+		o.AlarmID = step.Alarm.ID
+		if o.AlarmID == "" {
+			o.AlarmID = state.Alarm.ID
+		}
+		o.WatermarkAt = r.observationStateLocked().Signals[key(o.TenantID, o.DeviceID, o.SignalKey)].SignalWatermarkAt()
+		saved, created, err := r.recordAlarmObservationLocked(o)
+		if err != nil {
+			return step, err
+		}
+		if created {
+			r.acceptSignalLocked(saved)
+		}
+	}
 	if step.WriteAlarm {
 		step.Alarm.Version = state.Alarm.Version + 1
 		step.AlarmVersion = step.Alarm.Version

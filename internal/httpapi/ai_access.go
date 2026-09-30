@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"iot-platform/internal/analytics"
 	"net/http"
 	"sort"
+	"strings"
 
+	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
@@ -31,7 +32,7 @@ func workflowScopes(ctx context.Context) []string {
 		auth.ScopeQueryKnowledgeBase:    p["menu:knowledge"],
 		auth.ScopeCreateRuleDraft:       allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
 		auth.ScopeQueryDutySnapshot:     p["menu:duty"] && p["action:duty:ai"],
-		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")) || (p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs")) || (p["menu:response"] && allowsRoute(p, "POST", "/api/v1/response-runs/:id/ai-jobs")) || (p["menu:maintenance"] && (allowsRoute(p, "POST", "/api/v1/maintenance-observations/:id/ai-jobs") || allowsRoute(p, "POST", "/api/v1/investment-scenarios/:id/ai-jobs")))),
+		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:alarms"] && p["menu:alarmGovernance"] && allowsRoute(p, "POST", "/api/v1/alarm-governance/runs/:id/ai-jobs")) || (p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")) || (p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs")) || (p["menu:response"] && allowsRoute(p, "POST", "/api/v1/response-runs/:id/ai-jobs")) || (p["menu:maintenance"] && (allowsRoute(p, "POST", "/api/v1/maintenance-observations/:id/ai-jobs") || allowsRoute(p, "POST", "/api/v1/investment-scenarios/:id/ai-jobs")))),
 	}
 	out := []string{}
 	for _, scope := range auth.HarnessReadScopes() {
@@ -102,6 +103,10 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 // businessWorkflowAllowed checks the feature permission behind a business run
 // token; chat tokens keep requiring the assistant permission instead.
 func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
+	if d, ok := analytics.WorkflowDefinitionByID(workflow); ok {
+		return p["menu:devices"] && p["menu:"+d.Menu] && (d.Kind != analytics.KindRecurring || p["menu:alarms"]) && allowsRoute(p, "POST", strings.TrimPrefix(analytics.AIStartOperation(d.Kind), "POST "))
+	}
+
 	switch workflow {
 	case core.WorkflowDataQuality:
 		return p["menu:devices"] && p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")

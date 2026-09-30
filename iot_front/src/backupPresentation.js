@@ -4,17 +4,26 @@ export function restoreSummary(result) {
   const status = result?.status || 'UNKNOWN'
   const application = result?.components?.application
   const objects = result?.components?.applicationObjects
+  const governance = result?.components?.governance
+  const governanceObjects = result?.components?.governanceObjects
   const records = Object.values(result?.kinds || {}).reduce((sum, item) => sum + Number(item.restored || 0), 0)
   const lines = [`独立恢复库已写入 ${records} 条报文记录`]
   if (application?.status === 'restored') {
     lines.push('固定分析、业务版本及权限关联已核对')
     if (application.retiredExecutions > 0) lines.push(`${application.retiredExecutions} 项待执行或运行中任务已退役，须人工新建任务`)
-  } else if (application?.status === 'not_included') lines.push('本备份未包含固定分析与业务版本')
+  } else if (application?.status === 'not_included') lines.push(governance?.status === 'restored' && governance.analysisDocuments === 'governance' ? '本备份未包含独立应用业务快照' : '本备份未包含固定分析与业务版本')
   else lines.push('固定分析与业务版本恢复范围未确认')
   if (objects?.status === 'restored') {
     lines.push(`${objects.objects || 0} 份应用附件已恢复并校验`)
     if (objects.originalHashUnknown > 0) lines.push(`${objects.originalHashUnknown} 份旧附件缺少原始上传哈希，本次按备份制品校验`)
   }
+  if (governance?.status === 'restored') {
+    lines.push('反复报警治理记录及版本关联已核对')
+    if (governance.analysisDocuments === 'governance') lines.push('治理固定分析事实已恢复并核对')
+    if (governance.retiredExecutions > 0) lines.push(`${governance.retiredExecutions} 项治理待执行或运行中任务已退役，须人工新建任务`)
+  } else if (governance?.status === 'not_included') lines.push('本备份未包含反复报警治理记录')
+  else lines.push('反复报警治理恢复范围未确认')
+  if (governanceObjects?.status === 'restored') lines.push(`${governanceObjects.objects || 0} 份治理附件已恢复并校验`)
   const limitations = Array.isArray(application?.limitations) ? application.limitations : []
   return {
     status,

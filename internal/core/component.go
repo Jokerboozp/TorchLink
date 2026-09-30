@@ -12,7 +12,16 @@ func (e *Engine) applyComponentRoutes(ctx context.Context, msg model.StandardMes
 		now := e.Clock.Now().UnixMilli()
 		a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), RuleID: route.RuleID, TriggerID: msg.MessageID, ComponentID: component.ID, ComponentName: component.Name, ComponentLocation: component.Location, AlarmType: kind, AlarmLevel: "HIGH", Status: "ACTIVE", Source: "device", FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), AreaID: tag(msg, "areaId", ""), DeviceType: tag(msg, "deviceType", msg.ProductID), Details: map[string]any{"message": msg, "component": component, "direct": true}}
 		a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-		saved, event, err := e.Repo.ApplyComponentAlarm(ctx, a, route.State)
+		kindFact := "CLEAR"
+		if route.State.Active {
+			kindFact = "ASSERT"
+		}
+		o, err := e.sourceAlarmObservationAt(ctx, msg, "COMPONENT_STATE", "component:"+component.ID+":"+kind, kindFact, kind, component.ID, nil, now)
+		if err != nil {
+			return err
+		}
+		o.EventAt = route.State.Timestamp
+		saved, event, err := e.Repo.ApplyComponentAlarm(model.WithAlarmObservation(ctx, o), a, route.State)
 		if err != nil {
 			return err
 		}

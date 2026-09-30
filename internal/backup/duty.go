@@ -1,17 +1,10 @@
 package backup
 
 import (
-	"archive/tar"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
-
-	"github.com/minio/minio-go/v7"
 )
 
 const dutyAttachmentBucket = "iot-duty-attachments"
@@ -58,51 +51,7 @@ func (s *Service) exportDuty(ctx context.Context, dir string, m *Manifest) ([]st
 		return nil, err
 	}
 	objectPath := filepath.Join(dir, "duty-objects.tar.gz")
-	var bytes int64
-	err = writeGzip(objectPath, func(w io.Writer) error {
-		tw := tar.NewWriter(w)
-		for i := range refs {
-			ref := &refs[i]
-			ref.Entry = fmt.Sprintf("objects/%012d", i)
-			obj, e := s.store.GetObject(ctx, ref.Bucket, ref.Key, minio.GetObjectOptions{})
-			if e != nil {
-				return e
-			}
-			info, e := obj.Stat()
-			if e != nil {
-				obj.Close()
-				return e
-			}
-			ref.Size = info.Size
-			ref.ContentType = info.ContentType
-			if e = tw.WriteHeader(&tar.Header{Name: ref.Entry, Mode: 0600, Size: ref.Size, Typeflag: tar.TypeReg}); e != nil {
-				obj.Close()
-				return e
-			}
-			h := sha256.New()
-			n, e := io.Copy(io.MultiWriter(tw, h), obj)
-			obj.Close()
-			if e != nil {
-				return e
-			}
-			if n != ref.Size {
-				return errors.New("duty attachment changed during backup")
-			}
-			ref.SHA256 = hex.EncodeToString(h.Sum(nil))
-			bytes += n
-		}
-		b, e := json.Marshal(refs)
-		if e != nil {
-			return e
-		}
-		if e = tw.WriteHeader(&tar.Header{Name: "index.json", Mode: 0600, Size: int64(len(b)), Typeflag: tar.TypeReg}); e != nil {
-			return e
-		}
-		if _, e = tw.Write(b); e != nil {
-			return e
-		}
-		return tw.Close()
-	})
+	bytes, err := s.exportSnapshotObjects(ctx, refs, objectPath)
 	if err != nil {
 		return nil, fmt.Errorf("duty attachments: %w", err)
 	}

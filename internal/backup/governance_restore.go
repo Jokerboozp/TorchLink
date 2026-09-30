@@ -1,0 +1,482 @@
+package backup
+
+import (
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"os"
+	"slices"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"iot-platform/internal/adapters/postgres"
+)
+
+func (s *Service) restoreGovernance(ctx context.Context, target *pgx.Conn, m Manifest, res *RestoreResult) error {
+	if m.FormatVersion < 4 || m.Type != "FULL" {
+		res.Components["governance"] = map[string]any{"status": "not_included", "reason": "this backup predates alarm governance or contains device messages only"}
+		res.Components["governanceObjects"] = map[string]any{"status": "not_included"}
+		return nil
+	}
+	included, err := snapshotComponentIncluded(m, "governance", []string{"governance-schema.json", "governance-postgres.jsonl.gz", "governance-objects.tar.gz"})
+	if err != nil {
+		return err
+	}
+	if !included {
+		res.Components["governance"] = map[string]any{"status": "not_included", "reason": "legacy application-only v4 format"}
+		res.Components["governanceObjects"] = map[string]any{"status": "not_included"}
+		return nil
+	}
+	stage, err := os.MkdirTemp(s.cfg.BackupDir, ".governance-restore-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	paths := map[string]string{}
+	for _, name := range []string{"governance-schema.json", "governance-postgres.jsonl.gz", "governance-objects.tar.gz"} {
+		p, e := s.downloadVerifiedArtifact(ctx, m, res.BackupID, name, stage)
+		if e != nil {
+			return e
+		}
+		paths[name] = p
+	}
+	b, err := os.ReadFile(paths["governance-schema.json"])
+	if err != nil {
+		return err
+	}
+	var schema knowledgeSchema
+	if err = json.Unmarshal(b, &schema); err != nil {
+		return err
+	}
+	if err = validateGovernanceSchema(schema); err != nil {
+		return err
+	}
+	legacyAnalysis := slices.Contains(governanceSchemaTables(schema), "analysis_document")
+	if m.FormatVersion >= 5 && legacyAnalysis {
+		return errors.New("combined governance backup duplicates analysis documents")
+	}
+	h := sha256.Sum256([]byte(res.RestoreID))
+	schemaName := "governance_restore_" + hex.EncodeToString(h[:10])
+	tx, err := target.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{schemaName}.Sanitize()); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, "SET LOCAL search_path = "+pgx.Identifier{schemaName}.Sanitize()); err != nil {
+		return err
+	}
+	// Install compiled application constraints, indexes, generated columns and
+	// sequences. No expression or SQL supplied by the artifact is executed.
+	ddl := postgres.AlarmGovernanceDomainRestoreSchema()
+	if legacyAnalysis {
+		ddl = postgres.AlarmGovernanceRestoreSchema()
+	}
+	if _, err = tx.Exec(ctx, ddl); err != nil {
+		return err
+	}
+	if err = verifySnapshotSchema(ctx, tx, schema); err != nil {
+		return err
+	}
+	counts, err := restoreSnapshotRows(ctx, tx, schemaName, paths["governance-postgres.jsonl.gz"], schema)
+	if err != nil {
+		return err
+	}
+	for _, table := range governanceSchemaTables(schema) {
+		if counts[table] != snapshotTableCount(m, "governance", table) {
+			return fmt.Errorf("restored governance count mismatch: %s", table)
+		}
+	}
+	if err = validateGovernanceReferences(ctx, tx); err != nil {
+		return err
+	}
+	retired := 0
+	if legacyAnalysis {
+		documents, err := restoredAnalysisDocuments(ctx, tx, schemaName)
+		if err != nil {
+			return err
+		}
+		if err = validateApplicationDocuments(documents); err != nil {
+			return err
+		}
+		retired, err = retireRestoredAnalysisDocuments(ctx, tx, schemaName, res.RestoreID, documents)
+		if err != nil {
+			return err
+		}
+	}
+	analysisOwner := "application"
+	if legacyAnalysis {
+		analysisOwner = "governance"
+	}
+	// Reject cross-component corruption before committing this schema or
+	// creating recovered objects. The shared analysis component is already
+	// restored; legacy packages read their analysis rows in this transaction.
+	validation := *res
+	validation.Components = maps.Clone(res.Components)
+	validation.Components["governance"] = map[string]any{"status": "restored", "schema": schemaName, "analysisDocuments": analysisOwner}
+	if err = validateRestoredGovernanceAnalysis(ctx, tx, &validation); err != nil {
+		return err
+	}
+	uploadedKeys := []string{}
+	restoreCommitted := false
+	defer func() {
+		if !restoreCommitted {
+			s.cleanupGovernanceRestoreObjects(context.WithoutCancel(ctx), uploadedKeys)
+		}
+	}()
+	objectCount, err := s.restoreGovernanceObjects(ctx, tx, schemaName, paths["governance-objects.tar.gz"], stage, res.RestoreID, &uploadedKeys)
+	if err != nil {
+		return err
+	}
+	if objectCount != componentCount(m, "governanceObjects", "objects") {
+		return errors.New("governance object count mismatch")
+	}
+	seq := pgx.Identifier{schemaName, "alarm_observation_attempt_seq_seq"}.Sanitize()
+	// bigserial is regenerated by compiled DDL. Restore its next value after
+	// inserting original attempt IDs; subsequent writes cannot collide.
+	if _, err = tx.Exec(ctx, "SELECT setval('"+seq+"'::regclass,COALESCE((SELECT max(seq) FROM alarm_observation_attempt),1),(SELECT count(*)>0 FROM alarm_observation_attempt))"); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	restoreCommitted = true
+	res.Components["governance"] = map[string]any{"status": "restored", "schema": schemaName, "tables": counts, "matches": true, "analysisDocuments": analysisOwner, "retiredExecutions": retired, "tasks": "immutable analytics facts preserved; pending executions retired after original audit"}
+	res.Components["governanceObjects"] = map[string]any{"status": "restored", "objects": objectCount, "matches": true, "bucket": governanceAttachmentBucket}
+	return nil
+}
+func validateGovernanceSchema(schema knowledgeSchema) error {
+	tables := postgres.AlarmGovernanceDomainRestoreTables()
+	if slices.Contains(governanceSchemaTables(schema), "analysis_document") {
+		tables = postgres.AlarmGovernanceRestoreTables()
+	}
+	if len(schema.Tables) != len(tables) {
+		return errors.New("governance schema is incomplete")
+	}
+	seen := map[string]bool{}
+	for _, table := range schema.Tables {
+		if !slices.Contains(tables, table.Name) || seen[table.Name] || len(table.Columns) == 0 || len(table.PrimaryKey) == 0 {
+			return errors.New("invalid governance table schema")
+		}
+		seen[table.Name] = true
+		cols := map[string]bool{}
+		for _, c := range table.Columns {
+			if !backupIdentifier.MatchString(c.Name) || knowledgeSQLTypes[c.Type] == "" || c.Type == "vector" || cols[c.Name] {
+				return errors.New("invalid governance column schema")
+			}
+			cols[c.Name] = true
+		}
+		for _, pk := range table.PrimaryKey {
+			if !cols[pk] {
+				return errors.New("invalid governance primary key")
+			}
+		}
+	}
+	return nil
+}
+
+func governanceSchemaTables(schema knowledgeSchema) []string {
+	tables := make([]string, 0, len(schema.Tables))
+	for _, table := range schema.Tables {
+		tables = append(tables, table.Name)
+	}
+	return tables
+}
+func verifySnapshotSchema(ctx context.Context, tx pgx.Tx, schema knowledgeSchema) error {
+	for _, table := range schema.Tables {
+		rows, err := tx.Query(ctx, `SELECT a.attname,t.typname,a.attnotnull FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=to_regclass($1) AND a.attnum>0 AND NOT a.attisdropped AND a.attgenerated='' ORDER BY a.attnum`, table.Name)
+		if err != nil {
+			return err
+		}
+		cols := []knowledgeColumn{}
+		for rows.Next() {
+			var c knowledgeColumn
+			if err = rows.Scan(&c.Name, &c.Type, &c.NotNull); err != nil {
+				break
+			}
+			cols = append(cols, c)
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(cols, table.Columns) {
+			return fmt.Errorf("governance columns differ from application contract: %s", table.Name)
+		}
+		var pk []string
+		if err = tx.QueryRow(ctx, `SELECT array_agg(a.attname ORDER BY k.ordinality) FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid=to_regclass($1) AND c.contype='p'`, table.Name).Scan(&pk); err != nil {
+			return err
+		}
+		if !slices.Equal(pk, table.PrimaryKey) {
+			return fmt.Errorf("governance primary key differs from application contract: %s", table.Name)
+		}
+	}
+	return nil
+}
+func snapshotTableCount(m Manifest, component, table string) int64 {
+	v, _ := m.Components[component].(map[string]any)
+	switch tables := v["tables"].(type) {
+	case map[string]any:
+		return manifestRecords(map[string]any{"records": tables[table]})
+	case map[string]int64:
+		return tables[table]
+	}
+	return 0
+}
+func restoreSnapshotRows(ctx context.Context, tx pgx.Tx, schemaName, path string, schema knowledgeSchema) (map[string]int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	gz, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	defer gz.Close()
+	counts := map[string]int64{}
+	tables := map[string]knowledgeTable{}
+	for _, t := range schema.Tables {
+		counts[t.Name] = 0
+		tables[t.Name] = t
+	}
+	dec := json.NewDecoder(gz)
+	for {
+		var row knowledgeRow
+		if err = dec.Decode(&row); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		t, ok := tables[row.Table]
+		if !ok || !json.Valid(row.Row) {
+			return nil, errors.New("invalid governance snapshot row")
+		}
+		var data map[string]json.RawMessage
+		if err = json.Unmarshal(row.Row, &data); err != nil {
+			return nil, err
+		}
+		if len(data) != len(t.Columns) {
+			return nil, errors.New("governance snapshot row columns differ")
+		}
+		cols := []string{}
+		for _, c := range t.Columns {
+			if _, ok := data[c.Name]; !ok {
+				return nil, errors.New("governance snapshot row column missing")
+			}
+			cols = append(cols, pgx.Identifier{c.Name}.Sanitize())
+		}
+		ident := pgx.Identifier{schemaName, row.Table}.Sanitize()
+		names := strings.Join(cols, ",")
+		if _, err = tx.Exec(ctx, "INSERT INTO "+ident+"("+names+") SELECT "+names+" FROM jsonb_populate_record(NULL::"+ident+",$1::jsonb)", []byte(row.Row)); err != nil {
+			return nil, err
+		}
+		counts[row.Table]++
+	}
+	return counts, nil
+}
+func validateGovernanceReferences(ctx context.Context, tx pgx.Tx) error {
+	// Physical FK constraints cover case/round/verification ownership. JSON
+	// observation members additionally require a matching tenant and device.
+	for _, table := range []string{"alarm_governance_case", "alarm_governance_verification", "alarm_governance_alarm_link", "alarm_governance_reminder"} {
+		var invalid int
+		err := tx.QueryRow(ctx, `SELECT count(*) FROM `+pgx.Identifier{table}.Sanitize()+` d CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(d.body->'observationIds','[]'::jsonb)) member LEFT JOIN alarm_observation o ON o.tenant_id=d.tenant_id AND o.id=member WHERE o.id IS NULL OR NOT (o.device_id=ANY(d.device_ids))`).Scan(&invalid)
+		if err != nil {
+			return err
+		}
+		if invalid > 0 {
+			return errors.New("restored governance observation references cross resource scope")
+		}
+	}
+	var invalid int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM alarm_signal_state s LEFT JOIN alarm_observation o ON o.tenant_id=s.tenant_id AND o.id=s.observation_id WHERE o.id IS NULL OR s.device_id<>o.device_id OR s.signal_key<>o.signal_key`).Scan(&invalid); err != nil {
+		return err
+	}
+	if invalid > 0 {
+		return errors.New("restored signal state observation is missing")
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM alarm_governance_published_config c LEFT JOIN alarm_governance_template t ON c.kind='template' AND t.tenant_id=c.tenant_id AND t.id=c.revision_id LEFT JOIN alarm_governance_scene_preset s ON c.kind='scene-preset' AND s.tenant_id=c.tenant_id AND s.id=c.revision_id LEFT JOIN alarm_governance_type_profile p ON c.kind='type-profile' AND p.tenant_id=c.tenant_id AND p.id=c.revision_id WHERE COALESCE(t.id,s.id,p.id) IS NULL`).Scan(&invalid); err != nil {
+		return err
+	}
+	if invalid > 0 {
+		return errors.New("restored published governance configuration missing")
+	}
+	return nil
+}
+func (s *Service) restoreGovernanceObjects(ctx context.Context, tx pgx.Tx, schema, path, stage, restoreID string, uploadedKeys *[]string) (int64, error) {
+	entries, refs, err := readSnapshotObjects(path, stage, governanceAttachmentBucket)
+	if err != nil {
+		return 0, err
+	}
+	table := pgx.Identifier{schema, "alarm_governance_attachment"}.Sanitize()
+	historyTable := pgx.Identifier{schema, "alarm_governance_attachment_history"}.Sanitize()
+	refsSQL := "SELECT body->>'storageKey' AS storage_key FROM " + table + " WHERE COALESCE(body->>'availability','AVAILABLE')<>'UNAVAILABLE' UNION SELECT body->'body'->>'storageKey' AS storage_key FROM " + historyTable + " WHERE COALESCE(body->'body'->>'availability','AVAILABLE')<>'UNAVAILABLE'"
+	var metadataCount int
+	if err = tx.QueryRow(ctx, "SELECT count(*) FROM ("+refsSQL+") refs WHERE COALESCE(storage_key,'')<>''").Scan(&metadataCount); err != nil {
+		return 0, err
+	}
+	if metadataCount != len(refs) {
+		return 0, errors.New("governance attachment metadata and object archive differ")
+	}
+	keyMap := map[string]string{}
+	if len(refs) == 0 {
+		return 0, isolateRestoredGovernanceUploads(ctx, tx, schema, keyMap)
+	}
+	if strings.TrimSpace(s.cfg.RestoreMinIOEndpoint) == "" || strings.EqualFold(strings.TrimRight(s.cfg.MinIOEndpoint, "/"), strings.TrimRight(s.cfg.RestoreMinIOEndpoint, "/")) {
+		return 0, errors.New("governance attachments require an independent MinIO restore endpoint")
+	}
+	store, err := minio.New(s.cfg.RestoreMinIOEndpoint, &minio.Options{Creds: credentials.NewStaticV4(s.cfg.RestoreMinIOAccessKey, s.cfg.RestoreMinIOSecretKey, ""), Secure: s.cfg.RestoreMinIOUseTLS})
+	if err != nil {
+		return 0, err
+	}
+	if err = s.ensureBucket(ctx, store, governanceAttachmentBucket); err != nil {
+		return 0, err
+	}
+	created := []string{}
+	success := false
+	defer func() {
+		if !success {
+			for _, key := range created {
+				_ = store.RemoveObject(context.WithoutCancel(ctx), governanceAttachmentBucket, key, minio.RemoveObjectOptions{})
+			}
+		}
+	}()
+	for _, ref := range refs {
+		var metadataMatches int
+		if err = tx.QueryRow(ctx, "SELECT count(*) FROM ("+refsSQL+") refs WHERE storage_key=$1", ref.Key).Scan(&metadataMatches); err != nil {
+			return 0, err
+		}
+		if metadataMatches == 0 {
+			return 0, errors.New("governance attachment object has no metadata")
+		}
+		key := "restore/" + restoreID + "/governance/" + ref.Entry
+		keyMap[ref.Key] = key
+		if _, err = store.FPutObject(ctx, governanceAttachmentBucket, key, entries[ref.Entry], minio.PutObjectOptions{ContentType: ref.ContentType}); err != nil {
+			return 0, err
+		}
+		created = append(created, key)
+		*uploadedKeys = append(*uploadedKeys, key)
+		object, e := store.GetObject(ctx, governanceAttachmentBucket, key, minio.GetObjectOptions{})
+		if e != nil {
+			return 0, e
+		}
+		h := sha256.New()
+		n, e := io.Copy(h, object)
+		object.Close()
+		if e != nil {
+			return 0, e
+		}
+		if n != ref.Size || hex.EncodeToString(h.Sum(nil)) != ref.SHA256 {
+			return 0, errors.New("restored governance attachment checksum mismatch")
+		}
+		if _, err = tx.Exec(ctx, "UPDATE "+table+" SET body=jsonb_set(body,'{storageKey}',to_jsonb($2::text),false) WHERE body->>'storageKey'=$1", ref.Key, key); err != nil {
+			return 0, err
+		}
+		if _, err = tx.Exec(ctx, "UPDATE "+historyTable+" SET body=jsonb_set(body,'{body,storageKey}',to_jsonb($2::text),false) WHERE body->'body'->>'storageKey'=$1", ref.Key, key); err != nil {
+			return 0, err
+		}
+	}
+	if err = isolateRestoredGovernanceUploads(ctx, tx, schema, keyMap); err != nil {
+		return 0, err
+	}
+	success = true
+	return int64(len(refs)), nil
+}
+
+func (s *Service) cleanupGovernanceRestoreObjects(ctx context.Context, keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	store, err := minio.New(s.cfg.RestoreMinIOEndpoint, &minio.Options{Creds: credentials.NewStaticV4(s.cfg.RestoreMinIOAccessKey, s.cfg.RestoreMinIOSecretKey, ""), Secure: s.cfg.RestoreMinIOUseTLS})
+	if err != nil {
+		return
+	}
+	for _, key := range keys {
+		_ = store.RemoveObject(ctx, governanceAttachmentBucket, key, minio.RemoveObjectOptions{})
+	}
+}
+
+// Backup contains referenced evidence, never uncommitted remote uploads. A
+// restored compensation queue must not delete objects in the source namespace.
+func isolateRestoredGovernanceUploads(ctx context.Context, tx pgx.Tx, schema string, keyMap map[string]string) error {
+	for _, history := range []bool{false, true} {
+		name := "alarm_governance_upload_attempt"
+		idColumn := "id"
+		if history {
+			name += "_history"
+			idColumn = "resource_id"
+		}
+		table := pgx.Identifier{schema, name}.Sanitize()
+		rows, e := tx.Query(ctx, "SELECT tenant_id,"+idColumn+",version,body FROM "+table)
+		if e != nil {
+			return e
+		}
+		type row struct {
+			tenant, id string
+			version    int64
+			body       []byte
+		}
+		data := []row{}
+		for rows.Next() {
+			var r row
+			if e = rows.Scan(&r.tenant, &r.id, &r.version, &r.body); e != nil {
+				break
+			}
+			data = append(data, r)
+		}
+		if e == nil {
+			e = rows.Err()
+		}
+		rows.Close()
+		if e != nil {
+			return e
+		}
+		for _, r := range data {
+			var body map[string]any
+			dec := json.NewDecoder(strings.NewReader(string(r.body)))
+			dec.UseNumber()
+			if e = dec.Decode(&body); e != nil {
+				return e
+			}
+			payload := body
+			if history {
+				var ok bool
+				payload, ok = body["body"].(map[string]any)
+				if !ok {
+					return errors.New("restored upload history payload invalid")
+				}
+			}
+			key, _ := payload["storageKey"].(string)
+			hash := sha256.Sum256([]byte(key))
+			payload["sourceStorageKeyHash"] = hex.EncodeToString(hash[:])
+			payload["storageKey"] = keyMap[key]
+			payload["restoredUploadStatus"] = "UPLOAD_RESTORED"
+			encoded, e := json.Marshal(body)
+			if e != nil {
+				return e
+			}
+			if history {
+				_, e = tx.Exec(ctx, "UPDATE "+table+" SET body=$4 WHERE tenant_id=$1 AND resource_id=$2 AND version=$3", r.tenant, r.id, r.version, encoded)
+			} else {
+				_, e = tx.Exec(ctx, "UPDATE "+table+" SET body=$4,status='UPLOAD_RESTORED' WHERE tenant_id=$1 AND id=$2 AND version=$3", r.tenant, r.id, r.version, encoded)
+			}
+			if e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"iot-platform/internal/model"
+	"strings"
 )
 
 const (
@@ -15,6 +16,7 @@ const (
 	KindResponse    = "RESPONSE_REVIEW"
 	KindMaintenance = "MAINTENANCE_OUTCOME"
 	KindInvestment  = "MAINTENANCE_INVESTMENT"
+	KindRecurring   = "RECURRING_ALARM_GOVERNANCE"
 )
 
 var ErrForbidden = errors.New("无分析权限或设备范围已变化")
@@ -67,6 +69,9 @@ type ResolveActor func(context.Context, Actor) (Actor, error)
 type ValidateDevice func(context.Context, string, string) error
 
 func Menu(kind string) string {
+	if d, ok := WorkflowDefinitionFor(kind); ok {
+		return d.Menu
+	}
 	switch kind {
 	case KindDataQuality:
 		return "dataQuality"
@@ -83,6 +88,9 @@ func Menu(kind string) string {
 }
 
 func Prefix(kind string) string {
+	if d, ok := WorkflowDefinitionFor(kind); ok {
+		return d.Prefix
+	}
 	switch kind {
 	case KindDataQuality:
 		return "/api/v1/data-quality"
@@ -164,10 +172,21 @@ func (a Actor) Allows(kind, operation string, ids []string) bool {
 		return false
 	}
 	if !slices.Contains(a.Permissions, "*") {
+		if kind == KindRecurring && !slices.Contains(a.Permissions, "menu:alarms") {
+			return false
+		}
 		if !slices.Contains(a.Permissions, "menu:devices") || !slices.Contains(a.Permissions, "menu:"+menu) {
 			return false
 		}
-		if operation != "" && !slices.Contains(a.Permissions, operation) {
+		permission := operation
+		if kind == KindRecurring && operation != "" {
+			if strings.Contains(operation, "/ai-jobs") {
+				permission = "action:alarmGovernance:ai"
+			} else if strings.Contains(operation, "/runs") {
+				permission = "action:alarmGovernance:analyse"
+			}
+		}
+		if operation != "" && !slices.Contains(a.Permissions, operation) && !slices.Contains(a.Permissions, permission) {
 			return false
 		}
 	}

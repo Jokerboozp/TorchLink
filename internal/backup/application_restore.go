@@ -20,6 +20,15 @@ func (s *Service) restoreApplication(ctx context.Context, target *pgx.Conn, m Ma
 		res.Components["application"] = map[string]any{"status": "not_included", "reason": "this backup predates fixed analysis snapshots or contains device messages only"}
 		return nil
 	}
+	included, err := snapshotComponentIncluded(m, "application", []string{"application-schema.json", "application-postgres.jsonl.gz", "application-objects.tar.gz"})
+	if err != nil {
+		return err
+	}
+	if !included {
+		res.Components["application"] = map[string]any{"status": "not_included", "reason": "legacy governance-only v4 format"}
+		res.Components["applicationObjects"] = map[string]any{"status": "not_included"}
+		return nil
+	}
 	stage, err := os.MkdirTemp(s.cfg.BackupDir, ".application-restore-")
 	if err != nil {
 		return err

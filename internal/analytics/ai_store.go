@@ -442,7 +442,13 @@ func validateAIObjects(tx StorageTx, job model.AnalysisAIRevision, result model.
 	for _, list := range aiStatements(job.WorkflowID, result) {
 		for _, statement := range list {
 			covered := []string{}
-			for _, id := range statement.FactIDs {
+			for _, ref := range statement.MetricRefs {
+				d, err := tx.Get("output", ref)
+				if err != nil || d.RunID != job.RunID || d.ApplicationKind != "metrics" {
+					return model.ErrAnalysisInvalid
+				}
+			}
+			for _, id := range append(slices.Clone(statement.FactIDs), statement.MetricRefs...) {
 				if id == job.SnapshotID+"/summary" {
 					covered = append(covered, job.DeviceIDs...)
 					continue

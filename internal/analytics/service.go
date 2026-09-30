@@ -18,13 +18,14 @@ import (
 type Processor func(context.Context, *Execution) error
 
 type Service struct {
-	AI         *AIService
-	Store      ports.AnalysisStore
-	Limits     config.AnalyticsConfig
-	Resolve    ResolveActor
-	Device     ValidateDevice
-	mu         sync.RWMutex
-	processors map[string]Processor
+	AI               *AIService
+	Store            ports.AnalysisStore
+	Limits           config.AnalyticsConfig
+	Resolve          ResolveActor
+	Device           ValidateDevice
+	AuthorizeSources func(context.Context, Actor, model.AnalysisRun) error
+	mu               sync.RWMutex
+	processors       map[string]Processor
 }
 
 func NewService(store ports.AnalysisStore, limits config.AnalyticsConfig, resolve ResolveActor, device ValidateDevice) *Service {
@@ -157,13 +158,19 @@ func (s *Service) Get(ctx context.Context, a Actor, kind, id string) (model.Anal
 	if err != nil || !current.AllowsRequired(r.RequiredPermissions) {
 		return model.AnalysisRun{}, ErrForbidden
 	}
-	return r, nil
+	if err == nil && s.AuthorizeSources != nil {
+		err = s.AuthorizeSources(ctx, current, r)
+	}
+	return r, err
 }
 
 func (s *Service) List(ctx context.Context, a Actor, kind string, f model.AnalysisFilter) ([]model.AnalysisRun, int, error) {
 	current, err := s.Current(ctx, a)
 	if err != nil {
 		return nil, 0, err
+	}
+	if kind == KindRecurring && !slices.Contains(current.Permissions, "*") && !slices.Contains(current.Permissions, "menu:alarms") {
+		return nil, 0, ErrForbidden
 	}
 	if !slices.Contains(current.Permissions, "*") && (!slices.Contains(current.Permissions, "menu:devices") || !slices.Contains(current.Permissions, "menu:"+Menu(kind))) {
 		return nil, 0, ErrForbidden
@@ -175,7 +182,27 @@ func (s *Service) List(ctx context.Context, a Actor, kind string, f model.Analys
 		f.DeviceScopeSet = true
 		f.DeviceIDs = current.DeviceIDs
 	}
-	return s.Store.ListAnalysisRuns(ctx, a.TenantID, f)
+	items, n, err := s.Store.ListAnalysisRuns(ctx, a.TenantID, f)
+	if err == nil && s.AuthorizeSources != nil {
+		checkFilter := f
+		checkFilter.Offset, checkFilter.Limit = 0, 100
+		for checkFilter.Offset < n {
+			page, _, e := s.Store.ListAnalysisRuns(ctx, a.TenantID, checkFilter)
+			if e != nil {
+				return nil, 0, e
+			}
+			for _, r := range page {
+				if e := s.AuthorizeSources(ctx, current, r); e != nil {
+					return nil, 0, ErrForbidden
+				}
+			}
+			if len(page) == 0 {
+				break
+			}
+			checkFilter.Offset += len(page)
+		}
+	}
+	return items, n, err
 }
 
 func (s *Service) Stop(ctx context.Context, a Actor, kind, id string, expected int64) (model.AnalysisRun, error) {

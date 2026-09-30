@@ -49,6 +49,35 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 		mark := watermark
 		return appendRoutingTrace(ctx, tx, model.RuleRoutingStep{Kind: "COMPONENT", RuleID: candidate.RuleID, Before: history.RoutingAlarm(old), After: history.RoutingAlarm(next), PreviousWatermark: &prior, Watermark: &mark, Times: model.RuleStageTimes{ComponentAtMillis: &now}, Applied: applied, Event: decision.Event})
 	}
+	o := model.AlarmObservationFromComponent(ctx, candidate, state)
+	o.FactKind = "CLEAR"
+	if state.Active {
+		o.FactKind = "ASSERT"
+	}
+	o.EventAt = state.Timestamp
+	o.AlarmID = old.ID
+	if o.AlarmID == "" && state.Active {
+		o.AlarmID = candidate.ID
+	}
+	o.WatermarkAt = previous.Timestamp
+	if !state.Supersedes(previous) {
+		o.Acceptance = "REJECTED"
+		o.Reason = "STALE_OR_EQUAL_STATE"
+	}
+	savedObservation, createdObservation, observationErr := recordAlarmObservation(ctx, tx, o)
+	if observationErr != nil {
+		return candidate, "", observationErr
+	}
+	if !createdObservation {
+		decision.Event = previous.Event
+		if err = componentStep(old, previous, false); err != nil {
+			return candidate, "", err
+		}
+		return old, previous.Event, tx.Commit(ctx)
+	}
+	if err = acceptAlarmSignal(ctx, tx, savedObservation); err != nil {
+		return candidate, "", err
+	}
 	if !decision.Applied {
 		if err = componentStep(decision.Alarm, previous, false); err != nil {
 			return candidate, "", err

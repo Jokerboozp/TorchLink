@@ -29,6 +29,7 @@ const (
 	WorkflowResponse         = "response-reviewer"
 	WorkflowMaintenance      = "maintenance-outcome-reviewer"
 	WorkflowInvestment       = "maintenance-investment-advisor"
+	WorkflowRecurring        = analytics.WorkflowRecurring
 
 	businessRunTokenTTL = 5 * time.Minute
 )
@@ -38,7 +39,7 @@ var ErrAIWorkflowsUnavailable = errors.New("AI 工作流服务（Harness）未�
 
 // BusinessWorkflowIDs lists the non-chat Agents used by platform features.
 func BusinessWorkflowIDs() []string {
-	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover, WorkflowDataQuality, WorkflowMonitoring, WorkflowRulePolicy, WorkflowResponse, WorkflowMaintenance, WorkflowInvestment}
+	return []string{WorkflowAlarmAnalysis, WorkflowHealthInspection, WorkflowProtocolAssist, WorkflowRuleDraft, WorkflowDutyHandover, WorkflowDataQuality, WorkflowMonitoring, WorkflowRulePolicy, WorkflowResponse, WorkflowMaintenance, WorkflowInvestment, WorkflowRecurring}
 }
 
 // AIWorkflowsReady reports whether business AI features can run.

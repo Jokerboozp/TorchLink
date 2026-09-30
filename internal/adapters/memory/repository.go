@@ -19,6 +19,10 @@ var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
 	ruleHistory         memoryRuleHistory
+	alarmObservations   *alarmObservationState
+	governanceDocuments map[string]model.GovernanceDocument
+	governanceHistory   map[string]model.GovernanceDocument
+	governanceSources   map[string]int64
 	dutyDocuments       map[string]model.DutyDocument
 	dutyEvents          []model.DutyBusinessEvent
 	dutyEventSeq        int64
@@ -785,8 +789,24 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	if err := r.checkRoutingTraceLocked(ctx, v.TenantID, v.DeviceID); err != nil {
 		return v, false, err
 	}
+	// Synthetic legacy calls retain V1 aggregation semantics. Only an explicit
+	// incoming observation supplies the identity fence for production reports.
+	_, explicitObservation := model.AlarmObservationFromContext(ctx)
 	for k, a := range r.alarms {
 		if a.TenantID == v.TenantID && a.DeviceID == v.DeviceID && a.RuleID == v.RuleID && (a.Status == "ACTIVE" || a.Status == "ACKED") {
+			o := model.AlarmObservationFromAlarm(ctx, v)
+			o.AlarmID = a.ID
+			savedObservation, createdObservation, err := r.recordAlarmObservationLocked(o)
+			if err != nil {
+				return v, false, err
+			}
+			if !createdObservation && explicitObservation {
+				r.appendRoutingTraceLocked(ctx, routingRaiseStep(v, a, a, false))
+				return cloneAlarm(a), false, nil
+			}
+			if createdObservation {
+				r.acceptSignalLocked(savedObservation)
+			}
 			if v.TriggerID != "" && a.TriggerID == v.TriggerID {
 				r.appendRoutingTraceLocked(ctx, routingRaiseStep(v, a, a, false))
 				return cloneAlarm(a), false, nil
@@ -806,6 +826,19 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			}
 			return cloneAlarm(a), false, nil
 		}
+	}
+	o := model.AlarmObservationFromAlarm(ctx, v)
+	o.AlarmID = v.ID
+	savedObservation, createdObservation, err := r.recordAlarmObservationLocked(o)
+	if err != nil {
+		return v, false, err
+	}
+	if !createdObservation && explicitObservation {
+		r.appendRoutingTraceLocked(ctx, routingRaiseStep(v, model.Alarm{}, model.Alarm{}, false))
+		return v, false, nil
+	}
+	if createdObservation {
+		r.acceptSignalLocked(savedObservation)
 	}
 	v.Version = 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
@@ -930,13 +963,13 @@ func (r *Repository) SaveVideoEvent(_ context.Context, v model.VideoAlarmEvent) 
 	if _, ok := r.video[key(v.TenantID, v.EventID)]; ok {
 		return false, nil
 	}
-	r.video[key(v.TenantID, v.EventID)] = cloneVideoEvent(v)
+	r.video[key(v.TenantID, v.EventID)] = r.bindVideoEvent(v, false)
 	return true, nil
 }
 func (r *Repository) UpdateVideoEvent(_ context.Context, v model.VideoAlarmEvent) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.video[key(v.TenantID, v.EventID)] = cloneVideoEvent(v)
+	r.video[key(v.TenantID, v.EventID)] = r.bindVideoEvent(v, true)
 	return nil
 }
 func (r *Repository) ListPendingVideoEvents(_ context.Context, limit int) ([]model.VideoAlarmEvent, error) {

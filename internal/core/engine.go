@@ -377,6 +377,7 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	if !claim.ShouldProcess {
 		return nil
 	}
+	ctx = context.WithValue(ctx, alarmSourceReceiptKey{}, &alarmSourceReceipt{})
 	if msg.MessageType == model.CommandReply && msg.Parser == parser.StandardParserName {
 		if id, ok := msg.Event["commandId"].(string); ok {
 			if err := e.Repo.CompleteDeviceCommand(ctx, msg.TenantID, msg.DeviceID, id, msg.Event, e.Clock.Now().UnixMilli()); err != nil {
@@ -540,7 +541,11 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 		Details: map[string]any{"message": msg, "direct": true},
 	}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-	saved, created, err := e.Repo.UpsertAlarm(ctx, a)
+	o, err := e.sourceAlarmObservationAt(ctx, msg, "DEVICE_DIRECT", "device:"+alarmType, directAlarmObservationKind(msg, alarmType), alarmType, "", nil, now)
+	if err != nil {
+		return a, false, err
+	}
+	saved, created, err := e.Repo.UpsertAlarm(model.WithAlarmObservation(ctx, o), a)
 	if err != nil {
 		return saved, false, err
 	}
@@ -677,31 +682,23 @@ func directAlarmMetadata(msg model.StandardMessage) (string, string) { return ev
 func directAlarmCleared(msg model.StandardMessage) bool              { return eval.DirectCleared(msg) }
 
 func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMessage) error {
-	for _, status := range []string{"ACTIVE", "ACKED"} {
-		alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: msg.TenantID, DeviceID: msg.DeviceID, Status: status, Limit: 100})
+	for _, kind := range []string{"FIRE", "SMOKE_DETECTED", "DEVICE_FAULT", "DEVICE_OFFLINE", "MANUAL_ALARM"} {
+		if !directAlarmTypeCleared(msg, kind) {
+			continue
+		}
+		o, err := e.sourceAlarmObservation(ctx, msg, "DEVICE_DIRECT", "device:"+kind, "CLEAR", kind, "", nil)
 		if err != nil {
 			return err
 		}
-		for _, listed := range alarms {
-			if listed.ComponentID != "" || !strings.HasPrefix(listed.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, listed.AlarmType) {
-				continue
-			}
-			alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
-				if a.Status != "ACTIVE" && a.Status != "ACKED" {
-					return false, nil
-				}
-				a.Status = "RECOVERED"
-				a.RecoveredAt = e.Clock.Now().UnixMilli()
-				return true, nil
-			})
-			if err != nil {
-				return err
-			}
-			if written {
-				payload := mustJSON(alarm)
-				_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
-				_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
-			}
+		o.Reason = "EXPLICIT_DEVICE_NORMAL"
+		alarms, err := e.Repo.RecoverAlarmSignal(ctx, o, directAlarmRuleID(kind))
+		if err != nil {
+			return err
+		}
+		for _, alarm := range alarms {
+			payload := mustJSON(alarm)
+			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
+			_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
 		}
 	}
 	return nil

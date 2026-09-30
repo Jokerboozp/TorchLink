@@ -527,19 +527,23 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 设备数据备份
 
-每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，全部 Harness 实例的动态 Agent 和会话快照，以及值班排班、实际班次、记录、交接版本、跟进事项、通知、事件台账和附件原件。v4 增加五项应用的配置、固定任务与快照、证据、人工核实、AI 版本、实物与业务记录、规则历史及执行 trace、实际权限关联和应用附件。FULL 包含账号与角色权限记录，但不包含 Provider/API Key、JWT 或服务令牌、Redis、消息队列、环境文件或整个 MinIO；环境凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，全部 Harness 实例的动态 Agent 和会话快照，以及值班排班、实际班次、记录、交接版本、跟进事项、通知、事件台账和附件原件。v5 同时包含五项应用的配置、固定任务与快照、证据、人工核实、AI 版本、实物与业务记录、规则历史及执行 trace、实际权限关联和应用附件，以及反复报警治理的逐次观测、配置/事项/轮次及全部历史版本、现场记录与活动覆盖、原因措施、观察/报告、来源版本、待办及私有附件。FULL 包含账号与角色权限记录，但不包含 Provider/API Key、JWT 或服务令牌、Redis、消息队列、环境文件或整个 MinIO；环境凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
 
-- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent、会话、值班资料，以及固定分析、业务版本、权限关联和应用附件。
+- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent、会话、值班与治理资料，以及固定分析、业务版本、权限关联和私有附件。
 - **备份昨日数据**：按配置时区导出前一个自然日的数据。
 - **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
-- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，v3 再增加 `duty-schema.json`、`duty-postgres.jsonl.gz` 与 `duty-objects.tar.gz`，v4 增加 `application-schema.json`、`application-postgres.jsonl.gz` 和 `application-objects.tar.gz`，共十三份制品（包含清单）。所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
+- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，v3 再增加 `duty-schema.json`、`duty-postgres.jsonl.gz` 与 `duty-objects.tar.gz`，共十份制品（包含清单）。联合格式 v5 同时增加 `application-schema.json`、`application-postgres.jsonl.gz`、`application-objects.tar.gz` 和 `governance-schema.json`、`governance-postgres.jsonl.gz`、`governance-objects.tar.gz`，共十六份制品。原五应用 v4 和原治理 v4 各有十三份制品，恢复按清单中的组件和完整制品集合识别；不将缺失制品当作未包含。所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
 - **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。`FULL` v2 同时在独立库的 `kb_restore_<标识>` schema 恢复知识表、pgvector 索引和引用关系，在恢复用 MinIO 的独立前缀恢复原件，在隔离目录恢复每个 Harness 实例文件；校验制品 SHA-256、文件大小及恢复数量。旧 v1 备份只验证原有消息，不宣称包含知识或 Agent。该操作验证隔离恢复，不替换现网数据；同一时间只运行一个备份或恢复。
 
 `FULL` v3 另外在独立库的 `duty_restore_<标识>` schema 恢复十五张值班表，附件恢复至独立 MinIO 的 `iot-duty-attachments` 桶中恢复前缀，重写记录及冻结版本的附件引用并核对原件。恢复保留原确认摘要及原版本信息，附件物理键重定位不能解释为重签原交接。旧 v1/v2 及每日备份的恢复结果将值班标为 `not_included`。升级备份服务前先更新 API，使值班迁移完成。值班操作见 [值班管理](DUTY.md)。
 
-`FULL` v4 的 PostgreSQL 资料采用同一个 repeatable-read 截止，恢复到独立库的 `application_restore_<标识>` schema，校验不可变正文哈希、版本与当前指针、任务和快照、实际已提供的 AI 引用、规则历史及权限关联。校准、处置和维护附件恢复到独立私有桶，以只读位置映射保留原始引用和配置哈希；旧校准附件没有上传时的哈希时，明确标记原始哈希未知，本次按制品哈希核对字节。待执行或运行中的事实 / AI 任务保存原始审计后退役，旧租约失效，不会自动再调用模型；处理时钟中的旧规则 pending 也不能接续。
+`FULL` v5 的 PostgreSQL 资料采用同一个 repeatable-read 截止。五项应用和治理共用的 `analysis_document` 只导出和恢复一次，位于独立库的 `application_restore_<标识>` schema；校验不可变正文哈希、版本与当前指针、任务和快照、实际已提供的 AI 引用、规则历史及权限关联，同时核对治理任务引用的事项、轮次、观察计划、专用配置和历史归一化任务。校准、处置和维护附件恢复到独立私有桶，以只读位置映射保留原始引用和配置哈希；旧校准附件没有上传时的哈希时，明确标记原始哈希未知，本次按制品哈希核对字节。待执行或运行中的事实 / AI 任务保存原始审计后退役，旧租约失效，不会自动再调用模型；处理时钟中的旧规则 pending 也不能接续。
 
-隔离恢复只恢复当时仍保留的 PostgreSQL 读取来源。ClickHouse 数据以制品暂存核对，未重建可查询冷库；旧 MinIO 原文引用或其他过期资料缺失时，固定报告仍保持原事实，但来源覆盖显示限制。文件与记录数量一致、历史业务版本一致和全部来源可再次查询是不同结论；存在这些来源限制时恢复结果为 `PARTIAL`，不是条数不一致。旧 v1/v2/v3 和每日备份的应用恢复状态为 `not_included`，不能补造缺失内容。使用恢复库作只读历史核对，不将其直接作为现网任务执行库。
+治理专用表恢复到 `governance_restore_<标识>` schema，包含生成列、外键、索引、历史及序列。恢复只使用编译内置 DDL，制品 schema 仅用于校验，不执行其中 SQL；附件恢复到 `iot-alarm-governance-attachments` 的独立恢复前缀，同步重写当前和历史版本存储键并核对 SHA-256。原治理 v4 的分析文档仍在该治理 schema 恢复并执行相同任务退役规则；原五应用 v4 标记治理为 `not_included`，原治理 v4 标记应用为 `not_included`。治理事实、正式报告及附件默认持续保留；撤回、缺失和损坏保留 hash/历史。后台每分钟清理超过十分钟且已证实无引用的上传尝试，不扫描或删除正式引用对象。恢复副本中的上传尝试统一标记 `UPLOAD_RESTORED`，已引用键映射到恢复前缀，未提交对象不恢复且只保留原键 hash；恢复副本不会继续执行源环境上传补偿。操作见 [反复报警治理](PLATFORM.md#反复报警治理)。
+
+隔离恢复只恢复当时仍保留的 PostgreSQL 读取来源。ClickHouse 数据以制品暂存核对，未重建可查询冷库；旧 MinIO 原文引用或其他过期资料缺失时，固定报告仍保持原事实，但来源覆盖显示限制。文件与记录数量一致、历史业务版本一致和全部来源可再次查询是不同结论；存在这些来源限制时恢复结果为 `PARTIAL`，不是条数不一致。旧 v1/v2/v3 和每日备份的应用与治理恢复状态为 `not_included`，不能补造缺失内容。使用恢复库作只读历史核对，不将其直接作为现网任务执行库。
+
+启用新治理功能前更新 API 以完成迁移，再更新前端与 Harness 镜像（内置 `recurring-alarm-analyst.json` 随镜像发布），最后更新备份服务；本模块不增加基础服务。指标 `alarm_governance_analysis_completed_total`、`alarm_governance_analysis_failed_total`、`alarm_governance_maintenance_failed_total` 与 `alarm_governance_orphan_objects_cleaned_total` 不含设备或现场正文标签。
 
 ```dotenv
 # 是否开启每日自动备份；关闭后仍可手动备份

@@ -439,6 +439,29 @@ func (r *Repository) CommitRuleEvaluationStep(ctx context.Context, binding model
 	if err != nil {
 		return step, err
 	}
+	if capture, ok := model.AlarmObservationCaptureFromContext(ctx); ok && capture.Observation != nil {
+		o := *capture.Observation
+		o.AlarmID = step.Alarm.ID
+		if o.AlarmID == "" {
+			o.AlarmID = state.Alarm.ID
+		}
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, o.TenantID+"\x1f"+o.DeviceID+"\x1f"+o.SignalKey); err != nil {
+			return step, err
+		}
+		err = tx.QueryRow(ctx, `SELECT event_at FROM alarm_signal_state WHERE tenant_id=$1 AND device_id=$2 AND signal_key=$3`, o.TenantID, o.DeviceID, o.SignalKey).Scan(&o.WatermarkAt)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return step, err
+		}
+		saved, created, err := recordAlarmObservation(ctx, tx, o)
+		if err != nil {
+			return step, err
+		}
+		if created {
+			if err = acceptAlarmSignal(ctx, tx, saved); err != nil {
+				return step, err
+			}
+		}
+	}
 	if step.WriteAlarm {
 		step.Alarm.Version = state.Alarm.Version + 1
 		step.AlarmVersion = step.Alarm.Version

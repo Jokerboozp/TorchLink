@@ -130,6 +130,7 @@ go test ./...
 | [部署与本地调试](docs/DEPLOYMENT.md) | 本机/虚拟机、在线/离线、集群与角色拆分、模块开关、迁移、维护和备份 |
 | [开发与测试](docs/DEVELOPMENT.md) | 源码与脚本入口、前端约定、查询契约、回归、演示工具、容量测试与目标环境验收 |
 | [设备接入与协议](docs/INTEGRATION.md) | HTTP/MQTT、TCP/Modbus、Go Worker、点表、部件告警、开放 API 与厂商示例 |
-| [平台功能与边界](docs/PLATFORM.md) | 设备与告警、用户权限、手动研判、AI 工作流管理/知识库、巡检报告、运维中心、摄像头直播与视频事件 |
+| [平台功能与边界](docs/PLATFORM.md) | 设备与告警、反复报警治理、用户权限、手动研判、AI 工作流管理/知识库、巡检报告、运维中心、摄像头直播与视频事件 |
 | [值班管理与交接](docs/DUTY.md) | 排班导入、实际责任、固定版本交接、AI、跟进事项、提醒、权限及备份 |
 | [五项业务分析实施记录](docs/AI_APPLICATION_IMPLEMENTATION.md) | 数据质量、连续性、规则实验、处置复盘、维护与投入的功能入口、固定契约、分阶段交付和实际验证 |
+| [反复报警治理开发与实施记录](docs/RECURRING_ALARM_GOVERNANCE_DEVELOPMENT_PLAN.md) | 通用模板、逐次事实、现场核实、活动与措施观察、权限、分阶段交付及验证边界 |

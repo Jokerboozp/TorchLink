@@ -15,6 +15,12 @@ func (s *Server) setupAnalysisAI() {
 	if manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowRunManager); ok {
 		s.analysis.AI.StopRunner = manager.StopWorkflowRun
 	}
+	s.analysis.AI.ValidateSnapshot = func(ctx context.Context, r model.AnalysisRun) error {
+		if r.Kind == analytics.KindRecurring {
+			return s.recurring.ValidateSnapshot(ctx, r)
+		}
+		return nil
+	}
 	s.engine.AnalysisAI = s.analysis.AI
 	s.analysis.AI.PrepareCandidate = s.rulelab.PrepareAICandidate
 	s.rulelab.AI = s.analysis.AI
@@ -25,7 +31,7 @@ func (s *Server) RunAnalysisAIWorkers(ctx context.Context) {
 	}
 }
 func (s *Server) analysisAIRoutes() {
-	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring} {
+	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring, analytics.KindRecurring} {
 		prefix := analytics.Prefix(kind)
 		s.router.POST(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAICreate(kind), "id"))
 		s.router.GET(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAIList(kind), "id"))

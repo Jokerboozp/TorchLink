@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS video_alarm_event (
   alarm_type text NOT NULL, event_time bigint NOT NULL, body jsonb NOT NULL,
   PRIMARY KEY (tenant_id, event_id)
 );
+CREATE INDEX IF NOT EXISTS video_alarm_event_history_idx ON video_alarm_event(tenant_id,event_time,event_id);
 CREATE TABLE IF NOT EXISTS video_camera_mapping (
   tenant_id text NOT NULL, camera_id text NOT NULL, camera_name text, brand text, camera_point text, device_id text, project_id text,
   ingest_mode text NOT NULL DEFAULT 'direct', city_code text, district_code text, building text, floor text, room text, area_id text,

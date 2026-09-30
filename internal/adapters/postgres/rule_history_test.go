@@ -117,27 +117,37 @@ func TestRuleHistorySQLTraceFailureRollsBackAlarmAndProcessedFence(t *testing.T)
 	ctx := context.Background()
 	r := testRepository(t)
 	revision, msg, binding := ruleHistoryFixture(t, r)
+	observation := model.AlarmObservation{TenantID: msg.TenantID, DeviceID: msg.DeviceID, AlarmType: revision.Rule.AlarmType, OriginKind: "RULE_LIFECYCLE", SignalKey: "rule:" + revision.RuleID, SourceSystem: "STANDARD_MESSAGE", SourceEventID: msg.MessageID, StandardMessageID: msg.MessageID, RawMessageID: msg.RawMessageID, EventIndex: "rule:" + revision.RuleID, SourceInputHash: model.ObservationHash(msg), RuleID: revision.RuleID, RuleVersion: revision.Version, ConditionHash: revision.Hash, FactKind: "ASSERT", EventAt: msg.Timestamp, EvaluationAt: 2000, RecordedAt: 2000, Payload: map[string]any{"message": msg}}
+	ctx = model.WithAlarmObservationCapture(ctx, &model.AlarmObservationCapture{Observation: &observation})
 	if _, err := r.pool.Exec(ctx, `CREATE FUNCTION fail_rule_trace() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected trace commit failure'; END $$; CREATE TRIGGER fail_rule_trace BEFORE UPDATE ON rule_evaluation_trace FOR EACH ROW EXECUTE FUNCTION fail_rule_trace()`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.CommitRuleEvaluationStep(ctx, binding, 0, ruleHistoryRaise(revision, msg)); err == nil {
 		t.Fatal("trace failure accepted")
 	}
-	var alarms, outbox int
+	var alarms, outbox, facts, signals, sources int
 	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM alarm_record`).Scan(&alarms); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM event_outbox`).Scan(&outbox); err != nil {
 		t.Fatal(err)
 	}
-	if alarms != 0 || outbox != 0 {
-		t.Fatal("alarm/event committed without trace", alarms, outbox)
+	for table, target := range map[string]*int{"alarm_observation": &facts, "alarm_signal_state": &signals, "alarm_governance_source_version": &sources} {
+		if err := r.pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if alarms != 0 || outbox != 0 || facts != 0 || signals != 0 || sources != 0 {
+		t.Fatal("alarm/observation/signal/source event committed without trace", alarms, outbox, facts, signals, sources)
 	}
 	if _, err := r.pool.Exec(ctx, `DROP TRIGGER fail_rule_trace ON rule_evaluation_trace`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.CommitRuleEvaluationStep(ctx, binding, 0, ruleHistoryRaise(revision, msg)); err != nil {
 		t.Fatal(err)
+	}
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM alarm_observation WHERE tenant_id='t' AND alarm_id='alarm'`).Scan(&facts); err != nil || facts != 1 {
+		t.Fatal("successful rule step lost same-transaction fact", facts, err)
 	}
 	if err := r.RecordRuleRoutingTrace(ctx, binding, model.RuleRoutingTrace{RuleAlarmHandled: true}); err != nil {
 		t.Fatal(err)
@@ -260,10 +270,10 @@ func TestRuleHistorySQLDirectComponentTraceRollbackAndExactState(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				saved.Status = "RECOVERED"
-				saved.RecoveredAt = 3000
-				if ok, err := r.UpdateAlarmIf(bound, saved); err != nil || !ok {
-					t.Fatal(ok, err)
+				o := pgObservation("normal", "CLEAR", 2000)
+				o.EvaluationAt = 3000
+				if recovered, err := r.RecoverAlarmSignal(bound, o, saved.RuleID); err != nil || len(recovered) != 1 {
+					t.Fatal(recovered, err)
 				}
 			}
 			routing.DeviceAssertion = false

@@ -11,6 +11,7 @@ import (
 
 	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/analytics"
+	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
@@ -98,4 +99,46 @@ func testAnalysisAIAPI(t *testing.T, kind string) {
 		t.Fatal(err)
 	}
 	requestJSON(t, server.Client(), "GET", server.URL+path+"/"+id, other, nil, 404)
+}
+
+// Exact action grants must keep working for the custom main application routes
+// as well as the shared run routes; wildcard admin grants hide routing errors.
+func TestBusinessAnalysisWorkflowExactActionPermissions(t *testing.T) {
+	cases := []struct{ workflow, menu, route string }{
+		{core.WorkflowDataQuality, "dataQuality", "/api/v1/data-quality/runs/:id/ai-jobs"},
+		{core.WorkflowMonitoring, "monitoringGaps", "/api/v1/monitoring-gaps/runs/:id/ai-jobs"},
+		{core.WorkflowRulePolicy, "ruleLab", "/api/v1/rule-lab/experiments/:id/ai-jobs"},
+		{core.WorkflowResponse, "response", "/api/v1/response-runs/:id/ai-jobs"},
+		{core.WorkflowMaintenance, "maintenance", "/api/v1/maintenance-observations/:id/ai-jobs"},
+		{core.WorkflowInvestment, "maintenance", "/api/v1/investment-scenarios/:id/ai-jobs"},
+		{core.WorkflowRecurring, "alarmGovernance", "/api/v1/alarm-governance/runs/:id/ai-jobs"},
+	}
+	for _, c := range cases {
+		t.Run(c.workflow, func(t *testing.T) {
+			p := map[string]bool{"menu:devices": true, "menu:" + c.menu: true, "POST " + c.route: true}
+			permission := "POST " + c.route
+			if c.workflow == core.WorkflowRecurring {
+				p["menu:alarms"] = true
+				permission = "action:alarmGovernance:ai"
+				p[permission] = true
+			}
+			if !businessWorkflowAllowed(p, c.workflow) {
+				t.Fatal("exact application action rejected")
+			}
+			ctx := context.WithValue(context.Background(), permissionsKey{}, p)
+			if len(intersectScopes(workflowScopes(ctx), []string{auth.ScopeQueryAnalysisSnapshot})) != 1 {
+				t.Fatal("authorized application lost its fixed snapshot tool")
+			}
+			delete(p, permission)
+			p["POST /api/v1/ai/chat"] = true
+			if businessWorkflowAllowed(p, c.workflow) {
+				t.Fatal("assistant action substituted for application action")
+			}
+			p[permission] = true
+			delete(p, "menu:"+c.menu)
+			if businessWorkflowAllowed(p, c.workflow) {
+				t.Fatal("application menu revocation ignored")
+			}
+		})
+	}
 }

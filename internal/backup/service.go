@@ -205,8 +205,8 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	manifest.Components["parsedMessages"] = map[string]any{"records": parsed.Total, "postgresql": parsed.PostgreSQL, "clickhouse": parsed.ClickHouse}
 	paths := []string{rawPath, parsedPath}
 	if kind == "FULL" {
-		manifest.FormatVersion = 4
-		manifest.Components["scope"] = "device messages, knowledge originals, persistent Agents, duty management and fixed application/configuration histories"
+		manifest.FormatVersion = 5
+		manifest.Components["scope"] = "device messages, knowledge originals, persistent Agents, duty management, fixed application/configuration histories and alarm governance"
 		extra, fullErr := s.exportKnowledgeAndAgents(ctx, dir, &manifest)
 		if fullErr != nil {
 			return manifest, fullErr
@@ -222,6 +222,11 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 			return manifest, applicationErr
 		}
 		paths = append(paths, applicationPaths...)
+		governancePaths, governanceErr := s.exportGovernance(ctx, dir, &manifest)
+		if governanceErr != nil {
+			return manifest, governanceErr
+		}
+		paths = append(paths, governancePaths...)
 		if err = snapshot.Commit(ctx); err != nil {
 			return manifest, err
 		}

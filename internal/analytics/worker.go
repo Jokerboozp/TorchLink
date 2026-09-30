@@ -31,6 +31,9 @@ func (s *Service) authorizeWorker(ctx context.Context, r model.AnalysisRun) erro
 	if err != nil || a.AccessVersion != r.PermissionsVersion || !a.AllowsRequired(r.RequiredPermissions) {
 		return ErrForbidden
 	}
+	if s.AuthorizeSources != nil {
+		return s.AuthorizeSources(ctx, a, r)
+	}
 	return nil
 }
 

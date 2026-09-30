@@ -37,7 +37,12 @@ func (e *Engine) evaluateRules(ctx context.Context, msg model.StandardMessage, c
 			deviceName = e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID)
 			cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
 		}
-		step, err := e.Repo.CommitRuleEvaluationStep(ctx, binding, index, func(state model.RuleEvaluationState) (model.RuleEvaluationStep, error) {
+		observation, err := e.sourceAlarmObservationAt(ctx, msg, "RULE_LIFECYCLE", "rule:"+revision.RuleID, "ASSERT", revision.Rule.AlarmType, "", &revision.Rule, 0)
+		if err != nil {
+			return handled, binding, err
+		}
+		capture := &model.AlarmObservationCapture{}
+		step, err := e.Repo.CommitRuleEvaluationStep(model.WithAlarmObservationCapture(ctx, capture), binding, index, func(state model.RuleEvaluationState) (model.RuleEvaluationStep, error) {
 			rule := revision.Rule
 			if state.RecoveryRevision != nil {
 				rule.Recovery = state.RecoveryRevision.Rule.Recovery
@@ -77,6 +82,36 @@ func (e *Engine) evaluateRules(ctx context.Context, msg model.StandardMessage, c
 				report.DeviceName = deviceName
 				report.Cameras = cameras
 				step.ReportAlarm = &report
+			}
+			// Acceptance is the actual producing branch, not a second evaluation
+			// of a current rule after its immutable revision has changed.
+			if decision.RuleAlarmHandled {
+				o := observation
+				o.EvaluationAt, o.RecordedAt = *times.RaiseAtMillis, *times.RaiseAtMillis
+				o.RuleVersion = revision.Version
+				capture.Observation = &o
+			} else if decision.Covered && !decision.Matched && decision.RecoveryMatched && len(rule.Recovery) > 0 {
+				o := observation
+				o.FactKind = "CLEAR"
+				o.Reason = "RULE_CONDITION_RECOVERED"
+				producing := revision
+				if state.RecoveryRevision != nil {
+					producing = *state.RecoveryRevision
+				}
+				o.AlarmType = producing.Rule.AlarmType
+				o.RuleVersion = producing.Version
+				o.ConditionHash = ruleObservationConditionHash(producing.Rule)
+				if times.RecoverAtMillis != nil {
+					o.EvaluationAt = *times.RecoverAtMillis
+				} else {
+					o.EvaluationAt = e.Clock.Now().UnixMilli()
+				}
+				o.RecordedAt = o.EvaluationAt
+				if !decision.WriteAlarm && state.Alarm.ID != "" {
+					o.Acceptance = "REJECTED"
+					o.Reason = "RULE_RECOVERY_NOT_APPLIED"
+				}
+				capture.Observation = &o
 			}
 			return step, nil
 		})

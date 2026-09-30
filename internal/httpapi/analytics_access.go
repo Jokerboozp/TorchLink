@@ -3,15 +3,16 @@ package httpapi
 import "strings"
 
 var analyticsMenus = map[string]string{
-	"dataQuality":    "数据质量",
-	"monitoringGaps": "监测连续性",
-	"ruleLab":        "告警策略实验台",
-	"response":       "演练与复盘",
-	"maintenance":    "维护与投入",
+	"dataQuality":     "数据质量",
+	"monitoringGaps":  "监测连续性",
+	"ruleLab":         "告警策略实验台",
+	"response":        "演练与复盘",
+	"maintenance":     "维护与投入",
+	"alarmGovernance": "反复报警治理",
 }
 
 func analyticsRouteMenu(path string) (string, bool) {
-	for _, entry := range [][2]string{{"/api/v1/data-quality", "dataQuality"}, {"/api/v1/monitoring-gaps", "monitoringGaps"}, {"/api/v1/rule-lab", "ruleLab"}, {"/api/v1/response-procedures", "response"}, {"/api/v1/drills", "response"}, {"/api/v1/response-cases", "response"}, {"/api/v1/response-runs", "response"}, {"/api/v1/response-staff", "response"}, {"/api/v1/response-evaluations", "response"}, {"/api/v1/response-revisions", "response"}, {"/api/v1/response-attachments", "response"}, {"/api/v1/corrective-actions", "response"}, {"/api/v1/follow-up-sources", "response"}, {"/api/v1/assets", "maintenance"}, {"/api/v1/maintenance-records", "maintenance"}, {"/api/v1/maintenance-revisions", "maintenance"}, {"/api/v1/maintenance-attachments", "maintenance"}, {"/api/v1/maintenance-observations", "maintenance"}, {"/api/v1/maintenance-costs", "maintenance"}, {"/api/v1/maintenance-contexts", "maintenance"}, {"/api/v1/maintenance-admissions", "maintenance"}, {"/api/v1/maintenance-fault-cycles", "maintenance"}, {"/api/v1/investment-evaluations", "maintenance"}, {"/api/v1/investment-scenarios", "maintenance"}} {
+	for _, entry := range [][2]string{{"/api/v1/alarm-governance", "alarmGovernance"}, {"/api/v1/data-quality", "dataQuality"}, {"/api/v1/monitoring-gaps", "monitoringGaps"}, {"/api/v1/rule-lab", "ruleLab"}, {"/api/v1/response-procedures", "response"}, {"/api/v1/drills", "response"}, {"/api/v1/response-cases", "response"}, {"/api/v1/response-runs", "response"}, {"/api/v1/response-staff", "response"}, {"/api/v1/response-evaluations", "response"}, {"/api/v1/response-revisions", "response"}, {"/api/v1/response-attachments", "response"}, {"/api/v1/corrective-actions", "response"}, {"/api/v1/follow-up-sources", "response"}, {"/api/v1/assets", "maintenance"}, {"/api/v1/maintenance-records", "maintenance"}, {"/api/v1/maintenance-revisions", "maintenance"}, {"/api/v1/maintenance-attachments", "maintenance"}, {"/api/v1/maintenance-observations", "maintenance"}, {"/api/v1/maintenance-costs", "maintenance"}, {"/api/v1/maintenance-contexts", "maintenance"}, {"/api/v1/maintenance-admissions", "maintenance"}, {"/api/v1/maintenance-fault-cycles", "maintenance"}, {"/api/v1/investment-evaluations", "maintenance"}, {"/api/v1/investment-scenarios", "maintenance"}} {
 		if path == entry[0] || strings.HasPrefix(path, entry[0]+"/") {
 			return entry[1], true
 		}
