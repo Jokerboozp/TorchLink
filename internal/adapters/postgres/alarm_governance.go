@@ -22,7 +22,7 @@ var _ ports.AlarmGovernanceStore = (*Repository)(nil)
 var governanceTables = map[string]string{}
 
 func init() {
-	for _, k := range []string{model.GovernanceTemplateKind, model.GovernanceSceneKind, model.GovernanceProfileKind, model.GovernanceCaseKind, model.GovernanceRoundKind, model.GovernanceAlarmLinkKind, model.GovernanceVerificationKind, model.GovernanceVerificationLinkKind, model.GovernanceActivityKind, model.GovernanceCoverageKind, model.GovernanceCauseKind, model.GovernanceMeasureKind, model.GovernancePlanKind, model.GovernanceReviewKind, model.GovernanceReportKind, model.GovernanceEventKind, model.GovernanceReceiptKind, model.GovernanceAttachmentKind, model.GovernanceBusinessLinkKind, model.GovernanceReminderKind} {
+	for _, k := range []string{model.GovernanceTemplateKind, model.GovernanceSceneKind, model.GovernanceProfileKind, model.GovernanceCaseKind, model.GovernanceRoundKind, model.GovernanceAlarmLinkKind, model.GovernanceVerificationKind, model.GovernanceVerificationLinkKind, model.GovernanceActivityKind, model.GovernanceCoverageKind, model.GovernanceCauseKind, model.GovernanceMeasureKind, model.GovernancePlanKind, model.GovernanceReviewKind, model.GovernanceReportKind, model.GovernanceEventKind, model.GovernanceReceiptKind, model.GovernanceAttachmentKind, model.GovernanceBusinessLinkKind, model.GovernanceReminderKind, model.GovernanceUploadAttemptKind} {
 		governanceTables[k] = "alarm_governance_" + strings.ReplaceAll(k, "-", "_")
 	}
 }
@@ -32,6 +32,26 @@ type governanceTx struct {
 	tx       pgx.Tx
 	tenant   string
 	readonly bool
+}
+
+func (t *governanceTx) GovernanceAccessState() (model.AccessState, error) {
+	var state model.AccessState
+	var raw []byte
+	sql := `SELECT body,revision FROM platform_access WHERE tenant_id=$1`
+	if !t.readonly {
+		sql += ` FOR SHARE`
+	}
+	err := t.tx.QueryRow(t.ctx, sql, t.tenant).Scan(&raw, &state.Revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return state, nil
+	}
+	if err != nil {
+		return state, err
+	}
+	revision := state.Revision
+	err = json.Unmarshal(raw, &state)
+	state.Revision = revision
+	return state, err
 }
 
 func (r *Repository) GovernanceTransaction(ctx context.Context, tenant string, fn func(ports.AlarmGovernanceTx) error) error {
@@ -101,7 +121,7 @@ func (t *governanceTx) List(f model.GovernanceFilter) ([]model.GovernanceDocumen
 	conds := []string{"tenant_id=$1"}
 	args := []any{t.tenant}
 	add := func(expr string, v any) { args = append(args, v); conds = append(conds, fmt.Sprintf(expr, len(args))) }
-	for _, v := range []struct{ column, value string }{{"case_id", f.CaseID}, {"round_id", f.RoundID}, {"parent_id", f.ParentID}, {"resource_id", f.ResourceID}, {"status", f.Status}, {"owner_user_id", f.OwnerUserID}} {
+	for _, v := range []struct{ column, value string }{{"case_id", f.CaseID}, {"round_id", f.RoundID}, {"parent_id", f.ParentID}, {"resource_id", f.ResourceID}, {"corrects_id", f.CorrectsID}, {"status", f.Status}, {"owner_user_id", f.OwnerUserID}} {
 		if v.value != "" {
 			add(v.column+"=$%d", v.value)
 		}
@@ -149,6 +169,18 @@ func (t *governanceTx) Put(d model.GovernanceDocument, expected int64) (model.Go
 	if !ok || t.readonly || d.ID == "" || !json.Valid(d.Body) || d.TenantID != "" && d.TenantID != t.tenant {
 		return d, model.ErrGovernanceInvalid
 	}
+	if expected > 0 {
+		old, e := t.Get(d.Kind, d.ID)
+		if e != nil {
+			return d, e
+		}
+		if model.GovernanceImmutableAfterConfirmation(old) {
+			return d, model.ErrGovernanceConflict
+		}
+		if !model.GovernanceConfigurationMutationAllowed(old, d) {
+			return d, model.ErrGovernanceConflict
+		}
+	}
 	if expected > 0 && slices.Contains([]string{model.GovernanceEventKind, model.GovernanceReceiptKind, model.GovernanceReportKind, model.GovernanceAlarmLinkKind, model.GovernanceVerificationLinkKind, model.GovernanceCoverageKind}, d.Kind) {
 		return d, model.ErrGovernanceConflict
 	}
@@ -161,8 +193,10 @@ func (t *governanceTx) Put(d model.GovernanceDocument, expected int64) (model.Go
 	if expected == 0 {
 		row = t.tx.QueryRow(t.ctx, `INSERT INTO `+table+`(tenant_id,id,version,created_by,created_at,updated_at,case_id,round_id,parent_id,resource_id,revision_number,status,owner_user_id,device_ids,point_key,occurred_at,corrects_id,body) VALUES($1,$2,1,$3,$4,$4,NULLIF($5,''),NULLIF($6,''),NULLIF($7,''),NULLIF($8,''),$9,$10,$11,$12,$13,$14,NULLIF($15,''),$16) ON CONFLICT DO NOTHING RETURNING `+governanceColumns, args...)
 	} else {
-		args = append(args, expected)
-		row = t.tx.QueryRow(t.ctx, `UPDATE `+table+` SET version=version+1,updated_at=$4,case_id=NULLIF($5,''),round_id=NULLIF($6,''),parent_id=NULLIF($7,''),resource_id=NULLIF($8,''),revision_number=$9,status=$10,owner_user_id=$11,device_ids=$12,point_key=$13,occurred_at=$14,corrects_id=NULLIF($15,''),body=$16 WHERE tenant_id=$1 AND id=$2 AND version=$17 RETURNING `+governanceColumns, args...)
+		// Updates retain the original creator and creation time. Every placeholder
+		// must be referenced so PostgreSQL can infer prepared parameter types.
+		args = []any{t.tenant, d.ID, now, d.CaseID, d.RoundID, d.ParentID, d.ResourceID, d.RevisionNumber, d.Status, d.OwnerUserID, d.DeviceIDs, d.PointKey, d.OccurredAt, d.CorrectsID, d.Body, expected}
+		row = t.tx.QueryRow(t.ctx, `UPDATE `+table+` SET version=version+1,updated_at=$3,case_id=NULLIF($4,''),round_id=NULLIF($5,''),parent_id=NULLIF($6,''),resource_id=NULLIF($7,''),revision_number=$8,status=$9,owner_user_id=$10,device_ids=$11,point_key=$12,occurred_at=$13,corrects_id=NULLIF($14,''),body=$15 WHERE tenant_id=$1 AND id=$2 AND version=$16 RETURNING `+governanceColumns, args...)
 	}
 	out, err := scanGovernance(row, d.Kind)
 	if errors.Is(err, model.ErrNotFound) {
@@ -174,6 +208,16 @@ func (t *governanceTx) Put(d model.GovernanceDocument, expected int64) (model.Go
 	}
 	if err == nil && slices.Contains([]string{model.GovernanceTemplateKind, model.GovernanceSceneKind, model.GovernanceProfileKind}, d.Kind) && d.Status == "PUBLISHED" {
 		_, err = t.tx.Exec(t.ctx, `INSERT INTO alarm_governance_published_config(tenant_id,kind,resource_id,revision_id) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,kind,resource_id) DO UPDATE SET revision_id=excluded.revision_id,version=alarm_governance_published_config.version+1`, t.tenant, d.Kind, d.ResourceID, d.ID)
+	}
+	if err == nil {
+		raw, e := json.Marshal(out)
+		if e != nil {
+			return out, e
+		}
+		_, err = t.tx.Exec(t.ctx, `INSERT INTO `+table+`_history(tenant_id,resource_id,version,recorded_at,body) VALUES($1,$2,$3,$4,$5)`, t.tenant, out.ID, out.Version, now, raw)
+	}
+	if err == nil && d.Status == "RETIRED" && slices.Contains([]string{model.GovernanceTemplateKind, model.GovernanceSceneKind, model.GovernanceProfileKind}, d.Kind) {
+		_, err = t.tx.Exec(t.ctx, `DELETE FROM alarm_governance_published_config WHERE tenant_id=$1 AND kind=$2 AND resource_id=$3 AND revision_id=$4`, t.tenant, d.Kind, d.ResourceID, d.ID)
 	}
 	return out, err
 }

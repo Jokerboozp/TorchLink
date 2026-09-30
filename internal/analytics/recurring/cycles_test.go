@@ -1,6 +1,8 @@
 package recurring
 
 import (
+	"context"
+	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/model"
 	"testing"
 )
@@ -116,5 +118,29 @@ func TestHistoricalNormalizationRetainsPartialWithoutProductionAcceptance(t *tes
 	}
 	if got := RebuildCycles(cycleInput(out.Observations...)); len(got) != 0 {
 		t.Fatal("history invented accepted cycle", got)
+	}
+}
+
+func TestHistoricalPersistenceCannotReserveProductionObservationSlot(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	msg := model.StandardMessage{MessageID: "standard", TenantID: "t", DeviceID: "d", MessageType: model.AlarmReport, Timestamp: 100, Event: map[string]any{"alarmType": "FIRE"}}
+	history, err := NormalizeHistoricalMessage(msg, nil, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = PersistHistoricalObservations(ctx, repo, history.Observations); err != nil {
+		t.Fatal(err)
+	}
+	incoming := history.Observations[0]
+	incoming.SourceSystem = "STANDARD_MESSAGE"
+	incoming.ID = ""
+	incoming.HistoricalQuality = "LIVE"
+	incoming.Acceptance = "ACCEPTED"
+	incoming.RecordedAt = 300
+	alarm := model.Alarm{ID: "alarm", TenantID: "t", DeviceID: "d", RuleID: "direct:FIRE", AlarmType: "FIRE", Status: "ACTIVE", TriggerCount: 1, TriggerID: "standard"}
+	saved, created, err := repo.UpsertAlarm(model.WithAlarmObservation(ctx, incoming), alarm)
+	if err != nil || !created || saved.ID != "alarm" {
+		t.Fatalf("history blocked production: %#v %v", saved, err)
 	}
 }

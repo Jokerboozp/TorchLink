@@ -96,7 +96,7 @@ func observationMatches(o model.AlarmObservation, tenant string, f ports.AlarmOb
 		return false
 	}
 	at := o.TimeAt(f.TimeBasis)
-	if f.TimeBasis != "" && f.TimeBasis != "EVENT_AT" && f.TimeBasis != "RECEIVED_AT" && f.TimeBasis != "EVALUATION_AT" {
+	if f.TimeBasis != "" && f.TimeBasis != "EVENT_AT" && f.TimeBasis != "RECEIVED_AT" && f.TimeBasis != "EVALUATION_AT" && f.TimeBasis != "RECORDED_AT" {
 		return false
 	}
 	if f.TimeBasis != "" && f.TimeBasis != "EVENT_AT" && at <= 0 {
@@ -175,6 +175,12 @@ func (r *Repository) RecoverAlarmSignal(ctx context.Context, o model.AlarmObserv
 	if o.SignalWatermarkAt() < previous.SignalWatermarkAt() || o.SignalWatermarkAt() == previous.SignalWatermarkAt() && previous.FactKind == "ASSERT" {
 		o.Acceptance = "REJECTED"
 		o.Reason = "STALE_OR_EQUAL_CLEAR"
+	}
+	for _, a := range r.alarms {
+		if a.TenantID == o.TenantID && a.DeviceID == o.DeviceID && a.RuleID == ruleID && (a.Status == "ACTIVE" || a.Status == "ACKED") {
+			o.AlarmID = a.ID
+			break
+		}
 	}
 	saved, created, err := r.recordAlarmObservationLocked(o)
 	if err != nil {

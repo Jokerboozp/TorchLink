@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 
+	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
@@ -30,7 +31,7 @@ func workflowScopes(ctx context.Context) []string {
 		auth.ScopeQueryKnowledgeBase:    p["menu:knowledge"],
 		auth.ScopeCreateRuleDraft:       allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
 		auth.ScopeQueryDutySnapshot:     p["menu:duty"] && p["action:duty:ai"],
-		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs"))),
+		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")) || (p["menu:alarms"] && p["menu:alarmGovernance"] && allowsRoute(p, "POST", "/api/v1/alarm-governance/runs/:id/ai-jobs"))),
 	}
 	out := []string{}
 	for _, scope := range auth.HarnessReadScopes() {
@@ -58,7 +59,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 		return ctx, errors.New("AI 运行身份与租户不符")
 	}
 	if !identity.ManagedUser {
-		if workflowID == core.WorkflowDataQuality || workflowID == core.WorkflowMonitoring {
+		if analytics.IsAnalysisWorkflow(workflowID) {
 			return ctx, s.authorizeAnalysisAI(ctx, identity)
 		}
 		if workflowID == core.WorkflowDutyHandover {
@@ -90,7 +91,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 			return ctx, err
 		}
 	}
-	if workflowID == core.WorkflowDataQuality || workflowID == core.WorkflowMonitoring {
+	if analytics.IsAnalysisWorkflow(workflowID) {
 		if err := s.authorizeAnalysisAI(ctx, identity); err != nil {
 			return ctx, err
 		}
@@ -101,6 +102,10 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 // businessWorkflowAllowed checks the feature permission behind a business run
 // token; chat tokens keep requiring the assistant permission instead.
 func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
+	if d, ok := analytics.WorkflowDefinitionByID(workflow); ok {
+		return p["menu:devices"] && p["menu:"+d.Menu] && (d.Kind != analytics.KindRecurring || p["menu:alarms"]) && allowsRoute(p, "POST", d.Prefix+"/runs/:id/ai-jobs")
+	}
+
 	switch workflow {
 	case core.WorkflowDataQuality:
 		return p["menu:devices"] && p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")

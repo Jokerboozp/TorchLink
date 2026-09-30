@@ -31,6 +31,7 @@ const (
 	GovernanceAttachmentKind       = "attachment"
 	GovernanceBusinessLinkKind     = "business-link"
 	GovernanceReminderKind         = "reminder"
+	GovernanceUploadAttemptKind    = "upload-attempt"
 )
 
 // GovernanceDocument is a typed resource envelope. Relational columns below are
@@ -73,6 +74,7 @@ type GovernanceFilter struct {
 	RoundID     string
 	ParentID    string
 	ResourceID  string
+	CorrectsID  string
 	Status      string
 	OwnerUserID string
 	DeviceIDs   []string
@@ -100,15 +102,21 @@ type GovernanceOption struct {
 	Label string `json:"label"`
 }
 type GovernanceField struct {
-	ID              string             `json:"id"`
-	Label           string             `json:"label"`
-	Control         string             `json:"control"`
-	Required        bool               `json:"required"`
-	Protected       bool               `json:"protected"`
-	Options         []GovernanceOption `json:"options,omitempty"`
-	Min             *float64           `json:"min,omitempty"`
-	Max             *float64           `json:"max,omitempty"`
-	SourceFieldPath string             `json:"sourceFieldPath,omitempty"`
+	ID                string             `json:"id"`
+	Label             string             `json:"label"`
+	Control           string             `json:"control"`
+	Required          bool               `json:"required"`
+	Protected         bool               `json:"protected"`
+	Options           []GovernanceOption `json:"options,omitempty"`
+	Min               *float64           `json:"min,omitempty"`
+	Max               *float64           `json:"max,omitempty"`
+	SourceFieldPath   string             `json:"sourceFieldPath,omitempty"`
+	SourceDeviceID    string             `json:"sourceDeviceId,omitempty"`
+	SourceMessageID   string             `json:"sourceMessageId,omitempty"`
+	SourceType        string             `json:"sourceType,omitempty"`
+	SourceValueHash   string             `json:"sourceValueHash,omitempty"`
+	SourceConfirmedBy string             `json:"sourceConfirmedBy,omitempty"`
+	SourceConfirmedAt int64              `json:"sourceConfirmedAt,omitempty"`
 }
 type GovernanceConfiguration struct {
 	ResourceID           string             `json:"resourceId"`
@@ -214,6 +222,8 @@ type VerificationRoundLink struct {
 	CorrectionReason    string   `json:"correctionReason,omitempty"`
 }
 type FieldActivityRevision struct {
+	TemplateHash          string            `json:"templateHash"`
+	ScenePresetHash       string            `json:"scenePresetHash"`
 	ActivityID            string            `json:"activityId"`
 	Location              string            `json:"location"`
 	DeviceIDs             []string          `json:"deviceIds"`

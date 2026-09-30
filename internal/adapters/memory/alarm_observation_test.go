@@ -10,6 +10,38 @@ import (
 func observation(source, kind string, at int64) model.AlarmObservation {
 	return model.AlarmObservation{TenantID: "t", DeviceID: "d", SourceSystem: "protocol", SourceEventID: source, SourceInputHash: source, EventIndex: "fire", AlarmType: "FIRE", OriginKind: "DEVICE_DIRECT", SignalKey: "device:FIRE", FactKind: kind, EventAt: at, TimeQuality: "TRUSTED", HistoricalQuality: "LIVE", RecordedAt: at + 1000, EvaluationAt: at + 1000}
 }
+func TestObservationTimeViewsInvalidateOnlyTheirOwnFrozenWindow(t *testing.T) {
+	r := NewRepository()
+	ctx := context.Background()
+	const day = int64(86400000)
+	point := model.GovernancePoint{DeviceID: "d", AlarmType: "FIRE", OriginKind: "DEVICE_DIRECT", SignalKey: "device:FIRE"}
+	deps := []model.GovernanceSourceVersion{{DependencyKey: point.Key("OBSERVATION"), BucketStart: 2 * day}, {DependencyKey: point.Key("OBSERVATION_RECEIVED"), BucketStart: 2 * day}, {DependencyKey: point.Key("OBSERVATION"), BucketStart: -1}, {DependencyKey: point.Key("OBSERVATION_RECEIVED"), BucketStart: -1}}
+	readVersions := func() []model.GovernanceSourceVersion {
+		var out []model.GovernanceSourceVersion
+		if err := r.GovernanceRead(ctx, "t", func(tx ports.AlarmGovernanceTx) error { var err error; out, err = tx.SourceVersions(deps); return err }); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	before := readVersions()
+	o := observation("late-known-event", "REPORT", day)
+	o.ReceivedAt, o.EvaluationAt, o.RecordedAt = 2*day, 3*day, 2*day
+	if _, _, err := r.SaveAlarmObservation(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	after := readVersions()
+	if after[0].Generation != before[0].Generation || after[1].Generation != before[1].Generation+1 || after[2].Generation != before[2].Generation || after[3].Generation != before[3].Generation {
+		t.Fatal("known late receipt invalidated event window or missed receipt window", before, after)
+	}
+	o.SourceEventID, o.SourceInputHash, o.TimeQuality = "unknown-device-clock", "unknown-device-clock", "UNVERIFIED"
+	if _, _, err := r.SaveAlarmObservation(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	unknown := readVersions()
+	if unknown[2].Generation != after[2].Generation+1 || unknown[3].Generation != after[3].Generation {
+		t.Fatal("device clock uncertainty contaminated known platform receipt", after, unknown)
+	}
+}
 func TestAlarmObservationSourceSlotConflictAndAttempts(t *testing.T) {
 	r := NewRepository()
 	ctx := context.Background()

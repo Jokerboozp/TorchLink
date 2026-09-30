@@ -114,6 +114,10 @@ func TestAlarmObservationRecoveryAndScopedSnapshot(t *testing.T) {
 		if len(facts) != 1 || facts[0].FactKind != "CLEAR" {
 			return fmt.Errorf("received time read wrong: %#v", facts)
 		}
+		facts, err = reader.ListAlarmObservations(ports.AlarmObservationFilter{DeviceIDs: []string{"d"}, TimeBasis: "RECORDED_AT", Start: 1399, End: 1401})
+		if err != nil || len(facts) != 1 || facts[0].EventAt != 400 {
+			return fmt.Errorf("recorded time read wrong: %#v %v", facts, err)
+		}
 		seed, err := reader.GetAlarmSignalSeed(ports.AlarmObservationFilter{DeviceIDs: []string{"d"}, TimeBasis: "EVALUATION_AT"}, 1401)
 		if err != nil || seed.EventAt != 400 {
 			return fmt.Errorf("evaluation seed: %#v %v", seed, err)
@@ -130,14 +134,18 @@ func TestAlarmObservationVersionsIncludeKnownTimeViewsAndDeviceDiscovery(t *test
 	o := pgObservation("one", "REPORT", 86400000*2)
 	o.ReceivedAt = 86400000 * 3
 	o.EvaluationAt = 86400000 * 4
+	o.RecordedAt = 86400000 * 5
 	if _, _, err := r.SaveAlarmObservation(ctx, o); err != nil {
 		t.Fatal(err)
 	}
 	point := model.GovernancePoint{DeviceID: "d", AlarmType: "FIRE", OriginKind: "DEVICE_DIRECT", SignalKey: "device:FIRE"}
-	for _, key := range []string{point.Key("OBSERVATION"), (model.GovernancePoint{DeviceID: "d"}).Key("OBSERVATION")} {
-		for _, bucket := range []int64{2 * 86400000, 3 * 86400000, 4 * 86400000} {
+	for _, view := range []struct {
+		kind   string
+		bucket int64
+	}{{"OBSERVATION", 2 * 86400000}, {"OBSERVATION_RECEIVED", 3 * 86400000}, {"OBSERVATION_EVALUATION", 4 * 86400000}} {
+		for _, key := range []string{point.Key(view.kind), (model.GovernancePoint{DeviceID: "d"}).Key(view.kind)} {
 			var generation int64
-			if err := r.pool.QueryRow(ctx, `SELECT generation FROM alarm_governance_source_version WHERE tenant_id=$1 AND dependency_key=$2 AND bucket_start=$3`, "t", key, bucket).Scan(&generation); err != nil || generation != 1 {
+			if err := r.pool.QueryRow(ctx, `SELECT generation FROM alarm_governance_source_version WHERE tenant_id=$1 AND dependency_key=$2 AND bucket_start=$3`, "t", key, view.bucket).Scan(&generation); err != nil || generation != 1 {
 				t.Fatal(generation, err)
 			}
 		}
@@ -145,5 +153,47 @@ func TestAlarmObservationVersionsIncludeKnownTimeViewsAndDeviceDiscovery(t *test
 	var count int
 	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM alarm_governance_source_version WHERE bucket_start=-1`).Scan(&count); err != nil || count != 0 {
 		t.Fatal("known event invalidated every window", count, err)
+	}
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM alarm_governance_source_version WHERE bucket_start=$1`, o.RecordedAt).Scan(&count); err != nil || count != 0 {
+		t.Fatal("registration cutoff invalidated unrelated event windows", count, err)
+	}
+}
+func TestAlarmObservationTimeDependencyNamespacesDoNotCrossInvalidate(t *testing.T) {
+	r := testRepository(t)
+	ctx := context.Background()
+	const day = int64(86400000)
+	o := pgObservation("late-known-event", "REPORT", day)
+	o.ReceivedAt, o.EvaluationAt, o.RecordedAt = 2*day, 3*day, 2*day
+	if _, _, err := r.SaveAlarmObservation(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	point := model.GovernancePoint{DeviceID: "d", AlarmType: "FIRE", OriginKind: "DEVICE_DIRECT", SignalKey: "device:FIRE"}
+	deps := []model.GovernanceSourceVersion{{DependencyKey: point.Key("OBSERVATION"), BucketStart: 2 * day}, {DependencyKey: point.Key("OBSERVATION_RECEIVED"), BucketStart: 2 * day}, {DependencyKey: point.Key("OBSERVATION"), BucketStart: -1}, {DependencyKey: point.Key("OBSERVATION_RECEIVED"), BucketStart: -1}}
+	readVersions := func() []model.GovernanceSourceVersion {
+		var out []model.GovernanceSourceVersion
+		if err := r.GovernanceRead(ctx, "t", func(tx ports.AlarmGovernanceTx) error { var err error; out, err = tx.SourceVersions(deps); return err }); err != nil {
+			t.Fatal(err)
+		}
+		ordered := make([]model.GovernanceSourceVersion, len(deps))
+		for i, dep := range deps {
+			for _, v := range out {
+				if v.DependencyKey == dep.DependencyKey && v.BucketStart == dep.BucketStart {
+					ordered[i] = v
+				}
+			}
+		}
+		return ordered
+	}
+	v := readVersions()
+	if v[0].Generation != 0 || v[1].Generation != 1 || v[2].Generation != 0 || v[3].Generation != 0 {
+		t.Fatal("known outside event expired event view or missed receipt view", v)
+	}
+	o.SourceEventID, o.SourceInputHash, o.TimeQuality = "unknown-clock", "unknown-clock", "UNVERIFIED"
+	if _, _, err := r.SaveAlarmObservation(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	v = readVersions()
+	if v[2].Generation != 1 || v[3].Generation != 0 {
+		t.Fatal("device clock uncertainty contaminated known reception", v)
 	}
 }

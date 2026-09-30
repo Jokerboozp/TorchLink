@@ -4,7 +4,6 @@ import (
 	"context"
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
-	"iot-platform/internal/core"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 	"net/http"
@@ -16,6 +15,12 @@ func (s *Server) setupAnalysisAI() {
 	if manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowRunManager); ok {
 		s.analysis.AI.StopRunner = manager.StopWorkflowRun
 	}
+	s.analysis.AI.ValidateSnapshot = func(ctx context.Context, r model.AnalysisRun) error {
+		if r.Kind == analytics.KindRecurring {
+			return s.recurring.ValidateSnapshot(ctx, r)
+		}
+		return nil
+	}
 	s.engine.AnalysisAI = s.analysis.AI
 }
 func (s *Server) RunAnalysisAIWorkers(ctx context.Context) {
@@ -24,7 +29,7 @@ func (s *Server) RunAnalysisAIWorkers(ctx context.Context) {
 	}
 }
 func (s *Server) analysisAIRoutes() {
-	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring} {
+	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring, analytics.KindRecurring} {
 		prefix := analytics.Prefix(kind)
 		s.router.POST(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAICreate(kind), "id"))
 		s.router.GET(prefix+"/runs/:id/ai-jobs", s.authorize("viewer"), s.endpoint(s.analysisAIList(kind), "id"))
@@ -127,7 +132,7 @@ func analysisHarnessIdentity(c auth.Claims) ports.AIRunIdentity {
 	return ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.ManagedUser, SessionVersion: c.SessionVersion, AccessVersion: c.AnalysisAccessVersion, AnalysisRunID: c.AnalysisRunID, AnalysisSnapshotID: c.AnalysisSnapshotID, AnalysisSnapshotVersion: c.AnalysisSnapshotVersion, AnalysisJobID: c.AnalysisJobID, AnalysisLeaseToken: c.AnalysisLeaseToken, AnalysisHarnessRunID: c.RunID, AnalysisWorkflowID: c.Workflow}
 }
 func (s *Server) authorizeAnalysisHarness(ctx context.Context, c auth.Claims) error {
-	if c.Workflow != core.WorkflowDataQuality && c.Workflow != core.WorkflowMonitoring {
+	if !analytics.IsAnalysisWorkflow(c.Workflow) {
 		return analytics.ErrForbidden
 	}
 	return s.authorizeAnalysisAI(ctx, analysisHarnessIdentity(c))

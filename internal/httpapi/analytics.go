@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/analytics/dataquality"
 	"iot-platform/internal/analytics/monitoring"
+	"iot-platform/internal/analytics/recurring"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -28,6 +30,12 @@ func (s *Server) setupAnalytics() {
 	s.quality.Catalog = s.unscopedRepo()
 	s.quality.Archive = s.engine.Archive
 	if err := s.quality.Register(); err != nil {
+		panic(err)
+	}
+	governanceStore, _ := s.unscopedRepo().(ports.AlarmGovernanceStore)
+	s.recurring = recurring.NewService(s.analysis, governanceStore)
+	s.recurring.Observe = s.metrics.Inc
+	if err := s.recurring.Register(); err != nil {
 		panic(err)
 	}
 	s.monitoring = monitoring.NewService(s.analysis, s.analysisFacts)
@@ -81,7 +89,7 @@ func (s *Server) RunAnalysisWorkers(ctx context.Context) {
 }
 
 func (s *Server) analysisRoutes() {
-	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring, analytics.KindRuleLab} {
+	for _, kind := range []string{analytics.KindDataQuality, analytics.KindMonitoring, analytics.KindRuleLab, analytics.KindRecurring} {
 		prefix := analytics.Prefix(kind)
 		s.router.GET(prefix+"/runs", s.authorize("viewer"), s.endpoint(s.analysisRuns(kind)))
 		s.router.POST(prefix+"/runs", s.authorize("viewer"), s.endpoint(s.analysisCreate(kind)))
@@ -90,6 +98,9 @@ func (s *Server) analysisRoutes() {
 		s.router.GET(prefix+"/runs/:id/snapshot", s.authorize("viewer"), s.endpoint(s.analysisSnapshot(kind), "id"))
 		s.router.GET(prefix+"/runs/:id/evidence", s.authorize("viewer"), s.endpoint(s.analysisEvidence(kind), "id"))
 		collections := []string{"metrics", "findings"}
+		if kind == analytics.KindRecurring {
+			collections = append(collections, "observations", "cycles", "verifications", "activities", "coverages", "measures", "observation-results", "activity-candidates")
+		}
 		if kind == analytics.KindMonitoring {
 			collections = append(collections, "intervals", "dependency-groups")
 		}
@@ -146,6 +157,17 @@ func (s *Server) analysisCreate(kind string) endpointHandler {
 				return
 			}
 			algorithm = monitoring.AlgorithmVersion
+		}
+		if kind == analytics.KindRecurring {
+			if err := s.recurring.ValidateCreate(r.Context(), analysisActor(r), &q); err != nil {
+				analysisProblem(w, err)
+				return
+			}
+			algorithm = recurring.AlgorithmVersion
+			var parameters recurring.Parameters
+			if json.Unmarshal(q.Parameters, &parameters) == nil && parameters.JobMode == recurring.HistoricalProjectionMode {
+				algorithm = recurring.ProjectionAlgorithmVersion
+			}
 		}
 		run, err := s.analysis.Create(r.Context(), analysisActor(r), kind, algorithm, q)
 		if err != nil {

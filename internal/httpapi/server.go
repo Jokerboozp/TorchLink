@@ -23,9 +23,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"iot-platform/internal/alarmgovernance"
 	"iot-platform/internal/analytics"
 	"iot-platform/internal/analytics/dataquality"
 	"iot-platform/internal/analytics/monitoring"
+	"iot-platform/internal/analytics/recurring"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -46,10 +48,13 @@ type ctxKey string
 const claimsKey ctxKey = "claims"
 
 type Server struct {
+	governance                 *alarmgovernance.Service
+	governanceVideoEvents      ports.VideoEventReader
 	analysis                   *analytics.Service
 	analysisFacts              ports.AnalyticsFactStore
 	quality                    *dataquality.Service
 	monitoring                 *monitoring.Service
+	recurring                  *recurring.Service
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -106,6 +111,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.setupAnalytics()
+	s.setupAlarmGovernance()
 	s.setupAnalysisAI()
 	s.routes()
 	return s
@@ -134,6 +140,7 @@ func (s *Server) routes() {
 	s.monitoringRoutes()
 	s.analysisAIRoutes()
 	s.dutyRoutes()
+	s.alarmGovernanceRoutes()
 	s.accessRoutes()
 	s.openAPIRoutes()
 	s.deletionRoutes()
@@ -2983,7 +2990,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 				return
 			}
 		}
-		if claimsValue.Workflow == core.WorkflowDataQuality || claimsValue.Workflow == core.WorkflowMonitoring {
+		if analytics.IsAnalysisWorkflow(claimsValue.Workflow) {
 			if err := s.authorizeAnalysisHarness(ctx, claimsValue); err != nil {
 				ginProblem(c, http.StatusForbidden, err.Error())
 				c.Abort()

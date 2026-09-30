@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 
 	"iot-platform/internal/model"
 )
+
+var recurringNumericAssertion = regexp.MustCompile(`[0-9]+(?:[.,][0-9]+)?\s*(?:%|％|次|小时|分钟|天|周|个月|条|个|份|起|/|每)`)
 
 type qualityAIResult struct {
 	Summary               string                      `json:"summary"`
@@ -25,6 +28,18 @@ type monitoringAIResult struct {
 	DependencyObservations []model.AnalysisAIStatement `json:"dependencyObservations"`
 	Limitations            []model.AnalysisAIStatement `json:"limitations"`
 	Coverage               model.AnalysisAICoverage    `json:"coverage"`
+}
+
+type recurringAIResult struct {
+	Summary     string                      `json:"summary"`
+	Facts       []model.AnalysisAIStatement `json:"facts"`
+	Patterns    []model.AnalysisAIStatement `json:"patterns"`
+	Hypotheses  []model.AnalysisAIStatement `json:"hypotheses"`
+	Checks      []model.AnalysisAIStatement `json:"checks"`
+	Measures    []model.AnalysisAIStatement `json:"measures"`
+	Observation []model.AnalysisAIStatement `json:"observation"`
+	Limitations []model.AnalysisAIStatement `json:"limitations"`
+	Coverage    model.AnalysisAICoverage    `json:"coverage"`
 }
 
 func decodeAIJSON(answer string, target any) error {
@@ -61,6 +76,10 @@ func DecodeAIWorkflowResult(workflow, answer string, ids, devices []string, cove
 		var decoded qualityAIResult
 		err = decodeAIJSON(answer, &decoded)
 		result.Interpretations, result.SuggestedVerification, result.Limitations = decoded.Interpretations, decoded.SuggestedVerification, decoded.Limitations
+	case WorkflowRecurring:
+		var decoded recurringAIResult
+		err = decodeAIJSON(answer, &decoded)
+		result.Facts, result.Patterns, result.Hypotheses, result.Checks, result.Measures, result.Observation, result.Limitations = decoded.Facts, decoded.Patterns, decoded.Hypotheses, decoded.Checks, decoded.Measures, decoded.Observation, decoded.Limitations
 	case WorkflowMonitoring:
 		var decoded monitoringAIResult
 		err = decodeAIJSON(answer, &decoded)
@@ -73,6 +92,9 @@ func DecodeAIWorkflowResult(workflow, answer string, ids, devices []string, cove
 	}
 	result.Coverage = coverage
 	kinds := "指标与发现"
+	if workflow == WorkflowRecurring {
+		kinds = "治理事实、指标与观察"
+	}
 	if workflow == WorkflowMonitoring {
 		kinds = "指标、区间、依赖组与发现"
 	}
@@ -82,6 +104,9 @@ func DecodeAIWorkflowResult(workflow, answer string, ids, devices []string, cove
 }
 
 func aiStatements(workflow string, result model.AnalysisAIResult) [][]model.AnalysisAIStatement {
+	if workflow == WorkflowRecurring {
+		return [][]model.AnalysisAIStatement{result.Facts, result.Patterns, result.Hypotheses, result.Checks, result.Measures, result.Observation, result.Limitations}
+	}
 	if workflow == WorkflowMonitoring {
 		return [][]model.AnalysisAIStatement{result.ObservedWeaknesses, result.PrioritizedChecks, result.DependencyObservations, result.Limitations}
 	}
@@ -95,7 +120,13 @@ func ValidateAIWorkflowResult(workflow string, result model.AnalysisAIResult, id
 	if !IsAnalysisWorkflow(workflow) || result.Summary == "" || len(result.Summary) > 2000 || !result.Coverage.SummaryProvided {
 		return nil, model.ErrAnalysisInvalid
 	}
-	if workflow == WorkflowMonitoring {
+	if workflow == WorkflowRecurring {
+		if result.Facts == nil || result.Patterns == nil || result.Hypotheses == nil || result.Checks == nil || result.Measures == nil || result.Observation == nil || result.Limitations == nil || result.Interpretations != nil || result.SuggestedVerification != nil || result.ObservedWeaknesses != nil || result.PrioritizedChecks != nil || result.DependencyObservations != nil {
+			return nil, model.ErrAnalysisInvalid
+		}
+	} else if result.Facts != nil || result.Patterns != nil || result.Hypotheses != nil || result.Checks != nil || result.Measures != nil || result.Observation != nil {
+		return nil, model.ErrAnalysisInvalid
+	} else if workflow == WorkflowMonitoring {
 		if result.ObservedWeaknesses == nil || result.PrioritizedChecks == nil || result.DependencyObservations == nil || result.Limitations == nil || result.Interpretations != nil || result.SuggestedVerification != nil {
 			return nil, model.ErrAnalysisInvalid
 		}
@@ -110,6 +141,18 @@ func ValidateAIWorkflowResult(workflow string, result model.AnalysisAIResult, id
 		for _, statement := range list {
 			if strings.TrimSpace(statement.Text) == "" || len(statement.Text) > 2000 || len(statement.FactIDs) == 0 || len(statement.FactIDs) > 100 {
 				return nil, model.ErrAnalysisInvalid
+			}
+			if workflow == WorkflowRecurring && recurringNumericAssertion.MatchString(statement.Text) {
+				return nil, fmt.Errorf("%w: 数值通过metricRefs呈现，正文不能自带统计值", model.ErrAnalysisInvalid)
+			}
+			if len(statement.MetricRefs) > 100 || (workflow != WorkflowRecurring && len(statement.MetricRefs) > 0) {
+				return nil, model.ErrAnalysisInvalid
+			}
+			for _, ref := range statement.MetricRefs {
+				if !slices.Contains(ids, ref) {
+					return nil, model.ErrAnalysisInvalid
+				}
+				used = append(used, ref)
 			}
 			for _, id := range statement.FactIDs {
 				if !slices.Contains(ids, id) {
@@ -129,6 +172,9 @@ func ValidateAIWorkflowResult(workflow string, result model.AnalysisAIResult, id
 }
 
 func marshalAIWorkflowResult(workflow string, result model.AnalysisAIResult) ([]byte, error) {
+	if workflow == WorkflowRecurring {
+		return json.Marshal(recurringAIResult{Summary: result.Summary, Facts: result.Facts, Patterns: result.Patterns, Hypotheses: result.Hypotheses, Checks: result.Checks, Measures: result.Measures, Observation: result.Observation, Limitations: result.Limitations, Coverage: result.Coverage})
+	}
 	if workflow == WorkflowMonitoring {
 		return json.Marshal(monitoringAIResult{Summary: result.Summary, ObservedWeaknesses: result.ObservedWeaknesses, PrioritizedChecks: result.PrioritizedChecks, DependencyObservations: result.DependencyObservations, Limitations: result.Limitations, Coverage: result.Coverage})
 	}

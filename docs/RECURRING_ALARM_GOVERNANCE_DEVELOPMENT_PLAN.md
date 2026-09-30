@@ -451,10 +451,14 @@ PostgreSQL事实读取复用既有可重复读快照模式；新增治理只读�
 
 [NIST关于不同烹饪来源与新型烟感表现的研究](https://www.nist.gov/publications/performance-new-smoke-alarms-and-aerosol-measurements-range-nuisance-cooking-sources)及[厨房火灾/扰动报警场景研究](https://www.nist.gov/publications/smoke-alarm-performance-kitchen-fires-and-nuisance-alarm-scenarios)支持把活动、报警器类型和位置作为需要记录与核查的变量。研究有其试验场景与条件，不能直接外推为本平台任意场所的已确认原因，更不能据历史规律认定下一次报警是误报。本方案的字段、周期口径和开发接口属于面向本项目的设计。
 
-本次交付为开发方案及对应通用业务模板，源码引用用于识别复用入口和缺口；没有实现上述新表、端口、路由、页面或Manifest，也没有执行运行环境、真实设备或模型验收。后续开发按本文件逐批完成并把实际契约与验证结果维护在仓库中。
+本文件最初作为开发方案及通用业务模板交付；下方实施记录说明后续源码改动和本次验证。设计章节不单独证明运行或现场验收，当前操作契约集中维护在 [平台指南](PLATFORM.md#反复报警治理)。
 
-**实施记录（2026-10-01）**
+## 实施记录（2026-10-01）
 
 阶段一已实现逐次来源观测、冲突/尝试记录、同事务恢复种子、来源时间桶版本及独立治理仓储基础。生产告警的聚合、部件事务和直接/规则恢复保留 incoming 证据；仓储包装继续传递恢复契约。周期算法区分 REPORT_ONLY、接纳水位、来源版本、删失和监测缺口，历史归一化只读且保留 PARTIAL。
 
 本阶段验证：在 Mac 运行源码测试 `go test ./internal/core ./internal/adapters/memory ./internal/analytics/recurring`；使用 OrbStack `develop` PostgreSQL 的独立 `torchlink_governance_test` 数据库，执行 `go test ./internal/adapters/postgres -run 'AlarmObservation|Migrate' -count=1`，覆盖新观测事务和重复迁移。未启动本机基础服务。此记录只证明当前阶段；页面、正式评价、附件、AI、恢复及现场试点继续按后续阶段验证。
+
+阶段二已实现 R01–R09 的治理业务、版本配置、人工原因/措施/观察门槛、独立现场核实与活动覆盖、确定性指标、历史归一化持久任务、专用 API、来源权限、私有附件及受控历史视频。R12 的固定工作流注册、MCP 绑定及输出 schema 同时接通；AI 执行失败不影响事实和人工流程。历史投影保存来源、cutoff、扫描数、提交批次与缺口，显式选择设备及区间，保留 HISTORICAL_UNRESOLVED/PARTIAL，不写入生产报警链路。
+
+阶段二验证：`go test ./cmd/... ./internal/...` 全部通过；独立 `protocol-packages/gb26875-dahua` 的 `go test ./...` 通过；`node --test deploy/deepseek-harness/gateway.test.mjs` 31 项通过。OrbStack develop 的真实 PostgreSQL 事务/迁移/状态更新/源字段发布/视频历史读取，以及真实 PostgreSQL + ClickHouse 来源测试通过。权限目录支持正常 API 创建治理角色；历史事件读取与影像下载分别授权。重启/fencing、撤权、跨租户/全成员范围、失败回滚和正式记录不可变均有回归。上述测试不代表已完成真实现场试点；最终页面及 Harness 实际调用另记于阶段三。

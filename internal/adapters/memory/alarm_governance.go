@@ -14,11 +14,14 @@ import (
 var _ ports.AlarmGovernanceStore = (*Repository)(nil)
 
 type governanceTx struct {
+	history      map[string]model.GovernanceDocument
+	accessState  model.AccessState
 	tenant       string
 	readonly     bool
 	documents    map[string]model.GovernanceDocument
 	sources      map[string]int64
 	observations map[string]model.AlarmObservation
+	standard     map[string]model.StandardMessage
 }
 
 func (r *Repository) GovernanceTransaction(ctx context.Context, tenant string, fn func(ports.AlarmGovernanceTx) error) error {
@@ -36,12 +39,26 @@ func (r *Repository) governanceTransaction(ctx context.Context, tenant string, r
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	t := &governanceTx{tenant: tenant, readonly: read, documents: map[string]model.GovernanceDocument{}, sources: map[string]int64{}}
+	t := &governanceTx{history: map[string]model.GovernanceDocument{}, tenant: tenant, readonly: read, documents: map[string]model.GovernanceDocument{}, sources: map[string]int64{}}
+	if b := r.accessStates[tenant]; len(b) > 0 {
+		if err := json.Unmarshal(b, &t.accessState); err != nil {
+			return err
+		}
+	}
 	t.observations = map[string]model.AlarmObservation{}
+	t.standard = map[string]model.StandardMessage{}
+	for k, v := range r.standard {
+		if r.standardProcessed[k] {
+			t.standard[k] = clone(v)
+		}
+	}
 	if r.alarmObservations != nil {
 		for k, v := range r.alarmObservations.Observations {
 			t.observations[k] = clone(v)
 		}
+	}
+	for k, v := range r.governanceHistory {
+		t.history[k] = clone(v)
 	}
 	for k, v := range r.governanceDocuments {
 		t.documents[k] = clone(v)
@@ -57,9 +74,13 @@ func (r *Repository) governanceTransaction(ctx context.Context, tenant string, r
 	}
 	if !read {
 		r.governanceDocuments = t.documents
+		r.governanceHistory = t.history
 		r.governanceSources = t.sources
 	}
 	return nil
+}
+func (t *governanceTx) GovernanceAccessState() (model.AccessState, error) {
+	return clone(t.accessState), nil
 }
 func (t *governanceTx) Get(kind, id string) (model.GovernanceDocument, error) {
 	v, ok := t.documents[key(t.tenant, kind, id)]
@@ -71,6 +92,9 @@ func (t *governanceTx) Get(kind, id string) (model.GovernanceDocument, error) {
 func (t *governanceTx) List(f model.GovernanceFilter) ([]model.GovernanceDocument, int, error) {
 	out := []model.GovernanceDocument{}
 	for _, d := range t.documents {
+		if f.CorrectsID != "" && d.CorrectsID != f.CorrectsID {
+			continue
+		}
 		if d.TenantID != t.tenant || d.Kind != f.Kind || f.CaseID != "" && d.CaseID != f.CaseID || f.RoundID != "" && d.RoundID != f.RoundID || f.ParentID != "" && d.ParentID != f.ParentID || f.ResourceID != "" && d.ResourceID != f.ResourceID || f.Status != "" && d.Status != f.Status || f.OwnerUserID != "" && d.OwnerUserID != f.OwnerUserID || f.Start > 0 && d.OccurredAt < f.Start || f.End > 0 && d.OccurredAt >= f.End {
 			continue
 		}
@@ -111,6 +135,12 @@ func (t *governanceTx) Put(d model.GovernanceDocument, expected int64) (model.Go
 	if exists && old.Version != expected || !exists && expected != 0 {
 		return d, model.ErrGovernanceConflict
 	}
+	if exists && model.GovernanceImmutableAfterConfirmation(old) {
+		return d, model.ErrGovernanceConflict
+	}
+	if exists && !model.GovernanceConfigurationMutationAllowed(old, d) {
+		return d, model.ErrGovernanceConflict
+	}
 	if exists && slices.Contains([]string{model.GovernanceEventKind, model.GovernanceReceiptKind, model.GovernanceReportKind, model.GovernanceAlarmLinkKind, model.GovernanceVerificationLinkKind, model.GovernanceCoverageKind}, d.Kind) {
 		return d, model.ErrGovernanceConflict
 	}
@@ -144,6 +174,7 @@ func (t *governanceTx) Put(d model.GovernanceDocument, expected int64) (model.Go
 		d.CreatedBy = old.CreatedBy
 	}
 	t.documents[key(t.tenant, d.Kind, d.ID)] = clone(d)
+	t.history[key(t.tenant, d.Kind, d.ID, fmt.Sprint(d.Version))] = clone(d)
 	return d, nil
 }
 func governanceSourceKey(tenant string, v model.GovernanceSourceVersion) string {

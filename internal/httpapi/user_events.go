@@ -12,6 +12,7 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	alarms := []model.Alarm{}
 	states := []model.DeviceState{}
+	governanceReminders := []model.GovernanceReminder{}
 	p := map[string]bool{"*": true}
 	var e error
 	if c.TokenUse == "user" {
@@ -27,6 +28,18 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	wantAlarms := p["*"] || p["menu:alarms"] || p["menu:dashboard"]
 	wantStates := p["*"] || p["menu:devices"] || p["menu:raw"]
 	permissions := permissionList(p)
+	if s.governance != nil && (p["*"] || p["menu:alarmGovernance"] && p["menu:devices"] && p["menu:alarms"]) {
+		actor := governanceActor(r)
+		if _, err := s.governance.RefreshUserReminders(r.Context(), actor); err == nil {
+			if rows, _, err := s.governance.UserReminders(r.Context(), actor, "UNREAD", 20, 0); err == nil {
+				for _, row := range rows {
+					if v, e := model.GovernanceBody[model.GovernanceReminder](row); e == nil {
+						governanceReminders = append(governanceReminders, v)
+					}
+				}
+			}
+		}
+	}
 	accessVersion := requestAccessVersion(r.Context(), c)
 	access := eventAccess(c.TenantID+"\x00"+c.Username+"\x00"+accessVersion, permissions)
 	// With a valid cursor the page receives only rows changed since it; any
@@ -54,7 +67,7 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 			states = scopedEventStates(r.Context(), c.TenantID, changedRows(snapshot.states, snapshot.stateRevs, since, delta))
 		}
 	}
-	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "deviceTotal": deviceTotal, "permissions": permissions, "accessVersion": accessVersion, "delta": delta, "truncated": truncated, "snapshotLimit": eventSnapshotLimit, "cursor": s.events.revisions.cursor(seq, access)})
+	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "governanceReminders": governanceReminders, "deviceTotal": deviceTotal, "permissions": permissions, "accessVersion": accessVersion, "delta": delta, "truncated": truncated, "snapshotLimit": eventSnapshotLimit, "cursor": s.events.revisions.cursor(seq, access)})
 	if err != nil {
 		problem(w, 500, "读取消息失败")
 		return

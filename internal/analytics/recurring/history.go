@@ -27,7 +27,7 @@ func NormalizeHistoricalMessage(msg model.StandardMessage, index *model.RawArchi
 		return out, err
 	}
 	newFact := func(signal, kind, alarmType, component string, eventAt int64) model.AlarmObservation {
-		o := model.AlarmObservation{TenantID: msg.TenantID, DeviceID: msg.DeviceID, ComponentID: component, SourceSystem: "STANDARD_MESSAGE", SourceEventID: msg.MessageID, StandardMessageID: msg.MessageID, RawMessageID: msg.RawMessageID, EventIndex: signal, OriginKind: "COMPONENT_STATE", SignalKey: signal, AlarmType: alarmType, FactKind: kind, EventAt: eventAt, TimeQuality: "UNVERIFIED", RecordedAt: recordedAt, ProtocolVersion: msg.ParserVersion, SourceInputHash: model.ObservationHash(msg), IdentityQuality: "PLATFORM_INPUT", Acceptance: "HISTORICAL_UNRESOLVED", Reason: "ORIGINAL_PRODUCTION_ACCEPTANCE_UNKNOWN", HistoricalQuality: "PARTIAL", Payload: map[string]any{"message": msg}}
+		o := model.AlarmObservation{TenantID: msg.TenantID, DeviceID: msg.DeviceID, ComponentID: component, SourceSystem: "HISTORICAL_STANDARD_MESSAGE", SourceEventID: msg.MessageID, StandardMessageID: msg.MessageID, RawMessageID: msg.RawMessageID, EventIndex: signal, OriginKind: "COMPONENT_STATE", SignalKey: signal, AlarmType: alarmType, FactKind: kind, EventAt: eventAt, TimeQuality: "UNVERIFIED", RecordedAt: recordedAt, ProtocolVersion: msg.ParserVersion, SourceInputHash: model.ObservationHash(msg), IdentityQuality: "PLATFORM_INPUT", Acceptance: "HISTORICAL_UNRESOLVED", Reason: "ORIGINAL_PRODUCTION_ACCEPTANCE_UNKNOWN", HistoricalQuality: "PARTIAL", Payload: map[string]any{"message": msg}}
 		if msg.Tags["eventTimeQuality"] == "TRUSTED" {
 			o.TimeQuality = "TRUSTED"
 		}

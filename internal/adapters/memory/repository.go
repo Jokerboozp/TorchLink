@@ -20,6 +20,7 @@ var ErrNotFound = model.ErrNotFound
 type Repository struct {
 	alarmObservations   *alarmObservationState
 	governanceDocuments map[string]model.GovernanceDocument
+	governanceHistory   map[string]model.GovernanceDocument
 	governanceSources   map[string]int64
 	dutyDocuments       map[string]model.DutyDocument
 	dutyEvents          []model.DutyBusinessEvent
@@ -938,13 +939,13 @@ func (r *Repository) SaveVideoEvent(_ context.Context, v model.VideoAlarmEvent) 
 	if _, ok := r.video[key(v.TenantID, v.EventID)]; ok {
 		return false, nil
 	}
-	r.video[key(v.TenantID, v.EventID)] = cloneVideoEvent(v)
+	r.video[key(v.TenantID, v.EventID)] = r.bindVideoEvent(v, false)
 	return true, nil
 }
 func (r *Repository) UpdateVideoEvent(_ context.Context, v model.VideoAlarmEvent) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.video[key(v.TenantID, v.EventID)] = cloneVideoEvent(v)
+	r.video[key(v.TenantID, v.EventID)] = r.bindVideoEvent(v, true)
 	return nil
 }
 func (r *Repository) ListPendingVideoEvents(_ context.Context, limit int) ([]model.VideoAlarmEvent, error) {

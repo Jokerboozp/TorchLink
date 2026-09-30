@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS alarm_signal_state (
  PRIMARY KEY(tenant_id,device_id,signal_key)
 );
 CREATE TABLE IF NOT EXISTS alarm_governance_source_version (
- tenant_id text NOT NULL,dependency_key text NOT NULL,bucket_start bigint NOT NULL,generation bigint NOT NULL DEFAULT 0,
+ tenant_id text NOT NULL,dependency_key text NOT NULL,bucket_start bigint NOT NULL,generation bigint NOT NULL DEFAULT 0 CHECK(generation>=0),
  PRIMARY KEY(tenant_id,dependency_key,bucket_start)
 );
 CREATE INDEX IF NOT EXISTS alarm_observation_received ON alarm_observation(tenant_id,device_id,(COALESCE((body->>'receivedAt')::bigint,0)),id);

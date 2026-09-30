@@ -156,6 +156,8 @@ func observationTimeSQL(basis string) string {
 		return "COALESCE((body->>'receivedAt')::bigint,0)"
 	case "EVALUATION_AT":
 		return "COALESCE((body->>'evaluationAt')::bigint,0)"
+	case "RECORDED_AT":
+		return "recorded_at"
 	default:
 		return "event_at"
 	}
@@ -163,10 +165,10 @@ func observationTimeSQL(basis string) string {
 func observationFilterSQL(tenant string, f ports.AlarmObservationFilter) (string, []any) {
 	where := " WHERE tenant_id=$1"
 	timeColumn := observationTimeSQL(f.TimeBasis)
-	if f.TimeBasis != "" && f.TimeBasis != "EVENT_AT" && f.TimeBasis != "RECEIVED_AT" && f.TimeBasis != "EVALUATION_AT" {
+	if f.TimeBasis != "" && f.TimeBasis != "EVENT_AT" && f.TimeBasis != "RECEIVED_AT" && f.TimeBasis != "EVALUATION_AT" && f.TimeBasis != "RECORDED_AT" {
 		where += " AND FALSE"
 	}
-	if f.TimeBasis == "RECEIVED_AT" || f.TimeBasis == "EVALUATION_AT" {
+	if f.TimeBasis == "RECEIVED_AT" || f.TimeBasis == "EVALUATION_AT" || f.TimeBasis == "RECORDED_AT" {
 		where += " AND " + timeColumn + ">0"
 	}
 	args := []any{tenant}
@@ -278,17 +280,6 @@ func (r *Repository) RecoverAlarmSignal(ctx context.Context, o model.AlarmObserv
 		o.Acceptance = "REJECTED"
 		o.Reason = "STALE_OR_EQUAL_CLEAR"
 	}
-	saved, created, err := recordAlarmObservation(ctx, tx, o)
-	if err != nil {
-		return nil, err
-	}
-	if !created || saved.Acceptance != "ACCEPTED" {
-		return nil, tx.Commit(ctx)
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO alarm_signal_state(tenant_id,device_id,signal_key,event_at,active,observation_id) VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,device_id,signal_key) DO UPDATE SET event_at=excluded.event_at,active=false,observation_id=excluded.observation_id`, o.TenantID, o.DeviceID, o.SignalKey, o.SignalWatermarkAt(), saved.ID)
-	if err != nil {
-		return nil, err
-	}
 	rows, err := tx.Query(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND rule_id=$3 AND status IN ('ACTIVE','ACKED') FOR UPDATE`, o.TenantID, o.DeviceID, ruleID)
 	if err != nil {
 		return nil, err
@@ -304,6 +295,20 @@ func (r *Repository) RecoverAlarmSignal(ctx context.Context, o model.AlarmObserv
 		}
 		return a, err
 	})
+	if err != nil {
+		return nil, err
+	}
+	if len(alarms) > 0 {
+		o.AlarmID = alarms[0].ID
+	}
+	saved, created, err := recordAlarmObservation(ctx, tx, o)
+	if err != nil {
+		return nil, err
+	}
+	if !created || saved.Acceptance != "ACCEPTED" {
+		return nil, tx.Commit(ctx)
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO alarm_signal_state(tenant_id,device_id,signal_key,event_at,active,observation_id) VALUES($1,$2,$3,$4,false,$5) ON CONFLICT(tenant_id,device_id,signal_key) DO UPDATE SET event_at=excluded.event_at,active=false,observation_id=excluded.observation_id`, o.TenantID, o.DeviceID, o.SignalKey, o.SignalWatermarkAt(), saved.ID)
 	if err != nil {
 		return nil, err
 	}

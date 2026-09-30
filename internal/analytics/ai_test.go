@@ -21,7 +21,7 @@ import (
 func aiFixture(t *testing.T) (*Store, *AIService, Actor, model.AnalysisRun) {
 	return aiFixtureKind(t, KindDataQuality)
 }
-func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.AnalysisRun) {
+func aiFixtureKind(t *testing.T, kind string, parameters ...json.RawMessage) (*Store, *AIService, Actor, model.AnalysisRun) {
 	t.Helper()
 	ctx := context.Background()
 	store := NewMemoryStore()
@@ -34,6 +34,9 @@ func aiFixtureKind(t *testing.T, kind string) (*Store, *AIService, Actor, model.
 		return a, nil
 	}, func(context.Context, string, string) error { return nil })
 	request := storedRun("one", kind)
+	if len(parameters) > 0 {
+		request.Parameters = parameters[0]
+	}
 	request.Creator = actor.Username
 	if _, err := store.CreateAnalysisRun(ctx, request, 100); err != nil {
 		t.Fatal(err)

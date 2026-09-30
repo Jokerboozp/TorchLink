@@ -70,9 +70,13 @@ func Run(forcedRole string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	var repo ports.Repository = memory.NewRepository()
+	governanceStore, _ := repo.(ports.AlarmGovernanceStore)
+	alarmObservations, _ := repo.(ports.AlarmObservationStore)
+	governanceVideoEvents, _ := repo.(ports.VideoEventReader)
 	var postgresRepo *postgres.Repository
 	var analysisStore ports.AnalysisStore
 	var analysisFacts ports.AnalyticsFactStore
+	var governanceHistoricalArchive ports.GovernanceHistoricalArchiveReader
 	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
@@ -91,6 +95,9 @@ func Run(forcedRole string) {
 		postgresRepo = r
 		analysisStore = r
 		analysisFacts = r
+		governanceStore = r
+		alarmObservations = r
+		governanceVideoEvents = r
 		opsPrefs = r
 		videoStore = r
 		knowledgeStore = r
@@ -106,6 +113,7 @@ func Run(forcedRole string) {
 		repo = r
 		clickHouseRaw = r
 		analysisFacts = r
+		governanceHistoricalArchive = r
 		log.Info("telemetry storage enabled", "adapter", "clickhouse")
 	}
 	// Rate budgets are shared through Redis when configured; otherwise (or
@@ -498,12 +506,17 @@ func Run(forcedRole string) {
 	if analysisStore != nil {
 		api.SetAnalysisStorage(analysisStore, analysisFacts)
 	}
+	// Retain the primary transactional store before cache and telemetry wrappers.
+	api.SetAlarmGovernanceStorage(governanceStore, alarmObservations)
+	api.SetGovernanceVideoReader(governanceVideoEvents)
+	api.SetGovernanceHistoricalArchive(governanceHistoricalArchive)
 	if cfg.Runs(config.ComponentManagement) {
 		go api.RunAnalysisWorkers(ctx)
 		go api.RunAnalysisAIWorkers(ctx)
 	}
 	if cfg.Runs(config.ComponentManagement) {
 		go api.RunDutyWorkers(ctx)
+		go api.RunGovernanceMaintenance(ctx)
 	}
 	api.SetRateLimiter(limits)
 	storageStats := func() {

@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	aiadapter "iot-platform/internal/adapters/ai"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/adapters/rawstore"
@@ -84,6 +87,27 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The fixture has archived and successfully parsed these immutable samples;
+	// mark their controlled processing complete for the source-field directory.
+	if _, err = seed.Exec(ctx, `UPDATE standard_message SET processed_at=$2 WHERE tenant_id=$1`, tenant, time.Now().UnixMilli()); err != nil {
+		t.Fatal("isolated successful sample processing fixture failed")
+	}
+	// Governance browser facts are isolated historical REPORT observations. They
+	// never enter ingress or create/modify production alarms or device state.
+	governanceObservations := []string{}
+	for index := 0; index < 3; index++ {
+		at := data.Start + int64(index)*10000
+		observation, _, err := repo.SaveAlarmObservation(ctx, model.AlarmObservation{
+			TenantID: tenant, DeviceID: data.DeviceID, AlarmType: "FIRE", OriginKind: "DEVICE_DIRECT", SignalKey: "device:FIRE", FactKind: "REPORT",
+			SourceSystem: "ISOLATED_BROWSER_FIXTURE", SourceEventID: fmt.Sprintf("governance-browser-report-%d", index), EventIndex: "alarm",
+			EventAt: at, ReceivedAt: at + 100, RecordedAt: at + 200, AvailableAt: at + 200, TimeQuality: "TRUSTED", IdentityQuality: "PLATFORM_INPUT",
+			HistoricalQuality: "CONTROLLED_SYNTHETIC", Acceptance: "ACCEPTED", Payload: map[string]any{"synthetic": true, "purpose": "historical browser verification"},
+		})
+		if err != nil {
+			t.Fatal("isolated governance observation seed failed", err)
+		}
+		governanceObservations = append(governanceObservations, observation.ID)
+	}
 	if err = repo.SaveManagedDevice(ctx, model.ManagedDevice{ID: "quality-device-hidden", TenantID: tenant, ProductID: data.ProductID, Name: "范围隔离验证设备", AccessKey: "fixture-hidden"}); err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +131,9 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err = repo.DutyTransaction(ctx, tenant, func(tx ports.DutyTx) error {
+		if _, err := tx.Put(model.NewDutyDocument(model.DutyItemKind, "governance-browser-duty-item", model.DutyItem{Title: "隔离治理值班核查来源", DeviceID: data.DeviceID, OwnerID: "admin", Status: "OPEN", NextAction: "持续核查隔离现场", CreatedBy: "admin"}), 0); err != nil {
+			return err
+		}
 		for index, event := range []struct {
 			device, status string
 			at             int64
@@ -130,9 +157,31 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	const videoID = "governance-browser-video-event"
+	camera := model.VideoCameraMapping{TenantID: tenant, CameraID: "governance-browser-camera", CameraName: "隔离历史证据摄像头", DeviceID: data.DeviceID, Enabled: true}
+	if err = repo.SaveVideoCameraMapping(ctx, camera); err != nil {
+		t.Fatal("isolated video binding seed failed", err)
+	}
+	picture, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==")
+	videoKey := fmt.Sprintf("%s/%s/%s/snapshot-%s.png", tenant, time.UnixMilli(data.Start).UTC().Format("2006/01/02"), videoID, camera.CameraID)
+	videoURL, e := engine.Archive.PutObject(ctx, "video-alarm", videoKey, bytes.NewReader(picture), int64(len(picture)), "image/png")
+	if e != nil {
+		t.Fatal("isolated video archive seed failed", e)
+	}
+	if _, err = repo.SaveVideoEvent(ctx, model.VideoAlarmEvent{TenantID: tenant, EventID: videoID, CameraID: camera.CameraID, CameraName: camera.CameraName, AlarmType: "FIRE", AlarmName: "隔离历史视频事件", EventTime: data.Start, ReceivedAt: data.Start + 100, Source: "ISOLATED_BROWSER_FIXTURE", SnapshotURL: videoURL, Raw: map[string]any{"synthetic": true, "mediaTransferStatus": "STORED"}}); err != nil {
+		t.Fatal("isolated video event seed failed", err)
+	}
 	engine.RawStore = rawstore.New(rawstore.Config{PostgreSQL: repo, Resolver: repo})
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAnalysisStorage(repo, repo)
+	if harnessURL := os.Getenv("IOT_TEST_LIVE_HARNESS_URL"); harnessURL != "" {
+		workflow, e := aiadapter.NewHarnessPool(harnessURL, os.Getenv("IOT_TEST_LIVE_HARNESS_TOKEN"), "http://host.orb.internal:18181/mcp/harness", os.Getenv("IOT_TEST_LIVE_HARNESS_MODEL"), 2*time.Minute)
+		if e != nil {
+			t.Fatal("live Harness configuration failed")
+		}
+		engine.AIWorkflows, engine.HarnessTokens = workflow, api.auth
+		api.analysis.AI.StopRunner = workflow.StopWorkflowRun
+	}
 	go api.RunAnalysisWorkers(ctx)
 	go api.RunAnalysisAIWorkers(ctx)
 	actor := analytics.Actor{TenantID: tenant, Username: "admin"}
@@ -177,7 +226,8 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	if path := os.Getenv("IOT_TEST_ANALYTICS_BROWSER_INFO"); path != "" {
 		monitoringBody, _ := json.Marshal(model.MonitoringProfile{TargetType: "DEVICE", EffectiveFrom: data.Start, Mode: "periodic", Attributes: []model.MonitoringAttribute{{ID: data.AttributeID, ValueType: "number"}}, MessageTypes: []model.MessageType{model.PropertyReport}, Merge: "ALL", PeriodMs: 1000, ToleranceMs: 100, Importance: "人工确认的验证重点", LongGapMs: 5000, FrequentGapCount: 2})
 		monitoringInfo := map[string]any{"deviceIds": []string{data.DeviceID, secondDevice}, "start": data.Start, "end": data.End, "attributeId": data.AttributeID, "periodMs": 1000, "toleranceMs": 100, "observationStart": data.Start + 10000, "observationEnd": data.Start + 15000, "qualityRunId": qualityRun.ID, "expected": map[string]any{"synthetic": true, "connectionOnlineMs": 30000, "connectionOfflineMs": 10000, "eventExpiredBeforeAvailable": true, "connectionSecondOnlineMs": 40000}}
-		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo})
+		governanceInfo := map[string]any{"observationIds": governanceObservations, "dutyItemId": "governance-browser-duty-item", "videoEventId": videoID, "alarmType": "FIRE", "originKind": "DEVICE_DIRECT", "signalKey": "device:FIRE", "templateRevisionId": "template-general-v1", "scenePresetRevisionId": "scene-kitchen-v1", "typeProfileRevisionId": "profile-report-only-v1", "start": data.Start, "end": data.End, "synthetic": true}
+		info, _ := json.Marshal(map[string]any{"schema": schema, "tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo, "governance": governanceInfo})
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}

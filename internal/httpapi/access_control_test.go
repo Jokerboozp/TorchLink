@@ -82,10 +82,16 @@ func TestAccessControlLifecycleAndIsolation(t *testing.T) {
 		}
 		parts := strings.SplitN(permission.ID, " ", 2)
 		if len(parts) != 2 {
-			if !strings.HasPrefix(permission.ID, "action:duty:") {
+			switch permission.Menu {
+			case "duty":
+				req("GET", "/api/v1/duty/stations", token, nil, 403)
+			case "alarmGovernance":
+				req("GET", "/api/v1/alarm-governance/cases", token, nil, 403)
+			case "cameras":
+				req("GET", "/api/v1/alarm-governance/video-events", token, nil, 403)
+			default:
 				t.Fatalf("unknown operation permission %s", permission.ID)
 			}
-			req("GET", "/api/v1/duty/stations", token, nil, 403)
 			continue
 		}
 		path := regexp.MustCompile(`:[A-Za-z]+`).ReplaceAllString(parts[1], "denied-test")

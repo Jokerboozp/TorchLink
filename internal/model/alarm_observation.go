@@ -213,6 +213,8 @@ func (o AlarmObservation) TimeAt(basis string) int64 {
 		return o.ReceivedAt
 	case "EVALUATION_AT":
 		return o.EvaluationAt
+	case "RECORDED_AT":
+		return o.RecordedAt
 	default:
 		return o.EventAt
 	}
@@ -224,33 +226,33 @@ func (o AlarmObservation) SignalWatermarkAt() int64 {
 	return o.EventAt
 }
 
-// ObservationSourceVersions includes every view's time bucket plus the device
-// discovery key. Known out-of-window input does not invalidate all reports.
+// Each observation clock has its own dependency namespace. An out-of-window
+// event arriving now must not invalidate a frozen event-time analysis.
 func ObservationSourceVersions(o AlarmObservation, conservative bool) []GovernanceSourceVersion {
 	point := GovernancePoint{DeviceID: o.DeviceID, ComponentID: o.ComponentID, AlarmType: o.AlarmType, OriginKind: o.OriginKind, SignalKey: o.SignalKey}
-	keys := []string{point.Key("OBSERVATION"), (GovernancePoint{DeviceID: o.DeviceID}).Key("OBSERVATION")}
-	buckets := []int64{}
-	for _, at := range []int64{o.EventAt, o.ReceivedAt, o.EvaluationAt} {
-		if at > 0 {
-			b := at / 86400000 * 86400000
-			found := false
-			for _, v := range buckets {
-				if v == b {
-					found = true
-				}
-			}
-			if !found {
-				buckets = append(buckets, b)
-			}
-		}
-	}
-	if conservative || len(buckets) == 0 {
-		buckets = append(buckets, -1)
-	}
 	out := []GovernanceSourceVersion{}
-	for _, dep := range keys {
-		for _, b := range buckets {
-			out = append(out, GovernanceSourceVersion{DependencyKey: dep, BucketStart: b})
+	views := []struct {
+		kind    string
+		at      int64
+		unknown bool
+	}{
+		{"OBSERVATION", o.EventAt, o.TimeQuality != "TRUSTED" || o.HistoricalQuality != "LIVE"},
+		{"OBSERVATION_RECEIVED", o.ReceivedAt, false},
+		{"OBSERVATION_EVALUATION", o.EvaluationAt, o.HistoricalQuality != "LIVE"},
+	}
+	for _, view := range views {
+		keys := []string{point.Key(view.kind), (GovernancePoint{DeviceID: o.DeviceID}).Key(view.kind)}
+		buckets := []int64{}
+		if view.at > 0 {
+			buckets = append(buckets, view.at/86400000*86400000)
+		}
+		if conservative || view.at <= 0 || view.unknown {
+			buckets = append(buckets, -1)
+		}
+		for _, dep := range keys {
+			for _, b := range buckets {
+				out = append(out, GovernanceSourceVersion{DependencyKey: dep, BucketStart: b})
+			}
 		}
 	}
 	return out

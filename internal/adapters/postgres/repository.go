@@ -1287,12 +1287,12 @@ func (r *Repository) writeDutyAlarm(ctx context.Context, v model.Alarm, conditio
 }
 func (r *Repository) SaveVideoEvent(ctx context.Context, v model.VideoAlarmEvent) (bool, error) {
 	b, _ := json.Marshal(v)
-	tag, err := r.pool.Exec(ctx, `INSERT INTO video_alarm_event(tenant_id,event_id,camera_id,alarm_type,event_time,body) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, v.TenantID, v.EventID, v.CameraID, v.AlarmType, v.EventTime, b)
+	tag, err := r.pool.Exec(ctx, `INSERT INTO video_alarm_event(tenant_id,event_id,camera_id,alarm_type,event_time,body) VALUES($1,$2,$3,$4,$5,jsonb_set($6::jsonb,'{raw}',COALESCE($6::jsonb->'raw','{}'::jsonb)-'governanceDeviceId'||jsonb_build_object('governanceDeviceId',COALESCE((SELECT device_id FROM video_camera_mapping WHERE tenant_id=$1 AND camera_id=$3),'')),true)) ON CONFLICT DO NOTHING`, v.TenantID, v.EventID, v.CameraID, v.AlarmType, v.EventTime, b)
 	return tag.RowsAffected() == 1, err
 }
 func (r *Repository) UpdateVideoEvent(ctx context.Context, v model.VideoAlarmEvent) error {
 	b, _ := json.Marshal(v)
-	_, err := r.pool.Exec(ctx, `UPDATE video_alarm_event SET body=$3,alarm_type=$4,event_time=$5 WHERE tenant_id=$1 AND event_id=$2`, v.TenantID, v.EventID, b, v.AlarmType, v.EventTime)
+	_, err := r.pool.Exec(ctx, `UPDATE video_alarm_event SET body=jsonb_set($3::jsonb,'{raw}',COALESCE($3::jsonb->'raw','{}'::jsonb)-'governanceDeviceId'||jsonb_build_object('governanceDeviceId',COALESCE(body->'raw'->>'governanceDeviceId','')),true),alarm_type=$4,event_time=$5 WHERE tenant_id=$1 AND event_id=$2`, v.TenantID, v.EventID, b, v.AlarmType, v.EventTime)
 	return err
 }
 func (r *Repository) ListPendingVideoEvents(ctx context.Context, limit int) ([]model.VideoAlarmEvent, error) {
