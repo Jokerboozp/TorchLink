@@ -7,11 +7,10 @@ export const transportNames = {
 export const formatNames = { JSON:'JSON', HEX:'HEX（十六进制）', BINARY:'Binary（二进制）', TEXT:'Text（纯文本）', BASE64:'Base64' }
 export const aiProviderOptions = [
   { id:'deepseek', label:'DeepSeek', description:'默认模型服务，填写 API Key 即可使用。' },
-  { id:'ollama', label:'Ollama', description:'连接自行准备的外部 Ollama 对话模型，部署包不包含对话模型。' },
-  { id:'openai-compatible', label:'OpenAI 兼容 API', description:'连接兼容 OpenAI Chat Completions API 的模型服务。' }
+  { id:'openai-compatible', label:'OpenAI 兼容 / 私有化部署', description:'连接私有化部署的 vLLM 等 OpenAI 兼容模型服务，或第三方 API；私有服务未启用鉴权时可不填 API Key。' }
 ]
 export const statusNames = {
-  INDEXED:'已建立索引', INDEXING:'索引建立中', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
+  INDEXED:'已建立索引', INDEXING:'索引建立中', INDEX_FAILED:'索引失败', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
   ENABLED:'已启用', DISABLED:'已停用', ONLINE:'在线', OFFLINE:'离线', WAITING:'等待心跳', LISTENING:'监听中',
   CONNECTING:'连接中', CONNECTED:'已连接', DISCONNECTED:'未连接', ACTIVE:'活跃', NEVER_SEEN:'尚未上报', ALARM:'告警中', SUSPECTED_OFFLINE:'疑似离线',
   DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销',
@@ -42,7 +41,7 @@ export function errorMessage(error) {
   return ({400:'提交内容不正确，请检查填写的参数',401:'身份验证失败，请检查账户信息或重新登录',403:'当前账户没有操作权限',404:'未找到请求的记录',409:'数据已变更，请刷新后重试',413:'文件过大，请缩小文件后重试',429:'请求过于频繁，请稍后重试'})[status] || (status >= 500 ? '服务暂时不可用，请稍后重试' : '操作未完成，请检查配置后重试')
 }
 
-const capabilityNames = { chat:'对话问答', 'alarm-analysis':'告警研判', 'rule-draft':'规则草稿', 'json-output':'JSON 输出', 'local-model':'本地模型', fallback:'备用响应', 'tool-call':'工具调用', 'tool-calling':'工具调用', knowledge:'知识检索', 'knowledge-retrieval':'知识检索', 'device-query':'设备查询' }
+const capabilityNames = { chat:'对话问答', 'alarm-analysis':'告警研判', 'rule-draft':'规则草稿', 'json-output':'JSON 输出', fallback:'备用响应', 'tool-call':'工具调用', 'tool-calling':'工具调用', knowledge:'知识检索', 'knowledge-retrieval':'知识检索', 'device-query':'设备查询' }
 export const capabilityName = value => displayName(capabilityNames, value, '扩展能力')
 const toolNames = { query_system_overview:'查询系统概况', query_device_latest:'查询设备最新状态', query_alarm_list:'查询告警', query_property_history:'查询属性历史', query_similar_alarms:'查询相似告警', query_knowledge_base:'检索知识库', create_rule_draft:'生成规则草稿' }
 export const toolName = value => displayName(toolNames, String(value || '').replace(/^mcp__iot__/, ''), '业务查询工具')

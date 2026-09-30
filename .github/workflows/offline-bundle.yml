@@ -124,7 +124,7 @@ jobs:
           notes="$RUNNER_TEMP/release-notes.md"
           {
             printf '提交：`%s`\n\n' "$GITHUB_SHA"
-            printf 'Linux x86_64 完整离线包，包含应用、依赖镜像、Docker 安装文件及 nomic-embed-text 嵌入模型。\n\n'
+            printf 'Linux x86_64 完整离线包，包含应用、依赖镜像、Docker 安装文件及知识库私有化向量模型 Qwen3-Embedding-0.6B（TEI）。\n\n'
             printf '下载全部分卷、SHA256SUMS 和 DEPLOY.txt，按 DEPLOY.txt 校验、解压和部署。首次部署在目标机生成独立密码；升级前保留原 .env.offline。\n\n'
             printf 'AI 使用 DeepSeek API，需自行配置 Key 并保持联网。构建通过不代表目标服务器部署验收。\n'
           } > "$notes"

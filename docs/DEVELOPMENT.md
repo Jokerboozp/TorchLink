@@ -31,7 +31,7 @@
 
 Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交原消息位点后才继续消费。读取出错的订阅按指数退避（最长 30 秒）自动重建；重建期间或在途消息 2 分钟无进展时，`/health/ready` 报告对应消费组未就绪。死信中的合法 JSON 报文保持 `payload` 原结构；非 JSON 或二进制报文放在 `payload` 的 Base64 字符串中，并带 `payloadEncoding: "base64"`，可还原原始字节。
 
-真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用，接入链路见 [接入验证](INTEGRATION.md#验证入口)。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。
+真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用，接入链路见 [接入验证](INTEGRATION.md#验证入口)。知识库联调同时设置 `IOT_TEST_WEAVIATE_URL`、`IOT_TEST_EMBEDDING_URL`（本地 `http://127.0.0.1:18091/v1`）与 `IOT_TEST_EMBEDDING_API_KEY` 后运行 `go test ./internal/adapters/knowledge -run Live`，检查真实向量写入、检索及租户 / `workflowId` 隔离。未配置而跳过的用例不算联调通过，历史测试记录可从 Git 历史追溯。
 
 部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`。
 
@@ -51,7 +51,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 | `scripts/fetch-deepseek-harness.sh`、`scripts/lib/` | 固定版本 Harness 获取及各入口复用的部署/模型/演示实现 |
 | `scripts/generate-demo-data.mjs`、`scripts/tests/` | 演示入口、协议模拟器与按场景启用的冒烟；前端浏览器用例见下节 |
 
-专项回归按对应改动运行：`python3 scripts/tests/public-bundle-test.py` 与 PowerShell 同名脚本检查公开包凭据；`python3 scripts/tests/release-version-test.py` 检查版本生成；`sh scripts/tests/ollama-restore-smoke.sh` 检查模型补齐及重跑。`nginx-protocol-routing-smoke.mjs`、`platform-data-permissions-smoke.sh` 需要真实 Docker 与本地镜像，会创建并清理自己的测试容器，不能当作纯源码检查运行。
+专项回归按对应改动运行：`python3 scripts/tests/public-bundle-test.py` 与 PowerShell 同名脚本检查公开包凭据；`python3 scripts/tests/release-version-test.py` 检查版本生成；`sh scripts/tests/volume-restore-smoke.sh` 检查模型卷导出、补齐、重跑及符号链接拒绝。`nginx-protocol-routing-smoke.mjs`、`platform-data-permissions-smoke.sh` 需要真实 Docker 与本地镜像，会创建并清理自己的测试容器，不能当作纯源码检查运行。
 
 ## 管理端开发
 
@@ -172,7 +172,7 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 | 模块 | 执行内容 | 前提 |
 | --- | --- | --- |
 | `ai` | 对测试租户的活动告警发起手动研判并轮询完成；`maxRuns` 为整次运行的硬预算 | `mode: mock` 时平台 `IOT_AI_HARNESS_URL` 指向 `cmd/harness-mock`（只测平台调度，报告明确标注）；`real` 会消耗模型额度 |
-| `knowledge` | 上传生成的 Markdown 文档到指定 `workflowId` 并等待入库响应 | 知识库与嵌入服务可用 |
+| `knowledge` | 上传生成的 Markdown 文档到指定 `workflowId` 并等待入库响应 | 知识库与向量服务（TEI）可用 |
 | `video` | 建立并释放 HLS 播放会话；清单有 `web` 时拉取播放列表和首个分片近似首帧 | 测试摄像头在直播白名单内；WebRTC 未覆盖 |
 | `backup` | 每档在测量窗口内执行一次备份、逐文件下载校验 SHA-256；`restore: true` 时恢复到独立库并核对条数 | 备份服务配置 `IOT_BACKUP_RESTORE_TARGET_DSN`（与业务库不同） |
 | `realtime` | 按页面方式取 MQTT 令牌并订阅告警与设备状态推送，测送达时延 | 清单有 `mqtt`；订阅者分摊到各 Agent |

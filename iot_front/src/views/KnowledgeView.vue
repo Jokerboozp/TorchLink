@@ -1,7 +1,7 @@
 <script setup>
 import {can} from '../permissions'
 import { statusLabel } from '../presentation'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { FileText, Upload } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
 
@@ -26,7 +26,8 @@ const selectedFile = ref(null)
 const workflowId = ref('')
 const category = ref('manual')
 const tags = ref([])
-const runtime = ref({ indexMode:'', persistentIndex:false })
+const runtime = ref({ indexMode:'', persistentIndex:false, embeddingModel:'', indexState:{ state:'ready' } })
+let rebuildTimer = 0
 const agentError = ref('')
 const bindingLoading = ref(false)
 const bindingSaving = ref(false)
@@ -78,7 +79,8 @@ async function load() {
       const data = documentResult.value
       documents.value = Array.isArray(data.items) ? data.items : []
       total.value = Number(data.total ?? data.count ?? documents.value.length)
-      runtime.value = { indexMode:data.indexMode || '', persistentIndex:Boolean(data.persistentIndex) }
+      runtime.value = { indexMode:data.indexMode || '', persistentIndex:Boolean(data.persistentIndex), embeddingModel:data.embeddingModel || '', indexState:data.indexState || { state:'ready' } }
+      scheduleRebuildRefresh()
       documentsLoaded.value = true
     } else {
       throw documentResult.reason
@@ -196,7 +198,14 @@ async function upload() {
   }
 }
 
+// While the index is rebuilt for a new embedding model, refresh the list so
+// progress and per-document results stay current.
+function scheduleRebuildRefresh() {
+  clearTimeout(rebuildTimer)
+  if (runtime.value.indexState?.state === 'rebuilding') rebuildTimer = setTimeout(load, 5000)
+}
 onMounted(load)
+onBeforeUnmount(() => clearTimeout(rebuildTimer))
 function removeDocument(row) { return confirmDelete({ label:row.filename, path:`/api/v1/knowledge/documents/${encodeURIComponent(row.id)}`, onDeleted:async () => { if (selectedDocument.value?.id === row.id) detailDialog.value = false; await load() }, warning:'原文件和检索索引将一并清理，删除后无法恢复。' }) }
 </script>
 
@@ -215,12 +224,14 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
 
     <ui-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
     <ui-alert v-if="documentsLoaded && !runtime.persistentIndex" title="当前使用内存索引，服务重启后需要重新建立文档检索索引。" type="warning" :closable="false" show-icon />
+    <ui-alert v-if="runtime.indexState?.state === 'rebuilding'" :title="`知识库索引正在按新的向量模型重建（${runtime.indexState.done || 0}/${runtime.indexState.total || 0}），完成前检索结果可能不完整。`" type="info" :closable="false" show-icon />
+    <ui-alert v-else-if="runtime.indexState?.state === 'failed'" :title="`知识库索引重建未完成：${runtime.indexState.error || '向量服务暂不可用'}。系统会自动重试。`" type="warning" :closable="false" show-icon />
 
     <section class="knowledge-stats" aria-label="知识库概况">
       <div><span>知识文档</span><strong>{{ documentsLoaded ? total : '—' }}</strong><small>当前租户全部文档</small></div>
       <div><span>本页已索引</span><strong>{{ documentsLoaded ? indexedCount : '—' }}</strong><small>当前页可供检索</small></div>
       <div><span>本页内容分片</span><strong>{{ documentsLoaded ? totalChunks : '—' }}</strong><small>{{ documentsLoaded ? formatBytes(totalSize) : '等待读取' }}</small></div>
-      <div class="knowledge-index-state"><span>索引存储</span><strong>{{ documentsLoaded ? (runtime.persistentIndex ? '持久化' : '内存') : '读取中' }}</strong><small>{{ runtime.indexMode || '索引模式未返回' }}</small></div>
+      <div class="knowledge-index-state"><span>索引存储</span><strong>{{ documentsLoaded ? (runtime.persistentIndex ? '持久化' : '内存') : '读取中' }}</strong><small>{{ runtime.embeddingModel ? `向量模型 ${runtime.embeddingModel}` : (runtime.indexMode || '索引模式未返回') }}</small></div>
     </section>
 
     <ui-tabs v-model="activeTab" class="knowledge-tabs">

@@ -39,7 +39,9 @@ async function startGateway(factory, options = {}) {
     workspace: deploymentDir,
     sessionRoot: join(tmpdir(), 'iot-harness-test-sessions'),
     proxyPort: 0,
-    modelProvider: 'ollama',
+    modelProvider: 'openai-compatible',
+    baseURL: 'http://vllm:8000/v1',
+    apiKey: '',
     model: 'qwen3:1.7b',
     harnessFactory: factory,
     ...options,
@@ -114,7 +116,7 @@ test('run management isolates tenants and stops a hung runtime before releasing 
   await waitUntil(() => closeCount === 1)
   assert.equal((await list()).items[0].status, 'stopping')
   assert.equal((await (await fetch(`${baseUrl}/health`)).json()).activeRuns, 1)
-  const configure = () => fetch(`${baseUrl}/v1/provider`, { method:'PUT', headers:{...headers,'content-type':'application/json'}, body:JSON.stringify({provider:'ollama',baseUrl:'http://ollama:11434/v1',model:'new-model',apiKey:''}) })
+  const configure = () => fetch(`${baseUrl}/v1/provider`, { method:'PUT', headers:{...headers,'content-type':'application/json'}, body:JSON.stringify({provider:'openai-compatible',baseUrl:'http://vllm:8000/v1',model:'new-model',apiKey:''}) })
   assert.equal((await configure()).status, 409)
   releaseClose()
   const { events } = await ndjson(response)
@@ -267,8 +269,8 @@ test('provider endpoint switches the resident runtime and redacts API keys', asy
   const initial = await fetch(`${baseUrl}/v1/provider`, { headers: { 'x-iot-harness-token': gatewayToken } })
   assert.equal(initial.status, 200)
   assert.deepEqual(await initial.json(), {
-    provider: 'ollama',
-    baseUrl: 'http://ollama:11434/v1',
+    provider: 'openai-compatible',
+    baseUrl: 'http://vllm:8000/v1',
     model: 'qwen3:1.7b',
     apiKeyConfigured: false,
   })
@@ -286,6 +288,12 @@ test('provider endpoint switches the resident runtime and redacts API keys', asy
     apiKeyConfigured: true,
   })
   assert.equal(updatedBody.apiKey, undefined)
+  const removed = await fetch(`${baseUrl}/v1/provider`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-iot-harness-token': gatewayToken },
+    body: JSON.stringify({ provider: 'ollama', baseUrl: 'http://ollama:11434/v1', model: 'qwen3:1.7b', apiKey: '' }),
+  })
+  assert.equal(removed.status, 422)
   const response = await chat(baseUrl, requestBody({ runId: 'provider-switched', model: 'legacy-model' }))
   assert.equal(response.status, 200)
   await response.text()
@@ -385,7 +393,7 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
   assert.doesNotMatch(payload, /SECRET_REASONING|SECRET_TOOL_RESULT|SECRET_LEGACY_RESULT|SECRET_OTHER_SESSION|arguments/)
   assert.doesNotMatch(payload, /MUST_NOT_LEAK/)
   assert.equal(factorySpec.mcpToken, undefined)
-  assert.equal(factorySpec.provider, 'ollama')
+  assert.equal(factorySpec.provider, 'openai-compatible')
   assert.equal(factorySpec.model, 'qwen3:1.7b')
   assert.match(factorySpec.proxyMcpUrl, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   assert.equal(factorySpec.runtimeAccessKey.length, 43)

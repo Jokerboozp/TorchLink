@@ -18,41 +18,6 @@ import (
 	"iot-platform/internal/ports"
 )
 
-func TestOllamaRejectsUnsafeURLAndCrossOriginRedirect(t *testing.T) {
-	normalized, err := NewOllama("http://localhost:11434/v1", "model")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if normalized.baseURL != "http://localhost:11434" {
-		t.Fatalf("Ollama /v1 suffix was not normalized: %q", normalized.baseURL)
-	}
-	for _, rawURL := range []string{"not-a-url", "https://secret@example.com", "https://example.com?token=secret"} {
-		if _, err := NewOllama(rawURL, "model"); err == nil {
-			t.Fatalf("unsafe Ollama URL %q was accepted", rawURL)
-		}
-	}
-
-	var redirectedRequests atomic.Int32
-	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		redirectedRequests.Add(1)
-	}))
-	defer target.Close()
-	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
-	}))
-	defer redirector.Close()
-	client, err := NewOllama(redirector.URL, "model")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = client.Chat(context.Background(), "tenant", "hello"); err == nil {
-		t.Fatal("cross-origin Ollama redirect was followed")
-	}
-	if redirectedRequests.Load() != 0 {
-		t.Fatalf("redirect target received %d requests", redirectedRequests.Load())
-	}
-}
-
 func TestOpenAICompatibleProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
@@ -242,8 +207,18 @@ func TestDecodeRuleDraftNormalizesObjectShapedModelOutput(t *testing.T) {
 func TestProviderRegistry(t *testing.T) {
 	registry := NewProviderRegistry()
 	items := registry.List()
-	if len(items) < 4 {
-		t.Fatalf("expected built-in provider plugins, got %#v", items)
+	ids := []string{}
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	if strings.Join(ids, ",") != "deepseek,disabled,openai-compatible" {
+		t.Fatalf("expected DeepSeek, disabled and OpenAI-compatible providers only, got %v", ids)
+	}
+	if _, err := registry.Create(ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3"}); err == nil {
+		t.Fatal("removed Ollama provider must not be creatable")
+	}
+	if _, err := registry.Create(ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "http://vllm:8000/v1", Model: "Qwen/Qwen3-8B"}); err != nil {
+		t.Fatalf("keyless private OpenAI-compatible provider rejected: %v", err)
 	}
 	for _, item := range items {
 		if item.ID != "disabled" && !item.Enabled {
@@ -414,22 +389,21 @@ func TestHarnessClientConfiguresSelectedProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected := ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://192.168.24.133:11434", Model: "qwen3:1.7b"}
+	selected := ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "http://192.168.24.133:8000/v1", Model: "Qwen/Qwen3-8B"}
 	if err := client.ConfigureProvider(context.Background(), selected); err != nil {
-		t.Fatal(err)
+		t.Fatalf("keyless private vLLM endpoint must be accepted: %v", err)
 	}
-	if payload["provider"] != "ollama" || payload["baseUrl"] != "http://192.168.24.133:11434/v1" || payload["model"] != selected.Model {
+	if payload["provider"] != "openai-compatible" || payload["baseUrl"] != "http://192.168.24.133:8000/v1" || payload["model"] != selected.Model || payload["apiKey"] != "" {
 		t.Fatalf("unexpected sidecar provider payload: %#v", payload)
 	}
 	if got := client.CurrentConfig(); got != selected {
 		t.Fatalf("selected provider was not retained: %#v", got)
 	}
-	withV1 := ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://192.168.24.133:11434/v1", Model: "qwen3:1.7b"}
-	if err := client.ConfigureProvider(context.Background(), withV1); err != nil {
-		t.Fatal(err)
+	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3:1.7b"}); err == nil {
+		t.Fatal("removed Ollama provider must be rejected")
 	}
-	if payload["baseUrl"] != "http://192.168.24.133:11434/v1" || client.CurrentConfig().BaseURL != "http://192.168.24.133:11434" {
-		t.Fatalf("Ollama /v1 suffix was not normalized: payload=%#v config=%#v", payload, client.CurrentConfig())
+	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat"}); err == nil {
+		t.Fatal("DeepSeek without an API key must be rejected")
 	}
 	if err := client.ConfigureProvider(context.Background(), ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", APIKey: "secret"}); err != nil {
 		t.Fatal(err)

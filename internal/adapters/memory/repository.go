@@ -1133,6 +1133,27 @@ func (r *Repository) ListKnowledgeDocs(_ context.Context, tenant string) ([]mode
 	})
 	return out, nil
 }
+func (r *Repository) ListAllKnowledgeDocs(_ context.Context) ([]model.KnowledgeDoc, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]model.KnowledgeDoc, 0, len(r.knowledge))
+	for _, v := range r.knowledge {
+		out = append(out, clone(v))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt == out[j].CreatedAt {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt < out[j].CreatedAt
+	})
+	return out, nil
+}
+
+// TryKnowledgeReindexLock always succeeds: the memory repository serves a
+// single process.
+func (r *Repository) TryKnowledgeReindexLock(context.Context) (func(), bool, error) {
+	return func() {}, true, nil
+}
 func (r *Repository) ListKnowledgeDocsPage(ctx context.Context, tenant string, limit, offset int) ([]model.KnowledgeDoc, int, error) {
 	items, err := r.ListKnowledgeDocs(ctx, tenant)
 	if err != nil {

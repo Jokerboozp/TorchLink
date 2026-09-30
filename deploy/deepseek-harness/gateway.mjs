@@ -52,6 +52,9 @@ const BODY_KEYS = new Set([
   'maxTokens',
 ])
 const PROVIDER_KEYS = new Set(['provider', 'baseUrl', 'model', 'apiKey'])
+// deepseek-official: DeepSeek cloud API; openai-compatible: private vLLM or
+// other OpenAI Chat Completions services.
+const MODEL_PROVIDERS = ['deepseek-official', 'openai-compatible']
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/
 const CAPABILITY_PATTERN = /^[^\u0000-\u001f\u007f]{1,64}$/u
@@ -366,8 +369,8 @@ function validatedProviderConfig(raw) {
   const unknown = Object.keys(raw).filter(key => !PROVIDER_KEYS.has(key))
   if (unknown.length > 0) throw new HttpError(422, 'INVALID_REQUEST', `unknown field(s): ${unknown.join(', ')}`)
   const provider = text(raw.provider, 'provider', 64).trim().toLowerCase()
-  if (!['ollama', 'deepseek-official'].includes(provider)) {
-    throw new HttpError(422, 'PROVIDER_INVALID', 'provider must be ollama or deepseek-official')
+  if (!MODEL_PROVIDERS.includes(provider)) {
+    throw new HttpError(422, 'PROVIDER_INVALID', 'provider must be deepseek-official or openai-compatible')
   }
   const model = text(raw.model, 'model', 128).trim()
   if (!MODEL_PATTERN.test(model)) throw new HttpError(422, 'INVALID_REQUEST', 'model has an invalid format')
@@ -389,7 +392,7 @@ function publicProviderConfig(provider, baseUrl, model, apiKey) {
     provider,
     baseUrl,
     model,
-    apiKeyConfigured: provider !== 'ollama' && typeof apiKey === 'string' && apiKey.trim() !== '',
+    apiKeyConfigured: typeof apiKey === 'string' && apiKey.trim() !== '',
   }
 }
 
@@ -532,8 +535,8 @@ function childEnvironment(spec) {
     'DEEPSEEK_API_KEY',
     'DEEPSEEK_BASE_URL',
     'IOT_HARNESS_MODEL',
-    'IOT_HARNESS_OLLAMA_BASE_URL',
-    'IOT_HARNESS_OLLAMA_API_KEY',
+    'IOT_HARNESS_OPENAI_BASE_URL',
+    'IOT_HARNESS_OPENAI_API_KEY',
     'IOT_HARNESS_CONTEXT_WINDOW',
     'HTTP_PROXY',
     'HTTPS_PROXY',
@@ -553,9 +556,10 @@ function childEnvironment(spec) {
   environment.IOT_HARNESS_SESSION_ROOT = spec.sessionRoot
   environment.IOT_OPS_PERSONA = spec.plugin.persona
   environment.IOT_ALLOWED_TOOLS_JSON = JSON.stringify(spec.plugin.allowedTools)
-  if (spec.provider === 'ollama') {
-    environment.IOT_HARNESS_OLLAMA_BASE_URL = spec.baseUrl
-    environment.IOT_HARNESS_OLLAMA_API_KEY = spec.apiKey || 'ollama'
+  if (spec.provider === 'openai-compatible') {
+    // Private vLLM deployments may run without a key; the client still needs a value.
+    environment.IOT_HARNESS_OPENAI_BASE_URL = spec.baseUrl
+    environment.IOT_HARNESS_OPENAI_API_KEY = spec.apiKey || 'EMPTY'
   } else {
     environment.DEEPSEEK_BASE_URL = spec.baseUrl
     environment.DEEPSEEK_API_KEY = spec.apiKey
@@ -631,8 +635,8 @@ export function createGateway(options = {}) {
     options.allowedMcpOrigins ?? process.env.IOT_HARNESS_MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ORIGINS,
   )
   let modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'deepseek-official'
-  if (!['deepseek-official', 'ollama'].includes(modelProvider)) {
-    throw new Error('IOT_HARNESS_PROVIDER must be deepseek-official or ollama')
+  if (!MODEL_PROVIDERS.includes(modelProvider)) {
+    throw new Error('IOT_HARNESS_PROVIDER must be deepseek-official or openai-compatible')
   }
   let configuredModel = options.model
     ?? process.env.IOT_HARNESS_MODEL
@@ -642,16 +646,16 @@ export function createGateway(options = {}) {
     throw new Error('IOT_HARNESS_MODEL must contain a valid model name')
   }
   configuredModel = configuredModel.trim()
+  const openAICompatible = modelProvider === 'openai-compatible'
   let configuredBaseURL = options.baseURL
-    ?? (modelProvider === 'ollama'
-      ? process.env.IOT_HARNESS_OLLAMA_BASE_URL
-      : process.env.DEEPSEEK_BASE_URL)
-    ?? (modelProvider === 'ollama' ? 'http://ollama:11434/v1' : 'https://api.deepseek.com')
+    ?? (openAICompatible ? process.env.IOT_HARNESS_OPENAI_BASE_URL : process.env.DEEPSEEK_BASE_URL)
+    ?? (openAICompatible ? '' : 'https://api.deepseek.com')
   let configuredAPIKey = options.apiKey
-    ?? (modelProvider === 'ollama'
-      ? process.env.IOT_HARNESS_OLLAMA_API_KEY
-      : process.env.DEEPSEEK_API_KEY)
-    ?? (modelProvider === 'ollama' ? 'ollama' : '')
+    ?? (openAICompatible ? process.env.IOT_HARNESS_OPENAI_API_KEY : process.env.DEEPSEEK_API_KEY)
+    ?? ''
+  if (openAICompatible && !configuredBaseURL) {
+    throw new Error('IOT_HARNESS_OPENAI_BASE_URL is required for the openai-compatible provider')
+  }
   configuredBaseURL = typeof configuredBaseURL === 'string' ? configuredBaseURL.trim().replace(/\/$/, '') : configuredBaseURL
   configuredAPIKey = typeof configuredAPIKey === 'string' ? configuredAPIKey.trim() : ''
   const maximumBodyBytes = integerOption(options.maximumBodyBytes, 32768, 'maximumBodyBytes', 1024, 1048576)

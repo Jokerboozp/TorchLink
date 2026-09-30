@@ -51,15 +51,15 @@ func TestAIProviderURLFormat(t *testing.T) {
 	}{
 		{name: "official API", target: "https://api.deepseek.com/v1", want: true},
 		{name: "default HTTPS port", target: "https://api.deepseek.com:443", want: true},
-		{name: "exact Ollama port", target: "http://localhost:11434/api", want: true},
+		{name: "private vLLM port", target: "http://localhost:8000/v1", want: true},
 		{name: "custom local port", target: "http://localhost:8080", want: true},
 		{name: "remote LAN model", target: "http://192.168.10.20:9000/v1", want: true},
 		{name: "custom cloud model", target: "https://models.example.com/v1", want: true},
-		{name: "IPv6 model", target: "http://[::1]:11434", want: true},
+		{name: "IPv6 model", target: "http://[::1]:8000", want: true},
 		{name: "userinfo rejected", target: "https://token@api.deepseek.com", want: false},
 		{name: "query rejected", target: "https://models.example.com?key=secret", want: false},
 		{name: "fragment rejected", target: "https://models.example.com/#v1", want: false},
-		{name: "markdown rejected", target: "[http://ollama:11434](http://ollama:11434)", want: false},
+		{name: "markdown rejected", target: "[http://vllm:8000/v1](http://vllm:8000/v1)", want: false},
 		{name: "unsupported scheme", target: "file:///tmp/provider", want: false},
 	}
 	for _, tt := range tests {

@@ -33,18 +33,12 @@ func NewProviderRegistry() *ProviderRegistry {
 		},
 	})
 	r.register(providerFactory{
-		info: ports.AIPluginInfo{ID: "ollama", Name: "Ollama", Description: "连接本地或私有网络中的 Ollama 模型服务。", DefaultBaseURL: "http://localhost:11434", Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output", "local-model"}},
-		build: func(cfg ports.AIPluginConfig) (ports.AIClient, error) {
-			return NewOllama(valueOr(cfg.BaseURL, "http://localhost:11434"), cfg.Model)
-		},
-	})
-	r.register(providerFactory{
-		info: ports.AIPluginInfo{ID: "openai-compatible", Name: "OpenAI Compatible", Description: "连接实现 Chat Completions 接口的私有或第三方模型服务。", RequiresAPIKey: false, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output"}},
+		info: ports.AIPluginInfo{ID: "openai-compatible", Name: "OpenAI 兼容 / 私有化部署", Description: "连接实现 OpenAI Chat Completions 接口的私有化模型服务（如 vLLM）或第三方 API；私有服务可不填 API Key。", RequiresAPIKey: false, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output"}},
 		build: func(cfg ports.AIPluginConfig) (ports.AIClient, error) {
 			if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.Model) == "" {
 				return nil, fmt.Errorf("baseUrl and model are required for OpenAI-compatible providers")
 			}
-			return NewOpenAICompatible("openai-compatible", "OpenAI Compatible", cfg.BaseURL, cfg.Model, cfg.APIKey)
+			return NewOpenAICompatible("openai-compatible", "OpenAI 兼容 / 私有化部署", cfg.BaseURL, cfg.Model, cfg.APIKey)
 		},
 	})
 	return r

@@ -9,6 +9,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultEmbeddingImage is the x86_64 CPU build of HuggingFace Text
+// Embeddings Inference; ARM64 clusters set images.embedding to the
+// cpu-arm64 tag and GPU nodes to a CUDA tag.
+const DefaultEmbeddingImage = "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9"
+
+// EmbeddingModelID is the knowledge embedding model served on the knowledge node.
+const EmbeddingModelID = "Qwen/Qwen3-Embedding-0.6B"
+
 // DefaultImages are the pinned images a generated inventory uses; they match
 // deploy/cluster/inventory.example.yaml.
 func DefaultImages() Images {
@@ -18,7 +26,7 @@ func DefaultImages() Images {
 		Redpanda: "redpandadata/redpanda:v25.2.11", EMQX: "emqx/emqx:5.8.8", Etcd: "quay.io/coreos/etcd:v3.5.21",
 		Postgres: "ghcr.io/zalando/spilo-17:4.0-p2", Redis: "redis:7.4-alpine",
 		ClickHouse: "clickhouse/clickhouse-server:25.7-alpine", Keeper: "clickhouse/clickhouse-keeper:25.7-alpine",
-		MinIO: "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z", Ollama: "ollama/ollama:0.11.4",
+		MinIO: "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z", Embedding: DefaultEmbeddingImage,
 		Weaviate: "cr.weaviate.io/semitechnologies/weaviate:1.32.8", Prometheus: "prom/prometheus:v3.5.0",
 		NodeExporter: "prom/node-exporter:v1.12.1", LB: "haproxy:3.0-alpine",
 	}

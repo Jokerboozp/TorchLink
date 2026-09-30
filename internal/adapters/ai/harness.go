@@ -56,22 +56,27 @@ func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*H
 		token:   token,
 		mcpURL:  strings.TrimSpace(mcpURL),
 		model:   strings.TrimSpace(model),
-		config:  ports.AIPluginConfig{Provider: "ollama", Model: strings.TrimSpace(model)},
+		config:  ports.AIPluginConfig{Provider: "deepseek", Model: strings.TrimSpace(model)},
 		client:  &http.Client{Timeout: timeout},
 	}, nil
 }
 
-// ConfigureProvider updates the sidecar for subsequent workflow runs. The
-// gateway maps non-Ollama providers to its OpenAI-compatible DeepSeek runtime,
-// which also supports custom API-compatible endpoints through baseUrl.
+// ConfigureProvider updates the sidecar for subsequent workflow runs.
+// DeepSeek uses the sidecar's official DeepSeek runtime; openai-compatible
+// uses its generic OpenAI Chat Completions runtime, which serves private vLLM
+// deployments (API key optional) as well as third-party APIs.
 func (h *HarnessClient) ConfigureProvider(ctx context.Context, config ports.AIPluginConfig) error {
 	h.configureMu.Lock()
 	defer h.configureMu.Unlock()
 	provider := strings.ToLower(strings.TrimSpace(config.Provider))
+	sidecarProvider := ""
 	switch provider {
-	case "ollama", "deepseek", "openai-compatible":
+	case "deepseek":
+		sidecarProvider = "deepseek-official"
+	case "openai-compatible":
+		sidecarProvider = "openai-compatible"
 	default:
-		return errors.New("AI workflow provider must be ollama, deepseek or openai-compatible")
+		return errors.New("AI workflow provider must be deepseek or openai-compatible")
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
 	if err := validateHTTPURL(baseURL); err != nil {
@@ -81,48 +86,19 @@ func (h *HarnessClient) ConfigureProvider(ctx context.Context, config ports.AIPl
 	if err != nil || parsedBaseURL.RawQuery != "" || parsedBaseURL.Fragment != "" {
 		return errors.New("AI workflow provider URL must not contain query parameters or fragments")
 	}
-	if provider == "ollama" && parsedBaseURL.Path == "/v1" {
-		// The direct Ollama adapter uses the native /api endpoints. Accept the
-		// common OpenAI-compatible suffix in the UI and normalize it before
-		// retaining the selected configuration.
-		parsedBaseURL.Path = ""
-		parsedBaseURL.RawPath = ""
-		baseURL = strings.TrimRight(parsedBaseURL.String(), "/")
-	}
 	model := strings.TrimSpace(config.Model)
 	if model == "" {
 		return errors.New("AI workflow model is required")
 	}
-	sidecarProvider := "ollama"
 	apiKey := strings.TrimSpace(config.APIKey)
-	if provider != "ollama" {
-		sidecarProvider = "deepseek-official"
-		if apiKey == "" {
-			return errors.New("AI workflow API key is required")
-		}
+	if provider == "deepseek" && apiKey == "" {
+		return errors.New("AI workflow API key is required")
 	}
 	config.Provider = provider
 	config.BaseURL = baseURL
 	config.Model = model
 	config.APIKey = apiKey
-	// Harness uses the OpenAI-compatible endpoint while the direct Ollama
-	// client uses its native API. Keep the user-selected endpoint in h.config
-	// and add the compatibility path only for the sidecar request.
 	sidecarBaseURL := baseURL
-	if provider == "ollama" {
-		parsedHost := ""
-		if parsed, parseErr := url.Parse(baseURL); parseErr == nil {
-			parsedHost = strings.ToLower(parsed.Hostname())
-		}
-		// A loopback URL points at the API host from the user's perspective;
-		// inside Compose the equivalent service is named ollama. Users who run
-		// Ollama on another host can enter that host explicitly.
-		if parsedHost == "localhost" || parsedHost == "127.0.0.1" || parsedHost == "::1" {
-			sidecarBaseURL = "http://ollama:11434/v1"
-		} else if !strings.HasSuffix(sidecarBaseURL, "/v1") {
-			sidecarBaseURL += "/v1"
-		}
-	}
 	payload, err := json.Marshal(map[string]string{"provider": sidecarProvider, "baseUrl": sidecarBaseURL, "model": model, "apiKey": apiKey})
 	if err != nil {
 		return err

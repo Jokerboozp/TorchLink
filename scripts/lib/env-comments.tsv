@@ -36,13 +36,10 @@ IOT_MQTT_BROKER	Go API 访问 MQTT 的 TCP 地址
 IOT_MQTT_WEBSOCKET_PUBLIC_URL	浏览器访问 MQTT WebSocket 的公开地址
 IOT_LOCAL_BIND_ADDRESS	本地依赖容器绑定地址，跨机器使用时为 0.0.0.0
 IOT_LOCAL_ADVERTISED_HOST	Kafka 等依赖向源码机公布的地址
-IOT_OLLAMA_URL	Ollama 服务地址，知识库嵌入仍会使用
-IOT_OLLAMA_MODEL	外部 Ollama 对话模型名称；部署不提供默认值或下载权重
 IOT_AI_PROVIDER	模型提供方；本地、在线和离线部署统一使用 deepseek
 IOT_AI_BASE_URL	DeepSeek API 根地址，默认 https://api.deepseek.com
 IOT_AI_MODEL	AI 模型名称，默认 deepseek-flash
 IOT_AI_API_KEY	兼容外部 Provider 的密钥；标准部署留空，仅填写 DEEPSEEK_API_KEY
-IOT_AI_OLLAMA_URL	AI 页面访问 Ollama 沙箱的地址
 DEEPSEEK_API_KEY	填写用户自己的 DeepSeek API Key；也可启动后在模型管理中填写并保存（连接测试可选）
 DEEPSEEK_BASE_URL	DeepSeek Harness 调用的模型 API 地址
 IOT_AI_HARNESS_ENABLED	DeepSeek Harness 为必装组件，部署脚本始终启动并保持为 true
@@ -51,11 +48,20 @@ IOT_AI_HARNESS_MCP_URL	DeepSeek Harness 回调平台 MCP 接口的地址
 IOT_AI_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
 IOT_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
 IOT_AI_HARNESS_PROVIDER	AI 工作流提供方，标准部署为 deepseek-official
-IOT_AI_HARNESS_OLLAMA_BASE_URL	Harness 访问 Ollama 的 OpenAI 兼容接口地址，必须带 /v1
-IOT_AI_HARNESS_CONTEXT_WINDOW	仅外部 Ollama 模型使用的上下文窗口；DeepSeek 不读取此项
+IOT_AI_HARNESS_CONTEXT_WINDOW	仅 OpenAI 兼容 / 私有化模型使用的上下文窗口；DeepSeek 不读取此项
 IOT_AI_HARNESS_MODEL	AI 工作流的默认模型；“模型管理”中保存的模型优先
 IOT_AI_HARNESS_TIMEOUT	AI 工作流请求超时时间
 IOT_WEAVIATE_URL	Weaviate 知识库地址
+IOT_EMBEDDING_URL	Go API 访问私有化向量服务的地址，必须带 /v1；设置 IOT_WEAVIATE_URL 时必填
+IOT_EMBEDDING_MODEL	向量模型；更换后知识库会按原始文档自动重建索引
+IOT_EMBEDDING_API_KEY	向量服务访问密钥，部署脚本自动生成
+IOT_EMBEDDING_IMAGE	TEI 镜像，按 CPU 架构选择 cpu-1.9（x86_64）或 cpu-arm64-1.9（ARM64）
+IOT_EMBEDDING_QUERY_INSTRUCTION	检索问题的指令前缀；留空使用 Qwen3 默认检索指令，none 表示不加前缀
+HF_ENDPOINT	模型下载地址，可改为可访问的 HuggingFace 镜像站
+HF_HUB_OFFLINE	1 表示只使用本地已缓存模型（离线部署）
+IOT_PRIVATE_LLM	是否部署可选私有化对话模型 vLLM（on/off，需要 NVIDIA GPU）；对话默认使用 DeepSeek 云端 API
+IOT_LLM_MODEL	可选私有化对话模型（vLLM）加载的模型，也是“模型管理”中填写的模型名称
+IOT_LLM_API_KEY	可选私有化对话模型（vLLM）访问密钥
 IOT_BACKUP_URL	Go API 访问备份服务的地址
 IOT_BACKUP_HTTP_PORT	备份服务对外管理端口
 IOT_BACKUP_HTTP_ADDR	备份服务源码调试时的监听地址

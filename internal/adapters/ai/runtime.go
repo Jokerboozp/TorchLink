@@ -38,13 +38,7 @@ func normalizeConfig(config ports.AIPluginConfig) ports.AIPluginConfig {
 }
 
 func normalizeProvider(provider string) string {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	switch provider {
-	case "ollama", "deepseek", "openai-compatible", "disabled":
-		return provider
-	default:
-		return provider
-	}
+	return strings.ToLower(strings.TrimSpace(provider))
 }
 
 func (r *RuntimeProvider) current() ports.AIClient {

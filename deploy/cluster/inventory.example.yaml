@@ -23,7 +23,9 @@ images:
   clickhouse: clickhouse/clickhouse-server:25.7-alpine
   keeper: clickhouse/clickhouse-keeper:25.7-alpine
   minio: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-  ollama: ollama/ollama:0.11.4
+  # Private knowledge embedding service (HuggingFace TEI). ARM64 nodes use
+  # ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-1.9.
+  embedding: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
   weaviate: cr.weaviate.io/semitechnologies/weaviate:1.32.8
   prometheus: prom/prometheus:v3.5.0
   nodeExporter: prom/node-exporter:v1.12.1

@@ -457,6 +457,46 @@ type InspectableKnowledgeBase interface {
 	ListKnowledgeChunks(context.Context, string, string) ([]model.KnowledgeChunk, error)
 }
 
+// BatchKnowledgeBase indexes every chunk of one document in a single call so
+// the embedding service can batch requests.
+type BatchKnowledgeBase interface {
+	IndexKnowledgeBatch(context.Context, []KnowledgeIndexInput) error
+}
+
+// RebuildableKnowledgeBase is implemented by persistent indexes whose
+// vectors depend on the configured embedding model.
+type RebuildableKnowledgeBase interface {
+	NeedsRebuild(context.Context) (bool, error)
+	ResetIndex(context.Context) error
+	DropLegacyIndex(context.Context) error
+	EmbeddingModel() string
+}
+
+// KnowledgeReindexStore lists documents across tenants for an index rebuild
+// and serializes rebuilds between API replicas.
+type KnowledgeReindexStore interface {
+	ListAllKnowledgeDocs(context.Context) ([]model.KnowledgeDoc, error)
+	TryKnowledgeReindexLock(context.Context) (release func(), locked bool, err error)
+}
+
+// EmbedPurpose distinguishes retrieval queries from indexed documents; some
+// embedding models expect an instruction prefix for queries only.
+type EmbedPurpose string
+
+const (
+	EmbedQuery    EmbedPurpose = "query"
+	EmbedDocument EmbedPurpose = "document"
+)
+
+// Embedder turns text into vectors through a private or hosted embedding
+// service. Model identifies the vector space so stored indexes can detect
+// a model change.
+type Embedder interface {
+	Embed(context.Context, []string, EmbedPurpose) ([][]float32, error)
+	Model() string
+	Health(context.Context) error
+}
+
 type Clock interface{ Now() time.Time }
 type RealClock struct{}
 

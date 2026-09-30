@@ -2,7 +2,8 @@ name: iot-platform
 
 # 在线部署入口：scripts/deploy-online.ps1 / scripts/deploy-online.sh。
 # 本地源码调试使用独立 compose.local.yaml，离线使用 compose.offline.yaml 覆盖层。
-# 本地知识库：默认启动持久化 Weaviate + Ollama（数据保存在命名卷）。
+# 知识库：默认启动持久化 Weaviate + 私有化向量服务 TEI（数据与模型保存在命名卷）。
+# 私有化对话模型（vLLM，需要 NVIDIA GPU）为可选 profile：--profile llm，默认仍使用 DeepSeek 云端 API。
 # 所有 ${VAR:-default} 均可由 shell 环境变量或可选 .env 覆盖。
 
 x-service-defaults: &service-defaults
@@ -54,12 +55,10 @@ services:
       IOT_DEVICE_HTTP_PUBLIC_URL: ${IOT_DEVICE_HTTP_PUBLIC_URL:-}
       IOT_DEVICE_MQTT_PUBLIC_URL: ${IOT_DEVICE_MQTT_PUBLIC_URL:-}
       IOT_MQTT_WEBSOCKET_PUBLIC_URL: ${IOT_MQTT_WEBSOCKET_PUBLIC_URL:-}
-      IOT_OLLAMA_URL: ${IOT_OLLAMA_URL:-}
       IOT_AI_PROVIDER: ${IOT_AI_PROVIDER:-deepseek}
       IOT_AI_BASE_URL: ${IOT_AI_BASE_URL:-https://api.deepseek.com}
       IOT_AI_MODEL: ${IOT_AI_MODEL:-deepseek-flash}
       IOT_AI_API_KEY: ${IOT_AI_API_KEY:-}
-      IOT_AI_OLLAMA_URL: ${IOT_AI_OLLAMA_URL:-http://ollama:11434}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       # AI 工作流服务（Harness）为必装组件，业务智能功能都通过它运行。
       IOT_AI_HARNESS_URL: ${IOT_AI_HARNESS_URL:-http://deepseek-harness:8091}
@@ -68,6 +67,11 @@ services:
       IOT_AI_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-deepseek-flash}
       IOT_AI_HARNESS_TIMEOUT: ${IOT_AI_HARNESS_TIMEOUT:-90s}
       IOT_WEAVIATE_URL: ${IOT_WEAVIATE_URL:-http://weaviate:8080}
+      # 知识库向量由私有化 embedding 服务计算（OpenAI 兼容 /v1/embeddings）。
+      IOT_EMBEDDING_URL: ${IOT_EMBEDDING_URL:-http://embedding:80/v1}
+      IOT_EMBEDDING_MODEL: ${IOT_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      IOT_EMBEDDING_API_KEY: ${IOT_EMBEDDING_API_KEY:-local-embedding-key-change-me}
+      IOT_EMBEDDING_QUERY_INSTRUCTION: ${IOT_EMBEDDING_QUERY_INSTRUCTION:-}
       IOT_BACKUP_URL: ${IOT_BACKUP_URL:-http://backup-service:8090}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
       # 运维中心：组件地址和凭据只在服务端使用；规则与通知配置通过共享卷交给组件加载。
@@ -125,6 +129,7 @@ services:
       clickhouse: {condition: service_healthy}
       emqx: {condition: service_healthy}
       weaviate: {condition: service_healthy}
+      embedding: {condition: service_healthy}
 
   platform-web:
     <<: *service-defaults
@@ -135,7 +140,6 @@ services:
     ports: ["${IOT_WEB_PORT:-8080}:8080"]
     depends_on:
       platform-api: {condition: service_started}
-      ollama: {condition: service_started}
 
   deepseek-harness:
     <<: *service-defaults
@@ -512,14 +516,70 @@ services:
       retries: 6
       start_period: 10s
 
-  ollama:
+  # 知识库私有化向量服务：HuggingFace Text Embeddings Inference（CPU 版）。
+  # 镜像按 CPU 架构选择：x86_64 用 cpu-1.9，ARM64 用 cpu-arm64-1.9，GPU 用对应 CUDA 标签。
+  # 首次启动从 HF_ENDPOINT 下载模型到 embedding-models 卷；离线包预置该卷并设置 HF_HUB_OFFLINE=1。
+  embedding:
     <<: *service-defaults
-    image: ollama/ollama:0.11.4
+    image: ${IOT_EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
+    # 离线部署时 IOT_EMBEDDING_MODEL_SOURCE 指向卷内已恢复的模型目录。
+    command: ["--model-id", "${IOT_EMBEDDING_MODEL_SOURCE:-${IOT_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}}", "--port", "80"]
     environment:
-      OLLAMA_NUM_PARALLEL: "1"
-      OLLAMA_MAX_LOADED_MODELS: "1"
-      OLLAMA_KEEP_ALIVE: "5m"
-    volumes: ["ollama-data:/root/.ollama"]
+      API_KEY: ${IOT_EMBEDDING_API_KEY:-local-embedding-key-change-me}
+      # 自动截断超长输入；限制单批词元数以控制 CPU 内存。
+      MAX_BATCH_TOKENS: ${IOT_EMBEDDING_MAX_BATCH_TOKENS:-4096}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    volumes: ["embedding-models:/data"]
+    cpus: ${IOT_EMBEDDING_CPUS:-4}
+    mem_limit: ${IOT_EMBEDDING_MEMORY:-4g}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      # 首次启动需要下载约 1.2 GB 模型。
+      retries: 60
+      start_period: 60s
+
+  # 可选私有化对话模型（vLLM，OpenAI 兼容接口，需要 NVIDIA GPU 与 nvidia-container-toolkit）。
+  # 启用：docker compose --profile llm up -d vllm；在“模型管理”选择“OpenAI 兼容 / 私有化部署”，
+  # 服务地址 http://vllm:8000/v1，模型名称与 IOT_LLM_MODEL 一致，密钥为 IOT_LLM_API_KEY。
+  vllm:
+    <<: *service-defaults
+    profiles: [llm]
+    image: ${IOT_LLM_IMAGE:-vllm/vllm-openai:v0.29.0}
+    command:
+      - "--model"
+      - "${IOT_LLM_MODEL_SOURCE:-${IOT_LLM_MODEL:-Qwen/Qwen3-8B}}"
+      - "--served-model-name"
+      - "${IOT_LLM_MODEL:-Qwen/Qwen3-8B}"
+      - "--max-model-len"
+      - "${IOT_LLM_MAX_MODEL_LEN:-32768}"
+      - "--gpu-memory-utilization"
+      - "${IOT_LLM_GPU_MEMORY_UTILIZATION:-0.9}"
+      # Harness 工作流通过工具调用查询平台数据。
+      - "--enable-auto-tool-choice"
+      - "--tool-call-parser"
+      - "${IOT_LLM_TOOL_CALL_PARSER:-hermes}"
+    environment:
+      VLLM_API_KEY: ${IOT_LLM_API_KEY:-local-llm-key-change-me}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    volumes: ["llm-models:/root/.cache/huggingface"]
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 80
+      start_period: 120s
 
   weaviate:
     <<: *service-defaults
@@ -528,14 +588,12 @@ services:
       QUERY_DEFAULTS_LIMIT: "25"
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
-      DEFAULT_VECTORIZER_MODULE: text2vec-ollama
-      ENABLE_MODULES: text2vec-ollama,backup-filesystem
-      OLLAMA_APIENDPOINT: http://ollama:11434
+      # 向量由平台调用私有化 embedding 服务计算后写入，Weaviate 不再启用向量化模块。
+      DEFAULT_VECTORIZER_MODULE: none
+      ENABLE_MODULES: backup-filesystem
       BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLUSTER_HOSTNAME: node1
     volumes: ["weaviate-data:/var/lib/weaviate"]
-    depends_on:
-      ollama: {condition: service_started}
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/v1/.well-known/ready >/dev/null || exit 1"]
       interval: 10s
@@ -795,7 +853,8 @@ volumes:
   alertmanager-data: {}
   alloy-data: {}
   backup-staging: {}
-  ollama-data: {}
+  embedding-models: {}
+  llm-models: {}
   weaviate-data: {}
   deepseek-harness-data: {}
   capacity-data: {}

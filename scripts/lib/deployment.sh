@@ -35,6 +35,8 @@ IOT_ADMIN_PASSWORD=admin123
 IOT_ADMIN_TENANTS=tenant_001
 IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$(deployment_secret)
 IOT_AI_HARNESS_TOKEN=$(deployment_secret)
+IOT_EMBEDDING_API_KEY=$(deployment_secret)
+IOT_LLM_API_KEY=$(deployment_secret)
 IOT_BACKUP_ADMIN_TOKEN=$(deployment_secret)
 GB26875_CONTROL_TOKEN=$(deployment_secret)
 IOT_HTTP_ADDR=:8081
@@ -132,7 +134,66 @@ wait_deployment_http() {
   return 1
 }
 
-# Deployment inference always uses DeepSeek; Ollama is reserved for embeddings.
+delete_deployment_env_value() {
+  local env_path="$1" key="$2" updated
+  updated="$(awk -v key="$key" '
+    { clean=$0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", clean) }
+    clean ~ "^" key "[[:space:]]*=" { next }
+    { print }
+  ' "$env_path")" || return 1
+  printf '%s\n' "$updated" > "$env_path"
+}
+
+# TEI CPU image for the Docker engine's architecture (x86_64 or ARM64).
+deployment_embedding_image() {
+  local arch
+  arch="$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)"
+  case "$arch" in
+    aarch64|arm64) printf '%s\n' 'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-1.9' ;;
+    *) printf '%s\n' 'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9' ;;
+  esac
+}
+
+# Knowledge embeddings run on the private TEI service. Pick the CPU image for
+# this architecture unless a custom (for example GPU) image is configured,
+# generate access keys once and drop settings of the retired Ollama service.
+configure_embedding_env() {
+  local env_path="$1" url="${2:-http://embedding:80/v1}" image key
+  image="$(get_deployment_env_value "$env_path" IOT_EMBEDDING_IMAGE)"
+  if [ -z "$image" ] || [[ "$image" == ghcr.io/huggingface/text-embeddings-inference:cpu-* ]]; then
+    set_deployment_env_value "$env_path" IOT_EMBEDDING_IMAGE "$(deployment_embedding_image)"
+  fi
+  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_URL)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_URL "$url"
+  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL Qwen/Qwen3-Embedding-0.6B
+  for key in IOT_EMBEDDING_API_KEY IOT_LLM_API_KEY; do
+    case "$(get_deployment_env_value "$env_path" "$key")" in
+      ''|*change-this*|*change-me*) set_deployment_env_value "$env_path" "$key" "$(deployment_secret)" ;;
+    esac
+  done
+  for key in IOT_OLLAMA_URL IOT_OLLAMA_MODEL IOT_AI_OLLAMA_URL IOT_AI_HARNESS_OLLAMA_BASE_URL; do
+    delete_deployment_env_value "$env_path" "$key"
+  done
+}
+
+# Optional private chat model (vLLM, NVIDIA GPU). "keep" retains the previous
+# choice; the default is off because the DeepSeek cloud API stays primary.
+# Prints the effective mode.
+configure_private_llm_env() {
+  local env_path="$1" mode="${2:-keep}" profiles
+  if [ "$mode" = keep ]; then
+    mode=off
+    [ "$(get_deployment_env_value "$env_path" IOT_PRIVATE_LLM)" = on ] && mode=on
+  fi
+  profiles="$(get_deployment_env_value "$env_path" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx llm | grep -v '^$' | paste -sd, - || true)"
+  if [ "$mode" = on ]; then profiles="${profiles:+$profiles,}llm"; fi
+  set_deployment_env_value "$env_path" COMPOSE_PROFILES "$profiles"
+  set_deployment_env_value "$env_path" IOT_PRIVATE_LLM "$mode"
+  [ -n "$(get_deployment_env_value "$env_path" IOT_LLM_MODEL)" ] || set_deployment_env_value "$env_path" IOT_LLM_MODEL Qwen/Qwen3-8B
+  printf '%s\n' "$mode"
+}
+
+# Deployment inference defaults to the DeepSeek cloud API; a private
+# OpenAI-compatible model (vLLM) is selected later in 模型管理.
 configure_deepseek_env() {
   local env_path="$1" model="${2:-deepseek-flash}" old_provider key
   old_provider="$(get_deployment_env_value "$env_path" IOT_AI_PROVIDER)"
@@ -151,7 +212,6 @@ configure_deepseek_env() {
   set_deployment_env_value "$env_path" IOT_AI_MODEL "$model"
   set_deployment_env_value "$env_path" IOT_AI_HARNESS_PROVIDER deepseek-official
   set_deployment_env_value "$env_path" IOT_AI_HARNESS_MODEL "$model"
-  set_deployment_env_value "$env_path" IOT_OLLAMA_MODEL ''
   if [ -z "$key" ]; then
     echo '提示：请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥并保存（连接测试可选）；未配置前 AI 功能不可用。' >&2
   fi

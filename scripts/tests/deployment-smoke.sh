@@ -270,14 +270,16 @@ docker() {
     return 43
   elif [ "$1" = save ]; then
     printf 'mock images' > "$3"
-  elif [ "$1" = run ] && [[ "$*" == *'/helpers/export-embedding-model.sh'* ]]; then
-    local argument destination
+  elif [ "$1" = run ] && [[ "$*" == *'/helpers/export-model-cache.sh'* ]]; then
+    local argument destination archive
     for argument in "$@"; do
-      case "$argument" in type=bind,source=*,target=/backup)
-        destination="${argument#type=bind,source=}"; destination="${destination%,target=/backup}"
-        printf 'mock models' > "$destination/ollama-data.tgz";;
+      case "$argument" in
+        type=bind,source=*,target=/backup)
+          destination="${argument#type=bind,source=}"; destination="${destination%,target=/backup}";;
+        /backup/*) archive="${argument#/backup/}";;
       esac
     done
+    printf 'mock models' > "$destination/$archive"
   fi
 }
 curl() {
@@ -318,7 +320,11 @@ assert_no_call '--profile harness'
 if grep -Eq ' up .*backup-service' "$TEST_CALLS"; then echo 'Local setup unexpectedly started backup-service' >&2; exit 1; fi
 assert_call 'go mod download'
 assert_call 'npm ci'
-assert_call 'exec -T ollama ollama pull nomic-embed-text'
+assert_call 'compose.local.yaml up -d --build --wait --wait-timeout 900'
+grep -q "^IOT_EMBEDDING_URL='http://127.0.0.1:18091/v1'$" "$test_root/.env.local"
+grep -q '^IOT_EMBEDDING_IMAGE=ghcr.io/huggingface/text-embeddings-inference:cpu-1.9$' "$test_root/.env.local"
+grep -Eq '^IOT_EMBEDDING_API_KEY=[0-9a-f]{64}$' "$test_root/.env.local"
+assert_no_call 'ollama'
 cp "$test_root/.env.local" "$test_root/local-original"
 bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local" --skip-code-deps
 cmp "$test_root/local-original" "$test_root/.env.local"
@@ -424,7 +430,7 @@ grep -q "^IOT_AI_PROVIDER=deepseek$" "$deepseek_env"
 grep -q "^IOT_AI_BASE_URL=https://api.deepseek.com$" "$deepseek_env"
 grep -q "^IOT_AI_MODEL=deepseek-flash$" "$deepseek_env"
 grep -q "^DEEPSEEK_API_KEY='smoke-test-key'$" "$deepseek_env"
-if tail -n 12 "$TEST_CALLS" | grep -q 'ollama pull qwen3:1.7b'; then echo 'DeepSeek setup attempted an Ollama chat model download' >&2; exit 1; fi
+assert_no_call 'ollama|vllm'
 echo 'PASS local deepseek: provider enabled without local chat model download'
 
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
@@ -438,8 +444,14 @@ grep -q '^IOT_AI_HARNESS_MODEL=deepseek-flash$' "$test_root/.env.online"
 assert_commented_env "$test_root/.env.online"
 grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service deepseek-harness'
-assert_no_call 'ollama pull qwen'
-assert_call 'exec -T ollama ollama pull nomic-embed-text'
+assert_no_call 'ollama'
+grep -q '^IOT_EMBEDDING_URL=http://embedding:80/v1$' "$test_root/.env.online"
+grep -q '^IOT_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-0.6B$' "$test_root/.env.online"
+grep -q '^IOT_EMBEDDING_IMAGE=ghcr.io/huggingface/text-embeddings-inference:cpu-1.9$' "$test_root/.env.online"
+grep -Eq '^IOT_EMBEDDING_API_KEY=[0-9a-f]{64}$' "$test_root/.env.online"
+grep -q '^IOT_PRIVATE_LLM=off$' "$test_root/.env.online"
+assert_call 'pull .*embedding'
+assert_call '--profile llm rm -sf vllm'
 cp "$test_root/.env.online" "$test_root/online-original"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cmp "$test_root/online-original" "$test_root/.env.online"
@@ -468,18 +480,27 @@ bash "$scripts/deploy-offline.sh" --bundle-dir "$extracted_bundle" > "$test_root
 echo 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'
 assert_commented_env "$bundle/.env.offline"
 grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$bundle/.env.offline"
-[ -s "$bundle/ollama-data.tgz.sha256" ]
+[ -s "$bundle/embedding-models.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-24.0.9.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-28.5.2.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-compose.sha256" ]
 [ -f "$bundle/scripts/lib/docker-bootstrap.sh" ]
-[ -f "$bundle/scripts/lib/restore-ollama-models.sh" ]
-grep -q 'ollama/ollama:' "$bundle/manifest.json"
+[ -f "$bundle/scripts/lib/restore-volume-archive.sh" ]
+grep -q 'text-embeddings-inference:cpu-1.9' "$bundle/manifest.json"
+grep -q '"embeddingModel": "Qwen/Qwen3-Embedding-0.6B"' "$bundle/manifest.json"
+grep -q '"arch": "x86_64"' "$bundle/manifest.json"
+if grep -qi 'ollama' "$bundle/manifest.json" "$bundle/.env.offline"; then echo 'Offline bundle still references Ollama' >&2; exit 1; fi
 grep -q 'weaviate:' "$bundle/manifest.json"
 grep -q 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z' "$bundle/manifest.json"
 assert_call 'build --pull platform-api platform-web backup-service minio'
-assert_call 'exec -T ollama ollama pull nomic-embed-text'
-assert_no_call 'ollama pull qwen'
+assert_call 'up -d --no-deps embedding'
+assert_call 'exec -T embedding curl'
+assert_call 'export-model-cache.sh /src Qwen/Qwen3-Embedding-0.6B /backup/embedding-models.tgz'
+assert_no_call 'ollama|vllm'
+grep -q '^HF_HUB_OFFLINE=1$' "$bundle/.env.offline"
+grep -q '^IOT_EMBEDDING_MODEL_SOURCE=/data/offline/Qwen3-Embedding-0.6B$' "$bundle/.env.offline"
+grep -q '^IOT_PRIVATE_LLM=off$' "$bundle/.env.offline"
+if grep -qx 'llm' "$bundle/profiles.txt"; then echo 'Default bundle includes the private LLM' >&2; exit 1; fi
 grep -q '^IOT_AI_PROVIDER=deepseek$' "$bundle/.env.offline"
 grep -q '^IOT_AI_MODEL=deepseek-flash$' "$bundle/.env.offline"
 grep -q '^IOT_AI_HARNESS_PROVIDER=deepseek-official$' "$bundle/.env.offline"
@@ -489,9 +510,10 @@ cp "$bundle/.env.offline" "$test_root/offline-original"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 cmp "$test_root/offline-original" "$bundle/.env.offline"
-assert_call 'up -d --no-build --pull never'
-assert_call '^run --rm --pull never'
-assert_no_call ' build |ollama pull| compose .* pull '
+assert_call 'up -d --no-build --pull never --wait --wait-timeout 900'
+assert_call 'restore-volume-archive.sh /backup/embedding-models.tgz /dst'
+assert_call 'exec -T embedding curl'
+assert_no_call ' build |ollama| compose .* pull '
 TEST_MISSING_IMAGE=1
 : > "$TEST_CALLS"
 if bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle" > "$test_root/missing-image.log" 2>&1; then echo 'Missing image ignored' >&2; exit 1; fi
@@ -503,13 +525,15 @@ python3 "$scripts/prepare-public-bundle.py" "$bundle"
 [ ! -e "$bundle/.env.offline" ]
 # Camera and GB28181 passwords are sealed with a key generated on the target.
 grep -q '^IOT_VIDEO_CREDENTIAL_KEY=__TORCHLINK_RANDOM_BASE64_32__$' "$bundle/.env.offline.template"
+grep -q '^IOT_EMBEDDING_API_KEY=__TORCHLINK_RANDOM_HEX__$' "$bundle/.env.offline.template"
+grep -q '^IOT_LLM_API_KEY=__TORCHLINK_RANDOM_HEX__$' "$bundle/.env.offline.template"
 : > "$TEST_CALLS"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 [ -s "$bundle/.env.offline" ]
 if grep -q '__TORCHLINK_RANDOM_' "$bundle/.env.offline"; then echo 'Public template was not initialized'; exit 1; fi
 grep -Eq '^IOT_VIDEO_CREDENTIAL_KEY=[A-Za-z0-9+/]{43}=$' "$bundle/.env.offline"
 assert_call 'up -d --no-build --pull never'
-assert_no_call ' build |ollama pull| compose .* pull '
+assert_no_call ' build |ollama| compose .* pull '
 cp "$bundle/.env.offline" "$test_root/public-original"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$bundle"
 cmp "$test_root/public-original" "$bundle/.env.offline"
@@ -528,7 +552,7 @@ grep -q '^IOT_OPS_CAPACITY_URL=http://capacity:7080$' "$test_root/offline-origin
 grep -Eq '^COMPOSE_PROFILES=(video,capacity|capacity,video)$' "$test_root/.env.online"
 grep -q '^IOT_VIDEO_MEDIA_API_URL=http://zlmediakit:80$' "$test_root/.env.online"
 : > "$TEST_CALLS"
-bash "$scripts/package-offline.sh" --output-dir "$test_root/video-bundles" --skip-ollama-model --skip-docker-runtime
+bash "$scripts/package-offline.sh" --output-dir "$test_root/video-bundles" --skip-embedding-model --skip-docker-runtime
 vbundles=("$test_root"/video-bundles/iot-platform-offline-*)
 vbundle="${vbundles[0]}"
 grep -qx 'video' "$vbundle/profiles.txt"
@@ -557,7 +581,7 @@ grep -q '^IOT_VIDEO_MODULE=on$' "$vbundle/.env.offline"
 [ "$video_key" = "$(grep '^IOT_VIDEO_CREDENTIAL_KEY=' "$vbundle/.env.offline")" ] || { echo 'Camera credential key was rotated' >&2; exit 1; }
 assert_call 'up -d --no-build --pull never --wait --wait-timeout 120 zlmediakit'
 : > "$TEST_CALLS"
-bash "$scripts/package-offline.sh" --output-dir "$test_root/novideo-bundles" --without-video --skip-ollama-model --skip-docker-runtime --skip-bundle-archive > /dev/null
+bash "$scripts/package-offline.sh" --output-dir "$test_root/novideo-bundles" --without-video --skip-embedding-model --skip-docker-runtime --skip-bundle-archive > /dev/null
 nbundles=("$test_root"/novideo-bundles/iot-platform-offline-*)
 if grep -qx 'video' "${nbundles[0]}/profiles.txt"; then echo 'Opt-out bundle includes video' >&2; exit 1; fi
 grep -q '^IOT_VIDEO_MODULE=off$' "${nbundles[0]}/.env.offline"
@@ -566,7 +590,7 @@ assert_no_call 'zlmediakit'
 # A failed tar must not publish a completed archive or leave partial artifacts.
 tar() { printf 'partial archive' > "$2"; return 48; }
 export -f tar
-if bash "$scripts/package-offline.sh" --output-dir "$test_root/failed-tar" --skip-ollama-model --skip-docker-runtime > "$test_root/failed-tar.log" 2>&1; then
+if bash "$scripts/package-offline.sh" --output-dir "$test_root/failed-tar" --skip-embedding-model --skip-docker-runtime > "$test_root/failed-tar.log" 2>&1; then
   echo 'Archive failure ignored' >&2; exit 1
 fi
 unset -f tar
@@ -654,4 +678,48 @@ assert_call '--profile capacity rm -sf capacity'
 bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
 grep -q '^IOT_CAPACITY_MODULE=off$' "$vbundle/.env.offline"
 echo 'PASS capacity module: default on, generated token, opt-out kept, module toggle and offline switch'
+# Optional private chat model (vLLM): off by default, opt-in kept, packaged on request.
+llm_env="$test_root/.env.online-llm"
+cp "$test_root/.env.online" "$llm_env"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$llm_env" --private-llm on > /dev/null
+grep -q '^IOT_PRIVATE_LLM=on$' "$llm_env"
+grep -Eq '^COMPOSE_PROFILES=.*llm' "$llm_env"
+grep -q '^IOT_LLM_MODEL=Qwen/Qwen3-8B$' "$llm_env"
+assert_call 'pull .*vllm'
+assert_no_call 'rm -sf vllm'
+"$TEST_COMPOSE" --env-file "$llm_env" -f "$scripts/../compose.yaml" config > "$test_root/llm-online.yaml"
+grep -q 'vllm/vllm-openai:v0.29.0' "$test_root/llm-online.yaml"
+grep -q 'driver: nvidia' "$test_root/llm-online.yaml"
+grep -q -- '--enable-auto-tool-choice' "$test_root/llm-online.yaml"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$llm_env" > /dev/null
+grep -q '^IOT_PRIVATE_LLM=on$' "$llm_env"
+bash "$scripts/deploy-online.sh" --env-file "$llm_env" --private-llm off > /dev/null
+grep -q '^IOT_PRIVATE_LLM=off$' "$llm_env"
+if grep -Eq '^COMPOSE_PROFILES=.*llm' "$llm_env"; then echo 'Private LLM profile kept after opt-out' >&2; exit 1; fi
+assert_call '--profile llm rm -sf vllm'
+if bash "$scripts/deploy-online.sh" --private-llm maybe >/dev/null 2>&1; then echo 'Accepted invalid private LLM switch' >&2; exit 1; fi
+: > "$TEST_CALLS"
+bash "$scripts/package-offline.sh" --output-dir "$test_root/llm-bundles" --with-private-llm --skip-docker-runtime --skip-bundle-archive > /dev/null
+lbundles=("$test_root"/llm-bundles/iot-platform-offline-*)
+lbundle="${lbundles[0]}"
+grep -qx 'llm' "$lbundle/profiles.txt"
+[ -s "$lbundle/llm-models.tgz.sha256" ] && [ -s "$lbundle/embedding-models.tgz.sha256" ]
+grep -q '^IOT_LLM_MODEL_SOURCE=/root/.cache/huggingface/offline/Qwen3-8B$' "$lbundle/.env.offline"
+grep -q 'vllm/vllm-openai' "$lbundle/manifest.json"
+assert_call 'snapshot_download'
+assert_call 'export-model-cache.sh /src/hub Qwen/Qwen3-8B /backup/llm-models.tgz'
+assert_no_call 'compose .* run .*vllm'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$lbundle" > /dev/null
+assert_call '--profile llm'
+assert_call 'restore-volume-archive.sh /backup/llm-models.tgz /dst'
+sed 's/^IOT_PRIVATE_LLM=on$/IOT_PRIVATE_LLM=off/' "$lbundle/.env.offline" > "$test_root/llm-off.tmp" && cat "$test_root/llm-off.tmp" > "$lbundle/.env.offline"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$lbundle" > /dev/null
+assert_no_call '--profile llm'
+if bash "$scripts/package-offline.sh" --output-dir "$test_root/legacy-flag" --skip-ollama-model > "$test_root/legacy-flag.log" 2>&1; then echo 'Accepted removed Ollama flag' >&2; exit 1; fi
+grep -q 'Ollama 已移除' "$test_root/legacy-flag.log"
+echo 'PASS private LLM: off by default, opt-in kept, GPU service, offline weights and opt-out'
 echo 'Bash deployment smoke tests PASS (mutations mocked; Compose parsing real).'

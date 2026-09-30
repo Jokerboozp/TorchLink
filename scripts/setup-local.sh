@@ -134,8 +134,7 @@ defaults=(
   "IOT_KAFKA_BROKERS=${dependency_host}:19092"
   "IOT_MQTT_BROKER=tcp://${dependency_host}:1883"
   "IOT_MQTT_WEBSOCKET_PUBLIC_URL=ws://${dependency_host}:8083/mqtt"
-  "IOT_OLLAMA_URL=http://${dependency_host}:11434"
-  "IOT_AI_OLLAMA_URL=http://${dependency_host}:11434"
+  "IOT_EMBEDDING_URL=http://${dependency_host}:18091/v1"
   'IOT_AI_PROVIDER=deepseek'
   'IOT_AI_BASE_URL=https://api.deepseek.com'
   "IOT_AI_MODEL=$deepseek_model"
@@ -153,7 +152,7 @@ for entry in "${defaults[@]}"; do
   key="${entry%%=*}"
   replace="$new_env"
   if [ "$dependency_host_set" = true ]; then
-    case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_OLLAMA_URL|IOT_AI_OLLAMA_URL|IOT_WEAVIATE_URL|IOT_BACKUP_URL|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
+    case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_EMBEDDING_URL|IOT_WEAVIATE_URL|IOT_BACKUP_URL|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
   fi
   set_local_env_value "$key" "${entry#*=}" "$replace"
 done
@@ -169,6 +168,7 @@ else
   set_local_env_value IOT_LOCAL_BACKUP_METRICS_TARGET "${api_host}:8092" true
 fi
 configure_deepseek_env "$env_file" "$deepseek_model"
+configure_embedding_env "$env_file" "http://${dependency_host}:18091/v1"
 
 # The controller follows the source API lifecycle, using its local addresses.
 if [ "$capacity" = keep ]; then
@@ -244,9 +244,8 @@ if [ "$include_backup" = false ]; then
   run_docker "${backup_compose[@]}" stop backup-service
 fi
 run_docker "${compose[@]}" config --quiet
-run_docker "${compose[@]}" up -d --build --wait --wait-timeout 300
-wait_deployment_http http://127.0.0.1:11434/api/tags 180
-run_docker "${compose[@]}" exec -T ollama ollama pull nomic-embed-text
+# The first start downloads the knowledge embedding model (about 1.2 GB).
+run_docker "${compose[@]}" up -d --build --wait --wait-timeout 900
 if [ "$include_backup" = true ]; then wait_deployment_http http://127.0.0.1:8092/health/ready 180; fi
 wait_deployment_http http://127.0.0.1:8091/health 180
 if [ "$include_ops" = true ]; then

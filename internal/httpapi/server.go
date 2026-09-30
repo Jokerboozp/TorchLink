@@ -1370,8 +1370,6 @@ func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) {
 	for index := range items {
 		if !s.canConfigureAI(r) {
 			items[index].DefaultBaseURL = ""
-		} else if items[index].ID == "ollama" {
-			items[index].DefaultBaseURL = s.cfg.AITestOllamaURL
 		}
 	}
 	active := ports.AIPluginInfo{ID: "disabled", Name: "未启用", Enabled: false}
@@ -1458,18 +1456,14 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(in.Provider))
-	if provider != "ollama" && provider != "deepseek" && provider != "openai-compatible" {
-		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 ollama、deepseek 或 openai-compatible")
+	if provider != "deepseek" && provider != "openai-compatible" {
+		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 deepseek 或 openai-compatible")
 		return
 	}
 	current := s.aiProviderRuntime.CurrentConfig()
 	baseURL := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/")
-	if baseURL == "" {
-		if provider == "ollama" {
-			baseURL = strings.TrimRight(strings.TrimSpace(s.cfg.AITestOllamaURL), "/")
-		} else if provider == "deepseek" {
-			baseURL = "https://api.deepseek.com"
-		}
+	if baseURL == "" && provider == "deepseek" {
+		baseURL = "https://api.deepseek.com"
 	}
 	if err := validateAIProviderURL(baseURL); err != nil {
 		problem(w, http.StatusUnprocessableEntity, err.Error())
@@ -1478,13 +1472,6 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	if len([]rune(baseURL)) > 2048 {
 		problem(w, http.StatusUnprocessableEntity, "baseUrl 不能超过 2048 个字符")
 		return
-	}
-	if provider == "ollama" {
-		if parsed, parseErr := url.Parse(baseURL); parseErr == nil && parsed.Path == "/v1" {
-			parsed.Path = ""
-			parsed.RawPath = ""
-			baseURL = strings.TrimRight(parsed.String(), "/")
-		}
 	}
 	modelName := strings.TrimSpace(in.Model)
 	if modelName == "" {
@@ -1510,8 +1497,9 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	} else if provider == current.Provider {
 		apiKey = current.APIKey
 	}
-	if provider != "ollama" && apiKey == "" {
-		problem(w, http.StatusUnprocessableEntity, "云端或兼容接口模型必须填写接口密钥")
+	// Private OpenAI-compatible services such as vLLM may run without a key.
+	if provider == "deepseek" && apiKey == "" {
+		problem(w, http.StatusUnprocessableEntity, "DeepSeek 必须填写 API Key")
 		return
 	}
 	maxTokens := effectiveAIMaxTokens(current.MaxTokens)
@@ -1605,8 +1593,8 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(in.Provider))
-	if provider != "ollama" && provider != "deepseek" && provider != "openai-compatible" {
-		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 ollama、deepseek 或 openai-compatible")
+	if provider != "deepseek" && provider != "openai-compatible" {
+		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 deepseek 或 openai-compatible")
 		return
 	}
 	in.Provider = provider
@@ -1632,15 +1620,8 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 		if provider == strings.ToLower(strings.TrimSpace(current.Provider)) {
 			baseURL = strings.TrimSpace(current.BaseURL)
 		}
-		if baseURL == "" {
-			baseURL = map[string]string{"deepseek": "https://api.deepseek.com", "ollama": s.cfg.AITestOllamaURL}[provider]
-		}
-	}
-	if provider == "ollama" {
-		if parsed, parseErr := url.Parse(baseURL); parseErr == nil && parsed.Path == "/v1" {
-			parsed.Path = ""
-			parsed.RawPath = ""
-			baseURL = strings.TrimRight(parsed.String(), "/")
+		if baseURL == "" && provider == "deepseek" {
+			baseURL = "https://api.deepseek.com"
 		}
 	}
 	if err := validateAIProviderURL(baseURL); err != nil {
@@ -2347,7 +2328,19 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 	if persistent {
 		indexMode = "weaviate"
 	}
-	writeList(w, 200, items, total, pagination, map[string]any{"indexMode": indexMode, "persistentIndex": persistent})
+	meta := map[string]any{"indexMode": indexMode, "persistentIndex": persistent, "indexState": s.engine.KnowledgeReindex.Status()}
+	if embeddingModel := knowledgeEmbeddingModel(s); embeddingModel != "" {
+		meta["embeddingModel"] = embeddingModel
+	}
+	writeList(w, 200, items, total, pagination, meta)
+}
+
+// knowledgeEmbeddingModel names the vector space of the persistent index.
+func knowledgeEmbeddingModel(s *Server) string {
+	if index, ok := s.engine.KB.(ports.RebuildableKnowledgeBase); ok {
+		return index.EmbeddingModel()
+	}
+	return ""
 }
 
 func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request) {
@@ -2400,8 +2393,8 @@ func knowledgeIndexDetails(s *Server, document model.KnowledgeDoc, chunks []mode
 		"extractedChars": document.Metadata["characters"],
 		"chunking": map[string]any{
 			"strategy":         "fixed-window-overlap",
-			"size":             1200,
-			"overlap":          200,
+			"size":             core.KnowledgeChunkSize,
+			"overlap":          core.KnowledgeChunkOverlap,
 			"unit":             "Unicode 字符（rune/code point）",
 			"offsetConvention": "StartChar 包含，EndChar 不包含",
 			"normalization":    "先提取文件文本，再清洗 XML/HTML 标签、空白并去除首尾空白",
@@ -2409,8 +2402,8 @@ func knowledgeIndexDetails(s *Server, document model.KnowledgeDoc, chunks []mode
 	}
 	if persistent {
 		index["mode"] = "weaviate"
-		index["vectorizer"] = "text2vec-ollama"
-		index["embeddingModel"] = "nomic-embed-text"
+		index["vectorizer"] = "private-embedding-service"
+		index["embeddingModel"] = knowledgeEmbeddingModel(s)
 	}
 	return index
 }
@@ -2470,29 +2463,21 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 502, "store document: "+err.Error())
 		return
 	}
-	textContent, extractErr := core.ExtractKnowledgeText(h.Filename, data)
-	if extractErr != nil {
-		problem(w, 422, extractErr.Error())
-		return
-	}
-	chunks := core.ChunkKnowledgeTextDetailed(textContent, 1200, 200)
-	if len(chunks) == 0 {
-		problem(w, 422, "document contains no indexable text")
-		return
-	}
-	for i, chunk := range chunks {
-		chunkID := fmt.Sprintf("%s-chunk-%04d", id, i+1)
-		if filtered, ok := s.engine.KB.(ports.FilteredKnowledgeBase); ok {
-			err = filtered.IndexKnowledge(r.Context(), ports.KnowledgeIndexInput{TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, DocumentID: id, ChunkID: chunkID, ChunkIndex: chunk.Index, StartChar: chunk.StartChar, EndChar: chunk.EndChar, CharacterCount: chunk.CharacterCount, OverlapChars: chunk.OverlapChars, Content: []byte(chunk.Text)})
-		} else {
-			err = errors.New("workflow-bound knowledge indexing is not supported by the configured index")
-		}
-		if err != nil {
-			problem(w, 502, err.Error())
+	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "INDEXED", CreatedAt: time.Now().UnixMilli()}
+	indexed, err := core.IndexKnowledgeDocument(r.Context(), s.engine.KB, doc, data)
+	if err != nil {
+		var contentErr core.KnowledgeContentError
+		if errors.As(err, &contentErr) {
+			problem(w, 422, err.Error())
 			return
 		}
+		problem(w, 502, err.Error())
+		return
 	}
-	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "INDEXED", Metadata: map[string]any{"size": len(data), "contentType": h.Header.Get("Content-Type"), "chunks": len(chunks), "characters": len([]rune(textContent)), "chunking": map[string]any{"strategy": "fixed-window-overlap", "size": 1200, "overlap": 200, "unit": "unicode-code-points", "offsetConvention": "start-inclusive,end-exclusive"}}, CreatedAt: time.Now().UnixMilli()}
+	doc.Metadata = map[string]any{"size": len(data), "contentType": h.Header.Get("Content-Type"), "chunks": indexed.Chunks, "characters": indexed.Characters, "chunking": map[string]any{"strategy": "fixed-window-overlap", "size": core.KnowledgeChunkSize, "overlap": core.KnowledgeChunkOverlap, "unit": "unicode-code-points", "offsetConvention": "start-inclusive,end-exclusive"}}
+	if embeddingModel := knowledgeEmbeddingModel(s); embeddingModel != "" {
+		doc.Metadata["embeddingModel"] = embeddingModel
+	}
 	if run := capacityRequestRunID(r); run != "" {
 		doc.Metadata["capacityRunId"] = run
 	}

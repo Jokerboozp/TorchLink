@@ -11,8 +11,9 @@ output_dir="offline-bundles"
 env_file=""
 include_video=1
 deepseek_model="deepseek-flash"
-ollama_embedding_model="nomic-embed-text"
-skip_ollama_model=0
+embedding_model="Qwen/Qwen3-Embedding-0.6B"
+skip_embedding_model=0
+include_private_llm=0
 skip_docker_runtime=0
 skip_bundle_archive=0
 docker_packages_dir=""
@@ -28,8 +29,9 @@ usage() {
   --env-file FILE        使用已有正式环境配置；不传则自动生成随机密钥
   --without-video        不打包摄像头直播媒体服务（默认打包固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）
   --deepseek-model MODEL DeepSeek API 模型，默认 deepseek-flash
-  --ollama-embedding-model MODEL  Weaviate 向量模型，默认 nomic-embed-text
-  --skip-ollama-model    跳过嵌入模型；仅用于目标机已有 nomic-embed-text
+  --embedding-model MODEL  知识库向量模型（HuggingFace 模型 ID），默认 Qwen/Qwen3-Embedding-0.6B
+  --skip-embedding-model 跳过向量模型；仅用于目标机的 embedding-models 卷已有同一模型
+  --with-private-llm     同时打包私有化对话模型 vLLM 镜像及 IOT_LLM_MODEL 模型权重（目标机需 NVIDIA GPU）
   --skip-docker-runtime 不携带 Docker 安装文件（目标机须已有 Docker 和 Compose）
   --skip-bundle-archive 只输出目录，不额外生成完整 .tar 和校验文件
   --target-os OS        generic（默认）或 openeuler-24.03-lts-sp4；后者自动准备容器策略及系统依赖
@@ -140,7 +142,6 @@ write_env() {
     local backup_token="$(random_hex 32)"
     local emqx_password="Emqx-$(random_hex 12)"
     local grafana_password="Grafana-$(random_hex 12)"
-    local ollama_url="http://ollama:11434"
     local ai_provider="deepseek"
     local weaviate_url="http://weaviate:8080"
     local harness_url="http://deepseek-harness:8091"
@@ -160,12 +161,10 @@ IOT_ADMIN_PASSWORD=$admin_password
 IOT_ADMIN_TENANTS=tenant_001
 IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$video_secret
 IOT_VIDEO_MEDIA_ALLOWED_HOSTS=
-IOT_OLLAMA_URL=$ollama_url
 IOT_AI_PROVIDER=$ai_provider
 IOT_AI_BASE_URL=https://api.deepseek.com
 IOT_AI_MODEL=$deepseek_model
 IOT_AI_API_KEY=
-IOT_AI_OLLAMA_URL=http://ollama:11434
 DEEPSEEK_API_KEY=
 IOT_AI_HARNESS_ENABLED=$harness_enabled
 IOT_AI_HARNESS_URL=$harness_url
@@ -240,6 +239,18 @@ EOF
   fi
   ensure_emqx_admin_env "$destination" "http://emqx:18083"
   configure_deepseek_env "$destination" "$deepseek_model"
+  # Images are saved for the packaging machine's architecture; the TEI tag follows it.
+  set_env_value "$destination" IOT_EMBEDDING_MODEL "$embedding_model"
+  configure_embedding_env "$destination"
+  # The target has no internet access: TEI loads the model restored from the bundle.
+  set_env_value "$destination" IOT_EMBEDDING_MODEL_SOURCE "/data/offline/${embedding_model#*/}"
+  set_env_value "$destination" HF_HUB_OFFLINE 1
+  if (( include_private_llm )); then
+    configure_private_llm_env "$destination" on >/dev/null
+    set_env_value "$destination" IOT_LLM_MODEL_SOURCE "/root/.cache/huggingface/offline/$(env_value IOT_LLM_MODEL "$destination" | sed 's#^.*/##')"
+  else
+    configure_private_llm_env "$destination" off >/dev/null
+  fi
   # Capacity-test module: on by default (same settings deploy writes, so a
   # rerun leaves the file unchanged); an explicit IOT_CAPACITY_MODULE=off is kept.
   if [[ "$(env_value IOT_CAPACITY_MODULE "$destination")" == off ]]; then
@@ -265,8 +276,10 @@ while [[ $# -gt 0 ]]; do
     --env-file) env_file="${2:-}"; shift 2 ;;
     --without-video) include_video=0; shift ;;
     --deepseek-model) deepseek_model="${2:-}"; shift 2 ;;
-    --ollama-embedding-model) ollama_embedding_model="${2:-}"; shift 2 ;;
-    --skip-ollama-model) skip_ollama_model=1; shift ;;
+    --embedding-model) embedding_model="${2:-}"; shift 2 ;;
+    --skip-embedding-model) skip_embedding_model=1; shift ;;
+    --with-private-llm) include_private_llm=1; shift ;;
+    --ollama-embedding-model|--skip-ollama-model) die "Ollama 已移除：知识库向量改用私有化 TEI 服务，请使用 --embedding-model / --skip-embedding-model" ;;
     --skip-docker-runtime) skip_docker_runtime=1; shift ;;
     --skip-bundle-archive) skip_bundle_archive=1; shift ;;
     --target-os) target_os="${2:?缺少目标系统}"; shift 2 ;;
@@ -276,7 +289,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$ollama_embedding_model" == nomic-embed-text ]] || die "当前知识库使用 nomic-embed-text，嵌入模型必须与其一致"
+[[ "$embedding_model" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "向量模型须为 HuggingFace 模型 ID，例如 Qwen/Qwen3-Embedding-0.6B"
 [[ "$deepseek_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]] || die "DeepSeek 模型名称无效"
 if (( ! skip_bundle_archive )); then
   command -v tar >/dev/null 2>&1 || die "生成完整离线包需要 tar；请安装，或使用 --skip-bundle-archive 只输出目录"
@@ -308,14 +321,14 @@ run_compose() {
   echo "> docker compose $*" >&2
   "${compose[@]}" "$@"
 }
-ollama_started=0
+model_services_started=0
 bundle_tar_partial=""
 bundle_hash_partial=""
 cleanup() {
   if [[ -n "$bundle_tar_partial" ]]; then rm -f -- "$bundle_tar_partial"; fi
   if [[ -n "$bundle_hash_partial" ]]; then rm -f -- "$bundle_hash_partial"; fi
-  if (( ollama_started )); then
-    "${compose[@]}" stop ollama >/dev/null 2>&1 || echo "打包用 Ollama 未能停止，请检查 iot-platform-offline-build 项目。" >&2
+  if (( model_services_started )); then
+    "${compose[@]}" stop embedding >/dev/null 2>&1 || echo "打包用向量服务未能停止，请检查 iot-platform-offline-build 项目。" >&2
   fi
 }
 trap cleanup EXIT
@@ -328,43 +341,64 @@ add_profile() {
 }
 add_profile harness
 (( include_video )) && add_profile video
+(( include_private_llm )) && add_profile llm
 
 run_compose "${compose_profile_args[@]}" config --quiet
 pull_services=(
   postgres postgres-wal-init redis redpanda redpanda-init
-  clickhouse emqx prometheus grafana loki ollama weaviate
+  clickhouse emqx prometheus grafana loki embedding weaviate
   ops-init alertmanager alloy node-exporter
 )
 run_compose pull "${pull_services[@]}"
 run_compose build --pull platform-api platform-web backup-service minio
 if (( include_video )); then run_compose --profile video build --pull zlmediakit; fi
+if (( include_private_llm )); then run_compose --profile llm pull vllm; fi
 
-ollama_archive=""
-ollama_volume_name=""
-if (( ! skip_ollama_model )); then
-  ollama_started=1
-  run_compose up -d --no-deps ollama
-  ollama_ready=0
-  for _ in $(seq 1 30); do
-    if "${compose[@]}" exec -T ollama ollama list >/dev/null 2>&1; then
-      ollama_ready=1
-      break
-    fi
-    sleep 2
-  done
-  (( ollama_ready )) || die "Ollama 容器未在规定时间内就绪"
-  run_compose exec -T ollama ollama pull "$ollama_embedding_model"
-  ollama_volume_name="iot-platform_ollama-data"
+# Model weights travel as volume archives: the target restores them into the
+# named volumes and the services load them from local directories.
+export_model_volume() {
+  local volume="$1" cache="$2" model="$3" archive="$4"
   run_docker run --rm --pull never \
-    --mount "type=volume,source=iot-platform-offline-build_ollama-data,target=/src,readonly" \
+    --mount "type=volume,source=$volume,target=/src,readonly" \
     --mount "type=bind,source=$bundle_root,target=/backup" \
     --mount "type=bind,source=$script_dir/lib,target=/helpers,readonly" \
-    alpine:3.22 sh /helpers/export-embedding-model.sh /src /backup/ollama-data.tgz
-  ollama_archive="ollama-data.tgz"
-  model_hash="$(sha256_file "$bundle_root/$ollama_archive")"
-  printf '%s  %s\n' "$model_hash" "$ollama_archive" > "$bundle_root/ollama-data.tgz.sha256"
+    alpine:3.22 sh /helpers/export-model-cache.sh "/src$cache" "$model" "/backup/$archive"
+  printf '%s  %s\n' "$(sha256_file "$bundle_root/$archive")" "$archive" > "$bundle_root/$archive.sha256"
+}
+embedding_archive=""
+if (( ! skip_embedding_model )); then
+  model_services_started=1
+  # Starting TEI downloads the weights into the build volume and proves they
+  # load; the bundle's own settings (offline, local directory) apply on the target.
+  echo "> docker compose up -d --no-deps embedding（下载 $embedding_model）" >&2
+  HF_HUB_OFFLINE=0 IOT_EMBEDDING_MODEL_SOURCE="$embedding_model" "${compose[@]}" up -d --no-deps embedding
+  embedding_ready=0
+  for _ in $(seq 1 180); do
+    if "${compose[@]}" exec -T embedding curl -fsS -o /dev/null http://127.0.0.1:80/health >/dev/null 2>&1; then
+      embedding_ready=1
+      break
+    fi
+    sleep 5
+  done
+  (( embedding_ready )) || die "向量服务未在规定时间内下载并加载模型 $embedding_model；可设置 HF_ENDPOINT 使用镜像站后重试"
+  "${compose[@]}" stop embedding >/dev/null
+  embedding_archive="embedding-models.tgz"
+  export_model_volume iot-platform-offline-build_embedding-models "" "$embedding_model" "$embedding_archive"
 else
-  echo "已跳过模型打包：目标机必须预先具有 nomic-embed-text；否则知识库不可用。" >&2
+  echo "已跳过向量模型打包：目标机 embedding-models 卷必须预先具有 offline/${embedding_model#*/}；否则知识库不可用。" >&2
+fi
+llm_archive=""
+if (( include_private_llm )); then
+  llm_model="$(env_value IOT_LLM_MODEL "$bundle_root/.env.offline")"
+  llm_image="$(env_value IOT_LLM_IMAGE "$bundle_root/.env.offline")"
+  llm_image="${llm_image:-vllm/vllm-openai:v0.29.0}"
+  # Download with the vLLM image's own huggingface_hub; plain docker run needs no GPU.
+  run_docker run --rm --pull never --entrypoint python3 \
+    -e HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}" \
+    --mount "type=volume,source=iot-platform-offline-build_llm-models,target=/root/.cache/huggingface" \
+    "$llm_image" -c "import sys; from huggingface_hub import snapshot_download; snapshot_download(sys.argv[1])" "$llm_model"
+  llm_archive="llm-models.tgz"
+  export_model_volume iot-platform-offline-build_llm-models /hub "$llm_model" "$llm_archive"
 fi
 
 command -v git >/dev/null 2>&1 || die "打包 Harness 需要 Git"
@@ -374,7 +408,7 @@ run_compose --profile harness build --pull deepseek-harness
 mkdir -p "$bundle_root/scripts"
 mkdir -p "$bundle_root/scripts/lib"
 cp "$script_dir/lib/docker-bootstrap.sh" "$bundle_root/scripts/lib/"
-cp "$script_dir/lib/restore-ollama-models.sh" "$bundle_root/scripts/lib/"
+cp "$script_dir/lib/restore-volume-archive.sh" "$bundle_root/scripts/lib/"
 if (( ! skip_docker_runtime )); then
   runtime_arch="$(docker info --format '{{.Architecture}}')"
   prepare_docker_runtime "$bundle_root/docker-runtime" "$runtime_arch"
@@ -405,9 +439,6 @@ done
 for script_name in video-module.sh video-module.ps1 capacity-module.sh capacity-module.ps1 deploy-offline.ps1 deploy-offline.sh; do
   cp "$script_dir/$script_name" "$bundle_root/scripts/"
 done
-if [[ -n "$ollama_volume_name" ]]; then
-  printf '%s\n' "$ollama_volume_name" > "$bundle_root/ollama-volume.txt"
-fi
 
 all_images_text="$("${compose[@]}" "${compose_profile_args[@]}" config --images | awk 'NF && !seen[$0]++' | sort -u)"
 images=()
@@ -438,12 +469,8 @@ json_array() {
 commit="$(cd "$project_root" && git rev-parse HEAD 2>/dev/null || printf 'unknown')"
 profiles_json="$(json_array "${profiles[@]}")"
 images_json="$(json_array "${images[@]}")"
-ollama_archive_json="null"
-ollama_volume_json="null"
-if [[ -n "$ollama_archive" ]]; then
-  ollama_archive_json="\"$ollama_archive\""
-  ollama_volume_json="\"$ollama_volume_name\""
-fi
+json_or_null() { if [[ -n "$1" ]]; then printf '"%s"' "$1"; else printf 'null'; fi; }
+bundle_arch="$(docker info --format '{{.Architecture}}')"
 cat > "$bundle_root/manifest.json" <<EOF
 {
   "format": 1,
@@ -460,10 +487,14 @@ cat > "$bundle_root/manifest.json" <<EOF
   "aiProvider": "deepseek",
   "aiModel": "$deepseek_model",
   "aiRequiresInternet": true,
-  "ollamaModel": null,
-  "ollamaEmbeddingModel": $(if [[ -n "$ollama_archive" ]]; then printf '"%s"' "$ollama_embedding_model"; else printf 'null'; fi),
-  "ollamaArchive": $ollama_archive_json,
-  "ollamaVolume": $ollama_volume_json,
+  "arch": "$bundle_arch",
+  "embeddingModel": "$embedding_model",
+  "embeddingImage": "$(env_value IOT_EMBEDDING_IMAGE "$bundle_root/.env.offline")",
+  "embeddingArchive": $(json_or_null "$embedding_archive"),
+  "embeddingVolume": $(json_or_null "${embedding_archive:+iot-platform_embedding-models}"),
+  "privateLlmModel": $(json_or_null "${llm_archive:+$(env_value IOT_LLM_MODEL "$bundle_root/.env.offline")}"),
+  "privateLlmArchive": $(json_or_null "$llm_archive"),
+  "privateLlmVolume": $(json_or_null "${llm_archive:+iot-platform_llm-models}"),
   "generatedCredentials": $([[ "$generated_credentials" = 1 ]] && echo true || echo false)
 }
 EOF

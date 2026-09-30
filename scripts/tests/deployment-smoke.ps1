@@ -30,10 +30,11 @@ function global:docker {
         $global:LASTEXITCODE = 43
     } elseif ($callArgs[0] -eq 'save') {
         [IO.File]::WriteAllText($callArgs[2], 'mock image archive')
-    } elseif ($callArgs[0] -eq 'run' -and ($callArgs -contains '/helpers/export-embedding-model.sh')) {
+    } elseif ($callArgs[0] -eq 'run' -and ($callArgs -contains '/helpers/export-model-cache.sh')) {
         $mount = @($callArgs | Where-Object { $_ -like 'type=bind,*target=/backup' })[0]
         $destination = $mount -replace '^type=bind,source=', '' -replace ',target=/backup$', ''
-        [IO.File]::WriteAllText((Join-Path $destination 'ollama-data.tgz'), 'mock model archive')
+        $archive = (@($callArgs | Where-Object { $_ -like '/backup/*' })[0]) -replace '^/backup/', ''
+        [IO.File]::WriteAllText((Join-Path $destination $archive), 'mock model archive')
     }
 }
 function global:Invoke-WebRequest {
@@ -79,7 +80,11 @@ try {
     Assert (-not (Contains-Call ' up .*backup-service')) 'Local setup unexpectedly started backup-service'
     Assert (Contains-Call 'go mod download') 'Local setup omitted Go dependencies'
     Assert (Contains-Call 'npm ci') 'Local setup omitted npm dependencies'
-    Assert (Contains-Call 'exec -T ollama ollama pull nomic-embed-text') 'Embedding model omitted'
+    Assert (Contains-Call 'compose.local.yaml up -d --build --wait --wait-timeout 900') 'Local setup does not wait for the embedding model download'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_URL') -eq 'http://127.0.0.1:18091/v1') 'Local embedding service URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_IMAGE') -eq 'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9') 'Embedding image does not follow the Docker architecture'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_API_KEY') -match '^[0-9a-f]{64}$') 'Embedding API key was not generated'
+    Assert (-not (Contains-Call 'ollama')) 'Local setup still uses Ollama'
     $localModel = & $global:IotTest_composeParser --project-name iot-platform-local --env-file $localEnv -f (Join-Path $scripts '../compose.local.yaml') config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Local Compose model failed'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
@@ -150,7 +155,7 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_BASE_URL') -eq 'https://api.deepseek.com') 'DeepSeek base URL was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'IOT_AI_MODEL') -eq 'deepseek-flash') 'DeepSeek model was not configured'
     Assert ((Get-DeploymentEnvValue -Path $deepSeekEnv -Key 'DEEPSEEK_API_KEY') -eq 'smoke-test-key') 'DeepSeek key was not copied for Harness'
-    Assert (-not (Contains-Call 'ollama pull qwen3:1.7b')) 'DeepSeek setup attempted an Ollama chat model download'
+    Assert (-not (Contains-Call 'ollama|vllm')) 'DeepSeek setup attempted a local chat model download'
     Write-Host 'PASS local deepseek: provider enabled without local chat model download'
 
     $onlineEnv = Join-Path $testRoot '.env.online'
@@ -165,7 +170,10 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Online default admin password is incorrect'
     Assert-CommentedEnv $onlineEnv
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service deepseek-harness') 'Online omitted the default Harness image build'
-    Assert (-not (Contains-Call 'ollama pull qwen')) 'Deployment attempted a Qwen model download'
+    Assert (-not (Contains-Call 'ollama')) 'Online deployment still uses Ollama'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'http://embedding:80/v1') 'Online embedding service URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_PRIVATE_LLM') -eq 'off') 'Private LLM must be off by default'
+    Assert (Contains-Call '--profile llm rm -sf vllm') 'Online did not remove an opted-out private LLM'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
     Assert ((Get-FileHash $onlineEnv).Hash -eq $onlineHash) 'Online rerun changed configuration'
@@ -180,7 +188,9 @@ try {
     $optionalModel = & $global:IotTest_composeParser --env-file $onlineEnv -f (Join-Path $scripts '../compose.yaml') --profile '*' config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Optional Compose profiles failed to resolve'
     Assert ($optionalModel.services.'platform-api'.environment.IOT_AI_BASE_URL -eq 'https://api.deepseek.com') 'DeepSeek Provider misconfigured'
-    Assert ($optionalModel.services.'deepseek-harness'.environment.DEEPSEEK_BASE_URL -eq 'https://api.deepseek.com') 'Harness inherited the unrelated Ollama Provider URL'
+    Assert ($optionalModel.services.'deepseek-harness'.environment.DEEPSEEK_BASE_URL -eq 'https://api.deepseek.com') 'Harness inherited an unrelated Provider URL'
+    Assert ($optionalModel.services.vllm.image -eq 'vllm/vllm-openai:v0.29.0') 'Private LLM profile is missing'
+    Assert ($optionalModel.services.weaviate.environment.DEFAULT_VECTORIZER_MODULE -eq 'none') 'Weaviate still vectorizes through a module'
     $global:IotTest_failBuild = $true
     $global:IotTest_calls.Clear()
     $rejected = $false
@@ -220,20 +230,24 @@ try {
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
-    Assert ($manifest.images -contains 'ollama/ollama:0.11.4') 'Default bundle omitted Ollama'
+    Assert ($manifest.images -contains 'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9') 'Default bundle omitted the embedding service'
+    Assert (@($manifest.images | Where-Object { $_ -match 'ollama' }).Count -eq 0) 'Default bundle still packages Ollama'
     Assert ($manifest.images -contains 'cr.weaviate.io/semitechnologies/weaviate:1.32.8') 'Default bundle omitted Weaviate'
     Assert ($manifest.images -contains 'iot-platform-backup:offline') 'Default bundle omitted backup image'
     Assert ($manifest.images -contains 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z') 'Default bundle omitted the locally built MinIO image'
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio') 'Offline packaging omitted the MinIO build'
-    Assert ($manifest.ollamaEmbeddingModel -eq 'nomic-embed-text') 'Default bundle omitted embedding model'
-    Assert ($null -eq $manifest.ollamaModel -and $manifest.aiProvider -eq 'deepseek' -and $manifest.aiRequiresInternet) 'Bundle still includes a chat model or omits DeepSeek metadata'
+    Assert ($manifest.embeddingModel -eq 'Qwen/Qwen3-Embedding-0.6B' -and $manifest.embeddingArchive -eq 'embedding-models.tgz') 'Default bundle omitted embedding model'
+    Assert ($manifest.arch -eq 'x86_64') 'Bundle does not record its CPU architecture'
+    Assert ($null -eq $manifest.privateLlmArchive -and $manifest.aiProvider -eq 'deepseek' -and $manifest.aiRequiresInternet) 'Bundle includes a chat model by default or omits DeepSeek metadata'
+    Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'HF_HUB_OFFLINE') -eq '1') 'Offline bundle may download models'
+    Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_EMBEDDING_MODEL_SOURCE') -eq '/data/offline/Qwen3-Embedding-0.6B') 'Offline embedding model directory is missing'
     Assert ($manifest.profiles -contains 'harness') 'Default bundle omitted Harness'
-    Assert (Test-Path (Join-Path $bundle 'ollama-data.tgz.sha256')) 'Model checksum omitted'
+    Assert (Test-Path (Join-Path $bundle 'embedding-models.tgz.sha256')) 'Model checksum omitted'
     foreach ($file in @('docker-24.0.9.tgz', 'docker-28.5.2.tgz', 'docker-compose', 'docker-buildx')) {
         Assert (Test-Path (Join-Path $bundle "docker-runtime/$file.sha256")) "Docker runtime checksum omitted: $file"
     }
     Assert (Test-Path (Join-Path $bundle 'scripts/lib/docker-bootstrap.sh')) 'Docker bootstrap helper omitted'
-    Assert (Test-Path (Join-Path $bundle 'scripts/lib/restore-ollama-models.sh')) 'Ollama restore helper omitted'
+    Assert (Test-Path (Join-Path $bundle 'scripts/lib/restore-volume-archive.sh')) 'Model restore helper omitted'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_PROVIDER') -eq 'deepseek') 'Offline default AI provider is not DeepSeek'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_MODEL') -eq 'deepseek-flash') 'Offline DeepSeek model is missing'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'deepseek-official') 'Offline Harness does not use DeepSeek'
@@ -244,6 +258,8 @@ try {
     Assert ((Get-FileHash (Join-Path $bundle '.env.offline')).Hash -eq $bundleHash) 'Offline deploy rewrote credentials'
     Assert (Contains-Call 'up -d --no-build --pull never') 'Offline up may build or pull'
     Assert (Contains-Call '^run --rm --pull never') 'Model restore may pull images'
+    Assert (Contains-Call 'restore-volume-archive.sh /backup/embedding-models.tgz /dst') 'Embedding model was not restored'
+    Assert (Contains-Call 'up -d --no-build --pull never --wait --wait-timeout 900') 'Offline start does not allow for model warm-up'
     Assert (-not (Contains-Call ' (build|pull) (?!never)')) 'Offline operation attempted a network build/pull'
     $global:IotTest_missingImage = $true
     $global:IotTest_calls.Clear()
@@ -262,7 +278,7 @@ try {
     Set-DeploymentEnvValue -Path $onlineEnv -Key IOT_VIDEO_MODULE -Value 'off'
     $global:IotTest_calls.Clear()
     & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'existing-config') -EnvFile $onlineEnv
-    Assert (-not (Contains-Call 'ollama pull qwen')) 'Deployment attempted a Qwen model download'
+    Assert (-not (Contains-Call 'ollama')) 'Packaging still uses Ollama'
     $disabledBundle = @(Get-ChildItem (Join-Path $testRoot 'existing-config') -Directory)[0].FullName
     $disabledEnv = Get-Content (Join-Path $disabledBundle '.env.offline')
     Assert ($disabledEnv -contains 'IOT_VIDEO_MODULE=off') 'Packaging lost the source video opt-out'
@@ -270,7 +286,7 @@ try {
     $disabledManifest = Get-Content (Join-Path $disabledBundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($disabledManifest.images -contains 'iot-zlmediakit:offline') 'Source opt-out should retain the video image for later enablement'
 
-    & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'without-video') -WithoutVideo -SkipDockerRuntime -SkipOllamaModel -SkipBundleArchive
+    & (Join-Path $scripts 'package-offline.ps1') -OutputDir (Join-Path $testRoot 'without-video') -WithoutVideo -SkipDockerRuntime -SkipEmbeddingModel -SkipBundleArchive
     $noVideoBundle = @(Get-ChildItem (Join-Path $testRoot 'without-video') -Directory)[0].FullName
     $noVideoEnv = Get-Content (Join-Path $noVideoBundle '.env.offline')
     Assert ($noVideoEnv -contains 'IOT_VIDEO_MODULE=off') 'WithoutVideo did not disable the module'
@@ -285,7 +301,7 @@ try {
     try {
         $failedTarRoot = Join-Path $testRoot 'failed-tar'
         $rejected = $false
-        try { & (Join-Path $scripts 'package-offline.ps1') -OutputDir $failedTarRoot -SkipOllamaModel -SkipDockerRuntime } catch { $rejected = $true }
+        try { & (Join-Path $scripts 'package-offline.ps1') -OutputDir $failedTarRoot -SkipEmbeddingModel -SkipDockerRuntime } catch { $rejected = $true }
         Assert $rejected 'Archive failure ignored'
         Assert (@(Get-ChildItem -LiteralPath $failedTarRoot -File).Count -eq 0) 'Failed tar published an archive or left partial artifacts'
         $failedBundle = @(Get-ChildItem -LiteralPath $failedTarRoot -Directory)[0].FullName

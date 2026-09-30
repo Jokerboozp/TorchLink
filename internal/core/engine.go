@@ -41,6 +41,7 @@ type Engine struct {
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
 	HarnessTokens             ports.HarnessTokenIssuer
 	KB                        ports.KnowledgeBase
+	KnowledgeReindex          *KnowledgeReindexer
 	Parsers                   *parser.Registry
 	Clock                     ports.Clock
 	Log                       *slog.Logger

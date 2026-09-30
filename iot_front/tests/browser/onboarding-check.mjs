@@ -132,8 +132,8 @@ try {
   await openPage('模型管理')
   await until(() => evaluate("Boolean(document.querySelector('.provider-select .n-base-selection'))"), '模型来源')
   await evaluate("document.querySelector('.provider-select .n-base-selection').click()")
-  await until(() => evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).length>=3"), '模型来源选项')
-  assert.deepEqual(new Set(await evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")), new Set(['Ollama', 'DeepSeek', 'OpenAI 兼容 API']))
+  await until(() => evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).length>=2"), '模型来源选项')
+  assert.deepEqual(new Set(await evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")), new Set(['DeepSeek', 'OpenAI 兼容 / 私有化部署']))
 
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`)
   console.log('PASS: template and device created in the UI, device HTTP credential rejection, parsing and deduplication, wizard verification, connection drawer and narrow layout, access point selection and sessions, camera metadata, provider names')

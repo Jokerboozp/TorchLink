@@ -104,7 +104,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	login := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/auth/login", "", map[string]any{"username": "admin", "password": "admin123", "tenantId": "tenant_001"}, 200)
 	token := login["accessToken"].(string)
 	providers := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/providers", token, nil, 200)
-	if providers["mode"] != "plugin-harness" || len(providers["items"].([]any)) < 4 {
+	if providers["mode"] != "plugin-harness" || len(providers["items"].([]any)) != 3 {
 		t.Fatalf("unexpected AI provider registry %#v", providers)
 	}
 	viewerToken, err := api.auth.Issue("viewer", "tenant_001", "viewer", nil, time.Hour)
@@ -125,19 +125,19 @@ func TestHTTPWorkflow(t *testing.T) {
 	if providerTest["success"] != true || providerTest["answer"] != "AI 插件测试成功" || !strings.HasPrefix(providerTest["traceId"].(string), "ai_trace_") {
 		t.Fatalf("unexpected AI provider test %#v", providerTest)
 	}
-	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/chat" {
-			http.NotFound(w, r)
+	privateServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "" {
+			http.Error(w, "unexpected private model request", http.StatusBadRequest)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"message": map[string]any{"content": "Ollama 沙箱地址生效"}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "私有化模型连接成功"}}}})
 	}))
-	defer ollamaServer.Close()
-	api.cfg.AITestOllamaURL = ollamaServer.URL
-	ollamaTest := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "ollama", "model": "test-model", "question": "连接测试"}, 200)
-	if ollamaTest["success"] != true || ollamaTest["answer"] != "Ollama 沙箱地址生效" {
-		t.Fatalf("unexpected Ollama provider test %#v", ollamaTest)
+	defer privateServer.Close()
+	privateTest := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "openai-compatible", "baseUrl": privateServer.URL + "/v1", "model": "Qwen/Qwen3-8B", "question": "连接测试"}, 200)
+	if privateTest["success"] != true || privateTest["answer"] != "私有化模型连接成功" {
+		t.Fatalf("keyless private vLLM provider test failed %#v", privateTest)
 	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "ollama", "baseUrl": "http://localhost:11434", "model": "qwen3:1.7b"}, http.StatusUnprocessableEntity)
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/integrations/video/cameras", token, map[string]any{"cameraId": "camera_metadata", "cameraName": "园区入口", "brand": "海康", "cameraPoint": "东门", "building": "A", "floor": "1", "room": "大厅", "enabled": true}, 201)
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/integrations/video/cameras/camera_metadata/preview", token, map[string]any{}, http.StatusNotFound)
 	viewerCameras := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/integrations/video/cameras", viewerToken, nil, 200)

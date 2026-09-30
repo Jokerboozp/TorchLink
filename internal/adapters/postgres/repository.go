@@ -1449,7 +1449,35 @@ func (r *Repository) SaveKnowledgeDoc(ctx context.Context, v model.KnowledgeDoc)
 	return err
 }
 func (r *Repository) ListKnowledgeDocs(ctx context.Context, tenant string) ([]model.KnowledgeDoc, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id,tenant_id,coalesce(workflow_id,''),coalesce(product_id,''),coalesce(category,''),coalesce(tags,'{}'),object_bucket,object_key,filename,status,metadata,(extract(epoch from created_at)*1000)::bigint FROM ai_knowledge_doc WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC`, tenant)
+	return r.queryKnowledgeDocs(ctx, `SELECT id,tenant_id,coalesce(workflow_id,''),coalesce(product_id,''),coalesce(category,''),coalesce(tags,'{}'),object_bucket,object_key,filename,status,metadata,(extract(epoch from created_at)*1000)::bigint FROM ai_knowledge_doc WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC`, tenant)
+}
+
+// ListAllKnowledgeDocs is used only by the knowledge index rebuild, which
+// re-embeds every tenant's documents after the embedding model changes.
+func (r *Repository) ListAllKnowledgeDocs(ctx context.Context) ([]model.KnowledgeDoc, error) {
+	return r.queryKnowledgeDocs(ctx, `SELECT id,tenant_id,coalesce(workflow_id,''),coalesce(product_id,''),coalesce(category,''),coalesce(tags,'{}'),object_bucket,object_key,filename,status,metadata,(extract(epoch from created_at)*1000)::bigint FROM ai_knowledge_doc ORDER BY created_at,id`)
+}
+
+// TryKnowledgeReindexLock holds a session advisory lock so only one API
+// replica rebuilds the shared knowledge index.
+func (r *Repository) TryKnowledgeReindexLock(ctx context.Context) (func(), bool, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	var locked bool
+	if err = conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(728194603)`).Scan(&locked); err != nil || !locked {
+		conn.Release()
+		return nil, false, err
+	}
+	return func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(728194603)`)
+		conn.Release()
+	}, true, nil
+}
+
+func (r *Repository) queryKnowledgeDocs(ctx context.Context, query string, args ...any) ([]model.KnowledgeDoc, error) {
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

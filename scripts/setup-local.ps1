@@ -67,8 +67,7 @@ $defaults = [ordered]@{
     IOT_KAFKA_BROKERS = '127.0.0.1:19092'
     IOT_MQTT_BROKER = 'tcp://127.0.0.1:1883'
     IOT_MQTT_WEBSOCKET_PUBLIC_URL = 'ws://127.0.0.1:8083/mqtt'
-    IOT_OLLAMA_URL = 'http://127.0.0.1:11434'
-    IOT_AI_OLLAMA_URL = 'http://127.0.0.1:11434'
+    IOT_EMBEDDING_URL = 'http://127.0.0.1:18091/v1'
     IOT_AI_PROVIDER = 'deepseek'
     IOT_AI_BASE_URL = 'https://api.deepseek.com'
     IOT_AI_MODEL = $DeepSeekModel
@@ -88,6 +87,7 @@ Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace
 Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
 Set-LocalEnvValue 'IOT_LOCAL_BACKUP_METRICS_TARGET' $(if ($IncludeBackup) { 'backup-service:8090' } else { 'host.docker.internal:8092' }) -Replace
 Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
+Set-EmbeddingDeploymentEnv -Path $EnvFile -Url 'http://127.0.0.1:18091/v1'
 
 # The controller follows the source API lifecycle, using its local addresses.
 if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'off' } else { 'on' } }
@@ -149,9 +149,8 @@ try {
         Invoke-DockerChecked -Arguments ($backupCompose + @('stop', 'backup-service'))
     }
     Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
-    Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--build', '--wait', '--wait-timeout', '300'))
-    Wait-DeploymentHttp -Url 'http://127.0.0.1:11434/api/tags' -TimeoutSeconds 180
-    Invoke-DockerChecked -Arguments ($compose + @('exec', '-T', 'ollama', 'ollama', 'pull', 'nomic-embed-text'))
+    # The first start downloads the knowledge embedding model (about 1.2 GB).
+    Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--build', '--wait', '--wait-timeout', '900'))
     if ($IncludeBackup) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/ready' -TimeoutSeconds 180 }
     Wait-DeploymentHttp -Url 'http://127.0.0.1:8091/health' -TimeoutSeconds 180
     if ($IncludeOps) {

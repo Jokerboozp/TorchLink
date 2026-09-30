@@ -67,7 +67,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 本地容量测试默认随源码 API 启停，在“运维中心 → 容量测试”打开；旧 `.env.local` 需按 [本地容量配置](docs/DEVELOPMENT.md#容量测试模块) 补充开关后重启，不必重新部署基础依赖。
 
-登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。离线包只携带知识库嵌入模型，AI 使用仍需联网，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
+登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。离线包携带知识库私有化向量模型，对话 AI 默认仍需联网；需要完全内网时可部署私有化对话模型（vLLM），见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
 
 | 环境 | 配置与操作入口 |
 | --- | --- |
@@ -98,7 +98,7 @@ go run ./cmd/backup-service --env-file .env.local
                                                    管理端 / AI 工作流
 ```
 
-PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存备份制品，DeepSeek API 提供对话与推理，Ollama 仅提供知识库嵌入，Weaviate 与 Harness 提供检索与工作流。
+PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存备份制品，DeepSeek API 默认提供对话与推理（可选私有化 vLLM），私有化 TEI 服务计算知识库向量，Weaviate 与 Harness 提供检索与工作流。
 
 默认 `combined` 进程可拆分为 `api`、`gateway`、`parser`、`processor`、`jobs`，按角色分配资源；集群工具校验故障域、端口和连接预算，生成各节点配置并部署。默认 Compose 为单节点，集群示例也有单实例组件，具体见 [进程职责](docs/DEPLOYMENT.md#进程职责) 与 [高可用边界](docs/DEPLOYMENT.md#高可用边界)。工具可用不代表目标集群已经通过容量或故障切换验收。
 

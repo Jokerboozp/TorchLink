@@ -263,9 +263,8 @@ func TestDefaultDeepSeekDoesNotRequireKeyAtConfigLoad(t *testing.T) {
 	t.Setenv("IOT_AI_PROVIDER", "")
 	t.Setenv("IOT_AI_API_KEY", "")
 	t.Setenv("DEEPSEEK_API_KEY", "")
-	t.Setenv("IOT_OLLAMA_MODEL", "")
 	cfg := Load()
-	if cfg.AIProvider != "deepseek" || cfg.AIAPIKey != "" || cfg.OllamaModel != "" {
+	if cfg.AIProvider != "deepseek" || cfg.AIAPIKey != "" {
 		t.Fatal("first installation must select DeepSeek without a bundled chat model or key")
 	}
 }
@@ -352,5 +351,36 @@ func TestLoadEnvFileRejectsInvalidInputWithoutLeakingValues(t *testing.T) {
 func TestLoadEnvFileRequiresExistingFile(t *testing.T) {
 	if err := LoadEnvFile(filepath.Join(t.TempDir(), "missing.env")); err == nil {
 		t.Fatal("missing file accepted")
+	}
+}
+
+func TestEmbeddingConfiguration(t *testing.T) {
+	t.Setenv("IOT_EMBEDDING_URL", "http://embedding:80/v1/")
+	t.Setenv("IOT_EMBEDDING_MODEL", "")
+	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", "")
+	cfg := Load()
+	if cfg.EmbeddingURL != "http://embedding:80/v1" || cfg.EmbeddingModel != "Qwen/Qwen3-Embedding-0.6B" || cfg.EmbeddingQueryPrompt != DefaultEmbeddingQueryInstruction {
+		t.Fatalf("unexpected embedding defaults: %+v", cfg)
+	}
+	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", "none")
+	if Load().EmbeddingQueryPrompt != "" {
+		t.Fatal("none must disable the query instruction")
+	}
+	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", `Instruct: x\nQuery: `)
+	if Load().EmbeddingQueryPrompt != "Instruct: x\nQuery: " {
+		t.Fatal("escaped newline must be expanded")
+	}
+
+	management := Config{DevMode: true, AIHarnessURL: "http://harness:8091", WeaviateURL: "http://weaviate:8080"}
+	if err := management.Validate(); err == nil || !strings.Contains(err.Error(), "IOT_EMBEDDING_URL") {
+		t.Fatalf("persistent knowledge index without embedding service must be rejected, got %v", err)
+	}
+	management.EmbeddingURL = "http://user:pw@embedding/v1"
+	if err := management.Validate(); err == nil {
+		t.Fatal("embedding URL with credentials must be rejected")
+	}
+	management.EmbeddingURL = "http://embedding:80/v1"
+	if err := management.Validate(); err != nil {
+		t.Fatalf("valid embedding configuration rejected: %v", err)
 	}
 }

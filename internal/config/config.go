@@ -93,8 +93,6 @@ type Config struct {
 	MQTTWebSocketURL         string
 	MQTTPublicURL            string
 	DeviceHTTPPublicURL      string
-	OllamaURL                string
-	OllamaModel              string
 	AIProvider               string
 	AIBaseURL                string
 	AIModel                  string
@@ -104,8 +102,12 @@ type Config struct {
 	AIHarnessMCPURL          string
 	AIHarnessModel           string
 	AIHarnessTimeout         time.Duration
-	AITestOllamaURL          string
 	WeaviateURL              string
+	EmbeddingURL             string
+	EmbeddingModel           string
+	EmbeddingAPIKey          string
+	EmbeddingQueryPrompt     string
+	EmbeddingTimeout         time.Duration
 	BackupURL                string
 	BackupToken              string
 	VideoSecrets             map[string]string
@@ -183,8 +185,6 @@ func Load() Config {
 		MQTTWebSocketURL:            os.Getenv("IOT_MQTT_WEBSOCKET_PUBLIC_URL"),
 		MQTTPublicURL:               os.Getenv("IOT_DEVICE_MQTT_PUBLIC_URL"),
 		DeviceHTTPPublicURL:         os.Getenv("IOT_DEVICE_HTTP_PUBLIC_URL"),
-		OllamaURL:                   get("IOT_OLLAMA_URL", "http://localhost:11434"),
-		OllamaModel:                 strings.TrimSpace(os.Getenv("IOT_OLLAMA_MODEL")),
 		AIProvider:                  aiProvider,
 		AIBaseURL:                   strings.TrimRight(os.Getenv("IOT_AI_BASE_URL"), "/"),
 		AIModel:                     strings.TrimSpace(os.Getenv("IOT_AI_MODEL")),
@@ -194,8 +194,12 @@ func Load() Config {
 		AIHarnessMCPURL:             strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MCP_URL")),
 		AIHarnessModel:              strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MODEL")),
 		AIHarnessTimeout:            duration("IOT_AI_HARNESS_TIMEOUT", 90*time.Second),
-		AITestOllamaURL:             get("IOT_AI_OLLAMA_URL", get("IOT_OLLAMA_URL", "http://localhost:11434")),
 		WeaviateURL:                 os.Getenv("IOT_WEAVIATE_URL"),
+		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_EMBEDDING_URL")), "/"),
+		EmbeddingModel:              get("IOT_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"),
+		EmbeddingAPIKey:             strings.TrimSpace(os.Getenv("IOT_EMBEDDING_API_KEY")),
+		EmbeddingQueryPrompt:        embeddingQueryPrompt(),
+		EmbeddingTimeout:            duration("IOT_EMBEDDING_TIMEOUT", time.Minute),
 		BackupURL:                   strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_BACKUP_URL")), "/"),
 		BackupToken:                 strings.TrimSpace(os.Getenv("IOT_BACKUP_ADMIN_TOKEN")),
 		VideoSecrets:                parsePairs(os.Getenv("IOT_VIDEO_PLATFORM_SECRETS")),
@@ -251,6 +255,16 @@ func (c Config) Validate() error {
 			}
 		}
 	}
+	// The persistent knowledge index stores vectors computed by the private
+	// embedding service; without it the index could not be written or queried.
+	if c.Runs(ComponentManagement) && strings.TrimSpace(c.WeaviateURL) != "" {
+		if c.EmbeddingURL == "" {
+			return fmt.Errorf("IOT_EMBEDDING_URL is required when IOT_WEAVIATE_URL is set: the knowledge index uses the private embedding service")
+		}
+		if u, err := url.Parse(c.EmbeddingURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" {
+			return fmt.Errorf("IOT_EMBEDDING_URL must be an HTTP(S) URL without credentials or query, for example http://embedding:80/v1")
+		}
+	}
 	if c.NodeURL != "" && c.PostgresDSN == "" {
 		return fmt.Errorf("IOT_NODE_URL (live video control election) requires shared PostgreSQL")
 	}
@@ -299,6 +313,24 @@ func insecurePlaceholder(value string) bool {
 		}
 	}
 	return false
+}
+
+// DefaultEmbeddingQueryInstruction follows the Qwen3-Embedding retrieval
+// format; documents are embedded without an instruction.
+const DefaultEmbeddingQueryInstruction = "Instruct: Given a question about fire protection devices or operations, retrieve relevant passages that answer the question\nQuery: "
+
+// embeddingQueryPrompt reads IOT_EMBEDDING_QUERY_INSTRUCTION. Empty keeps the
+// default, "none" disables the prefix for models that do not use one, and a
+// literal \n is accepted so the value fits on one env-file line.
+func embeddingQueryPrompt() string {
+	value := os.Getenv("IOT_EMBEDDING_QUERY_INSTRUCTION")
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return DefaultEmbeddingQueryInstruction
+	case "none":
+		return ""
+	}
+	return strings.ReplaceAll(value, `\n`, "\n")
 }
 
 func get(name, fallback string) string {

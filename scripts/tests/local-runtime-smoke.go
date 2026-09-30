@@ -8,7 +8,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -23,8 +22,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
+	"iot-platform/internal/adapters/embedding"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
+	"iot-platform/internal/ports"
 )
 
 func main() {
@@ -156,18 +157,16 @@ func run() error {
 			}
 			return err
 		}},
-		{"Ollama embedding inference", func(ctx context.Context) error {
-			data, err := request(ctx, "POST", strings.TrimRight(cfg.OllamaURL, "/")+"/api/embeddings", `{"model":"nomic-embed-text","prompt":"消防设备连接验证"}`)
+		{"Private embedding service inference", func(ctx context.Context) error {
+			client, err := embedding.NewOpenAI(embedding.Config{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, QueryInstruction: cfg.EmbeddingQueryPrompt, Timeout: cfg.EmbeddingTimeout})
 			if err != nil {
 				return err
 			}
-			var result struct {
-				Embedding []float64 `json:"embedding"`
-			}
-			if err = json.Unmarshal(data, &result); err != nil {
+			vectors, err := client.Embed(ctx, []string{"消防设备连接验证"}, ports.EmbedDocument)
+			if err != nil {
 				return err
 			}
-			if len(result.Embedding) == 0 {
+			if len(vectors) != 1 || len(vectors[0]) == 0 {
 				return fmt.Errorf("empty embedding")
 			}
 			return nil

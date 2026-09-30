@@ -17,6 +17,7 @@ import (
 
 	aiadapter "iot-platform/internal/adapters/ai"
 	clickhouseadapter "iot-platform/internal/adapters/clickhouse"
+	"iot-platform/internal/adapters/embedding"
 	kafkaadapter "iot-platform/internal/adapters/kafka"
 	"iot-platform/internal/adapters/knowledge"
 	"iot-platform/internal/adapters/local"
@@ -71,6 +72,7 @@ func Run(forcedRole string) {
 	var repo ports.Repository = memory.NewRepository()
 	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
 	videoStore, _ := repo.(ports.VideoStore)
+	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
 	var aiProviderStore ports.AIProviderConfigStore
 	if store, ok := repo.(ports.AIProviderConfigStore); ok {
 		aiProviderStore = store
@@ -85,6 +87,7 @@ func Run(forcedRole string) {
 		repo = r
 		opsPrefs = r
 		videoStore = r
+		knowledgeStore = r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
 			aiProviderStore = store
 		}
@@ -314,31 +317,25 @@ func Run(forcedRole string) {
 		}
 		providerConfig := ports.AIPluginConfig{Provider: providerID, BaseURL: cfg.AIBaseURL, Model: cfg.AIModel, APIKey: cfg.AIAPIKey}
 		if providerID == "ollama" {
-			if providerConfig.BaseURL == "" {
-				providerConfig.BaseURL = cfg.OllamaURL
-			}
-			if providerConfig.Model == "" {
-				providerConfig.Model = cfg.OllamaModel
-			}
+			// Environment files written before Ollama was removed.
+			log.Warn("IOT_AI_PROVIDER=ollama is no longer supported; using deepseek")
+			providerConfig = ports.AIPluginConfig{Provider: "deepseek", APIKey: os.Getenv("DEEPSEEK_API_KEY")}
 		}
 		if aiProviderStore != nil {
 			if persisted, found, err := aiProviderStore.LoadAIProviderConfig(ctx); err != nil {
 				log.Warn("load persisted AI provider config", "error", err)
-			} else if found && !(cfg.AIProvider == "deepseek" && persisted.Provider == "ollama" && strings.HasPrefix(strings.ToLower(persisted.Model), "qwen")) { /* Retire the previously bundled Qwen selection; keep explicitly configured external providers. */
+			} else if found && strings.EqualFold(strings.TrimSpace(persisted.Provider), "ollama") {
+				// The Ollama provider was removed; fall back to the configured
+				// provider (DeepSeek by default) until an administrator saves a new one.
+				log.Warn("ignoring persisted Ollama AI provider; Ollama is no longer supported", "fallbackProvider", providerConfig.Provider)
+			} else if found {
 				providerConfig = persisted
 				log.Info("restored persisted AI provider", "provider", providerConfig.Provider, "model", providerConfig.Model)
 			}
 		}
 		// Older installations may have an activity row without the newer baseUrl
 		// field. Fill only missing defaults so a persisted selection remains usable.
-		if providerConfig.Provider == "ollama" {
-			if providerConfig.BaseURL == "" {
-				providerConfig.BaseURL = cfg.OllamaURL
-			}
-			if providerConfig.Model == "" {
-				providerConfig.Model = cfg.OllamaModel
-			}
-		} else if providerConfig.Provider == "deepseek" {
+		if providerConfig.Provider == "deepseek" {
 			if providerConfig.BaseURL == "" {
 				providerConfig.BaseURL = cfg.AIBaseURL
 				if providerConfig.BaseURL == "" {
@@ -394,7 +391,12 @@ func Run(forcedRole string) {
 
 	}
 	if cfg.Runs(config.ComponentManagement) && cfg.WeaviateURL != "" {
-		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL)
+		embedder, embedErr := embedding.NewOpenAI(embedding.Config{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, QueryInstruction: cfg.EmbeddingQueryPrompt, Timeout: cfg.EmbeddingTimeout})
+		fatal(log, "initialize embedding service client", embedErr)
+		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL, embedder)
+		engine.KnowledgeReindex = &core.KnowledgeReindexer{KB: engine.KB, Store: knowledgeStore, Repo: repo, Archive: engine.Archive, Log: log}
+		go engine.KnowledgeReindex.Run(ctx)
+		log.Info("knowledge index enabled", "adapter", "weaviate", "embeddingModel", cfg.EmbeddingModel)
 	} else {
 		engine.KB = knowledge.NewLocal()
 	}

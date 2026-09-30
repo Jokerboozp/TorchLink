@@ -263,16 +263,27 @@ services:
       retries: 18
       start_period: 10s
 
-  ollama:
+  # 知识库私有化向量服务（TEI）；镜像按 CPU 架构由 scripts/setup-local 写入 IOT_EMBEDDING_IMAGE。
+  embedding:
     <<: *service-defaults
     ports:
-      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:11434:11434"
-    image: ollama/ollama:0.11.4
+      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18091:80"
+    image: ${IOT_EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
+    # 离线部署时 IOT_EMBEDDING_MODEL_SOURCE 指向卷内已恢复的模型目录。
+    command: ["--model-id", "${IOT_EMBEDDING_MODEL_SOURCE:-${IOT_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}}", "--port", "80"]
     environment:
-      OLLAMA_NUM_PARALLEL: "1"
-      OLLAMA_MAX_LOADED_MODELS: "1"
-      OLLAMA_KEEP_ALIVE: "5m"
-    volumes: ["ollama-data:/root/.ollama"]
+      API_KEY: ${IOT_EMBEDDING_API_KEY:-local-embedding-key-change-me}
+      # 自动截断超长输入；限制单批词元数以控制 CPU 内存。
+      MAX_BATCH_TOKENS: ${IOT_EMBEDDING_MAX_BATCH_TOKENS:-4096}
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    volumes: ["embedding-models:/data"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
 
   weaviate:
     <<: *service-defaults
@@ -283,14 +294,11 @@ services:
       QUERY_DEFAULTS_LIMIT: "25"
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
-      DEFAULT_VECTORIZER_MODULE: text2vec-ollama
-      ENABLE_MODULES: text2vec-ollama,backup-filesystem
-      OLLAMA_APIENDPOINT: http://ollama:11434
+      DEFAULT_VECTORIZER_MODULE: none
+      ENABLE_MODULES: backup-filesystem
       BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
       CLUSTER_HOSTNAME: node1
     volumes: ["weaviate-data:/var/lib/weaviate"]
-    depends_on:
-      ollama: {condition: service_started}
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/v1/.well-known/ready >/dev/null || exit 1"]
       interval: 10s
@@ -428,7 +436,7 @@ volumes:
   emqx-data: {}
   emqx-log: {}
   backup-staging: {}
-  ollama-data: {}
+  embedding-models: {}
   weaviate-data: {}
   deepseek-harness-data: {}
   prometheus-data: {}

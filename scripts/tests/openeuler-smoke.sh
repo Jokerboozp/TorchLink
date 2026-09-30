@@ -75,7 +75,7 @@ bash "$scripts/repair-offline-openeuler.sh" "$fixture_bundle"
 patch="${fixture_bundle}-rpm-repair.tar.gz"
 (cd "$fixture_root"; sha256sum -c "$(basename "$patch").sha256")
 tar -tzf "$patch" > "$fixture_root/contents"
-! grep -Eq 'images.tar|\.env|\.rpm$|ollama' "$fixture_root/contents"
+! grep -Eq 'images.tar|\.env|\.rpm$|models\.tgz' "$fixture_root/contents"
 tar -xzf "$patch" -C "$fixture_bundle"
 cmp "$scripts/lib/docker-bootstrap.sh" "$fixture_bundle/scripts/lib/docker-bootstrap.sh"
 [ "$(cat "$fixture_bundle/images.tar")" = 'existing images' ]

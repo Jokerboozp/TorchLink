@@ -9,20 +9,21 @@
     streamIdleTimeoutMs: 300000
 
 - insert:
-    - id: llm-ollama
+    - id: llm-openai-compatible
       name: '@deepseek-ai/dsh-llm-pi-ai'
       config:
         providers:
-          ollama:
-            displayName: Ollama
-            apiKeyEnv: IOT_HARNESS_OLLAMA_API_KEY
+          openai-compatible:
+            displayName: OpenAI Compatible
+            apiKeyEnv: IOT_HARNESS_OPENAI_API_KEY
             api: openai-completions
-            baseURL: !!js process.env.IOT_HARNESS_OLLAMA_BASE_URL ?? 'http://ollama:11434/v1'
-            defaultContextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 8192)
+            # Unused placeholder while DeepSeek is selected; the gateway sets the real URL.
+            baseURL: !!js process.env.IOT_HARNESS_OPENAI_BASE_URL ?? 'http://127.0.0.1:1/v1'
+            defaultContextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 32768)
             defaultMaxTokens: 2048
             models:
               - id: !!js process.env.IOT_HARNESS_MODEL ?? 'external-model'
-                contextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 8192)
+                contextWindow: !!js Number(process.env.IOT_HARNESS_CONTEXT_WINDOW ?? 32768)
                 maxTokens: 2048
                 input: [text]
                 reasoningEfforts: false

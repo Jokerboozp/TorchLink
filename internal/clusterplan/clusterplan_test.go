@@ -98,6 +98,22 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 	if !strings.Contains(string(files["cluster.json"]), `"coordination"`) {
 		t.Fatal("start stages missing")
 	}
+	// The knowledge node runs the private embedding service next to Weaviate,
+	// and the platform reaches it by IP with the generated key.
+	n4 := string(files["n4/compose.yaml"])
+	for _, want := range []string{"text-embeddings-inference:cpu-1.9", "Qwen/Qwen3-Embedding-0.6B", "embedding-models:/data", "DEFAULT_VECTORIZER_MODULE: none", "ENABLE_MODULES: backup-filesystem"} {
+		if !strings.Contains(n4, want) {
+			t.Fatalf("knowledge node compose missing %q", want)
+		}
+	}
+	for name, body := range files {
+		if strings.Contains(strings.ToLower(string(body)), "ollama") {
+			t.Fatalf("%s still references Ollama", name)
+		}
+	}
+	if !strings.Contains(n1, "IOT_EMBEDDING_URL: http://10.0.0.14:8086/v1") || !strings.Contains(string(files["n1/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) || !strings.Contains(string(files["n4/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) {
+		t.Fatal("platform must reach the embedding service on the knowledge node with its key")
+	}
 	// docker compose must accept every rendered node project.
 	if _, err := exec.LookPath("docker"); err == nil && exec.Command("docker", "compose", "version").Run() == nil {
 		dir := t.TempDir()

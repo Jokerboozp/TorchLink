@@ -88,12 +88,12 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := &providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "ollama", BaseURL: "http://localhost:11434", Model: "qwen3:1.7b"}}
+	runtime := &providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "http://localhost:8000/v1", Model: "Qwen/Qwen3-8B"}}
 	workflow := &providerConfigTestWorkflow{}
 	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	engine.AIPlugins = aiadapter.NewProviderRegistry()
-	api := New(config.Config{DevMode: true, AITestOllamaURL: "http://localhost:11434"}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAIProviderRuntime(runtime)
 	api.SetAIProviderStore(repo)
 	api.SetAIWorkflowProvider(workflow)
@@ -143,9 +143,9 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 		t.Fatalf("viewer response exposed provider key hint: %#v", viewer)
 	}
 	requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/providers/config", viewerToken, map[string]any{
-		"provider": "ollama",
-		"baseUrl":  "http://localhost:11434",
-		"model":    "qwen3:1.7b",
+		"provider": "openai-compatible",
+		"baseUrl":  "http://localhost:8000/v1",
+		"model":    "Qwen/Qwen3-8B",
 	}, 403)
 }
 
@@ -308,7 +308,7 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	if got := runtime.CurrentConfig(); got != active {
 		t.Fatalf("testing changed active provider: got %#v want %#v", got, active)
 	}
-	for _, invalidURL := range []string{"file:///etc/passwd", "http://user:secret@example.test", "http://example.test?key=secret", "[http://ollama:11434](http://ollama:11434)"} {
+	for _, invalidURL := range []string{"file:///etc/passwd", "http://user:secret@example.test", "http://example.test?key=secret", "[http://vllm:8000/v1](http://vllm:8000/v1)"} {
 		requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{
 			"provider": "deepseek", "baseUrl": invalidURL, "model": "active-model",
 		}, http.StatusUnprocessableEntity)

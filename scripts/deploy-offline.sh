@@ -30,8 +30,8 @@ offline_compose_file="$bundle_dir/compose.offline.yaml"
 archive_file="$bundle_dir/images.tar"
 hash_file="$bundle_dir/images.tar.sha256"
 profiles_file="$bundle_dir/profiles.txt"
-ollama_archive="$bundle_dir/ollama-data.tgz"
-ollama_volume_file="$bundle_dir/ollama-volume.txt"
+embedding_archive="$bundle_dir/embedding-models.tgz"
+llm_archive="$bundle_dir/llm-models.tgz"
 for file in "$env_file" "$compose_file" "$offline_compose_file" "$archive_file" "$hash_file"; do
   [[ -f "$file" ]] || die "离线包缺少文件：$file"
 done
@@ -56,8 +56,18 @@ check_hash() {
 }
 if (( ! skip_hash_check )); then
   check_hash "$archive_file" "$hash_file"
-  if [[ -f "$ollama_archive" ]]; then check_hash "$ollama_archive" "$bundle_dir/ollama-data.tgz.sha256"; fi
+  for model_archive in "$embedding_archive" "$llm_archive"; do
+    if [[ -f "$model_archive" ]]; then check_hash "$model_archive" "$model_archive.sha256"; fi
+  done
   echo "镜像和模型包 SHA256 校验通过。"
+fi
+
+# Images are saved for one CPU architecture; loading them elsewhere cannot run.
+bundle_arch="$(sed -n 's/^[[:space:]]*"arch":[[:space:]]*"\([^"]*\)".*/\1/p' "$bundle_dir/manifest.json" 2>/dev/null | head -n 1)"
+host_arch="$(docker info --format '{{.Architecture}}' 2>/dev/null || true)"
+normalize_arch() { case "$1" in x86_64|amd64) echo amd64;; aarch64|arm64) echo arm64;; *) echo "$1";; esac; }
+if [[ -n "$bundle_arch" && -n "$host_arch" && "$(normalize_arch "$bundle_arch")" != "$(normalize_arch "$host_arch")" ]]; then
+  die "离线包 CPU 架构为 $bundle_arch，本机 Docker 为 $host_arch；请在相同架构的机器上重新打包"
 fi
 
 # Capacity-test module: deployed by default; an explicit off (here or earlier) is kept.
@@ -82,7 +92,9 @@ if [[ -f "$profiles_file" ]]; then
     [[ -n "$profile" ]] || continue
     # The media image is always packaged; IOT_VIDEO_MODULE=off keeps it undeployed.
     if [[ "$profile" == video ]] && grep -Eq "^[[:space:]]*IOT_VIDEO_MODULE[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null; then continue; fi
-    case "$profile" in harness|gb26875|video) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
+    # The private chat model needs an NVIDIA GPU; IOT_PRIVATE_LLM=off keeps it undeployed.
+    if [[ "$profile" == llm ]] && grep -Eq "^[[:space:]]*IOT_PRIVATE_LLM[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null; then continue; fi
+    case "$profile" in harness|gb26875|video|llm) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
   done < "$profiles_file"
 fi
 "${compose[@]}" config --quiet
@@ -93,20 +105,21 @@ while IFS= read -r image; do
   docker image inspect "$image" >/dev/null 2>&1 || die "离线包缺少镜像：${image}。请在有网机器重新打包。"
 done <<< "$images"
 
-ollama_volume="iot-platform_ollama-data"
-if [[ -f "$ollama_volume_file" ]]; then
-  recorded_volume="$(head -n 1 "$ollama_volume_file" | tr -d '\r')"
-  [[ "$recorded_volume" == "$ollama_volume" ]] || die "模型卷名称与部署项目不一致，请重新打包：$recorded_volume"
-fi
-if [[ -f "$ollama_archive" ]]; then
-  docker volume create "$ollama_volume" >/dev/null
+# Model weights are restored into named volumes; existing files are kept.
+restore_model_volume() {
+  local archive="$1" volume="$2" label="$3"
+  [[ -f "$archive" ]] || return 0
+  docker volume create "$volume" >/dev/null
   docker run --rm --pull never \
-    --mount "type=volume,source=$ollama_volume,target=/dst" \
+    --mount "type=volume,source=$volume,target=/dst" \
     --mount "type=bind,source=$bundle_dir,target=/backup,readonly" \
-    alpine:3.22 sh /backup/scripts/lib/restore-ollama-models.sh /backup/ollama-data.tgz /dst
-  echo "Ollama 模型已恢复（保留已有文件）。"
-fi
-"${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 180
+    alpine:3.22 sh /backup/scripts/lib/restore-volume-archive.sh "/backup/$(basename -- "$archive")" /dst
+  echo "$label已恢复（保留已有文件）。"
+}
+restore_model_volume "$embedding_archive" iot-platform_embedding-models "知识库向量模型"
+restore_model_volume "$llm_archive" iot-platform_llm-models "私有化对话模型权重"
+# The CPU embedding service loads and warms up its model on first start.
+"${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 900
 # up does not remove profile services; drop a capacity service left from an earlier choice.
 if [[ "${capacity_off:-0}" == 1 ]]; then "${compose[@]}" --profile capacity rm -sf capacity >/dev/null 2>&1 || true; fi
 "${compose[@]}" ps
@@ -138,8 +151,8 @@ if (( ! skip_health_check )); then
     "${compose[@]}" logs --tail=100 platform-api postgres redpanda emqx || true
     die "平台健康检查失败：$health_url"
   fi
-  "${compose[@]}" exec -T ollama ollama show nomic-embed-text
-  echo "平台健康检查与知识库嵌入模型检查通过：$health_url"
+  "${compose[@]}" exec -T embedding curl -fsS -o /dev/null http://127.0.0.1:80/health || die "知识库向量服务未就绪"
+  echo "平台健康检查与知识库向量服务检查通过：$health_url"
   check_web_port="$(env_value IOT_WEB_PORT)"
   check_backup_port="$(env_value IOT_BACKUP_HTTP_PORT)"
   for url in "http://127.0.0.1:${check_web_port:-8080}/" "http://127.0.0.1:${check_web_port:-8080}/health/ready" "http://127.0.0.1:${check_backup_port:-8092}/health/ready"; do

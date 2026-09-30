@@ -23,7 +23,6 @@ const capabilityLabels = {
   'alarm-analysis':'告警研判',
   'rule-draft':'规则草稿',
   'json-output':'JSON 输出',
-  'local-model':'本地模型',
   fallback:'降级响应'
 }
 const capabilities = [
@@ -67,18 +66,13 @@ function syncProviderForm(value) {
 }
 
 function providerChanged(provider) {
-  if (provider === 'ollama') {
-    if (!providerForm.baseUrl || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = 'http://localhost:11434'
-    if (!providerForm.model || providerForm.model.startsWith('deepseek')) providerForm.model = ''
-    return
-  }
   if (provider === 'deepseek') {
-    if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434')) providerForm.baseUrl = 'https://api.deepseek.com'
-    if (!providerForm.model || providerForm.model.startsWith('qwen')) providerForm.model = 'deepseek-flash'
+    if (!providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = 'https://api.deepseek.com'
+    if (!providerForm.model.startsWith('deepseek')) providerForm.model = 'deepseek-flash'
     return
   }
-  if (!providerForm.baseUrl || providerForm.baseUrl.includes('localhost:11434') || providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = ''
-  if (!providerForm.model || providerForm.model.startsWith('qwen') || providerForm.model.startsWith('deepseek')) providerForm.model = ''
+  if (providerForm.baseUrl.includes('api.deepseek.com')) providerForm.baseUrl = ''
+  if (providerForm.model.startsWith('deepseek')) providerForm.model = ''
 }
 
 async function loadRuntime() {
@@ -108,8 +102,8 @@ function candidateConfig() {
     providerError.value = '请填写模型来源、服务地址和模型名称'
     return null
   }
-  if (provider !== 'ollama' && !apiKey && (activeProvider.value !== provider || !runtime.value.config?.apiKeyConfigured)) {
-    providerError.value = '切换到云端或兼容接口模型时必须填写接口密钥'
+  if (provider === 'deepseek' && !apiKey && (activeProvider.value !== provider || !runtime.value.config?.apiKeyConfigured)) {
+    providerError.value = '切换到 DeepSeek 时必须填写 API Key'
     return null
   }
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 128 || maxTokens > 8192) {
@@ -194,19 +188,19 @@ onMounted(loadRuntime)
         <template v-if="isAdmin">
           <ui-form label-position="top" :model="providerForm" :disabled="busy">
             <section class="config-section">
-              <div class="config-section-heading"><span>01</span><div><strong>选择模型来源</strong><small>决定使用本地服务还是云端接口</small></div></div>
+              <div class="config-section-heading"><span>01</span><div><strong>选择模型来源</strong><small>默认使用 DeepSeek 云端接口，也可接入私有化部署的模型服务</small></div></div>
               <ui-form-item label="模型来源"><ui-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><ui-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></ui-select></ui-form-item>
               <p class="provider-description">{{ selectedProviderOption.description }}</p>
             </section>
             <section class="config-section">
               <div class="config-section-heading"><span>02</span><div><strong>填写连接信息</strong><small>地址必须能从平台服务器访问</small></div></div>
-              <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" placeholder="https://api.deepseek.com" /></ui-form-item>
-              <p v-if="providerForm.provider === 'ollama'" class="provider-field-hint">内置 Ollama 仅提供知识库嵌入；外部对话模型需自行准备。</p>
-              <template v-if="providerForm.provider !== 'ollama'"><ui-form-item class="cloud-key-field" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="填写 API Key；留空沿用已保存的密钥" /></ui-form-item><p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">已保存密钥 {{ runtime.config.apiKeyHint || '***' }}，留空测试或保存会继续使用。</p></template>
+              <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" :placeholder="providerForm.provider === 'deepseek' ? 'https://api.deepseek.com' : 'http://服务器地址:8000/v1'" /></ui-form-item>
+              <p v-if="providerForm.provider === 'openai-compatible'" class="provider-field-hint">私有化 vLLM 填写 http://服务器地址:8000/v1；地址需包含 /v1。</p>
+              <ui-form-item class="cloud-key-field" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" :placeholder="providerForm.provider === 'deepseek' ? '填写 API Key；留空沿用已保存的密钥' : '服务未启用鉴权时可留空'" /></ui-form-item><p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">已保存密钥 {{ runtime.config.apiKeyHint || '***' }}，留空测试或保存会继续使用。</p>
             </section>
             <section class="config-section">
               <div class="config-section-heading"><span>03</span><div><strong>设置模型与输出</strong><small>选择实际可用的模型，设置助手回复长度</small></div></div>
-              <div class="config-field-grid"><ui-form-item label="模型名称"><ui-input v-model="providerForm.model" placeholder="例如 deepseek-flash" /></ui-form-item><div><ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item><p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p></div></div>
+              <div class="config-field-grid"><ui-form-item label="模型名称"><ui-input v-model="providerForm.model" :placeholder="providerForm.provider === 'deepseek' ? '例如 deepseek-flash' : '例如 Qwen/Qwen3-8B'" /></ui-form-item><div><ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item><p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p></div></div>
             </section>
             <div class="provider-actions"><span :class="{ ready:testResult?.success }">{{ testResult?.success ? '测试通过，点击保存后生效' : '可直接保存，连接测试为可选操作' }}</span><div><ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</ui-button><ui-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="busy" @click="applyProviderConfig">保存配置</ui-button></div></div>
           </ui-form>

@@ -39,9 +39,11 @@ type Secrets struct {
 	// BackupRestoreTargetDSN is an optional separate database for restore checks.
 	BackupRestoreTargetDSN string `yaml:"backupRestoreTargetDSN"`
 	DeepSeekAPIKey         string `yaml:"deepseekApiKey"`
-	VideoMediaSecret       string `yaml:"videoMediaSecret"`
-	VideoHookSecret        string `yaml:"videoHookSecret"`
-	VideoCredentialKey     string `yaml:"videoCredentialKey"`
+	// EmbeddingAPIKey protects the private embedding service on the knowledge node.
+	EmbeddingAPIKey    string `yaml:"embeddingApiKey,omitempty"`
+	VideoMediaSecret   string `yaml:"videoMediaSecret"`
+	VideoHookSecret    string `yaml:"videoHookSecret"`
+	VideoCredentialKey string `yaml:"videoCredentialKey"`
 }
 
 // CheckSecretsMode rejects secrets files readable by group or others. The
@@ -113,7 +115,7 @@ var Stages = []string{"coordination", "data", "support", "workers", "edge"}
 var serviceStage = map[string]string{
 	"lb": "coordination", "etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "minio": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
 	"postgres": "data", "redpanda": "data", "clickhouse": "data", "emqx": "data",
-	"harness": "support", "ollama": "support", "weaviate": "support", "video": "support", "backup": "support",
+	"harness": "support", "embedding": "support", "weaviate": "support", "video": "support", "backup": "support",
 	"parser": "workers", "processor": "workers", "jobs": "workers",
 	"api": "edge", "gateway": "edge", "web": "edge", "capacity": "edge",
 }
@@ -220,8 +222,11 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	}
 	if inv.Knowledge.Node != "" {
 		env["IOT_WEAVIATE_URL"] = "http://" + r.ip(inv.Knowledge.Node) + ":8085"
-		env["IOT_OLLAMA_URL"] = "http://" + r.ip(inv.Knowledge.Node) + ":11434"
-		env["IOT_AI_OLLAMA_URL"] = env["IOT_OLLAMA_URL"]
+		env["IOT_EMBEDDING_URL"] = "http://" + r.ip(inv.Knowledge.Node) + ":8086/v1"
+		env["IOT_EMBEDDING_MODEL"] = EmbeddingModelID
+		if r.s.EmbeddingAPIKey != "" {
+			env["IOT_EMBEDDING_API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
+		}
 	}
 	if inv.Video.Node != "" {
 		v := r.ip(inv.Video.Node)
@@ -354,10 +359,17 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			}
 			add(kind, "harness", service(inv.Images.Harness, map[string]any{"environment": map[string]string{"IOT_HARNESS_HOST": "0.0.0.0", "IOT_HARNESS_PORT": "8091", "IOT_HARNESS_GATEWAY_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_HARNESS_SESSION_ROOT": "/data/sessions", "IOT_HARNESS_HOME": "/data/runtime-home", "IOT_HARNESS_WORKSPACE": "/data/workspace", "IOT_HARNESS_PLUGIN_DIR": "/data/plugins", "IOT_HARNESS_PLUGIN_SEED_DIR": "/harness/examples/iot-ops-agent/plugins", "IOT_HARNESS_MCP_ALLOWED_ORIGINS": strings.Join(origins, ","), "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}", "DEEPSEEK_BASE_URL": "https://api.deepseek.com"}, "volumes": []string{"harness-data:/data"}}), "harness-data")
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"] = r.s.HarnessToken, r.s.DeepSeekAPIKey
-		case "ollama":
-			add(kind, "ollama", service(inv.Images.Ollama, map[string]any{"environment": map[string]string{"OLLAMA_HOST": "0.0.0.0:11434", "OLLAMA_NUM_PARALLEL": "1"}, "volumes": []string{"ollama-data:/root/.ollama"}}), "ollama-data")
+		case "embedding":
+			// Private text embedding service (HuggingFace TEI). Weights are
+			// cached in the volume; HF_ENDPOINT may point to a mirror.
+			embeddingEnv := map[string]string{"HF_ENDPOINT": "${HF_ENDPOINT:-https://huggingface.co}", "HF_HUB_OFFLINE": "${HF_HUB_OFFLINE:-0}"}
+			if r.s.EmbeddingAPIKey != "" {
+				embeddingEnv["API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
+				env["IOT_EMBEDDING_API_KEY"] = r.s.EmbeddingAPIKey
+			}
+			add(kind, "embedding", service(inv.Images.Embedding, map[string]any{"command": []string{"--model-id", EmbeddingModelID, "--hostname", "0.0.0.0", "--port", "8086"}, "environment": embeddingEnv, "volumes": []string{"embedding-models:/data"}}), "embedding-models")
 		case "weaviate":
-			add(kind, "weaviate", service(inv.Images.Weaviate, map[string]any{"command": []string{"--host", "0.0.0.0", "--port", "8085", "--scheme", "http"}, "environment": map[string]string{"QUERY_DEFAULTS_LIMIT": "25", "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true", "PERSISTENCE_DATA_PATH": "/var/lib/weaviate", "DEFAULT_VECTORIZER_MODULE": "text2vec-ollama", "ENABLE_MODULES": "text2vec-ollama,backup-filesystem", "OLLAMA_APIENDPOINT": "http://127.0.0.1:11434", "BACKUP_FILESYSTEM_PATH": "/var/lib/weaviate/backups", "CLUSTER_HOSTNAME": node, "GRPC_PORT": "50051"}, "volumes": []string{"weaviate-data:/var/lib/weaviate"}}), "weaviate-data")
+			add(kind, "weaviate", service(inv.Images.Weaviate, map[string]any{"command": []string{"--host", "0.0.0.0", "--port", "8085", "--scheme", "http"}, "environment": map[string]string{"QUERY_DEFAULTS_LIMIT": "25", "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true", "PERSISTENCE_DATA_PATH": "/var/lib/weaviate", "DEFAULT_VECTORIZER_MODULE": "none", "ENABLE_MODULES": "backup-filesystem", "BACKUP_FILESYSTEM_PATH": "/var/lib/weaviate/backups", "CLUSTER_HOSTNAME": node, "GRPC_PORT": "50051"}, "volumes": []string{"weaviate-data:/var/lib/weaviate"}}), "weaviate-data")
 		case "video":
 			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": inv.Name + "-media-1", "IOT_VIDEO_HOOK_BASE": inv.APIURL() + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
 			env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"] = r.s.VideoMediaSecret, r.s.VideoHookSecret
@@ -409,6 +421,9 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			}
 			if inv.Capacity.Node != "" {
 				env["IOT_OPS_CAPACITY_TOKEN"] = r.s.CapacityToken
+			}
+			if inv.Knowledge.Node != "" && r.s.EmbeddingAPIKey != "" {
+				env["IOT_EMBEDDING_API_KEY"] = r.s.EmbeddingAPIKey
 			}
 		}
 	}

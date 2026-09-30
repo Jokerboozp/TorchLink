@@ -42,7 +42,7 @@ Compose 使用 HS256 JWT、令牌 ACL、文件规则兜底拒绝与匿名拒绝�
 
 ## AI 与知识库
 
-Harness 为必装组件，所有业务模型调用作为工作流执行；Provider 负责模型管理的连接测试、健康检查与配置同步。DeepSeek 模型配置、可选连接测试、离线限制和升级见 [AI 部署](DEPLOYMENT.md#ai-与工作流)。
+Harness 为必装组件，所有业务模型调用作为工作流执行；Provider 负责模型管理的连接测试、健康检查与配置同步。模型来源为 DeepSeek（默认，云端 API）或“OpenAI 兼容 / 私有化部署”（私有化 vLLM 或其他兼容接口，服务未启用鉴权时可不填密钥）。模型配置、可选连接测试、离线限制和升级见 [AI 部署](DEPLOYMENT.md#ai-与工作流) 与 [知识库向量与私有化模型](DEPLOYMENT.md#知识库向量与私有化模型)。
 
 | 功能 | 工作流 | 发起身份 | 可用工具 |
 | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ Harness 为必装组件，所有业务模型调用作为工作流执行；Provid
 
 每次运行的 MCP JWT 绑定租户、Run ID、工作流，工具范围取功能所需与发起人权限的交集。普通用户回调重新读取当前权限和设备范围。指定设备用户可问答，全租户巡检/报告/Agent 管理仍要求全部设备范围。
 
-知识检索由 Ollama 嵌入与 Weaviate 持久索引提供，按租户及 Agent / `workflowId` 隔离；不支持该范围的索引拒绝查询。绑定控制检索模式、topK、分数和无匹配策略。手动研判是否使用 `alarm-handler` 知识由发起角色决定；不同知识权限结果不可串用。
+知识检索由私有化向量服务（TEI，默认 `Qwen/Qwen3-Embedding-0.6B`）与 Weaviate 持久索引提供：平台切片后批量计算向量写入 Weaviate，检索时问题按查询指令编码后做向量近邻查询。索引记录所用向量模型，模型变更或从旧版 Ollama 索引升级时，API 在后台按对象存储中的原始文件重建索引；重建开始前检索返回明确错误而不混用向量，重建完成前结果可能不完整。检索按租户及 Agent / `workflowId` 隔离；不支持该范围的索引拒绝查询。绑定控制检索模式、topK、分数和无匹配策略。手动研判是否使用 `alarm-handler` 知识由发起角色决定；不同知识权限结果不可串用。
 
 内置 Manifest 只读，自定义聊天 Agent 可管理；业务 Agent 不混入聊天工作台。规则智能草稿不自动启用；聊天中的规则草稿工具只校验并保存禁用草稿，不再调用第二次模型。协议生成结果仍须样例验证和发布。
 
@@ -103,7 +103,7 @@ docker run --rm --network none --entrypoint node iot-deepseek-harness:local /har
 
 构建检查模拟模型/MCP、真实 SDK 导入、白名单和最终非 root 用户的依赖权限，不代表真实 Provider 验收。`cordis.yml` 使用 `sdk-minimal`；升级核对版本、提示词和流事件契约。
 
-内部 HTTP 默认 8091，回环 MCP 代理默认 8092；除 `/health` 外需 `X-IOT-Harness-Token`，聊天另带短期 MCP JWT。`/v1/plugins` 返回公开元数据，`/v1/plugins/admin` 返回完整 Manifest，POST/DELETE 管理自定义项，`PUT /v1/provider` 同步模型，`POST /v1/chat/stream` 执行工作流。`mcpUrl` 只能匹配允许的精确 origin 与 `/mcp/harness`，不得含凭据、查询或 fragment。
+内部 HTTP 默认 8091，回环 MCP 代理默认 8092；除 `/health` 外需 `X-IOT-Harness-Token`，聊天另带短期 MCP JWT。`/v1/plugins` 返回公开元数据，`/v1/plugins/admin` 返回完整 Manifest，POST/DELETE 管理自定义项，`PUT /v1/provider` 同步模型（`deepseek-official` 或 `openai-compatible`），`POST /v1/chat/stream` 执行工作流。`mcpUrl` 只能匹配允许的精确 origin 与 `/mcp/harness`，不得含凭据、查询或 fragment。
 
 内部运行管理接口为 `GET /v1/runs`、`POST /v1/runs/:id/stop`，均额外要求 `X-IOT-Tenant-ID`，仅由平台后端携带服务令牌调用。运行归属由平台在工作流请求中的 `tenantId` / `actor` 传入；缺失归属的旧客户端任务不对租户管理页开放。升级该功能须重建 Harness 镜像并重启源码 API；旧镜像访问列表会提示升级，不能只更新前端。
 

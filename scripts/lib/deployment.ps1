@@ -57,6 +57,8 @@ function Ensure-DeploymentEnv {
         IOT_ADMIN_TENANTS = 'tenant_001'
         IOT_VIDEO_PLATFORM_SECRETS = ('video-platform-1:' + (New-DeploymentSecret))
         IOT_AI_HARNESS_TOKEN = (New-DeploymentSecret)
+        IOT_EMBEDDING_API_KEY = (New-DeploymentSecret)
+        IOT_LLM_API_KEY = (New-DeploymentSecret)
         IOT_BACKUP_ADMIN_TOKEN = (New-DeploymentSecret)
         GB26875_CONTROL_TOKEN = (New-DeploymentSecret)
         IOT_HTTP_ADDR = ':8081'
@@ -222,6 +224,56 @@ function Wait-DeploymentHttp {
     throw "健康检查超时：$Url。请用相同的 Compose 项目和配置参数检查 ps / logs。"
 }
 
+function Remove-DeploymentEnvValue {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Key)
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $pattern = '^\s*(?:export\s+)?' + [Regex]::Escape($Key) + '\s*='
+    $lines = @([IO.File]::ReadAllLines($fullPath) | Where-Object { $_ -notmatch $pattern })
+    [IO.File]::WriteAllText($fullPath, ($lines -join "`n") + "`n", (New-Object Text.UTF8Encoding($false)))
+}
+
+# TEI CPU image for the Docker engine's architecture (x86_64 or ARM64).
+function Get-DeploymentEmbeddingImage {
+    $arch = ''
+    try { $arch = (& docker info --format '{{.Architecture}}' 2>$null | Out-String).Trim() } catch { }
+    if (-not $arch) { $arch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
+    if ($arch -match '^(aarch64|arm64|Arm64)$') { return 'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-1.9' }
+    return 'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9'
+}
+
+# Optional private chat model (vLLM, NVIDIA GPU). keep retains the previous
+# choice; the default is off because the DeepSeek cloud API stays primary.
+function Set-PrivateLlmDeploymentEnv {
+    param([Parameter(Mandatory)][string]$Path, [ValidateSet('keep', 'on', 'off')][string]$Mode = 'keep')
+    if ($Mode -eq 'keep') { $Mode = if ((Get-DeploymentEnvValue -Path $Path -Key 'IOT_PRIVATE_LLM') -eq 'on') { 'on' } else { 'off' } }
+    $profiles = @(@("$(Get-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'llm' })
+    if ($Mode -eq 'on') { $profiles += 'llm' }
+    Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
+    Set-DeploymentEnvValue -Path $Path -Key 'IOT_PRIVATE_LLM' -Value $Mode
+    if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_LLM_MODEL')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_LLM_MODEL' -Value 'Qwen/Qwen3-8B' }
+    return $Mode
+}
+
+# Knowledge embeddings run on the private TEI service. Pick the CPU image for
+# this architecture unless a custom (for example GPU) image is configured,
+# generate access keys once and drop settings of the retired Ollama service.
+function Set-EmbeddingDeploymentEnv {
+    param([Parameter(Mandatory)][string]$Path, [string]$Url = 'http://embedding:80/v1')
+    $image = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_IMAGE'
+    if (-not $image -or $image.StartsWith('ghcr.io/huggingface/text-embeddings-inference:cpu-')) {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_IMAGE' -Value (Get-DeploymentEmbeddingImage)
+    }
+    if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL' -Value $Url }
+    if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL' -Value 'Qwen/Qwen3-Embedding-0.6B' }
+    foreach ($key in @('IOT_EMBEDDING_API_KEY', 'IOT_LLM_API_KEY')) {
+        $value = Get-DeploymentEnvValue -Path $Path -Key $key
+        if (-not $value -or $value -match 'change-this|change-me') { Set-DeploymentEnvValue -Path $Path -Key $key -Value (New-DeploymentSecret) }
+    }
+    foreach ($key in @('IOT_OLLAMA_URL', 'IOT_OLLAMA_MODEL', 'IOT_AI_OLLAMA_URL', 'IOT_AI_HARNESS_OLLAMA_BASE_URL')) {
+        Remove-DeploymentEnvValue -Path $Path -Key $key
+    }
+}
+
 function Set-DeepSeekDeploymentEnv {
     param([string]$Path, [string]$Model = 'deepseek-flash')
     $oldProvider = Get-DeploymentEnvValue -Path $Path -Key 'IOT_AI_PROVIDER'
@@ -231,7 +283,7 @@ function Set-DeepSeekDeploymentEnv {
     foreach ($setting in ([ordered]@{
         DEEPSEEK_API_KEY="'$key'"; IOT_AI_API_KEY=''; DEEPSEEK_BASE_URL='https://api.deepseek.com';
         IOT_AI_PROVIDER='deepseek'; IOT_AI_BASE_URL='https://api.deepseek.com'; IOT_AI_MODEL=$Model;
-        IOT_AI_HARNESS_PROVIDER='deepseek-official'; IOT_AI_HARNESS_MODEL=$Model; IOT_OLLAMA_MODEL=''
+        IOT_AI_HARNESS_PROVIDER='deepseek-official'; IOT_AI_HARNESS_MODEL=$Model
     }).GetEnumerator()) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value ([string]$setting.Value) }
     if (-not $key) { Write-Warning '请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥并保存（连接测试可选）；未配置前 AI 功能不可用。' }
 }

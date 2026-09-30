@@ -5,8 +5,11 @@ param(
     # 打包可选摄像头直播媒体服务（固定版本 ZLMediaKit，内含 FFmpeg 转码依赖）。
     [switch]$WithoutVideo,
     [string]$DeepSeekModel = "deepseek-flash",
-    [string]$OllamaEmbeddingModel = "nomic-embed-text",
-    [switch]$SkipOllamaModel,
+    # 知识库向量模型（HuggingFace 模型 ID），由私有化 TEI 服务加载。
+    [string]$EmbeddingModel = "Qwen/Qwen3-Embedding-0.6B",
+    [switch]$SkipEmbeddingModel,
+    # 同时打包私有化对话模型 vLLM 镜像及 IOT_LLM_MODEL 模型权重（目标机需 NVIDIA GPU）。
+    [switch]$WithPrivateLlm,
     [switch]$SkipDockerRuntime,
     [switch]$SkipBundleArchive,
     [string]$DockerPackagesDir = "",
@@ -160,7 +163,6 @@ function New-OfflineEnv {
         $emqxPassword = "Emqx-" + (New-RandomHex -Bytes 12)
         $grafanaPassword = "Grafana-" + (New-RandomHex -Bytes 12)
 
-        $ollamaUrl = "http://ollama:11434"
         $aiProvider = "deepseek"
         $weaviateUrl = "http://weaviate:8080"
         $harnessUrl = "http://deepseek-harness:8091"
@@ -181,12 +183,10 @@ function New-OfflineEnv {
             "IOT_ADMIN_TENANTS=tenant_001",
             "IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$videoSecret",
             "IOT_VIDEO_MEDIA_ALLOWED_HOSTS=",
-            "IOT_OLLAMA_URL=$ollamaUrl",
             "IOT_AI_PROVIDER=$aiProvider",
             "IOT_AI_BASE_URL=https://api.deepseek.com",
             "IOT_AI_MODEL=$DeepSeekModel",
             "IOT_AI_API_KEY=",
-            "IOT_AI_OLLAMA_URL=http://ollama:11434",
             "DEEPSEEK_API_KEY=",
             "IOT_AI_HARNESS_ENABLED=$harnessEnabled",
             "IOT_AI_HARNESS_URL=$harnessUrl",
@@ -270,6 +270,18 @@ function New-OfflineEnv {
     Write-Utf8NoBom -Path $Destination -Lines $lines
     Ensure-EmqxAdminEnv -Path $Destination -DefaultUrl "http://emqx:18083"
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
+    # Images are saved for the packaging machine's architecture; the TEI tag follows it.
+    Set-DeploymentEnvValue -Path $Destination -Key 'IOT_EMBEDDING_MODEL' -Value $EmbeddingModel
+    Set-EmbeddingDeploymentEnv -Path $Destination
+    # The target has no internet access: TEI loads the model restored from the bundle.
+    Set-DeploymentEnvValue -Path $Destination -Key 'IOT_EMBEDDING_MODEL_SOURCE' -Value ('/data/offline/' + ($EmbeddingModel -split '/')[-1])
+    Set-DeploymentEnvValue -Path $Destination -Key 'HF_HUB_OFFLINE' -Value '1'
+    $llmMode = if ($WithPrivateLlm) { 'on' } else { 'off' }
+    $null = Set-PrivateLlmDeploymentEnv -Path $Destination -Mode $llmMode
+    if ($WithPrivateLlm) {
+        $llmName = ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_LLM_MODEL') -split '/')[-1]
+        Set-DeploymentEnvValue -Path $Destination -Key 'IOT_LLM_MODEL_SOURCE' -Value "/root/.cache/huggingface/offline/$llmName"
+    }
     # Capacity-test module: on by default (same settings deploy writes); an explicit off is kept.
     $capacityAction = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'unprepare' } else { 'prepare' }
     & (Join-Path $PSScriptRoot 'capacity-module.ps1') $capacityAction -Mode offline -EnvFile $Destination | Out-Null
@@ -288,8 +300,8 @@ function New-OfflineEnv {
     }
 }
 
-if ($OllamaEmbeddingModel -ne "nomic-embed-text") {
-    throw "当前知识库使用 nomic-embed-text，OllamaEmbeddingModel 必须与其一致。"
+if ($EmbeddingModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$') {
+    throw "向量模型须为 HuggingFace 模型 ID，例如 Qwen/Qwen3-Embedding-0.6B。"
 }
 if ($DeepSeekModel -notmatch '^[A-Za-z0-9][A-Za-z0-9._:/-]*$') { throw 'DeepSeek 模型名称无效。' }
 if (-not $SkipBundleArchive -and -not (Get-Command tar -CommandType Application -ErrorAction SilentlyContinue)) {
@@ -327,15 +339,31 @@ $composeBase = @(
 $profiles = New-Object 'System.Collections.Generic.List[string]'
 [void]$profiles.Add("harness")
 if (-not $WithoutVideo) { [void]$profiles.Add("video") }
+if ($WithPrivateLlm) { [void]$profiles.Add("llm") }
 $profileArguments = New-Object 'System.Collections.Generic.List[string]'
 foreach ($profile in $profiles) {
     [void]$profileArguments.Add("--profile")
     [void]$profileArguments.Add($profile)
 }
 
-$ollamaArchive = $null
-$ollamaVolumeName = $null
-$ollamaStarted = $false
+$embeddingArchive = $null
+$llmArchive = $null
+$embeddingStarted = $false
+
+# Model weights travel as volume archives: the target restores them into the
+# named volumes and the services load them from local directories.
+function Export-ModelVolume {
+    param([string]$Volume, [string]$Cache, [string]$Model, [string]$Archive)
+    Invoke-Checked -Arguments @(
+        "run", "--rm", "--pull", "never",
+        "--mount", "type=volume,source=$Volume,target=/src,readonly",
+        "--mount", "type=bind,source=$bundleRoot,target=/backup",
+        "--mount", "type=bind,source=$scriptDir/lib,target=/helpers,readonly",
+        "alpine:3.22", "sh", "/helpers/export-model-cache.sh", "/src$Cache", $Model, "/backup/$Archive"
+    )
+    $modelHash = (Get-FileHash -LiteralPath (Join-Path $bundleRoot $Archive) -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Utf8NoBom -Path (Join-Path $bundleRoot "$Archive.sha256") -Lines @("$modelHash  $Archive")
+}
 $bundleTarPartial = $null
 $bundleHashPartial = $null
 
@@ -344,39 +372,53 @@ try {
     $pullServices = @(
         "postgres", "postgres-wal-init", "redis",
         "redpanda", "redpanda-init", "clickhouse", "emqx", "prometheus",
-        "grafana", "loki", "ollama", "weaviate", "ops-init", "alertmanager",
+        "grafana", "loki", "embedding", "weaviate", "ops-init", "alertmanager",
         "alloy", "node-exporter"
     )
     Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio"))
     if (-not $WithoutVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
 
-    # 只归档知识库嵌入模型；DeepSeek API 不携带模型权重。
-    if (-not $SkipOllamaModel) {
-        $ollamaStarted = $true
-        Invoke-Checked -Arguments ($composeBase + @("up", "-d", "--no-deps", "ollama"))
-        $ollamaReady = $false
-        for ($i = 0; $i -lt 30; $i++) {
-            & docker @($composeBase + @("exec", "-T", "ollama", "ollama", "list")) *> $null
-            if ($LASTEXITCODE -eq 0) { $ollamaReady = $true; break }
-            Start-Sleep -Seconds 2
+    if ($WithPrivateLlm) { Invoke-Checked -Arguments ($composeBase + @("--profile", "llm", "pull", "vllm")) }
+
+    # 知识库向量模型随包携带；DeepSeek API 不携带模型权重。
+    if (-not $SkipEmbeddingModel) {
+        $embeddingStarted = $true
+        # Starting TEI downloads the weights into the build volume and proves they
+        # load; the bundle's own settings (offline, local directory) apply on the target.
+        $env:HF_HUB_OFFLINE = '0'
+        $env:IOT_EMBEDDING_MODEL_SOURCE = $EmbeddingModel
+        try {
+            Invoke-Checked -Arguments ($composeBase + @("up", "-d", "--no-deps", "embedding"))
+        } finally {
+            Remove-Item Env:HF_HUB_OFFLINE, Env:IOT_EMBEDDING_MODEL_SOURCE -ErrorAction SilentlyContinue
         }
-        if (-not $ollamaReady) { throw "Ollama 容器未在规定时间内就绪。" }
-        Invoke-Checked -Arguments ($composeBase + @("exec", "-T", "ollama", "ollama", "pull", $OllamaEmbeddingModel))
-        $ollamaSourceVolume = "iot-platform-offline-build_ollama-data"
-        $ollamaVolumeName = "iot-platform_ollama-data"
-        Invoke-Checked -Arguments @(
-            "run", "--rm", "--pull", "never",
-            "--mount", "type=volume,source=$ollamaSourceVolume,target=/src,readonly",
-            "--mount", "type=bind,source=$bundleRoot,target=/backup",
-            "--mount", "type=bind,source=$scriptDir/lib,target=/helpers,readonly",
-            "alpine:3.22", "sh", "/helpers/export-embedding-model.sh", "/src", "/backup/ollama-data.tgz"
-        )
-        $ollamaArchive = "ollama-data.tgz"
-        $modelHash = (Get-FileHash -LiteralPath (Join-Path $bundleRoot $ollamaArchive) -Algorithm SHA256).Hash.ToLowerInvariant()
-        Write-Utf8NoBom -Path (Join-Path $bundleRoot "ollama-data.tgz.sha256") -Lines @("$modelHash  $ollamaArchive")
+        $embeddingReady = $false
+        for ($i = 0; $i -lt 180; $i++) {
+            & docker @($composeBase + @("exec", "-T", "embedding", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:80/health")) *> $null
+            if ($LASTEXITCODE -eq 0) { $embeddingReady = $true; break }
+            Start-Sleep -Seconds 5
+        }
+        if (-not $embeddingReady) { throw "向量服务未在规定时间内下载并加载模型 $EmbeddingModel；可设置 HF_ENDPOINT 使用镜像站后重试。" }
+        & docker @($composeBase + @("stop", "embedding")) *> $null
+        $embeddingArchive = "embedding-models.tgz"
+        Export-ModelVolume -Volume "iot-platform-offline-build_embedding-models" -Cache "" -Model $EmbeddingModel -Archive $embeddingArchive
     } else {
-        Write-Warning "已跳过模型打包：目标机必须预先具有 nomic-embed-text；否则知识库不可用。"
+        Write-Warning "已跳过向量模型打包：目标机 embedding-models 卷必须预先具有 offline/$(($EmbeddingModel -split '/')[-1])；否则知识库不可用。"
+    }
+    if ($WithPrivateLlm) {
+        $llmModel = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_LLM_MODEL'
+        $llmImage = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_LLM_IMAGE'
+        if (-not $llmImage) { $llmImage = 'vllm/vllm-openai:v0.29.0' }
+        $hfEndpoint = if ($env:HF_ENDPOINT) { $env:HF_ENDPOINT } else { 'https://huggingface.co' }
+        # Download with the vLLM image's own huggingface_hub; plain docker run needs no GPU.
+        Invoke-Checked -Arguments @(
+            "run", "--rm", "--pull", "never", "--entrypoint", "python3", "-e", "HF_ENDPOINT=$hfEndpoint",
+            "--mount", "type=volume,source=iot-platform-offline-build_llm-models,target=/root/.cache/huggingface",
+            $llmImage, "-c", "import sys; from huggingface_hub import snapshot_download; snapshot_download(sys.argv[1])", $llmModel
+        )
+        $llmArchive = "llm-models.tgz"
+        Export-ModelVolume -Volume "iot-platform-offline-build_llm-models" -Cache "/hub" -Model $llmModel -Archive $llmArchive
     }
 
     Ensure-HarnessSource -ProjectRoot $projectRoot
@@ -390,7 +432,7 @@ try {
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null
     Copy-Item -LiteralPath (Join-Path $scriptDir "lib/docker-bootstrap.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
-    Copy-Item -LiteralPath (Join-Path $scriptDir "lib/restore-ollama-models.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
+    Copy-Item -LiteralPath (Join-Path $scriptDir "lib/restore-volume-archive.sh") -Destination (Join-Path $bundleRoot "scripts/lib")
     # 视频模块启停脚本及其依赖的配置工具。
     foreach ($libName in @("deployment.sh", "deployment.ps1", "env-comments.sh", "env-comments.tsv")) {
         Copy-Item -LiteralPath (Join-Path $scriptDir "lib/$libName") -Destination (Join-Path $bundleRoot "scripts/lib")
@@ -437,9 +479,6 @@ try {
     $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Utf8NoBom -Path (Join-Path $bundleRoot "images.tar.sha256") -Lines @("$hash  images.tar")
     Write-Utf8NoBom -Path (Join-Path $bundleRoot "profiles.txt") -Lines $profiles.ToArray()
-    if ($ollamaVolumeName) {
-        Write-Utf8NoBom -Path (Join-Path $bundleRoot "ollama-volume.txt") -Lines @($ollamaVolumeName)
-    }
 
     $commit = "unknown"
     if (Get-Command git -ErrorAction SilentlyContinue) {
@@ -461,10 +500,14 @@ try {
         aiProvider = "deepseek"
         aiModel = $DeepSeekModel
         aiRequiresInternet = $true
-        ollamaModel = $null
-        ollamaEmbeddingModel = if ($ollamaArchive) { $OllamaEmbeddingModel } else { $null }
-        ollamaArchive = $ollamaArchive
-        ollamaVolume = $ollamaVolumeName
+        arch = (& docker info --format '{{.Architecture}}').Trim()
+        embeddingModel = $EmbeddingModel
+        embeddingImage = Get-DeploymentEnvValue -Path $envPath -Key 'IOT_EMBEDDING_IMAGE'
+        embeddingArchive = $embeddingArchive
+        embeddingVolume = if ($embeddingArchive) { "iot-platform_embedding-models" } else { $null }
+        privateLlmModel = if ($llmArchive) { Get-DeploymentEnvValue -Path $envPath -Key 'IOT_LLM_MODEL' } else { $null }
+        privateLlmArchive = $llmArchive
+        privateLlmVolume = if ($llmArchive) { "iot-platform_llm-models" } else { $null }
         generatedCredentials = [bool]$envResult.Generated
     }
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $bundleRoot "manifest.json") -Encoding UTF8
@@ -501,8 +544,8 @@ try {
     foreach ($partial in @($bundleTarPartial, $bundleHashPartial)) {
         if ($partial -and (Test-Path -LiteralPath $partial)) { Remove-Item -LiteralPath $partial -Force }
     }
-    if ($ollamaStarted) {
-        & docker @($composeBase + @("stop", "ollama")) *> $null
-        if ($LASTEXITCODE -ne 0) { Write-Warning "打包用 Ollama 未能停止，请检查 iot-platform-offline-build 项目。" }
+    if ($embeddingStarted) {
+        & docker @($composeBase + @("stop", "embedding")) *> $null
+        if ($LASTEXITCODE -ne 0) { Write-Warning "打包用向量服务未能停止，请检查 iot-platform-offline-build 项目。" }
     }
 }
