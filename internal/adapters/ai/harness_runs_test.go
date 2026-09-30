@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,7 +63,7 @@ func TestHarnessRunStopPropagatesWithoutSuccessfulResult(t *testing.T) {
 					_, _ = w.Write([]byte(`{"error":{"code":"RUN_STOPPED"}}`))
 					return
 				}
-				_, _ = w.Write([]byte("{\"type\":\"run.failed\",\"code\":\"RUN_STOPPED\"}\n"))
+				_, _ = w.Write([]byte("{\"type\":\"run.failed\",\"code\":\"RUN_STOPPED\",\"message\":\"secret-provider-body\"}\n"))
 			}))
 			defer server.Close()
 			client, err := NewHarness(server.URL, poolToken, "http://api/mcp/harness", "model", time.Second)
@@ -71,8 +72,37 @@ func TestHarnessRunStopPropagatesWithoutSuccessfulResult(t *testing.T) {
 			}
 			var event ports.AIWorkflowEvent
 			_, err = client.StreamChat(context.Background(), ports.AIWorkflowRequest{TenantID: "tenant-a", Actor: "alice", RunID: "r", Question: "q", MCPToken: "token"}, func(e ports.AIWorkflowEvent) error { event = e; return nil })
-			if !errors.Is(err, ports.ErrAIWorkflowStopped) || event.Code != "RUN_STOPPED" {
+			if !errors.Is(err, ports.ErrAIWorkflowStopped) || event.Code != "RUN_STOPPED" || strings.Contains(event.Message, "secret-provider-body") {
 				t.Fatalf("stop lost: %v %+v", err, event)
+			}
+		})
+	}
+}
+
+func TestHarnessStreamFailureUsesOnlySafeGatewayCategory(t *testing.T) {
+	for _, code := range []string{"MODEL_ERROR", "RUNTIME_TIMEOUT", "RUNTIME_CLOSED", "RUNTIME_REJECTED", "RUNTIME_PROTOCOL_ERROR", "RUNTIME_ERROR", "RUN_ABORTED", "RUN_BLOCKED", "MAX_TOKENS", "RUN_INTERRUPTED", "RUN_STOP_FAILED", "RUN_FAILED", "UNKNOWN_CODE_secret-provider-body", ""} {
+		t.Run(code, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/x-ndjson")
+				_ = json.NewEncoder(w).Encode(map[string]any{"type": "run.failed", "code": code, "message": "secret-provider-body", "answer": "secret-provider-body", "data": map[string]string{"apiKey": "secret-provider-body"}})
+			}))
+			defer server.Close()
+			client, err := NewHarness(server.URL, poolToken, "http://api/mcp/harness", "model", time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var event ports.AIWorkflowEvent
+			result, err := client.StreamChat(context.Background(), ports.AIWorkflowRequest{TenantID: "tenant-a", Actor: "alice", RunID: "r", WorkflowID: "recurring-alarm-analyst", Question: "q", MCPToken: "token"}, func(e ports.AIWorkflowEvent) error { event = e; return nil })
+			want := code
+			if code == "" || strings.HasPrefix(code, "UNKNOWN_") {
+				want = "RUN_FAILED"
+			}
+			if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "AI 工作流执行失败") || errors.Is(err, ports.ErrAIWorkflowStopped) || result.Answer != "" {
+				t.Fatalf("failure category lost: result=%+v error=%v", result, err)
+			}
+			emitted, e := json.Marshal(event)
+			if e != nil || event.Code != want || event.Message != err.Error() || event.RunID != "r" || event.WorkflowID != "recurring-alarm-analyst" || strings.Contains(string(emitted), "secret-provider-body") || strings.Contains(err.Error(), "secret-provider-body") {
+				t.Fatalf("unsafe failure emitted: %s error=%v", emitted, err)
 			}
 		})
 	}

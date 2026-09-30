@@ -1,10 +1,12 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate'])
+const emit = defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
+import { can } from '../permissions.js'
+import { canGovernance } from '../governance/permissions.js'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
 import { alarmNavigation, alarmQuery } from '../alarmNavigation'
 import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, label, tagType } from '../labels'
@@ -206,6 +208,7 @@ function rowActions(row) {
   const open = ['ACTIVE','ACKED'].includes(row.status)
   return [
     { key:'detail', label:'查看详情', onClick:() => show(row.alarmId) },
+    { key:'verification', label:'填写核实', permission:'action:alarmGovernance:record', hidden:!canGovernance('POST /api/v1/alarm-governance/verifications'), onClick:() => emit('navigate','alarmGovernance',{deviceId:row.deviceId,alarmId:row.alarmId,action:'verify'}) },
     { key:'ack', label:'确认告警', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canAcknowledgeAlarm(row.status), loading:actionPending[row.alarmId] === 'ACKED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'ACKED') },
     { key:'close', label:'关闭告警', type:'danger', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canCloseAlarm(row.status), loading:actionPending[row.alarmId] === 'CLOSED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'CLOSED') },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/alarms/:id', hidden:open, onClick:() => removeAlarm(row) }
@@ -237,6 +240,7 @@ function rowActions(row) {
     <ui-descriptions v-if="detail" :column="1" border>
       <ui-descriptions-item label="告警编号">{{detail.alarmId}}</ui-descriptions-item><ui-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</ui-descriptions-item><ui-descriptions-item v-if="detail.componentId" label="部件">{{detail.componentName||detail.componentId}}（{{detail.componentId}}）</ui-descriptions-item><ui-descriptions-item v-if="detail.componentLocation" label="部件位置">{{detail.componentLocation}}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</ui-descriptions-item><ui-descriptions-item label="等级 / 状态"><ui-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</ui-tag> {{label(alarmStatuses,detail.status)}}</ui-descriptions-item><ui-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</ui-descriptions-item><ui-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="触发次数">{{detail.triggerCount}}</ui-descriptions-item>
     </ui-descriptions>
+    <div v-if="detail && can('menu:alarmGovernance')" class="gov-actions top-gap"><ui-button v-if="canGovernance('POST /api/v1/alarm-governance/verifications')" size="small" @click="emit('navigate','alarmGovernance',{deviceId:detail.deviceId,alarmId:detail.alarmId,action:'verify'})">填写现场核实</ui-button><ui-button size="small" @click="emit('navigate','alarmGovernance',{deviceId:detail.deviceId,alarmId:detail.alarmId})">查看治理事项</ui-button></div>
     <ui-card v-if="detail" shadow="never" class="top-gap">
       <template #header><strong>关联摄像头</strong></template>
       <LinkedCameras :cameras="detail.cameras || []" />

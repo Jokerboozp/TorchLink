@@ -90,3 +90,21 @@ func TestMonitoringWorkflowPromptScopesAndWorkflowProof(t *testing.T) {
 		t.Fatal("monitoring checkbox bypassed saved knowledge policy", err, len(harness.Requests()))
 	}
 }
+
+func TestRecurringWorkflowBudgetCanFinishAllStructuredSections(t *testing.T) {
+	engine := New(memory.NewRepository(), nil, nil, nil, nil, nil)
+	harness := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) {
+		return `{"summary":"fixed","facts":[],"patterns":[],"hypotheses":[],"checks":[],"measures":[],"observation":[],"limitations":[]}`, nil
+	}}
+	engine.AIWorkflows, engine.HarnessTokens = harness, aitest.Tokens()
+	spec, _ := analytics.AnalysisWorkflow(analytics.KindRecurring)
+	job := model.AnalysisAIRevision{ID: "recurring-job", TenantID: "t", Kind: spec.Kind, WorkflowID: spec.WorkflowID, PromptVersion: spec.PromptVersion, RunID: "facts", SnapshotID: "fixed", SnapshotVersion: 1, LeaseToken: 1, HarnessRunID: "analysis_ai_recurring", Creator: "operator", DeviceIDs: []string{"d"}}
+	input := model.AnalysisAIFacts{SnapshotID: job.SnapshotID, SnapshotVersion: 1, SummaryFactID: "fixed/summary"}
+	_, err := engine.RunAnalysisWorkflow(ports.WithAIRunIdentity(context.Background(), analytics.AIIdentity(job)), job, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := harness.Last().MaxTokens; got != 8192 {
+		t.Fatalf("eight sections and exact fact IDs are truncated by shared budget: %d", got)
+	}
+}

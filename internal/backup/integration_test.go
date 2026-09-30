@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/config"
 )
 
@@ -74,6 +75,9 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 		t.Fatal("fixture connection failed")
 	}
 	defer fixture.Close(context.Background())
+	if _, err = fixture.Exec(ctx, postgres.AlarmGovernanceRestoreSchema()); err != nil {
+		t.Fatal("cannot create governance fixture schema", err)
+	}
 	const original = "消防控制器离线时检查网络与供电。"
 	objectBucket := "iot-backup-fixture-" + time.Now().UTC().Format("20060102150405")
 	store, err := minio.New(os.Getenv("IOT_MINIO_ENDPOINT"), &minio.Options{Creds: credentials.NewStaticV4(os.Getenv("IOT_MINIO_ACCESS_KEY"), os.Getenv("IOT_MINIO_SECRET_KEY"), ""), Secure: os.Getenv("IOT_MINIO_USE_TLS") == "true"})
@@ -180,6 +184,60 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 		t.Fatal("backup fixture connection failed")
 	}
 	defer backupPool.Close()
+	governanceKey := schema + "/governance-photo.txt"
+	governanceOriginal := "现场核实与治理附件测试内容"
+	exists, err = store.BucketExists(ctx, governanceAttachmentBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		if err = store.MakeBucket(ctx, governanceAttachmentBucket, minio.MakeBucketOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = store.PutObject(ctx, governanceAttachmentBucket, governanceKey, strings.NewReader(governanceOriginal), int64(len(governanceOriginal)), minio.PutObjectOptions{ContentType: "text/plain"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		store.RemoveObject(context.Background(), governanceAttachmentBucket, governanceKey, minio.RemoveObjectOptions{})
+	})
+	for _, query := range []string{
+		`INSERT INTO alarm_observation(tenant_id,id,slot_key,device_id,alarm_type,origin_kind,signal_key,event_at,recorded_at,acceptance,fact_kind,content_hash,body) VALUES('fixture-tenant','fixture-obs','fixture-slot','fixture-device','FIRE','DEVICE_DIRECT','device:FIRE',100,200,'ACCEPTED','ASSERT','fixture-hash','{}')`,
+		`INSERT INTO alarm_signal_state(tenant_id,device_id,signal_key,event_at,active,observation_id) VALUES('fixture-tenant','fixture-device','device:FIRE',100,true,'fixture-obs')`,
+		`INSERT INTO alarm_governance_case(tenant_id,id,version,created_by,created_at,updated_at,device_ids,point_key,status,body) VALUES('fixture-tenant','governance-case',1,'operator',1,1,'{fixture-device}','fixture-point','INVESTIGATING','{}')`,
+		`INSERT INTO alarm_governance_round(tenant_id,id,version,created_by,created_at,updated_at,case_id,device_ids,status,body) VALUES('fixture-tenant','governance-round',1,'operator',1,1,'governance-case','{fixture-device}','ACTIVE','{}')`,
+		`INSERT INTO alarm_governance_verification(tenant_id,id,version,created_by,created_at,updated_at,case_id,round_id,device_ids,body) VALUES('fixture-tenant','governance-verification',1,'operator',1,1,'governance-case','governance-round','{fixture-device}','{"observationIds":["fixture-obs"]}')`,
+		`INSERT INTO alarm_governance_verification_link(tenant_id,id,version,created_by,created_at,updated_at,case_id,round_id,device_ids,body) VALUES('fixture-tenant','governance-verification-link',1,'operator',1,1,'governance-case','governance-round','{fixture-device}','{"verificationId":"governance-verification"}')`,
+		`INSERT INTO alarm_governance_source_version(tenant_id,dependency_key,bucket_start,generation) VALUES('fixture-tenant','fixture-device-dependency',0,3)`,
+		`INSERT INTO alarm_governance_case_history(tenant_id,resource_id,version,recorded_at,body) VALUES('fixture-tenant','governance-case',1,2,'{"id":"governance-case","body":{"status":"INVESTIGATING"}}')`,
+	} {
+		if _, err = fixture.Exec(ctx, query); err != nil {
+			t.Fatal("populate governance fixture", err)
+		}
+	}
+	attachment, _ := json.Marshal(map[string]any{"storageKey": governanceKey, "availability": "AVAILABLE", "name": "field-note.txt", "size": len(governanceOriginal)})
+	if _, err = fixture.Exec(ctx, `INSERT INTO alarm_governance_attachment(tenant_id,id,version,created_by,created_at,updated_at,case_id,device_ids,body) VALUES('fixture-tenant','governance-attachment',1,'operator',1,1,'governance-case','{fixture-device}',$1)`, attachment); err != nil {
+		t.Fatal(err)
+	}
+	historyAttachment, _ := json.Marshal(map[string]any{"id": "governance-attachment", "body": map[string]any{"storageKey": governanceKey, "availability": "AVAILABLE", "size": len(governanceOriginal)}})
+	if _, err = fixture.Exec(ctx, `INSERT INTO alarm_governance_attachment_history(tenant_id,resource_id,version,recorded_at,body) VALUES('fixture-tenant','governance-attachment',1,2,$1)`, historyAttachment); err != nil {
+		t.Fatal(err)
+	}
+	for _, attempt := range []struct{ id, key string }{{"referenced-upload", governanceKey}, {"orphan-upload", schema + "/never-committed-object"}} {
+		upload, _ := json.Marshal(map[string]any{"attachmentId": "governance-attachment", "storageKey": attempt.key, "startedAt": 1})
+		if _, err = fixture.Exec(ctx, `INSERT INTO alarm_governance_upload_attempt(tenant_id,id,version,created_by,created_at,updated_at,device_ids,status,body) VALUES('fixture-tenant',$1,1,'SYSTEM',1,1,'{fixture-device}','UPLOAD_PENDING',$2)`, attempt.id, upload); err != nil {
+			t.Fatal(err)
+		}
+		history, _ := json.Marshal(map[string]any{"id": attempt.id, "status": "UPLOAD_PENDING", "body": json.RawMessage(upload)})
+		if _, err = fixture.Exec(ctx, `INSERT INTO alarm_governance_upload_attempt_history(tenant_id,resource_id,version,recorded_at,body) VALUES('fixture-tenant',$1,1,1,$2)`, attempt.id, history); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, kind := range []string{"run", "snapshot", "config", "ai"} {
+		if _, err = fixture.Exec(ctx, `INSERT INTO analysis_document(tenant_id,kind,id,application_kind,version,body) VALUES('fixture-tenant',$1,$1,'recurring-alarm-governance',1,'{"status":"RUNNING","frozenFacts":"immutable"}')`, kind); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cfg := Config{PostgresDSN: source, BackupDir: t.TempDir(), BackupBucket: objectBucket, MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"), MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: os.Getenv("IOT_MINIO_USE_TLS") == "true", ClickHouseURL: ch.URL, BackupTimezone: "Asia/Shanghai", HarnessSnapshotURLs: []string{snapshot.URL + "/v1/backup/snapshot"}, HarnessToken: "fixture-token", RestoreTargetDSN: os.Getenv("IOT_BACKUP_RESTORE_TARGET_DSN"), RestoreHarnessDir: t.TempDir(), RestoreMinIOEndpoint: os.Getenv("IOT_BACKUP_RESTORE_MINIO_ENDPOINT"), RestoreMinIOAccessKey: os.Getenv("IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY"), RestoreMinIOSecretKey: os.Getenv("IOT_BACKUP_RESTORE_MINIO_SECRET_KEY"), RestoreMinIOUseTLS: os.Getenv("IOT_BACKUP_RESTORE_MINIO_USE_TLS") == "true"}
 	s := &Service{cfg: cfg, pool: backupPool, store: store}
 	manifest, err := s.Run(ctx, "FULL")
@@ -191,7 +249,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			store.RemoveObject(context.Background(), objectBucket, a.ObjectKey, minio.RemoveObjectOptions{})
 		}
 	})
-	if manifest.FormatVersion != 3 || len(manifest.Artifacts) != 10 {
+	if manifest.FormatVersion != 4 || len(manifest.Artifacts) != 13 {
 		t.Fatal("FULL composition incomplete")
 	}
 	if _, err = s.Verify(ctx, manifest.ID); err != nil {
@@ -291,6 +349,43 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	t.Cleanup(func() {
 		dr.RemoveObject(context.Background(), dutyAttachmentBucket, attachmentKey, minio.RemoveObjectOptions{})
 	})
+	governanceRestored := result.Components["governance"].(map[string]any)["schema"].(string)
+	for _, table := range postgres.AlarmGovernanceRestoreTables() {
+		var count int64
+		if err = target.QueryRow(ctx, "SELECT count(*) FROM "+pgx.Identifier{governanceRestored, table}.Sanitize()).Scan(&count); err != nil || count != snapshotTableCount(manifest, "governance", table) {
+			t.Fatal("governance restored table count mismatch", table, count, err)
+		}
+	}
+	var governanceRestoredKey string
+	if err = target.QueryRow(ctx, "SELECT body->>'storageKey' FROM "+pgx.Identifier{governanceRestored, "alarm_governance_attachment"}.Sanitize()+" WHERE id='governance-attachment'").Scan(&governanceRestoredKey); err != nil {
+		t.Fatal(err)
+	}
+	for _, attempt := range []struct{ id, key string }{{"referenced-upload", governanceRestoredKey}, {"orphan-upload", ""}} {
+		var status, key, historyKey string
+		table := pgx.Identifier{governanceRestored, "alarm_governance_upload_attempt"}.Sanitize()
+		if err = target.QueryRow(ctx, "SELECT status,body->>'storageKey' FROM "+table+" WHERE id=$1", attempt.id).Scan(&status, &key); err != nil || status != "UPLOAD_RESTORED" || key != attempt.key {
+			t.Fatal("restored compensation still owns source object", status, key, err)
+		}
+		if err = target.QueryRow(ctx, "SELECT body->'body'->>'storageKey' FROM "+pgx.Identifier{governanceRestored, "alarm_governance_upload_attempt_history"}.Sanitize()+" WHERE resource_id=$1", attempt.id).Scan(&historyKey); err != nil || historyKey != attempt.key {
+			t.Fatal("restored upload history retains source namespace", err)
+		}
+	}
+	object, err = dr.GetObject(ctx, governanceAttachmentBucket, governanceRestoredKey, minio.GetObjectOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(object)
+	object.Close()
+	if err != nil || string(body) != governanceOriginal {
+		t.Fatal("restored governance attachment mismatch", err)
+	}
+	t.Cleanup(func() {
+		dr.RemoveObject(context.Background(), governanceAttachmentBucket, governanceRestoredKey, minio.RemoveObjectOptions{})
+	})
+	var generatedVerification string
+	if err = target.QueryRow(ctx, "SELECT verification_id FROM "+pgx.Identifier{governanceRestored, "alarm_governance_verification_link"}.Sanitize()).Scan(&generatedVerification); err != nil || generatedVerification != "governance-verification" {
+		t.Fatal("generated governance association not restored", err)
+	}
 	// An older FULL v2 can still restore without requiring duty artifacts.
 	old := manifest
 	old.ID = manifest.ID
@@ -303,7 +398,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	if err = fixture.QueryRow(ctx, "SELECT count(*) FROM ai_knowledge_doc").Scan(&sourceCount); err != nil || sourceCount != 1 {
 		t.Fatal("source knowledge changed during restore")
 	}
-	t.Logf("FULL v3 and daily verified and restored: PostgreSQL/ClickHouse messages, 4 knowledge tables, duty tables, original and duty attachment, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
+	t.Logf("FULL v4 and daily verified and restored: PostgreSQL/ClickHouse messages, 4 knowledge tables, duty tables, original, duty and governance attachments, governance facts and analysis tasks, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
 }
 
 func TestLiveHarnessSnapshotRestoreIntegration(t *testing.T) {

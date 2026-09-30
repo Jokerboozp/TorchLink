@@ -3,7 +3,7 @@ package analytics
 const WorkflowMonitoring = "monitoring-continuity-reviewer"
 const MonitoringAIPromptVersion = "monitoring-fixed-facts-v1"
 const WorkflowRecurring = "recurring-alarm-analyst"
-const RecurringAIPromptVersion = "recurring-fixed-facts-v1"
+const RecurringAIPromptVersion = "recurring-fixed-facts-v2"
 
 // WorkflowDefinition is the fixed registry used by HTTP, AI and MCP. Neither
 // manifests nor tool names can be supplied by a browser or by uploaded data.

@@ -190,8 +190,8 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	manifest.Components["parsedMessages"] = map[string]any{"records": parsed.Total, "postgresql": parsed.PostgreSQL, "clickhouse": parsed.ClickHouse}
 	paths := []string{rawPath, parsedPath}
 	if kind == "FULL" {
-		manifest.FormatVersion = 3
-		manifest.Components["scope"] = "device messages, PostgreSQL knowledge, document originals, persistent Agents and duty management"
+		manifest.FormatVersion = 4
+		manifest.Components["scope"] = "device messages, PostgreSQL knowledge, document originals, persistent Agents, duty management, alarm governance and durable analytics tasks"
 		extra, fullErr := s.exportKnowledgeAndAgents(ctx, dir, &manifest)
 		if fullErr != nil {
 			return manifest, fullErr
@@ -202,6 +202,11 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 			return manifest, dutyErr
 		}
 		paths = append(paths, dutyPaths...)
+		governancePaths, governanceErr := s.exportGovernance(ctx, dir, &manifest)
+		if governanceErr != nil {
+			return manifest, governanceErr
+		}
+		paths = append(paths, governancePaths...)
 	}
 	if err = s.ensureBucket(ctx, s.store, s.cfg.BackupBucket); err != nil {
 		return manifest, err

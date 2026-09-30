@@ -208,6 +208,9 @@ func restoreDutyRows(ctx context.Context, tx pgx.Tx, schema, path string) (map[s
 	return counts, nil
 }
 func readDutyObjects(path, stage string) (map[string]string, []knowledgeObject, error) {
+	return readSnapshotObjects(path, stage, dutyAttachmentBucket)
+}
+func readSnapshotObjects(path, stage, bucket string) (map[string]string, []knowledgeObject, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, nil, err
@@ -270,7 +273,7 @@ func readDutyObjects(path, stage string) (map[string]string, []knowledgeObject, 
 	seen := map[string]bool{}
 	keys := map[string]bool{}
 	for _, ref := range refs {
-		if entries[ref.Entry] == "" || seen[ref.Entry] || ref.Bucket != dutyAttachmentBucket || ref.Key == "" || keys[ref.Key] {
+		if entries[ref.Entry] == "" || seen[ref.Entry] || ref.Bucket != bucket || ref.Key == "" || keys[ref.Key] {
 			return nil, nil, errors.New("invalid duty object reference")
 		}
 		seen[ref.Entry] = true
@@ -379,6 +382,9 @@ func (s *Service) restoreDutyObjects(ctx context.Context, tx pgx.Tx, schema, pat
 	return int64(len(refs)), nil
 }
 func rewriteDutyObjectKeys(body []byte, remap map[string]string) ([]byte, bool, error) {
+	return rewriteSnapshotObjectKeys(body, remap, "objectKey")
+}
+func rewriteSnapshotObjectKeys(body []byte, remap map[string]string, field string) ([]byte, bool, error) {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
@@ -391,7 +397,7 @@ func rewriteDutyObjectKeys(body []byte, remap map[string]string) ([]byte, bool, 
 		switch x := v.(type) {
 		case map[string]any:
 			for k, child := range x {
-				if k == "objectKey" {
+				if k == field {
 					if old, ok := child.(string); ok {
 						if next, found := remap[old]; found {
 							x[k] = next

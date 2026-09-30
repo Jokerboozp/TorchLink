@@ -164,6 +164,7 @@ func (s *Server) alarmGovernanceRoutes() {
 	s.router.GET(base+"/reports/:id/analysis", s.authorize("viewer"), s.endpoint(s.governanceReportAnalysis, "id"))
 	s.governanceSourceRoutes()
 	s.governanceProjectionRoutes()
+	s.governanceFactRoutes()
 	s.router.GET(base+"/source-fields", s.authorize("viewer"), s.endpoint(s.governanceSourceFields))
 	for resource, kind := range governanceResources {
 		if kind == model.GovernanceBusinessLinkKind || kind == model.GovernanceReminderKind {
