@@ -37,6 +37,25 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		problem(w, http.StatusNotImplemented, "knowledge storage does not support deletion")
 		return
 	}
+	if jobs := s.knowledgeJobs; jobs != nil {
+		doc.Status = "DELETING"
+		if doc.Metadata == nil {
+			doc.Metadata = map[string]any{}
+		}
+		doc.Metadata["indexStage"] = "deleting"
+		updated, updateErr := jobs.UpdateKnowledgeDocument(r.Context(), doc)
+		if updateErr != nil {
+			problem(w, 500, "无法保存文档删除任务")
+			return
+		}
+		if !updated {
+			problem(w, 404, "知识文档不存在")
+			return
+		}
+		s.audit(r, "knowledge.delete", "knowledge-document", id, nil)
+		write(w, 202, map[string]any{"deleting": true, "id": id})
+		return
+	}
 	if err = index.DeleteKnowledgeDocument(r.Context(), tenant, id, doc.WorkflowID); err != nil {
 		problem(w, http.StatusBadGateway, "could not delete indexed knowledge")
 		return

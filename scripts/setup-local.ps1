@@ -67,13 +67,16 @@ $defaults = [ordered]@{
     IOT_KAFKA_BROKERS = '127.0.0.1:19092'
     IOT_MQTT_BROKER = 'tcp://127.0.0.1:1883'
     IOT_MQTT_WEBSOCKET_PUBLIC_URL = 'ws://127.0.0.1:8083/mqtt'
-    IOT_EMBEDDING_URL = 'http://127.0.0.1:18091/v1'
     IOT_AI_PROVIDER = 'deepseek'
     IOT_AI_BASE_URL = 'https://api.deepseek.com'
     IOT_AI_MODEL = $DeepSeekModel
-    IOT_WEAVIATE_URL = 'http://127.0.0.1:18080'
     IOT_BACKUP_URL = 'http://127.0.0.1:8092'
     IOT_BACKUP_HTTP_ADDR = ':8092'
+    IOT_BACKUP_HARNESS_SNAPSHOT_URLS = 'http://127.0.0.1:8091/v1/backup/snapshot'
+    IOT_BACKUP_RESTORE_HARNESS_DIR = './data/backups/restored-harness'
+    IOT_BACKUP_RESTORE_MINIO_ENDPOINT = '127.0.0.1:19001'
+    IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_USER')
+    IOT_BACKUP_RESTORE_MINIO_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_DR_ROOT_PASSWORD')
     IOT_AI_HARNESS_ENABLED = 'true'
     IOT_AI_HARNESS_URL = 'http://127.0.0.1:8091'
     IOT_AI_HARNESS_MCP_URL = 'http://host.docker.internal:8081/mcp/harness'
@@ -84,10 +87,11 @@ foreach ($key in $defaults.Keys) { Set-LocalEnvValue -Key $key -Value $defaults[
 # The source-debugged API and backup worker run on the same host. Keep the
 # worker endpoint local even when middleware containers are remote.
 Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace
+Set-LocalEnvValue -Key 'IOT_BACKUP_HARNESS_SNAPSHOT_URLS' -Value 'http://127.0.0.1:8091/v1/backup/snapshot' -Replace
 Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
 Set-LocalEnvValue 'IOT_LOCAL_BACKUP_METRICS_TARGET' $(if ($IncludeBackup) { 'backup-service:8090' } else { 'host.docker.internal:8092' }) -Replace
 Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
-Set-EmbeddingDeploymentEnv -Path $EnvFile -Url 'http://127.0.0.1:18091/v1'
+Set-EmbeddingDeploymentEnv -Path $EnvFile
 
 # The controller follows the source API lifecycle, using its local addresses.
 if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'off' } else { 'on' } }
@@ -149,7 +153,6 @@ try {
         Invoke-DockerChecked -Arguments ($backupCompose + @('stop', 'backup-service'))
     }
     Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
-    # The first start downloads the knowledge embedding model (about 1.2 GB).
     Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--build', '--wait', '--wait-timeout', '900'))
     if ($IncludeBackup) { Wait-DeploymentHttp -Url 'http://127.0.0.1:8092/health/ready' -TimeoutSeconds 180 }
     Wait-DeploymentHttp -Url 'http://127.0.0.1:8091/health' -TimeoutSeconds 180

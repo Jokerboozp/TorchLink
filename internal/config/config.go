@@ -102,7 +102,8 @@ type Config struct {
 	AIHarnessMCPURL          string
 	AIHarnessModel           string
 	AIHarnessTimeout         time.Duration
-	WeaviateURL              string
+	EmbeddingDimensions      int
+	EmbeddingBatchSize       int
 	EmbeddingURL             string
 	EmbeddingModel           string
 	EmbeddingAPIKey          string
@@ -194,9 +195,10 @@ func Load() Config {
 		AIHarnessMCPURL:             strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MCP_URL")),
 		AIHarnessModel:              strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MODEL")),
 		AIHarnessTimeout:            duration("IOT_AI_HARNESS_TIMEOUT", 90*time.Second),
-		WeaviateURL:                 os.Getenv("IOT_WEAVIATE_URL"),
-		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_EMBEDDING_URL")), "/"),
-		EmbeddingModel:              get("IOT_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B"),
+		EmbeddingDimensions:         int(int64Value("IOT_EMBEDDING_DIMENSIONS", 1024)),
+		EmbeddingBatchSize:          int(int64Value("IOT_EMBEDDING_BATCH_SIZE", 10)),
+		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(get("IOT_EMBEDDING_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")), "/"),
+		EmbeddingModel:              get("IOT_EMBEDDING_MODEL", "text-embedding-v4"),
 		EmbeddingAPIKey:             strings.TrimSpace(os.Getenv("IOT_EMBEDDING_API_KEY")),
 		EmbeddingQueryPrompt:        embeddingQueryPrompt(),
 		EmbeddingTimeout:            duration("IOT_EMBEDDING_TIMEOUT", time.Minute),
@@ -255,15 +257,20 @@ func (c Config) Validate() error {
 			}
 		}
 	}
-	// The persistent knowledge index stores vectors computed by the private
-	// embedding service; without it the index could not be written or queried.
-	if c.Runs(ComponentManagement) && strings.TrimSpace(c.WeaviateURL) != "" {
+	// The persistent knowledge index uses the external embedding API.
+	if c.Runs(ComponentManagement) && !c.DevMode && c.PostgresDSN == "" {
+		return fmt.Errorf("IOT_POSTGRES_DSN is required for the persistent PostgreSQL knowledge index")
+	}
+	if c.Runs(ComponentManagement) && (!c.DevMode || c.PostgresDSN != "" || c.EmbeddingURL != "") {
 		if c.EmbeddingURL == "" {
-			return fmt.Errorf("IOT_EMBEDDING_URL is required when IOT_WEAVIATE_URL is set: the knowledge index uses the private embedding service")
+			return fmt.Errorf("IOT_EMBEDDING_URL is required for the PostgreSQL knowledge index")
 		}
-		if u, err := url.Parse(c.EmbeddingURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" {
-			return fmt.Errorf("IOT_EMBEDDING_URL must be an HTTP(S) URL without credentials or query, for example http://embedding:80/v1")
+		if u, err := url.Parse(c.EmbeddingURL); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("IOT_EMBEDDING_URL must be an HTTPS external API URL without credentials or query")
 		}
+	}
+	if (c.EmbeddingDimensions != 0 && (c.EmbeddingDimensions < 1 || c.EmbeddingDimensions > 2000)) || (c.EmbeddingBatchSize != 0 && (c.EmbeddingBatchSize < 1 || c.EmbeddingBatchSize > 100)) {
+		return fmt.Errorf("embedding dimensions must be 1..2000 and batch size 1..100")
 	}
 	if c.NodeURL != "" && c.PostgresDSN == "" {
 		return fmt.Errorf("IOT_NODE_URL (live video control election) requires shared PostgreSQL")
@@ -315,18 +322,14 @@ func insecurePlaceholder(value string) bool {
 	return false
 }
 
-// DefaultEmbeddingQueryInstruction follows the Qwen3-Embedding retrieval
-// format; documents are embedded without an instruction.
-const DefaultEmbeddingQueryInstruction = "Instruct: Given a question about fire protection devices or operations, retrieve relevant passages that answer the question\nQuery: "
-
 // embeddingQueryPrompt reads IOT_EMBEDDING_QUERY_INSTRUCTION. Empty keeps the
-// default, "none" disables the prefix for models that do not use one, and a
+// empty instruction, "none" explicitly disables the prefix, and a
 // literal \n is accepted so the value fits on one env-file line.
 func embeddingQueryPrompt() string {
 	value := os.Getenv("IOT_EMBEDDING_QUERY_INSTRUCTION")
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "":
-		return DefaultEmbeddingQueryInstruction
+		return ""
 	case "none":
 		return ""
 	}

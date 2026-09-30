@@ -89,6 +89,7 @@ func TestAdminTenantAllowlist(t *testing.T) {
 }
 
 func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) {
+	t.Setenv("IOT_POSTGRES_DSN", "test-dsn")
 	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
 	t.Setenv("IOT_DEV_MODE", "false")
 	t.Setenv("IOT_JWT_SECRET", "")
@@ -131,7 +132,7 @@ func TestProductionConfigRejectsPlaceholderSecretsAndInvalidMode(t *testing.T) {
 }
 
 func TestExplicitConfigValueCanBeValidatedWithoutEnvironmentProvenance(t *testing.T) {
-	cfg := Config{DevMode: false, JWTSecret: strings.Repeat("j", 48), AdminPassword: strings.Repeat("p", 20), AIHarnessURL: testHarnessURL}
+	cfg := Config{DevMode: false, PostgresDSN: "test-dsn", JWTSecret: strings.Repeat("j", 48), AdminPassword: strings.Repeat("p", 20), AIHarnessURL: testHarnessURL, EmbeddingURL: "https://api.example.com/v1"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("explicit configuration values were rejected: %v", err)
 	}
@@ -148,6 +149,7 @@ func TestSplitRolesRequireSharedDependencies(t *testing.T) {
 		t.Fatal("API accepted missing gateway")
 	}
 	cfg.AccessGatewayURL = "http://gateway:8080"
+	cfg.EmbeddingURL = "https://api.example.com/v1"
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +218,7 @@ func TestRoleComponents(t *testing.T) {
 }
 
 func TestProductionConfigAllowsCustomAdminPasswords(t *testing.T) {
+	t.Setenv("IOT_POSTGRES_DSN", "test-dsn")
 	t.Setenv("IOT_DEV_MODE", "false")
 	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
 	t.Setenv("IOT_JWT_SECRET", strings.Repeat("j", 48))
@@ -355,11 +358,11 @@ func TestLoadEnvFileRequiresExistingFile(t *testing.T) {
 }
 
 func TestEmbeddingConfiguration(t *testing.T) {
-	t.Setenv("IOT_EMBEDDING_URL", "http://embedding:80/v1/")
+	t.Setenv("IOT_EMBEDDING_URL", "https://api.example.com/v1/")
 	t.Setenv("IOT_EMBEDDING_MODEL", "")
 	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", "")
 	cfg := Load()
-	if cfg.EmbeddingURL != "http://embedding:80/v1" || cfg.EmbeddingModel != "Qwen/Qwen3-Embedding-0.6B" || cfg.EmbeddingQueryPrompt != DefaultEmbeddingQueryInstruction {
+	if cfg.EmbeddingURL != "https://api.example.com/v1" || cfg.EmbeddingModel != "text-embedding-v4" || cfg.EmbeddingQueryPrompt != "" || cfg.EmbeddingDimensions != 1024 || cfg.EmbeddingBatchSize != 10 {
 		t.Fatalf("unexpected embedding defaults: %+v", cfg)
 	}
 	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", "none")
@@ -371,7 +374,7 @@ func TestEmbeddingConfiguration(t *testing.T) {
 		t.Fatal("escaped newline must be expanded")
 	}
 
-	management := Config{DevMode: true, AIHarnessURL: "http://harness:8091", WeaviateURL: "http://weaviate:8080"}
+	management := Config{DevMode: true, AIHarnessURL: "http://harness:8091", PostgresDSN: "postgres://example.invalid/iot"}
 	if err := management.Validate(); err == nil || !strings.Contains(err.Error(), "IOT_EMBEDDING_URL") {
 		t.Fatalf("persistent knowledge index without embedding service must be rejected, got %v", err)
 	}
@@ -379,7 +382,7 @@ func TestEmbeddingConfiguration(t *testing.T) {
 	if err := management.Validate(); err == nil {
 		t.Fatal("embedding URL with credentials must be rejected")
 	}
-	management.EmbeddingURL = "http://embedding:80/v1"
+	management.EmbeddingURL = "https://api.example.com/v1"
 	if err := management.Validate(); err != nil {
 		t.Fatalf("valid embedding configuration rejected: %v", err)
 	}

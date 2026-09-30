@@ -18,7 +18,7 @@ def prepare(bundle: Path) -> None:
             public_lines.append(line)
             continue
         key, value = line.split('=', 1)
-        if key in ('DEEPSEEK_API_KEY', 'IOT_AI_API_KEY'):
+        if key in ('DEEPSEEK_API_KEY', 'IOT_AI_API_KEY', 'IOT_EMBEDDING_API_KEY'):
             if value.strip("'\""):
                 raise ValueError('发布包不能包含 API Key')
         elif key == 'IOT_VIDEO_PLATFORM_SECRETS':
@@ -26,7 +26,7 @@ def prepare(bundle: Path) -> None:
         elif key == 'IOT_VIDEO_CREDENTIAL_KEY':
             # 32 random bytes (base64) that seal camera and GB28181 device passwords.
             value = '__TORCHLINK_RANDOM_BASE64_32__'
-        elif key in ('IOT_EMQX_API_KEY', 'IOT_EMBEDDING_API_KEY', 'IOT_LLM_API_KEY') or key.endswith(('_PASSWORD', '_TOKEN', '_SECRET', '_SECRETS')):
+        elif key in ('IOT_EMQX_API_KEY',) or key.endswith(('_PASSWORD', '_TOKEN', '_SECRET', '_SECRETS')):
             value = '__TORCHLINK_RANDOM_HEX__'
         public_lines.append(f'{key}={value}')
     (bundle / '.env.offline.template').write_text('\n'.join(public_lines) + '\n')

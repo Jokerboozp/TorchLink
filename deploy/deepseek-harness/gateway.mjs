@@ -1,7 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import { access, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { access, lstat, mkdir, open, opendir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -95,6 +96,152 @@ function constantTimeEqual(actual, expected) {
   const left = Buffer.from(actual)
   const right = Buffer.from(expected)
   return left.length === right.length && timingSafeEqual(left, right)
+}
+
+const BACKUP_SEGMENT_PATTERN = /^(?:[A-Za-z0-9._-]|~[A-F0-9]{4}){1,255}$/
+const BACKUP_GENERATION_PATTERN = /^session(?:\.v[1-9][0-9]{0,15})?\.jsonl(?:\.zstd)?$/
+
+function snapshotChanged() {
+  return new HttpError(409, 'SNAPSHOT_CHANGED', 'Harness persistence changed while copying; retry the snapshot')
+}
+
+function sameSnapshotStat(left, right) {
+  return ['dev', 'ino', 'size', 'mode', 'nlink', 'mtimeNs', 'ctimeNs']
+    .every(key => left[key] === right[key])
+}
+
+function safeBackupSegment(name) {
+  return name !== '.' && name !== '..' && BACKUP_SEGMENT_PATTERN.test(name)
+}
+
+// Only the two persistence roots enter a snapshot. Runtime homes contain
+// provider configuration, while workspace and process environment are never read.
+async function captureBackupSnapshot(pluginDir, sessionRoot, limits, afterRead) {
+  const roots = [{ name: 'plugins', root: pluginDir }, { name: 'sessions', root: sessionRoot }]
+  const scan = async () => {
+    const nodes = new Map()
+    const files = []
+    let totalBytes = 0
+    for (const source of roots) {
+      let rootStat
+      try { rootStat = await lstat(source.root, { bigint: true }) } catch (error) {
+        if (error?.code === 'ENOENT' && source.name === 'sessions') continue
+        throw error
+      }
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        throw new HttpError(422, 'SNAPSHOT_UNSAFE_PATH', 'Harness persistence root must be a regular directory')
+      }
+      const canonicalRoot = await realpath(source.root)
+      const visit = async (diskPath, segments, details) => {
+        const path = [source.name, ...segments].join('/')
+        if (nodes.size >= limits.maxFiles * 4 + 128) {
+          throw new HttpError(413, 'SNAPSHOT_LIMIT_EXCEEDED', 'Harness snapshot contains too many filesystem entries')
+        }
+        nodes.set(path, { diskPath, details, canonicalRoot })
+        if (details.isSymbolicLink() || (!details.isDirectory() && !details.isFile())
+          || (details.isFile() && details.nlink !== 1n)) {
+          throw new HttpError(422, 'SNAPSHOT_UNSAFE_PATH', 'Harness snapshot refuses links and special files')
+        }
+        const actual = await realpath(diskPath)
+        const withinRoot = relative(canonicalRoot, actual)
+        if (withinRoot === '..' || withinRoot.startsWith(`..${sep}`) || resolve(canonicalRoot, withinRoot) !== actual) {
+          throw new HttpError(422, 'SNAPSHOT_UNSAFE_PATH', 'Harness snapshot path is outside its persistence root')
+        }
+        if (details.isDirectory()) {
+          if ((source.name === 'plugins' && segments.length > 0) || segments.length > 2) {
+            throw new HttpError(422, 'SNAPSHOT_UNSAFE_PATH', 'Harness snapshot contains an unsupported persistence directory')
+          }
+          const directory = await opendir(diskPath)
+          for await (const entry of directory) {
+            // Manifests use the validated workflow ID; JSONL directories use
+            // upstream's escaped project/session segments. Neither admits paths.
+            const manifestName = source.name === 'plugins' && segments.length === 0
+              && entry.name.endsWith('.json') && ID_PATTERN.test(entry.name.slice(0, -5))
+            if (!manifestName && !safeBackupSegment(entry.name)) {
+              throw new HttpError(422, 'SNAPSHOT_UNSAFE_PATH', 'Harness snapshot contains an unsafe path segment')
+            }
+            const child = join(diskPath, entry.name)
+            await visit(child, [...segments, entry.name], await lstat(child, { bigint: true }))
+          }
+          return
+        }
+        const included = source.name === 'plugins'
+          ? segments.length === 1 && segments[0].endsWith('.json') && ID_PATTERN.test(segments[0].slice(0, -5))
+          : segments.length === 3 && BACKUP_GENERATION_PATTERN.test(segments[2])
+        // Locks, incomplete generations and unrelated files are never restored.
+        if (!included) return
+        if (source.name === 'plugins' && details.size > 65536n) {
+          throw new HttpError(422, 'SNAPSHOT_MANIFEST_INVALID', 'Harness Agent manifest exceeds its size limit')
+        }
+        if (files.length >= limits.maxFiles || details.size > BigInt(limits.maxBytes - totalBytes)) {
+          throw new HttpError(413, 'SNAPSHOT_LIMIT_EXCEEDED', 'Harness snapshot exceeds its file or byte limit')
+        }
+        totalBytes += Number(details.size)
+        files.push({ path, diskPath, details, canonicalRoot })
+      }
+      await visit(source.root, [], rootStat)
+    }
+    files.sort((left, right) => left.path.localeCompare(right.path, 'en'))
+    return { nodes, files, totalBytes }
+  }
+  const readStable = async (file) => {
+    const details = await lstat(file.diskPath, { bigint: true })
+    if (!details.isFile() || !sameSnapshotStat(details, file.details)) throw snapshotChanged()
+    const actual = await realpath(file.diskPath)
+    const withinRoot = relative(file.canonicalRoot, actual)
+    if (withinRoot === '..' || withinRoot.startsWith(`..${sep}`)) throw snapshotChanged()
+    const handle = await open(file.diskPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+    try {
+      if (!sameSnapshotStat(await handle.stat({ bigint: true }), file.details)) throw snapshotChanged()
+      // Read at most the scanned size plus one byte even if an external writer
+      // appends continuously. Never let readFile allocate from a changing size.
+      const buffer = Buffer.alloc(Number(file.details.size) + 1)
+      let offset = 0
+      while (offset < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset)
+        if (bytesRead === 0) break
+        offset += bytesRead
+      }
+      if (offset !== Number(file.details.size)
+        || !sameSnapshotStat(await handle.stat({ bigint: true }), file.details)) throw snapshotChanged()
+      return buffer.subarray(0, offset)
+    } finally {
+      await handle.close()
+    }
+  }
+  try {
+    const initial = await scan()
+    const entries = []
+    for (const file of initial.files) {
+      const bytes = await readStable(file)
+      if (file.path.startsWith('plugins/')) {
+        try {
+          const manifest = validatedManifest(JSON.parse(bytes.toString('utf8')), file.path)
+          if (file.path !== `plugins/${manifest.id}.json`) throw new Error('manifest ID does not match filename')
+        } catch {
+          throw new HttpError(422, 'SNAPSHOT_MANIFEST_INVALID', 'Harness snapshot contains an invalid Agent manifest')
+        }
+      }
+      entries.push({ path: file.path, base64: bytes.toString('base64'), sha256: hash(bytes), size: bytes.length })
+      await afterRead?.(file.path)
+    }
+    // A second checksum pass catches in-place rewrites. The final complete
+    // directory scan also catches replacement, deletion and newly added files.
+    for (let index = 0; index < initial.files.length; index++) {
+      if (hash(await readStable(initial.files[index])) !== entries[index].sha256) throw snapshotChanged()
+    }
+    const final = await scan()
+    if (final.nodes.size !== initial.nodes.size) throw snapshotChanged()
+    for (const [path, node] of initial.nodes) {
+      const candidate = final.nodes.get(path)
+      if (candidate === undefined || candidate.canonicalRoot !== node.canonicalRoot
+        || !sameSnapshotStat(candidate.details, node.details)) throw snapshotChanged()
+    }
+    return { formatVersion: 1, createdAt: new Date().toISOString(), entries, fileCount: entries.length, totalBytes: initial.totalBytes }
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error?.code)) throw snapshotChanged()
+    throw error
+  }
 }
 
 function bearerToken(header) {
@@ -659,6 +806,10 @@ export function createGateway(options = {}) {
   configuredBaseURL = typeof configuredBaseURL === 'string' ? configuredBaseURL.trim().replace(/\/$/, '') : configuredBaseURL
   configuredAPIKey = typeof configuredAPIKey === 'string' ? configuredAPIKey.trim() : ''
   const maximumBodyBytes = integerOption(options.maximumBodyBytes, 32768, 'maximumBodyBytes', 1024, 1048576)
+  const backupLimits = {
+    maxFiles: integerOption(options.backupMaxFiles, 4096, 'backupMaxFiles', 1, 16384),
+    maxBytes: integerOption(options.backupMaxBytes, 64 * 1024 * 1024, 'backupMaxBytes', 1, 256 * 1024 * 1024),
+  }
   const maxConcurrency = integerOption(
     options.maxConcurrency ?? process.env.IOT_HARNESS_MAX_CONCURRENCY,
     4,
@@ -723,6 +874,8 @@ export function createGateway(options = {}) {
   const conversationLocks = new Map()
   const conversations = new Map()
   const runtimeRoutes = new Map()
+  const pendingCloses = new Set()
+  const unconfirmedCloses = new Set()
   const proxyServer = createLoopbackMcpProxy(runtimeRoutes, {
     maximumBodyBytes: proxyMaximumBodyBytes,
     timeoutMs: proxyTimeoutMs,
@@ -730,6 +883,15 @@ export function createGateway(options = {}) {
   let proxyMcpUrl
   let closing = false
   let sweeping = false
+  let snapshotInProgress = false
+  let persistenceWriters = 0
+
+  const withPersistenceWrite = async (handler, request, response, ...args) => {
+    requireGatewayToken(request)
+    if (snapshotInProgress) throw new HttpError(409, 'SNAPSHOT_BUSY', 'Harness snapshot is in progress; retry the operation')
+    persistenceWriters++
+    try { return await handler(request, response, ...args) } finally { persistenceWriters-- }
+  }
 
   const acquireConversationLock = async (cacheKey, signal) => {
     signal?.throwIfAborted()
@@ -774,7 +936,12 @@ export function createGateway(options = {}) {
     runtimeRoutes.delete(entry.routeDigest)
     // The SDK owns its EOF/SIGTERM/SIGKILL reap ladder. Share the close promise
     // so stopping never releases capacity before process teardown completes.
-    entry.closing = Promise.resolve().then(() => entry.harness.close()).catch(error => { entry.closeError = error })
+    entry.closing = Promise.resolve().then(() => entry.harness.close()).catch(error => {
+      entry.closeError = error
+      unconfirmedCloses.add(entry)
+    })
+      .finally(() => pendingCloses.delete(entry.closing))
+    pendingCloses.add(entry.closing)
     return entry.closing
   }
 
@@ -841,7 +1008,7 @@ export function createGateway(options = {}) {
   }
 
   const sweep = async () => {
-    if (sweeping || closing) return
+    if (sweeping || closing || snapshotInProgress) return
     sweeping = true
     try {
       const cutoff = Date.now() - conversationTtlMs
@@ -859,6 +1026,26 @@ export function createGateway(options = {}) {
     const supplied = request.headers['x-iot-harness-token']
     if (typeof supplied !== 'string' || !constantTimeEqual(supplied, gatewayToken)) {
       throw new HttpError(401, 'HARNESS_TOKEN_INVALID', 'X-IOT-Harness-Token is invalid')
+    }
+  }
+
+  const handleBackupSnapshot = async (request, response) => {
+    requireGatewayToken(request)
+    if (request.headers['transfer-encoding'] !== undefined || Number(request.headers['content-length'] ?? 0) !== 0) {
+      throw new HttpError(400, 'SNAPSHOT_BODY_NOT_ALLOWED', 'snapshot does not accept a request body')
+    }
+    if (closing || snapshotInProgress || persistenceWriters > 0 || managedRuns.size > 0
+      || pendingCloses.size > 0 || unconfirmedCloses.size > 0) {
+      throw new HttpError(409, 'SNAPSHOT_BUSY', 'Harness is writing persistence; retry after workflow runs finish')
+    }
+    // Acquire before any await, so a manifest mutation or initializing run
+    // cannot enter between the idle check and the first filesystem read.
+    snapshotInProgress = true
+    try {
+      const snapshot = await captureBackupSnapshot(pluginDir, sessionRoot, backupLimits, options.backupAfterRead)
+      json(response, 200, snapshot)
+    } finally {
+      snapshotInProgress = false
     }
   }
 
@@ -1145,6 +1332,7 @@ export function createGateway(options = {}) {
     const url = new URL(request.url ?? '/', 'http://gateway.invalid')
     if (url.search !== '') throw new HttpError(400, 'QUERY_NOT_ALLOWED', 'query parameters are not supported')
     if (request.method === 'GET' && url.pathname === '/health') return handleHealth(response)
+    if (request.method === 'GET' && url.pathname === '/v1/backup/snapshot') return handleBackupSnapshot(request, response)
     if (request.method === 'GET' && url.pathname === '/v1/runs') return handleRuns(request, response)
     if (request.method === 'POST' && url.pathname.startsWith('/v1/runs/') && url.pathname.endsWith('/stop')) {
       const raw = url.pathname.slice('/v1/runs/'.length, -'/stop'.length)
@@ -1153,19 +1341,23 @@ export function createGateway(options = {}) {
       text(runId, 'runId', 128, ID_PATTERN)
       return handleRuns(request, response, runId)
     }
-    if (['GET', 'PUT', 'POST', 'DELETE'].includes(request.method) && url.pathname === '/v1/provider') return handleProviderConfig(request, response)
+    if (['GET', 'PUT', 'POST', 'DELETE'].includes(request.method) && url.pathname === '/v1/provider') {
+      return request.method === 'PUT'
+        ? withPersistenceWrite(handleProviderConfig, request, response)
+        : handleProviderConfig(request, response)
+    }
     if (request.method === 'GET' && url.pathname === '/v1/plugins/admin') return handleAdminPlugins(request, response)
     if (request.method === 'GET' && url.pathname === '/v1/plugins') return handlePlugins(request, response)
-    if (request.method === 'POST' && url.pathname === '/v1/plugins') return handleSavePlugin(request, response)
+    if (request.method === 'POST' && url.pathname === '/v1/plugins') return withPersistenceWrite(handleSavePlugin, request, response)
     if (request.method === 'DELETE' && url.pathname.startsWith('/v1/plugins/')) {
       const encodedID = url.pathname.slice('/v1/plugins/'.length)
       if (encodedID === '' || encodedID.includes('/')) throw new HttpError(422, 'WORKFLOW_ID_INVALID', 'workflow id has an invalid format')
       let workflowID
       try { workflowID = decodeURIComponent(encodedID) } catch { throw new HttpError(422, 'WORKFLOW_ID_INVALID', 'workflow id has an invalid format') }
-      return handleDeletePlugin(request, response, workflowID)
+      return withPersistenceWrite(handleDeletePlugin, request, response, workflowID)
     }
-    if (request.method === 'POST' && url.pathname === '/v1/chat/stream') return handleChat(request, response)
-    if (['/health', '/v1/plugins', '/v1/plugins/admin', '/v1/chat/stream'].includes(url.pathname)) {
+    if (request.method === 'POST' && url.pathname === '/v1/chat/stream') return withPersistenceWrite(handleChat, request, response)
+    if (['/health', '/v1/plugins', '/v1/plugins/admin', '/v1/chat/stream', '/v1/backup/snapshot'].includes(url.pathname)) {
       throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'method is not allowed')
     }
     throw new HttpError(404, 'NOT_FOUND', 'route not found')
@@ -1173,6 +1365,7 @@ export function createGateway(options = {}) {
 
   const server = createServer((request, response) => {
     void route(request, response).catch((error) => {
+      if (!response.headersSent && ['SNAPSHOT_BUSY', 'SNAPSHOT_CHANGED'].includes(error?.code)) response.setHeader('retry-after', '1')
       if (!response.headersSent) problem(response, error)
       else if (!response.writableEnded && !response.destroyed) response.end()
     })

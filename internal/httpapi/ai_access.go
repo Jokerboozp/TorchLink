@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"sort"
 
 	"iot-platform/internal/auth"
@@ -45,7 +47,37 @@ func aiRunContext(ctx context.Context, c auth.Claims) context.Context {
 }
 
 func aiRunIdentity(ctx context.Context, c auth.Claims) ports.AIRunIdentity {
-	return ports.AIRunIdentity{Username: c.Username, ManagedUser: c.TokenUse == "user", SessionVersion: c.SessionVersion, Scopes: workflowScopes(ctx)}
+	return ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.TokenUse == "user", SessionVersion: c.SessionVersion, AccessVersion: requestAccessVersion(ctx, c), Scopes: workflowScopes(ctx)}
+}
+
+func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string) (context.Context, error) {
+	identity, ok := ports.AIRunIdentityFrom(ctx)
+	if !ok || identity.TenantID != tenantID {
+		return ctx, errors.New("AI 运行身份与租户不符")
+	}
+	if !identity.ManagedUser {
+		return ctx, nil
+	}
+	c := auth.Claims{TenantID: tenantID, Username: identity.Username, SessionVersion: identity.SessionVersion}
+	r := (&http.Request{}).WithContext(ctx)
+	user, permissions, err := s.managedIdentity(r, c)
+	if err != nil {
+		return ctx, errors.New("账户已停用或会话已失效，请重新登录")
+	}
+	if workflowID != "" {
+		if !businessWorkflowAllowed(permissions, workflowID) {
+			return ctx, errors.New("无此智能功能的访问权限")
+		}
+	} else if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
+		return ctx, errors.New("无智能助手访问权限")
+	}
+	if identity.AccessVersion == "" || identity.AccessVersion != accessVersion(user, permissions, tenantID) {
+		return ctx, errors.New("权限或设备范围已变化，请重新发起 AI 任务")
+	}
+	ctx = context.WithValue(ctx, deviceScopeKey{}, scopeFor(user, permissions, tenantID))
+	ctx = context.WithValue(ctx, permissionsKey{}, permissions)
+	identity.Scopes = intersectScopes(identity.Scopes, workflowScopes(ctx))
+	return ports.WithAIRunIdentity(ctx, identity), nil
 }
 
 // businessWorkflowAllowed checks the feature permission behind a business run

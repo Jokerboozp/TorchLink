@@ -23,14 +23,6 @@ services:
     ports:
       - "127.0.0.1:18123:8123"
 
-  embedding:
-    ports:
-      - "127.0.0.1:18091:80"
-
-  weaviate:
-    ports:
-      - "127.0.0.1:18080:8080"
-
   deepseek-harness:
     environment:
       # Harness 容器回调宿主机上的本地 API MCP 端点。

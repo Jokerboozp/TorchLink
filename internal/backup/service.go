@@ -29,6 +29,14 @@ type Config struct {
 	// RestoreTargetDSN is a separate PostgreSQL database for restore checks.
 	RestoreTargetDSN string
 	MinIOUseTLS      bool
+	// HarnessDataDir is a server-side read-only mount of persistent Agent data.
+	HarnessDataDir string
+	// URLs include every Harness instance; authentication stays server-side.
+	HarnessSnapshotURLs []string
+	HarnessToken        string
+	// Restores use independent storage and never overwrite the running service.
+	RestoreHarnessDir, RestoreMinIOEndpoint, RestoreMinIOAccessKey, RestoreMinIOSecretKey string
+	RestoreMinIOUseTLS                                                                    bool
 }
 
 type Artifact struct {
@@ -40,11 +48,12 @@ type Artifact struct {
 }
 
 type Manifest struct {
-	ID         string         `json:"id"`
-	Type       string         `json:"type"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	Artifacts  []Artifact     `json:"artifacts"`
-	Components map[string]any `json:"components"`
+	FormatVersion int            `json:"formatVersion,omitempty"`
+	ID            string         `json:"id"`
+	Type          string         `json:"type"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	Artifacts     []Artifact     `json:"artifacts"`
+	Components    map[string]any `json:"components"`
 }
 
 type rawLogRecord struct {
@@ -78,7 +87,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	}
 	pool, err := pgxpool.New(ctx, cfg.PostgresDSN)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("postgres configuration is invalid")
 	}
 	if err = pool.Ping(ctx); err != nil {
 		pool.Close()
@@ -115,7 +124,8 @@ func (s *Service) Ready(ctx context.Context) error {
 }
 
 // Run retains the old request types for existing clients, but all new
-// backups contain only device data. Daily requests cover the previous day.
+// daily backups contain device data; FULL additionally protects knowledge and
+// persistent Agent files. Daily requests cover the previous day.
 func (s *Service) Run(ctx context.Context, kind string) (Manifest, error) {
 	kind = strings.ToUpper(strings.TrimSpace(kind))
 	if kind == "" {
@@ -142,7 +152,7 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	}
 	defer s.mu.Unlock()
 	id := newBackupID(kind, time.Now())
-	manifest = Manifest{ID: id, Type: kind, CreatedAt: time.Now().UTC(), Components: map[string]any{
+	manifest = Manifest{FormatVersion: 2, ID: id, Type: kind, CreatedAt: time.Now().UTC(), Components: map[string]any{
 		"scope": "device raw messages and parsed data only", "timezone": s.rawBackupLocation().String(),
 	}}
 	if !start.IsZero() {
@@ -178,10 +188,19 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	}
 	manifest.Components["rawMessages"] = map[string]any{"records": raw.Total, "postgresql": raw.PostgreSQL, "clickhouse": raw.ClickHouse}
 	manifest.Components["parsedMessages"] = map[string]any{"records": parsed.Total, "postgresql": parsed.PostgreSQL, "clickhouse": parsed.ClickHouse}
+	paths := []string{rawPath, parsedPath}
+	if kind == "FULL" {
+		manifest.Components["scope"] = "device messages, PostgreSQL knowledge, document originals and persistent Agents"
+		extra, fullErr := s.exportKnowledgeAndAgents(ctx, dir, &manifest)
+		if fullErr != nil {
+			return manifest, fullErr
+		}
+		paths = append(paths, extra...)
+	}
 	if err = s.ensureBucket(ctx, s.store, s.cfg.BackupBucket); err != nil {
 		return manifest, err
 	}
-	for _, path := range []string{rawPath, parsedPath} {
+	for _, path := range paths {
 		artifact, uploadErr := s.uploadAndVerify(ctx, id, path)
 		if uploadErr != nil {
 			return manifest, uploadErr

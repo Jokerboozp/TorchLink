@@ -31,7 +31,7 @@ bash ./scripts/setup-local.sh
 | 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
 | 开启 / 关闭摄像头直播媒体服务（默认开启，省略沿用上次选择） | `-Video on` / `-Video off` | `--video on` / `--video off` |
 
-对话与推理默认使用 DeepSeek API。启动后在“模型管理”填写 API Key 并保存即可，连接测试可选；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动。知识库向量由私有化部署的 TEI 服务计算（默认 `Qwen/Qwen3-Embedding-0.6B`）；需要完全内网运行时，可另外部署私有化对话模型 vLLM。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
+对话与推理默认使用 DeepSeek API。启动后在“模型管理”填写 API Key 并保存即可，连接测试可选；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动。知识库使用 PostgreSQL + pgvector，向量通过独立的云端 Embedding API 计算；“模型管理”中配置向量 API Key，未填密钥不阻止设备业务启动。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
 
 依赖容器与源码分开运行时，在 Linux 依赖机执行：
 
@@ -90,7 +90,7 @@ Windows PowerShell：
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 ```
 
-脚本生成 `.env.online`，构建镜像，启动并检查服务；知识库向量服务首次启动时下载模型（约 1.2 GB）。加 `--private-llm on`（PowerShell `-PrivateLlm on`）同时部署私有化对话模型，见 [知识库向量与私有化模型](#知识库向量与私有化模型)。首次需要访问镜像、Go/npm 依赖、Harness 源码和模型源；服务器无需预装 Go 或 Node.js。更新源码后重跑同一脚本，沿用原配置、Compose 项目和数据卷。使用自定义旧环境时，先按 [配置与数据归属](#配置与维护) 指定原参数。
+脚本生成 `.env.online`，构建镜像，启动并检查服务；不下载 AI 模型权重。首次需要访问镜像、Go/npm 依赖、Harness 源码及 pgvector 源码；服务器无需预装 Go 或 Node.js。更新源码后重跑同一脚本，沿用原配置、Compose 项目和数据卷。使用自定义旧环境时，先按 [配置与数据归属](#配置与维护) 指定原参数。
 
 ## 端口与地址
 
@@ -104,8 +104,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
 | EMQX 控制台 | `18083` | `18083`（`EMQX_DASHBOARD_PORT`），只开放给可信网络 |
 | TCP / UDP 协议接入 | 本机 Go API 直接监听接入点端口 | `26875` TCP+UDP；其他监听端口写入 `IOT_PROTOCOL_PORTS`（单个端口或范围）后重跑部署，拆分 Gateway 时由 Gateway 发布 |
-| 向量服务（TEI）/ Weaviate | `18091` / `18080` | 仅容器网络 |
-| 私有化对话模型（vLLM，可选） | 不提供 | 仅容器网络，`http://vllm:8000/v1` |
 | 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
 | Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`） |
 | Loki / Alertmanager | `13100` / `19093`（`--include-ops`） | 仅容器网络 |
@@ -124,7 +122,7 @@ sudo bash scripts/setup-local.sh --dependencies-only \
   --api-host <依赖容器可访问的源码机地址>
 ```
 
-`--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL、Redis、ClickHouse、Redpanda、EMQX、MinIO 主库/备库、向量服务 TEI、Weaviate、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness 和 MinIO 镜像、下载向量模型；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
+`--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL（含 pgvector）、Redis、ClickHouse、Redpanda、EMQX、MinIO 主库/备库、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness、MinIO 和 PostgreSQL pgvector 镜像；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
 
 本地 MinIO 复用 `deploy/minio/Dockerfile` 的官方二进制构建，版本仍为 `RELEASE.2025-09-07T16-13-09Z`，校验固定的 amd64/arm64 SHA-256。原 `quay.io/minio/minio` 已无法公开拉取，首次构建需要访问 GitHub Release。
 
@@ -170,7 +168,7 @@ orb -m develop sudo docker compose --project-name iot-platform-local --env-file 
 
 ### ARM64 与 x86_64
 
-Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不包含 32 位 ARM/x86。Compose 不固定 `platform`，基础镜像自动选择 Docker Engine 的原生架构，应用及 Harness 在目标架构构建。向量服务 TEI 的 CPU 镜像按架构使用不同标签（x86_64 为 `cpu-1.9`，ARM64 为 `cpu-arm64-1.9`），部署脚本按 Docker 架构写入 `IOT_EMBEDDING_IMAGE`；私有化对话模型 vLLM 需要 NVIDIA GPU。离线包仍须按目标架构分别打包，部署脚本会核对包内记录的架构，不能在两种架构间混用。修改镜像版本后，应重新检查镜像清单包含 `linux/arm64` 和 `linux/amd64`，并各自执行部署和实机检查；镜像清单与交叉编译通过不等同于目标系统部署验收。
+Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不包含 32 位 ARM/x86。Compose 不固定 `platform`，基础镜像自动选择 Docker Engine 的原生架构，应用及 Harness 在目标架构构建。PostgreSQL 镜像按目标架构编译固定版本 pgvector，不携带 AI 模型权重，不要求 GPU。离线包仍须按目标架构分别打包，部署脚本会核对包内记录的架构，不能在两种架构间混用。修改镜像版本后，应重新检查镜像清单包含 `linux/arm64` 和 `linux/amd64`，并各自执行部署和实机检查；镜像清单与交叉编译通过不等同于目标系统部署验收。
 
 在 ARM Mac 上通过 OrbStack 模拟 x86 Ubuntu 时，EMQX 的 Erlang JIT 默认双重内存映射可能导致 QUIC 模块报 `nif_library_not_loaded`。仅对此类模拟环境，在对应环境文件加入 `IOT_EMQX_ERL_FLAGS="+JMsingle true"` 后重跑部署命令。该参数保留 QUIC 功能，改用单一可读写执行的内存映射；原生 ARM64 和 x86_64 不需要设置，默认保持 Erlang 的内存保护行为。参数语义见 [Erlang JIT 文档](https://erlang.org/documentation/doc-14/erts-14.0/doc/html/erl.html)。
 
@@ -178,7 +176,7 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 
 ## 离线部署
 
-打包机需联网、Docker 和 Compose 2.24.4+，CPU 架构须与目标一致。Linux 目标机可从包内安装 Docker；Windows/macOS 须先安装 Docker Desktop。目标机无需 Go、Node 或源码。包内包含应用、基础环境、备份、运维组件、Harness、向量服务 TEI 及其模型 `Qwen/Qwen3-Embedding-0.6B`；默认不含对话模型权重，对话 AI 使用 DeepSeek API，仍需联网。打包时加 `--with-private-llm`（PowerShell `-WithPrivateLlm`）会同时携带 vLLM 镜像和 `IOT_LLM_MODEL` 权重，目标机须有 NVIDIA GPU。
+打包机需联网、Docker 和 Compose 2.24.4+，CPU 架构须与目标一致。Linux 目标机可从包内安装 Docker；Windows/macOS 须先安装 Docker Desktop。目标机无需 Go、Node 或源码。包内包含应用、基础环境、备份、运维组件、Harness 和带 pgvector 的 PostgreSQL。包内不携带 AI 模型或模型权重；离线包可安装平台，AI 对话及知识向量计算仍需访问外部 API。
 
 ### 获取或制作离线包
 
@@ -191,13 +189,11 @@ bash scripts/package-offline.sh
 # openEuler 目标追加：--target-os openeuler-24.03-lts-sp4
 # 沿用已有配置追加：--env-file /path/to/.env.offline
 # 不打包直播媒体服务：--without-video
-# 携带私有化对话模型（目标机需 NVIDIA GPU）：--with-private-llm
-# 更换向量模型：--embedding-model Org/Name
 ```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
-# 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -WithoutVideo -WithPrivateLlm -EmbeddingModel <模型>
+# 对应参数：-TargetOS openeuler-24.03-lts-sp4 -EnvFile <路径> -WithoutVideo
 ```
 
 Linux / macOS 共用 Bash 入口。默认同时输出 `offline-bundles/iot-platform-offline-*` 目录、同名 `.tar` 和 `.tar.sha256`。归档含完整顶层目录及隐藏配置，只需上传归档和校验文件；目录输出仍可用于本机检查或直接部署。`.tar` 不压缩内容，可减少逐个传输文件的开销，但会额外占用约一份部署目录的磁盘空间。只需目录时，Bash 使用 `--skip-bundle-archive`，PowerShell 使用 `-SkipBundleArchive`。GitHub 公开发布流程跳过私有归档，在清除凭据后另行压缩分卷。
@@ -221,7 +217,7 @@ cd offline-bundles
 sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 ```
 
-手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-embedding-model` 仅用于目标机 `embedding-models` 卷已有同一向量模型，`--skip-docker-runtime` 仅用于目标机已有 Docker。
+手工生成的私有包包含凭据，不作为公开下载包分发；实际管理员密码以包内环境文件为准。`--skip-docker-runtime` 仅用于目标机已有 Docker；旧本地模型打包参数已移除。
 
 若打包在 Harness 拉取阶段提示 `Your local changes ... would be overwritten by checkout`，且新克隆目录的修改集中于图片、字体等二进制文件，检查 `git --version`；Git 2.10 以前对上游 `text=auto eol=lf` 属性的处理可能触发此问题。拉取脚本通过 `.git/info/attributes` 保留仓库原始字节，在首次检出前设置该覆盖，不修改上游源码。真实源码修改仍会整体备份到 `upstream/deepseek-harness.backup-*`。同步最新 `scripts/fetch-deepseek-harness.sh`（Windows 对应 `scripts/lib/deployment.ps1`）后，可先单独拉取 Harness，再重跑原打包命令；无需删除 Docker 镜像或数据卷。
 
@@ -238,7 +234,7 @@ sudo bash scripts/deploy-offline.sh
 powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 ```
 
-脚本校验哈希和 CPU 架构、导入镜像、补齐模型卷、启动并检查服务，使用 `--no-build --pull never`。默认项目为 `iot-platform`，Web 为 `http://服务器IP:8080`。重复部署保留已有配置与数据；模型以普通文件恢复到 `embedding-models`（及可选 `llm-models`）卷的 `offline/` 目录，拒绝符号链接和越界路径，原子补齐缺失文件，不清空模型卷。离线环境设置 `HF_HUB_OFFLINE=1`，服务从 `IOT_EMBEDDING_MODEL_SOURCE` / `IOT_LLM_MODEL_SOURCE` 指向的本地目录加载模型。CPU 版向量服务首次加载与预热需数分钟，启动等待上限为 15 分钟。部署包不含业务数据库备份。
+脚本校验哈希和 CPU 架构、导入镜像、启动并检查服务，使用 `--no-build --pull never`。默认项目为 `iot-platform`，Web 为 `http://服务器IP:8080`。重复部署保留已有配置与数据；不创建模型卷、不下载模型。离线部署包不含业务数据库备份，AI 与知识向量计算仍需联网和相应 API Key。
 
 仅替换 API/Web 镜像时，使用相同标签构建、导出与校验，在原包目录导入后依次重建 API、Web（让 nginx 重新解析地址）。此方式不更新 Compose、Harness 或模型；这些组件变化时交付完整新包，不能再用旧 `images.tar` 覆盖更新。
 
@@ -321,30 +317,30 @@ sudo docker compose -p iot-platform-local --env-file .env.local \
 
 源码 API 到 Harness 使用 `IOT_AI_HARNESS_URL/TOKEN`；容器回调使用 `IOT_AI_HARNESS_MCP_URL`，必须能到达源码 API，OrbStack 为 `host.orb.internal`。旧 Provider 数据、IDE 进程变量可能覆盖环境文件，排查时核对实际运行配置。工作流和权限见 [平台功能](PLATFORM.md#ai-与知识库)。
 
-### 知识库向量与私有化模型
+### 知识库与云端向量 API
 
-知识库向量由 `embedding` 服务（HuggingFace Text Embeddings Inference，CPU 版）计算，平台通过 OpenAI 兼容的 `/v1/embeddings` 接口调用，再把向量写入 Weaviate；Weaviate 不启用向量化模块。已移除 Ollama。
+Harness 继续运行自定义 Agent、内置业务工作流、流式会话和受控 MCP 工具。对话模型与向量模型独立配置，统一使用外部 API；部署不再包含 Weaviate、TEI、vLLM、Ollama、GPU 配置或模型权重。
 
-| 配置 | 说明 |
+PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存到既有 MinIO，文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。
+
+在“模型管理”的“知识库向量模型”中保存 Embedding 配置。连接测试是独立诊断，不影响配置保存；密钥不会返回浏览器，留空保持已有密钥，明确清除才删除。也可通过环境文件给首次启动提供默认值：
+
+| 配置 | 默认或说明 |
 |---|---|
-| `IOT_EMBEDDING_URL` | 平台访问向量服务的地址，必须带 `/v1`；在线 / 离线为 `http://embedding:80/v1`，本地源码为 `http://127.0.0.1:18091/v1` |
-| `IOT_EMBEDDING_MODEL` | 向量模型，默认 `Qwen/Qwen3-Embedding-0.6B`（1024 维，中文检索效果好） |
-| `IOT_EMBEDDING_API_KEY` | 向量服务访问密钥，脚本首次部署生成 |
-| `IOT_EMBEDDING_IMAGE` | TEI 镜像；脚本按 CPU 架构写入，使用 GPU 时可改为对应 CUDA 标签，例如 `ghcr.io/huggingface/text-embeddings-inference:89-1.9`（RTX 4000 系列），并为服务添加 GPU 设备 |
-| `HF_ENDPOINT` | 模型下载地址；无法访问 huggingface.co 时改为可用的镜像站 |
-| `IOT_EMBEDDING_CPUS` / `IOT_EMBEDDING_MEMORY` / `IOT_EMBEDDING_MAX_BATCH_TOKENS` | CPU 与内存上限（默认 4 核 / 4 GB）及单批词元数（默认 4096，超长输入自动截断） |
+| `IOT_EMBEDDING_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1`，外部 HTTPS OpenAI 兼容 API |
+| `IOT_EMBEDDING_MODEL` | `text-embedding-v4` |
+| `IOT_EMBEDDING_API_KEY` | 自行填写向量服务密钥，独立于 DeepSeek Key；默认空 |
+| `IOT_EMBEDDING_DIMENSIONS` | `1024`，模型实际输出维度须一致，支持 1–2000 |
+| `IOT_EMBEDDING_BATCH_SIZE` | `10`，须遵守所选服务的单批上限 |
+| `IOT_EMBEDDING_QUERY_INSTRUCTION` | 默认空；仅为需要查询前缀的模型配置 |
 
-在线和本地环境首次启动向量服务时下载模型到 `embedding-models` 卷，再次启动直接复用。CPU 版加载与预热通常需要数分钟，API 等待其健康后才启动。
+页面保存的配置持久化到 PostgreSQL，并优先于首次启动环境默认值。API 对 429/502/503/504 最多退避重试两次，其他错误直接返回，不把上游响应中的凭据写入失败原因。上传先保存原件与文档记录，返回 202；后台任务计算向量，页面显示实际分片进度、失败原因和重试。进程重启会接手未完成或租约过期的任务。没有向量密钥时文档可上传，索引会明确失败，配置密钥后可重试。删除立即停止召回，后台重试清理原件、记录和所有版本分片。
 
-**升级与更换模型**：知识库原始文件保存在对象存储中。旧版本（Ollama 向量）升级后，或 `IOT_EMBEDDING_MODEL` 变更后，API 启动时会在后台用原始文件重建全部索引（多副本时由一个副本执行）。重建期间知识库页面显示进度，重建开始前检索会明确报错、重建完成前检索结果可能不完整；单个文档失败会标记为“索引失败”，不影响其他文档，可重新上传该文档。
+改变向量服务地址、模型、维度或查询指令会在后台建立独立候选索引，多副本共享 PostgreSQL 重建锁。已有可检索文档全部重建成功后原子激活，待索引及从未成功入库的文档由后台队列处理；失败保留完整旧索引及其配置，不混用向量空间。仅更新密钥不改变向量空间。页面显示重建进度，失败可修复配置后重试。
 
-**私有化对话模型（可选）**：对话默认使用 DeepSeek 云端 API。需要完全内网运行时，在有 NVIDIA GPU 和 nvidia-container-toolkit 的服务器上：
+知识预检索在首次模型请求前执行，范围由租户、Agent、产品、分类和标签共同约束；结果携带文档及分片位置。显式禁用不检索，要求证据却无匹配时拒绝执行，其余允许模型推理并提示证据不足。检索及发送模型前均复核普通用户权限，MCP 补查继续逐次复核。
 
-```bash
-bash scripts/deploy-online.sh --private-llm on
-```
-
-脚本启用 Compose profile `llm`，部署 vLLM（`vllm/vllm-openai:v0.29.0`，默认模型 `IOT_LLM_MODEL=Qwen/Qwen3-8B`，已开启工具调用），此后部署沿用该选择，`--private-llm off` 关闭。部署后在“模型管理”选择“OpenAI 兼容 / 私有化部署”，服务地址填 `http://vllm:8000/v1`，模型名称与 `IOT_LLM_MODEL` 一致，接口密钥为环境文件中的 `IOT_LLM_API_KEY`，测试后保存。平台与 Harness 工作流随之切换；切回 DeepSeek 只需在同一页面重新选择。显存需满足所选模型，8B 模型建议 24 GB 以上。
+从旧环境更新时，新代码依据 PostgreSQL 文档记录和 MinIO 原件重建，无须读取旧 Weaviate 向量。先核对知识文档及原件完整，再停止旧向量服务；不删除旧数据卷。部署脚本不自动清理历史孤立容器。
 
 ### 运维组件
 
@@ -475,7 +471,7 @@ bash scripts/cluster-deploy.sh --rendered .cluster/<名称>/rendered.prev --ssh-
 
 旧版本生成的清单若仍有 `platform.roles.ai`（已删除的自动研判角色），升级会在清单校验时停止：删除该项后重新执行 `cluster-up`，再在原 `ai` 节点执行 `docker rm -f <名称>-iot-ai-1`。部署脚本不会删除清单中已移除的服务；遗留容器会继续运行原镜像，若是改为手动研判之前的版本，还会继续自动研判。
 
-知识库节点运行 Weaviate 和向量服务 TEI（端口 `8086`，密钥为秘密文件中的 `embeddingApiKey`，缺失时由 `cluster-up` / `-init-secrets` 补齐）。清单 `images.embedding` 默认是 x86_64 的 `cpu-1.9` 标签，ARM64 节点改为 `cpu-arm64-1.9`；旧清单中的 `images.ollama` 会被忽略。TEI 首次启动需从 `HF_ENDPOINT` 下载模型；知识库节点不能联网时，先用离线包中的 `embedding-models.tgz` 在该节点恢复 `<名称>_embedding-models` 卷（`scripts/lib/restore-volume-archive.sh`），并在节点 `.env` 中设置 `HF_HUB_OFFLINE=1`。
+集群不再设置独立知识库节点。知识索引复用 PostgreSQL HA 集群，Spilo/Patroni 镜像同样包含固定版本 pgvector；各管理 API 使用同一外部 Embedding 配置及重建锁。Harness 节点保留动态 Agent 和会话持久化，备份通过受控内部 snapshot 接口收集各实例；向量 API Key 在集群秘密文件中自行填写，脚本不生成虚假的云服务密钥。
 
 `.cluster/<名称>/` 中的秘密文件决定已初始化数据库的密码，`deploy_key` 用于登录节点，务必另行备份；丢失秘密后重新生成的值无法连接已有数据。
 
@@ -520,7 +516,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 高可用边界
 
-默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、MinIO、Weaviate、向量服务 TEI、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
+默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、MinIO、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
 
 - 容器自动重启只在进程退出后拉起同一实例，不能在宿主机、磁盘或数据卷故障时切换。
 - MQTT 持久队列（`IOT_DATA_DIR/mqtt-inbox/`）保证已确认报文在本机磁盘上重启后可继续处理，不复制到其他节点。
@@ -536,7 +532,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 | --- | --- |
 | 地址或密码似乎未生效 | IDE 进程变量优先；确认原环境文件、Compose 项目和已有数据库密码 |
 | API 存活但业务不可用 | `/health/ready`、消费者积压、数据库及 `docker compose logs`；live 只表示进程存活 |
-| 镜像/模型哈希不符或缺失 | 在有网机器重做完整包，不在离线目标机拉取、不删除模型卷 |
+| 镜像或制品哈希不符或缺失 | 在有网机器重做完整包，不在离线目标机拉取 |
 | Harness `RUNTIME_ERROR` | 用镜像内 `runtime-smoke.mjs` 检查运行用户依赖权限，再分别检查 Key、模型请求和 MCP 回调 |
 | 媒体不可播放 | `/api/v1/video/status`、连接测试、目标白名单、RTC 地址、编码及播放权限 |
 | openEuler 镜像导入 `mknod` 失败 | 检查 `container-selinux`、受管程序/数据标签和 Docker 进程域 |
@@ -545,13 +541,13 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 设备数据备份
 
-备份范围仅包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。不会备份数据库结构、账号、Redis、消息队列、知识库、配置文件或整个 MinIO。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。不会备份账号、Provider/API Key、Redis、消息队列、环境文件或整个 MinIO，凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
 
-- **立即备份设备数据**：导出当前保存的设备数据。
+- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent 和会话。
 - **备份昨日数据**：按配置时区导出前一个自然日的数据。
 - **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
-- 每个备份包含原始数据、解析数据两个 gzip JSONL 文件及清单，保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
-- **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。该操作证明备份可读回数据库，不替换现网数据；同一时间只运行一个备份或恢复。
+- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
+- **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。`FULL` v2 同时在独立库的 `kb_restore_<标识>` schema 恢复知识表、pgvector 索引和引用关系，在恢复用 MinIO 的独立前缀恢复原件，在隔离目录恢复每个 Harness 实例文件；校验制品 SHA-256、文件大小及恢复数量。旧 v1 备份只验证原有消息，不宣称包含知识或 Agent。该操作验证隔离恢复，不替换现网数据；同一时间只运行一个备份或恢复。
 
 ```dotenv
 # 是否开启每日自动备份；关闭后仍可手动备份
@@ -564,6 +560,14 @@ IOT_BACKUP_TIMEZONE=Asia/Shanghai
 IOT_BACKUP_DIR=./data/backups
 # 恢复验证用的独立库（须与业务库不同，例如同实例的 iot_restore_check 库）；留空则不提供
 IOT_BACKUP_RESTORE_TARGET_DSN=
+# 内部 Harness 快照端点，多个实例用逗号分隔；沿用 IOT_AI_HARNESS_TOKEN
+IOT_BACKUP_HARNESS_SNAPSHOT_URLS=http://deepseek-harness:8091/v1/backup/snapshot
+# 恢复演练对象存储，Compose 默认已有 minio-dr
+IOT_BACKUP_RESTORE_MINIO_ENDPOINT=minio-dr:9000
+IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY=
+IOT_BACKUP_RESTORE_MINIO_SECRET_KEY=
+# Agent/会话只恢复到此隔离目录，不写活跃 Harness 卷
+IOT_BACKUP_RESTORE_HARNESS_DIR=./data/restore/harness
 ```
 
 Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 Linux 依赖机。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。

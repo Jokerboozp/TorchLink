@@ -5,6 +5,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api } from '../api'
 import AiWorkflowRuns from '../components/AiWorkflowRuns.vue'
+import EmbeddingConfig from '../components/EmbeddingConfig.vue'
 
 const emit = defineEmits(['navigate'])
 
@@ -188,19 +189,19 @@ onMounted(loadRuntime)
         <template v-if="isAdmin">
           <ui-form label-position="top" :model="providerForm" :disabled="busy">
             <section class="config-section">
-              <div class="config-section-heading"><span>01</span><div><strong>选择模型来源</strong><small>默认使用 DeepSeek 云端接口，也可接入私有化部署的模型服务</small></div></div>
+              <div class="config-section-heading"><span>01</span><div><strong>选择模型来源</strong><small>默认使用 DeepSeek，也可连接其他 OpenAI 兼容 API</small></div></div>
               <ui-form-item label="模型来源"><ui-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"><ui-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></ui-select></ui-form-item>
               <p class="provider-description">{{ selectedProviderOption.description }}</p>
             </section>
             <section class="config-section">
               <div class="config-section-heading"><span>02</span><div><strong>填写连接信息</strong><small>地址必须能从平台服务器访问</small></div></div>
-              <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" :placeholder="providerForm.provider === 'deepseek' ? 'https://api.deepseek.com' : 'http://服务器地址:8000/v1'" /></ui-form-item>
-              <p v-if="providerForm.provider === 'openai-compatible'" class="provider-field-hint">私有化 vLLM 填写 http://服务器地址:8000/v1；地址需包含 /v1。</p>
-              <ui-form-item class="cloud-key-field" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" :placeholder="providerForm.provider === 'deepseek' ? '填写 API Key；留空沿用已保存的密钥' : '服务未启用鉴权时可留空'" /></ui-form-item><p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">已保存密钥 {{ runtime.config.apiKeyHint || '***' }}，留空测试或保存会继续使用。</p>
+              <ui-form-item label="服务地址"><ui-input v-model="providerForm.baseUrl" :placeholder="providerForm.provider === 'deepseek' ? 'https://api.deepseek.com' : 'https://API 服务地址/v1'" /></ui-form-item>
+              <p v-if="providerForm.provider === 'openai-compatible'" class="provider-field-hint">填写 API 服务提供方的兼容地址，通常以 /v1 结尾。</p>
+              <ui-form-item class="cloud-key-field" label="接口密钥"><ui-input v-model="providerForm.apiKey" type="password" show-password autocomplete="off" placeholder="填写 API Key；留空沿用已保存的密钥" /></ui-form-item><p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">已保存密钥，留空测试或保存会继续使用。</p>
             </section>
             <section class="config-section">
               <div class="config-section-heading"><span>03</span><div><strong>设置模型与输出</strong><small>选择实际可用的模型，设置助手回复长度</small></div></div>
-              <div class="config-field-grid"><ui-form-item label="模型名称"><ui-input v-model="providerForm.model" :placeholder="providerForm.provider === 'deepseek' ? '例如 deepseek-flash' : '例如 Qwen/Qwen3-8B'" /></ui-form-item><div><ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item><p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p></div></div>
+              <div class="config-field-grid"><ui-form-item label="模型名称"><ui-input v-model="providerForm.model" :placeholder="providerForm.provider === 'deepseek' ? '例如 deepseek-flash' : '填写 API 服务支持的模型名称'" /></ui-form-item><div><ui-form-item label="最大输出词元"><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right" /></ui-form-item><p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p></div></div>
             </section>
             <div class="provider-actions"><span :class="{ ready:testResult?.success }">{{ testResult?.success ? '测试通过，点击保存后生效' : '可直接保存，连接测试为可选操作' }}</span><div><ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig">测试配置</ui-button><ui-button v-permission="'PUT /api/v1/ai/providers/config'" type="primary" :loading="applying" :disabled="busy" @click="applyProviderConfig">保存配置</ui-button></div></div>
           </ui-form>
@@ -215,6 +216,8 @@ onMounted(loadRuntime)
         <div class="ai-capability-list"><div v-for="item in capabilities" :key="item.title" class="ai-capability-item"><div><strong>{{ item.title }}</strong><p>{{ item.description }}</p></div><ui-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</ui-button></div></div>
       </ui-card>
     </div>
+
+    <EmbeddingConfig v-if="can('GET /api/v1/ai/embedding-config')" />
 
     <ui-card shadow="never" class="surface-card ai-provider-list"><ui-collapse><ui-collapse-item title="可用模型服务 · 查看来源与支持能力" name="providers"><ui-table v-loading="loading" :data="runtime.items || []" stripe>
       <ui-table-column label="模型服务" min-width="190"><template #default="{row}"><div class="provider-name"><strong>{{ providerLabel(row.id) }}</strong><ui-tag v-if="row.id === activeProvider" size="small" type="success" effect="plain">使用中</ui-tag></div></template></ui-table-column>

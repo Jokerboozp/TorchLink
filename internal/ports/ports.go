@@ -312,6 +312,28 @@ type AIProviderConfigStore interface {
 	SaveAIProviderConfig(context.Context, AIPluginConfig) error
 }
 
+// EmbeddingConfig is independent of the conversational model. API responses
+// must redact APIKey; changing a vector space requires a new knowledge index.
+type EmbeddingConfig struct {
+	BaseURL          string `json:"baseUrl"`
+	Model            string `json:"model"`
+	APIKey           string `json:"apiKey,omitempty"`
+	Dimensions       int    `json:"dimensions"`
+	BatchSize        int    `json:"batchSize"`
+	QueryInstruction string `json:"queryInstruction"`
+	TimeoutSeconds   int    `json:"timeoutSeconds"`
+}
+
+type EmbeddingConfigStore interface {
+	LoadEmbeddingConfig(context.Context, bool) (EmbeddingConfig, bool, error)
+	SaveEmbeddingConfig(context.Context, EmbeddingConfig, bool) error
+}
+
+type EmbeddingRuntime interface {
+	CurrentConfig() EmbeddingConfig
+	Configure(context.Context, EmbeddingConfig) error
+}
+
 // AIWorkflowPlugin describes a business workflow exposed by an external AI
 // runtime. Provider plugins and workflow plugins deliberately use separate
 // contracts: providers generate text, workflows may orchestrate read-only MCP
@@ -432,14 +454,41 @@ type KnowledgeSearchRequest struct {
 }
 
 type KnowledgeHit struct {
-	DocumentID string   `json:"documentId,omitempty"`
-	ChunkID    string   `json:"chunkId,omitempty"`
-	WorkflowID string   `json:"workflowId,omitempty"`
-	ProductID  string   `json:"productId,omitempty"`
-	Category   string   `json:"category,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
-	Content    string   `json:"content"`
-	Score      float64  `json:"score"`
+	Filename       string   `json:"filename,omitempty"`
+	DocumentID     string   `json:"documentId,omitempty"`
+	ChunkID        string   `json:"chunkId,omitempty"`
+	WorkflowID     string   `json:"workflowId,omitempty"`
+	ProductID      string   `json:"productId,omitempty"`
+	Category       string   `json:"category,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	Content        string   `json:"content"`
+	Score          float64  `json:"score"`
+	ChunkIndex     int      `json:"chunkIndex"`
+	StartChar      int      `json:"startChar"`
+	EndChar        int      `json:"endChar"`
+	CharacterCount int      `json:"characterCount"`
+	OverlapChars   int      `json:"overlapChars"`
+}
+
+// KnowledgeDocumentJobs is used by the trusted background indexer. Claims
+// and updates are durable and conditional so deleted documents cannot return.
+type KnowledgeDocumentJobs interface {
+	ClaimKnowledgeDocument(context.Context) (model.KnowledgeDoc, bool, error)
+	UpdateKnowledgeDocument(context.Context, model.KnowledgeDoc) (bool, error)
+}
+
+type KnowledgeIndexProgress func(done, total int)
+
+func WithKnowledgeIndexProgress(ctx context.Context, progress KnowledgeIndexProgress) context.Context {
+	return context.WithValue(ctx, knowledgeIndexProgressKey{}, progress)
+}
+
+type knowledgeIndexProgressKey struct{}
+
+func ReportKnowledgeIndexProgress(ctx context.Context, done, total int) {
+	if progress, ok := ctx.Value(knowledgeIndexProgressKey{}).(KnowledgeIndexProgress); ok {
+		progress(done, total)
+	}
 }
 
 // FilteredKnowledgeBase is implemented by indexes that support workflow-bound

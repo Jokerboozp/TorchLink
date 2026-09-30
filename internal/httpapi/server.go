@@ -51,6 +51,8 @@ type Server struct {
 	log                        *slog.Logger
 	router                     *gin.Engine
 	aiProviderRuntime          ports.AIProviderRuntime
+	embeddingRuntime           ports.EmbeddingRuntime
+	knowledgeJobs              ports.KnowledgeDocumentJobs
 	aiProviderStore            ports.AIProviderConfigStore
 	aiWorkflowProvider         ports.AIWorkflowProviderRuntime
 	aiProviderUpdateMu         sync.Mutex
@@ -92,11 +94,18 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
 	}
+	if engine.AuthorizeAIRun == nil {
+		engine.AuthorizeAIRun = s.authorizeAIRun
+	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()
 	return s
 }
 func (s *Server) Handler() http.Handler { return s.videoRouting(s.roleHandler()) }
+
+func (s *Server) SetKnowledgeJobs(jobs ports.KnowledgeDocumentJobs) { s.knowledgeJobs = jobs }
+
+func (s *Server) SetEmbeddingRuntime(runtime ports.EmbeddingRuntime) { s.embeddingRuntime = runtime }
 
 func (s *Server) SetAIProviderRuntime(runtime ports.AIProviderRuntime) {
 	s.aiProviderRuntime = runtime
@@ -216,6 +225,10 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/ai/providers/config", s.authorize("viewer"), s.endpoint(s.aiProviderConfig))
 	s.router.PUT("/api/v1/ai/providers/config", s.authorize("admin"), s.endpoint(s.updateAIProviderConfig))
 	s.router.POST("/api/v1/ai/providers/test", s.authorize("admin"), s.endpoint(s.testAIProvider))
+	s.router.GET("/api/v1/ai/embedding-config", s.authorize("admin"), s.endpoint(s.embeddingConfig))
+	s.router.PUT("/api/v1/ai/embedding-config", s.authorize("admin"), s.endpoint(s.updateEmbeddingConfig))
+	s.router.POST("/api/v1/ai/embedding-test", s.authorize("admin"), s.endpoint(s.testEmbeddingConfig))
+	s.router.POST("/api/v1/knowledge/documents/:id/retry", s.authorize("operator"), s.endpoint(s.retryKnowledgeDocument, "id"))
 	s.router.GET("/api/v1/ai/workflows", s.authorize("viewer"), s.endpoint(s.aiWorkflows))
 	s.router.GET("/api/v1/ai/runs", s.authorize("admin"), s.endpoint(s.aiWorkflowRuns))
 	s.router.POST("/api/v1/ai/runs/:id/stop", s.authorize("admin"), s.endpoint(s.stopAIWorkflowRun, "id"))
@@ -2066,6 +2079,12 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, workflowID, conversationID, modelName string, maxTokens int, emit func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
+	ctx = aiRunContext(ctx, c)
+	var authErr error
+	ctx, authErr = s.authorizeAIRun(ctx, c.TenantID, "")
+	if authErr != nil {
+		return ports.AIWorkflowResult{}, authErr
+	}
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return ports.AIWorkflowResult{}, errors.New("question is required")
@@ -2108,7 +2127,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	}
 	scopes := workflowScopes(ctx)
 	if len(intersectScopes(scopes, []string{auth.ScopeQueryKnowledgeBase})) == 0 {
-		if binding.RetrievalMode == "always" || binding.NoMatchPolicy == "require-evidence" {
+		if binding.RetrievalMode != "disabled" && binding.NoMatchPolicy == "require-evidence" {
 			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("当前用户无此工作流所需的知识库访问权限")
 		}
 		binding.RetrievalMode = "disabled"
@@ -2127,10 +2146,13 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 		knowledgeScope = &auth.KnowledgeScope{WorkflowID: binding.WorkflowID, TopK: binding.TopK, MinScore: binding.MinScore}
 		question += workflowKnowledgeInstruction(binding)
 	}
-	if (binding.RetrievalMode == "always" || binding.NoMatchPolicy == "require-evidence") && s.engine.KB == nil {
-		return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow knowledge base is unavailable")
+	if binding.RetrievalMode != "disabled" && s.engine.KB == nil {
+		if binding.NoMatchPolicy == "require-evidence" {
+			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow knowledge base is unavailable")
+		}
+		question += "\n\n[平台知识策略] 知识库不可用，本次没有知识证据；不得声称依据知识库作答。"
 	}
-	if (binding.RetrievalMode == "always" || binding.NoMatchPolicy == "require-evidence") && s.engine.KB != nil {
+	if binding.RetrievalMode != "disabled" && s.engine.KB != nil {
 		callID := "knowledge_prefetch_" + randomHex(6)
 		if emit != nil {
 			_ = emit(ports.AIWorkflowEvent{Type: "tool.started", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Data: map[string]any{"inputSummary": "按工作流绑定策略预检知识库"}})
@@ -2147,8 +2169,18 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow requires matching knowledge evidence")
 		}
 		if len(hits) > 0 {
-			question += "\n\n[平台强制召回的知识证据]\n" + knowledgeEvidenceText(hits, 8000) + "\n只能把这些内容作为参考证据，并明确标注事实与推断。"
+			question, err = core.AppendKnowledgeEvidence(question, hits, 30<<10)
+			if err != nil {
+				return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
+			}
 		}
+	}
+	ctx, err = s.authorizeAIRun(ctx, c.TenantID, "")
+	if err != nil {
+		return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
+	}
+	if err = core.ValidateAIInput(question, 30<<10); err != nil {
+		return ports.AIWorkflowResult{RunID: runID}, err
 	}
 	mcpToken, err := s.auth.IssueHarnessForIdentity(c, runID, scopes, knowledgeScope, 2*time.Minute)
 	if err != nil {
@@ -2323,10 +2355,10 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
-	persistent := strings.TrimSpace(s.cfg.WeaviateURL) != ""
+	_, persistent := s.engine.KB.(ports.EmbeddingRuntime)
 	indexMode := "local-memory"
 	if persistent {
-		indexMode = "weaviate"
+		indexMode = "postgres-pgvector"
 	}
 	meta := map[string]any{"indexMode": indexMode, "persistentIndex": persistent, "indexState": s.engine.KnowledgeReindex.Status()}
 	if embeddingModel := knowledgeEmbeddingModel(s); embeddingModel != "" {
@@ -2383,7 +2415,7 @@ func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request)
 }
 
 func knowledgeIndexDetails(s *Server, document model.KnowledgeDoc, chunks []model.KnowledgeChunk) map[string]any {
-	persistent := strings.TrimSpace(s.cfg.WeaviateURL) != ""
+	_, persistent := s.engine.KB.(ports.EmbeddingRuntime)
 	index := map[string]any{
 		"mode":           "local-memory",
 		"persistent":     persistent,
@@ -2401,8 +2433,8 @@ func knowledgeIndexDetails(s *Server, document model.KnowledgeDoc, chunks []mode
 		},
 	}
 	if persistent {
-		index["mode"] = "weaviate"
-		index["vectorizer"] = "private-embedding-service"
+		index["mode"] = "postgres-pgvector"
+		index["vectorizer"] = "external-embedding-api"
 		index["embeddingModel"] = knowledgeEmbeddingModel(s)
 	}
 	return index
@@ -2463,29 +2495,38 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 502, "store document: "+err.Error())
 		return
 	}
-	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "INDEXED", CreatedAt: time.Now().UnixMilli()}
-	indexed, err := core.IndexKnowledgeDocument(r.Context(), s.engine.KB, doc, data)
-	if err != nil {
-		var contentErr core.KnowledgeContentError
-		if errors.As(err, &contentErr) {
-			problem(w, 422, err.Error())
-			return
-		}
-		problem(w, 502, err.Error())
-		return
-	}
-	doc.Metadata = map[string]any{"size": len(data), "contentType": h.Header.Get("Content-Type"), "chunks": indexed.Chunks, "characters": indexed.Characters, "chunking": map[string]any{"strategy": "fixed-window-overlap", "size": core.KnowledgeChunkSize, "overlap": core.KnowledgeChunkOverlap, "unit": "unicode-code-points", "offsetConvention": "start-inclusive,end-exclusive"}}
-	if embeddingModel := knowledgeEmbeddingModel(s); embeddingModel != "" {
-		doc.Metadata["embeddingModel"] = embeddingModel
-	}
+	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "UPLOADED", CreatedAt: time.Now().UnixMilli()}
+	doc.Metadata = map[string]any{"size": len(data), "contentType": h.Header.Get("Content-Type"), "indexStage": "pending", "indexProgress": map[string]int{"done": 0, "total": 0}, "chunking": map[string]any{"strategy": "fixed-window-overlap", "size": core.KnowledgeChunkSize, "overlap": core.KnowledgeChunkOverlap, "unit": "unicode-code-points", "offsetConvention": "start-inclusive,end-exclusive"}}
 	if run := capacityRequestRunID(r); run != "" {
 		doc.Metadata["capacityRunId"] = run
 	}
 	if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-		problem(w, 500, err.Error())
+		problem(w, 500, "文档记录保存失败")
 		return
 	}
-	write(w, 201, doc)
+	// The persistent worker recovers pending rows after a restart. Tests and
+	// explicitly in-memory development retain synchronous indexing.
+	if _, durable := s.engine.KB.(ports.EmbeddingRuntime); !durable {
+		result, indexErr := core.IndexKnowledgeDocument(r.Context(), s.engine.KB, doc, data)
+		if indexErr != nil {
+			doc.Status = "INDEX_FAILED"
+			doc.Metadata["indexError"] = indexErr.Error()
+			_ = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc)
+			problem(w, 422, indexErr.Error())
+			return
+		}
+		doc.Status = "INDEXED"
+		doc.Metadata["chunks"] = result.Chunks
+		doc.Metadata["characters"] = result.Characters
+		if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
+			problem(w, 500, err.Error())
+			return
+		}
+		write(w, 201, doc)
+		return
+	}
+	s.audit(r, "knowledge.upload", "knowledge-document", doc.ID, map[string]any{"workflowId": workflowID})
+	write(w, 202, doc)
 }
 func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)

@@ -39,9 +39,13 @@ type AIWorkflowRunManager interface {
 // device scope on every tool call; other accounts, such as the configured
 // administrator, have only the tool scopes listed here.
 type AIRunIdentity struct {
+	TenantID       string
 	Username       string
 	ManagedUser    bool
 	SessionVersion int64
+	// AccessVersion binds preloaded evidence to the permissions and device scope
+	// at request time. A changed grant invalidates the entire pending prompt.
+	AccessVersion string
 	// Scopes are the MCP tool scopes the caller may use.
 	Scopes []string
 }

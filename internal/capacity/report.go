@@ -326,7 +326,7 @@ func (d *reportData) coverage() []Coverage {
 		aiDetail = "手动告警研判，平台连接 harness-mock：只测平台调度，不代表模型与供应商容量"
 	}
 	module("ai_workflows", m.AI.Enabled, aiDetail)
-	module("knowledge_base", m.Knowledge.Enabled, "文档上传、解析、分块与索引；检索只经 AI 工作流间接覆盖")
+	module("knowledge_base", m.Knowledge.Enabled, "文档上传、解析、分块与索引；异步上传等待 INDEXED 后计为成功，包含索引等候时间；检索只经 AI 工作流间接覆盖")
 	videoDetail := "播放会话建立与释放（控制面）"
 	if d.env != nil && m.Video.Enabled {
 		videoDetail += "；配置 inventory.web 时拉取 HLS 播放列表与首个分片，WebRTC 未覆盖"

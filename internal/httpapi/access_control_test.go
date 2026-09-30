@@ -694,7 +694,7 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 	// the chat assistant permission this role does not have.
 	plainClaims, err := api.auth.Parse(plain)
 	must(err)
-	identity := ports.AIRunIdentity{Username: "plain", ManagedUser: true, SessionVersion: plainClaims.SessionVersion, Scopes: []string{auth.ScopeQueryAlarmList}}
+	identity := ports.AIRunIdentity{TenantID: plainClaims.TenantID, Username: "plain", ManagedUser: true, SessionVersion: plainClaims.SessionVersion, Scopes: []string{auth.ScopeQueryAlarmList}}
 	callTool := func(token string, status int) {
 		t.Helper()
 		requestJSON(t, srv.Client(), "POST", srv.URL+"/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "query_alarm_list", "arguments": map[string]any{}}}, status)
@@ -779,5 +779,66 @@ func TestScopedChildCountsStayInStorage(t *testing.T) {
 	counts, err := ScopedRepository(base).CountManagedDeviceChildren(ctx, "t", []string{"g"})
 	if err != nil || counts["g"] != 1 || len(counts) != 1 || base.fullReads != 0 {
 		t.Fatalf("counts=%v fullRegistryReads=%d err=%v", counts, base.fullReads, err)
+	}
+}
+
+type changingKnowledgeBase struct {
+	ports.KnowledgeBase
+	change func()
+}
+
+func (k changingKnowledgeBase) IndexKnowledge(context.Context, ports.KnowledgeIndexInput) error {
+	return nil
+}
+func (k changingKnowledgeBase) SearchKnowledge(context.Context, ports.KnowledgeSearchRequest) ([]ports.KnowledgeHit, error) {
+	k.change()
+	return []ports.KnowledgeHit{{DocumentID: "private-doc", ChunkID: "private-chunk", Content: "仅在原授权范围可见的证据", Score: 1}}, nil
+}
+
+func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
+	for _, business := range []bool{false, true} {
+		name := "chat"
+		if business {
+			name = "business"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := memory.NewRepository()
+			user := model.PlatformUser{Username: "expert", Enabled: true, SessionVersion: 1, DeviceScope: "all", Permissions: []string{"menu:devices", "menu:ai", "menu:knowledge", "POST /api/v1/ai/chat", "POST /api/v1/ai/reports"}}
+			state := model.AccessState{Users: []model.PlatformUser{user}}
+			if saved, err := repo.SaveAccessState(ctx, "tenant-a", state); err != nil || !saved {
+				t.Fatalf("save access: %v", err)
+			}
+			permissions := effectivePermissions(state, user)
+			requestCtx := context.WithValue(ctx, permissionsKey{}, permissions)
+			requestCtx = context.WithValue(requestCtx, deviceScopeKey{}, scopeFor(user, permissions, "tenant-a"))
+			c := auth.Claims{TenantID: "tenant-a", Username: "expert", TokenUse: "user", SessionVersion: 1}
+			workflows := &aitest.Workflows{}
+			engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, AIWorkflows: workflows, HarnessTokens: aitest.Tokens()}
+			api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			engine.KB = changingKnowledgeBase{change: func() {
+				current, err := repo.LoadAccessState(ctx, "tenant-a")
+				if err != nil {
+					t.Fatal(err)
+				}
+				current.Users[0].Permissions = []string{"menu:devices", "menu:ai", "POST /api/v1/ai/chat", "POST /api/v1/ai/reports"}
+				if saved, err := repo.SaveAccessState(ctx, "tenant-a", current); err != nil || !saved {
+					t.Fatalf("revoke knowledge: %v", err)
+				}
+			}}
+			var err error
+			if business {
+				_, err = engine.GenerateReport(aiRunContext(requestCtx, c), "tenant-a", "今日", 1, 2)
+			} else {
+				_, err = api.runAIWorkflow(requestCtx, c, "查询私有知识", "test-agent", "", "", 2048, nil)
+			}
+			if err == nil || len(workflows.Requests()) != 0 {
+				t.Fatalf("stale evidence sent to model: err=%v requests=%d", err, len(workflows.Requests()))
+			}
+			// A queued business run must also be rejected before any prefetch.
+			if _, err = api.authorizeAIRun(aiRunContext(requestCtx, c), "tenant-a", core.WorkflowOpsReport); err == nil {
+				t.Fatal("queued stale permission snapshot accepted")
+			}
+		})
 	}
 }

@@ -291,6 +291,40 @@ ALTER TABLE ai_knowledge_doc ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAU
 ALTER TABLE ai_knowledge_doc ADD COLUMN IF NOT EXISTS workflow_id text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS ai_knowledge_doc_workflow_idx ON ai_knowledge_doc(tenant_id, workflow_id, created_at DESC);
 
+-- Knowledge vectors share the platform database. Versions are replaced only
+-- after a complete rebuild; failed builds never clear the current index.
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+CREATE TABLE IF NOT EXISTS ai_knowledge_index_version (
+  id text PRIMARY KEY, signature text NOT NULL, provider text NOT NULL,
+  model text NOT NULL, dimensions integer NOT NULL CHECK (dimensions BETWEEN 1 AND 2000),
+  preprocessing text NOT NULL,
+  status text NOT NULL CHECK (status IN ('building','active','retired','failed')),
+  created_at timestamptz NOT NULL DEFAULT now(), activated_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ai_knowledge_one_active_version ON ai_knowledge_index_version ((status)) WHERE status='active';
+CREATE INDEX IF NOT EXISTS ai_knowledge_index_signature ON ai_knowledge_index_version(signature, status);
+CREATE TABLE IF NOT EXISTS ai_knowledge_chunk (
+  version_id text NOT NULL REFERENCES ai_knowledge_index_version(id) ON DELETE CASCADE,
+  tenant_id text NOT NULL, workflow_id text NOT NULL DEFAULT '',
+  document_id text NOT NULL REFERENCES ai_knowledge_doc(id) ON DELETE CASCADE,
+  chunk_id text NOT NULL, product_id text NOT NULL DEFAULT '', category text NOT NULL DEFAULT '',
+  tags text[] NOT NULL DEFAULT '{}', chunk_index integer NOT NULL,
+  start_char integer NOT NULL, end_char integer NOT NULL, character_count integer NOT NULL,
+  overlap_chars integer NOT NULL DEFAULT 0, content text NOT NULL,
+  keyword_tokens text[] NOT NULL DEFAULT '{}', dimensions integer NOT NULL,
+  embedding public.vector NOT NULL,
+  PRIMARY KEY (version_id, tenant_id, workflow_id, document_id, chunk_id),
+  CHECK (start_char >= 0 AND end_char > start_char AND end_char-start_char=character_count),
+  CHECK (overlap_chars >= 0 AND overlap_chars <= character_count),
+  CHECK (public.vector_dims(embedding)=dimensions)
+);
+CREATE INDEX IF NOT EXISTS ai_knowledge_chunk_scope ON ai_knowledge_chunk(version_id,tenant_id,workflow_id,lower(product_id),lower(category));
+CREATE INDEX IF NOT EXISTS ai_knowledge_chunk_document ON ai_knowledge_chunk(tenant_id,document_id);
+CREATE INDEX IF NOT EXISTS ai_knowledge_chunk_tags ON ai_knowledge_chunk USING gin(tags);
+CREATE INDEX IF NOT EXISTS ai_knowledge_chunk_keywords ON ai_knowledge_chunk USING gin(keyword_tokens);
+-- Cosine HNSW expression indexes are created for each version/dimension by
+-- the adapter, so vectors from different models never share a search index.
+
 CREATE TABLE IF NOT EXISTS ai_workflow_knowledge_binding (
   tenant_id text NOT NULL,
   workflow_id text NOT NULL,

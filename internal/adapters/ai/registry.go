@@ -33,12 +33,12 @@ func NewProviderRegistry() *ProviderRegistry {
 		},
 	})
 	r.register(providerFactory{
-		info: ports.AIPluginInfo{ID: "openai-compatible", Name: "OpenAI 兼容 / 私有化部署", Description: "连接实现 OpenAI Chat Completions 接口的私有化模型服务（如 vLLM）或第三方 API；私有服务可不填 API Key。", RequiresAPIKey: false, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output"}},
+		info: ports.AIPluginInfo{ID: "openai-compatible", Name: "OpenAI 兼容 / 外部 API", Description: "连接实现 OpenAI Chat Completions 接口的外部 API 服务。", RequiresAPIKey: false, Enabled: true, Capabilities: []string{"chat", "alarm-analysis", "rule-draft", "json-output"}},
 		build: func(cfg ports.AIPluginConfig) (ports.AIClient, error) {
 			if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.Model) == "" {
 				return nil, fmt.Errorf("baseUrl and model are required for OpenAI-compatible providers")
 			}
-			return NewOpenAICompatible("openai-compatible", "OpenAI 兼容 / 私有化部署", cfg.BaseURL, cfg.Model, cfg.APIKey)
+			return NewOpenAICompatible("openai-compatible", "OpenAI 兼容 / 外部 API", cfg.BaseURL, cfg.Model, cfg.APIKey)
 		},
 	})
 	return r

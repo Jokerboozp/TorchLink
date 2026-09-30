@@ -57,8 +57,7 @@ function Ensure-DeploymentEnv {
         IOT_ADMIN_TENANTS = 'tenant_001'
         IOT_VIDEO_PLATFORM_SECRETS = ('video-platform-1:' + (New-DeploymentSecret))
         IOT_AI_HARNESS_TOKEN = (New-DeploymentSecret)
-        IOT_EMBEDDING_API_KEY = (New-DeploymentSecret)
-        IOT_LLM_API_KEY = (New-DeploymentSecret)
+        IOT_EMBEDDING_API_KEY = ''
         IOT_BACKUP_ADMIN_TOKEN = (New-DeploymentSecret)
         GB26875_CONTROL_TOKEN = (New-DeploymentSecret)
         IOT_HTTP_ADDR = ':8081'
@@ -232,46 +231,25 @@ function Remove-DeploymentEnvValue {
     [IO.File]::WriteAllText($fullPath, ($lines -join "`n") + "`n", (New-Object Text.UTF8Encoding($false)))
 }
 
-# TEI CPU image for the Docker engine's architecture (x86_64 or ARM64).
-function Get-DeploymentEmbeddingImage {
-    $arch = ''
-    try { $arch = (& docker info --format '{{.Architecture}}' 2>$null | Out-String).Trim() } catch { }
-    if (-not $arch) { $arch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() }
-    if ($arch -match '^(aarch64|arm64|Arm64)$') { return 'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-1.9' }
-    return 'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9'
-}
-
-# Optional private chat model (vLLM, NVIDIA GPU). keep retains the previous
-# choice; the default is off because the DeepSeek cloud API stays primary.
-function Set-PrivateLlmDeploymentEnv {
-    param([Parameter(Mandatory)][string]$Path, [ValidateSet('keep', 'on', 'off')][string]$Mode = 'keep')
-    if ($Mode -eq 'keep') { $Mode = if ((Get-DeploymentEnvValue -Path $Path -Key 'IOT_PRIVATE_LLM') -eq 'on') { 'on' } else { 'off' } }
-    $profiles = @(@("$(Get-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'llm' })
-    if ($Mode -eq 'on') { $profiles += 'llm' }
-    Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
-    Set-DeploymentEnvValue -Path $Path -Key 'IOT_PRIVATE_LLM' -Value $Mode
-    if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_LLM_MODEL')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_LLM_MODEL' -Value 'Qwen/Qwen3-8B' }
-    return $Mode
-}
-
-# Knowledge embeddings run on the private TEI service. Pick the CPU image for
-# this architecture unless a custom (for example GPU) image is configured,
-# generate access keys once and drop settings of the retired Ollama service.
+# Knowledge vectors are stored in PostgreSQL; cloud API settings are retained.
 function Set-EmbeddingDeploymentEnv {
-    param([Parameter(Mandatory)][string]$Path, [string]$Url = 'http://embedding:80/v1')
-    $image = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_IMAGE'
-    if (-not $image -or $image.StartsWith('ghcr.io/huggingface/text-embeddings-inference:cpu-')) {
-        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_IMAGE' -Value (Get-DeploymentEmbeddingImage)
+    param([Parameter(Mandatory)][string]$Path)
+    $url = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL'
+    if (-not $url -or $url -match '^http://(embedding:|[^/]+:18091)') {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL' -Value 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL' -Value 'text-embedding-v4'
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY' -Value ''
     }
-    if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL' -Value $Url }
-    if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL' -Value 'Qwen/Qwen3-Embedding-0.6B' }
-    foreach ($key in @('IOT_EMBEDDING_API_KEY', 'IOT_LLM_API_KEY')) {
-        $value = Get-DeploymentEnvValue -Path $Path -Key $key
-        if (-not $value -or $value -match 'change-this|change-me') { Set-DeploymentEnvValue -Path $Path -Key $key -Value (New-DeploymentSecret) }
+    foreach ($setting in @{ IOT_EMBEDDING_MODEL='text-embedding-v4'; IOT_EMBEDDING_DIMENSIONS='1024'; IOT_EMBEDDING_BATCH_SIZE='10' }.GetEnumerator()) {
+        if (-not (Get-DeploymentEnvValue -Path $Path -Key $setting.Key)) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value $setting.Value }
     }
-    foreach ($key in @('IOT_OLLAMA_URL', 'IOT_OLLAMA_MODEL', 'IOT_AI_OLLAMA_URL', 'IOT_AI_HARNESS_OLLAMA_BASE_URL')) {
+    $key = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY'
+    if ($key -match 'change-this|change-me') { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY' -Value '' }
+    foreach ($key in @('IOT_WEAVIATE_URL', 'IOT_EMBEDDING_IMAGE', 'IOT_EMBEDDING_MODEL_SOURCE', 'IOT_PRIVATE_LLM', 'IOT_LLM_IMAGE', 'IOT_LLM_MODEL', 'IOT_LLM_MODEL_SOURCE', 'IOT_LLM_API_KEY', 'HF_ENDPOINT', 'HF_HUB_OFFLINE', 'IOT_OLLAMA_URL', 'IOT_OLLAMA_MODEL', 'IOT_AI_OLLAMA_URL', 'IOT_AI_HARNESS_OLLAMA_BASE_URL')) {
         Remove-DeploymentEnvValue -Path $Path -Key $key
     }
+    $profiles = @(@("$(Get-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'llm' })
+    Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
 }
 
 function Set-DeepSeekDeploymentEnv {

@@ -30,8 +30,6 @@ offline_compose_file="$bundle_dir/compose.offline.yaml"
 archive_file="$bundle_dir/images.tar"
 hash_file="$bundle_dir/images.tar.sha256"
 profiles_file="$bundle_dir/profiles.txt"
-embedding_archive="$bundle_dir/embedding-models.tgz"
-llm_archive="$bundle_dir/llm-models.tgz"
 for file in "$env_file" "$compose_file" "$offline_compose_file" "$archive_file" "$hash_file"; do
   [[ -f "$file" ]] || die "离线包缺少文件：$file"
 done
@@ -56,10 +54,7 @@ check_hash() {
 }
 if (( ! skip_hash_check )); then
   check_hash "$archive_file" "$hash_file"
-  for model_archive in "$embedding_archive" "$llm_archive"; do
-    if [[ -f "$model_archive" ]]; then check_hash "$model_archive" "$model_archive.sha256"; fi
-  done
-  echo "镜像和模型包 SHA256 校验通过。"
+  echo "镜像包 SHA256 校验通过。"
 fi
 
 # Images are saved for one CPU architecture; loading them elsewhere cannot run.
@@ -92,9 +87,7 @@ if [[ -f "$profiles_file" ]]; then
     [[ -n "$profile" ]] || continue
     # The media image is always packaged; IOT_VIDEO_MODULE=off keeps it undeployed.
     if [[ "$profile" == video ]] && grep -Eq "^[[:space:]]*IOT_VIDEO_MODULE[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null; then continue; fi
-    # The private chat model needs an NVIDIA GPU; IOT_PRIVATE_LLM=off keeps it undeployed.
-    if [[ "$profile" == llm ]] && grep -Eq "^[[:space:]]*IOT_PRIVATE_LLM[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null; then continue; fi
-    case "$profile" in harness|gb26875|video|llm) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
+    case "$profile" in harness|gb26875|video) compose+=(--profile "$profile") ;; *) die "离线包包含未知 profile：$profile" ;; esac
   done < "$profiles_file"
 fi
 "${compose[@]}" config --quiet
@@ -105,20 +98,6 @@ while IFS= read -r image; do
   docker image inspect "$image" >/dev/null 2>&1 || die "离线包缺少镜像：${image}。请在有网机器重新打包。"
 done <<< "$images"
 
-# Model weights are restored into named volumes; existing files are kept.
-restore_model_volume() {
-  local archive="$1" volume="$2" label="$3"
-  [[ -f "$archive" ]] || return 0
-  docker volume create "$volume" >/dev/null
-  docker run --rm --pull never \
-    --mount "type=volume,source=$volume,target=/dst" \
-    --mount "type=bind,source=$bundle_dir,target=/backup,readonly" \
-    alpine:3.22 sh /backup/scripts/lib/restore-volume-archive.sh "/backup/$(basename -- "$archive")" /dst
-  echo "$label已恢复（保留已有文件）。"
-}
-restore_model_volume "$embedding_archive" iot-platform_embedding-models "知识库向量模型"
-restore_model_volume "$llm_archive" iot-platform_llm-models "私有化对话模型权重"
-# The CPU embedding service loads and warms up its model on first start.
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 900
 # up does not remove profile services; drop a capacity service left from an earlier choice.
 if [[ "${capacity_off:-0}" == 1 ]]; then "${compose[@]}" --profile capacity rm -sf capacity >/dev/null 2>&1 || true; fi
@@ -151,8 +130,7 @@ if (( ! skip_health_check )); then
     "${compose[@]}" logs --tail=100 platform-api postgres redpanda emqx || true
     die "平台健康检查失败：$health_url"
   fi
-  "${compose[@]}" exec -T embedding curl -fsS -o /dev/null http://127.0.0.1:80/health || die "知识库向量服务未就绪"
-  echo "平台健康检查与知识库向量服务检查通过：$health_url"
+  echo "平台健康检查通过：$health_url"
   check_web_port="$(env_value IOT_WEB_PORT)"
   check_backup_port="$(env_value IOT_BACKUP_HTTP_PORT)"
   for url in "http://127.0.0.1:${check_web_port:-8080}/" "http://127.0.0.1:${check_web_port:-8080}/health/ready" "http://127.0.0.1:${check_backup_port:-8092}/health/ready"; do

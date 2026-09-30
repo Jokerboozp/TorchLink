@@ -347,7 +347,7 @@ func ChunkKnowledgeTextDetailed(text string, size, overlap int) []KnowledgeTextC
 		if contentStart < contentEnd {
 			overlapChars := 0
 			if previousRawEnd > contentStart {
-				overlapChars = previousRawEnd - contentStart
+				overlapChars = min(previousRawEnd, contentEnd) - contentStart
 			}
 			out = append(out, KnowledgeTextChunk{
 				Index:          len(out) + 1,

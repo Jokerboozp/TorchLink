@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,9 @@ func TestDeviceBackupIntegration(t *testing.T) {
 		MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"),
 		MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: os.Getenv("IOT_MINIO_USE_TLS") == "true",
 		BackupDir: t.TempDir(), BackupTimezone: "Asia/Shanghai",
+		HarnessDataDir:      os.Getenv("IOT_BACKUP_HARNESS_DATA_DIR"),
+		HarnessSnapshotURLs: strings.FieldsFunc(os.Getenv("IOT_BACKUP_HARNESS_SNAPSHOT_URLS"), func(r rune) bool { return r == ',' }),
+		HarnessToken:        os.Getenv("IOT_AI_HARNESS_TOKEN"),
 	})
 	if err != nil {
 		t.Fatal("backup connections failed; check configured endpoints")
@@ -41,11 +45,11 @@ func TestDeviceBackupIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Artifacts) != 3 {
-		t.Fatalf("expected only two data files and manifest, got %d", len(manifest.Artifacts))
+	if len(manifest.Artifacts) != 7 {
+		t.Fatalf("FULL must contain messages, knowledge tables/originals, Harness and manifest, got %d artifacts", len(manifest.Artifacts))
 	}
 	for _, artifact := range manifest.Artifacts {
-		if artifact.Filename == "manifest.json" {
+		if artifact.Filename != "raw-messages.jsonl.gz" && artifact.Filename != "parsed-messages.jsonl.gz" {
 			continue
 		}
 		object, _, err := s.OpenArtifact(ctx, manifest.ID, artifact.Filename)

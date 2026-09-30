@@ -16,7 +16,7 @@ func DefaultWorkflowKnowledgeBinding(tenantID, workflowID string) model.Workflow
 	if workflowID == "system-observer" {
 		return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "disabled", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"}
 	}
-	return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "auto", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"}
+	return model.WorkflowKnowledgeBinding{TenantID: tenantID, WorkflowID: workflowID, RetrievalMode: "always", TopK: 5, MinScore: 0.25, NoMatchPolicy: "allow-model"}
 }
 
 // SearchWorkflowKnowledge retrieves only documents owned by the bound Agent.
@@ -24,7 +24,7 @@ func DefaultWorkflowKnowledgeBinding(tenantID, workflowID string) model.Workflow
 // tenant-wide search.
 func SearchWorkflowKnowledge(ctx context.Context, kb ports.KnowledgeBase, tenantID, question string, binding model.WorkflowKnowledgeBinding) ([]ports.KnowledgeHit, error) {
 	if filtered, ok := kb.(ports.FilteredKnowledgeBase); ok {
-		return filtered.SearchKnowledge(ctx, ports.KnowledgeSearchRequest{TenantID: tenantID, WorkflowID: binding.WorkflowID, Question: question, Limit: binding.TopK, MinScore: binding.MinScore})
+		return filtered.SearchKnowledge(ctx, ports.KnowledgeSearchRequest{TenantID: tenantID, WorkflowID: binding.WorkflowID, Question: question, Limit: binding.TopK, MinScore: binding.MinScore, ProductIDs: binding.ProductIDs, Categories: binding.Categories, Tags: binding.Tags})
 	}
 	return nil, errors.New("workflow-bound knowledge search is not supported by the configured index")
 }

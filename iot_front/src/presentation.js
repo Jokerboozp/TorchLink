@@ -7,10 +7,10 @@ export const transportNames = {
 export const formatNames = { JSON:'JSON', HEX:'HEX（十六进制）', BINARY:'Binary（二进制）', TEXT:'Text（纯文本）', BASE64:'Base64' }
 export const aiProviderOptions = [
   { id:'deepseek', label:'DeepSeek', description:'默认模型服务，填写 API Key 即可使用。' },
-  { id:'openai-compatible', label:'OpenAI 兼容 / 私有化部署', description:'连接私有化部署的 vLLM 等 OpenAI 兼容模型服务，或第三方 API；私有服务未启用鉴权时可不填 API Key。' }
+  { id:'openai-compatible', label:'OpenAI 兼容 API', description:'连接第三方 OpenAI 兼容 API，统一用于对话、研判、巡检和协议助手。' }
 ]
 export const statusNames = {
-  INDEXED:'已建立索引', INDEXING:'索引建立中', INDEX_FAILED:'索引失败', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
+  INDEXED:'已建立索引', INDEXING:'索引建立中', INDEX_FAILED:'索引失败', DELETING:'删除中', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
   ENABLED:'已启用', DISABLED:'已停用', ONLINE:'在线', OFFLINE:'离线', WAITING:'等待心跳', LISTENING:'监听中',
   CONNECTING:'连接中', CONNECTED:'已连接', DISCONNECTED:'未连接', ACTIVE:'活跃', NEVER_SEEN:'尚未上报', ALARM:'告警中', SUSPECTED_OFFLINE:'疑似离线',
   DRAFT:'草稿', VALIDATED:'已校验', PUBLISHED:'已发布', DEPRECATED:'已弃用', REVOKED:'已撤销',

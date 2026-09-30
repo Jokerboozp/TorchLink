@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -29,11 +30,11 @@ func restoreTargetSafe(source, target string) error {
 	}
 	sc, err := pgx.ParseConfig(source)
 	if err != nil {
-		return err
+		return errors.New("platform database configuration is invalid")
 	}
 	tc, err := pgx.ParseConfig(target)
 	if err != nil {
-		return fmt.Errorf("restore target DSN is invalid: %w", err)
+		return errors.New("restore target DSN is invalid")
 	}
 	hosts := func(c *pgx.ConnConfig) map[string]bool {
 		out := map[string]bool{fmt.Sprintf("%s:%d", c.Host, c.Port): true}
@@ -69,11 +70,12 @@ func recordMessageID(message json.RawMessage) string {
 
 // RestoreResult summarises a restore into the independent target.
 type RestoreResult struct {
-	RestoreID string                    `json:"restoreId"`
-	BackupID  string                    `json:"backupId"`
-	Status    string                    `json:"status"`
-	Kinds     map[string]RestoreSummary `json:"kinds"`
-	Error     string                    `json:"error,omitempty"`
+	RestoreID  string                    `json:"restoreId"`
+	BackupID   string                    `json:"backupId"`
+	Status     string                    `json:"status"`
+	Kinds      map[string]RestoreSummary `json:"kinds"`
+	Error      string                    `json:"error,omitempty"`
+	Components map[string]any            `json:"components,omitempty"`
 }
 
 type RestoreSummary struct {
@@ -98,7 +100,10 @@ CREATE TABLE IF NOT EXISTS restore_run (
 // manifest. It proves the backup can be read back into PostgreSQL; it does
 // not replace the live platform database.
 func (s *Service) Restore(ctx context.Context, backupID string) (RestoreResult, error) {
-	res := RestoreResult{BackupID: backupID, Kinds: map[string]RestoreSummary{}}
+	res := RestoreResult{BackupID: backupID, Kinds: map[string]RestoreSummary{}, Components: map[string]any{}}
+	if err := validateSegment(backupID, "backup id"); err != nil {
+		return res, err
+	}
 	if err := restoreTargetSafe(s.cfg.PostgresDSN, s.cfg.RestoreTargetDSN); err != nil {
 		return res, err
 	}
@@ -141,9 +146,23 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 	if err != nil {
 		return fmt.Errorf("read manifest: %w", err)
 	}
+	if manifest.FormatVersion > 2 {
+		return fmt.Errorf("unsupported backup manifest version %d", manifest.FormatVersion)
+	}
+	if manifest.ID != res.BackupID {
+		return errors.New("backup manifest identity mismatch")
+	}
+	if err = os.MkdirAll(s.cfg.BackupDir, 0700); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(s.cfg.BackupDir, ".message-restore-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
 	target, err := pgx.Connect(ctx, s.cfg.RestoreTargetDSN)
 	if err != nil {
-		return fmt.Errorf("restore target: %w", err)
+		return errors.New("restore target database is unavailable")
 	}
 	defer target.Close(context.WithoutCancel(ctx))
 	if _, err = target.Exec(ctx, restoreSchema); err != nil {
@@ -167,7 +186,11 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 			return fmt.Errorf("backup has no %s", filename)
 		}
 		summary := RestoreSummary{Expected: manifestRecords(manifest.Components[kind])}
-		obj, err := s.store.GetObject(ctx, s.cfg.BackupBucket, artifact.ObjectKey, minio.GetObjectOptions{})
+		file, err := s.downloadVerifiedArtifact(ctx, manifest, res.BackupID, filename, stage)
+		if err != nil {
+			return err
+		}
+		obj, err := os.Open(file)
 		if err != nil {
 			return err
 		}
@@ -185,6 +208,15 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 		summary.Matches = summary.Restored == summary.Expected && (summary.Distinct > 0) == (summary.Expected > 0) && summary.Distinct <= summary.Restored
 		res.Kinds[kind] = summary
 	}
+	if err = s.restoreKnowledgeAndAgents(ctx, target, manifest, res); err != nil {
+		return err
+	}
+	res.Status = "COMPLETED"
+	for _, summary := range res.Kinds {
+		if !summary.Matches {
+			res.Status = "MISMATCH"
+		}
+	}
 	result, _ := json.Marshal(res)
 	_, err = target.Exec(ctx, `INSERT INTO restore_run(id,backup_id,result) VALUES($1,$2,$3)`, res.RestoreID, res.BackupID, result)
 	return err
@@ -197,6 +229,8 @@ func manifestRecords(v any) int64 {
 		return int64(n)
 	case int64:
 		return n
+	case int:
+		return int64(n)
 	case json.Number:
 		i, _ := n.Int64()
 		return i

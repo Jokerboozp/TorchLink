@@ -278,6 +278,10 @@ node_addresses="$(tool -print-nodes | awk '{print $2}' | paste -sd, -)"
 if [ -z "$images_tar" ] && [ "$build" = 1 ]; then
   build_env=() build_services=()
   while read -r key image; do
+    if [ "$key" = postgres ] && [[ "$image" == iot-platform-postgres-ha:* ]]; then
+      run docker build --pull -t "$image" -f "$project_root/deploy/postgres/Dockerfile.spilo" "$project_root/deploy/postgres"
+      continue
+    fi
     case "$own_keys" in *" $key "*) ;; *) continue;; esac
     [[ "$image" == *@sha256:* ]] && continue   # pinned digests are pulled, not rebuilt
     case "$key" in

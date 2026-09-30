@@ -47,7 +47,9 @@ services:
     <<: *service-defaults
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:15432:5432"
-    image: postgres:17-alpine3.22
+    image: ${IOT_POSTGRES_IMAGE:-iot-platform-postgres:17-pgvector-0.8.1}
+    build:
+      context: ./deploy/postgres
     # Each API/gateway process keeps up to IOT_POSTGRES_MAX_CONNS (default 64).
     command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-300}", "-c", "wal_level=replica", "-c", "archive_mode=on", "-c", "archive_timeout=300s", "-c", "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f"]
     environment:
@@ -250,8 +252,16 @@ services:
       IOT_BACKUP_TIMEZONE: ${IOT_BACKUP_TIMEZONE:-Asia/Shanghai}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
       IOT_BACKUP_RESTORE_TARGET_DSN: ${IOT_BACKUP_RESTORE_TARGET_DSN:-}
+      IOT_BACKUP_HARNESS_DATA_DIR: /app/harness
+      IOT_BACKUP_HARNESS_SNAPSHOT_URLS: http://deepseek-harness:8091/v1/backup/snapshot
+      IOT_AI_HARNESS_TOKEN: ${IOT_AI_HARNESS_TOKEN:-local-harness-gateway-token-change-me-now}
+      IOT_BACKUP_RESTORE_HARNESS_DIR: /app/data/backups/restored-harness
+      IOT_BACKUP_RESTORE_MINIO_ENDPOINT: minio-dr:9000
+      IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY: ${MINIO_DR_ROOT_USER:-iotdradmin}
+      IOT_BACKUP_RESTORE_MINIO_SECRET_KEY: ${MINIO_DR_ROOT_PASSWORD:-local-iot-minio-dr-change-me}
     volumes:
       - backup-staging:/app/data/backups
+      - deepseek-harness-data:/app/harness:ro
     depends_on:
       postgres: {condition: service_healthy}
       minio: {condition: service_healthy}
@@ -262,49 +272,6 @@ services:
       timeout: 5s
       retries: 18
       start_period: 10s
-
-  # 知识库私有化向量服务（TEI）；镜像按 CPU 架构由 scripts/setup-local 写入 IOT_EMBEDDING_IMAGE。
-  embedding:
-    <<: *service-defaults
-    ports:
-      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18091:80"
-    image: ${IOT_EMBEDDING_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
-    # 离线部署时 IOT_EMBEDDING_MODEL_SOURCE 指向卷内已恢复的模型目录。
-    command: ["--model-id", "${IOT_EMBEDDING_MODEL_SOURCE:-${IOT_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}}", "--port", "80"]
-    environment:
-      API_KEY: ${IOT_EMBEDDING_API_KEY:-local-embedding-key-change-me}
-      # 自动截断超长输入；限制单批词元数以控制 CPU 内存。
-      MAX_BATCH_TOKENS: ${IOT_EMBEDDING_MAX_BATCH_TOKENS:-4096}
-      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
-      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
-    volumes: ["embedding-models:/data"]
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:80/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 60
-      start_period: 60s
-
-  weaviate:
-    <<: *service-defaults
-    ports:
-      - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:18080:8080"
-    image: cr.weaviate.io/semitechnologies/weaviate:1.32.8
-    environment:
-      QUERY_DEFAULTS_LIMIT: "25"
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
-      PERSISTENCE_DATA_PATH: /var/lib/weaviate
-      DEFAULT_VECTORIZER_MODULE: none
-      ENABLE_MODULES: backup-filesystem
-      BACKUP_FILESYSTEM_PATH: /var/lib/weaviate/backups
-      CLUSTER_HOSTNAME: node1
-    volumes: ["weaviate-data:/var/lib/weaviate"]
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/v1/.well-known/ready >/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-      start_period: 20s
 
   # 运维中心依赖（可选）：scripts/setup-local 使用 --include-ops / -IncludeOps 启用 ops profile。
   # 源码模式的 API 在宿主机运行，规则与通知配置目录通过绑定挂载共享给组件。
@@ -436,8 +403,6 @@ volumes:
   emqx-data: {}
   emqx-log: {}
   backup-staging: {}
-  embedding-models: {}
-  weaviate-data: {}
   deepseek-harness-data: {}
   prometheus-data: {}
   loki-data: {}

@@ -134,13 +134,16 @@ defaults=(
   "IOT_KAFKA_BROKERS=${dependency_host}:19092"
   "IOT_MQTT_BROKER=tcp://${dependency_host}:1883"
   "IOT_MQTT_WEBSOCKET_PUBLIC_URL=ws://${dependency_host}:8083/mqtt"
-  "IOT_EMBEDDING_URL=http://${dependency_host}:18091/v1"
   'IOT_AI_PROVIDER=deepseek'
   'IOT_AI_BASE_URL=https://api.deepseek.com'
   "IOT_AI_MODEL=$deepseek_model"
-  "IOT_WEAVIATE_URL=http://${dependency_host}:18080"
   'IOT_BACKUP_URL=http://127.0.0.1:8092'
   'IOT_BACKUP_HTTP_ADDR=:8092'
+  "IOT_BACKUP_HARNESS_SNAPSHOT_URLS=http://${dependency_host}:8091/v1/backup/snapshot"
+  'IOT_BACKUP_RESTORE_HARNESS_DIR=./data/backups/restored-harness'
+  "IOT_BACKUP_RESTORE_MINIO_ENDPOINT=${dependency_host}:19001"
+  "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_USER)"
+  "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_DR_ROOT_PASSWORD)"
   'IOT_AI_HARNESS_ENABLED=true'
   "IOT_AI_HARNESS_URL=http://${dependency_host}:8091"
   "IOT_AI_HARNESS_MCP_URL=http://${api_host}:8081/mcp/harness"
@@ -152,7 +155,7 @@ for entry in "${defaults[@]}"; do
   key="${entry%%=*}"
   replace="$new_env"
   if [ "$dependency_host_set" = true ]; then
-    case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_EMBEDDING_URL|IOT_WEAVIATE_URL|IOT_BACKUP_URL|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
+    case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_BACKUP_URL|IOT_BACKUP_HARNESS_SNAPSHOT_URLS|IOT_BACKUP_RESTORE_MINIO_ENDPOINT|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
   fi
   set_local_env_value "$key" "${entry#*=}" "$replace"
 done
@@ -160,6 +163,7 @@ set_local_env_value IOT_LOCAL_API_HOST "$api_host" true
 # The source-debugged API and backup worker run on the same host. Keep the
 # worker endpoint local even when middleware containers are remote.
 set_local_env_value IOT_BACKUP_URL 'http://127.0.0.1:8092' true
+set_local_env_value IOT_BACKUP_HARNESS_SNAPSHOT_URLS "http://${dependency_host}:8091/v1/backup/snapshot" true
 set_local_env_value IOT_BACKUP_HTTP_ADDR ':8092'
 if [ "$include_backup" = true ]; then set_local_env_value IOT_BACKUP_URL "http://${dependency_host}:8092" true; fi
 if [ "$include_backup" = true ]; then
@@ -168,7 +172,7 @@ else
   set_local_env_value IOT_LOCAL_BACKUP_METRICS_TARGET "${api_host}:8092" true
 fi
 configure_deepseek_env "$env_file" "$deepseek_model"
-configure_embedding_env "$env_file" "http://${dependency_host}:18091/v1"
+configure_embedding_env "$env_file"
 
 # The controller follows the source API lifecycle, using its local addresses.
 if [ "$capacity" = keep ]; then
@@ -244,7 +248,6 @@ if [ "$include_backup" = false ]; then
   run_docker "${backup_compose[@]}" stop backup-service
 fi
 run_docker "${compose[@]}" config --quiet
-# The first start downloads the knowledge embedding model (about 1.2 GB).
 run_docker "${compose[@]}" up -d --build --wait --wait-timeout 900
 if [ "$include_backup" = true ]; then wait_deployment_http http://127.0.0.1:8092/health/ready 180; fi
 wait_deployment_http http://127.0.0.1:8091/health 180

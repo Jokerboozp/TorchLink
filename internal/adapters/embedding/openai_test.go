@@ -46,7 +46,7 @@ func TestOpenAIEmbedBatchesAndPrefixesQueries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(batches) != 2 || len(batches[0]) != 32 || len(batches[1]) != 8 {
+	if len(batches) != 4 || len(batches[0]) != 10 || len(batches[3]) != 10 {
 		t.Fatalf("batches = %d/%v", len(batches), len(batches[0]))
 	}
 	if len(vectors) != 40 || vectors[39][0] != 40 {
@@ -55,7 +55,7 @@ func TestOpenAIEmbedBatchesAndPrefixesQueries(t *testing.T) {
 	if _, err = client.Embed(context.Background(), []string{"起火"}, ports.EmbedQuery); err != nil {
 		t.Fatal(err)
 	}
-	if got := batches[2][0]; got != "Q: 起火" {
+	if got := batches[len(batches)-1][0]; got != "Q: 起火" {
 		t.Fatalf("query input = %q", got)
 	}
 }
@@ -95,5 +95,34 @@ func TestNewOpenAIValidatesConfig(t *testing.T) {
 		if _, err := NewOpenAI(cfg); err == nil {
 			t.Fatalf("expected rejection for %+v", cfg)
 		}
+	}
+}
+
+func TestOpenAITransientRetryAndCredentialErrorRedaction(t *testing.T) {
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable, http.StatusUnauthorized} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				if calls == 1 || status == http.StatusUnauthorized {
+					http.Error(w, "secret-provider-credential", status)
+					return
+				}
+				_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[1,2]}]}`))
+			}))
+			defer server.Close()
+			client, err := NewOpenAI(Config{BaseURL: server.URL, Model: "cloud-model", Dimensions: 2})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Embed(context.Background(), []string{"消防知识"}, ports.EmbedDocument)
+			if status == http.StatusUnauthorized {
+				if err == nil || calls != 1 || strings.Contains(err.Error(), "secret-provider-credential") {
+					t.Fatalf("auth retry or error leak: calls=%d err=%v", calls, err)
+				}
+			} else if err != nil || calls != 2 {
+				t.Fatalf("transient recovery: calls=%d err=%v", calls, err)
+			}
+		})
 	}
 }

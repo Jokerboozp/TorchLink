@@ -3,17 +3,23 @@ package core
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ledongthuc/pdf"
 
+	aiadapter "iot-platform/internal/adapters/ai"
 	"iot-platform/internal/adapters/knowledge"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
@@ -34,6 +40,7 @@ func newBusinessEngine(t *testing.T, answer func(ports.AIWorkflowRequest) (strin
 	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	workflows := &aitest.Workflows{Answer: answer}
 	e.AIWorkflows, e.HarnessTokens = workflows, aitest.Tokens()
+	e.KB = knowledge.NewLocal()
 	return e, repo, workflows
 }
 
@@ -112,7 +119,7 @@ func TestBusinessFeaturesRunTheirHarnessWorkflows(t *testing.T) {
 // hand it to the workflow.
 func TestBusinessRunNeverExceedsCallerScopes(t *testing.T) {
 	e, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "结论", nil })
-	ctx := ports.WithAIRunIdentity(context.Background(), ports.AIRunIdentity{Username: "reader", ManagedUser: true, SessionVersion: 7, Scopes: []string{auth.ScopeQueryAlarmList}})
+	ctx := ports.WithAIRunIdentity(context.Background(), ports.AIRunIdentity{TenantID: "t1", Username: "reader", ManagedUser: true, SessionVersion: 7, Scopes: []string{auth.ScopeQueryAlarmList}})
 	if _, err := e.GenerateReport(ctx, "t1", "日报", 1, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +140,235 @@ func TestBusinessRunRequiresIdentityAndHarness(t *testing.T) {
 	e.AIWorkflows = nil
 	if _, err := e.DraftRule(aitest.Context(context.Background()), "t1", "高温报警"); !errors.Is(err, ErrAIWorkflowsUnavailable) {
 		t.Fatalf("missing Harness must be reported, got %v", err)
+	}
+}
+
+type businessKnowledgeIndex struct {
+	*knowledge.Local
+	mu       sync.Mutex
+	requests []ports.KnowledgeSearchRequest
+	err      error
+	hits     []ports.KnowledgeHit
+}
+
+func (k *businessKnowledgeIndex) SearchKnowledge(ctx context.Context, request ports.KnowledgeSearchRequest) ([]ports.KnowledgeHit, error) {
+	k.mu.Lock()
+	k.requests = append(k.requests, request)
+	k.mu.Unlock()
+	if k.err != nil {
+		return nil, k.err
+	}
+	if k.hits != nil {
+		return k.hits, nil
+	}
+	return k.Local.SearchKnowledge(ctx, request)
+}
+
+func (k *businessKnowledgeIndex) Requests() []ports.KnowledgeSearchRequest {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return append([]ports.KnowledgeSearchRequest(nil), k.requests...)
+}
+
+func installBusinessHarnessHTTP(t *testing.T, engine *Engine, beforeRun func(ports.AIWorkflowRequest)) <-chan ports.AIWorkflowRequest {
+	t.Helper()
+	received := make(chan ports.AIWorkflowRequest, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/stream" || r.Method != http.MethodPost {
+			t.Errorf("unexpected Harness request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var request ports.AIWorkflowRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		request.MCPToken = auth.Bearer(r.Header.Get("Authorization"))
+		if beforeRun != nil {
+			beforeRun(request)
+		}
+		received <- request
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_ = json.NewEncoder(w).Encode(ports.AIWorkflowEvent{Type: "run.completed", RunID: request.RunID, Answer: "已接收知识证据"})
+	}))
+	t.Cleanup(server.Close)
+	harness, err := aiadapter.NewHarness(server.URL, aitest.Secret, "https://platform.example/mcp/harness", "test-model", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.AIWorkflows = harness
+	return received
+}
+
+func TestBusinessFirstHarnessRequestContainsScopedKnowledgeEvidence(t *testing.T) {
+	for _, feature := range []struct {
+		workflow string
+		tools    []string
+	}{
+		{WorkflowHealthInspection, []string{"query_system_overview", "query_knowledge_base"}},
+		{WorkflowOpsReport, []string{"query_alarm_list", "query_knowledge_base"}},
+		{WorkflowProtocolAssist, []string{"query_knowledge_base"}},
+		{WorkflowRuleDraft, []string{"query_system_overview"}},
+	} {
+		t.Run(feature.workflow, func(t *testing.T) {
+			ctx := aitest.Context(context.Background())
+			engine, repo, _ := newBusinessEngine(t, nil)
+			index := &businessKnowledgeIndex{Local: knowledge.NewLocal()}
+			engine.KB = index
+			binding := model.WorkflowKnowledgeBinding{TenantID: "t1", WorkflowID: feature.workflow, RetrievalMode: "always", TopK: 3, MinScore: 0.1, NoMatchPolicy: "require-evidence", ProductIDs: []string{"p1"}, Categories: []string{"manual"}, Tags: []string{"sop"}}
+			if err := repo.SaveWorkflowKnowledgeBinding(ctx, binding); err != nil {
+				t.Fatal(err)
+			}
+			for _, doc := range []ports.KnowledgeIndexInput{
+				{TenantID: "t1", WorkflowID: feature.workflow, ProductID: "p1", Category: "manual", Tags: []string{"sop"}, DocumentID: "allowed-doc", ChunkID: "allowed-chunk", Content: []byte("高温 核实 现场设备")},
+				{TenantID: "t2", WorkflowID: feature.workflow, ProductID: "p1", Category: "manual", Tags: []string{"sop"}, DocumentID: "other-tenant", ChunkID: "other-tenant-chunk", Content: []byte("高温 核实 租户机密")},
+				{TenantID: "t1", WorkflowID: "other-agent", ProductID: "p1", Category: "manual", Tags: []string{"sop"}, DocumentID: "other-agent", ChunkID: "other-agent-chunk", Content: []byte("高温 核实 其他智能体机密")},
+				{TenantID: "t1", WorkflowID: feature.workflow, ProductID: "p2", Category: "manual", Tags: []string{"sop"}, DocumentID: "other-product", ChunkID: "other-product-chunk", Content: []byte("高温 核实 其他产品机密")},
+			} {
+				if err := index.IndexKnowledge(ctx, doc); err != nil {
+					t.Fatal(err)
+				}
+			}
+			received := installBusinessHarnessHTTP(t, engine, func(request ports.AIWorkflowRequest) {
+				if len(index.Requests()) != 1 {
+					t.Error("knowledge must be retrieved before the first HTTP Harness request")
+				}
+			})
+			result, err := engine.runBusinessWorkflow(ctx, "t1", feature.workflow, "高温 核实", feature.tools, 2048)
+			if err != nil || result.Answer != "已接收知识证据" {
+				t.Fatalf("run result: %#v err=%v", result, err)
+			}
+			request := <-received
+			claims, err := aitest.Claims(request)
+			if err != nil || claims.TenantID != "t1" || claims.Workflow != feature.workflow {
+				t.Fatalf("unexpected run credentials: %#v err=%v", claims, err)
+			}
+			queries := index.Requests()
+			if len(queries) != 1 || queries[0].TenantID != "t1" || queries[0].WorkflowID != feature.workflow || strings.Join(queries[0].ProductIDs, ",") != "p1" || strings.Join(queries[0].Categories, ",") != "manual" || strings.Join(queries[0].Tags, ",") != "sop" {
+				t.Fatalf("retrieval must use the entire Agent binding: %#v", queries)
+			}
+			for _, text := range []string{"documentId=allowed-doc", "chunkId=allowed-chunk", "高温 核实 现场设备"} {
+				if !strings.Contains(request.Question, text) {
+					t.Fatalf("first Harness request is missing source evidence %q: %q", text, request.Question)
+				}
+			}
+			if strings.Contains(request.Question, "机密") {
+				t.Fatalf("a forbidden document reached the first Harness request: %q", request.Question)
+			}
+			if feature.workflow == WorkflowRuleDraft && (claims.HasScope(auth.ScopeQueryKnowledgeBase) || claims.Knowledge != nil) {
+				t.Fatalf("prefetch must not expand the rule Agent tool whitelist: %#v", claims)
+			}
+		})
+	}
+}
+
+func TestBusinessKnowledgePermissionAndRequiredEvidenceBeforeHarness(t *testing.T) {
+	for _, policy := range []string{"allow-model", "require-evidence"} {
+		t.Run(policy, func(t *testing.T) {
+			engine, repo, _ := newBusinessEngine(t, nil)
+			index := &businessKnowledgeIndex{Local: knowledge.NewLocal()}
+			engine.KB = index
+			ctx := ports.WithAIRunIdentity(context.Background(), ports.AIRunIdentity{Username: "reader", Scopes: []string{auth.ScopeQueryAlarmList}})
+			if err := repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "t1", WorkflowID: WorkflowOpsReport, RetrievalMode: "always", NoMatchPolicy: policy}); err != nil {
+				t.Fatal(err)
+			}
+			received := installBusinessHarnessHTTP(t, engine, nil)
+			_, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, "高温 核实", []string{"query_alarm_list", "query_knowledge_base"}, 2048)
+			if len(index.Requests()) != 0 {
+				t.Fatal("a caller without knowledge permission must not prefetch")
+			}
+			if policy == "require-evidence" {
+				if err == nil || len(received) != 0 {
+					t.Fatalf("required evidence without permission must fail before Harness: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := <-received
+			claims, _ := aitest.Claims(request)
+			if claims.HasScope(auth.ScopeQueryKnowledgeBase) || claims.Knowledge != nil || !strings.Contains(request.Question, "未授权知识库") {
+				t.Fatalf("the default always policy must keep unauthorized runs free of knowledge: %#v", request)
+			}
+		})
+	}
+}
+
+func TestBusinessKnowledgeEvidenceStaysInsideHarnessInputBudget(t *testing.T) {
+	engine, _, _ := newBusinessEngine(t, nil)
+	index := &businessKnowledgeIndex{Local: knowledge.NewLocal(), hits: []ports.KnowledgeHit{{DocumentID: "manual", ChunkID: "manual-1", WorkflowID: WorkflowProtocolAssist, Content: strings.Repeat("知识", 6000)}}}
+	engine.KB = index
+	received := installBusinessHarnessHTTP(t, engine, nil)
+	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowProtocolAssist, strings.Repeat("上", 7000), []string{"query_knowledge_base"}, 2048); err != nil {
+		t.Fatal(err)
+	}
+	request := <-received
+	if len(request.Question) > 30<<10 || !utf8.ValidString(request.Question) || !strings.Contains(request.Question, "documentId=manual chunkId=manual-1") {
+		t.Fatalf("bounded evidence must reach Harness with valid text and source references: %d bytes", len(request.Question))
+	}
+}
+
+func TestBusinessKnowledgeFailuresNeverReachHarness(t *testing.T) {
+	for _, failure := range []string{"missing-evidence", "retrieval-error", "unscoped-index", "mismatched-identity", "mismatched-run-tenant", "managed-missing-tenant", "oversized-input"} {
+		t.Run(failure, func(t *testing.T) {
+			engine, repo, _ := newBusinessEngine(t, nil)
+			index := &businessKnowledgeIndex{Local: knowledge.NewLocal()}
+			engine.KB = index
+			ctx := aitest.Context(context.Background())
+			question := "高温 核实"
+			if err := repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "t1", WorkflowID: WorkflowProtocolAssist, RetrievalMode: "always", TopK: 5, NoMatchPolicy: "require-evidence"}); err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "retrieval-error":
+				index.err = errors.New("embedding API unavailable")
+			case "unscoped-index":
+				engine.KB = unscopedKnowledgeBase{}
+			case "mismatched-identity":
+				ctx = auth.ContextWithClaims(ctx, auth.Claims{TenantID: "t2", Username: "aitest"})
+			case "mismatched-run-tenant":
+				ctx = ports.WithAIRunIdentity(ctx, ports.AIRunIdentity{TenantID: "t2", Username: "reader", Scopes: []string{auth.ScopeQueryKnowledgeBase}})
+			case "managed-missing-tenant":
+				ctx = ports.WithAIRunIdentity(ctx, ports.AIRunIdentity{Username: "reader", ManagedUser: true, Scopes: []string{auth.ScopeQueryKnowledgeBase}})
+			case "oversized-input":
+				question = strings.Repeat("文", 11000)
+			}
+			received := installBusinessHarnessHTTP(t, engine, nil)
+			if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowProtocolAssist, question, []string{"query_knowledge_base"}, 2048); err == nil || len(received) != 0 {
+				t.Fatalf("%s must fail before the first Harness request: %v", failure, err)
+			}
+			if strings.Contains(failure, "mismatched") || failure == "managed-missing-tenant" {
+				if len(index.Requests()) != 0 {
+					t.Fatal("a mismatched tenant must fail before retrieval")
+				}
+			}
+		})
+	}
+}
+
+func TestBusinessMissingKnowledgeAllowModelAndAlarmPrefetchGuards(t *testing.T) {
+	engine, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "结论", nil })
+	engine.KB = nil
+	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", []string{"query_knowledge_base"}, 2048); err != nil {
+		t.Fatal(err)
+	}
+	claims, _ := aitest.Claims(workflows.Last())
+	if claims.HasScope(auth.ScopeQueryKnowledgeBase) || !strings.Contains(workflows.Last().Question, "知识库不可用") {
+		t.Fatal("missing optional knowledge must be explicit and grant no tool scope")
+	}
+	ctx := ports.WithAIRunIdentity(context.Background(), ports.AIRunIdentity{Username: "reader", Scopes: []string{auth.ScopeQueryAlarmList}})
+	count := len(workflows.Requests())
+	if _, err := engine.runAlarmAnalysisWorkflow(ctx, model.Alarm{TenantID: "t1", ID: "alarm"}, nil, []string{"知识机密"}, true); err == nil || len(workflows.Requests()) != count {
+		t.Fatalf("unauthorized preloaded alarm evidence must never reach Harness: %v", err)
+	}
+	index := &businessKnowledgeIndex{Local: knowledge.NewLocal()}
+	engine.KB = index
+	workflows.Answer = func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil }
+	if _, err := engine.runAlarmAnalysisWorkflow(aitest.Context(context.Background()), model.Alarm{TenantID: "t1", ID: "alarm"}, nil, []string{"已检索告警证据"}, true); err != nil || len(index.Requests()) != 0 {
+		t.Fatalf("already prefetched alarm knowledge must not be searched twice: %v", err)
 	}
 }
 
@@ -511,5 +747,27 @@ func TestOpsReportBoundsContextAtLargeDevicePopulation(t *testing.T) {
 	}
 	if len(workflows.Requests()) != 1 {
 		t.Fatal("report did not run")
+	}
+}
+
+func TestKnowledgeEvidenceFitsCharacterAndEscapedJSONBudgets(t *testing.T) {
+	hits := []ports.KnowledgeHit{{DocumentID: "doc", ChunkID: "chunk", Content: strings.Repeat("引文\"\n", 6000)}}
+	for _, prompt := range []string{strings.Repeat("上", 7000), strings.Repeat("x", 18000), strings.Repeat("\"\n", 5000)} {
+		combined, err := AppendKnowledgeEvidence(prompt, hits, 30<<10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = ValidateAIInput(combined, 30<<10); err != nil || !strings.Contains(combined, "documentId=doc") {
+			t.Fatalf("invalid evidence payload: %v", err)
+		}
+		wire, _ := json.Marshal(combined)
+		if len(wire) > 30<<10 {
+			t.Fatalf("escaped question exceeds wire budget: %d", len(wire))
+		}
+	}
+	for _, prompt := range []string{strings.Repeat("x", 20001), strings.Repeat("\x00", 6000), strings.Repeat("🔥", 10001)} {
+		if ValidateAIInput(prompt, 30<<10) == nil {
+			t.Fatal("invalid gateway input budget accepted")
+		}
 	}
 }

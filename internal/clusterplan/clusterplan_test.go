@@ -98,21 +98,26 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 	if !strings.Contains(string(files["cluster.json"]), `"coordination"`) {
 		t.Fatal("start stages missing")
 	}
-	// The knowledge node runs the private embedding service next to Weaviate,
-	// and the platform reaches it by IP with the generated key.
-	n4 := string(files["n4/compose.yaml"])
-	for _, want := range []string{"text-embeddings-inference:cpu-1.9", "Qwen/Qwen3-Embedding-0.6B", "embedding-models:/data", "DEFAULT_VECTORIZER_MODULE: none", "ENABLE_MODULES: backup-filesystem"} {
-		if !strings.Contains(n4, want) {
-			t.Fatalf("knowledge node compose missing %q", want)
-		}
-	}
+	// Knowledge uses the replicated database and cloud embeddings on every role.
 	for name, body := range files {
-		if strings.Contains(strings.ToLower(string(body)), "ollama") {
-			t.Fatalf("%s still references Ollama", name)
+		for _, retired := range []string{"ollama", "weaviate", "text-embeddings-inference", "embedding-models", "vllm"} {
+			if strings.Contains(strings.ToLower(string(body)), retired) {
+				t.Fatalf("%s still references %s", name, retired)
+			}
 		}
 	}
-	if !strings.Contains(n1, "IOT_EMBEDDING_URL: http://10.0.0.14:8086/v1") || !strings.Contains(string(files["n1/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) || !strings.Contains(string(files["n4/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) {
-		t.Fatal("platform must reach the embedding service on the knowledge node with its key")
+	if !strings.Contains(n1, "iot-platform-postgres-ha:17-pgvector-0.8.1") || !strings.Contains(n1, "IOT_EMBEDDING_URL: https://dashscope.aliyuncs.com/compatible-mode/v1") || !strings.Contains(n1, "IOT_EMBEDDING_DIMENSIONS: \"1024\"") || !strings.Contains(string(files["n1/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) {
+		t.Fatal("platform must use pgvector and the cloud API with its configured key")
+	}
+	backup := string(files[inv.Backup.Node+"/compose.yaml"])
+	for _, node := range inv.Harness.Nodes {
+		n, _ := inv.node(node)
+		if !strings.Contains(backup, "http://"+n.Address+":8091/v1/backup/snapshot") {
+			t.Fatal("backup snapshot does not cover every Harness instance")
+		}
+	}
+	if !strings.Contains(string(files[inv.Backup.Node+"/.env"]), "IOT_AI_HARNESS_TOKEN="+s.HarnessToken) || !strings.Contains(string(files[inv.Backup.Node+"/.env"]), "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY="+s.BackupRestoreMinIOSecretKey) {
+		t.Fatal("backup node is missing server-side snapshot/DR credentials")
 	}
 	// docker compose must accept every rendered node project.
 	if _, err := exec.LookPath("docker"); err == nil && exec.Command("docker", "compose", "version").Run() == nil {

@@ -1,12 +1,12 @@
 <script setup>
 import {can} from '../permissions'
-import { statusLabel } from '../presentation'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { FileText, Upload } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
 
 import { api, formatTime, notifyError } from '../api'
 import RowActions from '../components/layout/RowActions.vue'
+import KnowledgeIndexStatus from '../components/KnowledgeIndexStatus.vue'
 import { confirmDelete } from '../deleteAction'
 
 const emit = defineEmits(['navigate'])
@@ -14,8 +14,10 @@ const uploadRef = ref(null)
 const documents = ref([])
 const agents = ref([])
 const loading = ref(false)
+const documentsError = ref('')
 const documentsLoaded = ref(false)
 const uploading = ref(false)
+const retrying = ref([])
 const uploadDialog = ref(false)
 const detailDialog = ref(false)
 const selectedDocument = ref(null)
@@ -28,6 +30,8 @@ const category = ref('manual')
 const tags = ref([])
 const runtime = ref({ indexMode:'', persistentIndex:false, embeddingModel:'', indexState:{ state:'ready' } })
 let rebuildTimer = 0
+let disposed = false
+let detailVersion = 0
 const agentError = ref('')
 const bindingLoading = ref(false)
 const bindingSaving = ref(false)
@@ -36,7 +40,7 @@ let bindingRequestId = 0
 let loadVersion = 0
 const loadedBindingWorkflowId = ref('')
 const bindingWorkflowId = ref('')
-const knowledgeBinding = ref({ retrievalMode:'auto', topK:5, minScore:0.25, noMatchPolicy:'allow-model' })
+const knowledgeBinding = ref({ retrievalMode:'always', topK:5, minScore:0.25, noMatchPolicy:'allow-model' })
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -65,23 +69,32 @@ function formatBytes(value) {
   return `${(size / 1024 ** 2).toFixed(1)} 兆字节`
 }
 
-async function load() {
+function isIndexing(document) { return ['PENDING','UPLOADED','INDEXING','DELETING'].includes(document?.status) }
+
+async function load(silent = false) {
+  silent = silent === true
   const version = ++loadVersion
-  loading.value = true
-  agentError.value = ''
+  if (!silent) loading.value = true
+  if (!silent) agentError.value = ''
   try {
     const [documentResult, agentResult] = await Promise.allSettled([
       api(`/api/v1/knowledge/documents?page=${page.value}&pageSize=${pageSize.value}`),
-      api('/api/v1/ai/workflows?purpose=knowledge&page=1&pageSize=100')
+      silent ? Promise.resolve({ items:agents.value }) : api('/api/v1/ai/workflows?purpose=knowledge&page=1&pageSize=100')
     ])
     if (version !== loadVersion) return
     if (documentResult.status === 'fulfilled') {
       const data = documentResult.value
+      documentsError.value = ''
       documents.value = Array.isArray(data.items) ? data.items : []
       total.value = Number(data.total ?? data.count ?? documents.value.length)
       runtime.value = { indexMode:data.indexMode || '', persistentIndex:Boolean(data.persistentIndex), embeddingModel:data.embeddingModel || '', indexState:data.indexState || { state:'ready' } }
-      scheduleRebuildRefresh()
       documentsLoaded.value = true
+      if (detailDialog.value && selectedDocument.value) {
+        const previous = selectedDocument.value
+        const current = documents.value.find(item => item.id === previous.id)
+        if (current) selectedDocument.value = current
+        if (silent && isIndexing(previous)) await showDocument(current || previous, true)
+      }
     } else {
       throw documentResult.reason
     }
@@ -92,11 +105,10 @@ async function load() {
     if (bindingWorkflowId.value && loadedBindingWorkflowId.value !== bindingWorkflowId.value) void loadBinding()
   } catch (error) {
     if (version === loadVersion) {
-      if (error?.message?.includes('workflows')) agentError.value = error.message
-      else notifyError(error)
+      documentsError.value = error.message || '知识文档列表读取失败'
     }
   } finally {
-    if (version === loadVersion) loading.value = false
+    if (version === loadVersion) { loading.value = false; scheduleRebuildRefresh() }
   }
 }
 
@@ -110,7 +122,7 @@ async function loadBinding() {
     const value = await api(`/api/v1/ai/workflows/${encodeURIComponent(workflow)}/knowledge-binding`)
     if (requestId !== bindingRequestId || bindingWorkflowId.value !== workflow) return
     knowledgeBinding.value = {
-      retrievalMode:value.retrievalMode || 'auto',
+      retrievalMode:value.retrievalMode || 'always',
       topK:Number(value.topK) || 5,
       minScore:Number(value.minScore ?? 0.25),
       noMatchPolicy:value.noMatchPolicy || 'allow-model'
@@ -155,20 +167,24 @@ function chooseFile(file) {
 }
 function removeFile() { selectedFile.value = null }
 function rejectExtra() { UiMessage.warning('每次只能上传一个知识库文件') }
-async function showDocument(document) {
-  selectedDocument.value = document
-  selectedDetail.value = null
-  detailError.value = ''
-  detailDialog.value = true
-  detailLoading.value = true
+async function showDocument(document, silent = false) {
+  const version = ++detailVersion
+  if (!silent) {
+    selectedDocument.value = document
+    selectedDetail.value = null
+    detailError.value = ''
+    detailDialog.value = true
+    detailLoading.value = true
+  }
   try {
     const detail = await api(`/api/v1/knowledge/documents/${encodeURIComponent(document.id)}`)
+    if (disposed || version !== detailVersion || selectedDocument.value?.id !== document.id) return
     selectedDocument.value = detail.document || document
     selectedDetail.value = detail
   } catch (error) {
-    detailError.value = error.message || '知识切片详情读取失败'
+    if (!disposed && version === detailVersion) detailError.value = error.message || '知识切片详情读取失败'
   } finally {
-    detailLoading.value = false
+    if (!disposed && version === detailVersion) { detailLoading.value = false; scheduleRebuildRefresh() }
   }
 }
 
@@ -183,7 +199,7 @@ async function upload() {
     if (category.value.trim()) form.append('category', category.value.trim())
     if (tags.value.length) form.append('tags', tags.value.join(','))
     const created = await api('/api/v1/knowledge/documents', { method:'POST', body:form })
-    UiMessage.success(`知识库已索引并绑定到 ${agentLabel(created.workflowId)}`)
+    UiMessage.success(`文档已上传并绑定到 ${agentLabel(created.workflowId)}，索引将在后台建立`)
     selectedFile.value = null
     category.value = 'manual'
     tags.value = []
@@ -198,14 +214,35 @@ async function upload() {
   }
 }
 
-// While the index is rebuilt for a new embedding model, refresh the list so
-// progress and per-document results stay current.
+async function retryDocument(document) {
+  if (!can('POST /api/v1/knowledge/documents/:id/retry') || document.status !== 'INDEX_FAILED' || retrying.value.includes(document.id)) return
+  retrying.value = [...retrying.value, document.id]
+  try {
+    const updated = await api(`/api/v1/knowledge/documents/${encodeURIComponent(document.id)}/retry`, { method:'POST' })
+    documents.value = documents.value.map(item => item.id === document.id ? updated : item)
+    if (selectedDocument.value?.id === document.id) selectedDocument.value = updated
+    UiMessage.success('已提交索引重试，完成后文档可供检索')
+    await load(true)
+  } catch (error) {
+    notifyError(error)
+  } finally {
+    retrying.value = retrying.value.filter(id => id !== document.id)
+  }
+}
+
+function documentActions(row) {
+  return [{ key:'detail', label:'查看详情', onClick:() => showDocument(row) },
+    { key:'retry', label:'重试索引', hidden:row.status !== 'INDEX_FAILED', loading:retrying.value.includes(row.id), disabled:retrying.value.includes(row.id), permission:'POST /api/v1/knowledge/documents/:id/retry', onClick:() => retryDocument(row) },
+    { key:'delete', label:row.status === 'DELETING' ? '删除中' : '删除', disabled:row.status === 'DELETING', type:'danger', permission:'DELETE /api/v1/knowledge/documents/:id', onClick:() => removeDocument(row) }]
+}
+
+// Server-reported batch counts are refreshed while a document or rebuild runs.
 function scheduleRebuildRefresh() {
   clearTimeout(rebuildTimer)
-  if (runtime.value.indexState?.state === 'rebuilding') rebuildTimer = setTimeout(load, 5000)
+  if (!disposed && (runtime.value.indexState?.state === 'rebuilding' || documents.value.some(isIndexing) || detailDialog.value && isIndexing(selectedDocument.value))) rebuildTimer = setTimeout(() => load(true), 3000)
 }
 onMounted(load)
-onBeforeUnmount(() => clearTimeout(rebuildTimer))
+onBeforeUnmount(() => { disposed = true; ++loadVersion; ++detailVersion; clearTimeout(rebuildTimer) })
 function removeDocument(row) { return confirmDelete({ label:row.filename, path:`/api/v1/knowledge/documents/${encodeURIComponent(row.id)}`, onDeleted:async () => { if (selectedDocument.value?.id === row.id) detailDialog.value = false; await load() }, warning:'原文件和检索索引将一并清理，删除后无法恢复。' }) }
 </script>
 
@@ -214,7 +251,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
     <header class="knowledge-intro">
       <div class="knowledge-intro-copy">
         <span class="knowledge-kicker">知识库</span>
-        <p>上传设备手册与处置规范，按智能体管理文档和检索方式。</p>
+        <p>上传设备手册与处置规范，按智能体管理文档；回答前检索相关知识片段并附带给模型 API。</p>
       </div>
       <div class="knowledge-intro-actions">
         <ui-button v-permission="'menu:ai'" @click="emit('navigate', 'ai')">打开智能助手</ui-button>
@@ -223,15 +260,16 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
     </header>
 
     <ui-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
+    <ui-alert v-if="documentsError" :title="documentsError" type="error" :closable="false" show-icon><ui-button size="small" plain :loading="loading" @click="load">重新加载文档</ui-button></ui-alert>
     <ui-alert v-if="documentsLoaded && !runtime.persistentIndex" title="当前使用内存索引，服务重启后需要重新建立文档检索索引。" type="warning" :closable="false" show-icon />
     <ui-alert v-if="runtime.indexState?.state === 'rebuilding'" :title="`知识库索引正在按新的向量模型重建（${runtime.indexState.done || 0}/${runtime.indexState.total || 0}），完成前检索结果可能不完整。`" type="info" :closable="false" show-icon />
-    <ui-alert v-else-if="runtime.indexState?.state === 'failed'" :title="`知识库索引重建未完成：${runtime.indexState.error || '向量服务暂不可用'}。系统会自动重试。`" type="warning" :closable="false" show-icon />
+    <ui-alert v-else-if="runtime.indexState?.state === 'failed'" :title="`知识库索引重建未完成：${runtime.indexState.error || 'Embedding API 暂不可用'}。请检查配置并重试失败文档。`" type="warning" :closable="false" show-icon />
 
     <section class="knowledge-stats" aria-label="知识库概况">
       <div><span>知识文档</span><strong>{{ documentsLoaded ? total : '—' }}</strong><small>当前租户全部文档</small></div>
       <div><span>本页已索引</span><strong>{{ documentsLoaded ? indexedCount : '—' }}</strong><small>当前页可供检索</small></div>
       <div><span>本页内容分片</span><strong>{{ documentsLoaded ? totalChunks : '—' }}</strong><small>{{ documentsLoaded ? formatBytes(totalSize) : '等待读取' }}</small></div>
-      <div class="knowledge-index-state"><span>索引存储</span><strong>{{ documentsLoaded ? (runtime.persistentIndex ? '持久化' : '内存') : '读取中' }}</strong><small>{{ runtime.embeddingModel ? `向量模型 ${runtime.embeddingModel}` : (runtime.indexMode || '索引模式未返回') }}</small></div>
+      <div class="knowledge-index-state"><span>索引存储</span><strong>{{ documentsLoaded ? (runtime.persistentIndex ? (runtime.indexMode === 'postgres-pgvector' ? 'PostgreSQL / pgvector' : '持久化') : '内存') : '读取中' }}</strong><small>{{ runtime.embeddingModel ? `Embedding API · ${runtime.embeddingModel}` : (runtime.indexMode || '索引模式未返回') }}</small></div>
     </section>
 
     <ui-tabs v-model="activeTab" class="knowledge-tabs">
@@ -245,18 +283,18 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
           <ui-table v-loading="loading" :data="documents" class="knowledge-table">
             <ui-table-column label="文档" min-width="270"><template #default="{ row }"><div class="document-name"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div></template></ui-table-column>
             <ui-table-column label="关联智能体" min-width="175"><template #default="{ row }">{{ agentLabel(row.workflowId) }}</template></ui-table-column>
-            <ui-table-column label="索引状态" width="110"><template #default="{ row }"><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></template></ui-table-column>
+            <ui-table-column label="索引状态与进度" min-width="200"><template #default="{ row }"><KnowledgeIndexStatus :document="row" /></template></ui-table-column>
             <ui-table-column label="内容分片" width="100" align="right"><template #default="{ row }">{{ row.metadata?.chunks || 0 }}</template></ui-table-column>
             <ui-table-column label="上传时间" min-width="165"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column>
-            <ui-table-column label="操作" width="140" align="right"><template #default="{ row }"><RowActions :actions="[{ key:'detail', label:'查看详情', onClick:() => showDocument(row) }, { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/knowledge/documents/:id', onClick:() => removeDocument(row) }]" /></template></ui-table-column>
+            <ui-table-column label="操作" width="210" align="right"><template #default="{ row }"><RowActions :actions="documentActions(row)" /></template></ui-table-column>
             <template #empty><ui-empty description="还没有知识文档" /></template>
           </ui-table>
 
           <div v-loading="loading" class="knowledge-mobile-list">
             <article v-for="row in documents" :key="row.id" class="knowledge-mobile-document">
               <div class="knowledge-mobile-document-head"><FileText class="document-icon" /><div><strong>{{ row.filename }}</strong><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small></div></div>
-              <div class="knowledge-mobile-document-meta"><span>{{ agentLabel(row.workflowId) }}</span><ui-tag :type="row.status === 'INDEXED' ? 'success' : 'warning'" effect="light">{{ statusLabel(row.status) }}</ui-tag></div>
-              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><ui-button plain type="primary" @click="showDocument(row)">查看详情</ui-button><ui-button v-permission="'DELETE /api/v1/knowledge/documents/:id'" plain type="danger" @click="removeDocument(row)">删除</ui-button></div>
+              <div class="knowledge-mobile-document-meta"><span>{{ agentLabel(row.workflowId) }}</span><KnowledgeIndexStatus :document="row" /></div>
+              <div class="knowledge-mobile-document-foot"><small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small><RowActions :actions="documentActions(row)" /></div>
             </article>
             <ui-empty v-if="!loading && !documents.length" description="还没有知识文档" />
           </div>
@@ -281,7 +319,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
             </div>
             <ui-form v-loading="bindingLoading" class="knowledge-policy-form" label-position="top" :model="knowledgeBinding" :disabled="!canManageBinding || bindingLoading || bindingSaving">
               <div class="knowledge-policy-section">
-                <div class="knowledge-section-copy"><h3>何时检索</h3><p>决定智能体在回答前是否查询知识文档。</p></div>
+                <div class="knowledge-section-copy"><h3>何时检索</h3><p>默认每次回答前检索本智能体的知识，召回片段作为模型 API 的参考依据。</p></div>
                 <ui-form-item label="检索模式"><ui-radio-group v-model="knowledgeBinding.retrievalMode" class="segmented-choice-group" aria-label="检索模式"><ui-radio-button value="auto">按需检索</ui-radio-button><ui-radio-button value="always">每次强制检索</ui-radio-button><ui-radio-button value="disabled">禁用</ui-radio-button></ui-radio-group></ui-form-item>
               </div>
               <div class="knowledge-policy-section">
@@ -301,7 +339,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
 
     <ui-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(680px, 94vw)" class="knowledge-upload-dialog">
       <section class="knowledge-upload-section">
-        <div class="knowledge-upload-step"><span>1</span><div><strong>选择文档</strong><small>每次上传一个文件，最大 32 兆字节</small></div></div>
+        <div class="knowledge-upload-step"><span>1</span><div><strong>选择文档</strong><small>每次上传一个文件，最大 32 兆字节；上传后在后台建立索引</small></div></div>
         <ui-upload ref="uploadRef" drag :auto-upload="false" :disabled="!canUpload || uploading" :limit="1" accept=".pdf,.docx,.pptx,.xlsx,.odt,.odp,.ods,.txt,.md,.csv,.json,.html,.htm,.xml" :on-change="chooseFile" :on-remove="removeFile" :on-exceed="rejectExtra"><Upload class="upload-icon" /><div class="el-upload__text">拖放文件到这里，或<em>点击选择</em></div><template #tip><div class="el-upload__tip">支持 PDF、办公文档、网页和文本；扫描件需先进行文字识别。</div></template></ui-upload>
       </section>
       <section class="knowledge-upload-section">
@@ -318,12 +356,12 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
     <ui-dialog v-model="detailDialog" title="知识文档详情与切片" width="min(900px, 96vw)">
       <ui-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
       <div v-loading="detailLoading" class="knowledge-detail">
-        <div v-if="selectedDocument" class="knowledge-detail-file"><FileText class="document-icon" /><div><strong>{{ selectedDocument.filename }}</strong><small>{{ selectedDocument.id }}</small></div><ui-tag :type="selectedDocument.status === 'INDEXED' ? 'success' : 'warning'">{{ statusLabel(selectedDocument.status) }}</ui-tag></div>
+        <div v-if="selectedDocument" class="knowledge-detail-file"><FileText class="document-icon" /><div><strong>{{ selectedDocument.filename }}</strong><small>{{ selectedDocument.id }}</small></div><KnowledgeIndexStatus :document="selectedDocument" /></div>
         <dl v-if="selectedDocument" class="knowledge-detail-meta"><div><dt>关联智能体</dt><dd>{{ agentLabel(selectedDocument.workflowId) }}</dd></div><div><dt>知识分类</dt><dd>{{ categoryLabel(selectedDocument.category) }}</dd></div><div><dt>内容统计</dt><dd>{{ selectedDocument.metadata?.chunks || 0 }} 个分片 · {{ formatBytes(selectedDocument.metadata?.size) }}</dd></div><div><dt>上传时间</dt><dd>{{ formatTime(selectedDocument.createdAt) }}</dd></div><div v-if="selectedDocument.tags?.length"><dt>知识标签</dt><dd>{{ selectedDocument.tags.join('、') }}</dd></div></dl>
         <section v-if="selectedDetail?.index" class="knowledge-index-rules"><div class="knowledge-detail-section-heading"><h3>索引与切片规则</h3><span>{{ selectedDetail.index.mode }} · {{ selectedDetail.index.vectorizer }}</span></div><div class="knowledge-rule-grid"><div><small>切片策略</small><strong>{{ selectedDetail.index.chunking?.strategy === 'fixed-window-overlap' ? '固定窗口 + 重叠' : selectedDetail.index.chunking?.strategy }}</strong></div><div><small>窗口 / 重叠</small><strong>{{ selectedDetail.index.chunking?.size }} / {{ selectedDetail.index.chunking?.overlap }} 字符</strong></div><div><small>提取文本</small><strong>{{ selectedDetail.index.extractedChars || 0 }} 字符</strong></div><div><small>实际分片</small><strong>{{ selectedDetail.index.chunkCount }}</strong></div></div><p v-if="selectedDetail.index.embeddingModel">向量模型：{{ selectedDetail.index.embeddingModel }}</p></section>
         <section v-if="selectedDetail" class="knowledge-chunks"><div class="knowledge-detail-section-heading"><h3>切片内容</h3><span>{{ selectedDetail.chunks?.length || 0 }} 个分片，点击逐条查看</span></div><div v-if="selectedDetail.chunks?.length" class="knowledge-chunk-list"><details v-for="(row, index) in selectedDetail.chunks" :key="row.chunkId || index" :open="index === 0" class="knowledge-chunk"><summary><span class="knowledge-chunk-number">{{ index + 1 }}</span><span>字符范围 [{{ row.startChar }}, {{ row.endChar }})</span><ui-tag :type="row.vectorized ? 'success' : 'info'" size="small">{{ row.vectorized ? '向量化完成' : '非向量索引' }}</ui-tag></summary><div class="knowledge-chunk-body"><p>{{ row.content }}</p><small>重叠 {{ row.overlapChars || 0 }} 字符 · {{ row.characterCount }} 字符 · {{ row.chunkId }}</small></div></details></div><ui-empty v-else description="索引中没有可查看的切片" :image-size="56" /></section>
       </div>
-      <template #footer><ui-button @click="detailDialog=false">关闭</ui-button></template>
+      <template #footer><ui-button v-if="selectedDocument?.status === 'INDEX_FAILED'" v-permission="'POST /api/v1/knowledge/documents/:id/retry'" type="primary" :loading="retrying.includes(selectedDocument.id)" :disabled="retrying.includes(selectedDocument.id)" @click="retryDocument(selectedDocument)">重试索引</ui-button><ui-button @click="detailDialog=false">关闭</ui-button></template>
     </ui-dialog>
   </div>
 </template>

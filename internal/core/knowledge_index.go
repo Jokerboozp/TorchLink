@@ -79,8 +79,7 @@ type KnowledgeIndexStatus struct {
 }
 
 // KnowledgeReindexer re-embeds every stored document from its archived
-// original when the persistent index was built with another embedding model
-// (including the retired Ollama-vectorized index).
+// original when the persistent index was built with another embedding model.
 type KnowledgeReindexer struct {
 	KB      ports.KnowledgeBase
 	Store   ports.KnowledgeReindexStore
@@ -92,8 +91,9 @@ type KnowledgeReindexer struct {
 		Error(string, ...any)
 	}
 
-	mu     sync.RWMutex
-	status KnowledgeIndexStatus
+	mu         sync.RWMutex
+	status     KnowledgeIndexStatus
+	StatusSink func(KnowledgeIndexStatus)
 }
 
 func (k *KnowledgeReindexer) Status() KnowledgeIndexStatus {
@@ -110,8 +110,12 @@ func (k *KnowledgeReindexer) Status() KnowledgeIndexStatus {
 
 func (k *KnowledgeReindexer) setStatus(update func(*KnowledgeIndexStatus)) {
 	k.mu.Lock()
-	defer k.mu.Unlock()
 	update(&k.status)
+	status := k.status
+	k.mu.Unlock()
+	if k.StatusSink != nil {
+		k.StatusSink(status)
+	}
 }
 
 // Run checks the index once and rebuilds it when required. It retries while
@@ -168,6 +172,22 @@ func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.Rebuildabl
 	if err != nil {
 		return err
 	}
+	var eligible map[string]bool
+	if scoped, ok := index.(interface {
+		RebuildDocumentIDs(context.Context) (map[string]bool, error)
+	}); ok {
+		eligible, err = scoped.RebuildDocumentIDs(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	filtered := docs[:0]
+	for _, doc := range docs {
+		if doc.Status != "DELETING" && (eligible == nil || eligible[doc.ID]) {
+			filtered = append(filtered, doc)
+		}
+	}
+	docs = filtered
 	k.Log.Info("rebuilding knowledge index", "embeddingModel", index.EmbeddingModel(), "documents", len(docs))
 	k.setStatus(func(s *KnowledgeIndexStatus) { *s = KnowledgeIndexStatus{State: "rebuilding", Total: len(docs)} })
 	if err = index.ResetIndex(ctx); err != nil {
@@ -185,6 +205,10 @@ func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.Rebuildabl
 		doc.Metadata["embeddingModel"] = index.EmbeddingModel()
 		if indexErr != nil {
 			failed++
+			// A legacy INDEXED document can have no PostgreSQL chunks yet. Keep
+			// it required after a failed attempt so a later retry cannot silently
+			// activate an index which omits previously available knowledge.
+			doc.Metadata["rebuildRequired"] = true
 			doc.Status = "INDEX_FAILED"
 			doc.Metadata["indexError"] = indexErr.Error()
 			k.Log.Error("knowledge document rebuild failed", "tenantId", doc.TenantID, "documentId", doc.ID, "error", indexErr)
@@ -193,8 +217,13 @@ func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.Rebuildabl
 			doc.Metadata["chunks"] = result.Chunks
 			doc.Metadata["characters"] = result.Characters
 			delete(doc.Metadata, "indexError")
+			delete(doc.Metadata, "rebuildRequired")
 		}
-		if err = k.Repo.SaveKnowledgeDoc(ctx, doc); err != nil {
+		if jobs, ok := k.Repo.(ports.KnowledgeDocumentJobs); ok {
+			if _, err = jobs.UpdateKnowledgeDocument(ctx, doc); err != nil {
+				return err
+			}
+		} else if err = k.Repo.SaveKnowledgeDoc(ctx, doc); err != nil {
 			return err
 		}
 		k.setStatus(func(s *KnowledgeIndexStatus) {
@@ -202,8 +231,15 @@ func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.Rebuildabl
 			s.Failed = failed
 		})
 	}
+	if failed > 0 {
+		k.setStatus(func(s *KnowledgeIndexStatus) {
+			s.State = "failed"
+			s.Error = fmt.Sprintf("%d documents failed", failed)
+		})
+		return fmt.Errorf("knowledge index rebuild failed for %d documents; the active index was preserved", failed)
+	}
 	if err = index.DropLegacyIndex(ctx); err != nil {
-		k.Log.Warn("drop legacy knowledge index", "error", err)
+		return fmt.Errorf("activate knowledge index: %w", err)
 	}
 	k.setStatus(func(s *KnowledgeIndexStatus) { s.State = "ready" })
 	k.Log.Info("knowledge index rebuilt", "documents", len(docs), "failed", failed)

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -88,6 +89,209 @@ async function waitUntil(check) {
   }
   assert.fail('condition did not become true')
 }
+
+const controlHeaders = { 'x-iot-harness-token': gatewayToken }
+
+async function snapshotFixture(options = {}, factory = async () => ({ run: async () => result(), close: async () => {} })) {
+  const root = await mkdtemp(join(tmpdir(), 'iot-harness-snapshot-'))
+  temporaryDirectories.push(root)
+  const pluginDir = join(root, 'plugins')
+  const sessionRoot = join(root, 'sessions')
+  const workspace = join(root, 'workspace')
+  const harnessHome = join(root, 'runtime-home')
+  await Promise.all([pluginDir, sessionRoot, workspace, harnessHome].map(path => mkdir(path)))
+  const seed = JSON.parse(await readFile(join(deploymentDir, 'plugins', 'ops-assistant.json'), 'utf8'))
+  await writeFile(join(pluginDir, `${seed.id}.json`), JSON.stringify(seed))
+  const directory = join(sessionRoot, '--data-workspace--', 'iot-test-session')
+  await mkdir(directory, { recursive: true })
+  const sessionFile = join(directory, 'session.v1.jsonl')
+  const sessionContent = `${JSON.stringify({ type: 'session', version: 1, id: 'iot-test-session' })}\n${JSON.stringify({ type: 'text', text: '会话备份内容' })}\n`
+  await writeFile(sessionFile, sessionContent)
+  return { root, pluginDir, sessionRoot, workspace, harnessHome, directory, sessionFile, sessionContent, seed,
+    ...await startGateway(factory, { pluginDir, sessionRoot, workspace, harnessHome, ...options }) }
+}
+
+test('backup snapshot requires the control token and refuses caller paths and methods', async () => {
+  const { baseUrl } = await snapshotFixture()
+  assert.equal((await fetch(`${baseUrl}/v1/backup/snapshot`)).status, 401)
+  assert.equal((await fetch(`${baseUrl}/v1/backup/snapshot`, { headers: { 'x-iot-harness-token': 'wrong-control-token' } })).status, 401)
+  const traversal = await fetch(`${baseUrl}/v1/backup/snapshot?path=../../etc/passwd`, { headers: controlHeaders })
+  assert.equal(traversal.status, 400)
+  assert.equal((await traversal.json()).error.code, 'QUERY_NOT_ALLOWED')
+  assert.equal((await fetch(`${baseUrl}/v1/backup/snapshot/..%2f..%2fetc%2fpasswd`, { headers: controlHeaders })).status, 404)
+  assert.equal((await fetch(`${baseUrl}/v1/backup/snapshot`, { method: 'POST', headers: controlHeaders, body: '{}' })).status, 405)
+})
+
+test('backup snapshot roundtrips dynamic Agent manifests and committed sessions without runtime secrets', async () => {
+  const fixture = await snapshotFixture({ apiKey: 'provider-secret-never-backed-up' })
+  const { baseUrl, root, seed, sessionContent, directory, workspace, harnessHome } = fixture
+  const manifest = { ...seed, id: 'dynamic:backup-agent', name: '动态备份 Agent', enabled: false,
+    persona: '保留完整 Agent 提示词', allowedTools: ['mcp__iot__query_system_overview'] }
+  const created = await fetch(`${baseUrl}/v1/plugins`, { method: 'POST', headers: { ...controlHeaders, 'content-type': 'application/json' }, body: JSON.stringify(manifest) })
+  assert.equal(created.status, 201)
+  const privateBytes = 'provider-secret-never-backed-up\nserver-credential-never-backed-up'
+  await Promise.all([
+    writeFile(join(harnessHome, 'provider.json'), privateBytes),
+    writeFile(join(workspace, '.env'), privateBytes),
+    writeFile(join(root, '.env'), privateBytes),
+    writeFile(join(directory, 'session.lock'), 'not-a-restorable-lease'),
+    writeFile(join(directory, 'session.v2.jsonl.aabbcc.tmp'), 'incomplete generation'),
+    writeFile(join(directory, 'provider.json'), privateBytes),
+    writeFile(join(directory, 'session.v2.jsonl.zstd'), Buffer.from([0x28, 0xb5, 0x2f, 0xfd, 1, 2, 3])),
+  ])
+  const response = await fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  const snapshot = await response.json()
+  assert.deepEqual(Object.keys(snapshot).sort(), ['createdAt', 'entries', 'fileCount', 'formatVersion', 'totalBytes'])
+  assert.equal(snapshot.formatVersion, 1)
+  assert.ok(Number.isFinite(Date.parse(snapshot.createdAt)))
+  assert.equal(snapshot.fileCount, 4)
+  assert.equal(snapshot.totalBytes, snapshot.entries.reduce((sum, entry) => sum + entry.size, 0))
+  const restored = join(root, 'restored')
+  for (const entry of snapshot.entries) {
+    assert.deepEqual(Object.keys(entry).sort(), ['base64', 'path', 'sha256', 'size'])
+    const bytes = Buffer.from(entry.base64, 'base64')
+    assert.equal(bytes.length, entry.size)
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), entry.sha256)
+    assert.equal(bytes.includes(Buffer.from('provider-secret-never-backed-up')), false)
+    assert.equal(bytes.includes(Buffer.from('server-credential-never-backed-up')), false)
+    assert.equal(bytes.includes(Buffer.from(gatewayToken)), false)
+    const target = join(restored, entry.path)
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, bytes)
+  }
+  assert.deepEqual(snapshot.entries.map(entry => entry.path), [
+    'plugins/dynamic:backup-agent.json', 'plugins/ops-assistant.json',
+    'sessions/--data-workspace--/iot-test-session/session.v1.jsonl',
+    'sessions/--data-workspace--/iot-test-session/session.v2.jsonl.zstd',
+  ])
+  const restoredCatalog = await loadPluginCatalog(join(restored, 'plugins'))
+  assert.deepEqual(restoredCatalog.find(plugin => plugin.id === manifest.id), manifest)
+  assert.equal(await readFile(join(restored, 'sessions', '--data-workspace--', 'iot-test-session', 'session.v1.jsonl'), 'utf8'), sessionContent)
+})
+
+test('backup snapshot refuses symlinks, hardlinks, unsafe names and substituted roots', async () => {
+  for (const kind of ['file-symlink', 'directory-symlink', 'hardlink', 'unsafe-name', 'root-symlink']) {
+    const fixture = await snapshotFixture()
+    const outside = join(fixture.root, 'private-secret.jsonl')
+    await writeFile(outside, 'secret outside snapshot roots')
+    if (kind === 'file-symlink') {
+      await symlink(outside, join(fixture.directory, 'session.v2.jsonl'))
+    } else if (kind === 'directory-symlink') {
+      await symlink(fixture.harnessHome, join(fixture.sessionRoot, 'linked-project'), 'dir')
+    } else if (kind === 'hardlink') {
+      await link(outside, join(fixture.directory, 'session.v2.jsonl'))
+    } else if (kind === 'unsafe-name') {
+      await writeFile(join(fixture.directory, '..\\private-secret.jsonl'), 'unsafe separator')
+    } else {
+      await rm(fixture.sessionRoot, { recursive: true })
+      await symlink(fixture.harnessHome, fixture.sessionRoot, 'dir')
+    }
+    const response = await fetch(`${fixture.baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+    assert.equal(response.status, 422, kind)
+    const body = await response.json()
+    assert.equal(body.error.code, 'SNAPSHOT_UNSAFE_PATH', kind)
+    assert.equal(JSON.stringify(body).includes('secret outside snapshot roots'), false)
+  }
+})
+
+test('backup snapshot enforces decoded byte and file count limits before returning any entries', async () => {
+  for (const options of [{ backupMaxBytes: 1 }, { backupMaxFiles: 1 }]) {
+    const { baseUrl } = await snapshotFixture(options)
+    const response = await fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+    assert.equal(response.status, 413)
+    const body = await response.json()
+    assert.equal(body.error.code, 'SNAPSHOT_LIMIT_EXCEEDED')
+    assert.equal(body.entries, undefined)
+  }
+})
+
+test('backup snapshot rejects concurrent session rewrites and newly published files, then retries cleanly', async () => {
+  for (const kind of ['rewrite', 'create']) {
+    let changed = false
+    let fixture
+    fixture = await snapshotFixture({ backupAfterRead: async path => {
+      if (changed || !path.startsWith('sessions/')) return
+      changed = true
+      if (kind === 'rewrite') await writeFile(fixture.sessionFile, 'concurrent new session content\n')
+      else await writeFile(join(fixture.directory, 'session.v2.jsonl'), 'newly published generation\n')
+    } })
+    const response = await fetch(`${fixture.baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+    assert.equal(response.status, 409, kind)
+    assert.equal(response.headers.get('retry-after'), '1')
+    const body = await response.json()
+    assert.equal(body.error.code, 'SNAPSHOT_CHANGED')
+    assert.equal(body.entries, undefined)
+    const retry = await fetch(`${fixture.baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+    assert.equal(retry.status, 200, kind)
+    const copied = await retry.json()
+    const entry = copied.entries.find(item => item.path.endsWith(kind === 'rewrite' ? 'session.v1.jsonl' : 'session.v2.jsonl'))
+    assert.equal(Buffer.from(entry.base64, 'base64').toString('utf8'), kind === 'rewrite' ? 'concurrent new session content\n' : 'newly published generation\n')
+  }
+})
+
+test('backup snapshot freezes new runs and manifest mutations only while copying', async () => {
+  let reachedCopy
+  let releaseCopy
+  const copying = new Promise(resolve => { reachedCopy = resolve })
+  const released = new Promise(resolve => { releaseCopy = resolve })
+  let pause = true
+  const { baseUrl, seed } = await snapshotFixture({ backupAfterRead: async () => {
+    if (!pause) return
+    pause = false
+    reachedCopy()
+    await released
+  } })
+  const pending = fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+  await copying
+  const manifest = { ...seed, id: 'new-agent' }
+  const post = () => fetch(`${baseUrl}/v1/plugins`, { method: 'POST', headers: { ...controlHeaders, 'content-type': 'application/json' }, body: JSON.stringify(manifest) })
+  for (const operation of [post(), chat(baseUrl, requestBody()), fetch(`${baseUrl}/v1/plugins/new-agent`, { method: 'DELETE', headers: controlHeaders }), fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })]) {
+    const response = await operation
+    assert.equal(response.status, 409)
+    assert.equal(response.headers.get('retry-after'), '1')
+    assert.equal((await response.json()).error.code, 'SNAPSHOT_BUSY')
+  }
+  releaseCopy()
+  assert.equal((await pending).status, 200)
+  assert.equal((await post()).status, 201)
+  assert.equal((await ndjson(await chat(baseUrl, requestBody()))).events.at(-1).type, 'run.completed')
+})
+
+test('backup snapshot refuses active runtimes without stopping them and succeeds once they finish', async () => {
+  let completeRun
+  let closeCount = 0
+  const { baseUrl } = await snapshotFixture({}, async () => ({
+    run: () => new Promise(resolve => { completeRun = () => resolve(result('complete')) }),
+    close: async () => { closeCount++ },
+  }))
+  const stream = await chat(baseUrl, requestBody({ tenantId: 'tenant-a', actor: 'admin' }))
+  await waitUntil(() => completeRun !== undefined)
+  const busy = await fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+  assert.equal(busy.status, 409)
+  assert.equal((await busy.json()).error.code, 'SNAPSHOT_BUSY')
+  assert.equal(closeCount, 0)
+  completeRun()
+  assert.equal((await ndjson(stream)).events.at(-1).type, 'run.completed')
+  assert.equal((await fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })).status, 200)
+  assert.equal(closeCount, 0)
+})
+
+test('backup snapshot remains blocked when an idle runtime cannot confirm shutdown', async () => {
+  const { baseUrl } = await snapshotFixture({}, async () => ({
+    run: async () => result('complete'), close: async () => { throw new Error('runtime exit was not confirmed') },
+  }))
+  assert.equal((await ndjson(await chat(baseUrl, requestBody()))).events.at(-1).type, 'run.completed')
+  const updated = await fetch(`${baseUrl}/v1/provider`, { method: 'PUT',
+    headers: { ...controlHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'openai-compatible', baseUrl: 'http://new-provider:8080/v1', model: 'new-model', apiKey: '' }),
+  })
+  assert.equal(updated.status, 200)
+  const response = await fetch(`${baseUrl}/v1/backup/snapshot`, { headers: controlHeaders })
+  assert.equal(response.status, 409)
+  assert.equal((await response.json()).error.code, 'SNAPSHOT_BUSY')
+})
 
 test('run management isolates tenants and stops a hung runtime before releasing capacity', async () => {
   let closeCount = 0

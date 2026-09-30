@@ -40,6 +40,7 @@ type Engine struct {
 	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
 	HarnessTokens             ports.HarnessTokenIssuer
+	AuthorizeAIRun            func(context.Context, string, string) (context.Context, error)
 	KB                        ports.KnowledgeBase
 	KnowledgeReindex          *KnowledgeReindexer
 	Parsers                   *parser.Registry
@@ -1216,6 +1217,13 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	if !e.AIWorkflowsReady() {
 		return model.AIAnalysis{}, ErrAIWorkflowsUnavailable
 	}
+	if e.AuthorizeAIRun != nil {
+		var err error
+		ctx, err = e.AuthorizeAIRun(ctx, tenantID, WorkflowAlarmAnalysis)
+		if err != nil {
+			return model.AIAnalysis{}, err
+		}
+	}
 	alarm, err := e.Repo.GetAlarm(ctx, tenantID, alarmID)
 	if err != nil {
 		return model.AIAnalysis{}, err
@@ -1238,6 +1246,17 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	scope := model.AIAnalysisScopeNone
 	var documents []string
 	if withKnowledge {
+		identity, hasIdentity := ports.AIRunIdentityFrom(ctx)
+		authorized := false
+		for _, permission := range identity.Scopes {
+			if permission == ports.MCPToolScope("query_knowledge_base") {
+				authorized = true
+				break
+			}
+		}
+		if !hasIdentity || !authorized {
+			return model.AIAnalysis{}, errors.New("当前运行身份无知识库访问权限")
+		}
 		scope = model.AlarmAnalysisWorkflowID
 		knowledge, documents, err = e.alarmAnalysisKnowledge(ctx, alarm)
 	}

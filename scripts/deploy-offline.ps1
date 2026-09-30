@@ -51,10 +51,6 @@ $composePath = Join-Path $BundleDir "compose.yaml"
 $offlineComposePath = Join-Path $BundleDir "compose.offline.yaml"
 $archivePath = Join-Path $BundleDir "images.tar"
 $hashPath = Join-Path $BundleDir "images.tar.sha256"
-$modelArchives = @(
-    @{ Archive = "embedding-models.tgz"; Volume = "iot-platform_embedding-models"; Label = "知识库向量模型" },
-    @{ Archive = "llm-models.tgz"; Volume = "iot-platform_llm-models"; Label = "私有化对话模型权重" }
-)
 $profilesPath = Join-Path $BundleDir "profiles.txt"
 foreach ($path in @($envPath, $composePath, $offlineComposePath, $archivePath, $hashPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -72,17 +68,13 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not $SkipHashCheck) {
     $archives = @(,@($archivePath, $hashPath))
-    foreach ($model in $modelArchives) {
-        $modelArchive = Join-Path $BundleDir $model.Archive
-        if (Test-Path -LiteralPath $modelArchive -PathType Leaf) { $archives += ,@($modelArchive, "$modelArchive.sha256") }
-    }
     foreach ($pair in $archives) {
         if (-not (Test-Path -LiteralPath $pair[1] -PathType Leaf)) { throw "离线包缺少校验文件：$($pair[1])" }
         $expectedHash = ((Get-Content -LiteralPath $pair[1] -Encoding UTF8 | Select-Object -First 1) -split '\s+')[0].ToLowerInvariant()
         $actualHash = (Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($expectedHash -ne $actualHash) { throw "SHA256 校验失败：$($pair[0])" }
     }
-    Write-Host "镜像和模型包 SHA256 校验通过。" -ForegroundColor Green
+    Write-Host "镜像包 SHA256 校验通过。" -ForegroundColor Green
 }
 
 # Images are saved for one CPU architecture; loading them elsewhere cannot run.
@@ -109,11 +101,9 @@ $composeArguments = @(
 )
 if (Test-Path -LiteralPath $profilesPath -PathType Leaf) {
     foreach ($profile in @(Get-Content -LiteralPath $profilesPath -Encoding UTF8 | Where-Object { $_.Trim() })) {
-        if ($profile.Trim() -notin @("harness", "gb26875", "video", "llm")) { throw "离线包包含未知 profile：$profile" }
+        if ($profile.Trim() -notin @("harness", "gb26875", "video")) { throw "离线包包含未知 profile：$profile" }
         # The media image is always packaged; IOT_VIDEO_MODULE=off keeps it undeployed.
         if ($profile.Trim() -eq 'video' -and (Get-EnvValue -Path $envPath -Key 'IOT_VIDEO_MODULE') -eq 'off') { continue }
-        # The private chat model needs an NVIDIA GPU; IOT_PRIVATE_LLM=off keeps it undeployed.
-        if ($profile.Trim() -eq 'llm' -and (Get-EnvValue -Path $envPath -Key 'IOT_PRIVATE_LLM') -eq 'off') { continue }
         $composeArguments += @("--profile", $profile.Trim())
     }
 }
@@ -127,20 +117,6 @@ foreach ($image in @($images | Sort-Object -Unique)) {
     if ($LASTEXITCODE -ne 0) { throw "离线包缺少镜像：$image。请在有网机器重新打包。" }
 }
 
-foreach ($model in $modelArchives) {
-    if (-not (Test-Path -LiteralPath (Join-Path $BundleDir $model.Archive) -PathType Leaf)) { continue }
-    # 仅补齐缺失文件；重复运行以及上次中断后均可重试，不覆盖已有模型。
-    Invoke-Checked -Arguments @("volume", "create", $model.Volume)
-    Invoke-Checked -Arguments @(
-        "run", "--rm", "--pull", "never",
-        "--mount", "type=volume,source=$($model.Volume),target=/dst",
-        "--mount", "type=bind,source=$BundleDir,target=/backup,readonly",
-        "alpine:3.22", "sh", "/backup/scripts/lib/restore-volume-archive.sh", "/backup/$($model.Archive)", "/dst"
-    )
-    Write-Host "$($model.Label)已恢复（保留已有文件）。" -ForegroundColor Green
-}
-
-# The CPU embedding service loads and warms up its model on first start.
 Invoke-Checked -Arguments ($composeArguments + @("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "900"))
 # up does not remove profile services; drop a capacity service left from an earlier choice.
 if (-not $capacityOn) {
@@ -170,8 +146,7 @@ if (-not $SkipHealthCheck) {
         & docker @($composeArguments + @("logs", "--tail=100", "platform-api", "postgres", "redpanda", "emqx"))
         throw "平台健康检查失败：$healthUrl"
     }
-    Invoke-Checked -Arguments ($composeArguments + @("exec", "-T", "embedding", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:80/health"))
-    Write-Host "平台健康检查与知识库向量服务检查通过：$healthUrl" -ForegroundColor Green
+    Write-Host "平台健康检查通过：$healthUrl" -ForegroundColor Green
     $checkWebPort = Get-EnvValue -Path $envPath -Key "IOT_WEB_PORT"
     if (-not $checkWebPort) { $checkWebPort = '8080' }
     $checkBackupPort = Get-EnvValue -Path $envPath -Key "IOT_BACKUP_HTTP_PORT"

@@ -87,15 +87,15 @@ func TestKnowledgeReindexerRebuildsFromArchivedOriginals(t *testing.T) {
 	}
 	index := &rebuildTestIndex{stale: true, failDocument: "doc-b"}
 	reindexer := &KnowledgeReindexer{KB: index, Store: repo, Repo: repo, Archive: archive, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	if err := reindexer.runOnce(ctx, index); err != nil {
-		t.Fatal(err)
+	if err := reindexer.runOnce(ctx, index); err == nil {
+		t.Fatal("partial rebuild must preserve the active index and report failure")
 	}
 	status := reindexer.Status()
-	if status.State != "ready" || status.Total != 3 || status.Done != 3 || status.Failed != 2 {
+	if status.State != "failed" || status.Total != 3 || status.Done != 3 || status.Failed != 2 {
 		t.Fatalf("unexpected rebuild status %#v", status)
 	}
-	if index.resets != 1 || !index.legacyDropped {
-		t.Fatalf("index must be reset once and the legacy class dropped: resets=%d legacy=%v", index.resets, index.legacyDropped)
+	if index.resets != 1 || index.legacyDropped {
+		t.Fatalf("failed rebuild must not activate the partial version: resets=%d legacy=%v", index.resets, index.legacyDropped)
 	}
 	if len(index.indexed) < 2 {
 		t.Fatalf("expected doc-a chunks, got %d", len(index.indexed))
@@ -116,12 +116,13 @@ func TestKnowledgeReindexerRebuildsFromArchivedOriginals(t *testing.T) {
 		t.Fatalf("rebuilt document not marked: %#v", byID["doc-a"])
 	}
 	for _, id := range []string{"doc-b", "doc-missing"} {
-		if byID[id].Status != "INDEX_FAILED" || byID[id].Metadata["indexError"] == "" {
+		if byID[id].Status != "INDEX_FAILED" || byID[id].Metadata["indexError"] == "" || byID[id].Metadata["rebuildRequired"] != true {
 			t.Fatalf("failed document %s must record the failure without blocking others: %#v", id, byID[id])
 		}
 	}
 
 	// A current index is left untouched.
+	index.stale = false
 	if err := reindexer.runOnce(ctx, index); err != nil || index.resets != 1 {
 		t.Fatalf("current index must not be rebuilt again: resets=%d err=%v", index.resets, err)
 	}
@@ -151,5 +152,18 @@ func TestKnowledgeReindexerWaitsForAnotherReplica(t *testing.T) {
 	<-done
 	if index.resets != 0 {
 		t.Fatal("index must not be reset without holding the rebuild lock")
+	}
+}
+
+func TestKnowledgeWhitespaceOverlapKeepsValidOffsets(t *testing.T) {
+	text := "甲乙丙丁戊己庚辛壬癸" + strings.Repeat(" ", 25) + "结束"
+	chunks := ChunkKnowledgeTextDetailed(text, 12, 6)
+	for _, chunk := range chunks {
+		if chunk.OverlapChars < 0 || chunk.OverlapChars > chunk.CharacterCount {
+			t.Fatalf("invalid overlap: %#v", chunk)
+		}
+		if got := string([]rune(text)[chunk.StartChar:chunk.EndChar]); got != chunk.Text {
+			t.Fatalf("offsets lost text: %q != %q", got, chunk.Text)
+		}
 	}
 }

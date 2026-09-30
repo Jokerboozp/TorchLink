@@ -848,7 +848,7 @@ func installEndpointWorkflows(engine *core.Engine) *aitest.Workflows {
 
 // testRunIdentity is an unmanaged caller allowed every Harness tool scope.
 func testRunIdentity(username string) ports.AIRunIdentity {
-	return ports.AIRunIdentity{Username: username, Scopes: auth.HarnessReadScopes()}
+	return ports.AIRunIdentity{TenantID: "tenant-a", Username: username, Scopes: auth.HarnessReadScopes()}
 }
 
 type captureWorkflowRuntime struct {
@@ -1032,7 +1032,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/workflows/custom-status", adminToken, nil, http.StatusOK)
 	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/workflows/ops-assistant", adminToken, nil, http.StatusConflict)
 	defaultBinding := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows/ops-assistant/knowledge-binding", token, nil, http.StatusOK)
-	if defaultBinding["retrievalMode"] != "auto" || defaultBinding["topK"] != float64(5) {
+	if defaultBinding["retrievalMode"] != "always" || defaultBinding["topK"] != float64(5) {
 		t.Fatalf("unexpected default knowledge binding: %#v", defaultBinding)
 	}
 	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/workflows/ops-assistant/knowledge-binding", token, map[string]any{"retrievalMode": "disabled", "topK": 5, "minScore": .2, "noMatchPolicy": "allow-model"}, http.StatusForbidden)
@@ -1083,7 +1083,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	runtime.mu.Lock()
 	forced := runtime.requests[len(runtime.requests)-1]
 	runtime.mu.Unlock()
-	if !strings.Contains(forced.Question, "平台强制召回的知识证据") || !strings.Contains(forced.Question, "现场 复核") {
+	if !strings.Contains(forced.Question, "doc-1") || !strings.Contains(forced.Question, "chunk-1") || !strings.Contains(forced.Question, "现场 复核") {
 		t.Fatalf("forced knowledge evidence was not supplied to Harness: %q", forced.Question)
 	}
 

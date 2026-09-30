@@ -348,6 +348,7 @@ func TestEndToEndStopProducesPartialReport(t *testing.T) {
 
 // moduleHandlers imitate the business APIs module streams call.
 func moduleHandlers(mux *http.ServeMux, f *fakePlatform) {
+	knowledgePolls := sync.Map{}
 	auth := func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Authorization") != "Bearer "+f.token {
@@ -378,8 +379,34 @@ func moduleHandlers(mux *http.ServeMux, f *fakePlatform) {
 			w.WriteHeader(400)
 			return
 		}
-		w.WriteHeader(201)
-		_, _ = w.Write([]byte(`{"id":"doc-capacity"}`))
+		defer r.MultipartForm.RemoveAll()
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			w.WriteHeader(400)
+			return
+		}
+		file.Close()
+		id := header.Filename
+		knowledgePolls.Store(id, &atomic.Int64{})
+		w.WriteHeader(202)
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "status": "UPLOADED"})
+	}))
+	mux.HandleFunc("GET /api/v1/knowledge/documents/{id}", auth(func(w http.ResponseWriter, r *http.Request) {
+		if !runIDPattern.MatchString(r.Header.Get("X-Capacity-Run-ID")) {
+			w.WriteHeader(400)
+			return
+		}
+		id := r.PathValue("id")
+		value, exists := knowledgePolls.Load(id)
+		if !exists {
+			w.WriteHeader(404)
+			return
+		}
+		status := "INDEXING"
+		if value.(*atomic.Int64).Add(1) > 1 {
+			status = "INDEXED"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"document": map[string]string{"id": id, "status": status}})
 	}))
 	mux.HandleFunc("POST /api/v1/video/cameras/{id}/play-sessions", reply(201, `{"sessionId":"s-1","hlsUrl":"/live/cam.m3u8"}`))
 	mux.HandleFunc("DELETE /api/v1/video/play-sessions/{id}", reply(204, ""))
@@ -409,6 +436,94 @@ func moduleHandlers(mux *http.ServeMux, f *fakePlatform) {
 		_, _ = w.Write(file)
 	}))
 	mux.HandleFunc("POST /api/v1/backups/{id}/restore", reply(200, `{"status":"COMPLETED"}`))
+}
+
+func TestKnowledgeModuleWaitsForIndexCompletionAndKeepsCleanupOwnership(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name          string
+		uploadStatus  int
+		states        []string
+		timeout       time.Duration
+		wantOK        bool
+		wantCode      string
+		wantPolls     int
+		malformed     bool
+		missingID     bool
+		wrongDetailID bool
+	}{
+		{name: "async queued indexing completed", uploadStatus: 202, states: []string{"UPLOADED", "INDEXING", "INDEXED"}, wantOK: true, wantCode: "indexed", wantPolls: 3},
+		{name: "synchronous compatibility", uploadStatus: 201, wantOK: true, wantCode: "201"},
+		{name: "embedding failed", uploadStatus: 202, states: []string{"INDEX_FAILED"}, wantCode: "index_failed", wantPolls: 1},
+		{name: "document deleting", uploadStatus: 202, states: []string{"DELETING"}, wantCode: "deleting", wantPolls: 1},
+		{name: "index timeout", uploadStatus: 202, states: []string{"INDEXING"}, timeout: 150 * time.Millisecond, wantCode: "timeout", wantPolls: 1},
+		{name: "malformed index response", uploadStatus: 202, malformed: true, wantCode: "invalid_index_response", wantPolls: 1},
+		{name: "wrong indexed document", uploadStatus: 202, states: []string{"INDEXED"}, wrongDetailID: true, wantCode: "invalid_index_response", wantPolls: 1},
+		{name: "accepted upload missing ID", uploadStatus: 202, missingID: true, wantCode: "invalid_upload_response"},
+		{name: "rejected upload with known ID", uploadStatus: 422, wantCode: "422"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			const runID = "cap-20260930-120000-abcdef"
+			const documentID = "doc-capacity-index"
+			var polls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer operator-cap" || r.Header.Get("X-Capacity-Run-ID") != runID {
+					http.Error(w, "missing capacity credentials or ownership", http.StatusUnauthorized)
+					return
+				}
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/knowledge/documents":
+					if r.ParseMultipartForm(1<<20) != nil || r.FormValue("workflowId") != "wf-cap" || r.FormValue("category") != "capacity-test" {
+						http.Error(w, "invalid capacity knowledge upload", http.StatusBadRequest)
+						return
+					}
+					defer r.MultipartForm.RemoveAll()
+					id := documentID
+					if test.missingID {
+						id = ""
+					}
+					w.WriteHeader(test.uploadStatus)
+					_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "status": "UPLOADED"})
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/knowledge/documents/"+documentID:
+					n := int(polls.Add(1))
+					if test.malformed {
+						_, _ = w.Write([]byte("invalid JSON"))
+						return
+					}
+					state := test.states[min(n-1, len(test.states)-1)]
+					id := documentID
+					if test.wrongDetailID {
+						id = "another-document"
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"document": map[string]string{"id": id, "status": state}})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			run := &workerRun{
+				req:  PrepareRequest{RunID: runID, Config: AgentConfig{API: server.URL, OperatorToken: "operator-cap", Modules: ModuleConfig{KnowledgeWorkflow: "wf-cap", KnowledgeBytes: 2048}}},
+				http: &httpClients{query: server.Client()}, modules: &moduleState{},
+			}
+			timeout := test.timeout
+			if timeout == 0 {
+				timeout = 5 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			result := (&Worker{}).sendModule(ctx, run, "knowledge", 1)
+			if result.ok != test.wantOK || result.code != test.wantCode || int(polls.Load()) != test.wantPolls {
+				t.Fatalf("result=%+v polls=%d, want ok=%v code=%s polls=%d", result, polls.Load(), test.wantOK, test.wantCode, test.wantPolls)
+			}
+			if !test.missingID && (result.resourceKind != "knowledge" || result.resourceID != documentID) {
+				t.Fatalf("accepted/failed resource lost cleanup ownership: %+v", result)
+			}
+			if result.bytes <= 0 || result.attempts != 1 {
+				t.Fatalf("operation accounting lost upload bytes or attempts: %+v", result)
+			}
+		})
+	}
 }
 
 func TestEndToEndBusinessModulesAndAlarmSequence(t *testing.T) {

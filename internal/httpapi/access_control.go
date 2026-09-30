@@ -27,7 +27,7 @@ var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
-	if strings.HasPrefix(path, "/api/v1/ai/runs") {
+	if strings.HasPrefix(path, "/api/v1/ai/embedding-") || strings.HasPrefix(path, "/api/v1/ai/runs") {
 		return "aiProviders"
 	}
 	if menu, ok := opsRouteMenu(path); ok {

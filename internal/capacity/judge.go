@@ -96,7 +96,7 @@ type PhaseRecord struct {
 
 var messageStreams = []string{"http", "mqtt", "tcp"}
 
-var moduleLabel = map[string]string{"ai": "AI 研判", "knowledge": "知识库上传", "video": "视频播放", "export_raw": "原文下载", "export_replay": "报文回放", "export_inspection": "巡检与 PDF", "openapi": "开放 API"}
+var moduleLabel = map[string]string{"ai": "AI 研判", "knowledge": "知识库上传与索引", "video": "视频播放", "export_raw": "原文下载", "export_replay": "报文回放", "export_inspection": "巡检与 PDF", "openapi": "开放 API"}
 
 // Operation is one business operation measured during a step.
 type Operation struct {

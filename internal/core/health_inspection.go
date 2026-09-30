@@ -17,6 +17,13 @@ import (
 // useful when AI is unavailable and prevents the model from inventing device
 // counts or last-seen times.
 func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (model.DeviceHealthReport, error) {
+	if e.AuthorizeAIRun != nil {
+		var err error
+		ctx, err = e.AuthorizeAIRun(ctx, tenantID, WorkflowHealthInspection)
+		if err != nil {
+			return model.DeviceHealthReport{}, err
+		}
+	}
 	now := e.Clock.Now().UnixMilli()
 	devices, err := e.Repo.ListManagedDevices(ctx, tenantID)
 	if err != nil {

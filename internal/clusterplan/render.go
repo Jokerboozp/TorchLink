@@ -37,9 +37,12 @@ type Secrets struct {
 	// CapacityToken is shared by the platform and the capacity module.
 	CapacityToken string `yaml:"capacityToken,omitempty"`
 	// BackupRestoreTargetDSN is an optional separate database for restore checks.
-	BackupRestoreTargetDSN string `yaml:"backupRestoreTargetDSN"`
-	DeepSeekAPIKey         string `yaml:"deepseekApiKey"`
-	// EmbeddingAPIKey protects the private embedding service on the knowledge node.
+	BackupRestoreTargetDSN      string `yaml:"backupRestoreTargetDSN"`
+	BackupRestoreMinIOEndpoint  string `yaml:"backupRestoreMinioEndpoint,omitempty"`
+	BackupRestoreMinIOAccessKey string `yaml:"backupRestoreMinioAccessKey,omitempty"`
+	BackupRestoreMinIOSecretKey string `yaml:"backupRestoreMinioSecretKey,omitempty"`
+	DeepSeekAPIKey              string `yaml:"deepseekApiKey"`
+	// EmbeddingAPIKey is the external Embedding API key; never auto-generated.
 	EmbeddingAPIKey    string `yaml:"embeddingApiKey,omitempty"`
 	VideoMediaSecret   string `yaml:"videoMediaSecret"`
 	VideoHookSecret    string `yaml:"videoHookSecret"`
@@ -89,6 +92,11 @@ func (s Secrets) validate(inv *Inventory) error {
 			missing = append(missing, k+" (must not contain quotes, $, backslashes or newlines)")
 		}
 	}
+	for k, v := range map[string]string{"deepseekApiKey": s.DeepSeekAPIKey, "embeddingApiKey": s.EmbeddingAPIKey, "backupRestoreTargetDSN": s.BackupRestoreTargetDSN, "backupRestoreMinioEndpoint": s.BackupRestoreMinIOEndpoint, "backupRestoreMinioAccessKey": s.BackupRestoreMinIOAccessKey, "backupRestoreMinioSecretKey": s.BackupRestoreMinIOSecretKey} {
+		if strings.ContainsAny(v, "\n\r\"'$`\\") {
+			missing = append(missing, k+" (must not contain quotes, $, backslashes or newlines)")
+		}
+	}
 	// These are embedded in connection URLs assembled by Compose, which
 	// cannot percent-encode them.
 	for k, v := range map[string]string{"postgresPassword": s.PostgresPassword, "clickhousePassword": s.ClickHousePassword, "redisPassword": s.RedisPassword} {
@@ -115,7 +123,7 @@ var Stages = []string{"coordination", "data", "support", "workers", "edge"}
 var serviceStage = map[string]string{
 	"lb": "coordination", "etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "minio": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
 	"postgres": "data", "redpanda": "data", "clickhouse": "data", "emqx": "data",
-	"harness": "support", "embedding": "support", "weaviate": "support", "video": "support", "backup": "support",
+	"harness": "support", "video": "support", "backup": "support",
 	"parser": "workers", "processor": "workers", "jobs": "workers",
 	"api": "edge", "gateway": "edge", "web": "edge", "capacity": "edge",
 }
@@ -220,14 +228,11 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	if inv.Monitoring.Node != "" {
 		env["IOT_OPS_PROMETHEUS_URL"] = "http://" + r.ip(inv.Monitoring.Node) + ":9090"
 	}
-	if inv.Knowledge.Node != "" {
-		env["IOT_WEAVIATE_URL"] = "http://" + r.ip(inv.Knowledge.Node) + ":8085"
-		env["IOT_EMBEDDING_URL"] = "http://" + r.ip(inv.Knowledge.Node) + ":8086/v1"
-		env["IOT_EMBEDDING_MODEL"] = EmbeddingModelID
-		if r.s.EmbeddingAPIKey != "" {
-			env["IOT_EMBEDDING_API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
-		}
-	}
+	env["IOT_EMBEDDING_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	env["IOT_EMBEDDING_MODEL"] = "text-embedding-v4"
+	env["IOT_EMBEDDING_DIMENSIONS"] = "1024"
+	env["IOT_EMBEDDING_BATCH_SIZE"] = "10"
+	env["IOT_EMBEDDING_API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
 	if inv.Video.Node != "" {
 		v := r.ip(inv.Video.Node)
 		env["IOT_VIDEO_MEDIA_API_URL"] = "http://" + v + ":80"
@@ -359,24 +364,28 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			}
 			add(kind, "harness", service(inv.Images.Harness, map[string]any{"environment": map[string]string{"IOT_HARNESS_HOST": "0.0.0.0", "IOT_HARNESS_PORT": "8091", "IOT_HARNESS_GATEWAY_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_HARNESS_SESSION_ROOT": "/data/sessions", "IOT_HARNESS_HOME": "/data/runtime-home", "IOT_HARNESS_WORKSPACE": "/data/workspace", "IOT_HARNESS_PLUGIN_DIR": "/data/plugins", "IOT_HARNESS_PLUGIN_SEED_DIR": "/harness/examples/iot-ops-agent/plugins", "IOT_HARNESS_MCP_ALLOWED_ORIGINS": strings.Join(origins, ","), "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}", "DEEPSEEK_BASE_URL": "https://api.deepseek.com"}, "volumes": []string{"harness-data:/data"}}), "harness-data")
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"] = r.s.HarnessToken, r.s.DeepSeekAPIKey
-		case "embedding":
-			// Private text embedding service (HuggingFace TEI). Weights are
-			// cached in the volume; HF_ENDPOINT may point to a mirror.
-			embeddingEnv := map[string]string{"HF_ENDPOINT": "${HF_ENDPOINT:-https://huggingface.co}", "HF_HUB_OFFLINE": "${HF_HUB_OFFLINE:-0}"}
-			if r.s.EmbeddingAPIKey != "" {
-				embeddingEnv["API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
-				env["IOT_EMBEDDING_API_KEY"] = r.s.EmbeddingAPIKey
-			}
-			add(kind, "embedding", service(inv.Images.Embedding, map[string]any{"command": []string{"--model-id", EmbeddingModelID, "--hostname", "0.0.0.0", "--port", "8086"}, "environment": embeddingEnv, "volumes": []string{"embedding-models:/data"}}), "embedding-models")
-		case "weaviate":
-			add(kind, "weaviate", service(inv.Images.Weaviate, map[string]any{"command": []string{"--host", "0.0.0.0", "--port", "8085", "--scheme", "http"}, "environment": map[string]string{"QUERY_DEFAULTS_LIMIT": "25", "AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true", "PERSISTENCE_DATA_PATH": "/var/lib/weaviate", "DEFAULT_VECTORIZER_MODULE": "none", "ENABLE_MODULES": "backup-filesystem", "BACKUP_FILESYSTEM_PATH": "/var/lib/weaviate/backups", "CLUSTER_HOSTNAME": node, "GRPC_PORT": "50051"}, "volumes": []string{"weaviate-data:/var/lib/weaviate"}}), "weaviate-data")
 		case "video":
 			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": inv.Name + "-media-1", "IOT_VIDEO_HOOK_BASE": inv.APIURL() + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
 			env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"] = r.s.VideoMediaSecret, r.s.VideoHookSecret
 		case "backup":
-			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.ip(inv.MinIO.Node) + ":9002", "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
+			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.ip(inv.MinIO.Node) + ":9002", "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}", "IOT_BACKUP_HARNESS_DATA_DIR": "${IOT_BACKUP_HARNESS_DATA_DIR:-}", "IOT_BACKUP_HARNESS_SNAPSHOT_URLS": strings.ReplaceAll(harnessURLs(r), ":8091", ":8091/v1/backup/snapshot"), "IOT_AI_HARNESS_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_BACKUP_RESTORE_HARNESS_DIR": "/app/data/backups/restored-harness", "IOT_BACKUP_RESTORE_MINIO_ENDPOINT": "${IOT_BACKUP_RESTORE_MINIO_ENDPOINT:-}", "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY": "${IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY:-}", "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY": "${IOT_BACKUP_RESTORE_MINIO_SECRET_KEY:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
 			env["POSTGRES_PASSWORD"], env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["CLICKHOUSE_PASSWORD"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.PostgresPassword, r.s.MinIORootUser, r.s.MinIORootPassword, r.s.ClickHousePassword, r.s.BackupToken
 			env["IOT_BACKUP_RESTORE_TARGET_DSN"] = r.s.BackupRestoreTargetDSN
+			env["IOT_BACKUP_RESTORE_MINIO_ENDPOINT"] = r.s.BackupRestoreMinIOEndpoint
+			env["IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY"] = r.s.BackupRestoreMinIOAccessKey
+			env["IOT_BACKUP_RESTORE_MINIO_SECRET_KEY"] = r.s.BackupRestoreMinIOSecretKey
+			env["IOT_BACKUP_RESTORE_MINIO_USE_TLS"] = inv.Env["IOT_BACKUP_RESTORE_MINIO_USE_TLS"]
+			svcs["backup-service"].(map[string]any)["environment"].(map[string]string)["IOT_BACKUP_RESTORE_MINIO_USE_TLS"] = "${IOT_BACKUP_RESTORE_MINIO_USE_TLS:-false}"
+			env["IOT_AI_HARNESS_TOKEN"] = r.s.HarnessToken
+			if contains(inv.Harness.Nodes, node) {
+				def := svcs["backup-service"].(map[string]any)
+				def["volumes"] = append(def["volumes"].([]string), "harness-data:/app/harness:ro")
+				def["environment"].(map[string]string)["IOT_BACKUP_HARNESS_DATA_DIR"] = "/app/harness"
+			} else if dir := inv.Env["IOT_BACKUP_HARNESS_DATA_DIR"]; dir != "" {
+				def := svcs["backup-service"].(map[string]any)
+				def["volumes"] = append(def["volumes"].([]string), dir+":/app/harness:ro")
+				def["environment"].(map[string]string)["IOT_BACKUP_HARNESS_DATA_DIR"] = "/app/harness"
+			}
 		case "prometheus":
 			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig())
 			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"}}), "prometheus-data")
@@ -422,9 +431,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			if inv.Capacity.Node != "" {
 				env["IOT_OPS_CAPACITY_TOKEN"] = r.s.CapacityToken
 			}
-			if inv.Knowledge.Node != "" && r.s.EmbeddingAPIKey != "" {
-				env["IOT_EMBEDDING_API_KEY"] = r.s.EmbeddingAPIKey
-			}
+			env["IOT_EMBEDDING_API_KEY"] = r.s.EmbeddingAPIKey
 		}
 	}
 	compose := map[string]any{"name": inv.Name, "services": svcs}

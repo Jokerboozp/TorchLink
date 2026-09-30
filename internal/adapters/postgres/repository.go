@@ -1444,6 +1444,9 @@ func (r *Repository) LatestAlarmAnalysisJob(ctx context.Context, tenant, alarmID
 	return v, err
 }
 func (r *Repository) SaveKnowledgeDoc(ctx context.Context, v model.KnowledgeDoc) error {
+	if v.Tags == nil {
+		v.Tags = []string{}
+	}
 	b, _ := json.Marshal(v.Metadata)
 	_, err := r.pool.Exec(ctx, `INSERT INTO ai_knowledge_doc(id,tenant_id,workflow_id,product_id,category,tags,object_bucket,object_key,filename,status,metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(id) DO UPDATE SET workflow_id=excluded.workflow_id,product_id=excluded.product_id,category=excluded.category,tags=excluded.tags,status=excluded.status,metadata=excluded.metadata`, v.ID, v.TenantID, v.WorkflowID, v.ProductID, v.Category, v.Tags, v.ObjectBucket, v.ObjectKey, v.Filename, v.Status, b)
 	return err
@@ -1614,6 +1617,10 @@ func (r *Repository) SaveAIProviderConfig(ctx context.Context, v ports.AIPluginC
 	`, v.Provider, v.Model, raw)
 	return err
 }
+
+// Pool exposes the existing primary pool to platform adapters; callers do not own it.
+func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
+
 func (r *Repository) Health(ctx context.Context) error { return r.pool.Ping(ctx) }
 func (r *Repository) Close() error {
 	if r.stop != nil {

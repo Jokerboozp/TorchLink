@@ -36,9 +36,17 @@ func main() {
 	service, err := backup.New(ctx, backup.Config{
 		PostgresDSN: os.Getenv("IOT_POSTGRES_DSN"), BackupDir: env("IOT_BACKUP_DIR", "./data/backups"), BackupBucket: env("IOT_BACKUP_BUCKET", "iot-backups"),
 		MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"), MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: boolean("IOT_MINIO_USE_TLS"),
-		ClickHouseURL:    os.Getenv("IOT_CLICKHOUSE_URL"),
-		RestoreTargetDSN: os.Getenv("IOT_BACKUP_RESTORE_TARGET_DSN"),
-		BackupTimezone:   env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"),
+		ClickHouseURL:         os.Getenv("IOT_CLICKHOUSE_URL"),
+		RestoreTargetDSN:      os.Getenv("IOT_BACKUP_RESTORE_TARGET_DSN"),
+		BackupTimezone:        env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"),
+		HarnessDataDir:        os.Getenv("IOT_BACKUP_HARNESS_DATA_DIR"),
+		HarnessSnapshotURLs:   strings.FieldsFunc(os.Getenv("IOT_BACKUP_HARNESS_SNAPSHOT_URLS"), func(r rune) bool { return r == ',' || r == ';' || r == '\n' }),
+		HarnessToken:          os.Getenv("IOT_AI_HARNESS_TOKEN"),
+		RestoreHarnessDir:     os.Getenv("IOT_BACKUP_RESTORE_HARNESS_DIR"),
+		RestoreMinIOEndpoint:  os.Getenv("IOT_BACKUP_RESTORE_MINIO_ENDPOINT"),
+		RestoreMinIOAccessKey: os.Getenv("IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY"),
+		RestoreMinIOSecretKey: os.Getenv("IOT_BACKUP_RESTORE_MINIO_SECRET_KEY"),
+		RestoreMinIOUseTLS:    boolean("IOT_BACKUP_RESTORE_MINIO_USE_TLS"),
 	})
 	if err != nil {
 		log.Error("initialize backup service", "error", err)

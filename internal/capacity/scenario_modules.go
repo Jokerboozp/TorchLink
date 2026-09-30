@@ -168,10 +168,49 @@ func (w *Worker) sendModule(ctx context.Context, r *workerRun, stream string, k 
 		var docResult struct {
 			ID string `json:"id"`
 		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&docResult)
+		decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&docResult)
 		resourceKind, resourceID = "knowledge", docResult.ID
 		resp.Body.Close()
-		return sendResult{ok: resp.StatusCode == 201, code: strconv.Itoa(resp.StatusCode), bytes: len(doc), attempts: 1}
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+			return sendResult{code: strconv.Itoa(resp.StatusCode), bytes: len(doc), attempts: 1}
+		}
+		if decodeErr != nil || strings.TrimSpace(docResult.ID) == "" {
+			return sendResult{code: "invalid_upload_response", bytes: len(doc), attempts: 1}
+		}
+		if resp.StatusCode == http.StatusCreated {
+			// In-memory implementations complete indexing synchronously.
+			return sendResult{ok: true, code: "201", bytes: len(doc), attempts: 1}
+		}
+		// A durable upload is only accepted at 202. Measure the whole operation,
+		// including extraction, embedding API calls and committed indexing.
+		ok, code := poll(rctx, 500*time.Millisecond, func() (bool, bool, string) {
+			status, body, err := jsonCall(rctx, c, http.MethodGet, cfg.API+"/api/v1/knowledge/documents/"+url.PathEscape(docResult.ID), cfg.OperatorToken, nil)
+			if err != nil || status >= http.StatusInternalServerError {
+				return false, false, ""
+			}
+			if status != http.StatusOK {
+				return true, false, "index_status_" + strconv.Itoa(status)
+			}
+			var detail struct {
+				Document struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+				} `json:"document"`
+			}
+			if json.Unmarshal(body, &detail) != nil || detail.Document.ID != docResult.ID {
+				return true, false, "invalid_index_response"
+			}
+			switch strings.ToUpper(strings.TrimSpace(detail.Document.Status)) {
+			case "INDEXED":
+				return true, true, "indexed"
+			case "INDEX_FAILED":
+				return true, false, "index_failed"
+			case "DELETING":
+				return true, false, "deleting"
+			}
+			return false, false, ""
+		})
+		return sendResult{ok: ok, code: code, bytes: len(doc), attempts: 1}
 	case "video":
 		camera := mc.VideoCameras[k%uint64(len(mc.VideoCameras))]
 		rctx, cancel := context.WithTimeout(ctx, max(mc.VideoTimeout.D(), 10*time.Second))

@@ -4,8 +4,8 @@ import { UiMessage, UiMessageBox } from './ui/feedback.js'
 export async function confirmDelete({ label, path, onDeleted, warning = '删除后无法恢复。', blockedHint = '存在关联或仍在使用，请先解除关联或关闭活动告警。' }) {
   try {
     await UiMessageBox.confirm(`确定删除“${label}”？${warning}`, '删除确认', { type:'warning', confirmButtonText:'确定删除', cancelButtonText:'取消' })
-    await api(path, { method:'DELETE' })
-    UiMessage.success('删除成功')
+    const result = await api(path, { method:'DELETE' })
+    UiMessage.success(result?.deleting ? '已提交删除，清理将在后台完成' : '删除成功')
     await onDeleted?.()
     return true
   } catch (error) {

@@ -68,6 +68,25 @@ func run() error {
 			}
 			return err
 		}},
+		{"PostgreSQL pgvector extension and distance operator", func(ctx context.Context) error {
+			conn, err := pgx.Connect(ctx, cfg.PostgresDSN)
+			if err != nil {
+				return err
+			}
+			defer conn.Close(context.Background())
+			var version string
+			if err = conn.QueryRow(ctx, "SELECT extversion FROM pg_extension WHERE extname = 'vector'").Scan(&version); err != nil {
+				return fmt.Errorf("pgvector extension is not enabled: %w", err)
+			}
+			var distance float64
+			if err = conn.QueryRow(ctx, "SELECT '[1,0,0]'::vector <=> '[1,0,0]'::vector").Scan(&distance); err != nil {
+				return err
+			}
+			if distance != 0 {
+				return fmt.Errorf("pgvector distance mismatch (%s)", version)
+			}
+			return nil
+		}},
 		{"Redis authenticated write/read", func(ctx context.Context) error {
 			client := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
 			defer client.Close()
@@ -157,7 +176,7 @@ func run() error {
 			}
 			return err
 		}},
-		{"Private embedding service inference", func(ctx context.Context) error {
+		{"External Embedding API inference", func(ctx context.Context) error {
 			client, err := embedding.NewOpenAI(embedding.Config{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, QueryInstruction: cfg.EmbeddingQueryPrompt, Timeout: cfg.EmbeddingTimeout})
 			if err != nil {
 				return err
@@ -236,10 +255,6 @@ func run() error {
 				}
 			}
 			return nil
-		}},
-		{"Weaviate readiness", func(ctx context.Context) error {
-			_, err := request(ctx, "GET", strings.TrimRight(cfg.WeaviateURL, "/")+"/v1/.well-known/ready", "")
-			return err
 		}},
 	}
 	failed := false

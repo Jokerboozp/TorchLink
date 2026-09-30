@@ -10,7 +10,6 @@ project_name='iot-platform-online'
 health_timeout=180
 video=keep
 capacity=keep
-private_llm=keep
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file|--project-name|--health-timeout)
@@ -19,7 +18,6 @@ while [ "$#" -gt 0 ]; do
       shift 2;;
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2;;
     --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2;;
-    --private-llm) [ "$#" -ge 2 ] || { echo '--private-llm 需要 on 或 off。' >&2; exit 1; }; private_llm="$2"; shift 2;;
     -h|--help)
       cat <<'EOF'
 用法：bash scripts/deploy-online.sh [选项]
@@ -28,8 +26,7 @@ while [ "$#" -gt 0 ]; do
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
   --video on|off        部署或关闭摄像头直播媒体服务；省略时沿用上次选择，新环境默认开启
   --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认开启
-  --private-llm on|off  部署或关闭私有化对话模型 vLLM（需要 NVIDIA GPU）；省略时沿用上次选择，默认关闭，对话仍用 DeepSeek 云端 API
-默认拉取运行镜像、构建应用并启动全部服务；首次启动由私有化向量服务下载知识库模型 Qwen3-Embedding-0.6B（约 1.2 GB，可用 HF_ENDPOINT 指定镜像站）。
+默认拉取运行镜像、构建应用与 PostgreSQL + pgvector 并启动服务；AI 和向量计算调用外部 API，不下载本地模型。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
       exit 0;;
@@ -40,7 +37,6 @@ done
 [[ "$health_timeout" =~ ^[1-9][0-9]*$ ]] || { echo '健康检查超时必须是正整数。' >&2; exit 1; }
 case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
 case "$capacity" in keep|on|off) ;; *) echo '--capacity 只能是 on 或 off。' >&2; exit 1;; esac
-case "$private_llm" in keep|on|off) ;; *) echo '--private-llm 只能是 on 或 off。' >&2; exit 1;; esac
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
 source "$script_dir/lib/docker-bootstrap.sh"
 ensure_deployment_docker online
@@ -50,7 +46,6 @@ ensure_deployment_env "$env_file"
 ensure_emqx_admin_env "$env_file" "http://emqx:18083"
 configure_deepseek_env "$env_file"
 configure_embedding_env "$env_file"
-private_llm="$(configure_private_llm_env "$env_file" "$private_llm")"
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if [ "$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_ENABLED)" = false ]; then echo '提示：Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' >&2; fi
@@ -86,7 +81,7 @@ else
 fi
 annotate_deployment_env_file "$env_file"
 compose=(compose --project-name "$project_name" --env-file "$env_file" -f "$project_root/compose.yaml")
-build_services=(platform-api platform-web backup-service)
+build_services=(platform-api platform-web backup-service postgres)
 command -v git >/dev/null 2>&1 || { echo 'AI 工作流服务（Harness）为必装组件，构建需要安装 Git。' >&2; exit 1; }
 build_services+=(deepseek-harness)
 sh "$script_dir/fetch-deepseek-harness.sh"
@@ -117,9 +112,6 @@ fi
 if [ "$capacity" = off ]; then
   run_docker "${compose[@]}" --profile capacity rm -sf capacity
 fi
-if [ "$private_llm" = off ]; then
-  run_docker "${compose[@]}" --profile llm rm -sf vllm
-fi
 
 api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api_port:-8081}"
 web_port="$(get_deployment_env_value "$env_file" IOT_WEB_PORT)"; web_port="${web_port:-8080}"
@@ -133,6 +125,5 @@ wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_ti
 printf 'Harness 已启动；工作流模型为 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
 run_docker "${compose[@]}" ps
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"
-[ "$private_llm" = on ] && echo '私有化对话模型 vLLM 已部署：首次启动需下载模型；在“模型管理”选择“OpenAI 兼容 / 私有化部署”，地址 http://vllm:8000/v1，密钥为配置文件中的 IOT_LLM_API_KEY。'
 [ "$capacity" = on ] && echo '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 --capacity off 或 scripts/capacity-module.sh disable。'
 true

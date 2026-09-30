@@ -236,6 +236,10 @@ if (-not $Images -and -not $NoBuild) {
     $buildServices = @()
     $envNames = @{ web = @("IOT_PLATFORM_WEB_IMAGE", "platform-web"); harness = @("IOT_DEEPSEEK_HARNESS_IMAGE", "deepseek-harness"); backup = @("IOT_BACKUP_IMAGE", "backup-service"); video = @("IOT_ZLMEDIAKIT_IMAGE", "zlmediakit") }
     foreach ($i in $imageList) {
+        if ($i.Key -eq 'postgres' -and $i.Image -like 'iot-platform-postgres-ha:*') {
+            Invoke-Native @('docker', 'build', '--pull', '-t', $i.Image, '-f', (Join-Path $projectRoot 'deploy/postgres/Dockerfile.spilo'), (Join-Path $projectRoot 'deploy/postgres'))
+            continue
+        }
         if (-not $envNames.ContainsKey($i.Key) -or $i.Image -like "*@sha256:*") { continue }
         Set-Item -Path "env:$($envNames[$i.Key][0])" -Value $i.Image
         $buildServices += $envNames[$i.Key][1]

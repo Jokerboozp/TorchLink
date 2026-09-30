@@ -33,7 +33,6 @@ type Inventory struct {
 	ClickHouse    ClickHouseSpec `yaml:"clickhouse"`
 	MinIO         SingleSpec     `yaml:"minio"`
 	Harness       GroupSpec      `yaml:"harness"`
-	Knowledge     SingleSpec     `yaml:"knowledge,omitempty"`
 	Video         SingleSpec     `yaml:"video,omitempty"`
 	Backup        SingleSpec     `yaml:"backup,omitempty"`
 	Monitoring    SingleSpec     `yaml:"monitoring,omitempty"`
@@ -44,24 +43,19 @@ type Inventory struct {
 }
 
 type Images struct {
-	Platform   string `yaml:"platform"`
-	Web        string `yaml:"web"`
-	Harness    string `yaml:"harness"`
-	Backup     string `yaml:"backup"`
-	Video      string `yaml:"video"`
-	Redpanda   string `yaml:"redpanda"`
-	EMQX       string `yaml:"emqx"`
-	Etcd       string `yaml:"etcd"`
-	Postgres   string `yaml:"postgres"` // Spilo (Patroni + PostgreSQL)
-	Redis      string `yaml:"redis"`
-	ClickHouse string `yaml:"clickhouse"`
-	Keeper     string `yaml:"keeper"`
-	MinIO      string `yaml:"minio"`
-	Embedding  string `yaml:"embedding"`
-	// LegacyOllama is accepted so inventories written before the private
-	// embedding service replaced Ollama still load; it is ignored.
-	LegacyOllama string `yaml:"ollama,omitempty"`
-	Weaviate     string `yaml:"weaviate"`
+	Platform     string `yaml:"platform"`
+	Web          string `yaml:"web"`
+	Harness      string `yaml:"harness"`
+	Backup       string `yaml:"backup"`
+	Video        string `yaml:"video"`
+	Redpanda     string `yaml:"redpanda"`
+	EMQX         string `yaml:"emqx"`
+	Etcd         string `yaml:"etcd"`
+	Postgres     string `yaml:"postgres"` // Spilo (Patroni + PostgreSQL)
+	Redis        string `yaml:"redis"`
+	ClickHouse   string `yaml:"clickhouse"`
+	Keeper       string `yaml:"keeper"`
+	MinIO        string `yaml:"minio"`
 	Prometheus   string `yaml:"prometheus"`
 	NodeExporter string `yaml:"nodeExporter"`
 	// LB is the HAProxy image of the per-node internal load balancers used
@@ -137,7 +131,7 @@ var Ports = map[string][]int{
 	"etcd": {2379, 2380}, "postgres": {5432, 8008}, "redpanda": {9092, 33145, 9644, 18081, 18082},
 	"emqx": {1883, 8083, 8084, 18083, 4370, 5370}, "clickhouse": {8123, 9000, 9009}, "keeper": {9181, 9234},
 	"redis": {6379}, "sentinel": {26379}, "minio": {9002, 9003}, "harness": {8091},
-	"embedding": {8086}, "weaviate": {8085, 50051}, "video": {80, 8000},
+	"video":  {80, 8000},
 	"backup": {8090}, "prometheus": {9090}, "node-exporter": {9100}, "web": {8080},
 	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
 	"lb": {LBAPIPort, LBGatewayPort}, "capacity": {7080},
@@ -203,10 +197,6 @@ func (inv *Inventory) defaults() {
 	if inv.Redpanda.SMP == 0 {
 		inv.Redpanda.SMP = 2
 	}
-	if inv.Images.Embedding == "" {
-		inv.Images.Embedding = DefaultEmbeddingImage
-	}
-	inv.Images.LegacyOllama = ""
 	if inv.Redpanda.Memory == "" {
 		inv.Redpanda.Memory = "4G"
 	}
@@ -264,10 +254,6 @@ func (inv *Inventory) Placement() map[string][]string {
 	add("sentinel", inv.Redis.Sentinels...)
 	add("minio", inv.MinIO.Node)
 	add("harness", inv.Harness.Nodes...)
-	if inv.Knowledge.Node != "" {
-		add("embedding", inv.Knowledge.Node)
-		add("weaviate", inv.Knowledge.Node)
-	}
 	add("video", inv.Video.Node)
 	add("backup", inv.Backup.Node)
 	add("prometheus", inv.Monitoring.Node)

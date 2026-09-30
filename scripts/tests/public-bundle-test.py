@@ -57,6 +57,7 @@ class PublicBundleTest(unittest.TestCase):
             self.assertRegex(values[key], r'^[a-f0-9]{64}$')
         self.assertNotEqual(values['POSTGRES_PASSWORD'], values['REDIS_PASSWORD'])
         self.assertRegex(values['IOT_VIDEO_PLATFORM_SECRETS'], r'^video-platform-1:[a-f0-9]{64}$')
+        self.assertEqual(values['IOT_EMBEDDING_API_KEY'], '')
         self.initialize(self.bundle)
         self.assertEqual(first, self.env.read_text())
         self.env.write_text(self.original)
@@ -70,11 +71,13 @@ class PublicBundleTest(unittest.TestCase):
         self.assertEqual(self.original, self.env.read_text())
 
     def test_api_key_is_rejected_without_removing_config(self):
-        self.env.write_text(self.original.replace('DEEPSEEK_API_KEY=', 'DEEPSEEK_API_KEY=test-only-key'))
-        with self.assertRaises(ValueError):
-            module.prepare(self.bundle)
-        self.assertTrue(self.env.exists())
-        self.assertFalse((self.bundle / '.env.offline.template').exists())
+        for key in ('DEEPSEEK_API_KEY', 'IOT_AI_API_KEY', 'IOT_EMBEDDING_API_KEY'):
+            with self.subTest(key=key):
+                self.env.write_text(self.original.replace(key + '=', key + '=test-only-key'))
+                with self.assertRaises(ValueError):
+                    module.prepare(self.bundle)
+                self.assertTrue(self.env.exists())
+                self.assertFalse((self.bundle / '.env.offline.template').exists())
 
 
 if __name__ == '__main__':

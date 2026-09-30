@@ -13,6 +13,13 @@ import (
 // workflow. The data is gathered through repository ports; the model never
 // receives SQL access.
 func (e *Engine) GenerateReport(ctx context.Context, tenantID, period string, start, end int64) (string, error) {
+	if e.AuthorizeAIRun != nil {
+		var err error
+		ctx, err = e.AuthorizeAIRun(ctx, tenantID, WorkflowOpsReport)
+		if err != nil {
+			return "", err
+		}
+	}
 	if start <= 0 || end <= start {
 		return "", fmt.Errorf("valid start/end are required")
 	}

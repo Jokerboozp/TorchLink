@@ -3,8 +3,8 @@
 Build and deploy the platform with internet access (Docker + Compose v2 required).
 .DESCRIPTION
 Creates .env.online once with random credentials, pulls dependency images,
-builds the application, starts the private knowledge embedding service (the first
-start downloads Qwen3-Embedding-0.6B, about 1.2 GB; HF_ENDPOINT may name a mirror), and checks HTTP readiness.
+builds the application and PostgreSQL with pgvector, and checks HTTP readiness.
+AI and knowledge embeddings call external APIs; no model weights are downloaded.
 .PARAMETER EnvFile
 Environment file, relative to the repository root. Credentials are never replaced.
 .PARAMETER Video
@@ -13,9 +13,6 @@ last choice, and new environments deploy it.
 .PARAMETER Capacity
 on/off deploys or removes the capacity-test module (运维中心 → 容量测试); keep (default)
 reuses the last choice, and new environments deploy it.
-.PARAMETER PrivateLlm
-on/off deploys or removes the optional private chat model (vLLM, NVIDIA GPU); keep (default)
-reuses the last choice and new environments leave it off, so chat keeps using the DeepSeek cloud API.
 #>
 [CmdletBinding()]
 param(
@@ -23,8 +20,7 @@ param(
     [string]$ProjectName = 'iot-platform-online',
     [int]$HealthTimeoutSeconds = 180,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
-    [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep',
-    [ValidateSet('keep', 'on', 'off')][string]$PrivateLlm = 'keep'
+    [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -40,7 +36,6 @@ Ensure-DeploymentEnv -Path $EnvFile
 Ensure-EmqxAdminEnv -Path $EnvFile -DefaultUrl 'http://emqx:18083'
 Set-DeepSeekDeploymentEnv -Path $EnvFile
 Set-EmbeddingDeploymentEnv -Path $EnvFile
-$PrivateLlm = Set-PrivateLlmDeploymentEnv -Path $EnvFile -Mode $PrivateLlm
 
 # AI 工作流服务（Harness）为必装组件：告警研判、巡检、报告、协议助手和规则草稿都通过它运行。
 if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_ENABLED') -eq 'false') { Write-Warning 'Harness 已改为必装组件，已将 IOT_AI_HARNESS_ENABLED 改为 true。' }
@@ -64,7 +59,7 @@ $capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
 & (Join-Path $scriptDir 'capacity-module.ps1') $capacityAction -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
 Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
-$buildServices = @('platform-api', 'platform-web', 'backup-service')
+$buildServices = @('platform-api', 'platform-web', 'backup-service', 'postgres')
 $buildServices += 'deepseek-harness'
 Ensure-HarnessSource -ProjectRoot $projectRoot
 Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
@@ -87,9 +82,6 @@ if ($Video -eq 'off') {
 if ($Capacity -eq 'off') {
     Invoke-DockerChecked -Arguments ($compose + @('--profile', 'capacity', 'rm', '-sf', 'capacity'))
 }
-if ($PrivateLlm -eq 'off') {
-    Invoke-DockerChecked -Arguments ($compose + @('--profile', 'llm', 'rm', '-sf', 'vllm'))
-}
 
 $apiPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_API_PORT'
 $webPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_WEB_PORT'
@@ -108,5 +100,4 @@ $harnessModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MODEL
 Write-Host "Harness 已启动；工作流模型为 $harnessModel。"
 Invoke-DockerChecked -Arguments ($compose + @('ps'))
 Write-Host "在线部署完成：http://127.0.0.1:$webPort/；登录账号和密码查看 $EnvFile 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。"
-if ($PrivateLlm -eq 'on') { Write-Host '私有化对话模型 vLLM 已部署：首次启动需下载模型；在“模型管理”选择“OpenAI 兼容 / 私有化部署”，地址 http://vllm:8000/v1，密钥为配置文件中的 IOT_LLM_API_KEY。' }
 if ($Capacity -eq 'on') { Write-Host '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 -Capacity off 或 scripts\capacity-module.ps1 disable。' }

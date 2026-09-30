@@ -70,6 +70,7 @@ func Run(forcedRole string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	var repo ports.Repository = memory.NewRepository()
+	var postgresRepo *postgres.Repository
 	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
@@ -85,6 +86,7 @@ func Run(forcedRole string) {
 		r, err := postgres.NewWithOptions(ctx, cfg.PostgresDSN, postgres.PoolOptions{MaxConns: int32(positiveOr(cfg.PostgresMaxConns, 64)), MaxConnLifetime: cfg.PostgresMaxConnLifetime, HealthCheckPeriod: cfg.PostgresHealthCheckPeriod, ConnectTimeout: cfg.PostgresConnectTimeout, ReadDSN: cfg.PostgresReadDSN, MaxReplicaLag: cfg.PostgresMaxReplicaLag})
 		fatal(log, "initialize postgres", err)
 		repo = r
+		postgresRepo = r
 		opsPrefs = r
 		videoStore = r
 		knowledgeStore = r
@@ -390,13 +392,34 @@ func Run(forcedRole string) {
 		}
 
 	}
-	if cfg.Runs(config.ComponentManagement) && cfg.WeaviateURL != "" {
-		embedder, embedErr := embedding.NewOpenAI(embedding.Config{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, QueryInstruction: cfg.EmbeddingQueryPrompt, Timeout: cfg.EmbeddingTimeout})
-		fatal(log, "initialize embedding service client", embedErr)
-		engine.KB = knowledge.NewWeaviate(cfg.WeaviateURL, embedder)
-		engine.KnowledgeReindex = &core.KnowledgeReindexer{KB: engine.KB, Store: knowledgeStore, Repo: repo, Archive: engine.Archive, Log: log}
-		go engine.KnowledgeReindex.Run(ctx)
-		log.Info("knowledge index enabled", "adapter", "weaviate", "embeddingModel", cfg.EmbeddingModel)
+	var knowledgeRuntime *core.KnowledgeRuntime
+	if cfg.Runs(config.ComponentManagement) && postgresRepo != nil {
+		embeddingConfig := embedding.NormalizeConfig(ports.EmbeddingConfig{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, Dimensions: cfg.EmbeddingDimensions, BatchSize: cfg.EmbeddingBatchSize, QueryInstruction: cfg.EmbeddingQueryPrompt, TimeoutSeconds: int(cfg.EmbeddingTimeout / time.Second)})
+		if saved, found, loadErr := postgresRepo.LoadEmbeddingConfig(ctx, false); loadErr != nil {
+			log.Warn("load embedding config", "error", loadErr)
+		} else if found {
+			embeddingConfig = saved
+		}
+		activeConfig := embeddingConfig
+		if saved, found, loadErr := postgresRepo.LoadEmbeddingConfig(ctx, true); loadErr != nil {
+			log.Warn("load active embedding config", "error", loadErr)
+		} else if found {
+			activeConfig = saved
+		}
+		factory := func(c ports.EmbeddingConfig) (ports.KnowledgeBase, error) {
+			client, err := embedding.ClientForConfig(c)
+			if err != nil {
+				return nil, err
+			}
+			return knowledge.NewPostgres(postgresRepo.Pool(), client, knowledge.PostgresOptions{Provider: c.BaseURL, Dimensions: c.Dimensions, Preprocessing: client.Signature(), ExpectedConfig: &c}), nil
+		}
+		var knowledgeErr error
+		knowledgeRuntime, knowledgeErr = core.NewKnowledgeRuntime(embeddingConfig, activeConfig, factory, postgresRepo, postgresRepo, knowledgeStore, postgresRepo, engine.Archive, log)
+		fatal(log, "initialize postgres knowledge index", knowledgeErr)
+		engine.KB = knowledgeRuntime
+		engine.KnowledgeReindex = knowledgeRuntime.StatusView
+		go knowledgeRuntime.Run(ctx)
+		log.Info("knowledge index enabled", "adapter", "postgres-pgvector", "embeddingModel", embeddingConfig.Model, "apiKeyConfigured", embeddingConfig.APIKey != "")
 	} else {
 		engine.KB = knowledge.NewLocal()
 	}
@@ -525,6 +548,12 @@ func Run(forcedRole string) {
 		api.SetMQTTHealth(mqttClient.Probe)
 	}
 	api.SetAIProviderRuntime(runtimeAI)
+	if knowledgeRuntime != nil {
+		api.SetEmbeddingRuntime(knowledgeRuntime)
+	}
+	if postgresRepo != nil {
+		api.SetKnowledgeJobs(postgresRepo)
+	}
 	api.SetAIProviderStore(aiProviderStore)
 	if harness != nil {
 		api.SetAIWorkflowProvider(harness)
