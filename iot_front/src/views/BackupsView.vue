@@ -224,7 +224,7 @@ function rowActions(row) {
     </template>
   </FilterBar>
   <ui-alert v-if="serviceMissing" class="backup-missing" title="当前部署未启用备份服务" description="备份记录与手动备份暂不可用。请在部署配置中启用备份服务（IOT_BACKUP_URL）后刷新。" type="warning" :closable="false" show-icon />
-  <p class="backup-hint">完整备份包含设备数据、知识库与原件、Agent 和会话；每日自动备份昨日设备数据。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
+  <p class="backup-hint">完整备份包含设备数据、知识库与原件、Agent 和会话、值班排班与交接记录及附件；每日自动备份昨日设备数据。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
 
   <div class="backup-stat-grid">
     <ui-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></ui-card>

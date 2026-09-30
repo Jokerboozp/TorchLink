@@ -34,6 +34,7 @@ import {
 } from '@lucide/vue'
 import { UiMessage } from './ui/feedback.js'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
+import DutyNotifications from './components/duty/DutyNotifications.vue'
 import LivePlayerDialog from './components/LivePlayerDialog.vue'
 import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { resetAIConversation } from './aiConversation'
@@ -51,6 +52,7 @@ const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView
 const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
 const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
+const DutyManagementView = defineAsyncComponent(() => import('./views/DutyManagementView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
@@ -87,6 +89,7 @@ const pages = {
   dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView },
   alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
   inspection: { ...pageGuide.inspection, icon: ClipboardCheck, component: HealthInspectionView, header: false },
+  duty: { ...pageGuide.duty, icon: ClipboardCheck, component: DutyManagementView, header: false },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
@@ -108,7 +111,7 @@ const pages = {
   opsCapacity: { ...pageGuide.opsCapacity, icon: Activity, component: OpsCapacityView }
 }
 const menuGroups = [
-  { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
+  { label: '运行监控', items: ['dashboard', 'alarms', 'duty', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
@@ -367,6 +370,7 @@ onBeforeUnmount(() => {
             </nav>
           </div>
           <div class="app-topbar__actions">
+            <DutyNotifications v-if="can('menu:duty')" @navigate="openPage" />
             <button v-if="can('menu:alarms')" class="topbar-button" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
             <ui-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">

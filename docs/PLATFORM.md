@@ -72,6 +72,10 @@ PDF 请求可用 `?jobId=...` 固定报告；未指定时取最近完成报告�
 
 运维报告仅发送授权聚合及最多 10 条告警摘要，提示词 JSON 预算 20 KB，Harness 最终请求体限制 32 KiB；详情经受控分页工具查询。
 
+### 值班管理与交接
+
+值班管理覆盖排班、到岗、实际责任班次、固定事实交接、跨班事项、提醒和附件导出。AI 由用户显式启动 `duty-handover` Harness 工作流，人工交接不依赖 AI 成功。排班不授予额外设备权限，报告与工具继续检查当前完整岗位范围；签收、责任切换和事项接续在同一数据库事务提交。操作、接口、权限、持久任务与部署说明统一见 [值班管理与 AI 交接助手](DUTY.md)。
+
 ### 工作流与会话
 
 浏览器 SSE 与内部 NDJSON 均使用 `run.started`、`text.delta`、`tool.started`、`tool.completed`、`run.completed`、`run.failed`。不向浏览器输出 reasoning、工具完整参数/结果或服务凭据。结构化结果由 `internal/aioutput` 校验，错误按失败处理。

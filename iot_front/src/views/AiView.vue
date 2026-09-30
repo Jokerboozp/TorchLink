@@ -100,7 +100,7 @@ const quickQuestions = computed(() => {
   return prompts.slice(0, 3)
 })
 
-const nonChatWorkflowIds = new Set(['alarm-handler', 'device-health-inspector', 'protocol-assistant', 'rule-drafter'])
+const nonChatWorkflowIds = new Set(['alarm-handler', 'device-health-inspector', 'protocol-assistant', 'rule-drafter', 'duty-handover'])
 const workflowItems = computed(() => (workflows.value.items || []).filter(item => item.enabled !== false && isChatWorkflow(item)))
 const selectedWorkflow = computed(() => workflowItems.value.find(item => workflowKey(item) === selectedWorkflowId.value))
 const selectedRun = computed(() => runs.value.find(run => run.id === selectedRunKey.value) || null)
@@ -171,7 +171,7 @@ async function loadRuntime() {
   }
 }
 
-const builtinWorkflowIds = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter'])
+const builtinWorkflowIds = new Set(['alarm-handler', 'ops-assistant', 'system-observer', 'device-health-inspector', 'protocol-assistant', 'rule-drafter', 'duty-handover'])
 function isBuiltinWorkflow(item) { return builtinWorkflowIds.has(workflowKey(item)) }
 function isChatWorkflow(item) { return !nonChatWorkflowIds.has(workflowKey(item)) }
 

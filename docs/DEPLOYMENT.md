@@ -527,13 +527,15 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 设备数据备份
 
-每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。不会备份账号、Provider/API Key、Redis、消息队列、环境文件或整个 MinIO，凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，全部 Harness 实例的动态 Agent 和会话快照，以及值班排班、实际班次、记录、交接版本、跟进事项、通知、事件台账和附件原件。不会备份账号、Provider/API Key、Redis、消息队列、环境文件或整个 MinIO，凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
 
-- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent 和会话。
+- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent、会话和值班数据及附件。
 - **备份昨日数据**：按配置时区导出前一个自然日的数据。
 - **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
-- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
+- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，v3 再增加 `duty-schema.json`、`duty-postgres.jsonl.gz` 与 `duty-objects.tar.gz`，共十份制品（包含清单）。所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
 - **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。`FULL` v2 同时在独立库的 `kb_restore_<标识>` schema 恢复知识表、pgvector 索引和引用关系，在恢复用 MinIO 的独立前缀恢复原件，在隔离目录恢复每个 Harness 实例文件；校验制品 SHA-256、文件大小及恢复数量。旧 v1 备份只验证原有消息，不宣称包含知识或 Agent。该操作验证隔离恢复，不替换现网数据；同一时间只运行一个备份或恢复。
+
+`FULL` v3 另外在独立库的 `duty_restore_<标识>` schema 恢复十五张值班表，附件恢复至独立 MinIO 的 `iot-duty-attachments` 桶中恢复前缀，重写记录及冻结版本的附件引用并核对原件。恢复保留原确认摘要及原版本信息，附件物理键重定位不能解释为重签原交接。旧 v1/v2 及每日备份的恢复结果将值班标为 `not_included`。升级备份服务前先更新 API，使值班迁移完成。值班操作见 [值班管理](DUTY.md)。
 
 ```dotenv
 # 是否开启每日自动备份；关闭后仍可手动备份

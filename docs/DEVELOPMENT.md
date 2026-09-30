@@ -307,3 +307,9 @@ go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json
 ```
 
 重复死信按 messageId 合并，矛盾正文会拒绝整批发布。重新发布成功只代表 Kafka 收到；必须再核对 PostgreSQL `processed_at`、ClickHouse 行数/唯一 ID 和实际告警状态。发布途中失败可重跑同一 ID 列表，仍由原业务幂等处理。
+
+### 值班模块验证
+
+业务及接口入口为 `internal/duty/`、`internal/httpapi/duty*.go`，前端为 `iot_front/src/components/duty/`。检查命令和事实、权限、AI 及备份边界见 [值班管理](DUTY.md#开发验证)。
+
+浏览器回归使用一次性真实 HTTP 内存适配实例。先设置临时 `DUTY_BROWSER_PASSWORD`，再在根目录运行 `DUTY_BROWSER_FIXTURE=1 go test ./internal/httpapi -run '^TestDutyBrowserFixtureServer$' -count=1 -timeout=35m`，监听 `18091`；在 `iot_front` 运行 `VITE_API_PROXY_TARGET=http://127.0.0.1:18091 npm run dev -- --port 5181 --strictPort`。为浏览器脚本设置 `IOT_TEST_DUTY_FIXTURE=1`、`IOT_TEST_BASE_URL=http://127.0.0.1:5181`、`IOT_TEST_TENANT=duty_browser`、`IOT_TEST_ADMIN_USER=root`，并将同一临时密码注入 `IOT_TEST_ADMIN_PASSWORD`，然后运行 `node tests/browser/duty-check.mjs`。账号与设备只存在于该测试进程，脚本不模拟 HTTP 响应。结束后停止自己启动的两个进程；不要指向现网环境。
