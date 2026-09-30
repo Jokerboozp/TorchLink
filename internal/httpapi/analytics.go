@@ -11,6 +11,7 @@ import (
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/rulelab/lab"
 )
 
 func (s *Server) setupAnalytics() {
@@ -36,6 +37,22 @@ func (s *Server) setupAnalytics() {
 	if err := s.monitoring.Register(); err != nil {
 		panic(err)
 	}
+	inputs, _ := s.unscopedRepo().(ports.RuleLabInputStore)
+	s.rulelab = lab.NewService(s.analysis, inputs)
+	s.rulelab.Facts = s.analysisFacts
+	s.rulelab.Catalog = s.unscopedRepo()
+	s.rulelab.History = s.unscopedRepo()
+	s.rulelab.RecordLimit = s.analysis.Limits.RecordLimit
+	s.rulelab.ValidateCandidate = func(ctx context.Context, a analytics.Actor, rule model.AlarmRule) error {
+		if rule.TenantID != a.TenantID {
+			return analytics.ErrForbidden
+		}
+		_, _, err := s.engine.ValidateRuleDraft(ctx, rule)
+		return err
+	}
+	if err := s.rulelab.Register(); err != nil {
+		panic(err)
+	}
 }
 
 // SetAnalysisStorage is startup wiring: decorated Repository interfaces do not
@@ -45,6 +62,12 @@ func (s *Server) SetAnalysisStorage(store ports.AnalysisStore, facts ports.Analy
 	s.analysisFacts = facts
 	s.quality.Facts = facts
 	s.monitoring.Facts = facts
+	s.rulelab.Facts = facts
+	if inputs, ok := facts.(ports.RuleLabInputStore); ok {
+		s.rulelab.Inputs = inputs
+	} else if inputs, ok := store.(ports.RuleLabInputStore); ok {
+		s.rulelab.Inputs = inputs
+	}
 }
 
 func (s *Server) resolveAnalysisActor(ctx context.Context, a analytics.Actor) (analytics.Actor, error) {
@@ -92,6 +115,9 @@ func (s *Server) analysisRoutes() {
 		collections := []string{"metrics", "findings"}
 		if kind == analytics.KindMonitoring {
 			collections = append(collections, "intervals", "dependency-groups")
+		}
+		if kind == analytics.KindRuleLab {
+			collections = append(collections, "outcomes", "diffs", "labels")
 		}
 		for _, collection := range collections {
 			s.router.GET(prefix+"/runs/:id/"+collection, s.authorize("viewer"), s.endpoint(s.analysisOutputs(kind, collection), "id"))
@@ -146,6 +172,13 @@ func (s *Server) analysisCreate(kind string) endpointHandler {
 				return
 			}
 			algorithm = monitoring.AlgorithmVersion
+		}
+		if kind == analytics.KindRuleLab {
+			if err := s.rulelab.ValidateCreate(r.Context(), analysisActor(r), &q); err != nil {
+				analysisProblem(w, err)
+				return
+			}
+			algorithm = lab.AlgorithmVersion
 		}
 		run, err := s.analysis.Create(r.Context(), analysisActor(r), kind, algorithm, q)
 		if err != nil {

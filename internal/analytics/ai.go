@@ -23,6 +23,7 @@ type AIService struct {
 	Facts                *Service
 	Runner               AIRunner
 	StopRunner           func(context.Context, string, string) error
+	PrepareCandidate     func(context.Context, Actor, string, model.AlarmRule) (model.AnalysisConfigRevision, int64, error)
 	Lease, Timeout, Poll time.Duration
 	Workers              int
 	mu                   sync.RWMutex
@@ -35,6 +36,7 @@ func NewAIService(facts *Service, runner AIRunner) *AIService {
 	s := &AIService{Facts: facts, Runner: runner, Lease: 30 * time.Second, Timeout: 4 * time.Minute, Poll: time.Second, Workers: 2, workflows: map[string]AIWorkflowSpec{}}
 	_ = s.Register(AIWorkflowSpec{KindDataQuality, WorkflowDataQuality, AnalysisAIPromptVersion})
 	_ = s.Register(AIWorkflowSpec{KindMonitoring, WorkflowMonitoring, MonitoringAIPromptVersion})
+	_ = s.Register(AIWorkflowSpec{KindRuleLab, WorkflowRulePolicy, RulePolicyAIPromptVersion})
 	return s
 }
 func (s *AIService) Register(spec AIWorkflowSpec) error {
@@ -93,7 +95,7 @@ func (s *AIService) Create(ctx context.Context, a Actor, kind, runID string, q C
 	if err != nil {
 		return model.AnalysisAIRevision{}, err
 	}
-	current, err := s.Facts.authorize(ctx, a, kind, "POST "+Prefix(kind)+"/runs/:id/ai-jobs", run.DeviceIDs)
+	current, err := s.Facts.authorize(ctx, a, kind, AIStartOperation(kind), run.DeviceIDs)
 	if err != nil {
 		return model.AnalysisAIRevision{}, err
 	}
@@ -161,7 +163,7 @@ func (s *AIService) Stop(ctx context.Context, a Actor, kind, runID, jobID string
 	if err != nil {
 		return job, err
 	}
-	if _, err = s.Facts.authorize(ctx, a, kind, "POST "+Prefix(kind)+"/runs/:id/ai-jobs/:jobId/stop", job.DeviceIDs); err != nil {
+	if _, err = s.Facts.authorize(ctx, a, kind, AIStopOperation(kind), job.DeviceIDs); err != nil {
 		return model.AnalysisAIRevision{}, err
 	}
 	store, err := s.store()
@@ -196,7 +198,7 @@ func (s *AIService) ValidateBinding(ctx context.Context, identity ports.AIRunIde
 		return job, ErrForbidden
 	}
 	a := Actor{TenantID: job.TenantID, Username: job.Creator, Managed: job.CreatorManaged, SessionVersion: job.CreatorSessionVersion}
-	current, err := s.Facts.authorize(ctx, a, job.Kind, "POST "+Prefix(job.Kind)+"/runs/:id/ai-jobs", job.DeviceIDs)
+	current, err := s.Facts.authorize(ctx, a, job.Kind, AIStartOperation(job.Kind), job.DeviceIDs)
 	if err != nil || current.AccessVersion != job.PermissionVersion || job.UseKnowledge && !knowledgeAllowed(current) {
 		return job, ErrForbidden
 	}
@@ -261,7 +263,7 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 		f.UncomputableMetrics = snap.UncomputableMetrics
 		f.InitialStateQuality = snap.InitialStateQuality
 		f.Total = 1
-	case "metrics", "findings", "intervals", "dependency-groups":
+	case "metrics", "findings", "intervals", "dependency-groups", "outcomes", "diffs", "labels":
 		f.Outputs, f.Total, err = s.Facts.Store.ListAnalysisOutputs(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Kind: collection, Limit: limit, Offset: offset})
 	case "evidence":
 		f.Evidence, f.Total, err = s.Facts.Store.ListAnalysisEvidence(ctx, job.TenantID, model.AnalysisFilter{RunID: job.RunID, Limit: limit, Offset: offset})
@@ -277,6 +279,8 @@ func (s *AIService) readFacts(ctx context.Context, job model.AnalysisAIRevision,
 			allowed = append(allowed, "dataQuality", "data-quality", "data-quality-evidence")
 		} else if job.Kind == KindMonitoring {
 			allowed = append(allowed, "monitoring", "monitoring-gaps", "monitoring-evidence")
+		} else if job.Kind == KindRuleLab {
+			allowed = append(allowed, "rule-lab-evidence")
 		}
 		if !slices.Contains(allowed, e.PermissionCategory) {
 			return model.AnalysisAIFacts{}, ErrForbidden

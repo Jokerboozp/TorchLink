@@ -18,6 +18,7 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	ruleHistory         memoryRuleHistory
 	dutyDocuments       map[string]model.DutyDocument
 	dutyEvents          []model.DutyBusinessEvent
 	dutyEventSeq        int64
@@ -527,6 +528,7 @@ func (r *Repository) MarkStandardMessageProcessed(_ context.Context, tenant, mes
 		return model.ErrStaleClaim
 	}
 	r.standardProcessed[k] = true
+	r.completeRuleTraceLocked(tenant, messageID, token)
 	return nil
 }
 func (r *Repository) GetStandardMessageByRaw(_ context.Context, tenant, rawID string) (model.StandardMessage, error) {
@@ -713,8 +715,7 @@ func (r *Repository) SaveDeviceStateEvent(_ context.Context, v model.DeviceState
 func (r *Repository) SaveRule(_ context.Context, v model.AlarmRule) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.rules[key(v.TenantID, v.ID)] = v
-	return nil
+	return r.saveRuleHistoryLocked(v)
 }
 func (r *Repository) ListRules(_ context.Context, tenant string) ([]model.AlarmRule, error) {
 	r.mu.RLock()
@@ -741,8 +742,8 @@ func (r *Repository) DeleteRule(_ context.Context, tenant, id string) error {
 	if _, ok := r.rules[k]; !ok {
 		return ErrNotFound
 	}
-	delete(r.rules, k)
-	return nil
+	_, err := r.publishRuleLocked(model.RulePublishRequest{Rule: model.AlarmRule{TenantID: tenant, ID: id}, ExpectedBaselineVersion: r.currentRuleVersionLocked(tenant, id), Reason: "rule deleted; open lifecycles retained", Actor: "system", SemanticsVersion: "processing-multistage-revisioned-retain-open-v2", Delete: true})
+	return err
 }
 func (r *Repository) SaveRulePending(_ context.Context, tenant, ruleID, deviceID string, since int64) error {
 	r.mu.Lock()
@@ -769,6 +770,7 @@ func (r *Repository) DeleteRulePending(_ context.Context, tenant, ruleID, device
 func (r *Repository) DeleteRulePendings(_ context.Context, tenant, ruleID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.clearRevisionPendingLocked(tenant, ruleID)
 	prefix := key(tenant, ruleID) + "\x00"
 	for pendingKey := range r.rulePending {
 		if strings.HasPrefix(pendingKey, prefix) {
@@ -780,9 +782,13 @@ func (r *Repository) DeleteRulePendings(_ context.Context, tenant, ruleID string
 func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alarm, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.checkRoutingTraceLocked(ctx, v.TenantID, v.DeviceID); err != nil {
+		return v, false, err
+	}
 	for k, a := range r.alarms {
 		if a.TenantID == v.TenantID && a.DeviceID == v.DeviceID && a.RuleID == v.RuleID && (a.Status == "ACTIVE" || a.Status == "ACKED") {
 			if v.TriggerID != "" && a.TriggerID == v.TriggerID {
+				r.appendRoutingTraceLocked(ctx, routingRaiseStep(v, a, a, false))
 				return cloneAlarm(a), false, nil
 			}
 			previous := cloneAlarm(a)
@@ -793,6 +799,7 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 			}
 			a.Version++
 			r.alarms[k] = cloneAlarm(a)
+			r.appendRoutingTraceLocked(ctx, routingRaiseStep(v, previous, a, true))
 			r.addOutbox(model.AlarmReportEvent(a, v))
 			for _, event := range model.DutyAlarmEvents(ctx, previous, a) {
 				r.appendDutyEventLocked(event)
@@ -802,6 +809,7 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 	}
 	v.Version = 1
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
+	r.appendRoutingTraceLocked(ctx, routingRaiseStep(v, model.Alarm{}, v, true))
 	r.addOutbox(model.AlarmReportEvent(v, v))
 	for _, event := range model.DutyAlarmEvents(ctx, model.Alarm{}, v) {
 		r.appendDutyEventLocked(event)
@@ -895,15 +903,22 @@ func (r *Repository) UpdateAlarm(ctx context.Context, v model.Alarm) error {
 func (r *Repository) UpdateAlarmIf(ctx context.Context, v model.Alarm) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.checkRoutingTraceLocked(ctx, v.TenantID, v.DeviceID); err != nil {
+		return false, err
+	}
 	old, ok := r.alarms[key(v.TenantID, v.ID)]
 	if !ok {
 		return false, ErrNotFound
 	}
 	if old.Version != v.Version {
+		step := routingRecoverStep(old, old, false)
+		step.Times.RecoverAtMillis = &v.RecoveredAt
+		r.appendRoutingTraceLocked(ctx, step)
 		return false, nil
 	}
 	v.Version++
 	r.alarms[key(v.TenantID, v.ID)] = cloneAlarm(v)
+	r.appendRoutingTraceLocked(ctx, routingRecoverStep(old, v, true))
 	for _, event := range model.DutyAlarmEvents(ctx, old, v) {
 		r.appendDutyEventLocked(event)
 	}

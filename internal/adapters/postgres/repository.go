@@ -112,6 +112,9 @@ func (r *Repository) Migrate(ctx context.Context) error {
 	if _, err = tx.Exec(ctx, analyticsFactSchema); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(ctx, ruleHistorySchema); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 func (r *Repository) SaveProduct(ctx context.Context, v model.Product) error {
@@ -674,18 +677,9 @@ func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardM
 // processed_at stores the completion time in Unix milliseconds; 0 still means
 // pending. Capacity verification and backup windows read it as a time.
 func (r *Repository) MarkStandardMessageProcessed(ctx context.Context, tenant, messageID string, token int64) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE standard_message SET processed_at=GREATEST(`+nowMS+`,1),claim_expires_at=0 WHERE tenant_id=$1 AND message_id=$2 AND claim_token=$3 AND processed_at=0`, tenant, messageID, token)
-	if err != nil || tag.RowsAffected() == 1 {
-		return err
-	}
-	var current int64
-	if err = r.pool.QueryRow(ctx, `SELECT claim_token FROM standard_message WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return err
-	}
-	return model.ErrStaleClaim
+	return r.completeStandardWithRuleTrace(ctx, tenant, messageID, token)
 }
+
 func (r *Repository) getStandard(ctx context.Context, query string, args ...any) (model.StandardMessage, error) {
 	var v model.StandardMessage
 	var body []byte
@@ -920,10 +914,9 @@ func (r *Repository) SaveDeviceStateEvent(ctx context.Context, v model.DeviceSta
 	return err
 }
 func (r *Repository) SaveRule(ctx context.Context, v model.AlarmRule) error {
-	b, _ := json.Marshal(v)
-	_, err := r.pool.Exec(ctx, `INSERT INTO alarm_rule(tenant_id,id,product_id,enabled,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,id) DO UPDATE SET product_id=excluded.product_id,enabled=excluded.enabled,body=excluded.body,updated_at=now()`, v.TenantID, v.ID, v.ProductID, v.Enabled, b)
-	return err
+	return r.saveRuleHistory(ctx, v, false)
 }
+
 func (r *Repository) ListRules(ctx context.Context, tenant string) ([]model.AlarmRule, error) {
 	rows, err := r.pool.Query(ctx, `SELECT body FROM alarm_rule WHERE ($1='' OR tenant_id=$1) ORDER BY updated_at DESC`, tenant)
 	if err != nil {
@@ -970,12 +963,9 @@ func (r *Repository) ListRulesPage(ctx context.Context, tenant string, limit, of
 	return items, total, rows.Err()
 }
 func (r *Repository) DeleteRule(ctx context.Context, tenant, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM alarm_rule WHERE tenant_id=$1 AND id=$2`, tenant, id)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
+	return r.saveRuleHistory(ctx, model.AlarmRule{TenantID: tenant, ID: id}, true)
 }
+
 func (r *Repository) SaveRulePending(ctx context.Context, tenant, ruleID, deviceID string, since int64) error {
 	_, err := r.pool.Exec(ctx, `INSERT INTO alarm_rule_pending(tenant_id,rule_id,device_id,since_at) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,rule_id,device_id) DO UPDATE SET since_at=LEAST(alarm_rule_pending.since_at, EXCLUDED.since_at), updated_at=now()`, tenant, ruleID, deviceID, since)
 	return err
@@ -993,8 +983,18 @@ func (r *Repository) DeleteRulePending(ctx context.Context, tenant, ruleID, devi
 	return err
 }
 func (r *Repository) DeleteRulePendings(ctx context.Context, tenant, ruleID string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM alarm_rule_pending WHERE tenant_id=$1 AND rule_id=$2`, tenant, ruleID)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `DELETE FROM alarm_rule_pending WHERE tenant_id=$1 AND rule_id=$2`, tenant, ruleID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM alarm_rule_revision_pending WHERE tenant_id=$1 AND rule_id=$2`, tenant, ruleID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alarm, bool, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -1002,6 +1002,9 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		return v, false, err
 	}
 	defer tx.Rollback(ctx)
+	if err = checkRoutingTrace(ctx, tx, v.TenantID, v.DeviceID); err != nil {
+		return v, false, err
+	}
 	var body []byte
 	var version int64
 	err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND rule_id=$3 AND status IN ('ACTIVE','ACKED') FOR UPDATE`, v.TenantID, v.DeviceID, v.RuleID).Scan(&body, &version)
@@ -1012,6 +1015,9 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		}
 		old.Version = version
 		if v.TriggerID != "" && old.TriggerID == v.TriggerID {
+			if err = appendRoutingTrace(ctx, tx, routingRaiseStep(v, old, old, false)); err != nil {
+				return v, false, err
+			}
 			if err = tx.Commit(ctx); err != nil {
 				return v, false, err
 			}
@@ -1039,6 +1045,9 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		if err != nil {
 			return v, false, err
 		}
+		if err = appendRoutingTrace(ctx, tx, routingRaiseStep(v, previous, old, true)); err != nil {
+			return v, false, err
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return v, false, err
 		}
@@ -1061,6 +1070,9 @@ func (r *Repository) UpsertAlarm(ctx context.Context, v model.Alarm) (model.Alar
 		}
 	}
 	if err != nil {
+		return v, false, err
+	}
+	if err = appendRoutingTrace(ctx, tx, routingRaiseStep(v, model.Alarm{}, v, true)); err != nil {
 		return v, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -1215,6 +1227,9 @@ func (r *Repository) writeDutyAlarm(ctx context.Context, v model.Alarm, conditio
 		return false, err
 	}
 	defer tx.Rollback(ctx)
+	if err = checkRoutingTrace(ctx, tx, v.TenantID, v.DeviceID); err != nil {
+		return false, err
+	}
 	var old model.Alarm
 	var body []byte
 	var version int64
@@ -1230,7 +1245,12 @@ func (r *Repository) writeDutyAlarm(ctx context.Context, v model.Alarm, conditio
 	}
 	old.Version = version
 	if conditional && version != v.Version {
-		return false, nil
+		step := routingRecoverStep(old, old, false)
+		step.Times.RecoverAtMillis = &v.RecoveredAt
+		if err = appendRoutingTrace(ctx, tx, step); err != nil {
+			return false, err
+		}
+		return false, tx.Commit(ctx)
 	}
 	v.Version = version + 1
 	body, err = json.Marshal(v)
@@ -1246,6 +1266,9 @@ func (r *Repository) writeDutyAlarm(ctx context.Context, v model.Alarm, conditio
 		}
 	}
 	if err != nil {
+		return false, err
+	}
+	if err = appendRoutingTrace(ctx, tx, routingRecoverStep(old, v, true)); err != nil {
 		return false, err
 	}
 	err = tx.Commit(ctx)

@@ -3,26 +3,35 @@ package memory
 import (
 	"context"
 	"iot-platform/internal/model"
+	"iot-platform/internal/rulelab/eval"
+	"iot-platform/internal/rulelab/history"
 )
 
 func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Alarm, state model.ComponentAlarmState) (model.Alarm, string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := r.checkRoutingTraceLocked(ctx, candidate.TenantID, candidate.DeviceID); err != nil {
+		return candidate, "", err
+	}
 	if r.componentAlarms == nil {
 		r.componentAlarms = map[string]model.ComponentAlarmState{}
 	}
 	k := key(candidate.TenantID, candidate.DeviceID, candidate.RuleID)
 	previous := r.componentAlarms[k]
 	old := r.alarms[key(candidate.TenantID, previous.AlarmID)]
-	if state.MessageID == previous.MessageID && state.Timestamp == previous.Timestamp {
-		return cloneAlarm(old), previous.Event, nil
+	decision := eval.ComponentTransition(candidate, old, state, previous)
+	componentStep := func(next model.Alarm, watermark model.ComponentAlarmState, applied bool) {
+		now := candidate.LastTriggeredAt
+		prior := previous
+		mark := watermark
+		r.appendRoutingTraceLocked(ctx, model.RuleRoutingStep{Kind: "COMPONENT", RuleID: candidate.RuleID, Before: history.RoutingAlarm(old), After: history.RoutingAlarm(next), PreviousWatermark: &prior, Watermark: &mark, Times: model.RuleStageTimes{ComponentAtMillis: &now}, Applied: applied, Event: decision.Event})
 	}
-	if !state.Supersedes(previous) {
-		return cloneAlarm(old), "", nil
+	if !decision.Applied {
+		componentStep(decision.Alarm, previous, false)
+		return cloneAlarm(decision.Alarm), decision.Event, nil
 	}
-	alarm, event := model.TransitionComponentAlarm(candidate, old, state)
-	state.AlarmID = alarm.ID
-	state.Event = event
+	alarm, event := decision.Alarm, decision.Event
+	state = decision.Watermark
 	if alarm.ID != "" {
 		alarm.Version = r.alarms[key(alarm.TenantID, alarm.ID)].Version + 1
 		r.alarms[key(alarm.TenantID, alarm.ID)] = cloneAlarm(alarm)
@@ -34,5 +43,6 @@ func (r *Repository) ApplyComponentAlarm(ctx context.Context, candidate model.Al
 		}
 	}
 	r.componentAlarms[k] = state
+	componentStep(alarm, state, true)
 	return cloneAlarm(alarm), event, nil
 }

@@ -38,6 +38,61 @@ func serviceRequest(key string, ids ...string) CreateRequest {
 	return CreateRequest{DeviceIDs: ids, Start: 1000, End: 10000, ConfigurationVersion: "profile/v1", IdempotencyKey: key}
 }
 
+func TestBusinessCreationRouteIsPersistedAndRecheckedByWorker(t *testing.T) {
+	s, a, mu := serviceFixture()
+	operation := "POST /api/v1/rule-lab/datasets"
+	mu.Lock()
+	a.Permissions = []string{"menu:devices", "menu:ruleLab", operation}
+	mu.Unlock()
+	called := false
+	_ = s.Register(KindRuleLab, func(ctx context.Context, e *Execution) error {
+		called = true
+		return e.Commit(ctx, model.AnalysisBatch{ID: "done", Status: model.AnalysisSucceeded, Snapshot: &model.AnalysisSnapshot{ID: e.Run.ID + "/snapshot", Statistics: json.RawMessage(`{}`)}})
+	})
+	q := serviceRequest("dataset-only", "a")
+	q.CreationOperation = operation
+	run, err := s.Create(context.Background(), *a, KindRuleLab, "v1", q)
+	if err != nil || run.CreationOperation != operation {
+		t.Fatalf("real dataset permission: %+v %v", run, err)
+	}
+	q.IdempotencyKey = "experiment"
+	q.CreationOperation = CreateOperation(KindRuleLab)
+	if _, err = s.Create(context.Background(), *a, KindRuleLab, "v1", q); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("dataset grant became experiment grant: %v", err)
+	}
+	q.CreationOperation = "POST /api/v1/rules"
+	if _, err = s.Create(context.Background(), *a, KindRuleLab, "v1", q); !errors.Is(err, model.ErrAnalysisInvalid) {
+		t.Fatalf("non-analysis grant accepted: %v", err)
+	}
+	claimed, err := s.Store.ClaimAnalysisRun(context.Background(), "worker", time.Second, []string{KindRuleLab})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.execute(context.Background(), claimed, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if !called {
+		t.Fatal("worker required unrelated experiment permission")
+	}
+	q = serviceRequest("dataset-revoked", "a")
+	q.CreationOperation = operation
+	_, err = s.Create(context.Background(), *a, KindRuleLab, "v1", q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err = s.Store.ClaimAnalysisRun(context.Background(), "worker", time.Second, []string{KindRuleLab})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	a.Permissions = []string{"menu:devices", "menu:ruleLab", CreateOperation(KindRuleLab)}
+	a.AccessVersion = "v2"
+	mu.Unlock()
+	called = false
+	s.execute(context.Background(), claimed, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if called {
+		t.Fatal("revoked dataset permission was replaced by experiment permission")
+	}
+}
+
 func TestReclaimedExpiredRunUsesPartialHandlerAfterCurrentAuthorization(t *testing.T) {
 	for _, revoke := range []bool{false, true} {
 		t.Run(map[bool]string{false: "authorized", true: "revoked"}[revoke], func(t *testing.T) {

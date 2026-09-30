@@ -17,6 +17,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/rulelab/eval"
 )
 
 const directAlarmRulePrefix = "device-report:"
@@ -383,63 +384,36 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 			}
 		}
 	}
-	rules, err := e.tenantRules(ctx, msg.TenantID) /* 短时缓存，避免每条消息读取全部规则。 */
+	ruleAlarmHandled, traceBinding, err := e.evaluateRules(ctx, msg, claim)
 	if err != nil {
 		return err
 	}
-	ruleAlarmHandled := false
-	for _, rule := range rules {
-		// Rules of other products can neither raise nor recover this device's
-		// alarms; skip their per-message queries.
-		if !ruleCovers(rule, msg) {
-			continue
-		}
-		if MatchRule(rule, msg) {
-			if rule.DurationSeconds > 0 {
-				satisfied, durationErr := e.durationSatisfied(ctx, rule, msg)
-				if durationErr != nil {
-					return durationErr
-				}
-				if !satisfied {
-					continue
-				}
-			}
-			ruleAlarmHandled = true
-			if _, _, err := e.raiseRuleAlarm(ctx, rule, msg); err != nil {
-				return err
-			}
-		} else if MatchConditions(rule.Recovery, msg) {
-			if err := e.clearDuration(ctx, rule, msg); err != nil {
-				return err
-			}
-			if err := e.recoverRuleAlarm(ctx, rule, msg); err != nil {
-				return err
-			}
-		} else {
-			if err := e.clearDuration(ctx, rule, msg); err != nil {
-				return err
-			}
-		}
+
+	ctx = model.WithRuleTraceBinding(ctx, traceBinding)
+	route, err := eval.Route(msg, ruleAlarmHandled)
+	if err != nil {
+		return err
 	}
-	// An ALARM_REPORT is already an assertion made by the device. Rules can
-	// classify it and trigger actions when they match, but a missing rule must
-	// never discard a device-originated alarm.
-	if len(components) > 0 {
-		if err := e.applyComponentAlarms(ctx, msg, components); err != nil {
+	if len(route.Components) > 0 {
+		if err := e.applyComponentRoutes(ctx, msg, route.Components); err != nil {
 			return err
 		}
 	}
-	if len(components) == 0 && msg.MessageType == model.AlarmReport && !ruleAlarmHandled {
+	if route.DirectRaise != nil {
 		if _, _, err := e.raiseDirectAlarm(ctx, msg); err != nil {
 			return err
 		}
 	}
-	if len(components) == 0 && msg.MessageType != model.AlarmReport && directAlarmCleared(msg) {
+	if route.DirectRecover {
 		if err := e.recoverDirectAlarms(ctx, msg); err != nil {
 			return err
 		}
 	}
+
 	if err := e.applyMessageState(ctx, msg, true); err != nil {
+		return err
+	}
+	if err := e.Repo.RecordRuleRoutingTrace(ctx, traceBinding, model.RuleRoutingTrace{DeviceAssertion: msg.MessageType == model.AlarmReport, RuleAlarmHandled: ruleAlarmHandled, HasComponents: len(components) > 0, ExpectedComponents: len(route.Components), ExpectedDirectRaise: route.DirectRaise != nil}); err != nil {
 		return err
 	}
 	if err := e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID, claim.Token); err != nil {
@@ -458,25 +432,6 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	return nil
 }
 
-// clearDuration forgets a duration rule's first match; rules without a
-// duration never store one, so they cost no query per message.
-func (e *Engine) clearDuration(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) error {
-	if rule.DurationSeconds <= 0 {
-		return nil
-	}
-	return e.Repo.DeleteRulePending(ctx, rule.TenantID, rule.ID, msg.DeviceID)
-}
-func (e *Engine) durationSatisfied(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) (bool, error) {
-	now := e.Clock.Now().Unix()
-	since, found, err := e.Repo.GetRulePending(ctx, rule.TenantID, rule.ID, msg.DeviceID)
-	if err != nil {
-		return false, err
-	}
-	if !found {
-		return false, e.Repo.SaveRulePending(ctx, rule.TenantID, rule.ID, msg.DeviceID, now)
-	}
-	return now-since >= rule.DurationSeconds, nil
-}
 func (e *Engine) touchState(ctx context.Context, msg model.StandardMessage) error {
 	return e.applyMessageState(ctx, msg, false)
 }
@@ -718,55 +673,8 @@ func normalizeAlarmToken(value any) string {
 	return normalized
 }
 
-func directAlarmMetadata(msg model.StandardMessage) (string, string) {
-	alarmType := normalizeAlarmToken(firstMessageValue(msg, "alarmType", "alarm_type"))
-	if alarmType == "" {
-		switch {
-		case messageFlag(msg, "fireAlarm"):
-			alarmType = "FIRE"
-		case messageFlag(msg, "smoke") || messageFlag(msg, "smokeDetected"):
-			alarmType = "SMOKE_DETECTED"
-		case messageFlag(msg, "fault") || messageFlag(msg, "powerFault") || messageFlag(msg, "sensorFault"):
-			alarmType = "DEVICE_FAULT"
-		case messageFlag(msg, "offline"):
-			alarmType = "DEVICE_OFFLINE"
-		default:
-			alarmType = "MANUAL_ALARM"
-		}
-	}
-	level := normalizeAlarmToken(firstMessageValue(msg, "alarmLevel", "alarm_level", "level"))
-	switch level {
-	case "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO":
-	default:
-		level = "HIGH"
-	}
-	return alarmType, level
-}
-
-func directAlarmCleared(msg model.StandardMessage) bool {
-	// Old immutable protocol releases expose aggregate objects without a safe
-	// component identity contract. Never guess a whole-controller recovery.
-	if msg.Event["type"] == "COMPONENT_STATUS" {
-		if _, exists := msg.Event["objects"]; exists {
-			return false
-		}
-	}
-	if msg.MessageType != model.PropertyReport && msg.MessageType != model.StateChange {
-		return false
-	}
-	found := false
-	for _, key := range []string{"alarm", "fireAlarm", "smoke", "smokeDetected", "fault", "offline", "powerFault", "openCircuit", "shortCircuit", "removed", "sensorFault", "upgradeFault"} {
-		value, ok := messageValue(msg, key)
-		if !ok {
-			continue
-		}
-		found = true
-		if truthy(value) {
-			return false
-		}
-	}
-	return found
-}
+func directAlarmMetadata(msg model.StandardMessage) (string, string) { return eval.DirectMetadata(msg) }
+func directAlarmCleared(msg model.StandardMessage) bool              { return eval.DirectCleared(msg) }
 
 func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMessage) error {
 	for _, status := range []string{"ACTIVE", "ACKED"} {
@@ -798,142 +706,37 @@ func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMess
 	}
 	return nil
 }
-func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) (model.Alarm, bool, error) {
-	now := e.Clock.Now().UnixMilli()
-	a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, RuleID: rule.ID, TriggerID: msg.MessageID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), AlarmType: rule.AlarmType, AlarmLevel: rule.Level, Status: "ACTIVE", Source: "device", CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID), AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Details: map[string]any{"message": msg, "ruleName": rule.Name}}
-	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-	saved, created, err := e.Repo.UpsertAlarm(ctx, a)
-	if err != nil {
-		return saved, false, err
-	}
-	if created {
-		if e.Metrics != nil {
-			e.Metrics.Inc("alarm_trigger_total")
-		}
-		payload, _ := json.Marshal(saved)
-		_ = e.Bus.Publish(ctx, model.TopicAlarmRaised, saved.ID, payload)
-		_ = e.Realtime.Publish(ctx, saved.MQTTTopic("raised"), payload, 1, false)
-	}
-	e.flushOutbox(ctx)
-	// Alarm records are deduplicated while ACTIVE/ACKED, but a new matching
-	// message must still execute the rule actions. Exact duplicate messages
-	// keep the original trigger ID and must not execute actions twice.
-	if created || saved.TriggerID != msg.MessageID {
-		for _, action := range rule.Actions {
-			event := model.UIActionEvent{ID: id("ui_action"), TenantID: msg.TenantID, RuleID: rule.ID, AlarmID: saved.ID, DeviceID: msg.DeviceID, Action: action, TriggeredAt: now}
-			actionPayload, _ := json.Marshal(event)
-			_ = e.Bus.Publish(ctx, model.TopicUIAction, event.ID, actionPayload)
-			_ = e.Realtime.Publish(ctx, fmt.Sprintf("/iot/ui-action/%s", msg.TenantID), actionPayload, 1, false)
-		}
-	}
-	return saved, created, nil
-}
-func (e *Engine) recoverRuleAlarm(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) error {
-	alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: msg.TenantID, DeviceID: msg.DeviceID, Status: "ACTIVE", Limit: 100})
-	if err != nil {
-		return err
-	}
-	for _, listed := range alarms {
-		if listed.RuleID != rule.ID {
-			continue
-		}
-		a, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
-			if a.Status != "ACTIVE" {
-				return false, nil
-			}
-			a.Status = "RECOVERED"
-			a.RecoveredAt = e.Clock.Now().UnixMilli()
-			return true, nil
-		})
-		if err != nil {
-			return err
-		}
-		if written {
-			payload, _ := json.Marshal(a)
-			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
-			_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
-		}
-	}
-	return nil
-}
 
-// DeleteRule removes a rule and closes any alarms that can no longer be
-// recovered by the deleted rule. Historical alarm rows are retained.
+// DeleteRule records a tombstone and retains unresolved alarm lifecycles.
+// Their producing revisions remain available for recovery and audit.
 func (e *Engine) DeleteRule(ctx context.Context, tenant, ruleID string) error {
 	if err := e.Repo.DeleteRule(ctx, tenant, ruleID); err != nil {
 		return err
 	}
 	e.RulesChanged(tenant)
-	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil {
-		return err
-	}
-	return e.closeRuleAlarms(ctx, tenant, ruleID)
+	return e.Repo.DeleteRulePendings(ctx, tenant, ruleID)
 }
 
-// DisableRule clears duration state and closes active/acknowledged alarms
-// before a rule is switched off. Historical alarm rows remain available.
+// DisableRule publishes a disabled revision without silently recovering alarms.
 func (e *Engine) DisableRule(ctx context.Context, tenant, ruleID string) error {
-	defer e.RulesChanged(tenant)
-	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil {
+	rules, err := e.Repo.ListRules(ctx, tenant)
+	if err != nil {
 		return err
 	}
-	return e.closeRuleAlarms(ctx, tenant, ruleID)
-}
-
-func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID string) error {
-	const batchSize = 1000
-	affectedDevices := make(map[string]struct{})
-	for _, status := range []string{"ACTIVE", "ACKED"} {
-		offset := 0
-		for {
-			alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, Status: status, Limit: batchSize, Offset: offset})
-			if err != nil {
-				return err
+	for _, rule := range rules {
+		if rule.ID == ruleID {
+			if !rule.Enabled {
+				return e.Repo.DeleteRulePendings(ctx, tenant, ruleID)
 			}
-			if len(alarms) == 0 {
-				break
-			}
-			changed := false
-			for _, listed := range alarms {
-				if listed.RuleID != ruleID {
-					continue
-				}
-				alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
-					if a.Status != "ACTIVE" && a.Status != "ACKED" {
-						return false, nil
-					}
-					a.Status = "RECOVERED"
-					a.RecoveredAt = e.Clock.Now().UnixMilli()
-					return true, nil
-				})
-				if err != nil {
-					return err
-				}
-				if !written {
-					continue
-				}
-				affectedDevices[alarm.DeviceID] = struct{}{}
-				payload := mustJSON(alarm)
-				_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
-				_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
-				changed = true
-			}
-			if changed {
-				// Updating rows removes them from the status-filtered result set;
-				// restart at zero so offset pagination cannot skip the next row.
-				offset = 0
-				continue
-			}
-			offset += len(alarms)
-		}
-	}
-	for deviceID := range affectedDevices {
-		if err := e.syncDeviceBusinessStatus(ctx, tenant, "", deviceID); err != nil {
+			rule.Enabled = false
+			_, err = e.Repo.PublishRule(ctx, model.RulePublishRequest{Rule: rule, ExpectedBaselineVersion: rule.Version, Reason: "rule disabled; unresolved lifecycles retained", Actor: "system", SemanticsVersion: eval.RevisionV2})
+			e.RulesChanged(tenant)
 			return err
 		}
 	}
-	return nil
+	return model.ErrNotFound
 }
+
 func (e *Engine) handleState(ctx context.Context, b []byte) error {
 	var state model.DeviceState
 	if err := json.Unmarshal(b, &state); err == nil && state.DeviceID != "" {

@@ -619,51 +619,57 @@ func (s *Store) ListAnalysisOutputs(ctx context.Context, tenant string, f model.
 }
 
 func (s *Store) PutAnalysisConfig(ctx context.Context, v model.AnalysisConfigRevision, expected int64) (out model.AnalysisConfigRevision, err error) {
+	err = s.backend.Transaction(ctx, v.TenantID, func(tx StorageTx) error {
+		var e error
+		out, e = s.putAnalysisConfig(tx, v, expected)
+		return e
+	})
+	return
+}
+
+// Used by normal config writes and fenced AI completion in the same transaction.
+func (s *Store) putAnalysisConfig(tx StorageTx, v model.AnalysisConfigRevision, expected int64) (model.AnalysisConfigRevision, error) {
 	if v.ID == "" || v.Kind == "" || v.ResourceID == "" || v.TenantID == "" || v.Creator == "" || !json.Valid(v.Body) || expected < 0 {
-		return out, model.ErrAnalysisInvalid
+		return v, model.ErrAnalysisInvalid
 	}
+	var err error
 	if v.DeviceIDs, err = explicitDevices(v.DeviceIDs); err != nil {
-		return out, err
+		return v, err
 	}
 	if !slices.Contains([]string{"PERSONAL", "SHARED"}, v.Scope) {
-		return out, model.ErrAnalysisInvalid
+		return v, model.ErrAnalysisInvalid
 	}
 	v.Hash, err = AnalysisHash(v.Body)
 	if err != nil {
-		return out, err
+		return v, err
 	}
 	owner := ""
 	if v.Scope == "PERSONAL" {
 		owner = v.Creator
 	}
 	pointerID, _ := AnalysisHash(struct{ Kind, Resource, Scope, Owner string }{v.Kind, v.ResourceID, v.Scope, owner})
-	err = s.backend.Transaction(ctx, v.TenantID, func(tx StorageTx) error {
-		pointer, e := tx.Get("config-pointer", pointerID)
-		current := int64(0)
-		if e == nil {
-			current = pointer.Version
-		} else if e != model.ErrNotFound {
-			return e
-		}
-		if current != expected {
-			return model.ErrAnalysisConflict
-		}
-		v.Version = expected + 1
-		v.CreatedAt = s.timestamp(tx)
-		d, _ := bodyDocument("config", v.ID, v.TenantID, v)
-		d.ApplicationKind, d.ResourceID, d.DeviceIDs, d.CreatedAt = v.Kind, v.ResourceID, v.DeviceIDs, v.CreatedAt
-		if e = save(tx, d, 0); e != nil {
-			return e
-		}
-		p, _ := bodyDocument("config-pointer", pointerID, v.TenantID, struct{ ID string }{v.ID})
-		p.DeviceIDs = v.DeviceIDs
-		if e = save(tx, p, current); e != nil {
-			return e
-		}
-		out = v
-		return nil
-	})
-	return
+	pointer, e := tx.Get("config-pointer", pointerID)
+	current := int64(0)
+	if e == nil {
+		current = pointer.Version
+	} else if e != model.ErrNotFound {
+		return v, e
+	}
+	if current != expected {
+		return v, model.ErrAnalysisConflict
+	}
+	v.Version, v.CreatedAt = expected+1, s.timestamp(tx)
+	d, _ := bodyDocument("config", v.ID, v.TenantID, v)
+	d.ApplicationKind, d.ResourceID, d.DeviceIDs, d.CreatedAt = v.Kind, v.ResourceID, v.DeviceIDs, v.CreatedAt
+	if e = save(tx, d, 0); e != nil {
+		return v, e
+	}
+	p, _ := bodyDocument("config-pointer", pointerID, v.TenantID, struct{ ID string }{v.ID})
+	p.DeviceIDs = v.DeviceIDs
+	if e = save(tx, p, current); e != nil {
+		return v, e
+	}
+	return v, nil
 }
 func (s *Store) GetAnalysisConfig(ctx context.Context, tenant, id string) (out model.AnalysisConfigRevision, err error) {
 	err = s.backend.Read(ctx, tenant, func(tx StorageTx) error {

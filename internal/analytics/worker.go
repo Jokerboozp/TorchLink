@@ -27,7 +27,7 @@ func runActor(r model.AnalysisRun) Actor {
 }
 
 func (s *Service) authorizeWorker(ctx context.Context, r model.AnalysisRun) error {
-	a, err := s.authorize(ctx, runActor(r), r.Kind, "POST "+Prefix(r.Kind)+"/runs", r.DeviceIDs)
+	a, err := s.authorize(ctx, runActor(r), r.Kind, RunCreationOperation(r.Kind, r.CreationOperation), r.DeviceIDs)
 	if err != nil || a.AccessVersion != r.PermissionsVersion {
 		return ErrForbidden
 	}

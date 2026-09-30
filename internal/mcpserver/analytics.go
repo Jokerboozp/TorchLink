@@ -15,7 +15,7 @@ import (
 )
 
 func registerAnalysisTool(s *server.MCPServer, engine *core.Engine) {
-	s.AddTool(mcp.NewTool("query_analysis_snapshot", mcp.WithDescription("分页读取本次签名 AI 任务绑定的固定分析版本。summary 是准确汇总；metrics/findings/evidence 为明细；监测工作流另可读 intervals/dependency-groups，默认20最多100。hasMore 为真按 nextOffset 继续。不得指定设备、任务、租户或来源查询。"), mcp.WithString("collection", mcp.Description("summary、metrics、findings、evidence；监测另支持 intervals、dependency-groups。默认 summary")), mcp.WithNumber("limit", mcp.Description("明细页大小1到100，默认20")), mcp.WithNumber("offset", mcp.Description("明细偏移，默认0"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("query_analysis_snapshot", mcp.WithDescription("分页读取本次签名 AI 任务绑定的固定分析版本。summary 是准确汇总；metrics/findings/evidence 为明细；监测工作流另可读 intervals/dependency-groups；规则实验另可读 outcomes/diffs/labels，默认20最多100。hasMore 为真按 nextOffset 继续。不得指定设备、任务、租户或来源查询。"), mcp.WithString("collection", mcp.Description("summary、metrics、findings、evidence；监测另支持 intervals、dependency-groups；规则实验另支持 outcomes、diffs、labels。默认 summary")), mcp.WithNumber("limit", mcp.Description("明细页大小1到100，默认20")), mcp.WithNumber("offset", mcp.Description("明细偏移，默认0"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.GetArguments()
 		collection := "summary"
 		limit, offset := 20, 0

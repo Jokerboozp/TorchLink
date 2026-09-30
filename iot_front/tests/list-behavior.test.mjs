@@ -5,7 +5,7 @@ import test from 'node:test'
 import { loadAllPages } from '../src/listPagination.js'
 import { aiProviderOptions as providerOptions } from '../src/presentation.js'
 import { createClientId } from '../src/clientId.js'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import { alarmNavigation, alarmQuery } from '../src/alarmNavigation.js'
 import { compactCount, dashboardDistributions, deviceSegments, productBars, ringSegments, statusSegments, trendGeometry } from '../src/dashboard.js'
 
@@ -14,7 +14,7 @@ const root = new URL('../src/views/', import.meta.url)
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(file, api, exports, notifyError = e => { throw e }, base = root) {
   const source = setupScript(new URL(file, base))
-  const context = vm.createContext({ref, reactive, computed, watch, providerOptions, can:()=>true, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
+  const context = vm.createContext({ref, reactive, computed, defineAsyncComponent, watch, providerOptions, can:()=>true, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))

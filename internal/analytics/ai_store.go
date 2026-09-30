@@ -27,6 +27,12 @@ func aiSnapshot(tx StorageTx, v model.AnalysisAIRevision) (model.AnalysisRun, er
 	if err != nil {
 		return r, err
 	}
+	if r.Kind == KindRuleLab {
+		var p model.RuleLabRunParameters
+		if json.Unmarshal(r.Parameters, &p) != nil || p.Phase != "EXPERIMENT" || p.ExperimentRevisionID == "" {
+			return r, model.ErrAnalysisInvalid
+		}
+	}
 	if (r.Status != model.AnalysisSucceeded && r.Status != model.AnalysisPartial) || r.SnapshotID != v.SnapshotID || r.Kind != v.Kind {
 		return r, model.ErrAnalysisConflict
 	}
@@ -360,6 +366,9 @@ func (s *Store) FinishAnalysisAIRevision(ctx context.Context, tenant, id string,
 				return e
 			}
 			if e = validateAIObjects(tx, v, result); e != nil {
+				return e
+			}
+			if e = s.commitAICandidate(tx, v, &result); e != nil {
 				return e
 			}
 			v.FactIDs = ids

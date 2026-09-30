@@ -140,12 +140,16 @@ func (s *AIService) executeAI(parent context.Context, job model.AnalysisAIRevisi
 				finishFailure("AI 输出结构、对象范围或事实引用无效")
 				return
 			}
+			if err = s.prepareAICandidate(ctx, current, &result); err != nil {
+				finishFailure("AI 候选未通过平台实验校验")
+				return
+			}
 			if _, err = s.ValidateBinding(ctx, identity); err != nil {
 				s.cancelJob(parent, job)
 				return
 			}
 			if _, err = store.FinishAnalysisAIRevision(ctx, job.TenantID, job.ID, job.LeaseToken, result, outcome.run.Model, ""); err != nil {
-				if errors.Is(err, model.ErrAnalysisInvalid) || errors.Is(err, ErrForbidden) {
+				if errors.Is(err, model.ErrAnalysisInvalid) || errors.Is(err, ErrForbidden) || errors.Is(err, model.ErrAnalysisConflict) {
 					finishFailure("AI 输出的对象与引用事实不匹配")
 				} else if !errors.Is(err, model.ErrAnalysisLeaseLost) {
 					log.Warn("analysis AI result not saved", "jobId", job.ID, "error", err)

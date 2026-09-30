@@ -67,6 +67,8 @@ func (s *Service) authorize(ctx context.Context, a Actor, kind, operation string
 }
 
 type CreateRequest struct {
+	// Set only by trusted business services after validating their own DTO.
+	CreationOperation    string          `json:"-"`
 	DeviceIDs            []string        `json:"deviceIds"`
 	Start                int64           `json:"start"`
 	End                  int64           `json:"end"`
@@ -92,7 +94,14 @@ func (s *Service) Create(ctx context.Context, a Actor, kind, algorithm string, q
 	if !json.Valid(q.Parameters) {
 		return model.AnalysisRun{}, model.ErrAnalysisInvalid
 	}
-	current, err := s.authorize(ctx, a, kind, "POST "+Prefix(kind)+"/runs", ids)
+	operation := q.CreationOperation
+	if operation == "" {
+		operation = CreateOperation(kind)
+	}
+	if !ValidCreationOperation(kind, operation) {
+		return model.AnalysisRun{}, model.ErrAnalysisInvalid
+	}
+	current, err := s.authorize(ctx, a, kind, operation, ids)
 	if err != nil {
 		return model.AnalysisRun{}, err
 	}
@@ -113,8 +122,12 @@ func (s *Service) Create(ctx context.Context, a Actor, kind, algorithm string, q
 			return model.AnalysisRun{}, model.ErrAnalysisInvalid
 		}
 	}
-	r := model.AnalysisRun{ID: uuid.NewString(), TenantID: a.TenantID, Kind: kind, Creator: a.Username, CreatorManaged: current.Managed, CreatorSessionVersion: current.SessionVersion, PermissionsVersion: current.AccessVersion, DeviceIDs: ids, Start: q.Start, End: q.End, ConfigurationVersion: q.ConfigurationVersion, AlgorithmVersion: algorithm, Parameters: q.Parameters, PreviousRunID: q.PreviousRunID, IdempotencyKey: q.IdempotencyKey}
-	payload, _ := json.Marshal([]any{r.TenantID, r.Kind, r.Creator, r.PermissionsVersion, ids, r.Start, r.End, r.ConfigurationVersion, r.AlgorithmVersion, r.Parameters, r.PreviousRunID})
+	r := model.AnalysisRun{ID: uuid.NewString(), TenantID: a.TenantID, Kind: kind, Creator: a.Username, CreatorManaged: current.Managed, CreatorSessionVersion: current.SessionVersion, PermissionsVersion: current.AccessVersion, DeviceIDs: ids, Start: q.Start, End: q.End, ConfigurationVersion: q.ConfigurationVersion, AlgorithmVersion: algorithm, Parameters: q.Parameters, PreviousRunID: q.PreviousRunID, IdempotencyKey: q.IdempotencyKey, CreationOperation: operation}
+	identity := []any{r.TenantID, r.Kind, r.Creator, r.PermissionsVersion, ids, r.Start, r.End, r.ConfigurationVersion, r.AlgorithmVersion, r.Parameters, r.PreviousRunID}
+	if operation != CreateOperation(kind) {
+		identity = append(identity, operation)
+	}
+	payload, _ := json.Marshal(identity)
 	sum := sha256.Sum256(payload)
 	r.RequestHash = hex.EncodeToString(sum[:])
 	return s.Store.CreateAnalysisRun(ctx, r, s.Limits.QueueLimit)
@@ -153,7 +166,7 @@ func (s *Service) Stop(ctx context.Context, a Actor, kind, id string, expected i
 	if err != nil {
 		return r, err
 	}
-	if _, err = s.authorize(ctx, a, kind, "POST "+Prefix(kind)+"/runs/:id/stop", r.DeviceIDs); err != nil {
+	if _, err = s.authorize(ctx, a, kind, "POST "+RunCollection(kind)+"/:id/stop", r.DeviceIDs); err != nil {
 		return r, err
 	}
 	return s.Store.StopAnalysisRun(ctx, a.TenantID, id, expected)

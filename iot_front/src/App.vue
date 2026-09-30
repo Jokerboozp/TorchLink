@@ -56,6 +56,7 @@ const DutyManagementView = defineAsyncComponent(() => import('./views/DutyManage
 const DataQualityView = defineAsyncComponent(() => import('./views/DataQualityView.vue'))
 const MonitoringGapsView = defineAsyncComponent(() => import('./views/MonitoringGapsView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
+const RuleLabView = defineAsyncComponent(() => import('./views/RuleLabView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
 const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
@@ -95,6 +96,7 @@ const pages = {
   dataQuality: { ...pageGuide.dataQuality, icon: Activity, component: DataQualityView, header: false },
   monitoringGaps: { ...pageGuide.monitoringGaps, icon: Activity, component: MonitoringGapsView, header: false },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
+  ruleLab: { ...pageGuide.ruleLab, icon: SlidersHorizontal, component: RuleLabView, header: false },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
   products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
@@ -131,7 +133,8 @@ async function refreshModules() {
   if (!authenticated.value || !can('menu:opsCapacity')) return
   try { capacityModuleOn.value = (await api('/api/v1/ops/capacity/status')).enabled !== false } catch { capacityModuleOn.value = true }
 }
-const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
+const pageAllowed = name => name === 'rules' ? can(['menu:rules', 'menu:ruleLab']) : can('menu:' + name)
+const navigable = name => pageAllowed(name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
 const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length))
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
@@ -139,7 +142,7 @@ watch(() => permissionState.accessVersion + '\n' + permissionState.items.join('\
   if (!authenticated.value || value === old) return
   // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
   resetAIConversation()
-  if (!can('menu:' + active.value)) active.value = firstAllowedPage()
+  if (!pageAllowed(active.value)) active.value = firstAllowedPage()
   pageKey.value++
 })
 
@@ -147,7 +150,7 @@ async function syncIdentity() {
   if (!authenticated.value) return
   try {
     await refreshPermissions()
-    if (!can('menu:' + active.value)) active.value = firstAllowedPage()
+    if (!pageAllowed(active.value)) active.value = firstAllowedPage()
   } catch (error) { notifyError(error) }
   refreshModules()
 }
@@ -193,7 +196,7 @@ function openPage(name, detail) {
   // 旧的导航事件仍可能使用 testDevice，统一落到模拟设备测试页面。
   if (name === 'testDevice') name = 'integration'
   if (name === 'profiles' && can('menu:products')) { name = 'products'; detail = detail && { ...detail, tab: 'access' } }
-  if (!pages[name] || !can('menu:' + name)) return
+  if (!pages[name] || !pageAllowed(name)) return
   navOpen.value = false
   if (active.value === name && !detail) return
   sessionStorage.removeItem('iot:navigation-detail')

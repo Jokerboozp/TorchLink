@@ -1,7 +1,8 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate'])
-import { onMounted, reactive, ref } from 'vue'
+const emit = defineEmits(['navigate'])
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
+import { can } from '../permissions.js'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
@@ -10,6 +11,15 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+
+const props = defineProps({ ruleId: String, deviceId: String })
+const RuleLabView = defineAsyncComponent(() => import('./RuleLabView.vue'))
+const canRules = computed(() => can('menu:rules'))
+const activeTab = ref(canRules.value ? 'rules' : 'experiment')
+const labRuleId = ref(props.ruleId || '')
+const canExperiment = computed(() => can('menu:ruleLab'))
+function openExperiment(ruleId = '') { labRuleId.value = ruleId; activeTab.value = 'experiment' }
+watch(canRules, value => { if (!value) activeTab.value = 'experiment' })
 
 const rules = ref([])
 const products = ref([])
@@ -168,12 +178,12 @@ function actionText(item) {
 }
 
 onMounted(async () => {
-  await load()
+  if (canRules.value) await load()
   const raw = sessionStorage.getItem('iot:navigation-detail')
   if (!raw) return
   try {
     const detail = JSON.parse(raw)
-    if (detail.ruleDraft) {
+    if (detail.ruleDraft && canRules.value) {
       sessionStorage.removeItem('iot:navigation-detail')
       open({ ...detail.ruleDraft, ...(detail.persisted ? {} : { id:'' }), enabled:false })
     }
@@ -184,6 +194,7 @@ onMounted(async () => {
 function rowActions(row) {
   return [
     { key:'view', label:'详情', onClick:() => view(row) },
+    ...(canExperiment.value ? [{ key: 'experiment', label: '实验', onClick: () => openExperiment(row.id) }] : []),
     { key:'edit', label:'编辑', permission:'PUT /api/v1/rules/:id', onClick:() => open(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/rules/:id', onClick:() => remove(row.id) }
   ]
@@ -191,6 +202,8 @@ function rowActions(row) {
 </script>
 
 <template>
+  <ui-tabs v-if="canExperiment && canRules" v-model="activeTab"><ui-tab-pane name="rules" label="当前规则" /><ui-tab-pane name="experiment" label="策略实验" /></ui-tabs>
+  <template v-if="canRules && activeTab === 'rules'">
   <FilterBar>
     <template #actions>
       <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
@@ -272,6 +285,8 @@ function rowActions(row) {
     </ui-form>
     <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</ui-button></template>
   </ui-dialog>
+  </template>
+  <RuleLabView v-else :rule-id="labRuleId || undefined" :device-id="props.deviceId" @navigate="(name, detail) => emit('navigate', name, detail)" />
 </template>
 
 <style scoped>

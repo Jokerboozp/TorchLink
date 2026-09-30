@@ -133,6 +133,16 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	engine.RawStore = rawstore.New(rawstore.Config{PostgreSQL: repo, Resolver: repo})
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAnalysisStorage(repo, repo)
+	// Registration now cannot reconstruct activation during the old sample
+	// window; the browser exercises HISTORICAL_SIMULATION on a real revision.
+	ruleRevision, err := engine.PublishRule(ctx, model.RulePublishRequest{
+		Rule: model.AlarmRule{ID: "rule-lab-fixture-pressure", TenantID: tenant, ProductID: data.ProductID, Name: "隔离压力实验基线", AlarmType: "HIGH_PRESSURE", Level: "HIGH", Enabled: true,
+			Conditions: []model.RuleCondition{{Field: data.AttributeID, Operator: ">", Value: 100.5}}, Recovery: []model.RuleCondition{{Field: data.AttributeID, Operator: "<=", Value: 100}}},
+		ExpectedBaselineVersion: 0, Reason: "isolated synthetic rule experiment fixture", Actor: "admin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	go api.RunAnalysisWorkers(ctx)
 	go api.RunAnalysisAIWorkers(ctx)
 	actor := analytics.Actor{TenantID: tenant, Username: "admin"}
@@ -177,7 +187,7 @@ func TestAnalyticsBrowserFixture(t *testing.T) {
 	if path := os.Getenv("IOT_TEST_ANALYTICS_BROWSER_INFO"); path != "" {
 		monitoringBody, _ := json.Marshal(model.MonitoringProfile{TargetType: "DEVICE", EffectiveFrom: data.Start, Mode: "periodic", Attributes: []model.MonitoringAttribute{{ID: data.AttributeID, ValueType: "number"}}, MessageTypes: []model.MessageType{model.PropertyReport}, Merge: "ALL", PeriodMs: 1000, ToleranceMs: 100, Importance: "人工确认的验证重点", LongGapMs: 5000, FrequentGapCount: 2})
 		monitoringInfo := map[string]any{"deviceIds": []string{data.DeviceID, secondDevice}, "start": data.Start, "end": data.End, "attributeId": data.AttributeID, "periodMs": 1000, "toleranceMs": 100, "observationStart": data.Start + 10000, "observationEnd": data.Start + 15000, "qualityRunId": qualityRun.ID, "expected": map[string]any{"synthetic": true, "connectionOnlineMs": 30000, "connectionOfflineMs": 10000, "eventExpiredBeforeAvailable": true, "connectionSecondOnlineMs": 40000}}
-		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo})
+		info, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": data.DeviceID, "hiddenDeviceId": "quality-device-hidden", "start": data.Start, "end": data.End, "periodMs": 1000, "unit": "kPa", "sampleCount": 40, "address": listener.Addr().String(), "profileRequest": data.ProfileRequest, "baselineRequest": data.BaselineRequest, "monitoringProfileRequest": model.MonitoringConfigRequest{ResourceID: "monitoring-profile", Scope: "personal", DeviceIDs: []string{data.DeviceID, secondDevice}, Body: monitoringBody}, "dependencyProfileId": profileID, "dependencyCollectorId": "monitoring-fixture-collector", "monitoring": monitoringInfo, "ruleLab": map[string]any{"deviceIds": []string{data.DeviceID}, "start": data.Start, "end": data.End, "warmupStart": data.Start, "ruleId": ruleRevision.RuleID, "baselineRevisionId": ruleRevision.ID, "expected": map[string]any{"synthetic": true, "sourceInputCount": 40, "baselineCycles": 8, "candidateCycles": 8}}})
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}

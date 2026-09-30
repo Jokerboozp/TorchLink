@@ -36,6 +36,7 @@ import (
 	"iot-platform/internal/opscenter"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/rulelab/lab"
 	"iot-platform/internal/video"
 
 	"github.com/gin-gonic/gin"
@@ -50,6 +51,7 @@ type Server struct {
 	analysisFacts              ports.AnalyticsFactStore
 	quality                    *dataquality.Service
 	monitoring                 *monitoring.Service
+	rulelab                    *lab.Service
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -132,6 +134,8 @@ func (s *Server) routes() {
 	s.analysisRoutes()
 	s.dataQualityRoutes()
 	s.monitoringRoutes()
+	s.ruleLabRoutes()
+	s.ruleHistoryRoutes()
 	s.analysisAIRoutes()
 	s.dutyRoutes()
 	s.accessRoutes()
@@ -1226,7 +1230,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	v.TenantID = c.TenantID
 	status := http.StatusCreated
-	wasEnabled := false
+	baselineVersion := 0
 	if id := r.PathValue("id"); id != "" {
 		status = http.StatusOK
 		v.ID = id
@@ -1238,7 +1242,11 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		found := false
 		for _, current := range items {
 			if current.ID == id {
-				wasEnabled = current.Enabled
+				if v.Version > 0 && v.Version != current.Version {
+					problem(w, 409, "规则已更新，请刷新后重新编辑")
+					return
+				}
+				baselineVersion = current.Version
 				v.CreatedAt = current.CreatedAt
 				v.Version = current.Version + 1
 				found = true
@@ -1279,17 +1287,16 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		write(w, 409, map[string]any{"type": "rule-conflict", "detail": "rule conflicts require explicit confirmation", "conflicts": conflicts})
 		return
 	}
-	if status == http.StatusOK && wasEnabled && !v.Enabled {
-		if err := s.engine.DisableRule(r.Context(), c.TenantID, v.ID); err != nil {
-			problem(w, 500, err.Error())
+	revision, err := s.engine.PublishRule(r.Context(), model.RulePublishRequest{Rule: v, ExpectedBaselineVersion: baselineVersion, Reason: "rule saved", Actor: c.Username})
+	if err != nil {
+		if errors.Is(err, model.ErrRuleConflict) {
+			problem(w, 409, "规则已更新，请刷新后重新编辑")
 			return
 		}
-	}
-	if err := s.engine.Repo.SaveRule(r.Context(), v); err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
-	s.engine.RulesChanged(c.TenantID)
+	v = revision.Rule
 	s.audit(r, "rule.save", "rule", v.ID, map[string]any{"version": v.Version, "enabled": v.Enabled})
 	write(w, status, v)
 }
@@ -2983,7 +2990,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 				return
 			}
 		}
-		if claimsValue.Workflow == core.WorkflowDataQuality || claimsValue.Workflow == core.WorkflowMonitoring {
+		if claimsValue.Workflow == core.WorkflowDataQuality || claimsValue.Workflow == core.WorkflowMonitoring || claimsValue.Workflow == core.WorkflowRulePolicy {
 			if err := s.authorizeAnalysisHarness(ctx, claimsValue); err != nil {
 				ginProblem(c, http.StatusForbidden, err.Error())
 				c.Abort()

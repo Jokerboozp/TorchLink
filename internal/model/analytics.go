@@ -31,6 +31,7 @@ type AnalysisRun struct {
 	Creator               string                   `json:"creator"`
 	CreatorSessionVersion int64                    `json:"creatorSessionVersion"`
 	CreatorManaged        bool                     `json:"creatorManaged"`
+	CreationOperation     string                   `json:"creationOperation,omitempty"`
 	DeviceIDs             []string                 `json:"deviceIds"`
 	PermissionsVersion    string                   `json:"permissionsVersion"`
 	Start                 int64                    `json:"start"`
@@ -179,14 +180,20 @@ type AnalysisAIStatement struct {
 	DeviceIDs []string `json:"deviceIds,omitempty"`
 }
 type AnalysisAIResult struct {
-	Summary                string                `json:"summary"`
-	Interpretations        []AnalysisAIStatement `json:"interpretations"`
-	SuggestedVerification  []AnalysisAIStatement `json:"suggestedVerification"`
-	Limitations            []AnalysisAIStatement `json:"limitations"`
-	Coverage               AnalysisAICoverage    `json:"coverage"`
-	ObservedWeaknesses     []AnalysisAIStatement `json:"observedWeaknesses,omitempty"`
-	PrioritizedChecks      []AnalysisAIStatement `json:"prioritizedChecks,omitempty"`
-	DependencyObservations []AnalysisAIStatement `json:"dependencyObservations,omitempty"`
+	Summary                  string                  `json:"summary"`
+	Interpretations          []AnalysisAIStatement   `json:"interpretations"`
+	SuggestedVerification    []AnalysisAIStatement   `json:"suggestedVerification"`
+	Limitations              []AnalysisAIStatement   `json:"limitations"`
+	Coverage                 AnalysisAICoverage      `json:"coverage"`
+	ObservedWeaknesses       []AnalysisAIStatement   `json:"observedWeaknesses,omitempty"`
+	PrioritizedChecks        []AnalysisAIStatement   `json:"prioritizedChecks,omitempty"`
+	DependencyObservations   []AnalysisAIStatement   `json:"dependencyObservations,omitempty"`
+	BehaviorDifferences      []AnalysisAIStatement   `json:"behaviorDifferences,omitempty"`
+	VerificationSuggestions  []AnalysisAIStatement   `json:"verificationSuggestions,omitempty"`
+	CandidateDraft           *AlarmRule              `json:"candidateDraft,omitempty"`
+	CandidateRevisionID      string                  `json:"candidateRevisionId,omitempty"`
+	PreparedCandidate        *AnalysisConfigRevision `json:"-"`
+	CandidateExpectedVersion int64                   `json:"-"`
 }
 type AnalysisAICoverage struct {
 	SummaryProvided bool `json:"summaryProvided"`

@@ -27,6 +27,7 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	RuleHistoryRepository
 	DeleteResource(context.Context, string, string, string) error
 	DeleteProtocolRelease(context.Context, string, string, string) error
 	AccessStore

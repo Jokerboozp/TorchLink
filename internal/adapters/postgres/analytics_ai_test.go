@@ -23,6 +23,13 @@ func sqlAIServiceKind(t *testing.T, r *Repository, kind string) (*analytics.AISe
 	ctx := context.Background()
 	request := sqlAnalysisRun("facts")
 	request.Kind = kind
+	if kind == analytics.KindRuleLab {
+		body, _ := json.Marshal(model.RuleLabExperiment{DatasetID: "dataset", CandidateRuleID: "rule", Candidate: model.AlarmRule{ID: "rule", TenantID: "t", ProductID: "p", Enabled: false}, CandidateEnabled: true})
+		if _, e := r.PutAnalysisConfig(ctx, model.AnalysisConfigRevision{ID: "experiment", TenantID: "t", Kind: model.RuleLabExperimentKind, ResourceID: "policy", Scope: "PERSONAL", Creator: "operator", DeviceIDs: request.DeviceIDs, Body: body}, 0); e != nil {
+			t.Fatal(e)
+		}
+		request.Parameters = json.RawMessage(`{"phase":"EXPERIMENT","datasetId":"dataset","experimentRevisionId":"experiment"}`)
+	}
 	if _, err := r.CreateAnalysisRun(ctx, request, 100); err != nil {
 		t.Fatal(err)
 	}
@@ -169,5 +176,127 @@ func TestAnalyticsAISQLLeaseExpiryDuringResultCommitRollsBack(t *testing.T) {
 	after, err := r.GetAnalysisAIRevision(ctx, "t", job.ID)
 	if err != nil || after.Status != model.AnalysisRunning || len(after.Interpretation) > 0 {
 		t.Fatal("expired inference result persisted", after, err)
+	}
+}
+
+func TestRulePolicyAISQLCandidateAndResultAtomicRollbackReplicaFence(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	if e := r.MigrateAnalytics(ctx); e != nil {
+		t.Fatal(e)
+	}
+	service, a, run := sqlAIServiceKind(t, r, analytics.KindRuleLab)
+	job, e := service.Create(ctx, a, run.Kind, run.ID, analytics.CreateAIRequest{ExpectedVersion: run.Version, IdempotencyKey: "rule-policy"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	job, e = r.ClaimAnalysisAIRevision(ctx, "one", time.Minute, 4*time.Minute, []string{analytics.WorkflowRulePolicy})
+	if e != nil {
+		t.Fatal(e)
+	}
+	input, e := service.BuildInput(ctx, job)
+	if e != nil {
+		t.Fatal(e)
+	}
+	current, _ := r.GetAnalysisAIRevision(ctx, "t", job.ID)
+	result, e := analytics.DecodeAIWorkflowResult(analytics.WorkflowRulePolicy, `{"summary":"sample","behaviorDifferences":[{"text":"复核实际输出","factIds":["fact"],"deviceIds":["d1"]}],"verificationSuggestions":[],"limitations":[]}`, current.SentFactIDs, job.DeviceIDs, input.Coverage)
+	if e != nil {
+		t.Fatal(e)
+	}
+	source, e := r.GetAnalysisConfig(ctx, "t", "experiment")
+	if e != nil {
+		t.Fatal(e)
+	}
+	var b model.RuleLabExperiment
+	_ = json.Unmarshal(source.Body, &b)
+	b.CandidateEnabled = false
+	b.Candidate.Name = "新候选"
+	b.Candidate.Enabled = false
+	candidate := source
+	candidate.ID = "candidate"
+	candidate.Body, _ = json.Marshal(b)
+	result.CandidateDraft = &b.Candidate
+	result.PreparedCandidate = &candidate
+	result.CandidateExpectedVersion = source.Version
+	if _, e = r.pool.Exec(ctx, `CREATE FUNCTION reject_ai_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.kind='ai' AND NEW.body->>'status'='SUCCEEDED' THEN RAISE EXCEPTION 'AI rollback sample'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_ai_completion BEFORE UPDATE ON analysis_document FOR EACH ROW EXECUTE FUNCTION reject_ai_completion()`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = r.FinishAnalysisAIRevision(ctx, "t", job.ID, job.LeaseToken, result, "mock", ""); e == nil {
+		t.Fatal("rollback injection ignored")
+	}
+	if _, e = r.GetAnalysisConfig(ctx, "t", "candidate"); !errors.Is(e, model.ErrNotFound) {
+		t.Fatal("orphan candidate persisted", e)
+	}
+	unchanged, _ := r.GetAnalysisAIRevision(ctx, "t", job.ID)
+	if unchanged.Status != model.AnalysisRunning {
+		t.Fatal(unchanged)
+	}
+	if _, e = r.pool.Exec(ctx, `DROP TRIGGER reject_ai_completion ON analysis_document; DROP FUNCTION reject_ai_completion()`); e != nil {
+		t.Fatal(e)
+	}
+	pool, e := pgxpool.NewWithConfig(ctx, r.pool.Config().Copy())
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(pool.Close)
+	other := &Repository{pool: pool}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	completed := 0
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			target := r
+			if i%2 == 1 {
+				target = other
+			}
+			v, e := target.FinishAnalysisAIRevision(ctx, "t", job.ID, job.LeaseToken, result, "mock", "")
+			mu.Lock()
+			defer mu.Unlock()
+			if e == nil {
+				completed++
+				if v.Status != model.AnalysisSucceeded {
+					t.Error(v)
+				}
+			} else if !errors.Is(e, model.ErrAnalysisLeaseLost) {
+				t.Error(e)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if completed != 1 {
+		t.Fatal("duplicate completion", completed)
+	}
+	saved, e := r.GetAnalysisConfig(ctx, "t", "candidate")
+	if e != nil || saved.Version != 2 {
+		t.Fatal(saved, e)
+	}
+	finished, _ := r.GetAnalysisAIRevision(ctx, "t", job.ID)
+	var interpretation struct {
+		CandidateRevisionID string `json:"candidateRevisionId"`
+	}
+	if json.Unmarshal(finished.Interpretation, &interpretation) != nil || interpretation.CandidateRevisionID != "candidate" {
+		t.Fatal(string(finished.Interpretation))
+	}
+	next, e := service.Create(ctx, a, run.Kind, run.ID, analytics.CreateAIRequest{ExpectedVersion: run.Version, IdempotencyKey: "retry", Reinterpret: true})
+	if e != nil {
+		t.Fatal(e)
+	}
+	next, e = r.ClaimAnalysisAIRevision(ctx, "two", time.Minute, 4*time.Minute, []string{analytics.WorkflowRulePolicy})
+	if e != nil {
+		t.Fatal(e)
+	}
+	latest, _ := r.GetAnalysisAIRevision(ctx, "t", next.ID)
+	if _, e = r.StopAnalysisAIRevision(ctx, "t", next.ID, latest.Version); e != nil {
+		t.Fatal(e)
+	}
+	candidate.ID = "stopped-candidate"
+	result.PreparedCandidate = &candidate
+	if _, e = other.FinishAnalysisAIRevision(ctx, "t", next.ID, next.LeaseToken, result, "mock", ""); !errors.Is(e, model.ErrAnalysisLeaseLost) {
+		t.Fatal(e)
+	}
+	if _, e = r.GetAnalysisConfig(ctx, "t", candidate.ID); !errors.Is(e, model.ErrNotFound) {
+		t.Fatal("stopped candidate persisted", e)
 	}
 }

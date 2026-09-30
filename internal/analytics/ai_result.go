@@ -27,6 +27,16 @@ type monitoringAIResult struct {
 	Coverage               model.AnalysisAICoverage    `json:"coverage"`
 }
 
+type rulePolicyAIResult struct {
+	Summary                 string                      `json:"summary"`
+	BehaviorDifferences     []model.AnalysisAIStatement `json:"behaviorDifferences"`
+	VerificationSuggestions []model.AnalysisAIStatement `json:"verificationSuggestions"`
+	Limitations             []model.AnalysisAIStatement `json:"limitations"`
+	CandidateDraft          *model.AlarmRule            `json:"candidateDraft,omitempty"`
+	CandidateRevisionID     string                      `json:"candidateRevisionId,omitempty"`
+	Coverage                model.AnalysisAICoverage    `json:"coverage"`
+}
+
 func decodeAIJSON(answer string, target any) error {
 	answer = strings.TrimSpace(answer)
 	if strings.HasPrefix(answer, "```") {
@@ -65,6 +75,13 @@ func DecodeAIWorkflowResult(workflow, answer string, ids, devices []string, cove
 		var decoded monitoringAIResult
 		err = decodeAIJSON(answer, &decoded)
 		result.ObservedWeaknesses, result.PrioritizedChecks, result.DependencyObservations, result.Limitations = decoded.ObservedWeaknesses, decoded.PrioritizedChecks, decoded.DependencyObservations, decoded.Limitations
+	case WorkflowRulePolicy:
+		var decoded rulePolicyAIResult
+		err = decodeAIJSON(answer, &decoded)
+		if decoded.CandidateRevisionID != "" {
+			return result, model.ErrAnalysisInvalid
+		}
+		result.BehaviorDifferences, result.VerificationSuggestions, result.Limitations, result.CandidateDraft = decoded.BehaviorDifferences, decoded.VerificationSuggestions, decoded.Limitations, decoded.CandidateDraft
 	default:
 		return result, ErrUnsupported
 	}
@@ -75,6 +92,8 @@ func DecodeAIWorkflowResult(workflow, answer string, ids, devices []string, cove
 	kinds := "指标与发现"
 	if workflow == WorkflowMonitoring {
 		kinds = "指标、区间、依赖组与发现"
+	} else if workflow == WorkflowRulePolicy {
+		kinds = "结果、差异、指标、发现与标签"
 	}
 	result.Summary = fmt.Sprintf("依据固定版本准确汇总、%d/%d 项%s、%d/%d 条证据解读；未提供的资料未纳入审阅，结论须人工核实。", coverage.OutputCount, coverage.TotalOutputs, kinds, coverage.EvidenceCount, coverage.TotalEvidence)
 	_, err = ValidateAIWorkflowResult(workflow, result, ids, devices)
@@ -82,6 +101,9 @@ func DecodeAIWorkflowResult(workflow, answer string, ids, devices []string, cove
 }
 
 func aiStatements(workflow string, result model.AnalysisAIResult) [][]model.AnalysisAIStatement {
+	if workflow == WorkflowRulePolicy {
+		return [][]model.AnalysisAIStatement{result.BehaviorDifferences, result.VerificationSuggestions, result.Limitations}
+	}
 	if workflow == WorkflowMonitoring {
 		return [][]model.AnalysisAIStatement{result.ObservedWeaknesses, result.PrioritizedChecks, result.DependencyObservations, result.Limitations}
 	}
@@ -95,7 +117,14 @@ func ValidateAIWorkflowResult(workflow string, result model.AnalysisAIResult, id
 	if !IsAnalysisWorkflow(workflow) || result.Summary == "" || len(result.Summary) > 2000 || !result.Coverage.SummaryProvided {
 		return nil, model.ErrAnalysisInvalid
 	}
-	if workflow == WorkflowMonitoring {
+	if workflow != WorkflowRulePolicy && (result.BehaviorDifferences != nil || result.VerificationSuggestions != nil || result.CandidateDraft != nil || result.CandidateRevisionID != "" || result.PreparedCandidate != nil) {
+		return nil, model.ErrAnalysisInvalid
+	}
+	if workflow == WorkflowRulePolicy {
+		if result.BehaviorDifferences == nil || result.VerificationSuggestions == nil || result.Limitations == nil || result.Interpretations != nil || result.SuggestedVerification != nil || result.ObservedWeaknesses != nil || result.PrioritizedChecks != nil || result.DependencyObservations != nil || result.CandidateDraft != nil && result.CandidateDraft.Enabled {
+			return nil, model.ErrAnalysisInvalid
+		}
+	} else if workflow == WorkflowMonitoring {
 		if result.ObservedWeaknesses == nil || result.PrioritizedChecks == nil || result.DependencyObservations == nil || result.Limitations == nil || result.Interpretations != nil || result.SuggestedVerification != nil {
 			return nil, model.ErrAnalysisInvalid
 		}
@@ -129,6 +158,9 @@ func ValidateAIWorkflowResult(workflow string, result model.AnalysisAIResult, id
 }
 
 func marshalAIWorkflowResult(workflow string, result model.AnalysisAIResult) ([]byte, error) {
+	if workflow == WorkflowRulePolicy {
+		return json.Marshal(rulePolicyAIResult{Summary: result.Summary, BehaviorDifferences: result.BehaviorDifferences, VerificationSuggestions: result.VerificationSuggestions, Limitations: result.Limitations, CandidateDraft: result.CandidateDraft, CandidateRevisionID: result.CandidateRevisionID, Coverage: result.Coverage})
+	}
 	if workflow == WorkflowMonitoring {
 		return json.Marshal(monitoringAIResult{Summary: result.Summary, ObservedWeaknesses: result.ObservedWeaknesses, PrioritizedChecks: result.PrioritizedChecks, DependencyObservations: result.DependencyObservations, Limitations: result.Limitations, Coverage: result.Coverage})
 	}

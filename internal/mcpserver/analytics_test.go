@@ -32,7 +32,11 @@ func analysisMCPFixtureKind(t *testing.T, kind string) (*core.Engine, *analytics
 		a.Permissions = actor.Permissions
 		return a, nil
 	}, nil)
-	run, err := store.CreateAnalysisRun(ctx, model.AnalysisRun{ID: "facts", TenantID: "t", Kind: kind, Creator: "alice", DeviceIDs: actor.DeviceIDs, PermissionsVersion: "scope1", Start: 1000, End: 2000, ConfigurationVersion: "1", AlgorithmVersion: "1", IdempotencyKey: "facts"}, 100)
+	request := model.AnalysisRun{ID: "facts", TenantID: "t", Kind: kind, Creator: "alice", DeviceIDs: actor.DeviceIDs, PermissionsVersion: "scope1", Start: 1000, End: 2000, ConfigurationVersion: "1", AlgorithmVersion: "1", IdempotencyKey: "facts"}
+	if kind == analytics.KindRuleLab {
+		request.Parameters = json.RawMessage(`{"phase":"EXPERIMENT","experimentRevisionId":"experiment"}`)
+	}
+	run, err := store.CreateAnalysisRun(ctx, request, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +47,12 @@ func analysisMCPFixtureKind(t *testing.T, kind string) (*core.Engine, *analytics
 	outputs := []model.AnalysisOutput{{ID: "fact", Kind: "findings", DeviceID: "d1", Body: json.RawMessage(`{"unknown":true}`)}}
 	if kind == analytics.KindMonitoring {
 		outputs = append(outputs, model.AnalysisOutput{ID: "interval1", Kind: "intervals", DeviceID: "d1", Body: json.RawMessage(`{"unknownMs":500}`)}, model.AnalysisOutput{ID: "group1", Kind: "dependency-groups", Body: json.RawMessage(`{"visibleMembers":["d1","d2"]}`)}, model.AnalysisOutput{ID: "private", Kind: "input-manifest", Body: json.RawMessage(`{"private":true}`)})
+	}
+	if kind == analytics.KindRuleLab {
+		for _, collection := range []string{"outcomes", "diffs", "labels"} {
+			outputs = append(outputs, model.AnalysisOutput{ID: collection, Kind: collection, DeviceID: "d1", Body: json.RawMessage(`{"fixed":true}`)})
+		}
+		outputs = append(outputs, model.AnalysisOutput{ID: "private", Kind: "comparison-stage", Body: json.RawMessage(`{"private":true}`)})
 	}
 	run, err = store.CommitAnalysisBatch(ctx, "t", run.ID, run.LeaseToken, model.AnalysisBatch{ID: "final", Status: model.AnalysisPartial, Outputs: outputs, Snapshot: &model.AnalysisSnapshot{ID: "snapshot", DataCutoff: 2000, Statistics: json.RawMessage(`{"unknown":2}`), Limitations: []string{"unknown seed"}}})
 	if err != nil {
@@ -128,5 +138,24 @@ func TestAnalysisMCPRejectsChangedClaimGrantAndStop(t *testing.T) {
 	}
 	if out := analysisMCPCall(t, engine, c, map[string]any{}); !strings.Contains(out, `"isError":true`) || strings.Contains(out, `\"unknown\":2`) {
 		t.Fatal("cropped revoked body disclosed", out)
+	}
+}
+
+func TestRulePolicyMCPOnlyBoundPublicExperimentFacts(t *testing.T) {
+	engine, _, claims := analysisMCPFixtureKind(t, analytics.KindRuleLab)
+	for _, collection := range []string{"outcomes", "diffs", "labels"} {
+		out := analysisMCPCall(t, engine, claims, map[string]any{"collection": collection, "limit": 1})
+		if strings.Contains(out, `"isError":true`) || !strings.Contains(out, `\"fixed\":true`) {
+			t.Fatal(collection, out)
+		}
+	}
+	for _, collection := range []string{"comparison-stage", "dataset-chunk", "input-manifest", "intervals", "dependency-groups"} {
+		if out := analysisMCPCall(t, engine, claims, map[string]any{"collection": collection}); !strings.Contains(out, `"isError":true`) {
+			t.Fatal(collection, out)
+		}
+	}
+	claims.Workflow = core.WorkflowRuleDraft
+	if out := analysisMCPCall(t, engine, claims, map[string]any{}); !strings.Contains(out, `"isError":true`) {
+		t.Fatal("general rule drafter reused experimental lease", out)
 	}
 }

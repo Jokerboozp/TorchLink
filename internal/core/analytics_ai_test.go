@@ -90,3 +90,46 @@ func TestMonitoringWorkflowPromptScopesAndWorkflowProof(t *testing.T) {
 		t.Fatal("monitoring checkbox bypassed saved knowledge policy", err, len(harness.Requests()))
 	}
 }
+
+func TestRulePolicyWorkflowFixedPromptAndKnowledgeProof(t *testing.T) {
+	repo := memory.NewRepository()
+	engine := New(repo, nil, nil, nil, nil, nil)
+	harness := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) {
+		return `{"summary":"x","behaviorDifferences":[],"verificationSuggestions":[],"limitations":[]}`, nil
+	}}
+	engine.AIWorkflows, engine.HarnessTokens = harness, aitest.Tokens()
+	job := model.AnalysisAIRevision{ID: "policy-job", TenantID: "t", Kind: analytics.KindRuleLab, PromptVersion: analytics.RulePolicyAIPromptVersion, RunID: "policy-facts", SnapshotID: "snapshot", SnapshotVersion: 2, WorkflowID: WorkflowRulePolicy, Creator: "operator", CreatorManaged: true, CreatorSessionVersion: 3, PermissionVersion: "scope1", LeaseToken: 7, HarnessRunID: "analysis_ai_policy", DeviceIDs: []string{"d"}}
+	input := model.AnalysisAIFacts{SnapshotID: job.SnapshotID, SnapshotVersion: 2, SummaryFactID: "snapshot/summary", Statistics: json.RawMessage(`{"knownUnavailableMs":500,"unknownMs":500,"currentDependencyOnly":true}`)}
+	identity := analytics.AIIdentity(job)
+	ctx := ports.WithAIRunIdentity(context.Background(), identity)
+	result, err := engine.RunAnalysisWorkflow(ctx, job, input)
+	if err != nil || result.RunID != job.HarnessRunID {
+		t.Fatal(result, err)
+	}
+	request := harness.Last()
+	claims, err := aitest.Claims(request)
+	if err != nil || claims.Workflow != WorkflowRulePolicy || claims.AnalysisJobID != job.ID || claims.RunID != job.HarnessRunID || !slices.Equal(claims.Scopes, []string{ports.MCPToolScope("query_analysis_snapshot")}) {
+		t.Fatal(claims, request, err)
+	}
+	for _, text := range []string{"behaviorDifferences", "verificationSuggestions", "outcomes", "diffs", "candidateDraft", "enabled 必须 false", "意图", "历史模拟", "代表性", `"knownUnavailableMs":500`} {
+		if !strings.Contains(request.Question, text) {
+			t.Fatal("monitoring prompt contract missing", text)
+		}
+	}
+	wrong := identity
+	wrong.AnalysisWorkflowID = WorkflowDataQuality
+	if _, err := engine.RunAnalysisWorkflow(ports.WithAIRunIdentity(context.Background(), wrong), job, input); err == nil {
+		t.Fatal("quality identity executed monitoring workflow")
+	}
+	wrongInput := input
+	wrongInput.SnapshotVersion++
+	if _, err := engine.RunAnalysisWorkflow(ctx, job, wrongInput); err == nil {
+		t.Fatal("wrong fixed input version sent to model")
+	}
+	if err := repo.SaveWorkflowKnowledgeBinding(context.Background(), model.WorkflowKnowledgeBinding{TenantID: "t", WorkflowID: WorkflowRulePolicy, RetrievalMode: "always", TopK: 5, MinScore: .25, NoMatchPolicy: "require-evidence"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.RunAnalysisWorkflow(ctx, job, input); err == nil || len(harness.Requests()) != 1 {
+		t.Fatal("monitoring checkbox bypassed saved knowledge policy", err, len(harness.Requests()))
+	}
+}
