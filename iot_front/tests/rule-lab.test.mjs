@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { candidateDraft, candidatePayload, countLabel, datasetPayload, experimentPayload, inputChart, inputSamples, labelRatio, publicationPayload, semantics, unwrapOutputs } from '../src/rulelab/helpers.js'
+import { readRuleSources } from '../src/rulelab/sources.js'
+import vm from 'node:vm'
+import { computed, reactive, ref, watch } from 'vue'
+import { setupScript } from './helpers/vue.mjs'
 const start=Date.parse('2026-10-01T00:00:00Z'),rule={id:'rule',productId:'product',name:'压力异常',description:'已登记规则',alarmType:'FAULT',level:'warning',match:'all',durationSeconds:3,enabled:true,conditions:[{property:'pressure',operator:'gt',value:100.5}],recovery:[{property:'pressure',operator:'lte',value:100}],actions:[{type:'NOTIFY'}]},revision={id:'r1',ruleId:'rule',version:7,rule},dataset={id:'dataset',status:'SUCCEEDED',deviceIds:['d1'],clockPolicy:'EVENT_AS_PROCESSING'}
 const form=()=>({resourceId:'experiment',expectedVersion:0,scope:'personal',baselineRevisionIds:['r1'],baselinePolicy:'FIXED_REVISIONS',candidateRuleId:'rule',candidate:candidateDraft(rule),candidateEnabled:true,hypothesis:'候选阈值提高后核实少触发的周期',labelRevisionIds:[],policyVersion:'matching-v1',toleranceSeconds:.125,matchTimeBasis:'EVENT',split:'TUNING',representativeConfirmed:false,representativenessBasis:''})
 test('label evaluation preserves independent hand-counted denominators and zero N/A',()=>{const v={status:'EVALUABLE',tp:2,alarmCycles:4,realEvents:5,precision:.5,recall:.4};assert.equal(labelRatio(v,'precision'),'50.0%');assert.equal(labelRatio(v,'recall'),'40.0%');assert.equal(labelRatio({...v,alarmCycles:0,precision:null},'precision'),'不适用');assert.equal(labelRatio({...v,realEvents:0,recall:1},'recall'),'不适用')})
@@ -13,3 +17,46 @@ test('fixed chart has original finite numeric values and distinct event/receptio
 test('curve keeps units and version changes separate without changing membership counts',()=>{const row=(id,at,value,unit,version)=>({id,message:{deviceId:'d1',timestamp:start+at,properties:{p:value}},units:{p:unit},protocolVersion:version,configurationVersion:'cfg'});const inputs=[row('a',0,1,'kPa','v1'),row('b',1000,2,'Pa','v2'),row('c',1000,3,'Pa','v2'),row('d',2000,4,'kPa','v1')],original=structuredClone(inputs),result=inputChart(inputs,'d1','p','event');assert.deepEqual(result.times,[start,start+1000,start+2000]);assert.deepEqual(result.series.map(s=>s.values),[[1,null,4],[null,2,null]]);assert.equal(result.collapsedCount,1);assert.deepEqual(inputs,original);assert.equal(inputSamples(inputs,'d1','p','event').length,4)})
 test('publication fixes candidate enabled state, immutable baseline CAS and cannot alter saved body',()=>{const saved={id:'e1',body:experimentPayload(form(),dataset,[revision]).body},original=structuredClone(saved),payload=publicationPayload(saved,[revision],'  现场依据已核实  ');assert.equal(payload.expectedBaselineVersion,7);assert.equal(payload.experimentId,'e1');assert.equal(payload.rule.enabled,true);assert.equal(payload.reason,'现场依据已核实');assert.equal(saved.body.candidate.enabled,false);assert.deepEqual(saved,original);assert.throws(()=>publicationPayload(saved,[], 'reason'),/固定候选/);assert.throws(()=>publicationPayload(saved,[revision],''),/原因/)})
 test('output authority and absent counters remain unknown',()=>{assert.deepEqual(unwrapOutputs([{id:'outer',deviceId:'d1',body:{id:'inner',deviceId:'other',newCycles:2}}]),[{id:'outer',deviceId:'d1',newCycles:2}]);for(const v of [null,undefined,NaN,Infinity,-1,.5])assert.equal(countLabel(v),'未知');assert.equal(countLabel(0),'0')})
+test('rule sources read only the selected experiment scope and merge shared histories within bounded URLs', async () => {
+ const ids=Array.from({length:1000},(_,i)=>`device-${String(i).padStart(4,'0')}-${'x'.repeat(110)}`),calls=[]
+ const result=await readRuleSources(async (_resource,_id,_op,query)=>{calls.push(query);return{items:[{id:'shared-rule-revision'},...query.deviceIds.split(',').map(id=>({id:'revision-'+id}))]}},ids)
+ assert.equal(result.items.length,1001)
+ assert.deepEqual(calls.flatMap(query=>query.deviceIds.split(',')).sort(),ids.slice().sort())
+ assert(calls.every(query=>new URLSearchParams(query).toString().length<=4000))
+ let writes=0;await readRuleSources(async()=>{writes++;return{items:[]}},[]);assert.equal(writes,0)
+ await assert.rejects(readRuleSources(async()=>{writes++;return{items:[]}},[...ids,'extra']),/1000/);assert.equal(writes,0)
+})
+test('aborting rule sources stops the following selected-device batch', async () => {
+ const controller=new AbortController();let calls=0
+ await assert.rejects(readRuleSources(async()=>{calls++;controller.abort();return{items:[]}},Array.from({length:60},(_,i)=>'d'+i),{signal:controller.signal}),{name:'AbortError'})
+ assert.equal(calls,1)
+})
+test('batched source unions respect the server record limit across different product histories', async () => {
+ const ids=Array.from({length:60},(_,i)=>'device-'+i);let calls=0
+ await assert.rejects(readRuleSources(async()=>({maxRecords:1,items:[{id:'product-history-'+(++calls)}]}),ids),/1 条读取上限/)
+ assert.equal(calls,2)
+ const repeated=await readRuleSources(async()=>({maxRecords:1,items:[{id:'same-shared-revision'}]}),ids)
+ assert.equal(repeated.items.length,1)
+ await assert.rejects(readRuleSources(async()=>({items:Array.from({length:50001},(_,i)=>({id:'revision-'+i}))}),['a']),/50000/)
+})
+test('new and historical experiment editors request rules only for the selected fixed dataset', async () => {
+ const events=[],props=reactive({items:[],datasets:[{id:'input-a',status:'SUCCEEDED',deviceIds:['a']},{id:'input-b',status:'SUCCEEDED',deviceIds:['b','c']}],labels:[],revisions:[],rules:[],devices:[],ruleId:'',selectedDataset:{id:'input-a'}})
+ const context=vm.createContext({computed,reactive,ref,watch,defineProps:()=>props,defineEmits:()=> (...args)=>events.push(args),onBeforeUnmount(){},can:()=>true,createClientId:()=> 'draft',candidateDraft,recordBody:value=>({...value.body,id:value.id}),experimentPayload,notifyError(){}})
+ const state=vm.runInContext(setupScript(new URL('../src/components/rule-lab/RuleLabExperiments.vue',import.meta.url))+';({edit,form,dialog})',context)
+ state.edit();await new Promise(resolve=>setImmediate(resolve))
+ assert.deepEqual(Array.from(events.at(-1)[1]),['a'])
+ state.form.datasetId='input-b';await new Promise(resolve=>setImmediate(resolve))
+ assert.deepEqual(Array.from(events.at(-1)[1]),['b','c'])
+ state.dialog.value=false;await new Promise(resolve=>setImmediate(resolve));const count=events.length
+ state.form.datasetId='input-a';await new Promise(resolve=>setImmediate(resolve));assert.equal(events.length,count)
+ state.edit({resourceId:'historical',revisionVersion:2,datasetId:'input-b',baselineRevisionIds:['fixed-v1']});await new Promise(resolve=>setImmediate(resolve))
+ assert.deepEqual(Array.from(events.at(-1)[1]),['b','c']);assert.deepEqual(Array.from(state.form.baselineRevisionIds),['fixed-v1'])
+})
+test('experiment saving waits for sources and rejects a baseline unavailable in the changed fixed input', async () => {
+ const writes=[],props=reactive({items:[],datasets:[dataset],labels:[],revisions:[revision],rules:[rule],devices:[],ruleId:'',selectedDataset:dataset,sourcesLoading:true,sourcesError:''})
+ const context=vm.createContext({computed,reactive,ref,watch,defineProps:()=>props,defineEmits:()=>()=>{},onBeforeUnmount(){},can:()=>true,createClientId:()=> 'draft',candidateDraft,recordBody:value=>({...value.body,id:value.id}),experimentPayload,ruleLabWrite:async(...args)=>writes.push(args),notifyError(){}})
+ const state=vm.runInContext(setupScript(new URL('../src/components/rule-lab/RuleLabExperiments.vue',import.meta.url))+';({edit,form,save,error})',context)
+ state.edit();Object.assign(state.form,form(),{datasetId:dataset.id});await state.save();assert.equal(writes.length,0);assert.equal(state.error.value,'')
+ props.sourcesLoading=false;props.revisions=[];await state.save();assert.equal(writes.length,0);assert.match(state.error.value,/基线/)
+ assert.deepEqual(Array.from(state.form.baselineRevisionIds),['r1']);assert.equal(state.form.hypothesis,form().hypothesis)
+})

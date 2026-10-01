@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import vm from 'node:vm'
+import { computed,effectScope,nextTick,reactive,ref,watch } from 'vue'
+import { setupScript } from './helpers/vue.mjs'
+import { deviceChoices } from '../src/deviceCatalog.js'
+import * as maintenanceHelpers from '../src/maintenance/helpers.js'
 import { assetDraft,assetPayload,eligibleObservations,decimal,evidencePayload,metricCells,observationPayload,orderedAdjustment,scenarioPayload,verificationPayload,workPayload } from '../src/maintenance/helpers.js'
 const t=Date.parse('2026-10-01T00:00:00Z'),a={id:'asset-v1',resourceId:'physical-old',version:1,deviceIds:['d1'],body:{deviceId:'d1',componentId:'',physicalId:'plate-1',name:'旧实物',boundaryStatus:'CONFIRMED',effectiveStart:t-10000,effectiveEnd:t+5000}},b={...a,id:'asset-v2',resourceId:'physical-new',body:{...a.body,physicalId:'plate-2',effectiveStart:t+5000,effectiveEnd:undefined}},work={resourceId:'repair',id:'work-v3',version:3,deviceIds:['d1'],body:{status:'COMPLETED',startedAt:t+4000,endedAt:t+6000}},human={kind:'HUMAN_CONFIRMATION',deviceId:'d1',description:'实际铭牌照片及现场核实',sourceId:'spoof',recordedAt:t,recorder:'spoof'}
 test('actual asset dates remain unknown instead of platform registration date; confirmed boundary requires real evidence',()=>{const form=assetDraft({...a,body:{...a.body,createdAt:t}});assert.equal(form.manufacturedAt,null);assert.equal(form.commissionedAt,null);Object.assign(form,{importance:4,evidence:[human]});const original=structuredClone(form),p=assetPayload(form,'key');assert.ok(!('commissionedAt'in p.body));assert.ok(!('createdAt'in p.body));assert.deepEqual(p.deviceIds,['d1']);assert.deepEqual(form,original);assert.throws(()=>assetPayload({...form,evidence:[]},'key'),/实际依据/);assert.throws(()=>assetPayload({...form,importance:null},'key'),/人工重要性/);assert.throws(()=>assetPayload({...form,effectiveEnd:form.effectiveStart},'key'),/起点/)})
@@ -14,3 +19,73 @@ test('transparent candidate submits only fixed sources and manual required tier,
 test('manual adjustment is a complete permutation without dropping missing data candidates',()=>{const candidates=[{id:'known'},{id:'unknown'}];assert.deepEqual(orderedAdjustment(['unknown','known'],candidates),['unknown','known']);assert.throws(()=>orderedAdjustment(['known'],candidates),/每个/);assert.throws(()=>orderedAdjustment(['known','known'],candidates),/一次/);assert.throws(()=>orderedAdjustment(['known','fake'],candidates),/每个/)})
 
 test('observation choices resolve immutable old physical revisions and never broaden to another instance on the same device',()=>{const old={...a,id:'old-revision'},latest={...a,id:'latest-revision'},runs=[{id:'same',status:'SUCCEEDED',parameters:{observation:{afterAssetRevisionId:old.id}}},{id:'other',status:'SUCCEEDED',parameters:{observation:{afterAssetRevisionId:b.id}}},{id:'missing',status:'SUCCEEDED',parameters:{observation:{afterAssetRevisionId:'expired'}}},{id:'working',status:'RUNNING',parameters:{observation:{afterAssetRevisionId:old.id}}}];assert.deepEqual(eligibleObservations(runs,latest,[old,latest,b]).map(r=>r.id),['same']);assert.deepEqual(eligibleObservations(runs,null,[a]),[])})
+
+function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return{promise,resolve,reject}}
+const oldAsset={...a,id:'fixed-v1',resourceId:'same-physical',body:{...a.body,name:'维修当时的实物'}},latestAsset={...oldAsset,id:'current-v2',version:2,body:{...oldAsset.body,name:'当前实物资料'}}
+const draftWork={id:'fixed-work',resourceId:'work',version:1,deviceIds:['d1'],body:{name:'原维修草稿',status:'DRAFT',assetRevisionId:oldAsset.id,type:'REPAIR',reason:'实际端子故障'}}
+const draftScenario={id:'fixed-scenario',resourceId:'scenario',version:1,deviceIds:['d1'],body:{name:'原投入方案',status:'DRAFT',planningStart:t,planningEnd:t+10000,currency:'CNY',useFinance:false,candidates:[{id:'c1',assetRevisionId:oldAsset.id,action:'INSPECT',requiredTier:1,tierBasis:'已确认需现场检查'}]}}
+function maintenanceComponent(file,{props={},read=async()=>oldAsset,write=async()=>draftWork}={}){
+ const unmounts=[],events=[],scope=effectScope(),p=reactive({items:[],assets:[latestAsset],devices:[{id:'d1'}],records:[],costs:[],observations:[],deviceId:'',assetId:'',correctives:[],...props})
+ const context=vm.createContext({computed,reactive,ref,watch,deviceChoices,defineProps:()=>p,defineEmits:()=>((...args)=>events.push(args)),onBeforeUnmount:fn=>unmounts.push(fn),can:()=>false,createClientId:()=> 'request-key',...maintenanceHelpers,URLSearchParams,apiAll:async()=>({items:[]}),dutyAll:async()=>({items:[]}),maintenanceAll:async()=>({items:[]}),maintenanceWrite:write,maintenanceRevision:read})
+ const state=scope.run(()=>vm.runInContext(setupScript(new URL(`../src/components/maintenance/${file}.vue`,import.meta.url))+`;({edit,save,form,error,dialog,rows,assetName,assetOptions,historicalAssets,formLoading,busy${file==='MaintenanceInvestments'?',observationOptions,quoteOptions,defectOptions':',evDevices'}})`,context))
+ return{state,props:p,events,unmount:()=>{for(const fn of unmounts)fn();scope.stop()}}
+}
+async function settle(){await nextTick();await new Promise(resolve=>setImmediate(resolve));await nextTick()}
+test('fixed maintenance evidence preserves resource device IDs before device metadata arrives',async()=>{
+ for(const devices of [[],[{id:'unrelated'}]]){
+  const c=maintenanceComponent('MaintenanceRecords',{props:{items:[draftWork],devices}});await settle();await c.state.edit(draftWork);await settle()
+  assert.deepEqual(Array.from(c.state.evDevices.value,row=>row.id),['d1']);c.unmount()
+ }
+})
+
+test('revising an asset preserves old repair rows, fixed labels and draft edits without rebinding to the latest revision',async()=>{
+ const writes=[],component=maintenanceComponent('MaintenanceRecords',{props:{items:[draftWork],assetId:oldAsset.resourceId},write:async(...args)=>{writes.push(args);return draftWork}})
+ await settle()
+ assert.equal(component.state.rows.value.length,1,'same physical asset must keep records pinned to v1 after v2 is published')
+ await component.state.edit(draftWork);component.state.form.name='仅修改维修名称';await component.state.save()
+ assert.equal(component.state.error.value,'');assert.equal(writes.length,1);assert.equal(writes[0][3].body.assetRevisionId,oldAsset.id);assert.equal(component.state.assetName(oldAsset.id),oldAsset.body.name)
+ assert.ok(component.state.assetOptions.value.some(row=>row.id===oldAsset.id),'the selected fixed revision must have a real option label')
+ component.unmount()
+})
+test('scenario editing resolves fixed v1 before validation and keeps historical observation and quote choices',async()=>{
+ const writes=[],observation={id:'observation',deviceIds:['d1'],status:'SUCCEEDED',parameters:{observation:{afterAssetRevisionId:oldAsset.id}}},cost={id:'quote',body:{sourceKind:'ASSET_INSTANCE',sourceId:oldAsset.resourceId,type:'ESTIMATE',currency:'CNY',planningStart:t,planningEnd:t+10000}}
+ const otherWork={...draftWork,id:'another-work',body:{...draftWork.body,assetRevisionId:b.id}},component=maintenanceComponent('MaintenanceInvestments',{props:{items:[draftScenario],assets:[latestAsset,b],records:[draftWork,otherWork],observations:[observation],costs:[cost]},write:async(...args)=>{writes.push(args);return draftScenario}})
+ await component.state.edit(draftScenario);component.state.form.name='仅修改方案名称';await component.state.save()
+ assert.equal(component.state.error.value,'');assert.equal(writes.length,1);assert.equal(writes[0][3].body.candidates[0].assetRevisionId,oldAsset.id)
+ const candidate=component.state.form.candidates[0]
+ assert.equal(component.state.assetName(oldAsset.id),oldAsset.body.name);assert.deepEqual(component.state.observationOptions(candidate).map(r=>r.id),['observation']);assert.deepEqual(component.state.quoteOptions(candidate).map(r=>r.id),['quote']);assert.deepEqual(component.state.defectOptions(candidate).map(r=>r.id),[draftWork.id]);assert.ok(component.state.assetOptions(candidate).some(row=>row.id===oldAsset.id))
+ component.unmount()
+})
+test('unavailable fixed history blocks submission with an explicit error and retry preserves the original revision',async()=>{
+ for(const file of ['MaintenanceRecords','MaintenanceInvestments']){
+  let failed=true;const writes=[],row=file==='MaintenanceRecords'?draftWork:draftScenario,component=maintenanceComponent(file,{props:{items:[row]},read:async()=>{if(failed)throw Error('历史读取暂不可用');return oldAsset},write:async(...args)=>{writes.push(args);return row}})
+  await component.state.edit(row);await component.state.save()
+  assert.match(component.state.error.value,/历史实物/);assert.equal(writes.length,0);assert.ok(component.state.dialog.value)
+  failed=false;await component.state.save();assert.equal(component.state.error.value,'');assert.equal(writes.length,1)
+  const body=writes[0][3].body;assert.equal(file==='MaintenanceRecords'?body.assetRevisionId:body.candidates[0].assetRevisionId,oldAsset.id)
+  component.unmount()
+ }
+})
+test('late fixed history success or failure cannot replace a new editor, a closed dialog or an unmounted component',async()=>{
+ for(const file of ['MaintenanceRecords','MaintenanceInvestments'])for(const action of ['replace','close','unmount'])for(const outcome of ['success','failure']){
+  const request=deferred(),row=file==='MaintenanceRecords'?draftWork:draftScenario,component=maintenanceComponent(file,{read:()=>request.promise}),running=component.state.edit(row)
+  if(action==='replace'){const current=structuredClone(row);current.body.name='最后选择';if(file==='MaintenanceRecords')current.body.assetRevisionId=latestAsset.id;else current.body.candidates[0].assetRevisionId=latestAsset.id;await component.state.edit(current)}
+  else if(action==='close')component.state.dialog.value=file==='MaintenanceRecords'?'':false
+  else component.unmount()
+  await nextTick();if(outcome==='success')request.resolve(oldAsset);else request.reject(Error('过期历史读取失败'));await running;await settle()
+  assert.equal(component.state.error.value,'',`${file} ${action} must ignore stale history failures`)
+  assert.equal(component.state.historicalAssets.value.length,0,'an old editor response must not mutate current asset choices')
+  if(action==='replace')assert.equal(component.state.form.name,'最后选择')
+  if(action!=='unmount')component.unmount()
+ }
+})
+test('late saving responses cannot close a newer editor or emit selection for its previous record',async()=>{
+ for(const file of ['MaintenanceRecords','MaintenanceInvestments']){
+  const request=deferred(),row=file==='MaintenanceRecords'?draftWork:draftScenario,component=maintenanceComponent(file,{write:()=>request.promise})
+  await component.state.edit(row);const running=component.state.save();await settle()
+  const current=structuredClone(row);current.body.name='最后选择';await component.state.edit(current)
+  request.resolve(row);await running
+  assert.ok(component.state.dialog.value);assert.equal(component.state.form.name,'最后选择');assert.equal(component.state.error.value,'');assert.equal(component.events.length,0);assert.equal(component.state.busy.value,false)
+  component.unmount()
+ }
+})

@@ -1,4 +1,5 @@
 <script setup>
+import DeviceSelect from '../DeviceSelect.vue'
 import { computed, reactive, ref } from 'vue'
 import { Plus, Upload } from '@lucide/vue'
 import { can } from '../../permissions.js'
@@ -80,7 +81,7 @@ async function confirm(row) {
   </ui-table></div>
  </section>
  <ui-dialog v-model="dialog" :title="baseline?'从历史测量建立基线':'新增校准记录'" width="min(780px,94vw)" :close-on-click-modal="false" @close="dialog=false"><div class="quality-dialog-body"><ui-alert v-if="formError" :title="formError" type="error" :closable="false"/><ui-form label-position="top" :disabled="saving||uploading"><div class="quality-grid">
-  <ui-form-item label="设备" required><ui-select v-model="form.deviceId" filterable :disabled="!!deviceId" @change="form.profileRevisionId='';form.attachments=[]"><ui-option v-for="row in devices" :key="row.id" :value="row.id" :label="row.name || row.id"/></ui-select></ui-form-item>
+  <ui-form-item label="设备" required><DeviceSelect v-model="form.deviceId" :disabled="!!deviceId" @change="form.profileRevisionId='';form.attachments=[]"/></ui-form-item>
   <ui-form-item label="资料用途"><ui-select v-model="form.scope" @change="form.attachments=[]"><ui-option value="personal" label="个人分析资料"/><ui-option v-if="shareable" value="shared" label="受权共享资料"/></ui-select></ui-form-item>
   <ui-form-item v-if="baseline" label="固定质量配置版本" required><ui-select v-model="form.profileRevisionId" filterable @change="selectProfile"><ui-option v-for="row in options" :key="row.revisionId" :value="row.revisionId" :label="`${row.attributeId} · 版本 ${row.revisionVersion} · ${qualityTime(row.createdAt)}`"/></ui-select></ui-form-item>
   <ui-form-item label="属性标识" required><ui-input v-model="form.attributeId" :readonly="baseline"/></ui-form-item>

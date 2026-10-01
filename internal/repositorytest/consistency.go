@@ -12,6 +12,81 @@ import (
 	"iot-platform/internal/ports"
 )
 
+// ProtocolProductCreation checks that creating a template and its first
+// protocol binding is atomic, including failed and concurrent attempts.
+func ProtocolProductCreation(t *testing.T, repo ports.Repository) {
+	t.Helper()
+	ctx := context.Background()
+	change := func(id, version string) model.ProtocolSwitch {
+		return model.ProtocolSwitch{
+			Product:       model.Product{TenantID: "protocol-create", ID: id, Name: version, Status: "ENABLED", ProtocolPackageID: "fire@" + version},
+			Package:       model.ProtocolPackage{TenantID: "protocol-create", ID: "fire@" + version, Protocol: "fire", Version: version, Status: "PUBLISHED", ParserType: "go-protocol-v2"},
+			Binding:       model.ProductProtocolBinding{TenantID: "protocol-create", ProductID: id, ProtocolID: "fire", Version: version},
+			CreateProduct: true,
+		}
+	}
+	failed := change("failed", "failed")
+	failed.Expected = &model.ProductProtocolBinding{ProtocolID: "fire", Version: "missing"}
+	if err := repo.SwitchProductProtocol(ctx, failed); !errors.Is(err, model.ErrBindingChanged) {
+		t.Fatalf("invalid expected binding accepted: %v", err)
+	}
+	if _, err := repo.GetProduct(ctx, "protocol-create", "failed"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("failed transaction left a template: %v", err)
+	}
+	if _, err := repo.GetProtocolPackage(ctx, "protocol-create", "fire@failed"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("failed transaction left a package: %v", err)
+	}
+	if _, err := repo.GetProductProtocolBinding(ctx, "protocol-create", "failed"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("failed transaction left a binding: %v", err)
+	}
+	legacy := model.Product{TenantID: "protocol-create", ID: "legacy", Name: "existing", Status: "ENABLED"}
+	if err := repo.SaveProduct(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SwitchProductProtocol(ctx, change("legacy", "legacy")); !errors.Is(err, model.ErrBindingChanged) {
+		t.Fatalf("create overwrote an existing unbound product: %v", err)
+	}
+	if saved, _ := repo.GetProduct(ctx, legacy.TenantID, legacy.ID); saved.Name != legacy.Name {
+		t.Fatalf("rejected create changed template: %+v", saved)
+	}
+
+	var wg sync.WaitGroup
+	winners := make(chan string, 12)
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func(version string) {
+			defer wg.Done()
+			err := repo.SwitchProductProtocol(ctx, change("raced", version))
+			if err == nil {
+				winners <- version
+			} else if !errors.Is(err, model.ErrBindingChanged) {
+				t.Errorf("concurrent create: %v", err)
+			}
+		}(fmt.Sprint(i))
+	}
+	wg.Wait()
+	close(winners)
+	versions := []string{}
+	for version := range winners {
+		versions = append(versions, version)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("concurrent create winners=%v, want one", versions)
+	}
+	saved, err := repo.GetProduct(ctx, "protocol-create", "raced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := repo.GetProductProtocolBinding(ctx, "protocol-create", "raced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := repo.GetProtocolPackage(ctx, "protocol-create", "fire@"+versions[0])
+	if err != nil || saved.Name != versions[0] || saved.ProtocolPackageID != pkg.ID || binding.Version != versions[0] || pkg.Version != versions[0] {
+		t.Fatalf("creation was not atomic: %+v %+v %+v %v", saved, binding, pkg, err)
+	}
+}
+
 // StandardClaim checks cross-worker claiming: one live holder at a time,
 // takeover after the lease, and completion fenced to the latest token.
 func StandardClaim(t *testing.T, repo ports.Repository) {

@@ -2,7 +2,7 @@
 import { can } from '../permissions'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, download, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
@@ -26,12 +26,26 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref(null)
 const manifest = ref(null)
+const manifestLoading = ref(false)
 const manifestPage = ref(1)
 const manifestPageSize = ref(20)
 const manifestTotal = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 let loadVersion = 0
+let detailVersion = 0
+let manifestVersion = 0
+let manifestLoadedPage = 1
+let manifestLoadedPageSize = manifestPageSize.value
+
+function invalidateDetail() {
+  ++detailVersion
+  ++manifestVersion
+  detailLoading.value = false
+  manifestLoading.value = false
+}
+watch(detailVisible, visible => { if (!visible) invalidateDetail() }, { flush:'sync' })
+onBeforeUnmount(() => { ++loadVersion; invalidateDetail() })
 
 const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','POST /api/v1/backups/:id/restore','GET /api/v1/backups/:id/files/:filename','DELETE /api/v1/backups/:id']))
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length)
@@ -75,6 +89,11 @@ async function load(resetPage = false) {
     serviceMissing.value = false
     records.value = data.items || []
     total.value = Number(data.total ?? data.count ?? records.value.length)
+    const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
+    if (page.value > lastPage) {
+      page.value = lastPage
+      await load()
+    }
   } catch (error) {
     if (version !== loadVersion) return
     serviceMissing.value = error?.status === 503 && /not configured/i.test(error.originalMessage || '')
@@ -96,39 +115,66 @@ function changePageSize(value) {
 }
 
 async function showDetail(row) {
+  const version = ++detailVersion
+  ++manifestVersion
   detailVisible.value = true
   detailLoading.value = true
   detail.value = null
   manifest.value = null
   manifestPage.value = 1
   manifestTotal.value = 0
+  manifestLoading.value = false
+  manifestLoadedPage = 1
+  manifestLoadedPageSize = manifestPageSize.value
   try {
-    detail.value = await api(`/api/v1/backups/${idPath(row.id)}`)
+    const data = await api(`/api/v1/backups/${idPath(row.id)}`)
+    if (version !== detailVersion || !detailVisible.value) return
+    detail.value = data
     if (row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)) {
       await loadManifest(row.id)
     }
   } catch (error) {
-    notifyError(error)
+    if (version === detailVersion && detailVisible.value) notifyError(error)
   } finally {
-    detailLoading.value = false
+    if (version === detailVersion) detailLoading.value = false
   }
 }
 
 async function loadManifest(id) {
+  const viewVersion = detailVersion
+  const version = ++manifestVersion
+  const requestedPage = manifestPage.value
+  const requestedPageSize = manifestPageSize.value
+  manifestLoading.value = true
   const query = new URLSearchParams({ page: String(manifestPage.value), pageSize: String(manifestPageSize.value) })
-  manifest.value = await api(`/api/v1/backups/${idPath(id)}/files?${query.toString()}`)
-  manifestTotal.value = Number(manifest.value.total ?? manifest.value.artifacts?.length ?? 0)
+  const current = () => viewVersion === detailVersion && version === manifestVersion && detailVisible.value && detail.value?.id === id
+  try {
+    const data = await api(`/api/v1/backups/${idPath(id)}/files?${query.toString()}`)
+    if (!current()) return
+    manifest.value = data
+    manifestTotal.value = Number(data.total ?? data.artifacts?.length ?? 0)
+    manifestLoadedPage = requestedPage
+    manifestLoadedPageSize = requestedPageSize
+  } catch (error) {
+    if (current()) {
+      manifestPage.value = manifestLoadedPage
+      manifestPageSize.value = manifestLoadedPageSize
+      notifyError(error)
+    }
+  } finally {
+    if (current()) manifestLoading.value = false
+  }
 }
 
 function changeManifestPage(value) {
   manifestPage.value = value
-  if (detail.value?.id) loadManifest(detail.value.id).catch(notifyError)
+  if (detail.value?.id) void loadManifest(detail.value.id)
 }
 
 function changeManifestPageSize(value) {
   manifestPageSize.value = value
   manifestPage.value = 1
-  if (detail.value?.id) loadManifest(detail.value.id).catch(notifyError)
+  if (detail.value?.id) void loadManifest(detail.value.id)
 }
 
 async function runBackup(type) {
@@ -262,7 +308,7 @@ function rowActions(row) {
       <ui-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon />
       <template v-if="manifest">
         <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><ui-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</ui-button></div>
-        <ui-table :data="manifest.artifacts" stripe>
+        <ui-table v-loading="manifestLoading" :data="manifest.artifacts" stripe>
           <ui-table-column label="组件" width="160"><template #default="{row}">{{ label(backupComponents, row.component, '其他组件') }}</template></ui-table-column>
           <ui-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></ui-table-column>
           <ui-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></ui-table-column>
@@ -270,7 +316,7 @@ function rowActions(row) {
           <ui-table-column label="操作" width="100" align="center"><template #default="{ row }"><ui-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</ui-button><span v-else class="muted-text">管理员可下载</span></template></ui-table-column>
         </ui-table>
         <div class="list-pagination">
-          <ui-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" />
+          <ui-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :disabled="manifestLoading" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" />
         </div>
         <div class="section-heading top-gap"><div><strong>组件说明</strong><span>由备份任务写入文件清单，用于确认本次备份覆盖范围</span></div></div>
         <pre>{{ pretty(manifest.components) }}</pre>

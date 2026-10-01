@@ -410,14 +410,42 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		v.CreatedAt = now
 	}
 	v.UpdatedAt = now
-	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
-		return
+	var expected *model.ProductProtocolBinding
+	if !newProduct {
+		if binding, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), c.TenantID, v.ID); getErr == nil {
+			// Template edits do not switch protocols. Reject a stale form rather
+			// than replacing the active binding or disagreeing with its reference.
+			if binding.ProtocolID != pkg.Protocol || binding.Version != pkg.Version {
+				bindingProblem(w, model.ErrBindingChanged)
+				return
+			}
+			expected = &binding
+		} else if !errors.Is(getErr, model.ErrNotFound) {
+			problem(w, 500, getErr.Error())
+			return
+		}
 	}
 	// Versioned protocols are parsed by the bound release; the binding is their single source.
-	_, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
-	if newProduct && v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {
-		if _, err := s.bindProtocolRelease(r, pkg.Protocol, pkg.Version, v.ID); err != nil {
+	release, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
+	if releaseErr != nil && !errors.Is(releaseErr, model.ErrNotFound) {
+		problem(w, 500, releaseErr.Error())
+		return
+	}
+	if v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {
+		if release.Status != "PUBLISHED" {
+			problem(w, 422, "only a published protocol release can be bound")
+			return
+		}
+		binding := model.ProductProtocolBinding{TenantID: c.TenantID, ProductID: v.ID, ProtocolID: pkg.Protocol, Version: pkg.Version, UpdatedAt: now}
+		if expected != nil {
+			binding = *expected
+		} else if err := s.validateProtocolBinding(r, release, v.ID); err != nil {
+			bindingProblem(w, err)
+			return
+		}
+		// The same atomic switch creates new templates and repairs old failed
+		// creations. Expected=nil prevents overwriting a concurrent first bind.
+		if _, err := s.commitProductProtocol(r, v, release, binding, expected, newProduct); err != nil {
 			bindingProblem(w, err)
 			return
 		}
@@ -426,6 +454,9 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 			problem(w, 500, err.Error())
 			return
 		}
+	} else if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
+		problem(w, 500, err.Error())
+		return
 	}
 	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status})
 	write(w, 201, v)
@@ -1771,7 +1802,12 @@ func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
 		if s.log != nil {
 			s.log.Warn("list AI workflows failed", "error", err)
 		}
-		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"})
+		fallback := []ports.AIWorkflowPlugin{}
+		if forKnowledge {
+			fallback = knowledgeWorkflowPlugins(nil)
+		}
+		fallback, total := pageItems(fallback, pagination)
+		writeList(w, 200, fallback, total, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"})
 		return
 	}
 	if forKnowledge {
@@ -1787,16 +1823,23 @@ func alarmAnalysisWorkflowPlugin() ports.AIWorkflowPlugin {
 	return ports.AIWorkflowPlugin{ID: model.AlarmAnalysisWorkflowID, Name: "AI 告警研判", Description: "告警详情中的智能研判；仅有知识库权限的角色手动研判时检索本智能体的文档。", Enabled: true, KnowledgeEnabled: true}
 }
 
-// knowledgeWorkflowPlugins lists the Agents that own knowledge documents: chat
-// Agents plus the alarm analysis Agent.
+// knowledgeWorkflowPlugins uses knowledge capability independently of the chat
+// catalog. Business Agents own documents and retrieval policies too.
 func knowledgeWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin {
-	visible := chatWorkflowPlugins(items)
+	visible := make([]ports.AIWorkflowPlugin, 0, len(items)+1)
+	hasAlarm := false
 	for _, item := range items {
 		if item.ID == model.AlarmAnalysisWorkflowID {
-			return append(visible, item)
+			hasAlarm = true
+		}
+		if item.KnowledgeEnabled || item.ID == model.AlarmAnalysisWorkflowID {
+			visible = append(visible, item)
 		}
 	}
-	return append(visible, alarmAnalysisWorkflowPlugin())
+	if !hasAlarm {
+		visible = append(visible, alarmAnalysisWorkflowPlugin())
+	}
+	return visible
 }
 
 func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {

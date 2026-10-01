@@ -31,4 +31,23 @@ Object.assign(labels,{ASSET_INSTANCE:'固定实物实例',MAINTENANCE_RECORD:'�
 
 export function eligibleObservations(runs,asset,assets){if(!asset)return[];return(runs||[]).filter(run=>{const after=assets.find(a=>a.id===run.parameters?.observation?.afterAssetRevisionId);return after&&after.resourceId===asset.resourceId&&after.body.deviceId===asset.body.deviceId&&['SUCCEEDED','PARTIAL'].includes(run.status)})}
 
+// Historical references remain pinned to their immutable revision; the latest
+// asset directory cannot replace them. Share in-flight reads and bound batches.
+export function createAssetRevisionLookup(currentAssets,readRevision){
+ const requests=new Map()
+ return async(ids,isCurrent=()=>true)=>{
+  const missing=[...new Set(ids.filter(Boolean))].filter(id=>!currentAssets().some(asset=>asset.id===id)),items=[],errors=[]
+  for(let offset=0;offset<missing.length;offset+=8){
+   if(!isCurrent())return null
+   const results=await Promise.allSettled(missing.slice(offset,offset+8).map(id=>{
+    if(!requests.has(id)){const request=Promise.resolve().then(()=>readRevision(id,'assets')).then(asset=>{if(asset?.id!==id)throw Error('固定历史实物版本不匹配');return asset}).catch(cause=>{requests.delete(id);throw cause});requests.set(id,request)}
+    return requests.get(id)
+   }))
+   if(!isCurrent())return null
+   for(const result of results)if(result.status==='fulfilled')items.push(result.value);else errors.push(result.reason)
+  }
+  return{items,errors}
+ }
+}
+
 export const verificationLabel=value=>({PENDING:'待功能验收',PASSED:'功能验收通过',FAILED:'功能验收失败',UNKNOWN:'功能未知或未确认'})[value]||stateLabel(value)

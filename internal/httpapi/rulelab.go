@@ -201,5 +201,5 @@ func (s *Server) ruleLabRuleSources(w http.ResponseWriter, r *http.Request) {
 		analysisProblem(w, err)
 		return
 	}
-	write(w, 200, map[string]any{"items": values, "total": total})
+	write(w, 200, map[string]any{"items": values, "total": total, "maxRecords": s.rulelab.RuleSourceRecordLimit()})
 }

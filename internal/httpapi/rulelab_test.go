@@ -15,9 +15,33 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/rulelab/eval"
+	"iot-platform/internal/rulelab/lab"
 )
 
 type ruleLabHTTPInputs struct{}
+
+func TestRuleLabRuleSourcesReportsConfiguredRecordLimit(t *testing.T) {
+	for _, fixture := range []struct {
+		name                 string
+		configured, expected int
+	}{{"default", 0, lab.MaxRecords}, {"smaller configured limit", 3, 3}} {
+		t.Run(fixture.name, func(t *testing.T) {
+			repo := memory.NewRepository()
+			if err := repo.SaveManagedDevice(context.Background(), model.ManagedDevice{TenantID: "t", ID: "a", ProductID: "p", AccessKey: "rule-source-limit-test"}); err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Config{AdminUser: "admin", AdminTenants: []string{"t"}, JWTSecret: "rule-source-limit-test-key-32-chars", DevMode: true, Analytics: config.AnalyticsConfig{RecordLimit: fixture.configured}}
+			api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			server := httptest.NewServer(api.Handler())
+			defer server.Close()
+			token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+			page := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/rule-lab/rule-sources?deviceIds=a", token, nil, 200)
+			if page["maxRecords"] != float64(fixture.expected) || page["total"] != float64(0) {
+				t.Fatalf("rule sources do not expose the actual normalized record limit: %v", page)
+			}
+		})
+	}
+}
 
 func (ruleLabHTTPInputs) RuleLabInputsRead(ctx context.Context, tenant string, fn func(ports.RuleLabInputReader) error) error {
 	return fn(ruleLabHTTPInputs{})

@@ -82,6 +82,11 @@ async function load(silent = false) {
       silent ? Promise.resolve({ items:agents.value }) : api('/api/v1/ai/workflows?purpose=knowledge&page=1&pageSize=100')
     ])
     if (version !== loadVersion) return
+    if (agentResult.status === 'fulfilled') agents.value = Array.isArray(agentResult.value.items) ? agentResult.value.items.filter(item => item.enabled !== false) : []
+    else agentError.value = agentResult.reason?.message || '智能体列表读取失败'
+    if (!workflowId.value && agents.value.length) workflowId.value = agentKey(agents.value[0])
+    if (agents.value.length && !agents.value.some(item => agentKey(item) === bindingWorkflowId.value)) bindingWorkflowId.value = agentKey(agents.value[0])
+    if (bindingWorkflowId.value && loadedBindingWorkflowId.value !== bindingWorkflowId.value) void loadBinding()
     if (documentResult.status === 'fulfilled') {
       const data = documentResult.value
       documentsError.value = ''
@@ -96,13 +101,8 @@ async function load(silent = false) {
         if (silent && isIndexing(previous)) await showDocument(current || previous, true)
       }
     } else {
-      throw documentResult.reason
+      documentsError.value = documentResult.reason?.message || '知识文档列表读取失败'
     }
-    if (agentResult.status === 'fulfilled') agents.value = Array.isArray(agentResult.value.items) ? agentResult.value.items.filter(item => item.enabled !== false) : []
-    else agentError.value = agentResult.reason?.message || '智能体列表读取失败'
-    if (!workflowId.value && agents.value.length) workflowId.value = agentKey(agents.value[0])
-    if (agents.value.length && !agents.value.some(item => agentKey(item) === bindingWorkflowId.value)) bindingWorkflowId.value = agentKey(agents.value[0])
-    if (bindingWorkflowId.value && loadedBindingWorkflowId.value !== bindingWorkflowId.value) void loadBinding()
   } catch (error) {
     if (version === loadVersion) {
       documentsError.value = error.message || '知识文档列表读取失败'

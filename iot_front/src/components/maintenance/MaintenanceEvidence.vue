@@ -1,4 +1,5 @@
 <script setup>
+import { useDeviceLabels } from '../../useDeviceCatalog.js'
 import { onBeforeUnmount,ref,watch } from 'vue'
 import { Paperclip,Plus } from '@lucide/vue'
 import { can } from '../../permissions.js'
@@ -6,6 +7,7 @@ import { createClientId } from '../../clientId.js'
 import { maintenanceAttachment,maintenanceUpload } from '../../maintenance/api.js'
 import { evidenceKinds,maintenanceTime } from '../../maintenance/helpers.js'
 const props=defineProps({modelValue:{type:Array,default:()=>[]},devices:{type:Array,default:()=>[]},disabled:Boolean,readonly:Boolean})
+useDeviceLabels(() => props.devices.map(row => row.id))
 const emit=defineEmits(['update:modelValue','navigate'])
 const input=ref(null),error=ref(''),uploading=ref(false),pending=ref(null)
 let key='',generation=0,disposed=false

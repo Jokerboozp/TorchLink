@@ -12,10 +12,12 @@ import { compactCount, dashboardDistributions, deviceSegments, productBars, ring
 const root = new URL('../src/views/', import.meta.url)
 // Execute the real setup code with Vue reactivity; replace external I/O and
 // lifecycle hooks so response ordering is deterministic without a browser.
-function component(file, api, exports, notifyError = e => { throw e }, base = root) {
+function component(file, api, exports, notifyError = e => { throw e }, base = root, overrides = {}) {
   const source = setupScript(new URL(file, base))
-  const context = vm.createContext({ref, reactive, computed, defineAsyncComponent, watch, providerOptions, can:()=>true, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(){}, onBeforeUnmount(){}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, URLSearchParams, setTimeout, clearTimeout}) /* 为 Naive UI 消息入口提供无副作用替身。 */
-  return vm.runInContext(source + '\n;({' + exports + '})', context)
+  const cleanups = []
+  const mounts = []
+  const context = vm.createContext({ref, reactive, computed, defineAsyncComponent, watch, providerOptions, can:()=>true, defineProps:()=>({section:'profiles'}), api, apiAll:(path, options)=>loadAllPages(api,path,options), onMounted(fn){mounts.push(fn)}, onBeforeUnmount(fn){cleanups.push(fn)}, defineEmits:()=>()=>{}, pretty:JSON.stringify, parseJSON:JSON.parse, crypto:{getRandomValues:bytes=>crypto.getRandomValues(bytes)}, createClientId:()=>createClientId({getRandomValues:bytes=>crypto.getRandomValues(bytes)}), notifyError, UiMessage:{success(){},warning(){},info(){}}, sessionStorage:{getItem(){return null}}, alarmNavigation, alarmQuery, URLSearchParams, setTimeout, clearTimeout, window:{setTimeout,clearTimeout,addEventListener(){},removeEventListener(){}}, ...overrides}) /* 为 Naive UI 消息入口提供无副作用替身。 */
+  return { ...vm.runInContext(source + '\n;({' + exports + '})', context), unmount:()=>cleanups.forEach(fn=>fn()), mount:()=>Promise.all(mounts.map(fn=>fn())) }
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
 
@@ -369,7 +371,7 @@ test('设备分组、类型、关键字和运行状态交给服务端筛选，�
 function fixture(api) {
   const script = setupScript(new URL('../src/views/RawView.vue', import.meta.url))
   const warnings = []
-  const context = vm.createContext({ ref, computed, defineEmits() {}, onMounted() {}, api, URLSearchParams, UiMessage: { warning: text => warnings.push(text) }, notifyError() {}, messageTypeLabel: x => x })
+  const context = vm.createContext({ ref, computed, watch, defineEmits() {}, onMounted() {}, onBeforeUnmount() {}, api, URLSearchParams, UiMessage: { warning: text => warnings.push(text) }, notifyError() {}, messageTypeLabel: x => x })
   return { ...vm.runInContext(script + '\n;({filters, appliedFilters, page, items, total, selection, load, search, resetFilters, recentHours, changePage, parseState, loadError})', context), warnings }
 }
 
@@ -427,7 +429,7 @@ test('alarm list batches alarm events and ignores device state events', async ()
   const timers = []
   let requests = 0
   const context = vm.createContext({
-    ref, reactive, computed,
+    ref, reactive, computed, watch,
     defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount() {},
     api: async () => { requests++; return { items: [], total: 0 } },
     alarmQuery: () => '', notifyError: error => { throw error },
@@ -550,3 +552,80 @@ for (const scenario of ['untested', 'failed-test', 'changed-after-test']) {
     assert.equal(c.providerError.value, '')
   })
 }
+
+for (const [file, prefix, record, key] of [
+  ['RawView.vue', '/api/v1/raw-messages/', id=>({message:{messageId:id}}), value=>value.message.messageId],
+  ['AlarmsView.vue', '/api/v1/alarms/', id=>({alarmId:id}), value=>value.alarmId]
+]) {
+  test(`${file} stops initial detail navigation when its list finishes after leaving`, async () => {
+    const requests = []
+    let finish
+    const c = component(file, path => {
+      requests.push(path)
+      if (path.includes('?')) return new Promise(resolve=>{finish=resolve})
+      return Promise.resolve(record('linked'))
+    }, 'detailVisible', undefined, root, {sessionStorage:{getItem(){return JSON.stringify({messageId:'linked',alarmId:'linked'})},removeItem(){}}})
+    const mounting = c.mount(); c.unmount()
+    finish({items:[],total:0}); await mounting
+    assert.equal(requests.length, 1)
+    assert.equal(c.detailVisible.value, false)
+  })
+
+  test(`${file} keeps the last clicked detail when responses arrive out of order`, async () => {
+    const pending = new Map()
+    const c = component(file, path => path.startsWith(prefix)
+      ? new Promise((resolve,reject)=>pending.set(path.slice(prefix.length),{resolve,reject}))
+      : Promise.resolve({}), 'show,detail,detailVisible')
+    const old = c.show('old')
+    const current = c.show('current')
+    pending.get('current').resolve(record('current')); await current
+    pending.get('old').resolve(record('old')); await old
+    assert.equal(key(c.detail.value), 'current')
+    assert.equal(c.detailVisible.value, true)
+    c.unmount()
+  })
+
+  test(`${file} ignores detail responses and errors after closing or leaving`, async () => {
+    const pending = new Map()
+    const notices = []
+    const c = component(file, path => path.startsWith(prefix)
+      ? new Promise((resolve,reject)=>pending.set(path.slice(prefix.length),{resolve,reject}))
+      : Promise.resolve({}), 'show,detail,detailVisible', error=>notices.push(error))
+    const first = c.show('first'); pending.get('first').resolve(record('first')); await first
+    const next = c.show('next'); c.detailVisible.value = false
+    pending.get('next').resolve(record('next')); await next
+    assert.equal(c.detailVisible.value, false)
+    assert.equal(key(c.detail.value), 'first')
+    const failed = c.show('failed'); c.unmount()
+    pending.get('failed').reject(new Error('obsolete detail')); await failed
+    assert.equal(notices.length, 0)
+  })
+}
+
+test('alarm list ignores a failed response after leaving the page', async () => {
+  const notices = []
+  let fail
+  const c = component('AlarmsView.vue',()=>new Promise((_resolve,reject)=>{fail=reject}),'load',error=>notices.push(error))
+  const reading = c.load(); c.unmount(); fail(new Error('obsolete list')); await reading
+  assert.equal(notices.length, 0)
+})
+
+test('rule saves submit once while pending and release the guard for a failed retry', async () => {
+  const writes = []
+  const notices = []
+  const c = component('RulesView.vue', (path,options) => {
+    if (options?.method) return new Promise((resolve,reject)=>writes.push({path,options,resolve,reject}))
+    return Promise.resolve({items:[],total:0})
+  }, 'open,save,form,dialog', error=>notices.push(error))
+  c.open(); c.form.name = '烟感规则'
+  const first = c.save(); const duplicate = c.save()
+  assert.equal(writes.length, 1)
+  writes[0].reject(new Error('temporary failure')); await Promise.all([first,duplicate])
+  assert.equal(c.dialog.value, true)
+  assert.equal(c.form.name, '烟感规则')
+  assert.equal(notices.length, 1)
+  const retry = c.save()
+  assert.equal(writes.length, 2)
+  writes[1].resolve({}); await retry
+  assert.equal(c.dialog.value, false)
+})

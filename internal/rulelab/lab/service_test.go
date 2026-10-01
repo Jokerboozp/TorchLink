@@ -257,6 +257,66 @@ func TestRuleLabResourceCapAndScopedRules(t *testing.T) {
 		t.Fatal("hidden camera version escaped", rules, total, err)
 	}
 }
+
+func TestRuleSourcesPreservesProductHistoryAcrossDeviceBatches(t *testing.T) {
+	ctx := context.Background()
+	s, _, repo, actor, oldRevision := setupLab(t)
+	actor.DeviceIDs = []string{"a", "b"}
+	s.Analysis.Resolve = func(_ context.Context, identity analytics.Actor) (analytics.Actor, error) {
+		if identity.TenantID != actor.TenantID || identity.Username != actor.Username {
+			return analytics.Actor{}, analytics.ErrForbidden
+		}
+		return actor, nil
+	}
+	if err := repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "next-product", Name: "后续模板"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "b", ProductID: "next-product", AccessKey: "key-b"}); err != nil {
+		t.Fatal(err)
+	}
+	moved := oldRevision.Rule
+	moved.ProductID = "next-product"
+	newRevision, err := repo.PublishRule(ctx, model.RulePublishRequest{Rule: moved, ExpectedBaselineVersion: oldRevision.Version, Reason: "move rule to another product", SemanticsVersion: eval.RevisionV2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, total, err := s.RuleSources(ctx, actor, []string{"a", "b"}, model.AnalysisFilter{Limit: 100})
+	if err != nil || total != 2 || len(all) != 2 {
+		t.Fatalf("full fixed input must retain both product revisions: %+v %d %v", all, total, err)
+	}
+	combined := map[string]bool{}
+	for _, batch := range []struct {
+		deviceID, revisionID string
+	}{{"a", oldRevision.ID}, {"b", newRevision.ID}} {
+		page, count, err := s.RuleSources(ctx, actor, []string{batch.deviceID}, model.AnalysisFilter{Limit: 100})
+		if err != nil || count != 1 || len(page) != 1 || page[0].ID != batch.revisionID {
+			t.Fatalf("device %s lost its immutable product revision: %+v %d %v", batch.deviceID, page, count, err)
+		}
+		combined[page[0].ID] = true
+	}
+	if len(combined) != len(all) {
+		t.Fatalf("selected-device batches differ from full fixed input: %v vs %+v", combined, all)
+	}
+	for _, revision := range all {
+		if !combined[revision.ID] {
+			t.Fatalf("batch union omitted revision %s", revision.ID)
+		}
+	}
+	if _, _, err := s.RuleSources(ctx, actor, []string{"hidden"}, model.AnalysisFilter{}); !errors.Is(err, analytics.ErrForbidden) {
+		t.Fatalf("device scope changed: %v", err)
+	}
+	s.RecordLimit = 1
+	if _, _, err := s.RuleSources(ctx, actor, []string{"a", "b"}, model.AnalysisFilter{}); !errors.Is(err, model.ErrAnalysisInvalid) {
+		t.Fatalf("history record limit changed: %v", err)
+	}
+	s.RecordLimit = MaxRecords
+	if _, err := repo.PublishRule(ctx, model.RulePublishRequest{Rule: moved, ExpectedBaselineVersion: newRevision.Version, Delete: true, Reason: "delete current rule", SemanticsVersion: eval.RevisionV2}); err != nil {
+		t.Fatal(err)
+	}
+	if page, count, err := s.RuleSources(ctx, actor, []string{"a", "b"}, model.AnalysisFilter{}); err != nil || count != 0 || len(page) != 0 {
+		t.Fatalf("deleted-rule catalog semantics changed: %+v %d %v", page, count, err)
+	}
+}
 func TestRuleLabAICandidatePreparationIsReadOnlyAndSharedPrivateRejected(t *testing.T) {
 	s, _, _, a, revision := setupLab(t)
 	cancel, done := startWorkers(s)

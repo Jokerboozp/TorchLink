@@ -1,4 +1,5 @@
 <script setup>
+import { deviceChoices } from '../../deviceCatalog.js'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { can } from '../../permissions.js'
 import { createClientId } from '../../clientId.js'
@@ -15,7 +16,7 @@ const actionDialog=ref(false),action=ref(''),saving=ref(false),saveError=ref('')
 const form=reactive({owner:'',dueAt:null,explanation:'',evidence:[],followUpExecutionId:'',result:'',items:[],runId:'',ownerId:'',nextAction:'',idempotencyKey:''})
 let generation=0,detailGeneration=0,disposed=false
 const rows=computed(()=>props.items.filter(row=>(!props.deviceId||row.deviceIds.includes(props.deviceId))&&(!status.value||row.body.status===status.value))),slice=computed(()=>rows.value.slice((page.value-1)*20,page.value*20))
-const actionBody=computed(()=>selected.value?.body||{}),selectedDevices=computed(()=>props.devices.filter(row=>selected.value?.deviceIds.includes(row.id))),availableFollowUps=computed(()=>props.executions.filter(row=>selected.value?.deviceIds.every(id=>row.deviceIds.includes(id)))),selectedDutyRun=computed(()=>dutyRuns.value.find(row=>row.id===form.runId))
+const actionBody=computed(()=>selected.value?.body||{}),selectedDevices=computed(()=>deviceChoices(selected.value?.deviceIds||[],props.devices)),availableFollowUps=computed(()=>props.executions.filter(row=>selected.value?.deviceIds.every(id=>row.deviceIds.includes(id)))),selectedDutyRun=computed(()=>dutyRuns.value.find(row=>row.id===form.runId))
 const deviceName=id=>props.devices.find(row=>row.id===id)?.name||id
 const personName=id=>staff.value.find(row=>row.username===id)?.displayName||id
 async function readLinks(){const token=detailGeneration,id=selected.value?.resourceId;links.value=[];linksError.value='';if(!id||!can('menu:duty'))return;try{const result=await responseRead('corrective-actions',id,'duty-links');if(token===detailGeneration&&!disposed)links.value=result.items||[]}catch(cause){if(token===detailGeneration&&!disposed)linksError.value=cause.message}}

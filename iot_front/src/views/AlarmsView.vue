@@ -1,7 +1,7 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 const emit = defineEmits(['navigate'])
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { can } from '../permissions.js'
 import { UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty } from '../api'
@@ -32,11 +32,13 @@ const total = ref(0)
 let analysisPollTimer = 0
 let analysisViewToken = 0
 let loadVersion = 0
+let disposed = false
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
 const progressStatus = computed(() => analysisProgress.value?.status === 'failed' ? 'exception' : analysisProgress.value?.status === 'succeeded' ? 'success' : undefined)
 
 async function load(resetPage = false) {
+  if (disposed) return
   const version = ++loadVersion
   if (resetPage) page.value = 1
   loading.value = true
@@ -67,6 +69,7 @@ function handleDetailClosed() {
   analysisLoading.value = false
   analysisProgress.value = null
 }
+watch(detailVisible, visible => { if (!visible) handleDetailClosed() }, { flush:'sync' })
 
 // 研判结果按知识范围分开保存，这里说明当前显示的结果依据了哪些知识。
 function analysisKnowledgeText(item) {
@@ -111,12 +114,15 @@ async function pollAnalysis(jobId, alarmId, viewToken = analysisViewToken) {
 }
 
 async function show(id) {
+  if (disposed) return
   const viewToken = ++analysisViewToken
   stopAnalysisPolling()
   analysisLoading.value = false
   analysisProgress.value = null
   try {
-    detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
+    const data = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
+    if (viewToken !== analysisViewToken) return
+    detail.value = data
     analysis.value = null
     detailVisible.value = true
     const [savedResult, progressResult] = await Promise.allSettled([
@@ -137,7 +143,7 @@ async function show(id) {
       analysisLoading.value = false
     }
   } catch (e) {
-    notifyError(e)
+    if (viewToken === analysisViewToken) notifyError(e)
   }
 }
 
@@ -196,6 +202,8 @@ onMounted(async () => {
   if (navigation.alarmId) await show(navigation.alarmId)
 })
 onBeforeUnmount(() => {
+  disposed = true
+  loadVersion += 1
   analysisViewToken += 1
   stopAnalysisPolling()
   window.clearTimeout(realtimeTimer)
@@ -236,7 +244,7 @@ function rowActions(row) {
     </ui-table>
   </DataTableCard>
 
-  <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
+  <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
     <ui-descriptions v-if="detail" :column="1" border>
       <ui-descriptions-item label="告警编号">{{detail.alarmId}}</ui-descriptions-item><ui-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</ui-descriptions-item><ui-descriptions-item v-if="detail.componentId" label="部件">{{detail.componentName||detail.componentId}}（{{detail.componentId}}）</ui-descriptions-item><ui-descriptions-item v-if="detail.componentLocation" label="部件位置">{{detail.componentLocation}}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</ui-descriptions-item><ui-descriptions-item label="等级 / 状态"><ui-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</ui-tag> {{label(alarmStatuses,detail.status)}}</ui-descriptions-item><ui-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</ui-descriptions-item><ui-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="触发次数">{{detail.triggerCount}}</ui-descriptions-item>
     </ui-descriptions>

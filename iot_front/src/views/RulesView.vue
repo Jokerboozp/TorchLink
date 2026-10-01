@@ -27,6 +27,7 @@ const dialog = ref(false)
 const draftDialog = ref(false)
 const readonly = ref(false)
 const loading = ref(false)
+const saving = ref(false)
 const prompt = ref('')
 const draft = ref(null)
 const draftPresentation = ref(null)
@@ -93,12 +94,14 @@ function changePageSize(value) {
 }
 
 function open(value, presentation = null) {
+  if (saving.value) return
   Object.assign(form, blank(), value ? { ...value, conditions:pretty(value.conditions || (value.expression ? [] : [{ field:'temperature', operator:'>', value:80 }])), recovery:pretty(value.recovery || []), actions:pretty(value.actions || []), expression:value.expression || '', genginePlaceholder:presentation?.genginePlaceholder || value.genginePlaceholder || '' } : {})
   readonly.value = false
   dialog.value = true
 }
 
 function view(value) {
+  if (saving.value) return
   open(value)
   readonly.value = true
 }
@@ -108,6 +111,8 @@ function startEdit() {
 }
 
 async function save() {
+  if (saving.value || readonly.value) return
+  saving.value = true
   try {
     const value = { ...form, expression:form.expression.trim(), conditions:parseJSON(form.conditions || '[]', '触发条件'), recovery:parseJSON(form.recovery || '[]', '恢复条件'), actions:parseJSON(form.actions || '[]', '联动动作'), durationSeconds:Number(form.durationSeconds) || 0 }
     if (!Array.isArray(value.conditions) || !Array.isArray(value.recovery) || !Array.isArray(value.actions)) throw new Error('条件、恢复条件和联动动作必须是结构化数据数组')
@@ -121,6 +126,8 @@ async function save() {
     await load()
   } catch (error) {
     notifyError(error)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -255,8 +262,8 @@ function rowActions(row) {
     <template #footer><ui-button @click="draftDialog=false">关闭</ui-button></template>
   </ui-dialog>
 
-  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)" destroy-on-close>
-    <ui-form :model="form" label-position="top" :disabled="readonly">
+  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close>
+    <ui-form :model="form" label-position="top" :disabled="readonly || saving">
       <section class="rule-editor-section"><div class="rule-editor-heading"><h3>规则基本信息</h3><p>确定规则名称、告警结果及适用设备范围。</p></div>
       <ui-form-item label="规则名称"><ui-input v-model="form.name" /></ui-form-item>
       <ui-form-item label="规则说明"><ui-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></ui-form-item>
@@ -283,7 +290,7 @@ function rowActions(row) {
         <ui-table-column prop="example" label="示例" min-width="180" />
       </ui-table></div><div class="rule-reference-cards"><article v-for="item in fieldDescriptions" :key="item.field"><strong>{{ item.field }}</strong><p>{{ item.meaning }}</p><small>示例：{{ item.example }}</small></article></div></details>
     </ui-form>
-    <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</ui-button></template>
+    <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button :disabled="saving" @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" :loading="saving" :disabled="saving" @click="save">保存规则</ui-button></template>
   </ui-dialog>
   </template>
   <RuleLabView v-else :rule-id="labRuleId || undefined" :device-id="props.deviceId" @navigate="(name, detail) => emit('navigate', name, detail)" />

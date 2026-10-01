@@ -497,6 +497,11 @@ func TestOnboardingParallelEnrollmentAndExclusivePort(t *testing.T) {
 }
 
 // Uses only its own temporary schema in an explicitly configured test database.
+func TestProtocolProductCreationIsAtomic(t *testing.T) {
+	repositorytest.ProtocolProductCreation(t, testRepository(t))
+}
+
+// Uses only its own temporary schema in an explicitly configured test database.
 func TestSwitchProductProtocolDetectsChangedBinding(t *testing.T) {
 	ctx := context.Background()
 	r := testRepository(t)

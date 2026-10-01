@@ -227,3 +227,44 @@ test('knowledge progress is computed only from server batch counts', () => {
   assert.equal(state.percentage.value, null)
   assert.equal(state.label.value, '等待建立索引')
 })
+
+test('knowledge agent configuration stays available when the document list fails', async () => {
+  let unavailable = true
+  const requests = []
+  const {state,notices,unmount} = component('views/KnowledgeView.vue', async path => {
+    requests.push(path)
+    if (path.includes('/knowledge/documents')) {
+      if (unavailable) throw new Error('文档暂不可用')
+      return {items:[{id:'doc',status:'INDEXED'}],total:1}
+    }
+    if (path.includes('/knowledge-binding')) return {topK:7}
+    return {items:[{id:'device-health-inspector',name:'设备巡检',enabled:true},{id:'disabled',enabled:false}]}
+  }, 'load,agents,workflowId,bindingWorkflowId,loadedBindingWorkflowId,documents,documentsError,agentError,loading')
+  await state.load()
+  assert.equal(state.agents.value.length, 1)
+  assert.equal(state.workflowId.value, 'device-health-inspector')
+  assert.equal(state.bindingWorkflowId.value, 'device-health-inspector')
+  await new Promise(resolve=>setImmediate(resolve))
+  assert.equal(state.loadedBindingWorkflowId.value, 'device-health-inspector')
+  assert.ok(requests.some(path=>path.endsWith('/device-health-inspector/knowledge-binding')))
+  assert.equal(state.documentsError.value, '文档暂不可用')
+  assert.equal(state.agentError.value, '')
+  assert.equal(state.loading.value, false)
+  assert.equal(notices.length, 0)
+  unavailable = false; await state.load()
+  assert.equal(state.documents.value[0].id, 'doc')
+  assert.equal(state.documentsError.value, '')
+  unmount()
+})
+
+test('knowledge document reads remain usable when the agent catalog fails', async () => {
+  const {state,unmount} = component('views/KnowledgeView.vue', async path => {
+    if (path.includes('/knowledge/documents')) return {items:[{id:'doc',status:'INDEXED'}],total:1}
+    throw new Error('智能体目录暂不可用')
+  }, 'load,documents,documentsError,agentError')
+  await state.load()
+  assert.equal(state.documents.value[0].id, 'doc')
+  assert.equal(state.documentsError.value, '')
+  assert.equal(state.agentError.value, '智能体目录暂不可用')
+  unmount()
+})

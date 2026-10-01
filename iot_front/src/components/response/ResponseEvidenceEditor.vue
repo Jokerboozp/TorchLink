@@ -1,4 +1,5 @@
 <script setup>
+import { useDeviceLabels } from '../../useDeviceCatalog.js'
 import { onBeforeUnmount, ref } from 'vue'
 import { Plus, Paperclip, Trash2 } from '@lucide/vue'
 import { can } from '../../permissions.js'
@@ -6,6 +7,7 @@ import { createClientId } from '../../clientId.js'
 import { responseAttachment, responseUpload } from '../../response/api.js'
 import { evidenceKinds } from '../../response/helpers.js'
 const props=defineProps({modelValue:{type:Array,default:()=>[]},devices:{type:Array,default:()=>[]},executionId:String,disabled:Boolean})
+useDeviceLabels(() => props.devices.map(row => row.id))
 const emit=defineEmits(['update:modelValue'])
 const fileInput=ref(null),uploading=ref(false),error=ref(''),pendingFile=ref(null)
 let generation=0,disposed=false,uploadKey='',uploadFile=null

@@ -45,9 +45,11 @@ func (s *Service) RuleSources(ctx context.Context, a analytics.Actor, devices []
 	}
 	result := []model.AlarmRuleRevision{}
 	for _, rule := range rules {
-		if rule.TenantID != a.TenantID || rule.ProductID != "" && !products[rule.ProductID] {
+		if rule.TenantID != a.TenantID {
 			continue
 		}
+		// A rule may have moved between products. Scope each immutable revision
+		// by its own product instead of hiding its history with the current body.
 		for offset := 0; ; {
 			page, total, err := s.History.ListRuleRevisions(ctx, a.TenantID, rule.ID, 100, offset)
 			if err != nil {

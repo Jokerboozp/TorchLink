@@ -950,6 +950,101 @@ func (f *captureWorkflowRuntime) StreamChat(_ context.Context, in ports.AIWorkfl
 
 func (*captureWorkflowRuntime) Health(context.Context) error { return nil }
 
+type knowledgeCatalogRuntime struct {
+	*captureWorkflowRuntime
+	listError error
+}
+
+func (r *knowledgeCatalogRuntime) ListWorkflows(ctx context.Context) ([]ports.AIWorkflowPlugin, error) {
+	if r.listError != nil {
+		return nil, r.listError
+	}
+	return r.captureWorkflowRuntime.ListWorkflows(ctx)
+}
+
+func TestKnowledgeWorkflowCatalogIncludesBusinessAgents(t *testing.T) {
+	runtime := &captureWorkflowRuntime{plugins: []ports.AIWorkflowPlugin{
+		{ID: core.WorkflowDutyHandover, Enabled: true, KnowledgeEnabled: true},
+		{ID: core.WorkflowDataQuality, Enabled: true, KnowledgeEnabled: true},
+		{ID: core.WorkflowHealthInspection, Enabled: true, KnowledgeEnabled: true},
+		{ID: core.WorkflowProtocolAssist, Enabled: true, KnowledgeEnabled: true},
+		{ID: "custom-knowledge", Enabled: true, KnowledgeEnabled: true},
+		{ID: core.WorkflowRuleDraft, Enabled: true},
+		{ID: "custom-no-knowledge", Enabled: true},
+	}}
+	cfg := config.Load()
+	cfg.JWTSecret = "knowledge-catalog-test-signing-key-32"
+	api := New(cfg, &core.Engine{Repo: memory.NewRepository(), AIWorkflows: runtime}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
+	catalog := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/workflows?purpose=knowledge", token, nil, 200)
+	ids := map[string]bool{}
+	for _, item := range catalog["items"].([]any) {
+		ids[item.(map[string]any)["id"].(string)] = true
+	}
+	for _, id := range []string{core.WorkflowDutyHandover, core.WorkflowDataQuality, core.WorkflowHealthInspection, core.WorkflowProtocolAssist, "custom-knowledge", model.AlarmAnalysisWorkflowID} {
+		if !ids[id] {
+			t.Errorf("knowledge-capable Agent %s is missing from %v", id, ids)
+		}
+	}
+	for _, id := range []string{core.WorkflowRuleDraft, "custom-no-knowledge"} {
+		if ids[id] {
+			t.Errorf("Agent without knowledge capability %s is in knowledge catalog", id)
+		}
+	}
+	chat := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/workflows", token, nil, 200)
+	for _, item := range chat["items"].([]any) {
+		if !isChatWorkflowID(item.(map[string]any)["id"].(string)) {
+			t.Fatalf("business Agent leaked into chat catalog: %v", item)
+		}
+	}
+	// Known Harness metadata, including an explicitly disabled alarm Agent, wins
+	// over the built-in management fallback.
+	runtime.plugins = []ports.AIWorkflowPlugin{{ID: model.AlarmAnalysisWorkflowID, Name: "已停用告警研判", Enabled: false, KnowledgeEnabled: true}}
+	catalog = requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/workflows?purpose=knowledge", token, nil, 200)
+	items := catalog["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["enabled"] != false || items[0].(map[string]any)["name"] != "已停用告警研判" {
+		t.Fatalf("fallback overwrote configured Agent metadata: %v", items)
+	}
+}
+
+func TestKnowledgeWorkflowCatalogRetainsAlarmAgentDuringHarnessOutage(t *testing.T) {
+	for _, fixture := range []struct {
+		name                string
+		runtime             ports.AIWorkflowRuntime
+		configured, healthy bool
+	}{
+		{name: "unconfigured"},
+		{name: "empty", runtime: &aitest.Workflows{}, configured: true, healthy: true},
+		{name: "unavailable", runtime: &knowledgeCatalogRuntime{captureWorkflowRuntime: &captureWorkflowRuntime{}, listError: errors.New("Harness temporarily unavailable")}, configured: true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			cfg := config.Load()
+			cfg.JWTSecret = "knowledge-fallback-test-signing-key-32"
+			api := New(cfg, &core.Engine{Repo: memory.NewRepository(), AIWorkflows: fixture.runtime}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			server := httptest.NewServer(api.Handler())
+			defer server.Close()
+			token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
+			catalog := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/workflows?purpose=knowledge", token, nil, 200)
+			items := catalog["items"].([]any)
+			if len(items) != 1 || items[0].(map[string]any)["id"] != model.AlarmAnalysisWorkflowID || catalog["configured"] != fixture.configured || catalog["healthy"] != fixture.healthy {
+				t.Fatalf("management fallback/health metadata: %v", catalog)
+			}
+			chat := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/workflows", token, nil, 200)
+			if len(chat["items"].([]any)) != 0 {
+				t.Fatalf("fallback must not expose business Agents as chat: %v", chat)
+			}
+			policy := map[string]any{"retrievalMode": "always", "topK": 3, "minScore": .4, "noMatchPolicy": "require-evidence"}
+			requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/workflows/alarm-handler/knowledge-binding", token, policy, 200)
+			binding := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/workflows/alarm-handler/knowledge-binding", token, nil, 200)
+			if binding["retrievalMode"] != "always" || binding["topK"] != float64(3) {
+				t.Fatalf("knowledge policy management failed during %s: %v", fixture.name, binding)
+			}
+		})
+	}
+}
+
 func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(t.TempDir())

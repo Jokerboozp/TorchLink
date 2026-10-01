@@ -1,4 +1,6 @@
 <script setup>
+import { useProfileTargets } from '../../useProfileTargets.js'
+import DeviceSelect from '../DeviceSelect.vue'
 import { computed, reactive, ref } from 'vue'
 import { Plus } from '@lucide/vue'
 import { can } from '../../permissions.js'
@@ -15,9 +17,10 @@ const shareable = computed(() => can('POST /api/v1/data-quality/profiles/publish
 const dialog = ref(false), saving = ref(false), formError = ref('')
 const form = reactive(profileDraft())
 const deviceName = id => props.devices.find(row => row.id === id)?.name || id
-const products = computed(() => [...new Map(props.devices.filter(row => row.productId).map(row => [row.productId, { id: row.productId, name: row.productName || row.productId }])).values()])
+const { products, targetLoading, progress, targetChanged, loadProducts, cancel } = useProfileTargets(form, dialog, formError, () => props.devices)
 let originalScope = 'personal', originalVersion = 0
 function edit(row) {
+ cancel()
   Object.assign(form, profileDraft(row))
   originalScope = form.scope; originalVersion = form.expectedVersion
   if (!shareable.value && form.scope === 'shared') { form.scope = 'personal'; form.expectedVersion = 0 }
@@ -25,13 +28,9 @@ function edit(row) {
   dialog.value = true; formError.value = ''
 }
 function scopeChanged() { form.expectedVersion = form.scope === originalScope ? originalVersion : 0 }
-function targetChanged() {
-  if (form.targetType === 'TENANT') form.deviceIds = props.devices.map(row => row.id)
-  else if (form.targetType === 'PRODUCT' && form.productId) form.deviceIds = props.devices.filter(row => row.productId === form.productId).map(row => row.id)
-  else if (form.targetType === 'DEVICE') form.productId = ''
-}
+
 async function save() {
-  if (saving.value) return
+  if (saving.value || targetLoading.value) return
   formError.value = ''; saving.value = true
   try {
     const payload = profilePayload(form)
@@ -57,13 +56,13 @@ async function save() {
  <ui-dialog v-model="dialog" :title="form.expectedVersion?'保存新的配置版本':'新建质量配置'" width="min(920px,94vw)" :close-on-click-modal="false" @close="dialog=false">
   <div class="quality-dialog-body">
    <ui-alert v-if="formError" :title="formError" type="error" :closable="false"/>
-   <ui-form label-position="top" :disabled="saving">
+   <p v-if="targetLoading" class="quality-hint">正在读取明确设备范围：{{progress.read}} / {{progress.total ?? '待返回总数'}}</p><ui-form label-position="top" :disabled="saving">
     <div class="quality-grid">
-     <ui-form-item label="设备范围" required><ui-select v-model="form.deviceIds" multiple filterable :disabled="!!deviceId" placeholder="明确选择获授权设备"><ui-option v-for="row in devices" :key="row.id" :value="row.id" :label="row.name || row.id"/></ui-select></ui-form-item>
+     <ui-form-item label="设备范围" required><DeviceSelect v-model="form.deviceIds" multiple :disabled="!!deviceId||targetLoading" placeholder="明确选择获授权设备"/></ui-form-item>
      <ui-form-item label="属性标识" required><ui-input v-model="form.attributeId" placeholder="填写物模型属性标识，例如 pressure"/></ui-form-item>
      <ui-form-item label="配置用途"><ui-select v-model="form.scope" @change="scopeChanged"><ui-option value="personal" label="个人分析参数"/><ui-option v-if="shareable" value="shared" label="共享产品 / 测点配置"/></ui-select></ui-form-item>
      <ui-form-item v-if="!deviceId" label="配置目标"><ui-select v-model="form.targetType" @change="targetChanged"><ui-option value="DEVICE" label="指定设备 / 测点"/><ui-option value="PRODUCT" label="产品测点"/><ui-option v-if="shareable" value="TENANT" label="租户测点"/></ui-select></ui-form-item>
-     <ui-form-item v-if="form.targetType==='PRODUCT'&&!deviceId" label="目标产品" required><ui-select v-model="form.productId" filterable @change="targetChanged"><ui-option v-for="row in products" :key="row.id" :value="row.id" :label="row.name"/></ui-select></ui-form-item>
+     <ui-form-item v-if="form.targetType==='PRODUCT'&&!deviceId" label="目标产品" required><ui-select v-model="form.productId" filterable @update:show="loadProducts" @change="targetChanged"><ui-option v-for="row in products" :key="row.id" :value="row.id" :label="row.name"/></ui-select></ui-form-item>
      <ui-form-item label="生效时间" required><ui-date-time v-model="form.effectiveFrom"/></ui-form-item>
      <ui-form-item label="失效时间（选填）"><ui-date-time v-model="form.effectiveTo" clearable/></ui-form-item>
      <ui-form-item label="上报模式" required><ui-select v-model="form.mode"><ui-option value="periodic" label="周期上报"/><ui-option value="event" label="事件上报"/></ui-select></ui-form-item>
@@ -102,6 +101,6 @@ async function save() {
     </div>
    </ui-form>
   </div>
-  <template #footer><ui-button :disabled="saving" @click="dialog=false">取消</ui-button><ui-button type="primary" :loading="saving" @click="save">保存配置版本</ui-button></template>
+  <template #footer><ui-button :disabled="saving" @click="dialog=false">取消</ui-button><ui-button type="primary" :loading="saving" :disabled="targetLoading" @click="save">保存配置版本</ui-button></template>
  </ui-dialog>
 </template>

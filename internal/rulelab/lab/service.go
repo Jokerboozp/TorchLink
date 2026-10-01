@@ -57,6 +57,11 @@ func (s *Service) recordLimit() int {
 	}
 	return min(MaxRecords, s.RecordLimit)
 }
+
+// RuleSourceRecordLimit reports the effective cap so clients merging bounded
+// device queries retain the same maximum as a full-scope source query.
+func (s *Service) RuleSourceRecordLimit() int { return s.recordLimit() }
+
 func invalid(reason string) error { return fmt.Errorf("%w: %s", model.ErrAnalysisInvalid, reason) }
 func decode(data json.RawMessage, dst any) error {
 	d := json.NewDecoder(bytes.NewReader(data))
