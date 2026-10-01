@@ -190,6 +190,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-offline.ps1
 
 Linux / macOS 共用 Bash 入口。默认同时输出 `offline-bundles/iot-platform-offline-*` 目录、同名 `.tar` 和 `.tar.sha256`。归档含完整顶层目录及隐藏配置，只需上传归档和校验文件；目录输出仍可用于本机检查或直接部署。`.tar` 不压缩内容，可减少逐个传输文件的开销，但会额外占用约一份部署目录的磁盘空间。只需目录时，Bash 使用 `--skip-bundle-archive`，PowerShell 使用 `-SkipBundleArchive`。GitHub 公开发布流程跳过私有归档，在清除凭据后另行压缩分卷。
 
+包内保留 `README.md` 和完整 `docs/` 目录，安装与维护入口为 `docs/DEPLOYMENT.md`，消防管理说明为 `docs/FIRE_SAFETY.md`。文档中的源码与开发测试入口在源码仓库使用。
+
 在 Linux 服务器上，将归档和校验文件放在同一目录，替换下面的文件名后执行：
 
 ```bash
@@ -296,6 +298,12 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 已有自定义 Compose 覆盖文件、外部数据卷或外部数据库时，先核对原部署参数；上述命令只使用 `compose.yaml`。
 
+### 数据库迁移
+
+PostgreSQL 仓储启动时执行 `internal/adapters/postgres/schema.sql` 的幂等迁移；沿用原数据库与数据卷，无需清空数据。部署账户须有创建所需表及扩展的权限，外部 PostgreSQL 的 pgvector 要求见 [知识库配置](#知识库与云端向量-api)。
+
+排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级两者后，迁移创建 `platform_fire_safety`，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
+
 ### AI 与工作流
 
 本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。“最大输出词元”（128–8192，默认 2048）是智能助手单次回复的默认上限。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
@@ -366,7 +374,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本节维护连接池、并发和限额配置；拓扑、角色与迁移见 [集群部署](#集群部署) 和 [进程职责](#进程职责)，实测流程见 [容量验证](DEVELOPMENT.md#容量验证)。
 
-默认值参考历史压测瓶颈调整，不代表当前吞吐已复测。多副本时按下表核对：
+下表是配置默认值，实际容量按目标环境测量；多副本需核对每个进程的连接与并发预算。
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
@@ -527,7 +535,9 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 设备数据备份
 
-每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。不会备份账号、Provider/API Key、Redis、消息队列、环境文件或整个 MinIO，凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+
+设备日报和 `FULL` 均不包含账号、Provider/API Key、消防管理的 `platform_fire_safety`、Redis、消息队列、环境文件或整个 MinIO。消防管理资料和账号配置须纳入独立 PostgreSQL 数据库备份，凭据另行保管；设备导出及其隔离恢复不能代替这些备份。
 
 - **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent 和会话。
 - **备份昨日数据**：按配置时区导出前一个自然日的数据。

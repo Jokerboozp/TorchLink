@@ -8,6 +8,7 @@
 | --- | --- |
 | `cmd/iot-platform/`、`internal/platformapp/` | API 启动和依赖装配 |
 | `internal/httpapi/`、`internal/core/`、`internal/adapters/` | 接口、业务、外部存储与服务 |
+| `internal/firesafety/`、`internal/httpapi/fire_safety.go` | [消防管理](FIRE_SAFETY.md)：租户业务状态、排班、巡检整改、出勤与 API |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | 协议编译、连接运行时和 Worker |
 | `internal/opscenter/`、`internal/adapters/observability/` | [运维中心](PLATFORM.md#运维中心) 业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
 | `internal/capacity/`、`cmd/capacity-test/` | 容量计划、Controller / Agent、采集核对、报告与控制服务 |
@@ -64,6 +65,18 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 | 活跃 Harness 快照 | 配置服务端快照 URL/令牌并设置 `IOT_BACKUP_LIVE_HARNESS_TEST=1`；`go test ./internal/backup -run TestLiveHarnessSnapshotRestoreIntegration -count=1` | 只读收集实例快照，在临时隔离目录核对恢复数量和内容 |
 
 私有测试环境文件须限制访问权限，不提交或输出凭据。模拟 Embedding 测试不消耗云端额度；真实云向量索引需另配可用 Key，上传后确认状态达到 `INDEXED` 并检索到对应分片。配置与索引生命周期见 [知识库与云端向量 API](DEPLOYMENT.md#知识库与云端向量-api)。
+
+### 消防管理回归
+
+```bash
+go test -race ./internal/firesafety ./internal/httpapi ./internal/adapters/memory
+go test ./internal/adapters/postgres -run FireSafety -count=1
+node --test iot_front/tests/duty.test.mjs iot_front/tests/fire-safety-management.test.mjs
+```
+
+业务及 HTTP 用例覆盖排班冲突与换班审批、巡检整改复核、出勤库存占用、过期版本、租户与菜单权限，以及仓储装饰链。真实 PostgreSQL 用例须通过进程环境提供 `IOT_TEST_POSTGRES_DSN`；测试自行创建并清理临时 schema，核对 revision 并发提交、重复迁移和重新连接后的持久化。未配置时跳过，memory 测试不能代替持久化联调。
+
+浏览器核对须使用两个分别获授申请与审批操作的账户，检查跨午夜排班、整改驳回后重提、出勤归队、刷新后的记录和窄屏滚动。现有演示数据脚本和容量模块场景未覆盖这三项现场管理业务；流程与接口见 [消防管理](FIRE_SAFETY.md)。
 
 ## 管理端开发
 

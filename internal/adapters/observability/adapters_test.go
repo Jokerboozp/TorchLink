@@ -183,7 +183,7 @@ func TestDirStoreMovesBetweenEnabledAndDisabledAndArchives(t *testing.T) {
 	if err := s.Remove("g-1"); err != nil {
 		t.Fatal(err)
 	}
-	history, _ := filepathGlob(dir + "/state/history/g-1/*.yml")
+	history, _ := filepath.Glob(dir + "/state/history/g-1/*.yml")
 	if len(history) < 2 {
 		t.Fatalf("previous versions must be archived, got %v", history)
 	}
@@ -212,5 +212,3 @@ func TestLokiPushBatchesByLevel(t *testing.T) {
 		t.Fatalf("pushed = %v", bodies)
 	}
 }
-
-func filepathGlob(pattern string) ([]string, error) { return filepath.Glob(pattern) }

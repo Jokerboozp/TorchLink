@@ -170,12 +170,6 @@ func (c *Collector) Rounds(from, to int64) []Round {
 	return out
 }
 
-func (c *Collector) AllRounds() []Round {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]Round(nil), c.rounds...)
-}
-
 // LoadRounds reads observations back for offline report regeneration.
 func LoadRounds(path string) ([]Round, error) {
 	f, err := os.Open(path)

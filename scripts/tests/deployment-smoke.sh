@@ -447,6 +447,10 @@ bundle_name="$(basename "$bundle")"
 mkdir -p "$test_root/extracted with spaces"
 tar -xf "$bundle.tar" -C "$test_root/extracted with spaces"
 extracted_bundle="$test_root/extracted with spaces/$bundle_name"
+cmp "$scripts/../README.md" "$bundle/README.md"
+cmp "$scripts/../iot_front/public/torchlink-logo.png" "$bundle/iot_front/public/torchlink-logo.png"
+diff -r "$scripts/../docs" "$bundle/docs"
+[ ! -e "$bundle/DEPLOYMENT.md" ] && [ ! -e "$bundle/PLATFORM.md" ]
 diff -r "$bundle" "$extracted_bundle"
 [ -f "$extracted_bundle/.env.offline" ]
 bash "$scripts/deploy-offline.sh" --bundle-dir "$extracted_bundle" > "$test_root/extracted-deploy.log"

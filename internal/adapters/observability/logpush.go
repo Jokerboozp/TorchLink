@@ -64,8 +64,6 @@ func (p *LokiPush) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func (p *LokiPush) Dropped() int64 { return p.dropped.Load() }
-
 // Close flushes queued lines until ctx expires.
 func (p *LokiPush) Close(ctx context.Context) {
 	p.once.Do(func() { close(p.queue) })

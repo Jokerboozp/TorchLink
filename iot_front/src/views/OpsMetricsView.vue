@@ -15,7 +15,7 @@ import RuleGroupsPanel from '../components/ops/RuleGroupsPanel.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
 import TimeSeriesChart from '../components/ops/TimeSeriesChart.vue'
 
-const emit = defineEmits(['navigate'])
+defineEmits(['navigate'])
 const canQuery = computed(() => can('POST /api/v1/ops/metrics/query'))
 const tab = ref(canQuery.value ? 'query' : 'explore')
 const range = ref({ from: 'now-1h', to: 'now' })

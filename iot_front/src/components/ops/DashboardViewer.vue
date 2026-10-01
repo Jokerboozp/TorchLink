@@ -2,7 +2,7 @@
 // 仪表盘查看与编辑：变量、统一时间范围与刷新、按 24 列网格布局的原生面板。
 // 未修改时面板数据按已保存的仪表盘在服务端执行；编辑中的改动通过预览接口执行。
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { ArrowLeft, ChevronDown, ChevronRight, Download, FileJson, Pencil, Plus, Save, Settings, Star, X } from '@lucide/vue'
+import { ArrowLeft, ChevronDown, ChevronRight, Download, Pencil, Plus, Save, Settings, Star, X } from '@lucide/vue'
 import { can } from '../../permissions'
 import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
 import { addPanel, currentValues, dependsOn, duplicatePanel, editablePanelTypes, emptyDashboard, findPanel, movePanel, newPanel, normalizeLayout, panelTypeNames, refreshMs, refreshText, removePanel, replacePanel, sections, toggleRow, ROW_HEIGHT } from '../../ops/dashboard.js'

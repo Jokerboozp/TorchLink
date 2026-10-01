@@ -1,7 +1,7 @@
 // 仪表盘 JSON 模型的布局与编辑辅助。仪表盘以 Grafana JSON 保存在 Grafana 中，
 // 这里只调整面板、行和变量，其他字段原样保留。
 
-export const GRID_COLUMNS = 24
+const GRID_COLUMNS = 24
 export const ROW_HEIGHT = 30
 
 export const panelTypeNames = { timeseries: '时序图', graph: '时序图（旧版）', stat: '统计卡片', gauge: '仪表', bargauge: '条形仪表', table: '表格', logs: '日志', text: '文本', row: '分组行' }
@@ -72,7 +72,7 @@ function minY(panels) {
   return panels.length ? Math.min(...panels.map(p => pos(p).y)) : 0
 }
 
-export function nextPanelId(dashboard) {
+function nextPanelId(dashboard) {
   let max = 0
   for (const panel of dashboard?.panels || []) {
     max = Math.max(max, Number(panel.id) || 0)
@@ -166,17 +166,6 @@ export function movePanel(dashboard, id, direction) {
   return normalizeLayout(dashboard)
 }
 
-export function resizePanel(dashboard, id, { w, h }) {
-  const panel = findPanel(dashboard, id)
-  if (!panel) return dashboard
-  const p = pos(panel)
-  if (w != null) p.w = Math.min(GRID_COLUMNS, Math.max(2, w))
-  if (h != null) p.h = Math.min(40, Math.max(2, h))
-  p.x = Math.min(p.x, GRID_COLUMNS - p.w)
-  panel.gridPos = p
-  return normalizeLayout(dashboard)
-}
-
 // toggleRow 与 Grafana 一致：折叠时把行下面板收进 row.panels，展开时放回顶层。
 export function toggleRow(dashboard, id) {
   const index = (dashboard.panels || []).findIndex(panel => panel.id === id && panel.type === 'row')
@@ -212,7 +201,7 @@ export function currentValues(variable) {
   return [String(value)]
 }
 
-export function variableRefs(text, name) {
+function variableRefs(text, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(`\\$(?:${escaped}\\b|\\{${escaped}(?::[a-z]+)?\\})|\\[\\[${escaped}(?::[a-z]+)?\\]\\]`).test(String(text || ''))
 }

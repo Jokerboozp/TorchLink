@@ -200,6 +200,20 @@ try {
     & tar -xf $bundleTar -C $extractRoot
     Assert ($LASTEXITCODE -eq 0) 'Complete tar extraction failed'
     $extractedBundle = Join-Path $extractRoot (Split-Path $bundle -Leaf)
+    $projectRoot = Split-Path -Parent $scripts
+    Assert ((Get-FileHash (Join-Path $projectRoot 'README.md')).Hash -eq (Get-FileHash (Join-Path $bundle 'README.md')).Hash) 'Bundle changed README'
+    Assert ((Get-FileHash (Join-Path $projectRoot 'iot_front/public/torchlink-logo.png')).Hash -eq (Get-FileHash (Join-Path $bundle 'iot_front/public/torchlink-logo.png')).Hash) 'Bundle omitted or changed README logo'
+    $docsRoot = Join-Path $projectRoot 'docs'
+    $docs = @(Get-ChildItem -LiteralPath $docsRoot -Recurse -File)
+    $bundledDocs = @(Get-ChildItem -LiteralPath (Join-Path $bundle 'docs') -Recurse -File)
+    Assert ($docs.Count -eq $bundledDocs.Count) 'Bundle changed documentation file count'
+    foreach ($doc in $docs) {
+        $relative = $doc.FullName.Substring($docsRoot.Length + 1)
+        $bundledDoc = Join-Path (Join-Path $bundle 'docs') $relative
+        Assert (Test-Path -LiteralPath $bundledDoc) "Bundle omitted $($doc.Name)"
+        Assert ((Get-FileHash -LiteralPath $doc.FullName).Hash -eq (Get-FileHash -LiteralPath $bundledDoc).Hash) "Bundle changed $($doc.Name)"
+    }
+    Assert (-not (Test-Path (Join-Path $bundle 'DEPLOYMENT.md')) -and -not (Test-Path (Join-Path $bundle 'PLATFORM.md'))) 'Bundle duplicates documentation at root'
     $sourceFiles = @(Get-ChildItem -LiteralPath $bundle -Recurse -Force -File)
     $extractedFiles = @(Get-ChildItem -LiteralPath $extractedBundle -Recurse -Force -File)
     Assert ($sourceFiles.Count -eq $extractedFiles.Count) 'Complete tar changed file count'

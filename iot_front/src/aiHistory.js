@@ -1,6 +1,6 @@
 export const AI_HISTORY_STORAGE_PREFIX = 'iot:ai-history:v1'
 
-export function aiHistoryStorageKey(session, workflowId = '') {
+function aiHistoryStorageKey(session, workflowId = '') {
   const base = `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}${session?.accessVersion ? `:access:${encodeURIComponent(session.accessVersion)}` : ''}`
   return workflowId ? `${base}:${encodeURIComponent(workflowId)}` : base
 }

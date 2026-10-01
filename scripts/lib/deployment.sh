@@ -119,7 +119,7 @@ run_docker() {
 }
 
 wait_deployment_http() {
-  local url="$1" timeout="${2:-180}" deadline=$((SECONDS + ${2:-180}))
+  local url="$1" deadline=$((SECONDS + ${2:-180}))
   command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; return 1; }
   while [ "$SECONDS" -lt "$deadline" ]; do
     if [ "$(curl --silent --output /dev/null --max-time 5 --write-out '%{http_code}' "$url" || true)" = 200 ]; then

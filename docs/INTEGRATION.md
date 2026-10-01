@@ -177,7 +177,7 @@ samples/operations.json
 {"id":"gb26875-dahua","name":"GB26875 大华消防终端","version":"1.0.0","runtime":"go-protocol-v2","transport":"TCP_UDP","payloadFormat":"hex","capabilities":["decode","ingress","encode"],"entrypoint":"."}
 ```
 
-上传时表单非空值覆盖元数据；`id` 必须与 URL 协议标识一致。`TCP` / `UDP` 只支持对应网络，`TCP_UDP` 支持两种网络实例。每个平台连接配置固定一个租户和产品；同一网络监听端口只允许一个启用实例，TCP 主动连接不占用监听端口。新增版本须继续支持产品上所有已启用实例的网络。
+`TCP` / `UDP` 只支持对应网络，`TCP_UDP` 支持两种网络实例。每个平台连接配置固定一个租户和产品；同一网络监听端口只允许一个启用实例，TCP 主动连接不占用监听端口。新增版本须继续支持产品上所有已启用实例的网络。
 
 平台仅接受明确声明的 `go-protocol-v2`；不接受旧版本请求、裸标准消息返回或未声明运行时的制品。租户、产品和设备归属由原文确定，Worker 返回值不能更改。
 
@@ -433,6 +433,8 @@ API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 
 外部系统（园区平台、物业系统、上级监管平台等）通过开放接口查询和上报告警、上报设备消息、查询设备数据，以及调用智能助手问答，例如在对方首页嵌入问答机器人。实现入口为 [open_api.go](../internal/httpapi/open_api.go)。
 
+开放密钥只支持下表列出的能力；排班、灭火器和消防站管理通过登录用户的 `/api/v1` 接口使用，不在 `/api/open/v1` 的能力清单中。管理接口与权限见 [消防管理](FIRE_SAFETY.md#接口与权限)。
+
 ### 授权模型
 
 - 密钥在“用户与权限 → 开放接口”创建，需要该页面的新增、编辑、删除操作权限。
@@ -488,9 +490,9 @@ POST /api/open/v1/alarms
  "alarmType":"FIRE","alarmLevel":"CRITICAL","content":"3 层东侧走廊烟感报警","data":{"zone":"3F-E"}}
 ```
 
-- 等同于该设备上报一条 `alarm` 消息，形成设备来源告警：匹配告警规则时按规则处理，未匹配规则也保留告警。`alarmLevel` 取 `CRITICAL`、`HIGH`、`MEDIUM`、`LOW`、`INFO`，缺省为 `HIGH`；`alarmType` 缺省为 `MANUAL_ALARM`。`content` 显示为告警内容。
+- 等同于该设备上报一条 `alarm` 消息；告警生成、等级及类型默认值遵守 [标准告警报文](#http--mqtt-标准报文)，`content` 显示为告警内容。
 - 成功返回 202，其中 `triggerId` 与生成告警的 `triggerId` 相同，可用 `GET /alarms?deviceId=...` 查找。设备不存在或不可见返回 404，其余错误码同上。
-- 恢复：`FIRE`、`SMOKE_DETECTED`、`DEVICE_FAULT`、`DEVICE_OFFLINE`、`MANUAL_ALARM` 可通过上报对应恢复属性自动恢复，例如 `{"kind":"property","data":{"fireAlarm":false}}`；其他告警类型用处置接口的 `RECOVERED`。
+- 通过 [标准告警恢复属性](#http--mqtt-标准报文) 上报恢复，或调用下述处置接口的 `RECOVERED`。
 
 ### 查询与处置告警
 

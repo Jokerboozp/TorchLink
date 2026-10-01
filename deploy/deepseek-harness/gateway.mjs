@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { READ_ONLY_TOOL_CEILING } from './iot-ops-plugin.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_PLUGIN_DIR = join(here, 'plugins')
@@ -16,16 +17,6 @@ const DEFAULT_WORKSPACE = '/data/workspace'
 const DEFAULT_SESSION_ROOT = '/data/sessions'
 const DEFAULT_HARNESS_HOME = '/data/runtime-home'
 const DEFAULT_MCP_ORIGINS = 'http://platform-api:8080'
-
-export const READ_ONLY_TOOL_CEILING = Object.freeze([
-  'mcp__iot__query_system_overview',
-  'mcp__iot__query_device_latest',
-  'mcp__iot__query_alarm_list',
-  'mcp__iot__query_property_history',
-  'mcp__iot__query_similar_alarms',
-  'mcp__iot__query_knowledge_base',
-  'mcp__iot__create_rule_draft',
-])
 
 const readOnlyToolCeiling = new Set(READ_ONLY_TOOL_CEILING)
 const MANIFEST_KEYS = new Set([

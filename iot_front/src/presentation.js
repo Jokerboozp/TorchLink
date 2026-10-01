@@ -1,15 +1,15 @@
 // 专业名称保留通用写法，状态和操作说明使用中文；显示名称不用于构造请求或改写原始报文。
-export const transportNames = {
+const transportNames = {
   MQTT:'MQTT', HTTP:'HTTP', MQTT_HTTP:'MQTT / HTTP', TCP:'TCP', UDP:'UDP', TCP_UDP:'TCP / UDP',
   MODBUS_RTU_TCP:'Modbus RTU over TCP（串口透传）', TCP_CHILD:'通过主设备接入', MODBUS_TCP:'Modbus TCP', MODBUS_RTU:'Modbus RTU', OPC_UA:'OPC UA', SNMP:'SNMP', BACNET:'BACnet',
   'iot-standard':'标准设备接入', STANDARD_HTTP:'标准 HTTP', STANDARD_MQTT:'标准 MQTT', LISTENER:'网络监听', POLLER:'定时采集'
 }
-export const formatNames = { JSON:'JSON', HEX:'HEX（十六进制）', BINARY:'Binary（二进制）', TEXT:'Text（纯文本）', BASE64:'Base64' }
+const formatNames = { JSON:'JSON', HEX:'HEX（十六进制）', BINARY:'Binary（二进制）', TEXT:'Text（纯文本）', BASE64:'Base64' }
 export const aiProviderOptions = [
   { id:'deepseek', label:'DeepSeek', description:'默认模型服务，填写 API Key 即可使用。' },
   { id:'openai-compatible', label:'OpenAI 兼容 API', description:'连接第三方 OpenAI 兼容 API，统一用于对话、研判、巡检和协议助手。' }
 ]
-export const statusNames = {
+const statusNames = {
   INDEXED:'已建立索引', INDEXING:'索引建立中', INDEX_FAILED:'索引失败', DELETING:'删除中', PENDING:'等待处理', PROCESSING:'处理中', FAILED:'处理失败', ERROR:'异常',
   ENABLED:'已启用', DISABLED:'已停用', ONLINE:'在线', OFFLINE:'离线', WAITING:'等待心跳', LISTENING:'监听中',
   CONNECTING:'连接中', CONNECTED:'已连接', DISCONNECTED:'未连接', ACTIVE:'活跃', NEVER_SEEN:'尚未上报', ALARM:'告警中', SUSPECTED_OFFLINE:'疑似离线',

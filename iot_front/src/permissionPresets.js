@@ -5,10 +5,11 @@ export const permissionSections = [
   { name: '日常使用', menus: ['dashboard', 'devices', 'alarms', 'ai', 'raw'] },
   { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras'] },
   { name: '运维管理', menus: ['inspection', 'rules', 'knowledge'] },
+  { name: '消防管理', menus: ['duty', 'extinguishers', 'fireStations'] },
   { name: '系统管理', menus: ['aiProviders', 'backups', 'access'] },
   { name: '运维中心', menus: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] }
 ]
-export function featureGrants(group, level) {
+function featureGrants(group, level) {
   if (level === 'none') return []
   return [group.id, ...group.actions.filter(action => level === 'manage' || (group.menu === 'ai' && chatActions.has(action.id))).map(action => action.id)]
 }

@@ -31,7 +31,7 @@ export function resetLiveState() {
   pending = null
 }
 
-export const liveEnabled = () => liveState.status?.state === 'enabled'
+const liveEnabled = () => liveState.status?.state === 'enabled'
 export const liveUsable = () => liveEnabled() && liveState.canWatch
 
 export const moduleStateText = {

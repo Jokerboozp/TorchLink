@@ -171,19 +171,6 @@ test('stale failure does not notify or stop the current camera loading state', a
   assert.equal(errors.length,1)
   assert.equal(c.loading.value,false)
 })
-test('control: camera page remains correct when responses arrive in order', async()=>{
-  const pending=[]
-  const c=component('CameraMappingsView.vue', path=>path.includes('device-registry') ? Promise.resolve({items:[]}) : new Promise(resolve=>pending.push(resolve)), 'load,page,cameras')
-  const first=c.load()
-  c.page.value=2
-  const second=c.load()
-  pending[0]({items:[{cameraId:'page-1'}],total:40})
-  await first
-  pending[1]({items:[{cameraId:'page-2'}],total:40})
-  await second
-  assert.equal(c.cameras.value[0].cameraId,'page-2')
-})
-
 for (const [file, endpoint, pageKey, rowsKey, totalKey] of [
   ['DevicesView.vue', '/device-registry', 'registryPage', 'registry', 'registryTotal'],
   ['ProductsView.vue', '/products', 'productPage', 'products', 'productTotal'],

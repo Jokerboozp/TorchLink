@@ -2,7 +2,7 @@
 import { api, ApiError, session } from '../api'
 import { consumeSSE } from '../sse'
 
-export function withQuery(path, params = {}) {
+function withQuery(path, params = {}) {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value == null || value === '') continue

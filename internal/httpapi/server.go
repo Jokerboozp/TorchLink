@@ -26,6 +26,7 @@ import (
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
+	"iot-platform/internal/firesafety"
 	"iot-platform/internal/mcpserver"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
@@ -69,6 +70,7 @@ type Server struct {
 	ops                        *opscenter.Service
 	video                      atomic.Pointer[video.Service]
 	videoOwner                 func() (local bool, endpoint string)
+	fireSafety                 *firesafety.Service
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
@@ -82,6 +84,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s := &Server{
 		cfg:                        cfg,
 		engine:                     engine,
+		fireSafety:                 firesafety.New(engine.Repo),
 		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs),
 		auth:                       auth.New(cfg.JWTSecret),
 		metrics:                    m,
@@ -125,6 +128,7 @@ func (s *Server) routes() {
 	s.deletionRoutes()
 	s.opsRoutes()
 	s.videoRoutes()
+	s.fireSafetyRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
 	s.deviceOperationsRoutes()

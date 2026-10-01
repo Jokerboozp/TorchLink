@@ -56,7 +56,7 @@ function findOrCreateTool(run, assistant, event) {
   return tool
 }
 
-export function createAIConversation({ identity, storage, stream }) {
+function createAIConversation({ identity, storage, stream }) {
   const scope = effectScope(true)
   const messages = ref([welcomeMessage()])
   const runs = ref([])

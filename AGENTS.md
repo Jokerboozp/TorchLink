@@ -27,13 +27,14 @@
 
 ## 3. 项目定位与源码入口
 
-平台为独立 Go API 与 Vue 管理端，覆盖设备接入、协议源码发布、报文归档与回放、规则告警、摄像头资料与直播、知识库、AI 辅助运维、运维中心、容量测试、备份管理及集群部署。保持独立平台方向，不重新引入已移除的 ThingsPanel 集成，也不把 JetLinks Java 协议包作为平台依赖。
+平台为独立 Go API 与 Vue 管理端，覆盖设备接入、协议源码发布、报文归档与回放、规则告警、排班、灭火器巡检整改、消防站出勤、摄像头资料与直播、知识库、AI 辅助运维、运维中心、容量测试、备份管理及集群部署。保持独立平台方向，不重新引入已移除的 ThingsPanel 集成，也不把 JetLinks Java 协议包作为平台依赖。
 
 | 路径 | 职责 |
 |---|---|
 | `cmd/iot-platform/`、`cmd/iot-access-gateway/`、`internal/platformapp/` | API 与独立接入网关入口；启动、进程角色与依赖装配 |
 | `internal/httpapi/`、`internal/auth/` | HTTP 接口、认证、角色与租户边界 |
 | `internal/core/`、`internal/onboarding/`、`internal/model/`、`internal/ports/` | 业务编排、设备接入登记、领域模型和依赖接口 |
+| `internal/firesafety/` | 排班与换班审批、灭火器巡检整改、消防站资料与出勤业务 |
 | `internal/adapters/` | 数据库、消息、对象存储、AI 等外部实现 |
 | `internal/parser/` | 报文解析 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | Go 协议源码构建、版本运行与 Worker 契约 |
@@ -72,6 +73,7 @@
 - 涉及字段、状态、分页或筛选时，同时检查后端模型、持久化、查询、API 和前端调用。已有字段名优先保留；确需数据库变更时提供与实际存储匹配的可执行迁移及必要说明。
 - 读取、写入、下载、回放和关联校验均保留租户隔离及菜单/操作权限检查，不能只依赖前端隐藏按钮。不要直接信任请求体中的租户或跨资源 ID。普通用户还受用户级设备范围约束；设备、告警、原文、总览、详情和提醒不得扩大到未授权设备。主子设备分别授权，未设置范围默认无设备。
 - 用户权限存储为 `platform_access`，当前实现入口为 `internal/httpapi/access_control.go`、`device_scope.go` 和 `user_events.go`。范围写入请求上下文，不能把某个用户的范围写入共享全局状态，影响后台接收或其他用户。全租户任务须遵守当前权限前置条件。
+- 消防管理人员是独立业务资料，登记不创建登录账户或授予设备权限。排班、器材占用与流程修改保留租户隔离、版本冲突校验及历史关联；换班申请人和整改提交人不得自审批。业务流程见 `docs/FIRE_SAFETY.md`。
 - 原始报文链路保持 `RawMessage → 原始归档 / 幂等索引 → 内部消息队列 → Parser → StandardMessage → 存储 / 规则 / 告警` 的职责划分。原文详情、下载及回放使用 `rawMessageId`，不可与标准消息 ID 混用。
 - 原始报文使用 PostgreSQL / ClickHouse 分层存储，具体路由及阈值查 `internal/adapters/rawstore/`；MinIO 用于备份制品及旧对象兼容读取，不恢复逐条原始报文上传 MinIO 的旧方案。
 - 只有成功解析的数据才能对外发布解析结果；失败保留未解析状态和可追溯原文，不能伪造标准消息或将内部原始队列当作对外解析通道。

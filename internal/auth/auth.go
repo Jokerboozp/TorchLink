@@ -178,13 +178,6 @@ func Bearer(v string) string {
 	}
 	return ""
 }
-func (c Claims) Can(role string) bool {
-	if c.Role == "admin" {
-		return true
-	}
-	return c.Role == role
-}
-
 func (c Claims) HasScope(scope string) bool {
 	for _, candidate := range c.Scopes {
 		if candidate == scope {

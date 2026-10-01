@@ -10,7 +10,7 @@ import { relativeTime } from '../../ops/format.js'
 import RouteNode from './RouteNode.vue'
 import SecretField from './SecretField.vue'
 
-const props = defineProps({ labels: { type: Array, default: () => [] } })
+defineProps({ labels: { type: Array, default: () => [] } })
 const config = ref(null)
 const draft = ref(null)
 const loading = ref(false)

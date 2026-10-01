@@ -20,6 +20,7 @@ var ErrNotFound = model.ErrNotFound
 type Repository struct {
 	opsItems            map[string]model.OpsUserItem
 	accessStates        map[string][]byte
+	fireSafetyStates    map[string][]byte
 	componentAlarms     map[string]model.ComponentAlarmState
 	outbox              []model.OutboxEvent
 	outboxSeq           int64

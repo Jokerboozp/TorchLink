@@ -10,7 +10,7 @@ import { relativeTime } from '../../ops/format.js'
 import StatusDot from '../layout/StatusDot.vue'
 import MatcherEditor from './MatcherEditor.vue'
 
-const props = defineProps({ labels: { type: Array, default: () => [] }, services: { type: Array, default: () => [] }, loadValues: { type: Function, default: null } })
+defineProps({ labels: { type: Array, default: () => [] }, services: { type: Array, default: () => [] }, loadValues: { type: Function, default: null } })
 const settings = ref(null)
 const loading = ref(false)
 const error = ref('')

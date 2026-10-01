@@ -23,7 +23,7 @@ function scaled(value, base, units, decimals) {
   return `${fixed(v, decimals)} ${units[index]}`
 }
 
-export function shortNumber(value, decimals) {
+function shortNumber(value, decimals) {
   const abs = Math.abs(value)
   if (abs >= 1e12) return `${fixed(value / 1e12, decimals)} 万亿`
   if (abs >= 1e8) return `${fixed(value / 1e8, decimals)} 亿`

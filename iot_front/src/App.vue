@@ -8,6 +8,9 @@ import {
   Boxes,
   BrainCircuit,
   Cable,
+  CalendarDays,
+  FireExtinguisher,
+  House,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
@@ -58,6 +61,9 @@ const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
 const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
 const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue'))
 const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue'))
+const DutyView = defineAsyncComponent(() => import('./views/DutyView.vue'))
+const ExtinguishersView = defineAsyncComponent(() => import('./views/ExtinguishersView.vue'))
+const FireStationsView = defineAsyncComponent(() => import('./views/FireStationsView.vue'))
 const OpsOverviewView = defineAsyncComponent(() => import('./views/OpsOverviewView.vue'))
 const OpsMetricsView = defineAsyncComponent(() => import('./views/OpsMetricsView.vue'))
 const OpsLogsView = defineAsyncComponent(() => import('./views/OpsLogsView.vue'))
@@ -100,6 +106,9 @@ const pages = {
   aiProviders: { ...pageGuide.aiProviders, icon: BrainCircuit, component: AiProvidersView, header: false },
   backups: { ...pageGuide.backups, icon: Database, component: BackupsView },
   access: { ...pageGuide.access, icon: ShieldCheck, component: AccessView },
+  duty: { ...pageGuide.duty, icon: CalendarDays, component: DutyView },
+  extinguishers: { ...pageGuide.extinguishers, icon: FireExtinguisher, component: ExtinguishersView },
+  fireStations: { ...pageGuide.fireStations, icon: House, component: FireStationsView },
   opsOverview: { ...pageGuide.opsOverview, icon: Gauge, component: OpsOverviewView },
   opsMetrics: { ...pageGuide.opsMetrics, icon: LineChart, component: OpsMetricsView },
   opsLogs: { ...pageGuide.opsLogs, icon: ScrollText, component: OpsLogsView },
@@ -111,6 +120,7 @@ const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
+  { label: '消防管理', items: ['duty', 'extinguishers', 'fireStations'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
   { label: '系统', items: ['backups', 'access'] }
 ]

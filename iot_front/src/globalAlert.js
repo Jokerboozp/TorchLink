@@ -1,6 +1,6 @@
 import { alarmType, alarmLevels, label } from './labels.js'
 
-export const ALERT_SETTINGS_STORAGE_PREFIX = 'iot:alert-settings:'
+const ALERT_SETTINGS_STORAGE_PREFIX = 'iot:alert-settings:'
 export const DEFAULT_ALERT_SETTINGS = Object.freeze({
   popupEnabled: true,
   soundEnabled: true,
