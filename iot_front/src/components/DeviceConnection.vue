@@ -167,9 +167,9 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
       <ui-empty v-if="!data && !loading && !error" description="暂无设备信息" />
       <ui-tabs v-if="data && (can('menu:dataQuality') || can('menu:monitoringGaps') || can('menu:alarmGovernance'))" v-model="detailTab">
         <ui-tab-pane name="details" label="设备详情" />
-        <ui-tab-pane v-if="can('menu:dataQuality')" name="quality" label="数据质量" />
-        <ui-tab-pane v-if="can('menu:monitoringGaps')" name="monitoring" label="监测连续性" />
-        <ui-tab-pane v-if="can('menu:alarmGovernance')" name="governance" label="反复报警治理" />
+        <ui-tab-pane v-if="can('menu:dataQuality')" name="quality" label="上报数据检查" />
+        <ui-tab-pane v-if="can('menu:monitoringGaps')" name="monitoring" label="上报中断分析" />
+        <ui-tab-pane v-if="can('menu:alarmGovernance')" name="governance" label="反复报警处理" />
       </ui-tabs>
       <DataQualityView v-if="data && detailTab === 'quality' && can('menu:dataQuality')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
       <MonitoringGapsView v-if="data && detailTab === 'monitoring' && can('menu:monitoringGaps')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
@@ -260,7 +260,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           </ui-descriptions>
           <ui-empty v-else description="暂无已解析报文" :image-size="48" />
           <ui-collapse v-if="data.latest?.messageId" class="message-detail"><ui-collapse-item title="查看完整标准消息" name="message"><pre>{{pretty(data.latest)}}</pre></ui-collapse-item></ui-collapse>
-          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button><ui-button v-permission="'menu:maintenance'" @click="emit('navigate','maintenance',{deviceId:props.deviceId})">维护与投入</ui-button></div>
+          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button><ui-button v-permission="'menu:maintenance'" @click="emit('navigate','maintenance',{deviceId:props.deviceId})">设备维护</ui-button></div>
         </section>
 
         <section class="connection-section device-history" v-loading="lists.history.loading">

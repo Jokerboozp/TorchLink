@@ -63,7 +63,7 @@ try {
   const closed = () => until(() => evaluate(`![...document.querySelectorAll('.ui-dialog')].some(node=>node.getClientRects().length)`), 'dialog closed')
   const screenshot = async name => writeFile(`${output}/${name}.png`, Buffer.from((await call('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
   const openPage = async () => {
-    const selector = JSON.stringify('.nav-item[aria-label="数据质量"]')
+    const selector = JSON.stringify('.nav-item[aria-label="上报数据检查"]')
     await until(() => evaluate(`!!document.querySelector(${selector})`))
     await evaluate(`document.querySelector(${selector}).click()`)
     await until(() => evaluate('!!document.querySelector(".data-quality-page")&&!document.querySelector(".data-quality-page>.ui-skeleton")'))

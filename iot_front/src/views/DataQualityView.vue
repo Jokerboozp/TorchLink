@@ -1,4 +1,5 @@
 <script setup>
+import { pageGuide } from '../pageGuide.js'
 import DeviceSelect from '../components/DeviceSelect.vue'
 import { provideDeviceCatalog } from '../useDeviceCatalog.js'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -117,7 +118,7 @@ onBeforeUnmount(() => { disposed = true; generation++; runGeneration++; listGene
 </script>
 <template>
  <div class="data-quality-page" :class="{'quality-embedded':!!deviceId}">
-  <header class="quality-toolbar"><div><h1><Activity/>数据质量<span v-if="deviceId" class="quality-heading-device"> · {{deviceName(deviceId)}}</span></h1><p class="quality-hint">分维度核对测量、时间和解析依据，人工核实变化线索。</p></div><div class="quality-actions"><ui-button size="small" :loading="loading" @click="load"><RefreshCw/>刷新</ui-button><ui-button v-if="can('POST /api/v1/data-quality/runs')" type="primary" size="small" @click="newRun()"><Plus/>新建分析</ui-button><ui-button v-if="deviceId" text size="small" @click="emit('navigate','dataQuality',{deviceId})">管理页</ui-button></div></header>
+  <header class="quality-toolbar"><div><h1><Activity/>{{pageGuide.dataQuality.title}}<span v-if="deviceId" class="quality-heading-device"> · {{deviceName(deviceId)}}</span></h1><p class="quality-hint">{{pageGuide.dataQuality.sub}}</p></div><div class="quality-actions"><ui-button size="small" :loading="loading" @click="load"><RefreshCw/>刷新</ui-button><ui-button v-if="can('POST /api/v1/data-quality/runs')" type="primary" size="small" @click="newRun()"><Plus/>新建分析</ui-button><ui-button v-if="deviceId" text size="small" @click="emit('navigate','dataQuality',{deviceId})">管理页</ui-button></div></header>
   <ui-alert v-if="error" :title="error" type="error" :closable="false"><ui-button size="small" @click="load">重新加载</ui-button></ui-alert>
   <ui-tabs v-model="tab"><ui-tab-pane name="runs" label="分析任务"/><ui-tab-pane name="profiles" label="质量配置"/><ui-tab-pane name="baselines" label="确认基线"/><ui-tab-pane name="calibrations" label="校准记录"/></ui-tabs>
   <ui-skeleton v-if="loading&&!profiles.length&&!runs.length" :rows="5" animated/>

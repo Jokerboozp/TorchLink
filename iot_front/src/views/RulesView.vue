@@ -201,7 +201,7 @@ onMounted(async () => {
 function rowActions(row) {
   return [
     { key:'view', label:'详情', onClick:() => view(row) },
-    ...(canExperiment.value ? [{ key: 'experiment', label: '实验', onClick: () => openExperiment(row.id) }] : []),
+    ...(canExperiment.value ? [{ key: 'experiment', label: '规则对比', onClick: () => openExperiment(row.id) }] : []),
     { key:'edit', label:'编辑', permission:'PUT /api/v1/rules/:id', onClick:() => open(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/rules/:id', onClick:() => remove(row.id) }
   ]
@@ -209,7 +209,7 @@ function rowActions(row) {
 </script>
 
 <template>
-  <ui-tabs v-if="canExperiment && canRules" v-model="activeTab"><ui-tab-pane name="rules" label="当前规则" /><ui-tab-pane name="experiment" label="策略实验" /></ui-tabs>
+  <ui-tabs v-if="canExperiment && canRules" v-model="activeTab"><ui-tab-pane name="rules" label="当前规则" /><ui-tab-pane name="experiment" label="告警规则对比" /></ui-tabs>
   <template v-if="canRules && activeTab === 'rules'">
   <FilterBar>
     <template #actions>

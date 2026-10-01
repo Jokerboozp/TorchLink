@@ -108,12 +108,12 @@ IOT_TEST_ANALYTICS_BROWSER=1 \
 
 | 场景 | 浏览器入口 | 夹具开关 / info 路径变量 |
 | --- | --- | --- |
-| 数据质量 | `node tests/browser/data-quality-check.mjs` | `IOT_TEST_QUALITY_FIXTURE=1` / `IOT_TEST_QUALITY_INFO` |
-| 监测连续性 | `node tests/browser/monitoring-gaps-check.mjs` | `IOT_TEST_MONITORING_FIXTURE=1` / `IOT_TEST_MONITORING_INFO` |
-| 告警策略实验 | `node tests/browser/rule-lab-check.mjs` | `IOT_TEST_RULELAB_FIXTURE=1` / `IOT_TEST_RULELAB_INFO` |
-| 演练与处置复盘 | `node tests/browser/response-review-check.mjs` | `IOT_TEST_RESPONSE_FIXTURE=1` / `IOT_TEST_RESPONSE_INFO` |
-| 维护与投入 | `node tests/browser/maintenance-check.mjs` | `IOT_TEST_MAINTENANCE_FIXTURE=1` / `IOT_TEST_MAINTENANCE_INFO` |
-| 反复报警治理 | `node tests/browser/alarm-governance-check.mjs` | `IOT_TEST_GOVERNANCE_FIXTURE=1` / `IOT_TEST_ANALYTICS_BROWSER_INFO` |
+| 上报数据检查 | `node tests/browser/data-quality-check.mjs` | `IOT_TEST_QUALITY_FIXTURE=1` / `IOT_TEST_QUALITY_INFO` |
+| 上报中断分析 | `node tests/browser/monitoring-gaps-check.mjs` | `IOT_TEST_MONITORING_FIXTURE=1` / `IOT_TEST_MONITORING_INFO` |
+| 告警规则对比 | `node tests/browser/rule-lab-check.mjs` | `IOT_TEST_RULELAB_FIXTURE=1` / `IOT_TEST_RULELAB_INFO` |
+| 演练与复盘 | `node tests/browser/response-review-check.mjs` | `IOT_TEST_RESPONSE_FIXTURE=1` / `IOT_TEST_RESPONSE_INFO` |
+| 设备维护 | `node tests/browser/maintenance-check.mjs` | `IOT_TEST_MAINTENANCE_FIXTURE=1` / `IOT_TEST_MAINTENANCE_INFO` |
+| 反复报警处理 | `node tests/browser/alarm-governance-check.mjs` | `IOT_TEST_GOVERNANCE_FIXTURE=1` / `IOT_TEST_ANALYTICS_BROWSER_INFO` |
 
 结束时在根目录 `touch .e2e/analytics-browser/stop`，等待 Go 测试退出并清理临时 schema，再停止本次 Vite。重跑前移除该次 stop 文件。各脚本写入配置、核实、分析和临时用户，只能指向隔离夹具；默认 Harness 为受控测试实现，真实 Harness 需另外配置测试开关/地址/令牌，成功不代表真实模型或现场数据验收。
 

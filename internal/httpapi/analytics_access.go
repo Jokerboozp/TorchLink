@@ -3,12 +3,12 @@ package httpapi
 import "strings"
 
 var analyticsMenus = map[string]string{
-	"dataQuality":     "数据质量",
-	"monitoringGaps":  "监测连续性",
-	"ruleLab":         "告警策略实验台",
+	"dataQuality":     "上报数据检查",
+	"monitoringGaps":  "上报中断分析",
+	"ruleLab":         "告警规则对比",
 	"response":        "演练与复盘",
-	"maintenance":     "维护与投入",
-	"alarmGovernance": "反复报警治理",
+	"maintenance":     "设备维护",
+	"alarmGovernance": "反复报警处理",
 }
 
 func analyticsRouteMenu(path string) (string, bool) {

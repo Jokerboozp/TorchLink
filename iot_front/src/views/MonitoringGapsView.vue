@@ -1,4 +1,5 @@
 <script setup>
+import { pageGuide } from '../pageGuide.js'
 import DeviceSelect from '../components/DeviceSelect.vue'
 import { provideDeviceCatalog } from '../useDeviceCatalog.js'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -45,7 +46,7 @@ async function loadRuns() {
 async function load() {
  const token = ++generation; loading.value = true; error.value = ''
  try {
-  if (!can('menu:devices')) throw new Error('监测连续性需要设备管理读取权限，以及管理员分配的设备范围。')
+  if (!can('menu:devices')) throw new Error('上报中断分析需要设备管理读取权限，以及管理员分配的设备范围。')
   const mainList = loadRuns().catch(cause => { if (token === generation && !disposed) error.value = cause.message })
   const [p,o,q] = await Promise.all([monitoringAll('profiles'), monitoringAll('observations'), can('menu:dataQuality') ? qualityAll('runs') : Promise.resolve({items:[]})])
   if (disposed || token !== generation) return
@@ -91,7 +92,7 @@ onMounted(()=>{if(!props.deviceId)try{const detail=JSON.parse(sessionStorage.get
 onBeforeUnmount(()=>{disposed=true;generation++;runGeneration++;listGeneration++;stopPolling()})
 </script>
 <template>
- <div class="monitoring-gaps-page" :class="{'monitor-embedded':!!deviceId}"><header class="monitor-toolbar"><div><h1><Activity/>监测连续性<span v-if="deviceId" class="monitor-heading-device"> · {{deviceName(deviceId)}}</span></h1><p class="monitor-hint">核对连接、关键属性数据与接入依赖的实际覆盖。</p></div><div class="monitor-actions"><ui-button size="small" :loading="loading" @click="load"><RefreshCw/>刷新</ui-button><ui-button v-if="can('menu:devices')&&can('POST /api/v1/monitoring-gaps/runs')" type="primary" size="small" @click="newRun()"><Plus/>新增连续性分析</ui-button><ui-button v-if="deviceId" text size="small" @click="emit('navigate','monitoringGaps',{deviceId})">管理页</ui-button></div></header>
+ <div class="monitoring-gaps-page" :class="{'monitor-embedded':!!deviceId}"><header class="monitor-toolbar"><div><h1><Activity/>{{pageGuide.monitoringGaps.title}}<span v-if="deviceId" class="monitor-heading-device"> · {{deviceName(deviceId)}}</span></h1><p class="monitor-hint">{{pageGuide.monitoringGaps.sub}}</p></div><div class="monitor-actions"><ui-button size="small" :loading="loading" @click="load"><RefreshCw/>刷新</ui-button><ui-button v-if="can('menu:devices')&&can('POST /api/v1/monitoring-gaps/runs')" type="primary" size="small" @click="newRun()"><Plus/>新增连续性分析</ui-button><ui-button v-if="deviceId" text size="small" @click="emit('navigate','monitoringGaps',{deviceId})">管理页</ui-button></div></header>
   <ui-alert v-if="error" :title="error" type="error" :closable="false"><ui-button size="small" @click="load">重新加载</ui-button></ui-alert><ui-tabs v-model="tab"><ui-tab-pane name="runs" label="分析任务"/><ui-tab-pane name="profiles" label="监测策略"/><ui-tab-pane name="observations" label="观察窗口"/></ui-tabs><ui-skeleton v-if="loading&&!profiles.length&&!runs.length" :rows="5" animated/>
   <MonitoringProfiles v-else-if="tab==='profiles'" :key="viewKey+'-profiles'" :profiles="profiles" :devices="devices" :device-id="deviceId" @refresh="load"/>
   <MonitoringObservations v-else-if="tab==='observations'" :key="viewKey+'-observations'" :items="observations" :devices="devices" :device-id="deviceId" @refresh="load"/>

@@ -91,7 +91,7 @@ try {
  const closed = () => until(() => evaluate(`![...document.querySelectorAll('.ui-dialog')].some(node=>node.getClientRects().length)`), 'dialog closed')
  const visibleDialogText = () => evaluate(`([...document.querySelectorAll('.ui-dialog')].filter(node=>node.getClientRects().length).at(-1)?.innerText || '')`)
  const screenshot = async file => writeFile(`${out}/${file}.png`, Buffer.from((await call('Page.captureScreenshot', { format: 'png' })).data, 'base64'))
- const openPage = async () => { await clickSelector('.nav-item[aria-label="监测连续性"]'); await until(() => evaluate('!!document.querySelector(".monitoring-gaps-page")&&!document.querySelector(".monitoring-gaps-page>.ui-skeleton")')); await delay(200) }
+ const openPage = async () => { await clickSelector('.nav-item[aria-label="上报中断分析"]'); await until(() => evaluate('!!document.querySelector(".monitoring-gaps-page")&&!document.querySelector(".monitoring-gaps-page>.ui-skeleton")')); await delay(200) }
  const terminal = async (id, token = auth.accessToken) => until(async () => { const value = await request(path(id), 'GET', undefined, token); return ['SUCCEEDED','PARTIAL','FAILED','CANCELLED'].includes(value.status) ? value : false }, 'real persistent facts complete', 60000)
  await setSession(auth, username); await openPage()
  console.log('连续性验收：配置实际策略')
@@ -214,7 +214,7 @@ try {
   const unavailableId=randomUUID()
   // Use the public navigation state after the ordinary click, before Vue mounts
   // its destination; neither component state nor network facts are injected.
-  await evaluate(`(()=>{document.querySelector(${JSON.stringify('.nav-item[aria-label="数据质量"]')}).click();sessionStorage.setItem('iot:navigation-detail',${JSON.stringify(JSON.stringify({runId:unavailableId}))})})()`)
+  await evaluate(`(()=>{document.querySelector(${JSON.stringify('.nav-item[aria-label="上报数据检查"]')}).click();sessionStorage.setItem('iot:navigation-detail',${JSON.stringify(JSON.stringify({runId:unavailableId}))})})()`)
   await until(() => evaluate('document.querySelector(".data-quality-page")?.innerText.includes("关联的固定数据质量任务已不存在或超出当前授权范围")'))
   assert.ok(!await evaluate('!!document.querySelector(".quality-results .quality-ratio-grid")'),'无效固定任务不能悄悄恢复其它缓存任务')
   await openPage(); await until(() => evaluate('!!document.querySelector(".monitoring-results .monitor-stat-grid")'))
