@@ -219,7 +219,7 @@ func TestUnprocessedStandardMessageIsRetriedAfterDownstreamFailure(t *testing.T)
 	}
 }
 
-func TestDeleteRuleRetainsActiveAlarmsAndClearsPending(t *testing.T) {
+func TestDeleteRuleRecoversActiveAlarmsAndClearsPending(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
 	if err := repo.SaveRule(ctx, model.AlarmRule{ID: "rule-delete", TenantID: "tenant-a", ProductID: "sensor", Name: "高温", AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Enabled: true, Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}}); err != nil {
@@ -232,16 +232,16 @@ func TestDeleteRuleRetainsActiveAlarmsAndClearsPending(t *testing.T) {
 	if err := e.DeleteRule(ctx, "tenant-a", "rule-delete"); err != nil {
 		t.Fatal(err)
 	}
-	if active, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "ACTIVE"}); len(active) != 1 {
-		t.Fatalf("deleted rule changed unresolved alarms: %#v", active)
+	if active, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "ACTIVE"}); len(active) != 0 {
+		t.Fatalf("deleted rule left active alarms: %#v", active)
 	}
 	recovered, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "RECOVERED"})
-	if err != nil || len(recovered) != 0 {
-		t.Fatalf("deleted rule silently recovered history: alarms=%#v err=%v", recovered, err)
+	if err != nil || len(recovered) != 1 {
+		t.Fatalf("deleted rule did not retain recovered history: alarms=%#v err=%v", recovered, err)
 	}
 }
 
-func TestDisableRuleRetainsActiveAlarmsAndClearsPending(t *testing.T) {
+func TestDisableRuleRecoversActiveAlarmsAndClearsPending(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
 	if err := repo.SaveRule(ctx, model.AlarmRule{ID: "rule-disable", TenantID: "tenant-a", ProductID: "sensor", Name: "高温", AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Enabled: true, Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}}); err != nil {
@@ -254,12 +254,12 @@ func TestDisableRuleRetainsActiveAlarmsAndClearsPending(t *testing.T) {
 	if err := e.DisableRule(ctx, "tenant-a", "rule-disable"); err != nil {
 		t.Fatal(err)
 	}
-	if active, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "ACTIVE"}); len(active) != 1 {
-		t.Fatalf("disabled rule changed unresolved alarms: %#v", active)
+	if active, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "ACTIVE"}); len(active) != 0 {
+		t.Fatalf("disabled rule left active alarms: %#v", active)
 	}
 	recovered, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "RECOVERED"})
-	if err != nil || len(recovered) != 0 {
-		t.Fatalf("disabled rule silently recovered history: alarms=%#v err=%v", recovered, err)
+	if err != nil || len(recovered) != 1 {
+		t.Fatalf("disabled rule did not retain recovered history: alarms=%#v err=%v", recovered, err)
 	}
 }
 

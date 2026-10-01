@@ -12,9 +12,6 @@ type ProtocolSwitch struct {
 	Product Product
 	Package ProtocolPackage
 	Binding ProductProtocolBinding
-	// CreateProduct creates a missing template in the same transaction. An
-	// existing template is a conflict, so a concurrent create cannot overwrite it.
-	CreateProduct bool
 	// Expected is the binding read before the switch; nil means there was none.
 	Expected *ProductProtocolBinding
 }

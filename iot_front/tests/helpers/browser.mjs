@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 export { delay }
 
 // Each check owns a fresh browser process and profile; never attach to a user's browser.
-export async function startBrowser({ args = [], timeout = 10000, interval = 100, onEvent = () => {}, webSocketImplementation = WebSocket } = {}) {
+export async function startBrowser({ args = [], timeout = 10000, interval = 100, onEvent = () => {} } = {}) {
   const executable = process.env.IOT_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
   const profile = await mkdtemp(join(tmpdir(), 'iot-browser-test-'))
   const mode = process.env.IOT_TEST_HEADFUL === '1' ? ['--window-position=-4000,-4000', '--window-size=1440,900'] : ['--headless=new']
@@ -78,14 +78,14 @@ export async function startBrowser({ args = [], timeout = 10000, interval = 100,
       catch (error) { if (error.code !== 'ENOENT') throw error }
     }, 'DevToolsActivePort')
     const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(10000) })).json()
-    socket = new webSocketImplementation(pages.find(page => page.type === 'page').webSocketDebuggerUrl)
+    socket = new WebSocket(pages.find(page => page.type === 'page').webSocketDebuggerUrl)
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Browser debugger connection timed out')), 10000)
       socket.onopen = () => { clearTimeout(timer); resolve() }
       socket.onerror = () => { clearTimeout(timer); reject(new Error('Browser debugger connection failed')) }
       socket.onclose = () => { clearTimeout(timer); reject(new Error('Browser debugger connection closed')) }
     })
-    socket.onclose = event => fail(new Error(`Browser debugger connection closed (code=${event.code}, reason=${event.reason || 'unspecified'})`))
+    socket.onclose = () => fail(new Error('Browser debugger connection closed'))
     socket.onerror = () => fail(new Error('Browser debugger connection failed'))
     socket.onmessage = event => {
       const message = JSON.parse(event.data)

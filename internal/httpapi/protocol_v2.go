@@ -531,8 +531,22 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	if err != nil {
 		return model.ProductProtocolBinding{}, errors.New("product not found")
 	}
-	if err = s.validateProtocolBinding(r, release, productID); err != nil {
+	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
+	if err != nil {
 		return model.ProductProtocolBinding{}, err
+	}
+	for _, profile := range profiles {
+		if profile.Enabled && profile.ProductID == productID && len(profile.Queries) > 0 && !protocolworker.HasCapability(release, "encode") {
+			return model.ProductProtocolBinding{}, errors.New("该产品已有定时查询，新版本必须保留 encode 能力")
+		}
+		for _, mapping := range profile.ChildProducts {
+			if profile.Enabled && mapping.ProductID == productID && release.PayloadFormat != "hex" {
+				return model.ProductProtocolBinding{}, errors.New("子设备接入映射要求 HEX 解析协议")
+			}
+		}
+		if profile.Enabled && profile.Mode == "listener" && profile.ProductID == productID && !listenerSupports(release, profile.Network) {
+			return model.ProductProtocolBinding{}, errors.New("新版本不支持该产品已启用的 TCP/UDP 接入实例")
+		}
 	}
 	previous, previousProtocol := "", ""
 	var expected *model.ProductProtocolBinding
@@ -545,32 +559,6 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 		return model.ProductProtocolBinding{}, getErr
 	}
 	binding := model.ProductProtocolBinding{TenantID: tenant, ProductID: productID, ProtocolID: protocolID, Version: version, PreviousVersion: previous, PreviousProtocolID: previousProtocol, UpdatedAt: time.Now().UnixMilli()}
-	return s.commitProductProtocol(r, product, release, binding, expected, false)
-}
-
-func (s *Server) validateProtocolBinding(r *http.Request, release model.ProtocolRelease, productID string) error {
-	tenant := claims(r).TenantID
-	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
-	if err != nil {
-		return err
-	}
-	for _, profile := range profiles {
-		if profile.Enabled && profile.ProductID == productID && len(profile.Queries) > 0 && !protocolworker.HasCapability(release, "encode") {
-			return errors.New("该产品已有定时查询，新版本必须保留 encode 能力")
-		}
-		for _, mapping := range profile.ChildProducts {
-			if profile.Enabled && mapping.ProductID == productID && release.PayloadFormat != "hex" {
-				return errors.New("子设备接入映射要求 HEX 解析协议")
-			}
-		}
-		if profile.Enabled && profile.Mode == "listener" && profile.ProductID == productID && !listenerSupports(release, profile.Network) {
-			return errors.New("新版本不支持该产品已启用的 TCP/UDP 接入实例")
-		}
-	}
-	return nil
-}
-
-func (s *Server) commitProductProtocol(r *http.Request, product model.Product, release model.ProtocolRelease, binding model.ProductProtocolBinding, expected *model.ProductProtocolBinding, create bool) (model.ProductProtocolBinding, error) {
 	shim := legacyProtocolShim(release)
 	product.ProtocolPackageID = shim.ID
 	// A dual-network protocol keeps the network the template was narrowed to.
@@ -578,12 +566,12 @@ func (s *Server) commitProductProtocol(r *http.Request, product model.Product, r
 		product.Transport = release.Transport
 	}
 	product.PayloadFormat = release.PayloadFormat
-	product.UpdatedAt = time.Now().UnixMilli()
-	if err := s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: product, Package: shim, Binding: binding, Expected: expected, CreateProduct: create}); err != nil {
+	product.UpdatedAt = binding.UpdatedAt
+	if err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: product, Package: shim, Binding: binding, Expected: expected}); err != nil {
 		return binding, err
 	}
-	s.engine.ProtocolsChanged(product.TenantID)
-	s.audit(r, "protocol.v2.binding.switch", "product", product.ID, map[string]any{"protocolId": binding.ProtocolID, "version": binding.Version, "previousVersion": binding.PreviousVersion})
+	s.engine.ProtocolsChanged(tenant)
+	s.audit(r, "protocol.v2.binding.switch", "product", productID, map[string]any{"protocolId": protocolID, "version": version, "previousVersion": previous})
 	return binding, nil
 }
 

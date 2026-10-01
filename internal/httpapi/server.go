@@ -23,11 +23,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"iot-platform/internal/alarmgovernance"
-	"iot-platform/internal/analytics"
-	"iot-platform/internal/analytics/dataquality"
-	"iot-platform/internal/analytics/monitoring"
-	"iot-platform/internal/analytics/recurring"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -38,7 +33,6 @@ import (
 	"iot-platform/internal/opscenter"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
-	"iot-platform/internal/rulelab/lab"
 	"iot-platform/internal/video"
 
 	"github.com/gin-gonic/gin"
@@ -49,14 +43,6 @@ type ctxKey string
 const claimsKey ctxKey = "claims"
 
 type Server struct {
-	governance                 *alarmgovernance.Service
-	governanceVideoEvents      ports.VideoEventReader
-	analysis                   *analytics.Service
-	analysisFacts              ports.AnalyticsFactStore
-	quality                    *dataquality.Service
-	monitoring                 *monitoring.Service
-	rulelab                    *lab.Service
-	recurring                  *recurring.Service
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -112,9 +98,6 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		engine.AuthorizeAIRun = s.authorizeAIRun
 	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
-	s.setupAnalytics()
-	s.setupAlarmGovernance()
-	s.setupAnalysisAI()
 	s.routes()
 	return s
 }
@@ -137,16 +120,6 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 }
 
 func (s *Server) routes() {
-	s.analysisRoutes()
-	s.dataQualityRoutes()
-	s.monitoringRoutes()
-	s.ruleLabRoutes()
-	s.ruleHistoryRoutes()
-	s.responseRoutes()
-	s.maintenanceRoutes()
-	s.analysisAIRoutes()
-	s.dutyRoutes()
-	s.alarmGovernanceRoutes()
 	s.accessRoutes()
 	s.openAPIRoutes()
 	s.deletionRoutes()
@@ -410,42 +383,14 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		v.CreatedAt = now
 	}
 	v.UpdatedAt = now
-	var expected *model.ProductProtocolBinding
-	if !newProduct {
-		if binding, getErr := s.engine.Repo.GetProductProtocolBinding(r.Context(), c.TenantID, v.ID); getErr == nil {
-			// Template edits do not switch protocols. Reject a stale form rather
-			// than replacing the active binding or disagreeing with its reference.
-			if binding.ProtocolID != pkg.Protocol || binding.Version != pkg.Version {
-				bindingProblem(w, model.ErrBindingChanged)
-				return
-			}
-			expected = &binding
-		} else if !errors.Is(getErr, model.ErrNotFound) {
-			problem(w, 500, getErr.Error())
-			return
-		}
-	}
-	// Versioned protocols are parsed by the bound release; the binding is their single source.
-	release, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
-	if releaseErr != nil && !errors.Is(releaseErr, model.ErrNotFound) {
-		problem(w, 500, releaseErr.Error())
+	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
+		problem(w, 500, err.Error())
 		return
 	}
-	if v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {
-		if release.Status != "PUBLISHED" {
-			problem(w, 422, "only a published protocol release can be bound")
-			return
-		}
-		binding := model.ProductProtocolBinding{TenantID: c.TenantID, ProductID: v.ID, ProtocolID: pkg.Protocol, Version: pkg.Version, UpdatedAt: now}
-		if expected != nil {
-			binding = *expected
-		} else if err := s.validateProtocolBinding(r, release, v.ID); err != nil {
-			bindingProblem(w, err)
-			return
-		}
-		// The same atomic switch creates new templates and repairs old failed
-		// creations. Expected=nil prevents overwriting a concurrent first bind.
-		if _, err := s.commitProductProtocol(r, v, release, binding, expected, newProduct); err != nil {
+	// Versioned protocols are parsed by the bound release; the binding is their single source.
+	_, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
+	if newProduct && v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {
+		if _, err := s.bindProtocolRelease(r, pkg.Protocol, pkg.Version, v.ID); err != nil {
 			bindingProblem(w, err)
 			return
 		}
@@ -454,9 +399,6 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 			problem(w, 500, err.Error())
 			return
 		}
-	} else if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
-		return
 	}
 	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status})
 	write(w, 201, v)
@@ -1270,7 +1212,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	v.TenantID = c.TenantID
 	status := http.StatusCreated
-	baselineVersion := 0
+	wasEnabled := false
 	if id := r.PathValue("id"); id != "" {
 		status = http.StatusOK
 		v.ID = id
@@ -1282,11 +1224,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		found := false
 		for _, current := range items {
 			if current.ID == id {
-				if v.Version > 0 && v.Version != current.Version {
-					problem(w, 409, "规则已更新，请刷新后重新编辑")
-					return
-				}
-				baselineVersion = current.Version
+				wasEnabled = current.Enabled
 				v.CreatedAt = current.CreatedAt
 				v.Version = current.Version + 1
 				found = true
@@ -1327,16 +1265,17 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		write(w, 409, map[string]any{"type": "rule-conflict", "detail": "rule conflicts require explicit confirmation", "conflicts": conflicts})
 		return
 	}
-	revision, err := s.engine.PublishRule(r.Context(), model.RulePublishRequest{Rule: v, ExpectedBaselineVersion: baselineVersion, Reason: "rule saved", Actor: c.Username})
-	if err != nil {
-		if errors.Is(err, model.ErrRuleConflict) {
-			problem(w, 409, "规则已更新，请刷新后重新编辑")
+	if status == http.StatusOK && wasEnabled && !v.Enabled {
+		if err := s.engine.DisableRule(r.Context(), c.TenantID, v.ID); err != nil {
+			problem(w, 500, err.Error())
 			return
 		}
+	}
+	if err := s.engine.Repo.SaveRule(r.Context(), v); err != nil {
 		problem(w, 500, err.Error())
 		return
 	}
-	v = revision.Rule
+	s.engine.RulesChanged(c.TenantID)
 	s.audit(r, "rule.save", "rule", v.ID, map[string]any{"version": v.Version, "enabled": v.Enabled})
 	write(w, status, v)
 }
@@ -1403,7 +1342,7 @@ func (s *Server) alarmAction(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil {
 		return
 	}
-	v, err := s.engine.SetAlarmStatus(model.WithDutyActor(r.Context(), claims(r).Username), claims(r).TenantID, r.PathValue("id"), strings.ToUpper(in.Action), claims(r).Username)
+	v, err := s.engine.SetAlarmStatus(r.Context(), claims(r).TenantID, r.PathValue("id"), strings.ToUpper(in.Action), claims(r).Username)
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -1802,12 +1741,7 @@ func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
 		if s.log != nil {
 			s.log.Warn("list AI workflows failed", "error", err)
 		}
-		fallback := []ports.AIWorkflowPlugin{}
-		if forKnowledge {
-			fallback = knowledgeWorkflowPlugins(nil)
-		}
-		fallback, total := pageItems(fallback, pagination)
-		writeList(w, 200, fallback, total, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"})
+		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"})
 		return
 	}
 	if forKnowledge {
@@ -1823,23 +1757,16 @@ func alarmAnalysisWorkflowPlugin() ports.AIWorkflowPlugin {
 	return ports.AIWorkflowPlugin{ID: model.AlarmAnalysisWorkflowID, Name: "AI 告警研判", Description: "告警详情中的智能研判；仅有知识库权限的角色手动研判时检索本智能体的文档。", Enabled: true, KnowledgeEnabled: true}
 }
 
-// knowledgeWorkflowPlugins uses knowledge capability independently of the chat
-// catalog. Business Agents own documents and retrieval policies too.
+// knowledgeWorkflowPlugins lists the Agents that own knowledge documents: chat
+// Agents plus the alarm analysis Agent.
 func knowledgeWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin {
-	visible := make([]ports.AIWorkflowPlugin, 0, len(items)+1)
-	hasAlarm := false
+	visible := chatWorkflowPlugins(items)
 	for _, item := range items {
 		if item.ID == model.AlarmAnalysisWorkflowID {
-			hasAlarm = true
-		}
-		if item.KnowledgeEnabled || item.ID == model.AlarmAnalysisWorkflowID {
-			visible = append(visible, item)
+			return append(visible, item)
 		}
 	}
-	if !hasAlarm {
-		visible = append(visible, alarmAnalysisWorkflowPlugin())
-	}
-	return visible
+	return append(visible, alarmAnalysisWorkflowPlugin())
 }
 
 func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
@@ -1956,7 +1883,7 @@ func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnprocessableEntity, "workflow id has an invalid format")
 		return
 	}
-	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter", core.WorkflowDutyHandover) {
+	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") {
 		problem(w, http.StatusConflict, "built-in Agent ids cannot be deleted")
 		return
 	}
@@ -1975,7 +1902,7 @@ func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
 	if manifest.SchemaVersion != 1 || !validWorkflowIdentifier(manifest.ID) {
 		return errors.New("schemaVersion must be 1 and id must contain only letters, numbers, dot, underscore, colon or hyphen")
 	}
-	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter", core.WorkflowDutyHandover) {
+	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") {
 		return errors.New("built-in Agent ids cannot be overwritten")
 	}
 	if !boundedText(manifest.Name, 128) || !boundedText(manifest.Description, 1024) || !boundedText(manifest.Version, 64) || !boundedText(manifest.Persona, 16384) || !validWorkflowModel(manifest.DefaultModel) {
@@ -3035,20 +2962,6 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 		ctx := auth.ContextWithClaims(context.WithValue(c.Request.Context(), claimsKey, claimsValue), claimsValue)
-		if claimsValue.Workflow == core.WorkflowDutyHandover {
-			if err := s.authorizeDutyHarness(ctx, claimsValue); err != nil {
-				ginProblem(c, http.StatusForbidden, err.Error())
-				c.Abort()
-				return
-			}
-		}
-		if analytics.IsAnalysisWorkflow(claimsValue.Workflow) {
-			if err := s.authorizeAnalysisHarness(ctx, claimsValue); err != nil {
-				ginProblem(c, http.StatusForbidden, err.Error())
-				c.Abort()
-				return
-			}
-		}
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

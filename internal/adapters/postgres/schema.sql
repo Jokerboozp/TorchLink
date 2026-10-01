@@ -143,7 +143,6 @@ CREATE TABLE IF NOT EXISTS video_alarm_event (
   alarm_type text NOT NULL, event_time bigint NOT NULL, body jsonb NOT NULL,
   PRIMARY KEY (tenant_id, event_id)
 );
-CREATE INDEX IF NOT EXISTS video_alarm_event_history_idx ON video_alarm_event(tenant_id,event_time,event_id);
 CREATE TABLE IF NOT EXISTS video_camera_mapping (
   tenant_id text NOT NULL, camera_id text NOT NULL, camera_name text, brand text, camera_point text, device_id text, project_id text,
   ingest_mode text NOT NULL DEFAULT 'direct', city_code text, district_code text, building text, floor text, room text, area_id text,
@@ -492,23 +491,3 @@ ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS claim_expires_at bigint NO
 ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 ALTER TABLE alarm_record ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;
 ALTER TABLE device_state ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;
-
--- Duty objects deliberately use independent tables, sharing versioned metadata.
-DO $$
-DECLARE table_name text;
-BEGIN
- FOREACH table_name IN ARRAY ARRAY['duty_receipt','duty_attachment','duty_station','duty_team','duty_shift_template','duty_roster','duty_run','duty_record','duty_item','duty_item_event','duty_handover','duty_handover_revision','duty_ai_job','duty_notification','duty_action_link'] LOOP
-  EXECUTE format('CREATE TABLE IF NOT EXISTS %I (tenant_id text NOT NULL,id text NOT NULL,version bigint NOT NULL DEFAULT 1,created_at bigint NOT NULL,updated_at bigint NOT NULL,body jsonb NOT NULL,PRIMARY KEY(tenant_id,id))',table_name);
-  EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(tenant_id,updated_at DESC,id DESC)',table_name||'_page_idx',table_name);
-  EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(tenant_id,(body->>''stationId''),(body->>''status''))',table_name||'_station_status_idx',table_name);
-  EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(tenant_id,(body->>''runId''))',table_name||'_run_idx',table_name);
- END LOOP;
-END $$;
-CREATE TABLE IF NOT EXISTS duty_business_event (
- seq bigserial PRIMARY KEY,tenant_id text NOT NULL,id text NOT NULL,event_type text NOT NULL,
- station_id text NOT NULL DEFAULT '',run_id text NOT NULL DEFAULT '',device_id text NOT NULL DEFAULT '',actor_id text NOT NULL DEFAULT '',
- occurred_at bigint NOT NULL,recorded_at bigint NOT NULL,body jsonb NOT NULL,UNIQUE(tenant_id,id)
-);
-CREATE INDEX IF NOT EXISTS duty_business_event_time_idx ON duty_business_event(tenant_id,occurred_at DESC,seq DESC);
-CREATE INDEX IF NOT EXISTS duty_business_event_device_idx ON duty_business_event(tenant_id,device_id,occurred_at DESC,seq DESC);
-CREATE INDEX IF NOT EXISTS duty_business_event_station_idx ON duty_business_event(tenant_id,station_id,occurred_at DESC,seq DESC);

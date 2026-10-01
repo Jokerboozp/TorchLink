@@ -21,16 +21,6 @@ func (r *Repository) SwitchProductProtocol(ctx context.Context, v model.Protocol
 		return err
 	}
 	defer tx.Rollback(ctx)
-	body := func(value any) []byte { data, _ := json.Marshal(value); return data }
-	if v.CreateProduct {
-		created, createErr := tx.Exec(ctx, `INSERT INTO iot_product(tenant_id,id,status,protocol_package_id,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,id) DO NOTHING`, v.Product.TenantID, v.Product.ID, v.Product.Status, v.Product.ProtocolPackageID, body(v.Product))
-		if createErr != nil {
-			return createErr
-		}
-		if created.RowsAffected() != 1 {
-			return model.ErrBindingChanged
-		}
-	}
 	// Lock the template so concurrent switches compare against the same binding.
 	var exists int
 	if err = tx.QueryRow(ctx, `SELECT 1 FROM iot_product WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, v.Product.TenantID, v.Product.ID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
@@ -47,6 +37,7 @@ func (r *Repository) SwitchProductProtocol(ctx context.Context, v model.Protocol
 	if found != (v.Expected != nil) || found && (protocol != v.Expected.ProtocolID || version != v.Expected.Version) {
 		return model.ErrBindingChanged
 	}
+	body := func(value any) []byte { data, _ := json.Marshal(value); return data }
 	if _, err = tx.Exec(ctx, saveProtocolPackageSQL, v.Package.TenantID, v.Package.ID, v.Package.Status, v.Package.ParserType, body(v.Package)); err != nil {
 		return err
 	}

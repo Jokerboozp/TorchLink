@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { api, apiAll, formatTime, session } from '../api'
+import { api, apiAll, formatTime, notifyError, session } from '../api'
 import { can } from '../permissions'
 import { createClientId } from '../clientId'
 import { categories } from '../labels'

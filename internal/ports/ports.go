@@ -27,14 +27,9 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
-	RuleHistoryRepository
 	DeleteResource(context.Context, string, string, string) error
 	DeleteProtocolRelease(context.Context, string, string, string) error
 	AccessStore
-	// Duty persistence is required through telemetry/cache decorators, including
-	// transaction-bound snapshots and background worker tenant discovery.
-	DutyStore
-	DutyTenantLister
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
@@ -134,9 +129,6 @@ type Repository interface {
 	DeleteRulePendings(context.Context, string, string) error
 	ApplyComponentAlarm(context.Context, model.Alarm, model.ComponentAlarmState) (model.Alarm, string, error)
 	UpsertAlarm(context.Context, model.Alarm) (model.Alarm, bool, error)
-	// RecoverAlarmSignal commits explicit normal evidence and recovery atomically,
-	// including a normal seed when no active alarm exists.
-	RecoverAlarmSignal(context.Context, model.AlarmObservation, string) ([]model.Alarm, error)
 	// UpsertAlarm and ApplyComponentAlarm commit the alarm report event with the
 	// alarm. DrainOutbox publishes pending events in order and removes each one
 	// after publish succeeds, stopping at the first failure.

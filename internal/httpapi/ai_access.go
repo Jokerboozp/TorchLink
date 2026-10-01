@@ -8,9 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"strings"
 
-	"iot-platform/internal/analytics"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
@@ -24,15 +22,13 @@ func workflowScopes(ctx context.Context) []string {
 		return auth.HarnessReadScopes()
 	}
 	required := map[string]bool{
-		auth.ScopeQuerySystemOverview:   p["menu:dashboard"],
-		auth.ScopeQueryDeviceLatest:     p["menu:devices"],
-		auth.ScopeQueryPropertyHistory:  p["menu:devices"],
-		auth.ScopeQueryAlarmList:        allowsRoute(p, "GET", "/api/v1/alarms"),
-		auth.ScopeQuerySimilarAlarms:    allowsRoute(p, "GET", "/api/v1/alarms"),
-		auth.ScopeQueryKnowledgeBase:    p["menu:knowledge"],
-		auth.ScopeCreateRuleDraft:       allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
-		auth.ScopeQueryDutySnapshot:     p["menu:duty"] && p["action:duty:ai"],
-		auth.ScopeQueryAnalysisSnapshot: p["menu:devices"] && ((p["menu:alarms"] && p["menu:alarmGovernance"] && allowsRoute(p, "POST", "/api/v1/alarm-governance/runs/:id/ai-jobs")) || (p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")) || (p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")) || (p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs")) || (p["menu:response"] && allowsRoute(p, "POST", "/api/v1/response-runs/:id/ai-jobs")) || (p["menu:maintenance"] && (allowsRoute(p, "POST", "/api/v1/maintenance-observations/:id/ai-jobs") || allowsRoute(p, "POST", "/api/v1/investment-scenarios/:id/ai-jobs")))),
+		auth.ScopeQuerySystemOverview:  p["menu:dashboard"],
+		auth.ScopeQueryDeviceLatest:    p["menu:devices"],
+		auth.ScopeQueryPropertyHistory: p["menu:devices"],
+		auth.ScopeQueryAlarmList:       allowsRoute(p, "GET", "/api/v1/alarms"),
+		auth.ScopeQuerySimilarAlarms:   allowsRoute(p, "GET", "/api/v1/alarms"),
+		auth.ScopeQueryKnowledgeBase:   p["menu:knowledge"],
+		auth.ScopeCreateRuleDraft:      allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),
 	}
 	out := []string{}
 	for _, scope := range auth.HarnessReadScopes() {
@@ -60,12 +56,6 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 		return ctx, errors.New("AI 运行身份与租户不符")
 	}
 	if !identity.ManagedUser {
-		if analytics.IsAnalysisWorkflow(workflowID) {
-			return ctx, s.authorizeAnalysisAI(ctx, identity)
-		}
-		if workflowID == core.WorkflowDutyHandover {
-			return ctx, s.authorizeDutyAI(ctx, tenantID, identity)
-		}
 		return ctx, nil
 	}
 	c := auth.Claims{TenantID: tenantID, Username: identity.Username, SessionVersion: identity.SessionVersion}
@@ -87,41 +77,13 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 	ctx = context.WithValue(ctx, deviceScopeKey{}, scopeFor(user, permissions, tenantID))
 	ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 	identity.Scopes = intersectScopes(identity.Scopes, workflowScopes(ctx))
-	if workflowID == core.WorkflowDutyHandover {
-		if err := s.authorizeDutyAI(ctx, tenantID, identity); err != nil {
-			return ctx, err
-		}
-	}
-	if analytics.IsAnalysisWorkflow(workflowID) {
-		if err := s.authorizeAnalysisAI(ctx, identity); err != nil {
-			return ctx, err
-		}
-	}
 	return ports.WithAIRunIdentity(ctx, identity), nil
 }
 
 // businessWorkflowAllowed checks the feature permission behind a business run
 // token; chat tokens keep requiring the assistant permission instead.
 func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
-	if d, ok := analytics.WorkflowDefinitionByID(workflow); ok {
-		return p["menu:devices"] && p["menu:"+d.Menu] && (d.Kind != analytics.KindRecurring || p["menu:alarms"]) && allowsRoute(p, "POST", strings.TrimPrefix(analytics.AIStartOperation(d.Kind), "POST "))
-	}
-
 	switch workflow {
-	case core.WorkflowDataQuality:
-		return p["menu:devices"] && p["menu:dataQuality"] && allowsRoute(p, "POST", "/api/v1/data-quality/runs/:id/ai-jobs")
-	case core.WorkflowMonitoring:
-		return p["menu:devices"] && p["menu:monitoringGaps"] && allowsRoute(p, "POST", "/api/v1/monitoring-gaps/runs/:id/ai-jobs")
-	case core.WorkflowRulePolicy:
-		return p["menu:devices"] && p["menu:ruleLab"] && allowsRoute(p, "POST", "/api/v1/rule-lab/experiments/:id/ai-jobs")
-	case core.WorkflowResponse:
-		return p["menu:devices"] && p["menu:response"] && allowsRoute(p, "POST", "/api/v1/response-runs/:id/ai-jobs")
-	case core.WorkflowMaintenance:
-		return p["menu:devices"] && p["menu:maintenance"] && allowsRoute(p, "POST", "/api/v1/maintenance-observations/:id/ai-jobs")
-	case core.WorkflowInvestment:
-		return p["menu:devices"] && p["menu:maintenance"] && allowsRoute(p, "POST", "/api/v1/investment-scenarios/:id/ai-jobs")
-	case core.WorkflowDutyHandover:
-		return p["menu:duty"] && p["action:duty:ai"]
 	case core.WorkflowAlarmAnalysis:
 		return allowsRoute(p, "POST", "/api/v1/ai/alarm-analysis/:alarmId/run")
 	case core.WorkflowHealthInspection:

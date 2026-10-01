@@ -10,11 +10,7 @@ func (r *Repository) SwitchProductProtocol(_ context.Context, v model.ProtocolSw
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	pk := key(v.Product.TenantID, v.Product.ID)
-	_, productExists := r.products[pk]
-	if v.CreateProduct && productExists {
-		return model.ErrBindingChanged
-	}
-	if !v.CreateProduct && !productExists {
+	if _, ok := r.products[pk]; !ok {
 		return ErrNotFound
 	}
 	current, ok := r.protocolBindings[pk]

@@ -1,12 +1,10 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-const emit = defineEmits(['navigate'])
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { can } from '../permissions.js'
+defineEmits(['navigate'])
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
-import { canGovernance } from '../governance/permissions.js'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
 import { alarmNavigation, alarmQuery } from '../alarmNavigation'
 import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, label, tagType } from '../labels'
@@ -32,13 +30,11 @@ const total = ref(0)
 let analysisPollTimer = 0
 let analysisViewToken = 0
 let loadVersion = 0
-let disposed = false
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
 const progressStatus = computed(() => analysisProgress.value?.status === 'failed' ? 'exception' : analysisProgress.value?.status === 'succeeded' ? 'success' : undefined)
 
 async function load(resetPage = false) {
-  if (disposed) return
   const version = ++loadVersion
   if (resetPage) page.value = 1
   loading.value = true
@@ -69,7 +65,6 @@ function handleDetailClosed() {
   analysisLoading.value = false
   analysisProgress.value = null
 }
-watch(detailVisible, visible => { if (!visible) handleDetailClosed() }, { flush:'sync' })
 
 // 研判结果按知识范围分开保存，这里说明当前显示的结果依据了哪些知识。
 function analysisKnowledgeText(item) {
@@ -114,15 +109,12 @@ async function pollAnalysis(jobId, alarmId, viewToken = analysisViewToken) {
 }
 
 async function show(id) {
-  if (disposed) return
   const viewToken = ++analysisViewToken
   stopAnalysisPolling()
   analysisLoading.value = false
   analysisProgress.value = null
   try {
-    const data = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
-    if (viewToken !== analysisViewToken) return
-    detail.value = data
+    detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
     analysis.value = null
     detailVisible.value = true
     const [savedResult, progressResult] = await Promise.allSettled([
@@ -143,7 +135,7 @@ async function show(id) {
       analysisLoading.value = false
     }
   } catch (e) {
-    if (viewToken === analysisViewToken) notifyError(e)
+    notifyError(e)
   }
 }
 
@@ -202,8 +194,6 @@ onMounted(async () => {
   if (navigation.alarmId) await show(navigation.alarmId)
 })
 onBeforeUnmount(() => {
-  disposed = true
-  loadVersion += 1
   analysisViewToken += 1
   stopAnalysisPolling()
   window.clearTimeout(realtimeTimer)
@@ -216,7 +206,6 @@ function rowActions(row) {
   const open = ['ACTIVE','ACKED'].includes(row.status)
   return [
     { key:'detail', label:'查看详情', onClick:() => show(row.alarmId) },
-    { key:'verification', label:'填写核实', permission:'action:alarmGovernance:record', hidden:!canGovernance('POST /api/v1/alarm-governance/verifications'), onClick:() => emit('navigate','alarmGovernance',{deviceId:row.deviceId,alarmId:row.alarmId,action:'verify'}) },
     { key:'ack', label:'确认告警', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canAcknowledgeAlarm(row.status), loading:actionPending[row.alarmId] === 'ACKED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'ACKED') },
     { key:'close', label:'关闭告警', type:'danger', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canCloseAlarm(row.status), loading:actionPending[row.alarmId] === 'CLOSED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'CLOSED') },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/alarms/:id', hidden:open, onClick:() => removeAlarm(row) }
@@ -244,11 +233,10 @@ function rowActions(row) {
     </ui-table>
   </DataTableCard>
 
-  <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
+  <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
     <ui-descriptions v-if="detail" :column="1" border>
       <ui-descriptions-item label="告警编号">{{detail.alarmId}}</ui-descriptions-item><ui-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</ui-descriptions-item><ui-descriptions-item v-if="detail.componentId" label="部件">{{detail.componentName||detail.componentId}}（{{detail.componentId}}）</ui-descriptions-item><ui-descriptions-item v-if="detail.componentLocation" label="部件位置">{{detail.componentLocation}}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</ui-descriptions-item><ui-descriptions-item label="等级 / 状态"><ui-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</ui-tag> {{label(alarmStatuses,detail.status)}}</ui-descriptions-item><ui-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</ui-descriptions-item><ui-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="触发次数">{{detail.triggerCount}}</ui-descriptions-item>
     </ui-descriptions>
-    <div v-if="detail && can('menu:alarmGovernance')" class="gov-actions top-gap"><ui-button v-if="canGovernance('POST /api/v1/alarm-governance/verifications')" size="small" @click="emit('navigate','alarmGovernance',{deviceId:detail.deviceId,alarmId:detail.alarmId,action:'verify'})">填写现场核实</ui-button><ui-button size="small" @click="emit('navigate','alarmGovernance',{deviceId:detail.deviceId,alarmId:detail.alarmId})">查看治理事项</ui-button></div>
     <ui-card v-if="detail" shadow="never" class="top-gap">
       <template #header><strong>关联摄像头</strong></template>
       <LinkedCameras :cameras="detail.cameras || []" />
@@ -265,7 +253,7 @@ function rowActions(row) {
       <div v-if="analysis" class="analysis-grid"><ui-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">{{analysisKnowledgeText(analysis)}}</small><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div>
     </ui-card>
     <pre>{{pretty(detail)}}</pre>
-    <template #footer><ui-button v-if="detail && can('menu:response')" v-permission="'POST /api/v1/response-cases'" @click="detailVisible = false; emit('navigate', 'response', { alarmId: detail.alarmId, deviceId: detail.deviceId })">建立处置复盘案例</ui-button><ui-button @click="detailVisible = false">关闭详情</ui-button></template>
+    <template #footer><ui-button @click="detailVisible = false">关闭详情</ui-button></template>
   </ui-dialog>
 </template>
 

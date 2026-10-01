@@ -3,9 +3,7 @@ import { createClientId } from '../clientId'
 import CommandValueInput from './CommandValueInput.vue'
 import LinkedCameras from './LinkedCameras.vue'
 import { commandBody } from '../commandForm'
-import { computed, defineAsyncComponent, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { can } from '../permissions.js'
-import { canGovernance } from '../governance/permissions.js'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { UiMessageBox, UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty, session } from '../api'
 import { transportLabel, statusLabel } from '../presentation'
@@ -13,11 +11,6 @@ import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatus
 import { diagnosisTagTypes } from '../onboardingPlan'
 
 const props = defineProps({ deviceId:String })
-const DataQualityView = defineAsyncComponent(() => import('../views/DataQualityView.vue'))
-const MonitoringGapsView = defineAsyncComponent(() => import('../views/MonitoringGapsView.vue'))
-const AlarmGovernanceView = defineAsyncComponent(() => import('../views/AlarmGovernanceView.vue'))
-const detailTab = ref('details')
-watch(() => props.deviceId, () => { detailTab.value = 'details' })
 const emit = defineEmits(['close','navigate','device'])
 const data = ref(null), loading = ref(false), actionBusy = ref(false), error = ref(''), selectedProfile = ref('')
 const credential = ref(null), commandResult = ref(null)
@@ -165,16 +158,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
       </div>
       <ui-alert v-if="error" title="设备详情加载失败" :description="error" type="error" :closable="false" show-icon />
       <ui-empty v-if="!data && !loading && !error" description="暂无设备信息" />
-      <ui-tabs v-if="data && (can('menu:dataQuality') || can('menu:monitoringGaps') || can('menu:alarmGovernance'))" v-model="detailTab">
-        <ui-tab-pane name="details" label="设备详情" />
-        <ui-tab-pane v-if="can('menu:dataQuality')" name="quality" label="上报数据检查" />
-        <ui-tab-pane v-if="can('menu:monitoringGaps')" name="monitoring" label="上报中断分析" />
-        <ui-tab-pane v-if="can('menu:alarmGovernance')" name="governance" label="反复报警处理" />
-      </ui-tabs>
-      <DataQualityView v-if="data && detailTab === 'quality' && can('menu:dataQuality')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
-      <MonitoringGapsView v-if="data && detailTab === 'monitoring' && can('menu:monitoringGaps')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
-      <AlarmGovernanceView v-if="data && detailTab === 'governance' && can('menu:alarmGovernance')" :device-id="props.deviceId" @navigate="(page, detail) => emit('navigate', page, detail)" />
-      <template v-if="data && detailTab === 'details'">
+      <template v-if="data">
         <section class="connection-section device-summary">
           <h3>当前接入状态</h3>
           <div v-if="data.diagnosis" class="connection-diagnosis" :class="`is-${data.diagnosis.tone}`" role="status"><ui-tag :type="diagnosisTagTypes[data.diagnosis.tone]">{{data.diagnosis.title}}</ui-tag><p>{{data.diagnosis.nextAction}}</p></div>
@@ -260,7 +244,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           </ui-descriptions>
           <ui-empty v-else description="暂无已解析报文" :image-size="48" />
           <ui-collapse v-if="data.latest?.messageId" class="message-detail"><ui-collapse-item title="查看完整标准消息" name="message"><pre>{{pretty(data.latest)}}</pre></ui-collapse-item></ui-collapse>
-          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button><ui-button v-permission="'menu:maintenance'" @click="emit('navigate','maintenance',{deviceId:props.deviceId})">设备维护</ui-button></div>
+          <div class="section-actions"><ui-button v-permission="'menu:raw'" @click="emit('navigate','raw',{deviceId:props.deviceId})">原始报文与回放</ui-button><ui-button v-permission="'menu:alarms'" @click="emit('navigate','alarms',{deviceId:props.deviceId})">设备告警</ui-button></div>
         </section>
 
         <section class="connection-section device-history" v-loading="lists.history.loading">
@@ -286,10 +270,9 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
         </section>
 
         <section class="connection-section device-alarms">
-          <div class="section-heading"><h3>最近告警</h3><ui-button v-if="can('menu:alarmGovernance')" size="small" @click="emit('navigate','alarmGovernance',{deviceId:props.deviceId})">查看治理事项</ui-button></div>
+          <h3>最近告警</h3>
           <ui-table :data="data.recentAlarms || []" border empty-text="暂无告警">
             <ui-table-column label="告警" min-width="100"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column><ui-table-column label="级别" min-width="90"><template #default="{row}">{{alarmLevel(row.alarmLevel)}}</template></ui-table-column>
-            <ui-table-column v-if="can('menu:alarmGovernance') && canGovernance('POST /api/v1/alarm-governance/verifications')" label="现场核实" width="120"><template #default="{row}"><ui-button text size="small" @click="emit('navigate','alarmGovernance',{deviceId:props.deviceId,alarmId:row.alarmId,action:'verify'})">填写核实</ui-button></template></ui-table-column>
             <ui-table-column label="状态" min-width="100"><template #default="{row}">{{label(alarmStatuses,row.status)}}</template></ui-table-column><ui-table-column label="最近触发" min-width="175"><template #default="{row}">{{formatTime(row.lastTriggeredAt)}}</template></ui-table-column>
           </ui-table>
         </section>

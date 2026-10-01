@@ -156,3 +156,5 @@ export function buildPlan(form) {
   lines.push('  drainTimeout: 5m', 'budget:', `  maximumWallTime: ${wall}`, `  maximumMessagesPerSecond: ${form.maxRate}`, `  maximumDevices: ${devices}`, '  maximumEvidenceGiB: 5')
   return lines.join('\n') + '\n'
 }
+
+export const planTemplate = buildPlan(defaultForm('quick'))

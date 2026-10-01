@@ -2,8 +2,8 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -106,10 +106,10 @@ func (e *Engine) ValidateRuleDraft(ctx context.Context, rule model.AlarmRule) ([
 		if other.ID == rule.ID || other.ProductID != rule.ProductID {
 			continue
 		}
-		if other.Expression == rule.Expression && rule.Expression != "" || sameRuleConditions(other.Conditions, rule.Conditions) {
+		if other.Expression == rule.Expression && rule.Expression != "" || reflect.DeepEqual(other.Conditions, rule.Conditions) {
 			conflicts = append(conflicts, fmt.Sprintf("与规则 %s(%s) 的触发条件重复", other.Name, other.ID))
 		}
-		if other.AlarmType == rule.AlarmType && other.Level != rule.Level && sameRuleConditions(other.Conditions, rule.Conditions) {
+		if other.AlarmType == rule.AlarmType && other.Level != rule.Level && reflect.DeepEqual(other.Conditions, rule.Conditions) {
 			conflicts = append(conflicts, fmt.Sprintf("与规则 %s(%s) 的等级配置冲突", other.Name, other.ID))
 		}
 	}
@@ -141,13 +141,4 @@ func productFields(product model.Product) map[string]bool {
 		}
 	}
 	return out
-}
-
-func sameRuleConditions(a, b []model.RuleCondition) bool {
-	first, err := json.Marshal(a)
-	if err != nil {
-		return false
-	}
-	second, err := json.Marshal(b)
-	return err == nil && string(first) == string(second)
 }

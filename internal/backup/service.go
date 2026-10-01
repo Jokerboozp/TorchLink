@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -177,20 +176,6 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	if err = os.MkdirAll(dir, 0o750); err != nil {
 		return manifest, err
 	}
-	var snapshot pgx.Tx
-	if kind == "FULL" {
-		snapshot, err = s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-		if err != nil {
-			return manifest, err
-		}
-		defer snapshot.Rollback(context.WithoutCancel(ctx))
-		ctx = context.WithValue(ctx, backupSnapshotKey{}, snapshot)
-		var readAt int64
-		if err = snapshot.QueryRow(ctx, `SELECT floor(extract(epoch FROM transaction_timestamp())*1000)::bigint`).Scan(&readAt); err != nil {
-			return manifest, err
-		}
-		manifest.Components["postgresSnapshot"] = map[string]any{"isolation": "repeatable-read", "readAt": readAt}
-	}
 	rawPath := filepath.Join(dir, "raw-messages.jsonl.gz")
 	raw, exportErr := s.exportMessages(ctx, rawPath, start, end, false)
 	if exportErr != nil {
@@ -205,31 +190,12 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	manifest.Components["parsedMessages"] = map[string]any{"records": parsed.Total, "postgresql": parsed.PostgreSQL, "clickhouse": parsed.ClickHouse}
 	paths := []string{rawPath, parsedPath}
 	if kind == "FULL" {
-		manifest.FormatVersion = 5
-		manifest.Components["scope"] = "device messages, knowledge originals, persistent Agents, duty management, fixed application/configuration histories and alarm governance"
+		manifest.Components["scope"] = "device messages, PostgreSQL knowledge, document originals and persistent Agents"
 		extra, fullErr := s.exportKnowledgeAndAgents(ctx, dir, &manifest)
 		if fullErr != nil {
 			return manifest, fullErr
 		}
 		paths = append(paths, extra...)
-		dutyPaths, dutyErr := s.exportDuty(ctx, dir, &manifest)
-		if dutyErr != nil {
-			return manifest, dutyErr
-		}
-		paths = append(paths, dutyPaths...)
-		applicationPaths, applicationErr := s.exportApplication(ctx, dir, &manifest)
-		if applicationErr != nil {
-			return manifest, applicationErr
-		}
-		paths = append(paths, applicationPaths...)
-		governancePaths, governanceErr := s.exportGovernance(ctx, dir, &manifest)
-		if governanceErr != nil {
-			return manifest, governanceErr
-		}
-		paths = append(paths, governancePaths...)
-		if err = snapshot.Commit(ctx); err != nil {
-			return manifest, err
-		}
 	}
 	if err = s.ensureBucket(ctx, s.store, s.cfg.BackupBucket); err != nil {
 		return manifest, err
@@ -286,12 +252,7 @@ func (s *Service) exportMessages(ctx context.Context, path string, start, end ti
 	}()
 
 	pgSQL, args, chSQL := messageQueries(start, end, parsed)
-	var rows pgx.Rows
-	if tx, ok := ctx.Value(backupSnapshotKey{}).(pgx.Tx); ok {
-		rows, err = tx.Query(ctx, pgSQL, args...)
-	} else {
-		rows, err = s.pool.Query(ctx, pgSQL, args...)
-	}
+	rows, err := s.pool.Query(ctx, pgSQL, args...)
 	if err != nil {
 		return stats, err
 	}

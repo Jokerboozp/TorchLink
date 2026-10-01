@@ -27,15 +27,6 @@ var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
-	if strings.HasPrefix(path, "/api/v1/alarm-governance/") {
-		return "alarmGovernance"
-	}
-	if menu, ok := analyticsRouteMenu(path); ok {
-		return menu
-	}
-	if strings.HasPrefix(path, "/api/v1/duty/") {
-		return "duty"
-	}
 	if strings.HasPrefix(path, "/api/v1/ai/embedding-") || strings.HasPrefix(path, "/api/v1/ai/runs") {
 		return "aiProviders"
 	}
@@ -62,18 +53,6 @@ func routeMenu(path string) string {
 	return ""
 }
 func routeAction(method, path string) string {
-	if action, ok := governanceRoutePermission(method, path); ok {
-		return governanceActionNames[action]
-	}
-	if name, ok := analyticsActionName(method, path); ok {
-		return name
-	}
-	if action, ok := dutyRoutePermission(method, path); ok {
-		if action == "" {
-			return "查看值班数据"
-		}
-		return dutyActionNames[action]
-	}
 	if name, ok := opsActionName(method, path); ok {
 		return name
 	}
@@ -168,9 +147,6 @@ func routeAction(method, path string) string {
 	}
 }
 func protectedRead(path string) bool {
-	if analyticsProtectedRead(path) {
-		return true
-	}
 	if path == "/api/v1/ai/runs" {
 		return true
 	}
@@ -178,25 +154,10 @@ func protectedRead(path string) bool {
 }
 func (s *Server) permissionCatalog() []permissionItem {
 	items := []permissionItem{}
-	for id, name := range analyticsMenus {
-		items = append(items, permissionItem{"menu:" + id, name, id, "menu"})
-	}
-	items = append(items, permissionItem{"menu:duty", "值班管理", "duty", "menu"})
-	for id, name := range dutyActionNames {
-		items = append(items, permissionItem{"action:duty:" + id, name, "duty", "action"})
-	}
-	for id, name := range governanceActionNames {
-		items = append(items, permissionItem{"action:alarmGovernance:" + id, name, "alarmGovernance", "action"})
-	}
-	items = append(items, permissionItem{"action:cameras:history", "读取授权设备历史视频事件", "cameras", "action"})
-	items = append(items, permissionItem{"action:cameras:download", "下载历史事件影像", "cameras", "action"})
 	for id, name := range menuNames {
 		items = append(items, permissionItem{"menu:" + id, name, id, "menu"})
 	}
 	for _, r := range s.router.Routes() {
-		if strings.HasPrefix(r.Path, "/api/v1/duty/") || strings.HasPrefix(r.Path, "/api/v1/alarm-governance/") {
-			continue
-		}
 		if r.Path == capacityCleanupDataPath || r.Path == capacityCleanupPreviewPath {
 			continue
 		}
@@ -279,15 +240,6 @@ func permissionList(p map[string]bool) []string {
 	return out
 }
 func allowsRoute(p map[string]bool, method, path string) bool {
-	if method == "GET" && path == "/api/v1/follow-up-sources" {
-		return p["menu:devices"] && (p["menu:response"] || p["menu:maintenance"])
-	}
-	if allowed, ok := allowsGovernanceRoute(p, method, path); ok {
-		return allowed
-	}
-	if allowed, ok := allowsDutyRoute(p, method, path); ok {
-		return allowed
-	}
 	if path == capacityCleanupDataPath || path == capacityCleanupPreviewPath {
 		return p[capacityCleanupPermission] && p["menu:opsCapacity"]
 	}

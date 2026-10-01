@@ -114,9 +114,7 @@ func (s *Service) Restore(ctx context.Context, backupID string) (RestoreResult, 
 	res.RestoreID = "restore_" + time.Now().UTC().Format("20060102T150405.000Z")
 	_, _ = s.pool.Exec(ctx, `INSERT INTO backup_task(id,backup_type,status,started_at) VALUES($1,'RESTORE','RUNNING',now())`, res.RestoreID)
 	err := s.restore(ctx, &res)
-	if res.Status != "PARTIAL" {
-		res.Status = "COMPLETED"
-	}
+	res.Status = "COMPLETED"
 	for _, k := range res.Kinds {
 		if !k.Matches {
 			res.Status = "MISMATCH"
@@ -126,7 +124,7 @@ func (s *Service) Restore(ctx context.Context, backupID string) (RestoreResult, 
 		res.Status, res.Error = "FAILED", err.Error()
 	}
 	details, _ := json.Marshal(res)
-	status := map[string]string{"COMPLETED": "COMPLETED", "PARTIAL": "COMPLETED"}[res.Status]
+	status := map[string]string{"COMPLETED": "COMPLETED"}[res.Status]
 	if status == "" {
 		status = "FAILED"
 	}
@@ -148,7 +146,7 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 	if err != nil {
 		return fmt.Errorf("read manifest: %w", err)
 	}
-	if manifest.FormatVersion > 5 {
+	if manifest.FormatVersion > 2 {
 		return fmt.Errorf("unsupported backup manifest version %d", manifest.FormatVersion)
 	}
 	if manifest.ID != res.BackupID {
@@ -167,9 +165,6 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 		return errors.New("restore target database is unavailable")
 	}
 	defer target.Close(context.WithoutCancel(ctx))
-	if err = restoreConnectedTargetSafe(ctx, s.pool, target); err != nil {
-		return err
-	}
 	if _, err = target.Exec(ctx, restoreSchema); err != nil {
 		return err
 	}
@@ -216,18 +211,7 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 	if err = s.restoreKnowledgeAndAgents(ctx, target, manifest, res); err != nil {
 		return err
 	}
-	if err = s.restoreDuty(ctx, target, manifest, res); err != nil {
-		return err
-	}
-	if err = s.restoreApplication(ctx, target, manifest, res); err != nil {
-		return err
-	}
-	if err = s.restoreGovernance(ctx, target, manifest, res); err != nil {
-		return err
-	}
-	if res.Status != "PARTIAL" {
-		res.Status = "COMPLETED"
-	}
+	res.Status = "COMPLETED"
 	for _, summary := range res.Kinds {
 		if !summary.Matches {
 			res.Status = "MISMATCH"

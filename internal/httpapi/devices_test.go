@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,18 +14,14 @@ import (
 	"testing"
 	"time"
 
-	clickhouseadapter "iot-platform/internal/adapters/clickhouse"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
-	redisadapter "iot-platform/internal/adapters/redis"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
-	"iot-platform/internal/ports"
-	"iot-platform/internal/repositorytest"
 )
 
 func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
@@ -729,141 +724,6 @@ func TestNewTemplateOnVersionedReleaseIsBound(t *testing.T) {
 	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, map[string]any{"id": "standard-product", "name": "标准", "protocolPackageId": "iot-standard@1.0.0"}, 201)
 	if _, err = repo.GetProductProtocolBinding(ctx, "tenant", "standard-product"); err == nil {
 		t.Fatal("the built-in standard protocol needs no binding")
-	}
-}
-
-type productBindingFailureRepository struct {
-	*memory.Repository
-	failProfiles bool
-	failSwitch   bool
-	beforeSwitch func(context.Context, model.ProtocolSwitch)
-}
-
-func (r *productBindingFailureRepository) ListDeviceAccessProfiles(ctx context.Context, tenant string) ([]model.DeviceAccessProfile, error) {
-	if r.failProfiles {
-		r.failProfiles = false
-		return nil, errors.New("temporary access profile query failure")
-	}
-	return r.Repository.ListDeviceAccessProfiles(ctx, tenant)
-}
-
-func (r *productBindingFailureRepository) SwitchProductProtocol(ctx context.Context, change model.ProtocolSwitch) error {
-	if r.failSwitch {
-		r.failSwitch = false
-		return errors.New("temporary protocol switch failure")
-	}
-	if r.beforeSwitch != nil {
-		r.beforeSwitch(ctx, change)
-	}
-	return r.Repository.SwitchProductProtocol(ctx, change)
-}
-
-func TestProductCreateBindingFailureIsRetryable(t *testing.T) {
-	for _, failure := range []string{"profile query", "atomic switch"} {
-		t.Run(failure, func(t *testing.T) {
-			ctx := context.Background()
-			repo := &productBindingFailureRepository{Repository: memory.NewRepository(), failProfiles: failure == "profile query", failSwitch: failure == "atomic switch"}
-			must := func(err error) {
-				t.Helper()
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			must(repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "fire-go", Version: "1", Transport: "TCP", PayloadFormat: "hex", ParserType: parser.GoProtocolParserName, Status: "PUBLISHED"}))
-			cfg := config.Load()
-			cfg.JWTSecret = "product-create-retry-test-signing-key"
-			api := New(cfg, &core.Engine{Repo: ScopedRepository(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-			server := httptest.NewServer(api.Handler())
-			defer server.Close()
-			token, err := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
-			must(err)
-			product := map[string]any{"id": "product", "name": "Go 产品", "protocolPackageId": "fire-go@1"}
-			requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, product, 422)
-			if saved, err := repo.GetProduct(ctx, "tenant", "product"); !errors.Is(err, model.ErrNotFound) {
-				t.Fatalf("failed create left an incomplete product: %+v %v", saved, err)
-			}
-			requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, product, 201)
-			binding := requestJSON(t, server.Client(), "GET", server.URL+"/api/v2/products/product/protocol-binding", token, nil, 200)
-			if binding["protocolId"] != "fire-go" || binding["version"] != "1" {
-				t.Fatalf("retry did not finish the selected binding: %v", binding)
-			}
-		})
-	}
-}
-
-func TestProtocolProductCreationWithProductionRepositoryDecorators(t *testing.T) {
-	for _, fixture := range []struct {
-		name string
-		wrap func(ports.Repository) ports.Repository
-	}{
-		{"base", func(base ports.Repository) ports.Repository { return base }},
-		{"clickhouse", func(base ports.Repository) ports.Repository { return &clickhouseadapter.Repository{Repository: base} }},
-		{"redis", func(base ports.Repository) ports.Repository { return redisadapter.New(base, nil) }},
-		{"device-scope", ScopedRepository},
-		{"production-chain", func(base ports.Repository) ports.Repository {
-			return ScopedRepository(redisadapter.New(&clickhouseadapter.Repository{Repository: base}, nil))
-		}},
-	} {
-		t.Run(fixture.name, func(t *testing.T) { repositorytest.ProtocolProductCreation(t, fixture.wrap(memory.NewRepository())) })
-	}
-}
-
-func TestProductSaveRepairsMissingBindingAndPreservesActiveBinding(t *testing.T) {
-	ctx := context.Background()
-	repo := &productBindingFailureRepository{Repository: memory.NewRepository()}
-	for _, version := range []string{"1", "2"} {
-		if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "fire-go", Version: version, Transport: "TCP", PayloadFormat: "hex", ParserType: parser.GoProtocolParserName, Status: "PUBLISHED"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	product := model.Product{TenantID: "tenant", ID: "product", Name: "旧半成品", ProtocolPackageID: "fire-go@1", Status: "ENABLED", CreatedAt: 123}
-	if err := repo.SaveProduct(ctx, product); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Load()
-	cfg.JWTSecret = "product-binding-repair-test-signing-key"
-	api := New(cfg, &core.Engine{Repo: ScopedRepository(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
-	token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
-	body := map[string]any{"id": product.ID, "name": "重试模板", "protocolPackageId": product.ProtocolPackageID}
-	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, body, 201)
-	requestJSON(t, server.Client(), "GET", server.URL+"/api/v2/products/product/protocol-binding", token, nil, 200)
-	if saved, _ := repo.GetProduct(ctx, "tenant", "product"); saved.CreatedAt != 123 {
-		t.Fatal("repair replaced the product creation time")
-	}
-	requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/products/product/protocol-binding", token, map[string]any{"protocolId": "fire-go", "version": "2"}, 200)
-	// A stale create retry must not revert an active binding or its product reference.
-	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, body, 409)
-	body["protocolPackageId"], body["name"] = "fire-go@2", "修改名称"
-	requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/products/product", token, body, 201)
-	saved, _ := repo.GetProduct(ctx, "tenant", "product")
-	binding, _ := repo.GetProductProtocolBinding(ctx, "tenant", "product")
-	if saved.Name != "修改名称" || saved.ProtocolPackageID != "fire-go@2" || binding.Version != "2" || binding.PreviousVersion != "1" {
-		t.Fatalf("metadata update changed active binding: %+v %+v", saved, binding)
-	}
-	// A competing first binding appearing between preparation and commit wins.
-	if err := repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "raced", Name: "并发产品", ProtocolPackageID: "fire-go@1", Status: "ENABLED"}); err != nil {
-		t.Fatal(err)
-	}
-	repo.beforeSwitch = func(ctx context.Context, change model.ProtocolSwitch) {
-		if change.Product.ID != "raced" {
-			return
-		}
-		other, err := repo.Repository.GetProduct(ctx, "tenant", "raced")
-		if err != nil {
-			t.Fatal(err)
-		}
-		other.ProtocolPackageID = "fire-go@2"
-		if err := repo.Repository.SwitchProductProtocol(ctx, model.ProtocolSwitch{Product: other, Package: model.ProtocolPackage{TenantID: "tenant", ID: "fire-go@2"}, Binding: model.ProductProtocolBinding{TenantID: "tenant", ProductID: "raced", ProtocolID: "fire-go", Version: "2"}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/products", token, map[string]any{"id": "raced", "name": "重试", "protocolPackageId": "fire-go@1"}, 409)
-	saved, _ = repo.GetProduct(ctx, "tenant", "raced")
-	binding, _ = repo.GetProductProtocolBinding(ctx, "tenant", "raced")
-	if saved.Name != "并发产品" || saved.ProtocolPackageID != "fire-go@2" || binding.Version != "2" {
-		t.Fatalf("competing binding was overwritten: %+v %+v", saved, binding)
 	}
 }
 

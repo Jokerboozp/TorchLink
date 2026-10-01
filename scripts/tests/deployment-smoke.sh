@@ -448,7 +448,6 @@ mkdir -p "$test_root/extracted with spaces"
 tar -xf "$bundle.tar" -C "$test_root/extracted with spaces"
 extracted_bundle="$test_root/extracted with spaces/$bundle_name"
 diff -r "$bundle" "$extracted_bundle"
-diff -r "$scripts/../docs" "$extracted_bundle/docs"
 [ -f "$extracted_bundle/.env.offline" ]
 bash "$scripts/deploy-offline.sh" --bundle-dir "$extracted_bundle" > "$test_root/extracted-deploy.log"
 echo 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'

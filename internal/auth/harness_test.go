@@ -46,21 +46,3 @@ func TestPortsToolScopesMatchHarnessScopes(t *testing.T) {
 		}
 	}
 }
-
-func TestAnalysisWorkflowTokenCannotChangeWorkflowOrHarnessRun(t *testing.T) {
-	manager := New("test-secret-at-least-32-characters")
-	identity := ports.AIRunIdentity{Username: "alice", ManagedUser: true, SessionVersion: 7, AccessVersion: "access-v2", AnalysisRunID: "facts", AnalysisSnapshotID: "snapshot", AnalysisSnapshotVersion: 3, AnalysisJobID: "job", AnalysisLeaseToken: 11, AnalysisHarnessRunID: "analysis_ai_run", AnalysisWorkflowID: "monitoring-continuity-reviewer"}
-	for _, binding := range []struct{ workflow, run string }{{"data-quality-analyst", identity.AnalysisHarnessRunID}, {identity.AnalysisWorkflowID, "another-run"}} {
-		if _, err := manager.IssueBusinessRunToken("tenant-a", identity, binding.run, binding.workflow, []string{ports.MCPToolScope("query_analysis_snapshot")}, nil, time.Minute); err == nil {
-			t.Fatal("mismatched analysis binding was signed", binding)
-		}
-	}
-	token, err := manager.IssueBusinessRunToken("tenant-a", identity, identity.AnalysisHarnessRunID, identity.AnalysisWorkflowID, []string{ports.MCPToolScope("query_analysis_snapshot")}, nil, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	claims, err := manager.Parse(token)
-	if err != nil || claims.Workflow != identity.AnalysisWorkflowID || claims.RunID != identity.AnalysisHarnessRunID || claims.AnalysisJobID != identity.AnalysisJobID || claims.AnalysisLeaseToken != identity.AnalysisLeaseToken || claims.AnalysisSnapshotVersion != identity.AnalysisSnapshotVersion || claims.AnalysisAccessVersion != identity.AccessVersion || claims.SessionVersion != 7 || !claims.ManagedUser || claims.TenantID != "tenant-a" {
-		t.Fatal("signed analysis proof changed", claims, err)
-	}
-}

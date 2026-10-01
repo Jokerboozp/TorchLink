@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -39,13 +40,12 @@ type knowledgeRow struct {
 	Row   json.RawMessage `json:"row"`
 }
 type knowledgeObject struct {
-	Bucket             string `json:"bucket"`
-	Key                string `json:"key"`
-	Entry              string `json:"entry"`
-	SHA256             string `json:"sha256"`
-	Size               int64  `json:"size"`
-	ContentType        string `json:"contentType,omitempty"`
-	OriginalHashStatus string `json:"originalHashStatus,omitempty"`
+	Bucket      string `json:"bucket"`
+	Key         string `json:"key"`
+	Entry       string `json:"entry"`
+	SHA256      string `json:"sha256"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"contentType,omitempty"`
 }
 
 // Only types used by knowledge tables can be replayed. No SQL, default
@@ -60,13 +60,72 @@ func (s *Service) exportKnowledgeAndAgents(ctx context.Context, dir string, mani
 		manifest.Components["harness"] = map[string]any{"status": "not_configured"}
 		return nil, errors.New("FULL backup requires Harness snapshot URLs or a read-only Harness data directory; persistent Agents were not backed up")
 	}
-	tx, err := s.beginBackupRead(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	schema := knowledgeSchema{}
+	counts := map[string]int64{}
 	dataPath := filepath.Join(dir, "knowledge-postgres.jsonl.gz")
-	schema, counts, err := exportDataTables(ctx, tx, knowledgeTables, dataPath)
+	err = writeGzip(dataPath, func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		for _, table := range knowledgeTables {
+			t := knowledgeTable{Name: table}
+			rows, e := tx.Query(ctx, `SELECT a.attname,t.typname,a.attnotnull FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=to_regclass($1) AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum`, table)
+			if e != nil {
+				return e
+			}
+			for rows.Next() {
+				var c knowledgeColumn
+				if e = rows.Scan(&c.Name, &c.Type, &c.NotNull); e != nil {
+					rows.Close()
+					return e
+				}
+				if !backupIdentifier.MatchString(c.Name) || knowledgeSQLTypes[c.Type] == "" {
+					rows.Close()
+					return fmt.Errorf("unsupported knowledge column in %s", table)
+				}
+				t.Columns = append(t.Columns, c)
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				return e
+			}
+			if len(t.Columns) == 0 {
+				return fmt.Errorf("knowledge table %s is missing", table)
+			}
+			e = tx.QueryRow(ctx, `SELECT array_agg(a.attname ORDER BY k.ordinality) FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY k(attnum,ordinality) JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum WHERE c.conrelid=to_regclass($1) AND c.contype='p'`, table).Scan(&t.PrimaryKey)
+			if e != nil {
+				return e
+			}
+			schema.Tables = append(schema.Tables, t)
+			rows, e = tx.Query(ctx, "SELECT to_jsonb(t) FROM "+pgx.Identifier{table}.Sanitize()+" t")
+			if e != nil {
+				return e
+			}
+			counts[table] = 0
+			for rows.Next() {
+				var body []byte
+				if e = rows.Scan(&body); e != nil {
+					rows.Close()
+					return e
+				}
+				if e = enc.Encode(knowledgeRow{Table: table, Row: body}); e != nil {
+					rows.Close()
+					return e
+				}
+				counts[table]++
+			}
+			e = rows.Err()
+			rows.Close()
+			if e != nil {
+				return e
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("knowledge database: %w", err)
 	}

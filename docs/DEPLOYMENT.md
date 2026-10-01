@@ -1,8 +1,6 @@
 # 部署与本地调试
 
-[本地运行](#本地运行) · [端口与地址](#端口与地址) · [在线部署](#在线部署) · [离线部署](#离线部署) · [集群部署](#集群部署)
-
-[摄像头](#摄像头部署) · [容量测试](#容量测试模块) · [配置与维护](#配置与维护) · [进程拆分](#独立接入进程) · [高可用](#高可用边界) · [备份](#设备数据备份) · [状态与日志](#查看状态日志与停止)
+[本地](#本地运行) · [在线](#在线部署) · [离线](#离线部署) · [摄像头](#摄像头部署) · [维护](#配置与维护) · [拆分 Gateway](#独立接入进程)
 
 命令默认在源码仓库根目录执行；离线安装命令在离线包根目录执行。Go、Node 版本以 `go.mod`、`iot_front/package.json` 为准。源码调试时，API、Vue 和备份服务在本机运行，虚拟机只提供基础环境。
 
@@ -174,7 +172,7 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 
 ### 获取或制作离线包
 
-推送 `main` 会触发 `.github/workflows/offline-bundle.yml` 构建 Linux amd64 包，成功后发布到 Releases；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。包内 `docs/` 保留完整功能与操作专题及相对链接。GitHub 的 Source code 不是部署包。公开包不含密码或 API Key，首次安装在目标机生成配置和随机管理员密码。
+推送 `main` 会触发 `.github/workflows/offline-bundle.yml` 构建 Linux amd64 包，成功后发布到 Releases；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。GitHub 的 Source code 不是部署包。公开包不含密码或 API Key，首次安装在目标机生成配置和随机管理员密码。
 
 手工打包（可带现有私有配置）：
 
@@ -334,24 +332,6 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 
 检索策略、首次模型请求的证据和授权校验见 [知识库使用](PLATFORM.md#ai-与知识库)。部署脚本不自动删除清单外容器或历史数据卷。
 
-### 业务分析任务
-
-五项业务分析与反复报警治理共用持久任务服务，功能入口见 [业务分析](ANALYTICS.md)和[反复报警治理](ALARM_GOVERNANCE.md)。资源保护参数以 `internal/config/analytics.go` 为准：
-
-| 环境变量 | 默认值 | 作用 |
-| --- | --- | --- |
-| `IOT_ANALYTICS_WORKERS` | `2` | 每进程事实计算 Worker 数，范围 1–64 |
-| `IOT_ANALYTICS_MAX_DEVICES` | `1000` | 单任务显式设备数上限 |
-| `IOT_ANALYTICS_QUEUE_LIMIT` | `100` | 同租户同应用待执行任务队列上限 |
-| `IOT_ANALYTICS_BATCH_SIZE` | `1000` | 一次提交的指标、发现和证据合计上限 |
-| `IOT_ANALYTICS_RECORD_LIMIT` | `50000` | 固定测量成员及原文读取各自的上限，范围 1–50000；裁剪披露部分覆盖 |
-| `IOT_ANALYTICS_MAX_RANGE` | `744h` | 最大分析时间窗口 |
-| `IOT_ANALYTICS_RUN_TIMEOUT` | `30m` | 从首次领取起的总时限，接管不重置 |
-| `IOT_ANALYTICS_LEASE` | `30s` | 执行租约，至少 300ms |
-| `IOT_ANALYTICS_POLL` | `1s` | 无可领取任务时的检查间隔 |
-
-这些参数不代表吞吐或统计有效性。治理不增加基础服务；正式报告、事实和附件持续保留。后台清理只处理已证实无引用的上传尝试，不删除正式引用对象。任务及治理指标入口为 `internal/metrics/metrics.go`，不以设备或现场正文作为标签。
-
 ### 运维组件
 
 `--dependencies-only` 包含运维基础环境，普通本地准备可加 `--include-ops` / `-IncludeOps`。源码与容器共用 `IOT_LOCAL_OPS_DIR`（默认 `data/ops`）；源码 API 须能写、组件须能读。普通远程虚拟机没有共享目录时，规则与通知配置为只读。将 `IOT_OPS_TENANTS` 设置为可授权运维的租户；Grafana 告警关闭，统一使用 Alertmanager。
@@ -386,7 +366,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本节维护连接池、并发和限额配置；拓扑、角色与迁移见 [集群部署](#集群部署) 和 [进程职责](#进程职责)，实测流程见 [容量验证](DEVELOPMENT.md#容量验证)。
 
-下表用于连接预算、并发及限额配置；实际吞吐按 [容量验证](DEVELOPMENT.md#容量验证) 测量。多副本须核对所有进程的总预算：
+默认值参考历史压测瓶颈调整，不代表当前吞吐已复测。多副本时按下表核对：
 
 | 配置 | 默认 | 说明 |
 | --- | --- | --- |
@@ -532,7 +512,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 - 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
 - 运维中心依赖（`--profile ops` 的 Prometheus、Loki、Grafana、Alertmanager）同样各一个实例；它们停止时接入与告警链路不受影响，但期间的监控数据、日志与告警通知会缺失。
 
-需要高可用时使用 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO、视频媒体与 Prometheus 在示例清单中仍为单实例；知识索引随 PostgreSQL HA 集群保存。单实例组件需要高可用时改用分布式或外部服务。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
+需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO、视频媒体与 Prometheus 在示例清单中仍为单实例；知识索引随 PostgreSQL HA 集群保存。单实例组件需要高可用时改用分布式或外部服务。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
 
 ### 常见排查
 
@@ -547,13 +527,13 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 设备数据备份
 
-备份服务为独立进程，源码模式与 API、Vue 一起在宿主机运行；容器部署随平台启动。本节维护服务配置，完整的操作、FULL / 每日范围、制品版本和隔离恢复契约见 [备份与隔离恢复](BACKUP.md)。
+每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。不会备份账号、Provider/API Key、Redis、消息队列、环境文件或整个 MinIO，凭据仍需另行保管。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
 
-```bash
-go run ./cmd/backup-service --env-file .env.local
-```
-
-每日 / v1 恢复验证需要与业务库不同的独立 PostgreSQL 目标；FULL 还需要 Harness 隔离恢复目录，含原件或附件时需要恢复 MinIO。配置 `IOT_BACKUP_HARNESS_SNAPSHOT_URLS` 时列出全部 Harness 实例；更新业务模块先启动新版 API 完成迁移，再更新前端/Harness 和备份服务。备份制品包含权限和业务资料，访问受平台管理员或运维租户授权限制。
+- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent 和会话。
+- **备份昨日数据**：按配置时区导出前一个自然日的数据。
+- **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
+- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
+- **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。`FULL` v2 同时在独立库的 `kb_restore_<标识>` schema 恢复知识表、pgvector 索引和引用关系，在恢复用 MinIO 的独立前缀恢复原件，在隔离目录恢复每个 Harness 实例文件；校验制品 SHA-256、文件大小及恢复数量。旧 v1 备份只验证原有消息，不宣称包含知识或 Agent。该操作验证隔离恢复，不替换现网数据；同一时间只运行一个备份或恢复。
 
 ```dotenv
 # 是否开启每日自动备份；关闭后仍可手动备份
@@ -576,7 +556,7 @@ IOT_BACKUP_RESTORE_MINIO_SECRET_KEY=
 IOT_BACKUP_RESTORE_HARNESS_DIR=./data/restore/harness
 ```
 
-Windows 源码调试可使用 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 Linux 依赖机。日常维护沿用既有环境文件与数据卷。
+Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 Linux 依赖机。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
 
 ## 独立接入进程
 

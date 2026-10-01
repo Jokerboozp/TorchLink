@@ -2,9 +2,9 @@
 // until an administrator explicitly chooses a preset or edits an action.
 const chatActions = new Set(['POST /api/v1/ai/chat', 'POST /api/v1/ai/chat/stream'])
 export const permissionSections = [
-  { name: '日常使用', menus: ['dashboard', 'devices', 'alarms', 'duty', 'ai', 'raw'] },
+  { name: '日常使用', menus: ['dashboard', 'devices', 'alarms', 'ai', 'raw'] },
   { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras'] },
-  { name: '运维管理', menus: ['inspection', 'alarmGovernance', 'response', 'maintenance', 'dataQuality', 'monitoringGaps', 'ruleLab', 'rules', 'knowledge'] },
+  { name: '运维管理', menus: ['inspection', 'rules', 'knowledge'] },
   { name: '系统管理', menus: ['aiProviders', 'backups', 'access'] },
   { name: '运维中心', menus: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] }
 ]

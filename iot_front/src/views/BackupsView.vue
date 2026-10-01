@@ -2,11 +2,10 @@
 import { can } from '../permissions'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, download, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
-import { restoreSummary } from '../backupPresentation'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels'
 import { RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -19,33 +18,18 @@ const records = ref([])
 const total = ref(0)
 const loading = ref(false)
 const actionLoading = ref('')
-const restoredResult = ref(null)
 // 部署未启用备份服务时明确提示，并停用触发入口，而不是弹出通用错误。
 const serviceMissing = ref(false)
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref(null)
 const manifest = ref(null)
-const manifestLoading = ref(false)
 const manifestPage = ref(1)
 const manifestPageSize = ref(20)
 const manifestTotal = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 let loadVersion = 0
-let detailVersion = 0
-let manifestVersion = 0
-let manifestLoadedPage = 1
-let manifestLoadedPageSize = manifestPageSize.value
-
-function invalidateDetail() {
-  ++detailVersion
-  ++manifestVersion
-  detailLoading.value = false
-  manifestLoading.value = false
-}
-watch(detailVisible, visible => { if (!visible) invalidateDetail() }, { flush:'sync' })
-onBeforeUnmount(() => { ++loadVersion; invalidateDetail() })
 
 const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','POST /api/v1/backups/:id/restore','GET /api/v1/backups/:id/files/:filename','DELETE /api/v1/backups/:id']))
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length)
@@ -89,11 +73,6 @@ async function load(resetPage = false) {
     serviceMissing.value = false
     records.value = data.items || []
     total.value = Number(data.total ?? data.count ?? records.value.length)
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize.value))
-    if (page.value > lastPage) {
-      page.value = lastPage
-      await load()
-    }
   } catch (error) {
     if (version !== loadVersion) return
     serviceMissing.value = error?.status === 503 && /not configured/i.test(error.originalMessage || '')
@@ -115,66 +94,39 @@ function changePageSize(value) {
 }
 
 async function showDetail(row) {
-  const version = ++detailVersion
-  ++manifestVersion
   detailVisible.value = true
   detailLoading.value = true
   detail.value = null
   manifest.value = null
   manifestPage.value = 1
   manifestTotal.value = 0
-  manifestLoading.value = false
-  manifestLoadedPage = 1
-  manifestLoadedPageSize = manifestPageSize.value
   try {
-    const data = await api(`/api/v1/backups/${idPath(row.id)}`)
-    if (version !== detailVersion || !detailVisible.value) return
-    detail.value = data
+    detail.value = await api(`/api/v1/backups/${idPath(row.id)}`)
     if (row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)) {
       await loadManifest(row.id)
     }
   } catch (error) {
-    if (version === detailVersion && detailVisible.value) notifyError(error)
+    notifyError(error)
   } finally {
-    if (version === detailVersion) detailLoading.value = false
+    detailLoading.value = false
   }
 }
 
 async function loadManifest(id) {
-  const viewVersion = detailVersion
-  const version = ++manifestVersion
-  const requestedPage = manifestPage.value
-  const requestedPageSize = manifestPageSize.value
-  manifestLoading.value = true
   const query = new URLSearchParams({ page: String(manifestPage.value), pageSize: String(manifestPageSize.value) })
-  const current = () => viewVersion === detailVersion && version === manifestVersion && detailVisible.value && detail.value?.id === id
-  try {
-    const data = await api(`/api/v1/backups/${idPath(id)}/files?${query.toString()}`)
-    if (!current()) return
-    manifest.value = data
-    manifestTotal.value = Number(data.total ?? data.artifacts?.length ?? 0)
-    manifestLoadedPage = requestedPage
-    manifestLoadedPageSize = requestedPageSize
-  } catch (error) {
-    if (current()) {
-      manifestPage.value = manifestLoadedPage
-      manifestPageSize.value = manifestLoadedPageSize
-      notifyError(error)
-    }
-  } finally {
-    if (current()) manifestLoading.value = false
-  }
+  manifest.value = await api(`/api/v1/backups/${idPath(id)}/files?${query.toString()}`)
+  manifestTotal.value = Number(manifest.value.total ?? manifest.value.artifacts?.length ?? 0)
 }
 
 function changeManifestPage(value) {
   manifestPage.value = value
-  if (detail.value?.id) void loadManifest(detail.value.id)
+  if (detail.value?.id) loadManifest(detail.value.id).catch(notifyError)
 }
 
 function changeManifestPageSize(value) {
   manifestPageSize.value = value
   manifestPage.value = 1
-  if (detail.value?.id) void loadManifest(detail.value.id)
+  if (detail.value?.id) loadManifest(detail.value.id).catch(notifyError)
 }
 
 async function runBackup(type) {
@@ -217,9 +169,9 @@ async function restoreToTarget(row) {
   actionLoading.value = `restore:${row.id}`
   try {
     const result = await api(`/api/v1/backups/${idPath(row.id)}/restore`, { method: 'POST' })
-    restoredResult.value = restoreSummary(result)
-    if (result.status === 'COMPLETED') UiMessage.success(restoredResult.value.title)
-    else UiMessage.warning(restoredResult.value.title)
+    const kinds = Object.values(result.kinds || {})
+    const restored = kinds.reduce((sum, item) => sum + (item.restored || 0), 0)
+    UiMessage.success(`恢复验证完成：写入独立库 ${restored} 条，${result.status === 'COMPLETED' ? '与备份清单一致' : '与备份清单不一致'}`)
     await load()
   } catch (error) {
     notifyError(error)
@@ -272,8 +224,7 @@ function rowActions(row) {
     </template>
   </FilterBar>
   <ui-alert v-if="serviceMissing" class="backup-missing" title="当前部署未启用备份服务" description="备份记录与手动备份暂不可用。请在部署配置中启用备份服务（IOT_BACKUP_URL）后刷新。" type="warning" :closable="false" show-icon />
-  <p class="backup-hint">完整备份包含设备数据、知识库与原件、Agent 和会话、值班资料、固定分析及业务版本、权限关联和应用附件；每日自动备份昨日设备数据。覆盖范围以该次清单为准。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
-  <ui-alert v-if="restoredResult" class="backup-missing" :title="restoredResult.title" :description="[...restoredResult.lines, ...restoredResult.limitations].join('；')" :type="restoredResult.tone" show-icon />
+  <p class="backup-hint">完整备份包含设备数据、知识库与原件、Agent 和会话；每日自动备份昨日设备数据。<template v-if="!isAdmin">当前账号只能查看，不能手动触发备份或文件校验。</template></p>
 
   <div class="backup-stat-grid">
     <ui-card shadow="never" class="surface-card"><span>历史记录</span><strong>{{ total }}</strong><small>设备数据备份与文件校验记录</small></ui-card>
@@ -308,7 +259,7 @@ function rowActions(row) {
       <ui-alert v-if="detail.status === 'FAILED'" class="top-gap" type="error" title="备份任务失败" :description="detail.details?.error || '请查看 backup-service 日志'" :closable="false" show-icon />
       <template v-if="manifest">
         <div class="section-heading top-gap"><div><strong>备份文件</strong><span>清单中的每个文件都可以查看；文件下载和文件校验仅管理员可用</span></div><ui-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:manifest.json`" @click="downloadArtifact(detail, { filename: 'manifest.json' })">下载文件清单</ui-button></div>
-        <ui-table v-loading="manifestLoading" :data="manifest.artifacts" stripe>
+        <ui-table :data="manifest.artifacts" stripe>
           <ui-table-column label="组件" width="160"><template #default="{row}">{{ label(backupComponents, row.component, '其他组件') }}</template></ui-table-column>
           <ui-table-column prop="filename" label="文件名" min-width="240"><template #default="{ row }"><code>{{ row.filename }}</code></template></ui-table-column>
           <ui-table-column label="大小" width="110"><template #default="{ row }">{{ formatBytes(row.size) }}</template></ui-table-column>
@@ -316,7 +267,7 @@ function rowActions(row) {
           <ui-table-column label="操作" width="100" align="center"><template #default="{ row }"><ui-button v-permission="'GET /api/v1/backups/:id/files/:filename'" v-if="isAdmin" plain type="primary" :loading="actionLoading === `download:${detail.id}:${row.filename}`" @click="downloadArtifact(detail, row)">下载</ui-button><span v-else class="muted-text">管理员可下载</span></template></ui-table-column>
         </ui-table>
         <div class="list-pagination">
-          <ui-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :disabled="manifestLoading" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" />
+          <ui-pagination v-model:current-page="manifestPage" v-model:page-size="manifestPageSize" :total="manifestTotal" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper" @current-change="changeManifestPage" @size-change="changeManifestPageSize" />
         </div>
         <div class="section-heading top-gap"><div><strong>组件说明</strong><span>由备份任务写入文件清单，用于确认本次备份覆盖范围</span></div></div>
         <pre>{{ pretty(manifest.components) }}</pre>

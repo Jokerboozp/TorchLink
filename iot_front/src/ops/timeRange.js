@@ -64,3 +64,8 @@ export function rangeDuration(range) {
   const { from, to } = resolveRange(range)
   return to - from
 }
+
+// 选中图表区域后得到绝对时间范围，供多个图表联动缩放。
+export function absoluteRange(from, to) {
+  return { from: Math.round(from), to: Math.round(to) }
+}

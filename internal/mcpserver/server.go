@@ -155,10 +155,6 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 		output := map[string]any{"kind": "ruleDraft", "draft": v, "persisted": draftErr == nil, "requiresHumanApproval": true}
 		return auditedResult(ctx, engine, "create_rule_draft", map[string]any{"inputText": inputText}, output, draftErr)
 	})
-	if harness {
-		registerDutyTool(s, engine)
-		registerAnalysisTool(s, engine)
-	}
 	options := []server.StreamableHTTPOption{
 		server.WithStateLess(true),
 		server.WithEndpointPath(endpoint),

@@ -343,7 +343,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.offline.yaml") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "compose.access.yaml") -Destination $bundleRoot
-    Copy-Item -LiteralPath (Join-Path $projectRoot "docs") -Destination $bundleRoot -Recurse
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs/DEPLOYMENT.md") -Destination $bundleRoot
     Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $bundleRoot -Recurse
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null
@@ -378,6 +378,7 @@ try {
     )) {
         Copy-Item -LiteralPath (Join-Path $scriptDir $runtimeScript) -Destination (Join-Path $bundleRoot "scripts")
     }
+    Copy-Item -LiteralPath (Join-Path $projectRoot "docs\PLATFORM.md") -Destination (Join-Path $bundleRoot "PLATFORM.md")
 
     $images = @(Invoke-Captured -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--images")) | Sort-Object -Unique)
     if ($images.Count -eq 0) { throw "没有解析出可导出的镜像。" }

@@ -1,8 +1,7 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-const emit = defineEmits(['navigate'])
-import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from 'vue'
-import { can } from '../permissions.js'
+defineEmits(['navigate'])
+import { onMounted, reactive, ref } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
@@ -12,22 +11,12 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 
-const props = defineProps({ ruleId: String, deviceId: String })
-const RuleLabView = defineAsyncComponent(() => import('./RuleLabView.vue'))
-const canRules = computed(() => can('menu:rules'))
-const activeTab = ref(canRules.value ? 'rules' : 'experiment')
-const labRuleId = ref(props.ruleId || '')
-const canExperiment = computed(() => can('menu:ruleLab'))
-function openExperiment(ruleId = '') { labRuleId.value = ruleId; activeTab.value = 'experiment' }
-watch(canRules, value => { if (!value) activeTab.value = 'experiment' })
-
 const rules = ref([])
 const products = ref([])
 const dialog = ref(false)
 const draftDialog = ref(false)
 const readonly = ref(false)
 const loading = ref(false)
-const saving = ref(false)
 const prompt = ref('')
 const draft = ref(null)
 const draftPresentation = ref(null)
@@ -94,14 +83,12 @@ function changePageSize(value) {
 }
 
 function open(value, presentation = null) {
-  if (saving.value) return
   Object.assign(form, blank(), value ? { ...value, conditions:pretty(value.conditions || (value.expression ? [] : [{ field:'temperature', operator:'>', value:80 }])), recovery:pretty(value.recovery || []), actions:pretty(value.actions || []), expression:value.expression || '', genginePlaceholder:presentation?.genginePlaceholder || value.genginePlaceholder || '' } : {})
   readonly.value = false
   dialog.value = true
 }
 
 function view(value) {
-  if (saving.value) return
   open(value)
   readonly.value = true
 }
@@ -111,8 +98,6 @@ function startEdit() {
 }
 
 async function save() {
-  if (saving.value || readonly.value) return
-  saving.value = true
   try {
     const value = { ...form, expression:form.expression.trim(), conditions:parseJSON(form.conditions || '[]', '触发条件'), recovery:parseJSON(form.recovery || '[]', '恢复条件'), actions:parseJSON(form.actions || '[]', '联动动作'), durationSeconds:Number(form.durationSeconds) || 0 }
     if (!Array.isArray(value.conditions) || !Array.isArray(value.recovery) || !Array.isArray(value.actions)) throw new Error('条件、恢复条件和联动动作必须是结构化数据数组')
@@ -126,8 +111,6 @@ async function save() {
     await load()
   } catch (error) {
     notifyError(error)
-  } finally {
-    saving.value = false
   }
 }
 
@@ -185,12 +168,12 @@ function actionText(item) {
 }
 
 onMounted(async () => {
-  if (canRules.value) await load()
+  await load()
   const raw = sessionStorage.getItem('iot:navigation-detail')
   if (!raw) return
   try {
     const detail = JSON.parse(raw)
-    if (detail.ruleDraft && canRules.value) {
+    if (detail.ruleDraft) {
       sessionStorage.removeItem('iot:navigation-detail')
       open({ ...detail.ruleDraft, ...(detail.persisted ? {} : { id:'' }), enabled:false })
     }
@@ -201,7 +184,6 @@ onMounted(async () => {
 function rowActions(row) {
   return [
     { key:'view', label:'详情', onClick:() => view(row) },
-    ...(canExperiment.value ? [{ key: 'experiment', label: '规则对比', onClick: () => openExperiment(row.id) }] : []),
     { key:'edit', label:'编辑', permission:'PUT /api/v1/rules/:id', onClick:() => open(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/rules/:id', onClick:() => remove(row.id) }
   ]
@@ -209,8 +191,6 @@ function rowActions(row) {
 </script>
 
 <template>
-  <ui-tabs v-if="canExperiment && canRules" v-model="activeTab"><ui-tab-pane name="rules" label="当前规则" /><ui-tab-pane name="experiment" label="告警规则对比" /></ui-tabs>
-  <template v-if="canRules && activeTab === 'rules'">
   <FilterBar>
     <template #actions>
       <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
@@ -262,8 +242,8 @@ function rowActions(row) {
     <template #footer><ui-button @click="draftDialog=false">关闭</ui-button></template>
   </ui-dialog>
 
-  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)" :close-on-click-modal="!saving" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close>
-    <ui-form :model="form" label-position="top" :disabled="readonly || saving">
+  <ui-dialog v-model="dialog" :title="readonly ? `规则详情 · ${form.name}` : (form.id ? `编辑规则 · ${form.name}` : '手动添加规则')" width="min(760px, 94vw)" destroy-on-close>
+    <ui-form :model="form" label-position="top" :disabled="readonly">
       <section class="rule-editor-section"><div class="rule-editor-heading"><h3>规则基本信息</h3><p>确定规则名称、告警结果及适用设备范围。</p></div>
       <ui-form-item label="规则名称"><ui-input v-model="form.name" /></ui-form-item>
       <ui-form-item label="规则说明"><ui-input v-model="form.description" type="textarea" :rows="2" placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。" /></ui-form-item>
@@ -290,10 +270,8 @@ function rowActions(row) {
         <ui-table-column prop="example" label="示例" min-width="180" />
       </ui-table></div><div class="rule-reference-cards"><article v-for="item in fieldDescriptions" :key="item.field"><strong>{{ item.field }}</strong><p>{{ item.meaning }}</p><small>示例：{{ item.example }}</small></article></div></details>
     </ui-form>
-    <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button :disabled="saving" @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" :loading="saving" :disabled="saving" @click="save">保存规则</ui-button></template>
+    <template #footer><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button><ui-button @click="dialog=false">关闭</ui-button><ui-button v-permission="['POST /api/v1/rules','PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save">保存规则</ui-button></template>
   </ui-dialog>
-  </template>
-  <RuleLabView v-else :rule-id="labRuleId || undefined" :device-id="props.deviceId" @navigate="(name, detail) => emit('navigate', name, detail)" />
 </template>
 
 <style scoped>

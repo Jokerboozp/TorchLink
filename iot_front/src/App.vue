@@ -30,12 +30,10 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Video,
-  Wrench,
   X
 } from '@lucide/vue'
 import { UiMessage } from './ui/feedback.js'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
-import DutyNotifications from './components/duty/DutyNotifications.vue'
 import LivePlayerDialog from './components/LivePlayerDialog.vue'
 import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { resetAIConversation } from './aiConversation'
@@ -53,14 +51,7 @@ const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView
 const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
 const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
-const DutyManagementView = defineAsyncComponent(() => import('./views/DutyManagementView.vue'))
-const DataQualityView = defineAsyncComponent(() => import('./views/DataQualityView.vue'))
-const MonitoringGapsView = defineAsyncComponent(() => import('./views/MonitoringGapsView.vue'))
-const AlarmGovernanceView = defineAsyncComponent(() => import('./views/AlarmGovernanceView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
-const ResponseReviewView = defineAsyncComponent(() => import('./views/ResponseReviewView.vue'))
-const MaintenanceInvestmentsView = defineAsyncComponent(() => import('./views/MaintenanceInvestmentsView.vue'))
-const RuleLabView = defineAsyncComponent(() => import('./views/RuleLabView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
 const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
@@ -96,14 +87,7 @@ const pages = {
   dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView },
   alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
   inspection: { ...pageGuide.inspection, icon: ClipboardCheck, component: HealthInspectionView, header: false },
-  duty: { ...pageGuide.duty, icon: ClipboardCheck, component: DutyManagementView, header: false },
-  dataQuality: { ...pageGuide.dataQuality, icon: Activity, component: DataQualityView, header: false },
-  monitoringGaps: { ...pageGuide.monitoringGaps, icon: Activity, component: MonitoringGapsView, header: false },
-  alarmGovernance: { ...pageGuide.alarmGovernance, icon: ClipboardCheck, component: AlarmGovernanceView, header: false },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
-  response: { ...pageGuide.response, icon: ClipboardCheck, component: ResponseReviewView, header: false },
-  maintenance: { ...pageGuide.maintenance, icon: Wrench, component: MaintenanceInvestmentsView, header: false },
-  ruleLab: { ...pageGuide.ruleLab, icon: SlidersHorizontal, component: RuleLabView, header: false },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
   products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
@@ -124,7 +108,7 @@ const pages = {
   opsCapacity: { ...pageGuide.opsCapacity, icon: Activity, component: OpsCapacityView }
 }
 const menuGroups = [
-  { label: '运行监控', items: ['dashboard', 'alarms', 'alarmGovernance', 'duty', 'response', 'maintenance', 'inspection', 'dataQuality', 'monitoringGaps', 'raw', 'rules'] },
+  { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
@@ -140,8 +124,7 @@ async function refreshModules() {
   if (!authenticated.value || !can('menu:opsCapacity')) return
   try { capacityModuleOn.value = (await api('/api/v1/ops/capacity/status')).enabled !== false } catch { capacityModuleOn.value = true }
 }
-const pageAllowed = name => name === 'rules' ? can(['menu:rules', 'menu:ruleLab']) : can('menu:' + name)
-const navigable = name => pageAllowed(name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
+const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
 const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length))
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
@@ -149,7 +132,7 @@ watch(() => permissionState.accessVersion + '\n' + permissionState.items.join('\
   if (!authenticated.value || value === old) return
   // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
   resetAIConversation()
-  if (!pageAllowed(active.value)) active.value = firstAllowedPage()
+  if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   pageKey.value++
 })
 
@@ -157,7 +140,7 @@ async function syncIdentity() {
   if (!authenticated.value) return
   try {
     await refreshPermissions()
-    if (!pageAllowed(active.value)) active.value = firstAllowedPage()
+    if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   } catch (error) { notifyError(error) }
   refreshModules()
 }
@@ -203,7 +186,7 @@ function openPage(name, detail) {
   // 旧的导航事件仍可能使用 testDevice，统一落到模拟设备测试页面。
   if (name === 'testDevice') name = 'integration'
   if (name === 'profiles' && can('menu:products')) { name = 'products'; detail = detail && { ...detail, tab: 'access' } }
-  if (!pages[name] || !pageAllowed(name)) return
+  if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
   if (active.value === name && !detail) return
   sessionStorage.removeItem('iot:navigation-detail')
@@ -384,7 +367,6 @@ onBeforeUnmount(() => {
             </nav>
           </div>
           <div class="app-topbar__actions">
-            <DutyNotifications v-if="can('menu:duty')" @navigate="openPage" />
             <button v-if="can('menu:alarms')" class="topbar-button" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
             <ui-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">

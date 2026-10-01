@@ -120,10 +120,6 @@ func TestBatchLookupsKeepTenantAndRequestedIDs(t *testing.T) {
 
 func TestProtocolChildren(t *testing.T) { repositorytest.ProtocolChildren(t, NewRepository()) }
 
-func TestProtocolProductCreationIsAtomic(t *testing.T) {
-	repositorytest.ProtocolProductCreation(t, NewRepository())
-}
-
 func TestSwitchProductProtocolIsAtomicAndDetectsChanges(t *testing.T) {
 	ctx := context.Background()
 	r := NewRepository()

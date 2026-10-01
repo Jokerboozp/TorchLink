@@ -2,7 +2,7 @@
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { transportLabel, formatLabel } from '../presentation'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, download, formatTime, notifyError, pretty } from '../api'
 import { messageTypeLabel, messageTypes } from '../labels'
@@ -32,13 +32,8 @@ const pageSize = ref(20)
 const total = ref(0)
 const selectedIds = computed(() => selection.value.map(item => item.messageId))
 let loadVersion = 0
-let detailVersion = 0
-let disposed = false
-watch(detailVisible, visible => { if (!visible) ++detailVersion }, { flush:'sync' })
-onBeforeUnmount(() => { disposed = true; ++loadVersion; ++detailVersion })
 
 async function load() {
-  if (disposed) return
   const version = ++loadVersion
   loading.value = true
   loadError.value = ''
@@ -105,16 +100,12 @@ function changePageSize(value) {
 }
 
 async function show(id) {
-  if (disposed) return
-  const version = ++detailVersion
   try {
-    const data = await api(`/api/v1/raw-messages/${encodeURIComponent(id)}`)
-    if (version !== detailVersion) return
-    detail.value = data
+    detail.value = await api(`/api/v1/raw-messages/${encodeURIComponent(id)}`)
     detailTab.value = 'parsed'
     detailVisible.value = true
   } catch (error) {
-    if (version === detailVersion) notifyError(error)
+    notifyError(error)
   }
 }
 
