@@ -25,7 +25,7 @@
 | 知识库 | PostgreSQL + pgvector 持久检索、云端 Embedding、异步索引与重试、原子重建；按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
 | 摄像头映射与直播 | 摄像头资料、位置、设备关联、视频告警；ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放和可选转码。[摄像头](docs/PLATFORM.md#摄像头) |
 | 运维中心 | 原生管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警、静默与通知；自动补齐内置仪表盘。[运维功能](docs/PLATFORM.md#运维中心) |
-| 容量测试 | 页面预设、CLI 与多 Agent 发压，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[容量验证](docs/DEVELOPMENT.md#容量验证) |
+| 容量测试 | 页面预设、CLI 与多 Agent 发压，按当前权限准备测试设备，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[模块部署](docs/DEPLOYMENT.md#容量测试模块) · [容量验证](docs/DEVELOPMENT.md#容量验证) |
 | 备份中心 | 每日设备数据备份，FULL 另含知识库与 Harness Agent/会话；制品下载、SHA-256 校验及隔离恢复验证。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
 | 用户与权限 | 租户、用户、角色、菜单/操作权限、角色继承与用户设备范围；服务端、实时通知和 AI 工具统一执行授权。[权限边界](docs/PLATFORM.md#权限与设备范围) |
 | 消防管理 | 排班日历与换班审批、灭火器台账和巡检整改复核、消防站人员器材与出勤统计。[业务流程](docs/FIRE_SAFETY.md) |

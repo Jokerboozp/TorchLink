@@ -485,7 +485,7 @@ onBeforeUnmount(() => { disposed = true; loadVersion++; historyVersion++; histor
     </template>
     <ui-table v-loading="loading" :data="runs">
       <ui-table-column label="运行" min-width="230"><template #default="{ row }"><code>{{ row.runId }}</code><div class="cap-sub">{{ row.plan || '—' }} · {{ presetText[row.preset] || row.preset || '—' }}</div></template></ui-table-column>
-      <ui-table-column label="状态" min-width="170"><template #default="{ row }"><StatusDot :tone="row.cleaning ? 'warning' : statusTone(row.status, row.verdict)" :label="stateLabel(row)" /><div v-if="row.message && !isFinished(row.status)" class="cap-sub">{{ row.message }}</div><div v-if="row.cleanupError && !row.cleaning" class="cap-sub cap-sub--danger">清理失败：{{ row.cleanupError }}</div></template></ui-table-column>
+      <ui-table-column label="状态" min-width="170"><template #default="{ row }"><StatusDot :tone="row.cleaning ? 'warning' : statusTone(row.status, row.verdict)" :label="stateLabel(row)" /><div v-if="row.message" class="cap-sub">{{ row.message }}</div><div v-if="row.cleanupError && !row.cleaning" class="cap-sub cap-sub--danger">清理失败：{{ row.cleanupError }}</div></template></ui-table-column>
       <ui-table-column label="当前阶段" min-width="200"><template #default="{ row }">
         <template v-if="!isFinished(row.status) && row.phaseId">
           <div class="cap-sub">{{ row.phaseId }} · {{ boundText(row.targetRate) }}</div>
@@ -524,6 +524,7 @@ onBeforeUnmount(() => { disposed = true; loadVersion++; historyVersion++; histor
   <ui-dialog :model-value="Boolean(detail)" :title="detail ? `容量测试 · ${detail.runId}` : ''" width="min(860px, 94vw)" @update:model-value="value => { if (!value) detail = null }">
     <template v-if="detail">
       <p class="cap-conclusion">{{ detail.conclusion || (isFinished(detail.status) ? '报告尚未生成' : '运行中，结束后生成结论') }}</p>
+      <p v-if="detail.message" class="cap-sub">{{ detail.message }}</p>
       <ui-descriptions :column="2" border>
         <ui-descriptions-item label="状态">{{ stateLabel(detail) }}</ui-descriptions-item>
         <ui-descriptions-item label="搜索结论">{{ classText[detail.classification] || '—' }}</ui-descriptions-item>

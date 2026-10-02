@@ -15,7 +15,7 @@ import (
 
 // backupOperation runs one device-data backup through the platform API while
 // load is applied, downloads every file checking its SHA-256, and optionally
-// restores it into the backup service's independent target (plan §7.4).
+// restores it into the backup service's independent target.
 func (c *controller) backupOperation(m BackupModule) Operation {
 	op := Operation{Name: "backup", Steps: map[string]string{}}
 	started := time.Now()

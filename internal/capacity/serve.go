@@ -379,7 +379,7 @@ func (s *Service) runInfo(id string) (RunInfo, error) {
 		info.Reports = append(info.Reports, "zip")
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "report.md")); err == nil {
-		// The first paragraph after the title is the plan §9.3 conclusion.
+		// Reuse the report's conclusion for the run detail.
 		if _, rest, ok := strings.Cut(string(b), "## 1. 本次结论\n\n"); ok {
 			info.Conclusion, _, _ = strings.Cut(rest, "\n")
 		}

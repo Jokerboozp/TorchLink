@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Deploy-level switch for the capacity-test module (Compose profile
-# "capacity"). It is deployed by default; IOT_CAPACITY_MODULE=off in the
-# environment file records an explicit opt-out that later deployments keep. When on, the platform
-# shows 运维中心 → 容量测试 and tests run from there with the operator's own
-# permissions; nothing else needs configuring.
+# Manage the deployed Compose capacity service; source runs use the API's local controller.
 set -Eeuo pipefail
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 project_root="$(dirname -- "$script_dir")"
@@ -20,7 +16,7 @@ usage() {
   status    查看容量测试服务与配置状态
   logs      查看容量测试服务最近日志
 选项：
-  --mode online|offline        部署方式，默认 online（本地源码调试不提供此模块）
+  --mode online|offline        容器部署方式，默认 online
   --env-file PATH              配置文件（默认 online=.env.online，offline=.env.offline）
   --project-name NAME          Compose 项目（默认 online=iot-platform-online，offline=iot-platform）
 EOF
@@ -44,7 +40,7 @@ compose_files=(-f "$project_root/compose.yaml")
 case "$mode" in
   online) env_file="${env_file:-.env.online}"; project_name="${project_name:-iot-platform-online}";;
   offline) env_file="${env_file:-.env.offline}"; project_name="${project_name:-iot-platform}"; compose_files+=(-f "$project_root/compose.offline.yaml");;
-  *) echo '--mode 只能是 online 或 offline；本地源码调试可直接运行 go run ./cmd/capacity-test serve --self（见 docs/DEVELOPMENT.md）。' >&2; exit 1;;
+  *) echo '--mode 只能是 online 或 offline；本脚本管理容器模块，本地源码容量控制器随 combined API 启停（见 docs/DEVELOPMENT.md#容量测试模块）。' >&2; exit 1;;
 esac
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
 [ -f "$env_file" ] || { printf '配置文件不存在：%s（请先完成部署）\n' "$env_file" >&2; exit 1; }

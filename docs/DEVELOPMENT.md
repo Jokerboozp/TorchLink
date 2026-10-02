@@ -141,7 +141,7 @@ macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览�
 
 采用 `internal/httpapi/pagination.go` 的接口支持 `page/pageSize`，兼容 `limit/offset`，每页默认 20 条、上限 100 条，返回 `items`、`total`、`page`、`pageSize`。正数 `page` 优先于 `offset`；超大参数收敛到整数安全上界，越界页返回空列表并保留实际总数，非数字沿用默认行为。
 
-设备、产品、规则、摄像头的关联选项通过 `apiAll` 逐页加载，与表格当前页分开保存；任一页失败则整体失败，不显示不完整目录。列表仅允许最新请求写入数据、总数和加载状态，旧请求不覆盖当前结果。逐页请求不保证数据库快照一致性。
+需要完整目录的关联选项通过 `apiAll` 逐页加载，与表格当前页分开保存；任一页失败则整体失败，不显示不完整目录。摄像头关联设备按关键词向服务端检索，不预先拉取全部设备。列表仅允许最新请求写入数据、总数和加载状态，旧请求不覆盖当前结果。逐页请求不保证数据库快照一致性。
 
 设备管理将设备分组、类型、关键词与运行状态交给服务端筛选分页，切换条件重置页码。协议目录按协议条目前端分页，版本在条目内展示。服务端设备、状态、告警、原始报文和总览均先按用户范围过滤再计数；具体权限见 [用户权限](PLATFORM.md#权限与设备范围)。
 
@@ -202,15 +202,18 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 - **计划**：示例见 `cmd/capacity-test/examples/`（`core-mixed`、`quick-local`、`full-system`、`resilience`）。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）、`soak`（单档长持有）或 `resilience`（固定背景负载 + 故障注入）。`suite: full` 时未启用的业务模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
 - **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 及 `parser`/`processor`/`jobs` 等拆分角色都要列）、Agent 与核对库的秘密引用。可选 `web`（管理端地址，视频场景经其拉取 HLS）与 `nodes`（各主机 node-exporter 地址，报告生成主机 CPU/内存/磁盘图 `hosts.svg`，瓶颈归类识别主机饱和）。控制器只访问清单中的地址。
 - **秘密**：计划与清单只写引用名；值来自环境变量 `TORCHLINK_CAPACITY_SECRET_<名称>`（`-`、`.` 换成 `_`，大写）或权限 0600 的 `--secrets` YAML 文件。需要：操作员 Bearer 令牌、核对用 PostgreSQL DSN（建议只读账户）、可选 ClickHouse URL、远程 Agent 共享令牌。报告生成时会检查秘密值没有出现在任何证据文件中。
-- **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下创建，前缀区分；`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束保留设备以便复测，保留范围写在 `manifest.json`；不再需要时在管理页清理（见 [容量测试模块](#容量测试模块)）。
-- **MQTT 准备失败**：`token_credentials_401` 表示设备凭据被 API 拒绝，需核对设备启用状态、目标 API 和复用凭据；`token_product_disabled_401` 表示测试产品未启用，产品预检查也会拒绝 `ready:false`。页面可切换到“高级 YAML”，将 `fixtures` 下的 `reuseDevices: true` 改为 `reuseDevices: false` 后重试：这会使用带本次运行后缀的新设备，不删除或重置原设备。如果新设备仍失败，继续核对产品状态与 API 环境；不要删除数据卷或手工发送缓存文件中的密钥。`token_http_<状态码>` 保留其他 HTTP 错误的状态，`token_invalid_response` 表示成功响应缺少有效令牌或主题。准备失败发生在发压前，不能作为容量结论。
+- **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下以 `trial: true` 创建试验设备，前缀区分；调用者仍须具有设备登记和模板配置权限。容量测试不会把自动创建的模板标记为已通过首台实机验证，普通设备登记仍须完成正式验证。`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束保留设备以便复测，保留范围写在 `manifest.json`；不再需要时在管理页清理（见 [容量测试模块](#容量测试模块)）。
+- **启动失败**：前置检查或测试设备准备失败时，运行列表、详情和报告保留具体检查项或接口错误。此时尚未开始测量，容量结论为“证据不足”，不代表已达到系统容量上限。
+- **MQTT 准备失败**：`token_credentials_401` 表示设备凭据被 API 拒绝，需核对设备启用状态、目标 API 和复用凭据；`token_product_disabled_401` 表示测试产品未启用，产品预检查也会拒绝 `ready:false`。页面可切换到“高级 YAML”，将 `fixtures` 下的 `reuseDevices: true` 改为 `reuseDevices: false` 后重试：这会使用带本次运行后缀的新设备，不删除或重置原设备。如果新设备仍失败，继续核对产品状态与 API 环境；不要删除数据卷或手工发送缓存文件中的密钥。`token_http_<状态码>` 保留其他 HTTP 错误的状态，`token_invalid_response` 表示成功响应缺少有效令牌或主题。
 - **远程 Agent**：负载机执行 `capacity-test agent --listen :7070 --token-ref capacity-agent --secrets <文件>`，并在清单 `agents` 中登记 URL。Agent 持有 20 秒租约，控制器失联后自动停发；旧运行或旧代次的指令被拒绝。
 - **判定**：每档检查实发达成率（未发出记为发压不足，不是服务失败）、入口成功率（429 为策略限制）、查询与业务完成 P95/P99（样本不足不输出分位）、积压趋势、排空与 ID 核对。业务完成时延取标准消息 `processed_at`（毫秒完成时间）与预定发送时刻之差，经数据库和 Agent 时钟偏差校正。每档结束后等待平台就绪且积压清零（最长取 `search.drainTimeout` 与 2 分钟的较大值）再开始下一档，避免失败档的积压拖垮后续档；仍未恢复时下一档记为 inconclusive（`not_recovered`）并停止搜索。结论写成“稳定通过 L、在 U 失败”“至少 L 尚未找到上限”“首档即失败”“结果不稳定”（曾通过的档在同一或更低速率复测未通过，没有稳定通过档）或 inconclusive，并给出结构化停止原因。
 - **产物**：`capacity-results/<runId>/` 下有 `summary.json`、`phases.csv`、`report.md`、离线可打开的 `report.html`、`charts/*.svg`（`outputs.formats` 含 `png` 时另有同名 PNG，英文标签、UTC 时间）、`plan.sanitized.yaml`、`environment.json`、`manifest.json`、各档 `phases/`、`verification/`、`ledgers/`（gzip JSONL 发送账本）、`observations/metrics.jsonl`（及 `nodes.jsonl`）、`events.jsonl`、`checksums.txt`。缺测在表格和图中显示为空，不填 0。
 - **告警序列**：`fixtures.alarmRuleId` 指定一条在 `stressAlarm=1` 时触发的现有规则（`alarmRecovers: true` 表示 `stressAlarm=0` 时恢复），核对阶段按设备比对上报序列与告警记录：有告警上报必须触发、最后一条为告警时必须处于活动状态、恢复规则最后一条正常时必须已恢复；不符计为完整性失败并给出样例设备。未指定时只观测 `alarm_trigger_total`。
 - **续跑与比较**：控制器进程中断后，用同一计划执行 `run --resume <runId>`：已完成档位按原搜索顺序回放，Agent 以下一代次重新准备并复用已登记设备，中断的那一档重新执行；最近 30 秒仍有心跳或已完成的运行会被拒绝。`compare` 读取多个运行的摘要，负载组合（报文、查询、模块与 SLO）一致且都有确认通过档时计算 E(n) = (C(n)/C(n₀)) ÷ (n/n₀) 并输出 `scaling.svg`；实例数默认取各运行的平台指标目标数，可用 `--instances id=n` 指定；条件不一致时只并列并写明原因。
 
-当前边界：TCP（GB26875）只有协议 ACK 层证据；视频场景不覆盖 WebRTC；重复业务副作用未测量。即使已启用全部可选场景，`suite: full` 仍因这些覆盖缺口判为 inconclusive，不能报告全系统通过。核对查询可在临时 schema 中用 `IOT_TEST_POSTGRES_DSN=... go test ./internal/capacity -run PGStore` 验证。
+当前边界：TCP（GB26875）只有协议 ACK 层证据；视频场景不覆盖 WebRTC；重复业务副作用未测量。即使已启用全部可选场景，`suite: full` 仍因这些覆盖缺口判为 inconclusive，不能报告全系统通过。
+
+容量回归入口为 `go test ./internal/capacity ./cmd/capacity-test ./internal/platformapp` 和 `go test ./internal/httpapi -run TestCapacityRunUsesAuthorizedTrialForUnverifiedTemplate`；前端为 `node --test iot_front/tests/ops.test.mjs`。真实 HTTP 回归使用内存仓储，覆盖新模板试验设备登记、上报解析、正式验收与权限边界；控制器测试覆盖启动失败原因在终态、接口及报告中的保留。核对数据库查询需另在私有进程环境设置 `IOT_TEST_POSTGRES_DSN`，执行 `go test ./internal/capacity -run PGStore`，测试自行使用临时 schema。
 
 ### 业务模块场景
 
@@ -259,6 +262,8 @@ go run ./cmd/capacity-test serve --listen 127.0.0.1:7080 --inventories <受信�
 
 清单目录中每个 `<环境名>.yaml` 即一个可选环境；页面只提交环境名与计划文本，秘密、地址与故障命令留在控制机。平台设置 `IOT_OPS_CAPACITY_URL`（控制服务地址，只让平台 API 可达）与 `IOT_OPS_CAPACITY_TOKEN`（与秘密文件中 `capacity-service` 相同，至少 32 个字符）。菜单 `opsCapacity` 只在 `IOT_OPS_TENANTS` 中授予，查看、校验、启动、停止、下载与清理分别授权；同一时间只运行一个测试，控制服务收到终止信号时会先软停止当前运行并写出报告。
 
+### 测试数据清理
+
 运行记录按页显示（每页 20 条，可调整）。运行结束、失败或取消后，可在该行点击 **清理数据**：确认框列出报文数、专用与共享设备数和保留范围，确认后控制服务在后台执行，页面可离开，回来后该行显示“正在清理数据”，完成后该行消失；失败时保留运行记录并显示原因，可“重试清理”。清理删除本次报文及派生告警/状态、专用测试设备与 Redis 缓存、本次运行归属的知识文档和 AI 研判、巡检、回放任务、可精确关联的测试审计及用户设备引用、报告、账本和运行工作目录；最后一个关联运行清理时，一并删除可确认由容量模块自动创建的测试产品和规则。报告删除后无法再下载，需要时先下载。测试运行或清理进行中时不能再启动测试或清理。
 
 页首 **清理历史测试数据** 用于汇总清理已结束运行及带明确压测归属标记的历史产品（包括没有运行记录的旧压测数据）。先选择环境并查看预览中的运行、产品、设备、报文数量及保留原因；活跃、业务复用或无法证明归属的项目保留。确认后控制服务异步执行，页面显示实际已处理项目数、结果和失败原因；离页回来可恢复最近任务，失败或部分完成时重新预览再重试。后台受理和查询暂时失败均不表示清理完成。该操作沿用清理权限及全租户设备范围，控制服务不可达时不能执行，与测试及单次清理互斥。
@@ -266,6 +271,7 @@ go run ./cmd/capacity-test serve --listen 127.0.0.1:7080 --inventories <受信�
 历史清理接口为 `GET /api/v1/ops/capacity/cleanup/history?environment=<环境>`（预览与最近任务）、同路径 `POST`（仅提交 `environment`、`previewToken`，返回后台任务）及 `GET /api/v1/ops/capacity/cleanup/history/status?environment=<环境>`（恢复和轮询）。执行前服务端重核预览范围指纹；范围变化返回 409，须重新预览确认，浏览器不能自行指定产品、设备、报文或租户。`processed/total` 是已处理的运行或产品数；retained 清除请求和队列偏移跨度分别显示，不能当作已删除消息数量。`GET /api/v1/ops/capacity/runs` 的 `historyCleaning` 是全局互斥状态，不占用单次运行的 `cleaningRunId`。
 
 权限与边界：
+
 - 使用 `DELETE /api/v1/ops/capacity/runs/:id` 操作权限，且要求全租户设备范围；浏览器不能指定租户、设备或报文 ID，报文和设备由控制服务按本次账本与清单确定。
 - 共享设备（其他保留运行也在用）及其凭据保留，只删除本次报文；改名为业务用途，或被网关、摄像头、采集配置引用的设备会阻止清理；仍在处理的报文或任务须等待完成。
 - MQTT 仅清理当前进程持有、可确认属于独占测试设备的持久接收缓存，并向精确设备状态主题发送 retained 清除请求；无法确认身份的记录和其他接入网关的本地缓存保留，结果中提示原因。retained 请求数不表示所有网关已完成清理。
@@ -280,7 +286,7 @@ go run ./cmd/capacity-test serve --listen 127.0.0.1:7080 --inventories <受信�
 
 ```bash
 go run ./cmd/capacity-test -h
-# 先建立测试产品，将登录令牌存入权限为 0600 的 token.txt
+# 先准备已通过首台实机验证的标准协议模板，将登录令牌存入权限为 0600 的 token.txt
 go run ./cmd/capacity-test -mode provision -token @token.txt -product <产品> -count 5000 -devices devices.json
 go run ./cmd/capacity-test -mode ingest -token @token.txt -devices devices.json -rates 25,50,100,150 -step 60s -out result.json
 go run ./cmd/capacity-test -mode canary -token @token.txt -devices devices.json

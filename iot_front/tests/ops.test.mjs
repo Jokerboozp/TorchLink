@@ -6,6 +6,7 @@ import { alignSeries, framesToChart, framesToLogs, framesToTable, metricResultTo
 import { addPanel, compact, dependsOn, duplicatePanel, movePanel, newPanel, normalizeLayout, removePanel, sections, toggleRow } from '../src/ops/dashboard.js'
 import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
+import { readFileSync } from 'node:fs'
 import { computed, isReactive, nextTick, reactive, ref, shallowRef, watch } from 'vue'
 import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../src/ops/alerts.js'
 import * as capacity from '../src/ops/capacity.js'
@@ -364,9 +365,45 @@ function capacityPage({ get, send, allow = true } = {}) {
     opsSend:async(method,path,body)=>{calls.push({method,path,body});return send ? send(method,path,body) : {job:structuredClone(job)}},
     setTimeout(fn,delay){timers.push({fn,delay});return timers.length},clearTimeout(id){if(timers[id-1])timers[id-1].cleared=true}
   })
-  const state = vm.runInContext(setupScript(new URL('../src/views/OpsCapacityView.vue',import.meta.url))+';({loadHistoryStatus,previewHistoryCleanup,confirmHistoryCleanup,historyJob,historyPreview,historyDialog,historyError,historyRunning,historyPending,historyReady,historyCleaning,cleanupBlocked,environment,activeRunId,cleaningRunId,moduleStatus,loadRuns,start,cleanupRun,rowActions})',context)
+  const state = vm.runInContext(setupScript(new URL('../src/views/OpsCapacityView.vue',import.meta.url))+';({loadHistoryStatus,previewHistoryCleanup,confirmHistoryCleanup,historyJob,historyPreview,historyDialog,historyError,historyRunning,historyPending,historyReady,historyCleaning,cleanupBlocked,environment,activeRunId,cleaningRunId,moduleStatus,loadRuns,start,cleanupRun,rowActions,stateLabel})',context)
   return {...state,calls,messages,timers,grants,session,job,preview,dispose:()=>cleanup()}
 }
+
+test('容量测试提前结束后，列表与详情仍展示后台失败原因', async () => {
+  const Vue = await import('vue')
+  const { parse: parseSFC } = await import('@vue/compiler-sfc')
+  const { compile, parse } = await import('@vue/compiler-dom')
+  const { renderToString } = await import('@vue/server-renderer')
+  const source = readFileSync(new URL('../src/views/OpsCapacityView.vue', import.meta.url), 'utf8')
+  const ast = parse(parseSFC(source).descriptor.template.content)
+  function find(node, matches) {
+    if (matches(node)) return node
+    for (const child of node.children || []) {
+      const found = find(child, matches)
+      if (found) return found
+    }
+  }
+  const statusColumn = find(ast, node => node.tag === 'ui-table-column' && node.props.some(prop => prop.name === 'label' && prop.value?.content === '状态'))
+  const statusSlot = statusColumn.children.find(node => node.tag === 'template')
+  const detailDialog = find(ast, node => node.tag === 'ui-dialog' && node.props.some(prop => prop.name === 'bind' && prop.arg?.content === 'model-value' && prop.exp?.content === 'Boolean(detail)'))
+  const templates = [statusSlot.children.map(node => node.loc.source).join(''), detailDialog.loc.source]
+  const page = capacityPage()
+  const message = 'prepare failed: device enrolment incomplete (0/2); results: 409=2'
+  for (const status of ['PREFLIGHT', 'FINISHED', 'FAILED', 'CANCELLED']) {
+    const run = { runId: 'early-failure', status, verdict: 'inconclusive', classification: 'inconclusive', message, completed: [] }
+    for (const template of templates) {
+      const render = new Function('Vue', compile(template, { mode: 'function', prefixIdentifiers: true }).code)(Vue)
+      const app = Vue.createSSRApp({ render, setup: () => ({ ...capacity, row: run, detail: run, stateLabel: page.stateLabel, formatTime: () => '—', can: () => false }) })
+      app.component('StatusDot', { props: ['label'], setup: props => () => Vue.h('span', props.label) })
+      for (const name of ['ui-dialog', 'ui-descriptions', 'ui-descriptions-item']) app.component(name, { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
+      for (const name of ['ui-table', 'ui-table-column', 'ui-empty', 'ui-button']) app.component(name, { setup: () => () => Vue.h('div') })
+      const html = await renderToString(app)
+      assert.ok(html.includes(message), `${status} must retain its failure reason in both views`)
+      assert.ok(html.includes(page.stateLabel(run)), 'the backend verdict remains unchanged')
+    }
+  }
+  page.dispose()
+})
 
 test('历史清理取消和权限不足均不发送删除请求，提交范围只来自预览token', async () => {
   const denied=capacityPage({allow:false})

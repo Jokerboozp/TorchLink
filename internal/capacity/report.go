@@ -42,7 +42,7 @@ type Bottleneck struct {
 	NextStep  string `json:"nextStep"`
 }
 
-// Summary is summary.json (plan §15.4).
+// Summary is the machine-readable report in summary.json.
 type Summary struct {
 	SchemaVersion    int                     `json:"schemaVersion"`
 	RunID            string                  `json:"runId"`
@@ -345,7 +345,7 @@ func (d *reportData) coverage() []Coverage {
 	return out
 }
 
-// bottlenecks applies fixed rules (plan §14.5) to the lowest failing step, or
+// bottlenecks applies fixed rules to the lowest failing step, or
 // the last step when nothing failed. They are candidates, not root causes.
 func (d *reportData) bottlenecks() []Bottleneck {
 	var target *PhaseRecord
@@ -696,7 +696,7 @@ func tr(m map[string]string, k string) string {
 	return k
 }
 
-// conclusion is the one-paragraph result in plan §9.3 wording.
+// conclusion describes the measured bounds and remaining uncertainty.
 func (d *reportData) conclusion() string {
 	r := d.summary.Capacity["mixedBusinessMessagesPerSecond"]
 	unit := " 条/秒（混合业务消息）"
@@ -758,6 +758,9 @@ func (d *reportData) markdown() string {
 	r := s.Capacity["mixedBusinessMessagesPerSecond"]
 	fmt.Fprintf(&b, "# 容量测试报告 %s\n\n", s.RunID)
 	fmt.Fprintf(&b, "## 1. 本次结论\n\n%s\n\n", d.conclusion())
+	if d.state.Message != "" {
+		fmt.Fprintf(&b, "执行说明：%s\n\n", d.state.Message)
+	}
 	fmt.Fprintf(&b, "| 项目 | 值 |\n| --- | --- |\n| 执行状态 | %s |\n| 结论 | %s %s |\n| 搜索结论 | %s |\n| 最高通过档 | %s |\n| 最低失败档 | %s |\n| 建议运行值 | %s |\n| 健康验证时长 | %.0f 秒 |\n| 证据完整 | %v |\n\n",
 		s.ExecutionStatus, tr(verdictText, s.Verdict), tr(reasonText, s.VerdictReason), tr(classText, r.Classification), fmtPtr(r.LowerPassedBound, ""), fmtPtr(r.UpperFailedBound, ""), recommendationText(r), r.HealthyVerifiedSeconds, s.EvidenceComplete)
 	if len(s.EvidenceGaps) > 0 {
@@ -879,6 +882,9 @@ func (d *reportData) html(charts map[string]string) string {
 	fmt.Fprintf(&b, "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>容量测试报告</title><style>%s</style></head><body><main>", reportCSS)
 	fmt.Fprintf(&b, "<h1>容量测试报告</h1><div class=\"muted\">%s · 预设 %s · 套件 %s · 执行状态 %s</div>", e(s.RunID), e(d.plan.Preset), e(d.plan.Suite), e(s.ExecutionStatus))
 	fmt.Fprintf(&b, "<h2>1. 本次结论</h2><div class=\"card hero\"><span class=\"%s\">%s</span> · %s</div>", e(s.Verdict), e(tr(verdictText, s.Verdict)), e(d.conclusion()))
+	if d.state.Message != "" {
+		fmt.Fprintf(&b, "<p>执行说明：%s</p>", e(d.state.Message))
+	}
 	b.WriteString("<div class=\"kpis\">")
 	kpi := func(v, label string) {
 		fmt.Fprintf(&b, "<div class=\"kpi\"><b>%s</b><span>%s</span></div>", e(v), e(label))

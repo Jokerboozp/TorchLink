@@ -232,6 +232,49 @@ func readSummary(t *testing.T, dir string) Summary {
 	return s
 }
 
+func TestStartupFailureRetainsActionableReason(t *testing.T) {
+	for _, stage := range []string{"preflight", "prepare"} {
+		t.Run(stage, func(t *testing.T) {
+			e := newE2E(t, 0, "quick", "rates: [20], measure: 10s")
+			original := e.platform.srv.Config.Handler
+			detail := "该模板尚未通过首台实机验证"
+			e.platform.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if stage == "preflight" && r.URL.Path == "/api/v1/onboarding/preflight" {
+					_, _ = w.Write([]byte(`{"product":{"status":"DISABLED"},"ready":false}`))
+					return
+				}
+				if stage == "prepare" && r.URL.Path == "/api/v1/onboarding" {
+					w.WriteHeader(http.StatusConflict)
+					_ = json.NewEncoder(w).Encode(map[string]string{"detail": detail})
+					return
+				}
+				original.ServeHTTP(w, r)
+			})
+			if stage == "preflight" {
+				detail = "测试产品未启用"
+			}
+			runID, err := e.run(context.Background())
+			if err != nil && stage != "prepare" {
+				t.Fatal(err)
+			}
+			st, err := ReadState(e.results, runID)
+			if err != nil || st.Status != StatusFailed || len(st.Completed) != 0 || !strings.Contains(st.Message, detail) {
+				t.Fatalf("startup failure must retain its cause without measuring: state=%+v err=%v", st, err)
+			}
+			info, err := NewService(ServeOptions{ResultsDir: e.results}).runInfo(runID)
+			if err != nil || info.Message != st.Message || info.Verdict != VerdictInconclusive {
+				t.Fatalf("run API lost startup reason: %+v err=%v", info, err)
+			}
+			for _, file := range []string{"report.md", "report.html"} {
+				body, err := os.ReadFile(filepath.Join(e.results, runID, file))
+				if err != nil || !strings.Contains(string(body), detail) {
+					t.Fatalf("%s must explain startup failure: %v", file, err)
+				}
+			}
+		})
+	}
+}
+
 func TestEndToEndQuickRunWithLocalAndRemoteAgents(t *testing.T) {
 	t.Parallel()
 	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s")

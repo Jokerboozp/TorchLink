@@ -1,6 +1,6 @@
 # 部署与本地调试
 
-[本地](#本地运行) · [在线](#在线部署) · [离线](#离线部署) · [摄像头](#摄像头部署) · [维护](#配置与维护) · [拆分 Gateway](#独立接入进程)
+[本地](#本地运行) · [在线](#在线部署) · [离线](#离线部署) · [摄像头](#摄像头部署) · [容量测试](#容量测试模块) · [维护](#配置与维护) · [拆分 Gateway](#独立接入进程)
 
 命令默认在源码仓库根目录执行；离线安装命令在离线包根目录执行。Go、Node 版本以 `go.mod`、`iot_front/package.json` 为准。源码调试时，API、Vue 和备份服务在本机运行，虚拟机只提供基础环境。
 
@@ -30,6 +30,7 @@ bash ./scripts/setup-local.sh
 | 临时运行容器版备份服务 | `-IncludeBackup` | `--include-backup` |
 | 启动运维中心依赖（Prometheus、Loki、Grafana、Alertmanager、采集器） | `-IncludeOps` | `--include-ops` |
 | 开启 / 关闭摄像头直播媒体服务（默认开启，省略沿用上次选择） | `-Video on` / `-Video off` | `--video on` / `--video off` |
+| 开启 / 关闭随源码 API 运行的容量控制器（默认开启，省略沿用上次选择） | `-Capacity on` / `-Capacity off` | `--capacity on` / `--capacity off` |
 
 对话与推理默认使用 DeepSeek API。启动后在“模型管理”填写 API Key 并保存即可，连接测试可选；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动。知识库使用 PostgreSQL + pgvector，向量通过独立的云端 Embedding API 计算；“模型管理”中配置向量 API Key，未填密钥不阻止设备业务启动。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
 
@@ -244,7 +245,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-offline.ps1
 
 脚本校验哈希和 CPU 架构、导入镜像、启动并检查服务，使用 `--no-build --pull never`。默认项目为 `iot-platform`，Web 为 `http://服务器IP:8080`。重复部署保留已有配置与数据；不创建模型卷、不下载模型。离线部署包不含业务数据库备份，AI 与知识向量计算仍需联网和相应 API Key。
 
-仅替换 API/Web 镜像时，使用相同标签构建、导出与校验，在原包目录导入后依次重建 API、Web（让 nginx 重新解析地址）。此方式不更新 Compose 或 Harness；这些组件变化时交付完整新包，不能再用旧 `images.tar` 覆盖更新。
+仅替换 API/Web 镜像时，使用相同标签构建、导出与校验，在原包目录导入后重建 API；若已启用容量模块，同时重建使用该 API 镜像的 `capacity` 服务，再重建 Web（让 nginx 重新解析地址）。此方式不更新 Compose 或 Harness；这些组件变化时交付完整新包，不能再用旧 `images.tar` 覆盖更新。
 
 ### Linux 与 openEuler
 
@@ -284,7 +285,9 @@ GB28181 需要两类端口对摄像头网络开放：API 的 SIP 端口 `IOT_GB2
 
 PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|disable`。选择写入环境文件 `IOT_CAPACITY_MODULE`（集群写入清单 `capacity: {node: ...}`），显式关闭后不带参数的部署保持关闭；离线包打包时即写入开启配置。容器部署开启时自动生成服务令牌 `IOT_OPS_CAPACITY_TOKEN` 并设置 `IOT_OPS_CAPACITY_URL`，关闭时移除服务并隐藏页面，测试结果卷与令牌保留。本地控制器使用进程内生成的令牌和动态本机端口，沿用原有 API 启动命令；旧 `.env.local` 的补充配置见 [本地容量测试](DEVELOPMENT.md#容量测试模块)。
 
-测试以发起人的账号权限运行（平台为其签发与测试时长一致的令牌，权限变更或停用即失效），自动准备标准协议测试产品 `cap-standard`、测试规则 `cap-stress-alarm` 与前缀为 `cap` 的测试设备，测试后保留以便复测。测试会给平台施加真实负载，生产环境请在低峰期运行或只用快速检查。
+测试以发起人的账号权限运行；操作凭据有效期为计划墙钟预算加 30 分钟，最长 24 小时，受管理账号的权限变更或停用会使凭据失效。页面预设自动准备标准协议测试模板 `cap-standard` 与前缀为 `cap` 的测试设备；启用告警核对时还准备 `cap-stress-alarm` 规则。新测试设备通过 `trial:true` 登记，需要设备登记和模板配置权限，测试不会自动生成模板验收记录。权限、普通登记的验收要求见[预检、保存与诊断](INTEGRATION.md#预检保存与诊断)。测试数据保留以便复测，清理和失败排查见[容量测试模块](DEVELOPMENT.md#容量测试模块)。测试会给平台施加真实负载，生产环境请在低峰期运行或只用快速检查。
+
+容量控制器代码更新后，本地源码模式重启 API；在线、离线模式重跑原部署命令，同步更新 API 与 `capacity`；集群按原清单升级容量节点。仅刷新页面或重启 API 容器不会更新独立容量服务。先等待当前测试结束或停止测试，再交接控制器进程，沿用原结果目录、配置和数据卷。
 
 ## 配置与维护
 

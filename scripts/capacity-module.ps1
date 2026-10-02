@@ -1,8 +1,8 @@
 ﻿<#
 .SYNOPSIS
 Deploy-level switch for the capacity-test module (Compose profile "capacity").
-It is deployed by default; IOT_CAPACITY_MODULE=off records an explicit opt-out that later deployments keep.
 .DESCRIPTION
+This script manages online/offline containers; source runs use the API's local controller.
 enable    starts the capacity service (platform image) and points the API at it; the
           platform then shows 运维中心 → 容量测试, where tests run with the operator's
           own permissions. The service token is generated once.

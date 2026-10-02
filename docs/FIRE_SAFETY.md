@@ -43,15 +43,15 @@
 
 | 菜单权限 | 资源接口 | 主要操作 |
 |---|---|---|
-| `menu:duty` | `/api/v1/duty/shifts`、`/assignments`、`/swaps` | 模板与排班增改删；申请换班；`POST /swaps/:id/review` 审批 |
-| `menu:extinguishers` | `/api/v1/extinguishers`、`/api/v1/extinguisher-inspections` | 台账增改删；建任务；`POST /:id/inspect`、`/rectify`、`/review`、`/cancel` |
-| `menu:fireStations` | `/api/v1/fire-stations`、`/api/v1/fire-personnel`、`/api/v1/fire-equipment`、`/api/v1/fire-dispatches` | 站点人员器材增改删；建出勤；`POST /fire-dispatches/:id/return` 归队 |
+| `menu:duty` | `/api/v1/duty/shifts`、`/api/v1/duty/assignments`、`/api/v1/duty/swaps` | 模板与排班增改删；申请换班；`POST /api/v1/duty/swaps/:id/review` 审批 |
+| `menu:extinguishers` | `/api/v1/extinguishers`、`/api/v1/extinguisher-inspections` | 台账增改删；建任务；检查、整改、复核、取消使用 `POST /api/v1/extinguisher-inspections/:id/` 加 `inspect`、`rectify`、`review`、`cancel` |
+| `menu:fireStations` | `/api/v1/fire-stations`、`/api/v1/fire-personnel`、`/api/v1/fire-equipment`、`/api/v1/fire-dispatches` | 站点人员器材增改删；建出勤；`POST /api/v1/fire-dispatches/:id/return` 归队 |
 
 GET 读取要求对应菜单；每个写操作还要求精确的方法和路由权限。管理员可在“用户与权限 → 消防管理”分别授权查看、管理或自定义操作。
 
 `GET /api/v1/fire-safety/options` 供三页共享选择器，只返回站点和人员的编号、名称、归属、启用状态；班次、灭火器和器材选项还分别要求对应菜单。不返回电话、地址、检查或审批历史。
 
-列表使用 `page` / `pageSize`，每页最多 100 条；支持 `q`、`stationId`、`status`。排班的 `fromAt` / `toAt` 为左闭右开的相交时间窗；巡检按截止时间、换班按申请时间、出勤按出勤开始时间筛选。灭火器可用 `due=overdue|soon` 筛选：有逾期项目归入 `overdue`，其余有即将到期项目归入 `soon`。
+列表使用 `page` / `pageSize`，每页最多 100 条；支持 `q`、`stationId`，具有流程或资产状态的资源支持 `status`（站点、人员的启用字段为 `enabled`，没有对应的列表筛选参数）。排班的 `fromAt` / `toAt` 为左闭右开的相交时间窗；巡检按截止时间、换班按申请时间、出勤按出勤开始时间筛选。灭火器可用 `due=overdue|soon` 筛选：有逾期项目归入 `overdue`，其余有即将到期项目归入 `soon`。
 
 `GET /api/v1/fire-stations/statistics` 和 `GET /api/v1/extinguishers/statistics` 提供统计。灭火器统计的到期数量按资产去重，同一资产有逾期项目时不重复计入“即将到期”。
 

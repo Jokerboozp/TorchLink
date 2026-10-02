@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-// Execution states (plan §10.2). Capacity verdicts are recorded separately.
+// Execution states. Capacity verdicts are recorded separately.
 const (
 	StatusQueued     = "QUEUED"
 	StatusPreflight  = "PREFLIGHT"
@@ -412,16 +412,25 @@ func (c *controller) execute(parent context.Context) error {
 	defer c.release()
 	result := SearchResult{Preset: c.plan.Preset, Classification: ClassUnmeasured}
 	finalStatus := StatusFinished
+	finalMessage := ""
 	if !ok {
 		result.StopReason = ReasonInfrastructure
 		finalStatus = StatusFailed
 		c.state.StopReason = ReasonInfrastructure
-		c.setStatus(StatusFailed, "preflight failed; see preflight.json")
+		var failed []string
+		for _, check := range checks {
+			if !check.OK {
+				failed = append(failed, check.Name+"："+check.Detail)
+			}
+		}
+		finalMessage = "前置检查失败：" + strings.Join(failed, "；")
+		c.setStatus(StatusFailed, finalMessage)
 	} else if err = c.prepare(searchCtx); err != nil {
 		result.StopReason = ReasonInfrastructure
 		finalStatus = StatusFailed
 		c.state.StopReason = ReasonInfrastructure
-		c.setStatus(StatusFailed, "prepare failed: "+err.Error())
+		finalMessage = "测试准备失败：" + err.Error()
+		c.setStatus(StatusFailed, finalMessage)
 	} else {
 		obs := filepath.Join(c.dir, "observations", "metrics.jsonl")
 		if c.collector, err = NewCollector(c.inv.Metrics, c.plan.Search.ObserveInterval.D(), obs); err != nil {
@@ -448,6 +457,7 @@ func (c *controller) execute(parent context.Context) error {
 		if err != nil {
 			c.event("error", "", "", err.Error())
 			finalStatus = StatusFailed
+			finalMessage = err.Error()
 		}
 		if c.stopped() {
 			finalStatus = StatusCancelled
@@ -459,7 +469,7 @@ func (c *controller) execute(parent context.Context) error {
 	_ = writeJSONAtomic(filepath.Join(c.dir, "search.json"), result)
 	c.state.StopReason = firstNonEmpty(result.StopReason, c.state.StopReason)
 	c.state.Result = finalStatus
-	c.setStatus(StatusReporting, "")
+	c.setStatus(StatusReporting, finalMessage)
 	leakCheck := c.secrets.Values(c.secretRefs()...)
 	if c.opt.OperatorToken != "" {
 		leakCheck = append(leakCheck, c.opt.OperatorToken)
@@ -470,10 +480,11 @@ func (c *controller) execute(parent context.Context) error {
 	if rerr := GenerateReport(c.dir, leakCheck); rerr != nil {
 		c.event("error", "", "", "report: "+rerr.Error())
 		finalStatus = StatusFailed
+		finalMessage = strings.TrimSpace(finalMessage + " 报告生成失败：" + rerr.Error())
 		err = errors.Join(err, rerr)
 	}
 	c.state.Result = finalStatus
-	c.setStatus(finalStatus, "")
+	c.setStatus(finalStatus, finalMessage)
 	return err
 }
 
@@ -805,7 +816,9 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 			defer wg.Done()
 			defer func() { <-sem }()
 			id := out[i].ID
-			body, _ := json.Marshal(map[string]any{"requestId": "req-" + id, "productId": f.Product, "device": map[string]any{"id": id, "name": "容量测试 " + id}, "connection": map[string]any{"mode": "standard"}})
+			// Synthetic test devices use the normal authorized trial path. This
+			// does not certify the template for ordinary device enrollment.
+			body, _ := json.Marshal(map[string]any{"trial": true, "requestId": "req-" + id, "productId": f.Product, "device": map[string]any{"id": id, "name": "容量测试 " + id}, "connection": map[string]any{"mode": "standard"}})
 			for attempt := 0; attempt < 4; attempt++ {
 				status, resp, err := doHTTP(ctx, c.httpc, http.MethodPost, strings.TrimRight(c.inv.API, "/")+"/api/v1/onboarding", body, map[string]string{"Authorization": "Bearer " + c.opToken})
 				var v struct {
@@ -824,6 +837,12 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 				code := ShortError(err)
 				if err == nil {
 					code = fmt.Sprint(status)
+					var problem struct {
+						Detail string `json:"detail"`
+					}
+					if status >= 400 && json.Unmarshal(resp, &problem) == nil && strings.TrimSpace(problem.Detail) != "" {
+						code += "（" + clip(problem.Detail, 240) + "）"
+					}
 				}
 				mu.Lock()
 				failures[code]++

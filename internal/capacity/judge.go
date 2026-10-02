@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Verdicts and structured stop reasons (plan §13.4). Only a service_limit with
+// Verdicts and structured stop reasons. Only a service_limit with
 // complete evidence bounds system capacity.
 const (
 	VerdictPassed       = "passed"
