@@ -53,6 +53,7 @@ const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.v
 const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue'))
 const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
 const ExternalDataView = defineAsyncComponent(() => import('./views/ExternalDataView.vue'))
+const MessageTopicsView = defineAsyncComponent(() => import('./views/MessageTopicsView.vue'))
 const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
@@ -102,6 +103,7 @@ const pages = {
   protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView, props: { section: 'protocols' } },
   cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView },
   externalData: { ...pageGuide.externalData, icon: Cable, component: ExternalDataView },
+  messageTopics: { ...pageGuide.messageTopics, icon: Network, component: MessageTopicsView },
   integration: { ...pageGuide.integration, icon: FlaskConical, component: TestDeviceView },
   ai: { ...pageGuide.ai, icon: Bot, component: AiView, layout: 'full' },
   knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView, header: false },
@@ -120,7 +122,7 @@ const pages = {
 }
 const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
-  { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'integration'] },
+  { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'messageTopics', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '消防管理', items: ['duty', 'extinguishers', 'fireStations'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },

@@ -52,6 +52,8 @@ Compose 使用 HS256 JWT、令牌 ACL、文件规则兜底拒绝与匿名拒绝�
 
 管理员告警订阅 `/iot/alarm/{tenant}/#` 与当前 `Alarm.MQTTTopic` 的地理/设备路径结构仍不同，不能宣称已完成租户告警主题验收；不要放宽为全局通配。HTTP 事件接口按租户和设备范围执行。配置与持久接收见 [设备接入](INTEGRATION.md)。
 
+消息主题通过“设备与接入 → 消息主题”统一查看和配置。查看、发布配置与恢复默认分别授权；修改租户发布规则要求全部设备范围。MQTT / Kafka 的可编辑范围、内部主题保护、配置生效及 Broker 订阅边界集中见 [消息主题管理](INTEGRATION.md#消息主题管理)。
+
 ## AI 与知识库
 
 Harness 为必装组件，所有业务模型调用作为工作流执行；Provider 负责模型管理的连接测试、健康检查与配置同步。模型来源为 DeepSeek（默认，云端 API）或“OpenAI 兼容 / 外部 API”。模型配置、可选连接测试、离线限制和升级见 [AI 部署](DEPLOYMENT.md#ai-与工作流) 与 [知识库与云端向量 API](DEPLOYMENT.md#知识库与云端向量-api)。

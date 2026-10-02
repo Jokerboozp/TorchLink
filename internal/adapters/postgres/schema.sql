@@ -528,3 +528,10 @@ CREATE INDEX IF NOT EXISTS external_data_entry_job_idx ON external_data_entry(te
 CREATE INDEX IF NOT EXISTS external_data_entry_updated_idx ON external_data_entry(tenant_id,kind,source_id,endpoint_id,status,updated_at DESC,id);
 CREATE INDEX IF NOT EXISTS external_data_entry_pending_idx ON external_data_entry(kind,due_at,created_at,tenant_id,id) WHERE status IN ('PENDING','RETRY');
 CREATE INDEX IF NOT EXISTS external_data_entry_running_idx ON external_data_entry(kind,lease_until,due_at) WHERE status='RUNNING';
+
+-- Tenant overrides for externally published message topics, updated with CAS.
+CREATE TABLE IF NOT EXISTS message_topic_configs (
+ tenant_id text PRIMARY KEY,
+ revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
+ body jsonb NOT NULL
+);

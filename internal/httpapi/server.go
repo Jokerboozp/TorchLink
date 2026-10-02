@@ -137,6 +137,7 @@ func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) 
 func (s *Server) routes() {
 	s.accessRoutes()
 	s.openAPIRoutes()
+	s.messageTopicRoutes()
 	s.deletionRoutes()
 	s.opsRoutes()
 	s.videoRoutes()

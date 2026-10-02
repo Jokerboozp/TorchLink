@@ -100,6 +100,19 @@ node --test iot_front/tests/duty.test.mjs iot_front/tests/fire-safety-management
 
 浏览器核对须使用两个分别获授申请与审批操作的账户，检查跨午夜排班、整改驳回后重提、出勤归队、刷新后的记录和窄屏滚动。现有演示数据脚本和容量模块场景未覆盖这三项现场管理业务；流程与接口见 [消防管理](FIRE_SAFETY.md)。
 
+### 消息主题回归
+
+仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run TestMessageTopics`，验证主题路由、租户配置、并发版本、存储错误和接口权限；解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
+
+真实 Broker 测试为 `go test -race ./internal/messagetopics -run TestMessageTopicsExisting -v`，仅在明确配置以下私有进程环境时执行：
+
+- MQTT：`IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER`，以及 `IOT_TEST_MESSAGE_TOPICS_MQTT_USERNAME` / `IOT_TEST_MESSAGE_TOPICS_MQTT_PASSWORD`；也可只提供 `IOT_TEST_MESSAGE_TOPICS_JWT_SECRET`，由测试签发精确临时主题、有效期 2 分钟的 JWT。
+- Kafka：`IOT_TEST_MESSAGE_TOPICS_KAFKA_BROKERS`，逗号分隔地址；连接身份须有测试主题的创建、发布、读取及删除权限。
+
+测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic 并精确清理，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查保存、整页刷新、恢复默认、只读目录和窄屏弹窗。
+
+2026-10-02 本次验证：macOS 源码连接现有 OrbStack PostgreSQL / MQTT / Kafka，上述真实依赖定向用例均通过 `-race`。浏览器使用隔离的真实 HTTP API、认证与 memory 仓储，验证桌面及 390px 窄屏操作；这是浏览器交互及模拟仓储集成，独立于 PostgreSQL 重连和 Broker 实际收发测试，不代表目标服务器部署验收。
+
 ## 管理端开发
 
 Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本以 `iot_front/package.json` 和锁文件为准。`npm --prefix iot_front ci` 安装依赖，`npm --prefix iot_front run dev` 启动。页面通过 `src/api.js` 调用同源接口；Vite 默认代理到 `localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖。生产镜像以 `iot_front` 为构建上下文。

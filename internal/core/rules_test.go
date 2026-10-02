@@ -86,12 +86,16 @@ func (r *failFirstStateRepository) UpsertDeviceStateIf(ctx context.Context, stat
 	return r.Repository.UpsertDeviceStateIf(ctx, state)
 }
 
-func newRuleTestEngine(t *testing.T, repo ports.Repository, clock *ruleTestClock) *Engine {
+func newRuleTestEngine(t *testing.T, repo ports.Repository, clock *ruleTestClock, publishers ...ports.RealtimePublisher) *Engine {
 	archive, err := local.NewArchive(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var realtime ports.RealtimePublisher = local.NewRealtime()
+	if len(publishers) > 0 {
+		realtime = publishers[0]
+	}
+	e := New(repo, archive, local.NewBus(), realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	e.Clock = clock
 	return e
 }
@@ -133,8 +137,8 @@ func TestDuplicateStandardMessageDoesNotRetriggerAlarm(t *testing.T) {
 	if err := repo.SaveRule(ctx, model.AlarmRule{ID: "rule-duplicate", TenantID: "tenant-a", ProductID: "sensor", Name: "高温", AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Enabled: true, Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Actions: []model.RuleAction{{Type: "OPEN_PAGE", Page: "alarms"}}}); err != nil {
 		t.Fatal(err)
 	}
-	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
-	realtime := e.Realtime.(*local.Realtime)
+	realtime := local.NewRealtime()
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)}, realtime)
 	payload := standardRuleMessage("same-message", 1000000)
 	if err := e.handleStandard(ctx, payload); err != nil {
 		t.Fatal(err)

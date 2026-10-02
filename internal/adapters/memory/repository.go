@@ -23,6 +23,7 @@ type Repository struct {
 	onboardingRecords   map[string]model.OnboardingRecord
 	opsItems            map[string]model.OpsUserItem
 	accessStates        map[string][]byte
+	messageTopicConfigs map[string][]byte
 	fireSafetyStates    map[string][]byte
 	componentAlarms     map[string]model.ComponentAlarmState
 	outbox              []model.OutboxEvent

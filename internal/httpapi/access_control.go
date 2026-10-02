@@ -23,10 +23,13 @@ type permissionItem struct {
 	Kind string `json:"kind"`
 }
 
-var menuNames = map[string]string{"externalData": "外部数据接入", "dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理"}
+var menuNames = map[string]string{"messageTopics": "消息主题", "externalData": "外部数据接入", "dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理"}
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
+	if strings.HasPrefix(path, "/api/v1/message-topics") {
+		return "messageTopics"
+	}
 	if strings.HasPrefix(path, "/api/v1/external-data") {
 		return "externalData"
 	}
@@ -71,6 +74,10 @@ func routeAction(method, path string) string {
 	switch method + " " + path {
 	case "POST /api/v1/alarms/:id/media/retry":
 		return "重试告警媒体归档"
+	case "PUT /api/v1/message-topics/:id":
+		return "配置消息主题与发布开关"
+	case "DELETE /api/v1/message-topics/:id":
+		return "恢复默认消息主题"
 	case "GET /api/v1/ai/runs":
 		return "查看运行中的 AI 工作流"
 	case "POST /api/v1/ai/runs/:id/stop":
@@ -209,6 +216,8 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 	if !p["menu:devices"] || user.DeviceScope != "all" {
 		delete(p, "GET /api/v1/ai/runs")
 		delete(p, "POST /api/v1/ai/runs/:id/stop")
+		delete(p, "PUT /api/v1/message-topics/:id")
+		delete(p, "DELETE /api/v1/message-topics/:id")
 		// These services produce tenant-wide artifacts or launch tenant-wide jobs.
 		for _, menu := range []string{"inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} {
 			delete(p, "menu:"+menu)

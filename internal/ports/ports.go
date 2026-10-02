@@ -32,6 +32,7 @@ type Repository interface {
 	DeleteResource(context.Context, string, string, string) error
 	DeleteProtocolRelease(context.Context, string, string, string) error
 	AccessStore
+	MessageTopicStore
 	FireSafetyStore
 	OnboardingStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)

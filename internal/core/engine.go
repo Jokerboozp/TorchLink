@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"iot-platform/internal/messagetopics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
@@ -34,6 +35,7 @@ type Engine struct {
 	RawStore      ports.RawMessageStore
 	Bus           ports.EventBus
 	Realtime      ports.RealtimePublisher
+	MessageTopics *messagetopics.Service
 	AI            ports.AIClient
 	AIPlugins     ports.AIPluginRegistry
 	AIWorkflows   ports.AIWorkflowRuntime
@@ -58,7 +60,8 @@ type Engine struct {
 }
 
 func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realtime ports.RealtimePublisher, parsers *parser.Registry, log *slog.Logger) *Engine {
-	engine := &Engine{Repo: repo, Archive: archive, Bus: bus, Realtime: realtime, Parsers: parsers, Clock: ports.RealClock{}, Log: log, outboxWake: make(chan struct{}, 1), PublishExternalTopics: true}
+	topics := messagetopics.New(repo)
+	engine := &Engine{Repo: repo, Archive: archive, Bus: topics.WrapBus(bus), Realtime: topics.WrapRealtime(realtime), MessageTopics: topics, Parsers: parsers, Clock: ports.RealClock{}, Log: log, outboxWake: make(chan struct{}, 1), PublishExternalTopics: true}
 	if rawStore, ok := archive.(ports.RawMessageStore); ok {
 		engine.RawStore = rawStore
 	}
