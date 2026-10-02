@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -84,6 +85,15 @@ type Config struct {
 	MinIOSecretKey           string
 	MinIOUseTLS              bool
 	KafkaBrokers             []string
+	KafkaPublicBrokers       []string
+	KafkaSASLUsername        string
+	KafkaSASLPassword        string
+	KafkaSASLMechanism       string
+	KafkaTLS                 bool
+	KafkaTLSCAFile           string
+	KafkaAdminURL            string
+	KafkaAdminUsername       string
+	KafkaAdminPassword       string
 	EMQXAPIURL               string
 	EMQXAPIKey               string
 	EMQXAPISecret            string
@@ -124,6 +134,7 @@ type Config struct {
 
 func Load() Config {
 	devMode, devModeErr := strictBoolValue("IOT_DEV_MODE", true)
+	kafkaTLS, kafkaTLSErr := strictBoolValue("IOT_KAFKA_TLS", false)
 	aiProvider := strings.ToLower(strings.TrimSpace(os.Getenv("IOT_AI_PROVIDER")))
 	deepSeekAPIKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
 	if aiProvider == "" {
@@ -177,6 +188,15 @@ func Load() Config {
 		MinIOSecretKey:              os.Getenv("IOT_MINIO_SECRET_KEY"),
 		MinIOUseTLS:                 boolValue("IOT_MINIO_USE_TLS", false),
 		KafkaBrokers:                split(os.Getenv("IOT_KAFKA_BROKERS")),
+		KafkaPublicBrokers:          split(os.Getenv("IOT_KAFKA_PUBLIC_BROKERS")),
+		KafkaSASLUsername:           strings.TrimSpace(os.Getenv("IOT_KAFKA_SASL_USERNAME")),
+		KafkaSASLPassword:           os.Getenv("IOT_KAFKA_SASL_PASSWORD"),
+		KafkaSASLMechanism:          strings.ToUpper(strings.TrimSpace(get("IOT_KAFKA_SASL_MECHANISM", "SCRAM-SHA-256"))),
+		KafkaTLS:                    kafkaTLS,
+		KafkaTLSCAFile:              strings.TrimSpace(os.Getenv("IOT_KAFKA_TLS_CA_FILE")),
+		KafkaAdminURL:               strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_KAFKA_ADMIN_URL")), "/"),
+		KafkaAdminUsername:          strings.TrimSpace(os.Getenv("IOT_KAFKA_ADMIN_USERNAME")),
+		KafkaAdminPassword:          os.Getenv("IOT_KAFKA_ADMIN_PASSWORD"),
 		EMQXAPIURL:                  os.Getenv("IOT_EMQX_API_URL"),
 		EMQXAPIKey:                  os.Getenv("IOT_EMQX_API_KEY"),
 		EMQXAPISecret:               os.Getenv("IOT_EMQX_API_SECRET"),
@@ -212,7 +232,7 @@ func Load() Config {
 		DevMode:                     devMode,
 		Ops:                         loadOps(),
 		Video:                       loadVideo(),
-		loadErr:                     devModeErr,
+		loadErr:                     errors.Join(devModeErr, kafkaTLSErr),
 	}
 }
 
@@ -221,6 +241,9 @@ func (c Config) Validate() error {
 		return c.loadErr
 	}
 	if err := c.Ops.validate(); err != nil {
+		return err
+	}
+	if err := c.validateKafkaSecurity(); err != nil {
 		return err
 	}
 	if c.AccessCoordination && (c.PostgresDSN == "" || c.AccessNodeURL == "") {

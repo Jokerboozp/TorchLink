@@ -424,6 +424,30 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 输出区分配置预算通过、阻塞与未验证。它读取实际 PostgreSQL 最大连接数、Kafka 分区/副本、ClickHouse 表引擎及 MQTT 会话可观测性；存储分片、磁盘接管、连接路由、Harness 并发和模型供应商请求 / token 配额仍须在目标集群验证。`clusterCapacityVerified=false` 始终保留，不能把 API 进程数乘以单机速率当作最高容量。
 
+### Kafka 对接账号认证与授权
+
+“消息主题”中的 Kafka 消费账号由平台管理 Redpanda SCRAM 凭据及精确 ACL。平台不会自动修改 Broker 的认证开关；默认 Compose 的内部 Kafka 连接没有启用 SASL，因此仅启动页面功能不代表 Broker 已支持对外授权。未满足下列条件时，页面拒绝发放 Kafka 消费凭据。
+
+| 配置 | 用途 |
+| --- | --- |
+| `IOT_KAFKA_PUBLIC_BROKERS` | 返回对接方的 Kafka 地址列表，逗号分隔的 `host:port`；必须是对接方可达、已开启 SASL 的 listener，留空不发放 Kafka 消费凭据 |
+| `IOT_KAFKA_SASL_USERNAME` / `IOT_KAFKA_SASL_PASSWORD` | 平台 API、Worker、容量检查及死信回放连接 Kafka 的服务账号，须成对填写 |
+| `IOT_KAFKA_SASL_MECHANISM` | 服务账号机制，默认 `SCRAM-SHA-256`，也支持 `SCRAM-SHA-512` |
+| `IOT_KAFKA_TLS` / `IOT_KAFKA_TLS_CA_FILE` | Kafka TLS 开关与可选 CA 文件；CA 为空时使用系统信任库，开启后校验服务端证书和主机名，不提供跳过校验选项 |
+| `IOT_KAFKA_ADMIN_URL` | Redpanda Admin API 根地址，不带 `/v1`；必须是平台进程可达地址 |
+| `IOT_KAFKA_ADMIN_USERNAME` / `IOT_KAFKA_ADMIN_PASSWORD` | 独立管理账号，同时用于 HTTP Admin 与 Kafka ACL 管理，不返回浏览器；其 SCRAM 机制与上述服务账号机制一致 |
+
+源码启动使用相应环境文件。在线/离线 Compose 已透传上述变量；自签名 CA 文件还须通过部署覆盖配置挂载到容器内，并填写容器内路径。Admin API 为 HTTPS 时复用该 CA 信任配置。容器内 `IOT_KAFKA_BROKERS` 使用内部地址，`IOT_KAFKA_PUBLIC_BROKERS` 使用对接方可达地址。平台会检查两组地址及 Broker 返回的广告地址属于同一个非空 `clusterId`，并拒绝匿名连接；两组 listener 使用相同的 SASL 机制与 TLS 配置。不要将匿名 listener 暴露给消费者。
+
+在既有 Redpanda 开启认证前，先安排平台进程切换使用服务账号，创建管理账号并加入 `superusers`，保留可恢复的管理入口。按 [Redpanda 25.2 认证说明](https://docs.redpanda.com/streaming/25.2/manage/security/authentication/) 完成以下步骤：
+
+1. 创建 SCRAM 管理账号和平台服务账号。管理账号须能管理用户、创建主题、读写 ACL；普通服务账号需对平台 `iot.` 主题拥有实际运行所需的发布、消费、查询及容量清理权限，对 `iot-platform-` 消费组拥有读写位点与查询权限。先配置平台及命令工具的 SASL 参数，再切换 Broker；不要把已有数据库或消息卷重建作为切换认证的手段。
+2. 使用 `rpk cluster config set enable_sasl true` 为所有 Kafka listener 开启 SASL；确保 `kafka_enable_authorization` 没有显式设为 `false`。如果使用每个 listener 单独配置的方案，应按官方文档设置 `authentication_method: sasl` 和授权开关，并执行该方案要求的 Broker 重启。
+3. 使用 `rpk cluster config set admin_api_require_auth true` 保护 Admin API，后续 `rpk` 操作使用已建立的管理身份。外部网络部署配置 Kafka TLS，并保护 Admin API 的访问网络和传输。应用环境文件中的凭据须与 Broker 中实际创建的账号相符；填写环境文件本身不会创建账号。
+4. 重启使用新配置的平台进程并复查数据接入。消息主题授权会读取 Broker 实际授权配置，检查管理连接、每个配置及广告地址拒绝匿名请求，且拒绝存在 `User:*` 通配授权的环境；任一检查失败不发放消费凭据。
+
+受管消费用户名及消费组采用 `iot-topic-` 命名空间，凭据固定使用 `SCRAM-SHA-256`。每个账号仅获得所选 `iot.external.<租户编码>.` 主题的 `READ` / `DESCRIBE` 和其专属消费组的 `READ`；不授权共享默认主题、内部队列、发布或任意消费组。新主题使用 Broker 默认分区和副本数，已存在主题的分区、副本和保留策略保持原值。授权失败会撤销该账号的 ACL 和凭据；撤销先删除 ACL 再删除 SCRAM 用户，使已有认证连接也失去读权限。账号撤销和页面删除发布配置均不清除 Kafka 主题历史数据，保留策略由 Broker 管理。具体 ACL 语义见 [Redpanda ACL 文档](https://docs.redpanda.com/streaming/25.2/manage/security/authorization/acl/)。
+
 ## 集群部署
 
 多节点部署由**集群清单**统一描述，`scripts/cluster-up.sh` / `.ps1` 一条命令完成镜像、秘密、渲染、节点预检、下发、按阶段启动、初始化与就绪检查；其中 `cmd/cluster-render` 为每个节点生成独立的 Compose 项目（主机网络、固定端口），`scripts/cluster-deploy.sh` / `.ps1` 按阶段下发与启动。Compose 只管理本节点；跨节点布局、故障域和连接预算由清单校验。
@@ -509,6 +533,8 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 ```
 
 - 秘密文件模板为 `deploy/cluster/secrets.example.yaml`，`-init-secrets` 会补齐缺项；嵌入连接串的密码只能用字母、数字与 `. _ ~ -`。秘密只写入需要它的节点的 `.env`（0600）与本机 `init.env`，`compose.yaml` 和配置文件只含变量引用。
+- 已配置 Broker 认证时，在秘密文件填写 `kafkaSaslUsername` / `kafkaSaslPassword`、`kafkaSaslMechanism`（默认 `SCRAM-SHA-256`）、`kafkaTls` 及可选 `kafkaTlsCaFile`；Redpanda 管理接口使用成组的 `kafkaAdminUrl` / `kafkaAdminUsername` / `kafkaAdminPassword`。这些参数统一进入所有平台角色及 `init.env`，不要在清单 `env` 中重复设置。使用一键 `cluster-up` 时，把 PEM CA 证书放在秘密文件目录或其子目录内，填写相对路径（以秘密文件目录为准）；直接运行 `cluster-render` 也支持本机绝对路径。渲染器复制证书，各角色和远程 `cluster-init` 只读挂载，本地初始化自动使用控制机上的副本。证书文件不得包含私钥。
+- 外部消息账号使用的地址须显式填写 `kafkaPublicBrokers`（逗号分隔的 `host:port`，应与 Broker 对外公告地址一致）及 `mqttPublicUrl`（如 `ssl://mqtt.example.com:8883`）。上述认证与地址字段不会自动生成，也不会启用或修改 Broker 认证、监听器和证书；填入前需按[Kafka 对接账号认证与授权](#kafka-对接账号认证与授权)完成实际 Broker 配置。
 - `cluster-deploy` 不负责镜像：节点需已有镜像，或用 `--images <归档>` 让每个节点整体导入。`--stage`、`--nodes` 可只执行指定阶段和节点，`--dry-run` 只打印命令；`--cluster-init "go run ./cmd/cluster-init"` 改为在控制机本地运行初始化。
 - 部署顺序与每阶段内容同上一小节第 6 步。
 

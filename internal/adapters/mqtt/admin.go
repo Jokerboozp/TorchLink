@@ -130,3 +130,124 @@ func (a *Admin) SessionQueue(ctx context.Context, clientID string) (queued, drop
 	}
 	return info.MqueueLen, info.MqueueDropped, nil
 }
+
+// CheckTopicAuthorization verifies the running broker rather than inferring
+// authorization from environment settings. It never returns broker secrets.
+// Consumer tokens must also end their exact allow-list with explicit deny rules.
+func (a *Admin) CheckTopicAuthorization(ctx context.Context) error {
+	if a.Key == "" || a.Secret == "" {
+		return errors.New("EMQX API credentials unavailable")
+	}
+	var chain []topicJWTAuthenticator
+	if _, err := a.request(ctx, "GET", "/authentication", nil, &chain); err != nil {
+		return err
+	}
+	if !validTopicJWTChain(chain) {
+		return errors.New("MQTT topic authorization requires JWT password authentication, username verification, ACL claims and expiration disconnect")
+	}
+	var settings struct {
+		NoMatch string `json:"no_match"`
+	}
+	if _, err := a.request(ctx, "GET", "/authorization/settings", nil, &settings); err != nil {
+		return err
+	}
+	if settings.NoMatch != "deny" {
+		return errors.New("MQTT topic authorization requires deny-by-default authorization")
+	}
+	var sources struct {
+		Sources *[]struct {
+			Type   string `json:"type"`
+			Enable bool   `json:"enable"`
+		} `json:"sources"`
+	}
+	if _, err := a.request(ctx, "GET", "/authorization/sources", nil, &sources); err != nil {
+		return err
+	}
+	if sources.Sources == nil {
+		return errors.New("EMQX returned an invalid authorization source configuration")
+	}
+	for _, source := range *sources.Sources {
+		if !source.Enable {
+			continue
+		}
+		// File rules may retain dashboard/loopback allowances for the broker.
+		// Our JWT has explicit final deny rules and never falls through to them.
+		// Dynamic sources have additional failure semantics and are not verified.
+		if source.Type != "file" {
+			return errors.New("MQTT topic authorization cannot verify the configured fallback authorization source")
+		}
+	}
+	var listeners []struct {
+		ID     string `json:"id"`
+		Enable bool   `json:"enable"`
+	}
+	if _, err := a.request(ctx, "GET", "/listeners", nil, &listeners); err != nil {
+		return err
+	}
+	enabled := false
+	for _, listener := range listeners {
+		if !listener.Enable {
+			continue
+		}
+		enabled = true
+		if listener.ID == "" {
+			return errors.New("EMQX returned an invalid listener")
+		}
+		var config struct {
+			EnableAuthn    json.RawMessage         `json:"enable_authn"`
+			Authentication []topicJWTAuthenticator `json:"authentication"`
+		}
+		if _, err := a.request(ctx, "GET", "/listeners/"+url.PathEscape(listener.ID), nil, &config); err != nil {
+			return err
+		}
+		mode := strings.TrimSpace(string(config.EnableAuthn))
+		if mode != "true" && mode != `"quick_deny_anonymous"` {
+			return errors.New("MQTT topic authorization requires authentication on every enabled listener")
+		}
+		if len(config.Authentication) > 0 && !validTopicJWTChain(config.Authentication) {
+			return errors.New("MQTT listener overrides the required JWT authentication")
+		}
+	}
+	if !enabled {
+		return errors.New("MQTT topic authorization requires an enabled authenticated listener")
+	}
+	return nil
+}
+
+type topicJWTAuthenticator struct {
+	Enable                bool   `json:"enable"`
+	Mechanism             string `json:"mechanism"`
+	From                  string `json:"from"`
+	Algorithm             string `json:"algorithm"`
+	UseJWKS               bool   `json:"use_jwks"`
+	ACLClaim              string `json:"acl_claim_name"`
+	DisconnectAfterExpire bool   `json:"disconnect_after_expire"`
+	Precondition          string `json:"precondition"`
+	VerifyClaims          []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"verify_claims"`
+}
+
+func validTopicJWTChain(chain []topicJWTAuthenticator) bool {
+	enabled := 0
+	for _, authn := range chain {
+		if !authn.Enable {
+			continue
+		}
+		enabled++
+		if authn.Mechanism != "jwt" || authn.From != "password" || authn.Algorithm != "hmac-based" || authn.UseJWKS || authn.ACLClaim != "acl" || !authn.DisconnectAfterExpire || (authn.Precondition != "" && authn.Precondition != "true") {
+			return false
+		}
+		username := false
+		for _, claim := range authn.VerifyClaims {
+			if claim.Name == "username" && claim.Value == "${username}" {
+				username = true
+			}
+		}
+		if !username {
+			return false
+		}
+	}
+	return enabled == 1
+}

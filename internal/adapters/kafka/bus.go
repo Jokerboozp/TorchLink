@@ -16,9 +16,11 @@ import (
 )
 
 type Bus struct {
-	brokers []string
-	mu      sync.Mutex
-	writers map[string]*kafka.Writer
+	brokers   []string
+	dialer    *kafka.Dialer
+	transport *kafka.Transport
+	mu        sync.Mutex
+	writers   map[string]*kafka.Writer
 	// readers holds the live reader of each running subscription.
 	readers map[messageSource]struct{}
 	closed  bool
@@ -50,11 +52,24 @@ func (b *Bus) SetAutoCreateTopics(enabled bool) {
 }
 
 func New(brokers []string) *Bus {
-	b := &Bus{brokers: brokers, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}, progress: map[string]*groupProgress{}, now: time.Now}
-	b.newSource = func(topic, group string) messageSource {
-		return kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0})
-	}
+	b, _ := NewWithSecurity(brokers, SecurityConfig{})
 	return b
+}
+
+func NewWithSecurity(brokers []string, security SecurityConfig) (*Bus, error) {
+	dialer, err := NewDialer(security)
+	if err != nil {
+		return nil, err
+	}
+	transport, err := NewTransport(security)
+	if err != nil {
+		return nil, err
+	}
+	b := &Bus{brokers: append([]string(nil), brokers...), dialer: dialer, transport: transport, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}, progress: map[string]*groupProgress{}, now: time.Now}
+	b.newSource = func(topic, group string) messageSource {
+		return kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Dialer: b.dialer, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0})
+	}
+	return b, nil
 }
 
 // SetLogger sets the logger for consumer failures; slog.Default is used otherwise.
@@ -139,7 +154,7 @@ func (b *Bus) writer(topic string) *kafka.Writer {
 	if w := b.writers[topic]; w != nil {
 		return w
 	}
-	w := &kafka.Writer{Addr: kafka.TCP(b.brokers...), Topic: topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, Async: false, AllowAutoTopicCreation: !b.noAutoCreate, BatchSize: 500, BatchBytes: 4 << 20, BatchTimeout: 10 * time.Millisecond}
+	w := &kafka.Writer{Addr: kafka.TCP(b.brokers...), Transport: b.transport, Topic: topic, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, Async: false, AllowAutoTopicCreation: !b.noAutoCreate, BatchSize: 500, BatchBytes: 4 << 20, BatchTimeout: 10 * time.Millisecond}
 	b.writers[topic] = w
 	return w
 }
@@ -216,11 +231,16 @@ func (b *Bus) Health(ctx context.Context) error {
 		sort.Strings(failed)
 		return fmt.Errorf("kafka consumer unhealthy: %s", strings.Join(failed, "; "))
 	}
-	conn, err := kafka.DialContext(ctx, "tcp", b.brokers[0])
+	conn, err := b.dialer.DialContext(ctx, "tcp", b.brokers[0])
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	deadline := time.Now().Add(10 * time.Second)
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
+	}
+	_ = conn.SetDeadline(deadline)
 	_, err = conn.Brokers()
 	return err
 }
@@ -238,6 +258,9 @@ func (b *Bus) Close() error {
 		if err := w.Close(); err != nil {
 			errs = append(errs, err.Error())
 		}
+	}
+	if b.transport != nil {
+		b.transport.CloseIdleConnections()
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))

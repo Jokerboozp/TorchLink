@@ -126,8 +126,11 @@ func Run(forcedRole string) {
 	}
 	var bus ports.EventBus = local.NewBus()
 	var kafkaBus *kafkaadapter.Bus
+	kafkaSecurity := kafkaadapter.SecurityConfig{Username: cfg.KafkaSASLUsername, Password: cfg.KafkaSASLPassword, Mechanism: cfg.KafkaSASLMechanism, TLS: cfg.KafkaTLS, CAFile: cfg.KafkaTLSCAFile}
 	if len(cfg.KafkaBrokers) > 0 {
-		kafkaBus = kafkaadapter.New(cfg.KafkaBrokers)
+		var err error
+		kafkaBus, err = kafkaadapter.NewWithSecurity(cfg.KafkaBrokers, kafkaSecurity)
+		fatal(log, "initialize Kafka security", err)
 		kafkaBus.SetLogger(log)
 		kafkaBus.SetAutoCreateTopics(cfg.KafkaAutoCreateTopics)
 		// Parallel lanes keep each device's messages in order.
@@ -425,6 +428,13 @@ func Run(forcedRole string) {
 		fatal(log, "start device alarm notifications", opsService.StartDeviceNotifications(ctx, bus, filepath.Join(cfg.DataDir, "ops-state", "device-notifications")))
 	}
 	components := core.Components{Parser: cfg.Runs(config.ComponentParser), Processor: cfg.Runs(config.ComponentProcessor), Jobs: cfg.Runs(config.ComponentJobs), OfflineScan: cfg.OfflineScan}
+	stopCapacity, capacityErr := startLocalCapacity(&cfg, log)
+	if capacityErr != nil {
+		log.Warn("local capacity controller unavailable", "error", capacityErr)
+	}
+	// Install user/scope resolvers before consumers start publishing, including
+	// worker-only processes which do not expose business HTTP routes.
+	api := httpapi.New(cfg, engine, registry, log)
 	fatal(log, "start engine", engine.StartWith(ctx, components))
 	log.Info("process role started", "role", cfg.ProcessRole, "instance", cfg.InstanceID, "parser", components.Parser, "processor", components.Processor, "jobs", components.Jobs, "access", cfg.Runs(config.ComponentAccess), "management", cfg.Runs(config.ComponentManagement))
 	var coordinator *protocolruntime.Coordinator
@@ -485,11 +495,6 @@ func Run(forcedRole string) {
 			return err
 		}))
 	}
-	stopCapacity, capacityErr := startLocalCapacity(&cfg, log)
-	if capacityErr != nil {
-		log.Warn("local capacity controller unavailable", "error", capacityErr)
-	}
-	api := httpapi.New(cfg, engine, registry, log)
 	api.SetRateLimiter(limits)
 	storageStats := func() {
 		if ch, ok := clickHouseRaw.(*clickhouseadapter.Repository); ok {
@@ -529,8 +534,19 @@ func Run(forcedRole string) {
 		revokeUsername = emqxAdmin.RevokeUsername
 	}
 	api.SetDeviceOperations(publishCommand, revokeUsername)
+	if emqxAdmin != nil {
+		api.SetMessageTopicMQTTReadiness(emqxAdmin.CheckTopicAuthorization)
+	}
+	if cfg.KafkaAdminURL != "" {
+		admin, err := kafkaadapter.NewConsumerAdmin(cfg.KafkaBrokers, kafkaSecurity, cfg.KafkaAdminURL, cfg.KafkaAdminUsername, cfg.KafkaAdminPassword)
+		fatal(log, "initialize Kafka consumer administration", err)
+		defer admin.Close()
+		admin.SetConsumerBrokers(cfg.KafkaPublicBrokers)
+		api.SetMessageTopicKafkaAdmin(admin)
+	}
 	if cfg.Runs(config.ComponentJobs) {
 		engine.RunSingleton(ctx, "credential-revocation", 30*time.Second, api.RetryCredentialRevocationsOnce)
+		engine.RunSingleton(ctx, "message-topic-revocation", 30*time.Second, api.RetryMessageTopicRevocationsOnce)
 		go api.RunOnboardingTasks(ctx)
 		api.RunExternalData(ctx)
 	}

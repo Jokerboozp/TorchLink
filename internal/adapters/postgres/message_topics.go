@@ -10,6 +10,23 @@ import (
 	"iot-platform/internal/model"
 )
 
+func (r *Repository) ListMessageTopicTenants(ctx context.Context) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT tenant_id FROM message_topic_configs ORDER BY tenant_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tenants := []string{}
+	for rows.Next() {
+		var tenant string
+		if err := rows.Scan(&tenant); err != nil {
+			return nil, err
+		}
+		tenants = append(tenants, tenant)
+	}
+	return tenants, rows.Err()
+}
+
 func (r *Repository) LoadMessageTopicConfig(ctx context.Context, tenant string) (model.MessageTopicConfig, error) {
 	var config model.MessageTopicConfig
 	var body []byte

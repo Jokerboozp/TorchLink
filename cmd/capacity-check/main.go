@@ -8,7 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/segmentio/kafka-go"
+	kafkaadapter "iot-platform/internal/adapters/kafka"
 	"iot-platform/internal/adapters/mqtt"
 	"iot-platform/internal/config"
 	"iot-platform/internal/deploycheck"
@@ -35,6 +35,15 @@ func main() {
 		os.Exit(2)
 	}
 	cfg := config.Load()
+	dialer, err := kafkaadapter.NewDialer(kafkaadapter.SecurityConfig{
+		Username: cfg.KafkaSASLUsername, Password: cfg.KafkaSASLPassword,
+		Mechanism: cfg.KafkaSASLMechanism, TLS: cfg.KafkaTLS, CAFile: cfg.KafkaTLSCAFile,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Kafka security configuration invalid:", err)
+		os.Exit(2)
+	}
+	dialer.Timeout = 5 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	checks := []deploycheck.CapacityCheck{}
@@ -50,7 +59,6 @@ func main() {
 		}
 	}
 	if len(cfg.KafkaBrokers) > 0 {
-		dialer := kafka.Dialer{Timeout: 5 * time.Second}
 		if conn, err := dialer.DialContext(ctx, "tcp", cfg.KafkaBrokers[0]); err == nil {
 			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 			parts, err := conn.ReadPartitions()

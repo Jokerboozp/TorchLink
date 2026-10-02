@@ -27,7 +27,7 @@ var menuNames = map[string]string{"messageTopics": "消息主题", "externalData
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
-	if strings.HasPrefix(path, "/api/v1/message-topics") {
+	if strings.HasPrefix(path, "/api/v1/message-topics") || strings.HasPrefix(path, "/api/v1/message-topic-accounts") {
 		return "messageTopics"
 	}
 	if strings.HasPrefix(path, "/api/v1/external-data") {
@@ -76,8 +76,22 @@ func routeAction(method, path string) string {
 		return "重试告警媒体归档"
 	case "PUT /api/v1/message-topics/:id":
 		return "配置消息主题与发布开关"
+	case "POST /api/v1/message-topics":
+		return "新增消息主题"
 	case "DELETE /api/v1/message-topics/:id":
+		return "删除消息主题"
+	case "POST /api/v1/message-topics/:id/reset":
 		return "恢复默认消息主题"
+	case "POST /api/v1/message-topic-accounts":
+		return "新增主题对接账号"
+	case "PUT /api/v1/message-topic-accounts/:id":
+		return "修改对接账号与主题授权"
+	case "DELETE /api/v1/message-topic-accounts/:id":
+		return "删除主题对接账号"
+	case "POST /api/v1/message-topic-accounts/:id/rotate":
+		return "轮换对接账号密钥"
+	case "POST /api/v1/message-topic-accounts/:id/credentials":
+		return "生成主题订阅凭据"
 	case "GET /api/v1/ai/runs":
 		return "查看运行中的 AI 工作流"
 	case "POST /api/v1/ai/runs/:id/stop":
@@ -218,6 +232,9 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 		delete(p, "POST /api/v1/ai/runs/:id/stop")
 		delete(p, "PUT /api/v1/message-topics/:id")
 		delete(p, "DELETE /api/v1/message-topics/:id")
+		for _, action := range []string{"POST /api/v1/message-topics", "POST /api/v1/message-topics/:id/reset", "POST /api/v1/message-topic-accounts", "PUT /api/v1/message-topic-accounts/:id", "DELETE /api/v1/message-topic-accounts/:id", "POST /api/v1/message-topic-accounts/:id/rotate", "POST /api/v1/message-topic-accounts/:id/credentials"} {
+			delete(p, action)
+		}
 		// These services produce tenant-wide artifacts or launch tenant-wide jobs.
 		for _, menu := range []string{"inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} {
 			delete(p, "menu:"+menu)
@@ -428,7 +445,17 @@ func (s *Server) commitAccess(w http.ResponseWriter, r *http.Request, store port
 		// longer permitted now rather than at the next periodic check.
 		go s.liveVideo().RevalidateTenant(context.WithoutCancel(r.Context()), claims(r).TenantID)
 	}
-	write(w, 200, map[string]bool{"success": true})
+	result := map[string]any{"success": true}
+	if s.engine.MessageTopics != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		err := s.reconcileMessageTopicTenant(ctx, claims(r).TenantID)
+		cancel()
+		if err != nil {
+			result["warning"] = "用户权限已保存，主题订阅旧凭据的撤销仍在重试。"
+			s.log.Warn("revalidate message topic credentials failed", "error", err)
+		}
+	}
+	write(w, 200, result)
 }
 func (s *Server) accessList(w http.ResponseWriter, r *http.Request) {
 	_, state, ok := s.accessState(w, r)

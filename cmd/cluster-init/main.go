@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/segmentio/kafka-go"
 
+	kafkaadapter "iot-platform/internal/adapters/kafka"
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/config"
 	"iot-platform/internal/model"
@@ -68,8 +69,8 @@ func planTopics(existing map[string]topicState, want []string, partitions, repli
 	return out
 }
 
-func readTopics(ctx context.Context, broker string) (map[string]topicState, error) {
-	conn, err := (&kafka.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", broker)
+func readTopics(ctx context.Context, broker string, dialer *kafka.Dialer) (map[string]topicState, error) {
+	conn, err := dialer.DialContext(ctx, "tcp", broker)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +92,8 @@ func readTopics(ctx context.Context, broker string) (map[string]topicState, erro
 	return out, nil
 }
 
-func createTopics(ctx context.Context, broker string, topics []kafka.TopicConfig) error {
-	conn, err := (&kafka.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", broker)
+func createTopics(ctx context.Context, broker string, topics []kafka.TopicConfig, dialer *kafka.Dialer) error {
+	conn, err := dialer.DialContext(ctx, "tcp", broker)
 	if err != nil {
 		return err
 	}
@@ -101,7 +102,7 @@ func createTopics(ctx context.Context, broker string, topics []kafka.TopicConfig
 	if err != nil {
 		return err
 	}
-	cc, err := (&kafka.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
+	cc, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port)))
 	if err != nil {
 		return err
 	}
@@ -188,6 +189,15 @@ func main() {
 		}
 	}
 	cfg := config.Load()
+	dialer, err := kafkaadapter.NewDialer(kafkaadapter.SecurityConfig{
+		Username: cfg.KafkaSASLUsername, Password: cfg.KafkaSASLPassword,
+		Mechanism: cfg.KafkaSASLMechanism, TLS: cfg.KafkaTLS, CAFile: cfg.KafkaTLSCAFile,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Kafka security configuration invalid:", err)
+		os.Exit(2)
+	}
+	dialer.Timeout = 10 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	report := map[string]any{"execute": *execute}
@@ -196,7 +206,7 @@ func main() {
 	if len(cfg.KafkaBrokers) == 0 {
 		checks = append(checks, check{Name: "kafka", Detail: "IOT_KAFKA_BROKERS not set"})
 		ok = false
-	} else if existing, err := readTopics(ctx, cfg.KafkaBrokers[0]); err != nil {
+	} else if existing, err := readTopics(ctx, cfg.KafkaBrokers[0], dialer); err != nil {
 		checks = append(checks, check{Name: "kafka", Detail: err.Error()})
 		ok = false
 	} else {
@@ -213,7 +223,7 @@ func main() {
 		}
 		if len(create) > 0 {
 			if *execute {
-				if err = createTopics(ctx, cfg.KafkaBrokers[0], create); err != nil {
+				if err = createTopics(ctx, cfg.KafkaBrokers[0], create, dialer); err != nil {
 					checks = append(checks, check{Name: "kafka create topics", Detail: err.Error()})
 					ok = false
 				} else {

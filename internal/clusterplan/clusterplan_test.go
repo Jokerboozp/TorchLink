@@ -1,9 +1,15 @@
 package clusterplan
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,9 +34,190 @@ func example(t *testing.T) *Inventory {
 func testSecrets() Secrets {
 	v := reflect.ValueOf(&Secrets{}).Elem()
 	for i := 0; i < v.NumField(); i++ {
+		field := v.Type().Field(i)
+		if field.Tag.Get("yaml") == "-" || strings.HasPrefix(field.Name, "Kafka") || field.Name == "MQTTPublicURL" {
+			continue
+		}
 		v.Field(i).SetString("s3cret-" + strings.ToLower(v.Type().Field(i).Name) + "-0123456789abcdefghij")
 	}
 	return v.Interface().(Secrets)
+}
+
+func testKafkaSecrets(t *testing.T) (Secrets, []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := &x509.Certificate{SerialNumber: big.NewInt(1), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	s := testSecrets()
+	s.KafkaSASLUsername, s.KafkaSASLPassword, s.KafkaSASLMechanism = "platform-writer", "platform-kafka-password", "SCRAM-SHA-512"
+	s.KafkaTLS, s.KafkaTLSCAFile = "true", "kafka-ca.pem"
+	s.KafkaAdminURL, s.KafkaAdminUsername, s.KafkaAdminPassword = "https://admin.example.test:9644", "topic-admin", "kafka-admin-password"
+	s.KafkaPublicBrokers, s.MQTTPublicURL = "kafka.example.test:9093,[2001:db8::1]:9093", "ssl://mqtt.example.test:8883"
+	dir := t.TempDir()
+	body, err := yaml.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "secrets.yaml"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, s.KafkaTLSCAFile), ca, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err = LoadSecrets(filepath.Join(dir, "secrets.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, ca
+}
+
+func TestKafkaAndMQTTSettingsReachEveryRoleAndInit(t *testing.T) {
+	inv := example(t)
+	s, ca := testKafkaSecrets(t)
+	files, err := Render(inv, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEnv := map[string]string{
+		"IOT_KAFKA_SASL_USERNAME": s.KafkaSASLUsername, "IOT_KAFKA_SASL_PASSWORD": s.KafkaSASLPassword,
+		"IOT_KAFKA_SASL_MECHANISM": "SCRAM-SHA-512", "IOT_KAFKA_TLS": "true", "IOT_KAFKA_TLS_CA_FILE": "/app/kafka/ca.pem",
+		"IOT_KAFKA_ADMIN_URL": s.KafkaAdminURL, "IOT_KAFKA_ADMIN_USERNAME": s.KafkaAdminUsername,
+		"IOT_KAFKA_ADMIN_PASSWORD": s.KafkaAdminPassword, "IOT_KAFKA_PUBLIC_BROKERS": s.KafkaPublicBrokers,
+		"IOT_DEVICE_MQTT_PUBLIC_URL": s.MQTTPublicURL,
+	}
+	for _, role := range RoleNames {
+		for _, node := range inv.Platform.Roles[role].Nodes {
+			var compose struct {
+				Services map[string]struct {
+					Environment map[string]string `yaml:"environment"`
+					Volumes     []string          `yaml:"volumes"`
+				} `yaml:"services"`
+			}
+			if err := yaml.Unmarshal(files[node+"/compose.yaml"], &compose); err != nil {
+				t.Fatal(err)
+			}
+			svc := compose.Services["iot-"+role]
+			for k, v := range wantEnv {
+				if svc.Environment[k] != "${"+k+"}" || !strings.Contains(string(files[node+"/.env"]), k+"="+v+"\n") {
+					t.Fatalf("%s/%s lacks setting %s or its variable reference", node, role, k)
+				}
+			}
+			if !strings.Contains(strings.Join(svc.Volumes, "\n"), "./kafka/ca.pem:/app/kafka/ca.pem:ro") || string(files[node+"/kafka/ca.pem"]) != string(ca) {
+				t.Fatalf("%s/%s cannot read the rendered CA", node, role)
+			}
+		}
+	}
+	for k, v := range wantEnv {
+		if !strings.Contains(string(files["init.env"]), k+"="+v+"\n") {
+			t.Fatalf("init.env lacks %s", k)
+		}
+	}
+	if string(files["kafka/ca.pem"]) != string(ca) {
+		t.Fatal("initialization CA missing")
+	}
+	for name, body := range files {
+		if !strings.HasSuffix(name, ".env") && (strings.Contains(string(body), s.KafkaSASLPassword) || strings.Contains(string(body), s.KafkaAdminPassword)) {
+			t.Fatalf("Kafka credential leaked into %s", name)
+		}
+	}
+	baseline, err := Render(inv, testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range inv.Redpanda.Nodes {
+		var before, after map[string]any
+		_ = yaml.Unmarshal(baseline[node+"/compose.yaml"], &before)
+		_ = yaml.Unmarshal(files[node+"/compose.yaml"], &after)
+		if !reflect.DeepEqual(before["services"].(map[string]any)["redpanda"], after["services"].(map[string]any)["redpanda"]) {
+			t.Fatal("client settings changed the broker configuration")
+		}
+	}
+	if !strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_TLS=false\n") || !strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_SASL_PASSWORD=\n") || baseline["kafka/ca.pem"] != nil {
+		t.Fatal("unconfigured cluster must retain unauthenticated mode")
+	}
+}
+
+func TestKafkaClusterSettingsFailBeforeDeployment(t *testing.T) {
+	valid, _ := testKafkaSecrets(t)
+	cases := map[string]func(*Secrets){
+		"SASL pair":                  func(s *Secrets) { s.KafkaSASLPassword = "" },
+		"mechanism":                  func(s *Secrets) { s.KafkaSASLMechanism = "PLAIN" },
+		"TLS boolean":                func(s *Secrets) { s.KafkaTLS = "maybe" },
+		"CA without TLS":             func(s *Secrets) { s.KafkaTLS = "false" },
+		"missing CA":                 func(s *Secrets) { s.KafkaTLSCAFile = "missing.pem" },
+		"admin pair":                 func(s *Secrets) { s.KafkaAdminUsername = "" },
+		"admin embedded credentials": func(s *Secrets) { s.KafkaAdminURL = "https://user:password@example.test" },
+		"public broker address":      func(s *Secrets) { s.KafkaPublicBrokers = "https://kafka.example.test:9093" },
+		"public MQTT credentials":    func(s *Secrets) { s.MQTTPublicURL = "tcp://user:password@example.test:1883" },
+		"environment injection":      func(s *Secrets) { s.KafkaSASLPassword = "secret\nINJECT=true" },
+		"environment comment":        func(s *Secrets) { s.KafkaSASLPassword = "secret #truncated" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := valid
+			mutate(&s)
+			if _, err := Render(example(t), s); err == nil {
+				t.Fatal("invalid Kafka configuration accepted")
+			} else if strings.Contains(err.Error(), valid.KafkaSASLPassword) || strings.Contains(err.Error(), valid.KafkaAdminPassword) {
+				t.Fatal("validation error exposes credentials")
+			}
+		})
+	}
+	inv := example(t)
+	inv.Env["IOT_KAFKA_TLS"] = "false"
+	if _, err := Render(inv, valid); err == nil || !strings.Contains(err.Error(), "secrets file") {
+		t.Fatal("inventory must not silently override secured client settings", err)
+	}
+	for _, body := range []string{"not a certificate", "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----"} {
+		path := filepath.Join(t.TempDir(), "bad-ca.pem")
+		_ = os.WriteFile(path, []byte(body), 0o600)
+		s := valid
+		s.KafkaTLSCAFile = path
+		if _, err := Render(example(t), s); err == nil {
+			t.Fatal("invalid certificate accepted")
+		}
+	}
+}
+
+func TestOptionalBrokerSettingsAreNeverGenerated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secrets.yaml")
+	if _, err := EnsureSecrets(path); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadSecrets(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := reflect.ValueOf(s)
+	for i := 0; i < v.NumField(); i++ {
+		name := v.Type().Field(i).Name
+		if (strings.HasPrefix(name, "Kafka") || name == "MQTTPublicURL") && v.Field(i).String() != "" {
+			t.Fatalf("optional broker setting %s was generated", name)
+		}
+	}
+	// Filling a different missing secret must preserve a portable relative CA path.
+	s, _ = testKafkaSecrets(t)
+	path = filepath.Join(s.baseDir, "secrets.yaml")
+	body, _ := os.ReadFile(path)
+	body = []byte(strings.Replace(string(body), "adminPassword: "+s.AdminPassword, "adminPassword: change-me", 1))
+	_ = os.WriteFile(path, body, 0o600)
+	if _, err = EnsureSecrets(path); err != nil {
+		t.Fatal(err)
+	}
+	again, err := LoadSecrets(path)
+	if err != nil || again.KafkaTLSCAFile != "kafka-ca.pem" || again.KafkaSASLPassword != s.KafkaSASLPassword {
+		t.Fatal("broker settings changed while completing secrets", err)
+	}
+	if _, err = Render(example(t), again); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
@@ -172,7 +360,8 @@ func TestSecretsAreValidated(t *testing.T) {
 
 func TestDeployScriptsFollowStageOrder(t *testing.T) {
 	inv := example(t)
-	files, err := Render(inv, testSecrets())
+	secrets, _ := testKafkaSecrets(t)
+	files, err := Render(inv, secrets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,6 +370,14 @@ func TestDeployScriptsFollowStageOrder(t *testing.T) {
 		p := filepath.Join(dir, filepath.FromSlash(name))
 		_ = os.MkdirAll(filepath.Dir(p), 0o700)
 		_ = os.WriteFile(p, body, 0o600)
+	}
+	if _, err := exec.LookPath("docker"); err == nil && exec.Command("docker", "compose", "version").Run() == nil {
+		for _, node := range inv.Nodes {
+			cmd := exec.Command("docker", "compose", "-f", filepath.Join(dir, node.Name, "compose.yaml"), "--env-file", filepath.Join(dir, node.Name, ".env"), "config", "--quiet")
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("secured node %s failed Compose validation: %v", node.Name, err)
+			}
+		}
 	}
 	root, _ := filepath.Abs(filepath.Join("..", ".."))
 	check := func(t *testing.T, out string) {
@@ -198,8 +395,13 @@ func TestDeployScriptsFollowStageOrder(t *testing.T) {
 		if !strings.Contains(out, "http://10.0.0.13:8102/health/ready") {
 			t.Fatal("processor readiness not checked")
 		}
-		if strings.Contains(out, testSecrets().JWTSecret) {
+		if strings.Contains(out, secrets.JWTSecret) || strings.Contains(out, secrets.KafkaSASLPassword) || strings.Contains(out, secrets.KafkaAdminPassword) {
 			t.Fatal("secret printed")
+		}
+		for _, want := range []string{".init-kafka-ca.pem", ":/app/kafka/ca.pem:ro", "--env-file .init.env"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("cluster-init cannot use the rendered CA: missing %s", want)
+			}
 		}
 	}
 	if _, err := exec.LookPath("bash"); err == nil {
@@ -211,6 +413,24 @@ func TestDeployScriptsFollowStageOrder(t *testing.T) {
 		out, err = exec.Command("bash", filepath.Join(root, "scripts", "cluster-deploy.sh"), "--rendered", dir, "--dry-run", "--stage", "workers", "--nodes", "n4").CombinedOutput()
 		if err != nil || strings.Contains(string(out), "10.0.0.11") || !strings.Contains(string(out), "iot-jobs") {
 			t.Fatal("node/stage filter", err, string(out))
+		}
+		// A local initializer runs on the controller, where the container CA
+		// path does not exist. Stub only node IO and inspect the actual child env.
+		fake := t.TempDir()
+		for _, name := range []string{"ssh", "scp"} {
+			if err := os.WriteFile(filepath.Join(fake, name), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		init := filepath.Join(fake, "test-init")
+		if err := os.WriteFile(init, []byte("#!/bin/sh\n[ \"$IOT_KAFKA_TLS_CA_FILE\" = \"$EXPECTED_CA\" ] && [ -r \"$IOT_KAFKA_TLS_CA_FILE\" ] || exit 7\nprintf 'local init CA verified\\n'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", filepath.Join(root, "scripts", "cluster-deploy.sh"), "--rendered", dir, "--stage", "init", "--cluster-init", init, "--init-attempts", "1")
+		cmd.Env = append(os.Environ(), "PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"), "EXPECTED_CA="+filepath.Join(dir, "kafka", "ca.pem"), "IOT_KAFKA_TLS_CA_FILE=/unused/old-ca.pem")
+		out, err = cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "local init CA verified") {
+			t.Fatal("local cluster-init did not receive its readable CA path", err, string(out))
 		}
 	}
 	if pwsh, err := exec.LookPath("pwsh"); err == nil {

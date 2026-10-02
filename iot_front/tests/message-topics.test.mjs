@@ -4,10 +4,11 @@ import vm from 'node:vm'
 import { computed, reactive, ref, watch } from 'vue'
 import { setupScript } from './helpers/vue.mjs'
 import { filterMessageTopics, topicDirectionLabel, topicDirections, topicStatus, topicVariableLabel, validateTopicTarget } from '../src/messageTopics.js'
+import * as topicHelpers from '../src/messageTopics.js'
 
 const prefixes = { mqtt:'/iot/external/74656e616e74/', kafka:'iot.external.74656e616e74.' }
 const topic = { id:'mqtt.parsed', name:'解析数据', protocol:'mqtt', direction:'outbound', topic:'/iot/parsed/{tenantId}/{deviceId}', defaultTopic:'/iot/parsed/{tenantId}/{deviceId}', enabled:true, effectiveEnabled:true, editable:true, variables:['tenantId', 'deviceId'], description:'解析成功后发布', overridden:false }
-const catalog = (revision = 1, items = [topic]) => ({ revision, items, prefixes, runtime:{ mqttEnabled:true, kafkaEnabled:false, kafkaParsedEnabled:false } })
+const catalog = (revision = 1, items = [topic]) => ({ revision, items, prefixes, sources:[topic], accounts:[], users:[{ username:'consumer', displayName:'外部系统', enabled:true }], authorization:{ mqtt:{ ready:false, reason:'MQTT 尚未配置授权' }, kafka:{ ready:false, reason:'Kafka 尚未配置授权' } }, runtime:{ mqttEnabled:true, kafkaEnabled:false, kafkaParsedEnabled:false } })
 
 function page(api, permissions = ['*']) {
   const hooks = {}, alerts = [], requests = []
@@ -16,16 +17,17 @@ function page(api, permissions = ['*']) {
   const can = permission => permissionState.items.includes('*') || permissionState.items.includes(permission)
   const context = vm.createContext({
     computed, reactive, ref, watch, permissionState, session, can, AbortController,
-    filterMessageTopics, topicDirectionLabel, topicDirections, topicStatus, topicVariableLabel, validateTopicTarget,
+    ...topicHelpers,
     api:(path, options) => { requests.push({ path, options }); return api(path, options) },
     UiMessage:{ success:message => alerts.push(message), warning:message => alerts.push(message) },
+    UiMessageBox:{ confirm:async () => {} },
     defineEmits:() => () => {}, onMounted:fn => { hooks.mount = fn }, onBeforeUnmount:fn => { hooks.unmount = fn },
-    window:{ addEventListener:(key, fn) => { hooks[key] = fn }, removeEventListener:key => { delete hooks[key] } },
+    window:{ location:{ origin:'https://test.invalid' }, addEventListener:(key, fn) => { hooks[key] = fn }, removeEventListener:key => { delete hooks[key] } },
     navigator:{ clipboard:{ writeText:async () => {} } }
   })
   const source = setupScript(new URL('../src/views/MessageTopicsView.vue', import.meta.url))
-  const state = vm.runInContext(source + '\n;({ snapshot, loading, saving, error, formError, conflicted, editing, form, filteredItems, filters, emptyText, load, openEditor, save, reset, rowActions, identityChanged })', context)
-  return { ...state, hooks, session, permissionState, requests, alerts }
+  const state = vm.runInContext(source + '\n;({ snapshot, loading, saving, error, notice, formError, conflicted, editing, creating, form, filteredItems, filters, emptyText, load, openEditor, save, reset, removeTopic, rowActions, identityChanged, accountForm, accountEditing, accountOpen, accountSecret, brokerCredential, credentialAccount, secretOpen, credentialOpen, openAccount, saveAccount, setAccountEnabled, removeAccount, rotateAccount, openCredentials, closeCredentials, issueCredentials, credentialReason, accountActions })', context)
+  return { ...state, hooks, session, permissionState, requests, alerts, context }
 }
 
 test('消息主题按协议、用途与主题内容组合筛选，并区分停用和未部署通道', () => {
@@ -72,7 +74,7 @@ test('消息主题刷新忽略旧响应，错误状态不显示成真实空列�
   pending[3].resolve(catalog(3, []))
   await empty
   assert.equal(p.error.value, '')
-  assert.match(p.emptyText.value, /当前环境没有/)
+  assert.match(p.emptyText.value, /暂无消息主题/)
 })
 
 test('主题保存携带打开编辑时的修订，阻止重复提交，使用服务端返回刷新状态', async () => {
@@ -114,13 +116,13 @@ test('主题并发冲突保留编辑内容，必须刷新后重新编辑才能�
   assert.equal(p.snapshot.value.revision, 3)
 })
 
-test('恢复主题默认配置使用 DELETE 和当前修订，保留服务器实际状态', async () => {
+test('恢复主题默认配置使用独立 POST reset 和当前修订，保留服务器实际状态', async () => {
   const custom = { ...topic, id:'mqtt/topic 1', overridden:true, topic:`${prefixes.mqtt}custom`, enabled:false }
   const p = page((path, options) => Promise.resolve(options.method ? catalog(10) : catalog(9, [custom])))
   await p.load()
   await p.reset(p.snapshot.value.items[0])
-  assert.equal(p.requests[1].path, '/api/v1/message-topics/mqtt%2Ftopic%201?revision=9')
-  assert.equal(p.requests[1].options.method, 'DELETE')
+  assert.equal(p.requests[1].path, '/api/v1/message-topics/mqtt%2Ftopic%201/reset?revision=9')
+  assert.equal(p.requests[1].options.method, 'POST')
   assert.equal(p.snapshot.value.items[0].topic, topic.defaultTopic)
   assert.equal(p.snapshot.value.items[0].enabled, true)
 })
@@ -173,4 +175,170 @@ test('权限撤销立即清除主题内容并取消请求', async () => {
   assert.equal(p.snapshot.value, null)
   assert.equal(p.editing.value, null)
   assert.equal(p.loading.value, false)
+})
+
+test('新增主题使用数据源和业务标识，编辑自定义主题保留独立 CRUD 字段', async () => {
+  let revision = 5
+  const custom = { ...topic, id:'topic_new', sourceId:topic.id, name:'外部业务', custom:true, topic:'business_data' }
+  const p = page((path, options) => Promise.resolve(catalog(options.method ? ++revision : revision, options.method ? [topic, custom] : [topic])))
+  await p.load()
+  p.openEditor()
+  Object.assign(p.form, { name:'外部业务', sourceId:topic.id, topic:'not/physical/path' })
+  await p.save()
+  assert.equal(p.requests.length, 1)
+  assert.match(p.formError.value, /主题标识/)
+  p.form.topic = 'business_data'
+  await p.save()
+  assert.equal(p.requests[1].path, '/api/v1/message-topics')
+  assert.equal(p.requests[1].options.method, 'POST')
+  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:5, name:'外部业务', sourceId:topic.id, topic:'business_data', enabled:true, description:'' })
+  p.openEditor(p.snapshot.value.items[1])
+  p.form.name = '外部业务二'
+  await p.save()
+  assert.equal(p.requests[2].path, '/api/v1/message-topics/topic_new')
+  assert.equal(p.requests[2].options.method, 'PUT')
+  assert.equal(JSON.parse(p.requests[2].options.body).sourceId, topic.id)
+  await p.reset(custom)
+  assert.equal(p.requests.length, 3, '新增主题无默认配置可恢复')
+})
+
+test('删除主题与恢复默认分离，系统主题不能删除，确认期间身份变化不能误删', async () => {
+  const p = page((path, options) => Promise.resolve(catalog(options.method ? 2 : 1, options.method ? [] : [topic])))
+  await p.load()
+  await p.removeTopic({ ...topic, editable:false })
+  assert.equal(p.requests.length, 1)
+  await p.removeTopic(topic)
+  assert.equal(p.requests[1].options.method, 'DELETE')
+  assert.equal(p.requests[1].path, '/api/v1/message-topics/mqtt.parsed?revision=1')
+  assert.equal(p.snapshot.value.items.length, 0)
+
+  let approve
+  const q = page(() => Promise.resolve(catalog()))
+  q.context.UiMessageBox.confirm = () => new Promise(resolve => { approve = resolve })
+  await q.load()
+  const deleting = q.removeTopic(topic)
+  q.session.user = 'different-user'
+  approve()
+  await deleting
+  assert.equal(q.requests.length, 1)
+})
+
+const account = { id:'account_1', name:'外部管理系统', username:'consumer', enabled:true, topicIds:[topic.id], deviceScope:'all', deviceIds:[], expiresAt:1900000000, createdAt:1800000000, credentials:[] }
+const withAccount = (revision = 1, value = account, ready = false) => ({ ...catalog(revision), accounts:[value], authorization:{ mqtt:{ ready, reason:ready ? '' : '未配置受控 MQTT 授权' }, kafka:{ ready:false, reason:'未配置 Kafka 授权' } } })
+
+test('对接账号创建按 Unix 秒提交范围与期限，一次性密钥不进入目录且关闭立即清除', async () => {
+  const p = page((path, options) => Promise.resolve(options.method ? { ...withAccount(2), accountSecret:{ id:account.id, secret:'one-time-test-secret' } } : catalog()))
+  await p.load()
+  p.openAccount()
+  Object.assign(p.accountForm, { name:'外部管理系统', username:'consumer', topicIds:[topic.id], deviceScope:'selected', deviceIds:['device-a'], expiresAt:1900000000000 })
+  await p.saveAccount()
+  assert.equal(p.requests[1].path, '/api/v1/message-topic-accounts')
+  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:1, name:'外部管理系统', username:'consumer', enabled:true, topicIds:[topic.id], deviceScope:'selected', deviceIds:['device-a'], expiresAt:1900000000 })
+  assert.equal(p.accountSecret.value.secret, 'one-time-test-secret')
+  assert.equal(p.snapshot.value.accountSecret, undefined)
+  assert.equal(JSON.stringify(p.snapshot.value).includes('one-time-test-secret'), false)
+  p.secretOpen.value = false
+  assert.equal(p.accountSecret.value, null)
+  p.openAccount(account)
+  assert.equal(p.accountForm.expiresAt, 1900000000000)
+})
+
+test('账号停用和密钥轮换使用各自精确路由，返回的撤销重试提示保留', async () => {
+  const p = page((path, options) => Promise.resolve(options.method ? { ...withAccount(2, { ...account, enabled:false }), warning:'旧凭据撤销仍在重试', ...(path.includes('/rotate') ? { accountSecret:{ id:account.id, secret:'rotated-test-secret' } } : {}) } : withAccount()))
+  await p.load()
+  await p.setAccountEnabled(account)
+  assert.equal(p.requests[1].options.method, 'PUT')
+  assert.equal(JSON.parse(p.requests[1].options.body).enabled, false)
+  assert.equal(JSON.parse(p.requests[1].options.body).expiresAt, account.expiresAt)
+  assert.equal(p.notice.value, '旧凭据撤销仍在重试')
+  await p.rotateAccount(account)
+  assert.equal(p.requests[2].path, '/api/v1/message-topic-accounts/account_1/rotate?revision=2')
+  assert.equal(p.accountSecret.value.secret, 'rotated-test-secret')
+  p.permissionState.items = []
+  assert.equal(p.accountSecret.value, null)
+})
+
+test('Broker 授权未就绪或账号已过期时不能签发临时凭据', async () => {
+  const p = page(() => Promise.resolve(withAccount()))
+  await p.load()
+  p.openCredentials(account)
+  assert.equal(p.credentialReason(account, 'mqtt'), '未配置受控 MQTT 授权')
+  await p.issueCredentials('mqtt')
+  assert.equal(p.requests.length, 1)
+  p.snapshot.value.authorization.mqtt.ready = true
+  p.credentialAccount.value = { ...account, expiresAt:1 }
+  await p.issueCredentials('mqtt')
+  assert.equal(p.requests.length, 1)
+})
+
+test('临时凭据使用真实返回地址和秒级期限，关闭后密码不可恢复，迟到响应不能跨身份', async () => {
+  const issued = { revision:2, protocol:'mqtt', username:'broker-user', password:'temporary-test-password', topics:['/tenant/credential/scoped'], expiresAt:1900000000 }
+  let issuedAlready = false
+  const p = page((path, options) => { if (options.method) { issuedAlready = true; return Promise.resolve(issued) }; return Promise.resolve(withAccount(issuedAlready ? 2 : 1, account, true)) })
+  await p.load()
+  p.openCredentials(account)
+  await p.issueCredentials('mqtt')
+  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:1, protocol:'mqtt' })
+  assert.equal(p.brokerCredential.value.password, issued.password)
+  assert.equal(p.brokerCredential.value.topics[0], '/tenant/credential/scoped')
+  assert.equal(JSON.stringify(p.snapshot.value).includes(issued.password), false)
+  p.credentialOpen.value = false
+  assert.equal(p.brokerCredential.value, null)
+
+  let resolve
+  const q = page((path, options) => options.method ? new Promise(done => { resolve = done }) : Promise.resolve(withAccount(1, account, true)))
+  await q.load()
+  q.openCredentials(account)
+  const issuing = q.issueCredentials('mqtt')
+  q.permissionState.items = []
+  resolve(issued)
+  await issuing
+  assert.equal(q.brokerCredential.value, null)
+  assert.equal(q.credentialAccount.value, null)
+  assert.equal(q.alerts.length, 0)
+})
+
+test('账号和凭据显示将 Unix 秒转换为时间，已撤销中凭据不会误显为有效', () => {
+  assert.equal(topicHelpers.topicAccountStatus({ enabled:true, expiresAt:100 }, 100001).label, '已过期')
+  assert.equal(topicHelpers.topicAccountStatus({ enabled:true, expiresAt:101 }, 100001).label, '已启用')
+  assert.equal(topicHelpers.credentialStatus({ status:'revoking', expiresAt:9999999999 }), '撤销处理中')
+  assert.equal(topicHelpers.formatTopicTime(1900000000), new Date(1900000000000).toLocaleString('zh-CN', { hour12:false }))
+  const body = topicHelpers.topicAccountPayload({ name:'name', username:'user', deviceScope:'all', deviceIds:['should-drop'], topicIds:['a','a'], enabled:true, expiresAt:null }, 7)
+  assert.deepEqual(body.deviceIds, [])
+  assert.deepEqual(body.topicIds, ['a'])
+  assert.equal(body.expiresAt, 0)
+})
+
+test('签发后读取到较新授权配置时清除刚生成的凭据，要求重新获取', async () => {
+  let issued = false
+  const p = page((path, options) => {
+    if (options.method) { issued = true; return Promise.resolve({ revision:2, protocol:'mqtt', username:'user', password:'obsolete-secret', topics:['/private/topic'], expiresAt:1900000000 }) }
+    return Promise.resolve(withAccount(issued ? 3 : 1, account, true))
+  })
+  await p.load(); p.openCredentials(account); await p.issueCredentials('mqtt')
+  assert.equal(p.brokerCredential.value, null)
+  assert.match(p.formError.value, /重新获取/)
+  assert.equal(p.alerts.length, 0)
+})
+
+test('设备选择使用有界服务端搜索，旧查询与卸载后的结果不会覆盖当前设备', async () => {
+  const hooks = {}, pending = [], emitted = []
+  const props = reactive({ modelValue:['selected-device'], disabled:false })
+  const context = vm.createContext({ computed, ref, watch, AbortController, encodeURIComponent, setTimeout, clearTimeout,
+    session:{ token:'session', tenant:'tenant', user:'admin' }, permissionState:reactive({ accessVersion:'v1' }),
+    defineProps:() => props, defineEmits:() => (event, value) => emitted.push({event,value}),
+    onMounted:fn => { hooks.mount = fn }, onBeforeUnmount:fn => { hooks.unmount = fn },
+    api:(path, options) => new Promise(resolve => pending.push({path,options,resolve}))
+  })
+  const p = vm.runInContext(setupScript(new URL('../src/components/MessageTopicDevicePicker.vue', import.meta.url))+'\n;({load,query,rows,toggle})', context)
+  const first = p.load(); p.query.value = 'device-101'; const second = p.load()
+  assert.equal(pending[0].options.signal.aborted, true)
+  assert.match(pending[1].path, /pageSize=50&q=device-101/)
+  pending[1].resolve({items:[{device:{id:'device-101',name:'最新搜索'}}],total:1}); await second
+  pending[0].resolve({items:[{device:{id:'old'}}],total:10000}); await first
+  assert.equal(p.rows.value[0].id, 'device-101')
+  p.toggle('device-101', true)
+  assert.deepEqual(Array.from(emitted[0].value), ['selected-device','device-101'])
+  const late = p.load(); hooks.unmount(); pending[2].resolve({items:[{device:{id:'after-unmount'}}],total:1}); await late
+  assert.equal(p.rows.value.length, 0)
 })

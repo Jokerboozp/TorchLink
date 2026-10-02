@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 
@@ -129,6 +130,46 @@ func MessageTopics(t *testing.T, store ports.MessageTopicStore) {
 			if winner == "" || got.Revision != revision+1 || got.Overrides["kafka.parsed"].Topic != winner {
 				t.Fatalf("winning configuration was not retained: %+v, winner=%s", got, winner)
 			}
+		}
+	})
+	t.Run("managed topics accounts and durable revocations", func(t *testing.T) {
+		config := model.MessageTopicConfig{
+			Topics:      []model.MessageTopicRoute{{ID: "managed", Name: "对接消息", SourceID: "mqtt.parsed", Topic: "parsed", Enabled: true}},
+			Deleted:     []string{"kafka.property-report"},
+			Accounts:    []model.MessageTopicAccount{{ID: "partner", Name: "外部账号", Username: "reader", Enabled: true, TopicIDs: []string{"managed"}, DeviceScope: "selected", DeviceIDs: []string{"device"}, SecretHash: "stored-hash", CreatedAt: 100}},
+			Credentials: []model.MessageTopicCredential{{ID: "old-credential", AccountID: "partner", Protocol: "mqtt", Username: "mqtt-user", Topics: []string{"/isolated/destination"}, AccessVersion: "version", Status: "revoking", ExpiresAt: 200}},
+		}
+		save(t, "managed-persistent", config, true)
+		expected := load(t, "managed-persistent")
+		if expected.Revision != 1 || !reflect.DeepEqual(expected.Topics, config.Topics) || !reflect.DeepEqual(expected.Accounts, config.Accounts) || !reflect.DeepEqual(expected.Credentials, config.Credentials) || !reflect.DeepEqual(expected.Deleted, config.Deleted) {
+			t.Fatal("managed configuration was not retained")
+		}
+		config.Topics[0].Name = "input mutation"
+		config.Deleted[0] = "input mutation"
+		config.Accounts[0].TopicIDs[0] = "input mutation"
+		config.Accounts[0].DeviceIDs[0] = "input mutation"
+		config.Credentials[0].Topics[0] = "input mutation"
+		loaded := load(t, "managed-persistent")
+		if !reflect.DeepEqual(loaded, expected) {
+			t.Fatal("managed input mutation reached repository")
+		}
+		loaded.Accounts[0].TopicIDs[0] = "output mutation"
+		loaded.Accounts[0].DeviceIDs[0] = "output mutation"
+		loaded.Credentials[0].Topics[0] = "output mutation"
+		if !reflect.DeepEqual(load(t, "managed-persistent"), expected) {
+			t.Fatal("managed output mutation reached repository")
+		}
+		// Pending revocations must remain discoverable after account deletion.
+		expected.Accounts = nil
+		expected.Topics = nil
+		save(t, "managed-persistent", expected, true)
+		pending := load(t, "managed-persistent")
+		if len(pending.Accounts) != 0 || len(pending.Credentials) != 1 || pending.Credentials[0].Status != "revoking" {
+			t.Fatal("pending broker revocation was lost")
+		}
+		tenants, err := store.ListMessageTopicTenants(ctx)
+		if err != nil || !slices.Contains(tenants, "managed-persistent") || slices.Contains(tenants, "missing") || !slices.IsSorted(tenants) {
+			t.Fatalf("revocation tenants not discoverable: %v %v", tenants, err)
 		}
 	})
 }

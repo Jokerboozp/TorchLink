@@ -498,29 +498,60 @@ API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 
 ## 消息主题管理
 
-管理端“设备与接入 → 消息主题”集中列出 MQTT / Kafka 的对外发布、设备接入及内部消息主题，可按协议、用途和关键词筛选、复制主题模板。目录来自平台的实际消息契约，不是 Broker 上所有物理 Topic 的扫描结果。
+管理端“设备与接入 → 消息主题”管理 MQTT / Kafka 对外主题及外部对接账号。主题目录来自平台实际消息契约；不是 Broker 物理主题扫描器。
 
-对外发布支持按当前租户编辑目标主题、发布开关和说明，也可恢复默认配置。可配置项包括 Kafka 的属性、事件、其他解析结果、告警触发/恢复/确认/研判、视频告警和规则界面通知，以及 MQTT 的解析结果、告警触发/恢复/确认/研判和规则界面通知。只有成功解析的数据会进入解析结果主题；关闭这些发布不影响原文归档、标准消息存储和内部业务处理。
+可以从解析结果、属性/事件、告警触发/恢复/确认/研判、视频告警、规则通知等现有数据源新增主题，填写名称和标识，再授权给对接账号。新增主题按账号独立分发，生成订阅凭据后提供真实地址。同一协议的标识不可重复，允许 1–48 个字母、数字、下划线或短横线。只有成功解析的数据会进入解析结果主题。
 
-原始队列、设备业务队列、状态处理、设备告警通知队列和死信主题，以及 MQTT 的设备上下行、状态快照、命令和归档回执保持只读。它们承担内部消费或设备协议契约，页面显示具体原因。
+内置对外主题支持配置发布目标、启停、恢复默认和删除。**删除会移除主题并停止这条发布规则，不会恢复默认**；新增主题直接移除，内置主题保存删除标记。删除数据源的内置发布项不影响由该数据源另建的主题。原始队列、设备业务队列、状态处理、设备告警通知、死信、设备上下行、命令及归档回执保持只读，保护平台内部处理和设备协议。删除规则不会清空 Broker 历史记录或删除物理 Topic。
+
+### 外部对接账号与订阅
+
+1. 建立平台用户，授予业务菜单及设备范围；在主题页新增对接账号，绑定该用户。
+2. 勾选可订阅主题。账号可继承绑定用户当前可见设备，也可指定更小的设备集合；服务端始终取两者交集。解析数据需要设备管理菜单，告警/规则通知还需告警中心菜单。视频告警需要摄像头菜单，且用户和账号都必须具有全部设备范围；带知识证据的研判结果还需知识库菜单。
+3. 保存后只返回一次账号密钥。账号密钥仅供对方服务端调用换取凭据接口，不是 MQTT / Kafka 密码。列表、审计和数据库都不保存密钥明文。可停用、设置到期时间、轮换密钥或删除账号。
+4. 授权检查就绪后生成 MQTT / Kafka 订阅凭据。MQTT 使用订阅专用 JWT，允许精确主题并明确拒绝其他订阅和所有发布；不能登录管理端。Kafka 使用 SCRAM-SHA-256，授权精确 Topic 的 READ / DESCRIBE 和该账号独立消费组的 READ，不授予发布权限。
+
+每份凭据对应租户和账号独立的物理地址，形如 `/iot/external/<租户十六进制>/managed/<凭据ID>/<主题摘要>` 或 `iot.external.<租户十六进制>.managed.<凭据ID>.<主题摘要>`。账号不会获得多租户共享的默认 Kafka 主题或历史 MQTT 告警路径。发布前实时读取账号和绑定用户当前权限，只向获授权设备的订阅通道发送；主、子设备分别判断。
+
+外部服务通过以下接口获取或续期订阅凭据，正文为 JSON：
+
+```http
+POST /api/open/v1/message-topics/credentials
+Content-Type: application/json
+
+{"tenantId":"当前租户","accountId":"对接账号ID","secret":"账号密钥","protocol":"mqtt"}
+```
+
+响应包含 `protocol`、`broker`、`username`、`password`、`topics`、`groupId`、`mechanism`、`securityProtocol`、`tls`、`expiresAt`。时间均为 Unix 秒；Kafka 使用返回的精确消费组。临时凭据最长一小时，不晚于账号到期时间；在到期前 10 分钟内调用会续期，保留用户名、主题和 Kafka 消费位点。权限变更或过期后重新签发会使用新的独立主题，历史不会迁移。MQTT 客户端应使用更新后的 JWT 重新连接。
+
+修改主题或账号策略会撤销当前租户已签发的凭据，需要对接方重新获取。绑定用户的停用、删除、角色或设备范围变更也使旧快照停止接收新数据。Broker 撤销先持久标记、再执行，失败显示“撤销中”并由 `jobs` 进程每 30 秒重试；重启不会丢失撤销任务。MQTT 还依靠 JWT 到期断开；Kafka 没有原生凭据到期，依靠平台撤销 SCRAM 及 ACL，因此需持续运行 `jobs` 和管理 API。平台或 Broker 管理 API 故障期间不能保证历史读取权限已撤销，应以实际撤销状态为准。已发送及在途消息不会撤回。
+
+### 接口与权限
 
 | 接口 | 行为 |
 | --- | --- |
-| `GET /api/v1/message-topics` | 返回当前租户配置版本、完整目录、配置开关、当前 API 进程的通道配置状态及自定义前缀 |
-| `PUT /api/v1/message-topics/{id}` | 保存 `{revision,enabled,topic,description}`；主题 ID 来自目录，过期版本返回 409 |
-| `DELETE /api/v1/message-topics/{id}?revision={revision}` | 删除该项覆盖配置，恢复默认主题与启用状态；不删除 Broker 上的物理主题或消息 |
+| `GET /api/v1/message-topics` | 当前租户主题、数据源、账号、配置版本、通道开关与实际授权就绪状态 |
+| `POST /api/v1/message-topics` | 新增 `{revision,name,sourceId,topic,enabled,description}` |
+| `PUT /api/v1/message-topics/{id}` | 编辑新增主题；内置主题保存 `{revision,enabled,topic,description}` |
+| `DELETE /api/v1/message-topics/{id}?revision=N` | 真正删除发布规则，并移除账号对它的授权 |
+| `POST /api/v1/message-topics/{id}/reset?revision=N` | 已存在内置主题的覆盖配置恢复默认 |
+| `POST /api/v1/message-topic-accounts` | 新增账号，返回一次性 `accountSecret` |
+| `PUT /api/v1/message-topic-accounts/{id}` | 编辑绑定用户、主题授权、设备范围、启停及到期时间 |
+| `DELETE /api/v1/message-topic-accounts/{id}?revision=N` | 删除账号并撤销旧凭据 |
+| `POST /api/v1/message-topic-accounts/{id}/rotate?revision=N` | 轮换账号密钥，旧密钥立即失效 |
+| `POST /api/v1/message-topic-accounts/{id}/credentials` | 管理员以 `{revision,protocol}` 获取订阅凭据 |
 
-查看需要 `menu:messageTopics`；保存和恢复默认分别需要对应操作权限。普通用户执行变更还须拥有设备管理菜单及当前租户全部设备范围，因为配置影响整个租户。所有请求使用登录租户，不接受客户端指定其他租户；变更写入审计。
+账号新增/编辑正文为 `{revision,name,username,enabled,topicIds,deviceScope,deviceIds,expiresAt}`，`deviceScope` 为 `all`（绑定用户范围）或 `selected`，全部范围时 `deviceIds` 必须为空。查看需要 `menu:messageTopics`；每种写入均有独立操作权限，并要求设备管理菜单和当前租户全部设备范围。管理请求固定使用登录租户，不能用正文切换租户。换取凭据接口按租户、账号及密钥三者验证。
 
-自定义目标使用接口返回的专属前缀：MQTT 为 `/iot/external/<租户 UTF-8 字节的十六进制>/`，Kafka 为 `iot.external.<同一编码>.`。例如租户 `t1` 的 MQTT 解析模板可设为 `/iot/external/7431/{productId}/{deviceId}/{messageType}`，Kafka 属性主题可设为 `iot.external.7431.properties`。MQTT 只支持该目录项列出的变量，不接受 `+` / `#` 通配符；Kafka 目标为固定主题名。原始默认模板可以直接保存或通过恢复默认重新启用。消息正文、Kafka 分区键和 MQTT QoS / retained 参数不因目标变更而改变。
+配置与撤销记录保存在 PostgreSQL `message_topic_configs` 的租户 JSON 配置中，使用 `revision` 乐观锁，冲突返回 409。默认路由配置最多缓存 2 秒，本进程保存后失效；账号订阅分发实时读取持久策略。读取失败不会使用宽松默认策略。账号密钥只保存摘要；Kafka 密码由服务端密钥和凭据 ID 派生，不写入列表、审计或数据库明文。
 
-配置保存在 PostgreSQL 的 `message_topic_configs`，以租户为键并使用 `revision` 乐观锁。发布进程使用最多 2 秒的配置缓存，当前服务保存后立即使缓存失效；已开始处理的发布可能仍使用此前取得的配置。停用只阻止随后按停用配置执行的发布，不撤回已发送或 Broker 中保留的消息。配置读取失败时返回发布错误，不退回默认路由继续发送。外发仍沿用原链路的投递与重试方式，切换目标不自动迁移历史消息。
+内置主题自定义目标仍使用接口返回的租户前缀，MQTT 可使用该项支持的变量，不接受通配符；Kafka 是固定主题名。`IOT_PUBLISH_EXTERNAL_TOPICS=false` 仍会关闭 Kafka 三类解析数据源，页面不能覆盖。关闭自动创建时，内置自定义目标需由运维预建；受管账号的 Kafka Topic 在授权时创建。原文归档、标准消息存储、内部业务处理不受这些外发开关影响。
 
-`IOT_PUBLISH_EXTERNAL_TOPICS=false` 仍是 Kafka 三类解析主题的部署总开关，页面不能覆盖它。页面中的通道状态来自当前 API 进程配置，不等于 Broker 可达性或外部消费者已收件；拆分进程部署需要保持相关发布进程的配置一致。关闭 Kafka 自动创建时，运维人员须在 Broker 预先创建自定义目标，沿用部署要求的分区、副本和 ACL。
+### Broker 就绪条件
 
-主题配置不签发外部订阅账号，也不修改 MQTT / Kafka 的认证、ACL 或订阅者。默认 Kafka 外发主题仍由多租户共享，默认 MQTT 告警仍沿用历史地理/设备路径；仅保存配置不能视为已完成消费权限隔离。外部系统应订阅已配置的租户专属目标，并由 Broker 为其授予精确主题权限。平台浏览器的既有订阅不会自动迁移至自定义目标；依赖对应 MQTT 消息的订阅方应同步调整。平台用户范围与 HTTP 事件机制见 [权限与设备范围](PLATFORM.md#权限与设备范围)。
+页面分别展示配置启用与实际授权就绪。MQTT 须配置对外地址 `IOT_DEVICE_MQTT_PUBLIC_URL`，并具有有效 EMQX 管理凭据、唯一有效 JWT 认证链、用户名绑定、JWT ACL、到期断开、监听器认证和默认拒绝规则。Kafka 须显式配置对外地址 `IOT_KAFKA_PUBLIC_BROKERS`，并实际启用认证及 ACL，并配置可管理 SCRAM / ACL 的 Redpanda 管理账号；服务端检查实际配置、匿名访问拒绝和无全用户通配授权后才发凭据。配置不满足时可管理主题与账号，但生成凭据返回 503，不能把保存授权当作 Broker 已生效。Kafka 启用步骤见 [部署文档](DEPLOYMENT.md#kafka-对接账号认证与授权)。
 
-实现入口：`internal/messagetopics/`、`internal/httpapi/message_topics.go` 和 `iot_front/src/views/MessageTopicsView.vue`。
+实现入口：`internal/messagetopics/`、`internal/httpapi/message_topics.go`、`internal/httpapi/message_topic_accounts.go`、`internal/adapters/kafka/consumer_admin.go` 和 `iot_front/src/views/MessageTopicsView.vue`。
 
 ## 外部数据接口管理
 

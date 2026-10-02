@@ -113,7 +113,7 @@ func capacityQueueScope(tenant string, q model.CapacityCleanupBatch) (string, fu
 }
 
 func (b *Bus) PreviewCapacityQueue(ctx context.Context, tenant string, q model.CapacityCleanupBatch) (ports.CapacityQueuePlan, error) {
-	return previewCapacityQueue(ctx, newCapacityQueueBackend(b.brokers), tenant, q)
+	return previewCapacityQueue(ctx, newCapacityQueueBackend(b.brokers, b.transport), tenant, q)
 }
 
 func previewCapacityQueue(ctx context.Context, backend capacityQueueBackend, tenant string, q model.CapacityCleanupBatch) (ports.CapacityQueuePlan, error) {
@@ -214,7 +214,7 @@ func previewCapacityQueue(ctx context.Context, backend capacityQueueBackend, ten
 }
 
 func (b *Bus) CleanupCapacityQueue(ctx context.Context, tenant string, q model.CapacityCleanupBatch, plan ports.CapacityQueuePlan) (ports.RuntimeCleanupCounts, error) {
-	return cleanupCapacityQueue(ctx, newCapacityQueueBackend(b.brokers), tenant, q, plan)
+	return cleanupCapacityQueue(ctx, newCapacityQueueBackend(b.brokers, b.transport), tenant, q, plan)
 }
 
 func cleanupCapacityQueue(ctx context.Context, backend capacityQueueBackend, tenant string, q model.CapacityCleanupBatch, plan ports.CapacityQueuePlan) (ports.RuntimeCleanupCounts, error) {

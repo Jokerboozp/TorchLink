@@ -3,9 +3,21 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"sort"
 
 	"iot-platform/internal/model"
 )
+
+func (r *Repository) ListMessageTopicTenants(_ context.Context) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tenants := make([]string, 0, len(r.messageTopicConfigs))
+	for tenant := range r.messageTopicConfigs {
+		tenants = append(tenants, tenant)
+	}
+	sort.Strings(tenants)
+	return tenants, nil
+}
 
 func (r *Repository) LoadMessageTopicConfig(_ context.Context, tenant string) (model.MessageTopicConfig, error) {
 	r.mu.RLock()

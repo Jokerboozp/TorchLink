@@ -21,7 +21,12 @@ func TestMessageTopicsReopen(t *testing.T) {
 	config := model.MessageTopicConfig{Overrides: map[string]model.MessageTopicOverride{
 		"mqtt.parsed":  {Enabled: true, Topic: "/iot/custom/{tenant}", Description: "自定义解析主题"},
 		"kafka.parsed": {Enabled: false, Topic: "iot.custom"},
-	}}
+	},
+		Topics:      []model.MessageTopicRoute{{ID: "persisted", Name: "持久主题", SourceID: "mqtt.parsed", Topic: "parsed", Enabled: true}},
+		Accounts:    []model.MessageTopicAccount{{ID: "account", Username: "reader", TopicIDs: []string{"persisted"}, DeviceScope: "selected", DeviceIDs: []string{"device"}, SecretHash: "hash"}},
+		Credentials: []model.MessageTopicCredential{{ID: "credential", AccountID: "account", Protocol: "mqtt", Username: "broker-user", Topics: []string{"/exact/topic"}, Status: "revoking", ExpiresAt: 9999}},
+		Deleted:     []string{"kafka.property-report"},
+	}
 	if ok, err := repo.SaveMessageTopicConfig(ctx, "persistent", config); err != nil || !ok {
 		t.Fatalf("save configuration: %t, %v", ok, err)
 	}
@@ -37,7 +42,9 @@ func TestMessageTopicsReopen(t *testing.T) {
 		t.Fatal("migration not idempotent", err)
 	}
 	got, err := reopened.LoadMessageTopicConfig(ctx, "persistent")
-	if err != nil || got.Revision != 1 || !reflect.DeepEqual(got.Overrides, config.Overrides) {
+	expected := config
+	expected.Revision = 1
+	if err != nil || !reflect.DeepEqual(got, expected) {
 		t.Fatalf("configuration lost after reconnect: %+v, %v", got, err)
 	}
 	got.Overrides["kafka.parsed"] = model.MessageTopicOverride{Enabled: true, Topic: "iot.custom.next"}

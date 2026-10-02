@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +99,72 @@ func TestAdminSessionQueueReadsBrokerDrops(t *testing.T) {
 	queued, dropped, err := (&Admin{URL: s.URL, Key: "api", Secret: "secret"}).SessionQueue(context.Background(), "iot-inbox-1")
 	if err != nil || queued != 1000 || dropped != 4639 {
 		t.Fatal(queued, dropped, err)
+	}
+}
+
+func TestAdminTopicAuthorizationChecksRuntimeContract(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(map[string]any)
+		want   bool
+	}{
+		{"secure JWT and default file fallback", func(map[string]any) {}, true},
+		{"disabled JWT", func(v map[string]any) { v["/authentication"].([]any)[0].(map[string]any)["enable"] = false }, false},
+		{"additional authenticator", func(v map[string]any) {
+			v["/authentication"] = append(v["/authentication"].([]any), map[string]any{"enable": true, "mechanism": "password_based"})
+		}, false},
+		{"wrong JWT claim", func(v map[string]any) { v["/authentication"].([]any)[0].(map[string]any)["acl_claim_name"] = "other" }, false},
+		{"username not verified", func(v map[string]any) { v["/authentication"].([]any)[0].(map[string]any)["verify_claims"] = []any{} }, false},
+		{"expiry remains connected", func(v map[string]any) {
+			v["/authentication"].([]any)[0].(map[string]any)["disconnect_after_expire"] = false
+		}, false},
+		{"allow by default", func(v map[string]any) { v["/authorization/settings"].(map[string]any)["no_match"] = "allow" }, false},
+		{"unknown authorizer", func(v map[string]any) {
+			v["/authorization/sources"].(map[string]any)["sources"] = []any{map[string]any{"type": "http", "enable": true}}
+		}, false},
+		{"missing source configuration", func(v map[string]any) {
+			v["/authorization/sources"] = map[string]any{}
+		}, false},
+		{"disabled authorizer", func(v map[string]any) {
+			v["/authorization/sources"].(map[string]any)["sources"] = []any{map[string]any{"type": "http", "enable": false}}
+		}, true},
+		{"anonymous listener", func(v map[string]any) { v["/listeners/tcp:default"].(map[string]any)["enable_authn"] = false }, false},
+		{"anonymous quick denial", func(v map[string]any) {
+			v["/listeners/tcp:default"].(map[string]any)["enable_authn"] = "quick_deny_anonymous"
+		}, true},
+		{"listener chain override", func(v map[string]any) {
+			v["/listeners/tcp:default"].(map[string]any)["authentication"] = []any{map[string]any{"enable": true, "mechanism": "password_based"}}
+		}, false},
+		{"no listener", func(v map[string]any) { v["/listeners"] = []any{} }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			responses := map[string]any{
+				"/authentication":         []any{map[string]any{"enable": true, "mechanism": "jwt", "from": "password", "algorithm": "hmac-based", "use_jwks": false, "acl_claim_name": "acl", "disconnect_after_expire": true, "verify_claims": []any{map[string]any{"name": "username", "value": "${username}"}}, "secret": "must-not-appear"}},
+				"/authorization/settings": map[string]any{"no_match": "deny"},
+				"/authorization/sources":  map[string]any{"sources": []any{map[string]any{"type": "file", "enable": true, "rules": "{allow, {ipaddr, \"127.0.0.1\"}, all, [\"$SYS/#\", \"#\"]}.\n{deny,all}."}}},
+				"/listeners":              []any{map[string]any{"id": "tcp:default", "enable": true}},
+				"/listeners/tcp:default":  map[string]any{"enable_authn": true},
+			}
+			tc.change(responses)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" {
+					t.Fatal("readiness performed mutation")
+				}
+				v, ok := responses[strings.TrimPrefix(r.URL.Path, "/api/v5")]
+				if !ok {
+					http.NotFound(w, r)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(v)
+			}))
+			defer server.Close()
+			err := (&Admin{URL: server.URL, Key: "key", Secret: "secret"}).CheckTopicAuthorization(context.Background())
+			if (err == nil) != tc.want {
+				t.Fatalf("ready=%v want=%v err=%v", err == nil, tc.want, err)
+			}
+			if err != nil && strings.Contains(err.Error(), "must-not-appear") {
+				t.Fatal("broker signing secret leaked")
+			}
+		})
 	}
 }

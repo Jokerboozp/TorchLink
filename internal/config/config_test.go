@@ -8,6 +8,43 @@ import (
 	"time"
 )
 
+func TestKafkaSecurityConfiguration(t *testing.T) {
+	t.Setenv("IOT_KAFKA_PUBLIC_BROKERS", "kafka.example:9093, [2001:db8::1]:9093")
+	t.Setenv("IOT_KAFKA_SASL_USERNAME", "service")
+	t.Setenv("IOT_KAFKA_SASL_PASSWORD", "private-password")
+	t.Setenv("IOT_KAFKA_SASL_MECHANISM", "scram-sha-512")
+	t.Setenv("IOT_KAFKA_TLS", "true")
+	t.Setenv("IOT_KAFKA_TLS_CA_FILE", "/certs/ca.pem")
+	t.Setenv("IOT_KAFKA_ADMIN_URL", "https://redpanda:9644/")
+	t.Setenv("IOT_KAFKA_ADMIN_USERNAME", "manager")
+	t.Setenv("IOT_KAFKA_ADMIN_PASSWORD", "private-admin-password")
+	cfg := Load()
+	if err := cfg.validateKafkaSecurity(); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.KafkaPublicBrokers) != 2 || cfg.KafkaPublicBrokers[1] != "[2001:db8::1]:9093" || cfg.KafkaSASLUsername != "service" || cfg.KafkaSASLMechanism != "SCRAM-SHA-512" || !cfg.KafkaTLS || cfg.KafkaTLSCAFile != "/certs/ca.pem" || cfg.KafkaAdminURL != "https://redpanda:9644" || cfg.KafkaAdminUsername != "manager" {
+		t.Fatal("Kafka security configuration was not loaded")
+	}
+	t.Setenv("IOT_KAFKA_TLS", "tru")
+	if Load().Validate() == nil {
+		t.Fatal("invalid TLS boolean silently disabled transport security")
+	}
+}
+
+func TestKafkaSecurityConfigurationRejectsPartialCredentials(t *testing.T) {
+	for _, cfg := range []Config{
+		{KafkaPublicBrokers: []string{"https://broker:9093"}}, {KafkaPublicBrokers: []string{"broker:0"}}, {KafkaPublicBrokers: []string{"private-password@broker:9093"}},
+		{KafkaSASLUsername: "user"}, {KafkaSASLPassword: "private-password"}, {KafkaSASLMechanism: "PLAIN"},
+		{KafkaTLSCAFile: "/certs/ca.pem"}, {KafkaAdminURL: "http://redpanda:9644"},
+		{KafkaAdminURL: "http://user:private-password@redpanda:9644", KafkaAdminUsername: "admin", KafkaAdminPassword: "private-admin-password"},
+	} {
+		err := cfg.validateKafkaSecurity()
+		if err == nil || strings.Contains(err.Error(), "private-password") || strings.Contains(err.Error(), "private-admin-password") {
+			t.Fatal("invalid configuration accepted or secret exposed")
+		}
+	}
+}
+
 func TestLocalCapacityConfigurationAndExplicitDisable(t *testing.T) {
 	t.Setenv("IOT_OPS_CAPACITY_LOCAL", "true")
 	t.Setenv("IOT_CAPACITY_MODULE", "on")

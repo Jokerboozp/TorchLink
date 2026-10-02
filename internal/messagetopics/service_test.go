@@ -171,12 +171,14 @@ func TestEveryEditableTopicRoutesAndCanBeDisabled(t *testing.T) {
 func TestValidationRejectsCrossTenantReservedAndInvalidDestinations(t *testing.T) {
 	cases := []struct{ id, destination string }{
 		{"kafka.property-report", KafkaPrefix("other") + "data"},
+		{"kafka.property-report", KafkaPrefix("t") + "managed.credential.route"},
 		{"kafka.property-report", model.TopicRaw},
 		{"kafka.property-report", KafkaPrefix("t") + "data/{deviceId}"},
 		{"kafka.property-report", KafkaPrefix("t") + "data space"},
 		{"kafka.property-report", KafkaPrefix("t")},
 		{"kafka.property-report", KafkaPrefix("t") + strings.Repeat("x", 250)},
 		{"mqtt.parsed", MQTTPrefix("other") + "data"},
+		{"mqtt.parsed", MQTTPrefix("t") + "managed/credential/route"},
 		{"mqtt.parsed", "/iot/up/t/p/d/property"},
 		{"mqtt.parsed", MQTTPrefix("t") + "data/+"},
 		{"mqtt.parsed", MQTTPrefix("t") + "data/#"},

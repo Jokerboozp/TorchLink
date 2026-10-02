@@ -7,6 +7,7 @@ import (
 )
 
 type MessageTopicStore interface {
+	ListMessageTopicTenants(context.Context) ([]string, error)
 	LoadMessageTopicConfig(context.Context, string) (model.MessageTopicConfig, error)
 	// SaveMessageTopicConfig replaces a tenant's configuration only when Revision
 	// matches the stored revision. A new configuration starts at revision zero.

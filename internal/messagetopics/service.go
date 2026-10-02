@@ -41,6 +41,7 @@ type Service struct {
 	cache      map[string]cacheEntry
 	generation uint64
 	now        func() time.Time
+	resolver   func(context.Context, string, string) (MessageTopicIdentity, error)
 }
 
 func New(repo ports.Repository) *Service {
@@ -96,9 +97,21 @@ func validTenant(tenant string) error {
 }
 
 func cloneConfig(cfg model.MessageTopicConfig) model.MessageTopicConfig {
-	out := model.MessageTopicConfig{Revision: cfg.Revision, Overrides: make(map[string]model.MessageTopicOverride, len(cfg.Overrides))}
+	out := cfg
+	out.Overrides = make(map[string]model.MessageTopicOverride, len(cfg.Overrides))
 	for id, override := range cfg.Overrides {
 		out.Overrides[id] = override
+	}
+	out.Topics = slices.Clone(cfg.Topics)
+	out.Deleted = slices.Clone(cfg.Deleted)
+	out.Accounts = slices.Clone(cfg.Accounts)
+	for i := range out.Accounts {
+		out.Accounts[i].TopicIDs = slices.Clone(out.Accounts[i].TopicIDs)
+		out.Accounts[i].DeviceIDs = slices.Clone(out.Accounts[i].DeviceIDs)
+	}
+	out.Credentials = slices.Clone(cfg.Credentials)
+	for i := range out.Credentials {
+		out.Credentials[i].Topics = slices.Clone(out.Credentials[i].Topics)
 	}
 	return out
 }
@@ -122,18 +135,24 @@ func validate(tenant string, cfg model.MessageTopicConfig) error {
 			return fmt.Errorf("%w：%s：%s", ErrInvalidConfig, id, err)
 		}
 	}
-	return nil
+	return validateManaged(tenant, cfg)
 }
 
 func validateDestination(tenant string, topic Topic, destination string) error {
 	if topic.Protocol == "kafka" {
 		prefix := KafkaPrefix(tenant)
+		if strings.HasPrefix(destination, prefix+"managed.") {
+			return errors.New("账号凭据专属主题地址不能用于普通发布路由")
+		}
 		if len(destination) > maxKafkaLength || !strings.HasPrefix(destination, prefix) || !kafkaSuffix.MatchString(strings.TrimPrefix(destination, prefix)) {
 			return errors.New("Kafka 主题须使用本租户专属前缀，后缀仅允许字母、数字、点、下划线和短横线，总长不超过 249 字节")
 		}
 		return nil
 	}
 	prefix := MQTTPrefix(tenant)
+	if strings.HasPrefix(destination, prefix+"managed/") {
+		return errors.New("账号凭据专属主题地址不能用于普通发布路由")
+	}
 	if len(destination) > maxMQTTLength || !strings.HasPrefix(destination, prefix) || len(destination) == len(prefix) || !utf8.ValidString(destination) {
 		return errors.New("MQTT 主题须使用本租户专属前缀并包含非空后缀，总长不超过 1024 字节")
 	}
@@ -251,6 +270,9 @@ func (s *Service) Resolve(ctx context.Context, protocol, sourceTopic string, pay
 	if err != nil {
 		return "", false, fmt.Errorf("读取消息主题配置失败：%w", err)
 	}
+	if slices.Contains(cfg.Deleted, topic.ID) {
+		return "", false, nil
+	}
 	override, exists := cfg.Overrides[topic.ID]
 	if !exists {
 		return sourceTopic, true, nil
@@ -275,6 +297,9 @@ func (s *Service) Resolve(ctx context.Context, protocol, sourceTopic string, pay
 		}
 		if len(destination) > maxMQTTLength || !validMQTTTopic(destination) {
 			return "", false, errors.New("生成的 MQTT 主题无效或超过 1024 字节")
+		}
+		if strings.HasPrefix(destination, MQTTPrefix(tenant)+"managed/") {
+			return "", false, errors.New("生成的 MQTT 主题不能进入账号凭据专属地址")
 		}
 	}
 	return destination, true, nil

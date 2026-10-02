@@ -76,18 +76,29 @@ foreach ($s in $services) {
 # leaders right after the data stage, so it is retried.
 function Invoke-Init {
     $initAddress = ""
+    $initCAFile = ""
+    $initCAMount = ""
+    $previousCAFile = $env:IOT_KAFKA_TLS_CA_FILE
+    if (Test-Path (Join-Path $Rendered "kafka/ca.pem")) {
+        $initCAFile = (Resolve-Path (Join-Path $Rendered "kafka/ca.pem")).Path
+        $initCAMount = " --volume '$RemoteDir/.init-kafka-ca.pem:/app/kafka/ca.pem:ro'"
+    }
     if (-not $ClusterInit) {
         $health = $plan | Where-Object { $_ -match '^health ' } | Select-Object -First 1
         if (-not $health -or -not $platformImage) { throw "deploy plan lacks a platform node or image for cluster-init" }
         $initAddress = ([uri](($health -split ' ')[2])).Host
         Invoke-Step (@("scp") + $scpOpts + @("-p", (Join-Path $Rendered "init.env"), "$SshUser@${initAddress}:$RemoteDir/.init.env"))
+        if ($initCAFile) {
+            Invoke-Step (@("scp") + $scpOpts + @("-p", $initCAFile, "$SshUser@${initAddress}:$RemoteDir/.init-kafka-ca.pem"))
+        }
     }
     try {
         for ($attempt = 1; ; $attempt++) {
             if ($ClusterInit) {
+                if ($initCAFile) { $env:IOT_KAFKA_TLS_CA_FILE = $initCAFile }
                 Invoke-Step (@($ClusterInit -split ' ') + @("-env-file", (Join-Path $Rendered "init.env"), "-bootstrap-postgres", "-execute")) -NoThrow
             } else {
-                Invoke-Ssh $initAddress "cd '$RemoteDir' && docker run --rm --network host --env-file .init.env --entrypoint /app/cluster-init '$platformImage' -bootstrap-postgres -execute" -NoThrow
+                Invoke-Ssh $initAddress "cd '$RemoteDir' && docker run --rm --network host --env-file .init.env$initCAMount --entrypoint /app/cluster-init '$platformImage' -bootstrap-postgres -execute" -NoThrow
             }
             if ($script:StepOk) { break }
             if ($attempt -ge $InitAttempts) { throw "cluster-init did not succeed after $attempt attempts; check PostgreSQL (Patroni leader), Redpanda and ClickHouse on the data nodes" }
@@ -95,7 +106,8 @@ function Invoke-Init {
             Start-Sleep -Seconds 15
         }
     } finally {
-        if ($initAddress) { Invoke-Ssh $initAddress "rm -f '$RemoteDir/.init.env'" -NoThrow }
+        $env:IOT_KAFKA_TLS_CA_FILE = $previousCAFile
+        if ($initAddress) { Invoke-Ssh $initAddress "rm -f '$RemoteDir/.init.env' '$RemoteDir/.init-kafka-ca.pem'" -NoThrow }
     }
 }
 

@@ -15,7 +15,13 @@ import (
 )
 
 // optionalSecrets are left empty when missing: an operator supplies them.
-var optionalSecrets = map[string]bool{"deepseekApiKey": true, "embeddingApiKey": true, "backupRestoreTargetDSN": true, "backupRestoreMinioEndpoint": true, "backupRestoreMinioAccessKey": true, "backupRestoreMinioSecretKey": true}
+var optionalSecrets = map[string]bool{
+	"deepseekApiKey": true, "embeddingApiKey": true, "backupRestoreTargetDSN": true,
+	"backupRestoreMinioEndpoint": true, "backupRestoreMinioAccessKey": true, "backupRestoreMinioSecretKey": true,
+	"kafkaSaslUsername": true, "kafkaSaslPassword": true, "kafkaSaslMechanism": true, "kafkaTls": true,
+	"kafkaTlsCaFile": true, "kafkaAdminUrl": true, "kafkaAdminUsername": true, "kafkaAdminPassword": true,
+	"kafkaPublicBrokers": true, "mqttPublicUrl": true,
+}
 
 const secretAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -96,6 +102,9 @@ func EnsureSecretsWith(path string, in SecretInputs) ([]string, error) {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		key := strings.Split(t.Field(i).Tag.Get("yaml"), ",")[0]
+		if key == "-" {
+			continue
+		}
 		current := v.Field(i).String()
 		if servicePassword != "" && unifiedSecrets[key] && !placeholder(current) && current != servicePassword {
 			return nil, ErrServicePasswordConflict

@@ -2,6 +2,7 @@ package messagetopics
 
 import (
 	"context"
+	"errors"
 
 	"iot-platform/internal/ports"
 )
@@ -31,11 +32,14 @@ func (s *Service) WrapBus(bus ports.EventBus) ports.EventBus {
 }
 
 func (b *routingBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
-	target, enabled, err := b.service.Resolve(ctx, "kafka", topic, payload)
-	if err != nil || !enabled {
+	targets, err := b.service.Destinations(ctx, "kafka", topic, payload)
+	if err != nil {
 		return err
 	}
-	return b.EventBus.Publish(ctx, target, key, payload)
+	for _, target := range targets {
+		err = errors.Join(err, b.EventBus.Publish(ctx, target, key, payload))
+	}
+	return err
 }
 
 type routingRealtime struct {
@@ -51,9 +55,12 @@ func (s *Service) WrapRealtime(publisher ports.RealtimePublisher) ports.Realtime
 }
 
 func (p *routingRealtime) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
-	target, enabled, err := p.service.Resolve(ctx, "mqtt", topic, payload)
-	if err != nil || !enabled {
+	targets, err := p.service.Destinations(ctx, "mqtt", topic, payload)
+	if err != nil {
 		return err
 	}
-	return p.RealtimePublisher.Publish(ctx, target, payload, qos, retained)
+	for _, target := range targets {
+		err = errors.Join(err, p.RealtimePublisher.Publish(ctx, target, payload, qos, retained))
+	}
+	return err
 }

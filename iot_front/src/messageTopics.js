@@ -20,6 +20,48 @@ export function topicStatus(item) {
   return { tone:'success', label:'已启用' }
 }
 
+export function formatTopicTime(seconds, empty = '长期有效') {
+  return Number(seconds) > 0 ? new Date(Number(seconds) * 1000).toLocaleString('zh-CN', { hour12:false }) : empty
+}
+
+export function topicAccountStatus(account, now = Date.now()) {
+  if (!account.enabled) return { tone:'neutral', label:'已停用' }
+  if (Number(account.expiresAt) > 0 && Number(account.expiresAt) * 1000 <= now) return { tone:'warning', label:'已过期' }
+  return { tone:'success', label:'已启用' }
+}
+
+export function credentialStatus(credential, now = Date.now()) {
+  if (credential.status === 'revoking') return '撤销处理中'
+  if (Number(credential.expiresAt) * 1000 <= now) return '已过期'
+  return ({ active:'有效', provisioning:'开通中' })[credential.status] || '状态待确认'
+}
+
+export function validateManagedTopic(form, sources) {
+  if (!String(form.name || '').trim()) return '请填写主题名称'
+  if (!sources.some(source => source.id === form.sourceId)) return '请选择消息数据源'
+  if (!/^[A-Za-z0-9_-]{1,48}$/.test(String(form.topic || '').trim())) return '主题标识只支持 1–48 个字母、数字、下划线或连字符'
+  return ''
+}
+
+export function topicAccountPayload(form, revision) {
+  return {
+    revision, name:String(form.name || '').trim(), username:form.username, enabled:Boolean(form.enabled),
+    topicIds:[...new Set(form.topicIds || [])], deviceScope:form.deviceScope,
+    deviceIds:form.deviceScope === 'selected' ? [...new Set(form.deviceIds || [])] : [],
+    expiresAt:form.expiresAt ? Math.floor(Number(form.expiresAt) / 1000) : 0
+  }
+}
+
+export function validateTopicAccount(form, topics, users) {
+  if (!String(form.name || '').trim()) return '请填写对接账号名称'
+  if (!users.some(user => user.username === form.username)) return '请选择有效的平台用户'
+  if (!form.topicIds?.length) return '请至少授权一个消息主题'
+  if (form.topicIds.some(id => !topics.some(topic => topic.id === id && topic.editable))) return '授权主题已发生变化，请刷新配置后重新选择'
+  if (!['all', 'selected'].includes(form.deviceScope)) return '请选择设备范围'
+  if (form.expiresAt != null && (!Number.isFinite(Number(form.expiresAt)) || Number(form.expiresAt) < 0)) return '请设置有效的账号到期时间'
+  return ''
+}
+
 export function topicVariableLabel(variable) {
   const name = String(variable).replace(/^\{|\}$/g, '')
   return `{${name}}：${({ tenantId:'当前租户标识', deviceId:'设备标识', productId:'设备模板标识', messageType:'消息类型', eventType:'事件类型', alarmId:'告警标识' })[name] || '由实际消息替换'}`

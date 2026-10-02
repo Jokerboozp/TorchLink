@@ -21,7 +21,7 @@ func (b *Bus) ConsumerLag(ctx context.Context) (map[string]int64, error) {
 	b.mu.Lock()
 	subscriptions := append([]subscription(nil), b.subscriptions...)
 	b.mu.Unlock()
-	client := &kafka.Client{Addr: kafka.TCP(b.brokers...), Timeout: 10 * time.Second}
+	client := &kafka.Client{Addr: kafka.TCP(b.brokers...), Timeout: 10 * time.Second, Transport: b.transport}
 	lags := map[string]int64{}
 	for _, s := range subscriptions {
 		lag, err := topicLag(ctx, client, s)
@@ -111,7 +111,7 @@ func topicLag(ctx context.Context, client *kafka.Client, s subscription) (int64,
 // topics, whether or not this process consumes them; an ingest-only process
 // uses it to see the backlog the processing replicas face.
 func (b *Bus) GroupLag(ctx context.Context, group string, topics ...string) (int64, error) {
-	client := &kafka.Client{Addr: kafka.TCP(b.brokers...), Timeout: 10 * time.Second}
+	client := &kafka.Client{Addr: kafka.TCP(b.brokers...), Timeout: 10 * time.Second, Transport: b.transport}
 	var total int64
 	for _, topic := range topics {
 		lag, err := topicLag(ctx, client, subscription{topic: topic, group: "iot-platform-" + group})

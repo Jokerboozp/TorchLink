@@ -2,10 +2,14 @@ package clusterplan
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -33,7 +37,18 @@ type Secrets struct {
 	EMQXAPISecret               string `yaml:"emqxApiSecret"`
 	EMQXCookie                  string `yaml:"emqxCookie"`
 	EMQXDashboardPassword       string `yaml:"emqxDashboardPassword"`
-	BackupToken                 string `yaml:"backupToken"`
+	// Kafka client/admin settings are supplied only for an already configured broker.
+	KafkaSASLUsername  string `yaml:"kafkaSaslUsername,omitempty"`
+	KafkaSASLPassword  string `yaml:"kafkaSaslPassword,omitempty"`
+	KafkaSASLMechanism string `yaml:"kafkaSaslMechanism,omitempty"`
+	KafkaTLS           string `yaml:"kafkaTls,omitempty"`
+	KafkaTLSCAFile     string `yaml:"kafkaTlsCaFile,omitempty"`
+	KafkaAdminURL      string `yaml:"kafkaAdminUrl,omitempty"`
+	KafkaAdminUsername string `yaml:"kafkaAdminUsername,omitempty"`
+	KafkaAdminPassword string `yaml:"kafkaAdminPassword,omitempty"`
+	KafkaPublicBrokers string `yaml:"kafkaPublicBrokers,omitempty"`
+	MQTTPublicURL      string `yaml:"mqttPublicUrl,omitempty"`
+	BackupToken        string `yaml:"backupToken"`
 	// CapacityToken is shared by the platform and the capacity module.
 	CapacityToken string `yaml:"capacityToken,omitempty"`
 	// BackupRestoreTargetDSN is an optional separate database for restore checks.
@@ -47,6 +62,7 @@ type Secrets struct {
 	VideoMediaSecret   string `yaml:"videoMediaSecret"`
 	VideoHookSecret    string `yaml:"videoHookSecret"`
 	VideoCredentialKey string `yaml:"videoCredentialKey"`
+	baseDir            string `yaml:"-"`
 }
 
 // CheckSecretsMode rejects secrets files readable by group or others. The
@@ -72,7 +88,53 @@ func LoadSecrets(path string) (Secrets, error) {
 	if err = dec.Decode(&s); err != nil {
 		return s, fmt.Errorf("secrets: %w", err)
 	}
+	s.baseDir, err = filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return s, errors.New("could not resolve secrets directory")
+	}
 	return s, nil
+}
+
+const kafkaCAContainerPath = "/app/kafka/ca.pem"
+
+func (s Secrets) kafkaEnv() map[string]string {
+	secure := strings.ToLower(strings.TrimSpace(s.KafkaTLS))
+	if secure == "" {
+		secure = "false"
+	}
+	mechanism := strings.ToUpper(strings.TrimSpace(s.KafkaSASLMechanism))
+	if mechanism == "" {
+		mechanism = "SCRAM-SHA-256"
+	}
+	caFile := ""
+	if s.KafkaTLSCAFile != "" {
+		caFile = kafkaCAContainerPath
+	}
+	return map[string]string{
+		"IOT_KAFKA_SASL_USERNAME": s.KafkaSASLUsername, "IOT_KAFKA_SASL_PASSWORD": s.KafkaSASLPassword,
+		"IOT_KAFKA_SASL_MECHANISM": mechanism, "IOT_KAFKA_TLS": secure, "IOT_KAFKA_TLS_CA_FILE": caFile,
+		"IOT_KAFKA_ADMIN_URL": s.KafkaAdminURL, "IOT_KAFKA_ADMIN_USERNAME": s.KafkaAdminUsername,
+		"IOT_KAFKA_ADMIN_PASSWORD": s.KafkaAdminPassword, "IOT_KAFKA_PUBLIC_BROKERS": s.KafkaPublicBrokers,
+	}
+}
+
+// kafkaCA copies public trust certificates, never a client private key.
+func (s Secrets) kafkaCA() ([]byte, error) {
+	if s.KafkaTLSCAFile == "" {
+		return nil, nil
+	}
+	path := s.KafkaTLSCAFile
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(s.baseDir, path)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.New("could not read kafkaTlsCaFile")
+	}
+	if len(b) > 1024*1024 || bytes.Contains(b, []byte("PRIVATE KEY")) || !x509.NewCertPool().AppendCertsFromPEM(b) {
+		return nil, errors.New("kafkaTlsCaFile must contain PEM certificates only (maximum 1 MiB)")
+	}
+	return b, nil
 }
 
 func (s Secrets) validate(inv *Inventory) error {
@@ -95,6 +157,47 @@ func (s Secrets) validate(inv *Inventory) error {
 	for k, v := range map[string]string{"deepseekApiKey": s.DeepSeekAPIKey, "embeddingApiKey": s.EmbeddingAPIKey, "backupRestoreTargetDSN": s.BackupRestoreTargetDSN, "backupRestoreMinioEndpoint": s.BackupRestoreMinIOEndpoint, "backupRestoreMinioAccessKey": s.BackupRestoreMinIOAccessKey, "backupRestoreMinioSecretKey": s.BackupRestoreMinIOSecretKey} {
 		if strings.ContainsAny(v, "\n\r\"'$`\\") {
 			missing = append(missing, k+" (must not contain quotes, $, backslashes or newlines)")
+		}
+	}
+	for k, v := range s.kafkaEnv() {
+		if strings.ContainsAny(v, "\n\r\"'$`\\") || strings.TrimSpace(v) != v || strings.Contains(v, " #") {
+			missing = append(missing, k+" (invalid environment file value)")
+		}
+		if _, set := inv.Env[k]; set {
+			missing = append(missing, k+" (configure Kafka settings in the secrets file, not inventory env)")
+		}
+	}
+	if (s.KafkaSASLUsername == "") != (s.KafkaSASLPassword == "") {
+		missing = append(missing, "kafkaSaslUsername and kafkaSaslPassword must be configured together")
+	}
+	if m := s.kafkaEnv()["IOT_KAFKA_SASL_MECHANISM"]; m != "SCRAM-SHA-256" && m != "SCRAM-SHA-512" {
+		missing = append(missing, "kafkaSaslMechanism must be SCRAM-SHA-256 or SCRAM-SHA-512")
+	}
+	if secure := s.kafkaEnv()["IOT_KAFKA_TLS"]; secure != "true" && secure != "false" {
+		missing = append(missing, "kafkaTls must be true or false")
+	} else if s.KafkaTLSCAFile != "" && secure != "true" {
+		missing = append(missing, "kafkaTlsCaFile requires kafkaTls: true")
+	}
+	if s.KafkaAdminURL != "" || s.KafkaAdminUsername != "" || s.KafkaAdminPassword != "" {
+		u, err := url.Parse(s.KafkaAdminURL)
+		if s.KafkaAdminUsername == "" || s.KafkaAdminPassword == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			missing = append(missing, "kafkaAdminUrl (HTTP(S) root URL), kafkaAdminUsername and kafkaAdminPassword must be configured together")
+		}
+	}
+	if s.KafkaPublicBrokers != "" {
+		for _, address := range strings.Split(s.KafkaPublicBrokers, ",") {
+			host, port, err := net.SplitHostPort(strings.TrimSpace(address))
+			n, portErr := strconv.Atoi(port)
+			if err != nil || portErr != nil || host == "" || strings.ContainsAny(host, "/@ \t\r\n") || n < 1 || n > 65535 {
+				missing = append(missing, "kafkaPublicBrokers must contain comma-separated host:port addresses")
+				break
+			}
+		}
+	}
+	if s.MQTTPublicURL != "" {
+		u, err := url.Parse(s.MQTTPublicURL)
+		if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(s.MQTTPublicURL, "\n\r\"'$`\\ \t") || (u.Scheme != "tcp" && u.Scheme != "ssl" && u.Scheme != "tls" && u.Scheme != "mqtt" && u.Scheme != "mqtts" && u.Scheme != "ws" && u.Scheme != "wss") {
+			missing = append(missing, "mqttPublicUrl must be an MQTT endpoint URL without credentials, query or fragment")
 		}
 	}
 	// These are embedded in connection URLs assembled by Compose, which
@@ -261,6 +364,12 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	for k, v := range inv.Env {
 		env[k] = v
 	}
+	for k := range r.s.kafkaEnv() {
+		env[k] = "${" + k + "}"
+	}
+	if r.s.MQTTPublicURL != "" {
+		env["IOT_DEVICE_MQTT_PUBLIC_URL"] = "${IOT_DEVICE_MQTT_PUBLIC_URL}"
+	}
 	return env
 }
 
@@ -421,7 +530,16 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			salt := idx(inv.Platform.Roles[kind].Nodes)
 			name := "iot-" + kind
 			def := service(inv.Images.Platform, map[string]any{"environment": r.platformEnv(kind, node, salt), "volumes": []string{name + "-data:/app/data"}})
+			if r.s.KafkaTLSCAFile != "" {
+				def["volumes"] = append(def["volumes"].([]string), "./kafka/ca.pem:"+kafkaCAContainerPath+":ro")
+			}
 			add(kind, name, def, name+"-data")
+			for k, v := range r.s.kafkaEnv() {
+				env[k] = v
+			}
+			if r.s.MQTTPublicURL != "" {
+				env["IOT_DEVICE_MQTT_PUBLIC_URL"] = r.s.MQTTPublicURL
+			}
 			env["IOT_JWT_SECRET"], env["IOT_ADMIN_PASSWORD"], env["POSTGRES_PASSWORD"], env["REDIS_PASSWORD"], env["CLICKHOUSE_PASSWORD"] = r.s.JWTSecret, r.s.AdminPassword, r.s.PostgresPassword, r.s.RedisPassword, r.s.ClickHousePassword
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["IOT_EMQX_API_KEY"], env["IOT_EMQX_API_SECRET"] = r.s.MinIORootUser, r.s.MinIORootPassword, r.s.EMQXAPIKey, r.s.EMQXAPISecret
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.HarnessToken, r.s.DeepSeekAPIKey, r.s.BackupToken
@@ -600,6 +718,10 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 	if err = s.validate(inv); err != nil {
 		return nil, err
 	}
+	ca, err := s.kafkaCA()
+	if err != nil {
+		return nil, err
+	}
 	for name, img := range map[string]string{"platform": inv.Images.Platform, "web": inv.Images.Web, "harness": inv.Images.Harness, "redpanda": inv.Images.Redpanda, "emqx": inv.Images.EMQX, "etcd": inv.Images.Etcd, "postgres": inv.Images.Postgres, "redis": inv.Images.Redis, "clickhouse": inv.Images.ClickHouse, "keeper": inv.Images.Keeper, "minio": inv.Images.MinIO, "nodeExporter": inv.Images.NodeExporter} {
 		if img == "" {
 			return nil, fmt.Errorf("images.%s is required", name)
@@ -607,6 +729,14 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 	}
 	r := renderer{inv: inv, s: s}
 	files := map[string][]byte{}
+	if len(ca) > 0 {
+		files["kafka/ca.pem"] = ca
+		for _, role := range RoleNames {
+			for _, node := range inv.Platform.Roles[role].Nodes {
+				files[node+"/kafka/ca.pem"] = ca
+			}
+		}
+	}
 	summary := Summary{Name: inv.Name, Nodes: inv.Nodes, Services: map[string]map[string][]string{}, Budget: budget, Endpoints: map[string]string{
 		"postgresWriter": r.postgresDSN("read-write"), "kafka": r.hostList(inv.Redpanda.Nodes, 9092, ","), "redisSentinels": r.hostList(inv.Redis.Sentinels, 26379, ","),
 		"clickhouse": r.hostList(r.chNodes(), 8123, ","), "internalAPI": inv.APIURL(), "gateways": inv.GatewayURL(),
@@ -633,7 +763,7 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 	}
 	files["deploy-plan.txt"] = deployPlan(inv, summary, nodeImages)
 	files["images.txt"] = imageList(inv)
-	files["init.env"] = envFile(map[string]string{
+	initEnv := map[string]string{
 		"IOT_POSTGRES_DSN":              strings.ReplaceAll(r.postgresDSN("read-write"), "${POSTGRES_PASSWORD}", s.PostgresPassword),
 		"IOT_POSTGRES_ADMIN_DSN":        "postgres://postgres:" + s.PostgresSuperuserPassword + "@" + r.hostList(inv.Postgres.Nodes, 5432, ",") + "/postgres?sslmode=disable&target_session_attrs=read-write",
 		"IOT_POSTGRES_APP_PASSWORD":     s.PostgresPassword,
@@ -642,7 +772,19 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 		"IOT_CLICKHOUSE_CLUSTER":        inv.ClickHouse.Cluster,
 		"IOT_CLUSTER_KAFKA_PARTITIONS":  strconv.Itoa(inv.Redpanda.Partitions),
 		"IOT_CLUSTER_KAFKA_REPLICATION": strconv.Itoa(inv.Redpanda.Replication),
-	})
+	}
+	for k, v := range s.kafkaEnv() {
+		initEnv[k] = v
+	}
+	if brokers := inv.Env["IOT_KAFKA_BROKERS"]; brokers != "" {
+		initEnv["IOT_KAFKA_BROKERS"] = brokers
+	}
+	if s.MQTTPublicURL != "" {
+		initEnv["IOT_DEVICE_MQTT_PUBLIC_URL"] = s.MQTTPublicURL
+	} else if u := inv.Env["IOT_DEVICE_MQTT_PUBLIC_URL"]; u != "" {
+		initEnv["IOT_DEVICE_MQTT_PUBLIC_URL"] = u
+	}
+	files["init.env"] = envFile(initEnv)
 	sb, _ := json.MarshalIndent(summary, "", "  ")
 	// Endpoints contain ${POSTGRES_PASSWORD} placeholders only.
 	files["cluster.json"] = append(sb, '\n')

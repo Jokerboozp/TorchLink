@@ -104,29 +104,39 @@ start_stage() {
 # auto-create) and ClickHouse table checks. Patroni and Redpanda may still be
 # electing leaders right after the data stage, so it is retried.
 run_init() {
-  local attempt=1 init_node="" init_address=""
+  local attempt=1 init_node="" init_address="" init_ca_file="" init_ca_mount=""
+  if [ -f "$rendered/kafka/ca.pem" ]; then
+    init_ca_file="$(cd "$rendered" && pwd)/kafka/ca.pem"
+    init_ca_mount=" --volume '$remote_dir/.init-kafka-ca.pem:/app/kafka/ca.pem:ro'"
+  fi
   if [ -z "$cluster_init" ]; then
     read -r _ init_node init_address < <(awk '$1=="health" {split($3,u,"[/:]"); print "x", $2, u[4]; exit}' "$rendered/deploy-plan.txt")
     [ -n "$init_address" ] && [ -n "$platform_image" ] || { echo "deploy plan lacks a platform node or image for cluster-init" >&2; exit 1; }
     run scp -p "$rendered/init.env" "$ssh_user@$init_address:$remote_dir/.init.env"
+    if [ -n "$init_ca_file" ]; then
+      run scp -p "$init_ca_file" "$ssh_user@$init_address:$remote_dir/.init-kafka-ca.pem"
+    fi
   fi
   while :; do
     if [ -n "$cluster_init" ]; then
       # shellcheck disable=SC2086
-      if run $cluster_init -env-file "$rendered/init.env" -bootstrap-postgres -execute; then break; fi
-    elif run ssh "$ssh_user@$init_address" "cd '$remote_dir' && docker run --rm --network host --env-file .init.env --entrypoint /app/cluster-init '$platform_image' -bootstrap-postgres -execute"; then
+      if (
+        if [ -n "$init_ca_file" ]; then export IOT_KAFKA_TLS_CA_FILE="$init_ca_file"; fi
+        run $cluster_init -env-file "$rendered/init.env" -bootstrap-postgres -execute
+      ); then break; fi
+    elif run ssh "$ssh_user@$init_address" "cd '$remote_dir' && docker run --rm --network host --env-file .init.env$init_ca_mount --entrypoint /app/cluster-init '$platform_image' -bootstrap-postgres -execute"; then
       break
     fi
     if [ "$attempt" -ge "$init_attempts" ]; then
       echo "cluster-init did not succeed after $attempt attempts; check PostgreSQL (Patroni leader), Redpanda and ClickHouse on the data nodes" >&2
-      [ -z "$cluster_init" ] && run ssh "$ssh_user@$init_address" "rm -f '$remote_dir/.init.env'"
+      [ -z "$cluster_init" ] && run ssh "$ssh_user@$init_address" "rm -f '$remote_dir/.init.env' '$remote_dir/.init-kafka-ca.pem'"
       exit 1
     fi
     attempt=$((attempt + 1))
     echo "cluster-init not ready yet (attempt $attempt/$init_attempts), retrying in 15s" >&2
     sleep 15
   done
-  [ -z "$cluster_init" ] && run ssh "$ssh_user@$init_address" "rm -f '$remote_dir/.init.env'"
+  [ -z "$cluster_init" ] && run ssh "$ssh_user@$init_address" "rm -f '$remote_dir/.init.env' '$remote_dir/.init-kafka-ca.pem'"
   return 0
 }
 

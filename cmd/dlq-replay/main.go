@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/segmentio/kafka-go"
+	kafkaadapter "iot-platform/internal/adapters/kafka"
 	"iot-platform/internal/config"
 	"iot-platform/internal/model"
 	"os"
@@ -95,9 +96,22 @@ func run() error {
 	if len(cfg.KafkaBrokers) == 0 {
 		return errors.New("Kafka is not configured")
 	}
+	security := kafkaadapter.SecurityConfig{
+		Username: cfg.KafkaSASLUsername, Password: cfg.KafkaSASLPassword,
+		Mechanism: cfg.KafkaSASLMechanism, TLS: cfg.KafkaTLS, CAFile: cfg.KafkaTLSCAFile,
+	}
+	dialer, err := kafkaadapter.NewDialer(security)
+	if err != nil {
+		return fmt.Errorf("Kafka security configuration invalid: %w", err)
+	}
+	dialer.Timeout = 5 * time.Second
+	transport, err := kafkaadapter.NewTransport(security)
+	if err != nil {
+		return fmt.Errorf("Kafka security configuration invalid: %w", err)
+	}
+	defer transport.CloseIdleConnections()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	dialer := kafka.Dialer{Timeout: 5 * time.Second}
 	conn, err := dialer.DialContext(ctx, "tcp", cfg.KafkaBrokers[0])
 	if err != nil {
 		return errors.New("Kafka metadata connection failed")
@@ -175,7 +189,7 @@ func run() error {
 	published := 0
 	if *execute {
 		// All business processing now consumes the device business stream.
-		writer := kafka.Writer{Addr: kafka.TCP(cfg.KafkaBrokers...), Topic: model.TopicDeviceBusiness, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, AllowAutoTopicCreation: false}
+		writer := kafka.Writer{Addr: kafka.TCP(cfg.KafkaBrokers...), Topic: model.TopicDeviceBusiness, Balancer: &kafka.Hash{}, RequiredAcks: kafka.RequireAll, AllowAutoTopicCreation: false, Transport: transport}
 		defer writer.Close()
 		order := make([]string, 0, len(selected))
 		for id := range selected {

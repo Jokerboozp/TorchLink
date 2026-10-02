@@ -74,6 +74,9 @@ type Server struct {
 	fireSafety                 *firesafety.Service
 	externalData               *externaldata.Service
 	capacityMQTT               capacityMQTTCleaner
+	messageTopicKafka          messageTopicKafkaAdmin
+	messageTopicMQTTReady      func(context.Context) error
+	messageTopicCredentialsMu  sync.Mutex
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
@@ -107,6 +110,9 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s.onboarding.RequirePrepared = true
 	s.onboarding.PublicHTTP = publicEndpoint(cfg.DeviceHTTPPublicURL)
 	s.onboarding.PublicMQTT = publicEndpoint(cfg.MQTTPublicURL)
+	if engine.MessageTopics != nil {
+		engine.MessageTopics.SetAccessResolver(s.messageTopicIdentity)
+	}
 	var externalErr error
 	s.externalData, externalErr = externaldata.New(s.unscopedRepo().ExternalDataStore(), cfg.JWTSecret, s.authorizeExternalSource, s.deliverExternalEvent)
 	if externalErr != nil {
@@ -2929,7 +2935,7 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 			return
 		}
 		if claimsValue.TokenUse != "" && claimsValue.TokenUse != "user" {
-			ginProblem(c, http.StatusForbidden, "harness tokens are restricted to the MCP harness endpoint")
+			ginProblem(c, http.StatusForbidden, "此专用凭据不能用于管理接口")
 			c.Abort()
 			return
 		}

@@ -18,8 +18,12 @@ type kafkaCapacityQueueBackend struct {
 	addr   []string
 }
 
-func newCapacityQueueBackend(brokers []string) capacityQueueBackend {
-	return &kafkaCapacityQueueBackend{client: &kafka.Client{Addr: kafka.TCP(brokers...), Timeout: 10 * time.Second}, addr: brokers}
+func newCapacityQueueBackend(brokers []string, transports ...*kafka.Transport) capacityQueueBackend {
+	client := &kafka.Client{Addr: kafka.TCP(brokers...), Timeout: 10 * time.Second}
+	if len(transports) > 0 && transports[0] != nil {
+		client.Transport = transports[0]
+	}
+	return &kafkaCapacityQueueBackend{client: client, addr: brokers}
 }
 
 func (b *kafkaCapacityQueueBackend) snapshot(ctx context.Context) (capacityQueueSnapshot, error) {
