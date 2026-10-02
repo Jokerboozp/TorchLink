@@ -38,7 +38,6 @@ type listenerCall func(context.Context, string, model.ProtocolRelease, protocolw
 // only acknowledges an incoming frame after the ingest callback succeeds.
 type Listeners struct {
 	allowedCIDRs       []string
-	registerDevice     func(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, error)
 	coordinator        *Coordinator
 	connectionMu       sync.Mutex
 	connectionCounts   map[string]int
@@ -637,7 +636,7 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 		return 0, false, err
 	}
 	payload, _ := json.Marshal(strings.ToUpper(hex.EncodeToString(data[:response.Consumed])))
-	raw := model.RawMessage{Source: "go-protocol-" + p.Network + "-listener", TenantID: p.TenantID, ProductID: p.ProductID, DeviceID: device.ID, DeviceName: device.Name, Protocol: s.release.ProtocolID, Transport: strings.ToUpper(p.Network), PayloadFormat: "hex", Payload: payload, RemoteAddress: s.remote, ProtocolID: s.release.ProtocolID, ProtocolVersion: s.release.Version, PointTableVersion: s.release.PointTableVersion, CollectorID: p.CollectorID, Metadata: map[string]any{"profileId": p.ID}}
+	raw := model.RawMessage{Source: "go-protocol-" + p.Network + "-listener", TenantID: p.TenantID, ProductID: p.ProductID, DeviceID: device.ID, DeviceName: device.Name, Protocol: s.release.ProtocolID, Transport: strings.ToUpper(p.Network), PayloadFormat: "hex", Payload: payload, RemoteAddress: s.remote, ProtocolID: s.release.ProtocolID, ProtocolVersion: s.release.Version, PointTableVersion: s.release.PointTableVersion, CollectorID: p.CollectorID, Metadata: map[string]any{"profileId": p.ID, "profileFingerprint": p.ConfigurationFingerprint()}}
 	// Decode runs in a fresh process, possibly asynchronously or during replay.
 	// Preserve the state from before this frame instead of consulting a live session.
 	if len(s.state) > 0 {
@@ -725,19 +724,8 @@ func (r *Listeners) device(ctx context.Context, p model.DeviceAccessProfile, id,
 	if !p.AutoRegister {
 		return device, fmt.Errorf("protocol device is not registered: %w", err)
 	}
-	if r.registerDevice != nil {
-		registered, err := r.registerDevice(ctx, p, id, name)
-		if err != nil {
-			return device, err
-		}
-		if registered.ID != id || model.RegisteredProtocolDevice(registered, p) != nil {
-			return device, model.ErrProtocolRegistration
-		}
-		name = registered.Name
-	}
 	device, _, err = r.repo.RegisterProtocolDevice(ctx, p, id, name)
 	return device, err
-
 }
 
 // write is serialized by the session lock with ingress and command encoding.
@@ -890,10 +878,4 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 		}
 	}
 	return nil, errors.New("device has no online protocol session")
-}
-
-// SetDeviceRegistrar is configured before Start. Edge nodes must obtain real
-// platform registration before acknowledging an unknown protocol identity.
-func (r *Listeners) SetDeviceRegistrar(register func(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, error)) {
-	r.registerDevice = register
 }

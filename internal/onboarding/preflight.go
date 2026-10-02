@@ -19,11 +19,15 @@ type PublicAddresses struct {
 // Preflight lists what must be in place before a device of the template can
 // report data. It never writes resources and does not contact field devices.
 type Preflight struct {
-	Product  model.Product               `json:"product"`
-	Plan     AccessPlan                  `json:"plan"`
-	Profiles []model.DeviceAccessProfile `json:"profiles"`
-	Checks   []DiagnosisCheck            `json:"checks"`
-	Ready    bool                        `json:"ready"`
+	Product           model.Product               `json:"product"`
+	Plan              AccessPlan                  `json:"plan"`
+	Profiles          []model.DeviceAccessProfile `json:"profiles"`
+	Checks            []DiagnosisCheck            `json:"checks"`
+	Ready             bool                        `json:"ready"`
+	CanRegister       bool                        `json:"canRegister"`
+	ConnectionReady   bool                        `json:"connectionReady"`
+	PreparationStatus string                      `json:"preparationStatus,omitempty"`
+	Reusable          bool                        `json:"reusable"`
 }
 
 // SharedListeners returns the template's listener profiles that several devices
@@ -147,5 +151,18 @@ func (s *Service) Preflight(ctx context.Context, tenant, productID string, draft
 		add("target", "设备地址", "passed", "在下一步填写设备地址、端口和站号，平台按点表定时读取")
 	}
 	result.Ready = product.Status == "ENABLED" && plan.Mode != ModeUnsupported
+	result.CanRegister = result.Ready
+	result.ConnectionReady = result.Ready
+	for _, check := range result.Checks {
+		if check.State == "warning" || check.State == "failed" {
+			result.ConnectionReady = false
+		}
+	}
+	if draft == nil {
+		result.PreparationStatus, result.Reusable, err = s.TemplateReadiness(ctx, tenant, productID)
+		if err != nil {
+			return Preflight{}, err
+		}
+	}
 	return result, nil
 }

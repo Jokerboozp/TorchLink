@@ -100,6 +100,10 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	if engine.AuthorizeAIRun == nil {
 		engine.AuthorizeAIRun = s.authorizeAIRun
 	}
+	s.onboarding.LoadRaw = engine.GetRaw
+	s.onboarding.RequirePrepared = true
+	s.onboarding.PublicHTTP = publicEndpoint(cfg.DeviceHTTPPublicURL)
+	s.onboarding.PublicMQTT = publicEndpoint(cfg.MQTTPublicURL)
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()
 	return s
@@ -135,6 +139,8 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/device-registry/:id/connection", s.authorize("viewer"), s.endpoint(s.deviceConnection, "id"))
 	s.router.GET("/api/v1/onboarding/preflight", s.authorize("operator"), s.endpoint(s.onboardingPreflight))
 	s.router.POST("/api/v1/onboarding", s.authorize("operator"), s.endpoint(s.onboardingEnroll))
+	s.onboardingTaskRoutes()
+	s.templatePreparationRoutes()
 	s.router.POST("/api/v1/device-ingest/standard/:tenantId/:productId/:deviceId/:kind", s.endpoint(s.standardDeviceIngest, "tenantId", "productId", "deviceId", "kind"))
 	s.router.DELETE("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.disableDeviceCredential, "id"))
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))
@@ -336,6 +342,14 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
+	for i := range items {
+		status, ready, e := s.onboarding.TemplateReadiness(r.Context(), claims(r).TenantID, items[i].ID)
+		if e != nil {
+			problem(w, 500, "读取模板准备状态失败")
+			return
+		}
+		items[i].PreparationStatus, items[i].Reusable = status, ready
+	}
 	writeList(w, 200, items, total, pagination, nil)
 }
 func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
@@ -345,6 +359,8 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	c := claims(r)
 	v.TenantID = c.TenantID
+	v.PreparationStatus = ""
+	v.Reusable = false
 	if id := r.PathValue("id"); id != "" {
 		v.ID = id
 	}
@@ -358,6 +374,14 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	if err := onboarding.ValidateThingModel(v.ThingModel); err != nil {
 		problem(w, 422, err.Error())
 		return
+	}
+	if v.VerificationRules != nil {
+		rules, e := onboarding.NormalizeVerificationRules(*v.VerificationRules)
+		if e != nil {
+			enrollProblem(w, e)
+			return
+		}
+		v.VerificationRules = &rules
 	}
 	pkg, err := s.productProtocol(r.Context(), c.TenantID, v.ProtocolPackageID)
 	if err != nil {
@@ -377,6 +401,26 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	newProduct := false
 	if old, getErr := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID); getErr == nil {
 		v.CreatedAt = old.CreatedAt
+		if v.ProtocolPackageID != old.ProtocolPackageID {
+			problem(w, 409, "协议版本变更请在模板准备流程中保存候选配置并明确应用")
+			return
+		}
+		if v.VerificationRules == nil {
+			v.VerificationRules = old.VerificationRules
+		}
+		before := model.TemplateCandidate{Product: old, VerificationRules: onboarding.ProductVerificationRules(old)}
+		after := model.TemplateCandidate{Product: v, VerificationRules: onboarding.ProductVerificationRules(v)}
+		if onboarding.CandidateFingerprint(before) != onboarding.CandidateFingerprint(after) {
+			_, count, e := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: c.TenantID, RestrictProducts: true, ProductIDs: []string{v.ID}}, 1, 0)
+			if e != nil {
+				problem(w, 500, "读取模板使用情况失败")
+				return
+			}
+			if count > 0 {
+				problem(w, 409, "运行中的模板配置请通过模板准备流程联调后应用")
+				return
+			}
+		}
 	} else if errors.Is(getErr, model.ErrNotFound) {
 		newProduct = true
 	} else {
@@ -590,10 +634,18 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	writeList(w, 200, out, total, pagination, nil)
 }
 func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
-	var v model.ManagedDevice
-	if decode(w, r, &v) != nil {
+	// An embedded ManagedDevice would promote UnmarshalJSON and silently ignore
+	// Trial. Decode the method-free alias, then normalize its historical tags.
+	type deviceFields model.ManagedDevice
+	var input struct {
+		deviceFields
+		Trial bool `json:"trial,omitempty"`
+	}
+	if decode(w, r, &input) != nil {
 		return
 	}
+	v := model.ManagedDevice(input.deviceFields)
+	v.NormalizeConnectionTags()
 	c := claims(r)
 	v.TenantID = c.TenantID
 	if id := r.PathValue("id"); id != "" {
@@ -612,7 +664,6 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now().UnixMilli()
-	credential := model.DeviceCredential{}
 	created := false
 	if old, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.ID); err == nil {
 		if old.RegistrationSource == "PROTOCOL_CHILD_AUTO" {
@@ -620,6 +671,10 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 				problem(w, 422, "自动注册子设备的产品与主设备归属不可直接改写")
 				return
 			}
+		}
+		if v.ProductID != old.ProductID {
+			problem(w, 409, "已登记设备不能直接更换设备模板，请从目标模板重新接入")
+			return
 		}
 		v.AccessKey, v.SecretHash, v.SecretHint, v.CreatedAt = old.AccessKey, old.SecretHash, old.SecretHint, old.CreatedAt
 		if v.Tags == nil {
@@ -640,9 +695,12 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		if old.AutoRegistered {
 			v.AutoRegistered = true
 		}
-	} else {
+	} else if errors.Is(err, model.ErrNotFound) {
 		created = true
 		v.CreatedAt = now
+	} else {
+		problem(w, 500, "读取设备登记信息失败")
+		return
 	}
 	if v.Status == "" {
 		v.Status = "ENABLED"
@@ -714,21 +772,8 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if created {
-		v.Connector, v.ChildType, v.OnboardingRequestHash = "", "", ""
-		if product.ProtocolPackageID == parser.StandardProtocolID+"@1.0.0" {
-			v.Connector = "MQTT"
-			if product.Transport == "HTTP" {
-				v.Connector = "HTTP"
-			}
-		}
-		v.AccessKey = model.ProtocolDeviceAccessKey(v.TenantID, v.ID)
-		v.SecretHash, v.SecretHint = "", ""
-		if v.UsesPlatformCredentials(product) {
-			credential = newDeviceCredential()
-			v.AccessKey = credential.AccessKey
-			v.SecretHash = secretHash(credential.Secret)
-			v.SecretHint = credential.Secret[len(credential.Secret)-6:]
-		}
+		s.enrollCompatibleDevice(w, r, v, product, input.Trial, "device.save")
+		return
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
@@ -736,17 +781,26 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "device.save", "device", v.ID, map[string]any{"productId": v.ProductID, "status": v.Status})
-	result := map[string]any{"device": v.Public(product)}
-	if credential.Secret != "" {
-		result["credential"] = credential
-	}
-	write(w, 201, result)
+	write(w, 201, map[string]any{"device": v.Public(product)})
 }
 func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Trial              bool   `json:"trial,omitempty"`
+		ConnectorProfileID string `json:"connectorProfileId,omitempty"`
+	}
+	// Discovery confirmation historically accepted an empty body.
+	if r.Body != nil && r.ContentLength != 0 {
+		if decode(w, r, &input) != nil {
+			return
+		}
+	}
 	c := claims(r)
 	id := r.PathValue("id")
 	if _, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, id); err == nil {
 		problem(w, 409, "device is already registered")
+		return
+	} else if !errors.Is(err, model.ErrNotFound) {
+		problem(w, 500, "读取设备登记信息失败")
 		return
 	}
 	state, err := s.engine.Repo.GetDeviceState(r.Context(), c.TenantID, id)
@@ -759,30 +813,10 @@ func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request
 		problem(w, 422, "register its product before registering this device")
 		return
 	}
-	credential := model.DeviceCredential{}
-	now := time.Now().UnixMilli()
-	role := "DIRECT"
-	if product.Category == "gateway" {
-		role = "GATEWAY"
-	}
-	device := model.ManagedDevice{ID: id, TenantID: c.TenantID, ProductID: state.ProductID, Name: "发现设备 " + id, Status: "ENABLED", DeviceRole: role, RegistrationSource: "DISCOVERY", AccessKey: model.ProtocolDeviceAccessKey(c.TenantID, id), CreatedAt: now, UpdatedAt: now}
-	if device.UsesPlatformCredentials(product) {
-		credential = newDeviceCredential()
-		device.AccessKey = credential.AccessKey
-		device.SecretHash = secretHash(credential.Secret)
-		device.SecretHint = credential.Secret[len(credential.Secret)-6:]
-	}
-	if err = s.engine.Repo.SaveManagedDevice(r.Context(), device); err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	s.audit(r, "device.discovery.register", "device", id, map[string]any{"productId": state.ProductID})
-	result := map[string]any{"device": device.Public(product)}
-	if credential.Secret != "" {
-		result["credential"] = credential
-	}
-	write(w, 201, result)
+	device := model.ManagedDevice{ID: id, TenantID: c.TenantID, ProductID: state.ProductID, Name: "发现设备 " + id, Status: "ENABLED", ConnectorProfileID: input.ConnectorProfileID}
+	s.enrollCompatibleDevice(w, r, device, product, input.Trial, "device.discovery.register")
 }
+
 func (s *Server) rotateDeviceCredential(w http.ResponseWriter, r *http.Request) {
 	if !s.operationDevice(w, r) {
 		return

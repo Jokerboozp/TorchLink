@@ -18,6 +18,7 @@ type IngestSummary struct {
 
 // DiagnosisInput describes the device configuration relevant to its first data.
 type DiagnosisInput struct {
+	Verification   *model.DeviceVerification
 	ProductEnabled bool
 	ProtocolValid  bool
 	DeviceEnabled  bool
@@ -60,6 +61,11 @@ func profileNeedsPublicHost(p *model.DeviceAccessProfile) bool {
 // would fix it: configuration first, then transport, then parsing and freshness.
 func Diagnose(in DiagnosisInput) Diagnosis {
 	d := Diagnosis{Checks: diagnosisChecks(in)}
+	if in.Verification != nil {
+		for _, check := range in.Verification.Checks {
+			d.Checks = append(d.Checks, DiagnosisCheck{Key: "acceptance:" + check.Key, Label: check.Label, State: check.State, Detail: check.Detail})
+		}
+	}
 	set := func(stage, tone, title, next string) Diagnosis {
 		d.Stage, d.Tone, d.Title, d.NextAction = stage, tone, title, next
 		return d
@@ -86,6 +92,10 @@ func Diagnose(in DiagnosisInput) Diagnosis {
 		return set("PARSE_FAILED", "error", "收到数据，解析失败", "查看原始报文，核对已发布的协议版本与设备实际报文。")
 	case ingest.RawReceived && !ingest.Parsed:
 		return set("RAW_RECEIVED", "info", "收到数据，等待解析", "稍后刷新；长时间未解析时查看原始报文的处理状态。")
+	case in.Verification != nil && in.Verification.Status == "VERIFIED":
+		return set("VERIFIED", "success", "已达到模板验收条件", "现场原文、协议版本与配置已经核对，可以保存验收记录。")
+	case in.Verification != nil && ingest.Parsed:
+		return set("AWAITING_VERIFICATION", "info", "已解析，等待达到模板验收条件", "请按下方未完成项检查上报数量、时间窗口、指定字段和事件。")
 	case ingest.Parsed && ingest.Stale:
 		return set("STALE", "warning", "曾解析成功，最近没有新数据", "核对设备供电和网络，查看最近接收时间。")
 	case ingest.Parsed && ingest.ContinuouslyUpdating:
@@ -138,6 +148,9 @@ func diagnosisChecks(in DiagnosisInput) []DiagnosisCheck {
 		continuous.State, continuous.Detail = "failed", "超过 15 分钟没有新数据"
 	case ingest.ContinuouslyUpdating:
 		continuous.State, continuous.Detail = "passed", "已有连续上报"
+	}
+	if in.Verification != nil {
+		return []DiagnosisCheck{saved, service, raw, parsed}
 	}
 	return []DiagnosisCheck{saved, service, raw, parsed, continuous}
 }

@@ -531,6 +531,7 @@ func Run(forcedRole string) {
 	api.SetDeviceOperations(publishCommand, revokeUsername)
 	if cfg.Runs(config.ComponentJobs) {
 		engine.RunSingleton(ctx, "credential-revocation", 30*time.Second, api.RetryCredentialRevocationsOnce)
+		go api.RunOnboardingTasks(ctx)
 	}
 	if mqttClient != nil {
 		api.SetMQTTHealth(mqttClient.Probe)

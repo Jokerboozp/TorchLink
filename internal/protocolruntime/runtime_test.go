@@ -151,7 +151,7 @@ func TestModbusCancellationInterruptsSilentDevice(t *testing.T) {
 	<-done
 }
 
-func listenerFixture(t *testing.T, ingest IngestFunc) (*Listeners, *memory.Repository, net.Conn, model.DeviceAccessProfile) {
+func listenerFixture(t *testing.T, ingest IngestFunc, configure ...func(*Listeners)) (*Listeners, *memory.Repository, net.Conn, model.DeviceAccessProfile) {
 	t.Helper()
 	ctx := context.Background()
 	repo := memory.NewRepository()
@@ -171,6 +171,9 @@ func listenerFixture(t *testing.T, ingest IngestFunc) (*Listeners, *memory.Repos
 	p := model.DeviceAccessProfile{TenantID: "tenant", ID: "access", ProductID: "product", Mode: "listener", Network: "tcp", Host: "127.0.0.1", Port: port, Enabled: true, AutoRegister: true, TimeoutMs: 1000}
 	_ = repo.SaveDeviceAccessProfile(ctx, p)
 	r := NewListeners(repo, "", ingest, nil)
+	for _, configure := range configure {
+		configure(r)
+	}
 	r.call = func(_ context.Context, _ string, _ model.ProtocolRelease, in protocolworker.Request) (protocolworker.Response, error) {
 		if in.Operation == "encode" {
 			return protocolworker.Response{Reply: "22", CorrelationID: "pending"}, nil
@@ -340,8 +343,7 @@ func TestListenerStatusRetainsAcceptedFrameAfterDisconnect(t *testing.T) {
 
 // Peers beyond the session limit are closed and counted instead of vanishing.
 func TestListenerCountsPeersRefusedAtSessionLimit(t *testing.T) {
-	r, _, first, p := listenerFixture(t, func(context.Context, model.RawMessage) error { return nil })
-	r.SetMaxSessions(1)
+	r, _, first, p := listenerFixture(t, func(context.Context, model.RawMessage) error { return nil }, func(r *Listeners) { r.SetMaxSessions(1) })
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		r.mu.Lock()

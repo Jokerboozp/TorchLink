@@ -119,7 +119,7 @@ onMounted(load)
       </template>
     </FilterBar>
     <DataTableCard :title="`接入点 · ${visibleProfiles.length} 个`">
-      <ui-table :data="visibleProfiles" :loading="loading" row-key="id" empty-text="暂无接入点。TCP / UDP 协议设备在添加设备时可以直接新建共享监听">
+      <ui-table :data="visibleProfiles" :loading="loading" row-key="id" empty-text="暂无接入点，可在设备模板中准备公共连接。">
         <ui-table-column type="expand"><template #default="{ row }">
           <div class="access-points__details">
             <h4>当前在线会话</h4>

@@ -22,6 +22,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolruntime"
 	"iot-platform/internal/protocolworker"
 
@@ -214,7 +215,7 @@ func (s *Server) uploadProtocolPackageV2(w http.ResponseWriter, r *http.Request)
 // Source and prebuilt uploads share validation, immutable storage and binding.
 func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request, data []byte, entries map[string][]byte, manifest protocolPackageManifestV2, filename string, buildInfo map[string]any) {
 	protocolID := manifest.ID
-	publish, err := formBoolStrict(r, "publish", true)
+	publish, err := formBoolStrict(r, "publish", false)
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -325,16 +326,20 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 	}
 	retained = true
 	var binding any
+	bindingWarning := ""
+	steps := []map[string]any{{"step": "protocolRelease", "status": "SUCCEEDED", "protocolId": protocolID, "version": release.Version, "published": publish}}
 	if productID != "" {
 		bound, bindErr := s.bindProtocolRelease(r, protocolID, manifest.Version, productID)
 		if bindErr != nil {
-			problem(w, 500, "protocol was published but product binding failed: "+bindErr.Error())
-			return
+			bindingWarning = "协议已发布，设备模板应用失败：" + bindErr.Error() + "。请保留此版本，通过设备模板流程重新应用，无需重复上传。"
+			steps = append(steps, map[string]any{"step": "templateBinding", "status": "FAILED", "productId": productID, "detail": bindingWarning})
+		} else {
+			binding = bound
+			steps = append(steps, map[string]any{"step": "templateBinding", "status": "SUCCEEDED", "productId": productID})
 		}
-		binding = bound
 	}
-	s.audit(r, "protocol.v2.package.upload", "protocolRelease", protocolID+"@"+manifest.Version, map[string]any{"sha256": artifact["packageSha256"], "published": publish, "platform": targetPlatform})
-	write(w, 201, map[string]any{"definition": definition, "release": release, "manifest": manifest, "binding": binding, "testCases": testCount})
+	s.audit(r, "protocol.v2.package.upload", "protocolRelease", protocolID+"@"+manifest.Version, map[string]any{"sha256": artifact["packageSha256"], "published": publish, "platform": targetPlatform, "bindingApplied": binding != nil})
+	write(w, 201, map[string]any{"definition": definition, "release": release, "manifest": manifest, "binding": binding, "bindingWarning": bindingWarning, "stepResults": steps, "testCases": testCount})
 }
 
 type protocolPackageCaseV2 = protocolworker.SampleCase
@@ -487,6 +492,9 @@ func (s *Server) bindProductProtocolV2(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil {
 		return
 	}
+	if !s.allowDirectTemplateProtocolChange(w, r) {
+		return
+	}
 	binding, err := s.bindProtocolRelease(r, in.ProtocolID, in.Version, r.PathValue("id"))
 	if err != nil {
 		bindingProblem(w, err)
@@ -496,6 +504,9 @@ func (s *Server) bindProductProtocolV2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) rollbackProductProtocolV2(w http.ResponseWriter, r *http.Request) {
+	if !s.allowDirectTemplateProtocolChange(w, r) {
+		return
+	}
 	tenant, productID := claims(r).TenantID, r.PathValue("id")
 	current, err := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID)
 	if err != nil || current.PreviousVersion == "" {
@@ -530,6 +541,16 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	product, err := s.engine.Repo.GetProduct(r.Context(), tenant, productID)
 	if err != nil {
 		return model.ProductProtocolBinding{}, errors.New("product not found")
+	}
+	if current, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); e == nil && current.ProtocolID == protocolID && current.Version == version {
+		return current, nil
+	}
+	_, usingDevices, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: tenant, RestrictProducts: true, ProductIDs: []string{productID}}, 1, 0)
+	if err != nil {
+		return model.ProductProtocolBinding{}, err
+	}
+	if usingDevices > 0 {
+		return model.ProductProtocolBinding{}, &onboarding.EnrollError{Status: 409, Message: "模板已有设备，请通过候选配置联调和明确应用来切换协议"}
 	}
 	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
 	if err != nil {
@@ -567,7 +588,7 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	}
 	product.PayloadFormat = release.PayloadFormat
 	product.UpdatedAt = binding.UpdatedAt
-	if err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: product, Package: shim, Binding: binding, Expected: expected}); err != nil {
+	if err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: product, Package: shim, Binding: binding, Expected: expected, RequireUnused: true}); err != nil {
 		return binding, err
 	}
 	s.engine.ProtocolsChanged(tenant)
@@ -685,7 +706,15 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 	if !v.Enabled {
 		v.RuntimeStatus = "DISABLED"
 	}
-	if err = s.engine.Repo.SaveDeviceAccessProfile(r.Context(), v); err != nil {
+	if err = s.engine.Repo.SaveDeviceAccessProfile(r.Context(), v, model.AccessProfileSaveOptions{GuardTemplate: true}); err != nil {
+		if errors.Is(err, model.ErrOnboardingChanged) {
+			problem(w, 409, "接入点归属或模板使用情况已变化；已有设备的公共连接请在模板准备流程中进行隔离验证和应用")
+			return
+		}
+		if errors.Is(err, model.ErrBindingChanged) {
+			problem(w, 409, "协议绑定或监听端口已改变，请刷新后重新确认")
+			return
+		}
 		problem(w, 500, err.Error())
 		return
 	}

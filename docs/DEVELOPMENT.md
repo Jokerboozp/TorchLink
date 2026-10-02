@@ -8,6 +8,7 @@
 | --- | --- |
 | `cmd/iot-platform/`、`internal/platformapp/` | API 启动和依赖装配 |
 | `internal/httpapi/`、`internal/core/`、`internal/adapters/` | 接口、业务、外部存储与服务 |
+| `internal/onboarding/`、`internal/httpapi/template_preparation.go`、`internal/httpapi/onboarding_tasks.go` | 模板准备与验收、持久草稿、批量任务及完整配置切换 |
 | `internal/firesafety/`、`internal/httpapi/fire_safety.go` | [消防管理](FIRE_SAFETY.md)：租户业务状态、排班、巡检整改、出勤与 API |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | 协议编译、连接运行时和 Worker |
 | `internal/opscenter/`、`internal/adapters/observability/` | [运维中心](PLATFORM.md#运维中心) 业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
@@ -54,6 +55,27 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 专项回归按对应改动运行：`python3 scripts/tests/public-bundle-test.py` 与 PowerShell 同名脚本检查公开包凭据；`python3 scripts/tests/release-version-test.py` 检查版本生成。`nginx-protocol-routing-smoke.mjs` 用 `IOT_TEST_NGINX` 指定 nginx 可执行文件，启动并清理隔离 HTTP/nginx 进程；`platform-data-permissions-smoke.sh` 需要真实 Docker 与本地镜像，创建并清理自己的测试容器。它们不属于纯源码检查。
 
+### 设备接入回归
+
+流程、状态和接口统一见[设备接入](INTEGRATION.md#设备接入)，此处只维护回归入口。按改动范围执行：
+
+```bash
+go test ./internal/onboarding -count=1
+go test ./internal/httpapi -run 'Test(Template|Onboarding|StandardProtocolReadOnlyPreview|GoFunctionsUploadAndListener|GoProtocolListenerSourceHotSwitch|SourcePublication)' -count=1
+go test -race ./internal/adapters/memory ./internal/protocolruntime -run 'Test(TemplateSwitch|PreparedEnrollment|Onboarding|PollingBinding)' -count=1
+node --test iot_front/tests/onboarding-workflow.test.mjs iot_front/tests/protocol-generation.test.mjs iot_front/tests/list-behavior.test.mjs
+```
+
+覆盖模板草稿与首台通过正式上报入口的验证、隔离候选配置的应用与回滚、过期验收证据拒绝、批量重试和凭据交付、用户权限，以及只读样本不写业务数据。`internal/repositorytest/` 的共享用例同时检查 memory / PostgreSQL 的修订冲突、准备快照竞态和完整配置原子提交；Modbus 回归检查切换时归档实际使用的版本。
+
+真实 PostgreSQL 通过私有进程环境设置 `IOT_TEST_POSTGRES_DSN`，指向独立测试数据库，然后执行：
+
+```bash
+go test -race ./internal/adapters/postgres -run 'Test(TemplateSwitch|PreparedEnrollment|Onboarding)' -count=1
+```
+
+这些仓储用例在连接目标中创建并清理临时 schema；未设置 DSN 会跳过，不能写成持久化联调通过。浏览器条件与用例见[浏览器验证](#浏览器验证)。源码、模拟设备和隔离数据库测试不代替现场设备验收；另起临时 API 时按[进程交接](DEPLOYMENT.md#本地-api-进程交接)释放端口与收件箱锁，结束后不留下后台实例。
+
 ### AI 与知识库回归
 
 源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
@@ -97,7 +119,7 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 | 合成界面、弹层、窄屏 | 在 `iot_front` 启动 `node tests/browser/ui-preview.mjs`，另开终端运行 `naive-pages-check.mjs`、`onboarding-modes-check.mjs`、`protocol-actions-check.mjs`（均在 `tests/browser/`）；只访问回环夹具 |
 | 告警手动研判、AI 工作流停止 | 仓库根目录运行 `node iot_front/tests/browser/alarm-http-check.mjs`、`node iot_front/tests/browser/ai-workflow-runs-check.mjs`；各自启动合成 API，覆盖手动发起研判、停止确认、停止中状态和手动刷新，无须真实模型服务 |
 | 用户管理与设备范围 | 仓库根目录运行 `node iot_front/tests/browser/access-management-check.mjs` 或 `device-scope-check.mjs`；先启动前后端并按脚本配置管理员环境，创建后清理临时账户；设备范围用例需至少两台设备，且一个独立设备已有告警 |
-| 接入、通信与命令 | [接入验证](INTEGRATION.md#验证入口) 中的 Go 集成用例负责隔离 API 与浏览器生命周期 |
+| 接入、通信与命令 | 根目录运行 `go test ./internal/httpapi -run 'Test(OnboardingBrowser\|DeviceOnboardingBrowser\|GoFunctionsUploadAndListener\|TCPParentChildSourceChain)$' -count=1`；Go 用例负责隔离 API 与浏览器生命周期 |
 | 摄像头真实播放 | `node iot_front/tests/browser/camera-live-check.mjs`；需 API、前端、媒体服务与已配置的摄像头，见 [摄像头](PLATFORM.md#摄像头) |
 
 macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览器脚本可用 `IOT_TEST_HEADFUL=1`。源码测试、合成浏览器和真实设备验证分别记录，跳过项不算通过。

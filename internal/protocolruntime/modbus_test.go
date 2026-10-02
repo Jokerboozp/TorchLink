@@ -3,14 +3,146 @@ package protocolruntime
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"testing"
 	"time"
 
+	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/modbusframe"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 )
+
+type failedPollingBindingRepository struct {
+	ports.Repository
+	failure error
+}
+
+func (r failedPollingBindingRepository) GetProductProtocolBinding(context.Context, string, string) (model.ProductProtocolBinding, error) {
+	return model.ProductProtocolBinding{}, r.failure
+}
+
+func TestPollingBindingSwitchFreezesInFlightRawVersion(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	requests, responses := make(chan int, 2), make(chan struct{}, 2)
+	go func() {
+		for i := 0; i < 2; i++ {
+			conn, e := listener.Accept()
+			if e != nil {
+				return
+			}
+			_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+			q := make([]byte, 12)
+			if _, e = io.ReadFull(conn, q); e != nil {
+				conn.Close()
+				return
+			}
+			requests <- int(binary.BigEndian.Uint16(q[8:10]))
+			<-responses
+			_, _ = conn.Write([]byte{q[0], q[1], 0, 0, 0, 5, 1, 3, 2, 0, 42})
+			conn.Close()
+		}
+	}()
+	profile := model.DeviceAccessProfile{TenantID: "t", ID: "poll", ProductID: "p", DeviceID: "d", ProtocolID: "modbus", ProtocolVersion: "1", Mode: "poll", Network: "tcp", Enabled: true, Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: 1, TimeoutMs: 2000}
+	if err = repo.SaveDeviceAccessProfile(ctx, profile); err != nil {
+		t.Fatal(err)
+	}
+	for i, version := range []string{"1", "2"} {
+		release := model.ProtocolRelease{TenantID: "t", ProtocolID: "modbus", Version: version, PointTableVersion: version, Transport: "MODBUS_TCP", Status: "PUBLISHED", Config: map[string]any{"blocks": []model.ModbusReadBlock{{ID: "read", FunctionCode: 3, StartAddress: i * 100, Quantity: 1, PollIntervalSec: 1}}}}
+		if err = repo.CreateProtocolRelease(ctx, release); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bind := func(version string) {
+		t.Helper()
+		if err := repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "t", ProductID: "p", ProtocolID: "modbus", Version: version}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bind("1")
+	raws := make(chan model.RawMessage, 2)
+	runtime := New(repo, func(_ context.Context, raw model.RawMessage) error { raws <- raw; return nil }, nil)
+	waitRequest := func(want int) {
+		t.Helper()
+		select {
+		case address := <-requests:
+			if address != want {
+				t.Fatalf("address %d want %d", address, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("poll not scheduled")
+		}
+	}
+	waitRaw := func(version string) model.RawMessage {
+		t.Helper()
+		select {
+		case raw := <-raws:
+			if raw.ProtocolVersion != version || raw.PointTableVersion != version {
+				t.Fatal("incorrect archived version", raw)
+			}
+			if raw.Metadata["profileFingerprint"] != profile.ConfigurationFingerprint() {
+				t.Fatal("missing actual connection snapshot")
+			}
+			return raw
+		case <-time.After(3 * time.Second):
+			t.Fatal("poll not archived")
+			return model.RawMessage{}
+		}
+	}
+	runtime.scan(ctx, time.Now())
+	waitRequest(0)
+	bind("2")
+	responses <- struct{}{}
+	first := waitRaw("1")
+	deadline := time.Now().Add(time.Second)
+	for {
+		runtime.mu.Lock()
+		busy := len(runtime.running) > 0
+		runtime.mu.Unlock()
+		if !busy {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("poll did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	runtime.scan(ctx, time.Now().Add(2*time.Second))
+	waitRequest(100)
+	responses <- struct{}{}
+	waitRaw("2")
+	if first.ProtocolVersion != "1" || first.Metadata["startAddress"] != 0 {
+		t.Fatal("historical frame snapshot changed", first)
+	}
+	bind("missing")
+	if _, err = runtime.pollingRelease(ctx, profile); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("missing bound release fell back", err)
+	}
+	failure := errors.New("binding storage unavailable")
+	failedRuntime := New(failedPollingBindingRepository{Repository: repo, failure: failure}, nil, nil)
+	if _, err = failedRuntime.pollingRelease(ctx, profile); !errors.Is(err, failure) {
+		t.Fatal("binding read failed open", err)
+	}
+	legacyRuntime := New(failedPollingBindingRepository{Repository: repo, failure: model.ErrNotFound}, nil, nil)
+	legacy, err := legacyRuntime.pollingRelease(ctx, profile)
+	if err != nil || legacy.Version != "1" {
+		t.Fatal("legacy fixed polling removed", legacy, err)
+	}
+	if err = repo.UpdateProtocolReleaseStatus(ctx, "t", "modbus", "1", "REVOKED", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacyRuntime.pollingRelease(ctx, profile); err == nil {
+		t.Fatal("revoked legacy release executed")
+	}
+}
 
 func TestReadModbusTCP(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -27,12 +28,14 @@ import (
 
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolbuild"
 	"iot-platform/internal/protocolruntime"
 	"iot-platform/internal/protocolworker"
@@ -349,7 +352,10 @@ func TestGoFunctionsUploadAndListener(t *testing.T) {
 		form := multipart.NewWriter(&body)
 		f, _ := form.CreateFormFile("file", name)
 		f.Write(code)
-		form.WriteField("productId", "product")
+		if _, explicitProduct := fields["productId"]; !explicitProduct {
+			form.WriteField("productId", "product")
+			form.WriteField("publish", "true")
+		}
 		for k, v := range fields {
 			form.WriteField(k, v)
 		}
@@ -373,6 +379,108 @@ func TestGoFunctionsUploadAndListener(t *testing.T) {
 	if !strings.HasPrefix(first.Version, "auto-") || first.Artifact["runtime"] != protocolworker.Runtime || first.Artifact["workerMode"] != parser.WorkerModeServe {
 		t.Fatalf("release %+v", first)
 	}
+	// A template ID never implicitly publishes or switches an uploaded version.
+	upload(token, "protocol.go", []byte(protocolbuild.FunctionTemplate), map[string]string{"productId": "product", "version": "implicit-bind"}, 422)
+	if _, err := repo.GetProtocolRelease(ctx, "tenant", "functions", "implicit-bind"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("rejected implicit bind persisted a release: %v", err)
+	}
+	if err := repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "in-use", Status: "ENABLED"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant", ID: "upload-guard", ProductID: "in-use", Status: "ENABLED"}); err != nil {
+		t.Fatal(err)
+	}
+	// Even invalid source must be rejected before compilation when a combined
+	// upload would replace the version used by registered devices.
+	upload(token, "protocol.go", []byte("this source must not compile"), map[string]string{"productId": "in-use", "publish": "true", "version": "bound-blocked"}, 409)
+	if _, err := repo.GetProtocolRelease(ctx, "tenant", "functions", "bound-blocked"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("rejected production bind persisted a release: %v", err)
+	}
+	// An upload without publish is a validated version only. Its decoder can
+	// be previewed without switching an existing template or ingesting data.
+	previewRelease := upload(token, "protocol.go", []byte(protocolbuild.FunctionTemplate), map[string]string{"productId": "", "version": "preview-only"}, 201)
+	if previewRelease.Status != "VALIDATED" || previewRelease.PublishedAt != 0 {
+		t.Fatalf("upload unexpectedly published: %+v", previewRelease)
+	}
+	previewPath := server.URL + "/api/v2/protocols/functions/releases/preview-only/preview"
+	previewResult := requestJSON(t, server.Client(), "POST", previewPath, token, map[string]any{"payload": "AA012A", "readOnly": true}, 200)
+	if previewResult["standardMessage"].(map[string]any)["properties"].(map[string]any)["temperature"] != float64(42) {
+		t.Fatal(previewResult)
+	}
+	requestJSON(t, server.Client(), "POST", previewPath, viewer, map[string]any{"payload": "AA012A"}, 403)
+	other, _ := api.auth.Issue("operator", "other", "operator", nil, time.Hour)
+	requestJSON(t, server.Client(), "POST", previewPath, other, map[string]any{"payload": "AA012A"}, 404)
+	requestJSON(t, server.Client(), "POST", previewPath, token, map[string]any{"payload": "broken"}, 422)
+	indexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
+	alarms, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant"})
+	bound, _ := repo.GetProductProtocolBinding(ctx, "tenant", "product")
+	if len(indexes) != 0 || len(alarms) != 0 || bound.Version != first.Version {
+		t.Fatalf("preview changed business state: indexes=%d alarms=%d binding=%+v", len(indexes), len(alarms), bound)
+	}
+	t.Run("archived preview preserves authorized full context", func(t *testing.T) {
+		code := strings.Replace(protocolbuild.Template, "type RawMessage struct {", "type RawMessage struct {\n ProductID string `json:\"productId\"`\n GatewayID string `json:\"gatewayId\"`\n Headers map[string]string `json:\"headers\"`", 1)
+		code = strings.Replace(code, `"temperature": int(data[2]),`, `"temperature": int(data[2]), "sourceProduct":raw.ProductID, "sourceGateway":raw.GatewayID, "sourceHeaders":raw.Headers, "sourceMetadata":raw.Metadata,`, 1)
+		release := upload(token, "protocol.go", []byte(code), map[string]string{"productId": "", "version": "archived-context", "transport": "MQTT", "payloadFormat": "hex", "cases": protocolSourceCases}, 201)
+		archived := model.RawMessage{MessageID: "raw_preview_snapshot", TenantID: "tenant", ProductID: "snapshot-product", DeviceID: "snapshot-device", GatewayID: "snapshot-gateway", Source: "device-mqtt", Protocol: "functions", ProtocolID: "functions", ProtocolVersion: release.Version, Transport: "MQTT", PayloadFormat: "hex", Payload: json.RawMessage(`"AA012A"`), ReceivedAt: 123456789, Headers: map[string]string{"topic": "vendor/site/7"}, Metadata: map[string]any{"vendor": map[string]any{"zone": "first-floor"}, "protocolState": map[string]any{"sequence": 7}}}
+		index, err := archive.PutRaw(ctx, archived)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = repo.SaveRawIndex(ctx, index); err != nil {
+			t.Fatal(err)
+		}
+		beforeIndexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
+		beforeArchive, _ := archive.GetRaw(ctx, index)
+		beforeJSON, _ := json.Marshal(beforeArchive)
+		check := func(permissions map[string]bool, scope deviceScope, version string, body map[string]any, want int) map[string]any {
+			t.Helper()
+			requestCtx := context.WithValue(ctx, claimsKey, auth.Claims{TenantID: "tenant"})
+			requestCtx = context.WithValue(requestCtx, permissionsKey{}, permissions)
+			requestCtx = context.WithValue(requestCtx, deviceScopeKey{}, scope)
+			data, _ := json.Marshal(body)
+			req := httptest.NewRequest("POST", "/", bytes.NewReader(data)).WithContext(requestCtx)
+			req.SetPathValue("id", "functions")
+			req.SetPathValue("version", version)
+			response := httptest.NewRecorder()
+			api.previewGeneratedRelease(response, req)
+			if response.Code != want {
+				t.Fatalf("preview got %d want %d: %s", response.Code, want, response.Body.String())
+			}
+			var result map[string]any
+			_ = json.Unmarshal(response.Body.Bytes(), &result)
+			return result
+		}
+		permission := map[string]bool{"menu:raw": true}
+		scope := deviceScope{Tenant: "tenant", IDs: map[string]bool{archived.DeviceID: true}}
+		input := map[string]any{"rawMessageId": archived.MessageID}
+		check(map[string]bool{}, scope, release.Version, input, 403)
+		check(permission, deviceScope{Tenant: "tenant", IDs: map[string]bool{"other": true}}, release.Version, input, 404)
+		check(permission, scope, previewRelease.Version, input, 409)
+		result := check(permission, scope, release.Version, input, 200)
+		standard := result["standardMessage"].(map[string]any)
+		properties := standard["properties"].(map[string]any)
+		metadata := properties["sourceMetadata"].(map[string]any)
+		if standard["rawMessageId"] != archived.MessageID || standard["productId"] != archived.ProductID || standard["timestamp"] != float64(archived.ReceivedAt) || properties["sourceProduct"] != archived.ProductID || properties["sourceGateway"] != archived.GatewayID || properties["sourceHeaders"].(map[string]any)["topic"] != "vendor/site/7" || metadata["vendor"].(map[string]any)["zone"] != "first-floor" || metadata["protocolState"].(map[string]any)["sequence"] != float64(7) {
+			t.Fatal("archive context lost", result)
+		}
+		input["payload"] = "AA012B"
+		input["state"] = map[string]any{"sequence": 8}
+		result = check(permission, scope, release.Version, input, 200)
+		properties = result["standardMessage"].(map[string]any)["properties"].(map[string]any)
+		if properties["temperature"] != float64(43) || properties["sourceMetadata"].(map[string]any)["protocolState"].(map[string]any)["sequence"] != float64(8) {
+			t.Fatal("sample edits were not used", result)
+		}
+		afterArchive, _ := archive.GetRaw(ctx, index)
+		afterJSON, _ := json.Marshal(afterArchive)
+		afterIndexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
+		stored, _ := repo.GetProtocolRelease(ctx, "tenant", "functions", release.Version)
+		if !bytes.Equal(beforeJSON, afterJSON) || len(beforeIndexes) != len(afterIndexes) || stored.Status != release.Status {
+			t.Fatal("preview changed archive or release")
+		}
+		if _, err = repo.GetStandardMessageByRaw(ctx, "tenant", archived.MessageID); !errors.Is(err, model.ErrNotFound) {
+			t.Fatal("preview persisted a standard message", err)
+		}
+	})
 	raw := model.RawMessage{MessageID: "raw_functions", TenantID: "tenant", ProductID: "product", DeviceID: "device", Protocol: "functions", PayloadFormat: "hex", Payload: json.RawMessage(`"AA012A"`)}
 	if _, _, err := engine.IngestRaw(ctx, raw); err != nil {
 		t.Fatal(err)
@@ -435,6 +543,46 @@ func Protocol() Definition {return Definition{
 		t.Fatal(second.Capabilities)
 	}
 	upload(token, "project.zip", wrapped.Bytes(), map[string]string{"version": "2.0.0"}, 409)
+	// One-shot sample workbench exercises frame buffers, ACKs and encoding
+	// without starting a socket, registering the observed identity or ingesting.
+	workbenchPath := server.URL + "/api/v2/protocols/functions/releases/2.0.0/preview"
+	beforeIndexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
+	ingress := requestJSON(t, server.Client(), "POST", workbenchPath, token, map[string]any{"operation": "ingress", "readOnly": true, "chunks": []string{"AA01", "072ADC AA01072ADC"}, "expected": map[string]any{"needMore": false, "frames": []any{map[string]any{"frameHex": "AA01072ADC", "reply": "aa02072add", "standardMessage": map[string]any{"properties": map[string]any{"temperature": 42}}}, map[string]any{"consumed": 5}}}}, 200)
+	actual := ingress["operationResult"].(map[string]any)
+	if len(actual["frames"].([]any)) != 2 || len(actual["attempts"].([]any)) != 3 || !ingress["comparison"].(map[string]any)["matched"].(bool) {
+		t.Fatal("split/concatenated sample mismatch", ingress)
+	}
+	half := requestJSON(t, server.Client(), "POST", workbenchPath, token, map[string]any{"operation": "ingress", "readOnly": true, "payload": "AA01"}, 200)
+	if half["operationResult"].(map[string]any)["needMore"] != true {
+		t.Fatal("partial sample lost", half)
+	}
+	requestJSON(t, server.Client(), "POST", workbenchPath, token, map[string]any{"operation": "ingress", "readOnly": true, "payload": "AA01", "datagram": true}, 422)
+	state := map[string]any{"device": 7, "sequence": 0}
+	encoded := requestJSON(t, server.Client(), "POST", workbenchPath, token, map[string]any{"operation": "encode", "readOnly": true, "state": state, "command": map[string]any{"type": "ping"}, "expected": map[string]any{"reply": "aa030701b5", "correlationId": "1"}}, 200)
+	if !encoded["comparison"].(map[string]any)["matched"].(bool) {
+		t.Fatal("encoded sample mismatch", encoded)
+	}
+	ack := requestJSON(t, server.Client(), "POST", workbenchPath, token, map[string]any{"operation": "ingress", "readOnly": true, "payload": "AA020701B4", "state": map[string]any{"device": 7, "sequence": 1}}, 200)
+	if ack["operationResult"].(map[string]any)["frames"].([]any)[0].(map[string]any)["correlationId"] != "1" {
+		t.Fatal("ACK correlation lost", ack)
+	}
+	mismatch := requestJSON(t, server.Client(), "POST", workbenchPath, token, map[string]any{"operation": "decode", "readOnly": true, "payload": "AA01072ADC", "expected": map[string]any{"standardMessage": map[string]any{"properties": map[string]any{"temperature": 43}}}}, 200)
+	comparison := mismatch["comparison"].(map[string]any)
+	if comparison["matched"] != false || comparison["differences"].([]any)[0].(map[string]any)["path"] != "$.standardMessage.properties.temperature" {
+		t.Fatal("mismatch not explained", comparison)
+	}
+	requestJSON(t, server.Client(), "POST", previewPath, token, map[string]any{"operation": "encode", "readOnly": true, "command": map[string]any{"type": "ping"}}, 422)
+	afterIndexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
+	if len(beforeIndexes) != len(afterIndexes) {
+		t.Fatal("workbench ingested raw messages")
+	}
+	if _, err := repo.GetManagedDevice(ctx, "tenant", "7"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("workbench registered observed device", err)
+	}
+	storedRelease, _ := repo.GetProtocolRelease(ctx, "tenant", "functions", "2.0.0")
+	if storedRelease.Artifact["workerMode"] != parser.WorkerModeServe {
+		t.Fatal("preview mutated saved execution configuration")
+	}
 	// Full template's samples exercise ingress, decode, ACK matching and encode.
 	// Also prove real sockets still use inventory, archive and StandardMessage.
 	free, err := net.Listen("tcp", "127.0.0.1:0")
@@ -665,6 +813,79 @@ func TestRemovedFieldProfilesCannotRunOnCentre(t *testing.T) {
 	}
 }
 
+func TestStandardProtocolReadOnlyPreview(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	api := New(config.Load(), engine, metrics.New(), log)
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token, _ := api.auth.Issue("operator", "tenant", "operator", nil, time.Hour)
+	// Nil config is valid. Even an unexpected draft status must not advance
+	// through the standard protocol's read-only sample endpoint.
+	release := model.ProtocolRelease{TenantID: "tenant", ProtocolID: parser.StandardProtocolID, Version: "1.0.0", ParserType: parser.StandardParserName, Transport: "MQTT_HTTP", PayloadFormat: "json", Status: "DRAFT"}
+	if err = repo.CreateProtocolRelease(ctx, release); err != nil {
+		t.Fatal(err)
+	}
+	path := server.URL + "/api/v2/protocols/iot-standard/releases/1.0.0/preview"
+	now := time.Now().UnixMilli()
+	for _, tc := range []struct {
+		kind string
+		want model.MessageType
+		body map[string]any
+	}{
+		{"property", model.PropertyReport, map[string]any{"data": map[string]any{"temperature": 25}}},
+		{"event", model.EventReport, map[string]any{"event": "selfTest", "data": map[string]any{"result": "ok"}}},
+		{"alarm", model.AlarmReport, map[string]any{"data": map[string]any{"alarmType": "smoke"}}},
+		{"state", model.StateChange, map[string]any{"online": false}},
+		{"command-reply", model.CommandReply, map[string]any{"commandId": "preview-command", "success": true}},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			tc.body["id"], tc.body["timestamp"], tc.body["version"] = "sample", now, "1.0"
+			result := requestJSON(t, server.Client(), "POST", path, token, map[string]any{"messageKind": tc.kind, "payload": tc.body, "expected": map[string]any{"standardMessage": map[string]any{"messageType": tc.want}}}, 200)
+			if result["standardMessage"].(map[string]any)["messageType"] != string(tc.want) || result["comparison"].(map[string]any)["matched"] != true || result["release"].(map[string]any)["status"] != "DRAFT" {
+				t.Fatal(result)
+			}
+		})
+	}
+	requestJSON(t, server.Client(), "POST", path, token, map[string]any{"payload": map[string]any{"id": "missing-kind", "timestamp": now, "data": map[string]any{"temperature": 25}}}, 422)
+	requestJSON(t, server.Client(), "POST", path, token, map[string]any{"operation": "ingress", "chunks": []string{"AA"}}, 422)
+	archived := model.RawMessage{MessageID: "raw_standard_preview", TenantID: "tenant", ProductID: "archived-product", DeviceID: "archived-device", Protocol: parser.StandardProtocolID, ProtocolID: parser.StandardProtocolID, ProtocolVersion: "1.0.0", PayloadFormat: "json", Payload: json.RawMessage(fmt.Sprintf(`{"id":"sample","timestamp":%d,"data":{"alarmType":"smoke"}}`, now)), ReceivedAt: now, Headers: map[string]string{"messageKind": "alarm"}}
+	index, err := archive.PutRaw(ctx, archived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.SaveRawIndex(ctx, index); err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, server.Client(), "POST", path, token, map[string]any{"rawMessageId": archived.MessageID}, 200)
+	message := result["standardMessage"].(map[string]any)
+	if message["messageType"] != string(model.AlarmReport) || message["productId"] != archived.ProductID || message["deviceId"] != archived.DeviceID {
+		t.Fatal("archive kind or identity lost", result)
+	}
+	requestJSON(t, server.Client(), "POST", path, token, map[string]any{"rawMessageId": archived.MessageID, "messageKind": "property"}, 422)
+	indexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
+	alarms, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant"})
+	states, _ := repo.ListDeviceStates(ctx, "tenant")
+	products, _ := repo.ListProducts(ctx, "tenant")
+	stored, _ := repo.GetProtocolRelease(ctx, "tenant", release.ProtocolID, release.Version)
+	if len(indexes) != 1 || len(alarms) != 0 || len(states) != 0 || len(products) != 0 || stored.Status != "DRAFT" {
+		t.Fatal("standard preview produced business state")
+	}
+	if _, err = repo.GetStandardMessageByRaw(ctx, "tenant", archived.MessageID); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("standard preview persisted its result", err)
+	}
+	actualRaw, _ := archive.GetRaw(ctx, index)
+	if actualRaw.Headers["messageKind"] != "alarm" || !bytes.Equal(actualRaw.Payload, archived.Payload) {
+		t.Fatal("standard preview changed archive")
+	}
+}
+
 func TestUploadedProtocolLifecycle(t *testing.T) {
 	repo := memory.NewRepository()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -731,6 +952,10 @@ func TestUploadedProtocolLifecycle(t *testing.T) {
 	requestJSON(t, server.Client(), "POST", path+"/publish", token, map[string]any{}, 422)
 	requestJSON(t, server.Client(), "POST", path+"/preview", other, map[string]any{"payload": "bad"}, 404)
 	requestJSON(t, server.Client(), "POST", path+"/preview", token, map[string]any{"payload": "00 01", "startAddress": 0}, 422)
+	readOnly := requestJSON(t, server.Client(), "POST", path+"/preview", token, map[string]any{"payload": "00 01 00 00 00 05 01 03 02 00 FA", "startAddress": 0, "readOnly": true}, 200)
+	if readOnly["release"].(map[string]any)["status"] != "DRAFT" {
+		t.Fatal("simulation promoted a draft", readOnly)
+	}
 	result = requestJSON(t, server.Client(), "POST", path+"/preview", token, map[string]any{"payload": "00 01 00 00 00 05 01 03 02 00 FA", "startAddress": 0}, 200)
 	if result["standardMessage"].(map[string]any)["properties"].(map[string]any)["temperature"] != float64(25) {
 		t.Fatal(result)
@@ -851,7 +1076,6 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 		form := multipart.NewWriter(&body)
 		f, _ := form.CreateFormFile("file", "gb.zip")
 		_, _ = f.Write(packed.Bytes())
-		_ = form.WriteField("productId", "gb-product")
 		_ = form.WriteField("publish", "true")
 		_ = form.Close()
 		req, _ := http.NewRequest("POST", server.URL+"/api/v2/protocols/gb26875-dahua/source-releases", &body)
@@ -868,6 +1092,31 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 		}
 	}
 	upload("1.0.0", false, 201)
+	requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/products/gb-product/protocol-binding", token, map[string]any{"protocolId": "gb26875-dahua", "version": "1.0.0"}, 200)
+	// This test isolates the runtime's frame/ACK/version boundary. The HTTP
+	// trial and field-acceptance workflow is exercised by template tests.
+	switchVersion := func(version string) {
+		t.Helper()
+		product, err := repo.GetProduct(ctx, "tenant_001", "gb-product")
+		if err != nil {
+			t.Fatal(err)
+		}
+		release, err := repo.GetProtocolRelease(ctx, product.TenantID, "gb26875-dahua", version)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous, err := repo.GetProductProtocolBinding(ctx, product.TenantID, product.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg := legacyProtocolShim(release)
+		product.ProtocolPackageID = pkg.ID
+		binding := model.ProductProtocolBinding{TenantID: product.TenantID, ProductID: product.ID, ProtocolID: release.ProtocolID, Version: version, PreviousProtocolID: previous.ProtocolID, PreviousVersion: previous.Version, UpdatedAt: time.Now().UnixMilli()}
+		if err = repo.SwitchProductProtocol(ctx, model.ProtocolSwitch{Product: product, Package: pkg, Binding: binding, Expected: &previous}); err != nil {
+			t.Fatal(err)
+		}
+		engine.ProtocolsChanged(product.TenantID)
+	}
 	free, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -903,7 +1152,7 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 	defer conn.Close()
 	// Add a managed device through the unified service while reusing the live
 	// listener. The existing runtime below must accept it without re-registration.
-	onboardRequest := onboarding.EnrollRequest{RequestID: "gb-reuse", ProductID: "gb-product", Device: onboarding.EnrollDevice{ID: "gb26875_123456789012", Name: "GB onboarded"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeListener, ProfileID: profile.ID}}
+	onboardRequest := onboarding.EnrollRequest{Trial: true, RequestID: "gb-reuse", ProductID: "gb-product", Device: onboarding.EnrollDevice{ID: "gb26875_123456789012", Name: "GB onboarded"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeListener, ProfileID: profile.ID}}
 	if _, err = api.onboarding.Enroll(ctx, "tenant_001", onboardRequest); err != nil {
 		t.Fatal("reuse listener onboarding", err)
 	}
@@ -1003,6 +1252,7 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 	}
 	check("1.0.0", "Dahua")
 	upload("1.1.0", false, 201)
+	switchVersion("1.1.0")
 	_, _ = conn.Write(frame)
 	_ = readFrame(conn)
 	check("1.1.0", "Dahua-v2")
@@ -1010,7 +1260,7 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 	_, _ = conn.Write(frame)
 	_ = readFrame(conn)
 	check("1.1.0", "Dahua-v2")
-	requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/products/gb-product/protocol-binding/rollback", token, map[string]any{}, 200)
+	switchVersion("1.0.0")
 	_, _ = conn.Write(frame)
 	_ = readFrame(conn)
 	check("1.0.0", "Dahua")
@@ -1033,6 +1283,60 @@ type protocolDownloadFixtureV2 struct {
 	repo   *memory.Repository
 	root   string
 	token  string
+}
+
+type failedProtocolSwitchRepository struct{ ports.Repository }
+
+func (failedProtocolSwitchRepository) SwitchProductProtocol(context.Context, model.ProtocolSwitch) error {
+	return model.ErrBindingChanged
+}
+
+func TestSourcePublicationReportsLateBindingFailureWithoutLosingRelease(t *testing.T) {
+	if !protocolbuild.Available() {
+		t.Skip("Go compiler unavailable")
+	}
+	f := newProtocolDownloadFixtureV2(t)
+	f.api.engine.Repo = failedProtocolSwitchRepository{Repository: f.api.engine.Repo}
+	if err := f.repo.SaveProduct(context.Background(), model.Product{TenantID: "tenant_001", ID: "product", Status: "ENABLED"}); err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	file, _ := form.CreateFormFile("file", "protocol.go")
+	_, _ = file.Write([]byte(protocolbuild.FunctionTemplate))
+	for key, value := range map[string]string{"version": "1.0.0", "publish": "true", "productId": "product"} {
+		_ = form.WriteField(key, value)
+	}
+	_ = form.Close()
+	req, _ := http.NewRequest("POST", f.server.URL+"/api/v2/protocols/vendor-fire/source-releases", &body)
+	req.Header.Set("Authorization", "Bearer "+f.token)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	response, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result map[string]any
+	if err = json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 201 || result["binding"] != nil || result["bindingWarning"] == "" {
+		t.Fatalf("partial success hidden: status=%d result=%v", response.StatusCode, result)
+	}
+	steps := result["stepResults"].([]any)
+	if len(steps) != 2 || steps[0].(map[string]any)["status"] != "SUCCEEDED" || steps[1].(map[string]any)["status"] != "FAILED" {
+		t.Fatal(steps)
+	}
+	release, err := f.repo.GetProtocolRelease(context.Background(), "tenant_001", "vendor-fire", "1.0.0")
+	if err != nil || release.Status != "PUBLISHED" {
+		t.Fatal("published source was lost", release, err)
+	}
+	if _, err = os.Stat(filepath.Join(f.root, release.Artifact["packagePath"].(string))); err != nil {
+		t.Fatal("source artifact was removed", err)
+	}
+	if _, err = f.repo.GetProductProtocolBinding(context.Background(), "tenant_001", "product"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("failed binding persisted", err)
+	}
 }
 
 func newProtocolDownloadFixtureV2(t *testing.T) protocolDownloadFixtureV2 {

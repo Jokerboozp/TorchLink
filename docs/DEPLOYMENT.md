@@ -65,6 +65,20 @@ go run ./cmd/backup-service --env-file .env.local
 
 进程环境变量优先于环境文件；IDE 中的旧地址和密码可能覆盖 `.env.local`。macOS 调试需要 Delve 和系统“开发者工具访问”授权，停在 `debugserver` 时先检查授权窗口；服务就绪以 `http://localhost:8081/health/ready` 为准。
 
+### 本地 API 进程交接
+
+终端、IDE 与临时测试 API 不能同时使用相同监听端口和 MQTT 收件箱目录。启动提示 `MQTT inbox directory is used by another process` 或 `8081` 被占用时，先核对实际环境文件、`IOT_DATA_DIR`、`IOT_PROCESS_ROLE` 和 `IOT_INSTANCE_ID`，再定位原进程。macOS / Linux 可执行：
+
+```bash
+lsof -nP -iTCP:8081 -sTCP:LISTEN
+lsof ./data/mqtt-inbox/combined/inbox.lock
+ps -p <已确认的PID> -o pid,ppid,command
+```
+
+收件箱路径按实际配置替换；默认目录为 `<IOT_DATA_DIR>/mqtt-inbox/<角色>`，显式实例 ID 会再增加一层实例目录。Windows 可用 `Get-NetTCPConnection -LocalPort 8081 -State Listen` 查看 `OwningProcess`，再用 `Get-Process -Id <PID>` 核对进程。
+
+确认是需要交接的旧实例后，在原终端按 Ctrl+C 或停止 IDE 调试；无原终端时，macOS / Linux 可对该 PID 发送 `kill -TERM <PID>`。等待旧进程退出，再检查端口与锁持有者并启动新实例。锁由操作系统在进程退出时释放；**不要删除 `inbox.lock` 或收件箱数据**，删除锁文件可能让两个进程分别锁住不同文件。临时测试应使用隔离配置、数据目录及空闲端口，并在结束时正常退出；仅更换实例 ID 不能解决端口和其他资源冲突。基础依赖继续沿用，无需为交接重建容器。
+
 ## 在线部署
 
 在有网目标机的仓库根目录执行：
@@ -304,6 +318,8 @@ PostgreSQL 仓储启动时执行 `internal/adapters/postgres/schema.sql` 的幂�
 
 排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级两者后，迁移创建 `platform_fire_safety`，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
 
+设备接入草稿、批量任务、模板准备、验收及配置历史保存在 `onboarding_record`，同样随启动幂等迁移。接入升级应同步 API、Web 和拆分的 Gateway / Jobs 代码；批量执行由启用 Jobs 职责的进程恢复。流程见[设备接入](INTEGRATION.md#设备接入)，其持久记录不在设备数据导出的范围内。
+
 ### AI 与工作流
 
 本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。“最大输出词元”（128–8192，默认 2048）是智能助手单次回复的默认上限。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
@@ -366,7 +382,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 
 本地备份服务默认由源码调试进程提供；若使用临时容器版，执行 `setup-local` 时加 `--include-backup`，或在子命令前加 `--profile backup`。启用运维中心依赖时加 `--profile ops`。自定义项目名和配置路径时，上述命令也要使用相同参数。离线包的维护命令见 [离线部署说明](#离线部署)。
 
-摄像头直播媒体服务使用 profile `video`，默认启用。本地用 `setup-local.sh --video on|off`（PowerShell 为 `-Video on|off`）；虚拟机模式同时加 `--dependencies-only`。在线部署用 `--video on|off`，也可使用 `scripts/video-module.sh` / `video-module.ps1`，也可用它查看 `status`、`logs`（本地加 `--mode local` / `-Mode local`，离线加 `--mode offline`）。启用后 `COMPOSE_PROFILES` 包含 `video`，上面的 `ps`、`logs` 会一并列出 `zlmediakit`；网络、资源与排查见 [摄像头直播](PLATFORM.md#摄像头)。
+摄像头模块的开关见[摄像头部署](#摄像头部署)；`scripts/video-module.* status|logs` 支持相应环境的状态和日志查询。启用后 `COMPOSE_PROFILES` 包含 `video`，上述 `ps`、`logs` 会一并列出 `zlmediakit`。
 
 `down` 保留命名数据卷，`down -v` 会删除它们。日常代码更新重跑对应部署脚本；备份范围与调度见 [设备数据备份](#设备数据备份)。
 
@@ -527,6 +543,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 | 现象 | 检查入口 |
 | --- | --- |
 | 地址或密码似乎未生效 | IDE 进程变量优先；确认原环境文件、Compose 项目和已有数据库密码 |
+| API 端口或 MQTT 收件箱已被占用 | 按[进程交接](#本地-api-进程交接)核对并正常退出旧实例，不删除锁文件或数据 |
 | API 存活但业务不可用 | `/health/ready`、消费者积压、数据库及 `docker compose logs`；live 只表示进程存活 |
 | 镜像或制品哈希不符或缺失 | 在有网机器重做完整包，不在离线目标机拉取 |
 | Harness `RUNTIME_ERROR` | 用镜像内 `runtime-smoke.mjs` 检查运行用户依赖权限，再分别检查 Key、模型请求和 MCP 回调 |
@@ -537,7 +554,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
 
-设备日报和 `FULL` 均不包含账号、Provider/API Key、消防管理的 `platform_fire_safety`、Redis、消息队列、环境文件或整个 MinIO。消防管理资料和账号配置须纳入独立 PostgreSQL 数据库备份，凭据另行保管；设备导出及其隔离恢复不能代替这些备份。
+设备日报和 `FULL` 均不包含账号、Provider/API Key、设备模板与接入配置、设备凭据、消防管理的 `platform_fire_safety`，以及接入草稿、批量任务、验收和回滚历史所在的 `onboarding_record`；也不包含 Redis、消息队列、环境文件或整个 MinIO。这些业务配置与流程记录须纳入独立 PostgreSQL 数据库备份，协议源码及制品目录、环境配置和凭据另行保管；设备导出及其隔离恢复不能代替这些备份。
 
 - **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent 和会话。
 - **备份昨日数据**：按配置时区导出前一个自然日的数据。
@@ -582,7 +599,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
   | --- | --- | --- |
   | `parser` | 消费 `iot.raw.message`，解析并发布到内部业务流 `iot.device.business`（及对外 property/event/parsed 主题） | 原文积压、解析耗时 |
   | `processor` | 按设备顺序消费 `iot.device.business`：规则、告警、设备状态、完成标记、outbox 转发 | 业务流积压、数据库等待 |
-  | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试以数据库租约保证全集群只有一个实例执行，多实例互为备用；设备告警通知按消费组分摊，重复投递由 Alertmanager 去重 | 待执行量 |
+  | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试及批量接入恢复，按任务或资源租约协调执行；设备告警通知按消费组分摊，重复投递由 Alertmanager 去重 | 待执行量 |
 
   Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。告警研判由 API 进程按用户操作运行。
 - `IOT_INSTANCE_ID` 为实例名（默认主机名），用于指标、租约所有者和日志。显式设置后 MQTT 持久队列目录变为 `mqtt-inbox/<角色>/<实例>`；同一数据卷上运行同角色多副本时每个副本必须设置不同值。未设置时沿用旧目录，升级不会遗留未确认报文。
@@ -632,6 +649,6 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 
 ### 管理界面与用户范围
 
-「设备模板 → 接入点」管理 `DeviceAccessProfile` 软件连接配置；「主设备」标签管理现场设备台账；`cmd/iot-access-gateway` 是部署进程，三者含义不同。API 和 Gateway 都需要使用包含设备权限校验的同版代码，转发保留原用户身份，并在目标服务重新校验。
+设备模板准备页管理物模型、协议版本与公共连接，单台设备登记时填写专属连接参数；`DeviceAccessProfile` 是软件连接配置，`cmd/iot-access-gateway` 是部署进程。首台验收、批量复用、候选配置更新与回滚见[设备接入](INTEGRATION.md#设备接入)。API 和 Gateway 使用同版代码，转发保留原用户身份，并在目标服务重新校验。
 
 普通用户的全租户接入配置需要全部设备范围和相应菜单/按钮权限。指定设备用户的连接详情不暴露共享网关配置及其他设备会话。用户设备和告警范围见 [用户权限](PLATFORM.md#权限与设备范围)。

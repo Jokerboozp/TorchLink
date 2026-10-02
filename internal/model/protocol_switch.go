@@ -14,4 +14,21 @@ type ProtocolSwitch struct {
 	Binding ProductProtocolBinding
 	// Expected is the binding read before the switch; nil means there was none.
 	Expected *ProductProtocolBinding
+	// RequireUnused prevents a direct initial bind from racing with enrollment.
+	// Prepared and verified configuration switches do not set this flag.
+	RequireUnused bool
+	// Preparation changes the complete template configuration and its durable
+	// revision together. Nil retains the protocol-only internal operation.
+	Preparation *TemplateSwitch `json:"-"`
+}
+
+type TemplateSwitch struct {
+	// CreateProduct creates an isolated template within this same atomic switch.
+	// It rejects an existing identity instead of replacing an existing template.
+	CreateProduct    bool
+	ExpectedProduct  Product
+	ExpectedProfiles []DeviceAccessProfile
+	Profiles         []DeviceAccessProfile
+	Record           OnboardingRecord
+	ExpectedRevision int64
 }

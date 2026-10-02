@@ -16,35 +16,20 @@ export const diagnosisTagTypes = { success: 'success', info: 'info', warning: 'w
 export const usesPlatformIdentity = mode => mode === 'standard' || mode === 'managed'
 
 export function protocolOptions(catalog = []) {
-  const options = [{ id: STANDARD_PROTOCOL, name: '标准设备上报', transport: 'MQTT_HTTP' }]
+  const options = [{ id: STANDARD_PROTOCOL, name: '标准设备上报', transport: 'MQTT_HTTP', payloadFormat:'json' }]
   for (const item of catalog) {
     for (const release of item.releases || []) {
-      if (release.status === 'PUBLISHED') options.push({ id: `${item.definition.id}@${release.version}`, name: `${item.definition.name || item.definition.id} · ${release.version}`, transport: release.transport || '' })
+      if (release.status === 'PUBLISHED') options.push({ id: `${item.definition.id}@${release.version}`, name: `${item.definition.name || item.definition.id} · ${release.version}`, transport: release.transport || '', payloadFormat:release.payloadFormat || '' })
     }
   }
   return options
 }
 
-// 双通道协议需要在模板上选定一个默认通道。
-export function transportChoices(transport) {
-  if (transport === 'MQTT_HTTP') return ['MQTT', 'HTTP']
-  if (transport === 'TCP_UDP') return ['TCP', 'UDP']
-  return []
-}
-
 export function preflightQuery(draft) {
-  const query = new URLSearchParams()
-  if (draft.source === 'existing') query.set('productId', draft.productId)
-  else {
-    query.set('protocolPackageId', draft.newProduct.protocolPackageId)
-    if (draft.newProduct.transport) query.set('transport', draft.newProduct.transport)
-    if (draft.newProduct.category) query.set('category', draft.newProduct.category)
-  }
-  return query.toString()
+  return new URLSearchParams({ productId: draft.productId }).toString()
 }
 
-// connectionChoice 为 listener 模式的选择：已有接入点 ID、new（新建共享监听）或 dial（平台主动连接）。
-export function connectionMode(plan, choice) {
+function connectionMode(plan, choice) {
   if (plan?.mode !== 'listener') return plan?.mode || ''
   return choice === 'dial' ? 'dial' : 'listener'
 }
@@ -65,10 +50,7 @@ export function enrollRequest(draft, plan) {
   const mode = connectionMode(plan, c.choice)
   const connection = { mode }
   if (mode === 'standard' && c.transport) connection.transport = c.transport
-  if (mode === 'listener') {
-    if (c.choice === 'new') connection.listener = { network: c.network || plan.networks?.[0] || '', host: c.bindHost?.trim() || '', publicHost: c.publicHost.trim(), port: number(c.port) }
-    else connection.profileId = c.choice
-  }
+  if (mode === 'listener') connection.profileId = c.choice
   if (mode === 'dial' || mode === 'poll') {
     connection.host = c.host.trim()
     connection.port = number(c.port)
@@ -77,14 +59,7 @@ export function enrollRequest(draft, plan) {
       connection.timeoutMs = number(c.timeoutMs)
     }
   }
-  const body = { requestId: draft.requestId, device, connection }
-  if (draft.source === 'existing') body.productId = draft.productId
-  else {
-    const p = draft.newProduct
-    const metadata = Object.fromEntries(Object.entries({ manufacturer: p.manufacturer?.trim(), model: p.model?.trim() }).filter(([, value]) => value))
-    body.newProduct = { id: p.id.trim(), name: p.name.trim(), category: p.category, protocolPackageId: p.protocolPackageId, transport: p.transport || undefined, ...(Object.keys(metadata).length ? { metadata } : {}) }
-  }
-  return body
+  return { requestId: draft.requestId, productId: draft.productId, device, connection }
 }
 
 // 返回按“名称 / 值”排列的设备端配置，供页面展示和“复制全部”共用。
@@ -122,4 +97,52 @@ export function configurationText(result, accessInfo, credential) {
   const lines = [`设备：${result?.device?.name || ''}（${result?.device?.id || ''}）`, ...fieldConfiguration(result, accessInfo, credential).map(row => `${row.name}：${row.value}`)]
   if (accessInfo?.sample) lines.push('', '示例报文：', JSON.stringify(accessInfo.sample, null, 2))
   return lines.join('\n')
+}
+
+// 批量清单只接收设备身份及实例地址，不接受模板、租户或协议覆盖。
+export function parseDeviceRows(text, mode = '', deviceRole = 'DIRECT') {
+  const records = []
+  let row = [], field = '', quoted = false
+  for (let index = 0; index <= text.length; index++) {
+    const char = text[index] ?? '\n'
+    if (char === '"') { if (quoted && text[index + 1] === '"') { field += '"'; index++ } else quoted = !quoted }
+    else if (!quoted && (char === ',' || char === '\t')) { row.push(field.trim()); field = '' }
+    else if (!quoted && (char === '\n' || char === '\r')) {
+      row.push(field.trim()); field = ''
+      if (row.some(Boolean)) records.push(row)
+      row = []
+      if (char === '\r' && text[index + 1] === '\n') index++
+    } else field += char
+  }
+  if (quoted) throw new Error('CSV 引号未闭合，请检查清单')
+  if (records[0]?.[0]?.match(/^(设备编号|id|deviceId)$/i)) records.shift()
+  if (!records.length) throw new Error('请填写至少一台设备')
+  if (records.length > 1000) throw new Error('每次最多添加 1000 台设备')
+  const seen = new Set()
+  return records.map((cells, index) => {
+    const [id, name, description = '', host = '', port = '', unitId = '1'] = cells
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id || '')) throw new Error(`第 ${index + 1} 行设备编号无效`)
+    if (!name) throw new Error(`第 ${index + 1} 行缺少设备名称`)
+    if (seen.has(id)) throw new Error(`设备编号 ${id} 重复`)
+    seen.add(id)
+    const result = { device: { id, name, description, deviceRole:deviceRole==='GATEWAY'?'GATEWAY':'DIRECT' } }
+    if (mode === 'dial' || mode === 'poll') {
+      if (!host) throw new Error(`第 ${index + 1} 行缺少设备地址`)
+      const n = Number(port || (mode === 'poll' ? 502 : 0))
+      if (!Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`第 ${index + 1} 行端口无效`)
+      result.connection = { mode, host, port: n, ...(mode === 'poll' ? {unitId:Number(unitId),timeoutMs:3000} : {}) }
+      if (mode === 'poll' && (!Number.isInteger(Number(unitId)) || Number(unitId) < 0 || Number(unitId) > 255)) throw new Error(`第 ${index + 1} 行站号无效`)
+    }
+    return result
+  })
+}
+
+export function restoreEnrollDraft(request = {}) {
+  const c = request.connection || {}
+  return {
+    productId: request.productId || '', requestId: request.requestId || '',
+    device: {id:request.device?.id || '',name:request.device?.name || '',role:request.device?.deviceRole || 'DIRECT',description:request.device?.description || ''},
+    labels: Object.entries(request.device?.tags || {}).filter(([key])=>!/(secret|token|password|access.?key|密钥|令牌|密码)/i.test(key)).map(([key,value])=>({key,value})),
+    connection: {choice:c.mode==='dial'?'dial':c.profileId || '',transport:c.transport || '',host:c.host || '',port:c.port || null,unitId:c.unitId ?? 1,timeoutMs:c.timeoutMs ?? 3000}
+  }
 }

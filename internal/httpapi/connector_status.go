@@ -274,9 +274,10 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 			ingest["stage"] = "PARSED"
 			ingest["standardMessage"] = standard
 		}
-		if idx.ReceivedAt < time.Now().Add(-15*time.Minute).UnixMilli() {
+		rules := onboarding.ProductVerificationRules(p)
+		if rules.MaxGapSeconds > 0 && idx.ReceivedAt < time.Now().Add(-time.Duration(rules.MaxGapSeconds)*time.Second).UnixMilli() {
 			ingest["stale"] = true
-		} else if ingest["parsed"] == true && parsedCount >= 2 {
+		} else if ingest["parsed"] == true && parsedCount >= rules.MinMessages {
 			ingest["continuouslyUpdating"] = true
 		}
 	}
@@ -363,6 +364,9 @@ func (s *Server) connectionDiagnosis(ctx context.Context, tenant string, d model
 		IsChild:         isChild,
 		ParentVisible:   parentVisible,
 		Profile:         profile,
+	}
+	if verification, err := s.onboarding.VerifyDevice(ctx, tenant, d.ID); err == nil {
+		in.Verification = &verification
 	}
 	address := s.cfg.DeviceHTTPPublicURL
 	if d.Connector == "MQTT" {

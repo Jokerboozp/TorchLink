@@ -378,10 +378,13 @@ func (r *Repository) GetProductProtocolBinding(ctx context.Context, tenant, prod
 	}
 	return v, err
 }
-func (r *Repository) SaveDeviceAccessProfile(ctx context.Context, v model.DeviceAccessProfile) error {
+func (r *Repository) SaveDeviceAccessProfile(ctx context.Context, v model.DeviceAccessProfile, options ...model.AccessProfileSaveOptions) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
+	}
+	if len(options) > 0 && options[0].GuardTemplate {
+		return r.saveGuardedAccessProfile(ctx, v, b)
 	}
 	_, err = r.pool.Exec(ctx, `INSERT INTO device_access_profile(tenant_id,id,device_id,product_id,enabled,body) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,id) DO UPDATE SET device_id=excluded.device_id,product_id=excluded.product_id,enabled=excluded.enabled,body=excluded.body,updated_at=now()`, v.TenantID, v.ID, v.DeviceID, v.ProductID, v.Enabled, b)
 	return err

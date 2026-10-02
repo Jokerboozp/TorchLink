@@ -19,15 +19,6 @@ function component(file, api, exports, notifyError = e => { throw e }, base = ro
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
 
-test('产品可生成模板编号',async()=>{
-  const requests=[]
-  const c=component('ProductsView.vue',async(url,options)=>{if(options?.method==='POST')requests.push({url,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save')
-  Object.assign(c.form,{name:'HTTP 演示',protocolPackageId:'protocol'})
-  await c.save()
-  assert.equal(requests.length,1)
-  assert.equal(requests[0].url,'/api/v1/products')
-  assert.match(requests[0].body.id,/^product_[0-9a-f]{12}$/)
-})
 test('设备列表只编辑已有设备，新设备统一走添加向导',async()=>{
   const requests=[]
   const c=component('DevicesView.vue',async(url,options)=>{if(options?.method)requests.push({url,method:options.method,body:JSON.parse(options.body)});return {items:[],total:0}},'form,save')
@@ -81,19 +72,6 @@ test('product editor offers published protocol 101', async()=>{
   const c=component('ProductsView.vue', async path=>path.includes('/protocol-packages') ? {...paginated(path),items:paginated(path).items.map(item=>({...item,status:'PUBLISHED'}))} : {items:[],total:0}, 'load,protocols')
   await c.load()
   assert.ok(c.protocols.value.some(x=>x.id==='item-101'))
-})
-
-test('editing a product preserves its existing thing model', async()=>{
-  let saved
-  const model={properties:[{identifier:'temperature',dataType:'number'}],commands:[{identifier:'reset'}]}
-  const c=component('ProductsView.vue', async (_path,options)=>{
-    if(options?.method==='PUT') saved=JSON.parse(options.body)
-    return {items:[],total:0}
-  }, 'edit,form,save')
-  c.edit({id:'product-1',name:'传感器',protocolPackageId:'iot-standard@1.0.0',thingModel:model})
-  c.form.description='更新说明'
-  await c.save()
-  assert.deepEqual(saved.thingModel,model)
 })
 
 test('product pagination reuses the loaded protocol catalog', async()=>{

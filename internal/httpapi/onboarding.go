@@ -20,6 +20,10 @@ func (s *Server) publicAddresses() onboarding.PublicAddresses {
 }
 
 func enrollProblem(w http.ResponseWriter, err error) {
+	if errors.Is(err, model.ErrOnboardingChanged) {
+		problem(w, 409, "设备模板配置或验收记录已变化，请重新预检")
+		return
+	}
 	var e *onboarding.EnrollError
 	if errors.As(err, &e) {
 		problem(w, e.Status, e.Message)
@@ -61,6 +65,25 @@ func (s *Server) onboardingEnroll(w http.ResponseWriter, r *http.Request) {
 	if q.NewProduct != nil && !requestAllows(r, "POST", "/api/v1/products") {
 		problem(w, 403, "当前账号不能新建设备模板，请选择已有模板")
 		return
+	}
+	if q.Trial && !requestAllows(r, "PUT", "/api/v1/products/:id") {
+		problem(w, 403, "首台验证需要设备模板配置权限")
+		return
+	}
+	if q.NewProduct == nil && !q.Trial {
+		_, ready, err := s.onboarding.TemplateReadiness(r.Context(), claims(r).TenantID, q.ProductID)
+		if errors.Is(err, model.ErrNotFound) {
+			problem(w, 422, "设备模板不存在或当前账号无权查看")
+			return
+		}
+		if err != nil {
+			enrollProblem(w, err)
+			return
+		}
+		if !ready {
+			problem(w, 409, "该模板尚未通过首台实机验证，请由模板工作人员完成验证后再登记同类设备")
+			return
+		}
 	}
 	if q.Connection.Listener != nil && !requestAllows(r, "POST", "/api/v2/device-access-profiles") {
 		problem(w, 403, "当前账号不能新建平台接入点，请选择已有接入点")

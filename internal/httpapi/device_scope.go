@@ -319,6 +319,11 @@ func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) allowScopedRequest(c *gin.Context, v deviceScope) bool {
 	path := c.FullPath()
+	// Each draft handler resolves its owner and checks the stored draft kind's
+	// exact permissions and raw account scope before exposing any body.
+	if strings.HasPrefix(path, "/api/v1/onboarding/drafts") {
+		return true
+	}
 	ctx := c.Request.Context()
 	t := v.Tenant
 	if strings.HasPrefix(path, "/api/v1/device-registry/:id") || strings.HasPrefix(path, "/api/v1/discovered-devices/:id") {
@@ -339,6 +344,9 @@ func (s *Server) allowScopedRequest(c *gin.Context, v deviceScope) bool {
 		}
 	}
 	if !v.All {
+		if strings.Contains(path, "/products/:id/preparation") || path == "/api/v1/products/:id/verification" {
+			return false
+		}
 		// Tenant-wide jobs and configuration can expose other devices. Their menus
 		// are also removed from the effective permission list.
 		// Adding devices is limited to users who can see every device.

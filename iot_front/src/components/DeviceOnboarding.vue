@@ -1,87 +1,107 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, apiAll, formatTime, session } from '../api'
-import { can } from '../permissions'
 import { createClientId } from '../clientId'
-import { categories } from '../labels'
 import { statusLabel, transportLabel } from '../presentation'
 import { UiMessage } from '../ui/feedback.js'
 import { CheckCircle2, CircleDashed, Copy, XCircle } from '@lucide/vue'
-import ProtocolAssistantView from '../views/ProtocolAssistantView.vue'
-import { configurationText, diagnosisTagTypes, enrollRequest, fieldConfiguration, modeLabels, preflightQuery, protocolOptions, transportChoices, usesPlatformIdentity } from '../onboardingPlan'
+import OnboardingDiagnosis from './OnboardingDiagnosis.vue'
+import { configurationText, enrollRequest, fieldConfiguration, modeLabels, preflightQuery, usesPlatformIdentity, restoreEnrollDraft } from '../onboardingPlan'
 
-const emit = defineEmits(['close', 'done', 'navigate', 'detail'])
+const props = defineProps({ initialProductId: {type:String,default:''}, draftId:{type:String,default:''}, trial:Boolean })
+const emit = defineEmits(['close', 'done', 'navigate', 'detail', 'enrolled'])
 const steps = [
-  { title: '选择型号', hint: '确定模板和接入方式' },
+  { title: '选择设备模板', hint: '复用已验证的接入配置' },
   { title: '设备与连接', hint: '填写编号和连接参数' },
   { title: '现场配置与验证', hint: '设备上报并确认结果' }
 ]
 const randomId = prefix => `${prefix}_${createClientId().replaceAll('-', '').slice(0, 12)}`
-const blankConnection = () => ({ choice: '', transport: '', network: '', port: null, publicHost: '', bindHost: '', host: '', unitId: 1, timeoutMs: 3000 })
+const blankConnection = () => ({ choice: '', transport: '', port: null, host: '', unitId: 1, timeoutMs: 3000 })
 const fresh = () => ({
-  step: 0, source: 'existing', productId: '',
-  newProduct: { id: randomId('product'), name: '', category: 'other', protocolPackageId: '', transport: '', manufacturer: '', model: '' },
+  step: 0, productId: '',
   device: { id: '', name: '', role: '', description: '' }, labels: [], connection: blankConnection(),
   requestId: createClientId(), result: null, checkSince: 0
 })
 const draft = reactive(fresh())
-const products = ref([]), protocols = ref([]), loading = ref(false), loadError = ref('')
+const products = ref([]), loading = ref(false), loadError = ref('')
 const preflight = ref(null), checking = ref(false), preflightError = ref('')
 const saving = ref(false), saveError = ref('')
 // 设备密钥只保存在内存中，刷新页面或离开向导后不可再读取。
 const credential = ref(null)
 const status = ref(null), statusError = ref(''), statusAt = ref(0), refreshing = ref(false)
-const protocolHelper = ref(false)
+const serverDraftId = ref(props.draftId || createClientId()), draftRevision = ref(0), draftSaving = ref(false), draftError = ref(''), draftSavedAt = ref(0)
+const draftWaiters=[]
+const identityToken = session.token
+const activeIdentity = () => !disposed && session.token === identityToken
+let draftTimer = 0, draftReady = false, draftDirty = false, disposed = false
+const draftSteps = ['template','connection','verify']
+async function saveDraft() {
+  if (!draftReady || !activeIdentity()) return
+  draftDirty = true
+  if (draftSaving.value) return new Promise(resolve=>draftWaiters.push(resolve))
+  draftSaving.value = true
+  try {
+    while (draftDirty && activeIdentity()) {
+      draftDirty = false
+      const request = enrollRequest(draft, plan.value || {mode:''})
+      request.trial = props.trial
+      request.device.tags = Object.fromEntries(Object.entries(request.device.tags || {}).filter(([key])=>!/(secret|token|password|access.?key|密钥|令牌|密码)/i.test(key)))
+      const record = await api(`/api/v1/onboarding/drafts/${encodeURIComponent(serverDraftId.value)}`, {method:'PUT',body:JSON.stringify({revision:draftRevision.value,step:draftSteps[draft.step],productId:draft.productId,request})})
+      draftRevision.value=record.revision; draftSavedAt.value=record.updatedAt; draftError.value='';persist()
+    }
+  } catch(cause) { draftDirty=false;draftError.value=cause.message || '草稿保存失败'; if(cause.status===409) draftReady=false }
+  finally {draftSaving.value=false;draftWaiters.splice(0).forEach(resolve=>resolve())}
+}
+async function restoreServerDraft(id = props.draftId || serverDraftId.value) {
+  if (!id) return
+  const record=await api(`/api/v1/onboarding/drafts/${encodeURIComponent(id)}`)
+  if (!activeIdentity()) return
+  const body=typeof record.body==='string'?JSON.parse(record.body):record.body
+  Object.assign(draft,fresh(),restoreEnrollDraft(body?.request || {}))
+  draft.requestId ||= createClientId(); draft.step=Math.max(0,draftSteps.indexOf(body?.step)); draftRevision.value=record.revision;draftSavedAt.value=record.updatedAt;draft.checkSince=record.createdAt
+  if(draft.step===2 && draft.device.id) draft.result={device:{id:draft.device.id,name:draft.device.name},product:{id:draft.productId},mode:body?.request?.connection?.mode}
+}
 
-const storageKey = () => `iot:device-onboarding:v2:${session.tenant}:${session.user}`
+const storageKey = () => `iot:device-onboarding:v3:${session.tenant}:${session.user}:${props.trial ? props.initialProductId : 'daily'}`
 const product = computed(() => products.value.find(item => item.id === draft.productId))
 const plan = computed(() => preflight.value?.plan || null)
 const mode = computed(() => plan.value?.mode === 'listener' && draft.connection.choice === 'dial' ? 'dial' : plan.value?.mode || '')
-const category = computed(() => draft.source === 'existing' ? product.value?.category : draft.newProduct.category)
-const templateName = computed(() => draft.source === 'existing' ? product.value?.name || draft.productId : draft.newProduct.name.trim() || '新型号')
-const selectedProtocol = computed(() => protocols.value.find(item => item.id === draft.newProduct.protocolPackageId))
-const templateTransports = computed(() => transportChoices(selectedProtocol.value?.transport))
-const canCreateTemplate = computed(() => can('POST /api/v1/products'))
-const canCreateListener = computed(() => can('POST /api/v2/device-access-profiles'))
+const category = computed(() => product.value?.category)
+const templateName = computed(() => product.value?.name || draft.productId)
+// 公共监听由模板准备统一管理，单台登记只选择已有连接或实例地址。
 const listeners = computed(() => preflight.value?.profiles || [])
-const canContinue = computed(() => Boolean(preflight.value?.ready) && !checking.value && (draft.source === 'existing' ? Boolean(product.value) : Boolean(draft.newProduct.name.trim())))
+const canContinue = computed(() => Boolean(preflight.value?.ready) && !checking.value && Boolean(product.value))
 const liveProfile = computed(() => status.value?.profile || draft.result?.profile || null)
 const accessInfo = computed(() => status.value?.accessInfo || draft.result?.accessInfo || null)
 const configuration = computed(() => fieldConfiguration({ ...draft.result, profile: liveProfile.value }, accessInfo.value, credential.value))
 // 密钥只在上方提示框中显示一次；“复制全部”仍包含它。
 const visibleConfiguration = computed(() => configuration.value.filter(row => row.name !== 'Secret' && !(credential.value && row.name === 'AccessKey')))
-const diagnosis = computed(() => status.value?.diagnosis || null)
-const checkIcons = { passed: CheckCircle2, waiting: CircleDashed, failed: XCircle }
-const checkStates = { passed: '通过', waiting: '等待', failed: '未通过' }
-const values = computed(() => Object.entries(status.value?.ingest?.standardMessage?.properties || {}).map(([id, value]) => {
-  const field = status.value?.product?.thingModel?.properties?.find(item => item.identifier === id)
-  return { name: field?.name || id, unit: field?.unit || '', value: typeof value === 'object' ? JSON.stringify(value) : String(value) }
-}))
 
 function usableListener(profile) { return profile.enabled && Boolean(profile.publicHost) && (plan.value?.networks || []).includes(profile.network) }
 function listenerLabel(profile) { return `${profile.publicHost || '未配置对外地址'}:${profile.port}` }
 
 function persist() {
-  const saved = JSON.parse(JSON.stringify(draft))
+  if (!activeIdentity()) return
+  const saved = {...JSON.parse(JSON.stringify(draft)),serverDraftId:serverDraftId.value,draftRevision:draftRevision.value}
   saved.labels = saved.labels.filter(row => !/(secret|token|password|access.?key|密钥|令牌|密码)/i.test(row.key || ''))
   try { localStorage.setItem(storageKey(), JSON.stringify(saved)) } catch { /* 存储不可用时只影响草稿恢复。 */ }
 }
 function restore() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey()) || 'null')
-    if (saved && typeof saved === 'object' && saved.requestId) Object.assign(draft, fresh(), saved, { connection: { ...blankConnection(), ...saved.connection } })
+    if (saved && typeof saved === 'object' && saved.requestId) { const {serverDraftId:id,draftRevision:revision,...value}=saved;Object.assign(draft,fresh(),value,{connection:{...blankConnection(),...value.connection}});if(id){serverDraftId.value=id;draftRevision.value=Number(revision || 0)} }
   } catch { forget() }
 }
 function forget() { try { localStorage.removeItem(storageKey()) } catch { /* 忽略存储错误。 */ } }
-watch(draft, persist, { deep: true })
+watch(draft, () => { persist(); if(draftReady){clearTimeout(draftTimer);draftTimer=setTimeout(saveDraft,700)} }, {deep:true})
 watch(() => draft.step, async () => { await nextTick(); document.querySelector('.app-content')?.scrollTo({ top: 0 }) })
 
 async function load() {
   loading.value = true; loadError.value = ''
   try {
-    const [productData, catalog] = await Promise.all([apiAll('/api/v1/products'), api('/api/v2/protocols')])
-    products.value = productData.items || []
-    protocols.value = protocolOptions(catalog.items || [])
+    const productData = await apiAll('/api/v1/products')
+    if (!activeIdentity()) return
+    products.value = (productData.items || []).filter(item => props.trial ? item.id===props.initialProductId : item.reusable === true)
     if (draft.step < 2) await runPreflight()
     else await refreshStatus()
   } catch (cause) { loadError.value = cause.message || '读取设备模板失败' }
@@ -92,11 +112,11 @@ let preflightVersion = 0
 async function runPreflight() {
   const version = ++preflightVersion
   preflight.value = null; preflightError.value = ''
-  if (draft.source === 'existing' ? !draft.productId : !draft.newProduct.protocolPackageId) { checking.value = false; return }
+  if (!draft.productId) { checking.value = false; return }
   checking.value = true
   try {
     const result = await api(`/api/v1/onboarding/preflight?${preflightQuery(draft)}`)
-    if (version !== preflightVersion) return
+    if (version !== preflightVersion || !activeIdentity()) return
     preflight.value = result
     prepareConnection(result.plan)
   } catch (cause) { if (version === preflightVersion) preflightError.value = cause.message || '接入预检失败' }
@@ -106,30 +126,15 @@ function prepareConnection(p) {
   const c = draft.connection
   if (p.mode === 'standard' && !['MQTT', 'HTTP'].includes(c.transport)) c.transport = p.connector
   if (p.mode === 'listener') {
-    if (!(p.networks || []).includes(c.network)) c.network = p.networks?.[0] || ''
-    const known = c.choice === 'new' || (c.choice === 'dial' && p.dial) || listeners.value.some(item => item.id === c.choice)
-    if (!known) c.choice = listeners.value.find(usableListener)?.id || (canCreateListener.value ? 'new' : p.dial ? 'dial' : '')
+    const known = (c.choice === 'dial' && p.dial) || listeners.value.some(item => item.id === c.choice)
+    if (!known) c.choice = listeners.value.find(usableListener)?.id || (p.dial ? 'dial' : '')
   } else c.choice = ''
   if (p.mode === 'poll' && !c.port) c.port = 502
 }
-function selectSource(value) {
-  if (value === 'new' && !canCreateTemplate.value) return UiMessage.warning('当前账号不能新建设备模板，请选择已有型号')
-  draft.source = value
-  draft.connection = blankConnection()
-  runPreflight()
-}
 function chooseProduct() { draft.connection = blankConnection(); runPreflight() }
-function chooseProtocol() {
-  draft.newProduct.transport = transportChoices(selectedProtocol.value?.transport)[0] || ''
-  draft.connection = blankConnection()
-  runPreflight()
-}
-// 模板通道决定新设备默认的上报通道。
-function changeTemplateTransport() { draft.connection.transport = ''; runPreflight() }
 function next() {
-  if (!preflight.value) return UiMessage.warning('请先选择设备型号')
-  if (!preflight.value.ready) return UiMessage.warning(plan.value?.reason || '该型号暂不能添加设备')
-  if (draft.source === 'new' && !draft.newProduct.name.trim()) return UiMessage.warning('请填写新型号的模板名称')
+  if (!preflight.value) return UiMessage.warning('请先选择设备模板')
+  if (!preflight.value.ready) return UiMessage.warning(plan.value?.reason || '该设备模板暂不能添加设备')
   if (!draft.device.role) draft.device.role = category.value === 'gateway' ? 'GATEWAY' : 'DIRECT'
   draft.step = 1
 }
@@ -140,9 +145,7 @@ function validate() {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(draft.device.id.trim())) return '设备编号须为 1 至 128 位字母、数字、点、横线或下划线，且以字母或数字开头'
   const c = draft.connection
   if (mode.value === 'listener') {
-    if (!c.choice) return '请选择接入点，或新建共享监听'
-    if (c.choice === 'new' && !c.publicHost.trim()) return '请填写现场设备可访问的平台对外地址'
-    if (c.choice === 'new' && !validPort(c.port)) return '请填写 1 至 65535 之间的监听端口'
+    if (!c.choice || c.choice === 'new') return '请选择模板已有的公共连接'
   }
   if (mode.value === 'dial' || mode.value === 'poll') {
     if (!c.host.trim()) return '请填写平台可以访问的设备 IP 或域名'
@@ -157,11 +160,14 @@ async function submit() {
   if (problem) return UiMessage.warning(problem)
   saving.value = true; saveError.value = ''
   try {
-    const result = await api('/api/v1/onboarding', { method: 'POST', body: JSON.stringify(enrollRequest(draft, plan.value)) })
+    const result = await api('/api/v1/onboarding', { method: 'POST', body: JSON.stringify({...enrollRequest(draft, plan.value), trial:props.trial}) })
+    if (!activeIdentity()) return
     credential.value = result.credential?.secret ? result.credential : null
     draft.result = { device: result.device, product: { id: result.product?.id, name: result.product?.name }, mode: result.mode, profile: result.profile || null, accessInfo: result.accessInfo || null, reused: Boolean(result.reused) }
     draft.checkSince = Number(result.device?.createdAt || Date.now())
     draft.step = 2
+    emit('enrolled', result.device)
+    await saveDraft()
     status.value = null
     if (result.reused) UiMessage.info('这台设备此前已添加，已恢复接入信息；设备密钥只在首次创建时显示。')
     await refreshStatus()
@@ -177,7 +183,7 @@ async function refreshStatus() {
   refreshing.value = true
   try {
     const data = await api(`/api/v1/device-registry/${encodeURIComponent(id)}/connection?since=${encodeURIComponent(draft.checkSince || Date.now())}`)
-    if (version !== statusVersion) return
+    if (version !== statusVersion || !activeIdentity()) return
     status.value = data; statusError.value = ''; statusAt.value = Date.now()
   } catch (cause) { if (version === statusVersion) statusError.value = cause.message || '读取接入状态失败' }
   finally { if (version === statusVersion) refreshing.value = false }
@@ -204,89 +210,58 @@ async function copy(text, message = '已复制') {
 }
 function copyAll() { copy(configurationText(draft.result, accessInfo.value, credential.value), '接入信息已复制') }
 function openRaw() { persist(); emit('navigate', 'raw', { deviceId: draft.result.device.id, rawMessageId: status.value?.ingest?.rawMessageId }) }
-function addAnother() {
+async function addAnother() {
+  await saveDraft();if(draftError.value || !activeIdentity())return
+  serverDraftId.value=createClientId();draftRevision.value=0;draftSavedAt.value=0
   const result = draft.result
   const choice = result?.mode === 'listener' && result.profile?.id ? result.profile.id : ''
-  Object.assign(draft, { step: 1, source: 'existing', productId: result?.product?.id || draft.productId, device: { id: '', name: '', role: draft.device.role, description: '' }, labels: [], connection: { ...blankConnection(), choice, transport: draft.connection.transport }, requestId: createClientId(), result: null, checkSince: 0 })
+  Object.assign(draft, { step: 1, productId: result?.product?.id || draft.productId, device: { id: '', name: '', role: draft.device.role, description: '' }, labels: [], connection: { ...blankConnection(), choice, transport: draft.connection.transport }, requestId: createClientId(), result: null, checkSince: 0 })
   credential.value = null; status.value = null; saveError.value = ''
   load()
 }
-function close() { if (draft.step === 2) forget(); emit('close') }
-function finish() { forget(); emit('done') }
+async function reloadDraft() { draftReady=false;clearTimeout(draftTimer);try{await restoreServerDraft();await load();if(activeIdentity()){draftError.value='';draftReady=true}}catch(cause){draftError.value=cause.message} }
+async function saveBeforeLeave(){clearTimeout(draftTimer);await saveDraft();if(draftError.value)throw new Error(draftError.value)}
+defineExpose({saveBeforeLeave})
+async function close() { clearTimeout(draftTimer);await saveDraft();if(!draftError.value)emit('close') }
+async function finish() { clearTimeout(draftTimer);await saveDraft();if(!draftError.value){forget();emit('done')} }
 function openDetail() { const id = draft.result?.device?.id; forget(); emit('detail', id) }
 function restart() { forget(); Object.assign(draft, fresh()); credential.value = null; status.value = null; preflight.value = null; saveError.value = ''; preflightError.value = '' }
-async function protocolSaved() { await load() }
+
 function navigate(page) { persist(); emit('navigate', page) }
 
-onMounted(() => { restore(); load(); window.addEventListener('iot:realtime', realtime); schedulePolling() })
-onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.removeEventListener('iot:realtime', realtime) })
+onMounted(async () => { try {if(props.draftId) await restoreServerDraft();else {restore();if(props.initialProductId && draft.productId!==props.initialProductId){serverDraftId.value=createClientId();draftRevision.value=0;draftSavedAt.value=0;Object.assign(draft,fresh(),{productId:props.initialProductId})}} if(draft.step<2 && !props.trial && !props.draftId)draft.step=0; await load(); if(!activeIdentity())return;if(props.trial && draft.step===0 && canContinue.value)next();if(draft.result?.device?.id)emit('enrolled',draft.result.device);draftReady=true;window.addEventListener('iot:realtime', realtime);schedulePolling()} catch(cause){loadError.value=cause.message} })
+onBeforeUnmount(() => { disposed=true;preflightVersion++;statusVersion++;credential.value=null;clearTimeout(draftTimer);stopPolling(); clearTimeout(realtimeTimer); window.removeEventListener('iot:realtime', realtime) })
 </script>
 
 <template>
   <section class="onboarding">
-    <header class="onboarding__header">
+    <header v-if="!props.trial" class="onboarding__header">
       <div>
-        <h2>添加设备</h2>
-        <p>选择型号，填写设备编号和连接方式，再按提示在现场设备上完成配置并确认数据。</p>
+        <h2>{{ props.trial ? '首台设备验证' : '添加设备' }}</h2>
+        <p>选择设备模板，填写设备编号和连接方式，再按提示在现场设备上完成配置并确认数据。</p>
       </div>
       <div class="onboarding__header-actions">
         <ui-button v-if="draft.step < 2" @click="restart">重新开始</ui-button>
-        <ui-button @click="close">返回设备列表</ui-button>
+        <ui-button :loading="draftSaving" @click="close">保存并返回</ui-button>
       </div>
     </header>
 
-    <ol class="onboarding__steps" aria-label="添加设备进度">
+    <ol v-if="!props.trial" class="onboarding__steps" aria-label="添加设备进度">
       <li v-for="(item, index) in steps" :key="item.title" :class="{ 'is-active': draft.step === index, 'is-done': draft.step > index }" :aria-current="draft.step === index ? 'step' : undefined">
         <span class="onboarding__step-number">{{ index + 1 }}</span>
         <span class="onboarding__step-copy"><strong>{{ item.title }}</strong><small>{{ item.hint }}</small></span>
       </li>
     </ol>
 
+    <p v-if="draftSavedAt" class="onboarding__muted">草稿已保存 · {{ formatTime(draftSavedAt) }}</p><ui-alert v-if="draftError" :title="draftError" type="warning" :closable="false" /><ui-button v-if="draftError && !draftReady" size="small" @click="reloadDraft">重新加载服务器草稿</ui-button><ui-button v-if="draftError && draftReady" size="small" @click="saveDraft">重试保存草稿</ui-button>
     <ui-alert v-if="loadError" class="onboarding__alert" :title="loadError" type="error" :closable="false" show-icon />
 
-    <!-- 第 1 步：型号与接入方式 -->
     <section v-if="draft.step === 0" class="onboarding__card" aria-labelledby="onboarding-step-template">
-      <h3 id="onboarding-step-template" class="onboarding__title">这台设备是什么型号？</h3>
-      <ui-radio-group :model-value="draft.source" class="segmented-choice-group" aria-label="型号来源" @update:model-value="selectSource">
-        <ui-radio-button value="existing">已有型号</ui-radio-button>
-        <ui-radio-button value="new" :disabled="!canCreateTemplate" :title="canCreateTemplate ? '' : '当前账号不能新建设备模板'">新型号</ui-radio-button>
-      </ui-radio-group>
-
-      <div v-if="draft.source === 'existing'" class="onboarding__fields">
-        <ui-form-item label="设备模板" required>
-          <ui-select v-model="draft.productId" filterable placeholder="按名称选择设备模板" aria-label="设备模板" :loading="loading" @change="chooseProduct">
-            <ui-option v-for="item in products" :key="item.id" :value="item.id" :label="`${item.name || item.id}${item.status === 'ENABLED' ? '' : '（未启用）'}`" :disabled="item.status !== 'ENABLED'" />
-          </ui-select>
-        </ui-form-item>
-        <p v-if="!loading && !products.length" class="onboarding__muted">还没有设备模板。<ui-button v-if="canCreateTemplate" link type="primary" @click="selectSource('new')">新建型号</ui-button></p>
-      </div>
-
-      <div v-else class="onboarding__fields">
-        <div class="onboarding__grid">
-          <ui-form-item label="模板名称" required><ui-input v-model="draft.newProduct.name" maxlength="256" placeholder="例如 厂商 + 型号" aria-label="模板名称" /></ui-form-item>
-          <ui-form-item label="设备分类">
-            <ui-select v-model="draft.newProduct.category" aria-label="设备分类" @change="runPreflight"><ui-option v-for="(text, key) in categories" :key="key" :value="key" :label="text" /></ui-select>
-          </ui-form-item>
-          <ui-form-item label="通信协议" required>
-            <ui-select v-model="draft.newProduct.protocolPackageId" filterable placeholder="选择已发布的协议版本" aria-label="通信协议" @change="chooseProtocol"><ui-option v-for="item in protocols" :key="item.id" :value="item.id" :label="item.name" /></ui-select>
-          </ui-form-item>
-          <ui-form-item v-if="templateTransports.length" label="上报通道">
-            <ui-radio-group v-model="draft.newProduct.transport" class="segmented-choice-group" aria-label="上报通道" @change="changeTemplateTransport"><ui-radio-button v-for="item in templateTransports" :key="item" :value="item">{{ item }}</ui-radio-button></ui-radio-group>
-          </ui-form-item>
-        </div>
-        <details class="onboarding__more">
-          <summary>型号信息与模板标识（选填）</summary>
-          <div class="onboarding__grid">
-            <ui-form-item label="厂商"><ui-input v-model="draft.newProduct.manufacturer" /></ui-form-item>
-            <ui-form-item label="型号"><ui-input v-model="draft.newProduct.model" /></ui-form-item>
-            <ui-form-item label="模板标识"><ui-input v-model="draft.newProduct.id" placeholder="创建后不可修改" /></ui-form-item>
-          </div>
-        </details>
-        <div class="onboarding__hint-row">
-          <span>找不到匹配的协议？可以用报文或点表生成，复杂协议在协议页面上传 Go 源码。</span>
-          <ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" size="small" @click="protocolHelper = true">生成协议</ui-button>
-          <ui-button v-permission="'menu:protocols'" size="small" @click="navigate('protocols')">前往协议页面</ui-button>
-        </div>
+      <h3 id="onboarding-step-template" class="onboarding__title">这台设备使用哪个模板？</h3>
+      <div class="onboarding__fields">
+        <ui-form-item label="设备模板" required><ui-select v-model="draft.productId" filterable :disabled="props.trial" placeholder="选择已经验证的设备模板" :loading="loading" @change="chooseProduct"><ui-option v-for="item in products" :key="item.id" :value="item.id" :label="item.name || item.id" :disabled="item.status !== 'ENABLED'" /></ui-select></ui-form-item>
+        <p v-if="!loading && !products.length" class="onboarding__muted">还没有可复用的设备模板，请先完成模板的协议、公共连接与首台验证。</p>
+        <ui-button v-if="!props.trial" v-permission="'menu:products'" size="small" @click="navigate('products')">准备设备模板</ui-button>
       </div>
 
       <section v-if="checking || preflight || preflightError" class="onboarding__preflight" aria-live="polite">
@@ -312,11 +287,10 @@ onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.remov
       </footer>
     </section>
 
-    <!-- 第 2 步：设备身份与连接 -->
     <section v-else-if="draft.step === 1" class="onboarding__card" aria-labelledby="onboarding-step-device">
       <h3 id="onboarding-step-device" class="onboarding__title">设备与连接</h3>
       <p class="onboarding__summary"><strong>{{ templateName }}</strong><span>{{ modeLabels[mode] || '接入方式待确认' }}</span></p>
-      <ui-alert v-if="!plan" title="接入条件未确认，请返回上一步重新选择型号。" type="warning" :closable="false" show-icon />
+      <ui-alert v-if="!plan" title="接入条件未确认，请返回上一步重新选择设备模板。" type="warning" :closable="false" show-icon />
 
       <div class="onboarding__grid">
         <ui-form-item label="设备名称" required><ui-input v-model="draft.device.name" maxlength="256" placeholder="例如 一层东侧烟感" aria-label="设备名称" /></ui-form-item>
@@ -350,24 +324,12 @@ onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.remov
               <input v-model="draft.connection.choice" type="radio" name="listener" :value="item.id" :disabled="!usableListener(item)" />
               <span><strong>{{ listenerLabel(item) }}</strong><small>{{ transportLabel(String(item.network).toUpperCase()) }} · {{ item.enabled ? statusLabel(item.runtimeStatus || 'PENDING') : '已停用' }}<template v-if="!item.publicHost"> · 需先在接入点补齐对外地址</template></small></span>
             </label>
-            <label v-if="canCreateListener" class="onboarding__option" :class="{ 'is-selected': draft.connection.choice === 'new' }">
-              <input v-model="draft.connection.choice" type="radio" name="listener" value="new" />
-              <span><strong>新建共享监听</strong><small>同型号的其他设备可继续使用这个端口</small></span>
-            </label>
             <label v-if="plan.dial" class="onboarding__option" :class="{ 'is-selected': draft.connection.choice === 'dial' }">
               <input v-model="draft.connection.choice" type="radio" name="listener" value="dial" />
               <span><strong>平台主动连接设备</strong><small>设备作为 TCP 服务端，平台按地址连接</small></span>
             </label>
           </div>
-          <p v-if="!listeners.length && !canCreateListener && !plan.dial" class="onboarding__muted">该型号还没有可用接入点，请联系管理员在设备模板的“接入点”中创建。</p>
-          <div v-if="draft.connection.choice === 'new'" class="onboarding__grid">
-            <ui-form-item v-if="(plan.networks || []).length > 1" label="网络">
-              <ui-radio-group v-model="draft.connection.network" class="segmented-choice-group" aria-label="网络"><ui-radio-button v-for="item in plan.networks" :key="item" :value="item">{{ item.toUpperCase() }}</ui-radio-button></ui-radio-group>
-            </ui-form-item>
-            <ui-form-item label="平台对外地址" required><ui-input v-model="draft.connection.publicHost" placeholder="现场设备可访问的域名或 IP" aria-label="平台对外地址" /></ui-form-item>
-            <ui-form-item label="监听端口" required><ui-input-number v-model="draft.connection.port" :min="1" :max="65535" placeholder="例如 26875" aria-label="监听端口" /></ui-form-item>
-            <ui-form-item label="本机监听地址"><ui-input v-model="draft.connection.bindHost" placeholder="默认 0.0.0.0" aria-label="本机监听地址" /></ui-form-item>
-          </div>
+          <p v-if="!listeners.length && !plan.dial" class="onboarding__muted">该设备模板还没有可用公共连接，请在模板的“公共连接”中准备。</p>
         </template>
         <div v-if="mode === 'dial' || mode === 'poll'" class="onboarding__grid">
           <ui-form-item label="设备地址" required><ui-input v-model="draft.connection.host" placeholder="平台可以访问的设备 IP 或域名" aria-label="设备地址" /></ui-form-item>
@@ -392,12 +354,11 @@ onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.remov
 
       <ui-alert v-if="saveError" class="onboarding__alert" :title="saveError" type="error" :closable="false" show-icon />
       <footer class="onboarding__actions">
-        <ui-button :disabled="saving" @click="draft.step = 0">上一步</ui-button>
+        <ui-button v-if="!props.trial" :disabled="saving" @click="draft.step = 0">上一步</ui-button><ui-button v-else :disabled="saving" :loading="draftSaving" @click="close">保存草稿并返回验收</ui-button>
         <ui-button type="primary" :loading="saving" :disabled="!plan" @click="submit">保存并生成接入信息</ui-button>
       </footer>
     </section>
 
-    <!-- 第 3 步：现场配置与验证 -->
     <section v-else class="onboarding__card" aria-labelledby="onboarding-step-verify">
       <h3 id="onboarding-step-verify" class="onboarding__title">现场配置与验证</h3>
       <p class="onboarding__summary"><strong>{{ draft.result?.device?.name }}</strong><span>{{ draft.result?.device?.id }} · {{ draft.result?.product?.name }} · {{ modeLabels[draft.result?.mode] || '' }}</span></p>
@@ -423,49 +384,16 @@ onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.remov
         <details v-if="accessInfo?.sample" class="onboarding__more"><summary>示例报文</summary><pre>{{ JSON.stringify(accessInfo.sample, null, 2) }}</pre></details>
       </section>
 
-      <section class="onboarding__section onboarding__verify" aria-live="polite">
-        <div class="onboarding__section-head">
-          <h4>接入验证</h4>
-          <span class="onboarding__muted">每 5 秒自动刷新{{ statusAt ? ` · ${formatTime(statusAt)}` : '' }}</span>
-          <ui-button size="small" :loading="refreshing" @click="refreshStatus">立即刷新</ui-button>
-        </div>
-        <ui-alert v-if="statusError" :title="statusError" type="warning" :closable="false" show-icon />
-        <template v-if="diagnosis">
-          <div class="onboarding__diagnosis" :class="`is-${diagnosis.tone}`">
-            <ui-tag :type="diagnosisTagTypes[diagnosis.tone]">{{ diagnosis.title }}</ui-tag>
-            <p>{{ diagnosis.nextAction }}</p>
-            <small v-if="diagnosis.previousParsedAt">上次成功解析：{{ formatTime(diagnosis.previousParsedAt) }}</small>
-          </div>
-          <ol class="onboarding__progress">
-            <li v-for="check in diagnosis.checks" :key="check.key" :class="`is-${check.state}`">
-              <component :is="checkIcons[check.state]" class="onboarding__check-icon" :aria-label="checkStates[check.state]" />
-              <strong>{{ check.label }}</strong>
-              <small>{{ check.detail }}{{ check.at ? ` · ${formatTime(check.at)}` : '' }}</small>
-            </li>
-          </ol>
-        </template>
-        <p v-else-if="!statusError" class="onboarding__muted">正在读取接入状态…</p>
-        <details v-if="status?.profile?.lastError"><summary>接入点最近错误</summary><pre>{{ status.profile.lastError }}</pre></details>
-        <details v-if="status?.ingest?.parseError"><summary>解析错误</summary><pre>{{ status.ingest.parseError }}</pre></details>
-        <p v-if="status?.ingest?.simulationCount" class="onboarding__muted">另有 {{ status.ingest.simulationCount }} 条测试或管理接口上报，不计入本次验证。</p>
-        <div v-if="values.length" class="onboarding__values">
-          <h5>最近解析的数据</h5>
-          <div v-for="item in values" :key="item.name" class="onboarding__kv"><span>{{ item.name }}</span><code>{{ item.value }}{{ item.unit ? ` ${item.unit}` : '' }}</code></div>
-        </div>
-      </section>
+      <OnboardingDiagnosis @navigate="(page,detail)=>emit('navigate',page,detail)" :status="status" :error="statusError" :refreshing="refreshing" :updated-at="statusAt" @refresh="refreshStatus" @raw="openRaw" />
 
       <footer class="onboarding__actions">
-        <ui-button v-if="status?.ingest?.rawMessageId" v-permission="'menu:raw'" @click="openRaw">查看原始报文</ui-button>
         <ui-button @click="openDetail">设备详情</ui-button>
-        <ui-button v-permission="'POST /api/v1/device-registry'" @click="addAnother">继续添加同型号设备</ui-button>
-        <ui-button type="primary" @click="finish">完成</ui-button>
+        <ui-button v-permission="'POST /api/v1/device-registry'" @click="addAnother">继续添加同模板设备</ui-button>
+        <ui-button type="primary" @click="finish">保存并退出</ui-button>
       </footer>
     </section>
 
-    <ui-drawer :model-value="protocolHelper" title="从报文或点表生成协议" size="min(780px, 100vw)" @close="protocolHelper = false">
-      <p class="onboarding__muted">发布协议后关闭抽屉，即可在“通信协议”中选择。</p>
-      <ProtocolAssistantView v-if="protocolHelper" @saved="protocolSaved" @navigate="protocolHelper = false" />
-    </ui-drawer>
+
   </section>
 </template>
 
@@ -495,8 +423,6 @@ onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.remov
 .onboarding__summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); background: var(--surface-muted); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
 .onboarding__summary strong { color: var(--text-strong); font-weight: var(--font-weight-semibold); }
 .onboarding__summary span { color: var(--text-secondary); overflow-wrap: anywhere; }
-.onboarding__hint-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) 0 0; color: var(--text-muted); font-size: var(--font-size-sm); }
-.onboarding__hint-row > span { flex: 1 1 280px; }
 .onboarding__more { margin: var(--space-3) 0; }
 .onboarding__more summary { width: max-content; max-width: 100%; color: var(--primary-text); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); cursor: pointer; }
 .onboarding__more[open] summary { margin-bottom: var(--space-3); }
@@ -534,33 +460,12 @@ onBeforeUnmount(() => { stopPolling(); clearTimeout(realtimeTimer); window.remov
 .onboarding__secret p { margin: 0; color: var(--warning-text); font-size: var(--font-size-sm); }
 .onboarding__secret p strong { display: block; margin-bottom: 2px; }
 .onboarding__secret > .ui-button { justify-self: start; }
-.onboarding__config, .onboarding__values { display: grid; }
+.onboarding__config { display: grid; }
 .onboarding__kv { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
 .onboarding__kv:last-child { border-bottom: 0; }
 .onboarding__kv span { color: var(--text-muted); font-size: var(--font-size-xs); }
 .onboarding__kv code { padding: 0; color: var(--text-strong); background: none; font-family: var(--font-mono); font-size: var(--font-size-xs); overflow-wrap: anywhere; word-break: break-all; }
-.onboarding__verify details { margin-top: var(--space-2); font-size: var(--font-size-sm); }
-.onboarding__verify summary { color: var(--primary-text); cursor: pointer; }
-.onboarding__diagnosis { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--info-soft); border: 1px solid var(--info-border); border-radius: var(--radius-md); }
-.onboarding__diagnosis.is-success { background: var(--success-soft); border-color: var(--success-border); }
-.onboarding__diagnosis.is-warning { background: var(--warning-soft); border-color: var(--warning-border); }
-.onboarding__diagnosis.is-error { background: var(--danger-soft); border-color: var(--danger-border); }
-.onboarding__diagnosis .ui-tag { justify-self: start; }
-.onboarding__diagnosis p { margin: 0; color: var(--text); font-size: var(--font-size-sm); }
-.onboarding__diagnosis small { color: var(--text-muted); font-size: var(--font-size-xs); }
-.onboarding__progress { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.onboarding__progress li { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--space-2); align-content: start; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
-.onboarding__progress li.is-passed { border-color: var(--success-border); }
-.onboarding__progress li.is-failed { border-color: var(--danger-border); background: var(--danger-soft); }
-.onboarding__progress .onboarding__check-icon { grid-row: span 2; }
-.onboarding__progress strong { color: var(--text-strong); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
-.onboarding__progress small { color: var(--text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
-.onboarding__values { margin-top: var(--space-3); }
-.onboarding__values h5 { margin: 0 0 var(--space-1); color: var(--text-secondary); font-size: var(--font-size-sm); font-weight: var(--font-weight-medium); }
 pre { max-height: 240px; margin: var(--space-2) 0 0; overflow: auto; }
-@media (max-width: 900px) {
-  .onboarding__progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 767px) {
   .onboarding__header { flex-direction: column; gap: var(--space-3); }
   .onboarding__header p { display: none; }
@@ -571,9 +476,6 @@ pre { max-height: 240px; margin: var(--space-2) 0 0; overflow: auto; }
   .onboarding__step-copy small { display: none; }
   .onboarding__card { padding: var(--space-4); }
   .onboarding__grid { grid-template-columns: 1fr; }
-  .onboarding__progress { grid-template-columns: 1fr; gap: 0; }
-  .onboarding__progress li { padding: var(--space-2) 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
-  .onboarding__progress li.is-failed { padding-inline: var(--space-2); }
   .onboarding__kv { grid-template-columns: 1fr auto; gap: 2px var(--space-2); }
   .onboarding__kv span { grid-column: 1 / -1; }
   .onboarding__label-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

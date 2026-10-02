@@ -13,6 +13,11 @@ func (r *Repository) SaveOnboarding(ctx context.Context, b model.OnboardingBundl
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if b.Prepared != nil {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(728194601)`); err != nil {
+			return err
+		}
+	}
 	// Only reserving a listener port needs serializing, across tenants and
 	// replicas; other rows are guarded by their keys, so plain device
 	// enrollment runs in parallel.
@@ -41,6 +46,41 @@ func (r *Repository) SaveOnboarding(ctx context.Context, b model.OnboardingBundl
 	}
 	if status != "ENABLED" {
 		return errors.New("product is disabled")
+	}
+	if prepared := b.Prepared; prepared != nil {
+		var product model.Product
+		var data []byte
+		if err = tx.QueryRow(ctx, `SELECT body FROM iot_product WHERE tenant_id=$1 AND id=$2`, b.Device.TenantID, b.Device.ProductID).Scan(&data); err != nil {
+			return err
+		}
+		if err = json.Unmarshal(data, &product); err != nil {
+			return err
+		}
+		rows, e := tx.Query(ctx, `SELECT body FROM device_access_profile WHERE tenant_id=$1 AND product_id=$2 AND COALESCE(device_id,'')='' FOR SHARE`, b.Device.TenantID, b.Device.ProductID)
+		if e != nil {
+			return e
+		}
+		profiles := []model.DeviceAccessProfile{}
+		for rows.Next() {
+			var p model.DeviceAccessProfile
+			if e = rows.Scan(&data); e != nil {
+				rows.Close()
+				return e
+			}
+			if e = json.Unmarshal(data, &p); e != nil {
+				rows.Close()
+				return e
+			}
+			profiles = append(profiles, p)
+		}
+		rows.Close()
+		if e = rows.Err(); e != nil {
+			return e
+		}
+		rec, e := scanOnboardingRecord(tx.QueryRow(ctx, `SELECT `+onboardingColumns+` FROM onboarding_record WHERE tenant_id=$1 AND id=$2 FOR SHARE`, b.Device.TenantID, "template:"+b.Device.ProductID))
+		if e != nil || rec.Revision != prepared.RecordRevision || rec.Status != "READY" || !model.SameTemplateSnapshot(product, prepared.Product, profiles, prepared.Profiles) {
+			return model.ErrOnboardingChanged
+		}
 	}
 	if v := b.Release; v != nil {
 		definition := model.ProtocolDefinition{TenantID: v.TenantID, ID: v.ProtocolID, Name: v.ProtocolID, CreatedAt: v.CreatedAt, UpdatedAt: v.CreatedAt}

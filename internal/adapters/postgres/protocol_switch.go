@@ -21,12 +21,39 @@ func (r *Repository) SwitchProductProtocol(ctx context.Context, v model.Protocol
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if v.Preparation != nil {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(728194601)`); err != nil {
+			return err
+		}
+		if v.Preparation.CreateProduct {
+			body, e := json.Marshal(v.Product)
+			if e != nil {
+				return e
+			}
+			result, e := tx.Exec(ctx, `INSERT INTO iot_product(tenant_id,id,status,protocol_package_id,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,id) DO NOTHING`, v.Product.TenantID, v.Product.ID, v.Product.Status, v.Product.ProtocolPackageID, body)
+			if e != nil {
+				return e
+			}
+			if result.RowsAffected() != 1 {
+				return model.ErrOnboardingChanged
+			}
+		}
+	}
 	// Lock the template so concurrent switches compare against the same binding.
 	var exists int
 	if err = tx.QueryRow(ctx, `SELECT 1 FROM iot_product WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, v.Product.TenantID, v.Product.ID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
+	}
+	if v.RequireUnused {
+		var used bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_registry WHERE tenant_id=$1 AND product_id=$2)`, v.Product.TenantID, v.Product.ID).Scan(&used); err != nil {
+			return err
+		}
+		if used {
+			return model.ErrOnboardingChanged
+		}
 	}
 	var protocol, version string
 	err = tx.QueryRow(ctx, `SELECT protocol_id,version FROM product_protocol_binding WHERE tenant_id=$1 AND product_id=$2`, v.Product.TenantID, v.Product.ID).Scan(&protocol, &version)
@@ -36,6 +63,11 @@ func (r *Repository) SwitchProductProtocol(ctx context.Context, v model.Protocol
 	}
 	if found != (v.Expected != nil) || found && (protocol != v.Expected.ProtocolID || version != v.Expected.Version) {
 		return model.ErrBindingChanged
+	}
+	if v.Preparation != nil {
+		if err = applyTemplateConfiguration(ctx, tx, v); err != nil {
+			return err
+		}
 	}
 	body := func(value any) []byte { data, _ := json.Marshal(value); return data }
 	if _, err = tx.Exec(ctx, saveProtocolPackageSQL, v.Package.TenantID, v.Package.ID, v.Package.Status, v.Package.ParserType, body(v.Package)); err != nil {

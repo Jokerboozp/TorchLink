@@ -352,6 +352,9 @@ func TestOnboardingFollowsDevicePermissions(t *testing.T) {
 	token := login("installer", "installer-password")
 
 	// Adding a device uses the ordinary add-device permission.
+	// An unverified template is unavailable even with registration permission.
+	req("POST", "/api/v1/onboarding", token, enroll("device-1", false), 409)
+	readyTemplateFixture(t, api, "tenant_a", "product")
 	req("GET", "/api/v1/onboarding/preflight?productId=product", token, nil, 200)
 	req("POST", "/api/v1/onboarding", token, enroll("device-1", false), 201)
 	req("POST", "/api/v1/onboarding", token, enroll("device-2", true), 403)

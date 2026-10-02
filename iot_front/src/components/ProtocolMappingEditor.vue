@@ -4,11 +4,12 @@ const props = defineProps({ rows: { type: Array, required: true }, parserType: S
 const emit = defineEmits(['change', 'add', 'remove'])
 const modbus = computed(() => props.parserType?.startsWith('modbus_'))
 const json = computed(() => props.parserType === 'configurable_json_parser')
-const types = computed(() => json.value ? ['', 'number', 'integer', 'boolean', 'string', 'json'] : modbus.value
+const preserveType = '__preserve_value__'
+const types = computed(() => json.value ? [preserveType, 'number', 'integer', 'boolean', 'string', 'json'] : modbus.value
   ? ['bool', 'bits', 'uint16', 'int16', 'uint32', 'int32', 'float32', 'uint64', 'int64', 'float64', 'string']
   : ['uint8', 'int8', 'uint16', 'int16', 'uint32', 'int32', 'float32', 'hex', 'ascii'])
 function changeType(row, value) {
-  row[json.value || !modbus.value ? 'type' : 'dataType'] = value
+  row[json.value || !modbus.value ? 'type' : 'dataType'] = value === preserveType ? '' : value
   if (modbus.value && value !== 'string') row.registerCount = { bool: 1, bits: 1, uint16: 1, int16: 1, uint32: 2, int32: 2, float32: 2, uint64: 4, int64: 4, float64: 4 }[value]
   if (!json.value && !modbus.value && !['hex', 'ascii'].includes(value)) row.length = { uint8: 1, int8: 1, uint16: 2, int16: 2, uint32: 4, int32: 4, float32: 4 }[value]
   emit('change')
@@ -46,7 +47,7 @@ function changeType(row, value) {
         <ui-table-column :label="modbus ? '地址（从 0 开始）' : '字节偏移'" min-width="165"><template #default="{ row, $index }"><ui-input-number v-model="row[modbus ? 'address' : 'offset']" :aria-label="`第${$index + 1}行地址或偏移`" :min="0" :max="modbus ? 65535 : undefined" :precision="0" controls-position="right" @change="emit('change')" /></template></ui-table-column>
         <ui-table-column v-if="!modbus" label="字节长度" min-width="150"><template #default="{ row }"><ui-input-number v-model="row.length" :min="1" :precision="0" controls-position="right" @change="emit('change')" /></template></ui-table-column>
       </template>
-      <ui-table-column label="数据类型" min-width="150"><template #default="{ row, $index }"><ui-select :model-value="row[modbus ? 'dataType' : 'type']" :aria-label="`第${$index + 1}行数据类型`" @update:model-value="changeType(row, $event)"><ui-option v-for="type in types" :key="type" :value="type" :label="type || '保持原值'" /></ui-select></template></ui-table-column>
+      <ui-table-column label="数据类型" min-width="150"><template #default="{ row, $index }"><ui-select :model-value="json && !row.type ? preserveType : row[modbus ? 'dataType' : 'type']" :aria-label="`第${$index + 1}行数据类型`" @update:model-value="changeType(row, $event)"><ui-option v-for="type in types" :key="type" :value="type" :label="type === preserveType ? '保持原值' : type" /></ui-select></template></ui-table-column>
       <ui-table-column label="操作" width="75"><template #default="{ $index }"><ui-button link type="danger" :aria-label="`删除第${$index + 1}行字段`" @click="emit('remove', $index)">删除</ui-button></template></ui-table-column>
     </ui-table>
   </section>

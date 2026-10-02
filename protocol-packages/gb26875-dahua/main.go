@@ -1,4 +1,3 @@
-// The root package accepts both legacy RawMessage input and protocol v2 calls.
 package main
 
 import (
@@ -13,20 +12,9 @@ import (
 )
 
 func run(input io.Reader, output io.Writer) error {
-	var encoded json.RawMessage
-	if err := json.NewDecoder(input).Decode(&encoded); err != nil {
-		return fmt.Errorf("decode worker input: %w", err)
-	}
 	var request gb26875.Request
-	if err := json.Unmarshal(encoded, &request); err != nil {
+	if err := json.NewDecoder(input).Decode(&request); err != nil {
 		return fmt.Errorf("decode worker request: %w", err)
-	}
-	if request.Version == 0 && request.Operation == "" {
-		var raw gb26875.RawMessage
-		if err := json.Unmarshal(encoded, &raw); err != nil {
-			return err
-		}
-		request = gb26875.Request{Version: 2, Operation: "decode", Raw: &raw}
 	}
 	return json.NewEncoder(output).Encode(gb26875.Handle(request))
 }

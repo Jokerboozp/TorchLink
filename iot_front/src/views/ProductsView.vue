@@ -1,15 +1,12 @@
 <script setup>
-import { createClientId } from '../clientId'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
-defineEmits(['navigate'])
-import AccessPointsPanel from '../components/AccessPointsPanel.vue'
-import ProductProtocolBinding from '../components/ProductProtocolBinding.vue'
+const emit = defineEmits(['navigate'])
+import ProductPreparation from '../components/ProductPreparation.vue'
 import { transportLabel, formatLabel } from '../presentation'
-import { onMounted, reactive, ref } from 'vue'
-import { UiMessage } from '../ui/feedback.js'
+import { onMounted, ref } from 'vue'
 import { api, apiAll, notifyError } from '../api'
 import { confirmDelete } from '../deleteAction'
-import { categories, enabledStatuses, enabledStatusTones, label, tone } from '../labels'
+import { categories, label } from '../labels'
 import { can } from '../permissions'
 import { Plus, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -17,19 +14,19 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 
-// 模板详情抽屉：基本信息、协议版本和接入点。
-const detail = ref(null), detailTab = ref('basic'), detailColumns = ref(2)
+// 所有新建、详情和编辑都进入同一个模板准备页面。
+const preparationOpen = ref(false), preparationProduct = ref(null), preparationStep = ref(0), preparationDraftId = ref(''), preparationDrafts = ref([]), draftsPage=ref(1), draftsTotal=ref(0), draftsError=ref(''), draftsLoading=ref(false)
+let draftsVersion=0
+async function loadDrafts(page=1){if(!can('PUT /api/v1/products/:id'))return;const version=++draftsVersion;draftsPage.value=page;draftsLoading.value=true;draftsError.value='';try{const result=await api(`/api/v1/onboarding/drafts?purpose=preparation&limit=20&offset=${(page-1)*20}`);if(version!==draftsVersion)return;preparationDrafts.value=(result.items || []).filter(row=>String((typeof row.body==='string'?JSON.parse(row.body):row.body)?.step || '').startsWith('preparation:') && (typeof row.body==='string'?JSON.parse(row.body):row.body)?.step!=='preparation:linked');draftsTotal.value=result.total || 0}catch(cause){if(version===draftsVersion)draftsError.value=cause.message}finally{if(version===draftsVersion)draftsLoading.value=false}}
+function resumePreparation(row){preparationProduct.value=null;preparationDraftId.value=row.id;preparationStep.value=0;preparationOpen.value=true}
+function preparationDraftName(row){const body=typeof row.body==='string'?JSON.parse(row.body):row.body;return body?.request?.newProduct?.name || '未命名设备模板'}
+async function closePreparation(){preparationOpen.value=false;await load();await loadDrafts()}
 const products = ref([])
 const protocols = ref([])
-const saving = ref(false)
 const loading = ref(false)
-const dialog = ref(false)
 const productPage = ref(1)
 const productPageSize = ref(20)
 const productTotal = ref(0)
-
-const blank = () => ({ id:'', code:'', name:'', category:'smoke', protocolPackageId:'iot-standard@1.0.0', transport:'MQTT', payloadFormat:'json', status:'ENABLED', description:'', thingModel:null, metadata:{manufacturer:'',model:'',idKind:'',idLocation:''} })
-const form = reactive(blank())
 
 let loadVersion = 0
 let catalogVersion = 0
@@ -64,61 +61,15 @@ function changePageSize(value) {
   load({ catalog:false })
 }
 
-function reset() {
-  Object.assign(form, blank())
-}
-
-function openCreate() {
-  reset()
-  dialog.value = true
-}
-
-function openDetail(item, tab = 'basic') { detailColumns.value = window.innerWidth < 768 ? 1 : 2; detail.value = item; detailTab.value = tab }
-
-function edit(item) {
-  Object.assign(form, { ...blank(), ...item, metadata:{...blank().metadata,...item.metadata}, code:item.id })
-  dialog.value = true
-}
-
-// 协议切换会改写模板的协议引用；刷新列表后同步详情中的模板。
-async function refreshDetail() {
-  await load({ catalog:false })
-  const id = detail.value?.id
-  if (!id) return
-  detail.value = products.value.find(item => item.id === id) || (await apiAll('/api/v1/products')).items?.find(item => item.id === id) || detail.value
-}
-
-async function save() {
-  if (saving.value) return
-  if (!form.name.trim() || !form.protocolPackageId) return UiMessage.warning('请填写设备模板名称并选择已发布的通信协议')
-  saving.value = true
-  try {
-    if (!form.id && !form.code) form.code = `product_${createClientId().replaceAll('-', '').slice(0, 12)}`
-    // 编辑页不暴露物模型 JSON，但提交时保留已加载的模型，避免意外清空命令定义。
-    const value = { ...form, id:form.id || form.code }
-    delete value.code
-    const editing = Boolean(form.id)
-    await api(editing ? `/api/v1/products/${encodeURIComponent(value.id)}` : '/api/v1/products', {
-      method: editing ? 'PUT' : 'POST',
-      body: JSON.stringify(value)
-    })
-    UiMessage.success('设备模板已保存')
-    dialog.value = false
-    reset()
-    await load()
-    if (detail.value?.id === value.id) detail.value = products.value.find(item => item.id === value.id) || { ...detail.value, ...value }
-  } catch (error) {
-    notifyError(error)
-  } finally {
-    saving.value = false
-  }
-}
+function openCreate() { preparationProduct.value=null;preparationDraftId.value='';preparationStep.value=0;preparationOpen.value=true }
+function openDetail(item, tab = 'basic') {preparationProduct.value=item;preparationDraftId.value='';preparationStep.value=tab==='protocol'?1:tab==='access'?2:0;preparationOpen.value=true}
 
 onMounted(async () => {
   let navigation = {}
   try { navigation = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}') } catch { navigation = {} }
   sessionStorage.removeItem('iot:navigation-detail')
-  await load()
+  await load();loadDrafts()
+  if(navigation.create)openCreate()
   if (navigation.productId) {
     const item = products.value.find(p => p.id === navigation.productId) || (await apiAll('/api/v1/products').catch(() => ({ items:[] }))).items?.find(p => p.id === navigation.productId)
     if (item) openDetail(item, navigation.tab || 'basic')
@@ -129,120 +80,43 @@ function protocolName(id) { return protocols.value.find(item => item.id === id)?
 function rowActions(row) {
   return [
     { key:'view', label:'详情', onClick:() => openDetail(row) },
-    { key:'access', label:'接入点', permission:'menu:profiles', onClick:() => openDetail(row, 'access') },
-    { key:'binding', label:'协议版本', onClick:() => openDetail(row, 'protocol') },
-    { key:'edit', label:'编辑', permission:'PUT /api/v1/products/:id', onClick:() => edit(row) },
+    { key:'access', label:'连接与验收', onClick:() => openDetail(row, 'access') },
+    { key:'binding', label:'通信协议', onClick:() => openDetail(row, 'protocol') },
+    { key:'edit', label:'编辑', permission:'PUT /api/v1/products/:id', onClick:() => openDetail(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/products/:id', onClick:() => remove(row) }
   ]
 }
-function metadataText(item, keys) { return keys.map(key => item?.metadata?.[key]).filter(Boolean).join(' · ') || '—' }
 </script>
 
 <template>
+  <ProductPreparation v-if="preparationOpen" :key="preparationDraftId || preparationProduct?.id || 'new'" :product="preparationProduct" :initial-step="preparationStep" :draft-id="preparationDraftId" @close="closePreparation" @saved="load" @navigate="(page,detail)=>emit('navigate',page,detail)" />
+  <template v-else>
   <FilterBar>
     <template #actions>
       <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
-      <ui-button v-permission="'POST /api/v1/products'" type="primary" @click="openCreate"><Plus />新建设备模板</ui-button>
+      <ui-button v-if="can('PUT /api/v1/products/:id')" v-permission="'POST /api/v1/products'" type="primary" @click="openCreate"><Plus />新建设备模板</ui-button>
     </template>
   </FilterBar>
 
+  <ui-alert v-if="draftsError" :title="draftsError" type="warning" :closable="false"/><ui-button v-if="draftsError" size="small" @click="loadDrafts(draftsPage)">重试读取模板草稿</ui-button>
+  <section v-if="preparationDrafts.length || draftsTotal>20" class="template-drafts"><strong>继续准备设备模板</strong><ui-button v-for="draft in preparationDrafts" :key="draft.id" size="small" :disabled="draftsLoading" @click="resumePreparation(draft)">{{ preparationDraftName(draft) }}</ui-button><ui-pagination v-if="draftsTotal>20" :current-page="draftsPage" :page-size="20" :total="draftsTotal" layout="prev,pager,next" @update:current-page="loadDrafts"/></section>
   <DataTableCard :title="`设备模板 · ${productTotal} 个`" :page="productPage" :page-size="productPageSize" :total="productTotal" @update:page="changePage" @update:page-size="changePageSize">
     <ui-table :data="products" :loading="loading" empty-text="暂无设备模板，点击“新建设备模板”创建">
       <ui-table-column label="设备模板" min-width="220"><template #default="{ row }"><button type="button" class="product-name" @click="openDetail(row)">{{ row.name || row.id }}</button><small class="subline">{{ row.id }}</small></template></ui-table-column>
       <ui-table-column label="分类" min-width="120"><template #default="{ row }">{{ label(categories, row.category, '其他设备') }}</template></ui-table-column>
       <ui-table-column label="通信协议" min-width="220"><template #default="{ row }">{{ protocolName(row.protocolPackageId) }}<small class="subline">{{ transportLabel(row.transport) }} · {{ formatLabel(row.payloadFormat) }}</small></template></ui-table-column>
       <ui-table-column label="厂商 / 型号" min-width="160"><template #default="{ row }">{{ [row.metadata?.manufacturer, row.metadata?.model].filter(Boolean).join(' · ') || '—' }}</template></ui-table-column>
-      <ui-table-column label="状态" width="100"><template #default="{ row }"><StatusDot :tone="tone(enabledStatusTones, row.status)" :label="label(enabledStatuses, row.status)" /></template></ui-table-column>
+      <ui-table-column label="准备状态" min-width="160"><template #default="{ row }"><StatusDot :tone="row.reusable ? 'success' : 'warning'" :label="row.reusable ? '可以复用' : ({DRAFT:'配置草稿',AWAITING_VALIDATION:'待真实设备验证',CONFIGURATION_CHANGED:'配置变化待验证',UNVERIFIED:'尚未验证'}[row.preparationStatus] || '待准备与验证')" /></template></ui-table-column>
       <ui-table-column label="说明" min-width="200" show-overflow-tooltip><template #default="{ row }">{{ row.description || '—' }}</template></ui-table-column>
       <ui-table-column label="操作" width="176" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
     </ui-table>
   </DataTableCard>
 
-  <ui-drawer :model-value="Boolean(detail)" class="product-detail" :title="detail ? `设备模板 · ${detail.name || detail.id}` : ''" size="min(1040px, 100vw)" @close="detail=null">
-    <ui-tabs v-if="detail" v-model="detailTab" class="product-detail__tabs">
-      <ui-tab-pane name="basic" label="基本信息">
-        <div class="product-detail__head">
-          <StatusDot :tone="tone(enabledStatusTones, detail.status)" :label="label(enabledStatuses, detail.status)" />
-          <ui-button v-permission="'PUT /api/v1/products/:id'" size="small" @click="edit(detail)">编辑模板</ui-button>
-        </div>
-        <ui-descriptions :column="detailColumns" border>
-          <ui-descriptions-item label="模板名称">{{ detail.name }}</ui-descriptions-item>
-          <ui-descriptions-item label="模板标识"><code>{{ detail.id }}</code></ui-descriptions-item>
-          <ui-descriptions-item label="设备分类">{{ label(categories, detail.category, '其他设备') }}</ui-descriptions-item>
-          <ui-descriptions-item label="通信协议">{{ protocolName(detail.protocolPackageId) }}</ui-descriptions-item>
-          <ui-descriptions-item label="上报通道">{{ transportLabel(detail.transport) }}</ui-descriptions-item>
-          <ui-descriptions-item label="数据格式">{{ formatLabel(detail.payloadFormat) }}</ui-descriptions-item>
-          <ui-descriptions-item label="厂商 / 型号">{{ metadataText(detail, ['manufacturer','model']) }}</ui-descriptions-item>
-          <ui-descriptions-item label="编号类型 / 位置">{{ metadataText(detail, ['idKind','idLocation']) }}</ui-descriptions-item>
-          <ui-descriptions-item label="说明" :span="detailColumns">{{ detail.description || '—' }}</ui-descriptions-item>
-        </ui-descriptions>
-      </ui-tab-pane>
-      <ui-tab-pane name="protocol" label="协议版本"><ProductProtocolBinding :key="detail.id" :product="detail" @saved="refreshDetail" /></ui-tab-pane>
-      <ui-tab-pane v-if="can('menu:profiles')" name="access" label="接入点"><AccessPointsPanel :key="detail.id" :product-id="detail.id" /></ui-tab-pane>
-    </ui-tabs>
-  </ui-drawer>
-
-  <ui-dialog v-model="dialog" :title="form.id ? `编辑设备模板 · ${form.name}` : '新建设备模板'" width="min(720px, 94vw)" destroy-on-close>
-    <ui-form :model="form" label-position="top">
-      <section class="editor-section">
-        <header><h3>模板身份</h3><p>名称用于页面识别；模板标识创建后不可修改。</p></header>
-        <div class="form-grid">
-          <ui-form-item label="模板名称"><ui-input v-model="form.name" /></ui-form-item>
-          <ui-form-item label="模板标识"><ui-input v-model="form.code" :disabled="!!form.id" placeholder="留空自动生成" /></ui-form-item>
-        </div>
-      </section>
-      <section class="editor-section">
-        <header><h3>分类与通信协议</h3><p>选择设备分类和已发布协议，通信方式会根据协议自动带入。</p></header>
-        <div class="form-grid">
-          <ui-form-item label="设备分类"><ui-select v-model="form.category"><ui-option v-for="(text,key) in categories" :key="key" :label="text" :value="key" /></ui-select></ui-form-item>
-          <ui-form-item label="设备通信协议"><ui-select v-model="form.protocolPackageId" :disabled="!!form.id" filterable @change="id => { const p = protocols.find(p => p.id === id); if (p) { form.transport = p.transport === 'MQTT_HTTP' ? 'MQTT' : p.transport === 'TCP_UDP' ? 'TCP' : p.transport; form.payloadFormat = p.payloadFormat } }"><ui-option v-for="item in protocols" :key="item.id" :label="item.name" :value="item.id" /></ui-select></ui-form-item>
-          <ui-form-item v-if="protocols.find(p=>p.id===form.protocolPackageId)?.transport==='MQTT_HTTP'" label="设备上报方式"><ui-select v-model="form.transport"><ui-option label="MQTT" value="MQTT" /><ui-option label="HTTP" value="HTTP" /></ui-select></ui-form-item>
-          <ui-form-item v-if="protocols.find(p=>p.id===form.protocolPackageId)?.transport==='TCP_UDP'" label="设备上报方式"><ui-select v-model="form.transport"><ui-option label="TCP" value="TCP" /><ui-option label="UDP" value="UDP" /></ui-select></ui-form-item>
-        </div>
-      </section>
-      <section class="editor-section">
-        <header><h3>型号与编号线索</h3><p>帮助现场人员确认设备型号并找到真实上报编号，可按已知信息填写。</p></header>
-        <div class="form-grid">
-          <ui-form-item label="厂商（如已知）"><ui-input v-model="form.metadata.manufacturer" /></ui-form-item>
-          <ui-form-item label="型号（如已知）"><ui-input v-model="form.metadata.model" /></ui-form-item>
-          <ui-form-item label="编号类型（如已知）"><ui-input v-model="form.metadata.idKind" placeholder="IMEI、序列号或协议地址" /></ui-form-item>
-          <ui-form-item label="编号位置（如已知）"><ui-input v-model="form.metadata.idLocation" placeholder="设备铭牌或厂家配置工具" /></ui-form-item>
-        </div>
-      </section>
-      <section class="editor-section">
-        <header><h3>状态与说明</h3><p>停用或草稿状态的模板不能用于添加新设备。</p></header>
-        <div class="form-grid"><ui-form-item label="模板状态"><ui-select v-model="form.status"><ui-option label="已启用" value="ENABLED" /><ui-option label="已停用" value="DISABLED" /><ui-option label="草稿" value="DRAFT" /></ui-select></ui-form-item></div>
-        <ui-form-item label="说明"><ui-input v-model="form.description" type="textarea" :rows="3" /></ui-form-item>
-      </section>
-      <ui-collapse class="editor-advanced">
-        <ui-collapse-item title="高级通信设置（按需调整）" name="advanced">
-          <p class="editor-advanced__hint">仅在协议要求不同的传输方式或数据格式时修改。</p>
-          <div class="form-grid">
-            <ui-form-item label="传输协议"><ui-select v-model="form.transport"><ui-option v-for="x in ['MQTT','HTTP','MQTT_HTTP','TCP','UDP','TCP_UDP','MODBUS_TCP','MODBUS_RTU']" :key="x" :label="transportLabel(x)" :value="x" /></ui-select></ui-form-item>
-            <ui-form-item label="数据格式"><ui-select v-model="form.payloadFormat"><ui-option label="JSON" value="json" /><ui-option label="HEX（十六进制）" value="hex" /><ui-option label="Binary（二进制）" value="binary" /></ui-select></ui-form-item>
-          </div>
-        </ui-collapse-item>
-      </ui-collapse>
-    </ui-form>
-    <template #footer>
-      <ui-button @click="dialog=false">关闭</ui-button>
-      <ui-button v-permission="['POST /api/v1/products','PUT /api/v1/products/:id']" type="primary" :loading="saving" @click="save">保存设备模板</ui-button>
-    </template>
-  </ui-dialog>
+  </template>
 </template>
 
 <style scoped>
+.template-drafts {display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;margin-bottom:var(--space-4);}
 .product-name { padding: 0; color: var(--text-strong); background: none; border: 0; font: inherit; font-weight: var(--font-weight-semibold); text-align: left; cursor: pointer; }
 .product-name:hover { color: var(--primary-text); text-decoration: underline; }
-.editor-section + .editor-section { margin-top: var(--space-2); padding-top: var(--space-4); border-top: 1px solid var(--border); }
-.editor-section header { margin-bottom: var(--space-3); }
-.editor-section h3 { margin: 0; color: var(--text-strong); font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
-.editor-section header p, .editor-advanced__hint { margin: 2px 0 0; color: var(--text-muted); font-size: var(--font-size-xs); }
-.editor-advanced { margin-top: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
-.editor-advanced__hint { margin-bottom: var(--space-3); }
-.product-detail__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
-.product-detail__tabs :deep(.n-tab-pane) { padding-top: var(--space-4); }
-@media (max-width: 767px) {
-  .product-detail :deep(.n-descriptions-table) { table-layout: fixed; }
-}
 </style>

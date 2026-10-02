@@ -31,6 +31,7 @@ type Repository interface {
 	DeleteProtocolRelease(context.Context, string, string, string) error
 	AccessStore
 	FireSafetyStore
+	OnboardingStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
@@ -73,7 +74,7 @@ type Repository interface {
 	GetPointTableRelease(context.Context, string, string, string) (model.PointTableRelease, error)
 	SaveProductProtocolBinding(context.Context, model.ProductProtocolBinding) error
 	GetProductProtocolBinding(context.Context, string, string) (model.ProductProtocolBinding, error)
-	SaveDeviceAccessProfile(context.Context, model.DeviceAccessProfile) error
+	SaveDeviceAccessProfile(context.Context, model.DeviceAccessProfile, ...model.AccessProfileSaveOptions) error
 	UpdateDeviceAccessStatus(context.Context, model.DeviceAccessProfile, string, string, int64) (bool, error)
 	GetDeviceAccessProfile(context.Context, string, string) (model.DeviceAccessProfile, error)
 	ListDeviceAccessProfiles(context.Context, string) ([]model.DeviceAccessProfile, error)

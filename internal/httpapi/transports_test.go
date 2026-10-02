@@ -548,7 +548,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	unit := 1
-	q := onboarding.EnrollRequest{RequestID: "req-modbus", ProductID: "modbus-product", Device: onboarding.EnrollDevice{ID: "modbus-device", Name: "模拟温度设备"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModePoll, Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: &unit, TimeoutMs: 500}}
+	q := onboarding.EnrollRequest{Trial: true, RequestID: "req-modbus", ProductID: "modbus-product", Device: onboarding.EnrollDevice{ID: "modbus-device", Name: "模拟温度设备"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModePoll, Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: &unit, TimeoutMs: 500}}
 	if preflight := call("GET", "/api/v1/onboarding/preflight?productId=modbus-product", nil); preflight.Code != 200 || !bytes.Contains(preflight.Body.Bytes(), []byte(`"mode":"poll"`)) {
 		t.Fatal("preflight", preflight.Code, preflight.Body.String())
 	}
@@ -667,6 +667,7 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 		f, _ := form.CreateFormFile("file", "protocol.go")
 		f.Write([]byte(source))
 		form.WriteField("productId", id)
+		form.WriteField("publish", "true")
 		form.WriteField("version", "1")
 		form.Close()
 		req := httptest.NewRequest("POST", "/api/v2/protocols/"+id+"/source-releases", &body)
@@ -824,7 +825,26 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 			}
 		}
 		p.Queries = []model.ProtocolQuery{{Type: "read-main", IntervalSec: 60}}
-		request("PUT", "/api/v2/device-access-profiles/"+mode, token, p, 201)
+		updateQueries := func() {
+			t.Helper()
+			if p.DeviceID != "" {
+				request("PUT", "/api/v2/device-access-profiles/"+mode, token, p, 201)
+				return
+			}
+			// A used shared listener must go through template preparation. This
+			// runtime fixture seeds the result of that separately tested atomic
+			// apply, while still proving the legacy HTTP route cannot bypass it.
+			request("PUT", "/api/v2/device-access-profiles/"+mode, token, p, 409)
+			applied, err := repo.GetDeviceAccessProfile(ctx, p.TenantID, p.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			applied.Queries, applied.UpdatedAt = p.Queries, time.Now().UnixMilli()
+			if err = repo.SaveDeviceAccessProfile(ctx, applied); err != nil {
+				t.Fatal(err)
+			}
+		}
+		updateQueries()
 		query := make([]byte, 2)
 		if _, e = io.ReadFull(peer, query); e != nil || !bytes.Equal(query, []byte{3, id}) {
 			t.Fatal("real scheduled query", query, e)
@@ -842,7 +862,7 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 			}
 		}
 		p.Queries = nil
-		request("PUT", "/api/v2/device-access-profiles/"+mode, token, p, 201)
+		updateQueries()
 	}
 	t.Run("browser", func(t *testing.T) {
 		if os.Getenv("IOT_TEST_BROWSER") == "" {

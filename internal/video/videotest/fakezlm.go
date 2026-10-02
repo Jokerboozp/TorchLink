@@ -127,14 +127,6 @@ func (f *Fake) FeedPort(port int, ssrc, codec string) bool {
 	return false
 }
 
-// StopFeed simulates a device that stopped sending: the receiver times out.
-func (f *Fake) StopFeed(key string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.Media, key)
-	delete(f.RTP, key)
-}
-
 // AddOrphan adds a proxy the platform does not know about.
 func (f *Fake) AddOrphan(app, stream string) {
 	f.mu.Lock()

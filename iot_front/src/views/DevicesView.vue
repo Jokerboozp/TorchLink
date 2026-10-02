@@ -11,10 +11,17 @@ import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import DeviceConnection from '../components/DeviceConnection.vue'
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
+import DeviceBatchOnboarding from '../components/DeviceBatchOnboarding.vue'
 
 const emit = defineEmits(['navigate'])
 const connectionDevice = ref('')
-const onboarding = ref(false)
+const onboardingProductId = ref('')
+const onboarding = ref(false), onboardingDraftId = ref(''), batchOpen = ref(false), batchId = ref(''), recordsOpen = ref(false), recordKind = ref('drafts'), records = ref([]), recordsLoading = ref(false), recordsError = ref(''), recordsPage = ref(1), recordsTotal = ref(0)
+let recordsVersion=0
+async function showRecords(kind='drafts',page=1) {const version=++recordsVersion;recordKind.value=kind;recordsPage.value=page;records.value=[];recordsOpen.value=true;recordsLoading.value=true;recordsError.value='';try{const result=await api(`/api/v1/onboarding/${kind}?limit=20&offset=${(page-1)*20}${kind==='drafts'?'&purpose=device':''}`);if(version!==recordsVersion)return;recordsTotal.value=result.total || 0;records.value=(result.items || []).filter(row=>kind!=='drafts' || !String(recordBody(row).step || '').startsWith('preparation:'))}catch(error){if(version===recordsVersion)recordsError.value=error.message}finally{if(version===recordsVersion)recordsLoading.value=false}}
+function recordBody(record){try{return typeof record.body==='string'?JSON.parse(record.body):record.body || {}}catch{return {}}}
+function resumeRecord(record){if(recordsLoading.value)return;recordsOpen.value=false;if(recordKind.value==='drafts'){onboardingDraftId.value=record.id;onboarding.value=true}else{batchId.value=record.id;batchOpen.value=true}}
+function startBatch(){batchId.value='';batchOpen.value=true;connectionDevice.value=''}
 const tabs = { all: '全部', DIRECT: '独立设备', GATEWAY: '主设备', CHILD: '子设备', pending: '待登记' }
 const deviceTab = ref('all')
 const filters = reactive({ category: '', q: '', runtime: '' })
@@ -136,8 +143,8 @@ function rowActions(row) {
     { key: 'delete', label: '删除', type: 'danger', permission: 'DELETE /api/v1/device-registry/:id', onClick: () => removeDevice(row.device) }
   ]
 }
-function startOnboarding() { connectionDevice.value = ''; onboarding.value = true }
-function leaveOnboarding(id = '') { onboarding.value = false; connectionDevice.value = id; load() }
+function startOnboarding() { connectionDevice.value = ''; onboardingDraftId.value='';onboarding.value = true }
+function leaveOnboarding(id = '') { onboarding.value = false; batchOpen.value=false;connectionDevice.value = id; load() }
 
 // 设备每次上报都会刷新最后活跃时间：可见行就地更新时间，只有运行状态变化或出现新设备才提示刷新。
 function realtime(event) {
@@ -166,7 +173,7 @@ onMounted(() => {
   let detail = {}
   try { detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}') } catch { detail = {} }
   sessionStorage.removeItem('iot:navigation-detail')
-  if (detail.onboarding) onboarding.value = true
+  if (detail.onboarding) {onboarding.value = true;onboardingProductId.value=detail.productId || ''}
   if (detail.deviceId) connectionDevice.value = detail.deviceId
   load()
   window.addEventListener('iot:realtime', realtime)
@@ -175,7 +182,8 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); window.removeEventListener('i
 </script>
 
 <template>
-  <DeviceOnboarding v-if="onboarding" @close="leaveOnboarding()" @done="leaveOnboarding()" @detail="leaveOnboarding" @navigate="(page, query) => emit('navigate', page, query)" />
+  <DeviceBatchOnboarding v-if="batchOpen" :key="batchId" :batch-id="batchId" @close="leaveOnboarding()" @detail="leaveOnboarding" />
+  <DeviceOnboarding v-else-if="onboarding" :key="onboardingDraftId" :draft-id="onboardingDraftId" :initial-product-id="onboardingProductId" @close="leaveOnboarding()" @done="leaveOnboarding()" @detail="leaveOnboarding" @navigate="(page, query) => emit('navigate', page, query)" />
   <template v-else>
     <DeviceConnection v-if="connectionDevice" :key="connectionDevice" :device-id="connectionDevice" @device="id => connectionDevice = id" @close="connectionDevice = ''" @navigate="(page, query) => { connectionDevice = ''; emit('navigate', page, query) }" />
     <FilterBar>
@@ -194,9 +202,18 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); window.removeEventListener('i
       <span v-if="updatesAvailable" class="devices-update-hint" role="status">有新数据，点击“刷新”查看</span>
       <template #actions>
         <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
+        <ui-button v-permission="'POST /api/v1/device-registry'" @click="showRecords('drafts')">接入草稿</ui-button>
+        <ui-button v-permission="'POST /api/v1/device-registry'" @click="showRecords('batches')">批量记录</ui-button>
+        <ui-button v-permission="'POST /api/v1/device-registry'" @click="startBatch">批量添加</ui-button>
         <ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="startOnboarding"><Plus />添加设备</ui-button>
       </template>
     </FilterBar>
+
+    <ui-dialog v-model="recordsOpen" :title="recordKind==='drafts' ? '继续设备接入' : '批量登记记录'" width="min(780px,94vw)">
+      <ui-alert v-if="recordsError" :title="recordsError" type="error" :closable="false" /><ui-button v-if="recordsError" @click="showRecords(recordKind)">重试</ui-button>
+      <ui-table :data="records" :loading="recordsLoading" empty-text="暂无记录"><ui-table-column label="设备 / 模板"><template #default="{row}">{{ recordBody(row).request?.device?.name || recordBody(row).request?.newProduct?.name || productName(row.productId || recordBody(row).productId) || row.id }}</template></ui-table-column><ui-table-column label="状态"><template #default="{row}">{{ recordKind==='drafts' ? ({template:'选择模板',connection:'设备与连接',verify:'现场验证'}[recordBody(row).step] || '草稿') : ({PENDING:'待处理',RUNNING:'登记中',COMPLETED:'已登记',PARTIAL:'部分失败',FAILED:'登记失败'}[row.status] || row.status) }}</template></ui-table-column><ui-table-column label="更新时间"><template #default="{row}">{{ formatTime(row.updatedAt) }}</template></ui-table-column><ui-table-column label="操作"><template #default="{row}"><ui-button size="small" @click="resumeRecord(row)">继续查看</ui-button></template></ui-table-column></ui-table>
+      <ui-pagination v-if="recordsTotal>20" :current-page="recordsPage" :page-size="20" :total="recordsTotal" layout="prev,pager,next" @current-change="page=>showRecords(recordKind,page)"/>
+    </ui-dialog>
 
     <DataTableCard v-if="!pendingTab" :title="`${tabs[deviceTab]} · ${registryTotal} 台`" :page="registryPage" :page-size="registryPageSize" :total="registryTotal" :error="listError" @retry="load" @update:page="changeRegistryPage" @update:page-size="changeRegistryPageSize">
       <div class="only-desktop">
@@ -243,7 +260,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); window.removeEventListener('i
         <ui-form-item label="设备编号"><ui-input :model-value="form.id" disabled /></ui-form-item>
         <ui-form-item label="设备名称" required><ui-input v-model="form.name" maxlength="256" placeholder="例如 一层东侧烟感" /></ui-form-item>
         <ui-form-item label="设备模板" required>
-          <ui-select v-model="form.productId" filterable placeholder="选择设备模板"><ui-option v-for="item in products" :key="item.id" :label="item.name" :value="item.id" /></ui-select>
+          <ui-input :model-value="productName(form.productId) || form.productId" disabled /><small>设备模板已固定，更换模板需按设备接入流程重新接入。</small>
         </ui-form-item>
         <ui-form-item label="设备角色">
           <ui-radio-group v-model="form.deviceRole" class="segmented-choice-group" aria-label="设备角色"><ui-radio-button v-for="(text, key) in deviceRoles" :key="key" :value="key">{{ text }}</ui-radio-button></ui-radio-group>

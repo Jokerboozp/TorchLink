@@ -36,24 +36,23 @@ try {
   await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 10"), '主导航')
 
   // Modbus 协议版本由 Go 测试预先发布，这里通过统一的添加设备接口登记采集设备。
-  const modbus = await api('/api/v1/onboarding', { method: 'POST', body: JSON.stringify({ requestId: 'browser-modbus', productId: 'browser-modbus-product', device: { id: 'browser-modbus-preview', name: 'Modbus 预览' }, connection: { mode: 'poll', host: '127.0.0.1', port: Number(process.env.IOT_TEST_MODBUS_PORT), unitId: 1, timeoutMs: 3000 } }) })
+  const modbus = await api('/api/v1/onboarding', { method: 'POST', body: JSON.stringify({ requestId: 'browser-modbus', trial:true, productId: 'browser-modbus-product', device: { id: 'browser-modbus-preview', name: 'Modbus 预览' }, connection: { mode: 'poll', host: '127.0.0.1', port: Number(process.env.IOT_TEST_MODBUS_PORT), unitId: 1, timeoutMs: 3000 } }) })
   assert.equal(modbus.status, 201, JSON.stringify(modbus.body))
 
-  // 设备模板：通过页面新建使用标准协议的模板。
+  // 模板按连续页面准备，首台实机在同页登记；尚未验收不会进入日常复用列表。
   await openPage('设备模板')
   await until(() => button('新建设备模板', '.filter-bar'), '新建设备模板')
-  await until(() => setInput('模板名称', '浏览器标准产品', '.n-modal'), '模板名称')
-  await setInput('模板标识', 'browser-standard-product', '.n-modal')
-  await until(() => button('保存设备模板', '.n-modal'), '保存设备模板')
-  await until(() => evaluate("!document.querySelector('.n-modal')"), '模板弹窗关闭')
-  await until(() => evaluate("document.querySelector('.app-content')?.innerText.includes('浏览器标准产品')"), '模板出现在列表')
-
-  // 添加设备向导：选择刚建的模板，HTTP 标准上报，获得一次性密钥。
-  await openPage('设备管理')
-  await until(() => button('添加设备', '.filter-bar'), '添加设备')
-  await choose('.onboarding', '设备模板', '浏览器标准产品')
-  await until(() => evaluate("document.querySelector('.onboarding__preflight')?.innerText.includes('标准 MQTT / HTTP 上报')"), '标准预检')
-  await until(() => button('下一步', '.onboarding'), '下一步')
+  await until(() => setInput('模板名称', '浏览器标准产品', '.product-preparation'), '模板名称')
+  await evaluate("document.querySelector('.product-preparation details summary').click()")
+  await until(() => evaluate("(()=>{const input=document.querySelector('.product-preparation details input');if(!input)return false;input.value='browser-standard-product';input.dispatchEvent(new Event('input',{bubbles:true}));return true})()"), '模板标识')
+  await until(() => button('保存并继续', '.product-preparation'), '保存模板信息')
+  await choose('.product-preparation', '默认上报通道', 'HTTP')
+  await until(() => button('保存并继续', '.product-preparation'), '保存通信协议')
+  await until(() => setInput('最少有效报文数', '1', '.product-preparation'), '单报文验收规则')
+  await until(() => button('应用配置并验证首台设备', '.product-preparation'), '应用配置')
+  await until(() => button('添加首台验证设备', '.product-preparation'), '添加首台验证设备')
+  assert.equal((await api('/api/v1/products/browser-standard-product/preparation')).body.candidate.verificationRules.minMessages,1)
+  await until(() => evaluate("document.querySelector('.onboarding__summary')?.innerText.includes('标准 MQTT / HTTP 上报')"), '首台复用当前模板')
   await until(() => setInput('设备名称', '浏览器传感器', '.onboarding'), '设备名称')
   await setInput('设备编号', 'browser-device', '.onboarding')
   await evaluate("[...document.querySelectorAll('.onboarding .n-radio-button')].find(b=>b.innerText.trim()==='HTTP').click()")
@@ -85,10 +84,14 @@ try {
 
   // 向导第三步刷新后确认已收到并解析上报。
   await until(() => button('我已保存', '.onboarding'), '我已保存')
-  await until(() => button('立即刷新', '.onboarding'), '立即刷新')
+  await until(() => button('刷新结果', '.onboarding'), '立即刷新')
   const latest = process.env.IOT_TEST_MQTT_WEBSOCKET ? '27' : '26.5'
   await until(() => evaluate(`(document.querySelector('.onboarding')?.innerText||'').includes(${JSON.stringify(latest)})`), '向导显示最新上报值')
-  await until(() => button('完成', '.onboarding'), '完成')
+  await until(() => button('保存并退出', '.onboarding'), '退出首台配置')
+  await until(() => button('检查并保存验收结果', '.product-preparation'), '记录真实验收')
+  await until(() => evaluate("document.querySelector('.product-preparation')?.innerText.includes('验收通过')"), '模板验收通过')
+  await until(() => button('保存并返回', '.product-preparation'), '返回模板列表')
+  await openPage('设备管理')
 
   // 连接详情：历史分区与窄屏抽屉；密钥不再显示。
   const openDetail = name => until(() => evaluate(`(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.innerText.includes(${JSON.stringify(name)}));const item=[...(row?.querySelectorAll('.row-actions button')||[])].find(b=>b.innerText.trim()==='详情');if(!item)return false;item.click();return true})()`), `${name} 详情`)
@@ -103,21 +106,32 @@ try {
   await closeDrawer()
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
 
+  // 设备专属采集连接原地纠正，保留已有协议与查询配置。
+  await openDetail('Modbus 预览')
+  await until(() => button('修改本设备连接参数', '.onboarding-diagnosis'), '修改本设备连接参数')
+  await until(() => setInput('站号', '0', '.connection-correction'), '采集站号')
+  await setInput('超时（毫秒）', '4000', '.connection-correction')
+  await until(() => button('保存连接参数', '.connection-correction'), '保存本设备连接参数')
+  await until(() => evaluate('!document.querySelector(".connection-correction")'), '连接参数保存完成')
+  const corrected=(await api('/api/v1/device-registry/browser-modbus-preview/connection')).body
+  assert.equal(corrected.profile.unitId,0);assert.equal(corrected.profile.timeoutMs,4000);assert.equal(corrected.profile.protocolId,'browser-modbus')
+  await closeDrawer()
+
   // 历史设备关联多个接入点：选择后只展示该接入点的会话。
   await openDetail('历史设备')
   await until(() => evaluate(`${drawer}?.innerText.includes('设备关联了多个接入点')`), '多个接入点提示')
   await pick(`${drawer}?.querySelector('.profile-picker .n-base-selection')`, 'listener-a', '选择接入点 listener-a')
   await until(() => evaluate(`(${drawer}?.querySelector('.ui-descriptions')?.innerText||'').includes('TCP')`), '接入点信息')
   await until(() => evaluate(`(() => {const text=[...${drawer}.querySelectorAll('.ui-table')].map(t=>t.innerText).join(' ');return text.includes('listener-a')&&!text.includes('listener-b')})()`), '只显示所选接入点的会话')
-  await closeDrawer()
+  await until(() => button('打开模板公共连接', '.onboarding-diagnosis'), '共享连接跳转模板')
+  await until(() => evaluate("document.querySelector('.product-preparation h2')?.innerText==='历史产品'"), '对应模板公共配置')
+  await until(() => button('保存并返回', '.product-preparation'), '返回设备模板列表')
 
-  // 设备模板详情的接入点：展开后显示在线会话。
+  // 运行会话仍按设备与所选接入点查看；模板设置已经改成完整页面。
   await openPage('设备模板')
-  await until(() => evaluate("(() => {const row=[...document.querySelectorAll('.n-data-table-tbody .n-data-table-tr')].find(e=>e.innerText.includes('历史产品'));const item=[...(row?.querySelectorAll('button')||[])].find(b=>b.innerText.trim()==='接入点');if(!item)return false;item.click();return true})()"), '模板接入点')
-  await until(() => evaluate(`(() => {const row=[...(${drawer}?.querySelectorAll('.n-data-table-tbody .n-data-table-tr')||[])].find(e=>e.innerText.includes('listener-a'));const expand=row?.querySelector('.n-data-table-expand-trigger');if(!expand)return false;expand.click();return true})()`), '展开 listener-a')
-  await until(() => evaluate(`(${drawer}?.innerText||'').includes('127.0.0.1:1234')`), '接入点在线会话')
-  assert.ok(await evaluate(`${drawer}.innerText.includes('legacy')`), '接入点会话未显示设备')
-  await closeDrawer()
+  await until(()=>evaluate("(()=>{const item=[...document.querySelectorAll('.product-name')].find(x=>x.textContent.includes('浏览器标准产品'));if(!item)return false;item.click();return true})()"),'打开模板准备页')
+  await until(()=>evaluate("document.querySelector('.product-preparation')?.innerText.includes('可以复用')"),'已验收模板状态')
+  await until(()=>button('保存并返回','.product-preparation'),'返回模板列表')
 
   // 摄像头只登记元数据，不出现视频协议入口。
   await openPage('摄像头映射')
@@ -133,10 +147,13 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.provider-select .n-base-selection'))"), '模型来源')
   await evaluate("document.querySelector('.provider-select .n-base-selection').click()")
   await until(() => evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).length>=2"), '模型来源选项')
-  assert.deepEqual(new Set(await evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")), new Set(['DeepSeek', 'OpenAI 兼容 / 私有化部署']))
+  assert.deepEqual(new Set(await evaluate("[...document.querySelectorAll('.n-base-select-option')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim())")), new Set(['DeepSeek', 'OpenAI 兼容 API']))
 
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`)
-  console.log('PASS: template and device created in the UI, device HTTP credential rejection, parsing and deduplication, wizard verification, connection drawer and narrow layout, access point selection and sessions, camera metadata, provider names')
+  console.log('PASS: template and device created in the UI, device HTTP credential rejection, parsing and deduplication, wizard verification, connection drawer and narrow layout, device poll parameter correction, shared listener template navigation, access point selection and sessions, camera metadata, provider names')
+} catch(error) {
+  if(browser)try{console.error('PAGE:', (await browser.evaluate('document.body.innerText')).slice(-5000));console.error('ERRORS:',browser.errors)}catch{}
+  throw error
 } finally {
   await browser?.close()
 }

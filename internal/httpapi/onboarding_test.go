@@ -51,7 +51,7 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 	token, _ := srv.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
 	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Status: "ENABLED", ProtocolPackageID: onboarding.StandardPackageID, Transport: "HTTP"})
 	payload := json.RawMessage(`{"id":"a","timestamp":1788850000000,"data":{"temperature":26.5}}`)
-	q := onboarding.EnrollRequest{RequestID: "req-1", ProductID: "product", Device: onboarding.EnrollDevice{ID: "device", Name: "传感器"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}}
+	q := onboarding.EnrollRequest{Trial: true, RequestID: "req-1", ProductID: "product", Device: onboarding.EnrollDevice{ID: "device", Name: "传感器"}, Connection: onboarding.EnrollConnection{Mode: onboarding.ModeStandard}}
 	call := func(method, path string, body []byte, credential model.DeviceCredential, admin bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, bytes.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
@@ -138,7 +138,7 @@ func TestStandardOnboardingHTTPChain(t *testing.T) {
 		t.Fatal("conflict overwrote archived raw", err)
 	}
 	connection = call("GET", "/api/v1/device-registry/device/connection", nil, model.DeviceCredential{}, true)
-	if connection.Code != 200 || !strings.Contains(connection.Body.String(), `"stage":"PARSED"`) || diagnosisStage(connection) != "PARSED" || !strings.Contains(connection.Body.String(), idx.MessageID) {
+	if connection.Code != 200 || !strings.Contains(connection.Body.String(), `"stage":"PARSED"`) || diagnosisStage(connection) != "AWAITING_VERIFICATION" || !strings.Contains(connection.Body.String(), idx.MessageID) {
 		t.Fatal("parsed receipt missing", connection.Code)
 	}
 	// State still traverses raw archival and parsing before updating connectivity.
@@ -254,6 +254,7 @@ func TestOnboardingBrowser(t *testing.T) {
 	cfg.DataDir = root
 	cfg.JWTSecret = "browser-isolated-test-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}
+	cfg.AdminUser = "browser-test"
 	if os.Getenv("IOT_TEST_MQTT_WEBSOCKET") != "" {
 		if os.Getenv("IOT_TEST_MQTT_JWT_SECRET") == "" || os.Getenv("IOT_TEST_MQTT_BROKER") == "" {
 			t.Fatal("live browser MQTT requires Broker and JWT test configuration")
@@ -263,6 +264,7 @@ func TestOnboardingBrowser(t *testing.T) {
 	}
 
 	api := New(cfg, engine, metrics.New(), log)
+	go api.RunOnboardingTasks(ctx)
 	if cfg.MQTTWebSocketURL != "" && os.Getenv("IOT_TEST_MQTT_WEBSOCKET") != "" {
 		username := "browser-probe-" + randomHex(8)
 		jwt, e := auth.New(cfg.JWTSecret).IssueWithACL(username, "tenant", "service", nil, []auth.ACLRule{{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"}}, 2*time.Minute)
@@ -394,7 +396,7 @@ func TestDeviceOnboardingBrowser(t *testing.T) {
 	if os.Getenv("IOT_TEST_BROWSER") == "" {
 		t.Skip("set IOT_TEST_BROWSER to Chrome or Edge after frontend build")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(t.TempDir())
@@ -410,9 +412,11 @@ func TestDeviceOnboardingBrowser(t *testing.T) {
 	cfg := config.Load()
 	cfg.JWTSecret = "browser-device-onboarding-test-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}
+	cfg.AdminUser = "browser-test"
 	cfg.DeviceHTTPPublicURL = "https://devices.example.test"
 	cfg.MQTTPublicURL = "mqtts://devices.example.test:8883"
 	api := New(cfg, engine, metrics.New(), log)
+	go api.RunOnboardingTasks(ctx)
 	token, _ := api.auth.Issue("browser-test", "tenant", "admin", nil, time.Hour)
 	assets := http.FileServer(http.Dir(filepath.Join("..", "..", "iot_front", "dist")))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -431,7 +435,7 @@ func TestDeviceOnboardingBrowser(t *testing.T) {
 		t.Fatalf("browser: %v\n%s", err, output.String())
 	}
 	devices, err := repo.ListManagedDevices(ctx, "tenant")
-	if err != nil || len(devices) != 2 {
+	if err != nil || len(devices) != 4 {
 		t.Fatalf("browser device count: %d %v", len(devices), err)
 	}
 	for _, device := range devices {

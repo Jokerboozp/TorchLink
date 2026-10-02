@@ -20,8 +20,8 @@ const mocks = `
   const json = body => Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } }));
   const check = (key, label, state, detail) => ({ key, label, state, detail });
   const products = [
-    { id:'product-demo', name:'烟雾探测器', category:'smoke', transport:'MQTT', payloadFormat:'json', status:'ENABLED', protocolPackageId:'iot-standard@1.0.0', metadata:{} },
-    { id:'product-gateway', name:'用户信息传输装置', category:'gateway', transport:'TCP_UDP', payloadFormat:'hex', status:'ENABLED', protocolPackageId:'protocol-demo@2.0.0', metadata:{} }
+    { id:'product-demo', name:'烟雾探测器', category:'smoke', transport:'MQTT', payloadFormat:'json', status:'ENABLED', reusable:true, protocolPackageId:'iot-standard@1.0.0', metadata:{} },
+    { id:'product-gateway', name:'用户信息传输装置', category:'gateway', transport:'TCP_UDP', payloadFormat:'hex', status:'ENABLED', reusable:true, protocolPackageId:'protocol-demo@2.0.0', metadata:{} }
   ];
   window.fetch = (input, options) => {
     const path = String(input);
@@ -35,12 +35,13 @@ const mocks = `
         ? { product:products[1], plan:{ mode:'listener', connector:'TCP', networks:['tcp','udp'], dial:true, protocol:{ id:'protocol-demo', version:'2.0.0', published:true } }, profiles:[{ id:'gateway-demo', productId:'product-gateway', mode:'listener', network:'tcp', connectionMode:'listen', host:'0.0.0.0', publicHost:'iot.example.com', port:26875, enabled:true, runtimeStatus:'LISTENING' }], checks:[check('product','设备模板','passed','已启用'), check('protocol','通信协议','passed','protocol-demo · 2.0.0'), check('listener','平台接入点','passed','已有可用的平台监听')], ready:true }
         : { product:products[0], plan:{ mode:'standard', connector:'MQTT', dial:false, protocol:{ id:'iot-standard', version:'1.0.0', published:true } }, profiles:[], checks:[check('product','设备模板','passed','已启用'), check('protocol','通信协议','passed','iot-standard · 1.0.0'), check('address','设备端地址','warning','尚未配置平台对外 MQTT 地址，设备保存后仍需管理员补齐')], ready:true });
     }
+    if (path.startsWith('/api/v1/onboarding/drafts/') && options?.method === 'PUT') { const body=JSON.parse(options.body); return json({id:path.split('/').pop(),revision:body.revision+1,updatedAt:Date.now(),body}); }
     if (path === '/api/v1/onboarding' && options?.method === 'POST') {
       const request = window.__enrollRequest = JSON.parse(options.body);
       const listener = request.connection.mode === 'listener';
       const device = { id:request.device.id, name:request.device.name, productId:request.productId, deviceRole:request.device.deviceRole, status:'ENABLED', createdAt:Date.now(), connector: listener ? 'TCP' : request.connection.transport };
       return json(listener
-        ? { reused:false, mode:'listener', device, product:{ id:'product-gateway', name:'用户信息传输装置' }, profile:{ id:'gateway-new', mode:'listener', network:request.connection.listener.network, connectionMode:'listen', host:'0.0.0.0', publicHost:request.connection.listener.publicHost, port:request.connection.listener.port, enabled:true, runtimeStatus:'PENDING' } }
+        ? { reused:false, mode:'listener', device, product:{ id:'product-gateway', name:'用户信息传输装置' }, profile:{ id:request.connection.profileId, mode:'listener', network:'tcp', connectionMode:'listen', host:'0.0.0.0', publicHost:'iot.example.com', port:26875, enabled:true, runtimeStatus:'LISTENING' } }
         : { reused:false, mode:'standard', device, product:{ id:'product-demo', name:'烟雾探测器' }, credential:{ accessKey:'fixture-access-key', secret:'fixture-device-secret' }, accessInfo:{ kind:'standard', mqttBroker:'', clientId:'device-fixture-access-key', username:'fixture-access-key', upTopic:'/iot/up/fixture/product-demo/' + device.id + '/property', downTopic:'/iot/down/fixture/product-demo/' + device.id + '/command', tokenEndpoint:'/api/v1/device-mqtt/token', sample:{ version:'1.0', data:{ temperature:22 } } } });
     }
     if (path.startsWith('/api/v1/device-registry/') && path.includes('/connection?since=')) return json({ device:{ id:decodeURIComponent(path.split('/')[4]), status:'ENABLED' }, ingest:{ configurationSaved:true, rawReceived:false, parsed:false }, diagnosis:{ stage:'WAITING', tone:'info', title:'等待设备本次上报', nextAction:'按设备端配置完成连接后，页面会自动刷新检查结果。', checks:[check('configuration','配置保存','passed','已保存'), check('service','接收服务','waiting','等待连接配置'), check('raw','收到原始报文','waiting','本次尚未收到'), check('parsed','解析结果','waiting','等待解析'), check('continuous','持续上报','waiting','等待后续上报')] } });
@@ -82,7 +83,7 @@ try {
     if (mobile) { await evaluate("document.querySelector('.app-topbar__toggle').click()"); await delay(250) }
     await evaluate("document.querySelector('.nav-item[aria-label=\"设备管理\"]').click()")
 
-    // 共享监听：新建监听端口，设备为主设备，协议设备不显示平台密钥。
+    // 共享监听复用模板的公共连接，设备为主设备，协议设备不显示平台密钥。
     await openWizard()
     await chooseTemplate('用户信息传输装置')
     await until(() => evaluate("document.querySelector('.onboarding__preflight')?.innerText.includes('设备连接平台（TCP / UDP 监听）')"), '监听预检')
@@ -93,19 +94,15 @@ try {
     assert.ok(await evaluate("[...document.querySelectorAll('.onboarding .n-radio-button--checked')].some(b=>b.innerText.includes('主设备'))"), '网关分类未默认选择主设备')
     await setInput('设备名称', 'A 栋传输装置')
     await setInput('设备编号', 'gb26875_000000000001')
-    await evaluate("[...document.querySelectorAll('.onboarding__option')].find(o=>o.innerText.includes('新建共享监听')).click()")
-    await until(() => setInput('平台对外地址', 'iot.example.com'), '平台对外地址')
-    await setInput('监听端口', '26876')
-    await evaluate("document.querySelector('input[aria-label=\"监听端口\"]').blur()")
     await fits(`${size}-listener-device`)
     await until(() => button('保存并生成接入信息'), '保存')
     await until(() => evaluate("document.querySelector('.onboarding__title')?.innerText==='现场配置与验证'"), '验证步骤')
     const listener = await evaluate('window.__enrollRequest')
-    assert.deepEqual({ product: listener.productId, role: listener.device.deviceRole, connection: listener.connection }, { product: 'product-gateway', role: 'GATEWAY', connection: { mode: 'listener', listener: { network: 'tcp', host: '', publicHost: 'iot.example.com', port: 26876 } } }, `监听接入请求不正确：${JSON.stringify(listener)}`)
-    await until(() => evaluate("document.querySelector('.onboarding')?.innerText.includes('iot.example.com:26876') && (document.querySelector('.onboarding__diagnosis')?.innerText||'').includes('等待设备本次上报')"), '监听设备端信息与诊断')
+    assert.deepEqual({ product: listener.productId, role: listener.device.deviceRole, connection: listener.connection }, { product: 'product-gateway', role: 'GATEWAY', connection: { mode: 'listener', profileId:'gateway-demo' } }, `监听接入请求不正确：${JSON.stringify(listener)}`)
+    await until(() => evaluate("document.querySelector('.onboarding')?.innerText.includes('iot.example.com:26875') && (document.querySelector('.onboarding-diagnosis')?.innerText||'').includes('等待设备本次上报')"), '监听设备端信息与诊断')
     assert.ok(await evaluate("!document.querySelector('.onboarding__secret')"), '协议设备不应显示平台密钥')
     await fits(`${size}-listener-verify`)
-    await until(() => button('完成'), '完成')
+    await until(() => button('保存并退出'), '保存并退出')
 
     // 标准上报：平台编号、标签、一次性密钥。
     await openWizard()
@@ -130,7 +127,7 @@ try {
     await fits(`${size}-standard-verify`)
     await until(() => button('我已保存'), '我已保存')
     await until(() => evaluate("!document.querySelector('.onboarding__secret') && [...document.querySelectorAll('.onboarding__config .onboarding__kv span')].some(span=>span.innerText==='AccessKey')"), '保存后显示 AccessKey')
-    await until(() => button('完成'), '完成')
+    await until(() => button('保存并退出'), '保存并退出')
   }
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`)
   console.log('PASS: 添加设备向导的共享监听与标准上报在桌面和 390px 宽度下的请求、提示与布局')

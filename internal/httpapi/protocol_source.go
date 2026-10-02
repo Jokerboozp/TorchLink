@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolbuild"
 	"iot-platform/internal/protocolworker"
 )
@@ -56,18 +57,27 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "租户标识不适用于协议制品存储")
 		return
 	}
-	publish, err := formBoolStrict(r, "publish", true)
+	publish, err := formBoolStrict(r, "publish", false)
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
 	}
 	if product := strings.TrimSpace(r.FormValue("productId")); product != "" {
 		if !publish {
-			problem(w, 422, "绑定产品须同时发布协议")
+			problem(w, 422, "绑定设备模板须显式发布协议")
 			return
 		}
 		if _, err := s.engine.Repo.GetProduct(r.Context(), tenant, product); err != nil {
-			problem(w, 422, "绑定产品不存在")
+			problem(w, 422, "绑定设备模板不存在")
+			return
+		}
+		_, count, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: tenant, RestrictProducts: true, ProductIDs: []string{product}}, 1, 0)
+		if err != nil {
+			problem(w, 500, "读取设备模板使用情况失败")
+			return
+		}
+		if count > 0 {
+			problem(w, 409, "此模板已有设备，请独立上传并发布协议，再通过模板隔离试验与应用流程切换版本")
 			return
 		}
 	}

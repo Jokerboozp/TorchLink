@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS device_command (
 );
 CREATE INDEX IF NOT EXISTS device_command_device_idx ON device_command(tenant_id,device_id,created_at DESC);
 
+CREATE TABLE IF NOT EXISTS onboarding_record (
+ tenant_id text NOT NULL, id text NOT NULL, owner_id text NOT NULL,
+ kind text NOT NULL, status text NOT NULL, revision bigint NOT NULL CHECK (revision > 0),
+ created_at bigint NOT NULL, updated_at bigint NOT NULL, body jsonb NOT NULL,
+ PRIMARY KEY (tenant_id,id)
+);
+CREATE INDEX IF NOT EXISTS onboarding_record_owner_kind ON onboarding_record(tenant_id,owner_id,kind,updated_at DESC,id);
+CREATE INDEX IF NOT EXISTS onboarding_record_kind ON onboarding_record(tenant_id,kind,updated_at DESC,id);
+CREATE INDEX IF NOT EXISTS onboarding_record_pending ON onboarding_record(kind,updated_at,id) WHERE status IN ('INITIALIZING','QUEUED','RUNNING');
+
 CREATE TABLE IF NOT EXISTS raw_archive_index (
   tenant_id text NOT NULL, product_id text NOT NULL, device_id text NOT NULL,
   message_id text NOT NULL, protocol text, payload_format text,

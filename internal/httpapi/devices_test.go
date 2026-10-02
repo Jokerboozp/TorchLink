@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/protocolworker"
 )
 
 func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
@@ -38,12 +40,15 @@ func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
 	cfg.AdminTenants = []string{"tenant"}
 	srv := New(cfg, engine, metrics.New(), log)
 	token, _ := srv.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
-	for _, p := range []model.Product{{TenantID: "tenant", ID: "parent-product", Status: "ENABLED"}, {TenantID: "tenant", ID: "child-product", Status: "ENABLED"}} {
+	for _, p := range []model.Product{{TenantID: "tenant", ID: "parent-product", Status: "ENABLED", Transport: "TCP", ProtocolPackageID: "parent-protocol@1"}, {TenantID: "tenant", ID: "child-product", Status: "ENABLED"}} {
 		if err := repo.SaveProduct(ctx, p); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "child-protocol", Version: "1", Status: "PUBLISHED"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "parent-protocol", Version: "1", Status: "PUBLISHED", Transport: "TCP", ParserType: parser.GoProtocolParserName, Artifact: map[string]any{"runtime": protocolworker.Runtime}, Capabilities: []string{"ingress", "decode"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant", ProductID: "child-product", ProtocolID: "child-protocol", Version: "1"}); err != nil {
@@ -91,13 +96,16 @@ func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
 	if err := repo.SaveDeviceAccessProfile(ctx, model.DeviceAccessProfile{TenantID: "tenant", ID: "foreign", ProductID: "child-product", Mode: "listener", Network: "tcp", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	r := httptest.NewRequest("POST", "/api/v1/device-registry", strings.NewReader(`{"id":"wrong","productId":"parent-product","name":"错误关联","tags":{"connectorProfileId":"foreign"}}`))
+	r := httptest.NewRequest("POST", "/api/v1/device-registry", strings.NewReader(`{"id":"wrong","productId":"parent-product","name":"错误关联","trial":true,"tags":{"connectorProfileId":"foreign"}}`))
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, r)
-	if w.Code != 422 {
+	if w.Code != 422 || !strings.Contains(w.Body.String(), "当前设备模板的接入点") {
 		t.Fatalf("cross-product connection accepted: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := repo.GetManagedDevice(ctx, "tenant", "wrong"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("cross-product connection persisted", err)
 	}
 }
 
@@ -135,25 +143,27 @@ func TestProtocolDevicesHaveNoPlatformCredentials(t *testing.T) {
 				t.Fatal(err)
 			}
 			w := call("POST", "/api/v1/device-registry", `{"id":"`+id+`","name":"设备","productId":"`+id+`"}`, "tenant", "admin", "", "")
-			if w.Code != 201 || bytes.Contains(w.Body.Bytes(), []byte(`"credential"`)) || bytes.Contains(w.Body.Bytes(), []byte(`"accessKey"`)) {
-				t.Fatalf("unexpected creation: %d %s", w.Code, w.Body.String())
+			if w.Code != 409 || bytes.Contains(w.Body.Bytes(), []byte(`"credential"`)) || bytes.Contains(w.Body.Bytes(), []byte(`"accessKey"`)) {
+				t.Fatalf("unprepared protocol template allowed registration: %d %s", w.Code, w.Body.String())
+			}
+			if _, err := repo.GetManagedDevice(ctx, "tenant", id); !errors.Is(err, model.ErrNotFound) {
+				t.Fatal("rejected registration persisted", err)
 			}
 			discoveredID := "discovered-" + id
 			if err := repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "tenant", DeviceID: discoveredID, ProductID: id}); err != nil {
 				t.Fatal(err)
 			}
 			w = call("POST", "/api/v1/discovered-devices/"+discoveredID+"/register", "{}", "tenant", "admin", "", "")
-			if w.Code != 201 || bytes.Contains(w.Body.Bytes(), []byte(`"credential"`)) || bytes.Contains(w.Body.Bytes(), []byte(`"accessKey"`)) {
-				t.Fatalf("discovery generated credentials: %d %s", w.Code, w.Body.String())
+			if w.Code != 409 || bytes.Contains(w.Body.Bytes(), []byte(`"credential"`)) || bytes.Contains(w.Body.Bytes(), []byte(`"accessKey"`)) {
+				t.Fatalf("unprepared discovery generated credentials: %d %s", w.Code, w.Body.String())
 			}
-			d, err := repo.GetManagedDevice(ctx, "tenant", id)
-			if err != nil || d.SecretHash != "" || d.AccessKey != model.ProtocolDeviceAccessKey("tenant", id) {
-				t.Fatal("invalid stored identity", err)
+			if _, err := repo.GetManagedDevice(ctx, "tenant", discoveredID); !errors.Is(err, model.ErrNotFound) {
+				t.Fatal("rejected discovery persisted", err)
 			}
 			// Existing records may still contain formerly generated secrets. They
 			// must not expose or accept those as an alternate HTTP/MQTT identity.
-			d.SecretHash, d.SecretHint = onboarding.Hash("old-secret"), "secret"
-			if err = repo.SaveManagedDevice(ctx, d); err != nil {
+			d := model.ManagedDevice{TenantID: "tenant", ID: id, Name: "历史协议设备", ProductID: id, Status: "ENABLED", AccessKey: model.ProtocolDeviceAccessKey("tenant", id), SecretHash: onboarding.Hash("old-secret"), SecretHint: "secret"}
+			if err := repo.SaveManagedDevice(ctx, d); err != nil {
 				t.Fatal(err)
 			}
 			w = call("GET", "/api/v1/device-registry/"+id+"/connection", "", "tenant", "admin", "", "")
@@ -650,7 +660,7 @@ func TestIndependentProductAndDeviceRegistration(t *testing.T) {
 	if _, err := repo.GetProtocolRelease(ctx, "other", parser.StandardProtocolID, "1.0.0"); err == nil {
 		t.Fatal("release crossed tenant boundary")
 	}
-	result := requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/device-registry", token, map[string]any{"id": "independent-device", "name": "独立设备", "productId": "standard-product"}, 201)
+	result := requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/device-registry", token, map[string]any{"id": "independent-device", "name": "独立设备", "productId": "standard-product", "trial": true}, 201)
 	credential, ok := result["credential"].(map[string]any)
 	if !ok || credential["secret"] == "" {
 		t.Fatal("device registration did not issue credential")

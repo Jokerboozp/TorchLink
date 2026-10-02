@@ -1,10 +1,12 @@
 # 设备接入、协议与开放接口
 
-[设备接入](#设备接入) · [标准报文](#http--mqtt-标准报文) · [Go 协议](#go-协议) · [映射](#配置驱动协议) · [主子设备](#tcp-与主子设备接入) · [开放接口](#开放接口) · [协议示例](#内置协议示例)
+[设备接入](#设备接入) · [模板验收](#设备模板准备验收与更新) · [草稿与批量](#持久接入草稿与批量登记) · [标准报文](#http--mqtt-标准报文) · [Go 协议](#go-协议) · [样本工作台](#协议样本工作台) · [映射](#配置驱动协议) · [主子设备](#tcp-与主子设备接入) · [开放接口](#开放接口) · [协议示例](#内置协议示例)
 
 ## 设备接入
 
-从“设备管理 → 添加设备”选择或新建模板，再填写设备与连接，保存后验证现场数据。模板代表共用协议的一套配置；模板接入点管理共享监听、主动连接、Modbus 采集与子设备映射，独立 Gateway 是部署进程，三者不混用。
+接入主线为：模板准备（协议选择或开发 → 公共连接 → 首台真实验收）→ 日常单台或批量接入 → 诊断与升级。
+
+实施人员从“设备模板 → 新建设备模板”连续完成模板信息、协议、公共连接与验收规则、首台实机验证。日常人员从“设备管理 → 添加设备”选择已经可以复用的模板，填写单台差异或导入批量清单，再完成现场配置与验证。模板代表共用协议的一套配置；共享监听、查询计划与子设备类型映射在模板中准备，主动连接地址和 Modbus 站号属于单台设备。页面统一称“设备模板”，接口沿用 `Product` / `productId`；独立 Gateway 是部署进程。
 
 - 标准 HTTP/MQTT 选择内置标准协议；HTTP 自定义报文绑定已发布映射或 Go 协议，调用 `POST /api/v1/device-ingest/{deviceId}`。这两类设备使用 AccessKey/Secret，Secret 只首次创建或轮换返回。
 - Go TCP/UDP 需要 ingress 能力，选择共享监听或 TCP 主动连接；设备编号必须与协议识别一致。Modbus 使用已发布点表版本，填写地址、端口和站号。TCP/UDP、Modbus 与子设备不生成平台 Secret，协议负责其自身认证。
@@ -13,14 +15,69 @@
 
 ## 预检、保存与诊断
 
-- `GET /api/v1/onboarding/preflight?productId={id}` 返回已有模板的接入方式、协议摘要、可用共享监听（含运行状态）和检查项；`ready=false` 时不能添加设备。新模板用 `protocolPackageId`、`transport`、`category` 代替 `productId`。
+- `GET /api/v1/onboarding/preflight?productId={id}` 返回已有模板的接入方式、协议摘要、可用共享监听（含运行状态）和检查项。`canRegister` / `ready` 表示配置允许登记，`connectionReady` 表示接入前置条件齐备，`reusable` 表示模板有匹配当前配置的实机验收记录；日常登记还要求 `reusable=true`。缺少平台对外地址允许保存待配置记录，但不表示已经接通。新模板用 `protocolPackageId`、`transport`、`category` 代替 `productId`。
 - `POST /api/v1/onboarding` 在一个事务中保存设备，并按需创建模板、协议绑定和接入点，任何一步失败都不留下部分资源。请求需带客户端生成的 `requestId`；`connection.mode` 取 `standard`、`managed`、`listener`、`dial` 或 `poll`，须与预检给出的接入方式一致。请求结构见 [onboarding/enroll.go](../internal/onboarding/enroll.go)。
 
 幂等按租户和设备编号判断：首次成功返回 201；相同请求重试返回 200 和 `reused:true`，不再返回 Secret；同一编号的不同请求返回 409。并发的相同请求只创建一台设备、生成一个 Secret。共享监听端口已被占用，或模板、协议绑定在保存前发生变化时返回 409，刷新后重试。主动连接和 Modbus 目标若填写 IP，须在 `IOT_MODBUS_ALLOWED_CIDRS` 允许的网段内。
 
 添加设备使用“新增设备”（`POST /api/v1/device-registry`）操作权限，不单列权限项。同时新建模板还需要设备模板的新增权限，新建共享监听还需要平台接入点的新增权限。只授权部分设备的账号不能添加设备，也不能调用预检。
 
-`GET /api/v1/device-registry/{id}/connection` 返回 `diagnosis`，包括 `stage`、`tone`、`title`、`nextAction` 和五项 `checks`。结论按“模板与协议 → 设备 → 主设备 → 接入点 → 对外地址 → 解析 → 持续上报”的顺序给出最先需要处理的问题。传入 `since` 时只采信该时间之后的现场原文。以下来源计为现场数据：`device-http`（凭据认证的 HTTP 接口上报）、`standard-http`、`standard-mqtt`、Go 协议监听和 Modbus 采集；管理端测试报文和回放不计入。多接入点设备可用 `?profileId={id}` 选择。原文详情、下载和回放使用 `rawMessageId`，不是标准消息 ID。
+旧台账新增和发现设备确认入口也复用同一原子登记及模板验收检查。未验收模板的首次登记必须显式传 `trial:true`，并具有模板编辑权限；普通日常登记不能以发现设备确认绕过验收。已有设备在原模板中的资料编辑不受首台准备状态阻断，但不能通过台账 `PUT` 或相同设备编号的 `POST` 直接更换模板，尝试时返回 409，并提示从目标模板重新接入；原设备归属、连接和凭据保持不变。需要单台主动连接参数或多个共享监听需要选择时，旧入口提示转入设备接入流程。
+
+`GET /api/v1/device-registry/{id}/connection` 返回 `diagnosis`，包括 `stage`、`tone`、`title`、`nextAction` 和分项 `checks`。结论按“模板与协议 → 设备 → 主设备 → 接入点 → 对外地址 → 解析 → 模板验收条件”的顺序给出最先需要处理的问题。传入 `since` 时只采信该时间之后的现场原文。以下来源计为现场数据：`device-http`（凭据认证的 HTTP 接口上报）、`standard-http`、`standard-mqtt`、Go 协议监听和 Modbus 采集；管理端测试报文和回放不计入。多接入点设备可用 `?profileId={id}` 选择。原文详情、下载和回放使用 `rawMessageId`，不是标准消息 ID。
+
+## 设备模板准备、验收与更新
+
+模板启停与准备状态相互独立。没有历史验收的既有模板显示 `UNVERIFIED`，已有设备、凭据和运行协议继续保留，不伪造验收记录。准备状态为 `DRAFT`、`AWAITING_VALIDATION`、`READY`；当前运行配置与已验证指纹不一致时返回 `CONFIGURATION_CHANGED`。只有启用且为 `READY` 的模板可用于日常单台或批量登记。模板工作人员可显式通过 `trial:true` 添加首台验证设备；这台设备验证后直接保留，无需删除重建。
+
+| 接口 | 行为 |
+| --- | --- |
+| `GET /api/v1/products/{id}/preparation` | 当前配置、候选、修订、准备状态、影响设备数量、验收和历史 |
+| `PUT /api/v1/products/{id}/preparation` | `{revision,candidate}` 保存可恢复候选草稿，允许尚未填完，拒绝明文凭据 |
+| `POST /api/v1/products/{id}/preparation/trial` | `{revision,profiles?}` 创建独立模板和监听；`profiles` 只覆盖隔离试验地址与端口 |
+| `POST /api/v1/products/{id}/preparation/apply` | `{revision}` 明确应用经过校验的候选；已有设备的配置变更须先通过隔离实机验证 |
+| `POST /api/v1/products/{id}/preparation/rollback` | `{revision,targetRevision}` 恢复历史完整协议、共享连接、数据定义与验收规则 |
+| `POST /api/v1/products/{id}/verification` | `{deviceId}` 从服务端真实证据生成模板验收结果 |
+| `GET /api/v1/device-registry/{id}/verification` | 检查设备当前配置的真实证据，不写验收记录 |
+| `POST /api/v1/device-registry/{id}/verification` | 检查并持久保存该设备的验收记录 |
+
+候选包含 `product`、`protocolId`、`version`、共享 `profiles` 和 `verificationRules`。协议选择以已发布的准确版本为准；任意自定义 MQTT Topic/认证不属于现有托管接入能力，自定义协议标记 MQTT 时仍按预检明确的 HTTP 通道接入。公共表单仅暴露现有 Worker/传输支持的字段。
+
+验收规则包含 `mode`（`periodic`、`low_frequency`、`event`、`child`）、`minMessages`、`windowSeconds`、`maxGapSeconds`，以及可选的 `requiredMessageTypes`、`requiredProperties`、`requiredEvents`。`maxGapSeconds=0` 表示不检查间隔；事件型须指定事件标识或消息类型。数量为 1–100，窗口最大 30 天。后端只统计当前租户、设备、模板、准确协议版本、连接及配置生效时间之后的现场原文，并检查已持久化的标准消息；主子设备还需匹配当前父设备、地址及类型。模拟、回放、未知版本、旧配置证据均不能使验收通过。
+
+更新不会在上传源码或保存草稿时切换生产设备。完整配置、协议绑定和准备修订在同一数据库事务中保存，并检查读取时的产品、共享连接和流程修订。已有设备升级使用独立试验模板/端口；试验配置的指纹固定，事后改成另一协议或规则的试验结果不能放行原候选。正式应用或回滚后需要新的正式现场证据，不沿用试验地址的验证成功。实际使用的 HTTP / MQTT 对外地址也参与配置指纹，地址变化需要重新验收；名称与说明修改不会撤销匹配的验收结论。
+
+旧接入点接口也在事务内检查模板绑定与使用情况，不能直接修改已使用模板的共享监听或改变接入点归属。单台主动连接、Modbus 参数仍可在设备诊断中纠正。仅关闭共享接入点、且不同时改变其他配置时允许立即停止；重新启用及公共配置变更须回到模板准备流程。
+
+历史修订同时保存当时的正式验收及隔离试验证据，包含设备、协议版本与原文编号。当前 `applied.trialVerification` 仅表示应用前的试验依据，不表示正式设备已经完成验收。TCP/UDP、Modbus 及子设备原文保存网关实际使用的 `metadata.profileFingerprint`；验收要求它与当前连接配置一致，防止旧连接在配置切换后迟到的同版本数据被误算为新配置成功。缺少该字段的历史原文仍可查看和回放，但不自动补作新验收。
+
+`applied.runtimeStatus=PENDING` 表示配置已保存、尚未得到当前配置的现场确认；`FIELD_CONFIRMED` 表示验收证据确认实际版本。监听服务的 `LISTENING` / `CONNECTED` 不代表所有会话已经切换。Go 协议继续在完整帧与待应答命令边界选择版本，原文保存实际使用版本。Modbus 已绑定模板按绑定版本进行后续轮询；单轮读取仍固定本轮版本，历史无绑定实例保持其原配置。回滚不重发物理控制命令，也不改写历史原文。
+
+所有复合动作重验其实际需要的权限。模板准备不能授予发布协议、创建共享监听或登记设备权限；普通用户仍受设备范围限制。未创建模板的草稿使用账号隔离的持久接入草稿，已创建模板的候选使用修订号进行并发校验，过期保存返回 409。
+
+## 持久接入草稿与批量登记
+
+接入草稿按租户、用户持久保存，带 `revision` 乐观锁；创建传 `revision: 0`，更新传读取到的版本，过期版本返回 409。普通设备草稿要求设备登记权限与全设备范围；`preparation:*` 模板准备草稿使用独立的模板编辑权限，并检查完整设备范围。列表先按当前权限过滤再分页；更改权限后不能继续读取另一类草稿，也不能靠修改 `step` 改写原来无权访问的草稿。草稿只保存配置与普通表单，不保存密码、令牌或设备 Secret。
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/v1/onboarding/drafts` | 查询自己的可访问草稿，支持 `limit`、`offset` 和 `purpose=preparation\|device`，先按类型与权限过滤再分页 |
+| `GET /api/v1/onboarding/drafts/{id}` | 恢复草稿及其 `revision` |
+| `PUT /api/v1/onboarding/drafts/{id}` | 保存 `{revision, step, productId, request}`；`request` 使用设备登记字段，允许尚未填完 |
+| `POST /api/v1/onboarding/batches/preflight` | 对 `{productId, connection, rows}` 只读预检，返回逐行错误和配置指纹 |
+| `POST /api/v1/onboarding/batches` | 提交相同输入，另带客户端任务 `id` 与预检 `fingerprint` |
+| `GET /api/v1/onboarding/batches` | 查询自己的任务摘要 |
+| `GET /api/v1/onboarding/batches/{id}` | 查询登记汇总与最多 30 行结果，支持 `limit`、`offset` |
+| `POST /api/v1/onboarding/batches/{id}/retry` | 用 `{revision, indices}` 重试失败行或恢复因权限变化暂停的待处理行 |
+| `POST /api/v1/onboarding/batches/{id}/credentials` | 用 `{indices}` 一次领取选中行的设备密钥；省略索引领取本批可领取项 |
+
+每个 `rows` 项为 `{device, connection?}`：`device` 包含编号、名称、备注等设备差异；行内 `connection` 完整覆盖顶层公共连接。单任务最多 1000 台、输入最多 2 MiB。共享监听应先在模板准备中建立，批量不能逐行新建共享端口。模板须已完成首台验证；预检和提交内容变化、协议或公共连接配置变化均需重新预检。登记任务固定模板配置指纹，并在每台设备执行前重新核对当前权限与配置；失败重试复用原始幂等请求，不重复创建设备。模板配置变化后的未完成设备应另建任务，不能静默换用新配置。
+
+任务和行结果存于 PostgreSQL 的 `onboarding_record`；关闭浏览器不会停止任务，进程恢复后可继续。具备 `jobs` 角色的进程运行内部全租户待执行队列，每个任务持有数据库执行租约，每进程最多同时运行两个任务，每个任务逐行登记。`INITIALIZING`、`QUEUED`、`RUNNING` 表示登记仍在执行；`COMPLETED` 仅表示本批登记完成，`PARTIAL_FAILED` 保留失败行，`PAUSED` 表示账户、权限或模板配置变化。
+
+设备登记状态和真实验收状态分开：分页行的 `onboardingStatus` 表示待配置、待验证、已验证或异常；`verificationSummary.scope` 固定为 `page`，只汇总本页。列表读取已保存的设备验收记录，核对当前模板指纹及设备、连接配置更新时间，不对整批设备反复扫描原文。重新验收从设备详情触发；没有匹配的现场证据不能标为已接入。行 `accessInfo` 可导出现场所需地址、Topic、设备编号或站号，不含 Secret。
+
+批量 Secret 使用由平台 JWT 密钥按独立用途派生的 AES-GCM 密钥加密，绑定租户、用户、任务行，领取窗口为 15 分钟；领取通过 CAS 清除密文，后台也会清理到期密文。普通草稿、任务查询和审计日志不返回明文 Secret；领取响应设置 `Cache-Control: no-store`，返回的 `items` 包含一次性凭据与现场配置。重复领取、领取响应中断、密钥更换、设备凭据被重置，或登记成功后交付结果落盘失败，都不会伪造或恢复旧 Secret；按 `unavailable` 原因从设备详情显式重新签发，并按现有凭据撤销流程使旧凭据失效。新密钥须同步配置到现场设备。
 
 ## HTTP / MQTT 标准报文
 
@@ -127,7 +184,7 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 ## Go 协议
 
-在“设备通信协议 → 上传源码”下载 Go 函数模板，修改 `protocol.go`；模板提供 `Definition`、`Message`、`Context`、`Frame` 和适配器，无需自行编写 stdin/stdout。上传 `.go` 或包含整个 module 的 ZIP。只有复杂独立项目才手写 `protocol.json`、Worker 和样例目录。
+在“协议开发 → 上传源码”下载 Go 函数模板，修改 `protocol.go`；模板提供 `Definition`、`Message`、`Context`、`Frame` 和适配器，无需自行编写 stdin/stdout。上传 `.go` 或包含整个 module 的 ZIP。复杂独立项目可自行维护 `protocol.json`、Worker 和样例目录。
 
 | 函数 / 字段 | 契约 |
 | --- | --- |
@@ -142,7 +199,7 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 完整项目 ZIP 直接包含 `go.mod`、源码、`protocol.json`、`samples/cases.json` 和可选 `samples/operations.json`（允许一层外目录）。第三方依赖先 `go mod vendor`；构建关闭 CGO、网络下载、工作区与自动工具链下载，不能使用目录外 replace。服务器 Go 工具链须可用。
 
-`POST /api/v2/protocols/{id}/source-releases` 使用 multipart：`file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`、`cases`、`publish`、`productId`。数组字段为 JSON；表单非空值覆盖包元数据，ID 与 URL 一致。`publish` 默认 true，绑定产品可选；仅校验时不改变绑定。
+`POST /api/v2/protocols/{id}/source-releases` 使用 multipart：`file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`、`cases`、`publish`、`productId`。数组字段为 JSON；表单非空值覆盖包元数据，ID 与 URL 一致。`publish` 默认 false，构建与样例校验成功后保存为 `VALIDATED`。页面按「构建并校验 → 发布协议 → 用于设备模板」操作，不在上传时切换模板。接口仅在显式传入 `publish=true` 且模板尚无登记设备时允许同时传 `productId` 完成初次绑定；已有设备的组合上传在构建前返回 409。已发布版本可独立用于模板，正式版本更新须通过隔离试验、现场验收和应用流程；未发布版本不可绑定。 若编译期间模板发生并发变化导致最终绑定失败，仍返回 201 和已创建的 `release`，通过 `bindingWarning`、`stepResults` 明确标记模板应用失败；保留版本与源码制品，无需重复上传。
 
 版本不可覆盖。编译、样例、哈希或任一所选目标失败都保留旧版本；发布后在模板的协议版本中切换/回滚，原文保存实际版本和帧前状态。只删除某个未被绑定、回滚或接入点引用的版本；有引用返回 409。
 
@@ -157,6 +214,16 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 发布端实际试跑为 `PASSED`；其他目标仅编译为 `COMPILED`，未试跑的预编译目标为 `UNTESTED`。构建成功不等于该系统已验收。Worker 具有服务账户 OS 权限，超时和最小环境不是强隔离沙箱。
 
 下载 `/api/v2/protocols/{id}/releases/{version}/source` 返回原始上传字节，`/package` 返回完整制品 ZIP；两者检查租户、操作权限和 SHA-256。没有自动远程仓库拉取，CI 可使用源码上传接口。页面只展示当前版本支持的解析测试、发布和源码下载。
+
+### 协议样本工作台
+
+从“协议开发 → 管理版本 → 详情 → 解析预览”或“模拟设备测试”进入，调用 `POST /api/v2/protocols/{id}/releases/{version}/preview`，始终提交 `readOnly: true`。`operation` 默认为 `decode`（`payload` 为 HEX 字符串或 JSON 值）；具有相应能力的 Go v2 版本还支持 `ingress`（`chunks` 为按接收顺序排列的 HEX 片段，`datagram: true` 要求每段为完整 UDP 数据报）和 `encode`（`command` 为命令对象）。可填写模拟 `deviceId`、帧前 `state`、毫秒时间 `now`，以及需要核对的 `expected` 字段；响应保留 `standardMessage`，并返回 `operationResult`、可选 `comparison` 字段差异。对象按填写字段比较，数组同时比较长度与位置。拆帧显示每次消费、半帧余留、帧前后状态、ACK / 应答、命令关联标识和逐帧解析结果；子设备仅作为观察结果展示。
+
+平台标准协议 `iot-standard@1.0.0` 同样支持只读 `decode`，不需要映射配置；使用标准 `id`、`timestamp`、`data` 信封和显式 `messageKind`（`property`、`event`、`alarm`、`state`、`command-reply`）。页面可选择消息类型并手动填入示例；不会自动发送。来自原文时类型沿用已授权 `raw.headers.messageKind`，不允许在保持原文关联时改为另一种类型。标准预览仅调用 `StandardParser.Parse`，不推进发布状态、创建设备字段、写入告警或完成命令。
+
+工作台可从设备模板或设备上下文进入，也可输入原文编号。载入原文只读取样本，仍须点击「只读试跑」才执行。提交 `rawMessageId` 后，服务端再次检查原文读取权限、租户和设备范围，要求所选版本与原文归档版本完全一致，并使用归档的完整 RawMessage（模板、设备、报文头、厂商元数据、帧前状态和接收时间）。允许编辑本次样本字节和帧前状态，不修改归档；切换版本或设备会解除原文关联。不存在或已撤销的归档版本不会自动换用当前版本，试跑也不会创建回放任务。
+
+预览从服务端版本读取制品、校验 SHA-256，以单次 Worker 调用执行操作，不复用现场常驻 Worker。一次请求最多 32 个片段、64 次拆帧，单次缓冲和帧前状态各不超过 64 KiB，总执行时间最多 10 秒，保留既有最小环境及输出限制。平台不创建网络连接、不向设备发送命令、不登记设备、不产生业务原文、标准消息、状态或告警；试跑结果不能替代真实网络、鉴权、设备应答与现场验收。Worker 仍具有服务进程的操作系统权限，这不是 OS 沙箱。
 
 ### Worker 契约
 
@@ -247,17 +314,17 @@ Worker 有两种运行方式，请求与结果格式相同，日志都写 stderr
 
 字段偏移从完整报文第 0 字节开始，支持 `uint8`、`int8`、`uint16`、`int16`、`uint32`、`int32`、`float32`、`ascii` 和 `hex`。这适用于固定长度传感器报文；变长、TLV、多信息体和复杂会话协议统一使用上传的 Go 源码包，包括 GB26875。
 
-发布前在「设备通信协议」版本详情的「解析测试」中输入样本并确认标准消息结果，再发布并在「设备模板」绑定。
+发布前在“协议开发”的版本详情中执行“解析测试”，确认标准消息结果，再发布并用于设备模板。
 
 ### 从报文或点表生成协议
 
-入口为「设备通信协议 → 协议生成」，弹窗标题为「生成协议」。选择输入类型后按以下流程操作：
+入口为“协议开发 → 协议生成”。选择输入类型后按以下流程操作：
 
 1. 报文支持上传 `.json/.txt/.hex/.bin` 或填写样本；JSON 自动提取路径，HEX 需提供字段偏移、长度、端序等说明，由已配置 AI 辅助生成固定字段映射。样本最大 1 MiB。
 2. 点表支持 `.xlsx/.csv`，文件最大 32 MiB，也可粘贴 CSV；平台直接生成 Modbus TCP / RTU 寄存器或线圈映射及读取块，不调用 AI。当前页面不提供 PDF、DOCX 上传。
 3. 在「编辑字段映射」中对照输入字段标识、JSON 路径、Modbus 地址或 HEX 偏移；支持新增、删除，展开行调整倍率、字节序等参数。无需直接编辑源码。
 4. 用真实样本执行「解析预览」。Modbus 需填写该响应帧对应的零基起始地址。编辑字段后旧预览清除，须重新验证。
-5. 「保存协议」创建不可变版本：无样本可保存为 `DRAFT`；样本通过后为 `VALIDATED`，再发布并绑定产品。已保存映射通过「新建版本」修改，不能覆盖原版本。
+5. 「保存草稿」创建不可变 `DRAFT` 版本，再用真实样本执行「校验草稿」，成功后变为 `VALIDATED`，最后「发布协议」。从模板流程内生成时，点击「用于当前模板」返回所选的协议标识、版本及协议包标识，由模板流程保存绑定；独立协议页则返回「设备模板」选择。已保存映射通过「新建版本」修改，不能覆盖原版本。
 
 点表常用列为 `identifier,name,functionCode,address,addressNotation,dataType,scale`。零基地址明确填写 `addressNotation=zero_based`；未声明基准的 `40001` 等传统地址按 Modbus 表区换算。表单中的 Modbus 地址统一从 0 开始。单个报文不能推断完整的变长、会话或厂商协议，这类接入使用 Go 源码包。
 
@@ -266,10 +333,10 @@ Worker 有两种运行方式，请求与结果格式相同，日志都写 stderr
 | `POST /api/v1/ai/protocol-assistant/generate` | multipart 上传，`inputKind=sample\|point-table`，支持 `file`、`pointTable`、`samplePayload` |
 | `POST /api/v1/ai/protocol-assistant/preview` | 未保存映射的解析预览 |
 | `POST /api/v1/ai/protocol-assistant/publish` | 保存 v2 草稿或已校验版本 |
-| `POST /api/v2/protocols/{id}/releases/{version}/preview` | 校验已保存版本的真实样本 |
+| `POST /api/v2/protocols/{id}/releases/{version}/preview` | 校验已保存映射或试跑 Go v2 ingress / decode / encode；`readOnly=true` 不改变版本状态，带 `rawMessageId` 强制只读 |
 | `POST /api/v2/protocols/{id}/releases/{version}/publish` | 发布已经校验的版本 |
 
-页面操作与可用能力见[页面入口](#设备接入)，权限仍由菜单和操作授权决定。「模拟设备测试」只发送模拟报文；真实设备在「设备管理 → 详情」核对连接诊断，并通过“设备控制”执行已定义命令。
+已发布协议可在[样本工作台](#协议样本工作台)中复查。标准协议的链路模拟须在“模拟设备测试”显式点击“准备测试设备”后再发送报文，会写入测试设备数据并可能产生告警；不计入现场验收。真实设备从“设备管理 → 详情”核对连接诊断，并通过“设备控制”执行已定义命令。
 
 #### 消息类型定义
 
@@ -323,10 +390,10 @@ Event: map[string]any{
 
 ## TCP 与主子设备接入
 
-平台提供两种 Go 协议 TCP 连接方向。新增现场设备从“设备管理 → 添加设备”开始，在第二步选择共享监听、新建共享监听或平台主动连接；已有接入点在“设备模板 → 详情 → 接入点”维护：
+平台提供两种 Go 协议 TCP 连接方向。先在“设备模板 → 连接与验收 → 公共连接与验收规则”准备共享配置并完成首台验收；日常“添加设备”选择已有共享监听或填写单台主动连接地址，共享监听不在日常向导中重复创建：
 
 - **设备连接平台**：`mode=listener`、`network=tcp`，`connectionMode=listen`（旧配置留空等价），分别填写平台监听 IP、设备端填写的对外地址和端口。`0.0.0.0` 只能作监听地址。每个共享连接关联一套主设备模板，可按协议识别多个主设备。
-- **平台连接设备**：设置 `connectionMode=dial`，填写设备/串口服务器地址、端口及预配置的设备标识。平台保持连接，失败退避 1～30 秒重连；目标解析和 IP 校验复用 `IOT_MODBUS_ALLOWED_CIDRS` 的出站网络策略。在“添加设备”中选择“平台主动连接设备”时，设备与主动连接接入点在同一请求中创建；也可以先登记设备，再在模板的接入点中新建主动连接。
+- **平台连接设备**：设置 `connectionMode=dial`，填写设备/串口服务器地址、端口及预配置的设备标识。平台保持连接，失败退避 1～30 秒重连；目标解析和 IP 校验复用 `IOT_MODBUS_ALLOWED_CIDRS` 的出站网络策略。在“添加设备”中选择“平台主动连接设备”时，设备与专属连接在同一请求中创建，后续从设备详情的连接诊断中修正地址和查询参数。
 
 TCP 建立成功不等于协议注册或认证成功。协议必须真实校验注册报文，在 Ingress 中返回错误可拒绝连接；主设备通过平台归属/启用检查、原文接收成功后才发送协议回复。平台不会仅凭一个设备 ID 伪造注册成功。配置的设备标识会传入 `Context.DeviceID`，它是路由信息，不能代替协议认证。
 
@@ -343,7 +410,7 @@ TCP 建立成功不等于协议注册或认证成功。协议必须真实校验�
 ### 串口服务器与 Modbus
 
 - 标准 Modbus TCP 转换网关：沿用 `MODBUS_TCP` 点表采集。
-- 原始 RTU 字节透明转发：已有 **Modbus RTU 串口透传 TCP**（`MODBUS_RTU_TCP`）实例在设备模板的接入点中维护，新设备在“添加设备”中填写串口服务器地址、端口和站号。实例保存 `mode=poll`、`network=tcp`、`wireFormat=rtu_over_tcp`，使用 `MODBUS_RTU` 版本化点表解析器。平台主动连接目标，发送带 CRC 的 RTU 查询，处理分片、站号、功能码、字节数和 CRC；归档保留原始 RTU 帧，不把转换后的 MBAP 帧冒充原文。
+- 原始 RTU 字节透明转发：**Modbus RTU 串口透传 TCP**（`MODBUS_RTU_TCP`）在模板中准备协议及验收规则，新设备在“添加设备”中填写串口服务器地址、端口和站号，已有设备在连接诊断中维护单台参数。实例保存 `mode=poll`、`network=tcp`、`wireFormat=rtu_over_tcp`，使用 `MODBUS_RTU` 版本化点表解析器。平台主动连接目标，发送带 CRC 的 RTU 查询，处理分片、站号、功能码、字节数和 CRC；归档保留原始 RTU 帧，不把转换后的 MBAP 帧冒充原文。
 
 同一进程内，同一个解析后 IP/端口的多个站号串行读取。独立接入副本应将同一物理串口服务器的轮询实例部署到同一执行端；当前执行租约按实例分配，不提供跨进程的物理串口总线调度。串口服务器以 TCP 客户端向平台连接时，使用前述 Go TCP 入站协议及查询调度，按实际设备报文实现组包和校验；保留的内置 RTU 点表接入 API 使用平台主动连接。
 
@@ -351,10 +418,10 @@ TCP 建立成功不等于协议注册或认证成功。协议必须真实校验�
 
 ### 首次配置主设备与子设备协议
 
-1. 发布主设备 Go 协议，并绑定主设备产品。
-2. 为每类子设备创建产品，分别绑定其已发布的 HEX 报文解析协议；协议可以和主设备不同。
-3. 在主设备模板的接入点中配置 `childProducts`：`type` 是主协议从报文识别出的子设备类型，`productId` 是相应子设备产品。配置页实时显示该产品的协议及版本；产品未启用、未绑定协议或协议格式不兼容会被服务端拒绝。
-4. 主设备注册后，再接收子设备登记或上报；也可以在主设备“详情 → 子设备”中点击“添加子设备”，按类型和地址预先登记。
+1. 发布主设备 Go 协议，在主设备模板中选择该版本。
+2. 为每类子设备准备模板，分别选择已发布的 HEX 报文解析协议；协议可以和主设备不同。
+3. 在主设备模板的公共连接中配置 `childProducts`：`type` 是主协议识别的子设备类型，`productId` 是相应子设备模板。模板未启用、未绑定协议或格式不兼容会被服务端拒绝；保存候选后按模板准备流程应用。
+4. 从主设备模板添加首台验证设备。主设备注册后，再接收子设备登记或上报；也可以在主设备“详情 → 子设备”中按类型和地址预先登记。核对两层真实原文及标准消息，再分别保存模板验收结果。
 
 子设备通过产品继承协议版本，不逐台复制协议。修改子设备产品绑定会影响该产品下的子设备；正在等待应答的子设备命令仍使用发送时的子协议版本解析回复，后续新报文使用当前绑定。已有子设备地址映射到不同类型/产品会被拒绝，不自动迁移原记录。
 
@@ -395,7 +462,7 @@ return Frame{
 
 ### TCP 与主子设备验证
 
-`go test -race ./internal/protocolruntime ./internal/onboarding ./internal/adapters/memory` 覆盖 Socket 主动连接/重连、查询互斥、RTU CRC 与点表、并发注册及归属。`TestTCPParentChildSourceChain` 实际上传两份 Go 源码、编译发布，并通过两种方向的 TCP、正常业务归档/解析和 API 验证分层链路；配置 `IOT_TEST_BROWSER` 时验证真实 Chrome 页面。PostgreSQL 契约测试在 `TestDeviceOperationsMigrationAndAtomicity` 的隔离 schema 中运行，需要 `IOT_TEST_POSTGRES_DSN`。
+`internal/protocolruntime` 的回归覆盖 Socket 主动连接/重连、查询互斥、RTU CRC 与点表；`TestTCPParentChildSourceChain` 上传两份 Go 源码、编译发布，并通过两种方向的 TCP、归档/解析和 API 验证分层链路，配置 `IOT_TEST_BROWSER` 时还运行 Chrome 检查。数据库原子性由 memory / PostgreSQL 的共享仓储契约验证。执行条件与命令统一见[设备接入回归](DEVELOPMENT.md#设备接入回归)和[浏览器验证](DEVELOPMENT.md#浏览器验证)。
 
 这些是协议模拟器和测试环境验证，不能代替厂商真实协议、设备或生产网络验收。
 
@@ -537,4 +604,4 @@ GB26875 用模板接入点监听 26875（TCP/UDP 分别配置），普通报文�
 
 ## 验证入口
 
-Go 接入用例集中在 `internal/onboarding`、`internal/protocolruntime`、`internal/parser` 和 `internal/httpapi`；具体回归命令与真实依赖条件见 [开发与测试](DEVELOPMENT.md)。现场成功需核对当前产品、设备、接入点、协议版本和现场原文；模拟、回放、保存成功或 Broker ACK 都不替代现场解析。
+接入用例集中在 `internal/onboarding`、`internal/protocolruntime`、`internal/parser` 和 `internal/httpapi`；数据库契约在 `internal/repositorytest` 中由 Memory / PostgreSQL 实现共同执行。具体回归命令、浏览器夹具与真实依赖条件见 [开发与测试](DEVELOPMENT.md)。现场成功需核对当前产品、设备、接入点、协议版本和现场原文；模拟、回放、保存成功或 Broker ACK 都不替代现场解析。

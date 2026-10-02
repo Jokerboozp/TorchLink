@@ -2,19 +2,168 @@ import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { mappingConfig, mappingRows } from '../src/protocolMapping.js'
 import { createClientId } from '../src/clientId.js'
 import { commandBody } from '../src/commandForm.js'
-import { STANDARD_PROTOCOL, configurationText, connectionMode, enrollRequest, fieldConfiguration, preflightQuery, protocolOptions, transportChoices, usesPlatformIdentity } from '../src/onboardingPlan.js'
+import { STANDARD_PROTOCOL, configurationText, enrollRequest, fieldConfiguration, preflightQuery, protocolOptions, usesPlatformIdentity } from '../src/onboardingPlan.js'
 
 function setup(api,initialRelease=null,browserCrypto=crypto) {
  const script=setupScript(new URL('../src/views/ProtocolAssistantView.vue',import.meta.url))
  let mount,cleanup
- const context=vm.createContext({mappingRows,mappingConfig,ref,computed,reactive,api,createClientId:()=>createClientId(browserCrypto),crypto:browserCrypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},ElMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
+ const events=[]
+ const context=vm.createContext({mappingRows,mappingConfig,ref,computed,reactive,watch,api,createClientId:()=>createClientId(browserCrypto),crypto:browserCrypto,FormData,AbortController,defineProps:()=>({initialRelease,initialName:'Test'}),defineEmits:()=> (...args)=>events.push(args),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},UiMessage:{success(){},warning(){}},notifyError(){},parseJSON:JSON.parse,pretty:JSON.stringify})
  const c=vm.runInContext(script+'\n;({generate,save,runPreview,publish,changeKind,newVersion,updateConfig,mapping,currentDraft,addMapping,removeMapping,form,file,draft,saved,preview,busy,error,step})',context)
- mount();return {...c,cleanup:()=>cleanup()}
+ mount();return {...c,events,cleanup:()=>cleanup()}
 }
+
+test('JSON preserve-value type remains a selectable value instead of a blank placeholder',()=>{
+ const script=setupScript(new URL('../src/components/ProtocolMappingEditor.vue',import.meta.url))
+ const rows=mappingRows({properties:{temperature:'$.temperature'}},'configurable_json_parser')
+ const context=vm.createContext({computed,defineProps:()=>({rows,parserType:'configurable_json_parser'}),defineEmits:()=>()=>{}})
+ const c=vm.runInContext(script+'\n;({types,changeType})',context)
+ assert.ok(c.types.value[0], 'the keep-original-value option must not use the empty value UiSelect treats as unselected')
+ c.changeType(rows[0],c.types.value[0])
+ assert.equal(mappingConfig({properties:{temperature:'$.temperature'}},'configurable_json_parser',rows).properties.temperature,'$.temperature')
+})
+
+test('editing a mapping while a preview is running discards the obsolete response',async()=>{
+ let finish
+ const release={protocolId:'json',version:'1',parserType:'configurable_json_parser',transport:'MQTT',payloadFormat:'json',config:{properties:{temperature:'$.temperature'}},status:'PUBLISHED'}
+ const c=setup(()=>new Promise(resolve=>finish=resolve),release)
+ c.newVersion();c.form.samplePayload='{"temperature":25}'
+ const pending=c.runPreview()
+ c.mapping.value[0].path='$.newTemperature';c.updateConfig()
+ finish({standardMessage:{properties:{temperature:25}}});await pending
+ assert.equal(c.preview.value,null)
+})
+
+test('saving generated mapping stores a draft and emits its exact reusable version',async()=>{
+ let submitted
+ const release={protocolId:'json',version:'1',parserType:'configurable_json_parser',transport:'MQTT',payloadFormat:'json',config:{properties:{temperature:'$.temperature'}},status:'PUBLISHED'}
+ const c=setup(async(path,options)=>{submitted=JSON.parse(options.body);return {release:{...release,version:submitted.version,status:'DRAFT'}}},release)
+ c.newVersion();c.form.samplePayload='{"temperature":25}';await c.save()
+ assert.equal(Object.hasOwn(submitted,'payload'),false)
+ assert.equal(c.saved.value.status,'DRAFT')
+ const event=c.events.find(e=>e[0]==='saved')[1]
+ assert.equal(event.protocolId,'json');assert.equal(event.version,c.form.version);assert.equal(event.protocolPackageId,`json@${c.form.version}`);assert.equal(event.status,'DRAFT')
+})
+
+test('source upload validates before explicit publication and never binds a template',async()=>{
+ const events=[],requests=[];let mount,cleanup
+ const props={initialProtocolId:'vendor-fire',initialName:'消防协议',context:{productId:'existing-template'}}
+ const release={protocolId:'vendor-fire',version:'2',status:'VALIDATED'}
+ const api=async(path,options)=>{requests.push({path,options});return path.endsWith('/publish')?{...release,status:'PUBLISHED'}:options?.method==='POST'?{release,testCases:2}:{compilerAvailable:true}}
+ const context=vm.createContext({ref,reactive,api,FormData,AbortController,defineProps:()=>props,defineEmits:()=>(...args)=>events.push(args),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},UiMessage:{success(){},warning(){}},notifyError(){}})
+ const script=setupScript(new URL('../src/components/ProtocolSourceUpload.vue',import.meta.url))
+ const c=vm.runInContext(script+'\n;({file,upload,publish,useForTemplate,result})',context)
+ await mount();c.file.value=new Blob(['package main']);await c.upload()
+ const upload=requests.find(item=>item.options?.body instanceof FormData)
+ assert.equal(upload.options.body.get('publish'),'false');assert.equal(upload.options.body.get('productId'),null)
+ c.useForTemplate();assert.equal(events.filter(e=>e[0]==='selected').length,0)
+ await c.publish();c.useForTemplate()
+ const selected=events.find(e=>e[0]==='selected')[1]
+ assert.equal(selected.protocolPackageId,'vendor-fire@2');assert.equal(selected.status,'PUBLISHED');assert.equal(selected.context,props.context)
+ cleanup()
+})
+
+test('opening simulation creates no resource and preparation requires an explicit action',async()=>{
+ const calls=[];let mount
+ const context=vm.createContext({ref,computed,reactive,defineProps:()=>({}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},api:async(path,options)=>{calls.push({path,options});return {device:{id:'test-device'},templates:{}}},can:()=>true,session:{tenant:'t',user:'u'},localStorage:{getItem(){return null},setItem(){},removeItem(){}},pretty:JSON.stringify,notifyError(){}})
+ const script=setupScript(new URL('../src/views/TestDeviceView.vue',import.meta.url))
+ const c=vm.runInContext(script+'\n;({prepare,device})',context)
+ mount();assert.equal(calls.length,0);assert.equal(c.device.value,null)
+ await c.prepare();assert.equal(calls.length,1);assert.equal(calls[0].path,'/api/v1/test-devices/provision')
+})
+
+test('template simulation pins the bound protocol version and invalidates a pending preview',async()=>{
+ let mount,cleanup,finish;const calls=[]
+ const release={protocolId:'fire',version:'2',status:'PUBLISHED',parserType:'go_protocol_parser',payloadFormat:'hex'}
+ const context=vm.createContext({ref,computed,watch,AbortController,can:()=>true,defineProps:()=>({initialProductId:'template'}),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},apiAll:async()=>({items:[{id:'template',name:'烟感',protocolPackageId:'fire@2'}]}),api:async(path,options)=>{calls.push({path,options});if(!options)return {items:[{definition:{name:'协议'},releases:[release]}]};return new Promise(resolve=>finish=resolve)},parseJSON:JSON.parse})
+ const script=setupScript(new URL('../src/components/ProtocolPreviewPanel.vue',import.meta.url))
+ const c=vm.runInContext(script+'\n;({payload,preview,result})',context)
+ await mount();c.payload.value='AA012A';const pending=c.preview()
+ const request=calls.find(item=>item.options)
+ assert.match(request.path,/fire\/releases\/2\/preview$/);assert.equal(JSON.parse(request.options.body).readOnly,true)
+ c.payload.value='AA0130';finish({standardMessage:{properties:{temperature:42}}});await pending
+ assert.equal(c.result.value,null);cleanup()
+})
+
+function previewSetup({origin={},api,allow=()=>true}={}) {
+ let mount,cleanup
+ const context=vm.createContext({ref,computed,watch,AbortController,can:allow,defineProps:()=>({context:origin}),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},apiAll:async()=>({items:[{id:'template',name:'烟感',protocolPackageId:'fire@2'}]}),api,parseJSON:JSON.parse,pretty:JSON.stringify})
+ const script=setupScript(new URL('../src/components/ProtocolPreviewPanel.vue',import.meta.url))
+ const c=vm.runInContext(script+'\n;({payload,state,sampleTime,packageId,operation,chunks,command,expected,preview,result,error,loadRaw,rawMessageId,rawInfo,messageKind,fillStandardSample})',context)
+ return {...c,mount,cleanup:()=>cleanup()}
+}
+
+test('authorized archived sample uses its exact version and frame state without automatic preview or replay',async()=>{
+ const calls=[]
+ const catalog={items:[{definition:{name:'协议'},releases:['1','2'].map(version=>({protocolId:'fire',version,status:'PUBLISHED',parserType:'go_protocol_parser',payloadFormat:'hex',capabilities:['decode','ingress','encode']}))}]}
+ const c=previewSetup({origin:{productId:'template',deviceId:'device',rawMessageId:'raw-1'},api:async(path,options)=>{calls.push({path,options});if(path==='/api/v2/protocols')return catalog;if(path.includes('/raw-messages/'))return {message:{messageId:'raw-1',deviceId:'device',productId:'template',protocolId:'fire',protocolVersion:'1',payloadFormat:'hex',payload:'AA01072ADC',receivedAt:12345,metadata:{protocolState:{device:7,sequence:9}}},standardMessage:{messageType:'PROPERTY_REPORT',properties:{temperature:42}}};return {operation:'decode',operationResult:{},comparison:{matched:true}}}})
+ await c.mount()
+ assert.equal(c.packageId.value,'fire@1');assert.equal(c.payload.value,'AA01072ADC');assert.deepEqual(JSON.parse(c.state.value),{device:7,sequence:9});assert.equal(c.sampleTime.value,12345)
+ assert.equal(calls.filter(call=>call.options?.method==='POST').length,0)
+ await c.preview()
+ const request=calls.find(call=>call.options?.method==='POST'),body=JSON.parse(request.options.body)
+ assert.match(request.path,/fire\/releases\/1\/preview$/);assert.equal(body.readOnly,true);assert.equal(body.rawMessageId,'raw-1');assert.equal(body.now,12345);assert.deepEqual(body.state,{device:7,sequence:9});assert.equal(body.expected.standardMessage.properties.temperature,42);assert.equal(Object.hasOwn(body.expected.standardMessage,'event'),false)
+ assert.equal(calls.some(call=>call.path.includes('replay')),false)
+ c.packageId.value='fire@2';assert.equal(c.rawInfo.value,null);await c.preview();assert.equal(Object.hasOwn(JSON.parse(calls.at(-1).options.body),'rawMessageId'),false);c.cleanup()
+})
+
+test('sample workbench checks raw permission and never substitutes a missing archive version',async()=>{
+ const paths=[]
+ const denied=previewSetup({origin:{rawMessageId:'raw-denied'},allow:path=>!path.startsWith('GET /api/v1/raw-messages'),api:async path=>{paths.push(path);return {items:[]}}})
+ await denied.mount();assert.deepEqual(paths,['/api/v2/protocols']);denied.cleanup()
+ const missing=previewSetup({origin:{rawMessageId:'raw-old'},api:async path=>path==='/api/v2/protocols'?{items:[]}:{message:{deviceId:'device',payload:'AA'},parseStatus:'UNPARSED'}})
+ await missing.mount();assert.match(missing.error.value,/没有归档协议版本/);assert.equal(missing.packageId.value,'');missing.cleanup()
+})
+
+test('encode sample sends a read-only command and changing expected result invalidates its pending response',async()=>{
+ let finish;const calls=[]
+ const c=previewSetup({origin:{protocolId:'fire',version:'1'},api:async(path,options)=>{calls.push({path,options});if(!options)return {items:[{definition:{name:'协议'},releases:[{protocolId:'fire',version:'1',parserType:'go_protocol_parser',status:'PUBLISHED',payloadFormat:'hex',capabilities:['decode','encode']}]}]};return new Promise(resolve=>finish=resolve)}})
+ await c.mount();c.operation.value='encode';c.command.value='{"type":"ping"}';c.state.value='{"device":7}';c.expected.value='{"correlationId":"1"}'
+ const pending=c.preview();const body=JSON.parse(calls.find(call=>call.options).options.body)
+ assert.equal(body.operation,'encode');assert.equal(body.readOnly,true);assert.deepEqual(body.command,{type:'ping'});assert.equal(Object.hasOwn(body,'payload'),false)
+ c.expected.value='{"correlationId":"2"}';finish({operation:'encode',operationResult:{reply:'AA'}});await pending;assert.equal(c.result.value,null);c.cleanup()
+})
+
+test('changing the raw identifier discards an in-flight sample result',async()=>{
+ let finish
+ const c=previewSetup({origin:{protocolId:'fire',version:'1'},api:async(path,options)=>!options?{items:[{definition:{name:'协议'},releases:[{protocolId:'fire',version:'1',parserType:'go_protocol_parser',status:'PUBLISHED',payloadFormat:'hex',capabilities:['decode']}]}]}:new Promise(resolve=>finish=resolve)})
+ await c.mount();c.payload.value='AA012A';const pending=c.preview();c.rawMessageId.value='raw-other'
+ finish({standardMessage:{properties:{temperature:42}}});await pending;assert.equal(c.result.value,null);c.cleanup()
+})
+
+test('standard preview selects message kind and filling samples never sends data',async()=>{
+ const calls=[]
+ const c=previewSetup({origin:{protocolId:'iot-standard',version:'1.0.0'},api:async(path,options)=>{calls.push({path,options});return !options?{items:[{definition:{name:'标准协议'},releases:[{protocolId:'iot-standard',version:'1.0.0',parserType:'iot_standard_parser',status:'PUBLISHED',payloadFormat:'json'}]}]}:{operation:'decode',standardMessage:{}}}})
+ await c.mount();assert.equal(c.payload.value,'')
+ for(const kind of ['property','event','alarm','state','command-reply']){
+   c.messageKind.value=kind;c.fillStandardSample()
+   const sample=JSON.parse(c.payload.value);assert.equal(sample.version,'1.0');assert.ok(sample.timestamp>0)
+ }
+ assert.equal(calls.filter(call=>call.options?.method==='POST').length,0)
+ await c.preview();const body=JSON.parse(calls.at(-1).options.body)
+ assert.equal(body.messageKind,'command-reply');assert.equal(body.operation,'decode');assert.equal(body.readOnly,true);assert.equal(body.payload.success,true);c.cleanup()
+})
+
+test('archived standard sample sends its ingress message kind and example selection releases its identity',async()=>{
+ const calls=[]
+ const c=previewSetup({origin:{rawMessageId:'raw-alarm'},api:async(path,options)=>{calls.push({path,options});if(path==='/api/v2/protocols')return {items:[{definition:{name:'标准协议'},releases:[{protocolId:'iot-standard',version:'1.0.0',parserType:'iot_standard_parser',status:'PUBLISHED',payloadFormat:'json'}]}]};if(path.includes('/raw-messages/'))return {message:{messageId:'raw-alarm',deviceId:'device',protocolId:'iot-standard',protocolVersion:'1.0.0',payloadFormat:'json',headers:{messageKind:'alarm'},payload:{id:'sample',timestamp:1,data:{alarmType:'SMOKE_DETECTED'}}}};return {operation:'decode',standardMessage:{}}}})
+ await c.mount();assert.equal(c.messageKind.value,'alarm');await c.preview()
+ const body=JSON.parse(calls.at(-1).options.body);assert.equal(body.messageKind,'alarm');assert.equal(body.rawMessageId,'raw-alarm')
+ c.fillStandardSample();assert.equal(c.rawInfo.value,null);assert.equal(c.rawMessageId.value,'');assert.equal(JSON.parse(c.payload.value).data.alarmLevel,'HIGH');c.cleanup()
+})
+
+test('simulation consumes template navigation context without creating a device',()=>{
+ let removed=false,mount
+ const navigation={productId:'template',protocolId:'fire',version:'2',deviceId:'device',rawMessageId:'raw-1'}
+ const context=vm.createContext({ref,computed,reactive,defineProps:()=>({}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},api(){throw new Error('unexpected resource write')},can:()=>true,session:{tenant:'t',user:'u'},sessionStorage:{getItem:()=>JSON.stringify(navigation),removeItem(){removed=true}},localStorage:{getItem(){return null}},pretty:JSON.stringify})
+ const script=setupScript(new URL('../src/views/TestDeviceView.vue',import.meta.url))
+ const value=vm.runInContext(script+'\n;({previewContext})',context)
+ mount();assert.deepEqual(JSON.parse(JSON.stringify(value.previewContext)),navigation);assert.equal(removed,true)
+})
 
 test('HTTP 页面没有 randomUUID 时仍能初始化协议生成表单',()=>{
  const c=setup(async()=>({}),null,{getRandomValues:array=>crypto.getRandomValues(array)})
@@ -130,27 +279,20 @@ test('command forms accept structured parameters and require a defined command',
 })
 
 const draft = (overrides = {}) => ({
-  source: 'existing', productId: 'product-1', requestId: 'req-1',
-  newProduct: { id: 'product_new', name: ' 新型号 ', category: 'smoke', protocolPackageId: 'fire@1.0.0', transport: 'TCP', manufacturer: ' 大华 ', model: '' },
+  productId: 'product-1', requestId: 'req-1',
   device: { id: ' device-1 ', name: ' 一层烟感 ', role: 'DIRECT', description: '' },
   labels: [{ key: ' 楼层 ', value: '一层' }, { key: ' ', value: 'ignored' }],
-  connection: { choice: '', transport: '', network: '', port: null, publicHost: '', bindHost: '', host: '', unitId: 1, timeoutMs: 3000 },
+  connection: { choice: '', transport: '', port: null, host: '', unitId: 1, timeoutMs: 3000 },
   ...overrides
 })
 
 test('only published releases are offered after the standard protocol', () => {
   const options = protocolOptions([{ definition: { id: 'fire', name: '消防协议' }, releases: [{ version: '1', status: 'PUBLISHED', transport: 'TCP_UDP' }, { version: '2', status: 'VALIDATED' }] }])
   assert.deepEqual(options.map(item => item.id), [STANDARD_PROTOCOL, 'fire@1'])
-  assert.deepEqual(transportChoices('TCP_UDP'), ['TCP', 'UDP'])
-  assert.deepEqual(transportChoices('TCP'), [])
 })
 
-test('preflight uses the saved template or the template draft', () => {
+test('daily preflight uses the saved template identity', () => {
   assert.equal(preflightQuery(draft()), 'productId=product-1')
-  const query = new URLSearchParams(preflightQuery(draft({ source: 'new' })))
-  assert.equal(query.get('protocolPackageId'), 'fire@1.0.0')
-  assert.equal(query.get('transport'), 'TCP')
-  assert.equal(query.get('productId'), null)
 })
 
 test('enroll requests carry only the fields of the chosen connection', () => {
@@ -160,9 +302,6 @@ test('enroll requests carry only the fields of the chosen connection', () => {
   const listenerPlan = { mode: 'listener', networks: ['tcp', 'udp'], dial: true }
   const shared = enrollRequest(draft({ connection: { ...draft().connection, choice: 'fire-tcp-26875' } }), listenerPlan)
   assert.deepEqual(shared.connection, { mode: 'listener', profileId: 'fire-tcp-26875' })
-  const created = enrollRequest(draft({ connection: { ...draft().connection, choice: 'new', publicHost: ' iot.example.com ', port: 26875 } }), listenerPlan)
-  assert.deepEqual(created.connection, { mode: 'listener', listener: { network: 'tcp', host: '', publicHost: 'iot.example.com', port: 26875 } })
-  assert.equal(connectionMode(listenerPlan, 'dial'), 'dial')
   const dial = enrollRequest(draft({ connection: { ...draft().connection, choice: 'dial', host: ' 10.0.0.8 ', port: 9000 } }), listenerPlan)
   assert.deepEqual(dial.connection, { mode: 'dial', host: '10.0.0.8', port: 9000 })
 
@@ -171,10 +310,7 @@ test('enroll requests carry only the fields of the chosen connection', () => {
   assert.equal(JSON.parse(JSON.stringify(poll)).connection.port, undefined, 'an empty port lets the server apply 502')
 })
 
-test('a new template is created in the same request', () => {
-  const body = enrollRequest(draft({ source: 'new' }), { mode: 'managed' })
-  assert.equal(body.productId, undefined)
-  assert.deepEqual(body.newProduct, { id: 'product_new', name: '新型号', category: 'smoke', protocolPackageId: 'fire@1.0.0', transport: 'TCP', metadata: { manufacturer: '大华' } })
+test('only standard and managed modes use platform device identities', () => {
   assert.ok(usesPlatformIdentity('managed') && usesPlatformIdentity('standard') && !usesPlatformIdentity('listener'))
 })
 
@@ -189,4 +325,32 @@ test('device-side configuration never includes a secret that is no longer shown'
   assert.match(later, /AccessKey：dk_1/)
   const listener = fieldConfiguration({ mode: 'listener', device: { id: 'gw' }, profile: { publicHost: '', port: 26875, network: 'tcp' } }, null, null)
   assert.deepEqual(listener, [{ name: '服务器地址', value: '接入点未配置平台对外地址' }, { name: '网络', value: 'TCP' }])
+})
+
+function protocolDetails(permissions=['POST /api/v2/protocols/:id/releases/:version/preview']) {
+ const allowed=ref(permissions)
+ const context=vm.createContext({computed,ref,watch,defineProps:()=>({section:'protocols'}),defineEmits:()=>()=>{},onMounted(){},can:permission=>allowed.value.includes(permission)})
+ const c=vm.runInContext(setupScript(new URL('../src/views/ProtocolsView.vue',import.meta.url))+'\n;({viewRelease,selectedRelease,selectedProtocol,previewOpen,previewContext,canTestMapping,canPreviewRelease,canPublishRelease,canDownloadSource,hasReleaseActions})',context)
+ return {...c,allowed}
+}
+test('standard and Go release details expose the same permitted read-only preview action',()=>{
+ const c=protocolDetails()
+ for(const parserType of ['iot_standard_parser','go_protocol_parser']) {
+  for(const status of ['PUBLISHED','VALIDATED']) {
+   c.viewRelease({definition:{id:'protocol'}},{version:'1',parserType,status})
+   assert.equal(c.canPreviewRelease.value,true);assert.equal(c.hasReleaseActions.value,true)
+  }
+  c.selectedRelease.value.status='REVOKED';assert.equal(c.canPreviewRelease.value,false);assert.equal(c.hasReleaseActions.value,false)
+  c.selectedRelease.value.status='PUBLISHED';c.allowed.value=[];assert.equal(c.canPreviewRelease.value,false);assert.equal(c.hasReleaseActions.value,false)
+  c.allowed.value=['POST /api/v2/protocols/:id/releases/:version/preview']
+ }
+ c.viewRelease({definition:{id:'other'}},{version:'1',parserType:'unsupported',status:'PUBLISHED'})
+ assert.equal(c.hasReleaseActions.value,false)
+ c.selectedRelease.value.artifact={generatedMapping:{}};assert.equal(c.canTestMapping.value,true);assert.equal(c.canPreviewRelease.value,false);assert.equal(c.hasReleaseActions.value,true)
+})
+test('manual release switching clears old raw preview context and pins the selected protocol identity',()=>{
+ const c=protocolDetails(),release={version:'2',parserType:'iot_standard_parser',status:'PUBLISHED'}
+ c.previewContext.value={protocolId:'old',version:'1',rawMessageId:'old-raw'};c.previewOpen.value=true
+ c.viewRelease({definition:{id:'iot-standard',name:'标准协议'}},release)
+ assert.equal(c.previewContext.value,null);assert.equal(c.previewOpen.value,false);assert.equal(c.selectedRelease.value.protocolId,'iot-standard');assert.equal(c.selectedRelease.value.version,'2');assert.equal(Object.hasOwn(release,'protocolId'),false)
 })

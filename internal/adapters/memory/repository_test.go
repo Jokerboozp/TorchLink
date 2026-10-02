@@ -120,6 +120,10 @@ func TestBatchLookupsKeepTenantAndRequestedIDs(t *testing.T) {
 
 func TestProtocolChildren(t *testing.T) { repositorytest.ProtocolChildren(t, NewRepository()) }
 
+func TestTemplateSwitch(t *testing.T) { repositorytest.TemplateSwitch(t, NewRepository()) }
+
+func TestPreparedEnrollment(t *testing.T) { repositorytest.PreparedEnrollment(t, NewRepository()) }
+
 func TestSwitchProductProtocolIsAtomicAndDetectsChanges(t *testing.T) {
 	ctx := context.Background()
 	r := NewRepository()

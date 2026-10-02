@@ -18,6 +18,7 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	onboardingRecords   map[string]model.OnboardingRecord
 	opsItems            map[string]model.OpsUserItem
 	accessStates        map[string][]byte
 	fireSafetyStates    map[string][]byte
@@ -246,9 +247,33 @@ func (r *Repository) GetProductProtocolBinding(_ context.Context, tenant, produc
 	}
 	return clone(v), nil
 }
-func (r *Repository) SaveDeviceAccessProfile(_ context.Context, v model.DeviceAccessProfile) error {
+func (r *Repository) SaveDeviceAccessProfile(_ context.Context, v model.DeviceAccessProfile, options ...model.AccessProfileSaveOptions) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if len(options) > 0 && options[0].GuardTemplate {
+		previous := r.accessProfiles[key(v.TenantID, v.ID)]
+		binding, ok := r.protocolBindings[key(v.TenantID, v.ProductID)]
+		if !ok || binding.ProtocolID != v.ProtocolID || binding.Version != v.ProtocolVersion {
+			return model.ErrBindingChanged
+		}
+		if old, ok := r.accessProfiles[key(v.TenantID, v.ID)]; ok && (old.ProductID != v.ProductID || old.DeviceID != v.DeviceID) {
+			return model.ErrOnboardingChanged
+		}
+		if v.DeviceID == "" {
+			for _, d := range r.devices {
+				if d.TenantID == v.TenantID && d.ProductID == v.ProductID && !model.AccessProfileDisable(previous, v) {
+					return model.ErrOnboardingChanged
+				}
+			}
+		}
+		if v.Enabled && v.Mode == "listener" && v.ConnectionMode != "dial" {
+			for _, p := range r.accessProfiles {
+				if p.Enabled && p.Mode == "listener" && p.ConnectionMode != "dial" && p.Network == v.Network && p.Port == v.Port && (p.TenantID != v.TenantID || p.ID != v.ID) {
+					return model.ErrBindingChanged
+				}
+			}
+		}
+	}
 	r.accessProfiles[key(v.TenantID, v.ID)] = clone(v)
 	return nil
 }

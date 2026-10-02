@@ -15,6 +15,18 @@ func (r *Repository) SaveOnboarding(_ context.Context, b model.OnboardingBundle)
 		return errors.New("device already exists")
 	}
 	pk := key(d.TenantID, d.ProductID)
+	if prepared := b.Prepared; prepared != nil {
+		profiles := []model.DeviceAccessProfile{}
+		for _, p := range r.accessProfiles {
+			if p.TenantID == d.TenantID && p.ProductID == d.ProductID && p.DeviceID == "" {
+				profiles = append(profiles, p)
+			}
+		}
+		rec, found := r.onboardingRecords[key(d.TenantID, "template:"+d.ProductID)]
+		if !found || rec.Revision != prepared.RecordRevision || rec.Status != "READY" || !model.SameTemplateSnapshot(r.products[pk], prepared.Product, profiles, prepared.Profiles) {
+			return model.ErrOnboardingChanged
+		}
+	}
 	if b.Product != nil {
 		if _, ok := r.products[pk]; ok {
 			return errors.New("product already exists")

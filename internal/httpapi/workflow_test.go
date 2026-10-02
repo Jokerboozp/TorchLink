@@ -152,7 +152,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	}
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/protocol-packages", token, map[string]any{"id": "protocol_javascript", "name": "JavaScript 解析协议", "version": "1.0.0", "protocol": "javascript", "transport": "HTTP", "payloadFormat": "hex", "parserType": parser.JavaScriptParserName, "status": "PUBLISHED", "config": map[string]any{"source": "function parse(raw) { const b = hexToBytes(raw.payload); return {properties: {temperature: b[0] / 10}} }"}}, 422)
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/products", token, map[string]any{"id": "product_json", "name": "JSON 传感器", "category": "sensor", "protocolPackageId": "protocol_json", "status": "ENABLED"}, 201)
-	managed := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/device-registry", token, map[string]any{"id": "device_managed", "name": "受管测试设备", "productId": "product_json", "status": "ENABLED"}, 201)
+	managed := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/device-registry", token, map[string]any{"id": "device_managed", "name": "受管测试设备", "productId": "product_json", "status": "ENABLED", "trial": true}, 201)
 	credential := managed["credential"].(map[string]any)
 	publicBody, _ := json.Marshal(map[string]any{"messageId": "raw_managed", "payload": map[string]any{"properties": map[string]any{"temperature": 22.5}}})
 	publicReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/device-ingest/device_managed", bytes.NewReader(publicBody))
@@ -275,6 +275,9 @@ func TestHTTPWorkflow(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/raw-messages", token, map[string]any{"messageId": "raw_discovered_e2e", "tenantId": "tenant_001", "productId": "product_json", "deviceId": "discovered_1", "protocol": "json", "payloadFormat": "json", "payload": map[string]any{"properties": map[string]any{"temperature": 23.5}}}, 201)
+	// Daily registration reuses a prepared template. Actual field evidence and
+	// the first-device acceptance transition are covered by the preparation test.
+	readyTemplateFixture(t, api, "tenant_001", "product_json")
 	discovered := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/discovered-devices/discovered_1/register", token, map[string]any{}, 201)
 	if discovered["device"].(map[string]any)["deviceRole"] != "DIRECT" {
 		t.Fatalf("unexpected discovered registration %#v", discovered)

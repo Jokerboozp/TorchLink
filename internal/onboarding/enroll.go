@@ -74,6 +74,7 @@ type EnrollConnection struct {
 // EnrollRequest registers one device, and optionally its template and its
 // platform connection, in a single transaction.
 type EnrollRequest struct {
+	Trial      bool             `json:"trial,omitempty"`
 	RequestID  string           `json:"requestId"`
 	ProductID  string           `json:"productId,omitempty"`
 	NewProduct *NewProduct      `json:"newProduct,omitempty"`
@@ -113,6 +114,12 @@ func normalizeEnroll(q EnrollRequest) EnrollRequest {
 // Enroll is idempotent per device ID: repeating the same request returns the
 // saved device without a new secret; a different request for that ID conflicts.
 func (s *Service) Enroll(ctx context.Context, tenant string, q EnrollRequest) (EnrollResult, error) {
+	return s.enroll(ctx, tenant, q, "")
+}
+
+// enroll optionally pins a durable task to the exact template validated at
+// preflight. The fingerprint comes from the task record, never a client flag.
+func (s *Service) enroll(ctx context.Context, tenant string, q EnrollRequest, expectedTemplateFingerprint string) (EnrollResult, error) {
 	q = normalizeEnroll(q)
 	if !segment.MatchString(q.RequestID) {
 		return EnrollResult{}, invalid("请求标识无效，请刷新页面后重试")
@@ -149,6 +156,28 @@ func (s *Service) Enroll(ctx context.Context, tenant string, q EnrollRequest) (E
 		return EnrollResult{}, err
 	}
 	product := result.Product
+	if (s.RequirePrepared || expectedTemplateFingerprint != "") && q.NewProduct == nil && !q.Trial {
+		_, ready, e := s.TemplateReadiness(ctx, tenant, product.ID)
+		if e != nil {
+			return EnrollResult{}, e
+		}
+		if !ready {
+			return EnrollResult{}, conflict("请先完成设备模板的首台实机验证")
+		}
+		rec, prep, e := s.TemplateRecord(ctx, tenant, product.ID)
+		if e != nil {
+			return EnrollResult{}, e
+		}
+		current, e := s.CurrentCandidate(ctx, tenant, product.ID)
+		if e != nil {
+			return EnrollResult{}, e
+		}
+		fingerprint := s.CandidateFingerprint(current)
+		if !model.SameTemplateSnapshot(current.Product, product, nil, nil) || fingerprint != prep.Fingerprint || expectedTemplateFingerprint != "" && fingerprint != expectedTemplateFingerprint {
+			return EnrollResult{}, conflict("模板配置刚刚发生变化，请重新预检")
+		}
+		b.Prepared = &model.PreparedEnrollment{Product: current.Product, Profiles: current.Profiles, RecordRevision: rec.Revision}
+	}
 	if b.Device.UsesPlatformCredentials(product) {
 		credential, err := Credential()
 		if err != nil {

@@ -2,18 +2,21 @@
 import { createClientId } from '../clientId'
 import CommandValueInput from './CommandValueInput.vue'
 import LinkedCameras from './LinkedCameras.vue'
+import OnboardingDiagnosis from './OnboardingDiagnosis.vue'
+import { can } from '../permissions'
 import { commandBody } from '../commandForm'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { UiMessageBox, UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty, session } from '../api'
 import { transportLabel, statusLabel } from '../presentation'
 import { commandStatuses, alarmType, alarmLevel, alarmStatuses, connectionStatuses, dataStatuses, businessStatuses, stateSources, messageTypeLabel, label } from '../labels'
-import { diagnosisTagTypes } from '../onboardingPlan'
 
 const props = defineProps({ deviceId:String })
 const emit = defineEmits(['close','navigate','device'])
 const data = ref(null), loading = ref(false), actionBusy = ref(false), error = ref(''), selectedProfile = ref('')
-const credential = ref(null), commandResult = ref(null)
+const credential = ref(null), commandResult = ref(null), verification = ref(null), verificationBusy = ref(false)
+async function verifyDevice(){if(loading.value || verificationBusy.value || !canEdit.value || !can('menu:devices'))return;const current=generation;verificationBusy.value=true;try{const result=await api(`${base()}/verification`,{method:'POST',body:'{}',signal:controller.signal});if(current===generation)verification.value=result}catch(cause){if(current===generation && cause.name!=='AbortError')notifyError(cause)}finally{if(current===generation)verificationBusy.value=false}}
+async function readVerification(current){try{const result=await api(`${base()}/verification`,{signal:controller.signal});if(current===generation)verification.value=result}catch(cause){if(current===generation && cause.name!=='AbortError')verification.value=null}}
 const commandReply = ref(null)
 const commandType = ref('')
 const commandValues = ref({})
@@ -59,13 +62,13 @@ async function loadList(key) {
 async function load() {
   const current = ++generation
   controller.abort(); controller = new AbortController()
-  loading.value = true; error.value = ''
+  loading.value = true; verificationBusy.value=false; error.value = ''
   try {
     const result = await api(`${base()}/connection${selectedProfile.value ? `?profileId=${encodeURIComponent(selectedProfile.value)}` : ''}`,{signal:controller.signal})
     if (current !== generation) return
     if (!result?.device?.id) throw new Error('设备连接信息不完整，请刷新后重试。')
     data.value = result; selectedProfile.value = result.profile?.id || ''
-    const jobs = [loadList('history'),loadList('events')]
+    const jobs = [loadList('history'),loadList('events'),readVerification(current)]
     if (isParent.value) jobs.push(loadList('children'))
     if (result.connector === 'MQTT') jobs.push(loadList('commands'))
     await Promise.all(jobs)
@@ -91,8 +94,11 @@ async function action(work) {
 }
 async function rotate() {
   await action(async () => {
+    const current=generation,identityToken=session.token
     await UiMessageBox.confirm('重新生成后旧凭据立即在平台停用；消息服务撤销结果可在下方查看。','重新生成凭据')
-    const result = await api(`${base()}/credentials`,{method:'POST'})
+    if(current!==generation || session.token!==identityToken)return
+    const result = await api(`${base()}/credentials`,{method:'POST',signal:controller.signal})
+    if(current!==generation || session.token!==identityToken)return
     credential.value = result.credential; await load()
   })
 }
@@ -142,7 +148,7 @@ async function addChild() {
   } catch (cause) { notifyError(cause) } finally { childSaving.value = false }
 }
 watch(() => props.deviceId,() => {
-  data.value = null; selectedProfile.value = ''; credential.value = null; commandType.value='';commandValues.value={};newCommand()
+  data.value = null; selectedProfile.value = ''; credential.value = null; verification.value=null; verificationBusy.value=false; commandType.value='';commandValues.value={};newCommand()
   for (const section of Object.values(lists)) Object.assign(section,{items:[],total:0,page:1,error:'',loading:false})
   load()
 },{immediate:true})
@@ -161,7 +167,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
       <template v-if="data">
         <section class="connection-section device-summary">
           <h3>当前接入状态</h3>
-          <div v-if="data.diagnosis" class="connection-diagnosis" :class="`is-${data.diagnosis.tone}`" role="status"><ui-tag :type="diagnosisTagTypes[data.diagnosis.tone]">{{data.diagnosis.title}}</ui-tag><p>{{data.diagnosis.nextAction}}</p></div>
+          <OnboardingDiagnosis @navigate="(page,detail)=>emit('navigate',page,detail)" :status="data" :verification="verification" :verification-busy="verificationBusy" :can-verify="canEdit && can('menu:devices')" @refresh="load" @verify="verifyDevice" @raw="emit('navigate','raw',{deviceId:props.deviceId,rawMessageId:data.ingest?.rawMessageId})"/>
           <div class="connection-status-grid" role="status"><div><span>业务状态</span><strong>{{label(businessStatuses,data.connection?.businessStatus) || '未知'}}</strong></div><div><span>连接状态</span><strong>{{label(connectionStatuses,data.connection?.connectionStatus) || '未知'}}</strong></div><div><span>数据状态</span><strong>{{label(dataStatuses,data.connection?.dataStatus) || '未知'}}</strong></div><div><span>最近上报</span><strong>{{formatTime(data.connection?.lastSeenAt)}}</strong></div><div><span>原文接收</span><strong>{{data.ingest?.rawReceived ? '已收到' : '等待上报'}}</strong></div><div><span>解析状态</span><strong>{{data.ingest?.parsed ? '已完成' : data.ingest?.parseError ? '失败' : data.ingest?.rawReceived ? '等待处理' : '等待上报'}}</strong></div></div>
           <h4 class="connection-subtitle">设备与协议</h4>
           <ui-descriptions :column="columns" border>
@@ -207,7 +213,7 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 
         <section v-if="isParent" class="connection-section device-children" v-loading="lists.children.loading">
           <div class="section-heading"><h3>子设备（{{lists.children.total}}）</h3><ui-button v-if="childTypes.length && canEdit" v-permission="'POST /api/v1/device-registry/:id/children'" size="small" @click="openChildDialog">添加子设备</ui-button></div>
-          <p v-if="!childTypes.length">接入点尚未配置子设备类型。请在设备模板的“接入点”中添加子设备映射后，再按地址添加子设备。</p>
+          <p v-if="!childTypes.length">接入点尚未配置子设备类型。请在设备模板的“公共连接”中添加子设备映射后，再按地址添加子设备。</p>
           <ui-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" />
           <ui-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息">
             <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column prop="device.childAddress" label="地址" min-width="90" />
@@ -336,12 +342,6 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
 .connection-status-grid > div { min-width:0; padding:10px var(--space-3); background:var(--surface-muted); border:1px solid var(--border); border-radius:var(--radius-md); }
 .connection-status-grid span { display:block; margin-bottom:2px; color:var(--text-muted); font-size:var(--font-size-xs); }
 .connection-status-grid strong { display:block; color:var(--text-strong); font-size:var(--font-size-md); font-weight:var(--font-weight-semibold); line-height:var(--line-height-tight); overflow-wrap:anywhere; }
-.connection-diagnosis { display:grid; gap:var(--space-1); margin-bottom:var(--space-4); padding:var(--space-3) var(--space-4); background:var(--info-soft); border:1px solid var(--info-border); border-radius:var(--radius-md); }
-.connection-diagnosis.is-success { background:var(--success-soft); border-color:var(--success-border); }
-.connection-diagnosis.is-warning { background:var(--warning-soft); border-color:var(--warning-border); }
-.connection-diagnosis.is-error { background:var(--danger-soft); border-color:var(--danger-border); }
-.connection-diagnosis .ui-tag { justify-self:start; }
-.connection-diagnosis p { margin:0; color:var(--text); }
 .section-heading { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-bottom:var(--space-3); }
 .section-heading h3 { margin:0; }
 .child-dialog-hint { margin:0; color:var(--text-muted); font-size:var(--font-size-xs); }

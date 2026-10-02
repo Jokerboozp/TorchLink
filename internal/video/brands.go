@@ -79,23 +79,3 @@ func buildTemplateURL(brand, host string, port, channel int, sub bool) (string, 
 	}
 	return u.String(), nil
 }
-
-// redactURL removes any userinfo and hides query values that look secret.
-func redactURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "(invalid URL)"
-	}
-	u.User = nil
-	q := u.Query()
-	for k := range q {
-		lk := strings.ToLower(k)
-		if strings.Contains(lk, "pass") || strings.Contains(lk, "pwd") || strings.Contains(lk, "token") || strings.Contains(lk, "secret") || lk == "vt" {
-			q.Set(k, "***")
-		}
-	}
-	if len(q) > 0 {
-		u.RawQuery = q.Encode()
-	}
-	return u.String()
-}

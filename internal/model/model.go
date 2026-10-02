@@ -215,19 +215,22 @@ type DeviceState struct {
 // Product describes a managed device product and the protocol package used to
 // turn its raw payloads into standard platform messages.
 type Product struct {
-	ThingModel        *ThingModel    `json:"thingModel,omitempty"`
-	ID                string         `json:"id"`
-	TenantID          string         `json:"tenantId"`
-	Name              string         `json:"name"`
-	Category          string         `json:"category"`
-	ProtocolPackageID string         `json:"protocolPackageId"`
-	Transport         string         `json:"transport"`
-	PayloadFormat     string         `json:"payloadFormat"`
-	Status            string         `json:"status"`
-	Description       string         `json:"description,omitempty"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
-	CreatedAt         int64          `json:"createdAt"`
-	UpdatedAt         int64          `json:"updatedAt"`
+	VerificationRules *VerificationRules `json:"verificationRules,omitempty"`
+	PreparationStatus string             `json:"preparationStatus,omitempty"`
+	Reusable          bool               `json:"reusable"`
+	ThingModel        *ThingModel        `json:"thingModel,omitempty"`
+	ID                string             `json:"id"`
+	TenantID          string             `json:"tenantId"`
+	Name              string             `json:"name"`
+	Category          string             `json:"category"`
+	ProtocolPackageID string             `json:"protocolPackageId"`
+	Transport         string             `json:"transport"`
+	PayloadFormat     string             `json:"payloadFormat"`
+	Status            string             `json:"status"`
+	Description       string             `json:"description,omitempty"`
+	Metadata          map[string]any     `json:"metadata,omitempty"`
+	CreatedAt         int64              `json:"createdAt"`
+	UpdatedAt         int64              `json:"updatedAt"`
 }
 
 // ProtocolPackage is a declarative protocol-package release. ParserType points
@@ -371,6 +374,20 @@ type DeviceAccessProfile struct {
 	UpdatedAt         int64  `json:"updatedAt"`
 }
 
+// AccessProfileSaveOptions applies management-API guards atomically with a
+// connection edit; internal snapshot restoration uses its own transaction.
+type AccessProfileSaveOptions struct{ GuardTemplate bool }
+
+// AccessProfileDisable is an operational stop, not an untested configuration
+// rollout. Only the enabled flag and runtime/configuration timestamps may differ.
+func AccessProfileDisable(current, next DeviceAccessProfile) bool {
+	if !current.Enabled || next.Enabled {
+		return false
+	}
+	next.Enabled, next.UpdatedAt = current.Enabled, current.UpdatedAt
+	return current.Configuration() == next.Configuration()
+}
+
 // Configuration clears only runtime observations; UpdatedAt remains the configuration revision.
 func (p DeviceAccessProfile) Configuration() string {
 	p.RuntimeStatus, p.LastError = "", ""
@@ -380,6 +397,13 @@ func (p DeviceAccessProfile) Configuration() string {
 		return "invalid"
 	}
 	return string(b)
+}
+
+// ConfigurationFingerprint identifies the exact connection snapshot used by
+// the gateway. Runtime observations never change this archival identifier.
+func (p DeviceAccessProfile) ConfigurationFingerprint() string {
+	sum := sha256.Sum256([]byte(p.Configuration()))
+	return hex.EncodeToString(sum[:])
 }
 
 // ProtocolAssistantField is the editable address/mapping contract between the

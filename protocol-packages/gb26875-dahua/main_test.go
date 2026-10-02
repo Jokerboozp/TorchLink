@@ -75,9 +75,20 @@ func TestSamplesAndWireOperations(t *testing.T) {
 	if preserved.State == nil || preserved.State.Sequence != 12 {
 		t.Fatal("incoming report rewound command sequence")
 	}
-	encoded, _ := json.Marshal(raw)
+	encoded, _ := json.Marshal(gb26875.Request{Version: 2, Operation: "decode", Raw: &raw})
 	if err = run(bytes.NewReader(encoded), &output); err != nil || !strings.Contains(output.String(), "standardMessage") {
-		t.Fatalf("v1 compatibility: %v %s", err, output.String())
+		t.Fatalf("v2 decode: %v %s", err, output.String())
+	}
+	for _, input := range []any{raw, gb26875.Request{Version: 1, Operation: "decode", Raw: &raw}} {
+		encoded, _ = json.Marshal(input)
+		output.Reset()
+		if err = run(bytes.NewReader(encoded), &output); err != nil {
+			t.Fatal(err)
+		}
+		var response gb26875.Response
+		if err = json.Unmarshal(output.Bytes(), &response); err != nil || response.Error != "protocol request version must be 2" || response.StandardMessage != nil {
+			t.Fatalf("legacy request accepted: %v %s", err, output.String())
+		}
 	}
 }
 

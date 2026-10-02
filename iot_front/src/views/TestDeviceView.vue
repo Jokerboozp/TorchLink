@@ -6,8 +6,15 @@ import { can } from '../permissions'
 import { api, formatTime, notifyError, parseJSON, pretty, session } from '../api'
 import { alarmType, label, messageTypeLabel, tagType, parsers } from '../labels'
 import FilterBar from '../components/layout/FilterBar.vue'
+import ProtocolPreviewPanel from '../components/ProtocolPreviewPanel.vue'
 
 const emit = defineEmits(['navigate'])
+const props = defineProps({ productId:{type:String,default:''}, protocolId:{type:String,default:''}, version:{type:String,default:''} })
+// App navigation is recreated per page and passes details through this slot.
+// Consume it once before the child workbench mounts; opening never provisions.
+let navigation={}
+try { navigation=JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}') || {};sessionStorage.removeItem('iot:navigation-detail') } catch { navigation={} }
+const previewContext={productId:props.productId || navigation.productId || '',protocolId:props.protocolId || navigation.protocolId || '',version:props.version || navigation.version || '',deviceId:navigation.deviceId || '',rawMessageId:navigation.rawMessageId || ''}
 
 const templateNames = { data: '正常数据', alarm: '报警数据', recovery: '恢复数据', event: '事件数据' }
 const templateDescriptions = {
@@ -35,7 +42,7 @@ const currentTemplate = computed({
 const currentTemplateName = computed(() => templateNames[activeTemplate.value])
 
 function storageKey() {
-  return `iot:test-device-templates:${session.tenant || 'default'}`
+  return `iot:test-device-templates:${session.tenant || 'default'}:${session.user || 'anonymous'}`
 }
 
 function saveTemplates() {
@@ -63,14 +70,14 @@ function resetLocalTemplates() {
 }
 
 async function prepare(reset = false) {
-  if (loading.value) return
+  if (loading.value || sending.value) return
   loading.value = true
   try {
     const data = await api('/api/v1/test-devices/provision', { method: 'POST', body: JSON.stringify({ reset }) })
     device.value = data.device
     product.value = data.product
     protocolPackage.value = data.protocolPackage
-    if (data.credential) credential.value = data.credential
+    credential.value = data.credential || null
     applyServerTemplates(data.templates)
     if (!reset) restoreTemplates()
     if (reset) saveTemplates()
@@ -108,6 +115,7 @@ async function loadRawDetail(messageId) {
 }
 
 async function sendTemplate(kind) {
+  if (sending.value || loading.value) return
   if (!device.value) return UiMessage.warning('测试设备还没有准备好')
   let body
   try {
@@ -159,19 +167,19 @@ function alarmLabel(value) {
 
 onMounted(() => {
   restoreTemplates()
-  if (can('POST /api/v1/test-devices/provision')) void prepare(false)
 })
 </script>
 
 <template>
   <div class="test-device-view">
+    <ProtocolPreviewPanel :context="previewContext" />
     <FilterBar>
-      <p class="test-device-hint">{{ can('POST /api/v1/test-devices/provision') ? '进入页面后自动准备测试设备；如准备失败，可点击“重新准备测试设备”重试。模拟结果不能证明现场设备已接通。' : '当前账号没有准备测试设备的权限。' }}</p>
+      <p class="test-device-hint">{{ can('POST /api/v1/test-devices/provision') ? '平台标准协议调试：点击“准备测试设备”后创建或复用模拟资源。发送报文会写入测试设备数据，报警报文会进入告警中心。模拟结果不代表现场验收。' : '当前账号没有准备测试设备的权限。' }}</p>
       <template #actions>
         <ui-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</ui-button>
         <ui-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</ui-button>
-        <ui-button v-permission="'POST /api/v1/test-devices/provision'" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button>
-        <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :loading="loading" @click="prepare(false)">重新准备测试设备</ui-button>
+        <ui-button v-if="device" v-permission="'POST /api/v1/test-devices/provision'" :disabled="!!sending" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button>
+        <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :disabled="!!sending" :loading="loading" @click="prepare(false)">{{ device ? '重新准备测试设备' : '准备测试设备' }}</ui-button>
       </template>
     </FilterBar>
 
@@ -183,13 +191,13 @@ onMounted(() => {
         <ui-card shadow="never" class="surface-card">
           <template #header>
             <div class="card-header">
-              <div><strong>测试设备</strong><small>已绑定产品、已发布协议包，可直接开始发送</small></div>
-              <ui-tag type="success" round>设备链路已就绪</ui-tag>
+              <div><strong>测试设备</strong><small>已绑定测试模板、已发布协议包，可开始模拟发送</small></div>
+              <ui-tag type="success" round>模拟资源已准备</ui-tag>
             </div>
           </template>
           <div class="test-device-summary">
             <div><span>设备名称</span><strong>{{ device.name }}</strong><small>{{ device.id }}</small></div>
-            <div><span>产品 / 协议</span><strong>{{ product?.name }}</strong><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }} · {{ protocolPackage?.version }}</small></div>
+            <div><span>设备模板 / 协议</span><strong>{{ product?.name }}</strong><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }} · {{ protocolPackage?.version }}</small></div>
             <div><span>告警处理</span><strong>直接告警 + 可选规则</strong><small>设备主动告警无需规则，规则可补充联动</small></div>
           </div>
           <ui-descriptions :column="1" border>
@@ -230,7 +238,7 @@ onMounted(() => {
       <aside class="test-device-side">
         <ui-card shadow="never" class="surface-card">
           <template #header><strong>建议测试顺序</strong></template>
-          <ui-steps direction="vertical" :active="4">
+          <ui-steps direction="vertical" :active="0">
             <ui-step title="发送正常数据" description="确认原始报文归档、标准消息和设备在线状态。" />
             <ui-step title="发送报警数据" description="确认设备告警直接进入告警中心，并验证规则联动（如已配置）。" />
             <ui-step title="发送恢复数据" description="确认告警从活动中变为已恢复。" />
@@ -263,7 +271,7 @@ onMounted(() => {
       </aside>
     </div>
 
-    <ui-card v-else v-loading="loading" shadow="never" class="surface-card loading-card"><ui-empty description="正在准备当前租户的测试设备…" /></ui-card>
+    <ui-card v-else v-loading="loading" shadow="never" class="surface-card loading-card"><ui-empty :description="loading ? '正在准备当前租户的测试设备…' : '尚未准备模拟资源，点击“准备测试设备”后开始平台标准协议调试。'" /></ui-card>
   </div>
 </template>
 

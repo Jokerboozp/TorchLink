@@ -107,7 +107,7 @@ try {
   await until(()=>evaluate("![...document.querySelectorAll('.alarm-detail-dialog')].some(dialog=>dialog.getClientRects().length)"))
   console.log('PASS: alarm analysis starts only on click; running jobs prevent duplicate submission; reopening resumes progress or shows saved results; explicit rerun works. API responses are fixtures.')
   if (!process.env.IOT_TEST_ALARM_ONLY) {
-    await click('设备通信协议');await click('协议生成')
+    await click('协议开发');await click('协议生成')
     await until(()=>evaluate("!!document.querySelector('.protocol-generator textarea')"))
     assert.equal(await evaluate("document.querySelector('.protocol-generator').textContent.includes('协议名称')"),true)
     await evaluate("[...document.querySelectorAll('.protocol-generator .n-radio-button')].find(item=>item.textContent.trim()==='点表').click()")

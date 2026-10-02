@@ -21,7 +21,7 @@ const (
 	CommandReply   MessageType = "COMMAND_REPLY"
 )
 
-// RawMessage is the JSON Lines v1 input. Additional platform fields are ignored.
+// RawMessage is the archived frame supplied to the v2 decode operation.
 // Identity is supplied by the authenticated ingest envelope, never derived here.
 type RawMessage struct {
 	MessageID     string          `json:"messageId"`

@@ -55,6 +55,13 @@ func (d *ManagedDevice) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(d)); err != nil {
 		return err
 	}
+	d.NormalizeConnectionTags()
+	return nil
+}
+
+// NormalizeConnectionTags preserves the historical tag representation when a
+// request wraps a device with additional fields and cannot use UnmarshalJSON.
+func (d *ManagedDevice) NormalizeConnectionTags() {
 	for key, field := range map[string]*string{"connector": &d.Connector, "connectorProfileId": &d.ConnectorProfileID, "childAddress": &d.ChildAddress, "childType": &d.ChildType, "onboardingRequestHash": &d.OnboardingRequestHash} {
 		if value, ok := d.Tags[key]; ok {
 			if *field == "" {
@@ -63,5 +70,4 @@ func (d *ManagedDevice) UnmarshalJSON(data []byte) error {
 			delete(d.Tags, key)
 		}
 	}
-	return nil
 }

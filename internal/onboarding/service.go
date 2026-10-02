@@ -37,9 +37,13 @@ type Service struct {
 	AllowedCIDRs   []string
 	// Limiter holds per-device and per-key budgets; a cluster shares it so
 	// replicas do not multiply the allowance.
-	Limiter        ratelimit.Limiter
-	ListenerStatus func(string, string) (string, string, int64)
-	MQTTHealth     func(context.Context) error
+	Limiter         ratelimit.Limiter
+	ListenerStatus  func(string, string) (string, string, int64)
+	MQTTHealth      func(context.Context) error
+	LoadRaw         func(context.Context, model.RawArchiveIndex) (model.RawMessage, error)
+	RequirePrepared bool
+	PublicHTTP      string
+	PublicMQTT      string
 }
 
 func New(repo ports.Repository, p *parser.Registry, root string, cidrs []string) *Service {

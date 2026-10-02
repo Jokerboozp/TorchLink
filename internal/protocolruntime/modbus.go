@@ -91,8 +91,9 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 				continue
 			}
 		}
-		release, err := r.repo.GetProtocolRelease(ctx, profile.TenantID, profile.ProtocolID, profile.ProtocolVersion)
-		if err != nil || release.Status != "PUBLISHED" {
+		release, err := r.pollingRelease(ctx, profile)
+		if err != nil {
+			r.updateFailure(ctx, profile, err)
 			continue
 		}
 		blocks, err := releaseBlocks(release)
@@ -127,6 +128,26 @@ func (r *Runtime) scan(ctx context.Context, now time.Time) {
 		}
 		go r.collect(executionCtx, profile, release, due, profileKey)
 	}
+}
+
+// A template binding controls future polls. Existing legacy profiles without a
+// binding retain their fixed release; lookup failures never fall back to it.
+func (r *Runtime) pollingRelease(ctx context.Context, profile model.DeviceAccessProfile) (model.ProtocolRelease, error) {
+	protocolID, version := profile.ProtocolID, profile.ProtocolVersion
+	binding, err := r.repo.GetProductProtocolBinding(ctx, profile.TenantID, profile.ProductID)
+	if err == nil {
+		protocolID, version = binding.ProtocolID, binding.Version
+	} else if !errors.Is(err, model.ErrNotFound) {
+		return model.ProtocolRelease{}, fmt.Errorf("load polling template binding: %w", err)
+	}
+	release, err := r.repo.GetProtocolRelease(ctx, profile.TenantID, protocolID, version)
+	if err != nil {
+		return release, err
+	}
+	if release.Status != "PUBLISHED" {
+		return release, errors.New("polling protocol release is not published")
+	}
+	return release, nil
 }
 
 func (r *Runtime) collect(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock, key string) {
@@ -296,7 +317,7 @@ func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProf
 		if rtu {
 			transport = "MODBUS_RTU_TCP"
 		}
-		raws = append(raws, model.RawMessage{MessageID: fmt.Sprintf("raw_modbus_%d_%d", now.UnixNano(), transaction), Source: "modbus-tcp-collector", TenantID: profile.TenantID, ProductID: profile.ProductID, DeviceID: profile.DeviceID, Protocol: "modbus-tcp", Transport: transport, ReceivedAt: now.UnixMilli(), PayloadFormat: "hex", Payload: payload, RemoteAddress: net.JoinHostPort(profile.Host, strconv.Itoa(profile.Port)), ProtocolID: release.ProtocolID, ProtocolVersion: release.Version, PointTableVersion: release.PointTableVersion, CollectorID: profile.CollectorID, Metadata: map[string]any{"profileId": profile.ID, "blockId": block.ID, "functionCode": block.FunctionCode, "startAddress": block.StartAddress, "quantity": block.Quantity, "transactionId": transaction, "requestHex": strings.ToUpper(hex.EncodeToString(request)), "latencyMs": time.Since(startedAt).Milliseconds(), "wireFormat": profile.WireFormat}})
+		raws = append(raws, model.RawMessage{MessageID: fmt.Sprintf("raw_modbus_%d_%d", now.UnixNano(), transaction), Source: "modbus-tcp-collector", TenantID: profile.TenantID, ProductID: profile.ProductID, DeviceID: profile.DeviceID, Protocol: "modbus-tcp", Transport: transport, ReceivedAt: now.UnixMilli(), PayloadFormat: "hex", Payload: payload, RemoteAddress: net.JoinHostPort(profile.Host, strconv.Itoa(profile.Port)), ProtocolID: release.ProtocolID, ProtocolVersion: release.Version, PointTableVersion: release.PointTableVersion, CollectorID: profile.CollectorID, Metadata: map[string]any{"profileId": profile.ID, "profileFingerprint": profile.ConfigurationFingerprint(), "blockId": block.ID, "functionCode": block.FunctionCode, "startAddress": block.StartAddress, "quantity": block.Quantity, "transactionId": transaction, "requestHex": strings.ToUpper(hex.EncodeToString(request)), "latencyMs": time.Since(startedAt).Milliseconds(), "wireFormat": profile.WireFormat}})
 	}
 	return raws, nil
 }

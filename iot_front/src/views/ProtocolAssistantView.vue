@@ -4,16 +4,16 @@ import FilePicker from '../components/FilePicker.vue'
 import ProtocolMappingEditor from '../components/ProtocolMappingEditor.vue'
 import { mappingRows, mappingConfig } from '../protocolMapping'
 import { transportLabel } from '../presentation'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, notifyError, parseJSON, pretty } from '../api'
 import { parsers, messageTypes } from '../labels'
 
-const props = defineProps({ initialRelease:{type:Object,default:null}, initialName:{type:String,default:''} })
-const emit = defineEmits(['navigate','saved'])
+const props = defineProps({ initialRelease:{type:Object,default:null}, initialName:{type:String,default:''}, initialProtocolId:{type:String,default:''}, context:{type:Object,default:null} })
+const emit = defineEmits(['navigate','saved','selected'])
 const file = ref(null), sampleFile = ref(null), draft = ref(null), preview = ref(null), saved = ref(null)
 const busy = ref(''), error = ref(''), step = ref('input'), mapping = ref([]), startAddress = ref(0)
-const form = reactive({ inputKind:'sample', name:'', protocol:`protocol-${createClientId().slice(0,8)}`, version:'1.0.0', transport:'MQTT', payloadFormat:'json', pointTable:'', samplePayload:'' })
+const form = reactive({ inputKind:'sample', name:props.initialName || '', protocol:props.initialProtocolId || `protocol-${createClientId().slice(0,8)}`, version:'1.0.0', transport:'MQTT', payloadFormat:'json', pointTable:'', samplePayload:'' })
 const isModbus = computed(() => draft.value?.parserType?.startsWith('modbus_'))
 const supported = computed(() => ['configurable_json_parser','configurable_hex_parser','modbus_tcp_parser_v2','modbus_rtu_parser_v2'].includes(draft.value?.parserType))
 const transports = computed(() => form.inputKind === 'point-table' ? ['MODBUS_TCP','MODBUS_RTU'] : ['MQTT','HTTP'])
@@ -24,7 +24,12 @@ const fields = computed(() => {
   return (config.fields || draft.value?.fields || []).map(p=>({name:p.name,address:p.offset != null ? `偏移 ${p.offset} · ${p.length} 字节` : p.address || p.coilAddress,type:p.type || p.dataType}))
 })
 let controller, disposed=false
+let inputRevision=0
 onBeforeUnmount(()=>{disposed=true;controller?.abort()})
+watch([mapping, startAddress, () => form.samplePayload, () => form.payloadFormat], updateConfig, {deep:true,flush:'sync'})
+function selection(release=saved.value) { return {protocolId:release.protocolId,version:release.version,protocolPackageId:`${release.protocolId}@${release.version}`,status:release.status,release,context:props.context} }
+function notifySaved() { emit('saved',selection()) }
+function useForTemplate() { if(saved.value?.status==='PUBLISHED')emit('selected',selection()) }
 function changeKind() { file.value=null;form.samplePayload='';form.pointTable=''; form.transport=form.inputKind==='point-table'?'MODBUS_TCP':'MQTT';form.payloadFormat=form.inputKind==='point-table'?'hex':'json';error.value='' }
 function chooseFile(event) {file.value=event.target.files?.[0] || null;error.value='';if(file.value && !form.name) form.name=file.value.name.replace(/\.[^.]+$/,'');if(/\.(hex|bin)$/i.test(file.value?.name || '')) form.payloadFormat='hex'}
 async function chooseSample(event) {
@@ -55,7 +60,7 @@ async function generate() {
   })
 }
 function newVersion() { saved.value=null;form.version=`auto-${Date.now()}`;draft.value={...draft.value,config:JSON.parse(JSON.stringify(draft.value.config))};mapping.value=mappingRows(draft.value.config,draft.value.parserType);preview.value=null }
-function updateConfig() { preview.value=null }
+function updateConfig() { inputRevision+=1;preview.value=null }
 function addMapping() {
   mapping.value.push(isModbus.value
     ? {identifier:'',name:'',functionCode:3,address:0,addressNotation:'zero_based',dataType:'uint16',registerCount:1,byteOrder:'big',wordOrder:'ABCD',scale:1,offset:0,pollIntervalSec:10,access:'read'}
@@ -72,21 +77,22 @@ function payload() {return form.payloadFormat==='hex'?form.samplePayload.trim():
 async function runPreview() {
   if(!form.samplePayload.trim())return UiMessage.warning('请上传或填写真实样本报文')
   preview.value=null
+  const revision=inputRevision
   await work('preview',async options=>{
     const value=saved.value
       ? await api(`/api/v2/protocols/${encodeURIComponent(saved.value.protocolId)}/releases/${encodeURIComponent(saved.value.version)}/preview`,{...options,method:'POST',body:JSON.stringify({payload:payload(),...(isModbus.value?{startAddress:startAddress.value}:{})})})
       : await api('/api/v1/ai/protocol-assistant/preview',{...options,method:'POST',body:JSON.stringify({draft:currentDraft(),payload:payload(),payloadFormat:form.payloadFormat})})
     if(value.success===false)throw new Error(value.error || '解析失败')
-    if(disposed)return
+    if(disposed || revision!==inputRevision)return
     preview.value=value.standardMessage
-    if(value.release){saved.value=value.release;emit('saved')}
+    if(value.release){saved.value=value.release;notifySaved()}
   })
 }
 async function save() {
   await work('save',async options=>{
-    const value=await api('/api/v1/ai/protocol-assistant/publish',{...options,method:'POST',body:JSON.stringify({id:form.protocol,version:form.version,status:'DRAFT',draft:currentDraft(),payloadFormat:form.payloadFormat,...(form.samplePayload.trim()?{payload:payload()}:{})})})
+    const value=await api('/api/v1/ai/protocol-assistant/publish',{...options,method:'POST',body:JSON.stringify({id:form.protocol,version:form.version,status:'DRAFT',draft:currentDraft(),payloadFormat:form.payloadFormat})})
     if(disposed)return
-    saved.value=value.release;draft.value.config=value.release.config;preview.value=value.standardMessage || preview.value;emit('saved');UiMessage.success('协议已保存')
+    saved.value=value.release;draft.value.config=value.release.config;preview.value=null;notifySaved();UiMessage.success('协议草稿已保存，请用样本校验后发布')
   })
 }
 async function publish() {
@@ -94,7 +100,7 @@ async function publish() {
     const release=saved.value
     const value=await api(`/api/v2/protocols/${encodeURIComponent(release.protocolId)}/releases/${encodeURIComponent(release.version)}/publish`,{...options,method:'POST',body:'{}'})
     if(disposed)return
-    saved.value=value;emit('saved');UiMessage.success('协议已发布，可到产品管理绑定')
+    saved.value=value;notifySaved();UiMessage.success('协议已发布，可用于设备模板')
   })
 }
 onMounted(()=>{
@@ -107,6 +113,7 @@ onMounted(()=>{
 
 <template>
   <div class="protocol-generator" :aria-busy="!!busy">
+    <p class="muted-text bottom-gap">保存草稿后，用真实样本校验并发布，再选择用于设备模板。解析预览不会写入设备数据或触发告警。</p>
     <ui-alert v-if="error" :title="error" type="error" :closable="false" class="bottom-gap" />
     <ui-form v-if="step==='input'" label-position="top" :disabled="!!busy" @submit.prevent="generate">
       <section class="generator-section"><div class="generator-section-heading"><h3>提供协议资料</h3><p>选择报文或点表，上传文件或直接粘贴内容。</p></div>
@@ -131,7 +138,7 @@ onMounted(()=>{
           <ProtocolMappingEditor v-if="!saved" :rows="mapping" :parser-type="draft.parserType" @change="updateConfig" @add="addMapping" @remove="removeMapping" />
           <ui-form-item label="样本报文"><FilePicker accept=".json,.txt,.hex,.bin" @change="chooseSample" /><ui-input v-model="form.samplePayload" type="textarea" :rows="4" class="top-gap" @input="preview=null" :placeholder="isModbus?'填写设备返回的完整 Modbus 响应帧':'填写真实样本验证解析结果'" /></ui-form-item>
           <ui-form-item v-if="isModbus" label="响应起始地址"><ui-input-number v-model="startAddress" :min="0" :max="65535" :precision="0" @change="preview=null" /></ui-form-item>
-          <div class="generator-actions"><ui-button v-permission="['POST /api/v1/ai/protocol-assistant/preview','POST /api/v2/protocols/:id/releases/:version/preview']" :loading="busy==='preview'" @click="runPreview">解析预览</ui-button><ui-button v-permission="'POST /api/v1/ai/protocol-assistant/publish'" v-if="!saved" type="primary" :loading="busy==='save'" @click="save">保存协议</ui-button><ui-button v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" v-else-if="saved.status==='VALIDATED'" type="primary" :loading="busy==='publish'" @click="publish">发布协议</ui-button><span v-else-if="saved.status==='DRAFT'" class="muted-text">样本校验通过后可发布</span><ui-button v-permission="'menu:products'" v-else-if="saved.status==='PUBLISHED'" @click="emit('navigate','products')">绑定产品</ui-button></div>
+          <div class="generator-actions"><ui-button v-permission="['POST /api/v1/ai/protocol-assistant/preview','POST /api/v2/protocols/:id/releases/:version/preview']" :loading="busy==='preview'" @click="runPreview">{{ saved?.status === 'DRAFT' ? '校验草稿' : '解析预览' }}</ui-button><ui-button v-permission="'POST /api/v1/ai/protocol-assistant/publish'" v-if="!saved" type="primary" :loading="busy==='save'" @click="save">保存草稿</ui-button><ui-button v-permission="'POST /api/v2/protocols/:id/releases/:version/publish'" v-else-if="saved.status==='VALIDATED'" type="primary" :loading="busy==='publish'" @click="publish">发布协议</ui-button><span v-else-if="saved.status==='DRAFT'" class="muted-text">样本校验通过后可发布</span><template v-else-if="saved.status==='PUBLISHED'"><ui-button v-if="context" type="primary" @click="useForTemplate">用于当前模板</ui-button><ui-button v-else v-permission="'menu:products'" @click="emit('navigate','products')">用于设备模板</ui-button></template></div>
         </ui-form>
         <ui-descriptions v-if="preview" class="top-gap" :column="1" border><ui-descriptions-item label="消息类型">{{ messageTypes[preview.messageType]?.label || preview.messageType }}</ui-descriptions-item><ui-descriptions-item v-if="Object.keys(preview.event || {}).length" label="事件">{{ pretty(preview.event) }}</ui-descriptions-item><ui-descriptions-item v-for="(value,key) in preview.properties" :key="key" :label="key">{{ typeof value==='object'?pretty(value):value }}</ui-descriptions-item></ui-descriptions>
       </template>

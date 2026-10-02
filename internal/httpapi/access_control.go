@@ -23,7 +23,7 @@ type permissionItem struct {
 	Kind string `json:"kind"`
 }
 
-var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "设备通信协议", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理"}
+var menuNames = map[string]string{"dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理"}
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
@@ -264,6 +264,21 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 	}
 	if method == "POST" && path == "/api/v1/onboarding" {
 		path = "/api/v1/device-registry"
+	}
+	if strings.HasPrefix(path, "/api/v1/onboarding/drafts") {
+		return (p["menu:devices"] && p["POST /api/v1/device-registry"]) || (p["menu:products"] && (p["POST /api/v1/products"] || p["PUT /api/v1/products/:id"]))
+	}
+	if strings.HasPrefix(path, "/api/v1/onboarding/batches") {
+		return p["menu:devices"] && p["POST /api/v1/device-registry"]
+	}
+	if strings.HasPrefix(path, "/api/v1/products/:id/preparation") || path == "/api/v1/products/:id/verification" {
+		if method == "GET" {
+			return p["menu:products"]
+		}
+		return p["menu:products"] && p["PUT /api/v1/products/:id"]
+	}
+	if path == "/api/v1/device-registry/:id/verification" {
+		return p["menu:devices"]
 	}
 	if opsSharedRoute(path) {
 		return hasOpsMenu(p)
