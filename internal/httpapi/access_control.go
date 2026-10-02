@@ -164,7 +164,7 @@ func (s *Server) permissionCatalog() []permissionItem {
 		items = append(items, permissionItem{"menu:" + id, name, id, "menu"})
 	}
 	for _, r := range s.router.Routes() {
-		if r.Path == capacityCleanupDataPath || r.Path == capacityCleanupPreviewPath {
+		if capacityCleanupRoute(r.Path) {
 			continue
 		}
 		menu := routeMenu(r.Path)
@@ -249,7 +249,7 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 	if path == "/api/v1/fire-safety/options" {
 		return method == "GET" && (p["menu:duty"] || p["menu:extinguishers"] || p["menu:fireStations"])
 	}
-	if path == capacityCleanupDataPath || path == capacityCleanupPreviewPath {
+	if capacityCleanupRoute(path) {
 		return p[capacityCleanupPermission] && p["menu:opsCapacity"]
 	}
 	if path == "/api/v1/auth/me" {

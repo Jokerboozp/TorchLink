@@ -3,12 +3,16 @@ package redisadapter
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
+	"iot-platform/internal/adapters/clickhouse"
 	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 )
 
 type cleanupRedis struct {
@@ -59,12 +63,12 @@ func TestCapacityCleanupInvalidatesOnlyScopedCacheAndRetries(t *testing.T) {
 	_, _ = base.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "raw", ParseAttemptedAt: 1})
 	c := &cleanupRedis{keys: map[string]bool{}, sets: map[string]map[string]bool{"device:online:" + cacheSegment("t"): {"cap": true, "business": true}}, fail: true}
 	removed := []string{stateKey("t", "cap"), latestKey("t", "cap"), "alarm:active:" + cacheSegment("t") + ":" + cacheSegment("cap") + ":alarm"}
-	kept := []string{stateKey("other", "cap"), latestKey("t", "business"), "alarm:active:" + cacheSegment("other") + ":" + cacheSegment("cap") + ":alarm"}
+	kept := []string{stateKey("other", "cap"), stateKey("t", "business"), latestKey("t", "business"), "alarm:active:" + cacheSegment("other") + ":" + cacheSegment("cap") + ":alarm", "alarm:active:" + cacheSegment("t") + ":" + cacheSegment("business") + ":alarm"}
 	for _, k := range append(removed, kept...) {
 		c.keys[k] = true
 	}
 	r := New(base, c)
-	q := model.CapacityCleanupBatch{RunID: "cap-20260930-120000-abcdef", Product: "p", Devices: []string{"cap"}, RemoveDevices: []string{"cap"}}
+	q := model.CapacityCleanupBatch{RunID: "cap-20260930-120000-abcdef", Product: "p", Devices: []string{"cap", "business"}, RemoveDevices: []string{"cap"}}
 	if _, err := r.CleanupCapacityData(ctx, "t", q); err == nil {
 		t.Fatal("cache failure reported success")
 	}
@@ -96,5 +100,59 @@ func TestCacheKeysDoNotCollideWhenIDsContainSeparators(t *testing.T) {
 	}
 	if latestKey("tenant:a", "device") == latestKey("tenant", "a:device") {
 		t.Fatal("latest-message cache keys collide")
+	}
+}
+
+func TestCapacityFixtureDiscoveryThroughStorageComposition(t *testing.T) {
+	ctx := context.Background()
+	base := memory.NewRepository()
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	telemetry, err := clickhouse.New(ctx, server.URL, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repository ports.Repository = New(telemetry, &cleanupRedis{})
+	lister, ok := repository.(ports.CapacityFixtureLister)
+	if !ok {
+		t.Fatal("fixture capability hidden by Redis/ClickHouse decorators")
+	}
+	for _, id := range []string{"a", "b"} {
+		p := model.Product{TenantID: "t", ID: id, Name: "容量测试标准设备 " + id, Description: "capacity-test 自动创建", ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED"}
+		if err = repository.SaveProduct(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"d1", "d2"} {
+		if err = repository.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "a", ID: id, Name: "容量测试 " + id, RegistrationSource: "ONBOARDING", AccessKey: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := lister.ListCapacityFixtureProducts(ctx, "t", "", 1)
+	if err != nil || len(page) != 1 || page[0].ProductID != "a" || page[0].DeviceCount != 2 {
+		t.Fatal("first product page", page, err)
+	}
+	if err = lister.PrepareCapacityFixture(ctx, "t", "a", page[0].Fingerprint); err != nil {
+		t.Fatal("fixture preparation hidden by decorators", err)
+	}
+	p, err := repository.GetProduct(ctx, "t", "a")
+	if err != nil || p.Status != "DISABLED" {
+		t.Fatal("preparation did not reach base storage", p, err)
+	}
+	page, err = lister.ListCapacityFixtureProducts(ctx, "t", "a", 1)
+	if err != nil || len(page) != 1 || page[0].ProductID != "b" {
+		t.Fatal("second product page", page, err)
+	}
+	ids, err := lister.ListCapacityFixtureDevices(ctx, "t", "a", "", 1)
+	if err != nil || len(ids) != 1 || ids[0] != "d1" {
+		t.Fatal("first device page", ids, err)
+	}
+	ids, err = lister.ListCapacityFixtureDevices(ctx, "t", "a", "d1", 1)
+	if err != nil || len(ids) != 1 || ids[0] != "d2" {
+		t.Fatal("second device page", ids, err)
+	}
+	page, err = lister.ListCapacityFixtureProducts(ctx, "other", "", 100)
+	if err != nil || len(page) != 0 {
+		t.Fatal("decorators expanded tenant scope", page, err)
 	}
 }

@@ -216,7 +216,7 @@ func (s *Service) cleanupScope(id, tenant string) (cleanupScope, error) {
 	}
 	// Shared devices keep their credentials for other runs; only this run's
 	// ledgered messages are removed from them.
-	preview := CleanupPreview{RunID: id, Devices: len(remove), SharedDevices: len(devices) - len(remove), Warnings: []string{"系统审计日志、监控历史和消息队列留存记录保留"}}
+	preview := CleanupPreview{RunID: id, Devices: len(remove), SharedDevices: len(devices) - len(remove), Warnings: []string{"监控历史、全量备份及无法确认归属的数据保留；消息队列遇到业务或未知记录时停止清理"}}
 	out = cleanupScope{preview: preview, plan: p, inv: inv, dir: dir, devices: devices, remove: remove, source: src, sharedProduct: sharedProduct}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, e error) error {
 		if e == nil && d.Type()&os.ModeSymlink != 0 {
@@ -404,7 +404,20 @@ func (s *Service) cleanup(ctx context.Context, id, tenant, operator string, scop
 			return errors.New("测试数据清理请求失败；已保留记录，可重试")
 		}
 		if status != 200 {
-			return fmt.Errorf("测试数据清理返回 HTTP %d；已保留记录，可重试：%s", status, clip(string(resp), 240))
+			reason := "清理服务暂时不可用，请稍后重试"
+			if status == http.StatusConflict {
+				var response struct {
+					Detail string `json:"detail"`
+				}
+				if json.Unmarshal(resp, &response) == nil && response.Detail != "" {
+					reason = clip(response.Detail, 240)
+				}
+			} else if status == http.StatusForbidden || status == http.StatusUnauthorized {
+				reason = "清理权限或登录状态已变化，请重新登录后重试"
+			} else if status == http.StatusNotImplemented {
+				reason = "当前存储不支持这一清理项"
+			}
+			return fmt.Errorf("测试数据清理未完成，已保留运行记录：%s", reason)
 		}
 		var counts model.CapacityCleanupCounts
 		if err = json.Unmarshal(resp, &counts); err != nil {

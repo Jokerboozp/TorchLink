@@ -22,8 +22,10 @@ import (
 // These RawMessage values are private transport envelopes, never parsed or
 // inserted into business storage directly.
 type durableInbox struct {
-	lock      *os.File
-	queues    []*durablequeue.Queue
+	lock   *os.File
+	queues []*durablequeue.Queue
+	// drainMu covers Next -> business handler -> Ack/Reject and runtime discard.
+	drainMu   [inboxShards]sync.Mutex
 	wg        sync.WaitGroup
 	mu        sync.Mutex
 	lastError error
@@ -164,11 +166,13 @@ func (d *durableInbox) start(c *Client) {
 		go func(index int, q *durablequeue.Queue) {
 			defer d.wg.Done()
 			for c.ctx.Err() == nil {
+				d.drainMu[index].Lock()
 				raw, found, err := q.Next()
 				if err != nil {
 					c.logger().Error("MQTT receive inbox read failed", "error", err)
 				}
 				if err != nil || !found {
+					d.drainMu[index].Unlock()
 					d.mu.Lock()
 					d.pending[index] = err
 					d.mu.Unlock()
@@ -196,6 +200,7 @@ func (d *durableInbox) start(c *Client) {
 				d.mu.Lock()
 				d.pending[index] = err
 				d.mu.Unlock()
+				d.drainMu[index].Unlock()
 				if err != nil {
 					// Backpressure is expected and brief; keep the record without
 					// logging each retry of every shard.

@@ -874,3 +874,20 @@ func TestCapacityCleanupScopedAndPending(t *testing.T) {
 		t.Fatal("other tenant device removed", err)
 	}
 }
+
+func TestCapacityFixtureRecognition(t *testing.T) {
+	repositorytest.CapacityFixtureRecognition(t, testRepository(t))
+}
+func TestCapacityFixtureSharedProtocol(t *testing.T) {
+	for _, reference := range []string{"product", "version", "alias"} {
+		t.Run(reference, func(t *testing.T) { repositorytest.CapacityFixtureSharedProtocol(t, testRepository(t), reference) })
+	}
+}
+func TestCapacityFixtureAssociatedCleanup(t *testing.T) {
+	repositorytest.CapacityFixtureAssociatedCleanup(t, testRepository(t))
+}
+func TestCapacityPrivateProtocolCleanup(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		t.Run(fmt.Sprint(keep), func(t *testing.T) { repositorytest.CapacityPrivateProtocolCleanup(t, testRepository(t), keep) })
+	}
+}

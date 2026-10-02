@@ -63,3 +63,29 @@ func capacityStrings(v []string) string {
 	}
 	return strings.Join(out, ",")
 }
+
+func (r *Repository) ListCapacityFixtureProducts(ctx context.Context, tenant, after string, limit int) ([]model.CapacityFixtureProduct, error) {
+	lister, ok := r.Repository.(ports.CapacityFixtureLister)
+	if !ok {
+		return nil, errors.New("capacity fixture discovery is unsupported")
+	}
+	return lister.ListCapacityFixtureProducts(ctx, tenant, after, limit)
+}
+
+func (r *Repository) ListCapacityFixtureDevices(ctx context.Context, tenant, product, after string, limit int) ([]string, error) {
+	lister, ok := r.Repository.(ports.CapacityFixtureLister)
+	if !ok {
+		return nil, errors.New("capacity fixture discovery is unsupported")
+	}
+	return lister.ListCapacityFixtureDevices(ctx, tenant, product, after, limit)
+}
+
+func (r *Repository) PrepareCapacityFixture(ctx context.Context, tenant, product, fingerprint string) error {
+	lister, ok := r.Repository.(ports.CapacityFixtureLister)
+	if !ok {
+		return errors.New("capacity fixture discovery is unsupported")
+	}
+	return lister.PrepareCapacityFixture(ctx, tenant, product, fingerprint)
+}
+
+var _ ports.CapacityFixtureLister = (*Repository)(nil)

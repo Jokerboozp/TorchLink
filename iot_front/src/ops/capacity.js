@@ -56,6 +56,33 @@ export function pollDelay(runs, busy = false) {
   return busy || (runs || []).some(run => run.active || run.cleaning || !isFinished(run.status)) ? 3000 : 0
 }
 
+export const historyCleanupStatusText = { RUNNING: '正在清理历史测试数据', SUCCEEDED: '本次清理已完成', PARTIAL: '部分项目未清理完成', FAILED: '历史数据清理失败' }
+export const historyCleanupRunning = job => job?.status === 'RUNNING'
+export const cleanupCountText = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString('zh-CN') : '—'
+export function historyCleanupHasTargets(preview) {
+  if (!preview?.token) return false
+  if (preview.items?.length) return preview.items.some(item => item.eligible === true)
+  return ['runs', 'products', 'devices', 'rawMessages'].some(key => Number.isSafeInteger(preview[key]) && preview[key] > 0)
+}
+
+// 只显示服务端的实际计数，不用耗时推算清理进度。
+export function historyCleanupProgress(job) {
+  return Number.isSafeInteger(job?.processed) && Number.isSafeInteger(job?.total) && job.total > 0 && job.processed >= 0 && job.processed <= job.total ? Math.round(job.processed / job.total * 100) : null
+}
+
+export function cleanupCountItems(counts = {}) {
+  const labels = { products: '产品', devices: '设备', rawMessages: '测试原文', standardMessages: '解析记录', alarms: '告警', rules: '测试规则', resources: '业务任务与文档', audits: '测试审计记录', profiles: '接入配置', accessReferences: '用户设备引用', protocols: '测试协议', cacheKeys: '缓存键', inbox: '收件箱记录' }
+  return Object.entries(labels).filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] >= 0).map(([key, label]) => ({ key, label, value: counts[key] }))
+}
+
+export function cleanupRuntimeItems(counts = {}) {
+  const labels = { retainedRequests: '已发送 retained 清除请求', queueOffsetSpan: '已清理队列偏移跨度', inboxSkipped: '保留的收件箱记录', queueSkippedPartitions: '保留的共享队列分区' }
+  return Object.entries(labels).filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] > 0).map(([key, label]) => ({ key, label, value: counts[key] }))
+}
+
+export const historyCleanupWarnings = job => [...new Set([...(job?.warnings || []), ...(job?.counts?.warnings || [])])]
+export const historyCleanupResultText = job => job?.status === 'SUCCEEDED' && job.error ? '清理结果需确认' : job?.status === 'SUCCEEDED' && historyCleanupWarnings(job).length ? '已完成可清理部分' : historyCleanupStatusText[job?.status] || job?.status
+
 export function boundText(value) {
   return value == null ? '—' : `${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 条/秒`
 }

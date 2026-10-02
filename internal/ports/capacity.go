@@ -12,6 +12,14 @@ type CapacityDataCleaner interface {
 	CleanupCapacityData(context.Context, string, model.CapacityCleanupBatch) (model.CapacityCleanupCounts, error)
 }
 
+// These keyset pages are tenant scoped; callers must require full tenant device
+// access. Preparation revalidates a preview and disables a tool-owned product.
+type CapacityFixtureLister interface {
+	ListCapacityFixtureProducts(context.Context, string, string, int) ([]model.CapacityFixtureProduct, error)
+	ListCapacityFixtureDevices(context.Context, string, string, string, int) ([]string, error)
+	PrepareCapacityFixture(context.Context, string, string, string) error
+}
+
 type capacityRunKey struct{}
 
 func WithCapacityRunID(ctx context.Context, id string) context.Context {

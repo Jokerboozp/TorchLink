@@ -2,6 +2,7 @@ package durablequeue
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -233,6 +234,65 @@ func (q *Queue) Ack(raw model.RawMessage) error {
 	q.used -= info.Size()
 	q.items--
 	return syncDirectory(q.root)
+}
+
+// DiscardMatching is an explicit runtime cleanup operation. It holds the queue
+// lock while checking stored identities and updates the same capacity counters
+// used by Put; callers must also serialize their in-flight handler with cleanup.
+// Unreadable, oversized, nonregular and identity-mismatched entries are retained.
+// The match function must select only independently authorized fixture identities.
+func (q *Queue) DiscardMatching(ctx context.Context, match func(model.RawMessage) bool) (removed, skipped int64, err error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return 0, 0, os.ErrClosed
+	}
+	if match == nil {
+		return 0, 0, errors.New("discard identity predicate is required")
+	}
+	entries, err := os.ReadDir(q.root)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return removed, skipped, err
+		}
+		if !queueEntry(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(q.root, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			return removed, skipped, err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+			skipped++
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return removed, skipped, err
+		}
+		var raw model.RawMessage
+		name := strings.TrimSuffix(strings.TrimSuffix(entry.Name(), ".rejected"), ".corrupt")
+		if json.Unmarshal(data, &raw) != nil || raw.TenantID == "" || raw.MessageID == "" || queueName(raw) != name || !match(raw) {
+			skipped++
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			return removed, skipped, err
+		}
+		q.used -= info.Size()
+		q.items--
+		removed++
+		// Persist each removal before returning, including on a later partial
+		// failure. Retry observes only remaining entries and cannot double count.
+		if err := syncDirectory(q.root); err != nil {
+			return removed, skipped, err
+		}
+	}
+	return removed, skipped, nil
 }
 func (q *Queue) Depth() int { q.mu.Lock(); defer q.mu.Unlock(); v, _ := q.entries(); return len(v) }
 func atomicFile(path string, b []byte) error {

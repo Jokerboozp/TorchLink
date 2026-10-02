@@ -1,6 +1,7 @@
 package durablequeue
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"iot-platform/internal/model"
@@ -8,6 +9,68 @@ import (
 	"path/filepath"
 	"testing"
 )
+
+func TestDiscardMatchingReclaimsActiveAndRejectedCapacityAndPreservesUnknown(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "unknown.json.corrupt"), []byte("unreadable evidence"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	q, err := OpenQueue(root, 1<<20, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	first := model.RawMessage{TenantID: "t", MessageID: "first", DeviceID: "fixture", Payload: json.RawMessage(`1`)}
+	rejected := first
+	rejected.MessageID = "rejected"
+	kept := first
+	kept.MessageID = "kept"
+	kept.DeviceID = "current"
+	for _, raw := range []model.RawMessage{first, rejected, kept} {
+		if err := q.Put(raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.Reject(rejected); err != nil {
+		t.Fatal(err)
+	}
+	before := q.used
+	if err := q.Put(model.RawMessage{TenantID: "t", MessageID: "replacement"}); !errors.Is(err, ErrQueueFull) {
+		t.Fatal("expected full queue", err)
+	}
+	removed, skipped, err := q.DiscardMatching(context.Background(), func(raw model.RawMessage) bool { return raw.TenantID == "t" && raw.DeviceID == "fixture" })
+	if err != nil || removed != 2 || skipped != 2 || q.items != 2 {
+		t.Fatalf("discard accounting: removed=%d skipped=%d items=%d err=%v", removed, skipped, q.items, err)
+	}
+	a, _ := json.Marshal(first)
+	b, _ := json.Marshal(rejected)
+	if q.used != before-int64(len(a)+len(b)) {
+		t.Fatal("used byte capacity was not reclaimed")
+	}
+	if _, err := os.Stat(filepath.Join(root, "unknown.json.corrupt")); err != nil {
+		t.Fatal("unknown evidence removed", err)
+	}
+	if err := q.Put(model.RawMessage{TenantID: "t", MessageID: "replacement"}); err != nil {
+		t.Fatal("runtime capacity still full", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if removed, _, err := q.DiscardMatching(ctx, func(model.RawMessage) bool { return true }); !errors.Is(err, context.Canceled) || removed != 0 {
+		t.Fatal("cancelled discard mutated queue", removed, err)
+	}
+	if removed, _, err := q.DiscardMatching(context.Background(), func(raw model.RawMessage) bool { return raw.DeviceID == "fixture" }); err != nil || removed != 0 {
+		t.Fatal("discard retry double counted", removed, err)
+	}
+	q.Close()
+	reopened, err := OpenQueue(root, 1<<20, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if reopened.items != q.items || reopened.used != q.used {
+		t.Fatal("discard accounting differs after restart")
+	}
+}
 
 func TestQueueRestartRetryAndCapacity(t *testing.T) {
 	root := t.TempDir()

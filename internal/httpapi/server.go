@@ -71,6 +71,7 @@ type Server struct {
 	video                      atomic.Pointer[video.Service]
 	videoOwner                 func() (local bool, endpoint string)
 	fireSafety                 *firesafety.Service
+	capacityMQTT               capacityMQTTCleaner
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {

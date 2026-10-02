@@ -535,6 +535,7 @@ func Run(forcedRole string) {
 	}
 	if mqttClient != nil {
 		api.SetMQTTHealth(mqttClient.Probe)
+		api.SetCapacityMQTT(mqttClient)
 	}
 	api.SetAIProviderRuntime(runtimeAI)
 	if knowledgeRuntime != nil {

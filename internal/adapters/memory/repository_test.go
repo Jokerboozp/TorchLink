@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"iot-platform/internal/model"
@@ -43,6 +44,23 @@ func TestCapacityCleanupModuleOwnershipAndPending(t *testing.T) {
 	}
 	if _, err := r.GetReplay(ctx, "replay"); !errors.Is(err, model.ErrNotFound) {
 		t.Fatal("own replay retained", err)
+	}
+}
+
+func TestCapacityFixtureRecognition(t *testing.T) {
+	repositorytest.CapacityFixtureRecognition(t, NewRepository())
+}
+func TestCapacityFixtureSharedProtocol(t *testing.T) {
+	for _, reference := range []string{"product", "version", "alias"} {
+		t.Run(reference, func(t *testing.T) { repositorytest.CapacityFixtureSharedProtocol(t, NewRepository(), reference) })
+	}
+}
+func TestCapacityFixtureAssociatedCleanup(t *testing.T) {
+	repositorytest.CapacityFixtureAssociatedCleanup(t, NewRepository())
+}
+func TestCapacityPrivateProtocolCleanup(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		t.Run(fmt.Sprint(keep), func(t *testing.T) { repositorytest.CapacityPrivateProtocolCleanup(t, NewRepository(), keep) })
 	}
 }
 

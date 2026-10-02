@@ -43,12 +43,13 @@ type ServeOptions struct {
 
 // Service runs at most one capacity run at a time.
 type Service struct {
-	opt    ServeOptions
-	mu     sync.Mutex
-	active string
-	done   chan struct{}
-	cancel context.CancelFunc
-	last   error
+	opt       ServeOptions
+	mu        sync.Mutex
+	historyMu sync.Mutex
+	active    string
+	done      chan struct{}
+	cancel    context.CancelFunc
+	last      error
 	// cleaning is the run whose data is being removed; cleanupErr keeps the
 	// last failure per run so the page can show it after navigating away.
 	cleaning   string
@@ -525,10 +526,14 @@ func (s *Service) Handler() http.Handler {
 		s.mu.Lock()
 		active, cleaning := s.active, s.cleaning
 		s.mu.Unlock()
+		historyCleaning := strings.HasPrefix(cleaning, "history:")
+		if historyCleaning {
+			cleaning = ""
+		}
 		if !runIDPattern.MatchString(active) {
 			active = ""
 		}
-		serveJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": size, "activeRunId": active, "cleaningRunId": cleaning})
+		serveJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": size, "activeRunId": active, "cleaningRunId": cleaning, "historyCleaning": historyCleaning})
 	}))
 	mux.HandleFunc("POST /v1/runs", auth(func(w http.ResponseWriter, r *http.Request) {
 		req, ok := decode(w, r)
@@ -606,6 +611,7 @@ func (s *Service) Handler() http.Handler {
 		}
 		serveJSON(w, http.StatusAccepted, map[string]any{"runId": id, "cleaning": true})
 	}))
+	s.registerHistoryCleanup(mux, auth)
 	return mux
 }
 
