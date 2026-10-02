@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"iot-platform/internal/externaldata"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
@@ -18,6 +19,7 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	externalData        map[string]externaldata.Entry
 	onboardingRecords   map[string]model.OnboardingRecord
 	opsItems            map[string]model.OpsUserItem
 	accessStates        map[string][]byte
@@ -927,20 +929,55 @@ func (r *Repository) UpdateVideoEvent(_ context.Context, v model.VideoAlarmEvent
 	r.video[key(v.TenantID, v.EventID)] = cloneVideoEvent(v)
 	return nil
 }
+func (r *Repository) GetVideoEvent(_ context.Context, tenant, id string) (model.VideoAlarmEvent, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	v, ok := r.video[key(tenant, id)]
+	if !ok {
+		return v, ErrNotFound
+	}
+	return cloneVideoEvent(v), nil
+}
+
+func videoMediaTime(v model.VideoAlarmEvent, field string) int64 {
+	switch value := v.Raw[field].(type) {
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	case float64:
+		return int64(value)
+	case json.Number:
+		n, _ := value.Int64()
+		return n
+	}
+	return 0
+}
 func (r *Repository) ListPendingVideoEvents(_ context.Context, limit int) ([]model.VideoAlarmEvent, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := []model.VideoAlarmEvent{}
+	now := time.Now().UnixMilli()
+	if limit <= 0 {
+		limit = 100
+	}
 	for _, v := range r.video {
 		status, _ := v.Raw["mediaTransferStatus"].(string)
-		if status == "PENDING" || status == "FAILED" {
+		if (status == "PENDING" || status == "FAILED") && videoMediaTime(v, "mediaRetryAt") <= now {
 			out = append(out, cloneVideoEvent(v))
-			if len(out) >= limit {
-				break
-			}
 		}
 	}
-	return out, nil
+	sort.Slice(out, func(i, j int) bool {
+		a, b := videoMediaTime(out[i], "mediaLastAttemptAt"), videoMediaTime(out[j], "mediaLastAttemptAt")
+		if a != b {
+			return a < b
+		}
+		if out[i].EventTime != out[j].EventTime {
+			return out[i].EventTime < out[j].EventTime
+		}
+		return key(out[i].TenantID, out[i].EventID) < key(out[j].TenantID, out[j].EventID)
+	})
+	return out[:min(limit, len(out))], nil
 }
 func (r *Repository) SaveVideoCameraMapping(_ context.Context, v model.VideoCameraMapping) error {
 	legacyDeviceIDs := uniqueStrings(v.RelatedDeviceIDs)

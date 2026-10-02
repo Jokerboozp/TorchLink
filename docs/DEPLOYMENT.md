@@ -321,6 +321,8 @@ PostgreSQL 仓储启动时执行 `internal/adapters/postgres/schema.sql` 的幂�
 
 排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级两者后，迁移创建 `platform_fire_safety`，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
 
+外部数据接入随 API、Web、Parser、Processor 和 Jobs 提供；启动迁移创建 `external_data_entry`，Jobs 自动恢复推送处理与拉取任务。所有副本需保持 `IOT_JWT_SECRET` 一致以解密接口凭据。FULL 备份包含独立外部接入组件，恢复写入隔离 schema；配置、权限和验收边界见[外部数据接入](EXTERNAL_DATA.md)。
+
 设备接入草稿、批量任务、模板准备、验收及配置历史保存在 `onboarding_record`，同样随启动幂等迁移。接入升级应同步 API、Web 和拆分的 Gateway / Jobs 代码；批量执行由启用 Jobs 职责的进程恢复。流程见[设备接入](INTEGRATION.md#设备接入)，其持久记录不在设备数据导出的范围内。
 
 ### AI 与工作流

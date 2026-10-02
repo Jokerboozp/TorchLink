@@ -606,6 +606,7 @@ type Alarm struct {
 	DeviceID          string          `json:"deviceId"`
 	DeviceName        string          `json:"deviceName,omitempty"`
 	AlarmType         string          `json:"alarmType"`
+	Content           string          `json:"content,omitempty"`
 	AlarmLevel        string          `json:"alarmLevel"`
 	Status            string          `json:"status"`
 	Source            string          `json:"source"`

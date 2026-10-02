@@ -299,6 +299,16 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	}
 	if err == nil && msg != nil {
 		_, err = model.MessageComponents(*msg)
+		if raw.Source == "external-data" {
+			if msg.Tags == nil {
+				msg.Tags = map[string]string{}
+			}
+			for _, name := range []string{"externalEventKey", "externalSourceId", "externalEventId", "externalVideoEvent"} {
+				if value, ok := raw.Metadata[name].(string); ok {
+					msg.Tags[name] = value
+				}
+			}
+		}
 	}
 	parseError := ""
 	if err != nil {
@@ -387,6 +397,7 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 		return err
 	}
 	ruleAlarmHandled := false
+	externalAlarmIDs := []string{}
 	for _, rule := range rules {
 		// Rules of other products can neither raise nor recover this device's
 		// alarms; skip their per-message queries.
@@ -404,8 +415,10 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 				}
 			}
 			ruleAlarmHandled = true
-			if _, _, err := e.raiseRuleAlarm(ctx, rule, msg); err != nil {
+			if alarm, _, err := e.raiseRuleAlarm(ctx, rule, msg); err != nil {
 				return err
+			} else {
+				externalAlarmIDs = append(externalAlarmIDs, alarm.ID)
 			}
 		} else if MatchConditions(rule.Recovery, msg) {
 			if err := e.clearDuration(ctx, rule, msg); err != nil {
@@ -424,13 +437,17 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	// classify it and trigger actions when they match, but a missing rule must
 	// never discard a device-originated alarm.
 	if len(components) > 0 {
-		if err := e.applyComponentAlarms(ctx, msg, components); err != nil {
+		ids, err := e.applyComponentAlarms(ctx, msg, components)
+		if err != nil {
 			return err
 		}
+		externalAlarmIDs = append(externalAlarmIDs, ids...)
 	}
 	if len(components) == 0 && msg.MessageType == model.AlarmReport && !ruleAlarmHandled {
-		if _, _, err := e.raiseDirectAlarm(ctx, msg); err != nil {
+		if alarm, _, err := e.raiseDirectAlarm(ctx, msg); err != nil {
 			return err
+		} else {
+			externalAlarmIDs = append(externalAlarmIDs, alarm.ID)
 		}
 	}
 	if len(components) == 0 && msg.MessageType != model.AlarmReport && directAlarmCleared(msg) {
@@ -439,6 +456,9 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 		}
 	}
 	if err := e.applyMessageState(ctx, msg, true); err != nil {
+		return err
+	}
+	if err := e.saveExternalDelivery(ctx, msg, externalAlarmIDs); err != nil {
 		return err
 	}
 	if err := e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID, claim.Token); err != nil {
@@ -584,7 +604,7 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 		Details: map[string]any{"message": msg, "direct": true},
 	}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-	saved, created, err := e.Repo.UpsertAlarm(ctx, a)
+	saved, created, _, err := e.upsertReportedAlarm(ctx, a, msg)
 	if err != nil {
 		return saved, false, err
 	}
@@ -774,7 +794,7 @@ func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMess
 			return err
 		}
 		for _, listed := range alarms {
-			if listed.ComponentID != "" || !strings.HasPrefix(listed.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, listed.AlarmType) {
+			if listed.ComponentID != "" || strings.Contains(listed.RuleID, ":external:") || !strings.HasPrefix(listed.RuleID, directAlarmRulePrefix) || !directAlarmTypeCleared(msg, listed.AlarmType) {
 				continue
 			}
 			alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
@@ -801,7 +821,7 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 	now := e.Clock.Now().UnixMilli()
 	a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, RuleID: rule.ID, TriggerID: msg.MessageID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), AlarmType: rule.AlarmType, AlarmLevel: rule.Level, Status: "ACTIVE", Source: "device", CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID), AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Details: map[string]any{"message": msg, "ruleName": rule.Name}}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-	saved, created, err := e.Repo.UpsertAlarm(ctx, a)
+	saved, created, reportChanged, err := e.upsertReportedAlarm(ctx, a, msg)
 	if err != nil {
 		return saved, false, err
 	}
@@ -817,7 +837,7 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 	// Alarm records are deduplicated while ACTIVE/ACKED, but a new matching
 	// message must still execute the rule actions. Exact duplicate messages
 	// keep the original trigger ID and must not execute actions twice.
-	if created || saved.TriggerID != msg.MessageID {
+	if reportChanged {
 		for _, action := range rule.Actions {
 			event := model.UIActionEvent{ID: id("ui_action"), TenantID: msg.TenantID, RuleID: rule.ID, AlarmID: saved.ID, DeviceID: msg.DeviceID, Action: action, TriggeredAt: now}
 			actionPayload, _ := json.Marshal(event)
@@ -894,7 +914,7 @@ func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID string) err
 			}
 			changed := false
 			for _, listed := range alarms {
-				if listed.RuleID != ruleID {
+				if listed.RuleID != ruleID && !strings.HasPrefix(listed.RuleID, ruleID+":external:") {
 					continue
 				}
 				alarm, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
@@ -1011,6 +1031,14 @@ func (e *Engine) ScanOffline(ctx context.Context) error {
 	return nil
 }
 func (e *Engine) IngestVideo(ctx context.Context, v model.VideoAlarmEvent) (model.Alarm, bool, error) {
+	// Legacy webhook/MQTT payloads may not opt into the managed connector's
+	// credential and media authority by supplying its private metadata fields.
+	delete(v.Raw, "externalSourceId")
+	delete(v.Raw, "externalEventId")
+	delete(v.Raw, "deviceId")
+	for _, field := range []string{"mediaRetryAt", "mediaLastAttemptAt", "mediaAttempts", "snapshotTransferStatus", "clipTransferStatus"} {
+		delete(v.Raw, field)
+	}
 	if v.EventID == "" || v.TenantID == "" || v.CameraID == "" || v.AlarmType == "" {
 		return model.Alarm{}, false, errors.New("eventId, tenantId, cameraId and alarmType are required")
 	}

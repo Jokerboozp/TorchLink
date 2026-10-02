@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"iot-platform/internal/externaldata"
 	"iot-platform/internal/model"
 )
 
@@ -27,6 +28,7 @@ type AlarmFilter struct {
 }
 
 type Repository interface {
+	ExternalDataStore() externaldata.Store
 	DeleteResource(context.Context, string, string, string) error
 	DeleteProtocolRelease(context.Context, string, string, string) error
 	AccessStore
@@ -131,7 +133,11 @@ type Repository interface {
 	DeleteRulePendings(context.Context, string, string) error
 	ApplyComponentAlarm(context.Context, model.Alarm, model.ComponentAlarmState) (model.Alarm, string, error)
 	UpsertAlarm(context.Context, model.Alarm) (model.Alarm, bool, error)
-	// UpsertAlarm and ApplyComponentAlarm commit the alarm report event with the
+	// UpsertExternalAlarm uses an external event's deterministic alarm identity.
+	// It returns created and triggerChanged, preserving terminal states and
+	// committing each new trigger with its report event atomically.
+	UpsertExternalAlarm(context.Context, model.Alarm) (model.Alarm, bool, bool, error)
+	// Alarm upserts and ApplyComponentAlarm commit the alarm report event with the
 	// alarm. DrainOutbox publishes pending events in order and removes each one
 	// after publish succeeds, stopping at the first failure.
 	DrainOutbox(ctx context.Context, limit int, publish func(model.OutboxEvent) error) (int, error)
@@ -143,6 +149,7 @@ type Repository interface {
 	// UpdateAlarmIf writes only if the stored version equals v.Version.
 	UpdateAlarmIf(context.Context, model.Alarm) (bool, error)
 	SaveVideoEvent(context.Context, model.VideoAlarmEvent) (bool, error)
+	GetVideoEvent(context.Context, string, string) (model.VideoAlarmEvent, error)
 	UpdateVideoEvent(context.Context, model.VideoAlarmEvent) error
 	ListPendingVideoEvents(context.Context, int) ([]model.VideoAlarmEvent, error)
 	SaveVideoCameraMapping(context.Context, model.VideoCameraMapping) error

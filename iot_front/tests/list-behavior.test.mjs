@@ -1,4 +1,5 @@
 import { setupScript } from './helpers/vue.mjs'
+import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -18,6 +19,23 @@ function component(file, api, exports, notifyError = e => { throw e }, base = ro
   return vm.runInContext(source + '\n;({' + exports + '})', context)
 }
 const items = Array.from({length:101}, (_, i)=>({id:`item-${i+1}`,name:`Item ${i+1}`}))
+
+test('告警详情显示业务内容，兼容旧记录并转义外部文本', async () => {
+  const Vue = await import('vue')
+  const { compile } = await import('@vue/compiler-dom')
+  const { renderToString } = await import('@vue/server-renderer')
+  const source = readFileSync(new URL('AlarmsView.vue', root), 'utf8')
+  const template = source.match(/<ui-descriptions-item label="告警内容">[\s\S]*?<\/ui-descriptions-item>/)?.[0]
+  assert.ok(template, '告警内容应出现在详情表中')
+  const render = new Function('Vue', compile(template, { mode:'function', prefixIdentifiers:true }).code)(Vue)
+  for (const content of ['东门摄像头发现烟雾', '<script>外部文字</script>', undefined, '']) {
+    const app = Vue.createSSRApp({ render, setup:() => ({ detail:{ content } }) })
+    app.component('ui-descriptions-item', { setup:(_, { slots }) => () => Vue.h('div', slots.default?.()) })
+    const html = await renderToString(app)
+    assert.ok(html.includes(content ? content.replaceAll('<', '&lt;').replaceAll('>', '&gt;') : '—'))
+    assert.equal(html.includes('<script>'), false)
+  }
+})
 
 test('设备列表只编辑已有设备，新设备统一走添加向导',async()=>{
   const requests=[]
@@ -407,6 +425,22 @@ test('alarm list batches alarm events and ignores device state events', async ()
   timers[0]()
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(requests, 1)
+})
+
+test('告警详情及附件状态刷新拒绝较晚返回的旧选择和旧状态', async () => {
+  const requests = []
+  const c = component('AlarmsView.vue', path => path.includes('/ai/') ? Promise.resolve({}) : new Promise(resolve => requests.push({ path, resolve })), 'show,detail,detailVisible,refreshMediaDetail,handleDetailClosed')
+  const first = c.show('alarm-a'), second = c.show('alarm-b')
+  requests[1].resolve({ alarmId:'alarm-b' }); await second
+  requests[0].resolve({ alarmId:'alarm-a' }); await first
+  assert.equal(c.detail.value.alarmId, 'alarm-b')
+  const oldRefresh = c.refreshMediaDetail(), newRefresh = c.refreshMediaDetail()
+  requests[3].resolve({ alarmId:'alarm-b', state:'stored' }); await newRefresh
+  requests[2].resolve({ alarmId:'alarm-b', state:'pending' }); await oldRefresh
+  assert.equal(c.detail.value.state, 'stored')
+  const closedRefresh = c.refreshMediaDetail(); c.detailVisible.value = false; c.handleDetailClosed()
+  requests[4].resolve({ alarmId:'alarm-b', state:'late' }); await closedRefresh
+  assert.equal(c.detail.value.state, 'stored')
 })
 
 test('设备详情跳转保留设备范围，分页和状态筛选不会扩大查询范围', () => {

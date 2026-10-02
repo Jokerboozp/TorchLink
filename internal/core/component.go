@@ -8,7 +8,8 @@ import (
 	"sort"
 )
 
-func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMessage, components []model.ComponentStatus) error {
+func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMessage, components []model.ComponentStatus) ([]string, error) {
+	var ids []string
 	for _, component := range components {
 		kinds := make([]string, 0, len(component.Alarms))
 		for kind := range component.Alarms {
@@ -24,9 +25,19 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 				CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), AreaID: tag(msg, "areaId", ""), DeviceType: tag(msg, "deviceType", msg.ProductID),
 				Details: map[string]any{"message": msg, "component": component, "direct": true}}
 			a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-			saved, event, err := e.Repo.ApplyComponentAlarm(ctx, a, model.ComponentAlarmState{Timestamp: component.Timestamp, MessageID: msg.MessageID, Active: component.Alarms[kind]})
+			var saved model.Alarm
+			var event string
+			var err error
+			if externalAlarmEvent(msg) {
+				saved, event, err = e.applyExternalComponentAlarm(ctx, a, msg, component.Alarms[kind])
+			} else {
+				saved, event, err = e.Repo.ApplyComponentAlarm(ctx, a, model.ComponentAlarmState{Timestamp: component.Timestamp, MessageID: msg.MessageID, Active: component.Alarms[kind]})
+			}
 			if err != nil {
-				return err
+				return nil, err
+			}
+			if saved.ID != "" {
+				ids = append(ids, saved.ID)
 			}
 			e.flushOutbox(ctx)
 			if event != "" {
@@ -36,17 +47,17 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 				}
 				payload := mustJSON(saved)
 				if err = e.Bus.Publish(ctx, topic, saved.ID, payload); err != nil {
-					return err
+					return nil, err
 				}
 				if e.Realtime != nil {
 					if err = e.Realtime.Publish(ctx, saved.MQTTTopic(event), payload, 1, false); err != nil {
-						return err
+						return nil, err
 					}
 				}
 			}
 		}
 	}
-	return nil
+	return ids, nil
 }
 
 // A normal flag only clears its own category; connection/registration packets

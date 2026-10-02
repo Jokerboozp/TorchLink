@@ -1178,8 +1178,24 @@ func (r *Repository) UpdateVideoEvent(ctx context.Context, v model.VideoAlarmEve
 	_, err := r.pool.Exec(ctx, `UPDATE video_alarm_event SET body=$3,alarm_type=$4,event_time=$5 WHERE tenant_id=$1 AND event_id=$2`, v.TenantID, v.EventID, b, v.AlarmType, v.EventTime)
 	return err
 }
+func (r *Repository) GetVideoEvent(ctx context.Context, tenant, id string) (model.VideoAlarmEvent, error) {
+	var raw []byte
+	var event model.VideoAlarmEvent
+	err := r.pool.QueryRow(ctx, `SELECT body FROM video_alarm_event WHERE tenant_id=$1 AND event_id=$2`, tenant, id).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return event, ErrNotFound
+	}
+	if err != nil {
+		return event, err
+	}
+	err = json.Unmarshal(raw, &event)
+	return event, err
+}
 func (r *Repository) ListPendingVideoEvents(ctx context.Context, limit int) ([]model.VideoAlarmEvent, error) {
-	rows, err := r.pool.Query(ctx, `SELECT body FROM video_alarm_event WHERE body->'raw'->>'mediaTransferStatus' IN ('PENDING','FAILED') ORDER BY event_time LIMIT $1`, limit)
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := r.pool.Query(ctx, `SELECT body FROM video_alarm_event WHERE body->'raw'->>'mediaTransferStatus' IN ('PENDING','FAILED') AND CASE WHEN jsonb_typeof(body->'raw'->'mediaRetryAt')='number' THEN (body->'raw'->>'mediaRetryAt')::numeric ELSE 0 END <= $2 ORDER BY CASE WHEN jsonb_typeof(body->'raw'->'mediaLastAttemptAt')='number' THEN (body->'raw'->>'mediaLastAttemptAt')::numeric ELSE 0 END, event_time, tenant_id, event_id LIMIT $1`, limit, time.Now().UnixMilli())
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import LinkedCameras from '../components/LinkedCameras.vue'
+import AlarmMediaPanel from '../components/AlarmMediaPanel.vue'
 
 const filters = reactive({ status:'', level:'', deviceId:'' })
 const items = ref([])
@@ -29,6 +30,7 @@ const pageSize = ref(20)
 const total = ref(0)
 let analysisPollTimer = 0
 let analysisViewToken = 0
+let mediaRefreshVersion = 0
 let loadVersion = 0
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
@@ -114,7 +116,9 @@ async function show(id) {
   analysisLoading.value = false
   analysisProgress.value = null
   try {
-    detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
+    const loaded = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
+    if (viewToken !== analysisViewToken) return
+    detail.value = loaded
     analysis.value = null
     detailVisible.value = true
     const [savedResult, progressResult] = await Promise.allSettled([
@@ -135,8 +139,18 @@ async function show(id) {
       analysisLoading.value = false
     }
   } catch (e) {
-    notifyError(e)
+    if (viewToken === analysisViewToken) notifyError(e)
   }
+}
+
+async function refreshMediaDetail() {
+  const alarmId = detail.value?.alarmId, viewToken = analysisViewToken
+  const refreshVersion = ++mediaRefreshVersion
+  if (!alarmId || !detailVisible.value) return
+  try {
+    const loaded = await api(`/api/v1/alarms/${encodeURIComponent(alarmId)}`)
+    if (refreshVersion === mediaRefreshVersion && viewToken === analysisViewToken && detailVisible.value && detail.value?.alarmId === alarmId) detail.value = loaded
+  } catch { /* Attachment polling retains the last known detail; explicit reads report errors. */ }
 }
 
 async function runAnalysis() {
@@ -235,12 +249,14 @@ function rowActions(row) {
 
   <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
     <ui-descriptions v-if="detail" :column="1" border>
+      <ui-descriptions-item label="告警内容">{{detail.content || '—'}}</ui-descriptions-item>
       <ui-descriptions-item label="告警编号">{{detail.alarmId}}</ui-descriptions-item><ui-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</ui-descriptions-item><ui-descriptions-item v-if="detail.componentId" label="部件">{{detail.componentName||detail.componentId}}（{{detail.componentId}}）</ui-descriptions-item><ui-descriptions-item v-if="detail.componentLocation" label="部件位置">{{detail.componentLocation}}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</ui-descriptions-item><ui-descriptions-item label="等级 / 状态"><ui-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</ui-tag> {{label(alarmStatuses,detail.status)}}</ui-descriptions-item><ui-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</ui-descriptions-item><ui-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="触发次数">{{detail.triggerCount}}</ui-descriptions-item>
     </ui-descriptions>
     <ui-card v-if="detail" shadow="never" class="top-gap">
       <template #header><strong>关联摄像头</strong></template>
       <LinkedCameras :cameras="detail.cameras || []" />
     </ui-card>
+    <AlarmMediaPanel v-if="detailVisible && detail" :alarm="detail" @refresh="refreshMediaDetail" />
     <ui-card shadow="never" class="top-gap">
       <template #header><div class="card-header"><strong>智能研判</strong><ui-button v-permission="'POST /api/v1/ai/alarm-analysis'" size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '开始研判'}}</ui-button></div></template>
       <div v-if="analysisProgress" class="analysis-progress" aria-live="polite">

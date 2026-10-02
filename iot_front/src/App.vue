@@ -52,6 +52,7 @@ const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue
 const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue'))
 const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue'))
 const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
+const ExternalDataView = defineAsyncComponent(() => import('./views/ExternalDataView.vue'))
 const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
@@ -100,6 +101,7 @@ const pages = {
   profiles: { ...pageGuide.profiles, icon: Cable, component: ProtocolsView, props: { section: 'profiles' } },
   protocols: { ...pageGuide.protocols, icon: Network, component: ProtocolsView, props: { section: 'protocols' } },
   cameras: { ...pageGuide.cameras, icon: Video, component: CameraMappingsView },
+  externalData: { ...pageGuide.externalData, icon: Cable, component: ExternalDataView },
   integration: { ...pageGuide.integration, icon: FlaskConical, component: TestDeviceView },
   ai: { ...pageGuide.ai, icon: Bot, component: AiView, layout: 'full' },
   knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView, header: false },
@@ -118,7 +120,7 @@ const pages = {
 }
 const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
-  { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'integration'] },
+  { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '消防管理', items: ['duty', 'extinguishers', 'fireStations'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
@@ -248,7 +250,7 @@ function handleUIAction(payload) {
       void openCameraAction(action.cameraId, event.id)
       return
     }
-    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
+    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'externalData', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
     if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
       openPage(action.page)
       UiMessage.warning('规则联动：已打开相关业务页面')

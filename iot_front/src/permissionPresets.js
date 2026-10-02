@@ -3,7 +3,7 @@
 const chatActions = new Set(['POST /api/v1/ai/chat', 'POST /api/v1/ai/chat/stream'])
 export const permissionSections = [
   { name: '日常使用', menus: ['dashboard', 'devices', 'alarms', 'ai', 'raw'] },
-  { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras'] },
+  { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras', 'externalData'] },
   { name: '运维管理', menus: ['inspection', 'rules', 'knowledge'] },
   { name: '消防管理', menus: ['duty', 'extinguishers', 'fireStations'] },
   { name: '系统管理', menus: ['aiProviders', 'backups', 'access'] },

@@ -211,6 +211,9 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 	if err = s.restoreKnowledgeAndAgents(ctx, target, manifest, res); err != nil {
 		return err
 	}
+	if err = s.restoreExternalData(ctx, target, manifest, res, stage); err != nil {
+		return err
+	}
 	res.Status = "COMPLETED"
 	for _, summary := range res.Kinds {
 		if !summary.Matches {

@@ -508,3 +508,23 @@ ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS claim_expires_at bigint NO
 ALTER TABLE standard_message ADD COLUMN IF NOT EXISTS attempts integer NOT NULL DEFAULT 0;
 ALTER TABLE alarm_record ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;
 ALTER TABLE device_state ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 0;
+
+-- Durable external HTTP ingestion configuration, receipts and scheduled jobs.
+-- Revision fences expired workers; claims always use the primary database.
+CREATE TABLE IF NOT EXISTS external_data_entry (
+ tenant_id text NOT NULL, kind text NOT NULL, id text NOT NULL,
+ source_id text NOT NULL DEFAULT '', endpoint_id text NOT NULL DEFAULT '',
+ status text NOT NULL DEFAULT '', due_at bigint NOT NULL DEFAULT 0,
+ lease_until bigint NOT NULL DEFAULT 0, owner text NOT NULL DEFAULT '',
+ revision bigint NOT NULL CHECK (revision > 0),
+ created_at bigint NOT NULL, updated_at bigint NOT NULL, body jsonb NOT NULL,
+ PRIMARY KEY (tenant_id, kind, id)
+);
+CREATE INDEX IF NOT EXISTS external_data_entry_list_idx ON external_data_entry(tenant_id,kind,created_at DESC,id);
+CREATE INDEX IF NOT EXISTS external_data_entry_source_idx ON external_data_entry(tenant_id,kind,source_id,created_at DESC,id);
+CREATE INDEX IF NOT EXISTS external_data_entry_endpoint_idx ON external_data_entry(tenant_id,kind,endpoint_id,status,created_at DESC,id);
+CREATE INDEX IF NOT EXISTS external_data_entry_status_idx ON external_data_entry(tenant_id,kind,status,created_at DESC,id);
+CREATE INDEX IF NOT EXISTS external_data_entry_job_idx ON external_data_entry(tenant_id,kind,(body->>'jobId'),status);
+CREATE INDEX IF NOT EXISTS external_data_entry_updated_idx ON external_data_entry(tenant_id,kind,source_id,endpoint_id,status,updated_at DESC,id);
+CREATE INDEX IF NOT EXISTS external_data_entry_pending_idx ON external_data_entry(kind,due_at,created_at,tenant_id,id) WHERE status IN ('PENDING','RETRY');
+CREATE INDEX IF NOT EXISTS external_data_entry_running_idx ON external_data_entry(kind,lease_until,due_at) WHERE status='RUNNING';

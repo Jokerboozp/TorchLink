@@ -53,6 +53,9 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			t.Fatalf("cannot create fixture table %s: %v", table, err)
 		}
 	}
+	if _, err = pool.Exec(ctx, "CREATE TABLE "+pgx.Identifier{schema, "external_data_entry"}.Sanitize()+externalDataTableDefinition); err != nil {
+		t.Fatal("cannot create external data fixture", err)
+	}
 	connConfig, err := pgx.ParseConfig(source)
 	if err != nil {
 		t.Fatal("invalid source configuration")
@@ -63,6 +66,9 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 		t.Fatal("fixture connection failed")
 	}
 	defer fixture.Close(context.Background())
+	if _, err = fixture.Exec(ctx, `INSERT INTO external_data_entry(tenant_id,kind,id,revision,created_at,updated_at,body) VALUES('fixture-tenant','source','video-platform',1,1,1,'{"name":"视频平台"}')`); err != nil {
+		t.Fatal("cannot populate external data fixture", err)
+	}
 	const original = "消防控制器离线时检查网络与供电。"
 	objectBucket := "iot-backup-fixture-" + time.Now().UTC().Format("20060102150405")
 	store, err := minio.New(os.Getenv("IOT_MINIO_ENDPOINT"), &minio.Options{Creds: credentials.NewStaticV4(os.Getenv("IOT_MINIO_ACCESS_KEY"), os.Getenv("IOT_MINIO_SECRET_KEY"), ""), Secure: os.Getenv("IOT_MINIO_USE_TLS") == "true"})
@@ -140,7 +146,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 			store.RemoveObject(context.Background(), objectBucket, a.ObjectKey, minio.RemoveObjectOptions{})
 		}
 	})
-	if manifest.FormatVersion != 2 || len(manifest.Artifacts) != 7 {
+	if manifest.FormatVersion != 2 || len(manifest.Artifacts) != 8 || manifestRecords(manifest.Components["externalData"]) != 1 {
 		t.Fatal("FULL composition incomplete")
 	}
 	if _, err = s.Verify(ctx, manifest.ID); err != nil {
@@ -182,6 +188,11 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 		t.Fatal("cannot verify restore target")
 	}
 	defer target.Close(context.Background())
+	externalRestored := result.Components["externalData"].(map[string]any)["schema"].(string)
+	var externalName string
+	if err = target.QueryRow(ctx, "SELECT body->>'name' FROM "+pgx.Identifier{externalRestored, "external_data_entry"}.Sanitize()+" WHERE tenant_id='fixture-tenant' AND kind='source' AND id='video-platform'").Scan(&externalName); err != nil || externalName != "视频平台" {
+		t.Fatal("restored external data configuration mismatch", err)
+	}
 	restored := result.Components["knowledge"].(map[string]any)["schema"].(string)
 	for _, table := range knowledgeTables {
 		var count int
@@ -217,7 +228,7 @@ func TestFullKnowledgeAndAgentRestoreIntegration(t *testing.T) {
 	if err = fixture.QueryRow(ctx, "SELECT count(*) FROM ai_knowledge_doc").Scan(&sourceCount); err != nil || sourceCount != 1 {
 		t.Fatal("source knowledge changed during restore")
 	}
-	t.Logf("FULL v2 and daily verified and restored: PostgreSQL/ClickHouse messages, 4 knowledge tables, 1 original, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
+	t.Logf("FULL v2 and daily verified and restored: PostgreSQL/ClickHouse messages, external data, 4 knowledge tables, 1 original, 2 Agent/session files; restoreId=%s schema=%s", result.RestoreID, restored)
 }
 
 func TestLiveHarnessSnapshotRestoreIntegration(t *testing.T) {

@@ -468,6 +468,13 @@ func (r *deviceScopeRepository) UpdateAlarmIf(ctx context.Context, v model.Alarm
 	return r.Repository.UpdateAlarmIf(ctx, v)
 }
 
+func (r *deviceScopeRepository) UpsertExternalAlarm(ctx context.Context, v model.Alarm) (model.Alarm, bool, bool, error) {
+	if !deviceAllowed(ctx, v.TenantID, v.DeviceID) {
+		return v, false, false, errDeviceScope
+	}
+	return r.Repository.UpsertExternalAlarm(ctx, v)
+}
+
 func (r *deviceScopeRepository) UpdateAlarm(ctx context.Context, v model.Alarm) error {
 	if !deviceAllowed(ctx, v.TenantID, v.DeviceID) {
 		return errDeviceScope

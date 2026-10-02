@@ -71,6 +71,14 @@ export async function api(path, options = {}) {
   return response.json().catch(() => ({}))
 }
 
+// Protected attachments use the same session/error handling as JSON requests.
+// Callers own object URL lifetime and only request attachments after user action.
+export async function apiBlob(path, options = {}) {
+  const response = await fetch(path, { cache:'no-store', ...options, headers:headersFor(options) })
+  if (!response.ok) throw await responseError(path, response)
+  return response.blob()
+}
+
 // Conditional GET for polled views: an unchanged response is 304 without a body.
 export async function apiIfChanged(path, etag = '') {
   const response = await fetch(path, { cache:'no-store', headers:headersFor({ headers:etag ? { 'If-None-Match':etag } : {} }) })

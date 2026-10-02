@@ -26,6 +26,7 @@ import (
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
+	"iot-platform/internal/externaldata"
 	"iot-platform/internal/firesafety"
 	"iot-platform/internal/mcpserver"
 	"iot-platform/internal/metrics"
@@ -71,6 +72,7 @@ type Server struct {
 	video                      atomic.Pointer[video.Service]
 	videoOwner                 func() (local bool, endpoint string)
 	fireSafety                 *firesafety.Service
+	externalData               *externaldata.Service
 	capacityMQTT               capacityMQTTCleaner
 }
 
@@ -105,6 +107,11 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s.onboarding.RequirePrepared = true
 	s.onboarding.PublicHTTP = publicEndpoint(cfg.DeviceHTTPPublicURL)
 	s.onboarding.PublicMQTT = publicEndpoint(cfg.MQTTPublicURL)
+	var externalErr error
+	s.externalData, externalErr = externaldata.New(s.unscopedRepo().ExternalDataStore(), cfg.JWTSecret, s.authorizeExternalSource, s.deliverExternalEvent)
+	if externalErr != nil {
+		log.Error("external data initialization failed", "error", externalErr)
+	}
 	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()
 	return s
@@ -134,6 +141,8 @@ func (s *Server) routes() {
 	s.opsRoutes()
 	s.videoRoutes()
 	s.fireSafetyRoutes()
+	s.externalDataRoutes()
+	s.externalMediaRoutes()
 	s.router.GET("/api/v1/connectors/types", s.authorize("viewer"), s.endpoint(s.connectorTypes))
 	s.router.GET("/api/v1/connectors", s.authorize("viewer"), s.endpoint(s.connectorStatus))
 	s.deviceOperationsRoutes()
