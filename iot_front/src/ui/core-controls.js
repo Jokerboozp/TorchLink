@@ -84,7 +84,8 @@ export const UiRadioGroup = defineComponent({
 })
 
 export const UiRadioButton = defineComponent({
-  name: 'UiRadioButton', inheritAttrs: false,
+  // Naive 的单选组按子组件名称 RadioButton 识别按钮组，名称不同会丢失按钮组高度与分隔线。
+  name: 'RadioButton', inheritAttrs: false,
   props: { value: [String, Number, Boolean], label: String, disabled: Boolean },
   setup(props, { attrs, slots }) { return () => h(NRadioButton, { ...attrs, value: props.value ?? props.label, disabled: props.disabled }, slots) }
 })

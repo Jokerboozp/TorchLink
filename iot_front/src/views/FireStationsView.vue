@@ -142,9 +142,6 @@ onMounted(refresh)
     </FilterBar>
     <div v-if="tab === 'dispatches'" class="fire-summary-filter"><label>开始日期<input v-model="range.from" type="date" class="fire-date" @change="applyFilters" /></label><label>结束日期<input v-model="range.to" type="date" class="fire-date" @change="applyFilters" /></label></div>
     <div v-if="statisticsError" class="fire-error" role="alert"><span>{{ statisticsError }}</span><ui-button size="small" @click="loadStatistics">重新加载统计</ui-button></div>
-    <div v-if="statistics" class="fire-stats" aria-label="消防站概况">
-      <div v-for="(label,key) in {stations:'消防站',personnel:'人员',equipment:'在用器材数量',activeDispatches:'未归队',dispatches:'出勤次数',returnedDispatches:'已归队次数'}" :key="key" class="fire-stat"><span>{{ label }}</span><strong>{{ statistics[key] ?? '—' }}</strong></div>
-    </div>
     <details v-if="statistics?.byStation?.length" class="fire-station-stats"><summary>各消防站统计 · {{ statistics.byStation.length }} 个</summary>
       <ui-table :data="statistics?.byStation || []" :loading="statisticsLoading" empty-text="暂无消防站统计"><ui-table-column prop="name" label="消防站" min-width="180" /><ui-table-column prop="personnel" label="人员" width="100" /><ui-table-column prop="equipment" label="在用器材数量" min-width="130" /><ui-table-column prop="activeDispatches" label="未归队" width="100" /><ui-table-column prop="dispatches" label="出勤次数" width="100" /><ui-table-column prop="returnedDispatches" label="已归队次数" min-width="120" /></ui-table>
       <p class="fire-hint" style="padding:0 16px">日期范围按出勤开始时间统计出勤次数；未归队为当前全部未归队记录。器材数量包含维护中的器材。</p>

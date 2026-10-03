@@ -486,11 +486,11 @@ test('trend handles no alarms, small counts and spikes without fractional count 
 test('dashboard counts abbreviate large values so cards and ring centers stay inside their bounds',()=>{
   assert.deepEqual([0,9999,12345,99996,12345678,99995000,123456789,-3,'bad'].map(v=>compactCount(v)),['0','9,999','1.2万','10万','1,235万','1亿','1.2亿','0','0'])
 })
-function dashboardSetup(api) {
+function dashboardSetup(api,can=()=>false) {
   const script=setupScript(new URL('../src/views/DashboardView.vue',import.meta.url))
   let cleanup
-  const context=vm.createContext({ref,computed,api,deviceSegments,ringSegments,productBars,dashboardDistributions,alarmLevels:{},AbortController,setTimeout,clearTimeout,notifyError(){},defineEmits:()=>()=>{},onMounted(){},onBeforeUnmount(fn){cleanup=fn},window:{removeEventListener(){}}})
-  return {...vm.runInContext(script+'\n;({load,data,days,loading,loadError})',context),cleanup:()=>cleanup()}
+  const context=vm.createContext({ref,computed,api,can,deviceSegments,ringSegments,productBars,dashboardDistributions,alarmLevels:{},AbortController,setTimeout,clearTimeout,notifyError(){},defineEmits:()=>()=>{},onMounted(){},onBeforeUnmount(fn){cleanup=fn},window:{removeEventListener(){}}})
+  return {...vm.runInContext(script+'\n;({load,data,days,loading,loadError,fire,fireError,fireAllowed})',context),cleanup:()=>cleanup()}
 }
 test('range switching rejects late responses and retains last good snapshot on failure',async()=>{
   const requests=[]
@@ -501,6 +501,19 @@ test('range switching rejects late responses and retains last good snapshot on f
   const failed=c.load();requests[2].reject(new Error('offline'));await failed
   assert.equal(c.data.value.days,30);assert.match(c.loadError.value,/刷新失败/);assert.equal(c.loading.value,false)
   const pending=c.load();c.cleanup();requests[3].resolve({days:7});await pending;assert.equal(c.data.value.days,30)
+})
+test('消防站概况按菜单权限读取，读取失败不影响运行总览其他数据',async()=>{
+  const paths=[]
+  const hidden=dashboardSetup(path=>{paths.push(path);return Promise.resolve(path.includes('/alarms?')?{items:[]}:{days:7})})
+  await hidden.load()
+  assert.equal(hidden.fireAllowed.value,false);assert.ok(!paths.some(path=>path.includes('fire-stations')))
+  let fail=false
+  const c=dashboardSetup(path=>path.includes('fire-stations')?(fail?Promise.reject(new Error('offline')):Promise.resolve({stations:2,activeDispatches:1})):Promise.resolve(path.includes('/alarms?')?{items:[]}:{days:7}),permission=>permission==='menu:fireStations')
+  await c.load();await new Promise(resolve=>setTimeout(resolve))
+  assert.equal(c.fire.value.stations,2);assert.equal(c.fireError.value,'')
+  fail=true;await c.load();await new Promise(resolve=>setTimeout(resolve))
+  assert.equal(c.data.value.days,7);assert.equal(c.loadError.value,'')
+  assert.equal(c.fire.value.stations,2);assert.match(c.fireError.value,/刷新失败/)
 })
 
 

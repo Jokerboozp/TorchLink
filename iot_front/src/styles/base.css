@@ -109,7 +109,8 @@ summary:focus-visible { outline: none; box-shadow: var(--focus-ring); border-rad
   background: var(--surface);
   transition: border-color 0.16s ease, background-color 0.16s ease;
 }
-.segmented-choice-group .n-radio-button__state-border { display: none; }
+.segmented-choice-group .n-radio-button__state-border,
+.segmented-choice-group .n-radio-group__splitor { display: none; }
 .segmented-choice-group .n-radio-button__label { color: var(--text-secondary); font-weight: var(--font-weight-medium); }
 .segmented-choice-group .n-radio-button:hover { border-color: var(--border-hover); background: var(--surface-hover); }
 .segmented-choice-group .n-radio-button.n-radio-button--checked { border-color: var(--primary); background: var(--primary-soft); }

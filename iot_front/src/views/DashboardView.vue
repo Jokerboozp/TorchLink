@@ -7,6 +7,7 @@ import DashboardTrend from '../components/DashboardTrend.vue'
 import { compactCount, deviceSegments, ringSegments, productBars, dashboardDistributions } from '../dashboard.js'
 import DashboardDistribution from '../components/DashboardDistribution.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { can } from '../permissions'
 
 const emit = defineEmits(['navigate'])
 const data = ref(null)
@@ -16,6 +17,14 @@ const detail = ref(null)
 const detailVisible = ref(false)
 const loading = ref(false)
 const loadError = ref('')
+// 消防站概况独立读取：无权限不显示，读取失败只影响本区块。
+const fireAllowed = computed(() => can('menu:fireStations'))
+const fire = ref(null)
+const fireError = ref('')
+const fireKpis = [
+  { key:'stations', label:'消防站' }, { key:'personnel', label:'人员' }, { key:'equipment', label:'在用器材' },
+  { key:'activeDispatches', label:'未归队', tone:'warning' }, { key:'dispatches', label:'累计出勤' }, { key:'returnedDispatches', label:'已归队' }
+]
 const distributions = computed(() => dashboardDistributions(data.value || {}))
 const alarmDistributions = computed(() => distributions.value.filter(chart => chart.unit === '条'))
 const deviceDistributions = computed(() => distributions.value.filter(chart => chart.unit === '台'))
@@ -48,6 +57,7 @@ async function load() {
   controller = new AbortController()
   const options = { signal:controller.signal }
   loading.value = true
+  if (fireAllowed.value) loadFire(current, options)
   try {
     const [overview, active] = await Promise.all([api(`/api/v1/dashboard?days=${days.value}&offset=${-new Date().getTimezoneOffset()}`,options), api('/api/v1/alarms?status=ACTIVE&limit=6',options)])
     if (disposed || current !== revision) return
@@ -59,6 +69,17 @@ async function load() {
     loadError.value = data.value ? '刷新失败，当前显示上次成功获取的数据。' : '统计读取失败，请重试。'
     notifyError(error)
   } finally { if (!disposed && current === revision) loading.value = false }
+}
+async function loadFire(current, options) {
+  try {
+    const result = await api('/api/v1/fire-stations/statistics', options)
+    if (disposed || current !== revision) return
+    fire.value = result
+    fireError.value = ''
+  } catch (error) {
+    if (disposed || current !== revision || error?.name === 'AbortError') return
+    fireError.value = fire.value ? '刷新失败，当前显示上次成功获取的数据。' : '消防站统计读取失败，请刷新重试。'
+  }
 }
 async function showDetail(id) { try { detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`); if (!disposed) detailVisible.value = true } catch (e) { if (!disposed) notifyError(e) } }
 const realtime = event => {
@@ -133,6 +154,15 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
         <ui-empty v-else :description="data ? '暂无设备分布' : loading ? '正在读取产品' : '尚未获取产品数据'" :image-size="65" />
       </ui-card>
     </section>
+    <section v-if="fireAllowed" class="dashboard-section" aria-labelledby="fire-section-title">
+      <div class="section-heading"><div><h2 id="fire-section-title">消防站概况</h2><span>站点、人员、器材与出勤</span></div><ui-button text @click="emit('navigate','fireStations')">管理消防站</ui-button></div>
+      <p v-if="fireError" class="fire-error" role="alert">{{ fireError }}</p>
+      <div class="fire-grid">
+        <section v-for="item in fireKpis" :key="item.key" class="stat-card fire-card" :class="item.tone && fire?.[item.key] && `stat-${item.tone}`">
+          <span>{{ item.label }}</span><strong :title="fire ? (fire[item.key] ?? 0).toLocaleString() : ''">{{ fire ? compactCount(fire[item.key] ?? 0) : '—' }}</strong>
+        </section>
+      </div>
+    </section>
       <ui-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"><ui-descriptions v-if="detail" :column="1" border><ui-descriptions-item label="告警编号">{{ detail.alarmId }}</ui-descriptions-item><ui-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</ui-descriptions-item><ui-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</ui-descriptions-item></ui-descriptions><details class="technical-details"><summary>查看原始记录</summary><pre>{{ JSON.stringify(detail,null,2) }}</pre></details><template #footer><ui-button @click="detailVisible = false">关闭</ui-button><ui-button v-permission="'menu:alarms'" type="primary" @click="emit('navigate', 'alarms', { alarmId: detail?.alarmId })">前往告警处置</ui-button></template></ui-dialog>
   </div>
 </template>
@@ -194,6 +224,10 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
 .bar-row small { color:var(--text-muted); font-size:12px; font-weight:400; }
 .bar-track { height:7px; overflow:hidden; background:var(--surface-hover); border-radius:var(--radius-full); }
 .bar-track i { display:block; height:100%; border-radius:inherit; transition:width .4s ease; }
+.fire-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:16px; }
+.fire-card { min-height:84px; }
+.fire-card > strong { font-size:26px; }
+.fire-error { margin:0; color:var(--danger-text); font-size:12px; }
 .product-chart { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px 28px; min-height:0; padding-top:4px; }
 @media (min-width:1600px) {
   .device-chart { flex-direction:row; }
@@ -205,6 +239,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
   .dashboard-grid > :last-child :deep(.distribution-chart) { min-height:160px; }
   .dashboard-grid > :last-child .chart-description { min-height:0; }
   .product-chart { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .fire-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 @media (max-width:1000px) {
   .dashboard-primary { grid-template-columns:minmax(0,1fr); }
@@ -216,7 +251,8 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
   .dashboard-toolbar { flex-wrap:wrap; gap:6px; }
   .dashboard-toolbar > div { flex:1; justify-content:flex-end; }
   .dashboard-toolbar > span { display:none; }
-  .stats-grid { gap:10px; }
+  .stats-grid,.fire-grid { gap:10px; }
+  .fire-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .stat-card { padding:14px; min-height:96px; }
   .stat-card > strong { font-size:26px; }
   .section-heading { flex-wrap:wrap; gap:8px; }
