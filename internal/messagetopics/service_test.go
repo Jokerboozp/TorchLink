@@ -171,44 +171,6 @@ type realtimeRecorder struct {
 	err      error
 }
 
-type capacityBusRecorder struct {
-	busRecorder
-	previewed, cleaned bool
-}
-
-func (b *capacityBusRecorder) PreviewCapacityQueue(_ context.Context, tenant string, batch model.CapacityCleanupBatch) (ports.CapacityQueuePlan, error) {
-	b.previewed = tenant == "t"
-	return ports.CapacityQueuePlan{}, b.err
-}
-
-func (b *capacityBusRecorder) CleanupCapacityQueue(_ context.Context, tenant string, batch model.CapacityCleanupBatch, plan ports.CapacityQueuePlan) (ports.RuntimeCleanupCounts, error) {
-	b.cleaned = tenant == "t"
-	return ports.RuntimeCleanupCounts{}, b.err
-}
-
-func TestBusWrapperPreservesOptionalCapacityCleanup(t *testing.T) {
-	svc := New(newTestStore())
-	plain := svc.WrapBus(&busRecorder{})
-	if _, ok := plain.(ports.CapacityQueueCleaner); ok {
-		t.Fatal("plain bus incorrectly gained capacity cleanup support")
-	}
-	broker := &capacityBusRecorder{}
-	wrapped := svc.WrapBus(broker)
-	cleaner, ok := wrapped.(ports.CapacityQueueCleaner)
-	if !ok {
-		t.Fatal("wrapping the broker hid capacity queue cleanup")
-	}
-	ctx := context.Background()
-	plan, err := cleaner.PreviewCapacityQueue(ctx, "t", model.CapacityCleanupBatch{})
-	if err != nil || !broker.previewed {
-		t.Fatal("capacity preview not forwarded", err)
-	}
-	broker.err = errors.New("broker cleanup refused")
-	if _, err = cleaner.CleanupCapacityQueue(ctx, "t", model.CapacityCleanupBatch{}, plan); !errors.Is(err, broker.err) || !broker.cleaned {
-		t.Fatal("capacity cleanup or its error was not forwarded", err)
-	}
-}
-
 func (p *realtimeRecorder) Publish(_ context.Context, topic string, _ []byte, qos byte, retained bool) error {
 	p.topics = append(p.topics, topic)
 	p.qos, p.retained = qos, retained

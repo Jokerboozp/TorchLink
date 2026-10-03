@@ -129,12 +129,6 @@ func TestConsumerAdminDisposableSecuredBroker(t *testing.T) {
 	if _, err := bus.GroupLag(ctx, "auth-test-"+id, allowed); err != nil {
 		t.Fatal("authenticated group lag", err)
 	}
-	// Exercise the capacity adapter's authenticated connection without
-	// creating, changing or deleting any internal business topic.
-	capacityBackend := newCapacityQueueBackend(bus.brokers, bus.transport).(*kafkaCapacityQueueBackend)
-	if _, err := capacityBackend.client.Metadata(ctx, &kafka.MetadataRequest{Topics: []string{allowed}}); err != nil {
-		t.Fatal("authenticated capacity metadata", err)
-	}
 	stopBus()
 	transport, err := NewTransport(SecurityConfig{Username: username, Password: password, Mechanism: "SCRAM-SHA-256"})
 	if err != nil {

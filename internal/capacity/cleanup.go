@@ -2,6 +2,7 @@ package capacity
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,34 +20,69 @@ import (
 	"iot-platform/internal/model"
 )
 
+// Test data belongs to dedicated test products (model.IsCapacityFixture).
+// Deleting one run removes its record and the devices no other run uses;
+// cleaning all removes every ended run and every dedicated test product. The
+// platform verifies ownership and performs the deletion; the controller only
+// decides the scope and removes its own files.
+
+// CleanupPreview is shown before the operator confirms a cleanup.
 type CleanupPreview struct {
-	Resources     int      `json:"resources"`
-	RunID         string   `json:"runId"`
-	Devices       int      `json:"devices"`
-	SharedDevices int      `json:"sharedDevices"`
-	RawMessages   int64    `json:"rawMessages"`
-	Warnings      []string `json:"warnings"`
+	RunID         string                         `json:"runId,omitempty"`
+	Runs          int                            `json:"runs"`
+	Products      []model.CapacityFixtureProduct `json:"products"`
+	Devices       int64                          `json:"devices"`
+	SharedDevices int                            `json:"sharedDevices"`
+	RawMessages   int64                          `json:"rawMessages"`
+	Warnings      []string                       `json:"warnings"`
 }
-type CleanupResult struct {
-	CleanupPreview
-	Deleted bool                        `json:"deleted"`
-	Counts  model.CapacityCleanupCounts `json:"counts"`
+
+// CleanupJob is persisted so progress and failures survive leaving the page.
+// Delegated credentials never enter the results directory or a response.
+type CleanupJob struct {
+	ID          string                      `json:"id"`
+	Scope       string                      `json:"scope"` // run, all
+	RunID       string                      `json:"runId,omitempty"`
+	Tenant      string                      `json:"-"`
+	Environment string                      `json:"environment"`
+	Status      string                      `json:"status"` // RUNNING, SUCCEEDED, PARTIAL, FAILED
+	Phase       string                      `json:"phase"`
+	Processed   int                         `json:"processed"`
+	Total       int                         `json:"total"`
+	Counts      model.CapacityCleanupCounts `json:"counts"`
+	Error       string                      `json:"error,omitempty"`
+	Warnings    []string                    `json:"warnings,omitempty"`
+	UpdatedAt   int64                       `json:"updatedAt"`
 }
+
+type cleanupRequest struct {
+	Environment   string `json:"environment"`
+	Tenant        string `json:"tenant"`
+	OperatorToken string `json:"operatorToken"`
+}
+
 type cleanupContext struct {
 	Environment string `json:"environment"`
 	APIHash     string `json:"apiHash"`
 	PlanFile    string `json:"planFile"`
 }
-type cleanupScope struct {
-	resources       []model.CapacityCleanupResource
-	preview         CleanupPreview
-	plan            *Plan
-	inv             *Inventory
-	dir             string
-	devices, remove []string
-	source          cleanupContext
-	sharedProduct   bool
+
+// runScope is one ended run of the tenant and the devices only it uses.
+type runScope struct {
+	id            string
+	plan          *Plan
+	inv           *Inventory
+	environment   string
+	dir           string
+	devices       []string
+	exclusive     []string
+	sharedProduct bool
+	source        cleanupContext
 }
+
+// cleanupTimeout bounds one background cleanup; the delegated operator token
+// is valid for an hour.
+const cleanupTimeout = 30 * time.Minute
 
 func apiHash(api string) string {
 	h := sha256.Sum256([]byte(strings.TrimRight(api, "/")))
@@ -111,8 +148,56 @@ func fixtureIDs(dir string, p *Plan, id string) ([]string, error) {
 	return ids, nil
 }
 
-func (s *Service) cleanupScope(id, tenant string) (cleanupScope, error) {
-	var out cleanupScope
+// runEnvironment returns the registered environment a run was started in.
+func (s *Service) runEnvironment(dir string) (cleanupContext, error) {
+	var src cleanupContext
+	if b, err := os.ReadFile(filepath.Join(dir, "cleanup-context.json")); err == nil {
+		err = json.Unmarshal(b, &src)
+		return src, err
+	}
+	var env struct {
+		Inventory string `json:"inventory"`
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "environment.json"))
+	if err != nil {
+		return src, err
+	}
+	if err = json.Unmarshal(b, &env); err != nil {
+		return src, err
+	}
+	for _, registered := range s.environments() {
+		if inv, _, e := s.resolve(registered.Name); e == nil && inv.Name == env.Inventory {
+			src.Environment = registered.Name
+			break
+		}
+	}
+	return src, nil
+}
+
+// tenantRuns lists the run IDs whose plan targets the tenant.
+func (s *Service) tenantRuns(tenant string) ([]string, error) {
+	entries, err := os.ReadDir(s.opt.ResultsDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, entry := range entries {
+		if !entry.IsDir() || !runIDPattern.MatchString(entry.Name()) {
+			continue
+		}
+		p, err := LoadPlan(filepath.Join(s.opt.ResultsDir, entry.Name(), "plan.sanitized.yaml"))
+		if err == nil && p.Fixtures.Tenant == tenant {
+			ids = append(ids, entry.Name())
+		}
+	}
+	return ids, nil
+}
+
+func (s *Service) runScope(id, tenant string) (runScope, error) {
+	var out runScope
 	if !runIDPattern.MatchString(id) {
 		return out, os.ErrNotExist
 	}
@@ -137,29 +222,9 @@ func (s *Service) cleanupScope(id, tenant string) (cleanupScope, error) {
 	if !identifier.MatchString(p.Fixtures.Tenant) || !identifier.MatchString(p.Fixtures.Product) || !identifier.MatchString(p.Fixtures.DevicePrefix) {
 		return out, errors.New("invalid fixture identifiers")
 	}
-	var src cleanupContext
-	if b, e := os.ReadFile(filepath.Join(dir, "cleanup-context.json")); e == nil {
-		if err = json.Unmarshal(b, &src); err != nil {
-			return out, err
-		}
-	} else {
-		var env struct {
-			Inventory string `json:"inventory"`
-		}
-		b, e := os.ReadFile(filepath.Join(dir, "environment.json"))
-		if e != nil {
-			return out, e
-		}
-		if err = json.Unmarshal(b, &env); err != nil {
-			return out, err
-		}
-		for _, registered := range s.environments() {
-			inv, _, e := s.resolve(registered.Name)
-			if e == nil && inv.Name == env.Inventory {
-				src.Environment = registered.Name
-				break
-			}
-		}
+	src, err := s.runEnvironment(dir)
+	if err != nil {
+		return out, err
 	}
 	inv, _, err := s.resolve(src.Environment)
 	if err != nil {
@@ -175,29 +240,23 @@ func (s *Service) cleanupScope(id, tenant string) (cleanupScope, error) {
 	if err != nil {
 		return out, err
 	}
-	shared := map[string]bool{}
-	entries, err := os.ReadDir(s.opt.ResultsDir)
+	others, err := s.tenantRuns(tenant)
 	if err != nil {
 		return out, err
 	}
+	shared := map[string]bool{}
 	sharedProduct := false
-	for _, entry := range entries {
-		if entry.Name() == id || !runIDPattern.MatchString(entry.Name()) {
+	for _, other := range others {
+		if other == id {
 			continue
 		}
-		other, err := safeCleanupPath(s.opt.ResultsDir, entry.Name())
-		if err != nil {
-			return out, err
-		}
-		op, err := LoadPlan(filepath.Join(other, "plan.sanitized.yaml"))
-		if err != nil {
-			return out, errors.New("其他运行记录不完整，无法确认共享设备范围")
-		}
-		if op.Fixtures.Tenant != tenant || op.Fixtures.Product != p.Fixtures.Product {
+		otherDir := filepath.Join(s.opt.ResultsDir, other)
+		op, err := LoadPlan(filepath.Join(otherDir, "plan.sanitized.yaml"))
+		if err != nil || op.Fixtures.Product != p.Fixtures.Product {
 			continue
 		}
 		sharedProduct = true
-		ids, err := fixtureIDs(other, op, entry.Name())
+		ids, err := fixtureIDs(otherDir, op, other)
 		if err != nil {
 			return out, err
 		}
@@ -205,315 +264,447 @@ func (s *Service) cleanupScope(id, tenant string) (cleanupScope, error) {
 			shared[d] = true
 		}
 	}
-	var remove []string
+	var exclusive []string
 	for _, d := range devices {
 		if !identifier.MatchString(d) {
 			return out, errors.New("invalid fixture device ID")
 		}
 		if !shared[d] {
-			remove = append(remove, d)
+			exclusive = append(exclusive, d)
 		}
 	}
-	// Shared devices keep their credentials for other runs; only this run's
-	// ledgered messages are removed from them.
-	preview := CleanupPreview{RunID: id, Devices: len(remove), SharedDevices: len(devices) - len(remove), Warnings: []string{"监控历史、全量备份及无法确认归属的数据保留；消息队列遇到业务或未知记录时停止清理"}}
-	out = cleanupScope{preview: preview, plan: p, inv: inv, dir: dir, devices: devices, remove: remove, source: src, sharedProduct: sharedProduct}
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, e error) error {
 		if e == nil && d.Type()&os.ModeSymlink != 0 {
 			return errors.New("run artifacts contain a symbolic link")
 		}
 		return e
 	})
-	if err != nil {
-		return out, err
-	}
-	seenResources := map[string]bool{}
-	err = out.ledgerBatches(func(ids, _ []string) error { out.preview.RawMessages += int64(len(ids)); return nil }, func(r model.CapacityCleanupResource) error {
-		key := r.Kind + ":" + r.ID
-		if !seenResources[key] {
-			out.resources = append(out.resources, r)
-			seenResources[key] = true
-		}
-		return nil
-	})
-	out.preview.Resources = len(out.resources)
-	if p.Modules.Backup.Enabled {
-		out.preview.Warnings = append(out.preview.Warnings, "包含平台全量数据的备份与独立恢复目标属于共享制品，保留")
-	}
-	if p.Load.IngressShare["tcp"] > 0 {
-		out.preview.Warnings = append(out.preview.Warnings, "TCP 场景仅记录协议 ACK，无法定位其平台原文与设备；这部分数据保留")
-	}
-	if len(out.resources) == 0 && (p.Modules.AI.Enabled || p.Modules.Knowledge.Enabled || p.Modules.Exports.Enabled) {
-		out.preview.Warnings = append(out.preview.Warnings, "旧运行未记录业务任务归属，无法确认归属的 AI、知识及巡检任务保留")
-	}
-	return out, err
+	return runScope{id: id, plan: p, inv: inv, environment: src.Environment, dir: dir, devices: devices, exclusive: exclusive, sharedProduct: sharedProduct, source: src}, err
 }
 
-func (c cleanupScope) ledgerBatches(fn func([]string, []string) error, resourceFn func(model.CapacityCleanupResource) error) error {
-	devices := make(map[string]bool, len(c.devices))
-	for _, id := range c.devices {
-		devices[id] = true
-	}
-	paths, err := filepath.Glob(filepath.Join(c.dir, "ledgers", "*", "*.jsonl.gz"))
+// RunCleanupPreview summarizes what deleting one run removes.
+func (s *Service) RunCleanupPreview(id, tenant string) (CleanupPreview, error) {
+	scope, err := s.runScope(id, tenant)
 	if err != nil {
-		return err
+		return CleanupPreview{}, err
 	}
-	for _, path := range paths {
-		var ids []string
-		var batchDevices []string
-		err = ReadLedger(path, func(h LedgerHeader, e LedgerEntry) error {
-			if h.RunID != c.preview.RunID || h.Tenant != c.plan.Fixtures.Tenant || h.Product != c.plan.Fixtures.Product {
-				return errors.New("ledger does not match cleanup scope")
-			}
-			if e.RawID == "" || e.Result == "not_sent" || e.Stream == "tcp" {
-				if e.ResourceID != "" {
-					if !slices.Contains([]string{"knowledge", "inspection", "alarm-analysis", "replay"}, e.ResourceKind) {
-						return errors.New("unknown module resource in ledger")
-					}
-					if resourceFn != nil {
-						return resourceFn(model.CapacityCleanupResource{Kind: e.ResourceKind, ID: e.ResourceID})
-					}
-				}
-				return nil
-			}
-			if !devices[e.Device] {
-				return errors.New("ledger device is outside cleanup scope")
-			}
-			ids = append(ids, e.RawID)
-			if !slices.Contains(batchDevices, e.Device) {
-				batchDevices = append(batchDevices, e.Device)
-			}
-			if len(ids) == 500 {
-				if err := fn(ids, batchDevices); err != nil {
-					return err
-				}
-				ids = nil
-				batchDevices = nil
-			}
-			return nil
-		})
-		if err != nil {
-			return err
+	preview := CleanupPreview{RunID: id, Runs: 1, Products: []model.CapacityFixtureProduct{}, Devices: int64(len(scope.exclusive)), SharedDevices: len(scope.devices) - len(scope.exclusive), Warnings: []string{"监控历史和平台全量备份保留"}}
+	if preview.SharedDevices > 0 {
+		preview.Warnings = append(preview.Warnings, "其他运行仍在使用的设备及其数据保留，可在“清理全部测试数据”中一并删除")
+	}
+	return preview, nil
+}
+
+// platform calls the delegated platform API as the operator.
+func (s *Service) platform(ctx context.Context, inv *Inventory, operator, method, path string, body, out any) error {
+	var data []byte
+	if body != nil {
+		data, _ = json.Marshal(body)
+	}
+	status, resp, err := doHTTP(ctx, newHTTPClient(10*time.Minute, 1), method, strings.TrimRight(inv.API, "/")+path, data, map[string]string{"Authorization": "Bearer " + operator, "X-Capacity-Service-Token": s.opt.Token})
+	if err != nil {
+		return errors.New("测试数据清理请求失败；已保留记录，可重试")
+	}
+	if status != http.StatusOK {
+		reason := "清理服务暂时不可用，请稍后重试"
+		var response struct {
+			Detail string `json:"detail"`
 		}
-		if len(ids) > 0 {
-			if err = fn(ids, batchDevices); err != nil {
-				return err
-			}
+		switch {
+		case status == http.StatusConflict && json.Unmarshal(resp, &response) == nil && response.Detail != "":
+			reason = clip(response.Detail, 240)
+		case status == http.StatusForbidden || status == http.StatusUnauthorized:
+			reason = "清理权限或登录状态已变化，请重新登录后重试"
+		case status == http.StatusNotImplemented:
+			reason = "当前存储不支持容量测试数据清理"
 		}
+		return fmt.Errorf("测试数据清理未完成，已保留记录：%s", reason)
+	}
+	if out != nil {
+		return json.Unmarshal(resp, out)
 	}
 	return nil
 }
 
-// cleanupTimeout bounds one background cleanup; the delegated operator token
-// is valid for an hour.
-const cleanupTimeout = 30 * time.Minute
+func (s *Service) cleanData(ctx context.Context, inv *Inventory, operator string, job *CleanupJob, q model.CapacityCleanupBatch) error {
+	var counts model.CapacityCleanupCounts
+	if err := s.platform(ctx, inv, operator, http.MethodPost, "/api/v1/ops/capacity/cleanup-data", q, &counts); err != nil {
+		return err
+	}
+	job.Counts.Add(counts)
+	return s.saveJob(job)
+}
 
-func (s *Service) beginCleanup(id string) error {
+func (s *Service) fixtureProducts(ctx context.Context, inv *Inventory, operator string) ([]model.CapacityFixtureProduct, error) {
+	var page struct {
+		Products []model.CapacityFixtureProduct `json:"products"`
+	}
+	err := s.platform(ctx, inv, operator, http.MethodGet, "/api/v1/ops/capacity/cleanup-fixtures", nil, &page)
+	return page.Products, err
+}
+
+// AllCleanupPreview counts every ended run and dedicated test product.
+func (s *Service) AllCleanupPreview(ctx context.Context, req cleanupRequest) (CleanupPreview, error) {
+	inv, runs, err := s.allScope(req)
+	if err != nil {
+		return CleanupPreview{}, err
+	}
+	products, err := s.fixtureProducts(ctx, inv, req.OperatorToken)
+	if err != nil {
+		return CleanupPreview{}, err
+	}
+	preview := CleanupPreview{Runs: len(runs), Products: products, Warnings: []string{"监控历史和平台全量备份保留；被网关、摄像头或接入配置引用的测试设备会阻止清理"}}
+	for _, p := range products {
+		preview.Devices += p.DeviceCount
+		preview.RawMessages += p.RawMessages
+	}
+	return preview, nil
+}
+
+// allScope returns the environment and its ended runs; an unfinished run of
+// the tenant blocks cleaning everything.
+func (s *Service) allScope(req cleanupRequest) (*Inventory, []runScope, error) {
+	if !identifier.MatchString(req.Tenant) || req.OperatorToken == "" {
+		return nil, nil, errors.New("缺少清理操作身份")
+	}
+	inv, _, err := s.resolve(req.Environment)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids, err := s.tenantRuns(req.Tenant)
+	if err != nil {
+		return nil, nil, err
+	}
+	var runs []runScope
+	for _, id := range ids {
+		dir := filepath.Join(s.opt.ResultsDir, id)
+		src, err := s.runEnvironment(dir)
+		if err != nil || src.Environment != req.Environment {
+			continue
+		}
+		scope, err := s.runScope(id, req.Tenant)
+		if errors.Is(err, ErrRunActive) {
+			return nil, nil, errors.New("有测试运行尚未结束，请等待结束或停止后再清理")
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("运行 %s 的记录无法核对：%w", id, err)
+		}
+		runs = append(runs, scope)
+	}
+	return inv, runs, nil
+}
+
+func newCleanupID() (string, error) {
+	var random [3]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	return "cap-" + time.Now().Format("20060102-150405") + "-" + hex.EncodeToString(random[:]), nil
+}
+
+func (s *Service) jobPath(tenant, environment string) (string, error) {
+	sum := sha256.Sum256([]byte(tenant + "\x00" + environment))
+	return safeCleanupPath(s.opt.ResultsDir, ".cleanup", hex.EncodeToString(sum[:])+".json")
+}
+
+func (s *Service) saveJob(job *CleanupJob) error {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	return s.saveJobLocked(job)
+}
+
+func (s *Service) saveJobLocked(job *CleanupJob) error {
+	path, err := s.jobPath(job.Tenant, job.Environment)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	job.UpdatedAt = time.Now().UnixMilli()
+	return writeJSONAtomic(path, job)
+}
+
+// CleanupStatus returns the latest cleanup of the tenant and environment. A
+// RUNNING job without a live worker was interrupted by a restart.
+func (s *Service) CleanupStatus(tenant, environment string) (*CleanupJob, error) {
+	s.jobMu.Lock()
+	defer s.jobMu.Unlock()
+	path, err := s.jobPath(tenant, environment)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var job CleanupJob
+	if err = json.Unmarshal(b, &job); err != nil {
+		return nil, err
+	}
+	job.Tenant = tenant
+	s.mu.Lock()
+	live := s.cleaning == job.ID
+	s.mu.Unlock()
+	if job.Status == "RUNNING" && !live {
+		job.Status, job.Phase, job.Error = "FAILED", "清理进程已中断", "清理进程已重启或中断，已保留结果，请重试"
+		if err = s.saveJobLocked(&job); err != nil {
+			return nil, err
+		}
+	}
+	return &job, nil
+}
+
+func (s *Service) beginCleanup(job *CleanupJob) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.active != "" {
 		return ErrRunActive
 	}
-	s.active, s.cleaning = "cleaning", id
-	delete(s.cleanupErr, id)
+	s.active, s.cleaning = "cleaning", job.ID
+	if job.RunID != "" {
+		s.cleaningRun = job.RunID
+		delete(s.cleanupErr, job.RunID)
+	}
 	return nil
 }
 
-func (s *Service) endCleanup(id string, n model.CapacityCleanupCounts, err error) {
+func (s *Service) endCleanup(job *CleanupJob, failure error) {
+	for _, warning := range job.Counts.Warnings {
+		if !slices.Contains(job.Warnings, warning) {
+			job.Warnings = append(job.Warnings, warning)
+		}
+	}
+	switch {
+	case failure != nil:
+		job.Status, job.Phase, job.Error = "FAILED", "清理未完成", clip(failure.Error(), 400)
+	case len(job.Warnings) > 0:
+		job.Status, job.Phase = "PARTIAL", "已完成可清理部分"
+	default:
+		job.Status, job.Phase = "SUCCEEDED", "清理完成"
+	}
+	if err := s.saveJob(job); err != nil {
+		failure = errors.Join(failure, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.active, s.cleaning = "", ""
-	if err != nil {
-		s.cleanupErr[id] = clip(err.Error(), 400)
-		fmt.Fprintf(s.opt.Log, "capacity cleanup %s failed: %v\n", id, err)
+	s.active, s.cleaning, s.cleaningRun = "", "", ""
+	if failure != nil {
+		if job.RunID != "" {
+			s.cleanupErr[job.RunID] = clip(failure.Error(), 400)
+		}
+		fmt.Fprintf(s.opt.Log, "capacity cleanup %s failed: %v\n", job.ID, failure)
 		return
 	}
-	fmt.Fprintf(s.opt.Log, "capacity cleanup %s done: %+v\n", id, n)
+	fmt.Fprintf(s.opt.Log, "capacity cleanup %s done: %+v\n", job.ID, job.Counts)
 }
 
-// Cleanup removes one finished run's data and waits for the result.
-func (s *Service) Cleanup(ctx context.Context, id, tenant, operator string) (CleanupResult, error) {
-	if err := s.beginCleanup(id); err != nil {
-		return CleanupResult{}, err
+func (s *Service) startJob(job *CleanupJob, work func(context.Context) error) (*CleanupJob, error) {
+	if err := s.beginCleanup(job); err != nil {
+		return nil, err
 	}
-	scope, err := s.cleanupScope(id, tenant)
-	var result CleanupResult
-	if err == nil {
-		result, err = s.cleanup(ctx, id, tenant, operator, scope)
-	}
-	s.endCleanup(id, result.Counts, err)
-	return result, err
-}
-
-// StartCleanup checks the scope, then cleans in the background so leaving
-// the page or a proxy timeout cannot interrupt it halfway. Progress and the
-// last failure are reported through the run list.
-func (s *Service) StartCleanup(id, tenant, operator string) error {
-	if err := s.beginCleanup(id); err != nil {
-		return err
-	}
-	scope, err := s.cleanupScope(id, tenant)
-	if err != nil {
+	if err := s.saveJob(job); err != nil {
 		s.mu.Lock()
-		s.active, s.cleaning = "", ""
+		s.active, s.cleaning, s.cleaningRun = "", "", ""
 		s.mu.Unlock()
-		return err
+		return nil, err
 	}
+	response := *job
+	// The worker owns the job; the caller receives a copy, so serialization
+	// cannot race with progress updates.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 		defer cancel()
-		result, err := s.cleanup(ctx, id, tenant, operator, scope)
-		s.endCleanup(id, result.Counts, err)
+		s.endCleanup(job, work(ctx))
 	}()
-	return nil
+	return &response, nil
 }
 
-func (s *Service) cleanup(ctx context.Context, id, tenant, operator string, scope cleanupScope) (CleanupResult, error) {
-	var err error
-	result := CleanupResult{CleanupPreview: scope.preview}
-	var remoteAgents []*RemoteAgent
-	var agentToken string
+// StartRunCleanup deletes one ended run in the background: its exclusive
+// devices with all their data, its module tasks and its files.
+func (s *Service) StartRunCleanup(id string, req cleanupRequest) (*CleanupJob, error) {
+	scope, err := s.runScope(id, req.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	jobID, err := newCleanupID()
+	if err != nil {
+		return nil, err
+	}
+	job := &CleanupJob{ID: jobID, Scope: "run", RunID: id, Tenant: req.Tenant, Environment: scope.environment, Status: "RUNNING", Phase: "清理测试运行 " + id, Total: 1}
+	return s.startJob(job, func(ctx context.Context) error {
+		agents, err := s.idleAgents(ctx, scope)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < len(scope.exclusive); i += 500 {
+			if err = s.cleanData(ctx, scope.inv, req.OperatorToken, job, model.CapacityCleanupBatch{RunID: id, Product: scope.plan.Fixtures.Product, Devices: scope.exclusive[i:min(i+500, len(scope.exclusive))]}); err != nil {
+				return err
+			}
+		}
+		final := model.CapacityCleanupBatch{RunID: id, Product: scope.plan.Fixtures.Product, RemoveProduct: !scope.sharedProduct && scope.plan.Fixtures.AutoProvision}
+		if err = s.cleanData(ctx, scope.inv, req.OperatorToken, job, final); err != nil {
+			return err
+		}
+		if err = s.removeRunFiles(ctx, scope, agents, scope.exclusive); err != nil {
+			return err
+		}
+		job.Processed = 1
+		return nil
+	})
+}
+
+// StartAllCleanup removes every ended run and dedicated test product of the
+// environment in the background.
+func (s *Service) StartAllCleanup(ctx context.Context, req cleanupRequest) (*CleanupJob, error) {
+	inv, runs, err := s.allScope(req)
+	if err != nil {
+		return nil, err
+	}
+	products, err := s.fixtureProducts(ctx, inv, req.OperatorToken)
+	if err != nil {
+		return nil, err
+	}
+	jobID, err := newCleanupID()
+	if err != nil {
+		return nil, err
+	}
+	job := &CleanupJob{ID: jobID, Scope: "all", Tenant: req.Tenant, Environment: req.Environment, Status: "RUNNING", Phase: "准备清理", Total: len(runs) + len(products)}
+	return s.startJob(job, func(ctx context.Context) error {
+		agents := map[string][]*RemoteAgent{}
+		for _, scope := range runs {
+			list, err := s.idleAgents(ctx, scope)
+			if err != nil {
+				return err
+			}
+			agents[scope.id] = list
+		}
+		for _, p := range products {
+			job.Phase = "清理测试产品 " + p.Name
+			for {
+				var page struct {
+					Devices []string `json:"devices"`
+				}
+				if err := s.platform(ctx, inv, req.OperatorToken, http.MethodGet, "/api/v1/ops/capacity/cleanup-fixtures?product="+url.QueryEscape(p.ProductID), nil, &page); err != nil {
+					return err
+				}
+				if len(page.Devices) == 0 {
+					break
+				}
+				before := job.Counts.Devices
+				if err := s.cleanData(ctx, inv, req.OperatorToken, job, model.CapacityCleanupBatch{Product: p.ProductID, Devices: page.Devices}); err != nil {
+					return err
+				}
+				if job.Counts.Devices == before {
+					return errors.New("测试设备清理没有进展，已保留记录，请重试")
+				}
+			}
+			if err := s.cleanData(ctx, inv, req.OperatorToken, job, model.CapacityCleanupBatch{Product: p.ProductID, RemoveProduct: true}); err != nil {
+				return err
+			}
+			job.Processed++
+		}
+		job.Phase = "清理测试任务与运行记录"
+		if err := s.cleanData(ctx, inv, req.OperatorToken, job, model.CapacityCleanupBatch{AllRuns: true}); err != nil {
+			return err
+		}
+		for _, scope := range runs {
+			if err := s.removeRunFiles(ctx, scope, agents[scope.id], scope.devices); err != nil {
+				return err
+			}
+			job.Processed++
+			if err := s.saveJob(job); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// idleAgents refuses cleanup while a remote Agent still holds a run lease.
+func (s *Service) idleAgents(ctx context.Context, scope runScope) ([]*RemoteAgent, error) {
+	var out []*RemoteAgent
+	var token string
 	for _, target := range scope.inv.Agents {
 		if target.URL == "" {
 			continue
 		}
-		if agentToken == "" {
-			secrets, e := LoadSecrets(s.opt.SecretsPath)
-			if e == nil {
-				agentToken, e = secrets.Get(scope.plan.Credentials.AgentSecretRef)
+		if token == "" {
+			secrets, err := LoadSecrets(s.opt.SecretsPath)
+			if err == nil {
+				token, err = secrets.Get(scope.plan.Credentials.AgentSecretRef)
 			}
-			if e != nil {
-				return result, e
+			if err != nil {
+				return nil, err
 			}
 		}
-		agent := NewRemoteAgent(target.Name, target.URL, agentToken)
-		status, e := agent.Status(ctx)
-		if e != nil {
-			return result, e
+		agent := NewRemoteAgent(target.Name, target.URL, token)
+		status, err := agent.Status(ctx)
+		if err != nil {
+			return nil, err
 		}
 		if status.LeaseValid || status.Running {
-			return result, fmt.Errorf("Agent %s 仍在使用中，拒绝清理", target.Name)
+			return nil, fmt.Errorf("Agent %s 仍在使用中，拒绝清理", target.Name)
 		}
-		remoteAgents = append(remoteAgents, agent)
+		out = append(out, agent)
 	}
-	client := newHTTPClient(10*time.Minute, 1)
-	call := func(q model.CapacityCleanupBatch) error {
-		b, _ := json.Marshal(q)
-		status, resp, err := doHTTP(ctx, client, http.MethodPost, strings.TrimRight(scope.inv.API, "/")+"/api/v1/ops/capacity/cleanup-data", b, map[string]string{"Authorization": "Bearer " + operator, "X-Capacity-Service-Token": s.opt.Token})
-		if err != nil {
-			return errors.New("测试数据清理请求失败；已保留记录，可重试")
-		}
-		if status != 200 {
-			reason := "清理服务暂时不可用，请稍后重试"
-			if status == http.StatusConflict {
-				var response struct {
-					Detail string `json:"detail"`
-				}
-				if json.Unmarshal(resp, &response) == nil && response.Detail != "" {
-					reason = clip(response.Detail, 240)
-				}
-			} else if status == http.StatusForbidden || status == http.StatusUnauthorized {
-				reason = "清理权限或登录状态已变化，请重新登录后重试"
-			} else if status == http.StatusNotImplemented {
-				reason = "当前存储不支持这一清理项"
-			}
-			return fmt.Errorf("测试数据清理未完成，已保留运行记录：%s", reason)
-		}
-		var counts model.CapacityCleanupCounts
-		if err = json.Unmarshal(resp, &counts); err != nil {
-			return err
-		}
-		result.Counts.Add(counts)
-		return nil
-	}
-	base := model.CapacityCleanupBatch{RunID: id, Product: scope.plan.Fixtures.Product, Devices: scope.devices}
-	for i := 0; i < len(scope.resources); i += 500 {
-		q := base
-		q.Devices = nil // Module resources are checked by their saved run ownership.
-		q.Resources = scope.resources[i:min(i+500, len(scope.resources))]
-		if err = call(q); err != nil {
-			return result, err
+	return out, nil
+}
+
+// removeRunFiles deletes agent work directories, removed devices from the
+// private credential cache, the source plan and finally the run record.
+func (s *Service) removeRunFiles(ctx context.Context, scope runScope, agents []*RemoteAgent, removed []string) error {
+	for _, a := range agents {
+		if err := a.Cleanup(ctx, scope.id); err != nil {
+			return fmt.Errorf("远程 Agent %s 清理失败；保留运行记录，可重试：%w", a.Name(), err)
 		}
 	}
-	if err = scope.ledgerBatches(func(ids, devices []string) error { q := base; q.RawIDs = ids; q.Devices = devices; return call(q) }, nil); err != nil {
-		return result, err
-	}
-	for i := 0; i < len(scope.remove); i += 1000 {
-		q := base
-		q.Devices = scope.remove[i:min(i+1000, len(scope.remove))]
-		q.RemoveDevices = q.Devices
-		if err = call(q); err != nil {
-			return result, err
-		}
-	}
-	base.Devices = nil
-	if !scope.sharedProduct && scope.plan.Fixtures.AutoProvision {
-		base.RemoveProduct = true
-		base.RemoveRule = scope.plan.Fixtures.AlarmRuleID
-	}
-	if err = call(base); err != nil {
-		return result, err
-	}
-	// A lost controller may not have released a remote agent. Its own control
-	// endpoint checks for a live lease before deleting the run work directory.
-	for _, a := range remoteAgents {
-		if e := a.Cleanup(ctx, id); e != nil {
-			return result, fmt.Errorf("远程 Agent %s 清理失败；保留运行记录，可重试：%w", a.Name(), e)
-		}
-	}
-	// Update only this fixture's private cache. Shared credentials are kept so
-	// unrelated retained runs can still be resumed.
-	cache, err := safeCleanupPath(s.opt.ResultsDir, ".work", "fixtures", fmt.Sprintf("%s-%s-%s.json", tenant, scope.plan.Fixtures.Product, scope.plan.Fixtures.DevicePrefix))
+	cache, err := safeCleanupPath(s.opt.ResultsDir, ".work", "fixtures", fmt.Sprintf("%s-%s-%s.json", scope.plan.Fixtures.Tenant, scope.plan.Fixtures.Product, scope.plan.Fixtures.DevicePrefix))
 	if err != nil {
-		return result, err
+		return err
 	}
 	if b, e := os.ReadFile(cache); e == nil {
 		var have []DeviceCredential
 		if err = json.Unmarshal(b, &have); err != nil {
-			return result, err
+			return err
 		}
-		removed := make(map[string]bool, len(scope.remove))
-		for _, id := range scope.remove {
-			removed[id] = true
-		}
-		have = slices.DeleteFunc(have, func(d DeviceCredential) bool { return removed[d.ID] })
+		have = slices.DeleteFunc(have, func(d DeviceCredential) bool { return slices.Contains(removed, d.ID) })
 		if len(have) == 0 {
 			err = os.Remove(cache)
 		} else {
 			b, _ = json.Marshal(have)
 			err = writePrivateAtomic(cache, b)
 		}
-		if err != nil {
-			return result, err
+		if err != nil && !os.IsNotExist(err) {
+			return err
 		}
 	} else if !os.IsNotExist(e) {
-		return result, e
+		return e
 	}
 	for _, a := range scope.inv.Agents {
 		if a.URL == "" {
-			p, e := safeCleanupPath(s.opt.ResultsDir, ".work", "agent-"+a.Name, id)
-			if e != nil {
-				return result, e
+			p, err := safeCleanupPath(s.opt.ResultsDir, ".work", "agent-"+a.Name, scope.id)
+			if err != nil {
+				return err
 			}
-			if e = os.RemoveAll(p); e != nil {
-				return result, e
+			if err = os.RemoveAll(p); err != nil {
+				return err
 			}
 		}
 	}
 	if scope.source.PlanFile != "" {
-		p, e := safeCleanupPath(s.opt.ResultsDir, ".plans", scope.source.PlanFile)
-		if e != nil {
-			return result, e
+		p, err := safeCleanupPath(s.opt.ResultsDir, ".plans", scope.source.PlanFile)
+		if err != nil {
+			return err
 		}
-		if e = os.Remove(p); e != nil && !os.IsNotExist(e) {
-			return result, e
+		if err = os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
 		}
 	}
-	if err = os.RemoveAll(scope.dir); err != nil {
-		return result, err
-	}
-	result.Deleted = true
-	return result, nil
+	return os.RemoveAll(scope.dir)
 }
 
 func writePrivateAtomic(path string, b []byte) error {

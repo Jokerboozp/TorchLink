@@ -73,7 +73,7 @@ type Server struct {
 	videoOwner                 func() (local bool, endpoint string)
 	fireSafety                 *firesafety.Service
 	externalData               *externaldata.Service
-	capacityMQTT               capacityMQTTCleaner
+	capacityMQTT               ports.CapacityRetainedCleaner
 	messageTopicKafka          messageTopicKafkaAdmin
 	messageTopicMQTTReady      func(context.Context) error
 	messageTopicCredentialsMu  sync.Mutex

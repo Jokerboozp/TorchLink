@@ -186,6 +186,24 @@ func TestProvisionRejectsExistingUnreadyProduct(t *testing.T) {
 	}
 }
 
+// runCleanup starts a run cleanup and waits for its background job.
+func runCleanup(service *Service, id string, req cleanupRequest) (*CleanupJob, error) {
+	job, err := service.StartRunCleanup(id, req)
+	if err != nil {
+		return nil, err
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		current, err := service.CleanupStatus(req.Tenant, job.Environment)
+		if err != nil {
+			return nil, err
+		}
+		if current != nil && current.ID == job.ID && current.Status != "RUNNING" {
+			return current, nil
+		}
+	}
+	return nil, errors.New("cleanup did not finish")
+}
+
 func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 	for _, tc := range []struct {
 		shared bool
@@ -212,7 +230,7 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 					w.WriteHeader(503)
 					return
 				}
-				_ = json.NewEncoder(w).Encode(model.CapacityCleanupCounts{Raw: int64(len(q.RawIDs)), Devices: int64(len(q.RemoveDevices))})
+				_ = json.NewEncoder(w).Encode(model.CapacityCleanupCounts{Devices: int64(len(q.Devices))})
 			}))
 			defer api.Close()
 			service := NewService(ServeOptions{ResultsDir: root, Token: "svc", Self: &SelfEnvironment{API: api.URL, PostgresDSN: "unused", Metrics: []MetricsTarget{{Role: "combined", Instance: "a", URL: api.URL + "/metrics"}}}})
@@ -249,16 +267,7 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 			}
 			b, _ := json.Marshal(have)
 			_ = os.WriteFile(cache, b, 0600)
-			ledger, err := NewLedgerWriter(filepath.Join(root, id, "ledgers", "p1", "local.jsonl.gz"), LedgerHeader{RunID: id, Tenant: "t1", Product: "p1"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			ledger.Write(LedgerEntry{Device: ds[0], RawID: "raw-test", Stream: "http", Result: "202", OK: true})
-			_, err = ledger.Close()
-			if err != nil {
-				t.Fatal(err)
-			}
-			preview, err := service.cleanupScope(id, "t1")
+			preview, err := service.RunCleanupPreview(id, "t1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -266,19 +275,20 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 			if shared {
 				wantRemove--
 			}
-			if preview.preview.Devices != wantRemove || preview.preview.RawMessages != 1 {
-				t.Fatalf("unexpected preview %+v", preview.preview)
+			if preview.Devices != int64(wantRemove) || preview.SharedDevices != tc.count-wantRemove {
+				t.Fatalf("unexpected preview %+v", preview)
 			}
-			if _, err = service.Cleanup(context.Background(), id, "t2", "operator"); !errors.Is(err, os.ErrNotExist) {
+			req := cleanupRequest{Tenant: "t1", OperatorToken: "operator"}
+			if _, err = runCleanup(service, id, cleanupRequest{Tenant: "t2", OperatorToken: "operator"}); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("cross-tenant cleanup allowed", err)
 			}
 			service.active = "starting"
-			if _, err = service.Cleanup(context.Background(), id, "t1", "operator"); !errors.Is(err, ErrRunActive) {
+			if _, err = runCleanup(service, id, req); !errors.Is(err, ErrRunActive) {
 				t.Fatal("active cleanup allowed", err)
 			}
 			service.active = ""
-			if _, err = service.Cleanup(context.Background(), id, "t1", "operator"); err == nil {
-				t.Fatal("failed storage cleanup reported success")
+			if job, err := runCleanup(service, id, req); err != nil || job.Status != "FAILED" {
+				t.Fatal("failed storage cleanup reported success", job, err)
 			}
 			after, _ := os.ReadFile(cache)
 			if string(after) != string(b) {
@@ -291,9 +301,9 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 				t.Fatalf("failed cleanup is not reported in the run list: %+v", info)
 			}
 			fail.Store(false)
-			result, err := service.Cleanup(context.Background(), id, "t1", "operator")
-			if err != nil || !result.Deleted || result.Counts.Devices != int64(wantRemove) {
-				t.Fatalf("cleanup %+v %v", result, err)
+			job, err := runCleanup(service, id, req)
+			if err != nil || job.Status != "SUCCEEDED" || job.Counts.Devices != int64(wantRemove) {
+				t.Fatalf("cleanup %+v %v", job, err)
 			}
 			if _, err = os.Stat(filepath.Join(root, id)); !os.IsNotExist(err) {
 				t.Fatal("run artifacts remain", err)
@@ -315,10 +325,13 @@ func TestCleanupRunDataCachesAndRetry(t *testing.T) {
 				}
 			}
 			for _, q := range requests {
-				if len(q.Devices) > 1000 || len(q.RawIDs) > 500 {
-					t.Fatal("unbounded cleanup batch")
+				if len(q.Devices) > 500 || q.RunID != id {
+					t.Fatal("unbounded or unowned cleanup batch", q.RunID)
 				}
-				for _, d := range q.RemoveDevices {
+				if q.RemoveProduct && shared {
+					t.Fatal("shared product was removed")
+				}
+				for _, d := range q.Devices {
 					if shared && d == ds[0] {
 						t.Fatal("shared device was sent for deletion")
 					}
@@ -348,13 +361,13 @@ func TestServiceRunsArePagedNewestFirst(t *testing.T) {
 func TestCleanupRejectsActiveRunAndUnsafePaths(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(ServeOptions{ResultsDir: root})
-	if _, err := service.cleanupScope("../outside", "t"); !errors.Is(err, os.ErrNotExist) {
+	if _, err := service.runScope("../outside", "t"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 	id := "cap-20260930-120000-abcdef"
 	_ = os.Mkdir(filepath.Join(root, id), 0700)
 	_ = writeJSONAtomic(filepath.Join(root, id, "state.json"), RunState{RunID: id, Status: StatusRunning})
-	if _, err := service.cleanupScope(id, "t"); !errors.Is(err, ErrRunActive) {
+	if _, err := service.runScope(id, "t"); !errors.Is(err, ErrRunActive) {
 		t.Fatal("running record was cleanable", err)
 	}
 	outside := t.TempDir()
@@ -1285,339 +1298,5 @@ func TestCompareComputesScalingOnlyForSameWorkload(t *testing.T) {
 	}
 	if _, err = Compare(dir, []string{"cap-20260101-000000-000001", "../etc"}, nil); err == nil {
 		t.Fatal("invalid run id accepted")
-	}
-}
-
-func TestHistoryCleanupBindsScopeBatchesAndPersistsFailure(t *testing.T) {
-	for _, failSecond := range []bool{false, true} {
-		t.Run(fmt.Sprintf("failSecond=%v", failSecond), func(t *testing.T) {
-			root := t.TempDir()
-			var mu sync.Mutex
-			remaining, batches, prepares := 1001, 0, 0
-			fingerprint := "before"
-			productGone := false
-			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				mu.Lock()
-				defer mu.Unlock()
-				if r.Header.Get("Authorization") != "Bearer delegated-operator" || r.Header.Get("X-Capacity-Service-Token") != "test-controller" {
-					t.Error("missing operator/controller boundary")
-				}
-				switch {
-				case r.URL.Path == "/api/v1/ops/capacity/cleanup-fixtures" && r.Method == "GET" && r.URL.Query().Get("product") == "":
-					products := []model.CapacityFixtureProduct{}
-					if !productGone {
-						products = append(products, model.CapacityFixtureProduct{ProductID: "p", Name: "容量测试标准设备 p", Source: "capacity-test", DeviceCount: int64(remaining), RawMessages: 1, Fingerprint: fingerprint})
-					}
-					_ = json.NewEncoder(w).Encode(map[string]any{"products": products})
-				case r.URL.Path == "/api/v1/ops/capacity/cleanup-fixtures" && r.Method == "POST":
-					var q map[string]string
-					_ = json.NewDecoder(r.Body).Decode(&q)
-					if q["fingerprint"] != fingerprint {
-						w.WriteHeader(409)
-						return
-					}
-					prepares++
-					_ = json.NewEncoder(w).Encode(map[string]bool{"prepared": true})
-				case r.URL.Path == "/api/v1/ops/capacity/cleanup-fixtures":
-					devices := []string{}
-					for i := 0; i < min(remaining, 1000); i++ {
-						devices = append(devices, fmt.Sprintf("cap-%06d", 1001-remaining+i))
-					}
-					_ = json.NewEncoder(w).Encode(map[string]any{"devices": devices})
-				case r.URL.Path == "/api/v1/ops/capacity/cleanup-data":
-					var q model.CapacityCleanupBatch
-					if err := json.NewDecoder(r.Body).Decode(&q); err != nil {
-						t.Error(err)
-					}
-					if !q.Historical || q.Product != "p" || !runIDPattern.MatchString(q.RunID) || len(q.Devices) > 1000 {
-						t.Errorf("invalid historical batch: %+v", q)
-					}
-					if q.RemoveProduct {
-						if remaining != 0 {
-							t.Error("product deleted before devices")
-						}
-						productGone = true
-						_ = json.NewEncoder(w).Encode(model.CapacityCleanupCounts{Products: 1, Warnings: []string{"混合消息保留"}})
-						return
-					}
-					batches++
-					if failSecond && batches == 2 {
-						w.WriteHeader(503)
-						return
-					}
-					remaining -= len(q.RemoveDevices)
-					_ = json.NewEncoder(w).Encode(model.CapacityCleanupCounts{Devices: int64(len(q.RemoveDevices))})
-				default:
-					t.Errorf("unexpected callback %s", r.URL.String())
-					w.WriteHeader(404)
-				}
-			}))
-			defer api.Close()
-			svc := NewService(ServeOptions{ResultsDir: root, Token: "test-controller", Self: &SelfEnvironment{API: api.URL, PostgresDSN: "unused", Metrics: []MetricsTarget{{Role: "combined", Instance: "test", URL: api.URL + "/metrics"}}}})
-			req := historyRequest{Environment: "self", Tenant: "test-tenant", OperatorToken: "delegated-operator"}
-			scope, err := svc.historyScope(context.Background(), req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			req.PreviewToken = scope.preview.Token
-			mu.Lock()
-			fingerprint = "changed"
-			mu.Unlock()
-			if _, err = svc.startHistoryCleanup(context.Background(), req); err == nil {
-				t.Fatal("stale scope was accepted")
-			}
-			mu.Lock()
-			if prepares != 0 || batches != 0 {
-				t.Error("stale preview mutated data")
-			}
-			mu.Unlock()
-			scope, err = svc.historyScope(context.Background(), req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			req.PreviewToken = scope.preview.Token
-			svc.mu.Lock()
-			svc.active = "another-run"
-			svc.mu.Unlock()
-			if _, err = svc.startHistoryCleanup(context.Background(), req); !errors.Is(err, ErrRunActive) {
-				t.Fatal("parallel cleanup allowed", err)
-			}
-			svc.mu.Lock()
-			svc.active = ""
-			svc.mu.Unlock()
-			job, err := svc.startHistoryCleanup(context.Background(), req)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if job.Status != "RUNNING" {
-				t.Fatal("202 prematurely reported completion")
-			}
-			deadline := time.Now().Add(3 * time.Second)
-			var final *HistoryCleanupJob
-			for time.Now().Before(deadline) {
-				final, err = svc.historyJob(req.Tenant, req.Environment)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if final != nil && final.Status != "RUNNING" {
-					break
-				}
-				time.Sleep(time.Millisecond * 5)
-			}
-			if final == nil || final.Status == "RUNNING" {
-				t.Fatal("cleanup never finished")
-			}
-			if failSecond {
-				if final.Status != "FAILED" || final.Counts.Devices != 1000 || final.Error == "" {
-					t.Fatalf("lost partial deletion evidence: %+v", final)
-				}
-			} else if final.Status != "PARTIAL" || final.Counts.Devices != 1001 || final.Counts.Products != 1 || len(final.Warnings) != 1 {
-				t.Fatalf("warnings/real counts lost: %+v", final)
-			}
-			path, _ := svc.historyJobPath(req.Tenant, req.Environment)
-			data, _ := os.ReadFile(path)
-			if strings.Contains(string(data), req.OperatorToken) || strings.Contains(string(data), "test-controller") {
-				t.Fatal("credentials persisted in cleanup job")
-			}
-			restarted := NewService(svc.opt)
-			saved, err := restarted.historyJob(req.Tenant, req.Environment)
-			if err != nil || saved.Status != final.Status {
-				t.Fatal("completed job was not restored", err)
-			}
-			if other, err := restarted.historyJob("other-tenant", req.Environment); err != nil || other != nil {
-				t.Fatal("cross-tenant cleanup status leaked", err)
-			}
-		})
-	}
-}
-
-func TestHistoryCleanupRestartMarksRunningJobInterrupted(t *testing.T) {
-	svc := NewService(ServeOptions{ResultsDir: t.TempDir()})
-	job := HistoryCleanupJob{ID: "cap-20261002-120000-abcdef", Tenant: "t", Environment: "self", Status: "RUNNING", Counts: model.CapacityCleanupCounts{Devices: 4}}
-	if err := svc.saveHistoryJob(&job); err != nil {
-		t.Fatal(err)
-	}
-	restored, err := svc.historyJob("t", "self")
-	if err != nil || restored.Status != "FAILED" || restored.Counts.Devices != 4 || restored.Error == "" {
-		t.Fatalf("interrupted cleanup %+v %v", restored, err)
-	}
-}
-
-func historyTestService(t *testing.T, products []model.CapacityFixtureProduct) (*Service, *atomic.Int64) {
-	t.Helper()
-	mutations := &atomic.Int64{}
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer delegated-operator" || r.Header.Get("X-Capacity-Service-Token") != "test-controller" {
-			t.Error("missing history cleanup identity")
-		}
-		if r.Method != http.MethodGet {
-			mutations.Add(1)
-			t.Errorf("retained history scope attempted mutation: %s %s", r.Method, r.URL)
-			w.WriteHeader(http.StatusConflict)
-			return
-		}
-		if r.URL.Path != "/api/v1/ops/capacity/cleanup-fixtures" || r.URL.Query().Get("product") != "" {
-			t.Errorf("unexpected history preview callback: %s", r.URL)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"products": products})
-	}))
-	t.Cleanup(api.Close)
-	return NewService(ServeOptions{ResultsDir: t.TempDir(), Token: "test-controller", Self: &SelfEnvironment{API: api.URL, PostgresDSN: "unused", Metrics: []MetricsTarget{{Role: "combined", Instance: "test", URL: api.URL + "/metrics"}}}}), mutations
-}
-
-func historyTestRun(t *testing.T, svc *Service, id, product, status string, devices []string) string {
-	t.Helper()
-	dir := filepath.Join(svc.opt.ResultsDir, id)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	p := validPlan()
-	p.Fixtures.Product, p.Fixtures.ReuseDevices = product, true
-	b, _, err := p.Sanitized()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(dir, "plan.sanitized.yaml"), b, 0600); err != nil {
-		t.Fatal(err)
-	}
-	for name, value := range map[string]any{
-		"state.json":           RunState{RunID: id, Status: status},
-		"manifest.json":        Manifest{RunID: id, Tenant: p.Fixtures.Tenant, Product: product, Devices: devices},
-		"cleanup-context.json": cleanupContext{Environment: "self", APIHash: apiHash(svc.opt.Self.API)},
-	} {
-		if err = writeJSONAtomic(filepath.Join(dir, name), value); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
-
-func historyTestRetainedJob(t *testing.T, svc *Service, scope historyScope, mutations *atomic.Int64) {
-	t.Helper()
-	if len(scope.runs) != 0 || len(scope.products) != 0 || scope.preview.Runs != 0 || scope.preview.Products != 0 || scope.preview.Devices != 0 || scope.preview.RawMessages != 0 {
-		t.Fatalf("retained data entered deletion scope: %+v", scope.preview)
-	}
-	req := historyRequest{Environment: "self", Tenant: "t1", OperatorToken: "delegated-operator", PreviewToken: scope.preview.Token}
-	if _, err := svc.startHistoryCleanup(context.Background(), req); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		job, err := svc.historyJob(req.Tenant, req.Environment)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if job != nil && job.Status != "RUNNING" {
-			if job.Status != "PARTIAL" || job.Total != 0 || job.Processed != 0 || job.Counts.Devices != 0 || job.Counts.Products != 0 || mutations.Load() != 0 {
-				t.Fatalf("retained scope was mutated or reported cleared: %+v callbacks=%d", job, mutations.Load())
-			}
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatal("retained history cleanup job did not finish")
-}
-
-func TestHistoryCleanupRetainsProductsSharedWithUnfinishedOrIncompleteRuns(t *testing.T) {
-	for _, retained := range []string{"running", "missing-manifest", "invalid-manifest"} {
-		t.Run(retained, func(t *testing.T) {
-			svc, mutations := historyTestService(t, []model.CapacityFixtureProduct{{ProductID: "p1", Name: "容量测试标准设备 p1", Source: "capacity-test", DeviceCount: 2, RawMessages: 7, Fingerprint: "fixture"}})
-			closedID, retainedID := "cap-20261002-100000-abcdef", "cap-20261002-110000-123456"
-			closedDir := historyTestRun(t, svc, closedID, "p1", StatusFinished, []string{"cap-000000", "cap-000001"})
-			status := StatusFinished
-			if retained == "running" {
-				status = StatusRunning
-			}
-			dir := historyTestRun(t, svc, retainedID, "p1", status, []string{"cap-000000"})
-			if retained == "missing-manifest" {
-				if err := os.Remove(filepath.Join(dir, "manifest.json")); err != nil {
-					t.Fatal(err)
-				}
-			} else if retained == "invalid-manifest" {
-				if err := writeJSONAtomic(filepath.Join(dir, "manifest.json"), Manifest{RunID: retainedID, Tenant: "t1", Product: "wrong-product", Devices: []string{"cap-000000"}}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			scope, err := svc.historyScope(context.Background(), historyRequest{Environment: "self", Tenant: "t1", OperatorToken: "delegated-operator"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			found := map[string]bool{}
-			for _, item := range scope.preview.Items {
-				if item.ProductID == "p1" || item.RunID == closedID || item.RunID == retainedID {
-					if item.Eligible || item.Reason == "" {
-						t.Fatalf("shared product/run remained eligible: %+v", item)
-					}
-					found[item.ProductID+item.RunID] = true
-				}
-			}
-			if len(found) != 3 {
-				t.Fatalf("retained product/closed run/unfinished run missing from preview: %+v", scope.preview.Items)
-			}
-			historyTestRetainedJob(t, svc, scope, mutations)
-			for _, path := range []string{filepath.Join(closedDir, "state.json"), filepath.Join(dir, "state.json")} {
-				if _, err = os.Stat(path); err != nil {
-					t.Fatal("retained run artifacts deleted", err)
-				}
-			}
-		})
-	}
-}
-
-func TestHistoryCleanupUnknownRunOwnershipRetainsAllProducts(t *testing.T) {
-	svc, mutations := historyTestService(t, []model.CapacityFixtureProduct{{ProductID: "p1", DeviceCount: 2, RawMessages: 3, Fingerprint: "p1"}, {ProductID: "unrelated-fixture", DeviceCount: 10, RawMessages: 20, Fingerprint: "other"}})
-	historyTestRun(t, svc, "cap-20261002-100000-abcdef", "p1", StatusFinished, []string{"cap-000000"})
-	bad := historyTestRun(t, svc, "cap-20261002-110000-123456", "unrelated-fixture", StatusFinished, []string{"other-device"})
-	if err := os.WriteFile(filepath.Join(bad, "plan.sanitized.yaml"), []byte("schemaVersion: [invalid"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	scope, err := svc.historyScope(context.Background(), historyRequest{Environment: "self", Tenant: "t1", OperatorToken: "delegated-operator"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	products := 0
-	for _, item := range scope.preview.Items {
-		if item.Eligible || item.Reason == "" {
-			t.Fatalf("unknown ownership allowed clearing: %+v", item)
-		}
-		if item.ProductID != "" {
-			products++
-		}
-	}
-	if products != 2 || len(scope.preview.Warnings) < 2 {
-		t.Fatalf("unknown ownership protection missing: %+v", scope.preview)
-	}
-	historyTestRetainedJob(t, svc, scope, mutations)
-}
-
-func TestHistoryCleanupPreviewCountsReusedNonFixtureRunData(t *testing.T) {
-	svc, mutations := historyTestService(t, nil)
-	for i, devices := range [][]string{{"cap-000000", "cap-shared"}, {"cap-shared", "cap-000001"}} {
-		id := fmt.Sprintf("cap-20261002-10000%d-abcdef", i)
-		dir := historyTestRun(t, svc, id, "business-product", StatusFinished, devices)
-		ledger, err := NewLedgerWriter(filepath.Join(dir, "ledgers", "business-product", "local.jsonl.gz"), LedgerHeader{RunID: id, Tenant: "t1", Product: "business-product"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		for j, device := range devices {
-			ledger.Write(LedgerEntry{Device: device, RawID: fmt.Sprintf("raw-%d-%d", i, j), Stream: "http", Result: "202", OK: true})
-		}
-		if _, err = ledger.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scope, err := svc.historyScope(context.Background(), historyRequest{Environment: "self", Tenant: "t1", OperatorToken: "delegated-operator"})
-	if err != nil || scope.preview.Runs != 2 || scope.preview.Products != 0 || scope.preview.Devices != 3 || scope.preview.RawMessages != 4 || len(scope.preview.Items) != 2 {
-		t.Fatalf("reused run data omitted or double counted: %+v %v", scope.preview, err)
-	}
-	for _, item := range scope.preview.Items {
-		if !item.Eligible || item.Devices != 1 || item.RawMessages != 2 {
-			t.Fatalf("run evidence counts missing: %+v", item)
-		}
-	}
-	if mutations.Load() != 0 {
-		t.Fatal("history preview mutated reused product data")
 	}
 }

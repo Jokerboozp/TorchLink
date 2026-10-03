@@ -45,10 +45,6 @@ func TestKafkaSecurityReachesEveryClient(t *testing.T) {
 	if !ok || transport != bus.transport || transport.SASL.Name() != "SCRAM-SHA-512" || transport.TLS == nil {
 		t.Fatal("writer lost SASL/TLS")
 	}
-	backend := newCapacityQueueBackend(bus.brokers, bus.transport).(*kafkaCapacityQueueBackend)
-	if backend.client.Transport != transport {
-		t.Fatal("capacity client lost SASL/TLS")
-	}
 	if bus.dialer.SASLMechanism == nil || bus.dialer.TLS == nil {
 		t.Fatal("health connection lost SASL/TLS")
 	}

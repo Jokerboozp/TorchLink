@@ -20,6 +20,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
 )
 
 // Execution states. Capacity verdicts are recorded separately.
@@ -587,6 +590,11 @@ func (c *controller) preflight(ctx context.Context) ([]PreflightCheck, bool) {
 	}
 	status, body, err := c.get(ctx, "/api/v1/onboarding/preflight?productId="+url.QueryEscape(c.plan.Fixtures.Product), c.opToken)
 	ready, detail := testProductReady(body)
+	// Test data is identified by its dedicated product, so a run must never
+	// write into a business product; cleanup deletes the product's devices.
+	var check onboarding.Preflight
+	dedicated := err == nil && status == 200 && json.Unmarshal(body, &check) == nil && model.IsCapacityFixture(check.Product)
+	add("专用测试产品", dedicated, "产品 "+c.plan.Fixtures.Product+" 须为容量测试自动创建的专用标准协议产品（开启 fixtures.autoProvision 自动准备）")
 	add("测试产品", err == nil && status == 200 && ready, fmt.Sprintf("产品 %s 接入预检 → %d %s %s", c.plan.Fixtures.Product, status, errText(err), detail))
 	col, _ := NewCollector(c.inv.Metrics, time.Second, "")
 	round := col.Scrape(ctx)

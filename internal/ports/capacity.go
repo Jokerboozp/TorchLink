@@ -5,19 +5,18 @@ import (
 	"iot-platform/internal/model"
 )
 
-// CapacityDataCleaner is optional: cleanup must fail explicitly if a storage
-// adapter cannot remove test data. Reads/checks precede external mutations.
+// CapacityDataCleaner removes data of dedicated capacity test products. It is
+// optional: cleanup fails explicitly when a storage adapter cannot provide it.
+// Callers must require full tenant device access.
 type CapacityDataCleaner interface {
-	CapacityMessageIDs(context.Context, string, model.CapacityCleanupBatch) ([]string, error)
 	CleanupCapacityData(context.Context, string, model.CapacityCleanupBatch) (model.CapacityCleanupCounts, error)
+	ListCapacityFixtureProducts(context.Context, string) ([]model.CapacityFixtureProduct, error)
+	ListCapacityFixtureDevices(ctx context.Context, tenant, product, after string, limit int) ([]string, error)
 }
 
-// These keyset pages are tenant scoped; callers must require full tenant device
-// access. Preparation revalidates a preview and disables a tool-owned product.
-type CapacityFixtureLister interface {
-	ListCapacityFixtureProducts(context.Context, string, string, int) ([]model.CapacityFixtureProduct, error)
-	ListCapacityFixtureDevices(context.Context, string, string, string, int) ([]string, error)
-	PrepareCapacityFixture(context.Context, string, string, string) error
+// CapacityRetainedCleaner clears retained device state of removed fixtures.
+type CapacityRetainedCleaner interface {
+	ClearCapacityRetained(ctx context.Context, tenant, product string, devices []string) (int64, error)
 }
 
 type capacityRunKey struct{}

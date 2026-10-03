@@ -816,78 +816,12 @@ func testRepository(t *testing.T) *Repository {
 	return r
 }
 
-func TestCapacityCleanupScopedAndPending(t *testing.T) {
-	r := testRepository(t)
-	ctx := context.Background()
-	for _, tenant := range []string{"t", "other"} {
-		if err := r.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: "p", ID: "cap", AccessKey: tenant + "-key", Status: "ENABLED"}); err != nil {
-			t.Fatal(err)
-		}
-		for _, id := range []string{"this", "other-run"} {
-			if _, err := r.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: tenant, ProductID: "p", DeviceID: "cap", MessageID: id, ObjectBucket: "postgres"}); err != nil {
-				t.Fatal(err)
-			}
-			msg := model.StandardMessage{TenantID: tenant, ProductID: "p", DeviceID: "cap", MessageID: "s-" + id, RawMessageID: id, MessageType: model.PropertyReport}
-			claim, err := r.ClaimStandardMessage(ctx, msg, "test", time.Minute)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err = r.MarkStandardMessageProcessed(ctx, tenant, msg.MessageID, claim.Token); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	q := model.CapacityCleanupBatch{RunID: "cap-20260930-120000-abcdef", Product: "p", Devices: []string{"cap"}, RawIDs: []string{"this"}}
-	if _, err := r.CapacityMessageIDs(ctx, "t", q); !errors.Is(err, model.ErrResourceInUse) {
-		t.Fatal("pending parse was cleanable", err)
-	}
-	if err := r.MarkRawParseResult(ctx, "t", "this", time.Now().UnixMilli(), ""); err != nil {
-		t.Fatal(err)
-	}
-	ids, err := r.CapacityMessageIDs(ctx, "t", q)
-	if err != nil || len(ids) != 1 {
-		t.Fatalf("candidates %v %v", ids, err)
-	}
-	n, err := r.CleanupCapacityData(ctx, "t", q)
-	if err != nil || n.Raw != 1 || n.Standard != 1 || n.Devices != 0 {
-		t.Fatalf("cleanup %+v %v", n, err)
-	}
-	if _, err = r.GetRawIndex(ctx, "t", "other-run"); err != nil {
-		t.Fatal("other run removed", err)
-	}
-	if _, err = r.GetRawIndex(ctx, "other", "this"); err != nil {
-		t.Fatal("other tenant removed", err)
-	}
-	q.RawIDs = nil
-	q.RemoveDevices = q.Devices
-	if err = r.MarkRawParseResult(ctx, "t", "other-run", time.Now().UnixMilli(), ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = r.CapacityMessageIDs(ctx, "t", q); err != nil {
-		t.Fatal(err)
-	}
-	n, err = r.CleanupCapacityData(ctx, "t", q)
-	if err != nil || n.Raw != 1 || n.Devices != 1 {
-		t.Fatalf("fixture cleanup %+v %v", n, err)
-	}
-	if _, err = r.GetManagedDevice(ctx, "other", "cap"); err != nil {
-		t.Fatal("other tenant device removed", err)
-	}
-}
-
 func TestCapacityFixtureRecognition(t *testing.T) {
 	repositorytest.CapacityFixtureRecognition(t, testRepository(t))
 }
-func TestCapacityFixtureSharedProtocol(t *testing.T) {
-	for _, reference := range []string{"product", "version", "alias"} {
-		t.Run(reference, func(t *testing.T) { repositorytest.CapacityFixtureSharedProtocol(t, testRepository(t), reference) })
-	}
+func TestCapacityFixtureCleanup(t *testing.T) {
+	repositorytest.CapacityFixtureCleanup(t, testRepository(t))
 }
-func TestCapacityFixtureAssociatedCleanup(t *testing.T) {
-	repositorytest.CapacityFixtureAssociatedCleanup(t, testRepository(t))
-}
-func TestCapacityPrivateProtocolCleanup(t *testing.T) {
-	for _, keep := range []bool{false, true} {
-		t.Run(fmt.Sprint(keep), func(t *testing.T) { repositorytest.CapacityPrivateProtocolCleanup(t, testRepository(t), keep) })
-	}
+func TestCapacityProductKeptWhileShared(t *testing.T) {
+	repositorytest.CapacityProductKeptWhileShared(t, testRepository(t))
 }

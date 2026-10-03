@@ -120,6 +120,8 @@ func TestCapacityCleanupMutationsAndRetry(t *testing.T) {
 		t.Run(cluster, func(t *testing.T) {
 			ctx := context.Background()
 			base := memory.NewRepository()
+			_ = base.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Name: model.CapacityFixtureProductName("p"), Description: model.CapacityFixtureDescription, ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED"})
+			_ = base.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "p", ID: "cap", Name: "容量测试 cap", RegistrationSource: "ONBOARDING", AccessKey: "cap"})
 			_, _ = base.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "raw"})
 			claim, err := base.ClaimStandardMessage(ctx, model.StandardMessage{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "standard", RawMessageID: "raw"}, "test", time.Minute)
 			if err != nil {
@@ -143,17 +145,15 @@ func TestCapacityCleanupMutationsAndRetry(t *testing.T) {
 			}))
 			defer srv.Close()
 			repo := &Repository{Repository: base, base: srv.URL, http: srv.Client(), opts: Options{Cluster: cluster}}
-			q := model.CapacityCleanupBatch{Product: "p", Devices: []string{"cap"}, RawIDs: []string{"raw"}}
-			if _, err := repo.CleanupCapacityData(ctx, "t", q); err == nil {
-				t.Fatal("mutation failure reported success")
-			}
-			if _, err := base.GetRawIndex(ctx, "t", "raw"); err != nil {
-				t.Fatal("failure removed durable retry index")
-			}
-			fail.Store(false)
+			q := model.CapacityCleanupBatch{Product: "p", Devices: []string{"cap"}}
 			n, err := repo.CleanupCapacityData(ctx, "t", q)
-			if err != nil || n.Raw != 1 || n.Standard != 1 {
-				t.Fatalf("cleanup %+v %v", n, err)
+			if err == nil || n.Raw != 1 || n.Standard != 1 {
+				t.Fatalf("mutation failure reported success: %+v %v", n, err)
+			}
+			// The device ID stays owned, so a retry repeats the scoped mutation.
+			fail.Store(false)
+			if _, err = repo.CleanupCapacityData(ctx, "t", q); err != nil {
+				t.Fatal(err)
 			}
 			for _, query := range mutations {
 				for _, part := range []string{"tenant_id='t'", "product_id='p'", "device_id IN ('cap')", "mutations_sync=2"} {

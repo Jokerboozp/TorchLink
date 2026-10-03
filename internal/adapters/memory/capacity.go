@@ -4,128 +4,157 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"iot-platform/internal/model"
 	"slices"
+	"sort"
 	"strings"
+
+	"iot-platform/internal/model"
 )
 
-func capacityMatch(t, p, d, raw string, tenant string, q model.CapacityCleanupBatch) bool {
-	return t == tenant && p == q.Product && slices.Contains(q.Devices, d) && (slices.Contains(q.RawIDs, raw) || slices.Contains(q.RemoveDevices, d))
+func capacityJobRunning(status string) bool {
+	return slices.Contains([]string{"running", "pending", "processing", "queued"}, strings.ToLower(status))
 }
-func (r *Repository) CapacityMessageIDs(_ context.Context, t string, q model.CapacityCleanupBatch) ([]string, error) {
+
+func capacityRunOwned(q model.CapacityCleanupBatch, run string) bool {
+	return run != "" && (q.AllRuns || run == q.RunID)
+}
+
+func (r *Repository) ListCapacityFixtureProducts(_ context.Context, t string) ([]model.CapacityFixtureProduct, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.capacityMessageIDsLocked(t, q)
+	out := []model.CapacityFixtureProduct{}
+	for _, p := range r.products {
+		if p.TenantID != t || !model.IsCapacityFixture(p) {
+			continue
+		}
+		v := model.CapacityFixtureProduct{ProductID: p.ID, Name: p.Name}
+		for _, d := range r.devices {
+			if d.TenantID == t && d.ProductID == p.ID {
+				v.DeviceCount++
+			}
+		}
+		for _, raw := range r.raw {
+			if raw.TenantID == t && raw.ProductID == p.ID {
+				v.RawMessages++
+			}
+		}
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ProductID < out[j].ProductID })
+	return out, nil
 }
-func (r *Repository) capacityMessageIDsLocked(t string, q model.CapacityCleanupBatch) ([]string, error) {
-	for _, id := range q.RemoveDevices {
-		if !slices.Contains(q.Devices, id) {
-			return nil, model.ErrResourceInUse
-		}
-		if d, ok := r.devices[key(t, id)]; ok && d.ProductID != q.Product {
-			return nil, model.ErrResourceInUse
+
+func (r *Repository) ListCapacityFixtureDevices(_ context.Context, t, product, after string, limit int) ([]string, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	p, ok := r.products[key(t, product)]
+	if !ok {
+		return []string{}, nil
+	}
+	if !model.IsCapacityFixture(p) {
+		return nil, model.ErrResourceInUse
+	}
+	ids := []string{}
+	for _, d := range r.devices {
+		if d.TenantID == t && d.ProductID == product && d.ID > after && model.CapacityFixtureDevice(p, d) {
+			ids = append(ids, d.ID)
 		}
 	}
-	if q.Historical {
-		p, ok := r.products[key(t, q.Product)]
-		if !ok || !strings.EqualFold(p.Status, "DISABLED") || model.CapacityFixtureSource(p) == "" || r.capacityFixtureLocked(p).BlockedReason != "" {
-			return nil, model.ErrResourceInUse
+	sort.Strings(ids)
+	return ids[:min(len(ids), max(1, limit))], nil
+}
+
+// capacityCheckLocked rejects devices that are not tool-owned or are still in
+// use, before any deletion takes place.
+func (r *Repository) capacityCheckLocked(t string, q model.CapacityCleanupBatch) (model.Product, bool, error) {
+	if q.Product == "" {
+		if len(q.Devices) > 0 || q.RemoveProduct {
+			return model.Product{}, false, model.ErrResourceInUse
 		}
+		return model.Product{}, false, nil
 	}
-	if len(q.RemoveDevices) > 0 {
-		for _, job := range r.inspectionJobs[t] {
-			if capacityJobRunning(job.Status) {
-				return nil, model.ErrResourceInUse
+	p, exists := r.products[key(t, q.Product)]
+	if !exists {
+		if len(q.Devices) > 0 {
+			for _, id := range q.Devices {
+				if _, ok := r.devices[key(t, id)]; ok {
+					return p, false, model.ErrResourceInUse
+				}
 			}
 		}
-		for _, job := range r.replays {
-			if job.TenantID == t && capacityJobRunning(job.Status) && (slices.Contains(q.RemoveDevices, job.DeviceID) || job.ProductID == q.Product || (job.ProductID == "" && job.DeviceID == "")) {
-				return nil, model.ErrResourceInUse
+		return p, false, nil
+	}
+	if !model.IsCapacityFixture(p) {
+		return p, false, model.ErrResourceInUse
+	}
+	remove := func(tenant, id string) bool { return tenant == t && slices.Contains(q.Devices, id) }
+	for _, id := range q.Devices {
+		if d, ok := r.devices[key(t, id)]; ok && !model.CapacityFixtureDevice(p, d) {
+			return p, true, model.ErrResourceInUse
+		}
+	}
+	for _, v := range r.devices {
+		if remove(v.TenantID, v.GatewayID) {
+			return p, true, model.ErrResourceInUse
+		}
+	}
+	for _, v := range r.accessProfiles {
+		if remove(v.TenantID, v.DeviceID) {
+			return p, true, model.ErrResourceInUse
+		}
+	}
+	for _, v := range r.videoMappings {
+		if remove(v.TenantID, v.DeviceID) || slices.ContainsFunc(v.RelatedDeviceIDs, func(d string) bool { return remove(v.TenantID, d) }) {
+			return p, true, model.ErrResourceInUse
+		}
+	}
+	for _, relations := range r.videoRelations {
+		for _, v := range relations {
+			if v.RelationType == "device" && remove(v.TenantID, v.TargetID) {
+				return p, true, model.ErrResourceInUse
 			}
 		}
 	}
-	var ids []string
-	messages := map[string]bool{}
 	for k, v := range r.standard {
-		if capacityMatch(v.TenantID, v.ProductID, v.DeviceID, v.RawMessageID, t, q) {
-			if !r.standardProcessed[k] {
-				return nil, model.ErrResourceInUse
-			}
-			messages[v.MessageID] = true
-			if slices.Contains(q.RawIDs, v.RawMessageID) {
-				ids = append(ids, v.MessageID)
-			}
+		if remove(v.TenantID, v.DeviceID) && !r.standardProcessed[k] {
+			return p, true, model.ErrResourceInUse
 		}
 	}
 	for _, v := range r.raw {
-		if capacityMatch(v.TenantID, v.ProductID, v.DeviceID, v.MessageID, t, q) && v.ParseAttemptedAt == 0 {
-			return nil, model.ErrResourceInUse
+		if remove(v.TenantID, v.DeviceID) && v.ParseAttemptedAt == 0 {
+			return p, true, model.ErrResourceInUse
 		}
 	}
 	for _, job := range r.analysisJobs {
-		if job.TenantID != t || !capacityJobRunning(job.Status) {
-			continue
-		}
-		alarm := r.alarms[key(t, job.AlarmID)]
-		if alarm.TenantID == t && slices.Contains(q.Devices, alarm.DeviceID) && (slices.Contains(q.RemoveDevices, alarm.DeviceID) || messages[alarm.TriggerID]) {
-			return nil, model.ErrResourceInUse
+		if job.TenantID == t && capacityJobRunning(job.Status) && remove(t, r.alarms[key(t, job.AlarmID)].DeviceID) {
+			return p, true, model.ErrResourceInUse
 		}
 	}
-	for _, resource := range q.Resources {
-		switch resource.Kind {
-		case "inspection":
-			for _, v := range r.inspectionJobs[t] {
-				if v.ID == resource.ID && v.CapacityRunID == q.RunID && capacityJobRunning(v.Status) {
-					return nil, model.ErrResourceInUse
-				}
-			}
-		case "alarm-analysis":
-			for _, v := range r.analysisJobs {
-				if v.TenantID == t && v.ID == resource.ID && v.CapacityRunID == q.RunID && capacityJobRunning(v.Status) {
-					return nil, model.ErrResourceInUse
-				}
-			}
-		case "replay":
-			v := r.replays[resource.ID]
-			if v.TenantID == t && v.CapacityRunID == q.RunID && capacityJobRunning(v.Status) {
-				return nil, model.ErrResourceInUse
-			}
-		}
-	}
-	return ids, nil
+	return p, true, nil
 }
+
 func (r *Repository) CleanupCapacityData(_ context.Context, t string, q model.CapacityCleanupBatch) (model.CapacityCleanupCounts, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var n model.CapacityCleanupCounts
-	if _, err := r.capacityMessageIDsLocked(t, q); err != nil {
+	product, exists, err := r.capacityCheckLocked(t, q)
+	if err != nil {
 		return n, err
 	}
-	if r.inspectionJobs == nil {
-		r.inspectionJobs = map[string][]model.HealthInspectionJob{}
+	for _, job := range r.inspectionJobs[t] {
+		if capacityRunOwned(q, job.CapacityRunID) && capacityJobRunning(job.Status) {
+			return n, model.ErrResourceInUse
+		}
 	}
-	var product model.Product
-	var fixture model.CapacityFixtureProduct
-	if q.RemoveProduct {
-		var ok bool
-		product, ok = r.products[key(t, q.Product)]
-		if ok {
-			fixture = r.capacityFixtureLocked(product)
-			if fixture.Source == "" || fixture.BlockedReason != "" {
-				return n, model.ErrResourceInUse
-			}
-			for _, d := range r.devices {
-				if d.TenantID == t && d.ProductID == q.Product && !slices.Contains(q.RemoveDevices, d.ID) {
-					return n, model.ErrResourceInUse
-				}
-			}
+	for _, job := range r.replays {
+		if job.TenantID == t && capacityRunOwned(q, job.CapacityRunID) && capacityJobRunning(job.Status) {
+			return n, model.ErrResourceInUse
 		}
 	}
 	var prunedAccess []byte
-	if len(q.RemoveDevices) > 0 {
+	if len(q.Devices) > 0 {
 		if body, ok := r.accessStates[t]; ok {
-			var err error
-			prunedAccess, n.AccessReferences, err = model.PruneCapacityAccessReferences(body, q.RemoveDevices)
+			prunedAccess, n.AccessReferences, err = model.PruneCapacityAccessReferences(body, q.Devices)
 			if err != nil {
 				return n, err
 			}
@@ -141,42 +170,10 @@ func (r *Repository) CleanupCapacityData(_ context.Context, t string, q model.Ca
 			}
 		}
 	}
-	remove := func(tenant, d string) bool { return tenant == t && slices.Contains(q.RemoveDevices, d) }
-	for _, v := range r.devices {
-		if remove(v.TenantID, v.GatewayID) {
-			return n, model.ErrResourceInUse
-		}
-	}
-	for _, v := range r.accessProfiles {
-		if remove(v.TenantID, v.DeviceID) {
-			return n, model.ErrResourceInUse
-		}
-	}
-	for _, v := range r.videoMappings {
-		if remove(v.TenantID, v.DeviceID) {
-			return n, model.ErrResourceInUse
-		}
-		for _, d := range v.RelatedDeviceIDs {
-			if remove(v.TenantID, d) {
-				return n, model.ErrResourceInUse
-			}
-		}
-	}
-	for _, relations := range r.videoRelations {
-		for _, v := range relations {
-			if v.RelationType == "device" && remove(v.TenantID, v.TargetID) {
-				return n, model.ErrResourceInUse
-			}
-		}
-	}
-	ids := map[string]bool{}
-	rawIDs := map[string]bool{}
-	alarmIDs := map[string]bool{}
-	removedJobs := map[string]string{}
-	inspectionAudits := map[string]bool{}
+	remove := func(tenant, id string) bool { return tenant == t && slices.Contains(q.Devices, id) }
+	rawIDs, alarmIDs, removedJobs := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for k, v := range r.standard {
-		if capacityMatch(v.TenantID, v.ProductID, v.DeviceID, v.RawMessageID, t, q) {
-			ids[v.MessageID] = true
+		if remove(v.TenantID, v.DeviceID) {
 			delete(r.standard, k)
 			delete(r.standardProcessed, k)
 			delete(r.claims, k)
@@ -184,7 +181,7 @@ func (r *Repository) CleanupCapacityData(_ context.Context, t string, q model.Ca
 		}
 	}
 	for k, v := range r.raw {
-		if capacityMatch(v.TenantID, v.ProductID, v.DeviceID, v.MessageID, t, q) {
+		if remove(v.TenantID, v.DeviceID) {
 			rawIDs[v.MessageID] = true
 			delete(r.raw, k)
 			delete(r.rawMessages, k)
@@ -193,41 +190,44 @@ func (r *Repository) CleanupCapacityData(_ context.Context, t string, q model.Ca
 		}
 	}
 	for k, v := range r.alarms {
-		if v.TenantID == t && (remove(v.TenantID, v.DeviceID) || ids[v.TriggerID]) {
+		if remove(v.TenantID, v.DeviceID) {
 			alarmIDs[v.ID] = true
 			delete(r.alarms, k)
-			for j, analysis := range r.ai {
-				if analysis.TenantID == t && analysis.AlarmID == v.ID {
-					delete(r.ai, j)
-				}
-			}
-			for j, job := range r.analysisJobs {
-				if job.TenantID == t && job.AlarmID == v.ID {
-					delete(r.analysisJobs, j)
-				}
-			}
-			for j, c := range r.componentAlarms {
-				if strings.HasPrefix(j, t+"\x00") && c.AlarmID == v.ID {
-					delete(r.componentAlarms, j)
-				}
-			}
 			n.Alarms++
 		}
 	}
+	for k, v := range r.ai {
+		if v.TenantID == t && (alarmIDs[v.AlarmID] || capacityRunOwned(q, v.CapacityRunID)) {
+			delete(r.ai, k)
+		}
+	}
+	for k, v := range r.analysisJobs {
+		if v.TenantID != t {
+			continue
+		}
+		if alarmIDs[v.AlarmID] {
+			delete(r.analysisJobs, k)
+		} else if capacityRunOwned(q, v.CapacityRunID) && !capacityJobRunning(v.Status) {
+			delete(r.analysisJobs, k)
+			n.Resources++
+		}
+	}
+	for k, c := range r.componentAlarms {
+		if strings.HasPrefix(k, t+"\x00") && alarmIDs[c.AlarmID] {
+			delete(r.componentAlarms, k)
+		}
+	}
 	for k, v := range r.states {
-		if v.TenantID == t && (remove(v.TenantID, v.DeviceID) || ids[v.LastMessageID]) {
+		if remove(v.TenantID, v.DeviceID) {
 			delete(r.states, k)
 		}
 	}
 	for k := range r.rulePending {
-		parts := strings.Split(k, "\x00")
-		if len(parts) == 3 && remove(parts[0], parts[2]) {
+		if parts := strings.Split(k, "\x00"); len(parts) == 3 && remove(parts[0], parts[2]) {
 			delete(r.rulePending, k)
 		}
 	}
-	r.stateEvents = slices.DeleteFunc(r.stateEvents, func(v model.DeviceStateEvent) bool {
-		return v.State.TenantID == t && (remove(v.State.TenantID, v.State.DeviceID) || ids[v.State.LastMessageID])
-	})
+	r.stateEvents = slices.DeleteFunc(r.stateEvents, func(v model.DeviceStateEvent) bool { return remove(v.State.TenantID, v.State.DeviceID) })
 	for k, v := range r.commands {
 		if remove(v.TenantID, v.DeviceID) {
 			delete(r.commands, k)
@@ -239,124 +239,64 @@ func (r *Repository) CleanupCapacityData(_ context.Context, t string, q model.Ca
 		}
 	}
 	for k, v := range r.devices {
-		if v.ProductID == q.Product && remove(v.TenantID, v.ID) {
+		if exists && v.ProductID == q.Product && remove(v.TenantID, v.ID) {
 			delete(r.devices, k)
 			n.Devices++
 		}
 	}
-	for _, res := range q.Resources {
-		switch res.Kind {
-		case "inspection":
-			r.inspectionJobs[t] = slices.DeleteFunc(r.inspectionJobs[t], func(v model.HealthInspectionJob) bool {
-				if v.ID == res.ID && v.CapacityRunID == q.RunID && !capacityJobRunning(v.Status) && !slices.ContainsFunc(v.Report.Items, func(item model.DeviceHealthItem) bool { return item.ProductID != q.Product }) {
-					removedJobs[v.ID] = "inspection"
-					inspectionAudits[fmt.Sprintf("inspection_%d", v.Report.GeneratedAt)] = true
-					n.Resources++
-					return true
-				}
-				return false
-			})
-		case "alarm-analysis":
-			for k, v := range r.analysisJobs {
-				if v.TenantID == t && v.ID == res.ID && v.CapacityRunID == q.RunID && !capacityJobRunning(v.Status) {
-					for k, analysis := range r.ai {
-						if analysis.TenantID == t && analysis.AlarmID == v.AlarmID && analysis.KnowledgeScope == v.KnowledgeScope && analysis.CapacityRunID == q.RunID {
-							delete(r.ai, k)
-						}
-					}
-					delete(r.analysisJobs, k)
-					n.Resources++
-				}
-			}
-		case "replay":
-			v, ok := r.replays[res.ID]
-			if ok && v.TenantID == t && v.CapacityRunID == q.RunID && !capacityJobRunning(v.Status) {
-				removedJobs[v.ID] = "replay"
-				delete(r.replays, res.ID)
-				n.Resources++
-			}
-		}
+	if r.inspectionJobs == nil {
+		r.inspectionJobs = map[string][]model.HealthInspectionJob{}
 	}
-	if len(q.RemoveDevices) > 0 || q.RemoveProduct {
-		for _, job := range r.inspectionJobs[t] {
-			if slices.ContainsFunc(job.Report.Items, func(item model.DeviceHealthItem) bool { return slices.Contains(q.RemoveDevices, item.DeviceID) }) && slices.ContainsFunc(job.Report.Items, func(item model.DeviceHealthItem) bool { return item.ProductID != q.Product }) {
-				n.Warnings = append(n.Warnings, "含非测试设备的混合巡检报告已完整保留")
-				break
-			}
-		}
-		r.inspectionJobs[t] = slices.DeleteFunc(r.inspectionJobs[t], func(v model.HealthInspectionJob) bool {
-			if capacityJobRunning(v.Status) || len(v.Report.Items) == 0 {
-				return false
-			}
-			for _, item := range v.Report.Items {
-				if !slices.Contains(q.RemoveDevices, item.DeviceID) && !(q.RemoveProduct && item.ProductID == q.Product && (item.DeviceName == "容量测试 "+item.DeviceID || item.DeviceName == "压测设备 "+item.DeviceID || item.DeviceName == "GB26875 设备 "+strings.TrimPrefix(item.DeviceID, "gb26875_"))) {
-					return false
-				}
-			}
-			removedJobs[v.ID] = "inspection"
+	inspectionAudits := map[string]bool{}
+	r.inspectionJobs[t] = slices.DeleteFunc(r.inspectionJobs[t], func(v model.HealthInspectionJob) bool {
+		if capacityRunOwned(q, v.CapacityRunID) && !capacityJobRunning(v.Status) {
+			removedJobs[v.ID] = true
 			inspectionAudits[fmt.Sprintf("inspection_%d", v.Report.GeneratedAt)] = true
 			n.Resources++
 			return true
-		})
-		for k, v := range r.replays {
-			if v.TenantID == t && !capacityJobRunning(v.Status) && (slices.Contains(q.RemoveDevices, v.DeviceID) || (q.RemoveProduct && v.ProductID == q.Product && v.DeviceID == "")) {
-				removedJobs[v.ID] = "replay"
-				delete(r.replays, k)
-				n.Resources++
-			}
+		}
+		return false
+	})
+	for k, v := range r.replays {
+		if v.TenantID == t && capacityRunOwned(q, v.CapacityRunID) && !capacityJobRunning(v.Status) {
+			removedJobs[v.ID] = true
+			delete(r.replays, k)
+			n.Resources++
 		}
 	}
 	if n.AccessReferences > 0 {
 		r.accessStates[t] = prunedAccess
 	}
-	ruleIDs := map[string]bool{}
-	for k, v := range r.rules {
-		if v.TenantID == t && v.ProductID == q.Product && v.AlarmType == "CAPACITY_TEST" && (v.ID == q.RemoveRule || q.RemoveProduct) {
-			ruleIDs[v.ID] = true
-			if q.RemoveProduct {
-				delete(r.rules, k)
-				n.Rules++
-			}
-		}
-	}
-	if q.RemoveProduct && fixture.Source != "" {
-		if q.Historical && strings.HasPrefix(fixture.Source, "legacy-cap") {
-			for k, v := range r.accessProfiles {
-				if v.TenantID == t && v.ProductID == q.Product && v.DeviceID == "" && !v.Enabled {
-					delete(r.accessProfiles, k)
-					n.Profiles++
+	productRemoved := false
+	if q.RemoveProduct && exists {
+		remaining := slices.ContainsFunc(mapValues(r.devices), func(d model.ManagedDevice) bool { return d.TenantID == t && d.ProductID == q.Product })
+		referenced := slices.ContainsFunc(mapValues(r.rules), func(v model.AlarmRule) bool {
+			return v.TenantID == t && v.ProductID == q.Product && v.AlarmType != "CAPACITY_TEST"
+		}) || slices.ContainsFunc(mapValues(r.accessProfiles), func(v model.DeviceAccessProfile) bool { return v.TenantID == t && v.ProductID == q.Product })
+		switch {
+		case remaining:
+			n.Warnings = append(n.Warnings, "测试产品仍有保留运行使用的设备，产品已保留")
+		case referenced:
+			n.Warnings = append(n.Warnings, "测试产品仍被规则或接入配置引用，产品已保留")
+		default:
+			for k, v := range r.rules {
+				if v.TenantID == t && v.ProductID == q.Product && v.AlarmType == "CAPACITY_TEST" {
+					delete(r.rules, k)
+					n.Rules++
 				}
 			}
+			delete(r.protocolBindings, key(t, q.Product))
+			delete(r.products, key(t, product.ID))
+			n.Products++
+			productRemoved = true
 		}
-		delete(r.protocolBindings, key(t, q.Product))
-		if fixture.ProtocolID != "" && !q.KeepProtocol {
-			delete(r.protocolDefinitions, key(t, fixture.ProtocolID))
-			for k, v := range r.protocolReleases {
-				if v.TenantID == t && v.ProtocolID == fixture.ProtocolID {
-					delete(r.protocolReleases, k)
-				}
-			}
-			for k, v := range r.pointTables {
-				if v.TenantID == t && v.ProtocolID == fixture.ProtocolID {
-					delete(r.pointTables, k)
-				}
-			}
-			if _, ok := r.protocols[key(t, product.ProtocolPackageID)]; ok {
-				delete(r.protocols, key(t, product.ProtocolPackageID))
-				n.Protocols++
-			}
-		}
-		delete(r.products, key(t, q.Product))
-		n.Products++
 	}
 	r.audits = slices.DeleteFunc(r.audits, func(v model.AuditLog) bool {
 		if v.TenantID != t {
 			return false
 		}
-		match := (v.TargetType == "device" && slices.Contains(q.RemoveDevices, v.TargetID)) || (v.TargetType == "alarm" && alarmIDs[v.TargetID]) || (v.TargetType == "raw-message" && rawIDs[v.TargetID]) || (v.TargetType == "rule" && ruleIDs[v.TargetID]) || (q.RemoveProduct && v.TargetType == "product" && v.TargetID == q.Product) || (v.TargetType == "replay" && removedJobs[v.TargetID] == "replay") || (slices.Contains([]string{"inspection", "health-inspection", "device-health"}, v.TargetType) && (removedJobs[v.TargetID] == "inspection" || inspectionAudits[v.TargetID]))
 		device, _ := v.Details["deviceId"].(string)
-		p, _ := v.Details["productId"].(string)
-		match = match || slices.Contains(q.RemoveDevices, device) || (q.RemoveProduct && p == q.Product)
+		match := (v.TargetType == "device" && slices.Contains(q.Devices, v.TargetID)) || (v.TargetType == "alarm" && alarmIDs[v.TargetID]) || (v.TargetType == "raw-message" && rawIDs[v.TargetID]) || slices.Contains(q.Devices, device) || (productRemoved && v.TargetType == "product" && v.TargetID == q.Product) || (slices.Contains([]string{"replay", "inspection", "health-inspection", "device-health"}, v.TargetType) && (removedJobs[v.TargetID] || inspectionAudits[v.TargetID]))
 		if match {
 			n.Audits++
 		}
@@ -365,6 +305,10 @@ func (r *Repository) CleanupCapacityData(_ context.Context, t string, q model.Ca
 	return n, nil
 }
 
-func capacityJobRunning(status string) bool {
-	return slices.Contains([]string{"running", "pending", "processing", "queued"}, strings.ToLower(status))
+func mapValues[K comparable, V any](m map[K]V) []V {
+	out := make([]V, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
 }

@@ -336,20 +336,21 @@ test('历史清理只显示实际数量与进度，全部保留的预览不能�
   assert.equal(capacity.cleanupCountText(0), '0')
   assert.equal(capacity.historyCleanupProgress({ processed: 1, total: 4 }), 25)
   for (const job of [{ status:'SUCCEEDED' }, { processed:1,total:0 }, { processed:5,total:4 }, { processed:null,total:4 }]) assert.equal(capacity.historyCleanupProgress(job), null)
-  assert.equal(capacity.historyCleanupHasTargets({ token:'preview', products:2, items:[{ eligible:false,reason:'业务引用' }] }), false)
-  assert.equal(capacity.historyCleanupHasTargets({ token:'preview', items:[{ eligible:true }] }), true)
+  assert.equal(capacity.historyCleanupHasTargets({ runs:0, products:[], devices:0, rawMessages:0 }), false)
+  assert.equal(capacity.historyCleanupHasTargets({ runs:0, products:[{ productId:'cap-standard' }] }), true)
+  assert.equal(capacity.historyCleanupHasTargets({ runs:2, products:[] }), true)
   assert.deepEqual(capacity.cleanupCountItems({ devices:0,rawMessages:4,cacheKeys:undefined }), [{ key:'devices',label:'设备',value:0 },{ key:'rawMessages',label:'测试原文',value:4 }])
-  assert.deepEqual(capacity.cleanupRuntimeItems({ queueOffsetSpan:12,queueSkippedPartitions:2,inboxSkipped:0 }), [{ key:'queueOffsetSpan',label:'已清理队列偏移跨度',value:12 },{ key:'queueSkippedPartitions',label:'保留的共享队列分区',value:2 }])
+  assert.deepEqual(capacity.cleanupRuntimeItems({ retainedRequests:12 }), [{ key:'retainedRequests',label:'已发送 retained 清除请求',value:12 }])
   const partial={status:'SUCCEEDED',warnings:['共享队列保留'],counts:{warnings:['共享队列保留','收件箱保留']}}
   assert.deepEqual(capacity.historyCleanupWarnings(partial),['共享队列保留','收件箱保留'])
   assert.equal(capacity.historyCleanupResultText(partial),'已完成可清理部分')
   assert.equal(capacity.historyCleanupResultText({status:'SUCCEEDED',error:'结果存储失败'}),'清理结果需确认')
-  const counts={rawMessages:1,standardMessages:2,alarms:3,devices:4,products:5,rules:6,resources:7,audits:8,profiles:9,accessReferences:10,protocols:11,inbox:12,inboxSkipped:13,retainedRequests:14,queueOffsetSpan:15,queueSkippedPartitions:16}
+  const counts={rawMessages:1,standardMessages:2,alarms:3,devices:4,products:5,rules:6,resources:7,audits:8,accessReferences:9,retainedRequests:10}
   const removed=capacity.cleanupCountItems(counts),runtime=capacity.cleanupRuntimeItems(counts)
-  assert.equal(removed.length,12)
-  assert.equal(runtime.length,4)
+  assert.equal(removed.length,9)
+  assert.equal(runtime.length,1)
   for (const item of [...removed,...runtime]) assert.equal(item.value,counts[item.key])
-  assert.equal(removed.some(item=>['inboxSkipped','queueSkippedPartitions','retainedRequests','queueOffsetSpan'].includes(item.key)),false,'skipped work, requests and offsets are never labelled as deleted messages')
+  assert.equal(removed.some(item=>item.key==='retainedRequests'),false,'retained clear requests are never labelled as deleted messages')
 })
 
 function capacityPage({ get, send, allow = true } = {}) {
@@ -357,11 +358,11 @@ function capacityPage({ get, send, allow = true } = {}) {
   const session = reactive({ tenant:'tenant',user:'operator',accessVersion:'v1' })
   let cleanup
   const job = { id:'history-job',environment:'self',status:'RUNNING',phase:'清理历史产品',processed:0,total:2 }
-  const preview = { token:'scope-v1',runs:1,products:1,devices:3,rawMessages:10,items:[{ productId:'cap-product',eligible:true,devices:3,rawMessages:10 },{ productId:'business-product',eligible:false,reason:'已有摄像头关联' }],warnings:['系统审计保留'] }
+  const preview = { runs:1,products:[{ productId:'cap-standard',name:'容量测试标准设备 cap-standard',deviceCount:3,rawMessages:10 }],devices:3,rawMessages:10,warnings:['监控历史保留'] }
   const context = vm.createContext({ ...capacity,computed,reactive,ref,watch,session,defineEmits:()=>()=>{},onMounted(){},onBeforeUnmount(fn){cleanup=fn},can:path=>grants.has(path),
     window:{sessionStorage:{getItem:()=>JSON.stringify({environment:'self',form:capacity.defaultForm()})}},
     UiMessage:Object.fromEntries(['info','success','warning','error'].map(kind=>[kind,value=>messages.push([kind,value])])),UiMessageBox:{confirm:async()=>{}},opsErrorText:error=>error.message,
-    opsGet:async(path,params)=>{calls.push({method:'GET',path,params});if(get)return get(path,params);if(path.endsWith('/history/status'))return{job:structuredClone(job)};if(path.endsWith('/cleanup/history'))return{preview:structuredClone(preview),job:null};if(path.endsWith('/status'))return{enabled:true,reachable:true};return{items:[],total:0}},
+    opsGet:async(path,params)=>{calls.push({method:'GET',path,params});if(get)return get(path,params);if(path.endsWith('/cleanup/status'))return{job:structuredClone(job)};if(path.endsWith('/capacity/cleanup'))return{preview:structuredClone(preview),job:null};if(path.endsWith('/status'))return{enabled:true,reachable:true};return{items:[],total:0}},
     opsSend:async(method,path,body)=>{calls.push({method,path,body});return send ? send(method,path,body) : {job:structuredClone(job)}},
     setTimeout(fn,delay){timers.push({fn,delay});return timers.length},clearTimeout(id){if(timers[id-1])timers[id-1].cleared=true}
   })
@@ -405,13 +406,13 @@ test('容量测试提前结束后，列表与详情仍展示后台失败原因',
   page.dispose()
 })
 
-test('历史清理取消和权限不足均不发送删除请求，提交范围只来自预览token', async () => {
+test('清理全部取消和权限不足均不发送删除请求', async () => {
   const denied=capacityPage({allow:false})
   await denied.previewHistoryCleanup();await denied.loadHistoryStatus();await denied.confirmHistoryCleanup()
   assert.equal(denied.calls.length,0)
   const page=capacityPage()
   await page.previewHistoryCleanup()
-  assert.equal(page.historyPreview.value.items[1].reason,'已有摄像头关联')
+  assert.equal(page.historyPreview.value.products[0].deviceCount,3)
   page.historyDialog.value=false;await page.confirmHistoryCleanup()
   assert.equal(page.calls.some(call=>call.method==='POST'),false)
   await page.previewHistoryCleanup();page.grants.clear();await nextTick();await page.confirmHistoryCleanup()
@@ -423,7 +424,7 @@ test('历史清理202后继续轮询，只有服务端明确成功才报告完�
   const page=capacityPage()
   await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
   const sent=page.calls.find(call=>call.method==='POST')
-  assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{environment:'self',previewToken:'scope-v1'})
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{environment:'self'})
   assert.equal(page.historyRunning.value,true)
   assert.equal(page.messages.some(([kind])=>kind==='success'),false)
   assert(page.timers.some(timer=>timer.delay===3000&&!timer.cleared))
@@ -435,7 +436,7 @@ test('历史清理202后继续轮询，只有服务端明确成功才报告完�
   assert.equal(page.messages.filter(([kind])=>kind==='success').length,1,'refreshing a finished job does not repeat success')
 })
 
-test('历史清理失败可重新预览重试，范围变化409使旧确认失效', async () => {
+test('清理失败可重新预览重试，冲突409使旧确认失效', async () => {
   let reject=false
   const page=capacityPage({send:async()=>{if(reject)throw Object.assign(new Error('范围变化'),{status:409});return{job:{id:'history-job',environment:'self',status:'RUNNING',processed:0,total:2}}}})
   await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
@@ -443,9 +444,8 @@ test('历史清理失败可重新预览重试，范围变化409使旧确认失�
   await page.loadHistoryStatus(true)
   assert.equal(page.historyJob.value.error,'收件箱仍在处理中')
   assert.equal(page.messages.some(([kind])=>kind==='success'),false)
-  reject=true;page.preview.token='scope-v2'
+  reject=true
   await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
-  assert.equal(page.calls.filter(call=>call.method==='POST').at(-1).body.previewToken,'scope-v2')
   assert.equal(page.historyPreview.value,null)
   const attempts=page.calls.filter(call=>call.method==='POST').length
   await page.confirmHistoryCleanup()
@@ -455,7 +455,7 @@ test('历史清理失败可重新预览重试，范围变化409使旧确认失�
 test('清理任务消失或查询失败都不能误报成功，单次清理与历史清理互斥', async () => {
   let response={job:{id:'history-job',status:'RUNNING',processed:0,total:2}}
   let failed=false
-  const page=capacityPage({get:async path=>{if(failed)throw new Error('暂时无法连接控制服务');return path.endsWith('/history/status')?response:{items:[],total:0}}})
+  const page=capacityPage({get:async path=>{if(failed)throw new Error('暂时无法连接控制服务');return path.endsWith('/cleanup/status')?response:{items:[],total:0}}})
   await page.loadHistoryStatus()
   response={job:null};await page.loadHistoryStatus(true)
   assert.equal(page.historyRunning.value,true)
@@ -469,7 +469,7 @@ test('清理任务消失或查询失败都不能误报成功，单次清理与�
 })
 
 test('全局历史清理状态独立于单次运行，阻止并行操作并持续刷新', async () => {
-  const page=capacityPage({get:async path=>path.endsWith('/runs')?{items:[],total:0,historyCleaning:true,cleaningRunId:''}:{job:null}})
+  const page=capacityPage({get:async path=>path.endsWith('/runs')?{items:[],total:0,cleaningAll:true,cleaningRunId:''}:{job:null}})
   await page.loadRuns();await nextTick()
   assert.equal(page.historyCleaning.value,true)
   assert.equal(page.cleaningRunId.value,'')
@@ -482,7 +482,7 @@ test('全局历史清理状态独立于单次运行，阻止并行操作并持�
 })
 
 test('受理但未返回有效job时保持待确认，控制服务不可达时不能预览或提交', async () => {
-  const page=capacityPage({send:async()=>({}),get:async path=>path.endsWith('/cleanup/history')?{preview:{token:'token',items:[{eligible:true}]} ,job:null}:path.endsWith('/history/status')?{job:null}:{items:[],total:0}})
+  const page=capacityPage({send:async()=>({}),get:async path=>path.endsWith('/capacity/cleanup')?{preview:{runs:1,products:[],devices:0,rawMessages:0},job:null}:path.endsWith('/cleanup/status')?{job:null}:{items:[],total:0}})
   await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
   assert.equal(page.historyPending.value,true)
   assert.equal(page.historyRunning.value,true)
@@ -499,7 +499,7 @@ test('历史清理恢复最近任务，身份切换或离页后的迟到预览�
   assert.equal(restored.historyJob.value.id,'history-job')
   assert.equal(restored.historyRunning.value,true)
   let finish
-  const page=capacityPage({get:async path=>path.endsWith('/cleanup/history')?new Promise(resolve=>finish=resolve):{job:null}})
+  const page=capacityPage({get:async path=>path.endsWith('/capacity/cleanup')?new Promise(resolve=>finish=resolve):{job:null}})
   const request=page.previewHistoryCleanup()
   page.session.user='another';await nextTick()
   finish({preview:page.preview,job:null});await request

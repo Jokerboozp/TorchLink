@@ -34,11 +34,33 @@ func TestPruneCapacityAccessPreservesNumbersAndEffectiveScopes(t *testing.T) {
 	}
 }
 
-func TestCapacityCleanupCountsAddRuntimeWarnings(t *testing.T) {
-	c := CapacityCleanupCounts{Warnings: []string{"mixed report retained"}}
-	c.Add(CapacityCleanupCounts{Inbox: 2, InboxSkipped: 1, RetainedRequests: 3, QueueOffsetSpan: 4, QueueSkippedPartitions: 5, Warnings: []string{"mixed report retained", "active queue retained"}})
-	if c.Inbox != 2 || c.InboxSkipped != 1 || c.RetainedRequests != 3 || c.QueueOffsetSpan != 4 || c.QueueSkippedPartitions != 5 || len(c.Warnings) != 2 {
+func TestCapacityCleanupCountsAddMergesWarnings(t *testing.T) {
+	c := CapacityCleanupCounts{Devices: 1, Warnings: []string{"product retained"}}
+	c.Add(CapacityCleanupCounts{Devices: 2, RetainedRequests: 3, Warnings: []string{"product retained", "rule retained"}})
+	if c.Devices != 3 || c.RetainedRequests != 3 || len(c.Warnings) != 2 {
 		t.Fatal(c)
+	}
+}
+
+func TestCapacityFixtureRequiresToolOwnedProductAndDevice(t *testing.T) {
+	p := Product{TenantID: "t", ID: "cap-standard", Name: CapacityFixtureProductName("cap-standard"), Description: CapacityFixtureDescription + "，用于容量测试", ProtocolPackageID: "iot-standard@1.0.0"}
+	d := ManagedDevice{TenantID: "t", ProductID: p.ID, ID: "cap-000001", Name: "容量测试 cap-000001", RegistrationSource: "ONBOARDING"}
+	if !IsCapacityFixture(p) || !CapacityFixtureDevice(p, d) {
+		t.Fatal("tool-owned fixture rejected")
+	}
+	for _, change := range []func(*Product){func(v *Product) { v.Name = "容量测试标准设备" }, func(v *Product) { v.Description = "现场设备" }, func(v *Product) { v.ProtocolPackageID = "custom@1" }} {
+		other := p
+		change(&other)
+		if IsCapacityFixture(other) {
+			t.Fatal("business product accepted", other)
+		}
+	}
+	for _, change := range []func(*ManagedDevice){func(v *ManagedDevice) { v.Name = "三楼烟感" }, func(v *ManagedDevice) { v.GatewayID = "gw" }, func(v *ManagedDevice) { v.RegistrationSource = "MANUAL" }, func(v *ManagedDevice) { v.TenantID = "other" }} {
+		other := d
+		change(&other)
+		if CapacityFixtureDevice(p, other) {
+			t.Fatal("repurposed device accepted", other)
+		}
 	}
 }
 

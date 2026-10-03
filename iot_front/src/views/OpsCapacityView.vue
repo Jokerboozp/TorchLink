@@ -75,7 +75,7 @@ function updateHistoryJob(job) {
   historyJob.value = job
   if (job?.id) historyPending.value = false
   if (previous?.id === job?.id && historyCleanupRunning(previous) && !historyCleanupRunning(job)) {
-    if (job.status === 'SUCCEEDED' && !job.error && !historyCleanupWarnings(job).length) UiMessage.success('本次可清理的历史测试数据已清理，保留项目不受影响')
+    if (job.status === 'SUCCEEDED' && !job.error && !historyCleanupWarnings(job).length) UiMessage.success('测试数据已清理')
     else if (job.status === 'FAILED' || job.status === 'PARTIAL') UiMessage.warning(job.error || historyCleanupStatusText[job.status])
   }
 }
@@ -85,7 +85,7 @@ async function loadHistoryStatus(silent = false) {
   const version = ++historyVersion, identity = historyIdentity()
   if (!silent) historyLoading.value = true
   try {
-    const data = await opsGet('/api/v1/ops/capacity/cleanup/history/status', { environment: environment.value })
+    const data = await opsGet('/api/v1/ops/capacity/cleanup/status', { environment: environment.value })
     if (disposed || version !== historyVersion || identity !== historyIdentity() || !canCleanup.value) return
     if (!Object.hasOwn(data, 'job') || (!data.job && historyRunning.value) || (data.job && (!data.job.id || !historyCleanupStatusText[data.job.status]))) throw new Error('后台未返回有效清理结果，请刷新确认；尚不能判定清理完成。')
     updateHistoryJob(data.job)
@@ -110,12 +110,12 @@ async function previewHistoryCleanup() {
   busy.value = 'history-preview'
   historyError.value = ''
   try {
-    const data = await opsGet('/api/v1/ops/capacity/cleanup/history', { environment: environment.value })
+    const data = await opsGet('/api/v1/ops/capacity/cleanup', { environment: environment.value })
     if (disposed || version !== historyActionVersion || identity !== historyIdentity() || !canCleanup.value) return
     if (data.job && (!data.job.id || !historyCleanupStatusText[data.job.status])) throw new Error('后台未返回有效清理状态，请刷新确认。')
     if (data.job) updateHistoryJob(data.job)
     if (historyRunning.value) return
-    if (!data.preview?.token) throw new Error('未取得历史清理预览，请重新加载。')
+    if (!data.preview) throw new Error('未取得清理预览，请重新加载。')
     historyPreview.value = data.preview
     historyDialog.value = true
   } catch (error) {
@@ -132,7 +132,7 @@ async function confirmHistoryCleanup() {
   busy.value = 'history-start'
   historyError.value = ''
   try {
-    const data = await opsSend('POST', '/api/v1/ops/capacity/cleanup/history', { environment: environment.value, previewToken: historyPreview.value.token })
+    const data = await opsSend('POST', '/api/v1/ops/capacity/cleanup', { environment: environment.value })
     if (disposed || version !== historyActionVersion || identity !== historyIdentity() || !canCleanup.value) return
     historyDialog.value = false
     historyPreview.value = null
@@ -141,11 +141,11 @@ async function confirmHistoryCleanup() {
       historyJob.value = null; historyPending.value = true
       historyError.value = '后台已受理，但未返回任务状态；请刷新确认，尚不能判定清理完成。'
     }
-    if (historyRunning.value) UiMessage.info('已提交历史清理，可离开页面；完成情况以后台结果为准')
+    if (historyRunning.value) UiMessage.info('已提交清理，可离开页面；完成情况以后台结果为准')
     await Promise.all([loadHistoryStatus(true), loadRuns(true)])
   } catch (error) {
     if (!disposed && version === historyActionVersion && identity === historyIdentity()) {
-      historyError.value = error?.status === 409 ? '清理范围或后台状态已变化，请重新预览后确认。' : opsErrorText(error)
+      historyError.value = error?.status === 409 ? '有测试或清理正在进行，或测试数据仍被引用，请稍后重新预览。' : opsErrorText(error)
       if (error?.status === 409) historyPreview.value = null
     }
   } finally {
@@ -218,7 +218,7 @@ async function loadRuns(silent = false) {
     total.value = data.total || 0
     activeRunId.value = data.activeRunId || ''
     cleaningRunId.value = data.cleaningRunId || ''
-    historyCleaning.value = data.historyCleaning === true
+    historyCleaning.value = data.cleaningAll === true
     loadError.value = ''
     if (cleaned && !cleaningRunId.value) cleanupFinished(cleaned)
     // 清理后当前页可能已空，回到最后一个有数据的页。
@@ -324,7 +324,7 @@ async function cleanupFinished(runId) {
   } catch (error) {
     if (error?.status !== 404) return
     if (detail.value?.runId === runId) detail.value = null
-    UiMessage.success(`${runId} 的可清理部分已处理，保留范围见预览`)
+    UiMessage.success(`${runId} 已删除`)
   }
 }
 
@@ -334,17 +334,17 @@ async function cleanupRun(run) {
   try {
     const preview = await opsGet(`/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}/cleanup`)
     const lines = [
-      `将清理 ${run.runId} 的 ${preview.rawMessages} 条测试报文及派生告警、${preview.devices} 个专用测试设备${preview.resources ? `、${preview.resources} 项业务任务或文档` : ''}、报告和缓存。`,
-      preview.sharedDevices ? `${preview.sharedDevices} 个共享设备及其凭据仍供其他运行使用，将保留，只删除本次报文。` : '',
+      `将删除运行 ${run.runId} 的报告与记录、本次运行创建的业务任务和文档，以及 ${preview.devices} 个仅本次使用的测试设备及其全部报文、告警和状态。`,
+      preview.sharedDevices ? `${preview.sharedDevices} 个设备仍供其他运行使用，将保留。` : '',
       ...(preview.warnings || []),
       '删除后无法恢复，请先下载需要保留的报告。'
     ]
     try {
-      await UiMessageBox.confirm(lines.filter(Boolean).join('\n'), '清理本次测试数据和缓存', { type: 'warning', confirmButtonText: '确认清理', cancelButtonText: '取消' })
+      await UiMessageBox.confirm(lines.filter(Boolean).join('\n'), '删除测试运行', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
     } catch { return }
     await opsSend('DELETE', `/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}`, {})
     cleaningRunId.value = run.runId
-    UiMessage.success('已开始清理，可离开本页；完成后该记录会自动移除')
+    UiMessage.success('已开始删除，可离开本页；完成后该记录会自动移除')
     await loadRuns(true)
   } catch (error) { handleError(error) }
   finally { busy.value = '' }
@@ -356,12 +356,12 @@ function rowActions(run) {
   actions.push({ key: 'stop', label: '停止', permission: 'POST /api/v1/ops/capacity/runs/:id/stop', hidden: !active || run.status === 'CANCELLING', loading: busy.value === `stop:${run.runId}`, onClick: () => stop(run, false) })
   actions.push({ key: 'force', label: '强制停止', type: 'danger', permission: 'POST /api/v1/ops/capacity/runs/:id/stop', hidden: !active, onClick: () => stop(run, true) })
   if (run.reports?.includes('html')) actions.push({ key: 'html', label: '下载报告', permission: 'GET /api/v1/ops/capacity/runs/:id/report', loading: busy.value === `report:${run.runId}:html`, onClick: () => downloadReport(run, reportFormats[0]) })
-  actions.push({ key: 'cleanup', label: run.cleaning ? '清理中' : run.cleanupError ? '重试清理' : '清理数据', type: 'danger', permission: 'DELETE /api/v1/ops/capacity/runs/:id', hidden: active, disabled: Boolean(activeRunId.value || cleaningRunId.value || cleanupBlocked.value || busy.value), loading: run.cleaning || busy.value === `cleanup:${run.runId}`, onClick: () => cleanupRun(run) })
+  actions.push({ key: 'cleanup', label: run.cleaning ? '删除中' : run.cleanupError ? '重试删除' : '删除运行', type: 'danger', permission: 'DELETE /api/v1/ops/capacity/runs/:id', hidden: active, disabled: Boolean(activeRunId.value || cleaningRunId.value || cleanupBlocked.value || busy.value), loading: run.cleaning || busy.value === `cleanup:${run.runId}`, onClick: () => cleanupRun(run) })
   return actions
 }
 
 function stateLabel(run) {
-  if (run.cleaning) return '正在清理数据'
+  if (run.cleaning) return '正在删除'
   if (isFinished(run.status) && run.verdict) return `${runStatusText[run.status] || run.status} · ${verdictText[run.verdict] || run.verdict}`
   return runStatusText[run.status] || run.status
 }
@@ -394,10 +394,10 @@ onBeforeUnmount(() => { disposed = true; loadVersion++; historyVersion++; histor
 
   <section v-if="canCleanup" class="cap-history surface-panel">
     <div class="cap-history-toolbar">
-      <div><strong>历史测试数据</strong><p class="cap-sub">清理可确认归属的历史压测数据；活跃或已有业务引用的项目保留。</p></div>
+      <div><strong>测试数据</strong><p class="cap-sub">一次清理全部已结束的运行，以及容量测试专用产品下的设备、报文、告警和测试任务。</p></div>
       <div class="cap-history-actions">
         <ui-button size="small" :loading="historyLoading" @click="refreshHistoryCleanup"><RefreshCw />刷新状态</ui-button>
-        <ui-button size="small" type="danger" :loading="busy === 'history-preview'" :disabled="!historyAvailable || !historyReady || cleanupBlocked || Boolean(busy)" @click="previewHistoryCleanup">{{ ['FAILED', 'PARTIAL'].includes(historyJob?.status) ? '重新预览并重试' : '清理历史测试数据' }}</ui-button>
+        <ui-button size="small" type="danger" :loading="busy === 'history-preview'" :disabled="!historyAvailable || !historyReady || cleanupBlocked || Boolean(busy)" @click="previewHistoryCleanup">{{ historyJob?.status === 'FAILED' ? '重新预览并重试' : '清理全部测试数据' }}</ui-button>
       </div>
     </div>
     <p v-if="historyError" class="cap-sub cap-sub--danger" role="alert">{{ historyError }}</p>
@@ -415,7 +415,7 @@ onBeforeUnmount(() => { disposed = true; loadVersion++; historyVersion++; histor
       <p v-for="(warning, index) in historyCleanupWarnings(historyJob)" :key="index" class="cap-sub">{{ warning }}</p>
       <p v-if="historyJob?.updatedAt" class="cap-sub">后台更新时间：{{ formatTime(historyJob.updatedAt) }}</p>
     </div>
-    <p v-if="historyCleaning && !historyRunning" class="cap-sub">其他历史清理任务正在后台执行，结束后可再次操作。</p>
+    <p v-if="historyCleaning && !historyRunning" class="cap-sub">其他清理任务正在后台执行，结束后可再次操作。</p>
   </section>
 
   <section class="cap-editor surface-panel">
@@ -432,7 +432,7 @@ onBeforeUnmount(() => { disposed = true; loadVersion++; historyVersion++; histor
         <ui-button v-if="canRun" type="primary" :loading="busy === 'start'" :disabled="Boolean(notConfigured || activeRunId || cleaningRunId || cleanupBlocked)" @click="start">启动测试</ui-button>
       </template>
     </FilterBar>
-    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测；不再需要时可在运行记录中清理数据和缓存。<template v-if="activeRunId">当前运行 {{ activeRunId }} 结束前不能启动新的测试。</template><template v-else-if="cleaningRunId">正在清理 {{ cleaningRunId }}，完成前不能启动新的测试。</template><template v-if="!canRun && !canCleanup">当前账号只能查看运行与结论。</template></p>
+    <p class="cap-hint">测试以你的账号权限运行：自动准备测试产品 cap-standard、测试规则 cap-stress-alarm 与测试设备（前缀 cap），测试后保留以便复测；不再需要时可删除单次运行，或清理全部测试数据。<template v-if="activeRunId">当前运行 {{ activeRunId }} 结束前不能启动新的测试。</template><template v-else-if="cleaningRunId">正在清理 {{ cleaningRunId }}，完成前不能启动新的测试。</template><template v-if="!canRun && !canCleanup">当前账号只能查看运行与结论。</template></p>
     <template v-if="canValidate || canRun">
       <div v-if="!advanced" class="cap-form">
         <div class="cap-field cap-field--wide">
@@ -504,16 +504,16 @@ onBeforeUnmount(() => { disposed = true; loadVersion++; historyVersion++; histor
     </ui-table>
   </DataTableCard>
 
-  <ui-dialog v-model="historyDialog" title="确认清理历史测试数据" width="min(780px, 94vw)" :close-on-click-modal="false">
+  <ui-dialog v-model="historyDialog" title="确认清理全部测试数据" width="min(780px, 94vw)" :close-on-click-modal="false">
     <div class="cap-history-preview">
       <p v-if="historyError" class="cap-sub cap-sub--danger" role="alert">{{ historyError }}</p>
       <template v-if="historyPreview">
         <p class="cap-sub">清理环境：{{ environment === 'self' ? '本平台' : environment }}</p>
-        <p>本次待清理：{{ cleanupCountText(historyPreview.runs) }} 次运行、{{ cleanupCountText(historyPreview.products) }} 个测试产品、{{ cleanupCountText(historyPreview.devices) }} 个设备、{{ cleanupCountText(historyPreview.rawMessages) }} 条测试原文及关联数据。</p>
-        <ul class="cap-history-items"><li v-for="(item, index) in historyPreview.items || []" :key="`${item.productId || item.runId}:${index}`"><strong>{{ item.title || item.productId || item.runId }}</strong><p class="cap-sub">{{ item.eligible ? '待清理' : '保留' }} · 设备 {{ cleanupCountText(item.devices) }} · 测试原文 {{ cleanupCountText(item.rawMessages) }}<template v-if="item.reason"> · {{ item.reason }}</template></p></li></ul>
+        <p>本次待清理：{{ cleanupCountText(historyPreview.runs) }} 次运行、{{ cleanupCountText(historyPreview.products?.length || 0) }} 个测试产品、{{ cleanupCountText(historyPreview.devices) }} 个设备、{{ cleanupCountText(historyPreview.rawMessages) }} 条测试原文及关联数据。</p>
+        <ul class="cap-history-items"><li v-for="item in historyPreview.products || []" :key="item.productId"><strong>{{ item.name || item.productId }}</strong><p class="cap-sub">设备 {{ cleanupCountText(item.deviceCount) }} · 测试原文 {{ cleanupCountText(item.rawMessages) }}</p></li></ul>
         <p v-for="(warning, index) in historyPreview.warnings || []" :key="index" class="cap-sub">{{ warning }}</p>
-        <p v-if="!historyCleanupHasTargets(historyPreview)" class="cap-sub">当前没有可安全清理的历史测试数据。</p>
-        <p class="cap-sub">清理后无法恢复，需要保留的报告请先下载。仅执行本次预览中可清理的项目。</p>
+        <p v-if="!historyCleanupHasTargets(historyPreview)" class="cap-sub">当前没有测试数据。</p>
+        <p class="cap-sub">清理后无法恢复，需要保留的报告请先下载。</p>
       </template>
       <ui-button v-else size="small" :loading="busy === 'history-preview'" @click="previewHistoryCleanup">重新预览</ui-button>
       <p v-if="activeRunId || cleaningRunId || cleanupBlocked" class="cap-sub">当前测试或清理结束后，请重新预览再确认。</p>

@@ -2,26 +2,40 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
-	"iot-platform/internal/model"
-	"iot-platform/internal/onboarding"
-	"iot-platform/internal/ports"
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 	"time"
+
+	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 )
 
-// Preview and the controller callback are covered by the cleanup permission
-// and are not listed separately in the permission catalog.
+// The browser asks the capacity controller to delete one run or all test
+// data; the controller calls back cleanup-fixtures / cleanup-data with the
+// operator's delegated token. Ownership is always verified here, from stored
+// products and devices, never from a list chosen by the browser.
 const (
 	capacityCleanupPermission  = "DELETE /api/v1/ops/capacity/runs/:id"
 	capacityCleanupPreviewPath = "/api/v1/ops/capacity/runs/:id/cleanup"
+	capacityCleanupAllPath     = "/api/v1/ops/capacity/cleanup"
+	capacityCleanupStatusPath  = capacityCleanupAllPath + "/status"
 	capacityCleanupDataPath    = "/api/v1/ops/capacity/cleanup-data"
+	capacityFixturePath        = "/api/v1/ops/capacity/cleanup-fixtures"
 )
+
+// Preview, status and the controller callbacks are covered by the cleanup
+// permission and are not listed separately in the permission catalog.
+func capacityCleanupRoute(path string) bool {
+	return slices.Contains([]string{capacityCleanupPreviewPath, capacityCleanupAllPath, capacityCleanupStatusPath, capacityCleanupDataPath, capacityFixturePath}, path)
+}
+
+// SetCapacityMQTT lets cleanup clear retained state topics of removed devices.
+func (s *Server) SetCapacityMQTT(cleaner ports.CapacityRetainedCleaner) { s.capacityMQTT = cleaner }
 
 // capacityRequestRunID reads the run that a capacity Agent tags its module
 // requests with, so the resulting tasks can be removed with that run.
@@ -37,9 +51,36 @@ func capacityJobContext(r *http.Request) context.Context {
 	return ports.WithCapacityRunID(r.Context(), capacityRequestRunID(r))
 }
 
-func (s *Server) capacityCleanupPreview(w http.ResponseWriter, r *http.Request) {
+func (s *Server) capacityOperatorToken(r *http.Request) (string, error) {
+	c := claims(r)
+	if c.TokenUse == "user" {
+		return s.auth.IssueUser(c.Username, c.TenantID, c.SessionVersion, time.Hour)
+	}
+	return s.auth.Issue(c.Username, c.TenantID, c.Role, nil, time.Hour)
+}
+
+func capacityFullScope(w http.ResponseWriter, r *http.Request) bool {
 	if limited(r.Context()) {
 		problem(w, 403, "清理容量测试需要全租户设备范围")
+		return false
+	}
+	return true
+}
+
+// capacityOperatorBody carries the tenant and a delegated operator token to
+// the controller; the token never reaches the browser.
+func (s *Server) capacityOperatorBody(w http.ResponseWriter, r *http.Request, environment string) ([]byte, bool) {
+	token, err := s.capacityOperatorToken(r)
+	if err != nil {
+		problem(w, 500, "无法签发清理操作凭据")
+		return nil, false
+	}
+	body, _ := json.Marshal(map[string]string{"tenant": claims(r).TenantID, "environment": environment, "operatorToken": token})
+	return body, true
+}
+
+func (s *Server) capacityCleanupPreview(w http.ResponseWriter, r *http.Request) {
+	if !capacityFullScope(w, r) {
 		return
 	}
 	id, ok := capacityID(w, r)
@@ -55,23 +96,19 @@ func (s *Server) capacityCleanupPreview(w http.ResponseWriter, r *http.Request) 
 	writeRaw(w, capacityStatus(resp.StatusCode), data)
 }
 
+// capacityCleanup deletes one ended run; the controller works in the background (202).
 func (s *Server) capacityCleanup(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
-		problem(w, 403, "清理容量测试需要全租户设备范围")
+	if !capacityFullScope(w, r) {
 		return
 	}
 	id, ok := capacityID(w, r)
 	if !ok {
 		return
 	}
-	c := claims(r)
-	token, err := s.capacityOperatorToken(r)
-	if err != nil {
-		problem(w, 500, "无法签发清理操作凭据")
+	body, ok := s.capacityOperatorBody(w, r, "")
+	if !ok {
 		return
 	}
-	body, _ := json.Marshal(map[string]string{"tenant": c.TenantID, "operatorToken": token})
-	// The controller checks the scope and cleans in the background (202).
 	status, data, ok := s.callCapacityJSON(w, r, http.MethodDelete, "/v1/runs/"+id, body, 2*time.Minute)
 	if !ok {
 		return
@@ -80,290 +117,197 @@ func (s *Server) capacityCleanup(w http.ResponseWriter, r *http.Request) {
 	writeRaw(w, status, data)
 }
 
-// capacityCleanupData is called only by the configured capacity controller on
-// behalf of the current operator; browsers never choose message or device IDs.
+// capacityCleanupAll previews (GET) or starts (POST) cleaning every ended run
+// and dedicated test product of an environment.
+func (s *Server) capacityCleanupAll(w http.ResponseWriter, r *http.Request) {
+	if !capacityFullScope(w, r) {
+		return
+	}
+	environment := r.URL.Query().Get("environment")
+	path := "/v1/cleanup/preview"
+	if r.Method == http.MethodPost {
+		var in struct {
+			Environment string `json:"environment"`
+		}
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in) != nil {
+			problem(w, 400, "请选择测试环境")
+			return
+		}
+		environment, path = in.Environment, "/v1/cleanup"
+	}
+	body, ok := s.capacityOperatorBody(w, r, environment)
+	if !ok {
+		return
+	}
+	status, data, ok := s.callCapacityJSON(w, r, http.MethodPost, path, body, 2*time.Minute)
+	if !ok {
+		return
+	}
+	if r.Method == http.MethodPost && status == http.StatusAccepted {
+		s.audit(r, "capacity.cleanup.all", "capacity_environment", environment, map[string]any{"status": status})
+	}
+	writeRaw(w, status, data)
+}
+
+func (s *Server) capacityCleanupStatus(w http.ResponseWriter, r *http.Request) {
+	if !capacityFullScope(w, r) {
+		return
+	}
+	query := url.Values{"tenant": {claims(r).TenantID}, "environment": {r.URL.Query().Get("environment")}}
+	resp, ok := s.callCapacity(w, r, http.MethodGet, "/v1/cleanup/status", query, nil, 30*time.Second)
+	if !ok {
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	writeRaw(w, capacityStatus(resp.StatusCode), data)
+}
+
+func (s *Server) capacityControllerScope(w http.ResponseWriter, r *http.Request) (ports.CapacityDataCleaner, bool) {
+	got := r.Header.Get("X-Capacity-Service-Token")
+	if s.cfg.Ops.CapacityToken == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.Ops.CapacityToken)) != 1 || limited(r.Context()) {
+		problem(w, 403, "capacity controller and full tenant device scope required")
+		return nil, false
+	}
+	cleaner, ok := s.unscopedRepo().(ports.CapacityDataCleaner)
+	if !ok {
+		problem(w, 501, "当前存储不支持容量测试数据清理")
+		return nil, false
+	}
+	return cleaner, true
+}
+
+// capacityFixtures lists dedicated test products, or one product's fixture
+// devices page by page (?product=&after=).
+func (s *Server) capacityFixtures(w http.ResponseWriter, r *http.Request) {
+	cleaner, ok := s.capacityControllerScope(w, r)
+	if !ok {
+		return
+	}
+	tenant := claims(r).TenantID
+	if product := r.URL.Query().Get("product"); product != "" {
+		devices, err := cleaner.ListCapacityFixtureDevices(r.Context(), tenant, product, r.URL.Query().Get("after"), 500)
+		if err != nil {
+			capacityDataError(w, err)
+			return
+		}
+		write(w, 200, map[string]any{"devices": devices})
+		return
+	}
+	products, err := cleaner.ListCapacityFixtureProducts(r.Context(), tenant)
+	if err != nil {
+		capacityDataError(w, err)
+		return
+	}
+	write(w, 200, map[string]any{"products": products})
+}
+
+// capacityCleanupData removes fixture devices with their data, module tasks
+// and knowledge documents owned by a run (or every run), and the empty product.
 func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
-	if !s.capacityControllerScope(w, r) {
+	cleaner, ok := s.capacityControllerScope(w, r)
+	if !ok {
 		return
 	}
 	var q model.CapacityCleanupBatch
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&q) != nil || !capacityRunID.MatchString(q.RunID) || q.Product == "" || len(q.RawIDs) > 500 || len(q.Devices) > 10000 || len(q.Resources) > 500 {
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&q) != nil || (q.RunID != "" && !capacityRunID.MatchString(q.RunID)) || len(q.Devices) > 1000 || ((len(q.Devices) > 0 || q.RemoveProduct) && q.Product == "") {
 		problem(w, 400, "invalid capacity cleanup batch")
 		return
 	}
 	tenant := claims(r).TenantID
-	var fixtureProduct model.Product
-	var finalFixture model.CapacityFixtureProduct
-	if q.RemoveProduct && len(q.Devices) == 0 && len(q.RemoveDevices) == 0 {
-		p, err := s.unscopedRepo().GetProduct(r.Context(), tenant, q.Product)
-		if errors.Is(err, model.ErrNotFound) {
-			write(w, 200, model.CapacityCleanupCounts{})
-			return
-		}
-		if err != nil {
-			capacityDataError(w, err)
-			return
-		}
-		finalFixture, err = s.capacityFinalFixture(r.Context(), tenant, q.Product)
-		if err != nil {
-			capacityDataError(w, err)
-			return
-		}
-		// The single-run cleanup also performs a final whole-product sweep.
-		// Preparation locks and rechecks the empty canonical fixture first.
-		if !q.Historical {
-			if model.CapacityFixtureSource(p) != "capacity-test" {
-				capacityDataError(w, model.ErrResourceInUse)
-				return
-			}
-			lister := s.unscopedRepo().(ports.CapacityFixtureLister)
-			if err = lister.PrepareCapacityFixture(r.Context(), tenant, q.Product, finalFixture.Fingerprint); err != nil {
-				capacityDataError(w, err)
-				return
-			}
-			q.Historical = true
-		}
-	}
-	if q.Historical {
-		var err error
-		fixtureProduct, err = s.unscopedRepo().GetProduct(r.Context(), tenant, q.Product)
-		if errors.Is(err, model.ErrNotFound) && len(q.Devices) == 0 && q.RemoveProduct {
-			write(w, 200, model.CapacityCleanupCounts{})
-			return
-		}
-		if err != nil || model.CapacityFixtureSource(fixtureProduct) == "" || fixtureProduct.Status != "DISABLED" {
-			problem(w, 409, "历史产品不属于已停用的专用容量测试范围")
-			return
-		}
-	}
-	for _, id := range q.RemoveDevices {
-		if !slices.Contains(q.Devices, id) {
-			problem(w, 400, "cleanup device outside run scope")
-			return
-		}
-	}
+	ctx := r.Context()
+	// Stop new ingress from devices about to be removed. Ownership and
+	// pending processing are rechecked by the storage transaction.
 	for _, id := range q.Devices {
-		d, err := s.engine.Repo.GetManagedDevice(r.Context(), tenant, id)
+		d, err := s.unscopedRepo().GetManagedDevice(ctx, tenant, id)
 		if errors.Is(err, model.ErrNotFound) {
 			continue
 		}
-		if err != nil {
-			problem(w, 500, "无法核对测试设备")
-			return
-		}
-		owned := d.ProductID == q.Product && d.Name == "容量测试 "+id && d.RegistrationSource == "ONBOARDING" && d.GatewayID == ""
-		if q.Historical {
-			owned = model.CapacityFixtureDevice(fixtureProduct, d)
-		}
-		if !owned {
-			problem(w, 409, "设备已被改为非测试用途，拒绝清理")
-			return
-		}
-	}
-	repo, ok := s.unscopedRepo().(ports.CapacityDataCleaner)
-	if !ok {
-		problem(w, 501, "当前存储不支持容量数据清理")
-		return
-	}
-	if _, err := repo.CapacityMessageIDs(r.Context(), tenant, q); err != nil {
-		capacityDataError(w, err)
-		return
-	}
-	// Stop exclusive test devices from adding new ingress after the pending
-	// check. Shared fixtures stay enabled and retain their current caches.
-	for _, id := range q.RemoveDevices {
-		d, err := s.unscopedRepo().GetManagedDevice(r.Context(), tenant, id)
-		if errors.Is(err, model.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			capacityDataError(w, err)
+		p, perr := s.unscopedRepo().GetProduct(ctx, tenant, q.Product)
+		if err != nil || perr != nil || !model.CapacityFixtureDevice(p, d) {
+			capacityDataError(w, errors.Join(err, perr, model.ErrResourceInUse))
 			return
 		}
 		if d.Status != "DISABLED" {
 			d.Status = "DISABLED"
-			if err = s.unscopedRepo().SaveManagedDevice(r.Context(), d); err != nil {
+			if err = s.unscopedRepo().SaveManagedDevice(ctx, d); err != nil {
 				capacityDataError(w, err)
 				return
 			}
 		}
 	}
-	// Knowledge documents live outside the relational store; the adapter
-	// removes the other resource kinds with the batch.
-	knowledge := map[string]bool{}
-	for _, resource := range q.Resources {
-		if !slices.Contains([]string{"knowledge", "inspection", "alarm-analysis", "replay"}, resource.Kind) {
-			problem(w, 400, "invalid cleanup resource")
-			return
-		}
-		if resource.Kind == "knowledge" {
-			knowledge[resource.ID] = true
-		}
-	}
-	var documentsDeleted int64
-	if len(knowledge) > 0 {
-		docs, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), tenant)
-		if err != nil {
-			capacityDataError(w, err)
-			return
-		}
-		index, indexed := s.engine.KB.(ports.KnowledgeDocumentDeleter)
-		objects, stored := s.engine.Archive.(ports.ObjectDeleter)
-		for _, doc := range docs {
-			if !knowledge[doc.ID] || doc.Category != "capacity-test" || doc.Metadata["capacityRunId"] != q.RunID {
-				continue
-			}
-			if !indexed || !stored {
-				problem(w, 501, "knowledge storage does not support cleanup")
-				return
-			}
-			if err = index.DeleteKnowledgeDocument(r.Context(), tenant, doc.ID, doc.WorkflowID); err == nil {
-				err = objects.DeleteObject(r.Context(), doc.ObjectBucket, doc.ObjectKey)
-			}
-			if err == nil {
-				err = s.engine.Repo.DeleteResource(r.Context(), tenant, "knowledge", doc.ID)
-			}
-			if err != nil {
-				capacityDataError(w, err)
-				return
-			}
-			documentsDeleted++
-		}
-	}
-	deleteObject := func(idx model.RawArchiveIndex) error {
-		if idx.ObjectBucket == "postgres" || idx.ObjectBucket == "clickhouse" || idx.ObjectBucket == "" {
-			return nil
-		}
-		deleter, ok := s.engine.Archive.(ports.CapacityRawObjectCleaner)
-		if !ok {
-			return model.ErrResourceInUse
-		}
-		// The first record of a segmented archive also has offset zero. The
-		// adapter must prove the entire object is one owned record before delete.
-		return deleter.DeleteCapacityRawObject(r.Context(), tenant, q, idx)
-	}
-	for _, id := range q.RawIDs {
-		idx, err := s.engine.Repo.GetRawIndex(r.Context(), tenant, id)
-		if errors.Is(err, model.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			capacityDataError(w, err)
-			return
-		}
-		if idx.ProductID != q.Product || !slices.Contains(q.Devices, idx.DeviceID) {
-			problem(w, 409, "报文不属于本次测试设备")
-			return
-		}
-		if err = deleteObject(idx); err != nil {
-			capacityDataError(w, err)
-			return
-		}
-	}
-	// Older fixtures may contain unledgered per-message MinIO objects. Delete
-	// them before dropping their indexes so retries still know every object key.
-	if len(q.RemoveDevices) > 0 {
-		for offset := 0; ; offset += 1000 {
-			indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, ProductID: q.Product, DeviceIDs: q.RemoveDevices, Limit: 1000, Offset: offset})
-			if err != nil {
-				capacityDataError(w, err)
-				return
-			}
-			for _, idx := range indexes {
-				if err = deleteObject(idx); err != nil {
-					capacityDataError(w, err)
-					return
-				}
-			}
-			if len(indexes) < 1000 {
-				break
-			}
-		}
-	}
-	runtimeCounts, err := s.cleanupCapacityRuntime(r.Context(), tenant, q)
+	n, err := cleaner.CleanupCapacityData(ctx, tenant, q)
 	if err != nil {
 		capacityDataError(w, err)
 		return
 	}
-	if finalFixture.ProtocolID != "" {
-		if _, err = s.capacityProtocolArtifactPath(tenant, finalFixture.ProtocolID); err != nil {
-			q.KeepProtocol = true
-			runtimeCounts.Warnings = append(runtimeCounts.Warnings, "测试协议制品无法安全定位，协议及制品已保留")
+	if len(q.Devices) > 0 {
+		if cache, ok := s.engine.RawStore.(interface {
+			ForgetCapacityDevices(context.Context, string, []string) error
+		}); ok {
+			if err = cache.ForgetCapacityDevices(ctx, tenant, q.Devices); err != nil {
+				capacityDataError(w, err)
+				return
+			}
+		}
+		if s.capacityMQTT != nil {
+			if n.RetainedRequests, err = s.capacityMQTT.ClearCapacityRetained(ctx, tenant, q.Product, q.Devices); err != nil {
+				capacityDataError(w, err)
+				return
+			}
 		}
 	}
-	n, err := repo.CleanupCapacityData(r.Context(), tenant, q)
-	if err != nil {
-		capacityDataError(w, err)
-		return
-	}
-	// The relational transaction rechecks private ownership against concurrent
-	// bindings. Files are removed only after it actually removed the protocol;
-	// a newly shared protocol keeps every artifact intact.
-	if finalFixture.ProtocolID != "" && n.Protocols > 0 {
-		if err = s.removeCapacityProtocolArtifacts(tenant, finalFixture.ProtocolID); err != nil {
-			runtimeCounts.Warnings = append(runtimeCounts.Warnings, "测试协议记录已清理，但制品清理失败，目录已保留")
+	if q.RunID != "" || q.AllRuns {
+		removed, err := s.removeCapacityKnowledge(ctx, tenant, q)
+		n.Resources += removed
+		if err != nil {
+			capacityDataError(w, err)
+			return
 		}
 	}
 	if n.Rules > 0 {
 		s.engine.RulesChanged(tenant)
 	}
-	if n.Products > 0 || n.Protocols > 0 {
+	if n.Products > 0 {
 		s.engine.ProtocolsChanged(tenant)
-	}
-	n.Resources += documentsDeleted
-	n.Inbox += runtimeCounts.Inbox
-	n.InboxSkipped += runtimeCounts.InboxSkipped
-	n.RetainedRequests += runtimeCounts.RetainedRequests
-	n.QueueOffsetSpan += runtimeCounts.QueueOffsetSpan
-	n.QueueSkippedPartitions += runtimeCounts.QueueSkippedPartitions
-	n.Warnings = append(n.Warnings, runtimeCounts.Warnings...)
-	if cache, ok := s.engine.RawStore.(interface {
-		ForgetCapacityDevices(context.Context, string, []string) error
-	}); ok {
-		if err = cache.ForgetCapacityDevices(r.Context(), tenant, q.RemoveDevices); err != nil {
-			capacityDataError(w, err)
-			return
-		}
-	}
-	if q.RemoveRule != "" {
-		rules, err := s.engine.Repo.ListRules(r.Context(), tenant)
-		var rule model.AlarmRule
-		for _, item := range rules {
-			if item.ID == q.RemoveRule {
-				rule = item
-				break
-			}
-		}
-		if err == nil && rule.ProductID == q.Product && rule.AlarmType == "CAPACITY_TEST" && rule.Name == "容量测试告警 "+q.RemoveRule {
-			if err = s.engine.DeleteRule(r.Context(), tenant, q.RemoveRule); err != nil {
-				capacityDataError(w, err)
-				return
-			}
-			n.Rules++
-		} else if err != nil && !errors.Is(err, model.ErrNotFound) {
-			capacityDataError(w, err)
-			return
-		}
-	}
-	if q.RemoveProduct && !q.Historical {
-		p, err := s.engine.Repo.GetProduct(r.Context(), tenant, q.Product)
-		if err == nil && p.ProtocolPackageID == onboarding.StandardPackageID && p.Name == "容量测试标准设备 "+p.ID && strings.HasPrefix(p.Description, "capacity-test 自动创建") {
-			if err = s.engine.Repo.DeleteResource(r.Context(), tenant, "product", p.ID); err != nil {
-				capacityDataError(w, err)
-				return
-			}
-			n.Products++
-		} else if err != nil && !errors.Is(err, model.ErrNotFound) {
-			capacityDataError(w, err)
-			return
-		}
 	}
 	write(w, 200, n)
 }
 
+// removeCapacityKnowledge deletes knowledge documents uploaded by capacity runs.
+func (s *Server) removeCapacityKnowledge(ctx context.Context, tenant string, q model.CapacityCleanupBatch) (int64, error) {
+	docs, err := s.engine.Repo.ListKnowledgeDocs(ctx, tenant)
+	if err != nil {
+		return 0, err
+	}
+	var removed int64
+	for _, doc := range docs {
+		run := doc.Metadata["capacityRunId"]
+		if doc.Category != "capacity-test" || run == "" || (!q.AllRuns && run != q.RunID) {
+			continue
+		}
+		index, indexed := s.engine.KB.(ports.KnowledgeDocumentDeleter)
+		objects, stored := s.engine.Archive.(ports.ObjectDeleter)
+		if !indexed || !stored {
+			return removed, errors.New("knowledge storage does not support cleanup")
+		}
+		if err = index.DeleteKnowledgeDocument(ctx, tenant, doc.ID, doc.WorkflowID); err == nil {
+			err = objects.DeleteObject(ctx, doc.ObjectBucket, doc.ObjectKey)
+		}
+		if err == nil {
+			err = s.engine.Repo.DeleteResource(ctx, tenant, "knowledge", doc.ID)
+		}
+		if err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 func capacityDataError(w http.ResponseWriter, err error) {
 	if errors.Is(err, model.ErrResourceInUse) {
-		problem(w, 409, "测试数据仍在处理、被引用或属于共享归档，已保留；请处理完成或解除引用后重试")
+		problem(w, 409, "测试数据仍在处理、被引用或不属于专用测试产品，已保留；请处理完成或解除引用后重试")
 		return
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

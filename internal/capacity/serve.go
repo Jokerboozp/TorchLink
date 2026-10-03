@@ -43,17 +43,18 @@ type ServeOptions struct {
 
 // Service runs at most one capacity run at a time.
 type Service struct {
-	opt       ServeOptions
-	mu        sync.Mutex
-	historyMu sync.Mutex
-	active    string
-	done      chan struct{}
-	cancel    context.CancelFunc
-	last      error
-	// cleaning is the run whose data is being removed; cleanupErr keeps the
-	// last failure per run so the page can show it after navigating away.
-	cleaning   string
-	cleanupErr map[string]string
+	opt    ServeOptions
+	mu     sync.Mutex
+	jobMu  sync.Mutex
+	active string
+	done   chan struct{}
+	cancel context.CancelFunc
+	last   error
+	// cleaning is the running cleanup job and cleaningRun its run, if any;
+	// cleanupErr keeps the last failure per run for the run list.
+	cleaning    string
+	cleaningRun string
+	cleanupErr  map[string]string
 }
 
 func NewService(opt ServeOptions) *Service {
@@ -354,7 +355,7 @@ func (s *Service) runInfo(id string) (RunInfo, error) {
 		return RunInfo{}, err
 	}
 	s.mu.Lock()
-	active, cleaning, cleanupErr := s.active == id, s.cleaning == id, s.cleanupErr[id]
+	active, cleaning, cleanupErr := s.active == id, s.cleaningRun == id, s.cleanupErr[id]
 	s.mu.Unlock()
 	info := RunInfo{RunID: id, Status: st.Status, Message: st.Message, StartedAt: st.StartedAt, UpdatedAt: st.UpdatedAt, PhaseID: st.PhaseID, TargetRate: st.TargetRate, MeasureFrom: st.MeasureFrom, MeasureTo: st.MeasureTo, Completed: st.Completed, Active: active, Cleaning: cleaning, CleanupError: cleanupErr}
 	if info.Completed == nil {
@@ -524,16 +525,12 @@ func (s *Service) Handler() http.Handler {
 		page, size = max(page, 1), min(size, 100)
 		items, total := s.runs(page, size)
 		s.mu.Lock()
-		active, cleaning := s.active, s.cleaning
+		active, cleaning, cleaningRun := s.active, s.cleaning, s.cleaningRun
 		s.mu.Unlock()
-		historyCleaning := strings.HasPrefix(cleaning, "history:")
-		if historyCleaning {
-			cleaning = ""
-		}
 		if !runIDPattern.MatchString(active) {
 			active = ""
 		}
-		serveJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": size, "activeRunId": active, "cleaningRunId": cleaning, "historyCleaning": historyCleaning})
+		serveJSON(w, 200, map[string]any{"items": items, "total": total, "page": page, "pageSize": size, "activeRunId": active, "cleaningRunId": cleaningRun, "cleaningAll": cleaning != "" && cleaningRun == ""})
 	}))
 	mux.HandleFunc("POST /v1/runs", auth(func(w http.ResponseWriter, r *http.Request) {
 		req, ok := decode(w, r)
@@ -584,34 +581,75 @@ func (s *Service) Handler() http.Handler {
 	}))
 	mux.HandleFunc("GET /v1/runs/{id}/cleanup", auth(func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := runID(w, r); ok {
-			scope, err := s.cleanupScope(id, r.URL.Query().Get("tenant"))
+			preview, err := s.RunCleanupPreview(id, r.URL.Query().Get("tenant"))
 			if err != nil {
 				s.cleanupError(w, err)
 				return
 			}
-			serveJSON(w, 200, scope.preview)
+			serveJSON(w, 200, preview)
 		}
 	}))
+	cleanupBody := func(w http.ResponseWriter, r *http.Request) (cleanupRequest, bool) {
+		var req cleanupRequest
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req) != nil || req.Tenant == "" || req.OperatorToken == "" {
+			serveError(w, 400, "bad_request", "cleanup requires operator identity")
+			return req, false
+		}
+		return req, true
+	}
 	mux.HandleFunc("DELETE /v1/runs/{id}", auth(func(w http.ResponseWriter, r *http.Request) {
 		id, ok := runID(w, r)
 		if !ok {
 			return
 		}
-		var req struct {
-			Tenant        string `json:"tenant"`
-			OperatorToken string `json:"operatorToken"`
-		}
-		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req) != nil || req.Tenant == "" || req.OperatorToken == "" {
-			serveError(w, 400, "bad_request", "cleanup requires operator identity")
+		req, ok := cleanupBody(w, r)
+		if !ok {
 			return
 		}
-		if err := s.StartCleanup(id, req.Tenant, req.OperatorToken); err != nil {
+		job, err := s.StartRunCleanup(id, req)
+		if err != nil {
 			s.cleanupError(w, err)
 			return
 		}
-		serveJSON(w, http.StatusAccepted, map[string]any{"runId": id, "cleaning": true})
+		serveJSON(w, http.StatusAccepted, map[string]any{"runId": id, "cleaning": true, "job": job})
 	}))
-	s.registerHistoryCleanup(mux, auth)
+	mux.HandleFunc("POST /v1/cleanup/preview", auth(func(w http.ResponseWriter, r *http.Request) {
+		req, ok := cleanupBody(w, r)
+		if !ok {
+			return
+		}
+		job, err := s.CleanupStatus(req.Tenant, req.Environment)
+		if err != nil {
+			s.cleanupError(w, err)
+			return
+		}
+		preview, err := s.AllCleanupPreview(r.Context(), req)
+		if err != nil {
+			s.cleanupError(w, err)
+			return
+		}
+		serveJSON(w, 200, map[string]any{"preview": preview, "job": job})
+	}))
+	mux.HandleFunc("POST /v1/cleanup", auth(func(w http.ResponseWriter, r *http.Request) {
+		req, ok := cleanupBody(w, r)
+		if !ok {
+			return
+		}
+		job, err := s.StartAllCleanup(r.Context(), req)
+		if err != nil {
+			s.cleanupError(w, err)
+			return
+		}
+		serveJSON(w, http.StatusAccepted, map[string]any{"job": job})
+	}))
+	mux.HandleFunc("GET /v1/cleanup/status", auth(func(w http.ResponseWriter, r *http.Request) {
+		job, err := s.CleanupStatus(r.URL.Query().Get("tenant"), r.URL.Query().Get("environment"))
+		if err != nil {
+			s.cleanupError(w, err)
+			return
+		}
+		serveJSON(w, 200, map[string]any{"job": job})
+	}))
 	return mux
 }
 

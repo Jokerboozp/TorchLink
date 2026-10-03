@@ -98,7 +98,7 @@ func TestCapacityCleanupThroughPlatformAndController(t *testing.T) {
 	}
 	path := server.URL + "/api/v1/ops/capacity/runs/" + id
 	preview := requestJSON(t, server.Client(), "GET", path+"/cleanup", token, nil, 200)
-	if preview["devices"] != float64(1) || preview["rawMessages"] != float64(1) {
+	if preview["devices"] != float64(1) || preview["runs"] != float64(1) {
 		t.Fatal(preview)
 	}
 	if result := requestJSON(t, server.Client(), "DELETE", path, token, map[string]any{"tenant": "forged"}, 202); result["cleaning"] != true {
@@ -467,91 +467,15 @@ func TestCapacityCleanupDataProtectsTenantsAndBusinessDevices(t *testing.T) {
 	cfg.AdminTenants = []string{"t", "other"}
 	cfg.Ops.Tenants = []string{"t"}
 	cfg.Ops.CapacityToken = "controller-secret"
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	token, _ := api.auth.Issue("root", "t", "admin", nil, time.Hour)
-	for _, tenant := range []string{"t", "other"} {
-		_ = repo.SaveProduct(ctx, model.Product{TenantID: tenant, ID: "p", Status: "ENABLED"})
-		if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: "p", ID: "cap-000000", Name: "容量测试 cap-000000", RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: tenant + "-key"}); err != nil {
-			t.Fatal(err)
-		}
-		for _, id := range []string{"this", "other-run"} {
-			_, _ = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: tenant, ProductID: "p", DeviceID: "cap-000000", MessageID: id, ObjectBucket: "postgres"})
-			msg := model.StandardMessage{TenantID: tenant, ProductID: "p", DeviceID: "cap-000000", MessageID: "s-" + id, RawMessageID: id}
-			claim, err := repo.ClaimStandardMessage(ctx, msg, "test", time.Minute)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err = repo.MarkStandardMessageProcessed(ctx, tenant, msg.MessageID, claim.Token); err != nil {
-				t.Fatal(err)
-			}
-			if err = repo.MarkRawParseResult(ctx, tenant, id, time.Now().UnixMilli(), ""); err != nil {
-				t.Fatal(err)
-			}
-		}
-		_, _, _ = repo.UpsertAlarm(ctx, model.Alarm{TenantID: tenant, ID: "a-this", DeviceID: "cap-000000", TriggerID: "s-this", Status: "ACTIVE"})
-	}
-	call := func(q model.CapacityCleanupBatch, secret string, status int) map[string]any {
-		t.Helper()
-		b, _ := json.Marshal(q)
-		r := httptest.NewRequest("POST", capacityCleanupDataPath, strings.NewReader(string(b)))
-		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("X-Capacity-Service-Token", secret)
-		w := httptest.NewRecorder()
-		api.Handler().ServeHTTP(w, r)
-		if w.Code != status {
-			t.Fatalf("cleanup HTTP %d want %d: %s", w.Code, status, w.Body.String())
-		}
-		var result map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &result)
-		return result
-	}
-	q := model.CapacityCleanupBatch{RunID: "cap-20260930-120000-abcdef", Product: "p", Devices: []string{"cap-000000"}, RawIDs: []string{"this"}}
-	call(q, "forged", 403)
-	result := call(q, cfg.Ops.CapacityToken, 200)
-	if result["rawMessages"] != float64(1) || result["standardMessages"] != float64(1) || result["alarms"] != float64(1) {
-		t.Fatal(result)
-	}
-	if _, err := repo.GetRawIndex(ctx, "t", "this"); err == nil {
-		t.Fatal("run raw message retained")
-	}
-	if _, err := repo.GetRawIndex(ctx, "t", "other-run"); err != nil {
-		t.Fatal("other run raw removed", err)
-	}
-	if _, err := repo.GetRawIndex(ctx, "other", "this"); err != nil {
-		t.Fatal("other tenant raw removed", err)
-	}
-	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "p", ID: "business", Name: "业务设备", RegistrationSource: "ONBOARDING", AccessKey: "business-key"}); err != nil {
-		t.Fatal(err)
-	}
-	call(model.CapacityCleanupBatch{RunID: q.RunID, Product: "p", Devices: []string{"business"}, RemoveDevices: []string{"business"}}, cfg.Ops.CapacityToken, 409)
-	q.RawIDs = nil
-	q.RemoveDevices = q.Devices
-	call(q, cfg.Ops.CapacityToken, 200)
-	if _, err := repo.GetManagedDevice(ctx, "t", "cap-000000"); err == nil {
-		t.Fatal("owned fixture retained")
-	}
-	if _, err := repo.GetManagedDevice(ctx, "other", "cap-000000"); err != nil {
-		t.Fatal("other tenant fixture removed", err)
-	}
-	call(q, cfg.Ops.CapacityToken, 200) // retry is idempotent
-}
-
-func TestCapacityHistoricalCleanupRequiresProofAndControllerIdentity(t *testing.T) {
-	ctx := context.Background()
-	repo := memory.NewRepository()
-	cfg := config.Load()
-	cfg.JWTSecret = "capacity-history-test-signing-key"
-	cfg.AdminUser = "root"
-	cfg.AdminTenants = []string{"t", "other"}
-	cfg.Ops.Tenants = []string{"t"}
-	cfg.Ops.CapacityToken = "history-controller-test"
 	cfg.MQTTBroker, cfg.KafkaBrokers = "", nil
 	for _, tenant := range cfg.AdminTenants {
-		p := model.Product{TenantID: tenant, ID: "owned", Name: "容量测试标准设备 owned", Description: "capacity-test 自动创建，用于容量测试设备；可在测试结束后删除", ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED"}
+		p := model.Product{TenantID: tenant, ID: "owned", Name: model.CapacityFixtureProductName("owned"), Description: model.CapacityFixtureDescription + "，用于容量测试设备", ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED"}
 		_ = repo.SaveProduct(ctx, p)
 		_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: p.ID, ID: "fixture", Name: "容量测试 fixture", RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: tenant + "-fixture"})
-		_ = repo.SaveProduct(ctx, model.Product{TenantID: tenant, ID: "cap-business", Name: "正常业务模板", ProtocolPackageID: p.ProtocolPackageID, Status: "DISABLED"})
-		_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: "cap-business", ID: "cap-real", Name: "现场烟感", RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: tenant + "-business"})
+		_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: p.ID, ID: "renamed", Name: "三楼烟感", RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: tenant + "-renamed"})
+		_ = repo.SaveProduct(ctx, model.Product{TenantID: tenant, ID: "cap-business", Name: "正常业务模板", ProtocolPackageID: p.ProtocolPackageID, Status: "ENABLED"})
+		_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: "cap-business", ID: "cap-real", Name: "容量测试 cap-real", RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: tenant + "-business"})
+		_, _ = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: tenant, ProductID: p.ID, DeviceID: "fixture", MessageID: "raw", ObjectBucket: "postgres", ParseAttemptedAt: 1})
 	}
 	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	token, _ := api.auth.Issue("root", "t", "admin", nil, time.Hour)
@@ -571,39 +495,41 @@ func TestCapacityHistoricalCleanupRequiresProofAndControllerIdentity(t *testing.
 		return w.Body.Bytes()
 	}
 	call("GET", capacityFixturePath, nil, "", 403)
+	call("GET", capacityFixturePath, nil, "forged", 403)
 	var page struct {
 		Products []model.CapacityFixtureProduct `json:"products"`
+		Devices  []string                       `json:"devices"`
 	}
 	_ = json.Unmarshal(call("GET", capacityFixturePath, nil, cfg.Ops.CapacityToken, 200), &page)
-	if len(page.Products) != 1 || page.Products[0].ProductID != "owned" || page.Products[0].DeviceCount != 1 {
-		t.Fatalf("prefix-only business template was discovered: %+v", page)
+	if len(page.Products) != 1 || page.Products[0].ProductID != "owned" || page.Products[0].DeviceCount != 2 {
+		t.Fatalf("business template was discovered: %+v", page)
 	}
-	q := model.CapacityCleanupBatch{RunID: "cap-20261002-120000-abcdef", Product: "owned", Devices: []string{"fixture"}, RemoveDevices: []string{"fixture"}, Historical: true}
-	call("POST", capacityCleanupDataPath, q, cfg.Ops.CapacityToken, 409)
-	call("POST", capacityFixturePath, map[string]string{"product": "owned", "fingerprint": "stale"}, cfg.Ops.CapacityToken, 409)
-	if p, _ := repo.GetProduct(ctx, "t", "owned"); p.Status != "ENABLED" {
-		t.Fatal("stale preparation disabled a product")
+	_ = json.Unmarshal(call("GET", capacityFixturePath+"?product=owned", nil, cfg.Ops.CapacityToken, 200), &page)
+	if len(page.Devices) != 1 || page.Devices[0] != "fixture" {
+		t.Fatalf("repurposed device listed: %+v", page.Devices)
 	}
-	call("POST", capacityFixturePath, map[string]string{"product": "owned", "fingerprint": page.Products[0].Fingerprint}, cfg.Ops.CapacityToken, 200)
+	call("POST", capacityCleanupDataPath, model.CapacityCleanupBatch{Product: "cap-business", Devices: []string{"cap-real"}}, cfg.Ops.CapacityToken, 409)
+	call("POST", capacityCleanupDataPath, model.CapacityCleanupBatch{Product: "owned", Devices: []string{"renamed"}}, cfg.Ops.CapacityToken, 409)
+	call("POST", capacityCleanupDataPath, model.CapacityCleanupBatch{Devices: []string{"fixture"}}, cfg.Ops.CapacityToken, 400)
 	var result model.CapacityCleanupCounts
-	_ = json.Unmarshal(call("POST", capacityCleanupDataPath, q, cfg.Ops.CapacityToken, 200), &result)
-	if result.Devices != 1 {
+	_ = json.Unmarshal(call("POST", capacityCleanupDataPath, model.CapacityCleanupBatch{RunID: "cap-20261002-120000-abcdef", Product: "owned", Devices: []string{"fixture"}}, cfg.Ops.CapacityToken, 200), &result)
+	if result.Devices != 1 || result.Raw != 1 {
 		t.Fatal(result)
 	}
-	if _, err := repo.GetManagedDevice(ctx, "other", "fixture"); err != nil {
-		t.Fatal("other tenant fixture removed", err)
+	for _, check := range []struct{ tenant, id string }{{"other", "fixture"}, {"t", "renamed"}, {"t", "cap-real"}} {
+		if _, err := repo.GetManagedDevice(ctx, check.tenant, check.id); err != nil {
+			t.Fatal("device outside the scope removed", check, err)
+		}
 	}
-	if _, err := repo.GetManagedDevice(ctx, "t", "cap-real"); err != nil {
-		t.Fatal("normal device removed", err)
+	if _, err := repo.GetRawIndex(ctx, "other", "raw"); err != nil {
+		t.Fatal("other tenant raw removed", err)
 	}
-	q.Devices, q.RemoveDevices, q.RemoveProduct = nil, nil, true
-	_ = json.Unmarshal(call("POST", capacityCleanupDataPath, q, cfg.Ops.CapacityToken, 200), &result)
-	if result.Products != 1 {
+	// The repurposed device keeps the product, which is reported, not failed.
+	_ = json.Unmarshal(call("POST", capacityCleanupDataPath, model.CapacityCleanupBatch{Product: "owned", RemoveProduct: true}, cfg.Ops.CapacityToken, 200), &result)
+	if result.Products != 0 || len(result.Warnings) == 0 {
 		t.Fatal(result)
 	}
-	call("POST", capacityCleanupDataPath, q, cfg.Ops.CapacityToken, 200)
-	call("GET", capacityFixturePath+"?product=owned", nil, cfg.Ops.CapacityToken, 200)
-	for _, path := range []string{capacityHistoryPath, capacityHistoryStatusPath, capacityFixturePath, capacityCleanupDataPath} {
+	for _, path := range []string{capacityCleanupAllPath, capacityCleanupStatusPath, capacityFixturePath, capacityCleanupDataPath} {
 		if allowsRoute(map[string]bool{"menu:opsCapacity": true}, "GET", path) {
 			t.Errorf("menu-only user can access cleanup: %s", path)
 		}
@@ -613,104 +539,81 @@ func TestCapacityHistoricalCleanupRequiresProofAndControllerIdentity(t *testing.
 	}
 }
 
-func TestCapacityProtocolArtifactsPreserveOtherProtocolsAndLinks(t *testing.T) {
-	root := t.TempDir()
-	api := &Server{cfg: config.Config{DataDir: root}}
-	fixture := filepath.Join(root, "protocol-releases", "t", "cap-gb26875-private")
-	business := filepath.Join(root, "protocol-releases", "t", "business")
-	for _, dir := range []string{fixture, business} {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "artifact"), []byte("isolated-test"), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := api.removeCapacityProtocolArtifacts("t", "cap-gb26875-private"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(fixture); !os.IsNotExist(err) {
-		t.Fatal("private test artifact remains", err)
-	}
-	if _, err := os.Stat(filepath.Join(business, "artifact")); err != nil {
-		t.Fatal("business artifact removed", err)
-	}
-	if err := os.Symlink(business, fixture); err != nil {
-		t.Fatal(err)
-	}
-	if err := api.removeCapacityProtocolArtifacts("t", "cap-gb26875-private"); err == nil {
-		t.Fatal("linked protocol directory was accepted")
-	}
-	if _, err := os.Stat(filepath.Join(business, "artifact")); err != nil {
-		t.Fatal("linked business artifact removed", err)
-	}
-	if err := api.removeCapacityProtocolArtifacts("../t", "cap-gb26875-private"); err == nil {
-		t.Fatal("tenant traversal was accepted")
-	}
-}
-
-type capacityBindingRaceRepository struct {
-	*memory.Repository
-	beforeCleanup func()
-}
-
-func (r *capacityBindingRaceRepository) CleanupCapacityData(ctx context.Context, tenant string, q model.CapacityCleanupBatch) (model.CapacityCleanupCounts, error) {
-	if r.beforeCleanup != nil {
-		r.beforeCleanup()
-		r.beforeCleanup = nil
-	}
-	return r.Repository.CleanupCapacityData(ctx, tenant, q)
-}
-
-func TestCapacityProtocolArtifactsWaitForOwnershipTransaction(t *testing.T) {
+func TestCapacityCleanAllThroughPlatformAndController(t *testing.T) {
 	ctx := context.Background()
-	repo := &capacityBindingRaceRepository{Repository: memory.NewRepository()}
-	protocol := "cap-private-gb26875"
-	product := model.Product{TenantID: "t", ID: "fixture", Name: "容量测试 GB26875", ProtocolPackageID: protocol + "@1.0.0", Status: "DISABLED", Metadata: map[string]any{"source": "CAP"}}
-	_ = repo.SaveProduct(ctx, product)
-	_ = repo.SaveProtocolPackage(ctx, model.ProtocolPackage{TenantID: "t", ID: product.ProtocolPackageID, Protocol: protocol, ParserType: "go_protocol_parser", Status: "PUBLISHED"})
-	_ = repo.SaveProtocolDefinition(ctx, model.ProtocolDefinition{TenantID: "t", ID: protocol})
-	root := t.TempDir()
-	artifact := filepath.Join(root, "protocol-releases", "t", protocol, "1.0.0", "artifact")
-	_ = os.MkdirAll(filepath.Dir(artifact), 0700)
-	_ = os.WriteFile(artifact, []byte("private-test-worker"), 0600)
+	repo := memory.NewRepository()
 	cfg := config.Load()
-	cfg.DataDir, cfg.JWTSecret, cfg.AdminUser = root, "capacity-artifact-race-test-signing-key", "root"
-	cfg.AdminTenants, cfg.Ops.Tenants = []string{"t"}, []string{"t"}
-	cfg.Ops.CapacityToken = "artifact-test-controller"
-	cfg.MQTTBroker, cfg.KafkaBrokers = "", nil
+	cfg.JWTSecret = "capacity-clean-all-integration-key-32"
+	cfg.AdminUser, cfg.AdminTenants = "root", []string{"t"}
+	cfg.Ops.Tenants, cfg.Ops.CapacityToken = []string{"t"}, "clean-all-controller-secret"
 	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	token, _ := api.auth.Issue("root", "t", "admin", nil, time.Hour)
-	repo.beforeCleanup = func() {
-		// A real business binding appears after HTTP preflight and before the
-		// repository's final exclusive-ownership check.
-		_ = repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "business", ProtocolPackageID: product.ProtocolPackageID, Status: "ENABLED"})
-	}
-	call := func(status int) {
-		t.Helper()
-		q := model.CapacityCleanupBatch{RunID: "cap-20261002-120000-abcdef", Product: product.ID, Historical: true, RemoveProduct: true}
-		b, _ := json.Marshal(q)
-		r := httptest.NewRequest("POST", capacityCleanupDataPath, bytes.NewReader(b))
-		r.Header.Set("Authorization", "Bearer "+token)
-		r.Header.Set("X-Capacity-Service-Token", cfg.Ops.CapacityToken)
-		w := httptest.NewRecorder()
-		api.Handler().ServeHTTP(w, r)
-		if w.Code != status {
-			t.Fatalf("artifact cleanup HTTP %d want %d: %s", w.Code, status, w.Body.String())
-		}
-	}
-	call(409)
-	if _, err := os.Stat(artifact); err != nil {
-		t.Fatal("rejected transaction lost shared worker", err)
-	}
-	if _, err := repo.GetProtocolPackage(ctx, "t", product.ProtocolPackageID); err != nil {
-		t.Fatal("shared protocol disappeared", err)
-	}
-	if err := repo.DeleteResource(ctx, "t", "product", "business"); err != nil {
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	root := t.TempDir()
+	service := capacity.NewService(capacity.ServeOptions{ResultsDir: root, Token: cfg.Ops.CapacityToken, Self: &capacity.SelfEnvironment{API: server.URL, PostgresDSN: "unused", Metrics: []capacity.MetricsTarget{{Role: "combined", Instance: "a", URL: server.URL + "/metrics"}}}})
+	controller := httptest.NewServer(service.Handler())
+	defer controller.Close()
+	api.cfg.Ops.CapacityURL = controller.URL
+	token, err := api.auth.Issue("root", "t", "admin", nil, time.Hour)
+	if err != nil {
 		t.Fatal(err)
 	}
-	call(200)
-	if _, err := os.Stat(artifact); !os.IsNotExist(err) {
-		t.Fatal("committed private protocol artifact was not removed", err)
+	p, err := capacity.ParsePlan([]byte("schemaVersion: 1\nname: cleanup\nfixtures: {tenant: t, product: cap-standard, deviceCount: 1, reuseDevices: true, autoProvision: true}\nload: {ingressShare: {http: 1}, initialMessagesPerSecond: 1}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _, err := p.Sanitized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile := func(path string, b []byte) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, b, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs := []string{"cap-20261001-120000-aaaaaa", "cap-20261002-120000-bbbbbb"}
+	for _, id := range runs {
+		writeFile(filepath.Join(root, id, "plan.sanitized.yaml"), plan)
+		writeFile(filepath.Join(root, id, "state.json"), []byte(`{"runId":"`+id+`","status":"FINISHED"}`))
+		writeFile(filepath.Join(root, id, "manifest.json"), []byte(`{"runId":"`+id+`","tenant":"t","product":"cap-standard","devices":["cap-000000"]}`))
+		writeFile(filepath.Join(root, id, "cleanup-context.json"), []byte(`{"environment":"self"}`))
+	}
+	_ = repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "cap-standard", Name: model.CapacityFixtureProductName("cap-standard"), ProtocolPackageID: onboarding.StandardPackageID, Description: model.CapacityFixtureDescription})
+	_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "cap-standard", ID: "cap-000000", Name: "容量测试 cap-000000", RegistrationSource: "ONBOARDING", AccessKey: "fixture-key"})
+	_ = repo.SaveReplay(ctx, model.ReplayRequest{TenantID: "t", ID: "run-replay", CapacityRunID: runs[0], Status: "COMPLETED"})
+	// The shared device is kept when only one run is deleted.
+	preview := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ops/capacity/runs/"+runs[0]+"/cleanup", token, nil, 200)
+	if preview["devices"] != float64(0) || preview["sharedDevices"] != float64(1) {
+		t.Fatal(preview)
+	}
+	all := requestJSON(t, server.Client(), "GET", server.URL+capacityCleanupAllPath+"?environment=self", token, nil, 200)
+	if summary := all["preview"].(map[string]any); summary["runs"] != float64(2) || summary["devices"] != float64(1) {
+		t.Fatal(all)
+	}
+	requestJSON(t, server.Client(), "POST", server.URL+capacityCleanupAllPath, token, map[string]string{"environment": "self"}, 202)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		status := requestJSON(t, server.Client(), "GET", server.URL+capacityCleanupStatusPath+"?environment=self", token, nil, 200)
+		job, _ := status["job"].(map[string]any)
+		if job != nil && job["status"] == "SUCCEEDED" {
+			break
+		}
+		if job != nil && job["status"] == "FAILED" || time.Now().After(deadline) {
+			t.Fatal("clean all did not succeed", status)
+		}
+	}
+	if _, err = repo.GetProduct(ctx, "t", "cap-standard"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("test product retained", err)
+	}
+	if _, err = repo.GetReplay(ctx, "run-replay"); !errors.Is(err, model.ErrNotFound) {
+		t.Fatal("run task retained", err)
+	}
+	for _, id := range runs {
+		if _, err = os.Stat(filepath.Join(root, id)); !os.IsNotExist(err) {
+			t.Fatal("run record retained", id, err)
+		}
 	}
 }

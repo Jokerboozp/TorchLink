@@ -31,12 +31,9 @@ const subcommandUsage = `capacity-test one-click orchestration (docs/DEVELOPMENT
   capacity-test serve --listen 127.0.0.1:7080 --inventories <dir> --token-ref <name> [--secrets <file>] [--results capacity-results] [--fault-allow <file>]
   capacity-test serve --self --listen :7080 --results <dir>     # capacity module: settings from IOT_CAPACITY_* variables
   capacity-test agent --listen :7070 --token-ref <name> [--secrets <file>] [--name <agent>] [--fault-allow <file>]
-
-Legacy single-mode usage (-mode ...) is unchanged; run with -h for its flags.
 `
 
-// subcommand runs the orchestration commands. It returns false for legacy
-// "-mode" invocations so the original flag parsing keeps working.
+// subcommand runs one orchestration command and reports whether it matched.
 func subcommand(args []string) bool {
 	if len(args) == 0 {
 		return false

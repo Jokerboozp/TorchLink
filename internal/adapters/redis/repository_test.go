@@ -60,6 +60,8 @@ func (c *cleanupRedis) SRem(_ context.Context, key string, members ...interface{
 func TestCapacityCleanupInvalidatesOnlyScopedCacheAndRetries(t *testing.T) {
 	ctx := context.Background()
 	base := memory.NewRepository()
+	_ = base.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Name: model.CapacityFixtureProductName("p"), Description: model.CapacityFixtureDescription, ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED"})
+	_ = base.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "p", ID: "cap", Name: "容量测试 cap", RegistrationSource: "ONBOARDING", AccessKey: "cap"})
 	_, _ = base.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "raw", ParseAttemptedAt: 1})
 	c := &cleanupRedis{keys: map[string]bool{}, sets: map[string]map[string]bool{"device:online:" + cacheSegment("t"): {"cap": true, "business": true}}, fail: true}
 	removed := []string{stateKey("t", "cap"), latestKey("t", "cap"), "alarm:active:" + cacheSegment("t") + ":" + cacheSegment("cap") + ":alarm"}
@@ -68,7 +70,7 @@ func TestCapacityCleanupInvalidatesOnlyScopedCacheAndRetries(t *testing.T) {
 		c.keys[k] = true
 	}
 	r := New(base, c)
-	q := model.CapacityCleanupBatch{RunID: "cap-20260930-120000-abcdef", Product: "p", Devices: []string{"cap", "business"}, RemoveDevices: []string{"cap"}}
+	q := model.CapacityCleanupBatch{RunID: "cap-20260930-120000-abcdef", Product: "p", Devices: []string{"cap"}}
 	if _, err := r.CleanupCapacityData(ctx, "t", q); err == nil {
 		t.Fatal("cache failure reported success")
 	}
@@ -113,7 +115,7 @@ func TestCapacityFixtureDiscoveryThroughStorageComposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	var repository ports.Repository = New(telemetry, &cleanupRedis{})
-	lister, ok := repository.(ports.CapacityFixtureLister)
+	lister, ok := repository.(ports.CapacityDataCleaner)
 	if !ok {
 		t.Fatal("fixture capability hidden by Redis/ClickHouse decorators")
 	}
@@ -128,31 +130,15 @@ func TestCapacityFixtureDiscoveryThroughStorageComposition(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	page, err := lister.ListCapacityFixtureProducts(ctx, "t", "", 1)
-	if err != nil || len(page) != 1 || page[0].ProductID != "a" || page[0].DeviceCount != 2 {
-		t.Fatal("first product page", page, err)
+	products, err := lister.ListCapacityFixtureProducts(ctx, "t")
+	if err != nil || len(products) != 2 || products[0].ProductID != "a" || products[0].DeviceCount != 2 {
+		t.Fatal("product listing", products, err)
 	}
-	if err = lister.PrepareCapacityFixture(ctx, "t", "a", page[0].Fingerprint); err != nil {
-		t.Fatal("fixture preparation hidden by decorators", err)
-	}
-	p, err := repository.GetProduct(ctx, "t", "a")
-	if err != nil || p.Status != "DISABLED" {
-		t.Fatal("preparation did not reach base storage", p, err)
-	}
-	page, err = lister.ListCapacityFixtureProducts(ctx, "t", "a", 1)
-	if err != nil || len(page) != 1 || page[0].ProductID != "b" {
-		t.Fatal("second product page", page, err)
-	}
-	ids, err := lister.ListCapacityFixtureDevices(ctx, "t", "a", "", 1)
-	if err != nil || len(ids) != 1 || ids[0] != "d1" {
-		t.Fatal("first device page", ids, err)
-	}
-	ids, err = lister.ListCapacityFixtureDevices(ctx, "t", "a", "d1", 1)
+	ids, err := lister.ListCapacityFixtureDevices(ctx, "t", "a", "d1", 1)
 	if err != nil || len(ids) != 1 || ids[0] != "d2" {
-		t.Fatal("second device page", ids, err)
+		t.Fatal("device page", ids, err)
 	}
-	page, err = lister.ListCapacityFixtureProducts(ctx, "other", "", 100)
-	if err != nil || len(page) != 0 {
-		t.Fatal("decorators expanded tenant scope", page, err)
+	if products, err = lister.ListCapacityFixtureProducts(ctx, "other"); err != nil || len(products) != 0 {
+		t.Fatal("decorators expanded tenant scope", products, err)
 	}
 }

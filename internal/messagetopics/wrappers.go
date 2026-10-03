@@ -12,23 +12,11 @@ type routingBus struct {
 	service *Service
 }
 
-type routingCapacityBus struct {
-	*routingBus
-	ports.CapacityQueueCleaner
-}
-
 func (s *Service) WrapBus(bus ports.EventBus) ports.EventBus {
 	if bus == nil {
 		return nil
 	}
-	wrapped := &routingBus{EventBus: bus, service: s}
-	// Capacity cleanup discovers this optional capability on engine.Bus.
-	// Preserve it only when the actual broker provides it; local buses must
-	// not appear to support destructive broker operations.
-	if cleaner, ok := bus.(ports.CapacityQueueCleaner); ok {
-		return &routingCapacityBus{routingBus: wrapped, CapacityQueueCleaner: cleaner}
-	}
-	return wrapped
+	return &routingBus{EventBus: bus, service: s}
 }
 
 func (b *routingBus) Publish(ctx context.Context, topic, key string, payload []byte) error {

@@ -3,7 +3,6 @@ package memory
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 
 	"iot-platform/internal/model"
@@ -14,10 +13,10 @@ func TestCapacityCleanupModuleOwnershipAndPending(t *testing.T) {
 	r := NewRepository()
 	ctx := context.Background()
 	id := "cap-20260930-120000-abcdef"
-	q := model.CapacityCleanupBatch{RunID: id, Product: "p", Resources: []model.CapacityCleanupResource{{Kind: "inspection", ID: "own"}, {Kind: "inspection", ID: "business"}, {Kind: "alarm-analysis", ID: "job"}, {Kind: "replay", ID: "replay"}}}
+	q := model.CapacityCleanupBatch{RunID: id}
 	_, _ = r.CreateHealthInspectionJob(ctx, model.HealthInspectionJob{TenantID: "t", ID: "own", CapacityRunID: id, Status: "running"})
 	_, _ = r.CreateHealthInspectionJob(ctx, model.HealthInspectionJob{TenantID: "t", ID: "business", Status: "succeeded"})
-	if _, err := r.CapacityMessageIDs(ctx, "t", q); !errors.Is(err, model.ErrResourceInUse) {
+	if _, err := r.CleanupCapacityData(ctx, "t", q); !errors.Is(err, model.ErrResourceInUse) {
 		t.Fatal("running module cleanup allowed", err)
 	}
 	_, _ = r.UpdateRunningHealthInspectionJob(ctx, model.HealthInspectionJob{TenantID: "t", ID: "own", CapacityRunID: id, Status: "succeeded"})
@@ -25,9 +24,6 @@ func TestCapacityCleanupModuleOwnershipAndPending(t *testing.T) {
 	_ = r.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "t", AlarmID: "alarm", CapacityRunID: id})
 	_ = r.SaveAIAnalysis(ctx, model.AIAnalysis{TenantID: "t", AlarmID: "alarm", KnowledgeScope: "business"})
 	_ = r.SaveReplay(ctx, model.ReplayRequest{TenantID: "t", ID: "replay", CapacityRunID: id, Status: "COMPLETED"})
-	if _, err := r.CapacityMessageIDs(ctx, "t", q); err != nil {
-		t.Fatal(err)
-	}
 	n, err := r.CleanupCapacityData(ctx, "t", q)
 	if err != nil || n.Resources != 3 {
 		t.Fatalf("cleanup %+v %v", n, err)
@@ -50,18 +46,11 @@ func TestCapacityCleanupModuleOwnershipAndPending(t *testing.T) {
 func TestCapacityFixtureRecognition(t *testing.T) {
 	repositorytest.CapacityFixtureRecognition(t, NewRepository())
 }
-func TestCapacityFixtureSharedProtocol(t *testing.T) {
-	for _, reference := range []string{"product", "version", "alias"} {
-		t.Run(reference, func(t *testing.T) { repositorytest.CapacityFixtureSharedProtocol(t, NewRepository(), reference) })
-	}
+func TestCapacityFixtureCleanup(t *testing.T) {
+	repositorytest.CapacityFixtureCleanup(t, NewRepository())
 }
-func TestCapacityFixtureAssociatedCleanup(t *testing.T) {
-	repositorytest.CapacityFixtureAssociatedCleanup(t, NewRepository())
-}
-func TestCapacityPrivateProtocolCleanup(t *testing.T) {
-	for _, keep := range []bool{false, true} {
-		t.Run(fmt.Sprint(keep), func(t *testing.T) { repositorytest.CapacityPrivateProtocolCleanup(t, NewRepository(), keep) })
-	}
+func TestCapacityProductKeptWhileShared(t *testing.T) {
+	repositorytest.CapacityProductKeptWhileShared(t, NewRepository())
 }
 
 func TestUpdateVideoEventReplacesPendingRecord(t *testing.T) {

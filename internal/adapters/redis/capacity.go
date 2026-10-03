@@ -8,13 +8,6 @@ import (
 	"strings"
 )
 
-func (r *Repository) CapacityMessageIDs(ctx context.Context, t string, q model.CapacityCleanupBatch) ([]string, error) {
-	c, ok := r.Repository.(ports.CapacityDataCleaner)
-	if !ok {
-		return nil, errors.New("capacity cleanup is unsupported")
-	}
-	return c.CapacityMessageIDs(ctx, t, q)
-}
 func (r *Repository) CleanupCapacityData(ctx context.Context, t string, q model.CapacityCleanupBatch) (model.CapacityCleanupCounts, error) {
 	c, ok := r.Repository.(ports.CapacityDataCleaner)
 	if !ok {
@@ -24,12 +17,11 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, t string, q model.
 	if err != nil {
 		return n, err
 	}
-	// Devices contains the complete run manifest, including fixtures shared with
-	// other runs. Only exclusive removals may lose their current cache state.
+	// Removed devices lose their cached state, latest message and active alarms.
 	remove := map[string]bool{}
 	keys := []string{}
 	members := []any{}
-	for _, device := range q.RemoveDevices {
+	for _, device := range q.Devices {
 		segment := cacheSegment(device)
 		if remove[segment] {
 			continue
@@ -87,28 +79,20 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, t string, q model.
 	return n, nil
 }
 
-func (r *Repository) ListCapacityFixtureProducts(ctx context.Context, tenant, after string, limit int) ([]model.CapacityFixtureProduct, error) {
-	lister, ok := r.Repository.(ports.CapacityFixtureLister)
+func (r *Repository) ListCapacityFixtureProducts(ctx context.Context, tenant string) ([]model.CapacityFixtureProduct, error) {
+	c, ok := r.Repository.(ports.CapacityDataCleaner)
 	if !ok {
-		return nil, errors.New("capacity fixture discovery is unsupported")
+		return nil, errors.New("capacity cleanup is unsupported")
 	}
-	return lister.ListCapacityFixtureProducts(ctx, tenant, after, limit)
+	return c.ListCapacityFixtureProducts(ctx, tenant)
 }
 
 func (r *Repository) ListCapacityFixtureDevices(ctx context.Context, tenant, product, after string, limit int) ([]string, error) {
-	lister, ok := r.Repository.(ports.CapacityFixtureLister)
+	c, ok := r.Repository.(ports.CapacityDataCleaner)
 	if !ok {
-		return nil, errors.New("capacity fixture discovery is unsupported")
+		return nil, errors.New("capacity cleanup is unsupported")
 	}
-	return lister.ListCapacityFixtureDevices(ctx, tenant, product, after, limit)
+	return c.ListCapacityFixtureDevices(ctx, tenant, product, after, limit)
 }
 
-func (r *Repository) PrepareCapacityFixture(ctx context.Context, tenant, product, fingerprint string) error {
-	lister, ok := r.Repository.(ports.CapacityFixtureLister)
-	if !ok {
-		return errors.New("capacity fixture discovery is unsupported")
-	}
-	return lister.PrepareCapacityFixture(ctx, tenant, product, fingerprint)
-}
-
-var _ ports.CapacityFixtureLister = (*Repository)(nil)
+var _ ports.CapacityDataCleaner = (*Repository)(nil)

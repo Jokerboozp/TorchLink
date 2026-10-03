@@ -72,7 +72,8 @@ func newFakePlatform(t *testing.T, loseN int64, extra ...func(*http.ServeMux, *f
 			w.WriteHeader(404)
 			return
 		}
-		_, _ = w.Write([]byte(`{"product":{"status":"ENABLED"},"ready":true}`))
+		id := r.URL.Query().Get("productId")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ready": true, "product": map[string]string{"id": id, "status": "ENABLED", "name": "容量测试标准设备 " + id, "description": "capacity-test 自动创建", "protocolPackageId": "iot-standard@1.0.0"}})
 	}))
 	mux.HandleFunc("PUT /api/v1/products/{id}", authed(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
