@@ -646,6 +646,15 @@ assert_no_call ' pull .*zlmediakit'
 "$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
 grep -q 'published: "5060"' "$test_root/video-online.yaml"
 grep -q 'published: "30063"' "$test_root/video-online.yaml"
+# Management consoles and Kafka's external listener stay on the host by default.
+for port in 18083 9001 19092; do
+  grep -B1 "target: $port\$" "$test_root/video-online.yaml" | grep -q 'host_ip: 127.0.0.1'
+done
+cp "$test_root/.env.online-video" "$test_root/.env.online-kafka"
+set_env_for_test() { grep -v "^$2=" "$1" > "$1.tmp"; printf '%s=%s\n' "$2" "$3" >> "$1.tmp"; mv "$1.tmp" "$1"; }
+set_env_for_test "$test_root/.env.online-kafka" IOT_KAFKA_PUBLIC_BROKERS kafka.example.test:19092
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-kafka" > /dev/null
+grep -q '^KAFKA_BIND_ADDRESS=0.0.0.0$' "$test_root/.env.online-kafka"
 echo 'PASS video module: default on, GB28181 ports, offline packaging, opt-out kept and online toggle'
 
 # Capacity-test module: deployed by default from the platform image with a

@@ -263,7 +263,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
-    ports: ["${MINIO_CONSOLE_PORT:-9001}:9001"]
+    ports: ["${MINIO_CONSOLE_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"]
     volumes: ["minio-data:/data"]
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -289,7 +289,7 @@ services:
     <<: *service-defaults
     image: redpandadata/redpanda:v25.2.11
     ports:
-      - "${KAFKA_PORT:-19092}:19092"
+      - "${KAFKA_BIND_ADDRESS:-127.0.0.1}:${KAFKA_PORT:-19092}:19092"
     command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://${IOT_KAFKA_ADVERTISED_HOST:-127.0.0.1}:${KAFKA_PORT:-19092}", "--set", "redpanda.enable_sasl=true", "--set", "redpanda.admin_api_require_auth=true", "--set", 'redpanda.superusers=["${IOT_KAFKA_ADMIN_USERNAME:-admin}"]']
     environment:
       RP_BOOTSTRAP_USER: "${IOT_KAFKA_ADMIN_USERNAME:-admin}:${IOT_KAFKA_ADMIN_PASSWORD:-admin123}:${IOT_KAFKA_SASL_MECHANISM:-SCRAM-SHA-256}"
@@ -381,7 +381,7 @@ services:
     ports:
       - "${MQTT_PORT:-1883}:1883"
       - "${MQTT_WS_PORT:-8083}:8083"
-      - "${EMQX_DASHBOARD_PORT:-18083}:18083"
+      - "${EMQX_DASHBOARD_BIND_ADDRESS:-127.0.0.1}:${EMQX_DASHBOARD_PORT:-18083}:18083"
     volumes: ["emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log"]
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
@@ -434,7 +434,7 @@ services:
     configs:
       - {source: grafana-datasources, target: /etc/grafana/provisioning/datasources/iot.yml}
     volumes: ["grafana-data:/var/lib/grafana"]
-    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    ports: ["${GRAFANA_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"]
     depends_on:
       prometheus: {condition: service_started}
       loki: {condition: service_started}

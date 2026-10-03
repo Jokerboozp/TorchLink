@@ -34,6 +34,7 @@ $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 Assert-DockerAvailable
 Ensure-DeploymentEnv -Path $EnvFile
 Ensure-EmqxAdminEnv -Path $EnvFile -DefaultUrl 'http://emqx:18083'
+Ensure-KafkaBindAddress -Path $EnvFile
 Set-DeepSeekDeploymentEnv -Path $EnvFile
 Set-EmbeddingDeploymentEnv -Path $EnvFile
 

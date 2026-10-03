@@ -57,6 +57,8 @@ foreach ($path in @($envPath, $composePath, $offlineComposePath, $archivePath, $
         throw "离线包缺少文件：$path"
     }
 }
+. (Join-Path $scriptDir 'lib/deployment.ps1')
+Ensure-KafkaBindAddress -Path $envPath
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "找不到 docker 命令，请先安装 Docker Engine/Desktop。"

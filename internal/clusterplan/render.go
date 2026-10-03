@@ -539,7 +539,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			add(kind, "sentinel", service(inv.Images.Redis, map[string]any{"entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{script}, "environment": map[string]string{"REDIS_PASSWORD": "${REDIS_PASSWORD}"}, "volumes": []string{"sentinel-data:/data"}}), "sentinel-data")
 			env["REDIS_PASSWORD"] = r.s.RedisPassword
 		case "minio":
-			add(kind, "minio", service(inv.Images.MinIO, map[string]any{"command": []string{"server", "/data", "--address", ":9002", "--console-address", ":9003"}, "environment": map[string]string{"MINIO_ROOT_USER": "${MINIO_ROOT_USER}", "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}"}, "volumes": []string{"minio-data:/data"}}), "minio-data")
+			add(kind, "minio", service(inv.Images.MinIO, map[string]any{"command": []string{"server", "/data", "--address", ":9002", "--console-address", "127.0.0.1:9003"}, "environment": map[string]string{"MINIO_ROOT_USER": "${MINIO_ROOT_USER}", "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}"}, "volumes": []string{"minio-data:/data"}}), "minio-data")
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"] = r.s.MinIORootUser, r.s.MinIORootPassword
 		case "harness":
 			origins := []string{inv.APIURL()}

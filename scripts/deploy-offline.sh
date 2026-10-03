@@ -34,6 +34,8 @@ for file in "$env_file" "$compose_file" "$offline_compose_file" "$archive_file" 
   [[ -f "$file" ]] || die "离线包缺少文件：$file"
 done
 source "$script_dir/lib/docker-bootstrap.sh"
+source "$script_dir/lib/deployment.sh"
+ensure_kafka_bind_address "$env_file"
 ensure_deployment_docker offline "$bundle_dir/docker-runtime"
 if (( ! skip_health_check )); then
   command -v curl >/dev/null 2>&1 || die "健康检查需要 curl；请先安装，或显式使用 --skip-health-check"

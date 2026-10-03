@@ -249,6 +249,20 @@ function Set-DeepSeekDeploymentEnv {
     if (-not $key) { Write-Warning '请填写 DEEPSEEK_API_KEY，或启动后在“模型管理”填写密钥并保存（连接测试可选）；未配置前 AI 功能不可用。' }
 }
 
+# Kafka's external listener binds to 127.0.0.1 by default. An existing
+# environment that already handed consumers a non-local address keeps it open.
+function Ensure-KafkaBindAddress {
+    param([string]$Path)
+    if (-not [string]::IsNullOrWhiteSpace((Get-DeploymentEnvValue -Path $Path -Key 'KAFKA_BIND_ADDRESS'))) { return }
+    foreach ($broker in "$(Get-DeploymentEnvValue -Path $Path -Key 'IOT_KAFKA_PUBLIC_BROKERS')" -split ',') {
+        $broker = $broker.Trim()
+        if (-not $broker -or $broker -match '^(127\.0\.0\.1|localhost|\[::1\]):') { continue }
+        Set-DeploymentEnvValue -Path $Path -Key 'KAFKA_BIND_ADDRESS' -Value '0.0.0.0'
+        Write-Host "Kafka 对外地址为 $broker，保留外部监听（KAFKA_BIND_ADDRESS=0.0.0.0）。"
+        return
+    }
+}
+
 function Ensure-EmqxAdminEnv {
     param([string]$Path, [string]$DefaultUrl)
     $apiKey = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_KEY'

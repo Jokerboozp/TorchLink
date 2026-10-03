@@ -171,6 +171,21 @@ configure_deepseek_env() {
 }
 
 # Add the platform's own management credentials once; never rotate an existing key.
+# Kafka's external listener binds to 127.0.0.1 by default. An existing
+# environment that already handed consumers a non-local address keeps it open.
+ensure_kafka_bind_address() {
+  local env_path="$1" broker
+  [ -z "$(get_deployment_env_value "$env_path" KAFKA_BIND_ADDRESS)" ] || return 0
+  for broker in $(get_deployment_env_value "$env_path" IOT_KAFKA_PUBLIC_BROKERS | tr ',' ' '); do
+    case "$broker" in
+      127.0.0.1:*|localhost:*|'[::1]':*) ;;
+      *) set_deployment_env_value "$env_path" KAFKA_BIND_ADDRESS 0.0.0.0
+         printf 'Kafka 对外地址为 %s，保留外部监听（KAFKA_BIND_ADDRESS=0.0.0.0）。\n' "$broker"
+         return 0 ;;
+    esac
+  done
+}
+
 ensure_emqx_admin_env() {
   local env_path="$1" default_url="$2" api_key api_secret
   api_key="$(get_deployment_env_value "$env_path" IOT_EMQX_API_KEY)"

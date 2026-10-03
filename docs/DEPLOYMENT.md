@@ -107,13 +107,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | API | `8081`（本机 Go） | `8081`，可设 `IOT_API_PORT` |
 | PostgreSQL / Redis | `15432` / `16379` | 仅容器网络 |
 | ClickHouse | `18123` | 仅容器网络 |
-| Kafka | `19092` | `19092`，可设 `KAFKA_PORT`；`IOT_KAFKA_ADVERTISED_HOST` 设置为客户端可达地址 |
-| MinIO 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` |
+| Kafka | `19092` | `19092` 默认仅宿主机（`KAFKA_BIND_ADDRESS`），可设 `KAFKA_PORT`；对外提供 Kafka 订阅时设为 `0.0.0.0` 并把 `IOT_KAFKA_ADVERTISED_HOST` 设置为客户端可达地址。升级时 `IOT_KAFKA_PUBLIC_BROKERS` 已是非本机地址的环境由部署脚本自动保留外部监听 |
+| MinIO 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` 默认仅宿主机（`MINIO_CONSOLE_BIND_ADDRESS`） |
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
-| EMQX 控制台 | `18083` | `18083`（`EMQX_DASHBOARD_PORT`），只开放给可信网络 |
+| EMQX 控制台 | `18083` | `18083`（`EMQX_DASHBOARD_PORT`）默认仅宿主机（`EMQX_DASHBOARD_BIND_ADDRESS`），需要远程管理时只开放给可信网络 |
 | TCP / UDP 协议接入 | 本机 Go API 直接监听接入点端口 | `26875` TCP+UDP；其他监听端口写入 `IOT_PROTOCOL_PORTS`（单个端口或范围）后重跑部署，拆分 Gateway 时由 Gateway 发布 |
 | 备份服务 / Harness | 备份源码进程 `8092` / Harness `8091` | `8092` / `8091`，仅宿主机 |
-| Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`） |
+| Prometheus / Grafana | `19090` / `13000`（`--include-ops`） | Prometheus `9090` 仅宿主机（`PROMETHEUS_BIND_ADDRESS` 可改）/ Grafana `3000`（`GRAFANA_PORT`）默认仅宿主机（`GRAFANA_BIND_ADDRESS`） |
 | Loki / Alertmanager | `13100` / `19093`（`--include-ops`） | 仅容器网络 |
 | 摄像头直播媒体服务 | API / HLS `18580`；WebRTC `8000`；GB28181 RTP `30000-30063`（均按本地绑定地址） | API / HLS 仅容器网络（HLS 经 Web 的 `/media/hls/`）；WebRTC `IOT_VIDEO_RTC_PORT`（默认 `8000`）UDP+TCP 对浏览器开放；RTP 端口范围 UDP+TCP 对摄像头网络开放 |
 | GB28181 SIP | `5060` UDP+TCP（本机 Go API） | `IOT_GB28181_SIP_PORT`（默认 `5060`）UDP+TCP，对摄像头网络开放 |

@@ -156,3 +156,7 @@ IOT_KAFKA_ADMIN_USERNAME	Redpanda 管理用户名，默认 admin
 IOT_KAFKA_ADMIN_PASSWORD	Redpanda 管理密码，默认 admin123
 IOT_KAFKA_ADVERTISED_HOST	Kafka 外部监听器公告主机，填写工具可访问的依赖机地址
 IOT_KAFKA_PUBLIC_BROKERS	外部工具可访问的 Kafka 地址，逗号分隔 host:port
+KAFKA_BIND_ADDRESS	Kafka 外部监听绑定地址，默认仅本机 127.0.0.1；对外提供 Kafka 订阅时设为 0.0.0.0
+EMQX_DASHBOARD_BIND_ADDRESS	EMQX 控制台绑定地址，默认仅本机 127.0.0.1
+MINIO_CONSOLE_BIND_ADDRESS	MinIO 控制台绑定地址，默认仅本机 127.0.0.1
+GRAFANA_BIND_ADDRESS	Grafana 绑定地址，默认仅本机 127.0.0.1
