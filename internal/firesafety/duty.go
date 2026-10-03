@@ -2,6 +2,8 @@ package firesafety
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -140,6 +142,49 @@ func saveAssignment(state *model.FireSafetyState, id string, body json.RawMessag
 		*old = v
 	}
 	return v, nil
+}
+
+// maxBatchAssignments bounds one batch to about two months of daily shifts.
+const maxBatchAssignments = 62
+
+// createAssignments validates every assignment against existing duty and the
+// earlier items of the same batch, then commits all of them or none.
+func createAssignments(state *model.FireSafetyState, body json.RawMessage, now int64) (any, error) {
+	var in struct {
+		Assignments []model.DutyAssignment `json:"assignments"`
+	}
+	if err := read(body, &in); err != nil {
+		return nil, err
+	}
+	if len(in.Assignments) == 0 || len(in.Assignments) > maxBatchAssignments {
+		return nil, invalid(fmt.Sprintf("批量排班须为1至%d条", maxBatchAssignments))
+	}
+	var problems []string
+	created := make([]model.DutyAssignment, 0, len(in.Assignments))
+	for _, v := range in.Assignments {
+		if err := text(&v.Notes, "排班备注", false, 2000); err != nil {
+			return nil, err
+		}
+		day := time.UnixMilli(v.StartAt).Format("01-02 15:04")
+		if err := validateAssignment(state, v, ""); err != nil {
+			if errors.Is(err, ErrConflict) {
+				problems = append(problems, day+" "+strings.TrimPrefix(err.Error(), ErrConflict.Error()+": "))
+				continue
+			}
+			return nil, fmt.Errorf("%w（%s）", err, day)
+		}
+		r, _ := record(model.FireRecord{}, nil, now)
+		v.FireRecord = r
+		state.Assignments = append(state.Assignments, v)
+		created = append(created, v)
+	}
+	if len(problems) > 0 {
+		if len(problems) > 10 {
+			problems = append(problems[:10], fmt.Sprintf("等 %d 处", len(problems)))
+		}
+		return nil, conflict("以下排班存在冲突，未保存任何排班：" + strings.Join(problems, "；"))
+	}
+	return map[string]any{"items": created, "created": len(created)}, nil
 }
 
 func deleteAssignment(state *model.FireSafetyState, id string, body json.RawMessage) (any, error) {

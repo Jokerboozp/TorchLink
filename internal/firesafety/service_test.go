@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -63,6 +65,15 @@ func (f fixture) dispatch(person string, quantity int) model.FireDispatch {
 		v.Equipment = []model.FireEquipmentUsage{{EquipmentID: f.equipment.ID, Quantity: quantity}}
 	}
 	return v
+}
+
+// standardChecks returns every standard item, failing the named ones.
+func standardChecks(failed ...string) []model.FireInspectionCheck {
+	out := []model.FireInspectionCheck{}
+	for _, name := range StandardChecks {
+		out = append(out, model.FireInspectionCheck{Name: name, Passed: !slices.Contains(failed, name)})
+	}
+	return out
 }
 func (f fixture) inspection() model.FireInspection {
 	return model.FireInspection{ExtinguisherID: f.extinguisher.ID, AssigneeID: f.people[0].ID, DueAt: f.now + 86400000}
@@ -154,9 +165,11 @@ func TestInspectionRectificationReviewCycle(t *testing.T) {
 	s.Enabled = false
 	wantError(t, f.s, "operator-a", "saveStation", s.ID, s, ErrConflict)
 	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": []any{}}, ErrValidation)
-	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": []model.FireInspectionCheck{{Name: "压力", Passed: true}, {Name: "压力", Passed: true}}}, ErrValidation)
-	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": []model.FireInspectionCheck{{Name: "压力", Passed: false}}}, ErrValidation)
-	task = call(t, f.s, "inspect", task.ID, map[string]any{"version": task.Version, "checks": []model.FireInspectionCheck{{Name: "外观", Passed: true}, {Name: "压力", Passed: false}}, "findings": "压力不足", "result": "pass"}).(model.FireInspection)
+	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": append(standardChecks(), model.FireInspectionCheck{Name: "外观及筒体", Passed: true})}, ErrValidation)
+	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": standardChecks("压力指示")}, ErrValidation)
+	// Standard items cannot be renamed or omitted; custom items may be added.
+	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": []model.FireInspectionCheck{{Name: "外观", Passed: true}}}, ErrValidation)
+	task = call(t, f.s, "inspect", task.ID, map[string]any{"version": task.Version, "checks": append(standardChecks("压力指示"), model.FireInspectionCheck{Name: "箱体", Passed: true}), "findings": "压力不足", "result": "pass"}).(model.FireInspection)
 	if task.Result != "fail" || task.Status != "rectifying" {
 		t.Fatal("result was not calculated", task)
 	}
@@ -196,11 +209,11 @@ func TestInspectionRectificationReviewCycle(t *testing.T) {
 func TestInspectionPassAndStateVersionIsolation(t *testing.T) {
 	f := newFixture(t, 1)
 	task := call(t, f.s, "createInspection", "", f.inspection()).(model.FireInspection)
-	task = call(t, f.s, "inspect", task.ID, map[string]any{"version": task.Version, "checks": []model.FireInspectionCheck{{Name: "外观", Passed: true}}}).(model.FireInspection)
+	task = call(t, f.s, "inspect", task.ID, map[string]any{"version": task.Version, "checks": standardChecks()}).(model.FireInspection)
 	if task.Status != "completed" || task.Result != "pass" {
 		t.Fatal(task)
 	}
-	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": []model.FireInspectionCheck{{Name: "外观", Passed: true}}}, ErrConflict)
+	wantError(t, f.s, "operator-a", "inspect", task.ID, map[string]any{"version": task.Version, "checks": standardChecks()}, ErrConflict)
 	other, err := f.s.Snapshot(f.ctx, "tenant-b")
 	if err != nil || len(other.Stations) != 0 || other.Stations == nil || other.Revision != 0 {
 		t.Fatal(other, err)
@@ -340,4 +353,57 @@ func TestCrossStationInspectionAndHistoricalDutyReferences(t *testing.T) {
 	historicalOverlap.StartAt, historicalOverlap.EndAt = end, end+3600000
 	call(t, f.s, "saveAssignment", "", historicalOverlap)
 	wantError(t, f.s, "operator-a", "deletePersonnel", p.ID, map[string]any{"version": p.Version}, ErrConflict)
+}
+
+func TestBatchAssignmentsCommitAllOrReportEveryConflict(t *testing.T) {
+	f := newFixture(t, 2)
+	day := int64(24 * time.Hour / time.Millisecond)
+	start := f.now + day
+	batch := func(days int, groups ...[]string) map[string]any {
+		items := []model.DutyAssignment{}
+		for i := 0; i < days; i++ {
+			items = append(items, model.DutyAssignment{StationID: f.station.ID, ShiftID: f.shift.ID, PersonnelIDs: groups[i%len(groups)], StartAt: start + int64(i)*day, EndAt: start + int64(i)*day + 8*3600000})
+		}
+		return map[string]any{"assignments": items}
+	}
+	call(t, f.s, "saveAssignment", "", f.assignment(f.people[0].ID, start+2*day, start+2*day+3600000))
+	_, err := f.s.Apply(f.ctx, "tenant-a", "operator-a", "createAssignments", "", raw(batch(4, []string{f.people[0].ID}, []string{f.people[1].ID})))
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "未保存任何排班") {
+		t.Fatalf("conflicting batch was not rejected: %v", err)
+	}
+	state, _ := f.s.Snapshot(f.ctx, "tenant-a")
+	if len(state.Assignments) != 1 {
+		t.Fatal("rejected batch saved assignments", state.Assignments)
+	}
+	result := call(t, f.s, "createAssignments", "", batch(2, []string{f.people[0].ID}, []string{f.people[1].ID})).(map[string]any)
+	if result["created"] != 2 {
+		t.Fatal(result)
+	}
+	// Overlap inside the same batch is a conflict too.
+	overlap := batch(1, []string{f.people[1].ID})
+	overlap["assignments"] = append(overlap["assignments"].([]model.DutyAssignment), overlap["assignments"].([]model.DutyAssignment)...)
+	wantError(t, f.s, "operator-a", "createAssignments", "", overlap, ErrConflict)
+	wantError(t, f.s, "operator-a", "createAssignments", "", map[string]any{"assignments": []model.DutyAssignment{}}, ErrValidation)
+	wantError(t, f.s, "operator-a", "createAssignments", "", batch(63, []string{f.people[0].ID}), ErrValidation)
+}
+
+func TestBatchInspectionsSkipOpenAndRetiredAssets(t *testing.T) {
+	f := newFixture(t, 1)
+	second := call(t, f.s, "saveExtinguisher", "", model.Extinguisher{Code: "EXT-2", StationID: f.station.ID, Location: "二层", Type: "co2", ManufacturedOn: "2020-01-01", ServiceDueOn: "2027-01-01", RetireOn: "2030-01-01", InspectionCycleDays: 30, Status: "active"}).(model.Extinguisher)
+	retired := call(t, f.s, "saveExtinguisher", "", model.Extinguisher{Code: "EXT-3", StationID: f.station.ID, Location: "三层", Type: "co2", ManufacturedOn: "2020-01-01", ServiceDueOn: "2027-01-01", RetireOn: "2030-01-01", InspectionCycleDays: 30, Status: "retired"}).(model.Extinguisher)
+	call(t, f.s, "createInspection", "", f.inspection())
+	body := map[string]any{"extinguisherIds": []string{f.extinguisher.ID, second.ID, retired.ID}, "assigneeId": f.people[0].ID, "dueAt": f.now + 86400000}
+	result := call(t, f.s, "createInspections", "", body).(map[string]any)
+	if result["created"] != 1 || len(result["items"].([]model.FireInspection)) != 1 || result["items"].([]model.FireInspection)[0].ExtinguisherID != second.ID {
+		t.Fatal("batch did not create exactly the eligible task", result)
+	}
+	encoded, _ := json.Marshal(result["skipped"])
+	if !strings.Contains(string(encoded), "EXT-1") || !strings.Contains(string(encoded), "EXT-3") {
+		t.Fatal("skipped assets were not reported", string(encoded))
+	}
+	wantError(t, f.s, "operator-a", "createInspections", "", body, ErrConflict)
+	fresh := call(t, f.s, "saveExtinguisher", "", model.Extinguisher{Code: "EXT-4", StationID: f.station.ID, Location: "四层", Type: "co2", ManufacturedOn: "2020-01-01", ServiceDueOn: "2027-01-01", RetireOn: "2030-01-01", InspectionCycleDays: 30, Status: "active"}).(model.Extinguisher)
+	body["assigneeId"] = "missing"
+	body["extinguisherIds"] = []string{fresh.ID}
+	wantError(t, f.s, "operator-a", "createInspections", "", body, ErrValidation)
 }

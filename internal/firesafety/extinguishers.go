@@ -2,6 +2,8 @@ package firesafety
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -109,6 +111,59 @@ func deleteExtinguisher(state *model.FireSafetyState, id string, body json.RawMe
 	return deleted(), nil
 }
 
+// StandardChecks are the inspection items every extinguisher check must cover.
+// Inspectors may add items but cannot rename or omit these.
+var StandardChecks = []string{"外观及筒体", "压力指示", "喷管及附件", "铭牌及日期", "放置及标识"}
+
+// maxBatchInspections bounds one batch of inspection tasks.
+const maxBatchInspections = 500
+
+// createInspections assigns one person to many due extinguishers. Assets that
+// already have an open task or are retired are skipped and reported.
+func createInspections(state *model.FireSafetyState, actor string, body json.RawMessage, now int64) (any, error) {
+	var in struct {
+		ExtinguisherIDs []string `json:"extinguisherIds"`
+		AssigneeID      string   `json:"assigneeId"`
+		DueAt           int64    `json:"dueAt"`
+		Notes           string   `json:"notes"`
+	}
+	if err := read(body, &in); err != nil {
+		return nil, err
+	}
+	if len(in.ExtinguisherIDs) == 0 || len(in.ExtinguisherIDs) > maxBatchInspections {
+		return nil, invalid(fmt.Sprintf("批量巡检须选择1至%d个灭火器", maxBatchInspections))
+	}
+	if err := uniqueIDs(in.ExtinguisherIDs, "灭火器"); err != nil {
+		return nil, err
+	}
+	type skipped struct {
+		ID     string `json:"id"`
+		Code   string `json:"code"`
+		Reason string `json:"reason"`
+	}
+	created, skips := []model.FireInspection{}, []skipped{}
+	for _, id := range in.ExtinguisherIDs {
+		task, _ := json.Marshal(map[string]any{"extinguisherId": id, "assigneeId": in.AssigneeID, "dueAt": in.DueAt, "notes": in.Notes})
+		result, err := createInspection(state, actor, task, now)
+		if errors.Is(err, ErrConflict) {
+			code := id
+			if e := extinguisher(state, id); e != nil {
+				code = e.Code
+			}
+			skips = append(skips, skipped{ID: id, Code: code, Reason: strings.TrimPrefix(err.Error(), ErrConflict.Error()+": ")})
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		created = append(created, result.(model.FireInspection))
+	}
+	if len(created) == 0 {
+		return nil, conflict("所选灭火器均已有未结巡检任务或已报废，未创建任务")
+	}
+	return map[string]any{"items": created, "created": len(created), "skipped": skips}, nil
+}
+
 func createInspection(state *model.FireSafetyState, actor string, body json.RawMessage, now int64) (any, error) {
 	var v model.FireInspection
 	if err := read(body, &v); err != nil {
@@ -175,6 +230,11 @@ func inspect(state *model.FireSafetyState, actor, id string, body json.RawMessag
 		}
 		seen[key] = true
 		passed = passed && check.Passed
+	}
+	for _, name := range StandardChecks {
+		if !seen[strings.ToLower(name)] {
+			return nil, invalid("检查项目须包含标准项目“" + name + "”")
+		}
 	}
 	if err := text(&in.Findings, "问题描述", !passed, 4000); err != nil {
 		return nil, err

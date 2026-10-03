@@ -52,6 +52,7 @@ func fireSafetyAction(method, path string) string {
 		"POST /api/v1/extinguisher-inspections": "创建巡检任务", "POST /api/v1/extinguisher-inspections/:id/inspect": "提交巡检结果",
 		"POST /api/v1/extinguisher-inspections/:id/rectify": "提交整改", "POST /api/v1/extinguisher-inspections/:id/review": "复核整改",
 		"POST /api/v1/extinguisher-inspections/:id/cancel": "取消巡检任务",
+		"POST /api/v1/duty/assignments/batch":              "批量排班", "POST /api/v1/extinguisher-inspections/batch": "批量创建巡检任务",
 	}[method+" "+path]
 }
 
@@ -82,6 +83,8 @@ func (s *Server) fireSafetyRoutes() {
 	} {
 		s.router.POST(route.path, s.authorize("operator"), s.endpoint(s.fireSafetyMutation(route.action), "id"))
 	}
+	s.router.POST("/api/v1/duty/assignments/batch", s.authorize("operator"), s.endpoint(s.fireSafetyMutation("createAssignments")))
+	s.router.POST("/api/v1/extinguisher-inspections/batch", s.authorize("operator"), s.endpoint(s.fireSafetyMutation("createInspections")))
 	s.router.GET("/api/v1/fire-safety/options", s.authorize("viewer"), s.endpoint(s.fireSafetyOptions))
 	s.router.GET("/api/v1/fire-stations/statistics", s.authorize("viewer"), s.endpoint(s.fireStationStatistics))
 	s.router.GET("/api/v1/extinguishers/statistics", s.authorize("viewer"), s.endpoint(s.extinguisherStatistics))
@@ -126,7 +129,7 @@ func (s *Server) fireSafetyMutation(action string) endpointHandler {
 			return
 		}
 		targetID := r.PathValue("id")
-		if targetID == "" {
+		if targetID == "" && !strings.HasSuffix(r.URL.Path, "/batch") {
 			encoded, _ := json.Marshal(result)
 			var created struct {
 				ID string `json:"id"`
@@ -136,7 +139,7 @@ func (s *Server) fireSafetyMutation(action string) endpointHandler {
 		}
 		s.audit(r, "fire-safety."+action, "fire-safety", targetID, nil)
 		status := http.StatusOK
-		if r.Method == http.MethodPost && r.PathValue("id") == "" {
+		if r.Method == http.MethodPost && r.PathValue("id") == "" && !strings.HasSuffix(r.URL.Path, "/batch") {
 			status = http.StatusCreated
 		}
 		write(w, status, result)
@@ -184,9 +187,19 @@ func fireSafetyRows(state model.FireSafetyState, kind string, now time.Time, rem
 		rows = fireMaps(state.Inspections)
 	case "extinguishers":
 		rows = fireMaps(state.Extinguishers)
+		open := map[string]model.FireInspection{}
+		for _, task := range state.Inspections {
+			if task.Status == "pending" || task.Status == "rectifying" || task.Status == "reviewing" {
+				open[task.ExtinguisherID] = task
+			}
+		}
 		for i, asset := range state.Extinguishers {
 			reminders, last, next := extinguisherReminders(asset, state.Inspections, now, remindDays)
 			rows[i]["reminders"], rows[i]["lastInspectedAt"], rows[i]["nextInspectionOn"] = reminders, last, next
+			// The asset status stays as entered; the open task shows its current stage.
+			if task, ok := open[asset.ID]; ok {
+				rows[i]["openInspection"] = map[string]any{"id": task.ID, "status": task.Status, "dueAt": task.DueAt}
+			}
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -234,16 +247,25 @@ func fireSafetyFilter(rows []map[string]any, kind string, r *http.Request, state
 			continue
 		}
 		if keyword != "" {
-			data, _ := json.Marshal(row)
-			searchText := string(data)
+			// Search only user-visible text, never field names, IDs or timestamps.
+			fields := map[string][]string{
+				"stations": {"code", "name", "address", "contact", "notes"}, "personnel": {"name", "position", "notes"},
+				"equipment": {"name", "category", "notes"}, "dispatches": {"title", "location", "summary"}, "shifts": {"name"},
+				"assignments": {"notes"}, "swaps": {"reason", "reviewNote"}, "inspections": {"notes", "findings"},
+				"extinguishers": {"code", "location", "specification", "manufacturer", "serialNumber", "notes"},
+			}[kind]
+			var searchText strings.Builder
+			for _, field := range fields {
+				searchText.WriteString(" " + fireString(row, field))
+			}
 			for _, v := range state.Stations {
-				if v.ID == rowStation {
-					searchText += " " + v.Name
+				if v.ID == rowStation && kind != "stations" {
+					searchText.WriteString(" " + v.Name)
 				}
 			}
 			for _, v := range state.Shifts {
 				if v.ID == fireString(row, "shiftId") {
-					searchText += " " + v.Name
+					searchText.WriteString(" " + v.Name)
 				}
 			}
 			for _, v := range state.Personnel {
@@ -254,15 +276,15 @@ func fireSafetyFilter(rows []map[string]any, kind string, r *http.Request, state
 					}
 				}
 				if matches {
-					searchText += " " + v.Name
+					searchText.WriteString(" " + v.Name)
 				}
 			}
 			for _, v := range state.Extinguishers {
 				if v.ID == fireString(row, "extinguisherId") {
-					searchText += " " + v.Code + " " + v.Location
+					searchText.WriteString(" " + v.Code + " " + v.Location)
 				}
 			}
-			if !strings.Contains(strings.ToLower(searchText), keyword) {
+			if !strings.Contains(strings.ToLower(searchText.String()), keyword) {
 				continue
 			}
 		}
@@ -342,7 +364,7 @@ func (s *Server) fireSafetyOptions(w http.ResponseWriter, r *http.Request) {
 	for _, v := range state.Personnel {
 		personnel = append(personnel, map[string]any{"id": v.ID, "name": v.Name, "stationId": v.StationID, "enabled": v.Enabled})
 	}
-	out := map[string]any{"stations": stations, "personnel": personnel, "shifts": []model.DutyShift{}, "extinguishers": []map[string]any{}, "equipment": []map[string]any{}}
+	out := map[string]any{"stations": stations, "personnel": personnel, "shifts": []model.DutyShift{}, "extinguishers": []map[string]any{}, "equipment": []map[string]any{}, "inspectionChecks": firesafety.StandardChecks}
 	if requestAllows(r, "GET", "/api/v1/duty/shifts") {
 		out["shifts"] = state.Shifts
 	}

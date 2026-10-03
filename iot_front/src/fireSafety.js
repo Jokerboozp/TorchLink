@@ -70,6 +70,22 @@ export function shiftRange(day, startTime, endTime) {
   if (end <= start) end.setDate(end.getDate() + 1)
   return [start.getTime(), end.getTime()]
 }
+// 批量排班：日期区间内每天一个班次，人员按组逐日轮换（第 1 天第 1 组，第 2 天第 2 组……）。
+export const maxBatchDays = 62
+export function batchAssignments({ stationId, shift, from, to, groups, notes = '' }) {
+  const rotation = (groups || []).map(group => [...new Set(group || [])]).filter(group => group.length)
+  if (!stationId || !shift) throw new Error('请选择消防站和班次模板')
+  if (!rotation.length) throw new Error('请至少设置一组值班人员')
+  const first = localDate(from), last = localDate(to)
+  if (last < first) throw new Error('结束日期不能早于开始日期')
+  const out = []
+  for (const day = new Date(first); day <= last; day.setDate(day.getDate() + 1)) {
+    if (out.length >= maxBatchDays) throw new Error(`一次最多安排 ${maxBatchDays} 天`)
+    const [startAt, endAt] = shiftRange(toDateInput(day), shift.startTime, shift.endTime)
+    out.push({ stationId, shiftId:shift.id, personnelIds:[...rotation[out.length % rotation.length]], startAt, endAt, notes:String(notes || '').trim() })
+  }
+  return out
+}
 export function monthRange(day) {
   const date = localDate(day)
   return [new Date(date.getFullYear(), date.getMonth(), 1).getTime(), new Date(date.getFullYear(), date.getMonth() + 1, 1).getTime()]

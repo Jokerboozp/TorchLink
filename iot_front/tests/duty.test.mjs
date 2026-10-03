@@ -223,3 +223,15 @@ test('创建换班只提交申请字段，服务端关联与审批字段不会�
   await c.saveSwap()
   assert.deepEqual(mutations, [{ path:'/api/v1/duty/swaps', body:{ assignmentId:'assignment', fromPersonnelId:'from', toPersonnelId:'to', reason:'调整人员' } }])
 })
+
+test('批量排班按日期逐日生成并按组轮换，超出范围或缺少人员时拒绝', () => {
+  const shift = { id:'night', startTime:'22:00', endTime:'06:00' }
+  const rows = fireSafety.batchAssignments({ stationId:'s1', shift, from:'2026-10-30', to:'2026-11-02', groups:[['a', 'a'], ['b']], notes:' 轮值 ' })
+  assert.equal(rows.length, 4)
+  assert.deepEqual(rows.map(row => row.personnelIds.join()), ['a', 'b', 'a', 'b'])
+  assert.deepEqual(rows[0], { stationId:'s1', shiftId:'night', personnelIds:['a'], startAt:fireSafety.shiftRange('2026-10-30', '22:00', '06:00')[0], endAt:fireSafety.shiftRange('2026-10-30', '22:00', '06:00')[1], notes:'轮值' })
+  assert.equal(fireSafety.toDateInput(rows[2].startAt), '2026-11-01')
+  assert.throws(() => fireSafety.batchAssignments({ stationId:'s1', shift, from:'2026-10-02', to:'2026-10-01', groups:[['a']] }), /结束日期/)
+  assert.throws(() => fireSafety.batchAssignments({ stationId:'s1', shift, from:'2026-10-01', to:'2026-10-02', groups:[[]] }), /一组/)
+  assert.throws(() => fireSafety.batchAssignments({ stationId:'s1', shift, from:'2026-01-01', to:'2026-03-31', groups:[['a']] }), /62/)
+})

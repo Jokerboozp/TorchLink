@@ -114,7 +114,7 @@ func TestFireSafetyHTTPWorkflowsAndPermissions(t *testing.T) {
 	exid := asset["id"].(string)
 	task := req("POST", "/api/v1/extinguisher-inspections", root, map[string]any{"extinguisherId": exid, "assigneeId": pid1, "dueAt": time.Now().Add(time.Hour).UnixMilli()}, 201)
 	tid := task["id"].(string)
-	task = req("POST", "/api/v1/extinguisher-inspections/"+tid+"/inspect", root, map[string]any{"version": task["version"], "checks": []map[string]any{{"name": "压力正常", "passed": false}}, "findings": "压力不足"}, 200)
+	task = req("POST", "/api/v1/extinguisher-inspections/"+tid+"/inspect", root, map[string]any{"version": task["version"], "checks": []map[string]any{{"name": "外观及筒体", "passed": true}, {"name": "压力指示", "passed": false}, {"name": "喷管及附件", "passed": true}, {"name": "铭牌及日期", "passed": true}, {"name": "放置及标识", "passed": true}}, "findings": "压力不足"}, 200)
 	if task["status"] != "rectifying" || task["result"] != "fail" {
 		t.Fatalf("failed inspection did not open rectification: %v", task)
 	}
@@ -131,6 +131,33 @@ func TestFireSafetyHTTPWorkflowsAndPermissions(t *testing.T) {
 		t.Fatalf("incorrect asset reminder statistics: %v", stats)
 	}
 	req("GET", "/api/v1/extinguishers?due=overdue", root, nil, 200)
+	// Keyword search matches visible text only, never field names.
+	if found := req("GET", "/api/v1/extinguishers?q=status", root, nil, 200); found["total"] != float64(0) {
+		t.Fatalf("field name matched every row: %v", found)
+	}
+	if found := req("GET", "/api/v1/extinguishers?q=ex-1", root, nil, 200); found["total"] != float64(1) {
+		t.Fatalf("asset code search failed: %v", found)
+	}
+	batch := req("POST", "/api/v1/extinguisher-inspections/batch", root, map[string]any{"extinguisherIds": []string{exid}, "assigneeId": pid1, "dueAt": time.Now().Add(time.Hour).UnixMilli()}, 200)
+	if batch["created"] != float64(1) {
+		t.Fatalf("batch inspection not created: %v", batch)
+	}
+	assets := req("GET", "/api/v1/extinguishers", root, nil, 200)
+	if open := assets["items"].([]any)[0].(map[string]any)["openInspection"].(map[string]any); open["status"] != "pending" {
+		t.Fatalf("asset does not show its open inspection: %v", open)
+	}
+	if checks := req("GET", "/api/v1/fire-safety/options", root, nil, 200)["inspectionChecks"].([]any); len(checks) != 5 {
+		t.Fatalf("standard checks not offered: %v", checks)
+	}
+	future := time.Now().Add(30 * 24 * time.Hour).UnixMilli()
+	days := []map[string]any{}
+	for i := int64(0); i < 3; i++ {
+		days = append(days, map[string]any{"stationId": sid, "shiftId": assignment["shiftId"], "personnelIds": []string{pid1}, "startAt": future + i*86400000, "endAt": future + i*86400000 + 3600000})
+	}
+	if created := req("POST", "/api/v1/duty/assignments/batch", root, map[string]any{"assignments": days}, 200); created["created"] != float64(3) {
+		t.Fatalf("batch assignments not created: %v", created)
+	}
+	req("POST", "/api/v1/duty/assignments/batch", root, map[string]any{"assignments": days}, 409)
 	req("DELETE", "/api/v1/extinguishers/"+exid+"?version=1", root, nil, 409)
 	// Revoking the menu immediately revokes shared lookups on the same token.
 	user["permissions"] = []string{}
@@ -139,7 +166,7 @@ func TestFireSafetyHTTPWorkflowsAndPermissions(t *testing.T) {
 	reader = login("duty_reader", "fire-reader-password", "fire-a")
 	req("GET", "/api/v1/fire-safety/options", reader, nil, 403)
 	stored, err := repo.LoadFireSafetyState(context.Background(), "fire-a")
-	if err != nil || len(stored.Dispatches) != 2 || len(stored.Inspections) != 1 {
+	if err != nil || len(stored.Dispatches) != 2 || len(stored.Inspections) != 2 || len(stored.Assignments) != 4 {
 		t.Fatalf("decorated API did not persist: %+v %v", stored, err)
 	}
 }

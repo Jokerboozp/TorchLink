@@ -131,6 +131,8 @@ func mutate(v *model.FireSafetyState, actor, action, id string, body json.RawMes
 		return saveAssignment(v, id, body, now)
 	case "deleteAssignment":
 		return deleteAssignment(v, id, body)
+	case "createAssignments":
+		return createAssignments(v, body, now)
 	case "createSwap":
 		return createSwap(v, actor, body, now)
 	case "reviewSwap":
@@ -141,6 +143,8 @@ func mutate(v *model.FireSafetyState, actor, action, id string, body json.RawMes
 		return deleteExtinguisher(v, id, body)
 	case "createInspection":
 		return createInspection(v, actor, body, now)
+	case "createInspections":
+		return createInspections(v, actor, body, now)
 	case "inspect":
 		return inspect(v, actor, id, body, now)
 	case "rectify":

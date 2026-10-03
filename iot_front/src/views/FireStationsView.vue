@@ -132,25 +132,24 @@ onMounted(refresh)
     <div v-if="optionsError" class="fire-error" role="alert"><span>{{ optionsError }}</span><ui-button size="small" @click="loadOptions">重新加载选项</ui-button></div>
     <ui-tabs v-model="tab">
       <ui-tab-pane v-for="(item,key) in tabs" :key="key" :name="key" :label="item.label" />
-      <ui-tab-pane name="statistics" label="统计" />
     </ui-tabs>
     <FilterBar>
-      <ui-input v-if="tab !== 'statistics'" v-model="filters.q" clearable placeholder="搜索编号、名称或位置" aria-label="搜索关键字" @keyup.enter="applyFilters" />
+      <ui-input v-model="filters.q" clearable placeholder="搜索编号、名称或位置" aria-label="搜索关键字" @keyup.enter="applyFilters" />
       <ui-select v-model="filters.stationId" clearable filterable placeholder="全部消防站" aria-label="消防站筛选" @change="applyFilters"><ui-option v-for="item in options.stations" :key="item.id" :value="item.id" :label="item.name" /></ui-select>
       <ui-select v-if="tab === 'equipment' || tab === 'dispatches'" v-model="filters.status" clearable placeholder="全部状态" aria-label="状态筛选" @change="applyFilters"><ui-option v-for="item in tab === 'equipment' ? equipmentStates : [{value:'dispatched',label:'已出动'},{value:'returned',label:'已归队'}]" :key="item.value" :value="item.value" :label="item.label" /></ui-select>
-      <ui-button v-if="tab !== 'statistics'" @click="applyFilters">查询</ui-button>
+      <ui-button @click="applyFilters">查询</ui-button>
       <template #actions><ui-button :loading="loading || statisticsLoading" @click="refresh"><RefreshCw />刷新</ui-button><ui-button v-if="tabs[tab]" v-permission="`POST /api/v1/${tabs[tab].path}`" type="primary" :disabled="Boolean(optionsError) && tab !== 'stations'" @click="open(tab)"><Plus />{{ tab === 'dispatches' ? '登记出勤' : `新增${tab === 'stations' ? '消防站' : labels(tab)}` }}</ui-button></template>
     </FilterBar>
-    <div v-if="tab === 'dispatches' || tab === 'statistics'" class="fire-summary-filter"><label>开始日期<input v-model="range.from" type="date" class="fire-date" @change="applyFilters" /></label><label>结束日期<input v-model="range.to" type="date" class="fire-date" @change="applyFilters" /></label></div>
-    <div v-if="statisticsError && tab !== 'statistics'" class="fire-error" role="alert"><span>{{ statisticsError }}</span><ui-button size="small" @click="loadStatistics">重新加载统计</ui-button></div>
+    <div v-if="tab === 'dispatches'" class="fire-summary-filter"><label>开始日期<input v-model="range.from" type="date" class="fire-date" @change="applyFilters" /></label><label>结束日期<input v-model="range.to" type="date" class="fire-date" @change="applyFilters" /></label></div>
+    <div v-if="statisticsError" class="fire-error" role="alert"><span>{{ statisticsError }}</span><ui-button size="small" @click="loadStatistics">重新加载统计</ui-button></div>
     <div v-if="statistics" class="fire-stats" aria-label="消防站概况">
       <div v-for="(label,key) in {stations:'消防站',personnel:'人员',equipment:'在用器材数量',activeDispatches:'未归队',dispatches:'出勤次数',returnedDispatches:'已归队次数'}" :key="key" class="fire-stat"><span>{{ label }}</span><strong>{{ statistics[key] ?? '—' }}</strong></div>
     </div>
-    <DataTableCard v-if="tab === 'statistics'" title="各消防站统计" :error="statisticsError" @retry="loadStatistics">
+    <details v-if="statistics?.byStation?.length" class="fire-station-stats"><summary>各消防站统计 · {{ statistics.byStation.length }} 个</summary>
       <ui-table :data="statistics?.byStation || []" :loading="statisticsLoading" empty-text="暂无消防站统计"><ui-table-column prop="name" label="消防站" min-width="180" /><ui-table-column prop="personnel" label="人员" width="100" /><ui-table-column prop="equipment" label="在用器材数量" min-width="130" /><ui-table-column prop="activeDispatches" label="未归队" width="100" /><ui-table-column prop="dispatches" label="出勤次数" width="100" /><ui-table-column prop="returnedDispatches" label="已归队次数" min-width="120" /></ui-table>
       <p class="fire-hint" style="padding:0 16px">日期范围按出勤开始时间统计出勤次数；未归队为当前全部未归队记录。器材数量包含维护中的器材。</p>
-    </DataTableCard>
-    <DataTableCard v-else :title="`${labels(tab)} · ${total} 条`" :page="page" :page-size="pageSize" :total="total" :error="loadError" @retry="load" @update:page="changePage" @update:page-size="changePageSize">
+    </details>
+    <DataTableCard :title="`${labels(tab)} · ${total} 条`" :page="page" :page-size="pageSize" :total="total" :error="loadError" @retry="load" @update:page="changePage" @update:page-size="changePageSize">
       <ui-table :data="rows" :loading="loading" :empty-text="`暂无${labels(tab)}，可使用上方按钮创建`">
         <template v-if="tab === 'stations'">
           <ui-table-column label="消防站" min-width="200"><template #default="{row}"><strong>{{row.name}}</strong><small class="fire-subline">{{row.code}} · {{enumName(stationTypes,row.type)}}</small></template></ui-table-column>
