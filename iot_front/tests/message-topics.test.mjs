@@ -8,7 +8,7 @@ import * as topicHelpers from '../src/messageTopics.js'
 
 const prefixes = { mqtt:'/iot/external/74656e616e74/', kafka:'iot.external.74656e616e74.' }
 const topic = { id:'mqtt.parsed', name:'解析数据', protocol:'mqtt', direction:'outbound', topic:'/iot/parsed/{tenantId}/{deviceId}', defaultTopic:'/iot/parsed/{tenantId}/{deviceId}', enabled:true, effectiveEnabled:true, editable:true, variables:['tenantId', 'deviceId'], description:'解析成功后发布', overridden:false }
-const catalog = (revision = 1, items = [topic]) => ({ revision, items, prefixes, sources:[topic], accounts:[], users:[{ username:'consumer', displayName:'外部系统', enabled:true }], authorization:{ mqtt:{ ready:false, reason:'MQTT 尚未配置授权' }, kafka:{ ready:false, reason:'Kafka 尚未配置授权' } }, runtime:{ mqttEnabled:true, kafkaEnabled:false, kafkaParsedEnabled:false } })
+const catalog = (revision = 1, items = [topic]) => ({ revision, items, prefixes, sources:[topic], rules:[], accounts:[], users:[{ username:'consumer', displayName:'外部系统', enabled:true }], authorization:{ mqtt:{ ready:false, reason:'MQTT 尚未配置授权' }, kafka:{ ready:false, reason:'Kafka 尚未配置授权' } }, runtime:{ mqttEnabled:true, kafkaEnabled:false, kafkaParsedEnabled:false } })
 
 function page(api, permissions = ['*']) {
   const hooks = {}, alerts = [], requests = []
@@ -26,7 +26,7 @@ function page(api, permissions = ['*']) {
     navigator:{ clipboard:{ writeText:async () => {} } }
   })
   const source = setupScript(new URL('../src/views/MessageTopicsView.vue', import.meta.url))
-  const state = vm.runInContext(source + '\n;({ snapshot, loading, saving, error, notice, formError, conflicted, editing, creating, form, filteredItems, filters, emptyText, load, openEditor, save, reset, removeTopic, rowActions, identityChanged, accountForm, accountEditing, accountOpen, accountSecret, brokerCredential, credentialAccount, secretOpen, credentialOpen, openAccount, saveAccount, setAccountEnabled, removeAccount, rotateAccount, openCredentials, closeCredentials, issueCredentials, credentialReason, accountActions })', context)
+  const state = vm.runInContext(source + '\n;({ snapshot, loading, saving, error, notice, formError, conflicted, editing, creating, form, filteredItems, filters, emptyText, load, openEditor, save, reset, removeTopic, rowActions, identityChanged, accountForm, accountEditing, accountOpen, accountSecret, brokerCredential, credentialAccount, secretOpen, credentialOpen, openAccount, saveAccount, setAccountEnabled, removeAccount, rotateAccount, openCredentials, closeCredentials, issueCredentials, credentialReason, accountActions, rulesTopic, ruleEditing, ruleMode, ruleForm, ruleRows, ruleSources, topicRules, previewInput, previewOutput, previewError, previewing, openRules, editRule, backToRules, saveRule, removeRule, previewRule, publishTopic, publishForm, publishResult, openPublish, publish, publishOpen })', context)
   return { ...state, hooks, session, permissionState, requests, alerts, context }
 }
 
@@ -177,29 +177,23 @@ test('权限撤销立即清除主题内容并取消请求', async () => {
   assert.equal(p.loading.value, false)
 })
 
-test('新增主题使用数据源和业务标识，编辑自定义主题保留独立 CRUD 字段', async () => {
+test('共享主题创建不绑定数据源，编辑保持原协议与地址，旧隔离转发仍可编辑数据源', async () => {
   let revision = 5
-  const custom = { ...topic, id:'topic_new', sourceId:topic.id, name:'外部业务', custom:true, topic:'business_data' }
-  const p = page((path, options) => Promise.resolve(catalog(options.method ? ++revision : revision, options.method ? [topic, custom] : [topic])))
-  await p.load()
-  p.openEditor()
-  Object.assign(p.form, { name:'外部业务', sourceId:topic.id, topic:'not/physical/path' })
-  await p.save()
-  assert.equal(p.requests.length, 1)
-  assert.match(p.formError.value, /主题标识/)
-  p.form.topic = 'business_data'
+  const shared = { ...topic, id:'topic_new', name:'外部业务', custom:true, shared:true, topic:`${prefixes.mqtt}smoke/reading` }
+  const legacy = { ...topic, id:'topic_old', sourceId:topic.id, name:'旧隔离转发', custom:true, topic:'business_data' }
+  const p = page((path, options) => Promise.resolve(catalog(options.method ? ++revision : revision, [topic, shared, legacy])))
+  await p.load(); p.openEditor()
+  Object.assign(p.form, { name:'外部业务', protocol:'mqtt', topic:'smoke/reading' })
   await p.save()
   assert.equal(p.requests[1].path, '/api/v1/message-topics')
   assert.equal(p.requests[1].options.method, 'POST')
-  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:5, name:'外部业务', sourceId:topic.id, topic:'business_data', enabled:true, description:'' })
-  p.openEditor(p.snapshot.value.items[1])
-  p.form.name = '外部业务二'
-  await p.save()
-  assert.equal(p.requests[2].path, '/api/v1/message-topics/topic_new')
-  assert.equal(p.requests[2].options.method, 'PUT')
-  assert.equal(JSON.parse(p.requests[2].options.body).sourceId, topic.id)
-  await p.reset(custom)
-  assert.equal(p.requests.length, 3, '新增主题无默认配置可恢复')
+  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:5, name:'外部业务', protocol:'mqtt', topic:'smoke/reading', enabled:true, description:'' })
+  p.openEditor(shared); Object.assign(p.form, { name:'新名称', protocol:'kafka', topic:'must-not-change' }); await p.save()
+  assert.deepEqual(JSON.parse(p.requests[2].options.body), { revision:6, name:'新名称', protocol:'mqtt', topic:shared.topic, enabled:true, description:'解析成功后发布' })
+  p.openEditor(legacy); p.form.name = '原通道'; await p.save()
+  assert.equal(JSON.parse(p.requests[3].options.body).sourceId, topic.id)
+  assert.equal(JSON.parse(p.requests[3].options.body).topic, 'business_data')
+  await p.reset(shared); assert.equal(p.requests.length, 4)
 })
 
 test('删除主题与恢复默认分离，系统主题不能删除，确认期间身份变化不能误删', async () => {
@@ -230,10 +224,10 @@ test('对接账号创建按 Unix 秒提交范围与期限，一次性密钥不�
   const p = page((path, options) => Promise.resolve(options.method ? { ...withAccount(2), accountSecret:{ id:account.id, secret:'one-time-test-secret' } } : catalog()))
   await p.load()
   p.openAccount()
-  Object.assign(p.accountForm, { name:'外部管理系统', username:'consumer', topicIds:[topic.id], deviceScope:'selected', deviceIds:['device-a'], expiresAt:1900000000000 })
+  Object.assign(p.accountForm, { name:'外部管理系统', username:'consumer', topicIds:[topic.id], publishTopicIds:[], deviceScope:'selected', deviceIds:['device-a'], expiresAt:1900000000000 })
   await p.saveAccount()
   assert.equal(p.requests[1].path, '/api/v1/message-topic-accounts')
-  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:1, name:'外部管理系统', username:'consumer', enabled:true, topicIds:[topic.id], deviceScope:'selected', deviceIds:['device-a'], expiresAt:1900000000 })
+  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:1, name:'外部管理系统', username:'consumer', enabled:true, topicIds:[topic.id], publishTopicIds:[], deviceScope:'selected', deviceIds:['device-a'], expiresAt:1900000000 })
   assert.equal(p.accountSecret.value.secret, 'one-time-test-secret')
   assert.equal(p.snapshot.value.accountSecret, undefined)
   assert.equal(JSON.stringify(p.snapshot.value).includes('one-time-test-secret'), false)
@@ -341,4 +335,107 @@ test('设备选择使用有界服务端搜索，旧查询与卸载后的结果�
   assert.deepEqual(Array.from(emitted[0].value), ['selected-device','device-101'])
   const late = p.load(); hooks.unmount(); pending[2].resolve({items:[{device:{id:'after-unmount'}}],total:1}); await late
   assert.equal(p.rows.value.length, 0)
+})
+
+const sharedTopic = { ...topic, id:'shared-1', custom:true, shared:true, topic:`${prefixes.mqtt}smoke/reading` }
+const rule = { id:'rule-1', topicId:sharedTopic.id, name:'温度上报', sourceId:topic.id, enabled:true, deviceScope:'selected', deviceIds:['device-a'], format:'json', fields:{temperature:'properties.temperature'}, template:'' }
+const sharedCatalog = (revision = 1, rules = [rule]) => ({ ...catalog(revision, [topic, sharedTopic]), rules, sources:[topic, {...topic, id:'kafka.property',protocol:'kafka'}] })
+
+test('共享主题接受协议后缀与本租户地址，消息大小按 UTF-8 字节限制', () => {
+  assert.equal(topicHelpers.validateSharedTopic({name:'name',protocol:'mqtt',topic:'smoke/reading'},prefixes),'')
+  assert.equal(topicHelpers.validateSharedTopic({name:'name',protocol:'kafka',topic:'smoke.reading'},prefixes),'')
+  assert.equal(topicHelpers.validateSharedTopic({name:'name',protocol:'mqtt',topic:sharedTopic.topic},prefixes),'')
+  assert.match(topicHelpers.validateSharedTopic({name:'name',protocol:'mqtt',topic:'/iot/external/other/data'},prefixes),/完整主题/)
+  assert.match(topicHelpers.validateSharedTopic({name:'name',protocol:'mqtt',topic:'smoke/+'},prefixes),/通配符/)
+  assert.match(topicHelpers.validateTopicMessage('火'.repeat(90000),'text'),/256 KB/)
+  assert.equal(topicHelpers.validateTopicMessage('火'.repeat(80000),'text'),'')
+  assert.equal(topicHelpers.validateTopicMessage('[1,true,null]','json'),'')
+  assert.match(topicHelpers.validateTopicMessage('{invalid','json'),/JSON/)
+})
+
+test('独立规则按主题协议筛选，保存映射设备范围，删除后留在规则列表', async () => {
+  let revision=3
+  const p=page((path,options)=>Promise.resolve(sharedCatalog(options.method?++revision:revision,path.includes('?revision=')?[]:[rule])))
+  await p.load(); p.openRules(sharedTopic)
+  assert.equal(p.topicRules.value.length,1); assert.equal(p.ruleSources.value.length,1)
+  p.editRule(); Object.assign(p.ruleForm,{name:'告警字段',sourceId:topic.id,deviceScope:'selected',deviceIds:['device-a','device-a'],format:'json'})
+  p.ruleRows.value=[{output:'temperature',path:'properties.temperature'},{output:'first',path:'readings[0].value'}]
+  await p.saveRule()
+  assert.equal(p.requests[1].path,'/api/v1/message-topics/shared-1/rules')
+  assert.deepEqual(JSON.parse(p.requests[1].options.body),{revision:3,name:'告警字段',sourceId:topic.id,enabled:true,deviceScope:'selected',deviceIds:['device-a'],format:'json',fields:{temperature:'properties.temperature',first:'readings[0].value'},template:''})
+  assert.equal(p.rulesTopic.value.id,sharedTopic.id);assert.equal(p.ruleMode.value,'list')
+  p.editRule(rule);p.ruleForm.format='text';p.ruleForm.template='temp={{properties.temperature}}';await p.saveRule()
+  assert.equal(p.requests[2].options.method,'PUT');assert.equal(JSON.parse(p.requests[2].options.body).template,'temp={{properties.temperature}}');assert.deepEqual(JSON.parse(p.requests[2].options.body).fields,{})
+  await p.removeRule(rule)
+  assert.equal(p.requests[3].path,'/api/v1/message-topics/shared-1/rules/rule-1?revision=5')
+  assert.equal(p.rulesTopic.value.id,sharedTopic.id);assert.equal(p.topicRules.value.length,0)
+})
+
+test('规则拒绝跨协议数据源、空设备范围和重复输出字段', async () => {
+  const p=page(()=>Promise.resolve(sharedCatalog()))
+  await p.load();p.openRules(sharedTopic);p.editRule()
+  Object.assign(p.ruleForm,{name:'rule',sourceId:'kafka.property'})
+  await p.saveRule();assert.match(p.formError.value,/触发事件/)
+  Object.assign(p.ruleForm,{sourceId:topic.id,deviceScope:'selected',deviceIds:[]})
+  await p.saveRule();assert.match(p.formError.value,/至少选择/)
+  Object.assign(p.ruleForm,{deviceScope:'all',format:'json'})
+  p.ruleRows.value=[{output:'value',path:'a'},{output:'value',path:'b'}]
+  await p.saveRule();assert.match(p.formError.value,/不能重复/);assert.equal(p.requests.length,1)
+})
+
+test('预览未保存规则不更新配置，修改返回及身份变化均丢弃迟到输出', async () => {
+  const pending=[]
+  const p=page((path,options)=>options.method?new Promise((resolve,reject)=>pending.push({resolve,reject,options})):Promise.resolve(sharedCatalog()))
+  await p.load();p.openRules(sharedTopic);p.editRule(rule);p.previewInput.value='{"properties":{"temperature":25}}'
+  const first=p.previewRule();await p.previewRule();assert.equal(pending.length,1)
+  const body=JSON.parse(pending[0].options.body);assert.equal(body.rule.fields.temperature,'properties.temperature');assert.equal(Object.hasOwn(body.rule,'revision'),false)
+  p.ruleRows.value[0].path='properties.newTemperature';assert.equal(pending[0].options.signal.aborted,true)
+  pending[0].resolve({payload:'obsolete'});await first;assert.equal(p.previewOutput.value,null)
+  const second=p.previewRule();pending[1].reject(new Error('字段不存在'));await second;assert.match(p.previewError.value,/不存在/)
+  p.ruleRows.value[0].path='properties.temperature';const third=p.previewRule();pending[2].resolve({payload:'{"temperature":25}'});await third
+  assert.equal(p.previewOutput.value,'{"temperature":25}');assert.equal(p.snapshot.value.revision,1)
+  const fourth=p.previewRule();p.backToRules();pending[3].resolve({payload:'late'});await fourth;assert.equal(p.previewOutput.value,null)
+  p.editRule(rule);p.previewInput.value='{}';const fifth=p.previewRule();p.permissionState.items=[];pending[4].resolve({payload:'cross identity'});await fifth
+  assert.equal(p.previewOutput.value,null);assert.equal(p.rulesTopic.value,null)
+})
+
+test('手动发送保留内容和 MQTT QoS，阻止重复发送，回执不替换目录', async () => {
+  let finish
+  const p=page((path,options)=>options.method?new Promise(resolve=>{finish=resolve}):Promise.resolve(sharedCatalog(7)))
+  await p.load();p.openPublish(sharedTopic);Object.assign(p.publishForm,{payload:' {"temperature":25} ',qos:2,key:'unused'})
+  const sending=p.publish();await p.publish()
+  assert.equal(p.requests.length,2);assert.deepEqual(JSON.parse(p.requests[1].options.body),{revision:7,payload:' {"temperature":25} ',format:'json',qos:2})
+  finish({published:true,topic:sharedTopic.topic,bytes:20});await sending
+  assert.equal(p.publishResult.value.published,true);assert.equal(p.snapshot.value.revision,7)
+  p.publishForm.payload='changed';assert.equal(p.publishResult.value,null)
+  await p.publish();assert.match(p.formError.value,/JSON/);assert.equal(p.requests.length,2)
+  p.publishOpen.value=false;assert.equal(p.publishForm.payload,'')
+})
+
+test('Kafka 手动发送只带 key，失败不自动重试，卸载后不显示回执', async () => {
+  const p=page((path,options)=>options.method?Promise.reject(new Error('Broker 未确认')):Promise.resolve(sharedCatalog()))
+  await p.load();p.openPublish({...sharedTopic,protocol:'kafka'});Object.assign(p.publishForm,{format:'text',payload:'test',key:'device-a',qos:2})
+  await p.publish();assert.equal(p.requests.length,2);assert.match(p.formError.value,/未确认/)
+  const body=JSON.parse(p.requests[1].options.body);assert.equal(body.key,'device-a');assert.equal(Object.hasOwn(body,'qos'),false)
+  let finish
+  const q=page((path,options)=>options.method?new Promise(resolve=>{finish=resolve}):Promise.resolve(sharedCatalog()))
+  await q.load();q.openPublish(sharedTopic);q.publishForm.payload='{}';const sending=q.publish();q.hooks.unmount();finish({published:true,bytes:2});await sending
+  assert.equal(q.publishResult.value,null);assert.equal(q.publishTopic.value,null)
+})
+
+test('纯发布账号无需订阅，旧隔离主题不能授权发布，凭据同时检查发布主题', async () => {
+  const form={name:'publisher',username:'consumer',enabled:true,topicIds:[],publishTopicIds:[sharedTopic.id],deviceScope:'all',deviceIds:[],expiresAt:null}
+  assert.equal(topicHelpers.validateTopicAccount(form,[topic,sharedTopic],catalog().users),'')
+  assert.match(topicHelpers.validateTopicAccount({...form,publishTopicIds:[topic.id]},[topic,sharedTopic],catalog().users),/共享主题/)
+  const p=page(()=>Promise.resolve({...sharedCatalog(),authorization:{mqtt:{ready:true}}}))
+  await p.load();assert.equal(p.credentialReason(form,'mqtt'),'')
+  const body=topicHelpers.topicAccountPayload(form,3);assert.deepEqual(body.topicIds,[]);assert.deepEqual(body.publishTopicIds,[sharedTopic.id])
+})
+
+test('只读权限无法编辑规则或发送，旧主题不能进入共享入口', async () => {
+  const p=page(()=>Promise.resolve(sharedCatalog()),['menu:messageTopics'])
+  await p.load();p.openRules(sharedTopic);p.editRule(rule);await p.saveRule();p.openPublish(sharedTopic);await p.publish()
+  assert.equal(p.ruleMode.value,'list');assert.equal(p.publishTopic.value,null);assert.equal(p.requests.length,1)
+  const q=page(()=>Promise.resolve(sharedCatalog()));await q.load();q.openRules(topic);q.openPublish(topic)
+  assert.equal(q.rulesTopic.value,null);assert.equal(q.publishTopic.value,null)
 })

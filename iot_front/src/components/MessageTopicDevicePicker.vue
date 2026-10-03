@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, session } from '../api'
 import { permissionState } from '../permissions'
 
-const props = defineProps({ modelValue:{ type:Array, default:() => [] }, disabled:Boolean })
+const props = defineProps({ modelValue:{ type:Array, default:() => [] }, disabled:Boolean, label:{ type:String, default:'对接账号设备选择' }, hint:{ type:String, default:'最终分发范围始终受绑定用户当前设备权限限制，主设备与子设备分别授权。' } })
 const emit = defineEmits(['update:modelValue'])
 const query = ref(''), rows = ref([]), page = ref(1), total = ref(0), loading = ref(false), error = ref('')
 const selected = computed(() => new Set(props.modelValue))
@@ -40,9 +40,9 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 </script>
 
 <template>
-  <section class="topic-device-picker" aria-label="对接账号设备选择">
-    <ui-input v-model="query" clearable :disabled="disabled" placeholder="搜索设备名称或编号" aria-label="搜索对接设备" @input="search" />
-    <p>已选 {{ modelValue.length }} 台。最终分发范围始终受绑定用户当前设备权限限制，主设备与子设备分别授权。</p>
+  <section class="topic-device-picker" :aria-label="label">
+    <ui-input v-model="query" clearable :disabled="disabled" placeholder="搜索设备名称或编号" aria-label="搜索设备" @input="search" />
+    <p>已选 {{ modelValue.length }} 台。{{ hint }}</p>
     <div v-if="modelValue.length" class="topic-device-selected"><ui-button v-for="id in modelValue" :key="id" size="small" :disabled="disabled" @click="toggle(id, false)">{{ id }} · 移除</ui-button></div>
     <div v-if="loading" class="topic-device-empty" role="status">正在读取设备…</div>
     <div v-else-if="error" class="topic-device-empty" role="alert">{{ error }} <ui-button size="small" @click="load">重试</ui-button></div>

@@ -77,12 +77,17 @@ func TestConsumerAdminDisposableSecuredBroker(t *testing.T) {
 	if err := admin.Provision(ctx, username, password, username, []string{allowed}); err != nil {
 		t.Fatal("idempotent provision", err)
 	}
-	created, err := admin.client.CreateTopics(ctx, &kafka.CreateTopicsRequest{Topics: []kafka.TopicConfig{{Topic: denied, NumPartitions: 1, ReplicationFactor: 1}}})
-	if err != nil || created == nil {
-		t.Fatal("create denied fixture", err)
+	if err := admin.EnsureTopic(ctx, denied); err != nil {
+		t.Fatal("ensure shared topic", err)
 	}
-	if cause, ok := created.Errors[denied]; !ok || cause != nil {
-		t.Fatal("denied fixture was not newly created", cause)
+	if !slices.Contains(owned.created, denied) {
+		t.Fatal("write fixture was not newly created; existing topic will not receive test messages")
+	}
+	if err := admin.EnsureTopic(ctx, denied); err != nil {
+		t.Fatal("idempotent shared topic creation", err)
+	}
+	if err := admin.CreateTopic(ctx, denied); !errors.Is(err, ErrTopicExists) {
+		t.Fatal("new shared topic adopted existing broker history", err)
 	}
 	bus, err := NewWithSecurity(admin.brokers, security)
 	if err != nil {
@@ -187,6 +192,45 @@ func TestConsumerAdminDisposableSecuredBroker(t *testing.T) {
 	if err != nil || (coordinator.Error != nil && !errors.Is(coordinator.Error, kafka.GroupCoordinatorNotAvailable)) {
 		t.Fatal("own consumer group denied", err)
 	}
+	// Independent read/write grants must not imply each other, including on
+	// an already authenticated connection after a grant replacement.
+	if err := admin.ProvisionGrants(ctx, username, password, username, []string{allowed}, []string{denied}); err != nil {
+		t.Fatal("provision independent read/write grants", err)
+	}
+	// Previously denied topics can remain absent from kafka-go's metadata
+	// cache. A newly issued account connects with a fresh client in production.
+	grantedTransport, err := NewTransport(SecurityConfig{Username: username, Password: password, Mechanism: "SCRAM-SHA-256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer grantedTransport.CloseIdleConnections()
+	consumer.Transport = grantedTransport
+	produce := func(topic string) (*kafka.ProduceResponse, error) {
+		return consumer.Produce(ctx, &kafka.ProduceRequest{Topic: topic, Partition: 0, RequiredAcks: kafka.RequireAll, Records: kafka.NewRecordReader(kafka.Record{Value: kafka.NewBytes([]byte("authorized-write"))})})
+	}
+	produced, err = produce(denied)
+	if err != nil || produced == nil || produced.Error != nil {
+		t.Fatal("authorized write failed", err)
+	}
+	result, err = fetch(denied)
+	if !consumerAccessDenied(err) && (result == nil || !consumerAccessDenied(result.Error)) {
+		t.Fatal("write grant also allowed reading", err)
+	}
+	produced, err = produce(allowed)
+	if !consumerAccessDenied(err) && (produced == nil || !consumerAccessDenied(produced.Error)) {
+		t.Fatal("read grant also allowed writing", err)
+	}
+	if err := admin.ProvisionGrants(ctx, username, password, "", nil, []string{denied}); err != nil {
+		t.Fatal("provision publish-only client", err)
+	}
+	produced, err = produce(denied)
+	if err != nil || produced == nil || produced.Error != nil {
+		t.Fatal("publish-only client could not write", err)
+	}
+	coordinator, err = consumer.FindCoordinator(ctx, &kafka.FindCoordinatorRequest{Key: username, KeyType: kafka.CoordinatorKeyTypeConsumer})
+	if !errors.Is(err, kafka.GroupAuthorizationFailed) && (coordinator == nil || !errors.Is(coordinator.Error, kafka.GroupAuthorizationFailed)) {
+		t.Fatal("publish-only client retained consumer group access", err)
+	}
 	// Keep this transport alive across revocation: removing only the SCRAM
 	// password must not be mistaken for revoking an authenticated connection.
 	if err := admin.Revoke(ctx, username); err != nil {
@@ -207,7 +251,7 @@ func TestConsumerAdminDisposableSecuredBroker(t *testing.T) {
 		}
 		return realTransport.RoundTrip(ctx, addr, request)
 	})
-	err = admin.Provision(ctx, username, password, username, []string{allowed})
+	err = admin.ProvisionGrants(ctx, username, password, username, []string{allowed}, []string{denied})
 	admin.client.Transport = realTransport
 	if err == nil {
 		t.Fatal("partial ACL failure reported success")
@@ -224,7 +268,7 @@ func TestConsumerAdminDisposableSecuredBroker(t *testing.T) {
 	if err := admin.verifyACLs(ctx, username, nil); err != nil {
 		t.Fatal("failed provision retained ACLs", err)
 	}
-	t.Log("real secured Kafka: anonymous refused; exact read allowed; other topic, publish and foreign group denied; existing connection revoked; idempotence and failed-provision cleanup passed")
+	t.Log("real secured Kafka: anonymous refused; independent exact read/write and publish-only grants enforced; foreign topic/operation/group denied; existing connection revoked; idempotent topic creation and failed-provision cleanup passed")
 }
 
 // This read-only probe covers distinct internal/public listeners; it does not

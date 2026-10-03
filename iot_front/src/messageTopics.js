@@ -43,10 +43,59 @@ export function validateManagedTopic(form, sources) {
   return ''
 }
 
+export function validateSharedTopic(form, prefixes, editing = false) {
+  if (!String(form.name || '').trim()) return '请填写主题名称'
+  if (editing) return ''
+  if (!['mqtt', 'kafka'].includes(form.protocol)) return '请选择消息协议'
+  const value = String(form.topic || '').trim(), prefix = prefixes?.[form.protocol]
+  if (!value) return '请填写主题地址或后缀'
+  if (!prefix) return '未取得当前租户的主题前缀，请刷新后重试'
+  if (form.protocol === 'mqtt') {
+    if (/[+#\u0000]/.test(value)) return 'MQTT 主题不能包含通配符 +、# 或空字符'
+    if (value.startsWith('/') && !value.startsWith(prefix)) return `完整主题必须位于 ${prefix} 内`
+  } else {
+    if (!/^[A-Za-z0-9._-]+$/.test(value)) return 'Kafka 主题仅支持字母、数字、点、下划线和连字符'
+    if (value.startsWith('iot.external.') && !value.startsWith(prefix)) return `完整主题必须位于 ${prefix} 内`
+    if ((value.startsWith(prefix) ? value : prefix + value).length > 249) return 'Kafka 完整主题不能超过 249 个字符'
+  }
+  if (value === prefix) return '请填写主题前缀后的名称'
+  return ''
+}
+
+export function topicRulePayload(form, rows, revision) {
+  return { revision, name:String(form.name || '').trim(), sourceId:form.sourceId, enabled:Boolean(form.enabled),
+    deviceScope:form.deviceScope, deviceIds:form.deviceScope === 'selected' ? [...new Set(form.deviceIds || [])] : [],
+    format:form.format, fields:form.format === 'json' ? Object.fromEntries(rows.map(row => [row.output.trim(), row.path.trim()])) : {},
+    template:form.format === 'text' ? form.template : '' }
+}
+
+export function validateTopicRule(form, rows, sources) {
+  if (!String(form.name || '').trim()) return '请填写规则名称'
+  if (!sources.some(source => source.id === form.sourceId)) return '请选择当前协议支持的触发事件'
+  if (!['all', 'selected'].includes(form.deviceScope)) return '请选择设备范围'
+  if (form.deviceScope === 'selected' && !form.deviceIds?.length) return '请至少选择一台设备'
+  if (!['original', 'json', 'text'].includes(form.format)) return '请选择消息格式'
+  if (form.format === 'json') {
+    if (!rows.length || rows.some(row => !row.output.trim() || !row.path.trim())) return '请填写每个输出字段和来源路径'
+    if (new Set(rows.map(row => row.output.trim())).size !== rows.length) return '输出字段名称不能重复'
+  }
+  if (form.format === 'text' && !String(form.template || '').trim()) return '请填写文本模板'
+  return ''
+}
+
+export function validateTopicMessage(payload, format) {
+  if (!String(payload || '').length) return '请填写消息内容'
+  if (new TextEncoder().encode(payload).length > 256 * 1024) return '消息内容不能超过 256 KB'
+  if (format === 'json') {
+    try { JSON.parse(payload) } catch { return '消息内容不是有效的 JSON' }
+  } else if (format !== 'text') return '请选择 JSON 或文本格式'
+  return ''
+}
+
 export function topicAccountPayload(form, revision) {
   return {
     revision, name:String(form.name || '').trim(), username:form.username, enabled:Boolean(form.enabled),
-    topicIds:[...new Set(form.topicIds || [])], deviceScope:form.deviceScope,
+    topicIds:[...new Set(form.topicIds || [])], publishTopicIds:[...new Set(form.publishTopicIds || [])], deviceScope:form.deviceScope,
     deviceIds:form.deviceScope === 'selected' ? [...new Set(form.deviceIds || [])] : [],
     expiresAt:form.expiresAt ? Math.floor(Number(form.expiresAt) / 1000) : 0
   }
@@ -55,8 +104,9 @@ export function topicAccountPayload(form, revision) {
 export function validateTopicAccount(form, topics, users) {
   if (!String(form.name || '').trim()) return '请填写对接账号名称'
   if (!users.some(user => user.username === form.username)) return '请选择有效的平台用户'
-  if (!form.topicIds?.length) return '请至少授权一个消息主题'
-  if (form.topicIds.some(id => !topics.some(topic => topic.id === id && topic.editable))) return '授权主题已发生变化，请刷新配置后重新选择'
+  if (!form.topicIds?.length && !form.publishTopicIds?.length) return '请至少授权一个主题的订阅或发布权限'
+  if ((form.topicIds || []).some(id => !topics.some(topic => topic.id === id && topic.editable))) return '订阅主题已发生变化，请刷新配置后重新选择'
+  if ((form.publishTopicIds || []).some(id => !topics.some(topic => topic.id === id && topic.editable && topic.shared))) return '发布权限只能授权给当前可用的共享主题'
   if (!['all', 'selected'].includes(form.deviceScope)) return '请选择设备范围'
   if (form.expiresAt != null && (!Number.isFinite(Number(form.expiresAt)) || Number(form.expiresAt) < 0)) return '请设置有效的账号到期时间'
   return ''

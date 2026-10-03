@@ -137,6 +137,39 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if !foundCustom {
 		t.Fatal("custom parsed MQTT route was not applied")
 	}
+	settings.Revision = 2
+	settings.Topics = []model.MessageTopicRoute{
+		{ID: "kafka-rule", Name: "Kafka 自定义消息", Protocol: "kafka", Topic: messagetopics.KafkaPrefix("t1") + "selected-values", Enabled: true},
+		{ID: "mqtt-rule", Name: "MQTT 自定义消息", Protocol: "mqtt", Topic: messagetopics.MQTTPrefix("t1") + "selected-values", Enabled: true},
+	}
+	settings.Rules = []model.MessageTopicRule{
+		{ID: "missing-field", TopicID: "kafka-rule", Name: "不存在的字段", SourceID: "kafka.property-report", Enabled: true, DeviceScope: "all", Format: "json", Fields: map[string]string{"value": "properties.missing"}},
+		{ID: "mqtt-values", TopicID: "mqtt-rule", Name: "温度消息", SourceID: "mqtt.parsed", Enabled: true, DeviceScope: "all", Format: "json", Fields: map[string]string{"value": "properties.temperature"}},
+	}
+	for _, rule := range settings.Rules {
+		if err := messagetopics.AccumulateExposure(&settings, rule); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if saved, err := e.MessageTopics.Save(ctx, "t1", settings); err != nil || !saved {
+		t.Fatal("save automatic rules", saved, err)
+	}
+	normal.MessageID, normal.ReceivedAt = "raw_fanout_rule_missing", 1005
+	busBefore, mqttBefore = len(bus.topics), len(realtime.Messages)
+	if _, _, err := e.IngestRaw(ctx, normal); err != nil {
+		t.Fatal("a missing optional rule field interrupted the parsing pipeline", err)
+	}
+	if !hasTopic(bus.topics[busBefore:], customKafka) || hasTopic(bus.topics[busBefore:], settings.Topics[0].Topic) {
+		t.Fatal("invalid rule changed the primary Kafka publication")
+	}
+	primary, projected := false, false
+	for _, event := range realtime.Messages[mqttBefore:] {
+		primary = primary || event.Topic == messagetopics.MQTTPrefix("t1")+"json_sensor/device_fanout/PROPERTY_REPORT"
+		projected = projected || (event.Topic == settings.Topics[1].Topic && string(event.Payload) == `{"value":23}`)
+	}
+	if !primary || !projected {
+		t.Fatal("Kafka rule conversion failure blocked subsequent MQTT delivery", primary, projected)
+	}
 }
 
 func TestRawToAlarmPipeline(t *testing.T) {

@@ -82,6 +82,16 @@ func routeAction(method, path string) string {
 		return "删除消息主题"
 	case "POST /api/v1/message-topics/:id/reset":
 		return "恢复默认消息主题"
+	case "POST /api/v1/message-topics/:id/publish":
+		return "手动发送主题消息"
+	case "POST /api/v1/message-topics/:id/preview":
+		return "预览自动发送消息"
+	case "POST /api/v1/message-topics/:id/rules":
+		return "新增自动发送规则"
+	case "PUT /api/v1/message-topics/:id/rules/:ruleId":
+		return "修改自动发送规则"
+	case "DELETE /api/v1/message-topics/:id/rules/:ruleId":
+		return "删除自动发送规则"
 	case "POST /api/v1/message-topic-accounts":
 		return "新增主题对接账号"
 	case "PUT /api/v1/message-topic-accounts/:id":
@@ -91,7 +101,7 @@ func routeAction(method, path string) string {
 	case "POST /api/v1/message-topic-accounts/:id/rotate":
 		return "轮换对接账号密钥"
 	case "POST /api/v1/message-topic-accounts/:id/credentials":
-		return "生成主题订阅凭据"
+		return "生成主题连接凭据"
 	case "GET /api/v1/ai/runs":
 		return "查看运行中的 AI 工作流"
 	case "POST /api/v1/ai/runs/:id/stop":
@@ -233,6 +243,9 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 		delete(p, "PUT /api/v1/message-topics/:id")
 		delete(p, "DELETE /api/v1/message-topics/:id")
 		for _, action := range []string{"POST /api/v1/message-topics", "POST /api/v1/message-topics/:id/reset", "POST /api/v1/message-topic-accounts", "PUT /api/v1/message-topic-accounts/:id", "DELETE /api/v1/message-topic-accounts/:id", "POST /api/v1/message-topic-accounts/:id/rotate", "POST /api/v1/message-topic-accounts/:id/credentials"} {
+			delete(p, action)
+		}
+		for _, action := range []string{"POST /api/v1/message-topics/:id/publish", "POST /api/v1/message-topics/:id/preview", "POST /api/v1/message-topics/:id/rules", "PUT /api/v1/message-topics/:id/rules/:ruleId", "DELETE /api/v1/message-topics/:id/rules/:ruleId"} {
 			delete(p, action)
 		}
 		// These services produce tenant-wide artifacts or launch tenant-wide jobs.

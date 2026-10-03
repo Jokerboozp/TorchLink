@@ -57,6 +57,9 @@ func SourceAllowed(sourceID string, identity MessageTopicIdentity) bool {
 func RouteSource(cfg model.MessageTopicConfig, routeID string) (Topic, bool) {
 	for _, route := range cfg.Topics {
 		if route.ID == routeID {
+			if route.Protocol != "" && route.SourceID == "" {
+				return Topic{ID: route.ID, Name: route.Name, Protocol: route.Protocol, Direction: "outbound", DefaultTopic: route.Topic, Editable: true}, route.Protocol == "mqtt" || route.Protocol == "kafka"
+			}
 			source, ok := topicByID(route.SourceID)
 			return source, ok && source.Editable
 		}
@@ -135,10 +138,14 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 	for _, route := range cfg.Topics {
 		_, reserved := topicByID(route.ID)
 		source, ok := topicByID(route.SourceID)
-		if !managedID.MatchString(route.ID) || reserved || seenIDs[route.ID] || !ok || !source.Editable || !managedSlug.MatchString(route.Topic) || !cleanText(route.Name, 100, true) || !cleanText(route.Description, 500, false) {
+		shared := route.Protocol != "" && route.SourceID == ""
+		if !managedID.MatchString(route.ID) || reserved || seenIDs[route.ID] || (!shared && (!ok || !source.Editable || !managedSlug.MatchString(route.Topic) || route.Protocol != "")) || !cleanText(route.Name, 100, true) || !cleanText(route.Description, 500, false) {
 			return invalid("自定义主题标识、名称、数据源或说明无效")
 		}
 		slug := source.Protocol + ":" + route.Topic
+		if shared {
+			slug = route.Protocol + ":" + SharedDestination(tenant, route)
+		}
 		if slugs[slug] {
 			return invalid("同一协议的主题标识不能重复")
 		}
@@ -146,7 +153,7 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 	}
 	accounts := make(map[string]model.MessageTopicAccount, len(cfg.Accounts))
 	for _, account := range cfg.Accounts {
-		if !managedID.MatchString(account.ID) || !cleanText(account.Name, 100, true) || !cleanText(account.Username, 128, true) || !cleanText(account.SecretHash, 256, false) || account.CreatedAt < 0 || account.ExpiresAt < 0 || !uniqueValues(account.TopicIDs, 115, 80) || !uniqueValues(account.DeviceIDs, 10000, 256) {
+		if !managedID.MatchString(account.ID) || !cleanText(account.Name, 100, true) || !cleanText(account.Username, 128, true) || !cleanText(account.SecretHash, 256, false) || account.CreatedAt < 0 || account.ExpiresAt < 0 || !uniqueValues(account.TopicIDs, 115, 80) || !uniqueValues(account.PublishTopicIDs, 100, 80) || !uniqueValues(account.DeviceIDs, 10000, 256) {
 			return invalid("对接账号资料、授权数量或有效期无效")
 		}
 		if _, exists := accounts[account.ID]; exists {
@@ -163,12 +170,17 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 				return invalid("授权引用了不存在或已删除的主题")
 			}
 		}
+		for _, id := range account.PublishTopicIDs {
+			if _, ok := sharedRoute(cfg, id); !ok {
+				return invalid("发布授权只能引用共享主题")
+			}
+		}
 		accounts[account.ID] = account
 	}
 	credentialIDs := map[string]bool{}
 	liveAccountProtocols := map[string]bool{}
 	for _, credential := range cfg.Credentials {
-		if !managedID.MatchString(credential.ID) || credentialIDs[credential.ID] || !managedID.MatchString(credential.AccountID) || (credential.Protocol != "mqtt" && credential.Protocol != "kafka") || !cleanText(credential.Username, 256, true) || !cleanText(credential.GroupID, 256, false) || !cleanText(credential.AccessVersion, 256, true) || credential.CreatedAt < 0 || credential.ExpiresAt <= 0 || !uniqueValues(credential.Topics, 115, 1024) || len(credential.Topics) == 0 {
+		if !managedID.MatchString(credential.ID) || credentialIDs[credential.ID] || !managedID.MatchString(credential.AccountID) || (credential.Protocol != "mqtt" && credential.Protocol != "kafka") || !cleanText(credential.Username, 256, true) || !cleanText(credential.GroupID, 256, false) || !cleanText(credential.AccessVersion, 256, true) || credential.CreatedAt < 0 || credential.ExpiresAt <= 0 || !uniqueValues(credential.Topics, 115, 1024) || !uniqueValues(credential.PublishTopics, 100, 1024) || len(credential.Topics)+len(credential.PublishTopics) == 0 {
 			return invalid("主题凭据资料、授权范围或有效期无效")
 		}
 		credentialIDs[credential.ID] = true
@@ -180,6 +192,9 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 			prefix = KafkaPrefix(tenant) + "managed." + credential.ID + "."
 		}
 		for _, target := range credential.Topics {
+			if validateSharedDestination(tenant, credential.Protocol, target) == nil {
+				continue
+			}
 			if !strings.HasPrefix(target, prefix) || len(target) != len(prefix)+64 {
 				return invalid("凭据主题必须属于当前租户和凭据")
 			}
@@ -188,6 +203,11 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 			}
 			if credential.Protocol == "kafka" && len(target) > maxKafkaLength {
 				return invalid("Kafka 主题总长不能超过 249 字节")
+			}
+		}
+		for _, target := range credential.PublishTopics {
+			if validateSharedDestination(tenant, credential.Protocol, target) != nil {
+				return invalid("发布凭据主题必须属于当前租户共享主题")
 			}
 		}
 		// Revocation records intentionally survive account/route deletion until
@@ -208,7 +228,11 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 		for _, routeID := range account.TopicIDs {
 			source, ok := RouteSource(cfg, routeID)
 			if ok && source.Protocol == credential.Protocol {
-				allowed[Destination(tenant, routeID, credential)] = true
+				if route, shared := sharedRoute(cfg, routeID); shared {
+					allowed[SharedDestination(tenant, route)] = true
+				} else {
+					allowed[Destination(tenant, routeID, credential)] = true
+				}
 			}
 		}
 		for _, target := range credential.Topics {
@@ -216,8 +240,19 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 				return invalid("凭据主题超出账号授权")
 			}
 		}
+		writable := map[string]bool{}
+		for _, id := range account.PublishTopicIDs {
+			if route, ok := sharedRoute(cfg, id); ok && route.Protocol == credential.Protocol {
+				writable[SharedDestination(tenant, route)] = true
+			}
+		}
+		for _, target := range credential.PublishTopics {
+			if !writable[target] {
+				return invalid("发布凭据主题超出账号授权")
+			}
+		}
 	}
-	return nil
+	return validateShared(tenant, cfg)
 }
 
 // Destinations keeps the existing source route while additionally publishing to

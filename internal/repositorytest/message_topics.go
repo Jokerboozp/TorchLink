@@ -134,10 +134,13 @@ func MessageTopics(t *testing.T, store ports.MessageTopicStore) {
 	})
 	t.Run("managed topics accounts and durable revocations", func(t *testing.T) {
 		config := model.MessageTopicConfig{
-			Topics:      []model.MessageTopicRoute{{ID: "managed", Name: "对接消息", SourceID: "mqtt.parsed", Topic: "parsed", Enabled: true}},
-			Deleted:     []string{"kafka.property-report"},
-			Accounts:    []model.MessageTopicAccount{{ID: "partner", Name: "外部账号", Username: "reader", Enabled: true, TopicIDs: []string{"managed"}, DeviceScope: "selected", DeviceIDs: []string{"device"}, SecretHash: "stored-hash", CreatedAt: 100}},
-			Credentials: []model.MessageTopicCredential{{ID: "old-credential", AccountID: "partner", Protocol: "mqtt", Username: "mqtt-user", Topics: []string{"/isolated/destination"}, AccessVersion: "version", Status: "revoking", ExpiresAt: 200}},
+			Topics:         []model.MessageTopicRoute{{ID: "managed", Name: "对接消息", Protocol: "mqtt", Topic: "parsed", Enabled: true, Exposure: []model.MessageTopicExposure{{SourceID: "mqtt.parsed", DeviceScope: "selected", DeviceIDs: []string{"device"}}}}},
+			Rules:          []model.MessageTopicRule{{ID: "rule", TopicID: "managed", Name: "转换", SourceID: "mqtt.parsed", Enabled: true, DeviceScope: "selected", DeviceIDs: []string{"device"}, Format: "json", Fields: map[string]string{"temperature": "properties.temperature"}}},
+			RetiredTopics:  []string{"mqtt:/previous/topic"},
+			RoutingHistory: []model.MessageTopicReservedRoute{{SourceID: "mqtt.parsed", Topic: "/previous/{deviceId}"}},
+			Deleted:        []string{"kafka.property-report"},
+			Accounts:       []model.MessageTopicAccount{{ID: "partner", Name: "外部账号", Username: "reader", Enabled: true, TopicIDs: []string{"managed"}, PublishTopicIDs: []string{"managed"}, DeviceScope: "selected", DeviceIDs: []string{"device"}, SecretHash: "stored-hash", CreatedAt: 100}},
+			Credentials:    []model.MessageTopicCredential{{ID: "old-credential", AccountID: "partner", Protocol: "mqtt", Username: "mqtt-user", Topics: []string{"/isolated/destination"}, PublishTopics: []string{"/write/destination"}, Provisioning: true, AccessVersion: "version", Status: "revoking", ExpiresAt: 200}},
 		}
 		save(t, "managed-persistent", config, true)
 		expected := load(t, "managed-persistent")
@@ -145,6 +148,13 @@ func MessageTopics(t *testing.T, store ports.MessageTopicStore) {
 			t.Fatal("managed configuration was not retained")
 		}
 		config.Topics[0].Name = "input mutation"
+		config.Topics[0].Exposure[0].DeviceIDs[0] = "input mutation"
+		config.Rules[0].Fields["temperature"] = "input mutation"
+		config.Rules[0].DeviceIDs[0] = "input mutation"
+		config.RetiredTopics[0] = "input mutation"
+		config.RoutingHistory[0].Topic = "input mutation"
+		config.Accounts[0].PublishTopicIDs[0] = "input mutation"
+		config.Credentials[0].PublishTopics[0] = "input mutation"
 		config.Deleted[0] = "input mutation"
 		config.Accounts[0].TopicIDs[0] = "input mutation"
 		config.Accounts[0].DeviceIDs[0] = "input mutation"
@@ -153,6 +163,13 @@ func MessageTopics(t *testing.T, store ports.MessageTopicStore) {
 		if !reflect.DeepEqual(loaded, expected) {
 			t.Fatal("managed input mutation reached repository")
 		}
+		loaded.Topics[0].Exposure[0].DeviceIDs[0] = "output mutation"
+		loaded.Rules[0].Fields["temperature"] = "output mutation"
+		loaded.Rules[0].DeviceIDs[0] = "output mutation"
+		loaded.RetiredTopics[0] = "output mutation"
+		loaded.RoutingHistory[0].Topic = "output mutation"
+		loaded.Accounts[0].PublishTopicIDs[0] = "output mutation"
+		loaded.Credentials[0].PublishTopics[0] = "output mutation"
 		loaded.Accounts[0].TopicIDs[0] = "output mutation"
 		loaded.Accounts[0].DeviceIDs[0] = "output mutation"
 		loaded.Credentials[0].Topics[0] = "output mutation"

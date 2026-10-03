@@ -111,21 +111,21 @@ PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 sc
 
 ### 消息主题回归
 
-仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run TestMessageTopic`，验证主题新增/真删除、账号设备交集、临时凭据、授权变更及失效重试、租户配置、并发版本、存储错误和接口权限；解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
+仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic|TestSharedTopic'`，验证独立主题创建/手动发送、自动规则与历史数据边界、账号发布/订阅权限、设备交集、临时凭据、授权撤销重试、租户配置、并发版本、存储错误和接口权限；解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
 
 真实 Broker 测试为 `go test -race ./internal/messagetopics -run TestMessageTopicsExisting -v`，仅在明确配置以下私有进程环境时执行：
 
 - MQTT：`IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER`，以及 `IOT_TEST_MESSAGE_TOPICS_MQTT_USERNAME` / `IOT_TEST_MESSAGE_TOPICS_MQTT_PASSWORD`；也可只提供 `IOT_TEST_MESSAGE_TOPICS_JWT_SECRET`，由测试签发精确临时主题、有效期 2 分钟的 JWT。
 - Kafka：`IOT_TEST_MESSAGE_TOPICS_KAFKA_BROKERS`（逗号分隔），认证使用同前缀的 `_USERNAME`、`_PASSWORD`、`_MECHANISM`（默认 `SCRAM-SHA-256`）；TLS 使用 `_TLS` 和可选 `_TLS_CA_FILE`。连接身份须有测试主题的创建、发布、读取及删除权限；默认部署已启用 SASL，须提供认证参数。
 
-测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic，仅清理确认本轮创建成功的主题，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查主题新增/删除/恢复默认、对接账号授权/启停/轮换/删除、分页设备选择、一次性密钥清除、整页刷新、只读目录和窄屏弹窗。
+测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic，仅清理确认本轮创建成功的主题，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查无数据源创建、手动文本/JSON 发送、字段映射与文本模板预览、独立规则增删、主题删除/恢复默认、对接账号授权/启停/轮换/删除、分页设备选择、一次性密钥清除、整页刷新、只读目录和窄屏弹窗。
 
 工具账号回归为 `go test -race ./internal/adapters/mqtt -run TestExistingMQTTToolCredentials -count=1 -v`，需要 `IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER` 及 `IOT_TEST_MQTT_TOOL_USERNAME` / `IOT_TEST_MQTT_TOOL_PASSWORD`，核对发布/订阅、错误密码与匿名拒绝，不改账号或认证链。数据库工具账号引导回归为 `go test ./deploy/toolaccounts`，使用模拟客户端检查仅创建缺失账号、保留已有账号及失败清理。
 
 授权回归与上述路由回归分开：
 
-- `go test -race ./internal/adapters/mqtt -run 'TestAdminTopic|TestExistingMQTTTopicConsumerAuthorization' -count=1 -v`。真实用例需要 MQTT Broker、JWT secret，以及 `IOT_TEST_MESSAGE_TOPICS_EMQX_URL` / `_EMQX_KEY` / `_EMQX_SECRET`；显式测试也可用 `_EMQX_TOKEN` 替代管理 API key。仅生成随机临时账号、非 retained 消息和可清理的临时 ban，验证精确订阅、越权/发布拒绝、踢线及拒绝重连。
-- `go test -race ./internal/adapters/kafka -run TestConsumerAdminDisposableSecuredBroker -count=1 -v`。只连接独立临时安全 Broker，配置 `IOT_TEST_SECURED_KAFKA_BROKERS` / `_USERNAME` / `_PASSWORD` / `_MECHANISM` / `_ADMIN_URL`。测试验证匿名拒绝、SCRAM、精确主题/消费组 ACL、已有连接撤销、幂等、授权失败清理，以及平台 Bus 发布/订阅/健康/lag/容量查询的认证路径。测试不改变 Broker 安全开关；只删除 Broker 明确确认本轮创建成功的随机主题，已存在主题、内部队列和创建结果不明的主题不删除，已有主题也不写入测试消息。
+- `go test -race ./internal/adapters/mqtt -run 'TestAdminTopic|TestExistingMQTTTopic' -count=1 -v`。真实用例需要 MQTT Broker、JWT secret，以及 `IOT_TEST_MESSAGE_TOPICS_EMQX_URL` / `_EMQX_KEY` / `_EMQX_SECRET`；显式测试也可用 `_EMQX_TOKEN` 替代管理 API key。仅生成随机临时账号、非 retained 消息和可清理的临时 ban，验证分别授权发布/订阅、越权拒绝、踢线及拒绝重连；`TestExistingMQTTTopicClientPublishSubscribe` 只需 Broker 与 JWT secret。
+- `go test -race ./internal/adapters/kafka -run TestConsumerAdminDisposableSecuredBroker -count=1 -v`。只连接独立临时安全 Broker，配置 `IOT_TEST_SECURED_KAFKA_BROKERS` / `_USERNAME` / `_PASSWORD` / `_MECHANISM` / `_ADMIN_URL`。测试验证匿名拒绝、SCRAM、精确读写主题/消费组 ACL、只读拒绝发布、只写拒绝订阅、已有连接撤销、幂等、授权失败清理，以及平台 Bus 发布/订阅/健康/lag/容量查询的认证路径。测试不改变 Broker 安全开关；只删除 Broker 明确确认本轮创建成功的随机主题，已存在主题、内部队列和创建结果不明的主题不删除，已有主题也不写入测试消息。
 - Kafka 公开地址只读检查：另配 `IOT_TEST_SECURED_KAFKA_PUBLIC_BROKERS` 后执行 `go test -race ./internal/adapters/kafka -run TestConsumerAdminSecuredPublicListeners -count=1 -v`，核对内外 listener 及其广告地址的非空 `clusterId` 一致且均拒绝匿名连接，不创建主题或账号。生产配置使用 `IOT_KAFKA_PUBLIC_BROKERS`，缺失地址、跨集群、缺失集群身份和最多 115 项授权的边界另由同包及配置单测覆盖；部署参数见 [Kafka 对接账号认证与授权](DEPLOYMENT.md#kafka-对接账号认证与授权)。
 
 ## 管理端开发

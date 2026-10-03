@@ -99,19 +99,30 @@ func (m *Manager) IssueBrowserMQTT(user, tenant string, scopes []string, ttl tim
 // IssueTopicConsumer issues subscribe-only broker credentials. They cannot be
 // used as console, open API, or device-ingress tokens.
 func (m *Manager) IssueTopicConsumer(user, tenant string, topics []string, expires time.Time) (string, error) {
-	if user == "" || tenant == "" || len(topics) == 0 || !expires.After(time.Now()) {
+	return m.IssueTopicClient(user, tenant, topics, nil, expires)
+}
+
+// IssueTopicClient grants independent exact subscriptions and publications.
+// Broker credentials remain unusable as console, open API or ingress tokens.
+func (m *Manager) IssueTopicClient(user, tenant string, subscribe, publish []string, expires time.Time) (string, error) {
+	if user == "" || tenant == "" || len(subscribe)+len(publish) == 0 || !expires.After(time.Now()) {
 		return "", errors.New("invalid message consumer grant")
 	}
-	acl := make([]ACLRule, 0, len(topics))
-	for _, topic := range topics {
-		if strings.ContainsAny(topic, "+#") {
-			return "", errors.New("consumer topics must be exact")
+	acl := make([]ACLRule, 0, len(subscribe)+len(publish)+2)
+	for _, grant := range []struct {
+		action string
+		topics []string
+	}{{"subscribe", subscribe}, {"publish", publish}} {
+		for _, topic := range grant.topics {
+			if topic == "" || len(topic) > 65535 || strings.ContainsAny(topic, "+#\x00") {
+				return "", errors.New("consumer topics must be exact")
+			}
+			acl = append(acl, ACLRule{Permission: "allow", Action: grant.action, Topic: topic})
 		}
-		acl = append(acl, ACLRule{Permission: "allow", Action: "subscribe", Topic: topic})
 	}
 	// JWT ACL rules run before the broker's configured authorization sources.
 	// Close the grant explicitly so a localhost or other fallback allow rule
-	// cannot grant this consumer extra subscriptions or any publish operation.
+	// cannot grant operations beyond the account's exact authorization.
 	acl = append(acl, ACLRule{Permission: "deny", Action: "all", Topic: "#"}, ACLRule{Permission: "deny", Action: "all", Topic: "$SYS/#"})
 	c := Claims{Username: user, TenantID: tenant, Role: "viewer", TokenUse: "topic-consumer", ACL: acl, RegisteredClaims: jwt.RegisteredClaims{Issuer: m.issuer, Subject: user, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(expires)}}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(m.secret)

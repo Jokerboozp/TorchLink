@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/protocol/createtopics"
 	"github.com/segmentio/kafka-go/protocol/deleteacls"
+	"github.com/segmentio/kafka-go/protocol/describeacls"
 	"github.com/segmentio/kafka-go/protocol/metadata"
 )
 
@@ -195,5 +198,164 @@ func TestConsumerAdminRejectsForeignPrincipalsAndSharedTopics(t *testing.T) {
 		if err := admin.Provision(context.Background(), "iot-topic-test", strings.Repeat("x", 32), "iot-topic-test", []string{topic}); err == nil || !strings.Contains(err.Error(), "tenant-specific") {
 			t.Fatal("accepted a shared or invalid topic", topic, err)
 		}
+	}
+}
+
+func TestConsumerGrantACLsSeparateReadWriteAndGroup(t *testing.T) {
+	const read, write, both = "iot.external.74.read", "iot.external.74.write", "iot.external.74.both"
+	for _, tc := range []struct {
+		name        string
+		read, write []string
+		count       int
+	}{
+		{"independent", []string{read, both}, []string{write, both}, 8},
+		{"publish only", nil, []string{write, write}, 2},
+		{"subscribe only", []string{read}, nil, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			acls := consumerGrantACLs("iot-topic-test", "iot-topic-test", tc.read, tc.write)
+			if len(acls) != tc.count {
+				t.Fatal("unexpected or duplicate grants", acls)
+			}
+			for _, acl := range acls {
+				if acl.Principal != "User:iot-topic-test" || acl.ResourcePatternType != kafka.PatternTypeLiteral || acl.PermissionType != kafka.ACLPermissionTypeAllow {
+					t.Fatal("non-exact grant", acl)
+				}
+				switch acl.ResourceType {
+				case kafka.ResourceTypeGroup:
+					if len(tc.read) == 0 || acl.ResourceName != "iot-topic-test" || acl.Operation != kafka.ACLOperationTypeRead {
+						t.Fatal("unexpected group grant", acl)
+					}
+				case kafka.ResourceTypeTopic:
+					switch acl.Operation {
+					case kafka.ACLOperationTypeRead:
+						if !slices.Contains(tc.read, acl.ResourceName) {
+							t.Fatal("write grant implied read", acl)
+						}
+					case kafka.ACLOperationTypeWrite:
+						if !slices.Contains(tc.write, acl.ResourceName) {
+							t.Fatal("read grant implied write", acl)
+						}
+					case kafka.ACLOperationTypeDescribe:
+					default:
+						t.Fatal("unexpected operation", acl)
+					}
+				default:
+					t.Fatal("unexpected resource", acl)
+				}
+			}
+		})
+	}
+}
+
+func TestConsumerPublishOnlyGrantsAndTopicCreationValidateBeforeIO(t *testing.T) {
+	a, err := NewConsumerAdmin([]string{"unused:9092"}, SecurityConfig{}, "http://unused", "admin", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	ctx := context.Background()
+	if err := a.ProvisionGrants(ctx, "iot-topic-test", strings.Repeat("x", 32), "", nil, []string{"iot.external.74.write"}); err == nil || !strings.Contains(err.Error(), "service SASL credentials") {
+		t.Fatal("publish-only grant rejected before readiness", err)
+	}
+	for _, topic := range []string{"iot.raw.message", "iot.external.74.*", ""} {
+		if err := a.ProvisionGrants(ctx, "iot-topic-test", strings.Repeat("x", 32), "", nil, []string{topic}); err == nil || !strings.Contains(err.Error(), "tenant-specific") {
+			t.Fatal("invalid write topic accepted", err)
+		}
+		if err := a.EnsureTopic(ctx, topic); err == nil || !strings.Contains(err.Error(), "tenant-specific") {
+			t.Fatal("invalid topic creation accepted", err)
+		}
+		if err := a.CreateTopic(ctx, topic); err == nil || !strings.Contains(err.Error(), "tenant-specific") {
+			t.Fatal("invalid strict topic creation accepted", err)
+		}
+	}
+}
+
+func TestConsumerCreateTopicRejectsExistingHistoryWithoutDeletion(t *testing.T) {
+	// The authenticated Kafka transport is simulated; the separate anonymous
+	// listener really refuses every connection, retaining the Ready precondition.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+	host, portText, _ := net.SplitHostPort(listener.Addr().String())
+	port, _ := strconv.Atoi(portText)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/cluster_config" {
+			t.Errorf("unexpected broker mutation: %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"enable_sasl":true,"kafka_enable_authorization":null,"admin_api_require_auth":true}`))
+	}))
+	defer srv.Close()
+	const topic = "iot.external.74.shared"
+	for _, tc := range []struct {
+		name         string
+		code         kafka.Error
+		transportErr bool
+		missing      bool
+	}{
+		{name: "new topic"},
+		{name: "existing history", code: kafka.TopicAlreadyExists},
+		{name: "authorization failure", code: kafka.TopicAuthorizationFailed},
+		{name: "unknown network outcome", transportErr: true},
+		{name: "missing broker result", missing: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := NewConsumerAdmin([]string{listener.Addr().String()}, SecurityConfig{Username: "service", Password: "secret"}, srv.URL, "admin", "secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer a.Close()
+			a.SetConsumerBrokers([]string{listener.Addr().String()})
+			creates := 0
+			a.client.Transport = consumerRoundTripFunc(func(_ context.Context, _ net.Addr, request kafka.Request) (kafka.Response, error) {
+				switch req := request.(type) {
+				case *metadata.Request:
+					return &metadata.Response{ClusterID: "cluster", Brokers: []metadata.ResponseBroker{{Host: host, Port: int32(port)}}}, nil
+				case *describeacls.Request:
+					return &describeacls.Response{}, nil
+				case *createtopics.Request:
+					creates++
+					if len(req.Topics) != 1 || req.Topics[0].Name != topic || req.Topics[0].NumPartitions != -1 || req.Topics[0].ReplicationFactor != -1 {
+						t.Fatal("create changed target or cluster defaults")
+					}
+					if tc.transportErr {
+						return nil, errors.New("connection lost after write")
+					}
+					if tc.missing {
+						return &createtopics.Response{}, nil
+					}
+					return &createtopics.Response{Topics: []createtopics.ResponseTopic{{Name: topic, ErrorCode: int16(tc.code)}}}, nil
+				default:
+					t.Errorf("unexpected request, including deletion: %T", request)
+					return nil, errors.New("unexpected mutation")
+				}
+			})
+			err = a.CreateTopic(context.Background(), topic)
+			if creates != 1 {
+				t.Fatal("strict creation was not attempted once", creates, err)
+			}
+			if tc.name == "new topic" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if tc.code == kafka.TopicAlreadyExists {
+				if !errors.Is(err, ErrTopicExists) {
+					t.Fatal("existing history was adopted", err)
+				}
+			} else if err == nil || errors.Is(err, ErrTopicExists) {
+				t.Fatal("unknown or failed creation was misreported", err)
+			}
+		})
 	}
 }

@@ -439,11 +439,11 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ### Kafka 对接账号认证与授权
 
-“消息主题”中的 Kafka 消费账号由平台管理 Redpanda SCRAM 凭据及精确 ACL。新建部署默认启用 SASL 与 Admin API 认证，并初始化 `admin` / `admin123`；平台页面仍检查 Broker 的实际状态，未满足下列条件时拒绝发放 Kafka 消费凭据。已有 Broker 的账号和集群配置存于数据卷，更新环境变量不会替换已有密码，需按下述步骤同步。
+“消息主题”中的 Kafka 对接账号由平台管理 Redpanda SCRAM 凭据及精确 ACL。新建部署默认启用 SASL 与 Admin API 认证，并初始化 `admin` / `admin123`；平台页面仍检查 Broker 的实际状态，未满足下列条件时拒绝发放 Kafka 连接凭据。已有 Broker 的账号和集群配置存于数据卷，更新环境变量不会替换已有密码，需按下述步骤同步。
 
 | 配置 | 用途 |
 | --- | --- |
-| `IOT_KAFKA_PUBLIC_BROKERS` | 返回对接方的 Kafka 地址列表，逗号分隔的 `host:port`；必须是对接方可达、已开启 SASL 的 listener，留空不发放 Kafka 消费凭据 |
+| `IOT_KAFKA_PUBLIC_BROKERS` | 返回对接方的 Kafka 地址列表，逗号分隔的 `host:port`；必须是对接方可达、已开启 SASL 的 listener，留空不发放 Kafka 连接凭据 |
 | `IOT_KAFKA_SASL_USERNAME` / `IOT_KAFKA_SASL_PASSWORD` | 平台 API、Worker、容量检查及死信回放连接 Kafka 的服务账号，须成对填写 |
 | `IOT_KAFKA_SASL_MECHANISM` | 服务账号机制，默认 `SCRAM-SHA-256`，也支持 `SCRAM-SHA-512` |
 | `IOT_KAFKA_TLS` / `IOT_KAFKA_TLS_CA_FILE` | Kafka TLS 开关与可选 CA 文件；CA 为空时使用系统信任库，开启后校验服务端证书和主机名，不提供跳过校验选项 |
@@ -457,7 +457,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 1. 创建 SCRAM 管理账号和平台服务账号。管理账号须能管理用户、创建主题、读写 ACL；普通服务账号需对平台 `iot.` 主题拥有实际运行所需的发布、消费、查询及容量清理权限，对 `iot-platform-` 消费组拥有读写位点与查询权限。先配置平台及命令工具的 SASL 参数，再切换 Broker；不要把已有数据库或消息卷重建作为切换认证的手段。
 2. 默认使用 `rpk cluster config set enable_sasl true` 为所有 Kafka listener 开启 SASL，`kafka_enable_authorization` 保持默认值；不要混用全局开关与按 listener 配置的两套认证方案。若选择每个 listener 单独配置，应同时设置 `authentication_method: sasl` 和对应授权开关，并执行该方案要求的 Broker 重启。
 3. 使用 `rpk cluster config set admin_api_require_auth true` 保护 Admin API，后续 `rpk` 操作使用已建立的管理身份。外部网络部署配置 Kafka TLS，并保护 Admin API 的访问网络和传输。应用环境文件中的凭据须与 Broker 中实际创建的账号相符；填写环境文件本身不会创建账号。
-4. 重启使用新配置的平台进程并复查数据接入。消息主题授权会读取 Broker 实际授权配置，检查管理连接、每个配置及广告地址拒绝匿名请求，且拒绝存在 `User:*` 通配授权的环境；任一检查失败不发放消费凭据。
+4. 重启使用新配置的平台进程并复查数据接入。消息主题授权会读取 Broker 实际授权配置，检查管理连接、每个配置及广告地址拒绝匿名请求，且拒绝存在 `User:*` 通配授权的环境；任一检查失败不发放连接凭据。
 
 受管消费用户名及消费组采用 `iot-topic-` 命名空间，凭据固定使用 `SCRAM-SHA-256`。每个账号仅获得所选 `iot.external.<租户编码>.` 主题的 `READ` / `DESCRIBE` 和其专属消费组的 `READ`；不授权共享默认主题、内部队列、发布或任意消费组。新主题使用 Broker 默认分区和副本数，已存在主题的分区、副本和保留策略保持原值。授权失败会撤销该账号的 ACL 和凭据；撤销先删除 ACL 再删除 SCRAM 用户，使已有认证连接也失去读权限。账号撤销和页面删除发布配置均不清除 Kafka 主题历史数据，保留策略由 Broker 管理。具体 ACL 语义见 [Redpanda ACL 文档](https://docs.redpanda.com/streaming/25.2/manage/security/authorization/acl/)。
 

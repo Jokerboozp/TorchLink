@@ -18,6 +18,14 @@ import (
 	"iot-platform/internal/ports"
 )
 
+type messageTopicKafkaGrantAdmin interface {
+	ProvisionGrants(context.Context, string, string, string, []string, []string) error
+}
+
+type messageTopicKafkaTopicAdmin interface {
+	CreateTopic(context.Context, string) error
+}
+
 type messageTopicKafkaAdmin interface {
 	Ready(context.Context) error
 	Provision(context.Context, string, string, string, []string) error
@@ -89,14 +97,15 @@ func (s *Server) messageTopicAuthorizationReady(ctx context.Context, protocol st
 }
 
 type messageTopicAccountInput struct {
-	Revision    *int64   `json:"revision"`
-	Name        string   `json:"name"`
-	Username    string   `json:"username"`
-	Enabled     bool     `json:"enabled"`
-	TopicIDs    []string `json:"topicIds"`
-	DeviceScope string   `json:"deviceScope"`
-	DeviceIDs   []string `json:"deviceIds"`
-	ExpiresAt   int64    `json:"expiresAt"`
+	Revision        *int64   `json:"revision"`
+	Name            string   `json:"name"`
+	Username        string   `json:"username"`
+	Enabled         bool     `json:"enabled"`
+	TopicIDs        []string `json:"topicIds"`
+	PublishTopicIDs []string `json:"publishTopicIds"`
+	DeviceScope     string   `json:"deviceScope"`
+	DeviceIDs       []string `json:"deviceIds"`
+	ExpiresAt       int64    `json:"expiresAt"`
 }
 
 func (s *Server) validateMessageTopicAccount(ctx context.Context, tenant string, cfg model.MessageTopicConfig, a model.MessageTopicAccount) error {
@@ -111,12 +120,13 @@ func (s *Server) validateMessageTopicAccount(ctx context.Context, tenant string,
 		return errors.New("账号到期时间必须晚于当前时间")
 	}
 	for _, id := range a.TopicIDs {
-		source, ok := messagetopics.RouteSource(cfg, id)
-		if !ok || !messagetopics.SourceAllowed(source.ID, identity) {
-			return errors.New("绑定用户没有所选主题的数据访问权限")
+		if !messagetopics.RouteAllowed(cfg, id, identity, a) {
+			return errors.New("绑定用户或账号范围没有所选订阅主题的数据访问权限")
 		}
-		if source.ID == "kafka.video-alarm" && a.DeviceScope != "all" {
-			return errors.New("视频告警主题需要绑定用户与对接账号均具有全部设备范围")
+	}
+	for _, id := range a.PublishTopicIDs {
+		if !messagetopics.RoutePublishAllowed(cfg, id, identity, a) {
+			return errors.New("发布授权仅支持绑定用户有消息主题权限的已启用共享主题")
 		}
 	}
 	allowedDevices := make(map[string]bool, len(identity.DeviceIDs))
@@ -140,7 +150,7 @@ func (s *Server) validateMessageTopicAccount(ctx context.Context, tenant string,
 	return nil
 }
 func accountFromInput(in messageTopicAccountInput) model.MessageTopicAccount {
-	return model.MessageTopicAccount{Name: strings.TrimSpace(in.Name), Username: strings.TrimSpace(in.Username), Enabled: in.Enabled, TopicIDs: in.TopicIDs, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, ExpiresAt: in.ExpiresAt}
+	return model.MessageTopicAccount{Name: strings.TrimSpace(in.Name), Username: strings.TrimSpace(in.Username), Enabled: in.Enabled, TopicIDs: in.TopicIDs, PublishTopicIDs: in.PublishTopicIDs, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, ExpiresAt: in.ExpiresAt}
 }
 func (s *Server) createMessageTopicAccount(w http.ResponseWriter, r *http.Request) {
 	if !messageTopicWriteAllowed(w, r) {
@@ -299,7 +309,7 @@ func (s *Server) topicCredentialResponse(tenant string, credential model.Message
 	}
 	if credential.Protocol == "mqtt" {
 		var err error
-		password, err = s.auth.IssueTopicConsumer(credential.Username, tenant, credential.Topics, time.Unix(credential.ExpiresAt, 0))
+		password, err = s.auth.IssueTopicClient(credential.Username, tenant, credential.Topics, credential.PublishTopics, time.Unix(credential.ExpiresAt, 0))
 		if err != nil {
 			return nil, err
 		}
@@ -311,8 +321,35 @@ func (s *Server) topicCredentialResponse(tenant string, credential model.Message
 		securityProtocol = "MQTT"
 		tlsEnabled = strings.HasPrefix(broker, "ssl://") || strings.HasPrefix(broker, "tls://") || strings.HasPrefix(broker, "mqtts://") || strings.HasPrefix(broker, "wss://")
 	}
-	return map[string]any{"revision": revision, "protocol": credential.Protocol, "username": credential.Username, "password": password, "topics": credential.Topics, "groupId": credential.GroupID, "expiresAt": credential.ExpiresAt, "broker": broker, "mechanism": mechanism, "tls": tlsEnabled, "securityProtocol": securityProtocol}, nil
+	return map[string]any{"revision": revision, "protocol": credential.Protocol, "username": credential.Username, "password": password, "topics": append([]string{}, credential.Topics...), "subscribeTopics": append([]string{}, credential.Topics...), "publishTopics": append([]string{}, credential.PublishTopics...), "groupId": credential.GroupID, "expiresAt": credential.ExpiresAt, "broker": broker, "mechanism": mechanism, "tls": tlsEnabled, "securityProtocol": securityProtocol}, nil
 }
+
+// Snapshot the exact current grants. Shared topics use their real address;
+// legacy source routes retain their credential-isolated destinations.
+func topicCredentialGrants(tenant string, cfg model.MessageTopicConfig, account model.MessageTopicAccount, identity messagetopics.MessageTopicIdentity, credential model.MessageTopicCredential) (subscribe, publish []string) {
+	destination := func(id string) string {
+		for _, route := range cfg.Topics {
+			if route.ID == id && route.Protocol != "" && route.SourceID == "" {
+				return messagetopics.SharedDestination(tenant, route)
+			}
+		}
+		return messagetopics.Destination(tenant, id, credential)
+	}
+	for _, id := range account.TopicIDs {
+		source, ok := messagetopics.RouteSource(cfg, id)
+		if ok && source.Protocol == credential.Protocol && messagetopics.RouteAllowed(cfg, id, identity, account) {
+			subscribe = append(subscribe, destination(id))
+		}
+	}
+	for _, id := range account.PublishTopicIDs {
+		source, ok := messagetopics.RouteSource(cfg, id)
+		if ok && source.Protocol == credential.Protocol && messagetopics.RoutePublishAllowed(cfg, id, identity, account) {
+			publish = append(publish, destination(id))
+		}
+	}
+	return subscribe, publish
+}
+
 func (s *Server) issueTopicCredential(ctx context.Context, tenant, accountID, protocol, secret string, expectedRevision ...int64) (map[string]any, int, error) {
 	if s.engine.MessageTopics == nil {
 		return nil, 503, errors.New("消息主题管理未初始化")
@@ -384,7 +421,8 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, accountID, pr
 		if c.Status == "provisioning" {
 			return nil, 409, errors.New("凭据正在生成，请稍后重试")
 		}
-		if c.AccessVersion == identity.Version && c.ExpiresAt > now {
+		subscribe, publish := topicCredentialGrants(tenant, cfg, account, identity, c)
+		if !c.Provisioning && c.AccessVersion == identity.Version && c.ExpiresAt > now && len(subscribe)+len(publish) > 0 && slices.Equal(c.Topics, subscribe) && slices.Equal(c.PublishTopics, publish) {
 			// Renew the lease without changing its destination. Consumers poll
 			// before expiry and retain offsets/history until their grants change.
 			if c.ExpiresAt <= now+600 {
@@ -409,34 +447,24 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, accountID, pr
 			return result, 500, e
 		}
 	}
-	credential := model.MessageTopicCredential{ID: randomHex(16), AccountID: accountID, Protocol: protocol, AccessVersion: identity.Version, Status: "provisioning", CreatedAt: now, ExpiresAt: now + 3600}
+	credential := model.MessageTopicCredential{ID: randomHex(16), AccountID: accountID, Protocol: protocol, AccessVersion: identity.Version, Status: "provisioning", Provisioning: true, CreatedAt: now, ExpiresAt: now + 3600}
 	credential.Username = "iot-topic-" + credential.ID
-	if protocol == "kafka" {
-		credential.GroupID = credential.Username
-	}
 	if account.ExpiresAt > 0 && credential.ExpiresAt > account.ExpiresAt {
 		credential.ExpiresAt = account.ExpiresAt
 	}
-	for _, routeID := range account.TopicIDs {
-		source, ok := messagetopics.RouteSource(cfg, routeID)
-		if !ok || source.Protocol != protocol || !messagetopics.SourceAllowed(source.ID, identity) {
-			continue
+	credential.Topics, credential.PublishTopics = topicCredentialGrants(tenant, cfg, account, identity, credential)
+	if len(credential.Topics)+len(credential.PublishTopics) == 0 {
+		return nil, 422, errors.New("此账号没有可用的已授权主题，请检查绑定用户权限和主题开关")
+	}
+	if protocol == "kafka" {
+		if len(credential.Topics) > 0 {
+			credential.GroupID = credential.Username
 		}
-		enabled := true
-		for _, route := range cfg.Topics {
-			if route.ID == routeID {
-				enabled = route.Enabled
+		if len(credential.PublishTopics) > 0 {
+			if _, ok := s.messageTopicKafka.(messageTopicKafkaGrantAdmin); !ok {
+				return nil, 503, errors.New("Kafka 管理服务不支持发布授权")
 			}
 		}
-		if override, ok := cfg.Overrides[routeID]; ok {
-			enabled = override.Enabled
-		}
-		if enabled {
-			credential.Topics = append(credential.Topics, messagetopics.Destination(tenant, routeID, credential))
-		}
-	}
-	if len(credential.Topics) == 0 {
-		return nil, 422, errors.New("此账号没有可用的已授权主题，请检查绑定用户权限和主题开关")
 	}
 	for i, c := range cfg.Credentials {
 		if c.AccountID == accountID && c.Protocol == protocol {
@@ -458,10 +486,14 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, accountID, pr
 	operationCtx, operationCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer operationCancel()
 	if protocol == "kafka" {
-		err = s.messageTopicKafka.Provision(operationCtx, credential.Username, s.topicBrokerPassword(tenant, credential.ID), credential.GroupID, credential.Topics)
+		if admin, ok := s.messageTopicKafka.(messageTopicKafkaGrantAdmin); ok {
+			err = admin.ProvisionGrants(operationCtx, credential.Username, s.topicBrokerPassword(tenant, credential.ID), credential.GroupID, credential.Topics, credential.PublishTopics)
+		} else {
+			err = s.messageTopicKafka.Provision(operationCtx, credential.Username, s.topicBrokerPassword(tenant, credential.ID), credential.GroupID, credential.Topics)
+		}
 	}
 	if err != nil {
-		s.markTopicCredentialRevoking(context.WithoutCancel(ctx), tenant, credential.ID)
+		s.markTopicCredentialRevoking(context.WithoutCancel(ctx), tenant, credential.ID, true)
 		return nil, 503, errors.New("Broker 凭据创建失败，已安排撤销，请稍后重试")
 	}
 	latest, err := s.engine.MessageTopics.Load(ctx, tenant)
@@ -479,6 +511,7 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, accountID, pr
 		for i, c := range latest.Credentials {
 			if c.ID == credential.ID && c.Status == "provisioning" {
 				latest.Credentials[i].Status = "active"
+				latest.Credentials[i].Provisioning = false
 				active = true
 				break
 			}
@@ -489,18 +522,18 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, accountID, pr
 		active = err == nil && saved
 	}
 	if !active {
-		s.markTopicCredentialRevoking(context.WithoutCancel(ctx), tenant, credential.ID)
+		s.markTopicCredentialRevoking(context.WithoutCancel(ctx), tenant, credential.ID, true)
 		revokeCtx, revokeCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		_ = s.revokeTopicBrokerCredential(revokeCtx, credential)
 		revokeCancel()
 		return nil, 409, errors.New("授权配置在生成期间改变，凭据已失效并安排撤销，请重试")
 	}
 	latest.Revision++
-	credential.Status = "active"
+	credential.Status, credential.Provisioning = "active", false
 	result, err := s.topicCredentialResponse(tenant, credential, latest.Revision)
 	return result, 500, err
 }
-func (s *Server) markTopicCredentialRevoking(ctx context.Context, tenant, id string) {
+func (s *Server) markTopicCredentialRevoking(ctx context.Context, tenant, id string, provisioningFinished ...bool) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	for attempt := 0; attempt < 3; attempt++ {
@@ -512,6 +545,9 @@ func (s *Server) markTopicCredentialRevoking(ctx context.Context, tenant, id str
 		for i := range cfg.Credentials {
 			if cfg.Credentials[i].ID == id {
 				cfg.Credentials[i].Status = "revoking"
+				if len(provisioningFinished) > 0 && provisioningFinished[0] {
+					cfg.Credentials[i].Provisioning = false
+				}
 				found = true
 			}
 		}
@@ -586,7 +622,8 @@ func (s *Server) reconcileMessageTopicTenant(ctx context.Context, tenant string)
 			shouldRevoke = true
 		}
 		identity, e := s.messageTopicIdentity(ctx, tenant, account.Username)
-		if e != nil || identity.Version != c.AccessVersion {
+		subscribe, publish := topicCredentialGrants(tenant, cfg, account, identity, c)
+		if e != nil || identity.Version != c.AccessVersion || len(subscribe)+len(publish) == 0 || !slices.Equal(c.Topics, subscribe) || !slices.Equal(c.PublishTopics, publish) {
 			shouldRevoke = true
 		}
 		if shouldRevoke {

@@ -89,6 +89,88 @@ func TestExistingMQTTToolCredentials(t *testing.T) {
 	t.Log("fixed tool credentials publish/subscribe; wrong password and anonymous clients refused")
 }
 
+func TestExistingMQTTTopicClientPublishSubscribe(t *testing.T) {
+	broker, secret := os.Getenv("IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER"), os.Getenv("IOT_TEST_MESSAGE_TOPICS_JWT_SECRET")
+	if broker == "" || secret == "" {
+		t.Skip("existing MQTT broker and signing secret required")
+	}
+	var random [12]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		t.Fatal(err)
+	}
+	id := hex.EncodeToString(random[:])
+	tenant := "topic-client-" + id
+	readTopic, writeTopic := messagetopics.MQTTPrefix(tenant)+"read", messagetopics.MQTTPrefix(tenant)+"write"
+	manager := auth.New(secret)
+	password, err := manager.IssueTopicClient("client-"+id, tenant, []string{readTopic}, []string{writeTopic}, time.Now().Add(2*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observerPassword, err := manager.IssueWithACL("observer-"+id, tenant, "service", nil, []auth.ACLRule{{Permission: "allow", Action: "all", Topic: readTopic}, {Permission: "allow", Action: "all", Topic: writeTopic}}, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	received := make(chan string, 16)
+	connect := func(user, pass string) mqtt.Client {
+		t.Helper()
+		client := mqtt.NewClient(mqtt.NewClientOptions().AddBroker(broker).SetClientID(user).SetUsername(user).SetPassword(pass).SetCleanSession(true).SetAutoReconnect(false).SetConnectRetry(false).SetConnectTimeout(3 * time.Second).SetDefaultPublishHandler(func(_ mqtt.Client, m mqtt.Message) { received <- string(m.Payload()) }))
+		t.Cleanup(func() { client.Disconnect(100) })
+		if token := client.Connect(); !token.WaitTimeout(5*time.Second) || token.Error() != nil {
+			t.Fatal("temporary MQTT connection failed")
+		}
+		return client
+	}
+	client, observer := connect("client-"+id, password), connect("observer-"+id, observerPassword)
+	subscribe := func(c mqtt.Client, topic string, want byte) {
+		t.Helper()
+		token := c.Subscribe(topic, 1, nil)
+		if !token.WaitTimeout(5 * time.Second) {
+			t.Fatal("subscription timeout")
+		}
+		result, ok := token.(*mqtt.SubscribeToken)
+		if !ok || result.Result()[topic] != want {
+			t.Fatal("unexpected subscription authorization")
+		}
+	}
+	subscribe(observer, writeTopic, 1)
+	subscribe(observer, readTopic, 1)
+	subscribe(client, readTopic, 1)
+	subscribe(client, writeTopic, 0x80)
+	subscribe(client, messagetopics.MQTTPrefix(tenant)+"#", 0x80)
+	if token := client.Publish(writeTopic, 1, false, "client-write-allowed"); !token.WaitTimeout(5*time.Second) || token.Error() != nil {
+		t.Fatal("granted publish failed")
+	}
+	select {
+	case payload := <-received:
+		if payload != "client-write-allowed" {
+			t.Fatal("unexpected authorized message")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("granted publication was not delivered")
+	}
+	if token := client.Publish(readTopic, 1, false, "client-write-forbidden"); !token.WaitTimeout(5 * time.Second) {
+		t.Fatal("forbidden publication timed out")
+	}
+	if token := observer.Publish(readTopic, 1, false, "observer-read-allowed"); !token.WaitTimeout(5*time.Second) || token.Error() != nil {
+		t.Fatal("observer publish failed")
+	}
+	for i := 0; i < 2; i++ {
+		select {
+		case payload := <-received:
+			if payload != "observer-read-allowed" {
+				t.Fatal("unauthorized publication was delivered")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("granted subscription message missing")
+		}
+	}
+	select {
+	case payload := <-received:
+		t.Fatalf("unexpected additional publication: %q", payload)
+	case <-time.After(250 * time.Millisecond):
+	}
+}
+
 // This opt-in test creates only random short-lived identities and non-retained
 // topics on an existing broker. Its exact temporary ban is removed at cleanup.
 func TestExistingMQTTTopicConsumerAuthorization(t *testing.T) {

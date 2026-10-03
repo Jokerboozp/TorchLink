@@ -103,15 +103,35 @@ func cloneConfig(cfg model.MessageTopicConfig) model.MessageTopicConfig {
 		out.Overrides[id] = override
 	}
 	out.Topics = slices.Clone(cfg.Topics)
+	for i := range out.Topics {
+		out.Topics[i].Exposure = slices.Clone(cfg.Topics[i].Exposure)
+		for j := range out.Topics[i].Exposure {
+			out.Topics[i].Exposure[j].DeviceIDs = slices.Clone(cfg.Topics[i].Exposure[j].DeviceIDs)
+		}
+	}
+	out.Rules = slices.Clone(cfg.Rules)
+	for i := range out.Rules {
+		out.Rules[i].DeviceIDs = slices.Clone(cfg.Rules[i].DeviceIDs)
+		if cfg.Rules[i].Fields != nil {
+			out.Rules[i].Fields = make(map[string]string, len(cfg.Rules[i].Fields))
+			for key, path := range cfg.Rules[i].Fields {
+				out.Rules[i].Fields[key] = path
+			}
+		}
+	}
+	out.RetiredTopics = slices.Clone(cfg.RetiredTopics)
+	out.RoutingHistory = slices.Clone(cfg.RoutingHistory)
 	out.Deleted = slices.Clone(cfg.Deleted)
 	out.Accounts = slices.Clone(cfg.Accounts)
 	for i := range out.Accounts {
 		out.Accounts[i].TopicIDs = slices.Clone(out.Accounts[i].TopicIDs)
+		out.Accounts[i].PublishTopicIDs = slices.Clone(out.Accounts[i].PublishTopicIDs)
 		out.Accounts[i].DeviceIDs = slices.Clone(out.Accounts[i].DeviceIDs)
 	}
 	out.Credentials = slices.Clone(cfg.Credentials)
 	for i := range out.Credentials {
 		out.Credentials[i].Topics = slices.Clone(out.Credentials[i].Topics)
+		out.Credentials[i].PublishTopics = slices.Clone(out.Credentials[i].PublishTopics)
 	}
 	return out
 }
@@ -301,6 +321,15 @@ func (s *Service) Resolve(ctx context.Context, protocol, sourceTopic string, pay
 		if strings.HasPrefix(destination, MQTTPrefix(tenant)+"managed/") {
 			return "", false, errors.New("生成的 MQTT 主题不能进入账号凭据专属地址")
 		}
+	}
+	// Other replicas can reserve a rendered override destination while this
+	// process still has the former route cached. Never cache this data boundary.
+	current, err := s.Load(ctx, tenant)
+	if err != nil {
+		return "", false, fmt.Errorf("读取消息主题地址边界失败：%w", err)
+	}
+	if sharedTargetReserved(tenant, current, protocol, destination) {
+		return "", false, errors.New("普通发布路由不能进入共享主题，请使用自动发布规则")
 	}
 	return destination, true, nil
 }

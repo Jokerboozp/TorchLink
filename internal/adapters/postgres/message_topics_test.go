@@ -22,10 +22,13 @@ func TestMessageTopicsReopen(t *testing.T) {
 		"mqtt.parsed":  {Enabled: true, Topic: "/iot/custom/{tenant}", Description: "自定义解析主题"},
 		"kafka.parsed": {Enabled: false, Topic: "iot.custom"},
 	},
-		Topics:      []model.MessageTopicRoute{{ID: "persisted", Name: "持久主题", SourceID: "mqtt.parsed", Topic: "parsed", Enabled: true}},
-		Accounts:    []model.MessageTopicAccount{{ID: "account", Username: "reader", TopicIDs: []string{"persisted"}, DeviceScope: "selected", DeviceIDs: []string{"device"}, SecretHash: "hash"}},
-		Credentials: []model.MessageTopicCredential{{ID: "credential", AccountID: "account", Protocol: "mqtt", Username: "broker-user", Topics: []string{"/exact/topic"}, Status: "revoking", ExpiresAt: 9999}},
-		Deleted:     []string{"kafka.property-report"},
+		Topics:         []model.MessageTopicRoute{{ID: "persisted", Name: "持久主题", Protocol: "mqtt", Topic: "parsed", Enabled: true, Exposure: []model.MessageTopicExposure{{SourceID: "mqtt.parsed", DeviceScope: "selected", DeviceIDs: []string{"device"}}}}},
+		Rules:          []model.MessageTopicRule{{ID: "rule", TopicID: "persisted", Name: "字段转换", SourceID: "mqtt.parsed", Enabled: true, DeviceScope: "selected", DeviceIDs: []string{"device"}, Format: "json", Fields: map[string]string{"temperature": "properties.temperature"}}},
+		RetiredTopics:  []string{"mqtt:/previous/topic"},
+		RoutingHistory: []model.MessageTopicReservedRoute{{SourceID: "mqtt.parsed", Topic: "/previous/{deviceId}"}},
+		Accounts:       []model.MessageTopicAccount{{ID: "account", Username: "reader", TopicIDs: []string{"persisted"}, PublishTopicIDs: []string{"persisted"}, DeviceScope: "selected", DeviceIDs: []string{"device"}, SecretHash: "hash"}},
+		Credentials:    []model.MessageTopicCredential{{ID: "credential", AccountID: "account", Protocol: "mqtt", Username: "broker-user", Topics: []string{"/exact/topic"}, PublishTopics: []string{"/write/topic"}, Provisioning: true, Status: "revoking", ExpiresAt: 9999}},
+		Deleted:        []string{"kafka.property-report"},
 	}
 	if ok, err := repo.SaveMessageTopicConfig(ctx, "persistent", config); err != nil || !ok {
 		t.Fatalf("save configuration: %t, %v", ok, err)

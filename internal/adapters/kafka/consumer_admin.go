@@ -28,6 +28,10 @@ var (
 
 const maxConsumerTopics = 115
 
+// ErrTopicExists prevents a new platform topic from adopting broker history
+// whose previous authorization boundary is unknown.
+var ErrTopicExists = errors.New("Kafka topic already exists")
+
 // ConsumerAdmin owns only iot-topic-* principals and tenant-specific external
 // topics. It never enables broker authentication or changes existing log data.
 type ConsumerAdmin struct {
@@ -309,20 +313,87 @@ func (a *ConsumerAdmin) Revoke(ctx context.Context, username string) error {
 	return nil
 }
 
-// Provision is idempotent for an account generation. Callers must persist a
-// new random username for rotations. All changed account grants are replaced;
-// failures revoke them and the credential, including after request cancellation.
-func (a *ConsumerAdmin) Provision(ctx context.Context, username, password, group string, topics []string) (result error) {
-	if !managedConsumerName.MatchString(username) || username == a.adminUser || username == a.security.Username || !managedConsumerName.MatchString(group) || len(password) < 24 || len(password) > 256 || len(topics) == 0 || len(topics) > maxConsumerTopics {
+// CreateTopic requires a new physical topic. An existing topic can contain
+// history outside the new platform route's data boundary and is never adopted.
+func (a *ConsumerAdmin) CreateTopic(ctx context.Context, topic string) error {
+	if err := validateConsumerTopics([]string{topic}); err != nil {
+		return err
+	}
+	if err := a.Ready(ctx); err != nil {
+		return err
+	}
+	return a.createTopics(ctx, []string{topic}, false)
+}
+
+// EnsureTopic creates an external topic with the broker defaults, preserving
+// existing partitions, replication, retention and messages on repeated calls.
+func (a *ConsumerAdmin) EnsureTopic(ctx context.Context, topic string) error {
+	if err := validateConsumerTopics([]string{topic}); err != nil {
+		return err
+	}
+	if err := a.Ready(ctx); err != nil {
+		return err
+	}
+	return a.ensureTopics(ctx, []string{topic})
+}
+
+func validateConsumerTopics(topics []string) error {
+	if len(topics) > maxConsumerTopics {
 		return errors.New("invalid managed Kafka consumer credential or grants")
 	}
-	unique := make([]string, 0, len(topics))
 	for _, topic := range topics {
 		if len(topic) > 249 || !managedConsumerTopic.MatchString(topic) {
 			return errors.New("Kafka consumers can only access tenant-specific external topics")
 		}
-		if !slices.Contains(unique, topic) {
-			unique = append(unique, topic)
+	}
+	return nil
+}
+
+func (a *ConsumerAdmin) ensureTopics(ctx context.Context, topics []string) error {
+	return a.createTopics(ctx, topics, true)
+}
+
+func (a *ConsumerAdmin) createTopics(ctx context.Context, topics []string, allowExisting bool) error {
+	configs := make([]kafka.TopicConfig, 0, len(topics))
+	for _, topic := range topics {
+		configs = append(configs, kafka.TopicConfig{Topic: topic, NumPartitions: -1, ReplicationFactor: -1})
+	}
+	created, err := a.client.CreateTopics(ctx, &kafka.CreateTopicsRequest{Topics: configs})
+	if err != nil || created == nil {
+		return errors.New("could not prepare Kafka consumer topics")
+	}
+	for _, topic := range topics {
+		cause, ok := created.Errors[topic]
+		if ok && errors.Is(cause, kafka.TopicAlreadyExists) && !allowExisting {
+			return ErrTopicExists
+		}
+		if !ok || (cause != nil && !errors.Is(cause, kafka.TopicAlreadyExists)) {
+			return errors.New("could not prepare Kafka consumer topics")
+		}
+	}
+	return nil
+}
+
+// Provision preserves the original subscribe-only API.
+func (a *ConsumerAdmin) Provision(ctx context.Context, username, password, group string, topics []string) error {
+	return a.ProvisionGrants(ctx, username, password, group, topics, nil)
+}
+
+// ProvisionGrants is idempotent for an account generation. Changed grants
+// replace existing ACLs; any partial failure removes ACLs and SCRAM credentials.
+func (a *ConsumerAdmin) ProvisionGrants(ctx context.Context, username, password, group string, read, write []string) (result error) {
+	if !managedConsumerName.MatchString(username) || username == a.adminUser || username == a.security.Username || (len(read) > 0 && !managedConsumerName.MatchString(group)) || len(password) < 24 || len(password) > 256 || len(read)+len(write) == 0 {
+		return errors.New("invalid managed Kafka consumer credential or grants")
+	}
+	unique := make([]string, 0, len(read)+len(write))
+	for _, topics := range [][]string{read, write} {
+		if err := validateConsumerTopics(topics); err != nil {
+			return err
+		}
+		for _, topic := range topics {
+			if !slices.Contains(unique, topic) {
+				unique = append(unique, topic)
+			}
 		}
 	}
 	if err := a.Ready(ctx); err != nil {
@@ -347,24 +418,10 @@ func (a *ConsumerAdmin) Provision(ctx context.Context, username, password, group
 	if err := a.removeACLs(ctx, username); err != nil {
 		return err
 	}
-	// Existing topics retain their partition, replication and retention
-	// settings. New topics use the cluster defaults rather than forcing RF=1.
-	configs := make([]kafka.TopicConfig, 0, len(unique))
-	for _, topic := range unique {
-		configs = append(configs, kafka.TopicConfig{Topic: topic, NumPartitions: -1, ReplicationFactor: -1})
+	if err := a.ensureTopics(ctx, unique); err != nil {
+		return err
 	}
-	created, err := a.client.CreateTopics(ctx, &kafka.CreateTopicsRequest{Topics: configs})
-	if err != nil || created == nil {
-		return errors.New("could not prepare Kafka consumer topics")
-	}
-	for _, topic := range unique {
-		cause, ok := created.Errors[topic]
-		if !ok || (cause != nil && !errors.Is(cause, kafka.TopicAlreadyExists)) {
-			return errors.New("could not prepare Kafka consumer topics")
-		}
-	}
-	// Consumer connection instructions use this fixed mechanism regardless
-	// of the mechanism used by the platform/admin service identities.
+	// External clients always use SCRAM-SHA-256, independently of the service.
 	const mechanism = "SCRAM-SHA-256"
 	body := map[string]string{"username": username, "password": password, "algorithm": mechanism}
 	code, err := a.adminRequest(ctx, http.MethodPost, "/v1/security/users", body, nil)
@@ -374,13 +431,7 @@ func (a *ConsumerAdmin) Provision(ctx context.Context, username, password, group
 	if err != nil {
 		return err
 	}
-	acls := make([]kafka.ACLEntry, 0, len(unique)*2+1)
-	for _, topic := range unique {
-		for _, operation := range []kafka.ACLOperationType{kafka.ACLOperationTypeRead, kafka.ACLOperationTypeDescribe} {
-			acls = append(acls, kafka.ACLEntry{ResourceType: kafka.ResourceTypeTopic, ResourceName: topic, ResourcePatternType: kafka.PatternTypeLiteral, Principal: "User:" + username, Host: "*", Operation: operation, PermissionType: kafka.ACLPermissionTypeAllow})
-		}
-	}
-	acls = append(acls, kafka.ACLEntry{ResourceType: kafka.ResourceTypeGroup, ResourceName: group, ResourcePatternType: kafka.PatternTypeLiteral, Principal: "User:" + username, Host: "*", Operation: kafka.ACLOperationTypeRead, PermissionType: kafka.ACLPermissionTypeAllow})
+	acls := consumerGrantACLs(username, group, read, write)
 	granted, err := a.client.CreateACLs(ctx, &kafka.CreateACLsRequest{ACLs: acls})
 	if err != nil || granted == nil || len(granted.Errors) != len(acls) {
 		return errors.New("could not grant Kafka consumer access")
@@ -391,6 +442,27 @@ func (a *ConsumerAdmin) Provision(ctx context.Context, username, password, group
 		}
 	}
 	return a.verifyACLs(ctx, username, acls)
+}
+
+func consumerGrantACLs(username, group string, read, write []string) []kafka.ACLEntry {
+	acls := make([]kafka.ACLEntry, 0, 2*(len(read)+len(write))+1)
+	for _, grant := range []struct {
+		topics    []string
+		operation kafka.ACLOperationType
+	}{{read, kafka.ACLOperationTypeRead}, {write, kafka.ACLOperationTypeWrite}} {
+		for _, topic := range grant.topics {
+			for _, operation := range []kafka.ACLOperationType{grant.operation, kafka.ACLOperationTypeDescribe} {
+				entry := kafka.ACLEntry{ResourceType: kafka.ResourceTypeTopic, ResourceName: topic, ResourcePatternType: kafka.PatternTypeLiteral, Principal: "User:" + username, Host: "*", Operation: operation, PermissionType: kafka.ACLPermissionTypeAllow}
+				if !slices.Contains(acls, entry) {
+					acls = append(acls, entry)
+				}
+			}
+		}
+	}
+	if len(read) > 0 {
+		acls = append(acls, kafka.ACLEntry{ResourceType: kafka.ResourceTypeGroup, ResourceName: group, ResourcePatternType: kafka.PatternTypeLiteral, Principal: "User:" + username, Host: "*", Operation: kafka.ACLOperationTypeRead, PermissionType: kafka.ACLPermissionTypeAllow})
+	}
+	return acls
 }
 
 func (a *ConsumerAdmin) verifyACLs(ctx context.Context, username string, expected []kafka.ACLEntry) error {
