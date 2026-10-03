@@ -26,3 +26,27 @@ type BackupWindow struct {
 func (w BackupWindow) Covers(from, to time.Time) bool {
 	return !from.Before(w.Start) && !to.After(w.End)
 }
+
+// DeadLetter is one message moved to a dead-letter topic iot.dlq.<group>.
+type DeadLetter struct {
+	Group           string    `json:"group"`
+	Partition       int       `json:"partition"`
+	Offset          int64     `json:"offset"`
+	Time            time.Time `json:"time"`
+	Key             string    `json:"key"`
+	SourceTopic     string    `json:"sourceTopic"`
+	Error           string    `json:"error"`
+	RetryCount      int       `json:"retryCount"`
+	Payload         string    `json:"payload"`
+	PayloadEncoding string    `json:"payloadEncoding,omitempty"`
+	Truncated       bool      `json:"truncated,omitempty"`
+}
+
+// DeadLetterGroups are the consumer groups whose dead letters can be viewed
+// and replayed, with the only topic each may be replayed to.
+var DeadLetterGroups = map[string]string{
+	"parser":                     TopicRaw,
+	"processor":                  TopicDeviceBusiness,
+	"state":                      TopicDeviceState,
+	"device-alarm-notifications": TopicAlarmReported,
+}

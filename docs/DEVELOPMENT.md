@@ -356,6 +356,10 @@ IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -r
 
 该测试只断开自己创建的临时订阅客户端，使用独立主题和临时目录。真实 PostgreSQL 测试使用 `IOT_TEST_POSTGRES_DSN` 指定数据库，在临时 schema 中建表并清理，不应把完整连接串写入终端历史。未配置时相应测试跳过。
 
+消费者按错误类型处理失败消息：报文无法解码等永久错误直接转入死信；其他错误按退避重试，期间若同一消费组的其他消息仍在成功处理，判定为该消息自身问题，在 3 次尝试后转入死信；若所有消息都在失败（数据库、消息队列等依赖故障），该处理通道暂停并持续重试，依赖恢复后自动继续，火警等消息不会因短暂故障离开正常链路。等待超过 `IOT_CONSUMER_MAX_BLOCK`（默认 30 分钟）才转入死信。暂停期间 `consumer_blocked_seconds_<消费组>` 记录最长等待时间，规则 `ConsumerBlockedByOutage` 超过 1 分钟告警，`/health/ready` 在 2 分钟无进展后报告该消费组停滞。
+
+运维中心“总览 → 死信消息”列出各环节保留的死信数量与最近记录（失败原因、内容预览），获授“查看死信消息”的运维用户可查看，“重新投递死信消息”把选中消息重新发布到该环节的原处理主题并写审计；处理按消息幂等，死信本身保留。
+
 消息转入 `iot.dlq.<消费组>` 时计入 `dlq_published_total` 与 `dlq_published_<消费组>_total`，并记录错误日志；Compose 的 Prometheus 规则 `DeadLetterPublished` 立即告警，`KafkaConsumerLagHigh` 在消费积压持续 5 分钟超过一万条时告警。
 
 存储死信恢复工具默认只读审计，显式指定租户、源业务主题和待恢复标准消息 ID 数组文件，核对全部 ID 后再追加 `-execute`：

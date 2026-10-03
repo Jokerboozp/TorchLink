@@ -250,7 +250,7 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	var raw model.RawMessage
 	if err := json.Unmarshal(b, &raw); err != nil {
-		return err
+		return model.Permanent(err)
 	}
 	var msg *model.StandardMessage
 	var err error
@@ -369,7 +369,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	var msg model.StandardMessage
 	if err := json.Unmarshal(b, &msg); err != nil {
-		return err
+		return model.Permanent(err)
 	}
 	digest := sha256.Sum256([]byte(msg.TenantID + "\x00" + msg.DeviceID))
 	serial := &e.standardLocks[digest[0]]
@@ -377,7 +377,7 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 	defer serial.Unlock()
 	components, err := model.MessageComponents(msg)
 	if err != nil {
-		return err
+		return model.Permanent(err)
 	}
 	claim, err := e.claimStandard(ctx, msg)
 	if err != nil {
@@ -961,7 +961,7 @@ func (e *Engine) handleState(ctx context.Context, b []byte) error {
 	}
 	var msg model.StandardMessage
 	if err := json.Unmarshal(b, &msg); err != nil {
-		return err
+		return model.Permanent(err)
 	}
 	return e.touchState(ctx, msg)
 }

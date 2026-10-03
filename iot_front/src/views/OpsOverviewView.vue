@@ -13,6 +13,7 @@ import { resolveRange } from '../ops/timeRange.js'
 import StatusDot from '../components/layout/StatusDot.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
 import TimeSeriesChart from '../components/ops/TimeSeriesChart.vue'
+import DeadLetterPanel from '../components/ops/DeadLetterPanel.vue'
 
 const emit = defineEmits(['navigate'])
 const range = ref({ from: 'now-3h', to: 'now' })
@@ -179,6 +180,8 @@ onBeforeUnmount(() => { for (const runner of Object.values(runners)) runner.canc
         </article>
       </div>
     </section>
+
+    <DeadLetterPanel v-if="can('GET /api/v1/ops/overview/dead-letters')" />
 
     <section class="kpi-section" aria-label="趋势">
       <div class="section-heading"><h2>趋势</h2><span>悬停同步查看各图同一时刻，拖选区域可放大全部图表的时间范围</span></div>

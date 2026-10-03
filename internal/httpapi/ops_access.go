@@ -99,6 +99,8 @@ var opsActionNames = map[string]string{
 	"DELETE /api/v1/ops/silences/:id":                     "解除静默",
 	"PUT /api/v1/ops/notifications":                       "修改通知路由与渠道",
 	"POST /api/v1/ops/notifications/receivers/:name/test": "发送测试通知",
+	"GET " + deadLettersPath:                              "查看死信消息",
+	"POST " + deadLetterReplayPath:                        "重新投递死信消息",
 	"POST /api/v1/ops/capacity/plans/validate":            "校验容量测试计划",
 	"POST /api/v1/ops/capacity/runs":                      "启动容量测试",
 	"POST /api/v1/ops/capacity/runs/:id/stop":             "停止容量测试",

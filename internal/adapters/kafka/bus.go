@@ -43,6 +43,89 @@ type Bus struct {
 	noAutoCreate bool
 	// metrics receives consumer counters; nil disables them.
 	metrics Metrics
+	// maxBlock bounds how long a transient failure may hold a message
+	// before it is dead-lettered; 0 uses defaultMaxBlock.
+	maxBlock time.Duration
+	// retryDelay and publishDLQ are replaced by tests.
+	retryDelay func(attempt int) time.Duration
+	publishDLQ func(ctx context.Context, topic, key string, payload []byte) error
+	// lastSuccess is the latest handler success per consumer group; blocked
+	// lists the first-failure times of messages held by a transient failure.
+	lastSuccess map[string]time.Time
+	blocked     map[string]map[uint64]time.Time
+	blockSeq    uint64
+}
+
+// SetMaxBlock sets how long a dependency outage may hold a message before
+// it is moved to the dead-letter topic.
+func (b *Bus) SetMaxBlock(d time.Duration) {
+	b.mu.Lock()
+	b.maxBlock = d
+	b.mu.Unlock()
+}
+
+func (b *Bus) maxBlockDuration() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.maxBlock <= 0 {
+		return defaultMaxBlock
+	}
+	return b.maxBlock
+}
+
+func (b *Bus) succeeded(group string) {
+	b.mu.Lock()
+	b.lastSuccess[group] = b.now()
+	b.mu.Unlock()
+}
+
+func (b *Bus) succeededSince(group string, since time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.lastSuccess[group].After(since)
+}
+
+// block records a message held by a transient failure; the gauge
+// consumer_blocked_seconds_<group> reports the longest current hold.
+func (b *Bus) block(group string, since time.Time) uint64 {
+	b.mu.Lock()
+	b.blockSeq++
+	id := b.blockSeq
+	if b.blocked[group] == nil {
+		b.blocked[group] = map[uint64]time.Time{}
+	}
+	b.blocked[group][id] = since
+	b.mu.Unlock()
+	b.updateBlockedGauge(group)
+	return id
+}
+
+func (b *Bus) unblock(group string, id uint64) {
+	b.mu.Lock()
+	delete(b.blocked[group], id)
+	b.mu.Unlock()
+	b.updateBlockedGauge(group)
+}
+
+func (b *Bus) updateBlockedGauge(group string) {
+	b.mu.Lock()
+	m := b.metrics
+	oldest := time.Time{}
+	for _, since := range b.blocked[group] {
+		if oldest.IsZero() || since.Before(oldest) {
+			oldest = since
+		}
+	}
+	now := b.now()
+	b.mu.Unlock()
+	if m == nil {
+		return
+	}
+	seconds := 0.0
+	if !oldest.IsZero() {
+		seconds = now.Sub(oldest).Seconds()
+	}
+	m.Set("consumer_blocked_seconds_"+metricGroup(group), seconds)
 }
 
 // Metrics receives the consumer's counters and gauges; *metrics.Registry
@@ -98,7 +181,8 @@ func NewWithSecurity(brokers []string, security SecurityConfig) (*Bus, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := &Bus{brokers: append([]string(nil), brokers...), dialer: dialer, transport: transport, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}, progress: map[string]*groupProgress{}, now: time.Now}
+	b := &Bus{brokers: append([]string(nil), brokers...), dialer: dialer, transport: transport, writers: map[string]*kafka.Writer{}, readers: map[messageSource]struct{}{}, consumerErrors: map[string]error{}, progress: map[string]*groupProgress{}, now: time.Now, retryDelay: backoff, lastSuccess: map[string]time.Time{}, blocked: map[string]map[uint64]time.Time{}}
+	b.publishDLQ = b.Publish
 	b.newSource = func(topic, group string) messageSource {
 		return kafka.NewReader(kafka.ReaderConfig{Brokers: b.brokers, Dialer: b.dialer, Topic: topic, GroupID: "iot-platform-" + group, MinBytes: 1, MaxBytes: 10e6, CommitInterval: 0})
 	}

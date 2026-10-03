@@ -174,3 +174,4 @@ IOT_RETENTION_VIDEO_EVENT_DAYS	视频平台告警事件保留天数，默认 109
 IOT_RETENTION_RESERVATION_DAYS	原文去重预约保留天数，默认 7，须不大于原文保留天数
 IOT_RETENTION_TELEMETRY_DAYS	ClickHouse 遥测保留天数（表 TTL），默认 365
 IOT_RETENTION_CLICKHOUSE_RAW_DAYS	ClickHouse 高频原文保留天数（表 TTL），默认 180
+IOT_CONSUMER_MAX_BLOCK	依赖故障时一条设备消息最长暂停等待时间，超过后转入死信，默认 30m

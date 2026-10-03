@@ -138,6 +138,7 @@ func Run(forcedRole string) {
 		kafkaBus.SetAutoCreateTopics(cfg.KafkaAutoCreateTopics)
 		// Parallel lanes keep each device's messages in order.
 		kafkaBus.SetConsumerConcurrency(positiveOr(cfg.KafkaConsumerConcurrency, 64))
+		kafkaBus.SetMaxBlock(cfg.ConsumerMaxBlock)
 		bus = kafkaBus
 		log.Info("event bus enabled", "adapter", "kafka", "brokers", cfg.KafkaBrokers)
 	}

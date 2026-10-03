@@ -174,7 +174,7 @@ func protectedRead(path string) bool {
 	if path == "/api/v1/ai/runs" {
 		return true
 	}
-	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report"
+	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report" || path == deadLettersPath
 }
 func (s *Server) permissionCatalog() []permissionItem {
 	items := []permissionItem{}

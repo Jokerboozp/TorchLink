@@ -66,7 +66,7 @@ func (s *Service) StartDeviceNotifications(ctx context.Context, bus ports.EventB
 func (n *DeviceNotifications) enqueue(ctx context.Context, payload []byte) error {
 	var alarm model.Alarm
 	if err := json.Unmarshal(payload, &alarm); err != nil {
-		return fmt.Errorf("decode device alarm notification: %w", err)
+		return model.Permanent(fmt.Errorf("decode device alarm notification: %w", err))
 	}
 	if alarm.Source != "device" {
 		return nil

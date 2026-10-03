@@ -2,11 +2,13 @@ package kafkaadapter
 
 import (
 	"context"
+	"errors"
 	"hash/fnv"
 	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
+	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
 
@@ -146,28 +148,79 @@ func (s *healthySource) FetchMessage(ctx context.Context) (kafka.Message, error)
 	return m, err
 }
 
-// handle runs the handler with the existing retry and dead-letter policy. It
-// returns false only when the context ends before the message is settled.
+// handle runs the handler until the message is settled:
+//
+//   - success settles it;
+//   - an error marked model.ErrPermanent moves it to the dead-letter topic at
+//     once, because retrying a malformed message cannot help;
+//   - any other error is retried with backoff. When other messages of the
+//     group keep succeeding meanwhile, the failure belongs to this message
+//     and it is dead-lettered after the initial attempts. When nothing
+//     succeeds, a dependency (database, broker) is down: the lane keeps
+//     retrying, so messages such as fire alarms wait for the recovery instead
+//     of leaving the normal path, until maxBlock passes.
+//
+// It returns false only when the context ends before the message is settled.
 func (b *Bus) handle(ctx context.Context, topic, group string, h ports.Handler, m kafka.Message) bool {
 	var handleErr error
-	for attempt := 1; attempt <= 3; attempt++ {
+	firstFailure := time.Time{}
+	blockID := uint64(0)
+	defer func() {
+		if blockID != 0 {
+			b.unblock(group, blockID)
+		}
+	}()
+	for attempt := 1; ; attempt++ {
 		handleErr = h(ctx, m.Value)
 		if handleErr == nil {
+			b.succeeded(group)
 			return true
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		if errors.Is(handleErr, model.ErrPermanent) {
+			break
+		}
+		now := b.now()
+		if firstFailure.IsZero() {
+			firstFailure = now
+		}
+		if attempt >= initialAttempts {
+			if b.succeededSince(group, firstFailure) || now.Sub(firstFailure) >= b.maxBlockDuration() {
+				break
+			}
+			if blockID == 0 {
+				blockID = b.block(group, firstFailure)
+				b.logger().Warn("message processing blocked by a transient failure; retrying until dependencies recover", "topic", topic, "group", group, "error", handleErr)
+			}
+			b.count("consumer_retry_total")
+			b.updateBlockedGauge(group)
 		}
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(time.Duration(attempt*attempt) * 250 * time.Millisecond):
+		case <-time.After(b.retryDelay(attempt)):
 		}
 	}
 	dlq := deadLetterPayload(topic, group, handleErr, m.Value)
-	if retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return b.Publish(ctx, "iot.dlq."+group, string(m.Key), dlq) }) != nil {
+	if retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return b.publishDLQ(ctx, "iot.dlq."+group, string(m.Key), dlq) }) != nil {
 		return false
 	}
 	b.count("dlq_published_total", "dlq_published_"+metricGroup(group)+"_total")
 	b.logger().Error("message moved to dead-letter topic", "topic", topic, "group", group, "error", handleErr)
 	return true
+}
+
+// initialAttempts run before a failure is judged as message-specific or as
+// a dependency outage.
+const initialAttempts = 3
+
+const defaultMaxBlock = 30 * time.Minute
+
+// backoff grows quadratically from 250ms and is capped at 30s.
+func backoff(attempt int) time.Duration {
+	return min(time.Duration(attempt*attempt)*250*time.Millisecond, 30*time.Second)
 }
 
 // commitReady commits every partition whose contiguous finished offset moved.

@@ -80,6 +80,9 @@ type Config struct {
 	// KafkaConsumerConcurrency is the parallel lanes per Kafka subscription;
 	// messages of one device keep their order within a lane.
 	KafkaConsumerConcurrency int64
+	// ConsumerMaxBlock bounds how long a dependency outage may hold a
+	// message before it is moved to the dead-letter topic.
+	ConsumerMaxBlock time.Duration
 	MinIOEndpoint            string
 	MinIOAccessKey           string
 	MinIOSecretKey           string
@@ -178,6 +181,7 @@ func Load() Config {
 		KafkaAutoCreateTopics:       boolValue("IOT_KAFKA_AUTO_CREATE_TOPICS", true),
 		RawHighFrequencyIntervalSec: int64Value("IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC", 60),
 		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
+		ConsumerMaxBlock:            duration("IOT_CONSUMER_MAX_BLOCK", 30*time.Minute),
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 1024),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
@@ -254,6 +258,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.validateRole(); err != nil {
 		return err
+	}
+	if c.ConsumerMaxBlock < 0 || c.ConsumerMaxBlock > 24*time.Hour {
+		return fmt.Errorf("IOT_CONSUMER_MAX_BLOCK must be between 0 and 24h (0 uses the default 30m)")
 	}
 	if c.KafkaConsumerConcurrency < 0 || c.KafkaConsumerConcurrency > 64 {
 		return fmt.Errorf("IOT_KAFKA_CONSUMER_CONCURRENCY must be between 1 and 64 (0 uses the default 64)")

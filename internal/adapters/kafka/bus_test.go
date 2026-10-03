@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/segmentio/kafka-go"
+
+	"iot-platform/internal/model"
 )
 
 func TestDeadLetterPayloadIsDecodableForMalformedSource(t *testing.T) {
@@ -402,5 +404,117 @@ func TestConsumerLagCountsUncommittedMessages(t *testing.T) {
 			t.Fatalf("busy group lag = %v, %v; want 0", lags, err)
 		case <-time.After(500 * time.Millisecond):
 		}
+	}
+}
+
+type recordedMetrics struct {
+	mu     sync.Mutex
+	values map[string]float64
+}
+
+func (r *recordedMetrics) Inc(name string) { r.mu.Lock(); r.values[name]++; r.mu.Unlock() }
+func (r *recordedMetrics) Set(name string, v float64) {
+	r.mu.Lock()
+	r.values[name] = v
+	r.mu.Unlock()
+}
+func (r *recordedMetrics) get(name string) float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.values[name]
+}
+
+func retryTestBus() (*Bus, *recordedMetrics, *[]string) {
+	bus := New(nil)
+	metrics := &recordedMetrics{values: map[string]float64{}}
+	bus.SetMetrics(metrics)
+	bus.retryDelay = func(int) time.Duration { return time.Millisecond }
+	var mu sync.Mutex
+	dead := []string{}
+	bus.publishDLQ = func(_ context.Context, topic, key string, _ []byte) error {
+		mu.Lock()
+		dead = append(dead, topic+"/"+key)
+		mu.Unlock()
+		return nil
+	}
+	return bus, metrics, &dead
+}
+
+func TestPermanentErrorIsDeadLetteredWithoutRetry(t *testing.T) {
+	bus, metrics, dead := retryTestBus()
+	calls := 0
+	settled := bus.handle(context.Background(), "t", "processor", func(context.Context, []byte) error {
+		calls++
+		return model.Permanent(errors.New("malformed"))
+	}, kafka.Message{Key: []byte("d1")})
+	if !settled || calls != 1 || len(*dead) != 1 || (*dead)[0] != "iot.dlq.processor/d1" {
+		t.Fatalf("settled=%v calls=%d dead=%v", settled, calls, *dead)
+	}
+	if metrics.get("dlq_published_total") != 1 || metrics.get("dlq_published_processor_total") != 1 {
+		t.Fatalf("metrics=%v", metrics.values)
+	}
+}
+
+func TestFailingMessageIsDeadLetteredWhileOthersSucceed(t *testing.T) {
+	bus, _, dead := retryTestBus()
+	calls := 0
+	settled := bus.handle(context.Background(), "t", "processor", func(context.Context, []byte) error {
+		calls++
+		if calls == 2 {
+			// Another lane completes a message: dependencies are healthy.
+			bus.succeeded("processor")
+		}
+		return errors.New("bad content")
+	}, kafka.Message{Key: []byte("poison")})
+	if !settled || len(*dead) != 1 || calls != initialAttempts {
+		t.Fatalf("settled=%v calls=%d dead=%v", settled, calls, *dead)
+	}
+}
+
+func TestOutageHoldsMessageUntilRecovery(t *testing.T) {
+	bus, metrics, dead := retryTestBus()
+	calls := 0
+	settled := bus.handle(context.Background(), "t", "processor", func(context.Context, []byte) error {
+		calls++
+		if calls < 20 {
+			return errors.New("database unavailable")
+		}
+		return nil
+	}, kafka.Message{Key: []byte("fire-alarm")})
+	if !settled || calls != 20 || len(*dead) != 0 {
+		t.Fatalf("an outage must not dead-letter: settled=%v calls=%d dead=%v", settled, calls, *dead)
+	}
+	if metrics.get("consumer_retry_total") == 0 || metrics.get("consumer_blocked_seconds_processor") != 0 {
+		t.Fatalf("blocked gauge must reset after recovery: %v", metrics.values)
+	}
+}
+
+func TestOutageDeadLettersAfterMaxBlock(t *testing.T) {
+	bus, _, dead := retryTestBus()
+	now := time.Unix(1000, 0)
+	bus.now = func() time.Time { return now }
+	bus.SetMaxBlock(time.Minute)
+	settled := bus.handle(context.Background(), "t", "processor", func(context.Context, []byte) error {
+		now = now.Add(10 * time.Second)
+		return errors.New("database unavailable")
+	}, kafka.Message{Key: []byte("d")})
+	if !settled || len(*dead) != 1 {
+		t.Fatalf("settled=%v dead=%v", settled, *dead)
+	}
+}
+
+func TestBlockedMessageStopsOnCancellation(t *testing.T) {
+	bus, _, dead := retryTestBus()
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	settled := bus.handle(ctx, "t", "processor", func(context.Context, []byte) error {
+		calls++
+		if calls == 5 {
+			cancel()
+		}
+		return errors.New("database unavailable")
+	}, kafka.Message{Key: []byte("d")})
+	if settled || len(*dead) != 0 {
+		t.Fatalf("a stopping consumer must leave the message for redelivery: settled=%v dead=%v", settled, *dead)
 	}
 }

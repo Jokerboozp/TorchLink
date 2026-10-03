@@ -146,6 +146,7 @@ func (s *Server) routes() {
 	s.messageTopicRoutes()
 	s.deletionRoutes()
 	s.opsRoutes()
+	s.deadLetterRoutes()
 	s.videoRoutes()
 	s.fireSafetyRoutes()
 	s.externalDataRoutes()

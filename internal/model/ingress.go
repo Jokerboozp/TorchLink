@@ -17,6 +17,23 @@ var ErrBackpressure = errors.New("ingest paused: processing backlog above limit,
 // lease expired; the fenced holder must not record completion.
 var ErrStaleClaim = errors.New("processing claim was taken over by another worker")
 
+// ErrPermanent marks a consumer error that retrying cannot fix (a malformed
+// payload or invalid content). The consumer moves such a message to the
+// dead-letter topic at once; every other error is treated as transient.
+var ErrPermanent = errors.New("permanent message error")
+
+// Permanent wraps err so errors.Is(err, ErrPermanent) holds.
+func Permanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentError{err}
+}
+
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() []error { return []error{e.error, ErrPermanent} }
+
 // ErrConcurrentUpdate is returned when optimistic retries were exhausted.
 var ErrConcurrentUpdate = errors.New("concurrent update; retry")
 
