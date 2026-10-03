@@ -332,7 +332,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### 数据库迁移
 
-PostgreSQL 仓储启动时执行 `internal/adapters/postgres/schema.sql` 的幂等迁移；沿用原数据库与数据卷，无需清空数据。部署账户须有创建所需表及扩展的权限，外部 PostgreSQL 的 pgvector 要求见 [知识库配置](#知识库与云端向量-api)。
+PostgreSQL 仓储启动时先执行 `internal/adapters/postgres/schema.sql` 幂等基线，再按版本号执行 `internal/adapters/postgres/migrations/` 中尚未执行的迁移，结果记录在 `schema_migration`；已执行的迁移被修改时拒绝启动。多个进程同时启动时由会话级 advisory lock 串行，其余进程等待后跳过。沿用原数据库与数据卷，无需清空数据；编写约定见该目录的 README。部署账户须有创建所需表及扩展的权限，外部 PostgreSQL 的 pgvector 要求见 [知识库配置](#知识库与云端向量-api)。
 
 排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级两者后，迁移创建 `platform_fire_safety`，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
 

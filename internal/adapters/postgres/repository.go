@@ -94,20 +94,6 @@ func NewWithOptions(ctx context.Context, dsn string, o PoolOptions) (*Repository
 	}
 	return r, nil
 }
-func (r *Repository) Migrate(ctx context.Context) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(728194602)`); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, schema); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
 func (r *Repository) SaveProduct(ctx context.Context, v model.Product) error {
 	b, _ := json.Marshal(v)
 	_, err := r.pool.Exec(ctx, saveProductSQL, v.TenantID, v.ID, v.Status, v.ProtocolPackageID, b)
