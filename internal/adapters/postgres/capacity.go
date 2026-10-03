@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"iot-platform/internal/model"
@@ -144,7 +145,7 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, tenant string, q m
 		`DELETE FROM raw_message_log WHERE tenant_id=$1 AND device_id=ANY($2)`,
 		`DELETE FROM raw_ingest_reservation WHERE tenant_id=$1 AND (message_id IN (SELECT message_id FROM capacity_raws) OR metadata->>'deviceId'=ANY($2))`,
 	} {
-		if _, err = tx.Exec(ctx, sql, tenant, q.Devices); err != nil {
+		if _, err = tx.Exec(ctx, sql, capacityArgs(sql, tenant, q.Devices)...); err != nil {
 			return n, err
 		}
 	}
@@ -158,7 +159,7 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, tenant string, q m
 		{`DELETE FROM device_registry WHERE tenant_id=$1 AND id=ANY($2)`, &n.Devices},
 	}
 	for _, c := range counts {
-		tag, err := tx.Exec(ctx, c.sql, tenant, q.Devices)
+		tag, err := tx.Exec(ctx, c.sql, capacityArgs(c.sql, tenant, q.Devices)...)
 		if err != nil {
 			return n, err
 		}
@@ -232,4 +233,13 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, tenant string, q m
 	}
 	n.Audits = tag.RowsAffected()
 	return n, tx.Commit(ctx)
+}
+
+// capacityArgs passes the device list only to statements that reference it;
+// PostgreSQL rejects unused prepared parameters.
+func capacityArgs(sql, tenant string, devices []string) []any {
+	if strings.Contains(sql, "$2") {
+		return []any{tenant, devices}
+	}
+	return []any{tenant}
 }
