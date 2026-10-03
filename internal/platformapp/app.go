@@ -144,6 +144,7 @@ func Run(forcedRole string) {
 	var realtime ports.RealtimePublisher = localRealtime
 	registry := metrics.New()
 	if kafkaBus != nil {
+		kafkaBus.SetMetrics(registry)
 		// kafka_lag is the total backlog of this process's consumer groups;
 		// kafka_lag_<group> breaks it down. Sampling errors keep the last value.
 		go func() {

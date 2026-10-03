@@ -162,7 +162,12 @@ func (b *Bus) handle(ctx context.Context, topic, group string, h ports.Handler, 
 		}
 	}
 	dlq := deadLetterPayload(topic, group, handleErr, m.Value)
-	return retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return b.Publish(ctx, "iot.dlq."+group, string(m.Key), dlq) }) == nil
+	if retryUntilSuccess(ctx, 250*time.Millisecond, func() error { return b.Publish(ctx, "iot.dlq."+group, string(m.Key), dlq) }) != nil {
+		return false
+	}
+	b.count("dlq_published_total", "dlq_published_"+metricGroup(group)+"_total")
+	b.logger().Error("message moved to dead-letter topic", "topic", topic, "group", group, "error", handleErr)
+	return true
 }
 
 // commitReady commits every partition whose contiguous finished offset moved.

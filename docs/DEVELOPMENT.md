@@ -356,6 +356,8 @@ IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -r
 
 该测试只断开自己创建的临时订阅客户端，使用独立主题和临时目录。真实 PostgreSQL 测试使用 `IOT_TEST_POSTGRES_DSN` 指定数据库，在临时 schema 中建表并清理，不应把完整连接串写入终端历史。未配置时相应测试跳过。
 
+消息转入 `iot.dlq.<消费组>` 时计入 `dlq_published_total` 与 `dlq_published_<消费组>_total`，并记录错误日志；Compose 的 Prometheus 规则 `DeadLetterPublished` 立即告警，`KafkaConsumerLagHigh` 在消费积压持续 5 分钟超过一万条时告警。
+
 存储死信恢复工具默认只读审计，显式指定租户、源业务主题和待恢复标准消息 ID 数组文件，核对全部 ID 后再追加 `-execute`：
 
 ```bash

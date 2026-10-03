@@ -680,6 +680,16 @@ configs:
               for: 5m
               labels: {severity: warning}
               annotations: {summary: "AI 分析失败量升高"}
+            - alert: DeadLetterPublished
+              expr: increase(dlq_published_total[5m]) > 0
+              for: 0m
+              labels: {severity: critical}
+              annotations: {summary: "设备消息处理失败并转入死信队列，需核对原因后回放"}
+            - alert: KafkaConsumerLagHigh
+              expr: kafka_lag > 10000
+              for: 5m
+              labels: {severity: warning}
+              annotations: {summary: "平台消息消费积压超过一万条"}
             - alert: BackupFailures
               expr: increase(backup_failed_total[30m]) > 0
               for: 1m

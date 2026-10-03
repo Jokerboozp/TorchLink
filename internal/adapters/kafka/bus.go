@@ -41,6 +41,39 @@ type Bus struct {
 	// noAutoCreate makes publishing to a missing topic fail instead of
 	// creating it with the broker defaults (for example one replica).
 	noAutoCreate bool
+	// metrics receives consumer counters; nil disables them.
+	metrics Metrics
+}
+
+// Metrics receives the consumer's counters and gauges; *metrics.Registry
+// implements it.
+type Metrics interface {
+	Inc(string)
+	Set(string, float64)
+}
+
+// SetMetrics enables consumer counters such as dlq_published_total.
+func (b *Bus) SetMetrics(m Metrics) {
+	b.mu.Lock()
+	b.metrics = m
+	b.mu.Unlock()
+}
+
+func (b *Bus) count(names ...string) {
+	b.mu.Lock()
+	m := b.metrics
+	b.mu.Unlock()
+	if m != nil {
+		for _, name := range names {
+			m.Inc(name)
+		}
+	}
+}
+
+// metricGroup turns a consumer group into a metric name segment, matching
+// the kafka_lag_<group> gauges.
+func metricGroup(group string) string {
+	return strings.NewReplacer("iot-platform-", "", "-", "_", ".", "_").Replace(group)
 }
 
 // SetAutoCreateTopics controls whether publishing may create a missing topic.
