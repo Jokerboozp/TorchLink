@@ -31,4 +31,4 @@ try {
 } finally {
     if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary }
 }
-Write-Host '已在本机生成独立凭据；管理员用户名和密码见 .env.offline。'
+Write-Host '已生成 .env.offline；新安装管理员和工具账号默认 admin/admin123，内部令牌和加密密钥已独立生成。'

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Real Compose config parsing; all Docker mutations and HTTP calls are mocked.
+# Pass the standalone Compose path, optionally followed by --local-only.
 set -Eeuo pipefail
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/iot-deploy-test.XXXXXX")"
 test_root="$(cd "$test_root" && pwd)"
@@ -321,6 +322,56 @@ bash "$scripts/setup-local.sh" --env-file "$test_root/.env.local" --skip-code-de
 cmp "$test_root/local-original" "$test_root/.env.local"
 echo 'PASS local: dependency preparation and unchanged configuration on rerun'
 
+local_broker_env="$test_root/.env.local-broker"
+awk '!/^[[:space:]]*(export[[:space:]]+)?IOT_(KAFKA_(SASL_(USERNAME|PASSWORD|MECHANISM)|ADMIN_(USERNAME|PASSWORD|URL)|ADVERTISED_HOST|PUBLIC_BROKERS)|MQTT_TOOL_(USERNAME|PASSWORD))[[:space:]]*=/' "$test_root/.env.local" > "$local_broker_env"
+cat >> "$local_broker_env" <<'EOF'
+IOT_KAFKA_SASL_USERNAME=
+export IOT_KAFKA_SASL_PASSWORD = ''
+IOT_KAFKA_SASL_MECHANISM=""
+IOT_KAFKA_ADMIN_USERNAME= # old empty setting
+IOT_KAFKA_ADMIN_PASSWORD=
+IOT_KAFKA_ADMIN_URL=
+IOT_KAFKA_ADVERTISED_HOST=
+IOT_KAFKA_PUBLIC_BROKERS=
+IOT_MQTT_TOOL_USERNAME=
+IOT_MQTT_TOOL_PASSWORD=
+IOT_KAFKA_TLS=false
+IOT_KAFKA_TLS_CA_FILE=
+EOF
+bash "$scripts/setup-local.sh" --env-file "$local_broker_env" --skip-code-deps
+for key in IOT_KAFKA_SASL_USERNAME IOT_KAFKA_ADMIN_USERNAME IOT_MQTT_TOOL_USERNAME; do
+  grep -qx "$key='admin'" "$local_broker_env"
+done
+for key in IOT_KAFKA_SASL_PASSWORD IOT_KAFKA_ADMIN_PASSWORD IOT_MQTT_TOOL_PASSWORD; do
+  grep -qx "$key='admin123'" "$local_broker_env"
+done
+grep -qx "IOT_KAFKA_SASL_MECHANISM='SCRAM-SHA-256'" "$local_broker_env"
+grep -qx "IOT_KAFKA_ADMIN_URL='http://127.0.0.1:19644'" "$local_broker_env"
+grep -qx "IOT_KAFKA_ADVERTISED_HOST='127.0.0.1'" "$local_broker_env"
+grep -qx "IOT_KAFKA_PUBLIC_BROKERS='127.0.0.1:19092'" "$local_broker_env"
+grep -qx 'IOT_KAFKA_TLS=false' "$local_broker_env"
+grep -qx 'IOT_KAFKA_TLS_CA_FILE=' "$local_broker_env"
+awk '!/^[[:space:]]*(export[[:space:]]+)?IOT_(KAFKA_(SASL_(USERNAME|PASSWORD|MECHANISM)|ADMIN_(USERNAME|PASSWORD|URL)|ADVERTISED_HOST|PUBLIC_BROKERS)|MQTT_TOOL_(USERNAME|PASSWORD))[[:space:]]*=/' "$local_broker_env" > "$local_broker_env.next"
+mv "$local_broker_env.next" "$local_broker_env"
+cat > "$test_root/local-broker-custom" <<'EOF'
+export IOT_KAFKA_SASL_USERNAME=custom-service
+  IOT_KAFKA_SASL_PASSWORD = 'custom-service-password'
+IOT_KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+IOT_KAFKA_ADMIN_USERNAME=custom-admin
+IOT_KAFKA_ADMIN_PASSWORD=#saved-admin-password
+IOT_KAFKA_ADMIN_URL=http://broker.example:19644
+IOT_KAFKA_ADVERTISED_HOST=broker.example
+IOT_KAFKA_PUBLIC_BROKERS=broker.example:19092
+  export IOT_MQTT_TOOL_USERNAME = custom-mqtt
+IOT_MQTT_TOOL_PASSWORD='#saved-mqtt-password'
+EOF
+cat "$test_root/local-broker-custom" >> "$local_broker_env"
+IOT_KAFKA_SASL_PASSWORD='' bash "$scripts/setup-local.sh" --env-file "$local_broker_env" --skip-code-deps
+while IFS= read -r line; do grep -Fxq "$line" "$local_broker_env"; done < "$test_root/local-broker-custom"
+[ "$(awk '/^[[:space:]]*(export[[:space:]]+)?IOT_(KAFKA_(SASL_(USERNAME|PASSWORD|MECHANISM)|ADMIN_(USERNAME|PASSWORD|URL)|ADVERTISED_HOST|PUBLIC_BROKERS)|MQTT_TOOL_(USERNAME|PASSWORD))[[:space:]]*=/ { count++ } END { print count }' "$local_broker_env")" = 10 ]
+echo 'PASS local broker credentials: fill legacy empty settings, preserve custom values and dotenv assignment formats'
+if [ "${2:-}" = --local-only ]; then exit 0; fi
+
 capacity_env="$test_root/.env.local-capacity"
 cp "$test_root/.env.local" "$capacity_env"
 bash "$scripts/setup-local.sh" --env-file "$capacity_env" --skip-code-deps --capacity off
@@ -422,6 +473,15 @@ grep -q '^IOT_AI_HARNESS_PROVIDER=deepseek-official$' "$test_root/.env.online"
 grep -q '^IOT_AI_HARNESS_MODEL=deepseek-flash$' "$test_root/.env.online"
 assert_commented_env "$test_root/.env.online"
 grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$test_root/.env.online"
+for key in SERVICE_ADMIN_PASSWORD POSTGRES_PASSWORD REDIS_PASSWORD CLICKHOUSE_PASSWORD MINIO_ROOT_PASSWORD MINIO_DR_ROOT_PASSWORD EMQX_DASHBOARD_PASSWORD GRAFANA_ADMIN_PASSWORD IOT_MQTT_TOOL_PASSWORD IOT_KAFKA_SASL_PASSWORD IOT_KAFKA_ADMIN_PASSWORD; do
+  grep -q "^$key=admin123$" "$test_root/.env.online"
+done
+for key in SERVICE_ADMIN_USER MINIO_ROOT_USER MINIO_DR_ROOT_USER EMQX_DASHBOARD_USER GRAFANA_ADMIN_USER IOT_MQTT_TOOL_USERNAME IOT_KAFKA_SASL_USERNAME IOT_KAFKA_ADMIN_USERNAME; do
+  grep -q "^$key=admin$" "$test_root/.env.online"
+done
+for key in IOT_JWT_SECRET IOT_AI_HARNESS_TOKEN IOT_BACKUP_ADMIN_TOKEN; do
+  grep -Eq "^$key=[a-f0-9]{64}$" "$test_root/.env.online"
+done
 assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness'
 grep -q '^IOT_EMBEDDING_URL=https://dashscope.aliyuncs.com/compatible-mode/v1$' "$test_root/.env.online"
 grep -q '^IOT_EMBEDDING_MODEL=text-embedding-v4$' "$test_root/.env.online"
@@ -457,6 +517,10 @@ bash "$scripts/deploy-offline.sh" --bundle-dir "$extracted_bundle" > "$test_root
 echo 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'
 assert_commented_env "$bundle/.env.offline"
 grep -q '^IOT_ADMIN_PASSWORD=admin123$' "$bundle/.env.offline"
+for key in SERVICE_ADMIN_PASSWORD POSTGRES_PASSWORD REDIS_PASSWORD CLICKHOUSE_PASSWORD MINIO_ROOT_PASSWORD MINIO_DR_ROOT_PASSWORD EMQX_DASHBOARD_PASSWORD GRAFANA_ADMIN_PASSWORD IOT_MQTT_TOOL_PASSWORD IOT_KAFKA_SASL_PASSWORD IOT_KAFKA_ADMIN_PASSWORD; do
+  grep -q "^$key=admin123$" "$bundle/.env.offline"
+done
+[ -f "$bundle/deploy/toolaccounts/postgres.sh" ] && [ -f "$bundle/deploy/toolaccounts/clickhouse.sh" ]
 [ -s "$bundle/docker-runtime/docker-24.0.9.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-28.5.2.tgz.sha256" ]
 [ -s "$bundle/docker-runtime/docker-compose.sha256" ]

@@ -217,7 +217,7 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 ### 协议样本工作台
 
-从“协议开发 → 管理版本 → 详情 → 解析预览”或“模拟设备测试”进入，调用 `POST /api/v2/protocols/{id}/releases/{version}/preview`，始终提交 `readOnly: true`。`operation` 默认为 `decode`（`payload` 为 HEX 字符串或 JSON 值）；具有相应能力的 Go v2 版本还支持 `ingress`（`chunks` 为按接收顺序排列的 HEX 片段，`datagram: true` 要求每段为完整 UDP 数据报）和 `encode`（`command` 为命令对象）。可填写模拟 `deviceId`、帧前 `state`、毫秒时间 `now`，以及需要核对的 `expected` 字段；响应保留 `standardMessage`，并返回 `operationResult`、可选 `comparison` 字段差异。对象按填写字段比较，数组同时比较长度与位置。拆帧显示每次消费、半帧余留、帧前后状态、ACK / 应答、命令关联标识和逐帧解析结果；子设备仅作为观察结果展示。
+从“协议开发 → 管理版本 → 详情 → 解析预览”进入，设备模板中的“协议解析预览”也会跳转到此处，调用 `POST /api/v2/protocols/{id}/releases/{version}/preview`，始终提交 `readOnly: true`。`operation` 默认为 `decode`（`payload` 为 HEX 字符串或 JSON 值）；具有相应能力的 Go v2 版本还支持 `ingress`（`chunks` 为按接收顺序排列的 HEX 片段，`datagram: true` 要求每段为完整 UDP 数据报）和 `encode`（`command` 为命令对象）。可填写模拟 `deviceId`、帧前 `state`、毫秒时间 `now`，以及需要核对的 `expected` 字段；响应保留 `standardMessage`，并返回 `operationResult`、可选 `comparison` 字段差异。对象按填写字段比较，数组同时比较长度与位置。拆帧显示每次消费、半帧余留、帧前后状态、ACK / 应答、命令关联标识和逐帧解析结果；子设备仅作为观察结果展示。
 
 平台标准协议 `iot-standard@1.0.0` 同样支持只读 `decode`，不需要映射配置；使用标准 `id`、`timestamp`、`data` 信封和显式 `messageKind`（`property`、`event`、`alarm`、`state`、`command-reply`）。页面可选择消息类型并手动填入示例；不会自动发送。来自原文时类型沿用已授权 `raw.headers.messageKind`，不允许在保持原文关联时改为另一种类型。标准预览仅调用 `StandardParser.Parse`，不推进发布状态、创建设备字段、写入告警或完成命令。
 
@@ -549,7 +549,7 @@ Content-Type: application/json
 
 ### Broker 就绪条件
 
-页面分别展示配置启用与实际授权就绪。MQTT 须配置对外地址 `IOT_DEVICE_MQTT_PUBLIC_URL`，并具有有效 EMQX 管理凭据、唯一有效 JWT 认证链、用户名绑定、JWT ACL、到期断开、监听器认证和默认拒绝规则。Kafka 须显式配置对外地址 `IOT_KAFKA_PUBLIC_BROKERS`，并实际启用认证及 ACL，并配置可管理 SCRAM / ACL 的 Redpanda 管理账号；服务端检查实际配置、匿名访问拒绝和无全用户通配授权后才发凭据。配置不满足时可管理主题与账号，但生成凭据返回 503，不能把保存授权当作 Broker 已生效。Kafka 启用步骤见 [部署文档](DEPLOYMENT.md#kafka-对接账号认证与授权)。
+页面分别展示配置启用与实际授权就绪。MQTT 须配置对外地址 `IOT_DEVICE_MQTT_PUBLIC_URL`，并具有有效 EMQX 管理凭据、有效 JWT 认证链及仅含已知工具账号的可选密码认证、用户名绑定、JWT ACL、到期断开、监听器认证和默认拒绝规则。Kafka 须显式配置对外地址 `IOT_KAFKA_PUBLIC_BROKERS`，并实际启用认证及 ACL，并配置可管理 SCRAM / ACL 的 Redpanda 管理账号；服务端检查实际配置、匿名访问拒绝和无全用户通配授权后才发凭据。配置不满足时可管理主题与账号，但生成凭据返回 503，不能把保存授权当作 Broker 已生效。Kafka 启用步骤见 [部署文档](DEPLOYMENT.md#kafka-对接账号认证与授权)。
 
 实现入口：`internal/messagetopics/`、`internal/httpapi/message_topics.go`、`internal/httpapi/message_topic_accounts.go`、`internal/adapters/kafka/consumer_admin.go` 和 `iot_front/src/views/MessageTopicsView.vue`。
 

@@ -138,42 +138,55 @@ function New-OfflineEnv {
                 throw "EnvFile 缺少必填安全配置：$key。请不要直接使用 .env.example 的默认值。"
             }
         }
-        $unsafe = @($lines | Where-Object { $_ -notmatch '^\s*IOT_ADMIN_PASSWORD\s*=' -and $_ -match '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|admin123|public-change-me|change-me)' })
+        $unsafe = @($lines | Where-Object { $_ -notmatch '^\s*IOT_ADMIN_PASSWORD\s*=' -and $_ -match '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|public-change-me|change-me)' })
+        $unsafe += @($lines | Where-Object { $_ -notmatch '^\s*(IOT_ADMIN_PASSWORD|SERVICE_ADMIN_PASSWORD|POSTGRES_PASSWORD|REDIS_PASSWORD|CLICKHOUSE_PASSWORD|MINIO_ROOT_PASSWORD|MINIO_DR_ROOT_PASSWORD|EMQX_DASHBOARD_PASSWORD|GRAFANA_ADMIN_PASSWORD|IOT_MQTT_TOOL_PASSWORD|IOT_KAFKA_SASL_PASSWORD|IOT_KAFKA_ADMIN_PASSWORD|IOT_POSTGRES_DSN|IOT_POSTGRES_READ_DSN|IOT_REDIS_PASSWORD|IOT_CLICKHOUSE_URL|IOT_MINIO_SECRET_KEY|IOT_OPS_GRAFANA_PASSWORD|IOT_BACKUP_RESTORE_TARGET_DSN|IOT_BACKUP_RESTORE_MINIO_SECRET_KEY|IOT_CAPACITY_POSTGRES_DSN|IOT_CAPACITY_CLICKHOUSE_URL)\s*=' -and $_ -match '^[A-Za-z_][A-Za-z0-9_]*=.*admin123' })
         if ($unsafe.Count -gt 0) {
             throw "EnvFile 仍包含示例密码或默认密钥，请先替换后再打包。"
         }
         [void]$credentialLines.Add("凭据来自外部 EnvFile：$Source")
         [void]$credentialLines.Add("本文件不复制外部 EnvFile 的内容，请单独保管原始凭据。")
     } else {
-        $postgresPassword = "pg-" + (New-RandomHex -Bytes 18)
-        $redisPassword = "redis-" + (New-RandomHex -Bytes 18)
-        $clickhousePassword = "ch-" + (New-RandomHex -Bytes 18)
-        $minioPassword = "minio-" + (New-RandomHex -Bytes 18)
-        $minioDrPassword = "minio-dr-" + (New-RandomHex -Bytes 18)
+        $postgresPassword = 'admin123'
+        $redisPassword = 'admin123'
+        $clickhousePassword = 'admin123'
+        $minioPassword = 'admin123'
+        $minioDrPassword = 'admin123'
         $jwtSecret = New-RandomHex -Bytes 32
         $adminPassword = 'admin123'
         $videoSecret = New-RandomHex -Bytes 24
         $harnessToken = New-RandomHex -Bytes 32
         $backupToken = New-RandomHex -Bytes 32
-        $emqxPassword = "Emqx-" + (New-RandomHex -Bytes 12)
-        $grafanaPassword = "Grafana-" + (New-RandomHex -Bytes 12)
+        $emqxPassword = 'admin123'
+        $grafanaPassword = 'admin123'
 
         $aiProvider = "deepseek"
         $harnessUrl = "http://deepseek-harness:8091"
 
         $lines = @(
             "# 自动生成的离线部署配置，请限制此文件权限。",
+            "SERVICE_ADMIN_USER=admin",
+            "SERVICE_ADMIN_PASSWORD=admin123",
             "POSTGRES_PASSWORD=$postgresPassword",
             "REDIS_PASSWORD=$redisPassword",
             "CLICKHOUSE_PASSWORD=$clickhousePassword",
-            "MINIO_ROOT_USER=iotadmin",
+            "MINIO_ROOT_USER=admin",
             "MINIO_ROOT_PASSWORD=$minioPassword",
-            "MINIO_DR_ROOT_USER=iotdradmin",
+            "MINIO_DR_ROOT_USER=admin",
             "MINIO_DR_ROOT_PASSWORD=$minioDrPassword",
             "IOT_JWT_SECRET=$jwtSecret",
             "IOT_ADMIN_USER=admin",
             "IOT_ADMIN_PASSWORD=$adminPassword",
             "IOT_ADMIN_TENANTS=tenant_001",
+            "IOT_MQTT_TOOL_USERNAME=admin",
+            "IOT_MQTT_TOOL_PASSWORD=admin123",
+            "IOT_KAFKA_SASL_USERNAME=admin",
+            "IOT_KAFKA_SASL_PASSWORD=admin123",
+            "IOT_KAFKA_SASL_MECHANISM=SCRAM-SHA-256",
+            "IOT_KAFKA_ADMIN_URL=http://redpanda:9644",
+            "IOT_KAFKA_ADMIN_USERNAME=admin",
+            "IOT_KAFKA_ADMIN_PASSWORD=admin123",
+            "IOT_KAFKA_ADVERTISED_HOST=127.0.0.1",
+            "IOT_KAFKA_PUBLIC_BROKERS=127.0.0.1:19092",
             "IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$videoSecret",
             "IOT_VIDEO_MEDIA_ALLOWED_HOSTS=",
             "IOT_AI_PROVIDER=$aiProvider",

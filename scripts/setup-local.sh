@@ -65,14 +65,26 @@ if [ -z "$api_host" ]; then
 fi
 
 set_local_env_value() {
-  local key="$1" value="$2" replace="${3:-false}" updated
+  local key="$1" value="$2" replace="${3:-false}" fill_empty="${4:-false}" updated
   if [[ "$value" == *"'"* || "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
     printf '配置 %s 含不支持的引号或换行，未写入。\n' "$key" >&2; return 1
   fi
-  if [ "$replace" != true ] && awk -v key="$key" '
-      { line=$0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", line) }
-      line ~ "^" key "[[:space:]]*=" { found=1 }
-      END { exit !found }
+  if [ "$replace" != true ] && awk -v key="$key" -v fill_empty="$fill_empty" '
+      { line=$0; sub(/\r$/, "", line); sub(/^[[:space:]]*(export[[:space:]]+)?/, "", line) }
+      line ~ "^" key "[[:space:]]*=" {
+        found=1
+        sub(/^[^=]*=/, "", line)
+        raw=line; sub(/^[[:space:]]*/, "", line)
+        quote=substr(line,1,1)
+        if (quote == "\047" || quote == "\042") {
+          line=substr(line,2); end=index(line,quote); if (end) line=substr(line,1,end-1)
+        } else {
+          line=raw; sub(/[[:space:]]+#.*$/, "", line)
+          sub(/^[[:space:]]*/, "", line); sub(/[[:space:]]*$/, "", line)
+        }
+        current=line
+      }
+      END { exit !(found && (fill_empty != "true" || current != "")) }
     ' "$env_file"; then return; fi
   # Single quotes keep dotenv values literal, including $ in user passwords.
   updated="$(LOCAL_ENV_LINE="$key='$value'" awk -v key="$key" '
@@ -132,6 +144,16 @@ defaults=(
   "IOT_MINIO_ACCESS_KEY=$(get_deployment_env_value "$env_file" MINIO_ROOT_USER)"
   "IOT_MINIO_SECRET_KEY=$(get_deployment_env_value "$env_file" MINIO_ROOT_PASSWORD)"
   "IOT_KAFKA_BROKERS=${dependency_host}:19092"
+  'IOT_KAFKA_SASL_USERNAME=admin'
+  'IOT_KAFKA_SASL_PASSWORD=admin123'
+  'IOT_KAFKA_SASL_MECHANISM=SCRAM-SHA-256'
+  'IOT_KAFKA_ADMIN_USERNAME=admin'
+  'IOT_KAFKA_ADMIN_PASSWORD=admin123'
+  'IOT_MQTT_TOOL_USERNAME=admin'
+  'IOT_MQTT_TOOL_PASSWORD=admin123'
+  "IOT_KAFKA_ADMIN_URL=http://${dependency_host}:19644"
+  "IOT_KAFKA_ADVERTISED_HOST=${dependency_host}"
+  "IOT_KAFKA_PUBLIC_BROKERS=${dependency_host}:19092"
   "IOT_MQTT_BROKER=tcp://${dependency_host}:1883"
   "IOT_MQTT_WEBSOCKET_PUBLIC_URL=ws://${dependency_host}:8083/mqtt"
   'IOT_AI_PROVIDER=deepseek'
@@ -153,10 +175,18 @@ defaults=(
 for entry in "${defaults[@]}"; do
   key="${entry%%=*}"
   replace="$new_env"
+  fill_empty=false
   if [ "$dependency_host_set" = true ]; then
-    case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_BACKUP_URL|IOT_BACKUP_HARNESS_SNAPSHOT_URLS|IOT_BACKUP_RESTORE_MINIO_ENDPOINT|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
+    case "$key" in IOT_LOCAL_*|IOT_POSTGRES_DSN|IOT_REDIS_ADDR|IOT_CLICKHOUSE_URL|IOT_MINIO_ENDPOINT|IOT_KAFKA_BROKERS|IOT_KAFKA_ADMIN_URL|IOT_KAFKA_ADVERTISED_HOST|IOT_KAFKA_PUBLIC_BROKERS|IOT_MQTT_BROKER|IOT_MQTT_WEBSOCKET_PUBLIC_URL|IOT_BACKUP_URL|IOT_BACKUP_HARNESS_SNAPSHOT_URLS|IOT_BACKUP_RESTORE_MINIO_ENDPOINT|IOT_AI_HARNESS_MCP_URL|IOT_HARNESS_MCP_ALLOWED_ORIGINS) replace=true;; esac
   fi
-  set_local_env_value "$key" "${entry#*=}" "$replace"
+  case "$key" in
+    IOT_KAFKA_SASL_USERNAME|IOT_KAFKA_SASL_PASSWORD|IOT_KAFKA_SASL_MECHANISM|IOT_KAFKA_ADMIN_USERNAME|IOT_KAFKA_ADMIN_PASSWORD|IOT_KAFKA_ADMIN_URL|IOT_KAFKA_ADVERTISED_HOST|IOT_KAFKA_PUBLIC_BROKERS|IOT_MQTT_TOOL_USERNAME|IOT_MQTT_TOOL_PASSWORD)
+      # Earlier templates left broker credentials empty. The setter checks the
+      # file itself, preserving saved credentials despite process overrides.
+      fill_empty=true
+      ;;
+  esac
+  set_local_env_value "$key" "${entry#*=}" "$replace" "$fill_empty"
 done
 set_local_env_value IOT_LOCAL_API_HOST "$api_host" true
 # The source-debugged API and backup worker run on the same host. Keep the

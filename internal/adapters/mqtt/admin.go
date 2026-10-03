@@ -18,6 +18,9 @@ import (
 type Admin struct {
 	URL, Key, Secret string
 	Client           *http.Client
+	// ToolUsername is the only password-database identity that may coexist
+	// with JWT topic consumers. Its namespace must not overlap those consumers.
+	ToolUsername string
 }
 
 func (a *Admin) request(ctx context.Context, method, path string, body any, out any) (int, error) {
@@ -142,8 +145,8 @@ func (a *Admin) CheckTopicAuthorization(ctx context.Context) error {
 	if _, err := a.request(ctx, "GET", "/authentication", nil, &chain); err != nil {
 		return err
 	}
-	if !validTopicJWTChain(chain) {
-		return errors.New("MQTT topic authorization requires JWT password authentication, username verification, ACL claims and expiration disconnect")
+	if err := a.checkTopicAuthentication(ctx, "/authentication", chain); err != nil {
+		return err
 	}
 	var settings struct {
 		NoMatch string `json:"no_match"`
@@ -204,8 +207,10 @@ func (a *Admin) CheckTopicAuthorization(ctx context.Context) error {
 		if mode != "true" && mode != `"quick_deny_anonymous"` {
 			return errors.New("MQTT topic authorization requires authentication on every enabled listener")
 		}
-		if len(config.Authentication) > 0 && !validTopicJWTChain(config.Authentication) {
-			return errors.New("MQTT listener overrides the required JWT authentication")
+		if len(config.Authentication) > 0 {
+			if err := a.checkTopicAuthentication(ctx, "/listeners/"+url.PathEscape(listener.ID)+"/authentication", config.Authentication); err != nil {
+				return err
+			}
 		}
 	}
 	if !enabled {
@@ -217,6 +222,8 @@ func (a *Admin) CheckTopicAuthorization(ctx context.Context) error {
 type topicJWTAuthenticator struct {
 	Enable                bool   `json:"enable"`
 	Mechanism             string `json:"mechanism"`
+	Backend               string `json:"backend"`
+	UserIDType            string `json:"user_id_type"`
 	From                  string `json:"from"`
 	Algorithm             string `json:"algorithm"`
 	UseJWKS               bool   `json:"use_jwks"`
@@ -227,6 +234,53 @@ type topicJWTAuthenticator struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"verify_claims"`
+}
+
+// A username database before JWT permits the one operator tool account, while
+// unknown usernames continue to the JWT authenticator. Enumerating its users
+// prevents an extra password identity from impersonating a managed consumer.
+func (a *Admin) checkTopicAuthentication(ctx context.Context, path string, chain []topicJWTAuthenticator) error {
+	jwtChain := make([]topicJWTAuthenticator, 0, 1)
+	hasTools := false
+	for _, authenticator := range chain {
+		if !authenticator.Enable {
+			continue
+		}
+		if authenticator.Mechanism == "password_based" && authenticator.Backend == "built_in_database" && authenticator.UserIDType == "username" && (authenticator.Precondition == "" || authenticator.Precondition == "true") && !hasTools && len(jwtChain) == 0 {
+			hasTools = true
+			continue
+		}
+		jwtChain = append(jwtChain, authenticator)
+	}
+	if !validTopicJWTChain(jwtChain) {
+		return errors.New("MQTT topic authorization requires JWT password authentication, username verification, ACL claims and expiration disconnect")
+	}
+	if !hasTools {
+		return nil
+	}
+	username := a.ToolUsername
+	if username == "" {
+		username = "admin"
+	}
+	if strings.HasPrefix(username, "iot-topic-") {
+		return errors.New("MQTT tool username must not use the managed consumer namespace")
+	}
+	var users struct {
+		Data []struct {
+			UserID    string `json:"user_id"`
+			Superuser bool   `json:"is_superuser"`
+		} `json:"data"`
+		Meta struct {
+			Count *int `json:"count"`
+		} `json:"meta"`
+	}
+	if _, err := a.request(ctx, "GET", path+"/password_based:built_in_database/users?page=1&limit=2", nil, &users); err != nil {
+		return err
+	}
+	if users.Meta.Count == nil || *users.Meta.Count != 1 || len(users.Data) != 1 || users.Data[0].UserID != username || !users.Data[0].Superuser {
+		return errors.New("MQTT password authentication must contain only the configured tool administrator")
+	}
+	return nil
 }
 
 func validTopicJWTChain(chain []topicJWTAuthenticator) bool {

@@ -158,9 +158,9 @@ $servicePassword = $env:TORCHLINK_SERVICE_PASSWORD
 $deepseekKey = ""
 if (-not (Test-Path $Secrets) -and -not $DryRun -and $interactive) {
     if (-not $servicePassword) {
-        Write-Output "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -"
+        Write-Output "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、MQTT、Kafka、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -"
         while ($true) {
-            $servicePassword = Ask-Secret "服务统一密码（直接回车则为每项随机生成）"
+            $servicePassword = Ask-Secret "服务统一密码（直接回车使用 admin123，内部令牌独立随机）"
             if (-not $servicePassword) { break }
             if ($servicePassword.Length -lt 8 -or $servicePassword -notmatch '^[A-Za-z0-9._~-]+$') { Write-Warning "密码不符合要求，请重新输入"; continue }
             if ((Ask-Secret "再次输入服务统一密码") -eq $servicePassword) { break }

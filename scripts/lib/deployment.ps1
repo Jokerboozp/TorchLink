@@ -40,21 +40,33 @@ function Ensure-DeploymentEnv {
     }
     if (Test-Path -LiteralPath $Path) { throw "配置路径不是文件：$Path" }
     $values = [ordered]@{
-        POSTGRES_PASSWORD = (New-DeploymentSecret)
-        REDIS_PASSWORD = (New-DeploymentSecret)
-        CLICKHOUSE_PASSWORD = (New-DeploymentSecret)
-        MINIO_ROOT_USER = 'iotadmin'
-        MINIO_ROOT_PASSWORD = (New-DeploymentSecret)
-        MINIO_DR_ROOT_USER = 'iotdradmin'
-        MINIO_DR_ROOT_PASSWORD = (New-DeploymentSecret)
+        SERVICE_ADMIN_USER = 'admin'
+        SERVICE_ADMIN_PASSWORD = 'admin123'
+        POSTGRES_PASSWORD = 'admin123'
+        REDIS_PASSWORD = 'admin123'
+        CLICKHOUSE_PASSWORD = 'admin123'
+        MINIO_ROOT_USER = 'admin'
+        MINIO_ROOT_PASSWORD = 'admin123'
+        MINIO_DR_ROOT_USER = 'admin'
+        MINIO_DR_ROOT_PASSWORD = 'admin123'
         EMQX_DASHBOARD_USER = 'admin'
-        EMQX_DASHBOARD_PASSWORD = (New-DeploymentSecret)
+        EMQX_DASHBOARD_PASSWORD = 'admin123'
         GRAFANA_ADMIN_USER = 'admin'
-        GRAFANA_ADMIN_PASSWORD = (New-DeploymentSecret)
+        GRAFANA_ADMIN_PASSWORD = 'admin123'
         IOT_JWT_SECRET = (New-DeploymentSecret)
         IOT_ADMIN_USER = 'admin'
         IOT_ADMIN_PASSWORD = 'admin123'
         IOT_ADMIN_TENANTS = 'tenant_001'
+        IOT_MQTT_TOOL_USERNAME = 'admin'
+        IOT_MQTT_TOOL_PASSWORD = 'admin123'
+        IOT_KAFKA_SASL_USERNAME = 'admin'
+        IOT_KAFKA_SASL_PASSWORD = 'admin123'
+        IOT_KAFKA_SASL_MECHANISM = 'SCRAM-SHA-256'
+        IOT_KAFKA_ADMIN_URL = 'http://redpanda:9644'
+        IOT_KAFKA_ADMIN_USERNAME = 'admin'
+        IOT_KAFKA_ADMIN_PASSWORD = 'admin123'
+        IOT_KAFKA_ADVERTISED_HOST = '127.0.0.1'
+        IOT_KAFKA_PUBLIC_BROKERS = '127.0.0.1:19092'
         IOT_VIDEO_PLATFORM_SECRETS = ('video-platform-1:' + (New-DeploymentSecret))
         IOT_AI_HARNESS_TOKEN = (New-DeploymentSecret)
         IOT_EMBEDDING_API_KEY = ''
@@ -95,7 +107,7 @@ function Ensure-DeploymentEnv {
         $bytes = $encoding.GetBytes(($lines -join "`n") + "`n")
         $stream.Write($bytes, 0, $bytes.Length)
     } finally { $stream.Dispose() }
-    Write-Host "已生成配置：$Path（随机凭据仅保存在文件中）。"
+    Write-Host "已生成配置：$Path（服务工具账号使用配置默认值，内部令牌随机生成）。"
 }
 
 function Get-DeploymentEnvValue {

@@ -18,11 +18,15 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"iot-platform/deploy/toolaccounts"
 )
 
 // Secrets are read from a private YAML file and only written into the .env
 // file of nodes that need them; compose.yaml and configs reference variables.
 type Secrets struct {
+	ServiceAdminUser            string `yaml:"serviceAdminUser,omitempty"`
+	ServiceAdminPassword        string `yaml:"serviceAdminPassword,omitempty"`
 	PostgresPassword            string `yaml:"postgresPassword"`
 	PostgresSuperuserPassword   string `yaml:"postgresSuperuserPassword"`
 	PostgresReplicationPassword string `yaml:"postgresReplicationPassword"`
@@ -37,7 +41,9 @@ type Secrets struct {
 	EMQXAPISecret               string `yaml:"emqxApiSecret"`
 	EMQXCookie                  string `yaml:"emqxCookie"`
 	EMQXDashboardPassword       string `yaml:"emqxDashboardPassword"`
-	// Kafka client/admin settings are supplied only for an already configured broker.
+	MQTTToolUsername            string `yaml:"mqttToolUsername,omitempty"`
+	MQTTToolPassword            string `yaml:"mqttToolPassword,omitempty"`
+	// Kafka client/admin settings also configure the managed broker bootstrap identity.
 	KafkaSASLUsername  string `yaml:"kafkaSaslUsername,omitempty"`
 	KafkaSASLPassword  string `yaml:"kafkaSaslPassword,omitempty"`
 	KafkaSASLMechanism string `yaml:"kafkaSaslMechanism,omitempty"`
@@ -118,6 +124,44 @@ func (s Secrets) kafkaEnv() map[string]string {
 	}
 }
 
+// Fill deployment defaults after inventory validation, so existing secret
+// files gain tool identities without replacing an explicitly configured pair.
+func (s Secrets) brokerDefaults(inv *Inventory) Secrets {
+	user, password := s.ServiceAdminUser, s.ServiceAdminPassword
+	if user == "" {
+		user = "admin"
+	}
+	if password == "" {
+		password = "admin123"
+	}
+	if s.MQTTToolUsername == "" && s.MQTTToolPassword == "" {
+		s.MQTTToolUsername, s.MQTTToolPassword = user, password
+	}
+	if s.KafkaSASLUsername == "" && s.KafkaSASLPassword == "" {
+		s.KafkaSASLUsername, s.KafkaSASLPassword = user, password
+	}
+	if s.KafkaAdminUsername == "" && s.KafkaAdminPassword == "" && s.KafkaAdminURL == "" {
+		s.KafkaAdminUsername, s.KafkaAdminPassword = user, password
+	}
+	r := renderer{inv: inv, s: s}
+	if s.KafkaAdminURL == "" && s.KafkaAdminUsername != "" && s.KafkaAdminPassword != "" && len(inv.Redpanda.Nodes) > 0 {
+		s.KafkaAdminURL = "http://" + net.JoinHostPort(r.ip(inv.Redpanda.Nodes[0]), "9644")
+	}
+	if s.KafkaPublicBrokers == "" {
+		s.KafkaPublicBrokers = r.hostList(inv.Redpanda.Nodes, 9092, ",")
+		if v := inv.Env["IOT_KAFKA_BROKERS"]; v != "" {
+			s.KafkaPublicBrokers = v
+		}
+	}
+	if s.MQTTPublicURL == "" && len(inv.EMQX.Nodes) > 0 {
+		s.MQTTPublicURL = "tcp://" + net.JoinHostPort(r.ip(inv.EMQX.Nodes[0]), "1883")
+		if v := inv.Env["IOT_DEVICE_MQTT_PUBLIC_URL"]; v != "" {
+			s.MQTTPublicURL = v
+		}
+	}
+	return s
+}
+
 // kafkaCA copies public trust certificates, never a client private key.
 func (s Secrets) kafkaCA() ([]byte, error) {
 	if s.KafkaTLSCAFile == "" {
@@ -138,6 +182,7 @@ func (s Secrets) kafkaCA() ([]byte, error) {
 }
 
 func (s Secrets) validate(inv *Inventory) error {
+	s = s.brokerDefaults(inv)
 	required := map[string]string{"postgresPassword": s.PostgresPassword, "postgresSuperuserPassword": s.PostgresSuperuserPassword, "postgresReplicationPassword": s.PostgresReplicationPassword, "redisPassword": s.RedisPassword, "clickhousePassword": s.ClickHousePassword, "minioRootUser": s.MinIORootUser, "minioRootPassword": s.MinIORootPassword, "jwtSecret": s.JWTSecret, "adminPassword": s.AdminPassword, "harnessToken": s.HarnessToken, "emqxApiKey": s.EMQXAPIKey, "emqxApiSecret": s.EMQXAPISecret, "emqxCookie": s.EMQXCookie, "emqxDashboardPassword": s.EMQXDashboardPassword, "backupToken": s.BackupToken}
 	if inv.Video.Node != "" {
 		required["videoMediaSecret"], required["videoHookSecret"], required["videoCredentialKey"] = s.VideoMediaSecret, s.VideoHookSecret, s.VideoCredentialKey
@@ -146,6 +191,14 @@ func (s Secrets) validate(inv *Inventory) error {
 		required["capacityToken"] = s.CapacityToken
 	}
 	var missing []string
+	if (s.ServiceAdminUser == "") != (s.ServiceAdminPassword == "") {
+		missing = append(missing, "serviceAdminUser and serviceAdminPassword must be configured together")
+	}
+	for k, v := range map[string]string{"serviceAdminUser": s.ServiceAdminUser, "serviceAdminPassword": s.ServiceAdminPassword, "mqttToolUsername": s.MQTTToolUsername, "mqttToolPassword": s.MQTTToolPassword} {
+		if strings.ContainsAny(v, "\n\r\"'$`\\") || strings.TrimSpace(v) != v {
+			missing = append(missing, k+" (invalid environment file value)")
+		}
+	}
 	for k, v := range required {
 		if strings.TrimSpace(v) == "" || strings.Contains(strings.ToLower(v), "change-me") {
 			missing = append(missing, k)
@@ -316,6 +369,8 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 		"IOT_EMQX_API_URL":             "http://" + r.ip(r.pick(node, inv.EMQX.Nodes, salt)) + ":18083",
 		"IOT_EMQX_API_KEY":             "${IOT_EMQX_API_KEY}",
 		"IOT_EMQX_API_SECRET":          "${IOT_EMQX_API_SECRET}",
+		"IOT_MQTT_TOOL_USERNAME":       "${IOT_MQTT_TOOL_USERNAME}",
+		"IOT_MQTT_TOOL_PASSWORD":       "${IOT_MQTT_TOOL_PASSWORD}",
 		"IOT_AI_HARNESS_URL":           harnessURLs(r),
 		"IOT_AI_HARNESS_TOKEN":         "${IOT_AI_HARNESS_TOKEN}",
 		"IOT_AI_HARNESS_MCP_URL":       inv.APIURL() + "/mcp/harness",
@@ -432,31 +487,51 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			spilo := fmt.Sprintf("bootstrap:\n  dcs:\n    synchronous_mode: %s\n    postgresql:\n      parameters:\n        max_connections: %d\n        wal_level: replica\n", sync, inv.Postgres.MaxConnections)
 			add(kind, "postgres", service(inv.Images.Postgres, map[string]any{"environment": map[string]string{"SCOPE": inv.Name + "-pg", "PGVERSION": "17", "POD_IP": ip, "ETCD3_HOSTS": strings.Join(etcdHosts, ","), "PGUSER_SUPERUSER": "postgres", "PGPASSWORD_SUPERUSER": "${POSTGRES_SUPERUSER_PASSWORD}", "PGUSER_STANDBY": "standby", "PGPASSWORD_STANDBY": "${POSTGRES_REPLICATION_PASSWORD}", "SPILO_PROVIDER": "local", "ALLOW_NOSSL": "true", "PGROOT": "/home/postgres/pgdata/pgroot", "SPILO_CONFIGURATION": spilo}, "volumes": []string{"postgres-data:/home/postgres/pgdata"}}), "postgres-data")
 			env["POSTGRES_SUPERUSER_PASSWORD"], env["POSTGRES_REPLICATION_PASSWORD"] = r.s.PostgresSuperuserPassword, r.s.PostgresReplicationPassword
+			if node == inv.Postgres.Nodes[0] {
+				files[node+"/toolaccounts/postgres.sh"] = toolaccounts.Postgres
+				var hosts []string
+				for _, member := range inv.Postgres.Nodes {
+					hosts = append(hosts, r.ip(member))
+				}
+				svcs["postgres-tool-admin"] = service(inv.Images.Postgres, map[string]any{"restart": "no", "entrypoint": []string{"/bin/sh", "/toolaccounts/postgres.sh"}, "environment": map[string]string{"PGHOST": strings.Join(hosts, ","), "PGPORT": "5432", "PGDATABASE": "postgres", "PGUSER": "postgres", "PGPASSWORD": "${POSTGRES_SUPERUSER_PASSWORD}", "PGTARGETSESSIONATTRS": "read-write", "SERVICE_ADMIN_USER": "${SERVICE_ADMIN_USER}", "SERVICE_ADMIN_PASSWORD": "${SERVICE_ADMIN_PASSWORD}"}, "volumes": []string{"./toolaccounts/postgres.sh:/toolaccounts/postgres.sh:ro"}})
+				env["SERVICE_ADMIN_USER"], env["SERVICE_ADMIN_PASSWORD"] = r.s.ServiceAdminUser, r.s.ServiceAdminPassword
+			}
 		case "redpanda":
 			seeds := r.hostList(inv.Redpanda.Nodes, 33145, ",")
-			add(kind, "redpanda", service(inv.Images.Redpanda, map[string]any{"command": []string{"redpanda", "start", "--smp", strconv.Itoa(inv.Redpanda.SMP), "--memory", inv.Redpanda.Memory, "--node-id", strconv.Itoa(idx(inv.Redpanda.Nodes)), "--check=false", "--kafka-addr", "0.0.0.0:9092", "--advertise-kafka-addr", ip + ":9092", "--rpc-addr", "0.0.0.0:33145", "--advertise-rpc-addr", ip + ":33145", "--seeds", seeds, "--schema-registry-addr", "0.0.0.0:18081", "--pandaproxy-addr", "0.0.0.0:18082", "--advertise-pandaproxy-addr", ip + ":18082", "--set", "redpanda.default_topic_replications=" + strconv.Itoa(inv.Redpanda.Replication), "--set", "redpanda.auto_create_topics_enabled=false", "--set", "redpanda.empty_seed_starts_cluster=false"}, "volumes": []string{"redpanda-data:/var/lib/redpanda/data"}}), "redpanda-data")
+			add(kind, "redpanda", service(inv.Images.Redpanda, map[string]any{"command": []string{"redpanda", "start", "--smp", strconv.Itoa(inv.Redpanda.SMP), "--memory", inv.Redpanda.Memory, "--node-id", strconv.Itoa(idx(inv.Redpanda.Nodes)), "--check=false", "--kafka-addr", "0.0.0.0:9092", "--advertise-kafka-addr", ip + ":9092", "--rpc-addr", "0.0.0.0:33145", "--advertise-rpc-addr", ip + ":33145", "--seeds", seeds, "--schema-registry-addr", "0.0.0.0:18081", "--pandaproxy-addr", "0.0.0.0:18082", "--advertise-pandaproxy-addr", ip + ":18082", "--set", "redpanda.default_topic_replications=" + strconv.Itoa(inv.Redpanda.Replication), "--set", "redpanda.auto_create_topics_enabled=false", "--set", "redpanda.empty_seed_starts_cluster=false", "--set", "redpanda.enable_sasl=true", "--set", "redpanda.admin_api_require_auth=true", "--set", `redpanda.superusers=["${IOT_KAFKA_ADMIN_USERNAME:-admin}"]`}, "environment": map[string]string{"RP_BOOTSTRAP_USER": "${IOT_KAFKA_ADMIN_USERNAME:-admin}:${IOT_KAFKA_ADMIN_PASSWORD:-admin123}:${IOT_KAFKA_SASL_MECHANISM:-SCRAM-SHA-256}", "RPK_USER": "${IOT_KAFKA_ADMIN_USERNAME:-admin}", "RPK_PASS": "${IOT_KAFKA_ADMIN_PASSWORD:-admin123}", "RPK_SASL_MECHANISM": "${IOT_KAFKA_SASL_MECHANISM:-SCRAM-SHA-256}"}, "volumes": []string{"redpanda-data:/var/lib/redpanda/data"}}), "redpanda-data")
+			for key, value := range r.s.kafkaEnv() {
+				if key == "IOT_KAFKA_ADMIN_USERNAME" || key == "IOT_KAFKA_ADMIN_PASSWORD" || key == "IOT_KAFKA_SASL_MECHANISM" {
+					env[key] = value
+				}
+			}
 		case "emqx":
 			var seeds []string
 			for _, n := range inv.EMQX.Nodes {
 				seeds = append(seeds, `"emqx@`+r.ip(n)+`"`)
 			}
-			add(kind, "emqx", service(inv.Images.EMQX, map[string]any{"ulimits": map[string]any{"nofile": map[string]int{"soft": 1048576, "hard": 1048576}}, "entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{emqxEntrypoint}, "environment": map[string]string{"EMQX_NODE__NAME": "emqx@" + ip, "EMQX_NODE__COOKIE": "${EMQX_COOKIE}", "EMQX_CLUSTER__DISCOVERY_STRATEGY": "static", "EMQX_CLUSTER__STATIC__SEEDS": "[" + strings.Join(seeds, ",") + "]", "IOT_EMQX_API_KEY": "${IOT_EMQX_API_KEY}", "IOT_EMQX_API_SECRET": "${IOT_EMQX_API_SECRET}", "IOT_JWT_SECRET": "${IOT_JWT_SECRET}", "EMQX_AUTHORIZATION__NO_MATCH": "deny", "EMQX_AUTHORIZATION__DENY_ACTION": "ignore", "EMQX_MQTT__MAX_MQUEUE_LEN": "100000", "EMQX_MQTT__MAX_INFLIGHT": "128", "EMQX_DASHBOARD__DEFAULT_USERNAME": "admin", "EMQX_DASHBOARD__DEFAULT_PASSWORD": "${EMQX_DASHBOARD_PASSWORD}"}, "volumes": []string{"emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log"}}), "emqx-data", "emqx-log")
+			add(kind, "emqx", service(inv.Images.EMQX, map[string]any{"ulimits": map[string]any{"nofile": map[string]int{"soft": 1048576, "hard": 1048576}}, "entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{emqxEntrypoint}, "environment": map[string]string{"EMQX_NODE__NAME": "emqx@" + ip, "EMQX_NODE__COOKIE": "${EMQX_COOKIE}", "EMQX_CLUSTER__DISCOVERY_STRATEGY": "static", "EMQX_CLUSTER__STATIC__SEEDS": "[" + strings.Join(seeds, ",") + "]", "IOT_EMQX_API_KEY": "${IOT_EMQX_API_KEY}", "IOT_EMQX_API_SECRET": "${IOT_EMQX_API_SECRET}", "IOT_JWT_SECRET": "${IOT_JWT_SECRET}", "IOT_MQTT_TOOL_USERNAME": "${IOT_MQTT_TOOL_USERNAME:-admin}", "IOT_MQTT_TOOL_PASSWORD": "${IOT_MQTT_TOOL_PASSWORD:-admin123}", "EMQX_AUTHORIZATION__NO_MATCH": "deny", "EMQX_AUTHORIZATION__DENY_ACTION": "ignore", "EMQX_MQTT__MAX_MQUEUE_LEN": "100000", "EMQX_MQTT__MAX_INFLIGHT": "128", "EMQX_DASHBOARD__DEFAULT_USERNAME": "admin", "EMQX_DASHBOARD__DEFAULT_PASSWORD": "${EMQX_DASHBOARD_PASSWORD}"}, "volumes": []string{"emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log"}}), "emqx-data", "emqx-log")
 			env["EMQX_COOKIE"], env["EMQX_DASHBOARD_PASSWORD"] = r.s.EMQXCookie, r.s.EMQXDashboardPassword
 			env["IOT_JWT_SECRET"], env["IOT_EMQX_API_KEY"], env["IOT_EMQX_API_SECRET"] = r.s.JWTSecret, r.s.EMQXAPIKey, r.s.EMQXAPISecret
+			env["IOT_MQTT_TOOL_USERNAME"], env["IOT_MQTT_TOOL_PASSWORD"] = r.s.MQTTToolUsername, r.s.MQTTToolPassword
 		case "clickhouse":
 			files[node+"/clickhouse/config.d/cluster.xml"] = []byte(r.clickhouseConfig(node))
 			add(kind, "clickhouse", service(inv.Images.ClickHouse, map[string]any{"ulimits": map[string]any{"nofile": map[string]int{"soft": 262144, "hard": 262144}}, "environment": map[string]string{"CLICKHOUSE_DB": "iot", "CLICKHOUSE_USER": "iot", "CLICKHOUSE_PASSWORD": "${CLICKHOUSE_PASSWORD}", "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT": "1"}, "volumes": []string{"clickhouse-data:/var/lib/clickhouse", "./clickhouse/config.d/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro"}}), "clickhouse-data")
 			env["CLICKHOUSE_PASSWORD"] = r.s.ClickHousePassword
+			files[node+"/toolaccounts/clickhouse.sh"] = toolaccounts.ClickHouse
+			svcs["clickhouse-tool-admin"] = service(inv.Images.ClickHouse, map[string]any{"restart": "no", "entrypoint": []string{"/bin/sh", "/toolaccounts/clickhouse.sh"}, "environment": map[string]string{"CLICKHOUSE_HOST": ip, "CLICKHOUSE_PORT": "9000", "CLICKHOUSE_USER": "iot", "CLICKHOUSE_PASSWORD": "${CLICKHOUSE_PASSWORD}", "SERVICE_ADMIN_USER": "${SERVICE_ADMIN_USER}", "SERVICE_ADMIN_PASSWORD": "${SERVICE_ADMIN_PASSWORD}"}, "volumes": []string{"./toolaccounts/clickhouse.sh:/toolaccounts/clickhouse.sh:ro"}})
+			env["SERVICE_ADMIN_USER"], env["SERVICE_ADMIN_PASSWORD"] = r.s.ServiceAdminUser, r.s.ServiceAdminPassword
 		case "keeper":
 			files[node+"/keeper/keeper_config.xml"] = []byte(r.keeperConfig(node))
 			add(kind, "keeper", service(inv.Images.Keeper, map[string]any{"volumes": []string{"keeper-data:/var/lib/clickhouse-keeper", "./keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml:ro"}}), "keeper-data")
 		case "redis":
 			cmd := []string{"redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}", "--masterauth", "${REDIS_PASSWORD}", "--replica-announce-ip", ip}
+			cmd = append(cmd, "--user", "${SERVICE_ADMIN_USER}", "on", ">${SERVICE_ADMIN_PASSWORD}", "~*", "&*", "+@all")
 			if node != inv.Redis.Master {
 				cmd = append(cmd, "--replicaof", r.ip(inv.Redis.Master), "6379")
 			}
 			add(kind, "redis", service(inv.Images.Redis, map[string]any{"command": cmd, "volumes": []string{"redis-data:/data"}}), "redis-data")
 			env["REDIS_PASSWORD"] = r.s.RedisPassword
+			env["SERVICE_ADMIN_USER"], env["SERVICE_ADMIN_PASSWORD"] = r.s.ServiceAdminUser, r.s.ServiceAdminPassword
 		case "sentinel":
 			// Sentinel rewrites its config; it is created once from the
 			// environment so the password never sits in a rendered file.
@@ -542,6 +617,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			}
 			env["IOT_JWT_SECRET"], env["IOT_ADMIN_PASSWORD"], env["POSTGRES_PASSWORD"], env["REDIS_PASSWORD"], env["CLICKHOUSE_PASSWORD"] = r.s.JWTSecret, r.s.AdminPassword, r.s.PostgresPassword, r.s.RedisPassword, r.s.ClickHousePassword
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["IOT_EMQX_API_KEY"], env["IOT_EMQX_API_SECRET"] = r.s.MinIORootUser, r.s.MinIORootPassword, r.s.EMQXAPIKey, r.s.EMQXAPISecret
+			env["IOT_MQTT_TOOL_USERNAME"], env["IOT_MQTT_TOOL_PASSWORD"] = r.s.MQTTToolUsername, r.s.MQTTToolPassword
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.HarnessToken, r.s.DeepSeekAPIKey, r.s.BackupToken
 			if inv.Video.Node != "" {
 				env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"], env["IOT_VIDEO_CREDENTIAL_KEY"] = r.s.VideoMediaSecret, r.s.VideoHookSecret, r.s.VideoCredentialKey
@@ -615,7 +691,10 @@ defaults
 
 const emqxEntrypoint = `umask 077
 jwt_secret_b64="$$(printf '%s' "$$IOT_JWT_SECRET" | base64 | tr -d '\n')"
-printf 'authentication = [{mechanism = jwt, from = password, algorithm = "hmac-based", use_jwks = false, secret = "%s", secret_base64_encoded = true, acl_claim_name = "acl", verify_claims = [{name = "username", value = "$${username}"}], disconnect_after_expire = true}]\n' "$$jwt_secret_b64" > /opt/emqx/etc/base.hocon
+tool_user_json="$$(printf '%s' "$$IOT_MQTT_TOOL_USERNAME" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+tool_password_json="$$(printf '%s' "$$IOT_MQTT_TOOL_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+printf '[{"user_id":"%s","password":"%s","is_superuser":true}]\n' "$$tool_user_json" "$$tool_password_json" > /opt/emqx/etc/tool-users.json
+printf 'authentication = [{mechanism = password_based, backend = built_in_database, user_id_type = username, password_hash_algorithm = {name = sha256, salt_position = suffix}, bootstrap_file = "/opt/emqx/etc/tool-users.json", bootstrap_type = plain}, {mechanism = jwt, from = password, algorithm = "hmac-based", use_jwks = false, secret = "%s", secret_base64_encoded = true, acl_claim_name = "acl", verify_claims = [{name = "username", value = "$${username}"}], disconnect_after_expire = true}]\n' "$$jwt_secret_b64" > /opt/emqx/etc/base.hocon
 if [ -n "$$IOT_EMQX_API_KEY" ] && [ -n "$$IOT_EMQX_API_SECRET" ]; then
   printf '%s:%s:administrator\n' "$$IOT_EMQX_API_KEY" "$$IOT_EMQX_API_SECRET" > /opt/emqx/etc/platform-api-keys
   printf '\napi_key.bootstrap_file = "/opt/emqx/etc/platform-api-keys"\n' >> /opt/emqx/etc/base.hocon
@@ -711,10 +790,14 @@ func (r renderer) prometheusConfig() string {
 // Render validates the inventory and secrets and returns every file to
 // write, keyed by relative path.
 func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
+	if s.ServiceAdminUser == "" && s.ServiceAdminPassword == "" {
+		s.ServiceAdminUser, s.ServiceAdminPassword = "admin", "admin123"
+	}
 	budget, err := inv.Validate()
 	if err != nil {
 		return nil, err
 	}
+	s = s.brokerDefaults(inv)
 	if err = s.validate(inv); err != nil {
 		return nil, err
 	}
@@ -838,6 +921,12 @@ func deployPlan(inv *Inventory, summary Summary, nodeImages map[string][]string)
 			fmt.Fprintf(&b, "health %s http://%s:%d/health/ready\n", node, n.Address, rolePort[role])
 		}
 	}
+	fmt.Fprintf(&b, "init-service %s %s postgres-tool-admin\n", inv.Postgres.Nodes[0], rNodeAddress(inv, inv.Postgres.Nodes[0]))
+	for _, shard := range inv.ClickHouse.Shards {
+		for _, node := range shard {
+			fmt.Fprintf(&b, "init-service %s %s clickhouse-tool-admin\n", node, rNodeAddress(inv, node))
+		}
+	}
 	// entry: addresses users and devices connect to (put DNS, a VIP or an
 	// external load balancer in front of each group).
 	entry := func(kind, scheme string, nodes []string, port int) {
@@ -851,6 +940,11 @@ func deployPlan(inv *Inventory, summary Summary, nodeImages map[string][]string)
 	entry("device-http", "http://", inv.Platform.Roles["gateway"].Nodes, 8082)
 	entry("device-tcp", "", inv.Platform.Roles["gateway"].Nodes, 26875)
 	return []byte(b.String())
+}
+
+func rNodeAddress(inv *Inventory, name string) string {
+	node, _ := inv.node(name)
+	return node.Address
 }
 
 // imageList names every image the cluster runs, for an offline bundle:

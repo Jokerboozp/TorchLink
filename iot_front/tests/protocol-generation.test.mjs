@@ -76,7 +76,7 @@ test('opening simulation creates no resource and preparation requires an explici
  await c.prepare();assert.equal(calls.length,1);assert.equal(calls[0].path,'/api/v1/test-devices/provision')
 })
 
-test('template simulation pins the bound protocol version and invalidates a pending preview',async()=>{
+test('template preview pins the bound protocol version and invalidates a pending preview',async()=>{
  let mount,cleanup,finish;const calls=[]
  const release={protocolId:'fire',version:'2',status:'PUBLISHED',parserType:'go_protocol_parser',payloadFormat:'hex'}
  const context=vm.createContext({ref,computed,watch,AbortController,can:()=>true,defineProps:()=>({initialProductId:'template'}),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},apiAll:async()=>({items:[{id:'template',name:'烟感',protocolPackageId:'fire@2'}]}),api:async(path,options)=>{calls.push({path,options});if(!options)return {items:[{definition:{name:'协议'},releases:[release]}]};return new Promise(resolve=>finish=resolve)},parseJSON:JSON.parse})
@@ -154,15 +154,6 @@ test('archived standard sample sends its ingress message kind and example select
  await c.mount();assert.equal(c.messageKind.value,'alarm');await c.preview()
  const body=JSON.parse(calls.at(-1).options.body);assert.equal(body.messageKind,'alarm');assert.equal(body.rawMessageId,'raw-alarm')
  c.fillStandardSample();assert.equal(c.rawInfo.value,null);assert.equal(c.rawMessageId.value,'');assert.equal(JSON.parse(c.payload.value).data.alarmLevel,'HIGH');c.cleanup()
-})
-
-test('simulation consumes template navigation context without creating a device',()=>{
- let removed=false,mount
- const navigation={productId:'template',protocolId:'fire',version:'2',deviceId:'device',rawMessageId:'raw-1'}
- const context=vm.createContext({ref,computed,reactive,defineProps:()=>({}),defineEmits:()=>()=>{},onMounted(fn){mount=fn},api(){throw new Error('unexpected resource write')},can:()=>true,session:{tenant:'t',user:'u'},sessionStorage:{getItem:()=>JSON.stringify(navigation),removeItem(){removed=true}},localStorage:{getItem(){return null}},pretty:JSON.stringify})
- const script=setupScript(new URL('../src/views/TestDeviceView.vue',import.meta.url))
- const value=vm.runInContext(script+'\n;({previewContext})',context)
- mount();assert.deepEqual(JSON.parse(JSON.stringify(value.previewContext)),navigation);assert.equal(removed,true)
 })
 
 test('HTTP 页面没有 randomUUID 时仍能初始化协议生成表单',()=>{

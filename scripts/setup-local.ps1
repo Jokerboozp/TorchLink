@@ -24,13 +24,28 @@ $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 if ($EnvFile -eq (Join-Path $projectRoot '.env')) { throw '本地环境请使用 .env.local，不能覆盖在线部署的 .env。' }
 
 function Set-LocalEnvValue {
-    param([string]$Key, [string]$Value, [switch]$Replace)
+    param([string]$Key, [string]$Value, [switch]$Replace, [switch]$FillEmpty)
     if ($Value -match "['\r\n]") { throw "配置 $Key 含不支持的引号或换行，未写入。" }
     $content = [IO.File]::ReadAllText($EnvFile)
-    $pattern = '(?m)^' + [regex]::Escape($Key) + '=.*$'
+    $pattern = '(?m)^[ \t]*(?:export[ \t]+)?' + [regex]::Escape($Key) + '[ \t]*=(.*)$'
     $line = $Key + "='" + $Value + "'"
     if ([regex]::IsMatch($content, $pattern)) {
-        if (-not $Replace) { return }
+        if (-not $Replace) {
+            if (-not $FillEmpty) { return }
+            # Inspect the file itself: a process environment override must not
+            # cause us to replace a non-empty credential saved in the file.
+            $currentValue = ''
+            foreach ($entry in [regex]::Matches($content, $pattern)) {
+                $candidate = $entry.Groups[1].Value.Trim()
+                if ($candidate.StartsWith('"') -or $candidate.StartsWith("'")) {
+                    $quote = $candidate.Substring(0, 1)
+                    $end = $candidate.IndexOf($quote, 1)
+                    if ($end -ge 1) { $candidate = $candidate.Substring(1, $end - 1) }
+                } else { $candidate = ($entry.Groups[1].Value -replace '\s+#.*$', '').Trim() }
+                $currentValue = $candidate
+            }
+            if ($currentValue -ne '') { return }
+        }
         $content = [regex]::Replace($content, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $line })
     } else {
         $content = $content.TrimEnd("`r", "`n") + "`n" + $line + "`n"
@@ -65,6 +80,16 @@ $defaults = [ordered]@{
     IOT_MINIO_ACCESS_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_ROOT_USER')
     IOT_MINIO_SECRET_KEY = (Get-DeploymentEnvValue -Path $EnvFile -Key 'MINIO_ROOT_PASSWORD')
     IOT_KAFKA_BROKERS = '127.0.0.1:19092'
+    IOT_KAFKA_SASL_USERNAME = 'admin'
+    IOT_KAFKA_SASL_PASSWORD = 'admin123'
+    IOT_KAFKA_SASL_MECHANISM = 'SCRAM-SHA-256'
+    IOT_KAFKA_ADMIN_USERNAME = 'admin'
+    IOT_KAFKA_ADMIN_PASSWORD = 'admin123'
+    IOT_MQTT_TOOL_USERNAME = 'admin'
+    IOT_MQTT_TOOL_PASSWORD = 'admin123'
+    IOT_KAFKA_ADMIN_URL = 'http://127.0.0.1:19644'
+    IOT_KAFKA_ADVERTISED_HOST = '127.0.0.1'
+    IOT_KAFKA_PUBLIC_BROKERS = '127.0.0.1:19092'
     IOT_MQTT_BROKER = 'tcp://127.0.0.1:1883'
     IOT_MQTT_WEBSOCKET_PUBLIC_URL = 'ws://127.0.0.1:8083/mqtt'
     IOT_AI_PROVIDER = 'deepseek'
@@ -82,7 +107,15 @@ $defaults = [ordered]@{
     IOT_AI_HARNESS_PROVIDER = 'deepseek-official'
     IOT_AI_HARNESS_MODEL = $DeepSeekModel
 }
-foreach ($key in $defaults.Keys) { Set-LocalEnvValue -Key $key -Value $defaults[$key] -Replace:$newEnv }
+$brokerRequiredDefaults = @(
+    'IOT_KAFKA_SASL_USERNAME', 'IOT_KAFKA_SASL_PASSWORD', 'IOT_KAFKA_SASL_MECHANISM',
+    'IOT_KAFKA_ADMIN_USERNAME', 'IOT_KAFKA_ADMIN_PASSWORD', 'IOT_KAFKA_ADMIN_URL',
+    'IOT_KAFKA_PUBLIC_BROKERS', 'IOT_KAFKA_ADVERTISED_HOST',
+    'IOT_MQTT_TOOL_USERNAME', 'IOT_MQTT_TOOL_PASSWORD'
+)
+foreach ($key in $defaults.Keys) {
+    Set-LocalEnvValue -Key $key -Value $defaults[$key] -Replace:$newEnv -FillEmpty:($brokerRequiredDefaults -contains $key)
+}
 # The source-debugged API and backup worker run on the same host. Keep the
 # worker endpoint local even when middleware containers are remote.
 Set-LocalEnvValue -Key 'IOT_BACKUP_URL' -Value 'http://127.0.0.1:8092' -Replace

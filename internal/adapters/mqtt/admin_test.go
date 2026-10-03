@@ -168,3 +168,48 @@ func TestAdminTopicAuthorizationChecksRuntimeContract(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminTopicAuthorizationAllowsOnlyKnownToolIdentity(t *testing.T) {
+	for _, scenario := range []string{"known tool", "extra consumer identity", "missing total", "unknown user", "not administrator", "JWT first", "wrong database identity type", "consumer namespace"} {
+		t.Run(scenario, func(t *testing.T) {
+			tool := topicJWTAuthenticator{Enable: true, Mechanism: "password_based", Backend: "built_in_database", UserIDType: "username"}
+			jwt := topicJWTAuthenticator{Enable: true, Mechanism: "jwt", From: "password", Algorithm: "hmac-based", ACLClaim: "acl", DisconnectAfterExpire: true}
+			jwt.VerifyClaims = append(jwt.VerifyClaims, struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			}{Name: "username", Value: "${username}"})
+			chain := []topicJWTAuthenticator{tool, jwt}
+			user := map[string]any{"user_id": "admin", "is_superuser": true}
+			users := map[string]any{"data": []any{user}, "meta": map[string]any{"count": 1}}
+			username := "admin"
+			switch scenario {
+			case "extra consumer identity":
+				users["data"] = append(users["data"].([]any), map[string]any{"user_id": "iot-topic-abc", "is_superuser": true})
+				users["meta"] = map[string]any{"count": 2}
+			case "missing total":
+				delete(users, "meta")
+			case "unknown user":
+				user["user_id"] = "unexpected"
+			case "not administrator":
+				user["is_superuser"] = false
+			case "JWT first":
+				chain = []topicJWTAuthenticator{jwt, tool}
+			case "wrong database identity type":
+				chain[0].UserIDType = "clientid"
+			case "consumer namespace":
+				username, user["user_id"] = "iot-topic-admin", "iot-topic-admin"
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" || r.URL.Path != "/api/v5/authentication/password_based:built_in_database/users" || r.URL.Query().Get("limit") != "2" {
+					t.Errorf("unexpected readiness request: %s %s", r.Method, r.URL.Path)
+				}
+				_ = json.NewEncoder(w).Encode(users)
+			}))
+			defer server.Close()
+			err := (&Admin{URL: server.URL, Key: "key", Secret: "secret", ToolUsername: username}).checkTopicAuthentication(context.Background(), "/authentication", chain)
+			if (err == nil) != (scenario == "known tool") {
+				t.Fatalf("unexpected authentication readiness: %v", err)
+			}
+		})
+	}
+}

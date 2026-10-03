@@ -137,6 +137,11 @@ run_init() {
     sleep 15
   done
   [ -z "$cluster_init" ] && run ssh "$ssh_user@$init_address" "rm -f '$remote_dir/.init.env' '$remote_dir/.init-kafka-ca.pem'"
+  while read -r kind node address init_service; do
+    [ "$kind" = init-service ] || continue
+    selected_node "$node" || continue
+    run ssh "$ssh_user@$address" "cd '$remote_dir' && docker compose -p $name --env-file .env run --rm --no-deps $init_service"
+  done < "$rendered/deploy-plan.txt"
   return 0
 }
 

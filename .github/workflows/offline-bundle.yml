@@ -107,7 +107,8 @@ jobs:
             cat $name.tar.gz.part-* | tar -xz --strip-components=1 -C $name
             cd $name
             sudo bash scripts/deploy-offline.sh
-          首次部署自动生成独立密码，管理员密码见 .env.offline 的 IOT_ADMIN_PASSWORD。
+          新安装管理员和工具账号默认 admin/admin123；应用数据库账号保留 iot，连接密码默认 admin123。
+          首次部署在目标机独立生成 JWT、内部令牌和加密密钥，完整配置见 .env.offline。
           升级已有部署：启动前先复制原 .env.offline，保持原项目、数据卷和凭据。
           对话与知识向量计算需配置 DeepSeek 和外部 Embedding API 密钥并保持联网。
           通用包不含特定发行版 RPM/DEB；目标机需满足 docs/DEPLOYMENT.md 的系统依赖。
@@ -125,7 +126,7 @@ jobs:
           {
             printf '提交：`%s`\n\n' "$GITHUB_SHA"
             printf 'Linux x86_64 完整离线包，包含应用、依赖镜像、Docker 安装文件和完整 docs/ 指南。知识文档与向量保存在 PostgreSQL + pgvector。\n\n'
-            printf '下载全部分卷、SHA256SUMS 和 DEPLOY.txt，按 DEPLOY.txt 校验、解压和部署。首次部署在目标机生成独立密码；升级前保留原 .env.offline。\n\n'
+            printf '下载全部分卷、SHA256SUMS 和 DEPLOY.txt，按 DEPLOY.txt 校验、解压和部署。新安装管理员和工具账号默认 admin/admin123，应用数据库账号保留 iot，连接密码默认 admin123；JWT、内部令牌和加密密钥在目标机独立随机生成。升级前保留原 .env.offline。\n\n'
             printf '对话使用 DeepSeek API，向量计算使用外部 Embedding API，需分别配置密钥并保持联网。构建通过不代表目标服务器部署验收。\n'
           } > "$notes"
           gh release create "$tag" --target "$GITHUB_SHA" --draft \

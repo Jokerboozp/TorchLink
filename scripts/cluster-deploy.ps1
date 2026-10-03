@@ -109,6 +109,12 @@ function Invoke-Init {
         $env:IOT_KAFKA_TLS_CA_FILE = $previousCAFile
         if ($initAddress) { Invoke-Ssh $initAddress "rm -f '$RemoteDir/.init.env' '$RemoteDir/.init-kafka-ca.pem'" -NoThrow }
     }
+    foreach ($line in $plan) {
+        $fields = $line -split ' '
+        if ($fields[0] -eq 'init-service' -and (Test-Node $fields[1])) {
+            Invoke-Ssh $fields[2] "cd '$RemoteDir' && docker compose -p $name --env-file .env run --rm --no-deps $($fields[3])"
+        }
+    }
 }
 
 foreach ($stageName in @("coordination", "data", "init", "support", "workers", "edge")) {

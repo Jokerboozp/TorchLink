@@ -1,14 +1,14 @@
-POSTGRES_PASSWORD	PostgreSQL 数据库密码，首次部署自动生成
-REDIS_PASSWORD	Redis 密码，首次部署自动生成
-CLICKHOUSE_PASSWORD	ClickHouse 数据库密码，首次部署自动生成
+POSTGRES_PASSWORD	PostgreSQL 数据库密码，默认 admin123；已有配置保留
+REDIS_PASSWORD	Redis 密码，默认 admin123；已有配置保留
+CLICKHOUSE_PASSWORD	ClickHouse 数据库密码，默认 admin123；已有配置保留
 MINIO_ROOT_USER	MinIO 主存储管理员用户名
-MINIO_ROOT_PASSWORD	MinIO 主存储管理员密码，首次部署自动生成
+MINIO_ROOT_PASSWORD	MinIO 主存储管理员密码，默认 admin123；已有配置保留
 MINIO_DR_ROOT_USER	MinIO 灾备存储管理员用户名
-MINIO_DR_ROOT_PASSWORD	MinIO 灾备存储管理员密码，首次部署自动生成
+MINIO_DR_ROOT_PASSWORD	MinIO 灾备存储管理员密码，默认 admin123；已有配置保留
 EMQX_DASHBOARD_USER	EMQX 管理页面用户名
-EMQX_DASHBOARD_PASSWORD	EMQX 管理页面密码，首次部署自动生成
+EMQX_DASHBOARD_PASSWORD	EMQX 管理页面密码，默认 admin123；已有配置保留
 GRAFANA_ADMIN_USER	Grafana 管理员用户名
-GRAFANA_ADMIN_PASSWORD	Grafana 管理员密码，首次部署自动生成
+GRAFANA_ADMIN_PASSWORD	Grafana 管理员密码，默认 admin123；已有配置保留
 IOT_JWT_SECRET	平台登录令牌签名密钥，首次部署自动生成
 IOT_ADMIN_USER	平台内置管理员用户名
 IOT_ADMIN_PASSWORD	平台内置管理员密码，默认 admin123，可自定义，无长度或复杂度限制
@@ -146,3 +146,15 @@ IOT_BACKUP_RESTORE_MINIO_ENDPOINT	知识原件恢复使用的独立MinIO灾备�
 IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY	独立MinIO灾备恢复访问账号，仅服务端使用
 IOT_BACKUP_RESTORE_MINIO_SECRET_KEY	独立MinIO灾备恢复密钥，仅服务端使用
 IOT_BACKUP_RESTORE_MINIO_USE_TLS	独立MinIO灾备恢复服务是否使用TLS
+SERVICE_ADMIN_USER	PostgreSQL、Redis、ClickHouse 工具连接用户名，默认 admin，保留原应用账号
+SERVICE_ADMIN_PASSWORD	基础服务工具连接密码，默认 admin123，已有配置保留
+IOT_MQTT_TOOL_USERNAME	MQTT 工具连接用户名，默认 admin
+IOT_MQTT_TOOL_PASSWORD	MQTT 工具连接密码，默认 admin123
+IOT_KAFKA_SASL_USERNAME	Kafka 服务与工具连接用户名，默认 admin
+IOT_KAFKA_SASL_PASSWORD	Kafka 服务与工具连接密码，默认 admin123
+IOT_KAFKA_SASL_MECHANISM	Kafka 认证机制，默认 SCRAM-SHA-256
+IOT_KAFKA_ADMIN_URL	Redpanda 管理 API 根地址
+IOT_KAFKA_ADMIN_USERNAME	Redpanda 管理用户名，默认 admin
+IOT_KAFKA_ADMIN_PASSWORD	Redpanda 管理密码，默认 admin123
+IOT_KAFKA_ADVERTISED_HOST	Kafka 外部监听器公告主机，填写工具可访问的依赖机地址
+IOT_KAFKA_PUBLIC_BROKERS	外部工具可访问的 Kafka 地址，逗号分隔 host:port

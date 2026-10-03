@@ -18,21 +18,33 @@ ensure_deployment_env() {
   [ ! -e "$env_path" ] || { printf '配置路径不是文件：%s\n' "$env_path" >&2; return 1; }
   local defaults key value
   defaults="$(cat <<EOF
-POSTGRES_PASSWORD=$(deployment_secret)
-REDIS_PASSWORD=$(deployment_secret)
-CLICKHOUSE_PASSWORD=$(deployment_secret)
-MINIO_ROOT_USER=iotadmin
-MINIO_ROOT_PASSWORD=$(deployment_secret)
-MINIO_DR_ROOT_USER=iotdradmin
-MINIO_DR_ROOT_PASSWORD=$(deployment_secret)
+SERVICE_ADMIN_USER=admin
+SERVICE_ADMIN_PASSWORD=admin123
+POSTGRES_PASSWORD=admin123
+REDIS_PASSWORD=admin123
+CLICKHOUSE_PASSWORD=admin123
+MINIO_ROOT_USER=admin
+MINIO_ROOT_PASSWORD=admin123
+MINIO_DR_ROOT_USER=admin
+MINIO_DR_ROOT_PASSWORD=admin123
 EMQX_DASHBOARD_USER=admin
-EMQX_DASHBOARD_PASSWORD=$(deployment_secret)
+EMQX_DASHBOARD_PASSWORD=admin123
 GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=$(deployment_secret)
+GRAFANA_ADMIN_PASSWORD=admin123
 IOT_JWT_SECRET=$(deployment_secret)
 IOT_ADMIN_USER=admin
 IOT_ADMIN_PASSWORD=admin123
 IOT_ADMIN_TENANTS=tenant_001
+IOT_MQTT_TOOL_USERNAME=admin
+IOT_MQTT_TOOL_PASSWORD=admin123
+IOT_KAFKA_SASL_USERNAME=admin
+IOT_KAFKA_SASL_PASSWORD=admin123
+IOT_KAFKA_SASL_MECHANISM=SCRAM-SHA-256
+IOT_KAFKA_ADMIN_URL=http://redpanda:9644
+IOT_KAFKA_ADMIN_USERNAME=admin
+IOT_KAFKA_ADMIN_PASSWORD=admin123
+IOT_KAFKA_ADVERTISED_HOST=127.0.0.1
+IOT_KAFKA_PUBLIC_BROKERS=127.0.0.1:19092
 IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$(deployment_secret)
 IOT_AI_HARNESS_TOKEN=$(deployment_secret)
 IOT_EMBEDDING_API_KEY=
@@ -72,7 +84,7 @@ EOF
     printf '# 文件包含敏感凭据，请勿提交到 Git 或公开分享。\n'
     printf '%s\n' "$defaults"
   } > "$env_path") || return 1
-  printf '已生成配置：%s（随机凭据仅保存在文件中）。\n' "$env_path"
+  printf '已生成配置：%s（服务工具账号使用配置默认值，内部令牌随机生成）。\n' "$env_path"
 }
 
 get_deployment_env_value() {

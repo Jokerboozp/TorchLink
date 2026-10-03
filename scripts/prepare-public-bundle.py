@@ -6,6 +6,19 @@ import shutil
 import sys
 
 
+ADMIN_PASSWORD_KEYS = frozenset((
+    'IOT_ADMIN_PASSWORD', 'SERVICE_ADMIN_PASSWORD', 'POSTGRES_PASSWORD',
+    'REDIS_PASSWORD', 'CLICKHOUSE_PASSWORD', 'MINIO_ROOT_PASSWORD',
+    'MINIO_DR_ROOT_PASSWORD', 'EMQX_DASHBOARD_PASSWORD', 'GRAFANA_ADMIN_PASSWORD',
+    'IOT_MQTT_TOOL_PASSWORD', 'IOT_KAFKA_SASL_PASSWORD', 'IOT_KAFKA_ADMIN_PASSWORD',
+))
+ADMIN_USERNAME_KEYS = frozenset((
+    'SERVICE_ADMIN_USER', 'MINIO_ROOT_USER', 'MINIO_DR_ROOT_USER',
+    'EMQX_DASHBOARD_USER', 'GRAFANA_ADMIN_USER', 'IOT_ADMIN_USER',
+    'IOT_MQTT_TOOL_USERNAME', 'IOT_KAFKA_SASL_USERNAME', 'IOT_KAFKA_ADMIN_USERNAME',
+))
+
+
 def prepare(bundle: Path) -> None:
     manifest_path = bundle / 'manifest.json'
     manifest = json.loads(manifest_path.read_text())
@@ -21,6 +34,12 @@ def prepare(bundle: Path) -> None:
         if key in ('DEEPSEEK_API_KEY', 'IOT_AI_API_KEY', 'IOT_EMBEDDING_API_KEY'):
             if value.strip("'\""):
                 raise ValueError('发布包不能包含 API Key')
+        elif key in ADMIN_PASSWORD_KEYS:
+            # Publish only the agreed installation default, never a password
+            # copied from the packaging machine, even in generated configs.
+            value = 'admin123'
+        elif key in ADMIN_USERNAME_KEYS:
+            value = 'admin'
         elif key == 'IOT_VIDEO_PLATFORM_SECRETS':
             value = 'video-platform-1:__TORCHLINK_RANDOM_HEX__'
         elif key == 'IOT_VIDEO_CREDENTIAL_KEY':
@@ -34,7 +53,9 @@ def prepare(bundle: Path) -> None:
     for name in ('init-offline-env.sh', 'init-offline-env.ps1'):
         shutil.copyfile(scripts / name, bundle / 'scripts' / name)
     (bundle / 'OFFLINE-CREDENTIALS.txt').write_text(
-        '公开包不包含部署凭据。首次部署自动生成 .env.offline，管理员密码也随机生成。\n'
+        '公开包只包含新安装的默认账号配置，不包含打包机器的实际部署凭据。\n'
+        '管理员和工具账号默认 admin/admin123；应用数据库账号仍为 iot，连接密码默认 admin123。\n'
+        '首次部署自动生成 .env.offline，JWT、内部令牌和加密密钥在目标机器独立随机生成。\n'
         '升级已有部署时，请先将原 .env.offline 放入本目录，保留原项目和数据卷。\n'
         'DeepSeek API Key 请在部署后通过模型管理填写。\n'
     )

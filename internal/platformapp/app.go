@@ -172,7 +172,7 @@ func Run(forcedRole string) {
 	// revocation and broker-side drop counters for the platform session.
 	var emqxAdmin *mqttadapter.Admin
 	if cfg.EMQXAPIURL != "" && cfg.EMQXAPIKey != "" && cfg.EMQXAPISecret != "" {
-		emqxAdmin = &mqttadapter.Admin{URL: cfg.EMQXAPIURL, Key: cfg.EMQXAPIKey, Secret: cfg.EMQXAPISecret}
+		emqxAdmin = &mqttadapter.Admin{URL: cfg.EMQXAPIURL, Key: cfg.EMQXAPIKey, Secret: cfg.EMQXAPISecret, ToolUsername: cfg.MQTTToolUsername}
 	}
 	if cfg.MQTTBroker != "" {
 		credentials := func() (string, string) { return cfg.MQTTUsername, cfg.MQTTPassword }

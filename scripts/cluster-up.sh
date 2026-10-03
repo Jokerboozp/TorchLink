@@ -211,9 +211,9 @@ service_password="${TORCHLINK_SERVICE_PASSWORD:-}"
 deepseek_key=""
 if [ ! -f "$secrets" ] && [ "$dry_run" = 0 ] && [ "$interactive" = 1 ]; then
   if [ -z "$service_password" ]; then
-    echo "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -" >&2
+    echo "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、MQTT、Kafka、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -" >&2
     while :; do
-      ask_secret service_password "服务统一密码（直接回车则为每项随机生成）"
+      ask_secret service_password "服务统一密码（直接回车使用 admin123，内部令牌独立随机）"
       [ -z "$service_password" ] && break
       if [ "${#service_password}" -lt 8 ] || ! [[ "$service_password" =~ ^[A-Za-z0-9._~-]+$ ]]; then
         echo "密码不符合要求，请重新输入" >&2; continue

@@ -20,7 +20,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成 `.env.local`，设置管理员默认值并随机生成其他服务凭据，启动依赖与 Harness，设置云端 Embedding 默认配置，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
+脚本生成 `.env.local`，将基础服务工具账号默认设为 `admin` / `admin123`，独立生成内部密钥与令牌，启动依赖与 Harness，设置云端 Embedding 默认配置，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
 
 | 需求 | PowerShell 参数 | Bash 参数 |
 | --- | --- | --- |
@@ -106,7 +106,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | Web | `5173`（Vite） | `8080`，可设 `IOT_WEB_PORT` |
 | API | `8081`（本机 Go） | `8081`，可设 `IOT_API_PORT` |
 | PostgreSQL / Redis | `15432` / `16379` | 仅容器网络 |
-| ClickHouse / Kafka | `18123` / `19092` | 仅容器网络 |
+| ClickHouse | `18123` | 仅容器网络 |
+| Kafka | `19092` | `19092`，可设 `KAFKA_PORT`；`IOT_KAFKA_ADVERTISED_HOST` 设置为客户端可达地址 |
 | MinIO 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` |
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
 | EMQX 控制台 | `18083` | `18083`（`EMQX_DASHBOARD_PORT`），只开放给可信网络 |
@@ -187,7 +188,7 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 
 ### 获取或制作离线包
 
-推送 `main` 会触发 `.github/workflows/offline-bundle.yml` 构建 Linux amd64 包，成功后发布到 Releases；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。GitHub 的 Source code 不是部署包。公开包不含密码或 API Key，首次安装在目标机生成配置和随机管理员密码。
+推送 `main` 会触发 `.github/workflows/offline-bundle.yml` 构建 Linux amd64 包，成功后发布到 Releases；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。GitHub 的 Source code 不是部署包。公开包不含现场密码或 API Key，首次安装在目标机生成配置；管理员和基础服务工具账号默认使用 `admin` / `admin123`，内部密钥独立生成。
 
 手工打包（可带现有私有配置）：
 
@@ -301,7 +302,13 @@ PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|dis
 
 各入口显式选择上表中的环境文件和 Compose 文件；自定义项目名须在准备、部署和日常维护时保持一致。
 
-首次执行设置平台管理员为 `admin` / `admin123`，其他服务凭据随机生成，并在每个配置项前写入中文说明；重复执行保留业务凭据并补齐说明；云端 AI 配置见下文。不要重新生成配置文件来“重置”已有数据库。配置文件和离线包包含凭据，不应提交或公开分享。
+首次执行将平台、MQTT、Kafka、PostgreSQL、Redis、ClickHouse、MinIO（含灾备）、EMQX 控制台及 Grafana 的工具连接账号统一为 `admin` / `admin123`。PostgreSQL 和 ClickHouse 仍保留 `iot` 应用账号，Redis 保留 `default` 应用账号；工具使用独立的 `admin` 身份。数据库/缓存工具账号由 `SERVICE_ADMIN_USER` / `SERVICE_ADMIN_PASSWORD` 配置，其他服务沿用各自的账号变量。JWT、Harness、备份、EMQX 管理 API、摄像头密钥、集群复制凭据和外部对接临时凭据继续独立生成。
+
+重复执行保留已有环境文件和数据库中的账号，不会把现场密码静默改成新默认；修改已有服务密码需同步服务端账号、环境文件及使用它的平台/备份进程。不要重新生成配置文件或删除数据卷来“重置”已有数据库。配置文件和离线包包含现场凭据，不应提交或公开分享。
+
+MQTT 工具连接使用 `IOT_MQTT_TOOL_USERNAME` / `IOT_MQTT_TOOL_PASSWORD`，可发布和订阅；设备及浏览器仍使用 JWT。Kafka 工具选择 `SASL_PLAINTEXT`、`SCRAM-SHA-256`（启用 TLS 时选择 `SASL_SSL`），连接对外 Kafka 端口。工具 `admin` 具有服务管理权限，外部业务对接继续在“消息主题”中按账号单独授权。ClickHouse 的工具账号继承初始化连接账号实际可授予的权限，使用 `GRANT CURRENT GRANTS`，不要求官方镜像默认账号没有的命名集合管理权限。
+
+单机 EMQX 使用固定节点名，避免容器 IP 变化后切换到新的 Mnesia 数据库。已有部署更换节点名时，先在旧节点通过 `emqx ctl data export --dir <已存在的目录>` 导出配置和账号并备份，再在新节点执行 `emqx ctl data import <导出文件>`。持久配置中的认证列表会覆盖启动基线；旧配置应同步内置密码认证器的 `bootstrap_file` / `bootstrap_type` 并更新工具用户，保留 JWT 认证。仅改变启动变量不会覆盖已有账号密码。
 
 **已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
 
@@ -426,7 +433,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ### Kafka 对接账号认证与授权
 
-“消息主题”中的 Kafka 消费账号由平台管理 Redpanda SCRAM 凭据及精确 ACL。平台不会自动修改 Broker 的认证开关；默认 Compose 的内部 Kafka 连接没有启用 SASL，因此仅启动页面功能不代表 Broker 已支持对外授权。未满足下列条件时，页面拒绝发放 Kafka 消费凭据。
+“消息主题”中的 Kafka 消费账号由平台管理 Redpanda SCRAM 凭据及精确 ACL。新建部署默认启用 SASL 与 Admin API 认证，并初始化 `admin` / `admin123`；平台页面仍检查 Broker 的实际状态，未满足下列条件时拒绝发放 Kafka 消费凭据。已有 Broker 的账号和集群配置存于数据卷，更新环境变量不会替换已有密码，需按下述步骤同步。
 
 | 配置 | 用途 |
 | --- | --- |
@@ -442,7 +449,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 在既有 Redpanda 开启认证前，先安排平台进程切换使用服务账号，创建管理账号并加入 `superusers`，保留可恢复的管理入口。按 [Redpanda 25.2 认证说明](https://docs.redpanda.com/streaming/25.2/manage/security/authentication/) 完成以下步骤：
 
 1. 创建 SCRAM 管理账号和平台服务账号。管理账号须能管理用户、创建主题、读写 ACL；普通服务账号需对平台 `iot.` 主题拥有实际运行所需的发布、消费、查询及容量清理权限，对 `iot-platform-` 消费组拥有读写位点与查询权限。先配置平台及命令工具的 SASL 参数，再切换 Broker；不要把已有数据库或消息卷重建作为切换认证的手段。
-2. 使用 `rpk cluster config set enable_sasl true` 为所有 Kafka listener 开启 SASL；确保 `kafka_enable_authorization` 没有显式设为 `false`。如果使用每个 listener 单独配置的方案，应按官方文档设置 `authentication_method: sasl` 和授权开关，并执行该方案要求的 Broker 重启。
+2. 默认使用 `rpk cluster config set enable_sasl true` 为所有 Kafka listener 开启 SASL，`kafka_enable_authorization` 保持默认值；不要混用全局开关与按 listener 配置的两套认证方案。若选择每个 listener 单独配置，应同时设置 `authentication_method: sasl` 和对应授权开关，并执行该方案要求的 Broker 重启。
 3. 使用 `rpk cluster config set admin_api_require_auth true` 保护 Admin API，后续 `rpk` 操作使用已建立的管理身份。外部网络部署配置 Kafka TLS，并保护 Admin API 的访问网络和传输。应用环境文件中的凭据须与 Broker 中实际创建的账号相符；填写环境文件本身不会创建账号。
 4. 重启使用新配置的平台进程并复查数据接入。消息主题授权会读取 Broker 实际授权配置，检查管理连接、每个配置及广告地址拒绝匿名请求，且拒绝存在 `User:*` 通配授权的环境；任一检查失败不发放消费凭据。
 
@@ -483,7 +490,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 1. 集群名称（默认 `torchlink`）与**节点数量**（至少 3 台；1 台请用单机部署，2 台无法形成仲裁）。
 2. 每个节点的 IP；SSH 用户名（默认 `root`）与端口（默认 22）。
 3. **SSH 登录方式**：所有节点统一密码（输入一次）或每个节点独立密码（逐个输入）。密码隐藏输入、只在内存中使用：脚本用它登录一次，记录主机密钥（`.cluster/<名称>/known_hosts`，首次信任，之后变化即拒绝），并把部署专用公钥写入各节点 `~/.ssh/authorized_keys`（注释为 `torchlink-deploy@<名称>`，可据此撤销）；此后所有操作用私钥 `.cluster/<名称>/deploy_key` 登录，升级时不再询问密码。
-4. **服务统一密码**：用于 PostgreSQL（应用、超级用户、复制）、Redis、ClickHouse、MinIO、EMQX 控制台和平台管理员 `admin`；至少 8 位，只能包含字母、数字与 `. _ ~ -`（要嵌入连接串）。直接回车则每项随机生成。JWT 密钥、Harness 令牌、摄像头凭据密钥和服务间令牌始终随机生成（有长度或格式要求）。服务统一密码只在首次部署时设置；再次执行沿用已有秘密，若指定了不同的密码会拒绝（修改数据库密码需单独操作）。
+4. **服务统一密码**：用于数据库/缓存工具账号、PostgreSQL 应用、Redis、ClickHouse、MinIO、MQTT、Kafka、EMQX 控制台和平台管理员；直接回车使用 `admin123`，工具用户名默认 `admin`。自定义密码至少 8 位，只能包含字母、数字与 `. _ ~ -`。JWT、Harness、摄像头、服务间令牌以及 PostgreSQL 超级用户与复制凭据仍独立生成。默认值只填充缺项；再次执行保留已有秘密，显式指定与现有密码不同的值会拒绝，已有账号密码需单独同步。
 5. 是否部署摄像头直播模块；DeepSeek API Key（可留空，部署后可在“模型管理”填写）。
 
 节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、视频、容量测试、备份与监控放在最后一台；api、gateway、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
@@ -533,8 +540,8 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 ```
 
 - 秘密文件模板为 `deploy/cluster/secrets.example.yaml`，`-init-secrets` 会补齐缺项；嵌入连接串的密码只能用字母、数字与 `. _ ~ -`。秘密只写入需要它的节点的 `.env`（0600）与本机 `init.env`，`compose.yaml` 和配置文件只含变量引用。
-- 已配置 Broker 认证时，在秘密文件填写 `kafkaSaslUsername` / `kafkaSaslPassword`、`kafkaSaslMechanism`（默认 `SCRAM-SHA-256`）、`kafkaTls` 及可选 `kafkaTlsCaFile`；Redpanda 管理接口使用成组的 `kafkaAdminUrl` / `kafkaAdminUsername` / `kafkaAdminPassword`。这些参数统一进入所有平台角色及 `init.env`，不要在清单 `env` 中重复设置。使用一键 `cluster-up` 时，把 PEM CA 证书放在秘密文件目录或其子目录内，填写相对路径（以秘密文件目录为准）；直接运行 `cluster-render` 也支持本机绝对路径。渲染器复制证书，各角色和远程 `cluster-init` 只读挂载，本地初始化自动使用控制机上的副本。证书文件不得包含私钥。
-- 外部消息账号使用的地址须显式填写 `kafkaPublicBrokers`（逗号分隔的 `host:port`，应与 Broker 对外公告地址一致）及 `mqttPublicUrl`（如 `ssl://mqtt.example.com:8883`）。上述认证与地址字段不会自动生成，也不会启用或修改 Broker 认证、监听器和证书；填入前需按[Kafka 对接账号认证与授权](#kafka-对接账号认证与授权)完成实际 Broker 配置。
+- Broker 服务与管理账号首次默认 `admin` / `admin123`；需要自定义时，在秘密文件填写 `kafkaSaslUsername` / `kafkaSaslPassword`、`kafkaSaslMechanism`（默认 `SCRAM-SHA-256`）、`kafkaTls` 及可选 `kafkaTlsCaFile`；Redpanda 管理接口使用成组的 `kafkaAdminUrl` / `kafkaAdminUsername` / `kafkaAdminPassword`。这些参数统一进入所有平台角色及 `init.env`，不要在清单 `env` 中重复设置。使用一键 `cluster-up` 时，把 PEM CA 证书放在秘密文件目录或其子目录内，填写相对路径（以秘密文件目录为准）；直接运行 `cluster-render` 也支持本机绝对路径。渲染器复制证书，各角色和远程 `cluster-init` 只读挂载，本地初始化自动使用控制机上的副本。证书文件不得包含私钥。
+- `kafkaPublicBrokers`（逗号分隔的 `host:port`）和 `mqttPublicUrl` 默认由 Broker 节点地址生成；若对接方通过域名、代理或 TLS 端口连接，应显式覆盖并与 Broker 广告地址一致。`mqttToolUsername` / `mqttToolPassword` 配置独立 MQTT 工具账号。首次启动会初始化工具账号和认证；已有数据卷须核对实际账号，参见[Kafka 对接账号认证与授权](#kafka-对接账号认证与授权)。
 - `cluster-deploy` 不负责镜像：节点需已有镜像，或用 `--images <归档>` 让每个节点整体导入。`--stage`、`--nodes` 可只执行指定阶段和节点，`--dry-run` 只打印命令；`--cluster-init "go run ./cmd/cluster-init"` 改为在控制机本地运行初始化。
 - 部署顺序与每阶段内容同上一小节第 6 步。
 

@@ -111,8 +111,11 @@ validate_env() {
     value="$(env_value "$key" "$file")"
     [[ -n "${value//[[:space:]]/}" ]] || die "EnvFile 缺少必填安全配置：$key"
   done
-  if awk -F= '$1 != "IOT_ADMIN_PASSWORD"' "$file" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|admin123|public-change-me|change-me)'; then
+  if awk -F= '$1 != "IOT_ADMIN_PASSWORD"' "$file" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*(change-this|local-iot-|public-change-me|change-me)'; then
     die "EnvFile 仍包含示例密码或默认密钥，请先替换后再打包"
+  fi
+  if awk -F= '$1 !~ /^(IOT_ADMIN_PASSWORD|SERVICE_ADMIN_PASSWORD|POSTGRES_PASSWORD|REDIS_PASSWORD|CLICKHOUSE_PASSWORD|MINIO_ROOT_PASSWORD|MINIO_DR_ROOT_PASSWORD|EMQX_DASHBOARD_PASSWORD|GRAFANA_ADMIN_PASSWORD|IOT_MQTT_TOOL_PASSWORD|IOT_KAFKA_SASL_PASSWORD|IOT_KAFKA_ADMIN_PASSWORD|IOT_POSTGRES_DSN|IOT_POSTGRES_READ_DSN|IOT_REDIS_PASSWORD|IOT_CLICKHOUSE_URL|IOT_MINIO_SECRET_KEY|IOT_OPS_GRAFANA_PASSWORD|IOT_BACKUP_RESTORE_TARGET_DSN|IOT_BACKUP_RESTORE_MINIO_SECRET_KEY|IOT_CAPACITY_POSTGRES_DSN|IOT_CAPACITY_CLICKHOUSE_URL)$/' "$file" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=.*admin123'; then
+    die "EnvFile 内部令牌不能使用服务工具默认密码"
   fi
 }
 
@@ -124,33 +127,45 @@ write_env() {
     cp "$env_file" "$destination"
   else
     generated=1
-    local postgres_password="pg-$(random_hex 18)"
-    local redis_password="redis-$(random_hex 18)"
-    local clickhouse_password="ch-$(random_hex 18)"
-    local minio_password="minio-$(random_hex 18)"
-    local minio_dr_password="minio-dr-$(random_hex 18)"
+    local postgres_password="admin123"
+    local redis_password="admin123"
+    local clickhouse_password="admin123"
+    local minio_password="admin123"
+    local minio_dr_password="admin123"
     local jwt_secret="$(random_hex 32)"
     local admin_password="admin123"
     local video_secret="$(random_hex 24)"
     local harness_token="$(random_hex 32)"
     local backup_token="$(random_hex 32)"
-    local emqx_password="Emqx-$(random_hex 12)"
-    local grafana_password="Grafana-$(random_hex 12)"
+    local emqx_password="admin123"
+    local grafana_password="admin123"
     local ai_provider="deepseek"
     local harness_url="http://deepseek-harness:8091"
     cat > "$destination" <<EOF
 # 自动生成的离线部署配置，请限制此文件权限。
+SERVICE_ADMIN_USER=admin
+SERVICE_ADMIN_PASSWORD=admin123
 POSTGRES_PASSWORD=$postgres_password
 REDIS_PASSWORD=$redis_password
 CLICKHOUSE_PASSWORD=$clickhouse_password
-MINIO_ROOT_USER=iotadmin
+MINIO_ROOT_USER=admin
 MINIO_ROOT_PASSWORD=$minio_password
-MINIO_DR_ROOT_USER=iotdradmin
+MINIO_DR_ROOT_USER=admin
 MINIO_DR_ROOT_PASSWORD=$minio_dr_password
 IOT_JWT_SECRET=$jwt_secret
 IOT_ADMIN_USER=admin
 IOT_ADMIN_PASSWORD=$admin_password
 IOT_ADMIN_TENANTS=tenant_001
+IOT_MQTT_TOOL_USERNAME=admin
+IOT_MQTT_TOOL_PASSWORD=admin123
+IOT_KAFKA_SASL_USERNAME=admin
+IOT_KAFKA_SASL_PASSWORD=admin123
+IOT_KAFKA_SASL_MECHANISM=SCRAM-SHA-256
+IOT_KAFKA_ADMIN_URL=http://redpanda:9644
+IOT_KAFKA_ADMIN_USERNAME=admin
+IOT_KAFKA_ADMIN_PASSWORD=admin123
+IOT_KAFKA_ADVERTISED_HOST=127.0.0.1
+IOT_KAFKA_PUBLIC_BROKERS=127.0.0.1:19092
 IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$video_secret
 IOT_VIDEO_MEDIA_ALLOWED_HOSTS=
 IOT_AI_PROVIDER=$ai_provider

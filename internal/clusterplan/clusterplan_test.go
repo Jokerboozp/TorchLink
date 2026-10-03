@@ -127,20 +127,14 @@ func TestKafkaAndMQTTSettingsReachEveryRoleAndInit(t *testing.T) {
 			t.Fatalf("Kafka credential leaked into %s", name)
 		}
 	}
-	baseline, err := Render(inv, testSecrets())
+	baselineSecrets := testSecrets()
+	baselineSecrets.ServiceAdminUser, baselineSecrets.ServiceAdminPassword = "", ""
+	baseline, err := Render(inv, baselineSecrets)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, node := range inv.Redpanda.Nodes {
-		var before, after map[string]any
-		_ = yaml.Unmarshal(baseline[node+"/compose.yaml"], &before)
-		_ = yaml.Unmarshal(files[node+"/compose.yaml"], &after)
-		if !reflect.DeepEqual(before["services"].(map[string]any)["redpanda"], after["services"].(map[string]any)["redpanda"]) {
-			t.Fatal("client settings changed the broker configuration")
-		}
-	}
-	if !strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_TLS=false\n") || !strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_SASL_PASSWORD=\n") || baseline["kafka/ca.pem"] != nil {
-		t.Fatal("unconfigured cluster must retain unauthenticated mode")
+	if !strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_TLS=false\n") || !strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_SASL_PASSWORD=admin123\n") || baseline["kafka/ca.pem"] != nil {
+		t.Fatalf("new cluster defaults: TLS=%t identity=%t CA=%t", strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_TLS=false\n"), strings.Contains(string(baseline["init.env"]), "IOT_KAFKA_SASL_PASSWORD=admin123\n"), baseline["kafka/ca.pem"] != nil)
 	}
 }
 
@@ -186,7 +180,7 @@ func TestKafkaClusterSettingsFailBeforeDeployment(t *testing.T) {
 	}
 }
 
-func TestOptionalBrokerSettingsAreNeverGenerated(t *testing.T) {
+func TestToolDefaultsPreserveIndependentInternalSecrets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets.yaml")
 	if _, err := EnsureSecrets(path); err != nil {
 		t.Fatal(err)
@@ -195,12 +189,25 @@ func TestOptionalBrokerSettingsAreNeverGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := reflect.ValueOf(s)
-	for i := 0; i < v.NumField(); i++ {
-		name := v.Type().Field(i).Name
-		if (strings.HasPrefix(name, "Kafka") || name == "MQTTPublicURL") && v.Field(i).String() != "" {
-			t.Fatalf("optional broker setting %s was generated", name)
+	for key, value := range map[string]string{"serviceAdminUser": s.ServiceAdminUser, "kafkaSaslUsername": s.KafkaSASLUsername, "kafkaAdminUsername": s.KafkaAdminUsername, "mqttToolUsername": s.MQTTToolUsername, "minioRootUser": s.MinIORootUser} {
+		if value != "admin" {
+			t.Fatalf("%s must default to admin", key)
 		}
+	}
+	for key, value := range map[string]string{"serviceAdminPassword": s.ServiceAdminPassword, "kafkaSaslPassword": s.KafkaSASLPassword, "kafkaAdminPassword": s.KafkaAdminPassword, "mqttToolPassword": s.MQTTToolPassword, "postgresPassword": s.PostgresPassword, "redisPassword": s.RedisPassword, "clickhousePassword": s.ClickHousePassword, "minioRootPassword": s.MinIORootPassword} {
+		if value != "admin123" {
+			t.Fatalf("%s must default to admin123", key)
+		}
+	}
+	seen := map[string]bool{}
+	for _, value := range []string{s.JWTSecret, s.HarnessToken, s.BackupToken, s.PostgresSuperuserPassword, s.PostgresReplicationPassword, s.EMQXCookie, s.EMQXAPISecret} {
+		if len(value) < 32 || seen[value] {
+			t.Fatal("internal credentials must stay independent and random")
+		}
+		seen[value] = true
+	}
+	if s.KafkaTLS != "" || s.KafkaTLSCAFile != "" || s.KafkaPublicBrokers != "" || s.MQTTPublicURL != "" {
+		t.Fatal("optional listener and TLS settings must not be invented in secrets")
 	}
 	// Filling a different missing secret must preserve a portable relative CA path.
 	s, _ = testKafkaSecrets(t)
@@ -391,6 +398,9 @@ func TestDeployScriptsFollowStageOrder(t *testing.T) {
 		}
 		if !(idx("up -d --no-build --pull never etcd") < idx("up -d --no-build --pull never clickhouse") && idx("clickhouse") < idx("-bootstrap-postgres -execute") && idx("-bootstrap-postgres -execute") < idx("iot-processor") && idx("iot-processor") < idx("iot-api")) {
 			t.Fatalf("stages out of order:\n%s", out)
+		}
+		if !(idx("-bootstrap-postgres -execute") < idx("run --rm --no-deps postgres-tool-admin") && idx("run --rm --no-deps clickhouse-tool-admin") < idx("iot-processor")) {
+			t.Fatal("tool accounts must initialize after databases and before workers")
 		}
 		if !strings.Contains(out, "http://10.0.0.13:8102/health/ready") {
 			t.Fatal("processor readiness not checked")
@@ -665,7 +675,7 @@ func TestEnsureSecretsFillsOnlyMissingValues(t *testing.T) {
 	if err = s.validate(example(t)); err != nil {
 		t.Fatal("generated secrets must pass validation:", err)
 	}
-	if key, err := base64.StdEncoding.DecodeString(s.VideoCredentialKey); err != nil || len(key) != 32 || s.DeepSeekAPIKey != "" || s.MinIORootUser != "iotadmin" {
+	if key, err := base64.StdEncoding.DecodeString(s.VideoCredentialKey); err != nil || len(key) != 32 || s.DeepSeekAPIKey != "" || s.MinIORootUser != "admin" {
 		t.Fatal("video key, optional and fixed values", err)
 	}
 	// Operator-set values survive; placeholders and gaps are filled.
@@ -823,8 +833,8 @@ func TestUnifiedServicePasswordRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, _ := LoadSecrets(path)
-	if s.PostgresSuperuserPassword != "jokerboozp" || s.PostgresReplicationPassword != "jokerboozp" || s.DeepSeekAPIKey != "sk-abc" || s.BackupToken == "jokerboozp" || s.HarnessToken == "jokerboozp" {
-		t.Fatalf("%+v", s)
+	if s.PostgresSuperuserPassword == "jokerboozp" || s.PostgresReplicationPassword == "jokerboozp" || s.ServiceAdminPassword != "jokerboozp" || s.DeepSeekAPIKey != "sk-abc" || s.BackupToken == "jokerboozp" || s.HarnessToken == "jokerboozp" {
+		t.Fatal("custom tool password must not replace internal credentials")
 	}
 	// The same password again is fine; a different one would not reach the
 	// deployed databases, so it is refused.

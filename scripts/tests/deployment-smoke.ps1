@@ -111,6 +111,77 @@ try {
     Assert ((Get-FileHash $localEnv).Hash -eq $localHash) 'Local rerun changed configuration'
     Write-Host 'PASS local: code dependencies, isolated services, Kafka listener, stable credentials'
 
+    $brokerDefaults = [ordered]@{
+        IOT_KAFKA_SASL_USERNAME = 'admin'
+        IOT_KAFKA_SASL_PASSWORD = 'admin123'
+        IOT_KAFKA_SASL_MECHANISM = 'SCRAM-SHA-256'
+        IOT_KAFKA_ADMIN_USERNAME = 'admin'
+        IOT_KAFKA_ADMIN_PASSWORD = 'admin123'
+        IOT_KAFKA_ADMIN_URL = 'http://127.0.0.1:19644'
+        IOT_KAFKA_PUBLIC_BROKERS = '127.0.0.1:19092'
+        IOT_KAFKA_ADVERTISED_HOST = '127.0.0.1'
+        IOT_MQTT_TOOL_USERNAME = 'admin'
+        IOT_MQTT_TOOL_PASSWORD = 'admin123'
+    }
+    $brokerCustom = [ordered]@{
+        IOT_KAFKA_SASL_USERNAME = 'saved-kafka-user'
+        IOT_KAFKA_SASL_PASSWORD = 'saved-kafka-password'
+        IOT_KAFKA_SASL_MECHANISM = 'SCRAM-SHA-512'
+        IOT_KAFKA_ADMIN_USERNAME = 'saved-kafka-user'
+        IOT_KAFKA_ADMIN_PASSWORD = '#saved-admin-password'
+        IOT_KAFKA_ADMIN_URL = 'http://broker.example:19644'
+        IOT_KAFKA_PUBLIC_BROKERS = 'broker.example:19092'
+        IOT_KAFKA_ADVERTISED_HOST = 'broker.example'
+        IOT_MQTT_TOOL_USERNAME = 'saved-mqtt-user'
+        IOT_MQTT_TOOL_PASSWORD = '#saved-mqtt-password'
+    }
+    foreach ($scenario in @('empty', 'custom')) {
+        $brokerEnv = Join-Path $testRoot ('.env.local-broker-' + $scenario)
+        Copy-Item -LiteralPath $localEnv -Destination $brokerEnv
+        $assignments = @{}
+        $index = 0
+        foreach ($key in $brokerDefaults.Keys) {
+            $value = if ($scenario -eq 'empty') { '' } else { $brokerCustom[$key] }
+            $assignment = switch ($index % 3) {
+                0 { "$key='$value'" }
+                1 { "  $key `t= '$value'" }
+                2 { "`texport `t$key = '$value'" }
+            }
+            if ($scenario -eq 'empty' -and $key -eq 'IOT_KAFKA_ADMIN_USERNAME') {
+                $assignment = "$key= # old empty setting"
+            }
+            if ($scenario -eq 'custom' -and $key -eq 'IOT_KAFKA_ADMIN_PASSWORD') {
+                $assignment = "$key=$value"
+            }
+            $assignments[$key] = $assignment
+            $pattern = '(?m)^[ \t]*(?:export[ \t]+)?' + [regex]::Escape($key) + '[ \t]*=.*$'
+            $content = [regex]::Replace([IO.File]::ReadAllText($brokerEnv), $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $assignment })
+            [IO.File]::WriteAllText($brokerEnv, $content, [Text.UTF8Encoding]::new($false))
+            $index++
+        }
+        Set-DeploymentEnvValue -Path $brokerEnv -Key 'IOT_KAFKA_TLS_CA_FILE' -Value ''
+        Set-DeploymentEnvValue -Path $brokerEnv -Key 'IOT_MQTT_WEBSOCKET_PUBLIC_URL' -Value ''
+        try {
+            # An inherited override must not determine whether file values are
+            # blank. In particular it must not suppress filling the empty file.
+            [Environment]::SetEnvironmentVariable('IOT_KAFKA_SASL_PASSWORD', 'process-only-password', 'Process')
+            & (Join-Path $scripts 'setup-local.ps1') -EnvFile $brokerEnv -SkipCodeDeps
+        } finally {
+            [Environment]::SetEnvironmentVariable('IOT_KAFKA_SASL_PASSWORD', $null, 'Process')
+        }
+        $content = [IO.File]::ReadAllText($brokerEnv)
+        foreach ($key in $brokerDefaults.Keys) {
+            $expected = if ($scenario -eq 'empty') { $brokerDefaults[$key] } else { $brokerCustom[$key] }
+            Assert ((Get-DeploymentEnvValue -Path $brokerEnv -Key $key) -eq $expected) "Broker $scenario configuration incorrect: $key"
+            $pattern = '(?m)^[ \t]*(?:export[ \t]+)?' + [regex]::Escape($key) + '[ \t]*='
+            Assert ([regex]::Matches($content, $pattern).Count -eq 1) "Broker setting duplicated: $key"
+            if ($scenario -eq 'custom') { Assert ($content.Contains($assignments[$key])) "Existing broker assignment was rewritten: $key" }
+        }
+        Assert ((Get-DeploymentEnvValue -Path $brokerEnv -Key 'IOT_KAFKA_TLS_CA_FILE') -eq '') 'Optional TLS CA was filled'
+        Assert ((Get-DeploymentEnvValue -Path $brokerEnv -Key 'IOT_MQTT_WEBSOCKET_PUBLIC_URL') -eq '') 'Unrelated optional MQTT URL was filled'
+    }
+    Write-Host 'PASS local broker: fill empty defaults, preserve custom/export/space assignments and ignore process overrides when editing'
+
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_OPS_CAPACITY_LOCAL') -eq 'true') 'Local source controller is not enabled'
     Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_CAPACITY_MODULE') -eq 'on') 'Local capacity is not on by default'
     $capacityEnv = Join-Path $testRoot '.env.local-capacity'
@@ -157,6 +228,12 @@ try {
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_PROVIDER') -eq 'deepseek-official') 'Online Harness does not use DeepSeek'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_AI_HARNESS_MODEL') -eq 'deepseek-flash') 'Online Harness does not share the DeepSeek model'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Online default admin password is incorrect'
+    foreach ($key in @('SERVICE_ADMIN_PASSWORD', 'POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'CLICKHOUSE_PASSWORD', 'MINIO_ROOT_PASSWORD', 'MINIO_DR_ROOT_PASSWORD', 'EMQX_DASHBOARD_PASSWORD', 'GRAFANA_ADMIN_PASSWORD', 'IOT_MQTT_TOOL_PASSWORD', 'IOT_KAFKA_SASL_PASSWORD', 'IOT_KAFKA_ADMIN_PASSWORD')) {
+        Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key $key) -eq 'admin123') "Online tool password incorrect: $key"
+    }
+    foreach ($key in @('SERVICE_ADMIN_USER', 'MINIO_ROOT_USER', 'MINIO_DR_ROOT_USER', 'EMQX_DASHBOARD_USER', 'GRAFANA_ADMIN_USER', 'IOT_MQTT_TOOL_USERNAME', 'IOT_KAFKA_SASL_USERNAME', 'IOT_KAFKA_ADMIN_USERNAME')) {
+        Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key $key) -eq 'admin') "Online tool username incorrect: $key"
+    }
     Assert-CommentedEnv $onlineEnv
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service postgres deepseek-harness') 'Online omitted the default Harness image build'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Online embedding API URL is missing'
@@ -228,6 +305,11 @@ try {
     Write-Host 'PASS complete tar: checksum, hidden config, identical contents and extracted deployment'
     Assert ((Get-Content (Join-Path $bundle '.env.offline')) -contains 'IOT_VIDEO_RTC_EXTERN_IP=') 'Unconfigured WebRTC address must be written as an empty value'
     Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key 'IOT_ADMIN_PASSWORD') -eq 'admin123') 'Offline default admin password is incorrect'
+    foreach ($key in @('SERVICE_ADMIN_PASSWORD', 'POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'CLICKHOUSE_PASSWORD', 'MINIO_ROOT_PASSWORD', 'MINIO_DR_ROOT_PASSWORD', 'EMQX_DASHBOARD_PASSWORD', 'GRAFANA_ADMIN_PASSWORD', 'IOT_MQTT_TOOL_PASSWORD', 'IOT_KAFKA_SASL_PASSWORD', 'IOT_KAFKA_ADMIN_PASSWORD')) {
+        Assert ((Get-DeploymentEnvValue -Path (Join-Path $bundle '.env.offline') -Key $key) -eq 'admin123') "Offline tool password incorrect: $key"
+    }
+    Assert (Test-Path (Join-Path $bundle 'deploy/toolaccounts/postgres.sh')) 'Bundle omitted PostgreSQL tool-account initialization'
+    Assert (Test-Path (Join-Path $bundle 'deploy/toolaccounts/clickhouse.sh')) 'Bundle omitted ClickHouse tool-account initialization'
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($manifest.images -contains 'iot-platform-backup:offline') 'Default bundle omitted backup image'

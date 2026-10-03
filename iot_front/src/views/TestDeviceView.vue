@@ -6,15 +6,8 @@ import { can } from '../permissions'
 import { api, formatTime, notifyError, parseJSON, pretty, session } from '../api'
 import { alarmType, label, messageTypeLabel, tagType, parsers } from '../labels'
 import FilterBar from '../components/layout/FilterBar.vue'
-import ProtocolPreviewPanel from '../components/ProtocolPreviewPanel.vue'
 
 const emit = defineEmits(['navigate'])
-const props = defineProps({ productId:{type:String,default:''}, protocolId:{type:String,default:''}, version:{type:String,default:''} })
-// App navigation is recreated per page and passes details through this slot.
-// Consume it once before the child workbench mounts; opening never provisions.
-let navigation={}
-try { navigation=JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}') || {};sessionStorage.removeItem('iot:navigation-detail') } catch { navigation={} }
-const previewContext={productId:props.productId || navigation.productId || '',protocolId:props.protocolId || navigation.protocolId || '',version:props.version || navigation.version || '',deviceId:navigation.deviceId || '',rawMessageId:navigation.rawMessageId || ''}
 
 const templateNames = { data: '正常数据', alarm: '报警数据', recovery: '恢复数据', event: '事件数据' }
 const templateDescriptions = {
@@ -172,7 +165,6 @@ onMounted(() => {
 
 <template>
   <div class="test-device-view">
-    <ProtocolPreviewPanel :context="previewContext" />
     <FilterBar>
       <p class="test-device-hint">{{ can('POST /api/v1/test-devices/provision') ? '平台标准协议调试：点击“准备测试设备”后创建或复用模拟资源。发送报文会写入测试设备数据，报警报文会进入告警中心。模拟结果不代表现场验收。' : '当前账号没有准备测试设备的权限。' }}</p>
       <template #actions>
