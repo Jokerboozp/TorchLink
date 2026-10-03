@@ -125,21 +125,6 @@ func (c *Client) SubscribeDeviceState(handler func(context.Context, model.Device
 		return handler(ctx, state)
 	})
 }
-func (c *Client) SubscribeVideo(handler func(context.Context, model.VideoAlarmEvent) error) error {
-	return c.register("video", []string{"/external/video/alarm/#"}, func(ctx context.Context, topic string, payload []byte) error {
-		var v model.VideoAlarmEvent
-		if err := json.Unmarshal(payload, &v); err != nil {
-			return Reject(err)
-		}
-		if err := applyVideoTopicIdentity(topic, &v); err != nil {
-			return Reject(err)
-		}
-		if v.EventID == "" {
-			return Reject(fmt.Errorf("video eventId is required for reliable MQTT receive"))
-		}
-		return handler(ctx, v)
-	})
-}
 func topicParts(topic string) []string {
 	return strings.Split(strings.Trim(topic, "/"), "/")
 }
@@ -157,14 +142,6 @@ func applyStateTopicIdentity(topic string, state *model.DeviceState) error {
 		return fmt.Errorf("expected /iot/device/state/{tenant}/{product}/{device}")
 	}
 	state.TenantID, state.ProductID, state.DeviceID = parts[3], parts[4], parts[5]
-	return nil
-}
-func applyVideoTopicIdentity(topic string, v *model.VideoAlarmEvent) error {
-	parts := topicParts(topic)
-	if len(parts) != 5 || parts[0] != "external" || parts[1] != "video" || parts[2] != "alarm" || parts[3] == "" || parts[4] == "" {
-		return fmt.Errorf("expected /external/video/alarm/{tenant}/{camera}")
-	}
-	v.TenantID, v.CameraID = parts[3], parts[4]
 	return nil
 }
 func (c *Client) Health(context.Context) error {

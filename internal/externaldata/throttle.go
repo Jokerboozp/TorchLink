@@ -19,7 +19,7 @@ func (e *RateLimitError) Error() string {
 	if e.Remote {
 		return "外部接口返回 429，已按 Retry-After 延后请求"
 	}
-	return "已达到来源或接口请求频率限制，已延后请求"
+	return "已达到来源请求频率限制，已延后请求"
 }
 func (e *RateLimitError) Unwrap() error { return ErrRateLimited }
 func (e *RateLimitError) RetryAfterSeconds() int64 {
@@ -27,8 +27,7 @@ func (e *RateLimitError) RetryAfterSeconds() int64 {
 }
 
 type throttleState struct {
-	NextSourceAt  int64            `json:"nextSourceAt"`
-	NextEndpoints map[string]int64 `json:"nextEndpoints"`
+	NextSourceAt int64 `json:"nextSourceAt"`
 }
 type requestGateKey struct{}
 type requestGate struct {
@@ -44,8 +43,8 @@ func configuredRequestInterval(ms int) int64 {
 	return int64(ms)
 }
 
-// A source and all its endpoint deadlines share one CAS row, so replicas cannot
-// acquire the source and endpoint independently or lose a Retry-After cooldown.
+// All endpoints of a source share one CAS row, so replicas cannot exceed the
+// source's request budget or lose a Retry-After cooldown.
 func (s *Service) reserveRequest(ctx context.Context, tenant string, src Source, ep Endpoint, cooldown int64) error {
 	if tenant == "" || src.ID == "" || ep.ID == "" || ep.SourceID != src.ID {
 		return invalid("请求节流缺少有效来源或接口归属")
@@ -61,25 +60,14 @@ func (s *Service) reserveRequest(ctx context.Context, tenant string, src Source,
 		if err != nil {
 			return errors.New("读取请求节流状态失败")
 		}
-		if state.NextEndpoints == nil {
-			state.NextEndpoints = map[string]int64{}
-		}
 		now := time.Now().UnixMilli()
 		if cooldown == 0 {
-			next := max(state.NextSourceAt, state.NextEndpoints[ep.ID])
-			if next > now {
-				return &RateLimitError{RetryAt: next}
-			}
-			for id, due := range state.NextEndpoints {
-				if due <= now {
-					delete(state.NextEndpoints, id)
-				}
+			if state.NextSourceAt > now {
+				return &RateLimitError{RetryAt: state.NextSourceAt}
 			}
 			state.NextSourceAt = now + configuredRequestInterval(src.RequestIntervalMillis)
-			state.NextEndpoints[ep.ID] = now + configuredRequestInterval(ep.RequestIntervalMillis)
 		} else {
 			state.NextSourceAt = max(state.NextSourceAt, cooldown)
-			state.NextEndpoints[ep.ID] = max(state.NextEndpoints[ep.ID], cooldown)
 		}
 		entry.Body = body(state)
 		if _, err = s.Store.Put(ctx, entry, entry.Revision); errors.Is(err, ErrConflict) {

@@ -1,4 +1,5 @@
-export const externalTabs = { sources:'数据来源', endpoints:'接入接口', bindings:'编号绑定', records:'接收记录', jobs:'拉取任务' }
+export const externalViews = { config:'接入配置', bindings:'编号对应', runs:'运行记录' }
+export const externalTabs = { sources:'数据来源', endpoints:'接入接口', bindings:'编号对应', records:'接收记录', jobs:'拉取任务' }
 export const externalKinds = { video_alarm:'视频告警', alarm:'设备告警', property:'属性数据', state:'设备状态', event:'事件' }
 export const externalStatuses = { PENDING:'待处理', RUNNING:'处理中', RETRY:'等待重试', PROCESSED:'已处理', COMPLETED:'已完成', WAITING_BINDING:'等待编号绑定', FAILED:'处理失败', IGNORED:'已忽略', FILTERED:'已过滤', DUPLICATE:'重复数据', CONFLICT:'内容冲突', REPLACED:'已按新规则重新提取' }
 export const eventTargets = { id:'外部事件编号', objectId:'外部设备 / 摄像头编号', timestamp:'发生时间', version:'事件版本', status:'事件状态', alarmType:'告警类型', alarmLevel:'告警等级', content:'告警内容', confidence:'置信度', snapshotUrl:'截图地址', videoClipUrl:'录像地址', online:'在线状态', data:'业务数据' }
@@ -28,7 +29,7 @@ export function mappingFields(kind = 'alarm') {
   return [...identity, ...alarm, ...(kind === 'video_alarm' ? [{ target:'confidence', path:'confidence', type:'number' }, { target:'snapshotUrl', path:'snapshotUrl', type:'string' }, { target:'videoClipUrl', path:'videoClipUrl', type:'string' }] : [])]
 }
 export function blankEndpoint(sourceId = '') {
-  return { id:'', revision:0, sourceId, name:'', enabled:false, mode:'push', kind:'alarm', method:'GET', url:'', headers:{}, query:{}, requestBody:{}, mapping:{ fields:mappingFields() }, pagination:{ mode:'none', pageSize:100, start:1, maxPages:100 }, intervalSeconds:0, requestIntervalMillis:0, overlapSeconds:60, timeoutSeconds:30, maxAttempts:8, responseStatus:200, responseBody:{ success:true } }
+  return { id:'', revision:0, sourceId, name:'', enabled:false, mode:'push', kind:'alarm', method:'GET', url:'', headers:{}, query:{}, requestBody:{}, mapping:{ fields:mappingFields() }, pagination:{ mode:'none', pageSize:100, start:1, maxPages:100 }, intervalSeconds:0, overlapSeconds:60, timeoutSeconds:30, maxAttempts:8, responseStatus:200, responseBody:{ success:true } }
 }
 export function fieldsToForm(fields = []) { return fields.map(field => ({ ...cloneExternal(field), valueText:field.value === undefined ? '' : JSON.stringify(field.value), defaultText:field.default === undefined ? '' : JSON.stringify(field.default), valuesText:JSON.stringify(field.values || {}) })) }
 export function fieldsFromForm(fields = []) {
@@ -54,7 +55,6 @@ export function validateSource(value) {
   return { ...value, name:value.name.trim(), username:value.username.trim(), allowedHosts:[...new Set(value.allowedHosts.map(host => host.trim()).filter(Boolean))] }
 }
 export function validateEndpoint(value) {
-  validateRequestInterval(value.requestIntervalMillis)
   if (!value.sourceId || !value.name.trim()) throw new Error('请选择数据来源并填写接口名称')
   if (value.mode === 'pull' && !/^https?:\/\//i.test(value.url)) throw new Error('请填写完整的 HTTP 或 HTTPS 请求地址')
   if (value.mode === 'pull' && value.intervalSeconds > 0 && value.intervalSeconds < 10) throw new Error('自动拉取间隔不能小于 10 秒，填 0 可仅手动拉取')

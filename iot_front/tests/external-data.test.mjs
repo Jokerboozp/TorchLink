@@ -18,7 +18,7 @@ function view(t, overrides = {}) {
     ...overrides
   }
   const script = setupScript(new URL('../src/views/ExternalDataView.vue', import.meta.url))
-  const exposed = 'load,items,page,sourceId,tab,detailOpen,detail,showDetail,operationOpen,openOperation,executeOperation,preview,previewLoading,previewError,sample,editorOpen,editorKind,editorValue,edit,save,rowActions,remove,rotateKey,retry'
+  const exposed = 'load,items,page,sourceId,tab,view,runKind,bindRecord,endpointActions,detailOpen,detail,showDetail,operationOpen,openOperation,executeOperation,preview,previewLoading,previewError,sample,editorOpen,editorKind,editorValue,edit,save,rowActions,remove,rotateKey,retry'
   const component = scope.run(() => new Function('context', `with(context) { ${script}; return { ${exposed} } }`)(context))
   t.after(() => { cleanups.forEach(fn => fn()); scope.stop() })
   return { component, context }
@@ -106,7 +106,7 @@ test('new and existing configurations use distinct permissions, and waiting jobs
   const { component:c } = view(t, { can:permission => permission === 'POST /api/v1/external-data/sources' })
   c.edit({ id:'source-a', name:'existing' }); assert.equal(c.editorOpen.value, false)
   c.edit(); assert.equal(c.editorOpen.value, true); assert.equal(c.editorValue.value.id, '')
-  c.tab.value = 'jobs'
+  c.view.value = 'runs'; c.runKind.value = 'jobs'
   assert.equal(c.rowActions({ id:'j1', status:'RETRY' }).length, 0)
   assert.equal(c.rowActions({ id:'j1', status:'FAILED' })[0].permission, 'POST /api/v1/external-data/jobs/:id/retry')
 })
@@ -170,4 +170,20 @@ test('late attachment response cannot populate another alarm and unsupported MIM
   assert.equal(mediaHelpers.mediaMIMEAllowed('snapshot', 'image/svg+xml'), false)
   assert.equal(mediaHelpers.mediaMIMEAllowed('snapshot', 'text/html'), false)
   assert.equal(mediaHelpers.mediaMIMEAllowed('clip', 'video/mp4'), true)
+})
+
+test('waiting records prefill the exact binding and are retried after it is saved', async t => {
+  const calls = []
+  const { component:c } = view(t, { externalApi:{ list:async kind => kind === 'endpoints' ? { items:[{ id:'e1', sourceId:'s1', kind:'video_alarm' }] } : { items:[], total:0 }, save:async (...args) => { calls.push(['save', ...args]) }, action:async (...args) => { calls.push(['action', ...args]) } } })
+  c.view.value = 'runs'
+  const record = { id:'r1', revision:3, sourceId:'s1', endpointId:'e1', status:'WAITING_BINDING', body:{ event:{ objectId:'cam-9' } } }
+  const actions = c.rowActions(record)
+  assert.equal(actions.find(action => action.key === 'bind').label, '关联并重试')
+  assert.equal(actions.some(action => action.key === 'retry'), false)
+  c.bindRecord(record)
+  assert.equal(c.editorKind.value, 'bindings')
+  assert.deepEqual({ sourceId:c.editorValue.value.sourceId, externalId:c.editorValue.value.externalId }, { sourceId:'s1', externalId:'cam-9' })
+  await c.save({ ...c.editorValue.value, targetId:'camera-1' })
+  assert.deepEqual(calls.map(call => call[0] + ':' + call[1]), ['save:bindings', 'action:records'])
+  assert.deepEqual(calls[1].slice(1), ['records', 'r1', 'retry', { revision:3, useCurrentMapping:false }])
 })

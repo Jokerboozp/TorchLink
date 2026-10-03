@@ -254,10 +254,6 @@ func TestHTTPWorkflow(t *testing.T) {
 	if devices["online"].(float64) != 2 {
 		t.Fatalf("unexpected devices %#v", devices)
 	}
-	video := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/integrations/video/alarm", "", map[string]any{"eventId": "video_http_e2e", "source": "video", "tenantId": "tenant_001", "cameraId": "camera_1", "alarmType": "FLAME_DETECTED", "alarmLevel": "HIGH", "confidence": 0.92, "eventTime": now, "cityCode": "city_001", "districtCode": "district_01", "buildingId": "A"}, 201)
-	if video["created"] != true {
-		t.Fatalf("video not created %#v", video)
-	}
 	replay := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/raw-messages/replay", token, map[string]any{"start": now - 1000, "end": now + 1000, "mode": "DRY_RUN", "ratePerSecond": 1000}, 202)
 	replayID := replay["id"].(string)
 	deadline := time.Now().Add(2 * time.Second)

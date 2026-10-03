@@ -122,9 +122,6 @@ type Config struct {
 	EmbeddingTimeout         time.Duration
 	BackupURL                string
 	BackupToken              string
-	VideoSecrets             map[string]string
-	VideoPlatformTenants     map[string]string
-	VideoMediaHosts          []string
 	OfflineScan              time.Duration
 	ModbusAllowedCIDRs       []string
 	DevMode                  bool
@@ -226,9 +223,6 @@ func Load() Config {
 		EmbeddingTimeout:            duration("IOT_EMBEDDING_TIMEOUT", time.Minute),
 		BackupURL:                   strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_BACKUP_URL")), "/"),
 		BackupToken:                 strings.TrimSpace(os.Getenv("IOT_BACKUP_ADMIN_TOKEN")),
-		VideoSecrets:                parsePairs(os.Getenv("IOT_VIDEO_PLATFORM_SECRETS")),
-		VideoPlatformTenants:        parsePairs(os.Getenv("IOT_VIDEO_PLATFORM_TENANTS")),
-		VideoMediaHosts:             split(os.Getenv("IOT_VIDEO_MEDIA_ALLOWED_HOSTS")),
 		OfflineScan:                 duration("IOT_OFFLINE_SCAN_INTERVAL", 30*time.Second),
 		ModbusAllowedCIDRs:          split(get("IOT_MODBUS_ALLOWED_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128")),
 		DevMode:                     devMode,

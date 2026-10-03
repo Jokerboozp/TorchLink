@@ -41,19 +41,17 @@ type Engine struct {
 	AIWorkflows   ports.AIWorkflowRuntime
 	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
-	HarnessTokens             ports.HarnessTokenIssuer
-	AuthorizeAIRun            func(context.Context, string, string) (context.Context, error)
-	KB                        ports.KnowledgeBase
-	KnowledgeReindex          *KnowledgeReindexer
-	Parsers                   *parser.Registry
-	Clock                     ports.Clock
-	Log                       *slog.Logger
-	Metrics                   interface{ Inc(string) }
-	VideoMediaAllowedHosts    []string
-	RequireVideoCameraMapping bool
-	ingestPaused              atomic.Bool
-	identity                  string
-	identityOnce              sync.Once
+	HarnessTokens    ports.HarnessTokenIssuer
+	AuthorizeAIRun   func(context.Context, string, string) (context.Context, error)
+	KB               ports.KnowledgeBase
+	KnowledgeReindex *KnowledgeReindexer
+	Parsers          *parser.Registry
+	Clock            ports.Clock
+	Log              *slog.Logger
+	Metrics          interface{ Inc(string) }
+	ingestPaused     atomic.Bool
+	identity         string
+	identityOnce     sync.Once
 	// PublishExternalTopics keeps publishing parsed messages to the
 	// property/event/parsed topics for external subscribers.
 	PublishExternalTopics bool
@@ -1032,155 +1030,6 @@ func (e *Engine) ScanOffline(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-func (e *Engine) IngestVideo(ctx context.Context, v model.VideoAlarmEvent) (model.Alarm, bool, error) {
-	// Legacy webhook/MQTT payloads may not opt into the managed connector's
-	// credential and media authority by supplying its private metadata fields.
-	delete(v.Raw, "externalSourceId")
-	delete(v.Raw, "externalEventId")
-	delete(v.Raw, "deviceId")
-	for _, field := range []string{"mediaRetryAt", "mediaLastAttemptAt", "mediaAttempts", "snapshotTransferStatus", "clipTransferStatus"} {
-		delete(v.Raw, field)
-	}
-	if v.EventID == "" || v.TenantID == "" || v.CameraID == "" || v.AlarmType == "" {
-		return model.Alarm{}, false, errors.New("eventId, tenantId, cameraId and alarmType are required")
-	}
-	if v.ReceivedAt == 0 {
-		v.ReceivedAt = e.Clock.Now().UnixMilli()
-	}
-	mapping, mappingErr := e.Repo.GetVideoCameraMapping(ctx, v.TenantID, v.CameraID)
-	if mappingErr != nil && e.RequireVideoCameraMapping {
-		return model.Alarm{}, false, fmt.Errorf("camera %s is not bound to tenant %s", v.CameraID, v.TenantID)
-	}
-	if mappingErr == nil {
-		if !mapping.Enabled {
-			return model.Alarm{}, false, fmt.Errorf("camera %s is disabled", v.CameraID)
-		}
-		if v.CameraName == "" {
-			v.CameraName = mapping.CameraName
-		}
-		if v.ProjectID == "" {
-			v.ProjectID = mapping.ProjectID
-		}
-		if v.AreaID == "" {
-			v.AreaID = mapping.AreaID
-		}
-		if v.CityCode == "" {
-			v.CityCode = mapping.CityCode
-		}
-		if v.DistrictCode == "" {
-			v.DistrictCode = mapping.DistrictCode
-		}
-		if v.BuildingID == "" {
-			v.BuildingID = mapping.Building
-		}
-	}
-	if err := e.validateVideoMediaURLs(v); err != nil {
-		return model.Alarm{}, false, err
-	}
-	if v.Raw == nil {
-		v.Raw = map[string]any{}
-	}
-	if isExternalMedia(v.SnapshotURL) || isExternalMedia(v.VideoClipURL) {
-		v.Raw["mediaTransferStatus"] = "PENDING"
-	}
-	created, err := e.Repo.SaveVideoEvent(ctx, v)
-	if err != nil || !created {
-		if err != nil && e.Metrics != nil {
-			e.Metrics.Inc("video_alarm_failed_total")
-		}
-		return model.Alarm{}, false, err
-	}
-	if e.Metrics != nil {
-		e.Metrics.Inc("video_alarm_ingest_total")
-	}
-	_ = e.Bus.Publish(ctx, model.TopicVideoAlarm, v.CameraID, mustJSON(v))
-	now := e.Clock.Now().UnixMilli()
-	a := model.Alarm{ID: id("alarm"), TenantID: v.TenantID, RuleID: "video:" + v.AlarmType, TriggerID: v.EventID, DeviceID: v.CameraID, DeviceName: v.CameraName, AlarmType: v.AlarmType, AlarmLevel: v.AlarmLevel, Status: "ACTIVE", Source: "video", CityCode: v.CityCode, DistrictCode: v.DistrictCode, BuildingID: v.BuildingID, DeviceType: "video_ai", AreaID: v.AreaID, FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Confidence: v.Confidence, Details: map[string]any{"videoEvent": v}}
-	if mappingErr == nil {
-		a.Cameras = []model.CameraSummary{cameraSummary(mapping)}
-	}
-	if a.AlarmLevel == "" {
-		a.AlarmLevel = map[bool]string{true: "MEDIUM", false: "HIGH"}[v.Confidence < 0.6]
-	}
-	if v.Confidence < 0.6 {
-		a.Details["requiresVerification"] = true
-	}
-	if fused, ok, fuseErr := e.fuseVideoAlarm(ctx, a); fuseErr != nil {
-		return model.Alarm{}, false, fuseErr
-	} else if ok {
-		return fused, false, nil
-	}
-	saved, isNew, err := e.Repo.UpsertAlarm(ctx, a)
-	if err == nil && isNew {
-		payload := mustJSON(saved)
-		_ = e.Bus.Publish(ctx, model.TopicAlarmRaised, saved.ID, payload)
-		_ = e.Realtime.Publish(ctx, saved.MQTTTopic("raised"), payload, 1, false)
-	}
-	if v.Raw["mediaTransferStatus"] == "PENDING" {
-		go e.processVideoMedia(context.Background(), v)
-	}
-	return saved, isNew, err
-}
-
-func (e *Engine) fuseVideoAlarm(ctx context.Context, incoming model.Alarm) (model.Alarm, bool, error) {
-	active, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: incoming.TenantID, Status: "ACTIVE", Limit: 1000})
-	if err != nil {
-		return incoming, false, err
-	}
-	windowStart := incoming.LastTriggeredAt - 120_000
-	for _, existing := range active {
-		if existing.LastTriggeredAt < windowStart || existing.AreaID == "" || incoming.AreaID == "" || existing.AreaID != incoming.AreaID {
-			continue
-		}
-		if existing.Source == "video" && existing.AlarmType == incoming.AlarmType {
-			fused, written, err := e.mutateAlarm(ctx, existing.TenantID, existing.ID, func(a *model.Alarm) (bool, error) {
-				if a.Status != "ACTIVE" {
-					return false, nil
-				}
-				a.LastTriggeredAt = incoming.LastTriggeredAt
-				a.TriggerCount++
-				if incoming.Confidence > a.Confidence {
-					a.Confidence = incoming.Confidence
-				}
-				if a.Details == nil {
-					a.Details = map[string]any{}
-				}
-				a.Details["latestVideoEvent"] = incoming.Details["videoEvent"]
-				return true, nil
-			})
-			if err != nil {
-				return incoming, false, err
-			}
-			if written {
-				payload := mustJSON(fused)
-				_ = e.Realtime.Publish(ctx, fused.MQTTTopic("raised"), payload, 1, false)
-				return fused, true, nil
-			}
-			continue
-		}
-		if existing.Source != "video" && relatedFireAlarm(existing.AlarmType, incoming.AlarmType) {
-			incoming.MultiSource = true
-			if incoming.AlarmLevel != "CRITICAL" {
-				incoming.AlarmLevel = "CRITICAL"
-			}
-			_, _, _ = e.mutateAlarm(ctx, existing.TenantID, existing.ID, func(a *model.Alarm) (bool, error) {
-				a.MultiSource = true
-				a.AlarmLevel = "CRITICAL"
-				if a.Details == nil {
-					a.Details = map[string]any{}
-				}
-				a.Details["videoConfirmation"] = incoming.Details["videoEvent"]
-				return true, nil
-			})
-		}
-	}
-	return incoming, false, nil
-}
-func relatedFireAlarm(deviceType, videoType string) bool {
-	a := strings.ToUpper(deviceType)
-	b := strings.ToUpper(videoType)
-	return (strings.Contains(a, "FIRE") || strings.Contains(a, "SMOKE") || strings.Contains(a, "TEMPERATURE")) && (strings.Contains(b, "FIRE") || strings.Contains(b, "FLAME") || strings.Contains(b, "SMOKE"))
 }
 
 // ListCameraSummaries resolves the cameras associated with one device without

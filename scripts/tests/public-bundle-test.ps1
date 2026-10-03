@@ -21,7 +21,6 @@ try {
         $lines = @($passwordKeys | ForEach-Object { "$_=admin123" })
         $lines += @($usernameKeys | ForEach-Object { "$_=admin" })
         $lines += @($internalKeys | ForEach-Object { "$_=__TORCHLINK_RANDOM_HEX__" })
-        $lines += 'IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:__TORCHLINK_RANDOM_HEX__'
         $lines += 'IOT_VIDEO_CREDENTIAL_KEY=__TORCHLINK_RANDOM_BASE64_32__'
         $lines += 'LITERAL=$(should-never-run)'
         $template = ($lines -join "`n") + "`n"

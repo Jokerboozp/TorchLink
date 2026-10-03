@@ -128,7 +128,7 @@ function New-OfflineEnv {
             "POSTGRES_PASSWORD", "REDIS_PASSWORD", "CLICKHOUSE_PASSWORD",
             "MINIO_ROOT_PASSWORD", "MINIO_DR_ROOT_PASSWORD", "IOT_JWT_SECRET",
             "IOT_ADMIN_USER", "IOT_ADMIN_PASSWORD", "IOT_ADMIN_TENANTS",
-            "IOT_VIDEO_PLATFORM_SECRETS", "IOT_BACKUP_ADMIN_TOKEN",
+            "IOT_BACKUP_ADMIN_TOKEN",
             "EMQX_DASHBOARD_USER", "EMQX_DASHBOARD_PASSWORD",
             "GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"
         )
@@ -153,7 +153,6 @@ function New-OfflineEnv {
         $minioDrPassword = 'admin123'
         $jwtSecret = New-RandomHex -Bytes 32
         $adminPassword = 'admin123'
-        $videoSecret = New-RandomHex -Bytes 24
         $harnessToken = New-RandomHex -Bytes 32
         $backupToken = New-RandomHex -Bytes 32
         $emqxPassword = 'admin123'
@@ -187,8 +186,6 @@ function New-OfflineEnv {
             "IOT_KAFKA_ADMIN_PASSWORD=admin123",
             "IOT_KAFKA_ADVERTISED_HOST=127.0.0.1",
             "IOT_KAFKA_PUBLIC_BROKERS=127.0.0.1:19092",
-            "IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$videoSecret",
-            "IOT_VIDEO_MEDIA_ALLOWED_HOSTS=",
             "IOT_AI_PROVIDER=$aiProvider",
             "IOT_AI_BASE_URL=https://api.deepseek.com",
             "IOT_AI_MODEL=$DeepSeekModel",

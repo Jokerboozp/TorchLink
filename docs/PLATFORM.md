@@ -194,18 +194,6 @@ H.264 通常只需转协议；H.265 是否支持由浏览器能力探测，不�
 
 媒体 API/Hook 不对浏览器公开，`on_publish` 仅接受本机转码输出和平台发起点播的 GB28181 流。跨租户、猜测 cameraId/会话号或持有旧播放地址都不构成授权。真实摄像头、NVR、ONVIF、GB28181 设备、网络与编码组合需现场验证，模拟设备和模拟媒体测试不能代替。
 
-### 视频告警 Webhook
+### 视频平台告警
 
-```http
-POST /api/v1/integrations/video/alarm
-Content-Type: application/json
-X-Video-Platform-ID: video-platform-1
-X-Timestamp: <Unix 秒>
-X-Signature: <hex(HMAC-SHA256(secret, timestamp + rawBody))>
-```
-
-`timestamp` 使用请求头的原始字符串，直接拼接原始请求体字节计算签名，不插入分隔符。生产环境通过 `IOT_VIDEO_PLATFORM_SECRETS` 和 `IOT_VIDEO_PLATFORM_TENANTS` 将外部平台凭据绑定到租户；时间偏差超过五分钟被拒绝，`cameraId` 必须属于该租户且启用。
-
-消息字段以 [VideoAlarmEvent](../internal/model/model.go) 和 [Webhook 处理器](../internal/httpapi/server.go) 为准。事件按 `eventId` 保存并进入视频告警及跨源融合链路，平台补充摄像头与位置元数据，不经过设备 Raw → Parser 链路，也不接触直播流；视频分析告警详情保留事件所属摄像头，直播可用时可直接观看。
-
-MQTT 视频事件沿用 `/external/video/alarm/{tenantId}/{cameraId}`，需明确 `eventId` 并按平台/摄像头范围授权。传输重试保持同一业务 ID，接收保障见 [MQTT 持久接收](INTEGRATION.md#mqtt-接收保障)。
+视频平台的告警事件通过[外部数据接入](EXTERNAL_DATA.md)接收（推送或拉取、HMAC 等认证、编号对应摄像头），经原始报文链路生成告警；截图与片段按来源允许主机归档。告警详情保留事件所属摄像头，直播可用时可直接观看。

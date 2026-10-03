@@ -184,7 +184,6 @@ func Run(forcedRole string) {
 				{Permission: "allow", Action: "subscribe", Topic: "/iot/up/#"},
 				{Permission: "allow", Action: "subscribe", Topic: "/external/raw/#"},
 				{Permission: "allow", Action: "subscribe", Topic: "/jetlinks/raw/#"},
-				{Permission: "allow", Action: "subscribe", Topic: "/external/video/alarm/#"},
 				{Permission: "allow", Action: "subscribe", Topic: "/iot/device/state/#"},
 				{Permission: "allow", Action: "publish", Topic: "/iot/#"},
 			}
@@ -310,8 +309,6 @@ func Run(forcedRole string) {
 		Legacy:                   legacyRaw,
 		HighFrequencyIntervalSec: cfg.RawHighFrequencyIntervalSec,
 	})
-	engine.VideoMediaAllowedHosts = cfg.VideoMediaHosts
-	engine.RequireVideoCameraMapping = !cfg.DevMode
 	engine.Metrics = registry
 	var runtimeAI *aiadapter.RuntimeProvider
 	var harness *aiadapter.HarnessPool
@@ -492,10 +489,6 @@ func Run(forcedRole string) {
 		}))
 		fatal(log, "subscribe raw mqtt", mqttClient.SubscribeRaw(engine.IngestMQTT))
 		fatal(log, "subscribe device state mqtt", mqttClient.SubscribeDeviceState(engine.UpdateDeviceState))
-		fatal(log, "subscribe video mqtt", mqttClient.SubscribeVideo(func(c context.Context, v model.VideoAlarmEvent) error {
-			_, _, err := engine.IngestVideo(c, v)
-			return err
-		}))
 	}
 	api.SetRateLimiter(limits)
 	storageStats := func() {

@@ -223,9 +223,6 @@ func ValidateSource(s Source) error {
 }
 
 func ValidateEndpoint(e Endpoint) error {
-	if e.RequestIntervalMillis != 0 && (e.RequestIntervalMillis < 100 || e.RequestIntervalMillis > 3600000) {
-		return configInvalid("接口请求间隔须为 100 至 3600000 毫秒，0 使用默认 1000 毫秒")
-	}
 	if strings.TrimSpace(e.Name) == "" || len(e.Name) > 200 {
 		return configInvalid("接口名称须为 1 至 200 字符")
 	}

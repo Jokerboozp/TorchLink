@@ -29,9 +29,6 @@ services:
       IOT_ADMIN_USER: ${IOT_ADMIN_USER:-admin}
       IOT_ADMIN_PASSWORD: ${IOT_ADMIN_PASSWORD:?IOT_ADMIN_PASSWORD must be set}
       IOT_ADMIN_TENANTS: ${IOT_ADMIN_TENANTS:-tenant_001}
-      IOT_VIDEO_PLATFORM_SECRETS: ${IOT_VIDEO_PLATFORM_SECRETS:-video-platform-1:local-video-secret-change-me}
-      IOT_VIDEO_PLATFORM_TENANTS: ${IOT_VIDEO_PLATFORM_TENANTS:-video-platform-1:tenant_001}
-      IOT_VIDEO_MEDIA_ALLOWED_HOSTS: ${IOT_VIDEO_MEDIA_ALLOWED_HOSTS:-}
       IOT_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-admin123}@postgres:5432/iot?sslmode=disable
       IOT_REDIS_ADDR: redis:6379
       IOT_REDIS_PASSWORD: ${REDIS_PASSWORD:-admin123}
@@ -317,7 +314,7 @@ services:
     entrypoint: ["/bin/bash", "-ec"]
     command:
       - |
-        for topic in iot.raw.message iot.parse.failed iot.parsed.message iot.property.report iot.event.report iot.device.state iot.video.alarm iot.alarm.raised iot.alarm.reported iot.alarm.recovered iot.alarm.confirmed iot.alarm.ai-analysis iot.ui-action iot.replay.request iot.device.business iot.dlq.parser iot.dlq.processor iot.dlq.state iot.dlq.device-alarm-notifications; do
+        for topic in iot.raw.message iot.parse.failed iot.parsed.message iot.property.report iot.event.report iot.device.state iot.alarm.raised iot.alarm.reported iot.alarm.recovered iot.alarm.confirmed iot.alarm.ai-analysis iot.ui-action iot.replay.request iot.device.business iot.dlq.parser iot.dlq.processor iot.dlq.state iot.dlq.device-alarm-notifications; do
           # Describe succeeds only with a live authenticated broker. Existing
           # topics retain partitions, replicas and log data on repeated startup.
           if ! rpk -X brokers=redpanda:9092 topic describe "$$topic" >/dev/null 2>&1; then

@@ -23,8 +23,6 @@ func TestValidateConfiguration(t *testing.T) {
 		},
 		func(e *Endpoint) { e.Pagination = Pagination{Mode: "cursor"} },
 		func(e *Endpoint) { e.IntervalSeconds = 1 },
-		func(e *Endpoint) { e.RequestIntervalMillis = 99 },
-		func(e *Endpoint) { e.RequestIntervalMillis = 3600001 },
 		func(e *Endpoint) { e.Mapping.Fields = append(e.Mapping.Fields, Field{Target: "id", Path: "other"}) },
 		func(e *Endpoint) {
 			e.Auth = &Auth{Type: "token", TokenURL: "https://example.com/login", TokenPath: "token", TokenBody: map[string]any{"password": "plaintext"}}

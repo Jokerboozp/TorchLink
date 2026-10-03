@@ -109,14 +109,6 @@ func TestHarnessConfiguration(t *testing.T) {
 	}
 }
 
-func TestVideoPlatformTenantBindings(t *testing.T) {
-	t.Setenv("IOT_VIDEO_PLATFORM_TENANTS", "video-a:tenant-a,video-b:tenant-b")
-	cfg := Load()
-	if cfg.VideoPlatformTenants["video-a"] != "tenant-a" || cfg.VideoPlatformTenants["video-b"] != "tenant-b" {
-		t.Fatalf("unexpected video tenant bindings: %#v", cfg.VideoPlatformTenants)
-	}
-}
-
 func TestAdminTenantAllowlist(t *testing.T) {
 	t.Setenv("IOT_ADMIN_TENANTS", "tenant-a, tenant-b")
 	cfg := Load()

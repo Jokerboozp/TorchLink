@@ -37,8 +37,6 @@ func route(topic string) string {
 		return "raw"
 	case strings.HasPrefix(topic, "/iot/device/state/"):
 		return "state"
-	case strings.HasPrefix(topic, "/external/video/alarm/"):
-		return "video"
 	default:
 		return ""
 	}

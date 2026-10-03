@@ -102,7 +102,7 @@ validate_env() {
     POSTGRES_PASSWORD REDIS_PASSWORD CLICKHOUSE_PASSWORD
     MINIO_ROOT_PASSWORD MINIO_DR_ROOT_PASSWORD IOT_JWT_SECRET
     IOT_ADMIN_USER IOT_ADMIN_PASSWORD IOT_ADMIN_TENANTS
-    IOT_VIDEO_PLATFORM_SECRETS IOT_BACKUP_ADMIN_TOKEN
+    IOT_BACKUP_ADMIN_TOKEN
     EMQX_DASHBOARD_USER EMQX_DASHBOARD_PASSWORD IOT_EMQX_API_URL IOT_EMQX_API_KEY IOT_EMQX_API_SECRET
     GRAFANA_ADMIN_USER GRAFANA_ADMIN_PASSWORD
   )
@@ -134,7 +134,6 @@ write_env() {
     local minio_dr_password="admin123"
     local jwt_secret="$(random_hex 32)"
     local admin_password="admin123"
-    local video_secret="$(random_hex 24)"
     local harness_token="$(random_hex 32)"
     local backup_token="$(random_hex 32)"
     local emqx_password="admin123"
@@ -166,8 +165,6 @@ IOT_KAFKA_ADMIN_USERNAME=admin
 IOT_KAFKA_ADMIN_PASSWORD=admin123
 IOT_KAFKA_ADVERTISED_HOST=127.0.0.1
 IOT_KAFKA_PUBLIC_BROKERS=127.0.0.1:19092
-IOT_VIDEO_PLATFORM_SECRETS=video-platform-1:$video_secret
-IOT_VIDEO_MEDIA_ALLOWED_HOSTS=
 IOT_AI_PROVIDER=$ai_provider
 IOT_AI_BASE_URL=https://api.deepseek.com
 IOT_AI_MODEL=$deepseek_model

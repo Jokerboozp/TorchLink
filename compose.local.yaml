@@ -187,7 +187,7 @@ services:
     entrypoint: ["/bin/bash", "-ec"]
     command:
       - |
-        for topic in iot.raw.message iot.parse.failed iot.parsed.message iot.property.report iot.event.report iot.device.state iot.video.alarm iot.alarm.raised iot.alarm.reported iot.alarm.recovered iot.alarm.confirmed iot.alarm.ai-analysis iot.ui-action iot.replay.request iot.device.business iot.dlq.parser iot.dlq.processor iot.dlq.state iot.dlq.device-alarm-notifications; do
+        for topic in iot.raw.message iot.parse.failed iot.parsed.message iot.property.report iot.event.report iot.device.state iot.alarm.raised iot.alarm.reported iot.alarm.recovered iot.alarm.confirmed iot.alarm.ai-analysis iot.ui-action iot.replay.request iot.device.business iot.dlq.parser iot.dlq.processor iot.dlq.state iot.dlq.device-alarm-notifications; do
           # Describe succeeds only with a live authenticated broker. Existing
           # topics retain partitions, replicas and log data on repeated startup.
           if ! rpk -X brokers=redpanda:9092 topic describe "$$topic" >/dev/null 2>&1; then

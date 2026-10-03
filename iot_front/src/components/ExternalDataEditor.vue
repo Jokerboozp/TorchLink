@@ -73,7 +73,7 @@ function submit() {
       </div>
       <p class="hint">数据按执行用户的权限和设备范围接入。新来源默认停用，完成接口测试和编号绑定后启用。</p>
       <ui-form-item label="允许访问的主机和端口（每行一个）"><ui-input v-model="hosts" type="textarea" :rows="3" placeholder="api.example.com:443&#10;10.0.0.10:80" /></ui-form-item>
-      <ui-form-item label="来源请求最小间隔（毫秒，0 使用默认 1000）"><ui-input-number v-model="form.requestIntervalMillis" :min="0" :max="3600000" :step="100" /></ui-form-item>
+      <ui-form-item label="来源请求最小间隔（毫秒，所有接口合计，0 使用默认 1000）"><ui-input-number v-model="form.requestIntervalMillis" :min="0" :max="3600000" :step="100" /></ui-form-item>
       <p class="hint">同一来源所有接口共同遵守此间隔；非零可填 100 至 3600000 毫秒。手动、自动拉取、请求预览与 Token 登录都计入；对方限流时按其等待时间延后。</p>
       <ExternalAuthForm v-model="form.auth" />
       <ui-form-item v-if="form.auth.type === 'token'" label="Token 登录请求体（JSON）"><ui-input v-model="tokenBody" type="textarea" :rows="4" /></ui-form-item>
@@ -143,7 +143,6 @@ function submit() {
         <template v-if="form.mode === 'pull'">
           <div class="form-grid">
             <ui-form-item label="自动拉取间隔（至少 10 秒，0 为仅手动）"><ui-input-number v-model="form.intervalSeconds" :min="0" /></ui-form-item>
-            <ui-form-item label="接口请求最小间隔（毫秒，0 使用默认 1000）"><ui-input-number v-model="form.requestIntervalMillis" :min="0" :max="3600000" :step="100" /></ui-form-item>
             <ui-form-item label="重叠回查时间（秒）"><ui-input-number v-model="form.overlapSeconds" :min="0" /></ui-form-item>
             <ui-form-item label="初始拉取时间"><ui-date-time v-model="form.startAt" clearable /></ui-form-item>
             <ui-form-item label="请求超时（秒）"><ui-input-number v-model="form.timeoutSeconds" :min="1" :max="120" /></ui-form-item>

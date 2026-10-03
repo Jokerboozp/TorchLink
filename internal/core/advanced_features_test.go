@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -172,7 +170,7 @@ func TestSpreadsheetKnowledgeExtractionResolvesSharedStringRows(t *testing.T) {
 	}
 }
 
-func TestReplayDiffAndVideoFusion(t *testing.T) {
+func TestReplayDiff(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
 	archive, _ := local.NewArchive(t.TempDir())
@@ -204,61 +202,6 @@ func TestReplayDiffAndVideoFusion(t *testing.T) {
 		}
 		t.Fatalf("unexpected replay %#v", replay)
 	}
-
-	if err = repo.SaveVideoCameraMapping(ctx, model.VideoCameraMapping{TenantID: "t1", CameraID: "cam1", CameraName: "Lobby", AreaID: "area-a", CityCode: "city", Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	first, created, err := engine.IngestVideo(ctx, model.VideoAlarmEvent{EventID: "v1", TenantID: "t1", CameraID: "cam1", AlarmType: "FIRE", Confidence: .8, EventTime: now})
-	if err != nil || !created || first.AreaID != "area-a" {
-		t.Fatalf("first=%#v created=%v err=%v", first, created, err)
-	}
-	second, created, err := engine.IngestVideo(ctx, model.VideoAlarmEvent{EventID: "v2", TenantID: "t1", CameraID: "cam1", AlarmType: "FIRE", Confidence: .9, EventTime: now + 1000})
-	if err != nil || created || second.TriggerCount != 2 || second.Confidence != .9 {
-		t.Fatalf("second=%#v created=%v err=%v", second, created, err)
-	}
-}
-
-func TestVideoMediaTransferIsAsynchronousAndUpdatesAlarm(t *testing.T) {
-	release := make(chan struct{})
-	media := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		<-release
-		w.Header().Set("Content-Type", "image/jpeg")
-		_, _ = w.Write([]byte("image"))
-	}))
-	defer media.Close()
-	ctx := context.Background()
-	repo := memory.NewRepository()
-	archive, _ := local.NewArchive(t.TempDir())
-	engine := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	engine.VideoMediaAllowedHosts = []string{"127.0.0.1"}
-	if err := engine.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() {
-		_, _, err := engine.IngestVideo(ctx, model.VideoAlarmEvent{EventID: "async-media", TenantID: "t1", CameraID: "cam-media", CameraName: "Media camera", AreaID: "a1", AlarmType: "FIRE", EventTime: time.Now().UnixMilli(), SnapshotURL: media.URL + "/snapshot.jpg"})
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("video ingest blocked on external media download")
-	}
-	close(release)
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		alarms, _ := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "t1", Status: "ACTIVE"})
-		if len(alarms) > 0 {
-			if event, ok := alarms[0].Details["videoEvent"].(model.VideoAlarmEvent); ok && strings.HasPrefix(event.SnapshotURL, "local://") {
-				return
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("archived media URL was not written back to active alarm")
 }
 
 func TestReplaySelectedProtocolVersion(t *testing.T) {

@@ -40,8 +40,6 @@ def prepare(bundle: Path) -> None:
             value = 'admin123'
         elif key in ADMIN_USERNAME_KEYS:
             value = 'admin'
-        elif key == 'IOT_VIDEO_PLATFORM_SECRETS':
-            value = 'video-platform-1:__TORCHLINK_RANDOM_HEX__'
         elif key == 'IOT_VIDEO_CREDENTIAL_KEY':
             # 32 random bytes (base64) that seal camera and GB28181 device passwords.
             value = '__TORCHLINK_RANDOM_BASE64_32__'

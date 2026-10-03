@@ -22,7 +22,6 @@ const (
 	TopicPropertyReport  = "iot.property.report"
 	TopicEventReport     = "iot.event.report"
 	TopicDeviceState     = "iot.device.state"
-	TopicVideoAlarm      = "iot.video.alarm"
 	TopicAlarmReported   = "iot.alarm.reported" // Every accepted alarm report, including repeated active alarms.
 	TopicAlarmRaised     = "iot.alarm.raised"
 	TopicAlarmRecovered  = "iot.alarm.recovered"
@@ -52,7 +51,7 @@ var ConsumerGroups = []string{"parser", "processor", "state", "device-alarm-noti
 // AllTopics is the formal topic inventory used to pre-create and verify
 // topics, including every dead-letter topic.
 func AllTopics() []string {
-	topics := []string{TopicRaw, TopicParseFailed, TopicParsed, TopicPropertyReport, TopicEventReport, TopicDeviceState, TopicVideoAlarm, TopicAlarmReported, TopicAlarmRaised, TopicAlarmRecovered, TopicAlarmConfirmed, TopicAlarmAIAnalysis, TopicUIAction, TopicReplayRequest, TopicDeviceBusiness}
+	topics := []string{TopicRaw, TopicParseFailed, TopicParsed, TopicPropertyReport, TopicEventReport, TopicDeviceState, TopicAlarmReported, TopicAlarmRaised, TopicAlarmRecovered, TopicAlarmConfirmed, TopicAlarmAIAnalysis, TopicUIAction, TopicReplayRequest, TopicDeviceBusiness}
 	for _, g := range ConsumerGroups {
 		topics = append(topics, DLQTopic(g))
 	}

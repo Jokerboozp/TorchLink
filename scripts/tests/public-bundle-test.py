@@ -65,7 +65,6 @@ class PublicBundleTest(unittest.TestCase):
             self.assertRegex(values[key], r'^[a-f0-9]{64}$')
             self.assertNotEqual(values[key], other_values[key], key)
         self.assertNotEqual(values['IOT_JWT_SECRET'], values['IOT_AI_HARNESS_TOKEN'])
-        self.assertRegex(values['IOT_VIDEO_PLATFORM_SECRETS'], r'^video-platform-1:[a-f0-9]{64}$')
         self.assertEqual(values['IOT_EMBEDDING_API_KEY'], '')
         self.initialize(self.bundle)
         self.assertEqual(first, self.env.read_text())

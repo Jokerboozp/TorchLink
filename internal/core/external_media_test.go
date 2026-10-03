@@ -71,7 +71,6 @@ func TestExternalMediaSourceAllowlistAndTenant(t *testing.T) {
 	if err != nil || !strings.HasPrefix(stored, "local://video-alarm/") {
 		t.Fatalf("source allowlist did not enable media: %s %v", stored, err)
 	}
-	e.VideoMediaAllowedHosts = []string{"127.0.0.1"}
 	v.Raw["allowedHosts"] = []string{strings.TrimPrefix(other.URL, "http://")}
 	if _, err = e.transferVideoURL(context.Background(), v, other.URL, "snapshot"); err == nil || unwanted.Load() {
 		t.Fatal("other port or raw host override accepted")
@@ -93,11 +92,6 @@ func TestExternalMediaSourceAllowlistAndTenant(t *testing.T) {
 	}
 	if _, err = e.transferVideoURL(context.Background(), v, v.SnapshotURL, "snapshot"); err == nil {
 		t.Fatal("disabled source still downloaded media")
-	}
-	legacy := v
-	legacy.Raw = map[string]any{"allowedHosts": []string{"untrusted"}}
-	if _, err = e.transferVideoURL(context.Background(), legacy, server.URL+"/legacy.jpg", "snapshot"); err != nil {
-		t.Fatalf("legacy global allowlist changed: %v", err)
 	}
 }
 
@@ -188,29 +182,6 @@ func TestExternalMediaInvalidURLRemainsFailed(t *testing.T) {
 	saved, err := repo.GetVideoEvent(context.Background(), v.TenantID, v.EventID)
 	if err != nil || saved.Raw["mediaTransferStatus"] != "FAILED" || saved.SnapshotURL != v.SnapshotURL {
 		t.Fatalf("invalid media incorrectly marked stored: %+v %v", saved, err)
-	}
-}
-
-func TestExternalMediaLegacyIngressDiscardsSourceAuthority(t *testing.T) {
-	repo := memory.NewRepository()
-	e := externalMediaEngine(t, repo)
-	v := externalMediaEvent("")
-	v.Raw["externalEventId"] = "forged-event"
-	for _, field := range []string{"mediaRetryAt", "mediaLastAttemptAt", "mediaAttempts", "snapshotTransferStatus", "clipTransferStatus"} {
-		v.Raw[field] = "untrusted-caller-value"
-	}
-	a, created, err := e.IngestVideo(context.Background(), v)
-	if err != nil || !created {
-		t.Fatalf("legacy ingest: %v %v", created, err)
-	}
-	saved, ok := a.Details["videoEvent"].(model.VideoAlarmEvent)
-	if !ok {
-		t.Fatal("missing video event")
-	}
-	for _, key := range []string{"externalSourceId", "externalEventId", "deviceId", "mediaRetryAt", "mediaLastAttemptAt", "mediaAttempts", "snapshotTransferStatus", "clipTransferStatus"} {
-		if _, present := saved.Raw[key]; present {
-			t.Fatalf("legacy caller retained trusted marker %s", key)
-		}
 	}
 }
 

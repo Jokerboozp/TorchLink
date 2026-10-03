@@ -5,7 +5,7 @@ import { formatTime, notifyError, pretty, session } from '../api'
 import { can, permissionState } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback'
 import { externalApi, externalBase } from '../externalDataApi'
-import { blankEndpoint, blankSource, cloneExternal, externalKinds, externalStatuses, externalTabs, jsonSample, requestFence, timeWindow } from '../externalData'
+import { blankEndpoint, blankSource, cloneExternal, externalKinds, externalStatuses, externalTabs, externalViews, jsonSample, requestFence, timeWindow } from '../externalData'
 import ExternalDataEditor from '../components/ExternalDataEditor.vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -13,7 +13,10 @@ import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 defineEmits(['navigate'])
 
-const tab = ref('sources')
+// 三个视图：接入配置（来源及其接口）、编号对应、运行记录（接收记录 / 拉取任务）。
+const view = ref('config')
+const runKind = ref('records')
+const tab = computed(() => view.value === 'config' ? 'sources' : view.value === 'bindings' ? 'bindings' : runKind.value)
 const items = ref([])
 const sources = ref([])
 const endpoints = ref([])
@@ -48,13 +51,16 @@ const keyResult = ref(null)
 const receiveEndpoint = ref(null)
 const fence = requestFence(() => [session.tenant, session.user, session.token, permissionState.accessVersion].join('|'))
 let poll = 0, listPending = 0
-const configTab = computed(() => ['sources', 'endpoints', 'bindings'].includes(tab.value))
-const visibleTabs = computed(() => Object.entries(externalTabs).filter(([key]) => can(`GET ${externalBase}/${key}`)))
+const configTab = computed(() => view.value !== 'runs')
+const runKinds = computed(() => ['records', 'jobs'].filter(kind => can(`GET ${externalBase}/${kind}`)))
+const visibleTabs = computed(() => Object.entries(externalViews).filter(([key]) => key === 'config' ? can(`GET ${externalBase}/sources`) : key === 'bindings' ? can(`GET ${externalBase}/bindings`) : runKinds.value.length > 0))
+const sourceEndpoints = id => endpoints.value.filter(item => item.sourceId === id)
 const filteredEndpoints = computed(() => endpoints.value.filter(item => !sourceId.value || item.sourceId === sourceId.value))
 const editorPermission = computed(() => `${editorValue.value?.id ? 'PUT' : 'POST'} ${externalBase}/${editorKind.value}${editorValue.value?.id ? '/:id' : ''}`)
 const operationTitle = computed(() => ({ test:'样例转换测试', 'test-fetch':'真实请求预览', pull:'手动拉取 / 历史补拉' })[operation.value])
 const previewItems = computed(() => (preview.value?.items || []).slice((previewPage.value - 1) * 20, previewPage.value * 20))
 const listQuery = () => ({ page:page.value, pageSize:pageSize.value, sourceId:tab.value !== 'sources' ? sourceId.value : '', endpointId:!configTab.value ? endpointId.value : '', status:!configTab.value ? status.value : '' })
+const endpointKind = id => endpoints.value.find(endpoint => endpoint.id === id)?.kind
 const sourceName = id => sources.value.find(source => source.id === id)?.name || id || '—'
 const endpointName = id => endpoints.value.find(endpoint => endpoint.id === id)?.name || id || '—'
 const receiveAuth = row => row?.auth || sources.value.find(source => source.id === row?.sourceId)?.auth || { type:'unknown' }
@@ -100,25 +106,44 @@ watch(sourceId, () => { endpointId.value = ''; resetList() })
 watch([endpointId, status], resetList)
 watch(detailOpen, value => { if (!value) { fence.invalidate('detail'); detail.value = null } })
 watch(operationOpen, value => { if (!value) { fence.invalidate('preview'); preview.value = null; previewLoading.value = false } })
-watch(editorOpen, value => { if (!value) fence.invalidate('save') })
+watch(editorOpen, value => { if (!value) { fence.invalidate('save'); bindingRecord.value = null } })
 watch(keyOpen, value => { if (!value) keyResult.value = null })
 watch(() => permissionState.accessVersion, () => {
   fence.invalidate('list'); fence.invalidate('detail'); fence.invalidate('preview'); fence.invalidate('choices'); fence.invalidate('mutation')
   items.value = []; sources.value = []; endpoints.value = []; detail.value = null; preview.value = null; keyResult.value = null
   editorOpen.value = false; detailOpen.value = false; operationOpen.value = false; keyOpen.value = false
-  if (!visibleTabs.value.some(([key]) => key === tab.value)) tab.value = visibleTabs.value[0]?.[0] || 'sources'
+  if (!visibleTabs.value.some(([key]) => key === view.value)) view.value = visibleTabs.value[0]?.[0] || 'config'
+  if (!runKinds.value.includes(runKind.value)) runKind.value = runKinds.value[0] || 'records'
   load(); loadChoices()
 })
-function edit(row = null) {
-  if (!allowed(row ? 'PUT' : 'POST', tab.value, row ? '/:id' : '')) return
-  editorKind.value = tab.value
-  editorValue.value = row ? cloneExternal(row) : tab.value === 'sources' ? blankSource(session.user) : tab.value === 'endpoints' ? blankEndpoint(sourceId.value) : { id:'', revision:0, sourceId:sourceId.value, externalId:'', kind:'device', targetId:'' }
+function edit(row = null, kind = tab.value, defaults = {}) {
+  if (!allowed(row ? 'PUT' : 'POST', kind, row ? '/:id' : '')) return
+  editorKind.value = kind
+  editorValue.value = row ? cloneExternal(row) : kind === 'sources' ? blankSource(session.user) : kind === 'endpoints' ? blankEndpoint(defaults.sourceId || '') : { id:'', revision:0, sourceId:sourceId.value, externalId:'', kind:'device', targetId:'', ...defaults }
   editorOpen.value = true
+}
+// 待关联的接收记录：按记录的来源与对象编号预填编号对应，保存后自动重试该记录。
+const bindingRecord = ref(null)
+function bindRecord(row) {
+  const objectId = row.body?.event?.objectId
+  if (!objectId || !allowed('POST', 'bindings')) return
+  bindingRecord.value = row
+  edit(null, 'bindings', { sourceId:row.sourceId, externalId:objectId, kind:endpointKind(row.endpointId) === 'video_alarm' ? 'camera' : 'device' })
 }
 async function save(value) {
   if (busy.value || !can(editorPermission.value)) return
   const current = fence.begin('save'); busy.value = true
-  try { await externalApi.save(editorKind.value, value); if (!current()) return; UiMessage.success('配置已保存'); editorOpen.value = false; await Promise.all([load(), loadChoices()]) }
+  const record = editorKind.value === 'bindings' ? bindingRecord.value : null
+  try {
+    await externalApi.save(editorKind.value, value); if (!current()) return
+    editorOpen.value = false
+    if (record && allowed('POST', 'records', '/:id/retry')) {
+      await externalApi.action('records', record.id, 'retry', { revision:record.revision, useCurrentMapping:false })
+      if (!current()) return
+      UiMessage.success('编号已关联，记录已重新提交处理')
+    } else UiMessage.success('配置已保存')
+    await Promise.all([load(), loadChoices()])
+  }
   catch (e) { if (current()) notifyError(e) }
   finally { busy.value = false }
 }
@@ -129,13 +154,11 @@ async function mutate(action, success) {
   catch (e) { if (current()) notifyError(e) }
   finally { busy.value = false }
 }
-async function toggle(row) {
-  const kind = tab.value
+async function toggle(row, kind = tab.value) {
   if (!allowed('PUT', kind, '/:id')) return
   await mutate(() => externalApi.save(kind, { ...row, enabled:!row.enabled }), row.enabled ? '已停用' : '已启用')
 }
-async function remove(row) {
-  const kind = tab.value
+async function remove(row, kind = tab.value) {
   if (!allowed('DELETE', kind, '/:id')) return
   const current = fence.begin('confirmation')
   try { await UiMessageBox.confirm(`删除“${row.name || row.externalId}”？存在关联配置或任务时需先解除关联。`, '删除确认', { type:'warning', confirmButtonText:'删除', cancelButtonText:'取消' }) }
@@ -156,7 +179,7 @@ async function executeOperation() {
     const result = await externalApi.action('endpoints', operationEndpoint.value.id, operation.value, body)
     if (!current()) return
     preview.value = result
-    if (operation.value === 'pull') { UiMessage.success('拉取任务已提交'); operationOpen.value = false; tab.value = 'jobs'; await load() }
+    if (operation.value === 'pull') { UiMessage.success('拉取任务已提交'); operationOpen.value = false; view.value = 'runs'; runKind.value = 'jobs'; await load() }
   } catch (e) { if (current()) previewError.value = e.message }
   finally { if (current()) previewLoading.value = false }
 }
@@ -192,26 +215,29 @@ async function retry(row, kind = tab.value, useCurrentMapping = false) {
   const result = await mutate(() => externalApi.action(kind, row.id, 'retry', { revision:row.revision, ...(kind === 'records' ? { useCurrentMapping } : {}) }), '已提交重试')
   if (result && detailOpen.value) showDetail(row)
 }
+function endpointActions(row) {
+  const out = [{ key:'edit', label:'编辑', permission:`PUT ${externalBase}/endpoints/:id`, onClick:() => edit(row, 'endpoints') }, { key:'toggle', label:row.enabled ? '停用' : '启用', permission:`PUT ${externalBase}/endpoints/:id`, onClick:() => toggle(row, 'endpoints') }, { key:'test', label:'样例测试', permission:`POST ${externalBase}/endpoints/:id/test`, onClick:() => openOperation(row, 'test') }]
+  if (row.mode === 'pull') out.push({ key:'preview', label:'请求预览', permission:`POST ${externalBase}/endpoints/:id/test-fetch`, onClick:() => openOperation(row, 'test-fetch') }, { key:'pull', label:'立即拉取', permission:`POST ${externalBase}/endpoints/:id/pull`, onClick:() => openOperation(row, 'pull') })
+  else out.push({ key:'key', label:'接收设置', permission:`GET ${externalBase}/endpoints`, onClick:() => showReceive(row) })
+  out.push({ key:'delete', label:'删除', type:'danger', permission:`DELETE ${externalBase}/endpoints/:id`, onClick:() => remove(row, 'endpoints') })
+  return out.map(action => ({ ...action, disabled:busy.value }))
+}
 function rowActions(row) {
   if (configTab.value) {
     const out = [{ key:'edit', label:'编辑', permission:`PUT ${externalBase}/${tab.value}/:id`, onClick:() => edit(row) }]
-    if (tab.value !== 'bindings') out.push({ key:'toggle', label:row.enabled ? '停用' : '启用', permission:`PUT ${externalBase}/${tab.value}/:id`, onClick:() => toggle(row) })
-    if (tab.value === 'endpoints') {
-      out.push({ key:'test', label:'样例测试', permission:`POST ${externalBase}/endpoints/:id/test`, onClick:() => openOperation(row, 'test') })
-      if (row.mode === 'pull') out.push({ key:'preview', label:'请求预览', permission:`POST ${externalBase}/endpoints/:id/test-fetch`, onClick:() => openOperation(row, 'test-fetch') }, { key:'pull', label:'立即拉取', permission:`POST ${externalBase}/endpoints/:id/pull`, onClick:() => openOperation(row, 'pull') })
-      else out.push({ key:'key', label:'接收设置', permission:`GET ${externalBase}/endpoints`, onClick:() => showReceive(row) })
-    }
+    if (tab.value === 'sources') out.unshift({ key:'endpoint', label:'新增接口', permission:`POST ${externalBase}/endpoints`, onClick:() => edit(null, 'endpoints', { sourceId:row.id }) }), out.push({ key:'toggle', label:row.enabled ? '停用' : '启用', permission:`PUT ${externalBase}/sources/:id`, onClick:() => toggle(row) })
     out.push({ key:'delete', label:'删除', type:'danger', permission:`DELETE ${externalBase}/${tab.value}/:id`, onClick:() => remove(row) })
     return out.map(action => ({ ...action, disabled:busy.value }))
   }
   const actions = []
   if (tab.value === 'records') actions.push({ key:'detail', label:'查看详情', permission:`GET ${externalBase}/records/:id`, onClick:() => showDetail(row) })
-  if (['FAILED', 'BLOCKED', 'WAITING_BINDING', 'CONFLICT'].includes(row.status)) actions.push({ key:'retry', label:'重试', permission:`POST ${externalBase}/${tab.value}/:id/retry`, disabled:busy.value, onClick:() => retry(row) })
+  if (tab.value === 'records' && row.status === 'WAITING_BINDING' && row.body?.event?.objectId) actions.push({ key:'bind', label:'关联并重试', permission:`POST ${externalBase}/bindings`, disabled:busy.value, onClick:() => bindRecord(row) })
+  else if (['FAILED', 'BLOCKED', 'WAITING_BINDING', 'CONFLICT'].includes(row.status)) actions.push({ key:'retry', label:'重试', permission:`POST ${externalBase}/${tab.value}/:id/retry`, disabled:busy.value, onClick:() => retry(row) })
   return actions
 }
 async function copy(value) { try { await navigator.clipboard.writeText(value); UiMessage.success('已复制') } catch { UiMessage.warning('自动复制失败，请选中文本复制') } }
 onMounted(() => {
-  tab.value = visibleTabs.value[0]?.[0] || 'sources'; load(); loadChoices()
+  view.value = visibleTabs.value[0]?.[0] || 'config'; runKind.value = runKinds.value[0] || 'records'; load(); loadChoices()
   poll = setInterval(() => { if (!configTab.value && !loading.value && !busy.value && !document.hidden) load(true) }, 5000)
 })
 onBeforeUnmount(() => { clearInterval(poll); fence.dispose() })
@@ -219,27 +245,32 @@ onBeforeUnmount(() => { clearInterval(poll); fence.dispose() })
 
 <template>
   <div class="external-data-view">
-    <p class="intro">配置一次，持续接收外部系统的数据。先登记来源，再配置接口、测试转换并绑定编号，最后启用。</p>
-    <nav class="external-tabs" aria-label="外部数据管理"><button v-for="[key, label] in visibleTabs" :key="key" :class="{ active:tab === key }" :aria-current="tab === key ? 'page' : undefined" @click="tab = key">{{ label }}</button></nav>
+    <p class="intro">配置一次，持续接收外部系统的数据。先登记来源并在来源下添加接口，测试转换后关联编号，最后启用；待关联的接收记录可直接关联并重试。</p>
+    <nav class="external-tabs" aria-label="外部数据管理"><button v-for="[key, label] in visibleTabs" :key="key" :class="{ active:view === key }" :aria-current="view === key ? 'page' : undefined" @click="view = key">{{ label }}</button></nav>
     <FilterBar>
+      <ui-radio-group v-if="view === 'runs' && runKinds.length > 1" v-model="runKind" aria-label="记录类型"><ui-radio-button value="records">接收记录</ui-radio-button><ui-radio-button value="jobs">拉取任务</ui-radio-button></ui-radio-group>
       <ui-select v-if="tab !== 'sources'" v-model="sourceId" clearable filterable allow-create placeholder="全部来源" class="filter-select"><ui-option v-for="source in sources" :key="source.id" :label="source.name" :value="source.id" /></ui-select>
       <ui-select v-if="!configTab" v-model="endpointId" clearable filterable allow-create placeholder="全部接口" class="filter-select"><ui-option v-for="endpoint in filteredEndpoints" :key="endpoint.id" :label="endpoint.name" :value="endpoint.id" /></ui-select>
       <ui-select v-if="!configTab" v-model="status" clearable placeholder="全部状态" class="filter-select"><ui-option v-for="(label, value) in externalStatuses" :key="value" :value="value" :label="label" /></ui-select>
-      <template #actions><ui-button :loading="loading" @click="load(); loadChoices()"><RefreshCw />刷新</ui-button><ui-button v-if="configTab" v-permission="`POST ${externalBase}/${tab}`" type="primary" @click="edit()"><Plus />{{ tab === 'sources' ? '新增来源' : tab === 'endpoints' ? '新增接口' : '新增绑定' }}</ui-button></template>
+      <template #actions><ui-button :loading="loading" @click="load(); loadChoices()"><RefreshCw />刷新</ui-button><ui-button v-if="configTab" v-permission="`POST ${externalBase}/${tab}`" type="primary" @click="edit()"><Plus />{{ tab === 'sources' ? '新增来源' : '新增编号对应' }}</ui-button></template>
     </FilterBar>
     <DataTableCard :title="externalTabs[tab]" :page="page" :page-size="pageSize" :total="total" :error="error" @retry="load" @update:page="changePage" @update:page-size="changeSize">
       <ui-table v-loading="loading" :data="items">
         <template v-if="tab === 'sources'">
+          <ui-table-column type="expand"><template #default="{ row }"><div class="source-endpoints">
+            <ui-table :data="sourceEndpoints(row.id)" size="small">
+              <ui-table-column label="接口" min-width="170"><template #default="{ row:endpoint }"><b>{{ endpoint.name }}</b><small class="subline">{{ externalKinds[endpoint.kind] || endpoint.kind }}</small></template></ui-table-column>
+              <ui-table-column label="接入方式" min-width="170"><template #default="{ row:endpoint }">{{ endpoint.mode === 'push' ? '对方推送' : '主动拉取' }}<small class="subline">{{ endpoint.mode === 'push' ? (!receiveAuth(endpoint).type || receiveAuth(endpoint).type === 'none' ? (endpoint.pushKeySet ? '已生成接收密钥' : '待生成接收密钥') : '使用来源 / 接口认证') : endpoint.intervalSeconds ? `每 ${endpoint.intervalSeconds} 秒拉取` : '仅手动拉取' }}</small></template></ui-table-column>
+              <ui-table-column label="最近接收与处理" min-width="200"><template #default="{ row:endpoint }"><template v-if="endpoint.runtime">接收 {{ formatTime(endpoint.runtime.lastReceivedAt) }}<small class="subline">待处理 {{ endpoint.runtime.pendingRecords ?? 0 }} · 失败 {{ endpoint.runtime.failedRecords ?? 0 }}</small><small v-if="endpoint.runtime.lastError" class="failure wrap-text">{{ endpoint.runtime.lastError }}</small></template><span v-else>—</span></template></ui-table-column>
+              <ui-table-column label="状态" width="100"><template #default="{ row:endpoint }"><StatusDot :tone="endpoint.enabled ? 'success' : 'neutral'" :label="endpoint.enabled ? '已启用' : '已停用'" /></template></ui-table-column>
+              <ui-table-column label="操作" width="240" align="right"><template #default="{ row:endpoint }"><RowActions :actions="endpointActions(endpoint)" /></template></ui-table-column>
+              <template #empty><ui-empty description="此来源尚无接口，点击“新增接口”添加推送或拉取接口" /></template>
+            </ui-table>
+          </div></template></ui-table-column>
           <ui-table-column label="数据来源" min-width="190"><template #default="{ row }"><b>{{ row.name }}</b><small class="subline">{{ row.description || row.id }}</small></template></ui-table-column>
           <ui-table-column prop="username" label="执行用户" min-width="130" />
           <ui-table-column label="允许访问" min-width="220"><template #default="{ row }"><span class="wrap-text">{{ row.allowedHosts?.join('、') || '未配置拉取主机' }}</span></template></ui-table-column>
-          <ui-table-column label="状态" width="105"><template #default="{ row }"><StatusDot :tone="row.enabled ? 'success' : 'neutral'" :label="row.enabled ? '已启用' : '已停用'" /></template></ui-table-column>
-        </template>
-        <template v-else-if="tab === 'endpoints'">
-          <ui-table-column label="接口" min-width="180"><template #default="{ row }"><b>{{ row.name }}</b><small class="subline">{{ sourceName(row.sourceId) }}</small></template></ui-table-column>
-          <ui-table-column label="接入方式" width="130"><template #default="{ row }">{{ row.mode === 'push' ? '对方推送' : '主动拉取' }}</template></ui-table-column>
-          <ui-table-column label="数据用途" width="120"><template #default="{ row }">{{ externalKinds[row.kind] || row.kind }}</template></ui-table-column>
-          <ui-table-column label="执行设置" min-width="180"><template #default="{ row }">{{ row.mode === 'push' ? (!receiveAuth(row).type || receiveAuth(row).type === 'none' ? (row.pushKeySet ? '已生成接收密钥' : '待生成接收密钥') : '使用来源 / 接口认证') : row.intervalSeconds ? `每 ${row.intervalSeconds} 秒拉取` : '仅手动拉取' }}</template></ui-table-column>
+          <ui-table-column label="接口" width="90"><template #default="{ row }">{{ sourceEndpoints(row.id).length }} 个</template></ui-table-column>
           <ui-table-column label="状态" width="105"><template #default="{ row }"><StatusDot :tone="row.enabled ? 'success' : 'neutral'" :label="row.enabled ? '已启用' : '已停用'" /></template></ui-table-column>
         </template>
         <template v-else-if="tab === 'bindings'">
@@ -256,8 +287,8 @@ onBeforeUnmount(() => { clearInterval(poll); fence.dispose() })
           <ui-table-column label="尝试次数" width="105"><template #default="{ row }">{{ row.body?.attempts || 0 }}</template></ui-table-column>
           <ui-table-column label="处理结果" min-width="230"><template #default="{ row }"><span class="wrap-text">{{ row.body?.error || row.body?.alarmId || row.body?.messageId || '—' }}</span></template></ui-table-column>
         </template>
-        <ui-table-column v-if="['sources','endpoints'].includes(tab)" label="最近接收与处理" min-width="225"><template #default="{ row }"><template v-if="row.runtime"><span>接收 {{ formatTime(row.runtime.lastReceivedAt) }}</span><small class="subline">处理 {{ formatTime(row.runtime.lastProcessedAt) }}</small><small class="subline">待处理 {{ row.runtime.pendingRecords ?? 0 }} · 失败 {{ row.runtime.failedRecords ?? 0 }}</small><small v-if="row.runtime.lastError" class="failure wrap-text" :title="formatTime(row.runtime.lastErrorAt)">{{ row.runtime.lastError }}</small></template><span v-else>—</span></template></ui-table-column>
-        <ui-table-column label="操作" :width="tab === 'endpoints' ? 240 : 175" align="right" fixed="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+        <ui-table-column v-if="tab === 'sources'" label="最近接收与处理" min-width="225"><template #default="{ row }"><template v-if="row.runtime"><span>接收 {{ formatTime(row.runtime.lastReceivedAt) }}</span><small class="subline">处理 {{ formatTime(row.runtime.lastProcessedAt) }}</small><small class="subline">待处理 {{ row.runtime.pendingRecords ?? 0 }} · 失败 {{ row.runtime.failedRecords ?? 0 }}</small><small v-if="row.runtime.lastError" class="failure wrap-text" :title="formatTime(row.runtime.lastErrorAt)">{{ row.runtime.lastError }}</small></template><span v-else>—</span></template></ui-table-column>
+        <ui-table-column label="操作" :width="tab === 'sources' ? 240 : 175" align="right" fixed="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
         <template #empty><ui-empty :description="loading ? '正在读取' : '暂无数据'" /></template>
       </ui-table>
     </DataTableCard>
@@ -298,5 +329,5 @@ onBeforeUnmount(() => { clearInterval(poll); fence.dispose() })
 </template>
 
 <style scoped>
-.external-data-view{min-width:0}.intro{font-size:13px;color:var(--text-muted);line-height:1.7;margin:0 0 16px}.external-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow:auto}.external-tabs button{background:none;border:0;border-bottom:2px solid transparent;white-space:nowrap;padding:10px 16px;color:var(--text-muted);cursor:pointer;font:inherit;font-size:13px}.external-tabs .active{border-bottom-color:var(--primary);color:var(--primary)}.filter-select{width:190px}.subline{display:block;color:var(--text-muted);font-size:12px;margin-top:4px}.wrap-text{overflow-wrap:anywhere}.failure{color:var(--danger-text);overflow-wrap:anywhere}.raw-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.raw-grid section,.preview-result{min-width:0}pre{color:var(--text);max-height:380px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-muted,var(--surface));padding:12px;border:1px solid var(--border);border-radius:8px;font-size:12px;line-height:1.6}h3{font-size:13px;margin:16px 0 8px}.detail-meta,.retry-row{display:flex;flex-wrap:wrap;align-items:center;gap:16px;font-size:12px}.retry-row{justify-content:flex-end;margin-top:18px}summary{cursor:pointer;color:var(--text-muted);font-size:13px;margin-top:16px}@media(max-width:640px){.raw-grid{grid-template-columns:1fr}.filter-select{width:100%}.external-tabs button{padding:9px 12px}.intro{font-size:12px}}
+.external-data-view{min-width:0}.intro{font-size:13px;color:var(--text-muted);line-height:1.7;margin:0 0 16px}.external-tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow:auto}.external-tabs button{background:none;border:0;border-bottom:2px solid transparent;white-space:nowrap;padding:10px 16px;color:var(--text-muted);cursor:pointer;font:inherit;font-size:13px}.external-tabs .active{border-bottom-color:var(--primary);color:var(--primary)}.filter-select{width:190px}.source-endpoints{padding:4px 12px 12px 48px;min-width:0}.subline{display:block;color:var(--text-muted);font-size:12px;margin-top:4px}.wrap-text{overflow-wrap:anywhere}.failure{color:var(--danger-text);overflow-wrap:anywhere}.raw-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.raw-grid section,.preview-result{min-width:0}pre{color:var(--text);max-height:380px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-muted,var(--surface));padding:12px;border:1px solid var(--border);border-radius:8px;font-size:12px;line-height:1.6}h3{font-size:13px;margin:16px 0 8px}.detail-meta,.retry-row{display:flex;flex-wrap:wrap;align-items:center;gap:16px;font-size:12px}.retry-row{justify-content:flex-end;margin-top:18px}summary{cursor:pointer;color:var(--text-muted);font-size:13px;margin-top:16px}@media(max-width:640px){.raw-grid{grid-template-columns:1fr}.filter-select{width:100%}.external-tabs button{padding:9px 12px}.intro{font-size:12px}}
 </style>

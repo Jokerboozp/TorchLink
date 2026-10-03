@@ -44,7 +44,6 @@ func buildCatalog() []Topic {
 		{"alarm-recovered", "告警恢复", model.TopicAlarmRecovered},
 		{"alarm-confirmed", "告警确认", model.TopicAlarmConfirmed},
 		{"alarm-ai-analysis", "告警研判结果", model.TopicAlarmAIAnalysis},
-		{"video-alarm", "视频告警", model.TopicVideoAlarm},
 		{"ui-action", "规则界面通知", model.TopicUIAction},
 	} {
 		add("kafka."+v.id, v.name, "kafka", "outbound", v.topic, true, "默认主题由多租户共享；自定义主题使用本租户专属前缀。")
@@ -76,7 +75,6 @@ func buildCatalog() []Topic {
 	}
 	add("mqtt.raw", "原始报文接入", "mqtt", "inbound", "/external/raw/{tenantId}/{productId}/{deviceId}", false, "原始归档接入契约，不允许修改或停用。")
 	add("mqtt.legacy-raw", "历史原始报文接入", "mqtt", "inbound", "/jetlinks/raw/{tenantId}/{productId}/{deviceId}", false, "现有历史接入路径，不允许修改或停用。")
-	add("mqtt.video-alarm", "视频告警接入", "mqtt", "inbound", "/external/video/alarm/{tenantId}/{cameraId}", false, "视频告警接入契约，不允许修改或停用。")
 	add("mqtt.state", "设备状态快照", "mqtt", "internal", "/iot/device/state/{tenantId}/{productId}/{deviceId}", false, "该 retained 状态主题同时属于平台状态链路，不允许修改或停用。")
 	add("mqtt.command", "设备命令下发", "mqtt", "outbound", "/iot/down/{tenantId}/{productId}/{deviceId}/command", false, "设备命令与凭据授权绑定，不允许修改或停用。")
 	add("mqtt.receipt", "原文归档确认", "mqtt", "outbound", "/iot/down/{tenantId}/{productId}/{deviceId}/receipt", false, "设备依赖此回执确认持久归档，不允许修改或停用。")

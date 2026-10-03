@@ -16,7 +16,7 @@ import (
 	"iot-platform/internal/externaldata"
 )
 
-func TestOutgoingThrottleCoordinatesReplicasAndEndpoints(t *testing.T) {
+func TestOutgoingThrottleSharesSourceWindowAcrossReplicasAndEndpoints(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -31,7 +31,7 @@ func TestOutgoingThrottleCoordinatesReplicasAndEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ep := runtimeEndpoint(t, s, source, externaldata.Endpoint{Mode: "pull", URL: server.URL, RequestIntervalMillis: 60000})
+	ep := runtimeEndpoint(t, s, source, externaldata.Endpoint{Mode: "pull", URL: server.URL})
 	other := runtimeService(t, s.Store, nil)
 	var accepted, limited atomic.Int32
 	var wg sync.WaitGroup
@@ -58,19 +58,19 @@ func TestOutgoingThrottleCoordinatesReplicasAndEndpoints(t *testing.T) {
 	if accepted.Load() != 1 || limited.Load() != 19 || requests.Load() != 1 {
 		t.Fatalf("replicas escaped shared source window: accepted=%d limited=%d calls=%d", accepted.Load(), limited.Load(), requests.Load())
 	}
-	// Advancing only the source window still leaves the endpoint reservation.
+	// Another endpoint of the same source shares the window until it elapses.
+	ep2 := runtimeEndpoint(t, s, source, externaldata.Endpoint{Mode: "pull", URL: server.URL})
+	if _, err = other.FetchPreview(context.Background(), testTenant, ep2, 1, 2); !errors.Is(err, externaldata.ErrRateLimited) {
+		t.Fatalf("second endpoint escaped the source window: %v", err)
+	}
 	entry, _ := s.Store.Get(context.Background(), testTenant, "rate_limit", source.ID)
 	var state map[string]any
 	json.Unmarshal(entry.Body, &state)
 	state["nextSourceAt"] = 0
 	entry.Body, _ = json.Marshal(state)
 	s.Store.Put(context.Background(), entry, entry.Revision)
-	if _, err = other.FetchPreview(context.Background(), testTenant, ep, 1, 2); !errors.Is(err, externaldata.ErrRateLimited) {
-		t.Fatalf("endpoint reservation lost: %v", err)
-	}
-	ep2 := runtimeEndpoint(t, s, source, externaldata.Endpoint{Mode: "pull", URL: server.URL})
 	if _, err = other.FetchPreview(context.Background(), testTenant, ep2, 1, 2); err != nil {
-		t.Fatalf("independent endpoint blocked after source window elapsed: %v", err)
+		t.Fatalf("endpoint blocked after source window elapsed: %v", err)
 	}
 }
 

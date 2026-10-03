@@ -167,7 +167,6 @@ func (s *Server) routes() {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = io.WriteString(w, s.metrics.Prometheus())
 	}))
-	s.router.POST("/api/v1/integrations/video/alarm", s.endpoint(s.videoWebhook))
 	s.router.GET("/api/v1/integrations/video/cameras", s.authorize("viewer"), s.endpoint(s.videoCameras))
 	s.router.GET("/api/v1/integrations/video/relations", s.authorize("viewer"), s.endpoint(s.videoRelations))
 	s.router.POST("/api/v1/integrations/video/cameras", s.authorize("operator"), s.endpoint(s.saveVideoCamera))
@@ -2716,59 +2715,6 @@ func (s *Server) mqttWebSocketURL(r *http.Request) string {
 	}
 	host := strings.Split(r.Host, ":")[0]
 	return fmt.Sprintf("%s://%s:8083/mqtt", scheme, host)
-}
-func (s *Server) videoWebhook(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20))
-	if err != nil {
-		problem(w, 400, err.Error())
-		return
-	}
-	platform := r.Header.Get("X-Video-Platform-ID")
-	timestamp := r.Header.Get("X-Timestamp")
-	secret := s.cfg.VideoSecrets[platform]
-	if secret == "" && !s.cfg.DevMode {
-		problem(w, 401, "unknown video platform")
-		return
-	}
-	if secret != "" && !verifySignature(secret, timestamp, body, r.Header.Get("X-Signature")) {
-		problem(w, 401, "invalid signature")
-		return
-	}
-	expectedTenant := strings.TrimSpace(s.cfg.VideoPlatformTenants[platform])
-	if expectedTenant == "" && !s.cfg.DevMode {
-		problem(w, 401, "video platform tenant binding is not configured")
-		return
-	}
-	ts, _ := strconv.ParseInt(timestamp, 10, 64)
-	if secret != "" && abs(time.Now().Unix()-ts) > 300 {
-		problem(w, 401, "stale timestamp")
-		return
-	}
-	var v model.VideoAlarmEvent
-	if err = json.Unmarshal(body, &v); err != nil {
-		problem(w, 400, "invalid JSON")
-		return
-	}
-	if expectedTenant != "" {
-		if v.TenantID != "" && v.TenantID != expectedTenant {
-			problem(w, 403, "video platform is not bound to this tenant")
-			return
-		}
-		v.TenantID = expectedTenant
-	}
-	if !s.cfg.DevMode {
-		mapping, mappingErr := s.engine.Repo.GetVideoCameraMapping(r.Context(), v.TenantID, v.CameraID)
-		if mappingErr != nil || !mapping.Enabled {
-			problem(w, 403, "camera is not bound to this tenant or is disabled")
-			return
-		}
-	}
-	a, created, err := s.engine.IngestVideo(r.Context(), v)
-	if err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	write(w, map[bool]int{true: 201, false: 200}[created], map[string]any{"created": created, "alarm": a})
 }
 func (s *Server) videoCameras(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)

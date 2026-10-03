@@ -126,32 +126,31 @@ type Pagination struct {
 }
 
 type Endpoint struct {
-	RequestIntervalMillis int               `json:"requestIntervalMillis,omitempty"`
-	Runtime               *RuntimeSummary   `json:"runtime,omitempty"`
-	ID                    string            `json:"id"`
-	Revision              int64             `json:"revision"`
-	SourceID              string            `json:"sourceId"`
-	Name                  string            `json:"name"`
-	Enabled               bool              `json:"enabled"`
-	Mode                  string            `json:"mode"` // push, pull
-	Kind                  string            `json:"kind"` // video_alarm, alarm, property, state, event
-	URL                   string            `json:"url,omitempty"`
-	Method                string            `json:"method,omitempty"`
-	Headers               map[string]string `json:"headers,omitempty"`
-	Query                 map[string]string `json:"query,omitempty"`
-	RequestBody           map[string]any    `json:"requestBody,omitempty"`
-	Auth                  *Auth             `json:"auth,omitempty"` // nil inherits source authentication
-	Mapping               Mapping           `json:"mapping"`
-	Pagination            Pagination        `json:"pagination"`
-	IntervalSeconds       int               `json:"intervalSeconds,omitempty"`
-	StartAt               int64             `json:"startAt,omitempty"`
-	OverlapSeconds        int               `json:"overlapSeconds,omitempty"`
-	TimeoutSeconds        int               `json:"timeoutSeconds,omitempty"`
-	MaxAttempts           int               `json:"maxAttempts,omitempty"`
-	ResponseStatus        int               `json:"responseStatus,omitempty"`
-	ResponseBody          json.RawMessage   `json:"responseBody,omitempty"`
-	PushKey               string            `json:"pushKey,omitempty"`
-	PushKeySet            bool              `json:"pushKeySet,omitempty"`
+	Runtime         *RuntimeSummary   `json:"runtime,omitempty"`
+	ID              string            `json:"id"`
+	Revision        int64             `json:"revision"`
+	SourceID        string            `json:"sourceId"`
+	Name            string            `json:"name"`
+	Enabled         bool              `json:"enabled"`
+	Mode            string            `json:"mode"` // push, pull
+	Kind            string            `json:"kind"` // video_alarm, alarm, property, state, event
+	URL             string            `json:"url,omitempty"`
+	Method          string            `json:"method,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Query           map[string]string `json:"query,omitempty"`
+	RequestBody     map[string]any    `json:"requestBody,omitempty"`
+	Auth            *Auth             `json:"auth,omitempty"` // nil inherits source authentication
+	Mapping         Mapping           `json:"mapping"`
+	Pagination      Pagination        `json:"pagination"`
+	IntervalSeconds int               `json:"intervalSeconds,omitempty"`
+	StartAt         int64             `json:"startAt,omitempty"`
+	OverlapSeconds  int               `json:"overlapSeconds,omitempty"`
+	TimeoutSeconds  int               `json:"timeoutSeconds,omitempty"`
+	MaxAttempts     int               `json:"maxAttempts,omitempty"`
+	ResponseStatus  int               `json:"responseStatus,omitempty"`
+	ResponseBody    json.RawMessage   `json:"responseBody,omitempty"`
+	PushKey         string            `json:"pushKey,omitempty"`
+	PushKeySet      bool              `json:"pushKeySet,omitempty"`
 }
 
 type Binding struct {

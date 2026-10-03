@@ -15,8 +15,8 @@ import (
 	"iot-platform/internal/model"
 )
 
-// externalSourceId is stamped only by trusted external-data ingestion. The
-// legacy video ingress strips the reserved marker before saving caller Raw.
+// externalSourceId is stamped only by trusted external-data ingestion; media
+// downloads are limited to that source's allowed hosts and ports.
 func externalVideoSourceID(event model.VideoAlarmEvent) string {
 	id, _ := event.Raw["externalSourceId"].(string)
 	return id
@@ -66,12 +66,6 @@ func videoMediaHostPort(u *url.URL) string {
 func (e *Engine) videoMediaURLAllowed(ctx context.Context, event model.VideoAlarmEvent, u *url.URL) error {
 	if _, err := parseVideoMediaURL(u.String()); err != nil {
 		return err
-	}
-	if externalVideoSourceID(event) == "" {
-		if !e.videoHostAllowed(u.Hostname()) {
-			return errors.New("媒体主机未列入视频允许名单")
-		}
-		return nil
 	}
 	hosts, err := e.sourceMediaHosts(ctx, event)
 	if err != nil {

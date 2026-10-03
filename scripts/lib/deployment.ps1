@@ -67,7 +67,6 @@ function Ensure-DeploymentEnv {
         IOT_KAFKA_ADMIN_PASSWORD = 'admin123'
         IOT_KAFKA_ADVERTISED_HOST = '127.0.0.1'
         IOT_KAFKA_PUBLIC_BROKERS = '127.0.0.1:19092'
-        IOT_VIDEO_PLATFORM_SECRETS = ('video-platform-1:' + (New-DeploymentSecret))
         IOT_AI_HARNESS_TOKEN = (New-DeploymentSecret)
         IOT_EMBEDDING_API_KEY = ''
         IOT_BACKUP_ADMIN_TOKEN = (New-DeploymentSecret)

@@ -59,21 +59,6 @@ func (e *Engine) archiveVideoMedia(ctx context.Context, v model.VideoAlarmEvent)
 func isExternalMedia(value string) bool {
 	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")
 }
-func (e *Engine) validateVideoMediaURLs(v model.VideoAlarmEvent) error {
-	for _, rawURL := range []string{v.SnapshotURL, v.VideoClipURL} {
-		if !isExternalMedia(rawURL) {
-			continue
-		}
-		u, err := parseVideoMediaURL(rawURL)
-		if err != nil {
-			return err
-		}
-		if !e.videoHostAllowed(u.Hostname()) {
-			return errors.New("媒体主机未列入视频允许名单")
-		}
-	}
-	return nil
-}
 func (e *Engine) processVideoMedia(ctx context.Context, original model.VideoAlarmEvent) {
 	updated, err := e.archiveVideoMedia(ctx, original)
 	if updated.Raw == nil {
@@ -200,14 +185,6 @@ func (e *Engine) transferVideoURL(ctx context.Context, v model.VideoAlarmEvent, 
 		return "", errors.New("媒体归档保存失败")
 	}
 	return stored, nil
-}
-func (e *Engine) videoHostAllowed(host string) bool {
-	for _, allowed := range e.VideoMediaAllowedHosts {
-		if strings.EqualFold(strings.TrimSpace(allowed), host) {
-			return true
-		}
-	}
-	return false
 }
 func safeSegment(v string) string {
 	return strings.NewReplacer("/", "_", "\\", "_", "..", "_").Replace(v)

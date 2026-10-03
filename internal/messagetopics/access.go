@@ -42,8 +42,6 @@ func SourceAllowed(sourceID string, identity MessageTopicIdentity) bool {
 		return false
 	}
 	switch {
-	case strings.HasSuffix(sourceID, ".video-alarm"):
-		return permission(identity, "alarms") && permission(identity, "cameras") && identity.DeviceScope == "all"
 	case strings.Contains(sourceID, ".alarm-") || strings.HasSuffix(sourceID, ".ui-action"):
 		return permission(identity, "alarms")
 	default:
