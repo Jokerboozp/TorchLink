@@ -159,6 +159,13 @@ func TestFireSafetyHTTPWorkflowsAndPermissions(t *testing.T) {
 	}
 	req("POST", "/api/v1/duty/assignments/batch", root, map[string]any{"assignments": days}, 409)
 	req("DELETE", "/api/v1/extinguishers/"+exid+"?version=1", root, nil, 409)
+	// Station statistics count enabled stations and personnel only.
+	before := req("GET", "/api/v1/fire-stations/statistics", root, nil, 200)
+	req("POST", "/api/v1/fire-personnel", root, map[string]any{"name": "停用人员", "stationId": sid, "enabled": false}, 201)
+	req("POST", "/api/v1/fire-stations", root, map[string]any{"code": "FS-OFF", "name": "停用消防站", "type": "micro", "enabled": false}, 201)
+	if after := req("GET", "/api/v1/fire-stations/statistics", root, nil, 200); after["stations"] != before["stations"] || after["personnel"] != before["personnel"] || len(after["byStation"].([]any)) != len(before["byStation"].([]any)) {
+		t.Fatalf("disabled stations or personnel counted: before %v after %v", before, after)
+	}
 	// Revoking the menu immediately revokes shared lookups on the same token.
 	user["permissions"] = []string{}
 	req("PUT", "/api/v1/access/users/duty_reader", root, user, 200)

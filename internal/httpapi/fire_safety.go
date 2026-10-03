@@ -482,14 +482,16 @@ func (s *Server) fireStationStatistics(w http.ResponseWriter, r *http.Request) {
 	byStation := []map[string]any{}
 	totals := map[string]int{"stations": 0, "personnel": 0, "equipment": 0, "activeDispatches": 0, "dispatches": 0, "returnedDispatches": 0}
 	from, to := i64(r.URL.Query().Get("fromAt")), i64(r.URL.Query().Get("toAt"))
+	// Only enabled stations and personnel are counted; a disabled station is
+	// excluded together with its equipment and dispatches.
 	for _, station := range state.Stations {
-		if id := r.URL.Query().Get("stationId"); id != "" && station.ID != id {
+		if id := r.URL.Query().Get("stationId"); !station.Enabled || id != "" && station.ID != id {
 			continue
 		}
 		totals["stations"]++
 		counts := map[string]int{"personnel": 0, "equipment": 0, "activeDispatches": 0, "dispatches": 0, "returnedDispatches": 0}
 		for _, person := range state.Personnel {
-			if person.StationID == station.ID {
+			if person.StationID == station.ID && person.Enabled {
 				counts["personnel"]++
 			}
 		}
