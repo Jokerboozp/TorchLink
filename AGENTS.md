@@ -35,6 +35,7 @@
 | `internal/httpapi/`、`internal/auth/` | HTTP 接口、认证、角色与租户边界 |
 | `internal/core/`、`internal/onboarding/`、`internal/model/`、`internal/ports/` | 业务编排、设备接入登记、领域模型和依赖接口 |
 | `internal/firesafety/` | 排班与换班审批、灭火器巡检整改、消防站资料与出勤业务 |
+| `internal/messagetopics/`、`internal/externaldata/` | 对外消息主题、对接账号授权与分发；第三方推送、拉取和历史补采 |
 | `internal/adapters/` | 数据库、消息、对象存储、AI 等外部实现 |
 | `internal/parser/` | 报文解析 |
 | `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | Go 协议源码构建、版本运行与 Worker 契约 |
@@ -59,9 +60,7 @@
 - Go 版本以 `go.mod` 为准；Node 要求和可用脚本以 `iot_front/package.json` 为准。沿用项目依赖与锁文件，非必要不升级或更换包管理器。
 - 本地、在线、离线是三套独立配置：本地为 `compose.local.yaml` / `.env.local`；在线为 `compose.yaml` / `.env.online`；离线为生成包中的 Compose 配置 / `.env.offline`。
 - 首次准备、构建和部署可能启动容器或下载依赖，只在任务需要时运行；单纯修改代码或文档不必重启整套服务。
-
 - 首次环境准备使用 `scripts/setup-local.sh` / `.ps1`；源码 API 为 `go run ./cmd/iot-platform --env-file .env.local`，前端在 `iot_front` 执行 `npm run dev`，备份服务为 `go run ./cmd/backup-service --env-file .env.local`。虚拟机依赖、参数和 IDE 设置统一见 `docs/DEPLOYMENT.md#本地运行`。
-
 - Windows 遇到 npm 执行策略问题时使用 `npm.cmd`。前端日常入口为 `http://localhost:5173`；Vite 默认代理 API 到 `http://localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖，具体见 `iot_front/vite.config.js`。
 - 进程环境变量优先于环境文件；排查配置时注意 IDE 遗留变量。不给用户复制硬编码凭据到 IDE 的配置方案。
 - 宿主机连接依赖须使用宿主机可达地址及已发布端口；Compose 服务名供容器内部使用。Linux 虚拟机依赖 / Windows 源码模式通过准备脚本的 `--dependency-host` 和 `--api-host` 指定地址，不固定某台机器的 IP。
@@ -81,6 +80,7 @@
 - 设备关系使用主子设备关联，状态来自成功解析的上报；已移除独立孪生拓扑和设备影子，不重新引入其页面、接口或状态投影。
 - 基础摄像头管理（资料、位置、设备关联）始终可用：单个摄像头最多关联一个设备，设备可以关联多个摄像头，不恢复旧多对多方案。直播由独立模块提供，模块未部署、关闭或故障不得影响摄像头资料、设备关联、告警摄像头信息和 API 启动 / 就绪。视频数据只在摄像头、媒体服务和浏览器之间传输，API 不搬运视频、不执行转码；取流目标及 GB28181 设备来源受网段与端口白名单约束，不提供任意 URL 代理；国标设备编号全局唯一且只属于一个租户，注册密码加密保存；观看需单独权限并受设备范围约束，播放会话随权限变化撤销。接入方式与生命周期见 [摄像头](docs/PLATFORM.md#摄像头)，部署开关与默认值统一见 [摄像头部署](docs/DEPLOYMENT.md#摄像头部署)。
 - 对外开放接口 `/api/open/v1` 使用绑定平台用户的密钥，按该用户的权限和设备范围执行，能力项只能收窄；外部上报经标准协议进入原始报文链路。不新增绕过用户权限、可自选租户或跳过原始归档的外部入口。细节见 `docs/INTEGRATION.md`。
+- MQTT / Kafka 外部对接账号绑定平台用户，订阅主题和设备范围只能收窄该用户授权；撤销、过期或权限变化后停止分发并撤销凭据。基础服务工具管理员账号与这些对接凭据分开，配置见 `docs/DEPLOYMENT.md`，业务流程见 `docs/INTEGRATION.md`。
 - 备份操作沿用服务端权限及凭据边界；备份存在、下载成功和恢复成功是不同结论，按本次实际操作表述。
 - 运维中心数据为全平台数据，只在 `IOT_OPS_TENANTS` 运维租户中授权；浏览器只调用平台 `/api/v1/ops/*`，不接触组件地址与凭据，不提供任意上游 URL 的通用代理。组件配置写入保持“校验 → 原子写入 → 确认加载 → 失败恢复”；监控告警由 Alertmanager 统一通知，Grafana 告警保持停用，与消防业务告警分开。细节见 `docs/PLATFORM.md`。
 
@@ -132,7 +132,7 @@
 | 执行目录 | 命令 | 适用范围 |
 |---|---|---|
 | 仓库根目录 | `go test ./internal/core ./internal/httpapi` | 示例：业务及 API 相关包；按改动选择实际包 |
-| 仓库根目录 | `go test ./cmd/... ./internal/...` | 正式后端源码测试，避免扫描运行数据目录中的临时程序 |
+| 仓库根目录 | `go test ./cmd/... ./internal/... ./deploy/toolaccounts` | 正式后端及工具账号初始化测试，避免扫描运行数据目录中的临时程序 |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立协议 module；根 module 测试不能代替此项 |
 | `iot_front` | `npm test` | 现有前端测试 |
 | `iot_front` | `npm run build` | 前端构建 |

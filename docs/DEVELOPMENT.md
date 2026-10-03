@@ -23,7 +23,7 @@
 
 | 执行目录 | 命令 | 验证范围 |
 | --- | --- | --- |
-| 仓库根目录 | `go test ./cmd/... ./internal/...` | 正式后端源码，避免把本地生成目录纳入测试 |
+| 仓库根目录 | `go test ./cmd/... ./internal/... ./deploy/toolaccounts` | 正式后端与工具账号初始化，避免把本地生成目录纳入测试 |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立协议及模拟器 |
 | `dev/` 下各协议 module 目录 | `go test ./...` | 对应厂商协议；与根 module 分开执行 |
 | `iot_front` | `npm test`、`npm run build` | 前端测试及构建；没有独立 lint/typecheck 脚本 |
@@ -48,7 +48,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 | `scripts/package-offline.*`、`deploy-offline.*` | 离线包生成、校验、安装与升级 |
 | `scripts/cluster-up.*`、`cluster-deploy.*` | 集群向导全流程；按已渲染配置分步部署 |
 | `scripts/video-module.*`、`capacity-module.*` | 已部署环境的模块开关与状态 |
-| `scripts/init-offline-env.*`、`prepare-public-bundle.py`、`next-release-version.py` | 公开离线包去除凭据、目标机初始化和 Release 版本生成 |
+| `scripts/init-offline-env.*`、`prepare-public-bundle.py`、`next-release-version.py` | 公开离线包移除现场凭据、保留工具账号默认值，目标机生成内部密钥及 Release 版本生成 |
 | `scripts/repair-offline-openeuler.sh` | openEuler 离线 Docker / SELinux 修复 |
 | `scripts/fetch-deepseek-harness.sh`、`scripts/lib/` | 固定版本 Harness 获取及各入口复用的部署/云 API/演示实现 |
 | `scripts/generate-demo-data.mjs`、`scripts/tests/` | 演示入口、协议模拟器与按场景启用的冒烟；前端浏览器用例见下节 |
@@ -100,6 +100,15 @@ node --test iot_front/tests/duty.test.mjs iot_front/tests/fire-safety-management
 
 浏览器核对须使用两个分别获授申请与审批操作的账户，检查跨午夜排班、整改驳回后重提、出勤归队、刷新后的记录和窄屏滚动。现有演示数据脚本和容量模块场景未覆盖这三项现场管理业务；流程与接口见 [消防管理](FIRE_SAFETY.md)。
 
+### 外部数据接入回归
+
+```sh
+go test ./internal/externaldata ./internal/httpapi ./internal/core
+go test ./internal/adapters/memory ./internal/adapters/postgres ./internal/backup -run ExternalData
+```
+
+PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 schema，不将真实环境连接串写入报告。浏览器测试入口在 `iot_front/tests/browser/external-data-*`；专用 fixture 需显式设置 `IOT_EXTERNAL_BROWSER_FIXTURE=1` 启动，使用内存仓储和测试账户，不连接真实业务数据库。业务流程及现场验收边界见[外部数据接入](EXTERNAL_DATA.md)。
+
 ### 消息主题回归
 
 仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run TestMessageTopic`，验证主题新增/真删除、账号设备交集、临时凭据、授权变更及失效重试、租户配置、并发版本、存储错误和接口权限；解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
@@ -107,21 +116,17 @@ node --test iot_front/tests/duty.test.mjs iot_front/tests/fire-safety-management
 真实 Broker 测试为 `go test -race ./internal/messagetopics -run TestMessageTopicsExisting -v`，仅在明确配置以下私有进程环境时执行：
 
 - MQTT：`IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER`，以及 `IOT_TEST_MESSAGE_TOPICS_MQTT_USERNAME` / `IOT_TEST_MESSAGE_TOPICS_MQTT_PASSWORD`；也可只提供 `IOT_TEST_MESSAGE_TOPICS_JWT_SECRET`，由测试签发精确临时主题、有效期 2 分钟的 JWT。
-- Kafka：`IOT_TEST_MESSAGE_TOPICS_KAFKA_BROKERS`，逗号分隔地址；连接身份须有测试主题的创建、发布、读取及删除权限。
+- Kafka：`IOT_TEST_MESSAGE_TOPICS_KAFKA_BROKERS`（逗号分隔），认证使用同前缀的 `_USERNAME`、`_PASSWORD`、`_MECHANISM`（默认 `SCRAM-SHA-256`）；TLS 使用 `_TLS` 和可选 `_TLS_CA_FILE`。连接身份须有测试主题的创建、发布、读取及删除权限；默认部署已启用 SASL，须提供认证参数。
 
-测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic 并精确清理，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查主题新增/删除/恢复默认、对接账号授权/启停/轮换/删除、分页设备选择、一次性密钥清除、整页刷新、只读目录和窄屏弹窗。
+测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic，仅清理确认本轮创建成功的主题，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查主题新增/删除/恢复默认、对接账号授权/启停/轮换/删除、分页设备选择、一次性密钥清除、整页刷新、只读目录和窄屏弹窗。
+
+工具账号回归为 `go test -race ./internal/adapters/mqtt -run TestExistingMQTTToolCredentials -count=1 -v`，需要 `IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER` 及 `IOT_TEST_MQTT_TOOL_USERNAME` / `IOT_TEST_MQTT_TOOL_PASSWORD`，核对发布/订阅、错误密码与匿名拒绝，不改账号或认证链。数据库工具账号引导回归为 `go test ./deploy/toolaccounts`，使用模拟客户端检查仅创建缺失账号、保留已有账号及失败清理。
 
 授权回归与上述路由回归分开：
 
 - `go test -race ./internal/adapters/mqtt -run 'TestAdminTopic|TestExistingMQTTTopicConsumerAuthorization' -count=1 -v`。真实用例需要 MQTT Broker、JWT secret，以及 `IOT_TEST_MESSAGE_TOPICS_EMQX_URL` / `_EMQX_KEY` / `_EMQX_SECRET`；显式测试也可用 `_EMQX_TOKEN` 替代管理 API key。仅生成随机临时账号、非 retained 消息和可清理的临时 ban，验证精确订阅、越权/发布拒绝、踢线及拒绝重连。
 - `go test -race ./internal/adapters/kafka -run TestConsumerAdminDisposableSecuredBroker -count=1 -v`。只连接独立临时安全 Broker，配置 `IOT_TEST_SECURED_KAFKA_BROKERS` / `_USERNAME` / `_PASSWORD` / `_MECHANISM` / `_ADMIN_URL`。测试验证匿名拒绝、SCRAM、精确主题/消费组 ACL、已有连接撤销、幂等、授权失败清理，以及平台 Bus 发布/订阅/健康/lag/容量查询的认证路径。测试不改变 Broker 安全开关；只删除 Broker 明确确认本轮创建成功的随机主题，已存在主题、内部队列和创建结果不明的主题不删除，已有主题也不写入测试消息。
 - Kafka 公开地址只读检查：另配 `IOT_TEST_SECURED_KAFKA_PUBLIC_BROKERS` 后执行 `go test -race ./internal/adapters/kafka -run TestConsumerAdminSecuredPublicListeners -count=1 -v`，核对内外 listener 及其广告地址的非空 `clusterId` 一致且均拒绝匿名连接，不创建主题或账号。生产配置使用 `IOT_KAFKA_PUBLIC_BROKERS`，缺失地址、跨集群、缺失集群身份和最多 115 项授权的边界另由同包及配置单测覆盖；部署参数见 [Kafka 对接账号认证与授权](DEPLOYMENT.md#kafka-对接账号认证与授权)。
-
-2026-10-02 验证：macOS 源码连接 OrbStack PostgreSQL 的隔离 schema，主题/账号/凭据重连持久化通过；真实 EMQX 5.8.8 的远程和容器内 loopback 两种连接均通过授权拒绝及撤销用例，确认默认本机 ACL 不会绕过 JWT 的明确拒绝。独立 Redpanda 25.2.11 以服务端 SCRAM256/512 两种机制通过授权回归，外部账号固定 SCRAM256。临时实例、账号及测试 ban 已清理，未改变现有 Broker 的认证配置。浏览器交互与 Broker 实测分别验证，不代表目标服务器已启用授权；实际配置状态以主题页的授权就绪检查为准。
-
-2026-10-03 补充验证：上述 Kafka 公开地址只读用例连接 OrbStack 中独立 Redpanda 25.2.11 的两个不同 listener，通过同集群身份与匿名拒绝检查；临时实例已清理。跨集群、缺失集群身份、115 / 116 项授权上限及测试主题清理归属的定向单测以 `-race -count=1` 通过，未重跑前一日的账号授权完整联调。
-
-同日浏览器验证：独立 Go HTTP 测试服务与 Vite 页面通过主题增删改和恢复默认、账号授权与密钥轮换、设备分页搜索、刷新持久化、只读用户接口拒绝、授权未就绪禁用态及 390px 窄屏弹窗检查，无浏览器异常。浏览器中的 Broker 签发/撤销使用显式测试适配器，不能替代上面的真实中间件结果。前端 `npm test` 227 项及 `npm run build` 通过，测试进程已停止。
 
 ## 管理端开发
 

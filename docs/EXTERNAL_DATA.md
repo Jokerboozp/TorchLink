@@ -105,17 +105,10 @@ Token 请求中的密码/密钥引用 `{{secret}}`，不将明文凭据写进普
 
 PostgreSQL 启动迁移创建 `external_data_entry`，保存配置、编号对应、原始接收、事件状态、任务与进度；生产运行使用该持久存储。memory 适配器用于单元和浏览器隔离测试，进程退出不保留数据。
 
-FULL 备份新增 `external-data.jsonl.gz` 组件，包含本模块记录及密文凭据；旧备份缺少该组件时按“不包含”处理。恢复验证写入独立 `external_restore_*` schema，不自动覆盖在线配置或重启任务。相关环境秘密仍须独立保管。
+本模块配置、密文凭据、记录与任务纳入 `FULL` 备份，恢复验证使用隔离 schema；完整范围及环境秘密要求见[设备数据备份](DEPLOYMENT.md#设备数据备份)。
 
 ## 回归入口与验收边界
 
-在仓库根目录运行：
-
-```sh
-go test ./internal/externaldata ./internal/httpapi ./internal/core
-go test ./internal/adapters/memory ./internal/adapters/postgres ./internal/backup -run ExternalData
-```
-
-PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 schema，不将真实环境连接串写入报告。浏览器测试入口在 `iot_front/tests/browser/external-data-*`；专用 fixture 需显式设置 `IOT_EXTERNAL_BROWSER_FIXTURE=1` 启动，使用内存仓储和测试账户，不连接真实业务数据库。
+源码回归、PostgreSQL 与备份联调、浏览器夹具统一见[外部数据接入回归](DEVELOPMENT.md#外部数据接入回归)。
 
 模拟平台、数据库契约和浏览器验收不能代替厂商现场验收。接入实际视频平台时，还应使用其真实请求、签名、分页及恢复样例验证网络可达性、截图/片段授权和事件编号稳定性。

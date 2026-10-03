@@ -90,7 +90,7 @@ const identity = ref({ tenant: session.tenant, user: session.user, role: session
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
 const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || '平台用户'))
 
-// layout=full 的页面自带标题区并占满内容高度；header=false 的页面暂时保留自己的介绍区。
+// layout=full 的页面占满内容高度；header=false 的页面使用自己的介绍区。
 const pages = {
   dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView },
   alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
@@ -197,8 +197,6 @@ function handleAccountCommand(command) {
 }
 
 function openPage(name, detail) {
-  // 旧的导航事件仍可能使用 testDevice，统一落到模拟设备测试页面。
-  if (name === 'testDevice') name = 'integration'
   if (name === 'profiles' && can('menu:products')) { name = 'products'; detail = detail && { ...detail, tab: 'access' } }
   if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
@@ -252,7 +250,7 @@ function handleUIAction(payload) {
       void openCameraAction(action.cameraId, event.id)
       return
     }
-    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'testDevice', 'cameras', 'externalData', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
+    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'cameras', 'externalData', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
     if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
       openPage(action.page)
       UiMessage.warning('规则联动：已打开相关业务页面')

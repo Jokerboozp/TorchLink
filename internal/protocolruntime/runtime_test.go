@@ -110,7 +110,7 @@ func TestCentralRuntimeDoesNotExecuteEdgeProfiles(t *testing.T) {
 	if len(r.running) != 0 || len(r.last) != 0 {
 		t.Fatal("remote task scheduled")
 	}
-	if _, e := ReadModbusTCP(ctx, p, model.ProtocolRelease{}, nil); e == nil {
+	if _, e := ReadModbusTCPWithPolicy(ctx, p, model.ProtocolRelease{}, nil, nil); e == nil {
 		t.Fatal("remote preview allowed")
 	}
 	listeners, store, _, listener := listenerFixture(t, func(context.Context, model.RawMessage) error { return nil })
@@ -416,7 +416,7 @@ func TestRTUOverTCPFragmentationAndCRC(t *testing.T) {
 				done <- e
 			}()
 			p := model.DeviceAccessProfile{Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port, UnitID: 7, TimeoutMs: 1000, WireFormat: "rtu_over_tcp"}
-			raws, err := ReadModbusTCP(context.Background(), p, model.ProtocolRelease{Transport: "MODBUS_RTU"}, []model.ModbusReadBlock{{FunctionCode: 3, Quantity: 1}})
+			raws, err := ReadModbusTCPWithPolicy(context.Background(), p, model.ProtocolRelease{Transport: "MODBUS_RTU"}, []model.ModbusReadBlock{{FunctionCode: 3, Quantity: 1}}, nil)
 			if bad {
 				if err == nil {
 					t.Fatal("accepted bad CRC")

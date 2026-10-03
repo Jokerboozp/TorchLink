@@ -127,11 +127,34 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 	for i := range brokers {
 		brokers[i] = strings.TrimSpace(brokers[i])
 	}
+	security := kafkaadapter.SecurityConfig{
+		Username:  os.Getenv("IOT_TEST_MESSAGE_TOPICS_KAFKA_USERNAME"),
+		Password:  os.Getenv("IOT_TEST_MESSAGE_TOPICS_KAFKA_PASSWORD"),
+		Mechanism: os.Getenv("IOT_TEST_MESSAGE_TOPICS_KAFKA_MECHANISM"),
+		CAFile:    os.Getenv("IOT_TEST_MESSAGE_TOPICS_KAFKA_TLS_CA_FILE"),
+	}
+	if value := os.Getenv("IOT_TEST_MESSAGE_TOPICS_KAFKA_TLS"); value != "" {
+		var err error
+		security.TLS, err = strconv.ParseBool(value)
+		if err != nil {
+			t.Fatal("IOT_TEST_MESSAGE_TOPICS_KAFKA_TLS must be a boolean")
+		}
+	}
+	dialer, err := kafkaadapter.NewDialer(security)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := kafkaadapter.NewTransport(security)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport.ClientID = "message-topics-integration"
+	t.Cleanup(transport.CloseIdleConnections)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	tenant := "topic-test-" + brokerTestID(t)
 	topic := messagetopics.KafkaPrefix(tenant) + "property"
-	connection, err := kafka.DialContext(ctx, "tcp", brokers[0])
+	connection, err := dialer.DialContext(ctx, "tcp", brokers[0])
 	if err != nil {
 		t.Fatal("could not connect to the existing Kafka broker")
 	}
@@ -141,14 +164,18 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not locate the Kafka controller")
 	}
-	transport := &kafka.Transport{ClientID: "message-topics-integration", DialTimeout: 5 * time.Second}
-	t.Cleanup(transport.CloseIdleConnections)
 	admin := &kafka.Client{Addr: kafka.TCP(net.JoinHostPort(controller.Host, strconv.Itoa(controller.Port))), Timeout: 10 * time.Second, Transport: transport}
-	owned := true
+	created, err := admin.CreateTopics(ctx, &kafka.CreateTopicsRequest{Topics: []kafka.TopicConfig{{Topic: topic, NumPartitions: 1, ReplicationFactor: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created == nil {
+		t.Fatal("isolated Kafka topic creation returned no result")
+	}
+	if err, ok := created.Errors[topic]; !ok || err != nil {
+		t.Fatalf("isolated Kafka topic creation was not confirmed: %v", err)
+	}
 	t.Cleanup(func() {
-		if !owned {
-			return
-		}
 		cleanup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		response, err := admin.DeleteTopics(cleanup, &kafka.DeleteTopicsRequest{Topics: []string{topic}})
@@ -160,15 +187,10 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 			t.Errorf("could not delete temporary Kafka topic %s: %v", topic, err)
 		}
 	})
-	created, err := admin.CreateTopics(ctx, &kafka.CreateTopicsRequest{Topics: []kafka.TopicConfig{{Topic: topic, NumPartitions: 1, ReplicationFactor: 1}}})
+	bus, err := kafkaadapter.NewWithSecurity(brokers, security)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := created.Errors[topic]; err != nil {
-		owned = !errors.Is(err, kafka.TopicAlreadyExists)
-		t.Fatalf("could not create the isolated Kafka topic: %v", err)
-	}
-	bus := kafkaadapter.New(brokers)
 	bus.SetAutoCreateTopics(false)
 	t.Cleanup(func() { _ = bus.Close() })
 	service := messagetopics.New(memory.NewRepository())
@@ -178,7 +200,7 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 	if err := routed.Publish(ctx, model.TopicPropertyReport, "device-one", first); err != nil {
 		t.Fatal(err)
 	}
-	leader, err := kafka.DialLeader(ctx, "tcp", brokers[0], topic, 0)
+	leader, err := dialer.DialLeader(ctx, "tcp", brokers[0], topic, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +218,7 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 	if err := routed.Publish(ctx, model.TopicPropertyReport, "device-one", last); err != nil {
 		t.Fatal(err)
 	}
-	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, Topic: topic, Partition: 0, MinBytes: 1, MaxBytes: 1 << 20, MaxWait: time.Second})
+	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, Dialer: dialer, Topic: topic, Partition: 0, MinBytes: 1, MaxBytes: 1 << 20, MaxWait: time.Second})
 	t.Cleanup(func() { _ = reader.Close() })
 	for i, want := range [][]byte{first, last} {
 		message, err := reader.ReadMessage(ctx)

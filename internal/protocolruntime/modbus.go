@@ -203,10 +203,6 @@ func releaseBlocks(release model.ProtocolRelease) ([]model.ModbusReadBlock, erro
 	return blocks, nil
 }
 
-func ReadModbusTCP(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock) ([]model.RawMessage, error) {
-	return ReadModbusTCPWithPolicy(ctx, profile, release, blocks, nil)
-}
-
 func ReadModbusTCPWithPolicy(ctx context.Context, profile model.DeviceAccessProfile, release model.ProtocolRelease, blocks []model.ModbusReadBlock, allowedCIDRs []string) ([]model.RawMessage, error) {
 	if profile.EdgeNodeID != "" || (profile.Network != "" && profile.Network != "tcp") {
 		return nil, errors.New("remote Edge execution is not supported by the central runtime")

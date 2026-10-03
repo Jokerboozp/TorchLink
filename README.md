@@ -26,7 +26,7 @@
 | 摄像头映射与直播 | 摄像头资料、位置、设备关联、视频告警；ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放和可选转码。[摄像头](docs/PLATFORM.md#摄像头) |
 | 运维中心 | 原生管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警、静默与通知；自动补齐内置仪表盘。[运维功能](docs/PLATFORM.md#运维中心) |
 | 容量测试 | 页面预设、CLI 与多 Agent 发压，按当前权限准备测试设备，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[模块部署](docs/DEPLOYMENT.md#容量测试模块) · [容量验证](docs/DEVELOPMENT.md#容量验证) |
-| 备份中心 | 每日设备数据备份，FULL 另含知识库与 Harness Agent/会话；制品下载、SHA-256 校验及隔离恢复验证。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
+| 备份中心 | 每日设备数据备份，FULL 另含外部接入记录、知识库与 Harness Agent/会话；制品下载、SHA-256 校验及隔离恢复验证。[备份范围](docs/DEPLOYMENT.md#设备数据备份) |
 | 用户与权限 | 租户、用户、角色、菜单/操作权限、角色继承与用户设备范围；服务端、实时通知和 AI 工具统一执行授权。[权限边界](docs/PLATFORM.md#权限与设备范围) |
 | 消防管理 | 排班日历与换班审批、灭火器台账和巡检整改复核、消防站人员器材与出勤统计。[业务流程](docs/FIRE_SAFETY.md) |
 | 外部数据接入 | 配置第三方推送、定时拉取与历史补拉，字段转换、编号关联、持久重试及告警证据。[接口管理](docs/EXTERNAL_DATA.md) |
@@ -37,40 +37,19 @@
 
 ## 快速运行
 
-Go 和 Node.js 版本分别以 `go.mod`、`iot_front/package.json` 为准。准备脚本会检查运行依赖、安装 Go/npm 依赖并准备本地环境；Docker 准备行为及虚拟机依赖模式见 [部署与本地调试](docs/DEPLOYMENT.md#本地运行)。以下命令均从本仓库根目录执行。
+首次准备按 [本地运行](docs/DEPLOYMENT.md#本地运行) 执行 `scripts/setup-local.sh`（Linux / macOS）或 `.ps1`（Windows）；依赖放在 OrbStack 时使用 [虚拟机调试步骤](docs/DEPLOYMENT.md#orbstack-虚拟机本地调试)。Go、Node.js 版本分别以 `go.mod`、`iot_front/package.json` 为准。
 
-Windows 首次准备：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-local.ps1
-```
-
-Linux / macOS：
-
-```bash
-bash ./scripts/setup-local.sh
-```
-
-准备完成后，在独立终端分别启动 API、前端和备份源码服务：
+准备完成后，从仓库根目录在三个独立终端启动：
 
 ```bash
 go run ./cmd/iot-platform --env-file .env.local
-```
-
-```bash
-cd iot_front
-npm run dev
-```
-
-```bash
+npm --prefix iot_front run dev
 go run ./cmd/backup-service --env-file .env.local
 ```
 
-访问 `http://localhost:5173`，使用环境配置中的管理员账户登录；Vite 默认代理 API 到 `http://localhost:8081`。Windows 遇到 npm 执行策略限制时使用 `npm.cmd`。真实环境文件与运行数据不提交到仓库。
+访问 `http://localhost:5173`。平台登录、MQTT/Kafka 等基础服务工具连接与外部对接授权使用不同用途的凭据，见 [工具连接账号](docs/DEPLOYMENT.md#工具连接账号)；IDE 调试、端口与停止命令见 [部署指南](docs/DEPLOYMENT.md)。
 
-本地容量测试默认随源码 API 启停，在“运维中心 → 容量测试”打开；配置见 [本地容量模块](docs/DEVELOPMENT.md#容量测试模块)。
-
-登录“模型管理”，保持预填的 DeepSeek 地址与模型，填写 API Key 并保存即可启用 AI（连接测试可选）；未填密钥可先使用设备接入等功能。在同一页面独立配置知识库 Embedding API。离线包不携带模型权重，AI 与向量计算需要访问外部 API，见 [AI 配置与升级](docs/DEPLOYMENT.md#ai-与工作流)。
+AI 和知识向量服务在“模型管理”分别配置密钥；未配置时可先使用设备业务。离线包仍通过外部 API 使用 AI，见 [AI 配置](docs/DEPLOYMENT.md#ai-与工作流)。本地容量模块随源码 API 启停，入口为“运维中心 → 容量测试”，见 [本地容量模块](docs/DEVELOPMENT.md#容量测试模块)。
 
 | 环境 | 配置与操作入口 |
 | --- | --- |
@@ -111,7 +90,7 @@ PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥�
 
 ```bash
 # 仓库根目录
-go test ./cmd/... ./internal/...
+go test ./cmd/... ./internal/... ./deploy/toolaccounts
 
 # 独立协议 module（根 module 的测试不会覆盖它们）
 cd protocol-packages/gb26875-dahua
@@ -131,6 +110,6 @@ go test ./...
 | [部署与本地调试](docs/DEPLOYMENT.md) | 本机/虚拟机、在线/离线、集群与角色拆分、模块开关、迁移、维护和备份 |
 | [开发与测试](docs/DEVELOPMENT.md) | 源码与脚本入口、前端约定、查询契约、回归、演示工具、容量测试与目标环境验收 |
 | [外部数据接入](docs/EXTERNAL_DATA.md) | 外部系统、推送/拉取、字段映射、编号对应、去重恢复、任务与权限 |
-| [设备接入与协议](docs/INTEGRATION.md) | 模板准备与验收、草稿与批量登记、配置更新和回滚、HTTP/MQTT、TCP/Modbus、协议开发及开放 API |
+| [设备接入与协议](docs/INTEGRATION.md) | 模板准备与验收、草稿与批量登记、配置更新和回滚、HTTP/MQTT、TCP/Modbus、协议开发、消息主题与开放 API |
 | [平台功能与边界](docs/PLATFORM.md) | 设备与告警、消防管理入口、用户权限、AI/知识库、巡检报告、运维中心、摄像头直播与视频事件 |
 | [消防管理](docs/FIRE_SAFETY.md) | 排班与换班审批、灭火器巡检整改、消防站出勤、接口权限与持久化 |

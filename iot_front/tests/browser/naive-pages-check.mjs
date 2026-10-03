@@ -29,6 +29,7 @@ try {
     if (await evaluate("document.querySelector('.app-topbar__toggle')?.getAttribute('aria-label')==='打开菜单'")) { await evaluate("document.querySelector('.app-topbar__toggle').click()"); await delay(250) }
     await evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(name)}]').click()`)
     await until(() => evaluate(`document.querySelector('.app-breadcrumb strong')?.innerText === ${JSON.stringify(name)}`))
+    return until(async () => { const value=await evaluate("(() => {const root=document.querySelector('.app-content');if(!root || root.querySelector('.ui-loading,.n-data-table--loading,.n-skeleton'))return '';return [...root.children].filter(node=>!node.classList.contains('page-header')).map(node=>node.innerText || '').join(' ').trim()})()"); return value.length>name.length ? value : false }).catch(async error => { throw new Error(`${name} 缺少业务内容：${error.message}；异常=${failures.slice(-3).join(' | ')}；警告=${warnings.slice(-3).join(' | ')}`) }) /* 等待异步页面出现业务内容。 */
   }
   const freshSession = async () => { /* 重新载入并登录：隔离前面页面累积的状态，避免无头浏览器长时间运行后卡住。 */
     await call('Page.navigate', { url: origin })
@@ -93,8 +94,7 @@ try {
   await evaluate("document.querySelector('.app-topbar__toggle').click()") /* 恢复完整侧栏。 */
   await delay(300)
   for (const name of pages) { /* 逐页检查标题、正文和脚本异常。 */
-    await openPage(name)
-    const text = await until(async () => { const value=await evaluate("document.querySelector('.app-content')?.innerText.trim() || ''"); return value.length>name.length ? value : false }).catch(async error => { throw new Error(`${name} 缺少业务内容：${error.message}；异常=${failures.slice(-3).join(' | ')}；警告=${warnings.slice(-3).join(' | ')}`) }) /* 等待异步页面出现业务内容。 */
+    const text = await openPage(name)
     assert.ok(text.length > name.length, `${name} 缺少业务内容`) /* 防止页面只显示标题。 */
     assert.ok(await evaluate("[...document.querySelectorAll('.app-content .n-tabs-tab')].every(tab=>tab.innerText.trim().length>0 && tab.getBoundingClientRect().width>0)"), `${name} 存在空白页签`) /* 所有主页面页签必须有可读标题。 */
     const surfaceAudit = await auditControls('.app-content')
@@ -146,13 +146,6 @@ try {
     assert.deepEqual(overlayControls.clipped,[],`${pageName} / ${actionName} 弹层有被裁切的控件文字`)
     assert.deepEqual(overlayControls.emptyButtons,[],`${pageName} / ${actionName} 弹层有无名称的操作按钮`)
     assert.deepEqual(await auditContrast('.n-modal,.n-drawer'),[],`${pageName} / ${actionName} 弹层有对比不足的正文文字`)
-    if (pageName==='设备模板' && ['新建设备模板','编辑'].includes(actionName)) {
-      const sectionCount=await evaluate("document.querySelectorAll('.n-modal .editor-section').length")
-      assert.equal(sectionCount,4,'设备模板弹窗应按身份、协议、型号、状态分区')
-      await evaluate("document.querySelector('.n-modal .editor-advanced .n-collapse-item__header-main').click()")
-      await until(() => evaluate("document.querySelector('.editor-advanced .n-collapse-item__content-wrapper')?.getBoundingClientRect().height>10"))
-      assert.ok(await evaluate("document.querySelectorAll('.editor-advanced .n-form-item').length===2"),'高级通信设置应有独立的传输协议与数据格式字段')
-    }
     if (pageName==='协议开发' && actionName==='协议生成') assert.equal(await evaluate("document.querySelectorAll('.protocol-generator .generator-section').length"),2,'生成协议应区分资料与协议基本信息')
     if (pageName==='设备管理' && actionName==='编辑') {
       await evaluate("document.querySelector('.n-modal .device-advanced .n-collapse-item__header-main').click()")
@@ -345,6 +338,7 @@ try {
   assert.ok(await evaluate("(() => {const text=[...document.querySelectorAll('.n-modal .section-heading span')].find(item=>item.innerText.includes('清单中的每个文件'));return getComputedStyle(text).color!=='rgb(242, 242, 244)'})()"), '备份详情说明文字与白色背景过于接近') /* 明确使用深色辅助文本。 */
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭备份详情。 */
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)")) /* 等待详情关闭。 */
+  await freshSession()
   await evaluate("(() => {const base='iot:ai-history:v1:'+localStorage.getItem('iot_tenant')+':'+localStorage.getItem('iot_user');for(const [id,text] of [['ops-assistant','A 专属对话'],['custom-assistant','B 专属对话']]){const state={version:1,selectedWorkflowId:id,conversationId:'conversation-'+id,messages:[{id:'message-'+id,role:'user',status:'succeeded',text}],runs:[]};localStorage.setItem(base+':'+encodeURIComponent(id),JSON.stringify(state));if(id==='ops-assistant')localStorage.setItem(base,JSON.stringify(state))}})()")
   await openPage('智能助手') /* 检查智能助手滚动区。 */
   await until(() => evaluate("Boolean(document.querySelector('.chat-workflow-select') && document.querySelector('.chat-log'))")) /* 等待工作流切换与对话区。 */
@@ -434,7 +428,6 @@ try {
     if (tabName) { await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`)); await evaluate(`[...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`) }
     assert.ok(await until(() => clickListAction(actionName)).catch(() => false), `${pageName} 手机视图缺少“${actionName}”入口`)
     await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'))"))
-    if (pageName==='设备模板' && actionName==='新建设备模板') await evaluate("document.querySelector('.n-modal .editor-advanced .n-collapse-item__header-main').click()")
     if (pageName==='告警规则' && actionName==='手动添加规则') { await evaluate("document.querySelector('.n-modal .rule-field-reference summary').click()"); assert.ok(await evaluate("document.querySelectorAll('.rule-reference-cards article').length>0 && getComputedStyle(document.querySelector('.rule-reference-cards')).display==='grid'"),'手机端字段参考应按卡片逐条阅读') }
     await delay(550)
     if (pageName==='设备管理' && actionName==='详情') {
@@ -447,14 +440,11 @@ try {
     await until(() => evaluate("![...document.querySelectorAll('.n-modal,.n-drawer')].some(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')"))
   }
   console.log(`PASS: ${overlayCases.length} 个弹层手机视图布局与滚动检查`)
-  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: true }) /* 缩短视口验证长表单滚动。 */
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 560, deviceScaleFactor: 1, mobile: true })
   await openPage('设备模板')
-  await until(() => evaluate("Boolean([...document.querySelectorAll(':is(.page-toolbar,.filter-bar) button')].find(button => button.innerText.includes('新建设备模板')))")) /* 等待模板页工具栏。 */
-  await evaluate("[...document.querySelectorAll(':is(.page-toolbar,.filter-bar) button')].find(button => button.innerText.includes('新建设备模板')).click()") /* 打开产品表单。 */
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-modal')].find(modal => modal.getClientRects().length))")) /* 等待弹窗显示。 */
-  assert.ok(await evaluate("(() => {const modal=[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length),body=modal.querySelector('.n-card-content');body.scrollTop=200;return modal.getBoundingClientRect().bottom<=innerHeight+1 && body.scrollTop>0})()"), '窄屏长弹窗正文无法上下滚动') /* 长表单应在弹窗内部滚动。 */
-  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()") /* 关闭产品表单。 */
-  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")) /* 等待关闭。 */
+  await evaluate("[...document.querySelectorAll(':is(.page-toolbar,.filter-bar) button')].find(button => button.textContent.includes('新建设备模板')).click()")
+  await until(() => evaluate("Boolean(document.querySelector('.product-preparation'))"))
+  assert.ok(await evaluate("(() => {const body=document.querySelector('.app-content'),form=document.querySelector('.product-preparation');body.scrollTop=200;return body.getBoundingClientRect().bottom<=innerHeight+1 && body.scrollTop>0 && form.getBoundingClientRect().right<=innerWidth+1})()"), '窄屏模板准备表单无法上下滚动或横向溢出')
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) /* 恢复桌面视口。 */
   // 添加设备向导的各接入方式由 onboarding-modes-check.mjs 单独检查。
   await openPage('用户与权限') /* 校验删除确认共享弹窗的说明与取消操作。 */

@@ -79,7 +79,7 @@ test('opening simulation creates no resource and preparation requires an explici
 test('template preview pins the bound protocol version and invalidates a pending preview',async()=>{
  let mount,cleanup,finish;const calls=[]
  const release={protocolId:'fire',version:'2',status:'PUBLISHED',parserType:'go_protocol_parser',payloadFormat:'hex'}
- const context=vm.createContext({ref,computed,watch,AbortController,can:()=>true,defineProps:()=>({initialProductId:'template'}),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},apiAll:async()=>({items:[{id:'template',name:'烟感',protocolPackageId:'fire@2'}]}),api:async(path,options)=>{calls.push({path,options});if(!options)return {items:[{definition:{name:'协议'},releases:[release]}]};return new Promise(resolve=>finish=resolve)},parseJSON:JSON.parse})
+ const context=vm.createContext({ref,computed,watch,AbortController,can:()=>true,defineProps:()=>({context:{productId:'template'}}),onMounted(fn){mount=fn},onBeforeUnmount(fn){cleanup=fn},apiAll:async()=>({items:[{id:'template',name:'烟感',protocolPackageId:'fire@2'}]}),api:async(path,options)=>{calls.push({path,options});if(!options)return {items:[{definition:{name:'协议'},releases:[release]}]};return new Promise(resolve=>finish=resolve)},parseJSON:JSON.parse})
  const script=setupScript(new URL('../src/components/ProtocolPreviewPanel.vue',import.meta.url))
  const c=vm.runInContext(script+'\n;({payload,preview,result})',context)
  await mount();c.payload.value='AA012A';const pending=c.preview()

@@ -144,8 +144,6 @@ function roleActions(row) {
 .user-editor-password-note { align-self:center; padding:10px 12px; color:var(--text-muted); background:var(--surface-muted); border-radius:6px; font-size:12px; line-height:1.5; }
 .user-editor-switch { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:11px 13px; background:var(--surface-muted); border-radius:6px; font-size:13px; font-weight:600; }
 .user-editor-switch small { display:block; margin-top:3px; color:var(--text-muted); font-size:12px; font-weight:400; }
-.user-editor-scope { display:flex; flex-wrap:wrap; gap:8px; }
-.user-editor-hint { margin:4px 0 0; padding:10px 12px; color:var(--text); background:var(--surface-muted); border-radius:6px; font-size:12px; line-height:1.6; }
 .user-editor-permissions { padding:0; }
 .user-editor-permissions summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; cursor:pointer; list-style:none; font-size:14px; font-weight:600; }
 .user-editor-permissions summary::-webkit-details-marker { display:none; }
@@ -155,5 +153,5 @@ function roleActions(row) {
 .user-editor-permissions details[open] .user-editor-expand::after { content:'收起设置'; font-size:12px; }
 .user-editor-permissions :deep(.permission-picker) { padding:0 18px 18px; border-top:1px solid var(--border); }
 .role-editor{display:grid;gap:14px}.role-editor-section{min-width:0;padding:16px 18px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}.role-editor-section h3{margin:0;font-size:14px}.role-editor-section p{margin:5px 0 14px;color:var(--text-muted);font-size:12px;line-height:1.5}.role-editor-section :deep(.n-form-item:last-child){margin-bottom:0}
-@media (max-width:640px) { .user-editor-grid { grid-template-columns:1fr; }.user-editor-section { padding:14px; }.user-editor-permissions { padding:0; }.user-editor-scope { flex-direction:column; align-items:stretch; }.user-editor-scope :deep(.n-radio-button) { width:100%; } }
+@media (max-width:640px) { .user-editor-grid { grid-template-columns:1fr; }.user-editor-section { padding:14px; }.user-editor-permissions { padding:0; } }
 </style>

@@ -5,9 +5,9 @@ import { transportLabel } from '../presentation'
 import { messageTypeLabel } from '../labels'
 import { can } from '../permissions'
 
-const props = defineProps({ context:{type:Object,default:null}, initialProductId:{type:String,default:''}, initialProtocolId:{type:String,default:''}, initialVersion:{type:String,default:''} })
+const props = defineProps({ context:{type:Object,default:null}, initialProtocolId:{type:String,default:''}, initialVersion:{type:String,default:''} })
 let origin=props.context || {}
-const initialProduct=origin.productId || props.initialProductId || '', initialProtocol=origin.protocolId || props.initialProtocolId || '', initialVersion=origin.version || props.initialVersion || ''
+const initialProduct=origin.productId || '', initialProtocol=origin.protocolId || props.initialProtocolId || '', initialVersion=origin.version || props.initialVersion || ''
 const products=ref([]), protocols=ref([]), productId=ref(initialProduct), packageId=ref(initialProtocol && initialVersion ? `${initialProtocol}@${initialVersion}` : '')
 const mode=ref(packageId.value?'release':initialProduct?'template':'release'), payload=ref(''), startAddress=ref(0), deviceId=ref(origin.deviceId || 'protocol_preview'), state=ref('{}')
 const messageKind=ref('property')

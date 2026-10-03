@@ -101,7 +101,6 @@ type Config struct {
 	MQTTUsername             string
 	MQTTPassword             string
 	MQTTToolUsername         string
-	MQTTToolPassword         string
 	MQTTWebSocketURL         string
 	MQTTPublicURL            string
 	DeviceHTTPPublicURL      string
@@ -206,7 +205,6 @@ func Load() Config {
 		MQTTUsername:                os.Getenv("IOT_MQTT_USERNAME"),
 		MQTTPassword:                os.Getenv("IOT_MQTT_PASSWORD"),
 		MQTTToolUsername:            get("IOT_MQTT_TOOL_USERNAME", "admin"),
-		MQTTToolPassword:            get("IOT_MQTT_TOOL_PASSWORD", "admin123"),
 		MQTTWebSocketURL:            os.Getenv("IOT_MQTT_WEBSOCKET_PUBLIC_URL"),
 		MQTTPublicURL:               os.Getenv("IOT_DEVICE_MQTT_PUBLIC_URL"),
 		DeviceHTTPPublicURL:         os.Getenv("IOT_DEVICE_HTTP_PUBLIC_URL"),

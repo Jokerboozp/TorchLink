@@ -20,7 +20,7 @@ Linux / macOS：
 bash ./scripts/setup-local.sh
 ```
 
-脚本生成 `.env.local`，将基础服务工具账号默认设为 `admin` / `admin123`，独立生成内部密钥与令牌，启动依赖与 Harness，设置云端 Embedding 默认配置，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录信息见下文。
+脚本生成 `.env.local`，将基础服务工具账号默认设为 `admin` / `admin123`，独立生成内部密钥与令牌，启动依赖与 Harness，设置云端 Embedding 默认配置，执行 `go mod download` 和 `npm ci`。重复执行复用已有配置与数据，登录与工具连接见[工具连接账号](#工具连接账号)。
 
 | 需求 | PowerShell 参数 | Bash 参数 |
 | --- | --- | --- |
@@ -233,7 +233,7 @@ sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 
 ### 安装与升级
 
-升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新随机凭据直接连接旧数据库。在包根目录执行：
+升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新配置中的凭据直接连接旧数据库。在包根目录执行：
 
 ```bash
 sudo bash scripts/deploy-offline.sh
@@ -302,14 +302,6 @@ PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|dis
 
 各入口显式选择上表中的环境文件和 Compose 文件；自定义项目名须在准备、部署和日常维护时保持一致。
 
-首次执行将平台、MQTT、Kafka、PostgreSQL、Redis、ClickHouse、MinIO（含灾备）、EMQX 控制台及 Grafana 的工具连接账号统一为 `admin` / `admin123`。PostgreSQL 和 ClickHouse 仍保留 `iot` 应用账号，Redis 保留 `default` 应用账号；工具使用独立的 `admin` 身份。数据库/缓存工具账号由 `SERVICE_ADMIN_USER` / `SERVICE_ADMIN_PASSWORD` 配置，其他服务沿用各自的账号变量。JWT、Harness、备份、EMQX 管理 API、摄像头密钥、集群复制凭据和外部对接临时凭据继续独立生成。
-
-重复执行保留已有环境文件和数据库中的账号，不会把现场密码静默改成新默认；修改已有服务密码需同步服务端账号、环境文件及使用它的平台/备份进程。不要重新生成配置文件或删除数据卷来“重置”已有数据库。配置文件和离线包包含现场凭据，不应提交或公开分享。
-
-MQTT 工具连接使用 `IOT_MQTT_TOOL_USERNAME` / `IOT_MQTT_TOOL_PASSWORD`，可发布和订阅；设备及浏览器仍使用 JWT。Kafka 工具选择 `SASL_PLAINTEXT`、`SCRAM-SHA-256`（启用 TLS 时选择 `SASL_SSL`），连接对外 Kafka 端口。工具 `admin` 具有服务管理权限，外部业务对接继续在“消息主题”中按账号单独授权。ClickHouse 的工具账号继承初始化连接账号实际可授予的权限，使用 `GRANT CURRENT GRANTS`，不要求官方镜像默认账号没有的命名集合管理权限。
-
-单机 EMQX 使用固定节点名，避免容器 IP 变化后切换到新的 Mnesia 数据库。已有部署更换节点名时，先在旧节点通过 `emqx ctl data export --dir <已存在的目录>` 导出配置和账号并备份，再在新节点执行 `emqx ctl data import <导出文件>`。持久配置中的认证列表会覆盖启动基线；旧配置应同步内置密码认证器的 `bootstrap_file` / `bootstrap_type` 并更新工具用户，保留 JWT 认证。仅改变启动变量不会覆盖已有账号密码。
-
 **已有部署沿用原项目和凭据。** 新默认项目名会创建一套新数据卷，不会自动迁移旧数据。例如原服务用项目 `iot-platform`、配置 `.env`，在线更新应执行：
 
 ```powershell
@@ -321,6 +313,22 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 ```
 
 已有自定义 Compose 覆盖文件、外部数据卷或外部数据库时，先核对原部署参数；上述命令只使用 `compose.yaml`。
+
+### 工具连接账号
+
+首次部署的基础服务工具用户名为 `admin`，密码为 `admin123`，用于 MQTT、Kafka、PostgreSQL、Redis、ClickHouse、MinIO（含灾备）、EMQX 控制台及 Grafana；平台内置管理员使用相同默认值。PostgreSQL 和 ClickHouse 仍保留 `iot` 应用账号，Redis 保留 `default` 应用账号。数据库/缓存工具账号由 `SERVICE_ADMIN_USER` / `SERVICE_ADMIN_PASSWORD` 配置，其他服务沿用各自的账号变量。
+
+这些用户名和密码是连接工具中填写的登录凭据，服务地址见[端口与地址](#端口与地址)：
+
+- MQTT 使用 `IOT_MQTT_TOOL_USERNAME` / `IOT_MQTT_TOOL_PASSWORD`，可发布和订阅；设备及浏览器仍使用 JWT。
+- Kafka 选择 `SASL_PLAINTEXT`、`SCRAM-SHA-256`（启用 TLS 时选择 `SASL_SSL`），连接对外 Kafka 端口，填写配置中的用户名和密码。
+- ClickHouse 工具账号通过 `GRANT CURRENT GRANTS` 继承初始化连接账号实际可授予的权限。
+
+工具 `admin` 具有服务管理权限。外部业务对接在[消息主题](INTEGRATION.md#外部对接账号与订阅)中按账号单独授权；JWT、Harness、备份、EMQX 管理 API、摄像头密钥、集群复制凭据和外部对接临时凭据继续独立生成。
+
+重复执行保留已有环境文件和数据库中的账号，不会把现场密码静默改成新默认。修改已有服务密码需同步服务端账号、环境文件及使用它的平台/备份进程；不要重新生成配置文件或删除数据卷来重置密码。配置文件和私有离线包包含现场凭据，不应提交或公开分享。
+
+单机 EMQX 使用固定节点名，避免容器 IP 变化后切换到新的 Mnesia 数据库。已有部署更换节点名时，先在旧节点通过 `emqx ctl data export --dir <已存在的目录>` 导出配置和账号并备份，再在新节点执行 `emqx ctl data import <导出文件>`。持久配置中的认证列表会覆盖启动基线；旧配置应同步内置密码认证器的 `bootstrap_file` / `bootstrap_type` 并更新工具用户，保留 JWT 认证。仅改变启动变量不会覆盖已有账号密码。
 
 ### 数据库迁移
 
@@ -362,11 +370,9 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 | `IOT_EMBEDDING_BATCH_SIZE` | `10`，须遵守所选服务的单批上限 |
 | `IOT_EMBEDDING_QUERY_INSTRUCTION` | 默认空；仅为需要查询前缀的模型配置 |
 
-页面保存的配置持久化到 PostgreSQL，并优先于首次启动环境默认值。API 对 429/502/503/504 最多退避重试两次，其他错误直接返回，不把上游响应中的凭据写入失败原因。上传先保存原件与文档记录，返回 202；后台任务计算向量，页面显示实际分片进度、失败原因和重试。进程重启会接手未完成或租约过期的任务。没有向量密钥时文档可上传，索引会明确失败，配置密钥后可重试。删除立即停止召回，后台重试清理原件、记录和所有版本分片。
+页面保存的配置持久化到 PostgreSQL，并优先于首次启动环境默认值。API 对 429/502/503/504 最多退避重试两次，其他错误直接返回，不把上游凭据写入失败原因。没有向量密钥时文档仍可上传，但索引会失败；配置密钥后可重试。
 
-改变向量服务地址、模型、维度或查询指令会在后台建立独立候选索引，多副本共享 PostgreSQL 重建锁。已有可检索文档全部重建成功后原子激活，待索引及从未成功入库的文档由后台队列处理；失败保留完整旧索引及其配置，不混用向量空间。仅更新密钥不改变向量空间。页面显示重建进度，失败可修复配置后重试。
-
-检索策略、首次模型请求的证据和授权校验见 [知识库使用](PLATFORM.md#ai-与知识库)。部署脚本不自动删除清单外容器或历史数据卷。
+改变向量服务地址、模型、维度或查询指令会触发重建，仅更新密钥不改变向量空间。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁，部署时保留原库、对象和环境秘密。
 
 ### 运维组件
 
@@ -442,7 +448,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 | `IOT_KAFKA_SASL_MECHANISM` | 服务账号机制，默认 `SCRAM-SHA-256`，也支持 `SCRAM-SHA-512` |
 | `IOT_KAFKA_TLS` / `IOT_KAFKA_TLS_CA_FILE` | Kafka TLS 开关与可选 CA 文件；CA 为空时使用系统信任库，开启后校验服务端证书和主机名，不提供跳过校验选项 |
 | `IOT_KAFKA_ADMIN_URL` | Redpanda Admin API 根地址，不带 `/v1`；必须是平台进程可达地址 |
-| `IOT_KAFKA_ADMIN_USERNAME` / `IOT_KAFKA_ADMIN_PASSWORD` | 独立管理账号，同时用于 HTTP Admin 与 Kafka ACL 管理，不返回浏览器；其 SCRAM 机制与上述服务账号机制一致 |
+| `IOT_KAFKA_ADMIN_USERNAME` / `IOT_KAFKA_ADMIN_PASSWORD` | 管理账号（默认与服务账号相同），用于 HTTP Admin 与 Kafka ACL 管理，不返回浏览器；SCRAM 机制与服务账号一致 |
 
 源码启动使用相应环境文件。在线/离线 Compose 已透传上述变量；自签名 CA 文件还须通过部署覆盖配置挂载到容器内，并填写容器内路径。Admin API 为 HTTPS 时复用该 CA 信任配置。容器内 `IOT_KAFKA_BROKERS` 使用内部地址，`IOT_KAFKA_PUBLIC_BROKERS` 使用对接方可达地址。平台会检查两组地址及 Broker 返回的广告地址属于同一个非空 `clusterId`，并拒绝匿名连接；两组 listener 使用相同的 SASL 机制与 TLS 配置。不要将匿名 listener 暴露给消费者。
 
@@ -590,15 +596,24 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 设备数据备份
 
-每日设备备份包含 PostgreSQL 的原始报文、标准解析消息，以及 ClickHouse 的原始报文和解析遥测数据。立即执行的 `FULL` 备份还包括四张知识表的结构与数据、分片与向量、Agent 知识绑定、所引用的 MinIO 原件，以及全部 Harness 实例的动态 Agent 和会话快照。设备原始报文按接收时间分日；标准消息按处理时间（旧记录回退到消息时间）分日，ClickHouse 遥测按消息时间分日。两种存储的数据分别保留来源，可能包含同一解析消息的不同表示。
+备份服务把制品保存到 MinIO 的 `iot-backups` 桶，提供下载、SHA-256 校验与隔离恢复验证。按以下范围选择：
 
-设备日报和 `FULL` 均不包含账号、Provider/API Key、设备模板与接入配置、设备凭据、消防管理的 `platform_fire_safety`，以及接入草稿、批量任务、验收和回滚历史所在的 `onboarding_record`；也不包含 Redis、消息队列、环境文件或整个 MinIO。这些业务配置与流程记录须纳入独立 PostgreSQL 数据库备份，协议源码及制品目录、环境配置和凭据另行保管；设备导出及其隔离恢复不能代替这些备份。
+| 类型 | 内容与时间范围 |
+| --- | --- |
+| `DEVICE_DAILY`（备份昨日数据） | PostgreSQL 原始报文、标准解析消息，ClickHouse 原始报文与解析遥测。原文按接收时间、标准消息按处理时间（旧记录回退消息时间）、遥测按消息时间分日；两种存储分别标明来源 |
+| `FULL`（立即备份设备数据） | 全量设备消息，外部数据接入的配置、密文凭据、记录与任务（`external-data.jsonl.gz`），四张知识表及索引、引用的 MinIO 原件，全部 Harness 实例的动态 Agent 与会话快照 |
 
-- **立即备份设备数据**：执行 `FULL`，导出当前设备数据、知识库原件及索引、Agent 和会话。
-- **备份昨日数据**：按配置时区导出前一个自然日的数据。
-- **每日自动备份**：默认开启，每天上海时间 00:05 执行昨日备份。服务需要持续运行；停机期间不会自动补跑历史日期。
-- 设备备份包含原始数据、解析数据两个 gzip JSONL 文件及清单；`FULL` v2 增加知识表 JSONL、结构清单、原件归档及 Harness 快照，所有制品保存到 MinIO 的 `iot-backups` 桶；保留下载、SHA-256 文件校验及历史记录。文件校验不等于恢复到数据库。
-- **恢复验证（恢复到独立库）**：备份列表的“恢复验证”调用 `POST /api/v1/backups/:id/restore`，由备份服务把该备份的全部记录写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 指向的独立 PostgreSQL 库（表 `restored_message`、`restore_run`），并按清单核对条数与消息数。目标库与业务库的主机、端口和库名相同时拒绝执行（HTTP 412），不会覆盖业务数据；未配置时返回 412。`FULL` v2 同时在独立库的 `kb_restore_<标识>` schema 恢复知识表、pgvector 索引和引用关系，在恢复用 MinIO 的独立前缀恢复原件，在隔离目录恢复每个 Harness 实例文件；校验制品 SHA-256、文件大小及恢复数量。旧 v1 备份只验证原有消息，不宣称包含知识或 Agent。该操作验证隔离恢复，不替换现网数据；同一时间只运行一个备份或恢复。
+每日自动备份默认开启，每天上海时间 00:05 执行昨日备份；服务停机期间不自动补跑。`FULL` 使用 v2 清单，按组件记录实际包含范围；旧备份缺少的组件显示“不包含”，不补记成功。
+
+两种备份均不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`platform_fire_safety`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 MinIO。上述数据库内容需独立整库备份；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
+
+备份列表“恢复验证”调用 `POST /api/v1/backups/:id/restore`，逐项校验制品 SHA-256、大小与恢复数量：
+
+- 设备消息写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 的 `restored_message`、`restore_run`；目标库未配置，或与业务库主机、端口、库名相同，返回 412。
+- 知识库恢复到该库的 `kb_restore_<标识>` schema，原件恢复到独立 MinIO 前缀，Harness 文件恢复到隔离目录。
+- 外部接入记录恢复到 `external_restore_<标识>` schema，不覆盖在线配置或重新启动任务。
+
+同一时间只运行一个备份或恢复。文件校验与隔离恢复是不同操作；隔离恢复不替换现网数据，也不等同于完整系统恢复。
 
 ```dotenv
 # 是否开启每日自动备份；关闭后仍可手动备份

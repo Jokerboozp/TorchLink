@@ -120,7 +120,7 @@ func TestOfficeKnowledgeExtractionAndChunking(t *testing.T) {
 	if err != nil || !strings.Contains(text, "消防泵维护步骤") {
 		t.Fatalf("text=%q err=%v", text, err)
 	}
-	chunks := ChunkKnowledgeText(strings.Repeat(text, 20), 80, 10)
+	chunks := ChunkKnowledgeTextDetailed(strings.Repeat(text, 20), 80, 10)
 	if len(chunks) < 2 {
 		t.Fatalf("expected multiple overlapping chunks, got %d", len(chunks))
 	}

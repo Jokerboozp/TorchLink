@@ -63,6 +63,4 @@ PUT 及已有记录的审批、检查、整改、取消和归队操作必须提�
 
 部署迁移及数据库备份边界见 [部署指南](DEPLOYMENT.md#数据库迁移) 和 [备份范围](DEPLOYMENT.md#设备数据备份)。
 
-主要源码入口为 `internal/firesafety/`、`internal/httpapi/fire_safety.go`、`internal/adapters/{memory,postgres}/fire_safety.go` 及三项前端页面。
-
-源码回归、PostgreSQL 联调条件与浏览器核对入口统一见 [消防管理回归](DEVELOPMENT.md#消防管理回归)。
+实现入口为[业务流程](../internal/firesafety/)、[HTTP 与权限](../internal/httpapi/fire_safety.go)、[PostgreSQL 持久化](../internal/adapters/postgres/fire_safety.go)；memory 实现用于开发测试。源码回归、数据库联调条件与浏览器核对步骤统一见[消防管理回归](DEVELOPMENT.md#消防管理回归)。

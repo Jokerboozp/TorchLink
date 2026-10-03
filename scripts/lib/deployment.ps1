@@ -32,7 +32,7 @@ function New-DeploymentSecret {
 }
 
 function Ensure-DeploymentEnv {
-    param([Parameter(Mandatory)][string]$Path, [hashtable]$Defaults = @{})
+    param([Parameter(Mandatory)][string]$Path)
 
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
         Write-Host "保留已有配置：$Path"
@@ -89,12 +89,6 @@ function Ensure-DeploymentEnv {
         IOT_BACKUP_TIME = '00:05'
         IOT_BACKUP_ENABLED = 'true'
         IOT_BACKUP_TIMEZONE = 'Asia/Shanghai'
-    }
-    foreach ($key in $Defaults.Keys) {
-        if ($key -notmatch '^[A-Za-z_][A-Za-z0-9_]*$' -or [string]$Defaults[$key] -match "[\r\n]") {
-            throw '默认环境变量名称或值包含不支持的字符。'
-        }
-        $values[$key] = [string]$Defaults[$key]
     }
     $fullPath = [IO.Path]::GetFullPath($Path)
     [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($fullPath)) | Out-Null

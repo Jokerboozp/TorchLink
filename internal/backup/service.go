@@ -123,9 +123,8 @@ func (s *Service) Ready(ctx context.Context) error {
 	return nil
 }
 
-// Run retains the old request types for existing clients, but all new
-// daily backups contain device data; FULL additionally protects knowledge and
-// persistent Agent files. Daily requests cover the previous day.
+// Run maps legacy daily request types to the previous day's device data.
+// FULL also exports external ingestion, knowledge and persistent Agent state.
 func (s *Service) Run(ctx context.Context, kind string) (Manifest, error) {
 	kind = strings.ToUpper(strings.TrimSpace(kind))
 	if kind == "" {

@@ -10,13 +10,13 @@ deployment_secret() {
 }
 
 ensure_deployment_env() {
-  local env_path="$1"; shift
+  local env_path="$1"
   if [ -f "$env_path" ]; then
     printf '保留已有配置：%s\n' "$env_path"
     return
   fi
   [ ! -e "$env_path" ] || { printf '配置路径不是文件：%s\n' "$env_path" >&2; return 1; }
-  local defaults key value
+  local defaults
   defaults="$(cat <<EOF
 SERVICE_ADMIN_USER=admin
 SERVICE_ADMIN_PASSWORD=admin123
@@ -69,14 +69,6 @@ IOT_BACKUP_ENABLED=true
 IOT_BACKUP_TIMEZONE=Asia/Shanghai
 EOF
 )"
-  for value in "$@"; do
-    key="${value%%=*}"
-    if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || [[ "$value" != *=* ]] || [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
-      echo '默认环境变量名称或值包含不支持的字符。' >&2
-      return 1
-    fi
-    defaults="$(printf '%s\n' "$defaults" | awk -F= -v key="$key" '$1 != key')"$'\n'"$value"
-  done
   mkdir -p -- "$(dirname -- "$env_path")"
   # noclobber protects existing files, including concurrent script invocations.
   (umask 077; set -o noclobber; {

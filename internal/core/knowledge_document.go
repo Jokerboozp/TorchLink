@@ -366,12 +366,3 @@ func ChunkKnowledgeTextDetailed(text string, size, overlap int) []KnowledgeTextC
 	}
 	return out
 }
-
-func ChunkKnowledgeText(text string, size, overlap int) []string {
-	detailed := ChunkKnowledgeTextDetailed(text, size, overlap)
-	out := make([]string, 0, len(detailed))
-	for _, chunk := range detailed {
-		out = append(out, chunk.Text)
-	}
-	return out
-}

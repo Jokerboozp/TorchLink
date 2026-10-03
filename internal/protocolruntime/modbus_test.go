@@ -177,7 +177,7 @@ func TestReadModbusTCP(t *testing.T) {
 	blocks := []model.ModbusReadBlock{{ID: "b", FunctionCode: 3, StartAddress: 100, Quantity: 2}}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	raws, err := ReadModbusTCP(ctx, profile, release, blocks)
+	raws, err := ReadModbusTCPWithPolicy(ctx, profile, release, blocks, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestModbusRejectsResponseQuantityMismatch(t *testing.T) {
 				if wire == "rtu_over_tcp" {
 					transport = "MODBUS_RTU"
 				}
-				raws, err := ReadModbusTCP(context.Background(), p, model.ProtocolRelease{Transport: transport}, []model.ModbusReadBlock{{FunctionCode: tc.function, StartAddress: 0x2000, Quantity: tc.quantity}})
+				raws, err := ReadModbusTCPWithPolicy(context.Background(), p, model.ProtocolRelease{Transport: transport}, []model.ModbusReadBlock{{FunctionCode: tc.function, StartAddress: 0x2000, Quantity: tc.quantity}}, nil)
 				if tc.valid {
 					if err != nil || len(raws) != 1 {
 						t.Fatalf("valid response rejected: %v", err)

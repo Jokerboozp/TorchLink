@@ -154,10 +154,6 @@ function resultDetail(value) {
   return value?.rawDetail || value?.response || { error: value?.error || '暂无结果' }
 }
 
-function alarmLabel(value) {
-  return alarmType(value)
-}
-
 onMounted(() => {
   restoreTemplates()
 })
@@ -255,7 +251,7 @@ onMounted(() => {
               <ui-descriptions-item label="消息编号"><code>{{ result.messageId }}</code></ui-descriptions-item>
               <ui-descriptions-item label="解析状态">{{ result.rawDetail?.parseStatus ? statusLabel(result.rawDetail.parseStatus) : '已提交' }}</ui-descriptions-item>
               <ui-descriptions-item label="标准消息">{{ result.rawDetail?.standardMessage ? `${messageTypeLabel(result.rawDetail.standardMessage.messageType)}（${result.rawDetail.standardMessage.messageType}）` : '等待处理' }}</ui-descriptions-item>
-              <ui-descriptions-item label="关联告警">{{ result.alarms?.length ? `${result.alarms.length} 条 · ${alarmLabel(result.alarms[0].alarmType)}` : '暂无' }}</ui-descriptions-item>
+              <ui-descriptions-item label="关联告警">{{ result.alarms?.length ? `${result.alarms.length} 条 · ${alarmType(result.alarms[0].alarmType)}` : '暂无' }}</ui-descriptions-item>
             </ui-descriptions>
             <pre class="result-json">{{ pretty(resultDetail(result)) }}</pre>
           </template>
