@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -89,93 +88,18 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if len(realtime.Messages) != before || hasTopic(bus.topics, model.TopicParseFailed) {
 		t.Fatalf("parse failure was forwarded: topics=%#v realtime=%#v", bus.topics, realtime.Messages)
 	}
-	// Tenant publication settings are enforced on the actual parsing path,
-	// while the business stream still persists and processes the message.
-	settings := model.MessageTopicConfig{Overrides: map[string]model.MessageTopicOverride{
-		"mqtt.parsed": {Enabled: false}, "kafka.property-report": {Enabled: false},
-	}}
-	if saved, err := e.MessageTopics.Save(ctx, "t1", settings); err != nil || !saved {
-		t.Fatal("save disabled publication", saved, err)
-	}
-	normal.MessageID, normal.ReceivedAt = "raw_fanout_disabled", 1003
-	busBefore, mqttBefore := len(bus.topics), len(realtime.Messages)
-	if _, _, err := e.IngestRaw(ctx, normal); err != nil {
-		t.Fatal(err)
-	}
-	if hasTopic(bus.topics[busBefore:], model.TopicPropertyReport) || !hasTopic(bus.topics[busBefore:], model.TopicDeviceBusiness) {
-		t.Fatal("publication switch affected the wrong stream", bus.topics[busBefore:])
-	}
-	for _, event := range realtime.Messages[mqttBefore:] {
-		if strings.HasPrefix(event.Topic, "/iot/parsed/") {
-			t.Fatal("disabled parsed MQTT publication was sent")
-		}
-	}
-	if _, err := repo.GetStandardMessageByRaw(ctx, "t1", normal.MessageID); err != nil {
-		t.Fatal("disabled external publication prevented storage", err)
-	}
-	settings.Revision = 1
-	customKafka := messagetopics.KafkaPrefix("t1") + "properties"
-	settings.Overrides["kafka.property-report"] = model.MessageTopicOverride{Enabled: true, Topic: customKafka}
-	settings.Overrides["mqtt.parsed"] = model.MessageTopicOverride{Enabled: true, Topic: messagetopics.MQTTPrefix("t1") + "{productId}/{deviceId}/{messageType}"}
-	if saved, err := e.MessageTopics.Save(ctx, "t1", settings); err != nil || !saved {
-		t.Fatal("save custom publication", saved, err)
-	}
-	normal.MessageID, normal.ReceivedAt = "raw_fanout_custom", 1004
-	busBefore, mqttBefore = len(bus.topics), len(realtime.Messages)
-	if _, _, err := e.IngestRaw(ctx, normal); err != nil {
-		t.Fatal(err)
-	}
-	if !hasTopic(bus.topics[busBefore:], customKafka) || hasTopic(bus.topics[busBefore:], model.TopicPropertyReport) {
-		t.Fatal("Kafka custom route was not applied", bus.topics[busBefore:])
-	}
-	foundCustom := false
-	for _, event := range realtime.Messages[mqttBefore:] {
-		if event.Topic == messagetopics.MQTTPrefix("t1")+"json_sensor/device_fanout/PROPERTY_REPORT" {
-			foundCustom = true
-		}
-	}
-	if !foundCustom {
-		t.Fatal("custom parsed MQTT route was not applied")
-	}
-	settings.Revision = 2
-	settings.Topics = []model.MessageTopicRoute{
+	// Query topics are evaluated on the actual parsing path, while the
+	// business stream still persists and processes every message.
+	settings := model.MessageTopicConfig{Topics: []model.MessageTopicRoute{
 		{ID: "kafka-rule", Name: "Kafka 自定义消息", Protocol: "kafka", Topic: messagetopics.KafkaPrefix("t1") + "selected-values", Enabled: true},
 		{ID: "mqtt-rule", Name: "MQTT 自定义消息", Protocol: "mqtt", Topic: messagetopics.MQTTPrefix("t1") + "selected-values", Enabled: true},
-	}
-	settings.Rules = []model.MessageTopicRule{
-		{ID: "missing-field", TopicID: "kafka-rule", Name: "不存在的字段", SourceID: "kafka.property-report", Enabled: true, DeviceScope: "all", Format: "json", Fields: map[string]string{"value": "properties.missing"}},
-		{ID: "mqtt-values", TopicID: "mqtt-rule", Name: "温度消息", SourceID: "mqtt.parsed", Enabled: true, DeviceScope: "all", Format: "json", Fields: map[string]string{"value": "properties.temperature"}},
-	}
-	for _, rule := range settings.Rules {
-		if err := messagetopics.AccumulateExposure(&settings, rule); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if saved, err := e.MessageTopics.Save(ctx, "t1", settings); err != nil || !saved {
-		t.Fatal("save automatic rules", saved, err)
-	}
-	normal.MessageID, normal.ReceivedAt = "raw_fanout_rule_missing", 1005
-	busBefore, mqttBefore = len(bus.topics), len(realtime.Messages)
-	if _, _, err := e.IngestRaw(ctx, normal); err != nil {
-		t.Fatal("a missing optional rule field interrupted the parsing pipeline", err)
-	}
-	if !hasTopic(bus.topics[busBefore:], customKafka) || hasTopic(bus.topics[busBefore:], settings.Topics[0].Topic) {
-		t.Fatal("invalid rule changed the primary Kafka publication")
-	}
-	primary, projected := false, false
-	for _, event := range realtime.Messages[mqttBefore:] {
-		primary = primary || event.Topic == messagetopics.MQTTPrefix("t1")+"json_sensor/device_fanout/PROPERTY_REPORT"
-		projected = projected || (event.Topic == settings.Topics[1].Topic && string(event.Payload) == `{"value":23}`)
-	}
-	if !primary || !projected {
-		t.Fatal("Kafka rule conversion failure blocked subsequent MQTT delivery", primary, projected)
-	}
+	}}
+	var busBefore, mqttBefore int
 	query, err := messagetopics.CompileQuerySQL("SELECT deviceId, properties.temperature AS temperature FROM device_reports WHERE properties.temperature >= 25")
 	if err != nil {
 		t.Fatal(err)
 	}
 	query.DeviceScope, query.DeviceIDs = "selected", []string{"device_fanout"}
-	settings.Revision, settings.Rules = 3, nil
 	for i := range settings.Topics {
 		settings.Topics[i].Query = &query
 		if err := messagetopics.AccumulateQueryExposure(&settings, settings.Topics[i].ID, query); err != nil {

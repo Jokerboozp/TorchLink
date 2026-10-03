@@ -498,19 +498,19 @@ API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 
 ## 消息主题管理
 
-管理端“设备与接入 → 消息主题”用于给外部系统订阅业务数据。一个主题对应一份查询：在同一表单中设置 MQTT / Kafka 主题、业务数据、返回字段、查询条件、设备范围和订阅账号，保存后按约定时机发布。主列表展示用户创建的主题；内置消息路由在“兼容配置与内置主题”中保留，不扫描 Broker 的全部物理主题。
+管理端“设备与接入 → 消息主题”用于给外部系统订阅业务数据。一个主题对应一份查询：在同一表单中设置 MQTT / Kafka 主题、业务数据、返回字段、查询条件、设备范围和授权订阅的开放接口密钥，保存后按约定时机发布。平台内置主题（内部队列、设备接入、解析结果和告警转发）只读展示，不能修改或停用。
 
 ### 创建数据订阅主题
 
 1. 填写名称、协议和主题。例如 MQTT `/device` 或 Kafka `device`。
 2. 选择“设备上报”“新告警”“告警恢复”或“告警确认”。默认发送全部业务字段，也可选择字段并设置输出名称，例如把 `properties.temperature` 输出为 `temperature`。
 3. 设置查询条件及设备范围；条件支持全部满足（AND）或任一满足（OR）。
-4. 预览输出并选择外部对接账号。没有账号时可先保存，再到“外部对接账号”创建、绑定平台用户并授权订阅。
-5. 在账号的“订阅信息”获取连接地址、临时用户名密码和实际主题。外部系统连接并订阅后接收新消息。
+4. 预览输出并选择授权订阅的开放接口密钥（须开通“订阅消息主题”能力）。没有密钥时可先保存，再到“用户与权限 → 开放接口”创建。
+5. 外部系统用该密钥换取临时连接凭据，连接并订阅后接收新消息。
 
-实际主题包含租户前缀：MQTT `/iot/external/<租户十六进制>/`、Kafka `iot.external.<租户十六进制>.`。填写 `/device` 时按本租户后缀处理，也可直接填写本租户完整地址；以页面保存后的完整地址为准。MQTT 支持多级路径，禁止 `+` / `#` 通配符；Kafka 使用字母、数字、点、下划线和短横线。协议与地址创建后固定，查询、名称、说明和启停可修改。Kafka 创建要求新的物理 Topic，已存在地址会拒绝，以免带入旧历史；分区和副本数使用集群默认值。MQTT 无需预建物理 Topic。
+实际主题包含租户前缀：MQTT `/iot/external/<租户十六进制>/`、Kafka `iot.external.<租户十六进制>.`。填写 `/device` 时按本租户后缀处理，也可直接填写本租户完整地址；以页面保存后的完整地址为准。MQTT 支持多级路径，禁止 `+` / `#` 通配符；Kafka 使用字母、数字、点、下划线和短横线。协议与地址创建后固定，查询、名称、说明、授权和启停可修改。Kafka 创建要求新的物理 Topic，已存在地址会拒绝，以免带入旧历史；分区和副本数使用集群默认值。MQTT 无需预建物理 Topic。
 
-数据查询主题供外部只读订阅，不允许外部发布、手动发送或额外添加旧发送规则。同一主题的所有订阅者接收相同内容，不能在 Broker 中按各订阅者再次筛选设备；需要不同数据范围时创建不同主题。发布成功表示平台向 Broker 的发布调用成功，不代表外部系统已接收或处理。
+主题只供外部只读订阅，不允许外部发布或手动发送。同一主题的所有订阅者接收相同内容，不能在 Broker 中按各订阅者再次筛选设备；需要不同数据范围时创建不同主题。发布成功表示平台向 Broker 的发布调用成功，不代表外部系统已接收或处理。
 
 ### 数据、字段与条件
 
@@ -553,33 +553,29 @@ SQL 是上述查询的另一种编辑方式，支持 SELECT 字段 / `*`、AS �
 
 `generatedAt` 为毫秒时间戳。没有匹配记录时也发送 `items:[]`，用于表达本次结果为空；这不是增量变更消息。最多扫描 10000 条、返回 1000 条匹配记录，消息不超过 256 KiB；超限或查询失败报错并不发送截断结果，应收窄条件、设备范围或拆分主题。进程重启或主节点切换可能重新发送最新快照，不承诺逐次恰好一次，也不补发停机期间的历史快照。
 
-### 既有主题与历史范围
+### 历史数据范围
 
-原有内置转发和账号隔离通道保留其行为，内置目标仍可编辑、启停、恢复默认和删除；内部队列、设备接入等契约保持只读。已有共享消息通道可在编辑页的“旧消息通道配置”中继续管理原自动发送规则或手动调试。旧规则仍支持原文 JSON、字段映射和文本模板。转换为数据订阅主题时必须明确确认替换全部旧规则，并先解除外部发布授权；取消或仅编辑名称不会丢弃旧规则。
+主题累计记录曾配置的业务事件权限和设备范围，包括停用的查询。修改条件或缩小范围不能缩小已有历史数据的读取要求；需要更小订阅权限时新建主题。删除主题只移除平台配置和订阅授权，不清空 Broker 历史；已删除的地址不能被新主题复用。
 
-主题累计记录曾配置的业务事件权限和设备范围，包括停用查询/规则。修改条件、缩小范围或删除规则不能缩小已有历史数据的读取要求；需要更小订阅权限时新建主题。删除主题只移除平台配置、查询、规则和账号授权，不清空 Broker 历史；已退役地址及旧内置路由使用过的地址不能被新主题复用。
+### 订阅密钥与连接凭据
 
-### 外部对接账号与订阅
+运维工具管理账号见[工具连接账号](DEPLOYMENT.md#工具连接账号)。外部业务订阅使用开放接口密钥和临时 Broker 凭据，不使用工具管理员账号。
 
-运维工具管理账号见[工具连接账号](DEPLOYMENT.md#工具连接账号)。外部业务对接使用独立账号密钥和临时 Broker 凭据，不使用工具管理员账号。
-
-1. 新建账号并绑定平台用户，选择可订阅主题。用户及账号必须覆盖主题累计的业务权限和设备范围；设备数据需要设备管理菜单，告警需要告警及其可能包含的摄像头资料权限。全部设备范围仍受绑定用户权限约束，主、子设备分别授权。
-2. 创建或轮换后账号密钥只显示一次，用于对方服务端自动换取临时凭据。密钥不是 MQTT / Kafka 密码，列表、审计和数据库不保存明文。账号支持停用、到期、轮换密钥和删除。
-3. 在“订阅信息”获取 Broker、用户名、连接密码、有效期和实际主题。MQTT 使用精确主题 JWT ACL；Kafka 使用 SCRAM-SHA-256 和 Topic READ / DESCRIBE 及该账号独立消费组 READ。凭据不能登录平台管理端。
-4. 高级“旧主题发布权限”只适用于未配置查询的已有共享通道，发布和订阅仍独立授予；查询主题禁止发布授权。旧账号隔离通道按用户与账号设备范围交集逐条分发，订阅地址以凭据返回值为准。
-
-外部服务获取或续期连接凭据：
+1. 在“用户与权限 → 开放接口”创建密钥，绑定平台用户并勾选“订阅消息主题”。绑定用户须有消息主题菜单，且覆盖主题累计的业务权限和设备范围；设备数据需要设备管理菜单，告警需要告警及摄像头资料权限。主、子设备分别授权。
+2. 在主题表单中授权该密钥订阅。修改授权需要开放接口密钥的编辑权限；授权时校验绑定用户是否覆盖主题全部历史范围。
+3. 外部服务端用密钥换取临时凭据。MQTT 使用精确主题 JWT ACL；Kafka 使用 SCRAM-SHA-256、Topic READ / DESCRIBE 及该凭据独立消费组 READ。凭据不能登录平台管理端。
 
 ```http
 POST /api/open/v1/message-topics/credentials
+Authorization: Bearer <开放接口密钥>
 Content-Type: application/json
 
-{"tenantId":"当前租户","accountId":"对接账号ID","secret":"账号密钥","protocol":"mqtt"}
+{"protocol":"mqtt"}
 ```
 
-响应包含 `protocol`、`broker`、`username`、`password`、`subscribeTopics`、`publishTopics`、`groupId`、`mechanism`、`securityProtocol`、`tls`、`expiresAt`；兼容字段 `topics` 等于 `subscribeTopics`。Kafka 订阅使用返回的精确消费组。临时凭据最长一小时，不晚于账号到期时间；到期前 10 分钟内续期，保持仍有效的用户名和地址。MQTT 客户端使用新 JWT 重新连接。旧独立通道重新签发可能更换地址，历史不迁移；数据订阅主题地址固定。
+响应包含 `protocol`、`broker`、`username`、`password`、`subscribeTopics`、`groupId`、`mechanism`、`securityProtocol`、`tls`、`expiresAt`。Kafka 订阅使用返回的精确消费组。临时凭据最长一小时，不晚于密钥到期时间；到期前 10 分钟内续期，保持仍有效的用户名和地址。MQTT 客户端使用新 JWT 重新连接。
 
-修改主题、查询、旧规则或账号会撤销当前租户已有凭据，需重新获取；绑定用户、角色和设备范围变更也使旧凭据失效。旧权限撤销未确认、权限快照发生变化或凭据过期时，主题自动发送暂停，直到完成撤销；实时消息不补发，定时查询恢复后发送当时快照。旧独立通道立即停止向失效凭据发送。已发送和在途消息不会撤回。
+修改主题、查询或授权会撤销当前租户已有凭据，需重新获取；密钥停用、轮换、到期、删除，以及绑定用户、角色和设备范围变更也使旧凭据失效。旧授权撤销未确认、权限快照发生变化或凭据过期时，主题自动发送暂停，直到完成撤销；实时消息不补发，定时查询恢复后发送当时快照。已发送和在途消息不会撤回。
 
 撤销先持久标记、再调用 Broker，失败由 `jobs` 每 30 秒重试。MQTT 还依靠 JWT 到期断开；Kafka 依靠平台撤销 SCRAM 和 ACL，应持续运行 `jobs` 与管理 API。平台或 Broker 管理 API 故障期间，历史读取权限是否已撤销以实际 Broker 状态为准。
 
@@ -587,36 +583,23 @@ Content-Type: application/json
 
 | 接口 | 行为 |
 | --- | --- |
-| `GET /api/v1/message-topics` | 主题、业务数据目录 `datasets`、旧事件源/规则、账号、修订及运行状态；查询主题包含 `query`、`querySql`、`accountIds` |
-| `POST /api/v1/message-topics` | 新增主题，并原子保存查询及可选的订阅账号授权 |
-| `PUT /api/v1/message-topics/{id}` | 编辑主题、查询和可选订阅授权；不能修改现有共享主题的协议/地址 |
+| `GET /api/v1/message-topics` | 主题、只读内置主题 `builtin`、业务数据目录 `datasets`、可授权密钥 `keys`、修订及运行状态；主题包含 `query`、`querySql`、`keyIds` |
+| `POST /api/v1/message-topics` | 新增主题，原子保存查询及可选的订阅密钥授权 |
+| `PUT /api/v1/message-topics/{id}` | 编辑主题、查询和可选订阅授权；不能修改协议/地址 |
 | `POST /api/v1/message-topics/query/preview` | 保存前预览查询，返回规范化 `query`、`querySql`、`sampled`、`matched` 和字符串 `payload` |
-| `DELETE /api/v1/message-topics/{id}?revision=N` | 删除主题及关联配置/授权，保留 Broker 历史 |
-| `POST /api/v1/message-topics/{id}/reset?revision=N` | 恢复内置主题默认配置 |
-| `POST /api/v1/message-topics/{id}/publish` | 仅旧共享通道手动发送 `{revision,payload,format,key,qos}` |
-| `POST /api/v1/message-topics/{id}/rules` | 仅旧共享通道新增自动发送规则 |
-| `PUT /api/v1/message-topics/{id}/rules/{ruleId}` | 修改旧规则 |
-| `DELETE /api/v1/message-topics/{id}/rules/{ruleId}?revision=N` | 删除旧规则，保留累计历史边界 |
-| `POST /api/v1/message-topics/{id}/preview` | `{rule,payload}` 预览旧规则 |
-| `POST /api/v1/message-topic-accounts` | 新增账号，返回一次性 `accountSecret` |
-| `PUT /api/v1/message-topic-accounts/{id}` | 编辑账号及订阅/旧发布授权 |
-| `DELETE /api/v1/message-topic-accounts/{id}?revision=N` | 删除账号并撤销凭据 |
-| `POST /api/v1/message-topic-accounts/{id}/rotate?revision=N` | 轮换账号密钥 |
-| `POST /api/v1/message-topic-accounts/{id}/credentials` | 以 `{revision,protocol}` 获取连接凭据 |
+| `DELETE /api/v1/message-topics/{id}?revision=N` | 删除主题及订阅授权，保留 Broker 历史并保留地址 |
 
-主题保存正文包含 `{revision,name,protocol,topic,enabled,description}`，以及 `query` 或 `querySql`（二选一）。图形查询结构为 `{dataset,fields,filter,deviceScope,deviceIds,mode,intervalSeconds}`：`fields` 为输出名称到字段路径的映射，空对象表示全部字段；`filter` 为 `{logic:"and|or",children:[...]}` 分组或 `{field,operator,value}` 条件，操作符为 `eq/ne/gt/gte/lt/lte/in/not_in/contains/is_null/not_null`。SQL 方式通过 `queryOptions` 指定 `{mode,intervalSeconds,deviceScope,deviceIds}`。`mode` 为 `realtime` 或 `interval`，由数据集约束；实时周期为 0。
+主题保存正文为 `{revision,name,protocol,topic,enabled,description,keyIds}`，以及 `query` 或 `querySql`（二选一，新增时必填）。图形查询结构为 `{dataset,fields,filter,deviceScope,deviceIds,mode,intervalSeconds}`：`fields` 为输出名称到字段路径的映射，空对象表示全部字段；`filter` 为 `{logic:"and|or",children:[...]}` 分组或 `{field,operator,value}` 条件，操作符为 `eq/ne/gt/gte/lt/lte/in/not_in/contains/is_null/not_null`。SQL 方式通过 `queryOptions` 指定 `{mode,intervalSeconds,deviceScope,deviceIds}`。`mode` 为 `realtime` 或 `interval`，由数据集约束；实时周期为 0。`keyIds` 省略表示保留既有授权，空数组表示撤销全部授权。
 
-可选 `accountIds` 原子设置该主题的订阅账号，省略表示保留既有授权，空数组表示撤销全部订阅授权；需要额外的账号编辑权限。转换旧规则须显式传 `replaceLegacyRules:true`。预览接收相同查询字段、可选 `protocol` 和 JSON 文本 `payload`；省略样例时读取真实业务数据。账号正文保留 `{revision,name,username,enabled,topicIds,publishTopicIds,deviceScope,deviceIds,expiresAt}`。
+查看需要 `menu:messageTopics`；管理与预览使用精确路由权限，并要求设备管理菜单和当前租户全部设备范围，查询另校验对应业务权限。租户由登录身份确定，正文不能切换租户。配置及撤销记录保存在 PostgreSQL `message_topic_configs`，使用 `revision` 乐观锁，冲突返回 409。实时发布按 2 秒缓存跳过没有匹配主题的租户，命中时读取持久策略；读取失败只跳过主题投递，不影响平台内置发布。Kafka 密码由服务端密钥及凭据 ID 派生。
 
-查看需要 `menu:messageTopics`；管理、预览及兼容操作使用精确路由权限，并要求设备管理菜单和当前租户全部设备范围，查询另校验对应业务权限。租户由登录身份确定，正文不能切换租户。配置及撤销记录保存在 PostgreSQL `message_topic_configs`，使用 `revision` 乐观锁，冲突返回 409。内置路由最多缓存 2 秒；查询和共享分发读取持久策略，读取失败不放宽权限。账号密钥只存摘要，Kafka 密码由服务端密钥及凭据 ID 派生。
-
-内置目标不得指向数据订阅主题或已退役地址。`IOT_PUBLISH_EXTERNAL_TOPICS=false` 仍关闭 Kafka 解析事件，因此依赖它们的实时设备上报查询不触发；页面不覆盖部署开关。原文归档、标准消息存储和内部处理不受影响。
+`IOT_PUBLISH_EXTERNAL_TOPICS=false` 仍关闭 Kafka 解析事件，因此依赖它们的 Kafka 实时设备上报查询不触发；页面不覆盖部署开关。原文归档、标准消息存储和内部处理不受影响。
 
 ### Broker 就绪条件
 
 MQTT 需对外地址 `IOT_DEVICE_MQTT_PUBLIC_URL`、有效 EMQX 管理凭据、JWT 认证链及仅含已知工具账号的可选密码认证、用户名绑定、JWT ACL、到期断开、监听器认证和默认拒绝规则。Kafka 需对外地址 `IOT_KAFKA_PUBLIC_BROKERS`、实际开启认证与 ACL，并配置能管理 SCRAM / ACL / Topic 的 Redpanda 管理账号；服务端检查实际配置、匿名访问拒绝和无全用户通配授权后才发凭据。Kafka 新主题创建也需要管理连接就绪。配置保存不代表 Broker 授权已生效。部署见 [Kafka 对接账号认证与授权](DEPLOYMENT.md#kafka-对接账号认证与授权)。
 
-实现入口：`internal/messagetopics/`、`internal/httpapi/message_topic_queries.go`、`internal/httpapi/message_topic_rules.go`、`internal/httpapi/message_topics.go`、`internal/httpapi/message_topic_accounts.go`、`internal/adapters/kafka/consumer_admin.go` 和 `iot_front/src/views/MessageTopicsView.vue`。
+实现入口：`internal/messagetopics/`、`internal/httpapi/message_topics.go`、`internal/httpapi/message_topic_queries.go`、`internal/httpapi/message_topic_credentials.go`、`internal/adapters/kafka/consumer_admin.go` 和 `iot_front/src/views/MessageTopicsView.vue`。
 
 ## 外部数据接口管理
 
@@ -624,7 +607,7 @@ MQTT 需对外地址 `IOT_DEVICE_MQTT_PUBLIC_URL`、有效 EMQX 管理凭据、J
 
 ## 开放接口
 
-外部系统（园区平台、物业系统、上级监管平台等）通过开放接口查询和上报告警、上报设备消息、查询设备数据，以及调用智能助手问答，例如在对方首页嵌入问答机器人。实现入口为 [open_api.go](../internal/httpapi/open_api.go)。
+外部系统（园区平台、物业系统、上级监管平台等）通过开放接口查询与处置告警、上报设备消息（含告警）、查询设备数据、订阅消息主题，以及调用智能助手问答，例如在对方首页嵌入问答机器人。实现入口为 [open_api.go](../internal/httpapi/open_api.go)。
 
 开放密钥只支持下表列出的能力；排班、灭火器和消防站管理通过登录用户的 `/api/v1` 接口使用，不在 `/api/open/v1` 的能力清单中。管理接口与权限见 [消防管理](FIRE_SAFETY.md#接口与权限)。
 
@@ -633,17 +616,17 @@ MQTT 需对外地址 `IOT_DEVICE_MQTT_PUBLIC_URL`、有效 EMQX 管理凭据、J
 - 密钥在“用户与权限 → 开放接口”创建，需要该页面的新增、编辑、删除操作权限。
 - 每个密钥绑定一个平台用户。外部请求按该用户的菜单、操作权限和设备范围执行，与其登录控制台时一致；密钥的开放能力只能进一步收窄。停用或删除用户后，其密钥立即失效；删除用户会同时删除其密钥。
 - 建议为每个外部系统单独建用户和角色，只授予需要的功能和设备。
-- 密钥明文只在创建时返回一次，平台只保存 SHA-256 摘要，存于租户的 `platform_access` 配置中，需随独立整库备份保管；设备数据及 FULL 导出不包含账户和密钥。密钥可停用、设置有效期或删除；需要更换时新建密钥后删除旧密钥。
+- 密钥明文只在创建或轮换时返回一次，平台只保存 SHA-256 摘要，存于租户的 `platform_access` 配置中，需随独立整库备份保管；设备数据及 FULL 导出不包含账户和密钥。密钥可停用、设置有效期、轮换或删除；轮换保留密钥 ID、能力与主题授权，旧密钥及其签发的主题凭据立即失效。
 - 密钥应只保存在对方服务端。浏览器页面中的问答机器人应由对方后端转发请求，不能把密钥下发到前端。
 
 | 能力 | 可调用的接口 | 绑定用户还需要 |
 | --- | --- | --- |
 | `alarms:read` 查询告警 | `GET /alarms`、`GET /alarms/{alarmId}` | 告警中心菜单 |
-| `alarms:report` 上报告警 | `POST /alarms` | 设备管理菜单；设备在其设备范围内 |
 | `alarms:handle` 处置告警 | `POST /alarms/{alarmId}/actions` | 告警中心菜单及“处置告警”操作 |
 | `messages:read` 查询设备与数据 | `GET /devices`、`GET /devices/{deviceId}/latest`、`GET /devices/{deviceId}/properties/history` | 设备管理菜单 |
 | `messages:report` 上报设备消息 | `POST /device-messages` | 设备管理菜单；设备在其设备范围内 |
 | `ai:chat` 智能问答 | `GET /ai/workflows`、`POST /ai/chat`、`POST /ai/chat/stream` | 智能助手菜单及“发送提问” / “流式问答”操作 |
+| `topics:subscribe` 订阅消息主题 | `POST /message-topics/credentials` | 消息主题菜单；覆盖所订阅主题的历史数据范围（见[消息主题管理](#订阅密钥与连接凭据)） |
 
 ### 调用约定
 
@@ -676,16 +659,7 @@ Content-Type: application/json
 
 ### 上报告警
 
-```http
-POST /api/open/v1/alarms
-
-{"deviceId":"smoke-101","id":"alarm-20260926-0001","timestamp":1790000000000,
- "alarmType":"FIRE","alarmLevel":"CRITICAL","content":"3 层东侧走廊烟感报警","data":{"zone":"3F-E"}}
-```
-
-- 等同于该设备上报一条 `alarm` 消息；告警生成、等级及类型默认值遵守 [标准告警报文](#http--mqtt-标准报文)，`content` 显示为告警内容。
-- 成功返回 202，其中 `triggerId` 与生成告警的 `triggerId` 相同，可用 `GET /alarms?deviceId=...` 查找。设备不存在或不可见返回 404，其余错误码同上。
-- 通过 [标准告警恢复属性](#http--mqtt-标准报文) 上报恢复，或调用下述处置接口的 `RECOVERED`。
+告警作为 `kind:"alarm"` 的设备消息上报，例如 `{"deviceId":"smoke-101","kind":"alarm","id":"alarm-20260926-0001","timestamp":1790000000000,"data":{"alarmType":"FIRE","alarmLevel":"CRITICAL","content":"3 层东侧走廊烟感报警"}}`。告警生成、等级及类型默认值遵守 [标准告警报文](#http--mqtt-标准报文)；生成告警的 `triggerId` 为 `msg_` 加返回的 `messageId`，可用 `GET /alarms?deviceId=...` 查找。通过 [标准告警恢复属性](#http--mqtt-标准报文) 上报恢复，或调用下述处置接口的 `RECOVERED`。
 
 ### 查询与处置告警
 

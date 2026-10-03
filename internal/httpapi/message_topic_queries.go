@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -102,7 +100,7 @@ func (s *Server) validateMessageTopicQuery(w http.ResponseWriter, r *http.Reques
 	}
 	if permissions, managed := r.Context().Value(permissionsKey{}).(map[string]bool); managed {
 		identity := messagetopics.MessageTopicIdentity{Permissions: permissions, DeviceScope: "all"}
-		if !messagetopics.RouteAllowed(policy, "preview", identity, model.MessageTopicAccount{Enabled: true, DeviceScope: "all"}) {
+		if !messagetopics.RouteAllowed(policy.Topics[0], identity) {
 			problem(w, 403, "没有所选查询数据的完整业务访问权限")
 			return false
 		}
@@ -117,96 +115,6 @@ func (s *Server) validateMessageTopicQuery(w http.ResponseWriter, r *http.Reques
 			problem(w, 422, "查询包含不存在或不属于当前租户的设备")
 			return false
 		}
-	}
-	return true
-}
-
-func (s *Server) configureMessageTopicQuery(w http.ResponseWriter, r *http.Request, cfg *model.MessageTopicConfig, topicID string, in messageTopicInput) bool {
-	query, err := in.messageTopicQueryInput.canonicalQuery()
-	if err != nil {
-		problem(w, 422, err.Error())
-		return false
-	}
-	for i := range cfg.Topics {
-		topic := &cfg.Topics[i]
-		if topic.ID != topicID {
-			continue
-		}
-		if query != nil {
-			if topic.Protocol == "" {
-				problem(w, 422, "旧转发主题不能直接配置数据查询，请新建对外主题")
-				return false
-			}
-			if !s.validateMessageTopicQuery(w, r, topic.Protocol, *query) {
-				return false
-			}
-			for _, account := range cfg.Accounts {
-				if slices.Contains(account.PublishTopicIDs, topicID) {
-					problem(w, 422, "此主题仍有外部发布授权，请先解除发布授权再改为查询主题")
-					return false
-				}
-			}
-			for _, rule := range cfg.Rules {
-				if rule.TopicID == topicID && !in.ReplaceLegacyRules {
-					problem(w, 422, "此主题仍有独立发送规则，请明确确认用数据查询替换原规则")
-					return false
-				}
-			}
-			cfg.Rules = slices.DeleteFunc(cfg.Rules, func(rule model.MessageTopicRule) bool { return rule.TopicID == topicID })
-			topic.Query = query
-			if err := messagetopics.AccumulateQueryExposure(cfg, topicID, *query); err != nil {
-				problem(w, 422, err.Error())
-				return false
-			}
-		}
-		return s.configureMessageTopicSubscribers(w, r, cfg, topicID, in.AccountIDs)
-	}
-	problem(w, 404, "消息主题不存在")
-	return false
-}
-
-func (s *Server) configureMessageTopicSubscribers(w http.ResponseWriter, r *http.Request, cfg *model.MessageTopicConfig, topicID string, accountIDs *[]string) bool {
-	if accountIDs == nil {
-		return true
-	}
-	if !requestAllows(r, "PUT", "/api/v1/message-topic-accounts/:id") {
-		problem(w, 403, "修改主题订阅账号需要对接账号授权管理权限")
-		return false
-	}
-	selected := make(map[string]bool, len(*accountIDs))
-	for _, id := range *accountIDs {
-		if id == "" || selected[id] {
-			problem(w, 422, "订阅账号列表包含空值或重复账号")
-			return false
-		}
-		selected[id] = true
-	}
-	policy := *cfg
-	policy.Topics = slices.Clone(cfg.Topics)
-	for i := range policy.Topics {
-		if policy.Topics[i].ID == topicID {
-			policy.Topics[i].Enabled = true
-		}
-	}
-	for i := range cfg.Accounts {
-		account := &cfg.Accounts[i]
-		if !selected[account.ID] {
-			account.TopicIDs = slices.DeleteFunc(account.TopicIDs, func(id string) bool { return id == topicID })
-			continue
-		}
-		delete(selected, account.ID)
-		identity, err := s.messageTopicIdentity(r.Context(), claims(r).TenantID, account.Username)
-		if err != nil || (account.ExpiresAt > 0 && account.ExpiresAt <= time.Now().Unix()) || !messagetopics.RouteAllowed(policy, topicID, identity, *account) {
-			problem(w, 422, fmt.Sprintf("对接账号“%s”无法订阅此主题，请检查账号状态、绑定用户权限及主题历史设备范围", account.Name))
-			return false
-		}
-		if !slices.Contains(account.TopicIDs, topicID) {
-			account.TopicIDs = append(account.TopicIDs, topicID)
-		}
-	}
-	if len(selected) != 0 {
-		problem(w, 422, "所选对接账号不存在或不属于当前租户")
-		return false
 	}
 	return true
 }

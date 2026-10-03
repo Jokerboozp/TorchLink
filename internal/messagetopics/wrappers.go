@@ -32,8 +32,8 @@ func (s *Service) WrapBus(bus ports.EventBus) ports.EventBus {
 }
 
 func (b *routingBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
-	publications, err := b.service.Publications(ctx, "kafka", topic, payload)
-	for _, publication := range publications {
+	var err error
+	for _, publication := range b.service.Publications(ctx, "kafka", topic, payload) {
 		err = errors.Join(err, b.EventBus.Publish(ctx, publication.Topic, key, publication.Payload))
 	}
 	return err
@@ -52,8 +52,8 @@ func (s *Service) WrapRealtime(publisher ports.RealtimePublisher) ports.Realtime
 }
 
 func (p *routingRealtime) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
-	publications, err := p.service.Publications(ctx, "mqtt", topic, payload)
-	for _, publication := range publications {
+	var err error
+	for _, publication := range p.service.Publications(ctx, "mqtt", topic, payload) {
 		err = errors.Join(err, p.RealtimePublisher.Publish(ctx, publication.Topic, publication.Payload, qos, retained))
 	}
 	return err

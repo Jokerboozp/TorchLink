@@ -43,13 +43,13 @@ type APIKey struct {
 }
 
 const (
-	APICapabilityAlarmsRead     = "alarms:read"
-	APICapabilityAlarmsReport   = "alarms:report"
-	APICapabilityAlarmsHandle   = "alarms:handle"
-	APICapabilityMessagesRead   = "messages:read"
-	APICapabilityMessagesReport = "messages:report"
-	APICapabilityAIChat         = "ai:chat"
+	APICapabilityAlarmsRead      = "alarms:read"
+	APICapabilityAlarmsHandle    = "alarms:handle"
+	APICapabilityMessagesRead    = "messages:read"
+	APICapabilityMessagesReport  = "messages:report"
+	APICapabilityAIChat          = "ai:chat"
+	APICapabilityTopicsSubscribe = "topics:subscribe"
 )
 
 // APICapabilities lists every capability an API key may be granted.
-var APICapabilities = []string{APICapabilityAlarmsRead, APICapabilityAlarmsReport, APICapabilityAlarmsHandle, APICapabilityMessagesRead, APICapabilityMessagesReport, APICapabilityAIChat}
+var APICapabilities = []string{APICapabilityAlarmsRead, APICapabilityAlarmsHandle, APICapabilityMessagesRead, APICapabilityMessagesReport, APICapabilityAIChat, APICapabilityTopicsSubscribe}

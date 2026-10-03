@@ -182,7 +182,7 @@ func (s *Service) Snapshot(ctx context.Context, tenant string, query model.Messa
 		}
 		items = append(items, result)
 		bytes += len(result) + 1
-		if len(items) > maxSnapshotRows || bytes > MaxRulePayload {
+		if len(items) > maxSnapshotRows || bytes > MaxPayload {
 			return nil, errors.New("查询结果超过 1000 条或 256 KiB，请缩小查询范围或减少返回字段")
 		}
 	}
@@ -197,7 +197,7 @@ func (s *Service) Snapshot(ctx context.Context, tenant string, query model.Messa
 	if err != nil {
 		return nil, err
 	}
-	if len(payload) > MaxRulePayload {
+	if len(payload) > MaxPayload {
 		return nil, errors.New("查询结果超过 256 KiB，请减少返回字段")
 	}
 	return payload, nil
@@ -250,7 +250,7 @@ func (q *QueryScheduler) RunOnce(ctx context.Context, publish func(context.Conte
 			if previous, ok := q.next[key]; ok && previous.signature == signature && now.Before(previous.next) {
 				continue
 			}
-			if !s.sharedTopicReady(ctx, tenant, cfg, route) {
+			if !s.topicReady(ctx, tenant, cfg, route) {
 				continue
 			}
 			// A broker timeout has an uncertain outcome; do not retry the same
@@ -262,13 +262,13 @@ func (q *QueryScheduler) RunOnce(ctx context.Context, publish func(context.Conte
 				latest, loadErr := s.Load(runCtx, tenant)
 				if loadErr != nil {
 					err = loadErr
-				} else if latest.Revision != cfg.Revision || !s.sharedTopicReady(runCtx, tenant, latest, route) {
+				} else if latest.Revision != cfg.Revision || !s.topicReady(runCtx, tenant, latest, route) {
 					cancel()
 					continue
 				} else if runCtx.Err() != nil {
 					err = runCtx.Err()
 				} else {
-					err = publish(runCtx, route.Protocol, SharedDestination(tenant, route), payload)
+					err = publish(runCtx, route.Protocol, Destination(tenant, route), payload)
 				}
 			}
 			cancel()

@@ -188,7 +188,7 @@ func TestQueryProjectionScopeAndInputBounds(t *testing.T) {
 			t.Fatal("device scope escaped", input, matched, err)
 		}
 	}
-	for _, input := range []string{`[]`, `null`, `{} {}`, `invalid`, strings.Repeat("x", MaxRulePayload+1)} {
+	for _, input := range []string{`[]`, `null`, `{} {}`, `invalid`, strings.Repeat("x", MaxPayload+1)} {
 		if _, _, err := PreviewQuery(q, []byte(input)); err == nil {
 			t.Fatal("invalid input accepted", input[:min(20, len(input))])
 		}
@@ -238,18 +238,18 @@ func TestQueryValidationBoundsAndUnknownFields(t *testing.T) {
 		}
 	}
 }
-func TestQueryRuntimeOnePublicationAcrossSourcesAndLegacyRules(t *testing.T) {
+func TestQueryRuntimeOnePublicationAcrossSources(t *testing.T) {
 	ctx := context.Background()
 	for _, protocol := range []string{"mqtt", "kafka"} {
 		t.Run(protocol, func(t *testing.T) {
 			cfg := queryFixture(t, protocol)
 			cfg.Topics[0].Query.Fields = map[string]string{"device": "deviceId", "temperature": "properties.temperature"}
 			cfg.Topics[0].Query.Filter = &model.MessageTopicFilter{Field: "properties.temperature", Operator: "gte", Value: 26}
-			addSharedAccount(&cfg, "t", "a", true, false)
-			addSharedAccount(&cfg, "t", "b", true, false)
+			grantKey(&cfg, "t", "a")
+			grantKey(&cfg, "t", "b")
 			svc := New(newTestStore())
 			svc.now = func() time.Time { return time.Unix(1000, 0) }
-			svc.SetAccessResolver(func(context.Context, string, string) (MessageTopicIdentity, error) { return sharedIdentity(), nil })
+			svc.SetAccessResolver(func(context.Context, string, string) (MessageTopicIdentity, error) { return keyIdentity(), nil })
 			if ok, err := svc.Save(ctx, "t", cfg); !ok || err != nil {
 				t.Fatal(ok, err)
 			}
@@ -258,14 +258,13 @@ func TestQueryRuntimeOnePublicationAcrossSourcesAndLegacyRules(t *testing.T) {
 				sources = []string{model.TopicPropertyReport, model.TopicEventReport, model.TopicParsed}
 			}
 			for _, source := range sources {
-				pubs, err := svc.Publications(ctx, protocol, source, []byte(`{"tenantId":"t","deviceId":"d","properties":{"temperature":27}}`))
-				if err != nil || len(pubs) != 2 || string(pubs[1].Payload) != `{"device":"d","temperature":27}` {
-					t.Fatal("missing or duplicate query publication", source, pubs, err)
+				pubs := svc.Publications(ctx, protocol, source, []byte(`{"tenantId":"t","deviceId":"d","properties":{"temperature":27}}`))
+				if len(pubs) != 2 || string(pubs[1].Payload) != `{"device":"d","temperature":27}` {
+					t.Fatal("missing or duplicate query publication", source, pubs)
 				}
 				for _, payload := range []string{`{"tenantId":"t","deviceId":"d","properties":{"temperature":20}}`, `{"tenantId":"t","deviceId":"other","properties":{"temperature":27}}`, `{"tenantId":"other","deviceId":"d","properties":{"temperature":27}}`} {
-					pubs, _ := svc.Publications(ctx, protocol, source, []byte(payload))
-					for _, pub := range pubs {
-						if pub.Topic == SharedDestination("t", cfg.Topics[0]) {
+					for _, pub := range svc.Publications(ctx, protocol, source, []byte(payload)) {
+						if pub.Topic == Destination("t", cfg.Topics[0]) {
 							t.Fatal("nonmatching or foreign message published", payload)
 						}
 					}
@@ -276,27 +275,10 @@ func TestQueryRuntimeOnePublicationAcrossSourcesAndLegacyRules(t *testing.T) {
 			if ok, err := svc.Save(ctx, "t", cfg); !ok || err != nil {
 				t.Fatal(ok, err)
 			}
-			pubs, err := svc.Publications(ctx, protocol, sources[0], []byte(`{"tenantId":"t","deviceId":"d","properties":{"temperature":27}}`))
-			if err != nil || len(pubs) != 1 {
-				t.Fatal("pending revocation failed to pause", pubs, err)
+			if pubs := svc.Publications(ctx, protocol, sources[0], []byte(`{"tenantId":"t","deviceId":"d","properties":{"temperature":27}}`)); len(pubs) != 1 {
+				t.Fatal("pending revocation failed to pause", pubs)
 			}
 		})
-	}
-	// Another legacy-rule topic continues to receive its existing projection.
-	cfg := queryFixture(t, "mqtt")
-	legacy := sharedFixture(t, "mqtt")
-	legacy.Topics[0].ID = "legacy"
-	legacy.Topics[0].Topic = "legacy"
-	legacy.Rules[0].TopicID = "legacy"
-	cfg.Topics = append(cfg.Topics, legacy.Topics...)
-	cfg.Rules = legacy.Rules
-	svc := New(newTestStore())
-	if ok, err := svc.Save(ctx, "t", cfg); !ok || err != nil {
-		t.Fatal(ok, err)
-	}
-	pubs, err := svc.Publications(ctx, "mqtt", "/iot/parsed/t/p/d/PROPERTY_REPORT", body("t"))
-	if err != nil || len(pubs) != 3 || string(pubs[2].Payload) != `{"device":"d","type":"PROPERTY_REPORT"}` {
-		t.Fatal("legacy rule behavior lost", pubs, err)
 	}
 }
 func TestQueryConfigurationHistoricalBoundaryAndClone(t *testing.T) {
@@ -314,20 +296,13 @@ func TestQueryConfigurationHistoricalBoundaryAndClone(t *testing.T) {
 			t.Fatal("historical exposure narrowed", e)
 		}
 	}
-	if RouteAllowed(cfg, "shared", sharedIdentity(), model.MessageTopicAccount{Enabled: true, DeviceScope: "all"}) {
+	if RouteAllowed(cfg.Topics[0], keyIdentity()) {
 		t.Fatal("narrow user read historical devices")
-	}
-	if RoutePublishAllowed(cfg, "shared", sharedIdentity(), model.MessageTopicAccount{Enabled: true}) {
-		t.Fatal("query topic allowed write")
 	}
 	for _, change := range []func(*model.MessageTopicConfig){
 		func(c *model.MessageTopicConfig) { c.Topics[0].Exposure = nil },
-		func(c *model.MessageTopicConfig) {
-			c.Accounts = []model.MessageTopicAccount{{ID: "a", Name: "a", Username: "a", DeviceScope: "all", PublishTopicIDs: []string{"shared"}}}
-		},
-		func(c *model.MessageTopicConfig) {
-			c.Rules = []model.MessageTopicRule{{ID: "r", TopicID: "shared", Name: "r", SourceID: "kafka.parsed", DeviceScope: "selected", DeviceIDs: []string{"d"}, Format: "original"}}
-		},
+		func(c *model.MessageTopicConfig) { c.Topics[0].Query = nil },
+		func(c *model.MessageTopicConfig) { c.Topics[0].KeyIDs = []string{"k", "k"} },
 	} {
 		bad := cloneConfig(cfg)
 		change(&bad)
@@ -346,7 +321,7 @@ func TestQueryConfigurationHistoricalBoundaryAndClone(t *testing.T) {
 	}
 	mqtt := queryFixture(t, "mqtt")
 	mqtt.Topics[0].Topic = "/device"
-	if err := Validate("t", mqtt); err != nil || SharedDestination("t", mqtt.Topics[0]) != MQTTPrefix("t")+"device" {
+	if err := Validate("t", mqtt); err != nil || Destination("t", mqtt.Topics[0]) != MQTTPrefix("t")+"device" {
 		t.Fatal("simple MQTT path rejected", err)
 	}
 	mqtt.Topics[0].Topic = MQTTPrefix("other") + "device"

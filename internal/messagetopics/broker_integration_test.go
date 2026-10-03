@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -78,14 +77,7 @@ func TestMessageTopicsExistingMQTTBroker(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = publisher.Close() })
 	guard := &exactTopicRealtime{RealtimePublisher: publisher, topic: topic}
-	service := messagetopics.New(memory.NewRepository())
-	routed := service.WrapRealtime(guard)
-	saveBrokerRoute(t, ctx, service, tenant, "mqtt.parsed", messagetopics.MQTTPrefix(tenant)+"parsed/{deviceId}", true)
 	source := "/iot/parsed/" + tenant + "/product-one/device-one/PROPERTY_REPORT"
-	first := brokerTestPayload(t, tenant, "enabled")
-	if err := routed.Publish(ctx, source, first, 1, false); err != nil {
-		t.Fatal(err)
-	}
 	receive := func(want []byte) {
 		t.Helper()
 		select {
@@ -94,27 +86,8 @@ func TestMessageTopicsExistingMQTTBroker(t *testing.T) {
 				t.Fatalf("unexpected MQTT payload: %s", got)
 			}
 		case <-ctx.Done():
-			t.Fatal("custom MQTT topic did not receive the routed publication")
+			t.Fatal("query MQTT topic did not receive the publication")
 		}
-	}
-	receive(first)
-	saveBrokerRoute(t, ctx, service, tenant, "mqtt.parsed", topic, false)
-	if err := routed.Publish(ctx, source, brokerTestPayload(t, tenant, "disabled"), 1, false); err != nil {
-		t.Fatal(err)
-	}
-	if guard.calls.Load() != 1 {
-		t.Fatal("disabled MQTT route reached the real publisher")
-	}
-	// A second successful delivery proves the connection stayed usable while
-	// disabled. QoS 1 publications to this one topic preserve their ordering.
-	saveBrokerRoute(t, ctx, service, tenant, "mqtt.parsed", topic, true)
-	last := brokerTestPayload(t, tenant, "enabled-again")
-	if err := routed.Publish(ctx, source, last, 1, false); err != nil {
-		t.Fatal(err)
-	}
-	receive(last)
-	if guard.calls.Load() != 2 {
-		t.Fatal("unexpected number of real MQTT publications")
 	}
 	queryService := newBrokerQueryService(t, ctx, tenant, "mqtt", topic)
 	queryPublisher := queryService.WrapRealtime(guard)
@@ -127,7 +100,7 @@ func TestMessageTopicsExistingMQTTBroker(t *testing.T) {
 	if err := queryPublisher.Publish(ctx, source, nonmatching, 1, false); err != nil {
 		t.Fatal(err)
 	}
-	if guard.calls.Load() != 3 {
+	if guard.calls.Load() != 1 {
 		t.Fatal("nonmatching query reached MQTT publisher")
 	}
 }
@@ -207,42 +180,14 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 	}
 	bus.SetAutoCreateTopics(false)
 	t.Cleanup(func() { _ = bus.Close() })
-	service := messagetopics.New(memory.NewRepository())
-	routed := service.WrapBus(&exactTopicBus{EventBus: bus, topic: topic})
-	saveBrokerRoute(t, ctx, service, tenant, "kafka.property-report", topic, true)
-	first := brokerTestPayload(t, tenant, "enabled")
-	if err := routed.Publish(ctx, model.TopicPropertyReport, "device-one", first); err != nil {
-		t.Fatal(err)
-	}
 	leader, err := dialer.DialLeader(ctx, "tcp", brokers[0], topic, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = leader.Close() })
 	_ = leader.SetDeadline(time.Now().Add(15 * time.Second))
-	saveBrokerRoute(t, ctx, service, tenant, "kafka.property-report", topic, false)
-	if err := routed.Publish(ctx, model.TopicPropertyReport, "device-one", brokerTestPayload(t, tenant, "disabled")); err != nil {
-		t.Fatal(err)
-	}
-	if offset, err := leader.ReadLastOffset(); err != nil || offset != 1 {
-		t.Fatalf("disabled route changed the Kafka log: offset=%d error=%v", offset, err)
-	}
-	saveBrokerRoute(t, ctx, service, tenant, "kafka.property-report", topic, true)
-	last := brokerTestPayload(t, tenant, "enabled-again")
-	if err := routed.Publish(ctx, model.TopicPropertyReport, "device-one", last); err != nil {
-		t.Fatal(err)
-	}
 	reader := kafka.NewReader(kafka.ReaderConfig{Brokers: brokers, Dialer: dialer, Topic: topic, Partition: 0, MinBytes: 1, MaxBytes: 1 << 20, MaxWait: time.Second})
 	t.Cleanup(func() { _ = reader.Close() })
-	for i, want := range [][]byte{first, last} {
-		message, err := reader.ReadMessage(ctx)
-		if err != nil || message.Offset != int64(i) || message.Topic != topic || string(message.Key) != "device-one" || !bytes.Equal(message.Value, want) {
-			t.Fatalf("unexpected custom Kafka message at offset %d: %+v, error=%v", i, message, err)
-		}
-	}
-	if offset, err := leader.ReadLastOffset(); err != nil || offset != 2 {
-		t.Fatalf("unexpected Kafka log size: offset=%d error=%v", offset, err)
-	}
 	queryService := newBrokerQueryService(t, ctx, tenant, "kafka", topic)
 	queryPublisher := queryService.WrapBus(&exactTopicBus{EventBus: bus, topic: topic})
 	queryMessage := []byte(fmt.Sprintf(`{"tenantId":%q,"deviceId":"device-one","properties":{"temperature":27},"raw":{"hidden":true}}`, tenant))
@@ -250,14 +195,14 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 		t.Fatal(err)
 	}
 	message, err := reader.ReadMessage(ctx)
-	if err != nil || message.Offset != 2 || message.Topic != topic || string(message.Value) != `{"deviceId":"device-one","temperature":27}` {
+	if err != nil || message.Offset != 0 || message.Topic != topic || string(message.Value) != `{"deviceId":"device-one","temperature":27}` {
 		t.Fatalf("query did not reach Kafka with its projection: %+v %v", message, err)
 	}
 	nonmatching := bytes.Replace(queryMessage, []byte(`"temperature":27`), []byte(`"temperature":20`), 1)
 	if err := queryPublisher.Publish(ctx, model.TopicPropertyReport, "device-one", nonmatching); err != nil {
 		t.Fatal(err)
 	}
-	if offset, err := leader.ReadLastOffset(); err != nil || offset != 3 {
+	if offset, err := leader.ReadLastOffset(); err != nil || offset != 1 {
 		t.Fatalf("nonmatching query changed Kafka log: offset=%d error=%v", offset, err)
 	}
 }
@@ -269,13 +214,7 @@ func newBrokerQueryService(t *testing.T, ctx context.Context, tenant, protocol, 
 		t.Fatal(err)
 	}
 	query.DeviceScope, query.DeviceIDs = "selected", []string{"device-one"}
-	config := model.MessageTopicConfig{Overrides: map[string]model.MessageTopicOverride{}, Topics: []model.MessageTopicRoute{{ID: "query", Name: "查询测试", Protocol: protocol, Topic: topic, Enabled: true, Query: &query}}}
-	for _, source := range []string{"parsed", "property-report", "event-report"} {
-		if protocol == "mqtt" && source != "parsed" {
-			continue
-		}
-		config.Overrides[protocol+"."+source] = model.MessageTopicOverride{Enabled: false}
-	}
+	config := model.MessageTopicConfig{Topics: []model.MessageTopicRoute{{ID: "query", Name: "查询测试", Protocol: protocol, Topic: topic, Enabled: true, Query: &query}}}
 	if err := messagetopics.AccumulateQueryExposure(&config, "query", query); err != nil {
 		t.Fatal(err)
 	}
@@ -295,29 +234,8 @@ func brokerTestID(t *testing.T) string {
 	return hex.EncodeToString(id[:])
 }
 
-func brokerTestPayload(t *testing.T, tenant, marker string) []byte {
-	t.Helper()
-	body, err := json.Marshal(map[string]string{"tenantId": tenant, "productId": "product-one", "deviceId": "device-one", "messageType": "PROPERTY_REPORT", "marker": marker})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
-}
-
-func saveBrokerRoute(t *testing.T, ctx context.Context, service *messagetopics.Service, tenant, id, topic string, enabled bool) {
-	t.Helper()
-	config, err := service.Load(ctx, tenant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.Overrides[id] = model.MessageTopicOverride{Enabled: enabled, Topic: topic}
-	if ok, err := service.Save(ctx, tenant, config); err != nil || !ok {
-		t.Fatalf("could not update route: accepted=%t, error=%v", ok, err)
-	}
-}
-
-// Guard the integration test itself: a routing regression must fail before it
-// can publish a test event into one of the broker's existing shared topics.
+// Guard the integration test itself: the platform source publication is
+// dropped so no test event enters one of the broker's existing shared topics.
 type exactTopicBus struct {
 	ports.EventBus
 	topic string
@@ -325,7 +243,7 @@ type exactTopicBus struct {
 
 func (b *exactTopicBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
 	if topic != b.topic {
-		return fmt.Errorf("refusing test publication outside the isolated Kafka topic: %s", topic)
+		return nil
 	}
 	return b.EventBus.Publish(ctx, topic, key, payload)
 }
@@ -337,8 +255,11 @@ type exactTopicRealtime struct {
 }
 
 func (p *exactTopicRealtime) Publish(ctx context.Context, topic string, payload []byte, qos byte, retained bool) error {
-	if topic != p.topic || retained {
-		return errors.New("refusing retained or non-isolated MQTT test publication")
+	if retained {
+		return errors.New("refusing retained MQTT test publication")
+	}
+	if topic != p.topic {
+		return nil
 	}
 	p.calls.Add(1)
 	return p.RealtimePublisher.Publish(ctx, topic, payload, qos, retained)

@@ -84,7 +84,7 @@ func TestQuerySnapshotsRejectPartialOversizedResultsAndKeepEmptyArray(t *testing
 	}
 	query.DeviceScope, query.DeviceIDs = "selected", []string{"0"}
 	query.Fields = map[string]string{"tags": "tags"}
-	_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "0", AccessKey: "key_0", Tags: map[string]string{"large": strings.Repeat("x", MaxRulePayload)}})
+	_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: "0", AccessKey: "key_0", Tags: map[string]string{"large": strings.Repeat("x", MaxPayload)}})
 	if output, err := s.Snapshot(ctx, "t", query); err == nil || output != nil {
 		t.Fatal("oversized payload was returned")
 	}
@@ -159,8 +159,8 @@ func TestQuerySchedulerIntervalDisableFailureAndRevocation(t *testing.T) {
 	}
 	fail = false
 	cfg, _ := s.Load(ctx, "t")
-	cfg.Accounts = []model.MessageTopicAccount{{ID: "a", Name: "对接", Username: "user", Enabled: true, TopicIDs: []string{"snapshot"}, DeviceScope: "all"}}
-	cfg.Credentials = []model.MessageTopicCredential{{ID: "c", AccountID: "a", Protocol: "mqtt", Username: "broker", Topics: []string{MQTTPrefix("t") + "device-list"}, Status: "revoking", AccessVersion: "v1", ExpiresAt: 3000}}
+	cfg.Topics[0].KeyIDs = []string{"key"}
+	cfg.Credentials = []model.MessageTopicCredential{{ID: "c", KeyID: "key", Protocol: "mqtt", Username: "broker", Topics: []string{MQTTPrefix("t") + "device-list"}, Status: "revoking", AccessVersion: "v1", ExpiresAt: 3000}}
 	if saved, err := s.Save(ctx, "t", cfg); !saved || err != nil {
 		t.Fatal(saved, err)
 	}

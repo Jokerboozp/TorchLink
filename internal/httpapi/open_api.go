@@ -37,12 +37,12 @@ const (
 )
 
 var apiCapabilityNames = map[string]string{
-	model.APICapabilityAlarmsRead:     "查询告警",
-	model.APICapabilityAlarmsReport:   "上报告警",
-	model.APICapabilityAlarmsHandle:   "处置告警",
-	model.APICapabilityMessagesRead:   "查询设备与数据",
-	model.APICapabilityMessagesReport: "上报设备消息",
-	model.APICapabilityAIChat:         "智能问答",
+	model.APICapabilityAlarmsRead:      "查询告警",
+	model.APICapabilityAlarmsHandle:    "处置告警",
+	model.APICapabilityMessagesRead:    "查询设备与数据",
+	model.APICapabilityMessagesReport:  "上报设备消息",
+	model.APICapabilityAIChat:          "智能问答",
+	model.APICapabilityTopicsSubscribe: "订阅消息主题",
 }
 
 // Kinds an external system may report. Command replies stay with the device
@@ -56,6 +56,7 @@ func (s *Server) openAPIRoutes() {
 	s.router.POST("/api/v1/access/api-keys", s.authorize("admin"), s.endpoint(s.createAPIKey))
 	s.router.PUT("/api/v1/access/api-keys/:id", s.authorize("admin"), s.endpoint(s.updateAPIKey, "id"))
 	s.router.DELETE("/api/v1/access/api-keys/:id", s.authorize("admin"), s.endpoint(s.deleteAPIKey, "id"))
+	s.router.POST("/api/v1/access/api-keys/:id/rotate", s.authorize("admin"), s.endpoint(s.rotateAPIKey, "id"))
 
 	// Each open route names the console route whose permission the bound user
 	// must hold; an empty route means the handler checks device access itself.
@@ -65,7 +66,6 @@ func (s *Server) openAPIRoutes() {
 	open("GET", "/me", "", "", "", s.openIdentity)
 	open("GET", "/alarms", model.APICapabilityAlarmsRead, "GET", "/api/v1/alarms", s.alarms)
 	open("GET", "/alarms/:id", model.APICapabilityAlarmsRead, "GET", "/api/v1/alarms/:id", s.alarm, "id")
-	open("POST", "/alarms", model.APICapabilityAlarmsReport, "", "", s.openReportAlarm)
 	open("POST", "/alarms/:id/actions", model.APICapabilityAlarmsHandle, "POST", "/api/v1/alarms/:id/actions", s.openAlarmAction, "id")
 	open("GET", "/devices", model.APICapabilityMessagesRead, "GET", "/api/v1/device-registry", s.deviceRegistry)
 	open("GET", "/devices/:deviceId/latest", model.APICapabilityMessagesRead, "GET", "/api/v1/devices/:deviceId/latest", s.deviceLatest, "deviceId")
@@ -74,6 +74,7 @@ func (s *Server) openAPIRoutes() {
 	open("GET", "/ai/workflows", model.APICapabilityAIChat, "GET", "/api/v1/ai/workflows", s.aiWorkflows)
 	open("POST", "/ai/chat", model.APICapabilityAIChat, "POST", "/api/v1/ai/chat", s.aiChat)
 	open("POST", "/ai/chat/stream", model.APICapabilityAIChat, "POST", "/api/v1/ai/chat/stream", s.aiChatStream)
+	open("POST", "/message-topics/credentials", model.APICapabilityTopicsSubscribe, "GET", "/api/v1/message-topics", s.exchangeMessageTopicCredentials)
 }
 
 // formatAPIKey embeds the tenant so a key alone identifies where it is stored.
@@ -321,49 +322,6 @@ func (s *Server) openReportMessages(w http.ResponseWriter, r *http.Request) {
 	write(w, status, map[string]any{"accepted": accepted, "rejected": len(results) - accepted, "results": results})
 }
 
-func (s *Server) openReportAlarm(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, openAPIBodyLimit)
-	var in struct {
-		DeviceID   string         `json:"deviceId"`
-		ID         string         `json:"id"`
-		Timestamp  int64          `json:"timestamp"`
-		AlarmType  string         `json:"alarmType,omitempty"`
-		AlarmLevel string         `json:"alarmLevel,omitempty"`
-		Content    string         `json:"content,omitempty"`
-		Data       map[string]any `json:"data,omitempty"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	data := map[string]any{}
-	for key, value := range in.Data {
-		data[key] = value
-	}
-	data["alarm"] = true
-	for key, value := range map[string]string{"alarmType": in.AlarmType, "alarmLevel": in.AlarmLevel, "content": in.Content} {
-		if value = strings.TrimSpace(value); value != "" {
-			data[key] = value
-		}
-	}
-	if err := s.onboarding.EnsureStandardRelease(r.Context(), claims(r).TenantID); err != nil {
-		problem(w, 503, "standard protocol is unavailable")
-		return
-	}
-	result := s.ingestOpenMessage(r, 0, openDeviceMessage{DeviceID: in.DeviceID, Kind: "alarm", ID: in.ID, Timestamp: in.Timestamp, Data: data})
-	if result.Status != "ACCEPTED" {
-		if result.ErrorCode == "RATE_LIMITED" {
-			w.Header().Set("Retry-After", "1")
-		}
-		if result.ErrorCode == "BACKPRESSURE" {
-			w.Header().Set("Retry-After", "15")
-		}
-		write(w, openIngestStatus[result.ErrorCode], map[string]any{"type": "about:blank", "status": openIngestStatus[result.ErrorCode], "errorCode": result.ErrorCode, "detail": result.Error})
-		return
-	}
-	// The alarm is raised asynchronously; its triggerId is "msg_" + messageId.
-	write(w, http.StatusAccepted, map[string]any{"deviceId": result.DeviceID, "messageId": result.MessageID, "created": result.Created, "status": result.Status, "triggerId": "msg_" + result.MessageID})
-}
-
 func (s *Server) openAlarmAction(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Action string `json:"action"`
@@ -429,7 +387,26 @@ func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 	for _, id := range model.APICapabilities {
 		capabilities = append(capabilities, map[string]string{"id": id, "name": apiCapabilityNames[id]})
 	}
-	write(w, 200, map[string]any{"items": publicAPIKeys(state.APIKeys), "capabilities": capabilities, "tenantId": claims(r).TenantID})
+	// Each key lists the topics it may subscribe to; grants are edited on topics.
+	topics := map[string][]map[string]string{}
+	if s.engine.MessageTopics != nil {
+		if cfg, err := s.engine.MessageTopics.Load(r.Context(), claims(r).TenantID); err == nil {
+			for _, route := range cfg.Topics {
+				for _, id := range route.KeyIDs {
+					topics[id] = append(topics[id], map[string]string{"id": route.ID, "name": route.Name, "protocol": route.Protocol})
+				}
+			}
+		}
+	}
+	items := []map[string]any{}
+	for _, key := range publicAPIKeys(state.APIKeys) {
+		granted := topics[key.ID]
+		if granted == nil {
+			granted = []map[string]string{}
+		}
+		items = append(items, map[string]any{"id": key.ID, "name": key.Name, "username": key.Username, "capabilities": key.Capabilities, "enabled": key.Enabled, "createdBy": key.CreatedBy, "createdAt": key.CreatedAt, "expiresAt": key.ExpiresAt, "topics": granted})
+	}
+	write(w, 200, map[string]any{"items": items, "capabilities": capabilities, "tenantId": claims(r).TenantID})
 }
 
 // saveAccessState commits like commitAccess but lets the caller write its own response.
@@ -517,6 +494,7 @@ func (s *Server) updateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "openapi.key.update", "api-key", updated.ID, map[string]any{"enabled": updated.Enabled, "capabilities": updated.Capabilities})
+	s.reconcileTopicKeys(r.Context(), claims(r).TenantID)
 	updated.SecretHash = ""
 	write(w, 200, map[string]any{"item": updated})
 }
@@ -526,7 +504,8 @@ func (s *Server) deleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	index := slices.IndexFunc(state.APIKeys, func(k model.APIKey) bool { return k.ID == r.PathValue("id") })
+	id := r.PathValue("id")
+	index := slices.IndexFunc(state.APIKeys, func(k model.APIKey) bool { return k.ID == id })
 	if index < 0 {
 		problem(w, 404, "开放接口密钥不存在")
 		return
@@ -535,6 +514,74 @@ func (s *Server) deleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	if !s.saveAccessState(w, r, state) {
 		return
 	}
-	s.audit(r, "openapi.key.delete", "api-key", r.PathValue("id"), nil)
+	s.audit(r, "openapi.key.delete", "api-key", id, nil)
+	s.forgetTopicKey(r.Context(), claims(r).TenantID, id)
 	write(w, 200, map[string]bool{"success": true})
+}
+
+// rotateAPIKey keeps the key's ID, capabilities and topic grants and replaces
+// only its secret. Credentials issued with the old secret are revoked.
+func (s *Server) rotateAPIKey(w http.ResponseWriter, r *http.Request) {
+	_, state, ok := s.accessState(w, r)
+	if !ok {
+		return
+	}
+	index := slices.IndexFunc(state.APIKeys, func(k model.APIKey) bool { return k.ID == r.PathValue("id") })
+	if index < 0 {
+		problem(w, 404, "开放接口密钥不存在")
+		return
+	}
+	secret := randomHex(24)
+	state.APIKeys[index].SecretHash = apiKeySecretHash(secret)
+	key := state.APIKeys[index]
+	if !s.saveAccessState(w, r, state) {
+		return
+	}
+	s.audit(r, "openapi.key.rotate", "api-key", key.ID, nil)
+	s.reconcileTopicKeys(r.Context(), claims(r).TenantID)
+	key.SecretHash = ""
+	w.Header().Set("Cache-Control", "no-store")
+	write(w, 200, map[string]any{"item": key, "apiKey": formatAPIKey(claims(r).TenantID, key.ID, secret)})
+}
+
+// forgetTopicKey drops a deleted key's topic grants. Its broker credentials
+// are revoked by reconciliation even if this best-effort cleanup fails.
+func (s *Server) forgetTopicKey(ctx context.Context, tenant, id string) {
+	if s.engine.MessageTopics == nil {
+		return
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		cfg, err := s.engine.MessageTopics.Load(ctx, tenant)
+		if err != nil {
+			break
+		}
+		changed := false
+		for i := range cfg.Topics {
+			if slices.Contains(cfg.Topics[i].KeyIDs, id) {
+				cfg.Topics[i].KeyIDs = slices.DeleteFunc(cfg.Topics[i].KeyIDs, func(v string) bool { return v == id })
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+		for i := range cfg.Credentials {
+			if cfg.Credentials[i].KeyID == id && cfg.Credentials[i].Status != "revoked" {
+				cfg.Credentials[i].Status = "revoking"
+			}
+		}
+		if saved, err := s.engine.MessageTopics.Save(ctx, tenant, cfg); err != nil || saved {
+			break
+		}
+	}
+	s.reconcileTopicKeys(ctx, tenant)
+}
+
+func (s *Server) reconcileTopicKeys(ctx context.Context, tenant string) {
+	if s.engine.MessageTopics == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	_ = s.reconcileMessageTopicTenant(ctx, tenant)
 }

@@ -67,6 +67,15 @@ async function remove(key) {
     await load()
   } catch (e) { if (e !== 'cancel' && e !== 'close') notifyError(e) }
 }
+async function rotate(key) {
+  try {
+    await UiMessageBox.confirm(`为“${key.name}”生成新密钥？旧密钥和已签发的主题订阅凭据立即失效，能力与主题授权保持不变。`, '轮换密钥', { type: 'warning' })
+    const data = await api(`/api/v1/access/api-keys/${encodeURIComponent(key.id)}/rotate`, { method: 'POST' })
+    issuedKey.value = data.apiKey
+    dialog.value = 'issued'
+    await load()
+  } catch (e) { if (e !== 'cancel' && e !== 'close') notifyError(e) }
+}
 async function copy(text, message) {
   try { await navigator.clipboard.writeText(text); UiMessage.success(message) }
   catch { UiMessage.warning('复制失败，请手动选择文本复制') }
@@ -76,6 +85,7 @@ function actions(key) {
   return [
     { key: 'edit', label: '编辑', permission: 'PUT /api/v1/access/api-keys/:id', onClick: () => edit(key) },
     { key: 'toggle', label: key.enabled ? '停用' : '启用', permission: 'PUT /api/v1/access/api-keys/:id', onClick: () => setEnabled(key, !key.enabled) },
+    { key: 'rotate', label: '轮换', permission: 'POST /api/v1/access/api-keys/:id/rotate', onClick: () => rotate(key) },
     { key: 'delete', label: '删除', type: 'danger', permission: 'DELETE /api/v1/access/api-keys/:id', onClick: () => remove(key) }
   ]
 }
@@ -87,18 +97,18 @@ load()
   <div class="api-keys">
     <ui-card class="api-keys-guide">
       <h3>对外开放接口</h3>
-      <p>外部系统使用密钥调用 <code>{{ baseUrl }}</code>，请求头携带 <code>Authorization: Bearer &lt;密钥&gt;</code>。可查询和上报告警、上报设备消息、查询设备数据，以及调用智能助手问答。</p>
+      <p>外部系统使用密钥调用 <code>{{ baseUrl }}</code>，请求头携带 <code>Authorization: Bearer &lt;密钥&gt;</code>。可查询与处置告警、上报设备消息（含告警）、查询设备数据、订阅消息主题，以及调用智能助手问答。</p>
       <p>每个密钥绑定一个平台用户，按该用户的功能权限和设备范围访问；能力项只能进一步收窄。建议为每个外部系统单独创建用户和密钥，并只在对方服务端保存密钥，不要放在浏览器页面中。</p>
     </ui-card>
     <DataTableCard :title="`开放接口密钥 · ${keys.length} 个`">
       <ui-table v-loading="loading" :data="keys" empty-text="暂无密钥，点击新建密钥为外部系统授权">
         <ui-table-column prop="name" label="名称" min-width="140" />
         <ui-table-column label="绑定用户" min-width="160"><template #default="{ row }">{{ userName(row.username) }}</template></ui-table-column>
-        <ui-table-column label="开放能力" min-width="220"><template #default="{ row }">{{ row.capabilities.map(capabilityName).join('、') }}</template></ui-table-column>
+        <ui-table-column label="开放能力" min-width="220"><template #default="{ row }">{{ row.capabilities.map(capabilityName).join('、') }}<small v-if="row.topics?.length" class="api-keys-topics">可订阅：{{ row.topics.map(topic => topic.name).join('、') }}</small></template></ui-table-column>
         <ui-table-column label="有效期至" width="170"><template #default="{ row }">{{ row.expiresAt ? formatTime(row.expiresAt) : '长期有效' }}</template></ui-table-column>
         <ui-table-column label="状态" width="100"><template #default="{ row }"><StatusDot v-bind="keyStatus(row)" /></template></ui-table-column>
         <ui-table-column label="创建" width="170"><template #default="{ row }">{{ formatTime(row.createdAt) }}</template></ui-table-column>
-        <ui-table-column label="操作" width="200" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="actions(row)" /></template></ui-table-column>
+        <ui-table-column label="操作" width="240" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="actions(row)" /></template></ui-table-column>
       </ui-table>
     </DataTableCard>
     <ui-dialog :model-value="dialog === 'edit'" :title="editingId ? '编辑密钥' : '新建密钥'" width="min(620px,94vw)" :close-on-click-modal="false" @close="dialog = ''">
@@ -115,14 +125,14 @@ load()
           </div>
         </ui-form-item>
         <ui-form-item label="有效期至"><ui-date-time v-model="form.expiresAt" clearable disable-past placeholder="不填写则长期有效"/></ui-form-item>
-        <p class="api-keys-note">查询与处置告警、查询设备数据、智能问答还需要绑定用户拥有对应功能权限；上报消息和告警只接受绑定用户可见且已启用的设备。</p>
+        <p class="api-keys-note">查询与处置告警、查询设备数据、智能问答还需要绑定用户拥有对应功能权限；上报消息和告警只接受绑定用户可见且已启用的设备。订阅消息主题需在“消息主题”中为主题授权此密钥。</p>
       </ui-form>
       <template #footer>
         <ui-button :disabled="saving" @click="dialog = ''">取消</ui-button>
         <ui-button type="primary" :loading="saving" :disabled="!form.name.trim() || !form.username || !form.capabilities.length" @click="save">{{ editingId ? '保存修改' : '创建密钥' }}</ui-button>
       </template>
     </ui-dialog>
-    <ui-dialog :model-value="dialog === 'issued'" title="密钥已创建" width="min(620px,94vw)" :close-on-click-modal="false" @close="closeIssued">
+    <ui-dialog :model-value="dialog === 'issued'" title="请保存新密钥" width="min(620px,94vw)" :close-on-click-modal="false" @close="closeIssued">
       <ui-alert type="warning" :closable="false" title="密钥只显示这一次，关闭后无法再次查看。请立即复制并交给外部系统安全保存。" />
       <div class="api-keys-issued"><code>{{ issuedKey }}</code><ui-button size="small" @click="copy(issuedKey, '密钥已复制')"><Copy />复制</ui-button></div>
       <template #footer><ui-button type="primary" @click="closeIssued">我已保存</ui-button></template>
@@ -136,6 +146,7 @@ load()
 .api-keys-guide p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
 .api-keys-guide code, .api-keys-issued code { overflow-wrap: anywhere; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
 .api-keys-capabilities { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.api-keys-topics { display: block; color: var(--text-muted); font-size: 12px; }
 .api-keys-note { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 .api-keys-issued { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px; background: var(--surface-muted); border-radius: 6px; }
 .api-keys-issued code { flex: 1; min-width: 0; user-select: all; }

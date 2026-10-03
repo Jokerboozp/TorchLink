@@ -86,33 +86,11 @@ func querySourceIDs(protocol, dataset string) []string {
 	}
 	return []string{source}
 }
-func AccumulateQueryExposure(cfg *model.MessageTopicConfig, topicID string, query model.MessageTopicQuery) error {
-	if err := ValidateQuery(query); err != nil {
-		return fmt.Errorf("%w：%v", ErrInvalidConfig, err)
-	}
-	if cfg == nil {
-		return fmt.Errorf("%w：缺少主题配置", ErrInvalidConfig)
-	}
-	route, ok := sharedRoute(*cfg, topicID)
-	if !ok {
-		return fmt.Errorf("%w：查询主题不存在", ErrInvalidConfig)
-	}
-	sources := querySourceIDs(route.Protocol, query.Dataset)
-	if len(sources) == 0 {
-		return fmt.Errorf("%w：查询主题协议无效", ErrInvalidConfig)
-	}
-	for _, source := range sources {
-		if err := AccumulateExposure(cfg, model.MessageTopicRule{TopicID: topicID, SourceID: source, DeviceScope: query.DeviceScope, DeviceIDs: query.DeviceIDs}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 var queryIdentifier = regexp.MustCompile(`^[\pL_][\pL\pN_]*$`)
 
 func queryFieldType(dataset QueryDataset, path string) (string, bool) {
-	if !validRulePath(path) {
+	if !validFieldPath(path) {
 		return "", false
 	}
 	for _, f := range dataset.Fields {
@@ -136,7 +114,7 @@ func ValidateQuery(q model.MessageTopicQuery) error {
 	if (q.Mode == "realtime" && q.IntervalSeconds != 0) || (q.Mode == "interval" && (q.IntervalSeconds < 10 || q.IntervalSeconds > 86400)) {
 		return errors.New("定时查询间隔须在10至86400秒之间，实时查询不设置间隔")
 	}
-	if !validRuleScope(q.DeviceScope, q.DeviceIDs) {
+	if !validScope(q.DeviceScope, q.DeviceIDs) {
 		return errors.New("查询设备范围无效")
 	}
 	if len(q.Fields) > 64 {
@@ -377,7 +355,7 @@ func matchesQueryFilter(f *model.MessageTopicFilter, input map[string]any) bool 
 	return false
 }
 func normalizedQueryRecord(q model.MessageTopicQuery, payload []byte) (map[string]any, error) {
-	if len(payload) > MaxRulePayload {
+	if len(payload) > MaxPayload {
 		return nil, errors.New("查询输入不能超过256KB")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -440,7 +418,7 @@ func PreviewQuery(q model.MessageTopicQuery, payload []byte) ([]byte, bool, erro
 		}
 	}
 	encoded, err := json.Marshal(out)
-	if len(encoded) > MaxRulePayload {
+	if len(encoded) > MaxPayload {
 		return nil, false, errors.New("查询输出不能超过256KB")
 	}
 	return encoded, err == nil, err

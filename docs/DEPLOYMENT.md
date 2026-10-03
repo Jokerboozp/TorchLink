@@ -324,7 +324,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 - Kafka 选择 `SASL_PLAINTEXT`、`SCRAM-SHA-256`（启用 TLS 时选择 `SASL_SSL`），连接对外 Kafka 端口，填写配置中的用户名和密码。
 - ClickHouse 工具账号通过 `GRANT CURRENT GRANTS` 继承初始化连接账号实际可授予的权限。
 
-工具 `admin` 具有服务管理权限。外部业务对接在[消息主题](INTEGRATION.md#外部对接账号与订阅)中按账号单独授权；JWT、Harness、备份、EMQX 管理 API、摄像头密钥、集群复制凭据和外部对接临时凭据继续独立生成。
+工具 `admin` 具有服务管理权限。外部业务订阅在[消息主题](INTEGRATION.md#订阅密钥与连接凭据)中按开放接口密钥单独授权；JWT、Harness、备份、EMQX 管理 API、摄像头密钥、集群复制凭据和外部对接临时凭据继续独立生成。
 
 重复执行保留已有环境文件和数据库中的账号，不会把现场密码静默改成新默认。修改已有服务密码需同步服务端账号、环境文件及使用它的平台/备份进程；不要重新生成配置文件或删除数据卷来重置密码。配置文件和私有离线包包含现场凭据，不应提交或公开分享。
 
@@ -439,7 +439,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ### Kafka 对接账号认证与授权
 
-“消息主题”中的 Kafka 对接账号由平台管理 Redpanda SCRAM 凭据及精确 ACL。新建部署默认启用 SASL 与 Admin API 认证，并初始化 `admin` / `admin123`；平台页面仍检查 Broker 的实际状态，未满足下列条件时拒绝发放 Kafka 连接凭据。已有 Broker 的账号和集群配置存于数据卷，更新环境变量不会替换已有密码，需按下述步骤同步。
+“消息主题”的 Kafka 订阅凭据由平台管理 Redpanda SCRAM 凭据及精确 ACL。新建部署默认启用 SASL 与 Admin API 认证，并初始化 `admin` / `admin123`；平台页面仍检查 Broker 的实际状态，未满足下列条件时拒绝发放 Kafka 连接凭据。已有 Broker 的账号和集群配置存于数据卷，更新环境变量不会替换已有密码，需按下述步骤同步。
 
 | 配置 | 用途 |
 | --- | --- |

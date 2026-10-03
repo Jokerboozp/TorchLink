@@ -195,10 +195,10 @@ func TestExistingMQTTTopicConsumerAuthorization(t *testing.T) {
 	id := hex.EncodeToString(random[:])
 	tenant := "acl-test-" + id
 	username := "topic-test-" + id
-	credential := model.MessageTopicCredential{ID: "credential-" + id, AccountID: "account", Protocol: "mqtt", Username: username, AccessVersion: "access-v1", Status: "active", CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(2 * time.Minute).Unix()}
-	topic := messagetopics.Destination(tenant, "route", credential)
+	credential := model.MessageTopicCredential{ID: "credential-" + id, KeyID: "key", Protocol: "mqtt", Username: username, AccessVersion: "access-v1", Status: "active", CreatedAt: time.Now().Unix(), ExpiresAt: time.Now().Add(2 * time.Minute).Unix()}
+	topic := messagetopics.Destination(tenant, model.MessageTopicRoute{Protocol: "mqtt", Topic: "route-" + id})
 	credential.Topics = []string{topic}
-	otherTopic := messagetopics.Destination(tenant+"-other", "route", credential)
+	otherTopic := messagetopics.Destination(tenant+"-other", model.MessageTopicRoute{Protocol: "mqtt", Topic: "route-" + id})
 	manager := auth.New(secret)
 	password, err := manager.IssueTopicConsumer(username, tenant, []string{topic}, time.Unix(credential.ExpiresAt, 0))
 	if err != nil {
@@ -261,9 +261,13 @@ func TestExistingMQTTTopicConsumerAuthorization(t *testing.T) {
 	repo := memory.NewRepository()
 	service := messagetopics.New(repo)
 	service.SetAccessResolver(func(context.Context, string, string) (messagetopics.MessageTopicIdentity, error) {
-		return messagetopics.MessageTopicIdentity{Permissions: map[string]bool{"menu:devices": true}, DeviceScope: "selected", DeviceIDs: []string{"device-one"}, Version: "access-v1"}, nil
+		return messagetopics.MessageTopicIdentity{Permissions: map[string]bool{"menu:devices": true, "menu:messageTopics": true}, DeviceScope: "selected", DeviceIDs: []string{"device-one"}, Version: "access-v1"}, nil
 	})
-	cfg := model.MessageTopicConfig{Overrides: map[string]model.MessageTopicOverride{"mqtt.parsed": {Enabled: false}}, Topics: []model.MessageTopicRoute{{ID: "route", Name: "测试数据", SourceID: "mqtt.parsed", Topic: "data", Enabled: true}}, Accounts: []model.MessageTopicAccount{{ID: "account", Name: "测试对接账号", Username: "reader", Enabled: true, TopicIDs: []string{"route"}, DeviceScope: "all"}}, Credentials: []model.MessageTopicCredential{credential}}
+	query := model.MessageTopicQuery{Dataset: "device_reports", Mode: "realtime", DeviceScope: "selected", DeviceIDs: []string{"device-one"}, Fields: map[string]string{"marker": "tags.marker"}}
+	cfg := model.MessageTopicConfig{Topics: []model.MessageTopicRoute{{ID: "route", Name: "测试数据", Protocol: "mqtt", Topic: topic, Enabled: true, Query: &query, KeyIDs: []string{"key"}}}, Credentials: []model.MessageTopicCredential{credential}}
+	if err := messagetopics.AccumulateQueryExposure(&cfg, "route", query); err != nil {
+		t.Fatal(err)
+	}
 	if ok, err := service.Save(ctx, tenant, cfg); !ok || err != nil {
 		t.Fatal("save managed route", ok, err)
 	}
@@ -275,7 +279,7 @@ func TestExistingMQTTTopicConsumerAuthorization(t *testing.T) {
 	routed := service.WrapRealtime(adapter)
 	publish := func(device string) {
 		t.Helper()
-		payload, _ := json.Marshal(map[string]string{"tenantId": tenant, "deviceId": device, "productId": "p", "messageType": "PROPERTY_REPORT", "marker": device})
+		payload, _ := json.Marshal(map[string]any{"tenantId": tenant, "deviceId": device, "productId": "p", "messageType": "PROPERTY_REPORT", "tags": map[string]string{"marker": device}})
 		if err := routed.Publish(ctx, "/iot/parsed/"+tenant+"/p/"+device+"/PROPERTY_REPORT", payload, 1, false); err != nil {
 			t.Fatal(err)
 		}

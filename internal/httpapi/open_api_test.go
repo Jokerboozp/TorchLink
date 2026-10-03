@@ -57,7 +57,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 
 	req("POST", "/api/v1/access/api-keys", admin, map[string]any{"name": "外部平台", "username": "missing", "capabilities": []string{"alarms:read"}}, 422)
 	req("POST", "/api/v1/access/api-keys", admin, map[string]any{"name": "外部平台", "username": "ext_system", "capabilities": []string{"everything"}}, 422)
-	created := req("POST", "/api/v1/access/api-keys", admin, map[string]any{"name": "外部平台", "username": "ext_system", "capabilities": []string{"alarms:read", "alarms:report", "messages:report", "ai:chat"}}, 201)
+	created := req("POST", "/api/v1/access/api-keys", admin, map[string]any{"name": "外部平台", "username": "ext_system", "capabilities": []string{"alarms:read", "messages:report", "ai:chat"}}, 201)
 	key := created["apiKey"].(string)
 	keyID := created["item"].(map[string]any)["id"].(string)
 	if !strings.HasPrefix(key, "tlk.") || strings.Contains(key, keyID) == false {
@@ -92,8 +92,15 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 	req("POST", "/api/open/v1/device-messages", key, map[string]any{"messages": []map[string]any{{"deviceId": "dev_a", "kind": "property", "id": "p-1", "timestamp": now, "data": map[string]any{"temperature": 26.5}}}}, 202)
 	req("POST", "/api/open/v1/device-messages", key, map[string]any{"messages": []map[string]any{{"deviceId": "dev_a", "kind": "property", "id": "p-1", "timestamp": now, "data": map[string]any{"temperature": 99}}}}, 422)
 
-	req("POST", "/api/open/v1/alarms", key, map[string]any{"deviceId": "dev_b", "id": "a-1", "timestamp": now, "alarmType": "FIRE"}, 404)
-	report := req("POST", "/api/open/v1/alarms", key, map[string]any{"deviceId": "dev_a", "id": "a-1", "timestamp": now, "alarmType": "FIRE", "alarmLevel": "CRITICAL", "content": "3 层烟感报警"}, 202)
+	// Alarms are reported as device messages of kind alarm.
+	reportAlarm := func(device, id string, timestamp int64, data map[string]any, status int) string {
+		t.Helper()
+		result := req("POST", "/api/open/v1/device-messages", key, map[string]any{"messages": []map[string]any{{"deviceId": device, "kind": "alarm", "id": id, "timestamp": timestamp, "data": data}}}, status)
+		messageID, _ := result["results"].([]any)[0].(map[string]any)["messageId"].(string)
+		return "msg_" + messageID
+	}
+	reportAlarm("dev_b", "a-1", now, map[string]any{"alarmType": "FIRE"}, 422)
+	report := map[string]any{"triggerId": reportAlarm("dev_a", "a-1", now, map[string]any{"alarmType": "FIRE", "alarmLevel": "CRITICAL", "content": "3 层烟感报警"}, 202)}
 	var alarm map[string]any
 	for deadline := time.Now().Add(10 * time.Second); alarm == nil && time.Now().Before(deadline); time.Sleep(150 * time.Millisecond) {
 		for _, item := range req("GET", "/api/open/v1/alarms?deviceId=dev_a", key, nil, 200)["items"].([]any) {
@@ -113,7 +120,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 	req("POST", "/api/open/v1/alarms/"+alarmID+"/actions", key, map[string]string{"action": "ACKED"}, 403)
 	// The bound user's permissions still apply: it has no AI assistant menu.
 	req("POST", "/api/open/v1/ai/chat", key, map[string]string{"question": "hi"}, 403)
-	req("PUT", "/api/v1/access/api-keys/"+keyID, admin, map[string]any{"name": "外部平台", "capabilities": []string{"alarms:read", "alarms:report", "alarms:handle", "messages:read", "messages:report"}}, 200)
+	req("PUT", "/api/v1/access/api-keys/"+keyID, admin, map[string]any{"name": "外部平台", "capabilities": []string{"alarms:read", "alarms:handle", "messages:read", "messages:report"}}, 200)
 	acked := req("POST", "/api/open/v1/alarms/"+alarmID+"/actions", key, map[string]string{"action": "ACKED"}, 200)
 	if acked["status"] != "ACKED" {
 		t.Fatal("alarm was not acknowledged", acked)
@@ -129,7 +136,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 	}
 	req("POST", "/api/open/v1/alarms/"+alarmID+"/actions", key, map[string]string{"action": "RECOVERED"}, 422)
 	// Custom alarm types have no clearing property; the reporter recovers them explicitly.
-	custom := req("POST", "/api/open/v1/alarms", key, map[string]any{"deviceId": "dev_a", "id": "a-2", "timestamp": now + 2, "alarmType": "GAS_LEAK", "content": "燃气泄漏"}, 202)
+	custom := map[string]any{"triggerId": reportAlarm("dev_a", "a-2", now+2, map[string]any{"alarmType": "GAS_LEAK", "content": "燃气泄漏"}, 202)}
 	var customID string
 	for deadline := time.Now().Add(10 * time.Second); customID == "" && time.Now().Before(deadline); time.Sleep(150 * time.Millisecond) {
 		for _, item := range req("GET", "/api/open/v1/alarms?deviceId=dev_a&status=ACTIVE", key, nil, 200)["items"].([]any) {

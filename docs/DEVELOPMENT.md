@@ -111,14 +111,14 @@ PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 sc
 
 ### 消息主题回归
 
-仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic|TestSharedTopic'`，验证主题与查询、订阅账号的原子保存、SQL 与表单往返、字段投影、类型及条件比较、真实数据预览、定时快照完整性、设备范围、历史授权、临时凭据、撤销重试及并发冲突；保留旧发送规则和手动发布的兼容回归。解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证，包括成功解析后按查询条件向 MQTT / Kafka 发布，以及不匹配或解析失败不发送。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
+仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic|TestSharedTopic'`，验证主题与查询、订阅密钥的原子保存、SQL 与表单往返、字段投影、类型及条件比较、真实数据预览、定时快照完整性、设备范围、历史授权、临时凭据、密钥轮换与删除、撤销重试及并发冲突。解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证，包括成功解析后按查询条件向 MQTT / Kafka 发布，以及不匹配或解析失败不发送。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
 
 真实 Broker 测试为 `go test -race ./internal/messagetopics -run TestMessageTopicsExisting -v`，仅在明确配置以下私有进程环境时执行：
 
 - MQTT：`IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER`，以及 `IOT_TEST_MESSAGE_TOPICS_MQTT_USERNAME` / `IOT_TEST_MESSAGE_TOPICS_MQTT_PASSWORD`；也可只提供 `IOT_TEST_MESSAGE_TOPICS_JWT_SECRET`，由测试签发精确临时主题、有效期 2 分钟的 JWT。
 - Kafka：`IOT_TEST_MESSAGE_TOPICS_KAFKA_BROKERS`（逗号分隔），认证使用同前缀的 `_USERNAME`、`_PASSWORD`、`_MECHANISM`（默认 `SCRAM-SHA-256`）；TLS 使用 `_TLS` 和可选 `_TLS_CA_FILE`。连接身份须有测试主题的创建、发布、读取及删除权限；默认部署已启用 SASL，须提供认证参数。
 
-测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic，仅清理确认本轮创建成功的主题，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查无数据源创建、手动文本/JSON 发送、字段映射与文本模板预览、独立规则增删、主题删除/恢复默认、对接账号授权/启停/轮换/删除、分页设备选择、一次性密钥清除、整页刷新、只读目录和窄屏弹窗。
+测试使用随机租户前缀、独立客户端和非 retained MQTT 消息；Kafka 创建独立单分区 Topic，仅清理确认本轮创建成功的主题，不改运行账号、ACL 或既有主题。不配置时测试跳过。前端回归为 `node --test iot_front/tests/message-topics.test.mjs`；浏览器应另外检查主题创建/编辑/删除、查询预览、订阅密钥授权、分页设备选择、开放接口密钥轮换、整页刷新、只读内置主题和窄屏弹窗。
 
 工具账号回归为 `go test -race ./internal/adapters/mqtt -run TestExistingMQTTToolCredentials -count=1 -v`，需要 `IOT_TEST_MESSAGE_TOPICS_MQTT_BROKER` 及 `IOT_TEST_MQTT_TOOL_USERNAME` / `IOT_TEST_MQTT_TOOL_PASSWORD`，核对发布/订阅、错误密码与匿名拒绝，不改账号或认证链。数据库工具账号引导回归为 `go test ./deploy/toolaccounts`，使用模拟客户端检查仅创建缺失账号、保留已有账号及失败清理。
 
