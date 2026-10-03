@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -173,6 +174,9 @@ func applyMigration(ctx context.Context, conn *pgx.Conn, m migration) error {
 		// Statements are separated by lines containing only ";" so that
 		// bodies may contain semicolons; each runs on its own.
 		for _, statement := range splitStatements(m.sql) {
+			if err := dropInvalidIndex(ctx, conn, statement); err != nil {
+				return err
+			}
 			if _, err := conn.Exec(ctx, statement); err != nil {
 				return err
 			}
@@ -191,6 +195,25 @@ func applyMigration(ctx context.Context, conn *pgx.Conn, m migration) error {
 		_, err := tx.Exec(ctx, `INSERT INTO schema_migration(version,name,checksum) VALUES($1,$2,$3)`, m.version, m.name, m.checksum)
 		return err
 	})
+}
+
+var concurrentIndex = regexp.MustCompile(`(?i)^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]*)\s`)
+
+// dropInvalidIndex removes an index left invalid by an interrupted CREATE
+// INDEX CONCURRENTLY, which IF NOT EXISTS would otherwise keep forever.
+func dropInvalidIndex(ctx context.Context, conn *pgx.Conn, statement string) error {
+	match := concurrentIndex.FindStringSubmatch(statement)
+	if match == nil {
+		return nil
+	}
+	var invalid bool
+	err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+  WHERE c.relname=$1 AND c.relnamespace=current_schema()::regnamespace AND NOT i.indisvalid)`, match[1]).Scan(&invalid)
+	if err != nil || !invalid {
+		return err
+	}
+	_, err = conn.Exec(ctx, `DROP INDEX CONCURRENTLY IF EXISTS `+pgx.Identifier{match[1]}.Sanitize())
+	return err
 }
 
 func splitStatements(sql string) []string {

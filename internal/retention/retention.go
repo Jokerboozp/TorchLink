@@ -1,0 +1,236 @@
+// Package retention deletes traffic-driven data older than the configured
+// retention so PostgreSQL stays bounded. ClickHouse tables use table TTLs
+// set by the ClickHouse adapter instead.
+package retention
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"iot-platform/internal/config"
+	"iot-platform/internal/model"
+)
+
+// Store is implemented by the PostgreSQL repository.
+type Store interface {
+	PurgeRange(ctx context.Context, table string, from, to time.Time, limit int) (int64, error)
+	OldestRetained(ctx context.Context, table string) (time.Time, bool, error)
+	BackupWindows(ctx context.Context) ([]model.BackupWindow, error)
+}
+
+// Metrics receives counters; *metrics.Registry implements it.
+type Metrics interface {
+	Add(string, uint64)
+	Inc(string)
+	Set(string, float64)
+}
+
+// deviceMessageTables are exported by the daily backup; RequireBackup gates
+// their purge on backup coverage.
+var deviceMessageTables = map[string]bool{
+	model.RetentionStandardMessages: true,
+	model.RetentionRawIndex:         true,
+	model.RetentionRawLog:           true,
+}
+
+type Service struct {
+	cfg      config.RetentionConfig
+	store    Store
+	metrics  Metrics
+	log      *slog.Logger
+	location *time.Location
+	now      func() time.Time
+	sleep    func(context.Context, time.Duration)
+	lastRun  string
+}
+
+func New(cfg config.RetentionConfig, store Store, metrics Metrics, log *slog.Logger, location *time.Location) *Service {
+	if location == nil {
+		location = time.Local
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Service{cfg: cfg, store: store, metrics: metrics, log: log, location: location, now: time.Now, sleep: sleepCtx}
+}
+
+// Table is one retention rule.
+type Table struct {
+	Name string
+	Days int
+}
+
+func (s *Service) tables() []Table {
+	c := s.cfg
+	return []Table{
+		{model.RetentionReservations, c.ReservationDays},
+		{model.RetentionStandardMessages, c.StandardDays},
+		{model.RetentionRawIndex, c.RawDays},
+		{model.RetentionRawLog, c.RawDays},
+		{model.RetentionStateEvents, c.StateEventDays},
+		{model.RetentionAIToolCalls, c.AILogDays},
+		{model.RetentionVideoEvents, c.VideoEventDays},
+		{model.RetentionAlarms, c.AlarmDays},
+		{model.RetentionAudit, c.AuditDays},
+	}
+}
+
+// Due reports whether the daily run has not happened yet today and the
+// configured time has passed. The scheduler checks it periodically.
+func (s *Service) Due() bool {
+	now := s.now().In(s.location)
+	at, err := time.Parse("15:04", s.cfg.At)
+	if err != nil {
+		return false
+	}
+	start := time.Date(now.Year(), now.Month(), now.Day(), at.Hour(), at.Minute(), 0, 0, s.location)
+	return now.After(start) && s.lastRun != now.Format(time.DateOnly)
+}
+
+// Tick runs the purge when it is due. It is safe to call from the cluster
+// singleton scheduler; a takeover on another instance may repeat a day's
+// purge, which only finds nothing left to delete.
+func (s *Service) Tick(ctx context.Context) error {
+	if !s.cfg.Enabled || !s.Due() {
+		return nil
+	}
+	_, err := s.RunOnce(ctx)
+	if err == nil {
+		s.lastRun = s.now().In(s.location).Format(time.DateOnly)
+	}
+	return err
+}
+
+// Result lists the rows deleted per table in one run.
+type Result map[string]int64
+
+// RunOnce purges every table once. A failing table is reported and the
+// remaining tables still run.
+func (s *Service) RunOnce(ctx context.Context) (Result, error) {
+	result := Result{}
+	var failures []error
+	var windows []model.BackupWindow
+	if s.cfg.RequireBackup {
+		var err error
+		if windows, err = s.store.BackupWindows(ctx); err != nil {
+			s.inc("retention_failed_total")
+			return result, fmt.Errorf("read backup coverage: %w", err)
+		}
+	}
+	for _, table := range s.tables() {
+		if table.Days <= 0 {
+			continue
+		}
+		cutoff := config.Cutoff(s.now(), table.Days)
+		var deleted int64
+		var err error
+		if s.cfg.RequireBackup && deviceMessageTables[table.Name] {
+			deleted, err = s.purgeCovered(ctx, table.Name, cutoff, windows)
+		} else {
+			deleted, err = s.purge(ctx, table.Name, time.Time{}, cutoff)
+		}
+		result[table.Name] = deleted
+		if deleted > 0 && s.metrics != nil {
+			s.metrics.Add("retention_deleted_total", uint64(deleted))
+			s.metrics.Add("retention_deleted_"+table.Name+"_total", uint64(deleted))
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			s.inc("retention_failed_total")
+			s.log.Error("retention purge failed", "table", table.Name, "error", err)
+			failures = append(failures, fmt.Errorf("%s: %w", table.Name, err))
+			continue
+		}
+		if deleted > 0 {
+			s.log.Info("retention purge", "table", table.Name, "deleted", deleted, "before", cutoff.Format(time.RFC3339))
+		}
+	}
+	if len(failures) == 0 && s.metrics != nil {
+		s.metrics.Set("retention_last_success_timestamp_seconds", float64(s.now().Unix()))
+	}
+	return result, errors.Join(failures...)
+}
+
+func (s *Service) purge(ctx context.Context, table string, from, to time.Time) (int64, error) {
+	var total int64
+	for {
+		n, err := s.store.PurgeRange(ctx, table, from, to, s.cfg.BatchSize)
+		total += n
+		if err != nil || n < int64(max(s.cfg.BatchSize, 1)) {
+			return total, err
+		}
+		s.sleep(ctx, s.cfg.BatchPause)
+		if ctx.Err() != nil {
+			return total, ctx.Err()
+		}
+	}
+}
+
+// purgeCovered deletes, day by day in the backup time zone, only the days
+// that a completed backup covers; uncovered days are kept and reported.
+func (s *Service) purgeCovered(ctx context.Context, table string, cutoff time.Time, windows []model.BackupWindow) (int64, error) {
+	oldest, found, err := s.store.OldestRetained(ctx, table)
+	if err != nil || !found || !oldest.Before(cutoff) {
+		return 0, err
+	}
+	var total int64
+	skipped := 0
+	day := oldest.In(s.location)
+	day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, s.location)
+	for day.Before(cutoff) {
+		next := day.AddDate(0, 0, 1)
+		end := next
+		if end.After(cutoff) {
+			end = cutoff
+		}
+		if covered(windows, day, next) {
+			n, err := s.purge(ctx, table, day, end)
+			total += n
+			if err != nil {
+				return total, err
+			}
+		} else {
+			skipped++
+		}
+		day = next
+	}
+	if skipped > 0 {
+		s.log.Warn("retention kept days without a completed backup", "table", table, "days", skipped)
+		if s.metrics != nil {
+			s.metrics.Set("retention_unbacked_days_"+table, float64(skipped))
+		}
+	}
+	return total, nil
+}
+
+func covered(windows []model.BackupWindow, from, to time.Time) bool {
+	for _, w := range windows {
+		if w.Covers(from, to) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) inc(name string) {
+	if s.metrics != nil {
+		s.metrics.Inc(name)
+	}
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}

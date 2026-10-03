@@ -96,3 +96,27 @@ func TestVersionedMigrationsRunOnceInOrder(t *testing.T) {
 		t.Fatalf("failed migration recorded: %d %v", count, err)
 	}
 }
+
+func TestInvalidConcurrentIndexIsRebuilt(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	// A unique index over duplicates fails and stays behind as invalid.
+	list := []migration{{version: 1, name: "table", checksum: "a", sql: `CREATE TABLE dup_probe(v int); INSERT INTO dup_probe VALUES (1),(1)`}}
+	if err := migrateWith(ctx, pool, list); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE UNIQUE INDEX CONCURRENTLY dup_probe_idx ON dup_probe(v)`); err == nil {
+		t.Fatal("expected the duplicate rows to fail the unique index")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM dup_probe WHERE ctid=(SELECT min(ctid) FROM dup_probe)`); err != nil {
+		t.Fatal(err)
+	}
+	list = append(list, migration{version: 2, name: "index", checksum: "b", noTx: true, sql: "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS dup_probe_idx ON dup_probe(v)\n;\n"})
+	if err := migrateWith(ctx, pool, list); err != nil {
+		t.Fatal(err)
+	}
+	var valid bool
+	if err := pool.QueryRow(ctx, `SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE c.relname='dup_probe_idx' AND c.relnamespace=current_schema()::regnamespace`).Scan(&valid); err != nil || !valid {
+		t.Fatalf("index valid=%v err=%v", valid, err)
+	}
+}

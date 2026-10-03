@@ -39,6 +39,7 @@ import (
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolruntime"
+	"iot-platform/internal/retention"
 	"iot-platform/internal/ratelimit"
 
 	"iot-platform/internal/adapters/observability"
@@ -99,7 +100,7 @@ func Run(forcedRole string) {
 		log.Info("repository enabled", "adapter", "postgres")
 	}
 	if cfg.ClickHouseURL != "" {
-		r, clickErr := clickhouseadapter.NewWithOptions(ctx, cfg.ClickHouseURL, repo, clickhouseadapter.Options{Cluster: cfg.ClickHouseCluster, InsertQuorum: cfg.ClickHouseInsertQuorum})
+		r, clickErr := clickhouseadapter.NewWithOptions(ctx, cfg.ClickHouseURL, repo, clickhouseadapter.Options{Cluster: cfg.ClickHouseCluster, InsertQuorum: cfg.ClickHouseInsertQuorum, TelemetryTTLDays: cfg.Retention.TelemetryDays, RawTTLDays: cfg.Retention.ClickRawDays})
 		fatal(log, "initialize clickhouse", clickErr)
 		repo = r
 		clickHouseRaw = r
@@ -539,6 +540,14 @@ func Run(forcedRole string) {
 		defer admin.Close()
 		admin.SetConsumerBrokers(cfg.KafkaPublicBrokers)
 		api.SetMessageTopicKafkaAdmin(admin)
+	}
+	if cfg.Runs(config.ComponentJobs) && postgresRepo != nil && cfg.Retention.Enabled {
+		location, err := time.LoadLocation(cfg.Retention.Timezone)
+		if err != nil {
+			location = time.Local
+		}
+		purger := retention.New(cfg.Retention, postgresRepo, registry, log, location)
+		engine.RunSingleton(ctx, "retention", 10*time.Minute, purger.Tick)
 	}
 	if cfg.Runs(config.ComponentJobs) {
 		engine.RunSingleton(ctx, "credential-revocation", 30*time.Second, api.RetryCredentialRevocationsOnce)

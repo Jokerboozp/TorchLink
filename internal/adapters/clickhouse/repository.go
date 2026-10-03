@@ -38,6 +38,10 @@ type Options struct {
 	// InsertQuorum is the replica acknowledgement required per insert
 	// ("", "auto" or a number). Empty keeps ClickHouse's default (local write).
 	InsertQuorum string
+	// TelemetryTTLDays and RawTTLDays expire rows after that many days;
+	// 0 keeps them forever.
+	TelemetryTTLDays int
+	RawTTLDays       int
 }
 
 var clusterNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -120,6 +124,9 @@ func NewWithOptions(ctx context.Context, base string, repo ports.Repository, opt
 		if _, err = r.query(ctx, statement, nil); err != nil {
 			return nil, err
 		}
+	}
+	if err = r.applyTTL(ctx); err != nil {
+		return nil, err
 	}
 	return r, nil
 }

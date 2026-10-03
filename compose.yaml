@@ -39,6 +39,20 @@ services:
       IOT_PROTOCOL_LISTENER_MAX_SESSIONS: ${IOT_PROTOCOL_LISTENER_MAX_SESSIONS:-1024}
       IOT_MQTT_DEVICE_TOKEN_TTL: ${IOT_MQTT_DEVICE_TOKEN_TTL:-24h}
       IOT_INGEST_MAX_BACKLOG: ${IOT_INGEST_MAX_BACKLOG:-50000}
+      IOT_RETENTION_ENABLED: ${IOT_RETENTION_ENABLED:-true}
+      IOT_RETENTION_TIME: ${IOT_RETENTION_TIME:-03:30}
+      IOT_RETENTION_TIMEZONE: ${IOT_RETENTION_TIMEZONE:-${IOT_BACKUP_TIMEZONE:-Asia/Shanghai}}
+      IOT_RETENTION_REQUIRE_BACKUP: ${IOT_RETENTION_REQUIRE_BACKUP:-false}
+      IOT_RETENTION_ALARM_DAYS: ${IOT_RETENTION_ALARM_DAYS:-}
+      IOT_RETENTION_AUDIT_DAYS: ${IOT_RETENTION_AUDIT_DAYS:-}
+      IOT_RETENTION_STANDARD_DAYS: ${IOT_RETENTION_STANDARD_DAYS:-}
+      IOT_RETENTION_RAW_DAYS: ${IOT_RETENTION_RAW_DAYS:-}
+      IOT_RETENTION_STATE_EVENT_DAYS: ${IOT_RETENTION_STATE_EVENT_DAYS:-}
+      IOT_RETENTION_AI_LOG_DAYS: ${IOT_RETENTION_AI_LOG_DAYS:-}
+      IOT_RETENTION_VIDEO_EVENT_DAYS: ${IOT_RETENTION_VIDEO_EVENT_DAYS:-}
+      IOT_RETENTION_RESERVATION_DAYS: ${IOT_RETENTION_RESERVATION_DAYS:-}
+      IOT_RETENTION_TELEMETRY_DAYS: ${IOT_RETENTION_TELEMETRY_DAYS:-}
+      IOT_RETENTION_CLICKHOUSE_RAW_DAYS: ${IOT_RETENTION_CLICKHOUSE_RAW_DAYS:-}
       IOT_MODBUS_ALLOWED_CIDRS: ${IOT_MODBUS_ALLOWED_CIDRS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128}
       IOT_MINIO_ENDPOINT: minio:9000
       IOT_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
@@ -690,6 +704,11 @@ configs:
               for: 5m
               labels: {severity: warning}
               annotations: {summary: "平台消息消费积压超过一万条"}
+            - alert: RetentionFailures
+              expr: increase(retention_failed_total[1d]) > 0
+              for: 0m
+              labels: {severity: warning}
+              annotations: {summary: "历史数据清理失败，磁盘占用会持续增长"}
             - alert: BackupFailures
               expr: increase(backup_failed_total[30m]) > 0
               for: 1m

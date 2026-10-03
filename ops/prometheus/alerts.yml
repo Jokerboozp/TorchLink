@@ -52,6 +52,11 @@ groups:
         for: 5m
         labels: {severity: warning}
         annotations: {summary: "平台消息消费积压超过一万条"}
+      - alert: RetentionFailures
+        expr: increase(retention_failed_total[1d]) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "历史数据清理失败，磁盘占用会持续增长"}
       - alert: BackupFailures
         expr: increase(backup_failed_total[30m]) > 0
         for: 1m

@@ -127,6 +127,7 @@ type Config struct {
 	DevMode                  bool
 	Ops                      OpsConfig
 	Video                    VideoConfig
+	Retention                RetentionConfig
 	loadErr                  error
 }
 
@@ -228,6 +229,7 @@ func Load() Config {
 		DevMode:                     devMode,
 		Ops:                         loadOps(),
 		Video:                       loadVideo(),
+		Retention:                   loadRetention(),
 		loadErr:                     errors.Join(devModeErr, kafkaTLSErr),
 	}
 }
@@ -238,6 +240,11 @@ func (c Config) Validate() error {
 	}
 	if err := c.Ops.validate(); err != nil {
 		return err
+	}
+	if c.Retention.Enabled || c.Retention.retentionError != nil {
+		if err := c.Retention.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := c.validateKafkaSecurity(); err != nil {
 		return err

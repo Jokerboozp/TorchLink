@@ -594,6 +594,30 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 | 媒体不可播放 | `/api/v1/video/status`、连接测试、目标白名单、RTC 地址、编码及播放权限 |
 | openEuler 镜像导入 `mknod` 失败 | 检查 `container-selinux`、受管程序/数据标签和 Docker 进程域 |
 
+## 数据保留与清理
+
+设备上报、标准消息、告警和日志会持续增长。Jobs 职责的进程（`combined` 或拆分的 `jobs`）每天在 `IOT_RETENTION_TIME`（默认 03:30，时区 `IOT_RETENTION_TIMEZONE`，默认沿用 `IOT_BACKUP_TIMEZONE`）以集群单例删除超过保留期的数据，每批 `IOT_RETENTION_BATCH_SIZE`（默认 5000）行并在批间暂停，不长时间锁表。`IOT_RETENTION_ENABLED=false` 关闭清理。
+
+| 数据 | 存储 | 默认保留 | 配置 | 不清理的行 |
+| --- | --- | --- | --- | --- |
+| 已处理标准消息 | PostgreSQL | 90 天 | `IOT_RETENTION_STANDARD_DAYS` | 尚未处理完成 |
+| 原文索引、低频原文 | PostgreSQL | 180 天 | `IOT_RETENTION_RAW_DAYS` | 尚未发布到消息队列 |
+| 原文去重预约 | PostgreSQL | 7 天 | `IOT_RETENTION_RESERVATION_DAYS` | — |
+| 设备状态变更事件 | PostgreSQL | 90 天 | `IOT_RETENTION_STATE_EVENT_DAYS` | — |
+| 告警记录 | PostgreSQL | 1095 天 | `IOT_RETENTION_ALARM_DAYS` | 活动、已确认告警 |
+| 审计日志 | PostgreSQL | 1095 天 | `IOT_RETENTION_AUDIT_DAYS` | — |
+| AI 工具调用日志 | PostgreSQL | 180 天 | `IOT_RETENTION_AI_LOG_DAYS` | — |
+| 视频平台告警事件 | PostgreSQL | 1095 天 | `IOT_RETENTION_VIDEO_EVENT_DAYS` | — |
+| 遥测 | ClickHouse 表 TTL | 365 天 | `IOT_RETENTION_TELEMETRY_DAYS` | — |
+| 高频原文 | ClickHouse 表 TTL | 180 天 | `IOT_RETENTION_CLICKHOUSE_RAW_DAYS` | — |
+
+天数为 0 表示永久保留。正式保留期按消防监控相关规范和合同要求确定。设备、模板、规则、用户、消防管理等业务资料不在清理范围。
+
+- `IOT_RETENTION_REQUIRE_BACKUP=true` 时，标准消息、原文索引和低频原文按天清理，只删除已有成功 `DEVICE_DAILY` 备份覆盖的日期或成功 `FULL` 备份开始之前的数据；未覆盖的日期保留并计入 `retention_unbacked_days_<表>`。
+- ClickHouse 在 API 启动时设置表 TTL，已应用的天数记在表注释中，重启不重复修改；不重写已有数据片段，按月分区整体到期后在后台删除，因此实际保留最多比配置多一个月。
+- 指标：`retention_deleted_total`、`retention_deleted_<表>_total`、`retention_failed_total`、`retention_last_success_timestamp_seconds`；Prometheus 规则 `RetentionFailures` 在一天内出现失败时告警。
+- 首次升级时迁移 `0001_retention_indexes` 以 `CREATE INDEX CONCURRENTLY` 为大表补时间索引，不阻塞写入，但大表上需要较长时间；建议在低峰升级。建索引中途失败留下的无效索引会在下次启动时自动删除并重建。
+
 ## 设备数据备份
 
 备份服务把制品保存到 MinIO 的 `iot-backups` 桶，提供下载、SHA-256 校验与隔离恢复验证。按以下范围选择：

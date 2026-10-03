@@ -387,3 +387,23 @@ func TestEmbeddingConfiguration(t *testing.T) {
 		t.Fatalf("valid embedding configuration rejected: %v", err)
 	}
 }
+
+func TestRetentionDaysAcceptZeroAndRejectInvalid(t *testing.T) {
+	t.Setenv("IOT_RETENTION_STANDARD_DAYS", "0")
+	t.Setenv("IOT_RETENTION_RESERVATION_DAYS", "3")
+	c := loadRetention()
+	if c.StandardDays != 0 || c.ReservationDays != 3 || c.RawDays != 180 || !c.Enabled {
+		t.Fatalf("retention %+v", c)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("IOT_RETENTION_RAW_DAYS", "-1")
+	if err := loadRetention().Validate(); err == nil {
+		t.Fatal("negative days accepted")
+	}
+	t.Setenv("IOT_RETENTION_RAW_DAYS", "2")
+	if err := loadRetention().Validate(); err == nil {
+		t.Fatal("reservations outliving the raw index accepted")
+	}
+}
