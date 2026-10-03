@@ -1,7 +1,7 @@
 import { Comment, Fragment, defineComponent, h } from 'vue'
 import { NAlert, NButton, NCard, NCheckbox, NDescriptions, NDescriptionsItem, NEmpty, NForm, NFormItem, NInput, NInputNumber, NProgress, NRadio, NRadioButton, NRadioGroup, NSkeleton, NSwitch, NTag, NTooltip } from 'naive-ui'
 
-const kind = value => ({ danger: 'error', primary: 'primary', success: 'success', warning: 'warning', info: 'info' })[value] || 'default' /* 对齐两套组件的状态名称。 */
+const kind = value => ({ danger: 'error', error: 'error', primary: 'primary', success: 'success', warning: 'warning', info: 'info' })[value] || 'default' /* 对齐两套组件的状态名称。 */
 
 export const UiButton = defineComponent({
   name: 'UiButton', inheritAttrs: false, /* 明确转发原生属性。 */

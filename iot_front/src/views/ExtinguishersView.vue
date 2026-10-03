@@ -164,7 +164,11 @@ async function saveBatch() {
     batchResult.value = result
     UiMessage.success(`已创建 ${result.created} 个巡检任务`)
     await Promise.all([refresh(), loadBatchAssets()])
-  } catch (error) { batchError.value=errorMessage(error) }
+  } catch (error) {
+    // 冲突说明候选已过期（他人已建任务或已报废），刷新候选后再显示原因。
+    if (error?.status === 409) await loadBatchAssets()
+    batchError.value=errorMessage(error)
+  }
   finally { batchSaving.value=false }
 }
 function assetActions(row){return [
