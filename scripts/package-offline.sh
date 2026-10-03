@@ -370,7 +370,7 @@ cp -R "$project_root/deploy" "$bundle_root/"
 for lib_name in deployment.sh deployment.ps1 env-comments.sh env-comments.tsv; do
   cp "$script_dir/lib/$lib_name" "$bundle_root/scripts/lib/"
 done
-for script_name in video-module.sh video-module.ps1 capacity-module.sh capacity-module.ps1 deploy-offline.ps1 deploy-offline.sh; do
+for script_name in video-module.sh video-module.ps1 capacity-module.sh capacity-module.ps1 deploy-offline.ps1 deploy-offline.sh generate-tls-cert.sh generate-tls-cert.ps1; do
   cp "$script_dir/$script_name" "$bundle_root/scripts/"
 done
 

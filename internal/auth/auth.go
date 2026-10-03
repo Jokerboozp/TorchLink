@@ -137,6 +137,18 @@ func (m *Manager) IssueUser(user, tenant string, version int64, ttl time.Duratio
 	claims := Claims{Username: user, TenantID: tenant, Role: "operator", TokenUse: "user", SessionVersion: version, RegisteredClaims: jwt.RegisteredClaims{Issuer: m.issuer, Subject: user, IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(ttl))}}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
 }
+
+// IssuePasswordChange issues a short-lived token that can only change the
+// account's password; management APIs reject its TokenUse.
+func (m *Manager) IssuePasswordChange(user, tenant string, version int64, ttl time.Duration) (string, error) {
+	now := time.Now()
+	claims := Claims{Username: user, TenantID: tenant, Role: "viewer", TokenUse: TokenPasswordChange, SessionVersion: version, RegisteredClaims: jwt.RegisteredClaims{Issuer: m.issuer, Subject: user, IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(ttl))}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
+}
+
+// TokenPasswordChange marks a token that may only change its own password.
+const TokenPasswordChange = "password-change"
+
 func (m *Manager) IssueHarnessWithKnowledge(user, tenant, runID string, scopes []string, knowledge *KnowledgeScope, ttl time.Duration) (string, error) {
 	return m.issueHarness(Claims{Username: user, TenantID: tenant}, runID, scopes, knowledge, ttl)
 }

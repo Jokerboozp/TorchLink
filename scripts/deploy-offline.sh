@@ -36,6 +36,7 @@ done
 source "$script_dir/lib/docker-bootstrap.sh"
 source "$script_dir/lib/deployment.sh"
 ensure_kafka_bind_address "$env_file"
+mkdir -p "$bundle_dir/tls"
 ensure_deployment_docker offline "$bundle_dir/docker-runtime"
 if (( ! skip_health_check )); then
   command -v curl >/dev/null 2>&1 || die "健康检查需要 curl；请先安装，或显式使用 --skip-health-check"

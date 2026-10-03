@@ -45,7 +45,7 @@ function headersFor(options, accept = '') {
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
   const headers = { ...(!isForm && options.body != null ? { 'Content-Type':'application/json' } : {}), ...(options.headers || {}) }
   if (accept && !headers.Accept) headers.Accept = accept
-  if (session.token) headers.Authorization = `Bearer ${session.token}`
+  if (session.token && !headers.Authorization) headers.Authorization = `Bearer ${session.token}`
   return headers
 }
 

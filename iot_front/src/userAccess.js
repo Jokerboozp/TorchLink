@@ -6,6 +6,7 @@ export function userAccessPayload(value = {}) {
     email: value.email || '',
     phone: value.phone || '',
     password: value.password || '',
+    mustChangePassword: value.mustChangePassword !== false,
     enabled: value.enabled !== false,
     roleIds: [...(value.roleIds || [])],
     permissions: [...(value.permissions || [])],

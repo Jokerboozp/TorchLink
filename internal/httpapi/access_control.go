@@ -499,6 +499,7 @@ func keepKnown(values []string, known map[string]bool) []string {
 	}
 	return out
 }
+
 var (
 	contactEmailPattern = regexp.MustCompile(`^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$`)
 	contactPhonePattern = regexp.MustCompile(`^\+?[0-9][0-9-]{5,19}$`)
@@ -506,16 +507,18 @@ var (
 
 func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Username    string   `json:"username"`
-		DisplayName string   `json:"displayName"`
-		Email       string   `json:"email"`
-		Phone       string   `json:"phone"`
-		Password    string   `json:"password"`
-		Enabled     bool     `json:"enabled"`
-		RoleIDs     []string `json:"roleIds"`
-		Permissions []string `json:"permissions"`
-		DeviceScope string   `json:"deviceScope"`
-		DeviceIDs   []string `json:"deviceIds"`
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+		Email       string `json:"email"`
+		Phone       string `json:"phone"`
+		Password    string `json:"password"`
+		// MustChangePassword applies to a new account's initial password.
+		MustChangePassword bool     `json:"mustChangePassword"`
+		Enabled            bool     `json:"enabled"`
+		RoleIDs            []string `json:"roleIds"`
+		Permissions        []string `json:"permissions"`
+		DeviceScope        string   `json:"deviceScope"`
+		DeviceIDs          []string `json:"deviceIds"`
 	}
 	if decode(w, r, &in) != nil {
 		return
@@ -592,7 +595,9 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 	if index >= 0 {
 		u.PasswordHash = state.Users[index].PasswordHash
 		u.SessionVersion = state.Users[index].SessionVersion + 1
+		u.MustChangePassword = state.Users[index].MustChangePassword
 	} else {
+		u.MustChangePassword = in.MustChangePassword
 		hash, err := hashPassword(in.Password)
 		if err != nil {
 			problem(w, 422, err.Error())
@@ -634,7 +639,8 @@ func (s *Server) accessDeleteUser(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) accessResetPassword(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Password string `json:"password"`
+		Password           string `json:"password"`
+		MustChangePassword bool   `json:"mustChangePassword"`
 	}
 	if decode(w, r, &in) != nil {
 		return
@@ -652,6 +658,7 @@ func (s *Server) accessResetPassword(w http.ResponseWriter, r *http.Request) {
 		if u.Username == r.PathValue("id") {
 			state.Users[i].PasswordHash = hash
 			state.Users[i].SessionVersion++
+			state.Users[i].MustChangePassword = in.MustChangePassword
 			s.commitAccess(w, r, store, state)
 			return
 		}
@@ -751,14 +758,17 @@ func (s *Server) loginManaged(w http.ResponseWriter, r *http.Request, username, 
 	}
 	for _, u := range state.Users {
 		if u.Username == username && u.Enabled && bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil {
-			token, err := s.auth.IssueUser(username, tenant, u.SessionVersion, 8*time.Hour)
-			if err != nil {
-				problem(w, 500, "创建会话失败")
+			if u.MustChangePassword {
+				// No session yet: the token only allows changing the password.
+				token, err := s.auth.IssuePasswordChange(username, tenant, u.SessionVersion, passwordChangeTTL)
+				if err != nil {
+					problem(w, 500, "创建会话失败")
+					return
+				}
+				write(w, 200, map[string]any{"passwordChangeRequired": true, "changeToken": token, "expiresIn": int(passwordChangeTTL.Seconds()), "tenantId": tenant, "displayName": u.DisplayName})
 				return
 			}
-			permissions := effectivePermissions(state, u)
-			s.stripOpsPermissions(tenant, permissions)
-			write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(permissions), "displayName": u.DisplayName, "accessVersion": accessVersion(resolveUserDeviceScope(state, u), permissions, tenant)})
+			s.writeManagedSession(w, state, u, tenant)
 			return
 		}
 	}

@@ -20,6 +20,9 @@ type PlatformUser struct {
 	DeviceScope    string   `json:"deviceScope"`
 	DeviceIDs      []string `json:"deviceIds"`
 	SessionVersion int64    `json:"sessionVersion"`
+	// MustChangePassword makes the next login change the password before
+	// any other access, after an administrator set or reset it.
+	MustChangePassword bool `json:"mustChangePassword,omitempty"`
 }
 type PlatformRole struct {
 	ID          string   `json:"id"`

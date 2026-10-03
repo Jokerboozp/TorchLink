@@ -45,6 +45,8 @@ command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安�
 ensure_deployment_env "$env_file"
 ensure_emqx_admin_env "$env_file" "http://emqx:18083"
 ensure_kafka_bind_address "$env_file"
+# HTTPS / MQTTS turn on when tls/tls.crt and tls/tls.key exist (scripts/generate-tls-cert.sh).
+mkdir -p "$project_root/tls"
 configure_deepseek_env "$env_file"
 configure_embedding_env "$env_file"
 

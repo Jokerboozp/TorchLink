@@ -24,6 +24,7 @@ import {
   Library,
   LineChart,
   LogOut,
+  KeyRound,
   Menu,
   Network,
   PanelLeftClose,
@@ -39,6 +40,7 @@ import {
 import { UiMessage } from './ui/feedback.js'
 import GlobalAlertPopup from './components/GlobalAlertPopup.vue'
 import LivePlayerDialog from './components/LivePlayerDialog.vue'
+import PasswordChangeDialog from './components/PasswordChangeDialog.vue'
 import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { resetAIConversation } from './aiConversation'
 import { api, notifyError, session } from './api'
@@ -162,12 +164,12 @@ async function syncIdentity() {
   refreshModules()
 }
 
-async function login() {
-  loginLoading.value = true
-  try {
-    const data = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(loginForm.value) })
-    session.save(data, loginForm.value.username)
-    identity.value = { tenant: data.tenantId || '', user: loginForm.value.username, role: data.role || '' }
+// 管理员设置或重置密码后，首次登录只拿到改密凭据，修改成功后才建立会话。
+const passwordDialog = ref(false)
+const passwordChange = ref({ required: false, token: '', current: '' })
+function startSession(data, username) {
+    session.save(data, username)
+    identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
     authenticated.value = true
     permissionState.accessVersion = data.accessVersion || ''
     permissionState.items = data.permissions || []
@@ -176,11 +178,35 @@ async function login() {
     refreshModules()
     loginForm.value.password = ''
     if (can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
+}
+
+async function login() {
+  loginLoading.value = true
+  try {
+    const data = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(loginForm.value) })
+    if (data.passwordChangeRequired) {
+      passwordChange.value = { required: true, token: data.changeToken, current: loginForm.value.password }
+      passwordDialog.value = true
+      return
+    }
+    startSession(data, loginForm.value.username)
   } catch (error) {
     notifyError(error)
   } finally {
     loginLoading.value = false
   }
+}
+
+function passwordChanged(data) {
+  const forced = passwordChange.value.required
+  passwordChange.value = { required: false, token: '', current: '' }
+  if (forced) {
+    startSession(data, loginForm.value.username)
+  } else {
+    stopRealtime()
+    startSession(data, identity.value.user)
+  }
+  UiMessage.success('密码已修改，其他登录已失效')
 }
 
 function logout() {
@@ -197,6 +223,7 @@ function logout() {
 
 function handleAccountCommand(command) {
   if (command === 'logout') logout()
+  if (command === 'password') { passwordChange.value = { required: false, token: '', current: '' }; passwordDialog.value = true }
 }
 
 function openPage(name, detail) {
@@ -391,6 +418,7 @@ onBeforeUnmount(() => {
               </button>
               <template #dropdown>
                 <ui-dropdown-menu>
+                  <ui-dropdown-item v-if="identity.role !== 'admin'" command="password"><KeyRound />修改密码</ui-dropdown-item>
                   <ui-dropdown-item command="logout"><LogOut />退出登录</ui-dropdown-item>
                 </ui-dropdown-menu>
               </template>
@@ -409,5 +437,6 @@ onBeforeUnmount(() => {
     </div>
     <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="openPage" />
     <LivePlayerDialog v-if="authenticated" v-model="livePlayerVisible" :camera="livePlayerCamera" />
+    <PasswordChangeDialog v-model="passwordDialog" :required="passwordChange.required" :change-token="passwordChange.token" :current-password="passwordChange.current" @changed="passwordChanged" />
   </ui-config-provider>
 </template>

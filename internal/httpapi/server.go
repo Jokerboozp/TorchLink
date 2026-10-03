@@ -165,6 +165,7 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/device-ingest/standard/:tenantId/:productId/:deviceId/:kind", s.endpoint(s.standardDeviceIngest, "tenantId", "productId", "deviceId", "kind"))
 	s.router.DELETE("/api/v1/device-registry/:id/credentials", s.authorize("admin"), s.endpoint(s.disableDeviceCredential, "id"))
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))
+	s.router.POST("/api/v1/auth/password", s.endpoint(s.changeOwnPassword))
 	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) }))
 	s.router.GET("/health/ready", s.endpoint(s.ready))
 	s.router.GET("/metrics", s.endpoint(func(w http.ResponseWriter, r *http.Request) {

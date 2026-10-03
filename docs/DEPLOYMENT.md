@@ -594,6 +594,20 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 | 媒体不可播放 | `/api/v1/video/status`、连接测试、目标白名单、RTC 地址、编码及播放权限 |
 | openEuler 镜像导入 `mknod` 失败 | 检查 `container-selinux`、受管程序/数据标签和 Docker 进程域 |
 
+## HTTPS 与 MQTTS
+
+在线与离线部署在 Compose 文件所在目录的 `tls/`（`IOT_TLS_DIR` 可改）中查找 `tls.crt`（含完整证书链）和 `tls.key`：
+
+- 存在时 Web 在 `8443`（`IOT_WEB_HTTPS_PORT`）提供 HTTPS 并对其余 HTTP 访问返回 308 跳转（`IOT_WEB_TLS_REDIRECT=false` 关闭跳转；`/health/` 仍走 HTTP 供健康检查），响应带 HSTS；EMQX 启用 MQTTS `8883`（`MQTTS_PORT`）与 WSS `8084`（`MQTT_WSS_PORT`）。
+- 不存在时只提供 HTTP / MQTT，EMQX 的 TLS 监听保持关闭（不使用 Broker 自带的演示证书）。
+- 正式环境建议使用受信任 CA 签发的证书；测试或内网可生成自签名证书，设备和浏览器需导入信任：
+
+```bash
+bash scripts/generate-tls-cert.sh --host <平台域名或IP> [--host <其他地址>]
+```
+
+Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 openssl）。生成或更换证书后重跑部署脚本或重启 `platform-web`、`emqx`。设备 HTTP 上报的 API 端口 `8081` 与 Gateway 端口仍为 HTTP，对外暴露时建议由前置负载均衡终止 TLS；集群部署同样由外部负载均衡终止 TLS。证书私钥需对容器内的非 root 用户可读，请限制 `tls/` 目录所在主机的访问。
+
 ## 数据保留与清理
 
 设备上报、标准消息、告警和日志会持续增长。Jobs 职责的进程（`combined` 或拆分的 `jobs`）每天在 `IOT_RETENTION_TIME`（默认 03:30，时区 `IOT_RETENTION_TIMEZONE`，默认沿用 `IOT_BACKUP_TIMEZONE`）以集群单例删除超过保留期的数据，每批 `IOT_RETENTION_BATCH_SIZE`（默认 5000）行并在批间暂停，不长时间锁表。`IOT_RETENTION_ENABLED=false` 关闭清理。

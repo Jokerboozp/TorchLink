@@ -914,3 +914,52 @@ func TestProtocolCodeUploadIsPlatformOnly(t *testing.T) {
 		t.Fatal("built-in administrator is the platform operator")
 	}
 }
+
+func TestManagedUserMustChangePasswordBeforeAccess(t *testing.T) {
+	repo := memory.NewRepository()
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "password-root-test"
+	cfg.AdminTenants = []string{"t"}
+	cfg.JWTSecret = "password-test-secret-at-least-32-bytes"
+	cfg.DevMode = true
+	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	login := func(user, password string, status int) map[string]any {
+		t.Helper()
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": "t"}, status)
+	}
+	root := login("root", cfg.AdminPassword, 200)["accessToken"].(string)
+	req("POST", "/api/v1/access/users", root, map[string]any{"username": "duty", "password": "initial-password", "enabled": true, "mustChangePassword": true, "permissions": []string{"menu:dashboard"}, "deviceScope": "none"}, 200)
+	first := login("duty", "initial-password", 200)
+	if first["passwordChangeRequired"] != true || first["accessToken"] != nil {
+		t.Fatalf("login must require a password change first: %v", first)
+	}
+	change := first["changeToken"].(string)
+	req("GET", "/api/v1/auth/me", change, nil, 403)
+	req("POST", "/api/v1/auth/password", change, map[string]any{"currentPassword": "wrong-password", "newPassword": "new-password-1"}, 422)
+	req("POST", "/api/v1/auth/password", change, map[string]any{"currentPassword": "initial-password", "newPassword": "initial-password"}, 422)
+	session := req("POST", "/api/v1/auth/password", change, map[string]any{"currentPassword": "initial-password", "newPassword": "new-password-1"}, 200)
+	token := session["accessToken"].(string)
+	req("GET", "/api/v1/auth/me", token, nil, 200)
+	// The change token is single-use: the session version moved on.
+	req("POST", "/api/v1/auth/password", change, map[string]any{"currentPassword": "new-password-1", "newPassword": "new-password-2"}, 401)
+	login("duty", "initial-password", 401)
+	if login("duty", "new-password-1", 200)["accessToken"] == nil {
+		t.Fatal("normal login after the change")
+	}
+	// A logged-in user changes the password; other sessions end.
+	again := req("POST", "/api/v1/auth/password", token, map[string]any{"currentPassword": "new-password-1", "newPassword": "new-password-2"}, 200)["accessToken"].(string)
+	req("GET", "/api/v1/auth/me", token, nil, 401)
+	req("GET", "/api/v1/auth/me", again, nil, 200)
+	// A reset can require another change.
+	req("POST", "/api/v1/access/users/duty/password", root, map[string]any{"password": "reset-password-1", "mustChangePassword": true}, 200)
+	if login("duty", "reset-password-1", 200)["passwordChangeRequired"] != true {
+		t.Fatal("reset must require a change")
+	}
+	req("POST", "/api/v1/auth/password", root, map[string]any{"currentPassword": cfg.AdminPassword, "newPassword": "something-else-1"}, 422)
+}

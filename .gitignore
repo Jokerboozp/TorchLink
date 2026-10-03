@@ -25,3 +25,4 @@ offline-bundles/
 /dist/
 # Cluster state from scripts/cluster-up.*: generated secrets and renderings.
 /.cluster/
+/tls/

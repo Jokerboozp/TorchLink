@@ -59,6 +59,7 @@ foreach ($path in @($envPath, $composePath, $offlineComposePath, $archivePath, $
 }
 . (Join-Path $scriptDir 'lib/deployment.ps1')
 Ensure-KafkaBindAddress -Path $envPath
+New-Item -ItemType Directory -Force -Path (Join-Path $BundleDir 'tls') | Out-Null
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "找不到 docker 命令，请先安装 Docker Engine/Desktop。"

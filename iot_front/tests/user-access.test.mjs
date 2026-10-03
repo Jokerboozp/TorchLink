@@ -16,7 +16,7 @@ test('editing a fetched user excludes server-owned fields rejected by the save e
   form.permissions.push('menu:alarms')
   const payload = JSON.parse(JSON.stringify(userAccessPayload(form)))
   assert.deepEqual(payload, {
-    username:'operator', displayName:'运维员', email:'', phone:'', password:'', enabled:true, roleIds:['reader'],
+    username:'operator', displayName:'运维员', email:'', phone:'', password:'', mustChangePassword:true, enabled:true, roleIds:['reader'],
     permissions:['menu:devices','menu:alarms'], deviceScope:'selected', deviceIds:['east-smoke','west-smoke']
   })
   assert.deepEqual(stored.deviceIds, ['east-smoke'])

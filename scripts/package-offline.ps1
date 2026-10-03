@@ -387,7 +387,9 @@ try {
         "capacity-module.sh",
         "capacity-module.ps1",
         "deploy-offline.ps1",
-        "deploy-offline.sh"
+        "deploy-offline.sh",
+        "generate-tls-cert.sh",
+        "generate-tls-cert.ps1"
     )) {
         Copy-Item -LiteralPath (Join-Path $scriptDir $runtimeScript) -Destination (Join-Path $bundleRoot "scripts")
     }

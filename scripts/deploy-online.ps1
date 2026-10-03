@@ -35,6 +35,8 @@ Assert-DockerAvailable
 Ensure-DeploymentEnv -Path $EnvFile
 Ensure-EmqxAdminEnv -Path $EnvFile -DefaultUrl 'http://emqx:18083'
 Ensure-KafkaBindAddress -Path $EnvFile
+# HTTPS / MQTTS turn on when tls\tls.crt and tls\tls.key exist (scripts/generate-tls-cert.ps1).
+New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'tls') | Out-Null
 Set-DeepSeekDeploymentEnv -Path $EnvFile
 Set-EmbeddingDeploymentEnv -Path $EnvFile
 

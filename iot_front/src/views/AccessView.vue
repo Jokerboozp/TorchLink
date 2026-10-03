@@ -21,7 +21,7 @@ const tenantId=ref(session.tenant),deviceOptions=ref([]),devicesLoading=ref(fals
 const plainScopeLabel=value=>value.deviceScope==='all'?'当前租户全部设备':value.deviceScope==='selected'?`指定 ${value.deviceIds?.length||0} 台设备`:'无设备'
 const scopeLabel = value => value.deviceScope === 'inherit' ? `继承角色 · ${plainScopeLabel(roleDeviceScope(value.roleIds || [], roles.value))}` : plainScopeLabel(value)
 const inheritedLabel = computed(() => plainScopeLabel(roleDeviceScope(user.roleIds, roles.value)))
-const password=reactive({username:'',value:''})
+const password=reactive({username:'',value:'',mustChangePassword:true})
 const apiKeys=ref(null)
 function refresh(){void load();if(tab.value==='apiKeys')void apiKeys.value?.load()}
 let loadVersion=0
@@ -66,8 +66,8 @@ function editRole(value) {
 }
 async function save(){if(saving.value||deviceSelectionPending.value)return;saving.value=true;try{const isUser=dialog.value==='user',value=isUser?userAccessPayload(user):role;const base=isUser?'/api/v1/access/users':'/api/v1/access/roles';await api(base+(editing.value?'/'+encodeURIComponent(isUser?user.username:role.id):''),{method:editing.value?'PUT':'POST',body:JSON.stringify(value)});dialog.value='';user.password='';await load();UiMessage.success('已保存')}catch(e){notifyError(e)}finally{saving.value=false}}
 async function remove(kind,value){try{await UiMessageBox.confirm(`确认删除${kind==='users'?'用户':'角色'}“${value.displayName||value.name||value.username}”？`,'删除确认',{type:'warning'});await api(`/api/v1/access/${kind}/${encodeURIComponent(value.username||value.id)}`,{method:'DELETE'});await load()}catch(e){if(e!=='cancel'&&e!=='close')notifyError(e)}}
-function reset(value){password.username=value.username;password.value='';dialog.value='password'}
-async function savePassword(){saving.value=true;try{await api(`/api/v1/access/users/${encodeURIComponent(password.username)}/password`,{method:'POST',body:JSON.stringify({password:password.value})});password.value='';dialog.value='';UiMessage.success('密码已重置，旧登录已失效')}catch(e){notifyError(e)}finally{saving.value=false}}
+function reset(value){password.username=value.username;password.value='';password.mustChangePassword=true;dialog.value='password'}
+async function savePassword(){saving.value=true;try{await api(`/api/v1/access/users/${encodeURIComponent(password.username)}/password`,{method:'POST',body:JSON.stringify({password:password.value,mustChangePassword:password.mustChangePassword})});password.value='';dialog.value='';UiMessage.success('密码已重置，旧登录已失效')}catch(e){notifyError(e)}finally{saving.value=false}}
 onMounted(load)
 function userActions(row) {
   const self = row.username === session.user
@@ -110,6 +110,7 @@ function roleActions(row) {
      <ui-form-item label="邮箱"><ui-input v-model="user.email" autocomplete="off" placeholder="接收告警邮件，可留空"/></ui-form-item>
      <ui-form-item label="手机号"><ui-input v-model="user.phone" autocomplete="off" placeholder="告警机器人 @ 提醒使用，可留空"/></ui-form-item>
      <ui-form-item v-if="!editing" label="初始密码" required><ui-input v-model="user.password" type="password" show-password autocomplete="new-password" placeholder="至少 10 位，最长 72 字节"/></ui-form-item>
+     <ui-form-item v-if="!editing" label="首次登录"><ui-checkbox v-model="user.mustChangePassword">首次登录须修改密码</ui-checkbox></ui-form-item>
      <div v-else class="user-editor-password-note">需要修改密码时，请关闭此窗口，在用户列表中选择“重置密码”。</div>
     </div>
     <div class="user-editor-switch"><span>启用账户<small>停用后用户无法登录</small></span><ui-switch v-model="user.enabled"/></div>
@@ -131,7 +132,7 @@ function roleActions(row) {
   </ui-form>
   <template #footer><ui-button :disabled="saving" @click="dialog='';user.password=''">取消</ui-button><ui-button type="primary" :loading="saving" :disabled="deviceSelectionPending" @click="save">{{ editing ? '保存修改' : dialog==='user' ? '创建用户' : '创建角色' }}</ui-button></template>
  </ui-dialog>
- <ui-dialog :model-value="dialog==='password'" title="重置密码" width="min(460px,94vw)" @close="dialog='';password.value=''"><ui-form label-position="top"><ui-form-item :label="`用户：${password.username}`"><ui-input v-model="password.value" type="password" show-password autocomplete="new-password" placeholder="至少10位，最长72字节"/></ui-form-item></ui-form><template #footer><ui-button type="primary" :loading="saving" @click="savePassword">重置密码</ui-button></template></ui-dialog>
+ <ui-dialog :model-value="dialog==='password'" title="重置密码" width="min(460px,94vw)" @close="dialog='';password.value=''"><ui-form label-position="top"><ui-form-item :label="`用户：${password.username}`"><ui-input v-model="password.value" type="password" show-password autocomplete="new-password" placeholder="至少10位，最长72字节"/></ui-form-item><ui-checkbox v-model="password.mustChangePassword">下次登录须修改密码</ui-checkbox></ui-form><template #footer><ui-button type="primary" :loading="saving" @click="savePassword">重置密码</ui-button></template></ui-dialog>
 </template>
 <style scoped>
 .access-tenant { flex: 1 1 320px; margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }

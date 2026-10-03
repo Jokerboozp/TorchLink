@@ -163,7 +163,12 @@ services:
     build:
       context: ./iot_front
       dockerfile: Dockerfile
-    ports: ["${IOT_WEB_PORT:-8080}:8080"]
+    ports: ["${IOT_WEB_PORT:-8080}:8080", "${IOT_WEB_HTTPS_PORT:-8443}:8443"]
+    environment:
+      IOT_WEB_HTTPS_PORT: ${IOT_WEB_HTTPS_PORT:-8443}
+      IOT_WEB_TLS_REDIRECT: ${IOT_WEB_TLS_REDIRECT:-true}
+    # HTTPS is enabled when tls.crt and tls.key exist here (scripts/generate-tls-cert.sh).
+    volumes: ["${IOT_TLS_DIR:-./tls}:/etc/torchlink/tls:ro"]
     depends_on:
       platform-api: {condition: service_started}
 
@@ -377,6 +382,19 @@ services:
           printf '\napi_key.bootstrap_file = "/opt/emqx/etc/platform-api-keys"\n' >> /opt/emqx/etc/base.hocon
         fi
         sed -i 's/{allow, all}\./{deny, all}./' /opt/emqx/etc/acl.conf
+        # MQTTS (8883) and WSS (8084) use the platform certificate when present
+        # and stay off otherwise, instead of the broker's built-in demo certificate.
+        tls=/opt/emqx/etc/torchlink-tls
+        if [ -s "$$tls/tls.crt" ] && [ -s "$$tls/tls.key" ]; then
+          for listener in SSL WSS; do
+            export "EMQX_LISTENERS__$${listener}__DEFAULT__ENABLE=true"
+            export "EMQX_LISTENERS__$${listener}__DEFAULT__SSL_OPTIONS__CERTFILE=$$tls/tls.crt"
+            export "EMQX_LISTENERS__$${listener}__DEFAULT__SSL_OPTIONS__KEYFILE=$$tls/tls.key"
+            export "EMQX_LISTENERS__$${listener}__DEFAULT__SSL_OPTIONS__CACERTFILE=$$tls/tls.crt"
+          done
+        else
+          export EMQX_LISTENERS__SSL__DEFAULT__ENABLE=false EMQX_LISTENERS__WSS__DEFAULT__ENABLE=false
+        fi
         exec /usr/bin/docker-entrypoint.sh /opt/emqx/bin/emqx foreground
     environment:
       EMQX_NODE__NAME: iot-emqx@127.0.0.1
@@ -399,8 +417,10 @@ services:
     ports:
       - "${MQTT_PORT:-1883}:1883"
       - "${MQTT_WS_PORT:-8083}:8083"
+      - "${MQTTS_PORT:-8883}:8883"
+      - "${MQTT_WSS_PORT:-8084}:8084"
       - "${EMQX_DASHBOARD_BIND_ADDRESS:-127.0.0.1}:${EMQX_DASHBOARD_PORT:-18083}:18083"
-    volumes: ["emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log"]
+    volumes: ["emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log", "${IOT_TLS_DIR:-./tls}:/opt/emqx/etc/torchlink-tls:ro"]
     healthcheck:
       test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
       interval: 10s
