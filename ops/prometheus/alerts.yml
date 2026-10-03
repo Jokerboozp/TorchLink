@@ -57,6 +57,11 @@ groups:
         for: 5m
         labels: {severity: warning}
         annotations: {summary: "平台消息消费积压超过一万条"}
+      - alert: AlarmNotificationFailures
+        expr: increase(notification_failed_total[15m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations: {summary: "火警通知多次重试后仍发送失败，请检查通知渠道"}
       - alert: RetentionFailures
         expr: increase(retention_failed_total[1d]) > 0
         for: 0m

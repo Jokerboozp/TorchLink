@@ -107,6 +107,8 @@ function roleActions(row) {
      <ui-form-item label="所属租户"><ui-input :model-value="tenantId" disabled/></ui-form-item>
      <ui-form-item label="用户名" required><ui-input v-model="user.username" :disabled="editing" autocomplete="off" placeholder="3 至 64 位字母、数字、点、横线或下划线"/></ui-form-item>
      <ui-form-item label="显示名称"><ui-input v-model="user.displayName" placeholder="便于同事识别的姓名或称呼"/></ui-form-item>
+     <ui-form-item label="邮箱"><ui-input v-model="user.email" autocomplete="off" placeholder="接收告警邮件，可留空"/></ui-form-item>
+     <ui-form-item label="手机号"><ui-input v-model="user.phone" autocomplete="off" placeholder="告警机器人 @ 提醒使用，可留空"/></ui-form-item>
      <ui-form-item v-if="!editing" label="初始密码" required><ui-input v-model="user.password" type="password" show-password autocomplete="new-password" placeholder="至少 10 位，最长 72 字节"/></ui-form-item>
      <div v-else class="user-editor-password-note">需要修改密码时，请关闭此窗口，在用户列表中选择“重置密码”。</div>
     </div>

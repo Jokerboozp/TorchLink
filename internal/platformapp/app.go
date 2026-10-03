@@ -38,6 +38,7 @@ import (
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/notify"
 	"iot-platform/internal/protocolruntime"
 	"iot-platform/internal/retention"
 	"iot-platform/internal/ratelimit"
@@ -437,6 +438,22 @@ func Run(forcedRole string) {
 	// Install user/scope resolvers before consumers start publishing, including
 	// worker-only processes which do not expose business HTTP routes.
 	api := httpapi.New(cfg, engine, registry, log)
+	if cfg.Notify.Enabled && (cfg.Runs(config.ComponentManagement) || cfg.Runs(config.ComponentJobs)) {
+		var store notify.Store = notify.NewMemoryStore()
+		if postgresRepo != nil {
+			store = postgresRepo.NotificationStore()
+		}
+		cipher, err := notify.NewCipher(cfg.JWTSecret)
+		fatal(log, "initialize alarm notifications", err)
+		notifications := &notify.Service{Store: store, Directory: api.NotificationDirectory(), Cipher: cipher, Sender: notify.NewSender(cfg.Notify.AllowedCIDRs), Metrics: registry, Log: log, WebURL: cfg.Notify.WebURL}
+		api.SetNotifications(notifications)
+		if cfg.Runs(config.ComponentJobs) {
+			// Tasks are leased in the store, so every jobs replica may deliver.
+			fatal(log, "subscribe alarm notifications", bus.Subscribe(ctx, model.TopicAlarmReported, "alarm-notifications", notifications.HandleReported))
+			fatal(log, "subscribe alarm recovery notifications", bus.Subscribe(ctx, model.TopicAlarmRecovered, "alarm-recovery-notifications", notifications.HandleRecovered))
+			go notifications.Run(ctx, 2*time.Second)
+		}
+	}
 	fatal(log, "start engine", engine.StartWith(ctx, components))
 	log.Info("process role started", "role", cfg.ProcessRole, "instance", cfg.InstanceID, "parser", components.Parser, "processor", components.Processor, "jobs", components.Jobs, "access", cfg.Runs(config.ComponentAccess), "management", cfg.Runs(config.ComponentManagement))
 	var coordinator *protocolruntime.Coordinator

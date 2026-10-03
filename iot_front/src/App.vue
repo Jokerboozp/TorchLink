@@ -32,6 +32,7 @@ import {
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  Megaphone,
   Video,
   X
 } from '@lucide/vue'
@@ -58,6 +59,7 @@ const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
 const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
 const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
 const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
+const NotificationsView = defineAsyncComponent(() => import('./views/NotificationsView.vue'))
 const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
 const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
 const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
@@ -97,6 +99,7 @@ const pages = {
   inspection: { ...pageGuide.inspection, icon: ClipboardCheck, component: HealthInspectionView, header: false },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
+  notifications: { ...pageGuide.notifications, icon: Megaphone, component: NotificationsView },
   devices: { ...pageGuide.devices, icon: Cpu, component: DevicesView },
   products: { ...pageGuide.products, icon: Boxes, component: ProductsView },
   profiles: { ...pageGuide.profiles, icon: Cable, component: ProtocolsView, props: { section: 'profiles' } },
@@ -121,7 +124,7 @@ const pages = {
   opsCapacity: { ...pageGuide.opsCapacity, icon: Activity, component: OpsCapacityView }
 }
 const menuGroups = [
-  { label: '运行监控', items: ['dashboard', 'alarms', 'inspection', 'raw', 'rules'] },
+  { label: '运行监控', items: ['dashboard', 'alarms', 'notifications', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'messageTopics', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '消防管理', items: ['duty', 'extinguishers', 'fireStations'] },

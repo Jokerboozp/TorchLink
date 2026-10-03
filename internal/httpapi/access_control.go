@@ -23,10 +23,13 @@ type permissionItem struct {
 	Kind string `json:"kind"`
 }
 
-var menuNames = map[string]string{"messageTopics": "消息主题", "externalData": "外部数据接入", "dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理"}
+var menuNames = map[string]string{"messageTopics": "消息主题", "externalData": "外部数据接入", "dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理", "notifications": "告警通知"}
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
+	if strings.HasPrefix(path, "/api/v1/notifications") {
+		return "notifications"
+	}
 	if strings.HasPrefix(path, "/api/v1/message-topics") {
 		return "messageTopics"
 	}
@@ -228,7 +231,7 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 			delete(p, action)
 		}
 		// These services produce tenant-wide artifacts or launch tenant-wide jobs.
-		for _, menu := range []string{"inspection", "backups", "profiles", "integration", "rules", "cameras", "access"} {
+		for _, menu := range []string{"inspection", "backups", "profiles", "integration", "rules", "cameras", "access", "notifications"} {
 			delete(p, "menu:"+menu)
 		}
 		for _, action := range []string{"POST /api/v1/device-registry", "POST /api/v1/device-registry/:id/children", "POST /api/v1/device-states", "POST /api/v1/raw-messages", "POST /api/v1/raw-messages/replay"} {
@@ -496,10 +499,17 @@ func keepKnown(values []string, known map[string]bool) []string {
 	}
 	return out
 }
+var (
+	contactEmailPattern = regexp.MustCompile(`^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$`)
+	contactPhonePattern = regexp.MustCompile(`^\+?[0-9][0-9-]{5,19}$`)
+)
+
 func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username    string   `json:"username"`
 		DisplayName string   `json:"displayName"`
+		Email       string   `json:"email"`
+		Phone       string   `json:"phone"`
 		Password    string   `json:"password"`
 		Enabled     bool     `json:"enabled"`
 		RoleIDs     []string `json:"roleIds"`
@@ -543,6 +553,11 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "存在无效权限")
 		return
 	}
+	in.Email, in.Phone = strings.TrimSpace(in.Email), strings.TrimSpace(in.Phone)
+	if in.Email != "" && !contactEmailPattern.MatchString(in.Email) || in.Phone != "" && !contactPhonePattern.MatchString(in.Phone) {
+		problem(w, 422, "邮箱或手机号格式无效")
+		return
+	}
 	store, state, ok := s.accessState(w, r)
 	if !ok {
 		return
@@ -573,7 +588,7 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "用户不存在")
 		return
 	}
-	u := model.PlatformUser{Username: in.Username, DisplayName: in.DisplayName, Enabled: in.Enabled, RoleIDs: in.RoleIDs, Permissions: in.Permissions, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, SessionVersion: time.Now().UnixNano()}
+	u := model.PlatformUser{Username: in.Username, DisplayName: in.DisplayName, Email: in.Email, Phone: in.Phone, Enabled: in.Enabled, RoleIDs: in.RoleIDs, Permissions: in.Permissions, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, SessionVersion: time.Now().UnixNano()}
 	if index >= 0 {
 		u.PasswordHash = state.Users[index].PasswordHash
 		u.SessionVersion = state.Users[index].SessionVersion + 1

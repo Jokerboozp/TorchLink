@@ -14,6 +14,7 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import LinkedCameras from '../components/LinkedCameras.vue'
+import AlarmNotifications from '../components/AlarmNotifications.vue'
 import AlarmMediaPanel from '../components/AlarmMediaPanel.vue'
 
 const filters = reactive({ status:'', level:'', deviceId:'' })
@@ -257,6 +258,7 @@ function rowActions(row) {
       <LinkedCameras :cameras="detail.cameras || []" />
     </ui-card>
     <AlarmMediaPanel v-if="detailVisible && detail" :alarm="detail" @refresh="refreshMediaDetail" />
+    <AlarmNotifications v-if="detailVisible && detail" :alarm-id="detail.alarmId" />
     <ui-card shadow="never" class="top-gap">
       <template #header><div class="card-header"><strong>智能研判</strong><ui-button v-permission="'POST /api/v1/ai/alarm-analysis'" size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '开始研判'}}</ui-button></div></template>
       <div v-if="analysisProgress" class="analysis-progress" aria-live="polite">

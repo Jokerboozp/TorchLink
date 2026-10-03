@@ -31,6 +31,7 @@ import (
 	"iot-platform/internal/mcpserver"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
+	"iot-platform/internal/notify"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/opscenter"
 	"iot-platform/internal/parser"
@@ -72,6 +73,7 @@ type Server struct {
 	video                      atomic.Pointer[video.Service]
 	videoOwner                 func() (local bool, endpoint string)
 	fireSafety                 *firesafety.Service
+	notifications              *notify.Service
 	externalData               *externaldata.Service
 	capacityMQTT               ports.CapacityRetainedCleaner
 	messageTopicKafka          messageTopicKafkaAdmin
@@ -147,6 +149,7 @@ func (s *Server) routes() {
 	s.deletionRoutes()
 	s.opsRoutes()
 	s.deadLetterRoutes()
+	s.notificationRoutes()
 	s.videoRoutes()
 	s.fireSafetyRoutes()
 	s.externalDataRoutes()

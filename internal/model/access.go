@@ -8,8 +8,11 @@ type AccessState struct {
 	APIKeys  []APIKey       `json:"apiKeys,omitempty"`
 }
 type PlatformUser struct {
-	Username       string   `json:"username"`
-	DisplayName    string   `json:"displayName"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	// Email and Phone receive fire alarm notifications (SMTP, IM mentions).
+	Email          string   `json:"email,omitempty"`
+	Phone          string   `json:"phone,omitempty"`
 	PasswordHash   string   `json:"passwordHash,omitempty"`
 	Enabled        bool     `json:"enabled"`
 	RoleIDs        []string `json:"roleIds"`

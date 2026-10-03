@@ -82,56 +82,57 @@ type Config struct {
 	KafkaConsumerConcurrency int64
 	// ConsumerMaxBlock bounds how long a dependency outage may hold a
 	// message before it is moved to the dead-letter topic.
-	ConsumerMaxBlock time.Duration
-	MinIOEndpoint            string
-	MinIOAccessKey           string
-	MinIOSecretKey           string
-	MinIOUseTLS              bool
-	KafkaBrokers             []string
-	KafkaPublicBrokers       []string
-	KafkaSASLUsername        string
-	KafkaSASLPassword        string
-	KafkaSASLMechanism       string
-	KafkaTLS                 bool
-	KafkaTLSCAFile           string
-	KafkaAdminURL            string
-	KafkaAdminUsername       string
-	KafkaAdminPassword       string
-	EMQXAPIURL               string
-	EMQXAPIKey               string
-	EMQXAPISecret            string
-	MQTTBroker               string
-	MQTTUsername             string
-	MQTTPassword             string
-	MQTTToolUsername         string
-	MQTTWebSocketURL         string
-	MQTTPublicURL            string
-	DeviceHTTPPublicURL      string
-	AIProvider               string
-	AIBaseURL                string
-	AIModel                  string
-	AIAPIKey                 string
-	AIHarnessURL             string
-	AIHarnessToken           string
-	AIHarnessMCPURL          string
-	AIHarnessModel           string
-	AIHarnessTimeout         time.Duration
-	EmbeddingDimensions      int
-	EmbeddingBatchSize       int
-	EmbeddingURL             string
-	EmbeddingModel           string
-	EmbeddingAPIKey          string
-	EmbeddingQueryPrompt     string
-	EmbeddingTimeout         time.Duration
-	BackupURL                string
-	BackupToken              string
-	OfflineScan              time.Duration
-	ModbusAllowedCIDRs       []string
-	DevMode                  bool
-	Ops                      OpsConfig
-	Video                    VideoConfig
-	Retention                RetentionConfig
-	loadErr                  error
+	ConsumerMaxBlock     time.Duration
+	MinIOEndpoint        string
+	MinIOAccessKey       string
+	MinIOSecretKey       string
+	MinIOUseTLS          bool
+	KafkaBrokers         []string
+	KafkaPublicBrokers   []string
+	KafkaSASLUsername    string
+	KafkaSASLPassword    string
+	KafkaSASLMechanism   string
+	KafkaTLS             bool
+	KafkaTLSCAFile       string
+	KafkaAdminURL        string
+	KafkaAdminUsername   string
+	KafkaAdminPassword   string
+	EMQXAPIURL           string
+	EMQXAPIKey           string
+	EMQXAPISecret        string
+	MQTTBroker           string
+	MQTTUsername         string
+	MQTTPassword         string
+	MQTTToolUsername     string
+	MQTTWebSocketURL     string
+	MQTTPublicURL        string
+	DeviceHTTPPublicURL  string
+	AIProvider           string
+	AIBaseURL            string
+	AIModel              string
+	AIAPIKey             string
+	AIHarnessURL         string
+	AIHarnessToken       string
+	AIHarnessMCPURL      string
+	AIHarnessModel       string
+	AIHarnessTimeout     time.Duration
+	EmbeddingDimensions  int
+	EmbeddingBatchSize   int
+	EmbeddingURL         string
+	EmbeddingModel       string
+	EmbeddingAPIKey      string
+	EmbeddingQueryPrompt string
+	EmbeddingTimeout     time.Duration
+	BackupURL            string
+	BackupToken          string
+	OfflineScan          time.Duration
+	ModbusAllowedCIDRs   []string
+	DevMode              bool
+	Ops                  OpsConfig
+	Video                VideoConfig
+	Retention            RetentionConfig
+	Notify               NotifyConfig
+	loadErr              error
 }
 
 func Load() Config {
@@ -234,6 +235,7 @@ func Load() Config {
 		Ops:                         loadOps(),
 		Video:                       loadVideo(),
 		Retention:                   loadRetention(),
+		Notify:                      loadNotify(),
 		loadErr:                     errors.Join(devModeErr, kafkaTLSErr),
 	}
 }
@@ -244,6 +246,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.Ops.validate(); err != nil {
 		return err
+	}
+	if c.Notify.loadErr != nil {
+		return c.Notify.loadErr
 	}
 	if c.Retention.Enabled || c.Retention.retentionError != nil {
 		if err := c.Retention.Validate(); err != nil {

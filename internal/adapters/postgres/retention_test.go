@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"iot-platform/internal/model"
+	"iot-platform/internal/notify/notifytest"
 )
 
 func TestPurgeRangeKeepsGuardedRows(t *testing.T) {
@@ -103,4 +104,8 @@ func TestBackupWindows(t *testing.T) {
 	if !daily || !full {
 		t.Fatalf("windows=%v", windows)
 	}
+}
+
+func TestNotificationStoreContract(t *testing.T) {
+	notifytest.StoreContract(t, testRepository(t).NotificationStore())
 }

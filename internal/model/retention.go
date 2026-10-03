@@ -13,6 +13,7 @@ const (
 	RetentionAudit            = "audit_log"
 	RetentionAIToolCalls      = "ai_tool_call_log"
 	RetentionVideoEvents      = "video_alarm_event"
+	RetentionNotifications    = "notification_task"
 )
 
 // BackupWindow is a range of device messages covered by a completed backup;
@@ -45,8 +46,10 @@ type DeadLetter struct {
 // DeadLetterGroups are the consumer groups whose dead letters can be viewed
 // and replayed, with the only topic each may be replayed to.
 var DeadLetterGroups = map[string]string{
-	"parser":                     TopicRaw,
-	"processor":                  TopicDeviceBusiness,
-	"state":                      TopicDeviceState,
-	"device-alarm-notifications": TopicAlarmReported,
+	"parser":                       TopicRaw,
+	"processor":                    TopicDeviceBusiness,
+	"state":                        TopicDeviceState,
+	"device-alarm-notifications":   TopicAlarmReported,
+	"alarm-notifications":          TopicAlarmReported,
+	"alarm-recovery-notifications": TopicAlarmRecovered,
 }

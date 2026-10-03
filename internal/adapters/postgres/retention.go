@@ -26,6 +26,7 @@ var retentionTables = map[string]struct {
 	model.RetentionAudit:            {"created_at", true, ""},
 	model.RetentionAIToolCalls:      {"created_at", false, ""},
 	model.RetentionVideoEvents:      {"event_time", true, ""},
+	model.RetentionNotifications:    {"created_at", true, "status IN ('SENT','FAILED','CANCELLED')"},
 }
 
 func retentionBound(millis bool, at time.Time) any {

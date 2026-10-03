@@ -3,6 +3,8 @@ export function userAccessPayload(value = {}) {
   return {
     username: value.username || '',
     displayName: value.displayName || '',
+    email: value.email || '',
+    phone: value.phone || '',
     password: value.password || '',
     enabled: value.enabled !== false,
     roleIds: [...(value.roleIds || [])],
