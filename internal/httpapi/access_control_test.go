@@ -26,6 +26,8 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/ports"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestAccessControlLifecycleAndIsolation(t *testing.T) {
@@ -843,5 +845,72 @@ func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
 				t.Fatal("queued stale permission snapshot accepted")
 			}
 		})
+	}
+}
+
+func TestProtocolCodeUploadIsPlatformOnly(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "protocol-root-test"
+	cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
+	cfg.Ops.Tenants = []string{"tenant_ops"}
+	cfg.JWTSecret = "protocol-test-secret-at-least-32-bytes"
+	cfg.DevMode = true
+	cfg.DataDir = t.TempDir()
+	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	upload := func(token string) int {
+		t.Helper()
+		r, _ := http.NewRequest("POST", srv.URL+"/api/v2/protocols/vendor/source-releases", strings.NewReader(""))
+		r.Header.Set("Authorization", "Bearer "+token)
+		r.Header.Set("Content-Type", "multipart/form-data; boundary=x")
+		resp, err := srv.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	const action = "POST /api/v2/protocols/:id/source-releases"
+	login := func(tenant, user, password string) string {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": tenant}, 200)["accessToken"].(string)
+	}
+	bizRoot, opsRoot := login("tenant_biz", "root", cfg.AdminPassword), login("tenant_ops", "root", cfg.AdminPassword)
+	for _, item := range req("GET", "/api/v1/access/permissions", bizRoot, nil, 200)["items"].([]any) {
+		if id := item.(map[string]any)["id"]; id == action || id == "POST /api/v2/protocols/:id/package-releases" {
+			t.Fatalf("business tenant catalog offers %v", id)
+		}
+	}
+	user := map[string]any{"username": "developer", "password": "protocol-user-test", "enabled": true, "permissions": []string{"menu:protocols", action}, "deviceScope": "all"}
+	req("POST", "/api/v1/access/users", bizRoot, user, 422)
+	req("POST", "/api/v1/access/users", opsRoot, user, 200)
+	if status := upload(login("tenant_ops", "developer", "protocol-user-test")); status == 403 {
+		t.Fatal("ops tenant developer must pass the platform boundary")
+	}
+	// A grant stored before the boundary existed is not effective.
+	state, err := repo.LoadAccessState(ctx, "tenant_biz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := bcrypt.GenerateFromPassword([]byte("protocol-user-test"), bcrypt.MinCost)
+	state.Users = append(state.Users, model.PlatformUser{Username: "legacy", PasswordHash: string(hash), Enabled: true, Permissions: []string{"menu:protocols", action}, DeviceScope: "all"})
+	if ok, err := repo.SaveAccessState(ctx, "tenant_biz", state); err != nil || !ok {
+		t.Fatal("save legacy grant", err)
+	}
+	if status := upload(login("tenant_biz", "legacy", "protocol-user-test")); status != 403 {
+		t.Fatalf("legacy business grant uploaded: %d", status)
+	}
+	operator, _ := api.auth.Issue("operator", "tenant_biz", "operator", nil, time.Hour)
+	if status := upload(operator); status != 403 {
+		t.Fatalf("built-in operator token uploaded: %d", status)
+	}
+	if status := upload(bizRoot); status == 403 {
+		t.Fatal("built-in administrator is the platform operator")
 	}
 }

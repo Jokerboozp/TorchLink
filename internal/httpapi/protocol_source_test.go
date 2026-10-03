@@ -77,7 +77,7 @@ func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) {
 	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), log)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
-	token, err := api.auth.Issue("tester", "tenant_001", "operator", nil, time.Hour)
+	token, err := api.auth.Issue("tester", "tenant_001", "admin", nil, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +341,7 @@ func TestGoFunctionsUploadAndListener(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	token, _ := api.auth.Issue("operator", "tenant", "operator", nil, time.Hour)
+	token, _ := api.auth.Issue("operator", "tenant", "admin", nil, time.Hour)
 	viewer, _ := api.auth.Issue("viewer", "tenant", "viewer", nil, time.Hour)
 	if err := repo.SaveProduct(ctx, model.Product{TenantID: "tenant", ID: "product", Name: "Go 函数产品", Status: "ENABLED"}); err != nil {
 		t.Fatal(err)
@@ -1023,7 +1023,7 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 	api.SetProtocolListeners(listeners)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
-	token, _ := api.auth.Issue("tester", "tenant_001", "operator", nil, time.Hour)
+	token, _ := api.auth.Issue("tester", "tenant_001", "admin", nil, time.Hour)
 	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant_001", ID: "gb-product", Name: "GB", Status: "ENABLED"})
 	packageRoot := filepath.Join("..", "..", "protocol-packages", "gb26875-dahua")
 	fixture, err := os.ReadFile(filepath.Join(packageRoot, "samples", "cases.json"))
@@ -1356,7 +1356,7 @@ func newProtocolDownloadFixtureV2(t *testing.T) protocolDownloadFixtureV2 {
 	api := New(cfg, engine, engine.Metrics.(*metrics.Registry), log)
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
-	token, err := api.auth.Issue("protocol-developer", "tenant_001", "operator", nil, time.Hour)
+	token, err := api.auth.Issue("protocol-developer", "tenant_001", "admin", nil, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

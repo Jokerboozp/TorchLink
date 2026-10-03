@@ -38,6 +38,10 @@ func (s *Server) protocolSourceTemplate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
+	if !s.protocolCodeAllowed(r) {
+		problem(w, 403, "Go 协议源码与制品仅限平台管理员上传；业务租户请使用已发布协议")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, protocolbuild.MaxSource+(1<<20))
 	if err := r.ParseMultipartForm(2 << 20); err != nil {
 		if r.MultipartForm != nil {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"net/http"
 	"strings"
 )
 
@@ -142,13 +143,39 @@ func isBackupPermission(id string) bool {
 	return ok && (path == "/api/v1/backups" || strings.HasPrefix(path, "/api/v1/backups/"))
 }
 
+// Go protocol source and package uploads are compiled and executed by the
+// platform, so only platform operators may upload them; business tenants use
+// published protocols.
+var protocolCodePermissions = map[string]bool{
+	"POST /api/v2/protocols/:id/source-releases":  true,
+	"POST /api/v2/protocols/:id/package-releases": true,
+}
+
+func isProtocolCodePermission(id string) bool { return protocolCodePermissions[id] }
+
+// protocolCodeAllowed rechecks the platform boundary inside the upload
+// handlers: the built-in administrator, or a managed user of an ops tenant
+// whose permissions were already narrowed by stripOpsPermissions.
+func (s *Server) protocolCodeAllowed(r *http.Request) bool {
+	c := claims(r)
+	if c.TokenUse == "" {
+		return c.Role == "admin"
+	}
+	return c.TokenUse == "user" && s.opsTenantAllowed(c.TenantID)
+}
+
+// platformPermission reports grants that are effective only in ops tenants.
+func platformPermission(id string) bool {
+	return isOpsPermission(id) || isBackupPermission(id) || isProtocolCodePermission(id)
+}
+
 // stripOpsPermissions removes platform-wide grants outside ops tenants.
 func (s *Server) stripOpsPermissions(tenantID string, p map[string]bool) {
 	if s.opsTenantAllowed(tenantID) {
 		return
 	}
 	for id := range p {
-		if isOpsPermission(id) || isBackupPermission(id) {
+		if platformPermission(id) {
 			delete(p, id)
 		}
 	}
@@ -161,7 +188,7 @@ func (s *Server) permissionCatalogFor(tenantID string) []permissionItem {
 	}
 	out := items[:0]
 	for _, item := range items {
-		if !isOpsPermission(item.ID) && !isBackupPermission(item.ID) {
+		if !platformPermission(item.ID) {
 			out = append(out, item)
 		}
 	}

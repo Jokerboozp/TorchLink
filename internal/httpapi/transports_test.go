@@ -642,7 +642,7 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 	}, log)
 	listeners.SetConnectionReporter(engine.ReportConnection)
 	api.SetProtocolListeners(listeners)
-	token, _ := api.auth.Issue("tester", "tenant", "operator", nil, time.Hour)
+	token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
 	other, _ := api.auth.Issue("tester", "other", "operator", nil, time.Hour)
 	request := func(method, path, auth string, body any, want int) *httptest.ResponseRecorder {
 		t.Helper()

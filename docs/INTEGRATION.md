@@ -197,6 +197,8 @@ Go TCP/UDP 命令同样要求 `confirmed:true`，另需 encode 能力和有效�
 
 ### 上传与发布
 
+Go 源码与制品包会在平台上编译和执行，`source-releases`、`package-releases` 两个上传接口与备份、运维数据使用同一平台边界：只有内置管理员，或 `IOT_OPS_TENANTS` 运维租户中获授权的用户可以上传、试跑；业务租户的权限目录不提供这两项，历史授予也不再生效，业务租户使用已发布协议、JSON 路径映射与固定字段映射。发布、预览、切换和下载仍按原有菜单与操作权限执行。
+
 完整项目 ZIP 直接包含 `go.mod`、源码、`protocol.json`、`samples/cases.json` 和可选 `samples/operations.json`（允许一层外目录）。第三方依赖先 `go mod vendor`；构建关闭 CGO、网络下载、工作区与自动工具链下载，不能使用目录外 replace。服务器 Go 工具链须可用。
 
 `POST /api/v2/protocols/{id}/source-releases` 使用 multipart：`file`、`version`、`name`、`transport`、`payloadFormat`、`entrypoint`、`runtime`、`capabilities`、`targetPlatforms`、`cases`、`publish`、`productId`。数组字段为 JSON；表单非空值覆盖包元数据，ID 与 URL 一致。`publish` 默认 false，构建与样例校验成功后保存为 `VALIDATED`。页面按「构建并校验 → 发布协议 → 用于设备模板」操作，不在上传时切换模板。接口仅在显式传入 `publish=true` 且模板尚无登记设备时允许同时传 `productId` 完成初次绑定；已有设备的组合上传在构建前返回 409。已发布版本可独立用于模板，正式版本更新须通过隔离试验、现场验收和应用流程；未发布版本不可绑定。 若编译期间模板发生并发变化导致最终绑定失败，仍返回 201 和已创建的 `release`，通过 `bindingWarning`、`stepResults` 明确标记模板应用失败；保留版本与源码制品，无需重复上传。

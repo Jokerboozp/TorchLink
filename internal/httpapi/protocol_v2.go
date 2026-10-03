@@ -161,6 +161,10 @@ const maxProtocolPackageV2 = int64(64 << 20)
 const maxProtocolPackageExpandedV2 = int64(128 << 20)
 
 func (s *Server) uploadProtocolPackageV2(w http.ResponseWriter, r *http.Request) {
+	if !s.protocolCodeAllowed(r) {
+		problem(w, 403, "Go 协议源码与制品仅限平台管理员上传；业务租户请使用已发布协议")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxProtocolPackageV2+(1<<20))
 	if err := r.ParseMultipartForm(maxProtocolPackageV2 + 1<<20); err != nil {
 		problem(w, 400, "invalid protocol package upload")
