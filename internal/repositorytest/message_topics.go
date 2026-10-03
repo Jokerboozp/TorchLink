@@ -2,6 +2,7 @@ package repositorytest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"slices"
@@ -11,6 +12,57 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
+
+func MessageTopicDevices(t *testing.T, repo ports.Repository) {
+	t.Helper()
+	ctx := context.Background()
+	const tenant = "topic-snapshot"
+	for i := 0; i < 205; i++ {
+		id := fmt.Sprintf("device-%03d", i)
+		if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ID: id, Name: id, ProductID: "product", AccessKey: "snapshot_" + id, UpdatedAt: int64(205 - i), Tags: map[string]string{"site": "original"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "topic-other", ID: "device-000", AccessKey: "snapshot_other"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []model.DeviceState{{TenantID: tenant, DeviceID: "device-000", ConnectionStatus: "CONNECTED", LastSeenAt: 42}, {TenantID: "topic-other", DeviceID: "device-000", ConnectionStatus: "DISCONNECTED", LastSeenAt: 99}} {
+		if err := repo.UpsertDeviceState(ctx, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := repo.ListMessageTopicDevices(ctx, tenant, nil, 10001)
+	if err != nil || len(rows) != 205 {
+		t.Fatalf("bounded query must bypass UI paging caps: count=%d error=%v", len(rows), err)
+	}
+	for i, row := range rows {
+		if row.Device.TenantID != tenant || row.Device.ID != fmt.Sprintf("device-%03d", i) {
+			t.Fatalf("unstable ordering or tenant scope at %d: %+v", i, row.Device)
+		}
+	}
+	if rows[0].State == nil || rows[0].State.TenantID != tenant || rows[0].State.LastSeenAt != 42 || rows[1].State != nil {
+		t.Fatal("device/state join lost tenant or optional-state semantics")
+	}
+	rows[0].Device.Tags["site"] = "mutated"
+	rows[0].State.LastSeenAt = -1
+	one, err := repo.ListMessageTopicDevices(ctx, tenant, []string{"device-000", "missing"}, 10001)
+	if err != nil || len(one) != 1 || one[0].Device.Tags["site"] != "original" || one[0].State == nil || one[0].State.LastSeenAt != 42 {
+		t.Fatal("selected query mutated storage or ignored IDs", one, err)
+	}
+	empty, err := repo.ListMessageTopicDevices(ctx, tenant, []string{}, 10001)
+	if err != nil || len(empty) != 0 {
+		t.Fatal("empty device selection expanded to all", len(empty), err)
+	}
+	limited, err := repo.ListMessageTopicDevices(ctx, tenant, nil, 201)
+	if err != nil || len(limited) != 201 {
+		t.Fatal("explicit query limit was clamped or ignored", len(limited), err)
+	}
+	for _, limit := range []int{0, -1, 10002} {
+		if _, err := repo.ListMessageTopicDevices(ctx, tenant, nil, limit); err == nil {
+			t.Fatal("invalid query limit accepted", limit)
+		}
+	}
+}
 
 // MessageTopics exercises the same tenant, snapshot and revision guarantees on
 // both repository implementations.
@@ -32,6 +84,26 @@ func MessageTopics(t *testing.T, store ports.MessageTopicStore) {
 			t.Fatalf("save %s at revision %d: accepted=%t, want=%t, error=%v", tenant, config.Revision, ok, expected, err)
 		}
 	}
+	t.Run("query nested filters survive persistence without numeric rounding", func(t *testing.T) {
+		query := &model.MessageTopicQuery{Dataset: "device_reports", Mode: "realtime", DeviceScope: "selected", DeviceIDs: []string{"device"}, Fields: map[string]string{"count": "properties.count"}, Filter: &model.MessageTopicFilter{Logic: "and", Children: []model.MessageTopicFilter{{Field: "properties.count", Operator: "gte", Value: json.Number("9007199254740993")}, {Field: "deviceId", Operator: "in", Value: []any{"device"}}}}}
+		config := model.MessageTopicConfig{Topics: []model.MessageTopicRoute{{ID: "query", Protocol: "mqtt", Topic: "query", Query: query}}}
+		save(t, "query-persistent", config, true)
+		expected := load(t, "query-persistent")
+		if !reflect.DeepEqual(expected.Topics[0].Query, query) {
+			t.Fatal("query changed during round trip", expected.Topics[0].Query)
+		}
+		query.Filter.Children[0].Value = json.Number("1")
+		query.Fields["count"] = "deviceId"
+		query.DeviceIDs[0] = "other"
+		if got := load(t, "query-persistent"); !reflect.DeepEqual(got, expected) {
+			t.Fatal("query input mutation reached storage")
+		}
+		loaded := load(t, "query-persistent")
+		loaded.Topics[0].Query.Filter.Children[1].Value.([]any)[0] = "changed"
+		if got := load(t, "query-persistent"); !reflect.DeepEqual(got, expected) {
+			t.Fatal("query output mutation reached storage")
+		}
+	})
 	t.Run("tenant isolation and stale revisions", func(t *testing.T) {
 		config := load(t, "one")
 		if config.Revision != 0 || len(config.Overrides) != 0 {

@@ -170,6 +170,52 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if !primary || !projected {
 		t.Fatal("Kafka rule conversion failure blocked subsequent MQTT delivery", primary, projected)
 	}
+	query, err := messagetopics.CompileQuerySQL("SELECT deviceId, properties.temperature AS temperature FROM device_reports WHERE properties.temperature >= 25")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query.DeviceScope, query.DeviceIDs = "selected", []string{"device_fanout"}
+	settings.Revision, settings.Rules = 3, nil
+	for i := range settings.Topics {
+		settings.Topics[i].Query = &query
+		if err := messagetopics.AccumulateQueryExposure(&settings, settings.Topics[i].ID, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if saved, err := e.MessageTopics.Save(ctx, "t1", settings); err != nil || !saved {
+		t.Fatal("save data query", saved, err)
+	}
+	for _, tc := range []struct {
+		id, device, payload string
+		want                bool
+	}{
+		{"below", "device_fanout", `{"properties":{"temperature":23}}`, false},
+		{"matched", "device_fanout", `{"properties":{"temperature":26}}`, true},
+		{"scope", "other_device", `{"properties":{"temperature":26}}`, false},
+		{"invalid", "device_fanout", `[]`, false},
+	} {
+		normal.MessageID, normal.DeviceID, normal.Payload = "query_"+tc.id, tc.device, json.RawMessage(tc.payload)
+		normal.ReceivedAt++
+		busBefore, mqttBefore = len(bus.topics), len(realtime.Messages)
+		if _, _, err := e.IngestRaw(ctx, normal); err != nil {
+			t.Fatal(tc.id, err)
+		}
+		if got := hasTopic(bus.topics[busBefore:], settings.Topics[0].Topic); got != tc.want {
+			t.Fatalf("%s Kafka query match=%t", tc.id, got)
+		}
+		count := 0
+		for _, message := range realtime.Messages[mqttBefore:] {
+			if message.Topic == settings.Topics[1].Topic {
+				count++
+				if string(message.Payload) != `{"deviceId":"device_fanout","temperature":26}` {
+					t.Fatalf("query projection=%s", message.Payload)
+				}
+			}
+		}
+		if (count == 1) != tc.want || count > 1 {
+			t.Fatalf("%s MQTT query deliveries=%d", tc.id, count)
+		}
+	}
 }
 
 func TestRawToAlarmPipeline(t *testing.T) {

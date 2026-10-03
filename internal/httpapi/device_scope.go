@@ -59,6 +59,30 @@ func (r *deviceScopeRepository) GetDeviceStatesByIDs(ctx context.Context, tenant
 	return r.Repository.GetDeviceStatesByIDs(ctx, tenant, r.scopedIDs(ctx, tenant, ids))
 }
 
+func (r *deviceScopeRepository) ListMessageTopicDevices(ctx context.Context, tenant string, ids []string, limit int) ([]model.MessageTopicDeviceRecord, error) {
+	if scope, ok := requestScope(ctx); ok {
+		if scope.Tenant != tenant {
+			ids = []string{}
+		} else if !scope.All {
+			if ids == nil {
+				ids = grantedIDs(ctx, tenant)
+			} else {
+				ids = r.scopedIDs(ctx, tenant, ids)
+			}
+		}
+	}
+	rows, err := r.Repository.ListMessageTopicDevices(ctx, tenant, ids, limit)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if !deviceAllowed(ctx, tenant, rows[i].Device.GatewayID) {
+			rows[i].Device.GatewayID = ""
+		}
+	}
+	return rows, nil
+}
+
 func (r *deviceScopeRepository) GetStandardMessagesByRawIDs(ctx context.Context, tenant string, ids []string) (map[string]model.StandardMessage, error) {
 	items, err := r.Repository.GetStandardMessagesByRawIDs(ctx, tenant, ids)
 	if err != nil {

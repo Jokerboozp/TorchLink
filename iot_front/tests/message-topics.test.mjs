@@ -8,7 +8,8 @@ import * as topicHelpers from '../src/messageTopics.js'
 
 const prefixes = { mqtt:'/iot/external/74656e616e74/', kafka:'iot.external.74656e616e74.' }
 const topic = { id:'mqtt.parsed', name:'解析数据', protocol:'mqtt', direction:'outbound', topic:'/iot/parsed/{tenantId}/{deviceId}', defaultTopic:'/iot/parsed/{tenantId}/{deviceId}', enabled:true, effectiveEnabled:true, editable:true, variables:['tenantId', 'deviceId'], description:'解析成功后发布', overridden:false }
-const catalog = (revision = 1, items = [topic]) => ({ revision, items, prefixes, sources:[topic], rules:[], accounts:[], users:[{ username:'consumer', displayName:'外部系统', enabled:true }], authorization:{ mqtt:{ ready:false, reason:'MQTT 尚未配置授权' }, kafka:{ ready:false, reason:'Kafka 尚未配置授权' } }, runtime:{ mqttEnabled:true, kafkaEnabled:false, kafkaParsedEnabled:false } })
+const datasets = [{ id:'device_reports', name:'设备上报', mode:'realtime', fields:[{ path:'deviceId', name:'设备编号', type:'string' }] }, { id:'devices', name:'当前设备信息', mode:'interval', fields:[] }]
+const catalog = (revision = 1, items = [topic]) => ({ revision, items, prefixes, datasets, sources:[topic], rules:[], accounts:[], users:[{ username:'consumer', displayName:'外部系统', enabled:true }], authorization:{ mqtt:{ ready:false, reason:'MQTT 尚未配置授权' }, kafka:{ ready:false, reason:'Kafka 尚未配置授权' } }, runtime:{ mqttEnabled:true, kafkaEnabled:false, kafkaParsedEnabled:false } })
 
 function page(api, permissions = ['*']) {
   const hooks = {}, alerts = [], requests = []
@@ -26,7 +27,7 @@ function page(api, permissions = ['*']) {
     navigator:{ clipboard:{ writeText:async () => {} } }
   })
   const source = setupScript(new URL('../src/views/MessageTopicsView.vue', import.meta.url))
-  const state = vm.runInContext(source + '\n;({ snapshot, loading, saving, error, notice, formError, conflicted, editing, creating, form, filteredItems, filters, emptyText, load, openEditor, save, reset, removeTopic, rowActions, identityChanged, accountForm, accountEditing, accountOpen, accountSecret, brokerCredential, credentialAccount, secretOpen, credentialOpen, openAccount, saveAccount, setAccountEnabled, removeAccount, rotateAccount, openCredentials, closeCredentials, issueCredentials, credentialReason, accountActions, rulesTopic, ruleEditing, ruleMode, ruleForm, ruleRows, ruleSources, topicRules, previewInput, previewOutput, previewError, previewing, openRules, editRule, backToRules, saveRule, removeRule, previewRule, publishTopic, publishForm, publishResult, openPublish, publish, publishOpen })', context)
+  const state = vm.runInContext(source + '\n;({ snapshot, loading, saving, error, notice, formError, conflicted, editing, creating, form, filteredItems, filters, emptyText, load, openEditor, save, reset, removeTopic, rowActions, identityChanged, accountForm, accountEditing, accountOpen, accountSecret, brokerCredential, credentialAccount, secretOpen, credentialOpen, openAccount, saveAccount, setAccountEnabled, removeAccount, rotateAccount, openCredentials, closeCredentials, issueCredentials, credentialReason, accountActions, rulesTopic, ruleEditing, ruleMode, ruleForm, ruleRows, ruleSources, topicRules, previewInput, previewOutput, previewError, previewing, openRules, editRule, backToRules, saveRule, removeRule, previewRule, publishTopic, publishForm, publishResult, openPublish, publish, publishOpen, legacyItems, queryForm, queryAccountIds, queryEnabled, queryPreview, queryPreviewError, queryPreviewing, previewQuery, useQuerySql, convertingLegacy, convertLegacy })', context)
   return { ...state, hooks, session, permissionState, requests, alerts, context }
 }
 
@@ -64,7 +65,7 @@ test('消息主题刷新忽略旧响应，错误状态不显示成真实空列�
   pending[0].resolve(catalog(1))
   await first
   assert.equal(p.snapshot.value.revision, 2)
-  assert.equal(p.filteredItems.value[0].name, '最新配置')
+  assert.equal(p.legacyItems.value[0].name, '最新配置'); assert.equal(p.filteredItems.value.length, 0)
   const failed = p.load()
   pending[2].reject(new Error('读取失败'))
   await failed
@@ -177,7 +178,7 @@ test('权限撤销立即清除主题内容并取消请求', async () => {
   assert.equal(p.loading.value, false)
 })
 
-test('共享主题创建不绑定数据源，编辑保持原协议与地址，旧隔离转发仍可编辑数据源', async () => {
+test('数据订阅主题创建同时提交查询，旧通道编辑保持原协议地址与发送行为', async () => {
   let revision = 5
   const shared = { ...topic, id:'topic_new', name:'外部业务', custom:true, shared:true, topic:`${prefixes.mqtt}smoke/reading` }
   const legacy = { ...topic, id:'topic_old', sourceId:topic.id, name:'旧隔离转发', custom:true, topic:'business_data' }
@@ -187,7 +188,7 @@ test('共享主题创建不绑定数据源，编辑保持原协议与地址，�
   await p.save()
   assert.equal(p.requests[1].path, '/api/v1/message-topics')
   assert.equal(p.requests[1].options.method, 'POST')
-  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:5, name:'外部业务', protocol:'mqtt', topic:'smoke/reading', enabled:true, description:'' })
+  assert.deepEqual(JSON.parse(p.requests[1].options.body), { revision:5, name:'外部业务', protocol:'mqtt', topic:'smoke/reading', enabled:true, description:'', accountIds:[], query:{ dataset:'device_reports', mode:'realtime', intervalSeconds:0, fields:{}, deviceScope:'all', deviceIds:[] } })
   p.openEditor(shared); Object.assign(p.form, { name:'新名称', protocol:'kafka', topic:'must-not-change' }); await p.save()
   assert.deepEqual(JSON.parse(p.requests[2].options.body), { revision:6, name:'新名称', protocol:'mqtt', topic:shared.topic, enabled:true, description:'解析成功后发布' })
   p.openEditor(legacy); p.form.name = '原通道'; await p.save()
@@ -426,7 +427,7 @@ test('Kafka 手动发送只带 key，失败不自动重试，卸载后不显示�
 test('纯发布账号无需订阅，旧隔离主题不能授权发布，凭据同时检查发布主题', async () => {
   const form={name:'publisher',username:'consumer',enabled:true,topicIds:[],publishTopicIds:[sharedTopic.id],deviceScope:'all',deviceIds:[],expiresAt:null}
   assert.equal(topicHelpers.validateTopicAccount(form,[topic,sharedTopic],catalog().users),'')
-  assert.match(topicHelpers.validateTopicAccount({...form,publishTopicIds:[topic.id]},[topic,sharedTopic],catalog().users),/共享主题/)
+  assert.match(topicHelpers.validateTopicAccount({...form,publishTopicIds:[topic.id]},[topic,sharedTopic],catalog().users),/未配置数据查询的旧主题/)
   const p=page(()=>Promise.resolve({...sharedCatalog(),authorization:{mqtt:{ready:true}}}))
   await p.load();assert.equal(p.credentialReason(form,'mqtt'),'')
   const body=topicHelpers.topicAccountPayload(form,3);assert.deepEqual(body.topicIds,[]);assert.deepEqual(body.publishTopicIds,[sharedTopic.id])
@@ -438,4 +439,101 @@ test('只读权限无法编辑规则或发送，旧主题不能进入共享入�
   assert.equal(p.ruleMode.value,'list');assert.equal(p.publishTopic.value,null);assert.equal(p.requests.length,1)
   const q=page(()=>Promise.resolve(sharedCatalog()));await q.load();q.openRules(topic);q.openPublish(topic)
   assert.equal(q.rulesTopic.value,null);assert.equal(q.publishTopic.value,null)
+})
+
+test('查询表单保留值类型、IN列表、字段别名与设备范围，SQL切换保持等价条件', () => {
+  const original = { dataset:'device_reports', mode:'realtime', fields:{ temperature:'properties.temperature', device:'deviceId' }, deviceScope:'selected', deviceIds:['a'], filter:{ logic:'or', children:[{ field:'properties.temperature', operator:'gte', value:26 }, { field:'deviceId', operator:'in', value:['001', 'a'] }, { field:'tags.enabled', operator:'eq', value:false }] } }
+  const form = topicHelpers.queryFormFrom(original)
+  assert.equal(topicHelpers.validateTopicQuery(form, datasets), '')
+  const query = topicHelpers.topicQueryRequest(form).query
+  assert.deepEqual(query, { ...original, intervalSeconds:0 })
+  const sql = topicHelpers.queryToSql(query)
+  assert.match(sql, /properties.temperature AS temperature/)
+  assert.match(sql, /deviceId IN \('001', 'a'\)/)
+  assert.match(sql, /tags.enabled = false/)
+  form.fields[1].output = 'temperature'
+  assert.match(topicHelpers.validateTopicQuery(form, datasets), /不能重复/)
+  form.allFields = true; form.conditions[0].value = '9007199254740993'
+  assert.match(topicHelpers.validateTopicQuery(form, datasets), /精确/)
+})
+
+test('嵌套查询与大整数保留服务端SQL，查询型主题不允许外部发布授权', () => {
+  const nested = { dataset:'device_reports', filter:{ logic:'and', children:[{ logic:'or', children:[{ field:'deviceId', operator:'eq', value:'a' }] }] } }
+  const sql = "SELECT * FROM device_reports WHERE (deviceId = 'a')"
+  assert.equal(topicHelpers.queryFormFrom(nested, sql).editor, 'sql')
+  const preciseSql = 'SELECT * FROM device_reports WHERE properties.counter = 9007199254740993'
+  const precise = topicHelpers.queryFormFrom({ dataset:'device_reports', filter:{ field:'properties.counter', operator:'eq', value:9007199254740993 } }, preciseSql)
+  assert.equal(precise.editor, 'sql')
+  assert.equal(topicHelpers.topicQueryRequest(precise).querySql, preciseSql)
+  assert.match(topicHelpers.validateTopicAccount({ name:'a', username:'consumer', topicIds:[], publishTopicIds:['query'], deviceScope:'all' }, [{ id:'query', editable:true, shared:true, query:nested }], [{ username:'consumer' }]), /未配置数据查询/)
+})
+
+test('主题与查询账号一次保存，SQL设备范围保持；无账号编辑权限不提交授权字段', async () => {
+  const shared = { ...topic, id:'query_topic', custom:true, shared:true, query:{ dataset:'device_reports', mode:'realtime', deviceScope:'all', fields:{} }, accountIds:['account_1'] }
+  const p = page((path, options) => Promise.resolve(catalog(options.method ? 2 : 1, [shared])))
+  await p.load(); p.openEditor(shared)
+  p.queryForm.value.conditions.push({ field:'deviceId', operator:'eq', value:'001' })
+  p.queryForm.value.conditions[0].value = '"001"'
+  p.useQuerySql(); p.queryForm.value.deviceScope = 'selected'; p.queryForm.value.deviceIds = ['001']
+  await p.save()
+  const body = JSON.parse(p.requests[1].options.body)
+  assert.deepEqual(body.accountIds, ['account_1'])
+  assert.match(body.querySql, /deviceId = '001'/)
+  assert.deepEqual(body.queryOptions.deviceIds, ['001'])
+  const q = page(() => Promise.resolve(catalog(1, [shared])), ['menu:messageTopics', 'PUT /api/v1/message-topics/:id'])
+  await q.load(); q.openEditor(shared); await q.save()
+  assert.equal(Object.hasOwn(JSON.parse(q.requests[1].options.body), 'accountIds'), false)
+})
+
+test('查询预览使用真实样本接口，修改查询或关闭后迟到响应不显示，空样本保持空态', async () => {
+  let resolvePreview
+  const p = page((path, options) => path.endsWith('/query/preview') ? new Promise(resolve => { resolvePreview = resolve }) : Promise.resolve(catalog()))
+  await p.load(); p.openEditor(); Object.assign(p.form, { name:'设备数据', topic:'/device' })
+  const pending = p.previewQuery()
+  assert.equal(p.requests[1].path, '/api/v1/message-topics/query/preview')
+  assert.equal(Object.hasOwn(JSON.parse(p.requests[1].options.body), 'payload'), false)
+  p.queryForm.value.conditions.push({ field:'deviceId', operator:'eq', value:'a' })
+  assert.equal(p.requests[1].options.signal.aborted, true)
+  resolvePreview({ sampled:true, matched:true, payload:'old' }); await pending
+  assert.equal(p.queryPreview.value, null)
+  const empty = p.previewQuery(); resolvePreview({ sampled:false, matched:false, payload:'' }); await empty
+  assert.equal(p.queryPreview.value.sampled, false)
+  const late = p.previewQuery(); p.hooks.unmount(); resolvePreview({ sampled:true, matched:true, payload:'late' }); await late
+  assert.equal(p.queryPreview.value, null)
+})
+
+test('图形转换SQL遇到嵌套条件保持原文，不隐式丢弃查询条件', async () => {
+  const nested = { dataset:'device_reports', mode:'realtime', deviceScope:'all', fields:{}, filter:{ logic:'and', children:[{ logic:'or', children:[{ field:'deviceId', operator:'eq', value:'a' }] }] } }
+  const sql = "SELECT * FROM device_reports WHERE (deviceId = 'a')"
+  const p = page(path => Promise.resolve(path.endsWith('/query/preview') ? { query:nested, querySql:sql, matched:false, sampled:false, payload:'' } : catalog()))
+  await p.load(); p.openEditor(); p.queryForm.value.editor = 'sql'; p.queryForm.value.sql = sql
+  await p.previewQuery(true)
+  assert.equal(p.queryForm.value.editor, 'sql')
+  assert.equal(p.queryForm.value.sql, sql)
+  assert.match(p.queryPreviewError.value, /嵌套条件/)
+})
+
+test('SQL转换引用特殊字段路径并精确保留表单输入的大整数和IN字符串', () => {
+  const form = topicHelpers.queryFormFrom({ dataset:'device_reports', fields:{ temperature:'properties.temp-c' }, filter:{ field:'tags.site:code', operator:'eq', value:'A' } })
+  assert.match(topicHelpers.queryFormToSql(form), /"properties.temp-c" AS temperature/)
+  assert.match(topicHelpers.queryFormToSql(form), /"tags.site:code" = 'A'/)
+  form.conditions = [{ field:'properties.counter', operator:'in', value:'[ "a,b", 9007199254740993, "001" ]' }]
+  assert.equal(topicHelpers.queryFormToSql(form), 'SELECT "properties.temp-c" AS temperature\nFROM device_reports\nWHERE (properties.counter IN (\'a,b\', 9007199254740993, \'001\'))')
+})
+
+test('旧主题仅显式确认转换才替换旧规则，查询主题没有独立规则和发布入口', async () => {
+  const shared = { ...topic, id:'legacy', custom:true, shared:true }
+  const p = page(() => Promise.resolve(catalog(1, [shared])))
+  await p.load(); p.openEditor(shared)
+  assert.equal(p.queryEnabled.value, false)
+  assert.equal(p.convertingLegacy.value, false)
+  await p.convertLegacy()
+  assert.equal(p.queryEnabled.value, true)
+  await p.save()
+  assert.equal(JSON.parse(p.requests[1].options.body).replaceLegacyRules, true)
+  const queryTopic = { ...shared, query:{ dataset:'device_reports' } }
+  p.openRules(queryTopic); p.openPublish(queryTopic)
+  assert.equal(p.rulesTopic.value, null)
+  assert.equal(p.publishTopic.value, null)
+  assert.equal(p.rowActions(queryTopic).some(action => ['rules', 'publish'].includes(action.key)), false)
 })

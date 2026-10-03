@@ -4,7 +4,8 @@ import { Plus, RefreshCw } from '@lucide/vue'
 import { api, session } from '../api'
 import { can, permissionState } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { credentialStatus, filterMessageTopics, formatTopicTime, topicAccountPayload, topicAccountStatus, topicDirectionLabel, topicDirections, topicStatus, topicVariableLabel, validateManagedTopic, validateSharedTopic, validateTopicAccount, validateTopicTarget, validateTopicRule, topicRulePayload, validateTopicMessage } from '../messageTopics.js'
+import { filterMessageTopics, formatTopicTime, topicAccountPayload, topicAccountStatus, topicDirectionLabel, topicStatus, topicVariableLabel, validateManagedTopic, validateSharedTopic, validateTopicAccount, validateTopicTarget, validateTopicRule, topicRulePayload, validateTopicMessage, queryFormFrom, topicQueryRequest, validateTopicQuery, queryFormToSql, queryFilterIsFlat, queryHasUnsafeNumbers } from '../messageTopics.js'
+import MessageTopicQueryEditor from '../components/MessageTopicQueryEditor.vue'
 import MessageTopicDevicePicker from '../components/MessageTopicDevicePicker.vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -18,6 +19,12 @@ const editing = ref(null), creating = ref(false), accountEditing = ref(null), ac
 const credentialAccount = ref(null), brokerCredential = ref(null), accountSecret = ref(null)
 const filters = reactive({ protocol:'', direction:'', keyword:'' })
 const form = reactive({ name:'', protocol:'mqtt', sourceId:'', enabled:true, topic:'', description:'' })
+const queryForm = ref(queryFormFrom()), queryPreview = ref(null), queryPreviewError = ref(''), queryPreviewing = ref(false)
+const queryAccountIds = ref([]), convertingLegacy = ref(false)
+const queryEnabled = computed(() => sharedEditor.value && (creating.value || Boolean(editing.value?.query) || convertingLegacy.value))
+const datasets = computed(() => snapshot.value?.datasets || [])
+const legacyItems = computed(() => filterMessageTopics(items.value.filter(item => !item.custom && !item.shared), filters))
+const queryAccountsEditable = computed(() => can('PUT /api/v1/message-topic-accounts/:id'))
 const accountForm = reactive({ name:'', username:'', enabled:true, topicIds:[], publishTopicIds:[], deviceScope:'all', deviceIds:[], expiresAt:null })
 const rulesTopic = ref(null), ruleEditing = ref(null), ruleMode = ref('list'), ruleRows = ref([])
 const ruleForm = reactive({ name:'', sourceId:'', enabled:true, deviceScope:'all', deviceIds:[], format:'original', template:'' })
@@ -31,8 +38,10 @@ const ruleSources = computed(() => sources.value.filter(source => source.protoco
 const accounts = computed(() => snapshot.value?.accounts || [])
 const users = computed(() => snapshot.value?.users || [])
 const availableTopics = computed(() => items.value.filter(item => item.editable))
-const filteredItems = computed(() => filterMessageTopics(items.value, filters))
-const emptyText = computed(() => loading.value ? '正在读取消息主题…' : items.value.length ? '没有符合筛选条件的主题' : '暂无消息主题，可新建 MQTT 或 Kafka 主题')
+const subscriptionTopics = computed(() => availableTopics.value.filter(item => item.custom || item.shared))
+const legacySubscriptionTopics = computed(() => availableTopics.value.filter(item => !item.custom && !item.shared))
+const filteredItems = computed(() => filterMessageTopics(items.value.filter(item => item.custom || item.shared), filters))
+const emptyText = computed(() => loading.value ? '正在读取消息主题…' : items.value.some(item => item.custom || item.shared) ? '没有符合筛选条件的主题' : '暂无消息主题，可新建 MQTT 或 Kafka 主题')
 const busy = computed(() => loading.value || saving.value || confirming.value)
 const editorOpen = computed({ get:() => creating.value || Boolean(editing.value), set:value => { if (!value && !saving.value) { creating.value = false; editing.value = null } } })
 const accountEditorOpen = computed({ get:() => accountOpen.value, set:value => { if (!value && !saving.value) accountOpen.value = false } })
@@ -47,6 +56,7 @@ const canSave = computed(() => can(creating.value ? 'POST /api/v1/message-topics
 const canSaveAccount = computed(() => can(accountEditing.value ? 'PUT /api/v1/message-topic-accounts/:id' : 'POST /api/v1/message-topic-accounts'))
 const exchangeEndpoint = computed(() => `${window.location.origin}/api/open/v1/message-topics/credentials`)
 const credentialText = computed(() => brokerCredential.value ? JSON.stringify(brokerCredential.value, null, 2) : '')
+let queryPreviewVersion = 0, queryPreviewController = null
 let previewVersion = 0, previewController = null
 let requestVersion = 0, controller = null, disposed = false, loadedIdentity = '', editorIdentity = '', editorRevision = 0
 
@@ -56,7 +66,7 @@ function beginRequest() { invalidate(); controller = new AbortController(); retu
 function current(request) { return !disposed && request.version === requestVersion && request.identity === identityKey() }
 function ready(permission) { return !disposed && !busy.value && !conflicted.value && Boolean(snapshot.value) && loadedIdentity === identityKey() && can(permission) }
 function closeCredentials() { credentialAccount.value = null; brokerCredential.value = null }
-function clearDialogs() { clearPreview(); rulesTopic.value = null; ruleEditing.value = null; ruleMode.value = 'list'; publishTopic.value = null; publishResult.value = null; publishForm.payload = ''; publishForm.key = ''; editing.value = null; creating.value = false; accountOpen.value = false; accountEditing.value = null; accountSecret.value = null; closeCredentials(); formError.value = '' }
+function clearDialogs() { clearQueryPreview(); convertingLegacy.value = false; queryAccountIds.value = []; clearPreview(); rulesTopic.value = null; ruleEditing.value = null; ruleMode.value = 'list'; publishTopic.value = null; publishResult.value = null; publishForm.payload = ''; publishForm.key = ''; editing.value = null; creating.value = false; accountOpen.value = false; accountEditing.value = null; accountSecret.value = null; closeCredentials(); formError.value = '' }
 function clearIdentity() {
   invalidate(); clearDialogs(); snapshot.value = null; loading.value = false; saving.value = false; confirming.value = false
   conflicted.value = false; error.value = ''; notice.value = ''; loadedIdentity = ''
@@ -84,6 +94,7 @@ function captureEditor() { editorIdentity = loadedIdentity; editorRevision = sna
 function openEditor(row = null) {
   if (!ready(row ? 'PUT /api/v1/message-topics/:id' : 'POST /api/v1/message-topics') || (row && !row.editable)) return
   clearDialogs(); editing.value = row; creating.value = !row; captureEditor()
+  queryForm.value = queryFormFrom(row?.query, row?.querySql || ''); queryAccountIds.value = row?.accountIds ? [...row.accountIds] : accounts.value.filter(account => account.topicIds?.includes(row?.id)).map(account => account.id)
   Object.assign(form, { name:row?.name || '', protocol:row?.protocol || 'mqtt', sourceId:row?.sourceId || '', enabled:row?.enabled ?? true, topic:row?.topic || '', description:row?.description || '' })
 }
 async function perform({ path, method, body, success, credentials = false, account = null, manageRules = null }) {
@@ -125,11 +136,13 @@ async function save() {
   const permission = creating.value ? 'POST /api/v1/message-topics' : 'PUT /api/v1/message-topics/:id'
   if (!ready(permission) || editorIdentity !== identityKey() || (!creating.value && !editing.value?.editable)) return
   formError.value = sharedEditor.value ? validateSharedTopic(form, snapshot.value.prefixes, !creating.value) : legacyEditor.value ? validateManagedTopic(form, sources.value) : validateTopicTarget(editing.value, form.topic, snapshot.value.prefixes)
+  if (!formError.value && queryEnabled.value) formError.value = validateTopicQuery(queryForm.value, datasets.value)
   if (formError.value) return
   const body = { revision:editorRevision, enabled:form.enabled, description:form.description.trim() }
   if (sharedEditor.value) { body.name = form.name.trim(); Object.assign(body, creating.value ? { protocol:form.protocol, topic:form.topic.trim() } : { protocol:editing.value.protocol, topic:editing.value.topic }) }
-  else { body.topic = form.topic.trim(); if (legacyEditor.value) Object.assign(body, { name:form.name.trim(), sourceId:form.sourceId }) }
-  return perform({ path:creating.value ? '/api/v1/message-topics' : `/api/v1/message-topics/${encodeURIComponent(editing.value.id)}`, method:creating.value ? 'POST' : 'PUT', body, success:creating.value ? '主题已创建，可配置自动发送或手动发送消息' : '主题配置已保存' })
+  if (queryEnabled.value) { Object.assign(body, topicQueryRequest(queryForm.value)); if (queryAccountsEditable.value) body.accountIds = [...queryAccountIds.value]; if (convertingLegacy.value) body.replaceLegacyRules = true }
+  else if (!sharedEditor.value) { body.topic = form.topic.trim(); if (legacyEditor.value) Object.assign(body, { name:form.name.trim(), sourceId:form.sourceId }) }
+  return perform({ path:creating.value ? '/api/v1/message-topics' : `/api/v1/message-topics/${encodeURIComponent(editing.value.id)}`, method:creating.value ? 'POST' : 'PUT', body, success:creating.value ? '主题已创建，符合查询条件的数据将自动发送' : '主题配置已保存' })
 }
 async function confirmAction(permission, message, title, action) {
   if (!ready(permission)) return
@@ -205,8 +218,6 @@ function copyTopic(row) { return copyText(row.topic, row.shared ? '主题地址�
 function copyAccountSecret() { return copyText(JSON.stringify({ tenantId:accountSecret.value?.tenantId, accountId:accountSecret.value?.id, secret:accountSecret.value?.secret }, null, 2), '对接账号与密钥已复制') }
 function rowActions(row) {
   return [
-    { key:'rules', label:'自动发送', hidden:!row.shared || !row.editable, disabled:busy.value || conflicted.value, onClick:() => openRules(row) },
-    { key:'publish', label:'发送消息', hidden:!row.shared || !row.editable, permission:'POST /api/v1/message-topics/:id/publish', disabled:busy.value || conflicted.value || !row.enabled, onClick:() => openPublish(row) },
     { key:'copy', label:row.custom && !row.shared ? '复制标识' : '复制', disabled:busy.value, onClick:() => copyTopic(row) },
     { key:'edit', label:'编辑', hidden:!row.editable, permission:'PUT /api/v1/message-topics/:id', disabled:busy.value || conflicted.value, onClick:() => openEditor(row) },
     { key:'reset', label:'恢复默认', hidden:!row.editable || !row.overridden || row.custom || row.shared, permission:'POST /api/v1/message-topics/:id/reset', disabled:busy.value || conflicted.value, onClick:() => reset(row) },
@@ -216,7 +227,7 @@ function rowActions(row) {
 function accountActions(row) {
   const disabled = busy.value || conflicted.value
   return [
-    { key:'credentials', label:'连接与凭据', permission:'POST /api/v1/message-topic-accounts/:id/credentials', disabled, onClick:() => openCredentials(row) },
+    { key:'credentials', label:'订阅信息', permission:'POST /api/v1/message-topic-accounts/:id/credentials', disabled, onClick:() => openCredentials(row) },
     { key:'edit', label:'编辑', permission:'PUT /api/v1/message-topic-accounts/:id', disabled, onClick:() => openAccount(row) },
     { key:'toggle', label:row.enabled ? '停用' : '启用', permission:'PUT /api/v1/message-topic-accounts/:id', disabled, onClick:() => setAccountEnabled(row) },
     { key:'rotate', label:'轮换密钥', permission:'POST /api/v1/message-topic-accounts/:id/rotate', disabled, onClick:() => rotateAccount(row) },
@@ -225,7 +236,7 @@ function accountActions(row) {
 }
 function clearPreview() { previewVersion++; previewController?.abort(); previewController = null; previewing.value = false; previewOutput.value = null; previewError.value = '' }
 function openRules(row) {
-  if (!row.shared || !row.editable || !ready('menu:messageTopics')) return
+  if (!row.shared || row.query || !row.editable || !ready('menu:messageTopics')) return
   clearDialogs(); rulesTopic.value = row; captureEditor()
 }
 function editRule(row = null) {
@@ -265,7 +276,7 @@ async function previewRule() {
   } finally { if (!disposed && version === previewVersion && identity === identityKey()) previewing.value = false }
 }
 function openPublish(row) {
-  if (!row.shared || !row.editable || !row.enabled || !ready('POST /api/v1/message-topics/:id/publish')) return
+  if (!row.shared || row.query || !row.editable || !row.enabled || !ready('POST /api/v1/message-topics/:id/publish')) return
   clearDialogs(); publishTopic.value = row; captureEditor(); Object.assign(publishForm, { format:'json', payload:'', key:'', qos:0 })
 }
 async function publish() {
@@ -284,6 +295,40 @@ async function publish() {
     formError.value = conflicted.value ? '配置已被其他操作更新，请刷新后重新发送。' : cause.message || '发送未确认成功，请核对 Broker 状态后再决定是否重试。'
   } finally { if (current(request)) saving.value = false }
 }
+function clearQueryPreview() { queryPreviewVersion++; queryPreviewController?.abort(); queryPreviewController = null; queryPreview.value = null; queryPreviewError.value = ''; queryPreviewing.value = false }
+async function previewQuery(asForm = false) {
+  if (!queryEnabled.value || queryPreviewing.value || !ready('POST /api/v1/message-topics/query/preview') || editorIdentity !== identityKey()) return
+  queryPreviewError.value = validateTopicQuery(queryForm.value, datasets.value)
+  if (queryPreviewError.value) return
+  clearQueryPreview(); queryPreviewing.value = true; queryPreviewController = new AbortController()
+  const version = queryPreviewVersion, identity = identityKey()
+  try {
+    const body = { protocol:form.protocol, ...topicQueryRequest(queryForm.value), ...(queryForm.value.sample.trim() ? { payload:queryForm.value.sample } : {}) }
+    const result = await api('/api/v1/message-topics/query/preview', { method:'POST', signal:queryPreviewController.signal, body:JSON.stringify(body) })
+    if (disposed || version !== queryPreviewVersion || identity !== identityKey() || !editorOpen.value) return
+    if (asForm) {
+      if (!queryFilterIsFlat(result.query?.filter) || queryHasUnsafeNumbers(result.query?.filter)) { queryPreviewError.value = '这份 SQL 包含嵌套条件或高精度整数，请继续使用 SQL 编辑，避免改变查询含义。'; return }
+      const sample = queryForm.value.sample
+      queryForm.value = { ...queryFormFrom(result.query, result.querySql), sample }
+    }
+    queryPreview.value = { ...result, sampled:result.sampled ?? Boolean(queryForm.value.sample.trim()) }
+  } catch (cause) { if (!disposed && version === queryPreviewVersion && identity === identityKey() && cause.name !== 'AbortError') queryPreviewError.value = cause.message || '查询预览失败' }
+  finally { if (!disposed && version === queryPreviewVersion && identity === identityKey()) queryPreviewing.value = false }
+}
+function useQuerySql() {
+  formError.value = validateTopicQuery(queryForm.value, datasets.value)
+  if (formError.value && !formError.value.includes('精确表示')) return
+  formError.value = ''
+  queryForm.value.sql = queryFormToSql(queryForm.value); queryForm.value.editor = 'sql'
+}
+function convertLegacy() {
+  return confirmAction('PUT /api/v1/message-topics/:id', '转换后将以当前表单中的一份数据查询替换此主题的全部旧发送规则，历史消息与授权边界继续保留。请先解除此主题的外部发布授权。', '改为数据订阅主题', () => { convertingLegacy.value = true; formError.value = '' })
+}
+function querySummary(row) {
+  if (!row.query) return row.shared ? '旧消息通道 · 编辑中管理原有规则' : '旧账号隔离通道'
+  return `${datasets.value.find(item => item.id === row.query.dataset)?.name || row.query.dataset} · ${row.query.mode === 'interval' ? `每 ${row.query.intervalSeconds} 秒查询` : '实时发送'}`
+}
+watch(() => JSON.stringify([queryForm.value, form.protocol]), clearQueryPreview, { flush:'sync' })
 watch(() => JSON.stringify([ruleForm, ruleRows.value, previewInput.value]), clearPreview, { flush:'sync' })
 watch(() => JSON.stringify(publishForm), () => { publishResult.value = null }, { flush:'sync' })
 function identityChanged() { clearIdentity(); if (!disposed && can('menu:messageTopics')) load() }
@@ -300,39 +345,44 @@ onBeforeUnmount(() => { disposed = true; invalidate(); clearDialogs(); window.re
       <template v-if="tab === 'topics'">
         <ui-input v-model="filters.keyword" clearable placeholder="搜索名称、主题或说明" aria-label="搜索消息主题" />
         <ui-select v-model="filters.protocol" clearable placeholder="全部协议" aria-label="消息协议"><ui-option label="MQTT" value="mqtt" /><ui-option label="Kafka" value="kafka" /></ui-select>
-        <ui-select v-model="filters.direction" clearable placeholder="全部用途" aria-label="消息用途"><ui-option v-for="option in topicDirections" :key="option.value" :label="option.label" :value="option.value" /></ui-select>
       </template>
-      <p v-else class="topic-hint">为外部系统绑定平台用户、授权主题和设备范围，再获取连接凭据。</p>
+      <p v-else class="topic-hint">为外部系统选择可订阅的主题，再获取连接信息。</p>
       <template #actions><ui-button :loading="loading" :disabled="saving || confirming" @click="load"><RefreshCw />刷新</ui-button><ui-button v-if="tab === 'topics' && can('POST /api/v1/message-topics')" type="primary" :disabled="busy || !snapshot || conflicted" @click="openEditor()"><Plus />新建主题</ui-button><ui-button v-if="tab === 'accounts' && can('POST /api/v1/message-topic-accounts')" type="primary" :disabled="busy || !snapshot || conflicted" @click="openAccount()"><Plus />新建对接账号</ui-button></template>
     </FilterBar>
-    <div v-if="snapshot" class="topic-authorization" aria-label="Broker 授权状态"><div v-for="protocol in ['mqtt', 'kafka']" :key="protocol"><StatusDot :tone="snapshot.authorization?.[protocol]?.ready ? 'success' : 'warning'" :label="`${protocol === 'kafka' ? 'Kafka' : 'MQTT'} 授权${snapshot.authorization?.[protocol]?.ready ? '已就绪' : '未就绪'}`" /><small>{{ snapshot.authorization?.[protocol]?.reason || (snapshot.authorization?.[protocol]?.ready ? '可生成受授权范围限制的临时连接凭据' : '尚未确认 Broker 授权配置') }}</small></div></div>
+    <details v-if="snapshot" class="topic-connection-status"><summary>连接状态</summary><div class="topic-authorization" aria-label="Broker 授权状态"><div v-for="protocol in ['mqtt', 'kafka']" :key="protocol"><StatusDot :tone="snapshot.authorization?.[protocol]?.ready ? 'success' : 'warning'" :label="`${protocol === 'kafka' ? 'Kafka' : 'MQTT'} 授权${snapshot.authorization?.[protocol]?.ready ? '已就绪' : '未就绪'}`" /><small>{{ snapshot.authorization?.[protocol]?.reason || (snapshot.authorization?.[protocol]?.ready ? '可生成受授权范围限制的临时连接凭据' : '尚未确认 Broker 授权配置') }}</small></div></div></details>
     <ui-alert v-if="notice" :title="notice" type="warning" :closable="false" class="topic-notice" />
     <template v-if="tab === 'topics'">
-      <div v-if="snapshot" class="topic-runtime" aria-label="消息通道配置"><span>MQTT 通道{{ snapshot.runtime?.mqttEnabled ? '已启用' : '未启用' }}</span><span>Kafka 通道{{ snapshot.runtime?.kafkaEnabled ? '已启用' : '未启用' }}</span><span>Kafka 解析结果发布{{ snapshot.runtime?.kafkaParsedEnabled ? '已启用' : '未启用' }}</span></div>
       <DataTableCard :title="`消息主题${snapshot ? ` · ${filteredItems.length} 项` : ''}`" :error="error" @retry="load"><ui-table v-if="!error" :data="filteredItems" :loading="loading" :empty-text="emptyText" row-key="id">
-        <ui-table-column label="消息用途" width="200"><template #default="{ row }"><strong>{{ row.name }}</strong><small class="subline">{{ row.protocol === 'kafka' ? 'Kafka' : 'MQTT' }} · {{ topicDirectionLabel(row.direction) }}</small></template></ui-table-column>
-        <ui-table-column label="主题地址 / 标识" min-width="300"><template #default="{ row }"><code class="topic-text">{{ row.topic }}</code><small class="subline">{{ row.shared ? `共享主题 · ${rules.filter(rule => rule.topicId === row.id).length} 条自动发送规则` : row.custom ? `账号隔离转发 · ${sourceLabel(row.sourceId)}` : row.overridden ? '使用自定义配置' : '使用默认配置' }}</small></template></ui-table-column>
+        <ui-table-column label="主题" width="200"><template #default="{ row }"><strong>{{ row.name }}</strong><small class="subline">{{ row.protocol === 'kafka' ? 'Kafka' : 'MQTT' }}</small></template></ui-table-column>
+        <ui-table-column label="主题地址 / 标识" min-width="300"><template #default="{ row }"><code class="topic-text">{{ row.topic }}</code><small class="subline">{{ querySummary(row) }}</small></template></ui-table-column>
         <ui-table-column label="主题状态" width="128"><template #default="{ row }"><StatusDot v-bind="topicStatus(row)" /></template></ui-table-column>
         <ui-table-column label="说明" min-width="280"><template #default="{ row }"><div v-if="row.description" class="topic-description">{{ row.description }}</div><span v-if="row.reason || !row.editable" :class="{ subline:row.description }">{{ row.editable ? '' : '只读：' }}{{ row.reason || '由部署配置或设备协议管理' }}</span><span v-if="!row.description && !row.reason && row.editable">—</span></template></ui-table-column>
-        <ui-table-column label="操作" width="244" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+        <ui-table-column label="操作" width="180" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
       </ui-table></DataTableCard>
+      <details v-if="snapshot" class="topic-legacy"><summary>兼容配置与内置主题 · {{ legacyItems.length }} 项</summary>
+      <div v-if="snapshot" class="topic-runtime" aria-label="消息通道配置"><span>MQTT 通道{{ snapshot.runtime?.mqttEnabled ? '已启用' : '未启用' }}</span><span>Kafka 通道{{ snapshot.runtime?.kafkaEnabled ? '已启用' : '未启用' }}</span><span>Kafka 解析结果发布{{ snapshot.runtime?.kafkaParsedEnabled ? '已启用' : '未启用' }}</span></div>
+      <p class="topic-hint">保留已有平台转发和内部主题配置。新外部订阅请使用上方的“新建主题”。</p>
+      <ui-table :data="legacyItems" empty-text="没有符合筛选条件的内置主题" row-key="id"><ui-table-column label="主题" min-width="190"><template #default="{ row }"><strong>{{ row.name }}</strong><small class="subline">{{ row.protocol === 'kafka' ? 'Kafka' : 'MQTT' }} · {{ topicDirectionLabel(row.direction) }}</small></template></ui-table-column><ui-table-column label="地址" min-width="280"><template #default="{ row }"><code class="topic-text">{{ row.topic }}</code><small class="subline">{{ row.reason || row.description }}</small></template></ui-table-column><ui-table-column label="状态" width="128"><template #default="{ row }"><StatusDot v-bind="topicStatus(row)" /></template></ui-table-column><ui-table-column label="操作" width="180"><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template></ui-table-column></ui-table></details>
     </template>
     <DataTableCard v-else :title="`外部对接账号 · ${accounts.length} 个`" :error="error" @retry="load"><ui-table v-if="!error" :data="accounts" :loading="loading" :empty-text="loading ? '正在读取对接账号…' : '暂无对接账号，点击“新建对接账号”开始授权'" row-key="id">
       <ui-table-column label="对接账号" min-width="170"><template #default="{ row }"><strong>{{ row.name }}</strong><small class="subline">{{ row.id }}</small></template></ui-table-column>
       <ui-table-column label="绑定用户" min-width="170"><template #default="{ row }">{{ userLabel(row.username) }}</template></ui-table-column>
-      <ui-table-column label="主题与设备范围" min-width="240"><template #default="{ row }"><div class="topic-description">订阅：{{ row.topicIds?.map(topicName).join('、') || '无' }}<br />发布：{{ row.publishTopicIds?.map(topicName).join('、') || '无' }}</div><small class="subline">{{ row.deviceScope === 'all' ? '绑定用户范围内全部设备' : `指定 ${row.deviceIds?.length || 0} 台设备` }}</small></template></ui-table-column>
+      <ui-table-column label="主题与设备范围" min-width="240"><template #default="{ row }"><div class="topic-description">{{ row.topicIds?.map(topicName).join('、') || '尚未授权订阅' }}<small v-if="row.publishTopicIds?.length" class="subline">旧发布授权：{{ row.publishTopicIds.map(topicName).join('、') }}</small></div><small class="subline">{{ row.deviceScope === 'all' ? '绑定用户范围内全部设备' : `指定 ${row.deviceIds?.length || 0} 台设备` }}</small></template></ui-table-column>
       <ui-table-column label="状态 / 有效期" min-width="180"><template #default="{ row }"><StatusDot v-bind="topicAccountStatus(row)" /><small class="subline">{{ formatTopicTime(row.expiresAt) }}</small></template></ui-table-column>
-      <ui-table-column label="临时凭据" min-width="180"><template #default="{ row }"><div v-for="(credential, index) in row.credentials" :key="index" class="topic-credential-status">{{ credential.protocol === 'kafka' ? 'Kafka' : 'MQTT' }} · {{ credentialStatus(credential) }}<small class="subline">{{ formatTopicTime(credential.expiresAt, '—') }}</small></div><span v-if="!row.credentials?.length" class="topic-hint">尚未生成</span></template></ui-table-column>
+
       <ui-table-column label="操作" width="224" fixed="right" align="right"><template #default="{ row }"><RowActions :actions="accountActions(row)" /></template></ui-table-column>
     </ui-table></DataTableCard>
-    <p class="topic-footnote">共享主题创建后可配置自动发送规则或手动发送；外部账号按分别授予的发布、订阅权限连接。旧账号隔离通道继续按绑定用户范围过滤。规则或授权变更会撤销旧凭据，请重新获取；Broker 中历史消息保留。</p>
-    <p v-if="tab === 'topics'" class="topic-footnote">保存后当前实例立即应用，其他进程按 2 秒缓存刷新，已在途发布可能使用旧配置。通道开关不代表连接健康，外部账号只有在 Broker 授权就绪后才能获取有效凭据。</p>
+    <p class="topic-footnote">一个主题对应一份数据查询，授权账号订阅实际主题地址即可接收。修改查询或授权后，请重新获取订阅凭据；历史消息仍保留在 Broker 中。</p>
 
-    <ui-dialog v-model="editorOpen" :title="creating ? '新建消息主题' : `编辑主题 · ${editing?.name || ''}`" width="min(720px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close>
+    <ui-dialog v-model="editorOpen" :title="creating ? '新建消息主题' : `编辑主题 · ${editing?.name || ''}`" width="min(860px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close>
       <div v-if="editorOpen" class="topic-editor"><ui-alert v-if="formError" :title="formError" type="error" :closable="false" /><ui-form :model="form" label-position="top" :disabled="saving || conflicted">
-        <template v-if="sharedEditor"><ui-form-item label="主题名称" required><ui-input v-model="form.name" :maxlength="100" placeholder="例如 园区消防告警" aria-label="主题名称" /></ui-form-item><ui-form-item label="协议" required><ui-select v-model="form.protocol" :disabled="!creating" aria-label="主题协议"><ui-option label="MQTT" value="mqtt" /><ui-option label="Kafka" value="kafka" /></ui-select></ui-form-item><ui-form-item label="主题地址或后缀" required><ui-input v-model="form.topic" :disabled="!creating" :placeholder="form.protocol === 'mqtt' ? '例如 smoke/reading' : '例如 smoke.reading'" aria-label="主题地址" /></ui-form-item><p class="topic-hint">{{ creating ? '可填写后缀或完整租户主题，保存后显示实际地址。创建主题不会自动发送数据。' : '协议和主题地址创建后固定，名称、状态和说明可以修改。' }}<br />当前租户前缀：<code class="topic-text">{{ snapshot.prefixes?.[form.protocol] || '未取得，请刷新' }}</code></p></template>
+        <template v-if="sharedEditor"><ui-form-item label="主题名称" required><ui-input v-model="form.name" :maxlength="100" placeholder="例如 园区消防告警" aria-label="主题名称" /></ui-form-item><ui-form-item label="协议" required><ui-select v-model="form.protocol" :disabled="!creating" aria-label="主题协议"><ui-option label="MQTT" value="mqtt" /><ui-option label="Kafka" value="kafka" /></ui-select></ui-form-item><ui-form-item label="主题地址或后缀" required><ui-input v-model="form.topic" :disabled="!creating" :placeholder="form.protocol === 'mqtt' ? '例如 /device' : '例如 device'" aria-label="主题地址" /></ui-form-item><p class="topic-hint">{{ creating ? '填写主题名称或本租户完整地址，平台自动补齐租户前缀。' : '协议和地址创建后固定；修改数据查询不会清除已有消息。' }}<br />主题前缀：<code class="topic-text">{{ snapshot.prefixes?.[form.protocol] || '未取得，请刷新' }}</code></p></template>
         <template v-else-if="legacyEditor"><ui-form-item label="主题名称" required><ui-input v-model="form.name" :maxlength="100" aria-label="主题名称" /></ui-form-item><ui-form-item label="消息数据源" required><ui-select v-model="form.sourceId" filterable aria-label="消息数据源"><ui-option v-for="source in sources" :key="source.id" :value="source.id" :label="sourceLabel(source.id)" /></ui-select></ui-form-item><ui-form-item label="主题标识" required><ui-input v-model="form.topic" :maxlength="48" aria-label="主题标识" /></ui-form-item><p class="topic-hint">此为已有的账号隔离转发通道，保留原数据源和订阅行为。实际订阅地址从对接账号的连接凭据获取。</p></template>
         <template v-else><ui-form-item label="主题模板" required><ui-input v-model="form.topic" type="textarea" :autosize="{ minRows:2, maxRows:5 }" aria-label="主题模板" /></ui-form-item><div class="topic-hint"><p v-if="editing.reason">{{ editing.reason }}</p><p>自定义主题前缀：<code class="topic-text">{{ snapshot.prefixes?.[editing.protocol] || '未取得，请刷新' }}</code></p><p v-if="editing.variables?.length">可用变量：{{ editing.variables.map(topicVariableLabel).join('；') }}。</p><p v-else>此主题不支持变量。</p><p>默认主题：<code class="topic-text">{{ editing.defaultTopic }}</code></p><ui-button size="small" text type="primary" :disabled="saving || conflicted" @click="form.topic = editing.defaultTopic">填入默认主题</ui-button></div></template>
+        <MessageTopicQueryEditor v-if="queryEnabled" :model-value="queryForm" :datasets="datasets" :disabled="saving || conflicted" :previewing="queryPreviewing" :preview="queryPreview" :preview-error="queryPreviewError" :can-preview="can('POST /api/v1/message-topics/query/preview')" @preview="previewQuery()" @sql="useQuerySql" @form="previewQuery(true)" />
+        <ui-form-item v-if="queryEnabled" label="授权订阅账号"><ui-select v-model="queryAccountIds" multiple filterable clearable placeholder="选择外部对接账号，也可稍后授权" aria-label="授权订阅账号" :disabled="saving || conflicted || !queryAccountsEditable"><ui-option v-for="account in accounts" :key="account.id" :label="`${account.name}${account.enabled ? '' : '（已停用）'}`" :value="account.id" /></ui-select></ui-form-item><p v-if="queryEnabled && !accounts.length" class="topic-hint">暂无对接账号。保存主题后，在“外部对接账号”新建账号并授权订阅。</p>
+        <details v-if="editing?.shared && !editing?.query && !convertingLegacy" class="topic-legacy"><summary>旧消息通道配置</summary><p class="topic-hint">此主题沿用已有发送方式。可以管理旧规则，也可以明确替换为一份数据查询。</p><div class="topic-editor-actions"><ui-button :disabled="busy || conflicted" @click="openRules(editing)">管理旧发送规则</ui-button><ui-button v-if="can('POST /api/v1/message-topics/:id/publish')" :disabled="busy || conflicted || !editing.enabled" @click="openPublish(editing)">手动调试</ui-button><ui-button :disabled="busy || conflicted" @click="convertLegacy">改为数据订阅主题</ui-button></div></details>
+        <ui-alert v-if="convertingLegacy" type="warning" :closable="false" title="保存后将用这份查询替换旧发送规则，历史数据范围继续保留。" />
         <ui-form-item label="主题状态"><div class="topic-enabled"><ui-switch v-model="form.enabled" /><span>{{ form.enabled ? '启用主题' : '停用主题' }}</span></div></ui-form-item><ui-form-item label="说明"><ui-input v-model="form.description" type="textarea" :rows="3" :maxlength="500" placeholder="记录订阅用途或使用说明" aria-label="主题说明" /></ui-form-item>
       </ui-form></div>
       <template #footer><div class="topic-editor-actions"><ui-button v-if="editing?.overridden && !editing?.custom && can('POST /api/v1/message-topics/:id/reset')" :disabled="busy || conflicted" @click="reset(editing)">恢复默认配置</ui-button><span class="topic-action-spacer" /><ui-button :disabled="saving" @click="editorOpen = false">取消</ui-button><ui-button v-if="conflicted" type="primary" @click="load">刷新配置</ui-button><ui-button v-else-if="canSave" type="primary" :loading="saving" :disabled="loading" @click="save">{{ creating ? '创建主题' : '保存配置' }}</ui-button></div></template>
@@ -361,10 +411,12 @@ onBeforeUnmount(() => { disposed = true; invalidate(); clearDialogs(); window.re
       <div v-if="accountOpen" class="topic-editor topic-account-editor"><ui-alert v-if="formError" :title="formError" type="error" :closable="false" /><ui-form :model="accountForm" label-position="top" :disabled="saving || conflicted">
         <ui-form-item label="对接账号名称" required><ui-input v-model="accountForm.name" :maxlength="100" placeholder="例如 园区管理平台" aria-label="对接账号名称" /></ui-form-item>
         <ui-form-item label="绑定平台用户" required><ui-select v-model="accountForm.username" filterable placeholder="选择平台用户" aria-label="绑定平台用户" @change="accountForm.deviceIds = []"><ui-option v-for="user in users" :key="user.username" :value="user.username" :label="userLabel(user.username)" /></ui-select></ui-form-item><p v-if="!users.length" class="topic-hint">暂无可绑定的平台用户，请先在“用户与权限”登记用户。</p>
-        <ui-form-item label="主题权限" required><div class="topic-grants"><div v-for="topic in availableTopics" :key="topic.id" class="topic-grant-row"><div><strong>{{ topic.name }}</strong><small class="subline">{{ topic.protocol === 'kafka' ? 'Kafka' : 'MQTT' }} · {{ topic.shared ? '共享主题' : '账号隔离转发' }}{{ topic.enabled ? '' : ' · 已停用' }}</small></div><ui-checkbox :model-value="accountForm.topicIds.includes(topic.id)" :aria-label="`订阅 ${topic.name}`" @update:model-value="checked => toggleTopic(topic.id, checked)">订阅</ui-checkbox><ui-checkbox v-if="topic.shared" :model-value="accountForm.publishTopicIds.includes(topic.id)" :aria-label="`发布 ${topic.name}`" @update:model-value="checked => toggleTopic(topic.id, checked, 'publishTopicIds')">发布</ui-checkbox><span v-else class="topic-hint">不支持发布</span></div><p v-if="!availableTopics.length" class="topic-hint">暂无可授权主题，请先新建消息主题。</p></div></ui-form-item><p class="topic-hint">共享主题的订阅范围须覆盖该主题所有曾自动发送的平台数据范围；细分设备请在自动发送规则中选择。纯自定义消息通道无需设备身份，绑定用户仍需消息主题权限。</p>
+        <ui-form-item label="可订阅主题" required><div class="topic-grants"><div v-for="topic in subscriptionTopics" :key="topic.id" class="topic-subscribe-row"><div><strong>{{ topic.name }}</strong><small class="subline">{{ topic.protocol === 'kafka' ? 'Kafka' : 'MQTT' }} · {{ querySummary(topic) }}{{ topic.enabled ? '' : ' · 已停用' }}</small></div><ui-checkbox :model-value="accountForm.topicIds.includes(topic.id)" :aria-label="`订阅 ${topic.name}`" @update:model-value="checked => toggleTopic(topic.id, checked)">订阅</ui-checkbox></div><p v-if="!subscriptionTopics.length" class="topic-hint">暂无可授权主题，请先新建消息主题。</p></div></ui-form-item><p class="topic-hint">同一主题的订阅者收到相同数据，账号及其绑定用户须有权访问该主题的数据范围。</p>
+        <details v-if="legacySubscriptionTopics.length" class="topic-legacy"><summary>兼容主题订阅</summary><div v-for="topic in legacySubscriptionTopics" :key="topic.id" class="topic-subscribe-row"><span>{{ topic.name }} · {{ topic.protocol === 'kafka' ? 'Kafka' : 'MQTT' }}</span><ui-checkbox :model-value="accountForm.topicIds.includes(topic.id)" :aria-label="`订阅 ${topic.name}`" @update:model-value="checked => toggleTopic(topic.id, checked)">订阅</ui-checkbox></div></details>
+        <details v-if="availableTopics.some(topic => topic.shared && !topic.query)" class="topic-legacy"><summary>旧主题发布权限</summary><p class="topic-hint">只用于已有消息通道。配置了数据查询的主题仅供外部订阅。</p><div v-for="topic in availableTopics.filter(topic => topic.shared && !topic.query)" :key="topic.id"><ui-checkbox :model-value="accountForm.publishTopicIds.includes(topic.id)" :aria-label="`发布 ${topic.name}`" @update:model-value="checked => toggleTopic(topic.id, checked, 'publishTopicIds')">发布到 {{ topic.name }}</ui-checkbox></div></details>
         <ui-form-item label="设备范围"><ui-radio-group v-model="accountForm.deviceScope" class="topic-scope-options"><ui-radio value="all">绑定用户范围内全部设备</ui-radio><ui-radio value="selected">指定设备</ui-radio></ui-radio-group></ui-form-item>
         <MessageTopicDevicePicker v-if="accountForm.deviceScope === 'selected'" :key="accountForm.username" v-model="accountForm.deviceIds" :disabled="saving || conflicted" /><p v-else class="topic-hint">随绑定用户当前设备范围变化，不能超出该用户的设备权限。</p>
-        <ui-form-item label="账号有效期至"><ui-date-time v-model="accountForm.expiresAt" clearable disable-past placeholder="不填写则长期有效" /></ui-form-item><ui-form-item label="账号状态"><div class="topic-enabled"><ui-switch v-model="accountForm.enabled" /><span>{{ accountForm.enabled ? '启用对接' : '停用对接' }}</span></div></ui-form-item><p class="topic-hint">账号只能在绑定用户权限内授权。共享主题按完整历史范围校验订阅资格，旧通道按设备交集过滤。账号密钥用于自动换取临时连接凭据，创建或轮换时仅显示一次。</p>
+        <ui-form-item label="账号有效期至"><ui-date-time v-model="accountForm.expiresAt" clearable disable-past placeholder="不填写则长期有效" /></ui-form-item><ui-form-item label="账号状态"><div class="topic-enabled"><ui-switch v-model="accountForm.enabled" /><span>{{ accountForm.enabled ? '启用对接' : '停用对接' }}</span></div></ui-form-item><p class="topic-hint">账号密钥用于外部系统自动换取订阅凭据，创建或轮换时仅显示一次。修改授权后需重新获取凭据。</p>
       </ui-form></div>
       <template #footer><div class="topic-editor-actions"><span class="topic-action-spacer" /><ui-button :disabled="saving" @click="accountEditorOpen = false">取消</ui-button><ui-button v-if="conflicted" type="primary" @click="load">刷新配置</ui-button><ui-button v-else-if="canSaveAccount" type="primary" :loading="saving" :disabled="loading" @click="saveAccount">{{ accountEditing ? '保存账号' : '创建账号' }}</ui-button></div></template>
     </ui-dialog>
@@ -375,11 +427,11 @@ onBeforeUnmount(() => { disposed = true; invalidate(); clearDialogs(); window.re
       <ui-button @click="copyAccountSecret">复制账号与密钥</ui-button><p class="topic-hint">外部服务调用 <code>POST</code> <code class="topic-text">{{ exchangeEndpoint }}</code>，JSON 请求包含 <code>tenantId</code>、<code>accountId</code>、<code>secret</code> 和 <code>protocol</code>（mqtt 或 kafka）。临时凭据有效期为 1 小时，以接口返回的到期时间为准。</p>
     </div><template #footer><ui-button type="primary" @click="accountSecret = null">我已保存</ui-button></template></ui-dialog>
 
-    <ui-dialog v-model="credentialOpen" :title="`连接与凭据 · ${credentialAccount?.name || ''}`" width="min(780px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close><div v-if="credentialAccount" class="topic-editor">
-      <ui-alert v-if="formError" :title="formError" type="error" :closable="false" /><p class="topic-hint">绑定用户：{{ userLabel(credentialAccount.username) }}。使用凭据中分别列出的实际地址发布或订阅消息；旧通道请勿使用管理列表中的逻辑标识。</p>
-      <div class="topic-protocol-credentials"><div v-for="protocol in ['mqtt', 'kafka']" :key="protocol"><ui-button type="primary" :loading="saving" :disabled="busy || conflicted || !!credentialReason(credentialAccount, protocol)" @click="issueCredentials(protocol)">生成 {{ protocol === 'kafka' ? 'Kafka' : 'MQTT' }} 凭据</ui-button><p>{{ credentialReason(credentialAccount, protocol) || '可生成有效期 1 小时的临时凭据' }}</p></div></div>
+    <ui-dialog v-model="credentialOpen" :title="`订阅信息 · ${credentialAccount?.name || ''}`" width="min(780px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!saving" :show-close="!saving" destroy-on-close><div v-if="credentialAccount" class="topic-editor">
+      <ui-alert v-if="formError" :title="formError" type="error" :closable="false" /><p class="topic-hint">绑定用户：{{ userLabel(credentialAccount.username) }}。使用下方实际地址订阅消息；请在凭据到期前续期。</p>
+      <div class="topic-protocol-credentials"><div v-for="protocol in ['mqtt', 'kafka']" :key="protocol"><ui-button type="primary" :loading="saving" :disabled="busy || conflicted || !!credentialReason(credentialAccount, protocol)" @click="issueCredentials(protocol)">获取 {{ protocol === 'kafka' ? 'Kafka' : 'MQTT' }} 凭据</ui-button><p>{{ credentialReason(credentialAccount, protocol) || '可生成有效期 1 小时的临时凭据' }}</p></div></div>
       <template v-if="brokerCredential"><ui-alert type="warning" :closable="false" title="连接密码只在本次展示，关闭后清除。修改授权或配置后，需重新获取临时凭据。" /><ui-descriptions :column="1">
-        <ui-descriptions-item label="协议">{{ brokerCredential.protocol === 'kafka' ? 'Kafka' : 'MQTT' }}</ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.broker" label="Broker"><code class="topic-text">{{ brokerCredential.broker }}</code></ui-descriptions-item><ui-descriptions-item label="用户名"><code class="topic-text">{{ brokerCredential.username }}</code></ui-descriptions-item><ui-descriptions-item label="连接密码"><code class="topic-text topic-secret">{{ brokerCredential.password }}</code></ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.groupId" label="消费者组"><code class="topic-text">{{ brokerCredential.groupId }}</code></ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.mechanism" label="认证机制">{{ brokerCredential.mechanism }}</ui-descriptions-item><ui-descriptions-item label="有效期至">{{ formatTopicTime(brokerCredential.expiresAt, '—') }}</ui-descriptions-item><ui-descriptions-item label="可订阅主题"><code v-for="topic in (brokerCredential.subscribeTopics || brokerCredential.topics || [])" :key="topic" class="topic-text topic-subscription">{{ topic }}</code><span v-if="!(brokerCredential.subscribeTopics || brokerCredential.topics || []).length">无</span></ui-descriptions-item><ui-descriptions-item label="可发布主题"><code v-for="topic in (brokerCredential.publishTopics || [])" :key="topic" class="topic-text topic-subscription">{{ topic }}</code><span v-if="!brokerCredential.publishTopics?.length">无</span></ui-descriptions-item>
+        <ui-descriptions-item label="协议">{{ brokerCredential.protocol === 'kafka' ? 'Kafka' : 'MQTT' }}</ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.broker" label="Broker"><code class="topic-text">{{ brokerCredential.broker }}</code></ui-descriptions-item><ui-descriptions-item label="用户名"><code class="topic-text">{{ brokerCredential.username }}</code></ui-descriptions-item><ui-descriptions-item label="连接密码"><code class="topic-text topic-secret">{{ brokerCredential.password }}</code></ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.groupId" label="消费者组"><code class="topic-text">{{ brokerCredential.groupId }}</code></ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.mechanism" label="认证机制">{{ brokerCredential.mechanism }}</ui-descriptions-item><ui-descriptions-item label="有效期至">{{ formatTopicTime(brokerCredential.expiresAt, '—') }}</ui-descriptions-item><ui-descriptions-item label="可订阅主题"><code v-for="topic in (brokerCredential.subscribeTopics || brokerCredential.topics || [])" :key="topic" class="topic-text topic-subscription">{{ topic }}</code><span v-if="!(brokerCredential.subscribeTopics || brokerCredential.topics || []).length">无</span></ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.publishTopics?.length" label="旧主题发布权限"><code v-for="topic in (brokerCredential.publishTopics || [])" :key="topic" class="topic-text topic-subscription">{{ topic }}</code><span v-if="!brokerCredential.publishTopics?.length">无</span></ui-descriptions-item>
         <ui-descriptions-item v-if="brokerCredential.protocol === 'kafka' && brokerCredential.securityProtocol" label="安全协议">{{ brokerCredential.securityProtocol }}</ui-descriptions-item><ui-descriptions-item v-if="brokerCredential.protocol === 'kafka' && typeof brokerCredential.tls === 'boolean'" label="TLS">{{ brokerCredential.tls ? '启用' : '未启用' }}</ui-descriptions-item>
       </ui-descriptions><ui-button @click="copyText(credentialText, '连接凭据与主题权限已复制')">复制完整连接凭据</ui-button></template>
       <p class="topic-hint">服务端自动获取凭据：<code>POST</code> <code class="topic-text">{{ exchangeEndpoint }}</code>。提交账号的 tenantId、accountId、secret、protocol；密钥遗失时，请关闭此窗口并在账号操作中轮换。</p>
@@ -389,6 +441,10 @@ onBeforeUnmount(() => { disposed = true; invalidate(); clearDialogs(); window.re
 
 <style scoped>
 .message-topics-page { min-width:0; }
+.topic-connection-status, .topic-legacy { margin:var(--space-3) 0; }
+.topic-connection-status > summary, .topic-legacy > summary { cursor:pointer; color:var(--text-muted); font-size:var(--font-size-sm); margin-bottom:var(--space-3); }
+.topic-legacy > * + * { margin-top:var(--space-3); }
+.topic-subscribe-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:var(--space-2); padding:var(--space-2) 0; border-bottom:1px solid var(--border); }
 .topic-authorization { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); margin-bottom:var(--space-4); }
 .topic-authorization > div { display:grid; gap:var(--space-1); border:1px solid var(--border); background:var(--surface); border-radius:var(--radius-md); padding:var(--space-3); min-width:0; }
 .topic-authorization small { color:var(--text-muted); line-height:1.6; overflow-wrap:anywhere; }

@@ -104,6 +104,7 @@ func cloneConfig(cfg model.MessageTopicConfig) model.MessageTopicConfig {
 	}
 	out.Topics = slices.Clone(cfg.Topics)
 	for i := range out.Topics {
+		out.Topics[i].Query = cloneQuery(cfg.Topics[i].Query)
 		out.Topics[i].Exposure = slices.Clone(cfg.Topics[i].Exposure)
 		for j := range out.Topics[i].Exposure {
 			out.Topics[i].Exposure[j].DeviceIDs = slices.Clone(cfg.Topics[i].Exposure[j].DeviceIDs)

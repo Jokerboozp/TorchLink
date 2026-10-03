@@ -26,8 +26,11 @@ func SharedDestination(tenant string, route model.MessageTopicRoute) string {
 	if route.Protocol == "mqtt" {
 		prefix = MQTTPrefix(tenant)
 	}
-	if strings.HasPrefix(route.Topic, prefix) || (route.Protocol == "mqtt" && strings.HasPrefix(route.Topic, "/")) || (route.Protocol == "kafka" && strings.HasPrefix(route.Topic, "iot.external.")) {
+	if strings.HasPrefix(route.Topic, prefix) || (route.Protocol == "mqtt" && strings.HasPrefix(route.Topic, "/iot/external/")) || (route.Protocol == "kafka" && strings.HasPrefix(route.Topic, "iot.external.")) {
 		return route.Topic
+	}
+	if route.Protocol == "mqtt" {
+		return prefix + strings.TrimPrefix(route.Topic, "/")
 	}
 	return prefix + route.Topic
 }
@@ -80,7 +83,7 @@ func RouteAllowed(cfg model.MessageTopicConfig, id string, identity MessageTopic
 // Publish grants convey no permission to read retained or historical messages.
 func RoutePublishAllowed(cfg model.MessageTopicConfig, id string, identity MessageTopicIdentity, account model.MessageTopicAccount) bool {
 	route, ok := sharedRoute(cfg, id)
-	return ok && route.Enabled && account.Enabled && permission(identity, "messageTopics")
+	return ok && route.Query == nil && route.Enabled && account.Enabled && permission(identity, "messageTopics")
 }
 
 func scopeCovers(scope string, ids []string, requiredScope string, requiredIDs []string) bool {
@@ -231,7 +234,7 @@ func validateShared(tenant string, cfg model.MessageTopicConfig) error {
 	}
 	for _, route := range cfg.Topics {
 		if route.Protocol == "" {
-			if len(route.Exposure) > 0 {
+			if len(route.Exposure) > 0 || route.Query != nil {
 				return bad("旧规则主题不能设置共享数据范围")
 			}
 			continue
@@ -262,6 +265,22 @@ func validateShared(tenant string, cfg model.MessageTopicConfig) error {
 			}
 			seen[exposure.SourceID] = true
 		}
+		if route.Query != nil {
+			if err := ValidateQuery(*route.Query); err != nil {
+				return bad(err.Error())
+			}
+			for _, source := range querySourceIDs(route.Protocol, route.Query.Dataset) {
+				covered := false
+				for _, exposure := range route.Exposure {
+					if exposure.SourceID == source && scopeCovers(exposure.DeviceScope, exposure.DeviceIDs, route.Query.DeviceScope, route.Query.DeviceIDs) {
+						covered = true
+					}
+				}
+				if !covered {
+					return bad("查询数据范围尚未计入主题历史授权范围")
+				}
+			}
+		}
 	}
 	ids := map[string]bool{}
 	for _, rule := range cfg.Rules {
@@ -273,6 +292,9 @@ func validateShared(tenant string, cfg model.MessageTopicConfig) error {
 		source, known := topicByID(rule.SourceID)
 		if !exists || !known || !source.Editable || source.Protocol != route.Protocol || !validRuleScope(rule.DeviceScope, rule.DeviceIDs) {
 			return bad("规则主题、数据源或设备范围无效")
+		}
+		if route.Query != nil {
+			return bad("查询主题不能同时配置旧发送规则")
 		}
 		if source.ID == "kafka.video-alarm" && rule.DeviceScope != "all" {
 			return bad("视频告警规则仅支持全部设备范围")
@@ -514,7 +536,14 @@ func (s *Service) sharedPublications(ctx context.Context, protocol, source strin
 	if err != nil {
 		return nil, err
 	}
-	if len(cfg.Rules) == 0 {
+	hasQuery := false
+	for _, route := range cfg.Topics {
+		if route.Query != nil && route.Enabled && route.Protocol == protocol && route.Query.Mode == "realtime" && slices.Contains(querySourceIDs(protocol, route.Query.Dataset), sourceInfo.ID) {
+			hasQuery = true
+			break
+		}
+	}
+	if len(cfg.Rules) == 0 && !hasQuery {
 		return nil, nil
 	}
 	if strings.HasSuffix(sourceInfo.ID, ".alarm-ai-analysis") {
@@ -527,6 +556,23 @@ func (s *Service) sharedPublications(ctx context.Context, protocol, source strin
 	var result []Publication
 	checked := map[string]bool{}
 	permitted := map[string]bool{}
+	for _, route := range cfg.Topics {
+		query := route.Query
+		if query == nil || query.Mode != "realtime" || !route.Enabled || route.Protocol != protocol || !slices.Contains(querySourceIDs(protocol, query.Dataset), sourceInfo.ID) {
+			continue
+		}
+		if !s.sharedTopicReady(ctx, identity.TenantID, cfg, route) {
+			continue
+		}
+		out, matched, err := PreviewQuery(*query, payload)
+		if err != nil {
+			slog.WarnContext(ctx, "message topic query skipped", "tenant", identity.TenantID, "topicId", route.ID, "reason", err)
+			continue
+		}
+		if matched {
+			result = append(result, Publication{Topic: SharedDestination(identity.TenantID, route), Payload: out})
+		}
+	}
 	for _, rule := range cfg.Rules {
 		if !rule.Enabled || rule.SourceID != sourceInfo.ID {
 			continue

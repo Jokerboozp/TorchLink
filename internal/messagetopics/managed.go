@@ -171,8 +171,8 @@ func validateManaged(tenant string, cfg model.MessageTopicConfig) error {
 			}
 		}
 		for _, id := range account.PublishTopicIDs {
-			if _, ok := sharedRoute(cfg, id); !ok {
-				return invalid("发布授权只能引用共享主题")
+			if route, ok := sharedRoute(cfg, id); !ok || route.Query != nil {
+				return invalid("发布授权只能引用非查询共享主题")
 			}
 		}
 		accounts[account.ID] = account

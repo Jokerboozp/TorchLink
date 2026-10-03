@@ -10,6 +10,36 @@ import (
 	"iot-platform/internal/model"
 )
 
+func (r *Repository) ListMessageTopicDevices(ctx context.Context, tenant string, deviceIDs []string, limit int) ([]model.MessageTopicDeviceRecord, error) {
+	if limit < 1 || limit > 10001 {
+		return nil, errors.New("主题设备查询数量须在 1 至 10001 之间")
+	}
+	rows, err := r.pool.Query(ctx, `SELECT d.body,s.body FROM device_registry d LEFT JOIN device_state s ON s.tenant_id=d.tenant_id AND s.device_id=d.id WHERE d.tenant_id=$1 AND ($2::text[] IS NULL OR d.id=ANY($2::text[])) ORDER BY d.id LIMIT $3`, tenant, deviceIDs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]model.MessageTopicDeviceRecord, 0)
+	for rows.Next() {
+		var deviceBody, stateBody []byte
+		if err := rows.Scan(&deviceBody, &stateBody); err != nil {
+			return nil, err
+		}
+		var record model.MessageTopicDeviceRecord
+		if err := json.Unmarshal(deviceBody, &record.Device); err != nil {
+			return nil, err
+		}
+		if len(stateBody) > 0 {
+			record.State = &model.DeviceState{}
+			if err := json.Unmarshal(stateBody, record.State); err != nil {
+				return nil, err
+			}
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
 func (r *Repository) ListMessageTopicTenants(ctx context.Context) ([]string, error) {
 	rows, err := r.pool.Query(ctx, `SELECT tenant_id FROM message_topic_configs ORDER BY tenant_id`)
 	if err != nil {

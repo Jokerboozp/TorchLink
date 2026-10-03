@@ -1,5 +1,10 @@
 package model
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // MessageTopicConfig stores tenant-owned overrides of the platform topic catalog.
 // Revision is the optimistic concurrency token for the complete configuration.
 type MessageTopicConfig struct {
@@ -39,6 +44,34 @@ type MessageTopicRoute struct {
 	Enabled     bool                   `json:"enabled"`
 	Description string                 `json:"description"`
 	Exposure    []MessageTopicExposure `json:"exposure"`
+	Query       *MessageTopicQuery     `json:"query,omitempty"`
+}
+
+// MessageTopicQuery selects one business dataset and produces one stable JSON
+// record per matching event or scheduled row. It never contains database SQL.
+type MessageTopicQuery struct {
+	Dataset         string              `json:"dataset"`
+	Fields          map[string]string   `json:"fields"`
+	Filter          *MessageTopicFilter `json:"filter,omitempty"`
+	DeviceScope     string              `json:"deviceScope"`
+	DeviceIDs       []string            `json:"deviceIds"`
+	Mode            string              `json:"mode"`
+	IntervalSeconds int                 `json:"intervalSeconds"`
+}
+
+type MessageTopicFilter struct {
+	Logic    string               `json:"logic,omitempty"`
+	Children []MessageTopicFilter `json:"children,omitempty"`
+	Field    string               `json:"field,omitempty"`
+	Operator string               `json:"operator,omitempty"`
+	Value    any                  `json:"value,omitempty"`
+}
+
+func (f *MessageTopicFilter) UnmarshalJSON(data []byte) error {
+	type plain MessageTopicFilter
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode((*plain)(f))
 }
 
 // Exposure records every platform data scope ever published to a shared topic.

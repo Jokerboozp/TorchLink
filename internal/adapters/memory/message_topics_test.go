@@ -9,3 +9,7 @@ import (
 func TestMessageTopics(t *testing.T) {
 	repositorytest.MessageTopics(t, NewRepository())
 }
+
+func TestMessageTopicDevices(t *testing.T) {
+	repositorytest.MessageTopicDevices(t, NewRepository())
+}

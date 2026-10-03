@@ -111,7 +111,7 @@ PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 sc
 
 ### 消息主题回归
 
-仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic|TestSharedTopic'`，验证独立主题创建/手动发送、自动规则与历史数据边界、账号发布/订阅权限、设备交集、临时凭据、授权撤销重试、租户配置、并发版本、存储错误和接口权限；解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
+仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic|TestSharedTopic'`，验证主题与查询、订阅账号的原子保存、SQL 与表单往返、字段投影、类型及条件比较、真实数据预览、定时快照完整性、设备范围、历史授权、临时凭据、撤销重试及并发冲突；保留旧发送规则和手动发布的兼容回归。解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证，包括成功解析后按查询条件向 MQTT / Kafka 发布，以及不匹配或解析失败不发送。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
 
 真实 Broker 测试为 `go test -race ./internal/messagetopics -run TestMessageTopicsExisting -v`，仅在明确配置以下私有进程环境时执行：
 

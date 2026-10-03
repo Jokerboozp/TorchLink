@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"github.com/google/uuid"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/httpapi"
+	"iot-platform/internal/messagetopics"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
@@ -547,6 +549,18 @@ func Run(forcedRole string) {
 	if cfg.Runs(config.ComponentJobs) {
 		engine.RunSingleton(ctx, "credential-revocation", 30*time.Second, api.RetryCredentialRevocationsOnce)
 		engine.RunSingleton(ctx, "message-topic-revocation", 30*time.Second, api.RetryMessageTopicRevocationsOnce)
+		queryScheduler := messagetopics.NewQueryScheduler(engine.MessageTopics)
+		engine.RunSingleton(ctx, "message-topic-queries", 5*time.Second, func(runCtx context.Context) error {
+			return queryScheduler.RunOnce(runCtx, func(sendCtx context.Context, protocol, topic string, payload []byte) error {
+				if protocol == "mqtt" && cfg.MQTTBroker != "" && engine.Realtime != nil {
+					return engine.Realtime.Publish(sendCtx, topic, payload, 1, false)
+				}
+				if protocol == "kafka" && len(cfg.KafkaBrokers) > 0 && engine.Bus != nil {
+					return engine.Bus.Publish(sendCtx, topic, topic, payload)
+				}
+				return fmt.Errorf("%s 消息通道未启用", protocol)
+			})
+		})
 		go api.RunOnboardingTasks(ctx)
 		api.RunExternalData(ctx)
 	}

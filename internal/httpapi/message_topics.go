@@ -15,6 +15,7 @@ import (
 func (s *Server) messageTopicRoutes() {
 	s.router.GET("/api/v1/message-topics", s.authorize("viewer"), s.endpoint(s.listMessageTopics))
 	s.router.POST("/api/v1/message-topics", s.authorize("admin"), s.endpoint(s.createMessageTopic))
+	s.router.POST("/api/v1/message-topics/query/preview", s.authorize("admin"), s.endpoint(s.previewMessageTopicQuery))
 	s.router.PUT("/api/v1/message-topics/:id", s.authorize("admin"), s.endpoint(s.updateMessageTopic, "id"))
 	s.router.DELETE("/api/v1/message-topics/:id", s.authorize("admin"), s.endpoint(s.deleteMessageTopic, "id"))
 	s.router.POST("/api/v1/message-topics/:id/reset", s.authorize("admin"), s.endpoint(s.resetMessageTopic, "id"))
@@ -44,6 +45,9 @@ type messageTopicView struct {
 	SourceID         string                       `json:"sourceId"`
 	Shared           bool                         `json:"shared"`
 	Exposure         []model.MessageTopicExposure `json:"exposure,omitempty"`
+	Query            *model.MessageTopicQuery     `json:"query,omitempty"`
+	QuerySQL         string                       `json:"querySql,omitempty"`
+	AccountIDs       []string                     `json:"accountIds"`
 }
 
 func (s *Server) messageTopicResponse(w http.ResponseWriter, r *http.Request, cfg model.MessageTopicConfig, extra map[string]any) {
@@ -88,7 +92,23 @@ func (s *Server) messageTopicResponse(w http.ResponseWriter, r *http.Request, cf
 		if route.Protocol != "" {
 			entry.Reason = "共享主题，可直接发布文本或 JSON；平台数据通过自动发送规则配置。"
 		}
-		items = append(items, messageTopicView{messageTopicDefinition: entry, Topic: route.Topic, Enabled: route.Enabled, Description: route.Description, EffectiveEnabled: effective(source, route.Enabled), Custom: true, SourceID: route.SourceID, Shared: route.Protocol != "", Exposure: route.Exposure})
+		querySQL := ""
+		queryEnabled := effective(source, route.Enabled)
+		if route.Query != nil {
+			querySQL = messagetopics.QuerySQL(*route.Query)
+			entry.Reason = "按查询条件发送数据，对接账号只读订阅。"
+			if route.Query.Mode == "realtime" {
+				source.ID = messagetopics.QuerySourceID(route.Protocol, route.Query.Dataset)
+				queryEnabled = effective(source, route.Enabled)
+			}
+		}
+		accountIDs := []string{}
+		for _, account := range cfg.Accounts {
+			if slices.Contains(account.TopicIDs, route.ID) {
+				accountIDs = append(accountIDs, account.ID)
+			}
+		}
+		items = append(items, messageTopicView{messageTopicDefinition: entry, Topic: route.Topic, Enabled: route.Enabled, Description: route.Description, EffectiveEnabled: queryEnabled, Custom: true, SourceID: route.SourceID, Shared: route.Protocol != "", Exposure: route.Exposure, Query: route.Query, QuerySQL: querySQL, AccountIDs: accountIDs})
 	}
 	accounts := []map[string]any{}
 	for _, a := range cfg.Accounts {
@@ -125,7 +145,7 @@ func (s *Server) messageTopicResponse(w http.ResponseWriter, r *http.Request, cf
 	if rules == nil {
 		rules = []model.MessageTopicRule{}
 	}
-	result := map[string]any{"revision": cfg.Revision, "items": items, "sources": sources, "rules": rules, "accounts": accounts, "users": users, "authorization": readiness,
+	result := map[string]any{"revision": cfg.Revision, "items": items, "sources": sources, "datasets": messagetopics.QueryDatasets(), "rules": rules, "accounts": accounts, "users": users, "authorization": readiness,
 		"runtime":  map[string]bool{"mqttEnabled": mqttEnabled, "kafkaEnabled": kafkaEnabled, "kafkaParsedEnabled": s.engine.PublishExternalTopics},
 		"prefixes": map[string]string{"mqtt": messagetopics.MQTTPrefix(tenant), "kafka": messagetopics.KafkaPrefix(tenant)}}
 	for key, value := range extra {
@@ -188,6 +208,9 @@ type messageTopicInput struct {
 	Protocol    string `json:"protocol"`
 	Topic       string `json:"topic"`
 	Description string `json:"description"`
+	messageTopicQueryInput
+	AccountIDs         *[]string `json:"accountIds"`
+	ReplaceLegacyRules bool      `json:"replaceLegacyRules"`
 }
 
 func topicRevision(w http.ResponseWriter, revision *int64, cfg model.MessageTopicConfig) bool {
@@ -230,6 +253,9 @@ func (s *Server) createMessageTopic(w http.ResponseWriter, r *http.Request) {
 		route.Topic = messagetopics.SharedDestination(claims(r).TenantID, route)
 	}
 	cfg.Topics = append(cfg.Topics, route)
+	if !s.configureMessageTopicQuery(w, r, &cfg, route.ID, in) {
+		return
+	}
 	if err := messagetopics.Validate(claims(r).TenantID, cfg); err != nil {
 		problem(w, 422, err.Error())
 		return
@@ -270,9 +296,16 @@ func (s *Server) updateMessageTopic(w http.ResponseWriter, r *http.Request) {
 				}
 				cfg.Topics[i] = model.MessageTopicRoute{ID: id, Name: strings.TrimSpace(in.Name), SourceID: in.SourceID, Topic: strings.TrimSpace(in.Topic), Enabled: *in.Enabled, Description: strings.TrimSpace(in.Description)}
 			}
+			if !s.configureMessageTopicQuery(w, r, &cfg, id, in) {
+				return
+			}
 			s.saveMessageTopics(w, r, cfg, "message-topic.update", nil)
 			return
 		}
+	}
+	if in.Query != nil || in.QuerySQL != nil || in.QueryOptions != nil || in.AccountIDs != nil {
+		problem(w, 422, "平台内置主题不能配置数据查询，请新建对外主题")
+		return
 	}
 	if cfg.Overrides == nil {
 		cfg.Overrides = map[string]model.MessageTopicOverride{}

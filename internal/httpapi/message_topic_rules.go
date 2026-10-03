@@ -40,6 +40,10 @@ func sharedMessageTopic(w http.ResponseWriter, r *http.Request, cfg model.Messag
 	}
 	for _, topic := range cfg.Topics {
 		if topic.ID == r.PathValue("id") && topic.Protocol != "" {
+			if topic.Query != nil {
+				problem(w, 422, "查询主题统一按数据查询发送，不支持独立规则或手动发布")
+				return model.MessageTopicRoute{}, false
+			}
 			return topic, true
 		}
 	}

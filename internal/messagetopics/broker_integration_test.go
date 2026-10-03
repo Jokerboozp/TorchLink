@@ -116,6 +116,20 @@ func TestMessageTopicsExistingMQTTBroker(t *testing.T) {
 	if guard.calls.Load() != 2 {
 		t.Fatal("unexpected number of real MQTT publications")
 	}
+	queryService := newBrokerQueryService(t, ctx, tenant, "mqtt", topic)
+	queryPublisher := queryService.WrapRealtime(guard)
+	queryMessage := []byte(fmt.Sprintf(`{"tenantId":%q,"deviceId":"device-one","properties":{"temperature":27},"raw":{"hidden":true}}`, tenant))
+	if err := queryPublisher.Publish(ctx, source, queryMessage, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	receive([]byte(`{"deviceId":"device-one","temperature":27}`))
+	nonmatching := bytes.Replace(queryMessage, []byte(`"temperature":27`), []byte(`"temperature":20`), 1)
+	if err := queryPublisher.Publish(ctx, source, nonmatching, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	if guard.calls.Load() != 3 {
+		t.Fatal("nonmatching query reached MQTT publisher")
+	}
 }
 
 func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
@@ -229,6 +243,47 @@ func TestMessageTopicsExistingKafkaBroker(t *testing.T) {
 	if offset, err := leader.ReadLastOffset(); err != nil || offset != 2 {
 		t.Fatalf("unexpected Kafka log size: offset=%d error=%v", offset, err)
 	}
+	queryService := newBrokerQueryService(t, ctx, tenant, "kafka", topic)
+	queryPublisher := queryService.WrapBus(&exactTopicBus{EventBus: bus, topic: topic})
+	queryMessage := []byte(fmt.Sprintf(`{"tenantId":%q,"deviceId":"device-one","properties":{"temperature":27},"raw":{"hidden":true}}`, tenant))
+	if err := queryPublisher.Publish(ctx, model.TopicPropertyReport, "device-one", queryMessage); err != nil {
+		t.Fatal(err)
+	}
+	message, err := reader.ReadMessage(ctx)
+	if err != nil || message.Offset != 2 || message.Topic != topic || string(message.Value) != `{"deviceId":"device-one","temperature":27}` {
+		t.Fatalf("query did not reach Kafka with its projection: %+v %v", message, err)
+	}
+	nonmatching := bytes.Replace(queryMessage, []byte(`"temperature":27`), []byte(`"temperature":20`), 1)
+	if err := queryPublisher.Publish(ctx, model.TopicPropertyReport, "device-one", nonmatching); err != nil {
+		t.Fatal(err)
+	}
+	if offset, err := leader.ReadLastOffset(); err != nil || offset != 3 {
+		t.Fatalf("nonmatching query changed Kafka log: offset=%d error=%v", offset, err)
+	}
+}
+
+func newBrokerQueryService(t *testing.T, ctx context.Context, tenant, protocol, topic string) *messagetopics.Service {
+	t.Helper()
+	query, err := messagetopics.CompileQuerySQL("SELECT deviceId, properties.temperature AS temperature FROM device_reports WHERE properties.temperature >= 26")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query.DeviceScope, query.DeviceIDs = "selected", []string{"device-one"}
+	config := model.MessageTopicConfig{Overrides: map[string]model.MessageTopicOverride{}, Topics: []model.MessageTopicRoute{{ID: "query", Name: "查询测试", Protocol: protocol, Topic: topic, Enabled: true, Query: &query}}}
+	for _, source := range []string{"parsed", "property-report", "event-report"} {
+		if protocol == "mqtt" && source != "parsed" {
+			continue
+		}
+		config.Overrides[protocol+"."+source] = model.MessageTopicOverride{Enabled: false}
+	}
+	if err := messagetopics.AccumulateQueryExposure(&config, "query", query); err != nil {
+		t.Fatal(err)
+	}
+	service := messagetopics.New(memory.NewRepository())
+	if ok, err := service.Save(ctx, tenant, config); !ok || err != nil {
+		t.Fatalf("save isolated query: accepted=%t err=%v", ok, err)
+	}
+	return service
 }
 
 func brokerTestID(t *testing.T) string {

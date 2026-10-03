@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -13,6 +14,10 @@ import (
 
 func TestMessageTopics(t *testing.T) {
 	repositorytest.MessageTopics(t, testRepository(t))
+}
+
+func TestMessageTopicDevices(t *testing.T) {
+	repositorytest.MessageTopicDevices(t, testRepository(t))
 }
 
 func TestMessageTopicsReopen(t *testing.T) {
@@ -30,6 +35,7 @@ func TestMessageTopicsReopen(t *testing.T) {
 		Credentials:    []model.MessageTopicCredential{{ID: "credential", AccountID: "account", Protocol: "mqtt", Username: "broker-user", Topics: []string{"/exact/topic"}, PublishTopics: []string{"/write/topic"}, Provisioning: true, Status: "revoking", ExpiresAt: 9999}},
 		Deleted:        []string{"kafka.property-report"},
 	}
+	config.Topics = append(config.Topics, model.MessageTopicRoute{ID: "query", Name: "查询主题", Protocol: "mqtt", Topic: "query", Enabled: true, Query: &model.MessageTopicQuery{Dataset: "device_reports", Mode: "realtime", DeviceScope: "all", Fields: map[string]string{"value": "properties.value"}, Filter: &model.MessageTopicFilter{Field: "properties.value", Operator: "gte", Value: json.Number("9007199254740993")}}})
 	if ok, err := repo.SaveMessageTopicConfig(ctx, "persistent", config); err != nil || !ok {
 		t.Fatalf("save configuration: %t, %v", ok, err)
 	}

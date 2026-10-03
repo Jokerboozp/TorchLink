@@ -125,6 +125,11 @@ func (s *Server) validateMessageTopicAccount(ctx context.Context, tenant string,
 		}
 	}
 	for _, id := range a.PublishTopicIDs {
+		for _, topic := range cfg.Topics {
+			if topic.ID == id && topic.Query != nil {
+				return errors.New("查询主题仅支持订阅，不能授予外部发布权限")
+			}
+		}
 		if !messagetopics.RoutePublishAllowed(cfg, id, identity, a) {
 			return errors.New("发布授权仅支持绑定用户有消息主题权限的已启用共享主题")
 		}
