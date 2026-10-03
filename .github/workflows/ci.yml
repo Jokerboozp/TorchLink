@@ -1,0 +1,107 @@
+name: 持续集成
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      # Same PostgreSQL major and pgvector version as deploy/postgres.
+      postgres:
+        image: pgvector/pgvector:0.8.1-pg17
+        env:
+          POSTGRES_USER: iot
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: iot
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U iot -d iot" --health-interval 5s --health-timeout 5s --health-retries 20
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.7-alpine
+        env:
+          CLICKHOUSE_USER: iot
+          CLICKHOUSE_PASSWORD: ci-clickhouse-password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports: ["8123:8123"]
+        options: >-
+          --health-cmd "wget -q -O - http://127.0.0.1:8123/ping" --health-interval 5s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      IOT_TEST_POSTGRES_DSN: postgres://iot:ci-postgres-password@127.0.0.1:5432/iot?sslmode=disable
+      IOT_TEST_CLICKHOUSE_URL: http://iot:ci-clickhouse-password@127.0.0.1:8123/
+      IOT_TEST_REDIS_ADDR: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: 格式检查
+        run: |
+          unformatted="$(gofmt -l cmd internal deploy/toolaccounts)"
+          if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+      - name: go vet
+        run: go vet ./cmd/... ./internal/... ./deploy/toolaccounts
+      - name: 后端测试（真实 PostgreSQL / ClickHouse / Redis）
+        run: go test -count=1 ./cmd/... ./internal/... ./deploy/toolaccounts
+      - name: 独立协议 module 测试
+        working-directory: protocol-packages/gb26875-dahua
+        run: go test ./...
+      - name: 依赖漏洞检查
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: iot_front
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: iot_front/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: 依赖漏洞检查（提示，不阻断；npm 审计服务偶尔不可用）
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+  deployment-scripts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: 部署脚本冒烟（模拟 Docker，真实 Compose 解析）
+        run: |
+          printf '#!/bin/sh\nexec docker compose "$@"\n' > "$RUNNER_TEMP/docker-compose"
+          chmod +x "$RUNNER_TEMP/docker-compose"
+          bash scripts/tests/deployment-smoke.sh "$RUNNER_TEMP/docker-compose"
+      - name: 告警规则校验
+        run: docker run --rm --entrypoint promtool -v "$PWD/ops/prometheus:/r:ro" prom/prometheus:v3.5.0 check rules /r/alerts.yml
