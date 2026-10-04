@@ -3,12 +3,12 @@
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, formatTime, notifyError, pretty } from '../api'
+import { api, download, formatTime, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
 import { alarmNavigation, alarmQuery } from '../alarmNavigation'
-import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, label, tagType } from '../labels'
-import { RefreshCw } from '@lucide/vue'
+import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, dispositionResults, label, requiresVerification, tagType } from '../labels'
+import { Download, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
@@ -16,6 +16,7 @@ import StatusDot from '../components/layout/StatusDot.vue'
 import LinkedCameras from '../components/LinkedCameras.vue'
 import AlarmNotifications from '../components/AlarmNotifications.vue'
 import AlarmMediaPanel from '../components/AlarmMediaPanel.vue'
+import AlarmDisposition from '../components/AlarmDisposition.vue'
 
 const filters = reactive({ status:'', level:'', deviceId:'' })
 const items = ref([])
@@ -47,11 +48,41 @@ async function load(resetPage = false) {
     if (version !== loadVersion) return
     items.value = d.items || []
     total.value = Number(d.total ?? d.count ?? items.value.length)
+    void loadStatistics(version)
   } catch (e) {
     if (version === loadVersion) notifyError(e)
   } finally {
     if (version === loadVersion) loading.value = false
   }
+}
+
+// 近 30 天核实统计，与列表使用同一组筛选条件。
+const statistics = ref(null)
+const exporting = ref(false)
+function reportQuery() {
+  const q = new URLSearchParams()
+  for (const key of ['status', 'level', 'deviceId']) if (filters[key]) q.set(key, filters[key])
+  return q.toString()
+}
+async function loadStatistics(version) {
+  try {
+    const s = await api('/api/v1/alarms/statistics/disposition?' + reportQuery())
+    if (version === loadVersion) statistics.value = s
+  } catch { if (version === loadVersion) statistics.value = null }
+}
+const formatDuration = ms => {
+  const minutes = Math.round(Number(ms || 0) / 60000)
+  if (!ms) return '—'
+  if (minutes < 1) return '不足 1 分钟'
+  return minutes < 60 ? `${minutes} 分钟` : `${(minutes / 60).toFixed(1)} 小时`
+}
+async function exportAlarms() {
+  exporting.value = true
+  try { await download('/api/v1/alarms/export?' + reportQuery(), `告警导出-${new Date().toISOString().slice(0, 10)}.csv`) } catch (e) { notifyError(e) } finally { exporting.value = false }
+}
+function dispositionUpdated(updated) {
+  if (updated && detail.value?.alarmId === updated.alarmId) detail.value = { ...detail.value, ...updated }
+  void load()
 }
 
 function changePage(value) { page.value = value; load() }
@@ -182,10 +213,15 @@ async function runAnalysis() {
 
 async function action(id, value) {
   if (actionPending[id]) return
+  const row = items.value.find(item => item.alarmId === id)
+  if (value === 'CLOSED' && row && !row.disposition && requiresVerification(row)) {
+    UiMessage.warning('火警及紧急告警须先填写核实结论再关闭')
+    await show(id)
+    return
+  }
   actionPending[id] = value
   try {
     const updated = await api(`/api/v1/alarms/${encodeURIComponent(id)}/actions`, { method:'POST', body:JSON.stringify({ action:value }) })
-    const row = items.value.find(item => item.alarmId === id)
     if (row && updated?.status) row.status = updated.status
     UiMessage.success('操作成功')
     await load()
@@ -236,8 +272,15 @@ function rowActions(row) {
     <ui-select v-model="filters.status" clearable placeholder="全部状态" aria-label="告警状态" @change="load(true)"><ui-option v-for="(text,key) in alarmStatuses" :key="key" :label="text" :value="key" /></ui-select>
     <ui-select v-model="filters.level" clearable placeholder="全部等级" aria-label="告警等级" @change="load(true)"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select>
     <ui-button v-if="filtered" text @click="resetFilters">重置筛选</ui-button>
-    <template #actions><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
+    <template #actions><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
   </FilterBar>
+  <div v-if="statistics" class="alarm-stats" aria-label="近 30 天核实统计">
+    <div><span>近 30 天告警</span><strong>{{ statistics.total }}<small v-if="statistics.truncated">+</small></strong></div>
+    <div><span>待核实火警</span><strong :class="{ danger: statistics.unverified > 0 }">{{ statistics.unverified }}</strong></div>
+    <div><span>误报率</span><strong>{{ statistics.verified ? (statistics.falseAlarmRate * 100).toFixed(1) + '%' : '—' }}</strong><small>已核实 {{ statistics.verified }} 条</small></div>
+    <div><span>平均确认用时</span><strong>{{ formatDuration(statistics.acknowledge?.avgMs) }}</strong><small v-if="statistics.acknowledge?.count">90% 在 {{ formatDuration(statistics.acknowledge.p90Ms) }} 内</small></div>
+    <div><span>平均核实用时</span><strong>{{ formatDuration(statistics.verify?.avgMs) }}</strong><small v-if="statistics.topFalseAlarmDevices?.length">误报最多：{{ statistics.topFalseAlarmDevices[0].deviceName || statistics.topFalseAlarmDevices[0].deviceId }}</small></div>
+  </div>
 
   <DataTableCard :title="`告警 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
     <ui-table v-loading="loading" :data="items" :empty-text="filtered ? '没有符合筛选条件的告警' : '暂无告警'">
@@ -246,6 +289,7 @@ function rowActions(row) {
       <ui-table-column label="告警类型" min-width="150"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column>
       <ui-table-column label="等级" width="90"><template #default="{row}"><ui-tag :type="tagType(row.alarmLevel)" round>{{label(alarmLevels,row.alarmLevel,'未设置')}}</ui-tag></template></ui-table-column>
       <ui-table-column label="状态" width="100"><template #default="{row}"><StatusDot :tone="statusTone(row.status)" :label="label(alarmStatuses,row.status)" /></template></ui-table-column>
+      <ui-table-column label="核实结论" width="110"><template #default="{row}"><span v-if="row.disposition">{{label(dispositionResults,row.disposition.result)}}</span><span v-else-if="requiresVerification(row)" class="pending-verify">待核实</span><span v-else class="subline">—</span></template></ui-table-column>
       <ui-table-column label="操作" fixed="right" width="200" align="right"><template #default="{row}"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
     </ui-table>
   </DataTableCard>
@@ -259,6 +303,7 @@ function rowActions(row) {
       <template #header><strong>关联摄像头</strong></template>
       <LinkedCameras :cameras="detail.cameras || []" />
     </ui-card>
+    <AlarmDisposition v-if="detailVisible && detail" :alarm="detail" @updated="dispositionUpdated" />
     <AlarmMediaPanel v-if="detailVisible && detail" :alarm="detail" @refresh="refreshMediaDetail" />
     <AlarmNotifications v-if="detailVisible && detail" :alarm-id="detail.alarmId" />
     <ui-card shadow="never" class="top-gap">
@@ -278,6 +323,11 @@ function rowActions(row) {
 </template>
 
 <style scoped>
+.alarm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
+.alarm-stats > div { display: grid; gap: 2px; padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.alarm-stats span, .alarm-stats small { color: var(--text-muted); font-size: 12px; }
+.alarm-stats strong { font-size: 20px; color: var(--text-strong); }
+.alarm-stats strong.danger, .pending-verify { color: var(--danger); }
 .analysis-grid { display: grid; gap: 9px; line-height: 1.65; }
 .analysis-grid :deep(ul) { margin: 5px 0 0; padding-left: 20px; color: var(--text-muted); }
 .analysis-progress { margin: 12px 0; padding: 12px; background: var(--surface-muted); border: 1px solid var(--info-border); border-radius: 5px; }

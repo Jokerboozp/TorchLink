@@ -40,3 +40,7 @@ export const businessStatusTones = { ONLINE:'success', ALARM:'danger', SUSPECTED
 export const enabledStatusTones = { ENABLED:'success', PUBLISHED:'success', DISABLED:'neutral', DRAFT:'info' }
 export const runtimeStatusTones = { LISTENING:'success', CONNECTED:'success', ONLINE:'success', PENDING:'info', CONNECTING:'info', ERROR:'danger', UNSUPPORTED:'danger', DISABLED:'neutral', STOPPED:'neutral' }
 export const tone = (map, value) => map[String(value ?? '').trim().toUpperCase()] || 'neutral'
+export const dispositionResults = { REAL_FIRE:'真实火警', FALSE_ALARM:'误报', TEST:'测试', MAINTENANCE:'检修', FAULT:'设备故障' }
+// 与服务端 Alarm.RequiresVerification 一致：紧急告警和火灾类告警关闭前须填写核实结论。
+const fireTypes = new Set(['FIRE', 'FIRE_RISK', 'SMOKE_DETECTED', 'FLAME_DETECTED', 'ELECTRICAL_FIRE', 'MANUAL_ALARM', 'GAS_LEAK'])
+export const requiresVerification = alarm => String(alarm?.alarmLevel || '').toUpperCase() === 'CRITICAL' || fireTypes.has(String(alarm?.alarmType || '').toUpperCase())

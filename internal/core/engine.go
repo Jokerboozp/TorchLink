@@ -1227,6 +1227,9 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 			a.Status = status
 			a.RecoveredAt = now
 		case "CLOSED":
+			if a.RequiresVerification() && a.Disposition == nil {
+				return false, model.ErrDispositionRequired
+			}
 			a.Status = status
 			a.ClosedAt = now
 		case "SUPPRESSED":
@@ -1253,6 +1256,33 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 	_ = e.Realtime.Publish(ctx, a.MQTTTopic("confirmed"), payload, 1, false)
 	return a, nil
 }
+
+// VerifyAlarm records the on-site verification of an alarm. It can be
+// corrected until the alarm is closed.
+func (e *Engine) VerifyAlarm(ctx context.Context, tenant, alarmID string, d model.AlarmDisposition, actor string) (model.Alarm, error) {
+	if !model.ValidDispositionResult(d.Result) {
+		return model.Alarm{}, fmt.Errorf("unknown verification result %q", d.Result)
+	}
+	now := e.Clock.Now().UnixMilli()
+	d.Handler, d.VerifiedAt = actor, now
+	a, _, err := e.mutateAlarm(ctx, tenant, alarmID, func(a *model.Alarm) (bool, error) {
+		if a.Status == "CLOSED" {
+			return false, fmt.Errorf("closed alarms cannot be verified again")
+		}
+		if d.ArrivedAt != 0 && (d.ArrivedAt < a.FirstTriggeredAt || d.ArrivedAt > now) {
+			return false, fmt.Errorf("arrival time must be between the alarm and now")
+		}
+		disposition := d
+		a.Disposition = &disposition
+		return true, nil
+	})
+	if err != nil {
+		return a, err
+	}
+	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm.verify", TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"result": d.Result, "dispatchId": d.DispatchID}, CreatedAt: now})
+	return a, nil
+}
+
 func tag(m model.StandardMessage, k, fallback string) string {
 	if v := m.Tags[k]; v != "" {
 		return v

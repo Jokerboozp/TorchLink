@@ -1336,6 +1336,10 @@ func cloneVideoEvent(v model.VideoAlarmEvent) model.VideoAlarmEvent {
 
 func cloneAlarm(v model.Alarm) model.Alarm {
 	v.Details = cloneAnyMap(v.Details)
+	if v.Disposition != nil {
+		d := *v.Disposition
+		v.Disposition = &d
+	}
 	return v
 }
 

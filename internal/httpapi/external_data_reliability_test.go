@@ -397,6 +397,9 @@ func TestExternalDataComponentEventsKeepIndependentLifecycle(t *testing.T) {
 	if alarm.Status != "ACTIVE" {
 		t.Fatal("recovery affected a different component event")
 	}
+	if _, err = api.engine.VerifyAlarm(ctx, externalTestTenant, two.AlarmID, model.AlarmDisposition{Result: model.DispositionTest}, "root"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = api.engine.SetAlarmStatus(ctx, externalTestTenant, two.AlarmID, "CLOSED", "root"); err != nil {
 		t.Fatal(err)
 	}

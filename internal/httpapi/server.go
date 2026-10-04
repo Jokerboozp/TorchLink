@@ -230,6 +230,7 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/rules", s.authorize("operator"), s.endpoint(s.saveRule))
 	s.router.PUT("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.saveRule, "id"))
 	s.router.DELETE("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.deleteRule, "id"))
+	s.alarmDispositionRoutes()
 	s.router.GET("/api/v1/alarms", s.authorize("viewer"), s.endpoint(s.alarms))
 	s.router.GET("/api/v1/alarms/:id", s.authorize("viewer"), s.endpoint(s.alarm, "id"))
 	s.router.POST("/api/v1/alarms/:id/actions", s.authorize("operator"), s.endpoint(s.alarmAction, "id"))

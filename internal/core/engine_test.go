@@ -354,8 +354,17 @@ func TestAlarmCannotBeAcknowledgedTwice(t *testing.T) {
 	if persisted.Status != "ACKED" || persisted.AckedAt != first.AckedAt {
 		t.Fatalf("second acknowledgement changed the alarm: %#v", persisted)
 	}
+	if _, err = e.SetAlarmStatus(ctx, "t1", alarm.ID, "CLOSED", "operator"); !errors.Is(err, model.ErrDispositionRequired) {
+		t.Fatalf("closing an unverified fire alarm: %v", err)
+	}
+	if _, err = e.VerifyAlarm(ctx, "t1", alarm.ID, model.AlarmDisposition{Result: model.DispositionFalseAlarm, Notes: "探头积尘"}, "operator"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = e.SetAlarmStatus(ctx, "t1", alarm.ID, "CLOSED", "operator"); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = e.VerifyAlarm(ctx, "t1", alarm.ID, model.AlarmDisposition{Result: model.DispositionRealFire}, "operator"); err == nil {
+		t.Fatal("a closed alarm was verified again")
 	}
 	state, err = repo.GetDeviceState(ctx, "t1", "device_1")
 	if err != nil || state.BusinessStatus != "ONLINE" {

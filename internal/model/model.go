@@ -653,7 +653,48 @@ type Alarm struct {
 	MultiSource       bool            `json:"multiSource"`
 	Cameras           []CameraSummary `json:"cameras,omitempty"`
 	Details           map[string]any  `json:"details,omitempty"`
+	// Disposition records what the on-site verification found.
+	Disposition *AlarmDisposition `json:"disposition,omitempty"`
 }
+
+// Verification results of an alarm.
+const (
+	DispositionRealFire    = "REAL_FIRE"
+	DispositionFalseAlarm  = "FALSE_ALARM"
+	DispositionTest        = "TEST"
+	DispositionMaintenance = "MAINTENANCE"
+	DispositionFault       = "FAULT"
+)
+
+// AlarmDisposition is the outcome of verifying an alarm on site.
+type AlarmDisposition struct {
+	Result     string `json:"result"`
+	Notes      string `json:"notes,omitempty"`
+	Handler    string `json:"handler"`
+	ArrivedAt  int64  `json:"arrivedAt,omitempty"`
+	DispatchID string `json:"dispatchId,omitempty"`
+	VerifiedAt int64  `json:"verifiedAt"`
+}
+
+// ValidDispositionResult reports a known verification result.
+func ValidDispositionResult(v string) bool {
+	switch v {
+	case DispositionRealFire, DispositionFalseAlarm, DispositionTest, DispositionMaintenance, DispositionFault:
+		return true
+	}
+	return false
+}
+
+var fireAlarmTypes = map[string]bool{"FIRE": true, "FIRE_RISK": true, "SMOKE_DETECTED": true, "FLAME_DETECTED": true, "ELECTRICAL_FIRE": true, "MANUAL_ALARM": true, "GAS_LEAK": true}
+
+// RequiresVerification reports alarms that must carry a verification result
+// before they are closed: critical alarms and fire-type alarms.
+func (a Alarm) RequiresVerification() bool {
+	return strings.EqualFold(a.AlarmLevel, "CRITICAL") || fireAlarmTypes[strings.ToUpper(a.AlarmType)]
+}
+
+// ErrDispositionRequired refuses closing a fire alarm without verification.
+var ErrDispositionRequired = errors.New("火警及紧急告警须先填写核实结论再关闭")
 
 func (a Alarm) MQTTTopic(eventType string) string {
 	clean := func(v string) string {

@@ -835,6 +835,11 @@ func TestDeviceNotificationAlarmLifecycle(t *testing.T) {
 				}
 				send(3)
 				flush(1)
+				if status == "CLOSED" {
+					if _, err := engine.VerifyAlarm(ctx, "t", originalID, model.AlarmDisposition{Result: model.DispositionTest}, "test"); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if _, err := engine.SetAlarmStatus(ctx, "t", originalID, status, "test"); err != nil {
 					t.Fatal(err)
 				}
