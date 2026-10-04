@@ -575,9 +575,11 @@ echo 'PASS offline: complete bundle, no network, repeatability and corrupt/missi
 # Camera live module: packaged and deployed by default; an explicit opt-out is kept.
 grep -qx 'video' "$bundle/profiles.txt"
 grep -q '^IOT_VIDEO_MODULE=on$' "$test_root/offline-original"
-grep -q '^IOT_CAPACITY_MODULE=on$' "$test_root/offline-original"
-grep -q '^IOT_OPS_CAPACITY_URL=http://capacity:7080$' "$test_root/offline-original"
-grep -Eq '^COMPOSE_PROFILES=(video,capacity|capacity,video)$' "$test_root/.env.online"
+grep -q '^IOT_CAPACITY_MODULE=off$' "$test_root/offline-original"
+grep -q '^IOT_OPS_CAPACITY_URL=$' "$test_root/offline-original"
+grep -q '^IOT_OPS_MODULE=on$' "$test_root/offline-original"
+grep -q '^IOT_OPS_PROMETHEUS_URL=http://prometheus:9090$' "$test_root/offline-original"
+grep -Eq '^COMPOSE_PROFILES=(video,ops|ops,video)$' "$test_root/.env.online"
 grep -q '^IOT_VIDEO_MEDIA_API_URL=http://zlmediakit:80$' "$test_root/.env.online"
 : > "$TEST_CALLS"
 bash "$scripts/package-offline.sh" --output-dir "$test_root/video-bundles" --skip-docker-runtime
@@ -631,7 +633,7 @@ cp "$test_root/.env.online" "$test_root/.env.online-video"
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video off > /dev/null
 grep -q '^IOT_VIDEO_MEDIA_API_URL=$' "$test_root/.env.online-video"
-grep -q '^COMPOSE_PROFILES=capacity$' "$test_root/.env.online-video"
+grep -q '^COMPOSE_PROFILES=ops$' "$test_root/.env.online-video"
 assert_call '--profile video rm -sf zlmediakit'
 assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
@@ -640,7 +642,7 @@ grep -q '^IOT_VIDEO_MODULE=off$' "$test_root/.env.online-video"
 assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video on > /dev/null
-grep -Eq '^COMPOSE_PROFILES=(video,capacity|capacity,video)$' "$test_root/.env.online-video"
+grep -Eq '^COMPOSE_PROFILES=(video,ops|ops,video)$' "$test_root/.env.online-video"
 assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness zlmediakit'
 assert_no_call ' pull .*zlmediakit'
 "$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
@@ -657,17 +659,27 @@ bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-kafka" > /de
 grep -q '^KAFKA_BIND_ADDRESS=0.0.0.0$' "$test_root/.env.online-kafka"
 echo 'PASS video module: default on, GB28181 ports, offline packaging, opt-out kept and online toggle'
 
-# Capacity-test module: deployed by default from the platform image with a
-# generated token; --capacity off is kept by later deployments; the module
-# script and the offline switch toggle it.
+# Capacity-test module: off by default in production deployments; --capacity
+# on deploys it from the platform image with a generated token and later
+# default deployments keep the choice; the module script and the offline
+# switch toggle it.
 cp "$test_root/.env.online" "$test_root/.env.online-capacity"
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=off$' "$test_root/.env.online-capacity"
+grep -q '^IOT_OPS_CAPACITY_URL=$' "$test_root/.env.online-capacity"
+assert_call '--profile capacity rm -sf capacity'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" --capacity on > /dev/null
 grep -q '^IOT_CAPACITY_MODULE=on$' "$test_root/.env.online-capacity"
 grep -q '^IOT_OPS_CAPACITY_URL=http://capacity:7080$' "$test_root/.env.online-capacity"
 grep -Eq '^IOT_OPS_CAPACITY_TOKEN=.{32,}$' "$test_root/.env.online-capacity"
-grep -Eq '^COMPOSE_PROFILES=(video,capacity|capacity,video)$' "$test_root/.env.online-capacity"
+grep -Eq '^COMPOSE_PROFILES=.*capacity' "$test_root/.env.online-capacity"
 assert_no_call ' pull .*capacity'
+assert_no_call 'rm -sf capacity'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=on$' "$test_root/.env.online-capacity"
 assert_no_call 'rm -sf capacity'
 assert_commented_env "$test_root/.env.online-capacity"
 capacity_token="$(grep '^IOT_OPS_CAPACITY_TOKEN=' "$test_root/.env.online-capacity" | cut -d= -f2-)"
@@ -704,6 +716,10 @@ if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-capacity"
 [ -f "$vbundle/scripts/capacity-module.sh" ] && [ -f "$vbundle/scripts/capacity-module.ps1" ]
 : > "$TEST_CALLS"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
+grep -q '^IOT_CAPACITY_MODULE=off$' "$vbundle/.env.offline"
+assert_call '--profile capacity rm -sf capacity'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" --capacity on > /dev/null
 grep -q '^IOT_CAPACITY_MODULE=on$' "$vbundle/.env.offline"
 grep -Eq '^IOT_OPS_CAPACITY_TOKEN=.{32,}$' "$vbundle/.env.offline"
 assert_call '--profile capacity'
@@ -714,7 +730,38 @@ assert_call '--profile capacity rm -sf capacity'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
 grep -q '^IOT_CAPACITY_MODULE=off$' "$vbundle/.env.offline"
-echo 'PASS capacity module: default on, generated token, opt-out kept, module toggle and offline switch'
+echo 'PASS capacity module: default off, generated token, choice kept, module toggle and offline switch'
+# Monitoring stack (profile ops): deployed by default; --ops off removes it,
+# clears the API's component URLs and is kept; --ops on restores both.
+cp "$test_root/.env.online" "$test_root/.env.online-ops"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ops" --ops off > /dev/null
+grep -q '^IOT_OPS_MODULE=off$' "$test_root/.env.online-ops"
+grep -q '^IOT_OPS_PROMETHEUS_URL=$' "$test_root/.env.online-ops"
+if grep -Eq '^COMPOSE_PROFILES=.*ops' "$test_root/.env.online-ops"; then echo 'ops profile kept after --ops off' >&2; exit 1; fi
+assert_call '--profile ops rm -sf prometheus loki alloy grafana alertmanager node-exporter'
+assert_no_call ' pull .*prometheus'
+"$TEST_COMPOSE" --env-file "$test_root/.env.online-ops" -f "$scripts/../compose.yaml" config > "$test_root/ops-off.yaml"
+if grep -q '^  prometheus:' "$test_root/ops-off.yaml"; then echo 'Prometheus deployed with ops off' >&2; exit 1; fi
+grep -q 'IOT_OPS_PROMETHEUS_URL: ""' "$test_root/ops-off.yaml"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ops" > /dev/null
+grep -q '^IOT_OPS_MODULE=off$' "$test_root/.env.online-ops"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ops" --ops on > /dev/null
+grep -q '^IOT_OPS_MODULE=on$' "$test_root/.env.online-ops"
+grep -q '^IOT_OPS_PROMETHEUS_URL=http://prometheus:9090$' "$test_root/.env.online-ops"
+grep -Eq '^COMPOSE_PROFILES=.*ops' "$test_root/.env.online-ops"
+assert_call ' pull .*prometheus'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
+assert_call '--profile ops'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" --ops off > /dev/null
+grep -q '^IOT_OPS_MODULE=off$' "$vbundle/.env.offline"
+assert_call '--profile ops rm -sf prometheus'
+if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ops" --ops maybe >/dev/null 2>&1; then echo 'Accepted invalid ops switch' >&2; exit 1; fi
+echo 'PASS ops module: default on, opt-out removes services and URLs, choice kept, online and offline switch'
 # External API settings survive re-runs.
 cloud_env="$test_root/.env.online-cloud"
 cp "$test_root/.env.online" "$cloud_env"

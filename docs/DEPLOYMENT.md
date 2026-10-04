@@ -275,16 +275,16 @@ GB28181 需要两类端口对摄像头网络开放：API 的 SIP 端口 `IOT_GB2
 
 ## 容量测试模块
 
-容量测试模块**默认随部署启用**：运维中心出现“容量测试”页，选择测试类型（快速检查、容量搜索、长稳）并填写设备数、速率和时长即可运行，不需要编写清单、秘密文件或计划。不需要时可以关闭，关闭后页面菜单隐藏，平台其余功能不受影响。在线、离线和集群模块与平台使用同一镜像（`capacity-test serve --self`），只在内部网络监听，不对外发布端口；本地源码模式由 combined API 进程启动本机控制器，不创建容量容器。
+容量测试会给平台施加真实负载，单机在线与离线部署的**新环境默认不部署**（本地源码与集群向导仍默认开启）；需要时用 `--capacity on` 部署，之后不带参数的部署沿用上次选择。开启后运维中心出现“容量测试”页，选择测试类型（快速检查、容量搜索、长稳）并填写设备数、速率和时长即可运行，不需要编写清单、秘密文件或计划。不需要时可以关闭，关闭后页面菜单隐藏，平台其余功能不受影响。在线、离线和集群模块与平台使用同一镜像（`capacity-test serve --self`），只在内部网络监听，不对外发布端口；本地源码模式由 combined API 进程启动本机控制器，不创建容量容器。
 
 | 部署方式 | 关闭 | 重新开启 |
 | --- | --- | --- |
-| 单机在线 | `bash scripts/deploy-online.sh --capacity off`，或已部署后 `bash scripts/capacity-module.sh disable` | `--capacity on` 或 `capacity-module.sh enable` |
+| 单机在线 | `bash scripts/deploy-online.sh --capacity off`，或已部署后 `bash scripts/capacity-module.sh disable` | `--capacity on` 或 `capacity-module.sh enable`（新环境默认关闭） |
 | 本地源码 | `bash scripts/setup-local.sh --capacity off` | `--capacity on`；修改后重启源码 API |
-| 单机离线 | `bash scripts/deploy-offline.sh --capacity off`，或 `bash scripts/capacity-module.sh disable --mode offline` | `--capacity on` 或 `capacity-module.sh enable --mode offline` |
+| 单机离线 | `bash scripts/deploy-offline.sh --capacity off`，或 `bash scripts/capacity-module.sh disable --mode offline` | `--capacity on` 或 `capacity-module.sh enable --mode offline`（新环境默认关闭） |
 | 集群 | 向导中回答不部署，或 `bash scripts/cluster-up.sh --name <名称> --capacity off` | `--capacity on` |
 
-PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|disable`。选择写入环境文件 `IOT_CAPACITY_MODULE`（集群写入清单 `capacity: {node: ...}`），显式关闭后不带参数的部署保持关闭；离线包打包时即写入开启配置。容器部署开启时自动生成服务令牌 `IOT_OPS_CAPACITY_TOKEN` 并设置 `IOT_OPS_CAPACITY_URL`，关闭时移除服务并隐藏页面，测试结果卷与令牌保留。本地控制器使用进程内生成的令牌和动态本机端口，沿用原有 API 启动命令；旧 `.env.local` 的补充配置见 [本地容量测试](DEVELOPMENT.md#容量测试模块)。
+PowerShell 使用 `-Capacity on|off` 与 `scripts\capacity-module.ps1 enable|disable`。选择写入环境文件 `IOT_CAPACITY_MODULE`（集群写入清单 `capacity: {node: ...}`），不带参数的部署沿用上次选择；离线包打包时沿用源配置的选择，未设置时写入关闭配置。容器部署开启时自动生成服务令牌 `IOT_OPS_CAPACITY_TOKEN` 并设置 `IOT_OPS_CAPACITY_URL`，关闭时移除服务并隐藏页面，测试结果卷与令牌保留。本地控制器使用进程内生成的令牌和动态本机端口，沿用原有 API 启动命令；旧 `.env.local` 的补充配置见 [本地容量测试](DEVELOPMENT.md#容量测试模块)。
 
 测试以发起人的账号权限运行；操作凭据有效期为计划墙钟预算加 30 分钟，最长 24 小时，受管理账号的权限变更或停用会使凭据失效。页面预设自动准备标准协议测试模板 `cap-standard` 与前缀为 `cap` 的测试设备；启用告警核对时还准备 `cap-stress-alarm` 规则。新测试设备通过 `trial:true` 登记，需要设备登记和模板配置权限，测试不会自动生成模板验收记录。权限、普通登记的验收要求见[预检、保存与诊断](INTEGRATION.md#预检保存与诊断)。测试数据保留以便复测，删除与清理见[测试数据清理](DEVELOPMENT.md#测试数据清理)。测试会给平台施加真实负载，生产环境请在低峰期运行或只用快速检查。
 
@@ -375,6 +375,8 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 改变向量服务地址、模型、维度或查询指令会触发重建，仅更新密钥不改变向量空间。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁，部署时保留原库、对象和环境秘密。
 
 ### 运维组件
+
+单机在线与离线部署的监控组件（Prometheus、Loki、Alloy、Grafana、Alertmanager、node-exporter，Compose profile `ops`）默认部署；`--ops off`（PowerShell `-Ops off`）移除这些服务并清空运维中心的组件地址（页面显示未部署），之后不带参数的部署保持关闭，`--ops on` 恢复。开关写入 `IOT_OPS_MODULE`，离线包始终包含监控镜像。关闭后平台接入、告警和通知不受影响，但不再有指标、日志检索与 Alertmanager 告警（包括死信、消费阻塞、通知失败等平台自身告警），正式环境建议保留或接入已有监控。
 
 `--dependencies-only` 包含运维基础环境，普通本地准备可加 `--include-ops` / `-IncludeOps`。源码与容器共用 `IOT_LOCAL_OPS_DIR`（默认 `data/ops`）；源码 API 须能写、组件须能读。普通远程虚拟机没有共享目录时，规则与通知配置为只读。将 `IOT_OPS_TENANTS` 设置为可授权运维的租户；Grafana 告警关闭，统一使用 Alertmanager。
 

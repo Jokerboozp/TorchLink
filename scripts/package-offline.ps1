@@ -272,9 +272,12 @@ function New-OfflineEnv {
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
     Set-EmbeddingDeploymentEnv -Path $Destination
     Set-DeploymentEnvValue -Path $Destination -Key 'IOT_POSTGRES_IMAGE' -Value 'iot-platform-postgres:17-pgvector-0.8.1'
-    # Capacity-test module: on by default (same settings deploy writes); an explicit off is kept.
-    $capacityAction = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'unprepare' } else { 'prepare' }
+    # Capacity-test module: off unless the source env turned it on (deploy applies the same rule).
+    $capacityAction = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_CAPACITY_MODULE') -eq 'on') { 'prepare' } else { 'unprepare' }
     & (Join-Path $PSScriptRoot 'capacity-module.ps1') $capacityAction -Mode offline -EnvFile $Destination | Out-Null
+    # Monitoring stack: on unless the source env turned it off (same rule as deploy).
+    $opsState = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_OPS_MODULE') -eq 'off') { 'off' } else { 'on' }
+    Set-OpsModule -Path $Destination -State $opsState
     Add-DeploymentEnvComments -Path $Destination
     $credentialPath = Join-Path (Split-Path -Parent $Destination) "OFFLINE-CREDENTIALS.txt"
     $credentialFileLines = @(
@@ -331,6 +334,9 @@ foreach ($profile in $profiles) {
     [void]$profileArguments.Add("--profile")
     [void]$profileArguments.Add($profile)
 }
+# Monitoring images are always packaged; IOT_OPS_MODULE=off keeps them undeployed.
+[void]$profileArguments.Add("--profile")
+[void]$profileArguments.Add("ops")
 
 $bundleTarPartial = $null
 $bundleHashPartial = $null
@@ -343,7 +349,7 @@ try {
         "grafana", "loki", "ops-init", "alertmanager",
         "alloy", "node-exporter"
     )
-    Invoke-Checked -Arguments ($composeBase + @("pull") + $pullServices)
+    Invoke-Checked -Arguments ($composeBase + @("--profile", "ops", "pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio", "postgres"))
     if (-not $WithoutVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
 

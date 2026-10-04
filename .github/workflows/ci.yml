@@ -109,5 +109,15 @@ jobs:
           printf '#!/bin/sh\nexec docker compose "$@"\n' > "$RUNNER_TEMP/docker-compose"
           chmod +x "$RUNNER_TEMP/docker-compose"
           bash scripts/tests/deployment-smoke.sh "$RUNNER_TEMP/docker-compose"
+      - name: PowerShell 脚本语法检查
+        shell: pwsh
+        run: |
+          $failed = 0
+          foreach ($file in Get-ChildItem scripts -Recurse -Filter *.ps1) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors)
+            foreach ($e in $errors) { $failed++; Write-Host "::error file=$($file.FullName),line=$($e.Extent.StartLineNumber)::$($e.Message)" }
+          }
+          if ($failed) { exit 1 }
       - name: 告警规则校验
         run: docker run --rm --entrypoint promtool -v "$PWD/ops/prometheus:/r:ro" prom/prometheus:v3.5.0 check rules /r/alerts.yml

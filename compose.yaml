@@ -107,13 +107,13 @@ services:
       IOT_BACKUP_URL: ${IOT_BACKUP_URL:-http://backup-service:8090}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
       # 运维中心：组件地址和凭据只在服务端使用；规则与通知配置通过共享卷交给组件加载。
-      IOT_OPS_PROMETHEUS_URL: ${IOT_OPS_PROMETHEUS_URL:-http://prometheus:9090}
-      IOT_OPS_LOKI_URL: ${IOT_OPS_LOKI_URL:-http://loki:3100}
-      IOT_OPS_GRAFANA_URL: ${IOT_OPS_GRAFANA_URL:-http://grafana:3000}
+      IOT_OPS_PROMETHEUS_URL: ${IOT_OPS_PROMETHEUS_URL-http://prometheus:9090}
+      IOT_OPS_LOKI_URL: ${IOT_OPS_LOKI_URL-http://loki:3100}
+      IOT_OPS_GRAFANA_URL: ${IOT_OPS_GRAFANA_URL-http://grafana:3000}
       IOT_OPS_GRAFANA_TOKEN: ${IOT_OPS_GRAFANA_TOKEN:-}
       IOT_OPS_GRAFANA_USER: ${GRAFANA_ADMIN_USER:-admin}
       IOT_OPS_GRAFANA_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin123}
-      IOT_OPS_ALERTMANAGER_URL: ${IOT_OPS_ALERTMANAGER_URL:-http://alertmanager:9093}
+      IOT_OPS_ALERTMANAGER_URL: ${IOT_OPS_ALERTMANAGER_URL-http://alertmanager:9093}
       IOT_OPS_PROMETHEUS_RULES_DIR: /app/ops/prometheus-rules
       IOT_OPS_LOKI_RULES_DIR: /app/ops/loki/rules/fake
       IOT_OPS_LOKI_RUNTIME_FILE: /app/ops/loki/runtime.yaml
@@ -475,6 +475,7 @@ services:
         chmod 0640 /ops/alertmanager/alertmanager.yml
 
   prometheus:
+    profiles: [ops]
     <<: *service-defaults
     image: prom/prometheus:v3.5.0
     # 规则目录变化由 auto-reload-config 自动加载，不开放 /-/reload 与 /-/quit 管理接口。
@@ -488,6 +489,7 @@ services:
       ops-init: {condition: service_completed_successfully}
 
   grafana:
+    profiles: [ops]
     <<: *service-defaults
     image: grafana/grafana:12.1.0
     environment:
@@ -505,6 +507,7 @@ services:
       loki: {condition: service_started}
 
   loki:
+    profiles: [ops]
     <<: *service-defaults
     image: grafana/loki:3.5.3
     command: ["-config.file=/etc/loki/local-config.yaml"]
@@ -515,6 +518,7 @@ services:
       ops-init: {condition: service_completed_successfully}
 
   alertmanager:
+    profiles: [ops]
     <<: *service-defaults
     image: prom/alertmanager:v0.34.1
     command: ["--config.file=/etc/alertmanager/ops/alertmanager.yml", "--storage.path=/alertmanager", "--cluster.listen-address="]
@@ -530,6 +534,7 @@ services:
   # 采集本 Compose 项目所有容器的标准输出日志并写入 Loki。docker.sock 只读挂载，
   # 但 Docker API 本身不区分读写，Alloy 不发布端口，仅在内部网络运行。
   alloy:
+    profiles: [ops]
     <<: *service-defaults
     image: grafana/alloy:v1.20.0
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
@@ -540,6 +545,7 @@ services:
       loki: {condition: service_started}
 
   node-exporter:
+    profiles: [ops]
     <<: *service-defaults
     image: prom/node-exporter:v1.12.1
     command: ["--path.rootfs=/host"]

@@ -10,6 +10,7 @@ project_name='iot-platform-online'
 health_timeout=180
 video=keep
 capacity=keep
+ops=keep
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file|--project-name|--health-timeout)
@@ -18,6 +19,7 @@ while [ "$#" -gt 0 ]; do
       shift 2;;
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2;;
     --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2;;
+    --ops) [ "$#" -ge 2 ] || { echo '--ops 需要 on 或 off。' >&2; exit 1; }; ops="$2"; shift 2;;
     -h|--help)
       cat <<'EOF'
 用法：bash scripts/deploy-online.sh [选项]
@@ -25,7 +27,8 @@ while [ "$#" -gt 0 ]; do
   --project-name NAME   Docker Compose 项目（默认 iot-platform-online）
   --health-timeout SEC  每项 HTTP 健康检查超时（默认 180 秒）
   --video on|off        部署或关闭摄像头直播媒体服务；省略时沿用上次选择，新环境默认开启
-  --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认开启
+  --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认关闭
+  --ops on|off          部署或关闭监控组件（Prometheus、Loki、Grafana、Alertmanager 等）；省略时沿用上次选择，新环境默认开启
 默认拉取运行镜像、构建应用与 PostgreSQL + pgvector 并启动服务；AI 和向量计算调用外部 API，不下载本地模型。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
@@ -37,6 +40,7 @@ done
 [[ "$health_timeout" =~ ^[1-9][0-9]*$ ]] || { echo '健康检查超时必须是正整数。' >&2; exit 1; }
 case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
 case "$capacity" in keep|on|off) ;; *) echo '--capacity 只能是 on 或 off。' >&2; exit 1;; esac
+case "$ops" in keep|on|off) ;; *) echo '--ops 只能是 on 或 off。' >&2; exit 1;; esac
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
 source "$script_dir/lib/docker-bootstrap.sh"
 ensure_deployment_docker online
@@ -67,11 +71,18 @@ else
   profiles="$(get_deployment_env_value "$env_file" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx video | paste -sd, - || true)"
   set_deployment_env_value "$env_file" COMPOSE_PROFILES "$profiles"
 fi
-# The capacity-test module is deployed by default; an earlier --capacity off is kept.
+# The capacity-test module puts real load on the platform, so production
+# deployments leave it off unless it was turned on before or here.
 if [ "$capacity" = keep ]; then
-  capacity=on
-  [ "$(get_deployment_env_value "$env_file" IOT_CAPACITY_MODULE)" = off ] && capacity=off
+  capacity=off
+  [ "$(get_deployment_env_value "$env_file" IOT_CAPACITY_MODULE)" = on ] && capacity=on
 fi
+# The monitoring stack is deployed by default; an earlier --ops off is kept.
+if [ "$ops" = keep ]; then
+  ops=on
+  [ "$(get_deployment_env_value "$env_file" IOT_OPS_MODULE)" = off ] && ops=off
+fi
+apply_ops_module "$env_file" "$ops"
 if [ "$capacity" = on ]; then
   bash "$script_dir/capacity-module.sh" prepare --mode online --env-file "$env_file" --project-name "$project_name"
 else
@@ -112,6 +123,9 @@ if [ "$video" = off ]; then
 fi
 if [ "$capacity" = off ]; then
   run_docker "${compose[@]}" --profile capacity rm -sf capacity
+fi
+if [ "$ops" = off ]; then
+  run_docker "${compose[@]}" --profile ops rm -sf prometheus loki alloy grafana alertmanager node-exporter
 fi
 
 api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api_port:-8081}"

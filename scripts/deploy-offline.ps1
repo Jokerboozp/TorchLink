@@ -3,7 +3,8 @@ param(
     [string]$BundleDir = "",
     [switch]$SkipHashCheck,
     [switch]$SkipHealthCheck,
-    [ValidateSet("keep", "on", "off")][string]$Capacity = "keep"
+    [ValidateSet("keep", "on", "off")][string]$Capacity = "keep",
+    [ValidateSet("keep", "on", "off")][string]$Ops = "keep"
 )
 
 Set-StrictMode -Version Latest
@@ -91,8 +92,12 @@ if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
     }
 }
 
-# Capacity-test module: deployed by default; an explicit off (here or earlier) is kept.
-if ($Capacity -eq "keep") { $Capacity = if ((Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'off') { "off" } else { "on" } }
+# Capacity-test module: off unless turned on here or earlier, since it puts
+# real load on the platform.
+if ($Capacity -eq "keep") { $Capacity = if ((Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'on') { "on" } else { "off" } }
+# Monitoring stack: deployed unless turned off here or earlier.
+if ($Ops -eq "keep") { $Ops = if ((Get-EnvValue -Path $envPath -Key 'IOT_OPS_MODULE') -eq 'off') { "off" } else { "on" } }
+Set-OpsModule -Path $envPath -State $Ops
 $capacityAction = if ($Capacity -eq "on") { "prepare" } else { "unprepare" }
 & (Join-Path $scriptDir "capacity-module.ps1") $capacityAction -Mode offline -EnvFile $envPath
 $capacityOn = (Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'on'
@@ -111,6 +116,7 @@ if (Test-Path -LiteralPath $profilesPath -PathType Leaf) {
     }
 }
 if ($capacityOn) { $composeArguments += @("--profile", "capacity") }
+if ($Ops -eq "on") { $composeArguments += @("--profile", "ops") }
 Invoke-Checked -Arguments ($composeArguments + @("config", "--quiet"))
 Invoke-Checked -Arguments @("load", "-i", $archivePath)
 $images = @(& docker @($composeArguments + @("config", "--images")))
@@ -125,6 +131,9 @@ Invoke-Checked -Arguments ($composeArguments + @("up", "-d", "--no-build", "--pu
 if (-not $capacityOn) {
     # Windows PowerShell turns redirected native stderr into errors under "Stop".
     & { $ErrorActionPreference = "Continue"; & docker @($composeArguments + @("--profile", "capacity", "rm", "-sf", "capacity")) *> $null }
+}
+if ($Ops -eq "off") {
+    & { $ErrorActionPreference = "Continue"; & docker @($composeArguments + @("--profile", "ops", "rm", "-sf", "prometheus", "loki", "alloy", "grafana", "alertmanager", "node-exporter")) *> $null }
 }
 Invoke-Checked -Arguments ($composeArguments + @("ps"))
 

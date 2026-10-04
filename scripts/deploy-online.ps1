@@ -12,7 +12,11 @@ on/off deploys or removes the camera live media server; keep (default) reuses th
 last choice, and new environments deploy it.
 .PARAMETER Capacity
 on/off deploys or removes the capacity-test module (运维中心 → 容量测试); keep (default)
-reuses the last choice, and new environments deploy it.
+reuses the last choice, and new environments leave it off.
+.PARAMETER Ops
+on/off deploys or removes the monitoring stack (Prometheus, Loki, Grafana,
+Alertmanager, Alloy, node-exporter); keep (default) reuses the last choice, and
+new environments deploy it.
 #>
 [CmdletBinding()]
 param(
@@ -20,7 +24,8 @@ param(
     [string]$ProjectName = 'iot-platform-online',
     [int]$HealthTimeoutSeconds = 180,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
-    [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep'
+    [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep',
+    [ValidateSet('keep', 'on', 'off')][string]$Ops = 'keep'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -54,8 +59,12 @@ if ($Video -eq 'on') {
     $profiles = @(@("$(Get-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'video' })
     Set-DeploymentEnvValue -Path $EnvFile -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
 }
-# The capacity-test module is deployed by default; an earlier -Capacity off is kept.
-if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'off' } else { 'on' } }
+# The capacity-test module puts real load on the platform, so it stays off
+# unless it was turned on here or earlier.
+if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'on') { 'on' } else { 'off' } }
+# The monitoring stack is deployed by default; an earlier -Ops off is kept.
+if ($Ops -eq 'keep') { $Ops = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OPS_MODULE') -eq 'off') { 'off' } else { 'on' } }
+Set-OpsModule -Path $EnvFile -State $Ops
 $capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
 & (Join-Path $scriptDir 'capacity-module.ps1') $capacityAction -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
 Add-DeploymentEnvComments -Path $EnvFile
@@ -82,6 +91,9 @@ if ($Video -eq 'off') {
 }
 if ($Capacity -eq 'off') {
     Invoke-DockerChecked -Arguments ($compose + @('--profile', 'capacity', 'rm', '-sf', 'capacity'))
+}
+if ($Ops -eq 'off') {
+    Invoke-DockerChecked -Arguments ($compose + @('--profile', 'ops', 'rm', '-sf', 'prometheus', 'loki', 'alloy', 'grafana', 'alertmanager', 'node-exporter'))
 }
 
 $apiPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_API_PORT'

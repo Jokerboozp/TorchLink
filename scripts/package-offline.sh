@@ -242,13 +242,17 @@ EOF
   configure_deepseek_env "$destination" "$deepseek_model"
   configure_embedding_env "$destination"
   set_env_value "$destination" IOT_POSTGRES_IMAGE iot-platform-postgres:17-pgvector-0.8.1
-  # Capacity-test module: on by default (same settings deploy writes, so a
-  # rerun leaves the file unchanged); an explicit IOT_CAPACITY_MODULE=off is kept.
-  if [[ "$(env_value IOT_CAPACITY_MODULE "$destination")" == off ]]; then
-    bash "$script_dir/capacity-module.sh" unprepare --mode offline --env-file "$destination" >/dev/null
-  else
+  # Capacity-test module: off unless the source env turned it on (deploy
+  # applies the same rule, so a rerun leaves the file unchanged).
+  if [[ "$(env_value IOT_CAPACITY_MODULE "$destination")" == on ]]; then
     bash "$script_dir/capacity-module.sh" prepare --mode offline --env-file "$destination" >/dev/null
+  else
+    bash "$script_dir/capacity-module.sh" unprepare --mode offline --env-file "$destination" >/dev/null
   fi
+  # Monitoring stack: on unless the source env turned it off (same rule as deploy).
+  ops_state=on
+  [[ "$(env_value IOT_OPS_MODULE "$destination")" == off ]] && ops_state=off
+  apply_ops_module "$destination" "$ops_state"
   annotate_deployment_env_file "$destination"
 
   if (( ! generated )); then
@@ -322,6 +326,8 @@ add_profile() {
   compose_profile_args+=(--profile "$1")
 }
 add_profile harness
+# Monitoring images are always packaged; IOT_OPS_MODULE=off keeps them undeployed.
+compose_profile_args+=(--profile ops)
 (( include_video )) && add_profile video
 
 run_compose "${compose_profile_args[@]}" config --quiet
@@ -330,7 +336,7 @@ pull_services=(
   clickhouse emqx prometheus grafana loki
   ops-init alertmanager alloy node-exporter
 )
-run_compose pull "${pull_services[@]}"
+run_compose --profile ops pull "${pull_services[@]}"
 run_compose build --pull platform-api platform-web backup-service minio postgres
 if (( include_video )); then run_compose --profile video build --pull zlmediakit; fi
 

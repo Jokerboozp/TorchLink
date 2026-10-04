@@ -65,7 +65,7 @@
 - Windows 遇到 npm 执行策略问题时使用 `npm.cmd`。前端日常入口为 `http://localhost:5173`；Vite 默认代理 API 到 `http://localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖，具体见 `iot_front/vite.config.js`。
 - 进程环境变量优先于环境文件；排查配置时注意 IDE 遗留变量。不给用户复制硬编码凭据到 IDE 的配置方案。
 - 宿主机连接依赖须使用宿主机可达地址及已发布端口；Compose 服务名供容器内部使用。Linux 虚拟机依赖 / Windows 源码模式通过准备脚本的 `--dependency-host` 和 `--api-host` 指定地址，不固定某台机器的 IP。
-- 项目介绍和文档索引查 README；启动、停止、升级及远程依赖查 `docs/DEPLOYMENT.md`，开发与测试查 `docs/DEVELOPMENT.md`。在线部署入口为 `scripts/deploy-online.*`，离线打包与部署入口为 `scripts/package-offline.*`、`scripts/deploy-offline.*`。
+- 项目介绍和文档索引查 README；启动、停止、升级及远程依赖查 `docs/DEPLOYMENT.md`，值守、升级回滚、恢复与告警处置查 `docs/OPERATIONS.md`，开发与测试查 `docs/DEVELOPMENT.md`。在线部署入口为 `scripts/deploy-online.*`，离线打包与部署入口为 `scripts/package-offline.*`、`scripts/deploy-offline.*`。
 
 ## 5. 后端、接口与数据约束
 

@@ -199,3 +199,25 @@ ensure_emqx_admin_env() {
   fi
   [ -n "$(get_deployment_env_value "$env_path" IOT_EMQX_API_URL)" ] || set_deployment_env_value "$env_path" IOT_EMQX_API_URL "$default_url"
 }
+
+# apply_ops_module turns the monitoring stack (compose profile "ops":
+# Prometheus, Loki, Alloy, Grafana, Alertmanager, node-exporter) on or off.
+# Off clears the API's component URLs, so the operations center reports the
+# components as not deployed instead of unreachable.
+apply_ops_module() {
+  local env_file="$1" state="$2" profiles key
+  profiles="$(get_deployment_env_value "$env_file" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx ops | grep -v '^$' || true)"
+  if [ "$state" = on ]; then
+    profiles="$(printf '%s\nops\n' "$profiles" | grep -v '^$')"
+    set_deployment_env_value "$env_file" IOT_OPS_MODULE on
+    for key in IOT_OPS_PROMETHEUS_URL:http://prometheus:9090 IOT_OPS_LOKI_URL:http://loki:3100 IOT_OPS_GRAFANA_URL:http://grafana:3000 IOT_OPS_ALERTMANAGER_URL:http://alertmanager:9093; do
+      [ -n "$(get_deployment_env_value "$env_file" "${key%%:*}")" ] || set_deployment_env_value "$env_file" "${key%%:*}" "${key#*:}"
+    done
+  else
+    set_deployment_env_value "$env_file" IOT_OPS_MODULE off
+    for key in IOT_OPS_PROMETHEUS_URL IOT_OPS_LOKI_URL IOT_OPS_GRAFANA_URL IOT_OPS_ALERTMANAGER_URL; do
+      set_deployment_env_value "$env_file" "$key" ''
+    done
+  fi
+  set_deployment_env_value "$env_file" COMPOSE_PROFILES "$(printf '%s' "$profiles" | paste -sd, -)"
+}

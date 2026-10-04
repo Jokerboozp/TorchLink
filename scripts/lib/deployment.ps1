@@ -277,3 +277,22 @@ function Ensure-EmqxAdminEnv {
         Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMQX_API_URL' -Value $DefaultUrl
     }
 }
+
+# Turns the monitoring stack (compose profile "ops") on or off. Off clears the
+# API's component URLs, so the operations center reports them as not deployed.
+function Set-OpsModule {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][ValidateSet('on', 'off')][string]$State)
+    $profiles = @(@("$(Get-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'ops' })
+    $urls = [ordered]@{ IOT_OPS_PROMETHEUS_URL = 'http://prometheus:9090'; IOT_OPS_LOKI_URL = 'http://loki:3100'; IOT_OPS_GRAFANA_URL = 'http://grafana:3000'; IOT_OPS_ALERTMANAGER_URL = 'http://alertmanager:9093' }
+    if ($State -eq 'on') {
+        $profiles += 'ops'
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_OPS_MODULE' -Value 'on'
+        foreach ($key in $urls.Keys) {
+            if (-not (Get-DeploymentEnvValue -Path $Path -Key $key)) { Set-DeploymentEnvValue -Path $Path -Key $key -Value $urls[$key] }
+        }
+    } else {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_OPS_MODULE' -Value 'off'
+        foreach ($key in $urls.Keys) { Set-DeploymentEnvValue -Path $Path -Key $key -Value '' }
+    }
+    Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
+}

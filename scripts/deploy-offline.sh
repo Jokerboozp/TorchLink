@@ -6,6 +6,7 @@ bundle_dir="$(dirname -- "$script_dir")"
 skip_hash_check=0
 skip_health_check=0
 capacity=keep
+ops=keep
 die() { echo "错误：$*" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -13,7 +14,8 @@ while [[ $# -gt 0 ]]; do
     --skip-hash-check) skip_hash_check=1; shift ;;
     --skip-health-check) skip_health_check=1; shift ;;
     --capacity) [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--capacity 需要 on 或 off"; capacity="$2"; shift 2 ;;
-    -h|--help) echo "用法：deploy-offline.sh [离线包目录] [--bundle-dir DIR] [--skip-hash-check] [--skip-health-check] [--capacity on|off]"; exit 0 ;;
+    --ops) [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--ops 需要 on 或 off"; ops="$2"; shift 2 ;;
+    -h|--help) echo "用法：deploy-offline.sh [离线包目录] [--bundle-dir DIR] [--skip-hash-check] [--skip-health-check] [--capacity on|off] [--ops on|off]（容量测试新环境默认关闭，监控组件默认开启）"; exit 0 ;;
     -*) die "未知参数：$1" ;;
     *) bundle_dir="$1"; shift ;;
   esac
@@ -68,11 +70,18 @@ if [[ -n "$bundle_arch" && -n "$host_arch" && "$(normalize_arch "$bundle_arch")"
   die "离线包 CPU 架构为 $bundle_arch，本机 Docker 为 $host_arch；请在相同架构的机器上重新打包"
 fi
 
-# Capacity-test module: deployed by default; an explicit off (here or earlier) is kept.
+# Capacity-test module: off unless turned on here or earlier, since it puts
+# real load on the platform.
 if [[ "$capacity" == keep ]]; then
-  capacity=on
-  grep -Eq "^[[:space:]]*IOT_CAPACITY_MODULE[[:space:]]*=[[:space:]]*[\"']?off" "$env_file" 2>/dev/null && capacity=off
+  capacity=off
+  grep -Eq "^[[:space:]]*IOT_CAPACITY_MODULE[[:space:]]*=[[:space:]]*[\"']?on" "$env_file" 2>/dev/null && capacity=on
 fi
+# Monitoring stack: deployed unless turned off here or earlier.
+if [[ "$ops" == keep ]]; then
+  ops=on
+  [[ "$(get_deployment_env_value "$env_file" IOT_OPS_MODULE)" == off ]] && ops=off
+fi
+apply_ops_module "$env_file" "$ops"
 if [[ "$capacity" == on ]]; then
   bash "$script_dir/capacity-module.sh" prepare --mode offline --env-file "$env_file"
 elif [[ "$capacity" == off ]]; then
@@ -84,6 +93,7 @@ if grep -Eq "^[[:space:]]*IOT_CAPACITY_MODULE[[:space:]]*=[[:space:]]*[\"']?on" 
 else
   capacity_off=1
 fi
+[[ "$ops" == on ]] && compose+=(--profile ops)
 if [[ -f "$profiles_file" ]]; then
   while IFS= read -r profile || [[ -n "$profile" ]]; do
     profile="${profile%$'\r'}"
@@ -104,6 +114,7 @@ done <<< "$images"
 "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 900
 # up does not remove profile services; drop a capacity service left from an earlier choice.
 if [[ "${capacity_off:-0}" == 1 ]]; then "${compose[@]}" --profile capacity rm -sf capacity >/dev/null 2>&1 || true; fi
+if [[ "$ops" == off ]]; then "${compose[@]}" --profile ops rm -sf prometheus loki alloy grafana alertmanager node-exporter >/dev/null 2>&1 || true; fi
 "${compose[@]}" ps
 
 env_value() {
