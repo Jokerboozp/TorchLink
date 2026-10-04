@@ -7,7 +7,7 @@ COPY . .
 # cluster-render and cluster-ssh (controller), cluster-init and
 # clickhouse-migrate (on a node); capacity-test serves the capacity module.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway ./cmd/cluster-render ./cmd/cluster-init ./cmd/clickhouse-migrate ./cmd/cluster-ssh ./cmd/capacity-test
-RUN mkdir -p /runtime-data && chmod 0750 /runtime-data
+RUN mkdir -p /runtime-data /runtime-run && chmod 0750 /runtime-data && chmod 0700 /runtime-run
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
@@ -18,6 +18,9 @@ COPY --from=build /out/ /app/
 # Docker initializes a fresh named volume from this directory's ownership.
 # Existing volumes retain their ownership and may need the documented repair.
 COPY --from=build --chown=65532:65532 /runtime-data/ /app/data/
+# Socket directory shared with the protocol runner; a new named volume takes
+# its ownership from here.
+COPY --from=build --chown=65532:65532 /runtime-run/ /run/torchlink/
 VOLUME ["/app/data"]
 EXPOSE 8080 26875/tcp 26875/udp
 USER nonroot:nonroot

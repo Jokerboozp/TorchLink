@@ -82,7 +82,13 @@ type Config struct {
 	KafkaConsumerConcurrency int64
 	// ConsumerMaxBlock bounds how long a dependency outage may hold a
 	// message before it is moved to the dead-letter topic.
-	ConsumerMaxBlock     time.Duration
+	ConsumerMaxBlock time.Duration
+	// ProtocolRunnerSocket is the protocol runner's Unix socket; empty runs
+	// uploaded protocol code in-process (DevMode or IOT_PROTOCOL_SANDBOX=none).
+	ProtocolRunnerSocket string
+	// ProtocolSandbox is "runner" (the runner is required), "none" (in-process
+	// on purpose) or empty (use the runner when configured, otherwise warn).
+	ProtocolSandbox      string
 	MinIOEndpoint        string
 	MinIOAccessKey       string
 	MinIOSecretKey       string
@@ -183,6 +189,8 @@ func Load() Config {
 		RawHighFrequencyIntervalSec: int64Value("IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC", 60),
 		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
 		ConsumerMaxBlock:            duration("IOT_CONSUMER_MAX_BLOCK", 30*time.Minute),
+		ProtocolRunnerSocket:        strings.TrimSpace(get("IOT_PROTOCOL_RUNNER_SOCKET", "")),
+		ProtocolSandbox:             strings.ToLower(strings.TrimSpace(get("IOT_PROTOCOL_SANDBOX", ""))),
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 20000),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
@@ -321,6 +329,12 @@ func (c Config) Validate() error {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 			return fmt.Errorf("gateway/node URL must be an HTTP(S) origin without credentials")
 		}
+	}
+	if c.ProtocolSandbox != "" && c.ProtocolSandbox != "runner" && c.ProtocolSandbox != "none" {
+		return fmt.Errorf("IOT_PROTOCOL_SANDBOX must be runner or none")
+	}
+	if c.ProtocolSandbox == "runner" && c.ProtocolRunnerSocket == "" {
+		return fmt.Errorf("IOT_PROTOCOL_SANDBOX=runner requires IOT_PROTOCOL_RUNNER_SOCKET")
 	}
 	if c.DevMode {
 		return nil

@@ -594,6 +594,10 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 | 媒体不可播放 | `/api/v1/video/status`、连接测试、目标白名单、RTC 地址、编码及播放权限 |
 | openEuler 镜像导入 `mknod` 失败 | 检查 `container-selinux`、受管程序/数据标签和 Docker 进程域 |
 
+## 协议运行器
+
+`protocol-runner` 与平台使用同一镜像（`IOT_PROCESS_ROLE=protocol-runner`），在线/离线 Compose 默认部署，集群为每个运行 api、gateway 或 parser 的节点渲染一个。平台进程设置 `IOT_PROTOCOL_SANDBOX=runner` 与 `IOT_PROTOCOL_RUNNER_SOCKET=/run/torchlink/runner.sock`，运行器未就绪时协议上传、试跑与 Go 协议解析返回错误，不会退回进程内执行。资源上限用 `IOT_PROTOCOL_RUNNER_MEMORY`（默认 2g）、`IOT_PROTOCOL_RUNNER_CPUS`（2）、`IOT_PROTOCOL_RUNNER_PIDS`（512）调整。隔离与依赖限制见 [Go 协议](INTEGRATION.md#上传与发布)。
+
 ## HTTPS 与 MQTTS
 
 在线与离线部署在 Compose 文件所在目录的 `tls/`（`IOT_TLS_DIR` 可改）中查找 `tls.crt`（含完整证书链）和 `tls.key`：

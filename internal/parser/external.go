@@ -40,6 +40,34 @@ const (
 // platform data directory; artifact paths are always relative to it.
 type ExternalParser struct {
 	Root string
+	// Local forces execution in this process even when an Executor is
+	// installed; the protocol runner itself uses it.
+	Local bool
+}
+
+// Executor runs workers in another process (the protocol runner). worker
+// returns the binary for a runner that does not have its hash yet.
+type Executor interface {
+	Invoke(ctx context.Context, worker func() ([]byte, error), sha256, workerMode string, timeout time.Duration, input []byte) ([]byte, error)
+}
+
+var executor struct {
+	sync.RWMutex
+	current Executor
+}
+
+// SetExecutor routes every protocol worker execution of this process through
+// e; nil restores local execution.
+func SetExecutor(e Executor) {
+	executor.Lock()
+	executor.current = e
+	executor.Unlock()
+}
+
+func currentExecutor() Executor {
+	executor.RLock()
+	defer executor.RUnlock()
+	return executor.current
 }
 
 func (ExternalParser) Name() string    { return GoProtocolParserName }
@@ -121,6 +149,15 @@ func (p ExternalParser) Invoke(parent context.Context, config map[string]any, re
 	}
 
 	timeout := externalTimeout(config)
+	if remote := currentExecutor(); remote != nil && !p.Local {
+		input, err := json.Marshal(request)
+		if err != nil {
+			return nil, fmt.Errorf("marshal external parser input: %w", err)
+		}
+		mode, _ := artifact["workerMode"].(string)
+		sha, _ := artifact["sha256"].(string)
+		return remote.Invoke(parent, func() ([]byte, error) { return os.ReadFile(path) }, strings.ToLower(sha), mode, timeout, input)
+	}
 	if artifact["workerMode"] == WorkerModeServe {
 		input, err := json.Marshal(request)
 		if err != nil {

@@ -612,6 +612,20 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			if r.s.KafkaTLSCAFile != "" {
 				def["volumes"] = append(def["volumes"].([]string), "./kafka/ca.pem:"+kafkaCAContainerPath+":ro")
 			}
+			if kind == "api" || kind == "gateway" || kind == "parser" {
+				// Uploaded protocol code runs only in the node's isolated runner.
+				def["volumes"] = append(def["volumes"].([]string), "protocol-runner-socket:/run/torchlink")
+				environment := def["environment"].(map[string]string)
+				environment["IOT_PROTOCOL_SANDBOX"], environment["IOT_PROTOCOL_RUNNER_SOCKET"] = "runner", "/run/torchlink/runner.sock"
+				if _, exists := svcs["protocol-runner"]; !exists {
+					add(kind, "protocol-runner", service(inv.Images.Platform, map[string]any{
+						"network_mode": "none", "read_only": true, "cap_drop": []string{"ALL"}, "security_opt": []string{"no-new-privileges:true"},
+						"pids_limit": 512, "mem_limit": "2g", "tmpfs": []string{"/tmp:size=2g,mode=1777,exec"},
+						"environment": map[string]string{"IOT_PROCESS_ROLE": "protocol-runner", "IOT_PROTOCOL_RUNNER_SOCKET": "/run/torchlink/runner.sock", "IOT_PROTOCOL_RUNNER_DIR": "/tmp/protocol-runner"},
+						"volumes":     []string{"protocol-runner-socket:/run/torchlink"},
+					}), "protocol-runner-socket")
+				}
+			}
 			add(kind, name, def, name+"-data")
 			for k, v := range r.s.kafkaEnv() {
 				env[k] = v

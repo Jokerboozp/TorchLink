@@ -39,6 +39,8 @@ import (
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/protocolbuild"
+	"iot-platform/internal/protocolrunner"
 	"iot-platform/internal/protocolruntime"
 	"iot-platform/internal/ratelimit"
 	"iot-platform/internal/retention"
@@ -47,6 +49,40 @@ import (
 	"iot-platform/internal/opscenter"
 	"iot-platform/internal/video"
 )
+
+func runProtocolRunner(log *slog.Logger) {
+	socket := strings.TrimSpace(os.Getenv("IOT_PROTOCOL_RUNNER_SOCKET"))
+	if socket == "" {
+		fatal(log, "start protocol runner", errors.New("IOT_PROTOCOL_RUNNER_SOCKET is required"))
+	}
+	dir := strings.TrimSpace(os.Getenv("IOT_PROTOCOL_RUNNER_DIR"))
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "protocol-runner")
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	fatal(log, "protocol runner", (&protocolrunner.Server{Dir: dir, Log: log}).Serve(ctx, socket))
+}
+
+// useProtocolRunner sends protocol compilation and execution to the runner;
+// without one, uploaded code runs inside this process. Container deployments
+// set IOT_PROTOCOL_SANDBOX=runner, which makes the runner mandatory.
+func useProtocolRunner(cfg config.Config, log *slog.Logger) {
+	if cfg.ProtocolRunnerSocket == "" {
+		log.Warn("protocol code runs inside the platform process without isolation", "devMode", cfg.DevMode)
+		return
+	}
+	client := protocolrunner.NewClient(cfg.ProtocolRunnerSocket)
+	parser.SetExecutor(client)
+	protocolbuild.SetBuilder(client)
+	healthCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client.Health(healthCtx); err != nil {
+		log.Warn("protocol runner not reachable yet", "socket", cfg.ProtocolRunnerSocket, "error", err)
+	} else {
+		log.Info("protocol code runs in the isolated protocol runner", "socket", cfg.ProtocolRunnerSocket)
+	}
+}
 
 func Run(forcedRole string) {
 	envFile := flag.String("env-file", "", "load a KEY=VALUE configuration file (existing environment variables take precedence)")
@@ -59,11 +95,18 @@ func Run(forcedRole string) {
 	level, err := config.LogLevel()
 	fatal(log, "validate configuration", err)
 	logLevel.Set(level)
+	// The protocol runner needs none of the platform configuration or
+	// secrets; it only compiles and executes uploaded protocol code.
+	if strings.TrimSpace(os.Getenv("IOT_PROCESS_ROLE")) == config.RoleProtocolRunner {
+		runProtocolRunner(log)
+		return
+	}
 	cfg := config.Load()
 	if forcedRole != "" {
 		cfg.ProcessRole = forcedRole
 	}
 	fatal(log, "validate configuration", cfg.Validate())
+	useProtocolRunner(cfg, log)
 	var logPush *observability.LokiPush
 	if cfg.Ops.LogPushURL != "" {
 		// Host-run processes (local source debugging) ship their own logs; containers

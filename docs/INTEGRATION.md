@@ -213,7 +213,9 @@ Go 源码与制品包会在平台上编译和执行，`source-releases`、`packa
 | 平台目标 | Linux/Windows/macOS 的 amd64/arm64；始终包含发布端 |
 | 制品 | 单 Worker 64 MiB、总 Worker 128 MiB、最终 ZIP 64 MiB |
 
-发布端实际试跑为 `PASSED`；其他目标仅编译为 `COMPILED`，未试跑的预编译目标为 `UNTESTED`。构建成功不等于该系统已验收。Worker 具有服务账户 OS 权限，超时和最小环境不是强隔离沙箱。
+发布端实际试跑为 `PASSED`；其他目标仅编译为 `COMPILED`，未试跑的预编译目标为 `UNTESTED`。构建成功不等于该系统已验收。
+
+在线、离线与集群部署中，源码编译、样例试跑和运行时解析都在独立的 `protocol-runner` 容器内执行（`IOT_PROTOCOL_SANDBOX=runner`）：该容器无网络、只读根文件系统、去除全部 capabilities、限制进程数与内存，不挂载平台数据卷，也不持有任何数据库或平台密钥；平台进程只通过共享卷中的 Unix 套接字与它通信，Worker 按 SHA-256 缓存在运行器内，首次使用时由平台发送。编译前用 `go list` 检查上传代码及 vendor 依赖的直接导入，禁止 `os/exec`、`syscall`、`unsafe`、`plugin`、`net`、`net/http` 等系统与网络访问包以及汇编、cgo 源文件。预编译制品包不经过该检查，但同样只在运行器中执行。宿主机源码调试未配置 `IOT_PROTOCOL_RUNNER_SOCKET` 时仍在平台进程内执行并在启动日志中警告，不能作为隔离环境。
 
 下载 `/api/v2/protocols/{id}/releases/{version}/source` 返回原始上传字节，`/package` 返回完整制品 ZIP；两者检查租户、操作权限和 SHA-256。没有自动远程仓库拉取，CI 可使用源码上传接口。页面只展示当前版本支持的解析测试、发布和源码下载。
 

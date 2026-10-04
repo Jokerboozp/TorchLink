@@ -16,6 +16,9 @@ const (
 	RoleParser    = "parser"
 	RoleProcessor = "processor"
 	RoleJobs      = "jobs"
+	// RoleProtocolRunner compiles and executes uploaded protocol code in an
+	// isolated container; it runs no platform component.
+	RoleProtocolRunner = "protocol-runner"
 )
 
 // Components a process can run. A role maps to a fixed set; see Runs.

@@ -42,6 +42,9 @@ services:
       IOT_PROTOCOL_LISTENER_MAX_SESSIONS: ${IOT_PROTOCOL_LISTENER_MAX_SESSIONS:-1024}
       IOT_MQTT_DEVICE_TOKEN_TTL: ${IOT_MQTT_DEVICE_TOKEN_TTL:-24h}
       IOT_INGEST_MAX_BACKLOG: ${IOT_INGEST_MAX_BACKLOG:-50000}
+      # Uploaded protocol code is compiled and executed only by protocol-runner.
+      IOT_PROTOCOL_SANDBOX: runner
+      IOT_PROTOCOL_RUNNER_SOCKET: /run/torchlink/runner.sock
       IOT_CONSUMER_MAX_BLOCK: ${IOT_CONSUMER_MAX_BLOCK:-30m}
       IOT_NOTIFY_ENABLED: ${IOT_NOTIFY_ENABLED:-true}
       IOT_NOTIFY_ALLOWED_CIDRS: ${IOT_NOTIFY_ALLOWED_CIDRS:-}
@@ -147,8 +150,9 @@ services:
       - "${IOT_PROTOCOL_PORTS:-26875}:${IOT_PROTOCOL_PORTS:-26875}/udp"
       - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/udp"
       - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/tcp"
-    volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager"]
+    volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager", "protocol-runner-socket:/run/torchlink"]
     depends_on:
+      protocol-runner: {condition: service_started}
       ops-init: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
       postgres-tool-admin: {condition: service_completed_successfully}
@@ -159,6 +163,26 @@ services:
       clickhouse: {condition: service_healthy}
       clickhouse-tool-admin: {condition: service_completed_successfully}
       emqx: {condition: service_healthy}
+
+  # Compiles and runs uploaded Go protocol code apart from the platform: no
+  # network, no platform data or secrets, read-only root, no capabilities.
+  # The platform reaches it through the Unix socket in protocol-runner-socket.
+  protocol-runner:
+    image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: ${IOT_PROTOCOL_RUNNER_PIDS:-512}
+    mem_limit: ${IOT_PROTOCOL_RUNNER_MEMORY:-2g}
+    cpus: ${IOT_PROTOCOL_RUNNER_CPUS:-2}
+    tmpfs: ["/tmp:size=2g,mode=1777,exec"]
+    environment:
+      IOT_PROCESS_ROLE: protocol-runner
+      IOT_PROTOCOL_RUNNER_SOCKET: /run/torchlink/runner.sock
+      IOT_PROTOCOL_RUNNER_DIR: /tmp/protocol-runner
+    volumes: ["protocol-runner-socket:/run/torchlink"]
 
   platform-web:
     <<: *service-defaults
@@ -902,6 +926,7 @@ networks:
 
 volumes:
   platform-data: {}
+  protocol-runner-socket: {}
   postgres-data: {}
   redis-data: {}
   minio-data: {}

@@ -407,3 +407,21 @@ func TestRetentionDaysAcceptZeroAndRejectInvalid(t *testing.T) {
 		t.Fatal("reservations outliving the raw index accepted")
 	}
 }
+
+func TestProtocolSandboxModes(t *testing.T) {
+	base := Config{DevMode: true, AIHarnessURL: testHarnessURL}
+	required := base
+	required.ProtocolSandbox = "runner"
+	if err := required.Validate(); err == nil {
+		t.Fatal("a required runner without a socket was accepted")
+	}
+	required.ProtocolRunnerSocket = "/run/torchlink/runner.sock"
+	if err := required.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	bad := base
+	bad.ProtocolSandbox = "docker"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("unknown sandbox mode accepted")
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/modfile"
@@ -30,7 +31,13 @@ const MaxSource = 32 << 20
 // Slots bounds compiler concurrency across tenants in this API process.
 var Slots = make(chan struct{}, 1)
 
-func Available() bool { _, err := exec.LookPath("go"); return err == nil }
+func Available() bool {
+	if availableBuilder() {
+		return true
+	}
+	_, err := exec.LookPath("go")
+	return err == nil
+}
 
 func Sources(filename string, data []byte) (map[string][]byte, error) {
 	if len(data) == 0 || len(data) > MaxSource {
@@ -107,6 +114,41 @@ func Build(ctx context.Context, dataDir string, files map[string][]byte, entry s
 // BuildForPlatform cross-compiles only explicitly supported CGO-free targets.
 // A foreign binary still requires sample execution on its destination node.
 func BuildForPlatform(ctx context.Context, dataDir string, files map[string][]byte, entry, platform string) ([]byte, string, error) {
+	if b := currentBuilder(); b != nil {
+		return b.Build(ctx, files, entry, platform)
+	}
+	return BuildLocal(ctx, dataDir, files, entry, platform)
+}
+
+// Builder compiles in another process (the protocol runner).
+type Builder interface {
+	Build(ctx context.Context, files map[string][]byte, entry, platform string) ([]byte, string, error)
+}
+
+var builder struct {
+	sync.RWMutex
+	current Builder
+}
+
+// SetBuilder routes compilation through b; nil restores local builds.
+func SetBuilder(b Builder) {
+	builder.Lock()
+	builder.current = b
+	builder.Unlock()
+}
+
+func currentBuilder() Builder {
+	builder.RLock()
+	defer builder.RUnlock()
+	return builder.current
+}
+
+// Available reports whether protocols can be compiled: by the runner, or by
+// a local Go toolchain.
+func availableBuilder() bool { return currentBuilder() != nil }
+
+// BuildLocal compiles in this process.
+func BuildLocal(ctx context.Context, dataDir string, files map[string][]byte, entry, platform string) ([]byte, string, error) {
 	platform = model.ProtocolPlatform(platform)
 	if platform == "" {
 		return nil, "", errors.New("unsupported protocol target platform")
@@ -181,6 +223,15 @@ func BuildForPlatform(ctx context.Context, dataDir string, files map[string][]by
 			return nil, "", err
 		}
 	}
+	env := []string{"GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "CGO_ENABLED=0", "GOOS=" + target[0], "GOARCH=" + target[1], "GOCACHE=" + cache, "GOMODCACHE=" + filepath.Join(work, "modcache"), "GOTMPDIR=" + filepath.Join(work, "tmp"), "HOME=" + work, "USERPROFILE=" + work, "GOMAXPROCS=2"}
+	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"} {
+		if value := os.Getenv(name); value != "" {
+			env = append(env, name+"="+value)
+		}
+	}
+	if err = checkImports(ctx, goBin, sourceDir, entry, env); err != nil {
+		return nil, "", err
+	}
 	output := filepath.Join(work, "worker")
 	if target[0] == "windows" {
 		output += ".exe"
@@ -189,12 +240,7 @@ func BuildForPlatform(ctx context.Context, dataDir string, files map[string][]by
 	defer cancel()
 	cmd := exec.CommandContext(ctx, goBin, "build", "-mod=vendor", "-buildvcs=false", "-trimpath", "-p=2", "-ldflags=-s -w", "-o", output, "./"+entry)
 	cmd.Dir = sourceDir
-	cmd.Env = []string{"GOENV=off", "GOWORK=off", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "CGO_ENABLED=0", "GOOS=" + target[0], "GOARCH=" + target[1], "GOCACHE=" + cache, "GOMODCACHE=" + filepath.Join(work, "modcache"), "GOTMPDIR=" + filepath.Join(work, "tmp"), "HOME=" + work, "USERPROFILE=" + work, "GOMAXPROCS=2"}
-	for _, name := range []string{"PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"} {
-		if value := os.Getenv(name); value != "" {
-			cmd.Env = append(cmd.Env, name+"="+value)
-		}
-	}
+	cmd.Env = env
 	log := &limitedLog{}
 	cmd.Stdout, cmd.Stderr = log, log
 	cmd.WaitDelay = time.Second
@@ -218,6 +264,53 @@ func BuildForPlatform(ctx context.Context, dataDir string, files map[string][]by
 		return nil, log.String(), errors.New("编译结果须为 1 字节至 64 MiB")
 	}
 	return worker, log.String(), nil
+}
+
+// deniedImports are standard packages a protocol may not import directly:
+// they start processes, make system calls, open network connections or
+// bypass the type system. Standard packages themselves may still use them
+// (os uses syscall), so only imports of uploaded and vendored packages are
+// checked, together with assembly and cgo sources.
+var deniedImports = map[string]bool{
+	"os/exec": true, "syscall": true, "unsafe": true, "plugin": true, "runtime/cgo": true, "C": true,
+	"net": true, "net/http": true, "net/http/httputil": true, "net/rpc": true, "net/smtp": true,
+	"golang.org/x/sys/unix": true, "golang.org/x/sys/windows": true, "golang.org/x/net/proxy": true,
+}
+
+func deniedImport(path string) bool {
+	if deniedImports[path] {
+		return true
+	}
+	return strings.HasPrefix(path, "net/http/") || strings.HasPrefix(path, "golang.org/x/sys/")
+}
+
+func checkImports(ctx context.Context, goBin, dir, entry string, env []string) error {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, goBin, "list", "-mod=vendor", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}|{{join .Imports \",\"}}|{{join .SFiles \",\"}}|{{join .CgoFiles \",\"}}{{end}}", "./"+entry)
+	cmd.Dir, cmd.Env = dir, env
+	var stderr limitedLog
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("检查依赖失败：%s", strings.TrimSpace(stderr.String()))
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.Split(line, "|")
+		if len(parts) != 4 {
+			continue
+		}
+		for _, imported := range strings.Split(parts[1], ",") {
+			if imported != "" && deniedImport(imported) {
+				return fmt.Errorf("协议代码不能导入 %s（%s）：协议只做报文编解码，不能启动进程、进行系统调用或访问网络", imported, parts[0])
+			}
+		}
+		if parts[2] != "" || parts[3] != "" {
+			return fmt.Errorf("协议代码不能包含汇编或 cgo 源文件（%s）", parts[0])
+		}
+	}
+	return nil
 }
 
 type limitedLog struct{ bytes.Buffer }

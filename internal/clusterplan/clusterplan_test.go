@@ -243,8 +243,13 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 			t.Fatal(n.Name, err)
 		}
 		for name, svc := range compose.Services {
-			if svc["network_mode"] != "host" {
-				t.Fatal(n.Name, name, "not host networking")
+			want := "host"
+			if name == "protocol-runner" {
+				// Uploaded protocol code gets no network at all.
+				want = "none"
+			}
+			if svc["network_mode"] != want {
+				t.Fatal(n.Name, name, "network_mode", svc["network_mode"])
 			}
 		}
 	}
