@@ -60,7 +60,11 @@ jobs:
       - name: go vet
         run: go vet ./cmd/... ./internal/... ./deploy/toolaccounts
       - name: 后端测试（真实 PostgreSQL / ClickHouse / Redis）
-        run: go test -count=1 ./cmd/... ./internal/... ./deploy/toolaccounts
+        run: |
+          status=0
+          go test -count=1 -json ./cmd/... ./internal/... ./deploy/toolaccounts > "$RUNNER_TEMP/go-test.json" || status=$?
+          python3 scripts/ci/annotate-go-test.py "$RUNNER_TEMP/go-test.json"
+          exit $status
       - name: 独立协议 module 测试
         working-directory: protocol-packages/gb26875-dahua
         run: go test ./...
