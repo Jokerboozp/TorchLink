@@ -471,26 +471,10 @@ func (e *Engine) handleStandard(ctx context.Context, b []byte) error {
 			return err
 		}
 	}
-	if err := e.applyMessageState(ctx, msg, true); err != nil {
-		return err
-	}
 	if err := e.saveExternalDelivery(ctx, msg, externalAlarmIDs); err != nil {
 		return err
 	}
-	if err := e.Repo.MarkStandardMessageProcessed(ctx, msg.TenantID, msg.MessageID, claim.Token); err != nil {
-		if errors.Is(err, model.ErrStaleClaim) {
-			// Our lease expired and another worker took the message over; it
-			// records completion. Side effects above are idempotent per
-			// trigger identity and state writes are version-checked.
-			e.count("standard_claim_fenced_total")
-			if e.Log != nil {
-				e.Log.Warn("standard message claim was taken over; completion left to the new owner", "messageId", msg.MessageID)
-			}
-			return nil
-		}
-		return err
-	}
-	return nil
+	return e.completeStandard(ctx, msg, claim.Token)
 }
 
 // clearDuration forgets a duration rule's first match; rules without a
@@ -522,59 +506,118 @@ func (e *Engine) applyMessageState(ctx context.Context, msg model.StandardMessag
 	unlock := e.lockDeviceState(msg.TenantID, msg.DeviceID)
 	defer unlock()
 	before, after, written, err := e.mutateDeviceState(ctx, msg.TenantID, msg.DeviceID, func(state *model.DeviceState, found bool) (bool, error) {
-		if !found {
-			*state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
-		}
-		// Late retransmissions remain archived but must not roll back current state.
-		late := msg.Timestamp < state.LastSeenAt
-		if late && !reconcile {
-			return false, nil
-		}
-		previous := *state
-		old := state.BusinessStatus
-		state.DataStatus = "ACTIVE"
-		if msg.MessageType == model.AlarmReport || strings.EqualFold(old, "ALARM") {
-			state.BusinessStatus = "ALARM"
-		} else {
-			state.BusinessStatus = "ONLINE"
-		}
-		state.LastSeenAt = msg.Timestamp
-		state.LastMessageID = msg.MessageID
-		state.StatusSource = "RAW_MESSAGE"
-		if msg.MessageType == model.StateChange && msg.Parser == parser.StandardParserName {
-			if status, ok := msg.Properties["connectionStatus"].(string); ok && (status == "CONNECTED" || status == "DISCONNECTED" || status == "UNKNOWN") {
-				state.ConnectionStatus = status
-				if status == "CONNECTED" {
-					state.LastConnectAt = msg.Timestamp
-				} else if status == "DISCONNECTED" {
-					state.LastDisconnectAt = msg.Timestamp
-				}
-			}
-		}
-		if late {
-			*state = previous
-		}
+		open := false
 		if reconcile {
-			open, err := e.Repo.HasOpenAlarm(ctx, msg.TenantID, msg.DeviceID)
-			if err != nil {
+			var err error
+			if open, err = e.Repo.HasOpenAlarm(ctx, msg.TenantID, msg.DeviceID); err != nil {
 				return false, err
 			}
-			if open {
-				state.BusinessStatus = "ALARM"
-				state.StatusSource = "ACTIVE_ALARM"
-				state.Reason = "存在活动告警"
-			} else if !late || state.BusinessStatus == "ALARM" {
-				state.BusinessStatus = "ONLINE"
-				state.StatusSource = "RAW_MESSAGE"
-				state.Reason = ""
-			}
 		}
-		return true, nil
+		return nextMessageState(state, found, msg, reconcile, open), nil
 	})
 	if err == nil && written {
 		e.publishStateChange(ctx, before, after)
 	}
 	return err
+}
+
+// nextMessageState applies one processed message to the device state and
+// reports whether it must be written. With reconcile the business status
+// follows the device's open alarms.
+func nextMessageState(state *model.DeviceState, found bool, msg model.StandardMessage, reconcile, open bool) bool {
+	if !found {
+		*state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
+	}
+	// Late retransmissions remain archived but must not roll back current state.
+	late := msg.Timestamp < state.LastSeenAt
+	if late && !reconcile {
+		return false
+	}
+	previous := *state
+	old := state.BusinessStatus
+	state.DataStatus = "ACTIVE"
+	if msg.MessageType == model.AlarmReport || strings.EqualFold(old, "ALARM") {
+		state.BusinessStatus = "ALARM"
+	} else {
+		state.BusinessStatus = "ONLINE"
+	}
+	state.LastSeenAt = msg.Timestamp
+	state.LastMessageID = msg.MessageID
+	state.StatusSource = "RAW_MESSAGE"
+	if msg.MessageType == model.StateChange && msg.Parser == parser.StandardParserName {
+		if status, ok := msg.Properties["connectionStatus"].(string); ok && (status == "CONNECTED" || status == "DISCONNECTED" || status == "UNKNOWN") {
+			state.ConnectionStatus = status
+			if status == "CONNECTED" {
+				state.LastConnectAt = msg.Timestamp
+			} else if status == "DISCONNECTED" {
+				state.LastDisconnectAt = msg.Timestamp
+			}
+		}
+	}
+	if late {
+		*state = previous
+	}
+	if reconcile {
+		if open {
+			state.BusinessStatus = "ALARM"
+			state.StatusSource = "ACTIVE_ALARM"
+			state.Reason = "存在活动告警"
+		} else if !late || state.BusinessStatus == "ALARM" {
+			state.BusinessStatus = "ONLINE"
+			state.StatusSource = "RAW_MESSAGE"
+			state.Reason = ""
+		}
+	}
+	return true
+}
+
+// completeStandard writes the message's final device state and marks it
+// processed together: one read of state and open alarms, then one
+// version-checked statement. A conflicting state write is retried; if the
+// claim was taken over meanwhile the new owner records completion.
+func (e *Engine) completeStandard(ctx context.Context, msg model.StandardMessage, token int64) error {
+	unlock := e.lockDeviceState(msg.TenantID, msg.DeviceID)
+	defer unlock()
+	for attempt := 0; attempt < casAttempts; attempt++ {
+		current, open, err := e.Repo.LoadDeviceStateWithAlarms(ctx, msg.TenantID, msg.DeviceID)
+		found := err == nil
+		if err != nil && !errors.Is(err, model.ErrNotFound) {
+			return err
+		}
+		if !found {
+			current = model.DeviceState{}
+		}
+		next := current
+		var write *model.DeviceState
+		if nextMessageState(&next, found, msg, true, open) {
+			next.TenantID, next.DeviceID, next.Version = msg.TenantID, msg.DeviceID, current.Version
+			write = &next
+		}
+		ok, err := e.Repo.CompleteStandardMessage(ctx, write, msg.TenantID, msg.MessageID, token)
+		if ok && write != nil {
+			after := next
+			after.Version++
+			e.publishStateChange(ctx, current, after)
+		}
+		switch {
+		case errors.Is(err, model.ErrStaleClaim):
+			// Our lease expired and another worker took the message over; it
+			// records completion. Side effects are idempotent per trigger
+			// identity and state writes are version-checked.
+			e.count("standard_claim_fenced_total")
+			if e.Log != nil {
+				e.Log.Warn("standard message claim was taken over; completion left to the new owner", "messageId", msg.MessageID)
+			}
+			return nil
+		case err != nil:
+			return err
+		case ok:
+			return nil
+		}
+		e.count("device_state_conflict_total")
+		backoff(ctx, attempt)
+	}
+	return fmt.Errorf("device %s state: %w", msg.DeviceID, model.ErrConcurrentUpdate)
 }
 
 func (e *Engine) syncDeviceBusinessStatus(ctx context.Context, tenant, product, device string) error {

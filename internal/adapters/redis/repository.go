@@ -110,6 +110,26 @@ func (r *Repository) UpsertDeviceStateIf(ctx context.Context, v model.DeviceStat
 	return true, nil
 }
 
+// CompleteStandardMessage refreshes the cached state after the combined
+// write, like UpsertDeviceStateIf.
+func (r *Repository) CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, messageID string, token int64) (bool, error) {
+	ok, err := r.Repository.CompleteStandardMessage(ctx, state, tenant, messageID, token)
+	if !ok || state == nil {
+		return ok, err
+	}
+	v := *state
+	version := v.Version + 1
+	b, _ := json.Marshal(cachedState{Version: version, State: v})
+	if setErr := setStateScript.Run(ctx, r.client, []string{stateKey(v.TenantID, v.DeviceID)}, version, b).Err(); setErr != nil {
+		_ = r.client.Del(ctx, stateKey(v.TenantID, v.DeviceID)).Err()
+		return ok, err
+	}
+	pipe := r.client.TxPipeline()
+	r.online(ctx, pipe, v)
+	_, _ = pipe.Exec(ctx)
+	return ok, err
+}
+
 func (r *Repository) online(ctx context.Context, pipe redis.Pipeliner, v model.DeviceState) {
 	if v.BusinessStatus == "ONLINE" || v.BusinessStatus == "ALARM" {
 		pipe.SAdd(ctx, "device:online:"+cacheSegment(v.TenantID), v.DeviceID)

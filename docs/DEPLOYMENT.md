@@ -733,6 +733,7 @@ go run ./cmd/iot-access-gateway --env-file .env.gateway
 
 - 解析结果按 `(租户, 设备)` 键写入内部主题 `iot.device.business`，由 `processor` 消费组按设备顺序处理；不同设备并行。原 `iot.property.report`、`iot.event.report`、`iot.parsed.message` 继续发布供外部订阅（`IOT_PUBLISH_EXTERNAL_TOPICS=false` 可关闭），平台内部不再消费。
 - 每条标准消息先原子领取（60 秒租约、领取代次），只有最新代次能写入完成标记；再均衡时新消费者等待旧持有者完成或租约到期，旧实例迟到的完成被拒绝并计入 `standard_claim_fenced_total`。
+- 一条没有告警变化的消息只访问 PostgreSQL 三次：领取（新消息写入与领取为同一语句）、一次读取设备状态及是否有活动告警、一条语句同时写入设备状态和完成标记（状态版本冲突时两者都不写，重读后重试）。活动告警数由 `alarm_record` 上的触发器维护在 `device_open_alarm`（迁移 0012），任何告警写入路径都会同步更新。
 - 告警确认/恢复/关闭、规则停用、离线扫描、连接状态和设备状态写入都基于行版本做乐观并发，冲突时重读重试（`alarm_conflict_total`、`device_state_conflict_total`），不会用旧快照覆盖新上报。
 - 规则与协议缓存在各实例本地保留最多 2 秒，跨实例生效时间以此为上界；权限每次请求读取数据库，撤销立即生效。
 - 设备上报 20 条/秒、开放 API 密钥 100 次/秒、登录失败锁定（15 分钟窗口内 10 次）在配置 Redis 后由所有实例共享同一额度（固定时间窗口，窗口按 Unix 时间对齐）；Redis 故障时按 `IOT_CLUSTER_INSTANCES` 退化，并计入 `rate_limit_shared_errors`。

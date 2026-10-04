@@ -152,6 +152,16 @@ type Repository interface {
 	ListAlarms(context.Context, AlarmFilter) ([]model.Alarm, error)
 	CountAlarms(context.Context, AlarmFilter) (int, error)
 	HasOpenAlarm(context.Context, string, string) (bool, error)
+	// LoadDeviceStateWithAlarms reads a device's state (model.ErrNotFound
+	// when absent) and whether it has an open alarm, in one round trip.
+	LoadDeviceStateWithAlarms(context.Context, string, string) (model.DeviceState, bool, error)
+	// CompleteStandardMessage writes state when it is not nil, checked
+	// against its version like UpsertDeviceStateIf, and marks the message
+	// processed under its claim token in the same statement; the mark is
+	// only made when the state was written. false means the state version
+	// changed and nothing was written. A stale or lost claim after a written
+	// state returns model.ErrStaleClaim or model.ErrNotFound.
+	CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, messageID string, token int64) (bool, error)
 	UpdateAlarm(context.Context, model.Alarm) error
 	// UpdateAlarmIf writes only if the stored version equals v.Version.
 	UpdateAlarmIf(context.Context, model.Alarm) (bool, error)

@@ -45,6 +45,16 @@ func (s *capacityPlatformRepository) MarkStandardMessageProcessed(ctx context.Co
 	return nil
 }
 
+func (s *capacityPlatformRepository) CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, id string, token int64) (bool, error) {
+	ok, err := s.Repository.CompleteStandardMessage(ctx, state, tenant, id, token)
+	if ok && err == nil {
+		s.mu.Lock()
+		s.processed[tenant+"/"+id] = time.Now().UnixMilli()
+		s.mu.Unlock()
+	}
+	return ok, err
+}
+
 type capacityPlatformStore struct{ *capacityPlatformRepository }
 
 func (s *capacityPlatformStore) RawIndexes(ctx context.Context, tenant string, ids []string) (map[string]capacity.RawRecord, error) {

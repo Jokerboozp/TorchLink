@@ -1731,8 +1731,67 @@ func (r *Repository) UpdateDeviceAccessStatus(ctx context.Context, expected mode
 	return result.RowsAffected() == 1, err
 }
 
+// HasOpenAlarm reads the trigger-maintained counter (migration 0012).
 func (r *Repository) HasOpenAlarm(ctx context.Context, tenant, device string) (bool, error) {
 	var exists bool
-	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM alarm_record WHERE tenant_id=$1 AND device_id=$2 AND status IN ('ACTIVE','ACKED'))`, tenant, device).Scan(&exists)
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM device_open_alarm WHERE tenant_id=$1 AND device_id=$2 AND open_count>0)`, tenant, device).Scan(&exists)
 	return exists, err
+}
+
+func (r *Repository) LoadDeviceStateWithAlarms(ctx context.Context, tenant, device string) (model.DeviceState, bool, error) {
+	var v model.DeviceState
+	var body []byte
+	var version *int64
+	var open bool
+	err := r.pool.QueryRow(ctx, `SELECT s.body, s.version, EXISTS(SELECT 1 FROM device_open_alarm WHERE tenant_id=$1 AND device_id=$2 AND open_count>0)
+FROM (SELECT 1) one LEFT JOIN device_state s ON s.tenant_id=$1 AND s.device_id=$2`, tenant, device).Scan(&body, &version, &open)
+	if err != nil {
+		return v, false, err
+	}
+	if version == nil {
+		return v, open, ErrNotFound
+	}
+	if err = json.Unmarshal(body, &v); err != nil {
+		return v, open, err
+	}
+	v.Version = *version
+	return v, open, nil
+}
+
+// CompleteStandardMessage writes the state and the processed mark in one
+// statement: the mark depends on the state row, so a version conflict
+// leaves the message pending for the retry.
+func (r *Repository) CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, messageID string, token int64) (bool, error) {
+	mark := `UPDATE standard_message SET processed_at=GREATEST(` + nowMS + `,1),claim_expires_at=0 WHERE tenant_id=$1 AND message_id=$2 AND claim_token=$3 AND processed_at=0`
+	var written, marked int64
+	var err error
+	if state == nil {
+		err = r.pool.QueryRow(ctx, `WITH m AS (`+mark+` RETURNING 1) SELECT 1, (SELECT count(*) FROM m)`, tenant, messageID, token).Scan(&written, &marked)
+	} else {
+		v := *state
+		b, _ := json.Marshal(v)
+		write := `UPDATE device_state SET product_id=$6,business_status=$7,last_seen_at=$8,body=$9,offline_check_at=$10,updated_at=now(),version=version+1 WHERE tenant_id=$4 AND device_id=$5 AND version=$11 RETURNING 1`
+		if v.Version == 0 {
+			write = `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version,offline_check_at) VALUES($4,$5,$6,$7,$8,$9,1,$10) ON CONFLICT(tenant_id,device_id) DO NOTHING RETURNING 1`
+		}
+		args := []any{tenant, messageID, token, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b, v.OfflineCheckAt()}
+		if v.Version != 0 {
+			args = append(args, v.Version)
+		}
+		err = r.pool.QueryRow(ctx, `WITH s AS (`+write+`), m AS (`+mark+` AND EXISTS (SELECT 1 FROM s) RETURNING 1)
+SELECT (SELECT count(*) FROM s), (SELECT count(*) FROM m)`, args...).Scan(&written, &marked)
+	}
+	if err != nil || written == 0 {
+		return false, err
+	}
+	if marked == 0 {
+		var current int64
+		if err = r.pool.QueryRow(ctx, `SELECT claim_token FROM standard_message WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID).Scan(&current); errors.Is(err, pgx.ErrNoRows) {
+			return true, ErrNotFound
+		} else if err != nil {
+			return true, err
+		}
+		return true, model.ErrStaleClaim
+	}
+	return true, nil
 }

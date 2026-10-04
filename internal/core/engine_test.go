@@ -687,6 +687,20 @@ func (r *countedStateRepo) UpsertDeviceStateIf(ctx context.Context, v model.Devi
 	r.writes++
 	return r.Repository.UpsertDeviceStateIf(ctx, v)
 }
+func (r *countedStateRepo) LoadDeviceStateWithAlarms(ctx context.Context, t, d string) (model.DeviceState, bool, error) {
+	r.reads++
+	return r.Repository.LoadDeviceStateWithAlarms(ctx, t, d)
+}
+func (r *countedStateRepo) CompleteStandardMessage(ctx context.Context, state *model.DeviceState, t, id string, token int64) (bool, error) {
+	if state != nil {
+		r.writes++
+	}
+	return r.Repository.CompleteStandardMessage(ctx, state, t, id, token)
+}
+func (r *countedStateRepo) HasOpenAlarm(ctx context.Context, t, d string) (bool, error) {
+	r.alarmReads++
+	return r.Repository.HasOpenAlarm(ctx, t, d)
+}
 func (r *countedStateRepo) ListAlarms(ctx context.Context, f ports.AlarmFilter) ([]model.Alarm, error) {
 	r.alarmReads++
 	return r.Repository.ListAlarms(ctx, f)

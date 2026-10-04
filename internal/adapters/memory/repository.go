@@ -1406,6 +1406,24 @@ func (r *Repository) ListDeviceStatesForDevicesPage(ctx context.Context, tenant 
 	return page(out, offset, limit), len(out), err
 }
 
+func (r *Repository) LoadDeviceStateWithAlarms(ctx context.Context, tenant, device string) (model.DeviceState, bool, error) {
+	open, err := r.HasOpenAlarm(ctx, tenant, device)
+	if err != nil {
+		return model.DeviceState{}, false, err
+	}
+	state, err := r.GetDeviceStateFresh(ctx, tenant, device)
+	return state, open, err
+}
+
+func (r *Repository) CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, messageID string, token int64) (bool, error) {
+	if state != nil {
+		if ok, err := r.UpsertDeviceStateIf(ctx, *state); err != nil || !ok {
+			return ok, err
+		}
+	}
+	return true, r.MarkStandardMessageProcessed(ctx, tenant, messageID, token)
+}
+
 func (r *Repository) HasOpenAlarm(_ context.Context, tenant, device string) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

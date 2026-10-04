@@ -86,6 +86,16 @@ func (r *failFirstStateRepository) UpsertDeviceStateIf(ctx context.Context, stat
 	return r.Repository.UpsertDeviceStateIf(ctx, state)
 }
 
+// The final state of a processed message is written together with its
+// processed mark; failing that write must leave the message to be retried.
+func (r *failFirstStateRepository) CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, messageID string, token int64) (bool, error) {
+	if r.fail {
+		r.fail = false
+		return false, errors.New("simulated state write failure")
+	}
+	return r.Repository.CompleteStandardMessage(ctx, state, tenant, messageID, token)
+}
+
 func newRuleTestEngine(t *testing.T, repo ports.Repository, clock *ruleTestClock, publishers ...ports.RealtimePublisher) *Engine {
 	archive, err := local.NewArchive(t.TempDir())
 	if err != nil {
