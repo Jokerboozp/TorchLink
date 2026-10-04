@@ -65,5 +65,12 @@ func (r *Realtime) Publish(_ context.Context, topic string, payload []byte, qos 
 	r.Messages = append(r.Messages, Published{topic, append([]byte(nil), payload...), qos, retained})
 	return nil
 }
+
+// Snapshot copies the published messages; safe while publishing continues.
+func (r *Realtime) Snapshot() []Published {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]Published(nil), r.Messages...)
+}
 func (r *Realtime) Health(context.Context) error { return nil }
 func (r *Realtime) Close() error                 { return nil }
