@@ -211,6 +211,35 @@ type DeviceState struct {
 	Reason              string `json:"reason,omitempty"`
 }
 
+// OfflineDeadline is when a device that keeps silent becomes offline.
+func (s DeviceState) OfflineDeadline() int64 {
+	return s.LastSeenAt + (s.ReportIntervalSec+s.OfflineToleranceSec)*1000
+}
+
+// OfflineStatus is the business status of a silent device: a still-open
+// connection is only suspected offline.
+func (s DeviceState) OfflineStatus() string {
+	if s.ConnectionStatus == "CONNECTED" {
+		return "SUSPECTED_OFFLINE"
+	}
+	return "OFFLINE"
+}
+
+// OfflineCheckAt is when the offline scan must look at this state, or 0
+// when nothing would change: never seen, or already marked offline for the
+// current deadline and connection status. Stores index it so the scan reads
+// only the devices that are due.
+func (s DeviceState) OfflineCheckAt() int64 {
+	if s.LastSeenAt == 0 {
+		return 0
+	}
+	deadline := s.OfflineDeadline()
+	if s.DataStatus == "SILENT" && s.BusinessStatus == s.OfflineStatus() && s.OfflineAt == deadline {
+		return 0
+	}
+	return deadline
+}
+
 // Product describes a managed device product and the protocol package used to
 // turn its raw payloads into standard platform messages.
 type Product struct {

@@ -665,6 +665,17 @@ func (r *Repository) ListDeviceStates(_ context.Context, tenant string) ([]model
 	}
 	return out, nil
 }
+func (r *Repository) ListOfflineDue(_ context.Context, now int64, limit int) ([]model.DeviceState, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := []model.DeviceState{}
+	for _, v := range r.states {
+		if check := v.OfflineCheckAt(); check > 0 && check < now && len(out) < limit {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
 func (r *Repository) ListDeviceStatesPage(ctx context.Context, tenant string, limit, offset int) ([]model.DeviceState, int, error) {
 	items, err := r.ListDeviceStates(ctx, tenant)
 	if err != nil {

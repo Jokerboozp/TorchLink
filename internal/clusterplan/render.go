@@ -605,6 +605,10 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			salt := idx(inv.Platform.Roles[kind].Nodes)
 			name := "iot-" + kind
 			def := service(inv.Images.Platform, map[string]any{"environment": r.platformEnv(kind, node, salt), "volumes": []string{name + "-data:/app/data"}})
+			if kind == "gateway" || kind == "api" {
+				// One file descriptor per TCP device session.
+				def["ulimits"] = map[string]any{"nofile": map[string]int{"soft": 1048576, "hard": 1048576}}
+			}
 			if r.s.KafkaTLSCAFile != "" {
 				def["volumes"] = append(def["volumes"].([]string), "./kafka/ca.pem:"+kafkaCAContainerPath+":ro")
 			}

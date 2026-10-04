@@ -118,6 +118,9 @@ type Repository interface {
 	// (0 = insert if absent) and reports whether it wrote.
 	UpsertDeviceStateIf(context.Context, model.DeviceState) (bool, error)
 	GetDeviceStatesByIDs(context.Context, string, []string) (map[string]model.DeviceState, error)
+	// ListOfflineDue returns up to limit states of every tenant whose
+	// OfflineCheckAt is set and before now.
+	ListOfflineDue(ctx context.Context, now int64, limit int) ([]model.DeviceState, error)
 	ListDeviceStates(context.Context, string) ([]model.DeviceState, error)
 	ListDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
 	ListDeviceStatesForDevicesPage(context.Context, string, []string, int, int) ([]model.DeviceState, int, error)

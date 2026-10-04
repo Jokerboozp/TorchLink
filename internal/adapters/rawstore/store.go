@@ -43,7 +43,13 @@ type Store struct {
 
 	mu   sync.Mutex
 	last map[string]int64
+	// lastPrune bounds how often the map is swept.
+	lastPrune int64
 }
+
+// An arrival older than the high-frequency threshold can no longer make the
+// next message high frequency, so such entries are dropped once the map grows.
+const pruneAbove = 100_000
 
 func New(cfg Config) *Store {
 	if cfg.HighFrequencyIntervalSec <= 0 {
@@ -150,6 +156,7 @@ func (s *Store) chooseBackend(ctx context.Context, value model.RawMessage) strin
 	s.mu.Lock()
 	previous := s.last[key]
 	s.last[key] = value.ReceivedAt
+	s.pruneLocked(value.ReceivedAt, threshold)
 	s.mu.Unlock()
 
 	if configuredInterval > 0 && configuredInterval <= threshold {
@@ -159,6 +166,18 @@ func (s *Store) chooseBackend(ctx context.Context, value model.RawMessage) strin
 		return ClickHouseBucket
 	}
 	return PostgreSQLBucket
+}
+
+func (s *Store) pruneLocked(now, thresholdSec int64) {
+	if len(s.last) <= pruneAbove || now-s.lastPrune < 60_000 {
+		return
+	}
+	s.lastPrune = now
+	for key, at := range s.last {
+		if now-at > thresholdSec*1000 {
+			delete(s.last, key)
+		}
+	}
 }
 
 func isHighFrequency(current, previous, thresholdSec int64) bool {

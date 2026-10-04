@@ -109,3 +109,43 @@ func TestBackupWindows(t *testing.T) {
 func TestNotificationStoreContract(t *testing.T) {
 	notifytest.StoreContract(t, testRepository(t).NotificationStore())
 }
+
+func TestOfflineDueFollowsDeviceStateWrites(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	now := time.Now().UnixMilli()
+	states := []model.DeviceState{
+		{TenantID: "t", DeviceID: "due", LastSeenAt: now - 600_000, ReportIntervalSec: 60, OfflineToleranceSec: 60, DataStatus: "ACTIVE", BusinessStatus: "ONLINE"},
+		{TenantID: "t", DeviceID: "fresh", LastSeenAt: now, ReportIntervalSec: 60, OfflineToleranceSec: 60, DataStatus: "ACTIVE", BusinessStatus: "ONLINE"},
+		{TenantID: "t", DeviceID: "never", DataStatus: "UNKNOWN"},
+	}
+	done := model.DeviceState{TenantID: "t", DeviceID: "offline", LastSeenAt: now - 600_000, ReportIntervalSec: 60, OfflineToleranceSec: 60, DataStatus: "SILENT", BusinessStatus: "OFFLINE"}
+	done.OfflineAt = done.OfflineDeadline()
+	states = append(states, done)
+	for _, s := range states {
+		if err := r.UpsertDeviceState(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	due, err := r.ListOfflineDue(ctx, now, 10)
+	if err != nil || len(due) != 1 || due[0].DeviceID != "due" || due[0].Version == 0 {
+		t.Fatalf("due=%+v err=%v", due, err)
+	}
+	// The backfill migration computes the same value as the Go writes.
+	if _, err = r.pool.Exec(ctx, `UPDATE device_state SET offline_check_at = -1`); err != nil {
+		t.Fatal(err)
+	}
+	backfill, err := migrationFiles.ReadFile("migrations/0004_device_state_offline_backfill.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.pool.Exec(ctx, string(backfill)); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range states {
+		var got int64
+		if err = r.pool.QueryRow(ctx, `SELECT offline_check_at FROM device_state WHERE device_id=$1`, s.DeviceID).Scan(&got); err != nil || got != s.OfflineCheckAt() {
+			t.Fatalf("%s backfill=%d want=%d err=%v", s.DeviceID, got, s.OfflineCheckAt(), err)
+		}
+	}
+}

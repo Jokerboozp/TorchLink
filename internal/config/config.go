@@ -184,7 +184,7 @@ func Load() Config {
 		KafkaConsumerConcurrency:    int64Value("IOT_KAFKA_CONSUMER_CONCURRENCY", 64),
 		ConsumerMaxBlock:            duration("IOT_CONSUMER_MAX_BLOCK", 30*time.Minute),
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
-		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 1024),
+		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 20000),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
 		IngestMaxBacklog:            int64Value("IOT_INGEST_MAX_BACKLOG", 50000),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
@@ -280,7 +280,7 @@ func (c Config) Validate() error {
 		return fmt.Errorf("IOT_INGEST_MAX_BACKLOG must not be negative (0 disables ingest backpressure)")
 	}
 	if c.ProtocolListenerMaxSessions < 0 || c.ProtocolListenerMaxSessions > 100000 {
-		return fmt.Errorf("IOT_PROTOCOL_LISTENER_MAX_SESSIONS must be between 1 and 100000 (0 uses the default 1024)")
+		return fmt.Errorf("IOT_PROTOCOL_LISTENER_MAX_SESSIONS must be between 1 and 100000 (0 uses the default 20000)")
 	}
 	// Every business AI feature runs as a Harness workflow; roles that run no
 	// AI feature (gateway, parser, processor, jobs) may run without it.

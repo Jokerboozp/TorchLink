@@ -992,45 +992,42 @@ func (e *Engine) updateDeviceState(ctx context.Context, state model.DeviceState)
 // its freshest state inside a version-checked write, so a report that arrived
 // after the listing is never overwritten by the stale snapshot.
 func (e *Engine) ScanOffline(ctx context.Context) error {
-	states, err := e.Repo.ListDeviceStates(ctx, "")
-	if err != nil {
-		return err
-	}
 	now := e.Clock.Now().UnixMilli()
-	expired := func(s model.DeviceState) (int64, bool) {
-		deadline := s.LastSeenAt + (s.ReportIntervalSec+s.OfflineToleranceSec)*1000
-		return deadline, s.LastSeenAt != 0 && deadline < now
-	}
-	for _, listed := range states {
-		if _, ok := expired(listed); !ok || ctx.Err() != nil {
-			continue
+	for ctx.Err() == nil {
+		// Only devices whose check time has passed are read, in batches.
+		states, err := e.Repo.ListOfflineDue(ctx, now, offlineScanBatch)
+		if err != nil {
+			return err
 		}
-		unlock := e.lockDeviceState(listed.TenantID, listed.DeviceID)
-		before, after, written, err := e.mutateDeviceState(ctx, listed.TenantID, listed.DeviceID, func(s *model.DeviceState, found bool) (bool, error) {
-			deadline, ok := expired(*s)
-			if !found || !ok {
-				return false, nil
+		for _, listed := range states {
+			if ctx.Err() != nil {
+				break
 			}
-			status := "OFFLINE"
-			if s.ConnectionStatus == "CONNECTED" {
-				status = "SUSPECTED_OFFLINE"
+			unlock := e.lockDeviceState(listed.TenantID, listed.DeviceID)
+			before, after, written, err := e.mutateDeviceState(ctx, listed.TenantID, listed.DeviceID, func(s *model.DeviceState, found bool) (bool, error) {
+				check := s.OfflineCheckAt()
+				if !found || check == 0 || check >= now {
+					return false, nil
+				}
+				s.DataStatus, s.BusinessStatus = "SILENT", s.OfflineStatus()
+				s.OfflineAt = s.OfflineDeadline()
+				s.OfflineDetectedAt = now
+				s.StatusSource = "RAW_MESSAGE_TIMEOUT"
+				return true, nil
+			})
+			unlock()
+			if err == nil && written {
+				e.publishStateChange(ctx, before, after)
 			}
-			if s.DataStatus == "SILENT" && s.BusinessStatus == status && s.OfflineAt == deadline {
-				return false, nil
-			}
-			s.DataStatus, s.BusinessStatus = "SILENT", status
-			s.OfflineAt = deadline
-			s.OfflineDetectedAt = now
-			s.StatusSource = "RAW_MESSAGE_TIMEOUT"
-			return true, nil
-		})
-		unlock()
-		if err == nil && written {
-			e.publishStateChange(ctx, before, after)
+		}
+		if len(states) < offlineScanBatch {
+			return nil
 		}
 	}
-	return nil
+	return ctx.Err()
 }
+
+const offlineScanBatch = 1000
 
 // ListCameraSummaries resolves the cameras associated with one device without
 // exposing stream URLs or vendor credentials. The relation is intentionally

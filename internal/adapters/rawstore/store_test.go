@@ -129,3 +129,18 @@ func TestStoreRejectsMissingDatabases(t *testing.T) {
 		t.Fatal("expected missing database error")
 	}
 }
+
+func TestFrequencyMapIsBounded(t *testing.T) {
+	s := New(Config{HighFrequencyIntervalSec: 60})
+	now := int64(10_000_000)
+	for i := 0; i <= pruneAbove; i++ {
+		s.last[fmt.Sprintf("t\x00old-%d", i)] = now - 3_600_000
+	}
+	s.mu.Lock()
+	s.last["t\x00recent"] = now - 1000
+	s.pruneLocked(now, 60)
+	s.mu.Unlock()
+	if len(s.last) != 1 || s.last["t\x00recent"] == 0 {
+		t.Fatalf("stale arrivals kept: %d entries", len(s.last))
+	}
+}

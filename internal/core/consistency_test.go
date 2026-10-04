@@ -82,8 +82,8 @@ type staleListRepo struct {
 	afterList func()
 }
 
-func (r *staleListRepo) ListDeviceStates(ctx context.Context, tenant string) ([]model.DeviceState, error) {
-	states, err := r.Repository.ListDeviceStates(ctx, tenant)
+func (r *staleListRepo) ListOfflineDue(ctx context.Context, now int64, limit int) ([]model.DeviceState, error) {
+	states, err := r.Repository.ListOfflineDue(ctx, now, limit)
 	r.afterList()
 	return states, err
 }

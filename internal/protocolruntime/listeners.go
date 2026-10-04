@@ -25,8 +25,9 @@ const (
 	listenerMaxBuffer = protocolworker.MaxFrameBytes
 	listenerMaxState  = 64 << 10
 	// DefaultListenerMaxSessions bounds concurrent devices per listener; one
-	// fire-alarm transmission device holds one session.
-	DefaultListenerMaxSessions = 1024
+	// fire-alarm transmission device holds one session. Each session holds
+	// one file descriptor, so the process limit (ulimit -n) must exceed it.
+	DefaultListenerMaxSessions = 20000
 	listenerIdle               = 2 * time.Minute
 	listenerFrameTimeout       = 30 * time.Second
 )

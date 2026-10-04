@@ -12,6 +12,9 @@ x-service-defaults: &service-defaults
 services:
   platform-api:
     <<: *service-defaults
+    # One file descriptor per TCP device session (IOT_PROTOCOL_LISTENER_MAX_SESSIONS).
+    ulimits:
+      nofile: {soft: 1048576, hard: 1048576}
     image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
     build:
       context: .
@@ -708,6 +711,11 @@ configs:
               for: 2m
               labels: {severity: warning}
               annotations: {summary: "MQTT 持久队列积压超过一万条"}
+            - alert: ProtocolListenerFull
+              expr: delta(protocol_listener_rejected_total[5m]) > 0
+              for: 0m
+              labels: {severity: critical}
+              annotations: {summary: "TCP/UDP 接入监听已满，新设备连接被拒绝，请调大 IOT_PROTOCOL_LISTENER_MAX_SESSIONS 或拆分接入网关"}
             - alert: ParseFailureSpike
               expr: increase(parse_failed_total[5m]) > 100
               for: 2m

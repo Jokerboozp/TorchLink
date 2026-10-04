@@ -417,7 +417,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
 | `IOT_CLUSTER_INSTANCES` | 1 | 共享限额存储（Redis）不可用时，各进程按“额度 ÷ 实例数”退化执行，避免总额度放大 |
 | `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与业务流（`processor` 组）积压超过该值时暂停接收新原文，0 关闭 |
-| `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 1024 | 每个 TCP / UDP 接入监听的会话上限 |
+| `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 20000 | 每个 TCP / UDP 接入监听的会话上限；每个会话占一个文件句柄，Compose 为平台进程设置 `nofile` 1048576，自行部署时须同样放开；拒绝新连接时计入 `protocol_listener_rejected_total` 并触发 `ProtocolListenerFull` 告警 |
 | `IOT_MQTT_DEVICE_TOKEN_TTL` | 24h | 标准设备 MQTT 令牌有效期，仅在配置 EMQX 管理 API 时生效，否则 5 分钟 |
 | `IOT_EMQX_MAX_MQUEUE_LEN` / `IOT_EMQX_MAX_INFLIGHT` | 100000 / 128 | EMQX 会话队列与在途窗口；队列满时 Broker 丢弃报文 |
 | `IOT_CLICKHOUSE_CLUSTER` / `IOT_CLICKHOUSE_INSERT_QUORUM` | 空 / 空 | 设置集群名后使用各分片 `*_local` 复制表与同名 `Distributed` 表，插入同步写入分片并按法定副本数确认（如 `2` 或 `auto`）；旧单节点表须先用 `cmd/clickhouse-migrate` 迁移，平台检测到未迁移时拒绝启动 |

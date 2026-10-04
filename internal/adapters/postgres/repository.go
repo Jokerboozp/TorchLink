@@ -742,7 +742,7 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 }
 func (r *Repository) UpsertDeviceState(ctx context.Context, v model.DeviceState) error {
 	b, _ := json.Marshal(v)
-	_, err := r.pool.Exec(ctx, `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT(tenant_id,device_id) DO UPDATE SET product_id=excluded.product_id,business_status=excluded.business_status,last_seen_at=excluded.last_seen_at,body=excluded.body,updated_at=now(),version=device_state.version+1`, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b)
+	_, err := r.pool.Exec(ctx, `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version,offline_check_at) VALUES($1,$2,$3,$4,$5,$6,1,$7) ON CONFLICT(tenant_id,device_id) DO UPDATE SET product_id=excluded.product_id,business_status=excluded.business_status,last_seen_at=excluded.last_seen_at,body=excluded.body,offline_check_at=excluded.offline_check_at,updated_at=now(),version=device_state.version+1`, v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b, v.OfflineCheckAt())
 	return err
 }
 
@@ -751,11 +751,11 @@ func (r *Repository) UpsertDeviceState(ctx context.Context, v model.DeviceState)
 func (r *Repository) UpsertDeviceStateIf(ctx context.Context, v model.DeviceState) (bool, error) {
 	b, _ := json.Marshal(v)
 	var sql string
-	args := []any{v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b}
+	args := []any{v.TenantID, v.DeviceID, v.ProductID, v.BusinessStatus, v.LastSeenAt, b, v.OfflineCheckAt()}
 	if v.Version == 0 {
-		sql = `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version) VALUES($1,$2,$3,$4,$5,$6,1) ON CONFLICT(tenant_id,device_id) DO NOTHING`
+		sql = `INSERT INTO device_state(tenant_id,device_id,product_id,business_status,last_seen_at,body,version,offline_check_at) VALUES($1,$2,$3,$4,$5,$6,1,$7) ON CONFLICT(tenant_id,device_id) DO NOTHING`
 	} else {
-		sql = `UPDATE device_state SET product_id=$3,business_status=$4,last_seen_at=$5,body=$6,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND device_id=$2 AND version=$7`
+		sql = `UPDATE device_state SET product_id=$3,business_status=$4,last_seen_at=$5,body=$6,offline_check_at=$7,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND device_id=$2 AND version=$8`
 		args = append(args, v.Version)
 	}
 	tag, err := r.pool.Exec(ctx, sql, args...)
@@ -794,6 +794,30 @@ func (r *Repository) ListDeviceStates(ctx context.Context, tenant string) ([]mod
 		if err := json.Unmarshal(b, &v); err != nil {
 			return nil, err
 		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+// ListOfflineDue reads only due states through the partial index on
+// offline_check_at, instead of every device of every tenant.
+func (r *Repository) ListOfflineDue(ctx context.Context, now int64, limit int) ([]model.DeviceState, error) {
+	rows, err := r.pool.Query(ctx, `SELECT body,version FROM device_state WHERE offline_check_at > 0 AND offline_check_at < $1 ORDER BY offline_check_at LIMIT $2`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.DeviceState{}
+	for rows.Next() {
+		var b []byte
+		var v model.DeviceState
+		var version int64
+		if err := rows.Scan(&b, &version); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(b, &v); err != nil {
+			return nil, err
+		}
+		v.Version = version
 		out = append(out, v)
 	}
 	return out, rows.Err()
