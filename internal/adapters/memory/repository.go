@@ -20,6 +20,7 @@ import (
 var ErrNotFound = model.ErrNotFound
 
 type Repository struct {
+	objectCleanups      []model.ObjectRef
 	externalData        map[string]externaldata.Entry
 	onboardingRecords   map[string]model.OnboardingRecord
 	opsItems            map[string]model.OpsUserItem
@@ -1346,6 +1347,7 @@ func cloneAlarm(v model.Alarm) model.Alarm {
 		d := *v.Disposition
 		v.Disposition = &d
 	}
+	v.Attachments = slices.Clone(v.Attachments)
 	return v
 }
 
@@ -1454,4 +1456,33 @@ func (r *Repository) EachAlarm(ctx context.Context, f ports.AlarmFilter, fn func
 		}
 	}
 	return nil
+}
+
+func (r *Repository) EnqueueObjectCleanup(_ context.Context, bucket, key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ref := model.ObjectRef{Bucket: bucket, Key: key}
+	if !slices.Contains(r.objectCleanups, ref) {
+		r.objectCleanups = append(r.objectCleanups, ref)
+	}
+	return nil
+}
+
+func (r *Repository) PendingObjectCleanups(_ context.Context, limit int) ([]model.ObjectRef, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return slices.Clone(r.objectCleanups[:min(limit, len(r.objectCleanups))]), nil
+}
+
+func (r *Repository) FinishObjectCleanup(_ context.Context, bucket, key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.objectCleanups = slices.DeleteFunc(r.objectCleanups, func(v model.ObjectRef) bool { return v == model.ObjectRef{Bucket: bucket, Key: key} })
+	return nil
+}
+
+func (r *Repository) AlarmBreakdown(ctx context.Context, f ports.AlarmFilter) (model.AlarmBreakdown, error) {
+	var alarms []model.Alarm
+	err := r.EachAlarm(ctx, f, func(a model.Alarm) error { alarms = append(alarms, a); return nil })
+	return model.BreakdownAlarms(alarms), err
 }

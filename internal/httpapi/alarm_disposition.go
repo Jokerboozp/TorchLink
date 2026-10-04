@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"iot-platform/internal/core"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
@@ -16,6 +17,7 @@ import (
 const (
 	alarmStatisticsPath = "/api/v1/alarms/statistics/disposition"
 	alarmExportPath     = "/api/v1/alarms/export"
+	alarmMonthlyPath    = "/api/v1/alarms/reports/monthly"
 	// alarmExportFlushRows is how often the export pushes rows to the client.
 	alarmExportFlushRows = 500
 )
@@ -24,6 +26,7 @@ func (s *Server) alarmDispositionRoutes() {
 	s.router.POST("/api/v1/alarms/:id/disposition", s.authorize("operator"), s.endpoint(s.verifyAlarm, "id"))
 	s.router.GET(alarmStatisticsPath, s.authorize("viewer"), s.endpoint(s.alarmStatistics))
 	s.router.GET(alarmExportPath, s.authorize("viewer"), s.endpoint(s.exportAlarms))
+	s.router.GET(alarmMonthlyPath, s.authorize("viewer"), s.endpoint(s.alarmMonthlyReport))
 }
 
 func (s *Server) verifyAlarm(w http.ResponseWriter, r *http.Request) {
@@ -93,9 +96,6 @@ func (s *Server) alarmStatistics(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, stats)
 }
 
-var dispositionNames = map[string]string{model.DispositionRealFire: "真实火警", model.DispositionFalseAlarm: "误报", model.DispositionTest: "测试", model.DispositionMaintenance: "检修", model.DispositionFault: "设备故障"}
-var alarmStatusNames = map[string]string{"ACTIVE": "活动", "ACKED": "已确认", "RECOVERED": "已恢复", "CLOSED": "已关闭", "SUPPRESSED": "已抑制"}
-
 // exportAlarms streams the alarms of the period as UTF-8 CSV with a BOM, so
 // spreadsheet software opens the Chinese text correctly. A failure after the
 // first row aborts the response, so the client sees an error instead of a
@@ -124,12 +124,9 @@ func (s *Server) exportAlarms(w http.ResponseWriter, r *http.Request) {
 		}
 		result, handler, verifiedAt, arrived, notes := "", "", "", "", ""
 		if d := a.Disposition; d != nil {
-			result, handler, verifiedAt, arrived, notes = dispositionNames[d.Result], d.Handler, at(d.VerifiedAt), at(d.ArrivedAt), d.Notes
+			result, handler, verifiedAt, arrived, notes = model.DispositionName(d.Result), d.Handler, at(d.VerifiedAt), at(d.ArrivedAt), d.Notes
 		}
-		status := alarmStatusNames[a.Status]
-		if status == "" {
-			status = a.Status
-		}
+		status := model.AlarmStatusName(a.Status)
 		rows++
 		if err := out.Write([]string{a.ID, a.DeviceID, a.DeviceName, a.AlarmType, a.AlarmLevel, status, a.Content, a.ComponentLocation, at(a.FirstTriggeredAt), at(a.LastTriggeredAt), strconv.Itoa(a.TriggerCount), at(a.AckedAt), at(a.RecoveredAt), at(a.ClosedAt), result, handler, verifiedAt, arrived, notes}); err != nil {
 			return err
@@ -153,4 +150,35 @@ func (s *Server) exportAlarms(w http.ResponseWriter, r *http.Request) {
 	}
 	out.Flush()
 	s.audit(r, "alarm.export", "alarm", "", map[string]any{"rows": rows})
+}
+
+// alarmMonthlyReport renders the PDF report of ?month=YYYY-MM (default: the
+// previous month, Beijing time) within the request's device scope.
+func (s *Server) alarmMonthlyReport(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().In(model.ReportZone)
+	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, model.ReportZone).AddDate(0, -1, 0)
+	if v := r.URL.Query().Get("month"); v != "" {
+		parsed, err := time.ParseInLocation("2006-01", v, model.ReportZone)
+		if err != nil || parsed.After(now) || parsed.Year() < 2000 {
+			problem(w, 400, "月份格式为 YYYY-MM，且不能晚于本月")
+			return
+		}
+		month = parsed
+	}
+	report, err := s.engine.AlarmMonthlyReport(r.Context(), claims(r).TenantID, month)
+	if err != nil {
+		s.log.Error("alarm monthly report failed", "error", err)
+		problem(w, 500, "读取告警失败")
+		return
+	}
+	pdf, err := core.RenderAlarmMonthlyPDF(report)
+	if err != nil {
+		problem(w, 500, "生成月报失败")
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="alarm-report-%s.pdf"`, report.Month))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(pdf)
+	s.audit(r, "alarm.monthly-report", "alarm", "", map[string]any{"month": report.Month, "alarms": report.Stats.Total})
 }

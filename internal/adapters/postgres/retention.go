@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"time"
 
 	"iot-platform/internal/model"
@@ -68,11 +69,26 @@ func (r *Repository) PurgeRange(ctx context.Context, table string, from, to time
 	for _, leaf := range leaves {
 		args[1] = int64(limit) - deleted
 		name := pgx.Identifier{leaf}.Sanitize()
-		tag, err := r.pool.Exec(ctx, `DELETE FROM `+name+` WHERE ctid = ANY(ARRAY(SELECT ctid FROM `+name+` WHERE `+where+` LIMIT $2))`, args...)
+		batch := `DELETE FROM ` + name + ` WHERE ctid = ANY(ARRAY(SELECT ctid FROM ` + name + ` WHERE ` + where + ` LIMIT $2))`
+		var n int64
+		if table == model.RetentionAlarms {
+			// Attachment files of purged alarms are queued for deletion in
+			// the same statement.
+			err = r.pool.QueryRow(ctx, `WITH d AS (`+batch+` RETURNING tenant_id, id, body->'attachments' AS att),
+q AS (INSERT INTO object_cleanup(bucket, object_key)
+  SELECT '`+model.AlarmAttachmentBucket+`', d.tenant_id || '/alarms/' || d.id || '/' || (a->>'id')
+  FROM d CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(d.att) = 'array' THEN d.att ELSE '[]'::jsonb END) a
+  ON CONFLICT DO NOTHING)
+SELECT count(*) FROM d`, args...).Scan(&n)
+		} else {
+			var tag pgconn.CommandTag
+			tag, err = r.pool.Exec(ctx, batch, args...)
+			n = tag.RowsAffected()
+		}
 		if err != nil {
 			return deleted, err
 		}
-		if deleted += tag.RowsAffected(); deleted >= int64(limit) {
+		if deleted += n; deleted >= int64(limit) {
 			break
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -108,4 +109,37 @@ func (r *Repository) EachAlarm(ctx context.Context, f ports.AlarmFilter, fn func
 			return nil
 		}
 	}
+}
+
+// AlarmBreakdown aggregates in the database; the result matches
+// model.BreakdownAlarms. Days are counted in model.ReportZone.
+func (r *Repository) AlarmBreakdown(ctx context.Context, f ports.AlarmFilter) (model.AlarmBreakdown, error) {
+	where, args := alarmFilterSQL(f)
+	_, offset := time.Now().In(model.ReportZone).Zone()
+	args = append(args, int64(offset)*1000, model.TopAlarmDevices)
+	shift, top := len(args)-1, len(args)
+	query := fmt.Sprintf(`WITH a AS (
+  SELECT device_id, level, status, coalesce(body->>'alarmType', '') AS alarm_type, body->>'deviceName' AS device_name, last_triggered_at, id,
+    to_char(to_timestamp((last_triggered_at + $%[2]d) / 1000.0) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+  FROM alarm_record%[1]s
+)
+SELECT
+  coalesce((SELECT jsonb_object_agg(level, n) FROM (SELECT level, count(*) AS n FROM a GROUP BY level) x), '{}'),
+  coalesce((SELECT jsonb_object_agg(alarm_type, n) FROM (SELECT alarm_type, count(*) AS n FROM a GROUP BY alarm_type) x), '{}'),
+  coalesce((SELECT jsonb_object_agg(status, n) FROM (SELECT status, count(*) AS n FROM a GROUP BY status) x), '{}'),
+  coalesce((SELECT jsonb_agg(jsonb_build_object('day', day, 'count', n) ORDER BY day) FROM (SELECT day, count(*) AS n FROM a GROUP BY day) x), '[]'),
+  coalesce((SELECT jsonb_agg(jsonb_build_object('deviceId', device_id, 'deviceName', coalesce(device_name, ''), 'falseAlarms', 0, 'alarms', n) ORDER BY n DESC, device_id)
+    FROM (SELECT device_id, (array_agg(device_name ORDER BY last_triggered_at DESC, id DESC))[1] AS device_name, count(*) AS n
+      FROM a GROUP BY device_id ORDER BY n DESC, device_id LIMIT $%[3]d) x), '[]')`, where, shift, top)
+	var out model.AlarmBreakdown
+	var levels, types, statuses, days, devices []byte
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&levels, &types, &statuses, &days, &devices); err != nil {
+		return out, err
+	}
+	for target, raw := range map[any][]byte{&out.ByLevel: levels, &out.ByType: types, &out.ByStatus: statuses, &out.ByDay: days, &out.TopDevices: devices} {
+		if err := json.Unmarshal(raw, target); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }

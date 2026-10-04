@@ -271,16 +271,6 @@ func truncate(v string, n int) string {
 	return v[:n]
 }
 
-var levelNames = map[string]string{"CRITICAL": "紧急", "HIGH": "高", "MEDIUM": "中", "LOW": "低", "INFO": "提示"}
-var typeNames = map[string]string{"FIRE_RISK": "火灾风险", "FIRE": "火灾告警", "SMOKE_DETECTED": "检测到烟雾", "FLAME_DETECTED": "检测到火焰", "HIGH_TEMPERATURE": "温度过高", "DEVICE_FAULT": "设备故障", "DEVICE_OFFLINE": "设备离线", "WATER_PRESSURE_LOW": "水压过低", "WATER_LEVEL_ABNORMAL": "水位异常", "ELECTRICAL_FIRE": "电气火灾", "GAS_LEAK": "可燃气体泄漏", "MANUAL_ALARM": "手动报警"}
-
-func label(names map[string]string, v string) string {
-	if name := names[strings.ToUpper(v)]; name != "" {
-		return name
-	}
-	return v
-}
-
 // render builds the message and resolves the stage's recipients.
 func (s *Service) render(ctx context.Context, a model.Alarm, p Policy, stage Stage, t Task) (Message, []string, error) {
 	contacts := []Contact{}
@@ -323,9 +313,9 @@ func (s *Service) render(ctx context.Context, a model.Alarm, p Policy, stage Sta
 	if device == "" {
 		device = a.DeviceID
 	}
-	head := "【" + label(levelNames, a.AlarmLevel) + "】" + label(typeNames, a.AlarmType)
+	head := "【" + model.AlarmLevelName(a.AlarmLevel) + "】" + model.AlarmTypeName(a.AlarmType)
 	if t.Kind == KindRecovery {
-		head = "【已恢复】" + label(typeNames, a.AlarmType)
+		head = "【已恢复】" + model.AlarmTypeName(a.AlarmType)
 	}
 	lines := []string{"设备：" + device}
 	if a.Content != "" {

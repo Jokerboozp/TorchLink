@@ -840,3 +840,47 @@ func TestHotPathSkipsRedundantLookups(t *testing.T) {
 		t.Fatalf("conflicting retransmission: %v", err)
 	}
 }
+
+type flakyDeleter struct {
+	*local.Archive
+	fail bool
+}
+
+func (a *flakyDeleter) DeleteObject(ctx context.Context, bucket, key string) error {
+	if a.fail {
+		return errors.New("object storage unavailable")
+	}
+	return a.Archive.DeleteObject(ctx, bucket, key)
+}
+
+// A file whose delete fails stays queued until the cleanup job removes it.
+func TestDeleteObjectLaterQueuesFailedDeletes(t *testing.T) {
+	ctx := context.Background()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &flakyDeleter{Archive: archive, fail: true}
+	repo := memory.NewRepository()
+	e := New(repo, store, local.NewBus(), local.NewRealtime(), nil, nil)
+	if _, err = archive.PutObject(ctx, "b", "k", strings.NewReader("x"), 1, "text/plain"); err != nil {
+		t.Fatal(err)
+	}
+	e.DeleteObjectLater(ctx, "b", "k")
+	if err = e.CleanupObjectsOnce(ctx); err == nil {
+		t.Fatal("a failing delete must be reported")
+	}
+	if refs, _ := repo.PendingObjectCleanups(ctx, 10); len(refs) != 1 {
+		t.Fatalf("failed delete not queued: %+v", refs)
+	}
+	store.fail = false
+	if err = e.CleanupObjectsOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if refs, _ := repo.PendingObjectCleanups(ctx, 10); len(refs) != 0 {
+		t.Fatalf("cleanup left %+v", refs)
+	}
+	if _, err = archive.GetObject(ctx, "b", "k"); err == nil {
+		t.Fatal("file not deleted")
+	}
+}

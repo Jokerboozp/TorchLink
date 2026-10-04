@@ -235,6 +235,7 @@ func (s *Server) routes() {
 	s.router.PUT("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.saveRule, "id"))
 	s.router.DELETE("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.deleteRule, "id"))
 	s.alarmDispositionRoutes()
+	s.alarmAttachmentRoutes()
 	s.siteRoutes()
 	s.router.GET("/api/v1/alarms", s.authorize("viewer"), s.endpoint(s.alarms))
 	s.router.GET("/api/v1/alarms/:id", s.authorize("viewer"), s.endpoint(s.alarm, "id"))

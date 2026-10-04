@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1382,3 +1383,87 @@ func id(prefix string) string {
 	return prefix + "_" + hex.EncodeToString(b)
 }
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+
+// AddAlarmAttachment records an uploaded attachment, whose ID comes from
+// NewAlarmAttachmentID, on an alarm that is not closed yet.
+func (e *Engine) AddAlarmAttachment(ctx context.Context, tenant, alarmID string, att model.AlarmAttachment, actor string) (model.Alarm, error) {
+	att.UploadedBy, att.UploadedAt = actor, e.Clock.Now().UnixMilli()
+	return e.changeAttachments(ctx, tenant, alarmID, actor, "alarm.attachment.add", att, func(a *model.Alarm) error {
+		if len(a.Attachments) >= model.MaxAlarmAttachments {
+			return model.ErrTooManyAttachments
+		}
+		a.Attachments = append(a.Attachments, att)
+		return nil
+	})
+}
+
+// NewAlarmAttachmentID reserves the identity of an attachment before its
+// file is stored, so the object key is known up front.
+func NewAlarmAttachmentID() string { return id("att") }
+
+// RemoveAlarmAttachment drops an attachment from an alarm that is not closed
+// yet and returns it, so the caller can delete the file.
+func (e *Engine) RemoveAlarmAttachment(ctx context.Context, tenant, alarmID, attachmentID, actor string) (model.AlarmAttachment, error) {
+	var removed model.AlarmAttachment
+	_, err := e.changeAttachments(ctx, tenant, alarmID, actor, "alarm.attachment.remove", model.AlarmAttachment{ID: attachmentID}, func(a *model.Alarm) error {
+		index := slices.IndexFunc(a.Attachments, func(v model.AlarmAttachment) bool { return v.ID == attachmentID })
+		if index < 0 {
+			return model.ErrAttachmentNotFound
+		}
+		removed = a.Attachments[index]
+		a.Attachments = slices.Delete(slices.Clone(a.Attachments), index, index+1)
+		return nil
+	})
+	return removed, err
+}
+
+func (e *Engine) changeAttachments(ctx context.Context, tenant, alarmID, actor, action string, att model.AlarmAttachment, change func(*model.Alarm) error) (model.Alarm, error) {
+	a, _, err := e.mutateAlarm(ctx, tenant, alarmID, func(a *model.Alarm) (bool, error) {
+		if a.Status == "CLOSED" {
+			return false, model.ErrAlarmClosed
+		}
+		return true, change(a)
+	})
+	if err != nil {
+		return a, err
+	}
+	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: action, TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"attachmentId": att.ID, "name": att.Name, "size": att.Size}, CreatedAt: e.Clock.Now().UnixMilli()})
+	return a, nil
+}
+
+// objectCleanupBatch is how many queued files one cleanup pass deletes.
+const objectCleanupBatch = 200
+
+// DeleteObjectLater deletes a file whose record is gone; when the delete
+// fails the file is queued for CleanupObjectsOnce.
+func (e *Engine) DeleteObjectLater(ctx context.Context, bucket, key string) {
+	if deleter, ok := e.Archive.(ports.ObjectDeleter); ok && deleter.DeleteObject(ctx, bucket, key) == nil {
+		return
+	}
+	if err := e.Repo.EnqueueObjectCleanup(context.WithoutCancel(ctx), bucket, key); err != nil && e.Log != nil {
+		e.Log.Warn("queue object cleanup failed", "bucket", bucket, "key", key, "error", err)
+	}
+}
+
+// CleanupObjectsOnce deletes queued files; it runs as a Jobs singleton.
+func (e *Engine) CleanupObjectsOnce(ctx context.Context) error {
+	deleter, ok := e.Archive.(ports.ObjectDeleter)
+	if !ok {
+		return nil
+	}
+	refs, err := e.Repo.PendingObjectCleanups(ctx, objectCleanupBatch)
+	if err != nil {
+		return err
+	}
+	var failed error
+	for _, ref := range refs {
+		if err = deleter.DeleteObject(ctx, ref.Bucket, ref.Key); err != nil {
+			failed = err
+			continue
+		}
+		if err = e.Repo.FinishObjectCleanup(ctx, ref.Bucket, ref.Key); err != nil {
+			return err
+		}
+	}
+	return failed
+}

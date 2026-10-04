@@ -27,10 +27,19 @@ type AlarmFilter struct {
 	DeviceIDs []string
 }
 
+// ObjectCleanupStore queues object storage files whose records are gone,
+// so a Jobs task deletes them even when the first delete failed.
+type ObjectCleanupStore interface {
+	EnqueueObjectCleanup(ctx context.Context, bucket, key string) error
+	PendingObjectCleanups(ctx context.Context, limit int) ([]model.ObjectRef, error)
+	FinishObjectCleanup(ctx context.Context, bucket, key string) error
+}
+
 // AlarmReportStore aggregates and streams alarms for statistics and exports
 // without a row limit.
 type AlarmReportStore interface {
 	AlarmDispositionStats(context.Context, AlarmFilter) (model.AlarmDispositionStats, error)
+	AlarmBreakdown(context.Context, AlarmFilter) (model.AlarmBreakdown, error)
 	// EachAlarm calls fn for every matching alarm, newest first, reading in
 	// batches; Limit and Offset are ignored. An error from fn stops the scan.
 	EachAlarm(context.Context, AlarmFilter, func(model.Alarm) error) error
@@ -45,6 +54,7 @@ type Repository interface {
 	FireSafetyStore
 	SiteStore
 	AlarmReportStore
+	ObjectCleanupStore
 	OnboardingStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)

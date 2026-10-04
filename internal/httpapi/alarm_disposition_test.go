@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -92,6 +93,30 @@ func TestAlarmVerificationStatisticsAndExport(t *testing.T) {
 	}
 	if code, text := exportCSV(t, srv, other); code != 200 || strings.Count(text, "\n") != 2 || !strings.Contains(text, "fault-1") {
 		t.Fatalf("scoped export %d %q", code, text)
+	}
+
+	// The monthly PDF report needs its own permission.
+	month := time.Now().In(model.ReportZone).Format("2006-01")
+	monthly := func(token, query string) (int, []byte) {
+		t.Helper()
+		r, _ := http.NewRequest("GET", srv.URL+alarmMonthlyPath+query, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		resp, err := srv.Client().Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, body
+	}
+	if code, pdf := monthly(root, "?month="+month); code != 200 || !bytes.HasPrefix(pdf, []byte("%PDF-1.")) || !bytes.HasSuffix(bytes.TrimSpace(pdf), []byte("%%EOF")) {
+		t.Fatalf("monthly report %d %q", code, pdf[:min(len(pdf), 40)])
+	}
+	if code, _ := monthly(root, "?month=2999-01"); code != 400 {
+		t.Fatalf("future month accepted: %d", code)
+	}
+	if code, _ := monthly(other, ""); code != 403 {
+		t.Fatalf("monthly report without permission: %d", code)
 	}
 }
 

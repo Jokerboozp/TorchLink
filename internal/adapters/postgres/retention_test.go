@@ -35,7 +35,7 @@ func TestPurgeRangeKeepsGuardedRows(t *testing.T) {
 		id, status string
 		at         time.Time
 	}{{"closed-old", "CLOSED", old}, {"active-old", "ACTIVE", old}, {"closed-new", "CLOSED", recent}} {
-		exec(`INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body) VALUES('t',$1,$1,'d',$2,'HIGH','iot',$3,'{}')`, row.id, row.status, row.at.UnixMilli())
+		exec(`INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body) VALUES('t',$1,$1,'d',$2,'HIGH','iot',$3,'{"attachments":[{"id":"att_1"},{"id":"att_2"}]}')`, row.id, row.status, row.at.UnixMilli())
 	}
 	exec(`INSERT INTO raw_archive_index(tenant_id,product_id,device_id,message_id,object_bucket,object_key,payload_hash,payload_size,received_at,archived_at,published_at) VALUES
   ('t','p','d','published','postgres','k','h',1,$1,$1,$1),('t','p','d','unpublished','postgres','k','h',1,$1,$1,0)`, old.UnixMilli())
@@ -65,6 +65,17 @@ func TestPurgeRangeKeepsGuardedRows(t *testing.T) {
 	}
 	if count(`SELECT count(*) FROM alarm_record WHERE id IN ('active-old','closed-new')`) != 2 {
 		t.Fatal("active or recent alarms were purged")
+	}
+	// Only the purged alarm's attachment files are queued for deletion.
+	refs, err := r.PendingObjectCleanups(ctx, 10)
+	if err != nil || len(refs) != 2 || refs[0].Bucket != model.AlarmAttachmentBucket || refs[0].Key != model.AlarmAttachmentKey("t", "closed-old", "att_1") && refs[1].Key != model.AlarmAttachmentKey("t", "closed-old", "att_1") {
+		t.Fatalf("queued attachment files %+v %v", refs, err)
+	}
+	if err = r.FinishObjectCleanup(ctx, refs[0].Bucket, refs[0].Key); err != nil {
+		t.Fatal(err)
+	}
+	if refs, _ = r.PendingObjectCleanups(ctx, 10); len(refs) != 1 {
+		t.Fatalf("finished cleanup still queued: %+v", refs)
 	}
 	if count(`SELECT count(*) FROM raw_archive_index WHERE message_id='unpublished'`) != 1 {
 		t.Fatal("unpublished raw messages must be kept for the publish retry")

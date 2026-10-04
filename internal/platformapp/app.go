@@ -612,6 +612,7 @@ func Run(forcedRole string) {
 	}
 	if cfg.Runs(config.ComponentJobs) {
 		engine.RunSingleton(ctx, "credential-revocation", 30*time.Second, api.RetryCredentialRevocationsOnce)
+		engine.RunSingleton(ctx, "object-cleanup", 10*time.Minute, engine.CleanupObjectsOnce)
 		engine.RunSingleton(ctx, "message-topic-revocation", 30*time.Second, api.RetryMessageTopicRevocationsOnce)
 		queryScheduler := messagetopics.NewQueryScheduler(engine.MessageTopics)
 		engine.RunSingleton(ctx, "message-topic-queries", 5*time.Second, func(runCtx context.Context) error {

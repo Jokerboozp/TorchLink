@@ -529,3 +529,10 @@ CREATE TABLE IF NOT EXISTS message_topic_configs (
  revision bigint NOT NULL DEFAULT 1 CHECK (revision > 0),
  body jsonb NOT NULL
 );
+-- Object storage files whose records are gone; a Jobs task deletes them.
+CREATE TABLE IF NOT EXISTS object_cleanup (
+ bucket text NOT NULL,
+ object_key text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (bucket, object_key)
+);

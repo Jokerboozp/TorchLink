@@ -89,5 +89,10 @@ func (a *Archive) GetObject(ctx context.Context, bucket, key string) (io.ReadClo
 }
 func (a *Archive) Health(ctx context.Context) error { _, err := a.client.ListBuckets(ctx); return err }
 func (a *Archive) DeleteObject(ctx context.Context, bucket, key string) error {
-	return a.client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{})
+	err := a.client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{})
+	// A bucket that was never created holds nothing to delete.
+	if code := minio.ToErrorResponse(err).Code; code == "NoSuchBucket" || code == "NoSuchKey" {
+		return nil
+	}
+	return err
 }

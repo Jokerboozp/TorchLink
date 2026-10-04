@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
@@ -17,11 +18,13 @@ func AlarmReports(t *testing.T, repo ports.Repository) {
 	t.Helper()
 	ctx := context.Background()
 	const n = 1205
+	// Every ten alarms share a timestamp; the alarms span about two weeks so
+	// days are counted in the report time zone.
+	base, step := time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC).UnixMilli(), int64(3*time.Hour/time.Millisecond)
 	for i := range n {
 		a := model.Alarm{ID: fmt.Sprintf("a%04d", i), TenantID: "report", DeviceID: fmt.Sprintf("d%d", i%7), DeviceName: fmt.Sprintf("设备%d", i%7), RuleID: fmt.Sprintf("r%d", i),
 			AlarmType: []string{"FIRE", "DEVICE_FAULT", "SMOKE_DETECTED"}[i%3], AlarmLevel: []string{"HIGH", "CRITICAL", "LOW"}[i%3/2+i%2], Status: "CLOSED",
-			// Every ten alarms share a timestamp.
-			FirstTriggeredAt: int64(1000 + i/10*100), LastTriggeredAt: int64(1000 + i/10*100), TriggerCount: 1}
+			FirstTriggeredAt: base + int64(i/10)*step, LastTriggeredAt: base + int64(i/10)*step, TriggerCount: 1}
 		if i%4 == 0 {
 			a.AckedAt = a.FirstTriggeredAt + int64(i%50)*1000
 		}
@@ -33,11 +36,11 @@ func AlarmReports(t *testing.T, repo ports.Repository) {
 			t.Fatal(err)
 		}
 	}
-	other := model.Alarm{ID: "x", TenantID: "other", DeviceID: "d0", RuleID: "r", AlarmType: "FIRE", AlarmLevel: "HIGH", Status: "ACTIVE", FirstTriggeredAt: 5000, LastTriggeredAt: 5000, TriggerCount: 1}
+	other := model.Alarm{ID: "x", TenantID: "other", DeviceID: "d0", RuleID: "r", AlarmType: "FIRE", AlarmLevel: "HIGH", Status: "ACTIVE", FirstTriggeredAt: base, LastTriggeredAt: base, TriggerCount: 1}
 	if _, _, err := repo.UpsertAlarm(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	filter := ports.AlarmFilter{TenantID: "report", Start: 1, End: 1_000_000}
+	filter := ports.AlarmFilter{TenantID: "report", Start: base, End: base + n*step}
 	var seen []model.Alarm
 	ids := map[string]bool{}
 	if err := repo.EachAlarm(ctx, filter, func(a model.Alarm) error {
@@ -69,13 +72,26 @@ func AlarmReports(t *testing.T, repo ports.Repository) {
 	if got.Total != n || got.Verified == 0 || got.Unverified == 0 || got.Acknowledge.Count == 0 || len(got.TopFalseAlarmDevices) == 0 {
 		t.Fatalf("fixture does not exercise the statistics: %+v", got)
 	}
+	breakdown, err := repo.AlarmBreakdown(ctx, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := model.BreakdownAlarms(seen); !reflect.DeepEqual(breakdown, want) {
+		t.Fatalf("breakdown\n got %+v\nwant %+v", breakdown, want)
+	}
+	if len(breakdown.ByDay) < 10 || breakdown.ByDay[0].Day != "2026-09-02" {
+		t.Fatalf("days are not counted in the report zone: %+v", breakdown.ByDay)
+	}
 	// Device and period filters apply.
-	scoped, err := repo.AlarmDispositionStats(ctx, ports.AlarmFilter{TenantID: "report", DeviceIDs: []string{"d1"}, Start: 1000, End: 1500})
+	scoped, err := repo.AlarmDispositionStats(ctx, ports.AlarmFilter{TenantID: "report", DeviceIDs: []string{"d1"}, Start: base, End: base + 5*step})
 	if err != nil || scoped.Total != 9 {
 		t.Fatalf("filtered statistics %+v %v", scoped, err)
 	}
 	empty, err := repo.AlarmDispositionStats(ctx, ports.AlarmFilter{TenantID: "none"})
 	if err != nil || !reflect.DeepEqual(empty, model.SummarizeAlarms(nil)) {
 		t.Fatalf("empty statistics %+v %v", empty, err)
+	}
+	if empty, err := repo.AlarmBreakdown(ctx, ports.AlarmFilter{TenantID: "none"}); err != nil || !reflect.DeepEqual(empty, model.BreakdownAlarms(nil)) {
+		t.Fatalf("empty breakdown %+v %v", empty, err)
 	}
 }

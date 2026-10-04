@@ -33,6 +33,8 @@
 - **关闭前必须核实**：等级为紧急（`CRITICAL`）或类型属于火灾类（`FIRE`、`FIRE_RISK`、`SMOKE_DETECTED`、`FLAME_DETECTED`、`ELECTRICAL_FIRE`、`MANUAL_ALARM`、`GAS_LEAK`）的告警，没有核实结论时关闭返回 422；判定见 `model.Alarm.RequiresVerification`，前端在 `labels.js` 中保持同一规则。其他告警可直接关闭。
 - **统计**：`GET /api/v1/alarms/statistics/disposition` 统计最后发生时间落在区间内的告警（默认近 30 天，可传 `start`、`end` 毫秒时间戳及 `status`、`level`、`deviceId`），返回各结论数量、误报率（误报 / 已核实）、待核实火警数、确认与核实用时的平均值和 90 分位、误报最多的 10 台设备。统计在数据库中聚合，不限条数。告警中心顶部显示这些指标。
 - **导出**：`GET /api/v1/alarms/export` 以相同条件导出 CSV（UTF-8 BOM，表格软件可直接打开），包含状态时间线和核实信息；按批读取并边读边写，不限条数；中途读取失败时连接被中断，客户端得到下载失败而不是缺行的文件。导出需要“导出告警”权限并写入审计 `alarm.export`。
+- **附件**：告警详情的“附件”可上传现场照片（PNG、JPEG）、处置文档（PDF）和短视频（MP4），按文件内容判定类型，每条告警最多 10 个、单个不超过 20 MiB。文件存对象存储 `iot-alarm-attachments` 桶（键为 `租户/alarms/告警编号/附件编号`），告警正文只记名称、大小、SHA-256、上传人和时间。上传（`POST /api/v1/alarms/:id/attachments`）与删除需要对应权限并受设备范围约束，告警关闭后附件只读；下载按告警读取权限校验，只有图片可 `?inline=1` 内联查看。删除时文件删除失败、或保留任务清理过期告警时，文件进入 `object_cleanup` 队列，由 Jobs 任务 `object-cleanup` 每 10 分钟重试删除。
+- **月报**：`GET /api/v1/alarms/reports/monthly?month=YYYY-MM`（默认上一个月）生成 PDF，期间按北京时间整月、按告警最后发生时间计；内容为月度概览（总数、真实火警、待核实火警、误报率、确认与核实用时）、每日告警柱状图、等级 / 状态 / 类型 / 核实结论分布、告警最多与误报最多的设备，以及逐条列出的真实火警与待核实火警（最多 200 条，其余提示改用 CSV 导出）。统计在数据库聚合，受设备范围约束；需要“下载告警月报”权限并写入审计 `alarm.monthly-report`。告警中心工具栏可选择月份下载。
 
 ## 消防管理
 

@@ -8,7 +8,7 @@ import { confirmDelete } from '../deleteAction'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
 import { alarmNavigation, alarmQuery } from '../alarmNavigation'
 import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, dispositionResults, label, requiresVerification, tagType } from '../labels'
-import { Download, RefreshCw } from '@lucide/vue'
+import { Download, FileText, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
@@ -17,6 +17,7 @@ import LinkedCameras from '../components/LinkedCameras.vue'
 import AlarmNotifications from '../components/AlarmNotifications.vue'
 import AlarmMediaPanel from '../components/AlarmMediaPanel.vue'
 import AlarmDisposition from '../components/AlarmDisposition.vue'
+import AlarmAttachments from '../components/AlarmAttachments.vue'
 import AlarmLocation from '../components/AlarmLocation.vue'
 
 const filters = reactive({ status:'', level:'', deviceId:'' })
@@ -60,6 +61,9 @@ async function load(resetPage = false) {
 // 近 30 天核实统计，与列表使用同一组筛选条件。
 const statistics = ref(null)
 const exporting = ref(false)
+const reporting = ref(false)
+// 月报默认上一个月（北京时间）。
+const reportMonth = ref((() => { const d = new Date(Date.now() + 8 * 3600_000); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7) })())
 function reportQuery() {
   const q = new URLSearchParams()
   for (const key of ['status', 'level', 'deviceId']) if (filters[key]) q.set(key, filters[key])
@@ -76,6 +80,11 @@ const formatDuration = ms => {
   if (!ms) return '—'
   if (minutes < 1) return '不足 1 分钟'
   return minutes < 60 ? `${minutes} 分钟` : `${(minutes / 60).toFixed(1)} 小时`
+}
+async function downloadMonthly() {
+  if (!reportMonth.value) return
+  reporting.value = true
+  try { await download('/api/v1/alarms/reports/monthly?month=' + encodeURIComponent(reportMonth.value), `告警月报-${reportMonth.value}.pdf`) } catch (e) { notifyError(e) } finally { reporting.value = false }
 }
 async function exportAlarms() {
   exporting.value = true
@@ -273,7 +282,7 @@ function rowActions(row) {
     <ui-select v-model="filters.status" clearable placeholder="全部状态" aria-label="告警状态" @change="load(true)"><ui-option v-for="(text,key) in alarmStatuses" :key="key" :label="text" :value="key" /></ui-select>
     <ui-select v-model="filters.level" clearable placeholder="全部等级" aria-label="告警等级" @change="load(true)"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select>
     <ui-button v-if="filtered" text @click="resetFilters">重置筛选</ui-button>
-    <template #actions><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
+    <template #actions><span v-permission="'GET /api/v1/alarms/reports/monthly'" class="monthly-report"><input v-model="reportMonth" type="month" aria-label="月报月份" /><ui-button :loading="reporting" :disabled="!reportMonth" @click="downloadMonthly"><FileText />下载月报</ui-button></span><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
   </FilterBar>
   <div v-if="statistics" class="alarm-stats" aria-label="近 30 天核实统计">
     <div><span>近 30 天告警</span><strong>{{ statistics.total }}</strong></div>
@@ -306,6 +315,7 @@ function rowActions(row) {
     </ui-card>
     <AlarmLocation v-if="detailVisible && detail" :alarm="detail" />
     <AlarmDisposition v-if="detailVisible && detail" :alarm="detail" @updated="dispositionUpdated" />
+    <AlarmAttachments v-if="detailVisible && detail" :alarm="detail" @updated="dispositionUpdated" />
     <AlarmMediaPanel v-if="detailVisible && detail" :alarm="detail" @refresh="refreshMediaDetail" />
     <AlarmNotifications v-if="detailVisible && detail" :alarm-id="detail.alarmId" />
     <ui-card shadow="never" class="top-gap">
@@ -325,6 +335,8 @@ function rowActions(row) {
 </template>
 
 <style scoped>
+.monthly-report { display: inline-flex; gap: var(--space-2); align-items: center; }
+.monthly-report input { height: 32px; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text-strong); }
 .alarm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
 .alarm-stats > div { display: grid; gap: 2px; padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .alarm-stats span, .alarm-stats small { color: var(--text-muted); font-size: 12px; }

@@ -658,6 +658,8 @@ type Alarm struct {
 	// Location is the site position of the device or component when the
 	// alarm was raised.
 	Location *AlarmLocation `json:"location,omitempty"`
+	// Attachments are photos and documents added while handling the alarm.
+	Attachments []AlarmAttachment `json:"attachments,omitempty"`
 }
 
 // Verification results of an alarm.

@@ -301,6 +301,15 @@ func (r *deviceScopeRepository) AlarmDispositionStats(ctx context.Context, f por
 	}
 	return r.Repository.AlarmDispositionStats(ctx, f)
 }
+func (r *deviceScopeRepository) AlarmBreakdown(ctx context.Context, f ports.AlarmFilter) (model.AlarmBreakdown, error) {
+	if limited(ctx) {
+		var ok bool
+		if f.DeviceIDs, ok = r.scopedDevices(ctx, f.TenantID, f.DeviceID, f.DeviceIDs); !ok {
+			return model.BreakdownAlarms(nil), nil
+		}
+	}
+	return r.Repository.AlarmBreakdown(ctx, f)
+}
 func (r *deviceScopeRepository) EachAlarm(ctx context.Context, f ports.AlarmFilter, fn func(model.Alarm) error) error {
 	if limited(ctx) {
 		var ok bool

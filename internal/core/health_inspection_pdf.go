@@ -56,7 +56,12 @@ func RenderHealthInspectionPDF(report model.DeviceHealthReport) ([]byte, error) 
 	for index := range pages {
 		pages[index].footer(index+1, len(pages))
 	}
+	return renderCanvasPDF(pages, "Health Inspection Report")
+}
 
+// renderCanvasPDF writes A4 pages drawn with the STSong-Light CJK font (F1)
+// and Helvetica (F2, bold F3).
+func renderCanvasPDF(pages []*inspectionPDFCanvas, title string) ([]byte, error) {
 	doc := &pdfDocument{}
 	fontCID := doc.add(`<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /DW 1000 >>`)
 	fontCJK := doc.add(fmt.Sprintf(`<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [%d 0 R] >>`, fontCID))
@@ -64,7 +69,7 @@ func RenderHealthInspectionPDF(report model.DeviceHealthReport) ([]byte, error) 
 	fontLatinBold := doc.add(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`)
 	pageTree := doc.add("")
 	catalog := doc.add("")
-	info := doc.add(`<< /Title (Health Inspection Report) /Author (iot-platform) /Producer (iot-platform) >>`)
+	info := doc.add(fmt.Sprintf(`<< /Title (%s) /Author (iot-platform) /Producer (iot-platform) >>`, inspectionPDFTextLiteral(title)))
 
 	pageIDs := make([]int, 0, len(pages))
 	for _, page := range pages {

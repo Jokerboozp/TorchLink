@@ -85,6 +85,12 @@ func routeAction(method, path string) string {
 		return "填写告警核实结论"
 	case "GET " + alarmExportPath:
 		return "导出告警"
+	case "GET " + alarmMonthlyPath:
+		return "下载告警月报"
+	case "POST " + alarmAttachmentPath:
+		return "上传告警附件"
+	case "DELETE " + alarmAttachmentPath + "/:attachmentId":
+		return "删除告警附件"
 	case "POST /api/v1/alarms/:id/media/retry":
 		return "重试告警媒体归档"
 	case "PUT /api/v1/message-topics/:id":
@@ -187,7 +193,7 @@ func protectedRead(path string) bool {
 	if path == "/api/v1/ai/runs" {
 		return true
 	}
-	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report" || path == deadLettersPath || path == alarmExportPath
+	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report" || path == deadLettersPath || path == alarmExportPath || path == alarmMonthlyPath
 }
 func (s *Server) permissionCatalog() []permissionItem {
 	items := []permissionItem{}
