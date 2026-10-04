@@ -22,7 +22,9 @@ const (
 	WorkflowProtocolAssist   = "protocol-assistant"
 	WorkflowRuleDraft        = "rule-drafter"
 
-	businessRunTokenTTL = 5 * time.Minute
+	// defaultBusinessRunTimeout applies when the engine sets none; business
+	// runs produce longer outputs than interactive chat.
+	defaultBusinessRunTimeout = 4 * time.Minute
 )
 
 // ErrAIWorkflowsUnavailable is returned when the required Harness is missing.
@@ -149,7 +151,12 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 		}
 		identity, _ = ports.AIRunIdentityFrom(ctx)
 	}
-	token, err := e.HarnessTokens.IssueBusinessRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, businessRunTokenTTL)
+	timeout := e.BusinessRunTimeout
+	if timeout <= 0 {
+		timeout = defaultBusinessRunTimeout
+	}
+	// The MCP credential must outlive waiting for a Harness slot and the run.
+	token, err := e.HarnessTokens.IssueBusinessRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, businessRunCapacityWait+timeout+time.Minute)
 	if err != nil {
 		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("签发 AI 工作流凭据失败：%w", err)
 	}
@@ -160,7 +167,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 			prompt += "\n\n[平台知识策略] 本次运行未授权知识库，不得调用知识库工具。"
 		}
 	}
-	request := ports.AIWorkflowRequest{TenantID: tenantID, Actor: identity.Username, RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token}
+	request := ports.AIWorkflowRequest{TenantID: tenantID, Actor: identity.Username, RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token, OneShot: true, Timeout: timeout}
 	if err := ValidateAIInput(prompt, 30<<10); err != nil {
 		return ports.AIWorkflowResult{RunID: runID}, err
 	}

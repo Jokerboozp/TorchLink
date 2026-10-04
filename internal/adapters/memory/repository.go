@@ -58,6 +58,7 @@ type Repository struct {
 	audits              []model.AuditLog
 	aiToolCalls         []model.AIToolCallLog
 	aiProviderConfig    *ports.AIPluginConfig
+	aiWorkflowManifests map[string]ports.StoredAIWorkflowManifest
 	products            map[string]model.Product
 	protocols           map[string]model.ProtocolPackage
 	protocolDefinitions map[string]model.ProtocolDefinition
@@ -1299,6 +1300,27 @@ func (r *Repository) SaveAIProviderConfig(_ context.Context, v ports.AIPluginCon
 	defer r.mu.Unlock()
 	copy := v
 	r.aiProviderConfig = &copy
+	return nil
+}
+func (r *Repository) ListAIWorkflowManifests(_ context.Context) ([]ports.StoredAIWorkflowManifest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]ports.StoredAIWorkflowManifest, 0, len(r.aiWorkflowManifests))
+	for _, v := range r.aiWorkflowManifests {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out, nil
+}
+func (r *Repository) SaveAIWorkflowManifest(_ context.Context, v ports.StoredAIWorkflowManifest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.aiWorkflowManifests == nil {
+		r.aiWorkflowManifests = map[string]ports.StoredAIWorkflowManifest{}
+	}
+	v.Manifest.Capabilities = append([]string(nil), v.Manifest.Capabilities...)
+	v.Manifest.AllowedTools = append([]string(nil), v.Manifest.AllowedTools...)
+	r.aiWorkflowManifests[v.ID] = v
 	return nil
 }
 func (r *Repository) Health(context.Context) error { return nil }

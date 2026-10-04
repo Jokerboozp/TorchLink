@@ -364,6 +364,7 @@ func Run(forcedRole string) {
 	engine.Metrics = registry
 	var runtimeAI *aiadapter.RuntimeProvider
 	var harness *aiadapter.HarnessPool
+	var aiSync *aiadapter.ProviderSync
 	if cfg.Runs(config.ComponentAIRuntime) {
 		aiPlugins := aiadapter.NewProviderRegistry()
 		engine.AIPlugins = aiPlugins
@@ -381,25 +382,30 @@ func Run(forcedRole string) {
 			}
 		}
 		// Fill missing official provider settings from the deployment defaults.
-		if providerConfig.Provider == "deepseek" {
-			if providerConfig.BaseURL == "" {
-				providerConfig.BaseURL = cfg.AIBaseURL
-				if providerConfig.BaseURL == "" {
-					providerConfig.BaseURL = "https://api.deepseek.com"
+		completeProvider := func(c ports.AIPluginConfig) ports.AIPluginConfig {
+			if c.Provider != "deepseek" {
+				return c
+			}
+			if c.BaseURL == "" {
+				c.BaseURL = cfg.AIBaseURL
+				if c.BaseURL == "" {
+					c.BaseURL = "https://api.deepseek.com"
 				}
 			}
-			if providerConfig.Model == "" {
+			if c.Model == "" {
 				for _, item := range aiPlugins.List() {
 					if item.ID == "deepseek" {
-						providerConfig.Model = item.DefaultModel
+						c.Model = item.DefaultModel
 						break
 					}
 				}
 			}
-			if providerConfig.APIKey == "" {
-				providerConfig.APIKey = cfg.AIAPIKey
+			if c.APIKey == "" {
+				c.APIKey = cfg.AIAPIKey
 			}
+			return c
 		}
+		providerConfig = completeProvider(providerConfig)
 		var providerErr error
 		runtimeAI, providerErr = aiadapter.NewRuntimeProvider(aiPlugins, providerConfig)
 		fatal(log, "initialize AI provider plugin", providerErr)
@@ -412,26 +418,22 @@ func Run(forcedRole string) {
 			var harnessErr error
 			harness, harnessErr = aiadapter.NewHarnessPool(cfg.AIHarnessURL, cfg.AIHarnessToken, cfg.AIHarnessMCPURL, harnessModel, cfg.AIHarnessTimeout)
 			fatal(log, "initialize AI workflow harness", harnessErr)
-			configureCtx, configureCancel := context.WithTimeout(ctx, 20*time.Second)
-			if providerConfig.Provider != "deepseek" || strings.TrimSpace(providerConfig.APIKey) != "" {
-				harnessErr = harness.ConfigureProvider(configureCtx, providerConfig)
-			} else {
+			if providerConfig.Provider == "deepseek" && strings.TrimSpace(providerConfig.APIKey) == "" {
 				log.Warn("DeepSeek API key is not configured; enter it in model management")
 			}
-			configureCancel()
-			if harnessErr != nil {
-				// Compose starts the Harness sidecar after the API so it can call the
-				// platform MCP endpoint. Do not make API startup depend on that
-				// ordering; retry in the background until the sidecar is ready.
-				log.Warn("AI workflow provider synchronization deferred", "error", harnessErr)
-				go retryHarnessProvider(ctx, runtimeAI, harness, log)
-			}
 			engine.AIWorkflows = harness
+			engine.BusinessRunTimeout = cfg.AIBusinessTimeout
 			// Business AI runs (alarm analysis, inspection, reports, protocol
 			// assistant, rule drafts) sign their MCP credentials with the API secret.
 			engine.HarnessTokens = auth.New(cfg.JWTSecret)
 			log.Info("AI workflow harness enabled", "urls", cfg.AIHarnessURL, "instances", harness.Size(), "model", providerConfig.Model)
 		}
+		manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
+		aiSync = aiadapter.NewProviderSync(runtimeAI, harness, aiProviderStore, manifestStore, completeProvider)
+		// Compose starts the Harness after the API (it calls the platform MCP
+		// endpoint), so the first pass may fail; later passes also follow
+		// settings saved on other replicas and Harness restarts.
+		go reconcileAI(ctx, aiSync, log)
 
 	}
 	var knowledgeRuntime *core.KnowledgeRuntime
@@ -649,6 +651,10 @@ func Run(forcedRole string) {
 	if harness != nil {
 		api.SetAIWorkflowProvider(harness)
 	}
+	if aiSync != nil {
+		manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
+		api.SetAISync(aiSync, manifestStore)
+	}
 	api.SetProtocolListeners(protocolListeners)
 	if cfg.Runs(config.ComponentManagement) {
 		api.SetOpsCenter(opsService)
@@ -712,28 +718,30 @@ func fatal(log *slog.Logger, msg string, err error) {
 	}
 }
 
-func retryHarnessProvider(ctx context.Context, runtimeAI ports.AIProviderRuntime, harness *aiadapter.HarnessPool, log *slog.Logger) {
-	ticker := time.NewTicker(5 * time.Second)
+// aiReconcileInterval is how quickly API replicas and Harness instances pick
+// up AI settings saved elsewhere or lost by a Harness restart.
+const aiReconcileInterval = 10 * time.Second
+
+func reconcileAI(ctx context.Context, reconciler *aiadapter.ProviderSync, log *slog.Logger) {
+	ticker := time.NewTicker(aiReconcileInterval)
 	defer ticker.Stop()
+	lastErr := ""
 	for {
+		passCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		err := reconciler.Reconcile(passCtx)
+		cancel()
+		switch {
+		case err != nil && err.Error() != lastErr:
+			log.Warn("AI settings reconciliation incomplete; retrying", "error", err)
+			lastErr = err.Error()
+		case err == nil && lastErr != "":
+			log.Info("AI settings reconciled")
+			lastErr = ""
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			target := runtimeAI.CurrentConfig()
-			configureCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			err := harness.ConfigureProvider(configureCtx, target)
-			cancel()
-			if err == nil {
-				// A UI update may have arrived while the sidecar request was in
-				// flight. Reconcile the newest selection before returning so an
-				// older retry can never leave the Harness on stale settings.
-				if runtimeAI.CurrentConfig() != target {
-					continue
-				}
-				log.Info("AI workflow provider synchronized", "provider", target.Provider, "model", target.Model)
-				return
-			}
 		}
 	}
 }

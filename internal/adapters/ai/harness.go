@@ -30,7 +30,13 @@ type HarnessClient struct {
 	mcpURL      string
 	model       string
 	config      ports.AIPluginConfig
-	client      *http.Client
+	// instance is the Harness process that accepted config; a restarted
+	// Harness reports a new one and must be configured again.
+	instance string
+	client   *http.Client
+	// stream carries workflow runs, bounded per run instead of per client.
+	stream  *http.Client
+	timeout time.Duration
 }
 
 func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*HarnessClient, error) {
@@ -58,6 +64,8 @@ func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*H
 		model:   strings.TrimSpace(model),
 		config:  ports.AIPluginConfig{Provider: "deepseek", Model: strings.TrimSpace(model)},
 		client:  &http.Client{Timeout: timeout},
+		stream:  &http.Client{},
+		timeout: timeout,
 	}, nil
 }
 
@@ -126,11 +134,83 @@ func (h *HarnessClient) ConfigureProvider(ctx context.Context, config ports.AIPl
 		}
 		return fmt.Errorf("configure AI workflow provider: status %d: %s", res.StatusCode, strings.TrimSpace(string(body)))
 	}
+	var applied harnessProviderState
+	_ = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&applied)
 	h.mu.Lock()
 	h.model = model
 	h.config = config
+	h.instance = applied.InstanceID
 	h.mu.Unlock()
 	return nil
+}
+
+// harnessProviderState is the sidecar's public provider view; the API key
+// itself is never returned.
+type harnessProviderState struct {
+	Provider         string `json:"provider"`
+	BaseURL          string `json:"baseUrl"`
+	Model            string `json:"model"`
+	APIKeyConfigured bool   `json:"apiKeyConfigured"`
+	InstanceID       string `json:"instanceId"`
+}
+
+func (h *HarnessClient) providerState(ctx context.Context) (harnessProviderState, error) {
+	var state harnessProviderState
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/v1/provider", nil)
+	if err != nil {
+		return state, err
+	}
+	h.authorizeService(req)
+	res, err := h.client.Do(req)
+	if err != nil {
+		return state, fmt.Errorf("read AI workflow provider: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+		return state, fmt.Errorf("read AI workflow provider: status %d", res.StatusCode)
+	}
+	if err = json.NewDecoder(io.LimitReader(res.Body, 4096)).Decode(&state); err != nil {
+		return state, fmt.Errorf("decode AI workflow provider: %w", err)
+	}
+	return state, nil
+}
+
+// needsProvider reports whether this instance must be sent target: it has not
+// accepted target from this client yet, or it restarted since (a restart
+// resets the sidecar to its environment defaults).
+func (h *HarnessClient) needsProvider(ctx context.Context, target ports.AIPluginConfig) (bool, error) {
+	h.mu.RLock()
+	applied, instance := h.config, h.instance
+	h.mu.RUnlock()
+	if !sameProviderConfig(applied, target) {
+		return true, nil
+	}
+	state, err := h.providerState(ctx)
+	if err != nil {
+		return false, err
+	}
+	if state.InstanceID != "" || instance != "" {
+		return state.InstanceID != instance, nil
+	}
+	// A sidecar without instance IDs is compared by its public fields.
+	return state.Provider != sidecarProviderName(target.Provider) || state.Model != strings.TrimSpace(target.Model) ||
+		!strings.EqualFold(strings.TrimRight(state.BaseURL, "/"), strings.TrimRight(strings.TrimSpace(target.BaseURL), "/")) ||
+		state.APIKeyConfigured != (strings.TrimSpace(target.APIKey) != ""), nil
+}
+
+func sidecarProviderName(provider string) string {
+	if normalizeProvider(provider) == "deepseek" {
+		return "deepseek-official"
+	}
+	return normalizeProvider(provider)
+}
+
+// sameProviderConfig compares the fields the sidecar uses.
+func sameProviderConfig(a, b ports.AIPluginConfig) bool {
+	return normalizeProvider(a.Provider) == normalizeProvider(b.Provider) &&
+		strings.TrimRight(strings.TrimSpace(a.BaseURL), "/") == strings.TrimRight(strings.TrimSpace(b.BaseURL), "/") &&
+		strings.TrimSpace(a.Model) == strings.TrimSpace(b.Model) && strings.TrimSpace(a.APIKey) == strings.TrimSpace(b.APIKey)
 }
 
 func (h *HarnessClient) CurrentConfig() ports.AIPluginConfig {
@@ -333,6 +413,14 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	if len(payload) > 32768 {
 		return ports.AIWorkflowResult{}, errors.New("AI 工作流输入超过 32 KiB，请缩小范围或使用分页查询")
 	}
+	timeout := in.Timeout
+	if timeout <= 0 {
+		timeout = h.timeout
+	}
+	// Leaving at the deadline closes the stream, which stops the run in the
+	// sidecar; the sidecar's own run limit is only a ceiling.
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+"/v1/chat/stream", bytes.NewReader(payload))
 	if err != nil {
 		return ports.AIWorkflowResult{}, err
@@ -341,7 +429,7 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	req.Header.Set("Accept", "application/x-ndjson")
 	req.Header.Set("Authorization", "Bearer "+in.MCPToken)
 	h.authorizeService(req)
-	res, err := h.client.Do(req)
+	res, err := h.stream.Do(req)
 	if err != nil {
 		return ports.AIWorkflowResult{}, fmt.Errorf("run harness workflow: %w", err)
 	}
@@ -413,6 +501,9 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 		}
 	}
 	if err = scanner.Err(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return result, fmt.Errorf("AI 工作流超过 %s 未完成", timeout)
+		}
 		return result, fmt.Errorf("read harness event stream: %w", err)
 	}
 	if result.Answer == "" {

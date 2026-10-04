@@ -122,6 +122,7 @@ type Config struct {
 	AIHarnessMCPURL      string
 	AIHarnessModel       string
 	AIHarnessTimeout     time.Duration
+	AIBusinessTimeout    time.Duration
 	EmbeddingDimensions  int
 	EmbeddingBatchSize   int
 	EmbeddingURL         string
@@ -228,6 +229,7 @@ func Load() Config {
 		AIHarnessMCPURL:             strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MCP_URL")),
 		AIHarnessModel:              strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MODEL")),
 		AIHarnessTimeout:            duration("IOT_AI_HARNESS_TIMEOUT", 90*time.Second),
+		AIBusinessTimeout:           duration("IOT_AI_HARNESS_BUSINESS_TIMEOUT", 4*time.Minute),
 		EmbeddingDimensions:         int(int64Value("IOT_EMBEDDING_DIMENSIONS", 1024)),
 		EmbeddingBatchSize:          int(int64Value("IOT_EMBEDDING_BATCH_SIZE", 10)),
 		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(get("IOT_EMBEDDING_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")), "/"),

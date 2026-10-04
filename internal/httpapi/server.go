@@ -83,6 +83,10 @@ type Server struct {
 	messageTopicKafka          messageTopicKafkaAdmin
 	messageTopicMQTTReady      func(context.Context) error
 	messageTopicCredentialsMu  sync.Mutex
+	// aiSync serialises AI settings and Agent changes with the periodic
+	// reconciliation of API replicas and Harness instances.
+	aiSync          sync.Locker
+	aiManifestStore ports.AIWorkflowManifestStore
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
@@ -145,6 +149,19 @@ func (s *Server) SetAIProviderStore(store ports.AIProviderConfigStore) {
 
 func (s *Server) SetAIWorkflowProvider(runtime ports.AIWorkflowProviderRuntime) {
 	s.aiWorkflowProvider = runtime
+}
+
+// SetAISync shares the reconciliation lock and the desired Agent store.
+func (s *Server) SetAISync(lock sync.Locker, manifests ports.AIWorkflowManifestStore) {
+	s.aiSync, s.aiManifestStore = lock, manifests
+}
+
+func (s *Server) lockAISync() func() {
+	if s.aiSync == nil {
+		return func() {}
+	}
+	s.aiSync.Lock()
+	return s.aiSync.Unlock
 }
 
 func (s *Server) routes() {
@@ -1548,7 +1565,18 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 deepseek 或 openai-compatible")
 		return
 	}
+	defer s.lockAISync()()
 	current := s.aiProviderRuntime.CurrentConfig()
+	if s.aiProviderStore != nil {
+		// Another replica may have saved since this process last reconciled;
+		// the stored settings decide the kept API key and the rollback target.
+		if saved, found, err := s.aiProviderStore.LoadAIProviderConfig(r.Context()); err != nil {
+			problem(w, http.StatusServiceUnavailable, "读取已保存的模型配置失败，请稍后重试")
+			return
+		} else if found {
+			current = saved
+		}
+	}
 	baseURL := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/")
 	if baseURL == "" && provider == "deepseek" {
 		baseURL = "https://api.deepseek.com"
@@ -1883,7 +1911,9 @@ func (s *Server) saveAIWorkflow(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	defer s.lockAISync()()
 	plugin, err := manager.SaveWorkflow(r.Context(), manifest)
+	err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}, err)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("save dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
@@ -1935,7 +1965,9 @@ func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	defer s.lockAISync()()
 	plugin, err := manager.SaveWorkflow(r.Context(), manifest)
+	err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}, err)
 	if err != nil {
 		if s.log != nil {
 			s.log.Warn("update dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
@@ -1958,11 +1990,13 @@ func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusUnprocessableEntity, "workflow id has an invalid format")
 		return
 	}
-	if oneOf(workflowID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") {
+	if ports.IsBuiltinAIWorkflow(workflowID) {
 		problem(w, http.StatusConflict, "built-in Agent ids cannot be deleted")
 		return
 	}
-	if err := manager.DeleteWorkflow(r.Context(), workflowID); err != nil {
+	defer s.lockAISync()()
+	err := manager.DeleteWorkflow(r.Context(), workflowID)
+	if err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: workflowID, Manifest: ports.AIWorkflowManifest{ID: workflowID}, Deleted: true}, err); err != nil {
 		if s.log != nil {
 			s.log.Warn("delete dynamic AI workflow failed", "workflow", workflowID, "error", err)
 		}
@@ -1973,11 +2007,29 @@ func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
 	write(w, http.StatusOK, map[string]any{"deleted": true, "id": workflowID})
 }
 
+// recordAIWorkflowChange stores a dynamic Agent change that at least one
+// Harness instance accepted; reconciliation brings the other instances along.
+// Without a store, any instance failure is reported to the caller.
+func (s *Server) recordAIWorkflowChange(ctx context.Context, change ports.StoredAIWorkflowManifest, err error) error {
+	if err != nil && (s.aiManifestStore == nil || !errors.Is(err, ports.ErrAIWorkflowPartial)) {
+		return err
+	}
+	if s.aiManifestStore != nil {
+		if storeErr := s.aiManifestStore.SaveAIWorkflowManifest(ctx, change); storeErr != nil {
+			return errors.Join(err, storeErr)
+		}
+	}
+	if err != nil && s.log != nil {
+		s.log.Warn("AI workflow change reached only some Harness instances; reconciliation completes it", "workflow", change.ID, "error", err)
+	}
+	return nil
+}
+
 func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
 	if manifest.SchemaVersion != 1 || !validWorkflowIdentifier(manifest.ID) {
 		return errors.New("schemaVersion must be 1 and id must contain only letters, numbers, dot, underscore, colon or hyphen")
 	}
-	if oneOf(manifest.ID, "alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter") {
+	if ports.IsBuiltinAIWorkflow(manifest.ID) {
 		return errors.New("built-in Agent ids cannot be overwritten")
 	}
 	if !boundedText(manifest.Name, 128) || !boundedText(manifest.Description, 1024) || !boundedText(manifest.Version, 64) || !boundedText(manifest.Persona, 16384) || !validWorkflowModel(manifest.DefaultModel) {

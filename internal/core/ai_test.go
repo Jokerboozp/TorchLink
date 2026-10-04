@@ -771,3 +771,24 @@ func TestKnowledgeEvidenceFitsCharacterAndEscapedJSONBudgets(t *testing.T) {
 		}
 	}
 }
+
+// Business runs have no conversation history and their own time limit; the
+// MCP credential must outlive waiting for a Harness slot plus the run.
+func TestBusinessRunsAreOneShotWithTheirOwnTimeout(t *testing.T) {
+	e, _, workflows := newBusinessEngine(t, nil)
+	e.BusinessRunTimeout = 7 * time.Minute
+	if _, err := e.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", []string{"query_alarm_list"}, 2048); err != nil {
+		t.Fatal(err)
+	}
+	request := workflows.Last()
+	if !request.OneShot || request.Timeout != 7*time.Minute {
+		t.Fatalf("business run request %+v", request)
+	}
+	claims, err := aitest.Claims(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left := time.Until(claims.ExpiresAt.Time); left < businessRunCapacityWait+7*time.Minute {
+		t.Fatalf("credential expires in %s, before a waiting run could finish", left)
+	}
+}

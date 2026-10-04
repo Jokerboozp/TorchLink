@@ -1699,6 +1699,36 @@ func (r *Repository) SaveAIProviderConfig(ctx context.Context, v ports.AIPluginC
 	return err
 }
 
+func (r *Repository) ListAIWorkflowManifests(ctx context.Context) ([]ports.StoredAIWorkflowManifest, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id,manifest,deleted FROM ai_workflow_manifest ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ports.StoredAIWorkflowManifest
+	for rows.Next() {
+		var v ports.StoredAIWorkflowManifest
+		var raw []byte
+		if err = rows.Scan(&v.ID, &raw, &v.Deleted); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(raw, &v.Manifest); err != nil {
+			return nil, fmt.Errorf("stored Agent manifest %s is invalid: %w", v.ID, err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+func (r *Repository) SaveAIWorkflowManifest(ctx context.Context, v ports.StoredAIWorkflowManifest) error {
+	raw, err := json.Marshal(v.Manifest)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `INSERT INTO ai_workflow_manifest(id,manifest,deleted,updated_at) VALUES($1,$2,$3,now())
+		ON CONFLICT(id) DO UPDATE SET manifest=EXCLUDED.manifest,deleted=EXCLUDED.deleted,updated_at=now()`, v.ID, raw, v.Deleted)
+	return err
+}
+
 // Pool exposes the existing primary pool to platform adapters; callers do not own it.
 func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 

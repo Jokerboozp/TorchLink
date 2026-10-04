@@ -825,3 +825,19 @@ func TestCapacityFixtureCleanup(t *testing.T) {
 func TestCapacityProductKeptWhileShared(t *testing.T) {
 	repositorytest.CapacityProductKeptWhileShared(t, testRepository(t))
 }
+
+func TestAIWorkflowManifestStoreKeepsTombstones(t *testing.T) {
+	r := testRepository(t)
+	ctx := context.Background()
+	manifest := ports.AIWorkflowManifest{SchemaVersion: 1, ID: "night-shift", Name: "夜班助手", Capabilities: []string{"c"}, AllowedTools: []string{"mcp__iot__query_alarm_list"}, MaxTokens: 2048}
+	if err := r.SaveAIWorkflowManifest(ctx, ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SaveAIWorkflowManifest(ctx, ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: ports.AIWorkflowManifest{ID: manifest.ID}, Deleted: true}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := r.ListAIWorkflowManifests(ctx)
+	if err != nil || len(stored) != 1 || !stored[0].Deleted || stored[0].ID != manifest.ID {
+		t.Fatalf("%+v %v", stored, err)
+	}
+}

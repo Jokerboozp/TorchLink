@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1315,4 +1316,98 @@ func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
 	}
 	other, _ := api.auth.Issue("admin", "other", "admin", nil, time.Hour)
 	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/report-a", other, nil, 404)
+}
+
+// Another replica saved a new key; this replica's memory is stale. A save
+// that keeps the key must keep the stored one, not resurrect the old one.
+func TestAIProviderConfigKeepsTheStoredKeyOnAStaleReplica(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", APIKey: "old-key"}
+	if err := repo.SaveAIProviderConfig(context.Background(), ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "deepseek-chat", APIKey: "key-saved-elsewhere"}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &providerConfigTestRuntime{config: stale}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(repo)
+	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, map[string]any{"provider": "deepseek", "baseUrl": "https://api.deepseek.com", "model": "deepseek-reasoner"}, http.StatusOK)
+	saved, _, _ := repo.LoadAIProviderConfig(context.Background())
+	if saved.APIKey != "key-saved-elsewhere" || runtime.CurrentConfig().APIKey != "key-saved-elsewhere" {
+		t.Fatalf("stale key resurrected: saved=%q active=%q", saved.APIKey, runtime.CurrentConfig().APIKey)
+	}
+}
+
+// An Agent change that reached only some Harness instances is stored as the
+// desired state for reconciliation; one no instance accepted is not stored.
+func TestDynamicAgentChangesAreStoredForReconciliation(t *testing.T) {
+	var saves atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/plugins" && r.Method == http.MethodPost:
+			saves.Add(1)
+			var m ports.AIWorkflowManifest
+			_ = json.NewDecoder(r.Body).Decode(&m)
+			_ = json.NewEncoder(w).Encode(ports.AIWorkflowPlugin{ID: m.ID, Name: m.Name})
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer up.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	down := "http://" + listener.Addr().String()
+	listener.Close()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	var lock sync.Mutex
+	api.SetAISync(&lock, repo)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]any{"schemaVersion": 1, "id": "night-shift", "name": "夜班助手", "description": "d", "version": "1", "enabled": true, "persona": "p", "defaultModel": "deepseek-chat", "maxTokens": 2048, "capabilities": []string{"c"}, "allowedTools": []string{"mcp__iot__query_alarm_list"}}
+	for _, scenario := range []struct {
+		urls   string
+		status int
+		stored bool
+	}{{down, http.StatusBadGateway, false}, {up.URL + "," + down, http.StatusCreated, true}} {
+		pool, err := aiadapter.NewHarnessPool(scenario.urls, "0123456789abcdef0123456789abcdef", "http://localhost:8081/mcp/harness", "m", time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		engine.AIWorkflows = pool
+		requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/workflows", token, manifest, scenario.status)
+		stored, _ := repo.ListAIWorkflowManifests(context.Background())
+		if (len(stored) == 1) != scenario.stored {
+			t.Fatalf("%s: stored %+v", scenario.urls, stored)
+		}
+	}
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/workflows/night-shift", token, nil, http.StatusOK)
+	if stored, _ := repo.ListAIWorkflowManifests(context.Background()); len(stored) != 1 || !stored[0].Deleted {
+		t.Fatalf("partial delete not kept as a tombstone: %+v", stored)
+	}
 }

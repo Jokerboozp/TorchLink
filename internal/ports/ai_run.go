@@ -13,6 +13,10 @@ var ErrAIWorkflowBusy = errors.New("AI 工作流服务繁忙")
 // ErrAIWorkflowRunsActive means provider changes must wait for running workflows.
 var ErrAIWorkflowRunsActive = errors.New("AI 工作流正在运行，暂不能切换模型")
 
+// ErrAIWorkflowPartial means a catalog change reached some Harness instances
+// but not all; with a manifest store the remaining instances are reconciled.
+var ErrAIWorkflowPartial = errors.New("AI 工作流变更只同步到部分 Harness 实例")
+
 var ErrAIWorkflowRunNotFound = errors.New("AI 工作流已结束或不存在")
 var ErrAIWorkflowManagementUnavailable = errors.New("Harness 尚未支持运行管理，请更新依赖机的 Harness 镜像")
 var ErrAIWorkflowStopped = errors.New("AI 工作流已被管理员强制停止")

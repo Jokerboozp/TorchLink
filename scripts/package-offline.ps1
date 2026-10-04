@@ -197,6 +197,7 @@ function New-OfflineEnv {
             "IOT_AI_HARNESS_PROVIDER=deepseek-official",
             "IOT_AI_HARNESS_MODEL=$DeepSeekModel",
             "IOT_AI_HARNESS_TIMEOUT=90s",
+            "IOT_AI_HARNESS_BUSINESS_TIMEOUT=4m",
             "IOT_BACKUP_ADMIN_TOKEN=$backupToken",
             "IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC=60",
             "IOT_BACKUP_TIME=00:05",

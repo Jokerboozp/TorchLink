@@ -59,6 +59,8 @@ type Engine struct {
 	// PublishExternalTopics keeps publishing parsed messages to the
 	// property/event/parsed topics for external subscribers.
 	PublishExternalTopics bool
+	// BusinessRunTimeout bounds one business AI run (zero: 4 minutes).
+	BusinessRunTimeout time.Duration
 }
 
 func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realtime ports.RealtimePublisher, parsers *parser.Registry, log *slog.Logger) *Engine {

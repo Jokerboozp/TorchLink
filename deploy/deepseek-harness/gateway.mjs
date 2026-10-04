@@ -525,12 +525,15 @@ function validatedProviderConfig(raw) {
   return { provider, baseUrl: parsed.href.replace(/\/$/, ''), model, apiKey }
 }
 
-function publicProviderConfig(provider, baseUrl, model, apiKey) {
+function publicProviderConfig(provider, baseUrl, model, apiKey, instanceId) {
   return {
     provider,
     baseUrl,
     model,
     apiKeyConfigured: typeof apiKey === 'string' && apiKey.trim() !== '',
+    // Provider settings live in memory; a new instanceId tells the platform
+    // this process restarted and must be configured again.
+    instanceId,
   }
 }
 
@@ -772,6 +775,7 @@ export function createGateway(options = {}) {
   const allowedOrigins = configuredOrigins(
     options.allowedMcpOrigins ?? process.env.IOT_HARNESS_MCP_ALLOWED_ORIGINS ?? DEFAULT_MCP_ORIGINS,
   )
+  const instanceId = randomBytes(8).toString('hex')
   let modelProvider = options.modelProvider ?? process.env.IOT_HARNESS_PROVIDER ?? 'deepseek-official'
   if (!MODEL_PROVIDERS.includes(modelProvider)) {
     throw new Error('IOT_HARNESS_PROVIDER must be deepseek-official or openai-compatible')
@@ -1067,7 +1071,7 @@ export function createGateway(options = {}) {
   const handleProviderConfig = async (request, response) => {
     requireGatewayToken(request)
     if (request.method === 'GET') {
-      json(response, 200, publicProviderConfig(modelProvider, configuredBaseURL, configuredModel, configuredAPIKey))
+      json(response, 200, publicProviderConfig(modelProvider, configuredBaseURL, configuredModel, configuredAPIKey, instanceId))
       return
     }
     if (request.method !== 'PUT') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'method is not allowed')
@@ -1078,7 +1082,7 @@ export function createGateway(options = {}) {
     configuredModel = candidate.model
     configuredAPIKey = candidate.apiKey
     await Promise.all([...conversations.entries()].map(([key, entry]) => closeEntry(key, entry)))
-    json(response, 200, publicProviderConfig(modelProvider, configuredBaseURL, configuredModel, configuredAPIKey))
+    json(response, 200, publicProviderConfig(modelProvider, configuredBaseURL, configuredModel, configuredAPIKey, instanceId))
   }
 
   const handlePlugins = async (request, response) => {

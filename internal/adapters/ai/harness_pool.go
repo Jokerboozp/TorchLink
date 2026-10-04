@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -92,14 +93,26 @@ func (p *HarnessPool) StreamChat(ctx context.Context, in ports.AIWorkflowRequest
 		key = in.RunID
 	}
 	var lastErr error
+	busy := false
 	for _, i := range p.order(key) {
 		result, err := p.members[i].StreamChat(ctx, in, emit)
-		if err == nil || !unreachable(err) {
+		switch {
+		case err == nil:
+			return result, nil
+		case unreachable(err):
+			// The owner is down: its conversation history is unavailable
+			// either way, so the next instance starts a fresh session.
+		case in.OneShot && errors.Is(err, ports.ErrAIWorkflowBusy):
+			// A run without history is not tied to its owner; a busy
+			// instance is refused before any event is emitted.
+			busy = true
+		default:
 			return result, err
 		}
-		// The owner is down: its conversation history is unavailable either
-		// way, so the next instance starts a fresh session.
 		lastErr = err
+	}
+	if busy {
+		return ports.AIWorkflowResult{}, fmt.Errorf("run harness workflow: %w", ports.ErrAIWorkflowBusy)
 	}
 	return ports.AIWorkflowResult{}, lastErr
 }
@@ -115,6 +128,70 @@ func (p *HarnessPool) ConfigureProvider(ctx context.Context, config ports.AIPlug
 }
 
 func (p *HarnessPool) CurrentConfig() ports.AIPluginConfig { return p.members[0].CurrentConfig() }
+
+// SyncProvider configures every instance that has not accepted target or
+// restarted since; instances already on target are left alone.
+func (p *HarnessPool) SyncProvider(ctx context.Context, target ports.AIPluginConfig) error {
+	var errs []error
+	for i, m := range p.members {
+		need, err := m.needsProvider(ctx, target)
+		if err == nil && need {
+			err = m.ConfigureProvider(ctx, target)
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", p.urls[i], err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// SyncWorkflows brings every reachable instance to the desired dynamic
+// Agents: missing or different manifests are written, deleted ones removed.
+// A dynamic Agent found on an instance but unknown to the store predates the
+// store and is returned for adoption instead of being removed.
+func (p *HarnessPool) SyncWorkflows(ctx context.Context, desired []ports.StoredAIWorkflowManifest) ([]ports.AIWorkflowManifest, error) {
+	want := map[string]ports.StoredAIWorkflowManifest{}
+	for _, d := range desired {
+		want[d.ID] = d
+	}
+	var adopt []ports.AIWorkflowManifest
+	adopted := map[string]bool{}
+	var errs []error
+	for i, m := range p.members {
+		items, err := m.ListWorkflowManifests(ctx)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", p.urls[i], err))
+			continue
+		}
+		have := map[string]ports.AIWorkflowManifest{}
+		for _, item := range items {
+			if ports.IsBuiltinAIWorkflow(item.ID) {
+				continue
+			}
+			have[item.ID] = item
+			if d, known := want[item.ID]; !known && !adopted[item.ID] {
+				adopted[item.ID] = true
+				adopt = append(adopt, item)
+			} else if known && d.Deleted {
+				if err = m.DeleteWorkflow(ctx, item.ID); err != nil {
+					errs = append(errs, fmt.Errorf("%s: delete %s: %w", p.urls[i], item.ID, err))
+				}
+			}
+		}
+		for _, d := range desired {
+			if d.Deleted || ports.IsBuiltinAIWorkflow(d.ID) {
+				continue
+			}
+			if current, ok := have[d.ID]; ok && reflect.DeepEqual(current, d.Manifest) {
+				continue
+			}
+			if _, err = m.SaveWorkflow(ctx, d.Manifest); err != nil {
+				errs = append(errs, fmt.Errorf("%s: save %s: %w", p.urls[i], d.ID, err))
+			}
+		}
+	}
+	return adopt, errors.Join(errs...)
+}
 
 func (p *HarnessPool) ListWorkflows(ctx context.Context) ([]ports.AIWorkflowPlugin, error) {
 	var lastErr error
@@ -155,7 +232,15 @@ func (p *HarnessPool) SaveWorkflow(ctx context.Context, manifest ports.AIWorkflo
 			first = item
 		}
 	}
-	return first, errors.Join(errs...)
+	return first, partial(len(errs), len(p.members), errs)
+}
+
+// partial marks errors of a change that some instances accepted.
+func partial(failed, total int, errs []error) error {
+	if failed > 0 && failed < total {
+		errs = append(errs, ports.ErrAIWorkflowPartial)
+	}
+	return errors.Join(errs...)
 }
 
 func (p *HarnessPool) DeleteWorkflow(ctx context.Context, workflowID string) error {
@@ -165,7 +250,7 @@ func (p *HarnessPool) DeleteWorkflow(ctx context.Context, workflowID string) err
 			errs = append(errs, fmt.Errorf("%s: %w", p.urls[i], err))
 		}
 	}
-	return errors.Join(errs...)
+	return partial(len(errs), len(p.members), errs)
 }
 
 // Health fails only when no instance is healthy; conversations owned by a

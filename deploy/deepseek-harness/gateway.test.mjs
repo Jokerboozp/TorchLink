@@ -474,7 +474,9 @@ test('provider endpoint switches the resident runtime and redacts API keys', asy
   })
   const initial = await fetch(`${baseUrl}/v1/provider`, { headers: { 'x-iot-harness-token': gatewayToken } })
   assert.equal(initial.status, 200)
-  assert.deepEqual(await initial.json(), {
+  const { instanceId, ...initialBody } = await initial.json()
+  assert.match(instanceId, /^[0-9a-f]{16}$/)
+  assert.deepEqual(initialBody, {
     provider: 'openai-compatible',
     baseUrl: cloudBaseUrl,
     model: cloudModel,
@@ -492,6 +494,8 @@ test('provider endpoint switches the resident runtime and redacts API keys', asy
     baseUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     apiKeyConfigured: true,
+    // The same process keeps its instance ID across provider changes.
+    instanceId,
   })
   assert.equal(updatedBody.apiKey, undefined)
   const removed = await fetch(`${baseUrl}/v1/provider`, {

@@ -410,6 +410,11 @@ type AIWorkflowRequest struct {
 	Model          string `json:"model,omitempty"`
 	MaxTokens      int    `json:"maxTokens"`
 	MCPToken       string `json:"-"`
+	// OneShot marks a run without conversation history (business runs), which
+	// any Harness instance may serve when its preferred instance is busy.
+	OneShot bool `json:"-"`
+	// Timeout bounds the whole run; zero uses the client default.
+	Timeout time.Duration `json:"-"`
 }
 
 type AIWorkflowEvent struct {
@@ -452,6 +457,35 @@ type AIWorkflowManager interface {
 type AIWorkflowAdminManager interface {
 	ListWorkflowManifests(context.Context) ([]AIWorkflowManifest, error)
 	DeleteWorkflow(context.Context, string) error
+}
+
+// BuiltinAIWorkflowIDs are the read-only Agents shipped with the Harness.
+var BuiltinAIWorkflowIDs = []string{"alarm-handler", "ops-assistant", "system-observer", "device-health-inspector", "protocol-assistant", "rule-drafter"}
+
+// IsBuiltinAIWorkflow reports whether id names a shipped, read-only Agent.
+func IsBuiltinAIWorkflow(id string) bool {
+	for _, builtin := range BuiltinAIWorkflowIDs {
+		if id == builtin {
+			return true
+		}
+	}
+	return false
+}
+
+// StoredAIWorkflowManifest is the desired state of one dynamic Agent. A
+// deleted entry is kept so an instance that missed the delete is cleaned up
+// instead of spreading the Agent again.
+type StoredAIWorkflowManifest struct {
+	ID       string
+	Manifest AIWorkflowManifest
+	Deleted  bool
+}
+
+// AIWorkflowManifestStore keeps the dynamic Agents every Harness instance is
+// reconciled to; the instances' own plugin directories are copies.
+type AIWorkflowManifestStore interface {
+	ListAIWorkflowManifests(context.Context) ([]StoredAIWorkflowManifest, error)
+	SaveAIWorkflowManifest(context.Context, StoredAIWorkflowManifest) error
 }
 
 type KnowledgeBase interface {
