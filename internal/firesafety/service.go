@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -26,14 +27,45 @@ var (
 type Service struct {
 	store ports.FireSafetyStore
 	now   func() time.Time
+	mu    sync.Mutex
+	cache map[string]model.FireSafetyState
 }
 
-func New(store ports.FireSafetyStore) *Service { return &Service{store: store, now: time.Now} }
+func New(store ports.FireSafetyStore) *Service {
+	return &Service{store: store, now: time.Now, cache: map[string]model.FireSafetyState{}}
+}
 
+// Snapshot returns the tenant state for reading; callers must not modify
+// it. It is reused while the stored revision is unchanged, so list and
+// statistics requests read one revision number instead of every record.
 func (s *Service) Snapshot(ctx context.Context, tenant string) (model.FireSafetyState, error) {
 	if strings.TrimSpace(tenant) == "" {
 		return model.FireSafetyState{}, invalid("租户不能为空")
 	}
+	revision, err := s.store.FireSafetyRevision(ctx, tenant)
+	if err != nil {
+		return model.FireSafetyState{}, err
+	}
+	s.mu.Lock()
+	cached, ok := s.cache[tenant]
+	s.mu.Unlock()
+	if ok && revision != 0 && cached.Revision == revision {
+		return cached, nil
+	}
+	state, err := s.load(ctx, tenant)
+	if err != nil {
+		return state, err
+	}
+	s.mu.Lock()
+	if previous, exists := s.cache[tenant]; !exists || previous.Revision <= state.Revision {
+		s.cache[tenant] = state
+	}
+	s.mu.Unlock()
+	return state, nil
+}
+
+// load reads a private copy that the caller may modify.
+func (s *Service) load(ctx context.Context, tenant string) (model.FireSafetyState, error) {
 	state, err := s.store.LoadFireSafetyState(ctx, tenant)
 	if err != nil {
 		return state, err
@@ -56,7 +88,7 @@ func (s *Service) Apply(ctx context.Context, tenant, actor, action, id string, b
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		state, err := s.Snapshot(ctx, tenant)
+		state, err := s.load(ctx, tenant)
 		if err != nil {
 			return nil, err
 		}

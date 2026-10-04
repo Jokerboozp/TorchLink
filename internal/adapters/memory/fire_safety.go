@@ -57,3 +57,8 @@ func (r *Repository) SaveFireSafetyState(ctx context.Context, tenant string, sta
 	r.fireSafetyStates[tenant] = body
 	return true, nil
 }
+
+func (r *Repository) FireSafetyRevision(ctx context.Context, tenant string) (int64, error) {
+	state, err := r.LoadFireSafetyState(ctx, tenant)
+	return state.Revision, err
+}

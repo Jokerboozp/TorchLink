@@ -12,4 +12,7 @@ import (
 type FireSafetyStore interface {
 	LoadFireSafetyState(context.Context, string) (model.FireSafetyState, error)
 	SaveFireSafetyState(context.Context, string, model.FireSafetyState) (bool, error)
+	// FireSafetyRevision reads only the revision, so readers can reuse a
+	// cached state until it changes.
+	FireSafetyRevision(context.Context, string) (int64, error)
 }

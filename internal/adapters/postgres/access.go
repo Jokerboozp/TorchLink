@@ -150,6 +150,9 @@ func (r *Repository) SaveAccessState(ctx context.Context, tenant string, state m
 		saved = true
 		return nil
 	})
+	if errors.Is(err, errAccessChanged) {
+		return false, nil
+	}
 	return saved, err
 }
 

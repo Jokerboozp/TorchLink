@@ -395,12 +395,8 @@ CREATE TABLE IF NOT EXISTS component_alarm_state (
 -- relational tables of migration 0005; the former platform_access document
 -- table is renamed to platform_access_legacy by migration 0006.
 
--- Relationship validation and management changes share one tenant revision.
-CREATE TABLE IF NOT EXISTS platform_fire_safety (
- tenant_id text PRIMARY KEY,
- revision bigint NOT NULL DEFAULT 1,
- body jsonb NOT NULL
-);
+-- Fire safety records live in fire_safety_record (migration 0007); the former
+-- platform_fire_safety document table is renamed by migration 0008.
 
 -- Ops center preferences are private to one account in one tenant.
 CREATE TABLE IF NOT EXISTS ops_user_item (

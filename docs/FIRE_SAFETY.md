@@ -62,7 +62,7 @@ PUT 及已有记录的审批、检查、整改、取消和归队操作必须提�
 
 ## 持久化
 
-生产仓储把三个模块保存在 PostgreSQL `platform_fire_safety` 表，每租户一个 JSONB 聚合记录。启动沿现有迁移流程创建表；租户 revision 的比较写入将关联检查、排班冲突、器材占用和业务修改作为一个原子提交。冲突重试时重新校验，记录 version 防止过时编辑覆盖。memory 实现用于测试与内存运行模式，不能代替 PostgreSQL 持久化。
+生产仓储把三个模块的每条记录（消防站、人员、器材、出勤、班次、排班、换班、灭火器、巡检）各存一行到 PostgreSQL `fire_safety_record`（消防站编号与状态另存为索引列），租户版本号存 `fire_safety_revision`；迁移 0007/0008 自原 `platform_fire_safety` 每租户 JSONB 文档转换，旧表保留为 `platform_fire_safety_legacy`。保存时锁定并比较租户版本号，关联检查、排班冲突、器材占用和业务修改仍作为一个原子提交，但只写入新增、修改或删除的记录。列表、统计与选项按版本号复用进程内快照，版本变化后下一次请求重新读取。冲突重试时重新校验，记录 version 防止过时编辑覆盖。memory 实现用于测试与内存运行模式，不能代替 PostgreSQL 持久化。
 
 部署迁移及数据库备份边界见 [部署指南](DEPLOYMENT.md#数据库迁移) 和 [备份范围](DEPLOYMENT.md#设备数据备份)。
 

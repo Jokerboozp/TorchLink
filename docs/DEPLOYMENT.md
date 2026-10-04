@@ -334,7 +334,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 PostgreSQL 仓储启动时先执行 `internal/adapters/postgres/schema.sql` 幂等基线，再按版本号执行 `internal/adapters/postgres/migrations/` 中尚未执行的迁移，结果记录在 `schema_migration`；已执行的迁移被修改时拒绝启动。多个进程同时启动时由会话级 advisory lock 串行，其余进程等待后跳过。沿用原数据库与数据卷，无需清空数据；编写约定见该目录的 README。部署账户须有创建所需表及扩展的权限，外部 PostgreSQL 的 pgvector 要求见 [知识库配置](#知识库与云端向量-api)。
 
-排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级两者后，迁移创建 `platform_fire_safety`，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
+排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级后由迁移创建 `fire_safety_record` 等表并转换已有数据，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
 
 外部数据接入随 API、Web、Parser、Processor 和 Jobs 提供；启动迁移创建 `external_data_entry`，Jobs 自动恢复推送处理与拉取任务。所有副本需保持 `IOT_JWT_SECRET` 一致以解密接口凭据。FULL 备份包含独立外部接入组件，恢复写入隔离 schema；配置、权限和验收边界见[外部数据接入](EXTERNAL_DATA.md)。
 
@@ -644,7 +644,7 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 
 每日自动备份默认开启，每天上海时间 00:05 执行昨日备份；服务停机期间不自动补跑。`FULL` 使用 v2 清单，按组件记录实际包含范围；旧备份缺少的组件显示“不包含”，不补记成功。
 
-`DEVICE_DAILY` 与 `FULL` 不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`platform_fire_safety`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 MinIO。上述数据库内容由 `DATABASE` 整库备份覆盖；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
+`DEVICE_DAILY` 与 `FULL` 不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`fire_safety_record`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 MinIO。上述数据库内容由 `DATABASE` 整库备份覆盖；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
 
 备份列表“恢复验证”调用 `POST /api/v1/backups/:id/restore`，逐项校验制品 SHA-256、大小与恢复数量：
 

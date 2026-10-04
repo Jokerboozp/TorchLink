@@ -87,3 +87,43 @@ INSERT INTO platform_access VALUES ('t', 42, '{"revision":42,"users":[{"username
 		t.Fatal(err)
 	}
 }
+
+func TestFireSafetyRecordsMigrationAndPartialWrites(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	if _, err := pool.Exec(ctx, `CREATE TABLE platform_fire_safety (tenant_id text PRIMARY KEY, revision bigint NOT NULL DEFAULT 1, body jsonb NOT NULL);
+INSERT INTO platform_fire_safety VALUES ('t', 9, '{"revision":9,"stations":[{"id":"s1","name":"一站","enabled":true,"version":1,"createdAt":1,"updatedAt":1}],"personnel":[{"id":"p1","name":"王五","phone":"138","stationId":"s1","enabled":true,"version":1,"createdAt":2,"updatedAt":2}],"inspections":[{"id":"i1","extinguisherId":"e1","status":"completed","version":2,"createdAt":3,"updatedAt":4}]}')`); err != nil {
+		t.Fatal(err)
+	}
+	r := &Repository{pool: pool}
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state, err := r.LoadFireSafetyState(ctx, "t")
+	if err != nil || state.Revision != 9 || len(state.Stations) != 1 || len(state.Personnel) != 1 || state.Personnel[0].Phone != "138" || len(state.Inspections) != 1 {
+		t.Fatalf("migrated %+v %v", state, err)
+	}
+	if rev, _ := r.FireSafetyRevision(ctx, "t"); rev != 9 {
+		t.Fatalf("revision %d", rev)
+	}
+	// Changing one record rewrites only that row.
+	var xminBefore, xminAfter string
+	if err = pool.QueryRow(ctx, `SELECT xmin::text FROM fire_safety_record WHERE id='i1'`).Scan(&xminBefore); err != nil {
+		t.Fatal(err)
+	}
+	state.Personnel[0].Phone = "139"
+	if ok, err := r.SaveFireSafetyState(ctx, "t", state); err != nil || !ok {
+		t.Fatalf("save %v %v", ok, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT xmin::text FROM fire_safety_record WHERE id='i1'`).Scan(&xminAfter); err != nil || xminAfter != xminBefore {
+		t.Fatalf("unchanged inspection was rewritten: %s -> %s %v", xminBefore, xminAfter, err)
+	}
+	var station string
+	if err = pool.QueryRow(ctx, `SELECT station_id FROM fire_safety_record WHERE id='p1'`).Scan(&station); err != nil || station != "s1" {
+		t.Fatalf("indexed station column %q %v", station, err)
+	}
+	reloaded, _ := r.LoadFireSafetyState(ctx, "t")
+	if reloaded.Revision != 10 || reloaded.Personnel[0].Phone != "139" {
+		t.Fatalf("reloaded %+v", reloaded)
+	}
+}
