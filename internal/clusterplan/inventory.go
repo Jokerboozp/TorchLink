@@ -57,6 +57,7 @@ type Images struct {
 	Keeper       string `yaml:"keeper"`
 	MinIO        string `yaml:"minio"`
 	Prometheus   string `yaml:"prometheus"`
+	Alertmanager string `yaml:"alertmanager"`
 	NodeExporter string `yaml:"nodeExporter"`
 	// LB is the HAProxy image of the per-node internal load balancers used
 	// when platform.internalURL/gatewayURL are left empty.
@@ -129,10 +130,10 @@ type PlatformSpec struct {
 // need the same port on one node.
 var Ports = map[string][]int{
 	"etcd": {2379, 2380}, "postgres": {5432, 8008}, "redpanda": {9092, 33145, 9644, 18081, 18082},
-	"emqx": {1883, 8083, 8084, 18083, 4370, 5370}, "clickhouse": {8123, 9000, 9009}, "keeper": {9181, 9234},
+	"emqx": {1883, 8083, 8084, 8883, 18083, 4370, 5370}, "clickhouse": {8123, 9000, 9009}, "keeper": {9181, 9234},
 	"redis": {6379}, "sentinel": {26379}, "minio": {9002, 9003}, "harness": {8091},
 	"video":  {80, 8000},
-	"backup": {8090}, "prometheus": {9090}, "node-exporter": {9100}, "web": {8080},
+	"backup": {8090}, "prometheus": {9090, 9093}, "node-exporter": {9100}, "web": {8080, 8443},
 	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
 	"lb": {LBAPIPort, LBGatewayPort}, "capacity": {7080},
 }

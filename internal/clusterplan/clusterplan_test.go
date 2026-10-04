@@ -35,7 +35,7 @@ func testSecrets() Secrets {
 	v := reflect.ValueOf(&Secrets{}).Elem()
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Type().Field(i)
-		if field.Tag.Get("yaml") == "-" || strings.HasPrefix(field.Name, "Kafka") || field.Name == "MQTTPublicURL" {
+		if field.Tag.Get("yaml") == "-" || strings.HasPrefix(field.Name, "Kafka") || field.Name == "MQTTPublicURL" || strings.HasPrefix(field.Name, "TLS") || field.Name == "AlertWebhookURL" {
 			continue
 		}
 		v.Field(i).SetString("s3cret-" + strings.ToLower(v.Type().Field(i).Name) + "-0123456789abcdefghij")
@@ -904,5 +904,76 @@ func TestCapacityModuleRendersBesideThePlatform(t *testing.T) {
 	}
 	if off, _ := Load(path); off.Capacity.Node != "" {
 		t.Fatal("switch off")
+	}
+}
+
+func TestClusterRendersAlertingAndEntryTLS(t *testing.T) {
+	inv := example(t)
+	s := testSecrets()
+	files, err := Render(inv, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mon := inv.Monitoring.Node
+	prom := string(files[mon+"/prometheus/prometheus.yml"])
+	rules := string(files[mon+"/prometheus/alerts.yml"])
+	if !strings.Contains(prom, "rule_files: [/etc/prometheus/alerts.yml]") || !strings.Contains(prom, `targets: ["127.0.0.1:9093"]`) {
+		t.Fatalf("prometheus config lacks rules or alertmanager:\n%s", prom)
+	}
+	if !strings.Contains(rules, "DeadLetterPublished") || !strings.Contains(rules, `up{job="platform"}`) || strings.Contains(rules, `job="iot-platform"`) {
+		t.Fatal("cluster rules must be the platform rules with the cluster job name")
+	}
+	if c := string(files[mon+"/compose.yaml"]); !strings.Contains(c, "prom/alertmanager:v0.34.1") || strings.Contains(string(files[mon+"/alertmanager/alertmanager.yml"]), "webhook") {
+		t.Fatal("alertmanager without a webhook keeps alerts local")
+	}
+	if !strings.Contains(string(files[inv.Platform.Roles["api"].Nodes[0]+"/compose.yaml"]), "IOT_OPS_ALERTMANAGER_URL: http://") {
+		t.Fatal("platform must reach alertmanager")
+	}
+	web := inv.Platform.Web.Nodes[0]
+	if _, ok := files[web+"/tls/tls.crt"]; ok || strings.Contains(string(files[web+"/compose.yaml"]), "8443") {
+		t.Fatal("TLS must stay off without a certificate")
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: []string{"iot.example.test"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "tls.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "tls.key"), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600)
+	s.TLSCertFile, s.TLSKeyFile, s.AlertWebhookURL = filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key"), "https://alerts.example.test/hook"
+	files, err = Render(inv, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files[web+"/tls/tls.key"]) == 0 || !strings.Contains(string(files[web+"/compose.yaml"]), "./tls:/etc/torchlink/tls:ro") || !strings.Contains(string(files[web+"/compose.yaml"]), "IOT_WEB_HTTPS_PORT: \"8443\"") {
+		t.Fatal("web nodes must get HTTPS")
+	}
+	emqx := inv.EMQX.Nodes[0]
+	if len(files[emqx+"/tls/tls.crt"]) == 0 || !strings.Contains(string(files[emqx+"/compose.yaml"]), "./tls:/opt/emqx/etc/torchlink-tls:ro") {
+		t.Fatal("EMQX nodes must get the certificate for MQTTS and WSS")
+	}
+	if !strings.Contains(string(files["deploy-plan.txt"]), "entry mqtts ssl://") || !strings.Contains(string(files["deploy-plan.txt"]), "entry web-https https://") {
+		t.Fatal("deploy plan must list the TLS entry points")
+	}
+	if string(files[mon+"/alertmanager/webhook-url"]) != s.AlertWebhookURL || !strings.Contains(string(files[mon+"/alertmanager/alertmanager.yml"]), "url_file: /etc/alertmanager/webhook-url") {
+		t.Fatal("webhook receiver")
+	}
+	s.TLSKeyFile = filepath.Join(dir, "tls.crt")
+	if _, err = Render(inv, s); err == nil || !strings.Contains(err.Error(), "matching") {
+		t.Fatalf("mismatched key accepted: %v", err)
+	}
+	s.TLSKeyFile, s.AlertWebhookURL = filepath.Join(dir, "tls.key"), "ftp://x"
+	if _, err = Render(inv, s); err == nil {
+		t.Fatal("invalid webhook accepted")
 	}
 }

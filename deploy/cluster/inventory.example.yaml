@@ -24,6 +24,7 @@ images:
   keeper: clickhouse/clickhouse-keeper:25.7-alpine
   minio: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
   prometheus: prom/prometheus:v3.5.0
+  alertmanager: prom/alertmanager:v0.34.1
   nodeExporter: prom/node-exporter:v1.12.1
   lb: haproxy:3.0-alpine          # per-node internal load balancer (see platform below)
 nodes:

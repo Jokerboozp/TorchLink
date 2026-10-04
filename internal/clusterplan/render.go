@@ -2,6 +2,7 @@ package clusterplan
 
 import (
 	"bytes"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"iot-platform/deploy/toolaccounts"
+	promrules "iot-platform/ops/prometheus"
 )
 
 // Secrets are read from a private YAML file and only written into the .env
@@ -64,7 +66,14 @@ type Secrets struct {
 	BackupRestoreMinIOSecretKey string `yaml:"backupRestoreMinioSecretKey,omitempty"`
 	DeepSeekAPIKey              string `yaml:"deepseekApiKey"`
 	// EmbeddingAPIKey is the external Embedding API key; never auto-generated.
-	EmbeddingAPIKey    string `yaml:"embeddingApiKey,omitempty"`
+	EmbeddingAPIKey string `yaml:"embeddingApiKey,omitempty"`
+	// TLSCertFile and TLSKeyFile (PEM, relative to the secrets file) enable
+	// HTTPS (8443) on web nodes and MQTTS (8883) / WSS (8084) on EMQX nodes.
+	TLSCertFile string `yaml:"tlsCertFile,omitempty"`
+	TLSKeyFile  string `yaml:"tlsKeyFile,omitempty"`
+	// AlertWebhookURL receives Alertmanager notifications of the platform
+	// alert rules; empty keeps alerts in Alertmanager and the operations center.
+	AlertWebhookURL    string `yaml:"alertWebhookUrl,omitempty"`
 	VideoMediaSecret   string `yaml:"videoMediaSecret"`
 	VideoHookSecret    string `yaml:"videoHookSecret"`
 	VideoCredentialKey string `yaml:"videoCredentialKey"`
@@ -162,6 +171,38 @@ func (s Secrets) brokerDefaults(inv *Inventory) Secrets {
 	return s
 }
 
+// tlsPair reads the entry-point certificate and key, which must match.
+func (s Secrets) tlsPair() (*tlsFiles, error) {
+	if s.TLSCertFile == "" && s.TLSKeyFile == "" {
+		return nil, nil
+	}
+	if s.TLSCertFile == "" || s.TLSKeyFile == "" {
+		return nil, errors.New("tlsCertFile and tlsKeyFile must be set together")
+	}
+	read := func(path string) ([]byte, error) {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(s.baseDir, path)
+		}
+		b, err := os.ReadFile(path)
+		if err == nil && len(b) > 1024*1024 {
+			err = errors.New("larger than 1 MiB")
+		}
+		return b, err
+	}
+	cert, err := read(s.TLSCertFile)
+	if err != nil {
+		return nil, fmt.Errorf("could not read tlsCertFile: %w", err)
+	}
+	key, err := read(s.TLSKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("could not read tlsKeyFile: %w", err)
+	}
+	if _, err = tls.X509KeyPair(cert, key); err != nil {
+		return nil, fmt.Errorf("tlsCertFile and tlsKeyFile must be a matching PEM certificate and key: %w", err)
+	}
+	return &tlsFiles{cert: cert, key: key}, nil
+}
+
 // kafkaCA copies public trust certificates, never a client private key.
 func (s Secrets) kafkaCA() ([]byte, error) {
 	if s.KafkaTLSCAFile == "" {
@@ -183,6 +224,12 @@ func (s Secrets) kafkaCA() ([]byte, error) {
 
 func (s Secrets) validate(inv *Inventory) error {
 	s = s.brokerDefaults(inv)
+	if s.AlertWebhookURL != "" {
+		u, err := url.Parse(s.AlertWebhookURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || strings.ContainsAny(s.AlertWebhookURL, "\n\r") {
+			return errors.New("alertWebhookUrl must be an http or https URL")
+		}
+	}
 	required := map[string]string{"postgresPassword": s.PostgresPassword, "postgresSuperuserPassword": s.PostgresSuperuserPassword, "postgresReplicationPassword": s.PostgresReplicationPassword, "redisPassword": s.RedisPassword, "clickhousePassword": s.ClickHousePassword, "minioRootUser": s.MinIORootUser, "minioRootPassword": s.MinIORootPassword, "jwtSecret": s.JWTSecret, "adminPassword": s.AdminPassword, "harnessToken": s.HarnessToken, "emqxApiKey": s.EMQXAPIKey, "emqxApiSecret": s.EMQXAPISecret, "emqxCookie": s.EMQXCookie, "emqxDashboardPassword": s.EMQXDashboardPassword, "backupToken": s.BackupToken}
 	if inv.Video.Node != "" {
 		required["videoMediaSecret"], required["videoHookSecret"], required["videoCredentialKey"] = s.VideoMediaSecret, s.VideoHookSecret, s.VideoCredentialKey
@@ -296,7 +343,11 @@ type Summary struct {
 type renderer struct {
 	inv *Inventory
 	s   Secrets
+	// tls holds the web and MQTT certificate and key when configured.
+	tls *tlsFiles
 }
+
+type tlsFiles struct{ cert, key []byte }
 
 func (r renderer) ip(node string) string {
 	n, _ := r.inv.node(node)
@@ -385,6 +436,7 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	}
 	if inv.Monitoring.Node != "" {
 		env["IOT_OPS_PROMETHEUS_URL"] = "http://" + r.ip(inv.Monitoring.Node) + ":9090"
+		env["IOT_OPS_ALERTMANAGER_URL"] = "http://" + r.ip(inv.Monitoring.Node) + ":9093"
 	}
 	env["IOT_EMBEDDING_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	env["IOT_EMBEDDING_MODEL"] = "text-embedding-v4"
@@ -509,7 +561,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			for _, n := range inv.EMQX.Nodes {
 				seeds = append(seeds, `"emqx@`+r.ip(n)+`"`)
 			}
-			add(kind, "emqx", service(inv.Images.EMQX, map[string]any{"ulimits": map[string]any{"nofile": map[string]int{"soft": 1048576, "hard": 1048576}}, "entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{emqxEntrypoint}, "environment": map[string]string{"EMQX_NODE__NAME": "emqx@" + ip, "EMQX_NODE__COOKIE": "${EMQX_COOKIE}", "EMQX_CLUSTER__DISCOVERY_STRATEGY": "static", "EMQX_CLUSTER__STATIC__SEEDS": "[" + strings.Join(seeds, ",") + "]", "IOT_EMQX_API_KEY": "${IOT_EMQX_API_KEY}", "IOT_EMQX_API_SECRET": "${IOT_EMQX_API_SECRET}", "IOT_JWT_SECRET": "${IOT_JWT_SECRET}", "IOT_MQTT_TOOL_USERNAME": "${IOT_MQTT_TOOL_USERNAME:-admin}", "IOT_MQTT_TOOL_PASSWORD": "${IOT_MQTT_TOOL_PASSWORD:-admin123}", "EMQX_AUTHORIZATION__NO_MATCH": "deny", "EMQX_AUTHORIZATION__DENY_ACTION": "ignore", "EMQX_MQTT__MAX_MQUEUE_LEN": "100000", "EMQX_MQTT__MAX_INFLIGHT": "128", "EMQX_DASHBOARD__DEFAULT_USERNAME": "admin", "EMQX_DASHBOARD__DEFAULT_PASSWORD": "${EMQX_DASHBOARD_PASSWORD}"}, "volumes": []string{"emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log"}}), "emqx-data", "emqx-log")
+			add(kind, "emqx", service(inv.Images.EMQX, map[string]any{"ulimits": map[string]any{"nofile": map[string]int{"soft": 1048576, "hard": 1048576}}, "entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{emqxEntrypoint}, "environment": map[string]string{"EMQX_NODE__NAME": "emqx@" + ip, "EMQX_NODE__COOKIE": "${EMQX_COOKIE}", "EMQX_CLUSTER__DISCOVERY_STRATEGY": "static", "EMQX_CLUSTER__STATIC__SEEDS": "[" + strings.Join(seeds, ",") + "]", "IOT_EMQX_API_KEY": "${IOT_EMQX_API_KEY}", "IOT_EMQX_API_SECRET": "${IOT_EMQX_API_SECRET}", "IOT_JWT_SECRET": "${IOT_JWT_SECRET}", "IOT_MQTT_TOOL_USERNAME": "${IOT_MQTT_TOOL_USERNAME:-admin}", "IOT_MQTT_TOOL_PASSWORD": "${IOT_MQTT_TOOL_PASSWORD:-admin123}", "EMQX_AUTHORIZATION__NO_MATCH": "deny", "EMQX_AUTHORIZATION__DENY_ACTION": "ignore", "EMQX_MQTT__MAX_MQUEUE_LEN": "100000", "EMQX_MQTT__MAX_INFLIGHT": "128", "EMQX_DASHBOARD__DEFAULT_USERNAME": "admin", "EMQX_DASHBOARD__DEFAULT_PASSWORD": "${EMQX_DASHBOARD_PASSWORD}"}, "volumes": r.withTLS(node, files, []string{"emqx-data:/opt/emqx/data", "emqx-log:/opt/emqx/log"}, "/opt/emqx/etc/torchlink-tls")}), "emqx-data", "emqx-log")
 			env["EMQX_COOKIE"], env["EMQX_DASHBOARD_PASSWORD"] = r.s.EMQXCookie, r.s.EMQXDashboardPassword
 			env["IOT_JWT_SECRET"], env["IOT_EMQX_API_KEY"], env["IOT_EMQX_API_SECRET"] = r.s.JWTSecret, r.s.EMQXAPIKey, r.s.EMQXAPISecret
 			env["IOT_MQTT_TOOL_USERNAME"], env["IOT_MQTT_TOOL_PASSWORD"] = r.s.MQTTToolUsername, r.s.MQTTToolPassword
@@ -572,7 +624,13 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			}
 		case "prometheus":
 			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig())
-			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"}}), "prometheus-data")
+			files[node+"/prometheus/alerts.yml"] = []byte(clusterAlertRules())
+			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro"}}), "prometheus-data")
+			files[node+"/alertmanager/alertmanager.yml"] = []byte(alertmanagerConfig(r.s.AlertWebhookURL != ""))
+			if r.s.AlertWebhookURL != "" {
+				files[node+"/alertmanager/webhook-url"] = []byte(r.s.AlertWebhookURL)
+			}
+			add(kind, "alertmanager", service(inv.Images.Alertmanager, map[string]any{"command": []string{"--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager", "--web.listen-address=:9093", "--cluster.listen-address="}, "volumes": []string{"alertmanager-data:/alertmanager", "./alertmanager:/etc/alertmanager:ro"}}), "alertmanager-data")
 		case "capacity":
 			add(kind, "capacity", service(inv.Images.Platform, map[string]any{
 				"entrypoint": []string{"/app/capacity-test"},
@@ -600,7 +658,14 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			if inv.Video.Node != "" {
 				videoUpstream = r.ip(inv.Video.Node) + ":80"
 			}
-			add(kind, "web", service(inv.Images.Web, map[string]any{"environment": map[string]string{"IOT_API_UPSTREAM": api, "IOT_VIDEO_UPSTREAM": videoUpstream}}))
+			web := service(inv.Images.Web, map[string]any{"environment": map[string]string{"IOT_API_UPSTREAM": api, "IOT_VIDEO_UPSTREAM": videoUpstream}})
+			if r.tls != nil {
+				// HTTPS on 8443; plain 8080 then redirects there.
+				web["volumes"] = r.withTLS(node, files, nil, "/etc/torchlink/tls")
+				web["environment"].(map[string]string)["IOT_WEB_HTTPS_PORT"] = "8443"
+				web["environment"].(map[string]string)["IOT_WEB_TLS_REDIRECT"] = "${IOT_WEB_TLS_REDIRECT:-true}"
+			}
+			add(kind, "web", web)
 		default: // platform roles
 			salt := idx(inv.Platform.Roles[kind].Nodes)
 			name := "iot-" + kind
@@ -718,6 +783,17 @@ if [ -n "$$IOT_EMQX_API_KEY" ] && [ -n "$$IOT_EMQX_API_SECRET" ]; then
   printf '\napi_key.bootstrap_file = "/opt/emqx/etc/platform-api-keys"\n' >> /opt/emqx/etc/base.hocon
 fi
 sed -i 's/{allow, all}\./{deny, all}./' /opt/emqx/etc/acl.conf
+tls=/opt/emqx/etc/torchlink-tls
+if [ -s "$$tls/tls.crt" ] && [ -s "$$tls/tls.key" ]; then
+  for listener in SSL WSS; do
+    export "EMQX_LISTENERS__$${listener}__DEFAULT__ENABLE=true"
+    export "EMQX_LISTENERS__$${listener}__DEFAULT__SSL_OPTIONS__CERTFILE=$$tls/tls.crt"
+    export "EMQX_LISTENERS__$${listener}__DEFAULT__SSL_OPTIONS__KEYFILE=$$tls/tls.key"
+    export "EMQX_LISTENERS__$${listener}__DEFAULT__SSL_OPTIONS__CACERTFILE=$$tls/tls.crt"
+  done
+else
+  export EMQX_LISTENERS__SSL__DEFAULT__ENABLE=false EMQX_LISTENERS__WSS__DEFAULT__ENABLE=false
+fi
 exec /usr/bin/docker-entrypoint.sh /opt/emqx/bin/emqx foreground
 `
 
@@ -764,6 +840,33 @@ func (r renderer) keeperConfig(node string) string {
 	return b.String()
 }
 
+// withTLS mounts the node's copy of the entry-point certificate at target
+// when TLS is configured.
+func (r renderer) withTLS(node string, files map[string][]byte, volumes []string, target string) []string {
+	if r.tls == nil {
+		return volumes
+	}
+	files[node+"/tls/tls.crt"], files[node+"/tls/tls.key"] = r.tls.cert, r.tls.key
+	return append(volumes, "./tls:"+target+":ro")
+}
+
+// clusterAlertRules is the platform rule file with the cluster's job name
+// for platform processes.
+func clusterAlertRules() string {
+	return strings.ReplaceAll(promrules.Alerts, `job="iot-platform"`, `job="platform"`)
+}
+
+// alertmanagerConfig sends every alert to the webhook whose URL is in
+// webhook-url next to the config, when one is configured; otherwise alerts
+// stay visible in Alertmanager and the operations center only.
+func alertmanagerConfig(webhook bool) string {
+	receiver := "  - name: platform\n"
+	if webhook {
+		receiver += "    webhook_configs:\n      - url_file: /etc/alertmanager/webhook-url\n        send_resolved: true\n"
+	}
+	return "route:\n  receiver: platform\n  group_by: [alertname, cluster]\n  group_wait: 30s\n  group_interval: 5m\n  repeat_interval: 4h\nreceivers:\n" + receiver
+}
+
 // prometheusConfig scrapes every process per instance, labelled with role
 // and instance, never through a load balancer.
 func (r renderer) prometheusConfig() string {
@@ -789,7 +892,7 @@ func (r renderer) prometheusConfig() string {
 		jobs[3].targets[r.ip(n)+":18083"] = [2]string{"emqx", n}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "global:\n  scrape_interval: 15s\n  external_labels:\n    cluster: %s\nscrape_configs:\n", inv.Name)
+	fmt.Fprintf(&b, "global:\n  scrape_interval: 15s\n  external_labels:\n    cluster: %s\nrule_files: [/etc/prometheus/alerts.yml]\nalerting:\n  alertmanagers:\n    - static_configs:\n        - targets: [\"127.0.0.1:9093\"]\nscrape_configs:\n", inv.Name)
 	for _, j := range jobs {
 		fmt.Fprintf(&b, "  - job_name: %s\n    metrics_path: %s\n    static_configs:\n", j.name, j.path)
 		addrs := make([]string, 0, len(j.targets))
@@ -828,7 +931,14 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 			return nil, fmt.Errorf("images.%s is required", name)
 		}
 	}
-	r := renderer{inv: inv, s: s}
+	if inv.Images.Alertmanager == "" {
+		inv.Images.Alertmanager = DefaultImages().Alertmanager
+	}
+	pair, err := s.tlsPair()
+	if err != nil {
+		return nil, err
+	}
+	r := renderer{inv: inv, s: s, tls: pair}
 	files := map[string][]byte{}
 	if len(ca) > 0 {
 		files["kafka/ca.pem"] = ca
@@ -862,7 +972,19 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 		files[n.Name+"/.env"] = envFile(env)
 		summary.Services[n.Name] = stages
 	}
-	files["deploy-plan.txt"] = deployPlan(inv, summary, nodeImages)
+	plan := deployPlan(inv, summary, nodeImages)
+	if pair != nil {
+		// HTTPS and MQTT over TLS entry points.
+		var b strings.Builder
+		for _, node := range inv.Platform.Web.Nodes {
+			fmt.Fprintf(&b, "entry web-https https://%s:8443\n", rNodeAddress(inv, node))
+		}
+		for _, node := range inv.EMQX.Nodes {
+			fmt.Fprintf(&b, "entry mqtts ssl://%s:8883\n", rNodeAddress(inv, node))
+		}
+		plan = append(plan, b.String()...)
+	}
+	files["deploy-plan.txt"] = plan
 	files["images.txt"] = imageList(inv)
 	initEnv := map[string]string{
 		"IOT_POSTGRES_DSN":              strings.ReplaceAll(r.postgresDSN("read-write"), "${POSTGRES_PASSWORD}", s.PostgresPassword),

@@ -17,6 +17,7 @@ import (
 // optionalSecrets are left empty when missing: an operator supplies them.
 var optionalSecrets = map[string]bool{
 	"deepseekApiKey": true, "embeddingApiKey": true, "backupRestoreTargetDSN": true,
+	"tlsCertFile": true, "tlsKeyFile": true, "alertWebhookUrl": true,
 	"backupRestoreMinioEndpoint": true, "backupRestoreMinioAccessKey": true, "backupRestoreMinioSecretKey": true,
 	"kafkaSaslMechanism": true, "kafkaTls": true,
 	"kafkaTlsCaFile": true, "kafkaAdminUrl": true,
@@ -150,7 +151,7 @@ func EnsureSecretsWith(path string, in SecretInputs) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	header := "# Cluster tool defaults and independent internal secrets from cluster-render -init-secrets. Keep mode 0600,\n# back this file up and never commit it: the deployed cluster depends on these values.\n# deepseekApiKey, embeddingApiKey and backupRestoreTargetDSN are optional and filled by the operator.\n"
+	header := "# Cluster tool defaults and independent internal secrets from cluster-render -init-secrets. Keep mode 0600,\n# back this file up and never commit it: the deployed cluster depends on these values.\n# deepseekApiKey, embeddingApiKey and backupRestoreTargetDSN are optional and filled by the operator.\n# tlsCertFile/tlsKeyFile (PEM paths) enable HTTPS and MQTTS; alertWebhookUrl receives platform alerts.\n"
 	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}

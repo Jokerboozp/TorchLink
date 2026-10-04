@@ -475,7 +475,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 | Redis | 主 + 2 副本 + Sentinel 3 个，平台经 Sentinel 跟随主节点 |
 | EMQX | 3 节点静态集群 |
 | 平台 | api、gateway、parser、processor、jobs 各自多实例；API 之间选举视频控制实例；Harness 多实例按会话路由 |
-| 监控 | Prometheus 按实例抓取所有平台进程、Redpanda、EMQX 与各节点 node-exporter |
+| 监控 | Prometheus 按实例抓取所有平台进程、Redpanda、EMQX 与各节点 node-exporter，加载与单机相同的平台告警规则；同节点 Alertmanager（9093）接收告警，运维中心可查看 |
 
 校验规则：节点须写明故障域（独立主机/供电/机柜；同一宿主上的虚拟机属于同一故障域）；仲裁组（etcd、Patroni、Redpanda、Keeper、Sentinel）为奇数成员且任一故障域不占多数；同一 ClickHouse 分片的副本、Redis 主从、EMQX 成员跨故障域；同一节点端口不冲突；各角色 PostgreSQL 连接池合计（含一次滚动升级额外实例、备份与初始化连接及预留）不超过 `max_connections`。
 
@@ -549,6 +549,8 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 - 秘密文件模板为 `deploy/cluster/secrets.example.yaml`，`-init-secrets` 会补齐缺项；嵌入连接串的密码只能用字母、数字与 `. _ ~ -`。秘密只写入需要它的节点的 `.env`（0600）与本机 `init.env`，`compose.yaml` 和配置文件只含变量引用。
 - Broker 服务与管理账号首次默认 `admin` / `admin123`；需要自定义时，在秘密文件填写 `kafkaSaslUsername` / `kafkaSaslPassword`、`kafkaSaslMechanism`（默认 `SCRAM-SHA-256`）、`kafkaTls` 及可选 `kafkaTlsCaFile`；Redpanda 管理接口使用成组的 `kafkaAdminUrl` / `kafkaAdminUsername` / `kafkaAdminPassword`。这些参数统一进入所有平台角色及 `init.env`，不要在清单 `env` 中重复设置。使用一键 `cluster-up` 时，把 PEM CA 证书放在秘密文件目录或其子目录内，填写相对路径（以秘密文件目录为准）；直接运行 `cluster-render` 也支持本机绝对路径。渲染器复制证书，各角色和远程 `cluster-init` 只读挂载，本地初始化自动使用控制机上的副本。证书文件不得包含私钥。
+- **告警**：监控节点的 Prometheus 加载平台告警规则（`ops/prometheus/alerts.yml` 内嵌进渲染器，平台进程的 job 名在集群中为 `platform`），Alertmanager 与其同节点、只监听 9093 且不组集群。秘密文件填写 `alertWebhookUrl`（http/https）后所有告警（含恢复）推送到该地址，否则只在 Alertmanager 与运维中心可见。清单未写 `images.alertmanager` 时使用 `prom/alertmanager:v0.34.1`。
+- **HTTPS 与 MQTTS**：秘密文件填写 `tlsCertFile` 与 `tlsKeyFile`（PEM，路径规则同 `kafkaTlsCaFile`，证书与私钥须匹配）后，渲染器把它们复制到各 Web 与 EMQX 节点的 `tls/` 目录：Web 开启 8443 并把 8080 跳转到 HTTPS（`IOT_WEB_TLS_REDIRECT=false` 可关闭跳转），EMQX 开启 MQTTS 8883 与 WSS 8084；部署计划列出 `web-https`、`mqtts` 入口。未配置时保持明文入口。与单机相同，私钥以 0644 写出，供容器内非 root 用户读取；渲染目录本身已含各节点秘密，须按秘密保管。
 - `kafkaPublicBrokers`（逗号分隔的 `host:port`）和 `mqttPublicUrl` 默认由 Broker 节点地址生成；若对接方通过域名、代理或 TLS 端口连接，应显式覆盖并与 Broker 广告地址一致。`mqttToolUsername` / `mqttToolPassword` 配置独立 MQTT 工具账号。首次启动会初始化工具账号和认证；已有数据卷须核对实际账号，参见[Kafka 对接账号认证与授权](#kafka-对接账号认证与授权)。
 - `cluster-deploy` 不负责镜像：节点需已有镜像，或用 `--images <归档>` 让每个节点整体导入。`--stage`、`--nodes` 可只执行指定阶段和节点，`--dry-run` 只打印命令；`--cluster-init "go run ./cmd/cluster-init"` 改为在控制机本地运行初始化。
 - 部署顺序与每阶段内容同上一小节第 6 步。
