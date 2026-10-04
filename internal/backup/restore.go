@@ -23,6 +23,10 @@ var ErrRestoreTargetUnsafe = errors.New("restore target must be a separate datab
 // ErrRestoreNotConfigured means IOT_BACKUP_RESTORE_TARGET_DSN is unset.
 var ErrRestoreNotConfigured = errors.New("IOT_BACKUP_RESTORE_TARGET_DSN is not configured")
 
+// ErrRestoreDatabaseNotConfigured means IOT_BACKUP_RESTORE_DATABASE_DSN is
+// unset, so whole-database backups cannot be drilled.
+var ErrRestoreDatabaseNotConfigured = errors.New("IOT_BACKUP_RESTORE_DATABASE_DSN is not configured")
+
 // restoreTargetSafe compares the resolved host set, port and database name.
 func restoreTargetSafe(source, target string) error {
 	if strings.TrimSpace(target) == "" {
@@ -104,7 +108,15 @@ func (s *Service) Restore(ctx context.Context, backupID string) (RestoreResult, 
 	if err := validateSegment(backupID, "backup id"); err != nil {
 		return res, err
 	}
-	if err := restoreTargetSafe(s.cfg.PostgresDSN, s.cfg.RestoreTargetDSN); err != nil {
+	// Whole-database backups restore into their own drill database.
+	if strings.HasPrefix(backupID, "backup_database_") {
+		if s.cfg.RestoreDatabaseDSN == "" {
+			return res, ErrRestoreDatabaseNotConfigured
+		}
+		if err := restoreTargetSafe(s.cfg.PostgresDSN, s.cfg.RestoreDatabaseDSN); err != nil {
+			return res, err
+		}
+	} else if err := restoreTargetSafe(s.cfg.PostgresDSN, s.cfg.RestoreTargetDSN); err != nil {
 		return res, err
 	}
 	if !s.mu.TryLock() {
@@ -160,6 +172,9 @@ func (s *Service) restore(ctx context.Context, res *RestoreResult) error {
 		return err
 	}
 	defer os.RemoveAll(stage)
+	if manifest.Type == databaseType {
+		return s.restoreDatabase(ctx, res, manifest, stage)
+	}
 	target, err := pgx.Connect(ctx, s.cfg.RestoreTargetDSN)
 	if err != nil {
 		return errors.New("restore target database is unavailable")

@@ -639,17 +639,21 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 | 类型 | 内容与时间范围 |
 | --- | --- |
 | `DEVICE_DAILY`（备份昨日数据） | PostgreSQL 原始报文、标准解析消息，ClickHouse 原始报文与解析遥测。原文按接收时间、标准消息按处理时间（旧记录回退消息时间）、遥测按消息时间分日；两种存储分别标明来源 |
+| `DATABASE`（整库备份） | `pg_dump` 自定义格式导出整个 PostgreSQL 业务库（用户与角色、设备模板与凭据、消防管理、告警、通知配置、协议发布记录等全部业务表）以及 ClickHouse 遥测与高频原文表（Native 格式）；默认每天 `IOT_BACKUP_DATABASE_TIME`（01:30，留空关闭）执行并保留最近 `IOT_BACKUP_DATABASE_KEEP`（7）份 |
 | `FULL`（立即备份设备数据） | 全量设备消息，外部数据接入的配置、密文凭据、记录与任务（`external-data.jsonl.gz`），四张知识表及索引、引用的 MinIO 原件，全部 Harness 实例的动态 Agent 与会话快照 |
 
 每日自动备份默认开启，每天上海时间 00:05 执行昨日备份；服务停机期间不自动补跑。`FULL` 使用 v2 清单，按组件记录实际包含范围；旧备份缺少的组件显示“不包含”，不补记成功。
 
-两种备份均不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`platform_fire_safety`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 MinIO。上述数据库内容需独立整库备份；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
+`DEVICE_DAILY` 与 `FULL` 不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`platform_fire_safety`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 MinIO。上述数据库内容由 `DATABASE` 整库备份覆盖；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
 
 备份列表“恢复验证”调用 `POST /api/v1/backups/:id/restore`，逐项校验制品 SHA-256、大小与恢复数量：
 
 - 设备消息写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 的 `restored_message`、`restore_run`；目标库未配置，或与业务库主机、端口、库名相同，返回 412。
 - 知识库恢复到该库的 `kb_restore_<标识>` schema，原件恢复到独立 MinIO 前缀，Harness 文件恢复到隔离目录。
 - 外部接入记录恢复到 `external_restore_<标识>` schema，不覆盖在线配置或重新启动任务。
+
+- 整库备份的恢复验证写入 `IOT_BACKUP_RESTORE_DATABASE_DSN` 指向的专用演练库（需预先创建，例如同实例的 `iot_drill` 库）：先清空其 `public` schema 再用 `pg_restore` 恢复并核对表数量；目标与业务库或消息恢复库相同时拒绝执行，未配置时返回 412。备份镜像内置 PostgreSQL 17 客户端，外部 PostgreSQL 主版本更高时需用 `IOT_BACKUP_POSTGRES_TOOLS_DIR` 指定匹配版本的 `pg_dump`/`pg_restore`。
+- 配置 `IOT_BACKUP_OFFSITE_ENDPOINT`、`IOT_BACKUP_OFFSITE_BUCKET`、`IOT_BACKUP_OFFSITE_ACCESS_KEY`、`IOT_BACKUP_OFFSITE_SECRET_KEY`（可选 `IOT_BACKUP_OFFSITE_REGION`、`IOT_BACKUP_OFFSITE_USE_TLS`，默认 TLS）后，每次备份的全部制品与清单另写一份到该 S3 兼容存储并逐个校验大小与 SHA-256，异地写入失败即整次备份失败并触发 `BackupFailures` 告警。同机 MinIO 与数据位于同一主机，不能单独视为灾难恢复副本。
 
 同一时间只运行一个备份或恢复。文件校验与隔离恢复是不同操作；隔离恢复不替换现网数据，也不等同于完整系统恢复。
 

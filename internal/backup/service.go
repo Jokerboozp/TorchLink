@@ -37,6 +37,14 @@ type Config struct {
 	// Restores use independent storage and never overwrite the running service.
 	RestoreHarnessDir, RestoreMinIOEndpoint, RestoreMinIOAccessKey, RestoreMinIOSecretKey string
 	RestoreMinIOUseTLS                                                                    bool
+	// RestoreDatabaseDSN is a dedicated, disposable database that DATABASE
+	// backups are restored into for drills; its public schema is replaced.
+	RestoreDatabaseDSN string
+	// PostgresToolsDir holds pg_dump / pg_restore; empty uses PATH.
+	PostgresToolsDir string
+	// Off-site copies go to a second S3-compatible store when configured.
+	OffsiteEndpoint, OffsiteBucket, OffsiteAccessKey, OffsiteSecretKey, OffsiteRegion string
+	OffsiteUseTLS                                                                     bool
 }
 
 type Artifact struct {
@@ -74,6 +82,7 @@ type Service struct {
 	cfg       Config
 	pool      *pgxpool.Pool
 	store     *minio.Client
+	offsite   *minio.Client
 	mu        sync.Mutex
 	success   atomic.Uint64
 	failed    atomic.Uint64
@@ -107,7 +116,18 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.BackupTimezone == "" {
 		cfg.BackupTimezone = "Asia/Shanghai"
 	}
-	return &Service{cfg: cfg, pool: pool, store: store}, nil
+	service := &Service{cfg: cfg, pool: pool, store: store}
+	if cfg.OffsiteEndpoint != "" {
+		if cfg.OffsiteBucket == "" {
+			cfg.OffsiteBucket = "iot-backups"
+			service.cfg.OffsiteBucket = cfg.OffsiteBucket
+		}
+		if service.offsite, err = minio.New(cfg.OffsiteEndpoint, &minio.Options{Creds: credentials.NewStaticV4(cfg.OffsiteAccessKey, cfg.OffsiteSecretKey, ""), Secure: cfg.OffsiteUseTLS, Region: cfg.OffsiteRegion}); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("off-site object store: %w", err)
+		}
+	}
+	return service, nil
 }
 
 func (s *Service) Close() { s.pool.Close() }
@@ -132,6 +152,9 @@ func (s *Service) Run(ctx context.Context, kind string) (Manifest, error) {
 	}
 	if kind == "DEVICE_DAILY" || kind == "RAW_LOGS" || kind == "INCREMENTAL" {
 		return s.RunDaily(ctx, time.Now().In(s.rawBackupLocation()).AddDate(0, 0, -1))
+	}
+	if kind == databaseType {
+		return s.runDatabase(ctx)
 	}
 	if kind != "FULL" {
 		return Manifest{}, fmt.Errorf("unsupported backup type: %s", kind)
@@ -161,16 +184,7 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 	if _, err = s.pool.Exec(ctx, `INSERT INTO backup_task(id,backup_type,status,started_at) VALUES($1,$2,'RUNNING',now())`, id, kind); err != nil {
 		return manifest, err
 	}
-	defer func() {
-		if err != nil {
-			s.failed.Add(1)
-			s.lastError.Store(err.Error())
-			details, _ := json.Marshal(map[string]any{"error": err.Error(), "components": manifest.Components})
-			updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_, _ = s.pool.Exec(updateCtx, `UPDATE backup_task SET status='FAILED',details=$2,completed_at=now() WHERE id=$1`, id, details)
-		}
-	}()
+	defer s.finishFailed(id, &manifest, &err)
 	dir := filepath.Join(s.cfg.BackupDir, id)
 	if err = os.MkdirAll(dir, 0o750); err != nil {
 		return manifest, err
@@ -201,33 +215,8 @@ func (s *Service) runDeviceData(ctx context.Context, kind string, start, end tim
 		}
 		paths = append(paths, externalPath)
 	}
-	if err = s.ensureBucket(ctx, s.store, s.cfg.BackupBucket); err != nil {
-		return manifest, err
-	}
-	for _, path := range paths {
-		artifact, uploadErr := s.uploadAndVerify(ctx, id, path)
-		if uploadErr != nil {
-			return manifest, uploadErr
-		}
-		manifest.Artifacts = append(manifest.Artifacts, artifact)
-	}
-	manifestPath := filepath.Join(dir, "manifest.json")
-	if err = writeJSON(manifestPath, manifest); err != nil {
-		return manifest, err
-	}
-	artifact, uploadErr := s.uploadAndVerify(ctx, id, manifestPath)
-	if uploadErr != nil {
-		return manifest, uploadErr
-	}
-	manifest.Artifacts = append(manifest.Artifacts, artifact)
-	details, _ := json.Marshal(manifest)
-	_, err = s.pool.Exec(ctx, `UPDATE backup_task SET status='COMPLETED',object_key=$2,checksum=$3,details=$4,completed_at=now() WHERE id=$1`, id, artifact.ObjectKey, artifact.SHA256, details)
-	if err != nil {
-		return manifest, err
-	}
-	s.success.Add(1)
-	s.lastOK.Store(time.Now().Unix())
-	return manifest, nil
+	err = s.publish(ctx, id, dir, paths, &manifest)
+	return manifest, err
 }
 
 func (s *Service) rawBackupLocation() *time.Location {
@@ -491,3 +480,5 @@ func errorString(err error) string {
 	}
 	return err.Error()
 }
+
+func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }

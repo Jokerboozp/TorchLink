@@ -47,6 +47,14 @@ func main() {
 		RestoreMinIOAccessKey: os.Getenv("IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY"),
 		RestoreMinIOSecretKey: os.Getenv("IOT_BACKUP_RESTORE_MINIO_SECRET_KEY"),
 		RestoreMinIOUseTLS:    boolean("IOT_BACKUP_RESTORE_MINIO_USE_TLS"),
+		RestoreDatabaseDSN:    os.Getenv("IOT_BACKUP_RESTORE_DATABASE_DSN"),
+		PostgresToolsDir:      os.Getenv("IOT_BACKUP_POSTGRES_TOOLS_DIR"),
+		OffsiteEndpoint:       os.Getenv("IOT_BACKUP_OFFSITE_ENDPOINT"),
+		OffsiteBucket:         env("IOT_BACKUP_OFFSITE_BUCKET", "iot-backups"),
+		OffsiteAccessKey:      os.Getenv("IOT_BACKUP_OFFSITE_ACCESS_KEY"),
+		OffsiteSecretKey:      os.Getenv("IOT_BACKUP_OFFSITE_SECRET_KEY"),
+		OffsiteRegion:         os.Getenv("IOT_BACKUP_OFFSITE_REGION"),
+		OffsiteUseTLS:         boolean("IOT_BACKUP_OFFSITE_USE_TLS"),
 	})
 	if err != nil {
 		log.Error("initialize backup service", "error", err)
@@ -93,7 +101,7 @@ func main() {
 	}))
 	mux.HandleFunc("POST /restore", protected(adminToken, func(w http.ResponseWriter, r *http.Request) {
 		result, restoreErr := service.Restore(r.Context(), r.URL.Query().Get("backupId"))
-		if errors.Is(restoreErr, backup.ErrRestoreNotConfigured) || errors.Is(restoreErr, backup.ErrRestoreTargetUnsafe) {
+		if errors.Is(restoreErr, backup.ErrRestoreNotConfigured) || errors.Is(restoreErr, backup.ErrRestoreDatabaseNotConfigured) || errors.Is(restoreErr, backup.ErrRestoreTargetUnsafe) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPreconditionFailed)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": restoreErr.Error()})
@@ -166,6 +174,20 @@ func main() {
 	if !strings.EqualFold(env("IOT_BACKUP_ENABLED", "true"), "false") {
 		go dailyDeviceDataScheduler(ctx, service, log, env("IOT_BACKUP_TIME", "00:05"), env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"))
 	}
+	// Whole-database backups run daily at IOT_BACKUP_DATABASE_TIME (empty
+	// disables them) and keep the newest IOT_BACKUP_DATABASE_KEEP.
+	if clock := strings.TrimSpace(env("IOT_BACKUP_DATABASE_TIME", "01:30")); clock != "" && !strings.EqualFold(env("IOT_BACKUP_ENABLED", "true"), "false") {
+		keep, _ := strconv.Atoi(env("IOT_BACKUP_DATABASE_KEEP", "7"))
+		go dailyJob(ctx, log, clock, env("IOT_BACKUP_TIMEZONE", "Asia/Shanghai"), "whole-database backup", func(ctx context.Context, _ time.Time) error {
+			result, err := service.Run(ctx, "DATABASE")
+			if err != nil {
+				return err
+			}
+			deleted, pruneErr := service.PruneDatabaseBackups(ctx, keep)
+			log.Info("scheduled whole-database backup completed", "id", result.ID, "pruned", deleted)
+			return pruneErr
+		})
+	}
 	<-ctx.Done()
 	shutdown, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()
@@ -202,6 +224,31 @@ func dailyDeviceDataScheduler(ctx context.Context, service *backup.Service, log 
 				log.Error("scheduled device-data backup failed", "type", "DEVICE_DAILY", "date", backupDay.Format("2006-01-02"), "error", runErr)
 			} else {
 				log.Info("scheduled device-data backup completed", "type", "DEVICE_DAILY", "date", backupDay.Format("2006-01-02"), "id", result.ID)
+			}
+		}
+	}
+}
+
+// dailyJob runs fn every day at clock in timezone until ctx ends.
+func dailyJob(ctx context.Context, log *slog.Logger, clock, timezone, name string, fn func(context.Context, time.Time) error) {
+	location, err := time.LoadLocation(strings.TrimSpace(timezone))
+	if err != nil {
+		location = time.UTC
+	}
+	for {
+		next, parseErr := nextDailyRun(time.Now().In(location), clock, location)
+		if parseErr != nil {
+			log.Error("invalid daily schedule time", "job", name, "time", clock, "error", parseErr)
+			return
+		}
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			if runErr := fn(ctx, next); runErr != nil {
+				log.Error("scheduled job failed", "job", name, "error", runErr)
 			}
 		}
 	}

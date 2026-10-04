@@ -33,7 +33,7 @@ let loadVersion = 0
 
 const isAdmin = computed(() => can(['POST /api/v1/backups','POST /api/v1/backups/:id/restore-drill','POST /api/v1/backups/:id/restore','GET /api/v1/backups/:id/files/:filename','DELETE /api/v1/backups/:id']))
 const runningCount = computed(() => records.value.filter(item => item.status === 'RUNNING').length)
-const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type)))
+const latestCompleted = computed(() => records.value.find(item => item.status === 'COMPLETED' && ['DATABASE', 'FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(item.type)))
 
 function statusType(value) {
   if (value === 'COMPLETED') return 'success'
@@ -102,7 +102,7 @@ async function showDetail(row) {
   manifestTotal.value = 0
   try {
     detail.value = await api(`/api/v1/backups/${idPath(row.id)}`)
-    if (row.status === 'COMPLETED' && ['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)) {
+    if (row.status === 'COMPLETED' && ['DATABASE', 'FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type)) {
       await loadManifest(row.id)
     }
   } catch (error) {
@@ -199,8 +199,8 @@ const statusTone = value => ({ danger:'danger', warning:'warning', success:'succ
 function rowActions(row) {
   return [
     { key:'detail', label:'详情 / 文件', onClick:() => showDetail(row) },
-    { key:'drill', label:'文件校验', permission:'POST /api/v1/backups/:id/restore-drill', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `drill:${row.id}`, onClick:() => restoreDrill(row) },
-    { key:'restore', label:'恢复验证', permission:'POST /api/v1/backups/:id/restore', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `restore:${row.id}`, onClick:() => restoreToTarget(row) },
+    { key:'drill', label:'文件校验', permission:'POST /api/v1/backups/:id/restore-drill', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['DATABASE', 'FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `drill:${row.id}`, onClick:() => restoreDrill(row) },
+    { key:'restore', label:'恢复验证', permission:'POST /api/v1/backups/:id/restore', hidden:!isAdmin.value || row.status !== 'COMPLETED' || !['DATABASE', 'FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type), loading:actionLoading.value === `restore:${row.id}`, onClick:() => restoreToTarget(row) },
     { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/backups/:id', hidden:row.status === 'RUNNING', onClick:() => removeBackup(row) }
   ]
 }
@@ -219,6 +219,7 @@ function rowActions(row) {
       <ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button>
       <template v-if="isAdmin">
         <ui-button v-permission="'POST /api/v1/backups'" :loading="actionLoading === 'run:DEVICE_DAILY'" :disabled="serviceMissing" @click="runBackup('DEVICE_DAILY')">备份昨日数据</ui-button>
+        <ui-button v-permission="'POST /api/v1/backups'" :loading="actionLoading === 'run:DATABASE'" :disabled="serviceMissing" @click="runBackup('DATABASE')">立即整库备份</ui-button>
         <ui-button v-permission="'POST /api/v1/backups'" type="primary" :loading="actionLoading === 'run:FULL'" :disabled="serviceMissing" @click="runBackup('FULL')">立即完整备份</ui-button>
       </template>
     </template>
@@ -234,7 +235,7 @@ function rowActions(row) {
 
   <DataTableCard class="backup-table-card" :title="`备份记录 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
     <ui-table v-loading="loading" :data="records">
-      <ui-table-column label="类型" width="130"><template #default="{ row }"><ui-tag :type="row.type === 'FULL' ? 'primary' : row.type === 'INCREMENTAL' ? 'success' : 'info'" round>{{ label(backupTypes, row.type) }}</ui-tag></template></ui-table-column>
+      <ui-table-column label="类型" width="130"><template #default="{ row }"><ui-tag :type="row.type === 'FULL' || row.type === 'DATABASE' ? 'primary' : row.type === 'INCREMENTAL' ? 'success' : 'info'" round>{{ label(backupTypes, row.type) }}</ui-tag></template></ui-table-column>
       <ui-table-column label="任务标识" min-width="270"><template #default="{ row }"><code>{{ row.id }}</code></template></ui-table-column>
       <ui-table-column label="状态" width="110"><template #default="{ row }"><StatusDot :tone="statusTone(row.status)" :label="label(backupStatuses, row.status)" /></template></ui-table-column>
       <ui-table-column label="开始时间" min-width="170"><template #default="{ row }">{{ formatDate(row.startedAt) }}</template></ui-table-column>

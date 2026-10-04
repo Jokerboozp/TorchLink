@@ -537,7 +537,8 @@ services:
         COPY . .
         RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/backup-service ./cmd/backup-service
         FROM alpine:3.22
-        RUN apk add --no-cache ca-certificates tzdata
+                # pg_dump / pg_restore must be at least the server major version (PostgreSQL 17).
+        RUN apk add --no-cache ca-certificates tzdata postgresql17-client
         COPY --from=build /out/backup-service /usr/local/bin/backup-service
         ENTRYPOINT ["backup-service"]
     environment:
@@ -553,6 +554,15 @@ services:
       IOT_BACKUP_TIMEZONE: ${IOT_BACKUP_TIMEZONE:-Asia/Shanghai}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
       IOT_BACKUP_RESTORE_TARGET_DSN: ${IOT_BACKUP_RESTORE_TARGET_DSN:-}
+      IOT_BACKUP_RESTORE_DATABASE_DSN: ${IOT_BACKUP_RESTORE_DATABASE_DSN:-}
+      IOT_BACKUP_DATABASE_TIME: ${IOT_BACKUP_DATABASE_TIME-01:30}
+      IOT_BACKUP_DATABASE_KEEP: ${IOT_BACKUP_DATABASE_KEEP:-7}
+      IOT_BACKUP_OFFSITE_ENDPOINT: ${IOT_BACKUP_OFFSITE_ENDPOINT:-}
+      IOT_BACKUP_OFFSITE_BUCKET: ${IOT_BACKUP_OFFSITE_BUCKET:-iot-backups}
+      IOT_BACKUP_OFFSITE_ACCESS_KEY: ${IOT_BACKUP_OFFSITE_ACCESS_KEY:-}
+      IOT_BACKUP_OFFSITE_SECRET_KEY: ${IOT_BACKUP_OFFSITE_SECRET_KEY:-}
+      IOT_BACKUP_OFFSITE_REGION: ${IOT_BACKUP_OFFSITE_REGION:-}
+      IOT_BACKUP_OFFSITE_USE_TLS: ${IOT_BACKUP_OFFSITE_USE_TLS:-true}
       IOT_BACKUP_HARNESS_DATA_DIR: /app/harness
       IOT_BACKUP_HARNESS_SNAPSHOT_URLS: http://deepseek-harness:8091/v1/backup/snapshot
       IOT_AI_HARNESS_TOKEN: ${IOT_AI_HARNESS_TOKEN:-local-harness-gateway-token-change-me-now}
