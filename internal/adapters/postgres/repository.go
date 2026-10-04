@@ -798,6 +798,7 @@ func (r *Repository) ListDeviceStates(ctx context.Context, tenant string) ([]mod
 	}
 	return out, rows.Err()
 }
+
 // ListOfflineDue reads only due states through the partial index on
 // offline_check_at, instead of every device of every tenant.
 func (r *Repository) ListOfflineDue(ctx context.Context, now int64, limit int) ([]model.DeviceState, error) {
