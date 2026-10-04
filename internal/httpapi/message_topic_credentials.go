@@ -60,8 +60,10 @@ func (s *Server) messageTopicIdentity(ctx context.Context, tenant, keyID string)
 	permissions := effectivePermissions(state, user)
 	s.stripOpsPermissions(tenant, permissions)
 	user = resolveUserDeviceScope(state, user)
-	version := s.topicBrokerPassword(tenant, "access\x00"+accessVersion(user, permissions, tenant)+"\x00"+key.SecretHash+"\x00"+strconv.FormatInt(key.ExpiresAt, 10))
-	return messagetopics.MessageTopicIdentity{Permissions: permissions, DeviceScope: user.DeviceScope, DeviceIDs: append([]string(nil), user.DeviceIDs...), Version: version, ExpiresAt: key.ExpiresAt / 1000}, nil
+	// Topic scopes compare explicit device lists, so unit grants are expanded.
+	devices := s.scopeFor(user, permissions, tenant).DeviceIDs()
+	version := s.topicBrokerPassword(tenant, "access\x00"+s.accessVersion(user, permissions, tenant)+"\x00"+key.SecretHash+"\x00"+strconv.FormatInt(key.ExpiresAt, 10))
+	return messagetopics.MessageTopicIdentity{Permissions: permissions, DeviceScope: user.DeviceScope, DeviceIDs: devices, Version: version, ExpiresAt: key.ExpiresAt / 1000}, nil
 }
 
 func (s *Server) messageTopicAuthorizationReady(ctx context.Context, protocol string) error {

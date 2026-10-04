@@ -8,18 +8,58 @@ import (
 	"iot-platform/internal/ports"
 	"iot-platform/internal/sites"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 )
 
 type deviceScopeKey struct{}
+
+// deviceScope is the devices a request may use: all of them, the devices
+// granted one by one, and the devices placed in granted units. Unit grants
+// are resolved through the tenant's shared site index instead of being
+// copied into every user's device list.
 type deviceScope struct {
 	Tenant string
 	All    bool
 	IDs    map[string]bool
+	Units  map[string]bool
+	sites  *siteIndex
 }
 
-func scopeFor(u model.PlatformUser, p map[string]bool, tenant string) deviceScope {
+// Has reports whether the scope covers device id.
+func (v deviceScope) Has(id string) bool {
+	if v.All || v.IDs[id] {
+		return true
+	}
+	if len(v.Units) == 0 || v.sites == nil {
+		return false
+	}
+	unit, placed := v.sites.unitOf[id]
+	return placed && v.Units[unit]
+}
+
+// DeviceIDs lists the granted devices, including those placed in granted
+// units, sorted; it is empty for a scope covering all devices.
+func (v deviceScope) DeviceIDs() []string {
+	ids := make([]string, 0, len(v.IDs))
+	for id, allowed := range v.IDs {
+		if allowed {
+			ids = append(ids, id)
+		}
+	}
+	if v.sites != nil {
+		for unit := range v.Units {
+			ids = append(ids, v.sites.devices[unit]...)
+		}
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids)
+}
+
+// scopeFor builds the scope of a resolved user (see resolveUserDeviceScope)
+// with the tenant's site index cached alongside the access state.
+func (s *Server) scopeFor(u model.PlatformUser, p map[string]bool, tenant string) deviceScope {
 	v := deviceScope{Tenant: tenant, IDs: map[string]bool{}}
 	if !p["menu:devices"] {
 		return v
@@ -28,6 +68,13 @@ func scopeFor(u model.PlatformUser, p map[string]bool, tenant string) deviceScop
 	if u.DeviceScope == "selected" {
 		for _, id := range u.DeviceIDs {
 			v.IDs[id] = true
+		}
+		if len(u.UnitIDs) > 0 {
+			v.Units = make(map[string]bool, len(u.UnitIDs))
+			for _, id := range u.UnitIDs {
+				v.Units[id] = true
+			}
+			v.sites = s.cachedSiteIndex(tenant)
 		}
 	}
 	return v
@@ -38,7 +85,7 @@ func requestScope(ctx context.Context) (deviceScope, bool) {
 }
 func deviceAllowed(ctx context.Context, tenant, id string) bool {
 	v, ok := requestScope(ctx)
-	return !ok || (tenant == v.Tenant && (v.All || v.IDs[id]))
+	return !ok || (tenant == v.Tenant && v.Has(id))
 }
 func limited(ctx context.Context) bool { v, ok := requestScope(ctx); return ok && !v.All }
 
@@ -161,15 +208,10 @@ func (r *deviceScopeRepository) ListManagedDevicesPage(ctx context.Context, t st
 // grantedIDs lists the request's granted devices of tenant t in a stable order.
 func grantedIDs(ctx context.Context, t string) []string {
 	v, _ := requestScope(ctx)
-	ids := []string{}
 	if v.Tenant != t {
-		return ids
+		return []string{}
 	}
-	for id := range v.IDs {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
+	return v.DeviceIDs()
 }
 
 // Limited users pass their device grant to the store, which filters, counts
@@ -275,10 +317,7 @@ func (r *deviceScopeRepository) scopedDevices(ctx context.Context, tenant, devic
 			return nil, true
 		}
 		v, _ := requestScope(ctx)
-		for id := range v.IDs {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
+		ids = v.DeviceIDs()
 	}
 	ids = r.scopedIDs(ctx, tenant, ids)
 	return ids, len(ids) > 0
@@ -351,11 +390,7 @@ func (r *deviceScopeRepository) DashboardCounts(ctx context.Context, t string, s
 		return r.Repository.DashboardCounts(ctx, t, start, end)
 	}
 	scope, _ := requestScope(ctx)
-	ids := make([]string, 0, len(scope.IDs))
-	for id := range scope.IDs {
-		ids = append(ids, id)
-	}
-	return r.Repository.DashboardCountsForDevices(ctx, t, start, end, ids)
+	return r.Repository.DashboardCountsForDevices(ctx, t, start, end, scope.DeviceIDs())
 }
 func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 	rows, e := s.unscopedRepo().ListManagedDevices(r.Context(), claims(r).TenantID)

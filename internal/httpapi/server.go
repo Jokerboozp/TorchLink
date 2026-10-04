@@ -2915,7 +2915,7 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 				return
 			}
 			allowed = allowsRoute(permissions, c.Request.Method, c.FullPath())
-			scope := scopeFor(user, permissions, claimsValue.TenantID)
+			scope := s.scopeFor(user, permissions, claimsValue.TenantID)
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), deviceScopeKey{}, scope))
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), permissionsKey{}, permissions))
 			if allowed {
@@ -2976,7 +2976,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			ctx := context.WithValue(c.Request.Context(), deviceScopeKey{}, scopeFor(user, permissions, claimsValue.TenantID))
+			ctx := context.WithValue(c.Request.Context(), deviceScopeKey{}, s.scopeFor(user, permissions, claimsValue.TenantID))
 			ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 			claimsValue.Scopes = intersectScopes(claimsValue.Scopes, workflowScopes(ctx))
 			claimsValue.Permissions = permissionList(permissions)

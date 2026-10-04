@@ -185,3 +185,34 @@ func TestImportCreatesHierarchyAndRejectsInvalidRows(t *testing.T) {
 		t.Fatalf("missing unit column: %v", err)
 	}
 }
+
+// Instances work from their cached snapshots; a change made through another
+// instance is picked up instead of being overwritten, and a failed change
+// leaves the cached snapshot untouched.
+func TestInstancesShareStoreWithoutLosingChanges(t *testing.T) {
+	ctx := context.Background()
+	store := memory.NewRepository()
+	a, b := New(store), New(store)
+	unit, err := a.SaveUnit(ctx, "t", "admin", model.SiteUnit{Name: "甲单位"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.Snapshot(ctx, "t"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = a.SaveUnit(ctx, "t", "admin", model.SiteUnit{Name: "乙单位"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.SavePoint(ctx, "t", "admin", model.SitePoint{UnitID: unit.ID, DeviceID: "d1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.SavePoint(ctx, "t", "admin", model.SitePoint{UnitID: "missing", DeviceID: "d2"}); err == nil {
+		t.Fatal("point in a missing unit accepted")
+	}
+	for _, svc := range []*Service{a, b} {
+		state, err := svc.Snapshot(ctx, "t")
+		if err != nil || len(state.Units) != 2 || len(state.Points) != 1 || state.Revision != 3 {
+			t.Fatalf("snapshot %+v %v", state, err)
+		}
+	}
+}

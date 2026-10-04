@@ -22,12 +22,32 @@ type accessCache struct {
 type cachedAccess struct {
 	state        model.AccessState
 	siteRevision int64
+	sites        *siteIndex
+}
+
+// siteIndex resolves unit grants: the unit each placed device belongs to and
+// the devices of each unit. One index per tenant and site revision is shared
+// by every request, so unit grants cost no per-user copies.
+type siteIndex struct {
+	unitOf  map[string]string
+	devices map[string][]string
+}
+
+func newSiteIndex(state model.SiteState) *siteIndex {
+	index := &siteIndex{unitOf: sites.DeviceUnits(state), devices: map[string][]string{}}
+	for device, unit := range index.unitOf {
+		index.devices[unit] = append(index.devices[unit], device)
+	}
+	for _, list := range index.devices {
+		slices.Sort(list)
+	}
+	return index
 }
 
 // authorizationAccess returns the tenant's current access state for
-// read-only use; callers must not modify it. Unit grants are already
-// expanded into device IDs. Handlers that change access load a private,
-// unexpanded copy with LoadAccessState instead.
+// read-only use; callers must not modify it. Unit grants stay as unit IDs;
+// scopeFor resolves them with the site index cached with the state.
+// Handlers that change access load a private copy with LoadAccessState.
 func (s *Server) authorizationAccess(ctx context.Context, tenant string) (model.AccessState, error) {
 	store, err := s.accessStore()
 	if err != nil {
@@ -51,54 +71,26 @@ func (s *Server) authorizationAccess(ctx context.Context, tenant string) (model.
 	if err != nil {
 		return state, err
 	}
-	if siteRevision, err = s.expandUnitGrants(ctx, tenant, &state); err != nil {
+	siteState, err := s.sites.Snapshot(ctx, tenant)
+	if err != nil {
 		return state, err
 	}
+	entry := cachedAccess{state: state, siteRevision: siteState.Revision, sites: newSiteIndex(siteState)}
 	s.access.mu.Lock()
 	if s.access.entries == nil {
 		s.access.entries = map[string]cachedAccess{}
 	}
-	if previous, exists := s.access.entries[tenant]; !exists || previous.state.Revision < state.Revision || (previous.state.Revision == state.Revision && previous.siteRevision <= siteRevision) {
-		s.access.entries[tenant] = cachedAccess{state: state, siteRevision: siteRevision}
+	if previous, exists := s.access.entries[tenant]; !exists || previous.state.Revision < state.Revision || (previous.state.Revision == state.Revision && previous.siteRevision <= entry.siteRevision) {
+		s.access.entries[tenant] = entry
 	}
 	s.access.mu.Unlock()
 	return state, nil
 }
 
-// expandUnitGrants adds the devices placed in each user's and role's
-// granted units to their device IDs and returns the site revision used.
-func (s *Server) expandUnitGrants(ctx context.Context, tenant string, state *model.AccessState) (int64, error) {
-	needed := false
-	for _, u := range state.Users {
-		needed = needed || len(u.UnitIDs) > 0
-	}
-	for _, r := range state.Roles {
-		needed = needed || len(r.UnitIDs) > 0
-	}
-	siteState, err := s.sites.Snapshot(ctx, tenant)
-	if err != nil || !needed {
-		return siteState.Revision, err
-	}
-	byUnit := map[string][]string{}
-	for device, unit := range sites.DeviceUnits(siteState) {
-		byUnit[unit] = append(byUnit[unit], device)
-	}
-	expand := func(scope string, ids, units []string) []string {
-		if scope != "selected" || len(units) == 0 {
-			return ids
-		}
-		out := slices.Clone(ids)
-		for _, unit := range units {
-			out = append(out, byUnit[unit]...)
-		}
-		slices.Sort(out)
-		return slices.Compact(out)
-	}
-	for i := range state.Users {
-		state.Users[i].DeviceIDs = expand(state.Users[i].DeviceScope, state.Users[i].DeviceIDs, state.Users[i].UnitIDs)
-	}
-	for i := range state.Roles {
-		state.Roles[i].DeviceIDs = expand(state.Roles[i].DeviceScope, state.Roles[i].DeviceIDs, state.Roles[i].UnitIDs)
-	}
-	return siteState.Revision, nil
+// cachedSiteIndex returns the site index cached with the tenant's access
+// state, loaded by the authorizationAccess call that preceded it.
+func (s *Server) cachedSiteIndex(tenant string) *siteIndex {
+	s.access.mu.Lock()
+	defer s.access.mu.Unlock()
+	return s.access.entries[tenant].sites
 }

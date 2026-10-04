@@ -35,14 +35,22 @@ func conflict(message string) error {
 
 // Service validates every change against the tenant's whole site state.
 type Service struct {
-	store ports.SiteStore
-	now   func() time.Time
-	mu    sync.Mutex
-	cache map[string]model.SiteState
+	store  ports.SiteStore
+	now    func() time.Time
+	mu     sync.Mutex
+	cache  map[string]model.SiteState
+	points map[string]pointIndex
+}
+
+// pointIndex lists the points of each device in a snapshot, so locating an
+// alarm does not scan every point of the tenant.
+type pointIndex struct {
+	revision int64
+	byDevice map[string][]int
 }
 
 func New(store ports.SiteStore) *Service {
-	return &Service{store: store, now: time.Now, cache: map[string]model.SiteState{}}
+	return &Service{store: store, now: time.Now, cache: map[string]model.SiteState{}, points: map[string]pointIndex{}}
 }
 
 // Snapshot returns the tenant's sites for reading; callers must not modify
@@ -62,12 +70,17 @@ func (s *Service) Snapshot(ctx context.Context, tenant string) (model.SiteState,
 	if err != nil {
 		return state, err
 	}
+	s.remember(tenant, state)
+	return state, nil
+}
+
+// remember caches a snapshot unless a newer one is already cached.
+func (s *Service) remember(tenant string, state model.SiteState) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if previous, exists := s.cache[tenant]; !exists || previous.Revision <= state.Revision {
 		s.cache[tenant] = state
 	}
-	s.mu.Unlock()
-	return state, nil
 }
 
 // Revision returns the tenant's site revision.
@@ -81,19 +94,24 @@ func (s *Service) apply(ctx context.Context, tenant string, change func(*model.S
 		return nil, invalid("租户不能为空")
 	}
 	for attempt := 0; attempt < 8; attempt++ {
-		state, err := s.store.LoadSiteState(ctx, tenant)
+		// The change works on a copy of the cached snapshot, and the store
+		// writes only the records that differ from it.
+		base, err := s.Snapshot(ctx, tenant)
 		if err != nil {
 			return nil, err
 		}
-		result, err := change(&state, s.now().UnixMilli())
+		next := base.Clone()
+		result, err := change(&next, s.now().UnixMilli())
 		if err != nil {
 			return nil, err
 		}
-		saved, err := s.store.SaveSiteState(ctx, tenant, state)
+		saved, err := s.store.SaveSiteState(ctx, tenant, base, next)
 		if err != nil {
 			return nil, err
 		}
 		if saved {
+			next.Revision = base.Revision + 1
+			s.remember(tenant, next)
 			return result, nil
 		}
 	}
@@ -520,12 +538,21 @@ func DeviceUnits(state model.SiteState) map[string]string {
 
 // Locate returns the position of a component, falling back to its device.
 func Locate(state model.SiteState, deviceID, componentID string) *model.AlarmLocation {
-	var point *model.SitePoint
+	var candidates []int
 	for i := range state.Points {
-		p := &state.Points[i]
-		if p.DeviceID != deviceID {
-			continue
+		if state.Points[i].DeviceID == deviceID {
+			candidates = append(candidates, i)
 		}
+	}
+	return locate(state, candidates, componentID)
+}
+
+// locate picks the component's point among the device's points (indices in
+// state.Points, ascending), falling back to the device-level point.
+func locate(state model.SiteState, candidates []int, componentID string) *model.AlarmLocation {
+	var point *model.SitePoint
+	for _, i := range candidates {
+		p := &state.Points[i]
 		if p.ComponentID == componentID {
 			point = p
 			break
@@ -561,7 +588,17 @@ func (s *Service) AlarmLocation(ctx context.Context, tenant, deviceID, component
 	if err != nil {
 		return nil
 	}
-	return Locate(state, deviceID, componentID)
+	s.mu.Lock()
+	index, ok := s.points[tenant]
+	if !ok || index.revision != state.Revision {
+		index = pointIndex{revision: state.Revision, byDevice: make(map[string][]int, len(state.Points))}
+		for i, p := range state.Points {
+			index.byDevice[p.DeviceID] = append(index.byDevice[p.DeviceID], i)
+		}
+		s.points[tenant] = index
+	}
+	s.mu.Unlock()
+	return locate(state, index.byDevice[deviceID], componentID)
 }
 
 // SortState orders records for display: units and buildings by name,

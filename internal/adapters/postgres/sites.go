@@ -21,38 +21,6 @@ const (
 	sitePoint    = "point"
 )
 
-func siteRows(s model.SiteState) ([]fireRow, error) {
-	out := []fireRow{}
-	add := func(kind, id string, v any) error {
-		body, err := json.Marshal(v)
-		if err == nil {
-			out = append(out, fireRow{kind, id, body})
-		}
-		return err
-	}
-	for _, v := range s.Units {
-		if err := add(siteUnit, v.ID, v); err != nil {
-			return nil, err
-		}
-	}
-	for _, v := range s.Buildings {
-		if err := add(siteBuilding, v.ID, v); err != nil {
-			return nil, err
-		}
-	}
-	for _, v := range s.Floors {
-		if err := add(siteFloor, v.ID, v); err != nil {
-			return nil, err
-		}
-	}
-	for _, v := range s.Points {
-		if err := add(sitePoint, v.ID, v); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
-}
-
 func appendSiteRow(s *model.SiteState, kind string, body []byte) error {
 	var err error
 	switch kind {
@@ -132,46 +100,27 @@ func loadSites(ctx context.Context, tx pgx.Tx, tenant string, forUpdate bool) (m
 	return state, rows.Err()
 }
 
-var errSitesChanged = errors.New("site state changed concurrently")
-
-func (r *Repository) SaveSiteState(ctx context.Context, tenant string, state model.SiteState) (bool, error) {
+// SaveSiteState writes only the records that differ from base. The
+// conditional revision update locks the tenant's sites and rejects a base
+// that is no longer current, so base needs no reload.
+func (r *Repository) SaveSiteState(ctx context.Context, tenant string, base, next model.SiteState) (bool, error) {
 	saved := false
 	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		current, err := loadSites(ctx, tx, tenant, true)
-		if err != nil || current.Revision != state.Revision {
+		tag, err := tx.Exec(ctx, `INSERT INTO site_revision(tenant_id,revision) VALUES($1,1) ON CONFLICT(tenant_id) DO UPDATE SET revision=site_revision.revision+1 WHERE site_revision.revision=$2`, tenant, base.Revision)
+		if err != nil || tag.RowsAffected() != 1 {
 			return err
-		}
-		tag, err := tx.Exec(ctx, `INSERT INTO site_revision(tenant_id,revision) VALUES($1,1) ON CONFLICT(tenant_id) DO UPDATE SET revision=site_revision.revision+1 WHERE site_revision.revision=$2`, tenant, current.Revision)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
-			return errSitesChanged
-		}
-		before, err := siteRows(current)
-		if err != nil {
-			return err
-		}
-		after, err := siteRows(state)
-		if err != nil {
-			return err
-		}
-		old := make(map[string][]byte, len(before))
-		for _, row := range before {
-			old[row.kind+"\x00"+row.id] = row.body
 		}
 		batch := &pgx.Batch{}
-		for _, row := range after {
-			key := row.kind + "\x00" + row.id
-			previous, exists := old[key]
-			delete(old, key)
-			if !exists || string(previous) != string(row.body) {
-				batch.Queue(`INSERT INTO site_record(tenant_id,kind,id,body) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,kind,id) DO UPDATE SET body=excluded.body`, tenant, row.kind, row.id, row.body)
+		for _, change := range model.SiteChanges(base, next) {
+			if change.Value == nil {
+				batch.Queue(`DELETE FROM site_record WHERE tenant_id=$1 AND kind=$2 AND id=$3`, tenant, change.Kind, change.ID)
+				continue
 			}
-		}
-		for key := range old {
-			kind, id, _ := cutKey(key)
-			batch.Queue(`DELETE FROM site_record WHERE tenant_id=$1 AND kind=$2 AND id=$3`, tenant, kind, id)
+			body, err := json.Marshal(change.Value)
+			if err != nil {
+				return err
+			}
+			batch.Queue(`INSERT INTO site_record(tenant_id,kind,id,body) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,kind,id) DO UPDATE SET body=excluded.body`, tenant, change.Kind, change.ID, body)
 		}
 		if batch.Len() > 0 {
 			if err = tx.SendBatch(ctx, batch).Close(); err != nil {
@@ -181,8 +130,5 @@ func (r *Repository) SaveSiteState(ctx context.Context, tenant string, state mod
 		saved = true
 		return nil
 	})
-	if errors.Is(err, errSitesChanged) {
-		return false, nil
-	}
 	return saved, err
 }

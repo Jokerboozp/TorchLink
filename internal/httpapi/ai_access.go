@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"sort"
 
 	"iot-platform/internal/auth"
 	"iot-platform/internal/core"
@@ -71,10 +70,10 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 	} else if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
 		return ctx, errors.New("无智能助手访问权限")
 	}
-	if identity.AccessVersion == "" || identity.AccessVersion != accessVersion(user, permissions, tenantID) {
+	if identity.AccessVersion == "" || identity.AccessVersion != s.accessVersion(user, permissions, tenantID) {
 		return ctx, errors.New("权限或设备范围已变化，请重新发起 AI 任务")
 	}
-	ctx = context.WithValue(ctx, deviceScopeKey{}, scopeFor(user, permissions, tenantID))
+	ctx = context.WithValue(ctx, deviceScopeKey{}, s.scopeFor(user, permissions, tenantID))
 	ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 	identity.Scopes = intersectScopes(identity.Scopes, workflowScopes(ctx))
 	return ports.WithAIRunIdentity(ctx, identity), nil
@@ -133,8 +132,8 @@ func intersectScopes(issued, current []string) []string {
 	return out
 }
 
-func accessVersion(user model.PlatformUser, permissions map[string]bool, tenant string) string {
-	scope := scopeFor(user, permissions, tenant)
+func (s *Server) accessVersion(user model.PlatformUser, permissions map[string]bool, tenant string) string {
+	scope := s.scopeFor(user, permissions, tenant)
 	return scopeAccessVersion(scope, permissions, user.SessionVersion)
 }
 
@@ -148,14 +147,9 @@ func requestAccessVersion(ctx context.Context, claims auth.Claims) string {
 }
 
 func scopeAccessVersion(scope deviceScope, permissions map[string]bool, version int64) string {
-	ids := make([]string, 0, len(scope.IDs))
-	for id, allowed := range scope.IDs {
-		if allowed {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-	payload, _ := json.Marshal([]any{scope.Tenant, scope.All, ids, permissionList(permissions), version})
+	// The expanded device list keeps the version unchanged by site edits
+	// that do not change which devices the user may use.
+	payload, _ := json.Marshal([]any{scope.Tenant, scope.All, scope.DeviceIDs(), permissionList(permissions), version})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }

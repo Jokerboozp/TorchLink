@@ -156,7 +156,7 @@ func (s *Server) authorizeAPIKey(capability, consoleMethod, consolePath string) 
 		permissions := effectivePermissions(state, user)
 		s.stripOpsPermissions(tenantID, permissions)
 		user = resolveUserDeviceScope(state, user)
-		scope := scopeFor(user, permissions, tenantID)
+		scope := s.scopeFor(user, permissions, tenantID)
 		ctx := context.WithValue(c.Request.Context(), deviceScopeKey{}, scope)
 		ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 		claimsValue := auth.Claims{Username: user.Username, TenantID: tenantID, Role: "operator", TokenUse: "user", SessionVersion: user.SessionVersion}
@@ -187,10 +187,12 @@ func (s *Server) openIdentity(w http.ResponseWriter, r *http.Request) {
 	deviceScope := "none"
 	if scope.All {
 		deviceScope = "all"
-	} else if len(scope.IDs) > 0 {
+	}
+	devices := scope.DeviceIDs()
+	if !scope.All && len(devices) > 0 {
 		deviceScope = "selected"
 	}
-	write(w, 200, map[string]any{"tenantId": claims(r).TenantID, "keyId": key.ID, "name": key.Name, "username": key.Username, "capabilities": key.Capabilities, "deviceScope": deviceScope, "deviceCount": len(scope.IDs), "expiresAt": key.ExpiresAt})
+	write(w, 200, map[string]any{"tenantId": claims(r).TenantID, "keyId": key.ID, "name": key.Name, "username": key.Username, "capabilities": key.Capabilities, "deviceScope": deviceScope, "deviceCount": len(devices), "expiresAt": key.ExpiresAt})
 }
 
 type openDeviceMessage struct {

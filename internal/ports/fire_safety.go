@@ -12,6 +12,10 @@ import (
 type FireSafetyStore interface {
 	LoadFireSafetyState(context.Context, string) (model.FireSafetyState, error)
 	SaveFireSafetyState(context.Context, string, model.FireSafetyState) (bool, error)
+	// SaveFireSafetyFrom stores next when the tenant is still at
+	// base.Revision, writing only the records that differ from base, which
+	// must be the stored state of that revision; nothing is reloaded.
+	SaveFireSafetyFrom(ctx context.Context, tenant string, base, next model.FireSafetyState) (bool, error)
 	// FireSafetyRevision reads only the revision, so readers can reuse a
 	// cached state until it changes.
 	FireSafetyRevision(context.Context, string) (int64, error)

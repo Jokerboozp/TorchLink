@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"iot-platform/internal/adapters/local"
@@ -107,6 +108,26 @@ func TestSitesUnitGrantsPlansAndAlarmLocation(t *testing.T) {
 	}
 	pump := req("POST", "/api/v1/sites/points", root, map[string]any{"unitId": unit["id"], "deviceId": "pump"}, 201)
 	req("GET", "/api/v1/alarms/a-pump", token, nil, 200)
+	alarmIDs := func(token string) []string {
+		t.Helper()
+		ids := []string{}
+		for _, item := range req("GET", "/api/v1/alarms", token, nil, 200)["items"].([]any) {
+			ids = append(ids, item.(map[string]any)["alarmId"].(string))
+		}
+		slices.Sort(ids)
+		return ids
+	}
+	if ids := alarmIDs(token); !slices.Equal(ids, []string{"a-panel", "a-pump"}) {
+		t.Fatalf("unit user alarm list: %v", ids)
+	}
+	// A unit granted through a role reaches users that inherit role scopes.
+	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "unit-role", "name": "单位值守", "permissions": []string{"menu:devices", "menu:alarms"}, "deviceScope": "selected", "unitIds": []string{unit["id"].(string)}}, 200)
+	req("POST", "/api/v1/access/users", root, map[string]any{"username": "role-user", "password": "role-user-password", "enabled": true, "roleIds": []string{"unit-role"}, "deviceScope": "inherit"}, 200)
+	roleToken := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "role-user", "password": "role-user-password", "tenantId": "t"}, 200)["accessToken"].(string)
+	if ids := alarmIDs(roleToken); !slices.Equal(ids, []string{"a-panel", "a-pump"}) {
+		t.Fatalf("role unit grant alarm list: %v", ids)
+	}
+	req("GET", "/api/v1/alarms/a-other", roleToken, nil, 403)
 	listed := req("GET", "/api/v1/sites", token, nil, 200)
 	if points := listed["points"].([]any); len(points) != 2 || points[0].(map[string]any)["deviceName"] != "panel 设备" {
 		t.Fatalf("unit user points: %v", points)

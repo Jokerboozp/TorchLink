@@ -240,6 +240,23 @@ func (r *Repository) SaveFireSafetyState(ctx context.Context, tenant string, sta
 	return saved, err
 }
 
+// SaveFireSafetyFrom writes the difference to base without reloading the
+// tenant; the conditional revision update rejects a base that is not current.
+func (r *Repository) SaveFireSafetyFrom(ctx context.Context, tenant string, base, next model.FireSafetyState) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error { return saveFireSafety(ctx, tx, tenant, base, next) })
+	if errors.Is(err, errFireSafetyChanged) {
+		return false, nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23P01" && pgErr.ConstraintName == "duty_personnel_no_overlap" {
+		return false, model.ErrDutyOverlap
+	}
+	return err == nil, err
+}
+
 // errFireSafetyChanged reports that another writer created the first
 // revision concurrently; Save reports it as an ordinary conflict.
 var errFireSafetyChanged = errors.New("fire safety state changed concurrently")

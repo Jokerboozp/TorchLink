@@ -47,8 +47,8 @@ func (d notificationDirectory) UserContacts(ctx context.Context, tenant, deviceI
 		}
 		permissions := effectivePermissions(state, u)
 		d.s.stripOpsPermissions(tenant, permissions)
-		scope := scopeFor(resolveUserDeviceScope(state, u), permissions, tenant)
-		if !permissions["menu:alarms"] || !(scope.All || scope.IDs[deviceID]) {
+		scope := d.s.scopeFor(resolveUserDeviceScope(state, u), permissions, tenant)
+		if !permissions["menu:alarms"] || !scope.Has(deviceID) {
 			continue
 		}
 		name := u.DisplayName

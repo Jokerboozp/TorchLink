@@ -410,6 +410,10 @@ func TestBatchInspectionsSkipOpenAndRetiredAssets(t *testing.T) {
 
 type overlapStore struct{ *memory.Repository }
 
+func (s overlapStore) SaveFireSafetyFrom(ctx context.Context, tenant string, _, next model.FireSafetyState) (bool, error) {
+	return s.SaveFireSafetyState(ctx, tenant, next)
+}
+
 func (overlapStore) SaveFireSafetyState(context.Context, string, model.FireSafetyState) (bool, error) {
 	return false, model.ErrDutyOverlap
 }

@@ -816,7 +816,7 @@ func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
 			}
 			permissions := effectivePermissions(state, user)
 			requestCtx := context.WithValue(ctx, permissionsKey{}, permissions)
-			requestCtx = context.WithValue(requestCtx, deviceScopeKey{}, scopeFor(user, permissions, "tenant-a"))
+			requestCtx = context.WithValue(requestCtx, deviceScopeKey{}, (&Server{}).scopeFor(user, permissions, "tenant-a"))
 			c := auth.Claims{TenantID: "tenant-a", Username: "expert", TokenUse: "user", SessionVersion: 1}
 			workflows := &aitest.Workflows{}
 			engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, AIWorkflows: workflows, HarnessTokens: aitest.Tokens()}

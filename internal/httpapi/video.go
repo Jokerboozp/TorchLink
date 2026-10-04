@@ -153,9 +153,9 @@ func (s *Server) videoAuthorize(ctx context.Context, tenant string, viewer video
 		if !perms["menu:devices"] || !perms[videoPlayPermission] {
 			return video.ErrForbidden
 		}
-		scope := scopeFor(resolveUserDeviceScope(state, u), perms, tenant)
+		scope := s.scopeFor(resolveUserDeviceScope(state, u), perms, tenant)
 		if camera.DeviceID != "" {
-			if scope.All || scope.IDs[camera.DeviceID] {
+			if scope.Has(camera.DeviceID) {
 				return nil
 			}
 			return video.ErrForbidden

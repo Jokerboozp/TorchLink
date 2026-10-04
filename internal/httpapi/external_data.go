@@ -417,7 +417,7 @@ func (s *Server) authorizeExternalSource(ctx context.Context, tenant string, src
 			return ctx, errExternalDenied
 		}
 		u = resolveUserDeviceScope(state, u)
-		scope := scopeFor(u, permissions, tenant)
+		scope := s.scopeFor(u, permissions, tenant)
 		c := auth.Claims{Username: u.Username, TenantID: tenant, Role: "operator", TokenUse: "user", SessionVersion: u.SessionVersion}
 		ctx = context.WithValue(ctx, claimsKey, c)
 		ctx = auth.ContextWithClaims(ctx, c)

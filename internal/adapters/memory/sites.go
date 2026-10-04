@@ -22,7 +22,7 @@ func (r *Repository) LoadSiteState(ctx context.Context, tenant string) (model.Si
 	return state, nil
 }
 
-func (r *Repository) SaveSiteState(ctx context.Context, tenant string, state model.SiteState) (bool, error) {
+func (r *Repository) SaveSiteState(ctx context.Context, tenant string, base, state model.SiteState) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -34,10 +34,10 @@ func (r *Repository) SaveSiteState(ctx context.Context, tenant string, state mod
 			return false, err
 		}
 	}
-	if old.Revision != state.Revision {
+	if old.Revision != base.Revision {
 		return false, nil
 	}
-	state.Revision++
+	state.Revision = base.Revision + 1
 	body, err := json.Marshal(state)
 	if err != nil {
 		return false, err

@@ -25,6 +25,12 @@ func (r *Repository) LoadFireSafetyState(ctx context.Context, tenant string) (mo
 	return state, nil
 }
 
+// SaveFireSafetyFrom stores next when the tenant is still at base.Revision.
+func (r *Repository) SaveFireSafetyFrom(ctx context.Context, tenant string, base, next model.FireSafetyState) (bool, error) {
+	next.Revision = base.Revision
+	return r.SaveFireSafetyState(ctx, tenant, next)
+}
+
 func (r *Repository) SaveFireSafetyState(ctx context.Context, tenant string, state model.FireSafetyState) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err

@@ -56,11 +56,7 @@ func (s *Service) Snapshot(ctx context.Context, tenant string) (model.FireSafety
 	if err != nil {
 		return state, err
 	}
-	s.mu.Lock()
-	if previous, exists := s.cache[tenant]; !exists || previous.Revision <= state.Revision {
-		s.cache[tenant] = state
-	}
-	s.mu.Unlock()
+	s.remember(tenant, state)
 	return state, nil
 }
 
@@ -88,7 +84,13 @@ func (s *Service) Apply(ctx context.Context, tenant, actor, action, id string, b
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		state, err := s.load(ctx, tenant)
+		// The change works on a private copy of the cached snapshot, and the
+		// store writes only the records that differ from it.
+		base, err := s.Snapshot(ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+		state, err := cloneState(base)
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +98,7 @@ func (s *Service) Apply(ctx context.Context, tenant, actor, action, id string, b
 		if err != nil {
 			return nil, err
 		}
-		saved, err := s.store.SaveFireSafetyState(ctx, tenant, state)
+		saved, err := s.store.SaveFireSafetyFrom(ctx, tenant, base, state)
 		if errors.Is(err, model.ErrDutyOverlap) {
 			return nil, conflict("人员存在重叠排班，请刷新后重试")
 		}
@@ -104,10 +106,33 @@ func (s *Service) Apply(ctx context.Context, tenant, actor, action, id string, b
 			return nil, err
 		}
 		if saved {
+			state.Revision = base.Revision + 1
+			s.remember(tenant, state)
 			return result, nil
 		}
 	}
 	return nil, conflict("数据正在被其他操作更新，请刷新重试")
+}
+
+// cloneState copies a snapshot deeply, since workflow changes may modify
+// nested lists of the records they edit.
+func cloneState(v model.FireSafetyState) (model.FireSafetyState, error) {
+	var out model.FireSafetyState
+	body, err := json.Marshal(v)
+	if err == nil {
+		err = json.Unmarshal(body, &out)
+	}
+	normalize(&out)
+	return out, err
+}
+
+// remember caches a snapshot unless a newer one is already cached.
+func (s *Service) remember(tenant string, state model.FireSafetyState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if previous, exists := s.cache[tenant]; !exists || previous.Revision <= state.Revision {
+		s.cache[tenant] = state
+	}
 }
 
 func normalize(v *model.FireSafetyState) {

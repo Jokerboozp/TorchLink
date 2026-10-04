@@ -12,12 +12,12 @@ func resolveUserDeviceScope(state model.AccessState, user model.PlatformUser) mo
 	if user.DeviceScope != "inherit" {
 		return user
 	}
-	user.DeviceScope, user.DeviceIDs = "none", []string{}
+	user.DeviceScope, user.DeviceIDs, user.UnitIDs = "none", []string{}, nil
 	assigned := make(map[string]bool, len(user.RoleIDs))
 	for _, id := range user.RoleIDs {
 		assigned[id] = true
 	}
-	ids := map[string]bool{}
+	ids, units := map[string]bool{}, map[string]bool{}
 	for _, role := range state.Roles {
 		if !assigned[role.ID] {
 			continue
@@ -30,14 +30,21 @@ func resolveUserDeviceScope(state model.AccessState, user model.PlatformUser) mo
 			for _, id := range role.DeviceIDs {
 				ids[id] = true
 			}
+			for _, id := range role.UnitIDs {
+				units[id] = true
+			}
 		}
 	}
-	if len(ids) > 0 {
+	if len(ids) > 0 || len(units) > 0 {
 		user.DeviceScope = "selected"
 		for id := range ids {
 			user.DeviceIDs = append(user.DeviceIDs, id)
 		}
 		sort.Strings(user.DeviceIDs)
+		for id := range units {
+			user.UnitIDs = append(user.UnitIDs, id)
+		}
+		sort.Strings(user.UnitIDs)
 	}
 	return user
 }

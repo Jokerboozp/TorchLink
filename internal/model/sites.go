@@ -1,5 +1,7 @@
 package model
 
+import "slices"
+
 // Sites describe where devices are installed: a fire safety unit (the
 // managed organisation or premises), its buildings, their floors with an
 // optional floor plan image, and points that place a device or one of its
@@ -79,6 +81,51 @@ type SiteState struct {
 	Buildings []SiteBuilding `json:"buildings"`
 	Floors    []SiteFloor    `json:"floors"`
 	Points    []SitePoint    `json:"points"`
+}
+
+// Clone copies the record lists so a change can be applied without touching
+// a shared snapshot; records are replaced, never modified in place.
+func (s SiteState) Clone() SiteState {
+	s.Units = slices.Clone(s.Units)
+	s.Buildings = slices.Clone(s.Buildings)
+	s.Floors = slices.Clone(s.Floors)
+	s.Points = slices.Clone(s.Points)
+	return s
+}
+
+// SiteChange is one record to write or delete; Value is nil for a delete.
+type SiteChange struct {
+	Kind, ID string
+	Value    any
+}
+
+// SiteChanges lists the records that differ between base and next. Records
+// are compared by value, so a record copied unchanged from base is skipped.
+func SiteChanges(base, next SiteState) []SiteChange {
+	var out []SiteChange
+	out = diffSites(out, "unit", base.Units, next.Units, func(v SiteUnit) string { return v.ID })
+	out = diffSites(out, "building", base.Buildings, next.Buildings, func(v SiteBuilding) string { return v.ID })
+	out = diffSites(out, "floor", base.Floors, next.Floors, func(v SiteFloor) string { return v.ID })
+	return diffSites(out, "point", base.Points, next.Points, func(v SitePoint) string { return v.ID })
+}
+
+func diffSites[T comparable](out []SiteChange, kind string, base, next []T, id func(T) string) []SiteChange {
+	old := make(map[string]T, len(base))
+	for _, v := range base {
+		old[id(v)] = v
+	}
+	for _, v := range next {
+		key := id(v)
+		previous, exists := old[key]
+		delete(old, key)
+		if !exists || previous != v {
+			out = append(out, SiteChange{Kind: kind, ID: key, Value: v})
+		}
+	}
+	for key := range old {
+		out = append(out, SiteChange{Kind: kind, ID: key})
+	}
+	return out
 }
 
 // AlarmLocation is the site position copied into an alarm when it is

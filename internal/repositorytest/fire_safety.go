@@ -62,6 +62,27 @@ func FireSafety(t *testing.T, repo ports.FireSafetyStore) {
 			t.Fatalf("another tenant changed records: %+v, %v", actual, err)
 		}
 	})
+	t.Run("save_from_base", func(t *testing.T) {
+		tenant := "fire-safety-from-base"
+		base := fireSafetySample()
+		if ok, err := repo.SaveFireSafetyFrom(ctx, tenant, model.FireSafetyState{}, base); err != nil || !ok {
+			t.Fatalf("first save: %v, %v", ok, err)
+		}
+		base.Revision = 1
+		next, _ := repo.LoadFireSafetyState(ctx, tenant)
+		next.Stations[0].Name = "renamed"
+		if ok, err := repo.SaveFireSafetyFrom(ctx, tenant, model.FireSafetyState{}, next); err != nil || ok {
+			t.Fatalf("stale base accepted: %v, %v", ok, err)
+		}
+		if ok, err := repo.SaveFireSafetyFrom(ctx, tenant, base, next); err != nil || !ok {
+			t.Fatalf("save from current base: %v, %v", ok, err)
+		}
+		actual, err := repo.LoadFireSafetyState(ctx, tenant)
+		next.Revision = 2
+		if err != nil || !reflect.DeepEqual(actual, next) {
+			t.Fatalf("saved from base: %+v, %v", actual, err)
+		}
+	})
 	t.Run("deep_copy", func(t *testing.T) {
 		tenant := "fire-safety-copy"
 		state := fireSafetySample()
