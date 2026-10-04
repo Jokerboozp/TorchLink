@@ -17,6 +17,7 @@ import LinkedCameras from '../components/LinkedCameras.vue'
 import AlarmNotifications from '../components/AlarmNotifications.vue'
 import AlarmMediaPanel from '../components/AlarmMediaPanel.vue'
 import AlarmDisposition from '../components/AlarmDisposition.vue'
+import AlarmLocation from '../components/AlarmLocation.vue'
 
 const filters = reactive({ status:'', level:'', deviceId:'' })
 const items = ref([])
@@ -285,7 +286,7 @@ function rowActions(row) {
   <DataTableCard :title="`告警 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
     <ui-table v-loading="loading" :data="items" :empty-text="filtered ? '没有符合筛选条件的告警' : '暂无告警'">
       <ui-table-column label="时间" min-width="170"><template #default="{row}">{{formatTime(row.lastTriggeredAt)}}</template></ui-table-column>
-      <ui-table-column label="设备 / 来源" min-width="190"><template #default="{row}"><b>{{row.deviceName||row.deviceId}}</b><small v-if="row.componentId" class="subline">{{row.componentName||row.componentId}} · {{row.componentLocation||row.componentId}}</small><small class="subline">{{label(alarmSources,row.source,'其他来源')}}</small></template></ui-table-column>
+      <ui-table-column label="设备 / 来源" min-width="190"><template #default="{row}"><b>{{row.deviceName||row.deviceId}}</b><small v-if="row.componentId" class="subline">{{row.componentName||row.componentId}} · {{row.componentLocation||row.componentId}}</small><small v-if="row.location" class="subline">{{[row.location.unitName,row.location.buildingName,row.location.floorName,row.location.pointName].filter(Boolean).join(' · ')}}</small><small class="subline">{{label(alarmSources,row.source,'其他来源')}}</small></template></ui-table-column>
       <ui-table-column label="告警类型" min-width="150"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column>
       <ui-table-column label="等级" width="90"><template #default="{row}"><ui-tag :type="tagType(row.alarmLevel)" round>{{label(alarmLevels,row.alarmLevel,'未设置')}}</ui-tag></template></ui-table-column>
       <ui-table-column label="状态" width="100"><template #default="{row}"><StatusDot :tone="statusTone(row.status)" :label="label(alarmStatuses,row.status)" /></template></ui-table-column>
@@ -303,6 +304,7 @@ function rowActions(row) {
       <template #header><strong>关联摄像头</strong></template>
       <LinkedCameras :cameras="detail.cameras || []" />
     </ui-card>
+    <AlarmLocation v-if="detailVisible && detail" :alarm="detail" />
     <AlarmDisposition v-if="detailVisible && detail" :alarm="detail" @updated="dispositionUpdated" />
     <AlarmMediaPanel v-if="detailVisible && detail" :alarm="detail" @refresh="refreshMediaDetail" />
     <AlarmNotifications v-if="detailVisible && detail" :alarm-id="detail.alarmId" />

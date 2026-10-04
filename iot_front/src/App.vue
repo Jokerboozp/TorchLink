@@ -11,6 +11,7 @@ import {
   CalendarDays,
   FireExtinguisher,
   House,
+  Building2,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
@@ -51,6 +52,7 @@ import { startRealtime, stopRealtime } from './realtime'
 import { useMediaQuery } from './composables/useMediaQuery'
 
 const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
+const SitesView = defineAsyncComponent(() => import('./views/SitesView.vue'))
 const DevicesView = defineAsyncComponent(() => import('./views/DevicesView.vue'))
 const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue'))
 const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue'))
@@ -119,6 +121,7 @@ const pages = {
   duty: { ...pageGuide.duty, icon: CalendarDays, component: DutyView },
   extinguishers: { ...pageGuide.extinguishers, icon: FireExtinguisher, component: ExtinguishersView },
   fireStations: { ...pageGuide.fireStations, icon: House, component: FireStationsView },
+  sites: { ...pageGuide.sites, icon: Building2, component: SitesView },
   opsOverview: { ...pageGuide.opsOverview, icon: Gauge, component: OpsOverviewView },
   opsMetrics: { ...pageGuide.opsMetrics, icon: LineChart, component: OpsMetricsView },
   opsLogs: { ...pageGuide.opsLogs, icon: ScrollText, component: OpsLogsView },
@@ -130,7 +133,7 @@ const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'notifications', 'inspection', 'raw', 'rules'] },
   { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'messageTopics', 'integration'] },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
-  { label: '消防管理', items: ['duty', 'extinguishers', 'fireStations'] },
+  { label: '消防管理', items: ['sites', 'duty', 'extinguishers', 'fireStations'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
   { label: '系统', items: ['backups', 'access'] }
 ]

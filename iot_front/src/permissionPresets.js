@@ -5,7 +5,7 @@ export const permissionSections = [
   { name: '日常使用', menus: ['dashboard', 'devices', 'alarms', 'ai', 'raw'] },
   { name: '设备接入', menus: ['products', 'protocols', 'profiles', 'integration', 'cameras', 'externalData', 'messageTopics'] },
   { name: '运维管理', menus: ['inspection', 'rules', 'notifications', 'knowledge'] },
-  { name: '消防管理', menus: ['duty', 'extinguishers', 'fireStations'] },
+  { name: '消防管理', menus: ['sites', 'duty', 'extinguishers', 'fireStations'] },
   { name: '系统管理', menus: ['aiProviders', 'backups', 'access'] },
   { name: '运维中心', menus: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] }
 ]
@@ -29,6 +29,8 @@ export function applyFeatureLevel(group, permissions, level) {
 export function roleDeviceScope(roleIds, roles) {
   const assigned = roles.filter(role => roleIds.includes(role.id))
   if (assigned.some(role => role.deviceScope === 'all')) return { deviceScope: 'all', deviceIds: [] }
-  const deviceIds = [...new Set(assigned.filter(role => role.deviceScope === 'selected').flatMap(role => role.deviceIds || []))]
-  return { deviceScope: deviceIds.length ? 'selected' : 'none', deviceIds }
+  const selected = assigned.filter(role => role.deviceScope === 'selected')
+  const deviceIds = [...new Set(selected.flatMap(role => role.deviceIds || []))]
+  const unitIds = [...new Set(selected.flatMap(role => role.unitIds || []))]
+  return { deviceScope: deviceIds.length || unitIds.length ? 'selected' : 'none', deviceIds, unitIds }
 }

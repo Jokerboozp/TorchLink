@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/sites"
 	"net/http"
 	"sort"
 	"strings"
@@ -339,7 +340,18 @@ func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 	for _, v := range rows {
 		out = append(out, map[string]string{"id": v.ID, "name": v.Name, "deviceRole": v.DeviceRole})
 	}
-	write(w, 200, map[string]any{"items": out, "tenantId": claims(r).TenantID})
+	// Units can be granted as a whole: every device placed in them.
+	units := []map[string]any{}
+	if state, err := s.sites.Snapshot(r.Context(), claims(r).TenantID); err == nil {
+		count := map[string]int{}
+		for _, unit := range sites.DeviceUnits(state) {
+			count[unit]++
+		}
+		for _, u := range state.Units {
+			units = append(units, map[string]any{"id": u.ID, "name": u.Name, "devices": count[u.ID]})
+		}
+	}
+	write(w, 200, map[string]any{"items": out, "units": units, "tenantId": claims(r).TenantID})
 }
 func (s *Server) allowScopedRequest(c *gin.Context, v deviceScope) bool {
 	path := c.FullPath()

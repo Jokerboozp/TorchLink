@@ -1,0 +1,20 @@
+package ports
+
+import (
+	"context"
+
+	"iot-platform/internal/model"
+)
+
+// SiteStore persists a tenant's units, buildings, floors and points with
+// optimistic concurrency, like FireSafetyStore.
+type SiteStore interface {
+	LoadSiteState(context.Context, string) (model.SiteState, error)
+	SaveSiteState(context.Context, string, model.SiteState) (bool, error)
+	SiteRevision(context.Context, string) (int64, error)
+}
+
+// AlarmLocator finds the site position of a device or component.
+type AlarmLocator interface {
+	AlarmLocation(ctx context.Context, tenant, deviceID, componentID string) *model.AlarmLocation
+}

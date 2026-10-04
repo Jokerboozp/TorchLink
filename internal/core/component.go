@@ -25,6 +25,7 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 				CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), AreaID: tag(msg, "areaId", ""), DeviceType: tag(msg, "deviceType", msg.ProductID),
 				Details: map[string]any{"message": msg, "component": component, "direct": true}}
 			a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
+			a.Location = e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, component.ID)
 			var saved model.Alarm
 			var event string
 			var err error

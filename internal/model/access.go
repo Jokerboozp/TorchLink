@@ -11,14 +11,17 @@ type PlatformUser struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	// Email and Phone receive fire alarm notifications (SMTP, IM mentions).
-	Email          string   `json:"email,omitempty"`
-	Phone          string   `json:"phone,omitempty"`
-	PasswordHash   string   `json:"passwordHash,omitempty"`
-	Enabled        bool     `json:"enabled"`
-	RoleIDs        []string `json:"roleIds"`
-	Permissions    []string `json:"permissions"`
-	DeviceScope    string   `json:"deviceScope"`
-	DeviceIDs      []string `json:"deviceIds"`
+	Email        string   `json:"email,omitempty"`
+	Phone        string   `json:"phone,omitempty"`
+	PasswordHash string   `json:"passwordHash,omitempty"`
+	Enabled      bool     `json:"enabled"`
+	RoleIDs      []string `json:"roleIds"`
+	Permissions  []string `json:"permissions"`
+	DeviceScope  string   `json:"deviceScope"`
+	DeviceIDs    []string `json:"deviceIds"`
+	// UnitIDs grants, with the selected scope, every device placed in these
+	// units at request time in addition to DeviceIDs.
+	UnitIDs        []string `json:"unitIds,omitempty"`
 	SessionVersion int64    `json:"sessionVersion"`
 	// MustChangePassword makes the next login change the password before
 	// any other access, after an administrator set or reset it.
@@ -31,6 +34,7 @@ type PlatformRole struct {
 	Permissions []string `json:"permissions"`
 	DeviceScope string   `json:"deviceScope"`
 	DeviceIDs   []string `json:"deviceIds"`
+	UnitIDs     []string `json:"unitIds,omitempty"`
 }
 
 // APIKey lets an external system call the open API as its bound platform user:

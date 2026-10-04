@@ -18,6 +18,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/sites"
 )
 
 type recordingBus struct {
@@ -474,6 +475,17 @@ func TestAlarmReportsIncludeRepeatedTriggers(t *testing.T) {
 			ctx := context.Background()
 			repo, bus := memory.NewRepository(), local.NewBus()
 			e := New(repo, nil, bus, local.NewRealtime(), nil, nil)
+			// New alarms copy the device's or component's site position.
+			placement := e.Locator.(*sites.Service)
+			unit, err := placement.SaveUnit(ctx, "t", "admin", model.SiteUnit{Name: "示例单位"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for component, name := range map[string]string{"": "消防主机", "c": "一楼探测器"} {
+				if _, err = placement.SavePoint(ctx, "t", "admin", model.SitePoint{UnitID: unit.ID, DeviceID: "d", ComponentID: component, Name: name}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var reports []model.Alarm
 			if err := bus.Subscribe(ctx, model.TopicAlarmReported, "test", func(_ context.Context, b []byte) error {
 				var a model.Alarm
@@ -515,6 +527,10 @@ func TestAlarmReportsIncludeRepeatedTriggers(t *testing.T) {
 			}
 			if reports[0].ID != reports[1].ID || reports[0].TriggerID != "m1" || reports[1].TriggerID != "m2" {
 				t.Fatalf("incorrect report identity: %+v", reports)
+			}
+			want := map[bool]string{false: "消防主机", true: "一楼探测器"}[kind == "component"]
+			if l := reports[0].Location; l == nil || l.PointName != want || l.UnitName != "示例单位" {
+				t.Fatalf("alarm location %+v, want point %s", l, want)
 			}
 			message := reports[1].Details["message"].(map[string]any)
 			if message["event"].(map[string]any)["description"] != "再次报警" {

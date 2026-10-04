@@ -25,6 +25,7 @@ type Repository struct {
 	accessStates        map[string][]byte
 	messageTopicConfigs map[string][]byte
 	fireSafetyStates    map[string][]byte
+	siteStates          map[string][]byte
 	componentAlarms     map[string]model.ComponentAlarmState
 	outbox              []model.OutboxEvent
 	outboxSeq           int64
@@ -1336,6 +1337,10 @@ func cloneVideoEvent(v model.VideoAlarmEvent) model.VideoAlarmEvent {
 
 func cloneAlarm(v model.Alarm) model.Alarm {
 	v.Details = cloneAnyMap(v.Details)
+	if v.Location != nil {
+		l := *v.Location
+		v.Location = &l
+	}
 	if v.Disposition != nil {
 		d := *v.Disposition
 		v.Disposition = &d

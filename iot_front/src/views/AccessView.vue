@@ -16,9 +16,9 @@ import StatusDot from '../components/layout/StatusDot.vue'
 defineEmits(['navigate'])
 const tab=ref('roles'),users=ref([]),roles=ref([]),catalog=ref([]),loading=ref(false),saving=ref(false),dialog=ref(''),editing=ref(false)
 const user=reactive(userAccessPayload())
-const role=reactive({id:'',name:'',description:'',permissions:[],deviceScope:'none',deviceIds:[]})
-const tenantId=ref(session.tenant),deviceOptions=ref([]),devicesLoading=ref(false),devicesError=ref('')
-const plainScopeLabel=value=>value.deviceScope==='all'?'当前租户全部设备':value.deviceScope==='selected'?`指定 ${value.deviceIds?.length||0} 台设备`:'无设备'
+const role=reactive({id:'',name:'',description:'',permissions:[],deviceScope:'none',deviceIds:[],unitIds:[]})
+const tenantId=ref(session.tenant),deviceOptions=ref([]),unitOptions=ref([]),devicesLoading=ref(false),devicesError=ref('')
+const plainScopeLabel=value=>value.deviceScope==='all'?'当前租户全部设备':value.deviceScope==='selected'?`指定 ${value.deviceIds?.length||0} 台设备${value.unitIds?.length?` + ${value.unitIds.length} 个单位`:''}`:'无设备'
 const scopeLabel = value => value.deviceScope === 'inherit' ? `继承角色 · ${plainScopeLabel(roleDeviceScope(value.roleIds || [], roles.value))}` : plainScopeLabel(value)
 const inheritedLabel = computed(() => plainScopeLabel(roleDeviceScope(user.roleIds, roles.value)))
 const password=reactive({username:'',value:'',mustChangePassword:true})
@@ -34,7 +34,7 @@ async function loadDevices() {
  devicesError.value = ''
  try {
   const data = await api('/api/v1/access/device-options')
-  if (version === deviceLoadVersion) deviceOptions.value = data.items || []
+  if (version === deviceLoadVersion) { deviceOptions.value = data.items || []; unitOptions.value = data.units || [] }
  } catch { if (version === deviceLoadVersion) devicesError.value = '设备列表加载失败，请重新加载后再保存。' }
  finally { if (version === deviceLoadVersion) devicesLoading.value = false }
 }
@@ -59,7 +59,7 @@ function editRole(value) {
  editing.value=!!value
  Object.assign(role, {
   id:value?.id || `role-${createClientId()}`, name:value?.name || '', description:value?.description || '',
-  permissions:[...(value?.permissions || [])], deviceScope:value?.deviceScope || 'none', deviceIds:[...(value?.deviceIds || [])]
+  permissions:[...(value?.permissions || [])], deviceScope:value?.deviceScope || 'none', deviceIds:[...(value?.deviceIds || [])], unitIds:[...(value?.unitIds || [])]
  })
  dialog.value='role'
  void loadDevices()
@@ -119,7 +119,7 @@ function roleActions(row) {
     <div class="user-editor-heading"><h3>访问范围</h3><p>分配角色即可继承功能和设备授权，支持多个角色。</p></div>
     <ui-form-item label="角色"><ui-select v-model="user.roleIds" multiple clearable placeholder="选择角色；可选择多个"><ui-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id"/></ui-select></ui-form-item>
     <div class="user-editor-heading"><h3>可查看的设备</h3><p>默认继承角色。选择其他范围会替代角色设备授权，同时限制设备、告警和助手查询。</p></div>
-    <DeviceScopePicker allow-inherit :inherited-label="inheritedLabel" v-model:scope="user.deviceScope" v-model:device-ids="user.deviceIds" :devices="deviceOptions" :loading="devicesLoading" :error="devicesError" :disabled="saving" :can-view-devices="canViewDevices" @retry="loadDevices" @enable-device-menu="enableDeviceMenu" />
+    <DeviceScopePicker allow-inherit :inherited-label="inheritedLabel" v-model:scope="user.deviceScope" v-model:device-ids="user.deviceIds" v-model:unit-ids="user.unitIds" :units="unitOptions" :devices="deviceOptions" :loading="devicesLoading" :error="devicesError" :disabled="saving" :can-view-devices="canViewDevices" @retry="loadDevices" @enable-device-menu="enableDeviceMenu" />
    </section>
    <section class="user-editor-section user-editor-permissions">
     <details><summary><span>高级：用户附加功能 <small>在角色权限基础上增加 · 已选 {{ user.permissions.length }} 项</small></span><span class="user-editor-expand">展开设置</span></summary><PermissionPicker v-model="user.permissions" :catalog="catalog"/></details>
@@ -128,7 +128,7 @@ function roleActions(row) {
   <ui-form v-else-if="dialog==='role'" class="role-editor" label-position="top" :disabled="saving">
    <section class="role-editor-section"><h3>角色信息</h3><div class="user-editor-grid"><ui-form-item label="角色名称" required><ui-input v-model="role.name" placeholder="例如 东区值班员"/></ui-form-item><ui-form-item label="说明"><ui-input v-model="role.description" placeholder="职责或适用人员（选填）"/></ui-form-item></div></section>
    <section class="role-editor-section"><h3>可用功能</h3><PermissionPicker v-model="role.permissions" :catalog="catalog"/></section>
-   <section class="role-editor-section"><h3>可查看的设备</h3><p>分配此角色并选择“继承角色”的用户，共享此设备范围。主设备与子设备分别授权。</p><DeviceScopePicker v-model:scope="role.deviceScope" v-model:device-ids="role.deviceIds" :devices="deviceOptions" :loading="devicesLoading" :error="devicesError" :disabled="saving" :can-view-devices="role.permissions.includes('menu:devices')" @retry="loadDevices" @enable-device-menu="enableDeviceMenu"/><p v-if="editing">保存后立即影响继承此角色的 {{ users.filter(u=>u.deviceScope==='inherit' && u.roleIds.includes(role.id)).length }} 个用户。</p><p>巡检、备份、告警规则等全租户功能，以及设备新增操作，还需要“全部设备”范围。</p></section>
+   <section class="role-editor-section"><h3>可查看的设备</h3><p>分配此角色并选择“继承角色”的用户，共享此设备范围。主设备与子设备分别授权。</p><DeviceScopePicker v-model:scope="role.deviceScope" v-model:device-ids="role.deviceIds" v-model:unit-ids="role.unitIds" :units="unitOptions" :devices="deviceOptions" :loading="devicesLoading" :error="devicesError" :disabled="saving" :can-view-devices="role.permissions.includes('menu:devices')" @retry="loadDevices" @enable-device-menu="enableDeviceMenu"/><p v-if="editing">保存后立即影响继承此角色的 {{ users.filter(u=>u.deviceScope==='inherit' && u.roleIds.includes(role.id)).length }} 个用户。</p><p>巡检、备份、告警规则等全租户功能，以及设备新增操作，还需要“全部设备”范围。</p></section>
   </ui-form>
   <template #footer><ui-button :disabled="saving" @click="dialog='';user.password=''">取消</ui-button><ui-button type="primary" :loading="saving" :disabled="deviceSelectionPending" @click="save">{{ editing ? '保存修改' : dialog==='user' ? '创建用户' : '创建角色' }}</ui-button></template>
  </ui-dialog>

@@ -34,6 +34,7 @@ type Repository interface {
 	AccessStore
 	MessageTopicStore
 	FireSafetyStore
+	SiteStore
 	OnboardingStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)

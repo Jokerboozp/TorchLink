@@ -655,6 +655,9 @@ type Alarm struct {
 	Details           map[string]any  `json:"details,omitempty"`
 	// Disposition records what the on-site verification found.
 	Disposition *AlarmDisposition `json:"disposition,omitempty"`
+	// Location is the site position of the device or component when the
+	// alarm was raised.
+	Location *AlarmLocation `json:"location,omitempty"`
 }
 
 // Verification results of an alarm.

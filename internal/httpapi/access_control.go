@@ -23,12 +23,15 @@ type permissionItem struct {
 	Kind string `json:"kind"`
 }
 
-var menuNames = map[string]string{"messageTopics": "消息主题", "externalData": "外部数据接入", "dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理", "notifications": "告警通知"}
+var menuNames = map[string]string{"messageTopics": "消息主题", "externalData": "外部数据接入", "dashboard": "运行总览", "protocols": "协议开发", "products": "设备模板", "devices": "设备管理", "profiles": "平台接入点", "integration": "模拟设备测试", "cameras": "摄像头映射", "alarms": "告警中心", "inspection": "智能巡检", "raw": "原始报文", "rules": "告警规则", "knowledge": "知识库", "aiProviders": "模型管理", "ai": "智能助手", "backups": "备份中心", "access": "用户与权限", "duty": "排班", "extinguishers": "灭火器管理", "fireStations": "消防站管理", "notifications": "告警通知", "sites": "单位建筑"}
 
 // Route permissions use the router's canonical pattern, never a caller-supplied URL.
 func routeMenu(path string) string {
 	if strings.HasPrefix(path, "/api/v1/notifications") {
 		return "notifications"
+	}
+	if strings.HasPrefix(path, "/api/v1/sites") {
+		return "sites"
 	}
 	if strings.HasPrefix(path, "/api/v1/message-topics") {
 		return "messageTopics"
@@ -66,6 +69,9 @@ func routeMenu(path string) string {
 }
 func routeAction(method, path string) string {
 	if name := fireSafetyAction(method, path); name != "" {
+		return name
+	}
+	if name := siteRouteAction(method, path); name != "" {
 		return name
 	}
 	if name, ok := opsActionName(method, path); ok {
@@ -519,6 +525,7 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 		Permissions        []string `json:"permissions"`
 		DeviceScope        string   `json:"deviceScope"`
 		DeviceIDs          []string `json:"deviceIds"`
+		UnitIDs            []string `json:"unitIds"`
 	}
 	if decode(w, r, &in) != nil {
 		return
@@ -538,6 +545,10 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.DeviceIDs == nil || in.DeviceScope != "selected" {
 		in.DeviceIDs = []string{}
+	}
+	var unitsValid bool
+	if in.UnitIDs, unitsValid = s.validUnitGrants(w, r, in.DeviceScope, in.UnitIDs); !unitsValid {
+		return
 	}
 	for _, id := range in.DeviceIDs {
 		if _, err := s.unscopedRepo().GetManagedDevice(r.Context(), claims(r).TenantID, id); err != nil {
@@ -591,7 +602,7 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "用户不存在")
 		return
 	}
-	u := model.PlatformUser{Username: in.Username, DisplayName: in.DisplayName, Email: in.Email, Phone: in.Phone, Enabled: in.Enabled, RoleIDs: in.RoleIDs, Permissions: in.Permissions, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, SessionVersion: time.Now().UnixNano()}
+	u := model.PlatformUser{Username: in.Username, DisplayName: in.DisplayName, Email: in.Email, Phone: in.Phone, Enabled: in.Enabled, RoleIDs: in.RoleIDs, Permissions: in.Permissions, DeviceScope: in.DeviceScope, DeviceIDs: in.DeviceIDs, UnitIDs: in.UnitIDs, SessionVersion: time.Now().UnixNano()}
 	if index >= 0 {
 		u.PasswordHash = state.Users[index].PasswordHash
 		u.SessionVersion = state.Users[index].SessionVersion + 1
@@ -679,6 +690,10 @@ func (s *Server) accessSaveRole(w http.ResponseWriter, r *http.Request) {
 	}
 	if role.DeviceIDs == nil || role.DeviceScope != "selected" {
 		role.DeviceIDs = []string{}
+	}
+	var unitsValid bool
+	if role.UnitIDs, unitsValid = s.validUnitGrants(w, r, role.DeviceScope, role.UnitIDs); !unitsValid {
+		return
 	}
 	for _, id := range role.DeviceIDs {
 		if _, err := s.unscopedRepo().GetManagedDevice(r.Context(), claims(r).TenantID, id); err != nil {

@@ -37,11 +37,7 @@ func (s *Server) SetMessageTopicMQTTReadiness(ready func(context.Context) error)
 // messageTopicIdentity resolves an open API key for topic subscription. The
 // version covers the key itself, so rotating or editing it revokes credentials.
 func (s *Server) messageTopicIdentity(ctx context.Context, tenant, keyID string) (messagetopics.MessageTopicIdentity, error) {
-	store, err := s.accessStore()
-	if err != nil {
-		return messagetopics.MessageTopicIdentity{}, err
-	}
-	state, err := store.LoadAccessState(ctx, tenant)
+	state, err := s.authorizationAccess(ctx, tenant)
 	if err != nil {
 		return messagetopics.MessageTopicIdentity{}, err
 	}

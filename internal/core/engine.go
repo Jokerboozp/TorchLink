@@ -18,6 +18,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/sites"
 )
 
 const directAlarmRulePrefix = "device-report:"
@@ -32,6 +33,8 @@ type Engine struct {
 	outboxWake    chan struct{}
 	Repo          ports.Repository
 	Archive       ports.Archive
+	// Locator, when set, copies the device's site position into new alarms.
+	Locator       ports.AlarmLocator
 	RawStore      ports.RawMessageStore
 	Bus           ports.EventBus
 	Realtime      ports.RealtimePublisher
@@ -63,6 +66,7 @@ func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realt
 	if rawStore, ok := archive.(ports.RawMessageStore); ok {
 		engine.RawStore = rawStore
 	}
+	engine.Locator = sites.New(repo)
 	return engine
 }
 
@@ -616,6 +620,7 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 		Details: map[string]any{"message": msg, "direct": true},
 	}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
+	a.Location = e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, "")
 	saved, created, _, err := e.upsertReportedAlarm(ctx, a, msg)
 	if err != nil {
 		return saved, false, err
@@ -634,6 +639,13 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 
 func directAlarmRuleID(alarmType string) string {
 	return directAlarmRulePrefix + alarmType
+}
+
+func (e *Engine) alarmLocation(ctx context.Context, tenant, deviceID, componentID string) *model.AlarmLocation {
+	if e.Locator == nil {
+		return nil
+	}
+	return e.Locator.AlarmLocation(ctx, tenant, deviceID, componentID)
 }
 
 func (e *Engine) alarmDeviceName(ctx context.Context, tenantID, deviceID string) string {
@@ -833,6 +845,7 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 	now := e.Clock.Now().UnixMilli()
 	a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, RuleID: rule.ID, TriggerID: msg.MessageID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), AlarmType: rule.AlarmType, AlarmLevel: rule.Level, Status: "ACTIVE", Source: "device", CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID), AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Details: map[string]any{"message": msg, "ruleName": rule.Name}}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
+	a.Location = e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, "")
 	saved, created, reportChanged, err := e.upsertReportedAlarm(ctx, a, msg)
 	if err != nil {
 		return saved, false, err

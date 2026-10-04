@@ -137,11 +137,7 @@ func (s *Server) videoAuthorize(ctx context.Context, tenant string, viewer video
 	if !viewer.Managed {
 		return nil
 	}
-	store, err := s.accessStore()
-	if err != nil {
-		return err
-	}
-	state, err := store.LoadAccessState(ctx, tenant)
+	state, err := s.authorizationAccess(ctx, tenant)
 	if err != nil {
 		return err
 	}

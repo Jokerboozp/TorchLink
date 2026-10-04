@@ -17,7 +17,7 @@ test('editing a fetched user excludes server-owned fields rejected by the save e
   const payload = JSON.parse(JSON.stringify(userAccessPayload(form)))
   assert.deepEqual(payload, {
     username:'operator', displayName:'运维员', email:'', phone:'', password:'', mustChangePassword:true, enabled:true, roleIds:['reader'],
-    permissions:['menu:devices','menu:alarms'], deviceScope:'selected', deviceIds:['east-smoke','west-smoke']
+    permissions:['menu:devices','menu:alarms'], deviceScope:'selected', deviceIds:['east-smoke','west-smoke'], unitIds:[]
   })
   assert.deepEqual(stored.deviceIds, ['east-smoke'])
   assert.deepEqual(stored.permissions, ['menu:devices'])
@@ -48,10 +48,11 @@ test('assistant question preset grants both chat paths without granting workflow
  assert.equal(featureLevel(ai,['menu:ai','POST /api/v1/ai/chat']),'custom')
 })
 test('inherited device summary unions only assigned roles and handles unconfigured roles', () => {
- const roles=[{id:'east',deviceScope:'selected',deviceIds:['a','b']},{id:'west',deviceScope:'selected',deviceIds:['b','c']},{id:'all',deviceScope:'all'},{id:'legacy'}]
- assert.deepEqual(roleDeviceScope(['east','west'],roles),{deviceScope:'selected',deviceIds:['a','b','c']})
+ const roles=[{id:'east',deviceScope:'selected',deviceIds:['a','b']},{id:'west',deviceScope:'selected',deviceIds:['b','c']},{id:'all',deviceScope:'all'},{id:'legacy'},{id:'unit',deviceScope:'selected',deviceIds:[],unitIds:['u1']}]
+ assert.deepEqual(roleDeviceScope(['east','west'],roles),{deviceScope:'selected',deviceIds:['a','b','c'],unitIds:[]})
+ assert.deepEqual(roleDeviceScope(['unit'],roles),{deviceScope:'selected',deviceIds:[],unitIds:['u1']})
  assert.deepEqual(roleDeviceScope(['east','all'],roles),{deviceScope:'all',deviceIds:[]})
- assert.deepEqual(roleDeviceScope(['legacy','missing'],roles),{deviceScope:'none',deviceIds:[]})
+ assert.deepEqual(roleDeviceScope(['legacy','missing'],roles),{deviceScope:'none',deviceIds:[],unitIds:[]})
 })
 
 function realtime(api, options={}){

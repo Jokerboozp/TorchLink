@@ -11,6 +11,7 @@ export function userAccessPayload(value = {}) {
     roleIds: [...(value.roleIds || [])],
     permissions: [...(value.permissions || [])],
     deviceScope: value.deviceScope || 'none',
-    deviceIds: [...(value.deviceIds || [])]
+    deviceIds: [...(value.deviceIds || [])],
+    unitIds: [...(value.unitIds || [])]
   }
 }

@@ -36,6 +36,7 @@ import (
 	"iot-platform/internal/opscenter"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/sites"
 	"iot-platform/internal/video"
 
 	"github.com/gin-gonic/gin"
@@ -73,6 +74,7 @@ type Server struct {
 	video                      atomic.Pointer[video.Service]
 	videoOwner                 func() (local bool, endpoint string)
 	fireSafety                 *firesafety.Service
+	sites                      *sites.Service
 	notifications              *notify.Service
 	access                     accessCache
 	externalData               *externaldata.Service
@@ -94,6 +96,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		cfg:                        cfg,
 		engine:                     engine,
 		fireSafety:                 firesafety.New(engine.Repo),
+		sites:                      siteService(engine),
 		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs),
 		auth:                       auth.New(cfg.JWTSecret),
 		metrics:                    m,
@@ -231,6 +234,7 @@ func (s *Server) routes() {
 	s.router.PUT("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.saveRule, "id"))
 	s.router.DELETE("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.deleteRule, "id"))
 	s.alarmDispositionRoutes()
+	s.siteRoutes()
 	s.router.GET("/api/v1/alarms", s.authorize("viewer"), s.endpoint(s.alarms))
 	s.router.GET("/api/v1/alarms/:id", s.authorize("viewer"), s.endpoint(s.alarm, "id"))
 	s.router.POST("/api/v1/alarms/:id/actions", s.authorize("operator"), s.endpoint(s.alarmAction, "id"))
@@ -1394,6 +1398,13 @@ func (s *Server) alarm(w http.ResponseWriter, r *http.Request) {
 		// Video analysis alarms name the camera itself as their source; keep
 		// the camera summary recorded with the alarm when no device is linked.
 		v.Cameras = cameras
+	}
+	if v.Location == nil {
+		if state, err := s.sites.Snapshot(r.Context(), v.TenantID); err == nil {
+			if v.Location = sites.Locate(state, v.DeviceID, v.ComponentID); v.Location != nil {
+				v.Location.Current = true
+			}
+		}
 	}
 	write(w, 200, v)
 }

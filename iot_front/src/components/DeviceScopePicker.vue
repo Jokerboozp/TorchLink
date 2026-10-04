@@ -5,6 +5,8 @@ import { deviceRoles } from '../labels'
 const props = defineProps({
   scope: { type: String, default: 'none' },
   deviceIds: { type: Array, default: () => [] },
+  unitIds: { type: Array, default: () => [] },
+  units: { type: Array, default: () => [] },
   devices: { type: Array, default: () => [] },
   loading: Boolean,
   error: { type: String, default: '' },
@@ -13,7 +15,12 @@ const props = defineProps({
   allowInherit: Boolean,
   inheritedLabel: { type: String, default: '无设备' }
 })
-const emit = defineEmits(['update:scope', 'update:deviceIds', 'retry', 'enable-device-menu'])
+const emit = defineEmits(['update:scope', 'update:deviceIds', 'update:unitIds', 'retry', 'enable-device-menu'])
+// 单位授权在请求时展开为该单位下已标注点位的设备，以后新增点位的设备自动可见。
+const unitOptions = computed(() => {
+  const known = new Set(props.units.map(unit => unit.id))
+  return [...props.units, ...props.unitIds.filter(id => !known.has(id)).map(id => ({ id, name: '单位已删除', devices: 0 }))]
+})
 const query = ref('')
 const selectedOnly = ref(false)
 const selected = computed(() => new Set(props.deviceIds))
@@ -50,6 +57,13 @@ function toggle(id, checked) {
     <p v-else-if="scope === 'none'" class="scope-note">不允许查看任何设备，也不会收到设备告警。</p>
     <p v-else-if="scope === 'all'" class="scope-note">允许查看当前租户的全部设备，包含以后新增的设备。</p>
     <template v-else>
+      <div v-if="unitOptions.length" class="device-scope-units">
+        <strong>按单位授权</strong>
+        <ui-select :model-value="unitIds" multiple filterable clearable :disabled="disabled" placeholder="选择单位（可选）" aria-label="授权单位" @update:model-value="emit('update:unitIds', $event)">
+          <ui-option v-for="unit in unitOptions" :key="unit.id" :value="unit.id" :label="`${unit.name}（${unit.devices} 台设备）`" />
+        </ui-select>
+        <span class="scope-note">所选单位下已标注位置的设备均可见，以后标注到这些单位的设备自动加入；下方勾选的设备另外授权。</span>
+      </div>
       <div class="device-scope-search">
         <ui-input v-model="query" clearable :disabled="disabled" aria-label="搜索授权设备" placeholder="搜索设备名称或编号" />
         <ui-checkbox v-model="selectedOnly" :disabled="disabled">仅看已选</ui-checkbox>
@@ -78,6 +92,7 @@ function toggle(id, checked) {
 
 <style scoped>
 .device-scope-picker { display: grid; gap: 12px; min-width: 0; }
+.device-scope-units { display: grid; gap: 6px; }
 .device-scope-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .device-scope-search { display: flex; align-items: center; gap: 12px; }
 .device-scope-search > .ui-input { flex: 1; min-width: 0; }

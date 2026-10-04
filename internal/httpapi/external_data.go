@@ -377,7 +377,7 @@ func (s *Server) externalUserExists(ctx context.Context, tenant, username string
 	if username == s.cfg.AdminUser && slices.Contains(s.cfg.AdminTenants, tenant) {
 		return true
 	}
-	state, err := s.engine.Repo.LoadAccessState(ctx, tenant)
+	state, err := s.authorizationAccess(ctx, tenant)
 	if err != nil {
 		return false
 	}
@@ -396,7 +396,7 @@ func (s *Server) authorizeExternalSource(ctx context.Context, tenant string, src
 		ctx = auth.ContextWithClaims(ctx, c)
 		return context.WithValue(ctx, deviceScopeKey{}, deviceScope{Tenant: tenant, All: true}), nil
 	}
-	state, err := s.engine.Repo.LoadAccessState(ctx, tenant)
+	state, err := s.authorizationAccess(ctx, tenant)
 	if err != nil {
 		return ctx, err
 	}
