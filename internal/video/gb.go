@@ -65,6 +65,8 @@ type gbGateway struct {
 	now    func() time.Time
 	sip    *gb28181.Server
 	onLost func(app, stream string)
+	// failover, when set, names the active media server and its RTP address.
+	failover *failoverMedia
 
 	// stateMu serializes read-modify-write of device state: a device
 	// answers DeviceInfo, Catalog and Keepalive concurrently, and each
@@ -308,7 +310,11 @@ func (g *gbGateway) start(ctx context.Context, app, stream string, target gbTarg
 	if !gbOnline(d, g.now()) {
 		return errGBOffline
 	}
-	if g.cfg.MediaIP == "" {
+	mediaIP := g.cfg.MediaIP
+	if g.failover != nil {
+		mediaIP = g.failover.current().mediaIP
+	}
+	if mediaIP == "" {
 		return errGBNoMediaIP
 	}
 	g.mu.Lock()
@@ -334,7 +340,7 @@ func (g *gbGateway) start(ctx context.Context, app, stream string, target gbTarg
 		return fmt.Errorf("媒体服务未能打开 RTP 接收端口：%w", err)
 	}
 	inviteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	call, err := g.sip.Invite(inviteCtx, gbDevice(d), target.ChannelID, gb28181.Offer{ServerID: g.cfg.ServerID, MediaIP: g.cfg.MediaIP, Port: port, SSRC: ssrc, TCP: tcp})
+	call, err := g.sip.Invite(inviteCtx, gbDevice(d), target.ChannelID, gb28181.Offer{ServerID: g.cfg.ServerID, MediaIP: mediaIP, Port: port, SSRC: ssrc, TCP: tcp})
 	cancel()
 	if err != nil {
 		_ = g.media.CloseRTPServer(context.Background(), app, stream)

@@ -271,6 +271,8 @@ WebRTC 需要浏览器可达的 `IOT_VIDEO_RTC_EXTERN_IP` 和 RTC UDP/TCP 端口
 
 GB28181 需要两类端口对摄像头网络开放：API 的 SIP 端口 `IOT_GB28181_SIP_PORT`（默认 5060，UDP+TCP），以及媒体服务的 RTP 端口范围 `IOT_VIDEO_RTP_PORT_MIN`–`IOT_VIDEO_RTP_PORT_MAX`（默认 30000–30063，UDP+TCP，每路流占两个端口）。`IOT_GB28181_MEDIA_IP` 是设备发送 RTP 的目标地址，默认取 `IOT_VIDEO_RTC_EXTERN_IP` 的第一个地址；`IOT_GB28181_SIP_HOST` 是设备回连平台的地址（在线/离线默认同上，本地源码 API 为空时按路由自动选择）。服务器编号与域用 `IOT_GB28181_SERVER_ID`（默认 `34020000002000000001`）和 `IOT_GB28181_DOMAIN`（默认取编号前 10 位）；`IOT_GB28181_ENABLED=false` 关闭国标接入而不影响 ONVIF/RTSP。本地依赖端口默认只绑定 `127.0.0.1`，真实设备接入需用 `--dependency-host` 开放。API 需能访问媒体 HTTP API，媒体 Hook 需能回调 API；HLS 经 Web 代理，内部媒体 API 不对外开放。需要重编码时显式开启 `--transcode`，资源上限见 `internal/config/video.go`。摄像头网段/端口用 `IOT_VIDEO_ALLOWED_CIDRS`、`IOT_VIDEO_ALLOWED_PORTS` 限制。
 
+**备用媒体服务器**：`IOT_VIDEO_MEDIA_STANDBY_URLS`（逗号分隔的媒体 HTTP API 地址）与等长的 `IOT_VIDEO_MEDIA_STANDBY_IDS`（各自的媒体服务器编号，须与该服务器配置的编号一致且互不重复）配置备用服务器，`IOT_GB28181_MEDIA_STANDBY_IPS` 为各自的国标 RTP 接收地址（缺省取 API 地址中的 IP）。直播模块按“主服务器、备用服务器”的顺序使用第一台健康的服务器：当前服务器健康检查失败（每 15 秒一次）时立即切换，主服务器恢复后连续 3 次健康才切回；只接受当前服务器的 Hook。切换时正在播放的拉流、转码与国标接收全部丢失，播放器下一次心跳在新服务器上重建（与媒体服务重启相同，浏览器需重新连接）。各服务器共用媒体密钥与 Hook 密钥，HLS 代理须按同一顺序选择健康服务器（集群渲染用 HAProxy `balance first`）。单机部署通常不配置。
+
 媒体、Hook、凭据加密密钥由脚本生成并保留；`IOT_VIDEO_CREDENTIAL_KEY` 不能随意更换，否则已存密码无法解密。停止媒体容器保留摄像头资料和配置；平台内业务开关关闭会撤销播放与拉流。功能、权限与生命周期见 [平台功能](PLATFORM.md#摄像头)。
 
 ## 容量测试模块
@@ -480,6 +482,9 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 | EMQX | 3 节点静态集群 |
 | 平台 | api、gateway、parser、processor、jobs 各自多实例；API 之间选举视频控制实例；Harness 多实例按会话路由 |
 | 监控 | Prometheus 按实例抓取所有平台进程、Redpanda、EMQX 与各节点 node-exporter，加载与单机相同的平台告警规则；同节点 Alertmanager（9093）接收告警，运维中心可查看 |
+| MinIO | 示例为单实例；`minio.nodes`（≥3 节点、合计 ≥4 块盘，`drivesPerNode` 每节点盘数）渲染分布式纠删码部署，任一节点故障时读写可用，平台与备份经本机 HAProxy `127.0.0.1:18183` 访问健康节点 |
+| 视频媒体 | 示例为单实例；`video.nodes` 第一个为主媒体服务器、其余为备用，直播模块与 HLS 代理（HAProxy `127.0.0.1:18180`，`balance first`）都使用第一台健康的服务器，详见 [备用媒体服务器](#摄像头部署) |
+| 监控高可用 | `monitoring.nodes`（≥2）在每个节点运行独立的 Prometheus 副本（相同抓取目标，外部标签 `replica`）和组成集群的 Alertmanager（9094 互联）；各副本向全部 Alertmanager 发送告警并去掉 `replica` 标签，由集群去重与共享静默。运维中心经 HAProxy `127.0.0.1:18190` / `18193` 访问健康实例，两个副本的历史数据各自独立 |
 
 校验规则：节点须写明故障域（独立主机/供电/机柜；同一宿主上的虚拟机属于同一故障域）；仲裁组（etcd、Patroni、Redpanda、Keeper、Sentinel）为奇数成员且任一故障域不占多数；同一 ClickHouse 分片的副本、Redis 主从、EMQX 成员跨故障域；同一节点端口不冲突；各角色 PostgreSQL 连接池合计（含一次滚动升级额外实例、备份与初始化连接及预留）不超过 `max_connections`。
 
@@ -588,7 +593,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 - 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
 - 运维中心依赖（`--profile ops` 的 Prometheus、Loki、Grafana、Alertmanager）同样各一个实例；它们停止时接入与告警链路不受影响，但期间的监控数据、日志与告警通知会缺失。
 
-需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO、视频媒体与 Prometheus 在示例清单中仍为单实例；知识索引随 PostgreSQL HA 集群保存。单实例组件需要高可用时改用分布式或外部服务。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
+单机部署无法靠增加配置变成高可用：所有组件与数据都在一台宿主机上，宿主机或磁盘故障时只能在新机器上恢复（见 [运维手册](OPERATIONS.md#故障切换)）。需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO（`minio.nodes` 分布式）、视频媒体（`video.nodes` 主备）与 Prometheus / Alertmanager（`monitoring.nodes`）也可多实例，示例清单为节省资源仍各放一个节点，按需改为多节点。视频媒体切换会中断正在播放的流并由播放器重建；已部署的单实例 MinIO 改为分布式时新集群从空盘开始，须先用 `mc mirror` 等工具迁移桶数据；Prometheus 副本之间不复制历史数据。知识索引随 PostgreSQL HA 集群保存。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
 
 ### 常见排查
 

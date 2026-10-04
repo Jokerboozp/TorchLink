@@ -340,6 +340,10 @@ func TestValidationRejectsUnsafeLayouts(t *testing.T) {
 		"secrets come from the secrets file":          func(i *Inventory) { i.Env["IOT_JWT_SECRET"] = "x" },
 		"needs at least one node":                     func(i *Inventory) { delete(i.Platform.Roles, "processor") },
 		"unknown platform role":                       func(i *Inventory) { i.Platform.Roles["unknown"] = RoleSpec{Nodes: []string{"n3", "n4"}, PoolMax: 4} },
+		"at least 3 nodes and 4 drives":               func(i *Inventory) { i.MinIO = MinIOSpec{PoolSpec: PoolSpec{Nodes: []string{"n1", "n2", "n3"}}} },
+		"not both":                                    func(i *Inventory) { i.Video.Nodes = []string{"n3", "n4"} },
+		"monitoring.nodes needs at least 2":           func(i *Inventory) { i.Monitoring = PoolSpec{Nodes: []string{"n4"}} },
+		"drivesPerNode applies to minio.nodes":        func(i *Inventory) { i.MinIO.DrivesPerNode = 2 },
 	}
 	for want, mutate := range cases {
 		inv := example(t)
@@ -975,5 +979,80 @@ func TestClusterRendersAlertingAndEntryTLS(t *testing.T) {
 	s.TLSKeyFile, s.AlertWebhookURL = filepath.Join(dir, "tls.key"), "ftp://x"
 	if _, err = Render(inv, s); err == nil {
 		t.Fatal("invalid webhook accepted")
+	}
+}
+
+// MinIO, Prometheus with Alertmanager and the media servers can each run on
+// several nodes: distributed MinIO behind the local load balancers,
+// independent Prometheus replicas feeding one Alertmanager cluster, and
+// standby media servers the live module and the HLS proxy fail over to.
+func TestHighAvailabilityPlacementsRender(t *testing.T) {
+	inv := example(t)
+	inv.MinIO = MinIOSpec{PoolSpec: PoolSpec{Nodes: []string{"n1", "n2", "n3", "n4"}}}
+	inv.Monitoring = PoolSpec{Nodes: []string{"n3", "n4"}}
+	inv.Video = PoolSpec{Nodes: []string{"n4", "n3"}}
+	files, err := Render(inv, testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	n3 := string(files["n3/compose.yaml"])
+	for _, want := range []string{
+		"- http://10.0.0.11:9002/data1", "- http://10.0.0.14:9002/data1", "minio-data1:/data1",
+		"--cluster.peer=10.0.0.14:9094", "--cluster.advertise-address=10.0.0.13:9094",
+		"IOT_VIDEO_MEDIA_SERVER_ID: iot-cluster-media-2",
+	} {
+		if !strings.Contains(n3, want) {
+			t.Fatalf("n3 compose lacks %q:\n%s", want, n3)
+		}
+	}
+	platform := string(files["n1/compose.yaml"])
+	for _, want := range []string{
+		"IOT_MINIO_ENDPOINT: 127.0.0.1:18183", "IOT_OPS_PROMETHEUS_URL: http://127.0.0.1:18190", "IOT_OPS_ALERTMANAGER_URL: http://127.0.0.1:18193",
+		"IOT_VIDEO_MEDIA_API_URL: http://10.0.0.14:80", "IOT_VIDEO_MEDIA_SERVER_ID: iot-cluster-media-1",
+		"IOT_VIDEO_MEDIA_STANDBY_URLS: http://10.0.0.13:80", "IOT_VIDEO_MEDIA_STANDBY_IDS: iot-cluster-media-2", "IOT_GB28181_MEDIA_STANDBY_IPS: 10.0.0.13",
+	} {
+		if !strings.Contains(platform, want) {
+			t.Fatalf("platform env lacks %q", want)
+		}
+	}
+	prom := string(files["n3/prometheus/prometheus.yml"])
+	for _, want := range []string{"replica: n3", "regex: replica", `"10.0.0.13:9093", "10.0.0.14:9093"`} {
+		if !strings.Contains(prom, want) {
+			t.Fatalf("prometheus config lacks %q:\n%s", want, prom)
+		}
+	}
+	var parsed struct {
+		Global struct {
+			ExternalLabels map[string]string `yaml:"external_labels"`
+		} `yaml:"global"`
+		Alerting struct {
+			Relabel       []map[string]string `yaml:"alert_relabel_configs"`
+			Alertmanagers []struct {
+				StaticConfigs []struct {
+					Targets []string `yaml:"targets"`
+				} `yaml:"static_configs"`
+			} `yaml:"alertmanagers"`
+		} `yaml:"alerting"`
+	}
+	if err = yaml.Unmarshal([]byte(prom), &parsed); err != nil || parsed.Global.ExternalLabels["replica"] != "n3" || len(parsed.Alerting.Relabel) != 1 || len(parsed.Alerting.Alertmanagers[0].StaticConfigs[0].Targets) != 2 {
+		t.Fatalf("prometheus config does not parse as intended: %+v %v", parsed, err)
+	}
+	lb := string(files["n2/lb/haproxy.cfg"])
+	for _, want := range []string{"bind 127.0.0.1:18183", "server minio-n4 10.0.0.14:9002", "GET /minio/health/live", "bind 127.0.0.1:18190", "bind 127.0.0.1:18180", "balance first", "server video-n4 10.0.0.14:80\n  server video-n3 10.0.0.13:80"} {
+		if !strings.Contains(lb, want) {
+			t.Fatalf("haproxy lacks %q:\n%s", want, lb)
+		}
+	}
+	for _, n := range inv.Nodes {
+		if !strings.Contains(string(files[n.Name+"/compose.yaml"]), "IOT_VIDEO_UPSTREAM: 127.0.0.1:18180") && strings.Contains(string(files[n.Name+"/compose.yaml"]), "IOT_VIDEO_UPSTREAM") {
+			t.Fatalf("%s: HLS must follow the media failover", n.Name)
+		}
+	}
+	// The local balancers are rendered for these pools even with external
+	// API and gateway balancers.
+	inv.Platform.InternalURL, inv.Platform.GatewayURL = "http://10.0.0.10:8081", "http://10.0.0.10:8082"
+	files, err = Render(inv, testSecrets())
+	if err != nil || !strings.Contains(string(files["n1/lb/haproxy.cfg"]), "bind 127.0.0.1:18183") || strings.Contains(string(files["n1/lb/haproxy.cfg"]), "bind 127.0.0.1:18181") {
+		t.Fatalf("pool balancers with external API balancers: %v\n%s", err, files["n1/lb/haproxy.cfg"])
 	}
 }

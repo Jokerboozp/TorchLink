@@ -231,7 +231,7 @@ func (s Secrets) validate(inv *Inventory) error {
 		}
 	}
 	required := map[string]string{"postgresPassword": s.PostgresPassword, "postgresSuperuserPassword": s.PostgresSuperuserPassword, "postgresReplicationPassword": s.PostgresReplicationPassword, "redisPassword": s.RedisPassword, "clickhousePassword": s.ClickHousePassword, "minioRootUser": s.MinIORootUser, "minioRootPassword": s.MinIORootPassword, "jwtSecret": s.JWTSecret, "adminPassword": s.AdminPassword, "harnessToken": s.HarnessToken, "emqxApiKey": s.EMQXAPIKey, "emqxApiSecret": s.EMQXAPISecret, "emqxCookie": s.EMQXCookie, "emqxDashboardPassword": s.EMQXDashboardPassword, "backupToken": s.BackupToken}
-	if inv.Video.Node != "" {
+	if len(inv.Video.Members()) > 0 {
 		required["videoMediaSecret"], required["videoHookSecret"], required["videoCredentialKey"] = s.VideoMediaSecret, s.VideoHookSecret, s.VideoCredentialKey
 	}
 	if inv.Capacity.Node != "" {
@@ -413,7 +413,7 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 		"IOT_CLICKHOUSE_URL":           r.clickhouseURL(node, salt),
 		"IOT_CLICKHOUSE_CLUSTER":       inv.ClickHouse.Cluster,
 		"IOT_CLICKHOUSE_INSERT_QUORUM": inv.ClickHouse.InsertQuorum,
-		"IOT_MINIO_ENDPOINT":           r.ip(inv.MinIO.Node) + ":9002",
+		"IOT_MINIO_ENDPOINT":           r.minioEndpoint(),
 		"IOT_MINIO_ACCESS_KEY":         "${MINIO_ROOT_USER}",
 		"IOT_MINIO_SECRET_KEY":         "${MINIO_ROOT_PASSWORD}",
 		"IOT_MQTT_BROKER":              "tcp://" + r.ip(r.pick(node, inv.EMQX.Nodes, salt)) + ":1883",
@@ -434,22 +434,34 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 	if inv.Backup.Node == "" {
 		delete(env, "IOT_BACKUP_URL")
 	}
-	if inv.Monitoring.Node != "" {
-		env["IOT_OPS_PROMETHEUS_URL"] = "http://" + r.ip(inv.Monitoring.Node) + ":9090"
-		env["IOT_OPS_ALERTMANAGER_URL"] = "http://" + r.ip(inv.Monitoring.Node) + ":9093"
+	if monitoring := inv.Monitoring.Members(); len(monitoring) > 0 {
+		prometheus, alertmanager := "http://"+r.ip(monitoring[0])+":9090", "http://"+r.ip(monitoring[0])+":9093"
+		if len(monitoring) > 1 {
+			// Any healthy replica answers through the local load balancer.
+			prometheus, alertmanager = fmt.Sprintf("http://127.0.0.1:%d", LBPrometheusPort), fmt.Sprintf("http://127.0.0.1:%d", LBAlertmanagerPort)
+		}
+		env["IOT_OPS_PROMETHEUS_URL"], env["IOT_OPS_ALERTMANAGER_URL"] = prometheus, alertmanager
 	}
 	env["IOT_EMBEDDING_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	env["IOT_EMBEDDING_MODEL"] = "text-embedding-v4"
 	env["IOT_EMBEDDING_DIMENSIONS"] = "1024"
 	env["IOT_EMBEDDING_BATCH_SIZE"] = "10"
 	env["IOT_EMBEDDING_API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
-	if inv.Video.Node != "" {
-		v := r.ip(inv.Video.Node)
+	if media := inv.Video.Members(); len(media) > 0 {
+		v := r.ip(media[0])
 		env["IOT_VIDEO_MEDIA_API_URL"] = "http://" + v + ":80"
+		env["IOT_VIDEO_MEDIA_SERVER_ID"] = mediaServerID(inv, 0)
 		env["IOT_VIDEO_MEDIA_SECRET"] = "${IOT_VIDEO_MEDIA_SECRET}"
 		env["IOT_VIDEO_HOOK_SECRET"] = "${IOT_VIDEO_HOOK_SECRET}"
 		env["IOT_VIDEO_CREDENTIAL_KEY"] = "${IOT_VIDEO_CREDENTIAL_KEY}"
 		env["IOT_GB28181_MEDIA_IP"] = v
+		if len(media) > 1 {
+			var urls, ids, ips []string
+			for i, n := range media[1:] {
+				urls, ids, ips = append(urls, "http://"+r.ip(n)+":80"), append(ids, mediaServerID(inv, i+1)), append(ips, r.ip(n))
+			}
+			env["IOT_VIDEO_MEDIA_STANDBY_URLS"], env["IOT_VIDEO_MEDIA_STANDBY_IDS"], env["IOT_GB28181_MEDIA_STANDBY_IPS"] = strings.Join(urls, ","), strings.Join(ids, ","), strings.Join(ips, ",")
+		}
 	}
 	switch role {
 	case "api":
@@ -591,7 +603,23 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			add(kind, "sentinel", service(inv.Images.Redis, map[string]any{"entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{script}, "environment": map[string]string{"REDIS_PASSWORD": "${REDIS_PASSWORD}"}, "volumes": []string{"sentinel-data:/data"}}), "sentinel-data")
 			env["REDIS_PASSWORD"] = r.s.RedisPassword
 		case "minio":
-			add(kind, "minio", service(inv.Images.MinIO, map[string]any{"command": []string{"server", "/data", "--address", ":9002", "--console-address", "127.0.0.1:9003"}, "environment": map[string]string{"MINIO_ROOT_USER": "${MINIO_ROOT_USER}", "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}"}, "volumes": []string{"minio-data:/data"}}), "minio-data")
+			command, mounts, vols := []string{"server", "/data"}, []string{"minio-data:/data"}, []string{"minio-data"}
+			if inv.MinIO.Distributed() {
+				// Every server lists every drive in the same order; the
+				// drives form erasure sets that survive a node failure.
+				command, mounts, vols = []string{"server"}, nil, nil
+				drives := max(inv.MinIO.DrivesPerNode, 1)
+				for _, n := range inv.MinIO.Nodes {
+					for d := 1; d <= drives; d++ {
+						command = append(command, fmt.Sprintf("http://%s:9002/data%d", r.ip(n), d))
+					}
+				}
+				for d := 1; d <= drives; d++ {
+					mounts, vols = append(mounts, fmt.Sprintf("minio-data%d:/data%d", d, d)), append(vols, fmt.Sprintf("minio-data%d", d))
+				}
+			}
+			command = append(command, "--address", ":9002", "--console-address", "127.0.0.1:9003")
+			add(kind, "minio", service(inv.Images.MinIO, map[string]any{"command": command, "environment": map[string]string{"MINIO_ROOT_USER": "${MINIO_ROOT_USER}", "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}"}, "volumes": mounts}), vols...)
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"] = r.s.MinIORootUser, r.s.MinIORootPassword
 		case "harness":
 			origins := []string{inv.APIURL()}
@@ -601,10 +629,10 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			add(kind, "harness", service(inv.Images.Harness, map[string]any{"environment": map[string]string{"IOT_HARNESS_HOST": "0.0.0.0", "IOT_HARNESS_PORT": "8091", "IOT_HARNESS_GATEWAY_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_HARNESS_SESSION_ROOT": "/data/sessions", "IOT_HARNESS_HOME": "/data/runtime-home", "IOT_HARNESS_WORKSPACE": "/data/workspace", "IOT_HARNESS_PLUGIN_DIR": "/data/plugins", "IOT_HARNESS_PLUGIN_SEED_DIR": "/harness/examples/iot-ops-agent/plugins", "IOT_HARNESS_MCP_ALLOWED_ORIGINS": strings.Join(origins, ","), "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}", "DEEPSEEK_BASE_URL": "https://api.deepseek.com"}, "volumes": []string{"harness-data:/data"}}), "harness-data")
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"] = r.s.HarnessToken, r.s.DeepSeekAPIKey
 		case "video":
-			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": inv.Name + "-media-1", "IOT_VIDEO_HOOK_BASE": inv.APIURL() + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
+			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": mediaServerID(inv, idx(inv.Video.Members())), "IOT_VIDEO_HOOK_BASE": inv.APIURL() + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
 			env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"] = r.s.VideoMediaSecret, r.s.VideoHookSecret
 		case "backup":
-			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.ip(inv.MinIO.Node) + ":9002", "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}", "IOT_BACKUP_HARNESS_DATA_DIR": "${IOT_BACKUP_HARNESS_DATA_DIR:-}", "IOT_BACKUP_HARNESS_SNAPSHOT_URLS": strings.ReplaceAll(harnessURLs(r), ":8091", ":8091/v1/backup/snapshot"), "IOT_AI_HARNESS_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_BACKUP_RESTORE_HARNESS_DIR": "/app/data/backups/restored-harness", "IOT_BACKUP_RESTORE_MINIO_ENDPOINT": "${IOT_BACKUP_RESTORE_MINIO_ENDPOINT:-}", "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY": "${IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY:-}", "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY": "${IOT_BACKUP_RESTORE_MINIO_SECRET_KEY:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
+			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.minioEndpoint(), "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}", "IOT_BACKUP_HARNESS_DATA_DIR": "${IOT_BACKUP_HARNESS_DATA_DIR:-}", "IOT_BACKUP_HARNESS_SNAPSHOT_URLS": strings.ReplaceAll(harnessURLs(r), ":8091", ":8091/v1/backup/snapshot"), "IOT_AI_HARNESS_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_BACKUP_RESTORE_HARNESS_DIR": "/app/data/backups/restored-harness", "IOT_BACKUP_RESTORE_MINIO_ENDPOINT": "${IOT_BACKUP_RESTORE_MINIO_ENDPOINT:-}", "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY": "${IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY:-}", "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY": "${IOT_BACKUP_RESTORE_MINIO_SECRET_KEY:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
 			env["POSTGRES_PASSWORD"], env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["CLICKHOUSE_PASSWORD"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.PostgresPassword, r.s.MinIORootUser, r.s.MinIORootPassword, r.s.ClickHousePassword, r.s.BackupToken
 			env["IOT_BACKUP_RESTORE_TARGET_DSN"] = r.s.BackupRestoreTargetDSN
 			env["IOT_BACKUP_RESTORE_MINIO_ENDPOINT"] = r.s.BackupRestoreMinIOEndpoint
@@ -623,14 +651,25 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 				def["environment"].(map[string]string)["IOT_BACKUP_HARNESS_DATA_DIR"] = "/app/harness"
 			}
 		case "prometheus":
-			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig())
+			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig(node))
 			files[node+"/prometheus/alerts.yml"] = []byte(clusterAlertRules())
 			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro"}}), "prometheus-data")
 			files[node+"/alertmanager/alertmanager.yml"] = []byte(alertmanagerConfig(r.s.AlertWebhookURL != ""))
 			if r.s.AlertWebhookURL != "" {
 				files[node+"/alertmanager/webhook-url"] = []byte(r.s.AlertWebhookURL)
 			}
-			add(kind, "alertmanager", service(inv.Images.Alertmanager, map[string]any{"command": []string{"--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager", "--web.listen-address=:9093", "--cluster.listen-address="}, "volumes": []string{"alertmanager-data:/alertmanager", "./alertmanager:/etc/alertmanager:ro"}}), "alertmanager-data")
+			amCommand := []string{"--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager", "--web.listen-address=:9093", "--cluster.listen-address="}
+			if peers := inv.Monitoring.Members(); len(peers) > 1 {
+				// One Alertmanager cluster: silences and notification state
+				// are shared, and alerts from every replica are deduplicated.
+				amCommand = []string{"--config.file=/etc/alertmanager/alertmanager.yml", "--storage.path=/alertmanager", "--web.listen-address=:9093", "--cluster.listen-address=0.0.0.0:9094", "--cluster.advertise-address=" + ip + ":9094"}
+				for _, p := range peers {
+					if p != node {
+						amCommand = append(amCommand, "--cluster.peer="+r.ip(p)+":9094")
+					}
+				}
+			}
+			add(kind, "alertmanager", service(inv.Images.Alertmanager, map[string]any{"command": amCommand, "volumes": []string{"alertmanager-data:/alertmanager", "./alertmanager:/etc/alertmanager:ro"}}), "alertmanager-data")
 		case "capacity":
 			add(kind, "capacity", service(inv.Images.Platform, map[string]any{
 				"entrypoint": []string{"/app/capacity-test"},
@@ -655,8 +694,11 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 				api = "127.0.0.1:8081"
 			}
 			videoUpstream := "127.0.0.1:1"
-			if inv.Video.Node != "" {
-				videoUpstream = r.ip(inv.Video.Node) + ":80"
+			if media := inv.Video.Members(); len(media) == 1 {
+				videoUpstream = r.ip(media[0]) + ":80"
+			} else if len(media) > 1 {
+				// HLS follows the live module to the first healthy server.
+				videoUpstream = fmt.Sprintf("127.0.0.1:%d", LBVideoPort)
 			}
 			web := service(inv.Images.Web, map[string]any{"environment": map[string]string{"IOT_API_UPSTREAM": api, "IOT_VIDEO_UPSTREAM": videoUpstream}})
 			if r.tls != nil {
@@ -702,7 +744,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["IOT_EMQX_API_KEY"], env["IOT_EMQX_API_SECRET"] = r.s.MinIORootUser, r.s.MinIORootPassword, r.s.EMQXAPIKey, r.s.EMQXAPISecret
 			env["IOT_MQTT_TOOL_USERNAME"], env["IOT_MQTT_TOOL_PASSWORD"] = r.s.MQTTToolUsername, r.s.MQTTToolPassword
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.HarnessToken, r.s.DeepSeekAPIKey, r.s.BackupToken
-			if inv.Video.Node != "" {
+			if len(inv.Video.Members()) > 0 {
 				env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"], env["IOT_VIDEO_CREDENTIAL_KEY"] = r.s.VideoMediaSecret, r.s.VideoHookSecret, r.s.VideoCredentialKey
 			}
 			if inv.Capacity.Node != "" {
@@ -741,6 +783,20 @@ func (r renderer) capacityNodes() string {
 	return strings.Join(out, ",")
 }
 
+// mediaServerID names the i-th media server of the video placement.
+func mediaServerID(inv *Inventory, i int) string {
+	return fmt.Sprintf("%s-media-%d", inv.Name, i+1)
+}
+
+// minioEndpoint is the MinIO address platform services use: the server, or
+// the local load balancer in front of a distributed deployment.
+func (r renderer) minioEndpoint() string {
+	if r.inv.MinIO.Distributed() {
+		return fmt.Sprintf("127.0.0.1:%d", LBMinIOPort)
+	}
+	return r.ip(r.inv.MinIO.Node) + ":9002"
+}
+
 // haproxyConfig balances the local API and gateway origins across every
 // instance with readiness checks. It binds to 127.0.0.1 only: it serves the
 // node's own services (web proxy, Harness callbacks, media hooks), not users.
@@ -759,15 +815,39 @@ defaults
   timeout tunnel 1h
   default-server check inter 3s fall 3 rise 2
 `)
-	for _, fe := range []struct {
-		name string
-		port int
-		role string
-	}{{"api", LBAPIPort, "api"}, {"gateway", LBGatewayPort, "gateway"}} {
-		fmt.Fprintf(&b, "frontend %s\n  bind 127.0.0.1:%d\n  default_backend %s\nbackend %s\n  balance roundrobin\n", fe.name, fe.port, fe.name, fe.name)
-		for _, n := range r.inv.Platform.Roles[fe.role].Nodes {
-			fmt.Fprintf(&b, "  server %s-%s %s:%d\n", fe.role, n, r.ip(n), rolePort[fe.role])
+	if r.inv.AutoLB() {
+		for _, fe := range []struct {
+			name string
+			port int
+			role string
+		}{{"api", LBAPIPort, "api"}, {"gateway", LBGatewayPort, "gateway"}} {
+			fmt.Fprintf(&b, "frontend %s\n  bind 127.0.0.1:%d\n  default_backend %s\nbackend %s\n  balance roundrobin\n", fe.name, fe.port, fe.name, fe.name)
+			for _, n := range r.inv.Platform.Roles[fe.role].Nodes {
+				fmt.Fprintf(&b, "  server %s-%s %s:%d\n", fe.role, n, r.ip(n), rolePort[fe.role])
+			}
 		}
+	}
+	pool := func(name string, port int, nodes []string, target int, lines ...string) {
+		fmt.Fprintf(&b, "frontend %s\n  bind 127.0.0.1:%d\n  default_backend %s\nbackend %s\n", name, port, name, name)
+		for _, line := range lines {
+			b.WriteString("  " + line + "\n")
+		}
+		for _, n := range nodes {
+			fmt.Fprintf(&b, "  server %s-%s %s:%d\n", name, n, r.ip(n), target)
+		}
+	}
+	if r.inv.MinIO.Distributed() {
+		pool("minio", LBMinIOPort, r.inv.MinIO.Nodes, 9002, "balance leastconn", "option httpchk GET /minio/health/live")
+	}
+	if nodes := r.inv.Monitoring.Members(); len(nodes) > 1 {
+		pool("prometheus", LBPrometheusPort, nodes, 9090, "balance first", "option httpchk GET /-/ready")
+		pool("alertmanager", LBAlertmanagerPort, nodes, 9093, "balance first", "option httpchk GET /-/ready")
+	}
+	if nodes := r.inv.Video.Members(); len(nodes) > 1 {
+		// The first healthy media server in placement order, like the live
+		// module: a failed server is dropped after 15 s and a recovered one
+		// used again after 45 s healthy.
+		pool("video", LBVideoPort, nodes, 80, "balance first", "option tcp-check", "default-server check inter 5s fall 3 rise 9")
 	}
 	return b.String()
 }
@@ -869,7 +949,7 @@ func alertmanagerConfig(webhook bool) string {
 
 // prometheusConfig scrapes every process per instance, labelled with role
 // and instance, never through a load balancer.
-func (r renderer) prometheusConfig() string {
+func (r renderer) prometheusConfig(node string) string {
 	inv := r.inv
 	type job struct {
 		name    string
@@ -892,7 +972,19 @@ func (r renderer) prometheusConfig() string {
 		jobs[3].targets[r.ip(n)+":18083"] = [2]string{"emqx", n}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "global:\n  scrape_interval: 15s\n  external_labels:\n    cluster: %s\nrule_files: [/etc/prometheus/alerts.yml]\nalerting:\n  alertmanagers:\n    - static_configs:\n        - targets: [\"127.0.0.1:9093\"]\nscrape_configs:\n", inv.Name)
+	alertmanagers, replica, relabel := `"127.0.0.1:9093"`, "", ""
+	if members := inv.Monitoring.Members(); len(members) > 1 {
+		// Replicas scrape the same targets independently and alert every
+		// Alertmanager; dropping the replica label lets the cluster
+		// deduplicate their alerts.
+		targets := make([]string, len(members))
+		for i, m := range members {
+			targets[i] = strconv.Quote(r.ip(m) + ":9093")
+		}
+		alertmanagers, replica = strings.Join(targets, ", "), fmt.Sprintf("    replica: %s\n", node)
+		relabel = "  alert_relabel_configs:\n    - action: labeldrop\n      regex: replica\n"
+	}
+	fmt.Fprintf(&b, "global:\n  scrape_interval: 15s\n  external_labels:\n    cluster: %s\n%srule_files: [/etc/prometheus/alerts.yml]\nalerting:\n%s  alertmanagers:\n    - static_configs:\n        - targets: [%s]\nscrape_configs:\n", inv.Name, replica, relabel, alertmanagers)
 	for _, j := range jobs {
 		fmt.Fprintf(&b, "  - job_name: %s\n    metrics_path: %s\n    static_configs:\n", j.name, j.path)
 		addrs := make([]string, 0, len(j.targets))

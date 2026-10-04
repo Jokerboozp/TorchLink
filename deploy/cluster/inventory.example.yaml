@@ -45,10 +45,13 @@ clickhouse:
   keeper: [n2, n3, n4]
   insertQuorum: "2"
 minio: {node: n4}
+# High availability: distributed MinIO needs >= 3 nodes and >= 4 drives in total, e.g.
+#   minio: {nodes: [n1, n2, n3, n4], drivesPerNode: 1}
+# It starts with empty drives; mirror an existing single server's buckets first (mc mirror).
 harness: {nodes: [n2, n3]}
-video: {node: n4}
+video: {node: n4}                # standby media servers: video: {nodes: [n4, n3]} (first = primary)
 backup: {node: n4}
-monitoring: {node: n4}
+monitoring: {node: n4}           # Prometheus replicas + one Alertmanager cluster: monitoring: {nodes: [n3, n4]}
 capacity: {node: n4}          # capacity-test module (运维中心 → 容量测试); remove the line to turn it off
 platform:
   # internalURL / gatewayURL left empty: every node runs a local HAProxy

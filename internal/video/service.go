@@ -67,6 +67,7 @@ type Service struct {
 	cameras   CameraLookup
 	authorize Authorizer
 	media     mediaServer
+	failover  *failoverMedia
 	mgr       *manager
 	gb        *gbGateway
 	guard     targetGuard
@@ -101,6 +102,15 @@ func New(cfg config.VideoConfig, store ports.VideoStore, cameras CameraLookup, a
 	s.seal = sealer{key: cfg.CredentialKey, keyID: cfg.CredentialKeyID}
 	if cfg.Deployed() && cfg.Problem() == nil && store != nil {
 		s.media = newZLM(cfg.MediaAPIURL, cfg.MediaSecret)
+		if len(cfg.Standbys) > 0 {
+			members := []mediaMember{{id: cfg.MediaServerID, mediaIP: cfg.GB28181.MediaIP, server: s.media}}
+			for _, standby := range cfg.Standbys {
+				members = append(members, mediaMember{id: standby.ID, mediaIP: standby.MediaIP, server: newZLM(standby.URL, cfg.MediaSecret)})
+			}
+			s.failover = newFailoverMedia(members)
+			s.failover.onSwitch = s.mediaSwitched
+			s.media = s.failover
+		}
 		s.transcodeCap = cfg.Transcode
 		s.mgr = newManager(managerConfig{HookSecret: cfg.HookSecret, LeaseTTL: cfg.LeaseTTL, IdleGrace: cfg.IdleGrace, StartTimeout: cfg.StartTimeout, MaxSessions: cfg.MaxSessions, MaxSources: cfg.MaxSourceStreams, MaxTranscodes: cfg.MaxTranscodes}, s.media, store, log)
 		s.newGB()
@@ -115,7 +125,7 @@ func (s *Service) newGB() {
 	if !c.Enabled || c.Problem() != nil {
 		return
 	}
-	g := &gbGateway{cfg: c, store: s.store, seal: s.seal, guard: s.guard, media: s.media, log: s.log, now: func() time.Time { return s.now() }, calls: map[string]gbCall{}, pending: map[string]bool{}, catalogs: map[string]*catalogBuffer{}}
+	g := &gbGateway{cfg: c, store: s.store, seal: s.seal, guard: s.guard, media: s.media, failover: s.failover, log: s.log, now: func() time.Time { return s.now() }, calls: map[string]gbCall{}, pending: map[string]bool{}, catalogs: map[string]*catalogBuffer{}}
 	mac := hmac.New(sha256.New, []byte(s.cfg.HookSecret))
 	mac.Write([]byte("gb28181-nonce-key"))
 	srv, err := gb28181.New(gb28181.Config{ServerID: c.ServerID, Domain: c.Domain, Listen: c.Listen, SIPHost: c.SIPHost, SIPPort: c.SIPPort, NonceKey: mac.Sum(nil), Log: s.log}, g)
@@ -208,6 +218,24 @@ func (s *Service) checkHealth(ctx context.Context) {
 	}
 }
 
+// activeMediaID is the server ID whose hooks are accepted: the active media
+// server. Hooks of a standby, such as its start-up event, are ignored.
+func (s *Service) activeMediaID() string {
+	if s.failover != nil {
+		return s.failover.current().id
+	}
+	return s.cfg.MediaServerID
+}
+
+// mediaSwitched moves the module to another media server: streams of the
+// previous server are lost, so tasks are marked for recovery and restarted
+// on the new server; viewers reconnect as after a media server restart.
+func (s *Service) mediaSwitched(from, to mediaMember) {
+	s.log.Warn("media server failover", "from", from.id, "to", to.id)
+	s.mgr.markAllLost()
+	go s.reconcile(context.Background())
+}
+
 func (s *Service) mediaHealthy() bool {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
@@ -254,10 +282,12 @@ func (s *Service) moduleEnabled(ctx context.Context) (bool, error) {
 
 // Status describes the module for the UI.
 type Status struct {
-	State              string           `json:"state"`
-	Deployed           bool             `json:"deployed"`
-	Enabled            bool             `json:"enabled"`
-	MediaHealthy       bool             `json:"mediaHealthy"`
+	State        string `json:"state"`
+	Deployed     bool   `json:"deployed"`
+	Enabled      bool   `json:"enabled"`
+	MediaHealthy bool   `json:"mediaHealthy"`
+	// ActiveMediaServer names the media server in use when standbys exist.
+	ActiveMediaServer  string           `json:"activeMediaServer,omitempty"`
 	Message            string           `json:"message"`
 	TranscodeAvailable bool             `json:"transcodeAvailable"`
 	UpdatedBy          string           `json:"updatedBy,omitempty"`
@@ -286,6 +316,9 @@ func (s *Service) Status(ctx context.Context) Status {
 	module, err := s.store.GetVideoModuleState(ctx)
 	st.Enabled, st.UpdatedBy, st.UpdatedAt = module.Enabled, module.UpdatedBy, module.UpdatedAt
 	st.MediaHealthy = s.mediaHealthy()
+	if s.failover != nil {
+		st.ActiveMediaServer = s.failover.current().id
+	}
 	st.TranscodeAvailable = s.transcodeCap
 	st.MaxTranscodes = s.cfg.MaxTranscodes
 	st.HeartbeatSeconds = max(5, int(s.cfg.LeaseTTL.Seconds()/3))
@@ -1147,7 +1180,7 @@ type HookBody struct {
 func (s *Service) Hook(ctx context.Context, event string, body HookBody) map[string]any {
 	ok := map[string]any{"code": 0, "msg": "success"}
 	deny := func(msg string) map[string]any { return map[string]any{"code": -1, "msg": msg} }
-	if body.MediaServerID != "" && body.MediaServerID != s.cfg.MediaServerID {
+	if body.MediaServerID != "" && body.MediaServerID != s.activeMediaID() {
 		return deny("unknown media server")
 	}
 	params, _ := url.ParseQuery(body.Params)

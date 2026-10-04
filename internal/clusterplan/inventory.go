@@ -31,11 +31,15 @@ type Inventory struct {
 	Postgres      PostgresSpec   `yaml:"postgres"`
 	Redis         RedisSpec      `yaml:"redis"`
 	ClickHouse    ClickHouseSpec `yaml:"clickhouse"`
-	MinIO         SingleSpec     `yaml:"minio"`
+	MinIO         MinIOSpec      `yaml:"minio"`
 	Harness       GroupSpec      `yaml:"harness"`
-	Video         SingleSpec     `yaml:"video,omitempty"`
-	Backup        SingleSpec     `yaml:"backup,omitempty"`
-	Monitoring    SingleSpec     `yaml:"monitoring,omitempty"`
+	// Video places media servers: the first is the primary, the others
+	// standbys the live module fails over to.
+	Video  PoolSpec   `yaml:"video,omitempty"`
+	Backup SingleSpec `yaml:"backup,omitempty"`
+	// Monitoring places Prometheus with Alertmanager; several nodes run
+	// independent Prometheus replicas and one Alertmanager cluster.
+	Monitoring PoolSpec `yaml:"monitoring,omitempty"`
 	// Capacity places the capacity-test module (capacity-test serve); empty = off.
 	Capacity SingleSpec        `yaml:"capacity,omitempty"`
 	Platform PlatformSpec      `yaml:"platform"`
@@ -77,6 +81,33 @@ type GroupSpec struct {
 type SingleSpec struct {
 	Node string `yaml:"node"`
 }
+
+// PoolSpec places a service on one node (node) or several (nodes).
+type PoolSpec struct {
+	Node  string   `yaml:"node,omitempty"`
+	Nodes []string `yaml:"nodes,omitempty"`
+}
+
+// Members lists the nodes in placement order.
+func (p PoolSpec) Members() []string {
+	if len(p.Nodes) > 0 {
+		return p.Nodes
+	}
+	if p.Node != "" {
+		return []string{p.Node}
+	}
+	return nil
+}
+
+// MinIOSpec runs one MinIO server (node), or a distributed erasure-coded
+// deployment over nodes with drivesPerNode volumes each.
+type MinIOSpec struct {
+	PoolSpec      `yaml:",inline"`
+	DrivesPerNode int `yaml:"drivesPerNode,omitempty"`
+}
+
+// Distributed reports a multi-node MinIO deployment.
+func (m MinIOSpec) Distributed() bool { return len(m.Members()) > 1 }
 
 type RedpandaSpec struct {
 	Nodes       []string `yaml:"nodes"`
@@ -133,16 +164,26 @@ var Ports = map[string][]int{
 	"emqx": {1883, 8083, 8084, 8883, 18083, 4370, 5370}, "clickhouse": {8123, 9000, 9009}, "keeper": {9181, 9234},
 	"redis": {6379}, "sentinel": {26379}, "minio": {9002, 9003}, "harness": {8091},
 	"video":  {80, 8000},
-	"backup": {8090}, "prometheus": {9090, 9093}, "node-exporter": {9100}, "web": {8080, 8443},
+	"backup": {8090}, "prometheus": {9090, 9093, 9094}, "node-exporter": {9100}, "web": {8080, 8443},
 	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
-	"lb": {LBAPIPort, LBGatewayPort}, "capacity": {7080},
+	"lb": {LBAPIPort, LBGatewayPort, LBMinIOPort, LBVideoPort, LBPrometheusPort, LBAlertmanagerPort}, "capacity": {7080},
 }
 
 // Local load balancer ports (bound to 127.0.0.1 on every node).
 const (
-	LBAPIPort     = 18181
-	LBGatewayPort = 18182
+	LBAPIPort          = 18181
+	LBGatewayPort      = 18182
+	LBMinIOPort        = 18183
+	LBVideoPort        = 18180
+	LBPrometheusPort   = 18190
+	LBAlertmanagerPort = 18193
 )
+
+// LocalLB reports whether nodes run the local HAProxy: for the API and
+// gateway origins, or for a service with several instances.
+func (inv *Inventory) LocalLB() bool {
+	return inv.AutoLB() || inv.MinIO.Distributed() || len(inv.Monitoring.Members()) > 1 || len(inv.Video.Members()) > 1
+}
 
 // AutoLB reports whether the renderer provides the internal load balancers.
 func (inv *Inventory) AutoLB() bool {
@@ -253,15 +294,15 @@ func (inv *Inventory) Placement() map[string][]string {
 	add("keeper", inv.ClickHouse.Keeper...)
 	add("redis", append([]string{inv.Redis.Master}, inv.Redis.Replicas...)...)
 	add("sentinel", inv.Redis.Sentinels...)
-	add("minio", inv.MinIO.Node)
+	add("minio", inv.MinIO.Members()...)
 	add("harness", inv.Harness.Nodes...)
-	add("video", inv.Video.Node)
+	add("video", inv.Video.Members()...)
 	add("backup", inv.Backup.Node)
-	add("prometheus", inv.Monitoring.Node)
+	add("prometheus", inv.Monitoring.Members()...)
 	add("capacity", inv.Capacity.Node)
 	for _, n := range inv.Nodes {
 		add("node-exporter", n.Name)
-		if inv.AutoLB() {
+		if inv.LocalLB() {
 			add("lb", n.Name)
 		}
 	}
@@ -358,8 +399,25 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 	if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(inv.ClickHouse.Cluster) {
 		bad("clickhouse cluster name is invalid")
 	}
-	if inv.MinIO.Node == "" {
-		bad("minio.node is required (backups and knowledge files)")
+	for name, pool := range map[string]PoolSpec{"minio": inv.MinIO.PoolSpec, "video": inv.Video, "monitoring": inv.Monitoring} {
+		if pool.Node != "" && len(pool.Nodes) > 0 {
+			bad("%s: set node or nodes, not both", name)
+		}
+		if len(pool.Nodes) == 1 {
+			bad("%s.nodes needs at least 2 nodes; use node for one", name)
+		}
+		if len(pool.Nodes) > 1 {
+			inv.spread(name, pool.Nodes, false, bad)
+		}
+	}
+	if len(inv.MinIO.Members()) == 0 {
+		bad("minio.node or minio.nodes is required (backups and knowledge files)")
+	}
+	if inv.MinIO.DrivesPerNode < 0 || inv.MinIO.DrivesPerNode > 16 || (!inv.MinIO.Distributed() && inv.MinIO.DrivesPerNode > 0) {
+		bad("minio.drivesPerNode applies to minio.nodes and must be 1-16")
+	}
+	if inv.MinIO.Distributed() && (len(inv.MinIO.Nodes) < 3 || len(inv.MinIO.Nodes)*max(inv.MinIO.DrivesPerNode, 1) < 4) {
+		bad("distributed minio needs at least 3 nodes and 4 drives in total, so one node can fail without losing reads or writes")
 	}
 	if len(inv.Harness.Nodes) == 0 {
 		bad("harness needs at least one node (AI workflows are mandatory)")
@@ -377,11 +435,10 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 	if len(inv.Platform.Web.Nodes) == 0 {
 		bad("platform.web needs at least one node")
 	}
-	if inv.AutoLB() {
-		if inv.Images.LB == "" {
-			bad("images.lb (HAProxy) is required when platform.internalURL and gatewayURL are empty")
-		}
-	} else {
+	if inv.LocalLB() && inv.Images.LB == "" {
+		bad("images.lb (HAProxy) is required for the local load balancers (empty platform.internalURL/gatewayURL, or several minio, video or monitoring nodes)")
+	}
+	if !inv.AutoLB() {
 		for _, u := range []string{inv.Platform.InternalURL, inv.Platform.GatewayURL} {
 			if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 				bad("platform.internalURL and platform.gatewayURL must both be load-balanced http(s) origins, or both empty for the built-in local load balancers")

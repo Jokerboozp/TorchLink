@@ -78,11 +78,11 @@ func GenerateInventory(o GenerateOptions) (*Inventory, error) {
 	default:
 		inv.ClickHouse = ClickHouseSpec{Shards: [][]string{names[0:3], names[3:6]}, Keeper: span(n-3, 3)}
 	}
-	inv.MinIO = SingleSpec{Node: last}
+	inv.MinIO = MinIOSpec{PoolSpec: PoolSpec{Node: last}}
 	inv.Backup = SingleSpec{Node: last}
-	inv.Monitoring = SingleSpec{Node: last}
+	inv.Monitoring = PoolSpec{Node: last}
 	if o.Video {
-		inv.Video = SingleSpec{Node: last}
+		inv.Video = PoolSpec{Node: last}
 	}
 	if o.Capacity {
 		inv.Capacity = SingleSpec{Node: last}

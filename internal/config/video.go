@@ -35,7 +35,18 @@ type VideoConfig struct {
 	Transcode        bool
 	MaxTranscodes    int
 	GB28181          GB28181Config
-	loadErr          error
+	// Standbys are further media servers; the module uses the first healthy
+	// server in the order primary, standbys (see video.failoverMedia).
+	Standbys []MediaEndpoint
+	loadErr  error
+}
+
+// MediaEndpoint is a standby media server: its API origin, the server ID it
+// reports in hooks, and the address GB28181 devices send RTP to.
+type MediaEndpoint struct {
+	URL     string
+	ID      string
+	MediaIP string
 }
 
 // GB28181Config is the platform's SIP server for GB/T 28181 devices. It runs
@@ -91,6 +102,22 @@ func loadVideo() VideoConfig {
 		if ips := split(os.Getenv("IOT_VIDEO_RTC_EXTERN_IP")); len(ips) > 0 {
 			cfg.GB28181.MediaIP = ips[0]
 		}
+	}
+	urls, ids, ips := split(os.Getenv("IOT_VIDEO_MEDIA_STANDBY_URLS")), split(os.Getenv("IOT_VIDEO_MEDIA_STANDBY_IDS")), split(os.Getenv("IOT_GB28181_MEDIA_STANDBY_IPS"))
+	for i, raw := range urls {
+		endpoint := MediaEndpoint{URL: trimURL(raw)}
+		if i < len(ids) {
+			endpoint.ID = ids[i]
+		}
+		if i < len(ips) {
+			endpoint.MediaIP = ips[i]
+		} else if u, err := url.Parse(endpoint.URL); err == nil && net.ParseIP(u.Hostname()) != nil {
+			endpoint.MediaIP = u.Hostname()
+		}
+		cfg.Standbys = append(cfg.Standbys, endpoint)
+	}
+	if len(ids) != len(urls) {
+		cfg.loadErr = fmt.Errorf("IOT_VIDEO_MEDIA_STANDBY_IDS must name each IOT_VIDEO_MEDIA_STANDBY_URLS entry")
 	}
 	if raw := strings.TrimSpace(os.Getenv("IOT_VIDEO_CREDENTIAL_KEY")); raw != "" {
 		key, err := base64.StdEncoding.DecodeString(raw)
@@ -156,6 +183,20 @@ func (c VideoConfig) Problem() error {
 	}
 	if c.MaxTranscodes > 64 || c.MaxSessions > 10000 || c.MaxSourceStreams > 1000 {
 		problems = append(problems, "video limits are out of range")
+	}
+	seen := map[string]bool{c.MediaServerID: true}
+	for _, standby := range c.Standbys {
+		u, err := url.Parse(standby.URL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			problems = append(problems, "IOT_VIDEO_MEDIA_STANDBY_URLS must be HTTP(S) origins without credentials")
+		}
+		if standby.ID == "" || seen[standby.ID] {
+			problems = append(problems, "each media server needs its own IOT_VIDEO_MEDIA_STANDBY_IDS entry")
+		}
+		seen[standby.ID] = true
+		if standby.MediaIP != "" && net.ParseIP(standby.MediaIP) == nil {
+			problems = append(problems, "IOT_GB28181_MEDIA_STANDBY_IPS must be IP addresses")
+		}
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid video module configuration: %s", strings.Join(problems, "; "))
