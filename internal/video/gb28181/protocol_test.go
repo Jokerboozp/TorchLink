@@ -14,7 +14,13 @@ func TestDigestVerification(t *testing.T) {
 	if !n.valid(nonce, time.Minute) {
 		t.Fatal("fresh nonce must be valid")
 	}
-	if n.valid(nonce[:47]+"0", time.Minute) || n.valid("0000000000000000"+nonce[16:], time.Minute) {
+	// Change the last character to a different one; a fixed replacement
+	// would equal the original one time in sixteen.
+	last := "0"
+	if strings.HasSuffix(nonce, "0") {
+		last = "1"
+	}
+	if n.valid(nonce[:len(nonce)-1]+last, time.Minute) || n.valid("0000000000000000"+nonce[16:], time.Minute) {
 		t.Fatal("tampered nonce must be rejected")
 	}
 	later := nonceIssuer{key: n.key, now: func() time.Time { return time.Now().Add(10 * time.Minute) }}
