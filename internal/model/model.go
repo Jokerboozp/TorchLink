@@ -175,6 +175,12 @@ type StandardMessage struct {
 	ParserVersion string            `json:"parserVersion"`
 }
 
+// Telemetry reports the message types whose properties are kept as
+// telemetry in ClickHouse when it is configured.
+func (m StandardMessage) Telemetry() bool {
+	return m.MessageType == PropertyReport || m.MessageType == AlarmReport
+}
+
 // MQTTTopic returns the tenant-scoped external topic for every successfully
 // parsed standard message. Keep tenant/product/device before messageType so a
 // client can subscribe to /iot/parsed/{tenant}/# without crossing tenants.

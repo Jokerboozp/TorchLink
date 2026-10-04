@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"testing"
+	"time"
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/repositorytest"
@@ -73,5 +74,31 @@ func TestOpenAlarmCounterFollowsEveryWrite(t *testing.T) {
 	a := model.Alarm{ID: "new", TenantID: "t", DeviceID: "d2", RuleID: "r", Status: "ACTIVE", TriggerID: "x", LastTriggeredAt: 1}
 	if _, _, err = r.UpsertAlarm(ctx, a); err != nil || !open("d2") {
 		t.Fatalf("upsert: %v", err)
+	}
+}
+
+// While ClickHouse keeps telemetry properties, telemetry rows store none;
+// other message types keep theirs.
+func TestExternalTelemetryProperties(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	r.SetExternalTelemetryProperties(true)
+	for _, msg := range []model.StandardMessage{
+		{TenantID: "t", MessageID: "prop", RawMessageID: "raw-prop", ProductID: "p", DeviceID: "d", MessageType: model.PropertyReport, Timestamp: 1, Properties: map[string]any{"v": 1}},
+		{TenantID: "t", MessageID: "event", RawMessageID: "raw-event", ProductID: "p", DeviceID: "d", MessageType: model.EventReport, Timestamp: 2, Properties: map[string]any{"v": 2}, Event: map[string]any{"type": "x"}},
+	} {
+		if claim, err := r.ClaimStandardMessage(ctx, msg, "w", time.Minute); err != nil || !claim.Created {
+			t.Fatalf("claim %s: %+v %v", msg.MessageID, claim, err)
+		}
+	}
+	var props, bodyProps string
+	if err := r.pool.QueryRow(ctx, `SELECT properties::text, coalesce(body->>'properties','') FROM standard_message WHERE message_id='prop'`).Scan(&props, &bodyProps); err != nil || props != "{}" || bodyProps != "" {
+		t.Fatalf("telemetry row kept properties: %q %q %v", props, bodyProps, err)
+	}
+	if got, err := r.GetStandardMessageByRaw(ctx, "t", "raw-event"); err != nil || got.Properties["v"] != float64(2) || got.Event["type"] != "x" {
+		t.Fatalf("event message: %+v %v", got, err)
+	}
+	if got, err := r.GetStandardMessageByRaw(ctx, "t", "raw-prop"); err != nil || got.MessageType != model.PropertyReport || got.DeviceID != "d" {
+		t.Fatalf("index columns of the telemetry row: %+v %v", got, err)
 	}
 }

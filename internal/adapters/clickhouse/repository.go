@@ -50,9 +50,15 @@ var quorumPattern = regexp.MustCompile(`^(auto|[1-9])$`)
 // storageTables are the telemetry and raw payload tables with their columns
 // and ordering; the definitions are shared by both topologies.
 var storageTables = []struct{ name, columns, partition, order string }{
-	{"iot_telemetry", "tenant_id String, device_id String, product_id String, message_id String, ts DateTime64(3), properties JSON", "toYYYYMM(ts)", "(tenant_id,device_id,ts,message_id)"},
+	{"iot_telemetry", "tenant_id String, device_id String, product_id String, message_id String, ts DateTime64(3), properties JSON, " + propertiesTextColumn, "toYYYYMM(ts)", "(tenant_id,device_id,ts,message_id)"},
 	{"iot_raw_message", "tenant_id String, message_id String, product_id String, device_id String, protocol String, payload_format String, payload_hash String, payload_size UInt64, received_at Int64, body String", "toYYYYMM(fromUnixTimestamp64Milli(received_at))", "(tenant_id,device_id,received_at,message_id)"},
 }
+
+// propertiesTextColumn keeps the reported properties as exact JSON text: the
+// JSON column serves queries by property, while standard messages read back
+// their properties unchanged from the text (PostgreSQL then stores telemetry
+// messages without properties).
+const propertiesTextColumn = "properties_text String DEFAULT '' CODEC(ZSTD(3))"
 
 // SchemaStatements returns the DDL for a topology; exported so migration and
 // cluster initialization tools create exactly what the platform expects.
@@ -65,6 +71,9 @@ func SchemaStatements(cluster string) []string {
 			// prunes; the bloom filter covers lookups that know only the
 			// message ID. Existing parts get the index as they merge.
 			out = append(out, "ALTER TABLE "+t.name+" ADD INDEX IF NOT EXISTS idx_message_id message_id TYPE bloom_filter(0.01) GRANULARITY 1")
+			if t.name == "iot_telemetry" {
+				out = append(out, "ALTER TABLE iot_telemetry ADD COLUMN IF NOT EXISTS "+propertiesTextColumn)
+			}
 			continue
 		}
 		local := t.name + "_local"
@@ -75,6 +84,11 @@ func SchemaStatements(cluster string) []string {
 			// queries and ordering stay local to a shard.
 			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s ON CLUSTER %s AS %s ENGINE=Distributed(%s, currentDatabase(), %s, cityHash64(tenant_id, device_id))", t.name, cluster, local, cluster, local),
 		)
+		if t.name == "iot_telemetry" {
+			out = append(out,
+				"ALTER TABLE iot_telemetry_local ON CLUSTER "+cluster+" ADD COLUMN IF NOT EXISTS "+propertiesTextColumn,
+				"ALTER TABLE iot_telemetry ON CLUSTER "+cluster+" ADD COLUMN IF NOT EXISTS "+propertiesTextColumn)
+		}
 	}
 	return out
 }
@@ -188,12 +202,8 @@ func (r *Repository) SaveStandardMessageIfAbsent(ctx context.Context, v model.St
 	return created, nil
 }
 
-func telemetryMessage(v model.StandardMessage) bool {
-	return v.MessageType == model.PropertyReport || v.MessageType == model.AlarmReport
-}
-
 func (r *Repository) ensureTelemetry(ctx context.Context, v model.StandardMessage, created bool) error {
-	if !telemetryMessage(v) {
+	if !v.Telemetry() {
 		return nil
 	}
 	if !created {
@@ -205,11 +215,14 @@ func (r *Repository) ensureTelemetry(ctx context.Context, v model.StandardMessag
 			return nil
 		}
 	}
-	row := map[string]any{"tenant_id": v.TenantID, "device_id": v.DeviceID, "product_id": v.ProductID, "message_id": v.MessageID, "ts": time.UnixMilli(v.Timestamp).UTC().Format("2006-01-02 15:04:05.000"), "properties": v.Properties}
+	text, err := json.Marshal(v.Properties)
+	if err != nil {
+		return err
+	}
+	row := map[string]any{"tenant_id": v.TenantID, "device_id": v.DeviceID, "product_id": v.ProductID, "message_id": v.MessageID, "ts": time.UnixMilli(v.Timestamp).UTC().Format("2006-01-02 15:04:05.000"), "properties": v.Properties, "properties_text": string(text)}
 	b, _ := json.Marshal(row)
 	b = append(b, '\n')
-	err := r.batches().telemetry.add(ctx, b)
-	return err
+	return r.batches().telemetry.add(ctx, b)
 }
 
 func (r *Repository) telemetryExists(ctx context.Context, tenantID, deviceID, messageID string) (bool, error) {
@@ -294,7 +307,11 @@ func (r *Repository) PropertyHistory(ctx context.Context, tenant, device, proper
 		end = time.Now().UnixMilli()
 	}
 	if !propertyCodePattern.MatchString(property) {
-		return r.Repository.PropertyHistory(ctx, tenant, device, property, start, end, limit)
+		items, _, err := r.textPropertyHistory(ctx, tenant, device, property, start, end, limit, 0, false)
+		if err != nil || len(items) == 0 {
+			return r.Repository.PropertyHistory(ctx, tenant, device, property, start, end, limit)
+		}
+		return items, nil
 	}
 	safeProperty := property
 	q := fmt.Sprintf(`SELECT toUnixTimestamp64Milli(ts) AS timestamp, properties.%s AS value, message_id AS messageId FROM iot_telemetry WHERE tenant_id=%s AND device_id=%s AND ts >= fromUnixTimestamp64Milli(%d) AND ts <= fromUnixTimestamp64Milli(%d) ORDER BY ts DESC LIMIT %d FORMAT JSONEachRow`, safeProperty, quote(tenant), quote(device), start, end, limit)
@@ -326,7 +343,11 @@ func (r *Repository) PropertyHistoryPage(ctx context.Context, tenant, device, pr
 		end = time.Now().UnixMilli()
 	}
 	if !propertyCodePattern.MatchString(property) {
-		return r.Repository.PropertyHistoryPage(ctx, tenant, device, property, start, end, limit, offset)
+		items, total, err := r.textPropertyHistory(ctx, tenant, device, property, start, end, limit, offset, true)
+		if err != nil || total == 0 {
+			return r.Repository.PropertyHistoryPage(ctx, tenant, device, property, start, end, limit, offset)
+		}
+		return items, total, nil
 	}
 	where := fmt.Sprintf(`tenant_id=%s AND device_id=%s AND ts >= fromUnixTimestamp64Milli(%d) AND ts <= fromUnixTimestamp64Milli(%d)`, quote(tenant), quote(device), start, end)
 	countBody, err := r.query(ctx, fmt.Sprintf(`SELECT count() AS total FROM iot_telemetry WHERE %s FORMAT JSONEachRow`, where), nil)

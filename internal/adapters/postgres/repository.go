@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,28 @@ type Repository struct {
 	stop    context.CancelFunc
 	// marks batches raw_archive_index bookkeeping; nil writes directly.
 	marks *rawMarks
+	// externalProperties stores telemetry messages without properties,
+	// which ClickHouse keeps instead.
+	externalProperties atomic.Bool
+}
+
+// SetExternalTelemetryProperties stores the properties of telemetry
+// messages (property and alarm reports) only in ClickHouse: the rows keep
+// the index, processing, event and tag columns, and the ClickHouse
+// repository restores the properties on read. Call it before processing
+// starts; rows written earlier keep their properties.
+func (r *Repository) SetExternalTelemetryProperties(on bool) { r.externalProperties.Store(on) }
+
+// standardColumns encodes the stored body, properties, event and tags.
+func (r *Repository) standardColumns(v model.StandardMessage) (body, props, event, tags []byte) {
+	props, _ = json.Marshal(v.Properties)
+	if r.externalProperties.Load() && v.Telemetry() {
+		v.Properties, props = nil, []byte("{}")
+	}
+	body, _ = json.Marshal(v)
+	event, _ = json.Marshal(v.Event)
+	tags, _ = json.Marshal(v.Tags)
+	return body, props, event, tags
 }
 
 const countManagedDeviceChildrenSQL = `SELECT body->>'gatewayId' AS gateway_id,count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId' = ANY($2::text[]) AND ($3::text[] IS NULL OR id = ANY($3::text[])) GROUP BY body->>'gatewayId'`
@@ -622,10 +645,7 @@ func (r *Repository) SaveStandardMessage(ctx context.Context, v model.StandardMe
 	return err
 }
 func (r *Repository) SaveStandardMessageIfAbsent(ctx context.Context, v model.StandardMessage) (bool, error) {
-	body, _ := json.Marshal(v)
-	props, _ := json.Marshal(v.Properties)
-	event, _ := json.Marshal(v.Event)
-	tags, _ := json.Marshal(v.Tags)
+	body, props, event, tags := r.standardColumns(v)
 	tag, err := r.pool.Exec(ctx, `WITH k AS (`+standardKey+`)
 INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body,created_at)
 SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,k.created_at FROM k`, v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body)
@@ -645,10 +665,7 @@ ON CONFLICT DO NOTHING RETURNING created_at`
 func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error) {
 	// A new message is stored and claimed by one statement; only a
 	// redelivered message needs the separate claim below.
-	body, _ := json.Marshal(v)
-	props, _ := json.Marshal(v.Properties)
-	event, _ := json.Marshal(v.Event)
-	tags, _ := json.Marshal(v.Tags)
+	body, props, event, tags := r.standardColumns(v)
 	var token int64
 	err := r.pool.QueryRow(ctx, `WITH k AS (`+standardKey+`)
 INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body,claim_owner,claim_token,claim_expires_at,attempts,created_at)

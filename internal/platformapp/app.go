@@ -148,6 +148,11 @@ func Run(forcedRole string) {
 		fatal(log, "initialize clickhouse", clickErr)
 		repo = r
 		clickHouseRaw = r
+		if postgresRepo != nil {
+			// ClickHouse keeps the properties of telemetry messages; the
+			// ClickHouse repository restores them on read.
+			postgresRepo.SetExternalTelemetryProperties(true)
+		}
 		log.Info("telemetry storage enabled", "adapter", "clickhouse")
 	}
 	// Rate budgets are shared through Redis when configured; otherwise (or

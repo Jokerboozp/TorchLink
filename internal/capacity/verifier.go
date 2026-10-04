@@ -506,7 +506,7 @@ func (s *PGCHStore) RawBodies(ctx context.Context, tenant string, ids []string) 
 }
 
 func (s *PGCHStore) Standards(ctx context.Context, tenant string, rawIDs []string) (map[string][]StandardRecord, error) {
-	rows, err := s.pool.Query(ctx, `SELECT raw_message_id,message_id,message_type,properties<>'{}'::jsonb,processed_at FROM standard_message WHERE tenant_id=$1 AND raw_message_id=ANY($2)`, tenant, rawIDs)
+	rows, err := s.pool.Query(ctx, `SELECT raw_message_id,message_id,message_type,(properties<>'{}'::jsonb OR message_type IN ('PROPERTY_REPORT','ALARM_REPORT')),processed_at FROM standard_message WHERE tenant_id=$1 AND raw_message_id=ANY($2)`, tenant, rawIDs)
 	if err != nil {
 		return nil, err
 	}

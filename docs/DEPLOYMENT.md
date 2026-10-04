@@ -636,6 +636,7 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 天数为 0 表示永久保留。正式保留期按消防监控相关规范和合同要求确定。设备、模板、规则、用户、消防管理等业务资料不在清理范围。
 
 - `IOT_RETENTION_REQUIRE_BACKUP=true` 时，标准消息、原文索引和低频原文按天清理，只删除已有成功 `DEVICE_DAILY` 备份覆盖的日期或成功 `FULL` 备份开始之前的数据；未覆盖的日期保留并计入 `retention_unbacked_days_<表>`。
+- 配置 ClickHouse 时，属性上报与告警上报（`PROPERTY_REPORT`、`ALARM_REPORT`）的属性只存 ClickHouse `iot_telemetry`（`properties` 列供按属性查询，`properties_text` 保留原样 JSON 文本），PostgreSQL `standard_message` 只保留索引、处理状态、事件和标签列；消息详情、设备消息列表和原文关联解析结果由平台从 ClickHouse 补回属性。启用前写入的行保留原有属性。遥测保留期短于标准消息保留期时，超出遥测保留期的标准消息不再显示属性；升级时 API 自动为已有 `iot_telemetry` 补 `properties_text` 列。
 - ClickHouse 在 API 启动时设置表 TTL，已应用的天数记在表注释中，重启不重复修改；不重写已有数据片段，按月分区整体到期后在后台删除，因此实际保留最多比配置多一个月。
 - 指标：`retention_deleted_total`、`retention_deleted_<表>_total`、`retention_failed_total`、`retention_last_success_timestamp_seconds`；Prometheus 规则 `RetentionFailures` 在一天内出现失败时告警。
 - 首次升级时迁移 `0001_retention_indexes` 以 `CREATE INDEX CONCURRENTLY` 为大表补时间索引，不阻塞写入，但大表上需要较长时间；建议在低峰升级。建索引中途失败留下的无效索引会在下次启动时自动删除并重建。
