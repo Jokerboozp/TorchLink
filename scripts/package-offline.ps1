@@ -278,6 +278,9 @@ function New-OfflineEnv {
     # Monitoring stack: on unless the source env turned it off (same rule as deploy).
     $opsState = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_OPS_MODULE') -eq 'off') { 'off' } else { 'on' }
     Set-OpsModule -Path $Destination -State $opsState
+    # ClickHouse: on unless the source env turned it off (same rule as deploy).
+    $clickHouseState = if ((Get-DeploymentEnvValue -Path $Destination -Key 'IOT_CLICKHOUSE_MODULE') -eq 'off') { 'off' } else { 'on' }
+    Set-ClickHouseModule -Path $Destination -State $clickHouseState 3> $null
     Add-DeploymentEnvComments -Path $Destination
     $credentialPath = Join-Path (Split-Path -Parent $Destination) "OFFLINE-CREDENTIALS.txt"
     $credentialFileLines = @(
@@ -337,6 +340,9 @@ foreach ($profile in $profiles) {
 # Monitoring images are always packaged; IOT_OPS_MODULE=off keeps them undeployed.
 [void]$profileArguments.Add("--profile")
 [void]$profileArguments.Add("ops")
+# The ClickHouse image is always packaged; IOT_CLICKHOUSE_MODULE=off keeps it undeployed.
+[void]$profileArguments.Add("--profile")
+[void]$profileArguments.Add("clickhouse")
 
 $bundleTarPartial = $null
 $bundleHashPartial = $null
@@ -349,7 +355,7 @@ try {
         "grafana", "loki", "ops-init", "alertmanager",
         "alloy", "node-exporter"
     )
-    Invoke-Checked -Arguments ($composeBase + @("--profile", "ops", "pull") + $pullServices)
+    Invoke-Checked -Arguments ($composeBase + @("--profile", "ops", "--profile", "clickhouse", "pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio", "postgres"))
     if (-not $WithoutVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
 

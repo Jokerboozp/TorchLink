@@ -221,3 +221,31 @@ apply_ops_module() {
   fi
   set_deployment_env_value "$env_file" COMPOSE_PROFILES "$(printf '%s' "$profiles" | paste -sd, -)"
 }
+
+unset_deployment_env_value() {
+  local env_path="$1" key="$2" updated
+  updated="$(awk -v key="$key" '{ clean=$0; sub(/^[[:space:]]*(export[[:space:]]+)?/, "", clean) } clean ~ "^" key "[[:space:]]*=" { next } { print }' "$env_path")" || return 1
+  printf '%s\n' "$updated" > "$env_path"
+}
+
+# apply_clickhouse_module turns ClickHouse (compose profile "clickhouse") on
+# or off. Off clears IOT_CLICKHOUSE_URL, so the platform keeps raw messages
+# and telemetry in PostgreSQL; on drops an empty URL so Compose supplies the
+# bundled server's address again (a custom URL is kept).
+apply_clickhouse_module() {
+  local env_file="$1" state="$2" profiles previous
+  previous="$(get_deployment_env_value "$env_file" IOT_CLICKHOUSE_MODULE)"
+  profiles="$(get_deployment_env_value "$env_file" COMPOSE_PROFILES | tr ',' '\n' | tr -d ' ' | grep -vx clickhouse | grep -v '^$' || true)"
+  if [ "$state" = on ]; then
+    profiles="$(printf '%s\nclickhouse\n' "$profiles" | grep -v '^$')"
+    set_deployment_env_value "$env_file" IOT_CLICKHOUSE_MODULE on
+    [ -n "$(get_deployment_env_value "$env_file" IOT_CLICKHOUSE_URL)" ] || unset_deployment_env_value "$env_file" IOT_CLICKHOUSE_URL
+  else
+    set_deployment_env_value "$env_file" IOT_CLICKHOUSE_MODULE off
+    set_deployment_env_value "$env_file" IOT_CLICKHOUSE_URL ''
+    if [ "$previous" != off ]; then
+      echo '提示：关闭 ClickHouse 后，已存入 ClickHouse 的高频原文、遥测历史与属性上报的属性不再可读（数据卷保留，重新开启后恢复）；新数据写入 PostgreSQL。' >&2
+    fi
+  fi
+  set_deployment_env_value "$env_file" COMPOSE_PROFILES "$(printf '%s' "$profiles" | paste -sd, -)"
+}

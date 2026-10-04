@@ -296,3 +296,30 @@ function Set-OpsModule {
     }
     Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
 }
+
+function Remove-DeploymentEnvValue {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Key)
+    $lines = @([IO.File]::ReadAllLines([IO.Path]::GetFullPath($Path)) | Where-Object { $_ -notmatch ('^\s*(?:export\s+)?' + [Regex]::Escape($Key) + '\s*=') })
+    [IO.File]::WriteAllText([IO.Path]::GetFullPath($Path), ($lines -join "`n") + "`n", (New-Object Text.UTF8Encoding($false)))
+}
+
+# Turns ClickHouse (compose profile "clickhouse") on or off. Off clears
+# IOT_CLICKHOUSE_URL so raw messages and telemetry stay in PostgreSQL; on
+# drops an empty URL so Compose supplies the bundled server again.
+function Set-ClickHouseModule {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][ValidateSet('on', 'off')][string]$State)
+    $previous = Get-DeploymentEnvValue -Path $Path -Key 'IOT_CLICKHOUSE_MODULE'
+    $profiles = @(@("$(Get-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES')" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'clickhouse' })
+    if ($State -eq 'on') {
+        $profiles += 'clickhouse'
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_CLICKHOUSE_MODULE' -Value 'on'
+        if (-not (Get-DeploymentEnvValue -Path $Path -Key 'IOT_CLICKHOUSE_URL')) { Remove-DeploymentEnvValue -Path $Path -Key 'IOT_CLICKHOUSE_URL' }
+    } else {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_CLICKHOUSE_MODULE' -Value 'off'
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_CLICKHOUSE_URL' -Value ''
+        if ($previous -ne 'off') {
+            Write-Warning '关闭 ClickHouse 后，已存入 ClickHouse 的高频原文、遥测历史与属性上报的属性不再可读（数据卷保留，重新开启后恢复）；新数据写入 PostgreSQL。'
+        }
+    }
+    Set-DeploymentEnvValue -Path $Path -Key 'COMPOSE_PROFILES' -Value ($profiles -join ',')
+}

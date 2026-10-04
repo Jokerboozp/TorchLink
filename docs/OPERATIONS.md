@@ -6,13 +6,14 @@
 
 | 类别 | 组件 | 说明 |
 | --- | --- | --- |
-| 核心（必装） | PostgreSQL + pgvector、Redis、Redpanda、EMQX、MinIO、ClickHouse、platform-api 与协议运行器、platform-web、DeepSeek Harness、备份服务、ops-init | 接入、解析、告警、通知、AI 工作流和备份都依赖它们。ClickHouse 承载高频原文与遥测，Compose 中 API、备份和容量服务直接依赖，保留在核心组合；Harness 按项目约定必装 |
+| 核心（必装） | PostgreSQL + pgvector、Redis、Redpanda、EMQX、MinIO、platform-api 与协议运行器、platform-web、DeepSeek Harness、备份服务、ops-init | 接入、解析、告警、通知、AI 工作流和备份都依赖它们；Harness 按项目约定必装 |
+| ClickHouse（默认部署） | ClickHouse | `--clickhouse off` 关闭后原文与遥测全部写 PostgreSQL，见 [ClickHouse](DEPLOYMENT.md#clickhouse)。高频接入或需要长期遥测查询时保留 |
 | 监控（默认部署） | Prometheus、Loki、Alloy、Grafana、Alertmanager、node-exporter | `--ops off` 关闭，见 [运维组件](DEPLOYMENT.md#运维组件)。关闭后没有死信、消费阻塞、通知失败等平台自身告警，正式环境建议保留，或把 `/metrics` 接入已有监控 |
 | 摄像头直播（默认部署） | ZLMediaKit | `--video off` 关闭，见 [摄像头部署](DEPLOYMENT.md#摄像头部署) |
 | 容量测试（正式部署默认关闭） | capacity | `--capacity on` 开启，见 [容量测试模块](DEPLOYMENT.md#容量测试模块) |
 | 恢复演练 | minio-dr | 仅供隔离恢复验证使用，不是异地副本；异地副本配置 `IOT_BACKUP_OFFSITE_*` |
 
-**最小生产组合**：核心组件 + `--video off --capacity off`；监控组件建议保留。单机组合不具备高可用，边界见 [高可用边界](DEPLOYMENT.md#高可用边界)。
+**最小生产组合**：核心组件 + `--video off --capacity off`（设备少、上报频率低时可再加 `--clickhouse off`）；监控组件建议保留。单机组合不具备高可用，边界见 [高可用边界](DEPLOYMENT.md#高可用边界)。
 
 上线前确认：
 

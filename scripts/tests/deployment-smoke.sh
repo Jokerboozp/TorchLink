@@ -579,7 +579,12 @@ grep -q '^IOT_CAPACITY_MODULE=off$' "$test_root/offline-original"
 grep -q '^IOT_OPS_CAPACITY_URL=$' "$test_root/offline-original"
 grep -q '^IOT_OPS_MODULE=on$' "$test_root/offline-original"
 grep -q '^IOT_OPS_PROMETHEUS_URL=http://prometheus:9090$' "$test_root/offline-original"
-grep -Eq '^COMPOSE_PROFILES=(video,ops|ops,video)$' "$test_root/.env.online"
+profiles_are() {
+  local actual
+  actual="$(grep '^COMPOSE_PROFILES=' "$1" | tail -1 | cut -d= -f2- | tr ',' '\n' | grep -v '^$' | sort | paste -sd, -)"
+  [ "$actual" = "$2" ] || { printf 'COMPOSE_PROFILES of %s is %s, want %s\n' "$1" "$actual" "$2" >&2; exit 1; }
+}
+profiles_are "$test_root/.env.online" clickhouse,ops,video
 grep -q '^IOT_VIDEO_MEDIA_API_URL=http://zlmediakit:80$' "$test_root/.env.online"
 : > "$TEST_CALLS"
 bash "$scripts/package-offline.sh" --output-dir "$test_root/video-bundles" --skip-docker-runtime
@@ -633,7 +638,7 @@ cp "$test_root/.env.online" "$test_root/.env.online-video"
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video off > /dev/null
 grep -q '^IOT_VIDEO_MEDIA_API_URL=$' "$test_root/.env.online-video"
-grep -q '^COMPOSE_PROFILES=ops$' "$test_root/.env.online-video"
+profiles_are "$test_root/.env.online-video" clickhouse,ops
 assert_call '--profile video rm -sf zlmediakit'
 assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
@@ -642,7 +647,7 @@ grep -q '^IOT_VIDEO_MODULE=off$' "$test_root/.env.online-video"
 assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video on > /dev/null
-grep -Eq '^COMPOSE_PROFILES=(video,ops|ops,video)$' "$test_root/.env.online-video"
+profiles_are "$test_root/.env.online-video" clickhouse,ops,video
 assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness zlmediakit'
 assert_no_call ' pull .*zlmediakit'
 "$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
@@ -762,6 +767,40 @@ grep -q '^IOT_OPS_MODULE=off$' "$vbundle/.env.offline"
 assert_call '--profile ops rm -sf prometheus'
 if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ops" --ops maybe >/dev/null 2>&1; then echo 'Accepted invalid ops switch' >&2; exit 1; fi
 echo 'PASS ops module: default on, opt-out removes services and URLs, choice kept, online and offline switch'
+# ClickHouse (profile clickhouse): deployed by default; --clickhouse off removes
+# the service, clears the API's URL so everything stays in PostgreSQL, and is
+# kept; --clickhouse on restores the bundled server's address.
+cp "$test_root/.env.online" "$test_root/.env.online-ch"
+grep -q '^IOT_CLICKHOUSE_MODULE=on$' "$test_root/.env.online-ch"
+"$TEST_COMPOSE" --env-file "$test_root/.env.online-ch" -f "$scripts/../compose.yaml" config > "$test_root/ch-on.yaml"
+grep -q '^  clickhouse:' "$test_root/ch-on.yaml"
+grep -q 'IOT_CLICKHOUSE_URL: http://iot:.*@clickhouse:8123?database=iot' "$test_root/ch-on.yaml"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ch" --clickhouse off > /dev/null 2>&1
+grep -q '^IOT_CLICKHOUSE_MODULE=off$' "$test_root/.env.online-ch"
+grep -q '^IOT_CLICKHOUSE_URL=$' "$test_root/.env.online-ch"
+profiles_are "$test_root/.env.online-ch" ops,video
+assert_call '--profile clickhouse rm -sf clickhouse clickhouse-tool-admin'
+"$TEST_COMPOSE" --env-file "$test_root/.env.online-ch" -f "$scripts/../compose.yaml" config > "$test_root/ch-off.yaml"
+if grep -q '^  clickhouse:' "$test_root/ch-off.yaml"; then echo 'ClickHouse deployed with clickhouse off' >&2; exit 1; fi
+grep -q 'IOT_CLICKHOUSE_URL: ""' "$test_root/ch-off.yaml"
+grep -q 'IOT_CAPACITY_CLICKHOUSE_URL: ""' "$test_root/ch-off.yaml" || ! grep -q 'IOT_CAPACITY_CLICKHOUSE_URL' "$test_root/ch-off.yaml"
+: > "$TEST_CALLS"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ch" > /dev/null 2>&1
+grep -q '^IOT_CLICKHOUSE_MODULE=off$' "$test_root/.env.online-ch"
+bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ch" --clickhouse on > /dev/null
+grep -q '^IOT_CLICKHOUSE_MODULE=on$' "$test_root/.env.online-ch"
+if grep -q '^IOT_CLICKHOUSE_URL=' "$test_root/.env.online-ch"; then echo 'empty ClickHouse URL kept after --clickhouse on' >&2; exit 1; fi
+profiles_are "$test_root/.env.online-ch" clickhouse,ops,video
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" > /dev/null
+assert_call '--profile clickhouse'
+: > "$TEST_CALLS"
+bash "$scripts/deploy-offline.sh" --bundle-dir "$vbundle" --clickhouse off > /dev/null 2>&1
+grep -q '^IOT_CLICKHOUSE_MODULE=off$' "$vbundle/.env.offline"
+assert_call '--profile clickhouse rm -sf clickhouse clickhouse-tool-admin'
+if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-ch" --clickhouse maybe >/dev/null 2>&1; then echo 'Accepted invalid clickhouse switch' >&2; exit 1; fi
+echo 'PASS clickhouse module: default on, opt-out removes the service and URL, choice kept, online and offline switch'
 # External API settings survive re-runs.
 cloud_env="$test_root/.env.online-cloud"
 cp "$test_root/.env.online" "$cloud_env"

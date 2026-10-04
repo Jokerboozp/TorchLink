@@ -35,7 +35,7 @@ services:
       IOT_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-admin123}@postgres:5432/iot?sslmode=disable
       IOT_REDIS_ADDR: redis:6379
       IOT_REDIS_PASSWORD: ${REDIS_PASSWORD:-admin123}
-      IOT_CLICKHOUSE_URL: http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot
+      IOT_CLICKHOUSE_URL: ${IOT_CLICKHOUSE_URL-http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot}
       IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC: ${IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC:-60}
       IOT_KAFKA_CONSUMER_CONCURRENCY: ${IOT_KAFKA_CONSUMER_CONCURRENCY:-64}
       IOT_POSTGRES_MAX_CONNS: ${IOT_POSTGRES_MAX_CONNS:-64}
@@ -160,8 +160,10 @@ services:
       minio: {condition: service_healthy}
       redpanda: {condition: service_healthy}
       redpanda-init: {condition: service_completed_successfully}
-      clickhouse: {condition: service_healthy}
-      clickhouse-tool-admin: {condition: service_completed_successfully}
+      # ClickHouse is optional (profile "clickhouse"); without it the platform
+      # keeps raw messages and telemetry in PostgreSQL.
+      clickhouse: {condition: service_healthy, required: false}
+      clickhouse-tool-admin: {condition: service_completed_successfully, required: false}
       emqx: {condition: service_healthy}
 
   # Compiles and runs uploaded Go protocol code apart from the platform: no
@@ -273,6 +275,7 @@ services:
     networks: [iot]
 
   clickhouse-tool-admin:
+    profiles: [clickhouse]
     image: clickhouse/clickhouse-server:25.7-alpine
     restart: "no"
     entrypoint: ["/bin/sh", "/init/clickhouse.sh"]
@@ -373,8 +376,11 @@ services:
         done
     networks: [iot]
 
+  # 高频原文与遥测存储（profile "clickhouse"，部署脚本默认启用；--clickhouse off 关闭后
+  # 原文与遥测全部写 PostgreSQL）。
   clickhouse:
     <<: *service-defaults
+    profiles: [clickhouse]
     image: clickhouse/clickhouse-server:25.7-alpine
     environment:
       CLICKHOUSE_DB: iot
@@ -578,7 +584,7 @@ services:
       IOT_MINIO_ENDPOINT: minio:9000
       IOT_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
       IOT_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
-      IOT_CLICKHOUSE_URL: http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot
+      IOT_CLICKHOUSE_URL: ${IOT_CLICKHOUSE_URL-http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot}
       IOT_BACKUP_ENABLED: ${IOT_BACKUP_ENABLED:-true}
       IOT_BACKUP_TIME: ${IOT_BACKUP_TIME:-00:05}
       IOT_BACKUP_TIMEZONE: ${IOT_BACKUP_TIMEZONE:-Asia/Shanghai}
@@ -629,7 +635,7 @@ services:
       IOT_CAPACITY_METRICS: combined@platform-api=http://platform-api:8080/metrics
       IOT_CAPACITY_NODES: host=http://node-exporter:9100/metrics
       IOT_CAPACITY_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-admin123}@postgres:5432/iot?sslmode=disable
-      IOT_CAPACITY_CLICKHOUSE_URL: http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot
+      IOT_CAPACITY_CLICKHOUSE_URL: ${IOT_CLICKHOUSE_URL-http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot}
       IOT_CAPACITY_SERVICE_TOKEN: ${IOT_OPS_CAPACITY_TOKEN:-}
     volumes: ["capacity-data:/app/data"]
     depends_on:

@@ -380,6 +380,10 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 
 `--dependencies-only` 包含运维基础环境，普通本地准备可加 `--include-ops` / `-IncludeOps`。源码与容器共用 `IOT_LOCAL_OPS_DIR`（默认 `data/ops`）；源码 API 须能写、组件须能读。普通远程虚拟机没有共享目录时，规则与通知配置为只读。将 `IOT_OPS_TENANTS` 设置为可授权运维的租户；Grafana 告警关闭，统一使用 Alertmanager。
 
+### ClickHouse
+
+单机在线与离线部署默认带 ClickHouse（Compose profile `clickhouse`），承载高频原文与遥测。`--clickhouse off`（PowerShell `-ClickHouse off`）移除 `clickhouse` 与 `clickhouse-tool-admin` 服务并把 `IOT_CLICKHOUSE_URL` 置空，平台改为把原文与遥测全部写 PostgreSQL（属性历史改用 PostgreSQL 查询）；之后不带参数的部署保持关闭，`--clickhouse on` 删除空地址并恢复内置服务地址（手工填写的外部地址保留）。开关写入 `IOT_CLICKHOUSE_MODULE`，离线包始终包含 ClickHouse 镜像。关闭只停止服务、不删除数据卷，已存入 ClickHouse 的高频原文、遥测历史与属性上报的属性在关闭期间不可读，重新开启后恢复。设备量小、上报频率低的场景可关闭以节省内存；高频接入或长期遥测查询建议保留。升级旧部署须重跑部署脚本，让 `COMPOSE_PROFILES` 加上 `clickhouse`，直接执行 `docker compose up` 会因缺少 ClickHouse 服务而使 API 启动失败。
+
 ## 查看状态、日志与停止
 
 本地依赖：

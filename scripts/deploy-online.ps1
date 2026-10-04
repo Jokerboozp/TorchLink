@@ -17,6 +17,10 @@ reuses the last choice, and new environments leave it off.
 on/off deploys or removes the monitoring stack (Prometheus, Loki, Grafana,
 Alertmanager, Alloy, node-exporter); keep (default) reuses the last choice, and
 new environments deploy it.
+.PARAMETER ClickHouse
+on/off deploys or removes ClickHouse (high-frequency raw messages and telemetry);
+off keeps everything in PostgreSQL. keep (default) reuses the last choice, and
+new environments deploy it.
 #>
 [CmdletBinding()]
 param(
@@ -25,7 +29,8 @@ param(
     [int]$HealthTimeoutSeconds = 180,
     [ValidateSet('keep', 'on', 'off')][string]$Video = 'keep',
     [ValidateSet('keep', 'on', 'off')][string]$Capacity = 'keep',
-    [ValidateSet('keep', 'on', 'off')][string]$Ops = 'keep'
+    [ValidateSet('keep', 'on', 'off')][string]$Ops = 'keep',
+    [ValidateSet('keep', 'on', 'off')][string]$ClickHouse = 'keep'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -65,6 +70,9 @@ if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFi
 # The monitoring stack is deployed by default; an earlier -Ops off is kept.
 if ($Ops -eq 'keep') { $Ops = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_OPS_MODULE') -eq 'off') { 'off' } else { 'on' } }
 Set-OpsModule -Path $EnvFile -State $Ops
+# ClickHouse is deployed by default; an earlier -ClickHouse off is kept.
+if ($ClickHouse -eq 'keep') { $ClickHouse = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CLICKHOUSE_MODULE') -eq 'off') { 'off' } else { 'on' } }
+Set-ClickHouseModule -Path $EnvFile -State $ClickHouse
 $capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
 & (Join-Path $scriptDir 'capacity-module.ps1') $capacityAction -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
 Add-DeploymentEnvComments -Path $EnvFile
@@ -94,6 +102,10 @@ if ($Capacity -eq 'off') {
 }
 if ($Ops -eq 'off') {
     Invoke-DockerChecked -Arguments ($compose + @('--profile', 'ops', 'rm', '-sf', 'prometheus', 'loki', 'alloy', 'grafana', 'alertmanager', 'node-exporter'))
+}
+if ($ClickHouse -eq 'off') {
+    # The data volume is kept, so turning ClickHouse on again restores its data.
+    Invoke-DockerChecked -Arguments ($compose + @('--profile', 'clickhouse', 'rm', '-sf', 'clickhouse', 'clickhouse-tool-admin'))
 }
 
 $apiPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_API_PORT'

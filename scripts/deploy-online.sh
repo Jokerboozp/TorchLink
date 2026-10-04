@@ -11,6 +11,7 @@ health_timeout=180
 video=keep
 capacity=keep
 ops=keep
+clickhouse=keep
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env-file|--project-name|--health-timeout)
@@ -20,6 +21,7 @@ while [ "$#" -gt 0 ]; do
     --video) [ "$#" -ge 2 ] || { echo '--video 需要 on 或 off。' >&2; exit 1; }; video="$2"; shift 2;;
     --capacity) [ "$#" -ge 2 ] || { echo '--capacity 需要 on 或 off。' >&2; exit 1; }; capacity="$2"; shift 2;;
     --ops) [ "$#" -ge 2 ] || { echo '--ops 需要 on 或 off。' >&2; exit 1; }; ops="$2"; shift 2;;
+    --clickhouse) [ "$#" -ge 2 ] || { echo '--clickhouse 需要 on 或 off。' >&2; exit 1; }; clickhouse="$2"; shift 2;;
     -h|--help)
       cat <<'EOF'
 用法：bash scripts/deploy-online.sh [选项]
@@ -29,6 +31,7 @@ while [ "$#" -gt 0 ]; do
   --video on|off        部署或关闭摄像头直播媒体服务；省略时沿用上次选择，新环境默认开启
   --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认关闭
   --ops on|off          部署或关闭监控组件（Prometheus、Loki、Grafana、Alertmanager 等）；省略时沿用上次选择，新环境默认开启
+  --clickhouse on|off   部署或关闭 ClickHouse（高频原文与遥测）；关闭后全部写 PostgreSQL；省略时沿用上次选择，新环境默认开启
 默认拉取运行镜像、构建应用与 PostgreSQL + pgvector 并启动服务；AI 和向量计算调用外部 API，不下载本地模型。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
@@ -41,6 +44,7 @@ done
 case "$video" in keep|on|off) ;; *) echo '--video 只能是 on 或 off。' >&2; exit 1;; esac
 case "$capacity" in keep|on|off) ;; *) echo '--capacity 只能是 on 或 off。' >&2; exit 1;; esac
 case "$ops" in keep|on|off) ;; *) echo '--ops 只能是 on 或 off。' >&2; exit 1;; esac
+case "$clickhouse" in keep|on|off) ;; *) echo '--clickhouse 只能是 on 或 off。' >&2; exit 1;; esac
 case "$env_file" in /*|[A-Za-z]:[\\/]*) ;; *) env_file="$project_root/$env_file";; esac
 source "$script_dir/lib/docker-bootstrap.sh"
 ensure_deployment_docker online
@@ -83,6 +87,12 @@ if [ "$ops" = keep ]; then
   [ "$(get_deployment_env_value "$env_file" IOT_OPS_MODULE)" = off ] && ops=off
 fi
 apply_ops_module "$env_file" "$ops"
+# ClickHouse is deployed by default; an earlier --clickhouse off is kept.
+if [ "$clickhouse" = keep ]; then
+  clickhouse=on
+  [ "$(get_deployment_env_value "$env_file" IOT_CLICKHOUSE_MODULE)" = off ] && clickhouse=off
+fi
+apply_clickhouse_module "$env_file" "$clickhouse"
 if [ "$capacity" = on ]; then
   bash "$script_dir/capacity-module.sh" prepare --mode online --env-file "$env_file" --project-name "$project_name"
 else
@@ -126,6 +136,10 @@ if [ "$capacity" = off ]; then
 fi
 if [ "$ops" = off ]; then
   run_docker "${compose[@]}" --profile ops rm -sf prometheus loki alloy grafana alertmanager node-exporter
+fi
+if [ "$clickhouse" = off ]; then
+  # The data volume is kept, so turning ClickHouse on again restores its data.
+  run_docker "${compose[@]}" --profile clickhouse rm -sf clickhouse clickhouse-tool-admin
 fi
 
 api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api_port:-8081}"

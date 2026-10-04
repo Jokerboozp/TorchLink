@@ -196,3 +196,4 @@ IOT_BACKUP_OFFSITE_USE_TLS	异地备份是否使用 HTTPS，默认 true
 IOT_PROTOCOL_RUNNER_MEMORY	协议运行器容器内存上限，默认 2g
 IOT_PROTOCOL_RUNNER_CPUS	协议运行器容器 CPU 上限，默认 2
 IOT_PROTOCOL_RUNNER_PIDS	协议运行器容器进程数上限，默认 512
+IOT_CLICKHOUSE_MODULE	ClickHouse 高频原文与遥测存储开关（on/off，部署脚本 --clickhouse 管理）；off 时全部写 PostgreSQL

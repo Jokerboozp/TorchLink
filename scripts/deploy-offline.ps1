@@ -4,7 +4,8 @@ param(
     [switch]$SkipHashCheck,
     [switch]$SkipHealthCheck,
     [ValidateSet("keep", "on", "off")][string]$Capacity = "keep",
-    [ValidateSet("keep", "on", "off")][string]$Ops = "keep"
+    [ValidateSet("keep", "on", "off")][string]$Ops = "keep",
+    [ValidateSet("keep", "on", "off")][string]$ClickHouse = "keep"
 )
 
 Set-StrictMode -Version Latest
@@ -98,6 +99,9 @@ if ($Capacity -eq "keep") { $Capacity = if ((Get-EnvValue -Path $envPath -Key 'I
 # Monitoring stack: deployed unless turned off here or earlier.
 if ($Ops -eq "keep") { $Ops = if ((Get-EnvValue -Path $envPath -Key 'IOT_OPS_MODULE') -eq 'off') { "off" } else { "on" } }
 Set-OpsModule -Path $envPath -State $Ops
+# ClickHouse: deployed unless turned off here or earlier.
+if ($ClickHouse -eq "keep") { $ClickHouse = if ((Get-EnvValue -Path $envPath -Key 'IOT_CLICKHOUSE_MODULE') -eq 'off') { "off" } else { "on" } }
+Set-ClickHouseModule -Path $envPath -State $ClickHouse
 $capacityAction = if ($Capacity -eq "on") { "prepare" } else { "unprepare" }
 & (Join-Path $scriptDir "capacity-module.ps1") $capacityAction -Mode offline -EnvFile $envPath
 $capacityOn = (Get-EnvValue -Path $envPath -Key 'IOT_CAPACITY_MODULE') -eq 'on'
@@ -117,6 +121,7 @@ if (Test-Path -LiteralPath $profilesPath -PathType Leaf) {
 }
 if ($capacityOn) { $composeArguments += @("--profile", "capacity") }
 if ($Ops -eq "on") { $composeArguments += @("--profile", "ops") }
+if ($ClickHouse -eq "on") { $composeArguments += @("--profile", "clickhouse") }
 Invoke-Checked -Arguments ($composeArguments + @("config", "--quiet"))
 Invoke-Checked -Arguments @("load", "-i", $archivePath)
 $images = @(& docker @($composeArguments + @("config", "--images")))
@@ -134,6 +139,9 @@ if (-not $capacityOn) {
 }
 if ($Ops -eq "off") {
     & { $ErrorActionPreference = "Continue"; & docker @($composeArguments + @("--profile", "ops", "rm", "-sf", "prometheus", "loki", "alloy", "grafana", "alertmanager", "node-exporter")) *> $null }
+}
+if ($ClickHouse -eq "off") {
+    & { $ErrorActionPreference = "Continue"; & docker @($composeArguments + @("--profile", "clickhouse", "rm", "-sf", "clickhouse", "clickhouse-tool-admin")) *> $null }
 }
 Invoke-Checked -Arguments ($composeArguments + @("ps"))
 

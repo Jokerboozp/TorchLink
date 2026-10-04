@@ -253,6 +253,10 @@ EOF
   ops_state=on
   [[ "$(env_value IOT_OPS_MODULE "$destination")" == off ]] && ops_state=off
   apply_ops_module "$destination" "$ops_state"
+  # ClickHouse: on unless the source env turned it off (same rule as deploy).
+  clickhouse_state=on
+  [[ "$(env_value IOT_CLICKHOUSE_MODULE "$destination")" == off ]] && clickhouse_state=off
+  apply_clickhouse_module "$destination" "$clickhouse_state" 2>/dev/null
   annotate_deployment_env_file "$destination"
 
   if (( ! generated )); then
@@ -328,6 +332,8 @@ add_profile() {
 add_profile harness
 # Monitoring images are always packaged; IOT_OPS_MODULE=off keeps them undeployed.
 compose_profile_args+=(--profile ops)
+# The ClickHouse image is always packaged; IOT_CLICKHOUSE_MODULE=off keeps it undeployed.
+compose_profile_args+=(--profile clickhouse)
 (( include_video )) && add_profile video
 
 run_compose "${compose_profile_args[@]}" config --quiet
@@ -336,7 +342,7 @@ pull_services=(
   clickhouse emqx prometheus grafana loki
   ops-init alertmanager alloy node-exporter
 )
-run_compose --profile ops pull "${pull_services[@]}"
+run_compose --profile ops --profile clickhouse pull "${pull_services[@]}"
 run_compose build --pull platform-api platform-web backup-service minio postgres
 if (( include_video )); then run_compose --profile video build --pull zlmediakit; fi
 

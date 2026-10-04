@@ -7,6 +7,7 @@ skip_hash_check=0
 skip_health_check=0
 capacity=keep
 ops=keep
+clickhouse=keep
 die() { echo "错误：$*" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,7 +16,8 @@ while [[ $# -gt 0 ]]; do
     --skip-health-check) skip_health_check=1; shift ;;
     --capacity) [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--capacity 需要 on 或 off"; capacity="$2"; shift 2 ;;
     --ops) [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--ops 需要 on 或 off"; ops="$2"; shift 2 ;;
-    -h|--help) echo "用法：deploy-offline.sh [离线包目录] [--bundle-dir DIR] [--skip-hash-check] [--skip-health-check] [--capacity on|off] [--ops on|off]（容量测试新环境默认关闭，监控组件默认开启）"; exit 0 ;;
+    --clickhouse) [[ $# -ge 2 && ( "$2" == on || "$2" == off ) ]] || die "--clickhouse 需要 on 或 off"; clickhouse="$2"; shift 2 ;;
+    -h|--help) echo "用法：deploy-offline.sh [离线包目录] [--bundle-dir DIR] [--skip-hash-check] [--skip-health-check] [--capacity on|off] [--ops on|off] [--clickhouse on|off]（容量测试新环境默认关闭，监控组件与 ClickHouse 默认开启）"; exit 0 ;;
     -*) die "未知参数：$1" ;;
     *) bundle_dir="$1"; shift ;;
   esac
@@ -82,6 +84,12 @@ if [[ "$ops" == keep ]]; then
   [[ "$(get_deployment_env_value "$env_file" IOT_OPS_MODULE)" == off ]] && ops=off
 fi
 apply_ops_module "$env_file" "$ops"
+# ClickHouse: deployed unless turned off here or earlier.
+if [[ "$clickhouse" == keep ]]; then
+  clickhouse=on
+  [[ "$(get_deployment_env_value "$env_file" IOT_CLICKHOUSE_MODULE)" == off ]] && clickhouse=off
+fi
+apply_clickhouse_module "$env_file" "$clickhouse"
 if [[ "$capacity" == on ]]; then
   bash "$script_dir/capacity-module.sh" prepare --mode offline --env-file "$env_file"
 elif [[ "$capacity" == off ]]; then
@@ -94,6 +102,7 @@ else
   capacity_off=1
 fi
 [[ "$ops" == on ]] && compose+=(--profile ops)
+[[ "$clickhouse" == on ]] && compose+=(--profile clickhouse)
 if [[ -f "$profiles_file" ]]; then
   while IFS= read -r profile || [[ -n "$profile" ]]; do
     profile="${profile%$'\r'}"
@@ -115,6 +124,7 @@ done <<< "$images"
 # up does not remove profile services; drop a capacity service left from an earlier choice.
 if [[ "${capacity_off:-0}" == 1 ]]; then "${compose[@]}" --profile capacity rm -sf capacity >/dev/null 2>&1 || true; fi
 if [[ "$ops" == off ]]; then "${compose[@]}" --profile ops rm -sf prometheus loki alloy grafana alertmanager node-exporter >/dev/null 2>&1 || true; fi
+if [[ "$clickhouse" == off ]]; then "${compose[@]}" --profile clickhouse rm -sf clickhouse clickhouse-tool-admin >/dev/null 2>&1 || true; fi
 "${compose[@]}" ps
 
 env_value() {
