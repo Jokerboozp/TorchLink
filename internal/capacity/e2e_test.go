@@ -1006,3 +1006,28 @@ func TestSelfModuleRunsWithoutInventoryOrSecretsAndProvisionsFixtures(t *testing
 		t.Fatal(status, string(body))
 	}
 }
+
+func TestEndToEndAlarmSequenceIgnoresPreviousStepAlarms(t *testing.T) {
+	t.Parallel()
+	// Sparse alarms leave devices that alarmed in step 1 but not in step 2;
+	// their step-1 alarms must not count against step 2.
+	e := newE2E(t, 0, "quick", "rates: [20, 20], measure: 10s", e2eExtra{
+		fixtures: ", alarmFraction: 0.03, alarmRuleId: rule-stress, alarmRecovers: true",
+	})
+	runID, err := e.run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := readSummary(t, filepath.Join(e.results, runID))
+	if len(s.Phases) != 2 {
+		t.Fatalf("phases %+v", s.Phases)
+	}
+	for _, ph := range s.Phases {
+		var rec PhaseRecord
+		b, _ := os.ReadFile(filepath.Join(e.results, runID, "phases", ph.PhaseID+".json"))
+		_ = json.Unmarshal(b, &rec)
+		if rec.Verdict != VerdictPassed || rec.Integrity.AlarmDevicesChecked == 0 || rec.Integrity.AlarmMismatches != 0 {
+			t.Fatalf("%s verdict=%s %+v", ph.PhaseID, rec.Verdict, rec.Integrity)
+		}
+	}
+}

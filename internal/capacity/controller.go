@@ -195,6 +195,9 @@ type controller struct {
 	stopOnce  sync.Once
 	forced    bool
 	lastDrain time.Duration
+	// settledAt is when the previous step's messages were all reconciled
+	// (controller clock, ms); its alarms were triggered before then.
+	settledAt int64
 	// unrecovered marks that the previous step's backlog had not drained
 	// before this step started, so its result cannot be attributed to its rate.
 	unrecovered bool
@@ -1196,8 +1199,7 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 		} else {
 			rec.Integrity = c.verifier.PhaseIntegrity(rec.PhaseID, worstUnc)
 			if rule := p.Fixtures.AlarmRuleID; rule != "" {
-				// The alarm window starts with the step (minus clock slack).
-				checked, mismatches, samples, err := c.verifier.CheckAlarms(vctx, rec.PhaseID, rule, p.Fixtures.AlarmRecovers, rec.StartedAt-60_000)
+				checked, mismatches, samples, err := c.verifier.CheckAlarms(vctx, rec.PhaseID, rule, p.Fixtures.AlarmRecovers, c.alarmSince(rec.StartedAt))
 				if err != nil {
 					rec.Integrity.Note = firstNonEmpty(rec.Integrity.Note, "alarm reconciliation failed: "+err.Error())
 				}
@@ -1205,6 +1207,11 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 			}
 		}
 		cancel()
+	}
+	if rec.Drain.Completed {
+		c.settledAt = time.Now().UnixMilli()
+	} else {
+		c.settledAt = 0
 	}
 	if backup != nil {
 		rec.Operations = append(rec.Operations, <-backup)
@@ -1243,6 +1250,21 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 		c.unrecovered = !c.cooldown()
 	}
 	return rec, nil
+}
+
+// alarmSince is where a step's alarm window starts. The window allows clock
+// slack before the step, but must not reach back into the previous step:
+// alarms that step triggered (rule alarms are stamped with platform time when
+// processed, up to the end of its drain) would be judged against this step's
+// reports. With the previous step settled the window starts halfway between
+// its settlement and this start; otherwise the previous step's alarms can
+// still be processed during this one, which the not_recovered check covers.
+func (c *controller) alarmSince(startedAt int64) int64 {
+	since := startedAt - 60_000
+	if c.settledAt > 0 && c.settledAt < startedAt {
+		since = max(since, c.settledAt+(startedAt-c.settledAt)/2)
+	}
+	return since
 }
 
 func (c *controller) agentByName(name string) *agentHandle {
