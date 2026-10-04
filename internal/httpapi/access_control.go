@@ -354,11 +354,7 @@ func (s *Server) accessStore() (ports.AccessStore, error) {
 	return v, nil
 }
 func (s *Server) managedIdentity(r *http.Request, c auth.Claims) (model.PlatformUser, map[string]bool, error) {
-	store, err := s.accessStore()
-	if err != nil {
-		return model.PlatformUser{}, nil, err
-	}
-	state, err := store.LoadAccessState(r.Context(), c.TenantID)
+	state, err := s.authorizationAccess(r.Context(), c.TenantID)
 	if err != nil {
 		return model.PlatformUser{}, nil, err
 	}

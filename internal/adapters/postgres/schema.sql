@@ -391,11 +391,9 @@ CREATE TABLE IF NOT EXISTS component_alarm_state (
   body jsonb NOT NULL,
   PRIMARY KEY (tenant_id, device_id, rule_id)
 );
-CREATE TABLE IF NOT EXISTS platform_access (
- tenant_id text PRIMARY KEY,
- revision bigint NOT NULL DEFAULT 1,
- body jsonb NOT NULL
-);
+-- Access control (users, roles, API keys, device grants) lives in the
+-- relational tables of migration 0005; the former platform_access document
+-- table is renamed to platform_access_legacy by migration 0006.
 
 -- Relationship validation and management changes share one tenant revision.
 CREATE TABLE IF NOT EXISTS platform_fire_safety (

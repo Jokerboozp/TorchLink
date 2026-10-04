@@ -74,6 +74,7 @@ type Server struct {
 	videoOwner                 func() (local bool, endpoint string)
 	fireSafety                 *firesafety.Service
 	notifications              *notify.Service
+	access                     accessCache
 	externalData               *externaldata.Service
 	capacityMQTT               ports.CapacityRetainedCleaner
 	messageTopicKafka          messageTopicKafkaAdmin

@@ -40,3 +40,9 @@ func (r *Repository) SaveAccessState(_ context.Context, tenant string, state mod
 	r.accessStates[tenant] = b
 	return true, nil
 }
+
+// AccessRevision returns the tenant's stored access revision.
+func (r *Repository) AccessRevision(ctx context.Context, tenant string) (int64, error) {
+	state, err := r.LoadAccessState(ctx, tenant)
+	return state.Revision, err
+}

@@ -179,23 +179,11 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, tenant string, q m
 		}
 	}
 	if len(q.Devices) > 0 {
-		var body []byte
-		err = tx.QueryRow(ctx, `SELECT body FROM platform_access WHERE tenant_id=$1 FOR UPDATE`, tenant).Scan(&body)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return n, err
+		refs, e := pruneAccessDevices(ctx, tx, tenant, q.Devices)
+		if e != nil {
+			return n, e
 		}
-		if err == nil {
-			next, refs, e := model.PruneCapacityAccessReferences(body, q.Devices)
-			if e != nil {
-				return n, e
-			}
-			if refs > 0 {
-				if _, e = tx.Exec(ctx, `UPDATE platform_access SET revision=revision+1,body=jsonb_set($2::jsonb,'{revision}',to_jsonb(revision+1)) WHERE tenant_id=$1`, tenant, next); e != nil {
-					return n, e
-				}
-				n.AccessReferences = refs
-			}
-		}
+		n.AccessReferences = refs
 	}
 	productRemoved := false
 	if q.RemoveProduct && exists {

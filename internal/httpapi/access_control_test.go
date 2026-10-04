@@ -963,3 +963,45 @@ func TestManagedUserMustChangePasswordBeforeAccess(t *testing.T) {
 	}
 	req("POST", "/api/v1/auth/password", root, map[string]any{"currentPassword": cfg.AdminPassword, "newPassword": "something-else-1"}, 422)
 }
+
+func TestCachedAuthorizationFollowsAccessChanges(t *testing.T) {
+	repo := memory.NewRepository()
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "cache-root-test"
+	cfg.AdminTenants = []string{"t"}
+	cfg.JWTSecret = "cache-test-secret-at-least-32-bytes!"
+	cfg.DevMode = true
+	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	root := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "t"}, 200)["accessToken"].(string)
+	user := map[string]any{"username": "viewer", "password": "viewer-password-1", "enabled": true, "permissions": []string{"menu:dashboard", "menu:rules"}, "deviceScope": "all"}
+	req("POST", "/api/v1/access/users", root, user, 200)
+	token := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "viewer", "password": "viewer-password-1", "tenantId": "t"}, 200)["accessToken"].(string)
+	for i := 0; i < 3; i++ { // served from the cache
+		req("GET", "/api/v1/auth/me", token, nil, 200)
+	}
+	// Narrowing permissions applies to the next request.
+	user["permissions"] = []string{"menu:dashboard"}
+	req("PUT", "/api/v1/access/users/viewer", root, user, 200)
+	if perms := req("GET", "/api/v1/auth/me", token, nil, 401); perms == nil {
+		t.Fatal("session survived a permission change")
+	}
+	token = req("POST", "/api/v1/auth/login", "", map[string]any{"username": "viewer", "password": "viewer-password-1", "tenantId": "t"}, 200)["accessToken"].(string)
+	me := req("GET", "/api/v1/auth/me", token, nil, 200)
+	if slices.Contains(toStrings(me["permissions"]), "menu:rules") {
+		t.Fatalf("stale cached permissions: %v", me["permissions"])
+	}
+}
+
+func toStrings(v any) []string {
+	out := []string{}
+	for _, item := range v.([]any) {
+		out = append(out, item.(string))
+	}
+	return out
+}

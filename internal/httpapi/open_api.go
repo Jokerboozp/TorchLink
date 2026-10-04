@@ -127,12 +127,7 @@ func (s *Server) authorizeAPIKey(capability, consoleMethod, consolePath string) 
 			fail(http.StatusTooManyRequests, "API key rate limit exceeded")
 			return
 		}
-		store, err := s.accessStore()
-		if err != nil {
-			fail(http.StatusServiceUnavailable, "access storage unavailable")
-			return
-		}
-		state, err := store.LoadAccessState(c.Request.Context(), tenantID)
+		state, err := s.authorizationAccess(c.Request.Context(), tenantID)
 		if err != nil {
 			fail(http.StatusServiceUnavailable, "access storage unavailable")
 			return

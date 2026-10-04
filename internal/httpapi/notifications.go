@@ -36,11 +36,7 @@ func (d notificationDirectory) DeviceProduct(ctx context.Context, tenant, device
 // the alarm center and covers the alarm's device, so a notification never
 // reveals an alarm the recipient could not see in the console.
 func (d notificationDirectory) UserContacts(ctx context.Context, tenant, deviceID string, users, roles []string) ([]Contact, error) {
-	store, err := d.s.accessStore()
-	if err != nil {
-		return nil, err
-	}
-	state, err := store.LoadAccessState(ctx, tenant)
+	state, err := d.s.authorizationAccess(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
