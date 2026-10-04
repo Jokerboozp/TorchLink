@@ -66,6 +66,11 @@ type gbGateway struct {
 	sip    *gb28181.Server
 	onLost func(app, stream string)
 
+	// stateMu serializes read-modify-write of device state: a device
+	// answers DeviceInfo, Catalog and Keepalive concurrently, and each
+	// handler rewrites the whole state.
+	stateMu sync.Mutex
+
 	mu       sync.Mutex
 	calls    map[string]gbCall
 	pending  map[string]bool
@@ -112,10 +117,20 @@ func (g *gbGateway) password(d model.GBDevice) (string, error) {
 	return c.Password, err
 }
 
-func (g *gbGateway) saveState(ctx context.Context, d model.GBDevice) {
+// updateState applies change to the stored state of a device and saves it.
+// It returns the updated device, or false when the device is unknown.
+func (g *gbGateway) updateState(ctx context.Context, id string, change func(*model.GBDeviceState)) (model.GBDevice, bool) {
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
+	d, ok := g.device(ctx, id)
+	if !ok {
+		return d, false
+	}
+	change(&d.State)
 	if err := g.store.SaveGBDeviceState(ctx, d.DeviceID, d.State); err != nil {
 		g.log.Warn("save gb28181 device state failed", "device", d.DeviceID, "error", err)
 	}
+	return d, true
 }
 
 // ---- gb28181.Handler ----
@@ -136,15 +151,14 @@ func (g *gbGateway) Password(ctx context.Context, id string) (string, bool) {
 }
 
 func (g *gbGateway) Registered(ctx context.Context, r gb28181.Registration) {
-	d, ok := g.device(ctx, r.ID)
+	now := g.now()
+	d, ok := g.updateState(ctx, r.ID, func(st *model.GBDeviceState) {
+		st.Transport, st.RemoteAddr, st.UserAgent = r.Transport, r.Addr, truncate(r.UserAgent, 128)
+		st.RegisteredAt, st.LastSeenAt, st.ExpiresAt = now.UnixMilli(), now.UnixMilli(), now.Add(r.Expires).UnixMilli()
+	})
 	if !ok {
 		return
 	}
-	now := g.now()
-	st := &d.State
-	st.Transport, st.RemoteAddr, st.UserAgent = r.Transport, r.Addr, truncate(r.UserAgent, 128)
-	st.RegisteredAt, st.LastSeenAt, st.ExpiresAt = now.UnixMilli(), now.UnixMilli(), now.Add(r.Expires).UnixMilli()
-	g.saveState(ctx, d)
 	g.log.Info("gb28181 device registered", "device", d.DeviceID, "tenant", d.TenantID, "transport", r.Transport)
 	go func() {
 		// Devices expect the REGISTER answer before the first query.
@@ -158,12 +172,9 @@ func (g *gbGateway) Registered(ctx context.Context, r gb28181.Registration) {
 }
 
 func (g *gbGateway) Unregistered(ctx context.Context, id string) {
-	d, ok := g.device(ctx, id)
-	if !ok {
+	if _, ok := g.updateState(ctx, id, func(st *model.GBDeviceState) { st.ExpiresAt, st.RemoteAddr = 0, "" }); !ok {
 		return
 	}
-	d.State.ExpiresAt, d.State.RemoteAddr = 0, ""
-	g.saveState(ctx, d)
 	g.endDevice(id, "device unregistered")
 }
 
@@ -173,12 +184,9 @@ func (g *gbGateway) Known(ctx context.Context, dev gb28181.Device) bool {
 }
 
 func (g *gbGateway) Keepalive(ctx context.Context, dev gb28181.Device) {
-	d, ok := g.device(ctx, dev.ID)
-	if !ok {
-		return
-	}
-	d.State.LastSeenAt, d.State.RemoteAddr, d.State.Transport = g.now().UnixMilli(), dev.Addr, dev.Transport
-	g.saveState(ctx, d)
+	g.updateState(ctx, dev.ID, func(st *model.GBDeviceState) {
+		st.LastSeenAt, st.RemoteAddr, st.Transport = g.now().UnixMilli(), dev.Addr, dev.Transport
+	})
 }
 
 func (g *gbGateway) Catalog(ctx context.Context, id string, sn, sumNum int, items []gb28181.CatalogItem) {
@@ -205,21 +213,13 @@ func (g *gbGateway) Catalog(ctx context.Context, id string, sn, sumNum int, item
 		delete(g.catalogs, id)
 	}
 	g.mu.Unlock()
-	d, ok := g.device(ctx, id)
-	if !ok {
-		return
-	}
-	d.State.Channels, d.State.CatalogAt = channels, g.now().UnixMilli()
-	g.saveState(ctx, d)
+	g.updateState(ctx, id, func(st *model.GBDeviceState) { st.Channels, st.CatalogAt = channels, g.now().UnixMilli() })
 }
 
 func (g *gbGateway) DeviceInfo(ctx context.Context, id string, info gb28181.DeviceInfo) {
-	d, ok := g.device(ctx, id)
-	if !ok {
-		return
-	}
-	d.State.Manufacturer, d.State.Model, d.State.Firmware = cleanText(info.Manufacturer, 64), cleanText(info.Model, 64), cleanText(info.Firmware, 64)
-	g.saveState(ctx, d)
+	g.updateState(ctx, id, func(st *model.GBDeviceState) {
+		st.Manufacturer, st.Model, st.Firmware = cleanText(info.Manufacturer, 64), cleanText(info.Model, 64), cleanText(info.Firmware, 64)
+	})
 }
 
 func (g *gbGateway) CallEnded(callID string) {

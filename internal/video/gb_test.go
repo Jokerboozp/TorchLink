@@ -3,14 +3,18 @@ package video
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"iot-platform/internal/config"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 	"iot-platform/internal/video/gb28181"
 	"iot-platform/internal/video/gb28181/gbtest"
 )
@@ -82,6 +86,42 @@ func (f *fixture) gbCamera(t *testing.T, tenant, id, channel string) {
 	f.mu.Unlock()
 	if _, err := f.svc.SaveConfig(context.Background(), tenant, id, LiveConfigInput{Enabled: true, AccessMode: "GB28181", GBDeviceID: gbDeviceID, GBChannelID: channel, TranscodeMode: "off"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// slowGBStore widens the window between reading and saving device state.
+type slowGBStore struct{ ports.VideoStore }
+
+func (s slowGBStore) GetGBDevice(ctx context.Context, id string) (model.GBDevice, error) {
+	d, err := s.VideoStore.GetGBDevice(ctx, id)
+	time.Sleep(30 * time.Millisecond)
+	return d, err
+}
+
+// A device answers DeviceInfo and Catalog at the same time; neither answer
+// may overwrite the other.
+func TestGBConcurrentAnswersKeepBothUpdates(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.svc.SaveGBDevice(ctx, "t1", gbDeviceID, GBDeviceInput{Name: "NVR", Enabled: true, Password: "gb-pass-1"}); err != nil {
+		t.Fatal(err)
+	}
+	g := &gbGateway{store: slowGBStore{f.store}, log: slog.New(slog.NewTextHandler(io.Discard, nil)), now: time.Now, catalogs: map[string]*catalogBuffer{}}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		g.Catalog(ctx, gbDeviceID, 1, 1, []gb28181.CatalogItem{{DeviceID: gbChannelID, Name: "大厅通道"}})
+	}()
+	go func() { defer wg.Done(); g.DeviceInfo(ctx, gbDeviceID, gb28181.DeviceInfo{Model: "SIM-1"}) }()
+	go func() {
+		defer wg.Done()
+		g.Keepalive(ctx, gb28181.Device{ID: gbDeviceID, Addr: "127.0.0.1:5060", Transport: "UDP"})
+	}()
+	wg.Wait()
+	d, err := f.svc.GetGBDevice(ctx, "t1", gbDeviceID)
+	if err != nil || len(d.State.Channels) != 1 || d.State.Model != "SIM-1" || d.State.LastSeenAt == 0 {
+		t.Fatalf("lost a concurrent update: %+v %v", d.State, err)
 	}
 }
 
