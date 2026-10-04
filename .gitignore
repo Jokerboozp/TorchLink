@@ -13,6 +13,8 @@ iot_front/node_modules/
 iot_front/dist/
 upstream/deepseek-harness/
 upstream/deepseek-harness.revision
+# Previous Harness sources kept by scripts/fetch-deepseek-harness.sh when refreshing.
+upstream/deepseek-harness.backup-*/
 offline-bundles/
 .vscode/
 .tools/

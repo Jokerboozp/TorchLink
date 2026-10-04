@@ -97,6 +97,9 @@ func (s *Service) Apply(ctx context.Context, tenant, actor, action, id string, b
 			return nil, err
 		}
 		saved, err := s.store.SaveFireSafetyState(ctx, tenant, state)
+		if errors.Is(err, model.ErrDutyOverlap) {
+			return nil, conflict("人员存在重叠排班，请刷新后重试")
+		}
 		if err != nil {
 			return nil, err
 		}

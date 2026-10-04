@@ -1,5 +1,7 @@
 package model
 
+import "errors"
+
 // FireSafetyState groups low-volume management records in one tenant aggregate.
 // Revision makes relationship checks and mutations atomic across API replicas.
 type FireSafetyState struct {
@@ -157,3 +159,7 @@ type FireInspection struct {
 	CreatedBy      string                `json:"createdBy"`
 	CancelReason   string                `json:"cancelReason"`
 }
+
+// ErrDutyOverlap is returned by storage that enforces non-overlapping duty
+// per person when a save would break it.
+var ErrDutyOverlap = errors.New("duty assignments overlap for one person")

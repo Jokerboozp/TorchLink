@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"iot-platform/internal/model"
 )
@@ -231,6 +232,10 @@ func (r *Repository) SaveFireSafetyState(ctx context.Context, tenant string, sta
 	})
 	if errors.Is(err, errFireSafetyChanged) {
 		return false, nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23P01" && pgErr.ConstraintName == "duty_personnel_no_overlap" {
+		return false, model.ErrDutyOverlap
 	}
 	return saved, err
 }

@@ -407,3 +407,17 @@ func TestBatchInspectionsSkipOpenAndRetiredAssets(t *testing.T) {
 	body["extinguisherIds"] = []string{fresh.ID}
 	wantError(t, f.s, "operator-a", "createInspections", "", body, ErrValidation)
 }
+
+type overlapStore struct{ *memory.Repository }
+
+func (overlapStore) SaveFireSafetyState(context.Context, string, model.FireSafetyState) (bool, error) {
+	return false, model.ErrDutyOverlap
+}
+
+func TestStorageOverlapIsReportedAsConflict(t *testing.T) {
+	s := New(overlapStore{memory.NewRepository()})
+	_, err := s.Apply(context.Background(), "t", "admin", "saveStation", "", json.RawMessage(`{"code":"S1","name":"一站","type":"micro","enabled":true}`))
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "重叠排班") {
+		t.Fatalf("storage overlap: %v", err)
+	}
+}

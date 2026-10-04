@@ -64,6 +64,8 @@ PUT 及已有记录的审批、检查、整改、取消和归队操作必须提�
 
 生产仓储把三个模块的每条记录（消防站、人员、器材、出勤、班次、排班、换班、灭火器、巡检）各存一行到 PostgreSQL `fire_safety_record`（消防站编号与状态另存为索引列），租户版本号存 `fire_safety_revision`；迁移 0007/0008 自原 `platform_fire_safety` 每租户 JSONB 文档转换，旧表保留为 `platform_fire_safety_legacy`。保存时锁定并比较租户版本号，关联检查、排班冲突、器材占用和业务修改仍作为一个原子提交，但只写入新增、修改或删除的记录。列表、统计与选项按版本号复用进程内快照，版本变化后下一次请求重新读取。冲突重试时重新校验，记录 version 防止过时编辑覆盖。memory 实现用于测试与内存运行模式，不能代替 PostgreSQL 持久化。
 
+数据库另有重叠排班保护：`fire_safety_record` 上的触发器把每条排班的每位人员同步为 `duty_personnel_slot` 的一行，排他约束 `duty_personnel_no_overlap`（btree_gist）禁止同一租户同一人员时段相交（结束时刻等于下一班开始不算重叠）。约束在提交时检查，同一次保存中先删后加相交排班不受影响；绕过业务校验的写入在提交时被拒绝，接口返回“人员存在重叠排班”冲突。迁移 0013 回填已有排班时跳过已经相交的记录并输出警告，这些排班下次编辑时需先消除重叠。
+
 部署迁移及数据库备份边界见 [部署指南](DEPLOYMENT.md#数据库迁移) 和 [备份范围](DEPLOYMENT.md#设备数据备份)。
 
 实现入口为[业务流程](../internal/firesafety/)、[HTTP 与权限](../internal/httpapi/fire_safety.go)、[PostgreSQL 持久化](../internal/adapters/postgres/fire_safety.go)；memory 实现用于开发测试。源码回归、数据库联调条件与浏览器核对步骤统一见[消防管理回归](DEVELOPMENT.md#消防管理回归)。
