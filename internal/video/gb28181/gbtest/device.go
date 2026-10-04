@@ -263,15 +263,20 @@ func (d *Device) onAck(req *sip.Request, tx sip.ServerTransaction) {
 
 func (d *Device) onBye(req *sip.Request, tx sip.ServerTransaction) {
 	id := req.CallID().Value()
-	if err := d.dialogs.ReadBye(req, tx); err != nil {
+	if _, err := d.dialogs.MatchDialogRequest(req); err != nil {
 		_ = tx.Respond(sip.NewResponseFromRequest(req, 481, "Call Does Not Exist", nil))
 		return
 	}
+	// Record the BYE before answering it: the platform carries on as soon
+	// as the 200 OK arrives, and tests check the device right after that.
 	d.mu.Lock()
 	delete(d.active, id)
 	delete(d.calls, id)
 	d.byes++
 	d.mu.Unlock()
+	if err := d.dialogs.ReadBye(req, tx); err != nil {
+		_ = tx.Respond(sip.NewResponseFromRequest(req, 481, "Call Does Not Exist", nil))
+	}
 }
 
 // Invites returns the INVITEs received so far.

@@ -153,20 +153,9 @@ func New(cfg Config, h Handler) (*Server, error) {
 // Start listens on UDP and TCP. It returns once both sockets are bound;
 // serving stops when ctx ends.
 func (s *Server) Start(ctx context.Context) error {
-	udp, err := net.ListenPacket("udp", s.cfg.Listen)
+	udp, tcp, err := listenSIP(s.cfg.Listen)
 	if err != nil {
-		return fmt.Errorf("listen GB28181 UDP: %w", err)
-	}
-	tcpAddr := s.cfg.Listen
-	if _, port, _ := net.SplitHostPort(tcpAddr); port == "0" {
-		// Tests: bind TCP on the port the kernel picked for UDP.
-		host, _, _ := net.SplitHostPort(tcpAddr)
-		tcpAddr = net.JoinHostPort(host, strconv.Itoa(udp.LocalAddr().(*net.UDPAddr).Port))
-	}
-	tcp, err := net.Listen("tcp", tcpAddr)
-	if err != nil {
-		_ = udp.Close()
-		return fmt.Errorf("listen GB28181 TCP: %w", err)
+		return err
 	}
 	s.mu.Lock()
 	s.udp, s.tcp = udp, tcp
@@ -182,6 +171,33 @@ func (s *Server) Start(ctx context.Context) error {
 		s.Close()
 	}()
 	return nil
+}
+
+// listenSIP binds UDP and TCP on one port. Port 0 (tests) takes the port
+// the kernel picks for UDP and retries when that TCP port is already taken.
+func listenSIP(addr string) (net.PacketConn, net.Listener, error) {
+	host, port, _ := net.SplitHostPort(addr)
+	attempts := 1
+	if port == "0" {
+		attempts = 20
+	}
+	var err error
+	for range attempts {
+		var udp net.PacketConn
+		if udp, err = net.ListenPacket("udp", addr); err != nil {
+			return nil, nil, fmt.Errorf("listen GB28181 UDP: %w", err)
+		}
+		tcpAddr := addr
+		if port == "0" {
+			tcpAddr = net.JoinHostPort(host, strconv.Itoa(udp.LocalAddr().(*net.UDPAddr).Port))
+		}
+		var tcp net.Listener
+		if tcp, err = net.Listen("tcp", tcpAddr); err == nil {
+			return udp, tcp, nil
+		}
+		_ = udp.Close()
+	}
+	return nil, nil, fmt.Errorf("listen GB28181 TCP: %w", err)
 }
 
 // LocalPort is the bound SIP port.
