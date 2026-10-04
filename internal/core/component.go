@@ -21,6 +21,7 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 			a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID),
 				RuleID: fmt.Sprintf("%s%s:component:%x", directAlarmRulePrefix, kind, sha256.Sum256([]byte(component.ID))), TriggerID: msg.MessageID,
 				ComponentID: component.ID, ComponentName: component.Name, ComponentLocation: component.Location,
+				Content:   componentAlarmContent(component),
 				AlarmType: kind, AlarmLevel: "HIGH", Status: "ACTIVE", Source: "device", FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1,
 				CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), AreaID: tag(msg, "areaId", ""), DeviceType: tag(msg, "deviceType", msg.ProductID),
 				Details: map[string]any{"message": msg, "component": component, "direct": true}}
@@ -79,4 +80,16 @@ func directAlarmTypeCleared(msg model.StandardMessage, kind string) bool {
 		}
 	}
 	return found
+}
+
+// componentAlarmContent names the component and where it is installed.
+func componentAlarmContent(component model.ComponentStatus) string {
+	name := component.Name
+	if name == "" {
+		name = component.ID
+	}
+	if component.Location == "" {
+		return name
+	}
+	return name + "（" + component.Location + "）"
 }

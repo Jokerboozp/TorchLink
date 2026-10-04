@@ -660,7 +660,7 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 		CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"),
 		BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID),
 		AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1,
-		Details: map[string]any{"message": msg, "direct": true},
+		Content: alarmContent(msg), Details: map[string]any{"message": msg, "direct": true},
 	}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
 	a.Location = e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, "")
@@ -804,6 +804,37 @@ func normalizeAlarmToken(value any) string {
 	return normalized
 }
 
+// maxAlarmContent bounds the description copied from a device report.
+const maxAlarmContent = 500
+
+// alarmContent is the description a device reported with the alarm; when the
+// report has none, the first non-empty fallback (such as the rule
+// description or name) is used.
+func alarmContent(msg model.StandardMessage, fallbacks ...string) string {
+	for _, key := range []string{"content", "alarmContent", "alarm_content", "description", "alarmDesc", "alarm_desc"} {
+		value, ok := messageValue(msg, key)
+		if !ok {
+			continue
+		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			return truncateRunes(strings.TrimSpace(text), maxAlarmContent)
+		}
+	}
+	for _, text := range fallbacks {
+		if text = strings.TrimSpace(text); text != "" {
+			return truncateRunes(text, maxAlarmContent)
+		}
+	}
+	return ""
+}
+
+func truncateRunes(text string, limit int) string {
+	if runes := []rune(text); len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return text
+}
+
 func directAlarmMetadata(msg model.StandardMessage) (string, string) {
 	alarmType := normalizeAlarmToken(firstMessageValue(msg, "alarmType", "alarm_type"))
 	if alarmType == "" {
@@ -886,7 +917,7 @@ func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMess
 }
 func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) (model.Alarm, bool, error) {
 	now := e.Clock.Now().UnixMilli()
-	a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, RuleID: rule.ID, TriggerID: msg.MessageID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), AlarmType: rule.AlarmType, AlarmLevel: rule.Level, Status: "ACTIVE", Source: "device", CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID), AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Details: map[string]any{"message": msg, "ruleName": rule.Name}}
+	a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, RuleID: rule.ID, TriggerID: msg.MessageID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID), AlarmType: rule.AlarmType, AlarmLevel: rule.Level, Status: "ACTIVE", Source: "device", CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), DeviceType: tag(msg, "deviceType", msg.ProductID), AreaID: tag(msg, "areaId", ""), FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1, Content: alarmContent(msg, rule.Description, rule.Name), Details: map[string]any{"message": msg, "ruleName": rule.Name}}
 	a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
 	a.Location = e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, "")
 	saved, created, reportChanged, err := e.upsertReportedAlarm(ctx, a, msg)

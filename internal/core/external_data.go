@@ -28,7 +28,9 @@ func externalAlarmIdentity(a *model.Alarm, msg model.StandardMessage) {
 	a.RuleID += ":external:" + msg.Tags["externalEventKey"]
 	a.FirstTriggeredAt = msg.Timestamp
 	a.LastTriggeredAt = msg.Timestamp
-	a.Content, _ = msg.Event["content"].(string)
+	if content, _ := msg.Event["content"].(string); content != "" {
+		a.Content = content
+	}
 	a.Details["externalSourceId"] = msg.Tags["externalSourceId"]
 	a.Details["externalEventId"] = msg.Tags["externalEventId"]
 	if encoded := msg.Tags["externalVideoEvent"]; encoded != "" {

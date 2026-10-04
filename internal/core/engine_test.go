@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -540,11 +541,30 @@ func TestAlarmReportsIncludeRepeatedTriggers(t *testing.T) {
 			if err != nil || len(alarms) != 1 || alarms[0].TriggerCount != 2 {
 				t.Fatalf("changed alarm aggregation: %+v %v", alarms, err)
 			}
+			// The alarm keeps the description of its first trigger.
+			wantContent := map[bool]string{false: "首次报警", true: "探测器（一楼）"}[kind == "component"]
+			if alarms[0].Content != wantContent || reports[0].Content != wantContent {
+				t.Fatalf("alarm content %q / %q, want %q", alarms[0].Content, reports[0].Content, wantContent)
+			}
 			send("normal", 3000, false, "恢复")
 			if len(reports) != 2 {
 				t.Fatal("recovery must not send an alarm receipt")
 			}
 		})
+	}
+}
+
+func TestAlarmContentFallsBackAndIsBounded(t *testing.T) {
+	msg := model.StandardMessage{Event: map[string]any{"content": "  "}, Raw: map[string]any{"payload": map[string]any{"alarm": map[string]any{"alarmDesc": "3 层烟感报警"}}}}
+	if got := alarmContent(msg, "规则说明"); got != "3 层烟感报警" {
+		t.Fatalf("nested description: %q", got)
+	}
+	if got := alarmContent(model.StandardMessage{}, "", "温度超限"); got != "温度超限" {
+		t.Fatalf("fallback: %q", got)
+	}
+	long := model.StandardMessage{Event: map[string]any{"content": strings.Repeat("火", maxAlarmContent+10)}}
+	if got := []rune(alarmContent(long)); len(got) != maxAlarmContent {
+		t.Fatalf("content not bounded: %d", len(got))
 	}
 }
 

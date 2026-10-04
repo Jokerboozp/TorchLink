@@ -111,7 +111,7 @@
 
 请求体最多 64 KiB、嵌套最多 16 层；重复 JSON 键、未知 version 和超前平台时间五分钟以上的设备时间被拒绝。历史时间可用于补传，晚到消息不回退最新状态。不带 version 的旧 `data.connectionStatus`、`data.commandId` / `data.success` 格式仍可读取；顶层和 data 同时提供的对应字段不能冲突。
 
-普通 event 名称不会自动变为设备告警。`alarm` 上报或协议直接输出 `ALARM_REPORT` 时形成设备来源告警：匹配规则时按规则处理，未匹配规则也保留告警；`alarmLevel` 取 `CRITICAL`、`HIGH`、`MEDIUM`、`LOW`、`INFO`，缺省为 `HIGH`，`alarmType` 缺省为 `MANUAL_ALARM`。恢复按告警类型读取属性：`FIRE` 用 `fireAlarm:false`，`SMOKE_DETECTED` 用 `smoke` / `smokeDetected`，`DEVICE_FAULT` 用 `fault` 等故障项，`DEVICE_OFFLINE` 用 `offline`，`MANUAL_ALARM` 用 `alarm`；其他类型没有对应恢复属性，须通过[开放接口](#开放接口)的 `RECOVERED` 处置或在控制台关闭。部件状态使用 `data.components`，具体火警、故障与恢复契约见 [部件告警](#部件状态契约)。
+普通 event 名称不会自动变为设备告警。`alarm` 上报或协议直接输出 `ALARM_REPORT` 时形成设备来源告警：匹配规则时按规则处理，未匹配规则也保留告警；`alarmLevel` 取 `CRITICAL`、`HIGH`、`MEDIUM`、`LOW`、`INFO`，缺省为 `HIGH`，`alarmType` 缺省为 `MANUAL_ALARM`。告警内容取首次触发报文的 `content`（也认 `alarmContent`、`description`、`alarmDesc`，最多 500 字）；规则告警的报文没有内容时用规则说明或规则名，部件告警为“部件名（位置）”；同一告警再次触发不改写内容。恢复按告警类型读取属性：`FIRE` 用 `fireAlarm:false`，`SMOKE_DETECTED` 用 `smoke` / `smokeDetected`，`DEVICE_FAULT` 用 `fault` 等故障项，`DEVICE_OFFLINE` 用 `offline`，`MANUAL_ALARM` 用 `alarm`；其他类型没有对应恢复属性，须通过[开放接口](#开放接口)的 `RECOVERED` 处置或在控制台关闭。部件状态使用 `data.components`，具体火警、故障与恢复契约见 [部件告警](#部件状态契约)。
 
 ### HTTP 上报
 
