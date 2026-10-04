@@ -45,6 +45,7 @@ import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { resetAIConversation } from './aiConversation'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
+import { parsePath, pathFor } from './routing'
 import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
 import { startRealtime, stopRealtime } from './realtime'
 import { useMediaQuery } from './composables/useMediaQuery'
@@ -159,10 +160,22 @@ async function syncIdentity() {
   if (!authenticated.value) return
   try {
     await refreshPermissions()
-    if (!can('menu:' + active.value)) active.value = firstAllowedPage()
+    if (!routeApplied) applyRoute(true)
+    else if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   } catch (error) { notifyError(error) }
   refreshModules()
 }
+
+// 地址栏与当前页面同步：打开页面写入历史记录，前进后退和深链接按地址切换页面。
+let routeApplied = false
+function applyRoute(replace) {
+  routeApplied = true
+  const { page, detail } = parsePath(window.location.pathname, pages)
+  if (page && can('menu:' + page)) openPage(page, detail, { history: false, force: true })
+  else active.value = firstAllowedPage()
+  if (replace || !page || !can('menu:' + page)) window.history.replaceState(null, '', pathFor(active.value, page === active.value ? detail : null) + window.location.search)
+}
+function onPopState() { if (authenticated.value) applyRoute(false) }
 
 // 管理员设置或重置密码后，首次登录只拿到改密凭据，修改成功后才建立会话。
 const passwordDialog = ref(false)
@@ -174,7 +187,8 @@ function startSession(data, username) {
     permissionState.accessVersion = data.accessVersion || ''
     permissionState.items = data.permissions || []
     permissionState.ready = true
-    active.value = firstAllowedPage()
+    // 登录前打开的深链接（例如通知中的告警详情）在登录后继续打开。
+    applyRoute(true)
     refreshModules()
     loginForm.value.password = ''
     if (can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
@@ -226,11 +240,15 @@ function handleAccountCommand(command) {
   if (command === 'password') { passwordChange.value = { required: false, token: '', current: '' }; passwordDialog.value = true }
 }
 
-function openPage(name, detail) {
+function openPage(name, detail, { history = true, force = false } = {}) {
   if (name === 'profiles' && can('menu:products')) { name = 'products'; detail = detail && { ...detail, tab: 'access' } }
   if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
-  if (active.value === name && !detail) return
+  if (history) {
+    const path = pathFor(name, detail)
+    if (path !== window.location.pathname) window.history.pushState(null, '', path)
+  }
+  if (active.value === name && !detail && !force) return
   sessionStorage.removeItem('iot:navigation-detail')
   active.value = name
   pageKey.value++
@@ -304,6 +322,7 @@ function unauthorized() {
 
 onMounted(async () => {
   window.addEventListener('iot:unauthorized', unauthorized)
+  window.addEventListener('popstate', onPopState)
   window.addEventListener('focus', syncIdentity)
   window.addEventListener('keydown', closeNavigationOnEscape)
   await syncIdentity()
@@ -312,6 +331,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('iot:unauthorized', unauthorized)
+  window.removeEventListener('popstate', onPopState)
   window.removeEventListener('focus', syncIdentity)
   window.removeEventListener('keydown', closeNavigationOnEscape)
   stopRealtime()

@@ -142,6 +142,10 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 - 列表复用 `FilterBar`、`DataTableCard`、`StatusDot`、`RowActions`，窄屏侧栏为抽屉，长弹窗正文独立滚动。权限控制使用 `src/permissions.js`，实际授权仍由服务端校验。
 - Node 测试保留实际行为、失败分支与隔离边界；不用固定菜单数量、文案、样式写法或复制版本号的断言代替功能检查。
 
+### 页面地址
+
+每个菜单对应一个地址（`/alarms`、`/ops-overview` 等，菜单键转为短横线形式），告警详情为 `/alarms/<告警编号>`，告警通知中的详情链接即使用该地址；刷新、前进后退和登录前打开的深链接都按地址恢复页面，无权限或未知地址回到首个可用页面。实现见 `iot_front/src/routing.js`，Web 的 nginx 与 Vite 开发服务器均把未知路径回退到 `index.html`。
+
 ### 浏览器验证
 
 先在 `iot_front` 执行 `npm run build`，用 `IOT_TEST_BROWSER` 指定 Chrome / Edge 可执行文件。专项脚本位于 `iot_front/tests/browser/`，使用 Node.js 22.12+ 的原生 WebSocket，不包含在 `npm test` 中；共用 `tests/helpers/browser.mjs` 管理独立浏览器、CDP 超时和临时目录清理，场景断言留在各脚本中：

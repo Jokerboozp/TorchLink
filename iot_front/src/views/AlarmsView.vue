@@ -63,6 +63,8 @@ function stopAnalysisPolling() {
 }
 
 function handleDetailClosed() {
+  // 关闭从深链接打开的详情后，地址回到告警列表。
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/alarms/')) window.history.replaceState(null, '', '/alarms')
   analysisViewToken += 1
   stopAnalysisPolling()
   analysisLoading.value = false
