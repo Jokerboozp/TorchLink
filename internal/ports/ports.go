@@ -27,6 +27,15 @@ type AlarmFilter struct {
 	DeviceIDs []string
 }
 
+// AlarmReportStore aggregates and streams alarms for statistics and exports
+// without a row limit.
+type AlarmReportStore interface {
+	AlarmDispositionStats(context.Context, AlarmFilter) (model.AlarmDispositionStats, error)
+	// EachAlarm calls fn for every matching alarm, newest first, reading in
+	// batches; Limit and Offset are ignored. An error from fn stops the scan.
+	EachAlarm(context.Context, AlarmFilter, func(model.Alarm) error) error
+}
+
 type Repository interface {
 	ExternalDataStore() externaldata.Store
 	DeleteResource(context.Context, string, string, string) error
@@ -35,6 +44,7 @@ type Repository interface {
 	MessageTopicStore
 	FireSafetyStore
 	SiteStore
+	AlarmReportStore
 	OnboardingStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
 	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)

@@ -17,6 +17,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -3056,13 +3057,25 @@ func (s *Server) accessLog() gin.HandlerFunc {
 }
 
 func (s *Server) recovery() gin.HandlerFunc {
-	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
-		if s.log != nil {
-			s.log.Error("http panic recovered", "method", c.Request.Method, "path", c.Request.URL.Path, "error", fmt.Sprint(recovered))
-		}
-		ginProblem(c, http.StatusInternalServerError, "internal server error")
-		c.Abort()
-	})
+	return func(c *gin.Context) {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				return
+			}
+			// A handler that already started a response aborts it on
+			// purpose; net/http then closes the connection quietly.
+			if recovered == http.ErrAbortHandler {
+				panic(recovered)
+			}
+			if s.log != nil {
+				s.log.Error("http panic recovered", "method", c.Request.Method, "path", c.Request.URL.Path, "error", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+			}
+			ginProblem(c, http.StatusInternalServerError, "internal server error")
+			c.Abort()
+		}()
+		c.Next()
+	}
 }
 
 func ginProblem(c *gin.Context, status int, detail string) {

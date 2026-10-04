@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -87,5 +89,78 @@ func TestAlarmVerificationStatisticsAndExport(t *testing.T) {
 	req("POST", "/api/v1/alarms/fire-2/disposition", other, map[string]any{"result": "TEST"}, 403)
 	if scoped := req("GET", alarmStatisticsPath, other, nil, 200); scoped["total"] != float64(1) {
 		t.Fatalf("scoped statistics %v", scoped)
+	}
+	if code, text := exportCSV(t, srv, other); code != 200 || strings.Count(text, "\n") != 2 || !strings.Contains(text, "fault-1") {
+		t.Fatalf("scoped export %d %q", code, text)
+	}
+}
+
+func exportCSV(t *testing.T, srv *httptest.Server, token string) (int, string) {
+	t.Helper()
+	r, _ := http.NewRequest("GET", srv.URL+alarmExportPath, nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+	resp, err := srv.Client().Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return -1, string(body)
+	}
+	return resp.StatusCode, string(body)
+}
+
+// failingScan fails after some alarms were already written.
+type failingScan struct{ *memory.Repository }
+
+func (r failingScan) EachAlarm(ctx context.Context, f ports.AlarmFilter, fn func(model.Alarm) error) error {
+	sent := 0
+	return r.Repository.EachAlarm(ctx, f, func(a model.Alarm) error {
+		if sent == alarmExportFlushRows+1 {
+			return errors.New("database went away")
+		}
+		sent++
+		return fn(a)
+	})
+}
+
+// The export has no row limit, and a failure midway breaks the download
+// instead of producing a shortened file.
+func TestAlarmExportStreamsAndAbortsOnFailure(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	const rows = 3*alarmExportFlushRows + 7
+	for i := range rows {
+		a := model.Alarm{ID: fmt.Sprintf("a%d", i), TenantID: "t", DeviceID: "d", RuleID: fmt.Sprintf("r%d", i), AlarmType: "DEVICE_FAULT", AlarmLevel: "LOW", Status: "CLOSED", FirstTriggeredAt: now - int64(i), LastTriggeredAt: now - int64(i), TriggerCount: 1}
+		if _, _, err := repo.UpsertAlarm(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, fail := range []bool{false, true} {
+		cfg := config.Load()
+		cfg.AdminUser, cfg.AdminPassword = "root", "disposition-root-test"
+		cfg.AdminTenants = []string{"t"}
+		cfg.JWTSecret = "disposition-test-secret-at-least-32-bytes"
+		cfg.DevMode = true
+		var store ports.Repository = repo
+		if fail {
+			store = failingScan{repo}
+		}
+		api := New(cfg, &core.Engine{Repo: store, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		srv := httptest.NewServer(api.Handler())
+		root := requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "t"}, 200)["accessToken"].(string)
+		code, text := exportCSV(t, srv, root)
+		srv.Close()
+		if fail {
+			if code != -1 {
+				t.Fatalf("failed export completed: %d with %d lines", code, strings.Count(text, "\n"))
+			}
+			continue
+		}
+		if code != 200 || strings.Count(text, "\n") != rows+1 {
+			t.Fatalf("export %d with %d lines, want %d", code, strings.Count(text, "\n"), rows+1)
+		}
 	}
 }

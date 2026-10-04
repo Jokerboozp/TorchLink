@@ -31,8 +31,8 @@
 
 - **核实结论**：告警详情的“核实处置”记录现场核实结果（真实火警、误报、测试、检修、设备故障）、到场时间与处置说明，核实人和时间由服务端写入；可选关联消防站出勤记录（`dispatchId`，须属于本租户）。接口为 `POST /api/v1/alarms/:id/disposition`，需要“填写告警核实结论”权限并受设备范围约束；已关闭的告警不能再修改结论。
 - **关闭前必须核实**：等级为紧急（`CRITICAL`）或类型属于火灾类（`FIRE`、`FIRE_RISK`、`SMOKE_DETECTED`、`FLAME_DETECTED`、`ELECTRICAL_FIRE`、`MANUAL_ALARM`、`GAS_LEAK`）的告警，没有核实结论时关闭返回 422；判定见 `model.Alarm.RequiresVerification`，前端在 `labels.js` 中保持同一规则。其他告警可直接关闭。
-- **统计**：`GET /api/v1/alarms/statistics/disposition` 按告警首次发生时间统计（默认近 30 天，可传 `start`、`end` 毫秒时间戳及 `status`、`level`、`deviceId`），返回各结论数量、误报率（误报 / 已核实）、待核实火警数、确认与核实用时的平均值和 90 分位、误报最多的 10 台设备。告警中心顶部显示这些指标。
-- **导出**：`GET /api/v1/alarms/export` 以相同条件导出 CSV（UTF-8 BOM，表格软件可直接打开），包含状态时间线和核实信息；单次最多 50,000 条，超出时响应头 `X-Export-Truncated: true`。导出需要“导出告警”权限并写入审计 `alarm.export`。
+- **统计**：`GET /api/v1/alarms/statistics/disposition` 统计最后发生时间落在区间内的告警（默认近 30 天，可传 `start`、`end` 毫秒时间戳及 `status`、`level`、`deviceId`），返回各结论数量、误报率（误报 / 已核实）、待核实火警数、确认与核实用时的平均值和 90 分位、误报最多的 10 台设备。统计在数据库中聚合，不限条数。告警中心顶部显示这些指标。
+- **导出**：`GET /api/v1/alarms/export` 以相同条件导出 CSV（UTF-8 BOM，表格软件可直接打开），包含状态时间线和核实信息；按批读取并边读边写，不限条数；中途读取失败时连接被中断，客户端得到下载失败而不是缺行的文件。导出需要“导出告警”权限并写入审计 `alarm.export`。
 
 ## 消防管理
 

@@ -276,7 +276,7 @@ function rowActions(row) {
     <template #actions><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
   </FilterBar>
   <div v-if="statistics" class="alarm-stats" aria-label="近 30 天核实统计">
-    <div><span>近 30 天告警</span><strong>{{ statistics.total }}<small v-if="statistics.truncated">+</small></strong></div>
+    <div><span>近 30 天告警</span><strong>{{ statistics.total }}</strong></div>
     <div><span>待核实火警</span><strong :class="{ danger: statistics.unverified > 0 }">{{ statistics.unverified }}</strong></div>
     <div><span>误报率</span><strong>{{ statistics.verified ? (statistics.falseAlarmRate * 100).toFixed(1) + '%' : '—' }}</strong><small>已核实 {{ statistics.verified }} 条</small></div>
     <div><span>平均确认用时</span><strong>{{ formatDuration(statistics.acknowledge?.avgMs) }}</strong><small v-if="statistics.acknowledge?.count">90% 在 {{ formatDuration(statistics.acknowledge.p90Ms) }} 内</small></div>

@@ -292,6 +292,24 @@ func (r *deviceScopeRepository) ListAlarms(ctx context.Context, f ports.AlarmFil
 	}
 	return r.Repository.ListAlarms(ctx, f)
 }
+func (r *deviceScopeRepository) AlarmDispositionStats(ctx context.Context, f ports.AlarmFilter) (model.AlarmDispositionStats, error) {
+	if limited(ctx) {
+		var ok bool
+		if f.DeviceIDs, ok = r.scopedDevices(ctx, f.TenantID, f.DeviceID, f.DeviceIDs); !ok {
+			return model.SummarizeAlarms(nil), nil
+		}
+	}
+	return r.Repository.AlarmDispositionStats(ctx, f)
+}
+func (r *deviceScopeRepository) EachAlarm(ctx context.Context, f ports.AlarmFilter, fn func(model.Alarm) error) error {
+	if limited(ctx) {
+		var ok bool
+		if f.DeviceIDs, ok = r.scopedDevices(ctx, f.TenantID, f.DeviceID, f.DeviceIDs); !ok {
+			return nil
+		}
+	}
+	return r.Repository.EachAlarm(ctx, f, fn)
+}
 func (r *deviceScopeRepository) CountAlarms(ctx context.Context, f ports.AlarmFilter) (int, error) {
 	if limited(ctx) {
 		var ok bool

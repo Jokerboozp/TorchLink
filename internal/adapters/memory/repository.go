@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -1433,4 +1434,24 @@ func (r *Repository) HasOpenAlarm(_ context.Context, tenant, device string) (boo
 		}
 	}
 	return false, nil
+}
+
+func (r *Repository) AlarmDispositionStats(ctx context.Context, f ports.AlarmFilter) (model.AlarmDispositionStats, error) {
+	var alarms []model.Alarm
+	err := r.EachAlarm(ctx, f, func(a model.Alarm) error { alarms = append(alarms, a); return nil })
+	return model.SummarizeAlarms(alarms), err
+}
+
+func (r *Repository) EachAlarm(ctx context.Context, f ports.AlarmFilter, fn func(model.Alarm) error) error {
+	f.Limit, f.Offset = math.MaxInt32, 0
+	alarms, err := r.ListAlarms(ctx, f)
+	if err != nil {
+		return err
+	}
+	for _, a := range alarms {
+		if err = fn(a); err != nil {
+			return err
+		}
+	}
+	return nil
 }
