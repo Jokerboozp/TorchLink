@@ -22,7 +22,7 @@ images:
   redis: redis:7.4-alpine
   clickhouse: clickhouse/clickhouse-server:25.7-alpine
   keeper: clickhouse/clickhouse-keeper:25.7-alpine
-  minio: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+  minio: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z   # built by cluster-up from deploy/minio
   prometheus: prom/prometheus:v3.5.0
   alertmanager: prom/alertmanager:v0.34.1
   nodeExporter: prom/node-exporter:v1.12.1

@@ -282,6 +282,10 @@ if [ -z "$images_tar" ] && [ "$build" = 1 ]; then
       run docker build --pull -t "$image" -f "$project_root/deploy/postgres/Dockerfile.spilo" "$project_root/deploy/postgres"
       continue
     fi
+    if [ "$key" = minio ] && [[ "$image" == iot-platform-minio:* ]]; then
+      run docker build --pull -t "$image" "$project_root/deploy/minio"
+      continue
+    fi
     case "$own_keys" in *" $key "*) ;; *) continue;; esac
     [[ "$image" == *@sha256:* ]] && continue   # pinned digests are pulled, not rebuilt
     case "$key" in
@@ -293,6 +297,9 @@ if [ -z "$images_tar" ] && [ "$build" = 1 ]; then
   done <<< "$image_list"
   if [ "${#build_services[@]}" -gt 0 ]; then
     say "building ${build_services[*]}"
+    # compose.yaml requires these runtime secrets even to build; the images
+    # never contain them, so placeholders are enough here.
+    build_env+=("IOT_JWT_SECRET=${IOT_JWT_SECRET:-build-only-placeholder}" "IOT_ADMIN_PASSWORD=${IOT_ADMIN_PASSWORD:-build-only-placeholder}")
     run env "${build_env[@]}" docker compose -f "$project_root/compose.yaml" --project-directory "$project_root" --profile video build "${build_services[@]}"
   fi
 fi

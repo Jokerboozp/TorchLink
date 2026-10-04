@@ -482,7 +482,7 @@ done
 for key in IOT_JWT_SECRET IOT_AI_HARNESS_TOKEN IOT_BACKUP_ADMIN_TOKEN; do
   grep -Eq "^$key=[a-f0-9]{64}$" "$test_root/.env.online"
 done
-assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness'
+assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness'
 grep -q '^IOT_EMBEDDING_URL=https://dashscope.aliyuncs.com/compatible-mode/v1$' "$test_root/.env.online"
 grep -q '^IOT_EMBEDDING_MODEL=text-embedding-v4$' "$test_root/.env.online"
 cp "$test_root/.env.online" "$test_root/online-original"
@@ -648,7 +648,7 @@ assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video on > /dev/null
 profiles_are "$test_root/.env.online-video" clickhouse,ops,video
-assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness zlmediakit'
+assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness zlmediakit'
 assert_no_call ' pull .*zlmediakit'
 "$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
 grep -q 'published: "5060"' "$test_root/video-online.yaml"

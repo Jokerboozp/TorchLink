@@ -240,12 +240,21 @@ if (-not $Images -and -not $NoBuild) {
             Invoke-Native @('docker', 'build', '--pull', '-t', $i.Image, '-f', (Join-Path $projectRoot 'deploy/postgres/Dockerfile.spilo'), (Join-Path $projectRoot 'deploy/postgres'))
             continue
         }
+        if ($i.Key -eq 'minio' -and $i.Image -like 'iot-platform-minio:*') {
+            Invoke-Native @('docker', 'build', '--pull', '-t', $i.Image, (Join-Path $projectRoot 'deploy/minio'))
+            continue
+        }
         if (-not $envNames.ContainsKey($i.Key) -or $i.Image -like "*@sha256:*") { continue }
         Set-Item -Path "env:$($envNames[$i.Key][0])" -Value $i.Image
         $buildServices += $envNames[$i.Key][1]
     }
     if ($buildServices.Count -gt 0) {
         Say "building $($buildServices -join ' ')"
+        # compose.yaml requires these runtime secrets even to build; the
+        # images never contain them, so placeholders are enough here.
+        foreach ($name in 'IOT_JWT_SECRET', 'IOT_ADMIN_PASSWORD') {
+            if (-not [Environment]::GetEnvironmentVariable($name)) { Set-Item -Path "env:$name" -Value 'build-only-placeholder' }
+        }
         Invoke-Native (@("docker", "compose", "-f", (Join-Path $projectRoot "compose.yaml"), "--project-directory", $projectRoot, "--profile", "video", "build") + $buildServices)
     }
 }

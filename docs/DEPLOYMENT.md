@@ -132,7 +132,7 @@ sudo bash scripts/setup-local.sh --dependencies-only \
 
 `--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL（含 pgvector）、Redis、ClickHouse、Redpanda、EMQX、MinIO 主库/备库、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness、MinIO 和 PostgreSQL pgvector 镜像；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
 
-本地 MinIO 复用 `deploy/minio/Dockerfile` 的官方二进制构建，版本仍为 `RELEASE.2025-09-07T16-13-09Z`，校验固定的 amd64/arm64 SHA-256。原 `quay.io/minio/minio` 已无法公开拉取，首次构建需要访问 GitHub Release。
+本地、在线、离线与集群部署的 MinIO 均由 `deploy/minio/Dockerfile` 以官方二进制构建为 `iot-platform-minio` 镜像（集群由 `cluster-up` 构建），版本仍为 `RELEASE.2025-09-07T16-13-09Z`，校验固定的 amd64/arm64 SHA-256。原 `quay.io/minio/minio` 已无法公开拉取，首次构建需要访问 GitHub Release。
 
 脚本将依赖端口绑定到 `0.0.0.0`，并配置 Kafka 公告地址、Harness 地址和 API 回调；`IOT_BACKUP_URL` 保持 `http://127.0.0.1:8092`，指向源码机的备份进程，Prometheus 从源码机采集备份指标。安全复制 `.env.local` 到源码机仓库根目录；安装 Go/Node 并准备源码依赖后，在本机启动 Go API、前端和备份服务。普通虚拟机需让源码机能够访问依赖机，且容器能反向访问源码机 `8081` 和备份指标 `8092`；源码机防火墙需允许这些访问。两台机器没有共享文件目录时，运维指标、日志和组件状态可用，依赖本地配置文件的规则/通知编辑保持只读。只有显式追加 `--include-backup` 才启动备份容器；恢复默认命令会停止旧备份容器，保留备份数据。
 

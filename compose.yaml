@@ -312,7 +312,11 @@ services:
 
   minio:
     <<: *service-defaults
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Built from checksum-pinned official binaries (deploy/minio); the
+    # upstream registry images are no longer public.
+    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z
+    build:
+      context: ./deploy/minio
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
@@ -327,7 +331,7 @@ services:
 
   minio-dr:
     <<: *service-defaults
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data
     environment:
       MINIO_ROOT_USER: ${MINIO_DR_ROOT_USER:-admin}

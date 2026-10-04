@@ -103,7 +103,7 @@ else
 fi
 annotate_deployment_env_file "$env_file"
 compose=(compose --project-name "$project_name" --env-file "$env_file" -f "$project_root/compose.yaml")
-build_services=(platform-api platform-web backup-service postgres)
+build_services=(platform-api platform-web backup-service minio postgres)
 command -v git >/dev/null 2>&1 || { echo 'AI 工作流服务（Harness）为必装组件，构建需要安装 Git。' >&2; exit 1; }
 build_services+=(deepseek-harness)
 sh "$script_dir/fetch-deepseek-harness.sh"
@@ -113,7 +113,8 @@ pull_services=()
 while IFS= read -r service; do
   service="${service%$'\r'}"
   case "$service" in
-    platform-api|platform-web|backup-service|deepseek-harness|'') ;;
+    # minio-dr runs the MinIO image built here.
+    platform-api|platform-web|backup-service|deepseek-harness|minio|minio-dr|postgres|'') ;;
     # 摄像头直播媒体服务（video profile，默认启用），由固定 digest 的官方镜像构建。
     zlmediakit) build_services+=(zlmediakit) ;;
     # 容量测试模块使用平台镜像，不单独拉取。

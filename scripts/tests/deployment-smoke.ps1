@@ -235,7 +235,7 @@ try {
         Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key $key) -eq 'admin') "Online tool username incorrect: $key"
     }
     Assert-CommentedEnv $onlineEnv
-    Assert (Contains-Call 'build --pull platform-api platform-web backup-service postgres deepseek-harness') 'Online omitted the default Harness image build'
+    Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness') 'Online omitted the default Harness image build'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Online embedding API URL is missing'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
