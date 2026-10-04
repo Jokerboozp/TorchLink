@@ -785,6 +785,11 @@ configs:
               for: 0m
               labels: {severity: warning}
               annotations: {summary: "历史数据清理失败，磁盘占用会持续增长"}
+            - alert: PartitionMaintenanceFailures
+              expr: increase(partition_maintenance_failed_total[1d]) > 0
+              for: 0m
+              labels: {severity: warning}
+              annotations: {summary: "未能提前创建数据表月分区，新数据将进入默认分区"}
             - alert: BackupFailures
               expr: increase(backup_failed_total[30m]) > 0
               for: 1m

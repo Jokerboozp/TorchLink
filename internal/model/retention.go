@@ -14,7 +14,17 @@ const (
 	RetentionAIToolCalls      = "ai_tool_call_log"
 	RetentionVideoEvents      = "video_alarm_event"
 	RetentionNotifications    = "notification_task"
+	// RetentionStandardKeys holds the recent standard message IDs that
+	// deduplicate concurrent inserts into the partitioned standard_message.
+	RetentionStandardKeys = "standard_message_key"
 )
+
+// TablePartition is one monthly partition covering [From, To).
+type TablePartition struct {
+	Name string
+	From time.Time
+	To   time.Time
+}
 
 // BackupWindow is a range of device messages covered by a completed backup;
 // a zero Start means everything before End.

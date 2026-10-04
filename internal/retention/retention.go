@@ -21,6 +21,16 @@ type Store interface {
 	BackupWindows(ctx context.Context) ([]model.BackupWindow, error)
 }
 
+// PartitionStore is implemented by a store whose large tables are
+// partitioned by month; whole expired months are dropped instead of deleted
+// row by row.
+type PartitionStore interface {
+	EnsurePartitions(ctx context.Context, now time.Time) error
+	ExpiredPartitions(ctx context.Context, table string, cutoff time.Time) ([]model.TablePartition, error)
+	DropPartition(ctx context.Context, table, partition string) (bool, error)
+	DropEmptyLegacy(ctx context.Context, table string) (bool, error)
+}
+
 // Metrics receives counters; *metrics.Registry implements it.
 type Metrics interface {
 	Add(string, uint64)
@@ -45,6 +55,8 @@ type Service struct {
 	now      func() time.Time
 	sleep    func(context.Context, time.Duration)
 	lastRun  string
+	// lastMaintained is the day partitions were last created ahead.
+	lastMaintained string
 }
 
 func New(cfg config.RetentionConfig, store Store, metrics Metrics, log *slog.Logger, location *time.Location) *Service {
@@ -67,6 +79,7 @@ func (s *Service) tables() []Table {
 	c := s.cfg
 	return []Table{
 		{model.RetentionReservations, c.ReservationDays},
+		{model.RetentionStandardKeys, c.ReservationDays},
 		{model.RetentionStandardMessages, c.StandardDays},
 		{model.RetentionRawIndex, c.RawDays},
 		{model.RetentionRawLog, c.RawDays},
@@ -95,6 +108,17 @@ func (s *Service) Due() bool {
 // singleton scheduler; a takeover on another instance may repeat a day's
 // purge, which only finds nothing left to delete.
 func (s *Service) Tick(ctx context.Context) error {
+	// Partitions are created ahead every day even when retention is off.
+	if ps, ok := s.store.(PartitionStore); ok {
+		if today := s.now().In(s.location).Format(time.DateOnly); s.lastMaintained != today {
+			if err := ps.EnsurePartitions(ctx, s.now()); err != nil {
+				s.inc("partition_maintenance_failed_total")
+				s.log.Error("create upcoming partitions", "error", err)
+			} else {
+				s.lastMaintained = today
+			}
+		}
+	}
 	if !s.cfg.Enabled || !s.Due() {
 		return nil
 	}
@@ -128,6 +152,10 @@ func (s *Service) RunOnce(ctx context.Context) (Result, error) {
 		cutoff := config.Cutoff(s.now(), table.Days)
 		var deleted int64
 		var err error
+		if err = s.dropPartitions(ctx, table.Name, cutoff, windows); err != nil {
+			s.inc("retention_failed_total")
+			s.log.Error("retention partition drop failed", "table", table.Name, "error", err)
+		}
 		if s.cfg.RequireBackup && deviceMessageTables[table.Name] {
 			deleted, err = s.purgeCovered(ctx, table.Name, cutoff, windows)
 		} else {
@@ -149,6 +177,13 @@ func (s *Service) RunOnce(ctx context.Context) (Result, error) {
 		}
 		if deleted > 0 {
 			s.log.Info("retention purge", "table", table.Name, "deleted", deleted, "before", cutoff.Format(time.RFC3339))
+		}
+		if ps, ok := s.store.(PartitionStore); ok {
+			if dropped, err := ps.DropEmptyLegacy(ctx, table.Name); err != nil {
+				s.log.Warn("drop emptied legacy partition", "table", table.Name, "error", err)
+			} else if dropped {
+				s.log.Info("retention dropped emptied legacy partition", "table", table.Name)
+			}
 		}
 	}
 	if len(failures) == 0 && s.metrics != nil {
@@ -207,6 +242,52 @@ func (s *Service) purgeCovered(ctx context.Context, table string, cutoff time.Ti
 		}
 	}
 	return total, nil
+}
+
+// dropPartitions drops the monthly partitions that ended before cutoff
+// (and, with RequireBackup, whose whole month a backup covers), then the
+// legacy partition once purging emptied it. Rows of partitions that still
+// hold pending messages are left to the row purge.
+func (s *Service) dropPartitions(ctx context.Context, table string, cutoff time.Time, windows []model.BackupWindow) error {
+	ps, ok := s.store.(PartitionStore)
+	if !ok {
+		return nil
+	}
+	parts, err := ps.ExpiredPartitions(ctx, table, cutoff)
+	if err != nil {
+		return err
+	}
+	for _, p := range parts {
+		if s.cfg.RequireBackup && deviceMessageTables[table] && !s.coveredRange(windows, p.From, p.To) {
+			continue
+		}
+		dropped, err := ps.DropPartition(ctx, table, p.Name)
+		if err != nil {
+			return err
+		}
+		if dropped {
+			s.inc("retention_partitions_dropped_total")
+			s.log.Info("retention dropped partition", "table", table, "partition", p.Name)
+		}
+	}
+	return nil
+}
+
+// coveredRange reports whether completed backups cover all of [from, to),
+// checking each backup-day slice separately.
+func (s *Service) coveredRange(windows []model.BackupWindow, from, to time.Time) bool {
+	for at := from; at.Before(to); {
+		local := at.In(s.location)
+		next := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, s.location).AddDate(0, 0, 1)
+		if next.After(to) {
+			next = to
+		}
+		if !covered(windows, at, next) {
+			return false
+		}
+		at = next
+	}
+	return true
 }
 
 func covered(windows []model.BackupWindow, from, to time.Time) bool {

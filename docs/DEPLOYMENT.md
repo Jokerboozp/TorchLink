@@ -636,6 +636,16 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 - 指标：`retention_deleted_total`、`retention_deleted_<表>_total`、`retention_failed_total`、`retention_last_success_timestamp_seconds`；Prometheus 规则 `RetentionFailures` 在一天内出现失败时告警。
 - 首次升级时迁移 `0001_retention_indexes` 以 `CREATE INDEX CONCURRENTLY` 为大表补时间索引，不阻塞写入，但大表上需要较长时间；建议在低峰升级。建索引中途失败留下的无效索引会在下次启动时自动删除并重建。
 
+### 按月分区
+
+原文索引 `raw_archive_index`、低频原文 `raw_message_log`、标准消息 `standard_message`、设备状态事件 `device_state_event` 和审计日志 `audit_log` 按服务端时间（原文接收时间、标准消息写入时间 `created_at`、事件或审计时间）以 UTC 自然月分区。保留任务先整体删除已过期月份的分区（`DROP TABLE`，不逐行删除），再按上表逐行清理剩余数据；`IOT_RETENTION_REQUIRE_BACKUP=true` 时只删除整月均有备份覆盖的分区。仍有未发布原文或未处理标准消息的分区保留，待其完成后再删。
+
+- **升级方式**：迁移 `0010_partition_prepare` 在不阻塞写入的情况下为每张表建立包含分区键的唯一索引，并校验“所有已有行早于切换点”的约束（切换点为下下个月 1 日 UTC）；迁移 `0011_partition_large_tables` 在一个事务内把原表改名为 `<表>_legacy` 并作为切换点之前的分区挂上，不复制、不重扫数据，只短暂持有表锁（超过 60 秒拿不到锁则本次启动失败，下次重试）。大表首次升级的耗时主要在建索引和校验约束，建议低峰进行。
+- **旧数据**：`_legacy` 分区中的数据继续按天逐行清理，清空后自动删除。之后的月份各自成表，另有 `_default` 分区兜底；Jobs 进程每天提前创建本月及之后 3 个月的分区（不受 `IOT_RETENTION_ENABLED` 影响），失败计入 `partition_maintenance_failed_total`。
+- **消息去重**：分区表主键包含分区键，消息编号的唯一性由写入时的检查保证：原文仍以 `raw_ingest_reservation` 预约，标准消息在 `standard_message_key` 登记（保留期同原文去重预约）并检查各分区是否已有同一编号。
+- **滚动升级**：旧版本的保留任务不识别分区表，升级到本版本时请先升级或停止所有 Jobs 进程（`combined` 或 `jobs`），避免旧进程在切换后执行清理。
+- 指标 `retention_partitions_dropped_total` 记录删除的分区数。实现见 `internal/adapters/postgres/partitions.go`。
+
 ## 设备数据备份
 
 备份服务把制品保存到 MinIO 的 `iot-backups` 桶，提供下载、SHA-256 校验与隔离恢复验证。按以下范围选择：

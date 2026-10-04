@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"time"
 
 	"iot-platform/internal/model"
@@ -27,6 +28,7 @@ var retentionTables = map[string]struct {
 	model.RetentionAIToolCalls:      {"created_at", false, ""},
 	model.RetentionVideoEvents:      {"event_time", true, ""},
 	model.RetentionNotifications:    {"created_at", true, "status IN ('SENT','FAILED','CANCELLED')"},
+	model.RetentionStandardKeys:     {"created_at", true, ""},
 }
 
 func retentionBound(millis bool, at time.Time) any {
@@ -56,11 +58,25 @@ func (r *Repository) PurgeRange(ctx context.Context, table string, from, to time
 	if spec.guard != "" {
 		where += " AND " + spec.guard
 	}
-	tag, err := r.pool.Exec(ctx, `DELETE FROM `+table+` WHERE ctid = ANY(ARRAY(SELECT ctid FROM `+table+` WHERE `+where+` LIMIT $2))`, args...)
+	// ctid is only unique within one table, so a partitioned table is
+	// purged partition by partition.
+	leaves, err := r.leafTables(ctx, table)
 	if err != nil {
 		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	var deleted int64
+	for _, leaf := range leaves {
+		args[1] = int64(limit) - deleted
+		name := pgx.Identifier{leaf}.Sanitize()
+		tag, err := r.pool.Exec(ctx, `DELETE FROM `+name+` WHERE ctid = ANY(ARRAY(SELECT ctid FROM `+name+` WHERE `+where+` LIMIT $2))`, args...)
+		if err != nil {
+			return deleted, err
+		}
+		if deleted += tag.RowsAffected(); deleted >= int64(limit) {
+			break
+		}
+	}
+	return deleted, nil
 }
 
 // OldestRetained returns the time of the oldest purgeable row of table.

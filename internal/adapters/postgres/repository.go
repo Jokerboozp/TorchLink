@@ -505,7 +505,10 @@ func (r *Repository) CountManagedDeviceChildrenForDevices(ctx context.Context, t
 	return counts, rows.Err()
 }
 func (r *Repository) SaveRawIndex(ctx context.Context, v model.RawArchiveIndex) (bool, error) {
-	tag, err := r.pool.Exec(ctx, `INSERT INTO raw_archive_index(tenant_id,product_id,device_id,message_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT DO NOTHING`, v.TenantID, v.ProductID, v.DeviceID, v.MessageID, v.Protocol, v.PayloadFormat, v.ObjectBucket, v.ObjectKey, v.ObjectOffset, v.PayloadHash, v.PayloadSize, v.ReceivedAt, v.ArchivedAt, v.PublishedAt, v.PublishAttempts, v.LastPublishError)
+	// The primary key includes the partition key, so an existing message ID
+	// in any month is checked explicitly.
+	tag, err := r.pool.Exec(ctx, `INSERT INTO raw_archive_index(tenant_id,product_id,device_id,message_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error)
+SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16 WHERE NOT EXISTS (SELECT 1 FROM raw_archive_index WHERE tenant_id=$1 AND message_id=$4) ON CONFLICT DO NOTHING`, v.TenantID, v.ProductID, v.DeviceID, v.MessageID, v.Protocol, v.PayloadFormat, v.ObjectBucket, v.ObjectKey, v.ObjectOffset, v.PayloadHash, v.PayloadSize, v.ReceivedAt, v.ArchivedAt, v.PublishedAt, v.PublishAttempts, v.LastPublishError)
 	return tag.RowsAffected() == 1, err
 }
 
@@ -514,7 +517,8 @@ func (r *Repository) SaveRawMessage(ctx context.Context, v model.RawMessage) err
 	if err != nil {
 		return err
 	}
-	tag, err := r.pool.Exec(ctx, `INSERT INTO raw_message_log(tenant_id,message_id,product_id,device_id,protocol,payload_format,payload_hash,payload_size,received_at,stored_at,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.ProductID, v.DeviceID, v.Protocol, v.PayloadFormat, v.PayloadHash(), len(v.Payload), v.ReceivedAt, time.Now().UnixMilli(), body)
+	tag, err := r.pool.Exec(ctx, `INSERT INTO raw_message_log(tenant_id,message_id,product_id,device_id,protocol,payload_format,payload_hash,payload_size,received_at,stored_at,body)
+SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11 WHERE NOT EXISTS (SELECT 1 FROM raw_message_log WHERE tenant_id=$1 AND message_id=$2) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.ProductID, v.DeviceID, v.Protocol, v.PayloadFormat, v.PayloadHash(), len(v.Payload), v.ReceivedAt, time.Now().UnixMilli(), body)
 	if err == nil && tag.RowsAffected() == 0 {
 		existing, getErr := r.GetRawMessage(ctx, v.TenantID, v.MessageID)
 		if getErr != nil {
@@ -622,11 +626,21 @@ func (r *Repository) SaveStandardMessageIfAbsent(ctx context.Context, v model.St
 	props, _ := json.Marshal(v.Properties)
 	event, _ := json.Marshal(v.Event)
 	tags, _ := json.Marshal(v.Tags)
-	tag, err := r.pool.Exec(ctx, `INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`, v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body)
+	tag, err := r.pool.Exec(ctx, `WITH k AS (`+standardKey+`)
+INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body,created_at)
+SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,k.created_at FROM k`, v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body)
 	return tag.RowsAffected() == 1, err
 }
 
 const nowMS = `(extract(epoch FROM clock_timestamp())*1000)::bigint`
+
+// standardKey claims a standard message ID: standard_message_key arbitrates
+// concurrent inserts, and the NOT EXISTS covers IDs older than the key
+// table's retention, since the partitioned table's primary key includes
+// created_at. It returns the new row's created_at, or no row.
+const standardKey = `INSERT INTO standard_message_key(tenant_id,message_id,created_at)
+SELECT $1,$2,` + nowMS + ` WHERE NOT EXISTS (SELECT 1 FROM standard_message WHERE tenant_id=$1 AND message_id=$2)
+ON CONFLICT DO NOTHING RETURNING created_at`
 
 func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error) {
 	// A new message is stored and claimed by one statement; only a
@@ -636,8 +650,9 @@ func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardM
 	event, _ := json.Marshal(v.Event)
 	tags, _ := json.Marshal(v.Tags)
 	var token int64
-	err := r.pool.QueryRow(ctx, `INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body,claim_owner,claim_token,claim_expires_at,attempts)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1,`+nowMS+`+$13,1) ON CONFLICT DO NOTHING RETURNING claim_token`,
+	err := r.pool.QueryRow(ctx, `WITH k AS (`+standardKey+`)
+INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body,claim_owner,claim_token,claim_expires_at,attempts,created_at)
+SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1,`+nowMS+`+$13,1,k.created_at FROM k RETURNING claim_token`,
 		v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body, owner, lease.Milliseconds()).Scan(&token)
 	if err == nil {
 		return model.StandardClaim{ShouldProcess: true, Created: true, Token: token}, nil
