@@ -100,29 +100,40 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 	if err := e.ensureGatewayChild(ctx, raw); err != nil {
 		return model.RawArchiveIndex{}, false, err
 	}
-	if existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID); err == nil {
-		if existing.PayloadHash != raw.PayloadHash() || existing.DeviceID != raw.DeviceID || existing.ProductID != raw.ProductID {
-			if e.Log != nil {
-				e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
-			}
-			return existing, false, model.ErrRawConflict
+	// Reserving first costs one write for a new message; only a message whose
+	// identity was seen before needs the archive index read.
+	reserved, newReservation, reserveErr := e.Repo.ReserveRawMessage(ctx, raw)
+	if errors.Is(reserveErr, model.ErrRawConflict) {
+		if e.Log != nil {
+			e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
 		}
-		if existing.PublishedAt == 0 {
-			stored, readErr := e.GetRaw(ctx, existing)
-			if readErr != nil {
-				return existing, false, fmt.Errorf("read pending raw: %w", readErr)
-			}
-			if publishErr := e.publishArchivedRaw(ctx, existing, stored); publishErr != nil {
-				return existing, false, publishErr
-			}
-		}
-		return existing, false, nil
+		existing, _ := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID)
+		return existing, false, model.ErrRawConflict
 	}
-	var reserveErr error
-	raw, reserveErr = e.Repo.ReserveRawMessage(ctx, raw)
 	if reserveErr != nil {
 		return model.RawArchiveIndex{}, false, reserveErr
 	}
+	if !newReservation {
+		if existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID); err == nil {
+			if existing.PayloadHash != raw.PayloadHash() || existing.DeviceID != raw.DeviceID || existing.ProductID != raw.ProductID {
+				if e.Log != nil {
+					e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
+				}
+				return existing, false, model.ErrRawConflict
+			}
+			if existing.PublishedAt == 0 {
+				stored, readErr := e.GetRaw(ctx, existing)
+				if readErr != nil {
+					return existing, false, fmt.Errorf("read pending raw: %w", readErr)
+				}
+				if publishErr := e.publishArchivedRaw(ctx, existing, stored); publishErr != nil {
+					return existing, false, publishErr
+				}
+			}
+			return existing, false, nil
+		}
+	}
+	raw = reserved
 	if e.RawStore == nil {
 		return model.RawArchiveIndex{}, false, errors.New("raw message store is not configured")
 	}
@@ -282,7 +293,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 			msg, err = e.Parsers.ParseWithConfig(release.ParserType, release.Config, raw)
 		}
 	}
-	product, productErr := e.Repo.GetProduct(ctx, raw.TenantID, raw.ProductID)
+	product, productErr := e.cachedProduct(ctx, raw.TenantID, raw.ProductID)
 	if productErr != nil && !errors.Is(productErr, model.ErrNotFound) {
 		return fmt.Errorf("load product %s: %w", raw.ProductID, productErr)
 	}

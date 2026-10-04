@@ -24,6 +24,13 @@ type protocolCache struct {
 type tenantProtocols struct {
 	bindings map[string]cachedBinding
 	releases map[string]cachedRelease
+	products map[string]cachedProduct
+}
+
+type cachedProduct struct {
+	product  model.Product
+	err      error
+	loadedAt time.Time
 }
 
 type cachedBinding struct {
@@ -43,7 +50,7 @@ func (c *protocolCache) tenant(tenantID string) *tenantProtocols {
 	}
 	t := c.tenants[tenantID]
 	if t == nil {
-		t = &tenantProtocols{bindings: map[string]cachedBinding{}, releases: map[string]cachedRelease{}}
+		t = &tenantProtocols{bindings: map[string]cachedBinding{}, releases: map[string]cachedRelease{}, products: map[string]cachedProduct{}}
 		c.tenants[tenantID] = t
 	}
 	return t
@@ -86,6 +93,25 @@ func (e *Engine) protocolRelease(ctx context.Context, tenantID, protocolID, vers
 	e.protocols.tenant(tenantID).releases[key] = cachedRelease{release: release, loadedAt: time.Now()}
 	e.protocols.mu.Unlock()
 	return release, nil
+}
+
+// cachedProduct returns the product used by the parser; a missing product is
+// cached too. Repository errors are not cached.
+func (e *Engine) cachedProduct(ctx context.Context, tenantID, productID string) (model.Product, error) {
+	e.protocols.mu.Lock()
+	entry, ok := e.protocols.tenant(tenantID).products[productID]
+	e.protocols.mu.Unlock()
+	if ok && time.Since(entry.loadedAt) < protocolCacheTTL {
+		return entry.product, entry.err
+	}
+	product, err := e.Repo.GetProduct(ctx, tenantID, productID)
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return product, err
+	}
+	e.protocols.mu.Lock()
+	e.protocols.tenant(tenantID).products[productID] = cachedProduct{product: product, err: err, loadedAt: time.Now()}
+	e.protocols.mu.Unlock()
+	return product, err
 }
 
 // ProtocolsChanged must be called after a tenant's product bindings or protocol

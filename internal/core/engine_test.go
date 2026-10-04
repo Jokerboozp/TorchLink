@@ -730,3 +730,54 @@ func TestMQTTArchiveReceiptRetryAndConflict(t *testing.T) {
 		t.Fatal("conflict emitted a receipt", p.calls)
 	}
 }
+
+// countingRepo counts the lookups the hot path should avoid.
+type countingRepo struct {
+	*memory.Repository
+	rawIndexReads, productReads int
+}
+
+func (r *countingRepo) GetRawIndex(ctx context.Context, tenant, id string) (model.RawArchiveIndex, error) {
+	r.rawIndexReads++
+	return r.Repository.GetRawIndex(ctx, tenant, id)
+}
+
+func (r *countingRepo) GetProduct(ctx context.Context, tenant, id string) (model.Product, error) {
+	r.productReads++
+	return r.Repository.GetProduct(ctx, tenant, id)
+}
+
+func TestHotPathSkipsRedundantLookups(t *testing.T) {
+	ctx := context.Background()
+	repo := &countingRepo{Repository: memory.NewRepository()}
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err = e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		raw := model.RawMessage{MessageID: fmt.Sprintf("hot-%d", i), TenantID: "t", ProductID: "json_sensor", DeviceID: "d", Protocol: "json", PayloadFormat: "json", ReceivedAt: int64(1000 + i), Payload: json.RawMessage(`{"properties":{"t":1}}`)}
+		if _, created, err := e.IngestRaw(ctx, raw); err != nil || !created {
+			t.Fatalf("ingest %d: %v %v", i, created, err)
+		}
+	}
+	if repo.rawIndexReads != 0 {
+		t.Fatalf("new messages read the archive index %d times", repo.rawIndexReads)
+	}
+	if repo.productReads > 1 {
+		t.Fatalf("parsing read the product %d times for one product", repo.productReads)
+	}
+	// A retransmission is still recognised through the index.
+	dup := model.RawMessage{MessageID: "hot-0", TenantID: "t", ProductID: "json_sensor", DeviceID: "d", Protocol: "json", PayloadFormat: "json", ReceivedAt: 1000, Payload: json.RawMessage(`{"properties":{"t":1}}`)}
+	if _, created, err := e.IngestRaw(ctx, dup); err != nil || created || repo.rawIndexReads != 1 {
+		t.Fatalf("duplicate created=%v err=%v reads=%d", created, err, repo.rawIndexReads)
+	}
+	conflict := dup
+	conflict.Payload = json.RawMessage(`{"properties":{"t":2}}`)
+	if _, _, err := e.IngestRaw(ctx, conflict); !errors.Is(err, model.ErrRawConflict) {
+		t.Fatalf("conflicting retransmission: %v", err)
+	}
+}

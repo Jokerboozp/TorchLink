@@ -25,6 +25,8 @@ type Repository struct {
 	pool    *pgxpool.Pool
 	replica *replica
 	stop    context.CancelFunc
+	// marks batches raw_archive_index bookkeeping; nil writes directly.
+	marks *rawMarks
 }
 
 const countManagedDeviceChildrenSQL = `SELECT body->>'gatewayId' AS gateway_id,count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId' = ANY($2::text[]) AND ($3::text[] IS NULL OR id = ANY($3::text[])) GROUP BY body->>'gatewayId'`
@@ -70,6 +72,7 @@ func NewWithOptions(ctx context.Context, dsn string, o PoolOptions) (*Repository
 		pool.Close()
 		return nil, err
 	}
+	r.marks = newRawMarks(r)
 	if o.ReadDSN != "" {
 		readConfig, err := pgxpool.ParseConfig(o.ReadDSN)
 		if err != nil {
@@ -539,6 +542,10 @@ func (r *Repository) GetRawMessage(ctx context.Context, tenant, messageID string
 }
 
 func (r *Repository) MarkRawPublished(ctx context.Context, tenant, messageID string, publishedAt int64, lastError string) error {
+	if r.marks != nil && lastError == "" && publishedAt > 0 {
+		r.marks.addPublished(tenant, messageID, publishedAt)
+		return nil
+	}
 	_, err := r.pool.Exec(ctx, `UPDATE raw_archive_index SET publish_attempts=publish_attempts+1,last_publish_error=$4,published_at=CASE WHEN $4='' THEN $3 ELSE published_at END WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID, publishedAt, lastError)
 	return err
 }
@@ -546,7 +553,7 @@ func (r *Repository) ListPendingRawIndexes(ctx context.Context, limit int) ([]mo
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.pool.Query(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE published_at=0 ORDER BY archived_at LIMIT $1`, limit)
+	rows, err := r.pool.Query(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE published_at=0 AND archived_at < (extract(epoch FROM now())*1000)::bigint - 30000 ORDER BY archived_at LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -622,14 +629,26 @@ func (r *Repository) SaveStandardMessageIfAbsent(ctx context.Context, v model.St
 const nowMS = `(extract(epoch FROM clock_timestamp())*1000)::bigint`
 
 func (r *Repository) ClaimStandardMessage(ctx context.Context, v model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error) {
-	created, err := r.SaveStandardMessageIfAbsent(ctx, v)
-	if err != nil {
+	// A new message is stored and claimed by one statement; only a
+	// redelivered message needs the separate claim below.
+	body, _ := json.Marshal(v)
+	props, _ := json.Marshal(v.Properties)
+	event, _ := json.Marshal(v.Event)
+	tags, _ := json.Marshal(v.Tags)
+	var token int64
+	err := r.pool.QueryRow(ctx, `INSERT INTO standard_message(tenant_id,message_id,raw_message_id,product_id,device_id,message_type,ts,properties,event,tags,body,claim_owner,claim_token,claim_expires_at,attempts)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,1,`+nowMS+`+$13,1) ON CONFLICT DO NOTHING RETURNING claim_token`,
+		v.TenantID, v.MessageID, v.RawMessageID, v.ProductID, v.DeviceID, v.MessageType, v.Timestamp, props, event, tags, body, owner, lease.Milliseconds()).Scan(&token)
+	if err == nil {
+		return model.StandardClaim{ShouldProcess: true, Created: true, Token: token}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return model.StandardClaim{}, err
 	}
+	created := false
 	// Claim when unprocessed and the previous lease expired, or when this
 	// owner reclaims (a retry). The token grows on every claim, fencing any
 	// earlier attempt's completion.
-	var token int64
 	err = r.pool.QueryRow(ctx, `UPDATE standard_message SET claim_owner=$3,claim_token=claim_token+1,claim_expires_at=`+nowMS+`+$4,attempts=attempts+1 WHERE tenant_id=$1 AND message_id=$2 AND processed_at=0 AND (claim_expires_at<=`+nowMS+` OR claim_owner=$3) RETURNING claim_token`, v.TenantID, v.MessageID, owner, lease.Milliseconds()).Scan(&token)
 	if err == nil {
 		return model.StandardClaim{ShouldProcess: true, Created: created, Token: token}, nil
@@ -1653,6 +1672,9 @@ func (r *Repository) Pool() *pgxpool.Pool { return r.pool }
 
 func (r *Repository) Health(ctx context.Context) error { return r.pool.Ping(ctx) }
 func (r *Repository) Close() error {
+	if r.marks != nil {
+		r.marks.close()
+	}
 	if r.stop != nil {
 		r.stop()
 	}
@@ -1667,6 +1689,10 @@ var _ = fmt.Sprintf
 var _ = strings.Builder{}
 
 func (r *Repository) MarkRawParseResult(ctx context.Context, tenant, id string, at int64, message string) error {
+	if r.marks != nil {
+		r.marks.addParsed(tenant, id, at, message)
+		return nil
+	}
 	_, err := r.pool.Exec(ctx, `UPDATE raw_archive_index SET parse_attempted_at=$3,parse_error=$4 WHERE tenant_id=$1 AND message_id=$2`, tenant, id, at, message)
 	return err
 }

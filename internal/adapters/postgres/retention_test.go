@@ -149,3 +149,35 @@ func TestOfflineDueFollowsDeviceStateWrites(t *testing.T) {
 		}
 	}
 }
+
+func TestBatchedRawMarks(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	r.marks = newRawMarks(r)
+	now := time.Now().UnixMilli()
+	for _, id := range []string{"m1", "m2"} {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO raw_archive_index(tenant_id,product_id,device_id,message_id,object_bucket,object_key,payload_hash,payload_size,received_at,archived_at) VALUES('t','p','d',$1,'postgres','k','h',1,$2,$2)`, id, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = r.MarkRawPublished(ctx, "t", "m1", now+1, "")
+	_ = r.MarkRawParseResult(ctx, "t", "m1", now+2, "")
+	_ = r.MarkRawParseResult(ctx, "t", "m2", now+3, "bad frame")
+	// A failed publish is written at once.
+	if err := r.MarkRawPublished(ctx, "t", "m2", 0, "broker down"); err != nil {
+		t.Fatal(err)
+	}
+	r.marks.close()
+	var published, parsedAt int64
+	var parseError, publishError string
+	if err := r.pool.QueryRow(ctx, `SELECT published_at,parse_attempted_at FROM raw_archive_index WHERE message_id='m1'`).Scan(&published, &parsedAt); err != nil || published != now+1 || parsedAt != now+2 {
+		t.Fatalf("m1 published=%d parsed=%d %v", published, parsedAt, err)
+	}
+	if err := r.pool.QueryRow(ctx, `SELECT parse_error,last_publish_error,published_at FROM raw_archive_index WHERE message_id='m2'`).Scan(&parseError, &publishError, &published); err != nil || parseError != "bad frame" || publishError != "broker down" || published != 0 {
+		t.Fatalf("m2 %q %q %d %v", parseError, publishError, published, err)
+	}
+	// Freshly archived unpublished messages are left to the normal path.
+	if pending, err := r.ListPendingRawIndexes(ctx, 10); err != nil || len(pending) != 0 {
+		t.Fatalf("fresh message offered for republish: %v %v", pending, err)
+	}
+}

@@ -25,7 +25,7 @@ func RawReservation(t *testing.T, repo ports.Repository) {
 				v.Payload = json.RawMessage(`{"x":2}`)
 				v.ProtocolVersion = "other"
 			}
-			canonical, err := repo.ReserveRawMessage(ctx, v)
+			canonical, _, err := repo.ReserveRawMessage(ctx, v)
 			if err != nil {
 				if !errors.Is(err, model.ErrRawConflict) {
 					t.Error(err)
@@ -55,8 +55,8 @@ func RawReservation(t *testing.T, repo ports.Repository) {
 	retry := first
 	retry.ProtocolVersion = "new-version"
 	retry.ReceivedAt = 9999
-	canonical, err := repo.ReserveRawMessage(ctx, retry)
-	if err != nil || canonical.ProtocolVersion != first.ProtocolVersion || canonical.ReceivedAt != first.ReceivedAt {
+	canonical, created, err := repo.ReserveRawMessage(ctx, retry)
+	if err != nil || created || canonical.ProtocolVersion != first.ProtocolVersion || canonical.ReceivedAt != first.ReceivedAt {
 		t.Fatal("retry changed reserved parser snapshot", err)
 	}
 }

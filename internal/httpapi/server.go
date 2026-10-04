@@ -457,6 +457,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		problem(w, 500, err.Error())
 		return
 	}
+	s.engine.ProtocolsChanged(c.TenantID)
 	// Versioned protocols are parsed by the bound release; the binding is their single source.
 	_, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
 	if newProduct && v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {

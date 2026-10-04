@@ -10,7 +10,7 @@ type rawReservation struct {
 	Hash     string
 }
 
-func (r *Repository) ReserveRawMessage(_ context.Context, v model.RawMessage) (model.RawMessage, error) {
+func (r *Repository) ReserveRawMessage(_ context.Context, v model.RawMessage) (model.RawMessage, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.rawReservations == nil {
@@ -19,14 +19,14 @@ func (r *Repository) ReserveRawMessage(_ context.Context, v model.RawMessage) (m
 	k := key(v.TenantID, v.MessageID)
 	if old, ok := r.rawReservations[k]; ok {
 		if old.Hash != v.PayloadHash() || old.Metadata.ProductID != v.ProductID || old.Metadata.DeviceID != v.DeviceID {
-			return v, model.ErrRawConflict
+			return v, false, model.ErrRawConflict
 		}
 		canonical := clone(old.Metadata)
 		canonical.Payload = append(canonical.Payload[:0], v.Payload...)
-		return canonical, nil
+		return canonical, false, nil
 	}
 	metadata := clone(v)
 	metadata.Payload = nil
 	r.rawReservations[k] = rawReservation{Metadata: metadata, Hash: v.PayloadHash()}
-	return v, nil
+	return v, true, nil
 }

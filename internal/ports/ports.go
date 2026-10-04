@@ -40,7 +40,9 @@ type Repository interface {
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
 	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)
 	ListManagedDeviceChildren(context.Context, string, string, int, int) ([]model.ManagedDevice, int, error)
-	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, error)
+	// ReserveRawMessage returns the canonical reserved message and whether
+	// this call created the reservation.
+	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, bool, error)
 	AcquireExecutionLease(context.Context, string, string, string, string, time.Duration) (model.ExecutionLease, bool, error)
 	GetExecutionLease(context.Context, string, string) (model.ExecutionLease, error)
 	ReleaseExecutionLease(context.Context, model.ExecutionLease) error
