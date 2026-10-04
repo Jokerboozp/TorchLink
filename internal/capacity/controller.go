@@ -1444,6 +1444,7 @@ func PipelineFor(rounds []Round, seconds float64) Pipeline {
 	}
 	pl.ArchivedPerSec, pl.ParsedPerSec, pl.AlarmsPerSec = rate("raw_archive_success_total"), rate("parse_success_total"), rate("alarm_trigger_total")
 	pl.MetricsValid = pl.ArchivedPerSec != nil && pl.ParsedPerSec != nil
+	pl.DeadLetters = appearingCounterIncrease(rounds, "dlq_published_total")
 	backlog := BacklogSeries(rounds)
 	for _, pt := range backlog {
 		if pt.Valid {

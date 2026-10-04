@@ -1,0 +1,50 @@
+# 24-hour soak at a fixed rate (typically 50-70% of the measured capacity).
+# Checks that backlog, memory and latency stay flat, nothing is lost and no
+# message reaches a dead-letter topic over a full day, including the nightly
+# backup and retention jobs. Run it on the target environment; a passing local
+# run does not certify production.
+schemaVersion: 1
+name: soak-24h
+suite: core
+preset: soak
+seed: 20261004
+target:
+  inventoryRef: inventory.local.yaml
+  environmentClass: dedicated-test
+  deployment: single-node
+credentials:
+  operatorSecretRef: capacity-operator
+fixtures:
+  tenant: tenant_001
+  product: cap-standard
+  devicePrefix: cap
+  deviceCount: 1000
+  reuseDevices: true
+  messageBytes: 512
+  fields: 6
+  alarmFraction: 0.01
+  alarmRecovers: true
+  autoProvision: true
+load:
+  ingressShare: {http: 0.4, mqtt: 0.6}
+  initialMessagesPerSecond: 200
+  mqttConnections: 300
+  queryRequestsPerSecond: 2
+  queryMix: {devices: 0.4, alarms: 0.2, rawMessages: 0.2, dashboard: 0.2}
+search:
+  rates: [200]
+  warmup: 5m
+  measure: 24h
+  drainTimeout: 30m
+slo:
+  successRatio: 0.999
+  businessP95: 2s
+  businessP99: 5s
+  maximumUnaccountedConfirmedMessages: 0
+budget:
+  maximumWallTime: 26h
+  maximumMessagesPerSecond: 3000
+  maximumDevices: 2000
+  maximumEvidenceGiB: 50
+outputs:
+  formats: [html, markdown, json, csv, svg]

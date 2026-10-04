@@ -12,3 +12,12 @@ actions:
     inject: [docker, pause, iot-redis]
     recover: [docker, unpause, iot-redis]
     timeout: 30s
+  # PostgreSQL outage for resilience-postgres.yaml. Single node: the database
+  # stops and comes back (Compose container name <project>-postgres-1).
+  # Cluster: replace with the HA tool's switchover, e.g.
+  #   inject:  [patronictl, -c, /etc/patroni.yml, switchover, --force]
+  #   recover: [patronictl, -c, /etc/patroni.yml, list]
+  restart-postgres:
+    inject: [docker, stop, iot-platform-online-postgres-1]
+    recover: [docker, start, iot-platform-online-postgres-1]
+    timeout: 120s

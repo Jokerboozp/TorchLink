@@ -236,7 +236,7 @@ go run ./cmd/capacity-test run --plan <同一计划> --resume <runId>   # 控制
 go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比较与扩容效率 E(n)
 ```
 
-- **计划**：示例见 `cmd/capacity-test/examples/`（`core-mixed`、`quick-local`、`full-system`、`resilience`）。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）、`soak`（单档长持有）或 `resilience`（固定背景负载 + 故障注入）。`suite: full` 时未启用的业务模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
+- **计划**：示例见 `cmd/capacity-test/examples/`（`core-mixed`、`quick-local`、`full-system`、`resilience`、`resilience-postgres`、`soak-24h`）。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）、`soak`（单档长持有）或 `resilience`（固定背景负载 + 故障注入）。`suite: full` 时未启用的业务模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
 - **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 及 `parser`/`processor`/`jobs` 等拆分角色都要列）、Agent 与核对库的秘密引用。可选 `web`（管理端地址，视频场景经其拉取 HLS）与 `nodes`（各主机 node-exporter 地址，报告生成主机 CPU/内存/磁盘图 `hosts.svg`，瓶颈归类识别主机饱和）。控制器只访问清单中的地址。
 - **秘密**：计划与清单只写引用名；值来自环境变量 `TORCHLINK_CAPACITY_SECRET_<名称>`（`-`、`.` 换成 `_`，大写）或权限 0600 的 `--secrets` YAML 文件。需要：操作员 Bearer 令牌、核对用 PostgreSQL DSN（建议只读账户）、可选 ClickHouse URL、远程 Agent 共享令牌。报告生成时会检查秘密值没有出现在任何证据文件中。
 - **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下以 `trial: true` 创建试验设备，前缀区分；调用者仍须具有设备登记和模板配置权限。容量测试不会把自动创建的模板标记为已通过首台实机验证，普通设备登记仍须完成正式验证。`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束保留设备以便复测，保留范围写在 `manifest.json`；不再需要时在管理页删除运行或清理全部测试数据（见 [测试数据清理](#测试数据清理)）。
@@ -273,6 +273,10 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 故障命令只在 Agent 主机本地登记：`capacity-test agent --fault-allow faults.yaml`（进程内 Agent 用 `run --fault-allow`），文件权限须为 0600，格式见 `cmd/capacity-test/examples/faults.example.yaml`（动作名 → `inject`/`recover` 的 argv，不经 shell）。计划的 `faults.actions` 只能按名称引用，预检确认动作确实登记在对应 Agent；释放运行或控制器租约过期时 Agent 自动执行未完成的恢复。
 
 `resilience` 档在测量窗口内按 `at`/`duration` 注入并恢复。常规 SLO 改为“仅记录”，完整性、排空和恢复时间决定结论：恢复时间从恢复命令完成起算，直到解析成功速率回到注入前基线的 90% 且积压回到基线附近，超过 `faults.maxRecovery` 判为失败。报告包含故障表与 `recovery.svg`。
+
+每一档都核对平台的 `dlq_published_total`：窗口内有消息进入死信主题即判为完整性失败（该计数只在首次写入死信后出现，成功抓取但没有该计数视为 0）。`faults.zeroLoss: true` 要求证明故障期间零丢失：计划须设置 `fixtures.alarmFraction > 0`，并给出 `alarmRuleId` 或 `autoProvision`，以便逐设备核对告警序列；死信计数无法观测或告警未完成核对时，结论为证据不足。
+
+`resilience-postgres.yaml` 在背景负载下让 PostgreSQL 中断 60 秒（单机为停止再启动；集群改用 HA 工具的主备切换，见故障白名单示例的注释），以“死信为 0、告警零丢失、已确认消息不缺失、在 `faults.maxRecovery` 内恢复”判定。依赖故障时消费者原位暂停重试，中断时长须小于 `IOT_CONSUMER_MAX_BLOCK`。`soak-24h.yaml` 是 24 小时固定速率长稳示例，覆盖夜间备份与保留任务。仓库只校验计划；实际长稳与切换结论须在目标环境运行后得出。
 
 ### 容量测试模块
 

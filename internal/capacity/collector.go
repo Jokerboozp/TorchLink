@@ -235,6 +235,47 @@ func CounterIncrease(rounds []Round, name string) (float64, bool) {
 	return sum, true
 }
 
+// appearingCounterIncrease sums the increase of a counter that a process only
+// exports after its first increment (such as dlq_published_total): a
+// successful scrape without the counter reads as zero. It is nil when no
+// instance was scraped successfully twice.
+func appearingCounterIncrease(rounds []Round, name string) *float64 {
+	type state struct {
+		last float64
+		seen int
+	}
+	per := map[string]*state{}
+	total, observed := 0.0, false
+	for _, r := range rounds {
+		for _, s := range r.Instances {
+			if !s.OK {
+				continue
+			}
+			v := s.Values[name]
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
+			st := per[s.Instance]
+			if st == nil {
+				per[s.Instance] = &state{last: v, seen: 1}
+				continue
+			}
+			if v >= st.last {
+				total += v - st.last
+			} else {
+				total += v
+			}
+			st.last = v
+			st.seen++
+			observed = true
+		}
+	}
+	if !observed {
+		return nil
+	}
+	return &total
+}
+
 // Point is one chartable value; Valid=false marks a gap.
 type Point struct {
 	At    int64   `json:"at"`

@@ -1,0 +1,55 @@
+# Resilience: PostgreSQL becomes unavailable for 60 seconds under a fixed
+# background load (single node: restart; cluster: primary switchover, see
+# faults.example.yaml). With faults.zeroLoss the step passes only when no
+# message reached a dead-letter topic, every device's alarms match its report
+# sequence, no confirmed message is missing, and the pipeline recovers within
+# faults.maxRecovery. Consumers pause on the outage instead of dead-lettering
+# (IOT_CONSUMER_MAX_BLOCK, default 30m, must exceed the outage).
+schemaVersion: 1
+name: resilience-postgres-outage
+suite: core
+preset: resilience
+seed: 20261004
+target:
+  inventoryRef: inventory.local.yaml
+  environmentClass: dedicated-test
+  deployment: single-node
+credentials:
+  operatorSecretRef: capacity-operator
+fixtures:
+  tenant: tenant_001
+  product: cap-standard
+  devicePrefix: cap
+  deviceCount: 200
+  reuseDevices: true
+  messageBytes: 512
+  fields: 6
+  alarmFraction: 0.05        # reports that raise the test alarm
+  alarmRecovers: true
+  autoProvision: true        # creates cap-standard and the cap-stress-alarm rule
+load:
+  ingressShare: {http: 0.4, mqtt: 0.6}
+  initialMessagesPerSecond: 100
+  mqttConnections: 100
+  queryRequestsPerSecond: 1
+  queryMix: {devices: 0.5, alarms: 0.5}
+search:
+  rates: [100]               # 50-70% of the measured capacity
+  warmup: 30s
+  measure: 6m
+  drainTimeout: 15m
+slo:
+  maximumUnaccountedConfirmedMessages: 0
+faults:
+  enabled: true
+  zeroLoss: true
+  maxRecovery: 5m
+  actions:
+    - {agent: local, action: restart-postgres, at: 90s, duration: 60s}
+budget:
+  maximumWallTime: 2h
+  maximumMessagesPerSecond: 3000
+  maximumDevices: 1000
+  maximumEvidenceGiB: 5
+outputs:
+  formats: [html, markdown, json, csv, svg]

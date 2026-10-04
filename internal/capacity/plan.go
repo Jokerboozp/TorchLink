@@ -291,6 +291,11 @@ type Faults struct {
 	// MaxRecovery bounds the time from recovery until the pipeline is back
 	// to normal (backlog drained, success restored).
 	MaxRecovery Duration `yaml:"maxRecovery" json:"maxRecovery"`
+	// ZeroLoss makes the step prove that nothing was lost across the fault:
+	// alarms are reconciled per device (fixtures.alarmRuleId or
+	// autoProvision with alarmFraction > 0), and the dead-letter counter
+	// must be observed at zero.
+	ZeroLoss bool `yaml:"zeroLoss" json:"zeroLoss"`
 }
 
 type FaultAction struct {
@@ -575,6 +580,9 @@ func (p *Plan) Validate() error {
 		}
 		if len(p.Search.Rates) != 1 {
 			bad("preset resilience needs exactly one background rate in search.rates")
+		}
+		if p.Faults.ZeroLoss && (p.Fixtures.AlarmFraction <= 0 || (p.Fixtures.AlarmRuleID == "" && !p.Fixtures.AutoProvision)) {
+			bad("faults.zeroLoss needs fixtures.alarmFraction > 0 and fixtures.alarmRuleId or fixtures.autoProvision, so alarms are reconciled")
 		}
 	}
 	for _, format := range p.Outputs.Formats {

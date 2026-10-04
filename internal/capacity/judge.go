@@ -56,8 +56,11 @@ type Pipeline struct {
 	BacklogEnd         *float64 `json:"backlogEnd"`
 	BacklogSlopePerSec *float64 `json:"backlogSlopePerSec"`
 	BacklogPoints      int      `json:"backlogPoints"`
-	FailedScrapes      int      `json:"failedScrapes"`
-	Rounds             int      `json:"rounds"`
+	// DeadLetters counts messages the platform moved to a dead-letter topic
+	// in the window; nil when no platform metrics were scraped twice.
+	DeadLetters   *float64 `json:"deadLetters"`
+	FailedScrapes int      `json:"failedScrapes"`
+	Rounds        int      `json:"rounds"`
 }
 
 type Drain struct {
@@ -293,8 +296,22 @@ func Judge(p *Plan, r *PhaseRecord) {
 			}
 		}
 	}
+	// 7. No message may end in a dead-letter topic.
+	switch dl := r.Pipeline.DeadLetters; {
+	case dl != nil && *dl > 0:
+		add("死信", VerdictFailed, ReasonIntegrity, "窗口内有 %.0f 条消息进入死信主题，见运维中心死信列表", *dl)
+	case dl != nil:
+		add("死信", VerdictPassed, "", "窗口内没有消息进入死信主题")
+	case resilience && p.Faults.ZeroLoss:
+		add("死信", VerdictInconclusive, ReasonObservability, "没有可用的平台指标，无法确认死信数量")
+	}
 	if resilience {
 		judgeFaults(p, r, add)
+		if p.Faults.ZeroLoss && r.Integrity.UniqueSent > 0 && r.Integrity.AlarmDevicesChecked == 0 {
+			add("告警零丢失", VerdictInconclusive, ReasonObservability, "未完成告警序列核对，无法确认故障期间告警零丢失")
+		} else if p.Faults.ZeroLoss && r.Integrity.AlarmDevicesChecked > 0 && r.Integrity.AlarmMismatches == 0 {
+			add("告警零丢失", VerdictPassed, "", "%d 台设备的告警与上报序列一致", r.Integrity.AlarmDevicesChecked)
+		}
 	}
 	r.Verdict, r.StopReason = VerdictPassed, ""
 	order := []string{ReasonIntegrity, ReasonService, ReasonPolicy}

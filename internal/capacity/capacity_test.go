@@ -454,7 +454,7 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 	if err := validPlan().Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"core-mixed.yaml", "quick-local.yaml", "full-system.yaml", "resilience.yaml"} {
+	for _, name := range []string{"core-mixed.yaml", "quick-local.yaml", "full-system.yaml", "resilience.yaml", "resilience-postgres.yaml", "soak-24h.yaml"} {
 		p, err := LoadPlan(filepath.Join("..", "..", "cmd", "capacity-test", "examples", name))
 		if err != nil || p.Validate() != nil {
 			t.Fatalf("example %s must stay valid: %v %v", name, err, p.Validate())
@@ -464,10 +464,16 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 		t.Fatal("unknown field accepted")
 	}
 	cases := map[string]func(p *Plan){
-		"sum to 1":              func(p *Plan) { p.Load.IngressShare["http"] = 0.7 },
-		"resilience":            func(p *Plan) { p.Preset = PresetResilience },
-		"hard maxRuns budget":   func(p *Plan) { p.Modules.AI.Enabled = true; p.Modules.AI.Mode = "mock" },
-		"only by) preset":       func(p *Plan) { p.Faults.Enabled = true },
+		"sum to 1":            func(p *Plan) { p.Load.IngressShare["http"] = 0.7 },
+		"resilience":          func(p *Plan) { p.Preset = PresetResilience },
+		"hard maxRuns budget": func(p *Plan) { p.Modules.AI.Enabled = true; p.Modules.AI.Mode = "mock" },
+		"only by) preset":     func(p *Plan) { p.Faults.Enabled = true },
+		"zeroLoss needs": func(p *Plan) {
+			p.Preset, p.Faults.Enabled, p.Faults.ZeroLoss = PresetResilience, true, true
+			p.Search.Rates = []float64{p.Load.InitialMessagesPerSecond}
+			p.Faults.Actions = []FaultAction{{Agent: "local", Action: "restart-postgres", At: 0, Duration: Duration(time.Second)}}
+			p.Fixtures.AlarmFraction = 0
+		},
 		"is unknown":            func(p *Plan) { p.Outputs.Formats = []string{"gif"} },
 		"perDeviceMaxPerSecond": func(p *Plan) { p.Load.InitialMessagesPerSecond = 3000; p.Budget.MaximumMessagesPerSecond = 5000 },
 		"maximumMessagesPerSec": func(p *Plan) { p.Load.InitialMessagesPerSecond = 900 },
@@ -632,6 +638,43 @@ func TestJudgeSeparatesServicePolicyGeneratorAndIntegrityOutcomes(t *testing.T) 
 	Judge(p, &r)
 	if r.Verdict != VerdictInconclusive || r.StopReason != ReasonObservability {
 		t.Fatal("missing backlog metrics must not pass", r.Verdict)
+	}
+	// A message in a dead-letter topic is lost to the business chain.
+	r = passingRecord()
+	dead := 2.0
+	r.Pipeline.DeadLetters = &dead
+	Judge(p, &r)
+	if r.Verdict != VerdictFailed || r.StopReason != ReasonIntegrity {
+		t.Fatal("dead letters must fail integrity", r.Verdict, r.Checks)
+	}
+	// A zero-loss resilience step needs both the dead-letter counter and the
+	// alarm reconciliation as evidence.
+	p.Preset, p.Faults.Enabled, p.Faults.ZeroLoss = PresetResilience, true, true
+	r = passingRecord()
+	r.Kind = PresetResilience
+	Judge(p, &r)
+	if r.Verdict != VerdictInconclusive || r.StopReason != ReasonObservability {
+		t.Fatal("zero loss without evidence must not pass", r.Verdict, r.Checks)
+	}
+	zero := 0.0
+	r = passingRecord()
+	r.Kind, r.Pipeline.DeadLetters, r.Integrity.AlarmDevicesChecked = PresetResilience, &zero, 20
+	Judge(p, &r)
+	if r.Verdict != VerdictPassed {
+		t.Fatal("zero-loss evidence", r.Checks)
+	}
+}
+
+func TestDeadLetterCounterAppearsAfterFirstIncrement(t *testing.T) {
+	round := func(at int64, values map[string]float64) Round {
+		return Round{At: at, Instances: []InstanceSample{{Instance: "api", OK: true, Values: values}, {Instance: "node", OK: true, Values: map[string]float64{}}}}
+	}
+	rounds := []Round{round(0, map[string]float64{"parse_success_total": 1}), round(1000, map[string]float64{"dlq_published_total": 1}), round(2000, map[string]float64{"dlq_published_total": 3})}
+	if v := appearingCounterIncrease(rounds, "dlq_published_total"); v == nil || *v != 3 {
+		t.Fatalf("dead letters counted from absent zero: %v", v)
+	}
+	if v := appearingCounterIncrease(rounds[:1], "dlq_published_total"); v != nil {
+		t.Fatal("one scrape cannot prove zero dead letters")
 	}
 }
 
