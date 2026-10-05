@@ -92,7 +92,7 @@ function changeUnregisteredPage(value) { unregisteredPage.value = value; load() 
 function changeUnregisteredPageSize(value) { unregisteredPageSize.value = value; unregisteredPage.value = 1; load() }
 
 // 编辑设备；新设备统一通过“添加设备”向导创建。
-const blank = () => ({ id: '', name: '', productId: '', deviceRole: 'DIRECT', gatewayId: '', status: 'ENABLED', tags: [{ key: '', value: '' }], description: '' })
+const blank = () => ({ id: '', name: '', productId: '', deviceRole: 'DIRECT', gatewayId: '', status: 'ENABLED', tags: [{ key: '', value: '' }], description: '', reportIntervalSec: null, offlineToleranceSec: null })
 const form = reactive(blank())
 async function loadGateways() {
   try { gateways.value = ((await apiAll('/api/v1/device-registry?role=GATEWAY')).items || []).filter(item => roleOf(item.device) === 'GATEWAY') }
@@ -271,6 +271,11 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); window.removeEventListener('i
         <ui-collapse class="device-advanced">
           <ui-collapse-item title="状态、标签与备注" name="advanced">
             <ui-form-item label="启用设备"><ui-switch v-model="form.status" active-value="ENABLED" inactive-value="DISABLED" active-text="已启用" inactive-text="已停用" /></ui-form-item>
+            <div class="device-timing">
+              <ui-form-item label="上报周期（秒）"><ui-input-number v-model="form.reportIntervalSec" :min="10" :max="604800" clearable placeholder="沿用设备模板" /></ui-form-item>
+              <ui-form-item label="离线容差（秒）"><ui-input-number v-model="form.offlineToleranceSec" :min="0" :max="86400" clearable placeholder="沿用设备模板" /></ui-form-item>
+            </div>
+            <small class="device-timing-note">留空时使用设备模板设置；超过“上报周期 + 离线容差”未收到数据即判定离线。</small>
             <div class="device-tags">
               <p class="device-tags__title">设备标签<small>用名称和内容记录楼层、区域等检索线索</small></p>
               <div v-for="(row, index) in form.tags" :key="index" class="device-tag-row"><ui-input v-model="row.key" placeholder="名称，例如楼层" aria-label="标签名称" /><ui-input v-model="row.value" placeholder="内容，例如一层" aria-label="标签内容" /><ui-button text @click="form.tags.splice(index, 1)">移除</ui-button></div>
@@ -315,4 +320,7 @@ onBeforeUnmount(() => { clearTimeout(searchTimer); window.removeEventListener('i
   :deep(.filter-bar__filters .ui-input.devices-search) { flex-basis: 100%; }
   :deep(.filter-bar__filters .ui-select.devices-select) { width: auto; }
 }
+.device-timing { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 12px; }
+.device-timing-note { display:block; margin:-6px 0 12px; color:var(--text-muted); font-size:12px; }
+@media (max-width: 640px) { .device-timing { grid-template-columns:1fr; } }
 </style>

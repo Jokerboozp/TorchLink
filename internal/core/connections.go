@@ -10,7 +10,8 @@ func (e *Engine) ReportConnection(ctx context.Context, tenant, product, device s
 	defer unlock()
 	before, after, written, err := e.mutateDeviceState(ctx, tenant, device, func(state *model.DeviceState, found bool) (bool, error) {
 		if !found {
-			*state = model.DeviceState{TenantID: tenant, ProductID: product, DeviceID: device, DataStatus: "UNKNOWN", BusinessStatus: "UNKNOWN", ReportIntervalSec: 300, OfflineToleranceSec: 60}
+			interval, tolerance := e.deviceTiming(ctx, tenant, product, device)
+			*state = model.DeviceState{TenantID: tenant, ProductID: product, DeviceID: device, DataStatus: "UNKNOWN", BusinessStatus: "UNKNOWN", ReportIntervalSec: interval, OfflineToleranceSec: tolerance}
 		}
 		state.ConnectionStatus = "DISCONNECTED"
 		if !connected {

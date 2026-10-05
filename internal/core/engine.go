@@ -522,6 +522,9 @@ func (e *Engine) applyMessageState(ctx context.Context, msg model.StandardMessag
 				return false, err
 			}
 		}
+		if !found {
+			state.ReportIntervalSec, state.OfflineToleranceSec = e.deviceTiming(ctx, msg.TenantID, msg.ProductID, msg.DeviceID)
+		}
 		return nextMessageState(state, found, msg, reconcile, open), nil
 	})
 	if err == nil && written {
@@ -535,7 +538,11 @@ func (e *Engine) applyMessageState(ctx context.Context, msg model.StandardMessag
 // follows the device's open alarms.
 func nextMessageState(state *model.DeviceState, found bool, msg model.StandardMessage, reconcile, open bool) bool {
 	if !found {
-		*state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: 300, OfflineToleranceSec: 60, ConnectionStatus: "UNKNOWN"}
+		interval, tolerance := state.ReportIntervalSec, state.OfflineToleranceSec
+		if interval <= 0 {
+			interval, tolerance = model.DefaultReportIntervalSec, model.DefaultOfflineToleranceSec
+		}
+		*state = model.DeviceState{TenantID: msg.TenantID, ProductID: msg.ProductID, DeviceID: msg.DeviceID, ReportIntervalSec: interval, OfflineToleranceSec: tolerance, ConnectionStatus: "UNKNOWN"}
 	}
 	// Late retransmissions remain archived but must not roll back current state.
 	late := msg.Timestamp < state.LastSeenAt
@@ -597,6 +604,9 @@ func (e *Engine) completeStandard(ctx context.Context, msg model.StandardMessage
 			current = model.DeviceState{}
 		}
 		next := current
+		if !found {
+			next.ReportIntervalSec, next.OfflineToleranceSec = e.deviceTiming(ctx, msg.TenantID, msg.ProductID, msg.DeviceID)
+		}
 		var write *model.DeviceState
 		if nextMessageState(&next, found, msg, true, open) {
 			next.TenantID, next.DeviceID, next.Version = msg.TenantID, msg.DeviceID, current.Version

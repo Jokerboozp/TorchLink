@@ -424,6 +424,10 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, err.Error())
 		return
 	}
+	if err := model.ValidateDeviceTiming(v.ReportIntervalSec, v.OfflineToleranceSec); err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
 	if v.VerificationRules != nil {
 		rules, e := onboarding.NormalizeVerificationRules(*v.VerificationRules)
 		if e != nil {
@@ -447,9 +451,10 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		v.Status = "ENABLED"
 	}
 	now := time.Now().UnixMilli()
-	newProduct := false
+	newProduct, timingChanged := false, false
 	if old, getErr := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID); getErr == nil {
 		v.CreatedAt = old.CreatedAt
+		timingChanged = old.ReportIntervalSec != v.ReportIntervalSec || old.OfflineToleranceSec != v.OfflineToleranceSec
 		if v.ProtocolPackageID != old.ProtocolPackageID {
 			problem(w, 409, "协议版本变更请在模板准备流程中保存候选配置并明确应用")
 			return
@@ -498,9 +503,25 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status})
+	if timingChanged {
+		s.applyTemplateTiming(c.TenantID, v.ID)
+	}
+	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status, "reportIntervalSec": v.ReportIntervalSec, "offlineToleranceSec": v.OfflineToleranceSec})
 	write(w, 201, v)
 }
+// applyTemplateTiming moves existing device states of a template to its new
+// reporting timing in the background; a large template must not hold the
+// request open.
+func (s *Server) applyTemplateTiming(tenant, productID string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if changed, err := s.engine.ApplyDeviceTiming(ctx, tenant, productID, ""); err != nil {
+			s.log.Error("apply template reporting timing failed", "tenant", tenant, "product", productID, "updated", changed, "error", err)
+		}
+	}()
+}
+
 func (s *Server) protocolPackages(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProtocolPackagesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
@@ -708,14 +729,19 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "name and productId are required")
 		return
 	}
+	if err := model.ValidateDeviceTiming(v.ReportIntervalSec, v.OfflineToleranceSec); err != nil {
+		problem(w, 422, err.Error())
+		return
+	}
 	product, err := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ProductID)
 	if err != nil {
 		problem(w, 422, "product not found")
 		return
 	}
 	now := time.Now().UnixMilli()
-	created := false
+	created, timingChanged := false, false
 	if old, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.ID); err == nil {
+		timingChanged = old.ReportIntervalSec != v.ReportIntervalSec || old.OfflineToleranceSec != v.OfflineToleranceSec
 		if old.RegistrationSource == "PROTOCOL_CHILD_AUTO" {
 			if v.ProductID != old.ProductID || v.GatewayID != old.GatewayID || v.DeviceRole != "CHILD" {
 				problem(w, 422, "自动注册子设备的产品与主设备归属不可直接改写")
@@ -829,6 +855,11 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
 		problem(w, 500, err.Error())
 		return
+	}
+	if timingChanged {
+		if _, err := s.engine.ApplyDeviceTiming(r.Context(), c.TenantID, v.ProductID, v.ID); err != nil {
+			s.log.Error("apply device reporting timing failed", "device", v.ID, "error", err)
+		}
 	}
 	s.audit(r, "device.save", "device", v.ID, map[string]any{"productId": v.ProductID, "status": v.Status})
 	write(w, 201, map[string]any{"device": v.Public(product)})

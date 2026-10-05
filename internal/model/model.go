@@ -263,8 +263,30 @@ type Product struct {
 	Status            string             `json:"status"`
 	Description       string             `json:"description,omitempty"`
 	Metadata          map[string]any     `json:"metadata,omitempty"`
-	CreatedAt         int64              `json:"createdAt"`
-	UpdatedAt         int64              `json:"updatedAt"`
+	// ReportIntervalSec is how often devices of this template report and
+	// OfflineToleranceSec how much later they may be before being marked
+	// offline; zero uses DefaultReportIntervalSec / DefaultOfflineToleranceSec.
+	ReportIntervalSec   int64 `json:"reportIntervalSec,omitempty"`
+	OfflineToleranceSec int64 `json:"offlineToleranceSec,omitempty"`
+	CreatedAt           int64 `json:"createdAt"`
+	UpdatedAt           int64 `json:"updatedAt"`
+}
+
+// Default reporting timing of devices whose template and registration set none.
+const (
+	DefaultReportIntervalSec   = 300
+	DefaultOfflineToleranceSec = 60
+)
+
+// ValidateDeviceTiming checks configured reporting timing; zero means unset.
+func ValidateDeviceTiming(interval, tolerance int64) error {
+	if interval != 0 && (interval < 10 || interval > 7*24*3600) {
+		return fmt.Errorf("上报周期须在 10 秒到 7 天之间")
+	}
+	if tolerance < 0 || tolerance > 24*3600 {
+		return fmt.Errorf("离线容差须在 0 到 1 天之间")
+	}
+	return nil
 }
 
 // ProtocolPackage is a declarative protocol-package release. ParserType points
@@ -568,6 +590,10 @@ type ManagedDevice struct {
 	ChildAddress          string `json:"childAddress,omitempty"`
 	ChildType             string `json:"childType,omitempty"`
 	OnboardingRequestHash string `json:"onboardingRequestHash,omitempty"`
+	// ReportIntervalSec and OfflineToleranceSec, when set, override the
+	// template's reporting timing for this device.
+	ReportIntervalSec   int64 `json:"reportIntervalSec,omitempty"`
+	OfflineToleranceSec int64 `json:"offlineToleranceSec,omitempty"`
 }
 
 type DeviceCredential struct {

@@ -90,6 +90,9 @@ func (s *Server) normalizeCandidate(r *http.Request, id string, v model.Template
 	if err = onboarding.ValidateThingModel(v.Product.ThingModel); err != nil {
 		return v, model.ProtocolRelease{}, &onboarding.EnrollError{Status: 422, Message: err.Error()}
 	}
+	if err = model.ValidateDeviceTiming(v.Product.ReportIntervalSec, v.Product.OfflineToleranceSec); err != nil {
+		return v, model.ProtocolRelease{}, &onboarding.EnrollError{Status: 422, Message: err.Error()}
+	}
 	v.VerificationRules, err = onboarding.NormalizeVerificationRules(v.VerificationRules)
 	if err != nil {
 		return v, model.ProtocolRelease{}, err
@@ -339,6 +342,9 @@ func (s *Server) applyPreparedCandidate(r *http.Request, revision int64, rollbac
 	err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: candidate.Product, Package: legacyProtocolShim(release), Binding: binding, Expected: expected, Preparation: &model.TemplateSwitch{ExpectedProduct: current.Product, ExpectedProfiles: current.Profiles, Profiles: candidate.Profiles, Record: rec, ExpectedRevision: rec.Revision}})
 	if err == nil {
 		s.engine.ProtocolsChanged(tenant)
+		if current.Product.ReportIntervalSec != candidate.Product.ReportIntervalSec || current.Product.OfflineToleranceSec != candidate.Product.OfflineToleranceSec {
+			s.applyTemplateTiming(tenant, id)
+		}
 		s.audit(r, "template.apply", "product", id, map[string]any{"fingerprint": newFP, "previousFingerprint": oldFP, "rollback": rollback})
 	}
 	return err
