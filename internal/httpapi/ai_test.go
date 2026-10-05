@@ -1545,3 +1545,24 @@ func TestAIProviderConfigSaveFailureRestoresPreviousEverywhere(t *testing.T) {
 		t.Fatalf("Harness was not restored: %+v", workflow.updates)
 	}
 }
+
+// Heartbeat comments keep a quiet stream open; they share the writer with
+// events and stop before the handler returns.
+func TestSSEWriterInterleavesHeartbeatsAndStopsOnClose(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	stream := newSSEWriter(recorder, recorder)
+	go stream.heartbeat(context.Background(), 5*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+	if err := stream.event(ports.AIWorkflowEvent{Type: "run.started", RunID: "run-1"}); err != nil {
+		t.Fatal(err)
+	}
+	stream.close()
+	body := recorder.Body.String()
+	if !strings.Contains(body, ": keepalive\n\n") || !strings.Contains(body, "event: run.started\n") {
+		t.Fatalf("stream lacks heartbeat or event: %q", body)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if recorder.Body.String() != body {
+		t.Fatal("heartbeat wrote after close")
+	}
+}

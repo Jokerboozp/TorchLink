@@ -44,6 +44,16 @@ function normalizeEvent(raw) {
   return { ...raw, ...nested, type: raw?.type || nested.type || 'message' }
 }
 
+// 知识预检返回的引用来源：只保留展示所需字段，最多 20 条。
+function knowledgeSources(value) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 20).map(item => ({
+    filename: safeText(item?.filename || item?.documentId || '未命名文档'),
+    chunkIndex: Number.isInteger(item?.chunkIndex) ? item.chunkIndex : null,
+    score: Number.isFinite(item?.score) ? item.score : null
+  }))
+}
+
 function addRunEvent(run, event, label, status = 'info', detail = '') {
   run.events.push({
     id: event.eventId || makeId('event'),
@@ -220,6 +230,7 @@ function createAIConversation({ identity, storage, stream }) {
         const toolError = event.error ? normalizeError(event.error, '工具调用失败') : null
         tool.status = event.success === false || ['failed', 'error'].includes(event.status) || toolError ? 'failed' : 'succeeded'
         tool.outputSummary = event.outputSummary || event.output?.summary || ''
+        tool.sources = knowledgeSources(event.sources)
         tool.error = toolError?.message || ''
         tool.durationMs = event.durationMs ?? (event.completedAt ? Math.max(0, timestamp(event.completedAt) - tool.startedAt) : null)
         addRunEvent(

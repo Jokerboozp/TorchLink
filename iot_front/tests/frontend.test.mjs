@@ -276,6 +276,27 @@ test('AI answers keep streaming after leaving the assistant page and show on ret
   returned.unmount()
 })
 
+test('knowledge prefetch sources are kept on the tool card', async t => {
+  t.after(resetAIConversation)
+  const { stream, calls } = manualAIStream()
+  const conversation = useAIConversation({ tenant: 'tenant-a', user: 'alice', accessVersion: 'v1' }, { storage: memoryStorage(), stream })
+  conversation.selectedWorkflowId.value = 'ops-assistant'
+  const answer = conversation.send('烟感告警怎么处置？', { workflowName: '运维助手' })
+  const [request] = calls
+  request.emit({ type: 'tool.started', callId: 'prefetch', tool: 'query_knowledge_base' })
+  request.emit({
+    type: 'tool.completed',
+    callId: 'prefetch',
+    tool: 'query_knowledge_base',
+    success: true,
+    data: { outputSummary: '召回 1 条绑定知识', sources: [{ documentId: 'doc-1', filename: '烟感手册.pdf', chunkIndex: 2, score: 0.83 }] }
+  })
+  request.emit({ type: 'run.completed' })
+  request.finish()
+  await answer
+  assert.deepEqual(conversation.messages.value.at(-1).tools[0].sources, [{ filename: '烟感手册.pdf', chunkIndex: 2, score: 0.83 }])
+})
+
 test('AI background runs stop when authorization changes or the user logs out', async t => {
   t.after(resetAIConversation)
   const storage = memoryStorage()

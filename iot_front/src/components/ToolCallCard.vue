@@ -36,10 +36,18 @@ function safeSummary(value) {
       <ui-tag :type="statusMeta.type" size="small" effect="light">{{ statusMeta.label }}</ui-tag>
     </header>
     <div class="tool-meta">
-      <span v-if="tool.toolCallId">标识 · {{ tool.toolCallId }}</span>
       <span v-if="tool.durationMs != null">{{ tool.durationMs }} 毫秒</span>
       <ui-button v-if="hasDetails" plain size="small" @click="expanded = !expanded">{{ expanded ? '收起详情' : '查看详情' }}</ui-button>
     </div>
+    <ol v-if="tool.sources?.length" class="tool-sources" aria-label="引用来源">
+      <li v-for="(source, index) in tool.sources" :key="index">
+        <span>{{ source.filename }}</span
+        ><small
+          >{{ source.chunkIndex != null ? `第 ${source.chunkIndex + 1} 段` : ''
+          }}{{ source.score != null ? ` · 相关度 ${source.score}` : '' }}</small
+        >
+      </li>
+    </ol>
     <div v-if="expanded" class="tool-details">
       <section v-if="tool.inputSummary">
         <strong>输入摘要</strong>
@@ -55,6 +63,18 @@ function safeSummary(value) {
 </template>
 
 <style scoped>
+.tool-sources {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.tool-sources small {
+  margin-left: var(--space-2);
+  color: var(--text-muted);
+}
 .tool-card {
   margin-top: 10px;
   padding: 10px 11px;

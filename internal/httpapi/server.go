@@ -15,6 +15,7 @@ import (
 	"io"
 	"iot-platform/internal/aiworkflow"
 	"log/slog"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -2181,29 +2182,85 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 	if workflowID == "" {
 		workflowID = in.Workflow
 	}
+	stream := newSSEWriter(w, flusher)
+	defer stream.close()
+	go stream.heartbeat(r.Context(), sseHeartbeatInterval)
 	terminal := false
 	result, err := s.runAIWorkflow(r.Context(), claims(r), in.Question, workflowID, in.ConversationID, in.Model, in.MaxTokens, func(event ports.AIWorkflowEvent) error {
 		if event.Type == "run.completed" || event.Type == "run.failed" {
 			terminal = true
 		}
-		event = sanitizeWorkflowEvent(event)
-		if err := writeWorkflowSSE(w, event); err != nil {
+		if err := stream.event(sanitizeWorkflowEvent(event)); err != nil {
 			return err
 		}
-		flusher.Flush()
 		return r.Context().Err()
 	})
 	if err != nil {
 		if r.Context().Err() == nil && !terminal {
-			_ = writeWorkflowSSE(w, ports.AIWorkflowEvent{Type: "run.failed", RunID: result.RunID, Code: "workflow_failed", Message: "AI workflow request failed"})
-			flusher.Flush()
+			_ = stream.event(ports.AIWorkflowEvent{Type: "run.failed", RunID: result.RunID, Code: "workflow_failed", Message: "AI workflow request failed"})
 		}
 		return
 	}
 	if !terminal {
-		_ = writeWorkflowSSE(w, ports.AIWorkflowEvent{Type: "run.completed", RunID: result.RunID, WorkflowID: result.WorkflowID, Model: result.Model, Answer: result.Answer})
-		flusher.Flush()
+		_ = stream.event(ports.AIWorkflowEvent{Type: "run.completed", RunID: result.RunID, WorkflowID: result.WorkflowID, Model: result.Model, Answer: result.Answer})
 	}
+}
+
+// sseHeartbeatInterval keeps proxies from closing a stream while the model
+// is still thinking and no event has been sent yet.
+var sseHeartbeatInterval = 20 * time.Second
+
+// sseWriter serialises workflow events and heartbeat comments on one stream.
+// close waits for the heartbeat so nothing writes after the handler returns.
+type sseWriter struct {
+	mu      sync.Mutex
+	w       io.Writer
+	flusher http.Flusher
+	done    chan struct{}
+	stopped chan struct{}
+}
+
+func newSSEWriter(w io.Writer, flusher http.Flusher) *sseWriter {
+	return &sseWriter{w: w, flusher: flusher, done: make(chan struct{}), stopped: make(chan struct{})}
+}
+
+func (s *sseWriter) event(event ports.AIWorkflowEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := writeWorkflowSSE(s.w, event); err != nil {
+		return err
+	}
+	s.flusher.Flush()
+	return nil
+}
+
+func (s *sseWriter) heartbeat(ctx context.Context, every time.Duration) {
+	defer close(s.stopped)
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			_, err := io.WriteString(s.w, ": keepalive\n\n")
+			if err == nil {
+				s.flusher.Flush()
+			}
+			s.mu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *sseWriter) close() {
+	close(s.done)
+	<-s.stopped
 }
 
 func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, workflowID, conversationID, modelName string, maxTokens int, emit func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
@@ -2288,7 +2345,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 		hits, searchErr := s.searchWorkflowKnowledge(ctx, c.TenantID, knowledgeQuestion, binding)
 		success := searchErr == nil
 		if emit != nil {
-			_ = emit(ports.AIWorkflowEvent{Type: "tool.completed", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Success: &success, Data: map[string]any{"outputSummary": fmt.Sprintf("召回 %d 条绑定知识", len(hits))}})
+			_ = emit(ports.AIWorkflowEvent{Type: "tool.completed", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Success: &success, Data: map[string]any{"outputSummary": fmt.Sprintf("召回 %d 条绑定知识", len(hits)), "sources": knowledgeSources(hits)}})
 		}
 		if searchErr != nil {
 			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, fmt.Errorf("prefetch workflow knowledge: %w", searchErr)
@@ -2340,6 +2397,16 @@ func harnessConversationID(tenantID, username, conversationID string) string {
 func sanitizeWorkflowEvent(event ports.AIWorkflowEvent) ports.AIWorkflowEvent {
 	event.Data = sanitizeWorkflowData(event.Data)
 	return event
+}
+
+// knowledgeSources lists where prefetched evidence came from so the browser
+// can cite it; passage text stays with the model.
+func knowledgeSources(hits []ports.KnowledgeHit) []any {
+	sources := make([]any, 0, len(hits))
+	for _, hit := range hits {
+		sources = append(sources, map[string]any{"documentId": hit.DocumentID, "filename": hit.Filename, "chunkIndex": hit.ChunkIndex, "score": math.Round(hit.Score*100) / 100})
+	}
+	return sources
 }
 
 func sanitizeWorkflowData(data map[string]any) map[string]any {
