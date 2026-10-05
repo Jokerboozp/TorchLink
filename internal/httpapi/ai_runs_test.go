@@ -133,7 +133,7 @@ func TestAIRunHistoryPermissionsAndTenantIsolation(t *testing.T) {
 	if !catalog["GET /api/v1/ai/runs/history"] || !catalog["GET /api/v1/ai/runs/usage"] {
 		t.Fatal("run history permissions are not assignable")
 	}
-	admin, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	admin, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestProtocolCommandWithoutLocalListenerIsActionable(t *testing.T) {
 		api := New(config.Config{DevMode: true, AccessCoordination: coordination}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		api.SetProtocolListeners(notLocalCommander{})
 		server := newTestHTTPServer(api)
-		admin, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+		admin, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 		if err != nil {
 			t.Fatal(err)
 		}

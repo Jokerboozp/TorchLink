@@ -8,6 +8,7 @@ import (
 	"io"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
@@ -338,6 +339,9 @@ func (k *KnowledgeRuntime) IndexKnowledgeBatch(ctx context.Context, in []ports.K
 	return k.current().(ports.BatchKnowledgeBase).IndexKnowledgeBatch(ctx, in)
 }
 func (k *KnowledgeRuntime) SearchKnowledge(ctx context.Context, in ports.KnowledgeSearchRequest) ([]ports.KnowledgeHit, error) {
+	if strings.TrimSpace(in.WorkflowID) == "" {
+		return nil, errors.New("knowledge search requires the workflow the documents are bound to")
+	}
 	return k.current().(ports.FilteredKnowledgeBase).SearchKnowledge(ctx, in)
 }
 func (k *KnowledgeRuntime) ListKnowledgeChunks(ctx context.Context, t, id string) ([]model.KnowledgeChunk, error) {

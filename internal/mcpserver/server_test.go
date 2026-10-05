@@ -186,3 +186,22 @@ func TestAlarmToolsReturnSummaryPages(t *testing.T) {
 		t.Fatalf("detail: %v", detail)
 	}
 }
+
+// Outside a Harness run the browser endpoint carries no per-action
+// permissions, so only the built-in administrator may save rule drafts.
+func TestBrowserCreateRuleDraftRequiresBuiltinAdmin(t *testing.T) {
+	repo := memory.NewRepository()
+	handler := New(&core.Engine{Repo: repo})
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_rule_draft","arguments":{"ruleJson":"{\"name\":\"高温\",\"alarmType\":\"HIGH_TEMPERATURE\",\"level\":\"HIGH\",\"conditions\":[{\"field\":\"temperature\",\"operator\":\"gt\",\"value\":80}]}"}}}`
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(auth.ContextWithClaims(context.Background(), auth.Claims{Username: "alice", TenantID: "tenant-a", Role: "operator", TokenUse: "user"}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "built-in administrator") {
+		t.Fatalf("managed user draft was not rejected: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if rules, err := repo.ListRules(context.Background(), "tenant-a"); err != nil || len(rules) != 0 {
+		t.Fatalf("draft was saved: rules=%#v err=%v", rules, err)
+	}
+}

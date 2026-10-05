@@ -139,7 +139,7 @@ func TestCapacityRunUsesAuthorizedTrialForUnverifiedTemplate(t *testing.T) {
 	api := New(cfg, engine, m, log)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
-	token, err := api.auth.Issue("root", "capacity-tenant", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("root", "capacity-tenant", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

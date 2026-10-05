@@ -540,3 +540,27 @@ func TestVideoRoutesFollowTheControlOwner(t *testing.T) {
 		t.Fatal("owner did not serve its own live routes", code)
 	}
 }
+
+// Built-in administrator tokens carry a version derived from the configured
+// password, so a password change invalidates tokens issued before it.
+func TestBuiltinAdminTokenRevokedByPasswordChange(t *testing.T) {
+	cfg := config.Config{AdminUser: "root", AdminPassword: "first-password", JWTSecret: "admin-version-secret-at-least-32-characters"}
+	api := New(cfg, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	stale, err := api.auth.IssueWithVersion("root", "tenant-a", "admin", api.adminSessionVersion()+1, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := api.auth.IssueWithVersion("root", "tenant-a", "admin", api.adminSessionVersion(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for token, want := range map[string]int{stale: http.StatusUnauthorized, current: http.StatusOK} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/products", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		api.Handler().ServeHTTP(w, r)
+		if w.Code != want {
+			t.Fatalf("status=%d want %d", w.Code, want)
+		}
+	}
+}

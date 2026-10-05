@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -201,8 +202,28 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusForbidden, "admin tenant is not allowed")
 		return
 	}
-	token, _ := s.auth.Issue(in.Username, in.TenantID, "admin", nil, 8*time.Hour)
+	token, err := s.auth.IssueWithVersion(in.Username, in.TenantID, "admin", s.adminSessionVersion(), 8*time.Hour)
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "无法签发登录凭据")
+		return
+	}
 	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}})
+}
+
+// adminSessionVersion derives the built-in administrator's session version
+// from its password: changing IOT_ADMIN_PASSWORD invalidates earlier tokens.
+func (s *Server) adminSessionVersion() int64 {
+	sum := sha256.Sum256([]byte("admin-session:" + s.cfg.AdminPassword))
+	return int64(binary.BigEndian.Uint64(sum[:8]) >> 1)
+}
+
+// reissueToken renews the caller's management token for background work,
+// keeping the session version that lets revocation apply to the copy.
+func (s *Server) reissueToken(c auth.Claims, ttl time.Duration) (string, error) {
+	if c.TokenUse == "user" {
+		return s.auth.IssueUser(c.Username, c.TenantID, c.SessionVersion, ttl)
+	}
+	return s.auth.IssueWithVersion(c.Username, c.TenantID, c.Role, c.SessionVersion, ttl)
 }
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -1538,7 +1559,8 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	apiKey := ""
 	if in.APIKey != nil {
 		apiKey = strings.TrimSpace(*in.APIKey)
-	} else if provider == current.Provider {
+	} else if provider == current.Provider && sameProviderURL(baseURL, current.BaseURL) {
+		// The stored key is only ever sent to the address it was saved for.
 		apiKey = current.APIKey
 	}
 	// Some compatible API services do not require an API key.
@@ -1649,9 +1671,7 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 	// The key is intentionally redacted from GET responses. When an
 	// administrator tests the already active API provider with a blank key,
 	// reuse the server-side key instead of forcing it to be entered again.
-	if strings.TrimSpace(in.APIKey) == "" && provider == strings.ToLower(strings.TrimSpace(current.Provider)) {
-		in.APIKey = current.APIKey
-	}
+	reuseStoredKey := strings.TrimSpace(in.APIKey) == "" && provider == strings.ToLower(strings.TrimSpace(current.Provider))
 	if strings.TrimSpace(in.Question) == "" {
 		in.Question = "请用一句话说明你已经连接到消防物联网 AI 测试台。"
 	}
@@ -1671,6 +1691,10 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 	if err := validateAIProviderURL(baseURL); err != nil {
 		problem(w, http.StatusUnprocessableEntity, err.Error())
 		return
+	}
+	// The stored key is only ever sent to the address it was saved for.
+	if reuseStoredKey && sameProviderURL(baseURL, current.BaseURL) {
+		in.APIKey = current.APIKey
 	}
 	in.BaseURL = baseURL
 	client, err := s.engine.AIPlugins.Create(in.AIPluginConfig)
@@ -2007,6 +2031,31 @@ func validWorkflowIdentifier(value string) bool {
 	return true
 }
 
+// knowledgeWorkflowExists reports whether documents may be bound to the
+// workflow: an enabled chat Agent or the alarm analysis workflow.
+func (s *Server) knowledgeWorkflowExists(ctx context.Context, workflowID string) (bool, error) {
+	if s.engine.AIWorkflows == nil {
+		// Without a Harness nothing can retrieve the documents yet; uploads stay
+		// possible so an index can be prepared before the sidecar is deployed.
+		return true, nil
+	}
+	items, err := s.engine.AIWorkflows.ListWorkflows(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range knowledgeWorkflowPlugins(items) {
+		if item.ID == workflowID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// sameProviderURL compares model service addresses ignoring a trailing slash.
+func sameProviderURL(a, b string) bool {
+	return strings.TrimRight(strings.TrimSpace(a), "/") == strings.TrimRight(strings.TrimSpace(b), "/")
+}
+
 func validWorkflowModel(value string) bool {
 	if value == "" || len(value) > 128 {
 		return false
@@ -2049,10 +2098,13 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var in struct {
-		RetrievalMode string  `json:"retrievalMode"`
-		TopK          int     `json:"topK"`
-		MinScore      float64 `json:"minScore"`
-		NoMatchPolicy string  `json:"noMatchPolicy"`
+		RetrievalMode string   `json:"retrievalMode"`
+		TopK          int      `json:"topK"`
+		MinScore      float64  `json:"minScore"`
+		NoMatchPolicy string   `json:"noMatchPolicy"`
+		ProductIDs    []string `json:"productIds"`
+		Categories    []string `json:"categories"`
+		Tags          []string `json:"tags"`
 	}
 	if decode(w, r, &in) != nil {
 		return
@@ -2065,7 +2117,7 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 		TenantID: c.TenantID, WorkflowID: workflowID,
 		// Knowledge documents are directly associated with a workflow/Agent;
 		// this binding stores only retrieval policy, not another filter layer.
-		ProductIDs: nil, Categories: nil, Tags: nil,
+		ProductIDs: cleanStringList(in.ProductIDs, 16, 128), Categories: cleanStringList(in.Categories, 16, 40), Tags: cleanStringList(in.Tags, 16, 40),
 		RetrievalMode: in.RetrievalMode, TopK: in.TopK, MinScore: in.MinScore, NoMatchPolicy: in.NoMatchPolicy, UpdatedAt: time.Now().UnixMilli(),
 	}
 	if err := s.engine.Repo.SaveWorkflowKnowledgeBinding(r.Context(), binding); err != nil {
@@ -2526,6 +2578,13 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		problem(w, 422, "workflowId is required so every document is associated with an Agent")
 		return
 	}
+	if known, err := s.knowledgeWorkflowExists(r.Context(), workflowID); err != nil {
+		problem(w, http.StatusServiceUnavailable, "AI 工作流服务（Harness）暂不可用，无法确认文档归属的智能体")
+		return
+	} else if !known {
+		problem(w, 422, "workflowId does not match any enabled Agent")
+		return
+	}
 	productID := r.FormValue("productId")
 	category := strings.TrimSpace(r.FormValue("category"))
 	tags := cleanStringList(strings.Split(r.FormValue("tags"), ","), 16, 40)
@@ -2868,6 +2927,11 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 		}
 		if claimsValue.TokenUse != "" && claimsValue.TokenUse != "user" {
 			ginProblem(c, http.StatusForbidden, "此专用凭据不能用于管理接口")
+			c.Abort()
+			return
+		}
+		if claimsValue.TokenUse == "" && s.cfg.AdminUser != "" && claimsValue.Username == s.cfg.AdminUser && claimsValue.SessionVersion != s.adminSessionVersion() {
+			ginProblem(c, http.StatusUnauthorized, "管理员凭据已更新，请重新登录")
 			c.Abort()
 			return
 		}

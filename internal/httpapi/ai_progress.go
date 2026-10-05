@@ -89,7 +89,7 @@ func (s *Server) loadAIAnalysisJob(ctx context.Context, tenantID, alarmID, knowl
 
 func (s *Server) runAIAnalysisJob(job model.AlarmAnalysisJob, identity ports.AIRunIdentity) {
 	started := time.UnixMilli(job.StartedAt)
-	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), 3*time.Minute) // 以发起人的身份运行告警研判工作流。
+	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), s.ai.BusinessRunBudget()+30*time.Second) // 以发起人的身份运行告警研判工作流。
 	defer cancel()
 	ctx = ports.WithCapacityRunID(ctx, job.CapacityRunID)
 	resultCh := make(chan struct {

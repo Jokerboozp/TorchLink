@@ -160,10 +160,7 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 		}
 		identity, _ = ports.AIRunIdentityFrom(ctx)
 	}
-	timeout := e.engine.BusinessRunTimeout
-	if timeout <= 0 {
-		timeout = defaultBusinessRunTimeout
-	}
+	timeout := e.businessRunTimeout()
 	// The MCP credential must outlive waiting for a Harness slot and the run.
 	token, err := e.engine.HarnessTokens.IssueBusinessRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, businessRunCapacityWait+timeout+time.Minute)
 	if err != nil {
@@ -275,6 +272,20 @@ func (e *Service) DraftRule(ctx context.Context, tenantID, text string) (model.A
 	rule.TenantID, rule.Enabled, rule.Version = tenantID, false, 1
 	rule.CreatedAt, rule.UpdatedAt = now, now
 	return rule, nil
+}
+
+func (e *Service) businessRunTimeout() time.Duration {
+	if e.engine.BusinessRunTimeout > 0 {
+		return e.engine.BusinessRunTimeout
+	}
+	return defaultBusinessRunTimeout
+}
+
+// BusinessRunBudget is the longest a business run can take: waiting for a
+// free Harness slot plus the run itself. Callers that bound a run with their
+// own context derive the deadline from it so the inner budget is reachable.
+func (e *Service) BusinessRunBudget() time.Duration {
+	return businessRunCapacityWait + e.businessRunTimeout()
 }
 
 // businessRunCapacityWait bounds how long a business run waits for a free

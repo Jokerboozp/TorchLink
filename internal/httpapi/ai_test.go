@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,7 +98,7 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 	server := newTestHTTPServer(api)
 	defer server.Close()
 
-	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	adminToken, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func TestAIProviderConfigReportsActiveWorkflowsAndCanRetry(t *testing.T) {
 	api.SetAIWorkflowProvider(workflow)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +234,7 @@ func TestAIProviderConfigSavesWithoutSuccessfulConnectionTest(t *testing.T) {
 	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +290,7 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	api.SetAIProviderRuntime(runtime)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +986,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	adminToken, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1274,7 +1275,7 @@ func TestInspectionDownloadReadsMetadataBeforePDFCache(t *testing.T) {
 	api.inspectionPDFs.renderPDF = func(model.DeviceHealthReport) ([]byte, error) { return []byte("%PDF-test"), nil }
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
-	token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	token, _ := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/ai/health-inspection/pdf", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -1306,7 +1307,7 @@ func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
 	api := New(config.Config{DevMode: true}, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
-	token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	token, _ := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	for _, id := range []string{"report-a", "report-b"} {
 		got := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/"+id+"?limit=50&offset=200", token, nil, 200)
 		items := got["items"].([]any)
@@ -1314,7 +1315,7 @@ func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
 			t.Fatal(got)
 		}
 	}
-	other, _ := api.auth.Issue("admin", "other", "admin", nil, time.Hour)
+	other, _ := api.auth.IssueWithVersion("admin", "other", "admin", api.adminSessionVersion(), time.Hour)
 	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/report-a", other, nil, 404)
 }
 
@@ -1339,7 +1340,7 @@ func TestAIProviderConfigKeepsTheStoredKeyOnAStaleReplica(t *testing.T) {
 	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1385,7 +1386,7 @@ func TestDynamicAgentChangesAreStoredForReconciliation(t *testing.T) {
 	api.SetAISync(&lock, repo)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1447,5 +1448,55 @@ func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
 	question := workflows.Last().Question
 	if !strings.Contains(question, "alarm-visible") || strings.Contains(question, "alarm-hidden") || strings.Contains(question, `"hidden"`) {
 		t.Fatalf("nearby alarms ignore the device scope: %s", question)
+	}
+}
+
+// A blank key only falls back to the stored key for the address it was saved
+// for; pointing the test at another address must not leak the stored key.
+func TestAIProviderTestOnlyReusesStoredKeyForSameAddress(t *testing.T) {
+	var authorizations []string
+	recorder := func(w http.ResponseWriter, r *http.Request) {
+		authorizations = append(authorizations, r.Host+" "+r.Header.Get("Authorization"))
+		http.Error(w, "provider unavailable", http.StatusServiceUnavailable)
+	}
+	savedServer := httptest.NewServer(http.HandlerFunc(recorder))
+	defer savedServer.Close()
+	otherServer := httptest.NewServer(http.HandlerFunc(recorder))
+	defer otherServer.Close()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := aiadapter.NewProviderRegistry()
+	runtime, err := aiadapter.NewRuntimeProvider(registry, ports.AIPluginConfig{Provider: "disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	engine.AIPlugins = registry
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(repo)
+	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, map[string]any{"provider": "deepseek", "baseUrl": savedServer.URL, "model": "test-model", "apiKey": "stored-key", "maxTokens": 2048}, http.StatusOK)
+	// Without the stored key the other address has nothing to authenticate with.
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "deepseek", "baseUrl": otherServer.URL, "model": "test-model"}, http.StatusUnprocessableEntity)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "deepseek", "baseUrl": savedServer.URL, "model": "test-model"}, http.StatusOK)
+	otherHost, savedHost := strings.TrimPrefix(otherServer.URL, "http://"), strings.TrimPrefix(savedServer.URL, "http://")
+	for _, seen := range authorizations {
+		if strings.HasPrefix(seen, otherHost) {
+			t.Fatalf("another address was contacted with the stored key: %v", authorizations)
+		}
+	}
+	if !slices.Contains(authorizations, savedHost+" Bearer stored-key") {
+		t.Fatalf("stored key was not reused for its own address: %v", authorizations)
 	}
 }

@@ -87,6 +87,15 @@ func (m *Manager) IssueWithACL(user, tenant, role string, scopes []string, acl [
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
 }
 
+// IssueWithVersion issues a management token that carries a session version.
+// The built-in administrator's version follows its password, so a password
+// change invalidates tokens issued before it.
+func (m *Manager) IssueWithVersion(user, tenant, role string, version int64, ttl time.Duration) (string, error) {
+	now := time.Now()
+	claims := Claims{Username: user, TenantID: tenant, Role: role, SessionVersion: version, RegisteredClaims: jwt.RegisteredClaims{Issuer: m.issuer, Subject: user, IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(ttl)), ID: fmt.Sprintf("%d", now.UnixNano())}}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
+}
+
 // BrowserMQTTUsername is the broker username of console subscriptions. The
 // prefix keeps it apart from broker built-in accounts (the MQTT tool account
 // defaults to admin): EMQX rejects a known built-in user on a password
