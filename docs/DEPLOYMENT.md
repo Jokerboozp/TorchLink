@@ -62,7 +62,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 - **GoLand**：工作目录为仓库根目录，运行 `cmd/iot-platform`，程序参数 `--env-file .env.local`。
 - **WebStorm**：工作目录为 `iot_front`，运行 npm 的 `dev` 脚本。
-- **VS Code**：安装 Go 扩展，在 [launch.json](../.vscode/launch.json) 中选择组合后按 F5 启动：`运行 IoT Platform (API + Web)` 等「运行」组合直接编译运行、不挂调试器；`调试 IoT Platform (API + Web)` 等「调试」组合可打断点。另有带 Backup 和 GB26875 Gateway 的同名组合。
+- **VS Code**：安装 Go 扩展，在 [launch.json](../.vscode/launch.json) 中选择组合后按 F5 启动：`运行 IoT Platform (API + Web)` 等「运行」组合直接编译运行、不挂调试器，并以 `buildFlags: -gcflags=all=` 覆盖 Delve 默认的 `-N -l`，得到正常优化的程序（进程名仍为 `__debug_bin…`）；容量测试须用「运行」组合或 `go run`，「调试」组合关闭了优化，测得的容量偏低；`调试 IoT Platform (API + Web)` 等「调试」组合可打断点。另有带 Backup 和 GB26875 Gateway 的同名组合。
 
 进程环境变量优先于环境文件；IDE 中的旧地址和密码可能覆盖 `.env.local`。macOS 调试需要 Delve 和系统“开发者工具访问”授权，停在 `debugserver` 时先检查授权窗口；服务就绪以 `http://localhost:8081/health/ready` 为准。
 
