@@ -12,7 +12,10 @@ const alarms=[{alarmId:'alarm-demo',deviceId:'device-demo',deviceName:'一层走
 const list=items=>({items,total:items.length,count:items.length,page:1,pageSize:20})
 const server=http.createServer(async(req,res)=>{const u=new URL(req.url,'http://localhost');if(u.pathname.startsWith('/api/')){
 res.setHeader('Content-Type','application/json; charset=utf-8');let data=list([])
-if(u.pathname==='/api/v1/auth/login')data={accessToken:'local-ui-fixture',tenantId:'界面验收租户',role:'admin'}
+if(u.pathname==='/api/v1/auth/login')data={accessToken:'local-ui-fixture',tenantId:'界面验收租户',role:'admin',permissions:['*']}
+else if(u.pathname==='/api/v1/auth/me')data={tenantId:'界面验收租户',username:'admin',role:'admin',permissions:['*']}
+else if(u.pathname==='/api/v1/events')data={permissions:['*'],alarms:[],devices:[]}
+else if(u.pathname==='/api/v1/ops/capacity/status')data={enabled:false}
 else if(u.pathname==='/api/v1/test-devices/provision'&&req.method==='POST')data={device:{id:'device-test-preview',name:'界面验收测试设备',productId:'product-demo',accessKey:'示例接入标识',status:'ENABLED'},product:products[0],protocolPackage:{id:'protocol-test-preview',parserType:'JSON',version:'1'},templates:{data:{messageId:'<unique>',properties:{temperature:25}},alarm:{messageId:'<unique>',properties:{temperature:85,smoke:true}},recovery:{messageId:'<unique>',properties:{temperature:25,smoke:false}},event:{messageId:'<unique>',event:{type:'heartbeat'}}}} /* 仅返回合成数据，不写入业务服务。 */
 else if(req.method!=='GET'){res.statusCode=503;data={message:'界面验收环境不执行实际业务操作'}}
 else if(u.pathname==='/api/v1/products')data=list(products)

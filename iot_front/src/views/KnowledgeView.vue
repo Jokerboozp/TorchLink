@@ -347,8 +347,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
       <section class="knowledge-upload-section">
         <div class="knowledge-upload-step"><span>2</span><div><strong>指定归属</strong><small>文档只供所选智能体检索</small></div></div>
         <ui-form label-position="top" class="knowledge-upload-form">
-          <ui-form-item label="关联智能体（必选）"><ui-select v-model="workflowId" filterable allow-create default-first-option :disabled="uploading" placeholder="选择智能体，或输入标识后按回车"><ui-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></ui-select></ui-form-item>
-          <p class="field-tip">列表中没有目标智能体时，可输入计划使用的智能体标识并按回车创建。</p>
+          <ui-form-item label="关联智能体（必选）"><ui-select v-model="workflowId" filterable :disabled="uploading" placeholder="选择智能体"><ui-option v-for="agent in agents" :key="agentKey(agent)" :label="agentName(agent) + ' · ' + agentKey(agent)" :value="agentKey(agent)" /></ui-select></ui-form-item>
           <div class="metadata-grid"><ui-form-item label="知识分类（可选）"><ui-select v-model="category" :disabled="uploading"><ui-option label="设备手册" value="manual" /><ui-option label="告警处置操作规程" value="alarm-sop" /><ui-option label="运维维修" value="maintenance" /><ui-option label="消防规范" value="regulation" /><ui-option label="常见问题" value="faq" /></ui-select></ui-form-item><ui-form-item label="知识标签（可选）"><ui-select v-model="tags" multiple filterable allow-create default-first-option :disabled="uploading" placeholder="输入标签后按回车" /></ui-form-item></div>
         </ui-form>
       </section>

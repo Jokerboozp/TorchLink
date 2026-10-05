@@ -121,7 +121,7 @@ onBeforeUnmount(() => { disposed = true; controller?.abort(); clearTimeout(timer
           </div>
         </ui-card>
       </div>
-      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card level-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta" :title="data ? `${stats.activeAlarms.toLocaleString()} 条` : ''">{{ data ? `${compactCount(stats.activeAlarms)} 条` : '—' }}</span></div></template>
+      <div class="dashboard-grid"><ui-card shadow="never" class="surface-card level-card"><template #header><div class="card-header"><strong>活动告警等级</strong><span class="chart-meta" :title="data ? `${(stats.activeAlarms ?? 0).toLocaleString()} 条` : ''">{{ data ? `${compactCount(stats.activeAlarms)} 条` : '—' }}</span></div></template>
         <p class="chart-description">当前活动告警的风险等级分布</p>
         <div v-if="data && stats.activeAlarms" class="horizontal-chart"><div v-for="item in levels" :key="item.key" class="bar-row"><div><span>{{ item.name }}</span><b :title="`${item.count.toLocaleString()} 条`">{{ compactCount(item.count) }} <small>条</small></b></div><div class="bar-track"><i :style="{ width:`${item.count / stats.activeAlarms * 100}%`, background:item.color }" /></div></div></div>
         <ui-empty v-else :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'" :image-size="65" />

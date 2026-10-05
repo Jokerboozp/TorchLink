@@ -33,7 +33,7 @@ const capabilities = [
   { title:'智能助手对话', description:'通过受控工具查询设备、告警、趋势和运维知识。', page:'ai', label:'工作流' },
   { title:'智能巡检', description:'生成设备健康巡检结论，并标记数据局限和优先处理设备。', page:'inspection', label:'智能巡检' },
   { title:'告警规则草稿', description:'根据自然语言生成待人工复核的自动化规则草稿。', page:'rules', label:'告警规则' },
-  { title:'协议助手与运维报告', description:'协议配置辅助、结构化输出和平台运维报告共用当前模型服务。', page:'protocols', label:'设备接入' }
+  { title:'协议助手', description:'由报文或点表生成协议映射草稿，经样例校验后发布。', page:'protocols', label:'协议开发' }
 ]
 
 const isAdmin = computed(() => can(['PUT /api/v1/ai/providers/config','POST /api/v1/ai/providers/test']))
