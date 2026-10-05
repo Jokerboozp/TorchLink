@@ -75,7 +75,7 @@ export function cleanupCountItems(counts = {}) {
 }
 
 export function cleanupRuntimeItems(counts = {}) {
-  const labels = { retainedRequests: '已发送 retained 清除请求' }
+  const labels = { retainedRequests: '已发送 retained 清除请求', inboxMessages: '平台 MQTT 收件箱消息' }
   return Object.entries(labels).filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] > 0).map(([key, label]) => ({ key, label, value: counts[key] }))
 }
 

@@ -64,3 +64,39 @@ func TestCapacityRetainedPublishesExactTopicsAndReportsFailure(t *testing.T) {
 		t.Fatal("publish failure claimed completion", n, err)
 	}
 }
+
+func TestDiscardCapacityInboxRemovesOnlyFixtureReceipts(t *testing.T) {
+	d, err := openInbox(t.TempDir(), 8<<20, 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := inboxClient(t, d)
+	// A quarantined fixture receipt is removed as well.
+	state := "/iot/device/state/t1/cap/cap-2"
+	if err := d.put(state, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	q := d.queues[d.shard(state)]
+	if raw, found, err := q.Next(); err != nil || !found || q.Reject(raw) != nil || q.Rejected() != 1 {
+		t.Fatalf("quarantine setup failed: %v", err)
+	}
+	for _, topic := range []string{
+		"/iot/up/t1/cap/cap-1/property",        // pending fixture uplink
+		"/external/raw/t1/cap/cap-2",           // pending fixture raw
+		"/iot/up/t1/cap/cap-9/property",        // another device of the product
+		"/iot/up/t2/cap/cap-1/property",        // same IDs in another tenant
+		"/iot/device/state/t1/other/cap-1",     // another product
+		"/iot/device/state/t1/cap/cap-1/extra", // malformed state topic
+	} {
+		if err := d.put(topic, []byte(`{"v":1}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := c.DiscardCapacityInbox(context.Background(), "t1", "cap", []string{"cap-1", "cap-2"})
+	if err != nil || removed != 3 {
+		t.Fatalf("removed=%d err=%v", removed, err)
+	}
+	if inboxDepth(d) != 4 || q.Rejected() != 0 {
+		t.Fatalf("unrelated receipts changed: depth=%d rejected=%d", inboxDepth(d), q.Rejected())
+	}
+}

@@ -14,9 +14,11 @@ type CapacityDataCleaner interface {
 	ListCapacityFixtureDevices(ctx context.Context, tenant, product, after string, limit int) ([]string, error)
 }
 
-// CapacityRetainedCleaner clears retained device state of removed fixtures.
+// CapacityRetainedCleaner clears retained device state of removed fixtures
+// and discards their messages still in this process's MQTT receive inbox.
 type CapacityRetainedCleaner interface {
 	ClearCapacityRetained(ctx context.Context, tenant, product string, devices []string) (int64, error)
+	DiscardCapacityInbox(ctx context.Context, tenant, product string, devices []string) (int64, error)
 }
 
 type capacityRunKey struct{}

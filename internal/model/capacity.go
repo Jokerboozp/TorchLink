@@ -30,6 +30,7 @@ type CapacityCleanupCounts struct {
 	Audits           int64    `json:"audits"`
 	AccessReferences int64    `json:"accessReferences"`
 	RetainedRequests int64    `json:"retainedRequests"`
+	InboxMessages    int64    `json:"inboxMessages"`
 	Warnings         []string `json:"warnings,omitempty"`
 }
 
@@ -44,6 +45,7 @@ func (c *CapacityCleanupCounts) Add(o CapacityCleanupCounts) {
 	c.Audits += o.Audits
 	c.AccessReferences += o.AccessReferences
 	c.RetainedRequests += o.RetainedRequests
+	c.InboxMessages += o.InboxMessages
 	for _, warning := range o.Warnings {
 		if !slices.Contains(c.Warnings, warning) {
 			c.Warnings = append(c.Warnings, warning)

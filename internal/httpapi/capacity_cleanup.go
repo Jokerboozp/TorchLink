@@ -236,7 +236,18 @@ func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Disabled devices receive nothing new; their receipts still waiting in
+	// the MQTT inbox would fail after the devices are removed.
+	var inbox int64
+	if s.capacityMQTT != nil && len(q.Devices) > 0 {
+		var err error
+		if inbox, err = s.capacityMQTT.DiscardCapacityInbox(ctx, tenant, q.Product, q.Devices); err != nil {
+			capacityDataError(w, err)
+			return
+		}
+	}
 	n, err := cleaner.CleanupCapacityData(ctx, tenant, q)
+	n.InboxMessages = inbox
 	if err != nil {
 		capacityDataError(w, err)
 		return
