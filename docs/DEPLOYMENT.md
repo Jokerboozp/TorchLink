@@ -438,6 +438,7 @@ docker compose -p iot-platform-online --env-file .env.online -f compose.yaml dow
 | --- | --- | --- |
 | `IOT_POSTGRES_MAX_CONNS` | 64 | 每个进程（含各 Worker 角色）的 PostgreSQL 连接池；所有进程之和须小于服务端 `max_connections` |
 | `POSTGRES_MAX_CONNECTIONS` | 300 | Compose 中 PostgreSQL 的 `max_connections` |
+| `IOT_POSTGRES_SHM_SIZE` | 1g | Compose 中 PostgreSQL 容器的 `/dev/shm`（集群固定 1g）；并行查询与统计信息使用动态共享内存，Docker 默认 64 MB 会在数据量增大后使查询报 `SQLSTATE 53100`。按实际使用占用内存，修改后需重建 postgres 容器 |
 | `IOT_KAFKA_CONSUMER_CONCURRENCY` | 64 | 每个 Kafka 订阅的并行通道，同一设备保持顺序 |
 | `IOT_CLUSTER_INSTANCES` | 1 | 共享限额存储（Redis）不可用时，各进程按“额度 ÷ 实例数”退化执行，避免总额度放大 |
 | `IOT_INGEST_MAX_BACKLOG` | 50000 | 解析与业务流（`processor` 组）积压超过该值时暂停接收新原文，0 关闭 |
