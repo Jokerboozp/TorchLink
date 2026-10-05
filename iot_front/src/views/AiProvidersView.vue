@@ -192,29 +192,20 @@ onMounted(loadRuntime)
 
 <template>
   <div class="ai-management-page">
-    <ui-card shadow="never" class="surface-card ai-management-hero" v-loading="loading">
-      <div class="ai-management-hero-grid">
-        <div class="ai-management-hero-copy">
-          <span class="section-kicker">智能模型管理</span>
-          <h3>连接并启用模型服务</h3>
-          <p>选择模型来源，填写连接信息；可直接保存并应用到平台智能功能，连接测试为可选操作。</p>
-        </div>
-        <div class="ai-active-provider">
-          <div class="ai-active-provider-heading">
-            <span>当前生效配置</span><ui-tag :type="activeStatusType" effect="light">{{ activeStatusLabel }}</ui-tag>
-          </div>
-          <div class="ai-active-provider-main">
-            <strong>{{ activeProviderName }}</strong
-            ><span>{{ activeModel }}</span>
-          </div>
-          <small v-if="runtime.config?.baseUrl">{{ runtime.config.baseUrl }}</small>
-          <div class="ai-active-provider-footer">
-            <span>{{ activeProvider === 'disabled' ? '尚未配置模型' : `${runtime.config?.maxTokens || 2048} 词元上限` }}</span
-            ><ui-button size="small" plain :loading="loading" @click="loadRuntime">刷新状态</ui-button>
-          </div>
-        </div>
+    <div class="ai-active-provider" v-loading="loading">
+      <div class="ai-active-provider-heading">
+        <span>当前生效配置</span><ui-tag :type="activeStatusType" effect="light">{{ activeStatusLabel }}</ui-tag>
       </div>
-    </ui-card>
+      <div class="ai-active-provider-main">
+        <strong>{{ activeProviderName }}</strong
+        ><span>{{ activeModel }}</span>
+      </div>
+      <small v-if="runtime.config?.baseUrl">{{ runtime.config.baseUrl }}</small>
+      <div class="ai-active-provider-footer">
+        <span>{{ activeProvider === 'disabled' ? '尚未配置模型' : `${runtime.config?.maxTokens || 2048} 词元上限` }}</span
+        ><ui-button size="small" plain :loading="loading" @click="loadRuntime">刷新状态</ui-button>
+      </div>
+    </div>
 
     <ui-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon
       ><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert
@@ -394,40 +385,14 @@ onMounted(loadRuntime)
   gap: 16px;
   min-width: 0;
 }
-.ai-management-hero {
-  overflow: hidden;
-}
-.ai-management-hero-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 390px);
-  gap: 24px;
-  align-items: center;
-}
-.ai-management-hero-copy {
-  display: grid;
-  align-content: center;
-  gap: 6px;
-}
-.ai-management-hero-copy h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 22px;
-  letter-spacing: -0.02em;
-}
-.ai-management-hero-copy p {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.65;
-}
 .ai-active-provider {
   min-width: 0;
   display: grid;
   gap: 7px;
   padding: 15px 17px;
-  background: var(--surface-muted);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
 }
 .ai-active-provider-heading,
 .ai-active-provider-footer {
@@ -646,15 +611,11 @@ onMounted(loadRuntime)
   gap: 4px;
 }
 @media (max-width: 980px) {
-  .ai-management-hero-grid,
   .ai-management-grid {
     grid-template-columns: 1fr;
   }
 }
 @media (max-width: 560px) {
-  .ai-management-hero-copy h3 {
-    font-size: 18px;
-  }
   .config-field-grid {
     grid-template-columns: 1fr;
     gap: 13px;

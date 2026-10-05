@@ -166,8 +166,6 @@ onBeforeUnmount(() => {
   <div class="inspection-page">
     <header class="inspection-hero">
       <div class="inspection-hero-copy">
-        <h2>设备健康巡检</h2>
-        <p>汇总设备运行情况，生成需要关注的设备与处置建议。</p>
         <div class="inspection-scope"><span>在线状态</span><span>数据新鲜度</span><span>活动告警</span></div>
       </div>
       <div class="inspection-hero-side">
@@ -352,18 +350,6 @@ onBeforeUnmount(() => {
 }
 .inspection-hero-copy {
   min-width: 0;
-}
-.inspection-hero-copy h2 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 17px;
-  line-height: 1.4;
-}
-.inspection-hero-copy p {
-  margin: 5px 0 10px;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.6;
 }
 .inspection-scope {
   display: flex;

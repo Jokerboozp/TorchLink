@@ -362,10 +362,6 @@ function removeDocument(row) {
 <template>
   <div class="knowledge-page">
     <header class="knowledge-intro">
-      <div class="knowledge-intro-copy">
-        <span class="knowledge-kicker">知识库</span>
-        <p>上传设备手册与处置规范，按智能体管理文档；回答前检索相关知识片段并附带给模型 API。</p>
-      </div>
       <div class="knowledge-intro-actions">
         <ui-button v-permission="'menu:ai'" @click="emit('navigate', 'ai')">打开智能助手</ui-button>
         <ui-button v-permission="'POST /api/v1/knowledge/documents'" type="primary" :disabled="!canUpload" @click="openUpload"
@@ -817,20 +813,9 @@ function removeDocument(row) {
 .knowledge-intro {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 20px;
   padding: 4px 0 2px;
-}
-.knowledge-kicker {
-  color: var(--primary-text);
-  font-size: 14px;
-  font-weight: 700;
-}
-.knowledge-intro-copy p {
-  max-width: 650px;
-  margin: 5px 0 0;
-  color: var(--text-muted);
-  font-size: 14px;
 }
 .knowledge-intro-actions {
   display: flex;

@@ -291,10 +291,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading">
-    <div>
-      <span class="section-kicker">智能助手</span><strong>智能助手</strong
-      ><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small>
-    </div>
+    <div><strong>智能助手</strong><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small></div>
     <div class="runtime-actions">
       <div class="runtime-status">
         <ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? 'AI 服务' : '未配置' }}</ui-tag
