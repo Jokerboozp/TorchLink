@@ -194,7 +194,7 @@ func routeAction(method, path string) string {
 	}
 }
 func protectedRead(path string) bool {
-	if path == "/api/v1/ai/runs" {
+	if path == "/api/v1/ai/runs" || path == "/api/v1/ai/runs/history" || path == "/api/v1/ai/runs/usage" {
 		return true
 	}
 	return strings.HasSuffix(path, "/source") || strings.HasSuffix(path, "/package") || strings.Contains(path, "/files/") || strings.HasSuffix(path, "/download") || strings.HasSuffix(path, "/workflows/admin") || path == "/api/v1/ops/datasources/:uid" || path == "/api/v1/ops/capacity/runs/:id/report" || path == deadLettersPath || path == alarmExportPath || path == alarmMonthlyPath

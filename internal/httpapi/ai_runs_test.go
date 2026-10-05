@@ -106,3 +106,65 @@ func TestAIWorkflowRunManagementPermissionsAndTenantIsolation(t *testing.T) {
 		})
 	}
 }
+
+// Run history and usage are operation permissions like the run list: listed
+// in the catalog, granted per role, and limited to full device scope.
+func TestAIRunHistoryPermissionsAndTenantIsolation(t *testing.T) {
+	repo := memory.NewRepository()
+	engine := &core.Engine{Repo: repo, AIRuns: repo}
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	now := time.Now()
+	for _, run := range []model.AIRunRecord{
+		{RunID: "a1", TenantID: "tenant-a", WorkflowID: "alarm-handler", Status: model.AIRunSucceeded, Usage: model.AIUsage{InputTokens: 10}, StartedAt: now.UnixMilli()},
+		{RunID: "b1", TenantID: "tenant-b", WorkflowID: "alarm-handler", Status: model.AIRunSucceeded, StartedAt: now.UnixMilli()},
+	} {
+		if err := repo.SaveAIRun(context.Background(), run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog := map[string]bool{}
+	for _, item := range api.permissionCatalog() {
+		catalog[item.ID] = true
+	}
+	if !catalog["GET /api/v1/ai/runs/history"] || !catalog["GET /api/v1/ai/runs/usage"] {
+		t.Fatal("run history permissions are not assignable")
+	}
+	admin, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/runs/history", admin, nil, 200)
+	if items := history["items"].([]any); len(items) != 1 || items[0].(map[string]any)["runId"] != "a1" {
+		t.Fatalf("history %v", history)
+	}
+	usage := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/runs/usage?workflowId=alarm-handler", admin, nil, 200)
+	if items := usage["items"].([]any); len(items) != 1 {
+		t.Fatalf("usage %v", usage)
+	}
+	for _, scenario := range []struct {
+		name, scope string
+		permissions []string
+		status      int
+	}{
+		{"menu-only", "all", nil, 403},
+		{"granted", "all", []string{"GET /api/v1/ai/runs/history"}, 200},
+		{"limited", "selected", []string{"GET /api/v1/ai/runs/history"}, 403},
+	} {
+		user := model.PlatformUser{Username: scenario.name, Enabled: true, SessionVersion: 1, DeviceScope: scenario.scope, Permissions: append([]string{"menu:devices", "menu:aiProviders"}, scenario.permissions...)}
+		state, err := repo.LoadAccessState(context.Background(), "tenant-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		state.Users = []model.PlatformUser{user}
+		if saved, err := repo.SaveAccessState(context.Background(), "tenant-a", state); err != nil || !saved {
+			t.Fatal(err)
+		}
+		token, err := api.auth.IssueUser(user.Username, "tenant-a", 1, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/runs/history", token, nil, scenario.status)
+	}
+}
