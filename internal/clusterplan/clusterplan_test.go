@@ -353,6 +353,8 @@ func TestValidationRejectsUnsafeLayouts(t *testing.T) {
 		"needs at least one node":                     func(i *Inventory) { delete(i.Platform.Roles, "processor") },
 		"unknown platform role":                       func(i *Inventory) { i.Platform.Roles["unknown"] = RoleSpec{Nodes: []string{"n3", "n4"}, PoolMax: 4} },
 		"distributed rustfs needs at least 4 nodes":   func(i *Inventory) { i.RustFS = PoolSpec{Nodes: []string{"n1", "n2", "n3"}} },
+
+		// Pools take node or nodes.
 		"not both":                          func(i *Inventory) { i.Video.Nodes = []string{"n3", "n4"} },
 		"monitoring.nodes needs at least 2": func(i *Inventory) { i.Monitoring = PoolSpec{Nodes: []string{"n4"}} },
 	}
