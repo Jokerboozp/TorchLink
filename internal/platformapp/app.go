@@ -93,6 +93,9 @@ func Run(forcedRole string) {
 	if *envFile != "" {
 		fatal(log, "load environment file", config.LoadEnvFile(*envFile))
 	}
+	if flag.Arg(0) == "healthcheck" {
+		os.Exit(healthcheck(os.Getenv("IOT_HTTP_ADDR")))
+	}
 	level, err := config.LogLevel()
 	fatal(log, "validate configuration", err)
 	logLevel.Set(level)

@@ -159,6 +159,13 @@ services:
       - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/udp"
       - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/tcp"
     volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager", "protocol-runner-socket:/run/torchlink"]
+    # The distroless image has no shell or HTTP client; the binary probes its own /health/live.
+    healthcheck:
+      test: ["CMD", "/app/iot-platform", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
     depends_on:
       protocol-runner: {condition: service_started}
       ops-init: {condition: service_completed_successfully}

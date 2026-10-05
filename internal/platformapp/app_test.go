@@ -2,6 +2,9 @@ package platformapp
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	clickhouseadapter "iot-platform/internal/adapters/clickhouse"
@@ -33,5 +36,24 @@ func TestAIWorkflowManifestStoreSurvivesRepositoryDecorators(t *testing.T) {
 	stored, err := primary.ListAIWorkflowManifests(ctx)
 	if err != nil || len(stored) != 1 || stored[0].ID != "agent-a" {
 		t.Fatalf("manifest did not reach the primary repository: %+v, %v", stored, err)
+	}
+}
+
+// The container probe passes only for a live endpoint on the configured port,
+// including the wildcard listen address used in containers.
+func TestHealthcheckExitCode(t *testing.T) {
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health/live" {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer live.Close()
+	port := live.Listener.Addr().String()[strings.LastIndex(live.Listener.Addr().String(), ":"):]
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	down.Close()
+	for addr, want := range map[string]int{port: 0, "0.0.0.0" + port: 0, down.Listener.Addr().String(): 1} {
+		if got := healthcheck(addr); got != want {
+			t.Fatalf("healthcheck(%q) = %d, want %d", addr, got, want)
+		}
 	}
 }

@@ -233,7 +233,7 @@ sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 
 ### 安装与升级
 
-**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。
+**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。单机 Compose 的 `platform-api` 用镜像内的 `/app/iot-platform healthcheck` 探测本进程 `/health/live`，`docker compose ps` 显示 `healthy` 只代表进程存活，依赖是否就绪仍看 `/health/ready`；集群渲染的服务暂未配置该探针。
 
 升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新配置中的凭据直接连接旧数据库。在包根目录执行：
 
