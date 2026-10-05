@@ -80,6 +80,10 @@ go test -race ./internal/adapters/postgres -run 'Test(TemplateSwitch|PreparedEnr
 
 这些仓储用例在连接目标中创建并清理临时 schema；未设置 DSN 会跳过，不能写成持久化联调通过。浏览器条件与用例见[浏览器验证](#浏览器验证)。源码、模拟设备和隔离数据库测试不代替现场设备验收；另起临时 API 时按[进程交接](DEPLOYMENT.md#本地-api-进程交接)释放端口与收件箱锁，结束后不留下后台实例。
 
+### 接口路由
+
+HTTP 路由按业务区域注册：各区域的 `xxxRoutes()` 写在对应处理文件或 `internal/httpapi/routes.go`，`routeModules` 决定注册顺序，`routes()` 只遍历模块并设置兜底处理。`TestRegisteredRoutesMatchSnapshot` 把全部“方法 + 路径”固定在 `internal/httpapi/testdata/routes.txt`；有意新增或删除路由时用 `IOT_UPDATE_ROUTES=1 go test ./internal/httpapi -run TestRegisteredRoutesMatchSnapshot` 更新快照，并同步权限目录（`access_control.go` 的 `routeMenu` / `routeAction` / `protectedRead`）。
+
 ### AI 与知识库回归
 
 源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
