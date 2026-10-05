@@ -1,6 +1,7 @@
 DELETE /api/v1/access/api-keys/:id
 DELETE /api/v1/access/roles/:id
 DELETE /api/v1/access/users/:id
+DELETE /api/v1/ai/conversations/:id
 DELETE /api/v1/ai/workflows/:id
 DELETE /api/v1/alarms/:id
 DELETE /api/v1/alarms/:id/attachments/:attachmentId
@@ -59,6 +60,8 @@ GET /api/v1/access/users
 GET /api/v1/ai/alarm-analysis/:alarmId
 GET /api/v1/ai/alarm-analysis/:alarmId/progress
 GET /api/v1/ai/alarm-analysis/:alarmId/progress/:jobId
+GET /api/v1/ai/conversations
+GET /api/v1/ai/conversations/:id
 GET /api/v1/ai/embedding-config
 GET /api/v1/ai/health-inspection/progress
 GET /api/v1/ai/health-inspection/progress/:jobId

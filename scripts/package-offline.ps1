@@ -271,6 +271,7 @@ function New-OfflineEnv {
     }
     Write-Utf8NoBom -Path $Destination -Lines $lines
     Ensure-EmqxAdminEnv -Path $Destination -DefaultUrl "http://emqx:18083"
+    Ensure-MetricsToken -Path $Destination
     Set-DeepSeekDeploymentEnv -Path $Destination -Model $DeepSeekModel
     Set-EmbeddingDeploymentEnv -Path $Destination
     Set-DeploymentEnvValue -Path $Destination -Key 'IOT_POSTGRES_IMAGE' -Value 'iot-platform-postgres:17-pgvector-0.8.1'

@@ -19,11 +19,15 @@ type Registry struct {
 	histograms map[string]*histogram
 }
 
-// histogramBuckets are the upper bounds, in seconds, of every histogram;
-// they suit AI runs, which take seconds to minutes.
+// histogramBuckets are the default upper bounds, in seconds; they suit AI
+// runs, which take seconds to minutes.
 var histogramBuckets = []float64{1, 2, 5, 10, 20, 30, 60, 120, 300, 600}
 
+// RequestBuckets suit HTTP requests, which mostly take milliseconds.
+var RequestBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+
 type histogram struct {
+	bounds []float64
 	counts []uint64
 	sum    float64
 	count  uint64
@@ -46,6 +50,12 @@ func Series(name string, labels ...string) string {
 // Observe records value (seconds) in the histogram series name, which may
 // carry labels from Series.
 func (r *Registry) Observe(name string, value float64) {
+	r.ObserveIn(name, histogramBuckets, value)
+}
+
+// ObserveIn is Observe with the bucket bounds of a new series; one metric
+// name should always use the same bounds.
+func (r *Registry) ObserveIn(name string, bounds []float64, value float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.histograms == nil {
@@ -53,10 +63,10 @@ func (r *Registry) Observe(name string, value float64) {
 	}
 	h := r.histograms[name]
 	if h == nil {
-		h = &histogram{counts: make([]uint64, len(histogramBuckets))}
+		h = &histogram{bounds: bounds, counts: make([]uint64, len(bounds))}
 		r.histograms[name] = h
 	}
-	for i, bound := range histogramBuckets {
+	for i, bound := range h.bounds {
 		if value <= bound {
 			h.counts[i]++
 		}
@@ -172,7 +182,7 @@ func (r *Registry) writeHistograms(b *strings.Builder) {
 			prefix = labels + ","
 		}
 		h := r.histograms[series]
-		for i, bound := range histogramBuckets {
+		for i, bound := range h.bounds {
 			fmt.Fprintf(b, "%s_bucket{%sle=\"%g\"} %d\n", base, prefix, bound, h.counts[i])
 		}
 		fmt.Fprintf(b, "%s_bucket{%sle=\"+Inf\"} %d\n", base, prefix, h.count)

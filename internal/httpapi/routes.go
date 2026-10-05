@@ -48,6 +48,7 @@ var routeModules = []routeModule{
 	(*Server).backupRoutes,
 	(*Server).aiRoutes,
 	(*Server).knowledgeRoutes,
+	(*Server).conversationRoutes,
 	(*Server).mcpRoutes,
 }
 
@@ -102,6 +103,11 @@ func (s *Server) platformRoutes() {
 	}))
 	s.router.GET("/health/ready", s.endpoint(s.ready))
 	s.router.GET("/metrics", s.endpoint(func(w http.ResponseWriter, r *http.Request) {
+		if !s.metricsAuthorized(r) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="metrics"`)
+			problem(w, http.StatusUnauthorized, "metrics token required")
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 		_, _ = io.WriteString(w, s.metrics.Prometheus())
 	}))

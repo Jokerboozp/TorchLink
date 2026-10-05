@@ -26,6 +26,8 @@ type Workflows struct {
 	Model  string
 	// Usage, when set, is reported as the run's token usage.
 	Usage *model.AIUsage
+	// WorkflowVersion is reported as the Agent manifest version.
+	WorkflowVersion string
 }
 
 func (w *Workflows) ListWorkflows(context.Context) ([]ports.AIWorkflowPlugin, error) {
@@ -37,7 +39,7 @@ func (w *Workflows) StreamChat(_ context.Context, req ports.AIWorkflowRequest, _
 	w.requests = append(w.requests, req)
 	answer := w.Answer
 	w.mu.Unlock()
-	result := ports.AIWorkflowResult{RunID: req.RunID, WorkflowID: req.WorkflowID, Model: w.Model}
+	result := ports.AIWorkflowResult{RunID: req.RunID, WorkflowID: req.WorkflowID, Model: w.Model, WorkflowVersion: w.WorkflowVersion}
 	if result.Model == "" {
 		result.Model = "aitest-model"
 	}

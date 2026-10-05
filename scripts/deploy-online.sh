@@ -53,6 +53,7 @@ assert_docker_available
 command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; exit 1; }
 ensure_deployment_env "$env_file"
 ensure_emqx_admin_env "$env_file" "http://emqx:18083"
+ensure_metrics_token "$env_file"
 ensure_kafka_bind_address "$env_file"
 # HTTPS / MQTTS turn on when tls/tls.crt and tls/tls.key exist (scripts/generate-tls-cert.sh).
 mkdir -p "$project_root/tls"
@@ -149,7 +150,7 @@ api_port="$(get_deployment_env_value "$env_file" IOT_API_PORT)"; api_port="${api
 web_port="$(get_deployment_env_value "$env_file" IOT_WEB_PORT)"; web_port="${web_port:-8080}"
 wait_deployment_http "http://127.0.0.1:$api_port/health/ready" "$health_timeout"
 wait_deployment_http "http://127.0.0.1:$web_port/" "$health_timeout"
-wait_deployment_http "http://127.0.0.1:$web_port/health/ready" "$health_timeout"
+wait_deployment_http "http://127.0.0.1:$web_port/health/live" "$health_timeout"
 backup_port="$(get_deployment_env_value "$env_file" IOT_BACKUP_HTTP_PORT)"
 wait_deployment_http "http://127.0.0.1:${backup_port:-8092}/health/ready" "$health_timeout"
 harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"

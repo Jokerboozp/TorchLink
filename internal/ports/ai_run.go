@@ -80,9 +80,11 @@ type AIKnowledgeRunScope struct {
 	MinScore   float64
 }
 
-// HarnessTokenIssuer signs the short-lived MCP credential of a business run.
+// HarnessTokenIssuer signs the short-lived MCP credential of a Harness run:
+// business runs are bound to their workflow, chat runs to the assistant.
 type HarnessTokenIssuer interface {
 	IssueBusinessRunToken(tenantID string, identity AIRunIdentity, runID, workflowID string, scopes []string, knowledge *AIKnowledgeRunScope, ttl time.Duration) (string, error)
+	IssueChatRunToken(tenantID string, identity AIRunIdentity, runID string, scopes []string, knowledge *AIKnowledgeRunScope, ttl time.Duration) (string, error)
 }
 
 // AIRunFilter selects finished AI runs; Start and End bound StartedAt in
@@ -101,4 +103,22 @@ type AIRunStore interface {
 	ListAIRuns(context.Context, AIRunFilter) ([]model.AIRunRecord, int, error)
 	// AIRunUsage sums runs per report day and workflow, oldest day first.
 	AIRunUsage(context.Context, AIRunFilter) ([]model.AIRunUsage, error)
+}
+
+// ErrAIConversationAccessChanged means a turn targets a conversation started
+// under a different access version; the turn is not stored there.
+var ErrAIConversationAccessChanged = errors.New("权限或设备范围已变化，请新建对话")
+
+// AIConversationStore keeps assistant conversations per tenant and user. Every
+// method is scoped by tenant, actor and access version; another user's or an
+// outdated conversation reads as model.ErrNotFound.
+type AIConversationStore interface {
+	// AppendAIConversationTurn creates the conversation if needed and appends
+	// messages after its last one.
+	AppendAIConversationTurn(ctx context.Context, conversation model.AIConversation, messages []model.AIConversationMessage) error
+	// ListAIConversations returns the newest conversations first.
+	ListAIConversations(ctx context.Context, tenantID, actor, workflowID, accessVersion string, limit int) ([]model.AIConversation, error)
+	// GetAIConversation returns the conversation and its last limit messages in order.
+	GetAIConversation(ctx context.Context, tenantID, actor, id, accessVersion string, limit int) (model.AIConversation, []model.AIConversationMessage, error)
+	DeleteAIConversation(ctx context.Context, tenantID, actor, id string) error
 }

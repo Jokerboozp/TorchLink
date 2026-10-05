@@ -58,6 +58,7 @@ type Repository struct {
 	audits              []model.AuditLog
 	aiToolCalls         []model.AIToolCallLog
 	aiRuns              []model.AIRunRecord
+	aiConversations     map[string]*memoryConversation
 	deviceSignals       map[string][]model.DeviceSignal
 	aiProviderConfig    *ports.AIPluginConfig
 	aiWorkflowManifests map[string]ports.StoredAIWorkflowManifest
@@ -1233,6 +1234,11 @@ func (r *Repository) ListAllKnowledgeDocs(_ context.Context) ([]model.KnowledgeD
 // TryKnowledgeReindexLock always succeeds: the memory repository serves a
 // single process.
 func (r *Repository) TryKnowledgeReindexLock(context.Context) (func(), bool, error) {
+	return func() {}, true, nil
+}
+
+// TryKnowledgeDocumentLock always succeeds for the same reason.
+func (r *Repository) TryKnowledgeDocumentLock(context.Context) (func(), bool, error) {
 	return func() {}, true, nil
 }
 func (r *Repository) ListKnowledgeDocsPage(ctx context.Context, tenant string, limit, offset int) ([]model.KnowledgeDoc, int, error) {

@@ -233,7 +233,9 @@ sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 
 ### 安装与升级
 
-**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。单机 Compose 的 `platform-api` 与集群渲染的各平台角色都用镜像内的 `/app/iot-platform healthcheck` 探测本进程 `/health/live`（按容器的 `IOT_HTTP_ADDR`），`docker compose ps` 显示 `healthy` 只代表进程存活，依赖是否就绪仍看 `/health/ready`。
+**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。单机 Compose 的 `platform-api` 与集群渲染的各平台角色都用镜像内的 `/app/iot-platform healthcheck` 探测本进程 `/health/live`（按容器的 `IOT_HTTP_ADDR`），`docker compose ps` 显示 `healthy` 只代表进程存活，依赖是否就绪仍看 `/health/ready`。Web 端口只转发 `/health/live`；`/health/ready` 含依赖明细，只能在 API 端口或内网访问。
+
+**数据库迁移**：平台进程启动时自动执行待执行的数据库迁移。大版本升级可先在新镜像中单独执行并查看：`docker compose run --rm --no-deps platform-api /app/iot-platform migrate --check` 只列出将要执行的迁移、不修改数据库；去掉 `--check` 则执行迁移后退出，随后再重建 API。源码环境为 `go run ./cmd/iot-platform --env-file .env.local migrate --check`。已执行的迁移文件被修改时命令报错，不会继续。
 
 升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新配置中的凭据直接连接旧数据库。在包根目录执行：
 
@@ -346,7 +348,7 @@ PostgreSQL 仓储启动时先执行 `internal/adapters/postgres/schema.sql` 幂�
 
 ### AI 与工作流
 
-本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。“最大输出词元”（128–8192，默认 2048）是智能助手单次回复的默认上限。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。运行时限：智能助手对话为 `IOT_AI_HARNESS_TIMEOUT`（默认 90s）；业务任务（告警研判、巡检建议、运维报告、协议助手、规则草稿）为 `IOT_AI_HARNESS_BUSINESS_TIMEOUT`（默认 4m），等待 Harness 空闲最多另计 2 分钟。Harness 的 `IOT_HARNESS_RUN_TIMEOUT_MS`（默认 300000）只作上限，须大于以上两项；单次模型请求上限 `IOT_HARNESS_RPC_TIMEOUT_MS` 默认 240000。平台到时即断开，Harness 随之停止该任务。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
+本地、在线、离线分别使用自己的环境文件。首次可不填 `DEEPSEEK_API_KEY`；在“模型管理”填写并保存（连接测试可选），或写入对应环境文件后重启。“最大输出词元”（128–8192，默认 2048）是智能助手单次回复的默认上限。保存时若有 AI 工作流正在运行或排队，接口返回 409 并提示等待任务结束后重试，本次配置不保存；可在[运行中的 AI 工作流](PLATFORM.md#运行中的-ai-工作流)查看并停止当前租户任务。全部租户的运行及排队任务清空后可重新保存模型；`/health` 的 `activeRuns` 仅统计已开始运行的任务，不含队列。Provider 连接成功、Harness 健康和真实工作流成功分别检查。运行时限：智能助手对话为 `IOT_AI_HARNESS_TIMEOUT`（默认 90s）；业务任务（告警研判、巡检建议、运维报告、协议助手、规则草稿）为 `IOT_AI_HARNESS_BUSINESS_TIMEOUT`（默认 4m），等待 Harness 空闲最多另计 2 分钟。Harness 的 `IOT_HARNESS_RUN_TIMEOUT_MS`（默认 300000）只作上限，须大于以上两项；单次模型请求上限 `IOT_HARNESS_RPC_TIMEOUT_MS` 默认 240000。平台到时即断开，Harness 随之停止该任务。智能助手单轮的工具凭据有效期为 `IOT_AI_HARNESS_TIMEOUT` 加 1 分钟；Web 代理对同步等待结果的 AI 接口（对话、规则草稿、运维报告、协议生成、同步巡检）读取超时为 420 秒，流式对话为 3600 秒。Harness 工具凭据使用独立签名密钥，默认由 `IOT_JWT_SECRET` 派生；也可用 `IOT_HARNESS_JWT_SECRET` 单独指定（至少 32 字符且不同于 `IOT_JWT_SECRET`），所有 API 副本须一致，浏览器会话令牌不能用于 `/mcp/harness`。Harness 必装，默认模型和固定版本以部署配置及 `deploy/deepseek-harness/REVISION` 为准。
 
 Harness 源码（`deploy/deepseek-harness/`）变化时须重建 Harness 并重启 API，例如升级 AI 工作流运行管理。依赖机与源码机分离时，先把最新源码同步到依赖机的原仓库，在依赖机仓库根目录执行以下命令，再重启源码 API。重建 Harness 会中断该实例当前任务；`.env.local` 和命名卷继续沿用。
 
@@ -397,6 +399,8 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 ### 运维组件
 
 单机在线与离线部署的监控组件（Prometheus、Loki、Alloy、Grafana、Alertmanager、node-exporter，Compose profile `ops`）默认部署；`--ops off`（PowerShell `-Ops off`）移除这些服务并清空运维中心的组件地址（页面显示未部署），之后不带参数的部署保持关闭，`--ops on` 恢复。开关写入 `IOT_OPS_MODULE`，离线包始终包含监控镜像。关闭后平台接入、告警和通知不受影响，但不再有指标、日志检索与 Alertmanager 告警（包括死信、消费阻塞、通知失败等平台自身告警），正式环境建议保留或接入已有监控。
+
+部署脚本首次运行时生成 `IOT_METRICS_TOKEN`（已有配置缺少该项时补齐），平台 `/metrics` 随之要求 `Authorization: Bearer <令牌>`；Prometheus 启动时把同一令牌写入数据卷内的私有文件后抓取，容量测试模块也会携带。自建监控抓取平台指标时使用同一令牌；把该项置空则不校验（不建议在开放网络使用）。集群部署在 `secrets.yaml` 的 `metricsToken` 中设置（可选，至少 32 字符）。
 
 `--dependencies-only` 包含运维基础环境，普通本地准备可加 `--include-ops` / `-IncludeOps`。源码与容器共用 `IOT_LOCAL_OPS_DIR`（默认 `data/ops`）；源码 API 须能写、组件须能读。普通远程虚拟机没有共享目录时，规则与通知配置为只读。将 `IOT_OPS_TENANTS` 设置为可授权运维的租户；Grafana 告警关闭，统一使用 Alertmanager。
 
@@ -658,7 +662,7 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 | 设备状态变更事件 | PostgreSQL | 90 天 | `IOT_RETENTION_STATE_EVENT_DAYS` | — |
 | 告警记录 | PostgreSQL | 1095 天 | `IOT_RETENTION_ALARM_DAYS` | 活动、已确认告警 |
 | 审计日志 | PostgreSQL | 1095 天 | `IOT_RETENTION_AUDIT_DAYS` | — |
-| AI 工具调用日志、AI 运行记录 | PostgreSQL | 180 天 | `IOT_RETENTION_AI_LOG_DAYS` | — |
+| AI 工具调用日志、AI 运行记录、智能助手对话 | PostgreSQL | 180 天 | `IOT_RETENTION_AI_LOG_DAYS` | — |
 | 视频平台告警事件 | PostgreSQL | 1095 天 | `IOT_RETENTION_VIDEO_EVENT_DAYS` | — |
 | 遥测 | ClickHouse 表 TTL | 365 天 | `IOT_RETENTION_TELEMETRY_DAYS` | — |
 | 高频原文 | ClickHouse 表 TTL | 180 天 | `IOT_RETENTION_CLICKHOUSE_RAW_DAYS` | — |

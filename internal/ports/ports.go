@@ -290,6 +290,8 @@ type AIWorkflowEvent struct {
 	// Usage and ToolCalls are reported on run.completed and run.failed.
 	Usage     *model.AIUsage `json:"usage,omitempty"`
 	ToolCalls int            `json:"toolCalls,omitempty"`
+	// WorkflowVersion is the Agent manifest version, sent on run.started.
+	WorkflowVersion string `json:"workflowVersion,omitempty"`
 }
 
 type AIWorkflowResult struct {
@@ -302,6 +304,8 @@ type AIWorkflowResult struct {
 	Usage         model.AIUsage `json:"usage"`
 	UsageReported bool          `json:"usageReported,omitempty"`
 	ToolCalls     int           `json:"toolCalls,omitempty"`
+	// WorkflowVersion is the Agent manifest version that handled the run.
+	WorkflowVersion string `json:"workflowVersion,omitempty"`
 }
 
 type AIWorkflowRuntime interface {
@@ -482,10 +486,13 @@ type RebuildableKnowledgeBase interface {
 }
 
 // KnowledgeReindexStore lists documents across tenants for an index rebuild
-// and serializes rebuilds between API replicas.
+// and serializes rebuilds between API replicas. Document jobs share a lock
+// that only a rebuild excludes, so replicas index documents in parallel while
+// a rebuild never swaps the index under a running job.
 type KnowledgeReindexStore interface {
 	ListAllKnowledgeDocs(context.Context) ([]model.KnowledgeDoc, error)
 	TryKnowledgeReindexLock(context.Context) (release func(), locked bool, err error)
+	TryKnowledgeDocumentLock(context.Context) (release func(), locked bool, err error)
 }
 
 // EmbedPurpose distinguishes retrieval queries from indexed documents; some

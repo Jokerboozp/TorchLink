@@ -371,6 +371,10 @@ services:
     <<: *service-defaults
     profiles: [ops]
     image: prom/prometheus:v3.5.0
+    # 抓取平台 /metrics 的令牌只放在环境变量里，启动时写入数据卷内的私有文件。
+    entrypoint: ["/bin/sh", "-c", "umask 077 && printf '%s' \"$$IOT_METRICS_TOKEN\" > /prometheus/.metrics-token && exec /bin/prometheus \"$$@\"", "prometheus"]
+    environment:
+      IOT_METRICS_TOKEN: ${IOT_METRICS_TOKEN:-}
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-7d}", "--enable-feature=auto-reload-config", "--config.auto-reload-interval=5s"]
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19090:9090"
@@ -518,6 +522,8 @@ configs:
       scrape_configs:
         - job_name: iot-platform
           metrics_path: /metrics
+          authorization:
+            credentials_file: /prometheus/.metrics-token
           static_configs:
             - targets: ["${IOT_LOCAL_API_HOST:-host.docker.internal}:8081"]
         - job_name: backup-service

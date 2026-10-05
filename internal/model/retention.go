@@ -13,8 +13,11 @@ const (
 	RetentionAudit            = "audit_log"
 	RetentionAIToolCalls      = "ai_tool_call_log"
 	RetentionAIRuns           = "ai_workflow_run"
-	RetentionVideoEvents      = "video_alarm_event"
-	RetentionNotifications    = "notification_task"
+	// RetentionAIConversations purges whole conversations by last activity;
+	// their messages are removed with them.
+	RetentionAIConversations = "ai_conversation"
+	RetentionVideoEvents     = "video_alarm_event"
+	RetentionNotifications   = "notification_task"
 	// RetentionStandardKeys holds the recent standard message IDs that
 	// deduplicate concurrent inserts into the partitioned standard_message.
 	RetentionStandardKeys = "standard_message_key"

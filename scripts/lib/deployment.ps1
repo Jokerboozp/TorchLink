@@ -233,6 +233,15 @@ function Test-DeploymentEnvKey {
     return [bool](Select-String -LiteralPath $Path -Pattern ('^\s*(export\s+)?' + [Regex]::Escape($Key) + '\s*=') -Quiet)
 }
 
+# Gives an existing deployment a /metrics token once; an operator who set it
+# empty keeps that choice.
+function Ensure-MetricsToken {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-DeploymentEnvKey -Path $Path -Key 'IOT_METRICS_TOKEN')) {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_METRICS_TOKEN' -Value (New-DeploymentSecret)
+    }
+}
+
 # Knowledge vectors and reranking use the embedding / reranker services
 # deployed with the platform. Earlier releases defaulted to the DashScope
 # cloud API; that default is replaced, an operator-chosen API is kept.

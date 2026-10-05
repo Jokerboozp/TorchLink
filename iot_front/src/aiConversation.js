@@ -11,7 +11,7 @@ const welcomeMessage = () => ({
   id: 'welcome',
   role: 'assistant',
   status: 'succeeded',
-  text: '你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；切换智能体后，会显示该智能体的对话记录。',
+  text: '你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；对话会自动保存，可在左侧历史列表中找回。',
   tools: []
 })
 
@@ -376,6 +376,28 @@ function createAIConversation({ identity, storage, stream }) {
     persist()
   }
 
+  // 打开服务端保存的历史对话：只有问答正文，没有工具卡片与运行轨迹。
+  function openConversation(id, items) {
+    if (sending.value || !id) return
+    let prompt = ''
+    messages.value = items.length
+      ? items.map(item => {
+          const status = { SUCCEEDED: 'succeeded', STOPPED: 'canceled' }[item.status] || 'failed'
+          const message = { id: `stored_${item.seq}`, role: item.role, status, text: item.text || '', tools: [], createdAt: item.createdAt }
+          if (item.role === 'user') prompt = item.text
+          else {
+            message.prompt = prompt
+            message.error = status === 'failed' ? { message: '该轮运行未能完成' } : null
+          }
+          return message
+        })
+      : [welcomeMessage()]
+    runs.value = []
+    conversationId.value = id
+    persist()
+    notify()
+  }
+
   function dispose() {
     if (disposed) return
     disposed = true
@@ -392,7 +414,21 @@ function createAIConversation({ identity, storage, stream }) {
     watch([messages, runs, conversationId, selectedWorkflowId], schedulePersist, { deep: true })
   })
 
-  return { identity, messages, runs, selectedWorkflowId, sending, send, stop, clear, persist, onUpdate, dispose }
+  return {
+    identity,
+    messages,
+    runs,
+    conversationId,
+    selectedWorkflowId,
+    sending,
+    send,
+    stop,
+    clear,
+    openConversation,
+    persist,
+    onUpdate,
+    dispose
+  }
 }
 
 let active = null

@@ -97,8 +97,15 @@ func (k *KnowledgeRuntime) Run(ctx context.Context) {
 				nextBuild = time.Now().Add(15 * time.Second)
 			}
 		}
-		if err := k.processDocument(ctx); err != nil && ctx.Err() == nil {
-			k.log.Warn("knowledge document job failed", "error", err)
+		// Work through the queue each tick instead of one document per tick.
+		for range knowledgeDocumentsPerTick {
+			processed, err := k.processNextDocument(ctx)
+			if err != nil && ctx.Err() == nil {
+				k.log.Warn("knowledge document job failed", "error", err)
+			}
+			if !processed || err != nil {
+				break
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -210,23 +217,39 @@ func (k *KnowledgeRuntime) syncActiveConfig(ctx context.Context) error {
 	return nil
 }
 
+// knowledgeDocumentsPerTick bounds one tick so configuration changes and
+// rebuilds are still noticed while a long queue drains.
+const knowledgeDocumentsPerTick = 20
+
 func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
+	_, err := k.processNextDocument(ctx)
+	return err
+}
+
+// processNextDocument runs one queued document job and reports whether one was
+// claimed. Document jobs on different replicas run in parallel; the shared
+// lock only keeps them out of a running index rebuild.
+func (k *KnowledgeRuntime) processNextDocument(ctx context.Context) (bool, error) {
 	if k.jobs == nil || k.locks == nil {
-		return nil
+		return false, nil
 	}
-	release, locked, err := k.locks.TryKnowledgeReindexLock(ctx)
+	release, locked, err := k.locks.TryKnowledgeDocumentLock(ctx)
 	if err != nil || !locked {
-		return err
+		return false, err
 	}
 	defer release()
 	// Another replica may have activated a model while this worker waited.
 	if err := k.syncActiveConfig(ctx); err != nil {
-		return err
+		return false, err
 	}
 	doc, found, err := k.jobs.ClaimKnowledgeDocument(ctx)
 	if err != nil || !found {
-		return err
+		return false, err
 	}
+	return true, k.indexClaimedDocument(ctx, doc)
+}
+
+func (k *KnowledgeRuntime) indexClaimedDocument(ctx context.Context, doc model.KnowledgeDoc) error {
 	if doc.Status == "DELETING" {
 		objects, ok := k.archive.(ports.ObjectDeleter)
 		if !ok {
@@ -293,7 +316,7 @@ func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
 		doc.Metadata["embeddingModel"] = k.EmbeddingModel()
 		doc.Metadata["indexProgress"] = map[string]int{"done": result.Chunks, "total": result.Chunks}
 	}
-	_, err = k.jobs.UpdateKnowledgeDocument(ctx, doc)
+	_, err := k.jobs.UpdateKnowledgeDocument(ctx, doc)
 	return err
 }
 

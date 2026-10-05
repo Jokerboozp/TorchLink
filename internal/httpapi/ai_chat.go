@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/aiworkflow"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/core"
@@ -90,7 +87,7 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.engine.AIWorkflows == nil {
-		problem(w, http.StatusServiceUnavailable, "未配置 AI 工作流服务（Harness），智能助手问答暂不可用")
+		problem(w, http.StatusServiceUnavailable, aiworkflow.ErrAIWorkflowsUnavailable.Error())
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -190,20 +187,9 @@ func (s *sseWriter) close() {
 	<-s.stopped
 }
 
+// runAIWorkflow runs one assistant turn as the caller; the orchestration
+// lives in aiworkflow so chat and business runs follow the same steps.
 func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, workflowID, conversationID, modelName string, maxTokens int, emit func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
-	ctx = aiRunContext(ctx, c)
-	var authErr error
-	ctx, authErr = s.authorizeAIRun(ctx, c.TenantID, "")
-	if authErr != nil {
-		return ports.AIWorkflowResult{}, authErr
-	}
-	question = strings.TrimSpace(question)
-	if question == "" {
-		return ports.AIWorkflowResult{}, errors.New("question is required")
-	}
-	if len(question) > 8000 {
-		return ports.AIWorkflowResult{}, errors.New("question exceeds 8000 bytes")
-	}
 	if s.aiProviderRuntime != nil {
 		// The selected Provider owns the model for every AI surface. Keep the
 		// browser's run form from sending a stale per-workflow model override.
@@ -215,106 +201,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 			maxTokens = effectiveAIMaxTokens(config.MaxTokens)
 		}
 	}
-	knowledgeQuestion := question
-	runID := "ai_run_" + randomHex(10)
-	if conversationID == "" {
-		conversationID = runID
-	}
-	if c.TokenUse == "user" {
-		conversationID += "\x00" + requestAccessVersion(ctx, c)
-	}
-	conversationID = harnessConversationID(c.TenantID, c.Username, conversationID)
-	if maxTokens <= 0 {
-		maxTokens = 2048
-	}
-	if maxTokens > 8192 {
-		maxTokens = 8192
-	}
-	binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(ctx, c.TenantID, strings.TrimSpace(workflowID))
-	if err != nil {
-		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("load workflow knowledge binding: %w", err)
-	}
-	if binding.WorkflowID == "" {
-		binding = defaultWorkflowKnowledgeBinding(c.TenantID, strings.TrimSpace(workflowID))
-	}
-	scopes := workflowScopes(ctx)
-	if len(intersectScopes(scopes, []string{auth.ScopeQueryKnowledgeBase})) == 0 {
-		if binding.RetrievalMode != "disabled" && binding.NoMatchPolicy == "require-evidence" {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("当前用户无此工作流所需的知识库访问权限")
-		}
-		binding.RetrievalMode = "disabled"
-	}
-	var knowledgeScope *auth.KnowledgeScope
-	if binding.RetrievalMode == "disabled" {
-		filteredScopes := make([]string, 0, len(scopes))
-		for _, scope := range scopes {
-			if scope != auth.ScopeQueryKnowledgeBase {
-				filteredScopes = append(filteredScopes, scope)
-			}
-		}
-		scopes = filteredScopes
-		question += aiprompt.KnowledgeDisabled
-	} else {
-		knowledgeScope = &auth.KnowledgeScope{WorkflowID: binding.WorkflowID, TopK: binding.TopK, MinScore: binding.MinScore}
-		question += workflowKnowledgeInstruction(binding)
-	}
-	if binding.RetrievalMode != "disabled" && s.engine.KB == nil {
-		if binding.NoMatchPolicy == "require-evidence" {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow knowledge base is unavailable")
-		}
-		question += aiprompt.KnowledgeUnavailable
-	}
-	if binding.RetrievalMode != "disabled" && s.engine.KB != nil {
-		callID := "knowledge_prefetch_" + randomHex(6)
-		if emit != nil {
-			_ = emit(ports.AIWorkflowEvent{Type: "tool.started", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Data: map[string]any{"inputSummary": "按工作流绑定策略预检知识库"}})
-		}
-		hits, searchErr := s.searchWorkflowKnowledge(ctx, c.TenantID, knowledgeQuestion, binding)
-		success := searchErr == nil
-		if emit != nil {
-			_ = emit(ports.AIWorkflowEvent{Type: "tool.completed", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Success: &success, Data: map[string]any{"outputSummary": fmt.Sprintf("召回 %d 条绑定知识", len(hits)), "sources": knowledgeSources(hits)}})
-		}
-		if searchErr != nil {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, fmt.Errorf("prefetch workflow knowledge: %w", searchErr)
-		}
-		if len(hits) == 0 && binding.NoMatchPolicy == "require-evidence" {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow requires matching knowledge evidence")
-		}
-		if aiworkflow.KeywordOnlyHits(hits) {
-			question += aiprompt.KnowledgeKeywordOnly
-		}
-		if len(hits) > 0 {
-			question, err = core.AppendKnowledgeEvidence(question, hits, 30<<10)
-			if err != nil {
-				return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
-			}
-		} else {
-			question += aiprompt.KnowledgeNoMatch
-		}
-	}
-	ctx, err = s.authorizeAIRun(ctx, c.TenantID, "")
-	if err != nil {
-		return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
-	}
-	if err = core.ValidateAIInput(question, 30<<10); err != nil {
-		return ports.AIWorkflowResult{RunID: runID}, err
-	}
-	mcpToken, err := s.auth.IssueHarnessForIdentity(c, runID, scopes, knowledgeScope, 2*time.Minute)
-	if err != nil {
-		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("issue harness token: %w", err)
-	}
-	started := time.Now()
-	result, err := s.engine.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{TenantID: c.TenantID, Actor: c.Username, RunID: runID, ConversationID: strings.TrimSpace(conversationID), WorkflowID: strings.TrimSpace(workflowID), Question: question, Model: strings.TrimSpace(modelName), MaxTokens: maxTokens, MCPToken: mcpToken}, emit)
-	if result.RunID == "" {
-		result.RunID = runID
-	}
-	s.ai.RecordAIRun(aiworkflow.AIRunMeta{TenantID: c.TenantID, Actor: c.Username, WorkflowID: strings.TrimSpace(workflowID), Model: strings.TrimSpace(modelName), InputBytes: len(question), StartedAt: started}, result, err)
-	return result, err
-}
-
-func harnessConversationID(tenantID, username, conversationID string) string {
-	sum := sha256.Sum256([]byte(tenantID + "\x00" + username + "\x00" + conversationID))
-	return "conv_" + hex.EncodeToString(sum[:])
+	return s.ai.RunChat(aiRunContext(ctx, c), aiworkflow.ChatRequest{TenantID: c.TenantID, WorkflowID: workflowID, ConversationID: conversationID, Question: question, Model: modelName, MaxTokens: maxTokens}, emit)
 }
 
 func sanitizeWorkflowEvent(event ports.AIWorkflowEvent) ports.AIWorkflowEvent {
@@ -420,7 +307,7 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	presentation, presentationErr := core.PresentRule(rule)
 	if presentationErr != nil {
-		problem(w, http.StatusInternalServerError, presentationErr.Error())
+		s.internalError(w, r, presentationErr)
 		return
 	}
 	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: fmt.Sprintf("audit_%d", time.Now().UnixNano()), TenantID: c.TenantID, Actor: c.Username, Action: "ai.rule_draft", TargetType: "rule", TargetID: rule.ID, Details: map[string]any{"success": true}, CreatedAt: time.Now().UnixMilli()})

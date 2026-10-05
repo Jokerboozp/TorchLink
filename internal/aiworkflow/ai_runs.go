@@ -3,6 +3,7 @@ package aiworkflow
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"iot-platform/internal/metrics"
@@ -34,6 +35,11 @@ func (e *Service) RecordAIRun(meta AIRunMeta, result ports.AIWorkflowResult, run
 		DurationMs: max(0, now.Sub(meta.StartedAt).Milliseconds()), Status: AIRunStatus(runErr), StartedAt: meta.StartedAt.UnixMilli(), FinishedAt: now.UnixMilli()}
 	if result.Model != "" {
 		record.Model = result.Model
+	}
+	// The run record names both the platform prompt and the Agent manifest
+	// version, so a manifest edit is distinguishable in quality reviews.
+	if result.WorkflowVersion != "" {
+		record.PromptVersion = strings.TrimPrefix(record.PromptVersion+"@"+result.WorkflowVersion, "@")
 	}
 	if record.WorkflowID == "" {
 		record.WorkflowID = result.WorkflowID

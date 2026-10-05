@@ -1242,6 +1242,8 @@ export function createGateway(options = {}) {
     emit('run.started', {
       conversationId: run.conversationId,
       workflowId: run.workflowId,
+      // The platform records which manifest version produced the run.
+      workflowVersion: run.plugin.version,
       model: run.model,
       maxTokens: run.maxTokens,
     })

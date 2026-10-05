@@ -35,6 +35,8 @@ type MetricsTarget struct {
 	Role     string `yaml:"role" json:"role"`
 	Instance string `yaml:"instance" json:"instance"`
 	URL      string `yaml:"url" json:"url"`
+	// Token is the platform's IOT_METRICS_TOKEN; it never leaves the process.
+	Token string `yaml:"-" json:"-"`
 }
 
 type NodeTarget struct {

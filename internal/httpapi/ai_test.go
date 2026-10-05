@@ -1045,7 +1045,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	runtime.mu.Lock()
 	captured := runtime.requests[0]
 	runtime.mu.Unlock()
-	claims, err := api.auth.Parse(captured.MCPToken)
+	claims, err := api.harnessAuth.Parse(captured.MCPToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1058,7 +1058,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	if !strings.Contains(captured.Question, "平台知识策略") || !strings.Contains(captured.Question, "ops-assistant") {
 		t.Fatalf("knowledge policy was not supplied to harness: %q", captured.Question)
 	}
-	if captured.ConversationID == "browser-controlled" || captured.ConversationID != harnessConversationID("tenant-a", "alice", "browser-controlled") {
+	if captured.ConversationID == "browser-controlled" || captured.ConversationID != aiworkflow.ChatConversationID("tenant-a", "alice", "browser-controlled") {
 		t.Fatalf("conversation ID was not tenant scoped: %q", captured.ConversationID)
 	}
 	if captured.MaxTokens != 8192 {
@@ -1122,7 +1122,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 		t.Fatalf("unsafe or duplicate terminal event: %s", failedBody)
 	}
 
-	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/mcp/harness", token, map[string]any{}, http.StatusForbidden)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/mcp/harness", token, map[string]any{}, http.StatusUnauthorized) // session key cannot sign run credentials
 	getMCP, _ := http.NewRequest(http.MethodGet, server.URL+"/mcp/harness", nil)
 	getMCP.Header.Set("Authorization", "Bearer "+token)
 	getMCPResp, err := server.Client().Do(getMCP)
@@ -1141,11 +1141,11 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 }
 
 func TestHarnessConversationIDIsStableAndTenantScoped(t *testing.T) {
-	a := harnessConversationID("tenant-a", "alice", "conversation-1")
-	if a != harnessConversationID("tenant-a", "alice", "conversation-1") {
+	a := aiworkflow.ChatConversationID("tenant-a", "alice", "conversation-1")
+	if a != aiworkflow.ChatConversationID("tenant-a", "alice", "conversation-1") {
 		t.Fatal("conversation derivation is not stable")
 	}
-	if a == harnessConversationID("tenant-b", "alice", "conversation-1") || a == harnessConversationID("tenant-a", "bob", "conversation-1") {
+	if a == aiworkflow.ChatConversationID("tenant-b", "alice", "conversation-1") || a == aiworkflow.ChatConversationID("tenant-a", "bob", "conversation-1") {
 		t.Fatal("conversation derivation is not tenant/user scoped")
 	}
 	if !strings.HasPrefix(a, "conv_") || strings.Contains(a, "tenant-a") || strings.Contains(a, "alice") {
@@ -1622,4 +1622,50 @@ func TestChatRunStatesMissingKnowledgeEvidence(t *testing.T) {
 	if !strings.Contains(question, aiprompt.KnowledgeNoMatch) {
 		t.Fatalf("chat prompt does not state missing evidence: %q", question)
 	}
+}
+
+// Chat turns are saved to the signed-in user's conversation; other users and
+// tenants never see them, and the owner can delete them.
+func TestChatConversationsBelongToTheUser(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AIWorkflows = &captureWorkflowRuntime{}
+	engine.AIConversations = repo
+	cfg := config.Load()
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token := func(user, tenant string) string {
+		t.Helper()
+		v, err := api.auth.IssueWithVersion(user, tenant, "admin", api.adminSessionVersion(), time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	alice := token("admin", "tenant-a")
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", alice, map[string]any{"question": "今天有哪些告警需要处理", "workflowId": "ops-assistant", "conversationId": "conversation_1"}, http.StatusOK)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", alice, map[string]any{"question": "第二个问题", "workflowId": "ops-assistant", "conversationId": "conversation_1"}, http.StatusOK)
+	list := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations?workflowId=ops-assistant", alice, nil, http.StatusOK)
+	items := list["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["title"] != "今天有哪些告警需要处理" || items[0].(map[string]any)["messageCount"] != float64(4) {
+		t.Fatalf("conversation list %#v", list)
+	}
+	detail := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusOK)
+	if messages := detail["messages"].([]any); len(messages) != 4 || messages[2].(map[string]any)["text"] != "第二个问题" || messages[3].(map[string]any)["role"] != "assistant" {
+		t.Fatalf("conversation messages %#v", detail)
+	}
+	other := token("admin", "tenant-b")
+	if items := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations?workflowId=ops-assistant", other, nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("conversation leaked across tenants: %#v", items)
+	}
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", other, nil, http.StatusNotFound)
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/conversations/conversation_1", other, nil, http.StatusNotFound)
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusOK)
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusNotFound)
 }

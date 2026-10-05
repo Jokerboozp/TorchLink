@@ -7,6 +7,7 @@ package aiprompt
 const (
 	AlarmAnalysisVersion    = "alarm-analysis-v2"
 	AlarmFallbackVersion    = "fallback-v2"
+	ChatVersion             = "chat-v1"
 	HealthInspectionVersion = "health-inspection-v1"
 	OpsReportVersion        = "ops-report-v1"
 	ProtocolAssistVersion   = "protocol-assistant-v1"

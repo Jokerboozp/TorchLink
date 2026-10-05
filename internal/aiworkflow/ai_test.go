@@ -843,6 +843,7 @@ func TestBusinessRunsAreRecorded(t *testing.T) {
 	registry := metrics.New()
 	engine.AIRuns, engine.Metrics, engine.KB = store, registry, nil
 	workflows.Usage = &model.AIUsage{InputTokens: 120, OutputTokens: 30, CacheReadTokens: 7}
+	workflows.WorkflowVersion = "1.0.0"
 	ctx := aitest.Context(context.Background())
 	if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, aiprompt.OpsReportVersion, "高温", "高温", []string{"query_alarm_list"}, 2048); err != nil {
 		t.Fatal(err)
@@ -860,7 +861,7 @@ func TestBusinessRunsAreRecorded(t *testing.T) {
 		statuses[run.Status] = run
 	}
 	ok := statuses[model.AIRunSucceeded]
-	if ok.WorkflowID != WorkflowOpsReport || ok.PromptVersion != aiprompt.OpsReportVersion || ok.Actor != "aitest" || ok.Model != "aitest-model" ||
+	if ok.WorkflowID != WorkflowOpsReport || ok.PromptVersion != aiprompt.OpsReportVersion+"@1.0.0" || ok.Actor != "aitest" || ok.Model != "aitest-model" ||
 		ok.Usage.InputTokens != 120 || !ok.UsageReported || ok.ToolCalls != 1 || ok.OutputBytes != len("结论") || ok.InputBytes == 0 || ok.RunID == "" {
 		t.Fatalf("succeeded record %+v", ok)
 	}
@@ -914,5 +915,38 @@ func TestAlarmPropertyHistoryUsesThingModel(t *testing.T) {
 func TestAIRunStatusTreatsCancellationAsStopped(t *testing.T) {
 	if got := AIRunStatus(context.Canceled); got != model.AIRunStopped {
 		t.Fatalf("cancelled run recorded as %q", got)
+	}
+}
+
+// Chat follows the business run steps: the credential outlives the Harness
+// limit, the run is recorded with the chat prompt version, and the Harness
+// conversation is bound to the tenant and user.
+func TestRunChatCredentialAndRecord(t *testing.T) {
+	engine, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "回答", nil })
+	store := memory.NewRepository()
+	engine.AIRuns, engine.KB = store, nil
+	engine.ChatRunTimeout = 3 * time.Minute
+	workflows.WorkflowVersion = "2.0.0"
+	result, err := engine.RunChat(aitest.Context(context.Background()), ChatRequest{TenantID: "t1", WorkflowID: "ops-assistant", ConversationID: "c1", Question: " 设备状态？ "}, nil)
+	if err != nil || result.Answer != "回答" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	request := workflows.Last()
+	claims, err := aitest.Claims(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ttl := claims.ExpiresAt.Sub(claims.IssuedAt.Time); ttl != 4*time.Minute || claims.Workflow != "" || claims.RunID != result.RunID {
+		t.Fatalf("chat credential ttl=%s claims=%+v", ttl, claims)
+	}
+	if request.ConversationID != ChatConversationID("t1", "aitest", "c1") || request.OneShot {
+		t.Fatalf("conversation not bound to tenant and user: %+v", request)
+	}
+	runs, _, err := store.ListAIRuns(context.Background(), ports.AIRunFilter{TenantID: "t1"})
+	if err != nil || len(runs) != 1 || runs[0].PromptVersion != aiprompt.ChatVersion+"@2.0.0" {
+		t.Fatalf("chat run record %+v err=%v", runs, err)
+	}
+	if _, err = engine.RunChat(aitest.Context(context.Background()), ChatRequest{TenantID: "t1", Question: "  "}, nil); err == nil {
+		t.Fatal("empty question accepted")
 	}
 }

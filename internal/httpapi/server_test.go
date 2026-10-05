@@ -139,17 +139,37 @@ func TestLoginLimiterLocksAccountAfterRepeatedFailures(t *testing.T) {
 func TestAccessLogKeepsRoutineRequestsOutOfInfoLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var out bytes.Buffer
-	s := &Server{log: slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelInfo}))}
+	s := &Server{log: slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelInfo})), metrics: metrics.New()}
 	router := gin.New()
-	router.Use(s.accessLog())
+	router.Use(requestID(), s.accessLog())
 	router.GET("/metrics", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
 	router.GET("/missing", func(c *gin.Context) { c.Status(http.StatusNotFound) })
 	router.GET("/broken", func(c *gin.Context) { c.Status(http.StatusBadGateway) })
 
 	for _, path := range []string{"/metrics", "/metrics", "/missing", "/broken"} {
-		router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("X-Request-ID", "req"+strings.ReplaceAll(path, "/", "-"))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		if w.Header().Get("X-Request-ID") != r.Header.Get("X-Request-ID") {
+			t.Fatal("request ID not echoed", w.Header())
+		}
+	}
+	// An invalid caller ID is replaced instead of reaching logs.
+	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	r.Header.Set("X-Request-ID", "bad id\n")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	if id := w.Header().Get("X-Request-ID"); len(id) != 16 {
+		t.Fatal("invalid request ID kept", id)
+	}
+	if body := s.metrics.Prometheus(); !strings.Contains(body, `http_request_duration_seconds_count{route="/metrics",method="GET",code="200"} 3`) || !strings.Contains(body, `http_request_duration_seconds_bucket{route="/broken",method="GET",code="502",le="0.005"}`) {
+		t.Fatalf("request latency not recorded: %s", body)
 	}
 	logged := out.String()
+	if !strings.Contains(logged, `"requestId":"req-broken"`) {
+		t.Fatalf("access log lacks the request ID: %s", logged)
+	}
 	if strings.Contains(logged, `"path":"/metrics"`) {
 		t.Fatalf("successful request logged at info level: %s", logged)
 	}
@@ -481,6 +501,21 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		if w := call("/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), `process_info{role="`+role+`",instance="`+role+`-1",version="dev"} 1`) {
 			t.Fatal(role, "worker metrics not attributable", w.Code)
 		}
+		if role == config.RoleJobs {
+			// With a metrics token only a matching bearer token may scrape.
+			server.cfg.MetricsToken = strings.Repeat("m", 32)
+			r := httptest.NewRequest("GET", "/metrics", nil)
+			r.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 32))
+			for _, w := range []*httptest.ResponseRecorder{call("/metrics"), serve(server, r)} {
+				if w.Code != http.StatusUnauthorized {
+					t.Fatal("metrics served without the configured token", w.Code)
+				}
+			}
+			r.Header.Set("Authorization", "Bearer "+server.cfg.MetricsToken)
+			if w := serve(server, r); w.Code != 200 {
+				t.Fatal("metrics rejected the configured token", w.Code)
+			}
+		}
 		w := call("/health/ready")
 		var ready struct {
 			Role   string            `json:"role"`
@@ -584,4 +619,10 @@ func TestInternalErrorHidesDetailAndLogsReference(t *testing.T) {
 	if !strings.Contains(logs.String(), reference) || !strings.Contains(logs.String(), "10.0.0.5") {
 		t.Fatalf("log lacks reference or detail: %s", logs.String())
 	}
+}
+
+func serve(server *Server, r *http.Request) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	server.Handler().ServeHTTP(w, r)
+	return w
 }

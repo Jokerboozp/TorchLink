@@ -96,6 +96,9 @@ func Run(forcedRole string) {
 	if flag.Arg(0) == "healthcheck" {
 		os.Exit(healthcheck(os.Getenv("IOT_HTTP_ADDR")))
 	}
+	if flag.Arg(0) == "migrate" {
+		os.Exit(migrateCommand(flag.Args()[1:]))
+	}
 	level, err := config.LogLevel()
 	fatal(log, "validate configuration", err)
 	logLevel.Set(level)
@@ -126,6 +129,7 @@ func Run(forcedRole string) {
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
 	aiRunStore, _ := repo.(ports.AIRunStore)
+	conversationStore, _ := repo.(ports.AIConversationStore)
 	// Captured before the ClickHouse and Redis decorators, which embed only
 	// ports.Repository and hide the dynamic Agent store.
 	manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
@@ -148,6 +152,7 @@ func Run(forcedRole string) {
 		videoStore = r
 		knowledgeStore = r
 		aiRunStore = r
+		conversationStore = r
 		manifestStore = r
 		signalStore, telemetryStats = r, r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
@@ -319,6 +324,7 @@ func Run(forcedRole string) {
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
 	engine.AIRuns = aiRunStore
+	engine.AIConversations = conversationStore
 	engine.DeviceSignals, engine.TelemetryStats = signalStore, telemetryStats
 	engine.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
 	engine.SetIdentity(cfg.InstanceID)
@@ -442,9 +448,10 @@ func Run(forcedRole string) {
 			}
 			engine.AIWorkflows = harness
 			engine.BusinessRunTimeout = cfg.AIBusinessTimeout
-			// Business AI runs (alarm analysis, inspection, reports, protocol
-			// assistant, rule drafts) sign their MCP credentials with the API secret.
-			engine.HarnessTokens = auth.New(cfg.JWTSecret)
+			engine.ChatRunTimeout = cfg.AIHarnessTimeout
+			// Chat and business AI runs sign their MCP credentials with the
+			// Harness key, which /mcp/harness verifies.
+			engine.HarnessTokens = auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret))
 			log.Info("AI workflow harness enabled", "urls", cfg.AIHarnessURL, "instances", harness.Size(), "model", providerConfig.Model)
 		}
 		aiSync = aiadapter.NewProviderSync(runtimeAI, harness, aiProviderStore, manifestStore, completeProvider)

@@ -408,7 +408,7 @@ func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 func (s *Server) saveAccessState(w http.ResponseWriter, r *http.Request, state model.AccessState) bool {
 	store, err := s.accessStore()
 	if err != nil {
-		problem(w, 503, err.Error())
+		problem(w, http.StatusServiceUnavailable, "当前存储不支持权限管理")
 		return false
 	}
 	saved, err := store.SaveAccessState(r.Context(), claims(r).TenantID, state)

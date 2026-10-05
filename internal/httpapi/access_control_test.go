@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"iot-platform/internal/aiworkflow"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -292,6 +296,8 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 	req("POST", "/api/v1/mqtt/load-token", token, nil, 403)
 	req("GET", "/api/v1/backups", token, nil, 403)
 	req("POST", "/api/v1/ai/chat", token, map[string]string{"question": "列出所有设备"}, 403)
+	// Conversations follow the assistant permission, not the menu alone.
+	req("GET", "/api/v1/ai/conversations?workflowId=ops-assistant", token, nil, 403)
 	// Even a broad dashboard/alarms grant cannot replace device access.
 	u["permissions"] = []string{"menu:alarms", "menu:dashboard"}
 	u["deviceScope"] = "all"
@@ -524,7 +530,7 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 		t.Fatal("streaming authority leaked", text)
 	}
 
-	c, err := api.auth.Parse(first.MCPToken)
+	c, err := api.harnessAuth.Parse(first.MCPToken)
 	must(err)
 	if !c.ManagedUser || c.SessionVersion == 0 || c.HasScope(auth.ScopeCreateRuleDraft) || c.HasScope(auth.ScopeQueryKnowledgeBase) {
 		t.Fatal("assistant token does not retain user authority")
@@ -723,13 +729,17 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 		t.Helper()
 		requestJSON(t, srv.Client(), "POST", srv.URL+"/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "query_alarm_list", "arguments": map[string]any{}}}, status)
 	}
-	businessToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-business", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	businessToken, err := api.harnessAuth.IssueBusinessRunToken("tenant-a", identity, "run-business", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(businessToken, 200)
-	chatToken, err := api.auth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
+	// Run credentials use their own key: one signed with the session key fails.
+	sessionSigned, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-session-key", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(sessionSigned, 401)
+	chatToken, err := api.harnessAuth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(chatToken, 403)
-	draftToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-draft", aiworkflow.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
+	draftToken, err := api.harnessAuth.IssueBusinessRunToken("tenant-a", identity, "run-draft", aiworkflow.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(draftToken, 403)
 
@@ -1081,4 +1091,89 @@ func toStrings(v any) []string {
 		out = append(out, item.(string))
 	}
 	return out
+}
+
+// Every repository read that returns device data must be narrowed by
+// deviceScopeRepository, or be listed here with the reason it cannot leak
+// devices outside the caller's scope. A new method fails until it is decided.
+func TestRepositoryDeviceReadsFollowDeviceScope(t *testing.T) {
+	reviewed := map[string]string{
+		"ApplyComponentAlarm":           "后台写入：组件告警",
+		"ChangeDeviceCredential":        "写入：调用前已用受范围约束的 GetManagedDevice 校验设备",
+		"CreateDeviceCommand":           "写入：调用前已用受范围约束的 GetManagedDevice 校验设备",
+		"GetDeviceCommand":              "后台命令应答关联，无接口直接读取",
+		"GetDeviceAccessProfile":        "租户接入配置：平台接入点菜单仅全量范围可见",
+		"ListDeviceAccessProfiles":      "租户接入配置：平台接入点菜单仅全量范围可见",
+		"GetReplay":                     "受限范围用户直接返回不存在",
+		"GetVideoCameraMapping":         "摄像头菜单仅全量范围可见；直播入口另按关联设备校验",
+		"ListVideoCameraMappingsPage":   "摄像头菜单仅全量范围可见",
+		"HealthInspectionPage":          "智能巡检菜单仅全量范围可见",
+		"LatestHealthInspectionJob":     "智能巡检菜单仅全量范围可见",
+		"LatestHealthInspectionSummary": "智能巡检菜单仅全量范围可见",
+		"ListCredentialRevocations":     "单设备：调用前已用受范围约束的 GetManagedDevice 校验",
+		"ListDeviceCommands":            "单设备：调用前已用受范围约束的 GetManagedDevice 校验",
+		"ListDeviceMessages":            "单设备：调用前已校验；消息主题快照按主题绑定用户的范围查询",
+		"ListDeviceStateEvents":         "单设备：调用前已用受范围约束的 GetManagedDevice 校验",
+		"ListOfflineDue":                "后台离线判定",
+		"ListPendingRawIndexes":         "后台原始报文补处理",
+		"LoadDeviceStateWithAlarms":     "后台接收链路",
+		"ReserveRawMessage":             "后台接收链路",
+		"UpsertAlarm":                   "后台告警写入",
+		"LoadAccessState":               "租户权限配置，接口另有用户与权限菜单校验",
+		"LoadMessageTopicConfig":        "消息主题服务按主题绑定用户的范围过滤",
+		"LoadSiteState":                 "单位建筑接口逐个点位按设备范围过滤",
+	}
+	sources, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := map[string]bool{}
+	for _, source := range sources {
+		if strings.HasSuffix(source, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), source, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv != nil {
+				if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok && fmt.Sprint(star.X) == "deviceScopeRepository" {
+					wrapped[fn.Name.Name] = true
+				}
+			}
+		}
+	}
+	repo := reflect.TypeFor[ports.Repository]()
+	for i := range repo.NumMethod() {
+		method := repo.Method(i)
+		carries := false
+		for j := range method.Type.NumOut() {
+			carries = carries || carriesDeviceID(method.Type.Out(j), map[reflect.Type]bool{})
+		}
+		switch {
+		case carries && !wrapped[method.Name] && reviewed[method.Name] == "":
+			t.Errorf("%s returns device data: narrow it in deviceScopeRepository or record why it cannot leak", method.Name)
+		case reviewed[method.Name] != "" && (!carries || wrapped[method.Name]):
+			t.Errorf("%s no longer needs a reviewed exception", method.Name)
+		}
+	}
+}
+
+func carriesDeviceID(t reflect.Type, seen map[reflect.Type]bool) bool {
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		return carriesDeviceID(t.Elem(), seen)
+	case reflect.Struct:
+		if seen[t] {
+			return false
+		}
+		seen[t] = true
+		for i := range t.NumField() {
+			if field := t.Field(i); field.Name == "DeviceID" || field.Name == "DeviceIDs" || carriesDeviceID(field.Type, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }

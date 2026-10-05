@@ -95,6 +95,15 @@ func TestVersionedMigrationsRunOnceInOrder(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migration WHERE version=5`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("failed migration recorded: %d %v", count, err)
 	}
+	// "migrate --check" lists only what the next start would apply.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if pending, err := pendingMigrations(ctx, conn.Conn(), failing); err != nil || len(pending) != 1 || pending[0].version != 5 {
+		t.Fatalf("pending=%v err=%v", pending, err)
+	}
 }
 
 func TestInvalidConcurrentIndexIsRebuilt(t *testing.T) {

@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -74,6 +77,22 @@ type Manager struct {
 }
 
 func New(secret string) *Manager { return &Manager{[]byte(secret), "iot-platform"} }
+
+// HarnessSecret is the key that signs Harness MCP credentials. It differs from
+// the browser session key, so a leaked run credential can never be replayed
+// as a user session and vice versa. An explicit key wins; otherwise it is
+// derived from the platform JWT key with HKDF.
+func HarnessSecret(jwtSecret, explicit string) string {
+	if explicit = strings.TrimSpace(explicit); explicit != "" {
+		return explicit
+	}
+	key, err := hkdf.Key(sha256.New, []byte(jwtSecret), nil, "iot-platform harness mcp v1", 32)
+	if err != nil {
+		// HKDF only fails for an oversized key length, which is fixed above.
+		panic(err)
+	}
+	return hex.EncodeToString(key)
+}
 func (m *Manager) Issue(user, tenant, role string, scopes []string, ttl time.Duration) (string, error) {
 	acl := make([]ACLRule, 0, len(scopes))
 	for _, scope := range scopes {
@@ -182,6 +201,16 @@ func (m *Manager) IssueBusinessRunToken(tenantID string, identity ports.AIRunIde
 	if strings.TrimSpace(workflowID) == "" {
 		return "", errors.New("business workflow is required")
 	}
+	return m.issueRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, ttl)
+}
+
+// IssueChatRunToken implements ports.HarnessTokenIssuer for assistant chat;
+// the MCP endpoint then checks the caller's assistant permission.
+func (m *Manager) IssueChatRunToken(tenantID string, identity ports.AIRunIdentity, runID string, scopes []string, knowledge *ports.AIKnowledgeRunScope, ttl time.Duration) (string, error) {
+	return m.issueRunToken(tenantID, identity, runID, "", scopes, knowledge, ttl)
+}
+
+func (m *Manager) issueRunToken(tenantID string, identity ports.AIRunIdentity, runID, workflowID string, scopes []string, knowledge *ports.AIKnowledgeRunScope, ttl time.Duration) (string, error) {
 	parent := Claims{Username: identity.Username, TenantID: tenantID, SessionVersion: identity.SessionVersion, Workflow: workflowID}
 	if identity.ManagedUser {
 		parent.TokenUse = "user"

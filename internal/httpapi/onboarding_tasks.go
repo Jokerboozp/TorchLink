@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"iot-platform/internal/auth"
@@ -94,18 +93,8 @@ func onboardingTaskProblem(w http.ResponseWriter, err error) {
 	problem(w, 500, "接入任务暂时不可用，请稍后重试")
 }
 func taskPage(r *http.Request) (int, int) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	return limit, offset
+	page := parseListPagination(r)
+	return page.PageSize, page.Offset
 }
 func (s *Server) listOnboardingDrafts(w http.ResponseWriter, r *http.Request) {
 	limit, offset := taskPage(r)

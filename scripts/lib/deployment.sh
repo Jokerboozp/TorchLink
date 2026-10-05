@@ -139,6 +139,12 @@ has_deployment_env_key() {
   grep -Eq "^[[:space:]]*(export[[:space:]]+)?$2[[:space:]]*=" "$1" 2>/dev/null
 }
 
+# ensure_metrics_token gives an existing deployment a /metrics token once;
+# an operator who removed the token by setting it empty keeps that choice.
+ensure_metrics_token() {
+  has_deployment_env_key "$1" IOT_METRICS_TOKEN || set_deployment_env_value "$1" IOT_METRICS_TOKEN "$(deployment_secret)"
+}
+
 # Knowledge vectors and reranking use the embedding / reranker services
 # deployed with the platform. Earlier releases defaulted to the DashScope
 # cloud API; that default is replaced, an operator-chosen API is kept.

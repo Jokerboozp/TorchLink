@@ -286,6 +286,25 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 	if summary, summaryErr := repo.KnowledgeDocSummary(ctx, "b"); summaryErr != nil || summary.Documents != 1 || summary.Failed != 0 {
 		t.Fatalf("knowledge summary crossed tenants %#v %v", summary, summaryErr)
 	}
+	// Document jobs share the index lock with each other but never with a rebuild.
+	releaseA, lockedA, lockErr := repo.TryKnowledgeDocumentLock(ctx)
+	releaseB, lockedB, lockErrB := repo.TryKnowledgeDocumentLock(ctx)
+	if lockErr != nil || lockErrB != nil || !lockedA || !lockedB {
+		t.Fatalf("document jobs did not run in parallel: %v %v %v %v", lockedA, lockedB, lockErr, lockErrB)
+	}
+	if _, rebuilding, _ := repo.TryKnowledgeReindexLock(ctx); rebuilding {
+		t.Fatal("rebuild started while document jobs were running")
+	}
+	releaseA()
+	releaseB()
+	releaseRebuild, rebuilding, lockErr := repo.TryKnowledgeReindexLock(ctx)
+	if lockErr != nil || !rebuilding {
+		t.Fatalf("rebuild lock not acquired after jobs finished: %v", lockErr)
+	}
+	if _, lockedA, _ = repo.TryKnowledgeDocumentLock(ctx); lockedA {
+		t.Fatal("document job started during a rebuild")
+	}
+	releaseRebuild()
 	if needed, rebuildErr := index.NeedsRebuild(ctx); rebuildErr != nil || needed {
 		t.Fatalf("failed upload triggered repeated full rebuild: %v %v", needed, rebuildErr)
 	}

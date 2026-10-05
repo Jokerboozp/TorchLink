@@ -71,7 +71,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 		if !businessWorkflowAllowed(permissions, workflowID) {
 			return ctx, errors.New("无此智能功能的访问权限")
 		}
-	} else if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
+	} else if !chatAllowed(permissions) {
 		return ctx, errors.New("无智能助手访问权限")
 	}
 	if identity.AccessVersion == "" || identity.AccessVersion != s.accessVersion(user, permissions, tenantID) {
@@ -99,6 +99,11 @@ func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
 		return allowsRoute(p, "POST", "/api/v1/ai/rule-draft")
 	}
 	return false
+}
+
+// chatAllowed checks the assistant permission behind a chat run token.
+func chatAllowed(p map[string]bool) bool {
+	return p["menu:ai"] && (p["POST /api/v1/ai/chat"] || p["POST /api/v1/ai/chat/stream"])
 }
 
 // canQueryKnowledge applies the same role rule as Agent chat: only roles that

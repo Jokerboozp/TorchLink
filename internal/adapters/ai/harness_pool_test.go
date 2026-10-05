@@ -110,13 +110,15 @@ func TestHarnessPoolFailsOverOnlyWhenOwnerIsUnreachable(t *testing.T) {
 // instance ID that changes on restart, and a dynamic Agent catalog.
 type statefulHarness struct {
 	*httptest.Server
-	mu        sync.Mutex
-	busy      bool
-	runs      int
-	instance  string
-	provider  map[string]string
-	puts      int
-	manifests map[string]ports.AIWorkflowManifest
+	mu   sync.Mutex
+	busy bool
+	// refuseProvider answers provider updates like a Harness with active runs.
+	refuseProvider bool
+	runs           int
+	instance       string
+	provider       map[string]string
+	puts           int
+	manifests      map[string]ports.AIWorkflowManifest
 }
 
 func newStatefulHarness(t *testing.T) *statefulHarness {
@@ -134,6 +136,10 @@ func newStatefulHarness(t *testing.T) *statefulHarness {
 			fmt.Fprintln(w, `{"type":"run.completed","answer":"ok"}`)
 		case r.URL.Path == "/v1/provider":
 			if r.Method == http.MethodPut {
+				if f.refuseProvider {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
 				_ = json.NewDecoder(r.Body).Decode(&f.provider)
 				f.puts++
 			}
@@ -345,5 +351,39 @@ func TestHarnessPoolReportsPartialCatalogChanges(t *testing.T) {
 	single, _ := NewHarnessPool(down, poolToken, "http://api/mcp/harness", "m", time.Second)
 	if _, err := single.SaveWorkflow(context.Background(), ports.AIWorkflowManifest{ID: "agent"}); err == nil || errors.Is(err, ports.ErrAIWorkflowPartial) {
 		t.Fatal("a change no instance accepted is not partial:", err)
+	}
+}
+
+// A switch that one instance refuses leaves the others on the new model; the
+// stored (previous) settings are pushed back on the next pass.
+func TestProviderSyncRepairsPartialProviderSwitch(t *testing.T) {
+	a, b := newStatefulHarness(t), newStatefulHarness(t)
+	pool, err := NewHarnessPool(a.URL+","+b.URL, poolToken, "http://api/mcp/harness", "m", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "old-model", APIKey: "old-key", MaxTokens: 2048}
+	runtime, _ := NewRuntimeProvider(NewProviderRegistry(), previous)
+	store := &memProviderStore{config: &previous, manifests: map[string]ports.StoredAIWorkflowManifest{}}
+	ctx := context.Background()
+	b.mu.Lock()
+	b.refuseProvider = true
+	b.mu.Unlock()
+	if err = pool.ConfigureProvider(ctx, ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "new-model", APIKey: "new-key", MaxTokens: 2048}); err == nil {
+		t.Fatal("refused switch reported success")
+	}
+	if _, provider, _ := a.state(); provider["model"] != "new-model" {
+		t.Fatalf("first instance did not switch: %+v", provider)
+	}
+	b.mu.Lock()
+	b.refuseProvider = false
+	b.mu.Unlock()
+	if err = NewProviderSync(runtime, pool, store, nil, nil).Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for name, h := range map[string]*statefulHarness{"a": a, "b": b} {
+		if _, provider, _ := h.state(); provider["model"] != "old-model" {
+			t.Fatalf("instance %s not restored to the stored settings: %+v", name, provider)
+		}
 	}
 }
