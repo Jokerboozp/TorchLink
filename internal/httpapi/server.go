@@ -1587,11 +1587,9 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	}
 	if s.aiWorkflowProvider != nil {
 		if err := s.aiWorkflowProvider.ConfigureProvider(configureCtx, candidate); err != nil {
-			// Restore the previous direct provider when the workflow sidecar
-			// rejects the same configuration, keeping both AI paths aligned.
-			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 20*time.Second)
-			_ = s.aiProviderRuntime.Configure(rollbackCtx, current)
-			rollbackCancel()
+			// Some Harness instances may already have switched before another
+			// refused; put every path back on the previous configuration.
+			s.rollbackAIProvider(current)
 			if errors.Is(err, ports.ErrAIWorkflowRunsActive) {
 				problem(w, http.StatusConflict, "有 AI 工作流正在运行，请等待任务结束后重试；模型配置未保存，原配置继续生效")
 				return
@@ -1608,13 +1606,34 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 			if s.log != nil {
 				s.log.Error("persist AI provider config", "provider", provider, "model", modelName, "error", err)
 			}
-			problem(w, http.StatusInternalServerError, "模型服务已生效，但配置保存失败")
+			// Reconciliation pushes the stored configuration, so an unsaved
+			// switch would be undone silently a few seconds later; undo it now
+			// and report the configuration that actually stays in effect.
+			s.rollbackAIProvider(current)
+			problem(w, http.StatusInternalServerError, "模型配置保存失败，原配置继续生效")
 			return
 		}
 	}
 	s.audit(r, "ai.provider.update", "ai-provider", provider, map[string]any{"model": modelName, "apiKeyConfigured": apiKey != ""})
 	info := s.aiProviderRuntime.ProviderInfo()
 	write(w, http.StatusOK, s.aiProviderConfigView(r, candidate, info))
+}
+
+// rollbackAIProvider restores the previous provider on the direct runtime and
+// every Harness instance. A failed restore is logged; reconciliation then
+// pushes the stored (previous) configuration.
+func (s *Server) rollbackAIProvider(previous ports.AIPluginConfig) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := s.aiProviderRuntime.Configure(ctx, previous); err != nil && s.log != nil {
+		s.log.Error("restore AI provider runtime", "provider", previous.Provider, "error", err)
+	}
+	if s.aiWorkflowProvider == nil {
+		return
+	}
+	if err := s.aiWorkflowProvider.ConfigureProvider(ctx, previous); err != nil && s.log != nil {
+		s.log.Warn("restore Harness provider; reconciliation will retry", "provider", previous.Provider, "error", err)
+	}
 }
 
 func validateAIProviderURL(raw string) error {

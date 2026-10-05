@@ -1500,3 +1500,48 @@ func TestAIProviderTestOnlyReusesStoredKeyForSameAddress(t *testing.T) {
 		t.Fatalf("stored key was not reused for its own address: %v", authorizations)
 	}
 }
+
+type failingProviderStore struct{ *memory.Repository }
+
+func (failingProviderStore) SaveAIProviderConfig(context.Context, ports.AIPluginConfig) error {
+	return errors.New("database unavailable")
+}
+
+// Reconciliation pushes the stored configuration; when saving fails the
+// switch is undone at once on the runtime and the Harness, matching the
+// response instead of being reverted silently later.
+func TestAIProviderConfigSaveFailureRestoresPreviousEverywhere(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "old-model", APIKey: "old-test-key", MaxTokens: 2048}
+	if err := repo.SaveAIProviderConfig(context.Background(), previous); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &providerConfigTestRuntime{config: previous}
+	workflow := &providerConfigTestWorkflow{}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(failingProviderStore{repo})
+	api.SetAIWorkflowProvider(workflow)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, map[string]any{"provider": "deepseek", "baseUrl": "https://api.deepseek.com", "model": "new-model", "apiKey": "new-test-key"}, http.StatusInternalServerError)
+	if detail, _ := result["detail"].(string); !strings.Contains(detail, "原配置继续生效") {
+		t.Fatalf("detail=%q", detail)
+	}
+	if runtime.CurrentConfig() != previous {
+		t.Fatalf("runtime kept the unsaved provider: %+v", runtime.CurrentConfig())
+	}
+	if len(workflow.updates) != 2 || workflow.updates[0].Model != "new-model" || workflow.updates[1] != previous {
+		t.Fatalf("Harness was not restored: %+v", workflow.updates)
+	}
+}
