@@ -659,6 +659,8 @@ services:
     build:
       context: .
       dockerfile: deploy/backup/Dockerfile
+      args:
+        ALPINE_MIRROR: ${IOT_ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
     environment:
       IOT_BACKUP_HTTP_ADDR: :8090
       IOT_BACKUP_DIR: /app/data/backups

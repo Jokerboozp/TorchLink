@@ -8,8 +8,11 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/backup-service ./cmd/backup-service
 
 FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+# Same Alpine mirror override as the PostgreSQL image (IOT_ALPINE_MIRROR).
+ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 # pg_dump / pg_restore must be at least the server major version (PostgreSQL 17).
-RUN apk add --no-cache ca-certificates tzdata postgresql17-client su-exec
+RUN sed -i "s#https\?://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR%/}#" /etc/apk/repositories \
+    && apk add --no-cache ca-certificates tzdata postgresql17-client su-exec
 COPY --from=build /out/backup-service /usr/local/bin/backup-service
 COPY deploy/backup/entrypoint.sh /usr/local/bin/backup-entrypoint
 ENTRYPOINT ["backup-entrypoint"]
