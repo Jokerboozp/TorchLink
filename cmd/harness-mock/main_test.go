@@ -26,12 +26,16 @@ func TestMockSatisfiesPlatformContract(t *testing.T) {
 	if err = client.Health(ctx); err != nil {
 		t.Fatal(err)
 	}
-	res, err := client.StreamChat(ctx, ports.AIWorkflowRequest{RunID: "r1", WorkflowID: "alarm-analysis", Question: "q", MCPToken: "t"}, nil)
+	res, err := client.StreamChat(ctx, ports.AIWorkflowRequest{RunID: "r1", WorkflowID: "alarm-handler", Question: "q", MCPToken: "t"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = aioutput.DecodeAlarmAnalysis(res.Answer, "a1", res.Model); err != nil {
-		t.Fatal("alarm analysis answer rejected by the platform decoder", err)
+	analysis, err := aioutput.DecodeAlarmAnalysis(res.Answer, "a1", res.Model)
+	if err != nil || len(analysis.PossibleReasons) == 0 || len(analysis.Suggestions) == 0 {
+		t.Fatal("alarm analysis answer rejected by the platform decoder", analysis, err)
+	}
+	if !res.UsageReported || res.Usage.InputTokens != 1 || res.Usage.OutputTokens == 0 {
+		t.Fatalf("usage was not reported: %+v", res)
 	}
 	draft, err := client.StreamChat(ctx, ports.AIWorkflowRequest{RunID: "r2", WorkflowID: "rule-drafter", Question: "q", MCPToken: "t"}, nil)
 	if err != nil {

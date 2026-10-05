@@ -1,0 +1,49 @@
+[
+  {
+    "name": "高温告警，多点联动，答案带说明文字与代码块",
+    "workflow": "alarm-handler",
+    "context": [
+      {"contextType": "alarm", "data": {"alarmId": "a1", "deviceId": "d1", "alarmType": "HIGH_TEMPERATURE", "alarmLevel": "HIGH", "status": "ACTIVE"}},
+      {"contextType": "propertyHistory", "data": [{"property": "temperature", "name": "温度", "unit": "℃", "alarmHigh": 60, "latest": {"timestamp": 1, "value": 85}}]},
+      {"contextType": "siteAlarms", "data": {"scope": "同楼层", "items": [{"alarmId": "a2", "alarmType": "SMOKE_DETECTED"}]}},
+      {"contextType": "dispositionHistory", "data": {"sameTypeAlarms": 2, "verified": 2, "byResult": {"REAL_FIRE": 1, "FALSE_ALARM": 1}}}
+    ],
+    "answer": "根据数据 {多点} 判断：\n```json\n{\"summary\":\"温度超阈值且同楼层烟感报警，疑似真实火情\",\"possibleReasons\":[\"火灾初期\"],\"suggestions\":[\"立即派人核实\",\"准备疏散\"],\"riskLevel\":\"HIGH\",\"confidence\":0.82}\n```\n以上。",
+    "expect": {"riskLevel": "HIGH", "minReasons": 1, "minSuggestions": 2}
+  },
+  {
+    "name": "小写风险等级与字符串置信度",
+    "workflow": "alarm-handler",
+    "context": [{"contextType": "alarm", "data": {"alarmId": "a3", "alarmType": "SMOKE_DETECTED", "alarmLevel": "CRITICAL"}}],
+    "answer": "{\"summary\":\"烟感持续报警\",\"possibleReasons\":[\"现场烟雾\"],\"suggestions\":[\"核实\"],\"riskLevel\":\"critical\",\"confidence\":\"0.9\"}",
+    "expect": {"riskLevel": "CRITICAL", "minReasons": 1, "minSuggestions": 1}
+  },
+  {
+    "name": "非法风险等级必须失败并走回退",
+    "workflow": "alarm-handler",
+    "context": [{"contextType": "alarm", "data": {"alarmId": "a4", "alarmType": "FIRE"}}],
+    "answer": "{\"summary\":\"无法判断\",\"riskLevel\":\"SEVERE\"}",
+    "expect": {"error": true}
+  },
+  {
+    "name": "自然语言规则草稿",
+    "workflow": "rule-drafter",
+    "requirement": "烟感报警超过 10 秒就打开告警页面",
+    "answer": "{\"name\":\"烟感持续报警\",\"description\":\"烟感持续 10 秒报警时提示值班人员\",\"alarmType\":\"smoke\",\"level\":\"high\",\"match\":\"all\",\"conditions\":[{\"field\":\"smoke\",\"operator\":\"eq\",\"value\":true}],\"durationSeconds\":10,\"recovery\":[],\"actions\":[{\"type\":\"OPEN_PAGE\",\"page\":\"alarms\"}]}",
+    "expect": {"alarmType": "SMOKE_DETECTED", "level": "HIGH", "conditions": 1}
+  },
+  {
+    "name": "巡检快照",
+    "workflow": "device-health-inspector",
+    "context": {"counts": {"total": 3, "attention": 1}, "items": [{"deviceId": "d1", "severity": "HIGH", "findings": ["设备已离线或疑似离线"]}]},
+    "answer": "总体判断：1 台设备需要关注……",
+    "expect": {"text": true}
+  },
+  {
+    "name": "运维报告统计",
+    "workflow": "ops-assistant",
+    "context": {"period": "day", "counts": {"devices": 10}, "alarmTotal": 2},
+    "answer": "告警概况：本日 2 条……",
+    "expect": {"text": true}
+  }
+]

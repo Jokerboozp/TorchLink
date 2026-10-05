@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/aiprompt"
 	"net/http"
 	"strings"
 	"time"
@@ -125,7 +126,7 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 	// The calling Agent already is the model: it writes the rule JSON itself and
 	// this tool only normalises, validates and saves it as a disabled draft, so
 	// no second model run is started inside a Harness run.
-	s.AddTool(mcp.NewTool("create_rule_draft", mcp.WithDescription("把你按规定格式写好的规则 JSON 保存为禁用草稿；不会启用或执行，必须由用户人工确认。格式要求："+aioutput.RuleDraftInstructions), mcp.WithString("ruleJson", mcp.Required(), mcp.Description("规则 JSON 对象文本")), mcp.WithString("inputText", mcp.Description("用户原始需求，用于审计"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("create_rule_draft", mcp.WithDescription("把你按规定格式写好的规则 JSON 保存为禁用草稿；不会启用或执行，必须由用户人工确认。格式要求："+aiprompt.RuleDraftInstructions), mcp.WithString("ruleJson", mcp.Required(), mcp.Description("规则 JSON 对象文本")), mcp.WithString("inputText", mcp.Description("用户原始需求，用于审计"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeCreateRuleDraft, harness)
 		if !harness {
 			tenant, err = tenantFrom(ctx)

@@ -14,6 +14,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 	"log"
 	"math/rand/v2"
 	"net/http"
@@ -36,11 +38,9 @@ type server struct {
 	plugins     map[string]map[string]any
 }
 
-var builtin = []string{"alarm-analysis", "device-health-inspector", "ops-assistant", "protocol-assistant", "rule-drafter"}
-
 func newServer(token string, latency, jitter time.Duration, concurrency int, failRatio float64) *server {
 	s := &server{token: token, latency: latency, jitter: jitter, failRatio: failRatio, slots: make(chan struct{}, max(concurrency, 1)), plugins: map[string]map[string]any{}}
-	for _, id := range builtin {
+	for _, id := range ports.BuiltinAIWorkflowIDs {
 		s.plugins[id] = map[string]any{"schemaVersion": 1, "id": id, "name": id + " (mock)", "builtin": true}
 	}
 	return s
@@ -54,8 +54,8 @@ func (s *server) authorized(r *http.Request) bool {
 // answer returns a result every platform decoder accepts.
 func answer(workflow, question string) string {
 	switch workflow {
-	case "alarm-analysis":
-		return `{"summary":"模拟研判：容量测试替身返回的固定结论，不代表模型判断。","riskLevel":"MEDIUM","confidence":0.5,"possibleCauses":["容量测试"],"recommendations":["核对现场"]}`
+	case model.AlarmAnalysisWorkflowID:
+		return `{"summary":"模拟研判：容量测试替身返回的固定结论，不代表模型判断。","riskLevel":"MEDIUM","confidence":0.5,"possibleReasons":["容量测试"],"suggestions":["核对现场"]}`
 	case "rule-drafter":
 		return `{"name":"模拟规则","description":"容量测试替身生成的规则草稿","alarmType":"FIRE","level":"HIGH","match":"all","conditions":[{"field":"stressAlarm","operator":"eq","value":1}],"durationSeconds":0,"recovery":[],"actions":[]}`
 	default:
@@ -154,7 +154,10 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	text := answer(in.WorkflowID, in.Question)
 	emit(map[string]any{"type": "text.delta", "runId": in.RunID, "delta": text})
-	emit(map[string]any{"type": "run.completed", "runId": in.RunID, "answer": text})
+	// Like the real gateway, the terminal event carries token usage; the mock
+	// counts characters so capacity runs exercise run records and metrics.
+	emit(map[string]any{"type": "run.completed", "runId": in.RunID, "answer": text, "toolCalls": 0,
+		"usage": map[string]any{"inputTokens": len([]rune(in.Question)), "outputTokens": len([]rune(text)), "cacheReadTokens": 0, "reasoningTokens": 0}})
 }
 
 func main() {

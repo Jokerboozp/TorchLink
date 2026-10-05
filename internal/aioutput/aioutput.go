@@ -14,10 +14,6 @@ import (
 	"iot-platform/internal/model"
 )
 
-// RuleDraftInstructions describes the only rule JSON shape the platform
-// accepts from a model; Harness workflows and tools share it.
-const RuleDraftInstructions = `将自然语言告警要求转换成一个 JSON 规则草稿。只能返回 JSON，不要输出 Markdown。必须严格使用以下结构：{"name":"简短中文名称","description":"用中文说明这条规则的现场含义","alarmType":"SMOKE_DETECTED","level":"HIGH","match":"all","conditions":[{"field":"smoke","operator":"eq","value":true}],"durationSeconds":0,"recovery":[],"actions":[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]}。description 必须说明触发条件和处置含义，帮助操作员复核；JSON 不要添加 _comment 或其他未定义字段。match 只能是字符串 all 或 any；conditions 和 recovery 必须是数组；每个条件只能包含 field、operator、value。actions 必须是数组，打开摄像头使用 {"type":"OPEN_CAMERA","cameraId":"用户指定的摄像头 ID"}，打开业务页面使用 {"type":"OPEN_PAGE","page":"alarms"}；没有动作要求时返回空数组，不得生成 URL、脚本或设备控制动作。alarmType 只能使用 FIRE_RISK、FIRE、SMOKE_DETECTED、FLAME_DETECTED、HIGH_TEMPERATURE、DEVICE_OFFLINE、WATER_PRESSURE_LOW、WATER_LEVEL_ABNORMAL、ELECTRICAL_FIRE、GAS_LEAK、MANUAL_ALARM；level 只能使用 CRITICAL、HIGH、MEDIUM、LOW、INFO。平台会根据 conditions 另外生成一份可选 Gengine 表达式，AI 草稿不要填写 expression，避免未经人工复核切换执行方式。`
-
 // ExtractJSON returns the first complete JSON object inside a model answer.
 // Braces are matched outside strings, so text before or after the object
 // (even text with braces of its own) does not shift its bounds. Without a
